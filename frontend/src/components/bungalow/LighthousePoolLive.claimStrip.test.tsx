@@ -7,6 +7,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { Bungalow } from '../../lib/bungalows';
+import { reloadHeld } from '../../lib/reloadHold';
 
 const DAY = 86_400;
 const WEIGHT_SCALE = 1_000_000_000n;
@@ -679,5 +680,20 @@ describe('the wallet context', () => {
     render(<LighthouseClaimStrip bungalow={BAYLA} />);
     await screen.findByRole('button', { name: /^claim rewards$/i });
     expect(providerMounts.n).toBe(0);
+  });
+});
+
+describe('a new deploy never reloads the page under a write', () => {
+  it('holds the reload while a claim is with the wallet, and lets it go once answered', async () => {
+    writeState.hold = true;
+    reply(WALLET_A, [LOCKED]);
+    render(<LighthouseClaimStrip bungalow={BAYLA} />);
+    expect(reloadHeld()).toBe(false);
+    fireEvent.click(await screen.findByRole('button', { name: /^claim rewards$/i }));
+    await waitFor(() => expect(writeState.release).not.toBeNull());
+    expect(reloadHeld()).toBe(true);
+    await act(async () => { writeState.release!({ ok: true, txId: 'TX1' }); });
+    await settle();
+    expect(reloadHeld()).toBe(false);
   });
 });

@@ -11,6 +11,8 @@ import {
   CoinbaseWalletAdapter,
   CoinbaseWalletName,
   IPadAwarePhantomWalletAdapter,
+  JupiterWalletAdapter,
+  JupiterWalletName,
   MetaMaskWalletAdapter,
   MetaMaskWalletName,
   SolflareWalletAdapter,
@@ -593,6 +595,61 @@ describe('IPadAwarePhantomWalletAdapter — upstream Phantom, plus the iPad', ()
   });
 });
 
+/**
+ * Android Chrome (phone walk of production, 2026-10-03): Phantom's row read
+ * "Install" and opened phantom.app, with the app on the phone or not, while
+ * every other wallet's row opened this page inside its app.
+ */
+describe('IPadAwarePhantomWalletAdapter — Android Chrome', () => {
+  afterEach(() => {
+    delete (window as unknown as { phantom?: unknown }).phantom;
+    delete (window as unknown as { isPhantomInstalled?: unknown }).isPhantomInstalled;
+  });
+
+  it('is Loadable and opens the page inside Phantom, as the iPhone row does', async () => {
+    setLocation(BAYLA_CARD);
+    setUserAgent(UA.androidChrome);
+    const adapter = new IPadAwarePhantomWalletAdapter();
+    expect(adapter.readyState).toBe(WalletReadyState.Loadable);
+    await adapter.connect();
+    expect(window.location.href).toBe(
+      `https://phantom.app/ul/browse/${encodeURIComponent(BAYLA_CARD)}?ref=${encodeURIComponent('https://memetics.finance')}`,
+    );
+  });
+
+  it('autoConnect never navigates', async () => {
+    setLocation(BAYLA_CARD);
+    setUserAgent(UA.androidChrome);
+    await new IPadAwarePhantomWalletAdapter().autoConnect();
+    expect(window.location.href).toBe(BAYLA_CARD);
+  });
+
+  it('an in-app webview stays NotDetected: no hop out of another app’s browser', () => {
+    setUserAgent(UA.androidWebView);
+    expect(new IPadAwarePhantomWalletAdapter().readyState).toBe(WalletReadyState.NotDetected);
+  });
+
+  it('inside Phantom (provider injected) it is Installed, never a loop', () => {
+    setUserAgent(UA.androidChrome);
+    (window as unknown as { isPhantomInstalled?: boolean }).isPhantomInstalled = true;
+    (window as unknown as { phantom?: unknown }).phantom = { solana: { isPhantom: true } };
+    const adapter = new IPadAwarePhantomWalletAdapter();
+    vi.advanceTimersByTime(1100);
+    expect(adapter.readyState).toBe(WalletReadyState.Installed);
+  });
+
+  it('a half-injected Phantom (no isPhantomInstalled yet) is not offered the hop', () => {
+    setUserAgent(UA.androidChrome);
+    (window as unknown as { phantom?: unknown }).phantom = { solana: { isPhantom: true } };
+    expect(new IPadAwarePhantomWalletAdapter().readyState).not.toBe(WalletReadyState.Loadable);
+  });
+
+  it('a computer stays NotDetected, and its row still points at the install page', () => {
+    setUserAgent(UA.desktopChrome);
+    expect(new IPadAwarePhantomWalletAdapter().readyState).toBe(WalletReadyState.NotDetected);
+  });
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Solflare and Backpack — "Open app" rows
 // ─────────────────────────────────────────────────────────────────────────────
@@ -715,5 +772,135 @@ describe.each(OPEN_APP_ROWS)('$name — an "Open app" row', (row) => {
     expect(adapter.connected).toBe(false);
     await expect(adapter.signTransaction({} as never)).rejects.toBeInstanceOf(WalletNotConnectedError);
     await expect(adapter.signMessage(new Uint8Array(1))).rejects.toBeInstanceOf(WalletNotConnectedError);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Jupiter — an "Open app" row with jup.ag's own hand-off
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('JupiterWalletAdapter', () => {
+  // jup.ag's own detection: Jupiter Mobile's in-app browser says JupiterBrowser/.
+  // WITH a Safari token, so that only the JupiterBrowser/ check, and not the
+  // general "no Safari token is a webview" rule, keeps the row from handing off.
+  const JUPITER_IN_APP = [
+    ['iOS', `${UA.iosSafari} JupiterBrowser/2.4.0`],
+    ['Android', `${UA.androidChrome} JupiterBrowser/2.4.0`],
+  ] as const;
+  const POOL = 'https://memetics.finance/earn/bayla';
+
+  it('is named exactly "Jupiter", the name the extension registers under', () => {
+    // The dedupe is by exact name: "Jupiter Wallet" (jup.ag's display label)
+    // would show an extension user two Jupiter rows, one of them dead.
+    expect(JupiterWalletName).toBe('Jupiter');
+    expect(new JupiterWalletAdapter().name).toBe('Jupiter');
+  });
+
+  it('a computer without the extension is NotDetected, pointing at the extension page', () => {
+    const adapter = new JupiterWalletAdapter();
+    expect(adapter.readyState).toBe(WalletReadyState.NotDetected);
+    expect(adapter.url).toBe('https://jup.ag/wallet');
+  });
+
+  it.each([
+    ['iOS Safari', UA.iosSafari],
+    ['Android Chrome', UA.androidChrome],
+  ])('%s is Loadable, and its install page is the mobile app', (_label, ua) => {
+    setUserAgent(ua);
+    const adapter = new JupiterWalletAdapter();
+    expect(adapter.readyState).toBe(WalletReadyState.Loadable);
+    expect(adapter.url).toBe('https://jup.ag/mobile');
+  });
+
+  it.each([
+    ['iPad Safari', MAC_SAFARI_UA],
+    ['an iPad in-app browser', IPAD_WEBVIEW_UA],
+  ])('%s is NotDetected, so the modal shows the QR a phone scans, beside the extension page', (_label, ua) => {
+    // Not a hand-off into an app the iPad may not have: the QR works with
+    // Jupiter Mobile on the visitor's phone either way.
+    setUserAgent(ua);
+    setTouchPoints(5);
+    const adapter = new JupiterWalletAdapter();
+    expect(adapter.readyState).toBe(WalletReadyState.NotDetected);
+    expect(adapter.url).toBe('https://jup.ag/wallet');
+  });
+
+  it('opens THIS page inside Jupiter Mobile the way jup.ag does: jupjupjup://browse/<page>, not encoded', async () => {
+    setLocation(POOL);
+    setUserAgent(UA.iosSafari);
+    await new JupiterWalletAdapter().connect();
+    expect(window.location.href).toBe(`jupjupjup://browse/${POOL}`);
+  });
+
+  it.each([
+    ['iOS', UA.iosSafari, 'https://apps.apple.com/us/app/jupiter-mobile-solana-wallet/id6484069059'],
+    ['Android', UA.androidChrome, 'https://play.google.com/store/apps/details?id=ag.jup.jupiter.android'],
+  ])('on %s, a page still in focus a second later (no app took over) goes to the store', async (_os, ua, store) => {
+    setLocation(POOL);
+    setUserAgent(ua);
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    await new JupiterWalletAdapter().connect();
+    vi.advanceTimersByTime(999);
+    expect(window.location.href).toBe(`jupjupjup://browse/${POOL}`);
+    vi.advanceTimersByTime(1);
+    expect(window.location.href).toBe(store);
+  });
+
+  it('stays put when the app took over (the page lost focus)', async () => {
+    setLocation(POOL);
+    setUserAgent(UA.iosSafari);
+    vi.spyOn(document, 'hasFocus').mockReturnValue(false);
+    await new JupiterWalletAdapter().connect();
+    vi.advanceTimersByTime(2000);
+    expect(window.location.href).toBe(`jupjupjup://browse/${POOL}`);
+  });
+
+  it('stays put when the timer fires late: the phone backgrounded the page because the app took over', async () => {
+    // The visitor comes back from Jupiter, the page has focus again, and the
+    // overdue timer runs. It must not send them to the store.
+    setLocation(POOL);
+    setUserAgent(UA.iosSafari);
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    await new JupiterWalletAdapter().connect();
+    vi.setSystemTime(Date.now() + 30_000);
+    vi.advanceTimersByTime(1000);
+    expect(window.location.href).toBe(`jupjupjup://browse/${POOL}`);
+  });
+
+  it.each(JUPITER_IN_APP)('never offers a hop into Jupiter from inside Jupiter Mobile (%s)', async (_os, ua) => {
+    setUserAgent(ua);
+    const adapter = new JupiterWalletAdapter();
+    adapter.on('error', () => {});
+    expect(adapter.readyState).toBe(WalletReadyState.NotDetected);
+    await expect(adapter.connect()).rejects.toBeInstanceOf(WalletNotReadyError);
+    vi.advanceTimersByTime(2000);
+    expect(window.location.href).toBe(PAGE);
+  });
+
+  it('a computer refuses, and neither navigates nor falls back', async () => {
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    const adapter = new JupiterWalletAdapter();
+    adapter.on('error', () => {});
+    await expect(adapter.connect()).rejects.toBeInstanceOf(WalletNotReadyError);
+    vi.advanceTimersByTime(2000);
+    expect(window.location.href).toBe(PAGE);
+  });
+
+  it('autoConnect never navigates', async () => {
+    setLocation(POOL);
+    setUserAgent(UA.iosSafari);
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    const adapter = new JupiterWalletAdapter();
+    expect(adapter.readyState).toBe(WalletReadyState.Loadable);
+    await adapter.autoConnect();
+    vi.advanceTimersByTime(2000);
+    expect(window.location.href).toBe(POOL);
+  });
+
+  it('declares legacy and v0, and never signs — the real wallet replaces this row first', async () => {
+    const adapter = new JupiterWalletAdapter();
+    adapter.on('error', () => {});
+    expect(adapter.supportedTransactionVersions).toEqual(new Set(['legacy', 0]));
+    await expect(adapter.signTransaction({} as never)).rejects.toBeInstanceOf(WalletNotConnectedError);
   });
 });

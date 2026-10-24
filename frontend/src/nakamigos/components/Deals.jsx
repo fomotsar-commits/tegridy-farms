@@ -5,6 +5,7 @@ import { fulfillSeaportOrder, getProvider } from "../api";
 import { fulfillNativeOrder } from "../lib/orderbook";
 import { recordTransaction } from "../lib/transactions";
 import { validateOrderQuick } from "../lib/orderValidator";
+import { toastTxNotice } from "../lib/txOutcome";
 import { Eth } from "./Icons";
 import NftImage from "./NftImage";
 
@@ -711,7 +712,7 @@ export default function Deals({
         });
       } else if (result.error === "rejected") {
         addToast("Transaction rejected", "info");
-      } else {
+      } else if (!toastTxNotice(addToast, result)) {
         addToast(result.message || "Purchase failed", "error");
       }
     } catch {
@@ -749,6 +750,26 @@ export default function Deals({
               Deals appear as soon as the first listings land.
             </div>
           )}
+        </div>
+      </section>
+    );
+  }
+
+  /* ══════════════════════════════════════════════
+     NO TRAITS: a collection whose metadata carries no traits has no trait
+     floors, so "every listing sits at its trait floor" would be a claim
+     about a comparison that never ran.
+     ══════════════════════════════════════════════ */
+  const noTraits = !hasMore && tokens.length > 0 && tokens.every((t) => !(t.attributes || []).length);
+  if (noTraits && !listingsLoading) {
+    return (
+      <section style={S.page}>
+        <div style={S.header}>
+          <div style={S.title}>DEALS</div>
+          <div style={S.subtitle}>Trait floor arbitrage scanner for {collection.name}</div>
+        </div>
+        <div style={S.emptyState}>
+          {`Deals compares listings with their trait floors. ${collection.name} has no traits in its metadata, so there is nothing to compare.`}
         </div>
       </section>
     );

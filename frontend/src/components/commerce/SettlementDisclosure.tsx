@@ -1,5 +1,7 @@
 import { formatScaled } from '../../lib/tax/csv';
 import { canSign, type SettlementPlan } from '../../lib/commerce/settlement';
+import { CardArt } from '../ui/CardArt';
+import { FinePrint } from '../ui/FinePrint';
 
 // The card a buyer reads BEFORE any signature is offered.
 //
@@ -16,6 +18,10 @@ import { canSign, type SettlementPlan } from '../../lib/commerce/settlement';
 // When `plan.refusals` is non-empty the pay control is not rendered at all. Not
 // disabled — absent. A greyed-out button beside a red banner invites a reader to
 // look for the condition that re-enables it; there isn't one, there is a reason.
+//
+// FEWER WORDS (owner, 2026-10-13). Both columns keep a short line saying how the
+// money moves, and the non-atomic warning stays on the face, shorter; the full
+// sentences sit in the FinePrint at the bottom.
 
 function Row({ label, value, emphasis }: { label: string; value: string; emphasis?: boolean }) {
   return (
@@ -37,7 +43,8 @@ export function SettlementDisclosure({
   const signable = canSign(plan);
 
   return (
-    <section className="rounded-xl border border-white/15 bg-white/[0.02] p-4">
+    <section className="relative isolate rounded-xl border border-white/15 bg-white/[0.02] p-4">
+      <CardArt pageId="checkout" idx={6} />
       <h2 className="text-sm font-semibold text-white">Before you sign</h2>
 
       <div className="mt-3 grid gap-4 sm:grid-cols-2">
@@ -47,8 +54,7 @@ export function SettlementDisclosure({
             {formatScaled(d.payAmountMax, d.payDecimals)} {d.paySymbol}
           </p>
           <p className="mt-1 text-[11px] leading-relaxed text-white/60">
-            A maximum, not a fixed price. The route's slippage is carried here — on your side — so the
-            merchant's amount can stay exact.
+            A maximum, not a fixed price. Slippage is on your side.
           </p>
         </div>
 
@@ -115,9 +121,7 @@ export function SettlementDisclosure({
           </ol>
           {plan.legs.length > 1 ? (
             <p className="mt-2 text-[11px] leading-relaxed text-amber-200/80">
-              These two are separate transactions and are not atomic. If you sign the first and abandon the
-              second, you hold the {d.settleSymbol} and the merchant is unpaid — recoverable, and the reason
-              step 2 moves the invoiced amount rather than whatever step 1 produced.
+              Two separate transactions. Stop after the first and the merchant is unpaid.
             </p>
           ) : null}
         </div>
@@ -138,6 +142,20 @@ export function SettlementDisclosure({
           ) : null}
         </div>
       )}
+
+      <FinePrint className="mt-1">
+        <p>
+          You pay: the route's slippage is carried here — on your side — so the merchant's amount can stay
+          exact.
+        </p>
+        {signable && plan.legs.length > 1 ? (
+          <p>
+            These two are separate transactions and are not atomic. If you sign the first and abandon the
+            second, you hold the {d.settleSymbol} and the merchant is unpaid — recoverable, and the reason
+            step 2 moves the invoiced amount rather than whatever step 1 produced.
+          </p>
+        ) : null}
+      </FinePrint>
     </section>
   );
 }

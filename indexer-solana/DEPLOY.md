@@ -25,7 +25,7 @@ accounts this repo cannot create. Everything up to that boundary is done.
 | Tables | `sql/001_solana_tables.sql` |
 | Env vars | `.env.local.example` (the annotated list — read it, do not guess) |
 
-One runtime dependency (`pg`). Node >= 20 (`package.json` engines) — `fetch` is
+One runtime dependency (`pg`). Node 24 (`package.json` engines) — `fetch` is
 a global there, which is why there is no HTTP client either.
 
 Tests: `cd frontend && npx vitest run --root ../indexer-solana --environment node`.
@@ -45,7 +45,7 @@ Add a service from this repo with **root directory `indexer-solana/`**:
 
 - Build: `npm ci`
 - Start: `npm run start`
-- Node: >= 20
+- Node: 24 (`package.json` engines says `24.x`)
 
 It is a long-running poll loop, not a request handler — the same reason
 `indexer/` is not on Vercel applies here, with the extra one that

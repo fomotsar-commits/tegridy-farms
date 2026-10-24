@@ -12,25 +12,25 @@ const STEPS = [
   {
     target: "[data-tour='floor'], .tab-floor, .listings-tab, button[data-tab='floor']",
     title: "Floor / Listings",
-    body: "Buy directly from the marketplace \u2014 lowest prices first",
+    body: "Buy here. Lowest price first.",
     position: "bottom",
   },
   {
     target: "[data-tour='wallet'], .wallet-btn, .connect-wallet-btn",
     title: "Wallet",
-    body: "Connect your wallet to trade, make offers, and track your collection",
+    body: "Connect to buy, sell and make offers.",
     position: "bottom-end",
   },
   {
     target: "[data-tour='cart'], .cart-icon, .cart-btn",
     title: "Cart",
-    body: "Add multiple NFTs to cart for batch purchases \u2014 saves gas",
+    body: "Buy several at once. Saves gas.",
     position: "bottom-end",
   },
   {
     target: "[data-tour='shortcuts']",
     title: "Keyboard Shortcuts",
-    body: "Power user? Press ? anytime for keyboard shortcuts",
+    body: "Press ? for keyboard shortcuts.",
     position: "bottom",
     fallbackCenter: true,
   },
@@ -444,7 +444,7 @@ export default function Onboarding({ onComplete }) {
 
         {/* Content */}
         <h3 style={titleStyle}>{cfg.title}</h3>
-        <p style={bodyStyle}>{cfg.body || `Browse the ${collection.name} collection with rarity scores and trait filtering`}</p>
+        <p style={bodyStyle}>{cfg.body || `Browse ${collection.name}. Filter by trait, sort by rarity.`}</p>
 
         {/* Progress dots */}
         <div style={dotsContainerStyle}>

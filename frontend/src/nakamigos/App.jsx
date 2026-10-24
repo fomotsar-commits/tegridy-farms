@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useMemo, useRef, lazy, Suspense } fro
 import { useLocation, useNavigate } from "react-router-dom";
 import { MotionConfig } from "framer-motion";
 import { fetchTokensByIds } from "./api";
+import { holdReload } from "../lib/reloadHold";
 // CSS imported eagerly in main.tsx to avoid Vite CSS preload errors on lazy chunks
 import { ThemeProvider, useTheme } from "./contexts/ThemeContext";
 import { TradingModeProvider, useTradingMode, LITE_HIDDEN_ALL } from "./contexts/TradingModeContext";
@@ -11,6 +12,7 @@ import { ToastProvider, useToast } from "./contexts/ToastContext";
 import { FavoritesProvider, useFavorites } from "./contexts/FavoritesContext";
 import { CartProvider, useCart } from "./contexts/CartContext";
 import { COLLECTIONS, DEFAULT_COLLECTION, VALID_TABS, PLATFORM_FEE_RECIPIENT, PLATFORM_FEE_BPS } from "./constants";
+import { canTradeOnVenue } from "./lib/venue";
 import Background from "./components/Background";
 import Header from "./components/Header";
 import Hero from "./components/Hero";
@@ -18,6 +20,7 @@ import Gallery from "./components/Gallery";
 import Toast from "./components/Toast";
 import NftMarquee from "./components/NftMarquee";
 import SplashScreen from "./components/SplashScreen";
+import { pageArt } from "../lib/artConfig";
 import PageTransition from "./components/PageTransition";
 import PriceAlertPanel, { usePriceAlerts } from "./components/PriceAlerts";
 import useSmartAlerts from "./hooks/useSmartAlerts";
@@ -25,6 +28,10 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import NotFound from "./components/NotFound";
 import MobileNav from "./components/MobileNav";
 import InstallPrompt from "./components/InstallPrompt";
+// A collection that trades on its own market opens in its own view (see AppInner).
+// Loaded with the marketplace, like CollectionView, so its first render never
+// waits on a second chunk.
+import ExternalCollectionView from "./components/external/ExternalCollectionView";
 
 // Lazy-loaded: only rendered conditionally (modal open, cart open, landing route)
 const Modal = lazy(() => import("./components/Modal"));
@@ -39,6 +46,7 @@ import useSound from "./hooks/useSound";
 import useHolderStatus from "./hooks/useHolderStatus.jsx";
 import useDmUnread from "./hooks/useDmUnread";
 import useIncomingTrades from "./hooks/useIncomingTrades";
+import { useOpensAtTheTop } from "../hooks/useOpensAtTheTop";
 // Lazy-imported to avoid pulling @supabase/supabase-js into the initial bundle.
 // These are only needed after wallet connect / user interaction.
 const getUserdata = () => import("./lib/userdata");
@@ -167,7 +175,7 @@ const TAB_KEYS = {
 // regardless of how the NFT was opened. The Gallery/Floor grids pre-merge these,
 // but Hero, marquee, favorites, and the ?token= deep link set `selected` from a
 // raw token — without this they lost the price/buy button and the buyer (and the
-// 1% treasury fee) got redirected to OpenSea. Doing it at render time covers
+// 0.5% treasury fee) got redirected to OpenSea. Doing it at render time covers
 // every entry path in one place. (2026-07-24)
 function enrichWithListing(nft, listings) {
   if (!nft) return null;
@@ -211,11 +219,9 @@ function AppInner() {
   });
 
   // Landing page: set title and scroll to top
+  useOpensAtTheTop(isLanding ? "landing" : null);
   useEffect(() => {
-    if (isLanding) {
-      document.title = "Tradermigos | NFT Collections";
-      window.scrollTo({ top: 0, behavior: "instant" });
-    }
+    if (isLanding) document.title = "Tradermigos | NFT Collections";
   }, [isLanding]);
 
   // 404 page: set title
@@ -243,6 +249,27 @@ function AppInner() {
       <LandingShell themeName={themeName} onCycleTheme={cycleTheme} walletName={walletName} disconnect={disconnect}>
         <NotFound onGoHome={() => navigate("/nakamigos")} />
       </LandingShell>
+    );
+  }
+
+  // A collection this venue cannot settle (not an Ethereum ERC-721 flagged
+  // venueTrade) opens browse-only: none of the trading app below mounts, so no
+  // cart, order book, Alchemy read or wallet-gated tab runs for it.
+  if (!canTradeOnVenue(COLLECTIONS[collectionSlug])) {
+    return (
+      <CollectionProvider slug={collectionSlug}>
+        <ExternalCollectionView
+          key={collectionSlug}
+          tab={tab}
+          deepLinkTokenId={deepLinkTokenId}
+          collectionSlug={collectionSlug}
+          themeName={themeName}
+          cycleTheme={cycleTheme}
+          wallet={wallet}
+          walletName={walletName}
+          disconnect={disconnect}
+        />
+      </CollectionProvider>
     );
   }
 
@@ -282,6 +309,18 @@ function LandingShell({ themeName, onCycleTheme, walletName, disconnect, childre
 
   return (
     <div style={{ minHeight: "100vh", background: "transparent", color: "var(--text)", fontFamily: "var(--display)", position: "relative" }}>
+      {/* The studio's marketplace backdrop (surface marketplace:0): a fixed
+          layer UNDER the collage with its own scrim, so a bungalow skin can
+          dress the landing while the marketplace's own art stays on top. The
+          collage's layers are fixed at z-index 0 as well and come later in
+          the DOM, so they paint over this one. */}
+      <div
+        aria-hidden="true"
+        style={{
+          position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none",
+          background: `linear-gradient(180deg, rgba(8,10,18,0.78) 0%, rgba(8,10,18,0.86) 100%), url(${pageArt("marketplace", 0).src}) center / cover no-repeat`,
+        }}
+      />
       <Background />
       <Header
         tab="landing"
@@ -436,15 +475,35 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
   // On mount (and collection switch — key={collectionSlug} forces remount),
   // update the page title and scroll to top.
   // All React state resets are handled by the remount itself (useState initializers).
+  useOpensAtTheTop(collectionSlug);
   useEffect(() => {
     document.title = `${collection.name} | Tradermigos`;
-    window.scrollTo({ top: 0, behavior: "instant" });
   }, [collectionSlug, collection.name]);
 
   // ═══ Deep link: /:collection/nft/:id — auto-open modal ═══
   const deepLinkFetchedRef = useRef(null);
+  // An id below the collection's first id, or absent once a live read has
+  // loaded every token, does not exist: it gets a notice, never a placeholder
+  // Modal whose Make Offer would wrap and approve for a token nobody owns.
+  const missingToken = useMemo(() => {
+    if (!deepLinkTokenId) return null;
+    if (nfts.allTokens.some((t) => String(t.id) === deepLinkTokenId)) return null;
+    const firstId = collection.tokenIds?.first;
+    const knownSupply = stats?.supply ?? collection.supply;
+    const belowRange = Number.isFinite(firstId) && Number(deepLinkTokenId) < firstId;
+    const everyTokenRead = nfts.allTokens.length > 0 && nfts.isLive && !nfts.hasMore && !nfts.loading && !nfts.error
+      && (!Number.isFinite(knownSupply) || nfts.allTokens.length >= knownSupply);
+    if (!belowRange && !everyTokenRead) return null;
+    const ids = everyTokenRead ? nfts.allTokens.map((t) => Number(t.id)).filter(Number.isFinite) : [];
+    return {
+      id: deepLinkTokenId,
+      read: ids.length ? { count: ids.length, min: Math.min(...ids), max: Math.max(...ids) } : null,
+      firstId: Number.isFinite(firstId) ? firstId : null,
+    };
+  }, [deepLinkTokenId, nfts.allTokens, nfts.isLive, nfts.hasMore, nfts.loading, nfts.error, collection.tokenIds, collection.supply, stats?.supply]);
+
   useEffect(() => {
-    if (!deepLinkTokenId) return;
+    if (!deepLinkTokenId || missingToken) return;
     const token = nfts.allTokens.find((t) => String(t.id) === deepLinkTokenId);
     if (token) {
       setSelected(token);
@@ -459,7 +518,7 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
         .then((arr) => { if (arr?.[0]) setSelected(arr[0]); })
         .catch(() => { /* bad/burned id — deep link is best-effort */ });
     }
-  }, [deepLinkTokenId, nfts.allTokens, collection.contract, collection.metadataBase]);
+  }, [deepLinkTokenId, missingToken, nfts.allTokens, collection.contract, collection.metadataBase]);
 
   // Update page title on tab change
   useEffect(() => {
@@ -885,6 +944,20 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
           </button>
         </div>
       )}
+      {/* A deep link to a token that does not exist says so (see missingToken). */}
+      {missingToken && tab === "gallery" && (
+        <div className="ext-notice" role="status">
+          <span>
+            {`Token #${missingToken.id} is not in this collection.`}
+            {missingToken.read
+              ? ` The ${missingToken.read.count.toLocaleString("en-US")} tokens read here run from #${missingToken.read.min} to #${missingToken.read.max}.`
+              : missingToken.firstId != null ? ` Its token ids start at #${missingToken.firstId}.` : ""}
+          </span>
+          <button type="button" className="ext-secondary-btn" onClick={() => navigate(`/nakamigos/${collectionSlug}/gallery`, { replace: true })}>
+            Dismiss
+          </button>
+        </div>
+      )}
       {/* key={tab}: a crashed tab must not stay latched across navigation —
           without it one tab error bricks every subsequent tab (prod 2026-06-11) */}
       {/* No onReset navigation: Try Again should retry THIS tab (the boundary
@@ -1072,7 +1145,8 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
           <div className="footer-links">
             {[
               ["OpenSea", `https://opensea.io/collection/${collection.openseaSlug || collection.slug}`],
-              ["Blur", `https://blur.io/eth/collection/${collection.slug}`],
+              // A Blur page only where one was verified (the registry's blurSlug).
+              collection.blurSlug ? ["Blur", `https://blur.io/eth/collection/${collection.blurSlug}`] : null,
               ["Etherscan", `https://etherscan.io/address/${collection.contract}`],
               collection.twitter ? ["X / Twitter", `https://x.com/${collection.twitter}`] : null,
               collection.discord ? ["Discord", collection.discord] : null,
@@ -1123,6 +1197,10 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
 // App.css — do not reintroduce an external stylesheet.
 
 export default function App() {
+  // The marketplace signs through its own wallet code, which the site's records of an
+  // open transaction do not see. While it is on screen the page never reloads itself
+  // (lib/staleBuild.ts); its boundary offers the reload as a button.
+  useEffect(() => holdReload(), []);
   return (
     <ErrorBoundary title="App initialization error" onReset={() => window.location.href = '/nakamigos'}>
       <WalletProvider>

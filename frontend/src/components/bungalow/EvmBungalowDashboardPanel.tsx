@@ -7,8 +7,10 @@ import { ERC20_ABI } from '../../lib/contracts';
 import { fmtRaw } from '../../lib/evmLighthouse';
 import { CopyButton } from '../ui/CopyButton';
 import { shortenAddress } from '../../lib/formatting';
+import { CardArt } from '../ui/CardArt';
 import { BungalowMarket } from './BungalowMarket';
 import { BungalowHolders } from './BungalowHolders';
+import { BungalowBurn } from './BungalowBurn';
 import { LIGHTHOUSE_LADDER_ABI } from '../../lib/contracts';
 
 /**
@@ -52,13 +54,15 @@ export function EvmBungalowDashboardPanel({ bungalow }: { bungalow: Bungalow }) 
   const scanRoute = bungalowScanRoute(bungalow);
 
   return (
-    <div className="space-y-4">
+    // The same page column as the Solana sibling: without it every card ran edge to edge.
+    <div className="relative z-10 page-column mx-auto px-4 md:px-6 pt-8 pb-16 space-y-4">
       {/* Header card: who this is + wallet position + the standing CTAs. */}
       <section
-        className="rounded-2xl p-6"
+        className="relative isolate rounded-2xl p-6"
         style={{ background: 'rgba(4,9,18,0.72)', border: '1px solid var(--color-purple-25)' }}
         aria-label={`${bungalow.symbol} dashboard`}
       >
+        <CardArt pageId="bungalow-dashboard" idx={6} />
         <p className="text-[10px] uppercase tracking-wider mb-2" style={{ color: accent }}>
           {bungalow.name} · {CHAIN_LABEL[bungalow.chain] ?? bungalow.chain}
         </p>
@@ -115,7 +119,10 @@ export function EvmBungalowDashboardPanel({ bungalow }: { bungalow: Bungalow }) 
       {/* Live market — self-hides when the registry has no indexed pool. */}
       <BungalowMarket bungalow={bungalow} />
 
-      {/* THE LIGHTHOUSE: READ-ONLY HERE, MANAGED AT /farm.
+      {/* The burn follows the market wherever a live bungalow shows its market. */}
+      <BungalowBurn bungalow={bungalow} />
+
+      {/* THE LIGHTHOUSE: READ-ONLY HERE, MANAGED AT /earn/<id>.
           2026-08-31 BUG, caught by the TOWELI-parity study: this mounted the
           PLAIN Synthetix card against pools that are now LighthouseLadder.
           Every read the plain card issues also exists on the ladder, so the
@@ -124,17 +131,18 @@ export function EvmBungalowDashboardPanel({ bungalow }: { bungalow: Bungalow }) 
           and exit() do not exist at all), so a staker would have paid gas for
           a real Approve and then watched every follow-up revert. Its copy
           also promised "no locks, withdraw free at any time" about a pool
-          with 0-4 year locks and a 25% early-exit penalty.
+          with 0-4 year locks and an early-exit penalty.
           The fix is the shape both other dashboards already use: state the
           position, and send people to the one surface that owns the writes.
           A second write-capable copy of the staking UI is a divergence
           waiting to happen; there is now exactly one. */}
       {bungalow.stakePool && (
         <section
-          className="rounded-2xl p-6"
+          className="relative isolate rounded-2xl p-6"
           style={{ background: 'rgba(4,9,18,0.72)', border: '1px solid var(--color-purple-25)' }}
           aria-label={`${bungalow.symbol} lighthouse position`}
         >
+          <CardArt pageId="bungalow-dashboard" idx={7} />
           <p className="text-[10px] uppercase tracking-wider mb-2" style={{ color: accent }}>
             The lighthouse
           </p>
@@ -153,11 +161,11 @@ export function EvmBungalowDashboardPanel({ bungalow }: { bungalow: Bungalow }) 
             </div>
           </div>
           <p className="text-[12px] text-white/70 mb-3">
-            Locks run 7 days to 4 years, earning a 0.40x to 4.00x share — the venue&apos;s standard lock
-            ladder. Staking, claiming and every exit live on the{' '}
-            <Link to="/farm" className="underline underline-offset-2 text-white hover:text-white/80">pool page</Link>.
+            Locks run 7 days to 4 years, earning a 0.40x to 4.00x share. Staking, claiming and every
+            exit live on the{' '}
+            <Link to={`/earn/${bungalow.id}`} className="underline underline-offset-2 text-white hover:text-white/80">pool page</Link>.
           </p>
-          <Link to="/farm" className="btn-secondary px-5 py-2 text-[13px] inline-block">Manage at the lighthouse →</Link>
+          <Link to={`/earn/${bungalow.id}`} className="btn-secondary px-5 py-2 text-[13px] inline-block">Manage at the lighthouse →</Link>
         </section>
       )}
 

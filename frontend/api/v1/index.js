@@ -27,6 +27,7 @@ import { checkRateLimit, checkGlobalLimit } from "../_lib/ratelimit.js";
 import { readBoundedText, MAX_RESPONSE_BYTES } from "../_lib/bodycap.js";
 import { logSafe } from "../_lib/logSafe.js";
 import { fetchAlchemyWithFailover, alchemyKeyChain } from "../_lib/alchemy-failover.js";
+import { VENUE_SLUG_CONTRACTS, VENUE_CONTRACTS } from "../_lib/venue-registry.js";
 import { readErc20Distribution, readBaseErc20Distribution, handleScanRoute } from "../_lib/scannerApi.js";
 import {
   admitKeyedCall,
@@ -78,19 +79,13 @@ function alchemyAuthHeadersFor(key, extra = {}) {
   return headers;
 }
 
-const ALLOWED_CONTRACTS = new Set([
-  "0xd774557b647330c91bf44cfeab205095f7e6c367", // Nakamigos
-  "0xa1de9f93c56c290c48849b1393b09eb616d55dbb", // GNSS Art
-  "0xd37264c71e9af940e49795f0d3a8336afaafdda9", // Jungle Bay
-]);
+// The venue's collections (_lib/venue-registry.js). Each slug is also its
+// OpenSea slug, which the listings route builds its upstream path from.
+export const ALLOWED_CONTRACTS = VENUE_CONTRACTS;
+export const SLUG_TO_CONTRACT = VENUE_SLUG_CONTRACTS;
 
-const SLUG_TO_CONTRACT = {
-  nakamigos: "0xd774557b647330c91bf44cfeab205095f7e6c367",
-  gnssart: "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
-  junglebay: "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
-};
-
-const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || "https://memetic.fun";
+// Echoed to unmatched origins, so a host this venue serves — not memetic.fun. See alchemy.js.
+const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || "https://memetics.finance";
 
 // Routes that refuse anonymous callers outright. `scan` is the sold surface: a
 // free degraded answer here would be the product, given away, at lower quality —
@@ -105,8 +100,6 @@ function isValidAddress(addr) { return typeof addr === "string" && ETH_ADDRESS_R
 function isValidTokenId(id) { return typeof id === "string" && NUMERIC_ID_RE.test(id); }
 
 const PROD_ORIGINS = [
-  "https://memetic.fun",
-  "https://www.memetic.fun",
   "https://memetics.finance",
   "https://www.memetics.finance",
   "https://tegridyfarms.vercel.app",

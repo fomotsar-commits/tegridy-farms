@@ -31,6 +31,7 @@ function renderWithRouter() {
 describe('OnboardingModal', () => {
   beforeEach(() => {
     localStorage.clear();
+    window.history.replaceState({}, '', '/');
   });
 
   it('renders when localStorage has no onboarding-seen key', () => {
@@ -81,6 +82,16 @@ describe('OnboardingModal', () => {
     expect(screen.getByText('Walk the doors')).toBeInTheDocument();
     expect(screen.getByText('Scan a token')).toBeInTheDocument();
     expect(screen.queryByText('Start Farming')).not.toBeInTheDocument();
+  });
+
+  it('starts the clock where the island does, at a first hold (venue voice)', () => {
+    renderWithRouter();
+    for (let i = 0; i < 4; i++) fireEvent.click(screen.getByText('Next'));
+    expect(
+      screen.getByText(
+        'Walk a door in the hall below, or scan any token on either chain. Your heat already exists. Your clock on a token starts at your first hold.',
+      ),
+    ).toBeInTheDocument();
   });
 
   it('Walk the doors sets localStorage and closes modal', () => {
@@ -164,7 +175,9 @@ describe('OnboardingModal', () => {
     // The steps array resolves at module scope (voice is stable per document,
     // switching bungalows reloads), so the toweli variant needs a fresh
     // module graph with the choice already stored — same contract as prod.
+    // Inside the bungalow means on its own page: the stored room speaks nowhere else.
     localStorage.setItem('tegridy-bungalow', 'toweli');
+    window.history.replaceState({}, '', '/toweli');
     vi.resetModules();
     // Import the render helper from the SAME fresh module graph — the reset
     // recreates ThemeContext, and mixing old provider with new consumer

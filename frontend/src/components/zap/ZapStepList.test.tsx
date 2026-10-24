@@ -28,6 +28,7 @@ describe('the status vocabulary', () => {
       'submitted',
       'confirmed',
       'reverted',
+      'replaced',
       'rejected',
       'unknown',
       'skipped',
@@ -43,6 +44,12 @@ describe('the status vocabulary', () => {
       (s) => STEP_STATUS_COPY[s]!.tone === 'good',
     );
     expect(good.sort()).toEqual(['confirmed', 'skipped']);
+  });
+
+  it('never calls a leg the wallet replaced a revert, or a success', () => {
+    const replaced = STEP_STATUS_COPY.replaced;
+    expect(`${replaced.label} ${replaced.meaning}`).not.toMatch(/revert|confirmed|landed/i);
+    expect(replaced.meaning).toMatch(/no effect/i);
   });
 
   it('never describes an unread outcome as a failure', () => {

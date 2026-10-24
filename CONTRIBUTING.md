@@ -24,7 +24,7 @@ There are plenty of ways to help, no matter your skill set:
 
 ## Dev Setup
 
-The repo has three main workspaces. Install prerequisites (Node 20+, Foundry, Git) and then:
+The repo has three main workspaces. Install prerequisites (Node 24, the version in `.nvmrc`; Foundry; Git) and then:
 
 **Frontend**
 

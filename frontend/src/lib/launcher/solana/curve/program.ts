@@ -1,28 +1,25 @@
 // `tegridy-launch` program identity, PDAs, account layouts and error codes.
 //
-// THERE IS NO PROGRAM AT EITHER ID IN THIS FILE. Both were deployed to mainnet
-// 2026-08-08 and CLOSED on 2026-08-13; their ProgramData accounts return null with 0
-// lamports on two independent RPCs (docs/SOLANA_PROGRAM_FINDINGS_2026_08_15.md). A
-// closed upgradeable program id is permanently SPENT — Solana will not let one hold a
-// program again — so `PROGRAM_ID` and `CP_SWAP_PROGRAM_ID` below are a record of where
-// the rail ran, never a deploy target. A restart needs fresh keypairs, new
-// `declare_id!` values, and re-derivation of every PDA this file computes.
+// `PROGRAM_ID` and `CP_SWAP_PROGRAM_ID` below are the RESTART pair (owner ruling
+// 2026-09-25), flipped here for website release 2, which the owner deploys only after
+// both programs exist on mainnet at these ids, the two Squads vault steps have
+// executed and control has been handed to the vault (MAINNET_GO_LIVE.md §3-§8). The
+// release's precheck.mjs reads all of that from mainnet before the deploy command is
+// run; nothing in this file can prove it by itself.
 //
-// The constants are kept rather than deleted because every derivation and every
-// builder in this directory reads them, and because scripts/verify-addresses.mjs check
-// 5b matches these literals against the registry entries that record the closure —
-// deleting them removes the only place code and registry can be compared.
+// The 2026-08 pair (`SPENT_PROGRAM_ID`, `SPENT_CP_SWAP_PROGRAM_ID`) was deployed
+// 2026-08-08 and CLOSED on 2026-08-13; their ProgramData accounts return null with 0
+// lamports (docs/SOLANA_PROGRAM_FINDINGS_2026_08_15.md). A closed upgradeable program
+// id is permanently SPENT, so those two are a record of where the rail ran, never a
+// deploy target, and the write layer refuses them (write/config.ts).
+//
+// scripts/verify-addresses.mjs check 5b matches every literal here against the
+// registry, so each of these ids must stay registered in scripts/addresses.json.
 //
 // A CLOSED PROGRAM STILL READS AS EXECUTABLE. `solana program close` deletes the
 // ProgramData account and leaves the 36-byte program stub executable-flagged, so
-// `getAccountInfo(PROGRAM_ID)` — and `readDeployment` in `read.ts`, which is built on
-// it — reports `deployed` for both ids. The only account that distinguishes a live
-// program from a spent one is the ProgramData account, which neither reads. Treat a
-// `deployed` verdict from this rail as unproven until that account is read.
-//
-// Graduation never worked even before the close: cp-swap's AmmConfig was never
-// created, so `migrate_to_amm` failed AmmNotConfigured (6015) for the program's whole
-// life.
+// `getAccountInfo(PROGRAM_ID)` alone cannot tell a live program from a spent one. The
+// write gate (write/config.ts `readWriteGate`) follows the ProgramData account.
 //
 // There is NO committed IDL: `solana/tegridy-amm/.gitignore` ignores `target/`,
 // and both on-chain test suites load the IDL from `../target/idl/…` at runtime,
@@ -39,28 +36,81 @@ import { PublicKey } from '@solana/web3.js';
 // ── identity ─────────────────────────────────────────────────────────────────
 
 /**
+ * The `tegridy-launch` program every derivation, reader and page defaults to: the
+ * restart id `64WBTe…` (the crate's committed `declare_id!` since 2026-09-26). Equal
+ * to `REGISTERED_PROGRAM_ID`; kept as its own literal because verify-addresses check
+ * 5b reads `PROGRAM_ID` by name.
+ */
+export const PROGRAM_ID = new PublicKey('64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2');
+
+/**
  * ⛔ SPENT. The address `tegridy-launch` ran at between its 2026-08-08 deploy (slot
  * 438055726) and the close of its ProgramData `6vV7DqMyGwpM18rf2Lkefa1U9YfKquZjvwA61ch3FsnS`
- * on 2026-08-13. Nothing can ever be deployed here again; a restart declares a new id.
- * Registered as `tegridy-launch-program` in frontend/scripts/addresses.json, which
- * carries the closure evidence.
+ * on 2026-08-13. Nothing can ever be deployed here again. Registered as
+ * `tegridy-launch-program` in frontend/scripts/addresses.json, which carries the
+ * closure evidence.
  */
-export const PROGRAM_ID = new PublicKey('CpFnacrACftonjeQ4hJBkja3PkrwvFSRFzBEk9oKhzED');
+export const SPENT_PROGRAM_ID = new PublicKey('CpFnacrACftonjeQ4hJBkja3PkrwvFSRFzBEk9oKhzED');
 
-/** The pre-deploy throwaway. Kept so the predicate below has something to compare against. */
+/**
+ * The old throwaway the crate compiled against until 2026-09-26, when its
+ * `declare_id!` became `REGISTERED_PROGRAM_ID` below. It corresponds to no key anybody
+ * holds. Kept so the predicate below has something to compare against, and so an
+ * operator who still passes it is told what it is.
+ */
 export const PLACEHOLDER_PROGRAM_ID = new PublicKey('8YVjjc5ibXQRewh7xtUQMTVR9rrBJjBj4kBMLpbr3kV8');
 
 /**
- * ⛔ SPENT. The cp-swap fork a launch was to graduate into, deployed 2026-08-08 and
- * closed 2026-08-13 alongside `PROGRAM_ID` (ProgramData
- * `6TnZb1GTHhPAYsrbtwfELkqQrXyqCfv7V6s27RJKXHAF`, absent). This doc line previously
- * read "NOT yet deployed", which was wrong in the direction that invites a deploy: the
- * id is not waiting to be used, it is used up.
+ * The restart's mainnet id for `tegridy-launch`: the program's committed `declare_id!`
+ * since 2026-09-26, a fresh keypair chosen by owner ruling 2026-09-25. `PROGRAM_ID`
+ * equals it from website release 2 on. The write layer's production gate requires the
+ * two to be equal (write/config.ts `curveWriteConfig`).
  */
-export const CP_SWAP_PROGRAM_ID = new PublicKey('3ZvZXEBr21Kz7JeWFCeKv8Hyy8AzHqCSXNjif8QHPM9y');
+export const REGISTERED_PROGRAM_ID = new PublicKey('64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2');
 
 /**
- * True while an id is still the throwaway the crate was written against.
+ * The restart's cp-swap fork id: the fork's committed non-devnet `declare_id!`, and
+ * `cp_swap::ID`, the graduation venue `tegridy-launch` pins at compile time.
+ * `CP_SWAP_PROGRAM_ID` equals it from website release 2 on.
+ */
+export const REGISTERED_CP_SWAP_PROGRAM_ID = new PublicKey('EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT');
+
+/**
+ * The Squads v4 multisig that holds the platform treasury (registered as
+ * `squads-multisig` in frontend/scripts/addresses.json). It can never sign or hold
+ * tokens itself; its vault below does both.
+ */
+export const PLATFORM_TREASURY_MULTISIG = new PublicKey('EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK');
+
+/**
+ * The platform treasury: vault 0 of {@link PLATFORM_TREASURY_MULTISIG} (registered as
+ * `squads-vault`), and the `fee_recipient` the mainnet config is set to. It receives
+ * the 3.69% platform reserve of every launch inside `create_launch`.
+ *
+ * The program does NOT check that `global.fee_recipient` is a multisig; it pays
+ * whatever key the config holds. So this constant is what lets a page say "a
+ * multisig": only when the live config names THIS key (see `describeTreasury`).
+ * treasury.test.ts re-derives it from the multisig, so a typo here fails a test.
+ */
+export const PLATFORM_TREASURY_VAULT = new PublicKey('GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd');
+
+/**
+ * The cp-swap fork a launch graduates into, and the default of every cp-swap PDA
+ * helper and the migrate/swap builders: the restart id `EKS4C6x…`. Equal to
+ * `REGISTERED_CP_SWAP_PROGRAM_ID`; kept as its own literal for check 5b.
+ */
+export const CP_SWAP_PROGRAM_ID = new PublicKey('EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT');
+
+/**
+ * ⛔ SPENT. The cp-swap fork a launch was to graduate into, deployed 2026-08-08 and
+ * closed 2026-08-13 alongside `SPENT_PROGRAM_ID` (ProgramData
+ * `6TnZb1GTHhPAYsrbtwfELkqQrXyqCfv7V6s27RJKXHAF`, absent). Not a deploy target: the
+ * id is used up.
+ */
+export const SPENT_CP_SWAP_PROGRAM_ID = new PublicKey('3ZvZXEBr21Kz7JeWFCeKv8Hyy8AzHqCSXNjif8QHPM9y');
+
+/**
+ * True for the old throwaway (`PLACEHOLDER_PROGRAM_ID`).
  *
  * ⚠️ This compares against `PLACEHOLDER_PROGRAM_ID`, not `PROGRAM_ID`. It used to be
  * `id.equals(PROGRAM_ID)`, which was self-referential: called with its default
@@ -93,10 +143,11 @@ export const WSOL_MINT = new PublicKey('So11111111111111111111111111111111111111
 export const DEFAULT_PUBKEY = SYSTEM_PROGRAM_ID;
 
 /**
- * Token-2022 is NOT supported. Every token account in the program is typed
- * `Program<'info, Token>` / `anchor_spl::token::{Mint, TokenAccount}` — the legacy
- * program (lib.rs:1311, 1455, 1498). A Token-2022 mint fails account validation,
- * so a create-launch UI must reject one up front rather than let it revert.
+ * Token-2022 is NOT supported for a LAUNCH mint. Every token account in the program
+ * is the legacy program's (lib.rs:1311, 1455, 1498), so a Token-2022 mint fails
+ * account validation and a create-launch UI must reject one up front. The create
+ * transaction still calls Token-2022 itself, outside the program, for the $BAYLA
+ * plant (write/plant.ts): $BAYLA is a Token-2022 mint.
  */
 export const TOKEN_2022_PROGRAM_ID = new PublicKey('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb');
 
@@ -161,9 +212,20 @@ export function curveVaultPda(mint: PublicKey, programId: PublicKey = PROGRAM_ID
   return pda([VAULT_SEED, mint.toBytes()], programId);
 }
 
-/** `["migauth", mint]` on tegridy-launch — the data-less rent-payer/signer for migration. */
-export function migrationAuthorityPda(mint: PublicKey, programId: PublicKey = PROGRAM_ID): PublicKey {
-  return pda([MIGRATION_AUTH_SEED, mint.toBytes()], programId);
+/**
+ * `["migauth"]` on tegridy-launch — the data-less rent-payer/signer for migration.
+ *
+ * ONE PER PROGRAM, with no mint in the seeds (state.rs `MIGRATION_AUTH_SEED`, and the
+ * `MigrateToAmm` seeds). cp-swap keys its permission account by this address, and a
+ * cp-swap admin must create that account by hand, so a per-launch authority would
+ * need a per-launch admin ceremony before anything could graduate.
+ *
+ * This used to derive `["migauth", mint]`. That address is not the one the program
+ * checks, so every client-built `migrate_to_amm` would have failed its seeds
+ * constraint, and the permission address derived from it was wrong too.
+ */
+export function migrationAuthorityPda(programId: PublicKey = PROGRAM_ID): PublicKey {
+  return pda([MIGRATION_AUTH_SEED], programId);
 }
 
 /**
@@ -324,6 +386,13 @@ export const LAUNCH_ERROR_CODES = {
   6017: 'MigrationReserveTooLow',
   6018: 'LpNotBurned',
   6019: 'AwaitingMigration',
+  6020: 'CreatorMismatch',
+  6021: 'MigrationPermissionMissing',
+  // 6022 and 6023 are RETIRED: nothing returns them since the platform reserve
+  // moved to create_launch. They keep their slots so 6024 keeps its number.
+  6022: 'PlatformReserveLocked',
+  6023: 'PlatformReserveAlreadyReleased',
+  6024: 'CpSwapProgramNotPinned',
 } as const;
 
 export type LaunchErrorName = (typeof LAUNCH_ERROR_CODES)[keyof typeof LAUNCH_ERROR_CODES];
@@ -432,23 +501,26 @@ export const GLOBAL_CONFIG_LAYOUT = {
   ammConfig: 160,
   paused: 192,
   bump: 193,
-  size: 194,
+  /** Appended after `bump`, so every offset above it is unchanged. */
+  platformReserveBps: 194,
+  size: 202,
 } as const;
 
 /**
- * `8 + InitSpace(186)`.
+ * `8 + InitSpace(194)`.
  *
- * The mainnet `global` — now stranded under a closed program, its rent unrecoverable —
- * is 723 bytes because it was written by the PRE-removal
- * program, and the first 194 of those bytes are byte-identical to this layout —
- * nothing before `bump` moved. `program.test.ts` decodes exactly that prefix of a
- * captured mainnet account, which is the only real-bytes evidence available for any
- * of these offsets.
+ * 194 until `platform_reserve_bps` was appended after `bump`. The mainnet `global` —
+ * now stranded under a closed program, its rent unrecoverable — is 723 bytes because
+ * it was written by the PRE-removal program, and its first 194 bytes are
+ * byte-identical to this layout up to `bump`. `program.test.ts` decodes exactly that
+ * prefix of a captured mainnet account, which is the only real-bytes evidence
+ * available for any of these offsets.
  *
- * ⚠ A 723-byte account therefore now reads `bad-length`, correctly: the removal
- * cannot be applied to a deployed program in place, and both program ids were
- * recorded CLOSED on mainnet 2026-08-13, so a post-removal build means new ids and
- * a freshly-allocated `global`.
+ * ⚠ A 723-byte account therefore reads `bad-length`, correctly: the removal cannot
+ * be applied to a deployed program in place, and both program ids were recorded
+ * CLOSED on mainnet 2026-08-13, so a post-removal build means new ids and a
+ * freshly-allocated `global`. The same length check means this client and the
+ * program with the new field must ship together: each rejects the other's accounts.
  */
 export const GLOBAL_CONFIG_SIZE = GLOBAL_CONFIG_LAYOUT.size;
 
@@ -470,11 +542,14 @@ export const BONDING_CURVE_LAYOUT = {
   complete: 136,
   pool: 137,
   bump: 169,
-  size: 170,
+  /** Appended after `bump`, so every offset above it is unchanged. */
+  platformReserveTokens: 170,
+  platformReserveReleased: 178,
+  size: 179,
 } as const;
 
 /**
- * `8 + InitSpace(162)`.
+ * `8 + InitSpace(171)`. 170 until the two platform-reserve fields were appended.
  *
  * NOT pinned against a captured account: `getProgramAccounts` on the launch program
  * returns EMPTY — no curve has ever been created — so there are no real bytes to
@@ -515,6 +590,13 @@ export interface GlobalConfig {
   /** Blocks buys and graduation. Sells stay open (state.rs:116-118). */
   paused: boolean;
   bump: number;
+  /**
+   * Share of each NEW launch's supply paid to the platform treasury when the
+   * launch is created, in bps of `tokenTotalSupply`. Capped at 1000 (10%). A live
+   * launch keeps the amount it was created with — see
+   * {@link BondingCurve.platformReserveTokens}.
+   */
+  platformReserveBps: bigint;
 }
 
 /** `BondingCurve`, state.rs:123-166. One per launched token. */
@@ -548,6 +630,20 @@ export interface BondingCurve {
   /** The cp-swap pool. All-zero until migration (state.rs:159-163). */
   pool: PublicKey;
   bump: number;
+  /**
+   * The platform reserve, in raw token units, fixed at creation. `create_launch`
+   * sends these tokens to the platform treasury (the token account of
+   * `global.fee_recipient`) in the same instruction that opens the curve. They
+   * are never in `realTokenReserves` or the curve's vault: the curve never sells
+   * them and migration never puts them in the pool.
+   *
+   * So tokens sold = total supply − this − `realTokenReserves`. Leaving this out
+   * counts the reserve as sold.
+   */
+  platformReserveTokens: bigint;
+  /** True from creation: `create_launch` pays the reserve and sets it. Kept so the
+   *  account layout does not move. */
+  platformReserveReleased: boolean;
 }
 
 /** Why a decode returned nothing. Each renders differently; none of them is "zero". */
@@ -597,6 +693,7 @@ export function decodeGlobalConfig(data: Uint8Array | null | undefined): Decoded
   const G = GLOBAL_CONFIG_LAYOUT;
   const paused = readBool(data, G.paused);
   if (paused === null) return { ok: false, reason: 'malformed' };
+  const platformReserveBps = readU64(v, G.platformReserveBps);
   return {
     ok: true,
     value: {
@@ -613,6 +710,7 @@ export function decodeGlobalConfig(data: Uint8Array | null | undefined): Decoded
       ammConfig: readPubkey(data, G.ammConfig),
       paused,
       bump: data[G.bump]!,
+      platformReserveBps,
     },
   };
 }
@@ -628,6 +726,8 @@ export function decodeBondingCurve(data: Uint8Array | null | undefined): Decoded
   const C = BONDING_CURVE_LAYOUT;
   const complete = readBool(data, C.complete);
   if (complete === null) return { ok: false, reason: 'malformed' };
+  const platformReserveReleased = readBool(data, C.platformReserveReleased);
+  if (platformReserveReleased === null) return { ok: false, reason: 'malformed' };
   return {
     ok: true,
     value: {
@@ -644,6 +744,8 @@ export function decodeBondingCurve(data: Uint8Array | null | undefined): Decoded
       complete,
       pool: readPubkey(data, C.pool),
       bump: data[C.bump]!,
+      platformReserveTokens: readU64(v, C.platformReserveTokens),
+      platformReserveReleased,
     },
   };
 }

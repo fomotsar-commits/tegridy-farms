@@ -1,3 +1,5 @@
+import { CardArt } from '../ui/CardArt';
+
 /**
  * "What is a liquidity pool, and why does this venue need one?"
  *
@@ -23,13 +25,16 @@
 export function LiquidityPrimer() {
   return (
     <details
-      className="group rounded-2xl overflow-hidden"
+      className="group relative isolate rounded-2xl overflow-hidden"
       style={{ background: 'rgba(4,9,18,0.6)', border: '1px solid var(--color-purple-25)' }}
     >
       <summary
         className="cursor-pointer list-none px-4 py-3.5 min-h-[48px] flex items-center justify-between gap-3 text-white text-[14px] font-semibold"
       >
-        <span>New to this? What a liquidity pool is, in four answers</span>
+        {/* Inside the summary on purpose: a closed <details> renders nothing
+            else. It still fills the whole card, which is the positioned box. */}
+        <CardArt pageId="liquidity" idx={2} />
+        <span>New to pools? Four answers</span>
         <svg
           width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4"
           strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
@@ -64,22 +69,25 @@ export function LiquidityPrimer() {
 
         <div>
           <h3 className="text-white text-[13px] font-semibold mb-1">How do I get paid?</h3>
-          {/* ⚠️ CORRECTED 2026-09-05. This said the 0.3% "stays in the pool… not
-              claimed and not distributed", which is the textbook Uniswap-V2
-              description and is NOT what this fork does. TegridyPair.sol:16-17
-              splits it 5/6 to LPs via the reserves and 1/6 to the protocol's
-              `feeTo`, minted as LP inside `_mintFee` on every mint/burn and
-              harvestable permissionlessly. Telling an LP they keep all of it
-              overstates their income by ~17% of the fee. Naming the split is
-              also the honest thing: it is the venue's only revenue from this
-              pool and a large depositor will find it in the contract anyway. */}
-          <p>
-            Every swap through the pool pays a 0.3% fee. Five sixths of it (about 0.25% of the
-            trade) accrues straight into the pool&apos;s reserves — not claimed, not distributed,
-            just left there — so the share you hold becomes redeemable for more than you put in.
-            The remaining sixth (about 0.05%) is the protocol&apos;s cut, and it is taken as newly
-            minted LP rather than out of your balance. You earn in proportion to your share, for as
-            long as you hold it. Nothing is locked; you can withdraw at any block.
+          {/* The pair can mint the venue one sixth of the fee as LP (`_mintFee`), but only
+              after `harvest()` from the factory's feeToSetter first writes `kLast`, pool by
+              pool. TOWELI/WETH: switched on 2026-10-16 04:48Z by the owner (kLast set, feeTo =
+              the treasury Safe; re-read 2026-10-17). This page has no kLast read, so the copy
+              dates what it saw and names who can change it.
+              src/lib/moneyWordsMatchTheChain.test.tsx pins the shape. */}
+          <p data-testid="primer-how-paid">
+            Every swap through the pool pays a 0.3% fee, and the fee stays in the pool. It is not
+            claimed and not paid out. It sits in the reserves, so the share you hold becomes
+            redeemable for more than you put in. The pair contract lets the venue take one sixth
+            of that fee (about 0.05% of a trade) as newly minted pool shares. Only the venue&apos;s
+            owner wallet (on Base, its multisig) can switch that cut on, pool by pool, in one
+            transaction with no waiting period.
+            On TOWELI/ETH it has been on since 16 October 2026, so providers there keep about 0.25%
+            of each trade. A pool where it is not on keeps the whole 0.3% for its providers. To
+            check a pool today, read kLast on its pair contract: 0 means its cut is not on. The
+            venue earns another way: swaps sent through this site&apos;s own router pay a separate
+            venue fee, shown on the swap screen before you sign. You earn in proportion to your
+            share, for as long as you hold it. Nothing is locked; you can withdraw at any block.
           </p>
         </div>
 

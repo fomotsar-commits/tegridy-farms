@@ -50,7 +50,7 @@ function makeReq({ method = "GET", headers = {}, body = undefined, query = {} } 
     method,
     query,
     body,
-    headers: { origin: "https://memetic.fun", ...headers },
+    headers: { origin: "https://memetics.finance", ...headers },
   };
 }
 
@@ -285,7 +285,7 @@ describe("gates", () => {
       .setExpirationTime("1h")
       .sign(new TextEncoder().encode(JWT_SECRET));
     const { res, state } = makeRes();
-    await handleAlerts(makeReq({ headers: { origin: "https://memetic.fun", cookie: `siwe_jwt=${jwt}` } }), res);
+    await handleAlerts(makeReq({ headers: { origin: "https://memetics.finance", cookie: `siwe_jwt=${jwt}` } }), res);
     expect(state.status).toBe(401);
   });
 
@@ -293,7 +293,7 @@ describe("gates", () => {
     process.env.NODE_ENV = "production";
     await load();
     const { res, state } = makeRes();
-    await handleAlerts(makeReq({ headers: { origin: "https://memetic.fun", ...(await authedCookie()) } }), res);
+    await handleAlerts(makeReq({ headers: { origin: "https://memetics.finance", ...(await authedCookie()) } }), res);
     expect(state.status).toBe(503);
     expect(state.json.error).toMatch(/Auth service not configured/i);
   });

@@ -15,6 +15,7 @@ import {
   readEntries,
   unlockTs,
   configuredAnnualRate,
+  vaultIsMateriallyEmpty,
   rateIsPercent,
   splitAccruedByRisk,
   type PoolView,
@@ -24,9 +25,12 @@ import { usePageTitle } from '../../hooks/usePageTitle';
 import { CopyButton } from '../ui/CopyButton';
 import { shortenAddress } from '../../lib/formatting';
 import { ArtImg } from '../ArtImg';
+import { CardArt } from '../ui/CardArt';
+import { FinePrint } from '../ui/FinePrint';
 import { HeatCard } from './HeatCard';
 import { BungalowMarket } from './BungalowMarket';
 import { BungalowHolders } from './BungalowHolders';
+import { BungalowBurn } from './BungalowBurn';
 
 /**
  * The bungalow dashboard (Bayla) — "your standing on the island".
@@ -55,7 +59,7 @@ import { BungalowHolders } from './BungalowHolders';
  * (or deny one that is).
  *
  * A members-only pool (stakePoolMembersOnly) is shown only to a wallet with an open
- * position in it, as on /farm; everyone else gets a card pointing at the lock ladder.
+ * position in it, as on its pool page (/earn/<id>); everyone else gets a card pointing at the lock ladder.
  * A failed stakes or pool read is an outage line with Try again on every pool, never
  * "not a member", "Reading…" forever, or a silently missing rate.
  *
@@ -75,6 +79,10 @@ export function BungalowDashboardPanel({ bungalow }: { bungalow: Bungalow & { id
 }
 
 const CARD = { background: 'rgba(4,9,18,0.72)', border: '1px solid var(--color-purple-25)' } as const;
+
+/** PoolFacts' empty-vault sentence in full, folded into the card's small print beside its one line. */
+const EMPTY_VAULT_NOTE =
+  'Empty vault, so it is paying 0 today. The rate is what the program is set to pay, not what it is paying.';
 
 function fmtRaw(raw: bigint | null, decimals: number): string {
   if (raw === null) return '–';
@@ -121,7 +129,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
   // pool is also configured, every "nothing staked" sentence below becomes a claim
   // about a program this panel never looked at — and telling someone with a live
   // ladder position that they have nothing staked is the worst answer this surface
-  // can give. It does not read the ladder (that is /farm's card, which owns the
+  // can give. It does not read the ladder (that is its pool page's card, which owns the
   // ladder client); it stops speaking for it.
   const ladderPool = bungalow.ladderPool;
   const membersOnly = stakePoolMembersOnly(bungalow);
@@ -224,7 +232,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
     if (!poolRead || !rp || vaultRaw === null) return null;
     const rate = configuredAnnualRate(poolRead, rp, poolRead.minDurationSecs);
     if (!rateIsPercent(poolRead, rp)) return null;
-    return { vaultRaw, ratePct: rate * 100, decimals: rp.decimals };
+    return { vaultRaw, ratePct: rate * 100, decimals: rp.decimals, dry: vaultIsMateriallyEmpty(poolRead, rp) };
   })();
 
   // The wallet's OWN position, shared by the open pool's card and the members-only card.
@@ -263,27 +271,42 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
           accrual would read as ordinary and an empty vault could not show. */}
       {poolReadFailed && (
         <p role="status" className="text-[11px] mb-3" style={{ color: '#f0b26b' }}>
-          The pool could not be read, so rewards at risk could not be separated from the
-          rest, and the vault could not be checked. That is an outage.{' '}
+          The pool could not be read: rewards at risk could not be separated and the vault
+          could not be checked. An outage.{' '}
           <button type="button" onClick={retryReads} className="min-h-[44px] underline underline-offset-2">Try again</button>
         </p>
       )}
       {atRiskCount > 0 && (
         <p className="text-[11px] mb-3" style={{ color: '#e3b341' }}>
-          {atRiskCount === 1 ? 'One position is' : `${atRiskCount} positions are`}{' '}
-          older than the last change to this pool&rsquo;s reward rate, and positions
-          opened before that change have not been able to claim since. Try the claim
-          anyway: a revert costs the network fee and nothing more, and the chain is the
-          only thing that knows for certain. Your principal is safe either way.
+          {atRiskCount === 1 ? 'One position' : `${atRiskCount} positions`} may not claim. Try
+          anyway: a revert costs the network fee only. Your principal is safe.
         </p>
       )}
       {vaultRaw === 0n && (
         <p className="text-[11px] mb-3" style={{ color: '#e3b341' }}>
-          The reward vault is empty, so nothing is being paid out today. Your
-          principal is untouched and comes back at unlock.
+          Empty vault: nothing is paid today. Your principal comes back at unlock.
         </p>
       )}
-      <Link to="/farm" className="btn-secondary px-4 py-2 text-[12px] inline-block">Manage position</Link>
+      <Link to={`/earn/${bungalow.id}`} className="btn-secondary px-4 py-2 text-[12px] inline-block">Manage position</Link>
+      {(atRiskCount > 0 || vaultRaw === 0n) && (
+        <FinePrint className="mt-2">
+          {atRiskCount > 0 && (
+            <p>
+              {atRiskCount === 1 ? 'One position is' : `${atRiskCount} positions are`}{' '}
+              older than the last change to this pool&rsquo;s reward rate, and positions
+              opened before that change have not been able to claim since. Try the claim
+              anyway: a revert costs the network fee and nothing more, and the chain is the
+              only thing that knows for certain. Your principal is safe either way.
+            </p>
+          )}
+          {vaultRaw === 0n && (
+            <p>
+              The reward vault is empty, so nothing is being paid out today. Your
+              principal is untouched and comes back at unlock.
+            </p>
+          )}
+        </FinePrint>
+      )}
     </>
   );
 
@@ -293,17 +316,13 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
         <ArtImg pageId="bungalow-dashboard" idx={0} alt="" loading="lazy" className="w-full h-full object-cover" />
         <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.6)' }} />
       </div>
-      <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6 pt-8 pb-16">
+      <div className="relative z-10 page-column mx-auto px-4 md:px-6 pt-8 pb-16">
         <div className="mb-6">
-          <p className="text-white/70 text-[11px] uppercase tracking-[0.2em] mb-2">
-            Jungle Bay Island · your standing
-          </p>
           <h1 className="heading-luxury text-3xl md:text-5xl text-white tracking-tight mb-3">
             {bungalow.symbol} Dashboard.
           </h1>
           <p className="text-white/85 text-[15px] max-w-lg leading-relaxed">
-            What you hold, what you have staked, and how long you&rsquo;ve held it — the
-            island counts all three.
+            Your {bungalow.symbol}: held, staked, and for how long.
           </p>
         </div>
 
@@ -318,17 +337,18 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
             <div className="relative z-10 p-5 h-full flex flex-col">
               {!publicKey ? (
                 <>
-                  <p className="text-[10px] uppercase tracking-wider mb-2" style={{ color: 'var(--color-kyle)' }}>Solana wallet</p>
-                  <h2 className="heading-luxury text-lg text-white mb-2">Connect to see your {bungalow.symbol}</h2>
-                  <p className="text-white/80 text-[12px] leading-relaxed mb-4">
-                    {membersOnly ? 'Your balance and your heat' : 'Your balance, your lighthouse position and your heat'}, read
-                    straight off the chain. Connecting signs nothing and moves nothing: every deposit is
-                    a separate signature you make on the {' '}
-                    <Link to="/farm" className="underline underline-offset-2 hover:text-white">pool page</Link>.
-                  </p>
+                  <h2 className="heading-luxury text-lg text-white mb-4">Connect to see your {bungalow.symbol}</h2>
                   <button type="button" onClick={openConnect} className="btn-primary px-5 py-2.5 text-[13px] mt-auto self-start">
                     Connect Solana Wallet
                   </button>
+                  <FinePrint className="mt-2">
+                    <p>
+                      {membersOnly ? 'Your balance and your heat' : 'Your balance, your lighthouse position and your heat'}, read
+                      straight off the chain. Connecting signs nothing and moves nothing: every deposit is a separate signature
+                      you make on the{' '}
+                      <Link to={`/earn/${bungalow.id}`} className="underline underline-offset-2 hover:text-white">pool page</Link>.
+                    </p>
+                  </FinePrint>
                 </>
               ) : (
                 <>
@@ -361,18 +381,23 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
 
           {/* Lighthouse position */}
           {stakePool && !membersOnly && (
-            <div className="rounded-2xl p-5" style={CARD}>
+            <div className="relative isolate rounded-2xl p-5" style={CARD}>
+              <CardArt pageId="bungalow-dashboard" idx={2} />
               <p className="text-[10px] uppercase tracking-wider mb-2" style={{ color: 'var(--color-kyle)' }}>At the lighthouse</p>
               {!publicKey ? (
                 <>
-                  <h2 className="heading-luxury text-lg text-white mb-2">The pool is live</h2>
-                  <p className="text-white/80 text-[12px] leading-relaxed mb-3">
-                    {bungalow.symbol} staking runs on an audited Streamflow pool, non-custodial
-                    and readable by anyone. Connect above and your position appears here.
-                    {ladderPool ? ' There is a lock-ladder pool too; the pool page covers both.' : ''}
-                  </p>
+                  <h2 className="heading-luxury text-lg text-white mb-3">The pool is live</h2>
                   <PoolFacts facts={poolFacts} failed={poolReadFailed} onRetry={retryReads} symbol={bungalow.symbol} />
-                  <Link to="/farm" className="btn-secondary px-4 py-2 text-[12px] inline-block">See the pool</Link>
+                  <Link to={`/earn/${bungalow.id}`} className="btn-secondary px-4 py-2 text-[12px] inline-block">See the pool</Link>
+                  <FinePrint className="mt-2">
+                    <p>
+                      Connect above and your position appears here.{' '}
+                      {bungalow.symbol} staking runs on an audited Streamflow pool, non-custodial
+                      and readable by anyone.
+                      {ladderPool ? ' There is a lock-ladder pool too; the pool page covers both.' : ''}
+                    </p>
+                    {poolFacts?.vaultRaw === 0n && <p>{EMPTY_VAULT_NOTE}</p>}
+                  </FinePrint>
                 </>
               ) : stakeLoading ? (
                 <p className="text-white/70 text-[13px]">Reading your position…</p>
@@ -390,22 +415,28 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
                     {ladderPool ? 'Nothing in the lighthouse pool' : 'Nothing staked yet'}
                   </h2>
                   <p className="text-white/80 text-[12px] leading-relaxed mb-3">
-                    {ladderPool ? (
-                      <>
-                        You have no open stake in the lighthouse pool. This card reads that pool
-                        only — {bungalow.symbol} also has a lock-ladder pool, and anything you hold
-                        there is shown on the pool page, not here.
-                      </>
-                    ) : (
-                      <>
-                        You hold {bungalow.symbol} but have no open stake. The pool page shows every
-                        lock length, what each one is configured to pay, and what the reward vault
-                        actually holds today.
-                      </>
-                    )}
+                    {ladderPool
+                      ? 'You have no open stake in the lighthouse pool.'
+                      : `You hold ${bungalow.symbol} but have no open stake.`}
                   </p>
                   <PoolFacts facts={poolFacts} failed={poolReadFailed} onRetry={retryReads} symbol={bungalow.symbol} />
-                  <Link to="/farm" className="btn-primary px-4 py-2 text-[12px] inline-block">Stake {bungalow.symbol}</Link>
+                  <Link to={`/earn/${bungalow.id}`} className="btn-primary px-4 py-2 text-[12px] inline-block">Stake {bungalow.symbol}</Link>
+                  <FinePrint className="mt-2">
+                    {poolFacts?.vaultRaw === 0n && <p>{EMPTY_VAULT_NOTE}</p>}
+                    <p>
+                      {ladderPool ? (
+                        <>
+                          This card reads that pool only. {bungalow.symbol} also has a lock-ladder
+                          pool, and anything you hold there is shown on the pool page, not here.
+                        </>
+                      ) : (
+                        <>
+                          The pool page shows every lock length, what each one is configured to pay,
+                          and what the reward vault actually holds today.
+                        </>
+                      )}
+                    </p>
+                  </FinePrint>
                 </>
               ) : (
                 position
@@ -417,7 +448,8 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
               everyone else, loading and disconnected included, gets the ladder card,
               so a non-member never sees the old pool flash up. */}
           {membersOnly && (openEntries.length > 0 ? (
-            <div className="rounded-2xl p-5" style={CARD}>
+            <div className="relative isolate rounded-2xl p-5" style={CARD}>
+              <CardArt pageId="bungalow-dashboard" idx={3} />
               <p className="text-[10px] uppercase tracking-wider mb-2" style={{ color: 'var(--color-kyle)' }}>The lighthouse pool · retired</p>
               <p className="text-white/60 text-[11px] leading-relaxed mb-3">
                 This pool takes no new stakes. Claims and withdrawals are on the pool page,
@@ -426,14 +458,20 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
               {position}
             </div>
           ) : (
-            <div className="rounded-2xl p-5" style={CARD}>
+            <div className="relative isolate rounded-2xl p-5" style={CARD}>
+              <CardArt pageId="bungalow-dashboard" idx={4} />
               <p className="text-[10px] uppercase tracking-wider mb-2" style={{ color: 'var(--color-kyle)' }}>Staking</p>
               <h2 className="heading-luxury text-lg text-white mb-2">The lock ladder</h2>
               <p className="text-white/80 text-[12px] leading-relaxed mb-3">
-                {bungalow.symbol} staking runs on the venue&rsquo;s own lock ladder. Its terms, and
-                any position you hold there, are read live on the pool page.
+                {bungalow.symbol} stakes on the venue&rsquo;s own lock ladder.
               </p>
-              <Link to="/farm" className="btn-primary px-4 py-2 text-[12px] inline-block">Stake {bungalow.symbol}</Link>
+              <Link to={`/earn/${bungalow.id}`} className="btn-primary px-4 py-2 text-[12px] inline-block">Stake {bungalow.symbol}</Link>
+              <FinePrint className="mt-2">
+                <p>
+                  {bungalow.symbol} staking runs on the venue&rsquo;s own lock ladder. Its terms, and
+                  any position you hold there, are read live on the pool page.
+                </p>
+              </FinePrint>
               {stakeReadFailed && (
                 <p role="status" className="text-[12px] mt-3 mb-0" style={{ color: '#f0b26b' }}>
                   Your {bungalow.symbol} positions could not be checked right now. That is an
@@ -445,7 +483,8 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
           ))}
 
           {/* Where to go next + the contract, which this page never showed. */}
-          <div className="rounded-2xl p-5" style={CARD}>
+          <div className="relative isolate rounded-2xl p-5" style={CARD}>
+            <CardArt pageId="bungalow-dashboard" idx={5} />
             <p className="text-[10px] uppercase tracking-wider mb-3" style={{ color: 'var(--color-kyle)' }}>Live surfaces</p>
             <div className="flex flex-wrap gap-2 mb-4">
               {trade && ('to' in trade ? (
@@ -455,10 +494,12 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
                   aria-label={`${trade.kind === 'chart' ? `${bungalow.symbol} chart` : `Trade ${bungalow.symbol}`} (opens in new tab)`}
                   className="btn-primary px-4 py-2 text-[12px] inline-block text-center">{trade.kind === 'chart' ? `${bungalow.symbol} chart` : `Trade ${bungalow.symbol}`} ↗</a>
               ))}
-              <Link to="/farm" className="btn-secondary px-4 py-2 text-[12px]">{membersOnly ? 'The lock ladder' : 'The lighthouse pool'}</Link>
+              <Link to={`/earn/${bungalow.id}`} className="btn-secondary px-4 py-2 text-[12px]">{membersOnly ? 'The lock ladder' : 'The lighthouse pool'}</Link>
               {bungalow.address && (
                 <Link to={bungalowScanRoute(bungalow)!} className="btn-secondary px-4 py-2 text-[12px]">Scan {bungalow.symbol}</Link>
               )}
+              <Link to="/nakamigos" className="btn-secondary px-4 py-2 text-[12px]">Marketplace</Link>
+              <Link to="/nft-finance" className="btn-secondary px-4 py-2 text-[12px]">NFT loans</Link>
               {(bungalow.pools ?? []).map((p) => (
                 <a key={p.url} href={p.url} target="_blank" rel="noopener noreferrer"
                   aria-label={`${p.label} (opens in new tab)`}
@@ -490,6 +531,13 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
           </div>
         )}
 
+        {/* The burn follows the market wherever a live bungalow shows its market. */}
+        {bungalow.address && (
+          <div className="mt-6">
+            <BungalowBurn bungalow={bungalow} />
+          </div>
+        )}
+
         {bungalow.address && (
           <div className="mt-6">
             <BungalowHolders bungalow={bungalow} />
@@ -503,9 +551,12 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
   );
 }
 
-/** The pool's rate, never without the vault that has to back it; a failed read says so. */
+/**
+ * The pool's rate, never without the vault that has to back it; a failed read says so.
+ * Over an empty vault the rate is not printed at all (island, answer seventeen item 3).
+ */
 function PoolFacts({ facts, failed, onRetry, symbol }: {
-  facts: { vaultRaw: bigint; ratePct: number; decimals: number } | null;
+  facts: { vaultRaw: bigint; ratePct: number; decimals: number; dry: boolean } | null;
   failed: boolean;
   onRetry: () => void;
   symbol: string;
@@ -513,8 +564,7 @@ function PoolFacts({ facts, failed, onRetry, symbol }: {
   if (failed) {
     return (
       <p role="status" className="text-[12px] mb-3" style={{ color: '#f0b26b' }}>
-        The pool&rsquo;s rate and reward vault could not be read. That is an outage,
-        not an empty vault.{' '}
+        The pool&rsquo;s rate and reward vault could not be read. An outage, not an empty vault.{' '}
         <button type="button" onClick={onRetry} className="min-h-[44px] underline underline-offset-2">Try again</button>
       </p>
     );
@@ -523,22 +573,23 @@ function PoolFacts({ facts, failed, onRetry, symbol }: {
   const empty = facts.vaultRaw === 0n;
   return (
     <dl className="text-[12px] space-y-1 mb-3">
-      <div className="flex justify-between gap-3">
-        <dt className="text-white/60">Configured rate</dt>
-        <dd className="text-white font-mono">
-          {facts.ratePct.toLocaleString(undefined, { maximumFractionDigits: 1 })}% APR
-        </dd>
-      </div>
+      {!facts.dry && (
+        <div className="flex justify-between gap-3">
+          <dt className="text-white/60">Configured rate</dt>
+          <dd className="text-white font-mono">
+            {facts.ratePct.toLocaleString(undefined, { maximumFractionDigits: 1 })}% APR
+          </dd>
+        </div>
+      )}
       <div className="flex justify-between gap-3">
         <dt className="text-white/60">Reward vault</dt>
-        <dd className="font-mono" style={{ color: empty ? '#e3b341' : '#ffffff' }}>
+        <dd className="font-mono" style={{ color: facts.dry ? '#e3b341' : '#ffffff' }}>
           {fmtRaw(facts.vaultRaw, facts.decimals)} {symbol}
         </dd>
       </div>
-      {empty && (
+      {facts.dry && (
         <p className="text-[11px] pt-1" style={{ color: '#e3b341' }}>
-          Empty vault, so it is paying 0 today — the rate is what the program is set to pay,
-          not what it is paying.
+          {empty ? 'Empty vault' : 'Vault effectively empty'}: it pays nothing until someone funds it.
         </p>
       )}
     </dl>

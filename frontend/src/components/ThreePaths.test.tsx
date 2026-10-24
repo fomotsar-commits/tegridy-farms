@@ -1,9 +1,11 @@
-// The three paths. The floor is read, never typed: the test moves the dial and the card
-// must follow, because a hardcoded 80 looks identical until an operator moves it.
-// Exactly three doors, and zero em dashes in the rendered copy.
+// The three paths: NFT Finance, Marketplace, Launch. The floor is read, never typed: the
+// test moves the dial and the card must follow, because a hardcoded 80 looks identical
+// until an operator moves it. Exactly three doors, and zero em dashes in the rendered copy.
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { MemoryRouter } from 'react-router-dom';
 import { ThreePaths } from './ThreePaths';
 import { LAUNCH_FLOOR } from '../lib/heat/heatOracle';
@@ -42,11 +44,18 @@ describe('the launch floor is read, never typed', () => {
     expect(container.textContent).not.toMatch(/Elder|Builder|Resident|Observer|Drifter/);
   });
 
-  it('names the tier a floor sits exactly on (150 is Builder)', () => {
+  it('names the tier a floor sits exactly on (300 is Builder)', () => {
+    vi.stubEnv('VITE_HEAT_LAUNCH_FLOOR', '300');
+    const { container } = mount();
+    expect(container.textContent).toContain('Builders may plant. The floor is 300°.');
+    expect(container.textContent).not.toContain('Residents');
+  });
+
+  it('names no tier at 150, the Builder floor the island retired', () => {
     vi.stubEnv('VITE_HEAT_LAUNCH_FLOOR', '150');
     const { container } = mount();
-    expect(container.textContent).toContain('Builders may plant. The floor is 150°.');
-    expect(container.textContent).not.toContain('Residents');
+    expect(container.textContent).toContain('The floor is 150°.');
+    expect(container.textContent).not.toMatch(/Elder|Builder|Resident|Observer|Drifter/);
   });
 
   it('ignores a nonsense dial instead of opening the door to everyone', () => {
@@ -61,27 +70,38 @@ describe('the launch floor is read, never typed', () => {
   });
 });
 
+// Owner, 2026-10-17: "instead of these three buttons we should show nft finance,
+// marketplace and launch there". Hold and Provide LP left the row.
 describe('the doors', () => {
-  it('offers exactly three, to the hall, liquidity and launch', () => {
+  it('offers exactly three, to NFT Finance, the marketplace and launch', () => {
     mount();
     const links = screen.getAllByRole('link');
-    expect(links).toHaveLength(3);
-    expect(links.map((l) => l.getAttribute('href'))).toEqual(['/#hall', '/liquidity', '/launch']);
+    expect(links.map((l) => l.getAttribute('href'))).toEqual(['/nft-finance', '/nakamigos', '/launch']);
   });
 
-  it('states each requirement at the point of intent', () => {
-    const { container } = mount();
-    const text = container.textContent ?? '';
-    expect(text).toContain('Your clock starts at your first buy.');
-    expect(text).toContain('Withdraw any time. No lock.');
-    expect(text).toContain('Residents may plant.');
-  });
-
-  it('names all three paths', () => {
+  it('names them NFT Finance, Marketplace and Launch, in that order', () => {
     mount();
-    for (const title of ['Hold', 'Provide LP', 'Launch']) {
-      expect(screen.getByRole('heading', { name: title })).toBeTruthy();
-    }
+    expect(screen.getAllByRole('heading').map((h) => h.textContent)).toEqual(['NFT Finance', 'Marketplace', 'Launch']);
+    expect(screen.queryByRole('heading', { name: 'Hold' })).toBeNull();
+    expect(screen.queryByRole('heading', { name: 'Provide LP' })).toBeNull();
+  });
+
+  // Each line is its page's own, so the door cannot promise more than the room.
+  it.each([
+    ['NFT Finance', 'Borrow against your NFT, lend to others, or trade NFTs in a pool.', 'pages/LendingPage.tsx'],
+    ['Marketplace', 'Browse. Buy. Sell. Make offers.', 'nakamigos/components/CollectionLanding.jsx'],
+  ])('%s carries the line its own page says', (title, line, page) => {
+    mount();
+    expect(screen.getByRole('link', { name: new RegExp(title) }).textContent).toContain(line);
+    expect(readFileSync(join(process.cwd(), 'src', page), 'utf8')).toContain(line);
+  });
+
+  it('every card wears its own registered art surface', () => {
+    mount();
+    const surfaces = screen
+      .getAllByRole('link')
+      .map((l) => l.querySelector('[data-card-art] [data-art-surface]')?.getAttribute('data-art-surface'));
+    expect(surfaces).toEqual(['three-paths:0', 'three-paths:1', 'three-paths:2']);
   });
 });
 

@@ -54,6 +54,8 @@ export function createSolanaRpc(opts) {
     const ac = new AbortController();
     const timer = setTimeout(() => ac.abort(), timeoutMs);
     let res;
+    let body;
+    let unparsed = false;
     try {
       res = await doFetch(url, {
         method: "POST",
@@ -61,6 +63,17 @@ export function createSolanaRpc(opts) {
         body: JSON.stringify({ jsonrpc: "2.0", id: ++id, method, params }),
         signal: ac.signal,
       });
+      // Read before the timer is cleared: an endpoint that stops part-way gave no
+      // answer, and this process has nothing else to end the wait. An abort here can
+      // come back as a parse error, so the signal says which it was.
+      if (res.ok) {
+        try {
+          body = await res.json();
+        } catch (e) {
+          if (ac.signal.aborted) throw e;
+          unparsed = true;
+        }
+      }
     } catch (e) {
       throw new SolanaRpcError("unreachable", `${method}: no answer from the cluster`, String(e));
     } finally {
@@ -73,11 +86,7 @@ export function createSolanaRpc(opts) {
     if (!res.ok) {
       throw new SolanaRpcError("rejected", `${method}: cluster returned ${res.status}`);
     }
-
-    let body;
-    try {
-      body = await res.json();
-    } catch {
+    if (unparsed) {
       throw new SolanaRpcError("malformed", `${method}: response was not JSON`);
     }
     if (!isObject(body)) {

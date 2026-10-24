@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useMevProtection } from '../../hooks/useMevProtection';
 import { MEV_BLOCKER_FAST_RPC, MEV_BLOCKER_INFO_URL } from '../../lib/mevProtection';
+import { FinePrint } from '../ui/FinePrint';
 
 // Compact settings panel that mirrors the sibling "Fee-on-transfer support"
 // panel in TradePage so it inherits the same mobile-tuned spacing/typography.
@@ -44,10 +45,12 @@ export function MevProtectionPanel() {
           </button>
         </p>
       ) : (
-        <p className="mt-1 text-[10px] text-white/70" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>
-          Routes your transactions through MEV Blocker&apos;s protected RPC to block sandwich attacks, and
-          returns 90% of any backrun profit to you. One-time, user-confirmed wallet setup.
-        </p>
+        <FinePrint summary="Details">
+          <p>
+            Routes your transactions through MEV Blocker&apos;s protected RPC to block sandwich attacks, and
+            returns 90% of any backrun profit to you. One-time, user-confirmed wallet setup.
+          </p>
+        </FinePrint>
       )}
 
       {status === 'manual' && (

@@ -1,9 +1,8 @@
 /**
  * Native Orderbook Client SDK — interact with our own order storage.
- * Creates Seaport-compatible signed orders at a flat 1% platform fee routed
- * to the Tegridy treasury Safe. (OpenSea has charged ~1% since Sep 2025 —
- * don't market this as a fee discount; the edge is that fees fund the
- * protocol treasury and fills have no marketplace dependency.)
+ * Creates Seaport-compatible signed orders at a flat 0.5% platform fee routed
+ * to the Tegridy treasury Safe: half of OpenSea's 1% (owner's call, 2026-10-18).
+ * Fees fund the protocol treasury and fills have no marketplace dependency.
  * Pattern from Blur's native orderbook and Reservoir's open protocol.
  *
  * Orders are standard Seaport v1.5 orders that can be fulfilled by
@@ -12,8 +11,17 @@
 
 import { SEAPORT_ADDRESS, SEAPORT_DOMAIN, SEAPORT_ORDER_TYPES, CONDUIT_KEY, CONDUIT_ADDRESS, PLATFORM_FEE_RECIPIENT, PLATFORM_FEE_BPS, BUNDLE_LISTING_ENABLED, resolveSeaportTarget } from "../constants";
 import { getProvider } from "../api";
+import { venueRefusal, venueRefusalForAll } from "./venue";
+import { waitForTxOutcome, txOutcomeResult } from "./txOutcome";
 
 const ORDERBOOK_API = "/api/orderbook";
+
+// What a listing's setApprovalForAll says when it did not simply confirm
+// (txOutcomeResult). The listing is only signed once the approval is in place.
+const APPROVAL_WORDS = {
+  reverted: { error: "approval-failed", message: "NFT approval transaction reverted" },
+  ifLanded: "the approval is already in place and a second one only costs gas.",
+};
 
 // Max NFTs in one bundle. MUST equal the server's MAX_BUNDLE_ITEMS (api/orderbook.js) so
 // the client fails fast instead of signing twice + paying approval gas for an order the
@@ -39,12 +47,13 @@ async function throwHttpError(r, fallback) {
   throw err;
 }
 
-async function withRetry(fn, retries = 2) {
+async function withRetry(fn, retries = 2, signal) {
   for (let i = 0; i <= retries; i++) {
     try { return await fn(); } catch (e) {
       // Callers tag deterministic rejections (4xx) with noRetry: the answer will not
       // change, and retrying re-runs the server's expensive per-item on-chain checks.
-      if (e?.noRetry || i === retries) throw e;
+      // A `signal` that has aborted has spent its time: a retry on it can only fail.
+      if (e?.noRetry || i === retries || signal?.aborted) throw e;
       await new Promise(r => setTimeout(r, 1000 * (i + 1)));
     }
   }
@@ -131,7 +140,33 @@ export async function fetchNativeBundles(contract, opts = {}) {
 // Buy an NFT from a native orderbook listing by calling Seaport directly.
 // The order was signed with EIP-712 for Seaport v1.5, so we can fulfillOrder on-chain.
 
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
+const isNftItem = (i) => Number(i?.itemType) >= 2 && Number(i?.itemType) <= 5;
+const itemsOf = (list) => (Array.isArray(list) ? list : []);
+
+// The NFT contracts a stored order moves, either way: the NFT items of its offer
+// and its consideration, and the row's contract.
+function nativeOrderNftTokens(order) {
+  const p = order?.parameters;
+  const tokens = [...itemsOf(p?.offer), ...itemsOf(p?.consideration)].filter(isNftItem).map((i) => i.token);
+  if (order?.contract_address) tokens.push(order.contract_address);
+  return tokens;
+}
+
+// Seaport takes every consideration item from the buyer, and msg.value pays only
+// native ETH. So, as on the server (api/orderbook.js, ETH-ONLY), each item must be
+// itemType 0 at the zero address; any other item would take the buyer's own tokens.
+function nativeOrderAsksBeyondEth(order) {
+  return itemsOf(order?.parameters?.consideration).some((i) => Number(i?.itemType) !== 0
+    || String(i?.token || ZERO_ADDRESS).toLowerCase() !== ZERO_ADDRESS);
+}
+
 export async function fulfillNativeOrder(order) {
+  const refusal = venueRefusalForAll(nativeOrderNftTokens(order));
+  if (refusal) return refusal;
+  if (nativeOrderAsksBeyondEth(order)) {
+    return { error: "not-eth-priced", message: "This order asks for something other than ETH. This venue fills only orders paid in ETH." };
+  }
   const ethProvider = getProvider();
   if (!ethProvider) return { error: "no-wallet", message: "No wallet found" };
 
@@ -258,10 +293,15 @@ export async function fulfillNativeOrder(order) {
       { value: totalWei }
     );
 
-    const receipt = await tx.wait();
-    if (!receipt || receipt.status === 0) {
-      return { error: "reverted", message: "Transaction was mined but reverted on-chain" };
+    const done = await waitForTxOutcome(tx);
+    if (done.kind !== "success") {
+      return txOutcomeResult(done, {
+        reverted: { error: "reverted", message: "Transaction was mined but reverted on-chain" },
+        ifLanded: "the NFT is already yours and buying it again will not go through.",
+      });
     }
+    // The hash that mined. After a speed-up it is not tx.hash, which never mined.
+    const txHash = done.hash;
 
     // Mark order as filled in our backend
     // AUDIT FIX D-FE-M2: bind fill signature to chainId + a 5-minute timestamp
@@ -281,7 +321,7 @@ export async function fulfillNativeOrder(order) {
     // moves; the pre-flight getOrderStatus check above keeps later buyers
     // from broadcasting against the stale row.
     try {
-      const fillMessage = `Fill order ${order.order_hash} tx ${tx.hash} | Chain: ${_fillChainId} | Time: ${_fillTs}`;
+      const fillMessage = `Fill order ${order.order_hash} tx ${txHash} | Chain: ${_fillChainId} | Time: ${_fillTs}`;
       const fillSignature = await signer.signMessage(fillMessage);
       await withRetry(async () => {
         const fillController = new AbortController();
@@ -294,7 +334,7 @@ export async function fulfillNativeOrder(order) {
             body: JSON.stringify({
               action: "fill",
               orderHash: order.order_hash,
-              txHash: tx.hash,
+              txHash,
               signature: fillSignature,
               chainId: _fillChainId,
               timestamp: _fillTs,
@@ -307,10 +347,10 @@ export async function fulfillNativeOrder(order) {
       });
     } catch {
       // Non-critical: on-chain fill succeeded even if backend update fails
-      console.warn("Failed to update orderbook backend after fill, tx:", tx.hash);
+      console.warn("Failed to update orderbook backend after fill, tx:", txHash);
     }
 
-    return { success: true, hash: tx.hash, tx, receipt };
+    return { success: true, hash: txHash, tx, receipt: done.receipt };
   } catch (err) {
     if (err.code === 4001 || err.code === "ACTION_REJECTED") {
       return { error: "rejected", message: "Transaction cancelled by user" };
@@ -324,11 +364,13 @@ export async function fulfillNativeOrder(order) {
 }
 
 // ═══ CREATE NATIVE LISTING ═══
-// List an NFT on our orderbook at a flat 1% fee routed to the Tegridy treasury.
-// (OpenSea has charged ~1% since Sep 2025 — don't market this as a fee discount;
-// the edge is treasury-funding fees + no marketplace dependency. See header.)
+// List an NFT on our orderbook at a flat 0.5% fee routed to the Tegridy treasury
+// (half of OpenSea's 1%). See header.
 
 export async function createNativeListing({ contract, tokenId, priceEth, expirationHours = 168 }) {
+  // Refused before setApprovalForAll: the venue lists only what it can settle.
+  const refusal = venueRefusal(contract);
+  if (refusal) return refusal;
   const ethProvider = getProvider();
   if (!ethProvider) return { error: "no-wallet", message: "No wallet found" };
 
@@ -351,10 +393,8 @@ export async function createNativeListing({ contract, tokenId, priceEth, expirat
     const isApproved = await nftContract.isApprovedForAll(sellerAddress, CONDUIT_ADDRESS);
     if (!isApproved) {
       const approveTx = await nftContract.setApprovalForAll(CONDUIT_ADDRESS, true);
-      const approveReceipt = await approveTx.wait();
-      if (!approveReceipt || approveReceipt.status === 0) {
-        return { error: "approval-failed", message: "NFT approval transaction reverted" };
-      }
+      const approved = await waitForTxOutcome(approveTx);
+      if (approved.kind !== "success") return txOutcomeResult(approved, APPROVAL_WORDS);
       // Re-verify approval succeeded on-chain
       const stillApproved = await nftContract.isApprovedForAll(sellerAddress, CONDUIT_ADDRESS);
       if (!stillApproved) {
@@ -366,7 +406,7 @@ export async function createNativeListing({ contract, tokenId, priceEth, expirat
     const now = Math.floor(Date.now() / 1000);
     const endTime = now + expirationHours * 3600;
 
-    // Platform fee: 1% of price
+    // Platform fee: PLATFORM_FEE_BPS (0.5%) of price
     const platformFee = (priceWei * BigInt(PLATFORM_FEE_BPS)) / 10000n;
     const sellerReceives = priceWei - platformFee;
 
@@ -452,12 +492,14 @@ export async function createNativeListing({ contract, tokenId, priceEth, expirat
     const authMessage = `Create order for ${sellerAddress.toLowerCase()} | Contract: ${contract.toLowerCase()} | Price: ${sellerReceives.toString()} | StartTime: ${now} | EndTime: ${endTime}`;
     const authSignature = await signer.signMessage(authMessage);
 
-    // Submit to our orderbook
+    // Submit to our orderbook. One 30 s budget covers every attempt and the reading of
+    // each answer. An abort during a read can come back as a parse error, so the
+    // controller's signal, not the error's name, says whether the time ran out.
     const createController = new AbortController();
     const createTimeout = setTimeout(() => createController.abort(), 30000);
-    let res;
+    let result;
     try {
-      res = await withRetry(async () => {
+      const res = await withRetry(async () => {
         const r = await fetch(ORDERBOOK_API, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -477,13 +519,17 @@ export async function createNativeListing({ contract, tokenId, priceEth, expirat
             },
           }),
         });
-        clearTimeout(createTimeout);
         if (!r.ok) await throwHttpError(r, "Failed to submit order");
         return r;
-      });
+      }, 2, createController.signal);
+      try {
+        result = await res.json();
+      } catch (parseErr) {
+        if (createController.signal.aborted) throw parseErr;
+        return { error: "post-failed", message: "Invalid response from orderbook" };
+      }
     } catch (fetchErr) {
-      clearTimeout(createTimeout);
-      if (fetchErr.name === "AbortError") return { error: "timeout", message: "Order submission timed out" };
+      if (createController.signal.aborted) return { error: "timeout", message: "Order submission timed out" };
       // The server refuses (409) when this NFT is already inside a live bundle. Pass the
       // structured body through so the caller can tell the seller what to cancel.
       if (fetchErr.status === 409) {
@@ -494,10 +540,9 @@ export async function createNativeListing({ contract, tokenId, priceEth, expirat
         };
       }
       throw fetchErr;
+    } finally {
+      clearTimeout(createTimeout);
     }
-
-    let result;
-    try { result = await res.json(); } catch { return { error: "post-failed", message: "Invalid response from orderbook" }; }
     return { success: true, orderHash: result.orderHash };
   } catch (err) {
     if (err.code === 4001 || err.code === "ACTION_REJECTED") {
@@ -520,6 +565,10 @@ export async function createNativeBundleListing({ items, priceEth, expirationHou
   if (!BUNDLE_LISTING_ENABLED) {
     return { error: "disabled", message: "Bundle listing is not enabled yet." };
   }
+  const refusal = Array.isArray(items) && items.length
+    ? venueRefusalForAll(items.map((it) => it?.contract))
+    : null;
+  if (refusal) return refusal;
   if (!Array.isArray(items) || items.length < 2) {
     return { error: "too-few-items", message: "A bundle needs at least 2 NFTs." };
   }
@@ -573,10 +622,8 @@ export async function createNativeBundleListing({ items, priceEth, expirationHou
       const isApproved = await nftContract.isApprovedForAll(sellerAddress, CONDUIT_ADDRESS);
       if (!isApproved) {
         const approveTx = await nftContract.setApprovalForAll(CONDUIT_ADDRESS, true);
-        const approveReceipt = await approveTx.wait();
-        if (!approveReceipt || approveReceipt.status === 0) {
-          return { error: "approval-failed", message: "NFT approval transaction reverted" };
-        }
+        const approved = await waitForTxOutcome(approveTx);
+        if (approved.kind !== "success") return txOutcomeResult(approved, APPROVAL_WORDS);
         const stillApproved = await nftContract.isApprovedForAll(sellerAddress, CONDUIT_ADDRESS);
         if (!stillApproved) {
           return { error: "approval-failed", message: "NFT approval did not take effect" };
@@ -588,7 +635,7 @@ export async function createNativeBundleListing({ items, priceEth, expirationHou
     const now = Math.floor(Date.now() / 1000);
     const endTime = now + expirationHours * 3600;
 
-    // Platform fee: 1% of the TOTAL bundle price (same split as a single listing).
+    // Platform fee: PLATFORM_FEE_BPS (0.5%) of the TOTAL bundle price (same split as a single listing).
     const platformFee = (priceWei * BigInt(PLATFORM_FEE_BPS)) / 10000n;
     const sellerReceives = priceWei - platformFee;
 
@@ -655,11 +702,13 @@ export async function createNativeBundleListing({ items, priceEth, expirationHou
     const authMessage = `Create bundle for ${sellerAddress.toLowerCase()} | Items: ${itemsStr} | Count: ${items.length} | Price: ${sellerReceives.toString()} | StartTime: ${now} | EndTime: ${endTime}`;
     const authSignature = await signer.signMessage(authMessage);
 
+    // One 30 s budget for every attempt and each answer's body, as in createNativeListing:
+    // the controller's signal, not the error's name, says whether the time ran out.
     const createController = new AbortController();
     const createTimeout = setTimeout(() => createController.abort(), 30000);
-    let res;
+    let result;
     try {
-      res = await withRetry(async () => {
+      const res = await withRetry(async () => {
         const r = await fetch(ORDERBOOK_API, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -676,13 +725,17 @@ export async function createNativeBundleListing({ items, priceEth, expirationHou
             },
           }),
         });
-        clearTimeout(createTimeout);
         if (!r.ok) await throwHttpError(r, "Failed to submit bundle");
         return r;
-      });
+      }, 2, createController.signal);
+      try {
+        result = await res.json();
+      } catch (parseErr) {
+        if (createController.signal.aborted) throw parseErr;
+        return { error: "post-failed", message: "Invalid response from orderbook" };
+      }
     } catch (fetchErr) {
-      clearTimeout(createTimeout);
-      if (fetchErr.name === "AbortError") return { error: "timeout", message: "Bundle submission timed out" };
+      if (createController.signal.aborted) return { error: "timeout", message: "Bundle submission timed out" };
       // Surface the server's structured conflict so the UI can tell the seller WHICH
       // bundle blocks them instead of an opaque failure they cannot act on.
       if (fetchErr.status === 409) {
@@ -693,10 +746,9 @@ export async function createNativeBundleListing({ items, priceEth, expirationHou
         };
       }
       throw fetchErr;
+    } finally {
+      clearTimeout(createTimeout);
     }
-
-    let result;
-    try { result = await res.json(); } catch { return { error: "post-failed", message: "Invalid response from orderbook" }; }
     return { success: true, orderHash: result.orderHash };
   } catch (err) {
     if (err.code === 4001 || err.code === "ACTION_REJECTED") {

@@ -11,6 +11,7 @@ import {
   DEFAULT_AMM_CONFIG_INDEX,
   deriveAmmConfig,
   derivePool,
+  publicTierConfig,
   deriveVault,
   decodeAmmConfig,
   decodePoolState,
@@ -71,10 +72,23 @@ function decodeTokenAccountAmount(data: Uint8Array): bigint | null {
 }
 
 async function fetchAccount(rpc: AccountRpc, address: PublicKey): Promise<Read<Uint8Array>> {
+  const r = await fetchOwned(rpc, address);
+  return r.kind === 'ok' ? { kind: 'ok', value: r.value.data } : r;
+}
+
+/**
+ * The same read, keeping the account's OWNER. Bytes alone prove nothing: anyone can
+ * create an account whose data starts with the right discriminator under their own
+ * program, so a pool or vault read that matters must check who owns it.
+ */
+async function fetchOwned(
+  rpc: AccountRpc,
+  address: PublicKey,
+): Promise<Read<{ data: Uint8Array; owner: PublicKey }>> {
   try {
     const acc = await rpc.getAccountInfo(address);
     if (!acc) return { kind: 'absent' };
-    return { kind: 'ok', value: acc.data };
+    return { kind: 'ok', value: { data: acc.data, owner: acc.owner } };
   } catch (e) {
     return { kind: 'unreadable', detail: clipDetail(e) };
   }
@@ -93,13 +107,30 @@ export type VenueStatus =
   | { kind: 'no-program-id' }
   | { kind: 'program'; deployment: Exclude<Deployment, { kind: 'deployed' }> }
   | { kind: 'no-config'; programId: string }
-  | { kind: 'live'; programId: string; config: AmmConfigView }
+  | { kind: 'live'; programId: string; config: AmmConfigView; publicTier: PublicTierRead }
   | { kind: 'unreadable'; detail: string };
+
+/** The public fee tier (PUBLIC_TIER_INDEX), read beside the launch tier when a page asks for it. */
+export type PublicTierRead =
+  | { kind: 'ok'; config: AmmConfigView }
+  | { kind: 'absent' }
+  | { kind: 'unreadable'; detail: string }
+  | { kind: 'not-asked' };
+
+async function readTier(rpc: AccountRpc, address: PublicKey): Promise<PublicTierRead> {
+  const raw = await fetchAccount(rpc, address);
+  if (raw.kind === 'absent') return { kind: 'absent' };
+  if (raw.kind === 'unreadable') return raw;
+  if (raw.kind !== 'ok') return { kind: 'unreadable', detail: 'the public tier account could not be decoded' };
+  const config = decodeAmmConfig(address.toBase58(), raw.value);
+  return config ? { kind: 'ok', config } : { kind: 'unreadable', detail: 'an account exists at the public tier address but does not decode as one' };
+}
 
 export async function readVenue(
   rpc: AccountRpc,
   programId: PublicKey | null = LIVE_PROGRAM_ID,
   configIndex: number = DEFAULT_AMM_CONFIG_INDEX,
+  opts: { publicTier?: boolean } = {},
 ): Promise<VenueStatus> {
   if (!programId) return { kind: 'no-program-id' };
 
@@ -108,7 +139,11 @@ export async function readVenue(
   if (deployment.kind !== 'deployed') return { kind: 'program', deployment };
 
   const configAddress = deriveAmmConfig(programId, configIndex);
-  const raw = await fetchAccount(rpc, configAddress);
+  // Asked for, the public tier is read alongside, not after: one more account, no more waiting.
+  const [raw, publicTier] = await Promise.all([
+    fetchAccount(rpc, configAddress),
+    opts.publicTier ? readTier(rpc, publicTierConfig(programId)) : Promise.resolve<PublicTierRead>({ kind: 'not-asked' }),
+  ]);
   if (raw.kind === 'unreadable') return { kind: 'unreadable', detail: raw.detail };
   // An absent AmmConfig is NOT an outage — it is the operator's `create_amm_config`
   // step not having run. Naming it precisely is the difference between "come back
@@ -122,7 +157,7 @@ export async function readVenue(
   if (!config) {
     return { kind: 'unreadable', detail: 'an account exists at the AmmConfig address but does not decode as one' };
   }
-  return { kind: 'live', programId: programId.toBase58(), config };
+  return { kind: 'live', programId: programId.toBase58(), config, publicTier };
 }
 
 export interface PoolSnapshot {
@@ -154,23 +189,42 @@ export async function readPoolForPair(
 ): Promise<PoolRead<PoolSnapshot>> {
   const { token0, token1 } = sortMints(mintA, mintB);
   const poolAddress = derivePool(programId, configAddress, token0, token1);
+  return readPoolAt(rpc, programId, poolAddress);
+}
 
-  const raw = await fetchAccount(rpc, poolAddress);
+/**
+ * Read the pool at a KNOWN address — for a launch, the address the launch program
+ * recorded on its curve, never the standard derivation above (which anyone can
+ * occupy first, since pool creation is permissionless).
+ *
+ * The account must be OWNED by `programId` and decode as a pool; otherwise it is
+ * `not-a-pool`. The two vaults must be owned by the token program the pool names.
+ */
+export async function readPoolAt(
+  rpc: AccountRpc,
+  programId: PublicKey,
+  poolAddress: PublicKey,
+): Promise<PoolRead<PoolSnapshot>> {
+  const raw = await fetchOwned(rpc, poolAddress);
   if (raw.kind !== 'ok') return raw;
-  const pool = decodePoolState(poolAddress.toBase58(), raw.value);
+  if (!raw.value.owner.equals(programId)) return { kind: 'not-a-pool', address: poolAddress.toBase58() };
+  const pool = decodePoolState(poolAddress.toBase58(), raw.value.data);
   if (!pool) return { kind: 'not-a-pool', address: poolAddress.toBase58() };
 
   // Vault balances come from the pool's own recorded vault addresses, not from
   // a re-derivation — if the two ever disagree, the account is what pays out.
   const [v0, v1] = await Promise.all([
-    fetchAccount(rpc, new PublicKey(pool.token0Vault)),
-    fetchAccount(rpc, new PublicKey(pool.token1Vault)),
+    fetchOwned(rpc, new PublicKey(pool.token0Vault)),
+    fetchOwned(rpc, new PublicKey(pool.token1Vault)),
   ]);
   if (v0.kind !== 'ok') return v0;
   if (v1.kind !== 'ok') return v1;
+  if (v0.value.owner.toBase58() !== pool.token0Program || v1.value.owner.toBase58() !== pool.token1Program) {
+    return { kind: 'unreadable', detail: 'a pool vault is not owned by the token program the pool names' };
+  }
 
-  const vault0Amount = decodeTokenAccountAmount(v0.value);
-  const vault1Amount = decodeTokenAccountAmount(v1.value);
+  const vault0Amount = decodeTokenAccountAmount(v0.value.data);
+  const vault1Amount = decodeTokenAccountAmount(v1.value.data);
   if (vault0Amount === null || vault1Amount === null) {
     return { kind: 'unreadable', detail: 'a pool vault did not decode as a token account' };
   }
@@ -210,6 +264,8 @@ export interface OwnPoolQuote {
   reserveOut: bigint;
   /** Price impact as a fraction (0.01 = 1%), derived from the reserves. */
   priceImpact: number;
+  /** Where `result.creatorFee` is taken: from the input (on top of it) or off the output. */
+  creatorFeeOnInput: boolean;
 }
 
 /**
@@ -266,6 +322,7 @@ export function quoteOwnPool(
     reserveIn,
     reserveOut,
     priceImpact,
+    creatorFeeOnInput: feeOnInput,
   };
 }
 

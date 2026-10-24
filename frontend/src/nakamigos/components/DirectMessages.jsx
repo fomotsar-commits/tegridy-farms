@@ -4,6 +4,7 @@ import { useSiweAuth } from "../hooks/useSiweAuth";
 import useEns, { isEnsName, resolveEnsName } from "../hooks/useEns";
 import { fetchThread, fetchConversations, sendDm, markThreadRead } from "../lib/dm";
 import { fetchTrades, acceptTrade } from "../lib/trades";
+import { toastTxNotice } from "../lib/txOutcome";
 import { TradeSummary } from "./TradeChips";
 
 const POLL_MS = 15_000; // inside the proxy's 20/min wallet budget
@@ -109,7 +110,7 @@ function DmTradeCard({ tradeId, tradesById, wallet, addToast, onOpenTrades, onTr
                   if (result.success) {
                     addToast?.("Trade executed!", "success");
                     onTradeChanged?.();
-                  } else if (result.error !== "rejected") {
+                  } else if (result.error !== "rejected" && !toastTxNotice(addToast, result)) {
                     addToast?.(result.message || "Trade failed", "error");
                   }
                 } finally {

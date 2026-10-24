@@ -12,8 +12,11 @@
  * src/pages/CommunityPage.tabTargets.test.tsx; /nft-finance is pinned only here
  * (see that file's header for why it cannot be rendered in vitest).
  */
+import type { Locator, Page } from '@playwright/test';
 import { test, expect } from './fixtures/wallet';
-import { gotoRoute } from './fixtures/routes';
+import { expectNoSidewaysScroll } from './fixtures/pageWidth';
+import { gotoRoute, waitForQuiescence } from './fixtures/routes';
+import { playLiveVenue } from './fixtures/playedVenue';
 
 const IPHONE_390 = { width: 390, height: 844 };
 const FLOOR = 44;
@@ -44,7 +47,7 @@ const TOUCH_WIDTHS = [
 // without a case here the new strips would have inherited that silently onto
 // nineteen routes.
 //
-// /lore, /contracts and /leaderboard are those three hosts — LearnPage, InfoPage
+// /lore, /contracts and /history are those three hosts — LearnPage, InfoPage
 // and ActivityPage. RouteTabs was extracted FROM them and then left them behind,
 // so for one change-set the app shipped the 44px floor on the four new strips and
 // the old flat 40px on the three originals: the same defect this file was written
@@ -61,7 +64,7 @@ const TOUCH_WIDTHS = [
 // at all (navConfig.ts explains why that section alone is not a SectionHost), so
 // the `toBeGreaterThan(1)` guard below would fail on a count of 0 — reporting a
 // page that is correct by design as a page that changed shape.
-for (const path of ['/community', '/nft-finance', '/trust', '/launch', '/lore', '/contracts', '/leaderboard', '/liquidity', '/farm']) {
+for (const path of ['/community', '/nft-finance', '/trust', '/launch', '/lore', '/contracts', '/history', '/liquidity', '/earn']) {
   for (const vp of TOUCH_WIDTHS) {
     test(`${path} section tabs clear the ${FLOOR}px touch floor at ${vp.name}`, async ({
       page,
@@ -86,44 +89,353 @@ for (const path of ['/community', '/nft-finance', '/trust', '/launch', '/lore', 
   }
 }
 
-/**
- * THE PAGE MUST NOT SCROLL SIDEWAYS ON A PHONE.
- *
- * ⚠️ WRITTEN BECAUSE IT SHIPPED BROKEN. The 2026-09-05 nav rewrite added two
- * wide tables (/liquidity's pool table, /farm's island index), each correctly
- * wrapped in `overflow-x-auto`. The wrapper clipped the TABLE — and did not clip
- * the `sr-only` span in its last <th>, because Tailwind's `sr-only` is
- * `position:absolute` and an absolutely-positioned element is only clipped by an
- * ancestor that is its CONTAINING BLOCK, i.e. a positioned one. The static
- * wrapper was not, so the span painted at the 520px table's right edge and
- * dragged the document's scroll width to 521 on a 390px viewport.
- *
- * It looked completely fine: the table sat inside its rounded card, scrolling
- * its own overflow, while the whole page slid sideways under the user's thumb.
- *
- * The assertion is deliberately BEHAVIOURAL — it scrolls and checks the page
- * moved — rather than comparing scrollWidth to clientWidth. `body` carries
- * `overflow-x: hidden` in index.css, so the two can disagree, and the question
- * that matters to a person holding a phone is whether it moves.
- */
-for (const path of ['/', '/liquidity', '/farm', '/island', '/swap', '/trust']) {
+// No page below is wider than its window, in any project: fixtures/pageWidth.ts measures it.
+for (const path of ['/', '/liquidity', '/earn', '/island', '/swap', '/trust']) {
   test(`${path} does not scroll horizontally at 390px`, async ({ page, walletMock: _w }) => {
     await page.setViewportSize(IPHONE_390);
     await gotoRoute(page, path);
-
-    const moved = await page.evaluate(() => {
-      const before = window.scrollX;
-      window.scrollTo(500, 0);
-      const after = window.scrollX;
-      window.scrollTo(0, 0);
-      return { before, after, scrollW: document.documentElement.scrollWidth };
-    });
-
-    expect(
-      moved.after,
-      `the page slid sideways to x=${moved.after} (scrollWidth ${moved.scrollW}). Something is ` +
-        'escaping its scroll container — check for a position:absolute child (sr-only!) inside ' +
-        'a STATIC overflow-x-auto wrapper.',
-    ).toBe(moved.before);
+    await expectNoSidewaysScroll(page);
   });
 }
+
+/**
+ * /solana-lp is measured in each state it settles into, never at first paint: its wide
+ * content is the LP section, which mounts only after a live venue read and a lazy chunk,
+ * so at first paint the page is a hero and a "Reading" line. Live is a played venue
+ * (fixtures/playedVenue.ts), so the section and its fee tiers are up on every machine.
+ */
+const A_MINT = '4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R';
+
+/**
+ * /solana-lp (or /pools, which mounts the same section) on the played venue, settled: the
+ * LP section is up and both fee tiers read. `gateOpen`: the venue also answers the LP gate,
+ * so the page is as production shows it, with no "could not check the network" banner.
+ */
+async function settledSolanaLp(page: Page, path: string, { gateOpen = false } = {}): Promise<void> {
+  const venue = await playLiveVenue(page, { gateOpen });
+  await gotoRoute(page, path);
+
+  await expect(page.getByTestId('lp-finder'), 'the LP section did not mount on the played venue').toBeVisible({ timeout: 20_000 });
+  await expect(page.locator('[data-testid="fee-tier"][data-state="live"]'), 'both played fee tiers read').toHaveCount(2);
+  if (path.includes('?mint=')) await expect(page.getByLabel(/Token mint address/)).toHaveValue(A_MINT);
+  if (gateOpen) await expect.poll(() => venue.answered, 'the LP gate asked which network this is').toContain('getGenesisHash');
+  await waitForQuiescence(page, { quietMs: 600, timeout: 12_000 });
+  expect(venue.answered, 'the page asked the played venue').toContain('getMultipleAccounts');
+}
+
+for (const path of ['/solana-lp', `/solana-lp?mint=${A_MINT}`]) {
+  test(`${path} with its LP section mounted does not scroll horizontally at 390px`, async ({ page, walletMock: _w }) => {
+    await page.setViewportSize(IPHONE_390);
+    await settledSolanaLp(page, path);
+    await expectNoSidewaysScroll(page);
+  });
+}
+
+/**
+ * /solana-lp opens on what a visitor can DO: Open a pool, Add liquidity and Remove
+ * liquidity are whole inside the first screen, above the phone's bottom bar where there is
+ * one, and under nothing. Pressing Open a pool brings the site's own tokens and the token
+ * address field onto the screen under them, so a second press reaches a form.
+ *
+ * It used to pin the address field alone in the first screen (it had been 1,506px down a
+ * phone). That was not enough: the owner on a phone, 2026-10-03, with the field on the
+ * first screen: "there is no way to create pools on mobile". A phone has no 44-character
+ * address to paste, and nothing else on the screen could be pressed.
+ * Measured unscrolled, once the fonts have loaded.
+ */
+const FIRST_SCREENS = [
+  { name: '390x844 phone', size: IPHONE_390, bottomBar: true },
+  // A phone's browser gives a page less than the phone's screen. Playwright's own devices:
+  // an iPhone 14 (a 390x844 screen) leaves Safari 390x664, and an iPhone 15 leaves 393x659.
+  { name: '390x664, Safari on an iPhone 14', size: { width: 390, height: 664 }, bottomBar: true },
+  { name: '393x659, Safari on an iPhone 15', size: { width: 393, height: 659 }, bottomBar: true },
+  { name: '375x667, a narrower phone', size: { width: 375, height: 667 }, bottomBar: true },
+  { name: '1280x900 desktop', size: { width: 1280, height: 900 }, bottomBar: false },
+];
+
+/** How tall the bar pinned to the foot of the screen is (the phone's BottomNav), or 0 with none. */
+async function bottomBarHeight(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    for (const nav of document.querySelectorAll('nav[aria-label="Main navigation"]')) {
+      const box = nav.getBoundingClientRect();
+      if (getComputedStyle(nav).position === 'fixed' && box.height > 0 && box.bottom >= window.innerHeight - 1) return box.height;
+    }
+    return 0;
+  });
+}
+
+for (const vp of FIRST_SCREENS) {
+  test(`/solana-lp shows Open a pool, Add liquidity and Remove liquidity in the first screen at ${vp.name}`, async ({ page, walletMock: _w }) => {
+    await page.setViewportSize(vp.size);
+    await settledSolanaLp(page, '/solana-lp', { gateOpen: true });
+    await expect(page.getByTestId('lp-gate-banner'), 'the played LP gate did not open').toHaveCount(0);
+    await page.evaluate(() => document.fonts.ready);
+    await page.evaluate(() => window.scrollTo(0, 0));
+
+    const barHeight = await bottomBarHeight(page);
+    expect(barHeight > 0, `the bottom bar is ${barHeight}px tall at ${vp.name}`).toBe(vp.bottomBar);
+    // The height the page really has, not the one asked for: a project may not give it.
+    const pageHeight = await page.evaluate(() => window.innerHeight);
+    expect(pageHeight, 'the page is as tall as this case says').toBe(vp.size.height);
+    const screenEnds = pageHeight - barHeight;
+
+    /** Whole inside the first screen, a finger-sized target, and the thing a press there hits. */
+    const onFirstScreen = async (target: Locator, what: string) => {
+      const box = (await target.boundingBox())!;
+      const ends = Math.round(box.y + box.height);
+      expect(box.y, `${what} starts above the top of the screen`).toBeGreaterThanOrEqual(0);
+      expect(
+        ends,
+        `${what} ends ${ends}px down; the first screen ends at ${screenEnds}px (${pageHeight}px tall, ${barHeight}px of bottom bar)`,
+      ).toBeLessThanOrEqual(screenEnds);
+      expect(Math.round(box.height), `${what} is shorter than a finger`).toBeGreaterThanOrEqual(44);
+      const onTop = await target.evaluate((el) => {
+        const b = el.getBoundingClientRect();
+        const hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+        return !!hit && (hit === el || el.contains(hit));
+      });
+      expect(onTop, `something covers ${what}`).toBe(true);
+      return box;
+    };
+
+    const finder = page.getByTestId('lp-finder');
+    const tasks = finder.getByTestId('lp-tasks');
+    await expect(tasks.getByRole('button')).toHaveText(['Open a pool', 'Add liquidity', 'Remove liquidity']);
+    let firstButtonTop = Infinity;
+    for (const name of ['Open a pool', 'Add liquidity', 'Remove liquidity']) {
+      const box = await onFirstScreen(tasks.getByRole('button', { name, exact: true }), name);
+      firstButtonTop = Math.min(firstButtonTop, box.y);
+    }
+    // No risk line on the page (owner, 2026-10-17: "remove this warning from everywhere"); its
+    // sentence leads the notice's Risks drop-down. The one line on earning is read on the way.
+    await expect(page.getByTestId('lp-risk-line')).toHaveCount(0);
+    const earn = (await page.getByTestId('lp-earn-line').boundingBox())!;
+    expect(earn.y, 'the earn line starts above the top of the screen').toBeGreaterThanOrEqual(0);
+    expect(earn.y + earn.height, 'the earn line is not above the three buttons').toBeLessThanOrEqual(firstButtonTop);
+
+    // One press, and what comes next is on the screen: a site token to press, and the
+    // address field for any other token. Polled: the page scrolls them up under the buttons.
+    await tasks.getByRole('button', { name: 'Open a pool', exact: true }).click();
+    const token = finder.getByTestId('lp-site-tokens').getByRole('button').first();
+    const field = finder.getByLabel(/Token mint address/);
+    const seen = (target: Locator) =>
+      target.evaluate((el, ends) => {
+        const b = el.getBoundingClientRect();
+        const hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+        return b.top >= 0 && Math.round(b.bottom) <= ends && !!hit && (hit === el || el.contains(hit));
+      }, screenEnds);
+    await expect.poll(() => seen(token), 'after Open a pool, the first site token is on screen and under nothing').toBe(true);
+    await expect.poll(() => seen(field), 'after Open a pool, the token address field is on screen and under nothing').toBe(true);
+
+    await expectNoSidewaysScroll(page);
+  });
+}
+
+/**
+ * Refresh on the live card, and the re-read fails: the LP section above the card unmounts,
+ * so the card jumps up the page. The Refresh that was pressed keeps keyboard focus, and
+ * what the read found is on screen, clear of the header, the tab strip and the phone's
+ * bottom bar. Chromium holds the card in place by itself; at 1280x720 WebKit does not, so
+ * there the page's own scroll is what this measures.
+ */
+for (const size of [{ width: 390, height: 664 }, { width: 1280, height: 720 }]) {
+  test(`/solana-lp: a live Refresh that fails keeps focus on Refresh and shows its answer, at ${size.width}x${size.height}`, async ({ page, walletMock: _w }) => {
+    await page.setViewportSize(size);
+    await settledSolanaLp(page, '/solana-lp', { gateOpen: true });
+    const card = page.getByRole('region', { name: 'Venue status' });
+    await expect(card.getByRole('heading', { name: 'Pools are open' })).toBeVisible();
+    // Focusing the button scrolls the card into view, down under the whole LP section.
+    // Polled: in WebKit that scroll can land after the focus call has returned.
+    await card.getByRole('button', { name: 'Refresh' }).focus();
+    await expect.poll(() => page.evaluate(() => window.scrollY), 'the live card is a scroll down the page').toBeGreaterThan(size.height);
+
+    // The proxy stops answering, the same way the unreadable case below plays it.
+    await page.unroute('**/api/solrpc');
+    await page.route('**/api/solrpc', (r) => r.abort());
+    await page.keyboard.press('Enter');
+    const answer = card.getByRole('heading', { name: 'The chain could not be read' });
+    await expect(answer).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId('lp-finder')).toHaveCount(0);
+
+    await expect.soft(card.getByRole('button', { name: 'Refresh' }), 'keyboard focus left the pressed Refresh').toBeFocused();
+    // On screen and under nothing: the points at both ends of the heading are the heading.
+    const seen = await answer.evaluate((el) => {
+      const b = el.getBoundingClientRect();
+      const hits = (y: number) => el.contains(document.elementFromPoint(b.left + 4, y));
+      return { top: Math.round(b.top), bottom: Math.round(b.bottom), screen: window.innerHeight, shown: hits(b.top + 2) && hits(b.bottom - 2) };
+    });
+    expect(seen.shown, `the answer's heading is at ${seen.top} to ${seen.bottom}px of a ${seen.screen}px screen`).toBe(true);
+  });
+}
+
+/**
+ * A press target whose finger-sized area is padding taken back by a negative margin: the
+ * keyboard's ring goes round its words (`ring-on-words` and `ring-words`, index.css), not
+ * round the area, which reaches over the lines above and below. Callers run it in
+ * Chromium only: the rule is plain CSS, and what Tab reaches in Safari is a setting of
+ * its own.
+ */
+async function expectRingOnWords(page: Page, target: Locator): Promise<void> {
+  const what = (await target.textContent())?.trim() ?? 'a target';
+  // Away and back with the keyboard, so the browser shows the ring it keeps for keys.
+  await target.focus();
+  await page.keyboard.press('Shift+Tab');
+  await page.keyboard.press('Tab');
+  const ring = await target.evaluate((el) => {
+    const drawn = (box: Element) => {
+      const style = getComputedStyle(box);
+      return style.outlineStyle !== 'none' && parseFloat(style.outlineWidth) > 0;
+    };
+    const words = el.querySelector('.ring-words');
+    return {
+      focused: document.activeElement === el,
+      onArea: drawn(el),
+      onWords: !!words && drawn(words),
+      wordsHeight: Math.round(words?.getBoundingClientRect().height ?? Infinity),
+    };
+  });
+  expect(ring.focused, `Tab did not come back to "${what}"`).toBe(true);
+  expect(ring.onArea, `the ring is round the whole press area of "${what}"`).toBe(false);
+  expect(ring.onWords, `"${what}" shows no ring at all`).toBe(true);
+  expect(ring.wordsHeight, `the ringed words of "${what}" are more than one line of text`).toBeLessThanOrEqual(24);
+}
+
+/**
+ * The venue status card under the LP section: its Refresh and its two address copy buttons
+ * are finger-sized and are what a press there hits. A sweep of the live page on phones
+ * (2026-10-04) measured Refresh at 40x17 and the copy buttons at 79x18: text links with no
+ * height of their own. The card is the same at every width, so one phone size holds it.
+ */
+test('/solana-lp: the venue status card\'s Refresh and copy buttons are 44px press targets at 390px', async ({ page, walletMock: _w, browserName }) => {
+  await page.setViewportSize(IPHONE_390);
+  await settledSolanaLp(page, '/solana-lp', { gateOpen: true });
+  await page.evaluate(() => document.fonts.ready);
+  const card = page.getByRole('region', { name: 'Venue status' });
+  await expect(card.getByRole('heading', { name: 'Pools are open' })).toBeVisible();
+  const targets = card.getByRole('button');
+  // Refresh, and one copy button for the pool program and one for its config.
+  await expect(targets).toHaveCount(3);
+  for (const target of await targets.all()) {
+    const what = (await target.textContent())?.trim() ?? 'a button';
+    await target.scrollIntoViewIfNeeded();
+    const seen = await target.evaluate((el) => {
+      // Centred, as a thumb scrolls: clear of the sticky tab strip and the bottom bar.
+      el.scrollIntoView({ block: 'center' });
+      const b = el.getBoundingClientRect();
+      const hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+      return { height: Math.round(b.height), onTop: !!hit && (hit === el || el.contains(hit)) };
+    });
+    expect(seen.height, `"${what}" is shorter than a finger`).toBeGreaterThanOrEqual(FLOOR);
+    expect(seen.onTop, `something covers "${what}"`).toBe(true);
+  }
+  // The press area is padding that the same negative margin takes back, so the card is no
+  // taller for it. The first fix grew the layout instead: a 44px header row and 46px chips,
+  // 55px more card on a phone. Measured 2026-10-04: the row is 16.5px (one line of small
+  // text) and each chip 32px (its text, its own padding and its border). Both are font
+  // size times line height plus fixed padding, so 2px of room is for rounding alone: a
+  // press area that takes back 2px too little on each side is caught.
+  const laidOut = await card.evaluate((el) => {
+    const height = (box: Element | null) => Math.round(box?.getBoundingClientRect().height ?? Infinity);
+    const [refresh, ...copies] = Array.from(el.querySelectorAll('button'));
+    return { headerRow: height(refresh?.parentElement ?? null), chips: copies.map((copy) => height(copy.parentElement)) };
+  });
+  expect(laidOut.headerRow, 'Refresh stretches the card\'s header row').toBeLessThanOrEqual(19);
+  expect(laidOut.chips, 'one chip for the pool program and one for its config').toHaveLength(2);
+  for (const chip of laidOut.chips) expect(chip, 'a copy button stretches its chip').toBeLessThanOrEqual(34);
+  // Reached by the keyboard, each button's ring goes round its words, not round its press
+  // area: there it stood 9px out of a chip above and below, and under Refresh it touched
+  // the heading (2026-10-06).
+  if (browserName === 'chromium') {
+    for (const target of await targets.all()) await expectRingOnWords(page, target);
+  }
+  await expectNoSidewaysScroll(page);
+});
+
+/**
+ * The card's two copy buttons, hit-tested every 0.5px down each box: a box's height says
+ * nothing about who a press there reaches. On a phone the Program and Config chips wrap
+ * onto two rows, and both press areas reached into the 12px between them: Config, later
+ * in the page, took Program's bottom 3px, so a press there copied the wrong address
+ * (measured 2026-10-20, at 390 only). Swept at 4px in from each button's left edge, which
+ * at 390 is over the other chip's button too.
+ */
+for (const path of ['/pools', '/solana-lp']) {
+  test(`${path}: each venue copy button answers a press over 44px and never copies the other address, at 390, 820 and 1280`, async ({ page, walletMock: _w }) => {
+    await page.setViewportSize(IPHONE_390);
+    await settledSolanaLp(page, path, { gateOpen: true });
+    await page.evaluate(() => document.fonts.ready);
+    const card = page.getByRole('region', { name: 'Venue status' });
+    await expect(card.getByRole('heading', { name: 'Pools are open' })).toBeVisible();
+    for (const width of [390, 820, 1280]) {
+      await page.setViewportSize({ width, height: 900 });
+      const sweeps = await card.evaluate((el) => {
+        const copies = Array.from(el.querySelectorAll('button')).filter((b) => b.title === 'Copy to clipboard');
+        return copies.map((copy) => {
+          // Centred, as a thumb scrolls: clear of the sticky tab strip and the bottom bar.
+          copy.scrollIntoView({ block: 'center' });
+          const b = copy.getBoundingClientRect();
+          let own = 0;
+          let other = 0;
+          for (let y = b.top + 0.25; y < b.bottom; y += 0.5) {
+            const hit = document.elementFromPoint(b.left + 4, y);
+            if (hit && copy.contains(hit)) own += 0.5;
+            else if (hit && copies.some((c) => c !== copy && c.contains(hit))) other += 0.5;
+          }
+          return { label: copy.parentElement?.firstElementChild?.textContent ?? '?', height: b.height, own, other };
+        });
+      });
+      expect(sweeps.map((s) => s.label), `at ${width}px: one chip for the pool program and one for its config`).toEqual(['Program', 'Config']);
+      for (const s of sweeps) {
+        expect(s.other, `at ${width}px a press on ${s.label} copies the other address over ${s.other}px`).toBe(0);
+        expect(s.own, `at ${width}px ${s.label} answers over ${s.own}px of its ${s.height}px box`).toBeGreaterThanOrEqual(FLOOR);
+      }
+    }
+  });
+}
+
+/**
+ * The two links that lead between the Solana LP tab and the Venue AMM tab are a line of
+ * text with a finger-sized press area around it. The same sweep measured the first at
+ * 391x36. Measured where each fits on one line (on a phone the first wraps to two, which
+ * is over 44px whatever the press area is). The line itself stays the height it has
+ * always had (35.5px): the extra press area is taken back by a negative margin. That
+ * height is font size times line height plus fixed padding, so 2px of room is for
+ * rounding alone.
+ */
+const TAB_LINKS = [
+  { path: '/solana-lp', to: 'the Venue AMM tab', name: /on the Venue AMM tab$/ },
+  // Its words follow what this site can do with the pools; every form of them ends the same.
+  { path: '/pools', to: 'the Solana LP tab', name: /the Solana LP tab$/ },
+];
+for (const link of TAB_LINKS) {
+  test(`${link.path}: the link to ${link.to} is a 44px press target that leaves its line as it was, at 799px`, async ({ page, walletMock: _w, browserName }) => {
+    await page.setViewportSize({ width: 799, height: 900 });
+    await settledSolanaLp(page, link.path, { gateOpen: true });
+    await page.evaluate(() => document.fonts.ready);
+    const target = page.getByRole('link', { name: link.name });
+    await expect(target).toHaveCount(1);
+    await target.scrollIntoViewIfNeeded();
+    const seen = await target.evaluate((el) => {
+      el.scrollIntoView({ block: 'center' });
+      const b = el.getBoundingClientRect();
+      const hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+      return {
+        height: Math.round(b.height),
+        line: Math.round(el.parentElement!.getBoundingClientRect().height),
+        onTop: !!hit && (hit === el || el.contains(hit)),
+      };
+    });
+    expect(seen.height, 'the link is shorter than a finger').toBeGreaterThanOrEqual(FLOOR);
+    expect(seen.onTop, 'something covers the link').toBe(true);
+    expect(seen.line, 'the link stretches its line, or no longer fits on one').toBeLessThanOrEqual(38);
+    if (browserName === 'chromium') await expectRingOnWords(page, target);
+  });
+}
+
+test('/solana-lp with the chain unreadable does not scroll horizontally at 390px', async ({ page, walletMock: _w }) => {
+  await page.setViewportSize(IPHONE_390);
+  await page.route('**/api/solrpc', (r) => r.abort());
+  await gotoRoute(page, '/solana-lp');
+  await expect(page.getByRole('heading', { name: 'The chain could not be read' })).toBeVisible({ timeout: 20_000 });
+  await expectNoSidewaysScroll(page);
+});

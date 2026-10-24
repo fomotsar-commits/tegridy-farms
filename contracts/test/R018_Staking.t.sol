@@ -61,7 +61,9 @@ contract R018StakingTest is Test {
         token.approve(address(staking), type(uint256).max);
         staking.notifyRewardAmount(FUND);
 
-        staking.setRewardNotifier(notifier, true);
+        // M-S6: the grant is the admin's timelocked write; this fixture plays the admin.
+        vm.prank(address(admin));
+        staking.applyRewardNotifier(notifier, true);
     }
 
     // ===== Helpers ========================================================

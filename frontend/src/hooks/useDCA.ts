@@ -7,6 +7,7 @@ import { SWAP_FEE_ROUTER_ABI, TEGRIDY_ROUTER_ABI, UNISWAP_V2_ROUTER_ABI, ERC20_A
 import { SWAP_FEE_ROUTER_ADDRESS, TEGRIDY_ROUTER_ADDRESS, UNISWAP_V2_ROUTER, WETH_ADDRESS, CHAIN_ID } from '../lib/constants';
 import { selectOnChainVenue } from '../lib/venueSelect';
 import { isValidAddress as isValidTokenAddress } from '../lib/tokenList';
+import { readReceiptOutcome, surfaceReceiptNotice, waitForReceiptOutcome, type DirectReceiptOutcome } from '../lib/txErrors';
 
 const DCA_CHANNEL = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('tegridy_dca_sync') : null;
 
@@ -42,6 +43,14 @@ export interface DCASchedule {
    * pre-fix payloads still validate; runtime falls back to DEFAULT_SLIPPAGE_BPS.
    */
   slippageBps?: number;
+  /**
+   * The swap this schedule sent whose receipt has not been read yet. Set when the
+   * wallet hands back the hash, cleared only when a receipt is read. While it is
+   * set the schedule never runs on its own: if we could not read the receipt,
+   * nothing is known about the swap, and running again could swap twice for one
+   * interval. The poller keeps re-reading it until it settles.
+   */
+  pendingTx?: `0x${string}`;
 }
 
 interface StoragePayload {
@@ -177,6 +186,9 @@ function isValidSchedule(s: unknown): s is DCASchedule {
       (typeof o.slippageBps !== 'number' || !Number.isInteger(o.slippageBps) || o.slippageBps < 0 || o.slippageBps > 10_000)) {
     return false;
   }
+  if (o.pendingTx !== undefined && (typeof o.pendingTx !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(o.pendingTx))) {
+    return false;
+  }
   return true;
 }
 
@@ -192,13 +204,20 @@ function loadSchedules(address: string): DCASchedule[] {
   }
 }
 
-function saveSchedules(address: string, schedules: DCASchedule[]) {
+/** False when the write did not land (storage full or blocked). */
+function saveSchedules(address: string, schedules: DCASchedule[]): boolean {
   try {
     const payload: StoragePayload = { version: STORAGE_VERSION, schedules };
     localStorage.setItem(getStorageKey(address), JSON.stringify(payload));
-    DCA_CHANNEL?.postMessage({ type: 'dca_updated', address });
-  } catch { /* ignore */ }
+  } catch {
+    return false;
+  }
+  try { DCA_CHANNEL?.postMessage({ type: 'dca_updated', address }); } catch { /* the write landed; only the nudge to other tabs failed */ }
+  return true;
 }
+
+/** What to say about sending a schedule's swap again, if the one we could not read landed. */
+const REPEAT_COST = 'swapping again buys a second time for this interval. This schedule waits until it can read the result.';
 
 function buildPath(fromToken: DCASchedule['fromToken'], toToken: DCASchedule['toToken']): `0x${string}`[] {
   const fromAddr = (fromToken.isNative ? WETH_ADDRESS : fromToken.address) as `0x${string}`;
@@ -231,6 +250,11 @@ export function useDCA() {
   const [schedules, setSchedules] = useState<DCASchedule[]>([]);
   const schedulesRef = useRef<DCASchedule[]>([]);
   const executingRef = useRef<Set<string>>(new Set());
+  // False while this tab's writes are not landing (storage full or blocked). Its
+  // schedules then live in this tab only, so storage says nothing about them: a
+  // swap is settled from this tab's own list, and another tab's write is not taken
+  // over it (#629's rule for limit orders).
+  const storageHoldsListRef = useRef(true);
   const { writeContract } = useWriteContract();
 
   useEffect(() => {
@@ -245,6 +269,9 @@ export function useDCA() {
   useEffect(() => {
     if (!DCA_CHANNEL || !address) return;
     const handler = (e: MessageEvent) => {
+      // Not while this tab's own writes fail: storage lacks its swap in flight then,
+      // and taking storage's copy would make that schedule due again.
+      if (!storageHoldsListRef.current) return;
       if (e.data?.type === 'dca_updated' && e.data?.address?.toLowerCase() === address.toLowerCase()) {
         setSchedules(loadSchedules(address));
       }
@@ -312,7 +339,7 @@ export function useDCA() {
   const persist = useCallback((updated: DCASchedule[]) => {
     setSchedules(updated);
     schedulesRef.current = updated;
-    if (address) saveSchedules(address, updated);
+    if (address) storageHoldsListRef.current = saveSchedules(address, updated);
   }, [address]);
 
   const createSchedule = useCallback((schedule: Omit<DCASchedule, 'id' | 'createdAt' | 'lastSwapAt' | 'completedSwaps' | 'status'>) => {
@@ -373,42 +400,80 @@ export function useDCA() {
     persist(schedules.map(s => s.id === id && s.status === 'paused' ? { ...s, status: 'active' as const } : s));
   }, [address, schedules, persist]);
 
-  const markComplete = useCallback((id: string) => {
+  /**
+   * Apply one change to one schedule, in storage first. The receipt waiter can
+   * outlive the component (viem waits up to 180s), and a functional setState on
+   * an unmounted component never runs, so a write that has to survive leaving
+   * the page cannot live only in React state. State gets the same change by id,
+   * so a write that lands after the wallet switched accounts changes nothing on
+   * screen.
+   */
+  const patchSchedule = useCallback((id: string, patch: (s: DCASchedule) => DCASchedule) => {
+    if (!address) return;
+    const apply = (list: DCASchedule[]) => list.map(s => (s.id === id ? patch(s) : s));
+    storageHoldsListRef.current = saveSchedules(address, apply(loadSchedules(address)));
+    schedulesRef.current = apply(schedulesRef.current);
+    setSchedules(apply);
+  }, [address]);
+
+  /**
+   * Settle a sent swap from a receipt we READ. Keyed on the hash, so the live
+   * waiter, a later re-read and another tab reading the same receipt count it once.
+   * A swap the wallet replaced (a cancel, or another call at its nonce) never ran,
+   * so the schedule is released without counting it. A speed-up is the same swap.
+   */
+  const settleSwap = useCallback((
+    id: string,
+    hash: `0x${string}`,
+    outcome: Exclude<DirectReceiptOutcome<unknown>, { kind: 'unreadable' }>,
+  ) => {
     executingRef.current.delete(id);
-    releaseWithBroadcast(id);
-    setSchedules(prev => {
-      const updated = prev.map(s => {
-        if (s.id !== id) return s;
+    // While this tab's writes are not landing, its schedules are not in storage.
+    const held = storageHoldsListRef.current && address ? loadSchedules(address) : schedulesRef.current;
+    if (held.find(s => s.id === id)?.pendingTx === hash) {
+      patchSchedule(id, s => {
+        if (outcome.kind !== 'success') return { ...s, pendingTx: undefined };
         const completed = s.completedSwaps + 1;
         return {
           ...s,
+          pendingTx: undefined,
           completedSwaps: completed,
           lastSwapAt: Date.now(),
           status: completed >= s.totalSwaps ? 'completed' as const : s.status,
         };
       });
-      if (address) saveSchedules(address, updated);
-      return updated;
-    });
-    toast.success('DCA swap confirmed on-chain!');
-  }, [address, releaseWithBroadcast]);
+      if (outcome.kind === 'success') toast.success('DCA swap confirmed on-chain!');
+      else if (outcome.kind === 'reverted') toast.error('DCA swap transaction reverted on-chain.');
+      else surfaceReceiptNotice(toast, outcome, { hash, chainId: CHAIN_ID, repeatCost: REPEAT_COST });
+    }
+    releaseWithBroadcast(id);
+  }, [address, patchSchedule, releaseWithBroadcast]);
 
   const waitForReceipt = useCallback(async (hash: `0x${string}`, scheduleId: string) => {
     if (!publicClient) return;
-    try {
-      const receipt = await publicClient.waitForTransactionReceipt({ hash });
-      if (receipt.status === 'success') {
-        markComplete(scheduleId);
-      } else {
-        executingRef.current.delete(scheduleId); releaseWithBroadcast(scheduleId);
-        toast.error('DCA swap transaction reverted on-chain.');
-      }
-    } catch (err) {
+    const outcome = await waitForReceiptOutcome(publicClient, hash);
+    if (outcome.kind === 'unreadable') {
+      // viem RETURNS a reverted receipt, so this only means we could not read one:
+      // nothing is known about the swap. It is not a failure, and the schedule
+      // keeps its pendingTx, so it does not run again until a later read settles
+      // it. "Failed" here used to release it, and the next poll swapped a second
+      // time.
       executingRef.current.delete(scheduleId); releaseWithBroadcast(scheduleId);
-      toast.error('DCA swap failed: could not confirm transaction.');
-      if (import.meta.env.DEV) console.error('DCA waitForTransactionReceipt error:', err);
+      surfaceReceiptNotice(toast, outcome, { hash, chainId: CHAIN_ID, repeatCost: REPEAT_COST });
+      if (import.meta.env.DEV) console.error('DCA receipt wait error:', outcome.error);
+      return;
     }
-  }, [publicClient, markComplete, releaseWithBroadcast]);
+    settleSwap(scheduleId, hash, outcome);
+  }, [publicClient, settleSwap, releaseWithBroadcast]);
+
+  /** Re-read the receipt of a swap sent earlier. Still unreadable: keep waiting. */
+  const recheckPending = useCallback((id: string, hash: `0x${string}`) => {
+    if (!publicClient) return;
+    void readReceiptOutcome(publicClient, hash).then((outcome) => {
+      // Still unreadable: keep waiting; the warning already said so.
+      if (outcome.kind !== 'unreadable') settleSwap(id, hash, outcome);
+    });
+  }, [publicClient, settleSwap]);
 
   const executeDCASwap = useCallback(async (schedule: DCASchedule) => {
     if (!address || !writeContract || !publicClient) return;
@@ -530,6 +595,10 @@ export function useDCA() {
     refreshTabLock(schedule.id);
 
     const onTxSubmitted = (hash: `0x${string}`) => {
+      // Recorded before anything waits on it, so no later path (an unread
+      // receipt, a reload, leaving the page) can find this schedule due again
+      // while its swap is out.
+      patchSchedule(schedule.id, s => ({ ...s, pendingTx: hash }));
       toast.info('DCA swap submitted, waiting for on-chain confirmation...');
       waitForReceipt(hash, schedule.id);
     };
@@ -593,7 +662,7 @@ export function useDCA() {
     } catch {
       executingRef.current.delete(schedule.id); releaseWithBroadcast(schedule.id);
     }
-  }, [address, chainId, writeContract, publicClient, markComplete, waitForReceipt, claimWithBroadcast, releaseWithBroadcast]);
+  }, [address, chainId, writeContract, publicClient, patchSchedule, waitForReceipt, claimWithBroadcast, releaseWithBroadcast]);
 
   // Polling: check for due schedules and auto-execute
   useEffect(() => {
@@ -603,6 +672,12 @@ export function useDCA() {
       const current = schedulesRef.current;
       const now = Date.now();
       for (const s of current) {
+        if (s.pendingTx) {
+          // Its last swap has no receipt yet. Never run it again from here:
+          // re-read that receipt instead (the live waiter covers this tab).
+          if (!executingRef.current.has(s.id)) recheckPending(s.id, s.pendingTx);
+          continue;
+        }
         if (s.status !== 'active') continue;
         if (s.completedSwaps >= s.totalSwaps) continue;
         if (executingRef.current.has(s.id)) continue;
@@ -622,9 +697,10 @@ export function useDCA() {
       clearInterval(timer);
       executingRef.current.clear();
     };
-  }, [address, executeDCASwap]);
+  }, [address, executeDCASwap, recheckPending]);
 
   const dueSchedules = schedules.filter(s => {
+    if (s.pendingTx) return false;
     if (s.status !== 'active') return false;
     if (s.completedSwaps >= s.totalSwaps) return false;
     const intervalMs = INTERVAL_MS[s.interval] ?? INTERVAL_MS.daily ?? 86400000;
@@ -641,6 +717,5 @@ export function useDCA() {
     cancelSchedule,
     pauseSchedule,
     resumeSchedule,
-    markSwapComplete: markComplete,
   };
 }

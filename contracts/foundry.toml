@@ -16,7 +16,8 @@ optimizer = true
 # only (1) DRY refactors that DELETE duplicated patterns, (2) verbatim Solady
 # primitive swaps from billion-dollar protocols, (3) read-only sister contracts.
 #
-# TegridyStaking: 24,521 B (~55 B headroom — re-measured 2026-09-05, was 24,554 B /
+# TegridyStaking: 24,489 B (87 B headroom, re-measured 2026-10-14: M-S6 cost 16 B and
+#   folding onlyAdmin into one private _onlyAdmin returned 48 B). 2026-09-05: 24,521 B (~55 B, was 24,554 B /
 #   ~22 B; before that 24,337 B / ~239 B at the 2026-08-19 measurement). The 46 B came
 #   BACK from applying the rule below rather than spending it. TWO security fixes landed
 #   on 2026-09-05 and the contract still SHRANK by 33 B. [LEND-EOA-WHITELIST]
@@ -40,7 +41,7 @@ optimizer = true
 #   The margin is now 55 B — still under one line of code for most edits, and this
 #   contract is live + on the redeploy list. Extract BEFORE the next edit.
 #   ENFORCED, not just documented: contracts/test/Audit_StakingEIP170Size.t.sol ratchets
-#   the measured 24,521 B, so growth fails a test rather than silently eating the margin
+#   the measured 24,489 B, so growth fails a test rather than silently eating the margin
 #   (CI's FLOOR_EXCEPTIONS only WARNS below the hard 24,576 limit).
 #   - src/lib/StakingViewLib.sol: read-only views (votingPowerOf / aggregateActive
 #     BoostBps / earned / earnedFromMem) + resolveJbac JBAC-revalidation helper

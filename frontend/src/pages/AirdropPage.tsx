@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { trackPageView } from '../lib/analytics';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
+import { CardArt } from '../components/ui/CardArt';
 import { CampaignBuilder } from '../components/airdrop/CampaignBuilder';
 import { ClaimPanel } from '../components/airdrop/ClaimPanel';
 import { AIRDROP_FACTORY_ADDRESS, isDeployed } from '../lib/constants';
@@ -63,7 +64,9 @@ export default function AirdropPage() {
 
         {tab === 'claim' ? <ClaimPanel /> : <CampaignBuilder />}
 
-        <div className="mt-10 rounded-2xl border border-white/10 bg-black/20 p-5">
+        {/* airdrop art idx: 0 backdrop, 1-5 claim cards, 6-11 campaign builder cards (components/airdrop), 12 this card */}
+        <div className="relative isolate mt-10 rounded-2xl border border-white/10 bg-black/20 p-5">
+          <CardArt pageId="airdrop" idx={12} />
           <h2 className="text-white/80 font-semibold text-sm mb-2">How a campaign is built</h2>
           <ul className="text-white/50 text-xs space-y-1.5 leading-relaxed list-disc pl-4 marker:text-white/25">
             <li>

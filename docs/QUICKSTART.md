@@ -9,8 +9,7 @@
 > promised one that never loads costs their trust twice. Three dead destinations went with
 > them: `/docs`, `/drop/<address>` and a community Discord, none of which exist.
 
-The app is live at **[memetics.finance](https://memetics.finance)** (also
-**memetic.fun**). Pick a path.
+The app is live at **[memetics.finance](https://memetics.finance)**. Pick a path.
 
 - [Path 1 — Stake TOWELI](#path-1--stake-toweli)
 - [Path 2 — Stake a bungalow token](#path-2--stake-a-bungalow-token)
@@ -42,7 +41,7 @@ is. TOWELI is **Ethereum-only** — there is no bridged version on Base, Robinho
 and there never will be.
 
 ### 2. Go to the Farm
-`/farm` shows the pools, the live APR and the boost table.
+`/earn/toweli` shows the TOWELI pool, the live APR and the boost table (`/earn` lists every pool on the island).
 
 ### 3. Approve and stake
 Enter an amount, **Approve** (one-time), then **Stake**. Two wallet confirmations.

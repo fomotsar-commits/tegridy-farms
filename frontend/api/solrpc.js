@@ -128,8 +128,6 @@ function isProdLikeEnv() {
 
 function buildAllowedOrigins() {
   const set = new Set([
-    "https://memetic.fun",
-    "https://www.memetic.fun",
     "https://memetics.finance",
     "https://www.memetics.finance",
     "https://tegridyfarms.vercel.app",
@@ -243,3 +241,8 @@ export default async function handler(req, res) {
 
   return res.status(200).send(bodyText);
 }
+
+// Exported so the Solana e2e harness checks every browser RPC call against the
+// proxy's REAL rule (including the filtered Streamflow getProgramAccounts
+// allowance) instead of a copy of it. No behaviour change.
+export { ALLOWED_SOL_METHODS, isAllowedRpcCall };

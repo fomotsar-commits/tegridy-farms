@@ -1,14 +1,18 @@
 import { useState, useEffect, useMemo } from 'react';
 import { m } from 'framer-motion';
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
-import { useAccount, useChainId } from 'wagmi';
+import { useAccount } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
+import { CONNECT_ETHEREUM_WALLET } from '../lib/copy';
 import { ClockLine } from '../components/ClockLine';
 import { getTxUrl } from '../lib/explorer';
 import { RealYieldProof } from '../components/RealYieldProof';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { trackPageView } from '../lib/analytics';
 import { useSwap } from '../hooks/useSwap';
+import { useSwapChainId } from '../hooks/useSwapChainId';
+import { CHAIN_ID } from '../lib/constants';
+import { defaultTokensFor } from '../lib/tokenList';
 import { useTOWELIPriceOptional } from '../contexts/PriceContext';
 import { formatTokenAmountGrouped, formatBalance } from '../lib/formatting';
 import { computeRouteSavings, aggOutUnits } from '../lib/routeSavings';
@@ -21,7 +25,11 @@ import { MevProtectionPanel } from '../components/swap/MevProtectionPanel';
 import { TokenSelectModal } from '../components/swap/TokenSelectModal';
 import { ChainSwitch } from '../components/swap/ChainSwitch';
 import { ChainSwapAvailability } from '../components/swap/ChainSwapAvailability';
+import { IslandBasketEvm } from '../components/swap/IslandBasketEvm';
+import { evmBasketFor } from '../lib/islandBasket';
 import { ArtImg } from '../components/ArtImg';
+import { CardArt } from '../components/ui/CardArt';
+import { FinePrint } from '../components/ui/FinePrint';
 import { useTowelie } from '../hooks/useTowelie';
 import { useTabListKeys } from '../hooks/useTabListKeys';
 
@@ -84,7 +92,6 @@ function resolveInitialTab(searchParams: URLSearchParams): Tab {
 
 export default function TradePage() {
   const { isConnected } = useAccount();
-  const chainId = useChainId();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const [tab, setTab] = useState<Tab>(() => resolveInitialTab(searchParams));
@@ -112,6 +119,15 @@ export default function TradePage() {
     trigger:   { title: 'Trigger Order', desc: 'Build a stop-loss, take-profit, trailing stop or OCO exit — and read whether anything would actually watch it. An order is not armed unless a named executor exists for that exact order.' },
   };
   usePageTitle(titleByTab[tab].title, titleByTab[tab].desc);
+  // The one short line under the heading. `desc` above stays the search-result and
+  // og:description sentence; the tab's own panel carries its caveats.
+  const lineByTab: Record<Tab, string> = {
+    swap: 'Swap on the native DEX or across routed aggregators.',
+    dca: 'Buy TOWELI on a schedule while this tab is open.',
+    limit: 'An on-chain CoW order that fills at your price.',
+    twap: 'Split a buy into slices over time. Needs a Safe wallet.',
+    trigger: 'Build a stop-loss, take-profit, trailing stop or OCO exit.',
+  };
   const [showTokenSelect, setShowTokenSelect] = useState<'from' | 'to' | null>(null);
   const [showRouteDetails, setShowRouteDetails] = useState(false);
   // F190: the custom-slippage field keeps its OWN string state while focused so
@@ -153,7 +169,10 @@ export default function TradePage() {
   // tablist markup.
   const tabKeys = useTabListKeys(VALID_TABS, tab, handleTabChange);
 
-  const swap = useSwap();
+  // The chain the Swap tab trades on: the wallet's, or `?c=` with no wallet.
+  const swapChainId = useSwapChainId();
+  const swap = useSwap({ chainId: swapChainId });
+  const onEthereum = swap.swapChainId === CHAIN_ID;
 
   // Best-effort USD estimate under the pay/receive amounts. ETH/WETH via ethUsd, TOWELI via
   // priceInUsd; returns null (line hidden, never "$0.00") for unpriced tokens or missing data.
@@ -161,7 +180,8 @@ export default function TradePage() {
   const usdFor = (token: { isNative?: boolean; symbol?: string } | null | undefined, amountStr: string | undefined) => {
     const amt = Number(amountStr);
     if (!priceCtx || !token || !Number.isFinite(amt) || amt <= 0) return null;
-    const unit = token.isNative ? priceCtx.ethUsd : (token.symbol === 'TOWELI' ? priceCtx.priceInUsd : null);
+    // TOWELI lives on Ethereum only; a token of that name on another chain is not it.
+    const unit = token.isNative ? priceCtx.ethUsd : (token.symbol === 'TOWELI' && onEthereum ? priceCtx.priceInUsd : null);
     if (!unit || !Number.isFinite(unit) || unit <= 0) return null;
     return amt * unit;
   };
@@ -233,7 +253,7 @@ export default function TradePage() {
       <div className="relative z-10 max-w-[600px] mx-auto px-4 md:px-6 pt-20 pb-28 md:pb-12">
         <m.div className="mb-5" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
           <h1 className="heading-luxury text-2xl md:text-3xl text-white tracking-tight mb-1" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{titleByTab[tab].title}</h1>
-          <p className="text-white text-[13px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{titleByTab[tab].desc}</p>
+          <p className="text-white text-[13px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{lineByTab[tab]}</p>
         </m.div>
 
         {/* Which chain — this surface is the Ethereum one, and the venue also
@@ -248,7 +268,7 @@ export default function TradePage() {
             Placed ABOVE the tab strip on purpose: every tab under it (Liquidity,
             DCA, Limit, TWAP, Trigger) is pinned to mainnet by the same gate, so
             the explanation belongs to the surface, not to the swap tab. */}
-        <ChainSwapAvailability chainId={chainId} />
+        <ChainSwapAvailability chainId={swapChainId} swapTab={tab === 'swap'} />
 
         {/* Tab Toggle */}
         <div
@@ -299,6 +319,13 @@ export default function TradePage() {
                 quote read is public RPC, no wallet needed. Only the action button
                 gates on connect, so a visitor can price a swap before connecting. */}
             <>
+                {/* One amount split across every island coin on this chain (owner, 2026-10-18).
+                    Only where the island has coins: Ethereum and Base. */}
+                {evmBasketFor(swapChainId) && (
+                  <div className="flex justify-end mb-3">
+                    <IslandBasketEvm chainId={swapChainId} slippagePct={swap.slippage} />
+                  </div>
+                )}
                 {/* AUDIT FIX FE-HIGH-6: permanent unverified-token banner.
                     Custom tokens (anything not in DEFAULT_TOKENS) get a
                     sticky reminder above the swap form so the user is
@@ -316,7 +343,7 @@ export default function TradePage() {
                         swap.isToTokenCustom ? swap.toToken?.symbol : null,
                       ].filter(Boolean).join(' / ')}
                       {' '}
-                      is not on the default token list. Approvals are restricted to exact-amount; double-check the contract on Etherscan before swapping.
+                      is not on the default token list. Approvals are restricted to exact-amount; double-check the contract on {onEthereum ? 'Etherscan' : 'the block explorer'} before swapping.
                     </div>
                   </div>
                 )}
@@ -538,26 +565,34 @@ export default function TradePage() {
                       />
                     </button>
                   </label>
-                  <p className="mt-1 text-[10px] text-white/70" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>
-                    Enable for tokens with an internal transfer fee (reflection / deflationary). Auto-enabled on retry after insufficient-output reverts.
-                  </p>
+                  <FinePrint summary="Details">
+                    <p>
+                      Enable for tokens with an internal transfer fee (reflection / deflationary). Auto-enabled on retry after insufficient-output reverts.
+                    </p>
+                  </FinePrint>
                 </div>
 
                 {/* MEV protection — one-time, user-confirmed opt-in to MEV Blocker's
-                    protected RPC. Additive; does not touch the audited swap path. */}
-                <MevProtectionPanel />
+                    protected RPC. Additive; does not touch the audited swap path.
+                    MEV Blocker is an Ethereum RPC, so it is offered on Ethereum only. */}
+                {onEthereum && <MevProtectionPanel />}
 
                 {/* Swap via CoW — opt-in alternative route through CoW's batch auction
                     (gasless signature, no sandwich surface). Self-gates: renders only
                     when eligible (connected, right chain, ERC-20 sell, positive amount),
-                    and shows the live CoW quote beside the on-chain one — never fabricated. */}
-                <CowSwapPanel
-                  fromToken={swap.fromToken}
-                  toToken={swap.toToken}
-                  inputAmount={swap.inputAmount}
-                  slippage={swap.slippage}
-                  onChainOutputFormatted={swap.outputFormatted}
-                />
+                    and shows the live CoW quote beside the on-chain one — never fabricated.
+                    CoW is wired for Ethereum here, so it is offered only when the form is on
+                    Ethereum: its own gate reads the wallet, and a visitor with no wallet on
+                    /swap?c=8453 would otherwise be shown Ethereum's CoW under a Base form. */}
+                {onEthereum && (
+                  <CowSwapPanel
+                    fromToken={swap.fromToken}
+                    toToken={swap.toToken}
+                    inputAmount={swap.inputAmount}
+                    slippage={swap.slippage}
+                    onChainOutputFormatted={swap.outputFormatted}
+                  />
+                )}
 
                 {/* Route Info — dark panel with Stan blue edge for trading-trust signal.
                     Always renders; shows placeholder text when no amount entered so the
@@ -603,8 +638,8 @@ export default function TradePage() {
                         style={{ background: 'rgba(255,178,55,0.15)', border: '1px solid rgba(255,178,55,0.40)' }}
                         data-testid="swap-price-impact-unread"
                       >
-                        Price impact could not be read — the network did not answer. This is
-                        not a statement that impact is low. Refresh the quote before you sign.
+                        Price impact could not be read. This is not a statement that impact
+                        is low. Refresh the quote before you sign.
                       </div>
                     ) : swap.priceImpact !== null && swap.priceImpact > 5 ? (
                       <div className="mt-2 px-2 py-1.5 rounded text-[10px] text-red-200 font-semibold" style={{ background: 'rgba(239,68,68,0.25)', border: '1px solid rgba(239,68,68,0.45)' }}>
@@ -672,7 +707,7 @@ export default function TradePage() {
                     and a Connect CTA here instead of the Approve/Swap actions. */}
                 {!isConnected ? (
                   <div className="w-full flex flex-col items-center gap-2">
-                    <ConnectButton />
+                    <ConnectButton label={CONNECT_ETHEREUM_WALLET} />
                     <span className="text-white/70 text-[11px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Connect your wallet to swap</span>
                   </div>
                 ) : swap.needsApproval ? (
@@ -699,7 +734,7 @@ export default function TradePage() {
 
                 {swap.isSuccess && swap.txHash && (
                   <div className="mt-3 text-center text-emerald-400 text-[12px]">
-                    Swap confirmed! <a href={getTxUrl(chainId, swap.txHash)} target="_blank" rel="noopener noreferrer" className="underline">View on Explorer</a>
+                    Swap confirmed! <a href={getTxUrl(swap.swapChainId, swap.txHash)} target="_blank" rel="noopener noreferrer" className="underline">View on Explorer</a>
                   </div>
                 )}
             </>
@@ -713,15 +748,21 @@ export default function TradePage() {
                 every trade — a checkable on-chain number, not a superlative
                 (the honesty-vocabulary bar). Both claims link to their
                 checkable surfaces. */}
-            <RealYieldProof />
-            <div className="glass-card rounded-2xl p-4 mt-4" style={{ border: '1px solid var(--color-purple-12)' }}>
+            {onEthereum ? <RealYieldProof /> : <L2FeeLine name={swap.venue?.name ?? 'this chain'} />}
+            <div className="relative isolate glass-card rounded-2xl p-4 mt-4" style={{ border: '1px solid var(--color-purple-12)' }}>
+              <CardArt pageId="trade" idx={4} />
               <p className="text-[13px] text-text-secondary leading-relaxed">
                 <span className="text-text-primary font-medium">Launching something?</span>{' '}
                 The <Link to="/eth-curve" className="text-emerald-400/80 hover:text-emerald-300 underline">Memetics Curve</Link>{' '}
-                pays creators <span className="text-text-primary font-medium">0.40% of every trade</span> (40% of the 1% fee,
-                on-chain, claimable any time) and graduates into this venue with the LP burned. Every token here is{' '}
-                <Link to="/scan" className="text-emerald-400/80 hover:text-emerald-300 underline">scannable</Link>.
+                pays creators <span className="text-text-primary font-medium">0.40% of every trade</span> (40% of the 1% fee).
               </p>
+              <FinePrint summary="Details">
+                <p>
+                  The creator share is on-chain and claimable any time. The curve graduates into this venue with
+                  the LP burned. Every token here is{' '}
+                  <Link to="/scan" className="underline underline-offset-2 text-white hover:text-white/80">scannable</Link>.
+                </p>
+              </FinePrint>
             </div>
           </>
         )}
@@ -789,9 +830,29 @@ export default function TradePage() {
           onClose={() => setShowTokenSelect(null)}
           disabledAddress={showTokenSelect === 'from' ? swap.toToken?.address : swap.fromToken?.address}
           customTokens={swap.customTokens}
+          tokens={defaultTokensFor(swap.swapChainId)}
+          chainId={swap.swapChainId}
           onAddCustomToken={swap.addCustomToken}
         />
       )}
+    </div>
+  );
+}
+
+/**
+ * The Swap tab's money line off Ethereum, where RealYieldProof (fees paid to stakers)
+ * would not be true: on Base and Robinhood Chain the venue fee lands in the fee Safe on
+ * that chain (registry feeSink 'remittance'), and a swap routed to Uniswap pays the venue
+ * nothing (useSwap.ts sends it straight to Uniswap's router).
+ */
+function L2FeeLine({ name }: { name: string }) {
+  return (
+    <div className="relative isolate glass-card rounded-2xl p-4 mt-4" style={{ border: '1px solid var(--color-purple-12)' }}>
+      <CardArt pageId="trade" idx={6} />
+      <p className="text-[13px] text-text-secondary leading-relaxed">
+        <span className="text-text-primary font-medium">Where the fee goes on {name}.</span>{' '}
+        A swap through our pools pays the venue its fee, kept in the venue&apos;s fee Safe on {name}. It does not reach TOWELI stakers. A swap routed to Uniswap pays the venue nothing.
+      </p>
     </div>
   );
 }

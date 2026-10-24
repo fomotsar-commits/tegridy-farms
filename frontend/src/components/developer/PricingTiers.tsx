@@ -1,5 +1,6 @@
 import type { ApiTier } from '../../../api/_lib/apiTiers';
 import { API_TIERS, API_TIER_ORDER, API_BILLING_ENABLED, API_PRICING_STATE } from '../../../api/_lib/apiTiers.js';
+import { CardArt } from '../ui/CardArt';
 
 /**
  * The table is built from the SAME module the limiter enforces
@@ -31,10 +32,11 @@ export function PricingTiers() {
       */}
       {API_PRICING_STATE !== 'published' && (
         <p
-          className="mb-4 rounded-xl px-4 py-3 text-sm"
+          className="relative isolate mb-4 rounded-xl px-4 py-3 text-sm"
           style={{ border: '1px solid var(--color-purple-12)', background: 'rgba(0,0,0,0.25)' }}
           data-testid="pricing-disclosure"
         >
+          <CardArt pageId="developer" idx={12} />
           <strong>These prices are proposed, not live.</strong> No payment processor is connected to
           this deployment, nothing here takes a card, and no invoice is issued. Paid tiers are
           granted by the operator after a settled agreement.

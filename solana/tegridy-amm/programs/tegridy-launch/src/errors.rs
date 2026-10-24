@@ -49,6 +49,17 @@ pub enum LaunchError {
     CreatorMismatch,
     #[msg("cp-swap permission account for the migration authority does not exist — a cp-swap admin must create it before any launch can graduate")]
     MigrationPermissionMissing,
+    // RETIRED, 6022 and 6023. Nothing returns these any more: the platform reserve
+    // is paid at `create_launch` (owner decision 2026-09-26) and the instruction
+    // that raised them, `release_platform_reserve`, is gone. They stay IN PLACE only
+    // so every later variant keeps its number (Anchor numbers by declaration
+    // order); `error_codes_are_stable` pins all three. Never delete, never reuse.
+    #[msg("Retired: the platform reserve is paid when the launch is created")]
+    PlatformReserveLocked,
+    #[msg("Retired: the platform reserve is paid when the launch is created")]
+    PlatformReserveAlreadyReleased,
+    #[msg("cp-swap program is not the one compiled into this build; the graduation venue cannot be repointed")]
+    CpSwapProgramNotPinned,
 }
 
 /// Lift a pure-curve error into the program's error space.
@@ -65,6 +76,8 @@ impl From<CurveError> for LaunchError {
             // A share above 100% is a config-shaped mistake, and config
             // validation is where it should have been caught.
             CurveError::ShareTooHigh => LaunchError::InvalidParameter,
+            // Same shape: a reserve above the cap is a config value out of range.
+            CurveError::ReserveTooHigh => LaunchError::InvalidParameter,
         }
     }
 }

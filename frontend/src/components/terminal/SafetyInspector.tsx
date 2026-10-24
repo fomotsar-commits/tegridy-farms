@@ -3,6 +3,7 @@ import type { GeckoNetwork } from '../../lib/geckoTerminal/pools';
 import { DEPLOYER_NOT_ON_THIS_CHAIN } from '../../hooks/useTerminalSafety';
 import type { RowSafety } from '../../lib/terminal/rowSafety';
 import { SafetyBadge } from './SafetyBadge';
+import { FinePrint } from '../ui/FinePrint';
 
 // The selected row's safety, component by component.
 //
@@ -91,11 +92,13 @@ export function SafetyInspector({
             ) : (
               <p className="mt-1 text-xs text-white/70">{safety.heat.reason}</p>
             )}
-            <p className="mt-1 text-[10px] leading-snug text-white/55">
-              Heat measures how long a wallet has held island tokens. It is shown here and is
-              deliberately excluded from the safety result: a new wallet is not a hazard and a
-              tenured one is not a guarantee.
-            </p>
+            <FinePrint summary="What Heat is">
+              <p>
+                Heat measures how long a wallet has held island tokens. It is shown here and is
+                deliberately excluded from the safety result: a new wallet is not a hazard and a
+                tenured one is not a guarantee.
+              </p>
+            </FinePrint>
           </div>
 
           <label className="mt-3 block text-[11px] font-medium uppercase tracking-wide text-white/60">
@@ -114,8 +117,16 @@ export function SafetyInspector({
           <p id={helpId} className="mt-1 text-[10px] leading-snug text-white/55">
             {offEthereum
               ? DEPLOYER_NOT_ON_THIS_CHAIN[network as Exclude<GeckoNetwork, 'eth'>]
-              : 'This build has no contract-creator lookup, so the deploying address is never resolved automatically. No row on this feed is fully read for that reason: a row can reach a finding, but it can never reach a pass unless you paste a deployer — and what you paste is taken as a claim, not checked against this token.'}
+              : 'This build has no contract-creator lookup, so the deploying address is never resolved automatically.'}
           </p>
+          {offEthereum ? null : (
+            <FinePrint summary="Why">
+              <p>
+                No row on this feed is fully read for that reason: a row can reach a finding, but it can never reach a
+                pass unless you paste a deployer — and what you paste is taken as a claim, not checked against this token.
+              </p>
+            </FinePrint>
+          )}
         </>
       )}
     </section>

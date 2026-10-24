@@ -82,10 +82,11 @@ const JWT_SECRET = process.env.SUPABASE_JWT_SECRET;
 // AUDIT R050 MED: env-driven CORS allowlist. Production hosts are hardcoded
 // for the common case; ALLOWED_ORIGINS=foo,bar lets ops extend without a
 // redeploy. Fail-closed: an origin not in the set gets neither ACAO nor ACAC.
+//
+// 2026-09-23: `memetic.fun` + `www.memetic.fun` removed — they serve the Island
+// Lab, not this venue, and this set rides the SIWE cookie. See auth/siwe.js.
 function buildAllowedOrigins() {
   const set = new Set([
-    "https://memetic.fun",
-    "https://www.memetic.fun",
     "https://memetics.finance",
     "https://www.memetics.finance",
     "https://tegridyfarms.vercel.app",

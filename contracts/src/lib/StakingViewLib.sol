@@ -105,6 +105,9 @@ library StakingViewLib {
     /// @dev Amount-weighted average active boostBps. Mirrors
     ///      TegridyStaking.aggregateActiveBoostBps (post carve-out).
     /// @dev Visibility kept `public` — same for-loop-too-big trade-off as votingPowerOf.
+    /// @dev AUDIT MICROSCOPE_2026_04_30 M-S7: rounds UP. A floor docked a holder whose
+    ///      positions carry different boosts up to 1 bps. The ceiling never exceeds the
+    ///      holder's highest single-position boost, so it stays inside the documented range.
     function aggregateActiveBoostBps(
         EnumerableSetLib.Uint256Set storage set,
         mapping(uint256 => Position) storage positions
@@ -122,7 +125,7 @@ library StakingViewLib {
             totalBoosted += amt * p.boostBps;
         }
         if (totalAmount == 0) return 0;
-        weightedBps = totalBoosted / totalAmount;
+        weightedBps = (totalBoosted + totalAmount - 1) / totalAmount;
     }
 
     /// @dev Memory variant of `earned` for off-chain callers (external contracts) that

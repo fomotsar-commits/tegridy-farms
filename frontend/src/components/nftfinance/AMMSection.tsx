@@ -30,7 +30,11 @@ import { InfoTooltip, HowItWorks, RiskBanner } from '../ui/InfoTooltip';
 import { isValidAddress as _isValidAddress } from '../../lib/tokenList';
 import { useTabListKeys } from '../../hooks/useTabListKeys';
 import { useSafeConnectModal } from '../../hooks/useSafeConnectModal';
+import { useReceiptOutcome } from '../../hooks/useReceiptOutcome';
 import { artImgProps } from '../../lib/artSrcSet';
+import { CardArt } from '../ui/CardArt';
+import { FinePrint } from '../ui/FinePrint';
+import { noteReplacement } from '../../lib/txErrors';
 
 // ─── Constants ────────────────────────────────────────────────────
 
@@ -467,7 +471,7 @@ function AMMStatsBar({ poolCount }: { poolCount: bigint | undefined }) {
   ];
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 mb-8">
+    <div className="grid grid-cols-3 gap-2 sm:gap-4 mb-8">
       {stats.map((s, i) => (
         <m.div
           key={s.label}
@@ -476,8 +480,8 @@ function AMMStatsBar({ poolCount }: { poolCount: bigint | undefined }) {
           transition={{ delay: i * 0.08 }}
         >
           <ArtCard art={pageArt('amm', 0)} opacity={1} overlay="none">
-            <div className="p-4 text-center">
-              <p className={`${labelClass} inline-flex items-center gap-1`}>
+            <div className="p-3 sm:p-4 text-center">
+              <p className={`${labelClass} inline-flex flex-wrap justify-center items-center gap-1`}>
                 {s.label}
                 <InfoTooltip text={s.tooltip} />
               </p>
@@ -568,17 +572,32 @@ function BuySellPanel({ deployed }: { deployed: boolean }) {
   const [approvalStep, setApprovalStep] = useState<'check' | 'approving' | 'approved'>('check');
 
   const { writeContract, data: txHash } = useWriteContract();
-  const { data: receipt, isLoading: isConfirming, isSuccess: isReceiptFetched } = useWaitForTransactionReceipt({ hash: txHash });
+  const receiptQuery = useWaitForTransactionReceipt({ hash: txHash, onReplaced: noteReplacement });
+  const { isLoading: isConfirming } = receiptQuery;
   // AUDIT (receipt-status, 2026-08-24): wagmi's isSuccess only means the receipt
-  // was FETCHED — it latches true for on-chain REVERTED txs too. Gate on
-  // receipt.status so a reverted swap can't fire the success toast below.
-  const isReverted = isReceiptFetched && !!receipt && receipt.status !== 'success';
-  const isSuccess = isReceiptFetched && !isReverted;
+  // was FETCHED. 2026-09-17: and a revert never reaches it — wagmi THROWS on a
+  // reverted receipt, so the `status` gates on both legs never saw one. A
+  // reverted swap was silent, and a reverted APPROVAL left `approvalStep` on
+  // 'approving': the Approve button disabled for the rest of the session.
+  const { isSuccess, isReverted } = useReceiptOutcome(receiptQuery, {
+    hash: txHash,
+    chainId: CHAIN_ID,
+    repeatCost: 'sending it again trades a second time.',
+  });
 
   const { writeContract: writeApproval, data: approvalTxHash } = useWriteContract();
-  const { data: approvalReceipt, isLoading: isApproving, isSuccess: isApprovalReceiptFetched } = useWaitForTransactionReceipt({ hash: approvalTxHash });
-  const approvalReverted = isApprovalReceiptFetched && !!approvalReceipt && approvalReceipt.status !== 'success';
-  const approvalSuccess = isApprovalReceiptFetched && !approvalReverted;
+  const approvalQuery = useWaitForTransactionReceipt({ hash: approvalTxHash, onReplaced: noteReplacement });
+  const { isLoading: isApproving } = approvalQuery;
+  const {
+    isSuccess: approvalSuccess,
+    isReverted: approvalReverted,
+    isReceiptUnreadable: approvalUnreadable,
+    isReplaced: approvalReplaced,
+  } = useReceiptOutcome(approvalQuery, {
+    hash: approvalTxHash,
+    chainId: CHAIN_ID,
+    repeatCost: 'a second approval only costs gas.',
+  });
 
   const validCollection = isValidAddress(collection);
 
@@ -687,14 +706,17 @@ function BuySellPanel({ deployed }: { deployed: boolean }) {
     }
   }, [approvalSuccess, refetchApproval]);
 
-  // Reverted approval: reset the step (it was set to 'approving' on submit and
-  // would otherwise stick there, leaving the button disabled forever).
+  // Reverted OR unreadable approval: reset the step (it was set to 'approving' on
+  // submit and would otherwise stick there, leaving the button disabled forever).
+  // Unreadable also re-reads the allowance — if the approval did land, that read
+  // is what hides the button. So does an approval the wallet cancelled or
+  // replaced: its receipt is the cancel's, and it used to read as "approved".
   useEffect(() => {
-    if (approvalReverted) {
-      setApprovalStep('check');
-      toast.error('Approval reverted on-chain — the collection was not approved.');
-    }
-  }, [approvalReverted]);
+    if (!approvalReverted && !approvalUnreadable && !approvalReplaced) return;
+    setApprovalStep('check');
+    if (approvalReverted) toast.error('Approval reverted on-chain — the collection was not approved.');
+    else refetchApproval();
+  }, [approvalReverted, approvalUnreadable, approvalReplaced, refetchApproval]);
 
   // Reset approval step when switching modes or collections
   useEffect(() => {
@@ -1096,10 +1118,15 @@ function TradeHistory({ deployed }: { deployed: boolean }) {
         {/* F269: once the factory is deployed the "after launch" copy is stale —
             per-pool trade history lives under each pool's expandable card. */}
         <p className="text-xs text-white leading-relaxed max-w-xs mx-auto">
-          {deployed
-            ? 'Expand any tracked pool to see its live swap history. All swaps, fees, and pool interactions are tracked on-chain.'
-            : 'Trade history will appear here once the protocol is live. All swaps, fees, and pool interactions will be tracked.'}
+          {deployed ? 'Open a tracked pool to see its swaps.' : 'Trade history appears once the protocol is live.'}
         </p>
+        <FinePrint summary="Details">
+          <p>
+            {deployed
+              ? 'Expand any tracked pool to see its live swap history. All swaps, fees, and pool interactions are tracked on-chain.'
+              : 'Trade history will appear here once the protocol is live. All swaps, fees, and pool interactions will be tracked.'}
+          </p>
+        </FinePrint>
       </div>
     </ArtCard>
   );
@@ -1158,11 +1185,16 @@ export function PoolAdminPanel({
 
   const chainId = useChainId();
   const { writeContract, data: txHash, isPending } = useWriteContract();
-  const { data: receipt, isLoading: isConfirming, isSuccess: isReceiptFetched } = useWaitForTransactionReceipt({ hash: txHash });
-  // AUDIT (receipt-status, 2026-08-24): gate on receipt.status — raw isSuccess
-  // latches true for on-chain REVERTED txs too.
-  const isReverted = isReceiptFetched && !!receipt && receipt.status !== 'success';
-  const isSuccess = isReceiptFetched && !isReverted;
+  const receiptQuery = useWaitForTransactionReceipt({ hash: txHash, onReplaced: noteReplacement });
+  const { isLoading: isConfirming } = receiptQuery;
+  // AUDIT (receipt-status, 2026-08-24): raw isSuccess means "receipt FETCHED".
+  // 2026-09-17: and wagmi THROWS on a reverted receipt, so the `status` gate
+  // never saw a revert and the revert toast below was dead.
+  const { isSuccess, isReverted } = useReceiptOutcome(receiptQuery, {
+    hash: txHash,
+    chainId: CHAIN_ID,
+    repeatCost: 'sending it again repeats it, and a withdrawal moves funds a second time.',
+  });
 
   // Read the paused + pending-change state for this pool.
   const { data: state, refetch: refetchState } = useReadContracts({
@@ -1622,12 +1654,16 @@ function PoolCard({
   // isPending = wallet signing phase; isConfirming = on-chain confirmation.
   // Both must gate buttons to prevent double-submit during wallet prompt.
   const { writeContract, data: txHash, isPending } = useWriteContract();
-  const { data: poolTxReceipt, isLoading: isConfirming, isSuccess: poolTxReceiptFetched } = useWaitForTransactionReceipt({ hash: txHash });
-  // AUDIT (receipt-status, 2026-08-24): gate on receipt.status — raw isSuccess
-  // latches true for on-chain REVERTED txs too, and the submission callback
-  // below already toasted "Liquidity added!/withdrawn!".
-  const poolTxReverted = poolTxReceiptFetched && !!poolTxReceipt && poolTxReceipt.status !== 'success';
-  const poolTxSuccess = poolTxReceiptFetched && !poolTxReverted;
+  const poolTxQuery = useWaitForTransactionReceipt({ hash: txHash, onReplaced: noteReplacement });
+  const { isLoading: isConfirming } = poolTxQuery;
+  // AUDIT (receipt-status, 2026-08-24): raw isSuccess means "receipt FETCHED".
+  // 2026-09-17: and wagmi THROWS on a reverted receipt, so the `status` gate never
+  // saw a revert: the correction below was dead.
+  const { isSuccess: poolTxSuccess, isReverted: poolTxReverted } = useReceiptOutcome(poolTxQuery, {
+    hash: txHash,
+    chainId: CHAIN_ID,
+    repeatCost: 'sending it again moves the liquidity a second time.',
+  });
 
   // Refetch pool data after successful liquidity operations
   useEffect(() => {
@@ -1636,6 +1672,19 @@ function PoolCard({
       refetchPoolHeldIds();
     }
   }, [poolTxSuccess, refetchPoolInfo, refetchPoolHeldIds]);
+
+  // writeContract's onSuccess = SUBMITTED (hash in hand), not confirmed. The
+  // handlers below record what each hash was for; the success toast and the
+  // form reset wait for that hash's receipt. Taking the record makes it once
+  // per hash, and the deps leave out the refetch fns so a re-render can't repeat it.
+  const submittedRef = useRef<{ hash: `0x${string}`; confirmed: string; reset: () => void } | null>(null);
+  useEffect(() => {
+    const submitted = submittedRef.current;
+    if (!poolTxSuccess || !submitted || submitted.hash !== txHash) return;
+    submittedRef.current = null;
+    toast.success(submitted.confirmed);
+    submitted.reset();
+  }, [poolTxSuccess, txHash]);
 
   useEffect(() => {
     if (poolTxReverted) {
@@ -1653,7 +1702,8 @@ function PoolCard({
   // knows why — the MyPoolsTab remove button sits over this card.
   if (poolInfoError) {
     return (
-      <div className="rounded-2xl border border-[rgba(239,68,68,0.2)] bg-[rgba(13,21,48,0.6)] backdrop-blur-[20px] p-4">
+      <div className="relative isolate rounded-2xl border border-[rgba(239,68,68,0.2)] bg-[rgba(13,21,48,0.6)] backdrop-blur-[20px] p-4">
+        <CardArt pageId="nft-finance" idx={21} />
         <p className="text-sm font-medium text-red-400 mb-1">Pool unreachable</p>
         <p className="text-[12px] text-white/70 mb-1">
           This address didn't respond to <span className="font-mono">getPoolInfo</span> — it may be from an old deployment.
@@ -1699,11 +1749,17 @@ function PoolCard({
           value: liqEth ? parseEther(liqEth) : 0n,
         },
         {
-          onSuccess: () => {
-            toast.success('Liquidity added!');
-            setLiqNftIds('');
-            setLiqEth('');
-            setExpanded(false);
+          onSuccess: (hash) => {
+            submittedRef.current = {
+              hash,
+              confirmed: 'Liquidity added!',
+              reset: () => {
+                setLiqNftIds('');
+                setLiqEth('');
+                setExpanded(false);
+              },
+            };
+            toast.info('Deposit submitted — confirming on-chain…');
           },
           onError: (e: Error) => toast.error(e.message?.slice(0, 100) || 'Failed'),
         }
@@ -1727,11 +1783,17 @@ function PoolCard({
           args: [ids, ethAmt],
         },
         {
-          onSuccess: () => {
-            toast.success('Liquidity withdrawn!');
-            setWithdrawNftIds('');
-            setWithdrawEth('');
-            setExpanded(false);
+          onSuccess: (hash) => {
+            submittedRef.current = {
+              hash,
+              confirmed: 'Liquidity withdrawn!',
+              reset: () => {
+                setWithdrawNftIds('');
+                setWithdrawEth('');
+                setExpanded(false);
+              },
+            };
+            toast.info('Withdrawal submitted — confirming on-chain…');
           },
           onError: (e: Error) => toast.error(e.message?.slice(0, 100) || 'Failed'),
         }
@@ -2116,16 +2178,25 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
   // one for the factory.createPool call. Keeping them separate means we
   // can watch receipts independently and react to each stage.
   const { writeContract: writeApprove, data: approveTx, isPending: isApprovePending } = useWriteContract();
-  const { data: approveReceipt, isLoading: isApproveConfirming, isSuccess: isApproveReceiptFetched } = useWaitForTransactionReceipt({ hash: approveTx });
-  // AUDIT (receipt-status, 2026-08-24): gate both legs on receipt.status — raw
-  // isSuccess latches true for on-chain REVERTED txs too.
-  const isApproveReverted = isApproveReceiptFetched && !!approveReceipt && approveReceipt.status !== 'success';
-  const isApproveSuccess = isApproveReceiptFetched && !isApproveReverted;
+  const approveQuery = useWaitForTransactionReceipt({ hash: approveTx, onReplaced: noteReplacement });
+  const { isLoading: isApproveConfirming } = approveQuery;
+  // AUDIT (receipt-status, 2026-08-24): raw isSuccess means "receipt FETCHED".
+  // 2026-09-17: and wagmi THROWS on a reverted receipt, so the `status` gate on
+  // both legs never saw a revert and both revert toasts below were dead.
+  const { isSuccess: isApproveSuccess, isReverted: isApproveReverted } = useReceiptOutcome(approveQuery, {
+    hash: approveTx,
+    chainId: CHAIN_ID,
+    repeatCost: 'a second approval only costs gas.',
+  });
 
   const { writeContract: writeDeploy, data: deployTx, isPending: isDeployPending } = useWriteContract();
-  const { data: deployReceipt, isLoading: isDeployConfirming, isSuccess: isDeployReceiptFetched } = useWaitForTransactionReceipt({ hash: deployTx });
-  const isDeployReverted = isDeployReceiptFetched && !!deployReceipt && deployReceipt.status !== 'success';
-  const isDeploySuccess = isDeployReceiptFetched && !isDeployReverted;
+  const deployQuery = useWaitForTransactionReceipt({ hash: deployTx, onReplaced: noteReplacement });
+  const { data: deployReceipt, isLoading: isDeployConfirming } = deployQuery;
+  const { isSuccess: isDeploySuccess, isReverted: isDeployReverted } = useReceiptOutcome(deployQuery, {
+    hash: deployTx,
+    chainId: CHAIN_ID,
+    repeatCost: 'deploying again creates a second pool and deposits into it again.',
+  });
 
   const spotNum = parseFloat(spotPriceInput) || 0;
   const deltaNum = parseFloat(deltaInput) || 0;
@@ -2521,7 +2592,10 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
 
                   {poolType === 2 && (
                     <RiskBanner variant="info">
-                      TRADE pools are exposed to inventory risk. If the NFT floor price drops, your pool may accumulate NFTs worth less than the ETH you deposited. This is similar to impermanent loss in token AMMs.
+                      <span className="font-semibold">Inventory risk:</span> if the NFT floor drops, your pool may hold NFTs worth less than the ETH you deposited.
+                      <FinePrint summary="Details">
+                        <p>TRADE pools are exposed to inventory risk. If the NFT floor price drops, your pool may accumulate NFTs worth less than the ETH you deposited. This is similar to impermanent loss in token AMMs.</p>
+                      </FinePrint>
                     </RiskBanner>
                   )}
                 </div>
@@ -2767,11 +2841,16 @@ function MyPoolsTab({ deployed }: { deployed: boolean }) {
       <ArtCard art={pageArt('amm', 14)} opacity={1} overlay="none" className="rounded-2xl">
         <div className="p-5">
           <h4 className="text-sm font-semibold text-white mb-3">Track a Pool</h4>
-          <p className="text-xs text-white mb-4">
-            {deployed
-              ? 'Enter a pool address. It is checked against the factory before it is tracked; owner controls unlock only when the pool’s on-chain owner is your connected wallet.'
-              : 'Tracking is unavailable until the pool factory address is set — an address cannot be checked against a factory that isn’t there.'}
+          <p className="text-xs text-white mb-1">
+            {deployed ? 'Enter a pool address. It is checked against the factory first.' : 'Tracking needs the pool factory address, which is not set.'}
           </p>
+          <FinePrint summary="Details" className="mb-3">
+            <p>
+              {deployed
+                ? 'Enter a pool address. It is checked against the factory before it is tracked; owner controls unlock only when the pool’s on-chain owner is your connected wallet.'
+                : 'Tracking is unavailable until the pool factory address is set. An address cannot be checked against a factory that isn’t there.'}
+            </p>
+          </FinePrint>
           <div className="flex gap-3">
             <input
               type="text"
@@ -2805,7 +2884,7 @@ function MyPoolsTab({ deployed }: { deployed: boolean }) {
               </svg>
             </div>
             <p className="text-sm text-white mb-1">No pools tracked yet</p>
-            <p className="text-xs text-white">You haven't created any pools yet. Go to Create Pool to get started, or enter a pool address above to track an existing one.</p>
+            <p className="text-xs text-white">Create one, or enter a pool address above to track it.</p>
           </div>
         </ArtCard>
       ) : (
@@ -2857,24 +2936,17 @@ export function AMMSection() {
     <div>
       {!deployed && (
         <div
-          className="rounded-xl px-4 py-3 text-center text-[13px] text-amber-400/80 border border-amber-500/20 mb-6"
+          className="relative isolate rounded-xl px-4 py-3 text-center text-[13px] text-amber-400/80 border border-amber-500/20 mb-6"
           style={{ background: 'rgba(245,158,11,0.06)' }}
         >
+          <CardArt pageId="nft-finance" idx={22} />
           The NFT pool factory is deployed on mainnet; this notice appears only if its address is ever unset. Explore the interface below. <Link to="/security" className="underline hover:text-amber-300 transition-colors">View security details</Link>
         </div>
       )}
+      <p className="text-white/80 text-[13px] mb-4" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
+        Trade NFTs from a pool, or open one and earn trade fees.
+      </p>
       <AMMStatsBar poolCount={poolCount as bigint | undefined} />
-
-      <HowItWorks
-        storageKey="tegridy-amm-how"
-        title="How does NFT AMM work?"
-        steps={[
-          { label: 'Create a Pool', description: 'Liquidity providers deposit NFTs and/or ETH into a pool and set a bonding curve (spot price + delta).' },
-          { label: 'Traders Buy/Sell', description: 'Traders buy NFTs from the pool (price goes up by delta) or sell NFTs in (price goes down by delta).' },
-          { label: 'Earn LP Fees', description: 'TRADE pools earn LP fees on every swap. BUY/SELL pools are single-sided.' },
-          { label: 'Linear Pricing', description: 'Price changes by "delta" per trade. Predictable, transparent, no oracles needed.' },
-        ]}
-      />
 
       <TabNav active={activeTab} onChange={setActiveTab} />
 
@@ -2891,6 +2963,21 @@ export function AMMSection() {
           {activeTab === 'pools' && <MyPoolsTab deployed={deployed} />}
         </m.div>
       </AnimatePresence>
+
+      {/* How it works, one press away (owner, 2026-10-13: how-it-works goes in a closed
+          drop-down). The four-step strip and its art sit inside, word for word. */}
+      <FinePrint summary="How it works" className="mt-6" testId="amm-how">
+        <HowItWorks
+          storageKey="tegridy-amm-how"
+          title="How does NFT AMM work?"
+          steps={[
+            { label: 'Create a Pool', description: 'Liquidity providers deposit NFTs and/or ETH into a pool and set a bonding curve (spot price + delta).' },
+            { label: 'Traders Buy/Sell', description: 'Traders buy NFTs from the pool (price goes up by delta) or sell NFTs in (price goes down by delta).' },
+            { label: 'Earn LP Fees', description: 'TRADE pools earn LP fees on every swap. BUY/SELL pools are single-sided.' },
+            { label: 'Linear Pricing', description: 'Price changes by "delta" per trade. Predictable, transparent, no oracles needed.' },
+          ]}
+        />
+      </FinePrint>
     </div>
   );
 }

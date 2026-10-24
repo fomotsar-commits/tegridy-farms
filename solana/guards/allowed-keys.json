@@ -1,0 +1,44 @@
+{
+  "about": "Every key that may appear in the venue's Solana programs (our copies of cp-swap and tegridy-clmm, and our own tegridy-launch and bayla-ladder), each named. key-guard.mjs fails on any other key, on any key the pinned upstream hard-codes, and on any entry here that appears nowhere. Change this list only in a pull request of its own (provenance.mjs --pr-files).",
+  "ours": {
+    "7ghzbbmq59QEbdweSzM1ggpeBH1Q2CyxZg4Tr2x8Aso": "tegridy-clmm's program id, made by the owner on 2026-10-21; its upgrade authority is the vault once deployed (docs/RANGE_POOLS_PLAN.md step 7).",
+    "RangePoo1DEVNETarmNotDep1oyed11111111111111": "tegridy-clmm's id in a devnet build only: not a key, nobody can deploy at it, so a devnet build (every power to a test key) runs nowhere. The release build never names it.",
+    "GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd": "The venue's Squads v4 vault (vault 0 of multisig EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK, two signatures). Mainnet admin, fee owner and fee receiver of both programs.",
+    "EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK": "The venue's Squads multisig account that owns the vault. Named only in a cp-swap comment; it can sign nothing.",
+    "2sa31zceMSTAAbSu5wfSnNA6sBYzS7r97nvZYaQouEXa": "The vault's wrapped-SOL account: cp-swap's mainnet pool-opening fee lands here.",
+    "EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT": "cp-swap's mainnet program id, the venue's own key (owner ruling 2026-09-25).",
+    "BvBkt84ZiKmiPSuWrdefxbxPTX5YiLnU6YEGtY6pDodL": "cp-swap's devnet program id, the venue's own key.",
+    "GgE6AfEH2AVSrKGckyKMzC6mhtXWiAn39EzAikAsWq5a": "The venue's devnet admin key. Devnet arms only, in both programs; devnet coins have no value.",
+    "27AC7YwwAULHQcQXGErV7rHMsLZAUBWF6ozDNhSpTQE9": "The devnet admin's wrapped-SOL account: cp-swap's devnet pool-opening fee lands here.",
+    "64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2": "tegridy-launch's program id (its declare_id!, the restart id its host test pins).",
+    "CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg": "tegridy-launch's mainnet deployer: the one key allowed to call initialize_global (deployer::ID, mainnet arm).",
+    "EMQVYMPe2UffGAVNYK6ZveCFM2tHjc5DBiXGKYFE6DXA": "tegridy-launch's devnet deployer placeholder (deployer::ID, devnet arm). solana-ci's launch-constraints job overwrites it with a fresh wallet before its builds.",
+    "3ZvZXEBr21Kz7JeWFCeKv8Hyy8AzHqCSXNjif8QHPM9y": "A spent cp-swap program id. Named only in tegridy-launch's host test, which asserts the pin is never this id again.",
+    "CpFnacrACftonjeQ4hJBkja3PkrwvFSRFzBEk9oKhzED": "A spent cp-swap program id. Named only in tegridy-launch's host test, which asserts the pin is never this id again.",
+    "GKwgTQtVyPGxspxvciDAStY4Jq7rB1STuVvXic7EG6E4": "bayla-ladder's committed program id, a placeholder made 2026-09-06; solana-deploy-artifact.yml sets the real id at build time (lib.rs says so).",
+    "ASLXdST48ivBZ4xV7VjgD51FJ6rHH5CN5s8XS5TLwygP": "bayla-ladder's devnet deployer placeholder (deployer::ID, devnet arm). Devnet only."
+  },
+  "system": {
+    "So11111111111111111111111111111111111111112": "Wrapped SOL mint (SPL Token). Used only inside an upstream unit test in tegridy-clmm states/pool.rs.",
+    "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s": "Metaplex Token Metadata program. tegridy-clmm's Anchor.toml copies it onto a local test chain; position NFTs carry its name record.",
+    "11111111111111111111111111111111": "System Program. bayla-ladder's mainnet deployer arm names it as a fail-closed sentinel nobody can sign for."
+  },
+  "keptUpstream": {
+    "HVbpJAQGNpkgBaYBZQBR1t7yFdvaYVp2vCQQfKKEN4tM": {
+      "why": "USDP (Pax Dollar) mint. Upstream cp-swap's MINT_WHITELIST, in the live binary; it lets this coin skip the Token-2022 extension check. Pays no one. Assessed 2026-10-10: not exploitable here, and removing it needs a cp-swap upgrade.",
+      "only_in": ["solana/tegridy-amm/programs/cp-swap/src/utils/token.rs"]
+    },
+    "Crn4x1Y2HUKko7ox2EZMT6N2t2ZyH7eKtwkBGVnhEq1g": {
+      "why": "GYEN (GMO JPY) mint. Upstream cp-swap's MINT_WHITELIST; same as USDP above.",
+      "only_in": ["solana/tegridy-amm/programs/cp-swap/src/utils/token.rs"]
+    },
+    "FrBfWJ4qE5sCzKm3k3JaAtqZcXUh4LvJygDeketsrsH4": {
+      "why": "ZUSD (Z.com USD) mint. Upstream cp-swap's MINT_WHITELIST; same as USDP above.",
+      "only_in": ["solana/tegridy-amm/programs/cp-swap/src/utils/token.rs"]
+    },
+    "2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo": {
+      "why": "PYUSD (PayPal USD) mint. Upstream cp-swap's MINT_WHITELIST; same as USDP above.",
+      "only_in": ["solana/tegridy-amm/programs/cp-swap/src/utils/token.rs"]
+    }
+  }
+}

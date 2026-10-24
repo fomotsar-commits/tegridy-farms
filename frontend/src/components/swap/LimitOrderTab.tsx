@@ -2,12 +2,15 @@ import { useState, useEffect } from 'react';
 import { useAccount } from 'wagmi';
 import { parseUnits, formatUnits } from 'viem';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
+import { CONNECT_ETHEREUM_WALLET } from '../../lib/copy';
 import { toast } from 'sonner';
 import { useLimitOrders, type LimitOrder } from '../../hooks/useLimitOrders';
 import { useCowLimitOrder, type CowLimitRecord } from '../../hooks/useCowLimitOrder';
 import { DEFAULT_TOKENS } from '../../lib/tokenList';
-import { WETH_ADDRESS } from '../../lib/constants';
+import { WETH_ADDRESS, CHAIN_ID } from '../../lib/constants';
+import { getTxUrl } from '../../lib/explorer';
 import { formatTokenAmount } from '../../lib/formatting';
+import { FinePrint } from '../ui/FinePrint';
 
 const EXPIRY_OPTIONS = [
   { label: '1 Hour', ms: 3600000 },
@@ -113,7 +116,7 @@ export function LimitOrderTab() {
 
   return (
     <div className="p-5">
-      <p className="text-white text-[12px] mb-4" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Buy {toToken.symbol} automatically when it reaches your target price &mdash; a real on-chain order that fills even after you close the tab.</p>
+      <p className="text-white text-[12px] mb-4" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Buy {toToken.symbol} when it reaches your target price.</p>
 
       {/* Amount */}
       <div className="mb-3">
@@ -169,7 +172,7 @@ export function LimitOrderTab() {
           the strictly-better path, so it gets the primary button; the browser-only
           watcher below keeps only its one real edge (native ETH, no wrap). */}
       <p className="text-emerald-300 text-[10px] mb-2 rounded px-2 py-1.5 border border-emerald-500/40" style={{ background: 'rgba(0,0,0,0.70)', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
-        &#10003; <strong>On-chain order via CoW Protocol</strong> &mdash; settles when your price is met, <strong>survives closing the tab</strong>, gasless to place, and MEV-protected. Sells <strong>WETH</strong>, so wrap your ETH first.
+        &#10003; Sells <strong>WETH</strong>, so wrap your ETH first.
       </p>
       {isConnected ? (
         <button type="button" onClick={handleCreateCow}
@@ -182,7 +185,7 @@ export function LimitOrderTab() {
         <ConnectButton.Custom>
           {({ openConnectModal, mounted }) => (
             <div {...(!mounted && { style: { opacity: 0, pointerEvents: 'none' } })}>
-              <button onClick={openConnectModal} className="btn-primary w-full py-3 text-[13px]">Connect Wallet</button>
+              <button onClick={openConnectModal} className="btn-primary w-full py-3 text-[13px]">{CONNECT_ETHEREUM_WALLET}</button>
             </div>
           )}
         </ConnectButton.Custom>
@@ -211,6 +214,13 @@ export function LimitOrderTab() {
           </div>
         </details>
       )}
+
+      <FinePrint summary="How it works" className="mt-2">
+        <p>
+          <strong>On-chain order via CoW Protocol</strong> &mdash; settles when your price is met,{' '}
+          <strong>survives closing the tab</strong>, gasless to place, and MEV-protected.
+        </p>
+      </FinePrint>
 
       {/* CoW Orders */}
       {cow.records.length > 0 && (
@@ -288,10 +298,27 @@ function OrderRow({ order, onCancel }: { order: LimitOrder; onCancel?: () => voi
           className={`text-[10px] ${order.status === 'active' ? 'text-success' : order.status === 'expired' ? 'text-danger' : 'text-white'}`}>
           {expiryStr}
         </span>
+        {order.status === 'executing' && order.txHash && (
+          <a href={getTxUrl(CHAIN_ID, order.txHash)} target="_blank" rel="noopener noreferrer"
+            className="text-white underline text-[10px] min-h-[44px] flex items-center">
+            View tx
+          </a>
+        )}
         {onCancel && order.status === 'active' && (
           <button onClick={onCancel}
             className="text-white hover:text-danger text-[10px] min-h-[44px] min-w-[44px] flex items-center justify-center cursor-pointer transition-colors">
             Cancel
+          </button>
+        )}
+        {/* An executing order is never fired again, so one whose transaction was
+            dropped or replaced (or whose tab closed before the wallet returned a
+            hash) would wait forever. Removing it only stops tracking it; it
+            cannot send anything. */}
+        {onCancel && order.status === 'executing' && (
+          <button onClick={onCancel}
+            title="Stops tracking this order. The transaction already sent is not affected."
+            className="text-white hover:text-danger text-[10px] min-h-[44px] min-w-[44px] flex items-center justify-center cursor-pointer transition-colors">
+            Remove
           </button>
         )}
       </div>

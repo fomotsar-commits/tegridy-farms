@@ -19,6 +19,7 @@ import { buildBirthRecord } from "../_lib/record-core.js";
 import { SELECTORS, ASSET_DATA_WORDS, AIRLOCK, DOPPLER_ERC20_V1_IMPL } from "../_lib/record-evm.js";
 import { decodeAbiString, decodeUint, decodeAddress, decodeUint8, wordAt } from "../_lib/abi-decode.js";
 import { decodeMintAccount } from "../_lib/record-solana.js";
+import { stalledBody, watch } from "../../src/test/quietHost";
 
 const FE = process.cwd();
 const CA = "0x279e7cff2dbc93ff1f5cae6cbd072f98d75987ca";
@@ -603,6 +604,87 @@ describe("REGRESSION: bytes alone must not make an account a mint", () => {
     const res = mockRes();
     await handleRecord(req({ chain: "solana", ca: "So11111111111111111111111111111111111111112" }), res);
     expect(res.statusCode).toBe(404);
+  });
+});
+
+// The Solana read's 6 s cover the whole answer. A host that sends a 200, its headers and
+// half a body held the route open until the platform killed it.
+describe("a Solana host that stops part-way through its answer", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("is given up after 6 s, and the route answers 502 with nothing cached", async () => {
+    vi.useFakeTimers();
+    const start = Date.now();
+    let askedAfterMs = -1;
+    vi.stubGlobal("fetch", (_url, init) => {
+      askedAfterMs = Date.now() - start;
+      return Promise.resolve(stalledBody(init.signal));
+    });
+    const res = mockRes();
+    const ended = await watch(
+      () => handleRecord(req({ chain: "solana", ca: "So11111111111111111111111111111111111111112" }), res),
+      60_000,
+    );
+    expect(ended, "still pending after 60 s").not.toBeNull();
+    // Measured from the request: the Solana reader is imported first, off the fake clock.
+    expect(ended.afterMs - askedAfterMs).toBe(6_000);
+    expect(res.statusCode).toBe(502);
+    expect(res.headers["Cache-Control"]).toBe("no-store");
+  });
+});
+
+// BAYLA's mint, read on chain 2026-09-29: owned by Token-2022, 408 bytes, initialised, and
+// byte 165 (the account type) is 1, a mint. The route called it "not an initialised SPL mint".
+describe("a Token-2022 mint is answered as one", () => {
+  const TOKEN_2022 = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
+  const CLASSIC = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
+  const BAYLA = "7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump";
+  const NOT_A_MINT = "That address is not an initialised SPL mint.";
+
+  function account({ len = 408, accountType = 1, initialized = 1 } = {}) {
+    const b = Buffer.alloc(len);
+    b[44] = 6;
+    b[45] = initialized;
+    if (len > 165) b[165] = accountType;
+    return b;
+  }
+  async function answer(owner, buf) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({ result: { value: { owner, data: [buf.toString("base64"), "base64"] } } }),
+      })),
+    );
+    const res = mockRes();
+    await handleRecord(req({ chain: "solana", ca: BAYLA }), res);
+    return res;
+  }
+
+  it("says a Token-2022 mint with extensions is a Token-2022 mint", async () => {
+    const res = await answer(TOKEN_2022, account());
+    expect(res.statusCode).toBe(404);
+    expect(res.body.error).toBe(
+      "This is a Token-2022 mint. This venue's launcher makes no Token-2022 mints, and this record cannot read one that carries extensions.",
+    );
+  });
+
+  it("never says it of a token account, a multisig, an uninitialised mint or another program's account", async () => {
+    const cases = [
+      [TOKEN_2022, account({ len: 165 })], // a token account with no extensions
+      [TOKEN_2022, account({ accountType: 2 })], // a token account with extensions
+      [TOKEN_2022, account({ len: 355 })], // a multisig whose byte 165 happens to be 1
+      [TOKEN_2022, account({ initialized: 0 })],
+      [CLASSIC, account()],
+    ];
+    for (const [owner, buf] of cases) {
+      const res = await answer(owner, buf);
+      expect(res.statusCode).toBe(404);
+      expect(res.body.error).toBe(NOT_A_MINT);
+    }
   });
 });
 

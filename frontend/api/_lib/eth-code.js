@@ -49,7 +49,8 @@ export function rpcUrlChain() {
   return urls;
 }
 
-/** Per-attempt bound so one hung node cannot consume the whole request budget. */
+/** One host's bound, headers and body together, so a host that never answers or stops
+ *  part-way cannot use up the whole request. */
 const ATTEMPT_TIMEOUT_MS = 6000;
 
 /**
@@ -63,9 +64,9 @@ const ATTEMPT_TIMEOUT_MS = 6000;
 async function getCodeBatch(url, addresses) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), ATTEMPT_TIMEOUT_MS);
-  let res;
+  let json;
   try {
-    res = await fetch(url, {
+    const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(
@@ -78,12 +79,12 @@ async function getCodeBatch(url, addresses) {
       ),
       signal: ctrl.signal,
     });
+    if (!res.ok) throw new Error(`RPC HTTP ${res.status}`);
+    json = await res.json();
   } finally {
     clearTimeout(timer);
   }
-  if (!res.ok) throw new Error(`RPC HTTP ${res.status}`);
 
-  const json = await res.json();
   if (!Array.isArray(json)) throw new Error("RPC did not return a batch");
 
   const seen = new Map();

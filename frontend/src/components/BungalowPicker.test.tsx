@@ -7,7 +7,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { BungalowPicker } from './BungalowPicker';
 import { ThemeProvider } from '../contexts/ThemeContext';
-import { BUNGALOW_STORAGE_KEY, BUNGALOWS } from '../lib/bungalows';
+import { BUNGALOW_COUNT, BUNGALOW_STORAGE_KEY, BUNGALOWS } from '../lib/bungalows';
 
 let realLocation: Location;
 
@@ -81,5 +81,18 @@ describe('BungalowPicker', () => {
     expect(localStorage.getItem(BUNGALOW_STORAGE_KEY)).toBe('venue');
     expect(picker.path()).toBe('/farm');
     expect(picker.onClose).toHaveBeenCalled();
+  });
+
+  // The island has 12 bungalows and open lots. The registry's open lot ('nb1', chain
+  // 'tbd') keeps its tile, so the count is read from the registry and leaves it out.
+  it.each([
+    ['the venue', null],
+    ['TOWELI', 'toweli'],
+  ])('in %s voice, counts the bungalows and not the open lot', (_voice, stored) => {
+    if (stored) localStorage.setItem(BUNGALOW_STORAGE_KEY, stored);
+    renderPicker();
+    const line = screen.getByText(/bungalows, one island\./).textContent ?? '';
+    expect(line.startsWith(`${BUNGALOW_COUNT} bungalows, one island.`), line).toBe(true);
+    expect(line).not.toMatch(/thirteen/i);
   });
 });

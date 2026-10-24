@@ -19,6 +19,9 @@ import { keccak256, stringToHex, type Address } from 'viem';
 export const COW_SETTLEMENT_ADDRESS = '0x9008D19f58AAbD9eD0D60971565AA8510560ab41' as Address;
 // The spender users must approve for the SELL token (NOT the settlement contract).
 export const COW_VAULT_RELAYER_ADDRESS = '0xC92E8bdf79f0507f65a392b0ab4667716BFE0110' as Address;
+// Completes "if it landed, ___" when an approval's receipt could not be read.
+export const COW_APPROVE_REPEAT_COST =
+  'approving again sets the same allowance twice, which costs gas and moves no tokens. Trying again reads the allowance first.';
 
 // EIP-712 domain. `verifyingContract` = the settlement contract.
 export function cowDomain(chainId: number) {
@@ -54,21 +57,26 @@ export const COW_ORDER_TYPES = {
 // the signed Order.appData field). Any valid JSON works as long as the hash
 // matches; we use a stable, minimal document so the hash is deterministic.
 //
-// PARTNER FEE (2026-08-22 fee-leak audit): every CoW-routed order — market swaps,
-// limit orders, TWAP, DCA — currently carries NO fee for the venue. CoW's appData
-// schema supports metadata.partnerFee {bps, recipient}, settled by solvers out of
-// the order surplus/price. The capability is wired here DARK: bps = 0 keeps the
-// document (and therefore the pinned hash) BYTE-IDENTICAL to every order shipped
-// to date. Flipping it is a pricing decision (per-rail fee table policy), not a
-// code decision, and the flip is one constant — the doc and hash re-derive
-// together by construction, which is the invariant that matters: an appData doc
-// edited without its hash rejects EVERY order at submission (swapFee.ts pins the
-// pairing). Before flipping: verify the metadata.partnerFee shape against CoW's
-// current app-data schema + one canary order on the live orderbook.
-export const COW_PARTNER_FEE_BPS = 0;
+// PARTNER FEE (2026-08-22 fee-leak audit; re-checked against CoW 2026-10-17):
+// limit orders, TWAP and trigger orders use COW_APP_DATA_DOC, which never carries
+// a fee. CoW's settlement engine charges a partner fee on ANY order whose appData
+// names one, but CoW pays it out only on market orders ("The Partner Fee is
+// currently only applicable to Market order trades", docs.cow.fi partner-fee).
+// A fee on a limit/TWAP/trigger order would be charged to the user and never
+// reach the venue. So the fee rides a second document, used by market swaps only.
+//
+// That document is in CoW's CURRENT shape (app-data v1.15.0, partnerFee v1.1.0):
+// `volumeBps`, not the legacy `bps` that CoW still parses but no longer documents.
+// With the rate at 0 the swap document IS the fee-free one, byte for byte, so the
+// rate is the only thing a switch-on edits: the doc and hash re-derive together.
+// 0.50% is the owner's rate (2026-10-17): parity with the venue's own-pool swaps.
+// Merge only after the canary order on the live orderbook passes (see the PR).
+export const COW_PARTNER_FEE_BPS = 50;
 /** Treasury Safe. Named here (not imported) to keep this module dependency-light;
  *  equals TREASURY_ADDRESS in constants.ts — the addresses.json registry pins both. */
 export const COW_PARTNER_FEE_RECIPIENT = '0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d';
+/** CoW's own cap: partnerFee volumeBps is "Capped at protocol level to 100 BPS". */
+export const COW_PARTNER_FEE_MAX_BPS = 100;
 
 export const COW_APP_DATA_DOC = JSON.stringify({
   // NOT RENAMED, and not a branding oversight (owner asked for 'everything'
@@ -79,13 +87,39 @@ export const COW_APP_DATA_DOC = JSON.stringify({
   // pin in cowProtocol.test.ts. Renaming it is a migration (drain in-flight
   // orders, then cut), not a copy edit.
   appCode: 'Tegridy Farms',
-  metadata:
-    COW_PARTNER_FEE_BPS > 0
-      ? { partnerFee: { bps: COW_PARTNER_FEE_BPS, recipient: COW_PARTNER_FEE_RECIPIENT } }
-      : {},
+  metadata: {},
   version: '1.1.0',
 });
 export const COW_APP_DATA_HASH: `0x${string}` = keccak256(stringToHex(COW_APP_DATA_DOC));
+
+/**
+ * The appData document for a MARKET swap at `bps`. 0 returns the fee-free document
+ * unchanged. Anything outside 1..COW_PARTNER_FEE_MAX_BPS, or not a whole number,
+ * throws: a rate CoW would refuse must not reach a signature.
+ */
+export function cowSwapAppDataDoc(bps: number): string {
+  if (bps === 0) return COW_APP_DATA_DOC;
+  if (!Number.isInteger(bps) || bps < 1 || bps > COW_PARTNER_FEE_MAX_BPS) {
+    throw new Error(`CoW partner fee must be a whole number of bps from 1 to ${COW_PARTNER_FEE_MAX_BPS}`);
+  }
+  return JSON.stringify({
+    appCode: 'Tegridy Farms',
+    metadata: {
+      orderClass: { orderClass: 'market' },
+      partnerFee: { volumeBps: bps, recipient: COW_PARTNER_FEE_RECIPIENT },
+    },
+    version: '1.15.0',
+  });
+}
+export const COW_SWAP_APP_DATA_DOC = cowSwapAppDataDoc(COW_PARTNER_FEE_BPS);
+export const COW_SWAP_APP_DATA_HASH: `0x${string}` = keccak256(stringToHex(COW_SWAP_APP_DATA_DOC));
+
+/** The document whose hash an order signed. Throws on a hash this module did not make. */
+export function cowAppDataDocFor(hash: `0x${string}`): string {
+  if (hash === COW_SWAP_APP_DATA_HASH) return COW_SWAP_APP_DATA_DOC;
+  if (hash === COW_APP_DATA_HASH) return COW_APP_DATA_DOC;
+  throw new Error(`No appData document for ${hash}`);
+}
 
 // The signed order message (EIP-712 `Order`). Amounts are base-unit bigints.
 export interface CowOrder {
@@ -174,8 +208,8 @@ export function toOrderSubmission(
     signingScheme: 'eip712',
     signature,
     from,
-    appData: COW_APP_DATA_DOC,
-    appDataHash: COW_APP_DATA_HASH,
+    appData: cowAppDataDocFor(order.appData),
+    appDataHash: order.appData,
   };
 }
 

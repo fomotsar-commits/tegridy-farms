@@ -47,7 +47,7 @@ export class CommerceStoreError extends Error {
 
 const ENDPOINT = '/api/aggregator?resource=commerce';
 
-/** Hard ceiling per request — matched to the indexer client's, same rationale. */
+/** Hard ceiling per request, headers and body together. Matched to the indexer client's. */
 export const COMMERCE_TIMEOUT_MS = 8000;
 
 async function call(
@@ -62,8 +62,18 @@ async function call(
   signal?.addEventListener('abort', onAbort);
 
   let res: Response;
+  let body: unknown = null;
+  let unparsed = false;
   try {
     res = await fetchImpl(path, { ...init, signal: ac.signal, credentials: 'same-origin' });
+    // Read before the timer is cleared: a store that stops part-way did not answer. An
+    // abort here can come back as a parse error, so the signal says which it was.
+    try {
+      body = await res.json();
+    } catch (e) {
+      if (ac.signal.aborted) throw e;
+      unparsed = true;
+    }
   } catch {
     throw new CommerceStoreError(
       'unreachable',
@@ -74,12 +84,7 @@ async function call(
     signal?.removeEventListener('abort', onAbort);
   }
 
-  let body: unknown = null;
-  try {
-    body = await res.json();
-  } catch {
-    if (res.ok) throw new CommerceStoreError('malformed', 'The invoice store returned something unreadable.');
-  }
+  if (unparsed && res.ok) throw new CommerceStoreError('malformed', 'The invoice store returned something unreadable.');
   const b = (body ?? {}) as Record<string, unknown>;
   const serverCode = typeof b.code === 'string' ? b.code : null;
   const operatorStep = typeof b.operatorStep === 'string' ? b.operatorStep : null;

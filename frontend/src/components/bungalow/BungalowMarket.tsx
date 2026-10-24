@@ -2,7 +2,10 @@ import { Suspense, lazy, useMemo } from 'react';
 import type { Bungalow } from '../../lib/bungalows';
 import { usePoolMarket } from '../../hooks/usePoolMarket';
 import { ErrorBoundary } from '../ui/ErrorBoundary';
+import { CardArt } from '../ui/CardArt';
+import { FinePrint } from '../ui/FinePrint';
 import { BungalowTrades } from './BungalowTrades';
+import { geckoAsOfLine } from '../../lib/geckoTerminal/edge';
 
 // The chart pulls in lightweight-charts; keep it out of the bungalow's first
 // paint the same way the classic dashboard does.
@@ -31,9 +34,13 @@ const PriceChart = lazy(() =>
  *    so the strip can never imply a liveness it doesn't have;
  *  - the source is named and linked, so any figure can be checked.
  */
-export function BungalowMarket({ bungalow }: { bungalow: Bungalow }) {
+/** `wideGrid`: the card sits in a room's wide-screen grid (HomePage.tsx), eight of twelve columns
+ *  from 1536px, where six tiles abreast are too tight until 1920px. Elsewhere it is as wide as the
+ *  page (the dashboard panels, the door landing) and its tiles follow the window as they always did.
+ *  120rem, not 1920px: Tailwind orders min-width variants only in one unit, and 2xl is 96rem. */
+export function BungalowMarket({ bungalow, wideGrid = false }: { bungalow: Bungalow; wideGrid?: boolean }) {
   const market = bungalow.market ?? null;
-  const { market: data, isLoading, error, refresh } = usePoolMarket(
+  const { market: data, isLoading, error, freshness, refresh } = usePoolMarket(
     market?.network ?? null,
     market?.pool ?? null,
   );
@@ -46,19 +53,19 @@ export function BungalowMarket({ bungalow }: { bungalow: Bungalow }) {
   if (!market || !chartMarket) return null;
 
   const change = data?.change24hPct ?? null;
+  // The strip's age, when it is not fresh or is a kept copy (usePoolMarket asks for one).
+  const asOf = data ? geckoAsOfLine(freshness) : null;
   const changeColor =
     change === null ? 'rgba(255,255,255,0.55)' : change >= 0 ? '#22c55e' : '#ef4444';
 
   return (
     <section
-      className="rounded-2xl p-6"
+      className="relative isolate rounded-2xl p-6"
       style={{ background: 'rgba(4,9,18,0.72)', border: '1px solid var(--color-purple-25)' }}
       aria-label={`${bungalow.symbol} market`}
     >
+      <CardArt pageId="bungalow-market" idx={0} />
       <div className="flex items-center gap-3 flex-wrap mb-4">
-        <p className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--color-kyle)' }}>
-          The market
-        </p>
         <h2 className="heading-luxury text-xl text-white">{bungalow.symbol} price</h2>
         <span className="text-[11px] text-white/45">{market.label}</span>
         <div className="flex-1" />
@@ -72,7 +79,7 @@ export function BungalowMarket({ bungalow }: { bungalow: Bungalow }) {
       </div>
 
       {/* Stat strip */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-5">
+      <div className={`grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-5${wideGrid ? ' 2xl:grid-cols-3 min-[120rem]:grid-cols-6' : ''}`}>
         <Stat label="Price" value={fmtUsd(data?.priceUsd ?? null)} />
         <Stat
           label="24h"
@@ -101,6 +108,10 @@ export function BungalowMarket({ bungalow }: { bungalow: Bungalow }) {
           }
         />
       </div>
+
+      {asOf && (
+        <p className="text-[10px] text-white/55 -mt-3 mb-4" data-testid="market-as-of">{asOf}</p>
+      )}
 
       {error && (
         <p className="text-[12px] mb-4" style={{ color: '#f0b26b' }}>{error}</p>
@@ -131,10 +142,15 @@ export function BungalowMarket({ bungalow }: { bungalow: Bungalow }) {
       <BungalowTrades bungalow={bungalow} />
 
       <p className="text-[10px] text-white/40 mt-3">
-        Price, liquidity, volume and the trade split are read from GeckoTerminal for this
-        pool on read. Nothing here refreshes on its own. A dash means the figure could
-        not be read, not that it is zero.
+        A dash means the figure could not be read.
       </p>
+      <FinePrint summary="Sources" className="mt-1">
+        <p>
+          A dash means the figure could not be read, not that it is zero. Price, liquidity,
+          volume and the trade split are read from GeckoTerminal for this pool on read.
+          Nothing here refreshes on its own.
+        </p>
+      </FinePrint>
     </section>
   );
 }

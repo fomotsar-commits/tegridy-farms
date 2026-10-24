@@ -52,10 +52,13 @@ function isProdLikeEnv() {
 
 // Origin allowlist mirroring alchemy.js / opensea.js / orderbook.js. Kept
 // in one place so security policy doesn't drift between proxies.
+//
+// This is also the credentialed set for every `?resource=` handler that
+// imports isOriginAllowed (airdrop, alerts, botLink, commerce, referrals).
+// 2026-09-23: `memetic.fun` + `www.memetic.fun` removed — they serve the Island
+// Lab, not this venue. See auth/siwe.js.
 function buildAllowedOrigins() {
   const set = new Set([
-    "https://memetic.fun",
-    "https://www.memetic.fun",
     "https://memetics.finance",
     "https://www.memetics.finance",
     "https://tegridyfarms.vercel.app",
@@ -171,6 +174,16 @@ function pickQueryParams(query, allowedKeys, _pathSegments) {
   return out;
 }
 
+/** True when an upstream error body is JSON whose `errorCode` is one of `codes`. */
+function noRouteCode(bodyText, codes) {
+  try {
+    const parsed = JSON.parse(bodyText);
+    return Boolean(parsed) && typeof parsed.errorCode === "string" && codes.includes(parsed.errorCode);
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Read incoming POST body with a hard cap so a misbehaving caller cannot
  * stream gigabytes through the lambda. Returns the parsed JSON or throws.
@@ -211,6 +224,10 @@ function extractCatchAllPath(query) {
  * @param {object} cfg
  * @param {string} cfg.identifier         — rate-limit bucket identifier.
  * @param {string} cfg.upstreamBase       — e.g. "https://api.odos.xyz".
+ * @param {() => object} [cfg.resolveUpstream] — read per request; returns
+ *   { upstreamBase, extraHeaders?, fallback? } in place of the two cfg fields.
+ *   `fallback` = { upstreamBase, extraHeaders?, onStatus: number[] }: the SAME
+ *   request is sent there once when the first host answers one of onStatus.
  * @param {(string[]) => boolean} cfg.matchPath — receives the path segments,
  *   returns true if the path is on the allowlist.
  * @param {Set<string>} cfg.allowedMethods — typically new Set(["GET","POST"]).
@@ -218,8 +235,9 @@ function extractCatchAllPath(query) {
  * @param {object} [cfg.extraHeaders]     — extra request headers (e.g. kyber X-Client-Id).
  * @param {number} [cfg.rateLimit=60]     — req/window limit.
  * @param {number} [cfg.rateWindowSec=60] — window size.
- * @param {string} [cfg.cacheControl]     — Cache-Control to set on success
- *   (defaults to private, no-store).
+ * @param {(segments: string[], query: object) => string | null} [cfg.edgeCache]
+ *   — the Cache-Control for a read the edge may share, or null. Asked only for a
+ *   200 answer to a GET; every other answer is private, no-store.
  */
 export async function runProxy(req, res, cfg) {
   setCors(req, res);
@@ -282,18 +300,28 @@ export async function runProxy(req, res, cfg) {
     return res.status(400).json({ error: "Malformed JSON body" });
   }
 
+  // Host and extra headers: fixed per provider, or chosen per request by
+  // cfg.resolveUpstream (Jupiter: keyed host when its server-only key is set).
+  const target = cfg.resolveUpstream ? cfg.resolveUpstream() : cfg;
+
   // Build upstream URL — rebuild from validated parts only. Never reflect
   // req.url's query verbatim.
-  const upstream = new URL(`${cfg.upstreamBase}/${segments.join("/")}`);
   const allowedParams = pickQueryParams(req.query || {}, cfg.allowedQuery || [], segments);
-  for (const [k, v] of allowedParams.entries()) upstream.searchParams.append(k, v);
+  const upstreamUrl = (base) => {
+    const upstream = new URL(`${base}/${segments.join("/")}`);
+    for (const [k, v] of allowedParams.entries()) upstream.searchParams.append(k, v);
+    return upstream.toString();
+  };
 
   // Build outbound headers — Authorization / Cookie / Set-Cookie are NOT
   // proxied. Only a small set of upstream-required headers passes through.
-  const outHeaders = { Accept: "application/json", ...(cfg.extraHeaders || {}) };
-  if (req.method === "POST") {
-    outHeaders["Content-Type"] = "application/json";
-  }
+  const outHeaders = (extraHeaders) => {
+    const headers = { Accept: "application/json", ...(extraHeaders || {}) };
+    if (req.method === "POST") {
+      headers["Content-Type"] = "application/json";
+    }
+    return headers;
+  };
 
   let upstreamRes;
   try {
@@ -302,12 +330,26 @@ export async function runProxy(req, res, cfg) {
     // and none of them carried a timeout — a hung upstream held the function
     // open to the platform's own kill (10s on Hobby), burning the whole budget
     // to say nothing. 8s turns that into a clean 502 with time to spare;
-    // heat.js models the same pattern with its own tighter budget.
-    const fetchOpts = { method: req.method, headers: outHeaders, signal: AbortSignal.timeout(8000) };
-    if (req.method === "POST") {
-      fetchOpts.body = JSON.stringify(reqBody ?? {});
+    // heat.js models the same pattern with its own tighter budget. A fallback
+    // try shares the same 8s, so it can never outrun the platform's kill.
+    const signal = AbortSignal.timeout(8000);
+    const send = (base, extraHeaders) => {
+      const fetchOpts = { method: req.method, headers: outHeaders(extraHeaders), signal };
+      if (req.method === "POST") {
+        fetchOpts.body = JSON.stringify(reqBody ?? {});
+      }
+      return fetch(upstreamUrl(base), fetchOpts);
+    };
+    upstreamRes = await send(target.upstreamBase, target.extraHeaders);
+    // Only a status the provider names as "refused before it ran" is tried again,
+    // once. Never a timeout, a network error or a 5xx: a POST may have landed.
+    const fallback = target.fallback;
+    if (fallback && fallback.onStatus.includes(upstreamRes.status)) {
+      console.warn(`[${cfg.identifier}] upstream HTTP ${upstreamRes.status}; retrying once on ${fallback.upstreamBase}`);
+      // cancel() answers with a promise; a rejection there must not surface as unhandled.
+      Promise.resolve(upstreamRes.body?.cancel?.()).catch(() => {});
+      upstreamRes = await send(fallback.upstreamBase, fallback.extraHeaders);
     }
-    upstreamRes = await fetch(upstream.toString(), fetchOpts);
   } catch (err) {
     console.error(`[${cfg.identifier}] proxy fetch error:`, logSafe(err));
     return res.status(502).json({ error: "Upstream service error" });
@@ -337,12 +379,20 @@ export async function runProxy(req, res, cfg) {
   res.setHeader("Content-Type", "application/json; charset=utf-8");
   res.setHeader("X-Content-Type-Options", "nosniff");
   // AUDIT FE-CRIT-01: explicitly DO NOT forward Set-Cookie or Authorization
-  // headers. Default cache header is private, no-store unless caller overrides.
-  res.setHeader("Cache-Control", cfg.cacheControl || "private, no-store");
+  // headers. Cache header is private, no-store, except a 200 answer to a GET the
+  // provider names as shareable (cfg.edgeCache). An error is never kept at the edge.
+  const shared = upstreamRes.ok && req.method === "GET" && cfg.edgeCache ? cfg.edgeCache(segments, req.query || {}) : null;
+  res.setHeader("Cache-Control", shared || "private, no-store");
 
   if (!upstreamRes.ok) {
     // Log real upstream status server-side; surface a generic 502 to clients.
     console.error(`[${cfg.identifier}] upstream HTTP ${upstreamRes.status}:`, logSafe(bodyText.slice(0, 500)));
+    // One exception, opted into per provider: "there is no route" is an ANSWER, not an
+    // outage, and a caller that cannot tell the two apart treats a down aggregator as
+    // "this token has no market". Only a fixed string goes back, never upstream text.
+    if (upstreamRes.status === 400 && cfg.noRouteErrorCodes && noRouteCode(bodyText, cfg.noRouteErrorCodes)) {
+      return res.status(404).json({ error: "No route", code: "NO_ROUTE" });
+    }
     return res.status(502).json({ error: "Upstream service error" });
   }
 

@@ -10,6 +10,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, posix } from 'node:path';
+import { CURVE_WRITES_ENABLED } from '../lib/launcher/solana/curveWriteFlag';
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const read = (...p: string[]) => readFileSync(join(REPO_ROOT, ...p), 'utf-8');
@@ -49,6 +50,34 @@ describe('CLAUDE.md', () => {
     for (const c of commands) expect(workflows, `no workflow runs \`${c}\``).toContain(c);
   });
 
+  it('gives a build recipe scripts/ci/local-gates.sh runs, so it works with no CI host', () => {
+    const fence = /```\n([\s\S]*?)```/.exec(read('CLAUDE.md'));
+    // Walk the recipe as a shell would: `cd` moves the folder and `a && b` is two commands.
+    // A command chained after a `cd` is shorthand (CI splits `forge test` into slices), so a
+    // gate in that folder may add flags to it. Every other command must match word for word.
+    let dir = '.';
+    const recipe: { dir: string; cmd: string; shorthand: boolean }[] = [];
+    for (const line of fence![1].split('\n')) {
+      const parts = line.replace(/\s+#.*$/, '').replace(/\s+/g, ' ').trim().split(' && ').filter(Boolean);
+      for (const p of parts) {
+        const cd = /^cd (\S+)$/.exec(p);
+        if (cd) dir = posix.normalize(posix.join(dir, cd[1]));
+        else recipe.push({ dir, cmd: p, shorthand: parts.length > 1 });
+      }
+    }
+    const gates = read('scripts', 'ci', 'local-gates.sh')
+      .split('\n')
+      .flatMap((l) => {
+        const m = /^\s*(?:[A-Z][A-Z0-9_]*=\S+ )*gate \w+ "[^"]*" (\S+) (.+)$/.exec(l);
+        return m ? [{ dir: posix.normalize(m[1]), cmd: m[2].replace(/\s+/g, ' ').trim() }] : [];
+      });
+    expect(gates.length, 'local-gates.sh lists no gate').toBeGreaterThan(0);
+    expect(recipe.filter((r) => r.dir === 'contracts').length, 'the recipe walk lost the contracts line').toBeGreaterThan(0);
+    const covered = (r: (typeof recipe)[number]) =>
+      gates.some((g) => g.dir === r.dir && (g.cmd === r.cmd || (r.shorthand && g.cmd.startsWith(`${r.cmd} `))));
+    expect(recipe.filter((r) => !covered(r)).map((r) => `${r.dir}: ${r.cmd}`)).toEqual([]);
+  });
+
   it('says how to read NOTES.md: headings first', () => {
     expect(read('CLAUDE.md')).toContain("grep -n '^## ' NOTES.md");
   });
@@ -56,13 +85,16 @@ describe('CLAUDE.md', () => {
 
 describe('the root is a front door', () => {
   // Community files stay at the root because GitHub reads them there; NOTICE.md because
-  // LICENSE and the contract sources cite it; slither.config.json is config.
+  // LICENSE and the contract sources cite it; slither.config.json is config; GitLab reads
+  // .gitlab-ci.yml only at the root, and gitleaks reads .gitleaksignore only there.
   const ROOT_ALLOWLIST = [
     '.claude',
     '.gitattributes',
     '.github',
     '.gitignore',
+    '.gitlab-ci.yml',
     '.gitleaks.toml',
+    '.gitleaksignore',
     '.gitmodules',
     '.nvmrc',
     '.vercelignore',
@@ -96,6 +128,54 @@ describe('the root is a front door', () => {
 
   it('tracks no runtime lock under .claude', () => {
     expect(tracked().filter((f) => f.startsWith('.claude/') && f.endsWith('.lock'))).toEqual([]);
+  });
+});
+
+describe('no doc gives the venue a second address', () => {
+  // memetic.fun has served another project since 2026-09-20. An old plan may name it as it
+  // was then; no markdown file says the venue is also there. Read a paragraph at a time,
+  // because the claim wraps across lines.
+  const SECOND_ADDRESS = /\b(?:also|aka|alias(?:ed)?|mirror(?:ed)?)\b[^.;]{0,40}?\bmemetic\.fun\b/i;
+  const paragraphs = (): { at: string; text: string }[] =>
+    tracked()
+      .filter((f) => f.endsWith('.md'))
+      .flatMap((f) =>
+        read(...f.split('/'))
+          .split(/\r?\n[ \t]*\r?\n/)
+          .map((p) => ({ at: f, text: p.replace(/\s+/g, ' ').trim() })),
+      );
+
+  it('reads the docs the README sends a newcomer to (guards the guard)', () => {
+    const files = new Set(paragraphs().map((p) => p.at));
+    expect(files.size).toBeGreaterThan(100);
+    for (const must of ['README.md', 'docs/FAQ.md', 'docs/QUICKSTART.md']) {
+      expect(files, `${must} is not being read`).toContain(must);
+    }
+  });
+
+  it('finds the claim however it is worded, and passes a line that disowns the host', () => {
+    for (const claim of [
+      'The app is live at memetics.finance (also **memetic.fun**).',
+      'memetics.finance, also served at memetic.fun, is the venue',
+      'the venue, aka memetic.fun',
+      'mirrored at https://memetic.fun for old links',
+    ]) {
+      expect(SECOND_ADDRESS.test(claim), claim).toBe(true);
+    }
+    for (const honest of [
+      '`memetic.fun` is not this venue: it serves the Island Lab, a separate project.',
+      'a plain 200 on an alias is itself the outage; and `memetic.fun` does not serve this venue',
+      'The contact link points at memetic.fun/trust, which is now another project.',
+    ]) {
+      expect(SECOND_ADDRESS.test(honest), honest).toBe(false);
+    }
+  });
+
+  it('says in no paragraph that the venue is also at memetic.fun', () => {
+    const claims = paragraphs()
+      .filter((p) => SECOND_ADDRESS.test(p.text))
+      .map((p) => `${p.at}: ${SECOND_ADDRESS.exec(p.text)![0]}`);
+    expect(claims, 'these docs give the venue a second address it does not have').toEqual([]);
   });
 });
 
@@ -149,18 +229,22 @@ describe('one to-do list', () => {
 });
 
 describe('the changelog is one line per change', () => {
+  const unreleased = (text: string): string => {
+    expect(text.indexOf('## [Unreleased]')).toBeGreaterThan(-1);
+    const rest = text.slice(text.indexOf('## [Unreleased]') + '## [Unreleased]'.length);
+    const next = rest.search(/^## /m);
+    return next === -1 ? rest : rest.slice(0, next);
+  };
+
   it('stays short and points at the long form in git', () => {
     const text = read('CHANGELOG.md');
-    expect(Buffer.byteLength(text, 'utf-8')).toBeLessThan(64 * 1024);
+    expect(Buffer.byteLength(text, 'utf-8')).toBeLessThan(96 * 1024);
     expect(text).toContain('git show 531813e6:CHANGELOG.md');
   });
 
   it('holds only date headings and one-line entries under Unreleased, with no em dash', () => {
     const text = read('CHANGELOG.md');
-    expect(text.indexOf('## [Unreleased]')).toBeGreaterThan(-1);
-    const rest = text.slice(text.indexOf('## [Unreleased]') + '## [Unreleased]'.length);
-    const next = rest.search(/^## /m);
-    const body = next === -1 ? rest : rest.slice(0, next);
+    const body = unreleased(text);
     const odd = body
       .split('\n')
       .filter((l) => l.trim() !== '')
@@ -168,5 +252,93 @@ describe('the changelog is one line per change', () => {
     expect(odd, 'every line under Unreleased is a date heading or one entry').toEqual([]);
     expect(body.split('\n').filter((l) => l.startsWith('- ')).length).toBeGreaterThan(10);
     expect(text).not.toContain(EM_DASH);
+  });
+
+  // A day past the thirty moves to docs/CHANGELOG_EARLIER.md, and the site's Changelog
+  // tab shows both files, so the two read as one list: no day in both, newest first.
+  it('moves an older day to docs/CHANGELOG_EARLIER.md, in the same form, as one list', () => {
+    const earlier = read('docs', 'CHANGELOG_EARLIER.md');
+    const days = earlier.slice(earlier.indexOf('## Days') + '## Days'.length);
+    expect(earlier.indexOf('## Days')).toBeGreaterThan(-1);
+    const odd = days
+      .split('\n')
+      .filter((l) => l.trim() !== '')
+      .filter((l) => !/^### \d{4}-\d{2}-\d{2}$/.test(l) && !/^- \S/.test(l));
+    expect(odd, 'every line under Days is a date heading or one entry').toEqual([]);
+    expect(earlier).not.toContain(EM_DASH);
+    const dates = [unreleased(read('CHANGELOG.md')), days].flatMap((t) =>
+      [...t.matchAll(/^### (\d{4}-\d{2}-\d{2})$/gm)].map((m) => m[1]!),
+    );
+    expect(dates.length).toBeGreaterThan(20);
+    expect(dates, 'the days run newest first, each once, across both files').toEqual(
+      [...new Set(dates)].sort().reverse(),
+    );
+  });
+
+  it('lists no entry twice under Unreleased', () => {
+    // Two branches can each file the same line under the day they were written, and a
+    // merge keeps both copies. Seen red on 8f0f15cf: one heat line sat under 2026-09-30
+    // and again under 2026-09-29.
+    const entries = unreleased(read('CHANGELOG.md'))
+      .split('\n')
+      .filter((l) => l.startsWith('- '))
+      .map((l) => l.replace(/\s+/g, ' ').trim());
+    expect(entries.length).toBeGreaterThan(10);
+    expect(entries.filter((l, i) => entries.indexOf(l) !== i), 'these entries appear more than once').toEqual([]);
+  });
+
+  // A line may say a page's create form opens only through the door when that page mounts
+  // the form inside <LaunchGate>, not beside it: /launch keeps its wizard usable and reads
+  // the wallet again only at submit.
+  const PAGE_OF: Record<string, string> = {
+    '/eth-curve': 'EthCurvePage.tsx',
+    '/launch': 'LaunchPage.tsx',
+    '/curve-launch': 'CurveLaunchPage.tsx',
+  };
+  const routesClaimedGated = (changelog: string): string[] =>
+    changelog
+      .split('\n')
+      .filter((l) => l.startsWith('- '))
+      .flatMap((l) => l.slice(2).split(/(?<=\.)\s+/))
+      .filter((s) => /opens only through the Who may plant door/.test(s))
+      .flatMap((s) => s.match(/\/[a-z0-9-]+/g) ?? []);
+  // By its closing tag: an opening tag whose props hold JSX (`below={<Lines />}`) has a
+  // `/>` inside it, so reading the opening tag alone takes a wrapping door for a bare one.
+  const wrapsChildren = (src: string) => /<\/LaunchGate>/.test(src);
+
+  it('finds every route in a gated-form claim, and tells a wrapping door from a bare one', () => {
+    expect(
+      routesClaimedGated('- On /a-b, the create form opens only through the Who may plant door, as on /c. Trade at /d.'),
+    ).toEqual(['/a-b', '/c']);
+    expect(wrapsChildren('<LaunchGate rail="ethereum">\n<Form />\n</LaunchGate>')).toBe(true);
+    expect(wrapsChildren('<LaunchGate rail="ethereum" />')).toBe(false);
+    // A door whose props hold JSX still wraps its form (CurveLaunchPage's write path).
+    const jsxProps = 'connect={<WalletNeeded state={s} />} below={<VenueLaunchLines rail="solana" />}';
+    expect(wrapsChildren(`<LaunchGate rail="solana" ${jsxProps}>\n<Form />\n</LaunchGate>`)).toBe(true);
+    expect(wrapsChildren(`<LaunchGate rail="solana" ${jsxProps} />`)).toBe(false);
+    // And the pages as they are: /launch keeps a bare door, the other two wrap.
+    expect(wrapsChildren(read('frontend', 'src', 'pages', 'CurveLaunchPage.tsx'))).toBe(true);
+    expect(wrapsChildren(read('frontend', 'src', 'pages', 'EthCurvePage.tsx'))).toBe(true);
+    expect(wrapsChildren(read('frontend', 'src', 'pages', 'LaunchPage.tsx'))).toBe(false);
+  });
+
+  // While launching is off (curveWriteFlag.ts), no visitor reaches a Solana launch's form,
+  // review or page, so a line about them says when they arrive, as the 2026-10-01 door
+  // line does. Once the owner switches launching on, the qualifier stays true.
+  it.skipIf(CURVE_WRITES_ENABLED)('while launching is off, a line about the Solana launch form, review, plant or page says when it arrives', () => {
+    const WRITE_ONLY = /Solana launch (form|review)|Solana launch's page|Solana launch on \/curve-launch plants/i;
+    const claims = unreleased(read('CHANGELOG.md'))
+      .split('\n')
+      .filter((l) => l.startsWith('- ') && WRITE_ONLY.test(l));
+    expect(claims.length, 'the pattern finds the lines it guards').toBeGreaterThanOrEqual(5);
+    const unqualified = claims.filter((l) => !l.startsWith('- Once launching is switched on, '));
+    expect(unqualified, 'these lines describe what no visitor can reach while launching is off').toEqual([]);
+  });
+
+  it('says a create form opens only through the door only of pages that put it there', () => {
+    const routes = routesClaimedGated(read('CHANGELOG.md'));
+    expect(routes.filter((r) => !PAGE_OF[r]), 'a claimed route with no page here: add it to PAGE_OF').toEqual([]);
+    const ungated = routes.filter((r) => !wrapsChildren(read('frontend', 'src', 'pages', PAGE_OF[r])));
+    expect(ungated, 'the changelog says these pages gate their create form, and they do not').toEqual([]);
   });
 });

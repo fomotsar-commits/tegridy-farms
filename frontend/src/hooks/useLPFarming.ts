@@ -6,7 +6,9 @@ import { LP_FARMING_ABI, ERC20_ABI } from '../lib/contracts';
 import { LP_FARMING_ADDRESS, TEGRIDY_LP_ADDRESS, CHAIN_ID, isDeployed as checkDeployed } from '../lib/constants';
 import { getTxUrl } from '../lib/explorer';
 import { safeParseEtherPositive } from '../lib/safeParseEther';
-import { surfaceTxError } from '../lib/txErrors';
+import { lpFarmDeposit } from '../lib/lpEmissions';
+import { surfaceTxError, surfaceUnconfirmedTx, receiptOutcome, noteReplacement } from '../lib/txErrors';
+import { useReplacedTxNotice } from './useReceiptOutcome';
 
 const ZERO_ADDR = '0x0000000000000000000000000000000000000000' as const;
 
@@ -21,22 +23,23 @@ export function useLPFarming() {
   // the underlying viem call listens on the wallet's CURRENT chain — if the user
   // switched mid-flight (or clicked "switch network" right after submitting),
   // confirmation listens on the wrong chain and silently never fires.
-  const {
-    data: receipt,
-    isLoading: isConfirming,
-    isSuccess: isReceiptFetched,
-    isError: isReceiptError,
-  } = useWaitForTransactionReceipt({ hash, chainId: CHAIN_ID });
+  const receiptQuery = useWaitForTransactionReceipt({ hash, chainId: CHAIN_ID, onReplaced: noteReplacement });
+  const { isLoading: isConfirming } = receiptQuery;
   // AUDIT (receipt-status): wagmi's `isSuccess` only means "the receipt was
-  // FETCHED". A transaction that REVERTED on-chain still produces a receipt,
-  // so this flag latched true and the section showed "Transaction confirmed!",
-  // cleared the typed amount and refetched — for a stake/withdraw/claim that
-  // never happened. `receipt.status === 'success'` is the only real success.
-  // The `!!receipt` guard is defensive: at runtime wagmi always has the receipt
-  // once isSuccess is true, so it can never mask a genuine revert.
-  const isReverted = isReceiptFetched && !!receipt && receipt.status !== 'success';
-  const isSuccess = isReceiptFetched && !isReverted;
-  const isTxError = isReceiptError || isReverted;
+  // FETCHED", so it can never alone mean a stake/withdraw/claim succeeded.
+  //
+  // 2026-09-17: and `isError` is TWO facts needing opposite advice: wagmi THROWS on
+  // a reverted receipt, so a real revert lands there (the old `isSuccess`-keyed
+  // revert branch never fired), and so does "we could not READ the receipt", which
+  // was toasted "Transaction failed". receiptOutcome splits them by error type; see
+  // lib/txErrors.ts. No `isTxError` aggregate: merging the two back into one flag
+  // is how they came to share one wrong message.
+  //
+  // And a receipt is only proof of its OWN transaction: a stake the wallet
+  // cancelled resolves with the cancel's success receipt (see lib/txErrors.ts).
+  const outcome = receiptOutcome(receiptQuery, hash);
+  const { isSuccess, isReverted, isReceiptUnreadable, isReplaced } = outcome;
+  useReplacedTxNotice(outcome, hash, chainId);
 
   // R034 H2: address-snapshot + last-handled-hash refs to drop receipt-effect
   // for a wallet that swapped between submit and confirm.
@@ -194,6 +197,11 @@ export function useLPFarming() {
 
   const isActive = periodFinish > Math.floor(Date.now() / 1000);
 
+  // Entry [2] alone. The section closes Stake on an ended period and holds it on
+  // an unread one (lib/lpEmissions.ts lpFarmDeposit); statsUnread is too wide for
+  // that, since an unread MIN_STAKE must not hold a stake.
+  const periodFinishUnread = isDeployed && !isReadLoading && data?.[2]?.status !== 'success';
+
   // F100: the raw Synthetix-style `rewardRate` storage value stays non-zero
   // after `periodFinish`, but the contract's earned() stops accruing then.
   // Zero the per-day/per-year figures once the period has lapsed so the UI
@@ -239,22 +247,49 @@ export function useLPFarming() {
   }, [isSuccess, hash, address, chainId, reset, refetch]);
 
   useEffect(() => {
-    if (!isTxError || !hash) return;
+    if (!isReverted || !hash) return;
     if (lastHandledHashRef.current === hash) return;
     if (txAddressRef.current && txAddressRef.current !== address) {
       lastHandledHashRef.current = hash;
       return;
     }
     lastHandledHashRef.current = hash;
-    toast.error(isReverted ? 'Transaction reverted on-chain' : 'Transaction failed', {
+    toast.error('Transaction reverted on-chain', {
       id: `err-${hash}`,
-      description: isReverted
-        ? 'The network rejected it — no LP was staked, withdrawn or claimed (gas was still spent). Open it on the explorer for the revert reason, then check your allowance and balance and try again.'
-        : undefined,
+      description:
+        'The network rejected it — no LP was staked, withdrawn or claimed (gas was still spent). Open it on the explorer for the revert reason, then check your allowance and balance and try again.',
       action: { label: 'Explorer', onClick: () => window.open(getTxUrl(chainId, hash), '_blank') },
     });
     setTimeout(() => reset(), 4000);
-  }, [isTxError, isReverted, hash, address, chainId, reset]);
+  }, [isReverted, hash, address, chainId, reset]);
+
+  // The receipt read failed. This shared the branch above and said "Transaction
+  // failed" with no description — a dead end that reads as
+  // "your LP stake is gone" for a transaction that may have been mined fine.
+  // Its own effect, because a revert says retry and this says look first.
+  //
+  // A cancelled or replaced tx ends here too: terminal, and not this stake. Its
+  // warning is useReplacedTxNotice's, above.
+  useEffect(() => {
+    if (!(isReceiptUnreadable || isReplaced) || !hash) return;
+    if (lastHandledHashRef.current === hash) return;
+    if (txAddressRef.current && txAddressRef.current !== address) {
+      lastHandledHashRef.current = hash;
+      return;
+    }
+    lastHandledHashRef.current = hash;
+    if (isReceiptUnreadable) {
+      surfaceUnconfirmedTx(toast, {
+        hash,
+        explorerUrl: getTxUrl(chainId, hash),
+        repeatCost: 'sending it again stakes, withdraws or claims a second time.',
+      });
+    }
+    // Re-read the farm anyway: if it did land, the staked balance moved, and
+    // the position card is the only surface that can show that without a receipt.
+    refetch();
+    setTimeout(() => reset(), 4000);
+  }, [isReceiptUnreadable, isReplaced, hash, address, chainId, reset, refetch]);
 
   useEffect(() => {
     if (writeError) {
@@ -290,6 +325,12 @@ export function useLPFarming() {
     }
     const want = safeParseEtherPositive(amount);
     if (want === null) return;
+    // No new stake into a farm whose rewards ended, or whose end was not read.
+    const deposit = lpFarmDeposit(data?.[2]?.status === 'success' ? Number(data[2].result) : null);
+    if (!deposit.open) {
+      toast.error(deposit.line);
+      return;
+    }
     if (lpAllowance < want) {
       toast.error('Approve LP token first (Allowance too low)');
       return;
@@ -429,6 +470,8 @@ export function useLPFarming() {
      * invitation derived from one.
      */
     statsUnread,
+    /** `periodFinish` was asked and did not land: new stakes wait, no end date is said. */
+    periodFinishUnread,
     pendingReward,
     pendingRewardFormatted: formatEther(pendingReward),
     walletLPBalance,

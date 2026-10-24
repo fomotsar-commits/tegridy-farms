@@ -87,7 +87,7 @@ test.describe('Connect prompt surfaces', () => {
     // bungalow" were the same branch, so this spec was standing in a room it
     // never named. ConnectPrompt surface="farm" lives in the classic farm; this
     // is where it lives. (arrival.ts reads ?bungalow= ahead of stored choice.)
-    await gotoRoute(page, '/farm?bungalow=toweli');
+    await gotoRoute(page, '/earn/toweli');
     // ConnectPrompt renders an h2 with the farm-specific voice. The word was
     // "tegridy" until the owner's 2026-08-31 retirement (commit 17fe6fcc) took
     // the brand out of every rendered surface — "Real tegridy." became "Held
@@ -106,7 +106,7 @@ test.describe('Connect prompt surfaces', () => {
     // `/lending` is also just a redirect to /nft-finance (App.tsx:236).
     // Copy comes from SECTION_PROMPTS in src/pages/LendingPage.tsx:48.
     await gotoRoute(page, '/nft-finance');
-    const banner = page.getByText(/Connect to (lend ETH against|borrow against your NFTs|trade NFTs on)/i);
+    const banner = page.getByText(/Connect to (lend or borrow ETH|borrow against your NFT|trade NFTs in a pool)/i);
     await expect(banner.first()).toBeVisible();
   });
 });

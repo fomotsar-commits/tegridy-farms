@@ -41,6 +41,7 @@ vi.mock('../lib/analytics', () => ({ trackPageView: () => {} }));
 vi.mock('../components/PageArtBackdrop', () => ({ PageArtBackdrop: () => null }));
 vi.mock('../components/ui/FeatureNotDeployed', () => ({ FeatureNotDeployed: () => null }));
 vi.mock('../components/ui/WrongChainGuard', () => ({ WrongChainBanner: () => null }));
+vi.mock('../components/LaunchGate', () => ({ LaunchGate: () => null }));
 vi.mock('../components/launcher/CurveCreatePanel', () => ({ CurveCreatePanel: () => null }));
 vi.mock('../components/launcher/CurveTradePanel', () => ({ CurveTradePanel: () => null }));
 vi.mock('../components/launcher/CurveLaunchesGrid', () => ({

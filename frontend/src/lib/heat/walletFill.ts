@@ -1,31 +1,12 @@
 /**
- * WAVE SEVEN, element B: THE WALLET FILL.
- *
- * "When an injected provider exists (window.ethereum, or a Solana provider), a
- * small 'Use my wallet' button fills the field from eth_accounts (never
- * eth_requestAccounts until tapped; never a signature) or from the Solana
- * provider's publicKey / connect({ onlyIfTrusted }); on failure it says 'Paste
- * the address instead.' and nothing else."
- *
- * WHY THIS IS NOT THE APP'S WALLET STACK. HeatCard already fills from wagmi's
- * connected account. This is for the visitor who has a wallet in the browser and
- * has NOT connected it to the venue: the instrument reads a public address, so
- * asking someone to run a whole connect flow to look up their own held time is a
- * toll booth in front of a public number. Nothing here touches the connectors,
- * the modal or the chain - one read of an address a provider already knows.
- *
- * NEVER A SIGNATURE, and never a silent prompt. `eth_accounts` returns what the
- * page is ALREADY authorised to see and prompts nobody; only when that is empty
- * does this ask for accounts, and only inside a tap the visitor made on a button
- * that says what it does. The Solana side is the same shape: a publicKey that
- * already exists, else `connect({ onlyIfTrusted: true })`, which resolves only
- * for a wallet that has already trusted this origin and never opens a dialog.
- *
- * EVM IS TRIED FIRST because the field's own placeholder leads with 0x and most
- * injected providers are EVM; a browser carrying both answers with its EVM
- * account, which the visitor can still overtype. Any throw, anywhere, is the
- * same outcome as no provider: null, and the caller says one sentence.
+ * The wallet fill: one read of a public address from a provider the browser already
+ * carries, for a visitor who has not connected to the venue. It is not the app's wallet
+ * stack. Never a signature, and never a prompt outside a press on a button that says
+ * what it does. The caller names the network: this file never picks one for the visitor.
+ * Any throw is the same answer as no provider: null, and the caller says one sentence.
  */
+
+export type FillNetwork = 'ethereum' | 'solana';
 
 /** Anything the page can be handed by an extension. Deliberately loose. */
 type Injected = Record<string, any>;
@@ -40,61 +21,85 @@ function firstAddress(accounts: unknown): string | null {
   return typeof first === 'string' && first.trim() !== '' ? first.trim() : null;
 }
 
-/**
- * Is there anything to fill FROM? Read at render, not cached at module load:
- * an extension can inject after the bundle evaluates, and a button that decided
- * it did not exist half a second too early never comes back.
- */
-export function hasInjectedWallet(): boolean {
-  const w = win();
-  if (!w) return false;
-  return Boolean(w.ethereum) || Boolean(w.solana) || Boolean(w.phantom?.solana);
+function ethereumProvider(w: Injected): Injected | null {
+  return typeof w.ethereum?.request === 'function' ? w.ethereum : null;
+}
+
+/** Trust's own browser puts its Solana provider at `trustwallet.solana` and nowhere else. */
+function solanaProviders(w: Injected): Injected[] {
+  const found = [w.solana, w.phantom?.solana, w.trustwallet?.solana].filter(
+    (p): p is Injected => Boolean(p) && (Boolean(p.publicKey) || typeof p.connect === 'function'),
+  );
+  return [...new Set(found)];
+}
+
+function keyText(key: unknown): string | null {
+  if (!key) return null;
+  const text = String(key).trim();
+  return text !== '' ? text : null;
 }
 
 /**
- * The address an injected provider will hand over without a signature, or null.
- * `null` is not an error state to explain - the caller has exactly one sentence
- * for it, and the field still takes a paste.
+ * Which networks a provider in this browser can answer for. Read at render, not cached
+ * at module load: an extension can inject after the bundle evaluates.
  */
-export async function readInjectedAddress(): Promise<string | null> {
+export function injectedNetworks(): Record<FillNetwork, boolean> {
   const w = win();
-  if (!w) return null;
+  if (!w) return { ethereum: false, solana: false };
+  try {
+    return { ethereum: ethereumProvider(w) !== null, solana: solanaProviders(w).length > 0 };
+  } catch {
+    return { ethereum: false, solana: false };
+  }
+}
 
-  const eth = w.ethereum;
-  if (eth && typeof eth.request === 'function') {
+/**
+ * `eth_accounts` returns what the page is already allowed to see and prompts nobody.
+ * Empty means "this origin is not authorised yet", so the press then asks for accounts:
+ * the prompt the visitor asked for.
+ */
+async function readEthereum(w: Injected): Promise<string | null> {
+  const eth = ethereumProvider(w);
+  if (!eth) return null;
+  try {
+    const known = firstAddress(await eth.request({ method: 'eth_accounts' }));
+    if (known) return known;
+    return firstAddress(await eth.request({ method: 'eth_requestAccounts' }));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A key a provider already shows, else `connect({ onlyIfTrusted: true })`, which answers
+ * only for a wallet that has trusted this origin. A refusal is a normal answer.
+ */
+async function readSolana(w: Injected): Promise<string | null> {
+  const providers = solanaProviders(w);
+  for (const sol of providers) {
+    const known = keyText(sol.publicKey);
+    if (known) return known;
+  }
+  for (const sol of providers) {
+    if (typeof sol.connect !== 'function') continue;
     try {
-      const known = firstAddress(await eth.request({ method: 'eth_accounts' }));
-      if (known) return known;
-      // Empty means "this origin is not authorised yet", not "no wallet". The
-      // visitor tapped the button; this is the prompt they asked for.
-      const asked = firstAddress(await eth.request({ method: 'eth_requestAccounts' }));
+      const res = await sol.connect({ onlyIfTrusted: true });
+      const asked = keyText(res?.publicKey ?? sol.publicKey);
       if (asked) return asked;
     } catch {
-      // A rejected prompt, a locked wallet, a provider that does not speak this
-      // method: all the same answer. Fall through and try Solana.
+      // Not trusted here, or locked: the next provider may still answer.
     }
   }
-
-  const sol = w.solana ?? w.phantom?.solana;
-  if (sol) {
-    try {
-      if (sol.publicKey) {
-        const pk = String(sol.publicKey);
-        if (pk.trim() !== '') return pk.trim();
-      }
-      if (typeof sol.connect === 'function') {
-        const res = await sol.connect({ onlyIfTrusted: true });
-        const pk = res?.publicKey ?? sol.publicKey;
-        if (pk) {
-          const s = String(pk).trim();
-          if (s !== '') return s;
-        }
-      }
-    } catch {
-      // onlyIfTrusted rejects for a wallet that has not trusted this origin.
-      // That is a normal answer, not a fault, and it gets the same sentence.
-    }
-  }
-
   return null;
+}
+
+/** The address that network's provider hands over without a signature, or null. */
+export async function readInjectedAddress(network: FillNetwork): Promise<string | null> {
+  const w = win();
+  if (!w) return null;
+  try {
+    return await (network === 'solana' ? readSolana(w) : readEthereum(w));
+  } catch {
+    return null;
+  }
 }

@@ -5,6 +5,7 @@ import DirectMessages from "./DirectMessages";
 import NftImage from "./NftImage";
 import { ItemChips, TradeSummary, fmtEthWei as fmtEth, liveTopups } from "./TradeChips";
 import { fetchTrades, acceptTrade, acceptOpenTrade, updateTradeStatus, cancelTradeOnChain, fillableHoldings } from "../lib/trades";
+import { toastTxNotice } from "../lib/txOutcome";
 import { getNotificationStatus, subscribeToPush, unsubscribeFromPush, isSubscribed } from "../lib/notifications";
 import { fetchWalletNfts } from "../api";
 
@@ -47,12 +48,13 @@ function PushToggle({ wallet, addToast }) {
     </button>
   );
 }
-import { COLLECTIONS } from "../constants";
+import { VENUE_COLLECTIONS } from "../lib/venue";
 
-const COLLECTION_BY_CONTRACT = Object.values(COLLECTIONS).reduce((m, c) => {
+// Only venue collections settle a P2P trade, so only they are read for holdings.
+export const COLLECTION_BY_CONTRACT = Object.freeze(VENUE_COLLECTIONS.reduce((m, c) => {
   m[c.contract.toLowerCase()] = c;
   return m;
-}, {});
+}, {}));
 
 /**
  * Accept flow for an OPEN (board) trade: pick which of YOUR tokens fill each
@@ -180,7 +182,7 @@ function OpenTradeAccept({ trade, wallet, addToast, onClose, onAccepted }) {
                 addToast?.("Trade executed!", "success");
                 onAccepted?.();
                 onClose();
-              } else if (result.error !== "rejected") {
+              } else if (result.error !== "rejected" && !toastTxNotice(addToast, result)) {
                 addToast?.(result.message || "Trade failed", "error");
               }
             } finally {
@@ -233,7 +235,7 @@ function TradeCard({ trade, direction, addToast, onChanged, onCounter, onPickPro
       if (result.success) {
         addToast?.(successMsg, "success");
         onChanged?.();
-      } else if (result.error !== "rejected") {
+      } else if (result.error !== "rejected" && !toastTxNotice(addToast, result)) {
         addToast?.(result.message || "Action failed", "error");
       }
     } finally {
@@ -382,7 +384,7 @@ function BoardOwnerActions({ trade, addToast, onChanged }) {
     try {
       const result = await fn();
       if (result.success) { addToast?.(msg, "success"); onChanged?.(); }
-      else if (result.error !== "rejected") addToast?.(result.message || "Action failed", "error");
+      else if (result.error !== "rejected" && !toastTxNotice(addToast, result)) addToast?.(result.message || "Action failed", "error");
     } finally { setBusy(null); }
   };
   return (
@@ -460,7 +462,7 @@ export default function TradesPanel({ wallet, onConnect, addToast, onViewProfile
     holdingsWalletRef.current = w;
     let cancelled = false;
     (async () => {
-      const entries = await Promise.all(Object.values(COLLECTIONS).map(async (col) => {
+      const entries = await Promise.all(VENUE_COLLECTIONS.map(async (col) => {
         try {
           // totalCount is the wallet's real holding count and is reported on
           // every page, so the fillable badge stays right even when the token

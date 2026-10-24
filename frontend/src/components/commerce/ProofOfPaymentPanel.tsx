@@ -5,6 +5,8 @@ import type { Invoice } from '../../lib/commerce/invoice';
 import { settlementStandingText, TX_HASH_RE } from '../../lib/commerce/settlement';
 import { previouslyAcceptedFor, recordAccepted } from '../../lib/commerce/acceptedHashes';
 import { useReceiptProof } from '../../hooks/useReceiptProof';
+import { CardArt } from '../ui/CardArt';
+import { FinePrint } from '../ui/FinePrint';
 
 // Reading a transaction hash back out of the chain and saying what it proves.
 //
@@ -23,6 +25,10 @@ import { useReceiptProof } from '../../hooks/useReceiptProof';
 // Because it is the only field on a confirmed transfer that a merchant can
 // compare against something they already know. It comes before the standing
 // text on purpose.
+//
+// FEWER WORDS (owner, 2026-10-13). The not-bound warning stays on the face
+// (shorter): a merchant releases goods against this panel. How the receipt is
+// read and what the local ledger can and cannot know sit in the FinePrint.
 
 export interface ProofOfPaymentPanelProps {
   invoice: Invoice;
@@ -62,13 +68,13 @@ export function ProofOfPaymentPanel({ invoice, txHash = null, merchant = null }:
   const owed = `${formatScaled(invoice.settleAmount, invoice.settleDecimals)} ${invoice.settleSymbol}`;
 
   return (
-    <section className={CARD}>
+    <section className={`relative isolate ${CARD}`}>
+      <CardArt pageId="checkout" idx={13} />
       <h2 className="text-sm font-semibold text-white">
         {txHash ? 'Proof of payment' : 'Verify a payment'}
       </h2>
       <p className="mt-1 text-[12px] leading-relaxed text-white/60">
-        The receipt is read from chain {invoice.chainId} in this browser. Nothing here is cached and no server is
-        asked — reload to re-read.
+        Read live from chain {invoice.chainId}, in this browser.
       </p>
 
       {txHash === null ? (
@@ -131,9 +137,8 @@ export function ProofOfPaymentPanel({ invoice, txHash = null, merchant = null }:
                 </p>
               ) : null}
               <p className="mt-2 text-[12px] leading-relaxed text-amber-200/85">
-                This receipt is not bound to invoice {invoice.id}. An ERC-20 transfer carries no invoice
-                reference, so this same hash would confirm any invoice of yours for {owed}. Accept each hash
-                once and compare the sender.
+                Not bound to invoice {invoice.id}: this same hash would confirm any invoice of yours for {owed}.
+                Accept each hash once and compare the sender.
               </p>
             </div>
           ) : null}
@@ -170,14 +175,9 @@ export function ProofOfPaymentPanel({ invoice, txHash = null, merchant = null }:
               </button>
               {accepted.kind === 'refused' ? (
                 <p className="mt-2 text-[12px] leading-relaxed text-amber-200/85">
-                  This browser refused the write, so nothing was recorded. Private-mode and full-storage
-                  browsers both do this — write the hash down yourself.
+                  This browser refused the write, so nothing was recorded. Write the hash down yourself.
                 </p>
               ) : null}
-              <p className="mt-2 text-[11px] leading-relaxed text-white/50">
-                The accepted-hash list lives in THIS browser only. It is not shared with any other device of
-                yours, it is gone with a cleared cache, and its silence is not evidence a hash is new.
-              </p>
             </div>
           ) : null}
 
@@ -191,6 +191,23 @@ export function ProofOfPaymentPanel({ invoice, txHash = null, merchant = null }:
           </a>
         </div>
       ) : null}
+
+      <FinePrint className="mt-1">
+        <p>
+          The receipt is read from chain {invoice.chainId} in this browser. Nothing here is cached and no server is
+          asked — reload to re-read.
+        </p>
+        {hash !== null && proof.status === 'judged' && proof.verdict.verification === 'chain-confirmed' ? (
+          <p>An ERC-20 transfer carries no invoice reference.</p>
+        ) : null}
+        {merchant && hash !== null && alreadyFor === null && proof.status === 'judged' && proof.verdict.verification === 'chain-confirmed' ? (
+          <p>
+            The accepted-hash list lives in THIS browser only. It is not shared with any other device of
+            yours, it is gone with a cleared cache, and its silence is not evidence a hash is new.
+          </p>
+        ) : null}
+        {accepted.kind === 'refused' ? <p>Private-mode and full-storage browsers both refuse such writes.</p> : null}
+      </FinePrint>
     </section>
   );
 }

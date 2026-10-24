@@ -90,7 +90,7 @@ type BatchEntry =
   | { ok: false; code: number | null; message: string };
 
 /** A failed READ. Never a finding about the token — see the header. */
-function unreadable(method: string, detail: string): ScanError {
+export function unreadable(method: string, detail: string): ScanError {
   return new ScanError(
     'network',
     `Could not read ${method} from the Solana data proxy (${detail}) — nothing was concluded about this token.`,
@@ -98,7 +98,7 @@ function unreadable(method: string, detail: string): ScanError {
 }
 
 /** POST a JSON-RPC batch to the same-origin proxy and return outcomes keyed by id. */
-async function solrpcBatch(calls: RpcCall[], signal?: AbortSignal): Promise<Map<number, BatchEntry>> {
+export async function solrpcBatch(calls: RpcCall[], signal?: AbortSignal): Promise<Map<number, BatchEntry>> {
   let res: Response;
   try {
     res = await fetch(SOLRPC_PATH, {
@@ -162,7 +162,7 @@ async function solrpcBatch(calls: RpcCall[], signal?: AbortSignal): Promise<Map<
  * checked by the caller BEFORE this, because it is the only one that is a fact about
  * the address rather than about the read.
  */
-function takeResult(batch: Map<number, BatchEntry>, id: number, method: string): unknown {
+export function takeResult(batch: Map<number, BatchEntry>, id: number, method: string): unknown {
   const entry = batch.get(id);
   if (!entry) throw unreadable(method, 'the proxy returned neither a result nor an error');
   if (!entry.ok) throw unreadable(method, entry.message);
@@ -172,7 +172,7 @@ function takeResult(batch: Map<number, BatchEntry>, id: number, method: string):
 // ── shape guards: a shape we did not expect is never evidence ─────────────────
 
 /** Narrow an RPC payload to an object, or say the shape was wrong. */
-function expectRpcObject(method: string, v: unknown): Record<string, unknown> {
+export function expectRpcObject(method: string, v: unknown): Record<string, unknown> {
   if (typeof v !== 'object' || v === null) {
     throw unreadable(method, `expected an object, got ${v === null ? 'null' : typeof v}`);
   }
@@ -187,7 +187,7 @@ function expectRpcObject(method: string, v: unknown): Record<string, unknown> {
  * absent" and "the server did not answer" are different facts and only one of them
  * is about the chain.
  */
-function expectRpcValue(method: string, payload: unknown): unknown {
+export function expectRpcValue(method: string, payload: unknown): unknown {
   const o = expectRpcObject(method, payload);
   if (!('value' in o)) throw unreadable(method, 'the response carried no `value`');
   return o.value;
@@ -220,7 +220,7 @@ function expectRpcArray(method: string, payload: unknown): unknown[] {
  * neither is a shape an SPL base-unit amount ever has. So the test is an explicit
  * decimal-digits match rather than a caught exception.
  */
-function expectBaseUnits(method: string, s: string): bigint {
+export function expectBaseUnits(method: string, s: string): bigint {
   if (!/^[0-9]+$/.test(s)) {
     throw unreadable(method, `expected an integer base-unit amount, got ${JSON.stringify(s)}`);
   }

@@ -25,6 +25,7 @@ import {
 } from '../../lib/launcher/graduation';
 import { TOWELI_ADDRESS, TOWELI_DECIMALS } from '../../lib/constants';
 import { formatWei, shortenAddress } from '../../lib/formatting';
+import { CardArt } from '../ui/CardArt';
 
 const NATIVE = '0x0000000000000000000000000000000000000000';
 
@@ -120,7 +121,8 @@ export function GraduationVenuePanel() {
   const venueOwned = plan.migrator.ownership === 'venue-owned';
 
   return (
-    <div className="glass-card p-6 rounded-2xl" aria-label="Graduation venue">
+    <div className="relative isolate glass-card p-6 rounded-2xl" aria-label="Graduation venue">
+      <CardArt pageId="launch" idx={58} />
       <h2
         className="heading-luxury text-white text-[20px] tracking-tight mb-2"
         style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}

@@ -21,12 +21,18 @@ const state = vi.hoisted(() => ({
   routerFeeError: false,
   quoteCalls: [] as { to: string; amount: bigint }[],
   minimumReceived: 10n ** 20n,
+  /** The LP farm's periodFinish read (useLpFarmDeposit); a paying farm by default. */
+  periodFinish: BigInt(Math.floor(Date.now() / 1000) + 30 * 86_400) as bigint | undefined,
 }));
 
 vi.mock('wagmi', () => ({
   useAccount: () => ({ address: state.address, isConnected: !!state.address }),
   useChainId: () => state.chainId,
-  useReadContract: () => ({ data: state.routerFeeBps, isError: state.routerFeeError }),
+  // Answered by function: the fee read and the LP farm's periodFinish are different facts.
+  useReadContract: (opts: { functionName?: string }) =>
+    opts.functionName === 'periodFinish'
+      ? { data: state.periodFinish, isLoading: false, isError: state.periodFinish === undefined }
+      : { data: state.routerFeeBps, isError: state.routerFeeError },
 }));
 
 vi.mock('./useSwapQuote', () => ({
@@ -61,6 +67,7 @@ describe('the leg sizes this hook prices', () => {
     state.quoteCalls = [];
     state.routerFeeBps = 25n;
     state.routerFeeError = false;
+    state.periodFinish = BigInt(Math.floor(Date.now() / 1000) + 30 * 86_400);
   });
 
   it('prices the whole input for a staking lock, because there is one leg', () => {
@@ -259,5 +266,44 @@ describe('the executor a leg resolves to', () => {
       : null;
     expect(swap?.route?.executor.toLowerCase()).toBe(SWAP_FEE_ROUTER_ADDRESS.toLowerCase());
     expect(swap?.route?.executorTakesMaxFee).toBe(true);
+  });
+});
+
+describe('the LP farm destination after its rewards ended (owner, 2026-10-14)', () => {
+  beforeEach(() => {
+    state.address = WALLET;
+    state.chainId = CHAIN_ID;
+    state.quoteCalls = [];
+    state.routerFeeBps = 25n;
+    state.routerFeeError = false;
+  });
+
+  it('refuses the plan with the read date once periodFinish has passed', () => {
+    state.periodFinish = 1_781_493_095n; // 2026-06-15T03:11:35Z
+    const { result } = renderHook(() =>
+      useZapPlan({ venueId: 'lp-farm', inputToken: ETH, amountIn: 10n ** 18n, slippagePct: 0.5 }),
+    );
+    expect(result.current.result).toEqual({
+      ok: false,
+      code: 'venue-unavailable',
+      detail: 'Rewards ended Jun 15, 2026, so new stakes are closed. Withdraw and claim still work.',
+    });
+  });
+
+  it('refuses while periodFinish is unread, and says no date', () => {
+    state.periodFinish = undefined;
+    const { result } = renderHook(() =>
+      useZapPlan({ venueId: 'lp-farm', inputToken: ETH, amountIn: 10n ** 18n, slippagePct: 0.5 }),
+    );
+    expect(result.current.result).toMatchObject({ ok: false, code: 'venue-unavailable' });
+    expect(JSON.stringify(result.current.result)).not.toMatch(/20\d\d/);
+  });
+
+  it('leaves the staking lock alone on an ended farm (negative control)', () => {
+    state.periodFinish = 1_781_493_095n;
+    const { result } = renderHook(() =>
+      useZapPlan({ venueId: 'staking-lock', inputToken: USDC, amountIn: 1_000_000n, slippagePct: 0.5, lockDurationSeconds: 7776000n }),
+    );
+    expect(result.current.result?.ok).toBe(true);
   });
 });

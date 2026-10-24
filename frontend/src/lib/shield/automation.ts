@@ -37,7 +37,7 @@ export const F4_REQUIREMENTS: readonly string[] = [
  * user as the executor and must not describe a watcher that does not exist.
  */
 export const EXECUTION_IS_YOURS =
-  'You execute this yourself. Nothing watches this position while this page is closed, and nothing signs for you.';
+  'You repay it yourself. Nothing watches or signs for you while this page is closed.';
 
 /**
  * The scope of the monitoring that DOES exist. Deliberately narrower than the

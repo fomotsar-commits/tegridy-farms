@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { BUNGALOWS } from '../src/lib/bungalows';
+import { BUNGALOWS, BUNGALOW_COUNT } from '../src/lib/bungalows';
 import { gotoRoute } from './fixtures/routes';
 
 // Bungalow doors (memetics.finance/<bungalow>). No wallet fixture: it pins the skin to
@@ -50,7 +50,8 @@ test.describe('bungalow doors', () => {
       } catch { /* ignore */ }
     });
     await page.goto('/towelie');
-    await expect(page.locator('h1:has-text("Farm TOWELI.")')).toHaveCount(1, { timeout: 20_000 });
+    // The hero's own class: the door's static frame and busy fallback read the same words first.
+    await expect(page.locator('h1.heading-luxury:has-text("Farm TOWELI.")')).toHaveCount(1, { timeout: 20_000 });
     expect(new URL(page.url()).pathname).toBe('/towelie');
     expect(await page.evaluate(() => localStorage.getItem('tegridy-bungalow'))).toBe('toweli');
   });
@@ -125,11 +126,13 @@ test.describe('bungalow doors', () => {
 
   const DOORS = BUNGALOWS.map((b) => b.id);
 
-  test('there are thirteen doors, and this file knows all of them', () => {
+  test('there are thirteen doors, twelve bungalows and the open lot, and this file knows all of them', () => {
     // The sweep below is generated from this list. If a door is added and this
     // number is not deliberately changed with it, the new room is swept anyway —
     // this exists so the COUNT in the status block cannot drift from the code.
     expect(DOORS).toHaveLength(13);
+    // The island: "12 BUNGALOWS · 3 LOTS OPEN". /nb1 is its next lot, not a bungalow.
+    expect(BUNGALOW_COUNT).toBe(12);
     expect(DOORS).toContain('toweli');
   });
 
@@ -193,10 +196,15 @@ test.describe('bungalow doors', () => {
     }
   });
 
-  test('the quiet slot renders the unmarked landing without switching', async ({ page }) => {
+  test('the open lot renders its landing without switching, and points at the harbor', async ({ page }) => {
     await seedOverlays(page);
     await page.goto('/nb1');
-    await expect(page.locator('h1').first()).toContainText('Unmarked', { timeout: 20_000 });
+    // The served page already carries the lot's heading (its first frame), so the heading
+    // proves nothing about React. The harbor link is the landing's alone: wait for it
+    // first, so the storage read below comes after the door's first render, not before it.
+    await expect(page.getByRole('link', { name: /How a community gets a bungalow here\./ }))
+      .toHaveAttribute('href', 'https://memetics.wtf/#p-harbor', { timeout: 20_000 });
+    await expect(page.locator('h1').first()).toContainText('Unmarked');
     expect(await page.evaluate(() => localStorage.getItem('tegridy-bungalow'))).toBeNull();
   });
 

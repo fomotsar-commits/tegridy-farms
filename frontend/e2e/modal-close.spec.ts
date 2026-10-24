@@ -1,19 +1,10 @@
 import { test, expect } from './fixtures/wallet';
 
 /**
- * The dialog X must be the thing you hit when you aim at it.
- *
- * 🔴 2026-09-04: it was not. Modal.tsx gave the close button `z-10` and the
- * content wrapper beside it the same `z-10`; at equal z-index the LATER sibling
- * paints on top, so the wrapper's <h2> — a block element spanning the full
- * width — covered the button completely. Every titled dialog in the app had an
- * unclickable X, and the click landed on the heading instead.
- *
- * The heading carried `pr-8` as clearance, which cannot work: padding is part of
- * an element's hit area, so reserving space visually is not getting out of the
- * way. That is why this asserts the HIT TARGET and not the geometry — a spec
- * that only checked the button was visible, or that the boxes did not visually
- * collide, passed the whole time the button was dead.
+ * The dialog X must be the thing you hit when you aim at it. This asserts the
+ * HIT TARGET, not the geometry: padding is part of an element's hit area, so a
+ * visible X whose box overlaps nothing you can see may still be dead. Modal.tsx
+ * keeps it clickable by stacking order, one z-index above the content wrapper.
  */
 test.describe('dialog close button', () => {
   test('the X is the topmost element at its own centre, and it closes the dialog', async ({
@@ -21,18 +12,11 @@ test.describe('dialog close button', () => {
     walletMock: _w,
   }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
-    // PIN THE VENUE'S SETTLED STATE BEFORE ARRIVING. `/` is wrapped in
-    // <BungalowDoor id={VENUE_ID}>, which clears a stored skin by reloading the
-    // document; the shared wallet fixture pins `tegridy-bungalow` to `toweli`,
-    // so this spec would arrive with a skin to clear and race that reload —
-    // `page.evaluate` then dies with "Execution context was destroyed". It
-    // passed locally and failed in CI, which is the tell for a race rather than
-    // a broken assertion. Seeding the `venue` sentinel means there is nothing
-    // to clear and no reload happens.
-    //
-    // Registered HERE, in the test body, on purpose: init scripts run in
-    // REGISTRATION order and the wallet fixture registers its own during setup,
-    // so a pin added before the fixture resolves is overwritten by its `toweli`.
+    // `/` clears a stored skin by reloading the document, and the wallet fixture
+    // stores `toweli`. Seeding the `venue` sentinel leaves nothing to clear, so no
+    // reload destroys the context under page.evaluate. Registered in the test
+    // body: init scripts run in registration order, and the fixture's own would
+    // overwrite one added before it.
     await page.addInitScript(() => {
       try { localStorage.setItem('tegridy-bungalow', 'venue'); } catch { /* ignore */ }
     });
@@ -46,17 +30,30 @@ test.describe('dialog close button', () => {
     const close = page.getByRole('button', { name: /close dialog/i });
     await expect(close).toBeVisible();
 
-    // WHAT IS ACTUALLY UNDER THE CURSOR. elementFromPoint answers the question a
-    // real click asks; toBeVisible does not.
-    const box = (await close.boundingBox())!;
-    const topmost = await page.evaluate(
-      ({ x, y, w, h }) => {
-        const el = document.elementFromPoint(x + w / 2, y + h / 2) as HTMLElement | null;
-        if (!el) return 'nothing';
-        return `${el.tagName}:${el.getAttribute('aria-label') ?? el.className}`;
-      },
-      { x: box.x, y: box.y, w: box.width, h: box.height },
-    );
+    // AT REST, THEN BOX AND HIT TEST IN ONE TASK. The dialog mounts in its
+    // entrance pose and holds it still for several frames before snapping to
+    // rest, so a still box is not a settled one, and a box read in one call is
+    // stale by the next. Rest is: out of the entrance transform, and the same
+    // box on two frames running. elementFromPoint answers the question a real
+    // click asks; toBeVisible does not.
+    const topmost = await close.evaluate(async (btn) => {
+      const dialogEl = btn.closest('[role="dialog"]')!;
+      const nextFrame = () => new Promise<number>(requestAnimationFrame);
+      const deadline = performance.now() + 5000;
+      let lastBoxAtRest = '';
+      for (;;) {
+        await nextFrame();
+        const transform = getComputedStyle(dialogEl).transform;
+        const r = btn.getBoundingClientRect();
+        const box = `${r.left},${r.top},${r.width},${r.height}`;
+        if (transform === 'none' && box === lastBoxAtRest) {
+          const el = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+          return el ? `${el.tagName}:${el.getAttribute('aria-label') ?? el.className}` : 'nothing';
+        }
+        if (performance.now() > deadline) return `never came to rest in 5s (dialog transform ${transform})`;
+        lastBoxAtRest = transform === 'none' ? box : '';
+      }
+    });
     expect(
       topmost,
       'something is painted over the dialog X — a click aimed at it lands elsewhere',

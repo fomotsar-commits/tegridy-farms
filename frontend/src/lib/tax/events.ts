@@ -15,8 +15,6 @@
 //     asset would then match against nothing while looking like it had been
 //     considered.
 //
-// The same absence is already load-bearing elsewhere in this repo:
-// lib/competitions/scoring.ts refuses to rank by profit for exactly this reason.
 // This module refuses to price a disposal for it.
 //
 // The consequence, stated rather than smoothed over: a capital-gains report

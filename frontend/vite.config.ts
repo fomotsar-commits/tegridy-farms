@@ -7,6 +7,7 @@ import type { IncomingMessage } from 'node:http';
 import { resolve } from 'node:path';
 import { parse as parseQuery } from 'node:querystring';
 import { parseOverrideModule, mergeScoped, type OverrideEntry } from './src/lib/dev/overrideFileMerge';
+import { changelogFilesPlugin } from './changelogFilesPlugin.ts';
 
 // R002: only a same-origin localhost dev server may POST to the save handler
 // (DNS rebinding, LAN CSRF, or any hostile tab could fetch() it otherwise).
@@ -419,9 +420,12 @@ ${entries}
   });
 }
 
-export default defineConfig(({ mode }) => {
+export default defineConfig(({ command, mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   return {
+    // src/devServerDefine.d.ts: only code this dev server compiles may honour the
+    // operator dials. Never import.meta.env.DEV, which NODE_ENV can turn on in a build.
+    define: { __VITE_DEV_SERVER__: JSON.stringify(command === 'serve') },
     plugins: [
       react(),
       tailwindcss(),
@@ -430,6 +434,7 @@ export default defineConfig(({ mode }) => {
       doorStudioPlugin(),
       firstFrameStylesheetsPlugin(),
       doorPagesPreviewPlugin(),
+      changelogFilesPlugin(),
       devApiPlugin(),
       ...(process.env.ANALYZE ? [visualizer({ open: true, gzipSize: true, filename: 'dist/bundle-analysis.html' })] : []),
     ],

@@ -2,6 +2,8 @@ import type { IslandTapeStatus } from '../../hooks/useIslandTape';
 import type { IslandTape } from '../../lib/copytrade/tape';
 import type { TapeLeaderboard } from '../../lib/copytrade/tapeLeaderboard';
 import { TAPE_CAPPED_NOTICE, TAPE_WINDOW_NOTICE } from '../../lib/copytrade/tapeLeaderboard';
+import { CardArt } from '../ui/CardArt';
+import { FinePrint } from '../ui/FinePrint';
 
 // THE READ LEDGER — what was asked, what answered, and what did not.
 //
@@ -24,6 +26,10 @@ import { TAPE_CAPPED_NOTICE, TAPE_WINDOW_NOTICE } from '../../lib/copytrade/tape
 // timestamp), not with when we fetched: a read that succeeds against a stale
 // feed is current about the fetch and old about the market, and only one of
 // those is what a reader is asking.
+//
+// FEWER WORDS (owner, 2026-10-13). Every status (what answered, what did not,
+// the next allowed read, a capped pool) stays on the face in a short line; the
+// full sentences behind them sit in the FinePrint, verbatim.
 
 export interface TapeReadLedgerProps {
   status: IslandTapeStatus;
@@ -74,7 +80,8 @@ export function TapeReadLedger({
   const gated = refreshAvailableAt !== null;
 
   return (
-    <div className={`rounded-xl border px-4 py-3 ${TONES[status]}`} role="status">
+    <div className={`relative isolate rounded-xl border px-4 py-3 ${TONES[status]}`} role="status">
+      <CardArt pageId="copy-trading" idx={1} />
       <div className="flex flex-wrap items-center justify-between gap-2">
         {/* h2, not h3: this ledger is a top-level section of /copy-trading, mounted
             directly after the page's h1 and sibling to the "Venue router" h2. As an h3
@@ -94,21 +101,18 @@ export function TapeReadLedger({
       </div>
 
       <p className="mt-1.5 text-xs leading-relaxed text-white/80">
-        Every fill below comes from GeckoTerminal’s public trade feed for the island’s own pools —
-        the same feed this site already uses for each bungalow’s tape. {TAPE_WINDOW_NOTICE}
+        Fills from GeckoTerminal’s public feed for the island’s pools.
       </p>
 
       {gated ? (
         <p className="mt-1.5 text-[11px] leading-relaxed text-amber-200">
-          The feed is keyless and rate-limits by address, so this reads at most once a minute. Next
-          read available at {new Date(refreshAvailableAt).toISOString().slice(11, 19)} UTC.
+          Next read at {new Date(refreshAvailableAt).toISOString().slice(11, 19)} UTC.
         </p>
       ) : null}
 
       {status === 'unavailable' ? (
         <p className="mt-1.5 text-xs leading-relaxed text-white/80">
-          Not one pool answered on this pass, so there is no board below. That is a fact about the
-          read, not about the island: nothing here says these pools were quiet.
+          Not one pool answered on this pass, so there is no board below.
         </p>
       ) : null}
 
@@ -156,10 +160,26 @@ export function TapeReadLedger({
             </p>
           )}
           {board.anyCapped ? (
-            <p className="mt-1 text-[11px] leading-relaxed text-amber-200">{TAPE_CAPPED_NOTICE}</p>
+            <p className="mt-1 text-[11px] leading-relaxed text-amber-200">
+              A pool hit the feed’s page cap: counts are floors, order is provisional.
+            </p>
           ) : null}
         </>
       ) : null}
+
+      <FinePrint summary="Sources" className="mt-1">
+        <p>
+          Every fill below comes from GeckoTerminal’s public trade feed for the island’s own pools —
+          the same feed this site already uses for each bungalow’s tape. {TAPE_WINDOW_NOTICE}
+        </p>
+        {gated ? (
+          <p>The feed is keyless and rate-limits by address, so this reads at most once a minute.</p>
+        ) : null}
+        {status === 'unavailable' ? (
+          <p>That is a fact about the read, not about the island: nothing here says these pools were quiet.</p>
+        ) : null}
+        {board?.anyCapped ? <p>{TAPE_CAPPED_NOTICE}</p> : null}
+      </FinePrint>
     </div>
   );
 }

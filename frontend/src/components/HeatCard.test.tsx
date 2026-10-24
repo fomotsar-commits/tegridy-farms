@@ -4,9 +4,10 @@
 // Date.now is mocked to one instant, so no fixture ages past the 7-day freshness law.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { act, render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { parseHeatReading } from '../lib/heat/heatOracle';
+import { setSolanaSurface } from '../lib/solanaSurface';
 import { VENUE } from '../lib/arrival';
 
 const ADDR = '0x279e7cff2dbc93ff1f5cae6cbd072f98d75987ca';
@@ -24,6 +25,7 @@ const h = vi.hoisted(() => ({
   address: undefined as string | undefined,
   fetchHeat: vi.fn(),
   fetchFlames: vi.fn(),
+  supported: true,
 }));
 
 vi.mock('wagmi', () => ({
@@ -55,7 +57,7 @@ vi.mock('framer-motion', () => {
 
 vi.mock('../lib/heat/heatClient', () => ({
   fetchHeat: (...args: unknown[]) => h.fetchHeat(...args),
-  isSupportedHeatAddress: () => true,
+  isSupportedHeatAddress: () => h.supported,
   clearHeatCache: () => {},
   HeatUnavailableError: class HeatUnavailableError extends Error {},
 }));
@@ -90,6 +92,7 @@ beforeEach(() => {
   localStorage.clear();
   vi.spyOn(Date, 'now').mockReturnValue(NOW * 1000);
   h.address = undefined;
+  h.supported = true;
   h.fetchHeat.mockResolvedValue(wireReading());
   // Default: the island's board is off, so the rank line is absent unless a test
   // deliberately turns the board on.
@@ -226,9 +229,11 @@ describe('the cold read — the most important copy on the site', () => {
 
   it('says where the clock STARTS instead of showing a zero', async () => {
     mount();
-    expect(
-      await screen.findByText(/Cold\. Nothing measured here yet\./),
-    ).toBeTruthy();
+    const cold = await screen.findByText(/Cold\. Nothing measured here yet\./);
+    // The island's words: the clock starts at a first HOLD, which a gift or an airdrop is too.
+    expect(cold.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+      'Cold. Nothing measured here yet. Your clock on a token starts at your first hold.',
+    );
   });
 
   // The freshness strip is prose on the venue home, a route held at zero em dashes, and
@@ -362,12 +367,12 @@ describe('where this number would sit', () => {
 });
 
 describe('the share', () => {
-  it('builds the post from served numbers, ending in the read link', async () => {
+  it('leads the post with the number, builds it from served numbers, and ends in the read link', async () => {
     mount();
     const post = await screen.findByRole('link', { name: 'Post my number' });
     const text = new URL(post.getAttribute('href') ?? '').searchParams.get('text');
     expect(text).toBe(
-      `Elder. 1694 days held. 1785.1° on Jungle Bay Island's instrument. ` +
+      `1785.1° on Jungle Bay Island's instrument. Elder. 1694 days held. ` +
         `Held time counts here. https://memetics.finance/read/${ADDR}`,
     );
   });
@@ -379,7 +384,7 @@ describe('the share', () => {
     const post = await screen.findByRole('link', { name: 'Post my number' });
     const text = new URL(post.getAttribute('href') ?? '').searchParams.get('text');
     expect(text).toBe(
-      `Observer. 1694 days held. 95.0° on Jungle Bay Island's instrument. ` +
+      `95.0° on Jungle Bay Island's instrument. Observer. 1694 days held. ` +
         `Held time counts here. https://memetics.finance/read/${ADDR}`,
     );
   });
@@ -425,7 +430,7 @@ describe('a shared link arrives already reading', () => {
   });
 
   it('lets an invalid seeded address read as the field’s own invalid state', async () => {
-    h.fetchHeat.mockRejectedValue(new Error('That is not an Ethereum or Solana address.'));
+    h.fetchHeat.mockRejectedValue(new Error('That is not an Ethereum, Base, or Solana address.'));
     const { container } = mountShared('not-an-address');
     await waitFor(() => expect(h.fetchHeat).toHaveBeenCalled());
     // The bad value is shown back rather than silently swallowed.
@@ -726,7 +731,7 @@ describe('the ladder', () => {
     vi.unstubAllEnvs();
   });
 
-  // 95 degrees: Drifter, Observer and Resident reached, Builder next at 150.
+  // 95 degrees: Drifter, Observer and Resident reached, Builder next at 300.
   const MID = { degrees: 95, tier: 'Resident' as const };
 
   it('climbs all five rungs, lowest first', async () => {
@@ -746,9 +751,9 @@ describe('the ladder', () => {
     expect(rungs[2]).toContain('Resident');
     expect(rungs[2]).toMatch(/(^|[^0-9])80°/);
     expect(rungs[3]).toContain('Builder');
-    expect(rungs[3]).toMatch(/(^|[^0-9])150°/);
+    expect(rungs[3]).toMatch(/(^|[^0-9])300°/);
     expect(rungs[4]).toContain('Elder');
-    expect(rungs[4]).toMatch(/(^|[^0-9])250°/);
+    expect(rungs[4]).toMatch(/(^|[^0-9])800°/);
   });
 
   it('lights the rungs this wallet has reached, and only those', async () => {
@@ -765,9 +770,9 @@ describe('the ladder', () => {
   it('prints the gap to the next rung as arithmetic on two served numbers', async () => {
     h.fetchHeat.mockResolvedValue(wireReading(MID));
     mount();
-    // 150 (the rung's floor) minus 95 (the degrees the island served). Not a
+    // 300 (the rung's floor) minus 95 (the degrees the island served). Not a
     // rate, not a date, and nothing the instrument computed for itself.
-    expect(await screen.findByText('55.00° to Builder')).toBeTruthy();
+    expect(await screen.findByText('205.00° to Builder')).toBeTruthy();
   });
 
   // TIER_FLOORS answers "what tier is this number" and heatLaunchFloor() "what number
@@ -786,15 +791,15 @@ describe('the ladder', () => {
     expect(screen.queryByText(/you reach/)).toBeNull();
   });
 
-  it('names the tier a floor sits exactly on, under that rung (150)', async () => {
-    vi.stubEnv('VITE_HEAT_LAUNCH_FLOOR', '150');
+  it('names the tier a floor sits exactly on, under that rung (300)', async () => {
+    vi.stubEnv('VITE_HEAT_LAUNCH_FLOOR', '300');
     h.fetchHeat.mockResolvedValue(wireReading(MID));
     mount();
     const sentence = await screen.findByText(
-      'At 150 degrees you reach Builder, the tier that may plant a launch here.',
+      'At 300 degrees you reach Builder, the tier that may plant a launch here.',
     );
-    expect(sentence.closest('li')?.textContent).toMatch(/^Builder\s*150°/);
-    expect(screen.getByText('the door opens at 150° · Builder')).toBeTruthy();
+    expect(sentence.closest('li')?.textContent).toMatch(/^Builder\s*300°/);
+    expect(screen.getByText('the door opens at 300° · Builder')).toBeTruthy();
     expect(screen.queryByText(/reach Resident|· Resident/)).toBeNull();
   });
 
@@ -809,18 +814,250 @@ describe('the ladder', () => {
 describe('the wallet fill', () => {
   const INJECTED = '0xd71caf9fdbbd3dd7f974431edf7f9f2c7ba8f93a';
 
+  const SOL = '4wBqpZM9xaSheZzJSMawUKKwhdpChKbZ5eu5ky4Vigw';
+  const surfaceOwner = {};
+
   afterEach(() => {
     delete (window as unknown as Record<string, unknown>).ethereum;
     delete (window as unknown as Record<string, unknown>).solana;
+    delete (window as unknown as Record<string, unknown>).trustwallet;
+    setSolanaSurface(surfaceOwner, null);
   });
 
   function field() {
     return screen.getByLabelText(/Wallet address to read Heat for/) as HTMLInputElement;
   }
 
+  /** Trust Wallet's own browser: Ethereum at window.ethereum, Solana at window.trustwallet.solana. */
+  function insideTrust({ solanaTrusted = true }: { solanaTrusted?: boolean } = {}) {
+    const request = vi.fn(async ({ method }: { method: string }) =>
+      method === 'eth_requestAccounts' ? [INJECTED] : [],
+    );
+    const connect = vi.fn(async (options?: { onlyIfTrusted?: boolean }) => {
+      if (options?.onlyIfTrusted && !solanaTrusted) throw new Error('This site has not been connected.');
+      return { publicKey: { toString: () => SOL } };
+    });
+    (window as unknown as Record<string, unknown>).ethereum = { isTrust: true, request };
+    (window as unknown as Record<string, unknown>).trustwallet = { solana: { isTrust: true, publicKey: null, connect } };
+    return { request, connect };
+  }
+
+  /** A Solana wallet connected to the site, as the top bar reports it. */
+  function solanaConnectedToTheSite() {
+    act(() => setSolanaSurface(surfaceOwner, { open: () => {}, address: SOL, connecting: false }));
+  }
+
+  // MUTATION CHECKS, all in HeatCard.tsx
+  //  - fillNetworks: offer ['ethereum'] alone whenever both can answer. The next three fail.
+  //  - fill: drop the `solanaConnected` shortcut. "asks no provider" fails.
+  //  - fillNetworks: ignore `fillFrom`. Both "on a page about Solana" tests fail.
+  it('inside a wallet browser that carries both networks, offers one button each and picks neither', () => {
+    insideTrust();
+    mountOpen();
+    expect(screen.getByRole('button', { name: 'Use my Ethereum address' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Use my Solana address' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Use my wallet' })).toBeNull();
+  });
+
+  it('the Solana button fills the Solana address and asks the Ethereum wallet nothing', async () => {
+    const { request, connect } = insideTrust();
+    mountOpen();
+    fireEvent.click(screen.getByRole('button', { name: 'Use my Solana address' }));
+    await waitFor(() => expect(field().value).toBe(SOL));
+    expect(request).not.toHaveBeenCalled();
+    expect(connect.mock.calls).toEqual([[{ onlyIfTrusted: true }]]);
+  });
+
+  it('the Ethereum button fills the Ethereum address and asks the Solana wallet nothing', async () => {
+    const { connect } = insideTrust();
+    mountOpen();
+    fireEvent.click(screen.getByRole('button', { name: 'Use my Ethereum address' }));
+    await waitFor(() => expect(field().value).toBe(INJECTED));
+    expect(connect).not.toHaveBeenCalled();
+  });
+
+  it('with a Solana wallet connected to the site and no Ethereum account, fills that address and asks no provider', async () => {
+    const { request, connect } = insideTrust();
+    solanaConnectedToTheSite();
+    mountOpen();
+    expect(screen.queryByRole('button', { name: 'Use my Ethereum address' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Use my wallet' }));
+    await waitFor(() => expect(field().value).toBe(SOL));
+    expect(request).not.toHaveBeenCalled();
+    expect(connect).not.toHaveBeenCalled();
+  });
+
+  // MUTATION CHECK: drop `|| solanaConnected !== null` from fillNetworks. This fails.
+  it('offers a Solana wallet connected to the site even where the browser carries no provider', async () => {
+    solanaConnectedToTheSite();
+    mountOpen();
+    fireEvent.click(screen.getByRole('button', { name: 'Use my wallet' }));
+    await waitFor(() => expect(field().value).toBe(SOL));
+  });
+
+  // MUTATION CHECK: compute the buttons on every render instead of once per mount. This fails.
+  it('a Solana wallet that connects once the card is on screen changes no label, and its button then asks no provider', async () => {
+    const { connect } = insideTrust();
+    mountOpen();
+    solanaConnectedToTheSite();
+    expect(screen.getByRole('button', { name: 'Use my Ethereum address' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Use my wallet' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Use my Solana address' }));
+    await waitFor(() => expect(field().value).toBe(SOL));
+    expect(connect).not.toHaveBeenCalled();
+  });
+
+  // MUTATION CHECK: let the lone button keep the network it was drawn with. The next two fail.
+  it('the lone button asks nothing when a Solana wallet arrived after it was drawn: it becomes the two named buttons', async () => {
+    const request = vi.fn(async ({ method }: { method: string }) =>
+      method === 'eth_requestAccounts' ? [INJECTED] : [],
+    );
+    (window as unknown as Record<string, unknown>).ethereum = { isTrust: true, request };
+    mountOpen();
+    // The wallet's Solana provider is injected late, as on some Android builds.
+    const connect = vi.fn(async () => ({ publicKey: { toString: () => SOL } }));
+    (window as unknown as Record<string, unknown>).trustwallet = { solana: { isTrust: true, publicKey: null, connect } };
+    fireEvent.click(screen.getByRole('button', { name: 'Use my wallet' }));
+    expect(await screen.findByRole('button', { name: 'Use my Solana address' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Use my Ethereum address' })).toBeTruthy();
+    expect(request).not.toHaveBeenCalled();
+    expect(connect).not.toHaveBeenCalled();
+    expect(field().value).toBe('');
+  });
+
+  it('the lone button fills a Solana wallet that connected to the site after it was drawn, and asks Ethereum nothing', async () => {
+    const request = vi.fn(async () => [] as string[]);
+    (window as unknown as Record<string, unknown>).ethereum = { request };
+    mountOpen();
+    solanaConnectedToTheSite();
+    fireEvent.click(screen.getByRole('button', { name: 'Use my wallet' }));
+    await waitFor(() => expect(field().value).toBe(SOL));
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it('with both a Solana wallet and an Ethereum account connected, offers both and still asks Solana nothing', async () => {
+    h.address = ADDR;
+    const { connect } = insideTrust();
+    mountOpen();
+    solanaConnectedToTheSite();
+    expect(screen.getByRole('button', { name: 'Use my Ethereum address' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Use my Solana address' }));
+    await waitFor(() => expect(field().value).toBe(SOL));
+    expect(connect).not.toHaveBeenCalled();
+  });
+
+  it('on a page about Solana, offers the Solana wallet only and never asks Ethereum', async () => {
+    const { request } = insideTrust();
+    render(
+      <MemoryRouter>
+        <HeatCard variant="embedded" fillFrom="solana" />
+      </MemoryRouter>,
+    );
+    expect(screen.queryByRole('button', { name: /Ethereum/ })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Use my wallet' }));
+    await waitFor(() => expect(field().value).toBe(SOL));
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it('on a page about Solana, a browser with only an Ethereum wallet is offered nothing', () => {
+    (window as unknown as Record<string, unknown>).ethereum = { request: vi.fn(async () => []) };
+    render(
+      <MemoryRouter>
+        <HeatCard variant="embedded" fillFrom="solana" />
+      </MemoryRouter>,
+    );
+    expect(screen.queryByRole('button', { name: /^Use my/ })).toBeNull();
+  });
+
+  it('says the one sentence when the Solana wallet has not trusted this site, and asks Ethereum nothing', async () => {
+    const { request } = insideTrust({ solanaTrusted: false });
+    mountOpen();
+    fireEvent.click(screen.getByRole('button', { name: 'Use my Solana address' }));
+    expect(await screen.findByText('Paste the address instead.')).toBeTruthy();
+    expect(field().value).toBe('');
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  /** Both networks, with an Ethereum prompt that stays open until `approve` is called. */
+  function insideTrustWithAnOpenEthereumPrompt({ solanaTrusted = true }: { solanaTrusted?: boolean } = {}) {
+    let approve: (accounts: string[]) => void = () => {};
+    const request = vi.fn(({ method }: { method: string }) =>
+      method === 'eth_requestAccounts'
+        ? new Promise<string[]>((resolve) => {
+            approve = resolve;
+          })
+        : Promise.resolve([] as string[]),
+    );
+    const connect = vi.fn(async () => {
+      if (!solanaTrusted) throw new Error('This site has not been connected.');
+      return { publicKey: { toString: () => SOL } };
+    });
+    (window as unknown as Record<string, unknown>).ethereum = { isTrust: true, request };
+    (window as unknown as Record<string, unknown>).trustwallet = { solana: { isTrust: true, publicKey: null, connect } };
+    return { request, approve: (accounts: string[]) => approve(accounts) };
+  }
+
+  // MUTATION CHECK: drop an answer whenever any later press happened (not only a later
+  // write). The next two fail.
+  it('an approved prompt still fills after a second press on the same button was refused', async () => {
+    let approve: (accounts: string[]) => void = () => {};
+    let prompts = 0;
+    // A wallet with a prompt open refuses a second one at once (MetaMask, -32002).
+    const request = vi.fn(({ method }: { method: string }) => {
+      if (method !== 'eth_requestAccounts') return Promise.resolve([] as string[]);
+      prompts += 1;
+      if (prompts > 1) return Promise.reject(Object.assign(new Error('Already pending.'), { code: -32002 }));
+      return new Promise<string[]>((resolve) => {
+        approve = resolve;
+      });
+    });
+    (window as unknown as Record<string, unknown>).ethereum = { request };
+    mountOpen();
+    fireEvent.click(screen.getByRole('button', { name: 'Use my wallet' }));
+    await waitFor(() => expect(prompts).toBe(1));
+    fireEvent.click(screen.getByRole('button', { name: 'Use my wallet' }));
+    expect(await screen.findByText('Paste the address instead.')).toBeTruthy();
+    await act(async () => approve([INJECTED]));
+    expect(field().value).toBe(INJECTED);
+    expect(screen.queryByText('Paste the address instead.')).toBeNull();
+  });
+
+  it('an approved Ethereum prompt still fills after the Solana wallet said no', async () => {
+    const { request, approve } = insideTrustWithAnOpenEthereumPrompt({ solanaTrusted: false });
+    mountOpen();
+    fireEvent.click(screen.getByRole('button', { name: 'Use my Ethereum address' }));
+    await waitFor(() => expect(request).toHaveBeenCalledTimes(2));
+    fireEvent.click(screen.getByRole('button', { name: 'Use my Solana address' }));
+    expect(await screen.findByText('Paste the address instead.')).toBeTruthy();
+    await act(async () => approve([INJECTED]));
+    expect(field().value).toBe(INJECTED);
+  });
+
+  // MUTATION CHECK: drop the `fieldWrites` comparison from the fill. The next two fail.
+  it('a wallet that answers late does not overwrite the address a later press filled', async () => {
+    const { request, approve } = insideTrustWithAnOpenEthereumPrompt();
+    mountOpen();
+    fireEvent.click(screen.getByRole('button', { name: 'Use my Ethereum address' }));
+    await waitFor(() => expect(request).toHaveBeenCalledTimes(2));
+    fireEvent.click(screen.getByRole('button', { name: 'Use my Solana address' }));
+    await waitFor(() => expect(field().value).toBe(SOL));
+    await act(async () => approve([INJECTED]));
+    expect(field().value).toBe(SOL);
+  });
+
+  it('a wallet that answers late does not overwrite what the visitor typed meanwhile', async () => {
+    const { request, approve } = insideTrustWithAnOpenEthereumPrompt();
+    mountOpen();
+    fireEvent.click(screen.getByRole('button', { name: 'Use my Ethereum address' }));
+    await waitFor(() => expect(request).toHaveBeenCalledTimes(2));
+    fireEvent.change(field(), { target: { value: SOL } });
+    await act(async () => approve([INJECTED]));
+    expect(field().value).toBe(SOL);
+  });
+
   it('offers nothing when the browser has no wallet to offer', () => {
     mountOpen();
-    expect(screen.queryByRole('button', { name: 'Use my wallet' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Use my/ })).toBeNull();
   });
 
   it('fills from the account the page is ALREADY allowed to see, with no prompt', async () => {
@@ -874,6 +1111,17 @@ describe('the wallet fill', () => {
   });
 });
 
+describe('the field names every chain the reader takes', () => {
+  it('asks for an Ethereum, Base, or Solana address, in its label and its hint', () => {
+    h.supported = false;
+    mountOpen();
+    expect(screen.getByLabelText('Wallet address to read Heat for (Ethereum, Base, or Solana)')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Read Heat' }).getAttribute('title')).toBe(
+      'Enter an Ethereum, Base, or Solana address',
+    );
+  });
+});
+
 describe('a reading older than the freshness law allows', () => {
   it('says it is stale without a prose em dash', async () => {
     h.fetchHeat.mockResolvedValue(wireReading({ as_of_unix: NOW - 8 * 86_400, observedAt: NOW - 8 * 86_400 }));
@@ -884,14 +1132,15 @@ describe('a reading older than the freshness law allows', () => {
 });
 
 describe('the island dials, on the card', () => {
-  it('lights every rung for the dEaD read (311.25, Elder) and hangs the launch sentence under Resident', async () => {
-    h.fetchHeat.mockResolvedValue(wireReading({ degrees: 311.25, tier: 'Elder' }));
+  it('lights every rung for the island’s lowest served Elder (890.93, 2026-09-29) and hangs the launch sentence under Resident', async () => {
+    h.fetchHeat.mockResolvedValue(wireReading({ degrees: 890.93, tier: 'Elder' }));
     mount();
     const rungs = await ladderRows();
     expect(rungs.map((r) => r.match(/^([A-Za-z]+)\s*(\d+)°/)?.slice(1))).toEqual([
-      ['Drifter', '0'], ['Observer', '30'], ['Resident', '80'], ['Builder', '150'], ['Elder', '250'],
+      ['Drifter', '0'], ['Observer', '30'], ['Resident', '80'], ['Builder', '300'], ['Elder', '800'],
     ]);
     expect(rungs.every((r) => r.includes('reached'))).toBe(true);
+    expect(screen.queryByText(/° to /)).toBeNull();
     expect(rungs[2]).toContain('At 80 degrees you reach Resident, the tier that may plant a launch here.');
     expect(screen.getByText('the door opens at 80° · Resident')).toBeTruthy();
   });
@@ -921,11 +1170,42 @@ describe('the island dials, on the card', () => {
     expect(rungs[2]).toContain('reached');
     expect(rungs[3]).not.toContain('reached');
   });
+
+  // Real flames on the island's board, 2026-09-30. On the retired 150 / 250 floors the
+  // card lit Builder and Elder beneath a headline that said Resident, and lit Elder
+  // beneath a Builder with no rung left to climb.
+  it('reads a Resident at 285.34 with Builder next and unlit, as the island served it', async () => {
+    h.fetchHeat.mockResolvedValue(wireReading({ degrees: 285.34, tier: 'Resident' }));
+    mount();
+    const rungs = await ladderRows();
+    expect(rungs[2]).toContain('reached');
+    expect(rungs[3]).toMatch(/^Builder\s*300°/);
+    expect(rungs[3]).not.toContain('reached');
+    expect(rungs[3]).toContain('14.66° to Builder');
+    expect(rungs[4]).not.toContain('reached');
+  });
+
+  it('reads a Builder at 671.89 with Builder lit and Elder next, as the island served it', async () => {
+    h.fetchHeat.mockResolvedValue(wireReading({ degrees: 671.89, tier: 'Builder' }));
+    mount();
+    const rungs = await ladderRows();
+    expect(rungs[3]).toContain('reached');
+    expect(rungs[4]).toMatch(/^Elder\s*800°/);
+    expect(rungs[4]).not.toContain('reached');
+    expect(rungs[4]).toContain('128.11° to Elder');
+  });
+
+  it('tells a 200° wallet it is 100.00° from Builder, never 50.00° from Elder', async () => {
+    h.fetchHeat.mockResolvedValue(wireReading({ degrees: 200, tier: 'Resident' }));
+    mount();
+    expect(await screen.findByText('100.00° to Builder')).toBeTruthy();
+    expect(screen.queryByText(/° to Elder/)).toBeNull();
+  });
 });
 
 describe('the maths fold carries the island paragraph, never a formula', () => {
   const PARAGRAPH =
-    'Heat counts your warm days: every day you hold, weighted by size and by the coin. Your deepest room sets your heat; every other room adds half as much as the one before it, so breadth amplifies depth and never replaces it. Degrees are the temperature of that count: one real position held half a year reads 80°, Resident. Each degree after that takes longer than the last. Size can raise what a day is worth, it cannot buy a day, and price never enters it.';
+    'Heat counts your warm days: every day you hold, weighted by size and by the coin. Your deepest room sets your heat; every other room adds a quarter of its own, so breadth amplifies depth and never replaces it. Degrees are the temperature of that count: one real position held half a year reads 80°, Resident. Past Resident the number reads like fire: every degree costs a little more than the last, and the hottest flames stay in range. Size can raise what a day is worth, it cannot buy a day, and price never enters it. The rate is one curve for every wallet: nothing under 0.0001% of a supply, a full day at 0.01%, two at 1%, and never more. From a real position up, ten times the bag adds half a day. The tier words bind your island heat. Trading speed cannot move it.';
 
   async function openMaths() {
     const view = mount();
@@ -953,9 +1233,10 @@ describe('the maths fold carries the island paragraph, never a formula', () => {
     const items = [...fold.querySelectorAll('ul')[0]!.querySelectorAll(':scope > li')];
     expect(items.map((li) => li.querySelector('strong')?.textContent)).toEqual(['Days', 'Size', 'Weight']);
     expect(items[0]!.textContent).toBe('Days Your clock on a token starts at your first hold.');
-    expect(items[1]!.textContent).toBe('Size A real position earns a full day. The largest holders earn up to two. Dust earns nothing.');
-    expect(items[2]!.textContent).toMatch(
-      /^Weight is the island's published\s+multiplier\.\s+The Apes carry triple weight, JBM and BAYLA carry their edge, the home team leans warm,\s+and every measured token counts\.$/,
+    expect(items[1]!.textContent).toBe('Size A real position earns a full day. The largest holders earn up to two. Dust earns nothing. An Ape counts by the piece: one is a full day, ten are two.');
+    // The island's weight line on /heat, word for word after the fold's own lead-in.
+    expect(items[2]!.textContent?.replace(/\s+/g, ' ')).toBe(
+      "Weight is the island's published multiplier. The island's own weigh heavier: the Apes, JBM and BAYLA carry the island's edge, the home team leans warm. An Ape counts by the piece.",
     );
   });
 
@@ -975,7 +1256,18 @@ describe('the maths fold carries the island paragraph, never a formula', () => {
     expect(screen.queryByText(/on your total/)).toBeNull();
     const list = heading.parentElement!.querySelector('ul')!;
     const rows = [...list.querySelectorAll('li')].map((li) => li.textContent);
-    expect(rows).toEqual(['Elder250°✓ reached', 'Builder150°✓ reached', 'Resident80°✓ reached', 'Observer30°✓ reached']);
+    expect(rows).toEqual(['Elder800°✓ reached', 'Builder300°✓ reached', 'Resident80°✓ reached', 'Observer30°✓ reached']);
+  });
+
+  // The default reading (1785.14) reaches every tier on either set of bands, so on its own
+  // it cannot catch a wrong band. 285.34 is a Resident the island served on 2026-09-30.
+  it('marks only the tiers this heat has reached (285.34: Resident and Observer)', async () => {
+    h.fetchHeat.mockResolvedValue(wireReading({ degrees: 285.34, tier: 'Resident' }));
+    await openMaths();
+    const list = screen.getByText('The tiers, on your heat').parentElement!.querySelector('ul')!;
+    expect([...list.querySelectorAll('li')].map((li) => li.textContent)).toEqual([
+      'Elder800°', 'Builder300°', 'Resident80°✓ reached', 'Observer30°✓ reached',
+    ]);
   });
 });
 
@@ -993,5 +1285,230 @@ describe('the panel opens on the island sentences', () => {
         'instrument, read live. Price never enters it, a fresh bag starts near zero however big it is, ' +
         'and trading in and out earns nothing.',
     );
+  });
+});
+
+// The island's place in a room, "12th of 498 measured", from its served room_rank and
+// room_holders. Three print sites: a room's own read, the card's room rows and the post.
+describe('the rank in the room, as the island served it', () => {
+  const ranked = (over: Record<string, unknown> = {}) =>
+    row({ room_tier: 'Builder', room_rank: 12, room_holders: 498, room_as_of_unix: AS_OF, ...over });
+
+  it('prints it on the room’s own read, under the days', async () => {
+    h.fetchHeat.mockResolvedValue(wireReading({ breakdown: [ranked()] }));
+    const { container } = mountScoped({ address: PEPE, symbol: 'PEPE' });
+    const line = await screen.findByText('12th of 498 measured');
+    const text = container.textContent ?? '';
+    expect(text.indexOf('400 days held')).toBeLessThan(text.indexOf(line.textContent!));
+    expect(text.indexOf(line.textContent!)).toBeLessThan(text.indexOf('your whole flame reads'));
+  });
+
+  it('prints nothing on the room’s read for a wallet the island does not rank', async () => {
+    // The Glasshouse, 2026-10-08: room_rank null beside a served tier and count.
+    h.fetchHeat.mockResolvedValue(wireReading({ breakdown: [ranked({ room_rank: null })] }));
+    const { container } = mountScoped({ address: PEPE, symbol: 'PEPE' });
+    await screen.findByText(/your whole flame reads/i);
+    expect(container.textContent).not.toContain('measured');
+    expect(container.textContent).not.toContain(' of 498');
+  });
+
+  it('prints it under each room row of the card, and only where a rank arrived', async () => {
+    h.fetchHeat.mockResolvedValue(
+      wireReading({
+        breakdown: [
+          ranked(),
+          row({ token_address: '0xbbb', symbol: 'BNKR', heat_degrees: 20.5, room_rank: null, room_holders: 3616 }),
+          row({ token_address: '0xccc', symbol: 'OLD', heat_degrees: 5 }),
+        ],
+      }),
+    );
+    const { container } = mount();
+    await awaitRead();
+    const rows = [...container.querySelectorAll('li')].filter((li) => /PEPE|BNKR|OLD/.test(li.textContent ?? ''));
+    expect(rows.map((li) => li.textContent)).toEqual([
+      'PEPEethereum338.21°12th of 498 measured',
+      'BNKRethereum20.50°',
+      'OLDethereum5.00°',
+    ]);
+  });
+
+  it('carries the deepest room’s rank in the post, named by its room', async () => {
+    h.fetchHeat.mockResolvedValue(
+      wireReading({
+        breakdown: [
+          row({ token_address: '0xbbb', symbol: 'BNKR', heat_degrees: 20.5, room_rank: 3, room_holders: 3616 }),
+          ranked(),
+        ],
+      }),
+    );
+    mount();
+    const post = await screen.findByRole('link', { name: 'Post my number' });
+    const text = new URL(post.getAttribute('href') ?? '').searchParams.get('text');
+    expect(text).toBe(
+      `1785.1° on Jungle Bay Island's instrument. Elder. 1694 days held. ` +
+        `12th of 498 measured in the PEPE room. ` +
+        `Held time counts here. https://memetics.finance/read/${ADDR}`,
+    );
+  });
+
+  it('leaves the rank out of the post when the deepest room has none', async () => {
+    h.fetchHeat.mockResolvedValue(
+      wireReading({
+        breakdown: [
+          ranked({ room_rank: null }),
+          row({ token_address: '0xbbb', symbol: 'BNKR', heat_degrees: 20.5, room_rank: 3, room_holders: 3616 }),
+        ],
+      }),
+    );
+    mount();
+    const post = await screen.findByRole('link', { name: 'Post my number' });
+    const text = new URL(post.getAttribute('href') ?? '').searchParams.get('text');
+    expect(text).not.toContain('measured');
+    expect(text).not.toContain('room');
+  });
+
+  it('never ranks a wallet by a retired room in the post', async () => {
+    h.fetchHeat.mockResolvedValue(
+      wireReading({
+        breakdown: [
+          ranked({ retired: true }),
+          row({ token_address: '0xbbb', symbol: 'BNKR', heat_degrees: 20.5, room_rank: 3, room_holders: 3616 }),
+        ],
+      }),
+    );
+    mount();
+    const post = await screen.findByRole('link', { name: 'Post my number' });
+    const text = new URL(post.getAttribute('href') ?? '').searchParams.get('text');
+    expect(text).toContain('3rd of 3,616 measured in the BNKR room. ');
+  });
+
+  it('posts no rank when every room is retired', async () => {
+    h.fetchHeat.mockResolvedValue(wireReading({ breakdown: [ranked({ retired: true })] }));
+    mount();
+    const post = await screen.findByRole('link', { name: 'Post my number' });
+    const text = new URL(post.getAttribute('href') ?? '').searchParams.get('text');
+    expect(text).not.toContain('measured');
+  });
+});
+
+// The island's two countdowns. It serves neither yet (read 2026-10-08), so the card
+// prints nothing; when they arrive it prints them, and it never works them out.
+describe('the days the island counts down', () => {
+  it('prints no countdown from today’s answer, which carries neither field', async () => {
+    h.fetchHeat.mockResolvedValue(wireReading({ degrees: 73.89, tier: 'Observer' }));
+    const { container } = mount();
+    await awaitRead('Observer');
+    expect(container.textContent).not.toMatch(/ in \d[\d,]* days?\./);
+    expect(container.textContent).not.toContain('You may plant in');
+  });
+
+  it('names the tier above the served one, with the served days, under the degrees', async () => {
+    h.fetchHeat.mockResolvedValue(wireReading({ degrees: 73.89, tier: 'Observer', days_to_next_tier: 14 }));
+    const { container } = mount();
+    const line = await screen.findByText('Resident in 14 days.');
+    const text = container.textContent ?? '';
+    expect(text.indexOf('73.89')).toBeLessThan(text.indexOf(line.textContent!));
+    expect(text.indexOf(line.textContent!)).toBeLessThan(text.indexOf('on the island since'));
+  });
+
+  it('counts from the SERVED tier word, not from where the degrees sit on the ladder', async () => {
+    // 95 degrees sits in the Resident band; the island served Observer, so its next tier is Resident.
+    h.fetchHeat.mockResolvedValue(wireReading({ degrees: 95, tier: 'Observer', days_to_next_tier: 1 }));
+    mount();
+    expect(await screen.findByText('Resident in 1 day.')).toBeTruthy();
+  });
+
+  it('prints no next tier for an Elder, whatever arrives', async () => {
+    h.fetchHeat.mockResolvedValue(wireReading({ days_to_next_tier: 9 }));
+    const { container } = mount();
+    await awaitRead();
+    expect(container.textContent).not.toMatch(/ in 9 days\./);
+  });
+
+  it('says when a wallet under the floor may plant, at the door', async () => {
+    h.fetchHeat.mockResolvedValue(wireReading({ degrees: 73.89, tier: 'Observer', days_to_plant: 41 }));
+    mount();
+    const line = await screen.findByText('You may plant in 41 days.');
+    // Inside the launch-door panel, beside the verdict it qualifies.
+    expect(line.parentElement?.textContent).toContain('Cannot launch a token yet');
+  });
+
+  it('prints no plant countdown for a wallet the door already passes', async () => {
+    h.fetchHeat.mockResolvedValue(wireReading({ days_to_plant: 41 }));
+    const { container } = mount();
+    await awaitRead();
+    expect(container.textContent).toContain('Can launch a token here');
+    expect(container.textContent).not.toContain('You may plant in');
+  });
+
+  it('prints no plant countdown on a stale reading, which decides nothing', async () => {
+    h.fetchHeat.mockResolvedValue(
+      wireReading({ degrees: 73.89, tier: 'Observer', days_to_plant: 41, as_of_unix: NOW - 8 * 86_400 }),
+    );
+    const { container } = mount();
+    await screen.findByText(/^Stale/);
+    expect(container.textContent).not.toContain('You may plant in');
+  });
+
+  it('prints the next tier under a room’s whole-flame line too', async () => {
+    h.fetchHeat.mockResolvedValue(
+      wireReading({ degrees: 73.89, tier: 'Observer', days_to_next_tier: 14, breakdown: [row()] }),
+    );
+    mountScoped({ address: PEPE, symbol: 'PEPE' });
+    expect(await screen.findByText('Resident in 14 days.')).toBeTruthy();
+  });
+});
+
+// THE LP DOOR after a read (island, answer twenty): on the venue's home, one line per Solana
+// room coin the wallet holds whose SOL pool is on the venue, the wallet's deepest rooms first,
+// three at most. Every other surface that mounts the card shows none.
+describe('the LP door line after a read', () => {
+  const BAYLA = '7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump';
+  const BOBO = '4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump';
+  const SOY = '8zsZESzrGoYVi1dVH4QNWXJ2EfW4v287aEGNiDvQpump';
+  const RIZZ = '5ad4puH6yDBoeCcrQfwV5s9bxvPnAeWDoYDj3uLyBS8k';
+  // A Solana coin that is no room's: held, but it has no door.
+  const USDC = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+  const row = (token_address: string, symbol: string, heat_degrees: number, retired = false) => ({
+    token_address, chain: 'solana', name: symbol, symbol, heat_degrees, first_seen_at_unix: HELD_SINCE, retired,
+  });
+  const mountWith = (lpDoors: boolean) =>
+    render(
+      <MemoryRouter>
+        <HeatCard address={ADDR} variant="embedded" lpDoors={lpDoors} />
+      </MemoryRouter>,
+    );
+
+  it('names a held coin whose pool is on the venue, and opens its door', async () => {
+    h.fetchHeat.mockResolvedValue(wireReading({ breakdown: [row(USDC, 'USDC', 900), row(BAYLA, 'BAYLA', 40)] }));
+    mountWith(true);
+    const doors = await screen.findByTestId('heat-lp-doors');
+    // USDC is no room's coin: no line for it, only BAYLA's.
+    expect(doors.textContent).toBe('You hold BAYLA. Earn from every BAYLA trade: Add SOL + BAYLA');
+    expect(screen.getByRole('link', { name: 'Add SOL + BAYLA' }).getAttribute('href')).toContain(`/solana-lp?mint=${BAYLA}&task=add`);
+  });
+
+  it('the wallet’s deepest rooms first, three at most', async () => {
+    h.fetchHeat.mockResolvedValue(wireReading({
+      breakdown: [row(BAYLA, 'BAYLA', 40), row(RIZZ, 'RIZZ', 300), row(BOBO, 'BOBO', 900), row(SOY, 'SOY', 500)],
+    }));
+    mountWith(true);
+    const doors = await screen.findByTestId('heat-lp-doors');
+    expect([...doors.querySelectorAll('a')].map((a) => a.textContent)).toEqual([
+      'Add SOL + BOBO', 'Add SOL + SOY', 'Add SOL + RIZZ',
+    ]);
+    expect(screen.getByRole('link', { name: 'Add SOL + RIZZ' }).getAttribute('href')).toContain(`/solana-lp?mint=${RIZZ}&task=add&pool=`);
+  });
+
+  it('a retired row, a coin with no pool, or a card without the door shows no line', async () => {
+    h.fetchHeat.mockResolvedValue(wireReading({ breakdown: [row(BAYLA, 'BAYLA', 40, true), row(USDC, 'USDC', 900)] }));
+    const { unmount } = mountWith(true);
+    await awaitRead();
+    expect(screen.queryByTestId('heat-lp-doors')).toBeNull();
+    unmount();
+    h.fetchHeat.mockResolvedValue(wireReading({ breakdown: [row(BAYLA, 'BAYLA', 40)] }));
+    mountWith(false);
+    await awaitRead();
+    expect(screen.queryByTestId('heat-lp-doors')).toBeNull();
   });
 });

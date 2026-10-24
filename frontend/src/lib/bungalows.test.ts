@@ -9,6 +9,7 @@ import { resolve } from 'node:path';
 import { NATIVE_ETH_ADDRESS } from './tokenList';
 import {
   BUNGALOWS,
+  BUNGALOW_COUNT,
   BAYLA_ART,
   BUNGALOW_STORAGE_KEY,
   DEFAULT_BUNGALOW_ID,
@@ -23,6 +24,7 @@ import {
   bungalowByAddress,
   poolReadByIsland,
   ISLAND_READ_POOLS,
+  LADDER_FUNDING_LINES,
   RETIRED_STAKE_POOLS,
   stakePoolMembersOnly,
   subscribeActiveBungalow,
@@ -31,9 +33,9 @@ import {
 import { pageArt } from './artConfig';
 import { SITE_URL } from './constants';
 
-// Jungle Bay Island (2026-08-24): 13 bungalows, each a community token whose
-// art pool re-skins every pageArt() background surface. These tests pin:
-//  - the registry shape (13 slots, stable ids, the two live bungalows),
+// Jungle Bay Island (2026-08-24): the bungalows, each a community token whose
+// art pool re-skins every pageArt() background surface, and one open lot. These tests pin:
+//  - the registry shape (12 bungalows and one open lot, stable ids, the two live bungalows),
 //  - the Bayla pool's integrity (24 real files on disk — a typo'd src here
 //    renders as a broken fullscreen background on every page at once),
 //  - pageArt()'s swap rules (bungalow pool wins, shared surfaces don't swap,
@@ -46,9 +48,15 @@ afterEach(() => {
 });
 
 describe('bungalow registry', () => {
-  it('has exactly 13 bungalows with unique ids', () => {
+  it('counts 12 bungalows, and the open lot is not one of them', () => {
+    // The island: "12 BUNGALOWS · 3 LOTS OPEN". Its lot is 'nb1', chain 'tbd'.
+    expect(BUNGALOW_COUNT).toBe(12);
+    expect(BUNGALOWS.filter((b) => b.chain === 'tbd').map((b) => b.id)).toEqual(['nb1']);
+    // Its tile line is the island's lot label ("Lot 13, for the next community"), unnumbered.
+    expect(BUNGALOWS.find((b) => b.chain === 'tbd')!.tagline).toBe('For the next community.');
+    // The lot keeps its row, tile and art: 13 rows, unique ids.
     expect(BUNGALOWS).toHaveLength(13);
-    expect(new Set(BUNGALOWS.map((b) => b.id)).size).toBe(13);
+    expect(new Set(BUNGALOWS.map((b) => b.id)).size).toBe(BUNGALOWS.length);
   });
 
   it('keeps Toweli as the live default and Bayla live on Solana with the pump.fun mint', () => {
@@ -418,9 +426,15 @@ describe('resolution order', () => {
     expect(bayla.identity?.lore?.paragraphs.length).toBe(2);
     expect(bayla.identity?.lore?.links.map((l) => l.href)).toEqual([
       'https://memetics.wtf/',
+      'https://memetics.wtf/receipts',
       'https://opensea.io/collection/junglebay',
       'https://x.com/JungleBayAC',
     ]);
+    // Mechanism 9 says "Check it." The island's own label, pointing at its ledger.
+    expect(bayla.identity?.lore?.links).toContainEqual({
+      href: 'https://memetics.wtf/receipts',
+      label: 'Check it on the ledger',
+    });
     expect(bayla.identity?.museLines?.length).toBe(5);
     expect(bayla.identity?.museVoice).toBe('the muse');
   });
@@ -571,6 +585,27 @@ describe('read by the island, per pool', () => {
     ]);
     expect(ISLAND_READ_POOLS.length).toBeGreaterThan(0);
     for (const r of ISLAND_READ_POOLS) expect(shipped.has(r.pool), r.pool).toBe(true);
+  });
+});
+
+// Answer sixteen, ruling 6: the ladder card's one line about where its rewards came from.
+// One pool, one source: its only key is the lock ladder's entry on the island read list.
+describe('the ladder line, keyed by pool address', () => {
+  it('has one key, the ladder entry of ISLAND_READ_POOLS (the pool addresses.json ships)', () => {
+    const registry = JSON.parse(readFileSync(resolve(__dirname, '../../scripts/addresses.json'), 'utf-8')) as {
+      solana: { id: string; address: string }[];
+    };
+    const ladder = registry.solana.find((e) => e.id === 'bayla-ladder-pool')!.address;
+    const entry = ISLAND_READ_POOLS.find((r) => r.chain === 'solana' && r.pool === ladder);
+    expect(entry, 'the lock ladder is on the island read list').toBeTruthy();
+    expect([...LADDER_FUNDING_LINES.keys()]).toEqual([entry!.pool]);
+  });
+
+  it('carries the ruling word for word, with no em dash', () => {
+    expect([...LADDER_FUNDING_LINES.values()]).toEqual([
+      "2,000,000 of this ladder's rewards came from the island's Workshop on 2026-09-24.",
+    ]);
+    for (const line of LADDER_FUNDING_LINES.values()) expect(line).not.toContain('—');
   });
 });
 

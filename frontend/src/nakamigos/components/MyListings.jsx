@@ -4,6 +4,7 @@ import NftImage from "./NftImage";
 import { getActiveWalletProvider, assertSameWallet } from "../api";
 import { SEAPORT_ADDRESS, PLATFORM_FEE_BPS, BUNDLE_LISTING_ENABLED } from "../constants";
 import { cancelSeaportOrder } from "../lib/seaportCancel";
+import { waitForTxOutcome, toastTxOutcome } from "../lib/txOutcome";
 import { useActiveCollection } from "../contexts/CollectionContext";
 import { useWalletState, useWalletActions } from "../contexts/WalletContext";
 import EmptyState from "./EmptyState";
@@ -401,7 +402,16 @@ export default function MyListings({ wallet, onConnect, addToast, onPick, tokens
       // fillable. Mirrors api-offers.cancelOrder:732-734; unknown targets still fail
       // closed inside cancelSeaportOrder.
       const tx = await cancelSeaportOrder({ ethers, signer, params: listing.rawParameters, seaportAddress: listing.protocolAddress || null });
-      await tx.wait();
+      // Anything but a confirmed cancel leaves the listing on screen and the
+      // backend untouched: the order may still be live.
+      const done = await waitForTxOutcome(tx);
+      if (done.kind !== "success") {
+        toastTxOutcome(addToast, done, {
+          reverted: { error: "reverted", message: "The cancel reverted on-chain. The listing is still live." },
+          ifLanded: "the listing is already cancelled and a second cancel only costs gas.",
+        });
+        return;
+      }
 
       // Step 2: Update native orderbook backend status — BEST-EFFORT. The on-chain
       // cancel above already invalidated the order, so the backend notify (INCLUDING
@@ -495,7 +505,14 @@ export default function MyListings({ wallet, onConnect, addToast, onPick, tokens
       const seaport = new ethers.Contract(SEAPORT_ADDRESS, seaportABI, signer);
 
       const tx = await seaport.incrementCounter();
-      await tx.wait();
+      const done = await waitForTxOutcome(tx);
+      if (done.kind !== "success") {
+        toastTxOutcome(addToast, done, {
+          reverted: { error: "reverted", message: "Cancel all reverted on-chain. Your listings are still live." },
+          ifLanded: "every order you signed is already cancelled and a second one only costs gas.",
+        });
+        return;
+      }
 
       // #7: sync the DB with ONE signature. The on-chain incrementCounter above
       // already invalidated every order atomically, so the backend just needs to

@@ -58,7 +58,7 @@ describe("a room's farm carries no prose em dash", () => {
   it('says the same for BAYLA as production serves it, the ladder named', async () => {
     const bayla = { ...ROOMS.find((b) => b.id === 'bayla')!, ladderPool: 'LADDER' } as Bungalow;
     const { container, hero } = await farm(bayla);
-    expect(hero.textContent).toContain('The lock ladder is live for BAYLA on Solana, created on-chain');
+    expect(hero.textContent).toContain('The lock ladder is live for BAYLA on Solana.');
     await screen.findAllByTestId('pool-card');
     expect(container.textContent).not.toContain(EM_DASH);
   });

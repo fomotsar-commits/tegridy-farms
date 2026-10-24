@@ -10,6 +10,7 @@ import {
   isStale,
   tierFor,
   tierAtFloor,
+  tierAbove,
   nextTier,
   gateDecision,
   TIER_FLOORS,
@@ -283,42 +284,55 @@ describe('tiers', () => {
   it.each([
     [0, 'Drifter'], [29.99, 'Drifter'],
     [30, 'Observer'], [79.99, 'Observer'],
-    [80, 'Resident'], [149.99, 'Resident'],
-    [150, 'Builder'], [249.99, 'Builder'],
-    [250, 'Elder'], [1000, 'Elder'],
+    [80, 'Resident'], [150, 'Resident'], [250, 'Resident'], [299.99, 'Resident'],
+    [300, 'Builder'], [799.99, 'Builder'],
+    [800, 'Elder'], [1800, 'Elder'],
   ] as const)('%d° is %s', (deg, tier) => {
     expect(tierFor(deg)).toBe(tier);
   });
 
-  it('agrees with the real payload’s own tier word', () => {
-    const r = parseHeatReading(WARM);
-    expect(tierFor(r.degrees)).toBe(r.tier);
-  });
-
-  // The island's board, as_of 2026-09-23T16:09:15Z: the lowest and highest degrees it
-  // served in each band, and the dEaD read (as_of 2026-09-23T12:06:10Z). Degrees and
-  // tier only.
+  // WARM (2026-08-07) and the 2026-09-23 board were served on the retired 150 / 250
+  // bands, so their pairs no longer place. These are the island's own words on today's:
+  // the board, as_of 2026-09-30T02:12:18Z (/api/flames?limit=500, 80 flames), the lowest
+  // and highest degrees it served in each band. On the retired bands 21 of those 80
+  // flames disagreed with their served word; on 30 / 80 / 300 / 800, none.
   it.each([
-    [27.22, 'Drifter'], [45.11, 'Observer'], [73.89, 'Observer'], [90.26, 'Resident'],
-    [111.3, 'Resident'], [152.2, 'Builder'], [246.65, 'Builder'], [269, 'Elder'],
-    [347.57, 'Elder'], [311.25, 'Elder'],
+    [28.43, 'Drifter'], [50.64, 'Observer'], [75.05, 'Observer'], [91.67, 'Resident'],
+    [156.8, 'Resident'], [285.34, 'Resident'], [394.66, 'Builder'], [671.89, 'Builder'],
+    [890.93, 'Elder'], [1798.77, 'Elder'],
   ] as const)('agrees with the island: %d° was served %s', (deg, tier) => {
     expect(tierFor(deg)).toBe(tier);
   });
 
+  // The dEaD read, as_of 2026-09-29T12:06:58Z: the wallet's served word, and two of its
+  // rooms' served room_tier, one just past Builder's floor and one just short of Elder's.
+  it.each([
+    [1476.1, 'Elder'], [313.84, 'Builder'], [790.25, 'Builder'],
+  ] as const)('agrees with the dEaD read: %d° was served %s', (deg, tier) => {
+    expect(tierFor(deg)).toBe(tier);
+  });
+
   it('nextTier counts the remaining degrees, and is null at Elder', () => {
-    expect(nextTier(195.54)).toEqual({ tier: 'Elder', floor: 250, remaining: 250 - 195.54 });
+    expect(nextTier(195.54)).toEqual({ tier: 'Builder', floor: 300, remaining: 300 - 195.54 });
     expect(nextTier(0)).toEqual({ tier: 'Observer', floor: 30, remaining: 30 });
-    expect(nextTier(249.99)).toEqual({ tier: 'Elder', floor: 250, remaining: 250 - 249.99 });
-    expect(nextTier(250)).toBeNull();
+    // The live defect: the card told a 200° wallet "50.00° to Elder".
+    expect(nextTier(200)).toEqual({ tier: 'Builder', floor: 300, remaining: 100 });
+    expect(nextTier(250)).toEqual({ tier: 'Builder', floor: 300, remaining: 50 });
+    expect(nextTier(300)).toEqual({ tier: 'Elder', floor: 800, remaining: 500 });
+    expect(nextTier(799.99)).toEqual({ tier: 'Elder', floor: 800, remaining: 800 - 799.99 });
+    expect(nextTier(800)).toBeNull();
+    expect(nextTier(1476.1)).toBeNull();
   });
 });
 
 describe('the island dials', () => {
-  it('publishes the island bands, 30 / 80 / 150 / 250', () => {
+  // memetics.wtf/heat, fetched 2026-09-29 (Last-Modified 2026-09-30T02:08:02Z), prints
+  // ELDER 800°, BUILDER 300°, RESIDENT 80°, OBSERVER 30°, COLD below. /api/heat still
+  // serves the word Drifter under 30, so the bottom rung keeps the served word.
+  it('publishes the island bands, 30 / 80 / 300 / 800', () => {
     expect(TIER_FLOORS.map((t) => [t.tier, t.floor])).toEqual([
-      ['Elder', 250],
-      ['Builder', 150],
+      ['Elder', 800],
+      ['Builder', 300],
       ['Resident', 80],
       ['Observer', 30],
       ['Drifter', 0],
@@ -497,12 +511,13 @@ describe('tierAtFloor', () => {
   it('names the tier only when the floor sits exactly on its rung', () => {
     expect(tierAtFloor(30)).toBe('Observer');
     expect(tierAtFloor(80)).toBe('Resident');
-    expect(tierAtFloor(150)).toBe('Builder');
-    expect(tierAtFloor(250)).toBe('Elder');
+    expect(tierAtFloor(300)).toBe('Builder');
+    expect(tierAtFloor(800)).toBe('Elder');
   });
 
   it('names nothing between rungs, above the top, or a hair off a floor', () => {
-    for (const floor of [123, 10, 300, 80.5, 149.99, 180, 365, 1000]) {
+    // 150 and 250 are the Builder and Elder floors the island retired.
+    for (const floor of [123, 10, 150, 250, 80.5, 299.99, 180, 365, 1000]) {
       expect(tierAtFloor(floor), String(floor)).toBeNull();
     }
   });
@@ -511,6 +526,94 @@ describe('tierAtFloor', () => {
     for (const t of TIER_FLOORS) {
       const named = tierAtFloor(t.floor);
       if (named !== null) expect(named).toBe(tierFor(t.floor));
+    }
+  });
+});
+
+// The island's place in a room. Real bytes from memetics.wtf/api/heat/<address>, read
+// 2026-10-08T07:33Z: the Workshop's wallet (ranked 1st of 515 in the BAYLA room) and the
+// Glasshouse's (room_rank null beside a served tier and count, since its bag was locked).
+describe("a room's served rank and count", () => {
+  const RANKED = {"address":"G2EHPseTXetHbBvvRDs27XQyXfQikXXyxP9uMbsKrbu","degrees":81.72,"tier":"Resident","is_cold":false,"held_since_unix":1786120850,"as_of_unix":1791374693,"token_count":1,"breakdown":[{"token_address":"7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump","chain":"solana","name":"Bayla","symbol":"BAYLA","heat_degrees":81.72,"first_seen_at_unix":1786120850,"last_transfer_at_unix":1786673480,"retired":false,"room_tier":"Resident","room_rank":1,"room_holders":515,"room_as_of_unix":1791374693}],"x_handle":null};
+  const UNRANKED = {"address":"8fpLEfNcE3KXDPaXnkWsHK4pxsdEmqekqyaVqDrupnjt","degrees":80.41,"tier":"Resident","is_cold":false,"held_since_unix":1786227653,"as_of_unix":1791374693,"token_count":1,"breakdown":[{"token_address":"7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump","chain":"solana","name":"Bayla","symbol":"BAYLA","heat_degrees":80.41,"first_seen_at_unix":1786227653,"last_transfer_at_unix":1786227653,"retired":false,"room_tier":"Resident","room_rank":null,"room_holders":515,"room_as_of_unix":1791374693}],"x_handle":null};
+  const withRow = (extra: Record<string, unknown>) => ({
+    ...RANKED,
+    breakdown: [{ ...RANKED.breakdown[0], ...extra }],
+  });
+
+  it('both envelopes are trustworthy', () => {
+    expect(heatEnvelopeFailure(RANKED)).toBeNull();
+    expect(heatEnvelopeFailure(UNRANKED)).toBeNull();
+  });
+
+  it('keeps the rank and the count the island served', () => {
+    const row = parseHeatReading(RANKED).breakdown[0]!;
+    expect(row.roomRank).toBe(1);
+    expect(row.roomHolders).toBe(515);
+  });
+
+  it('reads a null rank as no rank, and still keeps the count', () => {
+    const row = parseHeatReading(UNRANKED).breakdown[0]!;
+    expect(row.roomRank).toBeNull();
+    expect(row.roomHolders).toBe(515);
+  });
+
+  it('reads a row that carries neither field as no rank and no count', () => {
+    // Every envelope before the island added the fields, and any row it stops sending them on.
+    const row = parseHeatReading(WARM).breakdown[0]!;
+    expect(row.roomRank).toBeNull();
+    expect(row.roomHolders).toBeNull();
+  });
+
+  it('never coerces a value that is not a whole number of one or more', () => {
+    for (const v of ['12', 0, -1, 2.5, true]) {
+      const row = parseHeatReading(withRow({ room_rank: v, room_holders: v })).breakdown[0]!;
+      expect(row.roomRank, `rank ${String(v)}`).toBeNull();
+      expect(row.roomHolders, `count ${String(v)}`).toBeNull();
+    }
+  });
+
+  it('leaves the row’s served degrees alone', () => {
+    expect(parseHeatReading(RANKED).breakdown[0]!.degrees).toBe(81.72);
+  });
+});
+
+describe('tierAbove', () => {
+  it('names the rung above a served tier word, and nothing above Elder', () => {
+    expect(tierAbove('Drifter')).toBe('Observer');
+    expect(tierAbove('Observer')).toBe('Resident');
+    expect(tierAbove('Resident')).toBe('Builder');
+    expect(tierAbove('Builder')).toBe('Elder');
+    expect(tierAbove('Elder')).toBeNull();
+  });
+});
+
+// The island has said it will serve two countdowns in the heat answer. Neither is served
+// yet (read 2026-10-08), so today both parse to null and nothing is printed.
+describe('the days the island counts down', () => {
+  it('reads both as absent from today’s envelope', () => {
+    const r = parseHeatReading(WARM);
+    expect(r.daysToNextTier).toBeNull();
+    expect(r.daysToPlant).toBeNull();
+  });
+
+  it('keeps them once the island serves them', () => {
+    const r = parseHeatReading({ ...WARM, days_to_next_tier: 14, days_to_plant: 41 });
+    expect(r.daysToNextTier).toBe(14);
+    expect(r.daysToPlant).toBe(41);
+  });
+
+  it('keeps a served zero: the day itself', () => {
+    const r = parseHeatReading({ ...WARM, days_to_next_tier: 0, days_to_plant: 0 });
+    expect(r.daysToNextTier).toBe(0);
+    expect(r.daysToPlant).toBe(0);
+  });
+
+  it('reads anything but a whole number of days as absent', () => {
+    for (const v of [null, '14', -1, 2.5, NaN, true]) {
+      const r = parseHeatReading({ ...WARM, days_to_next_tier: v, days_to_plant: v });
+      expect(r.daysToNextTier, String(v)).toBeNull();
+      expect(r.daysToPlant, String(v)).toBeNull();
     }
   });
 });

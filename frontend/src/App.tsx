@@ -14,9 +14,16 @@ import { SwapSkeleton, FarmSkeleton, DashboardSkeleton } from './components/Page
 import { safeSetItem, safeGetItem } from './lib/storage';
 import { ThemeProvider, useTheme } from './contexts/ThemeContext';
 import { usePageTitle } from './hooks/usePageTitle';
+import { useOpensAtTheTop } from './hooks/useOpensAtTheTop';
 import { PwaRuntime } from './components/pwa/PwaRuntime';
-import { BUNGALOWS } from './lib/bungalows';
+import { BUNGALOWS, getActiveBungalow } from './lib/bungalows';
+import { useSectionLink } from './hooks/useSectionLink';
 import { BungalowDoor, VENUE_ID } from './components/bungalow/BungalowDoor';
+import { EARN_PATH, isEarnPoolId, legacyFarmTarget } from './lib/earnRoutes';
+import { lazyLoadFailed } from './lib/staleBuild';
+import { holdReloadWhileWalletWorks } from './lib/reloadHold';
+import { StaleBuildFallback } from './components/StaleBuildFallback';
+import { rangePoolsVisible } from './lib/solana/clmm/programId';
 
 const HomePage = lazy(() => import('./pages/HomePage'));
 const DashboardPage = lazy(() => import('./pages/DashboardPage'));
@@ -53,6 +60,9 @@ const DeveloperPage = lazy(() => import('./pages/DeveloperPage'));
 // The trade pages load inside TradeHostPage: @solana/* must never reach the main
 // bundle (scripts/check-dist-graph.mjs pins it).
 const CurveTokenPage = lazy(() => import('./pages/CurveTokenPage'));
+// One launch on our own Solana curve. A bare route like /eth-curve/:token: a launch's
+// page is a shareable record and does not arrive inside the Launch tabs.
+const CurveLaunchDetailPage = lazy(() => import('./pages/CurveLaunchDetailPage'));
 // Never gated: a launched token's disclosures stay reachable if the wizard is re-gated.
 const LaunchTokenPage = lazy(() => import('./pages/LaunchTokenPage'));
 // AirdropFactory is undeployed: its transactions are isDeployed()-gated in-page.
@@ -63,12 +73,12 @@ const VestingPage = lazy(() => import('./pages/VestingPage'));
 const OnboardingFlow = lazy(() => import('./components/onboarding/OnboardingFlow'));
 
 // Error boundary catches render errors in lazy-loaded pages and prevents white-screen crashes
-class RouteErrorBoundary extends Component<{ children: ReactNode; resetKey?: string }, { hasError: boolean }> {
+class RouteErrorBoundary extends Component<{ children: ReactNode; resetKey?: string }, { hasError: boolean; error?: unknown }> {
   constructor(props: { children: ReactNode; resetKey?: string }) {
     super(props);
     this.state = { hasError: false };
   }
-  static getDerivedStateFromError() { return { hasError: true }; }
+  static getDerivedStateFromError(error: unknown) { return { hasError: true, error }; }
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error('Route render error:', error, info.componentStack);
   }
@@ -81,7 +91,7 @@ class RouteErrorBoundary extends Component<{ children: ReactNode; resetKey?: str
   }
   render() {
     if (this.state.hasError) {
-      return (
+      const generic = (
         <div className="min-h-[60vh] flex items-center justify-center px-6">
           <div className="text-center max-w-sm">
             <h1 className="heading-luxury text-3xl text-white mb-3">Something went wrong</h1>
@@ -97,6 +107,8 @@ class RouteErrorBoundary extends Component<{ children: ReactNode; resetKey?: str
           </div>
         </div>
       );
+      // As in ui/ErrorBoundary: a lazy load that failed may be a deploy, not a fault.
+      return lazyLoadFailed(this.state.error) ? <StaleBuildFallback>{generic}</StaleBuildFallback> : generic;
     }
     return this.props.children;
   }
@@ -111,6 +123,10 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+// While a wagmi write, signature or receipt wait is open on this client, the page never
+// reloads itself (lib/staleBuild.ts).
+holdReloadWhileWalletWorks(queryClient);
 
 function NotFoundPage() {
   // No canonical (a soft-404 served 200) and noindex. A colon, not an em dash: AppLayout
@@ -135,7 +151,7 @@ function NotFoundPage() {
           <p className="text-white/40 text-[11px] uppercase tracking-wider mb-2">Or jump to</p>
           <div className="flex items-center justify-center gap-2 flex-wrap">
             {[
-              { to: '/farm', label: 'Farm' },
+              { to: '/earn', label: 'Earn' },
               { to: '/swap', label: 'Trade' },
               { to: '/dashboard', label: 'Dashboard' },
             ].map((l) => (
@@ -158,26 +174,16 @@ function NotFoundPage() {
 function ScrollToTop() {
   const { pathname, hash } = useLocation();
   const navType = useNavigationType();
+  useOpensAtTheTop(navType === 'POP' || hash ? null : `${navType} ${pathname}`);
   useEffect(() => {
     if (navType === 'POP') return;
-    // A #section deep link: the native hash-scroll fires before the target mounts, so
-    // it is re-run on the next frame and once more shortly after.
+    // A #section link is useSectionLink's to place, below: it waits for the section,
+    // which a page whose code is still arriving has not drawn yet.
     if (hash) {
-      const id = decodeURIComponent(hash.slice(1));
-      let raf2 = 0;
-      const scrollToTarget = () => document.getElementById(id)?.scrollIntoView({ behavior: 'auto', block: 'start' });
-      const raf1 = requestAnimationFrame(() => {
-        scrollToTarget();
-        // Second pass after lazy/animated content has likely mounted.
-        raf2 = window.setTimeout(scrollToTarget, 120) as unknown as number;
-      });
-      return () => {
-        cancelAnimationFrame(raf1);
-        if (raf2) clearTimeout(raf2);
-      };
+      return;
     }
-    window.scrollTo(0, 0);
   }, [pathname, hash, navType]);
+  useSectionLink();
   return null;
 }
 
@@ -201,6 +207,29 @@ function BungalowStudioDoor() {
       {BungalowArtStudioPage ? <BungalowArtStudioPage bungalowId={bungalowId} /> : null}
     </Suspense>
   );
+}
+
+/**
+ * `/earn/<id>`: one pool, inside its own room. The id is a live registry id
+ * ('toweli' included); anything else goes back to the list. The pool's room is
+ * entered the way its front door enters it (BungalowDoor), so the art, the nav
+ * and the pool all agree — and a link opened in a wallet's own browser, which
+ * shares none of this browser's storage, still lands on the same pool.
+ */
+function EarnPoolRoute() {
+  const { poolId = '' } = useParams();
+  if (!isEarnPoolId(poolId)) return <Navigate to={EARN_PATH} replace />;
+  return (
+    <BungalowDoor key={poolId} id={poolId}>
+      <Suspense fallback={<FarmSkeleton />}><EarnPage /></Suspense>
+    </BungalowDoor>
+  );
+}
+
+/** `/farm`, Earn's address until 2026-09-30: an old link keeps its meaning (legacyFarmTarget). */
+function LegacyFarmRedirect() {
+  const { search, hash } = useLocation();
+  return <Navigate to={legacyFarmTarget(search, hash, getActiveBungalow())} replace />;
 }
 
 /**
@@ -247,8 +276,8 @@ function AnimatedRoutes() {
       />
       <Route element={<AppLayout />}>
         {/* `/` is the venue's own door: arriving clears a stored skin the way
-            walking into /bayla sets one. The stored skin still dresses /farm,
-            /swap and the rest. */}
+            walking into /bayla sets one. The stored skin still dresses /swap
+            and the rest; /earn/<id> enters its own pool's room. */}
         <Route
           index
           element={
@@ -273,17 +302,24 @@ function AnimatedRoutes() {
             }
           />
         ))}
-        {/* Earn is a tabbed host: /farm is its landing tab. */}
-        <Route path="farm" element={<Suspense fallback={<FarmSkeleton />}><EarnPage /></Suspense>} />
+        {/* Earn is a tabbed host: /earn, the list of every pool, is its landing
+            tab, and /earn/<id> is one pool under the same tab. */}
+        <Route path="earn" element={<Suspense fallback={<FarmSkeleton />}><EarnPage /></Suspense>} />
+        <Route path="earn/:poolId" element={<EarnPoolRoute />} />
+        <Route path="farm" element={<LegacyFarmRedirect />} />
         {/* Swap is a tabbed host: Ethereum / Solana. */}
         <Route path="swap" element={<SwapRoute />} />
         <Route path="solana" element={<Suspense fallback={<SwapSkeleton />}><TradeHostPage /></Suspense>} />
-        {/* Pools is its own section: /liquidity, /pools and /zap. */}
+        {/* Pools is its own section: /liquidity, /solana-lp, /pools and /zap. */}
         <Route path="liquidity" element={<Suspense fallback={<SwapSkeleton />}><PoolsHostPage /></Suspense>} />
+        <Route path="solana-lp" element={<Suspense fallback={<SwapSkeleton />}><PoolsHostPage /></Suspense>} />
+        {/* The Range tab: no route at all until range pools open (clmm/programId.ts). */}
+        {rangePoolsVisible() && <Route path="range-pools" element={<Suspense fallback={<SwapSkeleton />}><PoolsHostPage /></Suspense>} />}
         <Route path="pools" element={<Suspense fallback={<SwapSkeleton />}><PoolsHostPage /></Suspense>} />
         {/* No /solana-launch and no redirect for it: it 404s, because the rail it
             would point at cannot launch either. */}
         <Route path="curve-launch" element={<Suspense fallback={<PageSkeleton />}><LaunchHubPage /></Suspense>} />
+        <Route path="curve-launch/:mint" element={<Suspense fallback={<PageSkeleton />}><CurveLaunchDetailPage /></Suspense>} />
         <Route path="eth-curve" element={<Suspense fallback={<PageSkeleton />}><LaunchHubPage /></Suspense>} />
         <Route path="eth-curve/:token" element={<Suspense fallback={<PageSkeleton />}><CurveTokenPage /></Suspense>} />
         <Route path="launch" element={<Suspense fallback={<PageSkeleton />}><LaunchHubPage /></Suspense>} />
@@ -296,7 +332,8 @@ function AnimatedRoutes() {
         <Route path="yield" element={<Suspense fallback={<PageSkeleton />}><EarnPage /></Suspense>} />
         {/* The nav labels this "Trade" — make the natural /trade URL resolve instead of 404. */}
         <Route path="copy-trading" element={<Suspense fallback={<PageSkeleton />}><EarnPage /></Suspense>} />
-        <Route path="competitions" element={<Suspense fallback={<PageSkeleton />}><EarnPage /></Suspense>} />
+        {/* The trading competitions were deleted 2026-10-15 (island item 4); old links land on Earn. */}
+        <Route path="competitions" element={<Navigate to="/earn" replace />} />
         <Route path="trade" element={<Navigate to="/swap" replace />} />
         <Route path="dashboard" element={<Suspense fallback={<DashboardSkeleton />}><DashboardPage /></Suspense>} />
         {/* The Island lobby is cards, not tabs (IslandPage.tsx). */}
@@ -307,11 +344,12 @@ function AnimatedRoutes() {
         <Route path="lore" element={<Suspense fallback={<PageSkeleton />}><LearnPage /></Suspense>} />
         {/* /learn is a legacy alias for the first tab LearnPage owns. */}
         <Route path="learn" element={<Navigate to="/lore" replace />} />
-        <Route path="leaderboard" element={<Suspense fallback={<PageSkeleton />}><ActivityPage /></Suspense>} />
+        {/* The points program was deleted 2026-10-15 (island item 4); old links land on History. */}
+        <Route path="leaderboard" element={<Navigate to="/history" replace />} />
         <Route path="community" element={<Suspense fallback={<PageSkeleton />}><CommunityPage /></Suspense>} />
         <Route path="grants" element={<Navigate to="/community" replace />} />
         <Route path="bounties" element={<Navigate to="/community?section=bounties" replace />} />
-        <Route path="restake" element={<Navigate to="/farm" replace />} />
+        <Route path="restake" element={<Navigate to="/earn/toweli" replace />} />
         <Route path="premium" element={<Suspense fallback={<PageSkeleton />}><ActivityPage /></Suspense>} />
         <Route path="bribes" element={<Navigate to="/community?section=bribes" replace />} />
         <Route path="admin" element={<Suspense fallback={<PageSkeleton />}><AdminPage /></Suspense>} />
@@ -340,7 +378,9 @@ function AnimatedRoutes() {
         <Route path="terminal" element={<Suspense fallback={<PageSkeleton />}><TrustPage /></Suspense>} />
         <Route path="chart" element={<Suspense fallback={<PageSkeleton />}><TrustPage /></Suspense>} />
         <Route path="alerts" element={<Suspense fallback={<PageSkeleton />}><TrustPage /></Suspense>} />
-        <Route path="referrals" element={<Suspense fallback={<PageSkeleton />}><EarnPage /></Suspense>} />
+        {/* Referrals left Earn on 2026-10-14 (owner). A referral link is `/?ref=` and is read
+            site-wide; the claim and share box stays on the TOWELI room's dashboard. */}
+        <Route path="referrals" element={<Navigate to="/earn" replace />} />
         <Route path="checkout" element={<Suspense fallback={<PageSkeleton />}><EarnPage /></Suspense>} />
         <Route path="tax" element={<Suspense fallback={<PageSkeleton />}><StatsPage /></Suspense>} />
         <Route path="developers" element={<Suspense fallback={<PageSkeleton />}><DeveloperPage /></Suspense>} />

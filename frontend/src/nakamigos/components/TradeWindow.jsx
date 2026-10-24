@@ -1,18 +1,21 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import NftImage from "./NftImage";
-import { COLLECTIONS } from "../constants";
 import { fetchWalletNfts } from "../api";
 import { alchemyGet } from "../lib/proxy";
 import { createTradeOffer, MAX_ITEMS_PER_SIDE } from "../lib/trades";
+import { toastTxNotice } from "../lib/txOutcome";
 import { estimateTokenValue, tradeDelta } from "../lib/valuation";
 import { lockScroll, unlockScroll } from "../lib/scrollLock";
+import { VENUE_COLLECTIONS } from "../lib/venue";
 
-const COLLECTION_LIST = Object.values(COLLECTIONS);
+// P2P trades settle on Seaport on Ethereum, so only venue collections join a
+// trade: their inventories, floors and wildcard chips, and nothing else.
+export const COLLECTION_LIST = VENUE_COLLECTIONS;
 
-const SUPPLY_BY_CONTRACT = COLLECTION_LIST.reduce((m, c) => {
+export const SUPPLY_BY_CONTRACT = Object.freeze(COLLECTION_LIST.reduce((m, c) => {
   m[c.contract.toLowerCase()] = c.supply;
   return m;
-}, {});
+}, {}));
 const keyOf = (n) => `${n.contract.toLowerCase()}:${n.id ?? n.tokenId}`;
 
 // Classic game-trade-window scam defense: when the two sides' estimated
@@ -263,7 +266,7 @@ export default function TradeWindow({ wallet, counterparty: initialCounterparty,
         addToast?.(boardMode ? "Posted to the trade board!" : counterOf ? "Counter-offer sent!" : "Trade offer sent!", "success");
         onCreated?.(result.trade);
         onClose();
-      } else if (result.error !== "rejected") {
+      } else if (result.error !== "rejected" && !toastTxNotice(addToast, result)) {
         addToast?.(result.message || "Trade failed", "error");
       }
     } finally {

@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { useYieldDCA } from '../../hooks/useYieldDCA';
 import { DCA_YIELD_ROUND_TRIP_NOTE, type DcaAsset } from '../../lib/yield/dcaYield';
 import { formatTokenAmount } from '../../lib/formatting';
+import { FinePrint } from '../ui/FinePrint';
 
 // The idle half of a DCA schedule, said out loud.
 //
@@ -21,6 +22,10 @@ import { formatTokenAmount } from '../../lib/formatting';
 // And the available branch describes a DESTINATION, not an action. This schedule
 // deposits nothing: the venue holds no funds, runs no keeper, and every leg is a
 // transaction the user signs themselves on the Yield Routing page.
+//
+// FEWER WORDS (owner, 2026-10-13). The face says the amount, where it could go
+// and that nothing runs on its own; every full sentence sits in the FinePrint,
+// once each (DcaYieldPanel.test finds each by text, so none may be doubled).
 
 export interface DcaYieldPanelProps {
   amountPerSwap: string;
@@ -57,37 +62,51 @@ export function DcaYieldPanel({ amountPerSwap, totalSwaps, completedSwaps = 0, a
       </div>
       <p className="text-white/80 text-[10px] leading-relaxed mb-2">
         {plan.remainingSwaps > 0
-          ? `${plan.remainingSwaps} swap${plan.remainingSwaps === 1 ? '' : 's'} still to make. That amount stays in your own wallet — this schedule holds nothing — so it earns nothing while it waits.`
-          : 'This schedule has no swaps left to make, so there is nothing left unspent.'}
+          ? `${plan.remainingSwaps} swap${plan.remainingSwaps === 1 ? '' : 's'} still to make. It waits in your wallet, earning nothing.`
+          : 'No swaps left, so nothing is unspent.'}
       </p>
 
-      <div className="mb-2">
-        <p className="text-white text-[10px] uppercase tracking-wider mb-0.5">Park it while it waits</p>
-        <p className="text-white/80 text-[10px] leading-relaxed">
+      <dl className="mb-2 grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 text-[10px] leading-relaxed">
+        <dt className="text-white uppercase tracking-wider">Park it</dt>
+        <dd className="text-white/80">
+          {plan.parking.state === 'available' ? `${plan.parking.venue.label}, on Yield Routing` : 'Not available'}
+        </dd>
+        <dt className="text-white uppercase tracking-wider">Stake buys</dt>
+        <dd className="text-white/80">
+          {plan.autoStake.state === 'available' ? `${plan.autoStake.venue.label}, on Yield Routing` : 'Not available'}
+        </dd>
+      </dl>
+
+      <p className="text-amber-300 text-[10px] leading-relaxed">Nothing runs on its own. You sign each step.</p>
+
+      <FinePrint summary="How it works">
+        {plan.remainingSwaps > 0 ? (
+          <p>
+            That amount stays in your own wallet — this schedule holds nothing — so it earns nothing while it waits.
+          </p>
+        ) : null}
+        <p>
+          <span className="text-white">Park it while it waits:</span>{' '}
           {plan.parking.state === 'available'
             ? `Could be deposited into ${plan.parking.venue.label} from the Yield Routing page — this schedule does not do it; each deposit and withdrawal is a transaction you sign there. ${plan.parking.venue.counterparty}`
             : plan.parking.reason}
         </p>
-      </div>
-
-      <div className="mb-2">
-        <p className="text-white text-[10px] uppercase tracking-wider mb-0.5">Stake completed buys</p>
-        <p className="text-white/80 text-[10px] leading-relaxed">
+        <p>
+          <span className="text-white">Stake completed buys:</span>{' '}
           {plan.autoStake.state === 'available'
             ? `Could be deposited into ${plan.autoStake.venue.label} from the Yield Routing page — this schedule does not do it; each deposit and withdrawal is a transaction you sign there. ${plan.autoStake.venue.counterparty}`
             : plan.autoStake.reason}
         </p>
-      </div>
-
-      <p className="text-amber-300 text-[10px] leading-relaxed mb-1.5">{plan.execution}</p>
-      <p className="text-white/70 text-[10px] leading-relaxed">{DCA_YIELD_ROUND_TRIP_NOTE}</p>
-      <p className="text-white/70 text-[10px] leading-relaxed mt-1.5">
-        The venues these legs would use, their rates and what each one exposes you to are listed on{' '}
-        <Link to="/yield" className="text-emerald-400/90 hover:text-emerald-300 underline transition-colors">
-          Yield Routing
-        </Link>
-        .
-      </p>
+        <p>{plan.execution}</p>
+        <p>{DCA_YIELD_ROUND_TRIP_NOTE}</p>
+        <p>
+          The venues these legs would use, their rates and what each one exposes you to are listed on{' '}
+          <Link to="/yield" className="text-emerald-400/90 hover:text-emerald-300 underline transition-colors">
+            Yield Routing
+          </Link>
+          .
+        </p>
+      </FinePrint>
     </div>
   );
 }

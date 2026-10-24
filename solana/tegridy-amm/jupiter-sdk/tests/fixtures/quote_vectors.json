@@ -1,0 +1,1207 @@
+{
+  "about": "Quote vectors for the pool program's swap_base_input path. Two readers must reproduce every one: the Jupiter SDK (tests/quote_vectors.rs) and the site's own quote, quoteOwnPool in frontend/src/lib/solana/cpswap/read.ts (jupiterSdkParity.test.ts). `out` is what the curve pays; `refusal` names the program error that refuses the swap, or is null. A ZeroAmountOut refusal has out 0: the site quotes 0 there and its builders refuse it as too small. `live` swaps read the snapshots in accounts/<pool>/, the same files the LiteSVM parity test (tests/parity.rs) runs on. The two `fee_paths token-0 copy` cases are what the deployed program paid in tests/fee_paths.rs, which checks them. Amounts are raw token units, as decimal strings.",
+  "synthetic": [
+    {
+      "name": "tier 1, SOL in, the venue cut booked in the SOL vault",
+      "pool": {
+        "status": 0,
+        "openTime": "0",
+        "creatorFeeOn": 0,
+        "enableCreatorFee": false,
+        "protocolFees": [
+          "8006334",
+          "0"
+        ],
+        "fundFees": [
+          "0",
+          "0"
+        ],
+        "creatorFees": [
+          "0",
+          "0"
+        ]
+      },
+      "config": {
+        "tradeFeeRate": "10000",
+        "protocolFeeRate": "160000",
+        "fundFeeRate": "0",
+        "creatorFeeRate": "0"
+      },
+      "vaults": [
+        "34367758993",
+        "5486481706516"
+      ],
+      "now": "1791900000",
+      "inputIsToken0": true,
+      "amountIn": "1000000000",
+      "out": "153653603798",
+      "refusal": null
+    },
+    {
+      "name": "tier 1, token in",
+      "pool": {
+        "status": 0,
+        "openTime": "0",
+        "creatorFeeOn": 0,
+        "enableCreatorFee": false,
+        "protocolFees": [
+          "8006334",
+          "0"
+        ],
+        "fundFees": [
+          "0",
+          "0"
+        ],
+        "creatorFees": [
+          "0",
+          "0"
+        ]
+      },
+      "config": {
+        "tradeFeeRate": "10000",
+        "protocolFeeRate": "160000",
+        "fundFeeRate": "0",
+        "creatorFeeRate": "0"
+      },
+      "vaults": [
+        "34367758993",
+        "5486481706516"
+      ],
+      "now": "1791900000",
+      "inputIsToken0": false,
+      "amountIn": "10000000000",
+      "out": "61888269",
+      "refusal": null
+    },
+    {
+      "name": "tier 0, creator fee off on the pool",
+      "pool": {
+        "status": 0,
+        "openTime": "0",
+        "creatorFeeOn": 0,
+        "enableCreatorFee": false,
+        "protocolFees": [
+          "0",
+          "0"
+        ],
+        "fundFees": [
+          "0",
+          "0"
+        ],
+        "creatorFees": [
+          "0",
+          "0"
+        ]
+      },
+      "config": {
+        "tradeFeeRate": "2500",
+        "protocolFeeRate": "200000",
+        "fundFeeRate": "0",
+        "creatorFeeRate": "500"
+      },
+      "vaults": [
+        "34367758993",
+        "5486481706516"
+      ],
+      "now": "1791900000",
+      "inputIsToken0": true,
+      "amountIn": "123456789",
+      "out": "19589222543",
+      "refusal": null
+    },
+    {
+      "name": "creator fee on both tokens: taken from the input",
+      "pool": {
+        "status": 0,
+        "openTime": "0",
+        "creatorFeeOn": 0,
+        "enableCreatorFee": true,
+        "protocolFees": [
+          "0",
+          "0"
+        ],
+        "fundFees": [
+          "0",
+          "0"
+        ],
+        "creatorFees": [
+          "0",
+          "0"
+        ]
+      },
+      "config": {
+        "tradeFeeRate": "2500",
+        "protocolFeeRate": "120000",
+        "fundFeeRate": "40000",
+        "creatorFeeRate": "1000"
+      },
+      "vaults": [
+        "34367758993",
+        "5486481706516"
+      ],
+      "now": "1791900000",
+      "inputIsToken0": true,
+      "amountIn": "777777777",
+      "out": "121001353288",
+      "refusal": null
+    },
+    {
+      "name": "creator fee on token 0, token 0 in: from the input",
+      "pool": {
+        "status": 0,
+        "openTime": "0",
+        "creatorFeeOn": 1,
+        "enableCreatorFee": true,
+        "protocolFees": [
+          "0",
+          "0"
+        ],
+        "fundFees": [
+          "0",
+          "0"
+        ],
+        "creatorFees": [
+          "0",
+          "0"
+        ]
+      },
+      "config": {
+        "tradeFeeRate": "2500",
+        "protocolFeeRate": "120000",
+        "fundFeeRate": "40000",
+        "creatorFeeRate": "1000"
+      },
+      "vaults": [
+        "34367758993",
+        "5486481706516"
+      ],
+      "now": "1791900000",
+      "inputIsToken0": true,
+      "amountIn": "777777777",
+      "out": "121001353288",
+      "refusal": null
+    },
+    {
+      "name": "creator fee on token 0, token 1 in: off the output",
+      "pool": {
+        "status": 0,
+        "openTime": "0",
+        "creatorFeeOn": 1,
+        "enableCreatorFee": true,
+        "protocolFees": [
+          "0",
+          "0"
+        ],
+        "fundFees": [
+          "0",
+          "0"
+        ],
+        "creatorFees": [
+          "0",
+          "0"
+        ]
+      },
+      "config": {
+        "tradeFeeRate": "2500",
+        "protocolFeeRate": "120000",
+        "fundFeeRate": "40000",
+        "creatorFeeRate": "1000"
+      },
+      "vaults": [
+        "34367758993",
+        "5486481706516"
+      ],
+      "now": "1791900000",
+      "inputIsToken0": false,
+      "amountIn": "9999999999",
+      "out": "62308427",
+      "refusal": null
+    },
+    {
+      "name": "creator fee on token 1, token 0 in: off the output",
+      "pool": {
+        "status": 0,
+        "openTime": "0",
+        "creatorFeeOn": 2,
+        "enableCreatorFee": true,
+        "protocolFees": [
+          "0",
+          "0"
+        ],
+        "fundFees": [
+          "0",
+          "0"
+        ],
+        "creatorFees": [
+          "0",
+          "0"
+        ]
+      },
+      "config": {
+        "tradeFeeRate": "2500",
+        "protocolFeeRate": "120000",
+        "fundFeeRate": "40000",
+        "creatorFeeRate": "1000"
+      },
+      "vaults": [
+        "34367758993",
+        "5486481706516"
+      ],
+      "now": "1791900000",
+      "inputIsToken0": true,
+      "amountIn": "777777777",
+      "out": "120998978948",
+      "refusal": null
+    },
+    {
+      "name": "protocol, fund and creator fees all booked in both vaults",
+      "pool": {
+        "status": 0,
+        "openTime": "0",
+        "creatorFeeOn": 0,
+        "enableCreatorFee": true,
+        "protocolFees": [
+          "1000",
+          "2000"
+        ],
+        "fundFees": [
+          "300",
+          "400"
+        ],
+        "creatorFees": [
+          "50",
+          "60"
+        ]
+      },
+      "config": {
+        "tradeFeeRate": "2500",
+        "protocolFeeRate": "120000",
+        "fundFeeRate": "40000",
+        "creatorFeeRate": "1000"
+      },
+      "vaults": [
+        "1000000000",
+        "2000000000"
+      ],
+      "now": "1791900000",
+      "inputIsToken0": false,
+      "amountIn": "31337",
+      "out": "15613",
+      "refusal": null
+    },
+    {
+      "name": "fee_paths token-0 copy, SOL in: what the deployed program paid",
+      "pool": {
+        "status": 0,
+        "openTime": "1791055084",
+        "creatorFeeOn": 1,
+        "enableCreatorFee": true,
+        "protocolFees": [
+          "8006334",
+          "0"
+        ],
+        "fundFees": [
+          "1000000",
+          "0"
+        ],
+        "creatorFees": [
+          "0",
+          "1000000000"
+        ]
+      },
+      "config": {
+        "tradeFeeRate": "10000",
+        "protocolFeeRate": "160000",
+        "fundFeeRate": "40000",
+        "creatorFeeRate": "5000"
+      },
+      "vaults": [
+        "34367758993",
+        "5486481706516"
+      ],
+      "now": "1792127545",
+      "inputIsToken0": true,
+      "amountIn": "123456789",
+      "out": "19346135128",
+      "refusal": null
+    },
+    {
+      "name": "fee_paths token-0 copy, BAYLA in: what the deployed program paid",
+      "pool": {
+        "status": 0,
+        "openTime": "1791055084",
+        "creatorFeeOn": 1,
+        "enableCreatorFee": true,
+        "protocolFees": [
+          "8006334",
+          "0"
+        ],
+        "fundFees": [
+          "1000000",
+          "0"
+        ],
+        "creatorFees": [
+          "0",
+          "1000000000"
+        ]
+      },
+      "config": {
+        "tradeFeeRate": "10000",
+        "protocolFeeRate": "160000",
+        "fundFeeRate": "40000",
+        "creatorFeeRate": "5000"
+      },
+      "vaults": [
+        "34367758993",
+        "5486481706516"
+      ],
+      "now": "1792127545",
+      "inputIsToken0": false,
+      "amountIn": "987654321123",
+      "out": "5171887154",
+      "refusal": null
+    },
+    {
+      "name": "zero-fee tier, creator fee on the input: the split divides by zero",
+      "pool": {
+        "status": 0,
+        "openTime": "0",
+        "creatorFeeOn": 0,
+        "enableCreatorFee": false,
+        "protocolFees": [
+          "0",
+          "0"
+        ],
+        "fundFees": [
+          "0",
+          "0"
+        ],
+        "creatorFees": [
+          "0",
+          "0"
+        ]
+      },
+      "config": {
+        "tradeFeeRate": "0",
+        "protocolFeeRate": "0",
+        "fundFeeRate": "0",
+        "creatorFeeRate": "0"
+      },
+      "vaults": [
+        "20000",
+        "30000"
+      ],
+      "now": "1791900000",
+      "inputIsToken0": true,
+      "amountIn": "10",
+      "out": null,
+      "refusal": "ZeroTradingTokens"
+    },
+    {
+      "name": "upstream truncation vector 10 into 4000000/70000000000",
+      "pool": {
+        "status": 0,
+        "openTime": "0",
+        "creatorFeeOn": 2,
+        "enableCreatorFee": false,
+        "protocolFees": [
+          "0",
+          "0"
+        ],
+        "fundFees": [
+          "0",
+          "0"
+        ],
+        "creatorFees": [
+          "0",
+          "0"
+        ]
+      },
+      "config": {
+        "tradeFeeRate": "0",
+        "protocolFeeRate": "0",
+        "fundFeeRate": "0",
+        "creatorFeeRate": "0"
+      },
+      "vaults": [
+        "4000000",
+        "70000000000"
+      ],
+      "now": "1791900000",
+      "inputIsToken0": true,
+      "amountIn": "10",
+      "out": "174999",
+      "refusal": null
+    },
+    {
+      "name": "upstream truncation vector 20 into 29980/10000",
+      "pool": {
+        "status": 0,
+        "openTime": "0",
+        "creatorFeeOn": 2,
+        "enableCreatorFee": false,
+        "protocolFees": [
+          "0",
+          "0"
+        ],
+        "fundFees": [
+          "0",
+          "0"
+        ],
+        "creatorFees": [
+          "0",
+          "0"
+        ]
+      },
+      "config": {
+        "tradeFeeRate": "0",
+        "protocolFeeRate": "0",
+        "fundFeeRate": "0",
+        "creatorFeeRate": "0"
+      },
+      "vaults": [
+        "29980",
+        "10000"
+      ],
+      "now": "1791900000",
+      "inputIsToken0": true,
+      "amountIn": "20",
+      "out": "6",
+      "refusal": null
+    },
+    {
+      "name": "upstream truncation vector 19 into 29980/10000",
+      "pool": {
+        "status": 0,
+        "openTime": "0",
+        "creatorFeeOn": 2,
+        "enableCreatorFee": false,
+        "protocolFees": [
+          "0",
+          "0"
+        ],
+        "fundFees": [
+          "0",
+          "0"
+        ],
+        "creatorFees": [
+          "0",
+          "0"
+        ]
+      },
+      "config": {
+        "tradeFeeRate": "0",
+        "protocolFeeRate": "0",
+        "fundFeeRate": "0",
+        "creatorFeeRate": "0"
+      },
+      "vaults": [
+        "29980",
+        "10000"
+      ],
+      "now": "1791900000",
+      "inputIsToken0": true,
+      "amountIn": "19",
+      "out": "6",
+      "refusal": null
+    },
+    {
+      "name": "upstream truncation vector 18 into 29980/10000",
+      "pool": {
+        "status": 0,
+        "openTime": "0",
+        "creatorFeeOn": 2,
+        "enableCreatorFee": false,
+        "protocolFees": [
+          "0",
+          "0"
+        ],
+        "fundFees": [
+          "0",
+          "0"
+        ],
+        "creatorFees": [
+          "0",
+          "0"
+        ]
+      },
+      "config": {
+        "tradeFeeRate": "0",
+        "protocolFeeRate": "0",
+        "fundFeeRate": "0",
+        "creatorFeeRate": "0"
+      },
+      "vaults": [
+        "29980",
+        "10000"
+      ],
+      "now": "1791900000",
+      "inputIsToken0": true,
+      "amountIn": "18",
+      "out": "6",
+      "refusal": null
+    },
+    {
+      "name": "upstream truncation vector 10 into 20000/30000",
+      "pool": {
+        "status": 0,
+        "openTime": "0",
+        "creatorFeeOn": 2,
+        "enableCreatorFee": false,
+        "protocolFees": [
+          "0",
+          "0"
+        ],
+        "fundFees": [
+          "0",
+          "0"
+        ],
+        "creatorFees": [
+          "0",
+          "0"
+        ]
+      },
+      "config": {
+        "tradeFeeRate": "0",
+        "protocolFeeRate": "0",
+        "fundFeeRate": "0",
+        "creatorFeeRate": "0"
+      },
+      "vaults": [
+        "20000",
+        "30000"
+      ],
+      "now": "1791900000",
+      "inputIsToken0": true,
+      "amountIn": "10",
+      "out": "14",
+      "refusal": null
+    },
+    {
+      "name": "upstream truncation vector 10 into 19991/30000",
+      "pool": {
+        "status": 0,
+        "openTime": "0",
+        "creatorFeeOn": 2,
+        "enableCreatorFee": false,
+        "protocolFees": [
+          "0",
+          "0"
+        ],
+        "fundFees": [
+          "0",
+          "0"
+        ],
+        "creatorFees": [
+          "0",
+          "0"
+        ]
+      },
+      "config": {
+        "tradeFeeRate": "0",
+        "protocolFeeRate": "0",
+        "fundFeeRate": "0",
+        "creatorFeeRate": "0"
+      },
+      "vaults": [
+        "19991",
+        "30000"
+      ],
+      "now": "1791900000",
+      "inputIsToken0": true,
+      "amountIn": "10",
+      "out": "14",
+      "refusal": null
+    },
+    {
+      "name": "upstream truncation vector 10 into 19990/30000",
+      "pool": {
+        "status": 0,
+        "openTime": "0",
+        "creatorFeeOn": 2,
+        "enableCreatorFee": false,
+        "protocolFees": [
+          "0",
+          "0"
+        ],
+        "fundFees": [
+          "0",
+          "0"
+        ],
+        "creatorFees": [
+          "0",
+          "0"
+        ]
+      },
+      "config": {
+        "tradeFeeRate": "0",
+        "protocolFeeRate": "0",
+        "fundFeeRate": "0",
+        "creatorFeeRate": "0"
+      },
+      "vaults": [
+        "19990",
+        "30000"
+      ],
+      "now": "1791900000",
+      "inputIsToken0": true,
+      "amountIn": "10",
+      "out": "15",
+      "refusal": null
+    },
+    {
+      "name": "upstream truncation vector 100 into 60000/30000",
+      "pool": {
+        "status": 0,
+        "openTime": "0",
+        "creatorFeeOn": 2,
+        "enableCreatorFee": false,
+        "protocolFees": [
+          "0",
+          "0"
+        ],
+        "fundFees": [
+          "0",
+          "0"
+        ],
+        "creatorFees": [
+          "0",
+          "0"
+        ]
+      },
+      "config": {
+        "tradeFeeRate": "0",
+        "protocolFeeRate": "0",
+        "fundFeeRate": "0",
+        "creatorFeeRate": "0"
+      },
+      "vaults": [
+        "60000",
+        "30000"
+      ],
+      "now": "1791900000",
+      "inputIsToken0": true,
+      "amountIn": "100",
+      "out": "49",
+      "refusal": null
+    },
+    {
+      "name": "upstream truncation vector 99 into 60000/30000",
+      "pool": {
+        "status": 0,
+        "openTime": "0",
+        "creatorFeeOn": 2,
+        "enableCreatorFee": false,
+        "protocolFees": [
+          "0",
+          "0"
+        ],
+        "fundFees": [
+          "0",
+          "0"
+        ],
+        "creatorFees": [
+          "0",
+          "0"
+        ]
+      },
+      "config": {
+        "tradeFeeRate": "0",
+        "protocolFeeRate": "0",
+        "fundFeeRate": "0",
+        "creatorFeeRate": "0"
+      },
+      "vaults": [
+        "60000",
+        "30000"
+      ],
+      "now": "1791900000",
+      "inputIsToken0": true,
+      "amountIn": "99",
+      "out": "49",
+      "refusal": null
+    },
+    {
+      "name": "upstream truncation vector 98 into 60000/30000",
+      "pool": {
+        "status": 0,
+        "openTime": "0",
+        "creatorFeeOn": 2,
+        "enableCreatorFee": false,
+        "protocolFees": [
+          "0",
+          "0"
+        ],
+        "fundFees": [
+          "0",
+          "0"
+        ],
+        "creatorFees": [
+          "0",
+          "0"
+        ]
+      },
+      "config": {
+        "tradeFeeRate": "0",
+        "protocolFeeRate": "0",
+        "fundFeeRate": "0",
+        "creatorFeeRate": "0"
+      },
+      "vaults": [
+        "60000",
+        "30000"
+      ],
+      "now": "1791900000",
+      "inputIsToken0": true,
+      "amountIn": "98",
+      "out": "48",
+      "refusal": null
+    },
+    {
+      "name": "u64 extremes",
+      "pool": {
+        "status": 0,
+        "openTime": "0",
+        "creatorFeeOn": 0,
+        "enableCreatorFee": false,
+        "protocolFees": [
+          "0",
+          "0"
+        ],
+        "fundFees": [
+          "0",
+          "0"
+        ],
+        "creatorFees": [
+          "0",
+          "0"
+        ]
+      },
+      "config": {
+        "tradeFeeRate": "10000",
+        "protocolFeeRate": "160000",
+        "fundFeeRate": "0",
+        "creatorFeeRate": "0"
+      },
+      "vaults": [
+        "18446744073709551615",
+        "18446744073709551615"
+      ],
+      "now": "1791900000",
+      "inputIsToken0": true,
+      "amountIn": "18446744073709551615",
+      "out": "9177023433654500551",
+      "refusal": null
+    },
+    {
+      "name": "one unit in: the whole unit is fee, nothing out",
+      "pool": {
+        "status": 0,
+        "openTime": "0",
+        "creatorFeeOn": 0,
+        "enableCreatorFee": false,
+        "protocolFees": [
+          "0",
+          "0"
+        ],
+        "fundFees": [
+          "0",
+          "0"
+        ],
+        "creatorFees": [
+          "0",
+          "0"
+        ]
+      },
+      "config": {
+        "tradeFeeRate": "10000",
+        "protocolFeeRate": "160000",
+        "fundFeeRate": "0",
+        "creatorFeeRate": "0"
+      },
+      "vaults": [
+        "34367758993",
+        "5486481706516"
+      ],
+      "now": "1791900000",
+      "inputIsToken0": true,
+      "amountIn": "1",
+      "out": "0",
+      "refusal": "ZeroAmountOut"
+    },
+    {
+      "name": "deposit and withdraw off, swap on",
+      "pool": {
+        "status": 3,
+        "openTime": "0",
+        "creatorFeeOn": 0,
+        "enableCreatorFee": false,
+        "protocolFees": [
+          "0",
+          "0"
+        ],
+        "fundFees": [
+          "0",
+          "0"
+        ],
+        "creatorFees": [
+          "0",
+          "0"
+        ]
+      },
+      "config": {
+        "tradeFeeRate": "10000",
+        "protocolFeeRate": "160000",
+        "fundFeeRate": "0",
+        "creatorFeeRate": "0"
+      },
+      "vaults": [
+        "34367758993",
+        "5486481706516"
+      ],
+      "now": "1791900000",
+      "inputIsToken0": true,
+      "amountIn": "1000000000",
+      "out": "153618810811",
+      "refusal": null
+    },
+    {
+      "name": "swap switched off",
+      "pool": {
+        "status": 4,
+        "openTime": "0",
+        "creatorFeeOn": 0,
+        "enableCreatorFee": false,
+        "protocolFees": [
+          "0",
+          "0"
+        ],
+        "fundFees": [
+          "0",
+          "0"
+        ],
+        "creatorFees": [
+          "0",
+          "0"
+        ]
+      },
+      "config": {
+        "tradeFeeRate": "10000",
+        "protocolFeeRate": "160000",
+        "fundFeeRate": "0",
+        "creatorFeeRate": "0"
+      },
+      "vaults": [
+        "34367758993",
+        "5486481706516"
+      ],
+      "now": "1791900000",
+      "inputIsToken0": true,
+      "amountIn": "1000000000",
+      "out": null,
+      "refusal": "NotApproved"
+    },
+    {
+      "name": "not open yet",
+      "pool": {
+        "status": 0,
+        "openTime": "1791900001",
+        "creatorFeeOn": 0,
+        "enableCreatorFee": false,
+        "protocolFees": [
+          "0",
+          "0"
+        ],
+        "fundFees": [
+          "0",
+          "0"
+        ],
+        "creatorFees": [
+          "0",
+          "0"
+        ]
+      },
+      "config": {
+        "tradeFeeRate": "10000",
+        "protocolFeeRate": "160000",
+        "fundFeeRate": "0",
+        "creatorFeeRate": "0"
+      },
+      "vaults": [
+        "34367758993",
+        "5486481706516"
+      ],
+      "now": "1791900000",
+      "inputIsToken0": true,
+      "amountIn": "1000000000",
+      "out": null,
+      "refusal": "NotApproved"
+    },
+    {
+      "name": "opens this second",
+      "pool": {
+        "status": 0,
+        "openTime": "1791900000",
+        "creatorFeeOn": 0,
+        "enableCreatorFee": false,
+        "protocolFees": [
+          "0",
+          "0"
+        ],
+        "fundFees": [
+          "0",
+          "0"
+        ],
+        "creatorFees": [
+          "0",
+          "0"
+        ]
+      },
+      "config": {
+        "tradeFeeRate": "10000",
+        "protocolFeeRate": "160000",
+        "fundFeeRate": "0",
+        "creatorFeeRate": "0"
+      },
+      "vaults": [
+        "34367758993",
+        "5486481706516"
+      ],
+      "now": "1791900000",
+      "inputIsToken0": true,
+      "amountIn": "1000000000",
+      "out": "153618810811",
+      "refusal": null
+    },
+    {
+      "name": "zero in",
+      "pool": {
+        "status": 0,
+        "openTime": "0",
+        "creatorFeeOn": 0,
+        "enableCreatorFee": false,
+        "protocolFees": [
+          "0",
+          "0"
+        ],
+        "fundFees": [
+          "0",
+          "0"
+        ],
+        "creatorFees": [
+          "0",
+          "0"
+        ]
+      },
+      "config": {
+        "tradeFeeRate": "10000",
+        "protocolFeeRate": "160000",
+        "fundFeeRate": "0",
+        "creatorFeeRate": "0"
+      },
+      "vaults": [
+        "34367758993",
+        "5486481706516"
+      ],
+      "now": "1791900000",
+      "inputIsToken0": true,
+      "amountIn": "0",
+      "out": null,
+      "refusal": "ZeroAmountIn"
+    },
+    {
+      "name": "booked fees exceed a vault",
+      "pool": {
+        "status": 0,
+        "openTime": "0",
+        "creatorFeeOn": 0,
+        "enableCreatorFee": false,
+        "protocolFees": [
+          "34367758994",
+          "0"
+        ],
+        "fundFees": [
+          "0",
+          "0"
+        ],
+        "creatorFees": [
+          "0",
+          "0"
+        ]
+      },
+      "config": {
+        "tradeFeeRate": "10000",
+        "protocolFeeRate": "160000",
+        "fundFeeRate": "0",
+        "creatorFeeRate": "0"
+      },
+      "vaults": [
+        "34367758993",
+        "5486481706516"
+      ],
+      "now": "1791900000",
+      "inputIsToken0": true,
+      "amountIn": "1000000000",
+      "out": null,
+      "refusal": "InsufficientVault"
+    },
+    {
+      "name": "booked fees empty a vault",
+      "pool": {
+        "status": 0,
+        "openTime": "0",
+        "creatorFeeOn": 0,
+        "enableCreatorFee": false,
+        "protocolFees": [
+          "0",
+          "5486481706516"
+        ],
+        "fundFees": [
+          "0",
+          "0"
+        ],
+        "creatorFees": [
+          "0",
+          "0"
+        ]
+      },
+      "config": {
+        "tradeFeeRate": "10000",
+        "protocolFeeRate": "160000",
+        "fundFeeRate": "0",
+        "creatorFeeRate": "0"
+      },
+      "vaults": [
+        "34367758993",
+        "5486481706516"
+      ],
+      "now": "1791900000",
+      "inputIsToken0": true,
+      "amountIn": "1000000000",
+      "out": null,
+      "refusal": "ZeroTradingTokens"
+    },
+    {
+      "name": "unknown creator fee mode",
+      "pool": {
+        "status": 0,
+        "openTime": "0",
+        "creatorFeeOn": 3,
+        "enableCreatorFee": false,
+        "protocolFees": [
+          "0",
+          "0"
+        ],
+        "fundFees": [
+          "0",
+          "0"
+        ],
+        "creatorFees": [
+          "0",
+          "0"
+        ]
+      },
+      "config": {
+        "tradeFeeRate": "10000",
+        "protocolFeeRate": "160000",
+        "fundFeeRate": "0",
+        "creatorFeeRate": "0"
+      },
+      "vaults": [
+        "34367758993",
+        "5486481706516"
+      ],
+      "now": "1791900000",
+      "inputIsToken0": true,
+      "amountIn": "1000000000",
+      "out": null,
+      "refusal": "InvalidFeeModel"
+    }
+  ],
+  "live": [
+    {
+      "pool": "ErvzV1NMZmcfAqZtGH4AQhYAjn77nJEworKK1mYPz5w4",
+      "inputMint": "So11111111111111111111111111111111111111112",
+      "outputMint": "7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump",
+      "amountIn": "100000000",
+      "out": "15762662517"
+    },
+    {
+      "pool": "ErvzV1NMZmcfAqZtGH4AQhYAjn77nJEworKK1mYPz5w4",
+      "inputMint": "So11111111111111111111111111111111111111112",
+      "outputMint": "7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump",
+      "amountIn": "10000000000",
+      "out": "1227213566080"
+    },
+    {
+      "pool": "ErvzV1NMZmcfAqZtGH4AQhYAjn77nJEworKK1mYPz5w4",
+      "inputMint": "So11111111111111111111111111111111111111112",
+      "outputMint": "7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump",
+      "amountIn": "123456789",
+      "out": "19446971409"
+    },
+    {
+      "pool": "ErvzV1NMZmcfAqZtGH4AQhYAjn77nJEworKK1mYPz5w4",
+      "inputMint": "7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump",
+      "outputMint": "So11111111111111111111111111111111111111112",
+      "amountIn": "10000000000",
+      "out": "61888269"
+    },
+    {
+      "pool": "ErvzV1NMZmcfAqZtGH4AQhYAjn77nJEworKK1mYPz5w4",
+      "inputMint": "7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump",
+      "outputMint": "So11111111111111111111111111111111111111112",
+      "amountIn": "1000000000000",
+      "out": "5252258351"
+    },
+    {
+      "pool": "ErvzV1NMZmcfAqZtGH4AQhYAjn77nJEworKK1mYPz5w4",
+      "inputMint": "7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump",
+      "outputMint": "So11111111111111111111111111111111111111112",
+      "amountIn": "987654321123",
+      "out": "5197223701"
+    },
+    {
+      "pool": "J35mQ6UF9PpB6bQMes2TRVUMbJVPwMYjcfapbkdm8mYm",
+      "inputMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      "outputMint": "7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump",
+      "amountIn": "5000000",
+      "out": "8156345790"
+    },
+    {
+      "pool": "J35mQ6UF9PpB6bQMes2TRVUMbJVPwMYjcfapbkdm8mYm",
+      "inputMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      "outputMint": "7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump",
+      "amountIn": "200000000",
+      "out": "250598148766"
+    },
+    {
+      "pool": "J35mQ6UF9PpB6bQMes2TRVUMbJVPwMYjcfapbkdm8mYm",
+      "inputMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      "outputMint": "7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump",
+      "amountIn": "7654321",
+      "out": "12435154977"
+    },
+    {
+      "pool": "J35mQ6UF9PpB6bQMes2TRVUMbJVPwMYjcfapbkdm8mYm",
+      "inputMint": "7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump",
+      "outputMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      "amountIn": "20000000000",
+      "out": "11703461"
+    },
+    {
+      "pool": "J35mQ6UF9PpB6bQMes2TRVUMbJVPwMYjcfapbkdm8mYm",
+      "inputMint": "7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump",
+      "outputMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      "amountIn": "500000000000",
+      "out": "202807003"
+    },
+    {
+      "pool": "J35mQ6UF9PpB6bQMes2TRVUMbJVPwMYjcfapbkdm8mYm",
+      "inputMint": "7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump",
+      "outputMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      "amountIn": "33333333333",
+      "out": "19268824"
+    }
+  ]
+}

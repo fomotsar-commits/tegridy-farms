@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useCallback, useEffect, useMemo } from "react";
 import { useActiveCollection } from "./CollectionContext";
+import { canTradeOnVenue } from "../lib/venue";
 
 const CartContext = createContext(undefined);
 
@@ -13,11 +14,14 @@ function saveCart(cart, slug) {
 export function CartProvider({ children }) {
   const collection = useActiveCollection();
   const slug = collection.slug;
-  const [cart, setCart] = useState(() => loadCart(slug));
+  // A collection the venue cannot settle has no cart: nothing is added, nothing
+  // is read back or written to storage.
+  const tradeable = canTradeOnVenue(collection);
+  const [cart, setCart] = useState(() => (tradeable ? loadCart(slug) : []));
 
   useEffect(() => {
-    setCart(loadCart(slug));
-  }, [slug]);
+    setCart(tradeable ? loadCart(slug) : []);
+  }, [slug, tradeable]);
 
   // Normalize the dedupe/removal key so callers that pass a raw listing or token
   // (which carries `tokenId` but not `id`) still dedupe correctly instead of
@@ -25,6 +29,7 @@ export function CartProvider({ children }) {
   const cartKey = (n) => String(n?.id ?? n?.tokenId);
 
   const addToCart = useCallback((nft) => {
+    if (!tradeable) return;
     setCart(prev => {
       const key = cartKey(nft);
       if (prev.find(n => cartKey(n) === key)) return prev;
@@ -32,7 +37,7 @@ export function CartProvider({ children }) {
       saveCart(next, slug);
       return next;
     });
-  }, [slug]);
+  }, [slug, tradeable]);
 
   const removeFromCart = useCallback((id) => {
     setCart(prev => {

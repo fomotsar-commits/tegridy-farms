@@ -33,7 +33,7 @@ function makeReq(query = {}) {
   return {
     method: "GET",
     query: { module: "account", action: "txlist", address: ADDR, ...query },
-    headers: { origin: "https://memetic.fun" },
+    headers: { origin: "https://memetics.finance" },
   };
 }
 

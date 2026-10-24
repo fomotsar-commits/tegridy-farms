@@ -13,9 +13,9 @@
 // ── CONFIRMATION IS POLLED, NOT SUBSCRIBED ──────────────────────────────────
 // `connection.confirmTransaction` opens a websocket subscription. The browser
 // talks to `/api/solrpc`, which is HTTPS-only — there is no wss origin, and the
-// CSP has no entry for one. So confirmation polls `getSignatureStatuses`, exactly
-// as SolanaSwapPage.tsx:114 has done since the swap shipped; the proxy's own rate
-// limit is written around that cadence (api/solrpc.js:172).
+// CSP has no entry for one. So confirmation polls `getSignatureStatuses`
+// (lib/solana/confirm.ts, shared with the swap page); the proxy's own rate limit is
+// written around that cadence (api/solrpc.js:172).
 import { Connection, PublicKey, Transaction, type TransactionInstruction } from '@solana/web3.js';
 import type { SignerWalletAdapter } from '@solana/wallet-adapter-base';
 import {
@@ -23,6 +23,10 @@ import {
   type PoolAccounts,
 } from './ix';
 import { MAX_EARLY_EXIT_PENALTY_BPS } from './program';
+import { holdReload } from '../reloadHold';
+import { pollConfirm } from '../solana/confirm';
+import { readSendThrow } from '../solana/walletThrow';
+import { lostAnswerCopy } from '../solana/swap/walletCopy';
 
 /**
  * Sent and confirmed, or an honest reason. Never a bare boolean.
@@ -53,10 +57,10 @@ export type WriteResult =
  * is more useful than a wrong guess at what a user did.
  */
 export const LADDER_ERRORS: Record<number, { name: string; human?: string }> = {
-  6000: { name: 'Overflow', human: 'The amount overflowed the program’s arithmetic — nothing moved.' },
-  6001: { name: 'ZeroAmount', human: 'That amount resolves to zero at this token’s precision — nothing moved.' },
-  6002: { name: 'LockTooShort', human: 'The shortest lock this program allows is 7 days — nothing moved.' },
-  6003: { name: 'LockTooLong', human: 'The longest lock this program allows is 4 years — nothing moved.' },
+  6000: { name: 'Overflow', human: 'The amount overflowed the program’s arithmetic. Nothing moved.' },
+  6001: { name: 'ZeroAmount', human: 'That amount resolves to zero at this token’s precision. Nothing moved.' },
+  6002: { name: 'LockTooShort', human: 'The shortest lock this program allows is 7 days. Nothing moved.' },
+  6003: { name: 'LockTooLong', human: 'The longest lock this program allows is 4 years. Nothing moved.' },
   // The message is load-bearing: the program measures what ARRIVED in the vault,
   // so a transfer-fee mint can fail this even when the amount you typed clears the
   // minimum. Saying "below the minimum" alone would send someone to re-type the
@@ -65,15 +69,15 @@ export const LADDER_ERRORS: Record<number, { name: string; human?: string }> = {
     name: 'BelowMinStake',
     human: 'This is below the pool’s minimum stake. The program measures what actually ARRIVES in the vault, so a token that charges a transfer fee needs a little more than the minimum. Nothing moved.',
   },
-  6005: { name: 'TooManyPositions', human: 'You already hold the maximum number of open positions on this pool — close one first. Nothing moved.' },
-  6006: { name: 'DepositCapExceeded', human: 'This would take the pool past its deposit cap — nothing moved.' },
+  6005: { name: 'TooManyPositions', human: 'You already hold the maximum number of open positions on this pool, so close one first. Nothing moved.' },
+  6006: { name: 'DepositCapExceeded', human: 'This would take the pool past its deposit cap. Nothing moved.' },
   6007: { name: 'StillLocked', human: `This position is still locked, so the no-penalty exit is refused until the lock ends. Early exit and the emergency hatch are both open, and both cost the same share of principal: the time left on the lock over four years, capped at ${MAX_EARLY_EXIT_PENALTY_BPS / 100}%. Nothing moved.` },
-  6008: { name: 'UseWithdrawMatured', human: 'This position has already matured, so the program refused the penalty door and sent you to the free one. Nothing moved — and nothing was charged.' },
-  6009: { name: 'Unauthorized', human: 'Only the pool’s authority can do that — nothing moved.' },
+  6008: { name: 'UseWithdrawMatured', human: 'This position has already matured, so the program refused the penalty door and sent you to the free one. Nothing moved, and nothing was charged.' },
+  6009: { name: 'Unauthorized', human: 'Only the pool’s authority can do that. Nothing moved.' },
   6010: { name: 'NotDeployAuthority' },
   6011: { name: 'MintHasFreezeAuthority' },
   6012: { name: 'UnsupportedMintExtension' },
-  6013: { name: 'WrongTokenProgram', human: 'The token program named does not own this mint — that is a configuration error, not a network problem. Nothing moved.' },
+  6013: { name: 'WrongTokenProgram', human: 'The token program named does not own this mint. That is a configuration error, not a network problem. Nothing moved.' },
   6014: { name: 'RewardTooHigh' },
   6015: { name: 'CapCanOnlyRaise' },
   6016: { name: 'TimelockNotElapsed' },
@@ -82,7 +86,7 @@ export const LADDER_ERRORS: Record<number, { name: string; human?: string }> = {
   6019: { name: 'AlreadyDegraded' },
   6020: {
     name: 'EmissionExceedsFunding',
-    human: 'The reward vault cannot cover this payout, so the program refused to pay rewards out of staked principal. Nothing moved, and nothing is lost — your rewards keep accruing and this clears once the vault is topped up.',
+    human: 'The reward vault cannot cover this payout, so the program refused to pay rewards out of staked principal. Nothing moved, and nothing is lost: your rewards keep accruing and this clears once the vault is topped up.',
   },
   6021: {
     name: 'PrincipalInvariant',
@@ -99,7 +103,7 @@ export const LADDER_ERRORS: Record<number, { name: string; human?: string }> = {
     name: 'PoolDegraded',
     human: 'This pool has been declared degraded: it takes no new stakes. Existing positions still exit, and while it is degraded they exit penalty-free. Nothing moved.',
   },
-  6027: { name: 'WalletCapExceeded', human: 'This would take you past the per-wallet limit for this pool — nothing moved.' },
+  6027: { name: 'WalletCapExceeded', human: 'This would take you past the per-wallet limit for this pool. Nothing moved.' },
   // Operator-only: `notify_reward` refusing to lower the rate inside a live window.
   6028: { name: 'RewardRateWouldDecrease' },
 };
@@ -137,11 +141,11 @@ function isPreBroadcast(message: string): boolean {
 export function classifyWriteError(err: unknown, signature?: string): WriteResult {
   const msg = err instanceof Error ? err.message : String(err ?? '');
 
-  // A declined signature never reached the network. This is the one branch that
-  // may say "nothing moved" without qualification.
-  if (/reject|declin|denied|cancell?ed by user/i.test(msg)) {
-    return { ok: false, reason: 'You declined the signature — nothing moved.' };
-  }
+  // With no signature yet, the wallet's throw is read as every Solana write reads it
+  // (lib/solana/walletThrow.ts): a cancel by code 4001 or by words, or a wallet that
+  // never signed, with its reason. Anything else may have been sent: read on.
+  const t = signature ? null : readSendThrow(err);
+  if (t && t.kind !== 'unsure') return { ok: false, reason: t.message };
 
   const code = anchorCode(msg);
   const known = code !== null ? LADDER_ERRORS[code] : undefined;
@@ -151,7 +155,7 @@ export function classifyWriteError(err: unknown, signature?: string): WriteResul
     // if it landed.
     return {
       ok: false,
-      reason: known.human ?? `The program refused this (${known.name}) — nothing moved.`,
+      reason: known.human ?? `The program refused this (${known.name}). Nothing moved.`,
       ...(signature ? { signature } : {}),
     };
   }
@@ -161,7 +165,7 @@ export function classifyWriteError(err: unknown, signature?: string): WriteResul
   if (/insufficient (lamports|funds)|Attempt to debit an account but found no record/i.test(msg)) {
     return {
       ok: false,
-      reason: 'Not enough SOL in this wallet to pay the rent and network fee — nothing moved. Opening a position creates two small accounts, so it costs a little more SOL than a claim does.',
+      reason: 'Not enough SOL in this wallet to pay the rent and network fee. Nothing moved. Opening a position creates two small accounts, so it costs a little more SOL than a claim does.',
     };
   }
 
@@ -169,7 +173,7 @@ export function classifyWriteError(err: unknown, signature?: string): WriteResul
   if (/AccountNotInitialized|could not find account/i.test(msg)) {
     return {
       ok: false,
-      reason: 'An account this transaction needs does not exist — nothing moved. If it persists, that is a configuration problem rather than something a retry fixes.',
+      reason: 'An account this transaction needs does not exist. Nothing moved. If it persists, that is a configuration problem rather than something a retry fixes.',
       ...(signature ? { signature } : {}),
     };
   }
@@ -177,9 +181,13 @@ export function classifyWriteError(err: unknown, signature?: string): WriteResul
   if (!signature && isPreBroadcast(msg)) {
     return {
       ok: false,
-      reason: `The network refused this transaction before sending it — nothing moved.${msg ? ` (${msg.slice(0, 160)})` : ''}`,
+      reason: `The network refused this transaction before sending it. Nothing moved.${msg ? ` (${msg.slice(0, 160)})` : ''}`,
     };
   }
+
+  // The wallet's sign-and-send threw after it may have signed: the words every Solana
+  // write uses for that, never "did not go through".
+  if (t?.kind === 'unsure' && t.byWallet) return { ok: false, reason: lostAnswerCopy(t.reason, 'it was sent') };
 
   // ⚠️ EVERYTHING ELSE IS UNKNOWN, and is reported as unknown.
   //
@@ -190,7 +198,7 @@ export function classifyWriteError(err: unknown, signature?: string): WriteResul
   if (signature) {
     return {
       ok: false,
-      reason: 'Outcome unknown — this was sent and may still land. Check your wallet or Solscan with the signature below before retrying.',
+      reason: 'Outcome unknown: this was sent and may still land. Check your wallet or Solscan with the signature below before retrying.',
       signature,
     };
   }
@@ -201,45 +209,6 @@ export function classifyWriteError(err: unknown, signature?: string): WriteResul
 }
 
 /* ─────────────────────────── submit ─────────────────────────── */
-
-/**
- * Confirm by polling, never by subscribing — see the file header.
- *
- * Returns the outcome rather than throwing on a revert, so the caller can attach
- * the signature to whichever answer it gives.
- *
- * A FAILED POLL IS NOT A FAILED TRANSACTION. One RPC hiccup mid-flight must not be
- * reported as a revert; it keeps polling and the outcome is only unknown when the
- * clock runs out.
- */
-async function pollConfirm(
-  conn: Connection,
-  signature: string,
-  timeoutMs: number,
-  sleep: (ms: number) => Promise<void>,
-  now: () => number,
-): Promise<{ outcome: 'confirmed' | 'reverted' | 'unknown'; slot: number | null }> {
-  const start = now();
-  for (;;) {
-    const status = await (async () => {
-      try {
-        const r = await conn.getSignatureStatuses([signature]);
-        return r?.value?.[0] ?? null;
-      } catch {
-        return null;
-      }
-    })();
-    if (status) {
-      if (status.err) return { outcome: 'reverted', slot: null };
-      if (status.confirmationStatus === 'confirmed' || status.confirmationStatus === 'finalized') {
-        const slot = typeof status.slot === 'number' && Number.isSafeInteger(status.slot) ? status.slot : null;
-        return { outcome: 'confirmed', slot };
-      }
-    }
-    if (now() - start >= timeoutMs) return { outcome: 'unknown', slot: null };
-    await sleep(2_000);
-  }
-}
 
 export interface SubmitDeps {
   /** Injected so tests neither sleep nor depend on the wall clock. */
@@ -270,6 +239,8 @@ export async function submitLadder(
   if (!owner) return { ok: false, reason: 'Connect a wallet first.' };
 
   let signature: string | undefined;
+  // Until this write is answered the page does not reload itself (lib/staleBuild.ts).
+  const release = holdReload();
   try {
     const { blockhash } = await conn.getLatestBlockhash('confirmed');
     const tx = new Transaction();
@@ -293,17 +264,19 @@ export async function submitLadder(
       if (logs && anchorCode(logs) !== null) return classifyWriteError(new Error(logs), signature);
       return {
         ok: false,
-        reason: 'This landed on chain and reverted — nothing moved, apart from the network fee.',
+        reason: 'This landed on chain and reverted. Nothing moved, apart from the network fee.',
         signature,
       };
     }
     return {
       ok: false,
-      reason: 'Sent, but not confirmed within a minute — it may still land. Check the signature below before retrying.',
+      reason: 'Sent, but not confirmed within a minute, so it may still land. Check the signature below before retrying.',
       signature,
     };
   } catch (err) {
     return classifyWriteError(err, signature);
+  } finally {
+    release();
   }
 }
 

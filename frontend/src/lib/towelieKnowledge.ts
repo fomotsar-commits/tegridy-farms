@@ -1,13 +1,8 @@
-/**
- * Towelie's Q&A bank. Plain keyword-overlap matching — no LLM, no API.
- * If your question doesn't hit a keyword set, you get the fallback.
- *
- * Entry shape:
- *   keywords: tokens that, when present in the user's question, count
- *             toward this entry's score. Lowercase, no punctuation.
- *   answer:   what Towelie says back. Keep in voice (slacker towel).
- *   priority: optional tiebreaker bump for ambiguous questions.
- */
+/** Towelie's Q&A bank: plain keyword overlap, no LLM, no API; a miss gets the fallback.
+ *  keywords: lowercase, no punctuation. Each one found in the question scores, and a
+ *            keyword of several words counts when all its words are in the question.
+ *  answer:   what Towelie says back, in voice (slacker towel).
+ *  priority: optional tiebreaker bump for ambiguous questions. */
 
 export interface KnowledgeEntry {
   keywords: string[];
@@ -18,19 +13,18 @@ export interface KnowledgeEntry {
 export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
   // ── Core protocol ────────────────────────────────────────────
   {
-    // AUDIT R073: prior copy said "100% of swap fees flow to stakers" — wrong.
-    // TegridyPair splits the 0.3% swap fee into 6 LP shares: 5/6 stay with LPs
-    // (rebasing K-invariant earnings) and 1/6 mints protocol-owned LP that gets
-    // routed to the RevenueDistributor for staker ETH yield.
+    // The ETH that stakers are in line for is the ROUTER's fee, less the referral share.
+    // The pair's own 0.3% never reaches them: its one-sixth venue cut (on for TOWELI/WETH
+    // since 2026-10-16) mints LP to the treasury Safe, not to stakers.
     keywords: ['toweli', 'token'],
-    answer: "TOWELI is the farm's token. 1B fixed supply, no mint function. Swap fees split 5/6 to LPs, 1/6 to the protocol → stakers as ETH — that pipeline is on-chain and turns on with the native pool. That's the whole pitch.",
+    answer: "TOWELI is the farm's token. 1B fixed supply, no mint function. Stake it and you earn TOWELI today. After a referral share, the venue's swap fee is routed toward stakers as ETH, in payout rounds that need 1 ETH of fees first. /premium shows what has been paid. That's the whole pitch.",
   },
   {
-    // HONESTY PASS 2026-06-11: rewards today are TOWELI emissions from a fixed
-    // launch seed; the ETH swap-fee share is deployed but has distributed 0 ETH
-    // until the native pool is seeded. Don't claim "real yield" in present tense.
+    // Rewards today are TOWELI emissions from a fixed launch seed. The pool is live and
+    // the fee rail has taken fees, so the ETH share waits on volume (1 ETH a round), not
+    // on a launch. Never "real yield" in the present tense.
     keywords: ['tegridy', 'farms', 'protocol', 'project'],
-    answer: "memetics.finance is a yield farm where you stake TOWELI. Rewards today are TOWELI emissions from a fixed launch seed; the ETH swap-fee share is deployed on-chain and kicks in when the native pool goes live. Supply's fixed — no printer.",
+    answer: "memetics.finance is a yield farm where you stake TOWELI. Rewards today are TOWELI emissions from a fixed launch seed. The ETH swap-fee share is wired on-chain, and a payout round needs 1 ETH of fees first; /premium shows what has been paid. Supply's fixed, no printer.",
   },
   {
     keywords: ['supply', 'total', 'circulating', 'mint'],
@@ -41,10 +35,10 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
     answer: "FDV = price × 1B supply. Live number on /tokenomics. Market cap is similar since most supply is circulating.",
   },
   {
-    // HONESTY PASS 2026-06-11: supply is fixed (true), but current rewards ARE
-    // emissions from a one-time 6.4M seed — ETH fee rewards start with the pool.
+    // Supply is fixed, and today's rewards are emissions from a one-time 6.4M seed. The
+    // ETH side waits on a full ether of fees per round, not on the pool going live.
     keywords: ['emission', 'inflation', 'distribution'],
-    answer: "Supply is fixed — no new TOWELI, ever. Staking rewards today come from a one-time 6.4M emissions seed funded at launch; ETH swap-fee rewards switch on when the native pool goes live. /tokenomics shows the breakdown.",
+    answer: "Supply is fixed: no new TOWELI, ever. Staking rewards today come from a one-time 6.4M emissions seed funded at launch. ETH swap-fee rewards are wired on-chain, and a payout round needs 1 ETH of fees first. /tokenomics shows the breakdown.",
   },
   {
     // HONESTY PASS 2026-06-11: treasury Safe is freshly rebuilt post-relaunch and
@@ -56,7 +50,7 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
   // ── Staking ──────────────────────────────────────────────────
   {
     keywords: ['stake', 'staking', 'farm'],
-    answer: "Go to /farm, type how much TOWELI to lock, pick a duration (longer = bigger boost), hit Stake. The island demands it.",
+    answer: "Go to /earn/toweli, type how much TOWELI to lock, pick a duration (longer = bigger boost), hit Stake. The island demands it.",
     priority: 2,
   },
   {
@@ -78,7 +72,7 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
   },
   {
     keywords: ['extend', 'top', 'increase', 'add', 'position'],
-    answer: "You can extend lock or add to your stake from /farm. New deposits inherit your current unlock date.",
+    answer: "You can extend lock or add to your stake from /earn/toweli. New deposits inherit your current unlock date.",
   },
   {
     keywords: ['claim', 'rewards', 'harvest'],
@@ -134,14 +128,14 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
     answer: "First swap of a token needs an approval tx (lets the contract pull tokens from your wallet). One-time per token. Then swap.",
   },
   {
-    // F200/T3 (2026-06-13): reconcile with the swap UI's "(incl. 0.5% fee)"
-    // disclosure. Two distinct fees: the SwapFeeRouter PROTOCOL fee (0.5% on the
-    // native front-door route, routed to TOWELI stakers as ETH) and the standard
-    // 0.3% AMM pair fee that LPs earn via K-growth. Earlier copy named only the
-    // 0.3% and called it "the swap fee", which understated what a native-route
-    // trader actually pays and contradicted the swap screen.
+    // Two fees, read 2026-10-10. SwapFeeRouter.feeBps is 50, ReferralSplitter takes
+    // referralFeeBps (2000) first, and stakerShareBps sends all of the rest toward stakers;
+    // the owner can move all three through timelocks. The distributor has received 0.
+    // The pair's 0.3% stays in the pool, less the venue's one-sixth cut on a pool where the
+    // owner switched it on (TOWELI/WETH, 2026-10-16). A static answer cannot read the chain,
+    // so each figure that can move carries its date or points at the page that reads it.
     keywords: ['fee', 'swap', 'cost', 'percent'],
-    answer: "Two fees. Swapping through our native front-door adds a 0.5% protocol fee that flows to TOWELI stakers as ETH (it kicks in once the native pool is trading). Underneath that, the AMM pair charges the standard 0.3% that LPs earn via K-growth. The swap screen always shows the protocol fee on the route it picks.",
+    answer: "Two fees. A swap through our own router pays a venue fee. On 10 October 2026 it was 0.5%: 20% of that was the referral share, which goes to your referrer if they stake enough TOWELI and to the treasury otherwise, and the other 80% was routed toward TOWELI stakers as ETH. By that date the router had taken 0.000003 ETH in all and stakers had been paid none. The swap screen shows the live rate before you sign, and /premium shows the live total paid. Underneath, the pool itself charges 0.3% for its liquidity providers. On the TOWELI/ETH pool the venue has taken one sixth of that for its treasury since 16 October 2026, so providers there keep about 0.25%.",
   },
 
   // ── Liquidity ───────────────────────────────────────────────
@@ -165,7 +159,7 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
     // bump wins keyword ties against older entries.
     priority: 1,
     keywords: ['launch', 'launcher', 'curve', 'tegridy', 'create', 'token', 'memecoin', 'graduate'],
-    answer: "The Memetics Curve is our own bonding-curve launcher, live on Ethereum, Base and Robinhood Chain at /eth-curve. One signature launches a token; trades pay a 1% fee split 40% to the creator, 25% treasury, 35% protocol; hit the raise target and it graduates into our own pool with the LP burned — nobody can pull it. Browse live launches right on the page, or open any token's own page at /eth-curve/<address>.",
+    answer: "The Memetics Curve is our own bonding-curve launcher, live on Ethereum, Base and Robinhood Chain at /eth-curve. Trades pay a 1% fee split 40% to the creator, 25% treasury, 35% protocol; hit the raise target and it graduates into our own pool with the LP burned — nobody can pull it. Browse live launches right on the page, or open any token's own page at /eth-curve/<address>.",
   },
 
   // ── NFTs ─────────────────────────────────────────────────────
@@ -210,13 +204,9 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
   },
 
   // ── Governance ──────────────────────────────────────────────
-  // HONESTY PASS 2026-08-28: the 06-11 framing ("not deployed, zeroed
-  // addresses") became half-false — all four governance contracts ARE deployed
-  // on mainnet (the 2026-07-16 batch, unpaused) but their addresses are still
-  // zeroed in THIS app, so the pages stay gated. /risks says exactly that;
-  // the towel was the fourth surface still telling the 06-11 story (the
-  // 08-13 three-surfaces fix, 428abc5f, missed it). Deployed-but-not-wired
-  // is the true state — say that.
+  // The four governance contracts are deployed on mainnet (the 2026-07-16 batch,
+  // unpaused), but this app still has their addresses zeroed, so the pages stay gated.
+  // Answers say deployed but not wired, as /risks does.
   {
     keywords: ['vote', 'voting', 'governance', 'gauge'],
     answer: "Gauge voting's deployed on mainnet but not wired into this app yet — the addresses here are still zeroed, so /community stays gated while the wiring and checks finish. The design: your locked TOWELI × boost directs emissions to pools. Meanwhile, stake and watch /changelog.",
@@ -245,47 +235,40 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
   // ── Wallet / network ────────────────────────────────────────
   {
     keywords: ['wallet', 'connect'],
-    answer: "Top right → Connect Wallet. MetaMask, Rainbow, Coinbase, WalletConnect — anything WalletConnect-compatible works.",
+    answer: "Top right → Connect Wallet. It asks which network first. Ethereum: MetaMask, Rainbow, Coinbase, WalletConnect — anything WalletConnect-compatible works. Solana: Phantom, Trust, Solflare and the rest. On the Solana pages (/solana, /pools, /curve-launch, a Solana pool) it goes straight to the Solana wallets.",
   },
   {
     keywords: ['hardware', 'ledger', 'trezor'],
     answer: "Hardware wallets work via MetaMask or Rainbow's hardware-wallet integration. Plug in, connect, sign on the device.",
   },
-  // 2026-08-07: the assistant is the surface a confused user asks "what chain is
-  // this?" on — and it answered, flatly, Ethereum-only, with no Solana entry anywhere
-  // in this file. Asking about Solana, SOL or Jupiter fell through to a generic reply
-  // on a site that has a live Solana swap. Fixed here, plus the three new entries
-  // below so the keywords actually match what someone would type.
+  // Solana has the Jupiter swap (/solana) and our own curve (/curve-launch), where anyone
+  // trades and a maker at Resident or better launches through the heat door. These
+  // coins are priced in SOL: never call them island coins or "born in $BAYLA".
   {
-    // HONESTY PASS 2026-08-28: "two chains" and "its own launch rail" were both
-    // false — the Memetics Curve is live on Ethereum, Base AND Robinhood since
-    // 08-25, and the Solana launch rail was retired 08-23 with nothing
-    // launchable there. Four chains total, one of them swap-only.
     keywords: ['network', 'chain', 'switch', 'mainnet', 'chains'],
-    answer: "Four chains. TOWELI staking, farming and the launchers run on Ethereum mainnet; the Memetics Curve also launches on Base and Robinhood Chain — wrong chain and your wallet shows a 'Switch' button, hit it. Solana is swap-only: /solana routes SPL trades through Jupiter (no Solana launches right now). The token scanner reads EVM and Solana both.",
+    answer: "Four chains. TOWELI staking, farming and the launchers run on Ethereum mainnet; the Memetics Curve also launches on Base and Robinhood Chain — wrong chain and your wallet shows a 'Switch' button, hit it. On Solana, /solana sends an SPL trade to one of our own pools when it pays you at least as much as Jupiter, and through Jupiter otherwise. If Jupiter's transaction would fail its test run, the page offers the trade in our pool and says how much less it pays. /curve-launch is our own Solana curve: anyone can trade there, and a maker at Resident or better can launch through the memetics.finance gate. The token scanner reads EVM and Solana both.",
   },
   {
-    keywords: ['solana', 'sol', 'phantom', 'spl'],
-    answer: "Solana's partly live. /solana swaps SPL tokens through Jupiter with limit orders and SOL liquid-staking — that works today. The Solana LAUNCH rail does not: we retired the third-party bonding curve we used to run on, and our own curve isn't deployed yet, so you can't launch a Solana token here right now. TOWELI itself is never deployed on Solana — that's deliberate, Solana is a separate rail, not a second home for the token.",
+    // The bump wins "launch a token on solana" from the EVM launch entry; the phrases win
+    // a curve, memecoin or graduation question that names Solana.
+    priority: 1,
+    keywords: ['solana', 'sol', 'phantom', 'spl', 'solana launch', 'solana token', 'solana curve', 'solana bonding', 'solana memecoin', 'solana graduate'],
+    answer: "Solana's live here two ways. /solana swaps SPL tokens in our own pools or through Jupiter, whichever pays you more, with limit orders and SOL liquid-staking. /curve-launch is our own Solana bonding curve, priced in SOL: anyone can buy and sell a launch there, and a maker at Resident or better (80° of held time on Jungle Bay Island) can launch a new token through the memetics.finance gate, which reads the maker's wallet at create. The program itself accepts any wallet, so check the full token address before you buy. TOWELI itself is never deployed on Solana: that's deliberate, Solana is a separate rail, not a second home for the token.",
   },
   {
     keywords: ['jupiter', 'jup', 'swap solana', 'solana swap'],
-    answer: "Jupiter is the router behind /solana — it shops your trade across Solana's DEXes for the best price. Our platform fee is shown before you sign, every time.",
+    answer: "Jupiter is one of the two routes behind /solana: it shops your trade across Solana's DEXes. When one of our own pools pays you at least as much, the trade goes to that pool instead. A Jupiter trade's platform fee is shown before you sign, every time. A swap in one of our pools pays that pool's own fee inside the quote: 1% of the trade on a public pool, with 0.16% of the trade as the venue's take (0.104% to its vault, 0.056% to the island's Workshop). No platform fee is added on top.",
   },
   {
-    keywords: ['meteora', 'dbc', 'bonding curve', 'solana launch'],
-    // RETIRED 2026-08-23. This used to say the rail "runs on Meteora's Dynamic Bonding
-    // Curve — their audited program, not ours". True at the time, and live to users.
-    // The keywords stay so anyone who asks about Meteora gets the retirement rather
-    // than silence, which would read as the old answer still being right.
-    answer: "We don't run on Meteora any more. That rail graduated into a pool we didn't own, so we retired it — we only want launchers that graduate into our own venue. The replacement exists and is LIVE on the EVM side: the Memetics Curve at /eth-curve launches on Ethereum, Base and Robinhood, graduates into our own AMM and burns the LP outright. The SOLANA version is not live — those programs were closed and need fresh addresses — so nothing can be launched on Solana here for now.",
+    // The Meteora rail was retired 2026-08-23; anyone asking about it gets that answer.
+    keywords: ['meteora', 'dbc', 'bonding curve'],
+    answer: "We don't run on Meteora any more. That rail graduated into a pool we didn't own, so we retired it: we only want launchers that graduate into our own venue. Our own curve replaced it, and it graduates into our own AMM and burns the LP outright. The Memetics Curve launches on Ethereum, Base and Robinhood at /eth-curve, and on Solana at /curve-launch, where a maker at Resident or better launches through the memetics.finance gate.",
   },
   {
-    // HONESTY PASS 2026-08-28: "No L2 yet" went false on 2026-08-25 — the
-    // Memetics Curve launcher is live on Base (OP-stack L2) and Robinhood Chain
-    // (Arbitrum Orbit L2). Keep this in sync with lib/chains/registry.ts.
+    // Keep in sync with lib/chains/registry.ts: Base is an OP-stack L2, Robinhood
+    // Chain an Arbitrum Orbit L2.
     keywords: ['l2', 'layer', 'rollup', 'arbitrum', 'optimism', 'base', 'robinhood'],
-    answer: "Two L2s, live: the Memetics Curve launches tokens on Base and on Robinhood Chain — /eth-curve follows whichever chain your wallet's on. The core protocol (staking, farming, swap) stays on Ethereum mainnet, and Solana handles swap-only.",
+    answer: "Two L2s, live: the Memetics Curve launches tokens on Base and on Robinhood Chain — /eth-curve follows whichever chain your wallet's on. The core protocol (staking, farming, swap) stays on Ethereum mainnet, and Solana has its own swap at /solana and its own curve at /curve-launch.",
   },
   {
     keywords: ['gas', 'expensive', 'cost'],
@@ -308,15 +291,12 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
     answer: "Pull your /history page or use Etherscan to export tx data. I'm a towel — talk to a tax pro for the rest.",
   },
   {
-    // UPDATED 2026-07-19: source-verification is now COMPLETE for all 8 core
-    // contracts (TOWELI, Staking, Factory, Router, RevenueDistributor,
-    // SwapFeeRouter, POLAccumulator, ReferralSplitter). The old "rolling out
-    // contract by contract" hedge was accurate on 2026-06-11 and is now false —
-    // it understated us on exactly the question a skeptic asks. /contracts shows
-    // a LIVE per-address badge read from Etherscan, so this is checkable, not a
-    // claim. Keep this answer in sync with reality in both directions.
+    // All 8 core contracts are source-verified (TOWELI, Staking, Factory, Router,
+    // RevenueDistributor, SwapFeeRouter, POLAccumulator, ReferralSplitter), and /contracts
+    // shows a live per-address badge read from Etherscan. Keep this answer in sync with
+    // that, in both directions.
     keywords: ['etherscan', 'verify', 'contract', 'address'],
-    answer: "All 8 core contracts are source-verified on Etherscan — you can read the actual Solidity, not just bytecode. Every address is at /contracts with a live verification badge (checked against Etherscan, not hardcoded), plus the full code on GitHub and public ABIs.",
+    answer: "All 8 core contracts are source-verified on Etherscan: you can read the actual Solidity, not just bytecode. Every address is at /contracts with a live verification badge (checked against Etherscan, not hardcoded), plus links to the source code and public ABIs.",
   },
 
   // ── Premium / referrals / scoring ──────────────────────────
@@ -331,14 +311,10 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
     answer: "Smart-contract risk, market risk, IL risk for LPs. /risks has the honest version. Read it.",
   },
   {
-    // HONESTY PASS 2026-07-24: PremiumAccess went live 2026-07-21. Fee is in
-    // TOWELI (read from the contract — never hardcode it here, it is timelock-
-    // mutable), and there is no points multiplier or fee discount.
-    // HONESTY PASS 2026-08-28: "holders earn ETH from swap fees" was the exact
-    // unconditioned history-claim the #199/#215/#258 passes banned — the
-    // distributor has paid 0 ETH to date (premiumBenefits.ts conditions the
-    // same sentence on a live read). A static answer can't read the chain, so
-    // it states the DESIGN and the current honest status.
+    // PremiumAccess is live. The fee is in TOWELI, read from the contract (never hardcode
+    // it: it is timelock-mutable), and there is no points multiplier or fee discount. A
+    // static answer cannot read the chain, so it states the design and that no ETH has been
+    // distributed yet, never "holders earn ETH" (premiumBenefits.ts reads it live).
     keywords: ['premium', 'gold', 'card', 'subscription'],
     answer: "Randy's Gold Card is live at /premium. You pay in TOWELI — the monthly fee is read straight off the contract and shown on the page. Holders are in line for ETH from protocol swap fees like every staker; none has been distributed yet (the page shows the live number). JBAC holders get it free for life. Internally reviewed, no third-party audit yet.",
   },
@@ -350,20 +326,12 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
     answer: "Cancel from /premium → Manage. You get a pro-rata refund on the unused portion as a pull-payment credit — claim it from the same screen after you cancel.",
   },
   {
-    keywords: ['leaderboard', 'points', 'rank', 'ranking'],
-    answer: "Earn points for staking, claiming, voting, etc. Top of /leaderboard gets bragging rights and seasonal rewards.",
-  },
-  {
     // HONESTY PASS 2026-08-28: "you both earn bonus" was the joiner-bonus
     // overclaim /referrals and the changelog already record as fixed — the
     // splitter credits the REFERRER only (ReferralSplitter.sol). This was the
     // last surface still promising the friend a cut.
     keywords: ['referral', 'invite', 'friend', 'code'],
     answer: "Dashboard has your referral link. When someone you refer trades, the referral share of their fee is credited to YOU — the joiner gets no discount or bonus, and /referrals says so up front. Tegridy through community.",
-  },
-  {
-    keywords: ['tegridy', 'score'],
-    answer: "Venue Score measures commitment: stake size, lock length, NFT boost, vote activity. Higher = better perks.",
   },
 
   // ── Misc ────────────────────────────────────────────────────
@@ -444,24 +412,27 @@ function tokenize(input: string): string[] {
     .filter((t) => t.length > 1 && !STOPWORDS.has(t));
 }
 
-/**
- * Find the best-matching answer for a free-text question. Returns null if
- * no entry scores above the minimum threshold (caller should use a fallback).
- *
- * Scoring: each entry's score = count of question tokens that appear in its
- * keyword set, plus the entry's optional priority bump. Threshold is 1 hit.
- */
+/** The best-matching answer for a free-text question, or a random fallback when nothing
+ *  scores. An entry scores one point per question token in its keywords, plus one point
+ *  per word of each several-word keyword whose words are all in the question, plus its
+ *  priority. Threshold is 1 hit, and a tie goes to the entry listed first. */
 export function answerQuestion(question: string): string {
   const tokens = tokenize(question);
   if (tokens.length === 0) {
     return "Ask me something specific — staking, swap, NFTs, gas, whatever.";
   }
+  const asked = new Set(tokens);
   let bestScore = 0;
   let best: KnowledgeEntry | null = null;
   for (const entry of KNOWLEDGE_BASE) {
     const set = new Set(entry.keywords);
     let score = 0;
     for (const tok of tokens) if (set.has(tok)) score++;
+    // A question token never holds a space, so a phrase is matched word by word.
+    for (const k of entry.keywords) {
+      const words = k.split(' ');
+      if (words.length > 1 && words.every((w) => asked.has(w))) score += words.length;
+    }
     if (score === 0) continue;
     score += entry.priority ?? 0;
     if (score > bestScore) {

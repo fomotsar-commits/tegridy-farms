@@ -31,6 +31,17 @@ import {
   type CurveIdentityResolution,
 } from '../../lib/launcher/curveIdentity';
 import { useCurveIdentity } from '../../hooks/useCurveIdentity';
+import { useReceiptOutcome } from '../../hooks/useReceiptOutcome';
+import { noteReplacement } from '../../lib/txErrors';
+import { CardArt } from '../ui/CardArt';
+
+/** Completes "…before you send it again: if it landed, ___" per action. */
+const REPEAT_COST: Record<string, string> = {
+  Buy: 'a second buy spends the ETH again.',
+  Sell: 'a second sell sells more tokens.',
+  Approval: 'a second approval only costs gas.',
+  'Finalize graduation': 'a second finalize reverts, because the curve has already graduated.',
+};
 
 const ERC20_MIN_ABI = [
   { type: 'function', name: 'allowance', stateMutability: 'view', inputs: [{ name: 'o', type: 'address' }, { name: 's', type: 'address' }], outputs: [{ name: '', type: 'uint256' }] },
@@ -210,7 +221,8 @@ export function CurveTradeView({
 
   if (launch.graduated) {
     return (
-      <div className="rounded-2xl p-5 space-y-3" style={cardStyle}>
+      <div className="relative isolate rounded-2xl p-5 space-y-3" style={cardStyle}>
+        <CardArt pageId="eth-curve" idx={7} />
         <IdentityHeader identity={identity} tokenSymbol={tokenSymbol} fallbackName={fallbackName} />
         <p className="text-white/90 text-sm font-semibold">This launch has graduated 🎓</p>
         <p className="text-white/60 text-[12px] mt-1 leading-relaxed">
@@ -255,9 +267,10 @@ export function CurveTradeView({
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
-      className="rounded-2xl p-5 space-y-4"
+      className="relative isolate rounded-2xl p-5 space-y-4"
       style={cardStyle}
     >
+      <CardArt pageId="eth-curve" idx={7} />
       <IdentityHeader identity={identity} tokenSymbol={tokenSymbol} fallbackName={fallbackName} />
 
       {/* Graduation progress */}
@@ -470,24 +483,38 @@ export function CurveTradePanel({ launcher, token, chainId, tokenSymbol = 'TOKEN
   // the submitted hash to the RECEIPT. wagmi's fetch-success is not on-chain
   // success — a reverted tx also has a receipt — so status is checked
   // explicitly and a revert comes back as a red toast, never silence.
+  //
+  // 2026-09-17: that red toast never fired. wagmi THROWS on a reverted receipt,
+  // so a revert reached `isError`, never `isSuccess` — and `tx` cleared only on
+  // `isSuccess`, so a reverted (or unreadable) buy/sell held the whole panel on
+  // "Confirming on-chain…" until a reload. It now releases on all three.
   const [tx, setTx] = useState<{ hash: `0x${string}`; label: string } | null>(null);
-  const { data: receipt, isSuccess: receiptFetched } = useWaitForTransactionReceipt({
+  const receiptQuery = useWaitForTransactionReceipt({
     hash: tx?.hash,
     chainId,
     query: { enabled: tx !== null },
+    onReplaced: noteReplacement,
+  });
+  // A buy the wallet cancelled or replaced is a fourth end: the wait resolves with
+  // the cancel's success receipt, which said "Buy confirmed." (lib/txErrors.ts).
+  const { isSuccess, isReverted, isReceiptUnreadable, isReplaced } = useReceiptOutcome(receiptQuery, {
+    hash: tx?.hash,
+    chainId,
+    repeatCost: (tx && REPEAT_COST[tx.label]) ?? 'sending it again repeats it.',
   });
   useEffect(() => {
-    if (!tx || !receiptFetched || !receipt) return;
-    if (receipt.status === 'success') {
+    if (!tx || !(isSuccess || isReverted || isReceiptUnreadable || isReplaced)) return;
+    if (isSuccess) {
       toast.success(`${tx.label} confirmed.`);
-    } else {
+    } else if (isReverted) {
       toast.error(`${tx.label} failed on-chain (reverted) — nothing changed. Check slippage, or whether the curve just closed.`);
     }
+    // Unreadable or replaced: useReceiptOutcome has already said which.
     setTx(null);
     void refetchLaunch();
     void refetchBalance();
     void refetchAllowance();
-  }, [tx, receiptFetched, receipt, refetchLaunch, refetchBalance, refetchAllowance]);
+  }, [tx, isSuccess, isReverted, isReceiptUnreadable, isReplaced, refetchLaunch, refetchBalance, refetchAllowance]);
 
   const launch = useMemo(() => toCurveLaunch(launchRaw), [launchRaw]);
   // Hook order: resolve identity unconditionally (before the loading return).
@@ -510,7 +537,8 @@ export function CurveTradePanel({ launcher, token, chainId, tokenSymbol = 'TOKEN
     // progress, against the read-vs-zero honesty rule.
     if (launchReadFailed) {
       return (
-        <div className="rounded-2xl p-5" style={cardStyle}>
+        <div className="relative isolate rounded-2xl p-5" style={cardStyle}>
+          <CardArt pageId="eth-curve" idx={7} />
           <p className="text-white/85 text-sm font-semibold">No curve launch at this address.</p>
           <p className="text-white/55 text-[12px] mt-1 leading-relaxed">
             Nothing launched from this chain&apos;s Memetics curve lives at{' '}
@@ -521,7 +549,8 @@ export function CurveTradePanel({ launcher, token, chainId, tokenSymbol = 'TOKEN
       );
     }
     return (
-      <div className="rounded-2xl p-5 text-white/60 text-[13px]" style={cardStyle}>
+      <div className="relative isolate rounded-2xl p-5 text-white/60 text-[13px]" style={cardStyle}>
+        <CardArt pageId="eth-curve" idx={7} />
         Loading the curve…
       </div>
     );

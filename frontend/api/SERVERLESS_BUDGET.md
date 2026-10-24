@@ -32,10 +32,13 @@ fails the deploy with:
 The *build* succeeds (vite/tsc compile fine); only the *deploy* step trips the cap. So a code-clean
 PR can still show a Vercel `Error` purely from function count.
 
-## Current state (counted in the tree, 2026-09-02): 11 functions — 1 of headroom
+## Current state (counted in the tree, 2026-10-02): 13 functions
 
 Vercel counts each top-level handler under `frontend/api/` (NOT `_lib/`, `__tests__/`, or
-`_`-prefixed files). The 11:
+`_`-prefixed files). There is no cap any more (see the banner). This list is kept so that a new
+route is a decision someone wrote down: `commerce-surface-parity` and `alerts-surface-parity`
+fail when the tree has a function this list does not name. Add a new route here in the same
+change. The 13:
 
 1. `api/alchemy.js`
 2. `api/etherscan.js`
@@ -48,6 +51,8 @@ Vercel counts each top-level handler under `frontend/api/` (NOT `_lib/`, `__test
 9. `api/auth/siwe.js`
 10. `api/v1/index.js`
 11. `api/aggregator.js`  ← **the catchall**
+12. `api/launch-upload.js` (the Solana launch picture and details pin, daa77d3a)
+13. `api/errors.js` (the client error-report sink, #466; stores nothing before 2026-10-16)
 
 ## The catchall is load-bearing — do not split it
 
@@ -58,6 +63,10 @@ through the single `api/aggregator.js` function via `vercel.json` rewrites
 per-provider functions would be 11 → 18 and break the deploy. **Keep it consolidated.**
 
 ## Before adding ANY new `api/*.js` route
+
+> **STRUCK 2026-10-02.** The cap below was lifted on 2026-09-04 (see the banner). Today the
+> rule is only: add the route to the current-state list above in the same change. The rule as
+> it stood:
 
 Count stays ≤ 12. At 11 today, you have room for exactly 1 more standalone route. Past that, either:
 - consolidate (route multiple paths through one `[...catchall].js` handler + a `vercel.json` rewrite), or
@@ -78,6 +87,9 @@ into the 404.
 | `pool-market` | `_lib/pool-market.js` | ONE pool's market facts for the bungalow strip. Exists for its `s-maxage`, not for the proxying — the browser read the same keyless host directly before, and a proxy without the cache header would be WORSE (one origin IP instead of each visitor's own budget). Do not remove the header |
 | `gecko-read` | `_lib/gecko-read.js` | `pool-market`'s sibling for the SEVEN read shapes the browser still issued to api.geckoterminal.com directly — trades, candles, `pools/multi`, the two list views, a token's pools, the display price. Exists for the same `s-maxage`: 46 of 64 prod routes logged a failed GeckoTerminal read, and it was the keyless per-IP RATE LIMIT, not CORS. A bare proxy would be WORSE (one egress IP instead of each visitor's own budget) — do not remove the header. Unlike `pool-market` it forwards 404 and 429 VERBATIM, because three readers branch on those exact codes |
 | `launch-cohort` | `_lib/launch-cohort.js` | Airlock `Create` enumeration |
+| `curve-birth` | `_lib/evm-birth.js` | ONE Memetics Curve launch's birth transaction (its `LaunchCreated` log), from keyless Blockscout on Ethereum and Base and the Robinhood RPC in 10,000,000-block windows. A HINT only: the browser reads that receipt and checks every log before it shows the maker's create-buy |
+| `doppler-birth` | `_lib/evm-birth.js` | ONE Doppler token's birth transaction (its own first mint, a `Transfer` from the zero address) from keyless `eth.blockscout.com`, for the maker's allocation and lock on `/launch/:token`. Same hint rule |
+| `eas-attested` | `_lib/eas-attested.js` | ONE token's EAS `Attested` logs under the Fact Sheet disclosure schema (the only schema it accepts), from keyless `eth.blockscout.com`, for the attestation line on `/launch/:token`. Same hint rule: the browser re-reads each uid with `getAttestation` |
 | `heat` | `_lib/heat.js` | Jungle Bay Island held-time oracle (CORS-forced, not an optimisation) |
 | `births` | `_lib/births.js` | HMAC-signed birth notify to the island's enrollment socket |
 | `record` | `_lib/record.js` | A token's birth certificate as JSON, derived from chain on read |
@@ -85,7 +97,9 @@ into the 404.
 | `airdrop` | `_lib/airdrop.js` | Airdrop manifest store: one claimant's own leaf + a server-generated proof; creator publish |
 | `referrals` | `_lib/referrals.js` | Short-code store for `/?r=code` referral links: one code in, at most one wallet out |
 | `commerce` | `_lib/commerce.js` | Merchant invoice store + settlement record behind `/checkout`: one id in, one invoice out. OPTIONAL short-link enrichment only — the signed `#i=` payment link is verified in the buyer's browser and needs none of it, so this resource is not on the path that moves money |
+| `pools` | `_lib/pool-index.js` | The Solana pool index behind `/api/pools` (a rewrite): filtered `getProgramAccounts` scans of the cp-swap program, one per pairing coin (SOL, USDC, BAYLA) for a token and one for an LP mint, cached 30 s, ADDRESSES ONLY. The browser reads and checks every address itself, so this can at worst leave a pool out; it exists so `/api/solrpc` never has to allow a program scan |
 | `bot-link` | `_lib/botLink.js` | Telegram chat ↔ wallet binding: the bot's only server surface, and the reason it never holds a key |
+| `venue-volume` | `_lib/venueVolume.js` | The home page's all-time volume: the `venue_volume` rows (migration 028) that `.github/workflows/venue-volume.yml` adds to every hour, summed. Exists for its `s-maxage`: the edge answers, so a visitor costs nothing. Says "unread" for a source never counted and "behind" for a late or failing one, never a partial sum as current |
 
 `airdrop` is the one resource here whose absent branch is the security property. It has no
 endpoint that returns a campaign's recipient list, because a recipient list is a

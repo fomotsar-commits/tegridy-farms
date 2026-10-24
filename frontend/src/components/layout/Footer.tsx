@@ -1,106 +1,49 @@
 import { Link, useLocation } from 'react-router-dom';
 import { UNISWAP_BUY_URL, ETHERSCAN_TOKEN, GECKOTERMINAL_URL, TOWELI_ADDRESS, SOCIAL_LINKS } from '../../lib/constants';
-import { bungalowTradeBlurb, getActiveBungalow, getBungalowIdentity, bungalowExplorerUrl, OPEN_BUNGALOWS_EVENT } from '../../lib/bungalows';
+import { bungalowTradeBlurb, getBungalowIdentity, bungalowExplorerUrl } from '../../lib/bungalows';
 import { InstallPrompt } from '../pwa/InstallPrompt';
 import { ConsentRow } from '../ui/ConsentRow';
-import { NFT_FINANCE_LIVE, COMMUNITY_LIVE, PREMIUM_LIVE } from '../../lib/navConfig';
 import { isSolanaSwapLive } from '../../lib/solana';
 import { shortenAddress } from '../../lib/formatting';
 import { CopyButton } from '../ui/CopyButton';
-import { isToweliVoice, VENUE } from '../../lib/arrival';
-import { isToweliRoomPage } from '../../lib/routeVoice';
+import { voiceAt, VENUE } from '../../lib/arrival';
+import { isToweliRoomPage, roomSpeaksOn } from '../../lib/routeVoice';
 import { useActiveBungalowId } from '../../hooks/useActiveBungalowId';
+import { IslandSoundLinks } from '../IslandSound';
 
 /**
- * Footer — four-column IA: Product / Resources / Community / Legal.
- * Every route demoted from the top nav must be reachable here so the
- * reduced TopNav doesn't strand any page.
- *
- * CREDIBILITY GATING (2026-06-09): feature surfaces with no reachable contract are
- * dropped from the promoted link lists. Routes stay reachable by URL; entries reappear
- * automatically once an address lands in constants.ts.
- *
- * ⚠ The parenthetical here used to read "NFT Finance, Governance, Gold Card — all
- * relaunch-zeroed", and two thirds of that is now false. Gold Card (PremiumAccess) and
- * three of the four NFT-Finance contracts carry real addresses and are un-gated; only
- * Governance is still 0x0 in constants.ts — and even those four contracts are deployed
- * and unpaused on mainnet, they are simply not wired here. See ContractsPage's
- * `unwired` status for the distinction.
+ * Eight links on one screen (the island's venue review, item 1; owner 2026-10-03): the page
+ * links below, the AI file and the two community links. Every page the footer used to list
+ * opens from the bar or the drawer (navReach.test.tsx). The bar's Island word opens the hall.
  */
-const PRODUCT_LINKS: { to: string; label: string }[] = [
-  { to: '/dashboard', label: 'Dashboard' },
-  { to: '/farm', label: 'Farm' },
-  { to: '/swap', label: 'Trade' },
-  ...(NFT_FINANCE_LIVE ? [{ to: '/nft-finance', label: 'NFT Finance' }] : []),
-  // Governance is not duplicated here — it has a dedicated entry in the
-  // Community column below (both gate on COMMUNITY_LIVE).
-  ...(PREMIUM_LIVE ? [{ to: '/premium', label: 'Gold Card' }] : []),
-  { to: '/leaderboard', label: 'Points' },
-  { to: '/nakamigos', label: 'Marketplace' },
-];
-
-const RESOURCE_LINKS: { to: string; label: string }[] = [
-  { to: '/tokenomics', label: 'Tokenomics' },
-  { to: '/gallery', label: 'Gallery' },
-  { to: '/lore', label: 'Lore' },
-  { to: '/history', label: 'History' },
-  { to: '/changelog', label: 'Changelog' },
+const PAGE_LINKS: { to: string; label: string }[] = [
   { to: '/faq', label: 'FAQ' },
-  { to: '/contracts', label: 'Contracts' },
-  { to: '/treasury', label: 'Treasury' },
-];
-
-const EXTERNAL_RESOURCES: { href: string; label: string }[] = [
-  { href: UNISWAP_BUY_URL, label: 'Trade on Uniswap' },
-  { href: ETHERSCAN_TOKEN, label: 'Etherscan' },
-  { href: GECKOTERMINAL_URL, label: 'GeckoTerminal' },
-];
-
-const LEGAL_LINKS: { to: string; label: string }[] = [
   { to: '/security', label: 'Security' },
   { to: '/risks', label: 'Risks' },
   { to: '/terms', label: 'Terms' },
   { to: '/privacy', label: 'Privacy' },
 ];
 
-// The detection surfaces. Previously footer-stranded (only /security + /risks were
-// linked), so /scan, /deployer and /exposure were reachable by direct URL only —
-// despite each emitting a shareable deep link designed to be passed around.
-const TRUST_LINKS: { to: string; label: string }[] = [
-  { to: '/trust', label: 'Trust Tools' },
-  { to: '/scan', label: 'Token Scanner' },
-  { to: '/deployer', label: 'Deployer Graph' },
-  { to: '/exposure', label: 'Wallet Exposure' },
-  { to: '/developers', label: 'Developer API' },
+/** The farm's markets: in its own room only, beside its contract card (docs/FACE_LAWS.md, law 21). */
+const TOWELI_MARKETS: { href: string; label: string }[] = [
+  { href: UNISWAP_BUY_URL, label: 'Trade on Uniswap' },
+  { href: ETHERSCAN_TOKEN, label: 'Etherscan' },
+  { href: GECKOTERMINAL_URL, label: 'GeckoTerminal' },
 ];
 
+const SHADOW = { textShadow: '0 1px 6px rgba(0,0,0,0.95)' } as const;
+// A 44px touch target per link; the frosted panel keeps them legible on any page's art.
+const LINK_CLASS = 'text-white/90 text-[13px] hover:text-white transition-colors min-h-[44px] inline-flex items-center';
+
 export function Footer() {
-  // Jungle Bay bungalows: token-first footer identity (blurb + contract card)
-  // when the active bungalow carries one, re-read when a door switches it.
+  // A door changes the room in place, so the footer re-reads it.
   useActiveBungalowId();
-  // ANSWER EIGHT, ruling 1: THE DOOR DECIDES THE CHROME.
-  //
-  // getBungalowIdentity() reads ambient storage, never the route, so a
-  // visitor who walked through /bayla and then opened a TOWELI protocol
-  // page got the band saying TOWELI and this footer saying Bayla in the
-  // same viewport, down to a BAYLA contract card with a Solana explorer
-  // link. On a room route the route wins: the resident is suppressed and
-  // the room's own voice stands, which is TOWELI or the venue, never the
-  // last resident a visitor happened to visit.
-  const { pathname } = useLocation();
-  const inToweliRoom = isToweliRoomPage(pathname);
-  const bungalowIdentity = inToweliRoom ? null : getBungalowIdentity();
-  const toweliVoice = inToweliRoom || isToweliVoice();
-  // Footer sits on top of whatever fixed art background the current page provides
-  // (galleryCollage on Home, apeHug on Trade, etc.). Before this change, links were
-  // text-white/60 with no scrim — barely legible over bright art regions. Now we
-  // layer a dark frosted panel under the whole footer and bump link contrast so the
-  // IA is readable regardless of what's behind it.
-  // R038: footer links bumped to a 44px minimum touch target so mobile users
-  // don't fat-finger neighbouring rows. Inline-block + tighter padding
-  // keeps the visual rhythm dense on desktop.
-  const LINK_CLASS = 'block text-white/90 text-[13px] hover:text-white transition-colors min-h-[44px] flex items-center';
-  const LINK_SHADOW = { textShadow: '0 1px 6px rgba(0,0,0,0.95)' } as const;
+  // The route decides who speaks here, never the room opened last (docs/FACE_LAWS.md, law 21):
+  // a resident's sentence and card on that resident's pages, the farm's on TOWELI's, else the venue's.
+  const { pathname, search } = useLocation();
+  const lastRoom = getBungalowIdentity();
+  const bungalowIdentity = lastRoom && roomSpeaksOn(pathname, lastRoom.id) ? lastRoom : null;
+  const toweliVoice = isToweliRoomPage(pathname) || voiceAt(pathname, search) === 'toweli';
   return (
     <footer
       className="relative mt-8"
@@ -112,202 +55,104 @@ export function Footer() {
         borderTop: '1px solid var(--color-purple-20)',
       }}
     >
-      <div className="max-w-[1200px] mx-auto px-4 md:px-6">
-        {/* Gold divider */}
+      <div className="page-column mx-auto px-4 md:px-6">
         <div className="accent-divider" />
 
-        {/* Top section */}
-        <div className="pt-12 pb-8 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 md:gap-8">
-          {/* Brand */}
-          <div className="col-span-2 md:col-span-1">
-            <div className="flex items-center gap-2 mb-3">
-              <span className="text-[18px] font-bold tracking-wide" style={{ ...LINK_SHADOW, color: 'var(--color-kyle)', fontFamily: 'var(--font-family-heading)' }}>
-                {/* ARRIVAL IDENTITY 2026-08-27: wordmark follows the arrival
-                    voice; classic TEGRIDY FARMS lives in the TOWELI bungalow. */}
-                <><span>{VENUE.markMain}</span><span>{VENUE.markSub}</span></>
-              </span>
-            </div>
-            {/* 2026-08-07: same two fixes as OnboardingModal.tsx — see the long note
-                there for the reasoning. This blurb renders on EVERY page, so it was the
-                widest-reach copy of both the single-chain framing and the "100% of
-                protocol swap fees" claim that AUDIT R073 contradicts.
-                Jungle Bay bungalows: in a token-first bungalow (Bayla) the blurb and
-                the contract card speak that token instead — the classic TOWELI copy
-                is untouched in the default. */}
+        <div className="pt-8 pb-3 grid gap-5 md:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)] md:gap-10 md:items-start">
+          <div>
+            <p className="text-[18px] font-bold tracking-wide mb-2" style={{ ...SHADOW, color: 'var(--color-kyle)', fontFamily: 'var(--font-family-heading)' }}>
+              <span>{VENUE.markMain}</span><span>{VENUE.markSub}</span>
+            </p>
             {bungalowIdentity ? (
-              <p className="text-[13px] leading-relaxed max-w-[280px]" style={{ ...LINK_SHADOW, color: 'var(--color-kyle)' }}>
+              <p className="text-[13px] leading-relaxed max-w-[420px]" style={{ ...SHADOW, color: 'var(--color-kyle)' }}>
                 {bungalowIdentity.name} bungalow, Jungle Bay Island. {bungalowIdentity.tagline}{' '}
                 {bungalowTradeBlurb(bungalowIdentity, isSolanaSwapLive())}
               </p>
             ) : toweliVoice ? (
-              <p className="text-[13px] leading-relaxed max-w-[280px]" style={{ ...LINK_SHADOW, color: 'var(--color-kyle)' }}>
-                Art-first DeFi on Ethereum and Solana. Stake TOWELI &amp; LP tokens to earn rewards; protocol swap fees route on-chain to stakers in ETH. On Solana, swap through Jupiter.
+              <p className="text-[13px] leading-relaxed max-w-[420px]" style={{ ...SHADOW, color: 'var(--color-kyle)' }}>
+                Art-first DeFi on Ethereum and Solana. Stake TOWELI &amp; LP tokens to earn rewards; protocol swap fees route on-chain, after a referral share, to stakers in ETH. On Solana, swap in our own pools or through Jupiter, whichever pays you more.
               </p>
             ) : (
-              <p className="text-[13px] leading-relaxed max-w-[280px]" style={{ ...LINK_SHADOW, color: 'var(--color-kyle)' }}>
+              <p className="text-[13px] leading-relaxed max-w-[420px]" style={{ ...SHADOW, color: 'var(--color-kyle)' }}>
                 {VENUE.tagline}. Bungalows for meme communities, launches that open on Heat, and fees you can read onchain. Ethereum, Base and Solana.
               </p>
             )}
-            {/* ARRIVAL FLOW 2026-08-31: the venue pins no single resident's
-                contract. A bungalow footer shows its own token's CA; the
-                TOWELI card renders inside the TOWELI bungalow. The venue
-                footer stays the island's: name, vow, doors. */}
+            {/* The venue pins no single resident's contract: a room's card shows on its own pages. */}
             {(bungalowIdentity || toweliVoice) && (
-            <div className="mt-4 rounded-lg p-3 inline-block" style={{ background: 'rgba(0,0,0,0.75)', border: '1px solid var(--color-kyle-40)' }}>
-              <p className="text-[10px] uppercase tracking-wider mb-1" style={{ color: 'var(--color-kyle)', textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>
-                {bungalowIdentity ? `${bungalowIdentity.symbol} contract` : 'TOWELI contract'}
-              </p>
-              <CopyButton
-                text={bungalowIdentity?.address ?? TOWELI_ADDRESS}
-                display={shortenAddress(bungalowIdentity?.address ?? TOWELI_ADDRESS, 6)}
-                className="font-mono text-[12px]"
-                style={{ color: 'var(--color-kyle)', textShadow: '0 1px 4px rgba(0,0,0,0.85)' }} />
-              {bungalowIdentity && bungalowExplorerUrl(bungalowIdentity) && (
-                <a href={bungalowExplorerUrl(bungalowIdentity)!} target="_blank" rel="noopener noreferrer"
-                  aria-label="View token on block explorer (opens in new tab)"
-                  className="block mt-1 text-[11px] underline underline-offset-2 text-white/80 hover:text-white" style={LINK_SHADOW}>
-                  View on explorer ↗
-                </a>
-              )}
-            </div>
+              <div className="mt-3 flex flex-wrap items-center gap-x-4">
+                <div className="rounded-lg p-3 inline-block" style={{ background: 'rgba(0,0,0,0.75)', border: '1px solid var(--color-kyle-40)' }}>
+                  <p className="text-[10px] uppercase tracking-wider mb-1" style={{ color: 'var(--color-kyle)', textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>
+                    {bungalowIdentity ? `${bungalowIdentity.symbol} contract` : 'TOWELI contract'}
+                  </p>
+                  <CopyButton
+                    text={bungalowIdentity?.address ?? TOWELI_ADDRESS}
+                    display={shortenAddress(bungalowIdentity?.address ?? TOWELI_ADDRESS, 6)}
+                    className="font-mono text-[12px]"
+                    style={{ color: 'var(--color-kyle)', textShadow: '0 1px 4px rgba(0,0,0,0.85)' }} />
+                  {bungalowIdentity && bungalowExplorerUrl(bungalowIdentity) && (
+                    <a href={bungalowExplorerUrl(bungalowIdentity)!} target="_blank" rel="noopener noreferrer"
+                      aria-label="View token on block explorer (opens in new tab)"
+                      className="block mt-1 text-[11px] underline underline-offset-2 text-white/80 hover:text-white" style={SHADOW}>
+                      View on explorer ↗
+                    </a>
+                  )}
+                </div>
+                {toweliVoice && TOWELI_MARKETS.map((l) => (
+                  <a key={l.label} href={l.href} target="_blank" rel="noopener noreferrer"
+                    aria-label={`${l.label} (opens in new tab)`}
+                    className={LINK_CLASS} style={SHADOW}>
+                    {l.label} <span className="text-white/40 ml-1">↗</span>
+                  </a>
+                ))}
+              </div>
             )}
           </div>
 
-          {/* Product */}
           <div>
-            <h4 className="text-[11px] uppercase tracking-wider font-semibold mb-3" style={{ ...LINK_SHADOW, color: 'var(--color-kyle)' }}>Product</h4>
-            <div className="space-y-2">
-              {PRODUCT_LINKS.map((l) => (
-                <Link key={l.to} to={l.to} className={LINK_CLASS}
-                  style={l.to === '/premium' ? { color: '#d4a017', ...LINK_SHADOW } : LINK_SHADOW}>
-                  {l.label}
-                </Link>
-              ))}
-              {/* Jungle Bay Island: reopen the bungalow picker (AppLayout
-                  listens). Lives in this column, NOT the bottom bar — the
-                  TowelieAssistant bubble floats over the bottom-right corner
-                  and intercepts clicks there. */}
-              <button
-                type="button"
-                onClick={() => window.dispatchEvent(new Event(OPEN_BUNGALOWS_EVENT))}
-                className={`${LINK_CLASS} text-left`}
-                style={LINK_SHADOW}
-              >
-                {/* A middle dot, not a dash: on a bungalow DOOR this label
-                    names the active room, so an em dash here put one prose dash
-                    of venue CHROME into all fourteen rooms and billed every one
-                    of them for it (answer eight, ruling 8, measured 09-16). */}
-                🏝️ Bungalows{!inToweliRoom && getActiveBungalow() ? ` · ${getActiveBungalow()!.name}` : ''}
-              </button>
-              {/* WAVE SEVEN, element E: the install offer, as a ROW.
-                  It used to be a fixed z-9500 dialog that opened itself the
-                  moment Chromium fired beforeinstallprompt, sitting at
-                  bottom-20 over the buttons a visitor was reaching for. It
-                  renders nothing unless the browser actually handed us an
-                  unfired prompt, so this row appears only when it can do
-                  something — and now the visitor finds it instead of wearing
-                  it. */}
-              <InstallPrompt />
-            </div>
-          </div>
-
-          {/* Resources */}
-          <div>
-            <h4 className="text-[11px] uppercase tracking-wider font-semibold mb-3" style={{ ...LINK_SHADOW, color: 'var(--color-kyle)' }}>Resources</h4>
-            <div className="space-y-2">
-              {RESOURCE_LINKS.map((l) => (
-                <Link key={l.to} to={l.to} className={LINK_CLASS} style={LINK_SHADOW}>
-                  {l.label}
-                </Link>
-              ))}
-              {/* llms.txt (answer ten, §2): what an AI assistant may say about the
-                  venue, in the venue's words. A PLAIN <a>, never a router <Link>:
-                  /llms.txt is a static file, and client-side routing would land on
-                  the not-found page without ever requesting it. One footer link
-                  and nothing on the arrival, by the island's terms. */}
-              <a href="/llms.txt" className={LINK_CLASS} style={LINK_SHADOW}>
-                For your AI
-              </a>
-              {/* TOWELI market links (Uniswap/Etherscan/GeckoTerminal) — inside
-                  the TOWELI bungalow only; the bungalow card above carries each
-                  other resident's own explorer link.
-
-                  GATE CORRECTED 2026-09-05: this read `!bungalowIdentity`, which
-                  is null for BOTH "the TOWELI bungalow" AND "no bungalow chosen"
-                  — so the VENUE's own footer, the first one a stranger scrolls
-                  to, linked out to one resident's Uniswap pair and token page as
-                  if they were the island's. `isToweliVoice()` is the gate that
-                  tells those two states apart, and the contract card 50 lines
-                  above already uses it. */}
-              {isToweliVoice() && EXTERNAL_RESOURCES.map((l) => (
-                <a key={l.label} href={l.href} target="_blank" rel="noopener noreferrer"
-                  aria-label={`${l.label} (opens in new tab)`}
-                  className={LINK_CLASS} style={LINK_SHADOW}>
-                  {l.label} <span className="text-white/40">↗</span>
-                </a>
-              ))}
-            </div>
-          </div>
-
-          {/* Trust & Safety — the detection suite, previously footer-stranded */}
-          <div>
-            <h4 className="text-[11px] uppercase tracking-wider font-semibold mb-3" style={{ ...LINK_SHADOW, color: 'var(--color-kyle)' }}>Trust &amp; Safety</h4>
-            <div className="space-y-2">
-              {TRUST_LINKS.map((l) => (
-                <Link key={l.to} to={l.to} className={LINK_CLASS} style={LINK_SHADOW}>
-                  {l.label}
-                </Link>
-              ))}
-            </div>
-          </div>
-
-          {/* Community */}
-          <div>
-            <h4 className="text-[11px] uppercase tracking-wider font-semibold mb-3" style={{ ...LINK_SHADOW, color: 'var(--color-kyle)' }}>Community</h4>
-            <div className="space-y-2">
-              {COMMUNITY_LIVE && (
-                <Link to="/community" className={LINK_CLASS} style={LINK_SHADOW}>
-                  Governance
-                </Link>
-              )}
-              {SOCIAL_LINKS.map((l) => (
-                <a key={l.label} href={l.href} target="_blank" rel="noopener noreferrer"
-                  aria-label={`${l.label} (opens in new tab)`}
-                  className={LINK_CLASS} style={LINK_SHADOW}>
-                  {l.label} <span className="text-white/40">↗</span>
-                </a>
-              ))}
-            </div>
-          </div>
-
-          {/* Legal */}
-          <div>
-            <h4 className="text-[11px] uppercase tracking-wider font-semibold mb-3" style={{ ...LINK_SHADOW, color: 'var(--color-kyle)' }}>Legal</h4>
-            <div className="space-y-2">
-              {LEGAL_LINKS.map((l) => (
-                <Link key={l.to} to={l.to} className={LINK_CLASS} style={LINK_SHADOW}>
-                  {l.label}
-                </Link>
-              ))}
-            </div>
+            <nav aria-label="Footer">
+              <ul className="flex flex-wrap gap-x-5 md:gap-x-6">
+                {PAGE_LINKS.map((l) => (
+                  <li key={l.to}>
+                    <Link to={l.to} className={LINK_CLASS} style={SHADOW}>{l.label}</Link>
+                  </li>
+                ))}
+                {/* llms.txt (answer ten): what an AI assistant may say about the venue. A plain
+                    <a>, because client-side routing would land a static file on the not-found page. */}
+                <li>
+                  <a href="/llms.txt" className={LINK_CLASS} style={SHADOW}>For your AI</a>
+                </li>
+                {SOCIAL_LINKS.map((l) => (
+                  <li key={l.label}>
+                    <a href={l.href} target="_blank" rel="noopener noreferrer"
+                      aria-label={`${l.label} (opens in new tab)`}
+                      className={LINK_CLASS} style={SHADOW}>
+                      {l.label} <span className="text-white/40 ml-1">↗</span>
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </nav>
+            {/* A row only when the browser handed over an unfired install prompt. */}
+            <InstallPrompt />
           </div>
         </div>
 
-        {/* WAVE SEVEN, row S: the consent ask, as a ROW. It renders only while
-            the answer is pending, in the footer's flow and never over the page.
-            ConsentRow says what did not change about consent itself. */}
+        {/* The consent ask, in the footer's flow, only while the answer is pending (ConsentRow.tsx). */}
         <ConsentRow />
 
-        {/* Bottom bar */}
         <div className="accent-divider" />
-        <div className="py-5 flex flex-col md:flex-row items-center justify-between gap-3">
-          <span className="text-white/90 text-[11px]" style={LINK_SHADOW}>
-            Experimental protocol. Use at your own risk. Not financial advice. <Link to="/risks" className="text-white hover:text-white/80 underline" style={LINK_SHADOW}>Risk Disclosure</Link> · <Link to="/security" className="text-white hover:text-white/80 underline" style={LINK_SHADOW}>Security</Link>
+        <div className="py-4 flex flex-col md:flex-row items-center justify-between gap-2 text-center md:text-left">
+          <span className="text-white/90 text-[11px]" style={SHADOW}>
+            Experimental protocol. Use at your own risk. Not financial advice.
           </span>
-          <span className="text-white/60 text-[11px]" style={LINK_SHADOW}>
-            © 2026 memetics.finance
+          <span className="text-white/60 text-[11px]" style={SHADOW}>
+            © 2026 memetics.finance · built by the jungle bay artists collective · <IslandSoundLinks />
           </span>
         </div>
+        {/* The public line agreed with Jungle Bay Island (2026-10-18), verbatim, on every page. */}
+        <p className="pb-4 -mt-2 text-white/60 text-[11px] text-center md:text-right" style={SHADOW}>
+          {VENUE.venueLine}
+        </p>
       </div>
     </footer>
   );

@@ -1,25 +1,11 @@
 /**
- * SectionHost — one nav section rendered as one page with tabs.
- *
- * The four collapsed sections (Launch / Earn / Stats / Trust & Safety) all go
- * through this component, so the properties below are the ones that decide
- * whether the 2026-09-04 dropdown condensation is safe:
- *
- *   · every destination in the section is still reachable — from the tab strip
- *     if not from the menu;
- *   · the tab the URL names is the tab that lights, and the page that renders;
- *   · a gated entry keeps its SOON pill, because collapsing a menu must not
- *     silently un-disclose four flag-gated surfaces.
- *
- * The `/launch` vs `/launch-simulator` case is not a hypothetical: a
- * `pathname.startsWith(to)` match — the obvious implementation, and the one the
- * three older hosts use against their own hand-written path lists — picks
- * `/launch` for BOTH, so the Simulator would render the Doppler wizard under a
- * highlighted "Launchpad" tab.
+ * SectionHost: one nav section rendered as one page with tabs. The tab the URL names lights and
+ * renders (a prefix match would render /launch for /launch-simulator), and an entry that is off
+ * today is not listed but still opens by URL (docs/FACE_LAWS.md, law 23).
  */
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import type { NavSection } from '../lib/navConfig';
 import { SectionHost } from './SectionHost';
 
@@ -53,11 +39,10 @@ const selected = () =>
   screen.getAllByRole('tab').find((t) => t.getAttribute('aria-selected') === 'true');
 
 describe('SectionHost', () => {
-  it('renders one tab per section entry, so nothing the menu stopped listing is lost', () => {
+  it('renders one tab per section entry that is on, so the strip lists nothing that is off', () => {
     at('/launch');
     expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual([
       'Launchpad',
-      'Solana CurveSoon',
       'Memetics CurveLive',
       'Simulator',
     ]);
@@ -82,16 +67,11 @@ describe('SectionHost', () => {
     expect(selected()).toHaveTextContent('Launchpad');
   });
 
-  it('keeps a collapsed entry’s SOON pill on its tab', () => {
-    at('/launch');
-    const solana = screen.getAllByRole('tab').find((t) => t.textContent?.startsWith('Solana Curve'));
-    expect(solana, 'the gated entry has no tab').toBeTruthy();
-    // The pill is the answer to "can I do the thing this label names". Losing it
-    // in the collapse would advertise an undeployed Solana program as live.
-    expect(solana).toHaveTextContent('Soon');
-    expect(screen.getAllByRole('tab').find((t) => t.textContent?.startsWith('Launchpad'))).not.toHaveTextContent(
-      'Soon',
-    );
+  it('still opens an off entry by its URL, with its own tab lit and no word Soon', async () => {
+    const { container } = at('/curve-launch');
+    expect(selected()).toHaveTextContent('Solana Curve');
+    expect(await screen.findByText('solana panel')).toBeInTheDocument();
+    expect(container.textContent).not.toMatch(/soon/i);
   });
 
   it('is a real tablist pointing at a tabpanel that names it back', () => {
@@ -120,33 +100,48 @@ describe('SectionHost', () => {
   });
 });
 
+describe('SectionHost — a page under a tab', () => {
+  // /earn/<id> is one pool under the Earn host's first tab, /earn. Before
+  // 2026-09-30 a click on the LIT tab was a no-op, and the lit tab is the only
+  // one a visitor inside a pool would reach for to get back to the list.
+  const EARN: NavSection = {
+    heading: 'Earn',
+    hub: '/earn',
+    items: [
+      { to: '/earn', label: 'Staking' },
+      { to: '/referrals', label: 'Referrals' },
+    ],
+  };
+  function StakingPanel() {
+    const { pathname } = useLocation();
+    return <div>staking panel at {pathname}</div>;
+  }
+  const EARN_PANELS = { '/earn': StakingPanel, '/referrals': panel('referrals') };
+
+  it('lights the tab above it, and a click on that tab goes back up to the tab', async () => {
+    render(
+      <MemoryRouter initialEntries={['/earn/bayla']}>
+        <SectionHost section={EARN} idPrefix="earn" ariaLabel="Earn sections" panels={EARN_PANELS} />
+      </MemoryRouter>,
+    );
+    expect(selected()).toHaveTextContent('Staking');
+    expect(await screen.findByText('staking panel at /earn/bayla')).toBeInTheDocument();
+    fireEvent.click(selected()!);
+    expect(await screen.findByText('staking panel at /earn')).toBeInTheDocument();
+  });
+});
+
 describe('SectionHost — top clearance', () => {
-  // The strip is `position: fixed` under the 56px header, so a page that does not
-  // already pull itself up under the header needs padding or its own heading
-  // renders behind the tabs. `fullBleed` opts a page out of that.
-  it('pads a normal page and leaves a full-bleed one alone', async () => {
-    const { container, unmount } = render(
+  // The strip takes no room in the flow and lies over the panel's top padding, so the
+  // panel keeps that padding or its own heading starts under the tabs.
+  it('pads the panel by the strip', async () => {
+    const { container } = render(
       <MemoryRouter initialEntries={['/launch']}>
         <SectionHost section={SECTION} idPrefix="launch" ariaLabel="Launch sections" panels={PANELS} />
       </MemoryRouter>,
     );
     await screen.findByText('launchpad panel');
     expect(container.querySelector('#launch-panel > .pt-14')).toBeTruthy();
-    unmount();
-
-    render(
-      <MemoryRouter initialEntries={['/launch']}>
-        <SectionHost
-          section={SECTION}
-          idPrefix="launch"
-          ariaLabel="Launch sections"
-          panels={PANELS}
-          fullBleed={['/launch']}
-        />
-      </MemoryRouter>,
-    );
-    await screen.findByText('launchpad panel');
-    expect(document.querySelector('#launch-panel > .pt-14')).toBeFalsy();
   });
 });
 

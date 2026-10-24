@@ -31,7 +31,7 @@ const TIMELINE = [
   {
     phase: '06',
     title: 'memetics.finance',
-    description: 'Built by the community, for the community. A DeFi platform where protocol swap fees route on-chain to stakers. No VC money. No insider allocations. Just pure, unadulterated TEGRIDY.',
+    description: 'Built by the community, for the community. A DeFi platform where protocol swap fees route on-chain, after a referral share, to stakers. No VC money. No insider allocations. Just pure, unadulterated TEGRIDY.',
   },
   {
     phase: '07',

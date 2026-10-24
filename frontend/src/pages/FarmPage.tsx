@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { m } from 'framer-motion';
 import { useAccount } from 'wagmi';
-import { Link } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { CURRENT_SEASON, LOCK_OPTIONS } from '../lib/constants';
 import { parseEventLogs, formatEther } from 'viem';
@@ -23,7 +23,6 @@ import { useLPFarming } from '../hooks/useLPFarming';
 import { useAutoRefreshBoost } from '../hooks/useAutoRefreshBoost';
 import { useOneClickStake } from '../hooks/useOneClickStake';
 import { usePageTitle } from '../hooks/usePageTitle';
-import { usePoints } from '../hooks/usePoints';
 import { useAutoReset } from '../hooks/useAutoReset';
 import { useRestaking } from '../hooks/useRestaking';
 import { safeParseEther } from '../lib/safeParseEther';
@@ -32,11 +31,11 @@ import { seasonStatus } from '../lib/season';
 import { ErrorBoundary } from '../components/ui/ErrorBoundary';
 import { ConnectPrompt } from '../components/ui/ConnectPrompt';
 
-import { getActiveBungalow, DEFAULT_BUNGALOW_ID } from '../lib/bungalows';
+import { BUNGALOWS, DEFAULT_BUNGALOW_ID } from '../lib/bungalows';
 import { useActiveBungalowId } from '../hooks/useActiveBungalowId';
-import { isToweliVoice } from '../lib/arrival';
 import { BungalowFarmPanel } from '../components/bungalow/BungalowFarmPanel';
 import { VenuePoolIndex } from '../components/farm/VenuePoolIndex';
+import { BackToEarn } from '../components/farm/BackToEarn';
 import { FarmStatsRow } from '../components/farm/FarmStatsRow';
 import { IncentivesStrip } from '../components/farm/IncentivesStrip';
 import { RealYieldProof } from '../components/RealYieldProof';
@@ -49,26 +48,33 @@ import { UPCOMING_POOLS } from '../components/farm/poolConfig';
 import { LivePoolCard } from '../components/farm/LivePoolCard';
 import { UpcomingPoolCard } from '../components/farm/UpcomingPoolCard';
 import { ArtImg } from '../components/ArtImg';
+import { CardArt } from '../components/ui/CardArt';
+import { PageArtBackdrop } from '../components/PageArtBackdrop';
+import { FinePrint } from '../components/ui/FinePrint';
+import { lpFarmDeposit } from '../lib/lpEmissions';
 
 /**
- * Three voices, one route: a room with its own token gets its self-gating farm
- * panel, the venue gets VenueEarn (every resident pool), and the TOWELI room gets
- * the classic farm. The branch lives in this wrapper so ToweliFarm's hook order
- * never changes, and it re-reads when the skin switches in place.
+ * Earn's Staking tab. `/earn` is the list of every pool (VenueEarn) whatever
+ * room is active, so the top-bar word and the tab always lead back to it.
+ * `/earn/<id>` is one pool, its room already entered (App.tsx EarnPoolRoute):
+ * a room with its own token gets its self-gating farm panel, and the TOWELI
+ * room gets the classic farm. Until 2026-09-30 the ROOM picked the pool on a
+ * single /farm, so a visitor inside one pool had no way back to the list.
+ * The branch lives in this wrapper so ToweliFarm's hook order never changes,
+ * and it re-reads when the skin switches in place.
  */
 export default function FarmPage() {
   useActiveBungalowId();
-  const bungalow = getActiveBungalow();
-  if (bungalow && bungalow.id !== DEFAULT_BUNGALOW_ID) {
-    return <BungalowFarmPanel key={bungalow.id} bungalow={bungalow} />;
-  }
+  const { poolId } = useParams();
+  const bungalow = poolId ? BUNGALOWS.find((b) => b.id === poolId && b.live) : undefined;
   // The venue speaks for the whole island, not for one resident.
-  if (!isToweliVoice()) return <VenueEarn />;
-  return <ToweliFarm />;
+  if (!bungalow) return <VenueEarn />;
+  if (bungalow.id === DEFAULT_BUNGALOW_ID) return <ToweliFarm />;
+  return <BungalowFarmPanel key={bungalow.id} bungalow={bungalow} />;
 }
 
 /**
- * The venue's own /farm.
+ * The venue's own /earn: every resident's pool.
  *
  * ⚠️ ITS OWN COMPONENT, NOT JSX INLINED IN THE WRAPPER, and the reason is the
  * same one the wrapper's note gives for keeping the bungalow branch out of
@@ -86,19 +92,33 @@ function VenueEarn() {
     'Every resident pool on Jungle Bay Island — stake a token for a share of its rewards, or provide liquidity and earn a cut of the swaps.',
   );
   return (
-    <div className="mx-auto w-full max-w-[900px] px-4 py-8 sm:py-10">
-      <header className="mb-6">
-        <p className="text-[11px] uppercase tracking-wider label-pill mb-2" style={{ color: 'var(--color-kyle)' }}>
-          Jungle Bay Island
-        </p>
-        <h1 className="heading-luxury text-3xl md:text-4xl text-white leading-tight mb-3">Earn</h1>
-        <p className="text-white/75 text-[14px] md:text-[15px] leading-relaxed max-w-[62ch]">
-          Stake a token to earn a share of its pool, or provide liquidity and take a cut of every
-          swap that routes through it. Held time counts here: the longer you lock, the larger your
-          share of the same rewards.
-        </p>
-      </header>
-      <VenuePoolIndex />
+    <div className="relative">
+      <PageArtBackdrop pageId="earn" />
+      {/* `relative` with no z-index: above the backdrop by coming after it, and
+          not a stacking context that would trap a dialog under the tab strip. */}
+      <div className="relative mx-auto w-full max-w-[900px] px-4 py-8 sm:py-10">
+        {/* One heading, one line (owner, 2026-10-14: as few words as possible).
+            The island's name is in the list's own heading below; the "Jungle
+            Bay Island" eyebrow that stood above the h1 was a third line of
+            words before the first row. */}
+        <header className="mb-6">
+          <h1 className="heading-luxury text-3xl md:text-4xl text-white leading-tight mb-2">Earn</h1>
+          <p className="text-white/75 text-[14px] md:text-[15px] leading-relaxed max-w-[62ch]">
+            Pick a coin, open its pool, stake.
+          </p>
+          <FinePrint summary="How it works" className="mt-1 max-w-[62ch]">
+            <p>
+              Stake for a share of a pool&rsquo;s rewards. Longer locks earn more.
+            </p>
+            <p>
+              Stake a token to earn a share of its pool, or provide liquidity and take a cut of every
+              swap that routes through it. The longer you lock, the larger your share of the same
+              rewards.
+            </p>
+          </FinePrint>
+        </header>
+        <VenuePoolIndex />
+      </div>
     </div>
   );
 }
@@ -113,10 +133,6 @@ function ToweliFarm() {
   const pos = useUserPosition();
   const actions = useFarmActions();
   const nft = useNFTBoost();
-  // F108: the page no longer calls the deprecated points.logAction no-op, but we
-  // keep usePoints mounted so the on-chain points/streak state stays warm for the
-  // header/leaderboard surfaces that share the engine. (No binding — read-only.)
-  usePoints();
   const price = useTOWELIPrice();
   const priceHistory = usePriceHistory();
   const { history: priceData, error: priceError } = priceHistory;
@@ -158,6 +174,10 @@ function ToweliFarm() {
   // refreshBoost is a transaction, so the user confirms it rather than having a
   // signature request appear on page load.
   const lpBoost = useAutoRefreshBoost({ onRefreshNeeded: lpFarm.refreshBoost });
+  // A refresh earns nothing once the farm's rewards have ended (a landed periodFinish
+  // in the past), so the prompt to pay gas for "the boosted rate" is not shown then.
+  const lpDeposit = lpFarmDeposit(lpFarm.periodFinishUnread ? null : lpFarm.periodFinish);
+  const lpRewardsEnded = !lpDeposit.open && lpDeposit.reason === 'ended';
 
   // EIP-5792: collapse approve + stake into one confirmation on wallets that
   // advertise atomic batching. Support is never assumed — `canBatch` stays false
@@ -365,7 +385,13 @@ function ToweliFarm() {
               (LPFarmingSection renders its own "Connect to stake" CTA, and the
               ConnectPrompt below remains the action-card slot). Additive — the
               jungle art hero and ConnectPrompt are untouched. */}
-          <div className="max-w-[1200px] mx-auto px-4 md:px-6 pb-4">
+          <div className="page-column mx-auto px-4 md:px-6 pb-4">
+            <BackToEarn />
+            {/* The thing a logged-out visitor came to press is Connect, so the
+                action card is the FIRST card, not the last: on a 390px phone it
+                sat 6,400px down, under five sections of figures (the lead's
+                walk, 2026-10-14). The read-only figures follow it unchanged. */}
+            <ConnectPrompt surface="farm" />
             <IncentivesStrip apr={pool.apr} aprNum={pool.aprNum} rewardPool={stats.rewardPool} dailyEmissions={stats.dailyEmissions} rewardsRemaining={rewardsRemainingDisplay} secondsRemaining={pool.secondsRemaining} stakerSharePct={poolTVL.stakerSharePct} referralFeeBps={poolTVL.referralFeeBps} reserveEmpty={pool.isDry} />
 
             <FarmStatsRow
@@ -390,10 +416,10 @@ function ToweliFarm() {
               <div className="flex items-center justify-between mb-5">
                 <div>
                   <h2 className="heading-luxury text-white text-[22px] tracking-tight">Liquidity Pools</h2>
-                  <p className="text-white text-[13px] mt-0.5">Provide liquidity to native pairs &middot; earn trading fees</p>
+                  <p className="text-white text-[13px] mt-0.5">Add two coins. Earn from every trade.</p>
                 </div>
                 <Link to="/liquidity" className="text-white/60 text-[12px] hover:text-white transition-colors">
-                  View all pools &#8594;
+                  All pools &#8594;
                 </Link>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -412,20 +438,19 @@ function ToweliFarm() {
               <BoostScheduleTable selectedLockLabel={selectedLock.label} aprNum={pool.aprNum} />
             </div>
 
-            {/* Affordance for the wallet-less estimator on the home page. This
-                branch only renders while disconnected, which is exactly when
-                HomePage renders <YieldCalculator/> (it is gated on !address),
-                so the deep-link can never land on a missing anchor. */}
+            {/* The wallet-less estimate is on the TOWELI room's own home: HomePage
+                draws <YieldCalculator/> only in the TOWELI voice and only with no
+                wallet, as here. Never `/`: that is the venue's door, which leaves
+                the room and has no estimate. e2e/section-links.spec.ts walks it. */}
             <div className="mb-6">
               <Link
-                to="/#yield-calculator"
+                to="/toweli#yield-calculator"
                 className="inline-flex items-center gap-1.5 text-[12px] text-white/70 hover:text-white transition-colors"
               >
-                See what you&rsquo;d earn &mdash; estimate before connecting &#8594;
+                See what you&rsquo;d earn before connecting &#8594;
               </Link>
             </div>
           </div>
-          <ConnectPrompt surface="farm" />
         </div>
       </div>
     );
@@ -438,18 +463,67 @@ function ToweliFarm() {
       </div>
 
       <ErrorBoundary>
-      <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6 pt-20 pb-28 md:pb-12">
+      <div className="relative z-10 page-column mx-auto px-4 md:px-6 pt-20 pb-28 md:pb-12">
+        <BackToEarn />
         {/* Wrong-chain banner via shared primitive. Replaces the inlined
             switch-CTA block added in Phase 4.3 — behavior identical, just
             centralized so Community/Farm/future pages share one component. */}
         <WrongChainBanner
           className="mb-4"
-          message="Wrong network detected — switch to the canonical chain to stake, claim, or withdraw."
+          message="Wrong network. Switch chains to stake, claim or withdraw."
         />
         <m.div className="mb-8" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
           <h1 className="heading-luxury text-2xl md:text-3xl lg:text-4xl text-white tracking-tight mb-1">Farm</h1>
           <p className="text-white text-[14px]">Stake TOWELI and earn rewards &middot; <span className="text-white">FAFO</span></p>
         </m.div>
+
+        {/* THE STAKE FORM AND THE POSITION COME FIRST (owner, 2026-10-14: "not
+            even see the stuff they are to interact with"). This grid sat at the
+            foot of the page, under the strip, the stats, the real-yield proof,
+            the season banner, the pool cards and the LP farm: five phone
+            screens before the amount field. Everything that was above it still
+            renders, below it, in the same order it had. */}
+
+        {/* Exit-only surface for retired pre-relaunch staking contracts; renders
+            nothing unless the connected wallet holds a legacy position. */}
+        <LegacyStakingExit />
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-10">
+          {/* Staking Card */}
+          <StakingCard
+            isConnected={isConnected}
+            pos={pos}
+            actions={actions}
+            nft={nft}
+            pool={{ apr: pool.apr, aprNum: pool.aprNum, isDeployed: pool.isDeployed, isDry: pool.isDry, secondsRemaining: pool.secondsRemaining }}
+            input={{
+              amount: stakeAmount,
+              setAmount: setStakeAmount,
+              lock: selectedLock,
+              setLock: setSelectedLock,
+              extendLockDuration,
+              setExtendLockDuration,
+            }}
+            confirms={confirms}
+            setConfirm={setConfirm}
+            computed={{
+              boostDisplay,
+              totalBoostBps,
+              amtNum,
+              effectiveStake,
+              // The CTA labels the next confirmation, not the allowance state: on a
+              // batching wallet the single prompt approves AND stakes, so "Approve
+              // TOWELI" would understate what the user is about to sign.
+              stakeNeedsApproval: stakeNeedsApproval && !canBatchStake,
+            }}
+            handleStake={handleStake}
+            lastActionRef={lastActionRef}
+            submittedAmountRef={submittedAmountRef}
+          />
+
+          {/* Boost Table */}
+          <BoostScheduleTable selectedLockLabel={selectedLock.label} aprNum={pool.aprNum} />
+        </div>
 
         {/* Incentives strip — real APR + reward-pool / emissions / boost / fee-share */}
         <IncentivesStrip apr={pool.apr} aprNum={pool.aprNum} rewardPool={stats.rewardPool} dailyEmissions={stats.dailyEmissions} rewardsRemaining={rewardsRemainingDisplay} secondsRemaining={pool.secondsRemaining} stakerSharePct={poolTVL.stakerSharePct} referralFeeBps={poolTVL.referralFeeBps} reserveEmpty={pool.isDry} />
@@ -481,8 +555,13 @@ function ToweliFarm() {
                 {nft.boostLabel && <span className="badge badge-warning text-[10px]">{nft.boostLabel}</span>}
               </div>
               <p className="text-white text-[13px]">
-                Lock TOWELI for up to 4x boost. Longer lock = more rewards + governance power.
+                Lock longer for a bigger boost, up to 4x.
               </p>
+              <FinePrint summary="Details">
+                <p>
+                  Lock TOWELI for up to 4x boost. Longer lock = more rewards + governance power.
+                </p>
+              </FinePrint>
             </div>
             {nft.holdsJBAC && (
               <div className="md:text-right">
@@ -498,10 +577,10 @@ function ToweliFarm() {
           <div className="flex items-center justify-between mb-5">
             <div>
               <h2 className="heading-luxury text-white text-[22px] tracking-tight">Liquidity Pools</h2>
-              <p className="text-white text-[13px] mt-0.5">Provide liquidity to native pairs &middot; earn trading fees</p>
+              <p className="text-white text-[13px] mt-0.5">Add two coins. Earn from every trade.</p>
             </div>
             <Link to="/liquidity" className="text-white/60 text-[12px] hover:text-white transition-colors">
-              View all pools &#8594;
+              All pools &#8594;
             </Link>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -515,16 +594,22 @@ function ToweliFarm() {
         {/* AUDIT F-7: staked before acquiring the JBAC → the farm is still paying
             the unboosted rate. Permissionless on-chain, so the user can fix it
             here in one transaction. */}
-        {lpBoost.needsRefresh && (
+        {lpBoost.needsRefresh && !lpRewardsEnded && (
           <div
-            className="mb-4 px-4 py-3 rounded-xl flex flex-col sm:flex-row sm:items-center gap-3"
+            className="relative isolate mb-4 px-4 py-3 rounded-xl flex flex-col sm:flex-row sm:items-center gap-3"
             style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)' }}
           >
-            <p className="text-amber-200 text-[12px] leading-snug flex-1">
-              Your JBAC boost is not applied to your staked LP. The farm recalculates the boost only
-              when you stake, withdraw or exit, so LP staked before you acquired the NFT is still
-              earning at the unboosted rate until you refresh it.
-            </p>
+            <CardArt pageId="farm" idx={2} />
+            <div className="text-amber-200 text-[12px] leading-snug flex-1">
+              <p>Your JBAC boost is not applied to your staked LP. Refresh it to earn the boosted rate.</p>
+              <FinePrint summary="Why">
+                <p>
+                  The farm recalculates the boost only
+                  when you stake, withdraw or exit, so LP staked before you acquired the NFT is still
+                  earning at the unboosted rate until you refresh it.
+                </p>
+              </FinePrint>
+            </div>
             <button
               onClick={() => lpFarm.refreshBoost()}
               disabled={lpFarm.isPending || lpFarm.isConfirming}
@@ -550,7 +635,8 @@ function ToweliFarm() {
                 <span className="stat-value text-[15px] text-green-400">+{restaking.bonusAPR.toFixed(1)}% Bonus APR</span>
               )}
             </div>
-            <div className="glass-card p-5 rounded-xl" style={{ border: '1px solid var(--color-purple-12)' }}>
+            <div className="relative isolate glass-card p-5 rounded-xl" style={{ border: '1px solid var(--color-purple-12)' }}>
+              <CardArt pageId="farm" idx={3} />
               {/* F112 (R075): when an RPC quotes impossible reward numbers the hook
                   zeroes the values — without this notice users just see 0.0000 with
                   no explanation. Prompt them to verify on-chain instead. */}
@@ -621,46 +707,6 @@ function ToweliFarm() {
           </m.div>
         )}
 
-        {/* Exit-only surface for retired pre-relaunch staking contracts; renders
-            nothing unless the connected wallet holds a legacy position. */}
-        <LegacyStakingExit />
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-12">
-          {/* Staking Card */}
-          <StakingCard
-            isConnected={isConnected}
-            pos={pos}
-            actions={actions}
-            nft={nft}
-            pool={{ apr: pool.apr, aprNum: pool.aprNum, isDeployed: pool.isDeployed, isDry: pool.isDry, secondsRemaining: pool.secondsRemaining }}
-            input={{
-              amount: stakeAmount,
-              setAmount: setStakeAmount,
-              lock: selectedLock,
-              setLock: setSelectedLock,
-              extendLockDuration,
-              setExtendLockDuration,
-            }}
-            confirms={confirms}
-            setConfirm={setConfirm}
-            computed={{
-              boostDisplay,
-              totalBoostBps,
-              amtNum,
-              effectiveStake,
-              // The CTA labels the next confirmation, not the allowance state: on a
-              // batching wallet the single prompt approves AND stakes, so "Approve
-              // TOWELI" would understate what the user is about to sign.
-              stakeNeedsApproval: stakeNeedsApproval && !canBatchStake,
-            }}
-            handleStake={handleStake}
-            lastActionRef={lastActionRef}
-            submittedAmountRef={submittedAmountRef}
-          />
-
-          {/* Boost Table */}
-          <BoostScheduleTable selectedLockLabel={selectedLock.label} aprNum={pool.aprNum} />
-        </div>
       </div>
       </ErrorBoundary>
     </div>

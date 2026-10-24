@@ -43,4 +43,4 @@ raydium-cp-swap = { path = "../cp-swap", features = ["cpi"], default-features = 
 # overflow-checks = true) live in the workspace root Cargo.toml and already apply.
 # Restating them here would look authoritative while doing nothing — the exact
 # kind of comment-that-lies this repo has been bitten by before.
-# (cp-swap carries one only because it is a verbatim upstream fork.)
+# (cp-swap carries one only because its Cargo.toml is upstream's, one description line aside.)

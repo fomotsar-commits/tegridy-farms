@@ -150,7 +150,7 @@ try {
     await page.locator('footer button:has-text("Bungalows")').scrollIntoViewIfNeeded();
     ok('B: footer names the active bungalow', await page.locator(`footer button:has-text("${NAME}")`).count() > 0);
     await page.locator('footer button:has-text("Bungalows")').click();
-    const pickerVisible = await page.locator('text=Thirteen bungalows').isVisible({ timeout: 5000 }).catch(() => false);
+    const pickerVisible = await page.locator('text=bungalows, one island').isVisible({ timeout: 5000 }).catch(() => false);
     ok('B: footer button reopens picker', pickerVisible);
     if (pickerVisible) await page.screenshot({ path: `${OUT}/${B_ID}-picker-reopened.png` });
     // The TOP-NAV chooser button — the always-visible way back (operator ask
@@ -161,7 +161,7 @@ try {
     ok('B: top-nav chooser names the bungalow', (await navBtn.textContent() ?? '').includes(NAME));
     await navBtn.click();
     ok('B: top-nav chooser opens the picker',
-      await page.locator('text=Thirteen bungalows').isVisible({ timeout: 5000 }).catch(() => false));
+      await page.locator('text=bungalows, one island').isVisible({ timeout: 5000 }).catch(() => false));
     await ctx.close();
 
     // Responsive: iPhone 14 Pro + iPad portrait on home/farm.
@@ -213,7 +213,7 @@ try {
     await ctx.addInitScript(SEED_COMMON); // NO bungalow choice: a cold visitor
     const page = await ctx.newPage();
     await page.goto(BASE + '/', { waitUntil: 'domcontentloaded' });
-    const picker = page.locator('text=Thirteen bungalows');
+    const picker = page.locator('text=bungalows, one island');
     // Answer ten, ruling 1: the picker opens by tap only, everywhere. It used to
     // auto-open on a first visit, and this section asserted that.
     await settle(page, 5000);

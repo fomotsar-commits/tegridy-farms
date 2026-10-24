@@ -1,0 +1,458 @@
+{
+  "_provenance": "Captured 2026-09-23 from https://opensea.io/collection/seeds-from-the-memetic-garden (the page's own GraphQL cache: collectionBySlug and collectionItems page 1), reshaped into the OpenSea v2 REST body /api/opensea returns. Every value is as the page carried it; a field the page did not carry is absent, not filled. This is page 1 only (50 of the collection's items), so `next` is null here.",
+  "response": {
+    "nfts": [
+      {
+        "identifier": "11",
+        "collection": "seeds-from-the-memetic-garden",
+        "contract": "0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3",
+        "token_standard": "erc721",
+        "name": "Fieldkeepers",
+        "image_url": "https://i2c.seadn.io/base/0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3/f7b75d28d532d6daf25ef1a969f0ef/adf7b75d28d532d6daf25ef1a969f0ef.jpeg",
+        "metadata_url": "https://ipfs2.seadn.io/ipfs/QmbMw7RCVGzsSNT7Z8yWBNh6JoNBKEZa7odgWMA31sGoFp/11"
+      },
+      {
+        "identifier": "42",
+        "collection": "seeds-from-the-memetic-garden",
+        "contract": "0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3",
+        "token_standard": "erc721",
+        "name": "mferroots",
+        "image_url": "https://i2c.seadn.io/base/0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3/995f3cd909974b793dc5c0cc915a2a/e4995f3cd909974b793dc5c0cc915a2a.gif",
+        "metadata_url": "https://ipfs2.seadn.io/ipfs/QmbMw7RCVGzsSNT7Z8yWBNh6JoNBKEZa7odgWMA31sGoFp/42"
+      },
+      {
+        "identifier": "58",
+        "collection": "seeds-from-the-memetic-garden",
+        "contract": "0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3",
+        "token_standard": "erc721",
+        "name": "MF3R P33RT0P33R",
+        "image_url": "https://i2c.seadn.io/base/0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3/3c50ea86c92c0c5307e2df0e9e0908/ae3c50ea86c92c0c5307e2df0e9e0908.gif",
+        "metadata_url": "https://ipfs2.seadn.io/ipfs/QmbMw7RCVGzsSNT7Z8yWBNh6JoNBKEZa7odgWMA31sGoFp/58"
+      },
+      {
+        "identifier": "59",
+        "collection": "seeds-from-the-memetic-garden",
+        "contract": "0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3",
+        "token_standard": "erc721",
+        "name": "crab market mfer",
+        "image_url": "https://i2c.seadn.io/base/0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3/438195ab9885ba7115ffa59cc16ab1/60438195ab9885ba7115ffa59cc16ab1.png",
+        "metadata_url": "https://ipfs2.seadn.io/ipfs/QmbMw7RCVGzsSNT7Z8yWBNh6JoNBKEZa7odgWMA31sGoFp/59"
+      },
+      {
+        "identifier": "60",
+        "collection": "seeds-from-the-memetic-garden",
+        "contract": "0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3",
+        "token_standard": "erc721",
+        "name": "Regular Day",
+        "image_url": "https://i2c.seadn.io/base/0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3/a4eac86333c64a1c9e35a2c8227e1a/04a4eac86333c64a1c9e35a2c8227e1a.jpeg",
+        "metadata_url": "https://ipfs2.seadn.io/ipfs/QmbMw7RCVGzsSNT7Z8yWBNh6JoNBKEZa7odgWMA31sGoFp/60"
+      },
+      {
+        "identifier": "61",
+        "collection": "seeds-from-the-memetic-garden",
+        "contract": "0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3",
+        "token_standard": "erc721",
+        "name": "garden11",
+        "image_url": "https://i2c.seadn.io/base/0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3/7205db5cfd8afa4358c4591f637f31/517205db5cfd8afa4358c4591f637f31.png",
+        "metadata_url": "https://ipfs2.seadn.io/ipfs/QmbMw7RCVGzsSNT7Z8yWBNh6JoNBKEZa7odgWMA31sGoFp/61"
+      },
+      {
+        "identifier": "62",
+        "collection": "seeds-from-the-memetic-garden",
+        "contract": "0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3",
+        "token_standard": "erc721",
+        "name": "EL OJO Did It AGAIN",
+        "image_url": "https://i2c.seadn.io/base/0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3/08cc1021df95dd5139dab14148d006/9308cc1021df95dd5139dab14148d006.png",
+        "metadata_url": "https://ipfs2.seadn.io/ipfs/QmbMw7RCVGzsSNT7Z8yWBNh6JoNBKEZa7odgWMA31sGoFp/62"
+      },
+      {
+        "identifier": "63",
+        "collection": "seeds-from-the-memetic-garden",
+        "contract": "0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3",
+        "token_standard": "erc721",
+        "name": "X THREAD",
+        "image_url": "https://i2c.seadn.io/base/0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3/e7b1f3a0954e1ac581a3ba1119c37d/1ae7b1f3a0954e1ac581a3ba1119c37d.gif",
+        "metadata_url": "https://ipfs2.seadn.io/ipfs/QmbMw7RCVGzsSNT7Z8yWBNh6JoNBKEZa7odgWMA31sGoFp/63"
+      },
+      {
+        "identifier": "64",
+        "collection": "seeds-from-the-memetic-garden",
+        "contract": "0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3",
+        "token_standard": "erc721",
+        "name": "rizz wave",
+        "image_url": "https://i2c.seadn.io/base/0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3/7aa35766c91d4a14c911b4d12a700c/c77aa35766c91d4a14c911b4d12a700c.jpeg",
+        "metadata_url": "https://ipfs2.seadn.io/ipfs/QmbMw7RCVGzsSNT7Z8yWBNh6JoNBKEZa7odgWMA31sGoFp/64"
+      },
+      {
+        "identifier": "66",
+        "collection": "seeds-from-the-memetic-garden",
+        "contract": "0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3",
+        "token_standard": "erc721",
+        "name": "Rainy mfer",
+        "image_url": "https://i2c.seadn.io/base/0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3/e33ffe6603ce0b66d493ef5b268c28/70e33ffe6603ce0b66d493ef5b268c28.png",
+        "metadata_url": "https://ipfs2.seadn.io/ipfs/QmbMw7RCVGzsSNT7Z8yWBNh6JoNBKEZa7odgWMA31sGoFp/66"
+      },
+      {
+        "identifier": "69",
+        "collection": "seeds-from-the-memetic-garden",
+        "contract": "0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3",
+        "token_standard": "erc721",
+        "name": "Soft Orbit",
+        "image_url": "https://i2c.seadn.io/base/0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3/e0806d649fecbda030ae307e1b8bef/e9e0806d649fecbda030ae307e1b8bef.jpeg",
+        "metadata_url": "https://ipfs2.seadn.io/ipfs/QmbMw7RCVGzsSNT7Z8yWBNh6JoNBKEZa7odgWMA31sGoFp/69"
+      },
+      {
+        "identifier": "86",
+        "collection": "seeds-from-the-memetic-garden",
+        "contract": "0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3",
+        "token_standard": "erc721",
+        "name": "Nobrainfer",
+        "image_url": "https://i2c.seadn.io/base/0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3/7d39eb3a3e871a3c32f9f7f112c314/267d39eb3a3e871a3c32f9f7f112c314.png",
+        "metadata_url": "https://ipfs2.seadn.io/ipfs/QmbMw7RCVGzsSNT7Z8yWBNh6JoNBKEZa7odgWMA31sGoFp/86"
+      },
+      {
+        "identifier": "96",
+        "collection": "seeds-from-the-memetic-garden",
+        "contract": "0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3",
+        "token_standard": "erc721",
+        "name": "SHOOTA MF",
+        "image_url": "https://i2c.seadn.io/base/0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3/61b0d74cc7a2475077ea52c95da0ca/d361b0d74cc7a2475077ea52c95da0ca.png",
+        "metadata_url": "https://ipfs2.seadn.io/ipfs/QmbMw7RCVGzsSNT7Z8yWBNh6JoNBKEZa7odgWMA31sGoFp/96"
+      },
+      {
+        "identifier": "97",
+        "collection": "seeds-from-the-memetic-garden",
+        "contract": "0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3",
+        "token_standard": "erc721",
+        "name": "Philosophy Mfer",
+        "image_url": "https://i2c.seadn.io/base/0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3/900c0bd1a4718f5e54f35747cd554e/08900c0bd1a4718f5e54f35747cd554e.gif",
+        "metadata_url": "https://ipfs2.seadn.io/ipfs/QmbMw7RCVGzsSNT7Z8yWBNh6JoNBKEZa7odgWMA31sGoFp/97"
+      },
+      {
+        "identifier": "103",
+        "collection": "seeds-from-the-memetic-garden",
+        "contract": "0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3",
+        "token_standard": "erc721",
+        "name": "Bubblehead mfer",
+        "image_url": "https://i2c.seadn.io/base/0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3/92155cf41235ed3240417a6635710d/e392155cf41235ed3240417a6635710d.png",
+        "metadata_url": "https://ipfs2.seadn.io/ipfs/QmbMw7RCVGzsSNT7Z8yWBNh6JoNBKEZa7odgWMA31sGoFp/103"
+      },
+      {
+        "identifier": "106",
+        "collection": "seeds-from-the-memetic-garden",
+        "contract": "0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3",
+        "token_standard": "erc721",
+        "name": "I see you mfer",
+        "image_url": "https://i2c.seadn.io/base/0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3/2cdf12ecf5066308498e610b93eaf9/fd2cdf12ecf5066308498e610b93eaf9.jpeg",
+        "metadata_url": "https://ipfs2.seadn.io/ipfs/QmbMw7RCVGzsSNT7Z8yWBNh6JoNBKEZa7odgWMA31sGoFp/106"
+      },
+      {
+        "identifier": "110",
+        "collection": "seeds-from-the-memetic-garden",
+        "contract": "0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3",
+        "token_standard": "erc721",
+        "name": "The person who makes an explosion",
+        "image_url": "https://i2c.seadn.io/base/0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3/b03dc527cc8bf78f089c8fe123d098/7cb03dc527cc8bf78f089c8fe123d098.png",
+        "metadata_url": "https://ipfs2.seadn.io/ipfs/QmbMw7RCVGzsSNT7Z8yWBNh6JoNBKEZa7odgWMA31sGoFp/110"
+      },
+      {
+        "identifier": "120",
+        "collection": "seeds-from-the-memetic-garden",
+        "contract": "0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3",
+        "token_standard": "erc721",
+        "name": "Beyond everything_",
+        "image_url": "https://i2c.seadn.io/base/0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3/2669b71619b0e4cc6845e5eeb3c4a0/152669b71619b0e4cc6845e5eeb3c4a0.jpeg",
+        "metadata_url": "https://ipfs2.seadn.io/ipfs/QmbMw7RCVGzsSNT7Z8yWBNh6JoNBKEZa7odgWMA31sGoFp/120"
+      },
+      {
+        "identifier": "147",
+        "collection": "seeds-from-the-memetic-garden",
+        "contract": "0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3",
+        "token_standard": "erc721",
+        "name": "SHOWTIME",
+        "image_url": "https://i2c.seadn.io/base/0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3/d798a912202a6cf7801a0d98e890fe/eed798a912202a6cf7801a0d98e890fe.png",
+        "metadata_url": "https://ipfs2.seadn.io/ipfs/QmbMw7RCVGzsSNT7Z8yWBNh6JoNBKEZa7odgWMA31sGoFp/147"
+      },
+      {
+        "identifier": "148",
+        "collection": "seeds-from-the-memetic-garden",
+        "contract": "0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3",
+        "token_standard": "erc721",
+        "name": "towel mfer",
+        "image_url": "https://i2c.seadn.io/base/0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3/e6cf127f442bcc107d3a10815f26ab/6ae6cf127f442bcc107d3a10815f26ab.png",
+        "metadata_url": "https://ipfs2.seadn.io/ipfs/QmbMw7RCVGzsSNT7Z8yWBNh6JoNBKEZa7odgWMA31sGoFp/148"
+      },
+      {
+        "identifier": "181",
+        "collection": "seeds-from-the-memetic-garden",
+        "contract": "0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3",
+        "token_standard": "erc721",
+        "name": "I see it all",
+        "image_url": "https://i2c.seadn.io/base/0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3/1416cb7e7820ad5a1b945bc6cdaa72/671416cb7e7820ad5a1b945bc6cdaa72.jpeg",
+        "metadata_url": "https://ipfs2.seadn.io/ipfs/QmbMw7RCVGzsSNT7Z8yWBNh6JoNBKEZa7odgWMA31sGoFp/181"
+      },
+      {
+        "identifier": "188",
+        "collection": "seeds-from-the-memetic-garden",
+        "contract": "0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3",
+        "token_standard": "erc721",
+        "name": "punk mfer",
+        "image_url": "https://i2c.seadn.io/base/0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3/4f0fe9414162f6e2aec22c6b4fb880/1a4f0fe9414162f6e2aec22c6b4fb880.png",
+        "metadata_url": "https://ipfs2.seadn.io/ipfs/QmbMw7RCVGzsSNT7Z8yWBNh6JoNBKEZa7odgWMA31sGoFp/188"
+      },
+      {
+        "identifier": "202",
+        "collection": "seeds-from-the-memetic-garden",
+        "contract": "0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3",
+        "token_standard": "erc721",
+        "name": "primated",
+        "image_url": "https://i2c.seadn.io/base/0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3/6616a84b71ff907309c6c5109d9ae2/6f6616a84b71ff907309c6c5109d9ae2.png",
+        "metadata_url": "https://ipfs2.seadn.io/ipfs/QmbMw7RCVGzsSNT7Z8yWBNh6JoNBKEZa7odgWMA31sGoFp/202"
+      },
+      {
+        "identifier": "203",
+        "collection": "seeds-from-the-memetic-garden",
+        "contract": "0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3",
+        "token_standard": "erc721",
+        "name": "MFER THE SYMBOL",
+        "image_url": "https://i2c.seadn.io/base/0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3/6aa2bbde08db1f3e128d45e9a42d0f/a66aa2bbde08db1f3e128d45e9a42d0f.gif",
+        "metadata_url": "https://ipfs2.seadn.io/ipfs/QmbMw7RCVGzsSNT7Z8yWBNh6JoNBKEZa7odgWMA31sGoFp/203"
+      },
+      {
+        "identifier": "206",
+        "collection": "seeds-from-the-memetic-garden",
+        "contract": "0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3",
+        "token_standard": "erc721",
+        "name": "MFERS DON_T EAT APPLES",
+        "image_url": "https://i2c.seadn.io/base/0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3/8524820a6a37e18373be00060f1e54/118524820a6a37e18373be00060f1e54.gif",
+        "metadata_url": "https://ipfs2.seadn.io/ipfs/QmbMw7RCVGzsSNT7Z8yWBNh6JoNBKEZa7odgWMA31sGoFp/206"
+      },
+      {
+        "identifier": "208",
+        "collection": "seeds-from-the-memetic-garden",
+        "contract": "0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3",
+        "token_standard": "erc721",
+        "name": "3D render MFER - ZORA & BASE test",
+        "image_url": "https://i2c.seadn.io/base/0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3/e729a93a6f0b92f791f394e5be9453/45e729a93a6f0b92f791f394e5be9453.png",
+        "metadata_url": "https://ipfs2.seadn.io/ipfs/QmbMw7RCVGzsSNT7Z8yWBNh6JoNBKEZa7odgWMA31sGoFp/208"
+      },
+      {
+        "identifier": "210",
+        "collection": "seeds-from-the-memetic-garden",
+        "contract": "0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3",
+        "token_standard": "erc721",
+        "name": "locked in",
+        "image_url": "https://i2c.seadn.io/base/0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3/6fac32a2defe7ce4c8824d01db1439/c66fac32a2defe7ce4c8824d01db1439.jpeg",
+        "metadata_url": "https://ipfs2.seadn.io/ipfs/QmbMw7RCVGzsSNT7Z8yWBNh6JoNBKEZa7odgWMA31sGoFp/210"
+      },
+      {
+        "identifier": "216",
+        "collection": "seeds-from-the-memetic-garden",
+        "contract": "0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3",
+        "token_standard": "erc721",
+        "name": "MFERS PLAYING POKER_",
+        "image_url": "https://i2c.seadn.io/base/0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3/40f12a05dec121dc4c7052966f19ad/6540f12a05dec121dc4c7052966f19ad.png",
+        "metadata_url": "https://ipfs2.seadn.io/ipfs/QmbMw7RCVGzsSNT7Z8yWBNh6JoNBKEZa7odgWMA31sGoFp/216"
+      },
+      {
+        "identifier": "217",
+        "collection": "seeds-from-the-memetic-garden",
+        "contract": "0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3",
+        "token_standard": "erc721",
+        "name": "young chillz mfer ape",
+        "image_url": "https://i2c.seadn.io/base/0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3/f8c0dfce29b956cebacd6bf0775cdb/e1f8c0dfce29b956cebacd6bf0775cdb.jpeg",
+        "metadata_url": "https://ipfs2.seadn.io/ipfs/QmbMw7RCVGzsSNT7Z8yWBNh6JoNBKEZa7odgWMA31sGoFp/217"
+      },
+      {
+        "identifier": "227",
+        "collection": "seeds-from-the-memetic-garden",
+        "contract": "0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3",
+        "token_standard": "erc721",
+        "name": "gm",
+        "image_url": "https://i2c.seadn.io/base/0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3/0a9e0352748346bdfc3737767b96d1/900a9e0352748346bdfc3737767b96d1.png",
+        "metadata_url": "https://ipfs2.seadn.io/ipfs/QmbMw7RCVGzsSNT7Z8yWBNh6JoNBKEZa7odgWMA31sGoFp/227"
+      },
+      {
+        "identifier": "244",
+        "collection": "seeds-from-the-memetic-garden",
+        "contract": "0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3",
+        "token_standard": "erc721",
+        "name": "HOMER THE MFER",
+        "image_url": "https://i2c.seadn.io/base/0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3/4b1684f25eec2a948bfec4a81d3c52/874b1684f25eec2a948bfec4a81d3c52.png",
+        "metadata_url": "https://ipfs2.seadn.io/ipfs/QmbMw7RCVGzsSNT7Z8yWBNh6JoNBKEZa7odgWMA31sGoFp/244"
+      },
+      {
+        "identifier": "263",
+        "collection": "seeds-from-the-memetic-garden",
+        "contract": "0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3",
+        "token_standard": "erc721",
+        "name": "Trippy MFER in shroom room",
+        "image_url": "https://i2c.seadn.io/base/0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3/f5ed404e58a3edca60fc2a14c62dfe/c7f5ed404e58a3edca60fc2a14c62dfe.jpeg",
+        "metadata_url": "https://ipfs2.seadn.io/ipfs/QmbMw7RCVGzsSNT7Z8yWBNh6JoNBKEZa7odgWMA31sGoFp/263"
+      },
+      {
+        "identifier": "265",
+        "collection": "seeds-from-the-memetic-garden",
+        "contract": "0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3",
+        "token_standard": "erc721",
+        "name": "Word",
+        "image_url": "https://i2c.seadn.io/base/0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3/a9b0f7d059d7955569d0e6c24b6e92/eca9b0f7d059d7955569d0e6c24b6e92.png",
+        "metadata_url": "https://ipfs2.seadn.io/ipfs/QmbMw7RCVGzsSNT7Z8yWBNh6JoNBKEZa7odgWMA31sGoFp/265"
+      },
+      {
+        "identifier": "267",
+        "collection": "seeds-from-the-memetic-garden",
+        "contract": "0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3",
+        "token_standard": "erc721",
+        "name": "Lick my ball",
+        "image_url": "https://i2c.seadn.io/base/0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3/4f20d43576e5b6cb57bad4199c3b80/b44f20d43576e5b6cb57bad4199c3b80.png",
+        "metadata_url": "https://ipfs2.seadn.io/ipfs/QmbMw7RCVGzsSNT7Z8yWBNh6JoNBKEZa7odgWMA31sGoFp/267"
+      },
+      {
+        "identifier": "269",
+        "collection": "seeds-from-the-memetic-garden",
+        "contract": "0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3",
+        "token_standard": "erc721",
+        "name": "No More Trails",
+        "image_url": "https://i2c.seadn.io/base/0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3/b904ed4a60c80ab78abc1a4d4e743f/fbb904ed4a60c80ab78abc1a4d4e743f.jpeg",
+        "metadata_url": "https://ipfs2.seadn.io/ipfs/QmbMw7RCVGzsSNT7Z8yWBNh6JoNBKEZa7odgWMA31sGoFp/269"
+      },
+      {
+        "identifier": "274",
+        "collection": "seeds-from-the-memetic-garden",
+        "contract": "0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3",
+        "token_standard": "erc721",
+        "name": "Student",
+        "image_url": "https://i2c.seadn.io/base/0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3/acbeae6a1dcddc7c30d6ccbe2058b1/c3acbeae6a1dcddc7c30d6ccbe2058b1.png",
+        "metadata_url": "https://ipfs2.seadn.io/ipfs/QmbMw7RCVGzsSNT7Z8yWBNh6JoNBKEZa7odgWMA31sGoFp/274"
+      },
+      {
+        "identifier": "278",
+        "collection": "seeds-from-the-memetic-garden",
+        "contract": "0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3",
+        "token_standard": "erc721",
+        "name": "desperado",
+        "image_url": "https://i2c.seadn.io/base/0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3/b696a6c98c9b5cbe1e62bff27b0347/69b696a6c98c9b5cbe1e62bff27b0347.png",
+        "metadata_url": "https://ipfs2.seadn.io/ipfs/QmbMw7RCVGzsSNT7Z8yWBNh6JoNBKEZa7odgWMA31sGoFp/278"
+      },
+      {
+        "identifier": "280",
+        "collection": "seeds-from-the-memetic-garden",
+        "contract": "0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3",
+        "token_standard": "erc721",
+        "name": "Surprise mfer",
+        "image_url": "https://i2c.seadn.io/base/0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3/7ccd04ee3499db870504a330c0cc19/047ccd04ee3499db870504a330c0cc19.png",
+        "metadata_url": "https://ipfs2.seadn.io/ipfs/QmbMw7RCVGzsSNT7Z8yWBNh6JoNBKEZa7odgWMA31sGoFp/280"
+      },
+      {
+        "identifier": "296",
+        "collection": "seeds-from-the-memetic-garden",
+        "contract": "0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3",
+        "token_standard": "erc721",
+        "name": "Optic Illusion",
+        "image_url": "https://i2c.seadn.io/base/0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3/c233198a872d13f6ee164627775d25/46c233198a872d13f6ee164627775d25.png",
+        "metadata_url": "https://ipfs2.seadn.io/ipfs/QmbMw7RCVGzsSNT7Z8yWBNh6JoNBKEZa7odgWMA31sGoFp/296"
+      },
+      {
+        "identifier": "304",
+        "collection": "seeds-from-the-memetic-garden",
+        "contract": "0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3",
+        "token_standard": "erc721",
+        "name": "slippery mfer",
+        "image_url": "https://i2c.seadn.io/base/0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3/724f5b314ce5e6239c2ab8b5ad5bcf/77724f5b314ce5e6239c2ab8b5ad5bcf.jpeg",
+        "metadata_url": "https://ipfs2.seadn.io/ipfs/QmbMw7RCVGzsSNT7Z8yWBNh6JoNBKEZa7odgWMA31sGoFp/304"
+      },
+      {
+        "identifier": "313",
+        "collection": "seeds-from-the-memetic-garden",
+        "contract": "0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3",
+        "token_standard": "erc721",
+        "name": "mfer from the inside out",
+        "image_url": "https://i2c.seadn.io/base/0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3/1e8bd951f0fccb8b8b1648804a16a2/bd1e8bd951f0fccb8b8b1648804a16a2.jpeg",
+        "metadata_url": "https://ipfs2.seadn.io/ipfs/QmbMw7RCVGzsSNT7Z8yWBNh6JoNBKEZa7odgWMA31sGoFp/313"
+      },
+      {
+        "identifier": "318",
+        "collection": "seeds-from-the-memetic-garden",
+        "contract": "0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3",
+        "token_standard": "erc721",
+        "name": "mfercross",
+        "image_url": "https://i2c.seadn.io/base/0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3/f5300fe27919b7241bdee7367a840c/d3f5300fe27919b7241bdee7367a840c.gif",
+        "metadata_url": "https://ipfs2.seadn.io/ipfs/QmbMw7RCVGzsSNT7Z8yWBNh6JoNBKEZa7odgWMA31sGoFp/318"
+      },
+      {
+        "identifier": "321",
+        "collection": "seeds-from-the-memetic-garden",
+        "contract": "0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3",
+        "token_standard": "erc721",
+        "name": "Photografer",
+        "image_url": "https://i2c.seadn.io/base/0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3/5514891013d75801908c190bccb882/615514891013d75801908c190bccb882.jpeg",
+        "metadata_url": "https://ipfs2.seadn.io/ipfs/QmbMw7RCVGzsSNT7Z8yWBNh6JoNBKEZa7odgWMA31sGoFp/321"
+      },
+      {
+        "identifier": "324",
+        "collection": "seeds-from-the-memetic-garden",
+        "contract": "0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3",
+        "token_standard": "erc721",
+        "name": "Lost in the city",
+        "image_url": "https://i2c.seadn.io/base/0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3/b9bf1065e741225942420550453824/d3b9bf1065e741225942420550453824.png",
+        "metadata_url": "https://ipfs2.seadn.io/ipfs/QmbMw7RCVGzsSNT7Z8yWBNh6JoNBKEZa7odgWMA31sGoFp/324"
+      },
+      {
+        "identifier": "331",
+        "collection": "seeds-from-the-memetic-garden",
+        "contract": "0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3",
+        "token_standard": "erc721",
+        "name": "Flowfer",
+        "image_url": "https://i2c.seadn.io/base/0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3/1afeebcc6e1c7cb5bcdf736a3e1c33/861afeebcc6e1c7cb5bcdf736a3e1c33.png",
+        "metadata_url": "https://ipfs2.seadn.io/ipfs/QmbMw7RCVGzsSNT7Z8yWBNh6JoNBKEZa7odgWMA31sGoFp/331"
+      },
+      {
+        "identifier": "335",
+        "collection": "seeds-from-the-memetic-garden",
+        "contract": "0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3",
+        "token_standard": "erc721",
+        "name": "The Hall of Mfers",
+        "image_url": "https://i2c.seadn.io/base/0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3/ccf298bc56839f9de0c09a7ae695b3/cfccf298bc56839f9de0c09a7ae695b3.gif",
+        "metadata_url": "https://ipfs2.seadn.io/ipfs/QmbMw7RCVGzsSNT7Z8yWBNh6JoNBKEZa7odgWMA31sGoFp/335"
+      },
+      {
+        "identifier": "339",
+        "collection": "seeds-from-the-memetic-garden",
+        "contract": "0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3",
+        "token_standard": "erc721",
+        "name": "One night",
+        "image_url": "https://i2c.seadn.io/base/0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3/895620c53d9e81c312fa16c0296a90/6e895620c53d9e81c312fa16c0296a90.png",
+        "metadata_url": "https://ipfs2.seadn.io/ipfs/QmbMw7RCVGzsSNT7Z8yWBNh6JoNBKEZa7odgWMA31sGoFp/339"
+      },
+      {
+        "identifier": "341",
+        "collection": "seeds-from-the-memetic-garden",
+        "contract": "0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3",
+        "token_standard": "erc721",
+        "name": "Astrobottled mfer",
+        "image_url": "https://i2c.seadn.io/base/0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3/50ea29d42ce40f896134e628557191/d750ea29d42ce40f896134e628557191.png",
+        "metadata_url": "https://ipfs2.seadn.io/ipfs/QmbMw7RCVGzsSNT7Z8yWBNh6JoNBKEZa7odgWMA31sGoFp/341"
+      },
+      {
+        "identifier": "353",
+        "collection": "seeds-from-the-memetic-garden",
+        "contract": "0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3",
+        "token_standard": "erc721",
+        "name": "does not compute",
+        "image_url": "https://i2c.seadn.io/base/0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3/e57cfd9dc5ff034c5456053b81921b/e4e57cfd9dc5ff034c5456053b81921b.gif",
+        "metadata_url": "https://ipfs2.seadn.io/ipfs/QmbMw7RCVGzsSNT7Z8yWBNh6JoNBKEZa7odgWMA31sGoFp/353"
+      },
+      {
+        "identifier": "367",
+        "collection": "seeds-from-the-memetic-garden",
+        "contract": "0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3",
+        "token_standard": "erc721",
+        "name": "Soldier",
+        "image_url": "https://i2c.seadn.io/base/0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3/fe0e167f299ffa4a13e02e5123453a/89fe0e167f299ffa4a13e02e5123453a.png",
+        "metadata_url": "https://ipfs2.seadn.io/ipfs/QmbMw7RCVGzsSNT7Z8yWBNh6JoNBKEZa7odgWMA31sGoFp/367"
+      }
+    ],
+    "next": null
+  }
+}

@@ -32,7 +32,7 @@ one person — nothing measures or enforces it. **The honest statement is that r
 and answered as quickly as one maintainer can**, and that an in-progress exploit should go to
 SEAL 911 in parallel rather than waiting on a reply here.
 
-Please do **not** open public GitHub issues for vulnerabilities.
+Please do **not** open public issues for vulnerabilities, on any git host.
 
 ## Scope
 
@@ -48,19 +48,25 @@ Please do **not** open public GitHub issues for vulnerabilities.
 - GaugeController and the governance / voting contracts (deployed, frontend-gated)
 - **`LighthouseLadder`** — the six EVM bungalow staking pools (Ethereum + Base), live since 2026-08-30
 - **The Base 8453 and Robinhood 4663 legs**, live since 2026-08-25, including `AttestedSequencerUptimeFeed`
+- **The two Solana programs**, live since 2026-09-29: cp-swap, the pool program, at `EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT`, and tegridy-launch, the bonding curve, at `64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2`. Neither is audited; [`solana/tegridy-amm/SECURITY.md`](./solana/tegridy-amm/SECURITY.md) says what has and has not been reviewed
 - Any address listed as live in [`frontend/scripts/addresses.json`](frontend/scripts/addresses.json), which is the registry of record
 
 Frontend code paths that directly handle user funds, signatures, or private keys are also in
 scope, as is the serverless API under `frontend/api/`.
 
 **Not currently in scope because they no longer exist on-chain:** the two own-venue Solana
-programs were deployed 2026-08-08 and **closed 2026-08-13**; their program ids are spent.
+programs deployed 2026-08-08 were **closed 2026-08-13**; those program ids are spent.
 The Meteora DBC rail was deleted 2026-08-23. Reports against either are welcome as *code*
-findings but there is nothing live to exploit.
+findings but there is nothing live to exploit at those ids.
+
+**The two Solana programs that went live on 2026-09-29 are in scope** (owner decision
+O-0929-12 in `docs/TODO_OPERATOR.md`, made 2026-10-10): they are on the list above. Their own
+policy, [`solana/tegridy-amm/SECURITY.md`](./solana/tegridy-amm/SECURITY.md), takes reports at
+the same address as this file. Test them on a local validator, never against mainnet.
 
 ## Out of Scope
 
-- **UI / UX bugs** — please open a regular [GitHub issue](https://github.com/fomotsar-commits/tegridy-farms/issues) instead
+- **UI / UX bugs** — please open a regular [issue](https://memetics.finance/source-issues) instead
 - **Known issues** — previously disclosed findings documented in [AUDIT_FINDINGS.md](./docs/archive/AUDIT_FINDINGS.md) are not eligible
 - **Third-party dependencies** — vulnerabilities in Uniswap V3, Chainlink oracles, OpenZeppelin libraries, or other external protocols should be reported upstream to the respective maintainers
 - **Test, mock, deprecated, or testnet contracts** — anything not explicitly listed as mainnet in CONTRACTS.md

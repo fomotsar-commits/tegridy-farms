@@ -29,6 +29,8 @@ import {
   summarize,
   isUsableRestore,
   formatSummary,
+  supabaseAuthHeaders,
+  supabaseKeyKind,
 } from "./supabase-restore.mjs";
 
 const FRONTEND = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -165,6 +167,32 @@ describe("error diagnosis points at the cause, not the symptom", () => {
 
   it("explains a foreign-key violation in restore-order terms", () => {
     expect(diagnoseInsertError("dm_messages", 409, "23503")).toContain("trade_offers before dm_messages");
+  });
+});
+
+describe("both kinds of Supabase service key authenticate", () => {
+  const jwt = (claims) => `eyJhbGciOiJIUzI1NiJ9.${Buffer.from(JSON.stringify(claims)).toString("base64url")}.sig`;
+
+  it("reads the key's kind from its shape", () => {
+    expect(supabaseKeyKind("sb_secret_abc")).toBe("secret");
+    expect(supabaseKeyKind("sb_publishable_abc")).toBe("publishable");
+    expect(supabaseKeyKind(jwt({ role: "service_role" }))).toBe("service_role");
+    expect(supabaseKeyKind(jwt({ role: "anon" }))).toBe("jwt:anon");
+    expect(supabaseKeyKind("eyJnot.a.jwt")).toBe("jwt:unreadable");
+    expect(supabaseKeyKind("something-else")).toBe("unknown");
+  });
+
+  it("sends an sb_ key on apikey only, and a legacy JWT on both headers", () => {
+    // Supabase: secret keys are not JWTs, so a Bearer copy of one fails JWT verification.
+    expect(supabaseAuthHeaders("sb_secret_abc")).toEqual({ apikey: "sb_secret_abc" });
+    const legacy = jwt({ role: "service_role" });
+    expect(supabaseAuthHeaders(legacy)).toEqual({ apikey: legacy, Authorization: `Bearer ${legacy}` });
+  });
+
+  it("builds every request's key headers through that one function", () => {
+    const src = readFileSync(join(FRONTEND, "scripts", "supabase-restore.mjs"), "utf-8");
+    expect(src.match(/Bearer \$\{key\}/g) ?? []).toHaveLength(1);
+    expect(src.match(/\.\.\.supabaseAuthHeaders\(key\)/g) ?? []).toHaveLength(2);
   });
 });
 

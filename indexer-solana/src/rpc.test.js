@@ -46,6 +46,49 @@ describe("createSolanaRpc", () => {
     expect(seen).toEqual(["https://a", "https://b"]);
   });
 
+  // The timeout covers the whole answer. An endpoint that sends a 200, its headers and
+  // half a body is unreachable, and the sync moves to the next one.
+  describe("an endpoint that stops part-way through its answer", () => {
+    /** Headers, then a body that ends only when the request is aborted, and then as a parse error. */
+    const stalled = (init) => ({
+      ok: true,
+      status: 200,
+      json: () =>
+        new Promise((_resolve, reject) => {
+          init.signal.addEventListener("abort", () => reject(new SyntaxError("Unexpected end of JSON input")));
+        }),
+    });
+    /** How the call ended, or "still pending" a second later (the timeout here is 50 ms). */
+    const within1s = (call) =>
+      Promise.race([
+        call.then((value) => ({ value }), (error) => ({ kind: error.kind })),
+        new Promise((resolve) => setTimeout(() => resolve("still pending"), 1_000)),
+      ]);
+
+    it("is given up at the timeout, and the next endpoint is asked", async () => {
+      const seen = [];
+      const fetchImpl = async (url, init) => {
+        seen.push(url);
+        return url === "https://a" ? stalled(init) : ok(99);
+      };
+      const rpc = createSolanaRpc({ urls: ["https://a", "https://b"], fetchImpl, timeoutMs: 50 });
+      expect(await within1s(rpc.getSlot())).toEqual({ value: 99 });
+      expect(seen).toEqual(["https://a", "https://b"]);
+    });
+
+    it("is unreachable, not malformed, when no endpoint is left", async () => {
+      const rpc = createSolanaRpc({ urls: ["https://a"], fetchImpl: async (_url, init) => stalled(init), timeoutMs: 50 });
+      expect(await within1s(rpc.getSlot())).toEqual({ kind: "unreachable" });
+    });
+
+    it("a whole answer that is not JSON is still malformed, and is not asked elsewhere", async () => {
+      const fetchImpl = vi.fn(async () => ({ ok: true, status: 200, json: async () => JSON.parse("<!doctype html>") }));
+      const rpc = createSolanaRpc({ urls: ["https://a", "https://b"], fetchImpl, timeoutMs: 50 });
+      expect(await within1s(rpc.getSlot())).toEqual({ kind: "malformed" });
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+    });
+  });
+
   // A second endpoint answers a "this data is gone" the same way. Rotating on
   // it turns one honest error into one per configured endpoint and hides which
   // failure actually happened.

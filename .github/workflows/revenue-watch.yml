@@ -67,7 +67,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 20
+          node-version: 24
 
       - name: Read the stranded caller credit
         id: credit
@@ -83,9 +83,9 @@ jobs:
         id: read
         shell: bash
         env:
-          # Not in the repo by choice — the Solana swap-fee wallet is the one
-          # fee address that has never been published, so it comes from a repo
-          # variable. Unset simply skips that leg, loudly.
+          # Optional extra Solana wallet to watch. Venue swap fees go to the
+          # Squads partner vault, read unconditionally below. Unset skips only
+          # this extra leg.
           SOLANA_FEE_ACCOUNT: ${{ vars.SOLANA_FEE_ACCOUNT }}
         run: |
           # GitHub runs `run:` under `bash -e -o pipefail`. This script is a PROBE:
@@ -178,7 +178,7 @@ jobs:
           if [ -n "${SOLANA_FEE_ACCOUNT:-}" ]; then
             sol_tokens "Solana swap-fee wallet" "$SOLANA_FEE_ACCOUNT"
           else
-            UNCONFIGURED="$UNCONFIGURED\n- Solana swap-fee wallet: set the SOLANA_FEE_ACCOUNT repo variable to watch this rail"
+            UNCONFIGURED="$UNCONFIGURED\n- Solana swap-fee wallet: none set. Venue swap fees go to the Squads partner vault, which is watched; the SOLANA_FEE_ACCOUNT repo variable adds one more wallet"
           fi
 
           {

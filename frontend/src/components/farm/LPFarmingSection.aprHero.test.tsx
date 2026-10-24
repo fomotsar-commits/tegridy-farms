@@ -12,8 +12,9 @@
  *
  * With NOTHING staked it was worse. `totalStaked === 0n` was tested before
  * `!isActive`, so the hero invited "be the first to stake LP to activate the live
- * APR" onto a farm with no live APR to activate. That is mainnet today —
- * addresses.json records the LP farm's emissions ended 2026-06-15, 0 LP staked.
+ * APR" onto a farm with no live APR to activate. Mainnet today is the FIRST case:
+ * emissions ended 2026-06-15 and one wallet has 528.2 LP staked (addresses.json,
+ * read 2026-10-14).
  *
  * These mount the REAL useLPFarming on the shared wagmi mock, not a hand-built
  * `lpFarm` object: the zero rate on an ended period is then what the hook actually

@@ -31,6 +31,7 @@ import {
   MIN_LOCK_SECS, MAX_LOCK_SECS, MIN_BOOST_BPS, MAX_BOOST_BPS, MAX_POSITIONS,
   MAX_EARLY_EXIT_PENALTY_BPS, PENALTY_SCALE, MAX_PENALTY_RATIO, penaltyPct,
   PRECISION, minWeightFloor, lastTimeApplicable, rewardPerWeightNow, earnedNow,
+  REWARDS_DURATION_SECS,
 } from './program';
 
 const MATH_RS = resolve(
@@ -162,6 +163,26 @@ describe('the penalty — the veYFI schedule, read from the program and checked 
     expect(src).not.toMatch(/pub const EARLY_EXIT_PENALTY_BPS/);
   });
 
+  it('uses the emission window math.rs declares, and that window is the maximum lock', () => {
+    // Owner decision 2026-09-20: 90 days became four years. A frontend that computes a
+    // different window than the program is the failure this repo keeps recording, so
+    // read the program's value out of its source instead of trusting this copy.
+    // math.rs writes both constants as a product (`4 * 365 * 86_400`), not a single
+    // literal, so parse the product strictly: digits, underscores, `*` and spaces only.
+    expect(existsSync(MATH_RS), `math.rs not found at ${MATH_RS}`).toBe(true);
+    const src = readFileSync(MATH_RS, 'utf8');
+    const product = (name: string): number => {
+      const m = new RegExp(`pub const ${name}: i64 = ([\\d_ *]+);`).exec(src);
+      expect(m, `${name} not found in math.rs as an integer product — re-anchor this test`).not.toBeNull();
+      return m![1]!.split('*').reduce((acc, f) => acc * Number(f.trim().replace(/_/g, '')), 1);
+    };
+    expect(REWARDS_DURATION_SECS).toBe(product('REWARDS_DURATION_SECS'));
+    expect(MAX_LOCK_SECS).toBe(product('MAX_LOCK_SECS'));
+    // The point of the change, not an accident of it: one window per top-rung lock.
+    expect(REWARDS_DURATION_SECS).toBe(MAX_LOCK_SECS);
+    expect(REWARDS_DURATION_SECS).toBe(126_144_000);
+  });
+
   it('charges min(time left / 4 years, 75%), floored twice — the cases math.rs pins', () => {
     expect(MAX_PENALTY_RATIO).toBe((PENALTY_SCALE * 3n) / 4n);
     // the cap: three years or more left
@@ -224,6 +245,20 @@ describe('quoteExit — the doors, and what each ACTUALLY costs', () => {
     // The percentage in the sentence is the constant's, not a literal that can lag it.
     expect(door(q, 'hatch').reason).toMatch(/^75% retained/);
     expect(door(q, 'early').reason).toMatch(/^75% retained/);
+  });
+
+  // The card prints the hatch's reason as is, and venue copy carries no em dash.
+  it('no door is explained with an em dash, in any state', () => {
+    let n = 0;
+    for (const pos of [locked, lockedOneYear, lockedOneWeek, matured]) {
+      for (const pool of [healthy, degraded]) {
+        for (const q of quoteExit(pos, pool, NOW)) {
+          expect(q.reason, `${q.door}: ${q.reason}`).not.toContain('—');
+          n += 1;
+        }
+      }
+    }
+    expect(n).toBe(24);
   });
 
   it('the two normal doors PARTITION time — exactly one is open', () => {

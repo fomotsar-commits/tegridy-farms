@@ -1,0 +1,649 @@
+// @vitest-environment node
+//
+// THE RULE: a transaction we only failed to CONFIRM is never reported as failed.
+// Someone told "failed" presses the button again and pays twice. So every ending is
+// pinned here with the evidence it needs: confirmed and reverted come from the
+// network's own status; expired needs the block height PAST the transaction's last
+// valid height AND no record in history; everything short of that is "unknown",
+// carrying the signature.
+import { describe, it, expect, vi } from 'vitest';
+import { base58 } from '@scure/base';
+import { WalletAccountError, WalletConfigError, WalletNotConnectedError, WalletSignTransactionError, WalletTimeoutError } from '@solana/wallet-adapter-base';
+import { Keypair, SendTransactionError, SystemProgram, Transaction, TransactionInstruction } from '@solana/web3.js';
+import { WSOL_MINT, cpPermissionPda, migrationAuthorityPda } from '../curve/program';
+import { associatedTokenAddress } from '../curve/ix';
+import { quoteBuyOnCurve } from '../curve/math';
+import { readCurve } from '../curve/read';
+import { CP_CREATE_POOL_FEE_RECEIVER, readWriteGate } from './config';
+import { explainFailure } from './errors';
+import { LIGHTHOUSE_PROGRAM_ID } from './intent';
+import { prepareCreateLaunch, quoteOpeningBuy } from './launch';
+import { recheckOutcome, submitPrepared } from './submit';
+import { DECLINED_IN_WALLET } from '../../../solana/swap/walletCopy';
+import { prepareCurveBuy } from './trade';
+import { CPSWAP, FakeChain, LAUNCH, VAULT, addPlantAccounts, cfgLocal, freshCurve, globalValue, plantMoved, rent } from './testkit.fixture';
+import type { OpenGate, PreparedTx, TxOutcome, TxSigner, WriteRpc } from './types';
+
+/** The fake answers every call the write path makes; Connection’s overloads are not worth re-typing. */
+const W = (c: FakeChain) => c as unknown as WriteRpc;
+
+const WALLET = Keypair.generate();
+const ME = WALLET.publicKey;
+const CREATOR = Keypair.generate().publicKey;
+const MINT = Keypair.generate().publicKey;
+const ATA = associatedTokenAddress(MINT, ME);
+
+async function preparedBuy(): Promise<{ chain: FakeChain; p: PreparedTx; gate: OpenGate }> {
+  const chain = FakeChain.healthy(globalValue());
+  chain.set(cpPermissionPda(migrationAuthorityPda(LAUNCH), CPSWAP), { lamports: 1, owner: CPSWAP, data: new Uint8Array(8) });
+  chain.tokenAccount(CP_CREATE_POOL_FEE_RECEIVER, WSOL_MINT, VAULT, 0n);
+  chain.fund(ME, 10_000_000_000);
+  chain.addCurve(freshCurve(MINT, CREATOR));
+  const gate = (await readWriteGate(chain, cfgLocal)) as OpenGate;
+  const c = await readCurve(chain, MINT, LAUNCH);
+  if (c.kind !== 'ok') throw new Error('curve');
+  const q = quoteBuyOnCurve(c.value.curve, 100_000_000n);
+  if (!q.ok) throw new Error('quote');
+  chain.simulate = (_v, config) => ({
+    err: null,
+    logs: [],
+    unitsConsumed: 50_000,
+    ...(config?.accounts
+      ? {
+          accounts: chain.post(config.accounts.addresses, {
+            [ME.toBase58()]: { lamportsDelta: -(100_000_000 + rent(165)) },
+            [ATA.toBase58()]: { tokenAmount: q.value.tokensOut, mint: MINT, owner: ME },
+          }),
+        }
+      : {}),
+  });
+  const r = await prepareCurveBuy(W(chain), gate, { trader: ME, mint: MINT, curve: c.value, lamportsIn: 100_000_000n, slippageBps: 100n });
+  if (!r.ok) throw new Error(r.outcome.message);
+  chain.calls = [];
+  return { chain, p: r.prepared, gate };
+}
+
+const walletSigner = (edit?: (tx: Transaction) => Transaction): TxSigner => ({
+  publicKey: ME,
+  async signTransaction<T extends Transaction>(tx: T): Promise<T> {
+    // Behave like a Wallet Standard adapter: bytes out, a NEW Transaction back.
+    let copy = Transaction.from(tx.serialize({ requireAllSignatures: false, verifySignatures: false }));
+    if (edit) copy = edit(copy);
+    copy.partialSign(WALLET);
+    return copy as T;
+  },
+});
+
+const deps = { sleep: async () => {}, intervalMs: 1 };
+const clock = () => {
+  let t = 0;
+  return () => (t += 1_000);
+};
+
+const neverFailed = (o: TxOutcome) => {
+  if (o.status === 'unknown') expect(o.message).not.toMatch(/fail/i);
+};
+
+describe('before anything is sent', () => {
+  it('a declined signature is not-sent, says so, and never reaches the network', async () => {
+    const { chain, p } = await preparedBuy();
+    const o = await submitPrepared(W(chain), { publicKey: ME, signTransaction: async () => { throw new Error('User rejected the request.'); } }, p, deps);
+    expect(o).toMatchObject({ status: 'not-sent', stage: 'sign', message: expect.stringMatching(/cancelled/) });
+    expect(chain.calls).not.toContain('sendRawTransaction');
+  });
+
+  // Every adapter rethrows ANY failure inside its signTransaction as a
+  // WalletSignTransactionError(inner.message, inner): the shapes below are the ones
+  // Trust's provider and the WalletConnect adapter reject with.
+  const failingWith = (inner: unknown): TxSigner => ({
+    publicKey: ME,
+    signTransaction: async () => {
+      throw new WalletSignTransactionError((inner as Error)?.message, inner);
+    },
+  });
+
+  /** A sign that threw: always not-sent at the sign stage, with nothing broadcast. Returns what the card is told. */
+  const unsigned = async (signer: TxSigner): Promise<string> => {
+    const { chain, p } = await preparedBuy();
+    const o = await submitPrepared(W(chain), signer, p, deps);
+    expect(o).toMatchObject({ status: 'not-sent', stage: 'sign' });
+    expect(chain.calls).not.toContain('sendRawTransaction');
+    return o.status === 'not-sent' ? o.message : '';
+  };
+  const throwing = (thrown: unknown): TxSigner => ({ publicKey: ME, signTransaction: async () => { throw thrown; } });
+  /** The whole sentence a failed sign is said in, so nothing else can ride along with the reason. */
+  const NOT_SIGNED = (reason: string) => `Your wallet did not sign this (${reason}). Nothing was sent.`;
+
+  it.each([
+    ['a wallet that failed before showing a prompt', new Error('invalid account')],
+    ['a WalletConnect session that never allowed signing', new Error("This wallet didn't allow transaction signing over WalletConnect")],
+  ])('%s is not reported as a cancel, and says what the wallet said', async (_, inner) => {
+    const { chain, p } = await preparedBuy();
+    const o = await submitPrepared(W(chain), failingWith(inner), p, deps);
+    expect(o).toMatchObject({ status: 'not-sent', stage: 'sign' });
+    if (o.status !== 'not-sent') return;
+    expect(o.message).not.toMatch(/cancel/i);
+    expect(o.message).toContain(inner.message);
+    expect(chain.calls).not.toContain('sendRawTransaction');
+  });
+
+  it('a wallet that rejects with a bare string is quoted, never "the RPC call failed"', async () => {
+    const { chain, p } = await preparedBuy();
+    const o = await submitPrepared(W(chain), failingWith('Transaction could not be decoded'), p, deps);
+    expect(o).toMatchObject({ status: 'not-sent', stage: 'sign', message: expect.stringContaining('Transaction could not be decoded') });
+    if (o.status === 'not-sent') expect(o.message).not.toMatch(/cancel|RPC/i);
+  });
+
+  it('a wallet that gives no reason at all is not reported as a cancel', async () => {
+    const { chain, p } = await preparedBuy();
+    const o = await submitPrepared(W(chain), failingWith(undefined), p, deps);
+    expect(o).toMatchObject({ status: 'not-sent', stage: 'sign' });
+    if (o.status === 'not-sent') expect(o.message).not.toMatch(/cancel|RPC/i);
+  });
+
+  // The swap page reads `message === DECLINED_IN_WALLET` as "they said no" and goes
+  // back to the form without a card (quietSwap.ts). So a decline must be exactly that
+  // sentence, and a failure must never be.
+  it.each([
+    // Trust's CallbackAdapter turns a numeric answer into RPCError(4001, '4001').
+    ['Trust’s 4001, whose message is only the number', Object.assign(new Error('4001'), { code: 4001 })],
+    ['Trust’s older bare-string answer', 'Canceled'],
+    ['a bare 4001 with no error around it', 4001],
+    ['a WalletConnect decline', Object.assign(new Error('User rejected.'), { code: 5000 })],
+    ['Phantom’s decline', Object.assign(new Error('User rejected the request.'), { code: 4001 })],
+    ['a decline that is a plain object, not an Error', { code: 4001, message: 'User rejected the request.' }],
+    ['Backpack’s decline', new Error('Approval Denied')],
+    ['Solflare’s decline', new Error('Transaction cancelled')],
+    ['Coinbase Wallet’s decline', new Error('User denied transaction signature')],
+    ['a hardware wallet’s decline', new Error('Ledger device: Condition of use not satisfied (denied by the user?) (0x6985)')],
+  ])('%s still reads as a cancel', async (_, inner) => {
+    expect(await unsigned(failingWith(inner))).toBe(DECLINED_IN_WALLET);
+    // The same answer straight from the wallet, with no adapter error around it.
+    expect(await unsigned(throwing(inner))).toBe(DECLINED_IN_WALLET);
+  });
+
+  // StandardWalletAdapter throws these three with no words, before the wallet is asked,
+  // and does not wrap them. Each is said from its name: "it gave no reason" would send
+  // the next report back with nothing in it.
+  it.each([
+    ['a page that lost its connection to the wallet', new WalletNotConnectedError(), 'this page is no longer connected to it, so it was never asked'],
+    ['a wallet that offers no transaction signing', new WalletConfigError(), 'it does not offer transaction signing to this page, so it was never asked'],
+    ['an account that does not allow signing', new WalletAccountError(), 'the account it shared does not allow transaction signing, so it was never asked'],
+  ])('%s is said plainly, and is not a cancel', async (_, thrown, reason) => {
+    expect(await unsigned(throwing(thrown))).toBe(NOT_SIGNED(reason));
+  });
+
+  it('an adapter error that carries words says the words, not its name', async () => {
+    expect(await unsigned(throwing(new WalletAccountError('The wallet shared no Solana account')))).toBe(NOT_SIGNED('The wallet shared no Solana account'));
+  });
+
+  it.each([
+    // Trust answers with a bare number: RPCError(4100, '4100').
+    ['a numeric answer that is not 4001', Object.assign(new Error('4100'), { code: 4100 }), 'error code 4100'],
+    ['a bare number', -32603, 'error code -32603'],
+    ['a code with no words at all', { code: -32603, data: { why: 'internal' } }, 'error code -32603'],
+    ['a code sent as text, with no words', { code: '4900' }, 'error code 4900'],
+  ])('%s is called an error code, and is not a cancel', async (_, inner, reason) => {
+    expect(await unsigned(failingWith(inner))).toBe(NOT_SIGNED(reason));
+  });
+
+  it('an error with a name and nothing else says the name', async () => {
+    expect(await unsigned(throwing(new WalletTimeoutError()))).toBe(NOT_SIGNED('it gave no reason, only the name WalletTimeoutError'));
+    // The wrapper every failure wears, and a bare Error, say nothing about why.
+    expect(await unsigned(throwing(new WalletSignTransactionError()))).toBe(NOT_SIGNED('it gave no reason'));
+    expect(await unsigned(throwing(new Error('')))).toBe(NOT_SIGNED('it gave no reason'));
+    expect(await unsigned(throwing(undefined))).toBe(NOT_SIGNED('it gave no reason'));
+  });
+
+  it('only words are printed: never an object, and a long answer is cut to one line', async () => {
+    const odd = { message: { nested: true }, name: { also: 'an object' }, code: { n: 1 }, stack: 'Error\n    at sign (wallet.js:1:1)' };
+    expect(await unsigned(failingWith(odd))).toBe(NOT_SIGNED('it gave no reason'));
+    // An object that points at itself is read to a fixed depth, and ends.
+    const loop: { error?: unknown } = {};
+    loop.error = loop;
+    expect(await unsigned(throwing(loop))).toBe(NOT_SIGNED('it gave no reason'));
+
+    const long = await unsigned(failingWith(new Error(`could not decode\n  the transaction\n${'x'.repeat(600)}`)));
+    expect(long).not.toMatch(/\n|\[object|cancel/i);
+    expect(long.startsWith('Your wallet did not sign this (could not decode the transaction xxx')).toBe(true);
+    expect(long.length).toBeLessThan(260);
+  });
+
+  // The WalletConnect adapter's own sentences end "Nothing was sent", and so does ours.
+  it.each([
+    ['The WalletConnect session has ended. Connect again. Nothing was sent', 'The WalletConnect session has ended. Connect again'],
+    ['No answer from the wallet in time. Nothing was sent', 'No answer from the wallet in time'],
+    ['Nothing was sent.', 'it gave no reason'],
+  ])('"%s" is not said twice', async (words, reason) => {
+    expect(await unsigned(failingWith(new Error(words)))).toBe(NOT_SIGNED(reason));
+  });
+
+  it('a different connected wallet is refused before signing', async () => {
+    const { chain, p } = await preparedBuy();
+    const o = await submitPrepared(W(chain), { ...walletSigner(), publicKey: Keypair.generate().publicKey }, p, deps);
+    expect(o).toMatchObject({ status: 'not-sent', stage: 'sign' });
+  });
+
+  it('a wallet that ADDS a transfer to a stranger is refused, nothing sent', async () => {
+    const { chain, p } = await preparedBuy();
+    const stranger = Keypair.generate().publicKey;
+    const o = await submitPrepared(W(chain), walletSigner((tx) => tx.add(SystemProgram.transfer({ fromPubkey: ME, toPubkey: stranger, lamports: 1 }))), p, deps);
+    expect(o).toMatchObject({ status: 'not-sent', stage: 'sign', message: expect.stringMatching(/Your wallet changed this transaction/) });
+    expect(chain.calls).not.toContain('sendRawTransaction');
+  });
+
+  it('a wallet that appends an assertion-only guard is accepted after a re-simulation', async () => {
+    const { chain, p } = await preparedBuy();
+    const guard = new TransactionInstruction({ programId: LIGHTHOUSE_PROGRAM_ID, keys: [], data: Buffer.from([7]) });
+    const o = await submitPrepared(W(chain), walletSigner((tx) => tx.add(guard)), p, deps);
+    expect(o.status).toBe('confirmed');
+    expect(chain.calls).toContain('simulateTransaction');
+  });
+
+  it('a wallet returning an unsigned transaction is refused (signatures verified)', async () => {
+    const { chain, p } = await preparedBuy();
+    const o = await submitPrepared(W(chain), { publicKey: ME, signTransaction: async (tx) => tx }, p, deps);
+    expect(o).toMatchObject({ status: 'not-sent', stage: 'sign' });
+    expect(chain.calls).not.toContain('sendRawTransaction');
+  });
+
+  it('a preflight rejection is not-sent, with the program’s reason', async () => {
+    const { chain, p } = await preparedBuy();
+    chain.sendRawTransaction = async () => {
+      const e = new Error('Simulation failed. Message: Transaction simulation failed: Error processing Instruction 3: custom program error: 0x1777.') as Error & { logs: string[] };
+      e.logs = [`Program ${LAUNCH.toBase58()} failed: custom program error: 0x1777`];
+      throw e;
+    };
+    const o = await submitPrepared(W(chain), walletSigner(), p, deps);
+    expect(o).toMatchObject({ status: 'not-sent', stage: 'send', message: expect.stringMatching(/price moved past your limit.*Nothing was sent/) });
+  });
+
+  // LC-9: a slow approval in the wallet outlives the blockhash, and the first send's
+  // preflight answers "Blockhash not found" with no logs. The general words ("could not
+  // run") said neither what happened nor what to do. Both shapes web3.js can throw.
+  for (const logs of [[], undefined]) {
+    it(`a blockhash the network will not take (logs ${logs ? 'empty' : 'missing'}) is not-sent, says it took too long to sign, and is never sent again`, async () => {
+      const { chain, p } = await preparedBuy();
+      let sends = 0;
+      chain.sendRawTransaction = async () => {
+        sends++;
+        throw new SendTransactionError({ action: 'simulate', signature: '', transactionMessage: 'Transaction simulation failed: Blockhash not found', logs });
+      };
+      const o = await submitPrepared(W(chain), walletSigner(), p, deps);
+      expect(o).toMatchObject({ status: 'not-sent', stage: 'send' });
+      const message = o.status === 'not-sent' ? o.message : '';
+      expect(message).not.toContain(explainFailure(null, [], cfgLocal).message);
+      expect(message).toMatch(/too long to sign.*Start over.*Nothing was sent\.$/);
+      // The card around every not-sent outcome says "Nothing was charged." itself, once.
+      expect(message).not.toMatch(/charged/i);
+      expect(message, 'no em dash').not.toContain(String.fromCharCode(0x2014));
+      // "Nothing was sent" stays true: no second send, with or without preflight.
+      expect(sends).toBe(1);
+    });
+  }
+
+  it('any other preflight refusal with no logs keeps the general words', async () => {
+    const { chain, p } = await preparedBuy();
+    chain.sendRawTransaction = async () => {
+      throw new SendTransactionError({ action: 'simulate', signature: '', transactionMessage: 'Transaction simulation failed: Transaction signature verification failure', logs: [] });
+    };
+    const o = await submitPrepared(W(chain), walletSigner(), p, deps);
+    expect(o).toMatchObject({ status: 'not-sent', stage: 'send' });
+    const message = o.status === 'not-sent' ? o.message : '';
+    expect(message).toContain(explainFailure(null, [], cfgLocal).message);
+    expect(message).not.toMatch(/too long to sign/);
+  });
+});
+
+describe('after it is sent', () => {
+  it('confirmed, with the signature taken from the signed bytes before broadcast', async () => {
+    const { chain, p } = await preparedBuy();
+    let sentSig = '';
+    chain.sendRawTransaction = async (raw: Uint8Array) => {
+      chain.calls.push('sendRawTransaction');
+      sentSig = base58.encode(Transaction.from(raw).signature!);
+      return sentSig;
+    };
+    const o = await submitPrepared(W(chain), walletSigner(), p, deps);
+    expect(o).toEqual({ status: 'confirmed', signature: sentSig, slot: 7 });
+  });
+
+  it('a network error on send is NOT "not sent": it watches, and reports what the chain says', async () => {
+    const { chain, p } = await preparedBuy();
+    let first = true;
+    chain.sendRawTransaction = async () => {
+      if (first) {
+        first = false;
+        throw new Error('fetch failed');
+      }
+      return 'x';
+    };
+    const o = await submitPrepared(W(chain), walletSigner(), p, deps);
+    expect(o.status).toBe('confirmed');
+  });
+
+  it('status reads that fail are "not yet", then confirmed', async () => {
+    const { chain, p } = await preparedBuy();
+    let n = 0;
+    chain.getSignatureStatuses = async () => {
+      n++;
+      if (n < 3) throw new Error('503');
+      return { value: [{ err: null, confirmationStatus: 'finalized', slot: 9 }] };
+    };
+    const o = await submitPrepared(W(chain), walletSigner(), p, deps);
+    expect(o).toMatchObject({ status: 'confirmed', slot: 9 });
+  });
+
+  // UXR12/R6-3: the card around a refusal says what it cost (network AND priority
+  // fee). The message carries only the reason, so the cost is never said twice, and
+  // never as "only the network fee".
+  it('landed and reverted: names the program and gives the reason, without a fee sentence of its own', async () => {
+    const { chain, p } = await preparedBuy();
+    chain.getSignatureStatuses = async () => ({ value: [{ err: { InstructionError: [3, { Custom: 6007 }] }, confirmationStatus: 'confirmed', slot: 3 }] });
+    chain.getTransaction = async () => ({ meta: { logMessages: [`Program ${LAUNCH.toBase58()} failed: custom program error: 0x1777`] } });
+    const o = await submitPrepared(W(chain), walletSigner(), p, deps);
+    expect(o).toMatchObject({ status: 'reverted', program: 'launch', code: 6007, message: expect.stringMatching(/price moved past your limit/) });
+    expect(o.status === 'reverted' && o.message).not.toMatch(/fee/i);
+  });
+
+  // FS-1: the page must be able to write its "may still land" note BEFORE anything
+  // leaves the browser, so a reload during the wait cannot hand back a fresh form.
+  it('tells the page the signature and blockhash window before the first send, and not at all when nothing is signed', async () => {
+    const { chain, p } = await preparedBuy();
+    const order: string[] = [];
+    let told: [string, number] | null = null;
+    chain.sendRawTransaction = async (raw: Uint8Array) => {
+      order.push(`send:${base58.encode(Transaction.from(raw).signature!)}`);
+      return 'x';
+    };
+    const o = await submitPrepared(W(chain), walletSigner(), p, {
+      ...deps,
+      onSent: (sig, lvbh) => {
+        told = [sig, lvbh];
+        order.push(`sent:${sig}`);
+      },
+    });
+    expect(o.status).toBe('confirmed');
+    expect(told).toEqual([o.status === 'confirmed' ? o.signature : '', p.lastValidBlockHeight]);
+    expect(order[0]).toBe(`sent:${told![0]}`);
+    expect(order[1]).toBe(`send:${told![0]}`);
+
+    const declined = vi.fn();
+    const { chain: c2, p: p2 } = await preparedBuy();
+    await submitPrepared(W(c2), { publicKey: ME, signTransaction: async () => { throw new Error('User rejected the request.'); } }, p2, { ...deps, onSent: declined });
+    expect(declined).not.toHaveBeenCalled();
+  });
+
+  it('a page note that cannot be written does not stop the send', async () => {
+    const { chain, p } = await preparedBuy();
+    const o = await submitPrepared(W(chain), walletSigner(), p, { ...deps, onSent: () => { throw new Error('storage full'); } });
+    expect(o.status).toBe('confirmed');
+  });
+
+  // FS-2: past the height, "no record" is proof only from a server that has caught up
+  // to the finalized slot. A lagging server behind a load balancer has simply not
+  // seen the block yet; told "safe to try again", the person pays twice.
+  it('past the height, "no record" from servers BEHIND the finalized slot is UNKNOWN, never expired', async () => {
+    const { chain, p } = await preparedBuy();
+    chain.getBlockHeight = async () => p.lastValidBlockHeight + 1;
+    chain.getSignatureStatuses = async () => ({ context: { slot: FakeChain.FINALIZED_SLOT - 40 }, value: [null] });
+    const o = await submitPrepared(W(chain), walletSigner(), p, deps);
+    expect(o.status).toBe('unknown');
+    neverFailed(o);
+    // A server that does not say where it is proves nothing either.
+    chain.getSignatureStatuses = async () => ({ value: [null] });
+    expect((await submitPrepared(W(chain), walletSigner(), p, deps)).status).toBe('unknown');
+    // Nor when the finalized slot itself cannot be read.
+    chain.getSignatureStatuses = async () => ({ context: { slot: FakeChain.FINALIZED_SLOT + 40 }, value: [null] });
+    chain.getSlot = async () => {
+      throw new Error('down');
+    };
+    expect((await submitPrepared(W(chain), walletSigner(), p, deps)).status).toBe('unknown');
+  });
+
+  it('past the height, one lagging "no record" and one caught-up "no record" is still not proof', async () => {
+    const { chain, p } = await preparedBuy();
+    chain.getBlockHeight = async () => p.lastValidBlockHeight + 1;
+    let n = 0;
+    chain.getSignatureStatuses = async () => ({ context: { slot: n++ % 2 ? FakeChain.FINALIZED_SLOT : FakeChain.FINALIZED_SLOT - 1 }, value: [null] });
+    expect((await submitPrepared(W(chain), walletSigner(), p, deps)).status).toBe('unknown');
+  });
+
+  it('keeps RE-SENDING the same bytes, and reports EXPIRED only past the last valid height with no record', async () => {
+    const { chain, p } = await preparedBuy();
+    const sent: string[] = [];
+    chain.sendRawTransaction = async (raw: Uint8Array) => {
+      sent.push(Buffer.from(raw).toString('base64'));
+      return 'x';
+    };
+    let height = p.lastValidBlockHeight - 3;
+    chain.getBlockHeight = async () => height++;
+    const history: boolean[] = [];
+    chain.getSignatureStatuses = async (_s, o?: unknown) => {
+      history.push(!!(o as { searchTransactionHistory?: boolean })?.searchTransactionHistory);
+      return { context: { slot: FakeChain.FINALIZED_SLOT + 40 }, value: [null] };
+    };
+    const o = await submitPrepared(W(chain), walletSigner(), p, deps);
+    expect(o.status).toBe('expired');
+    if (o.status === 'expired') expect(o.message).toMatch(/safe to try again/);
+    expect(sent.length).toBeGreaterThanOrEqual(3);
+    expect(new Set(sent).size).toBe(1); // the SAME bytes every time
+    expect(history[history.length - 1]).toBe(true); // the final check searched history
+  });
+
+  it('past the height but the history read fails: UNKNOWN, never expired, never failed', async () => {
+    const { chain, p } = await preparedBuy();
+    chain.getBlockHeight = async () => p.lastValidBlockHeight + 1;
+    chain.getSignatureStatuses = async (_s, o?: unknown) => {
+      if ((o as { searchTransactionHistory?: boolean })?.searchTransactionHistory) throw new Error('down');
+      return { value: [null] };
+    };
+    const o = await submitPrepared(W(chain), walletSigner(), p, deps);
+    expect(o.status).toBe('unknown');
+    neverFailed(o);
+    expect(o.status === 'unknown' && o.signature.length).toBeGreaterThan(40);
+  });
+
+  it('block height unreadable until the hard time limit: UNKNOWN with the signature', async () => {
+    const { chain, p } = await preparedBuy();
+    chain.getBlockHeight = async () => {
+      throw new Error('down');
+    };
+    chain.getSignatureStatuses = async () => ({ value: [null] });
+    const o = await submitPrepared(W(chain), walletSigner(), p, { ...deps, now: clock(), timeoutMs: 10_000 });
+    expect(o.status).toBe('unknown');
+    neverFailed(o);
+  });
+
+  // An error seen only at 'processed' is in a block that can still be dropped; the
+  // same signed bytes can then land and succeed. Told "it did not go through", the
+  // person tries again and pays twice.
+  it('an error seen only at "processed" is NOT an ending: it keeps watching', async () => {
+    const { chain, p } = await preparedBuy();
+    let reads = 0;
+    chain.getSignatureStatuses = async () => {
+      reads++;
+      return reads < 3
+        ? { value: [{ err: { InstructionError: [3, { Custom: 6007 }] }, confirmationStatus: 'processed', slot: 3 }] }
+        : { value: [{ err: null, confirmationStatus: 'confirmed', slot: 4 }] };
+    };
+    expect(await submitPrepared(W(chain), walletSigner(), p, deps)).toMatchObject({ status: 'confirmed', slot: 4 });
+  });
+
+  it('expiry is judged by the FINALIZED height: past it only at "confirmed" is not yet "expired"', async () => {
+    const { chain, p } = await preparedBuy();
+    chain.getBlockHeight = async (c?: unknown) => (c === 'finalized' ? p.lastValidBlockHeight : p.lastValidBlockHeight + 5);
+    chain.getSignatureStatuses = async () => ({ value: [null] });
+    const o = await submitPrepared(W(chain), walletSigner(), p, { ...deps, now: clock(), timeoutMs: 10_000 });
+    expect(o.status).toBe('unknown');
+    neverFailed(o);
+  });
+
+  it('past the height, one empty history read is not proof: a second read that finds it wins', async () => {
+    const { chain, p } = await preparedBuy();
+    chain.getBlockHeight = async () => p.lastValidBlockHeight + 1;
+    let historyReads = 0;
+    chain.getSignatureStatuses = async (_s, o?: unknown) => {
+      if (!(o as { searchTransactionHistory?: boolean })?.searchTransactionHistory) return { value: [null] };
+      historyReads++;
+      return historyReads === 1 ? { value: [null] } : { value: [{ err: null, confirmationStatus: 'finalized', slot: 6 }] };
+    };
+    expect(await submitPrepared(W(chain), walletSigner(), p, deps)).toMatchObject({ status: 'confirmed', slot: 6 });
+  });
+
+  it('a history hit after the height passes is the real answer (it landed just in time)', async () => {
+    const { chain, p } = await preparedBuy();
+    chain.getBlockHeight = async () => p.lastValidBlockHeight + 1;
+    chain.getSignatureStatuses = async (_s, o?: unknown) =>
+      (o as { searchTransactionHistory?: boolean })?.searchTransactionHistory
+        ? { value: [{ err: null, confirmationStatus: 'confirmed', slot: 5 }] }
+        : { value: [null] };
+    expect(await submitPrepared(W(chain), walletSigner(), p, deps)).toMatchObject({ status: 'confirmed', slot: 5 });
+  });
+});
+
+describe('extra signers', () => {
+  it('create: the wallet signs first, the mint key after, and every signature verifies', async () => {
+    const chain = FakeChain.healthy(globalValue());
+    chain.fund(ME, 10_000_000_000);
+    addPlantAccounts(chain, ME);
+    const gate = (await readWriteGate(chain, cfgLocal)) as OpenGate;
+    const mintKp = Keypair.generate();
+    const q = quoteOpeningBuy(gate.global, 10_000_000n);
+    if (!q.ok) throw new Error('quote');
+    const ata = associatedTokenAddress(mintKp.publicKey, ME);
+    chain.simulate = (_v, config) => ({
+      err: null,
+      unitsConsumed: 100_000,
+      ...(config?.accounts
+        ? { accounts: chain.post(config.accounts.addresses, {
+            [ME.toBase58()]: { lamportsDelta: -30_000_000 },
+            [ata.toBase58()]: { tokenAmount: q.value.tokensOut, mint: mintKp.publicKey, owner: ME },
+            // create_launch pays the platform reserve (369 bps of the supply) to the treasury.
+            [associatedTokenAddress(mintKp.publicKey, VAULT).toBase58()]: {
+              tokenAmount: (gate.global.tokenTotalSupply * gate.global.platformReserveBps) / 10_000n,
+              mint: mintKp.publicKey,
+              owner: VAULT,
+            },
+            // The plant: 100,000 $BAYLA leaves, 50,000 reaches the Workshop.
+            ...plantMoved(ME),
+          }) }
+        : {}),
+    });
+    const r = await prepareCreateLaunch(W(chain), gate, {
+      creator: ME, mint: mintKp, metadata: { name: 'T', symbol: 'TT', uri: 'https://ipfs.io/ipfs/x' }, openingBuy: { lamportsIn: 10_000_000n },
+    });
+    if (!r.ok) throw new Error(r.outcome.message);
+    let seen: Transaction | null = null;
+    chain.sendRawTransaction = async (raw: Uint8Array) => {
+      seen = Transaction.from(raw);
+      return 'x';
+    };
+    const o = await submitPrepared(W(chain), walletSigner(), r.prepared, deps);
+    expect(o.status).toBe('confirmed');
+    const tx = seen as unknown as Transaction;
+    expect(tx.signatures.map((s) => s.publicKey.toBase58()).sort()).toEqual([ME.toBase58(), mintKp.publicKey.toBase58()].sort());
+    expect(tx.verifySignatures()).toBe(true);
+  });
+});
+
+describe('recheckOutcome', () => {
+  it('confirmed / reverted / expired / unknown', async () => {
+    const chain = new FakeChain();
+    chain.getSignatureStatuses = async () => ({ value: [{ err: null, confirmationStatus: 'finalized', slot: 1 }] });
+    expect((await recheckOutcome(W(chain), 'sig')).status).toBe('confirmed');
+    chain.getSignatureStatuses = async () => ({ value: [{ err: { InstructionError: [0, { Custom: 6005 }] }, confirmationStatus: 'confirmed' }] });
+    chain.getTransaction = async () => ({ meta: { logMessages: [`Program ${LAUNCH.toBase58()} failed: custom program error: 0x1775`] } });
+    expect(await recheckOutcome(W(chain), 'sig', { cfg: cfgLocal })).toMatchObject({ status: 'reverted', program: 'launch', code: 6005 });
+    chain.getSignatureStatuses = async () => ({ context: { slot: FakeChain.FINALIZED_SLOT }, value: [null] });
+    chain.getBlockHeight = async () => 2_000;
+    expect((await recheckOutcome(W(chain), 'sig', { lastValidBlockHeight: 1_000 })).status).toBe('expired');
+    const u = await recheckOutcome(W(chain), 'sig');
+    expect(u.status).toBe('unknown');
+    // An error only at 'processed' can still be undone: not "reverted".
+    chain.getSignatureStatuses = async () => ({ value: [{ err: { InstructionError: [0, { Custom: 6005 }] }, confirmationStatus: 'processed' }] });
+    const up = await recheckOutcome(W(chain), 'sig', { cfg: cfgLocal });
+    expect(up.status).toBe('unknown');
+    neverFailed(up);
+    // Expired only by the FINALIZED height.
+    chain.getSignatureStatuses = async () => ({ value: [null] });
+    chain.getBlockHeight = async (c?: unknown) => (c === 'finalized' ? 900 : 2_000);
+    expect((await recheckOutcome(W(chain), 'sig', { lastValidBlockHeight: 1_000 })).status).toBe('unknown');
+    chain.getBlockHeight = async () => 2_000;
+    neverFailed(u);
+    chain.getSignatureStatuses = async () => {
+      throw new Error('down');
+    };
+    const u2 = await recheckOutcome(W(chain), 'sig', { lastValidBlockHeight: 1_000 });
+    expect(u2.status).toBe('unknown');
+    neverFailed(u2);
+  });
+
+  // FS-2: the page's "Check again" deletes its pending note on "expired", so the same
+  // proof applies there.
+  it('expired only from servers caught up to the finalized slot', async () => {
+    const chain = new FakeChain();
+    chain.getBlockHeight = async () => 2_000;
+    chain.getSignatureStatuses = async () => ({ context: { slot: FakeChain.FINALIZED_SLOT - 1 }, value: [null] });
+    const lag = await recheckOutcome(W(chain), 'sig', { lastValidBlockHeight: 1_000 });
+    expect(lag.status).toBe('unknown');
+    neverFailed(lag);
+    chain.getSignatureStatuses = async () => ({ value: [null] });
+    expect((await recheckOutcome(W(chain), 'sig', { lastValidBlockHeight: 1_000 })).status).toBe('unknown');
+    chain.getSignatureStatuses = async () => ({ context: { slot: FakeChain.FINALIZED_SLOT }, value: [null] });
+    expect((await recheckOutcome(W(chain), 'sig', { lastValidBlockHeight: 1_000 })).status).toBe('expired');
+  });
+
+  // A Jupiter swap's note carries its own blockhash, seen valid at a confirmed slot (2026-10-14).
+  describe('with the transaction’s blockhash', () => {
+    const BH = { hash: 'GHtXQBsoZHVnNFa9YevAzFr17DJjgHXk3ycTKD5xD3Zi', validAt: 500 };
+    const withBlockhash = (answer: { context: { slot: number }; value: boolean } | Error) => {
+      const chain = new FakeChain() as FakeChain & { isBlockhashValid?: unknown };
+      const asked: unknown[] = [];
+      chain.isBlockhashValid = async (...a: unknown[]) => {
+        asked.push(a);
+        if (answer instanceof Error) throw answer;
+        return answer;
+      };
+      chain.getSignatureStatuses = async () => ({ context: { slot: 900 }, value: [null] });
+      return { chain, asked };
+    };
+
+    it('gone at a confirmed slot past the one it was valid at, and no record twice: expired, with no height at all', async () => {
+      const { chain, asked } = withBlockhash({ context: { slot: 800 }, value: false });
+      chain.getBlockHeight = async () => { throw new Error('height must not be needed'); };
+      expect((await recheckOutcome(W(chain), 'sig', { blockhash: BH })).status).toBe('expired');
+      // Asked of a server at or past the slot it was seen valid at.
+      expect(asked[0]).toEqual([BH.hash, { commitment: 'confirmed', minContextSlot: BH.validAt }]);
+    });
+
+    it('still valid: it can land, even where the height bound would have called it expired', async () => {
+      const { chain } = withBlockhash({ context: { slot: 800 }, value: true });
+      chain.getBlockHeight = async () => 2_000;
+      const o = await recheckOutcome(W(chain), 'sig', { blockhash: BH, lastValidBlockHeight: 1_000 });
+      expect(o.status).toBe('unknown');
+      neverFailed(o);
+    });
+
+    it('"not valid" from a server behind the slot it was seen valid at proves nothing', async () => {
+      const { chain } = withBlockhash({ context: { slot: 499 }, value: false });
+      const o = await recheckOutcome(W(chain), 'sig', { blockhash: BH });
+      expect(o.status).toBe('unknown');
+    });
+
+    it('gone, but a history read comes from a server behind that slot: not expired', async () => {
+      const { chain } = withBlockhash({ context: { slot: 800 }, value: false });
+      chain.getSignatureStatuses = async () => ({ context: { slot: 799 }, value: [null] });
+      expect((await recheckOutcome(W(chain), 'sig', { blockhash: BH })).status).toBe('unknown');
+    });
+
+    it('unread: the height bound still answers', async () => {
+      const { chain } = withBlockhash(new Error('503'));
+      chain.getBlockHeight = async () => 2_000;
+      chain.getSignatureStatuses = async () => ({ context: { slot: FakeChain.FINALIZED_SLOT }, value: [null] });
+      expect((await recheckOutcome(W(chain), 'sig', { blockhash: BH, lastValidBlockHeight: 1_000 })).status).toBe('expired');
+    });
+  });
+});
+
+

@@ -3,13 +3,13 @@ import { PublicKey } from '@solana/web3.js';
 /**
  * cp-swap program identity, PDAs, account layouts and discriminators.
  *
- * ⛔ THERE IS NO PROGRAM AT `PROGRAM_ID` TODAY. The fork was deployed to
- * mainnet 2026-08-08 and CLOSED on 2026-08-13; its ProgramData account is
- * deleted, which makes the id permanently SPENT — Solana never lets a closed
- * upgradeable program id hold a program again. The constant below is a RECORD
- * of where the venue ran, never a deploy target. A restart declares a new id
- * under a fresh keypair, and `LIVE_PROGRAM_ID` picks it up from env with no
- * code change.
+ * The 2026-08 fork (`SPENT_PROGRAM_ID`) was deployed to mainnet 2026-08-08 and
+ * CLOSED on 2026-08-13; its ProgramData account is deleted, which makes the id
+ * permanently SPENT — Solana never lets a closed upgradeable program id hold a
+ * program again. That constant is a RECORD of where the venue ran, never a deploy
+ * target. The restart's id is `REGISTERED_PROGRAM_ID` (declared in source
+ * 2026-09-26), and from website release 2 — deployed only after that program is
+ * on mainnet — `LIVE_PROGRAM_ID` defaults to it.
  *
  * The same trap the bonding-curve client documents applies here and is the
  * reason `probeDeployment` in read.ts reads ProgramData and not the program
@@ -18,13 +18,16 @@ import { PublicKey } from '@solana/web3.js';
  * `executable: true`, so a naive `getAccountInfo(PROGRAM_ID)` reports
  * "deployed" for a spent id.
  *
- * WHAT THIS PROGRAM IS: a VERBATIM fork of raydium-cp-swap @ 78f254e1023751e7…
- * CI's `diff-guard` clones upstream, refuses any differing file outside two,
- * and sha256-hashes the remaining delta against a pinned value — currently 86
+ * WHAT THIS PROGRAM IS: a fork of raydium-cp-swap @ 78f254e1023751e7…
+ * CI's `diff-guard` holds every other file of the package to upstream's hash
+ * and sha256-hashes the reviewed delta against a pinned value: about 260
  * lines across `lib.rs`, `create_support_mint_associated.rs` and `Cargo.toml`,
- * all of it authority constants and comments. So every layout, seed and
- * discriminator below is Raydium's, and a resync that changes any of them
- * fails `program.test.ts` before it can misdecode an account.
+ * all of it authority constants, the program's own name and contact text,
+ * comments and ONE added instruction, `create_lp_metadata` (it names a pool's
+ * lp token; this site does not send it, and it adds no account type). So
+ * every layout, seed and discriminator below is Raydium's, and a resync that
+ * changes any of them fails `program.test.ts` before it can misdecode an
+ * account.
  *
  * There is NO committed IDL (`solana/tegridy-amm/.gitignore` ignores `target/`),
  * so the layouts here are encoded BY HAND from the program source and pinned by
@@ -43,17 +46,26 @@ import { PublicKey } from '@solana/web3.js';
 export const SPENT_PROGRAM_ID = new PublicKey('3ZvZXEBr21Kz7JeWFCeKv8Hyy8AzHqCSXNjif8QHPM9y');
 
 /**
- * The program id this client talks to. Empty until the operator redeploys under
- * a fresh keypair and publishes it as `VITE_SOLANA_CPSWAP_PROGRAM`.
+ * The fork's committed non-devnet `declare_id!` for the restart, a fresh keypair
+ * chosen by owner ruling 2026-09-25, and the default of `LIVE_PROGRAM_ID` from
+ * website release 2 on.
+ */
+export const REGISTERED_PROGRAM_ID = new PublicKey('EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT');
+
+/**
+ * The program id this client talks to: `REGISTERED_PROGRAM_ID`, unless
+ * `VITE_SOLANA_CPSWAP_PROGRAM` names another one (a local validator or devnet run).
  *
- * Deliberately NOT defaulted to `SPENT_PROGRAM_ID`: a default that points at a
- * spent id is how a surface ends up quoting against a program that cannot
- * execute. Absent means absent, and every read below refuses rather than
- * guessing.
+ * Never `SPENT_PROGRAM_ID`: a default that points at a spent id is how a surface
+ * ends up quoting against a program that cannot execute, so the spent id is refused
+ * even when someone pastes it back in, and an unparsable value means no program.
+ * This names an id only; every read below still asks the chain whether a program is
+ * there. In a production build the curve write layer also refuses to run if this
+ * names any id other than `REGISTERED_PROGRAM_ID` (curve write/config.ts).
  */
 export const LIVE_PROGRAM_ID: PublicKey | null = (() => {
   const raw = (import.meta.env?.VITE_SOLANA_CPSWAP_PROGRAM as string | undefined)?.trim();
-  if (!raw) return null;
+  if (!raw) return REGISTERED_PROGRAM_ID;
   try {
     const pk = new PublicKey(raw);
     // Refuse the spent id even if someone pastes it back in.
@@ -96,6 +108,21 @@ export function deriveAmmConfig(programId: PublicKey, index: number): PublicKey 
   const be = new Uint8Array(2);
   new DataView(be.buffer).setUint16(0, index, false);
   return derive(programId, [AMM_CONFIG_SEED, be]);
+}
+
+/**
+ * The public fee tier: the one AmmConfig this site opens pools on. Tier 0 is the
+ * launch tier (graduations); this site never opens a pool there. Mainnet:
+ * `CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy`.
+ */
+export const PUBLIC_TIER_INDEX = 1;
+
+/**
+ * The public fee tier's address, DERIVED from `PUBLIC_TIER_INDEX`, never read and never
+ * passed in, so a lying read cannot point an opening at the launch tier.
+ */
+export function publicTierConfig(programId: PublicKey): PublicKey {
+  return deriveAmmConfig(programId, PUBLIC_TIER_INDEX);
 }
 
 /** `[AUTH_SEED]` — the vault + LP-mint authority, one per program. */

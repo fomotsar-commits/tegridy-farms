@@ -28,10 +28,11 @@ import {
  * for name, flag for flag. Adding an account upstream fails the test; it does
  * not ship a transaction that reverts.
  *
- * NOTHING HERE HAS EVER EXECUTED. The program is not deployed (see program.ts),
- * so these builders are unexercised by construction until it is. The
- * source-derived test is what stands in for that until a validator can run them
- * — CI's `migration-rehearsal` job is where they get their first real execution.
+ * WHAT HAS RUN. `initializeIx` and `swapBaseInputIx` execute against the exact
+ * mainnet binary on a local validator: the e2e fixtures open pools with the first
+ * (e2e-solana/fixtures/lp.ts), and the site's pool swap is the second
+ * (launch-flow.spec.ts). `depositIx` and `withdrawIx` have never executed; for
+ * them, the source-derived test above is what stands in until an e2e runs them.
  *
  * Pure: no connection, no signing, no fetch.
  */
@@ -236,6 +237,13 @@ export interface InitializeArgs {
   initAmount1: bigint;
   /** Unix seconds. 0 = open immediately. */
   openTime: bigint;
+  /**
+   * Where the pool is created. Default: the standard address for the config and pair.
+   * Any OTHER address must be a fresh keypair that signs the transaction
+   * (initialize.rs 385-388) — the way to open a pool when someone has taken the
+   * standard address first. The vaults, LP mint and price record all derive from it.
+   */
+  poolState?: PublicKey;
 }
 
 export function initializeIx(a: InitializeArgs): TransactionInstruction {
@@ -245,10 +253,9 @@ export function initializeIx(a: InitializeArgs): TransactionInstruction {
     // Refusing here beats a revert the user pays for.
     throw new Error('token0Mint/token1Mint are not byte-sorted — pass them through sortMints first');
   }
-  const pool = derivePool(a.programId, a.ammConfig, token0, token1);
-  return new TransactionInstruction({
-    programId: a.programId,
-    keys: keys(INITIALIZE_ACCOUNTS, [
+  const standard = derivePool(a.programId, a.ammConfig, token0, token1);
+  const pool = a.poolState ?? standard;
+  const ks = keys(INITIALIZE_ACCOUNTS, [
       a.creator, a.ammConfig, deriveAuthority(a.programId), pool,
       token0, token1, deriveLpMint(a.programId, pool),
       a.creatorToken0, a.creatorToken1, a.creatorLpToken,
@@ -256,7 +263,12 @@ export function initializeIx(a: InitializeArgs): TransactionInstruction {
       a.createPoolFee, deriveObservation(a.programId, pool),
       TOKEN_PROGRAM_ID, a.token0Program, a.token1Program,
       ASSOCIATED_TOKEN_PROGRAM_ID, SystemProgram.programId, SYSVAR_RENT_PUBKEY,
-    ]),
+    ]);
+  // A pool anywhere but the standard address exists only if its key signs.
+  if (!pool.equals(standard)) ks[3] = { ...ks[3]!, isSigner: true };
+  return new TransactionInstruction({
+    programId: a.programId,
+    keys: ks,
     data: encode(IX_INITIALIZE, [a.initAmount0, a.initAmount1, a.openTime]),
   });
 }

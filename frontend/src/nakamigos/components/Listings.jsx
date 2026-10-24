@@ -14,6 +14,7 @@ import { fetchTokensByIds, fulfillSeaportOrder } from "../api";
 import { fulfillNativeOrder } from "../lib/orderbook";
 import { recordTransaction } from "../lib/transactions";
 import { getFriendlyError } from "../lib/errorMessages";
+import { toastTxNotice } from "../lib/txOutcome";
 import { fetchCollectionOffers, fetchBestOffer } from "../api-offers";
 
 /* ── Sort helpers ── */
@@ -558,6 +559,8 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
       // The next listings poll/refetch removes it from the feed for good.
       addToast?.(`#${nft.id} is no longer available — it was just sold or cancelled`, "warning");
       setPurchasedIds(prev => new Set([...prev, String(nft.id)]));
+    } else if (toastTxNotice(addToast, result)) {
+      // Unconfirmed or replaced: told as it is, never mapped to "failed".
     } else {
       // Plain-language mapping (mirrors the cart) for any other failure.
       addToast?.(`#${nft.id}: ${getFriendlyError(result.message || "Unknown error")}`, "error");
@@ -567,6 +570,9 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
 
   const hasRealListings = listedNfts.length > 0;
   const hasRecentSales = recentSales.length > 0;
+  // A failed read has no source and carries an error; only a read that
+  // answered can say that nothing is listed.
+  const listingsRead = !listingsError && listingsSource != null;
   const floor = stats?.floor || null;
 
   // Price stats computed from listings
@@ -1025,8 +1031,10 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
             </div>
           )}
 
-          {/* Empty state — no listings and no recent sales (wait for both to finish) */}
-          {!listingsLoading && !activitiesLoading && !hasRealListings && !hasRecentSales && (
+          {/* Empty state — no listings and no recent sales (wait for both to finish).
+              "No Listings Available" needs a listings read that answered; an
+              unread feed keeps only the unavailable notice above. */}
+          {!listingsLoading && !activitiesLoading && !hasRealListings && !hasRecentSales && (activitiesEmpty || listingsRead) && (
             <div className="empty-state" style={{ borderRadius: 16, background: "var(--surface-glass)", border: "1px solid var(--border)", backdropFilter: "var(--glass-blur)" }}>
               <div className="empty-state-icon">{"\uD83D\uDCC9"}</div>
               <div className="empty-state-title">

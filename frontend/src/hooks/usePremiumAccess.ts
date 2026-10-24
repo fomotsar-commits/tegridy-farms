@@ -4,6 +4,9 @@ import { toast } from 'sonner';
 import { PREMIUM_ACCESS_ABI, ERC20_ABI } from '../lib/contracts';
 import { PREMIUM_ACCESS_ADDRESS, TOWELI_ADDRESS, JBAC_NFT_ADDRESS, CHAIN_ID, isDeployed } from '../lib/constants';
 import { formatWei } from '../lib/formatting';
+import { getTxUrl } from '../lib/explorer';
+import { surfaceUnconfirmedTx, receiptOutcome, noteReplacement } from '../lib/txErrors';
+import { useReplacedTxNotice } from './useReceiptOutcome';
 
 export function usePremiumAccess() {
   const chainId = useChainId();
@@ -16,21 +19,35 @@ export function usePremiumAccess() {
   const isPending = isApprovePending || isActionPending;
 
   // Track each tx independently so approve doesn't shadow the subsequent action tx
-  const { data: approveReceipt, isLoading: isApproveConfirming, isSuccess: isApproveReceiptFetched, isError: isApproveTxError } = useWaitForTransactionReceipt({ chainId: CHAIN_ID, hash: approveHash });
-  const { data: actionReceipt, isLoading: isActionConfirming, isSuccess: isActionReceiptFetched, isError: isActionTxError } = useWaitForTransactionReceipt({ chainId: CHAIN_ID, hash: actionHash });
+  const approveQuery = useWaitForTransactionReceipt({ chainId: CHAIN_ID, hash: approveHash, onReplaced: noteReplacement });
+  const actionQuery = useWaitForTransactionReceipt({ chainId: CHAIN_ID, hash: actionHash, onReplaced: noteReplacement });
 
   // AUDIT (receipt-status, 2026-08-24): wagmi's `isSuccess` only means the receipt
-  // was FETCHED — it latches true for on-chain REVERTED txs too, which fired the
-  // "confirmed!" toasts for a reverted approve/subscribe. Only
-  // `receipt.status === 'success'` is a real success.
-  const isApproveReverted = isApproveReceiptFetched && !!approveReceipt && approveReceipt.status !== 'success';
-  const isApproveSuccess = isApproveReceiptFetched && !isApproveReverted;
-  const isActionReverted = isActionReceiptFetched && !!actionReceipt && actionReceipt.status !== 'success';
-  const isActionSuccess = isActionReceiptFetched && !isActionReverted;
+  // was FETCHED, which fired the "confirmed!" toasts for a reverted approve/subscribe.
+  // Only `receipt.status === 'success'` is a real success.
+  //
+  // 2026-09-17: and wagmi's `isError` is TWO facts. A real revert arrives there
+  // (wagmi THROWS on a reverted receipt, so the revert effects below never fired)
+  // and so does "we could not READ the receipt", which was toasted "failed
+  // on-chain". receiptOutcome splits them by error type; see lib/txErrors.ts.
+  //
+  // And a receipt is only proof of its OWN transaction: a subscribe the wallet
+  // cancelled resolves with the cancel's success receipt (see lib/txErrors.ts).
+  const approveOutcome = receiptOutcome(approveQuery, approveHash);
+  const actionOutcome = receiptOutcome(actionQuery, actionHash);
+  const {
+    isSuccess: isApproveSuccess, isReverted: isApproveReverted, isReceiptUnreadable: isApproveUnreadable,
+    isReplaced: isApproveReplaced,
+  } = approveOutcome;
+  const {
+    isSuccess: isActionSuccess, isReverted: isActionReverted, isReceiptUnreadable: isActionUnreadable,
+    isReplaced: isActionReplaced,
+  } = actionOutcome;
+  useReplacedTxNotice(approveOutcome, approveHash, chainId);
+  useReplacedTxNotice(actionOutcome, actionHash, chainId);
 
-  const isConfirming = isApproveConfirming || isActionConfirming;
+  const isConfirming = approveQuery.isLoading || actionQuery.isLoading;
   const isSuccess = isApproveSuccess || isActionSuccess;
-  void (isApproveTxError || isActionTxError);
   const hash = actionHash ?? approveHash;
 
   // Check if user holds a JBAC NFT
@@ -198,21 +215,37 @@ export function usePremiumAccess() {
     }
   }, [isActionSuccess, refetch, resetAction]);
 
+  // The receipt READ failed. Both of these said "failed on-chain", a claim about a
+  // transaction nobody looked at. See surfaceUnconfirmedTx in lib/txErrors.ts.
+  // A cancelled or replaced tx resets the same way; its warning is
+  // useReplacedTxNotice's, above.
   useEffect(() => {
-    if (isApproveTxError) {
-      toast.error('Approval transaction failed on-chain');
+    if ((isApproveUnreadable || isApproveReplaced) && approveHash) {
+      if (isApproveUnreadable) {
+        surfaceUnconfirmedTx(toast, {
+          hash: approveHash,
+          explorerUrl: getTxUrl(chainId, approveHash),
+          repeatCost: 'your allowance is already set and a second approval just costs gas.',
+        });
+      }
       const t = setTimeout(() => { resetApprove(); }, 0);
       return () => clearTimeout(t);
     }
-  }, [isApproveTxError, resetApprove]);
+  }, [isApproveUnreadable, isApproveReplaced, approveHash, chainId, resetApprove]);
 
   useEffect(() => {
-    if (isActionTxError) {
-      toast.error('Transaction failed on-chain');
+    if ((isActionUnreadable || isActionReplaced) && actionHash) {
+      if (isActionUnreadable) {
+        surfaceUnconfirmedTx(toast, {
+          hash: actionHash,
+          explorerUrl: getTxUrl(chainId, actionHash),
+          repeatCost: 'a second subscribe pays for the months again, and a second activation just costs gas.',
+        });
+      }
       const t = setTimeout(() => { resetAction(); }, 0);
       return () => clearTimeout(t);
     }
-  }, [isActionTxError, resetAction]);
+  }, [isActionUnreadable, isActionReplaced, actionHash, chainId, resetAction]);
 
   useEffect(() => {
     if (isApproveReverted) {

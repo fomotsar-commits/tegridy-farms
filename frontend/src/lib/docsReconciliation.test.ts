@@ -373,3 +373,94 @@ describe('the roadmap states where each item actually stands', () => {
     expect(roadmap).toMatch(/unmeasured/i);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 7. The heat-tier launch price is deleted, and the docs say so
+// ─────────────────────────────────────────────────────────────────────────────
+
+// The island rules "Same price for everyone." (2026-09-28): heat says who may launch, never
+// what a launch costs. The dial that priced by heat was EVM only and was deleted 2026-09-30.
+// A doc may keep its record of the dial, but the paragraph that names it carries the ruling,
+// and no doc says a Solana half was deleted, because none was ever built.
+const DIAL_ENV = /VITE_LAUNCH_TIER_(?:PRICING|VENUE_BPS)/;
+const LAUNCH_PRICING = /launchPricing\.ts\b|\blaunch[ -]pricing\b|\btier-priced launch/i;
+const RULING = /Same price for\s+everyone\./;
+const DELETED_ON_SOLANA =
+  /\b(?:deleted|removed)\b,?\s+(?:on|from|across)\s+(?:both\s+(?:chains|rails)|Solana|EVM\s+and\s+Solana)\b/i;
+
+/** Its env vars, or launch pricing in the same paragraph as heat. */
+const namesTheDial = (p: string) => DIAL_ENV.test(p) || (LAUNCH_PRICING.test(p) && /\bheat\b/i.test(p));
+
+/** Every paragraph of the root and docs/ markdown, minus the audits and the archive. */
+function liveDocParagraphs(): { at: string; text: string }[] {
+  const roots = readdirSync(ROOT, { withFileTypes: true })
+    .filter((e) => e.isFile() && /\.md$/i.test(e.name))
+    .map((e) => join(ROOT, e.name));
+  const out: { at: string; text: string }[] = [];
+  for (const file of [...roots, ...walkMarkdown(join(ROOT, 'docs'))]) {
+    const rel = file.slice(ROOT.length + 1).split(sep).join('/');
+    if (/^docs\/(?:audits|archive)\//.test(rel)) continue;
+    let line = 1;
+    for (const text of readFileSync(file, 'utf8').replace(/\r/g, '').split(/\n[ \t]*\n/)) {
+      out.push({ at: `${rel}:${line}`, text });
+      line += text.split('\n').length + 1;
+    }
+  }
+  return out;
+}
+
+describe('no doc offers a launch price that reads heat', () => {
+  const paragraphs = liveDocParagraphs();
+  const show = (p: { at: string; text: string }) =>
+    `${p.at}\n    ${p.text.replace(/\s+/g, ' ').trim().slice(0, 160)}`;
+
+  it('scans the docs that described the dial', () => {
+    // Guard the guard: a walker returning nothing passes every assertion below.
+    const files = [...new Set(paragraphs.map((p) => p.at.replace(/:\d+$/, '')))];
+    expect(files.length).toBeGreaterThan(40);
+    for (const must of [
+      'docs/TODO_OPERATOR.md',
+      'docs/WHAT_I_NEED_FROM_YOU.md',
+      'docs/EVERYTHING_LEFT_2026_08_15.md',
+      'docs/ROADMAP.md',
+      'docs/YEAR_PLAN_2026_2027.md',
+      'docs/BATTLE_PLAN.md',
+    ]) {
+      expect(files, `${must} is not being scanned`).toContain(must);
+    }
+  });
+
+  it('every paragraph that names the dial carries the ruling beside it', () => {
+    const offenders = paragraphs.filter((p) => namesTheDial(p.text) && !RULING.test(p.text)).map(show);
+    expect(offenders, `the heat-tier price, named without the ruling:\n${offenders.join('\n')}`).toEqual([]);
+  });
+
+  it('says no Solana half of the dial was deleted, because none was ever built', () => {
+    const offenders = paragraphs
+      .filter((p) => namesTheDial(p.text) && DELETED_ON_SOLANA.test(p.text))
+      .map(show);
+    expect(offenders, `a deletion on Solana, where nothing was built:\n${offenders.join('\n')}`).toEqual([]);
+  });
+
+  it('the shapes still fire on the wording they were written for', () => {
+    // Reworded on purpose: the shape is what is pinned, not a quote.
+    for (const offer of [
+      'set `VITE_LAUNCH_TIER_PRICING=on` and a five-tier bps table',
+      'the Heat tier has one consumer: launch pricing, default off',
+    ]) {
+      expect(namesTheDial(offer), offer).toBe(true);
+      expect(RULING.test(offer), offer).toBe(false);
+    }
+    for (const claim of ['its env vars are deleted, on both chains', 'the dial was removed from Solana too']) {
+      expect(DELETED_ON_SOLANA.test(claim), claim).toBe(true);
+    }
+    // ...and the corrected wording must survive, or the guard just forces a new lie.
+    expect(RULING.test('the island rules "Same price for\n  everyone." (2026-09-28)')).toBe(true);
+    for (const legal of [
+      'its env vars are deleted, and the item is ruled out on both chains',
+      'nothing was built on Solana, so nothing there was deleted',
+    ]) {
+      expect(DELETED_ON_SOLANA.test(legal), legal).toBe(false);
+    }
+  });
+});

@@ -135,7 +135,7 @@ test.describe('SEO & social metadata', () => {
     expect(res.status()).toBe(200);
     const body = await res.text();
     expect(body).toContain('<urlset');
-    expect(body).toContain('/farm');
+    expect(body).toContain('/earn');
     expect(body).toContain('/swap');
     // NOT '/lending' — that route is a redirect to /nft-finance (App.tsx:236),
     // and a sitemap should list the destination, not the redirect.

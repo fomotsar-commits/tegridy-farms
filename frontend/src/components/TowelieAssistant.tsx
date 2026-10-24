@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, type RefObject } from 'react';
 import { useLocation } from 'react-router-dom';
 import { m, AnimatePresence } from 'framer-motion';
 import { useAccount, useChainId } from 'wagmi';
@@ -90,7 +90,7 @@ function useTypewriter(text: string | undefined, charMs = 18): string {
 const ROUTE_TIPS: Record<string, string> = {
   '/':            "Welcome to the farm. Don't forget your towel.",
   '/dashboard':   "This is your portfolio. Stake longer, earn more.",
-  '/farm':        "4× boost at max lock. Math checks out, I think.",
+  '/earn/toweli': "4× boost at max lock. Math checks out, I think.",
   '/swap':        "Trade TOWELI here. Or whatever — I'm just a towel.",
   '/liquidity':   "Add liquidity, earn fees. Easy money. Probably.",
   '/community':   "Vote, post bounties, propose grants. The island demands it.",
@@ -106,7 +106,6 @@ const ROUTE_TIPS: Record<string, string> = {
   // behind a timelock). The Farm strip quotes the live number; this points at it.
   '/tokenomics':  "1B supply. Protocol fees route on-chain to stakers, after the referral carve.",
   '/security':    "Internally red-teamed to hell and back. Safer than my last job.",
-  '/leaderboard': "Climb the ranks. Earn points. Brag responsibly.",
   '/changelog':   "Every shipped feature, receipts and all.",
   '/premium':     "Randy's Gold Card. Bonus rewards for the loyal.",
   '/gallery':     "All the art. Look, don't lick.",
@@ -164,8 +163,54 @@ const FATIGUE_SNOOZE_MS = 30 * 60 * 1000;     // snooze for 30 min when fatigued
 
 type BubbleSource = 'route' | 'idle' | 'click' | 'event' | 'api' | 'chat' | null;
 
+/**
+ * True while a section tab lies under `ref`'s box, unless focus is inside it. The corner
+ * then steps aside until the page moves the tab away, so it never covers one: at 390px it
+ * sat over /nft-finance's Launchpad tab. It goes `inert` at once, because it stays
+ * pressable until its fade ends (in WebKit even with motion reduced). e2e/phone-layout.spec.ts.
+ */
+function useYieldsToTabs(ref: RefObject<HTMLElement | null>): boolean {
+  const [yielding, setYielding] = useState(false);
+  useEffect(() => {
+    let frame = 0;
+    const check = () => {
+      frame = 0;
+      const el = ref.current;
+      if (!el) return;
+      if (el.contains(document.activeElement)) {
+        setYielding(false);
+        return;
+      }
+      const me = el.getBoundingClientRect();
+      setYielding(Array.from(document.querySelectorAll('[role="tab"]')).some((tab) => {
+        const b = tab.getBoundingClientRect();
+        return b.width > 0 && b.left < me.right && b.right > me.left && b.top < me.bottom && b.bottom > me.top;
+      }));
+    };
+    const schedule = () => { if (!frame) frame = requestAnimationFrame(check); };
+    schedule();
+    // Capture: a tab strip that scrolls sideways inside itself fires no window scroll.
+    window.addEventListener('scroll', schedule, { capture: true, passive: true });
+    window.addEventListener('resize', schedule);
+    window.addEventListener('focusin', schedule);
+    const sizes = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(schedule);
+    sizes?.observe(document.body);
+    if (ref.current) sizes?.observe(ref.current);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener('scroll', schedule, { capture: true });
+      window.removeEventListener('resize', schedule);
+      window.removeEventListener('focusin', schedule);
+      sizes?.disconnect();
+    };
+  }, [ref]);
+  return yielding;
+}
+
 export function TowelieAssistant() {
   const location = useLocation();
+  const corner = useRef<HTMLDivElement | null>(null);
+  const yielding = useYieldsToTabs(corner);
   const [disabled, setDisabled] = useState<boolean>(() => {
     try { return localStorage.getItem(STORAGE_DISABLED) === '1'; } catch { return false; }
   });
@@ -382,7 +427,9 @@ export function TowelieAssistant() {
 
   return (
     <div
-      className="fixed right-4 z-[60] flex items-end gap-2 pointer-events-none select-none bottom-20 min-[800px]:bottom-4"
+      ref={corner}
+      inert={yielding}
+      className={`fixed right-4 z-[60] flex items-end gap-2 pointer-events-none select-none bottom-20 min-[800px]:bottom-4 transition-[opacity,visibility] duration-200 ${yielding ? 'opacity-0 invisible' : ''}`}
       style={{ paddingBottom: 'env(safe-area-inset-bottom, 0)' }}
     >
       <AnimatePresence>

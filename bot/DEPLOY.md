@@ -1,6 +1,6 @@
 # Deploying the Tegridy Telegram bot
 
-Node 20 service, zero npm dependencies, complete and deployed nowhere. Everything
+Node 24 service, zero npm dependencies, complete and deployed nowhere. Everything
 on the venue side is already built and waiting: `frontend/api/_lib/botLink.js` is
 dispatched from the aggregator catchall, and
 `frontend/src/components/bot/TelegramLinkPanel.tsx` is mounted on `/alerts`. Two
@@ -50,7 +50,7 @@ for it; it is gated on an audit wave that has not happened.
 3. **It is where the neighbours are.** The indexer (F1) is already recommended
    there, and this service reads from it.
 
-Fly.io, a small VPS, or a home server all work. The requirements are Node ≥ 20 and
+Fly.io, a small VPS, or a home server all work. The requirements are Node 24 and
 outbound HTTPS. Nothing else.
 
 ### Provision
@@ -58,7 +58,7 @@ outbound HTTPS. Nothing else.
 1. Add a service from this repo with **root directory `bot/`**.
    - Build: *(none — `npm ci` installs nothing; the package has no dependencies)*
    - Start: `npm run start` (= `node src/index.js`)
-   - Node: ≥ 20 (`package.json` engines)
+   - Node: 24 (`package.json` engines says `24.x`, and Railway's builder reads it)
 2. Set the environment variables in §2.
 3. There is **no health endpoint** and deliberately no port. Point the platform's
    restart policy at process exit, not at an HTTP check. `npm run preflight`
@@ -75,8 +75,8 @@ Exactly what the code reads (`src/config.js`).
 |---|---|---|
 | `TELEGRAM_BOT_TOKEN` | **Yes** | From @BotFather. Without it nothing can be received or sent, and the process refuses to start rather than idling silently. |
 | `BOT_LINK_SECRET` | **Yes** | Shared with the Vercel deployment. See the warning below. |
-| `VENUE_ORIGIN` | No | Defaults to `https://memetic.fun`. Where `/api/aggregator` lives. |
-| `APP_ORIGIN` | No | Defaults to `https://memetic.fun`. What the bot puts in the links it hands back. |
+| `VENUE_ORIGIN` | No | Defaults to `https://memetics.finance`, the canonical host (`SITE_URL` in `frontend/src/lib/constants.ts`). Where `/api/aggregator` lives. |
+| `APP_ORIGIN` | No | Defaults to `https://memetics.finance`. What the bot puts in the links it hands back. |
 | `INDEXER_URL` | No | The indexer's **public proxy origin**, no path — the same value as the frontend's `VITE_INDEXER_URL`. Unset means `/history` answers "no indexer is hosted", never "you have no swaps". |
 | `TELEGRAM_POLL_TIMEOUT_SEC` | No | Long-poll seconds. Default 30. |
 

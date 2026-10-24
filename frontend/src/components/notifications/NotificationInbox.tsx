@@ -1,5 +1,6 @@
 import { IN_APP_LIMITATION } from '../../lib/alerts/channels';
 import type { InboxEntry } from '../../lib/alerts/inbox';
+import { FinePrint } from '../ui/FinePrint';
 
 // The inbox.
 //
@@ -164,7 +165,10 @@ export function NotificationInbox({
         </>
       )}
 
-      <p className="mt-3 text-white/40 text-[11px] leading-snug">{IN_APP_LIMITATION}</p>
+      {/* The same sentence stays visible on the delivery panel below; here it folds. */}
+      <FinePrint summary="Limits" className="mt-2">
+        <p>{IN_APP_LIMITATION}</p>
+      </FinePrint>
     </section>
   );
 }

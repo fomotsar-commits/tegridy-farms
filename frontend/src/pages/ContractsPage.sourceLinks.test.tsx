@@ -1,7 +1,7 @@
 /**
- * /contracts links each row's source to GitHub. A link to a path the repo does not
- * track is a 404, and GitHub paths are case-sensitive, so the check reads
- * `git ls-files` rather than the filesystem (Windows would call TOWELI.sol present).
+ * /contracts links each row's source through /source. A path the repo does not track is
+ * a 404 on GitHub and quietly opens the repo root on GitLab, and git paths are case-sensitive,
+ * so the check reads `git ls-files`, not the filesystem (Windows would call TOWELI.sol present).
  * A row with no link says why ('external (...)' or 'not in this repo (...)'), and the
  * rows that say so are pinned by name, so no row can quietly lose its link. Unlinked
  * own rows stay in the Etherscan verification query.
@@ -11,7 +11,7 @@ import { render } from '@testing-library/react';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { GITHUB_BLOB_BASE, TOWELI_ADDRESS, TEGRIDY_FEE_HOOK_ADDRESS } from '../lib/constants';
+import { SOURCE_URL, TOWELI_ADDRESS, TEGRIDY_FEE_HOOK_ADDRESS } from '../lib/constants';
 
 const queried: string[][] = [];
 vi.mock('../hooks/useSourceVerification', () => ({
@@ -60,7 +60,7 @@ function labelOf(row: Element | null): string {
 }
 
 function sourceLinks(container: Element): { href: string; path: string; label: string }[] {
-  const prefix = `${GITHUB_BLOB_BASE}/`;
+  const prefix = `${SOURCE_URL}/`;
   return [...container.querySelectorAll('a[href]')]
     .filter((a) => a.getAttribute('href')!.startsWith(prefix))
     .map((a) => {
@@ -103,7 +103,7 @@ describe('/contracts source links', () => {
     // A page that rendered no links would pass vacuously.
     expect(links.length).toBeGreaterThan(20);
     const broken = links.filter((l) => !TRACKED.has(l.path)).map((l) => `${l.label}: ${l.path}`);
-    expect(broken, `source links that 404 on GitHub:\n${broken.join('\n')}`).toEqual([]);
+    expect(broken, `source links to paths git does not track:\n${broken.join('\n')}`).toEqual([]);
   });
 
   it('gives every row either one source link or a stated reason it has none', () => {
@@ -164,7 +164,6 @@ describe('/contracts source links', () => {
 
   it('says a link to a branch can be newer than the deployed code', () => {
     // A link pinned to a commit is the file as deployed; a branch link is the file today.
-    if (/\/blob\/[0-9a-f]{40}$/.test(GITHUB_BLOB_BASE)) return;
     const { container } = render(<ContractsPage />);
     const disclosed = leadSentences(container).some(
       (s) => /\b(newer|differ|ahead)\b/i.test(s) && /\bdeployed\b/i.test(s),

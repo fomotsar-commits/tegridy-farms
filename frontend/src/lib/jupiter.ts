@@ -7,7 +7,7 @@
 // ExactIn the fee mint may be the input OR output side — so that one set covers
 // both directions of any pair touching SOL/USDC. For any other pair the swap
 // runs fee-free, so an arbitrary pair can never break. No own program.
-import { PublicKey } from '@solana/web3.js';
+import { PublicKey, VersionedTransaction } from '@solana/web3.js';
 import { getAssociatedTokenAddressSync } from '@solana/spl-token';
 import {
   JUPITER_PROXY_BASE,
@@ -18,6 +18,7 @@ import {
   SOL_MINT,
   USDC_MINT,
 } from './solana';
+import { JupiterBusyError, jupiterBusy } from './solana/swap/jupiterBusy';
 
 // We only read a few fields; the whole object is passed back to /swap verbatim,
 // so keep an index signature for the rest of Jupiter's response shape.
@@ -31,6 +32,8 @@ export interface JupiterQuote {
   slippageBps: number;
   priceImpactPct: string;
   routePlan: unknown[];
+  /** Jupiter's own record of the platform fee this quote was priced with. Null or absent on a no-fee quote. */
+  platformFee?: { amount?: string; feeBps?: number } | null;
   [key: string]: unknown;
 }
 
@@ -73,6 +76,54 @@ function feeAccountFor(feeMint: string): string | null {
   }
 }
 
+/**
+ * Would a swap of this pair be built WITH the platform fee? The one decision
+ * getQuote and buildSwapTransaction both follow, exported so the send path can
+ * tell "a fee-bearing build failed" from "there was never a fee to drop".
+ */
+export function swapCarriesPlatformFee(inputMint: string, outputMint: string, swapMode: string = 'ExactIn'): boolean {
+  return feeEnabled() && pickFeeMint(inputMint, outputMint, swapMode) !== null;
+}
+
+/** Does this quote say, in Jupiter's own field, that a platform fee is priced in? */
+export function quoteHasPlatformFee(quote: JupiterQuote): boolean {
+  const pf = quote.platformFee;
+  if (pf === null || pf === undefined) return false;
+  if (typeof pf !== 'object') return true;
+  const zeroBps = pf.feeBps === undefined || pf.feeBps === 0;
+  const zeroAmount = pf.amount === undefined || pf.amount === '0';
+  return !(zeroBps && zeroAmount);
+}
+
+/**
+ * Jupiter's own answer that it has no route for this pair and amount.
+ *
+ * Our proxy turns Jupiter's "no route" codes into a 404 with the fixed body
+ * {"error":"No route","code":"NO_ROUTE"} (api/aggregator.js noRouteErrorCodes)
+ * and every other upstream failure into a 502. Only that exact answer is "no
+ * route". A 429, a 502, a dropped request or a 404 without the code is a quote
+ * that could not be FETCHED, and a caller must never word that as "no route":
+ * it tells a trader the token cannot be bought when the truth is that we did
+ * not get an answer. Same rule as lib/solana/lp/outsidePrice.ts.
+ */
+export class NoRouteError extends Error {
+  constructor() {
+    super('No route for this pair / amount.');
+    this.name = 'NoRouteError';
+  }
+}
+
+/** The proxy's "no route" answer, and nothing else (api/_lib/aggregator-proxy.js). */
+async function isNoRouteAnswer(res: Response): Promise<boolean> {
+  if (res.status !== 404) return false;
+  try {
+    const body = (await res.json()) as { code?: unknown } | null;
+    return body !== null && typeof body === 'object' && body.code === 'NO_ROUTE';
+  } catch {
+    return false;
+  }
+}
+
 export async function getQuote(params: {
   inputMint: string;
   outputMint: string;
@@ -80,6 +131,18 @@ export async function getQuote(params: {
   amount: string;
   slippageBps: number;
   signal?: AbortSignal;
+  /**
+   * Ask for the quote with NO platform fee even on a fee-supported pair. Set only
+   * after a fee-bearing build of the pair failed simulation with Jupiter's 6014:
+   * by the fee retry (lib/solana/swap/jupiterFeeRetry.ts), and by the swap page's
+   * later quotes of that pair.
+   */
+  noPlatformFee?: boolean;
+  /**
+   * One pool's DEX, direct: the island order asks for a single hop on the DEX of the pool
+   * it names (lib/solana/swap/islandBasketSol.ts checks the pool Jupiter answers with).
+   */
+  pin?: { dex: string };
 }): Promise<JupiterQuote> {
   const qs = new URLSearchParams({
     inputMint: params.inputMint,
@@ -88,18 +151,30 @@ export async function getQuote(params: {
     slippageBps: String(params.slippageBps),
     swapMode: 'ExactIn',
     restrictIntermediateTokens: 'true',
+    // Jupiter's V1 instructions refuse the venue's SOL fee when the coin bought is Token-2022
+    // (6014, every time, so the no-fee rebuild went out instead). V2 takes it; the swap built
+    // from this quote follows the quote's version.
+    instructionVersion: 'V2',
   });
+  if (params.pin) {
+    qs.set('onlyDirectRoutes', 'true');
+    qs.set('dexes', params.pin.dex);
+  }
   // Attach the platform fee ONLY when a leg of the pair is fee-supported. The
   // SAME decision drives /swap, so platformFeeBps is never sent without a
   // matching feeAccount (which Jupiter rejects) and the fee account always exists.
-  if (feeEnabled() && pickFeeMint(params.inputMint, params.outputMint)) {
+  if (!params.noPlatformFee && feeEnabled() && pickFeeMint(params.inputMint, params.outputMint)) {
     qs.set('platformFeeBps', String(SOLANA_PLATFORM_FEE_BPS));
   }
   const res = await fetch(`${JUPITER_PROXY_BASE}/quote?${qs.toString()}`, {
     headers: { Accept: 'application/json' },
     signal: params.signal,
   });
-  if (!res.ok) throw new Error(`Quote unavailable (${res.status})`);
+  if (await isNoRouteAnswer(res)) throw new NoRouteError();
+  if (!res.ok) {
+    const said = `Quote unavailable (${res.status})`;
+    throw jupiterBusy(res.status) ? new JupiterBusyError(said, res.status) : new Error(said);
+  }
   return (await res.json()) as JupiterQuote;
 }
 
@@ -120,10 +195,18 @@ export async function buildSwapTransaction(params: {
   userPublicKey: string;
   /** Omitted → Jupiter's default fee behavior (how v1 always ran). */
   priorityLevel?: PriorityLevel;
+  /** Build with NO fee account. Must be paired with a quote taken with noPlatformFee. */
+  noPlatformFee?: boolean;
 }): Promise<string> {
+  // A no-fee build of a quote that was priced WITH a fee would hand Jupiter
+  // platformFeeBps and no feeAccount, which it rejects. Refuse it here so the
+  // two halves cannot drift apart.
+  if (params.noPlatformFee && quoteHasPlatformFee(params.quote)) {
+    throw new Error('Could not build swap (the no-fee build was given a fee-bearing quote)');
+  }
   // Derive the fee account from the SAME pair-aware decision as the quote, so
   // platformFeeBps + feeAccount stay coupled (both present, or neither).
-  const feeMint = feeEnabled()
+  const feeMint = !params.noPlatformFee && feeEnabled()
     ? pickFeeMint(params.quote.inputMint, params.quote.outputMint, params.quote.swapMode)
     : null;
   const feeAccount = feeMint ? feeAccountFor(feeMint) : null;
@@ -147,7 +230,10 @@ export async function buildSwapTransaction(params: {
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(`Could not build swap (${res.status})`);
+  if (!res.ok) {
+    const said = `Could not build swap (${res.status})`;
+    throw jupiterBusy(res.status) ? new JupiterBusyError(said, res.status) : new Error(said);
+  }
   const json = (await res.json()) as { swapTransaction?: string };
   if (!json.swapTransaction) throw new Error('No swap transaction returned');
   return json.swapTransaction;
@@ -209,11 +295,15 @@ export function fromBaseUnits(raw: string, decimals: number): string {
 
 // ─── Conversion polish: USD prices + route transparency ─────────────────────
 
-/** USD prices for a set of mints in one keyless price/v3 call (via our proxy). */
-export async function getUsdPrices(mints: string[], signal?: AbortSignal): Promise<Record<string, number>> {
+/**
+ * USD prices for a set of mints in one price/v3 call (via our proxy). `shared`: a fixed
+ * list every visitor asks for alike, which the proxy keeps at the edge for 30 s
+ * (`priceCheck`, api/aggregator.js); never for a pair a visitor picked.
+ */
+export async function getUsdPrices(mints: string[], signal?: AbortSignal, opts: { shared?: boolean } = {}): Promise<Record<string, number>> {
   const ids = [...new Set(mints.filter(Boolean))];
   if (ids.length === 0) return {};
-  const res = await fetch(`${JUPITER_TOKENS_BASE}/price/v3?ids=${ids.join(',')}`, {
+  const res = await fetch(`${JUPITER_TOKENS_BASE}/price/v3?ids=${ids.join(',')}${opts.shared ? '&priceCheck=1' : ''}`, {
     headers: { Accept: 'application/json' },
     signal,
   });
@@ -278,12 +368,103 @@ function parseSimError(err: unknown, logs?: string[]): string {
   return errStr.slice(0, 140);
 }
 
+/** Jupiter's aggregator program (v6), the only program whose 6014 the fee retry listens to. */
+export const JUPITER_PROGRAM_ID = 'JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4';
+/** Jupiter v6 custom error 6014 (0x177e), IncorrectTokenProgramID. */
+export const JUPITER_INCORRECT_TOKEN_PROGRAM_ID = 6014;
+/** Jupiter v6 custom error 6001 (0x1771), SlippageToleranceExceeded: the route ran and paid under the minimum. */
+export const JUPITER_SLIPPAGE_EXCEEDED = 6001;
+// The runtime's own failure line. A program cannot forge it: anything a program
+// prints arrives as "Program log: ...", which this anchored pattern never matches.
+const PROGRAM_FAILED_LINE = /^Program [1-9A-HJ-NP-Za-km-z]{32,44} failed: /;
+
+/**
+ * Did this simulation fail with EXACTLY Jupiter's 6014, raised BY the Jupiter
+ * program? That is how a platform fee on the input side fails on a route whose
+ * pool cannot take it (SOL -> BAYLA over Pump.fun AMM, 2026-10). It is the one
+ * failure the send path may answer by rebuilding without the fee.
+ *
+ * All three must hold, and none of them can be set by a page URL, a token name
+ * or a route label:
+ *   1. the RPC's structured error is InstructionError[i, { Custom: 6014 }];
+ *   2. instruction i of the transaction WE built is a call into Jupiter;
+ *   3. the first program the runtime reports as failed is Jupiter, with that
+ *      code. A pool or token program that fails first with its own 6014 (and
+ *      lets Jupiter pass it up) is therefore NOT this error.
+ * Anything unreadable is "no".
+ */
+export function isJupiterIncorrectTokenProgram(b64Tx: string, err: unknown, logs: unknown): boolean {
+  return jupiterRaised(b64Tx, err, logs, JUPITER_INCORRECT_TOKEN_PROGRAM_ID);
+}
+
+/** The three checks above, for any one of Jupiter's own custom codes. */
+function jupiterRaised(b64Tx: string, err: unknown, logs: unknown, code: number): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const ie = (err as { InstructionError?: unknown }).InstructionError;
+  if (!Array.isArray(ie) || ie.length !== 2) return false;
+  const index: unknown = ie[0];
+  const detail: unknown = ie[1];
+  if (typeof index !== 'number' || !Number.isInteger(index) || index < 0) return false;
+  if (!detail || typeof detail !== 'object') return false;
+  const keys = Object.keys(detail);
+  if (keys.length !== 1 || keys[0] !== 'Custom') return false;
+  if ((detail as { Custom?: unknown }).Custom !== code) return false;
+  try {
+    const message = VersionedTransaction.deserialize(Uint8Array.from(atob(b64Tx), (c) => c.charCodeAt(0))).message;
+    const ix = message.compiledInstructions[index];
+    const program = ix ? message.staticAccountKeys[ix.programIdIndex] : undefined;
+    if (!program || program.toBase58() !== JUPITER_PROGRAM_ID) return false;
+  } catch {
+    return false;
+  }
+  if (!Array.isArray(logs)) return false;
+  const firstFailed: unknown = logs.find((l) => typeof l === 'string' && PROGRAM_FAILED_LINE.test(l));
+  return firstFailed === `Program ${JUPITER_PROGRAM_ID} failed: custom program error: 0x${code.toString(16)}`;
+}
+
+/**
+ * Why a test run refused, for the trader, read ONLY from what the runtime wrote: its own
+ * failure line, the System Program's line for a transfer that was short, or a one-word
+ * network error. A line a program printed ("Program log: ...") is never read: a token's
+ * own code could word it. `said` names a program by the ends of its address.
+ */
+export type SwapRefusalCause =
+  | { kind: 'price-limit' }
+  | { kind: 'low-sol'; had: bigint; needed: bigint }
+  | { kind: 'runtime'; said: string };
+
+const SHORT_TRANSFER_LINE = /^Transfer: insufficient lamports (\d+), need (\d+)$/;
+const FAILED_LINE_PARTS = /^Program ([1-9A-HJ-NP-Za-km-z]{32,44}) failed: (.{1,80})$/;
+
+export function refusalCause(b64Tx: string, err: unknown, logs: unknown): SwapRefusalCause | null {
+  if (jupiterRaised(b64Tx, err, logs, JUPITER_SLIPPAGE_EXCEEDED)) return { kind: 'price-limit' };
+  const lines = Array.isArray(logs) ? logs.filter((l): l is string => typeof l === 'string') : [];
+  for (const l of lines) {
+    const short = SHORT_TRANSFER_LINE.exec(l);
+    if (short) return { kind: 'low-sol', had: BigInt(short[1]!), needed: BigInt(short[2]!) };
+  }
+  for (const l of lines) {
+    const failed = FAILED_LINE_PARTS.exec(l);
+    if (failed) return { kind: 'runtime', said: `${failed[2]} in program ${failed[1]!.slice(0, 4)}…${failed[1]!.slice(-4)}` };
+  }
+  return typeof err === 'string' && /^[A-Za-z]{1,40}$/.test(err) ? { kind: 'runtime', said: err } : null;
+}
+
+export interface SwapSimulation {
+  ok: boolean;
+  reason: string | null;
+  /** True only for Jupiter's own 6014: see isJupiterIncorrectTokenProgram. Never true when ok. */
+  jupiterIncorrectTokenProgram: boolean;
+  /** Why it refused, when the runtime itself said (refusalCause). `reason` may be a program's own print. */
+  cause?: SwapRefusalCause | null;
+}
+
 /**
  * Pre-sign simulation of a built swap tx via our RPC proxy. Catches reverting
  * swaps (honeypots, freeze, slippage, insufficient balance) BEFORE the user
  * signs — saving gas. Best-effort: callers should FAIL OPEN if this throws.
  */
-export async function simulateSwap(b64Tx: string, signal?: AbortSignal): Promise<{ ok: boolean; reason: string | null }> {
+export async function simulateSwap(b64Tx: string, signal?: AbortSignal): Promise<SwapSimulation> {
   const res = await fetch(SOLANA_RPC_PROXY_PATH, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
@@ -299,8 +480,13 @@ export async function simulateSwap(b64Tx: string, signal?: AbortSignal): Promise
   const json = (await res.json()) as { result?: { value?: { err?: unknown; logs?: string[] } } };
   const value = json.result?.value;
   if (!value) throw new Error('No simulation result');
-  if (value.err === null || value.err === undefined) return { ok: true, reason: null };
-  return { ok: false, reason: parseSimError(value.err, value.logs) };
+  if (value.err === null || value.err === undefined) return { ok: true, reason: null, jupiterIncorrectTokenProgram: false };
+  return {
+    ok: false,
+    reason: parseSimError(value.err, value.logs),
+    jupiterIncorrectTokenProgram: isJupiterIncorrectTokenProgram(b64Tx, value.err, value.logs),
+    cause: refusalCause(b64Tx, value.err, value.logs),
+  };
 }
 
 // ─── Limit orders (Jupiter Trigger — real on-chain, keeper-filled) ──────────

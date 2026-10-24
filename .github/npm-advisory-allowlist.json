@@ -11,12 +11,22 @@
     "               dated promise to revisit, never a permanent pardon. Extending one is a commit",
     "               someone reviews.",
     "",
+    "               Also requires `projects`: the projects the reason was judged for, named as the",
+    "               baseline names them ('.', 'frontend', 'indexer'). The acceptance counts in those",
+    "               projects and in no other. Anywhere else the advisory blocks until someone judges",
+    "               it for that tree. An entry with no `projects` list counts nowhere. The same id",
+    "               may have a second entry, with its own reason, for another project.",
+    "",
     "  baseline   — the advisories that already existed when the gate was armed (2026-08-18),",
     "               recorded verbatim from that run. No reason is written for them because nobody",
     "               has triaged them, and inventing 32 rationales would be exactly the fabrication",
     "               this repo's honesty rule forbids. The whole baseline expires at once. After",
     "               that date every untriaged inherited advisory blocks — either fix it, or move it",
     "               into accepted[] with a real reason.",
+    "",
+    "WHEN A RUN SAYS 'PRUNE'. Each project's run reports only its own suppressions whose advisory is",
+    "gone from that project. For a baseline id, delete it from that project's list. For an accepted",
+    "id, take that project out of `projects`, and delete the entry when no project is left.",
     "",
     "THE UNIT IS THE GHSA ID, NEVER THE PACKAGE. Suppressing 'axios' would silently absorb the next",
     "axios advisory too; suppressing GHSA-gcfj-64vw-6mp9 suppresses exactly one known finding.",
@@ -27,7 +37,20 @@
     "code change, not a lockfile bump — that is why it is baselined rather than fixed in the commit",
     "that armed this gate, and why the baseline expiry is 90 days and not a year."
   ],
-  "accepted": [],
+  "accepted": [
+    {
+      "ghsa": "GHSA-vfj7-8cjw-p6xm",
+      "reason": "Accepted by the owner on 2026-10-03. No fixed braces exists: 3.0.3 is the newest release and the advisory covers every version up to and including it (GitHub lists no patched version; checked 2026-10-03). The indexer gets braces only through ponder 0.8 -> kysely-pglite (chokidar 3, and micromatch via globby/fast-glob and kysely-codegen). Ponder imports just the KyselyPGlite database dialect from that package; the code that hands patterns to braces is kysely-pglite's own codegen CLI, file watcher and migration finder, which the indexer never runs. The flaw is a stack overflow on a deeply nested brace pattern, so it needs an attacker who chooses the pattern, and no network input reaches one here. Removing braces means leaving ponder 0.8, a migration rather than a lockfile bump. Expires with the baseline so both come due together; delete this entry as soon as braces ships a fix.",
+      "expires": "2026-11-16",
+      "projects": ["indexer"]
+    },
+    {
+      "ghsa": "GHSA-587h-7wmj-h5pm",
+      "reason": "Proposed on 2026-10-21, in the same pull request that clears this advisory from the frontend with vite 8.3.3. It is carried only if the owner merges that pull request. Scope: the indexer. The flaw (published 2026-10-20) is in launch-editor, which vite bundles and serves at /__open-in-editor on its dev server: on Windows a crafted file path passes the existence check and reaches a shell command. The fix on this line is vite 6.4.4 and there is no safe way to reach it. ponder 0.8.33 pins vite at exactly 5.0.7, beside vite-node 1.0.2, which asks for vite ^5, so the fix is a major-version override under the loader ponder runs every indexing file through. ponder 0.18.2, the newest, does not clear it either: it pins vite 8.3.1, which is affected. No request reaches the flaw here. ponder calls vite's createServer only to load ponder.config.ts and the indexing files through vite-node. It never calls listen() on that server, and its own HTTP server (hono) mounts none of vite's middlewares, so /__open-in-editor is on no port (read in ponder 0.8.33's dist/bin/ponder.js on 2026-10-21). The flaw also needs Windows, and production runs on Railway's Linux containers. Expires with the baseline so the indexer's ponder 0.8 debt comes due together. It can go when the indexer moves to a ponder whose vite is 6.4.4, 7.3.7, 8.1.6, 8.2.4 or 8.3.3 or later on its line.",
+      "expires": "2026-11-16",
+      "projects": ["indexer"]
+    }
+  ],
   "baseline": {
     "recordedOn": "2026-08-18",
     "expires": "2026-11-16",
@@ -36,17 +59,10 @@
       ".": [],
       "frontend": [
         "GHSA-3gc7-fjrx-p6mg",
-        "GHSA-4cwx-7wf7-3272",
         "GHSA-96hv-2xvq-fx4p",
-        "GHSA-gcfj-64vw-6mp9",
-        "GHSA-hm92-r4w5-c3mj",
-        "GHSA-hmw2-7cc7-3qxx",
-        "GHSA-ph9p-34f9-6g65",
-        "GHSA-vmh5-mc38-953g",
-        "GHSA-vxpw-j846-p89q"
+        "GHSA-ph9p-34f9-6g65"
       ],
       "indexer": [
-        "GHSA-3jxr-9vmj-r5cp",
         "GHSA-6g55-p6wh-862q",
         "GHSA-88fw-hqm2-52qc",
         "GHSA-8cpq-38p9-67gx",
@@ -55,10 +71,8 @@
         "GHSA-c27g-q93r-2cwf",
         "GHSA-fx2h-pf6j-xcff",
         "GHSA-gpj5-g38j-94v9",
-        "GHSA-mh99-v99m-4gvg",
         "GHSA-pv5w-4p9q-p3v2",
         "GHSA-r28c-9q8g-f849",
-        "GHSA-rgw5-rvv9-x895",
         "GHSA-wc8c-qw6v-h7f6",
         "GHSA-wmrf-hv6w-mr66"
       ]

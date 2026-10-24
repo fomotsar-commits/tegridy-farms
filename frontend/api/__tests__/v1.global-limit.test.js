@@ -22,7 +22,7 @@ vi.mock("../_lib/ratelimit.js", () => ({
 const NAKAMIGOS = "0xd774557b647330c91bf44cfeab205095f7e6c367";
 
 function makeReq(query = {}) {
-  return { method: "GET", query, headers: { origin: "https://memetic.fun" } };
+  return { method: "GET", query, headers: { origin: "https://memetics.finance" } };
 }
 
 function makeRes() {

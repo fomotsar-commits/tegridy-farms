@@ -94,7 +94,13 @@ describe('Base rows have no rail, and the panel does not pretend otherwise', () 
   it('offers no buy at all', () => {
     renderPanel({ token: EVM_TOKEN, network: 'base', pool: EVM_POOL });
     expect(within(panel()).queryByRole('button', { name: /^buy$/i })).toBeNull();
-    expect(within(panel()).getByText(/there is no\s+in-app buy here/i)).toBeTruthy();
+    expect(within(panel()).getByText(/there is no buy on this page/i)).toBeTruthy();
+  });
+
+  it('points to the Base swap, which trades there since 2026-10-17', () => {
+    renderPanel({ token: EVM_TOKEN, network: 'base', pool: EVM_POOL });
+    const swapLink = within(panel()).getByRole('link', { name: /Open the Base swap/i });
+    expect(swapLink.getAttribute('href')).toBe('/swap?c=8453');
   });
 
   it('offers the two reads that DO work there — a Base scan and the external pool page', () => {

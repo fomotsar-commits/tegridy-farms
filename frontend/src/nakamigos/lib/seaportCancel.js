@@ -13,6 +13,7 @@
  * live counter via getCounter(offerer) and rebuild OrderComponents.
  */
 import { CONDUIT_KEY, resolveSeaportTarget } from "../constants";
+import { cancelRefusal, venueRefusalError } from "./venue";
 
 const ZERO = "0x0000000000000000000000000000000000000000";
 const ZERO_HASH = "0x0000000000000000000000000000000000000000000000000000000000000000";
@@ -61,10 +62,13 @@ export function buildOrderComponents(params, counter) {
 /**
  * Hard-cancel a signed Seaport order on-chain. Reads the offerer's live counter,
  * rebuilds the correct OrderComponents, and submits cancel(). Returns the ethers
- * transaction (the caller awaits `.wait()`). Throws on wallet rejection / RPC
+ * transaction (the caller waits with waitForTxOutcome). Throws on wallet rejection / RPC
  * error (callers already map err.code 4001 → "rejected").
  */
 export async function cancelSeaportOrder({ ethers, signer, params, seaportAddress }) {
+  // An order on another chain cannot be cancelled on Ethereum (lib/venue.js).
+  const refusal = cancelRefusal(params);
+  if (refusal) throw venueRefusalError(refusal);
   // SECURITY: pin the target HERE, at the sink, rather than at each call site —
   // every caller passes a server-supplied `protocol_address` (MyListings,
   // OrderBookPanel), and this is the one place that turns it into a contract the

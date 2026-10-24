@@ -68,8 +68,7 @@ const MAINNET: ChainConfig = {
     referrals: isDeployed(REFERRAL_SPLITTER_ADDRESS),
     protocolOwnedLiquidity: isDeployed(POL_ACCUMULATOR_ADDRESS),
     indexed: true,
-    // The only chain the swap stack is wired for — every read and write in
-    // useSwap/useSwapQuote pins `chainId: CHAIN_ID`, which is 1.
+    // The swap reads and writes this chain's venue through lib/chains/swapVenue.ts.
     ammSwap: true,
   },
   contracts: {
@@ -114,13 +113,13 @@ const BASE: ChainConfig = {
     referrals: false,
     protocolOwnedLiquidity: false,
     indexed: false,
-    // FALSE FOR TWO INDEPENDENT REASONS, and both must clear before it flips.
-    // (1) The swap stack does not read this chain's router/factory at all.
-    // (2) This chain's factory holds ZERO pairs — verified on-chain 2026-09-05
-    //     via allPairsLength() == 0, a reverting allPairs(0), and a factory
-    //     account nonce of 0x1 (never executed a CREATE). launchCount() is 0
-    //     on the curve launcher, so nothing has ever graduated into a pair.
-    ammSwap: false,
+    // ON since 2026-10-17 (owner: "build Base and Robinhood swap now anyway, even
+    // with no pools yet"; "route to better pool unless our pools are better").
+    // The swap compares this chain's own pools with Uniswap V2 here and sends the
+    // trade to the better one (lib/chains/swapVenue.ts). Our factory still held
+    // ZERO pairs when read 2026-10-17, so until one exists every trade goes to
+    // Uniswap V2 and the venue earns nothing on it.
+    ammSwap: true,
   },
   contracts: {
     weth: '0x4200000000000000000000000000000000000006',
@@ -168,13 +167,10 @@ const ROBINHOOD: ChainConfig = {
     referrals: false,
     protocolOwnedLiquidity: false,
     indexed: false,
-    // FALSE FOR TWO INDEPENDENT REASONS, and both must clear before it flips.
-    // (1) The swap stack does not read this chain's router/factory at all.
-    // (2) This chain's factory holds ZERO pairs — verified on-chain 2026-09-05
-    //     via allPairsLength() == 0, a reverting allPairs(0), and a factory
-    //     account nonce of 0x1 (never executed a CREATE). launchCount() is 0
-    //     on the curve launcher, so nothing has ever graduated into a pair.
-    ammSwap: false,
+    // ON since 2026-10-17, as on Base: our pools vs Uniswap V2, the better one
+    // wins (lib/chains/swapVenue.ts). Zero pairs on our factory when read
+    // 2026-10-17, so trades go to Uniswap V2 until one exists.
+    ammSwap: true,
   },
   contracts: {
     weth: '0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73',

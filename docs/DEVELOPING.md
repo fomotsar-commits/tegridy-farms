@@ -6,7 +6,7 @@ How to set up a local development environment, run the three sub-projects (contr
 
 ### Prerequisites
 
-- **Node.js 20.x** (check `.nvmrc` — install via [nvm](https://github.com/nvm-sh/nvm) / [fnm](https://github.com/Schniz/fnm))
+- **Node.js 24.x** (check `.nvmrc` — install via [nvm](https://github.com/nvm-sh/nvm) / [fnm](https://github.com/Schniz/fnm))
 - **pnpm 9+** (or `npm` — commands below use pnpm but translate trivially)
 - **Foundry** — install via [getfoundry.sh](https://getfoundry.sh/)
 - **Git** with working `https://` remotes

@@ -458,12 +458,22 @@ describe('connect(): the QR and its outcomes', () => {
     await done;
     expect(adapter.publicKey?.equals(wallet.publicKey)).toBe(true);
     expect(phases).toEqual(['starting', 'scan', 'idle']);
+    // The proposal wallets are built against: WalletConnect's six Solana
+    // methods and AppKit's two events, as Trust's and Jupiter's own connect
+    // SDKs send them. Only solana_signTransaction is ever requested.
     expect(client.connectCalls[0]).toEqual({
       optionalNamespaces: {
         solana: {
           chains: [MAINNET, 'solana:4sGjMW1sUnHzSxGspuhpqLDx6wiyjNtZ'],
-          methods: ['solana_signTransaction'],
-          events: [],
+          methods: [
+            'solana_getAccounts',
+            'solana_requestAccounts',
+            'solana_signMessage',
+            'solana_signTransaction',
+            'solana_signAllTransactions',
+            'solana_signAndSendTransaction',
+          ],
+          events: ['accountsChanged', 'chainChanged'],
         },
       },
     });

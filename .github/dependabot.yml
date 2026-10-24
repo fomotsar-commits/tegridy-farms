@@ -10,9 +10,6 @@ updates:
       time: "09:00"
       timezone: "UTC"
     open-pull-requests-limit: 10
-    labels:
-      - "dependencies"
-      - "frontend"
     ignore:
       # TypeScript 7.0 is the Go port. typescript-eslint refuses to load against
       # it outright — `npm run lint` dies with "typescript-eslint does not
@@ -22,6 +19,12 @@ updates:
       # patch TS updates still flow normally — only the major is held.
       - dependency-name: "typescript"
         update-types: ["version-update:semver-major"]
+      # @types/node follows the Node the code RUNS on (.nvmrc, 24), never the newest
+      # Node. Types for a newer major describe APIs that type-check here and then throw
+      # in production. #654 offered 26, which is why this line exists. Raise it in the
+      # same PR that moves .nvmrc; frontend/src/test/nodeRuntime.test.ts reds until you do.
+      - dependency-name: "@types/node"
+        versions: [">=25"]
     groups:
       # ── Groups are deliberately restricted to minor+patch ──────────────
       # A group with no `update-types` sweeps MAJORS in too, and a group is
@@ -79,9 +82,10 @@ updates:
       interval: weekly
       day: monday
     open-pull-requests-limit: 0
-    labels:
-      - "dependencies"
-      - "indexer"
+    ignore:
+      # Same rule as /frontend: types never ahead of the Node in .nvmrc (24).
+      - dependency-name: "@types/node"
+        versions: [">=25"]
 
   # Root (if any lockfile lives at root)
   - package-ecosystem: npm
@@ -89,17 +93,12 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
-    labels:
-      - "dependencies"
 
   # GitHub Actions themselves (action versions drift too)
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
       interval: weekly
-    labels:
-      - "dependencies"
-      - "ci"
     # ── the foundry-toolchain ignore, and why it is gone ──────────────────────
     #
     # foundry-toolchain was pinned at 1.3.1 here from 2026-08-01. The comment

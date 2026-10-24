@@ -12,7 +12,7 @@ Legend: **FREE** · **FREE-tier** · **$ paid** · ⚠ **key-touching / scope ca
 
 | What | Where | How to use |
 |---|---|---|
-| **security.txt** (RFC 9116 disclosure channel) | `frontend/public/.well-known/security.txt` | Deploys with the frontend → served at `https://tegridyfarms.vercel.app/.well-known/security.txt`. Verify it resolves after the next deploy. Swap the email for a dedicated `security@` alias when you have one. |
+| **security.txt** (RFC 9116 disclosure channel) | `frontend/public/.well-known/security.txt` | Deploys with the frontend → served at `https://memetics.finance/.well-known/security.txt`. Verify it resolves after the next deploy. Swap the email for a dedicated `security@` alias when you have one. |
 | **`@custom:security-contact`** on flagship contracts | `Toweli.sol`, `SwapFeeRouter.sol` | Renders a contact on Etherscan's verified-source page. Add the same one-liner to other entry contracts (Router, Staking, RevenueDistributor, NFT-AMM/lending) on their next edit. |
 | **Flashbots / MEV-Blocker private send-paths** | `contracts/foundry.toml` → `[rpc_endpoints]` | `forge script … --rpc-url flashbots --broadcast --slow` for admin/deployer txs so they can't be sandwiched. Reads/nonce still use `mainnet`. |
 | **SMTChecker formal-verification profile** (opt-in) | `contracts/foundry.toml` → `[profile.smtcheck.*]` | `FOUNDRY_PROFILE=smtcheck forge build` (CI, or a machine where build completes). Free formal layer, scoped to `Toweli`; widen `contracts` as you tune. |
@@ -35,9 +35,15 @@ migrations, 42501 role-grant gaps, anon-key rotation). An anon-key RLS bypass = 
 Supabase dashboard → **Advisors → Security**. Then run an adversarial anon-key probe before any go-live.
 <https://supabase.com/docs/guides/database/database-advisors>
 
-### 3. security.txt email + GitHub private vuln reporting — **FREE, minutes** 🧩
-The file is committed. Verify it resolves post-deploy. If the repo is public, enable **Settings →
-Code security → Private vulnerability reporting** and add that URL as a second `Contact:` line.
+### 3. security.txt email — **FREE, minutes** 🧩
+The file is committed. Verify it resolves post-deploy. The email in it is the first reporting
+channel, and it does not depend on any git host. A second channel is welcome, as long as it
+does not depend on one git host either: link it through our own domain (for example an
+issue via `https://memetics.finance/source-issues` that asks for a contact), never a host's
+own URL. GitHub's private advisories went dark with the account from 2026-09-24 until it came
+back on 2026-09-29, and any host can go the same way. The pool program's source lists the email
+first and this file second since 2026-10-06, and the program on mainnet has carried both since
+its first upgrade (TODO_OPERATOR O-0929-10).
 Save the **SEAL 911** break-glass contact NOW (before you need it): <https://securityalliance.org/our-work/seal-911>
 
 ### 4. Free CI trio — **FREE** (add the YAML below)

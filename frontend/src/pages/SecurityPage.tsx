@@ -7,6 +7,7 @@ import { usePageTitle } from '../hooks/usePageTitle';
 import { useSourceVerification } from '../hooks/useSourceVerification';
 import { VerifiedBadge } from '../components/ui/VerifiedBadge';
 import { ArtImg } from '../components/ArtImg';
+import { CardArt } from '../components/ui/CardArt';
 import { CopyButton } from '../components/ui/CopyButton';
 import {
   TEGRIDY_STAKING_ADDRESS,
@@ -16,8 +17,7 @@ import {
   TEGRIDY_NFT_LENDING_ADDRESS,
   TEGRIDY_NFT_POOL_FACTORY_ADDRESS,
   TREASURY_ADDRESS,
-  GITHUB_BLOB_BASE,
-  GITHUB_TREE_BASE,
+  SOURCE_URL,
   isDeployed,
 } from '../lib/constants';
 import { artImgProps } from '../lib/artSrcSet';
@@ -136,7 +136,7 @@ export default function SecurityPage() {
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
         <ArtImg pageId="security" idx={0} alt="" loading="lazy" className="w-full h-full object-cover" />
       </div>
-      <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6 pt-32 pb-20">
+      <div className="relative z-10 page-column mx-auto px-4 md:px-6 pt-32 pb-20">
 
         {/* Hero */}
         <m.div initial="hidden" animate="visible" variants={fade} transition={{ duration: 0.6 }} className="text-center mb-16">
@@ -168,7 +168,8 @@ export default function SecurityPage() {
             what we actually do instead. Additive copy — every claim is already
             true elsewhere on this page. */}
         <m.div initial="hidden" animate="visible" variants={fade} transition={{ duration: 0.6, delay: 0.1 }} className="mb-14">
-          <div className="rounded-2xl p-5 md:p-6" style={{ background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(4px)', border: '1px solid rgba(234,179,8,0.35)' }}>
+          <div className="relative isolate rounded-2xl p-5 md:p-6" style={{ background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(4px)', border: '1px solid rgba(234,179,8,0.35)' }}>
+            <CardArt pageId="security" idx={22} />
             <h2 className="text-lg md:text-xl font-bold text-amber-300 mb-2" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>No paid third-party audit yet. Here is exactly what we do instead</h2>
             <p className="text-white/85 text-sm md:text-base" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>We have not commissioned a paid audit from an outside security firm. In its place we run repeated internal multi-agent security reviews backed by an extensive Foundry test suite, track every finding and fix in public audit files, and keep the code immutable and non-upgradeable after deployment. The methodology, artifacts, and still-open items are all linked below: read the source of truth directly.</p>
           </div>
@@ -205,12 +206,12 @@ export default function SecurityPage() {
             {/* Audit C-03: the prior "/audit-report.pdf" link was a 404; audit artifacts
                 live in the repo as markdown so they version with the code. */}
             <div className="flex flex-wrap gap-3 mt-5">
-              <a href={`${GITHUB_BLOB_BASE}/docs/archive/SECURITY_AUDIT_300_AGENT.md`}
+              <a href={`${SOURCE_URL}/docs/archive/SECURITY_AUDIT_300_AGENT.md`}
                 target="_blank" rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold text-white bg-purple-600 hover:bg-purple-500 transition-colors">
-                View Full Audit (GitHub)
+                View Full Audit
               </a>
-              <a href={`${GITHUB_TREE_BASE}#security`}
+              <a href={`${SOURCE_URL}/docs/AUDITS.md`}
                 target="_blank" rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold text-white/90 border border-white/15 hover:border-white/30 transition-colors">
                 All Audit Artifacts
@@ -232,42 +233,42 @@ export default function SecurityPage() {
             </p>
             <div className="flex flex-wrap gap-3">
               <a
-                href={`${GITHUB_BLOB_BASE}/docs/audits/audit_101/PASS7_2026_05_03.md`}
+                href={`${SOURCE_URL}/docs/audits/audit_101/PASS7_2026_05_03.md`}
                 target="_blank" rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-500 transition-colors"
               >
                 Pass-7 audit + remediation (May 3)
               </a>
               <a
-                href={`${GITHUB_BLOB_BASE}/docs/audits/audit_101/PASS6_2026_05_03.md`}
+                href={`${SOURCE_URL}/docs/audits/audit_101/PASS6_2026_05_03.md`}
                 target="_blank" rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-500 transition-colors"
               >
                 Pass-6 fresh-eyes audit (May 3)
               </a>
               <a
-                href={`${GITHUB_BLOB_BASE}/docs/audits/audit_101/POST_REMEDIATION_LEDGER.md`}
+                href={`${SOURCE_URL}/docs/audits/audit_101/POST_REMEDIATION_LEDGER.md`}
                 target="_blank" rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-500 transition-colors"
               >
                 Post-remediation ledger (Apr 26)
               </a>
               <a
-                href={`${GITHUB_BLOB_BASE}/docs/archive/SECURITY_AUDIT_300_AGENT.md`}
+                href={`${SOURCE_URL}/docs/archive/SECURITY_AUDIT_300_AGENT.md`}
                 target="_blank" rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-white bg-purple-600 hover:bg-purple-500 transition-colors"
               >
                 300-agent review
               </a>
               <a
-                href={`${GITHUB_BLOB_BASE}/docs/audits/archive/SECURITY_AUDIT_OPUS.md`}
+                href={`${SOURCE_URL}/docs/audits/archive/SECURITY_AUDIT_OPUS.md`}
                 target="_blank" rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-white/90 border border-white/15 hover:border-white/30 transition-colors"
               >
                 Opus review
               </a>
               <a
-                href={`${GITHUB_TREE_BASE}#security`}
+                href={`${SOURCE_URL}/docs/AUDITS.md`}
                 target="_blank" rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-white/90 border border-white/15 hover:border-white/30 transition-colors"
               >
@@ -342,7 +343,7 @@ export default function SecurityPage() {
           <ArtCard art={pageArt('security', 15)}>
             <div className="space-y-3">
               {[
-                'Protocol swap fees route on-chain to stakers (split is governance-adjustable — see Treasury)',
+                'Protocol swap fees route on-chain, after a referral share, to stakers (split is governance-adjustable — see Treasury)',
                 'Sensitive admin changes are timelocked (24-48h); emergency pause and some operational setters act immediately',
                 'No proxy contracts — all code is immutable after deployment',
                 'Source code available for independent review',

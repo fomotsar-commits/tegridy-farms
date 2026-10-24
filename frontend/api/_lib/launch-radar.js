@@ -37,8 +37,6 @@ const MAX_PAGES = 2;
 // Same credentialed-CORS origin set the rest of the api/ surface uses
 // (api/etherscan.js, _lib/launcher-outcomes.js).
 const ALLOWED_ORIGINS = [
-  "https://memetic.fun",
-  "https://www.memetic.fun",
   "https://memetics.finance",
   "https://www.memetics.finance",
   "https://tegridyfarms.vercel.app",

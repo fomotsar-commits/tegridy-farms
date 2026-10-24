@@ -55,7 +55,7 @@ export default function LearnPage() {
 
   return (
     <>
-      {/* Sticky tab bar below TopNav — components/layout/RouteTabs.tsx, the one
+      {/* The tab bar at the top of the page: components/layout/RouteTabs.tsx, the one
           the whole app shares. It carries the WAI-ARIA roving-focus wiring (T10 /
           F22) this file used to call `useTabListKeys` for directly, and the 44px
           phone touch floor (A11Y-R07) the hand-copied version here never had. */}

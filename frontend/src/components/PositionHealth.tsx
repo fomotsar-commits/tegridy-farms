@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { m } from 'framer-motion';
 import { useUserPosition } from '../hooks/useUserPosition';
 import { staggerContainer, staggerItem } from '../lib/motion';
+import { CardArt } from './ui/CardArt';
 
 /**
  * Position Health Center (#7) — proactive warnings, not just a position readout.
@@ -59,7 +60,7 @@ export function PositionHealth() {
       sev: 'warn',
       title: `Your lock ends in ${daysLeft === 0 ? 'under a day' : `${daysLeft}d`}`,
       detail: `Extend it to keep your ${boostX.toFixed(1)}× boost — once it unlocks you drop to the base rate.`,
-      cta: { label: 'Extend lock', to: '/farm' },
+      cta: { label: 'Extend lock', to: '/earn/toweli' },
     });
   }
 
@@ -70,7 +71,7 @@ export function PositionHealth() {
       sev: 'warn',
       title: 'Your lock has ended',
       detail: 'Re-lock to restore your boosted rewards — an unlocked position earns the base rate.',
-      cta: { label: 'Re-lock', to: '/farm' },
+      cta: { label: 'Re-lock', to: '/earn/toweli' },
     });
   }
 
@@ -81,14 +82,15 @@ export function PositionHealth() {
       sev: 'info',
       title: `${compact(claimable)} TOWELI ready to claim`,
       detail: 'Claim your TOWELI rewards — re-stake on the Farm page to compound.',
-      cta: { label: 'Claim rewards', to: '/farm' },
+      cta: { label: 'Claim rewards', to: '/earn/toweli' },
     });
   }
 
   const healthy = alerts.length === 0;
 
   return (
-    <div className="glass-card rounded-xl p-4 md:p-5">
+    <div className="relative isolate glass-card rounded-xl p-4 md:p-5">
+      <CardArt pageId="position-health" idx={0} />
       <div className="flex items-center justify-between mb-3">
         <h3 className="heading-luxury text-[15px] text-white">Position Health</h3>
         <span

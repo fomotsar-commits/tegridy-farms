@@ -34,6 +34,8 @@ on:
       - "frontend/scripts/verify-addresses.mjs"
       - "frontend/src/lib/constants.ts"
       - "frontend/src/lib/bungalows.ts"
+      - "frontend/src/test/roomLpDoors.ts"
+      - "frontend/src/test/roomLpDoors.onchain.test.ts"
       - "scripts/verify-ladder-builds.mjs"
       - ".github/workflows/registry-onchain.yml"
   # NO `paths:` HERE, deliberately — see the `scope` job. A workflow-level
@@ -102,7 +104,11 @@ jobs:
           # is already known to be in scope.
           [ -n "${PR:-}" ] || { echo "not a pull_request — in scope by trigger"; say true; }
 
-          files=$(gh api --paginate "repos/$REPO/pulls/$PR/files" --jq '.[].filename')
+          files=$(gh api --paginate "repos/$REPO/pulls/$PR/files" \
+            --jq '.[] | .filename, (.previous_filename // empty)') || {
+            echo "::warning::gh could not list every changed file, running the real job"
+            say true
+          }
           if [ -z "$files" ]; then
             echo "::warning::could not list this PR's changed files — running the real job"
             say true
@@ -119,6 +125,8 @@ jobs:
             'frontend/scripts/verify-addresses.mjs' \
             'frontend/src/lib/constants.ts' \
             'frontend/src/lib/bungalows.ts' \
+            'frontend/src/test/roomLpDoors.ts' \
+            'frontend/src/test/roomLpDoors.onchain.test.ts' \
             'scripts/verify-ladder-builds.mjs' \
             '.github/workflows/registry-onchain.yml')
           case "$verdict" in
@@ -143,7 +151,7 @@ jobs:
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
@@ -162,6 +170,10 @@ jobs:
         env:
           SOLANA_RPC: ${{ vars.SOLANA_RPC || 'https://api.mainnet-beta.solana.com' }}
           ETH_RPC: ${{ vars.ETH_RPC || 'https://ethereum-rpc.publicnode.com' }}
+          # Empty falls through to the script's own public default (mainnet.base.org,
+          # rpc.mainnet.chain.robinhood.com). The base and robinhood rows are read here too.
+          BASE_RPC: ${{ vars.BASE_RPC || '' }}
+          RH_RPC: ${{ vars.RH_RPC || '' }}
         run: |
           set -euo pipefail
           node scripts/verify-addresses.mjs --onchain | tee /tmp/onchain.txt
@@ -183,6 +195,7 @@ jobs:
         env:
           ETH_RPC: ${{ vars.ETH_RPC || '' }}
           BASE_RPC: ${{ vars.BASE_RPC || '' }}
+          RH_RPC: ${{ vars.RH_RPC || '' }}
         run: |
           set -euo pipefail
           node scripts/verify-ladder-builds.mjs | tee /tmp/ladders.txt
@@ -208,6 +221,16 @@ jobs:
             echo "::error title=No chain read happened::verify-addresses.mjs --onchain produced no chain section. A green run here would mean 'nothing was checked', not 'nothing is wrong'."
             exit 1
           }
+          # Who holds each authority and what each fee tier charges (check 3d).
+          grep -q 'field read: [1-9][0-9]* accounts considered' /tmp/onchain.txt || {
+            echo "::error title=No authority read happened::verify-addresses.mjs --onchain did not read who holds our Solana authorities. Green here would mean 'nothing was checked'."
+            exit 1
+          }
+          # The multisig's threshold, members, time lock and config authority (check 3c).
+          grep -q 'multisig read: [1-9][0-9]* considered' /tmp/onchain.txt || {
+            echo "::error title=No multisig read happened::verify-addresses.mjs --onchain did not read the Squads multisig's settings. Green here would mean 'nothing was checked'."
+            exit 1
+          }
 
           # Second belt, for the case the first one cannot see. The script now
           # SKIPS addresses the RPC did not answer for — the right call, because a
@@ -228,7 +251,7 @@ jobs:
             exit 1
           fi
           if [ "$considered" -gt 0 ] && [ "$skipped" -ge "$considered" ]; then
-            echo "::error title=Nothing was actually checked::all $considered addresses were skipped because the RPC did not answer. This run verified NOTHING; it is not evidence the registry is correct. Re-run, or set the SOLANA_RPC / ETH_RPC repo variables to keyed endpoints."
+            echo "::error title=Nothing was actually checked::all $considered addresses were skipped because the RPC did not answer. This run verified NOTHING; it is not evidence the registry is correct. Re-run, or set the SOLANA_RPC / ETH_RPC / BASE_RPC / RH_RPC repo variables to keyed endpoints."
             exit 1
           fi
           if [ "$skipped" -gt 0 ]; then
@@ -241,3 +264,28 @@ jobs:
             sed -n '/live chain state/,$p' /tmp/onchain.txt
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # Every Solana room whose coin has a SOL pool on the venue's own pool program names
+      # it in `venueSolPool` (lib/bungalows.ts), and names only its own. That field is what
+      # puts the room's "Add SOL + <coin>" door on its first screen, it is written by hand,
+      # and a pool anyone opens gives no other signal: RIZZ's opened 2026-10-16, BRAINLET's,
+      # BOBO's and SOY's by 10-18, and those rooms had no door until a read by hand on 10-18.
+      #
+      # Here, and not in `npm test`: it reads mainnet, so an RPC that does not answer
+      # reddens this job and never an unrelated merge. Unreadable is red here, never green.
+      # The endpoint must answer a filtered getProgramAccounts (publicnode refuses it).
+      # `--silent=false` because vitest hides a passing test's log, and the grep below
+      # needs the table: a run that skipped the test cannot pass as one that read.
+      # The rule and its canned tests: src/test/roomLpDoors.ts and roomLpDoors.test.ts.
+      - name: Every Solana room's LP door names its SOL pool
+        if: ${{ !cancelled() }}
+        env:
+          ROOM_LP_DOORS_ONCHAIN: "1"
+          SOLANA_RPC: ${{ vars.SOLANA_RPC || 'https://api.mainnet-beta.solana.com' }}
+        run: |
+          set -euo pipefail
+          npx vitest run src/test/roomLpDoors.onchain.test.ts --silent=false | tee /tmp/doors.txt
+          grep -q "ROOM LP DOORS: [1-9][0-9]* Solana rooms against [1-9][0-9]* SOL pools" /tmp/doors.txt || {
+            echo "::error title=No room door read happened::the room LP door test printed no table. Green here would mean 'nothing was checked'."
+            exit 1
+          }

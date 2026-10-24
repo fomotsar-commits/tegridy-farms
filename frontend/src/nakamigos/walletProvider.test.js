@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { buyFulfillment } from "./__fixtures__/seaportFulfillment";
 
 // ═══ REGRESSION: pay-from-the-wrong-wallet ═══
 //
@@ -77,19 +78,12 @@ vi.mock("./lib/seaportCancel", () => ({
   buildOrderComponents: vi.fn(),
 }));
 
-// A well-formed OpenSea fulfillment_data response. The function signature is a
-// real allowlisted entrypoint name; the argument shape is simplified because
-// this test only cares about WHICH wallet pays, not about calldata layout.
-const FULFILLMENT_OK = {
-  fulfillment_data: {
-    transaction: {
-      to: SEAPORT_15,
-      value: "1000000000000000",
-      function: "fulfillOrder(uint256 hint)",
-      input_data: { hint: 1 },
-    },
-  },
-};
+// A well-formed OpenSea fulfillment_data response: a real basic-order buy whose
+// calldata moves a Nakamigos token. This test only cares about WHICH wallet
+// pays, but the buy path also reads the NFT a fill moves from the calldata and
+// refuses one it cannot name, so the fixture has to name a venue token.
+const NAKAMIGOS = "0xd774557b647330C91Bf44cfEAB205095f7E6c367";
+const FULFILLMENT_OK = buyFulfillment(NAKAMIGOS, { to: SEAPORT_15 });
 
 // Cleanups are torn down in afterEach — NOT at the end of each test body — so a
 // failing assertion cannot leak an EIP-6963 announcer into the next test and
@@ -176,7 +170,7 @@ describe("fulfillSeaportOrder — wallet binding", () => {
     h.signerAddress = OTHER_WALLET; // wallet extension is on a different account
 
     const res = await api.fulfillSeaportOrder(
-      { orderHash: "0xabc", protocolAddress: SEAPORT_15 },
+      { orderHash: "0xabc", protocolAddress: SEAPORT_15, contract: NAKAMIGOS },
       { buyerAddress: CONNECTED },
     );
 
@@ -200,7 +194,7 @@ describe("fulfillSeaportOrder — wallet binding", () => {
     h.signerAddress = CONNECTED;
 
     const res = await api.fulfillSeaportOrder(
-      { orderHash: "0xabc", protocolAddress: SEAPORT_15 },
+      { orderHash: "0xabc", protocolAddress: SEAPORT_15, contract: NAKAMIGOS },
       { buyerAddress: CONNECTED },
     );
 
@@ -218,7 +212,7 @@ describe("fulfillSeaportOrder — wallet binding", () => {
     h.signerAddress = CONNECTED;
     expect(window.ethereum).toBeUndefined();
 
-    const res = await api.fulfillSeaportOrder({ orderHash: "0xabc" }, {});
+    const res = await api.fulfillSeaportOrder({ orderHash: "0xabc", contract: NAKAMIGOS }, {});
 
     expect(res.error).toBeUndefined();
     expect(res.success).toBe(true);
@@ -324,7 +318,7 @@ describe("api-offers — wallet binding", () => {
     };
     h.signerAddress = OTHER_WALLET;
 
-    const res = await apiOffers.acceptOffer({ orderHash: "0xoffer" });
+    const res = await apiOffers.acceptOffer({ orderHash: "0xoffer", tokenContract: NAKAMIGOS });
 
     expect(res.success).toBeUndefined();
     expect(res.error).toBe("wallet-mismatch");

@@ -12,6 +12,7 @@ import { useLpPosition } from '../hooks/useLpPosition';
 import { usePoolData } from '../hooks/usePoolData';
 import { useTOWELIPrice } from '../contexts/PriceContext';
 import { useFarmActions } from '../hooks/useFarmActions';
+import { useReceiptOutcome } from '../hooks/useReceiptOutcome';
 import { useNFTBoost } from '../hooks/useNFTBoost';
 import { useAutoRefreshBoost } from '../hooks/useAutoRefreshBoost';
 import { useDCA } from '../hooks/useDCA';
@@ -23,7 +24,6 @@ import { Skeleton } from '../components/ui/Skeleton';
 import { AnimatedCounter } from '../components/AnimatedCounter';
 import { Sparkline } from '../components/Sparkline';
 import { PulseDot } from '../components/PulseDot';
-import { TegridyScoreMini } from '../components/TegridyScoreMini';
 import { PositionHealth } from '../components/PositionHealth';
 import { usePriceHistory } from '../hooks/usePriceHistory';
 import { FlashValue } from '../components/FlashValue';
@@ -42,13 +42,16 @@ import { useRevenueStats } from '../hooks/useRevenueStats';
 import { ReferralWidget } from '../components/ReferralWidget';
 import { PriceAlertWidget } from '../components/PriceAlertWidget';
 import { ArtImg } from '../components/ArtImg';
+import { CardArt } from '../components/ui/CardArt';
+import { PositionMark, positionHost } from '../components/ui/PositionMark';
+import { FinePrint } from '../components/ui/FinePrint';
 import { useTowelie } from '../hooks/useTowelie';
 import { useTabListKeys } from '../hooks/useTabListKeys';
 import { usePortfolio } from '../hooks/usePortfolio';
 import { UnifiedPortfolio } from '../components/portfolio/UnifiedPortfolio';
 import { getBungalowIdentity } from '../lib/bungalows';
 import { isToweliVoice } from '../lib/arrival';
-import { VenuePoolIndex } from '../components/farm/VenuePoolIndex';
+import { IslandDashboard } from '../components/IslandDashboard';
 import { PageSkeleton } from '../components/PageSkeleton';
 
 // Jungle Bay bungalows: lazy so the @solana/* wallet stack rides ONLY the
@@ -61,6 +64,7 @@ const EvmBungalowDashboardPanel = lazy(() =>
   import('../components/bungalow/EvmBungalowDashboardPanel').then((m) => ({ default: m.EvmBungalowDashboardPanel })),
 );
 import { artImgProps } from '../lib/artSrcSet';
+import { noteReplacement } from '../lib/txErrors';
 
 // AUDIT DASH-UX: tabbed view promised by commit b21fed0 but never shipped.
 // Header + summary stats stay above the tabs so at-a-glance portfolio value
@@ -73,6 +77,10 @@ const DASH_TABS: { key: DashTab; label: string }[] = [
   { key: 'rewards',   label: 'Rewards' },
 ];
 const VALID_DASH_TABS: DashTab[] = ['overview', 'positions', 'loans', 'rewards'];
+
+// dashboard:15-25 are the notice and status cards, 26-29 the four projection tiles
+// (the horizons below; idx wraps if a horizon is added).
+const PROJECTION_ART_SLOTS = 4;
 function dashTabFromQuery(v: string | null): DashTab | null {
   if (!v) return null;
   return (VALID_DASH_TABS as string[]).includes(v) ? (v as DashTab) : null;
@@ -128,25 +136,12 @@ export default function DashboardPage() {
  */
 function VenueDashboard() {
   usePageTitle(
-    'Your positions',
-    'Positions on Jungle Bay Island live in the room they were opened in — each resident pool is its own token, on its own chain.',
+    'Dashboard',
+    'Every pool on Jungle Bay Island. Positions live in the room they were opened in — each resident pool is its own token, on its own chain.',
   );
   return (
-    <div className="mx-auto w-full max-w-[900px] px-4 py-8 sm:py-10">
-      <header className="mb-6">
-        <p className="text-[11px] uppercase tracking-wider label-pill mb-2" style={{ color: 'var(--color-kyle)' }}>
-          Jungle Bay Island
-        </p>
-        <h1 className="heading-luxury text-3xl md:text-4xl text-white leading-tight mb-3">
-          Your positions
-        </h1>
-        <p className="text-white/75 text-[14px] md:text-[15px] leading-relaxed max-w-[62ch]">
-          Positions live in the room they were opened in. Each resident&apos;s pool is its own
-          token, on its own chain, read by its own panel. Open a room to see what you hold there.
-          The venue itself holds nothing on your behalf.
-        </p>
-      </header>
-      <VenuePoolIndex />
+    <div className="page-column mx-auto w-full px-4 md:px-6 py-8 sm:py-10">
+      <IslandDashboard headingLevel={1} />
     </div>
   );
 }
@@ -274,6 +269,8 @@ function ToweliDashboard() {
   const priceChangeStr = price.priceChange !== 0
     ? `${price.priceChange > 0 ? '+' : ''}${(price.priceChange ?? 0).toFixed(2)}%`
     : '';
+  // Every price source has answered or failed and none gave a price.
+  const priceUnread = price.priceInUsd <= 0 && price.priceSettled;
 
   // F173 (T11): during wallet auto-reconnect on cold reload, `isConnected` is
   // briefly false-then-true (or true-then-false), which made the connected
@@ -287,7 +284,8 @@ function ToweliDashboard() {
           <ArtImg pageId="dashboard" idx={0} fallbackPosition="center 5%" alt="" loading="lazy" className="w-full h-full object-cover" />
         </div>
         <div className="relative z-10 min-h-screen flex items-center justify-center px-6" role="status" aria-label="Reconnecting wallet">
-          <div className="flex flex-col items-center gap-3 px-6 py-8 rounded-2xl" style={{ background: 'rgba(6, 12, 26, 0.82)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', border: '1px solid rgba(245, 228, 184, 0.12)' }}>
+          <div className="relative isolate flex flex-col items-center gap-3 px-6 py-8 rounded-2xl" style={{ background: 'rgba(6, 12, 26, 0.82)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', border: '1px solid rgba(245, 228, 184, 0.12)' }}>
+            <CardArt pageId="dashboard" idx={15} />
             <div className="w-6 h-6 rounded-full border-2 border-white/20 border-t-white/70 animate-spin" />
             <p className="text-white/70 text-[13px]">Reconnecting your wallet…</p>
           </div>
@@ -347,14 +345,15 @@ function ToweliDashboard() {
           </div>
 
           {/* TOWELI price chart — wallet-independent. */}
-          <div className="rounded-xl glass-card-animated p-4 mb-2" style={{ border: '1px solid var(--color-purple-75)', background: 'rgba(6,12,26,0.72)' }}>
+          <div className="relative isolate rounded-xl glass-card-animated p-4 mb-2" style={{ border: '1px solid var(--color-purple-75)', background: 'rgba(6,12,26,0.72)' }}>
+            <CardArt pageId="dashboard" idx={16} />
             <div className="h-[260px]">
               <ErrorBoundary fallback={<div className="flex items-center justify-center h-full text-white text-[13px]">Chart unavailable</div>}><PriceChart market={TOWELI_MARKET} /></ErrorBoundary>
             </div>
           </div>
         </div>
 
-        {/* F519: use the shared dark-card ConnectPrompt (same as /farm) so the
+        {/* F519: use the shared dark-card ConnectPrompt (same as /earn/toweli) so the
             wallet-gate stays legible over the busy camo art instead of the bare
             text-center block that dissolved into the camouflage at 820px+. */}
         <div className="relative z-10 flex items-center justify-center px-6 pb-16">
@@ -371,10 +370,11 @@ function ToweliDashboard() {
       </div>
 
       <ErrorBoundary>
-      <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6 pt-20 pb-28 md:pb-12">
+      <div className="relative z-10 page-column mx-auto px-4 md:px-6 pt-20 pb-28 md:pb-12">
         {isWrongNetwork && (
-          <div role="alert" aria-live="assertive" className="mb-4 px-4 py-3 rounded-xl bg-warning/10 border border-warning/30 text-warning text-[13px] text-center">
-            Wrong network detected. Please switch to Ethereum Mainnet.
+          <div role="alert" aria-live="assertive" className="relative isolate mb-4 px-4 py-3 rounded-xl bg-warning/10 border border-warning/30 text-warning text-[13px] text-center">
+            <CardArt pageId="dashboard" idx={17} />
+            Wrong network. Switch to Ethereum Mainnet.
           </div>
         )}
         {/* Page header. The portfolio figure lives in <UnifiedPortfolio/> below, which
@@ -389,9 +389,6 @@ function ToweliDashboard() {
               )}
             </div>
             <div className="flex items-center gap-3">
-              <Link to="/leaderboard" className="text-[12px] text-white/70 hover:text-white transition-colors">
-                Points &#8594;
-              </Link>
               <Link to="/history" className="text-[12px] text-white/70 hover:text-white transition-colors">
                 History &#8594;
               </Link>
@@ -424,7 +421,9 @@ function ToweliDashboard() {
             // rate is derivable. The USD sub-line and Portfolio Value deliberately stay
             // on the settled `pendingTotal` so the dollar figure doesn't jitter.
             { l: 'Claimable', numVal: pos.accrualPerSec > 0 ? pos.pendingLive : pendingTotal, decimals: pos.accrualPerSec > 0 ? 4 : 2, sub: price.isLoaded ? formatCurrency(pendingTotal * price.priceInUsd) : '–', accent: true, art: pageArt('dashboard', 4), loading: pos.isLoading },
-            { l: 'TOWELI Price', numVal: price.priceInUsd, decimals: price.priceInUsd < 0.01 ? 8 : 6, prefix: '$', sub: priceChangeStr || (price.priceInUsd > 0 ? 'Live' : (price.oracleStale ? 'Stale' : '–')), priceUp: price.priceChange > 0, priceDown: price.priceChange < 0, stale: price.oracleStale, art: pageArt('dashboard', 5), showSparkline: true, isPrice: true, loading: !price.isLoaded },
+            // A price that could not be read is neither still loading nor zero: once every
+            // leg has answered or failed (priceSettled) with nothing to show, the card says so.
+            { l: 'TOWELI Price', numVal: price.priceInUsd, decimals: price.priceInUsd < 0.01 ? 8 : 6, prefix: '$', sub: priceUnread ? 'Could not load' : priceChangeStr || (price.priceInUsd > 0 ? 'Live' : (price.oracleStale ? 'Stale' : '–')), priceUp: price.priceChange > 0, priceDown: price.priceChange < 0, stale: !priceUnread && price.oracleStale, art: pageArt('dashboard', 5), showSparkline: true, isPrice: true, loading: price.priceInUsd <= 0 && !price.priceSettled, error: priceUnread, unread: priceUnread },
           ].map((s) => (
             <div key={s.l} className="relative overflow-hidden rounded-xl glass-card-animated card-hover" style={{ border: '1px solid var(--color-purple-75)' }}>
               <div className="absolute inset-0">
@@ -442,6 +441,8 @@ function ToweliDashboard() {
               <div className="flex items-center gap-2">
                 {s.loading ? (
                   <Skeleton width={80} height={24} />
+                ) : s.unread ? (
+                  <span className="stat-value text-2xl" style={{ color: '#22c55e', textShadow: '0 1px 8px rgba(0,0,0,0.95)' }}>–</span>
                 ) : s.isPrice ? (
                   <FlashValue value={s.numVal}>
                     <AnimatedCounter value={s.numVal} prefix={s.prefix} decimals={s.decimals} className="stat-value text-2xl" style={{ color: '#22c55e', textShadow: '0 1px 8px rgba(0,0,0,0.95)' }} />
@@ -517,20 +518,6 @@ function ToweliDashboard() {
         {tab === 'overview' && (
           <m.div role="tabpanel" id="dash-panel-overview" aria-labelledby="dash-tab-overview" tabIndex={0} className="outline-none" key="overview"
             initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}>
-            {/* Venue Score */}
-            <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-6" style={{ border: '1px solid var(--color-purple-75)' }}
-              initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
-              <div className="absolute inset-0">
-                <ArtImg pageId="dashboard" idx={6} alt="" loading="lazy" className="w-full h-full object-cover" />
-              </div>
-              <div className="relative z-10 m-2 md:m-3 rounded-lg p-3 md:p-4 flex items-center justify-between flex-wrap gap-2" style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)', border: '1px solid rgba(255,255,255,0.08)' }}>
-                <TegridyScoreMini />
-                <Link to="/leaderboard" className="text-[11px] text-white/70 hover:text-white transition-colors">
-                  View Breakdown &#8594;
-                </Link>
-              </div>
-            </m.div>
-
             {/* DCA Due Alerts */}
             {dca.dueSchedules.length > 0 && (
               <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-5" style={{ border: '1px solid var(--color-purple-75)' }}
@@ -570,7 +557,8 @@ function ToweliDashboard() {
             {/* Chart */}
             <m.div initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
               <h3 className="heading-luxury text-[16px] text-white mb-3">Price Chart</h3>
-              <div className="relative rounded-xl overflow-hidden glass-card-animated h-[280px] md:h-[400px]" style={{ background: '#000', border: '1px solid var(--color-purple-75)' }}>
+              <div className="relative isolate rounded-xl overflow-hidden glass-card-animated h-[280px] md:h-[400px]" style={{ background: '#000', border: '1px solid var(--color-purple-75)' }}>
+                <CardArt pageId="dashboard" idx={18} />
                 <ErrorBoundary fallback={<div className="flex items-center justify-center h-full text-white text-[13px]">Chart unavailable</div>}><PriceChart market={TOWELI_MARKET} /></ErrorBoundary>
               </div>
             </m.div>
@@ -600,8 +588,9 @@ function ToweliDashboard() {
             {/* Position */}
             <h2 className="heading-luxury text-[16px] text-white mb-4">Your Position</h2>
             {pos.hasPosition ? (
-              <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-10 card-hover" style={{ border: '1px solid var(--color-purple-75)' }}
+              <m.div className={positionHost('relative overflow-hidden rounded-xl glass-card-animated mb-10 card-hover', pos.hasPosition)} style={{ border: '1px solid var(--color-purple-75)' }}
                 initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+                <PositionMark inPosition={pos.hasPosition} />
                 <div className="absolute inset-0">
                   <ArtImg pageId="dashboard" idx={12} alt="" loading="lazy" className="w-full h-full object-cover" />
                 </div>
@@ -638,7 +627,7 @@ function ToweliDashboard() {
                     {/* Restaking is DEFERRED to Phase 7 (TEGRIDY_RESTAKING_ADDRESS
                         zeroed). Same dead-CTA fix as StakingCard.tsx. */}
                     {isDeployed(TEGRIDY_RESTAKING_ADDRESS) && (
-                      <Link to="/farm" className="text-[11px] text-white/70 hover:text-white transition-colors ml-auto">
+                      <Link to="/earn/toweli" className="text-[11px] text-white/70 hover:text-white transition-colors ml-auto">
                         Restake for bonus yield &#8594;
                       </Link>
                     )}
@@ -650,14 +639,13 @@ function ToweliDashboard() {
                  about the chain, so it is gated on having actually read the
                  chain. An unanswered multicall is not an empty position. */
               <div
-                className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-5 mb-10 text-[13px] text-amber-100"
+                className="relative isolate rounded-xl border border-amber-500/40 bg-amber-500/10 p-5 mb-10 text-[13px] text-amber-100"
                 data-testid="dashboard-position-unread"
               >
+                <CardArt pageId="dashboard" idx={19} />
                 <p>
-                  Your staking position could not be read just now - the network did not
-                  answer. This is not a statement that you have nothing staked: anything
-                  you staked is still staked, and the contract is the record. Retry before
-                  acting on this panel.
+                  Your staking position could not be read just now. Retry before acting on
+                  this panel.
                 </p>
                 <button
                   type="button"
@@ -666,6 +654,12 @@ function ToweliDashboard() {
                 >
                   Retry
                 </button>
+                <FinePrint className="mt-1">
+                  <p>
+                    The network did not answer. This is not a statement that you have nothing
+                    staked: anything you staked is still staked, and the contract is the record.
+                  </p>
+                </FinePrint>
               </div>
             ) : (
               <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-10" style={{ border: '1px solid var(--color-purple-75)' }}
@@ -675,7 +669,7 @@ function ToweliDashboard() {
                 </div>
                 <div className="relative z-10 p-8 py-12 text-center">
                   <p className="text-white text-[15px] mb-4">No staking position yet</p>
-                  <Link to="/farm" className="btn-primary px-8 py-3 text-[14px]">Start Staking &#8594;</Link>
+                  <Link to="/earn/toweli" className="btn-primary px-8 py-3 text-[14px]">Start Staking &#8594;</Link>
                 </div>
               </m.div>
             )}
@@ -697,15 +691,20 @@ function ToweliDashboard() {
             {lpPos.lpUnread && (
               <m.div className="mb-10" initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
                 <h3 className="heading-luxury text-[16px] text-white mb-4">Your Liquidity</h3>
-                <div className="relative overflow-hidden rounded-xl glass-card-animated" style={{ border: '1px solid rgba(255,178,55,0.35)' }}>
+                <div className="relative isolate overflow-hidden rounded-xl glass-card-animated" style={{ border: '1px solid rgba(255,178,55,0.35)' }}>
+                  <CardArt pageId="dashboard" idx={20} />
                   <div className="relative z-10 p-8 py-12 text-center" data-testid="dash-lp-unread">
                     <p className="text-amber-300 text-[15px] mb-2">Couldn't read your liquidity position</p>
                     <p className="text-white/70 text-[12px] max-w-sm mx-auto">
-                      A network read failed, so we can't show your TGLP, your pool share or what
-                      it redeems for. This is not a statement that you have none — anything you
-                      provided is still yours and the pair contract is the record. This refreshes
-                      automatically; reload before concluding anything here.
+                      This refreshes automatically; reload before concluding anything here.
                     </p>
+                    <FinePrint className="mt-1 max-w-sm mx-auto">
+                      <p>
+                        A network read failed, so we can't show your TGLP, your pool share or what
+                        it redeems for. This is not a statement that you have none — anything you
+                        provided is still yours and the pair contract is the record.
+                      </p>
+                    </FinePrint>
                   </div>
                 </div>
               </m.div>
@@ -714,7 +713,8 @@ function ToweliDashboard() {
             {!lpPos.lpUnread && lpPos.hasPosition && (
               <m.div className="mb-10" initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
                 <h3 className="heading-luxury text-[16px] text-white mb-4">Your Liquidity</h3>
-                <div className="relative overflow-hidden rounded-xl glass-card-animated card-hover" style={{ border: '1px solid var(--color-purple-75)' }}>
+                <div className={positionHost('relative overflow-hidden rounded-xl glass-card-animated card-hover', lpPos.hasPosition)} style={{ border: '1px solid var(--color-purple-75)' }}>
+                  <PositionMark inPosition={lpPos.hasPosition} />
                   <div className="absolute inset-0">
                     <ArtImg pageId="dashboard" idx={14} fallbackPosition="center 30%" alt="" loading="lazy" className="w-full h-full object-cover" />
                   </div>
@@ -748,9 +748,8 @@ function ToweliDashboard() {
                       <div className="mt-4 px-3 py-2 rounded-lg flex items-start gap-2" style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)' }}>
                         <span className="text-amber-300 text-[13px] leading-none" aria-hidden="true">⚠</span>
                         <p className="text-amber-200 text-[11px] leading-snug">
-                          Your JBAC boost is not applied to this staked LP, so the pending figure is
-                          accruing at the unboosted rate. Refresh it on the{' '}
-                          <Link to="/farm" className="underline hover:text-amber-100">Farm page</Link>.
+                          JBAC boost not applied: pending is accruing at the unboosted rate. Refresh it on the{' '}
+                          <Link to="/earn/toweli" className="underline hover:text-amber-100">Farm page</Link>.
                         </p>
                       </div>
                     )}
@@ -761,7 +760,7 @@ function ToweliDashboard() {
                           : 'Held in your wallet as the TGLP token · earns a cut of swap fees'}
                       </span>
                       {lpPos.farmingDeployed && lpPos.stakedLp > 0n ? (
-                        <Link to="/farm" className="text-[11px] text-white/70 hover:text-white transition-colors ml-auto">
+                        <Link to="/earn/toweli" className="text-[11px] text-white/70 hover:text-white transition-colors ml-auto">
                           Manage on Farm &#8594;
                         </Link>
                       ) : (
@@ -808,12 +807,13 @@ function ToweliDashboard() {
             ) : myLoans.isError ? (
               // Don't render "no loans" when the reads actually FAILED — that
               // showed the borrow CTAs as if the user had none. Say so honestly.
-              <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-10" style={{ border: '1px solid var(--color-purple-75)' }}
+              <m.div className="relative isolate overflow-hidden rounded-xl glass-card-animated mb-10" style={{ border: '1px solid var(--color-purple-75)' }}
                 initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                <CardArt pageId="dashboard" idx={21} />
                 <div className="relative z-10 p-8 py-12 text-center">
                   <p className="text-white text-[15px] mb-2">Couldn’t load your loans</p>
                   <p className="text-white/70 text-[12px] max-w-sm mx-auto">
-                    A network read failed, so we can’t confirm your positions right now. This refreshes automatically — check back in a moment.
+                    A network read failed. This refreshes automatically.
                   </p>
                 </div>
               </m.div>
@@ -821,17 +821,23 @@ function ToweliDashboard() {
               // A PARTIAL SWEEP IS NOT AN EMPTY BOOK. Some loan records did not
               // answer, so "No outstanding loans" - under two borrow CTAs - would
               // be a claim about a set we already know has holes in it.
-              <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-10" style={{ border: '1px solid var(--color-purple-75)' }}
+              <m.div className="relative isolate overflow-hidden rounded-xl glass-card-animated mb-10" style={{ border: '1px solid var(--color-purple-75)' }}
                 initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                <CardArt pageId="dashboard" idx={22} />
                 <div className="relative z-10 p-8 py-12 text-center">
                   <p className="text-amber-300 text-[15px] mb-2">Some loan records couldn't be read</p>
                   <p className="text-white/70 text-[12px] max-w-sm mx-auto">
                     {myLoans.unreadCount === null
                       ? 'Part of the loan sweep did not answer, so we cannot say how many records are missing.'
                       : `${myLoans.unreadCount} loan ${myLoans.unreadCount === 1 ? 'record' : 'records'} could not be read.`}{' '}
-                    None of the records that did come back are yours - but this is not a
-                    statement that you have no loans. Reload before concluding anything here.
+                    Reload before concluding anything here.
                   </p>
+                  <FinePrint className="mt-1 max-w-sm mx-auto">
+                    <p>
+                      None of the records that did come back are yours - but this is not a
+                      statement that you have no loans.
+                    </p>
+                  </FinePrint>
                 </div>
               </m.div>
             ) : (
@@ -876,8 +882,9 @@ function ToweliDashboard() {
                 On breach/rounding the staking contract can hold rewards that
                 getReward() won't sweep; claimUnsettled() recovers them. */}
             {pos.unsettledRewards > 0n && (
-              <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-5" style={{ border: '1px solid var(--color-purple-75)' }}
+              <m.div className="relative isolate overflow-hidden rounded-xl glass-card-animated mb-5" style={{ border: '1px solid var(--color-purple-75)' }}
                 initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                <CardArt pageId="dashboard" idx={23} />
                 <div className="relative z-10 p-4 flex items-center justify-between flex-wrap gap-2">
                   <div>
                     <p className="text-white text-[13px] font-medium">Unsettled Rewards</p>
@@ -905,14 +912,15 @@ function ToweliDashboard() {
                 unread balances. Claiming is what resets the 7d / 14d / 90d
                 forfeiture clocks — silence here runs them down. */}
             {!revenueStats.pendingUnread && pendingTotal < 0.01 && pos.unsettledRewards <= 0n && revenueStats.pendingRevenue < 0.000001 && revenueStats.referralPending < 0.000001 && (
-              <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-5" style={{ border: '1px solid var(--color-purple-75)' }}
+              <m.div className="relative isolate overflow-hidden rounded-xl glass-card-animated mb-5" style={{ border: '1px solid var(--color-purple-75)' }}
                 initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                <CardArt pageId="dashboard" idx={24} />
                 <div className="relative z-10 p-6 text-center">
                   <p className="text-white text-[14px] mb-1">All caught up — nothing to claim right now</p>
                   <p className="text-white/60 text-[12px]">
                     {pos.hasPosition
                       ? 'Your staking rewards keep accruing. Check back as they build up.'
-                      : <>Stake TOWELI on the <Link to="/farm" className="underline hover:text-white">Farm</Link> to start earning claimable rewards.</>}
+                      : <>Stake TOWELI on the <Link to="/earn/toweli" className="underline hover:text-white">Farm</Link> to start earning claimable rewards.</>}
                   </p>
                 </div>
               </m.div>
@@ -1042,14 +1050,19 @@ export function POLAccumulatorCard() {
           <span className="px-2 py-0.5 rounded text-[9px] font-semibold tracking-wider uppercase" style={badgeStyle}>{badge}</span>
         </div>
 
-        {/* The original promise. Kept verbatim — it is still the design intent,
-            and it is what the rest of the copy is measured against. */}
+        {/* The original promise: it is still the design intent, and it is what the
+            status is measured against. Its first clause stays on screen with the badge,
+            which carries the status; the rest of the promise and the status's own
+            sentences sit one press away. */}
         <p className="text-white text-[12px] leading-relaxed max-w-lg">
-          Protocol-Owned Liquidity will automatically accumulate LP positions from a share of swap fees, deepening TOWELI liquidity permanently and reducing reliance on external LPs.
+          Protocol-Owned Liquidity will automatically accumulate LP positions from a share of swap fees.
         </p>
 
         {deployed && (
-          <div className="mt-3 pt-3 border-t border-white/10 max-w-lg">
+          <FinePrint summary="Status" className="mt-2 max-w-lg">
+            <p className="text-white/70 text-[11px] leading-relaxed">
+              The aim: deepening TOWELI liquidity permanently and reducing reliance on external LPs.
+            </p>
             {wired ? (
               <p className="text-white/70 text-[11px] leading-relaxed">
                 Wired and earning: SwapFeeRouter routes {((shareBps ?? 0) / 100).toFixed(2)}% of each
@@ -1087,14 +1100,14 @@ export function POLAccumulatorCard() {
             >
               Verify on the block explorer: {POL_ACCUMULATOR_ADDRESS} ↗
             </a>
-          </div>
+          </FinePrint>
         )}
       </div>
     </m.div>
   );
 }
 
-function ETHRevenueClaim({ address, isWrongNetwork }: { address: string; isWrongNetwork: boolean }) {
+export function ETHRevenueClaim({ address, isWrongNetwork }: { address: string; isWrongNetwork: boolean }) {
   // R047 M1: pin chainId on the read so a wallet on the wrong chain can't
   // surface stale 0 ETH from a different network. Wrong-chain UI surfaces
   // the page-level "Wrong network detected" banner instead.
@@ -1111,12 +1124,17 @@ function ETHRevenueClaim({ address, isWrongNetwork }: { address: string; isWrong
   });
 
   const { writeContract, data: hash, isPending } = useWriteContract();
-  const { data: claimReceipt, isLoading: isConfirming, isSuccess: isClaimReceiptFetched } = useWaitForTransactionReceipt({ hash });
+  const claimQuery = useWaitForTransactionReceipt({ hash, onReplaced: noteReplacement });
+  const { isLoading: isConfirming } = claimQuery;
   // AUDIT (receipt-status, 2026-08-24): wagmi's isSuccess only means the receipt
-  // was FETCHED — it latches true for on-chain REVERTED txs too. Gate the
-  // success toast on receipt.status.
-  const isClaimReverted = isClaimReceiptFetched && !!claimReceipt && claimReceipt.status !== 'success';
-  const isClaimSuccess = isClaimReceiptFetched && !isClaimReverted;
+  // was FETCHED. 2026-09-17: and a revert never reaches it — wagmi THROWS on a
+  // reverted receipt, so the revert toast below was dead and a reverted claim
+  // silent. useReceiptOutcome reads the thrown revert.
+  const { isSuccess: isClaimSuccess, isReverted: isClaimReverted } = useReceiptOutcome(claimQuery, {
+    hash,
+    chainId: CHAIN_ID,
+    repeatCost: 'claiming again only claims what has accrued since, or reverts if nothing has.',
+  });
 
   const pending = pendingETH ? Number(formatEther(pendingETH as bigint)) : 0;
 
@@ -1149,8 +1167,9 @@ function ETHRevenueClaim({ address, isWrongNetwork }: { address: string; isWrong
   // Surface a small error row so an RPC failure can't hide claimable ETH.
   if (pendingError && !pending) {
     return (
-      <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-5" style={{ border: '1px solid rgba(239,68,68,0.25)' }}
+      <m.div className="relative isolate overflow-hidden rounded-xl glass-card-animated mb-5" style={{ border: '1px solid rgba(239,68,68,0.25)' }}
         initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+        <CardArt pageId="dashboard" idx={25} />
         <div className="relative z-10 p-4 flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-danger shrink-0" aria-hidden="true" />
           <div>
@@ -1232,8 +1251,7 @@ function OutstandingLoans({ loans, unreadCount }: {
               {unreadCount === null
                 ? 'Part of the loan sweep did not answer, so an unknown number of loan records are missing from this panel.'
                 : `${unreadCount} loan ${unreadCount === 1 ? 'record' : 'records'} could not be read.`}{' '}
-              The counts and totals below cover only the records that came back - this is
-              an incomplete view, not a full account of your positions. Reload before
+              The counts and totals below cover only the records that came back. Reload before
               acting on these figures.
             </div>
           )}
@@ -1343,10 +1361,11 @@ function Projections({ staked, apr, price, boost = 1, secondsRemaining = 0, aprD
   return (
     <>
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-        {[{ l: '7 Days', m: 7 }, { l: '30 Days', m: 30 }, { l: '90 Days', m: 90 }, { l: '1 Year', m: 365 }].map(({ l, m }) => {
+        {[{ l: '7 Days', m: 7 }, { l: '30 Days', m: 30 }, { l: '90 Days', m: 90 }, { l: '1 Year', m: 365 }].map(({ l, m }, i) => {
           const exceedsRunway = runwayDays > 0 && m > runwayDays;
           return (
-            <div key={l} className="glass-card rounded-lg p-3 text-center card-hover" style={exceedsRunway ? { opacity: 0.6 } : undefined}>
+            <div key={l} className="relative isolate glass-card rounded-lg p-3 text-center card-hover" style={exceedsRunway ? { opacity: 0.6 } : undefined}>
+              <CardArt pageId="dashboard" idx={26 + (i % PROJECTION_ART_SLOTS)} />
               <p className="text-white text-[10px] mb-1">{l}</p>
               <AnimatedCounter value={daily * m} decimals={0} className="stat-value text-[14px] text-white" />
               <p className="text-white text-[9px]">~{formatCurrency(daily * m * price)}</p>

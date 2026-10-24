@@ -2,7 +2,9 @@ import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import NftImage from "./NftImage";
 import { useActiveCollection } from "../contexts/CollectionContext";
 import { COLLECTION_LORE } from "../constants";
+import { descriptionSourceTag } from "../lib/venue";
 import Usd from "./Usd";
+import { FinePrint } from "../../components/ui/FinePrint";
 
 function HeroShowcase({ tokens, onPick }) {
   const featured = useMemo(
@@ -143,9 +145,9 @@ export default function Hero({ stats, tokens, onPick }) {
             <span className="hero-title-accent">{supply?.toLocaleString() || ""}</span>{" "}
             {collection.name}
           </h1>
-          {collection.description && (
-            <p className="hero-desc">{collection.description}</p>
-          )}
+          {/* One line under the heading: the tagline. The description is the
+              collection's own words and sits in the small print (owner
+              2026-10-14: fewer words; explanations go in closed drop-downs). */}
           {COLLECTION_LORE[collection.slug]?.tagline && (
             <div style={{
               fontFamily: "var(--display)", fontSize: 12, color: "var(--gold)",
@@ -153,6 +155,16 @@ export default function Hero({ stats, tokens, onPick }) {
             }}>
               {COLLECTION_LORE[collection.slug].tagline}
             </div>
+          )}
+          {collection.description && (
+            <FinePrint summary="About">
+              <p className="hero-desc">
+                {collection.description}
+                {descriptionSourceTag(collection) && (
+                  <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)" }}> ({descriptionSourceTag(collection)})</span>
+                )}
+              </p>
+            </FinePrint>
           )}
 
           {/* Premium stat cards */}

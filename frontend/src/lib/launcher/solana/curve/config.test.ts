@@ -16,7 +16,7 @@ import {
 // Values below are the output of the REAL `curve.rs`, compiled on the host with
 // `rustc --edition 2021` (its own suite: 23/23 green, re-run 2026-08-01) and
 // captured directly — not computed by this port. The port itself is diffed against
-// 3,815 generated vectors in math.test.ts; these state the same agreement as
+// 4,071 generated vectors in math.test.ts; these state the same agreement as
 // properties a reviewer can read without decoding a vector.
 const V_SOL = 30_000_000_000n; // 30 SOL
 const V_TOK = 1_073_000_000_000_000n;
@@ -117,6 +117,9 @@ describe('checkLaunchEconomics — pre-flight for initialize_global', () => {
     tokenTotalSupply: SUPPLY,
     graduationTargetLamports: 11_685_689_681n,
     migrationReserveLamports: MIN_MIGRATION_RESERVE_LAMPORTS,
+    // No reserve: the book these numbers were pinned against. The reserve has its
+    // own describe block below.
+    platformReserveBps: 0n,
   };
 
   it('accepts a config the program would accept, and reports the diagnostics', () => {
@@ -170,6 +173,7 @@ describe('checkUpdateGlobal — the guards update_global actually applies', () =
     tokenTotalSupply: SUPPLY,
     graduationTargetLamports: 11_685_689_681n,
     migrationReserveLamports: MIN_MIGRATION_RESERVE_LAMPORTS,
+    platformReserveBps: 0n,
   };
 
   // ⚠ THE DEFECT THIS EXISTS FOR. The operator harness gated its whole pre-flight
@@ -223,5 +227,120 @@ describe('checkUpdateGlobal — the guards update_global actually applies', () =
     // target is proportional to it — so moving it without moving the target gaps.
     const r = checkUpdateGlobal({ newInitialVirtualSol: 60_000_000_000n }, current);
     expect(r.problems.join()).toMatch(/GraduationPriceGap/);
+  });
+});
+
+// ── the platform reserve ─────────────────────────────────────────────────────
+//
+// 3.69% of every launch's supply is held back for the protocol. It sits in the
+// curve's vault but is never sold on the curve and never goes into the pool, so
+// every check has to be run against the CURVE supply. These fail if the checks
+// quietly go back to using the whole supply.
+
+describe('checkLaunchEconomics — the platform reserve', () => {
+  const RESERVE_BPS = 369n;
+  // Vt × (1 − 3.69%): the retune that keeps the SOL raise unchanged.
+  const SCALED_V_TOK = 1_033_406_300_000_000n;
+  const retuned: LaunchEconomicsParams = {
+    tradeFeeBps: 100n,
+    initialVirtualSol: V_SOL,
+    initialVirtualToken: SCALED_V_TOK,
+    tokenTotalSupply: SUPPLY,
+    graduationTargetLamports: 11_685_689_681n,
+    migrationReserveLamports: MIN_MIGRATION_RESERVE_LAMPORTS,
+    platformReserveBps: RESERVE_BPS,
+  };
+
+  it('reports the split, and a retuned 3.69% config lists at the curve price', () => {
+    const r = checkLaunchEconomics(retuned);
+    expect(r.problems).toEqual([]);
+    expect(r.curveTokenSupply).toBe(963_100_000_000_000n);
+    expect(r.platformReserveTokens).toBe(36_900_000_000_000n);
+    expect(r.graduationPriceRatioBps).toBe(9_999n);
+    // Same target as with no reserve, to the lamport: the raise does not move.
+    expect(r.continuityTarget).toBe(11_685_689_681n);
+    expect(r.maxReachableRealSol).toBe(27_958_993_476n);
+  });
+
+  it('measures the listing ratio against the curve supply, not the whole supply', () => {
+    // The same book with the reserve carved and Vt NOT retuned. Against the whole
+    // supply this reads 9999; against what the curve actually sells it reads 10488,
+    // 4.9% above the curve, and still inside the band.
+    const r = checkLaunchEconomics({ ...retuned, initialVirtualToken: V_TOK });
+    expect(r.graduationPriceRatioBps).toBe(10_488n);
+    expect(r.continuityTarget).toBe(11_312_638_249n);
+    expect(r.problems).toEqual([]);
+  });
+
+  it('catches a reserve large enough to gap the listing', () => {
+    const r = checkLaunchEconomics({
+      ...retuned,
+      initialVirtualToken: V_TOK,
+      platformReserveBps: 1_000n,
+    });
+    expect(r.graduationPriceRatioBps).toBe(11_498n);
+    expect(r.problems.join()).toMatch(/GraduationPriceGap/);
+  });
+
+  it('measures reachability against the curve supply', () => {
+    // 26 SOL is under the whole-supply ceiling (27.96) and over the 10%-reserve
+    // curve ceiling (25.16), so only the curve-supply check refuses it.
+    const target = 26_000_000_000n - MIN_MIGRATION_RESERVE_LAMPORTS;
+    const book = { ...retuned, initialVirtualToken: V_TOK, graduationTargetLamports: target };
+    const whole = checkLaunchEconomics({ ...book, platformReserveBps: 0n });
+    expect(whole.problems.join()).not.toMatch(/GraduationTargetUnreachable/);
+    const carved = checkLaunchEconomics({ ...book, platformReserveBps: 1_000n });
+    expect(carved.maxReachableRealSol).toBe(25_163_094_128n);
+    expect(carved.problems.join()).toMatch(/GraduationTargetUnreachable/);
+  });
+
+  it('caps the reserve at 10%, like the EVM launcher', () => {
+    expect(checkLaunchEconomics({ ...retuned, platformReserveBps: 1_000n }).problems.join()).not.toMatch(
+      /platform_reserve_bps/,
+    );
+    const over = checkLaunchEconomics({ ...retuned, platformReserveBps: 1_001n });
+    expect(over.problems).toEqual([
+      'InvalidParameter: platform_reserve_bps 1001 exceeds MAX_PLATFORM_RESERVE_BPS 1000',
+    ]);
+    // Nothing downstream can be computed without a curve supply: unknown, not zero.
+    expect(over.curveTokenSupply).toBeNull();
+    expect(over.platformReserveTokens).toBeNull();
+    expect(over.graduationPriceRatioBps).toBeNull();
+    expect(over.continuityTarget).toBeNull();
+  });
+});
+
+describe('checkUpdateGlobal — the platform reserve', () => {
+  const current: CurrentGlobalEconomics = {
+    tradeFeeBps: 100n,
+    initialVirtualSol: V_SOL,
+    initialVirtualToken: V_TOK,
+    tokenTotalSupply: SUPPLY,
+    graduationTargetLamports: 11_685_689_681n,
+    migrationReserveLamports: MIN_MIGRATION_RESERVE_LAMPORTS,
+    platformReserveBps: 0n,
+  };
+
+  it('re-runs the economics check when the reserve is the ONLY thing changing', () => {
+    // A reserve change moves the listing price. If it did not trigger the check, a
+    // 10% reserve would sail through and every later launch would list 15% high.
+    const r = checkUpdateGlobal({ newPlatformReserveBps: 1_000n }, current);
+    expect(r.economics).not.toBeNull();
+    expect(r.economics!.graduationPriceRatioBps).toBe(11_498n);
+    expect(r.problems.join()).toMatch(/GraduationPriceGap/);
+  });
+
+  it('refuses a reserve above the cap on its own', () => {
+    const r = checkUpdateGlobal({ newPlatformReserveBps: 1_001n }, current);
+    expect(r.problems.join()).toMatch(/InvalidParameter: platform_reserve_bps 1001/);
+  });
+
+  it('carries the CURRENT reserve into an update that does not touch it', () => {
+    // Retuning virtual SOL on a config that already holds 3.69% back must be judged
+    // against the carved supply, not the whole one.
+    const withReserve = { ...current, platformReserveBps: 369n };
+    const r = checkUpdateGlobal({ newInitialVirtualSol: V_SOL }, withReserve);
+    expect(r.economics!.graduationPriceRatioBps).toBe(10_488n);
+    expect(r.economics!.platformReserveTokens).toBe(36_900_000_000_000n);
   });
 });

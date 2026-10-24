@@ -1,12 +1,20 @@
 import { defineConfig, configDefaults } from 'vitest/config';
 import react from '@vitejs/plugin-react';
+import { changelogFilesPlugin } from './changelogFilesPlugin.ts';
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), changelogFilesPlugin()],
+  // The test runner counts as a dev server, as vite.config.ts says for `vite`
+  // (src/devServerDefine.d.ts). A test stubs it with vi.stubGlobal to play a build.
+  define: { __VITE_DEV_SERVER__: 'true' },
   test: {
     environment: 'jsdom',
     globals: true,
     setupFiles: './src/test/setup.ts',
+    // Vitest 5 wipes every mock's recorded calls before each test (clearMocks
+    // now defaults to true; implementations stay). Left at that default: a
+    // test that counts calls made by an earlier test, or by beforeAll, fails
+    // instead of passing on leftovers. Calls made in beforeEach are kept.
     // ─────────────────────────────────────────────────────────────────
     // COLLECTION IS PROJECT-WIDE, AND IT HAS ONE HARD EDGE. READ BOTH.
     //

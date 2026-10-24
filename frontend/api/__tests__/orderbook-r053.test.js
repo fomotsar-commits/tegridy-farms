@@ -85,6 +85,13 @@ vi.mock("@supabase/supabase-js", () => ({
   createClient: vi.fn(() => ({ from: supabaseFromMock })),
 }));
 
+// Warms the module graph at collection time. NOT dead code: the first re-import under
+// `vi.resetModules()` below is a cold load of orderbook.js's graph, inside a `beforeEach`
+// that vitest bounds at 10s, and it grows with machine load. Here no timeout runs. It
+// must be an `await import()` below the mocks: a bare import is hoisted above the consts
+// their factories read, and the file then fails at collection with no test run.
+await import("../orderbook.js");
+
 function makeReqRes(body) {
   const req = {
     method: "POST",
@@ -107,6 +114,9 @@ function buildOrder({ priceWei = "1000000000000000000", offerer = OFFERER } = {}
   const now = Math.floor(Date.now() / 1000);
   const seaportSig = "0x" + "1".repeat(130);
   const authSig = "0x" + "2".repeat(130);
+  // createNativeListing's split: the seller's share, then 0.5% to the treasury.
+  const feeWei = (BigInt(priceWei) * 50n) / 10000n;
+  const sellerWei = (BigInt(priceWei) - feeWei).toString();
   return {
     parameters: {
       offerer,
@@ -122,9 +132,16 @@ function buildOrder({ priceWei = "1000000000000000000", offerer = OFFERER } = {}
         itemType: 0,
         token: "0x0000000000000000000000000000000000000000",
         identifierOrCriteria: "0",
-        startAmount: priceWei,
-        endAmount: priceWei,
+        startAmount: sellerWei,
+        endAmount: sellerWei,
         recipient: offerer,
+      }, {
+        itemType: 0,
+        token: "0x0000000000000000000000000000000000000000",
+        identifierOrCriteria: "0",
+        startAmount: feeWei.toString(),
+        endAmount: feeWei.toString(),
+        recipient: "0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d",
       }],
       orderType: 0, // FULL_OPEN (was a stale pre-2026-06-10 fixture; 2 = FULL_RESTRICTED is unbuyable with a zero zone, and the server now refuses it)
       startTime: String(now),
@@ -132,7 +149,7 @@ function buildOrder({ priceWei = "1000000000000000000", offerer = OFFERER } = {}
       zoneHash: "0x0000000000000000000000000000000000000000000000000000000000000000",
       salt: "1",
       conduitKey: "0x0000007b02230091a7ed01230072f7006a004d60a8d4e71d599b8104250f0000",
-      totalOriginalConsiderationItems: 1,
+      totalOriginalConsiderationItems: 2,
     },
     signature: authSig,
     seaportSignature: seaportSig,

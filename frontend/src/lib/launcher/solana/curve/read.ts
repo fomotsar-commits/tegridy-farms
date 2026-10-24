@@ -33,6 +33,7 @@ import {
   BONDING_CURVE_SIZE,
   GLOBAL_CONFIG_SIZE,
   PROGRAM_ID,
+  TOKEN_PROGRAM_ID,
   curvePda,
   decodeBondingCurve,
   decodeGlobalConfig,
@@ -42,6 +43,7 @@ import {
   type DecodeFailure,
   type GlobalConfig,
 } from './program';
+import { associatedTokenAddress } from './ix';
 import {
   effectiveReserves,
   lamportsUntilTarget,
@@ -308,6 +310,84 @@ export async function readRentFloors(
   }
 }
 
+/** An SPL Token account (classic program): the curve vault and the treasury's ATA. */
+export const SPL_TOKEN_ACCOUNT_SIZE = 165;
+
+/**
+ * The rent a creator pays inside `create_launch`, in lamports. Network fees and the
+ * mint's own rent (paid earlier, when the creator makes the mint) are not included.
+ */
+export interface CreateLaunchCost {
+  curve: bigint;
+  vault: bigint;
+  /**
+   * The treasury's token account for this mint, which receives the platform reserve.
+   * `0n` when it already exists (`treasuryTokenExists`), since `init_if_needed` then
+   * creates nothing. Less than the full rent when someone has already sent SOL to
+   * that address: the account is still created, and only the rest is charged.
+   */
+  treasuryToken: bigint;
+  treasuryTokenExists: boolean;
+  total: bigint;
+}
+
+/**
+ * What `create_launch` would charge the creator in rent, read from the cluster: the
+ * curve account, the curve vault and, when it does not exist yet, the associated
+ * token account of `feeRecipient` for `mint` (the platform reserve's destination,
+ * lib.rs `CreateLaunch::treasury_token`, `payer = creator`).
+ *
+ * Never hardcoded, because the rent rate is a cluster parameter that has changed
+ * before. A failed or malformed read is `unreadable`, never a cost.
+ */
+export async function readCreateLaunchCost(
+  rpc: CurveRpc,
+  mint: PublicKey,
+  feeRecipient: PublicKey,
+): Promise<Read<CreateLaunchCost>> {
+  try {
+    const [curveRent, tokenRent, ata] = await Promise.all([
+      rpc.getMinimumBalanceForRentExemption(BONDING_CURVE_SIZE),
+      rpc.getMinimumBalanceForRentExemption(SPL_TOKEN_ACCOUNT_SIZE),
+      rpc.getAccountInfo(associatedTokenAddress(mint, feeRecipient)),
+    ]);
+    for (const v of [curveRent, tokenRent]) {
+      if (typeof v !== 'number' || !Number.isSafeInteger(v) || v < 0) {
+        return { kind: 'unreadable', detail: 'getMinimumBalanceForRentExemption: not a lamport amount' };
+      }
+    }
+    const curve = BigInt(curveRent);
+    const vault = BigInt(tokenRent);
+    // "Exists" means a real token account, which `init_if_needed` leaves alone. Anyone
+    // can send SOL to the address first: it is then an empty account of the System
+    // Program, `init_if_needed` still creates the token account, and the associated
+    // token program charges the creator the rent minus what is already there. Any
+    // other account there is not something this page can price.
+    let treasuryTokenExists = false;
+    let treasuryToken = vault;
+    if (ata !== null) {
+      if (ata.owner.equals(TOKEN_PROGRAM_ID) && ata.data.length === SPL_TOKEN_ACCOUNT_SIZE) {
+        treasuryTokenExists = true;
+        treasuryToken = 0n;
+      } else if (ata.owner.equals(PublicKey.default) && ata.data.length === 0 && Number.isSafeInteger(ata.lamports) && ata.lamports >= 0) {
+        const held = BigInt(ata.lamports);
+        treasuryToken = held >= vault ? 0n : vault - held;
+      } else {
+        return {
+          kind: 'unreadable',
+          detail: "the treasury's token account address holds an account that is not a token account, so the cost is not known",
+        };
+      }
+    }
+    return {
+      kind: 'ok',
+      value: { curve, vault, treasuryToken, treasuryTokenExists, total: curve + vault + treasuryToken },
+    };
+  } catch (e) {
+    return { kind: 'unreadable', detail: clipDetail(e) };
+  }
+}
+
 // ── phase ────────────────────────────────────────────────────────────────────
 
 /**
@@ -502,8 +582,16 @@ export interface CurveProgress {
     | { kind: 'fully-funded' }
     | { kind: 'unknown'; error: CurveErrorCode };
   /**
-   * Tokens sold so far, in raw base units. Needs `token_total_supply` from
-   * `global` — the curve does not carry it — so it is `null` without one.
+   * Tokens sold so far, in raw base units:
+   * `token_total_supply − platform_reserve_tokens − real_token_reserves`.
+   *
+   * Needs `token_total_supply` from `global` — the curve does not carry it — AND
+   * the curve's own `platformReserveTokens`, so it is `null` without either. The
+   * reserve goes to the platform treasury at creation and is never sold on the
+   * curve; leaving it out would count 3.69% of the supply as sold before anyone had
+   * bought a token. (If the treasury sells some of it back into the curve,
+   * `real_token_reserves` can exceed `supply − reserve`; the guard then returns
+   * `null`, never a wrong number.)
    * Divide by the MINT's decimals, which are not stored on either account.
    */
   tokensSold: bigint | null;
@@ -516,7 +604,10 @@ export interface CurveProgress {
   spot: { numerator: bigint; denominator: bigint } | null;
 }
 
-export function curveProgress(c: CurveTerms, tokenTotalSupply?: bigint): CurveProgress | null {
+export function curveProgress(
+  c: CurveTerms & { platformReserveTokens?: bigint },
+  tokenTotalSupply?: bigint,
+): CurveProgress | null {
   const ceiling = raiseCeiling(c);
   if (!ceiling.ok) return null;
   const remaining = lamportsUntilTarget(c.realSolReserves, ceiling.value, c.tradeFeeBps);
@@ -541,8 +632,10 @@ export function curveProgress(c: CurveTerms, tokenTotalSupply?: bigint): CurvePr
         ? { kind: 'fully-funded' }
         : { kind: 'amount', lamports: remaining.value },
     tokensSold:
-      tokenTotalSupply !== undefined && tokenTotalSupply >= c.realTokenReserves
-        ? tokenTotalSupply - c.realTokenReserves
+      tokenTotalSupply !== undefined &&
+      c.platformReserveTokens !== undefined &&
+      tokenTotalSupply >= c.platformReserveTokens + c.realTokenReserves
+        ? tokenTotalSupply - c.platformReserveTokens - c.realTokenReserves
         : null,
     spot: eff.ok && eff.value.tokens > 0n
       ? { numerator: eff.value.sol, denominator: eff.value.tokens }

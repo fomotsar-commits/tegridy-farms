@@ -16,6 +16,7 @@
 // which is what makes those three assertions mean anything.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, within, fireEvent, waitFor, act } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import type { Bungalow } from '../../lib/bungalows';
 
 const DAY = 86_400;
@@ -167,6 +168,16 @@ const BUNGALOW = {
   address: MINT, ladderPool: POOL_ADDR, decimals: 6,
 } as unknown as Bungalow & { ladderPool: string };
 
+// The real lock ladder, the one pool lib/bungalows.ts LADDER_FUNDING_LINES gives a line
+// (answer sixteen, ruling 6). POOL_ADDR above stands in for a devnet or repointed pool.
+const LADDER_POOL = 'Bq6jovnQhayMjr5RqsezGMxgmF5851mqFAhX6LrsXTXV';
+const FUNDING_LINE = "2,000,000 of this ladder's rewards came from the island's Workshop on 2026-09-24.";
+const REWARD_WINDOWS: [string, Record<string, unknown>][] = [
+  ['a live reward window', { rewardRate: 1_000_000n }],
+  ['an ended reward window', { rewardRate: 1_000_000n, periodFinish: BigInt(NOW - 2 * DAY) }],
+  ['a reward window never scheduled', {}],
+];
+
 beforeEach(() => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
   vi.setSystemTime(NOW * 1000);
@@ -184,6 +195,7 @@ afterEach(() => {
 });
 
 const draw = () => render(<SolanaLadderPoolLive bungalow={BUNGALOW} />);
+const drawRealPool = () => render(<SolanaLadderPoolLive bungalow={{ ...BUNGALOW, ladderPool: LADDER_POOL }} />);
 
 /* ────────── 1. the hatch, which is the whole reason for this file ────────── */
 
@@ -192,9 +204,9 @@ describe('the emergency hatch is priced, never assumed', () => {
     // Four years left: the 75% cap, 375 of 500. The single most expensive thing this
     // repo has said wrongly about this program is that the hatch is free.
     draw();
-    return screen.findByText(/Emergency withdraw — costs 375 BAYLA/).then((btn) => {
+    return screen.findByText(/Emergency withdraw: costs 375 BAYLA/).then((btn) => {
       expect(btn).toBeTruthy();
-      expect(screen.queryByText(/Emergency withdraw — no penalty/)).toBeNull();
+      expect(screen.queryByText(/Emergency withdraw: no penalty/)).toBeNull();
     });
   });
 
@@ -204,16 +216,16 @@ describe('the emergency hatch is priced, never assumed', () => {
     // this staker their exit costs 375.
     reads.wallet = { ok: true, value: walletView({ open: [position({ lockEnd: BigInt(NOW + 7 * DAY), weight: 200_000_000n })] }) };
     draw();
-    expect(await screen.findByText(`Emergency withdraw — costs ${fmtRaw(2_397_260n, 6)} BAYLA`)).toBeTruthy();
-    expect(screen.getByText(`Exit early — keep ${fmtRaw(497_602_740n, 6)} BAYLA`)).toBeTruthy();
+    expect(await screen.findByText(`Emergency withdraw: costs ${fmtRaw(2_397_260n, 6)} BAYLA`)).toBeTruthy();
+    expect(screen.getByText(`Exit early: keep ${fmtRaw(497_602_740n, 6)} BAYLA`)).toBeTruthy();
     expect(screen.queryByText(/costs 375 BAYLA/)).toBeNull();
   });
 
   it('a MATURED position is told the hatch is free, because by then it is', async () => {
     reads.wallet = { ok: true, value: walletView({ open: [position({ lockEnd: BigInt(NOW - 1) })] }) };
     draw();
-    expect(await screen.findByText(/Emergency withdraw — no penalty/)).toBeTruthy();
-    expect(screen.queryByText(/Emergency withdraw — costs/)).toBeNull();
+    expect(await screen.findByText(/Emergency withdraw: no penalty/)).toBeTruthy();
+    expect(screen.queryByText(/Emergency withdraw: costs/)).toBeNull();
   });
 
   it('a DEGRADED pool frees the hatch even while the position is locked', async () => {
@@ -221,12 +233,12 @@ describe('the emergency hatch is priced, never assumed', () => {
     // card kept quoting the penalty here it would deter the exit the flag was set to allow.
     reads.pool = { ok: true, value: poolView({ degraded: true }) };
     draw();
-    expect(await screen.findByText(/Emergency withdraw — no penalty/)).toBeTruthy();
+    expect(await screen.findByText(/Emergency withdraw: no penalty/)).toBeTruthy();
   });
 
   it('the hatch needs a second click before it sends anything', async () => {
     draw();
-    const btn = await screen.findByText(/Emergency withdraw — costs 375 BAYLA/);
+    const btn = await screen.findByText(/Emergency withdraw: costs 375 BAYLA/);
     btn.click();
     expect(writes.hatch).not.toHaveBeenCalled();      // armed, not fired
     expect(await screen.findByText('Confirm')).toBeTruthy();
@@ -695,14 +707,14 @@ describe('what the exit buttons promise', () => {
     // Penalty-independent on purpose: 500 in, 500 back.
     reads.pool = { ok: true, value: poolView({ degraded: true }) };
     draw();
-    expect(await screen.findByText(`Exit early — keep ${fmtRaw(500_000_000n, 6)} BAYLA`)).toBeTruthy();
+    expect(await screen.findByText(`Exit early: keep ${fmtRaw(500_000_000n, 6)} BAYLA`)).toBeTruthy();
     expect(screen.queryByText(/is retained\./)).toBeNull();
   });
 
   it('the DEGRADED banner names BOTH early doors as penalty-free, and does not promise forever', async () => {
     reads.pool = { ok: true, value: poolView({ degraded: true }) };
     draw();
-    const banner = (await screen.findByText(/declared degraded/)).parentElement!;
+    const banner = (await screen.findByText(/declared degraded/)).closest('[role="alert"]')!;
     const text = banner.textContent ?? '';
     expect(text).toMatch(/early exit/i);
     expect(text).toMatch(/emergency hatch/i);
@@ -839,31 +851,31 @@ describe('switching wallets while something is in flight', () => {
     // `ladderHatch` signed by B.
     byOwner();
     const { rerender } = draw();
-    fireEvent.click(await screen.findByText(/Emergency withdraw — costs 375 BAYLA/));
+    fireEvent.click(await screen.findByText(/Emergency withdraw: costs 375 BAYLA/));
     expect(await screen.findByText('Confirm')).toBeTruthy();         // armed, for A
 
     connect(OTHER);
     redraw(rerender);
-    expect(await screen.findByText(`Exit early — keep ${fmtRaw(200_000_000n, 6)} BAYLA`)).toBeTruthy();
+    expect(await screen.findByText(`Exit early: keep ${fmtRaw(200_000_000n, 6)} BAYLA`)).toBeTruthy();
     expect(screen.queryByText('Confirm')).toBeNull();
-    fireEvent.click(screen.getByText(/Emergency withdraw — costs 600 BAYLA/));
+    fireEvent.click(screen.getByText(/Emergency withdraw: costs 600 BAYLA/));
     expect(writes.hatch).not.toHaveBeenCalled();                      // armed for B now, not fired
   });
 
   it('switching away and BACK disarms it too — a confirm belongs to the positions it was given against', async () => {
     byOwner();
     const { rerender } = draw();
-    fireEvent.click(await screen.findByText(/Emergency withdraw — costs 375 BAYLA/));
+    fireEvent.click(await screen.findByText(/Emergency withdraw: costs 375 BAYLA/));
     expect(await screen.findByText('Confirm')).toBeTruthy();
 
     connect(OTHER);
     redraw(rerender);
-    expect(await screen.findByText(`Exit early — keep ${fmtRaw(200_000_000n, 6)} BAYLA`)).toBeTruthy();
+    expect(await screen.findByText(`Exit early: keep ${fmtRaw(200_000_000n, 6)} BAYLA`)).toBeTruthy();
     connect(OWNER);
     redraw(rerender);
-    expect(await screen.findByText(`Exit early — keep ${fmtRaw(125_000_000n, 6)} BAYLA`)).toBeTruthy();
+    expect(await screen.findByText(`Exit early: keep ${fmtRaw(125_000_000n, 6)} BAYLA`)).toBeTruthy();
     expect(screen.queryByText('Confirm')).toBeNull();
-    expect(screen.getByText(/Emergency withdraw — costs 375 BAYLA/)).toBeTruthy();
+    expect(screen.getByText(/Emergency withdraw: costs 375 BAYLA/)).toBeTruthy();
   });
 });
 
@@ -979,7 +991,7 @@ describe('the hero meter never prints a zero it did not read', () => {
     reads.wallet = { ok: true, value: { stats: null, slots: [], open: [], truncated: false } };
     draw();
     expect(await heroValue()).toMatch(/^0\s*BAYLA$/);
-    expect(screen.getByText(/No open positions — pick a rung below/)).toBeTruthy();
+    expect(screen.getByText(/No open positions\. Pick a rung below/)).toBeTruthy();
   });
 
   it('a partial list WITH positions labels its figure as partial', async () => {
@@ -1100,7 +1112,7 @@ describe('a first stake does not leave a stale "No open positions" on screen (ga
     reads.wallet = { ok: true, value: { stats: null, slots: [], open: [], truncated: false, shareBasis: null } };
     try {
       draw();
-      expect(await screen.findByText(/No open positions — pick a rung below/)).toBeTruthy();
+      expect(await screen.findByText(/No open positions\. Pick a rung below/)).toBeTruthy();
 
       // Hold the post-stake re-read so the in-between state can be looked at.
       let release: (v: unknown) => void = () => {};
@@ -1134,7 +1146,7 @@ describe('a first stake does not leave a stale "No open positions" on screen (ga
     await waitFor(() => expect(lock.disabled).toBe(false));
     await act(async () => { fireEvent.click(lock); });
     expect(await screen.findByText('User rejected the request.')).toBeTruthy();
-    expect(await screen.findByText(/No open positions — pick a rung below/)).toBeTruthy();
+    expect(await screen.findByText(/No open positions\. Pick a rung below/)).toBeTruthy();
     expect(screen.queryByText(/Updating your positions/)).toBeNull();
   });
 });
@@ -1164,7 +1176,7 @@ describe('⚠️ a share basis older than your confirmed exit is "updating…", 
     await waitFor(() => expect(shareValue()).toMatch(/^30%/));
     // The re-read that lands after the exit.
     reads.wallet = postExitRead;
-    const early = (await screen.findAllByText(/^Exit early — keep/))[0]!;
+    const early = (await screen.findAllByText(/^Exit early: keep/))[0]!;
     await act(async () => { fireEvent.click(early); });
     await act(async () => { fireEvent.click(await screen.findByText('Confirm')); });
     expect(await screen.findByText(/confirmed\./)).toBeTruthy();
@@ -1206,5 +1218,225 @@ describe('⚠️ a share basis older than your confirmed exit is "updating…", 
       { ok: true, value: twoOpen({ mineWeight: W(10), totalWeighted: W(80), slot: 500 }) },
     );
     await waitFor(() => expect(shareValue()).toMatch(/^10%/));
+  });
+});
+
+/* ────────── 15. the card's own words carry no em dash ────────── */
+
+// Venue copy carries no em dash (answer fifteen, item 8). The e2e walk reads this card with
+// no wallet once its pool reads; these are the branches only a wallet, a confirmed write or a
+// pool in another state reaches. The whole text counts, because no figure on this card is an
+// em dash (fmtRaw's unread mark is an en dash). Each case first waits for the words its branch
+// was written with, so a card still reading cannot pass. The words lib/ladder supplies (exit
+// quotes, read and write failures) are pinned where they are written, in its own tests.
+describe("the card's own words carry no em dash, in every branch it draws", () => {
+  const EM_DASH = '—';
+  const drawn = async (...words: RegExp[]) => {
+    draw();
+    await waitFor(() => { for (const w of words) expect(document.body.textContent).toMatch(w); });
+  };
+  const noDash = () => {
+    const text = document.body.textContent ?? '';
+    const at = text.indexOf(EM_DASH);
+    expect(at, `an em dash in: ${text.slice(Math.max(0, at - 60), at + 60)}`).toBe(-1);
+  };
+
+  it('with no wallet, over a live reward window: the staircase and the ledger', async () => {
+    walletState.publicKey = null;
+    reads.pool = { ok: true, value: poolView({ rewardRate: 1_000_000n }) };
+    await drawn(/Lock length/, /Rewards per day/, /Funded through/, /Minimum stake/);
+    noDash();
+  });
+
+  it('a locked position, with carried rewards and a list one read could not cover', async () => {
+    reads.wallet = {
+      ok: true,
+      value: walletView({
+        stats: { address: 'US', nextNonce: 1, openPositions: 1, rewardsCarriedRaw: 7_000_000n, principalRaw: 500_000_000n },
+        truncated: true,
+      }),
+    };
+    await drawn(/Exit early/, /Emergency withdraw/, /NOT free while locked/, /carried from a closed position/, /only from this view/);
+    noDash();
+  });
+
+  it('a matured position', async () => {
+    reads.wallet = { ok: true, value: walletView({ open: [position({ lockEnd: BigInt(NOW - DAY) })] }) };
+    await drawn(/Withdraw 500 BAYLA/, /Emergency withdraw/);
+    noDash();
+  });
+
+  it('a degraded pool', async () => {
+    reads.pool = { ok: true, value: poolView({ degraded: true }) };
+    await drawn(/declared degraded/, /No penalty while the pool is degraded/, /Emergency withdraw/);
+    noDash();
+  });
+
+  it('a wallet that read as empty', async () => {
+    reads.wallet = { ok: true, value: { stats: null, slots: [], open: [], truncated: false, shareBasis: null } };
+    await drawn(/pick a rung below/i, /No open positions in this pool/);
+    noDash();
+  });
+
+  it('open positions the list could not return', async () => {
+    reads.wallet = {
+      ok: true,
+      value: walletView({
+        stats: { address: 'US', nextNonce: 2, openPositions: 2, rewardsCarriedRaw: 0n, principalRaw: 500_000_000n },
+        open: [],
+      }),
+    };
+    await drawn(/could not be fully read, so none are listed/);
+    noDash();
+  });
+
+  it('an ended reward window', async () => {
+    reads.pool = { ok: true, value: poolView({ rewardRate: 1_000_000n, periodFinish: BigInt(NOW - 2 * DAY) }) };
+    await drawn(/Reward window/, /no new rewards are accruing/);
+    noDash();
+  });
+
+  it('a reward window never scheduled', async () => {
+    await drawn(/no reward window has ever been scheduled/);
+    noDash();
+  });
+
+  it('a pool staking another mint', async () => {
+    reads.pool = { ok: true, value: poolView({ mint: 'So11111111111111111111111111111111111111112' }) };
+    await drawn(/does not stake BAYLA/);
+    noDash();
+  });
+
+  it('an unconfigured deployment', async () => {
+    cfg.configured = false;
+    await drawn(/not configured yet/);
+    noDash();
+  });
+
+  it.each(REWARD_WINDOWS)('the real ladder pool, whose ledger says where its rewards came from, over %s', async (_label, o) => {
+    reads.pool = { ok: true, value: poolView(o) };
+    drawRealPool();
+    await waitFor(() => expect(document.body.textContent).toContain(FUNDING_LINE));
+    noDash();
+  });
+
+  it('a confirmed stake, before its re-read lands', async () => {
+    const read = await import('../../lib/ladder/read');
+    reads.wallet = { ok: true, value: { stats: null, slots: [], open: [], truncated: false, shareBasis: null } };
+    try {
+      await drawn(/pick a rung below/i);
+      let release: (v: unknown) => void = () => {};
+      const pending = new Promise((r) => { release = r; });
+      vi.mocked(read.readLadderWallet).mockImplementation(() => pending as never);
+      fireEvent.change(await screen.findByLabelText('Amount'), { target: { value: '200' } });
+      const lock = screen.getByRole('button', { name: /Lock BAYLA/ }) as HTMLButtonElement;
+      await waitFor(() => expect(lock.disabled).toBe(false));
+      await act(async () => { fireEvent.click(lock); });
+      await waitFor(() => expect(document.body.textContent).toMatch(/reading your positions back/i));
+      noDash();
+      await act(async () => { release({ ok: true, value: walletView() }); });
+    } finally {
+      vi.mocked(read.readLadderWallet).mockImplementation(async () => reads.wallet as never);
+    }
+  });
+});
+
+/* ────────── 16. where the real ladder's rewards came from ────────── */
+
+// Answer sixteen, ruling 6: one true line, the last footnote of the ledger, keyed by the
+// pool address so a repointed or devnet pool draws none. The bungalow id stays 'bayla' in
+// both cases below, so a line keyed by the room instead would show on the fixture pool too.
+describe("the ladder line: the real pool's ledger says where its rewards came from", () => {
+  it.each(REWARD_WINDOWS)('the real pool draws it once, as the last footnote, over %s', async (_label, o) => {
+    reads.pool = { ok: true, value: poolView(o) };
+    drawRealPool();
+    const ledger = await statGrid();
+    expect(ledger.querySelector('ul')!.lastElementChild!.textContent).toBe(FUNDING_LINE);
+    expect((document.body.textContent ?? '').split(FUNDING_LINE).length - 1).toBe(1);
+  });
+
+  it('the fixture pool, standing in for a devnet or repointed pool, draws no such line', async () => {
+    reads.pool = { ok: true, value: poolView({ rewardRate: 1_000_000n }) };
+    draw();
+    const ledger = await statGrid();
+    await waitFor(() => expect(ledger.textContent).toMatch(/Minimum stake/));
+    expect(document.body.textContent).not.toMatch(/Workshop|of this ladder's rewards/);
+  });
+});
+
+/* ────────── an ended reward window takes no new stake (owner, 2026-10-14) ────────── */
+
+describe('an ended reward window offers no new lock', () => {
+  it('says it ended with the read date, and shows no amount field or Lock button; claim and exits stay', async () => {
+    reads.pool = { ok: true, value: poolView({ rewardRate: 1_000_000n, periodFinish: BigInt(NOW - 2 * DAY) }) };
+    draw();
+    // NOW - 2 days is 2027-01-13 UTC.
+    expect(await screen.findByTestId('ladder-window-ended')).toHaveTextContent(
+      'Rewards ended Jan 13, 2027, so new stakes are closed. Withdraw and claim still work.',
+    );
+    expect(screen.queryByLabelText('Amount')).toBeNull();
+    expect(screen.queryByRole('button', { name: /Lock BAYLA/ })).toBeNull();
+    expect(await screen.findByRole('button', { name: /Claim rewards/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Emergency withdraw/ })).toBeTruthy();
+  });
+
+  it('a live window keeps the form (negative control)', async () => {
+    reads.pool = { ok: true, value: poolView({ rewardRate: 1_000_000n }) };
+    draw();
+    expect(await screen.findByLabelText('Amount')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Lock BAYLA/ })).toBeTruthy();
+    expect(screen.queryByTestId('ladder-window-ended')).toBeNull();
+  });
+});
+
+// THE HOME'S CARD (owner, 2026-10-16: "the staking module is too long ... needs to be shorter
+// than the lp module"). The lock lengths in one row, the amount and Lock; no meter, no positions
+// list, no ledger. A wallet with positions gets one line and the way to them on Earn.
+describe('compact: the home card', () => {
+  const mountCompact = () => render(
+    <MemoryRouter>
+      <SolanaLadderPoolCard bungalow={BUNGALOW} compact />
+    </MemoryRouter>,
+  );
+
+  it('keeps the rungs, the amount and Lock, and leaves the meter, the positions and the ledger out', async () => {
+    mountCompact();
+    await screen.findByRole('button', { name: 'Lock BAYLA for 7d' });
+    expect(screen.getByRole('heading', { level: 2, name: 'Lock BAYLA' })).toBeInTheDocument();
+    // One row of seven, not the tall staircase.
+    expect(within(screen.getByTestId('ladder-rungs-row')).getAllByRole('button', { name: / lock, .+ weight$/ })).toHaveLength(7);
+    expect(screen.getAllByRole('button', { name: / lock, .+ weight$/ })).toHaveLength(7);
+    expect(screen.getByText(/leaving early costs a penalty/)).toBeInTheDocument();
+    expect(screen.getByText('Upgrade risk')).toBeInTheDocument();
+    for (const region of ['Your earnings', 'Your positions', 'The pool']) {
+      expect(screen.queryByRole('region', { name: region })).toBeNull();
+    }
+    // Every description it points at is on the card: the Notes it leaves out are not referenced.
+    for (const el of document.querySelectorAll('[aria-describedby]')) {
+      for (const id of el.getAttribute('aria-describedby')!.split(/\s+/)) expect(document.getElementById(id), `#${id}`).not.toBeNull();
+    }
+  });
+
+  it('a wallet with positions gets one line and the way to them', async () => {
+    mountCompact();
+    const line = await screen.findByTestId('ladder-compact-you');
+    expect(line).toHaveTextContent(/BAYLA earned · 1 open/);
+    expect(within(line).getByRole('link', { name: 'Claim and manage' })).toHaveAttribute('href', '/earn/bayla');
+  });
+
+  it('a wallet with no positions gets no line', async () => {
+    reads.wallet = { ok: true, value: { stats: null, slots: [], open: [], truncated: false } };
+    mountCompact();
+    await screen.findByRole('button', { name: 'Lock BAYLA for 7d' });
+    expect(screen.queryByTestId('ladder-compact-you')).toBeNull();
+  });
+
+  it('stakes through the same instruction as the full card', async () => {
+    mountCompact();
+    fireEvent.click(await screen.findByRole('button', { name: '30d lock, 0.46× weight' }));
+    fireEvent.change(screen.getByLabelText('Amount'), { target: { value: '200' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Lock BAYLA for 30d' }));
+    await waitFor(() => expect(writes.stake).toHaveBeenCalledTimes(1));
+    expect(writes.stake).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ amountRaw: 200_000_000n, lockSecs: 30 * DAY }));
   });
 });

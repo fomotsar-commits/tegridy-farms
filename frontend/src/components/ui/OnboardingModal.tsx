@@ -44,33 +44,21 @@ const venueSteps = [
     title: 'Your First Move',
     // ARRIVAL FLOW 2026-08-31: the venue's first move is the island itself,
     // not the farm. The farm is TOWELI's room; its tour says so instead.
-    body: 'Walk a door in the hall below, or scan any token on either chain. Your heat already exists. It started counting at your first buy.',
+    body: 'Walk a door in the hall below, or scan any token on either chain. Your heat already exists. Your clock on a token starts at your first hold.',
     cta: true,
   },
 ];
 
 const toweliSteps = [
-  // 2026-08-07, two corrections in one line — this is the FIRST sentence a new
-  // visitor reads, and it was wrong twice:
-  //
-  //  1. "on Ethereum" full stop. We run on two chains. The Solana swap is live and
-  //     routed through Jupiter, and /scan reads both. Saying one chain on the
-  //     welcome screen is how a two-chain product gets remembered as one.
-  //  2. "100% of protocol swap fees are routed to TOWELI stakers" is FALSE, and the
-  //     repo already knew: HomePage.tsx's own H1 comment cites AUDIT R073 (swap fees
-  //     split 5/6 to LPs, 1/6 to the protocol), and the protocol's own share then
-  //     splits again between stakers, the liquidity engine, and operations — which
-  //     is what the hero paragraph on that same page says. So the claim is wrong on
-  //     BOTH readings of "protocol swap fees". ConnectPrompt.tsx:30 already softened
-  //     the identical sentence (F109) and left the reason in a comment; this surface
-  //     and the Footer were simply missed by that pass.
-  //
-  // Replacement claims only what routes on-chain, names no percentage that can drift
-  // when governance retunes the split, and does not promise yield that has not been
-  // paid (RevenueDistributor still holds 0 wei).
+  // The first sentence a new visitor reads. Two chains, with Solana's swap in our own pools
+  // or through Jupiter. Of swap fees it claims only the on-chain route: a referral share,
+  // then stakers. No percentage the owner can retune (the router fee and the 20% referral
+  // share both can), and no yield not yet paid (RevenueDistributor had received 0 wei on
+  // 2026-10-10). The pool's one-sixth cut (on for TOWELI/WETH since 2026-10-16) goes to the
+  // treasury, not stakers, so this step does not mention it.
   {
     title: 'Welcome to the TOWELI bungalow',
-    body: 'An art-first protocol on Ethereum and Solana. Stake TOWELI on Ethereum and protocol swap fees route on-chain to stakers in ETH; on Solana, swap through Jupiter and scan any token on either chain.',
+    body: 'An art-first protocol on Ethereum and Solana. Stake TOWELI on Ethereum and protocol swap fees route on-chain, after a referral share, to stakers in ETH; on Solana, swap in our own pools or through Jupiter and scan any token on either chain.',
   },
   {
     title: 'How It Works',
@@ -209,7 +197,7 @@ export function OnboardingModal({
                 tour lands the visitor in the hall of doors, on the page,
                 where the island itself is the next click. */}
             {isToweliVoice() ? (
-              <Link to="/farm" onClick={close}
+              <Link to="/earn/toweli" onClick={close}
                 className="px-4 py-2 text-sm font-semibold rounded-lg bg-green-600 hover:bg-green-500 text-white transition-colors text-center min-h-[44px] flex items-center">
                 Start Farming
               </Link>

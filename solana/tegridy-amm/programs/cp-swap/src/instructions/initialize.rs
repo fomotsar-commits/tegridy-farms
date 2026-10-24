@@ -202,6 +202,11 @@ pub fn initialize(
     if ctx.accounts.amm_config.disable_create_pool {
         return err!(ErrorCode::NotApproved);
     }
+    // TEGRIDY FORK: index 0 is the launch tier (no opening fee, the lowest trade fee).
+    // Only graduations open pools on it, through initialize_with_permission.
+    if ctx.accounts.amm_config.index == 0 {
+        return err!(ErrorCode::NotApproved);
+    }
     let block_timestamp = clock::Clock::get()?.unix_timestamp as u64;
     if open_time <= block_timestamp {
         open_time = block_timestamp + 1;

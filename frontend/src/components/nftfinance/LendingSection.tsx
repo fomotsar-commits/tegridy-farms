@@ -17,8 +17,11 @@ import { pageArt, artStyle, type ArtPiece } from '../../lib/artConfig';
 import { useTOWELIPrice } from '../../contexts/PriceContext';
 import { useCountdown } from '../../hooks/useCountdown';
 import { useTabListKeys } from '../../hooks/useTabListKeys';
+import { useReceiptOutcome } from '../../hooks/useReceiptOutcome';
 import { InfoTooltip, HowItWorks, StepIndicator, RiskBanner, TxSummary } from '../ui/InfoTooltip';
+import { FinePrint } from '../ui/FinePrint';
 import { artImgProps } from '../../lib/artSrcSet';
+import { noteReplacement } from '../../lib/txErrors';
 
 // ─── Design tokens ──────────────────────────────────────────────
 const CARD_BG = 'rgba(13, 21, 48, 0.6)';
@@ -439,7 +442,7 @@ function StatsBar({ allOffers, allLoans }: { allOffers: Offer[]; allLoans: Loan[
   ];
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
       {stats.map((s, idx) => (
         <m.div
           key={s.label}
@@ -637,12 +640,17 @@ function LendTab({ deployed, onCreated }: { deployed: boolean; onCreated?: () =>
 
   const chainId = useChainId();
   const { writeContract, data: txHash, isPending } = useWriteContract();
-  const { data: receipt, isLoading: isConfirming, isSuccess: isReceiptFetched } = useWaitForTransactionReceipt({ hash: txHash });
+  const receiptQuery = useWaitForTransactionReceipt({ hash: txHash, onReplaced: noteReplacement });
+  const { isLoading: isConfirming } = receiptQuery;
   // AUDIT (receipt-status, 2026-08-24): wagmi's isSuccess only means the receipt
-  // was FETCHED — it latches true for on-chain REVERTED txs too. Gate on
-  // receipt.status so a reverted tx can't fire the success toast below.
-  const isReverted = isReceiptFetched && !!receipt && receipt.status !== 'success';
-  const isSuccess = isReceiptFetched && !isReverted;
+  // was FETCHED. 2026-09-17: and a revert never reaches it — wagmi THROWS on a
+  // reverted receipt, so the `status` gate here never saw one and a reverted
+  // offer was silent. useReceiptOutcome reads the thrown revert.
+  const { isSuccess, isReverted } = useReceiptOutcome(receiptQuery, {
+    hash: txHash,
+    chainId: CHAIN_ID,
+    repeatCost: 'sending it again deposits the principal into a second offer.',
+  });
 
   // F268: the protocol fee is taken from the lender's interest (per the StatsBar
   // tooltip), so the earnings preview must net it out rather than show gross.
@@ -775,7 +783,7 @@ function LendTab({ deployed, onCreated }: { deployed: boolean; onCreated?: () =>
         {/* APR */}
         <div>
           <label className="text-[11px] uppercase tracking-wider label-pill text-white mb-1.5 flex items-center gap-1.5">
-            APR (bps · e.g. 850 = 8.50%)
+            APR (bps)
             <InfoTooltip text="Annual Percentage Rate in basis points. 100 bps = 1%. Example: 850 bps = 8.50% APR. The borrower pays this rate pro-rata — if they repay early, they pay less." />
           </label>
           <div className="flex items-center gap-3">
@@ -969,21 +977,32 @@ function OfferRow({
 
   // Approve
   const { writeContract: approveWrite, data: approveTx, isPending: approvePending } = useWriteContract();
-  const { data: approveReceipt, isLoading: approveConfirming, isSuccess: approveReceiptFetched } = useWaitForTransactionReceipt({
+  const approveQuery = useWaitForTransactionReceipt({
     hash: approveTx,
+    onReplaced: noteReplacement,
   });
-  // AUDIT (receipt-status, 2026-08-24): gate both legs on receipt.status — raw
-  // isSuccess latches true for on-chain REVERTED txs too.
-  const approveReverted = approveReceiptFetched && !!approveReceipt && approveReceipt.status !== 'success';
-  const approveSuccess = approveReceiptFetched && !approveReverted;
+  const { isLoading: approveConfirming } = approveQuery;
+  // AUDIT (receipt-status, 2026-08-24): raw isSuccess means "receipt FETCHED".
+  // 2026-09-17: and wagmi THROWS on a reverted receipt, so the `status` gate on
+  // both legs never saw a revert and both revert toasts below were dead.
+  const { isSuccess: approveSuccess, isReverted: approveReverted } = useReceiptOutcome(approveQuery, {
+    hash: approveTx,
+    chainId: CHAIN_ID,
+    repeatCost: 'a second approval only costs gas.',
+  });
 
   // Accept
   const { writeContract: acceptWrite, data: acceptTx, isPending: acceptPending } = useWriteContract();
-  const { data: acceptReceipt, isLoading: acceptConfirming, isSuccess: acceptReceiptFetched } = useWaitForTransactionReceipt({
+  const acceptQuery = useWaitForTransactionReceipt({
     hash: acceptTx,
+    onReplaced: noteReplacement,
   });
-  const acceptReverted = acceptReceiptFetched && !!acceptReceipt && acceptReceipt.status !== 'success';
-  const acceptSuccess = acceptReceiptFetched && !acceptReverted;
+  const { isLoading: acceptConfirming } = acceptQuery;
+  const { isSuccess: acceptSuccess, isReverted: acceptReverted } = useReceiptOutcome(acceptQuery, {
+    hash: acceptTx,
+    chainId: CHAIN_ID,
+    repeatCost: 'accepting again reverts, because the offer is no longer open.',
+  });
 
   useEffect(() => {
     if (approveSuccess) toast.success('NFT approved for lending');
@@ -1237,14 +1256,17 @@ function OfferRow({
                           <TxSummary>
                             You'll lock NFT <span className="font-mono text-white font-semibold">#{tokenId}</span> and receive <span className="font-mono text-white font-semibold">{formatTokenAmount(principalEth)} ETH</span>.
                             Total repayment: <span className="font-mono text-emerald-400 font-semibold">{formatTokenAmount(totalRepay)} ETH</span> ({formatTokenAmount(principalEth)} principal + {formatTokenAmount(maxInterest)} interest over {daysFromSeconds(offer.duration)}d).
-                            <span className="block text-[11px] text-white/70 mt-1">Repay early to save — interest is calculated pro-rata.</span>
+                            <span className="block text-[11px] text-white/70 mt-1">Repay early to save. Interest is calculated pro-rata.</span>
                           </TxSummary>
                         );
                       })()}
 
-                      {/* Risk Warning */}
+                      {/* The risk line stays visible; the full warning is one press away. */}
                       <RiskBanner variant="warning">
-                        Your staking NFT (#{tokenId}) will be locked as collateral. If you don't repay by the deadline, the lender can claim it permanently.
+                        <span className="font-semibold">Miss the deadline and the lender can keep staking NFT #{tokenId}.</span>
+                        <FinePrint summary="Details">
+                          <p>Your staking NFT (#{tokenId}) will be locked as collateral. If you don't repay by the deadline, the lender can claim it permanently.</p>
+                        </FinePrint>
                       </RiskBanner>
 
                       {/* Step Indicator */}
@@ -1553,16 +1575,25 @@ function LoanRow({
   });
 
   const { writeContract: repayWrite, data: repayTx, isPending: repayPending } = useWriteContract();
-  const { data: repayReceipt, isLoading: repayConfirming, isSuccess: repayReceiptFetched } = useWaitForTransactionReceipt({ hash: repayTx });
-  // AUDIT (receipt-status, 2026-08-24): gate both legs on receipt.status — raw
-  // isSuccess latches true for on-chain REVERTED txs too.
-  const repayReverted = repayReceiptFetched && !!repayReceipt && repayReceipt.status !== 'success';
-  const repaySuccess = repayReceiptFetched && !repayReverted;
+  const repayQuery = useWaitForTransactionReceipt({ hash: repayTx, onReplaced: noteReplacement });
+  const { isLoading: repayConfirming } = repayQuery;
+  // AUDIT (receipt-status, 2026-08-24): raw isSuccess means "receipt FETCHED".
+  // 2026-09-17: and wagmi THROWS on a reverted receipt, so the `status` gate on
+  // both legs never saw a revert and both revert toasts below were dead.
+  const { isSuccess: repaySuccess, isReverted: repayReverted } = useReceiptOutcome(repayQuery, {
+    hash: repayTx,
+    chainId: CHAIN_ID,
+    repeatCost: 'repaying again reverts, because the loan is already settled.',
+  });
 
   const { writeContract: claimWrite, data: claimTx, isPending: claimPending } = useWriteContract();
-  const { data: claimReceipt, isLoading: claimConfirming, isSuccess: claimReceiptFetched } = useWaitForTransactionReceipt({ hash: claimTx });
-  const claimReverted = claimReceiptFetched && !!claimReceipt && claimReceipt.status !== 'success';
-  const claimSuccess = claimReceiptFetched && !claimReverted;
+  const claimQuery = useWaitForTransactionReceipt({ hash: claimTx, onReplaced: noteReplacement });
+  const { isLoading: claimConfirming } = claimQuery;
+  const { isSuccess: claimSuccess, isReverted: claimReverted } = useReceiptOutcome(claimQuery, {
+    hash: claimTx,
+    chainId: CHAIN_ID,
+    repeatCost: 'claiming again reverts, because the collateral is already claimed.',
+  });
 
   useEffect(() => {
     if (repaySuccess) {
@@ -1928,22 +1959,16 @@ export function LendingSection({ address: _propAddress }: { address?: string }) 
       {!deployed && (
         <ArtPanel art={pageArt('lending-section', 14)} opacity={1} overlay="none">
           <div className="px-4 py-3 text-center text-[13px] text-amber-400/80">
-            Token Lending is not deployed. It is gated on the TWAP price oracle, which cannot start while the native TOWELI/WETH pool sits below its reserve floor — not on review time. Explore the interface below. <Link to="/security" className="underline hover:text-amber-300 transition-colors">View security details</Link>
+            <p>Token Lending is not deployed. Explore the interface below.</p>
+            <FinePrint summary="Why" className="text-left">
+              <p>
+                It is gated on the TWAP price oracle, which cannot start while the native TOWELI/WETH pool sits below its reserve floor — not on review time. <Link to="/security" className="underline hover:text-amber-300 transition-colors">View security details</Link>
+              </p>
+            </FinePrint>
           </div>
         </ArtPanel>
       )}
       <StatsBar allOffers={allOffers} allLoans={allLoans} />
-
-      <HowItWorks
-        storageKey="tegridy-token-lending-how"
-        title="How does Token Lending work?"
-        steps={[
-          { label: 'Create an Offer', description: 'Lenders deposit ETH and set their terms — APR, duration, and minimum collateral value.' },
-          { label: 'Lock Collateral', description: 'Borrowers lock their staking position NFT as collateral and receive the ETH.' },
-          { label: 'Repay on Time', description: 'Borrowers repay principal + pro-rata interest before the deadline to reclaim their NFT.' },
-          { label: 'Default Protection', description: 'If the borrower misses the deadline, the lender can claim the staking NFT.' },
-        ]}
-      />
 
       <TabNav tab={tab} setTab={setTab} />
       <AnimatePresence mode="wait">
@@ -1959,6 +1984,25 @@ export function LendingSection({ address: _propAddress }: { address?: string }) 
           {tab === 'myloans' && <MyLoansTab deployed={deployed} allLoans={allLoans} loansLoading={loansLoading} onLoanChanged={refetchLoans} />}
         </m.div>
       </AnimatePresence>
+
+      {/* How it works, one press away (owner, 2026-10-13: how-it-works goes in a closed
+          drop-down). The one visible line is the risk line. The four-step strip and its
+          art sit inside, word for word. */}
+      <div className="space-y-1">
+        <p className="text-white/80 text-[13px]">Staking NFT in, ETH out. Repay on time or the lender keeps it.</p>
+        <FinePrint summary="How it works" testId="token-lending-how">
+          <HowItWorks
+            storageKey="tegridy-token-lending-how"
+            title="How does Token Lending work?"
+            steps={[
+              { label: 'Create an Offer', description: 'Lenders deposit ETH and set their terms: APR, duration, and minimum collateral value.' },
+              { label: 'Lock Collateral', description: 'Borrowers lock their staking position NFT as collateral and receive the ETH.' },
+              { label: 'Repay on Time', description: 'Borrowers repay principal + pro-rata interest before the deadline to reclaim their NFT.' },
+              { label: 'Default Protection', description: 'If the borrower misses the deadline, the lender can claim the staking NFT.' },
+            ]}
+          />
+        </FinePrint>
+      </div>
     </section>
   );
 }

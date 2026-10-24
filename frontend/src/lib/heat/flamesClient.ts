@@ -110,11 +110,24 @@ export async function fetchFlames(opts: FetchFlamesOptions): Promise<FlamesBoard
   opts.signal?.addEventListener('abort', onAbort);
 
   let res: Response;
+  let payload: unknown;
+  let unparsed = false;
   try {
     res = await fetch(
       `/api/aggregator?resource=flames&limit=${limit}${claimed ? '&claimed=1' : ''}`,
       { headers: { Accept: 'application/json' }, signal: ac.signal },
     );
+    // Read before the timer is cleared: an answer that stops part-way is a board we
+    // could not reach. An abort here can come back as a parse error, so the signal says
+    // which it was.
+    if (res.ok) {
+      try {
+        payload = await res.json();
+      } catch (e) {
+        if (ac.signal.aborted) throw e;
+        unparsed = true;
+      }
+    }
   } catch {
     throw new BoardUnavailableError('The board is unreachable.');
   } finally {
@@ -122,20 +135,14 @@ export async function fetchFlames(opts: FetchFlamesOptions): Promise<FlamesBoard
     opts.signal?.removeEventListener('abort', onAbort);
   }
 
-  // 204: the island's board is off. A real answer, and a cacheable one — otherwise
+  // 204: the island's board is off. A real answer, and a cacheable one. Otherwise
   // every render of a page carrying the card re-asks a board we know is dark.
   if (res.status === 204) {
     cache.set(key, { board: null, storedAt: Date.now() });
     return null;
   }
   if (!res.ok) throw new BoardUnavailableError('The board is unavailable.');
-
-  let payload: unknown;
-  try {
-    payload = await res.json();
-  } catch {
-    throw new BoardUnavailableError('The board returned something unreadable.');
-  }
+  if (unparsed) throw new BoardUnavailableError('The board returned something unreadable.');
 
   const body = payload as { flames?: unknown; as_of_unix?: unknown } | null;
   if (!body || !Array.isArray(body.flames)) {

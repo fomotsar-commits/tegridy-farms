@@ -8,25 +8,22 @@ use std::ops::DerefMut;
 // Token-2022 support-mint allowlist was a Raydium-controlled key. Pointed at the
 // Tegridy admin so NO external party retains any authority on this program. This
 // is the 4th (and final) hardcoded-authority change; the other three are in lib.rs.
-// ⚠️ OPERATOR: replace the mainnet value with the Squads multisig before mainnet.
 pub mod create_support_mint_associated_owner {
     use super::{pubkey, Pubkey};
     // A SECOND, lower-privilege owner accepted by `CreateSupportMintAssociated` in
     // addition to `admin::ID` (see the `||` constraint below).
     //
-    // This is the Squads MULTISIG account, which can never sign — the same mistake
-    // that made `admin::ID` unusable and blocked graduation (see the long note in
-    // lib.rs:46). Left as-is ON PURPOSE rather than repointed: this path is a pure
-    // OR-fallback, so with `admin::ID` fixed the instruction is fully reachable, and
-    // changing a constant we do not need widens the delta the fork's diff-guard has
-    // to justify for no capability gained. It grants nobody anything today.
-    //
-    // If this alternate owner is ever actually wanted, it must be a SYSTEM-OWNED
-    // account — a vault PDA or a plain wallet — never the multisig account.
+    // Mainnet = the Squads v4 VAULT PDA GRMtSxgs…, the same address as `admin::ID`
+    // (owner ruling 2026-09-25). It used to be the Squads MULTISIG account EVGSnRZ…,
+    // which can never sign — the mistake that made `admin::ID` unusable and blocked
+    // graduation (see the long note in lib.rs) — so this instruction's fallback was
+    // dead. `CreateSupportMintAssociated` also has `payer = owner`, so whatever goes
+    // here must be SYSTEM-OWNED and fundable: a vault PDA or a plain wallet, never
+    // the multisig account.
     #[cfg(feature = "devnet")]
     pub const ID: Pubkey = pubkey!("GgE6AfEH2AVSrKGckyKMzC6mhtXWiAn39EzAikAsWq5a");
     #[cfg(not(feature = "devnet"))]
-    pub const ID: Pubkey = pubkey!("EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK");
+    pub const ID: Pubkey = pubkey!("GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd");
 }
 
 #[derive(Accounts)]

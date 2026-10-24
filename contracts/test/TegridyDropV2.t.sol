@@ -239,6 +239,8 @@ contract TegridyDropV2Test is Test {
         p.dutchDuration = duration;
         p.dutchStartTime = start;
         p.initialPhase = TegridyDropV2.MintPhase.DUTCH_AUCTION;
+        // F1: a drop that opens on the dutch curve carries no fixed price.
+        p.mintPrice = 0;
         _init(p);
 
         // Before start: price pegs at startPrice.
@@ -263,6 +265,8 @@ contract TegridyDropV2Test is Test {
         p.dutchDuration = 3600;
         p.dutchStartTime = block.timestamp + 1000;
         p.initialPhase = TegridyDropV2.MintPhase.DUTCH_AUCTION;
+        // F1: a drop that opens on the dutch curve carries no fixed price.
+        p.mintPrice = 0;
         _init(p);
 
         bytes32[] memory proof;

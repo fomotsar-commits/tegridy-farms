@@ -65,7 +65,7 @@ export interface RawTokenFacts {
    * How the venue's line of that constitution was priced. A LAUNCH-CONFIG input like
    * `feeConstitution` itself — the on-chain collector cannot read it back, because the
    * locker stores the resulting shares and not the dials that produced them. Omitted
-   * means the standard rate with neither pricing feature in force.
+   * means the standard rate with the creator revenue share off.
    */
   pricing?: LaunchPricingDisclosure;
   vesting: VestingSchedule[];

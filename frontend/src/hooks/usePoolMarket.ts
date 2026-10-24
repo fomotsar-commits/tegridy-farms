@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { geckoTerminalPoolSchema, parseOrNull } from '../lib/schemas/geckoTerminal';
+import {
+  GECKO_FRESHNESS_UNKNOWN,
+  GECKO_STALE_OK_HEADERS,
+  readGeckoFreshness,
+  type GeckoFreshness,
+} from '../lib/geckoTerminal/edge';
 
 /**
  * Live market facts for ONE liquidity pool, from GeckoTerminal.
@@ -37,6 +43,12 @@ import { geckoTerminalPoolSchema, parseOrNull } from '../lib/schemas/geckoTermin
  *
  * The response is forwarded verbatim, so the R080 schema validation below is
  * unchanged and still the only place this JSON is parsed.
+ *
+ * AGE (2026-10-15). This hook asks the edge for its last good copy when
+ * GeckoTerminal is refusing, so its caller MUST print `freshness` (see
+ * geckoAsOfLine). "Leave the previous values alone" applies to a refresh of the
+ * SAME pool only: a new pool starts blank, or a failed read would leave the last
+ * bungalow's price on screen under the next one's ticker.
  */
 
 export interface PoolMarket {
@@ -59,6 +71,8 @@ export interface PoolMarketResult {
   market: PoolMarket | null;
   isLoading: boolean;
   error: string | null;
+  /** How old `market` is, and whether it is a kept copy. Print it with geckoAsOfLine. */
+  freshness: GeckoFreshness;
   /** Re-read on demand. Nothing here polls on its own. */
   refresh: () => void;
 }
@@ -77,6 +91,9 @@ const EMPTY: PoolMarket = {
   buyers24h: null,
 };
 
+/** A 429: the edge's budget is spent or GeckoTerminal refused, and no earlier copy exists. */
+class BusyFeed extends Error {}
+
 /** String → finite number, or null. Never NaN, never a silent 0. */
 function num(v: string | null | undefined): number | null {
   if (v === null || v === undefined) return null;
@@ -93,6 +110,8 @@ export function usePoolMarket(
   pool: string | null,
 ): PoolMarketResult {
   const [market, setMarket] = useState<PoolMarket | null>(null);
+  const [freshness, setFreshness] = useState<GeckoFreshness>(GECKO_FRESHNESS_UNKNOWN);
+  const shownKeyRef = useRef<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [nonce, setNonce] = useState(0);
@@ -106,19 +125,26 @@ export function usePoolMarket(
     const controller = new AbortController();
     abortRef.current = controller;
     let cancelled = false;
+    const key = `${network}:${pool}`;
 
     // R007 Pattern C — the synchronous setState is deferred out of the effect
     // body so the lint rule doesn't flag a cascading render.
     queueMicrotask(async () => {
       if (cancelled) return;
+      if (shownKeyRef.current !== key) {
+        shownKeyRef.current = key;
+        setMarket(null);
+        setFreshness(GECKO_FRESHNESS_UNKNOWN);
+      }
       setIsLoading(true);
       setError(null);
       try {
         const url = `/api/aggregator?resource=pool-market&network=${encodeURIComponent(network)}&pool=${encodeURIComponent(pool)}`;
         const res = await fetch(url, {
-          headers: { Accept: 'application/json' },
+          headers: { ...GECKO_STALE_OK_HEADERS, Accept: 'application/json' },
           signal: controller.signal,
         });
+        if (res.status === 429) throw new BusyFeed();
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const json: unknown = await res.json();
 
@@ -144,12 +170,17 @@ export function usePoolMarket(
           buyers24h: int(tx?.buyers),
           sellers24h: int(tx?.sellers),
         });
+        setFreshness(readGeckoFreshness(res));
         setError(null);
       } catch (err) {
         if (cancelled || (err instanceof DOMException && err.name === 'AbortError')) return;
         // Leave any previously read values in place — a dropped refresh must
         // not repaint real numbers as blanks.
-        setError('Market data could not be read. That is an outage, not a zero.');
+        setError(
+          err instanceof BusyFeed
+            ? 'The market feed is busy right now. Try again in a minute.'
+            : 'Market data could not be read. That is an outage, not a zero.',
+        );
       } finally {
         if (!cancelled) setIsLoading(false);
       }
@@ -159,7 +190,7 @@ export function usePoolMarket(
   }, [network, pool, nonce]);
 
   return useMemo(
-    () => ({ market, isLoading, error, refresh }),
-    [market, isLoading, error, refresh],
+    () => ({ market, isLoading, error, freshness, refresh }),
+    [market, isLoading, error, freshness, refresh],
   );
 }

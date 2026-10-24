@@ -18,6 +18,8 @@
 import { m } from 'framer-motion';
 import { formatCurrency, formatTimeAgo } from '../../lib/formatting';
 import type { PortfolioSourceReport, PortfolioSourceState, PortfolioTotal } from '../../lib/portfolio/types';
+import { CardArt } from '../ui/CardArt';
+import { FinePrint } from '../ui/FinePrint';
 
 export interface UnifiedPortfolioProps {
   sources: PortfolioSourceReport[];
@@ -50,11 +52,12 @@ export function UnifiedPortfolio({ sources, total, summary, onRefresh, isRefresh
   return (
     <m.section
       aria-label="Unified portfolio"
-      className="relative overflow-hidden rounded-xl glass-card-animated mb-6"
+      className="relative isolate overflow-hidden rounded-xl glass-card-animated mb-6"
       style={{ border: '1px solid var(--color-purple-75)', background: 'rgba(6,12,26,0.72)' }}
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
     >
+      <CardArt pageId="portfolio" idx={0} />
       <div className="relative z-10 p-4 md:p-5">
         <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
           <h2 className="heading-luxury text-[16px] text-white">Portfolio</h2>
@@ -113,12 +116,7 @@ export function UnifiedPortfolio({ sources, total, summary, onRefresh, isRefresh
         <p className="text-white/45 text-[11px] mt-1.5" aria-live="polite">
           {total.asOfOldest === null
             ? 'No source has been read yet.'
-            : `As of ${formatTimeAgo(total.asOfOldest)} — the oldest of the ${total.counted.length} source${total.counted.length === 1 ? '' : 's'} in this total.`}
-          {total.mixedFreshness && total.freshnessSpreadSec !== null && (
-            <span style={{ color: '#fbbf24' }}>
-              {' '}Sources were not read together: {total.freshnessSpreadSec}s between the oldest and newest.
-            </span>
-          )}
+            : `As of ${formatTimeAgo(total.asOfOldest)}, the oldest of the ${total.counted.length} source${total.counted.length === 1 ? '' : 's'} in this total.`}
         </p>
 
         <ul className="mt-4 space-y-1.5">
@@ -147,11 +145,21 @@ export function UnifiedPortfolio({ sources, total, summary, onRefresh, isRefresh
           ))}
         </ul>
 
-        {/* Rule 4 — standing scope disclosure, printed even when nothing failed. */}
-        {total.outOfScope.length > 0 && (
-          <p className="text-white/45 text-[11px] mt-3 leading-snug">
-            Outside this total: {total.outOfScope.map((o) => `${o.label} (${o.reason})`).join('; ')}.
-          </p>
+        {/* Rules 3 and 4: the freshness spread and the standing scope disclosure,
+            printed even when nothing failed, one press away under the list. */}
+        {((total.mixedFreshness && total.freshnessSpreadSec !== null) || total.outOfScope.length > 0) && (
+          <FinePrint summary="Sources" className="mt-2">
+            {total.mixedFreshness && total.freshnessSpreadSec !== null && (
+              <p style={{ color: '#fbbf24' }}>
+                Sources were not read together: {total.freshnessSpreadSec}s between the oldest and newest.
+              </p>
+            )}
+            {total.outOfScope.length > 0 && (
+              <p>
+                Outside this total: {total.outOfScope.map((o) => `${o.label} (${o.reason})`).join('; ')}.
+              </p>
+            )}
+          </FinePrint>
         )}
       </div>
     </m.section>

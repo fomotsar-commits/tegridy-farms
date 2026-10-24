@@ -46,7 +46,7 @@ describe("element D — the room states its pool's honest state", () => {
     // A substring, not a word-boundary regex (see the claim test below).
     expect(membersBranch).not.toContain('.stakePool');
     expect(membersBranch).toContain('read live on');
-    expect(membersBranch).toContain('to="/farm"');
+    expect(membersBranch).toContain('to={`/earn/${bungalowIdentity.id}`}');
   });
 
   it('never claims the pool is deployed, live, funded or earning', () => {
@@ -70,7 +70,7 @@ describe("element D — the room states its pool's honest state", () => {
   });
 
   it('sends the live question to Earn, where the panel that reads it lives', () => {
-    expect(block).toContain('to="/farm"');
+    expect(block).toContain('to={`/earn/${bungalowIdentity.id}`}');
   });
 
   it('borrows the no-pool sentence from the panel, so there is one wording', () => {

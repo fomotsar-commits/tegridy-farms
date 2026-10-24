@@ -70,6 +70,11 @@ describe('the fallback on / is the first frame', () => {
     expect(form?.querySelector('input:not([type="hidden"])')?.getAttribute('name')).toBe('heat');
   });
 
+  it('names every chain the reader takes, as the static frame does', () => {
+    mountFrame();
+    expect(field().getAttribute('aria-label')).toBe('Wallet address to read Heat for (Ethereum, Base, or Solana)');
+  });
+
   it('records what is typed for the hero instead of dropping it', () => {
     mountFrame();
     fireEvent.change(field(), { target: { value: `  ${ADDRESS}  ` } });

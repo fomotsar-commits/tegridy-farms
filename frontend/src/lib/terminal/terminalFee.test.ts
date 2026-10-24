@@ -14,7 +14,8 @@ import { terminalFeeDisclosure } from './terminalFee';
 import { MAX_SWAP_FEE_BPS } from '../fees/swapFee';
 import type { AggregatorSource } from '../aggregator';
 
-const RECIPIENT = '0x6d5791A660e79175F74C6D639584C98422d5956E';
+// The mainnet treasury Safe: the only recipient the policy accepts on CHAIN_ID.
+const RECIPIENT = '0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d';
 const ALL_SOURCES: AggregatorSource[] = [
   'swapapi', 'odos', 'cowswap', 'lifi', 'kyberswap', 'openocean', 'paraswap',
 ];
@@ -97,6 +98,11 @@ describe('off by default, for every route', () => {
         expect(d.value).toBe('None');
       }
     }
+  });
+
+  it('reads the fee on the chain the buy executes on, so a Base Safe recipient charges nothing', () => {
+    enableFee('75', '0x796c22ff58F24e4a5d07683d8A5c03Ec54dB38C0');
+    expect(terminalFeeDisclosure({ source: 'paraswap', executes: true }).bps).toBe(0);
   });
 
   it('respects the venue ceiling rather than defining one', () => {

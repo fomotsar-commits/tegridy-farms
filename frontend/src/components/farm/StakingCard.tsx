@@ -4,16 +4,18 @@ import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { Link } from 'react-router-dom';
 import { formatTokenAmount, sanitizeDecimalInput } from '../../lib/formatting';
 import { AnimatedCounter } from '../AnimatedCounter';
-import { PENALTY_COPY } from '../../lib/copy';
+import { CONNECT_ETHEREUM_WALLET, PENALTY_COPY } from '../../lib/copy';
 import type { useFarmActions } from '../../hooks/useFarmActions';
 import type { useUserPosition } from '../../hooks/useUserPosition';
 import type { useNFTBoost } from '../../hooks/useNFTBoost';
 import { ArtImg } from '../ArtImg';
+import { FinePrint } from '../ui/FinePrint';
 import { useReadContract } from 'wagmi';
 import { formatEther, parseEther } from 'viem';
 import { TEGRIDY_STAKING_ABI } from '../../lib/contracts';
 import { TEGRIDY_STAKING_ADDRESS, CHAIN_ID, LOCK_OPTIONS, EARLY_WITHDRAWAL_PENALTY_BPS, MAX_LOCK_DURATION, TEGRIDY_RESTAKING_ADDRESS, isDeployed } from '../../lib/constants';
 
+import { PositionMark, positionHost } from '../ui/PositionMark';
 // Derive from the canonical constant so the penalty label + math track one source.
 const EARLY_WITHDRAWAL_PENALTY_PCT = EARLY_WITHDRAWAL_PENALTY_BPS / 100;
 
@@ -134,14 +136,15 @@ export function StakingCard({
 
   return (
     <m.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
-      <div className="relative overflow-hidden rounded-xl glass-card-animated card-hover" style={{ border: '1px solid var(--color-purple-75)' }}>
+      <div className={positionHost('relative overflow-hidden rounded-xl glass-card-animated card-hover', pos.hasPosition)} style={{ border: '1px solid var(--color-purple-75)' }}>
+        <PositionMark inPosition={pos.hasPosition} />
         <div className="absolute inset-0">
           <ArtImg pageId="staking-card" idx={0} fallbackPosition="center 40%" alt="" loading="lazy" className="w-full h-full object-cover" />
         </div>
         <div className="relative z-10 p-6">
-        <h3 className="heading-luxury text-white text-[20px] mb-5">
+        <h2 className="heading-luxury text-white text-[20px] mb-5">
           {pos.hasPosition || pos.positionUnread ? 'Your Position' : 'Stake TOWELI'}
-        </h3>
+        </h2>
 
         {pos.hasPosition ? (
           /* Existing position display */
@@ -156,9 +159,8 @@ export function StakingCard({
               >
                 <p className="font-semibold mb-1">Staking is paused.</p>
                 <p>
-                  Claim, Withdraw and every other action on this card revert until it is
-                  unpaused, so they are switched off. Your stake is not stuck: the exit at the
-                  bottom of this card works during a pause.
+                  Claim and Withdraw are off until it is unpaused. Your stake is not stuck: the
+                  exit at the bottom of this card still works.
                 </p>
               </div>
             )}
@@ -168,11 +170,16 @@ export function StakingCard({
                 data-testid="staking-paused-unread"
               >
                 <p>
-                  We could not read whether staking is paused just now - the network did not
-                  answer. That is not a statement that staking is running normally: if it is
-                  paused, Claim and Withdraw revert, and the exit that works during a pause
-                  appears here only once this read lands. Retry before acting on this card.
+                  We could not read whether staking is paused. Retry before acting on this card.
                 </p>
+                <FinePrint summary="Details">
+                  <p>
+                    We could not read whether staking is paused just now - the network did not
+                    answer. That is not a statement that staking is running normally: if it is
+                    paused, Claim and Withdraw revert, and the exit that works during a pause
+                    appears here only once this read lands. Retry before acting on this card.
+                  </p>
+                </FinePrint>
                 <button
                   type="button"
                   className="btn-secondary mt-2 px-4 py-1.5 text-[12px]"
@@ -259,7 +266,7 @@ export function StakingCard({
                   return (
                     <p
                       className={`text-[10px] mt-0.5 font-mono ${soon ? 'text-red-300 font-semibold' : warn ? 'text-amber-300' : 'text-white/60'}`}
-                      aria-label={soon ? `Lock expires in ${label} — consider extending` : `Lock expires in ${label}`}
+                      aria-label={soon ? `Lock expires in ${label}, consider extending` : `Lock expires in ${label}`}
                     >
                       {soon ? '⚠ ' : ''}{label}
                     </p>
@@ -375,7 +382,7 @@ export function StakingCard({
                   const receiveAmt = stakedNum - penaltyAmt;
                   return (
                   <div className="col-span-2 rounded-lg p-3" style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.15)' }}>
-                    <p className="text-danger text-[12px] font-semibold mb-2">The cops showed up. You'll lose {EARLY_WITHDRAWAL_PENALTY_PCT}% of your crop to the {PENALTY_COPY.earlyExitLabel} — {PENALTY_COPY.earlyExitTagline}</p>
+                    <p className="text-danger text-[12px] font-semibold mb-2">The cops showed up. You'll lose {EARLY_WITHDRAWAL_PENALTY_PCT}% of your crop to the {PENALTY_COPY.earlyExitLabel}. {PENALTY_COPY.earlyExitTagline}</p>
                     <div className="rounded-lg p-2.5 mb-2" style={{ background: 'rgba(239,68,68,0.05)', border: '1px solid rgba(239,68,68,0.10)' }}>
                       <p className="text-danger/80 text-[11px] mb-1">Penalty: <span className="font-mono font-semibold">{penaltyAmt.toFixed(2)} TOWELI</span> will be sent to treasury</p>
                       <p className="text-white/80 text-[11px]">You will receive: <span className="font-mono font-semibold">{receiveAmt.toFixed(2)} TOWELI</span></p>
@@ -432,14 +439,14 @@ export function StakingCard({
                     <p className="text-danger text-[12px] font-semibold mb-2">
                       This locks your {pos.stakedFormatted} TOWELI until{' '}
                       {new Date((nowSec + MAX_LOCK_DURATION) * 1000).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}
-                      {' '}— four years from now.
+                      , four years from now.
                     </p>
                     <div className="rounded-lg p-2.5 mb-2" style={{ background: 'rgba(239,68,68,0.05)', border: '1px solid rgba(239,68,68,0.10)' }}>
                       <p className="text-danger/80 text-[11px] mb-1">
                         Turning it back off later stops the auto-renew but does <span className="font-semibold">not</span> shorten this lock.
                       </p>
                       <p className="text-white/80 text-[11px]">
-                        Need out early? You keep {100 - EARLY_WITHDRAWAL_PENALTY_PCT}% — the other {EARLY_WITHDRAWAL_PENALTY_PCT}% goes to treasury.
+                        Need out early? You keep {100 - EARLY_WITHDRAWAL_PENALTY_PCT}%, the other {EARLY_WITHDRAWAL_PENALTY_PCT}% goes to treasury.
                       </p>
                     </div>
                     <div className="flex gap-2">
@@ -535,24 +542,24 @@ export function StakingCard({
                   "bonus yield" with a link back to this same page was a live CTA for
                   a dead feature; show an honest status label until it deploys. */}
               {isDeployed(TEGRIDY_RESTAKING_ADDRESS) ? (
-                <Link to="/farm" className="text-center text-white/60 text-[12px] hover:text-white transition-colors mt-1">
+                <Link to="/earn/toweli" className="text-center text-white/60 text-[12px] hover:text-white transition-colors mt-1">
                   Restake for bonus yield &#8594;
                 </Link>
               ) : (
                 <span className="text-center text-white/40 text-[12px] mt-1">
-                  Restaking &mdash; coming in Phase 7
+                  Restaking: coming in Phase 7
                 </span>
               )}
             </div>
           </div>
         ) : !isConnected ? (
           <div className="text-center py-8">
-            <p className="text-white text-[13px] mb-4">Connect wallet to start staking</p>
+            <p className="text-white text-[13px] mb-4">Connect a wallet to stake.</p>
             <ConnectButton.Custom>
               {({ openConnectModal, mounted }) => (
                 <div {...(!mounted && { style: { opacity: 0, pointerEvents: 'none' } })}>
                   <button onClick={openConnectModal} className="btn-primary px-7 py-2.5 text-[14px]">
-                    Connect Wallet
+                    {CONNECT_ETHEREUM_WALLET}
                   </button>
                 </div>
               )}
@@ -568,10 +575,8 @@ export function StakingCard({
             data-testid="staking-position-unread"
           >
             <p>
-              Your staking position could not be read just now - the network did not
-              answer. This is not a statement that you have nothing staked: anything
-              you staked is still staked, and the contract is the record. Retry before
-              acting on this card.
+              Your staking position could not be read. Anything you staked is still staked.
+              Retry before acting on this card.
             </p>
             <button
               type="button"
@@ -614,15 +619,22 @@ export function StakingCard({
               {/* The unread branch of the three the cap now has: still-checking
                   (dash, no notice), unread (this), read (the figure above). */}
               {capUnread && (
-                <p
+                <div
                   className="text-[11px] mt-1"
                   data-testid="stake-cap-unread"
                   style={{ color: '#e3b341', opacity: 0.85 }}>
-                  We could not read the per-wallet cap just now &mdash; the network did not
-                  answer. That is not a statement that there is no cap: staking against a
-                  number nobody read can revert on-chain and spend your gas for nothing.
-                  Reload and try again.
-                </p>
+                  <p>
+                    We could not read the per-wallet cap. A stake now could revert. Reload and try again.
+                  </p>
+                  <FinePrint summary="Details">
+                    <p>
+                      We could not read the per-wallet cap just now &mdash; the network did not
+                      answer. That is not a statement that there is no cap: staking against a
+                      number nobody read can revert on-chain and spend your gas for nothing.
+                      Reload and try again.
+                    </p>
+                  </FinePrint>
+                </div>
               )}
             </div>
 
@@ -664,7 +676,7 @@ export function StakingCard({
               {nft.holdsJBAC && (
                 <div className="flex items-start justify-between gap-3 mb-2">
                   <span className="text-white/70 text-[11px]">JBAC bonus (+0.5x)</span>
-                  <span className="text-white/70 text-[11px] text-right">not applied — requires NFT-deposit staking</span>
+                  <span className="text-white/70 text-[11px] text-right">not applied: requires NFT-deposit staking</span>
                 </div>
               )}
               {amtNum > 0 && (
@@ -717,7 +729,7 @@ export function StakingCard({
                   const runwayDays = Math.floor((pool.secondsRemaining ?? 0) / 86400);
                   return runwayDays > 0 && runwayDays < 365 ? (
                     <p className="text-[11px] mt-1 text-center" style={{ color: '#e3b341', opacity: 0.85 }}>
-                      Current reserve runs ≈ {runwayDays}d at this rate — figures beyond that assume refills.
+                      Current reserve runs ≈ {runwayDays}d at this rate. Figures beyond that assume refills.
                     </p>
                   ) : null;
                 })()}
@@ -731,7 +743,7 @@ export function StakingCard({
                 ? 'Processing...'
                 : amtNum <= 0 ? 'Enter Amount'
                 : capChecking ? 'Checking stake cap…'
-                : maxStakeWei === null ? 'Stake cap unknown — reload'
+                : maxStakeWei === null ? 'Stake cap unknown, reload'
                 : belowMin ? `Minimum ${MIN_STAKE_TOWELI} TOWELI`
                 : overCap ? `Max ${maxStakeDisplay} per wallet`
                 : stakeNeedsApproval ? 'Approve TOWELI'
@@ -739,7 +751,7 @@ export function StakingCard({
             </button>
 
             <p className="text-white text-[10px] text-center mt-3">
-              Early exit available — {EARLY_WITHDRAWAL_PENALTY_PCT}% {PENALTY_COPY.earlyExitLabel} sent to the treasury
+              Early exit: {EARLY_WITHDRAWAL_PENALTY_PCT}% {PENALTY_COPY.earlyExitLabel}, sent to the treasury.
             </p>
           </div>
         )}

@@ -22,7 +22,10 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { describe, it, expect, vi } from 'vitest';
 import { Connection, PublicKey, Keypair } from '@solana/web3.js';
-import type { SignerWalletAdapter } from '@solana/wallet-adapter-base';
+import { WalletNotConnectedError, WalletSendTransactionError, WalletSignTransactionError, type SignerWalletAdapter } from '@solana/wallet-adapter-base';
+import { DECLINED_IN_WALLET, lostAnswerCopy } from '../solana/swap/walletCopy';
+import { notSignedCopy } from '../solana/walletThrow';
+import { reloadHeld } from '../reloadHold';
 import { poolPda, stakeVaultPda, rewardVaultPda, ASSOCIATED_TOKEN_PROGRAM_ID, MIN_LOCK_SECS } from './program';
 import { createAtaIdempotentIx } from './ix';
 import {
@@ -149,8 +152,37 @@ describe('the classifier only promises "nothing moved" when it can prove it', ()
   it('a declined signature never reached the network', () => {
     const r = classifyWriteError(new Error('User rejected the request.'));
     expect(r.ok).toBe(false);
-    expect(!r.ok && r.reason).toMatch(/declined/i);
-    expect(!r.ok && r.reason).toMatch(/nothing moved/i);
+    expect(!r.ok && r.reason).toBe(DECLINED_IN_WALLET);
+  });
+
+  // One wallet behaviour, one wording (owner, 2026-10-13). The ladder sends through the
+  // adapter's sendTransaction: these are the shapes its catch receives.
+  it.each([
+    ['Solflare’s decline, in its own words', new WalletSendTransactionError('Transaction cancelled', new Error('Transaction cancelled')), DECLINED_IN_WALLET],
+    ['Trust’s decline, code 4001 and the message "4001" only', new WalletSendTransactionError('4001', Object.assign(new Error('4001'), { code: 4001 })), DECLINED_IN_WALLET],
+    ['a decline that is a plain object with no message', new WalletSendTransactionError(undefined, { code: 4001 }), DECLINED_IN_WALLET],
+    ['a page no longer connected to the wallet', new WalletNotConnectedError(), notSignedCopy('this page is no longer connected to it, so it was never asked')],
+    ['a wallet that failed before signing, in its words', new WalletSignTransactionError('Wallet is locked', new Error('Wallet is locked')), notSignedCopy('Wallet is locked')],
+  ])('%s reads as every Solana write reads it', async (_, thrown, said) => {
+    expect(classifyWriteError(thrown)).toEqual({ ok: false, reason: said });
+    // And through the send itself, with no signature handed back.
+    const r = await submitLadder(fakeConn({ statuses: [] }), fakeWallet(async () => { throw thrown; }), SOME_IX, noSleep);
+    expect(r).toEqual({ ok: false, reason: said });
+  });
+
+  it('a send whose answer was lost after the wallet may have signed: "we cannot tell", never "did not go through"', () => {
+    const r = classifyWriteError(new WalletSendTransactionError('Network request failed', new TypeError('Network request failed')));
+    expect(!r.ok && r.reason).toBe(lostAnswerCopy('Network request failed', 'it was sent'));
+    expect(!r.ok && r.reason).not.toMatch(/did not go through|nothing moved|nothing was sent/i);
+    // A throw that is not the wallet's (a read before it was asked) keeps its own words.
+    const before = classifyWriteError(new Error('Failed to fetch'));
+    expect(!before.ok && before.reason).toMatch(/check it before retrying/i);
+  });
+
+  it('once a signature exists, no word in the error makes it a cancel', () => {
+    const r = classifyWriteError(new Error('Program log: access denied'), SIG);
+    expect(!r.ok && r.reason).not.toBe(DECLINED_IN_WALLET);
+    expect(!r.ok && r.signature).toBe(SIG);
   });
 
   it('names a program error in the words of the person who pressed the button', () => {
@@ -233,6 +265,17 @@ const SOME_IX = [createAtaIdempotentIx({
 })];
 
 describe('submitLadder', () => {
+  it('holds the page from reloading for a new deploy until the write is answered, sent or thrown', async () => {
+    const heldAtWallet: boolean[] = [];
+    const conn = fakeConn({ statuses: [{ err: null, confirmationStatus: 'confirmed' }], onStatuses: () => heldAtWallet.push(reloadHeld()) });
+    expect(reloadHeld()).toBe(false);
+    await submitLadder(conn, fakeWallet(async () => { heldAtWallet.push(reloadHeld()); return SIG; }), SOME_IX, noSleep);
+    expect(heldAtWallet).toEqual([true, true]);
+    expect(reloadHeld()).toBe(false);
+    await submitLadder(conn, fakeWallet(async () => { throw new WalletSendTransactionError('lost'); }), SOME_IX, noSleep);
+    expect(reloadHeld()).toBe(false);
+  });
+
   it('returns the signature once the status says confirmed', async () => {
     const conn = fakeConn({ statuses: [{ err: null, confirmationStatus: 'confirmed' }] });
     const r = await submitLadder(conn, fakeWallet(async () => SIG), SOME_IX, noSleep);
@@ -309,6 +352,35 @@ describe('submitLadder', () => {
     await submitLadder(conn, fakeWallet(async (tx) => { seen = tx as never; return SIG; }), SOME_IX, noSleep);
     expect(seen!.feePayer!.toBase58()).toBe(OWNER.toBase58());
     expect(seen!.recentBlockhash).toBe('11111111111111111111111111111111');
+  });
+});
+
+// The ladder card prints a write's failure as is, and venue copy carries no em dash.
+describe('no failure a write can return carries an em dash', () => {
+  it('every program error, every classifier branch, and both submit outcomes', async () => {
+    const reasons: string[] = [];
+    const add = (r: { ok: boolean; reason?: string }) => { if (!r.ok && r.reason) reasons.push(r.reason); };
+    // Every code in the table: its sentence, or the named fallback for one without.
+    for (const code of Object.keys(LADDER_ERRORS)) add(classifyWriteError(new Error(`Error Number: ${code}.`), SIG));
+    for (const msg of [
+      'User rejected the request.',
+      'Attempt to debit an account but found no record of a prior credit.',
+      'AccountNotInitialized',
+      'Transaction simulation failed: Blockhash not found',
+      'Failed to fetch',
+    ]) add(classifyWriteError(new Error(msg)));
+    add(classifyWriteError(new Error('block height exceeded'), SIG));
+    add(await submitLadder(
+      fakeConn({ statuses: [{ err: { InstructionError: [0, 'ProgramFailedToComplete'] }, confirmationStatus: 'confirmed' }], logs: [] }),
+      fakeWallet(async () => SIG), SOME_IX, noSleep,
+    ));
+    let t = 0;
+    add(await submitLadder(fakeConn({ statuses: [null] }), fakeWallet(async () => SIG), SOME_IX, {
+      sleep: async () => { t += 2_000; }, now: () => t, timeoutMs: 6_000,
+    }));
+    add(await submitLadder(fakeConn({ statuses: [] }), fakeWallet(async () => SIG, null), [], noSleep));
+    expect(reasons).toHaveLength(Object.keys(LADDER_ERRORS).length + 9);
+    for (const reason of reasons) expect(reason).not.toContain('—');
   });
 });
 

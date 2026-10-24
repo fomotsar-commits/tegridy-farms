@@ -6,6 +6,8 @@ import {
 import type { FollowerRelativeSummary } from '../../lib/copytrade/followerRelative';
 import { formatQuoteAmount } from '../../lib/copytrade/quoteTokens';
 import { formatTimeAgo, shortenAddress } from '../../lib/formatting';
+import { CardArt } from '../ui/CardArt';
+import { FinePrint } from '../ui/FinePrint';
 
 // The board, with the column everybody expects deliberately absent.
 //
@@ -19,6 +21,10 @@ import { formatTimeAgo, shortenAddress } from '../../lib/formatting';
 // mirrored. A wallet with no mirrors shows "not measured" — never a dash that
 // could pass for zero and never the leader's own numbers standing in for the
 // follower's.
+//
+// FEWER WORDS (owner, 2026-10-13). The face says "spent, not profit" and keeps
+// the truncation warning short; both RETURN_RANKING sentences, the full
+// TRUNCATED_NOTICE and what "Not measured" means sit in the FinePrint.
 
 export interface LeaderBoardProps {
   board: Leaderboard;
@@ -41,19 +47,19 @@ export function LeaderBoard({
   const byLeader = new Map(followerRecord.map((r) => [r.leader, r]));
 
   return (
-    <section className="rounded-xl border border-white/15 bg-white/[0.02] p-4">
+    <section className="relative isolate rounded-xl border border-white/15 bg-white/[0.02] p-4">
+      <CardArt pageId="copy-trading" idx={6} />
       <h2 className="text-sm font-semibold text-white">Wallets trading the venue</h2>
-      <p className="mt-1.5 text-xs leading-relaxed text-white/80">{RETURN_RANKING.reason}</p>
-      <p className="mt-1.5 text-xs leading-relaxed text-white/70">{RETURN_RANKING.rankedInstead}</p>
+      <p className="mt-1.5 text-xs leading-relaxed text-white/80">Ranked by quote token spent, not profit.</p>
       {board.truncated ? (
-        <p className="mt-2 text-[11px] leading-relaxed text-amber-200">{TRUNCATED_NOTICE}</p>
+        <p className="mt-2 text-[11px] leading-relaxed text-amber-200">
+          The read filled its page: figures are floors, order is provisional.
+        </p>
       ) : null}
 
       {board.rows.length === 0 ? (
         <p className="mt-4 text-xs text-white/70">
-          The read succeeded and returned no venue-routed swaps in this window. That is a
-          measurement: nobody put a trade through this router inside the window shown above. It is
-          not a statement about trading anywhere else.
+          The read succeeded and returned no venue-routed swaps in this window.
         </p>
       ) : (
         <div className="mt-4 overflow-x-auto">
@@ -116,6 +122,20 @@ export function LeaderBoard({
           </table>
         </div>
       )}
+
+      <FinePrint summary="How it’s ranked" className="mt-2">
+        <p>{RETURN_RANKING.reason}</p>
+        <p>{RETURN_RANKING.rankedInstead}</p>
+        {board.truncated ? <p>{TRUNCATED_NOTICE}</p> : null}
+        {board.rows.length === 0 ? (
+          <p>
+            That is a measurement: nobody put a trade through this router inside the window shown
+            above. It is not a statement about trading anywhere else.
+          </p>
+        ) : (
+          <p>Not measured: you have no filled mirror of this wallet.</p>
+        )}
+      </FinePrint>
     </section>
   );
 }
@@ -131,7 +151,7 @@ function LagCell({
     return <span className="text-white/55">Your history could not be read</span>;
   }
   if (!record || record.filled === 0) {
-    return <span className="text-white/55">Not measured — you have no filled mirror of this wallet</span>;
+    return <span className="text-white/55">Not measured</span>;
   }
   return (
     <span>

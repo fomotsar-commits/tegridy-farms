@@ -391,8 +391,9 @@ const VirtualCard = memo(function VirtualCard({
           </button>
         )}
 
-        {/* Add to Cart button — visible on hover (desktop) or always on touch (F588) */}
-        {onAddToCart && !inCart && (hovered || coarsePointer) && (
+        {/* Add to Cart button — visible on hover (desktop) or always on touch (F588),
+            and only on a card with a live listing: an unpriced token has no order to buy. */}
+        {onAddToCart && !inCart && nft.price != null && (hovered || coarsePointer) && (
           <button
             onClick={handleAddToCart}
             aria-label="Add to cart"

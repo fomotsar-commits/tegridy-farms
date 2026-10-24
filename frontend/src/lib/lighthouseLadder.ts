@@ -1,18 +1,8 @@
 /**
- * Pure view-model math for the LOCKED EVM lighthouse (LighthouseLadder.sol).
- *
- * Everything the plain-pool module (evmLighthouse.ts) proved stays true here —
- * outages are never zeros, paying-now dies with the period — with two changes
- * the ladder forces:
- *
- *  1. THE VAULT IS READ, NOT DERIVED. The contract exposes `rewardSurplus()`
- *     (`balanceOf(pool) - totalSupply()`), which is the same quantity the
- *     plain-pool card had to compute in the UI. Reading it removes a whole
- *     class of drift between what the contract will pay and what the page
- *     claims — and it is the number that makes the exit promise true.
- *  2. A STAKER'S RATE DEPENDS ON THEIR LOCK. With boost weight in play,
- *     "what will I earn" is per-position, so the projections take a boost
- *     multiplier rather than assuming everyone earns the pool rate.
+ * Pure view-model math for the locked EVM lighthouse (LighthouseLadder.sol).
+ * As in evmLighthouse.ts, an outage is never a zero and paying-now ends with the
+ * period. The vault is read from `rewardSurplus()`, never derived in the UI, and
+ * a projection takes the staker's own boost weight: with locks, a rate is per position.
  */
 
 export interface LadderReads {
@@ -47,82 +37,47 @@ export const MAX_LOCK_SECS = 4n * 365n * 24n * 60n * 60n;
 /** TOWELI parity: 0.4x at seven days. */
 export const MIN_BOOST_BPS = 4_000n;
 export const MAX_BOOST_BPS = 40_000n;
-export const PENALTY_BPS = 2_500n;
 /**
- * The contract's `MIN_STAKE` — the 2026-09-04 dust-divisor floor.
- *
- * RAW UNITS, and deliberately NOT scaled by the pool's own `decimals`: it is a
- * plain constant in the contract (`100e18`), so the deploy script refuses any
- * staking token that is not 18-decimal precisely so the two agree. Mirrored
- * here so the panel can say "below the minimum" in words rather than letting
- * the user pay gas to discover it as a bare revert string.
+ * The cap of the ladder's law (LighthouseLadder.sol MAX_EARLY_EXIT_PENALTY_BPS):
+ * leaving early costs the time left on the lock over four years, capped at 75%, as
+ * the BAYLA ladder charges it (owner, 2026-10-18). The card never computes it: it
+ * reads the pool's own quote for each position (penaltyFor).
+ */
+export const MAX_PENALTY_BPS = 7_500n;
+/**
+ * What the ladders the registry ships charge TODAY: the six of 2026-09-05, a flat
+ * 25%. Build-time copy (llms.txt) says this; the card itself reads the pool. The
+ * repin PR sets the schedule to 'time-left' and the number to MAX_PENALTY_BPS, and
+ * scripts/verify-ladder-builds.mjs fails any shipped pool whose exit differs from
+ * this pair, so the site and the chain cannot drift.
+ */
+export const LIVE_LADDER_EXIT_SCHEDULE: 'flat' | 'time-left' = 'flat';
+export const LIVE_LADDER_EXIT_BPS = 2_500n;
+/**
+ * The contract's `MIN_STAKE` dust floor, in RAW units, not scaled by decimals:
+ * it is a plain `100e18` in Solidity and the deploy script refuses any staking
+ * token that is not 18-decimal. Mirrored so the panel says "below the minimum"
+ * instead of letting the user pay gas for a bare revert.
  */
 export const MIN_STAKE_RAW = 100n * 10n ** 18n;
 
 /**
- * THE SIX LADDER POOLS THAT MUST NOT TAKE A DEPOSIT.
- *
- * `docs/LIGHTHOUSE_AUDIT_2026_09_01.md` opens with one instruction - "Do not let
- * anyone stake on the EVM ladders until C1 is fixed and redeployed" - where C1 is
- * CRITICAL and PROVEN (LadderOrderingPoC.t.sol): `_close` debits `_totalSupply`
- * while the principal is still in the pool, so `rewardSurplus()` over-reports and
- * a claim pays out of OTHER stakers' principal.
- *
- * THE SOURCE WAS FIXED; THE POOLS WERE NOT REDEPLOYED. The audit asks for "a
- * redeploy and a repin of the six registry addresses", and only the first half of
- * that has happened - in the Solidity, not on chain. Every address below is still
- * `"status": "live"` in addresses.json, still `live: true` in bungalows.ts, and
- * still shipped by the production bundle with an enabled Stake button.
- *
- * Measured 2026-09-05 before adding this gate: `totalSupply()` is 0 on all six and
- * `rewardRate()`/`periodFinish()` are 0, so nobody has been robbed yet. That is
- * the whole point - the audit's "fix before the first deposit" window is still
- * open, and this closes it in the UI while the redeploy is arranged.
- *
- * WHY THE ADDRESS AND NOT A FLAG. Keying on the pool address means the gate lifts
- * BY ITSELF the moment an operator repins the registry to redeployed pools - there
- * is no second switch to remember and no way to leave a stale gate denying a fixed
- * pool. Delete an entry here only when that address is genuinely no longer served.
- *
- * SCOPE: this blocks DEPOSITS ONLY. Claiming and withdrawing stay open, because a
- * gate that traps funds is a worse bug than the one it is guarding against.
+ * Ladder pools that must take no deposit: a build carrying C1, where a claim can
+ * pay out of other stakers' principal (docs/LIGHTHOUSE_AUDIT_2026_09_01.md).
+ * Keyed on the address, so the gate lifts when the registry repins. Deposits
+ * only: claims and exits stay open, since a gate that traps funds is worse.
  */
 export const C1_UNSAFE_LADDER_POOLS: readonly string[] = [
-  // EMPTIED 2026-09-05 — the six pre-fix ladders were REDEPLOYED and the registry
-  // repinned in this same change, which is the condition this list exists to wait
-  // for. Verified on-chain before emptying it: every new pool answers MIN_STAKE()
-  // with 100e18, and that function exists ONLY in the post-fix build — the old six
-  // revert on it. The old addresses are gone from addresses.json and bungalows.ts
-  // in this commit, so nothing can route a deposit at them any more.
-  //
-  // KEEP THIS LIST AND ITS TEST. If a ladder is ever found shipping bytecode its
-  // audit has not cleared, put the address here and deposits close again with no
-  // other change — the panel reads it.
-  //
-  // WHAT ACTUALLY NOTICES AN UNCOVERED LADDER, and it is not this file's unit
-  // test. An earlier version of this comment claimed "the coverage test in
-  // lighthouseLadder.test.ts fails the moment a live ladder is not covered".
-  // That was true only while the list was populated; with the list empty every
-  // test in that describe block iterates nothing, so the gate can be deleted
-  // outright and all of them stay green. Measured, not assumed.
-  //
-  // The guard that does ask the real question is scripts/verify-ladder-builds.mjs
-  // (repo root, not frontend/), run by .github/workflows/registry-onchain.yml. It
-  // reads every `poolKind: 'ladder'` entry the app ships and asks the CHAIN
-  // whether that address runs the post-fix build — `totalBoosted()` to prove it
-  // is a ladder at all, then `MIN_STAKE()`/`MIN_BOOST()` to prove it is the fixed
-  // one. An unreadable pool fails; only a real read can certify the registry.
-  //
-  // The unit test covers the other half: that the MATCHING MECHANISM here still
-  // works, so an address added to this list actually closes the gate.
+  // Empty: the six pre-fix pools were redeployed and repinned on 2026-09-05, and
+  // addresses.json keeps the old six only as `ladder-*-retired` rows. Add a
+  // lowercase address here and the panel closes its deposits with no other change.
+  // What notices an unfixed ladder is scripts/verify-ladder-builds.mjs, which asks
+  // the chain about every `poolKind: 'ladder'` pool the app ships.
 ];
 
 /**
- * True when this pool is one of the six pre-fix ladders above.
- *
- * Case-insensitive on purpose: the registry stores checksummed addresses and
- * wagmi hands back checksummed addresses, but the list above is lowercased so a
- * checksum difference can never silently open the gate.
+ * True when this pool is on the list above. Case-insensitive: the registry and
+ * wagmi return checksummed addresses, and the list is stored lowercase.
  */
 export function isC1UnsafeLadder(pool: string | null | undefined): boolean {
   if (!pool) return false;
@@ -180,12 +135,9 @@ export function boostLabel(lockSecs: bigint): string {
 }
 
 /**
- * A staker's share of the pool-wide rate, given the weight they would add.
- * Returns null when it cannot be known honestly — an unread pool, or a rate
- * that is not paying — rather than a flattering guess.
- *
- * NOTE the caveat this number always carries in the UI: it is computed at
- * TODAY's total weight, and every later staker dilutes it.
+ * A staker's share of the pool-wide rate, given the weight they would add: null
+ * when a read is missing, 0 when the pool is not paying. Computed at today's
+ * total weight, so every later staker dilutes it.
  */
 export function projectedRawPerSec(
   view: LadderView,
@@ -199,9 +151,23 @@ export function projectedRawPerSec(
   return (view.payingNowRawPerSec * myBoostedRaw) / denom;
 }
 
-/** What an early exit costs, in raw units. */
-export function penaltyOn(amountRaw: bigint): bigint {
-  return (amountRaw * PENALTY_BPS) / 10_000n;
+/** What an early exit costs on a FLAT-rate pool (the six live today), at the rate it answered. */
+export function penaltyOn(amountRaw: bigint, penaltyBps: bigint): bigint {
+  return (amountRaw * penaltyBps) / 10_000n;
+}
+
+/** "75%", "25%", "12.5%": the pool's penalty as the card says it. Never rounds. */
+export function penaltyPct(penaltyBps: bigint): string {
+  const whole = penaltyBps / 100n;
+  const frac = penaltyBps % 100n;
+  if (frac === 0n) return `${whole}%`;
+  return `${whole}.${frac.toString().padStart(2, '0').replace(/0+$/, '')}%`;
+}
+
+/** A quoted penalty as a share of its position, floored to hundredths: "0.47%". */
+export function penaltyShare(penaltyRaw: bigint, amountRaw: bigint): string {
+  if (amountRaw <= 0n) return '0%';
+  return penaltyPct((penaltyRaw * 10_000n) / amountRaw);
 }
 
 /** Seconds until a lock opens; 0 once it has. */

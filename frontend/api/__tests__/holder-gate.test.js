@@ -145,17 +145,61 @@ describe("holder-gate — assertChatHolder", () => {
   });
 });
 
-describe("holder-gate — SLUG_CONTRACTS parity with the client collection map", () => {
-  // The map is duplicated (api/ cannot import from src/). This is the ONLY
-  // thing standing between the duplicate and a silent 403 for every post in a
-  // 4th collection's room.
-  it("matches COLLECTIONS in src/nakamigos/constants.js exactly", async () => {
+describe("holder-gate: SLUG_CONTRACTS parity with the client's VENUE collections", () => {
+  // The map mirrors the client's venue list (api/ cannot import src/). This is
+  // the ONLY thing standing between the two and a silent 403 for every post in
+  // a venue collection's room. It is the VENUE list, not every registry entry:
+  // the gate is an ERC-721 balanceOf on Ethereum, which reverts on an ERC-1155,
+  // reads the wrong chain for Base, and has no contract to call for Solana.
+  it("matches VENUE_COLLECTIONS in src/nakamigos/lib/venue.js exactly", async () => {
     const { SLUG_CONTRACTS } = await import("../_lib/holder-gate.js");
-    const { COLLECTIONS } = await import("../../src/nakamigos/constants.js");
+    const { VENUE_COLLECTIONS } = await import(/* @vite-ignore */ "../../src/nakamigos/lib/venue.js" + "");
 
-    expect(Object.keys(SLUG_CONTRACTS).sort()).toEqual(Object.keys(COLLECTIONS).sort());
-    for (const [slug, contract] of Object.entries(SLUG_CONTRACTS)) {
-      expect(contract).toBe(COLLECTIONS[slug].contract.toLowerCase());
+    expect(Object.keys(SLUG_CONTRACTS).sort()).toEqual(VENUE_COLLECTIONS.map((c) => c.slug).sort());
+    for (const c of VENUE_COLLECTIONS) {
+      expect(SLUG_CONTRACTS[c.slug]).toBe(c.contract.toLowerCase());
     }
   });
+});
+
+describe("holder-gate: the Jungle Bay family rooms", () => {
+  const GOLD = "0x6aa03f42c5366e2664c887eb2e90844ca00b92f3";
+
+  beforeEach(() => {
+    mocks.ethCall.mockReset();
+    mocks.alchemyUrl.mockReset();
+    mocks.alchemyUrl.mockReturnValue(null);
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("a Gold Card holder may post in the Gold Cards room", async () => {
+    mocks.ethCall.mockResolvedValue("0x1");
+    const { assertChatHolder } = await loadGate();
+    const result = await assertChatHolder(WALLET, { slug: "junglebaygoldcards", text: "gm" });
+    expect(result).toEqual({ ok: true });
+    expect(mocks.ethCall).toHaveBeenCalledWith(GOLD, "0x70a08231" + WALLET.slice(2).padStart(64, "0"));
+  });
+
+  it("a wallet with no Gold Card may not", async () => {
+    mocks.ethCall.mockResolvedValue("0x0");
+    const { assertChatHolder } = await loadGate();
+    const result = await assertChatHolder(WALLET, { slug: "junglebaygoldcards", text: "gm" });
+    expect(result.ok).toBe(false);
+    expect(result.status).toBe(403);
+  });
+
+  it.each(["bojungles", "memeticseeds", "junglebaymemes", "raretowelie", "junglets"])(
+    "a view-only collection (%s) has no room, and costs no RPC call",
+    async (slug) => {
+      const { assertChatHolder } = await loadGate();
+      const result = await assertChatHolder(WALLET, { slug, text: "gm" });
+      expect(result).toEqual({ ok: false, status: 403, error: "Unknown collection" });
+      expect(mocks.ethCall).not.toHaveBeenCalled();
+    },
+  );
 });

@@ -28,6 +28,27 @@ export function resolveSplashCollectionFromPath(pathname) {
   return DEFAULT_COLLECTION;
 }
 
+// A collection with no loading lines of its own gets these, never another
+// collection's: the splash must not speak for a collection it does not know.
+const GENERIC_LOADING_LINES = Object.freeze(["Loading...", "Almost there..."]);
+
+export function splashLoadingLines(slug) {
+  return LOADING_MESSAGES[slug] || GENERIC_LOADING_LINES;
+}
+
+// The plaque under the splash. WORKS is the registry supply, and is left out
+// where there is no single number (an ERC-1155), rather than borrowing 20,000.
+export function splashPlaques(slug) {
+  const col = COLLECTIONS[slug] || COLLECTIONS[DEFAULT_COLLECTION] || {};
+  return [
+    Number.isFinite(col.supply)
+      ? { val: col.supply.toLocaleString("en-US"), label: "WORKS", color: "#ff2244" }
+      : null,
+    { val: col.tags?.[0] || "ERC-721", label: "STANDARD", color: "#ffdd00" },
+    { val: col.tags?.[1] || "ETHEREUM", label: "CHAIN", color: "#44ddff" },
+  ].filter(Boolean);
+}
+
 function resolveSplashCollection() {
   try {
     return resolveSplashCollectionFromPath(
@@ -38,25 +59,26 @@ function resolveSplashCollection() {
 }
 
 // ═══ Art pieces config — SPLASH ONLY ═══
-// Mobile: fewer pieces, smaller sizes for performance
+// Mobile: fewer pieces, smaller sizes for performance. `aspect` is the file's
+// height over width, for stillStack.
 const ART_PIECES_DESKTOP = [
-  { src: "/splash/watercolor.jpg", size: 420, pixel: false },
-  { src: "/splash/HBbsuPEacAAX0VA.jpg", size: 400, pixel: false },
-  { src: "/splash/G24BZRrakAA1M_9.jpg", size: 380, pixel: false },
-  { src: "/splash/frogking.jpg", size: 320, pixel: true },
-  { src: "/splash/skeleton.jpg", size: 220, pixel: true },
-  { src: "/splash/G--r5iuXIAEPwLt.jpg", size: 380, pixel: false },
-  { src: "/splash/G-FPcYdXMAAKsWR.jpg", size: 420, pixel: false },
-  { src: "/splash/G8jE1EcWMAAvHTy.jpg", size: 360, pixel: false },
-  { src: "/splash/HA5Fd6kWMAAMqL_.jpg", size: 340, pixel: false },
-  { src: "/splash/HC6HNXsW4AA-UwM.jpg", size: 420, pixel: false },
+  { src: "/splash/watercolor.jpg", size: 420, aspect: 1, pixel: false },
+  { src: "/splash/HBbsuPEacAAX0VA.jpg", size: 400, aspect: 0.996, pixel: false },
+  { src: "/splash/G24BZRrakAA1M_9.jpg", size: 380, aspect: 1.398, pixel: false },
+  { src: "/splash/frogking.jpg", size: 320, aspect: 1, pixel: true },
+  { src: "/splash/skeleton.jpg", size: 220, aspect: 1, pixel: true },
+  { src: "/splash/G--r5iuXIAEPwLt.jpg", size: 380, aspect: 1.4, pixel: false },
+  { src: "/splash/G-FPcYdXMAAKsWR.jpg", size: 420, aspect: 1, pixel: false },
+  { src: "/splash/G8jE1EcWMAAvHTy.jpg", size: 360, aspect: 1.583, pixel: false },
+  { src: "/splash/HA5Fd6kWMAAMqL_.jpg", size: 340, aspect: 1.144, pixel: false },
+  { src: "/splash/HC6HNXsW4AA-UwM.jpg", size: 420, aspect: 1.25, pixel: false },
 ];
 const ART_PIECES_MOBILE = [
-  { src: "/splash/skeleton.jpg", size: 140, pixel: true },
-  { src: "/splash/frogking.jpg", size: 160, pixel: true },
-  { src: "/splash/watercolor.jpg", size: 200, pixel: false },
-  { src: "/splash/HBbsuPEacAAX0VA.jpg", size: 180, pixel: false },
-  { src: "/splash/G24BZRrakAA1M_9.jpg", size: 170, pixel: false },
+  { src: "/splash/skeleton.jpg", size: 140, aspect: 1, pixel: true },
+  { src: "/splash/frogking.jpg", size: 160, aspect: 1, pixel: true },
+  { src: "/splash/watercolor.jpg", size: 200, aspect: 1, pixel: false },
+  { src: "/splash/HBbsuPEacAAX0VA.jpg", size: 180, aspect: 0.996, pixel: false },
+  { src: "/splash/G24BZRrakAA1M_9.jpg", size: 170, aspect: 1.398, pixel: false },
 ];
 const ART_PIECES = IS_MOBILE ? ART_PIECES_MOBILE : ART_PIECES_DESKTOP;
 
@@ -73,6 +95,81 @@ const FACE_FORMATION = [
   { x: 0.5, y: 0.82 },   // chin
 ];
 
+// Held still, the spread buries pieces (they overlap by design; motion used to
+// uncover them). settleBodies eases overlapping pieces apart once, as the
+// collisions would, without jamming them on the walls; the clamp keeps every
+// piece's width on screen, as initBodies does.
+function settleBodies(bodies, w, h) {
+  for (let round = 0; round < 100; round++) {
+    for (let i = 0; i < bodies.length; i++) {
+      for (let j = i + 1; j < bodies.length; j++) {
+        const a = bodies[i];
+        const b = bodies[j];
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const push = (a.radius + b.radius - dist) * 0.1;
+        if (push <= 0 || dist === 0) continue;
+        a.x -= (dx / dist) * push;
+        a.y -= (dy / dist) * push;
+        b.x += (dx / dist) * push;
+        b.y += (dy / dist) * push;
+      }
+    }
+    for (const b of bodies) {
+      b.x = Math.max(b.radius, Math.min(w - b.radius, b.x));
+      b.y = Math.max(b.radius, Math.min(h - b.radius, b.y));
+    }
+  }
+}
+
+// Then the draw order is chosen once, bottom to top: each turn the piece that
+// shows most under all the rest goes down next. Returns indices, bottom first.
+function stillStack(bodies, pieces, w, h) {
+  // Each piece as drawn: its box turned by `rot` about its centre.
+  const rects = bodies.map((b, i) => {
+    const { size, aspect } = pieces[i];
+    const turn = (b.rot * Math.PI) / 180;
+    return {
+      cx: b.x, cy: b.y - size / 2 + (size * aspect) / 2, hw: size / 2, hh: (size * aspect) / 2,
+      cos: Math.cos(turn), sin: Math.sin(turn),
+    };
+  });
+  const covers = (r, x, y) => {
+    const dx = x - r.cx;
+    const dy = y - r.cy;
+    return Math.abs(dx * r.cos + dy * r.sin) <= r.hw && Math.abs(dy * r.cos - dx * r.sin) <= r.hh;
+  };
+  const shown = (i, others) => {
+    const r = rects[i];
+    let seen = 0;
+    for (let gu = 0.5; gu < 16; gu++) {
+      for (let gv = 0.5; gv < 16; gv++) {
+        const u = (gu / 8 - 1) * r.hw;
+        const v = (gv / 8 - 1) * r.hh;
+        const x = r.cx + u * r.cos - v * r.sin;
+        const y = r.cy + u * r.sin + v * r.cos;
+        if (x < 0 || y < 0 || x > w || y > h) continue;
+        if (!others.some((j) => covers(rects[j], x, y))) seen++;
+      }
+    }
+    return seen;
+  };
+  let rest = bodies.map((_, i) => i);
+  const order = [];
+  while (rest.length) {
+    let next = rest[0];
+    let most = -1;
+    for (const i of rest) {
+      const s = shown(i, rest.filter((j) => j !== i));
+      if (s > most) { most = s; next = i; }
+    }
+    order.push(next);
+    rest = rest.filter((j) => j !== next);
+  }
+  return order;
+}
+
 // ═══ Physics simulation — the brain ═══
 function usePhysics(pieces, containerRef, phase) {
   const bodiesRef = useRef(null);
@@ -87,6 +184,13 @@ function usePhysics(pieces, containerRef, phase) {
   const [mousePos, setMousePos] = useState({ x: -9999, y: -9999 });
   const phaseRef = useRef(phase);
   phaseRef.current = phase;
+  // Reduced motion: the pieces hold still, eased apart and drawn in stillStack's
+  // order, with no frame loop, sparks, flash or click shockwave. The CSS rule
+  // and framer's MotionConfig never reach these inline transforms.
+  const [reduceMotion] = useState(() => {
+    try { return !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches; } catch { return false; }
+  });
+  const [stack, setStack] = useState(null);
 
   const initBodies = useCallback((w, h) => {
     const bodies = [];
@@ -173,10 +277,10 @@ function usePhysics(pieces, containerRef, phase) {
 
   useEffect(() => {
     const container = containerRef.current;
-    if (!container) return;
+    if (!container || reduceMotion) return;
     container.addEventListener("mousedown", triggerShockwave);
     return () => container.removeEventListener("mousedown", triggerShockwave);
-  }, [containerRef, triggerShockwave]);
+  }, [containerRef, triggerShockwave, reduceMotion]);
 
   // Bass drop: pull all images to center
   useEffect(() => {
@@ -202,10 +306,15 @@ function usePhysics(pieces, containerRef, phase) {
     if (!container) return;
     const rect = container.getBoundingClientRect();
     bodiesRef.current = initBodies(rect.width, rect.height);
+    if (reduceMotion) settleBodies(bodiesRef.current, rect.width, rect.height);
     setPositions(bodiesRef.current.map(b => ({
       x: b.x, y: b.y, rot: b.rot, glow: 0, glitch: 0, trail: [],
       breath: 1, holo: 0, speed: 0, tiltX: 0, tiltY: 0,
     })));
+    if (reduceMotion) {
+      setStack(stillStack(bodiesRef.current, pieces, rect.width, rect.height));
+      return;
+    }
 
     let lastTime = performance.now();
     let sparkId = 0;
@@ -398,9 +507,9 @@ function usePhysics(pieces, containerRef, phase) {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [containerRef, initBodies]);
+  }, [containerRef, initBodies, reduceMotion, pieces]);
 
-  return { positions, sparks, shockwave, impactFlash, mousePos };
+  return { positions, stack, sparks, shockwave, impactFlash, mousePos };
 }
 
 // ═══ Pixel dust particles ═══
@@ -688,50 +797,45 @@ export default function SplashScreen({ onComplete }) {
   // Resolve once on mount — the splash plays for one entry, the destination
   // collection doesn't change mid-splash (F546).
   const [splashSlug] = useState(resolveSplashCollection);
-  const { positions, sparks, shockwave, impactFlash, mousePos } = usePhysics(ART_PIECES, containerRef, phase);
+  const { positions, stack, sparks, shockwave, impactFlash, mousePos } = usePhysics(ART_PIECES, containerRef, phase);
 
   useEffect(() => {
     const t = setTimeout(() => setShowContent(true), 100);
     return () => clearTimeout(t);
   }, []);
 
+  // The unskipped play is capped (2026-10-14): the loading beat runs
+  // LOADING_MS and then the splash leaves on its own, so a visitor who presses
+  // nothing is on the landing within LOADING_MS + EXIT_MS (3.2 s), under the
+  // 4 s ceiling. The old 4 s bar waited for a click afterwards and, with no
+  // visible way in, held a visitor on the splash indefinitely.
+  const LOADING_MS = 1800;
+
   useEffect(() => {
     const start = Date.now();
-    const TOTAL_DURATION = 4000; // 4 seconds total splash
     const iv = setInterval(() => {
       const elapsed = Date.now() - start;
-      const pct = Math.min((elapsed / TOTAL_DURATION) * 100, 100);
+      const pct = Math.min((elapsed / LOADING_MS) * 100, 100);
       setProgress(pct);
       if (pct >= 100) clearInterval(iv);
     }, 30);
     return () => clearInterval(iv);
   }, []);
 
-  useEffect(() => {
-    if (progress >= 100 && phase === "loading") {
-      setTimeout(() => setPhase("ready"), 400);
-    }
-  }, [progress, phase]);
-
-  // Safety timeout — force ready after 8 seconds no matter what
-  useEffect(() => {
-    const timeout = setTimeout(() => {
-      if (phase === "loading") {
-        setProgress(100);
-        setPhase("ready");
-      }
-    }, 8000);
-    return () => clearTimeout(timeout);
-  }, [phase]);
-
   const [exitPhase, setExitPhase] = useState("none"); // none | glitch | cover | flash | collapse
   const [clickPos, setClickPos] = useState({ x: "50%", y: "50%" });
+  // One entry only: the Enter button's click also bubbles to the root's
+  // onClick, and an Enter keypress on the button fires both its click and the
+  // root's onKeyDown. Without this guard the exit timers would run twice and
+  // onComplete would fire twice.
+  const enteredRef = useRef(false);
 
-  const handleEnter = (e) => {
+  const handleEnter = useCallback((e) => {
     // F696: allow click/key skip from second 0 — during the loading phase too,
     // not only once `ready`. First-time visitors and deep-links aren't held for
-    // the full ~4-12s intro. Already-exiting phases are ignored. Art unchanged.
-    if (phase !== "ready" && phase !== "loading") return;
+    // the full intro. Already-exiting phases are ignored. Art unchanged.
+    if (enteredRef.current) return;
+    enteredRef.current = true;
     // Capture click position for shockwave origin
     const rect = containerRef.current?.getBoundingClientRect();
     if (rect && e && e.clientX != null) {
@@ -739,10 +843,9 @@ export default function SplashScreen({ onComplete }) {
     }
     setPhase("reveal");
 
-    // Glitch phase — CSS animation on the container
-    // Mobile: faster transitions for snappy feel
-    const t = IS_MOBILE ? { glitch: 400, flash: 100, cover: 600, collapse: 300 }
-                        : { glitch: 900, flash: 150, cover: 1200, collapse: 400 };
+    // Glitch phase: CSS animation on the container. One tempo on every device
+    // (the old desktop exit alone ran 2.65 s); EXIT_MS = 1400.
+    const t = { glitch: 450, flash: 100, cover: 600, collapse: 250 };
     setExitPhase("glitch");
     setTimeout(() => {
       setExitPhase("flash");
@@ -754,12 +857,24 @@ export default function SplashScreen({ onComplete }) {
         }, t.cover);
       }, t.flash);
     }, t.glitch);
-  };
+  }, [onComplete]);
+
+  // The bar is full: leave on its own. No "ready" wait, no click required.
+  useEffect(() => {
+    if (progress >= 100 && phase === "loading") handleEnter();
+  }, [progress, phase, handleEnter]);
+
+  // Safety timeout: leave after 6 s no matter what (a throttled tab's
+  // interval can stall the bar).
+  useEffect(() => {
+    const timeout = setTimeout(() => handleEnter(), 6000);
+    return () => clearTimeout(timeout);
+  }, [handleEnter]);
 
   // Keyboard/AT entry: the splash is a click-only gate on a non-focusable div,
   // which hard-blocks keyboard and switch-access users from the whole sub-app
-  // (F527). Enter/Space triggers the same handleEnter (which itself no-ops until
-  // phase === "ready"). The center container is the focus target below.
+  // (F527). Enter/Space triggers the same handleEnter (guarded against a second
+  // entry). The center container is the focus target below.
   const handleKeyDown = (e) => {
     if (e.key === "Enter" || e.key === " " || e.key === "Spacebar") {
       e.preventDefault();
@@ -829,7 +944,7 @@ export default function SplashScreen({ onComplete }) {
       onKeyDown={handleKeyDown}
       role="button"
       tabIndex={0}
-      aria-label={phase === "ready" ? "Enter Tradermigos" : "Skip intro and enter Tradermigos"}
+      aria-label="Enter Tradermigos"
     >
       {/* Shockwave ripple from click point */}
       {(exitPhase === "glitch" || exitPhase === "flash") && (
@@ -1172,8 +1287,9 @@ export default function SplashScreen({ onComplete }) {
 
       {/* Constellation lines removed for performance */}
 
-      {/* ═══ BOUNCING ART PIECES ═══ */}
-      {positions.map((pos, i) => {
+      {/* ═══ BOUNCING ART PIECES ═══ (held still in `stack` order under reduced motion) */}
+      {(stack || positions.map((_, i) => i)).map((i) => {
+        const pos = positions[i];
         const piece = ART_PIECES[i];
         const glowIntensity = pos.glow;
         // Disabled depth blur for performance — was causing per-frame filter recalc
@@ -1208,7 +1324,7 @@ export default function SplashScreen({ onComplete }) {
               position: "absolute",
               left: 0, top: 0,
               width: piece.size,
-              zIndex: piece.pixel ? 3 : 2,
+              zIndex: stack ? 2 : piece.pixel ? 3 : 2,
               pointerEvents: "none",
               transform: `translate3d(${pos.x - piece.size / 2}px, ${pos.y - piece.size / 2}px, 0) rotate(${pos.rot}deg) scale(${pos.breath}) perspective(800px) rotateX(${pos.tiltX * 1.3}deg) rotateY(${pos.tiltY * 1.3}deg)`,
               willChange: "transform",
@@ -1369,7 +1485,7 @@ export default function SplashScreen({ onComplete }) {
                 <m.span key={i}
                   initial={{ opacity: 0, y: 80, scale: 0.3, rotateX: 90 }}
                   animate={showContent ? { opacity: 1, y: 0, scale: 1, rotateX: 0 } : undefined}
-                  transition={{ type: "spring", stiffness: 180, damping: 15, delay: 0.3 + i * 0.08 }}
+                  transition={{ type: "spring", stiffness: 180, damping: 15, delay: 0.15 + i * 0.06 }}
                   style={{
                     fontFamily: "var(--pixel)", fontSize: "clamp(32px, 7vw, 64px)",
                     color: colors[i % colors.length], display: "inline-block",
@@ -1382,7 +1498,7 @@ export default function SplashScreen({ onComplete }) {
             <m.div
               initial={{ x: "-140%" }}
               animate={showContent ? { x: "280%" } : undefined}
-              transition={{ delay: 1.5, duration: 0.8, ease: [0.4, 0, 0.2, 1] }}
+              transition={{ delay: 0.9, duration: 0.6, ease: [0.4, 0, 0.2, 1] }}
               style={{
                 position: "absolute", top: -6, left: 0,
                 width: "35%", height: "calc(100% + 12px)",
@@ -1397,7 +1513,7 @@ export default function SplashScreen({ onComplete }) {
         <m.div
           initial={{ opacity: 0, letterSpacing: "1em" }}
           animate={showContent ? { opacity: isMobile ? 0.92 : 0.7, letterSpacing: isMobile ? "0.25em" : "0.4em" } : undefined}
-          transition={{ type: "spring", stiffness: 100, damping: 18, delay: 1.2 }}
+          transition={{ type: "spring", stiffness: 100, damping: 18, delay: 0.6 }}
           style={{
             // Floor raised from 8px to 10px so the subtitle stays legible at
             // 390px and doesn't get lost in the title glow (F840).
@@ -1411,7 +1527,7 @@ export default function SplashScreen({ onComplete }) {
         <m.div
           initial={{ opacity: 0, scaleX: 0.5 }}
           animate={showContent ? { opacity: 1, scaleX: 1 } : undefined}
-          transition={{ type: "spring", stiffness: 120, damping: 16, delay: 1.5 }}
+          transition={{ type: "spring", stiffness: 120, damping: 16, delay: 0.3 }}
           style={{ width: "clamp(220px, 35vw, 420px)", marginBottom: 16 }}
         >
           <div style={{
@@ -1437,59 +1553,57 @@ export default function SplashScreen({ onComplete }) {
           </div>
         </m.div>
 
+        {/* The way in, visible from second 0. The root already accepted a
+            click or Enter from the start (F696), but nothing said so: a
+            visitor saw a loading bar and no control. The old "TAP TO ENTER"
+            line only appeared once the bar was full. */}
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); handleEnter(e); }}
+          aria-label="Enter Tradermigos"
+          style={{
+            pointerEvents: "auto", cursor: "pointer",
+            fontFamily: "var(--pixel)", fontSize: 12, letterSpacing: "0.3em",
+            color: "#ffdd00", background: "rgba(0,0,0,0.45)",
+            border: "1px solid rgba(255,221,0,0.55)", borderRadius: 0,
+            padding: "12px 28px 12px 32px", minHeight: 44, marginBottom: 18,
+            textShadow: "0 0 20px rgba(255,221,0,0.6), 0 0 40px rgba(255,221,0,0.3)",
+            boxShadow: "0 0 24px rgba(255,221,0,0.18)", imageRendering: "pixelated",
+          }}
+        >
+          {isMobile ? "TAP TO ENTER" : "ENTER"}
+        </button>
+
         {/* Status text */}
         <m.div
           initial={{ opacity: 0 }}
           animate={showContent ? { opacity: 1 } : undefined}
-          transition={{ delay: 1.8 }}
+          transition={{ delay: 0.7 }}
           style={{
             fontFamily: "var(--pixel)", fontSize: 10, letterSpacing: "0.15em",
             imageRendering: "pixelated", marginBottom: 32, textAlign: "center",
           }}
         >
-          {phase === "ready" ? (
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
-              <m.span
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: [0.5, 1, 0.5], y: 0 }}
-                transition={{ opacity: { duration: 2, repeat: Infinity, ease: "easeInOut" }, y: { duration: 0.4 } }}
-                style={{
-                  color: "#ffdd00",
-                  textShadow: "0 0 20px rgba(255,221,0,0.6), 0 0 40px rgba(255,221,0,0.3)",
-                  fontSize: 12, letterSpacing: "0.3em", cursor: "pointer", pointerEvents: "auto",
-                }}
-              >{isMobile ? "TAP TO ENTER" : "CLICK TO ENTER"}</m.span>
-              {/* Keyboard skip affordance — repeat visitors and AT users get an
-                  explicit fast path that pairs with the Enter/Space handler (F559). */}
-              {!isMobile && (
-                <span style={{
-                  fontFamily: "var(--pixel)", fontSize: 7, letterSpacing: "0.2em",
-                  color: "rgba(255,255,255,0.4)",
-                }}>OR PRESS ENTER TO SKIP</span>
-              )}
-            </div>
-          ) : (
-            <m.span
-              animate={{ color: ["#ff2244", "#ffdd00", "#44ddff", "#ff44ff", "#00ff66", "#ff2244"] }}
-              transition={{ duration: 4, repeat: Infinity, ease: "linear" }}
-            >
-              {(() => {
-                if (progress >= 100) return "WELCOME";
-                // Only the destination collection's loading copy — a Nakamigos
-                // visitor shouldn't read Jungle Bay lines, and vice-versa (F546).
-                const msgs = LOADING_MESSAGES[splashSlug] || LOADING_MESSAGES[DEFAULT_COLLECTION] || [];
-                if (msgs.length === 0) return progress < 50 ? "LOADING..." : "ALMOST THERE...";
-                return msgs[Math.floor((progress / 100) * (msgs.length - 1))].toUpperCase();
-              })()}
-            </m.span>
-          )}
+          <m.span
+            animate={{ color: ["#ff2244", "#ffdd00", "#44ddff", "#ff44ff", "#00ff66", "#ff2244"] }}
+            transition={{ duration: 4, repeat: Infinity, ease: "linear" }}
+          >
+            {(() => {
+              if (progress >= 100) return "WELCOME";
+              // Only the destination collection's loading copy (F546), or the
+              // generic lines for a collection that has none.
+              const msgs = splashLoadingLines(splashSlug);
+              if (msgs.length === 0) return progress < 50 ? "LOADING..." : "ALMOST THERE...";
+              return msgs[Math.floor((progress / 100) * (msgs.length - 1))].toUpperCase();
+            })()}
+          </m.span>
         </m.div>
 
         {/* Stats plaque */}
         <m.div
           initial={{ opacity: 0, y: 20 }}
           animate={showContent ? { opacity: 1, y: 0 } : undefined}
-          transition={{ type: "spring", stiffness: 100, damping: 16, delay: 2.0 }}
+          transition={{ type: "spring", stiffness: 100, damping: 16, delay: 0.9 }}
           style={{
             display: "flex", gap: 32, padding: "8px 24px",
             background: "rgba(0,0,0,0.4)", border: "1px solid rgba(0,255,255,0.15)",
@@ -1497,18 +1611,11 @@ export default function SplashScreen({ onComplete }) {
             imageRendering: "pixelated",
           }}
         >
-          {(() => {
-            const col = COLLECTIONS[splashSlug] || COLLECTIONS[DEFAULT_COLLECTION] || {};
-            return [
-              { val: (col.supply || 20000).toLocaleString(), label: "WORKS", color: "#ff2244" },
-              { val: (col.tags?.[0]) || "ERC-721", label: "STANDARD", color: "#ffdd00" },
-              { val: (col.tags?.[1]) || "ETHEREUM", label: "CHAIN", color: "#44ddff" },
-            ];
-          })().map((s, i) => (
+          {splashPlaques(splashSlug).map((s, i) => (
             <m.div key={i}
               initial={{ opacity: 0 }}
               animate={showContent ? { opacity: 1 } : undefined}
-              transition={{ delay: 2.1 + i * 0.1 }}
+              transition={{ delay: 1.0 + i * 0.08 }}
               style={{ textAlign: "center" }}
             >
               <div style={{

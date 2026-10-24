@@ -102,13 +102,19 @@ describe("pool-market — the edge cache is the point", () => {
   });
 
   it("does NOT cache an upstream failure", async () => {
-    fetchMock.mockResolvedValueOnce({ ok: false, status: 429, headers: { get: () => null } });
-    const { res, headerSpy, statusSpy } = makeRes();
-    await handlePoolMarket(makeReq({ query: { network: "solana", pool: SOL_POOL } }), res);
+    for (const status of [500, 429]) {
+      vi.resetModules();
+      ({ handlePoolMarket } = await import("../pool-market.js"));
+      fetchMock.mockResolvedValueOnce({ ok: false, status, headers: { get: () => null } });
+      const { res, headerSpy, statusSpy } = makeRes();
+      await handlePoolMarket(makeReq({ query: { network: "solana", pool: SOL_POOL } }), res);
 
-    expect(statusSpy).toHaveBeenCalledWith(502);
-    expect(cacheControl(headerSpy), "caching a failure pins the outage state in front of everyone")
-      .toBeUndefined();
+      // A refusal arrives AS a refusal (429, "try again in a moment") since
+      // 2026-10-15, when pool-market moved onto gecko-upstream.js with gecko-read.
+      expect(statusSpy).toHaveBeenCalledWith(status === 429 ? 429 : 502);
+      expect(cacheControl(headerSpy), "caching a failure pins the outage state in front of everyone")
+        .toBeUndefined();
+    }
   });
 
   it("passes a 404 through as 404 rather than flattening it to 502", async () => {

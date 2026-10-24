@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useAccount } from 'wagmi';
 import { parseUnits, formatUnits } from 'viem';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
+import { CONNECT_ETHEREUM_WALLET } from '../../lib/copy';
 import { useTriggerOrders } from '../../hooks/useTriggerOrders';
 import {
   planTrigger,
@@ -442,7 +443,7 @@ export function TriggerOrderTab() {
             {({ openConnectModal, mounted }) => (
               <div {...(!mounted && { style: { opacity: 0, pointerEvents: 'none' } })}>
                 <button onClick={openConnectModal} className="btn-primary w-full py-3 text-[13px]">
-                  Connect Wallet
+                  {CONNECT_ETHEREUM_WALLET}
                 </button>
               </div>
             )}

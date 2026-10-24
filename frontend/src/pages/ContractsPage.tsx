@@ -6,6 +6,7 @@ import { VerifiedBadge } from '../components/ui/VerifiedBadge';
 import { CopyButton } from '../components/ui/CopyButton';
 import { shortenAddress } from '../lib/formatting';
 import { ArtImg } from '../components/ArtImg';
+import { CardArt } from '../components/ui/CardArt';
 import {
   TOWELI_ADDRESS,
   TEGRIDY_STAKING_ADDRESS,
@@ -40,26 +41,18 @@ import {
   JBAC_NFT_ADDRESS,
   JBAY_GOLD_ADDRESS,
   CURVE_LAUNCHER_ADDRESS,
-  GITHUB_BLOB_BASE,
+  SOURCE_URL,
   isDeployed,
 } from '../lib/constants';
 import { getChainConfig } from '../lib/chains/registry';
 
-// Source links come from GITHUB_BLOB_BASE (lib/constants.ts).
-// AUDIT R035: org was previously `tegridyfarms` (404). Source of truth per
-// `git remote -v` is `fomotsar-commits/tegridy-farms`.
-// F452: the base points at the deploy branch `mvp-launch` — the repo ships from
-// it and it is over a thousand commits ahead of `main` — so source links serve
-// current content rather than a stale snapshot.
-// 2026-09-03: that literal used to live HERE, and this was the only page that
-// had the branch right; /security and /risks each carried their own `main`
-// literal, so the app disagreed with itself about which branch is authoritative.
-// One constant now, no per-page branch literals.
+// Source links come from SOURCE_URL (lib/constants.ts), never a git-host URL: the
+// host and the branch live in frontend/vercel.json (src/test/sourceLinks.test.ts).
 
 interface ContractEntry {
   label: string;
   address: string;
-  // A path under the repo root, linked to GitHub, unless it is 'external (...)' for a
+  // A path under the repo root, linked through /source, unless it is 'external (...)' for a
   // third-party contract or 'not in this repo (...)' for our own live contract whose
   // deployed source the repo does not hold. ContractsPage.sourceLinks.test.tsx.
   source: string;
@@ -271,7 +264,7 @@ function ContractRow({ entry, verification }: { entry: ContractEntry; verificati
   const isExternal = entry.source.startsWith('external');
   const sourceHref = isExternal || entry.source.startsWith('not in this repo (')
     ? undefined
-    : `${GITHUB_BLOB_BASE}/${entry.source}`;
+    : `${SOURCE_URL}/${entry.source}`;
   // Our own contracts with an unset (zero) address aren't part of the current
   // deployment — route them through the clean "pending deploy" path so we never
   // surface a 0x0 as live or render a stale "redeploy live / awaiting multisig"
@@ -333,7 +326,7 @@ function ContractRow({ entry, verification }: { entry: ContractEntry; verificati
             target="_blank"
             rel="noopener noreferrer"
             className="text-white/40 text-[11px] mt-0.5 hover:text-white/70 transition-colors inline-flex items-center min-h-[44px] md:min-h-0 py-2 md:py-0"
-            aria-label={`Open ${entry.source} on GitHub (opens in new tab)`}
+            aria-label={`Open ${entry.source} source (opens in new tab)`}
           >
             {entry.source} <span className="text-white/15">↗</span>
           </a>
@@ -432,7 +425,7 @@ export default function ContractsPage() {
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3 }}
-        className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6 pt-28 pb-20"
+        className="relative z-10 page-column mx-auto px-4 md:px-6 pt-28 pb-20"
       >
         <header className="mb-8 md:mb-12">
           <h1 className="heading-luxury text-3xl md:text-5xl text-white mb-3" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.9)' }}>Contract Index</h1>
@@ -441,7 +434,7 @@ export default function ContractsPage() {
             is linked below wherever this repo holds it. Links open the file as it is today, which
             can be newer than the code deployed at that address. Source mirrored from the repo{' '}
             <a
-              href={`${GITHUB_BLOB_BASE}/docs/CONTRACTS.md`}
+              href={`${SOURCE_URL}/docs/CONTRACTS.md`}
               target="_blank"
               rel="noopener noreferrer"
               className="text-white underline hover:text-white/70 transition-colors"
@@ -457,9 +450,11 @@ export default function ContractsPage() {
               is still being finished after the relaunch. */}
           <div
             role="status"
-            className="rounded-xl p-4 md:p-5 max-w-[860px]"
+            className="relative isolate rounded-xl p-4 md:p-5 max-w-[860px]"
             style={{ border: '1px solid rgba(245, 158, 11, 0.35)', background: 'rgba(245, 158, 11, 0.07)' }}
           >
+            {/* The two notice cards are contracts idx 8 and 9 (idx 0-7 are the page and the group cards). */}
+            <CardArt pageId="contracts" idx={8} />
             <p className="text-amber-300 text-[13px] font-semibold mb-2" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>
               Relaunch closure: outstanding deploy work
             </p>
@@ -480,12 +475,12 @@ export default function ContractsPage() {
             <p className="text-white/60 text-[11px] mt-3 leading-relaxed">
               Full remaining-task checklist:{' '}
               <a
-                href="https://github.com/fomotsar-commits/tegridy-farms/issues?q=is%3Aissue+is%3Aopen"
+                href={`${SOURCE_URL}/docs/TODO_OPERATOR.md`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-white/80 underline hover:text-white transition-colors"
               >
-                tracked issues
+                docs/TODO_OPERATOR.md
               </a>
             </p>
           </div>
@@ -497,9 +492,10 @@ export default function ContractsPage() {
               Sky tint (reassurance) to distinguish from the amber warning above. */}
           <div
             role="note"
-            className="rounded-xl p-4 md:p-5 max-w-[860px] mt-4"
+            className="relative isolate rounded-xl p-4 md:p-5 max-w-[860px] mt-4"
             style={{ border: '1px solid rgba(56, 189, 248, 0.30)', background: 'rgba(56, 189, 248, 0.06)' }}
           >
+            <CardArt pageId="contracts" idx={9} />
             <p className="text-sky-300 text-[13px] font-semibold mb-2" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>
               This app is a convenience, not a dependency
             </p>

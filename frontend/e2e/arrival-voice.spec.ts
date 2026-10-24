@@ -70,8 +70,9 @@ test.describe('arrival voice', () => {
     await seedOverlays(page);
     await page.goto('/toweli');
 
-    // The door switches the skin in place; the classic hero is the proof.
-    await expect(page.locator('h1:has-text("Farm TOWELI.")')).toHaveCount(1, { timeout: 20_000 });
+    // The door switches the skin in place; the classic hero is the proof. The hero's
+    // own class: the door's static frame and busy fallback read the same words first.
+    await expect(page.locator('h1.heading-luxury:has-text("Farm TOWELI.")')).toHaveCount(1, { timeout: 20_000 });
     expect(new URL(page.url()).pathname).toBe('/toweli');
     expect(await page.evaluate(() => localStorage.getItem('tegridy-bungalow'))).toBe('toweli');
     // The venue hero is the thing that got replaced here.
@@ -190,7 +191,7 @@ test.describe('the home, cut to the line', () => {
     // The half that makes the cut a GATE rather than a deletion.
     await seedOverlays(page);
     await page.goto('/toweli');
-    await expect(page.locator('h1:has-text("Farm TOWELI.")')).toHaveCount(1, { timeout: 20_000 });
+    await expect(page.locator('h1.heading-luxury:has-text("Farm TOWELI.")')).toHaveCount(1, { timeout: 20_000 });
 
     const text = await readWholePage(page);
     for (const section of CUT_FROM_THE_VENUE) {

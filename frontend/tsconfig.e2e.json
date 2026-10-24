@@ -1,0 +1,14 @@
+{
+  // The browser tests in e2e/. Before this project they were in no TypeScript
+  // program at all: Playwright strips types without checking them, so a merged
+  // spec could carry a wrong import or a missing property that no gate saw.
+  // Same strict settings as the app; Node types for the test runner side, DOM
+  // types for code that runs inside page.evaluate.
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.e2e.tsbuildinfo",
+    "types": ["node", "vite/client"]
+  },
+  "include": ["src/**/*.d.ts", "e2e"],
+  "exclude": []
+}

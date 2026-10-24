@@ -24,6 +24,8 @@ import {
 } from '../lib/terminal/rowSafety';
 import { TOWELI_ADDRESS, WETH_ADDRESS } from '../lib/constants';
 import { ArtCard } from '../components/ui/ArtCard';
+import { CardArt } from '../components/ui/CardArt';
+import { FinePrint } from '../components/ui/FinePrint';
 import { FeedStatus } from '../components/terminal/FeedStatus';
 import { FeedTabs } from '../components/terminal/FeedTabs';
 import { MarketFeedStatus } from '../components/terminal/MarketFeedStatus';
@@ -241,18 +243,25 @@ export default function TerminalPage() {
         <header>
           <h1 className="text-2xl font-bold text-white">Pro Terminal</h1>
           <p className="mt-2 max-w-3xl text-sm leading-relaxed text-white/75">
-            Rows come from GeckoTerminal&rsquo;s public market-wide feed; the safety read is this
-            venue&rsquo;s own and runs only for the row you select. Every row carries that read or
-            says that it does not have one — a row that could not be scored is never ranked among
-            the scored ones and never shows a pass, because an unreachable scanner is not a clean
-            token.
+            Live pools from GeckoTerminal. Select a row for our safety read.
           </p>
           <p className="mt-2 max-w-3xl text-sm leading-relaxed text-amber-200/90">
-            No row on this feed is fully read on this build: the address that deployed a token is
-            never resolved here, so half of every score is missing. A row can reach &ldquo;Caution&rdquo;
-            or &ldquo;High risk (partly unread)&rdquo; from the holder read alone, but it can never
-            reach a pass unless you paste a deployer — and a pasted address is a claim, not a check.
+            No row is fully read here: the deploying address is never resolved, so half of every score is missing.
           </p>
+          <FinePrint summary="How it works" className="max-w-3xl">
+            <p>
+              Rows come from GeckoTerminal&rsquo;s public market-wide feed; the safety read is this
+              venue&rsquo;s own and runs only for the row you select. Every row carries that read or
+              says that it does not have one — a row that could not be scored is never ranked among
+              the scored ones and never shows a pass, because an unreachable scanner is not a clean
+              token.
+            </p>
+            <p>
+              A row can reach &ldquo;Caution&rdquo; or &ldquo;High risk (partly unread)&rdquo; from the
+              holder read alone, but it can never reach a pass unless you paste a deployer — and a pasted
+              address is a claim, not a check.
+            </p>
+          </FinePrint>
         </header>
 
         <div className="mt-6">
@@ -291,13 +300,17 @@ export default function TerminalPage() {
         {!isIndexerView && watchedHere.length > watchedShown.length ? (
           <p className="mt-4 text-xs text-white/75">
             Showing the first {watchedShown.length} of {watchedHere.length} watched pools on{' '}
-            {NETWORK_LABEL[network]} — the upstream reads at most {GECKO_POOLS_MULTI_MAX} pools per
-            request, and the rest are not shown rather than silently dropped.
+            {NETWORK_LABEL[network]}. The upstream reads at most {GECKO_POOLS_MULTI_MAX} pools per
+            request.
           </p>
         ) : null}
 
         <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-          <div className="rounded-xl border border-white/15 bg-white/[0.02] p-4">
+          {/* min-w-0: below lg this is a one-column grid, and a grid item's default min-width is its
+              content's, so the tables' 720-840px minimum widened the PAGE on an iPad instead of
+              scrolling inside their own overflow-x-auto box. */}
+          <div className="relative isolate min-w-0 rounded-xl border border-white/15 bg-white/[0.02] p-4">
+            <CardArt pageId="terminal" idx={1} />
             <div className="flex flex-wrap items-end gap-3">
               <label className="text-[11px] font-medium uppercase tracking-wide text-white/60">
                 Safety filter
@@ -348,15 +361,13 @@ export default function TerminalPage() {
             </div>
 
             <p className="mt-2 text-[10px] leading-snug text-white/55">
-              Unscored rows are placed after every scored row under either sort direction. They have
-              no measured position, so neither end of the axis would be honest.
+              Unscored rows are placed after every scored row under either sort direction.
             </p>
 
             {batch.progress.total > 0 ? (
               <p className="mt-2 text-[11px] leading-snug text-amber-200">
-                {batch.progress.done} of {batch.progress.total} rows holder-read — none is fully
-                read, because no deployer is resolved on this build; the rest are unscored, which is
-                not clean.
+                {batch.progress.done} of {batch.progress.total} rows holder-read. None is fully read;
+                the rest are unscored, which is not clean.
                 {batch.progress.stoppedBy
                   ? ` Stopped by ${batch.progress.stoppedBy}`
                   : ''}
@@ -412,6 +423,9 @@ export default function TerminalPage() {
                 </p>
               ) : null}
             </div>
+            <FinePrint summary="Sorting" className="mt-2">
+              <p>Unscored rows have no measured position, so neither end of the axis would be honest.</p>
+            </FinePrint>
           </div>
 
           <div className="space-y-6">

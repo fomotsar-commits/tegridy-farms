@@ -5,7 +5,9 @@ import {
 import SpeciesEncyclopedia from "./SpeciesEncyclopedia";
 import JungleBayShowcase from "./JungleBayShowcase";
 import { SHORTCUTS_FLAT } from "../lib/shortcuts";
+import { chainLabel, descriptionSourceLabel, explorerAddressUrl } from "../lib/venue";
 import { formatPrice } from "../lib/formatPrice";
+import { FinePrint } from "../../components/ui/FinePrint";
 
 function formatVol(n) {
   if (n == null) return null;
@@ -83,7 +85,7 @@ export default function About({ stats, onNavigateGallery, onFilterGallery }) {
   const contractMeta = [
     ["Contract", `${collection.contract.slice(0, 6)}...${collection.contract.slice(-4)}`],
     ["Standard", collection.tags?.find(t => t.startsWith("ERC-")) || "ERC-721"],
-    ["Chain", "Ethereum"],
+    ["Chain", chainLabel(collection) || "Ethereum"],
   ];
   if (lore?.creator?.name) contractMeta.push(["Creator", lore.creator.name]);
   contractMeta.push(["Supply", formatNumber(displaySupply ?? collection.supply)]);
@@ -93,7 +95,7 @@ export default function About({ stats, onNavigateGallery, onFilterGallery }) {
 
   const links = [
     ["OpenSea", `https://opensea.io/collection/${collection.openseaSlug || collection.slug}`],
-    ["Etherscan", `https://etherscan.io/address/${collection.contract}`],
+    [collection.explorer?.name || "Etherscan", explorerAddressUrl(collection) || `https://etherscan.io/address/${collection.contract}`],
   ];
   if (isGnssArt) links.unshift(...GNSS_EXTRA_LINKS);
   if (isNakamigos) links.unshift(...NAKAMIGOS_EXTRA_LINKS);
@@ -143,11 +145,13 @@ export default function About({ stats, onNavigateGallery, onFilterGallery }) {
           marginBottom: 28, borderRadius: 2,
         }} />
 
-        {/* Origin Story */}
+        {/* Origin Story. Word for word, in the small print: the page is the
+            name, the tagline, the numbers (owner 2026-10-14). */}
         <div style={{
           fontFamily: "var(--display)", fontSize: 15, color: "var(--text-dim)",
           lineHeight: 1.9, display: "flex", flexDirection: "column", gap: 20, maxWidth: 700,
         }}>
+          <FinePrint summary="The story">
           {isNakamigos && (
             <>
               <p>On October 31, 2022 -- the anniversary of Satoshi Nakamoto's Bitcoin whitepaper -- HiFo Labs deployed a smart contract to Ethereum. Five months later, the first Nakamigos were claimed for free by holders of the End of Sartoshi pass. Within four days, Nakamigos surpassed Bored Ape Yacht Club in lifetime trades -- 52,000 sales totaling 7,562 ETH ($13M).</p>
@@ -169,7 +173,18 @@ export default function About({ stats, onNavigateGallery, onFilterGallery }) {
               <p>The community rebranded to Jungle Bay Artists Collective, embracing "memetic finance" (DM+T = Dank Memes + Time). With only 0.98% of supply listed and 20 legendary 1/1 hand-drawn apes, this is one of the tightest-held collections on Ethereum.</p>
             </>
           )}
-          {!isNakamigos && !isGnssArt && !isJungleBay && <p>{collection.description}</p>}
+          {!isNakamigos && !isGnssArt && !isJungleBay && collection.description && (
+            descriptionSourceLabel(collection) ? (
+              // The collection's own words, labelled as such: not a venue claim.
+              <figure style={{ margin: 0 }}>
+                <figcaption style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)", letterSpacing: "0.04em", marginBottom: 6 }}>
+                  {descriptionSourceLabel(collection)}
+                </figcaption>
+                <blockquote style={{ margin: 0, whiteSpace: "pre-line" }}>{collection.description}</blockquote>
+              </figure>
+            ) : <p>{collection.description}</p>
+          )}
+          </FinePrint>
 
           {collection.tags?.length > 0 && (
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -358,17 +373,18 @@ export default function About({ stats, onNavigateGallery, onFilterGallery }) {
         ))}
       </div>
 
-      {/* Keyboard shortcuts */}
+      {/* Keyboard shortcuts: a reference, so it opens on request. */}
       <div className="about-shortcuts">
-        <SectionHeading>KEYBOARD SHORTCUTS</SectionHeading>
-        <div className="shortcuts-grid">
-          {SHORTCUTS_FLAT.map(([key, desc]) => (
-            <div key={key} className="shortcut-item">
-              <kbd className="shortcut-key">{key}</kbd>
-              <span className="shortcut-desc">{desc}</span>
-            </div>
-          ))}
-        </div>
+        <FinePrint summary="Keyboard shortcuts">
+          <div className="shortcuts-grid">
+            {SHORTCUTS_FLAT.map(([key, desc]) => (
+              <div key={key} className="shortcut-item">
+                <kbd className="shortcut-key">{key}</kbd>
+                <span className="shortcut-desc">{desc}</span>
+              </div>
+            ))}
+          </div>
+        </FinePrint>
       </div>
     </section>
   );

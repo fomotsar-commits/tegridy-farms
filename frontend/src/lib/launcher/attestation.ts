@@ -22,6 +22,7 @@
 import {
   encodeAbiParameters,
   encodePacked,
+  getAddress,
   keccak256,
   parseAbiParameters,
   toHex,
@@ -422,19 +423,16 @@ export async function attestFactSheet(
 // ---------------------------------------------------------------------------
 
 /**
- * Block the mainnet EAS was deployed in. Taken from the deployment receipt in
- * ethereum-attestation-service/eas-contracts (deployments/mainnet/EAS.json,
- * fetched 2026-07-30), not from a doc page — no attestation can predate it, so it
- * is the provable floor for a log scan.
+ * Block the mainnet EAS was deployed in, from the deployment receipt in
+ * eas-contracts (deployments/mainnet/EAS.json, fetched 2026-07-30). No attestation
+ * predates it, so it is the floor of the log scan (api/_lib/eas-attested.js pins it).
  */
 export const EAS_MAINNET_FIRST_BLOCK = 16_756_728n;
 
 /**
- * `Attested` exactly as the mainnet EAS emits it — copied from that same
- * deployment ABI, NOT from memory. Three indexed topics (recipient, attester,
- * schema) is what makes a read-back possible at all: we attest with the launched
- * token as `recipient`, so a token + schema topic filter is a precise query.
- * `uid` is the only unindexed field.
+ * `Attested` exactly as the mainnet EAS emits it, copied from that deployment ABI.
+ * recipient, attester and schema are indexed, so a token + schema topic filter is a
+ * precise query (we attest with the launched token as `recipient`); `uid` is the data.
  */
 export const EAS_ATTESTED_EVENT = {
   type: 'event',
@@ -487,113 +485,133 @@ export interface FactSheetAttestation {
 /**
  * Outcome of asking "has this token been attested under our disclosure schema?".
  *
- * `unverifiable` is a first-class result, not an error path. It means the QUESTION
- * went unanswered — the caller must render it as such and must NOT show it as
- * "not attested".
+ * `unverifiable` is a first-class result: the QUESTION went unanswered, and the caller
+ * must never show it as "not attested". `detail` says what failed, in a developer's
+ * words, for the small print only; the visible line is the page's own sentence.
  */
 export type AttestationLookup =
   | { status: 'attested'; attestations: FactSheetAttestation[] }
   | { status: 'none' }
-  | { status: 'unverifiable'; reason: string };
+  | { status: 'unverifiable'; detail: string };
 
 /** Minimal read surface for the lookup; a real viem PublicClient satisfies it. */
 export interface AttestationReadClient {
   // `any` for the same contravariance reason as collector.ts's ReadOnlyPublicClient.
-  /* eslint-disable @typescript-eslint/no-explicit-any */
-  getLogs(args: any): Promise<unknown[]>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   readContract(args: any): Promise<unknown>;
-  /* eslint-enable @typescript-eslint/no-explicit-any */
 }
 
-/** Decode a `getAttestation` tuple. Returns null on anything unexpected. Pure. */
-export function decodeAttestationRecord(raw: unknown): { time: number; revoked: boolean } | null {
+/** What the record must name for a log's uid to count: the chain's word over the lookup's. */
+export interface AttestationClaim {
+  uid: Hex;
+  schema: Hex;
+  recipient: Address;
+}
+
+const same = (a: unknown, b: string) => typeof a === 'string' && a.toLowerCase() === b.toLowerCase();
+
+/**
+ * Decode a `getAttestation` tuple. Null on anything unexpected, and, given a `claim`, on a
+ * record naming another uid, schema or recipient. Pure.
+ */
+export function decodeAttestationRecord(raw: unknown, claim?: AttestationClaim): { time: number; revoked: boolean } | null {
   if (raw == null || typeof raw !== 'object') return null;
   const arr = Array.isArray(raw);
-  const time = arr ? (raw as readonly unknown[])[2] : (raw as Record<string, unknown>).time;
-  const revocationTime = arr
-    ? (raw as readonly unknown[])[4]
-    : (raw as Record<string, unknown>).revocationTime;
+  const field = (name: string, index: number) =>
+    arr ? (raw as readonly unknown[])[index] : (raw as Record<string, unknown>)[name];
+  const time = field('time', 2);
+  const revocationTime = field('revocationTime', 4);
   if (typeof time !== 'bigint' || typeof revocationTime !== 'bigint') return null;
-  // time === 0 is EAS's "no such attestation" — a getAttestation for an unknown uid
-  // returns a zeroed struct rather than reverting, so 0 must not read as "attested at
-  // the unix epoch".
+  // EAS answers an unknown uid with a zeroed struct, not a revert: 0 is "no such attestation".
   if (time === 0n) return null;
+  if (claim && !(same(field('uid', 0), claim.uid) && same(field('schema', 1), claim.schema) && same(field('recipient', 6), claim.recipient))) {
+    return null;
+  }
   return { time: Number(time), revoked: revocationTime > 0n };
 }
 
+/** One `Attested` log as our backend names it: a hint, until the EAS record agrees. */
+export interface AttestedLog {
+  uid: Hex;
+  attester: Address;
+}
+
+/** Oldest first. `[]` means the history was read and holds none; a failed read THROWS. */
+export type AttestedLogSource = (recipient: Address, schema: Hex) => Promise<AttestedLog[]>;
+
+export const EAS_ATTESTED_ENDPOINT = '/api/aggregator';
+const WORD_RE = /^0x[0-9a-fA-F]{64}$/;
+const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
+
 /**
- * Look up Fact Sheet attestations for `token` on the mainnet EAS.
+ * The browser cannot run this query: every RPC it reaches refuses an eth_getLogs over
+ * EAS's whole life (publicnode wants an archive token, drpc caps a range at 10,000
+ * blocks). Our backend asks keyless Blockscout (api/_lib/eas-attested.js).
+ */
+export const fetchAttestedLogs: AttestedLogSource = async (recipient, schema) => {
+  const q = new URLSearchParams({ resource: 'eas-attested', recipient, schema });
+  const res = await fetch(`${EAS_ATTESTED_ENDPOINT}?${q}`);
+  if (!res.ok) throw new Error(`the lookup answered HTTP ${res.status}`);
+  const body = (await res.json().catch(() => null)) as { attestations?: unknown } | null;
+  if (!Array.isArray(body?.attestations)) throw new Error('the lookup answered without a list');
+  return body.attestations.map((a: unknown) => {
+    const { uid, attester } = (a ?? {}) as { uid?: unknown; attester?: unknown };
+    if (typeof uid !== 'string' || !WORD_RE.test(uid) || typeof attester !== 'string' || !ADDRESS_RE.test(attester)) {
+      throw new Error('the lookup named an attestation it did not spell out');
+    }
+    return { uid: uid as Hex, attester: getAddress(attester) };
+  });
+};
+
+/** An error's first line, bounded: viem's messages run to a page of request body. */
+const firstLine = (e: unknown) => (e instanceof Error ? e.message : String(e)).split('\n')[0]!.slice(0, 160);
+
+/**
+ * Look up Fact Sheet attestations for `token` on the mainnet EAS. Mainnet has no EAS
+ * indexer contract, so discovery is a log scan, which only our backend can run.
  *
- * ⚠ FEASIBILITY, measured 2026-07-30 rather than assumed. There is NO EAS `Indexer`
- * contract on Ethereum mainnet (eas-contracts/deployments/mainnet contains only
- * EAS.json + SchemaRegistry.json), so a log scan is the only on-chain discovery path,
- * and all three public RPCs this app ships with (lib/wagmi.ts) refuse the full range:
- * publicnode rejects archive queries outright, drpc caps `eth_getLogs` at 10,000
- * blocks, merkle rate-limits. EAS deployed at block 16,756,728 and mainnet is past
- * 25.6M, so the honest expectation on today's transports is `unverifiable` — which is
- * precisely why that is a status and not a thrown error. Point this at any
- * archive-capable RPC and it answers for real; it never fabricates a "not attested".
- *
- * A found log already proves an attestation exists and names its attester (both are
- * indexed topics), so a failed `getAttestation` follow-up degrades to
- * `time: null, revoked: null` instead of discarding a proven attestation.
+ * Each uid the lookup names is re-read with `getAttestation`. A record that names
+ * another schema or recipient, or none at all, drops that uid. A re-read that FAILS
+ * keeps it with `time: null, revoked: null`: the log names it, the chain was not asked.
  */
 export async function readFactSheetAttestations(
   client: AttestationReadClient,
   token: Address,
-  opts: { fromBlock?: bigint; schemaUid?: Hex; max?: number } = {},
+  opts: { schemaUid?: Hex; max?: number; logs?: AttestedLogSource } = {},
 ): Promise<AttestationLookup> {
   const schema = opts.schemaUid ?? factSheetSchemaUid();
-  let logs: unknown[];
+  let logs: AttestedLog[];
   try {
-    logs = await client.getLogs({
-      address: EAS_MAINNET,
-      event: EAS_ATTESTED_EVENT,
-      args: { recipient: token, schema },
-      fromBlock: opts.fromBlock ?? EAS_MAINNET_FIRST_BLOCK,
-      toBlock: 'latest',
-    });
+    logs = await (opts.logs ?? fetchAttestedLogs)(token, schema);
   } catch (e) {
-    return {
-      status: 'unverifiable',
-      reason: e instanceof Error ? e.message : 'The attestation log query failed.',
-    };
+    return { status: 'unverifiable', detail: firstLine(e) };
   }
-  if (!Array.isArray(logs) || logs.length === 0) return { status: 'none' };
+  if (logs.length === 0) return { status: 'none' };
 
-  // Newest first, bounded: one extra eth_call per attestation, and a token with a long
-  // revision history should not turn a page load into an unbounded fan-out.
+  // Newest first, bounded: one eth_call per attestation, and a long revision history
+  // must not turn a page load into an unbounded fan-out.
   const newest = logs.slice(-(opts.max ?? 3)).reverse();
   const attestations: FactSheetAttestation[] = [];
-  for (const log of newest) {
-    const args = (log as { args?: { uid?: unknown; attester?: unknown } }).args;
-    const uid = args?.uid;
-    const attester = args?.attester;
-    if (typeof uid !== 'string' || typeof attester !== 'string') continue;
-    let record: { time: number; revoked: boolean } | null;
+  for (const { uid, attester } of newest) {
+    let raw: unknown;
     try {
-      record = decodeAttestationRecord(
-        await client.readContract({
-          address: EAS_MAINNET,
-          abi: EAS_GET_ATTESTATION_ABI,
-          functionName: 'getAttestation',
-          args: [uid],
-        }),
-      );
+      raw = await client.readContract({
+        address: EAS_MAINNET,
+        abi: EAS_GET_ATTESTATION_ABI,
+        functionName: 'getAttestation',
+        args: [uid],
+      });
     } catch {
-      record = null; // the log still proves existence; time/revocation stay unknown
+      attestations.push({ uid, attester, time: null, revoked: null });
+      continue;
     }
-    attestations.push({
-      uid: uid as Hex,
-      attester: attester as Address,
-      time: record?.time ?? null,
-      revoked: record?.revoked ?? null,
-    });
+    const record = decodeAttestationRecord(raw, { uid, schema, recipient: token });
+    if (record) attestations.push({ uid, attester, ...record });
   }
-  // Every log was malformed — we saw something but decoded nothing, which is an
-  // unanswered question, not an absence.
+  // The lookup named attestations the EAS contract does not hold: its answer is wrong,
+  // so its "none" would be too.
   if (attestations.length === 0) {
-    return { status: 'unverifiable', reason: 'Attestation logs were found but could not be decoded.' };
+    return { status: 'unverifiable', detail: 'the EAS contract does not hold the attestations the lookup named' };
   }
   return { status: 'attested', attestations };
 }

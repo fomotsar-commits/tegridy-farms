@@ -73,11 +73,11 @@ export function FirstFrame() {
       </div>
       <div className="ff-wrap">
         <div className="ff-col">
-          <h1 className="ff-h1">
+          {/* The hero's chain-pill row and letter-spacing, as in the static frame and a door's. */}
+          <div aria-hidden="true" style={{ height: 24.5, margin: '0 0 1.25rem' }} />
+          <h1 className="ff-h1" style={{ letterSpacing: '0.01em' }}>
             {VENUE.heroTitle}{' '}<br /><span>{VENUE.heroLine}</span>
           </h1>
-          <p className="ff-plain">{VENUE.heroPlain}</p>
-          <p className="ff-hook">{VENUE.heroHook}</p>
           {/* The same native form as the static frame, so a submit here still
               lands on /?heat= with no script. What is TYPED here (and not yet
               submitted) is handed to the real hero when it mounts, instead of
@@ -88,7 +88,7 @@ export function FirstFrame() {
               className="ff-input"
               name="heat"
               placeholder="0x… or a Solana address"
-              aria-label="Wallet address to read Heat for (Ethereum or Solana)"
+              aria-label="Wallet address to read Heat for (Ethereum, Base, or Solana)"
               autoComplete="off"
               spellCheck={false}
               required

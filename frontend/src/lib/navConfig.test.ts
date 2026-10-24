@@ -1,21 +1,31 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import {
-  PRIMARY_NAV,
+  BAR_NAV,
+  DRAWER_SECTIONS,
+  DRAWER_LINKS,
   DASHBOARD_NAV,
   NUMBERS_TABS,
   ALL_NAV,
   MORE_NAV,
   NAV_SECTIONS,
-  // NOTE: `NFT_FINANCE_LIVE` is deliberately NOT imported. Referencing the combined
-  // gate is what made the old assertions tautological — they compared the nav array
-  // against the constant that built it. The tests below pin the address-derived signal
-  // instead, so flipping PROMOTE_PENDING can actually break them.
+  POOLS_SECTION,
+  // Not NFT_FINANCE_LIVE: comparing the nav against the gate that built it is a tautology.
+  // The address-derived halves below can fail when PROMOTE_PENDING moves.
   NFT_FINANCE_ADDRESSES_LIVE,
   COMMUNITY_LIVE,
   COMMUNITY_ADDRESSES_LIVE,
   tradeRoute,
+  lockRoute,
+  poolsRoute,
+  islandRoute,
+  litWord,
+  INDEX_GROUPS,
+  INDEX_PAGES,
+  indexName,
+  ISLAND_SECTION,
 } from './navConfig';
 import { readFileSync } from 'node:fs';
+import { BUNGALOWS } from './bungalows';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { isIndexerConfigured } from './indexer/client';
@@ -23,241 +33,241 @@ import { loadLocalRules } from './alerts/ruleStore';
 import { evaluableRuleKinds } from './alerts/sources';
 import { PAYMENT_LINK_CHAIN_IDS } from './commerce/settleTokens';
 import { deployedCurveChains } from './launcher/curveChains';
-// The route table, which src/test/a11yRouteCoverage.test.ts holds equal to src/App.tsx.
-// Used here as the already-verified answer to "is this path reachable by URL at all",
-// so the assertions below can tell "routed but not promoted" apart from "not routed".
+// The route table (src/test/a11yRouteCoverage.test.ts holds it equal to App.tsx): the
+// answer to "is this path routed at all".
 import { ROUTES } from '../../e2e/fixtures/routes';
 
-// -- THE 2026-09-05 REWRITE ---------------------------------------------------
-// The bar was Dashboard / Farm / Trade / NFT Finance, a right-aligned
-// Marketplace, and a "More" dropdown holding five sections. It is six words
-// DERIVED from NAV_SECTIONS -- Swap / Pools / Earn / Launch / Check / Island --
-// plus Dashboard appended last and only when connected. There is no dropdown.
-//
-// Because PRIMARY_NAV is derived, the assertions below can no longer be the
-// tautology this file has already been burned by twice (see the warning on the
-// NFT-finance test): comparing a hand-written bar against the constant that
-// built it. What is pinned instead is the RELATIONSHIP between the bar and the
-// sections, plus the properties a rewrite breaks silently -- a destination with
-// no path to it, or a word that opens a page highlighting nothing.
+// The bar is four words at every width: Island, Lock, Launch, Swap (owner, 2026-10-03, the
+// island's venue review item 1; on 2026-10-18 Heat and Rooms became the one word Island, and the
+// drawer's Island row went up into it). Pools and Check are drawer rows. Every section is still
+// one tabbed page; the bar and the drawer only decide where its row is.
+
+describe('the bar', () => {
+  it('reads Island · Lock · Launch · Swap, and nothing else', () => {
+    expect(BAR_NAV.map((w) => w.label)).toEqual(['Island', 'Lock', 'Launch', 'Swap']);
+    for (const dead of ['Heat', 'Rooms', 'Pools', 'Check', 'Earn', 'Farm', 'Trade', 'More', 'Dashboard']) {
+      expect(BAR_NAV.map((w) => w.label), `${dead} came back to the bar`).not.toContain(dead);
+    }
+  });
+
+  it('opens a routed page with every word', () => {
+    const routed = new Set(ROUTES.map((r) => r.path));
+    for (const w of BAR_NAV) {
+      expect(w.to.startsWith('/'), w.label).toBe(true);
+      expect(routed, `${w.label} opens ${w.to}, which no route draws`).toContain(w.to.split('#')[0]);
+    }
+  });
+
+  it('opens Island on the home, where the read field and the hall of doors are', () => {
+    expect(BAR_NAV.find((w) => w.label === 'Island')?.to).toBe('/');
+    // The word is the Island section's own heading, so that section is on the bar, once.
+    expect(BAR_NAV[0]?.label).toBe(ISLAND_SECTION.heading);
+  });
+
+  it('points Lock, Launch and Swap at a tab of their own section', () => {
+    for (const label of ['Lock', 'Launch', 'Swap']) {
+      const word = BAR_NAV.find((w) => w.label === label)!;
+      const section = NAV_SECTIONS.find((s) => s.heading === label);
+      expect(section, `no ${label} section`).toBeDefined();
+      expect(section!.items.map((i) => i.to), `${label} opens a page whose strip lights nothing`).toContain(word.to);
+    }
+    expect(BAR_NAV.find((w) => w.label === 'Lock')?.to, 'Lock opens the list of every pool').toBe('/earn');
+  });
+
+  it('keeps Dashboard off the bar: it is a drawer row, once a wallet connects', () => {
+    expect(BAR_NAV.map((w) => w.to)).not.toContain('/dashboard');
+    expect(DASHBOARD_NAV.to).toBe('/dashboard');
+    expect(ALL_NAV.map((n) => n.to)).toContain('/dashboard');
+  });
+});
+
+describe('which word is lit', () => {
+  const at = (path: string, hash = '') => litWord(path, hash)?.label ?? null;
+
+  it.each([
+    ['/', '', 'Island'],
+    ['/', '#hall', 'Island'],
+    ['/bayla', '', 'Island'],
+    ['/pepe', '', 'Island'],
+    ['/towelie', '', 'Island'],
+    ['/nb1', '', 'Island'],
+    // The island's own pages, which the drawer's Island row owned until 2026-10-18.
+    ['/island', '', 'Island'],
+    ['/gallery', '', 'Island'],
+    ['/community', '', 'Island'],
+    ['/tokenomics', '', 'Island'],
+    ['/earn', '', 'Lock'],
+    ['/earn/bayla', '', 'Lock'],
+    ['/nft-finance', '', 'Lock'],
+    ['/checkout', '', 'Lock'],
+    ['/launch', '', 'Launch'],
+    ['/curve-launch', '', 'Launch'],
+    ['/launch-simulator', '', 'Launch'],
+    ['/swap', '', 'Swap'],
+    ['/solana', '', 'Swap'],
+  ])('%s%s lights %s', (path, hash, word) => {
+    expect(at(path, hash)).toBe(word);
+  });
+
+  it.each(['/solana-lp', '/liquidity', '/trust', '/scan', '/history', '/lore', '/changelog', '/dashboard', '/start'])(
+    'lights no bar word on %s, a page the drawer or the footer opens',
+    (path) => {
+      expect(at(path)).toBeNull();
+    },
+  );
+
+  it('never lights two words on one routed page', () => {
+    for (const r of ROUTES) {
+      if (r.path.includes(':') || r.path === '/*') continue;
+      for (const hash of ['', '#hall']) {
+        const lit = BAR_NAV.filter((w) => w.lit(r.path, hash)).map((w) => w.label);
+        expect(lit.length, `${r.path}${hash} lights ${lit.join(' and ')}`).toBeLessThanOrEqual(1);
+      }
+    }
+  });
+});
+
+describe('the drawer', () => {
+  it('carries Pools and Check, one row each, and the bar carries the rest', () => {
+    expect(DRAWER_SECTIONS.map((s) => s.heading)).toEqual(['Pools', 'Check']);
+    const onBar = BAR_NAV.map((w) => w.label);
+    for (const s of NAV_SECTIONS) {
+      const places = (onBar.includes(s.heading) ? 1 : 0) + (DRAWER_SECTIONS.includes(s) ? 1 : 0);
+      expect(places, `the ${s.heading} section is in ${places} places; it belongs in exactly one`).toBe(1);
+    }
+  });
+
+  // Owner, 2026-10-03: "pools land on solana lp", and Solana LP is to be MORE visible.
+  it('lands the Pools row on the Solana LP tab, and keeps the strip in its order', () => {
+    expect(POOLS_SECTION.hub).toBe('/liquidity');
+    expect(POOLS_SECTION.primaryTo).toBe('/solana-lp');
+    expect(DRAWER_SECTIONS[0], 'Pools is the drawer row people come for: it leads').toBe(POOLS_SECTION);
+    expect(POOLS_SECTION.items.map((i) => [i.to, i.tabLabel ?? i.label])).toEqual([
+      ['/liquidity', 'Add / Remove'],
+      ['/solana-lp', 'Solana LP'],
+      ['/pools', 'Venue AMM'],
+      ['/zap', 'Zap'],
+    ]);
+  });
+
+  it('keeps the detection tools together under Check', () => {
+    const check = NAV_SECTIONS.find((sec) => sec.heading === 'Check');
+    expect(DRAWER_SECTIONS).toContain(check);
+    const paths = check!.items.map((i) => i.to);
+    for (const p of ['/trust', '/scan', '/deployer', '/exposure']) expect(paths).toContain(p);
+    expect(NAV_SECTIONS.map((sec) => sec.heading)).not.toContain('Trust & Safety');
+  });
+
+  // The footer dropped them on 2026-10-15; each still opens from one tap in the drawer.
+  it('carries the records and the developer API the footer no longer lists', () => {
+    expect(DRAWER_LINKS.map((l) => [l.to, l.label])).toEqual([
+      ['/changelog', 'Changelog'],
+      ['/contracts', 'Contracts'],
+      ['/developers', 'Developer API'],
+    ]);
+  });
+});
 
 describe('navConfig', () => {
-  it('PRIMARY_NAV has items with `to` and `label`', () => {
-    expect(PRIMARY_NAV.length).toBeGreaterThan(0);
-    for (const item of PRIMARY_NAV) {
-      expect(item.to).toBeTruthy();
-      expect(item.to.startsWith('/')).toBe(true);
-      expect(item.label).toBeTruthy();
-    }
-  });
-
-  it('is one word per section, in section order, and no more', () => {
-    // SIX IS THE CEILING and it is a measured one, not a preference: the bar
-    // shares an 800px row with the wordmark, the bungalow chip, Connect and the
-    // theme toggle, and this repo has a documented 640-790px dead-band history
-    // from letting that row overflow. e2e/header-reachability.spec.ts pins the
-    // geometry — it MEASURES (no overflow, Connect on-canvas) rather than
-    // enumerating labels, which is why the rename wave did not touch it. There
-    // is no `headerFitsAtEveryWidth` and no TopNav.responsive.test.ts, despite
-    // what this comment and TopNav.tsx both claimed until 2026-09-05;
-    // this pins the count that geometry was measured against.
-    expect(PRIMARY_NAV).toHaveLength(NAV_SECTIONS.length);
-    expect(PRIMARY_NAV.length).toBeLessThanOrEqual(6);
-    expect(PRIMARY_NAV.map((n) => n.label)).toEqual(NAV_SECTIONS.map((s) => s.heading));
-  });
-
-  it('names the job, never the container -- the six words the operator asked for', () => {
-    // The rename wave IS the change, so pinning the literal set is the only way
-    // to stop it drifting back one word at a time: "Farm" was jargon and a
-    // duplicate of the Earn group, "Trust & Safety" read as a policy page over
-    // the venue's best differentiator, and "More" meant "we couldn't decide".
-    expect(PRIMARY_NAV.map((n) => n.label)).toEqual([
-      'Swap', 'Pools', 'Island', 'Launch', 'Earn', 'Check',
-    ]);
-    for (const dead of ['Farm', 'Trade', 'NFT Finance', 'More', 'Trust & Safety', 'Stats']) {
-      expect(
-        PRIMARY_NAV.map((n) => n.label),
-        dead + ' came back to the top bar',
-      ).not.toContain(dead);
-    }
-  });
-
-  it('points every word at one of its own section destinations', () => {
-    // `primaryTo` is an override for exactly one section (Swap, whose landing
-    // follows the active bungalow's chain). An override pointing OUTSIDE its
-    // section would open a page whose tab strip highlights nothing.
-    for (const sec of NAV_SECTIONS) {
-      const to = sec.primaryTo ?? sec.hub;
-      expect(sec.items.map((i) => i.to), sec.heading + ' points outside itself').toContain(to);
-    }
-  });
-
-  it('keeps Dashboard OUT of the bar -- it is empty until a wallet connects', () => {
-    // It used to be the FIRST word. The operator's rule: the execution words
-    // first, then "what is happening with your assets". TopNav appends it from
-    // the connection state, so it must not also be a section.
-    expect(PRIMARY_NAV.map((n) => n.to)).not.toContain('/dashboard');
-    expect(DASHBOARD_NAV.to).toBe('/dashboard');
-    expect(ALL_NAV.map((n) => n.to), 'still reachable, just not in the bar').toContain('/dashboard');
-  });
-
-  // ⚠️ 2026-08-12 — BOTH of these were TAUTOLOGIES. They read
-  //   `expect(paths.includes('/nft-finance')).toBe(NFT_FINANCE_LIVE)`
-  // i.e. they compared the nav array against the very constant that BUILT the
-  // nav array (navConfig.ts spreads `NFT_FINANCE_LIVE ? [entry] : []`). Both
-  // sides move together for ANY value of PROMOTE_PENDING, so the assertions
-  // passed unconditionally and pinned nothing at all — including the fact that
-  // /community is in the menu purely because of the override.
-  //
-  // Rewritten in the shape the /solana-launch test below already uses: pin the
-  // PRECONDITION as a concrete fact read out of constants.ts, then pin the
-  // concrete value that must follow from it. Neither assertion mentions the
-  // combined gate, so flipping PROMOTE_PENDING can (and for Community, does)
-  // break them.
-
-  it('NFT Finance is in the primary nav on the strength of its OWN addresses', () => {
-    // CREDIBILITY GATING (2026-06-09): a top-nav item whose every tab ends in
-    // "Contract Not Deployed" leaks trust. NFT finance has since earned its
-    // slot honestly — three of its four relaunch addresses are real in
-    // constants.ts, so the address-derived signal alone is already true and
-    // PROMOTE_PENDING is redundant here. Pin that, so zeroing those addresses
-    // (a real regression) fails loudly instead of hiding behind the override.
+  // Three of NFT finance's four relaunch addresses are real, so the address-derived gate is
+  // true on its own; zeroing them must fail here, not hide behind PROMOTE_PENDING.
+  it('lists NFT Finance on the strength of its OWN addresses', () => {
     expect(
       NFT_FINANCE_ADDRESSES_LIVE,
       'an nft-finance address must be deployed in constants.ts for this entry to be honest',
     ).toBe(true);
-    // 2026-09-05: it left the TOP BAR (where it was labelled "NFT Finance", a
-    // category rather than a job) for the Earn section, where borrowing against
-    // an asset you hold belongs. "Promoted" is what this test was ever about;
-    // which row carries it is presentation.
     expect(MORE_NAV.map((n) => n.to)).toContain('/nft-finance');
     expect(ALL_NAV.find((n) => n.to === '/nft-finance')?.label).toBe('Borrow on NFTs');
   });
 
-  it('Community is in the More menu ONLY because PROMOTE_PENDING forces it', () => {
-    // The governance contracts ARE deployed and unpaused on mainnet, but their
-    // constants.ts entries are still 0x0 — a UI wiring gate. So the
-    // address-derived signal is false and the override is the sole reason
-    // /community is promoted. Pin BOTH halves: the precondition (nothing wired)
-    // and the outcome (entry present anyway). Turn PROMOTE_PENDING off and
-    // COMMUNITY_LIVE collapses to false, the entry disappears, and the last two
-    // assertions fail — which is the whole point.
-    expect(
-      COMMUNITY_ADDRESSES_LIVE,
-      'no governance address is wired in constants.ts yet',
-    ).toBe(false);
-    expect(
-      COMMUNITY_LIVE,
-      'Community is promoted, so something other than the addresses is carrying it',
-    ).toBe(true);
+  // Governance is deployed on mainnet but 0x0 in constants.ts, so only PROMOTE_PENDING lists
+  // /community. Turn it off and the last two assertions fail.
+  it('lists Community ONLY because PROMOTE_PENDING forces it', () => {
+    expect(COMMUNITY_ADDRESSES_LIVE, 'no governance address is wired in constants.ts yet').toBe(false);
+    expect(COMMUNITY_LIVE, 'Community is listed, so something other than the addresses carries it').toBe(true);
     expect(MORE_NAV.map((n) => n.to)).toContain('/community');
   });
 
+  // Owner, 2026-10-15: the points program and the trading competitions are deleted. No bar,
+  // drawer, strip or lobby lists either: an entry is gone, or off until its page is removed.
+  it('lists neither the points board nor the competitions', () => {
+    const shown = ALL_NAV.filter((n) => !n.soon);
+    for (const path of ['/leaderboard', '/competitions']) {
+      expect(shown.map((n) => n.to), path).not.toContain(path);
+    }
+    for (const label of ['Venue Score', 'Points', 'Competitions']) {
+      expect(shown.map((n) => n.label), label).not.toContain(label);
+    }
+  });
+
+  // "Trade" beside "Marketplace" gave no clue which sold tokens and which sold art.
   it('files the art Marketplace on the Island, not beside the token swap', () => {
-    // It had its own right-aligned header slot until 2026-09-05, next to
-    // "Trade" -- and the operator's reading was that "Trade" and "Marketplace"
-    // gave no clue which one sold tokens and which sold art. It is an island
-    // surface. The route is unchanged.
     const island = NAV_SECTIONS.find((sec) => sec.heading === 'Island');
     expect(island?.items.map((i) => i.to)).toContain('/nakamigos');
     expect(ALL_NAV.find((n) => n.to === '/nakamigos')?.label).toBe('Marketplace');
   });
 
-  it('ALL_NAV is a superset of PRIMARY_NAV', () => {
-    const allPaths = ALL_NAV.map((n) => n.to);
-    for (const item of PRIMARY_NAV) {
-      expect(allPaths).toContain(item.to);
+  it('no duplicate paths in ALL_NAV', () => {
+    const paths = ALL_NAV.map((n) => n.to);
+    expect(new Set(paths).size).toBe(paths.length);
+  });
+
+  // The Meteora DBC rail graduated into a pool this protocol does not own (retired 2026-08-23).
+  it('does not offer the retired /solana-launch rail', () => {
+    expect(ALL_NAV.find((n) => n.to === '/solana-launch')).toBeUndefined();
+  });
+
+  // /curve-launch is off whenever launching and trading cannot load (curveWriteFlag.ts). In a
+  // production build only the committed constant decides, and it is off by the owner's decision
+  // (2026-10-02). Off means the strip does not list it (RouteTabs.tsx); the page still opens.
+  it('marks /curve-launch off in a production build while launching is off', async () => {
+    expect(ALL_NAV.find((n) => n.to === '/curve-launch'), '/curve-launch missing from nav').toBeTruthy();
+    vi.stubEnv('DEV', false);
+    vi.stubEnv('MODE', 'production');
+    vi.stubEnv('VITE_SOLANA_CURVE_WRITES', '1');
+    vi.resetModules();
+    const prod = await import('./navConfig');
+    expect(prod.ALL_NAV.find((n) => n.to === '/curve-launch')?.soon).toBe(true);
+
+    vi.stubEnv('DEV', true);
+    vi.stubEnv('MODE', 'development');
+    vi.resetModules();
+    const dev = await import('./navConfig');
+    expect(dev.ALL_NAV.find((n) => n.to === '/curve-launch')?.soon).toBe(false);
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  it('marks /curve-launch off again the moment the write path cannot load', async () => {
+    vi.resetModules();
+    vi.doMock('./launcher/solana/curveWriteFlag', () => ({ isCurveWriteEnabled: () => false }));
+    try {
+      const off = await import('./navConfig');
+      expect(off.ALL_NAV.find((n) => n.to === '/curve-launch')?.soon).toBe(true);
+    } finally {
+      vi.doUnmock('./launcher/solana/curveWriteFlag');
+      vi.resetModules();
     }
   });
 
-  // The three detection surfaces are the protocol's one genuine differentiator and work
-  // on ANY token/wallet. Under the old generic "Stats" heading (beside Tokenomics and
-  // Treasury) they read as protocol vanity metrics. Pin the named grouping + the hub so
-  // a future nav edit can't quietly bury them again.
-  it('puts the detection tools in the TOP BAR, under the word "Check"', () => {
-    // 2026-09-05, and this is the single biggest win in the rewrite. They sat
-    // under "Trust & Safety" -- content-moderation language, which reads as a
-    // policy page of terms and reporting -- inside a dropdown called "More".
-    // Two clicks and the most boring label on the site, over the venue's one
-    // genuine differentiator. "Check" is what a visitor is here to do.
-    const check = NAV_SECTIONS.find((sec) => sec.heading === 'Check');
-    expect(check, 'the Check section is gone').toBeDefined();
-    expect(PRIMARY_NAV.map((n) => n.label)).toContain('Check');
-    const paths = check!.items.map((i) => i.to);
-    expect(paths).toContain('/trust');
-    expect(paths).toContain('/scan');
-    expect(paths).toContain('/deployer');
-    expect(paths).toContain('/exposure');
-    // The old heading must not come back on any section.
-    expect(NAV_SECTIONS.map((sec) => sec.heading)).not.toContain('Trust & Safety');
-  });
-
-  it('no duplicate paths in ALL_NAV', () => {
-    const paths = ALL_NAV.map((n) => n.to);
-    const unique = new Set(paths);
-    expect(unique.size).toBe(paths.length);
-  });
-
-  // The "Soon" pill answers one question for a visitor: can I do the thing this
-  // entry names? The lesson that produced that rule is worth keeping even though the
-  // rail that taught it is gone: /solana-launch was once `soon: !isSolanaLauncherEnabled()`,
-  // and with the flag on and no signer the pill cleared while the nav advertised a
-  // launch surface that could not launch. Every pill below is keyed to a condition
-  // that would actually stop a user, never to a flag.
-  // REPLACED 2026-08-23. This asserted /solana-launch was PRESENT and pilled Soon.
-  // That rail (Meteora DBC) is retired — it graduated into a pool this protocol does
-  // not own. The assertion now runs the other way: the entry must be ABSENT.
-  //
-  // Kept as a test rather than deleted, because "the nav no longer offers a retired
-  // rail" is exactly the kind of property that silently regresses when someone
-  // restores a route and adds its nav entry back out of habit.
-  it('does not offer the retired /solana-launch rail', () => {
-    expect(
-      ALL_NAV.find((n) => n.to === '/solana-launch'),
-      'the Meteora DBC rail was retired 2026-08-23 — its nav entry must not come back',
-    ).toBeUndefined();
-  });
-
-  // /curve-launch is the OWN-curve page and stays pilled unconditionally: its program
-  // is not deployed on any cluster, so no flag or config can make it launchable.
-  it('keeps /curve-launch pilled — its program is not deployed anywhere', () => {
-    const entry = ALL_NAV.find((n) => n.to === '/curve-launch');
-    expect(entry, '/curve-launch missing from nav').toBeTruthy();
-    expect(entry?.soon).toBe(true);
-  });
-
-  // Alerts sits with the detection tools because its rule kinds watch exactly what those
-  // tools read on demand, on any token, wallet or pool.
-  it('promotes /alerts under Check, unpilled because the store is server-free', () => {
+  // Its rule kinds watch what the detection tools read on demand; the store is browser-local.
+  it('lists /alerts under Check, on because the store is server-free', () => {
     const trust = NAV_SECTIONS.find((sec) => sec.heading === 'Check');
     expect(trust?.items.map((i) => i.to)).toContain('/alerts');
-
     const entry = ALL_NAV.find((n) => n.to === '/alerts');
     expect(entry?.label).toBe('Alerts');
-    expect(entry?.soon, 'a store that needs nothing must not read as unavailable').toBeFalsy();
+    expect(entry?.soon, 'a store that needs nothing must not read as off').toBeFalsy();
   });
 
-  // The PRECONDITION, not the conclusion. The entry above is unpilled because the rule
-  // store is provably local: if someone gives it a server dependency, this fails first
-  // and the nav comment that cites it has to be re-read before the pill can stay off.
+  // The precondition for the entry above. Read from this file's own URL: a guard that reads
+  // nothing passes forever, so the read is proved before the contents are judged.
   it('the alert rule store reaches no network, in source and at runtime', () => {
-    // Resolved from THIS file's own URL, not from the runner's cwd: a relative path
-    // here silently reads nothing when vitest is invoked from another directory, and a
-    // guard that reads nothing passes forever.
     const storePath = join(dirname(fileURLToPath(import.meta.url)), 'alerts', 'ruleStore.ts');
     const source = readFileSync(storePath, 'utf8');
-    // A guard that reads nothing passes forever, so prove the read landed before
-    // asserting anything about the contents.
     expect(source.length, 'the rule store source could not be read').toBeGreaterThan(500);
     expect(source, 'not the module this guard thinks it is').toContain('loadLocalRules');
-    expect(
-      source.includes('fetch('),
-      'a browser-local store must not fetch - see the /alerts comment in navConfig.ts',
-    ).toBe(false);
-    expect(source, 'rulesClient is the SERVER store — the local one must not use it').not.toContain(
-      './rulesClient',
-    );
-
+    expect(source.includes('fetch('), 'a browser-local store must not fetch').toBe(false);
+    expect(source, 'rulesClient is the SERVER store; the local one must not use it').not.toContain('./rulesClient');
     vi.stubGlobal('fetch', () => {
       throw new Error('the rule store must not make a request');
     });
@@ -269,100 +279,54 @@ describe('navConfig', () => {
   });
 
   it('at least one alert rule kind is readable with no indexer configured', () => {
-    // If a shipped source is ever made configurable, THIS fails and the /alerts
-    // comment tells you what to do about the pill.
     expect(evaluableRuleKinds().length).toBeGreaterThan(0);
   });
 
-  // Checkout was pilled for the /alerts reason — a migration applied by hand — until the
-  // invoice became a merchant-signed document carried in the URL fragment. It now has the
-  // /referrals shape instead: the advertised action completes in the browser, and the one
-  // input that could make it impossible is client-readable.
-  it('promotes /checkout in the More menu, unpilled because a link can be minted and paid here', () => {
-    // Heading-agnostic on purpose. This assertion is about the entry being
-    // PROMOTED and UNPILLED; which section it sits in is presentation. It named
-    // 'Engage' until 2026-09-03, when that 14-item catch-all was split into
-    // Discover / Trade / Launch / Earn — a regrouping this test had no business
-    // failing on, since nothing about /checkout changed.
+  // The invoice is a merchant-signed document in the URL fragment, so a link can be minted and
+  // paid in the browser. The settle-token table is the precondition, asserted first.
+  it('lists /checkout once, on because a link can be minted and paid here', () => {
     const sections = NAV_SECTIONS.filter((sec) => sec.items.some((i) => i.to === '/checkout'));
-    expect(sections, '/checkout must be promoted in exactly one section').toHaveLength(1);
-
+    expect(sections, '/checkout must be listed in exactly one section').toHaveLength(1);
     const entry = ALL_NAV.find((n) => n.to === '/checkout');
     expect(entry?.label).toBe('Checkout');
-
-    // THE PRECONDITION, ASSERTED FIRST AND ON PURPOSE. The pill is keyed to the
-    // settle-token table, not to CONFIGURED_CHAIN_IDS (which viemChains.ts makes
-    // non-empty by construction). Emptying the table must fail HERE — naming the real
-    // cause — rather than surfacing as a confusing pill assertion two lines down.
     expect(
       PAYMENT_LINK_CHAIN_IDS,
       'no served chain has a verified settlement asset, so nothing can be minted or paid',
     ).toContain(1);
-
-    expect(entry?.soon, 'a checkout that can mint and pay a link must not read as SOON').toBe(false);
+    expect(entry?.soon, 'a checkout that can mint and pay a link must not read as off').toBe(false);
   });
 
-  // Tax Reports is NOT keyed to the indexer any more: it reads Ethereum-mainnet history
-  // through /api/etherscan, which ships with every deployment. Asserted as a CONCRETE
-  // value — comparing against `!isIndexerConfigured()` would compare the entry with
-  // itself — plus the independence claim, which is the part that would rot silently.
-  it('does not pill /tax: its rail ships with the deployment, and the key is disclosed on the page', () => {
-    // 2026-09-05: /tax left ALL_NAV for NUMBERS_TABS. It is a TAB of StatsPage,
-    // and the nav lists a tabbed host once at its landing tab -- the convention
-    // ActivityPage and InfoPage already follow. The pill is guarded here rather
-    // than in a page test because it is the only pill on any of the three, and
-    // this file is where the rule about pills is written.
+  // /tax reads Ethereum history through /api/etherscan, which ships with every deployment, so
+  // it is on whatever the indexer does. A personal accounting page, never a detection tool.
+  it('keeps /tax on: its rail ships with the deployment, and the key is disclosed on the page', () => {
     const entry = NUMBERS_TABS.find((n) => n.to === '/tax');
     expect(entry?.label).toBe('Tax Reports');
     expect(entry?.soon, 'the explorer rail ships with every deployment').toBe(false);
-    // Independence: an indexer appearing or disappearing must not move this pill.
-    // (lib/tax/rails.test.ts pins the rail itself; TaxPage.test.tsx pins the
-    // ETHERSCAN_API_KEY disclosure that makes an unpilled entry honest.)
     expect(isIndexerConfigured()).toBe(false);
-    // It is a personal accounting surface over the caller's own history, not one
-    // of the detection tools that work on any address -- so it must never drift
-    // into Check.
     const check = NAV_SECTIONS.find((sec) => sec.heading === 'Check');
     expect(check?.items.map((i) => i.to)).not.toContain('/tax');
   });
 
-  it('opens the three numbers tabs from ONE Island row, and keeps them in step', () => {
-    // Island carries "Treasury & numbers" -> /tokenomics, and StatsPage hosts
-    // all three. The row and the host must agree about which tab is the landing
-    // one, or the word opens a page highlighting something else.
+  // StatsPage hosts all three numbers tabs and lands on items[0]; one entry opens it (a lobby
+  // door, and a link in the menu's More list).
+  it('opens the three numbers tabs from ONE Island entry, and keeps them in step', () => {
     const island = NAV_SECTIONS.find((sec) => sec.heading === 'Island');
     const row = island?.items.find((i) => i.to === '/tokenomics');
-    expect(row?.label, 'the operator asked "stats about what?" -- name the subject').toBe(
-      'Treasury & numbers',
-    );
+    expect(row?.label, 'the operator asked "stats about what?": name the subject').toBe('Treasury & numbers');
     expect(NUMBERS_TABS[0]?.to, 'StatsPage lands on items[0]').toBe('/tokenomics');
     expect(NUMBERS_TABS.map((n) => n.to)).toEqual(['/tokenomics', '/treasury', '/tax']);
-    // The siblings are deliberately NOT promoted twice.
     for (const p of ['/treasury', '/tax']) {
       expect(MORE_NAV.map((n) => n.to), p + ' is listed as well as being a tab').not.toContain(p);
     }
   });
 
-  // ⚠️ THE DELIBERATE OMISSION. /airdrop and /vesting are routed and fully rendered, and
-  // they are NOT promoted: every rail behind them (AirdropFactory, VestingFactory,
-  // LaunchLockView) is undeployed, and pages/airdropVestingHonesty.test.ts pins that as a
-  // fact read out of constants.ts. Reachable-by-URL-only is the state a surface earns while
-  // 100% dark — the same CREDIBILITY GATING rule at the top of navConfig.ts — so promoting
-  // either one is a deliberate act that has to delete this test first.
-  // ───────────── THE 2026-09-04 CONDENSATION ─────────────
-  // The dropdown listed twenty-one rows under six headings. Four sections now
-  // carry a `hub` and render as ONE row each, their items becoming the tab strip
-  // on the page that row opens. These pin the properties that make that safe;
-  // every one of them fails on the pre-change file, where no section had a hub.
-
+  // SectionHost lands on items[0]: a hub anywhere else opens a tab the visitor did not press.
   it('opens every section on its own first tab', () => {
-    expect(NAV_SECTIONS.map((sec) => sec.heading)).toEqual([
-      'Swap', 'Pools', 'Island', 'Launch', 'Earn', 'Check',
-    ]);
+    expect(NAV_SECTIONS.map((sec) => sec.heading)).toEqual(['Swap', 'Pools', 'Island', 'Launch', 'Lock', 'Check']);
     for (const s of NAV_SECTIONS) {
-      // SectionHost lands on items[0]. A hub pointing anywhere else opens the
-      // page with a tab highlighted that the visitor did not click.
       expect(s.hub, s.heading + ' hub must be its own first item').toBe(s.items[0]?.to);
+      const to = s.primaryTo ?? s.hub;
+      expect(s.items.map((i) => i.to), s.heading + ' points outside itself').toContain(to);
     }
   });
 
@@ -373,16 +337,11 @@ describe('navConfig', () => {
         expect(t.length, `"${t}" is too long for a tab in the ${s.heading} strip`).toBeLessThanOrEqual(20);
         expect(t.length).toBeGreaterThan(0);
       }
-      // Two tabs reading the same thing is unusable, and it is exactly what a
-      // careless `tabLabel` produces — "Memetics Curve" on both curve entries,
-      // say. `label` disambiguates them; the shorthand has to as well.
       expect(new Set(shown).size, `duplicate tab labels in the ${s.heading} strip`).toBe(shown.length);
     }
   });
 
-  // `tabLabel` is a display shorthand for the tab strip and must never be
-  // mistaken for a rename: `label` is the canonical name, and e2e specs plus
-  // lib/yield/surface.test.ts pin it.
+  // `tabLabel` is a strip shorthand; `label` is the canonical name e2e specs pin.
   it('never lets a tabLabel replace the canonical label', () => {
     for (const item of MORE_NAV) {
       expect(item.label.length, `${item.to} has no canonical label`).toBeGreaterThan(0);
@@ -392,11 +351,9 @@ describe('navConfig', () => {
     }
   });
 
-  // A phone or iPad tab shows `compactTabLabel` in place of its label (RouteTabs.tsx).
-  // It is a shorthand for the tab, never its name: shorter than what it replaces, and
-  // still unique within its strip.
+  // A phone or iPad shows `compactTabLabel` (RouteTabs.tsx): shorter, and unique in its strip.
   it('shortens the Copy Trading tab to CT, and keeps every compact tab label a shorthand', () => {
-    const copy = NAV_SECTIONS.find((s) => s.heading === 'Earn')?.items.find((i) => i.to === '/copy-trading');
+    const copy = NAV_SECTIONS.find((s) => s.heading === 'Lock')?.items.find((i) => i.to === '/copy-trading');
     expect(copy?.label, 'the canonical name stays Copy Trading').toBe('Copy Trading');
     expect(copy?.compactTabLabel).toBe('CT');
     for (const s of [...NAV_SECTIONS, { heading: 'Numbers', items: NUMBERS_TABS }]) {
@@ -411,76 +368,55 @@ describe('navConfig', () => {
     }
   });
 
-  // THE FINDABILITY BUG, 2026-09-04. This entry read 'Memetics Curve (EVM)' with
-  // `soon`/`live` keyed to the MAINNET address alone, while the launcher has been
-  // live on Base and Robinhood Chain since 2026-08-25. "(EVM)" is not a string
-  // anyone hunting for the Robinhood launcher would type, and the operator's
-  // report was exactly that: they could not find it.
+  // The curve is live on Base and Robinhood Chain as well as mainnet; "(EVM)" is not what anyone
+  // hunting for the Robinhood launcher types. Preconditions first, so a removed deploy names itself.
   it('names every chain the curve is deployed on, so each launcher is findable by name', () => {
     const chains = deployedCurveChains();
-    // PRECONDITIONS FIRST, so removing a deployment fails here — naming the real
-    // cause — instead of surfacing as a confusing label assertion below.
-    expect(
-      chains.map((c) => c.chainId),
-      'the curve rail must still be deployed on Robinhood Chain (4663) for this entry to name it',
-    ).toContain(4663);
+    expect(chains.map((c) => c.chainId), 'the curve must still be deployed on Robinhood Chain (4663)').toContain(4663);
     expect(chains.length, 'a single-chain rail has nothing to enumerate').toBeGreaterThan(1);
-
     const entry = ALL_NAV.find((n) => n.to === '/eth-curve');
     for (const c of chains) {
       expect(entry?.label, `the menu never names the ${c.name} launcher`).toContain(c.name);
     }
   });
 
-  it('pills /eth-curve on whether the curve launches ANYWHERE, not just on mainnet', () => {
+  // Mainnet is deployed, so the outcome assertions pass for the old mainnet-only gate too; the
+  // source check pins the input, the registry, which is the part that was wrong.
+  it('marks /eth-curve on whether the curve launches ANYWHERE, not just on mainnet', () => {
     const chains = deployedCurveChains();
     const entry = ALL_NAV.find((n) => n.to === '/eth-curve');
     expect(entry?.live, 'a launcher that launches must not be missing its LIVE pill').toBe(true);
-    expect(entry?.soon, 'a launcher that launches must never read as SOON').toBe(false);
-
-    // ⚠️ THE TWO ASSERTIONS ABOVE DO NOT, ON THEIR OWN, PROVE THE FIX. The old
-    // expression was `isDeployed(CURVE_LAUNCHER_ADDRESS)` — mainnet alone — and
-    // mainnet IS deployed today, so both of them passed before this change and
-    // would pass again if someone reverted it. They pin the OUTCOME; what
-    // follows pins the INPUT, which is the part that was wrong.
-    const nonMainnet = chains.filter((c) => c.chainId !== 1);
-    expect(
-      nonMainnet.map((c) => c.chainId),
-      'precondition: the curve must be live somewhere other than mainnet for this to mean anything',
-    ).toContain(4663);
-
+    expect(entry?.soon, 'a launcher that launches must never read as off').toBe(false);
+    expect(chains.filter((c) => c.chainId !== 1).map((c) => c.chainId)).toContain(4663);
     const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'navConfig.ts'), 'utf8');
     expect(source.length, 'navConfig.ts could not be read').toBeGreaterThan(1000);
     const start = source.indexOf("to: '/eth-curve'");
-    expect(start, "the /eth-curve entry is not where this guard looks").toBeGreaterThan(-1);
+    expect(start, 'the /eth-curve entry is not where this guard looks').toBeGreaterThan(-1);
     const entrySource = source.slice(start, source.indexOf('},', start));
-    expect(entrySource, 'the pill must read the registry, not one chain').toContain('isCurveLive()');
-    expect(
-      entrySource,
-      'a mainnet-only address cannot answer "can I launch?" for a three-chain rail',
-    ).not.toContain('CURVE_LAUNCHER_ADDRESS');
+    expect(entrySource, 'the mark must read the registry, not one chain').toContain('isCurveLive()');
+    expect(entrySource).not.toContain('CURVE_LAUNCHER_ADDRESS');
   });
 
+  // Every rail behind them is undeployed (pages/airdropVestingHonesty.test.ts). Listing either
+  // is a deliberate act that deletes this test first.
   it('leaves /airdrop and /vesting reachable by URL but out of the nav', () => {
     const routed = ROUTES.map((r) => r.path);
-    const promoted = ALL_NAV.map((n) => n.to);
+    const listed = ALL_NAV.map((n) => n.to);
     for (const path of ['/airdrop', '/vesting']) {
       expect(routed, `${path} must stay reachable by URL`).toContain(path);
-      expect(promoted, `${path}'s rails are undeployed — it must not be promoted`).not.toContain(path);
+      expect(listed, `${path}'s rails are undeployed; it must not be listed`).not.toContain(path);
     }
   });
 });
 
-// Where Swap lands follows the room's chain, read when the nav renders: a
-// door switches the skin in place, so a value taken at import would keep the
-// previous room's swap. ChainSwitch.test.tsx pins that the other surface stays
-// one click away, so the default is never a trap.
+// Swap follows the room's chain, read at render: a door switches the skin in place, so a value
+// taken at import keeps the previous room's swap. ChainSwitch keeps the other chain one click away.
 describe('tradeRoute', () => {
   afterEach(() => {
     window.localStorage.clear();
   });
 
-  const swapWord = () => PRIMARY_NAV.find((n) => n.label === 'Swap')?.to;
+  const swapWord = () => BAR_NAV.find((w) => w.label === 'Swap')?.to;
   const swapSection = () => NAV_SECTIONS.find((s) => s.heading === 'Swap')!;
 
   it('follows the skin with no module reload', () => {
@@ -503,6 +439,169 @@ describe('tradeRoute', () => {
       window.localStorage.clear();
       if (id) window.localStorage.setItem('tegridy-bungalow', id);
       expect(swapSection().items.map((i) => i.to), String(id)).toContain(tradeRoute());
+    }
+  });
+});
+
+// Lock shows the bungalow selected (owner, 2026-10-15): the word opens the room's own pool,
+// read at render as Swap's is. With no room, and for the venue sentinel, it opens the list.
+describe('lockRoute', () => {
+  afterEach(() => {
+    window.localStorage.clear();
+  });
+
+  const lockWord = () => BAR_NAV.find((w) => w.label === 'Lock');
+
+  it("opens the room's pool, and follows the skin with no module reload", () => {
+    expect(lockRoute()).toBe('/earn');
+    expect(lockWord()?.to).toBe('/earn');
+
+    window.localStorage.setItem('tegridy-bungalow', 'bayla');
+    expect(lockRoute(), "BAYLA's room opens BAYLA's pool, not every pool").toBe('/earn/bayla');
+    expect(lockWord()?.to).toBe('/earn/bayla');
+
+    window.localStorage.setItem('tegridy-bungalow', 'toweli');
+    expect(lockWord()?.to, "TOWELI's room opens the classic farm").toBe('/earn/toweli');
+
+    window.localStorage.setItem('tegridy-bungalow', 'venue');
+    expect(lockWord()?.to, 'the venue sentinel is no room').toBe('/earn');
+  });
+
+  it('stays lit on the pool it opens', () => {
+    window.localStorage.setItem('tegridy-bungalow', 'pepe');
+    expect(lockWord()?.lit('/earn/pepe', '')).toBe(true);
+  });
+});
+
+// Pools follows the room as Lock does (owner, 2026-10-17: "the wiring for the pages inside the
+// bayla bungalow is off"): in a Solana room with a coin it opens the Solana LP tab on that coin.
+describe('poolsRoute', () => {
+  afterEach(() => {
+    window.localStorage.clear();
+  });
+
+  it("opens on the room's coin in a Solana room, and as for anyone elsewhere", () => {
+    expect(poolsRoute()).toBe('/solana-lp');
+    expect(POOLS_SECTION.primaryTo).toBe('/solana-lp');
+
+    window.localStorage.setItem('tegridy-bungalow', 'bayla');
+    const bayla = BUNGALOWS.find((b) => b.id === 'bayla')!;
+    expect(poolsRoute(), "BAYLA's room opens on BAYLA").toBe(`/solana-lp?mint=${bayla.address}`);
+    expect(POOLS_SECTION.primaryTo).toBe(`/solana-lp?mint=${bayla.address}`);
+
+    window.localStorage.setItem('tegridy-bungalow', 'toweli');
+    expect(poolsRoute(), 'an Ethereum room keeps the tab as it opens for anyone').toBe('/solana-lp');
+  });
+});
+
+// Island stays in the room (owner, 2026-10-17, of the word it replaced: "inside a room, Heat
+// (top bar and phone bar) should open that room's own page, like /bayla, instead of leaving for
+// the venue home").
+describe('islandRoute', () => {
+  afterEach(() => {
+    window.localStorage.clear();
+  });
+
+  const islandWord = () => BAR_NAV.find((w) => w.label === 'Island')!;
+
+  it("opens the room's own page inside a room, and the venue home elsewhere", () => {
+    expect(islandRoute()).toBe('/');
+    expect(islandWord().to).toBe('/');
+    window.localStorage.setItem('tegridy-bungalow', 'venue');
+    expect(islandWord().to, 'the venue sentinel is no room').toBe('/');
+    window.localStorage.setItem('tegridy-bungalow', 'bayla');
+    expect(islandWord().to, "BAYLA's room stays in BAYLA's room").toBe('/bayla');
+    window.localStorage.setItem('tegridy-bungalow', 'toweli');
+    expect(islandWord().to, "TOWELI's room stays in TOWELI's room").toBe('/toweli');
+  });
+
+  it("lights alone on the room's own page, another room's door, and the home with or without its hall", () => {
+    window.localStorage.setItem('tegridy-bungalow', 'bayla');
+    for (const [path, hash] of [['/bayla', ''], ['/pepe', ''], ['/', '#hall'], ['/', '']] as const) {
+      expect(islandWord().lit(path, hash), `${path}${hash}`).toBe(true);
+      expect(BAR_NAV.filter((w) => w.lit(path, hash)).length, `${path}${hash}`).toBe(1);
+    }
+    expect(litWord('/earn/bayla')?.label, "the room's pool is Lock's").toBe('Lock');
+  });
+});
+
+// Owner, 2026-10-18: "put marketplace, nft finance, and other things here that dont have a
+// direct access on the app ... until we can organize them better". One tap each from the menu.
+// Owner, 2026-10-18: the shadowed features went in the side nav "until we can organize them
+// better"; 2026-10-19: organised, under their sections' words, on the desktop as on a phone.
+describe("the menu's index", () => {
+  const pages = () => INDEX_PAGES.map((i) => i.to);
+  const group = (heading: string) => INDEX_GROUPS.find((g) => g.heading === heading)!;
+
+  it('runs Island, Swap, Pools, Lock, Launch, Check, then the records: one group per section', () => {
+    expect(INDEX_GROUPS.map((g) => g.heading)).toEqual(['Island', 'Swap', 'Pools', 'Lock', 'Launch', 'Check', 'Records']);
+    for (const s of NAV_SECTIONS) expect(group(s.heading).to, `${s.heading}'s word`).toBe(s.primaryTo ?? s.hub);
+    expect(group('Records').to).toBeUndefined();
+    expect(group('Records').items).toEqual(DRAWER_LINKS);
+  });
+
+  it("carries every page that is on under its section's word, in tab order", () => {
+    for (const s of NAV_SECTIONS) {
+      const own = s.items.filter((i) => !i.soon).map((i) => i.to);
+      expect(group(s.heading).items.map((i) => i.to).filter((to) => own.includes(to)), s.heading).toEqual(own);
+    }
+  });
+
+  it("files the venue's own pages (the Gold Card, History, Lore) under Island, after the lobby's doors", () => {
+    const island = group('Island').items.map((i) => i.to);
+    const doors = ISLAND_SECTION.items.map((i) => i.to);
+    expect(island.slice(0, doors.length)).toEqual(doors);
+    for (const path of ['/premium', '/history', '/lore']) expect(island, path).toContain(path);
+  });
+
+  it("names a page by its tab label under the word, unless that only repeats the word", () => {
+    const island = group('Island');
+    expect(indexName(island, island.items.find((i) => i.to === '/island')!)).toBe('The island');
+    expect(indexName(island, island.items.find((i) => i.to === '/tokenomics')!)).toBe('Numbers');
+    const swap = group('Swap');
+    expect(indexName(swap, swap.items.find((i) => i.to === '/swap')!)).toBe('Ethereum');
+    const lock = group('Lock');
+    expect(indexName(lock, lock.items.find((i) => i.to === '/earn')!)).toBe('Staking');
+    expect(indexName(lock, lock.items.find((i) => i.to === '/nft-finance')!)).toBe('NFT Loans');
+  });
+
+  it('lands the Pools word on Solana LP and the Check word on the overview', () => {
+    expect(group('Pools').to).toBe('/solana-lp');
+    expect(group('Check').to).toBe('/trust');
+  });
+
+  it('gives every group a picture of its own in the menu', () => {
+    const arts = INDEX_GROUPS.filter((g) => g.heading !== 'Records').map((g) => g.art);
+    expect(new Set(arts).size, 'two groups share a picture').toBe(arts.length);
+    expect(arts, "0 is the menu's own picture, and the records'").not.toContain(0);
+  });
+
+  it('opens a routed page with every entry, each once', () => {
+    const routed = new Set(ROUTES.map((r) => r.path));
+    for (const to of pages()) expect(routed, `${to} is listed but no route draws it`).toContain(to);
+    expect(new Set(pages()).size, 'a page is listed twice').toBe(pages().length);
+  });
+
+  it('lists no page that is off today', () => {
+    const off = ALL_NAV.filter((n) => n.soon).map((n) => n.to);
+    for (const to of pages()) expect(off, `${to} is off, and its own strip hides it`).not.toContain(to);
+  });
+
+  // Every entry is on today, so the guard above cannot fail on its own: switch one off.
+  it('drops a page the moment it is off, as its strip does', async () => {
+    expect(pages(), 'the precondition: Copy Trading is listed while its tape is readable').toContain('/copy-trading');
+    vi.resetModules();
+    vi.doMock('./copytrade/tape', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('./copytrade/tape')>()),
+      hasCopyTapeSource: () => false,
+    }));
+    try {
+      const off = await import('./navConfig');
+      expect(off.ALL_NAV.find((n) => n.to === '/copy-trading')?.soon, 'Copy Trading reads as off').toBe(true);
+      expect(off.INDEX_PAGES.map((i) => i.to)).not.toContain('/copy-trading');
+    } finally {
+      vi.doUnmock('./copytrade/tape');
+      vi.resetModules();
     }
   });
 });

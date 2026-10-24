@@ -2,7 +2,9 @@ import { Link } from 'react-router-dom';
 import { m } from 'framer-motion';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
-import { GITHUB_REPO_URL } from '../lib/constants';
+import { CardArt } from '../components/ui/CardArt';
+import { FinePrint } from '../components/ui/FinePrint';
+import { SOURCE_URL } from '../lib/constants';
 
 // TRUST HUB — the one screen that frames the three detection surfaces as a single
 // anti-rug suite instead of three unrelated links buried in a "Stats" submenu.
@@ -49,6 +51,9 @@ const TOOLS: Tool[] = [
   },
 ];
 
+// The tool cards take trust:0..2 (wraps at the list length); "How to read a result" is trust:3.
+const TOOL_ART_SLOTS = 3;
+
 export default function TrustHubPage() {
   usePageTitle(
     'Trust Tools',
@@ -63,11 +68,7 @@ export default function TrustHubPage() {
         <m.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="mb-6">
           <h1 className="heading-luxury text-2xl md:text-4xl text-text-primary tracking-tight mb-2">Trust Tools</h1>
           <p className="text-[14px] text-text-secondary max-w-[640px]">
-            Three free reads that work on <span className="text-text-primary font-medium">any</span> token, deployer or
-            wallet — not just ours. Each one is a{' '}
-            <span className="text-text-primary font-medium">descriptive measurement</span>: a disclosed method, the
-            addresses it excluded, and a timestamp. None of them is a verdict on anyone&apos;s intent, and none will
-            invent a number when the underlying data is missing — they say so instead.
+            Three free checks for <span className="text-text-primary font-medium">any</span> token, deployer or wallet.
           </p>
         </m.div>
 
@@ -83,24 +84,41 @@ export default function TrustHubPage() {
             >
               <Link
                 to={t.to}
-                className="glass-card rounded-xl p-4 h-full flex flex-col hover:border-emerald-500/40 transition-colors"
+                className="glass-card relative isolate rounded-xl p-4 h-full flex flex-col hover:border-emerald-500/40 transition-colors"
               >
+                <CardArt pageId="trust" idx={0 + (i % TOOL_ART_SLOTS)} />
                 <div className="flex items-baseline justify-between gap-3 mb-1">
                   <span className="text-text-primary font-semibold text-[15px]">{t.name}</span>
                   <span className="text-[10px] uppercase tracking-wider text-text-muted shrink-0">{t.reads}</span>
                 </div>
                 <p className="text-[13px] text-emerald-300/90 mb-1.5">{t.question}</p>
-                <p className="text-[13px] text-text-secondary leading-relaxed">{t.blurb}</p>
-                <span className="mt-3 text-[12px] text-emerald-400/80 group-hover:text-emerald-300">Open {t.name} →</span>
+                <span className="mt-auto pt-2 text-[12px] text-emerald-400/80 group-hover:text-emerald-300">Open {t.name} →</span>
               </Link>
             </m.div>
           ))}
         </div>
+        {/* The per-tool blurbs, folded. A <details> cannot sit inside a card
+            that is itself a link, so the three share one fold under the grid. */}
+        <FinePrint summary="What each reads" className="mt-2">
+          {TOOLS.map((t) => (
+            <p key={t.to}>
+              <span className="text-text-primary">{t.name}:</span> {t.blurb}
+            </p>
+          ))}
+        </FinePrint>
 
         {/* ── How to read a result ───────────────────────────────────── */}
-        <div className="glass-card rounded-xl p-4 mt-4">
-          <h2 className="text-text-primary font-semibold text-[14px] mb-2">How to read a result</h2>
-          <ul className="text-[13px] text-text-secondary space-y-1.5 leading-relaxed list-disc pl-4">
+        <div className="glass-card relative isolate rounded-xl p-4 mt-4">
+          <CardArt pageId="trust" idx={3} />
+          <h2 className="text-text-primary font-semibold text-[14px] mb-1">How to read a result</h2>
+          <p className="text-[13px] text-text-secondary">Measurements, not verdicts. A gap shows as a gap, never zero.</p>
+          <FinePrint>
+          <p>
+            Each one is a <span className="text-text-primary font-medium">descriptive measurement</span>: a disclosed
+            method, the addresses it excluded, and a timestamp. None of them is a verdict on anyone&apos;s intent, and
+            none will invent a number when the underlying data is missing — they say so instead.
+          </p>
+          <ul className="space-y-1.5 list-disc pl-4">
             <li>
               <span className="text-text-primary">Concentration is not fraud.</span> A high top-holder share can be a
               locked LP, a bridge, or a treasury — the report lists what it excluded so you can judge the rest.
@@ -114,6 +132,14 @@ export default function TrustHubPage() {
               result can be shared or re-checked later — including by whoever you are asking about.
             </li>
           </ul>
+          <p>
+            Launching something yourself? The{' '}
+            <Link to="/launch" className="text-emerald-400/80 hover:text-emerald-300 underline transition-colors">
+              launcher
+            </Link>{' '}
+            publishes the same kind of disclosure as a Fact Sheet at launch.
+          </p>
+          </FinePrint>
         </div>
 
         {/* ── Our own posture (honest cross-link, not a claim) ───────── */}
@@ -157,7 +183,7 @@ export default function TrustHubPage() {
             { label: 'Contracts Verified', to: '/contracts' },
             { label: 'Timelocked Admin', to: '/security' },
             { label: 'Responsible Disclosure', to: '/security' },
-            { label: 'Open Source', href: GITHUB_REPO_URL },
+            { label: 'Open Source', href: SOURCE_URL },
           ].map((b) => (
             'href' in b ? (
               <a key={b.label} href={b.href} target="_blank" rel="noopener noreferrer"
@@ -175,7 +201,7 @@ export default function TrustHubPage() {
           ))}
         </div>
         <p className="text-[12px] text-text-muted mt-4 leading-relaxed">
-          For how this protocol itself is secured — including what has and has not been audited — see{' '}
+          How this venue is secured, and what is not audited:{' '}
           <Link to="/security" className="text-emerald-400/80 hover:text-emerald-300 underline transition-colors">
             Security
           </Link>{' '}
@@ -183,11 +209,7 @@ export default function TrustHubPage() {
           <Link to="/risks" className="text-emerald-400/80 hover:text-emerald-300 underline transition-colors">
             Risks
           </Link>
-          . Launching something yourself? The{' '}
-          <Link to="/launch" className="text-emerald-400/80 hover:text-emerald-300 underline transition-colors">
-            launcher
-          </Link>{' '}
-          publishes the same kind of disclosure as a Fact Sheet at launch.
+          .
         </p>
       </div>
     </>

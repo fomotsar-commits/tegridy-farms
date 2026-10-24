@@ -1,48 +1,10 @@
 #!/usr/bin/env node
-/**
- * Feature-gating environment verifier.
- *
- * WHY THIS EXISTS — the operator report, 2026-09-03.
- * The operator said the site "says coming soon for things that are live". An audit of
- * every "coming soon" surface in the frontend found that almost all of them are
- * UNREACHABLE dead branches — the gate constants are filled in and the placeholder can
- * never render. The ones a user actually sees are not driven by code at all. They are
- * driven by environment variables that were never set on the deploy.
- *
- * .env.example already says this, in its own words:
- *
- *   "Every one FAILS QUIET-CLOSED when unset: the feature is simply off, nothing
- *    logged — which is exactly why they must be documented, or a deploy silently
- *    ships with revenue/features dark."
- *
- * Documenting it was not enough, because nothing CHECKS it. A missing var produces no
- * error, no warning, and no log line — just a "Soon" pill on a finished feature, or a
- * swap surface that collects no fee. The failure is indistinguishable from the feature
- * genuinely not being built, which is precisely why it survived to a user report.
- *
- * So this is a CHECK, not a document. It enumerates the vars that turn shipped things
- * off, says what each one darkens, and reports which are currently unset. The
- * enumeration IS the documentation — the same shape as verify-addresses.mjs, and as the
- * source-level tripwire tests elsewhere in this repo: a named list cannot over-fire, and
- * reading the list tells you what is at stake.
- *
- * USAGE
- *   node scripts/verify-env.mjs                 # report; exit 0 always
- *   node scripts/verify-env.mjs --strict        # exit 1 if any REVENUE gate is dark
- *   node scripts/verify-env.mjs --strict-all    # exit 1 if any gate at all is dark
- *   node scripts/verify-env.mjs --env-file .env # also read vars from a file
- *
- * Run it against the DEPLOY environment, not a laptop. A local .env that is missing
- * everything is expected and means nothing about production.
- *
- * AMENDED 2026-09-04, and the amendment is the point. Two entries below overstated
- * their reach and have been corrected in place rather than quietly edited: the indexer
- * URL no longer pills any nav entry (PR #360 moved those to capability checks), and the
- * yield feed never did. A checker that overstates is the same failure as the deploy it
- * is meant to catch — it just fails in the other direction, and an operator who acts on
- * a false alarm here has been misled as surely as one who ships a dark feature. If a row
- * in this file ever disagrees with the code, the code wins and the row is the bug.
- */
+// Feature-gating environment check. Every var below FAILS QUIET-CLOSED when unset: the
+// feature is simply off, nothing logged, so this reports which are dark and what each costs.
+// Run it against the DEPLOY env (a laptop reports everything dark). If a row disagrees with
+// the code, the code wins and the row is the bug.
+//   node scripts/verify-env.mjs [--strict | --strict-all] [--env-file .env]
+//   --strict exits 1 on a dark REVENUE gate or a refused value; --strict-all on any dark gate.
 
 import { readFileSync } from 'node:fs';
 
@@ -63,15 +25,8 @@ const BAYLA_POOL_RETIRED = '4WCpdeQ2pKLNECNDTXepwsdeePZPoNCp9AQqfACNGXPp';
 const GATES = [
   {
     vars: ['VITE_INDEXER_URL'],
-    // CORRECTED 2026-09-04. This entry used to say the five nav entries pill "Soon"
-    // on this one var. That WAS true when this file was written and is not any more:
-    // PR #360 re-pointed those surfaces at capability checks that do not need Ponder
-    // (hasCopyTapeSource, hasScoreableBoard, hasChartableMarket, and /tax is now an
-    // unconditional soon:false). Unset no longer hides a single nav entry.
-    //
-    // What it still costs is DATA, not visibility: the useIndexed* hooks self-gate to
-    // an explicit "indexer unavailable" state, so the surfaces render and say they are
-    // reading nothing rather than pretending to be empty.
+    // Unset hides no nav entry (PR #360 moved those to capability checks). It costs DATA:
+    // the useIndexed* hooks self-gate to an explicit "indexer unavailable" state.
     severity: 'features',
     darkens: 'indexed history on /terminal, /chart, /copy-trading, /competitions, /tax',
     effect: 'those surfaces render, and say plainly that the indexer is unavailable, rather than showing an empty result set that reads as "there is no data". The indexer is built (indexer/, indexer-solana/) and deployed on Railway behind an nginx proxy; this var is only the URL the frontend asks. Do NOT set it until /ready returns 200 — pointing at a mid-sync indexer is the exact empty-looks-like-zero failure the readiness gate exists to prevent.',
@@ -80,19 +35,14 @@ const GATES = [
     vars: ['VITE_SWAP_FEE_BPS', 'VITE_SWAP_FEE_RECIPIENT'],
     severity: 'revenue',
     darkens: 'the EVM swap surface',
-    effect: 'fee collection is OFF and the swap earns NOTHING, silently (lib/fees/swapFee.ts fails closed: unset => bps 0, recipient null). Both vars are required; a zero-address recipient is rejected because providers read it as "no partner" and keep the fee themselves.',
+    effect: 'fee collection is OFF and the swap earns NOTHING, silently (lib/fees/swapFee.ts fails closed: unset => bps 0, recipient null). Both vars are required. The recipient must be the treasury Safe of the chain the fee is collected on, which for every fee today is Ethereum: 0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d. Any other address, including the Base treasury Safe 0x796c22ff58F24e4a5d07683d8A5c03Ec54dB38C0, also leaves the fee OFF.',
   },
   {
     vars: ['VITE_ONRAMP_PARTNER_FEE_BPS'],
-    // NOT a revenue switch, and calling it one was wrong. This var COLLECTS NOTHING —
-    // it is a DISCLOSURE mirror of a partner fee configured in the provider's own
-    // dashboard (lib/onramp/partnerFee.ts). Unset means the fee is not DISCLOSED to the
-    // user, not that it is not charged, so the honest reading of an unset value is the
-    // opposite of the one this file first gave: money may be moving and going unsaid.
-    // Setting it to a figure that does not match the provider is worse than leaving it
-    // unset — that module's own docstring calls a mismatched rate "a false statement
-    // about somebody's money". Note `0` is a valid DECLARATION of no partner fee and is
-    // deliberately distinct from unset.
+    // NOT a revenue switch: it COLLECTS NOTHING. It mirrors, for DISCLOSURE, a partner fee set
+    // in the provider's own dashboard (lib/onramp/partnerFee.ts). Unset means a fee may be
+    // charged and go unsaid; a value that does not match the provider is worse than unset.
+    // `0` is a valid declaration of no partner fee, distinct from unset.
     severity: 'disclosure',
     darkens: 'the fiat on-ramp fee disclosure',
     effect: 'the partner fee is not disclosed to the user. Only the operator can supply this number, because it must equal what is configured at the provider — do not guess it.',
@@ -105,14 +55,8 @@ const GATES = [
   },
   {
     vars: ['VITE_YIELD_FEED_URL'],
-    // CORRECTED 2026-09-04. This claimed the nav entry pills "Soon" without it. It does
-    // not, and never did — I conflated the rate feed with the pill. hasRoutableYieldVenue()
-    // counts venues with a non-'none' route and a deployed depositTarget, and those are
-    // real mainnet addresses (Lido, Rocket Pool, ether.fi, Renzo, Aave v3, Compound,
-    // sUSDS), so /yield is live regardless of this var. venues.ts says so outright: the
-    // pill "depends on no environment variable, no server, no indexer and no stored
-    // state, which is the /solana-launch failure it was written to avoid — a flag that
-    // cleared before the action worked."
+    // Not a pill gate: hasRoutableYieldVenue() keys the nav entry to deposit routing through
+    // real mainnet addresses, so /yield stays live without this var; only the rates hide.
     severity: 'features',
     darkens: 'the APR figures on /yield',
     effect: 'the rate tiles hide. Routing still works and the nav entry stays live, because the pill is keyed to whether a deposit can actually be routed, not to whether a rate can be quoted.',
@@ -167,22 +111,9 @@ const env = { ...(fromFile ?? {}), ...process.env };
 const isSet = (k) => typeof env[k] === 'string' && env[k].trim() !== '';
 
 /**
- * UNREADABLE IS NOT UNSET — added 2026-09-04 after this script cried wolf three times.
- *
- * A Vercel variable marked "Secret" (the lock icon in the dashboard, versus "Config")
- * cannot be read back by anyone, including `vercel env pull`. The pulled file still
- * carries the KEY, with an empty value:
- *
- *     VITE_SOLANA_FEE_ACCOUNT=""      <- SET, but sealed. Cannot be read.
- *     (no line at all)                <- genuinely unset.
- *
- * `isSet` cannot tell those apart, so this script reported three sealed variables as
- * dark and told the operator money was not being collected. It was collecting. That is
- * the same failure this file exists to catch, pointed at the operator instead of the
- * user — and a checker that cries wolf gets muted, at which point it is not a checker.
- *
- * The distinction only exists when reading a pulled --env-file: process.env has no
- * concept of a sealed value, so a var absent there is absent, full stop.
+ * UNREADABLE IS NOT UNSET. A Vercel "Secret" var pulls back as `KEY=""` (set but sealed),
+ * while an unset one has no line at all. Only a pulled --env-file shows the difference;
+ * process.env has no sealed state. A sealed gate is never reported dark or fails --strict.
  */
 const isSealed = (k) =>
   fromFile !== null
@@ -254,21 +185,36 @@ if (baylaOverride === null) {
   console.log('        farm page will look broken or empty. UNSET this var in the deploy.');
 } else {
   baylaBad = true;
-  // NEVER echo a raw environment value, even one that is public by construction.
-  // CodeQL flags this as js/clear-text-logging (HIGH) and it is right to: this
-  // script reads whatever is in `env`, so the PATTERN leaks whatever the checked
-  // set grows to include, not just today's contents. A VITE_ var is compiled into
-  // the client bundle and is therefore already public — but the next var added
-  // here might not be, and a logging habit does not know the difference.
-  //
-  // The diagnostic survives without the value: the operator knows which var is
-  // wrong, what it overrides, and what to do. They can read their own env.
+  // NEVER echo a raw environment value (CodeQL js/clear-text-logging): this script reads
+  // whatever is in `env`, and the next var checked may not be public. The operator can
+  // read their own env; the diagnostic survives without the value.
   console.log('!!      SET TO AN UNRECOGNISED POOL (value not printed - see below)');
   console.log(`        It overrides the canonical ${BAYLA_POOL_CANONICAL}. Compare your`);
   console.log('        VITE_BAYLA_STAKE_POOL against that address, and unset it unless the');
   console.log('        override is deliberate.');
 }
 console.log('');
+
+// The swap fee's recipient is refused unless it is the treasury Safe of the chain the fee
+// is collected on (lib/fees/swapFee.ts), so a SET value can still leave the fee OFF. Every
+// fee today is collected on Ethereum. Never echo the raw value.
+const ETHEREUM_TREASURY_SAFE = '0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d';
+const BASE_TREASURY_SAFE = '0x796c22ff58F24e4a5d07683d8A5c03Ec54dB38C0';
+let swapFeeRecipientBad = false;
+if (isSet('VITE_SWAP_FEE_RECIPIENT')) {
+  const recipient = env.VITE_SWAP_FEE_RECIPIENT.trim().toLowerCase();
+  console.log('   VITE_SWAP_FEE_RECIPIENT (must be the Ethereum treasury Safe)');
+  if (recipient === ETHEREUM_TREASURY_SAFE.toLowerCase()) {
+    console.log('        set, and matches the Ethereum treasury Safe.');
+  } else {
+    swapFeeRecipientBad = true;
+    console.log(recipient === BASE_TREASURY_SAFE.toLowerCase()
+      ? '!!      SET TO THE BASE TREASURY SAFE, which has no code on Ethereum.'
+      : '!!      SET TO AN ADDRESS THE CODE REFUSES ON ETHEREUM (value not printed).');
+    console.log(`        The swap fee is OFF until it is ${ETHEREUM_TREASURY_SAFE}.`);
+  }
+  console.log('');
+}
 
 const revenueDark = dark.filter((d) => d.severity === 'revenue');
 const featureDark = dark.filter((d) => d.severity === 'features');
@@ -279,7 +225,7 @@ if (sealedGates.length > 0) {
   console.log(`   ${sealedGates.length} gate(s) SEALED — set, but this check cannot read them, so it is`);
   console.log('   reporting nothing about them either way. Not a finding. Not an all-clear.');
 }
-if (dark.length === 0 && !baylaBad) {
+if (dark.length === 0 && !baylaBad && !swapFeeRecipientBad) {
   console.log(
     sealedGates.length > 0
       ? 'Nothing readable is dark. The sealed gates above are the only unknowns.'
@@ -299,10 +245,13 @@ if (dark.length === 0 && !baylaBad) {
   if (baylaBad) {
     console.log('!! VITE_BAYLA_STAKE_POOL points somewhere it should not.');
   }
+  if (swapFeeRecipientBad) {
+    console.log('!! VITE_SWAP_FEE_RECIPIENT is set to an address the code refuses, so the swap fee is OFF.');
+  }
   console.log('\nNone of these are code bugs. Each is one value on the deploy environment.');
 }
 console.log('─'.repeat(72) + '\n');
 
-if (strictAll && (dark.length > 0 || baylaBad)) process.exit(1);
-if (strict && (revenueDark.length > 0 || baylaBad)) process.exit(1);
+if (strictAll && (dark.length > 0 || baylaBad || swapFeeRecipientBad)) process.exit(1);
+if (strict && (revenueDark.length > 0 || baylaBad || swapFeeRecipientBad)) process.exit(1);
 process.exit(0);

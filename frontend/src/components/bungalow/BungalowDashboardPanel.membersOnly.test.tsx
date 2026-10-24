@@ -69,6 +69,7 @@ vi.mock('../ArtImg', () => ({ ArtImg: () => null }));
 vi.mock('./HeatCard', () => ({ HeatCard: () => null }));
 vi.mock('./BungalowMarket', () => ({ BungalowMarket: () => null }));
 vi.mock('./BungalowHolders', () => ({ BungalowHolders: () => null }));
+vi.mock('./BungalowBurn', () => ({ BungalowBurn: () => null }));
 vi.mock('../../lib/bungalowStaking', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../lib/bungalowStaking')>()),
   readPool: vi.fn(async () => ({ ok: true as const, pool: fixtures.pool })),
@@ -124,11 +125,11 @@ describe('a members-only pool on the dashboard', () => {
     mount(MEMBERS_ONLY);
     await settle();
     expect(ladderCard()).toBeTruthy();
-    expect(screen.getByRole('link', { name: 'Stake BAYLA' }).getAttribute('href')).toBe('/farm');
+    expect(screen.getByRole('link', { name: 'Stake BAYLA' }).getAttribute('href')).toBe('/earn/bayla');
     // Not the card, not its rate and vault, not the connect copy's "lighthouse
     // position", not the surfaces link: the word does not appear on the page.
     expect(pageText()).not.toMatch(/lighthouse|Streamflow|Configured rate|Reward vault|See the pool/i);
-    expect(screen.getByRole('link', { name: 'The lock ladder' }).getAttribute('href')).toBe('/farm');
+    expect(screen.getByRole('link', { name: 'The lock ladder' }).getAttribute('href')).toBe('/earn/bayla');
     expect(staking.readEntries).not.toHaveBeenCalled();
     expect(staking.readPool).not.toHaveBeenCalled();
   });
@@ -158,7 +159,7 @@ describe('a members-only pool on the dashboard', () => {
     expect(pageText()).toContain('50,000');
     // The claim strip sits UNDER the ladder on the pool page, and the card says so.
     expect(screen.getByText(/takes no new stakes/).textContent).toMatch(/under the lock ladder/);
-    expect(screen.getByRole('link', { name: 'Manage position' }).getAttribute('href')).toBe('/farm');
+    expect(screen.getByRole('link', { name: 'Manage position' }).getAttribute('href')).toBe('/earn/bayla');
     // The member card takes the slot, and still never advertises the pool's rate.
     expect(ladderCard()).toBeNull();
     expect(pageText()).not.toMatch(/Configured rate|The pool is live|See the pool/);
@@ -332,5 +333,41 @@ describe("a member's position when the pool read failed", () => {
     } finally {
       fixtures.pool = pool;
     }
+  });
+});
+
+// Island, answer seventeen item 3: no configured APR over an empty vault, on any door.
+// The open pool's card keeps the vault and says it pays nothing; the rate goes.
+describe('an open pool whose reward vault is empty', () => {
+  it('shows the vault and no configured rate', async () => {
+    const rp = fixtures.pool.rewardPools[0]!;
+    const funded = rp.fundedRaw;
+    rp.fundedRaw = 0n;
+    try {
+      fixtures.walletKey = null;
+      mount(OPEN);
+      expect(await screen.findByText('Reward vault')).toBeTruthy();
+      expect(screen.queryByText('Configured rate')).toBeNull();
+      expect(pageText()).toMatch(/Empty vault: it pays nothing until someone funds it\./);
+      expect(pageText()).not.toMatch(/% APR/);
+    } finally {
+      rp.fundedRaw = funded;
+    }
+  });
+});
+
+// Owner, 2026-10-14: the room's dashboard shows the marketplace and NFT loans doors too,
+// in the quick-links row beside Trade and the pool.
+describe('the quick links carry the marketplace and NFT loans doors', () => {
+  it.each([
+    ['a members-only pool', MEMBERS_ONLY],
+    ['an open pool', OPEN],
+  ])('%s: Marketplace goes to /nakamigos and NFT loans to /nft-finance', async (_label, b) => {
+    fixtures.walletKey = null;
+    mount(b);
+    expect(screen.getByRole('link', { name: 'Marketplace' }).getAttribute('href')).toBe('/nakamigos');
+    expect(screen.getByRole('link', { name: 'NFT loans' }).getAttribute('href')).toBe('/nft-finance');
+    expect(screen.getByRole('link', { name: `Trade ${b.symbol}` })).toBeTruthy();
+    await settle();
   });
 });

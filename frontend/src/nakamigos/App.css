@@ -926,8 +926,9 @@
 }
 
 /* ═══ Back to Top ═══ */
+/* Above the sound and Keys buttons (bottom 16px, 32px tall), 12px clear. */
 .back-to-top {
-  position: fixed; bottom: 28px; left: 28px; z-index: 900;
+  position: fixed; bottom: 60px; left: 16px; z-index: 900;
   width: 42px; height: 42px; border-radius: 12px; cursor: pointer;
   background: linear-gradient(145deg, rgba(111, 168, 220, 0.1), rgba(200, 170, 100, 0.05));
   border: 1px solid rgba(111, 168, 220, 0.15);
@@ -951,9 +952,9 @@
   transform: translateY(0) scale(0.95);
   transition-duration: 0.1s;
 }
-/* On phones the bottom nav occupies the bottom-left corner; lift the
+/* Where the bottom nav shows (768px and below, as it does), lift the
    back-to-top button clear of it so the two tap targets don't abut (F837). */
-@media (max-width: 767px) {
+@media (max-width: 768px) {
   .back-to-top { bottom: 80px; }
 }
 
@@ -3797,6 +3798,13 @@
   }
 }
 
+/* The cart drawer ends above the bottom nav (z-index 9999) where it shows:
+   56px of bar plus the nav's own bottom padding, max(6px, the safe area). */
+.nakamigos-app .cart-drawer { bottom: 0; }
+@media (max-width: 768px) {
+  .nakamigos-app .cart-drawer { bottom: calc(56px + max(6px, env(safe-area-inset-bottom, 0px))); }
+}
+
 /* ═══ Micro-interactions ═══ */
 
 
@@ -4617,3 +4625,151 @@
 @media (max-width: 480px) {
   .portfolio-section { padding: 0 12px 32px; }
 }
+
+/* ═══ View-only collections (components/external) ═══
+   A collection that trades on its own market: a gallery, an About page and a
+   link out. Every rule is scoped under .nakamigos-app and prefixed ext-. */
+.nakamigos-app .ext-market-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 2px;
+  min-height: 44px; padding: 0 20px; border-radius: 12px;
+  font-family: var(--mono); font-size: 12px; font-weight: 700; letter-spacing: 0.02em;
+  color: #0a0e1a; background: var(--naka-blue); border: 1px solid rgba(111, 168, 220, 0.6);
+  text-decoration: none; white-space: nowrap;
+  /* A dark label on light blue: the body's dark text shadow would smear it. */
+  text-shadow: none;
+  transition: filter 0.2s, box-shadow 0.2s;
+}
+.nakamigos-app .ext-market-btn:hover { filter: brightness(1.1); box-shadow: 0 0 24px rgba(111, 168, 220, 0.25); }
+.nakamigos-app .ext-market-btn:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.nakamigos-app .ext-secondary-btn,
+.nakamigos-app .ext-retry-btn {
+  min-height: 44px; padding: 0 16px; border-radius: 12px; cursor: pointer;
+  font-family: var(--mono); font-size: 11px; color: var(--text-dim);
+  background: var(--surface-glass); border: 1px solid var(--border);
+}
+.nakamigos-app .ext-secondary-btn:hover,
+.nakamigos-app .ext-retry-btn:hover:not(:disabled) { color: var(--text); border-color: rgba(111, 168, 220, 0.3); }
+.nakamigos-app .ext-retry-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.nakamigos-app .ext-hero-title { overflow-wrap: anywhere; }
+.nakamigos-app .ext-hero-actions { margin: 4px 0 20px; }
+.nakamigos-app .ext-hero-image {
+  flex: 0 0 auto; width: 240px; height: 240px; border-radius: 20px; overflow: hidden;
+  border: 1px solid rgba(111, 168, 220, 0.1); background: var(--bg);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.5);
+}
+.nakamigos-app .ext-hero-image img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.nakamigos-app .ext-stat-card { min-width: 0; }
+.nakamigos-app .ext-stat-note { font-family: var(--mono); font-size: 8px; color: var(--text-muted); margin-top: 2px; }
+.nakamigos-app .ext-stats-source { font-family: var(--mono); font-size: 10px; color: var(--text-muted); margin-top: 10px; letter-spacing: 0.02em; }
+
+.nakamigos-app .ext-section { position: relative; z-index: 1; max-width: 1440px; margin: 0 auto; padding: 24px 0 40px; }
+.nakamigos-app .ext-gallery-count,
+.nakamigos-app .ext-gallery-status,
+.nakamigos-app .ext-notice {
+  margin: 0 32px 16px; font-family: var(--mono); font-size: 11px; color: var(--text-dim); line-height: 1.6;
+}
+.nakamigos-app .ext-gallery-status { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.nakamigos-app .ext-gallery-error { color: var(--yellow); }
+.nakamigos-app .ext-notice {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  padding: 12px 16px; border-radius: 12px; color: var(--text);
+  background: rgba(251, 191, 36, 0.06); border: 1px solid rgba(251, 191, 36, 0.2);
+}
+.nakamigos-app main > .ext-notice { position: relative; z-index: 2; margin-top: 16px; }
+.nakamigos-app .ext-card {
+  display: block; width: 100%; padding: 0; margin: 0; border: none; background: none;
+  color: inherit; font: inherit; text-align: left; cursor: pointer; border-radius: 16px;
+}
+.nakamigos-app .ext-card:focus-visible { outline: 2px solid var(--naka-blue); outline-offset: 2px; }
+.nakamigos-app .ext-card-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nakamigos-app .ext-card-meta {
+  display: flex; justify-content: space-between; gap: 8px; margin-top: 4px;
+  font-family: var(--mono); font-size: 10px; color: var(--text-muted);
+}
+.nakamigos-app .ext-image-missing {
+  width: 100%; height: 100%; display: grid; place-items: center;
+  font-family: var(--mono); font-size: 10px; color: var(--text-muted); background: var(--bg);
+}
+.nakamigos-app .ext-image-missing-lg { aspect-ratio: 1; min-height: 200px; }
+
+.nakamigos-app .ext-panel-collection { font-family: var(--mono); font-size: 10px; color: var(--text-muted); letter-spacing: 0.04em; overflow-wrap: anywhere; }
+.nakamigos-app .ext-panel-title { font-family: var(--display); font-size: 18px; color: var(--text); margin: 4px 0; overflow-wrap: anywhere; }
+.nakamigos-app .ext-panel-id { font-family: var(--mono); font-size: 11px; color: var(--text-dim); }
+.nakamigos-app .ext-panel-note { font-family: var(--mono); font-size: 10px; color: var(--text-muted); line-height: 1.6; margin: 8px 0 0; }
+.nakamigos-app .ext-panel-actions .ext-market-btn { width: 100%; }
+.nakamigos-app .ext-facts { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; }
+.nakamigos-app .ext-fact-label { font-family: var(--mono); font-size: 9px; color: var(--text-muted); letter-spacing: 0.08em; text-transform: uppercase; }
+.nakamigos-app .ext-fact-value { font-family: var(--display); font-size: 12px; color: var(--text); margin-top: 2px; overflow-wrap: anywhere; }
+.nakamigos-app .ext-fact-value a,
+.nakamigos-app .ext-about-fact-value a { color: var(--naka-blue); text-decoration: none; }
+
+.nakamigos-app .ext-about-image { width: 80px; height: 80px; border-radius: 16px; overflow: hidden; margin-bottom: 20px; border: 2px solid rgba(200, 170, 100, 0.15); }
+.nakamigos-app .ext-about-image img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.nakamigos-app .ext-about-title { font-family: var(--pixel); font-size: 18px; color: var(--naka-blue); margin-bottom: 8px; letter-spacing: 0.04em; line-height: 1.4; overflow-wrap: anywhere; }
+.nakamigos-app .ext-about-lead { font-family: var(--display); font-size: 14px; color: var(--text-dim); line-height: 1.7; margin: 0 0 20px; }
+.nakamigos-app .ext-description { margin: 0 0 20px; }
+.nakamigos-app .ext-description-source { font-family: var(--mono); font-size: 10px; color: var(--text-muted); letter-spacing: 0.04em; margin-bottom: 6px; }
+.nakamigos-app .ext-description-text {
+  margin: 0; padding: 12px 16px; border-left: 2px solid rgba(111, 168, 220, 0.25);
+  font-family: var(--display); font-size: 13px; color: var(--text-dim); line-height: 1.8;
+  white-space: pre-line; overflow-wrap: anywhere;
+}
+.nakamigos-app .ext-tags { display: flex; gap: 8px; flex-wrap: wrap; }
+.nakamigos-app .ext-tag {
+  font-family: var(--mono); font-size: 10px; padding: 4px 10px; border-radius: 6px; letter-spacing: 0.04em;
+  background: rgba(200, 170, 100, 0.08); border: 1px solid rgba(200, 170, 100, 0.15); color: var(--gold);
+}
+.nakamigos-app .ext-about-fact { background: var(--surface); padding: 20px 22px; min-width: 0; }
+.nakamigos-app .ext-about-fact-value { font-family: var(--display); font-size: 14px; color: var(--text-dim); font-weight: 500; margin-top: 6px; overflow-wrap: anywhere; }
+.nakamigos-app .ext-supply-note { font-family: var(--mono); font-size: 11px; color: var(--text-muted); line-height: 1.7; margin: 16px 0 0; }
+.nakamigos-app .ext-about-links { margin-top: 28px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+
+.nakamigos-app .ext-unavailable-card {
+  margin: 24px 32px; padding: 28px; max-width: 640px; border-radius: 16px;
+  background: var(--surface-glass); border: 1px solid var(--border);
+  font-family: var(--display); font-size: 14px; color: var(--text-dim); line-height: 1.7;
+}
+.nakamigos-app .ext-unavailable-card p { margin: 0 0 10px; }
+.nakamigos-app .ext-unavailable-title { font-family: var(--pixel); font-size: 13px; color: var(--naka-blue); margin: 0 0 14px; letter-spacing: 0.04em; }
+.nakamigos-app .ext-unavailable-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 18px; }
+.nakamigos-app .ext-footer-name {
+  font-family: var(--pixel); font-size: 10px; color: var(--naka-blue); letter-spacing: 0.04em; line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 768px) {
+  .nakamigos-app .ext-hero-image { width: 100%; max-width: 320px; height: auto; aspect-ratio: 1; }
+  .nakamigos-app .ext-gallery-count,
+  .nakamigos-app .ext-gallery-status,
+  .nakamigos-app .ext-notice { margin-left: 16px; margin-right: 16px; }
+  .nakamigos-app .ext-unavailable-card { margin: 16px; padding: 20px; }
+}
+@media (max-width: 480px) {
+  .nakamigos-app .ext-market-btn { width: 100%; }
+  .nakamigos-app .ext-unavailable-actions .ext-secondary-btn { flex: 1 1 auto; }
+  .nakamigos-app .header-collection-name { max-width: 140px !important; }
+}
+
+/* ═══ Item panels on a phone: the picture fits its capped side ═══
+   Below 640 px the picture side of an item panel (the trading modal and the
+   view-only panel) is capped in height. It takes exactly that height, the
+   picture is fitted inside it and anything larger is clipped, so a picture
+   can never paint over the title and close button below it. */
+@media (max-width: 640px) {
+  .nakamigos-app .modal-image-side { height: 280px; overflow: hidden; }
+  .nakamigos-app .modal-image-side .modal-image-wrap { height: 100%; width: auto; max-width: 100%; aspect-ratio: 1; }
+  .nakamigos-app .modal-image-side .modal-image-wrap > img,
+  .nakamigos-app .modal-image-side .modal-image-wrap > .nft-placeholder,
+  .nakamigos-app .modal-image-side .modal-image-wrap > .ext-image-missing {
+    width: 100%; height: 100%; min-height: 0; object-fit: contain;
+  }
+}
+@media (max-width: 480px) {
+  .nakamigos-app .modal-image-side { height: 240px; }
+}
+@media (max-width: 390px) {
+  .nakamigos-app .modal-image-side { height: 220px; }
+}
+/* A close button keeps its tap size beside a long title. */
+.nakamigos-app .modal-close { flex-shrink: 0; }

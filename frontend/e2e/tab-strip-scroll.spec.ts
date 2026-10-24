@@ -19,7 +19,6 @@ const LANDINGS = [
   { path: '/eth-curve', strip: 'Launch sections' },
   { path: '/launch-simulator', strip: 'Launch sections' },
   { path: '/copy-trading', strip: 'Earn sections' },
-  { path: '/competitions', strip: 'Earn sections' },
   { path: '/checkout', strip: 'Earn sections' },
   { path: '/terminal', strip: 'Token-checking tools' },
   { path: '/chart', strip: 'Token-checking tools' },
@@ -75,19 +74,19 @@ const selectedCut = (s: Strip) => {
   return cut > TOLERANCE_PX ? [`${s.selected} is cut ${round(cut)}px by the strip's edge (scrollLeft ${round(s.scrollLeft)})`] : [];
 };
 
+// One page load per test: four loads of one page in one tab is where WebKit's iPhone
+// project failed to load (2026-10-14), never at the assertion.
 test.describe('a phone lands with the selected tab in view', () => {
   test.use(PHONE);
   for (const { path, strip } of LANDINGS) {
-    test(`${path}: the selected ${strip} tab is whole inside its strip at 360 to 430`, async ({
-      page,
-      walletMock: _w,
-    }) => {
-      const problems: string[] = [];
-      for (const width of PHONE_WIDTHS) {
+    for (const width of PHONE_WIDTHS) {
+      test(`${path} at ${width}px: the selected ${strip} tab is whole inside its strip`, async ({
+        page,
+        walletMock: _w,
+      }) => {
         const list = await land(page, path, strip, width);
-        for (const p of await settle(page, list, selectedCut)) problems.push(`${width}px: ${p}`);
-      }
-      expect(problems, 'selected tabs out of view on landing').toEqual([]);
-    });
+        expect(await settle(page, list, selectedCut), 'the selected tab out of view on landing').toEqual([]);
+      });
+    }
   }
 });

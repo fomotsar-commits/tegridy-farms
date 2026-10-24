@@ -35,6 +35,12 @@ const NAKAMIGOS = "0xd774557b647330c91bf44cfeab205095f7e6c367";
 const CANONICAL_CONDUIT = "0x0000007b02230091a7ed01230072f7006a004d60a8d4e71d599b8104250f0000";
 const ZERO_ADDR = "0x" + "0".repeat(40);
 const ZERO32 = "0x" + "0".repeat(64);
+const TREASURY = "0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d";
+// createNativeListing's split of 1 ETH: the seller's share, then 0.5% to the treasury.
+const clientConsideration = () => [
+  { itemType: 0, token: ZERO_ADDR, identifierOrCriteria: "0", startAmount: "995000000000000000", endAmount: "995000000000000000", recipient: SELLER },
+  { itemType: 0, token: ZERO_ADDR, identifierOrCriteria: "0", startAmount: "5000000000000000", endAmount: "5000000000000000", recipient: TREASURY },
+];
 
 vi.mock("viem", () => ({
   recoverMessageAddress: vi.fn(async () => SELLER),
@@ -116,15 +122,12 @@ function bundleParams(tokenIds, overrides = {}) {
     startTime: String(Math.floor(Date.now() / 1000)),
     endTime: String(Math.floor(Date.now() / 1000) + 86400),
     salt: "0x1",
-    totalOriginalConsiderationItems: 1,
+    totalOriginalConsiderationItems: 2,
     offer: tokenIds.map((id) => ({
       itemType: 2, token: NAKAMIGOS, identifierOrCriteria: String(id),
       startAmount: "1", endAmount: "1",
     })),
-    consideration: [{
-      itemType: 0, token: ZERO_ADDR, identifierOrCriteria: "0",
-      startAmount: "1000000000000000000", endAmount: "1000000000000000000", recipient: SELLER,
-    }],
+    consideration: clientConsideration(),
     ...overrides,
   };
 }
@@ -144,7 +147,7 @@ async function postBundle(handler, params) {
   const { res, calls } = makeRes();
   await handler({
     method: "POST",
-    headers: { origin: "https://memetic.fun" },
+    headers: { origin: "https://memetics.finance" },
     query: {},
     body: {
       action: "create-bundle",
@@ -307,7 +310,7 @@ describe("orderbook — NFT cannot sit in two live orders", () => {
     const { res, calls } = makeRes();
     await handler({
       method: "POST",
-      headers: { origin: "https://memetic.fun" },
+      headers: { origin: "https://memetics.finance" },
       query: {},
       body: {
         action: "create",
@@ -317,12 +320,9 @@ describe("orderbook — NFT cannot sit in two live orders", () => {
             conduitKey: CANONICAL_CONDUIT,
             startTime: String(Math.floor(Date.now() / 1000)),
             endTime: String(Math.floor(Date.now() / 1000) + 86400),
-            salt: "0x1", totalOriginalConsiderationItems: 1,
+            salt: "0x1", totalOriginalConsiderationItems: 2,
             offer: [{ itemType: 2, token: NAKAMIGOS, identifierOrCriteria: "5", startAmount: "1", endAmount: "1" }],
-            consideration: [{
-              itemType: 0, token: ZERO_ADDR, identifierOrCriteria: "0",
-              startAmount: "1000000000000000000", endAmount: "1000000000000000000", recipient: SELLER,
-            }],
+            consideration: clientConsideration(),
           },
           signature: "0x" + "c".repeat(130),
           seaportSignature: "0x" + "c".repeat(130),
@@ -357,19 +357,16 @@ describe("orderbook create — a refused request must not mutate", () => {
       conduitKey: CANONICAL_CONDUIT,
       startTime: String(Math.floor(Date.now() / 1000)),
       endTime: String(Math.floor(Date.now() / 1000) + 86400),
-      salt: "0x1", totalOriginalConsiderationItems: 1,
+      salt: "0x1", totalOriginalConsiderationItems: 2,
       offer: [{ itemType: 2, token: NAKAMIGOS, identifierOrCriteria: String(tokenId), startAmount: "1", endAmount: "1" }],
-      consideration: [{
-        itemType: 0, token: ZERO_ADDR, identifierOrCriteria: "0",
-        startAmount: "1000000000000000000", endAmount: "1000000000000000000", recipient: SELLER,
-      }],
+      consideration: clientConsideration(),
       ...overrides,
     };
   }
   async function postSingle(params) {
     const { res, calls } = makeRes();
     await handler({
-      method: "POST", headers: { origin: "https://memetic.fun" }, query: {},
+      method: "POST", headers: { origin: "https://memetics.finance" }, query: {},
       body: {
         action: "create",
         order: {
@@ -495,19 +492,16 @@ describe("orderbook — round-3 blockers", () => {
       offerer: SELLER, zone: ZERO_ADDR, zoneHash: ZERO32, orderType: 0,
       conduitKey: CANONICAL_CONDUIT,
       startTime: String(now), endTime: String(now + 86400),
-      salt: "0x1", totalOriginalConsiderationItems: 1,
+      salt: "0x1", totalOriginalConsiderationItems: 2,
       offer: [{ itemType: 2, token: NAKAMIGOS, identifierOrCriteria: "5", startAmount: "1", endAmount: "1", ...offerOverrides }],
-      consideration: [{
-        itemType: 0, token: ZERO_ADDR, identifierOrCriteria: "0",
-        startAmount: "1000000000000000000", endAmount: "1000000000000000000", recipient: SELLER,
-      }],
+      consideration: clientConsideration(),
       ...overrides,
     };
   }
   async function post(action, parameters) {
     const { res, calls } = makeRes();
     await handler({
-      method: "POST", headers: { origin: "https://memetic.fun" }, query: {},
+      method: "POST", headers: { origin: "https://memetics.finance" }, query: {},
       body: {
         action,
         order: {
@@ -540,7 +534,7 @@ describe("orderbook — round-3 blockers", () => {
     // An unsupported protocol address rejects AFTER the overlap check.
     const { res, calls } = makeRes();
     await handler({
-      method: "POST", headers: { origin: "https://memetic.fun" }, query: {},
+      method: "POST", headers: { origin: "https://memetics.finance" }, query: {},
       body: {
         action: "create",
         order: {
@@ -610,14 +604,14 @@ describe("orderbook query — seller's own view is never served from a shared ca
   // a second on-chain cancel that burns gas for nothing.
   it("sets no-store for a maker-scoped query", async () => {
     const { res } = makeRes();
-    await handler({ method: "GET", body: {}, headers: { origin: "https://memetic.fun" },
+    await handler({ method: "GET", body: {}, headers: { origin: "https://memetics.finance" },
       query: { action: "query", contract: NAKAMIGOS, maker: SELLER, status: "active" } }, res);
     expect(res.headers["Cache-Control"]).toBe("no-store");
   });
 
   it("still caches the public listings feed", async () => {
     const { res } = makeRes();
-    await handler({ method: "GET", body: {}, headers: { origin: "https://memetic.fun" },
+    await handler({ method: "GET", body: {}, headers: { origin: "https://memetics.finance" },
       query: { action: "query", contract: NAKAMIGOS, status: "active" } }, res);
     expect(res.headers["Cache-Control"]).toMatch(/s-maxage/);
   });

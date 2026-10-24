@@ -66,42 +66,61 @@ export const USDT: SolToken = {
   verified: true,
 };
 
+// This venue's own BAYLA (the same mint as lib/bungalows.ts BAYLA_MINT; a test pins the
+// two together). Decimals 6, read from the pump.fun coin record. `verified` stays unset:
+// that flag is Jupiter's tag, and Jupiter has not given it. The venue knows the coin by
+// its mint instead (`isVenueCoin`), which is what the picker's mark and the page's
+// acknowledgement go by.
+export const BAYLA: SolToken = {
+  mint: '7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump',
+  symbol: 'BAYLA',
+  name: 'Jungle Bay Island',
+  decimals: 6,
+  // The picture in the token's own on-chain record. iconSrc() moves it to a live gateway.
+  logoURI: 'https://ipfs.io/ipfs/bafkreiav3na7d325rg5ia4vbq5gs2wxbpvmgyzctwuvq2354yb73iv72uq',
+};
+
 // Featured shortlist for the PAY side (picker empty state). Users can still
 // search/paste any token; the platform fee only attaches when a leg is SOL/USDC.
-export const PAY_WITH_TOKENS: SolToken[] = [SOL, USDC];
+export const PAY_WITH_TOKENS: SolToken[] = [SOL, USDC, BAYLA];
 
 // Featured shortlist for the BUY side (picker empty state). Not a restriction.
 export const BUY_TOKENS: SolToken[] = [
+  BAYLA,
   SOL,
   USDC,
   USDT,
   { mint: 'JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN', symbol: 'JUP', name: 'Jupiter', decimals: 6, verified: true },
   { mint: 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263', symbol: 'BONK', name: 'Bonk', decimals: 5, verified: true },
-  // Jungle Bay Island's own: BAYLA (pump.fun graduate → PumpSwap). Decimals 6
-  // read from the pump.fun coin record (base_decimals) 2026-08-24. `verified`
-  // deliberately unset — that flag is Jupiter's verification tag, and claiming
-  // it would be a lie; the picker's Unverified chip is the honest state. No
-  // logoURI: iconSrc() proxies external hosts only, so the initials avatar is
-  // the right fallback here.
-  { mint: '7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump', symbol: 'BAYLA', name: 'BAYLA — Jungle Bay Island', decimals: 6 },
 ];
 
-export interface LstToken extends SolToken {
-  /** Approximate, variable APY — a static label (operator-refreshed). */
-  apy: number;
-  provider: string;
+/** The coins this venue's own pools pair a token with: SOL, USDC and the venue's BAYLA. */
+export const VENUE_COINS: readonly SolToken[] = [SOL, USDC, BAYLA];
+const VENUE_COIN_MINTS: ReadonlySet<string> = new Set(VENUE_COINS.map((t) => t.mint));
+
+/** Is this one of the venue's own coins? By mint address only: a name or a symbol can be copied. */
+export function isVenueCoin(mint: string): boolean {
+  return VENUE_COIN_MINTS.has(mint);
 }
 
-// Liquid-staking tokens. "Stake SOL" = buy one of these via the NORMAL swap: the
-// token's value accrues validator/MEV yield each epoch (no claim, no lockup), and
-// the SOL→LST buy still earns our 1% fee on the wSOL leg — so the buy IS the
-// product (no stake-pool SDK needed). Mints byte-verified via the Jupiter token
-// API (all legacy SPL Token program, decimals 9, verified). APY is approximate.
-export const LST_TOKENS: LstToken[] = [
-  { mint: 'J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn', symbol: 'JitoSOL', name: 'Jito Staked SOL', decimals: 9, verified: true, apy: 7.5, provider: 'Jito' },
-  { mint: 'mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So', symbol: 'mSOL', name: 'Marinade Staked SOL', decimals: 9, verified: true, apy: 7.2, provider: 'Marinade' },
-  { mint: 'bSo13r4TkiE4KumL71LsHTPpL2euBYLFx6h9HP3piy1', symbol: 'bSOL', name: 'BlazeStake Staked SOL', decimals: 9, verified: true, apy: 7.0, provider: 'BlazeStake' },
-  { mint: '5oVNBeEEQvYi1cX3ir8Dx5n1P7pdxydbGF2X4TxVusJm', symbol: 'INF', name: 'Infinity (Sanctum LST basket)', decimals: 9, verified: true, apy: 8.0, provider: 'Sanctum' },
+/**
+ * Does trading this token ask the trader to acknowledge a risk first? Every token
+ * Jupiter has not verified does, except the venue's own coins, which it knows by mint.
+ */
+export function needsRiskAck(t: SolToken): boolean {
+  return isUnverified(t) && !isVenueCoin(t.mint);
+}
+
+// Liquid-staking tokens. "Stake SOL" = buy one of these through the normal swap: the
+// token is staked SOL that trades, with no claim and no lockup, and the buy carries the
+// venue's fee like any other SOL buy. Mints byte-verified via the Jupiter token API
+// (legacy SPL Token program, decimals 9, verified). No rate is held here: nothing on
+// the page reads one, so the card names the token and prints no number.
+export const LST_TOKENS: SolToken[] = [
+  { mint: 'J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn', symbol: 'JitoSOL', name: 'Jito Staked SOL', decimals: 9, verified: true },
+  { mint: 'mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So', symbol: 'mSOL', name: 'Marinade Staked SOL', decimals: 9, verified: true },
+  { mint: 'bSo13r4TkiE4KumL71LsHTPpL2euBYLFx6h9HP3piy1', symbol: 'bSOL', name: 'BlazeStake Staked SOL', decimals: 9, verified: true },
+  { mint: '5oVNBeEEQvYi1cX3ir8Dx5n1P7pdxydbGF2X4TxVusJm', symbol: 'INF', name: 'Infinity (Sanctum basket of staked SOL)', decimals: 9, verified: true },
 ];
 
 export function findSolToken(mint: string): SolToken | undefined {
@@ -197,6 +216,23 @@ export async function searchTokens(query: string, signal?: AbortSignal): Promise
   return out;
 }
 
+/**
+ * Search results with the venue's own coins where a trader can find them. A venue coin
+ * the search returned moves to the front. One it did not return is added when the text
+ * typed is its mint or the start of its symbol: copies of a name can fill the first 25
+ * results and leave the real coin out.
+ */
+export function withVenueCoinsFirst(results: readonly SolToken[], query: string): SolToken[] {
+  const q = query.trim();
+  const lower = q.toLowerCase();
+  const wanted = VENUE_COINS.filter(
+    (v) => results.some((r) => r.mint === v.mint) || q === v.mint || (lower.length >= 2 && v.symbol.toLowerCase().startsWith(lower)),
+  );
+  // The row the search returned carries the picture and the live fields: keep it.
+  const front = wanted.map((v) => results.find((r) => r.mint === v.mint) ?? v);
+  return [...front, ...results.filter((r) => !isVenueCoin(r.mint))];
+}
+
 /** Resolve a single mint address to its token (with authoritative decimals). */
 export async function resolveMint(mint: string, signal?: AbortSignal): Promise<SolToken | null> {
   const cached = _cache.get(mint);
@@ -247,10 +283,33 @@ export async function fetchTrending(
  * and its Jupiter icon are https://ipfs.io/... URLs, and since that gateway was
  * retired (2026-09-21) wsrv.nl answers 404 for them. Via ipfs.filebase.io it
  * answers 200. (Not via Pinata: it rate-limits wsrv.nl's shared IP.)
+ *
+ * IRYS icons skip the proxy (2026-10-15). wsrv.nl now refuses every *.irys.xyz
+ * source ("Domain or TLD blocked by policy", HTTP 400), so those tokens showed
+ * initials. They load straight from gateway.irys.xyz instead, which redirects to
+ * its own CDN; img-src in vercel.json names both hosts. Measured 2026-10-15: 6 of
+ * 100 Jupiter trending icons were on gateway.irys.xyz. The image is still drawn
+ * with no referrer (TokenAvatar), so the page address does not go with it.
  */
+export const DIRECT_ICON_HOSTS: readonly string[] = ['gateway.irys.xyz'];
+
 export function iconSrc(url?: string): string {
   if (!url) return '';
+  const direct = directIconUrl(url);
+  if (direct) return direct;
   return `https://wsrv.nl/?url=${encodeURIComponent(liveIpfsUrl(url))}&w=64&h=64&fit=cover&output=webp`;
+}
+
+/** An https URL on one of DIRECT_ICON_HOSTS, re-serialised; null for anything else. */
+function directIconUrl(url: string): string | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== 'https:' || parsed.username || parsed.password || parsed.port) return null;
+  return DIRECT_ICON_HOSTS.includes(parsed.hostname.toLowerCase()) ? parsed.href : null;
 }
 
 // ─── Recents + favorites (localStorage, per-browser convenience) ─────────────
@@ -300,16 +359,55 @@ export function rememberToken(t: SolToken): void {
   writeStoredTokens(RECENTS_KEY, [t, ...rest].slice(0, MAX_RECENTS));
 }
 
+// A venue coin stored before it had a picture is the old curated row: show today's.
+// A row the search gave carries its own picture and live fields, and is kept.
+const asKnownNow = (t: SolToken): SolToken => (t.logoURI ? t : (VENUE_COINS.find((v) => v.mint === t.mint) ?? t));
+
 export function getRecentTokens(): SolToken[] {
-  return readStoredTokens(RECENTS_KEY);
+  return readStoredTokens(RECENTS_KEY).map(asKnownNow);
 }
 
 export function getFavoriteTokens(): SolToken[] {
-  return readStoredTokens(FAVS_KEY);
+  return readStoredTokens(FAVS_KEY).map(asKnownNow);
 }
 
 export function isFavoriteToken(mint: string): boolean {
   return readStoredTokens(FAVS_KEY).some((t) => t.mint === mint);
+}
+
+// A risk acknowledgement, kept per token on this device, so a returning trader is not
+// asked again for a token they already said yes to. Mints only, newest first.
+const ACKS_KEY = 'sol.acks';
+const MAX_ACKS = 64;
+
+function readAcks(): string[] {
+  try {
+    const arr = JSON.parse(localStorage.getItem(ACKS_KEY) ?? '[]') as unknown;
+    return Array.isArray(arr) ? arr.filter((m): m is string => typeof m === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeAcks(mints: string[]): void {
+  try {
+    localStorage.setItem(ACKS_KEY, JSON.stringify(mints.slice(0, MAX_ACKS)));
+  } catch {
+    /* storage unavailable: the trader is simply asked again */
+  }
+}
+
+export function isRiskAcked(mint: string): boolean {
+  return readAcks().includes(mint);
+}
+
+export function rememberRiskAck(mints: readonly string[]): void {
+  const rest = readAcks().filter((m) => !mints.includes(m));
+  writeAcks([...mints, ...rest]);
+}
+
+export function forgetRiskAck(mints: readonly string[]): void {
+  writeAcks(readAcks().filter((m) => !mints.includes(m)));
 }
 
 /** Toggle a favorite; returns the NEW favorite state. */

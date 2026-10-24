@@ -26,6 +26,7 @@ import {
   IX_WITHDRAW,
   IX_INITIALIZE,
   sortMints,
+  deriveLpMint,
 } from './program';
 
 /**
@@ -206,6 +207,21 @@ describe('initializeIx', () => {
     // Every derived account is distinct.
     const derived = [3, 6, 10, 11, 13].map((i) => ix.keys[i]!.pubkey.toBase58());
     expect(new Set(derived).size).toBe(derived.length);
+  });
+
+  it('opens at the standard address unsigned, and at any other address only as a SIGNER, deriving everything from it', () => {
+    const std = initializeIx(args);
+    expect(std.keys[3]!.isSigner).toBe(false);
+    const fresh = pk(99);
+    const ix = initializeIx({ ...args, poolState: fresh });
+    expect(ix.keys[3]!.pubkey.toBase58()).toBe(fresh.toBase58());
+    // initialize.rs 385-388: a non-standard pool address must sign.
+    expect(ix.keys[3]!).toMatchObject({ isSigner: true, isWritable: true });
+    // The LP mint, vaults and price record follow the pool address, not the standard one.
+    for (const i of [6, 10, 11, 13]) expect(ix.keys[i]!.pubkey.equals(std.keys[i]!.pubkey), `account ${i}`).toBe(false);
+    expect(ix.keys[6]!.pubkey.toBase58()).toBe(deriveLpMint(pid, fresh).toBase58());
+    // Passing the standard address explicitly is the same as the default.
+    expect(initializeIx({ ...args, poolState: std.keys[3]!.pubkey }).keys[3]!.isSigner).toBe(false);
   });
 });
 

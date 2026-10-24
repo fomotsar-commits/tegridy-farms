@@ -76,3 +76,52 @@ describe("trade surface modules load", () => {
     expect(typeof mod.default).toBe("function");
   });
 });
+
+// P2P trading reaches only the collections the venue can settle. TradeWindow,
+// TradesPanel and TradeChips each kept their own loop over COLLECTIONS, which
+// would hand a Base, ERC-1155 or Solana collection to an inventory read, a
+// floor estimate and a wildcard chip, and crash at import on Junglets' null
+// contract. Each list is exported so this can hold it to VENUE_COLLECTIONS.
+describe("P2P trade surfaces are built from the venue list only", () => {
+  // Imported through a variable so a missing module fails these tests alone,
+  // not the whole file's existing guards.
+  const load = (p) => import(/* @vite-ignore */ p);
+  const venueKeys = async () => {
+    const { VENUE_COLLECTIONS } = await load("./lib/venue");
+    return VENUE_COLLECTIONS.map((c) => c.contract.toLowerCase()).sort();
+  };
+
+  it("TradeWindow's collection list and supply map are the venue list", async () => {
+    const mod = await import("./components/TradeWindow.jsx");
+    const want = await venueKeys();
+    expect(mod.COLLECTION_LIST.map((c) => c.contract.toLowerCase()).sort()).toEqual(want);
+    expect(Object.keys(mod.SUPPLY_BY_CONTRACT).sort()).toEqual(want);
+  });
+
+  it("TradesPanel's contract map is the venue list", async () => {
+    const mod = await import("./components/TradesPanel.jsx");
+    expect(Object.keys(mod.COLLECTION_BY_CONTRACT).sort()).toEqual(await venueKeys());
+  });
+
+  it("TradeChips names every venue collection by its registry chip, and no two alike", async () => {
+    const mod = await import("./components/TradeChips.jsx");
+    const { VENUE_COLLECTIONS } = await load("./lib/venue");
+    expect(Object.keys(mod.SHORT_NAME).sort()).toEqual(await venueKeys());
+    for (const c of VENUE_COLLECTIONS) {
+      expect(mod.SHORT_NAME[c.contract.toLowerCase()], c.slug).toBe(c.chip);
+    }
+    const labels = Object.values(mod.SHORT_NAME);
+    expect(new Set(labels).size).toBe(labels.length);
+  });
+
+  it("a chip carries its collection's full name, so GOLD #12 cannot be taken for an ape", async () => {
+    const { render, screen } = await import("@testing-library/react");
+    const { ItemChips } = await import("./components/TradeChips.jsx");
+    const { COLLECTIONS } = await import("./constants");
+    render(<ItemChips items={[{ contract: COLLECTIONS.junglebaygoldcards.contract, tokenId: "12" }]} accent="#fff" />);
+    const chip = screen.getByTitle("Jungle Bay Gold Cards");
+    expect(chip.textContent).toContain("GOLD #12");
+    // The visually hidden full name is what a screen reader hears.
+    expect(chip.textContent).toContain("Jungle Bay Gold Cards");
+  });
+});

@@ -153,15 +153,53 @@ const CONFIGS = {
 
   // Jupiter Swap API (SOLANA) — GET /swap/v1/quote, POST /swap/v1/swap.
   // 2026-06-18: Solana fee-capture surface (Surface A — see
-  // docs/SOLANA_FEE_CAPTURE_PLAN.md). Keyless lite-api tier. The platform fee
-  // is taken via `platformFeeBps` (quote query) + `feeAccount` (a plain
-  // Tegridy-owned ATA in the swap POST body) — no Jupiter Referral Program
-  // needed since Jan 2025, and NO own on-chain program / NO bridge / TOWELI
-  // never touches Solana. Same hardening as the EVM aggregators: origin
-  // allowlist, per-IP rate limit, 32 KB body cap, response header stripping.
+  // docs/SOLANA_FEE_CAPTURE_PLAN.md). Keyless lite-api tier until a key is set
+  // (resolveUpstream below). The platform fee is taken via `platformFeeBps`
+  // (quote query) + `feeAccount` (a plain Tegridy-owned ATA in the swap POST
+  // body) — no Jupiter Referral Program needed since Jan 2025, and NO own
+  // on-chain program / NO bridge / TOWELI never touches Solana. Same hardening
+  // as the EVM aggregators: origin allowlist, per-IP rate limit, 32 KB body
+  // cap, response header stripping.
   jupiter: {
     identifier: "jupiter",
-    upstreamBase: "https://lite-api.jup.ag",
+    // Jupiter is retiring its keyless lite-api host. With the server-only
+    // JUPITER_API_KEY set, every call goes to api.jup.ag (same paths, key in
+    // `x-api-key`). A 401/403/429 there is Jupiter's gateway refusing the call
+    // before it ran (bad key, no permission, plan limit), and a 404 is a path the
+    // keyed host does not serve (Jupiter's docs no longer show ultra/v1/shield or
+    // trigger/v1 there), so the same call is tried once on lite-api while that
+    // host still answers. Key unset or blank:
+    // lite-api with no key, exactly as before. Read per request, never cached.
+    resolveUpstream: () => {
+      const key = (process.env.JUPITER_API_KEY || "").trim();
+      if (!key) return { upstreamBase: "https://lite-api.jup.ag" };
+      return {
+        upstreamBase: "https://api.jup.ag",
+        extraHeaders: { "x-api-key": key },
+        fallback: { upstreamBase: "https://lite-api.jup.ag", onStatus: [401, 403, 404, 429] },
+      };
+    },
+    // Jupiter's HTTP 400 codes for "no market", seen live 2026-09-30 (an untradable
+    // mint, and an amount no route fills). The proxy answers these as 404 NO_ROUTE
+    // instead of 502, so the LP price check can tell "no market" from "Jupiter down".
+    noRouteErrorCodes: ["TOKEN_NOT_TRADABLE", "NO_ROUTES_FOUND", "COULD_NOT_FIND_ANY_ROUTE"],
+    // The LP price check's quotes (src/lib/solana/lp/outsidePrice.ts) are kept at the
+    // edge for 30 seconds, so every visitor looking at a pool shares one Jupiter read
+    // instead of each spending the key's 60 a minute; an unread check holds a pool's Add
+    // back. Only those quotes: they carry `priceCheck=1`, which nothing else sends and
+    // which never reaches Jupiter (it is not in allowedQuery). A quote with a platform
+    // fee is a trade being built and is never shared. runProxy asks this for a 200 GET
+    // only, so an error or a "no route" answer stays private, no-store.
+    // The island order's price read (price/v3 with the same marker: SOL's and the island
+    // coins' USD prices, one fixed list) is shared the same way, so the order opens with
+    // every coin's figure while all its visitors together spend about one call a half
+    // minute of the plan's one request a second (developers.jup.ag, free key, 2026-10-23).
+    edgeCache: (segments, query) => {
+      if (query.priceCheck !== "1") return null;
+      const path = segments.join("/");
+      const shareable = (path === "swap/v1/quote" && query.platformFeeBps == null) || path === "price/v3";
+      return shareable ? "s-maxage=30, stale-while-revalidate=15" : null;
+    },
     // swap/v1/{quote,swap} (trade) + tokens/v2/search (any-pair token search +
     // paste-a-mint resolve). Exact segment matches only — keep the surface narrow.
     matchPath: (segments) => {
@@ -238,6 +276,8 @@ const CONFIGS = {
       "slippageBps",
       "swapMode",
       "platformFeeBps",
+      // V2 lets the venue's fee be taken in SOL when the coin bought is Token-2022 (V1: 6014).
+      "instructionVersion",
       "restrictIntermediateTokens",
       "onlyDirectRoutes",
       "asLegacyTransaction",
@@ -274,6 +314,13 @@ export default async function handler(req, res) {
   // MARKET-WIDE Launch Radar. Deliberately separate from launcher-outcomes: that one
   // enriches the Tegridy cohort, this one is the whole market and must never be fed
   // into the cohort ledger (see _lib/launch-radar.js header).
+  // `?resource=pools` (rewritten from /api/pools): the Solana pool index. One filtered
+  // getProgramAccounts per question, addresses only, so the browser RPC proxy never has
+  // to allow a program scan. See _lib/pool-index.js.
+  if (req.query.resource === "pools") {
+    const { handlePoolIndex } = await import("./_lib/pool-index.js");
+    return handlePoolIndex(req, res);
+  }
   if (req.query.resource === "launch-radar") {
     const { handleLaunchRadar } = await import("./_lib/launch-radar.js");
     return handleLaunchRadar(req, res);
@@ -316,6 +363,24 @@ export default async function handler(req, res) {
   if (req.query.resource === "launch-cohort") {
     const { handleLaunchCohort } = await import("./_lib/launch-cohort.js");
     return handleLaunchCohort(req, res);
+  }
+
+  // `?resource=curve-birth` and `?resource=doppler-birth` find ONE launch's birth transaction
+  // (keyless Blockscout, or the Robinhood RPC in windows) for the maker's plates. The browser
+  // re-reads that receipt and checks it. Above `const provider`; see _lib/evm-birth.js.
+  if (req.query.resource === "curve-birth") {
+    const { handleCurveBirth } = await import("./_lib/evm-birth.js");
+    return handleCurveBirth(req, res);
+  }
+  if (req.query.resource === "doppler-birth") {
+    const { handleDopplerBirth } = await import("./_lib/evm-birth.js");
+    return handleDopplerBirth(req, res);
+  }
+  // `?resource=eas-attested` lists one token's EAS attestations under the disclosure schema
+  // (keyless Blockscout) for /launch/:token, which re-reads each uid. See _lib/eas-attested.js.
+  if (req.query.resource === "eas-attested") {
+    const { handleEasAttested } = await import("./_lib/eas-attested.js");
+    return handleEasAttested(req, res);
   }
 
   // `?resource=heat` proxies Jungle Bay Island's held-time oracle at memetics.wtf.
@@ -376,6 +441,15 @@ export default async function handler(req, res) {
   if (req.query.resource === "record") {
     const { handleRecord } = await import("./_lib/record.js");
     return handleRecord(req, res);
+  }
+
+  // `?resource=position` answers a range position NFT's link, `/position/:id.json` (a
+  // vercel.json rewrite), with its metadata read from chain. Every position NFT keeps that
+  // link forever, so like the record route it must never fall to the SPA's HTML. Public by
+  // design: wallets fetch it with no Origin. See _lib/position.js.
+  if (req.query.resource === "position") {
+    const { handlePosition } = await import("./_lib/position.js");
+    return handlePosition(req, res);
   }
 
   // `?resource=airdrop` is the hosted airdrop manifest store: a claimant fetches THEIR
@@ -442,6 +516,13 @@ export default async function handler(req, res) {
   if (req.query.resource === "tape") {
     const { handleTape } = await import("./_lib/tape.js");
     return handleTape(req, res);
+  }
+
+  // `?resource=venue-volume`: the all-time volume the hourly venue-volume.yml counts,
+  // summed from Supabase and cached at the edge. Above `const provider`, like the rest.
+  if (req.query.resource === "venue-volume") {
+    const { handleVenueVolume } = await import("./_lib/venueVolume.js");
+    return handleVenueVolume(req, res);
   }
 
   // FLAT function at /api/aggregator. AUDIT FIX 2026-07-10: Vercel's nested /

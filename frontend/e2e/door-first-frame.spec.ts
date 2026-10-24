@@ -54,6 +54,9 @@ function watchHeading(heading: string) {
     }
     if (w.hero !== null && now() > w.hero + 1_000) w.done = true;
   };
+  // The test's poll runs this too: frames and DOM changes can both stop once the page is
+  // still, and then only the poll could see the second after the hero arrived.
+  (window as unknown as { __doorCheck: () => void }).__doorCheck = check;
   const frame = () => {
     w.frames += 1;
     check();
@@ -86,7 +89,11 @@ function watchHeading(heading: string) {
   } catch { /* no Element Timing: paint stays null and the assertion names it */ }
 }
 
-const readWatch = (page: Page) => page.evaluate(() => (window as unknown as { __door: Watch }).__door);
+const readWatch = (page: Page) => page.evaluate(() => {
+  const g = window as unknown as { __door: Watch; __doorCheck?: () => void };
+  g.__doorCheck?.();
+  return g.__door;
+});
 
 /** Hold every request matching `glob` until released: slow, not absent. */
 async function hold(page: Page, glob: string): Promise<() => void> {
@@ -127,12 +134,19 @@ async function crawl(page: Page, html: string) {
   }, html);
 }
 
-test('a crawler reads each door by its own heading, and /toweli as the stock shell', async ({ page, request }) => {
+test('a crawler reads each door by its own heading, /toweli, its alias and the open lot included', async ({ page, request }) => {
+  // Answer fifteen, item 5: "The done-means was every door." The TOWELI room is the
+  // door that was left on the stock shell; its alias opens the same room. Answer sixteen,
+  // ruling 9: "Every door means every door", the open lot too.
+  expect(DOOR_ROUTES).toEqual(expect.arrayContaining(['/toweli', '/towelie', '/nb1']));
   await page.goto('about:blank');
+  const stock = await (await request.get('/index.html')).text();
   for (const route of DOOR_ROUTES) {
     const res = await request.get(route);
     expect(res.ok(), `${route}: not served`).toBe(true);
-    const door = await crawl(page, await res.text());
+    const html = await res.text();
+    expect(html === stock, `${route}: served the stock shell`).toBe(false);
+    const door = await crawl(page, html);
     expect(door.title, `${route}: served the stock shell, not the door's own HTML`).not.toMatch(/^MEMETICS\.FINANCE/);
     expect(door.headings, `${route}: the headings a crawler reads`).toEqual([`H1 ${doorHeading(route)}`]);
     expect(door.gate, `${route}: the frame ships hidden`).toBe('venue');
@@ -149,21 +163,32 @@ test('a crawler reads each door by its own heading, and /toweli as the stock she
       expect(art.headers()['content-type'] ?? '', `${route}: ${url} is not an image the build produced`).toMatch(/^image\//);
     }
   }
-  const stock = await (await request.get('/index.html')).text();
-  expect(await (await request.get('/toweli')).text(), '/toweli must serve the stock shell').toBe(stock);
-  const toweli = await crawl(page, stock);
-  expect(toweli.gate, 'the stock shell opens no frame from the HTML').toBeNull();
-  expect(toweli.headings[0], "/toweli's HTML still carries the venue's own frame").toBe('H1 MEMETICS.FINANCE Held time counts here.');
+  // A route that is no door still gets the stock shell, whose frame opens only on `/`.
+  expect(await (await request.get('/farm')).text(), '/farm must serve the stock shell').toBe(stock);
+  const farm = await crawl(page, stock);
+  expect(farm.gate, 'the stock shell opens no frame from the HTML').toBeNull();
+  expect(farm.headings[0], "the stock shell still carries the venue's own frame").toBe('H1 MEMETICS.FINANCE Held time counts here.');
 });
 
-test('the preview serves a door the way Vercel does, with or without a query', async ({ request }) => {
-  for (const path of ['/bayla', '/bayla?heat=0x0000000000000000000000000000000000000000', '/bayla/']) {
+test('the preview serves a door the way Vercel does, with or without a query or a slash', async ({ request }) => {
+  const cases: [string, string][] = [
+    ['/bayla', 'BAYLA | The muse of Jungle Bay Island'],
+    ['/bayla?heat=0x0000000000000000000000000000000000000000', 'BAYLA | The muse of Jungle Bay Island'],
+    ['/bayla/', 'BAYLA | The muse of Jungle Bay Island'],
+    ['/toweli', 'TOWELI | Jungle Bay Island'],
+    ['/toweli/', 'TOWELI | Jungle Bay Island'],
+    ['/toweli?ref=0x0000000000000000000000000000000000000000', 'TOWELI | Jungle Bay Island'],
+    ['/towelie', 'TOWELI | Jungle Bay Island'],
+  ];
+  for (const [path, title] of cases) {
     const html = await (await request.get(path)).text();
-    expect(html, path).toContain('<title>BAYLA | The muse of Jungle Bay Island</title>');
+    expect(html, path).toContain(`<title>${title}</title>`);
   }
+  // The alias is the same room, so it names the room's own address as canonical.
+  expect(await (await request.get('/towelie')).text()).toContain('<link rel="canonical" href="https://memetics.finance/toweli" />');
 });
 
-test('with the app script blocked, every door shows its own heading, and /toweli none', async ({ page }) => {
+test('with the app script blocked, every door shows its own heading, and a page that is no door none', async ({ page }) => {
   await page.route('**/assets/index-*.js', (r) => r.abort());
   for (const route of DOOR_ROUTES) {
     await page.goto(route);
@@ -172,21 +197,24 @@ test('with the app script blocked, every door shows its own heading, and /toweli
     await expect(h1, route).toBeInViewport();
     await expect(page.locator('h1'), `${route}: a second heading`).toHaveCount(1);
   }
-  await page.goto('/toweli');
+  await page.goto('/farm');
   await expect(page.locator('#first-frame')).toHaveCount(0);
 });
 
 test.describe('with JavaScript off', () => {
   test.use({ javaScriptEnabled: false });
-  test('/bayla reads as BAYLA: its heading on screen, the notice a paragraph', async ({ page }) => {
-    await page.goto('/bayla');
-    await expect(page.locator('#first-frame h1')).toBeVisible();
-    await expect(page.getByRole('heading')).toHaveText([doorHeading('/bayla')]);
-    await expect(page.locator('noscript p').first()).toHaveText('MEMETICS.FINANCE requires JavaScript');
-  });
+  for (const [route, room] of [['/bayla', 'BAYLA'], ['/toweli', 'TOWELI'], ['/nb1', 'the open lot']] as const) {
+    test(`${route} reads as ${room}: its heading on screen, the notice a paragraph`, async ({ page }) => {
+      await page.goto(route);
+      await expect(page.locator('#first-frame h1')).toBeVisible();
+      await expect(page.getByRole('heading')).toHaveText([doorHeading(route)]);
+      await expect(page.locator('noscript p').first()).toHaveText('MEMETICS.FINANCE requires JavaScript');
+    });
+  }
 });
 
-for (const route of ['/bayla', '/pepe']) {
+// /nb1 too (answer sixteen, ruling 9): the open lot's page is its landing, not a hero.
+for (const route of ['/bayla', '/pepe', '/toweli', '/nb1']) {
   test(`on the phone throttle, ${route} paints its heading under 1 s and never loses it`, async ({ page }) => {
     test.slow();
     await page.addInitScript(watchHeading, doorHeading(route));
@@ -206,13 +234,11 @@ for (const route of ['/bayla', '/pepe']) {
   });
 }
 
-test('the handoff keeps the heading where it was, from HTML to fallback to hero', async ({ page }) => {
-  test.slow();
-  const route = '/bayla';
-  const heading = doorHeading(route);
+/** HTML frame, then React's fallback, then the page: the heading stays where it was at each swap. */
+async function expectHandoffHolds(page: Page, route: string, heading: string, chunk: string) {
   await page.addInitScript(watchHeading, heading);
   const releaseEntry = await hold(page, '**/assets/index-*.js');
-  const releaseHome = await hold(page, '**/assets/HomePage-*.js');
+  const releaseHome = await hold(page, `**/assets/${chunk}-*.js`);
   await page.goto(route, { waitUntil: 'commit' });
   // The box, and the words' own run: a change of letter-spacing moves the second only.
   const rect = (sel: string) => page.locator(sel).first().evaluate((el) => {
@@ -249,4 +275,82 @@ test('the handoff keeps the heading where it was, from HTML to fallback to hero'
   expect(w.gaps, 'moments with no heading on screen across the two swaps').toEqual([]);
   expect(w.loading, '"Loading" entered the page').toEqual([]);
   expect(await page.evaluate(() => window.scrollY)).toBe(0);
-});
+}
+
+// /toweli too: its hero is HomePage's classic cluster, not BungalowHero, so it is the
+// one door whose hero is a different component from the one the frame was placed for.
+// /nb1: the open lot's page is its landing (BungalowDoorLanding), so that chunk is held.
+for (const [route, chunk] of [
+  ['/bayla', 'HomePage'],
+  ['/toweli', 'HomePage'],
+  ['/nb1', 'BungalowDoorLanding'],
+] as const) {
+  test(`the handoff keeps ${route}'s heading where it was, from HTML to fallback to page`, async ({ page }) => {
+    test.slow();
+    await expectHandoffHolds(page, route, doorHeading(route), chunk);
+  });
+}
+
+// The venue's own home, from index.html's frame: at 360 and 412px its heading dropped
+// 44.5px and re-spaced (-0.75px to 0.3px) when the hero's pill row arrived (2026-10-13).
+for (const width of [360, 412]) {
+  test(`the handoff keeps the home page's heading where it was at ${width}px`, async ({ page }) => {
+    test.slow();
+    await page.setViewportSize({ width, height: 800 });
+    await expectHandoffHolds(page, '/', 'MEMETICS.FINANCE Held time counts here.', 'HomePage');
+  });
+}
+
+/** In the page: the lines under the heading (none since 2026-10-16), then the field and the button beside it. */
+const readLines = (root: Element) => {
+  const box = (el: Element | null | undefined) => {
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return { top: r.top, left: r.left, width: r.width, height: r.height, font: parseFloat(getComputedStyle(el).fontSize) };
+  };
+  const lines: Element[] = [];
+  for (let n = root.querySelector('h1')?.nextElementSibling; n && lines.length < 2; n = n.nextElementSibling) if (n.tagName === 'P') lines.push(n);
+  const form = root.querySelector('form');
+  return {
+    'first line': box(lines[0]),
+    'second line': box(lines[1]),
+    field: box(form?.querySelector('input:not([type="hidden"])')),
+    button: box(form?.querySelector('button[type="submit"]')),
+  };
+};
+
+// The rest of the frame too (2026-10-14): at 360px the field and the button grew from
+// 37.5 to 44px tall and the button's words from 13 to 14px when the hero arrived.
+for (const width of [360, 412]) {
+  test(`the handoff keeps the home page's lines, field and button where they were at ${width}px`, async ({ page }) => {
+    test.slow();
+    await page.setViewportSize({ width, height: 800 });
+    const releaseEntry = await hold(page, '**/assets/index-*.js');
+    const releaseHome = await hold(page, '**/assets/HomePage-*.js');
+    await page.goto('/', { waitUntil: 'commit' });
+    await expect(page.locator('#first-frame h1')).toBeVisible({ timeout: 15_000 });
+    await page.evaluate(() => document.fonts.ready);
+    const frame = await page.locator('#first-frame').evaluate(readLines);
+
+    // React's fallback first, as a visitor sees it, then the hero in its place.
+    releaseEntry();
+    await expect(page.locator('main#main-content [aria-busy="true"] form')).toHaveCount(1, { timeout: 60_000 });
+    releaseHome();
+    await expect(page.locator('main#main-content [aria-busy="true"]')).toHaveCount(0, { timeout: 60_000 });
+    await expect(page.locator('main#main-content form')).toHaveCount(1);
+    await page.evaluate(() => document.fonts.ready);
+    const hero = await page.locator('main#main-content').evaluate(readLines);
+
+    const moved: string[] = [];
+    for (const [what, b] of Object.entries(hero)) {
+      const a = frame[what as keyof typeof frame];
+      // In neither: the hero's two sentences went into How heat works (owner, 2026-10-16), from both.
+      if (!a && !b) continue;
+      if (!a || !b) { moved.push(`${what}: ${a ? 'not in the hero' : 'not in the frame'}`); continue; }
+      for (const k of ['top', 'left', 'width', 'height', 'font'] as const) {
+        if (Math.abs(a[k] - b[k]) > (k === 'font' ? 0.1 : 1)) moved.push(`${what} ${k}: ${Math.round(a[k] * 10) / 10} then ${Math.round(b[k] * 10) / 10}`);
+      }
+    }
+    expect(moved, 'what changed size or place when the hero replaced the frame').toEqual([]);
+  });
+}

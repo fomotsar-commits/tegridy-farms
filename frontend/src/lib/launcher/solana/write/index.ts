@@ -1,0 +1,54 @@
+// The write path for /curve-launch (launch, buy, sell, graduate, pool swap) and for
+// /pools (add and remove liquidity).
+//
+// Load this module with a DYNAMIC import behind `isCurveWriteEnabled()`
+// (`../curveWriteFlag`), so a build with writes off never downloads it.
+//
+//   config.ts    gate 1 (committed ids in production) and gate 2 (the chain), and
+//                which actions may be offered
+//   launch.ts    create a launch in one signature (mint, locked details, launch,
+//                optional opening buy, then the $BAYLA plant)
+//   plant.ts     the plant: 100,000 $BAYLA, half burned, half to the island's
+//                Workshop (two Token-2022 instructions), and its balance reads
+//   trade.ts     curve buy / sell
+//   graduate.ts  finish graduation
+//   poolSwap.ts  buy / sell in the graduated launch's own pool
+//   venueSwap.ts a swap in any pool of ours for a pair, from the swap page
+//   liquidity.ts add / remove liquidity in one of our pools (its own switch and gate:
+//                lpWriteFlag.ts, config.ts lpWriteConfig + readLpGate)
+//   createPool.ts open a new pool on the public fee tier (tier 1)
+//   lpKinds.ts   which kinds are liquidity kinds, in one place
+//   wsol.ts      SOL in and out through the signer's wrapped-SOL account
+//   prepare.ts   the one simulate-check-summarize path all of them use
+//   intent.ts    decode a transaction back into steps; refuse any shape we never build
+//   submit.ts    wallet signs only; we broadcast, re-send and settle the outcome
+//   errors.ts    whose error, in plain English
+//   budget.ts    compute limit and a capped priority fee
+//   metaplex.ts  the Token Metadata instruction, encoded by hand
+//
+// Nothing here renders anything.
+
+export * from './types';
+export * from './config';
+export * from './launch';
+export * from './plant';
+export * from './trade';
+export * from './graduate';
+export * from './poolSwap';
+export * from './venueSwap';
+export * from './liquidity';
+export * from './createPool';
+export * from './lpKinds';
+export * from './wsol';
+export * from './submit';
+export * from './errors';
+export {
+  MAX_OWN_PRIORITY_LAMPORTS,
+  MAX_COMPUTE_UNITS,
+  LAMPORTS_PER_SIGNATURE,
+} from './budget';
+export { TX_SIZE_LIMIT } from './prepare';
+export { decodeIntent, LIGHTHOUSE_PROGRAM_ID } from './intent';
+export * from '../discover/metadata';
+export * from '../discover/list';
+export * from '../discover/pool';

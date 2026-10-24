@@ -3,8 +3,10 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import {
   BaseMessageSignerWalletAdapter,
+  WalletConnectionError,
   WalletNotReadyError,
   WalletReadyState,
+  WalletSignTransactionError,
   type SupportedTransactionVersions,
   type WalletName,
 } from '@solana/wallet-adapter-base';
@@ -15,6 +17,11 @@ import type { ReactNode } from 'react';
 import { SolanaWalletModalProvider } from './SolanaWalletModal';
 import { orderWallets } from '../../lib/solanaWalletOrder';
 import { useSolanaConnect } from './useSolanaConnect';
+import { SolanaConnectButton } from './SolanaConnectButton';
+import { SOLANA_HANDOFF_PARAM } from '../../lib/solanaSurface';
+
+const toasts = vi.hoisted(() => ({ toast: vi.fn() }));
+vi.mock('sonner', () => ({ toast: toasts.toast }));
 
 /**
  * The Solana connect modal, mounted inside the REAL WalletProvider — the
@@ -36,6 +43,8 @@ class FakeWallet extends BaseMessageSignerWalletAdapter {
   icon = 'data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%2F%3E';
   readonly supportedTransactionVersions: SupportedTransactionVersions = new Set(['legacy' as const, 0 as const]);
   connectCalls = 0;
+  /** The address a real adapter would build its app link from: read at connect(). */
+  hrefAtConnect: string | null = null;
   private _readyState: WalletReadyState;
   private _publicKey: PublicKey | null = null;
 
@@ -60,6 +69,7 @@ class FakeWallet extends BaseMessageSignerWalletAdapter {
   override async autoConnect() {}
   async connect() {
     this.connectCalls += 1;
+    this.hrefAtConnect = window.location.href;
     if (this._readyState === WalletReadyState.NotDetected) {
       const error = new WalletNotReadyError();
       this.emit('error', error);
@@ -127,6 +137,18 @@ async function openList() {
 }
 
 /**
+ * Lets the mount-time restore of a saved wallet finish. While it runs the
+ * provider reports `connecting`, and a click read from that render does not
+ * connect. The restore is microtasks only: an awaited act() drains them and
+ * commits the re-render they queue. findByRole races that commit against a timer.
+ */
+async function restoreSettled() {
+  await act(async () => {
+    await Promise.resolve();
+  });
+}
+
+/**
  * The invariant: every wallet the provider offers has a row a visitor can see
  * and reach — in the dialog, in the tab order, not folded. Throws otherwise.
  */
@@ -148,6 +170,8 @@ function assertEveryWalletReachable(dialog: HTMLElement, names: string[]) {
 
 beforeEach(() => {
   localStorage.clear();
+  toasts.toast.mockClear();
+  window.history.replaceState(null, '', '/');
 });
 
 afterEach(() => {
@@ -184,6 +208,28 @@ describe('SolanaWalletModal — nothing is folded away', () => {
     const dialog = await openList();
     const rows = within(dialog).getAllByRole('listitem').map((li) => li.textContent);
     expect(rows).toEqual(['PhantomDetected', 'Trust WalletOpen app', 'MetaMaskInstall']);
+    // A wallet is in this browser: nothing is said about leaving it.
+    expect(within(dialog).queryByTestId('wallet-opens-apps')).toBeNull();
+  });
+
+  // A phone's own browser (owner and three phone walks, 2026-10-03): every row leaves for
+  // a wallet app, and the list said nothing about it.
+  it('with no wallet in the browser, says once what Open app does', async () => {
+    mount([new FakeWallet('Phantom', WalletReadyState.Loadable), new FakeWallet('Trust', WalletReadyState.Loadable)]);
+    const dialog = await openList();
+    const note = within(dialog).getByTestId('wallet-opens-apps');
+    expect(note).toHaveTextContent('No wallet was found in this browser.');
+    // True of every Open app row, the Android one included: it hands over to the app; most load the page there.
+    expect(note).toHaveTextContent('Open app hands you to that wallet’s own app to connect; most load this page inside it.');
+    // Above the rows it is about.
+    const list = within(dialog).getByRole('list');
+    expect(note.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('says nothing of the kind when every row is an install page', async () => {
+    mount([new FakeWallet('MetaMask', WalletReadyState.NotDetected)]);
+    const dialog = await openList();
+    expect(within(dialog).queryByTestId('wallet-opens-apps')).toBeNull();
   });
 });
 
@@ -243,10 +289,11 @@ describe('SolanaWalletModal — clicks', () => {
     localStorage.setItem('walletName', JSON.stringify('Trust'));
     const trust = new FakeWallet('Trust', WalletReadyState.Loadable);
     mount([new FakeWallet('Phantom', WalletReadyState.NotDetected), trust]);
+    await restoreSettled();
     const dialog = await openList();
     expect(trust.connectCalls).toBe(0);
     fireEvent.click(within(dialog).getByText('Trust Wallet'));
-    await waitFor(() => expect(trust.connectCalls).toBe(1));
+    expect(trust.connectCalls).toBe(1);
   });
 });
 
@@ -303,11 +350,8 @@ describe('useSolanaConnect — a saved wallet that is not installed', () => {
     localStorage.setItem('walletName', JSON.stringify('Phantom'));
     const phantom = new FakeWallet('Phantom', WalletReadyState.Installed);
     mount([phantom, new FakeWallet('Trust', WalletReadyState.NotDetected)]);
-    // Let the mount-time restore of the saved wallet finish: while it runs the
-    // provider reports `connecting`, and the hook rightly opens the list then.
-    await act(async () => {
-      await Promise.resolve();
-    });
+    // Mid-restore, the hook rightly opens the list instead.
+    await restoreSettled();
     fireEvent.click(screen.getByRole('button', { name: 'connect' }));
     await waitFor(() => expect(phantom.connectCalls).toBe(1));
     expect(screen.queryByRole('dialog')).toBeNull();
@@ -323,9 +367,7 @@ describe('useSolanaConnect — a saved "Open app" wallet on a phone', () => {
     localStorage.setItem('walletName', JSON.stringify('MetaMask'));
     const metamask = new FakeWallet('MetaMask', WalletReadyState.Loadable);
     mount([new FakeWallet('Phantom', WalletReadyState.Loadable), metamask]);
-    await act(async () => {
-      await Promise.resolve();
-    });
+    await restoreSettled();
     fireEvent.click(screen.getByRole('button', { name: 'connect' }));
     const dialog = await screen.findByRole('dialog');
     expect(metamask.connectCalls).toBe(0);
@@ -339,14 +381,454 @@ describe('useSolanaConnect — a saved "Open app" wallet on a phone', () => {
     const phantom = new FakeWallet('Phantom', WalletReadyState.Loadable);
     const metamask = new FakeWallet('MetaMask', WalletReadyState.Loadable);
     mount([phantom, metamask]);
-    await act(async () => {
-      await Promise.resolve();
-    });
+    await restoreSettled();
     fireEvent.click(screen.getByRole('button', { name: 'connect' }));
     const dialog = await screen.findByRole('dialog');
     fireEvent.click(within(dialog).getByText('Phantom'));
     await waitFor(() => expect(phantom.connectCalls).toBe(1));
     expect(metamask.connectCalls).toBe(0);
     expect(JSON.parse(localStorage.getItem('walletName') ?? 'null')).toBe('Phantom');
+  });
+});
+
+/**
+ * The top bar's address opens this list while a wallet is connected
+ * (lib/solanaSurface.ts, 2026-10-02). Before, no button opened it then, so it
+ * still said "Connect a wallet…", marked the wallet in use only "Detected",
+ * and the Solana pages had no way to disconnect at all.
+ */
+describe('SolanaWalletModal — opened while connected', () => {
+  async function connectPhantom() {
+    const phantom = new FakeWallet('Phantom', WalletReadyState.Installed);
+    const trust = new FakeWallet('Trust', WalletReadyState.Installed);
+    mount([phantom, trust]);
+    const first = await openList();
+    expect(first).toHaveTextContent('Connect a wallet on Solana to continue');
+    fireEvent.click(within(first).getByText('Phantom'));
+    await waitFor(() => expect(phantom.connectCalls).toBe(1));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    return { phantom, trust };
+  }
+
+  it('says Switch, names the wallet in use, and marks its row Connected', async () => {
+    await connectPhantom();
+    const dialog = await openList();
+    expect(dialog).toHaveTextContent('Switch Solana wallet');
+    expect(dialog).not.toHaveTextContent('Connect a wallet on Solana to continue');
+    expect(dialog).toHaveTextContent('Connected as So11…1112.');
+    const rows = within(dialog).getAllByRole('listitem').map((li) => li.textContent);
+    expect(rows).toEqual(['PhantomConnected', 'Trust WalletDetected']);
+  });
+
+  it('closes on a tap of the wallet in use, and connects nothing again', async () => {
+    const { phantom } = await connectPhantom();
+    const dialog = await openList();
+    fireEvent.click(within(dialog).getByText('Phantom'));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(phantom.connectCalls).toBe(1);
+    expect(phantom.publicKey).not.toBeNull();
+  });
+
+  it('has a Disconnect, which disconnects and closes', async () => {
+    const { phantom } = await connectPhantom();
+    const dialog = await openList();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Disconnect' }));
+    await waitFor(() => expect(phantom.publicKey).toBeNull());
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    // And the list is the connect list again.
+    const again = await openList();
+    expect(again).toHaveTextContent('Connect a wallet on Solana to continue');
+    expect(within(again).queryByRole('button', { name: 'Disconnect' })).toBeNull();
+    expect(within(again).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['PhantomDetected', 'Trust WalletDetected']);
+  });
+});
+
+/**
+ * A wallet that does not answer (owner, 2026-10-03: "it won't even recognize my
+ * phantom wallet"). A connect waits on the wallet for as long as the wallet
+ * takes; a locked wallet, or an approval window nobody saw, takes for ever. For
+ * that whole wait every Connect button was switched off and nothing named the
+ * wallet being waited on, so the page looked as if it could not see the wallet
+ * at all, and the list that would have let the visitor pick another one could
+ * not be opened. Run inside the real WalletProvider, with a wallet whose
+ * connect never answers.
+ *
+ * Nothing here cancels the wait: a person reading an approval prompt must not
+ * have it pulled away from them.
+ */
+describe('a wallet that never answers is not a dead end', () => {
+  class HungWallet extends FakeWallet {
+    override async connect(): Promise<void> {
+      this.connectCalls += 1;
+      await new Promise<void>(() => {});
+    }
+  }
+
+  function mountCard(adapters: FakeWallet[]) {
+    return render(
+      <ConnectionProvider endpoint="http://127.0.0.1:8899">
+        <WalletProvider wallets={adapters} autoConnect>
+          <SolanaWalletModalProvider>
+            <Opener />
+            <SolanaConnectButton />
+          </SolanaWalletModalProvider>
+        </WalletProvider>
+      </ConnectionProvider>,
+    );
+  }
+
+  /** A remembered Phantom, pressed once: its connect is now waiting for ever. */
+  async function waitingOnPhantom() {
+    localStorage.setItem('walletName', JSON.stringify('Phantom'));
+    const phantom = new HungWallet('Phantom', WalletReadyState.Installed);
+    const backpack = new FakeWallet('Backpack', WalletReadyState.Installed);
+    mountCard([phantom, backpack]);
+    await restoreSettled();
+    fireEvent.click(screen.getByRole('button', { name: 'Connect Solana Wallet' }));
+    const waiting = await screen.findByRole('button', { name: 'Connecting…' });
+    expect(phantom.connectCalls).toBe(1);
+    return { phantom, backpack, waiting };
+  }
+
+  it('the card stays pressable while it waits, and a press opens the wallet list', async () => {
+    const { phantom, waiting } = await waitingOnPhantom();
+    expect(waiting).toBeEnabled();
+    fireEvent.click(waiting);
+    expect(await screen.findByRole('dialog')).toBeTruthy();
+    // The wait was not started a second time.
+    expect(phantom.connectCalls).toBe(1);
+  });
+
+  it('the list says which wallet it is waiting for and what to do about it', async () => {
+    const { waiting } = await waitingOnPhantom();
+    fireEvent.click(waiting);
+    const dialog = await screen.findByRole('dialog');
+    const notice = within(dialog).getByRole('status');
+    expect(notice).toHaveTextContent(/Waiting for Phantom/);
+    expect(notice).toHaveTextContent(/locked/);
+    expect(notice).toHaveTextContent(/approve/);
+    expect(notice).toHaveTextContent(/another wallet/);
+  });
+
+  it('another wallet picked from that list connects, so the wait is escaped without a reload', async () => {
+    const { phantom, backpack, waiting } = await waitingOnPhantom();
+    fireEvent.click(waiting);
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByText('Backpack'));
+    await waitFor(() => expect(backpack.connectCalls).toBe(1));
+    await waitFor(() => expect(backpack.publicKey).not.toBeNull());
+    expect(JSON.parse(localStorage.getItem('walletName') ?? 'null')).toBe('Backpack');
+    expect(phantom.connectCalls).toBe(1);
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Connecting…' })).toBeNull());
+  });
+
+  // A pick starts the connect and the list then fades out for 150 ms, still
+  // mounted. For that fade it said "it may be locked", in a live region, at
+  // every ordinary connect: a wallet that had been asked nothing a moment ago.
+  it('an ordinary pick does not put the notice in the list as it closes', async () => {
+    const phantom = new HungWallet('Phantom', WalletReadyState.Installed);
+    mountCard([phantom, new FakeWallet('Backpack', WalletReadyState.Installed)]);
+    await restoreSettled();
+    const dialog = await openList();
+    expect(within(dialog).queryByRole('status')).toBeNull();
+    fireEvent.click(within(dialog).getByText('Phantom'));
+    // The connect has begun, and the list is still on screen for its fade.
+    expect(phantom.connectCalls).toBe(1);
+    expect(screen.getByRole('button', { name: 'Connecting…' })).toBeTruthy();
+    expect(within(screen.getByRole('dialog')).queryByRole('status')).toBeNull();
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  });
+
+  it('says nothing about waiting when nothing is being waited on (the control)', async () => {
+    mountCard([new FakeWallet('Phantom', WalletReadyState.Installed), new FakeWallet('Backpack', WalletReadyState.Installed)]);
+    await restoreSettled();
+    const dialog = await openList();
+    expect(within(dialog).queryByRole('status')).toBeNull();
+    expect(dialog).not.toHaveTextContent(/Waiting for/);
+  });
+});
+
+/**
+ * Inside a wallet app's own browser (phone walk of production, 2026-10-03): the
+ * app's wallet registered as "Trust Wallet", our Trust row is named "Trust", so
+ * both were listed under one label, and the second was a link out of the
+ * browser the visitor was already in.
+ */
+describe('SolanaWalletModal — a wallet detected in this browser is listed once', () => {
+  it('shows no "Open app" row for a wallet whose own registration is detected', async () => {
+    mount([
+      new FakeWallet('Trust Wallet', WalletReadyState.Installed),
+      new FakeWallet('Phantom', WalletReadyState.Loadable),
+      new FakeWallet('Trust', WalletReadyState.Loadable),
+    ]);
+    const dialog = await openList();
+    const rows = within(dialog).getAllByRole('listitem').map((li) => li.textContent);
+    expect(rows).toEqual(['Trust WalletDetected', 'PhantomOpen app']);
+  });
+});
+
+/**
+ * WalletProvider adds one row of its own on Android Chrome: its Mobile Wallet
+ * Adapter, which asks Android for any wallet app on the phone. Phone walk of
+ * production, 2026-10-03: it was listed under that name, and a failed attempt
+ * left an uncaught error and a page that said nothing.
+ *
+ * The fake has the one property that matters, read from the package
+ * (@solana-mobile/wallet-adapter-mobile 2.2.9): connect() starts the attempt
+ * and returns without waiting for it, so the attempt's end reaches nobody. It
+ * is an 'error' event, and the same error thrown into a promise nothing awaits.
+ */
+describe('the row that asks Android for a wallet app', () => {
+  class PhoneWallet extends FakeWallet {
+    private key: PublicKey | null = null;
+    constructor() {
+      super('Mobile Wallet Adapter', WalletReadyState.Loadable);
+    }
+    override get publicKey() {
+      return this.key;
+    }
+    override async connect() {
+      this.connectCalls += 1;
+    }
+    /** The attempt ends in a failure. Returns the error, as the unawaited promise rejects with it. */
+    fail(message = 'Wallet connection timed out') {
+      const error = new WalletConnectionError(message);
+      act(() => {
+        this.emit('error', error);
+      });
+      return error;
+    }
+    /** The wallet app answers after all. */
+    approve() {
+      this.key = new PublicKey(WSOL);
+      act(() => {
+        this.emit('connect', this.key!);
+      });
+    }
+  }
+
+  /** Is this rejection still an uncaught error, once every listener on the page has had it? */
+  function staysUncaught(reason: unknown): boolean {
+    const event = new Event('unhandledrejection', { cancelable: true });
+    Object.defineProperty(event, 'reason', { value: reason });
+    window.dispatchEvent(event);
+    return !event.defaultPrevented;
+  }
+
+  /** The row itself, by position: what it is called is the first test's business. */
+  function phoneRow(dialog: HTMLElement) {
+    const rows = within(dialog).getAllByRole('listitem');
+    return within(rows[rows.length - 1]!).getByRole('button');
+  }
+
+  async function tapped() {
+    // WalletProvider logs every adapter error; these tests cause some on purpose.
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const phone = new PhoneWallet();
+    const phantom = new FakeWallet('Phantom', WalletReadyState.Loadable);
+    mount([phone, phantom]);
+    const dialog = await openList();
+    fireEvent.click(phoneRow(dialog));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await waitFor(() => expect(phone.connectCalls).toBe(1));
+    return { phone, phantom };
+  }
+
+  it('is listed in plain words, after the wallets offered by name', async () => {
+    mount([new PhoneWallet(), new FakeWallet('Phantom', WalletReadyState.Loadable)]);
+    const dialog = await openList();
+    const rows = within(dialog).getAllByRole('listitem').map((li) => li.textContent);
+    expect(rows).toEqual(['PhantomOpen app', 'Any wallet appOpen app']);
+    expect(dialog).not.toHaveTextContent('Mobile Wallet Adapter');
+  });
+
+  it('an attempt that fails brings the list back and says so', async () => {
+    const { phone } = await tapped();
+    phone.fail();
+    const dialog = await screen.findByRole('dialog');
+    const notice = within(dialog).getByRole('alert');
+    expect(notice).toHaveTextContent(/Could not connect to a wallet app on this device/);
+    expect(notice).toHaveTextContent(/Pick a wallet below/);
+    // Every row is still there to pick.
+    expect(within(dialog).getAllByRole('listitem')).toHaveLength(2);
+  });
+
+  it('the failure the page has shown is not also an uncaught error', async () => {
+    const { phone } = await tapped();
+    const error = phone.fail();
+    expect(staysUncaught(error)).toBe(false);
+    // Any other rejection on the page is left alone (the control).
+    expect(staysUncaught(new WalletConnectionError('Wallet connection timed out'))).toBe(true);
+    expect(staysUncaught(undefined)).toBe(true);
+  });
+
+  it('closing the list clears the notice', async () => {
+    const { phone } = await tapped();
+    phone.fail();
+    await screen.findByRole('dialog');
+    act(() => {
+      fireEvent.keyDown(window, { key: 'Escape' });
+    });
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    const again = await openList();
+    expect(within(again).queryByRole('alert')).toBeNull();
+  });
+
+  it('a wallet app that answers after all closes the list it brought back', async () => {
+    const { phone } = await tapped();
+    phone.fail();
+    await screen.findByRole('dialog');
+    phone.approve();
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    const again = await openList();
+    expect(again).toHaveTextContent('Switch Solana wallet');
+    expect(within(again).queryByRole('alert')).toBeNull();
+  });
+
+  it('does not open over another dialog: the notice waits for the next time the list is opened', async () => {
+    const { phone } = await tapped();
+    const other = document.createElement('div');
+    other.setAttribute('aria-modal', 'true');
+    document.body.appendChild(other);
+    try {
+      phone.fail();
+      await restoreSettled();
+      expect(screen.queryByRole('dialog')).toBeNull();
+    } finally {
+      other.remove();
+    }
+    const dialog = await openList();
+    expect(within(dialog).getByRole('alert')).toHaveTextContent(/Could not connect to a wallet app/);
+  });
+
+  it('a notice still waiting to be seen is dropped once a wallet connects', async () => {
+    const { phone } = await tapped();
+    const other = document.createElement('div');
+    other.setAttribute('aria-modal', 'true');
+    document.body.appendChild(other);
+    try {
+      phone.fail();
+      await restoreSettled();
+    } finally {
+      other.remove();
+    }
+    phone.approve();
+    const dialog = await openList();
+    expect(dialog).toHaveTextContent('Switch Solana wallet');
+    expect(within(dialog).queryByRole('alert')).toBeNull();
+  });
+
+  it('a failure nobody tapped for opens nothing and is left as it was', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const phone = new PhoneWallet();
+    mount([phone, new FakeWallet('Phantom', WalletReadyState.Loadable)]);
+    await restoreSettled();
+    const error = phone.fail();
+    await restoreSettled();
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(staysUncaught(error)).toBe(true);
+    const dialog = await openList();
+    expect(within(dialog).queryByRole('alert')).toBeNull();
+  });
+
+  it('an error that is not a failed connect opens nothing', async () => {
+    const { phone } = await tapped();
+    act(() => {
+      phone.emit('error', new WalletSignTransactionError('declined'));
+    });
+    await restoreSettled();
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('another wallet’s failed connect is not this row’s to report', async () => {
+    const { phantom } = await tapped();
+    act(() => {
+      phantom.emit('error', new WalletConnectionError('User rejected the request.'));
+    });
+    await restoreSettled();
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+});
+
+// In a phone browser an offered wallet's row says "Open app": its adapter
+// reopens the CURRENT address inside the wallet's own app. That page used to
+// look like the start again (four testers, 2026-10-03), and the page left
+// behind said nothing about where the connect had gone.
+//
+// MUTATION CHECK: delete the change-8 block in handleWalletClick. The first
+// two tests must fail (no marker in the address the wallet read, no notice).
+describe('an "Open app" row hands the page to the wallet app', () => {
+  it('the address the wallet reads carries the marker, and the page left behind says where the connect went', async () => {
+    window.history.replaceState(null, '', '/earn?ref=abc');
+    const trust = new FakeWallet('Trust', WalletReadyState.Loadable);
+    mount([new FakeWallet('Phantom', WalletReadyState.Loadable), trust]);
+    const dialog = await openList();
+    expect(within(dialog).getByText('Trust Wallet').closest('button')).toHaveTextContent('Open app');
+    fireEvent.click(within(dialog).getByText('Trust Wallet'));
+    await waitFor(() => expect(trust.connectCalls).toBe(1));
+    const read = new URL(trust.hrefAtConnect!);
+    expect(read.pathname).toBe('/earn');
+    expect(read.searchParams.get('ref')).toBe('abc');
+    expect(read.searchParams.get(SOLANA_HANDOFF_PARAM)).toBe('1');
+    expect(toasts.toast).toHaveBeenCalledTimes(1);
+    expect(toasts.toast.mock.calls[0]![0]).toBe(
+      'Opening Trust Wallet. This site opens again inside the Trust Wallet app, and connects there.',
+    );
+    // It outlasts the trip to the wallet's app: a visitor who comes back still reads it.
+    expect(toasts.toast.mock.calls[0]![1]).toEqual({ duration: 20_000 });
+  });
+
+  // Change 4's path: the wallet is already the saved one, so connect() is
+  // called straight from the press. The marker has to be there by then too.
+  it('the same for the wallet that is already the saved one', async () => {
+    localStorage.setItem('walletName', JSON.stringify('MetaMask'));
+    const metamask = new FakeWallet('MetaMask', WalletReadyState.Loadable);
+    mount([metamask]);
+    await restoreSettled();
+    const dialog = await openList();
+    fireEvent.click(within(dialog).getByText('MetaMask'));
+    await waitFor(() => expect(metamask.connectCalls).toBe(1));
+    expect(new URL(metamask.hrefAtConnect!).searchParams.get(SOLANA_HANDOFF_PARAM)).toBe('1');
+    expect(toasts.toast).toHaveBeenCalledTimes(1);
+  });
+
+  // The controls: a wallet in this browser connects here, and the Mobile
+  // Wallet Adapter row is "Open app" too but connects in place. Neither
+  // reopens the page anywhere, so neither marks it or says it will.
+  it.each([
+    ['a wallet detected in this browser', 'Phantom', 'Phantom', WalletReadyState.Installed],
+    // Its row reads "Any wallet app" (solanaWalletOrder.ts PHONE_WALLET_ROW).
+    ['the Mobile Wallet Adapter row', 'Mobile Wallet Adapter', 'Any wallet app', WalletReadyState.Loadable],
+  ])('%s leaves the address alone and says nothing', async (_label, name, rowLabel, readyState) => {
+    window.history.replaceState(null, '', '/earn?ref=abc');
+    const wallet = new FakeWallet(name, readyState);
+    mount([wallet]);
+    const dialog = await openList();
+    fireEvent.click(within(dialog).getByText(rowLabel));
+    await waitFor(() => expect(wallet.connectCalls).toBe(1));
+    expect(wallet.hrefAtConnect).toBe(`${window.location.origin}/earn?ref=abc`);
+    expect(toasts.toast).not.toHaveBeenCalled();
+  });
+});
+
+// Tab storage blocked (Chrome with cookies blocked, a full store): the marker is
+// not written, so the page in the wallet's app will wait for a press. The notice
+// said it "connects there" all the same (skeptic, 2026-10-03).
+// MUTATION CHECK: show the first sentence whatever markSolanaHandoff returns; this must fail.
+describe('an "Open app" row where the marker cannot be written', () => {
+  it('hands the wallet the plain address and tells the visitor to press Connect there', async () => {
+    window.history.replaceState(null, '', '/earn');
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('quota', 'QuotaExceededError');
+    });
+    const trust = new FakeWallet('Trust', WalletReadyState.Loadable);
+    mount([trust]);
+    const dialog = await openList();
+    fireEvent.click(within(dialog).getByText('Trust Wallet'));
+    await waitFor(() => expect(trust.connectCalls).toBe(1));
+    expect(trust.hrefAtConnect).toBe(`${window.location.origin}/earn`);
+    expect(toasts.toast.mock.calls[0]![0]).toBe(
+      'Opening Trust Wallet. This site opens again inside the Trust Wallet app. Press Connect there.',
+    );
   });
 });

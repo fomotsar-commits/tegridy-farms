@@ -1,4 +1,6 @@
 import type { IndexedStatus } from '../../hooks/useCopyLeaderboard';
+import { CardArt } from '../ui/CardArt';
+import { FinePrint } from '../ui/FinePrint';
 
 // What a copy-trading read is, in words, before a single wallet is drawn.
 //
@@ -11,6 +13,9 @@ import type { IndexedStatus } from '../../hooks/useCopyLeaderboard';
 // `subject` is what the caller could not read, so the same component can say
 // "the follow board" and "your mirror history" without either inheriting the
 // other's claim.
+//
+// FEWER WORDS (owner, 2026-10-13). The title already says "could not be read";
+// `notAZero` (what that must not be taken for) sits in the FinePrint.
 
 export interface CopyDataNoticeProps {
   status: IndexedStatus;
@@ -62,7 +67,8 @@ export function CopyDataNotice({
   const showRetry = onRetry !== undefined && (status === 'unavailable' || status === 'backfilling');
 
   return (
-    <div className={`rounded-xl border px-4 py-3 ${TONES[status]}`} role="status">
+    <div className={`relative isolate rounded-xl border px-4 py-3 ${TONES[status]}`} role="status">
+      <CardArt pageId="copy-trading" idx={2} />
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-sm font-semibold text-white">{title(status, subject)}</h3>
         {showRetry ? (
@@ -77,7 +83,6 @@ export function CopyDataNotice({
       </div>
 
       {detail ? <p className="mt-1.5 text-xs leading-relaxed text-white/80">{detail}</p> : null}
-      {dark ? <p className="mt-1.5 text-xs leading-relaxed text-white/70">{notAZero}</p> : null}
 
       {status === 'ready' || status === 'backfilling' ? (
         syncedAt !== null && syncedAt !== undefined ? (
@@ -86,9 +91,15 @@ export function CopyDataNotice({
           </p>
         ) : (
           <p className="mt-1.5 text-[11px] leading-relaxed text-white/60">
-            The indexer did not report a head block, so how current this is cannot be stated.
+            Indexer head block: not reported, so freshness is unknown.
           </p>
         )
+      ) : null}
+
+      {dark ? (
+        <FinePrint summary="What this means" className="mt-1">
+          <p>{notAZero}</p>
+        </FinePrint>
       ) : null}
     </div>
   );

@@ -1,0 +1,299 @@
+=== src/lib.rs ===
+6a7,8
+> use crate::error::ErrorCode;
+> use crate::states::PoolState;
+7a10,14
+> use anchor_spl::metadata::{
+>     create_metadata_accounts_v3, mpl_token_metadata::types::DataV2, CreateMetadataAccountsV3,
+>     Metadata,
+> };
+> use anchor_spl::token_interface::Mint;
+13,19c20,29
+<     name: "raydium-cp-swap",
+<     project_url: "https://raydium.io",
+<     contacts: "link:https://immunefi.com/bounty/raydium",
+<     policy: "https://immunefi.com/bounty/raydium",
+<     source_code: "https://github.com/raydium-io/raydium-cp-swap",
+<     preferred_languages: "en",
+<     auditors: "https://github.com/raydium-io/raydium-docs/blob/master/audit/MadShield%20Q1%202024/raydium-cp-swap-v-1.0.0.pdf"
+---
+>     name: "tegridy-cp-amm",
+>     project_url: "https://memetics.finance",
+>     contacts: "email:fomotsar@gmail.com,link:https://memetics.finance/.well-known/security.txt",
+>     policy: "https://memetics.finance/source/solana/tegridy-amm/SECURITY.md",
+>     source_code: "https://memetics.finance/source/solana/tegridy-amm",
+>     preferred_languages: "en"
+>     // AUDITORS line intentionally REMOVED (was upstream's Raydium/MadShield audit):
+>     // this fork's diff-audit is PENDING; the upstream audit does NOT cover it, so
+>     // claiming it on-chain would be false. Every link above is on our own domain:
+>     // never put a git-host URL in this macro (docs/TODO_OPERATOR.md O-0929-10).
+21a32,48
+> // ─── TEGRIDY FORK CHANGES (2026-07-11) ────────────────────────────────────────
+> // The ENTIRE code delta from upstream raydium-cp-swap (Apache-2.0) is 4 authority/
+> // identity constants (3 here + create_support_mint_associated_owner in
+> // instructions/admin/create_support_mint_associated.rs) plus, since 2026-10-06, ONE
+> // added instruction: `create_lp_metadata`, which gives a pool's lp token a name
+> // record (the "TEGRIDY FORK ADDITION" at the bottom of this file). The security.txt
+> // above is ours too, on our own domain since 2026-10-06. Every line of swap/curve/
+> // fee logic is byte-identical to the audited upstream. The per-swap PROTOCOL fee is
+> // NOT here: it accrues per `amm_config.protocol_fee_rate` and is collected by
+> // `amm_config.protocol_owner` (which create_config sets = the admin caller).
+> //
+> // (Two header paragraphs deleted 2026-08-24: one claimed the non-devnet authority
+> // constants were fail-closed all-1s sentinels — false, the real values below are
+> // live keys — and one instructed "admin = Squads MULTISIG", the exact compile-time
+> // mistake that shipped 2026-08-08 and bricked graduation. The authoritative
+> // guidance is the admin module's own comment below: the constant must be a
+> // SIGNABLE, SYSTEM-OWNED, rent-paying account, never the Squads multisig account.)
+23c50
+< declare_id!("DRaycpLY18LhpbydsBWbVJtxpNv9oXPgjRSfpF2bWpYb");
+---
+> declare_id!("BvBkt84ZiKmiPSuWrdefxbxPTX5YiLnU6YEGtY6pDodL");
+25c52
+< declare_id!("CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C");
+---
+> declare_id!("EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT");
+28a56,81
+>     // Admin authority: create_config / update_config / update_pool_status AND a
+>     // fallback collector on collect_protocol_fee / collect_fund_fee (can sweep accrued
+>     // protocol+fund fees to any recipient) — a fund-touching, top-tier key.
+>     //
+>     // ─── THIS MUST BE A SIGNABLE, RENT-PAYING ACCOUNT ──────────────────────────
+>     // It was the Squads MULTISIG account (EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK),
+>     // which is neither. That shipped to mainnet on 2026-08-08 and made
+>     // `create_amm_config` UNCALLABLE, which in turn left tegridy-launch's
+>     // `migrate_to_amm` permanently on AmmNotConfigured (6015) — tokens could trade
+>     // but never graduate.
+>     //
+>     // The multisig ACCOUNT and the vault PDA are different things:
+>     //   EVGSnRZ… multisig  owner = Squads program, 495 bytes of data
+>     //   GRMtSxgs… vault    owner = System Program, 0 bytes
+>     // Squads v4 signs CPIs as the VAULT, so nothing can ever sign as the multisig.
+>     // And `CreateAmmConfig` has `payer = owner`, so even a signature would not be
+>     // enough: the System Program can only debit an account it owns with no data.
+>     //
+>     // So whatever goes here must be system-owned and fundable. Mainnet = the Squads
+>     // v4 VAULT PDA GRMtSxgs… (vault index 0 of multisig EVGSnRZ…, 2-of-2), by owner
+>     // ruling 2026-09-25. It replaces the single operator-held key the closed
+>     // 2026-08 binary carried. The vault is system-owned with no data, signs through
+>     // a Squads vault transaction, and pays `CreateAmmConfig`'s rent from its own
+>     // lamports — so fund it before `create_amm_config`. Every admin action is now a
+>     // 2-of-2 proposal. Moving THIS constant again needs a program upgrade, because
+>     // it is resolved at compile time.
+30c83
+<     pub const ID: Pubkey = pubkey!("DRayqG9RXYi8WHgWEmRQGrUWRWbhjYWYkCRJDd6JBBak");
+---
+>     pub const ID: Pubkey = pubkey!("GgE6AfEH2AVSrKGckyKMzC6mhtXWiAn39EzAikAsWq5a");
+32c85
+<     pub const ID: Pubkey = pubkey!("GThUX1Atko4tqhN2NaiTazWSeFWMuiUvfFnyJyUghFMJ");
+---
+>     pub const ID: Pubkey = pubkey!("GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd");
+36a90,94
+>     // Flat pool-creation fee recipient. This account is consumed as a native-SOL
+>     // (WSOL) SPL TOKEN ACCOUNT — the create path deserializes it as
+>     // InterfaceAccount<TokenAccount> and calls sync_native — so it MUST be a WSOL
+>     // token account (e.g. the treasury's WSOL ATA), NOT a wallet. Devnet = the
+>     // treasury/admin's WSOL ATA (created before deploy; see deploy-devnet.sh).
+38c96
+<     pub const ID: Pubkey = pubkey!("3oE58BKVt8KuYkGxx8zBojugnymWmBiyafWgMrnb6eYy");
+---
+>     pub const ID: Pubkey = pubkey!("27AC7YwwAULHQcQXGErV7rHMsLZAUBWF6ozDNhSpTQE9");
+40c98
+<     pub const ID: Pubkey = pubkey!("DNXgeM9EiiaAbaWvwjHj9fQQLAX5ZsfHyvmYUNRAdNC8");
+---
+>     pub const ID: Pubkey = pubkey!("2sa31zceMSTAAbSu5wfSnNA6sBYzS7r97nvZYaQouEXa");
+298a357,513
+> 
+>     /// Create the Metaplex name record of a pool's lp token mint. Anyone may call it and
+>     /// the caller pays. It takes no arguments: the name, the symbol and the link are fixed
+>     /// by the program.
+>     ///
+>     /// # Arguments
+>     ///
+>     /// * `ctx`- The context of accounts
+>     ///
+>     pub fn create_lp_metadata(ctx: Context<CreateLpMetadata>) -> Result<()> {
+>         let (name, symbol, uri) = get_lp_metadata_data(ctx.accounts.lp_mint.key());
+>         initialize_metadata_account(
+>             &ctx.accounts.payer,
+>             &ctx.accounts.authority.to_account_info(),
+>             &ctx.accounts.lp_mint.to_account_info(),
+>             &ctx.accounts.metadata,
+>             &ctx.accounts.update_authority.to_account_info(),
+>             &ctx.accounts.metadata_program,
+>             &ctx.accounts.system_program,
+>             &ctx.accounts.rent,
+>             name,
+>             symbol,
+>             uri,
+>             &[&[crate::AUTH_SEED.as_bytes(), &[ctx.bumps.authority]]],
+>         )
+>     }
+> }
+> 
+> // ─── TEGRIDY FORK ADDITION (2026-10-06): create_lp_metadata ───────────────────
+> // The one instruction this fork adds to upstream. A pool's lp token is a classic SPL
+> // mint with no name record, so a wallet lists it as an unknown token. Metaplex only
+> // creates that record when the mint authority signs, and the mint authority is this
+> // program's own address (AUTH_SEED), so no wallet can ask for it: this program must.
+> //
+> // The helpers are Raydium CLMM's `get_metadata_data` and `initialize_metadata_account`
+> // (raydium-io/raydium-clmm @ ed7c84a54ced59c55981780546adb0b4583dcf85,
+> // programs/amm/src/instructions/open_position.rs, Apache-2.0, same Anchor 0.32.1).
+> // What differs from that source: the words; the record's editor is `admin::ID` and
+> // not the signing address; the editor does not sign; the record is mutable; no
+> // creator is listed; and both helpers are `#[inline(never)]` (see the stack note).
+> //
+> // WHO MAY CALL IT: anyone. That is safe because the caller chooses nothing. The name
+> // and symbol are fixed in `get_lp_metadata_data` and the link is built there from the
+> // lp mint address.
+> // `lp_mint` must be the mint recorded in `pool_state` (IncorrectLpMint), and
+> // `pool_state` must be a pool account this program owns, so a stranger's own mint
+> // that merely names AUTH_SEED as its mint authority cannot be given our label.
+> // Metaplex refuses a second record for the same mint, so it runs once per pool.
+> //
+> // WHO CAN EDIT THE RECORD LATER: `admin::ID` only (the Squads vault on mainnet), with
+> // a plain Metaplex update. This program has no update path. The editor must be an
+> // address that can sign: see the note in `mod admin` above.
+> //
+> // FUND SAFETY: the AUTH_SEED address that signs the inner call also owns every pool
+> // vault. The inner call gets six accounts and no remaining account. Four are fixed by
+> // the checks below: the lp mint and AUTH_SEED (read-only in their own slots), the
+> // editor and the System program. The caller picks two: the payer, which must sign, and
+> // the record slot, which this program does NOT check. So at most one slot can hold a
+> // vault or the token program, never both, and a program can only call one it was handed.
+> //
+> // STACK: an SBF frame over 4,096 bytes is only a linker warning and then faults on
+> // chain. `lp_mint` is boxed, `pool_state` is an `AccountLoader` (no copy), and the
+> // string building and the inner call each keep their own small frame.
+> #[derive(Accounts)]
+> pub struct CreateLpMetadata<'info> {
+>     /// Pays the record's rent and Metaplex's creation fee
+>     #[account(mut)]
+>     pub payer: Signer<'info>,
+> 
+>     /// CHECK: pool vault and lp mint authority
+>     #[account(
+>         seeds = [
+>             crate::AUTH_SEED.as_bytes(),
+>         ],
+>         bump,
+>     )]
+>     pub authority: UncheckedAccount<'info>,
+> 
+>     pub pool_state: AccountLoader<'info, PoolState>,
+> 
+>     /// Lp token mint
+>     #[account(
+>         address = pool_state.load()?.lp_mint @ ErrorCode::IncorrectLpMint
+>     )]
+>     pub lp_mint: Box<InterfaceAccount<'info, Mint>>,
+> 
+>     /// To store metaplex metadata
+>     /// CHECK: Metaplex checks it is the record address derived for `lp_mint`
+>     #[account(mut)]
+>     pub metadata: UncheckedAccount<'info>,
+> 
+>     /// CHECK: the record's editor, which does not sign here
+>     #[account(
+>         address = crate::admin::ID
+>     )]
+>     pub update_authority: UncheckedAccount<'info>,
+> 
+>     /// Program to create the metadata record
+>     pub metadata_program: Program<'info, Metadata>,
+> 
+>     pub system_program: Program<'info, System>,
+> 
+>     pub rent: Sysvar<'info, Rent>,
+> }
+> 
+> #[inline(never)]
+> fn get_lp_metadata_data(lp_mint: Pubkey) -> (String, String, String) {
+>     return (
+>         String::from("Memetics Pool Share"),
+>         String::from("MEM-LP"),
+>         format!("https://memetics.finance/mint/{}.json", lp_mint.to_string()),
+>     );
+> }
+> 
+> #[inline(never)]
+> fn initialize_metadata_account<'info>(
+>     payer: &Signer<'info>,
+>     authority: &AccountInfo<'info>,
+>     lp_mint: &AccountInfo<'info>,
+>     metadata_account: &UncheckedAccount<'info>,
+>     update_authority: &AccountInfo<'info>,
+>     metadata_program: &Program<'info, Metadata>,
+>     system_program: &Program<'info, System>,
+>     rent: &Sysvar<'info, Rent>,
+>     name: String,
+>     symbol: String,
+>     uri: String,
+>     signers_seeds: &[&[&[u8]]],
+> ) -> Result<()> {
+>     create_metadata_accounts_v3(
+>         CpiContext::new_with_signer(
+>             metadata_program.to_account_info(),
+>             CreateMetadataAccountsV3 {
+>                 metadata: metadata_account.to_account_info(),
+>                 mint: lp_mint.to_account_info(),
+>                 mint_authority: authority.to_account_info(),
+>                 payer: payer.to_account_info(),
+>                 update_authority: update_authority.to_account_info(),
+>                 system_program: system_program.to_account_info(),
+>                 rent: rent.to_account_info(),
+>             },
+>             signers_seeds,
+>         ),
+>         DataV2 {
+>             name,
+>             symbol,
+>             uri,
+>             seller_fee_basis_points: 0,
+>             creators: None,
+>             collection: None,
+>             uses: None,
+>         },
+>         true,
+>         false,
+>         None,
+>     )?;
+>     Ok(())
+=== src/instructions/admin/create_support_mint_associated.rs ===
+6a7,10
+> // TEGRIDY FORK CHANGE (2026-07-10): upstream this alternate authority for the
+> // Token-2022 support-mint allowlist was a Raydium-controlled key. Pointed at the
+> // Tegridy admin so NO external party retains any authority on this program. This
+> // is the 4th (and final) hardcoded-authority change; the other three are in lib.rs.
+8a13,22
+>     // A SECOND, lower-privilege owner accepted by `CreateSupportMintAssociated` in
+>     // addition to `admin::ID` (see the `||` constraint below).
+>     //
+>     // Mainnet = the Squads v4 VAULT PDA GRMtSxgs…, the same address as `admin::ID`
+>     // (owner ruling 2026-09-25). It used to be the Squads MULTISIG account EVGSnRZ…,
+>     // which can never sign — the mistake that made `admin::ID` unusable and blocked
+>     // graduation (see the long note in lib.rs) — so this instruction's fallback was
+>     // dead. `CreateSupportMintAssociated` also has `payer = owner`, so whatever goes
+>     // here must be SYSTEM-OWNED and fundable: a vault PDA or a plain wallet, never
+>     // the multisig account.
+10c24
+<     pub const ID: Pubkey = pubkey!("DRaypyeDL6y1dUusMgwyeDM5JebjhsSi8aRXobKQ9DcQ");
+---
+>     pub const ID: Pubkey = pubkey!("GgE6AfEH2AVSrKGckyKMzC6mhtXWiAn39EzAikAsWq5a");
+12c26
+<     pub const ID: Pubkey = pubkey!("Rayv2LG4tFSMizZhMP8aSUYxDPjV8qJtx2NQY9RKYZy");
+---
+>     pub const ID: Pubkey = pubkey!("GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd");
+=== src/instructions/initialize.rs ===
+204a205,209
+>     // TEGRIDY FORK: index 0 is the launch tier (no opening fee, the lowest trade fee).
+>     // Only graduations open pools on it, through initialize_with_permission.
+>     if ctx.accounts.amm_config.index == 0 {
+>         return err!(ErrorCode::NotApproved);
+>     }
+=== Cargo.toml ===
+4c4
+< description = "Raydium constant product AMM, supports Token2022 and without Openbook"
+---
+> description = "Tegridy constant product AMM (fork of Raydium CP-Swap, Apache-2.0), supports Token2022 and without Openbook"

@@ -11,7 +11,7 @@ many separate findings are the same bug seen through different lenses.
 The contract's single load-bearing promise — that a reward payout can never
 touch principal — is false, and it is *proven*, not argued (see C1).
 
-**Exposure today is zero.** All six live ladders return `totalSupply() == 0`:
+**Exposure today is zero.** All six ladders then live (retired 2026-09-05 by PR #433, see `docs/CONTRACTS.md`) return `totalSupply() == 0`:
 PEPE `0xdC0B34cE…329c` (Ethereum), QR `0xdcc3a95A…c8E3`, MFER `0x7288DbF4…6273`,
 BNKR `0xe0A152EB…3178`, DRB `0xB62BaD16…83F1`, JBM `0xA0D43eF3…6D93` (Base).
 Nobody has deposited. This is *fix before the first deposit*, not an incident.

@@ -1,7 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import '@testing-library/jest-dom/vitest';
 import { WalletReadyState, BaseMessageSignerWalletAdapter, type SupportedTransactionVersions, type WalletName } from '@solana/wallet-adapter-base';
 import { ConnectionProvider, WalletProvider, useWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
@@ -319,6 +318,16 @@ describe('while a saved WalletConnect session is still being restored', () => {
     await waitFor(() => expect(screen.getByTestId('pk')).toHaveTextContent(account));
   });
 
+  // The list names a wallet it is waiting on and says to open it, because it
+  // may be locked (2026-10-03). None of that is true of WalletConnect: its wait
+  // here is this restore, and there is no app of that name to open.
+  it('the list does not say it is waiting for WalletConnect to be opened or unlocked', async () => {
+    await mountRestoring({ live: false });
+    const dialog = await openList();
+    expect(within(dialog).queryByRole('status')).toBeNull();
+    expect(dialog).not.toHaveTextContent(/Waiting for/);
+  });
+
   it('clicking the WalletConnect row with NO session to restore: the click is kept, and the QR follows', async () => {
     await mountRestoring({ live: false });
     fireEvent.click(within(await openList()).getByText('WalletConnect'));
@@ -340,6 +349,28 @@ describe('while a saved WalletConnect session is still being restored', () => {
     await settle();
     expect(screen.getByTestId('pk')).toHaveTextContent(account);
     expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  // The top bar's address opens the list while connected (2026-10-02). The
+  // WalletConnect row stays open for a QR; connected, there is none to draw,
+  // and the row did nothing at all, with the dialog left open.
+  it('once CONNECTED over WalletConnect, its row reads Connected and a tap on it closes the list', async () => {
+    await mountRestoring({ live: true });
+    await act(async () => {
+      release!(client);
+      await settle(50);
+    });
+    await settle();
+    expect(screen.getByTestId('pk')).toHaveTextContent(account);
+    const dialog = await openList();
+    expect(dialog).toHaveTextContent('Switch Solana wallet');
+    const row = within(dialog).getByText('WalletConnect').closest('button')!;
+    expect(row).toHaveTextContent('WalletConnectConnected');
+    fireEvent.click(row);
+    await settle();
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.queryByRole('img', { name: 'WalletConnect QR code' })).toBeNull();
+    expect(screen.getByTestId('pk')).toHaveTextContent(account);
   });
 
   it('a kept click is dropped by Close: a restore ending during the fade starts no QR', async () => {
@@ -398,6 +429,99 @@ describe('SolanaProviders and the project id', () => {
     );
     const names = screen.getByTestId('names').textContent ?? '';
     expect(names.split(',').includes('WalletConnect')).toBe(present);
+  });
+});
+
+/**
+ * CHANGE 7 (owner, 2026-09-30): "None of the trust wallets are connecting to
+ * Solana when connected through the QR code" and "jupiter wallet not
+ * supported". On a computer without the extension, Trust's row opened the
+ * extension's install page and Jupiter had no row; the only Solana QR was a
+ * row named "WalletConnect" at the bottom that named neither. Now each row
+ * opens that QR, named for the wallet whose phone app scans it.
+ */
+describe('Trust and Jupiter, not in this browser, open the QR their phone app scans', () => {
+  function mountWith(adapters: unknown[]) {
+    return render(
+      <ConnectionProvider endpoint="http://127.0.0.1:8899">
+        <WalletProvider wallets={adapters as never} autoConnect>
+          <SolanaWalletModalProvider>
+            <Opener />
+          </SolanaWalletModalProvider>
+        </WalletProvider>
+      </ConnectionProvider>,
+    );
+  }
+
+  it.each([
+    ['Trust', 'Trust Wallet'],
+    ['Jupiter', 'Jupiter'],
+  ])('%s: its row says "Scan QR code", shows the QR named for it, and never the install page', async (name, label) => {
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null);
+    wc = new WalletConnectWalletAdapter({ projectId: 'test-project' });
+    mountWith([new FakeWallet('Phantom', WalletReadyState.Installed), new FakeWallet(name, WalletReadyState.NotDetected), wc]);
+    const dialog = await openList();
+    const row = within(dialog).getByText(label).closest('button')!;
+    expect(row).toHaveTextContent(`${label}Scan QR code`);
+    fireEvent.click(row);
+    expect(await screen.findByRole('img', { name: 'WalletConnect QR code' })).toBeInTheDocument();
+    expect(screen.getByRole('dialog')).toHaveTextContent(`Scan with ${label} on your phone`);
+    expect(open, 'the install page opened instead of the QR').not.toHaveBeenCalled();
+
+    // The extension stays one click away, as the second choice.
+    fireEvent.click(screen.getByRole('button', { name: `Use the ${label} extension instead` }));
+    expect(open).toHaveBeenCalledWith('https://example.test', '_blank', 'noopener,noreferrer');
+
+    // It is the WalletConnect row's connection: same adapter, same saved name.
+    await act(async () => client.approve());
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(screen.getByTestId('pk')).toHaveTextContent(account);
+    expect(JSON.parse(localStorage.getItem('walletName') ?? 'null')).toBe('WalletConnect');
+  });
+
+  it('the WalletConnect row itself keeps its own wording and offers no extension', async () => {
+    mount();
+    const dialog = await openList();
+    fireEvent.click(within(dialog).getByText('WalletConnect'));
+    await screen.findByRole('img', { name: 'WalletConnect QR code' });
+    expect(screen.getByRole('dialog')).toHaveTextContent('Scan with your phone’s wallet');
+    expect(screen.queryByRole('button', { name: /extension instead/ })).toBeNull();
+  });
+
+  it('with no WalletConnect row (a phone, or a build without a project id), Trust opens its install page as before', async () => {
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null);
+    mountWith([new FakeWallet('Phantom', WalletReadyState.Installed), new FakeWallet('Trust', WalletReadyState.NotDetected)]);
+    const dialog = await openList();
+    const row = within(dialog).getByText('Trust Wallet').closest('button')!;
+    expect(row).toHaveTextContent('Trust WalletInstall');
+    fireEvent.click(row);
+    expect(open).toHaveBeenCalledWith('https://example.test', '_blank', 'noopener,noreferrer');
+    expect(screen.queryByRole('img', { name: 'WalletConnect QR code' })).toBeNull();
+  });
+
+  it('a wallet whose phone app is not known to scan it keeps its install page', async () => {
+    // Solflare cannot connect over WalletConnect at all (the QR note says so).
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null);
+    wc = new WalletConnectWalletAdapter({ projectId: 'test-project' });
+    mountWith([new FakeWallet('Solflare', WalletReadyState.NotDetected), wc]);
+    const dialog = await openList();
+    const row = within(dialog).getByText('Solflare').closest('button')!;
+    expect(row).toHaveTextContent('SolflareInstall');
+    fireEvent.click(row);
+    expect(open).toHaveBeenCalledWith('https://example.test', '_blank', 'noopener,noreferrer');
+    expect(screen.queryByRole('img', { name: 'WalletConnect QR code' })).toBeNull();
+  });
+});
+
+describe('the list no longer says the top bar cannot connect Solana', () => {
+  // On a Solana page the top bar's Connect opens this list (lib/solanaSurface.ts).
+  it('says what it connects, and that an Ethereum or Base connection is separate and stays', async () => {
+    mount();
+    const dialog = await openList();
+    expect(dialog).not.toHaveTextContent('does not connect Solana');
+    expect(dialog).toHaveTextContent(
+      'Only wallets that work on Solana are listed. This connects your Solana account. An Ethereum or Base connection is separate and stays as it is.',
+    );
   });
 });
 

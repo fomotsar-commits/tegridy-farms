@@ -2,8 +2,11 @@
 
 > ⚠️ **TWO PROGRAMS, TWO VERY DIFFERENT ENGAGEMENTS. Price them separately.**
 >
-> - **Scope A — `cp-swap`:** a verbatim fork of Raydium's audited CPMM, delta = four
->   constants. A cheap **diff-audit**. Everything below the fold describes this.
+> - **Scope A, `cp-swap`:** a fork of Raydium's audited CPMM, delta = four constants, the
+>   program's own name and contact text, plus one added instruction (`create_lp_metadata`,
+>   about 150 lines, added 2026-10-06) and one added refusal in `initialize` (fee tier 0,
+>   five lines, added 2026-10-19). A **diff-audit**, with one instruction that needs a real
+>   read. Everything below the fold describes this.
 > - **Scope B — `tegridy-launch`:** ~1,170 production nSLOC of **NOVEL code** with no upstream to
 >   diff against — a bonding curve plus a 20-account migration CPI that moves an entire
 >   launch's raised balance in one instruction. This is a **real audit** and is where the
@@ -11,26 +14,44 @@
 >
 > Quoting only Scope A would leave the dangerous program unreviewed.
 
-**Scope A one-liner:** review a **verbatim fork** of Raydium's audited CPMM
+**Scope A one-liner:** review a **fork** of Raydium's audited CPMM
 (`raydium-cp-swap`) whose *entire* delta from upstream is **four hardcoded
-authority/identity constants**. This is a **diff-audit**, not a from-scratch AMM audit.
+authority/identity constants**, **one added instruction, `create_lp_metadata`**, **one
+added refusal in `initialize`** (a public opening on fee tier 0), and the program's own name
+and contact text. This is a **diff-audit**, not a from-scratch AMM audit.
+
+**The added instruction, and why it needs a real read.** A pool's lp token is a classic SPL
+mint with no name record, so wallets list it as an unknown token. Metaplex only creates the
+record when the mint authority signs, and that authority is the program's own address, so
+only the program can ask. `create_lp_metadata` makes that one Metaplex call. It takes no
+arguments (the name, symbol and link are fixed in the program), anyone may call it, and the
+record's editor is `admin::ID`. The address that signs the inner call also owns every pool
+vault, so the question for a reviewer is narrow and important: can this instruction do
+anything other than create the name record of a real pool's lp mint? One fact to start
+from: the caller picks the account that goes in the record slot, and the program does not
+check it (Metaplex does). `TEGRIDY_FORK.md` ("The one added instruction") has the design, the
+source it was taken from, and why we think the vaults are out of reach all the same.
 
 ---
 
 ## What it is
 A Solana constant-product AMM so the protocol earns a config-set protocol fee on swaps
-across pools it hosts. It is **not** novel code — it is `raydium-cp-swap` copied verbatim,
-with only identity/authority constants changed.
+across pools it hosts. It is `raydium-cp-swap` with its identity and authority constants
+changed, one instruction added (`create_lp_metadata`, above) and one refusal added to
+`initialize` (fee tier 0, the launch tier, is closed to a public opening). Everything else is
+upstream's code, unchanged.
 
 - **Upstream:** https://github.com/raydium-io/raydium-cp-swap @ commit `78f254e1023751e706df7dc15c453fc3e046697c` (Apache-2.0)
-- **Anchor** 0.32.1 · **Solana** 2.3.0 · program size ~692 KB (SBF)
+- **Anchor** 0.32.1 · **Solana** 2.3.0 · program size (SBF): 725,176 bytes for the binary live on mainnet since its upgrade, a mainnet build of this source (2026-10-19, with the launch-tier refusal; sha256 `1e55bcdc…`); 691,640 bytes for the binary it replaced, which was built before `create_lp_metadata`
 - **Repo path:** `solana/tegridy-amm/` (see `TEGRIDY_FORK.md` for full detail)
 
-## Exact scope — the whole code delta
+## Exact scope: the whole code delta
 
-**86 lines across three files**, and CI hashes that delta so it cannot drift (see
-below). Reproduce it yourself with the `diff-guard` job in
-`.github/workflows/solana-ci.yml` — it prints the full delta on every run.
+**About 265 lines across four files** (the guard prints 266; it was 261 before the
+launch-tier refusal of 2026-10-19, and 94 before `create_lp_metadata` was added on
+2026-10-06), and CI hashes that delta so it cannot drift
+(see below). Reproduce it yourself with the `diff-guard` job in
+`.github/workflows/solana-ci.yml`: it prints the full delta on every run.
 
 Four identity constants. Each authority appears **twice**, once per `#[cfg]` arm
 (`devnet` and default/mainnet), so the file shows six `pub const ID` edits for three
@@ -38,19 +59,39 @@ authorities:
 
 | Constant | File | Change |
 |---|---|---|
-| `declare_id!` (program ID) | `programs/cp-swap/src/lib.rs` | Raydium → Tegridy program keypair. ⚠️ Both arms currently hold the same devnet throwaway; the mainnet arm is **not** fail-closed. |
-| `admin::ID` | `lib.rs` | Raydium → Tegridy admin. Mainnet arm is a fail-closed System-Program sentinel pending a Squads multisig. |
-| `create_pool_fee_reveiver::ID` | `lib.rs` | Raydium WSOL acct → Tegridy's WSOL ATA. **A token account, not a wallet** — it is consumed as `InterfaceAccount<TokenAccount>` at `instructions/initialize.rs:131-135`. Mainnet arm is a fail-closed sentinel. |
-| `create_support_mint_associated_owner::ID` | `instructions/admin/create_support_mint_associated.rs` | Raydium → Tegridy admin. Mainnet arm is a fail-closed sentinel. |
+| `declare_id!` (program ID) | `programs/cp-swap/src/lib.rs` | Raydium → our program id. Mainnet arm: `EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT`, the live program. Devnet arm: a throwaway. |
+| `admin::ID` | `lib.rs` | Raydium → our admin. Mainnet arm: the Squads **vault PDA** `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd`, never the Squads multisig account. Devnet arm: a throwaway key. |
+| `create_pool_fee_reveiver::ID` | `lib.rs` | Raydium WSOL acct → `2sa31zceMSTAAbSu5wfSnNA6sBYzS7r97nvZYaQouEXa`, the vault's WSOL ATA. **A token account, not a wallet**: it is consumed as `InterfaceAccount<TokenAccount>` at `instructions/initialize.rs:131-135`. |
+| `create_support_mint_associated_owner::ID` | `instructions/admin/create_support_mint_associated.rs` | Raydium → the same Squads vault PDA on the mainnet arm. |
 
-Two **non-constant** changes are in the delta as well, and we call them out rather than
+(Corrected 2026-10-06. Until then this table described the mainnet arms as fail-closed
+sentinels and both `declare_id!` arms as one devnet throwaway. They have held the real mainnet
+identities since 2026-09-26, and the program has been live at that id since 2026-09-29.)
+
+Four **non-constant** changes are in the delta as well, and we call them out rather than
 let you find them and wonder what else we did not mention:
 
+- **`lib.rs` `create_lp_metadata`** (added 2026-10-06): the one new instruction, about 150
+  lines with its comments. Seven `use` lines, a 17-line handler with no arguments, a
+  nine-account struct, and two helpers taken from Raydium CLMM's `open_position.rs`. It is
+  described at the top of this document and in `TEGRIDY_FORK.md`, and it is the part of
+  Scope A that needs a real read: it signs a Metaplex call with the address that owns every
+  pool vault.
 - **`lib.rs` `security_txt!` block** — project name, URLs and contacts repointed from
   Raydium to us, and upstream's `auditors:` line (the MadShield report) **deliberately
   removed**, because that audit does not cover this fork and leaving it would be a false
   on-chain claim. Please confirm we removed it correctly and that nothing else in that
-  block still asserts a Raydium property.
+  block still asserts a Raydium property. Since 2026-10-06 the source's block has an email
+  as its first contact and every link on `memetics.finance` (`TEGRIDY_FORK.md`, "The
+  on-chain security text"). The binary on mainnet has carried that text since the upgrade.
+  The binary it replaced carried the older text, whose links had gone dead.
+- **`instructions/initialize.rs`, the launch-tier refusal** (added 2026-10-19, pull request
+  #899): five lines beside upstream's `disable_create_pool` check. A public `initialize` on
+  the fee config with `index == 0` returns upstream's own `NotApproved` (6000). Index 0 is
+  the launch tier, where only graduations should open pools, and they do so through
+  `initialize_with_permission`, which is unchanged. No account, argument or error code
+  changes, so the IDL is the same file. It can only make calls fail. `TEGRIDY_FORK.md`,
+  "The launch-tier gate in `initialize`", has why and how it was proved.
 - **`Cargo.toml`** — the `description` string only. The old CI guard did not inspect
   `Cargo.toml` at all, which left a dependency swap unguarded; the current hash-based
   guard covers it.
@@ -109,27 +150,66 @@ permissionless total-loss bug and was removed; see `MIGRATE_DESIGN.md`.
 mainnet on 2026-08-08 and were CLOSED on/before 2026-08-15 — the program ids are
 permanently spent and can never be reused. Any future deployment is a RESTART with fresh
 keypairs and a new `declare_id!` (see MAINNET_RUNBOOK.md § "THE RESTART, IN ORDER").
-The audit target is therefore the source at the commit under review, not a live program.
+
+**Corrected again 2026-10-06:** the restart happened. Both programs have been live on mainnet
+since 2026-09-29, at `EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT` (cp-swap) and
+`64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2` (tegridy-launch), and cp-swap holds funded
+pools. Neither has been audited. So the audit target is a live program as well as its source.
+For cp-swap the two differed, on that date, by one instruction and by the on-chain security
+text: the binary then on mainnet (sha256 `88b98aa9…`, 691,640 bytes, read on chain
+2026-10-06) was built before `create_lp_metadata` was added and before the security text
+moved to `memetics.finance`.
+
+**Corrected again with the pool program's upgrade:** the Squads vault has since upgraded
+cp-swap to a build of this source (sha256 `1e55bcdc…`, 725,176 bytes), so the live program
+has the instruction, the new security text and the launch-tier refusal, and the source and
+the live program no longer differ in any of them. It was the program's first upgrade, and it went in unaudited. The day and
+the transaction are in `MAINNET_RUNBOOK.md`, section 4b.
 
 ---
 
 ## Self-verification we've already done (please confirm)
-- `diff -rq` against pinned upstream shows **only those two files differ**, and only in the
-  four constants. This is **enforced on every push** by `.github/workflows/solana-ci.yml`
+- `diff -rq` against pinned upstream shows **only those three source files differ**, and
+  only in the four constants, the one added instruction (`create_lp_metadata`, whole in
+  `lib.rs`), the one added refusal (five lines in `instructions/initialize.rs`) and the
+  program's own name and contact text (the `security_txt!` block in `lib.rs`; outside
+  `src`, one `Cargo.toml` line).
+  This is **enforced on every push** by `.github/workflows/solana-ci.yml`
   (`diff-guard` job fails the build on any other divergence).
+- `create_lp_metadata` was run on a local validator against copies of the two real mainnet
+  pools (`frontend/scripts/solana-localnet/prove-lp-metadata.mjs`): the record it writes;
+  twenty-five refused calls, each by its own error (twelve by this program's checks, eleven
+  by Metaplex, two by the System program), eleven of them hostile record slots and payers
+  such as a pool vault or the lp mint in the record slot; the inner call's exact account
+  list; and every vault, lp mint and pool account byte-identical before and after.
 - The program **compiles** in CI (`cargo build-sbf`), which also publishes the `.so`.
 - After the fork, **no external (Raydium) party retains any authority** on the program.
 
 ## What we're asking you to verify
-1. The `diff-rq`/diff-guard claim holds — nothing beyond the four constants changed vs the
-   audited upstream commit; the underlying upstream is at a safe, audited revision.
+1. The `diff-rq`/diff-guard claim holds: nothing beyond the four constants, the one added
+   instruction and the program's own name and contact text changed vs the audited upstream
+   commit; the underlying upstream is at a safe, audited revision.
 2. The four constants are wired correctly (each authority is used where intended; no
    authority path was missed or left pointing at a foreign key).
-3. **Mainnet build** sets `admin` + support-mint owner to the **Squads multisig**, the
-   `create_pool_fee_reveiver` to the treasury's **WSOL token account** (not a wallet — it's
-   consumed as an `InterfaceAccount<TokenAccount>`), a fresh mainnet program keypair, and the
-   **program upgrade authority** to the multisig (or burned). The non-devnet defaults are
-   fail-closed System-Program sentinels — confirm none survive into the mainnet build.
+2a. `create_lp_metadata` can only create the Metaplex name record of a real pool's lp mint:
+   the caller passes no words, `lp_mint` is bound to `pool_state`, the editor is `admin::ID`,
+   and the inner call gets six accounts and no remaining account. Four of the six are fixed
+   by the program. The caller picks the payer and the record slot, and **the program does not
+   check the record slot**: a caller can put a pool vault, the lp mint or the signing address
+   there, and it is passed on writable beside the signature of the address that owns every
+   vault. We rely on two things for that: the runtime (a program can only call a program it
+   was handed, so a vault and the token program can never both be in the call) and Metaplex
+   (no upgrade authority on mainnet; it refuses every wrong record slot). Tell us whether
+   that is enough, or whether the program should derive and check the record address itself.
+3. **Mainnet build** sets `admin` and the support-mint owner to the Squads **vault PDA**
+   `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd`, the `create_pool_fee_reveiver` to that
+   vault's **WSOL token account** (not a wallet: it's consumed as an
+   `InterfaceAccount<TokenAccount>`), the program id to `EKS4C6x…`, and the **program upgrade
+   authority** to the same vault PDA. Never the Squads multisig ACCOUNT `EVGSnRZ…`: it can
+   neither sign nor pay, and naming it as admin is what bricked the August deploy.
+   `scripts/verify-program-constants.mjs` checks a built binary for exactly this. (Until
+   2026-10-06 this item named the multisig and described the mainnet defaults as sentinels.
+   Both were out of date.)
 4. The intended **deploy + `create_config`** process (create_config sets `protocol_owner =
    admin caller`; the real bound is `protocol_fee_rate + fund_fee_rate ≤ 1_000_000`) has no
    misconfiguration or front-running risk.
@@ -137,8 +217,10 @@ The audit target is therefore the source at the commit under review, not a live 
 
 ## Threat model / trust assumptions
 See `TEGRIDY_FORK.md#threat-model`. In short: inherited risk ≈ Raydium CPMM in production
-(unchanged); new surface = admin key (→ multisig) + upgrade authority (→ multisig/burned).
-Fund-holding mainnet deploy is gated on this audit.
+(unchanged); new surface = the admin key and the upgrade authority (both the Squads vault
+PDA) and, since 2026-10-06, the one added instruction. The program is already live and holds
+funds: this audit did not gate that deploy. The added instruction has been on mainnet since
+the program's first upgrade (`MAINNET_RUNBOOK.md`, section 4b), and it went in unaudited.
 
 ## Deliverables to you
 - Read access to `solana/tegridy-amm/` (this repo) + `TEGRIDY_FORK.md`

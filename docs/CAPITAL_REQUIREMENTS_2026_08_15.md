@@ -25,6 +25,12 @@
 > Re-priced figures: pool deepen **1.98 ETH ≈ $4,964** · Solana restart settled **8.46 SOL ≈ $820**
 > · Solana restart peak float **13.4 SOL ≈ $1,299** · DBC config v2 **0.0082 SOL ≈ $0.79**.
 >
+> ⚠️ **Rent fell after this was written.** These SOL figures use mainnet's August rent, about
+> 6,960 lamports a byte. Mainnet now charges (bytes + 128) × 5,080 lamports (read from
+> `getMinimumBalanceForRentExemption` on 2026-10-14, slot 456,735,211), so every rent row below is
+> 27% lower: the restart table comes to about **6.20 SOL settled / 9.77 SOL peak**. The restart that
+> ran used other builds; today's deploy figures are in `solana/tegridy-amm/MAINNET_RUNBOOK.md` §0.
+>
 > ⓘ Solana rent is denominated in lamports, so **a SOL price move changes what the restart costs in
 > dollars, never how much SOL it needs.** And note the restart total is within 0.01 SOL of the
 > 8.467 SOL that closing the two programs released — see `TODO_OPERATOR.md` §0.4, which is still
@@ -56,6 +62,7 @@ denominated in lamports and does not move with the price.**
 | **settled total** | **8.487** | **$823** | $638 |
 | write-buffer retry headroom (recoverable) | +4.89 | +$474 | +$368 |
 | **peak float to ask for** | **13.4** | **$1,299** | $1,007 |
+| *at the 2026-10-14 rent rate (rent rows × 5,080 / 6,960)* | *6.20 settled, 9.77 peak* | | |
 
 Ask for the peak, not the settled number. A deploy that dies mid-write strands a buffer, and
 the retry needs its own rent before `--buffers` gives the first one back. That is how the

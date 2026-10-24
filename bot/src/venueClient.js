@@ -1,26 +1,9 @@
-// The bot's network boundary to memetic.fun. Two kinds of call go through here and
-// they are authenticated differently, which is the architecture showing through.
-//
-//   PRIVILEGED (link/status/unlink) — signed with BOT_LINK_SECRET. The venue side
-//   is frontend/api/_lib/botLink.js; the signing string is built by the same
-//   formula on both ends and `venueClient.test.js` proves it by importing the
-//   verifier from the API and feeding it what this file produced. A drift between
-//   the two would show up as every bot call 401ing, which is at least loud — but
-//   only if something checks, so something does.
-//
-//   PUBLIC (heat) — no credential. It is a read anyone may make.
-//
-// ON THE ORIGIN HEADER. The venue's resources enforce a browser origin allowlist.
-// This process is not a browser and does not pretend otherwise: it sends the venue
-// origin because that gate is a browser control (it stops a third-party PAGE from
-// spending our upstream quota) and satisfying it is what any first-party server
-// client must do. The gate is NOT what authenticates the privileged calls — the
-// HMAC is — and nothing here is admitted by the header alone.
-//
-// FAIL-CLOSED, always. Every function returns a discriminated result and none of
-// them ever returns an empty-looking success. "The venue did not answer" and "the
-// answer is no" are different facts about a user's wallet and the command layer
-// renders them as different sentences.
+// The bot's network boundary to the venue at cfg.venueOrigin. Link, status and unlink are
+// signed with BOT_LINK_SECRET and verified by frontend/api/_lib/botLink.js, and
+// frontend/api/__tests__/bot-noncustodial.test.js imports both to prove they agree. Heat is
+// a public read. The Origin header only satisfies the venue's browser allowlist; the HMAC
+// authenticates. Every call fails closed with a discriminated result, so "the venue did
+// not answer" and "the answer is no" never look alike.
 
 import { createHmac } from "node:crypto";
 
@@ -31,13 +14,9 @@ export const VENUE_TIMEOUT_MS = 8000;
 const MAX_RESPONSE_BYTES = 64 * 1024;
 
 /**
- * The two fields a bot request carries, in a fixed order.
- *
- * Must stay byte-identical to `canonicalBotBody` in frontend/api/_lib/botLink.js —
- * that side rebuilds this string from the PARSED body, because Vercel parses before
- * a handler sees the request and re-serialising is not guaranteed to reproduce the
- * wire bytes. This form is what is signed AND what is sent, so the two are the same
- * either way.
+ * The two fields a bot request carries, in a fixed order. Byte-identical to
+ * `canonicalBotBody` in frontend/api/_lib/botLink.js, which rebuilds it from the parsed
+ * body because Vercel parses before a handler runs. This form is both signed and sent.
  */
 export function canonicalBotBody(body) {
   return JSON.stringify({ action: body?.action ?? null, chatRef: body?.chatRef ?? null });
@@ -182,12 +161,9 @@ export const readLink = (cfg, chatRef, opts) => callBotLink(cfg, { action: "stat
 export const revokeLink = (cfg, chatRef, opts) => callBotLink(cfg, { action: "revoke", chatRef }, opts);
 
 /**
- * Heat standing for one address, forwarded by the venue from Jungle Bay Island.
- *
- * SCOPE, mirroring api/_lib/heat.js's own boundary: Heat is the ISLAND'S
- * measurement of held time. This bot forwards it. It does not average it, re-tier
- * it, or render it in yield language, and `degrees` is not a price, a yield or a
- * score of ours.
+ * Heat standing for one address, forwarded by the venue from Jungle Bay Island. Heat is
+ * the island's measurement of held time: this bot forwards it, never averages, re-tiers or
+ * renders it as yield, and `degrees` is not a price, a yield or a score of ours.
  */
 export async function readHeat(cfg, address, { fetchImpl = fetch } = {}) {
   const url = `${cfg.venueOrigin}/api/aggregator?resource=heat&address=${encodeURIComponent(address)}`;

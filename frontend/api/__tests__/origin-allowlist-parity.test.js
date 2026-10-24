@@ -37,6 +37,7 @@ const CANONICAL_SOURCE = join(API_DIR, "_lib", "launcher-outcomes.js");
 const MIRRORS = [
   "alchemy.js",
   "analytics.js",
+  "errors.js",
   "etherscan.js",
   "opensea.js",
   "orderbook.js",
@@ -46,6 +47,7 @@ const MIRRORS = [
   join("auth", "siwe.js"),
   join("v1", "index.js"),
   join("_lib", "aggregator-proxy.js"),
+  join("_lib", "evm-birth.js"),
   join("_lib", "launch-cohort.js"),
   join("_lib", "launch-radar.js"),
   join("_lib", "pool-market.js"),
@@ -77,9 +79,17 @@ describe("api origin-allowlist parity", () => {
   it("parses a non-trivial canonical origin set", () => {
     // Guard the guard: a regex that silently matched nothing would make every
     // assertion below vacuously pass.
-    expect(origins.length).toBeGreaterThanOrEqual(5);
-    expect(origins).toContain("https://memetic.fun");
+    expect(origins.length).toBeGreaterThanOrEqual(3);
     expect(origins).toContain("https://memetics.finance");
+  });
+
+  it("the canonical set does not admit memetic.fun — it serves the Island Lab, not this venue", () => {
+    // Parity alone would happily keep a wrong entry in lock-step across all eighteen
+    // files, which is what happened: from 2026-09-20 memetic.fun served another Vercel
+    // project and every copy still granted it. canonical-origin.test.js carries the
+    // full, per-file version of this guard.
+    expect(origins).not.toContain("https://memetic.fun");
+    expect(origins).not.toContain("https://www.memetic.fun");
   });
 
   for (const rel of MIRRORS) {
@@ -92,10 +102,11 @@ describe("api origin-allowlist parity", () => {
 
   it("no api/ file carries an allowlist this test does not cover", () => {
     const covered = new Set([CANONICAL_SOURCE, ...MIRRORS.map((m) => join(API_DIR, m))]);
-    // A file "has an allowlist" if it hardcodes the canonical apex origin.
+    // A file "has an allowlist" if it hardcodes the canonical apex origin. (This keyed on
+    // memetic.fun until that host left the allowlists on 2026-09-23.)
     const uncovered = walkJs(API_DIR)
       .filter((f) => !covered.has(f))
-      .filter((f) => readFileSync(f, "utf8").includes('"https://memetic.fun"'))
+      .filter((f) => readFileSync(f, "utf8").includes('"https://memetics.finance"'))
       .map((f) => relative(API_DIR, f).split(sep).join("/"));
     expect(uncovered).toEqual([]);
   });

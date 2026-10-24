@@ -2,14 +2,19 @@ import { useEffect, useMemo, useState } from 'react';
 import { useAccount, useChainId, useReadContracts, useSwitchChain, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { parseUnits } from 'viem';
 import { toast } from 'sonner';
+import { ConnectButton } from '@rainbow-me/rainbowkit';
 import type { Bungalow } from '../../lib/bungalows';
 import { LIGHTHOUSE_STAKING_ABI, ERC20_ABI } from '../../lib/contracts';
 import { deriveEvmLighthouse, fmtRaw, fmtRunway } from '../../lib/evmLighthouse';
-import { surfaceTxError } from '../../lib/txErrors';
+import { noteReplacement, receiptOutcome, surfaceTxError } from '../../lib/txErrors';
 import { getTxUrl, getAddressUrl } from '../../lib/explorer';
 import { CopyButton } from '../ui/CopyButton';
 import { shortenAddress } from '../../lib/formatting';
+import { CardArt } from '../ui/CardArt';
+import { FinePrint } from '../ui/FinePrint';
+import { rewardsEndedLine, rewardsHaveEnded, rewardsZeroLine } from '../../lib/rewardsEnded';
 
+import { PositionMark, positionHost } from '../ui/PositionMark';
 /**
  * The EVM lighthouse — live staking card for a bungalow whose pool is the
  * VENDORED Synthetix StakingRewards (contracts/src/vendor/, provenance D8).
@@ -25,8 +30,9 @@ import { shortenAddress } from '../../lib/formatting';
  *    principal only — an empty vault can never hold an exit hostage. (The
  *    Solana lighthouse HAS locks and its 6012 class; do not copy that copy
  *    here, and say the difference out loud.)
- *  - staking while unfunded is allowed (it is safe — exits are free) but the
- *    card says plainly that it earns nothing until funding lands.
+ *  - staking while the vault is empty and a rate runs is allowed (exits are
+ *    free) and the card says it earns nothing until funding lands; a rate of 0
+ *    or an ended period takes no new stake (owner, 2026-10-14).
  */
 
 const CHAIN_IDS: Record<string, number> = { ethereum: 1, base: 8453 };
@@ -122,10 +128,17 @@ export function EvmLighthousePoolLive({ bungalow }: { bungalow: Bungalow & { sta
 
   const { writeContractAsync } = useWriteContract();
   const [lastHash, setLastHash] = useState<`0x${string}` | undefined>(undefined);
-  const { data: receipt } = useWaitForTransactionReceipt({ hash: lastHash, chainId: poolChainId });
   // wagmi's isSuccess only means FETCHED; only receipt.status is the truth
-  // (receipt-status audit, 2026-08-24).
-  const lastConfirmed = receipt?.status === 'success';
+  // (receipt-status audit, 2026-08-24). 2026-09-17: and a revert never arrives
+  // as a receipt — wagmi THROWS on one — so "REVERTED on-chain" below never
+  // rendered: a revert, and a receipt nobody could read, both said "pending"
+  // for good. receiptOutcome splits wagmi's `isError` into the two.
+  // And a receipt is only proof of its OWN transaction: a deposit the wallet
+  // cancelled resolves with the cancel's success receipt (see lib/txErrors.ts).
+  const lastOutcome = receiptOutcome(
+    useWaitForTransactionReceipt({ hash: lastHash, chainId: poolChainId, onReplaced: noteReplacement }),
+    lastHash,
+  );
 
   const amountRaw = (() => {
     try {
@@ -170,9 +183,19 @@ export function EvmLighthousePoolLive({ bungalow }: { bungalow: Bungalow & { sta
 
   const unfunded = view.vaultRaw !== null && view.vaultRaw === 0n;
   const notPaying = view.payingNowRawPerSec !== null && view.payingNowRawPerSec === 0n;
+  // A landed periodFinish in the past, or a pool paying 0 now (never funded, or a
+  // rate of 0): no new stake (owner, 2026-10-14), and that outranks the unfunded
+  // note, which invites a stake. Withdraw, claim and exit stay. An unread end or
+  // rate holds Stake.
+  const periodFinishRaw = big(3);
+  const rewardsEnded = rewardsHaveEnded(periodFinishRaw, nowSecs);
+  const paysNothing = !rewardsEnded && notPaying;
+  const stakeClosed = rewardsEnded || paysNothing || periodFinishRaw === null || big(2) === null;
 
   return (
-    <div className="relative overflow-hidden rounded-2xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>
+    <div className={positionHost('relative isolate overflow-hidden rounded-2xl glass-card-animated', userStakedRaw !== null && userStakedRaw > 0n)} style={{ border: '1px solid var(--color-purple-75)' }}>
+      <PositionMark inPosition={userStakedRaw !== null && userStakedRaw > 0n} />
+      <CardArt pageId="evm-lighthouse-pool-live" idx={0} scrim="transparent" />
       {/* ART VISIBILITY 2026-08-31 (owner): this scrim was 0.85 and the
           resident's art underneath was barely readable — a dark page scrim
           plus a dark card scrim stacked into near-black. Lightened hard.
@@ -197,14 +220,14 @@ export function EvmLighthousePoolLive({ bungalow }: { bungalow: Bungalow & { sta
           // problem — so no figures, and nothing below can send a transaction.
           // Same wording and styling as EvmLadderPoolLive.tsx:175-180.
           <p className="text-[13px] mb-4 rounded-lg p-3" style={{ background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.4)', color: '#fca5a5' }}>
-            This pool does not stake {bungalow.symbol} — it reports {shortenAddress(poolToken ?? '', 6)} as its staking
+            This pool does not stake {bungalow.symbol}. It reports {shortenAddress(poolToken ?? '', 6)} as its staking
             token. That is a configuration error, not a network problem, so no figures are shown and nothing here
             will send a transaction.
           </p>
         ) : !view.coreKnown && !isLoading ? (
           // OUTAGE, not zeros: some core read failed.
           <p className="text-[13px] mb-4" style={{ color: '#f0b26b' }}>
-            The pool could not be read just now — figures are withheld rather than shown
+            The pool could not be read just now. Figures are withheld rather than shown
             as zeros. Refresh, or check the explorer link above.
           </p>
         ) : (
@@ -229,26 +252,36 @@ export function EvmLighthousePoolLive({ bungalow }: { bungalow: Bungalow & { sta
               />
             </div>
 
-            {unfunded && (
-              <p className="text-[12px] mb-4 rounded-lg p-3" style={{ background: 'rgba(240,178,107,0.08)', border: '1px solid rgba(240,178,107,0.35)', color: '#f0b26b' }}>
-                The reward vault is unfunded — staking works but earns nothing until funding
-                lands. Unlike the Solana lighthouse, your principal is NEVER at the vault&apos;s
-                mercy here: withdraw is free at any time and moves principal only.
+            {rewardsEnded && periodFinishRaw !== null ? (
+              <p className="text-[12px] mb-4" style={{ color: '#f0b26b' }} data-testid="lighthouse-rewards-ended">
+                {rewardsEndedLine(periodFinishRaw)}
               </p>
-            )}
-            {!unfunded && notPaying && (
-              <p className="text-[12px] mb-4 text-white/70">
-                The last reward period has ended — the pool is paying 0 until the next
-                funding. Configured rate from the last notify:{' '}
-                {view.configuredRawPerSec === null ? '—' : `${fmtRaw(view.configuredRawPerSec * 86_400n, decimals)} ${bungalow.symbol}/day`}.
+            ) : paysNothing ? (
+              <p className="text-[12px] mb-4" style={{ color: '#f0b26b' }} data-testid="lighthouse-rewards-zero">
+                {rewardsZeroLine(periodFinishRaw === 0n)}
               </p>
+            ) : unfunded && (
+              <div className="text-[12px] mb-4 rounded-lg p-3" style={{ background: 'rgba(240,178,107,0.08)', border: '1px solid rgba(240,178,107,0.35)', color: '#f0b26b' }}>
+                <p className="m-0">The reward vault is unfunded, so staking earns nothing yet.</p>
+                <FinePrint summary="Why">
+                  <p className="m-0">
+                    The reward vault is unfunded, so staking works but earns nothing until funding
+                    lands. Unlike the Solana lighthouse, your principal is NEVER at the vault&apos;s
+                    mercy here: withdraw is free at any time and moves principal only.
+                  </p>
+                </FinePrint>
+              </div>
             )}
 
-            <p className="text-[11px] text-white/55 mb-4">
-              No locks on this pool: stake and withdraw are free at any time. Rewards
-              accrue per second while a funded period runs, and claiming is separate
-              from withdrawing.
+            <p className="text-[11px] text-white/55 mb-1">
+              No locks on this pool: stake and withdraw are free at any time.
             </p>
+            <FinePrint summary="How it works" className="mb-3">
+              <p className="m-0">
+                Rewards accrue per second while a funded period runs, and claiming is separate
+                from withdrawing.
+              </p>
+            </FinePrint>
 
             {isConnected && user ? (
               !onPoolChain ? (
@@ -283,7 +316,7 @@ export function EvmLighthousePoolLive({ bungalow }: { bungalow: Bungalow & { sta
                     </button>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    {needsApproval ? (
+                    {stakeClosed ? null : needsApproval ? (
                       <button type="button" disabled={busy !== null || !amountRaw} onClick={() => send('approve')} className="btn-primary px-5 py-2 text-[13px] disabled:opacity-50">
                         {busy === 'approve' ? 'Approving…' : `Approve ${bungalow.symbol}`}
                       </button>
@@ -308,16 +341,37 @@ export function EvmLighthousePoolLive({ bungalow }: { bungalow: Bungalow & { sta
                       <a href={getTxUrl(poolChainId, lastHash)} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">
                         {shortenAddress(lastHash, 6)} ↗
                       </a>{' '}
-                      {lastConfirmed ? '· confirmed' : receipt ? '· REVERTED on-chain' : '· pending'}
+                      {lastOutcome.isSuccess
+                        ? '· confirmed'
+                        : lastOutcome.isReverted
+                          ? '· REVERTED on-chain'
+                          : lastOutcome.isReceiptUnreadable
+                            ? "· couldn't read the result, so we can't tell whether it went through. Check the link before sending it again"
+                            : lastOutcome.isReplaced
+                              ? lastOutcome.replacement?.reason === 'cancelled'
+                                ? '· cancelled in your wallet, so it did not happen'
+                                : lastOutcome.replacement?.reason === 'replaced'
+                                  ? '· replaced in your wallet by another transaction, so it did not happen as sent'
+                                  : '· another transaction from your wallet confirmed in its place. Check the link before sending it again'
+                              : '· pending'}
                     </p>
                   )}
                 </>
               )
             ) : (
-              <p className="text-[12px] text-white/60">
-                Connect a wallet to stake. Reading the pool needs no wallet — the figures
-                above are live either way.
-              </p>
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                <ConnectButton.Custom>
+                {({ openConnectModal, mounted }) => (
+                  <button type="button" onClick={openConnectModal} disabled={!mounted} className="btn-primary px-6 py-2.5 text-[13px] disabled:opacity-50">
+                    Connect wallet
+                  </button>
+                )}
+              </ConnectButton.Custom>
+                <p className="text-[12px] text-white/60 m-0">
+                  Connect a wallet to stake. Reading the pool needs no wallet. The figures
+                  above are live either way.
+                </p>
+              </div>
             )}
           </>
         )}

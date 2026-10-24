@@ -119,7 +119,10 @@ pub const LAUNCH_POOL_SEED: &[u8] = b"launchpool";
 #[account]
 #[derive(InitSpace)]
 pub struct GlobalConfig {
-    /// Admin. Mainnet: the Squads multisig, threshold >= 2.
+    /// Admin. Mainnet: the Squads VAULT PDA of a multisig with threshold >= 2,
+    /// never the multisig account itself. The multisig account holds Squads' own
+    /// data and can never sign, so an authority set to it is lost for good; only
+    /// the vault PDA signs, when the multisig executes a transaction.
     pub authority: Pubkey,
     /// Where the PROTOCOL's share of trade fees accrues (the creator's share
     /// goes straight to `BondingCurve.creator`). Mainnet: the treasury's Squads
@@ -167,6 +170,22 @@ pub struct GlobalConfig {
     /// never trap holders in a position they cannot exit.
     pub paused: bool,
     pub bump: u8,
+
+    /// Share of every launch's supply held back from the curve for the protocol,
+    /// in bps of `token_total_supply`, capped at `curve::MAX_PLATFORM_RESERVE_BPS`.
+    /// Paid to `fee_recipient`'s token account at `create_launch`.
+    ///
+    /// Snapshotted onto each curve as an AMOUNT at `create_launch`, so changing it
+    /// never alters a live launch. Appended after `bump` so every older field keeps
+    /// its byte offset.
+    ///
+    /// Part of the launch economics, not a free parameter: the curve sells only
+    /// `total - reserve`, so the price-continuity check runs on that. The clean
+    /// retune is to scale `initial_virtual_token` by the same `(1 - bps)`, which
+    /// leaves the SOL raise unchanged. `update_global` cannot change virtual
+    /// tokens, so that retune is only available at `initialize_global`; a later
+    /// change here has to be absorbed by virtual SOL, the target or the reserve.
+    pub platform_reserve_bps: u64,
 }
 
 /// One bonding curve per launched token. PDA at [`CURVE_SEED`, mint].
@@ -216,6 +235,22 @@ pub struct BondingCurve {
     pub pool: Pubkey,
 
     pub bump: u8,
+
+    /// The protocol's platform reserve for this launch, in tokens. Fixed at
+    /// `create_launch` and never changed afterwards.
+    ///
+    /// `create_launch` pays these tokens to the treasury (the associated token
+    /// account of `GlobalConfig::fee_recipient`) in the same instruction that opens
+    /// the curve. They are never in `real_token_reserves` or `curve_vault`, so the
+    /// curve never sells them and `migrate_to_amm` never deposits them. A launch
+    /// that never graduates has still paid them.
+    ///
+    /// Readers: tokens sold = total supply - this - `real_token_reserves`.
+    pub platform_reserve_tokens: u64,
+    /// Always true: the reserve is paid at `create_launch`, which sets this.
+    /// Kept (rather than removed) so the account stays 179 bytes and no field
+    /// moves; it dates from a design that paid the reserve after graduation.
+    pub platform_reserve_released: bool,
 }
 
 impl BondingCurve {
@@ -242,6 +277,13 @@ pub struct LaunchCreated {
     pub virtual_sol_reserves: u64,
     pub virtual_token_reserves: u64,
     pub token_total_supply: u64,
+    /// Carved from the curve's share and paid to the treasury in this same
+    /// instruction; see `BondingCurve::platform_reserve_tokens`.
+    pub platform_reserve_tokens: u64,
+    /// The OWNER of the token account that received the reserve: the config's
+    /// `fee_recipient` at the moment of creation. Appended last, so every older
+    /// field keeps its position in the event.
+    pub platform_reserve_recipient: Pubkey,
 }
 
 #[event]

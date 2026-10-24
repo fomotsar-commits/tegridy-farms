@@ -1,0 +1,12 @@
+{
+  "_provenance": "Captured 2026-09-23 from https://opensea.io/collection/seeds-from-the-memetic-garden (the page's own GraphQL cache: collectionBySlug and collectionItems page 1), reshaped into the OpenSea v2 REST body /api/opensea returns. Every value is as the page carried it; a field the page did not carry is absent, not filled.",
+  "response": {
+    "total": {
+      "volume": 0.052768,
+      "num_owners": 89,
+      "floor_price": 0.11,
+      "floor_price_symbol": "ETH"
+    },
+    "intervals": []
+  }
+}

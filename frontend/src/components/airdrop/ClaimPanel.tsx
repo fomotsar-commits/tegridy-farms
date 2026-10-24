@@ -12,6 +12,7 @@ import {
 } from '../../lib/merkle';
 import { CHAIN_ID } from '../../lib/constants';
 import { shortenAddress } from '../../lib/formatting';
+import { CardArt } from '../ui/CardArt';
 
 /**
  * The claim surface, built around telling a wallet WHY rather than just failing.
@@ -141,7 +142,8 @@ export function ClaimPanel() {
 
   return (
     <div className="space-y-5">
-      <section className="rounded-2xl border border-white/10 bg-black/20 p-5">
+      <section className="relative isolate rounded-2xl border border-white/10 bg-black/20 p-5">
+        <CardArt pageId="airdrop" idx={1} />
         <label htmlFor="claim-distributor" className="block text-white/70 text-[13px] font-semibold mb-2">
           Campaign address
         </label>
@@ -162,10 +164,11 @@ export function ClaimPanel() {
       {/* ─── Where the list came from ─── */}
       {distributor && address && (
         <section
-          className={`rounded-2xl border p-5 ${
+          className={`relative isolate rounded-2xl border p-5 ${
             awaitingStore ? 'border-white/12 bg-white/[0.03] text-white/70' : storeResult ? STORE_TONE[storeResult.status] : 'border-white/12 bg-white/[0.03] text-white/70'
           }`}
         >
+          <CardArt pageId="airdrop" idx={2} />
           <div className="flex items-baseline justify-between gap-3">
             <p className="text-sm font-semibold">Claim list</p>
             {storeResult?.meta && (
@@ -212,7 +215,8 @@ export function ClaimPanel() {
 
       {/* ─── Verdict ─── */}
       {awaitingStore ? (
-        <section className="rounded-2xl border border-white/12 bg-white/[0.03] p-5">
+        <section className="relative isolate rounded-2xl border border-white/12 bg-white/[0.03] p-5">
+          <CardArt pageId="airdrop" idx={3} />
           <p className="text-sm font-semibold text-white/70">Checking</p>
           <p className="text-white/55 text-[12px] mt-1.5 leading-relaxed">
             The claim list is still being read. No eligibility verdict has been reached — this space is deliberately
@@ -220,7 +224,8 @@ export function ClaimPanel() {
           </p>
         </section>
       ) : (
-        <section className={`rounded-2xl border p-5 ${TONE[verdict.status]}`}>
+        <section className={`relative isolate rounded-2xl border p-5 ${TONE[verdict.status]}`}>
+          <CardArt pageId="airdrop" idx={3} />
           <p className="text-sm font-semibold">{verdict.title}</p>
           <p className="text-white/65 text-[12px] mt-1.5 leading-relaxed">{verdict.detail}</p>
 
@@ -271,7 +276,8 @@ export function ClaimPanel() {
       )}
 
       {/* ─── Paste fallback ─── */}
-      <section className="rounded-2xl border border-white/10 bg-black/20 p-5">
+      <section className="relative isolate rounded-2xl border border-white/10 bg-black/20 p-5">
+        <CardArt pageId="airdrop" idx={4} />
         {!pasteOpen ? (
           <button
             type="button"
@@ -309,7 +315,8 @@ export function ClaimPanel() {
 
       {/* ─── What the chain says ─── */}
       {distributor && (
-        <section className="rounded-2xl border border-white/10 bg-black/20 p-5">
+        <section className="relative isolate rounded-2xl border border-white/10 bg-black/20 p-5">
+          <CardArt pageId="airdrop" idx={5} />
           <h2 className="text-white/85 font-semibold text-sm mb-3">Campaign, as the chain reports it</h2>
           {!campaign.campaign ? (
             <p className="text-amber-200/85 text-[12px] leading-relaxed">

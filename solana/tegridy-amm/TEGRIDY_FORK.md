@@ -8,10 +8,15 @@ fallback for pairs we don't host well.
 - **Strategy:** copy the audited program **verbatim**; change the absolute minimum. Small diff = small re-audit = small new attack surface. (Consistent with the protocol's minimal-attack-surface mandate.)
 - **Decision:** operator chose to build our own venue (Model B) on 2026-07-10, over being just an LP (Model A), knowing the cost (Rust + audit + ~$11.7M/mo break-even + Jupiter-invisible-until-integrated).
 
-> **Status as of 2026-08-19: NOT AUDITED. Nothing from this tree is executable on any
-> cluster. Holds no real funds.**
+> **Status as of 2026-10-06: NOT AUDITED. LIVE on mainnet since 2026-09-29 at
+> `EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT`, and it holds funded pools.**
 >
-> This line used to say the fork had never been on mainnet, and that stopped being true
+> The notes below are this line's history, oldest first. Until 2026-10-06 the line still
+> carried its 2026-08-19 wording, which said nothing here could run on any cluster and no
+> funds were held. That stopped being true on 2026-09-29, when the restart was deployed. The
+> professional audit this document asks for has not happened.
+>
+> Earlier still, this line said the fork had never been on mainnet, and that stopped being true
 > on 2026-08-08, when it was deployed at `3ZvZXEBr21Kz7JeWFCeKv8Hyy8AzHqCSXNjif8QHPM9y`
 > ahead of the audit this document gates on. It was **closed on 2026-08-13**: the
 > ProgramData account is deleted, so the program cannot execute and that id can never be
@@ -22,36 +27,279 @@ fallback for pairs we don't host well.
 > A restart is therefore a fresh deploy at a fresh id, with every PDA this fork owns
 > re-derived, not a redeploy. Fund-holding deploy is still gated behind a professional
 > audit (see §Audit) — a gate this project has already walked past once.
+>
+> **2026-09-26: the restart identities are in source, REGISTERED, NOT deployed.** The
+> non-devnet `declare_id!` is `EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT` (a fresh
+> keypair; absent on mainnet when read 2026-09-26), and both non-devnet authority
+> constants are the Squads **vault PDA** `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd`
+> (owner rulings 2026-09-25). `diff-guard` was re-pinned for exactly these three lines.
+>
+> **2026-10-06: the source gained ONE instruction, `create_lp_metadata`** (owner ruling
+> 2026-10-06; see "The one added instruction" below). The delta from upstream is no longer
+> constants only, and `diff-guard` was re-pinned for it. The program was live on mainnet
+> (since 2026-09-29, with funded pools) and at that date ran the binary built BEFORE this
+> change: it could get the instruction only through an upgrade signed by the Squads vault.
+>
+> **2026-10-06, the same day: the on-chain security text moved to our own domain, in source.**
+> The binary then on mainnet showed a contact that is another project's 404 and two links to
+> a GitHub branch that no longer exists. The source now carries an email and links on
+> `memetics.finance` (see "The on-chain security text" below). The owner delegated "one
+> upgrade or two" that day and the answer was one: the same upgrade carries the instruction
+> and this text. `diff-guard` was re-pinned for it.
+>
+> **2026-10-19: public `initialize` refuses fee tier 0, in source.** Only graduations open
+> pools on the launch tier now (see "The launch-tier gate" below). It rides the same one
+> upgrade, so the pack's program file is rebuilt. `diff-guard` was re-pinned for it.
+>
+> **Upgraded: mainnet runs the build that has all three.** The same one upgrade also carries
+> the launch-tier gate of pull request #899 (public `initialize` refuses fee tier 0; its own
+> section in this file, "The launch-tier gate in `initialize`"), as the owner ruled on
+> 2026-10-19. The Squads vault upgraded the program to the build made from that source
+> (sha256 `1e55bcdc…`, 725,176 bytes). It replaced the binary deployed on 2026-09-29
+> (`88b98aa9…`, 691,640 bytes). The day, the slot and the transaction are recorded in one
+> place: `MAINNET_RUNBOOK.md`, section 4b. It was the program's first upgrade, and neither
+> build has been audited.
 
 ---
 
 ## The entire code diff from upstream
 
-Exactly **four authority/identity constants** across **two files** — `lib.rs` and
-`instructions/admin/create_support_mint_associated.rs`. **Nothing else** — all swap, curve,
-and fee math is byte-identical to upstream. After the fork, **no external party retains any
-authority on this program**; every authority is the Tegridy admin/treasury.
+Exactly **four authority/identity constants** across **two files** (`lib.rs` and
+`instructions/admin/create_support_mint_associated.rs`), **plus one added instruction**,
+`create_lp_metadata`, all of it in `lib.rs`, **plus one added refusal** in
+`instructions/initialize.rs` (since 2026-10-19: public `initialize` refuses fee tier 0, see
+"The launch-tier gate" below). **No other code**: all swap, curve, and fee math is
+byte-identical to upstream, and no other upstream instruction is changed. After the fork,
+**no external party retains any authority on this program**; every authority is the Tegridy
+admin/treasury.
 
-| Constant (file) | Upstream (Raydium) | Tegridy | Purpose |
-|---|---|---|---|
-| `declare_id!` — `lib.rs` | `CPMMoo8L…qKP1C` | `BvBkt84Z…pDodL` (devnet) | our program address |
-| `admin::ID` — `lib.rs` | `GThUX1…hFMJ` | `GgE6AfEH…Wq5a` (devnet) | create_config / update_config / update_pool_status |
-| `create_pool_fee_reveiver::ID` — `lib.rs` | `DNXge…dNC8` (WSOL acct) | `27AC7Yww…TQE9` (devnet WSOL ATA) | flat pool-creation fee recipient — **must be a WSOL token account**, not a wallet |
-| `create_support_mint_associated_owner::ID` — `create_support_mint_associated.rs` | `Rayv2…RKYZy` | `GgE6AfEH…Wq5a` (devnet) | alt authority for the Token-2022 support-mint allowlist (was Raydium's key; now ours) |
+Two pieces of text differ as well, and both are in the hashed delta: the program's on-chain
+security text (the `security_txt!` macro at the top of `lib.rs`, see "The on-chain security
+text" below) and the `description` line of `Cargo.toml`. Neither is code, but the security
+text is compiled into the binary, so changing it changes the binary's hash.
 
-The devnet values (`BvBkt84Z…`, `GgE6AfEH…`) are throwaway keypairs in `keys/` (gitignored).
-The mainnet values are set by the operator before mainnet, per the checklist below — and
-note that `admin::ID` must be a signer that can also pay, which the multisig *account* is
-not. That distinction is the whole subject of the 2026-08 post-mortem.
+| Constant (file) | Upstream (Raydium, mainnet arm) | Tegridy — mainnet arm (committed) | Tegridy — devnet arm | Purpose |
+|---|---|---|---|---|
+| `declare_id!` — `lib.rs` | `CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C` | `EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT` | `BvBkt84ZiKmiPSuWrdefxbxPTX5YiLnU6YEGtY6pDodL` | our program address |
+| `admin::ID` — `lib.rs` | `GThUX1Atko4tqhN2NaiTazWSeFWMuiUvfFnyJyUghFMJ` | `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd` (Squads vault PDA) | `GgE6AfEH2AVSrKGckyKMzC6mhtXWiAn39EzAikAsWq5a` | create_config / update_config / update_pool_status + fallback fee collector |
+| `create_pool_fee_reveiver::ID` — `lib.rs` | `DNXgeM9EiiaAbaWvwjHj9fQQLAX5ZsfHyvmYUNRAdNC8` (WSOL acct) | `2sa31zceMSTAAbSu5wfSnNA6sBYzS7r97nvZYaQouEXa` (the vault's WSOL ATA) | `27AC7YwwAULHQcQXGErV7rHMsLZAUBWF6ozDNhSpTQE9` | flat pool-creation fee recipient — **must be a WSOL token account**, not a wallet |
+| `create_support_mint_associated_owner::ID` — `create_support_mint_associated.rs` | `Rayv2LG4tFSMizZhMP8aSUYxDPjV8qJtx2NQY9RKYZy` | `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd` (Squads vault PDA) | `GgE6AfEH2AVSrKGckyKMzC6mhtXWiAn39EzAikAsWq5a` | alt authority for the Token-2022 support-mint allowlist (was Raydium's key; now ours) |
+
+The devnet values are throwaway keypairs in `keys/` (gitignored).
+
+### The on-chain security text (2026-10-06)
+
+`lib.rs` opens with a `security_txt!` macro. Its text is compiled into the binary, and
+explorers show it on the program's page. Upstream's names Raydium. Ours has always named us,
+and upstream's `auditors:` line is deliberately gone, because that audit does not cover this
+fork. Since 2026-10-06 the source says:
+
+| Field | Value |
+|---|---|
+| `name` | `tegridy-cp-amm` |
+| `project_url` | `https://memetics.finance` |
+| `contacts` | `email:fomotsar@gmail.com,link:https://memetics.finance/.well-known/security.txt` |
+| `policy` | `https://memetics.finance/source/solana/tegridy-amm/SECURITY.md` |
+| `source_code` | `https://memetics.finance/source/solana/tegridy-amm` |
+| `preferred_languages` | `en` |
+
+Why these values. The email works even when our site is down, so it comes first. Every link
+is on our own domain. The two `/source` links are redirects in `frontend/vercel.json` to
+whichever git host holds the code, so a host move is one edit there and never another program
+upgrade. **Never put a git-host URL in this macro.** The email is the `Contact:` of
+`frontend/public/.well-known/security.txt`. If that changes, the macro must follow, and that
+is a new binary.
+
+**The program on mainnet has carried this text since its upgrade** (`MAINNET_RUNBOOK.md`,
+section 4b). Until then the binary deployed on 2026-09-29 carried `https://memetic.fun` as
+its project (now another project's site), a contact link that is a 404 there, and two links
+to GitHub's `main` branch, which no longer exists. Read on 2026-10-06: the text, from the
+release's copy of that binary, whose sha256 (`88b98aa9…`) was the program's on chain; and
+the three links, which all answered 404. Only an upgrade could change it, and it rode the
+same upgrade as `create_lp_metadata`. To-do `O-0929-10` in `docs/TODO_OPERATOR.md` stays
+open until someone has seen the new values on an explorer's security tab.
+
+### The one added instruction: `create_lp_metadata` (2026-10-06)
+
+**Why it exists.** A pool's lp token is a classic SPL mint with no name record, so a wallet
+lists it as an unknown token with no name and no picture. Metaplex only creates that record
+when the mint authority signs, and the mint authority of every lp mint is this program's own
+address (`AUTH_SEED`). No wallet can sign as that address, so only the program can ask.
+Upstream Raydium CPMM has no such instruction, which is why this is an addition and not a
+resync.
+
+**What it does.** One call to Metaplex `create_metadata_accounts_v3`, signed by `AUTH_SEED`.
+
+| | |
+|---|---|
+| Who may call it | Anyone. The caller pays the record's rent and Metaplex's creation fee. |
+| Arguments | None. The caller cannot choose a word. |
+| Name / symbol | `Memetics Pool Share` / `MEM-LP`, fixed in the program |
+| Link | `https://memetics.finance/mint/<lp mint address>.json`, built in the program |
+| Which mint | `lp_mint` must be the mint recorded in `pool_state` (`IncorrectLpMint` otherwise), and `pool_state` must be a pool account this program owns |
+| Who can edit the record later | `admin::ID` (the Squads vault on mainnet), with a plain Metaplex update. The program has no update path. The record is mutable. |
+| How often | Once per pool. Metaplex refuses a second record for the same mint. |
+| What it costs the caller | The record's rent plus Metaplex's flat fee: 13,733,800 lamports (about 0.0137 SOL) on mainnet, from the rent read on 2026-10-06 (3,733,800) and Metaplex's 10,000,000, measured that day by simulating the Metaplex call. That SOL goes into the record. Nothing else moves. |
+
+**"Anyone may call" set the order of the rollout.** From the first slot after the upgrade
+landed, a stranger could call this for any pool, the two flagship pools included. Wallets and
+indexers fetch the link at once and keep what they get for as long as they choose. So the link
+had to answer before the UPGRADE executed, not merely before our own two calls: both
+flagship files, and the JSON default for every other mint, live on `memetics.finance` and
+checked from outside. `MAINNET_RUNBOOK.md` ("4b. The create_lp_metadata upgrade") made that a
+gate on the upgrade proposal itself. It holds for good: those files must stay up, because a
+record can be created, and its link fetched, at any time.
+
+**Every pool can wear the house name.** Anyone can open a pool of any two tokens and then
+call this. That pool's share token is then named `Memetics Pool Share`, links to our domain
+and lists our vault as its editor. Nobody can be robbed through it: a share redeems for what
+is in that pool and nothing else. Raydium CLMM is in the same position with its position
+tokens. It is why the default file for an unknown mint must stay plain: no pair name, nothing
+that reads as us vouching for the pool, and a line saying it is a share of a pool anyone can
+open.
+
+**The editor role is copied into each record and stays there.** `admin::ID` is read once,
+when a record is created. If a later upgrade moves `admin::ID`, or the upgrade key is given
+up, every record already created keeps the old vault as its editor. So hand the records over
+with a Metaplex update BEFORE retiring a vault. A Metaplex update can also turn "mutable" off
+for good, so every rename is simulated first and keeps the record mutable. What the editor can
+do, read from Metaplex's source (we have not run the update path yet): change the name, the
+symbol, the link and the creators list, hand the role on, or freeze the record. It cannot
+move, mint or freeze the token, and it is less than the upgrade power the same vault holds.
+
+**Where the code came from.** The two helpers are Raydium CLMM's `get_metadata_data` and
+`initialize_metadata_account` (`raydium-io/raydium-clmm` @
+`ed7c84a54ced59c55981780546adb0b4583dcf85`, `programs/amm/src/instructions/open_position.rs`,
+Apache-2.0, the same Anchor 0.32.1). What differs from that source: the words; the editor is
+`admin::ID` and not the signing address; the editor does not sign; the record is mutable; no
+creator is listed; and both helpers are `#[inline(never)]`, so each keeps its own small stack
+frame. No dependency was added: upstream's `Cargo.toml` already turns on anchor-spl's
+`metadata` feature.
+
+**The one thing a reviewer must hold it to.** `AUTH_SEED` also owns every pool vault, and it
+signs the inner call. That call gets six accounts and no remaining account. Four are fixed by
+this program's checks: the lp mint and `AUTH_SEED` (read-only in their own slots), the editor
+and the System program. **The caller picks the other two: the payer, which must sign, and the
+record slot, which this program does not check.** A caller can put a vault, the lp mint, the
+token program or `AUTH_SEED` itself in the record slot, and the program passes it on writable,
+beside that signature. The vaults stay out of reach for two reasons, and neither is a check of
+ours:
+
+1. **The runtime.** A program can only call a program it was handed, with accounts it was
+   handed. Moving tokens out of a vault needs the vault and the token program in the same
+   call. Neither can sign, so each could only sit in the record slot, and there is one record
+   slot. (Agave v4.3.0, `program-runtime/src/invoke_context.rs`,
+   `prepare_next_cpi_instruction`.)
+2. **Metaplex.** The program on mainnet has no upgrade authority, and it refuses every wrong
+   record slot. An account that already holds data (a vault, the lp mint, a pool, a token
+   account, the token program) is refused with 199 before Metaplex calls anything; a
+   Token-2022 vault with 153. An empty wrong address (`AUTH_SEED` itself, the Squads vault,
+   another mint's record) is refused with 5. The only program Metaplex ever calls here is the
+   System program.
+
+What that leaves, so nobody has to find it: with `AUTH_SEED` in the record slot, that address
+is writable and signing in the inner call, so lamports someone had sent to it would rest on
+Metaplex's refusal alone (the address had no account when read on 2026-10-06, and the vaults
+are separate accounts). And the payer signs, so what the payer is charged also rests on
+Metaplex (measured: the rent plus a flat 10,000,000 lamports).
+
+We did not add our own check of the record address. Raydium CLMM leaves it to Metaplex too,
+and a check would add code to the one instruction that signs as the owner of every vault. A
+reviewer who disagrees should say so: the check is one address derived from
+`["metadata", Metaplex id, lp_mint]`.
+
+`frontend/scripts/solana-localnet/prove-lp-metadata.mjs` runs all of this on a local validator
+against copies of the real mainnet pools: the inner call's account list; twenty-five refused
+calls, each by its own error (twelve by this program's checks, eleven by Metaplex, two by the
+System program), eleven of them the hostile record slots and payers above; a pool whose
+shares were all burned; and every vault, lp mint and pool account byte-identical afterwards.
+
+**Mainnet history of this table, so nobody repeats it.** The binary deployed 2026-08-08 at
+the now-spent `3ZvZXEBr21Kz7JeWFCeKv8Hyy8AzHqCSXNjif8QHPM9y` had the Squads **multisig
+account** `EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK` as `admin::ID` — an account that can
+never sign, so `create_amm_config` was uncallable and nothing could graduate. Source then
+moved `admin::ID` to the single operator-held key `Dcjink4RGNUBpRVV4AX8mzxNLpUF2ik5h8Em6usv7kZ7`
+while leaving the support-mint owner on the multisig (a dead fallback). The restart
+(2026-09-25 rulings) puts BOTH on the vault PDA: system-owned, 0 bytes, signs through a
+Squads vault transaction, pays rent from its own lamports — so it must be funded before
+`create_amm_config`. Neither `3ZvZXEBr…`, `Dcjink4…` nor `EVGSnRZ…` may appear in a mainnet
+binary; `scripts/verify-program-constants.mjs` carries them as FORBIDDEN.
 
 Verify the minimality of the diff at any time (also enforced automatically by `solana-ci.yml`):
 ```bash
 git clone https://github.com/raydium-io/raydium-cp-swap /tmp/up && git -C /tmp/up checkout 78f254e
-diff -rq /tmp/up/programs/cp-swap/src programs/cp-swap/src   # only the 2 authority files differ
+diff -rq /tmp/up/programs/cp-swap/src programs/cp-swap/src   # only 3 files differ: lib.rs, create_support_mint_associated.rs, initialize.rs
 ```
+That shows WHICH files differ, not what changed inside them, and `lib.rs` holds the whole
+dispatcher and, since 2026-10-06, the added instruction. The CI guard therefore also hashes
+the delta itself against a pinned value and prints it on every run: read that print, not this
+file list.
 
 The current devnet values (`BvBkt84Z…`, `GgE6AfEH…`) are **throwaway devnet keypairs**
 in `keys/` (gitignored, never committed, no real value).
+
+### The launch-tier gate in `initialize` (2026-10-19)
+
+**What it does.** Public `initialize` refuses fee tier 0 with upstream's own `NotApproved`
+(6000). Five added lines beside upstream's `disable_create_pool` check; no upstream line
+changed. No account, argument or error code changes, so the IDL is byte for byte the same.
+
+**Why.** Tier 0 (`BHMteE8u…`) is the launch tier: no opening fee, a 0.25% trade fee. Only
+graduations should land there. Before this, anyone calling the program directly could open a
+pool on it and skip the 0.15 SOL opening fee and the 1% public tier (`CapqvAA9…`). The site
+already refused tier 0 (`intent.ts`); the program did not. Read on mainnet at slot
+458,890,755: no pool on tier 0, seven on tier 1, so the gap was never used.
+
+**What still opens pools on tier 0.** `initialize_with_permission`, untouched. Only accounts
+the admin (the Squads vault) granted a `Permission` can call it. Mainnet holds one (read
+2026-10-19, slot 458,897,459): `5H38YE…`, for tegridy-launch's migration authority
+`BS8oMxW2…`. Graduation keeps working. Pools already on tier 0 keep trading.
+
+**How it was proved, 2026-10-19.**
+
+| run | chain | result |
+|---|---|---|
+| `tests/tegridy-launch-migration.test.ts` (CI's migration-rehearsal), pre-fix build | local, CI's patched build | the new case fails: `expected '' to include 'NotApproved'`; the other 4 pass |
+| the same, fixed build | the same | 5 of 5, graduation onto tier 0 included |
+| upgrade rehearsal | local, mainnet-shaped: the live binaries `88b98aa9…` and `a3c41afa…` at their mainnet ids, tiers 0 and 1 read from mainnet that day, a test key standing in for the vault | before: a stranger opens a tier-0 pool and pays nothing. Enlarge 33,536 bytes, upgrade to the fixed build with auto-extend off. After: tier 0 refused (6000, `initialize.rs:208`), also with no preflight; the same pair opens on tier 1 and pays 0.15 SOL; the pre-upgrade tier-0 pool still swaps; the live launcher graduates onto tier 0 (creator-fee capable, LP burned, no opening fee). 12 of 12 checks. |
+
+The mainnet build is `cargo build-sbf -- --locked` (cargo-build-sbf 2.3.0, platform-tools
+v1.48, rustc 1.84.1) on a clean `git archive`. The same build of trunk before this change
+gives the 2026-10-06 build (724,688 bytes), byte for byte the upgrade pack's file of that
+day, so the toolchain matches the pack's. With this change it gives `1e55bcdcb10c39ee9678efb697b453cb23415621bded4968c01950629de4fd22`
+(725,176 bytes). `scripts/verify-program-constants.mjs --roster cp-swap` passes on it.
+
+#### Upgrade runbook (owner)
+
+As written before the execute. **The owner ruled on 2026-10-19: one upgrade.** Combined with
+the pending upgrade (`create_lp_metadata` and the security text, MAINNET_RUNBOOK.md §4b and its
+pack), it adds no proposal of its own: one 48-hour wait and one buffer. Shipped later on its
+own, it would have cost a second wait, a second ~3.7 SOL buffer and a pack of its own. The pack
+moved to `1e55bcdc…` on 2026-10-20 (MAINNET_RUNBOOK.md §4b, "The build moved"). The steps below
+are the combined path.
+
+1. **Merge this change first, then the pack takes the new file.** The pack's earlier file (the
+   2026-10-06 build, 724,688 bytes) lacks the gate, and its checksums, buffer check and
+   rehearsal numbers change with the file.
+   Build the new file from the merge commit, twice, from clean copies; both must be
+   `1e55bcdc…`, 725,176 bytes, if nothing else in `programs/cp-swap/` or `Cargo.lock` moved.
+   A different hash: find out why before going on.
+2. **The enlarge grows by 488 bytes.** Mainnet's program holds 691,640 bytes (read
+   2026-10-19, slot 458,894,898). The new file needs **33,536** more (the old pack file needed
+   33,048). The pack's enlarge step reads the number itself. At that day's rent (5,080
+   lamports a byte) the extra 488 bytes cost about 0.0025 SOL.
+3. **The buffer** holds 725,213 bytes: 3.685 SOL of rent at slot 458,896,223, returned to the
+   spill account when the upgrade executes. Hand its authority to the vault, read it back and
+   hash it, exactly as the pack does today.
+4. **The proposal**, then the 48-hour wait, then approve and execute, as the pack says.
+5. **After it executes** (read-only, no key): the program's bytes hash to `1e55bcdc…`; a
+   public `initialize` on tier 0 simulated from any wallet that holds both tokens is refused
+   with 6000 `NotApproved`; the pack's trade simulations through both pools still pass.
+
+**Roll-back** is the pack's roll-back file, the binary mainnet ran before the upgrade,
+`88b98aa9…`. It removes
+the gate and `create_lp_metadata` together, and it is a vault proposal with the same 48-hour
+wait.
 
 ---
 
@@ -64,7 +312,7 @@ The per-swap **protocol fee is config-driven**, not hardcoded:
 
 So Tegridy earns by creating an `AmmConfig` with a chosen **`protocol_fee_rate`** (via
 `create_config`, admin-only). Note: `create_config` sets **`protocol_owner = fund_owner = the
-admin caller`** (the multisig) — there is no treasury parameter; to hand collection authority to
+admin caller`** (the `admin::ID` key) — there is no treasury parameter; to hand collection authority to
 a *distinct* treasury, call `update_config` (param 3 / 4) afterward. Either way, **every swap on
 every pool using that config** accrues a protocol cut (per `protocol_fee_rate`) the treasury
 receives at collection time — regardless of who provides the liquidity. That is the venue
@@ -76,13 +324,21 @@ economics the operator wanted. `protocol_fee_rate` is a fraction of the trade fe
 
 ## Operator checklist — before MAINNET (each step is yours; keys never touch the assistant)
 
-1. **Regenerate a dedicated mainnet program keypair** (`solana-keygen new`) → put its pubkey in the two mainnet `declare_id!` lines.
-2. Set `admin::ID` (mainnet) → a **plain system-owned wallet that can both sign and pay**, and back it up. **NOT the Squads multisig account.** This step used to say "your Squads multisig", and following it is what bricked graduation on the 2026-08-08 deploy: `CreateAmmConfig` has `payer = owner`, the multisig account is a program-owned Squads account that the System Program cannot debit and that does not itself sign (a Squads v4 transaction signs as its *vault* PDA, which is a different address again), so `create_amm_config` became uncallable with no upgrade path — and closing the program was the only way out. Whatever you choose here must be provably able to sign *and* hold SOL **before** the build, because this constant is baked into the binary. See `docs/SOLANA_PROGRAM_FINDINGS_2026_08_15.md` and the `squads-vault` correction in `frontend/scripts/addresses.json`.
-3. Set `create_pool_fee_reveiver::ID` (mainnet) → your **treasury**.
+> **2026-10-06: this list is history, not a to-do.** It was written for the restart, and the
+> program has been live on mainnet since 2026-09-29 with funded pools. The boxes below were
+> not kept up after that: the deploy (step 6) and the fee config (step 7) happened, the audit
+> (step 5) did not, and Jupiter (step 8) still does not send trades here. Read on chain
+> 2026-10-06: the upgrade authority is the Squads vault PDA. `MAINNET_RUNBOOK.md` and
+> `frontend/scripts/addresses.json` are the current record.
+
+1. ✅ (2026-09-25) **Dedicated mainnet program keypair** generated → `EKS4C6x…` is in the non-devnet `declare_id!`. The keypair is held outside the repo; it is never committed.
+2. ✅ (2026-09-25) `admin::ID` (mainnet) → the Squads **vault PDA** `GRMtSx…`: system-owned, signs through Squads, pays from its own lamports — **fund it before `create_amm_config`**. **NOT the Squads multisig account.** This step used to say "your Squads multisig", and following it is what bricked graduation on the 2026-08-08 deploy: `CreateAmmConfig` has `payer = owner`, the multisig account is a program-owned Squads account that the System Program cannot debit and that does not itself sign (a Squads v4 transaction signs as its *vault* PDA, which is a different address again), so `create_amm_config` became uncallable with no upgrade path — and closing the program was the only way out. Whatever you choose here must be provably able to sign *and* hold SOL **before** the build, because this constant is baked into the binary. See `docs/SOLANA_PROGRAM_FINDINGS_2026_08_15.md` and the `squads-vault` correction in `frontend/scripts/addresses.json`.
+3. ✅ `create_pool_fee_reveiver::ID` (mainnet) → your treasury's **WSOL token account** (`2sa31zce…`, the vault's WSOL ATA), not the treasury wallet — the create path reads it as a token account.
 4. Build for mainnet (`anchor build` / `cargo build-sbf`, no `devnet` feature) + **verifiable build** so anyone can confirm on-chain bytecode == this source.
 5. **Professional audit of the diff** (see below) — do not deploy fund-holding code before this.
-6. Deploy; set the **program upgrade authority** to the multisig (or burn it).
+6. Deploy; set the **program upgrade authority** to the Squads **vault PDA** `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd` (or burn it) — **never the multisig account `EVGSnRZ…`**. Squads v4 signs as the vault; nothing can sign as the multisig account, so an upgrade authority set there can never upgrade again, a burn nobody chose. Same rule, same reason, for tegridy-launch's upgrade authority and its `GlobalConfig.authority` (MAINNET_RUNBOOK §0, "Which Squads address").
 7. `create_config` with `protocol_fee_rate = <chosen>` (protocol_owner defaults to the admin caller — `update_config` param 3/4 to repoint to a distinct treasury); the `create_pool_fee` receiver must be the treasury's **WSOL ATA**; seed a pool with treasury capital.
+7b. Create cp-swap's `Permission` account for tegridy-launch's migration authority `["migauth"]` (`create_permission_pda`, admin-only). Without it every graduation fails `MigrationPermissionMissing` (6021). MAINNET_RUNBOOK §5c.
 8. **Submit to Jupiter's DEX integration** so retail routes to it (until then it's invisible — we drive volume via our own swap UI, which prefers our pools).
 
 ---
@@ -94,13 +350,16 @@ math, checked arithmetic, oracle, fee calc. Risk here ≈ the risk Raydium CPMM 
 production. We do not modify it.
 
 **New surface introduced by the fork (the whole audit focus):**
-- **`admin::ID`** — `create_config` / `update_config` / `update_pool_status` AND a fallback collector on `collect_protocol_fee` / `collect_fund_fee` (can sweep accrued protocol+fund fees to any recipient) — a **fund-touching** key, not config-only. Compromise ⇒ hostile configs, paused pools, swept fees. **Mitigation:** mainnet admin = Squads multisig, disjoint signer set; the non-devnet default is a fail-closed sentinel until set.
-- **Program upgrade authority** — whoever holds it can replace the program bytecode (drain-class). **Mitigation:** multisig or burned upgrade authority; verifiable build so the deployed bytes are provably this source.
+- **`admin::ID`** — `create_config` / `update_config` / `update_pool_status` AND a fallback collector on `collect_protocol_fee` / `collect_fund_fee` (can sweep accrued protocol+fund fees to any recipient) — a **fund-touching** key, not config-only. Compromise ⇒ hostile configs, paused pools, swept fees. It also reaches **graduated launches**: it can freeze any pool's swaps (`update_pool_status`), burned-LP pools included; close the migration `Permission` account (`close_permission_pda`), which blocks every graduation; turn pool creation off (`update_config` param 6, `disable_create_pool`), which also blocks every graduation until it is set back; raise `create_pool_fee` (`update_config` param 5, unbounded) above `migration_reserve − 42,156,720`, which bricks every pending curve's graduation at once; and change the trade and creator fee rates (`update_config` params 0 and 7) of every pool on the config, graduated burned-LP pools included, since swaps read them live. **Mitigation:** an explicit owner decision on who holds it (MAINNET_RUNBOOK §5, "OWNER DECISION") — ruled 2026-09-25: the Squads vault PDA `GRMtSx…` (2-of-2), so every admin action is a two-signer proposal. It must be an account that can sign AND pay, so never the multisig account. Moving it is a program upgrade.
+- **Program upgrade authority** — whoever holds it can replace the program bytecode (drain-class). **Mitigation:** the Squads vault PDA (not the multisig account) or a burned upgrade authority; verifiable build so the deployed bytes are provably this source.
 - **Config misconfiguration** — wrong rates at `create_config`. The enforced bound is `protocol_fee_rate + fund_fee_rate ≤ 1_000_000` (NOT ≤ trade_fee_rate); the `create_pool_fee` receiver MUST be a WSOL token account or every pool creation reverts. **Mitigation:** the create_config step is scripted + reviewed in Phase 2.
+- **`create_lp_metadata`** (added 2026-10-06; in the binary on mainnet since the upgrade of `MAINNET_RUNBOOK.md` section 4b). Anyone may call it, and it signs a Metaplex call as `AUTH_SEED`, the address that owns every pool vault. The caller picks the record slot and the program does not check it. Why the vaults are still out of reach, and what is left exposed, is in "The one thing a reviewer must hold it to" above. Its editor role outlives `admin::ID`, and any pool anyone opens can take the house name: both are in that section too.
 - **`create_pool_fee_reveiver`** — only receives the flat creation fee; low impact.
 - **`create_support_mint_associated_owner`** — alt authority for the niche Token-2022
-  support-mint allowlist. Now the Tegridy admin (upstream it was a Raydium key — that
-  residual external authority is now removed). Add-only allowlist, no fund path; low impact.
+  support-mint allowlist. Now the same Squads vault PDA as `admin::ID` (upstream it was a
+  Raydium key — that residual external authority is removed; before 2026-09-25 it was the
+  unsignable multisig account, which made the fallback dead). Add-only allowlist, no fund
+  path; low impact.
 
 **Non-code (operational) risks:** capital as LP bears impermanent loss; revenue depends on real
 volume; Jupiter de-routes under-funded pools (30-min liquidity recheck) — keep pools funded.
@@ -109,18 +368,23 @@ volume; Jupiter de-routes under-funded pools (30-min liquidity recheck) — keep
 
 ## Audit
 
-Scope is tiny and mechanical: **"confirm the only delta from audited upstream `raydium-cp-swap`
-is the three authority constants + program name, and that the mainnet authorities are the
-multisig/treasury."** Recommended Solana firms: OtterSec, Neodyme, Sec3, Zellic. This diff-audit
-should be fast and inexpensive relative to a from-scratch AMM audit — which is the entire point
-of the verbatim-fork approach.
+Scope is small and mostly mechanical: **"confirm the only delta from audited upstream
+`raydium-cp-swap` is the four identity/authority constants (program id, `admin`, fee receiver,
+support-mint owner) + program name and on-chain security text + the one added instruction `create_lp_metadata`; that the
+mainnet authorities are the Squads vault PDA and its WSOL ATA; and that `create_lp_metadata`
+can do nothing but create the name record of a real pool's lp mint (it signs a Metaplex call
+with the address that also owns every vault)."** Recommended Solana firms: OtterSec, Neodyme,
+Sec3, Zellic. This diff-audit should be fast and inexpensive relative to a from-scratch AMM
+audit, which is the entire point of changing as little as possible. It is no longer a
+constants-only diff: the added instruction is about 150 lines and needs a real read.
 
 ---
 
 ## Layout
 ```
 programs/cp-swap/src/
-  lib.rs            ← 3 of the 4 authority constants (+ fork header)
+  lib.rs            ← 3 of the 4 authority constants (+ fork header) and the one added
+                      instruction, create_lp_metadata (accounts, handler, two helpers)
   instructions/admin/create_support_mint_associated.rs  ← 4th authority constant
   curve/fees.rs     ← fee math (untouched, audited upstream)
   states/config.rs  ← AmmConfig: protocol_owner / fee rates (untouched)

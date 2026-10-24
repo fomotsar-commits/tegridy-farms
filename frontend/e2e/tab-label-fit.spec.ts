@@ -20,15 +20,14 @@ const MOUSE_1024 = { viewport: { width: 1024, height: 900 }, hasTouch: false, is
 /** Sub-pixel rounding between a label and its tab is not paint-over. */
 const TOLERANCE_PX = 0.5;
 
-// One route per RouteTabs host.
+// One route per RouteTabs host. /swap has none: its chain switch is the one in the page (TradeHostPage.tsx).
 const STRIPS = [
-  { path: '/swap', strip: 'Swap destinations' },
   { path: '/liquidity', strip: 'Liquidity sections' },
   { path: '/launch', strip: 'Launch sections' },
-  { path: '/farm', strip: 'Earn sections' },
+  { path: '/earn', strip: 'Earn sections' },
   { path: '/trust', strip: 'Token-checking tools' },
   { path: '/tokenomics', strip: 'Treasury and numbers sections' },
-  { path: '/leaderboard', strip: 'Activity sections' },
+  { path: '/history', strip: 'Activity sections' },
   { path: '/contracts', strip: 'Info sections' },
   { path: '/lore', strip: 'Learn sections' },
 ];
@@ -103,7 +102,7 @@ for (const { name, use, reads } of [
 ]) {
   test.describe(`Earn strip at ${name}`, () => {
     test.use(use);
-    for (const path of ['/copy-trading', '/farm']) {
+    for (const path of ['/copy-trading', '/earn']) {
       test(`${path}: the Copy Trading tab reads ${reads} and no Earn tab paints past its own edge`, async ({
         page,
         walletMock: _w,

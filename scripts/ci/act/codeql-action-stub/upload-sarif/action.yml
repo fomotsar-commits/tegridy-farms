@@ -1,0 +1,22 @@
+# Stand-in for github/codeql-action/upload-sarif when act runs a workflow on GitLab CI.
+# GitHub code scanning exists only on GitHub, so the upload is skipped here. It never gated
+# anything: the analysis step before it (Slither's fail-on) is the gate, and its report is
+# kept as a job artifact. act-job.sh maps the pinned ref to this folder with --local-repository.
+name: upload-sarif (skipped off GitHub)
+description: Skips the SARIF upload; GitHub code scanning is not available off GitHub.
+inputs:
+  sarif_file:
+    required: false
+  category:
+    required: false
+  checkout_path:
+    required: false
+  token:
+    required: false
+  wait-for-processing:
+    required: false
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: echo "SARIF upload skipped (GitHub code scanning is not available off GitHub). The analysis step above is the gate."

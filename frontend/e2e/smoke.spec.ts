@@ -34,7 +34,7 @@ test.describe('Smoke Tests', () => {
   });
 
   test('earn page loads', async ({ page }) => {
-    await gotoRoute(page, '/farm');
+    await gotoRoute(page, '/earn');
     // Title (set via usePageTitle) is the authoritative source for "did this
     // route mount": the classic FarmPage renders its heading as a heading-luxury
     // h2 inside ConnectPrompt / StakePanel rather than an h1.
@@ -126,11 +126,8 @@ test.describe('Accessibility', () => {
   test('lending tab panels have correct roles', async ({ page }) => {
     // `/lending` is a redirect (App.tsx:236 -> /nft-finance); go straight there.
     await gotoRoute(page, '/nft-finance');
-    // Should have wallet connect prompt or tab panel
-    // _panel: panel may or may not be visible depending on wallet state.
-    // Kept for documentation; not asserted because the wallet-connect prompt
-    // can replace the tabpanel in unauthenticated runs.
-    const _panel = page.locator('[role="tabpanel"]');
+    // The tab panel itself is not asserted: the wallet-connect prompt can replace it
+    // in unauthenticated runs.
     // Multiple tablists exist on the page (section tabs + the OnboardingModal's
     // own, mounted by AppLayout.tsx:182), so an unscoped locator is a strict-mode
     // violation. Same `.first()` pattern as the community/farm assertions above.

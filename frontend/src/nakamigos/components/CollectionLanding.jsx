@@ -1,11 +1,29 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { COLLECTIONS, COLLECTION_LORE } from "../constants";
+import { COLLECTIONS, COLLECTION_LORE, DEFAULT_COLLECTION } from "../constants";
 import { fetchCollectionStats, fetchTokens } from "../api";
 import { formatPrice } from "../lib/formatPrice";
 import { IpfsImg } from "../../components/IpfsImg";
+import { formatMarketAmount } from "../lib/marketAmount";
+import { canTradeOnVenue, VENUE_COLLECTIONS, chainLabel, descriptionSourceTag, supplyLabel } from "../lib/venue";
+import { fetchExternalStats } from "../lib/externalMarket";
+import { pageArt } from "../../lib/artConfig";
+import { FinePrint } from "../../components/ui/FinePrint";
 
 const COLLECTION_LIST = Object.values(COLLECTIONS);
+
+// What a visitor came to press, on the first screen (owner 2026-10-14). Each
+// opens the flagship collection's tab where that action lives: Floor lists
+// what is for sale and hosts the offer panels; My NFTs is where a holder lists.
+const START_ACTIONS = [
+  ["Browse", "gallery", "btn-primary"],
+  ["Buy", "listings", "btn-primary"],
+  ["Sell / List", "collection", "btn-secondary"],
+  ["Make offer", "listings", "btn-secondary"],
+];
+
+// The chains the registry spans, in registry order ("Ethereum · Base · Solana").
+const CHAIN_LIST = [...new Set(COLLECTION_LIST.map(chainLabel).filter(Boolean))];
 
 /* ─── Shimmer placeholder for loading stats ─── */
 function StatShimmer({ width = "60%" }) {
@@ -22,7 +40,7 @@ function StatShimmer({ width = "60%" }) {
 }
 
 /* ─── Single stat cell ─── */
-function Stat({ label, value, loading, shimmerWidth, cached }) {
+function Stat({ label, value, loading, shimmerWidth, cached, wrap = false, note = null }) {
   return (
     <div style={{ minWidth: 0 }}>
       <div style={{
@@ -54,11 +72,16 @@ function Stat({ label, value, loading, shimmerWidth, cached }) {
           fontSize: 13,
           color: "var(--text)",
           fontWeight: 600,
-          whiteSpace: "nowrap",
-          overflow: "hidden",
-          textOverflow: "ellipsis",
+          ...(wrap
+            ? { fontSize: 12, lineHeight: 1.35, overflowWrap: "anywhere" }
+            : { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }),
         }}>
           {value}
+        </div>
+      )}
+      {!loading && note && (
+        <div style={{ fontFamily: "var(--mono)", fontSize: 8, color: "var(--text-muted)", marginTop: 2, letterSpacing: "0.04em" }}>
+          {note}
         </div>
       )}
     </div>
@@ -81,6 +104,27 @@ function HighlightBadge({ label, color }) {
       whiteSpace: "nowrap",
     }}>
       {label}
+    </span>
+  );
+}
+
+/* ─── Where a view-only collection trades. A span, not a link: the card is
+       itself a <button>, and a control nested in it would be invalid. ─── */
+function MarketBadge({ market }) {
+  return (
+    <span style={{
+      fontFamily: "var(--mono)",
+      fontSize: 9,
+      color: "var(--gold)",
+      background: "rgba(200,168,80,0.08)",
+      border: "1px solid rgba(200,168,80,0.25)",
+      borderRadius: 6,
+      padding: "3px 8px",
+      letterSpacing: "0.02em",
+      lineHeight: 1.2,
+      whiteSpace: "nowrap",
+    }}>
+      Trades on {market}
     </span>
   );
 }
@@ -114,12 +158,16 @@ function CrossCollectionSearch() {
     // above supply (gnss token ids go past 9000 on a 9696 supply) and below it
     // can be burned (junglebay). Allow #0 and a generous upper bound, and flag
     // out-of-range hits as best-effort rather than excluding them (F578).
+    // Only collections that trade here open a token page, so only they are
+    // offered for a token id; a collection's known first id bounds it below.
     if (/^\d+$/.test(query)) {
       const id = parseInt(query, 10);
-      for (const [slug, col] of Object.entries(COLLECTIONS)) {
+      for (const col of VENUE_COLLECTIONS) {
+        const slug = col.slug;
+        const first = Number.isFinite(col.tokenIds?.first) ? col.tokenIds.first : 0;
         const upper = Math.max(col.supply, Math.round(col.supply * 1.5));
-        if (id >= 0 && id <= upper) {
-          const tentative = id >= col.supply;
+        if (id >= first && id <= upper) {
+          const tentative = id > first + col.supply - 1;
           out.push({ type: "token", slug, name: `${col.name} #${id}`, id, image: col.image, tentative });
         }
       }
@@ -356,9 +404,49 @@ function CrossCollectionSearch() {
   );
 }
 
+/* ─── A view-only card's numbers, read from its home market ───
+   Each in its own unit (ETH on Base), a floor read as none listed says so,
+   and a figure the read does not produce is the unread dash. A collection
+   with no market read (Junglets) says that, never a zero. */
+function ViewOnlyStats({ collection, stats, loading, error }) {
+  const dash = "\u2014";
+  const unread = !!error || !stats;
+  const floorRead = unread ? null
+    : stats.floor != null ? formatMarketAmount(stats.floor, stats.floorSymbol, collection)
+      : stats.noneListed ? "None listed" : null;
+  const unavailableLine = error === "no-market-read"
+    ? `Stats unavailable: this venue reads no market for ${collection.name}`
+    : `Stats unavailable: ${collection.market?.name} could not be read`;
+  return (
+    <div style={{ borderTop: "1px solid rgba(255,255,255,0.05)", paddingTop: 14 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 16px" }}>
+        <Stat label="Floor" loading={loading} shimmerWidth="55%" wrap value={floorRead ?? dash}
+          note={!unread && floorRead == null ? "not read" : null} />
+        <Stat label="Volume" loading={loading} shimmerWidth="70%" wrap
+          value={unread ? dash : (formatMarketAmount(stats.volume, "ETH", collection) ?? dash)} />
+        <Stat label="Owners" loading={loading} shimmerWidth="50%" wrap
+          value={unread || stats.owners == null ? dash : stats.owners.toLocaleString("en-US")} />
+        <Stat label="Supply" loading={false} wrap value={supplyLabel(collection) ?? dash} />
+      </div>
+      {!loading && (
+        <div style={{ fontFamily: "var(--mono)", fontSize: 8, color: "var(--text-muted)", marginTop: 10, letterSpacing: "0.04em" }}>
+          {unread ? unavailableLine : `Stats from ${stats.source}`}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ─── Collection Card ─── */
 function CollectionCard({ collection, stats, statsLoading, statsError, previewImage, onClick, index }) {
   const displayImage = collection.image || previewImage;
+  // A collection that trades on its own market states its numbers in that
+  // market's units and says where it trades.
+  const viewOnly = !canTradeOnVenue(collection);
+  // A view-only card's Supply stat carries its label, and the long ERC-1155
+  // labels would cover the picture, so only a venue card gets the badge.
+  const venueSupply = stats?.supply ?? collection.supply;
+  const supplyBadge = !viewOnly && venueSupply != null ? `${venueSupply.toLocaleString()} items` : null;
   const [imgError, setImgError] = useState(false);
   const [hovered, setHovered] = useState(false);
   const [visible, setVisible] = useState(false);
@@ -401,29 +489,35 @@ function CollectionCard({ collection, stats, statsLoading, statsError, previewIm
   };
 
   const isLoading = statsLoading;
-  const isError = statsError && !stats;
+  // The error's reason ("no-market-read") or true; false once stats are read.
+  const isError = !stats && statsError ? statsError : false;
   const dash = "\u2014";
 
+  // The card's own words (description, its source, the creator) live in the
+  // small print under the card. A <details> cannot sit inside a <button>, so
+  // the box is a div: the picture, name and numbers are the button, and the
+  // small print follows it inside the same box.
+  const lore = COLLECTION_LORE[collection.slug];
+  const sourceTag = collection.description && descriptionSourceTag(collection);
+  const hasSmallPrint = !!(collection.description || lore?.creator?.name);
+
   return (
-    <button
+    <div
       ref={cardRef}
-      onClick={onClick}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
         display: "flex",
         flexDirection: "column",
-        background: hovered ? "rgba(20, 20, 24, 0.85)" : "var(--surface-glass)",
+        // Studio surface marketplace:2 under a scrim, so the words stay
+        // readable and the collection's own picture above keeps its frame.
+        background: `linear-gradient(180deg, rgba(10,12,20,0.80) 0%, rgba(10,12,20,0.90) 100%), url(${pageArt("marketplace", 2).src}) center / cover no-repeat, ${hovered ? "rgba(20, 20, 24, 0.85)" : "var(--surface-glass)"}`,
         border: `1px solid ${hovered ? "rgba(111,168,220,0.35)" : "var(--border)"}`,
         borderRadius: 20,
         overflow: "hidden",
-        cursor: "pointer",
         transition: "all 0.4s cubic-bezier(0.16, 1, 0.3, 1)",
         backdropFilter: "var(--glass-blur)",
         textAlign: "left",
-        padding: 0,
-        color: "inherit",
-        fontFamily: "inherit",
         transform: visible
           ? (hovered ? "translateY(-8px) scale(1.015)" : "translateY(0)")
           : "translateY(32px)",
@@ -433,6 +527,24 @@ function CollectionCard({ collection, stats, statsLoading, statsError, previewIm
           : "0 2px 12px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.02)",
         position: "relative",
         width: "100%",
+        textShadow: "0 1px 8px rgba(0,0,0,0.9)",
+      }}
+    >
+    <button
+      onClick={onClick}
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        flex: 1,
+        width: "100%",
+        background: "none",
+        border: "none",
+        cursor: "pointer",
+        textAlign: "left",
+        padding: 0,
+        color: "inherit",
+        fontFamily: "inherit",
+        textShadow: "inherit",
       }}
     >
       {/* ── Hover glow line at top ── */}
@@ -517,7 +629,8 @@ function CollectionCard({ collection, stats, statsLoading, statsError, previewIm
           </div>
         )}
 
-        {/* Supply badge in top-right corner */}
+        {/* Supply badge in top-right corner, only where a read produced one */}
+        {supplyBadge && (
         <div style={{
           position: "absolute",
           top: 12,
@@ -533,8 +646,9 @@ function CollectionCard({ collection, stats, statsLoading, statsError, previewIm
           letterSpacing: "0.04em",
           zIndex: 3,
         }}>
-          {(stats?.supply ?? collection.supply)?.toLocaleString() ?? "?"} items
+          {supplyBadge}
         </div>
+        )}
       </div>
 
       {/* ── Content area ── */}
@@ -561,41 +675,16 @@ function CollectionCard({ collection, stats, statsLoading, statsError, previewIm
           {collection.highlights?.map((h) => (
             <HighlightBadge key={h.label} label={h.label} color={h.color} />
           ))}
+          {viewOnly && collection.market?.name && <MarketBadge market={collection.market.name} />}
         </div>
 
-        {/* Tagline */}
-        {COLLECTION_LORE[collection.slug]?.tagline && (
+        {/* Tagline: the card's one line of prose. */}
+        {lore?.tagline && (
           <div style={{
             fontFamily: "var(--display)", fontSize: 10, color: "var(--gold)",
             fontStyle: "italic", margin: "0 0 8px", opacity: 0.85,
           }}>
-            {COLLECTION_LORE[collection.slug].tagline}
-          </div>
-        )}
-
-        {/* Description — div (not p): paragraphs aren't valid inside a <button> */}
-        <div style={{
-          fontFamily: "var(--mono)",
-          fontSize: 10,
-          color: "var(--text-muted)",
-          margin: "0 0 6px",
-          lineHeight: 1.6,
-          display: "-webkit-box",
-          WebkitLineClamp: 2,
-          WebkitBoxOrient: "vertical",
-          overflow: "hidden",
-          minHeight: 32,
-        }}>
-          {collection.description}
-        </div>
-
-        {/* Creator */}
-        {COLLECTION_LORE[collection.slug]?.creator?.name && (
-          <div style={{
-            fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)",
-            marginBottom: 8, letterSpacing: "0.04em",
-          }}>
-            by {COLLECTION_LORE[collection.slug].creator.name}
+            {lore.tagline}
           </div>
         )}
 
@@ -625,6 +714,9 @@ function CollectionCard({ collection, stats, statsLoading, statsError, previewIm
         <div style={{ flex: 1 }} />
 
         {/* Stats grid */}
+        {viewOnly ? (
+          <ViewOnlyStats collection={collection} stats={stats} loading={isLoading} error={isError} />
+        ) : (
         <div style={{
           display: "grid",
           gridTemplateColumns: "1fr 1fr",
@@ -665,8 +757,34 @@ function CollectionCard({ collection, stats, statsLoading, statsError, previewIm
             }
           />
         </div>
+        )}
       </div>
     </button>
+
+      {/* The small print: the collection's own words, their source, the creator. */}
+      {hasSmallPrint && (
+        <div style={{ padding: "0 22px 14px" }}>
+          <FinePrint summary="About">
+            {collection.description && (
+              <p style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)", margin: 0, lineHeight: 1.6 }}>
+                {collection.description}
+              </p>
+            )}
+            {/* A collection's own words name their source, so they never read as the venue's. */}
+            {sourceTag && (
+              <p style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)", letterSpacing: "0.04em", margin: 0 }}>
+                {sourceTag.charAt(0).toUpperCase() + sourceTag.slice(1)}
+              </p>
+            )}
+            {lore?.creator?.name && (
+              <p style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)", letterSpacing: "0.04em", margin: 0 }}>
+                by {lore.creator.name}
+              </p>
+            )}
+          </FinePrint>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -681,6 +799,17 @@ export default function CollectionLanding() {
   useEffect(() => {
     let cancelled = false;
     const promises = COLLECTION_LIST.map((col) => {
+      // View-only collections read OpenSea; never the venue's Ethereum
+      // readers, which would answer for the wrong chain or standard. The
+      // error keeps its reason, so "no market read" is not called a failure.
+      if (!canTradeOnVenue(col)) {
+        return fetchExternalStats(col).then((s) => {
+          if (cancelled) return;
+          if (!s || s.unavailable) setStatsErrors((prev) => ({ ...prev, [col.slug]: s?.reason || true }));
+          else setStatsMap((prev) => ({ ...prev, [col.slug]: s }));
+        });
+      }
+
       const statsPromise = fetchCollectionStats({ contract: col.contract, slug: col.slug, openseaSlug: col.openseaSlug })
         .then((s) => {
           if (!cancelled) setStatsMap((prev) => ({ ...prev, [col.slug]: s }));
@@ -762,13 +891,43 @@ export default function CollectionLanding() {
           lineHeight: 1.6,
           letterSpacing: "0.02em",
         }}>
-          Browse, trade, and analyze NFT collections
+          Browse. Buy. Sell. Make offers.
         </p>
 
-        {/* ── Unified collection count + chain badge ── */}
+        {/* Start card (studio surface marketplace:2 is the collection card;
+            this is marketplace:1): what to press, then the numbers, then the
+            money line. The explanations sit closed underneath. */}
+        <section
+          aria-label="Start here"
+          style={{
+            maxWidth: 720,
+            margin: "0 auto",
+            padding: "18px 18px 10px",
+            borderRadius: 16,
+            border: "1px solid var(--border)",
+            background: `linear-gradient(180deg, rgba(10,12,20,0.80) 0%, rgba(10,12,20,0.88) 100%), url(${pageArt("marketplace", 1).src}) center / cover no-repeat, var(--surface-glass)`,
+            textShadow: "0 1px 8px rgba(0,0,0,0.9)",
+          }}
+        >
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center", marginBottom: 14 }}>
+            {START_ACTIONS.map(([label, tab, cls]) => (
+              <button
+                key={label}
+                className={cls}
+                onClick={() => navigate(`/nakamigos/${DEFAULT_COLLECTION}/${tab}`)}
+                style={{ minHeight: 44, padding: "0 18px", fontSize: 11, whiteSpace: "nowrap" }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+        {/* The numbers: collection count, chains, how many trade here */}
         <div style={{
           display: "inline-flex",
           alignItems: "center",
+          flexWrap: "wrap",
+          justifyContent: "center",
           gap: 8,
           fontFamily: "var(--mono)",
           fontSize: 10,
@@ -789,28 +948,45 @@ export default function CollectionLanding() {
             display: "inline-block",
           }} />
           <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-            {/* Ethereum diamond icon */}
-            <svg width="10" height="16" viewBox="0 0 256 417" fill="none" style={{ opacity: 0.5 }}>
-              <path d="M127.961 0l-2.795 9.5v275.668l2.795 2.79 127.962-75.638z" fill="rgba(255,255,255,0.6)" />
-              <path d="M127.962 0L0 212.32l127.962 75.639V154.158z" fill="rgba(255,255,255,0.4)" />
-              <path d="M127.961 312.187l-1.575 1.92v98.199l1.575 4.601L256 236.587z" fill="rgba(255,255,255,0.6)" />
-              <path d="M127.962 416.905v-104.72L0 236.585z" fill="rgba(255,255,255,0.4)" />
-            </svg>
-            Ethereum
+            {CHAIN_LIST.join(" \u00b7 ")}
           </span>
+          <span style={{
+            width: 3,
+            height: 3,
+            borderRadius: "50%",
+            background: "var(--text-dim)",
+            display: "inline-block",
+          }} />
+          <span>{VENUE_COLLECTIONS.length} trade here</span>
         </div>
 
-        {/* Native-orderbook value line: factual (flat 1% to the protocol
-            treasury, on-chain Seaport settlement) — no stale fee comparisons */}
+        {/* The money line stays visible: what the venue takes (flat 0.5% to the
+            protocol treasury, on-chain Seaport settlement). The full sentence
+            it used to be sits in the small print below, word for word. */}
         <div style={{
           fontFamily: "var(--mono)",
           fontSize: 10,
           color: "var(--text-dim)",
-          marginTop: 14,
+          marginTop: 12,
           letterSpacing: "0.04em",
         }}>
-          Native listings: one flat 1% fee, every fee funds the treasury
+          {`Flat 0.5% fee on the ${VENUE_COLLECTIONS.length} collections that trade here. It funds the treasury.`}
         </div>
+
+          <div style={{ display: "flex", justifyContent: "center", marginTop: 2 }}>
+            <FinePrint summary="Details">
+              <p style={{ margin: 0 }}>
+                {`Browse, Buy, Sell / List and Make offer open the ${COLLECTIONS[DEFAULT_COLLECTION].name} collection. For another collection, open its card below.`}
+              </p>
+              <p style={{ margin: 0 }}>
+                {`Native listings: one flat 0.5% fee on the ${VENUE_COLLECTIONS.length} collections that trade here, every fee funds the treasury`}
+              </p>
+              <p style={{ margin: 0 }}>
+                A collection that trades elsewhere shows that market's numbers here and opens there.
+              </p>
+            </FinePrint>
+          </div>
+        </section>
 
         {/* Decorative line below */}
         <div style={{

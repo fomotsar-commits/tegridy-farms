@@ -1,4 +1,5 @@
 import { ArtCard } from '../ui/ArtCard';
+import { FinePrint } from '../ui/FinePrint';
 import {
   TAPE_EMPTY_AFTER_READ,
   TAPE_RETURN_RANKING,
@@ -35,6 +36,10 @@ import { formatTimeAgo, shortenAddress } from '../../lib/formatting';
 // backdrop for now; registering (copy-trading, 1) is a shared edit to
 // lib/artSurfaces.ts that this lane cannot make, and rendering an unregistered
 // index would make the card invisible in the studio.
+//
+// FEWER WORDS (owner, 2026-10-13). The face says "volume, not profit" in one
+// line; the refusal, the ranking basis and the sender notice are rendered in
+// full in the FinePrint under the table, and so is what "Not measured" means.
 
 export interface TapeLeaderBoardProps {
   board: TapeLeaderboard;
@@ -66,12 +71,10 @@ export function TapeLeaderBoard({
     <ArtCard pageId="copy-trading" idx={0} padding="p-4 md:p-5">
       <section>
         <h2 className="text-sm font-semibold text-white">Addresses filling the island’s pools</h2>
-        <p className="mt-1.5 text-xs leading-relaxed text-white/80">{TAPE_RETURN_RANKING.reason}</p>
-        <p className="mt-1.5 text-xs leading-relaxed text-white/70">{TAPE_RETURN_RANKING.rankedInstead}</p>
-        <p className="mt-1.5 text-[11px] leading-relaxed text-amber-200/90">{TAPE_SENDER_NOTICE}</p>
+        <p className="mt-1.5 text-xs leading-relaxed text-white/80">Ranked by USD volume, not profit.</p>
 
         {board.rows.length === 0 ? (
-          <p className="mt-4 text-xs leading-relaxed text-white/70">{TAPE_EMPTY_AFTER_READ}</p>
+          <p className="mt-4 text-xs leading-relaxed text-white/70">Every pool was read and no fill came back.</p>
         ) : (
           <div className="mt-4 overflow-x-auto">
             <table className="w-full min-w-[52rem] text-left text-xs">
@@ -164,6 +167,13 @@ export function TapeLeaderBoard({
             </table>
           </div>
         )}
+
+        <FinePrint summary="How it’s ranked" className="mt-2">
+          <p>{TAPE_RETURN_RANKING.reason}</p>
+          <p>{TAPE_RETURN_RANKING.rankedInstead}</p>
+          <p>{TAPE_SENDER_NOTICE}</p>
+          {board.rows.length === 0 ? <p>{TAPE_EMPTY_AFTER_READ}</p> : <p>Not measured: you have no matched mirror of this address.</p>}
+        </FinePrint>
       </section>
     </ArtCard>
   );
@@ -180,7 +190,7 @@ function LagCell({
     return <span className="text-white/55">Your own fills could not be read</span>;
   }
   if (!record || record.filled === 0 || record.medianEntryLagSeconds === null) {
-    return <span className="text-white/55">Not measured — you have no matched mirror of this address</span>;
+    return <span className="text-white/55">Not measured</span>;
   }
   return (
     <span>

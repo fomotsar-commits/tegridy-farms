@@ -1,6 +1,6 @@
 // Writes dist/<door>/index.html for each Jungle Bay bungalow, after `vite build`.
 // Vercel serves that file at /<door> before the SPA rewrite, so a door carries its own
-// <head> (unfurl tags) and its own first frame: the heading and art its React hero
+// <head> (unfurl tags, structured data) and its own first frame: the heading and art its React hero
 // renders, so a crawler reads the door and a visitor sees no swap when React takes over.
 // FAIL-LOUD: every transform matches exactly once or the build dies. DOORS is plain JS
 // (no TS loader here); src/lib/bungalowDoors.test.ts pins it to the registry and pageArt.
@@ -8,6 +8,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync, realpathSync } from
 import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { derivedUrl, widthsForEntry } from './derivative-url.mjs';
+import { pageHashes, pinnedHashes } from './lib/csp-hashes.mjs';
 
 const SITE = 'https://memetics.finance'; // canonical origin, per index.html's own tags
 const DIST = resolve(process.cwd(), 'dist');
@@ -19,28 +20,41 @@ const MANIFEST_PATH = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'sr
 // KEPT AS LITERAL OBJECTS on purpose: bungalowDoors.test.ts pins this file
 // with line-shape regexes (path:/image: lines) — a factory would defeat the
 // lock-step and let the registry and this manifest drift silently.
+// A link preview is the room's voice, so it reads without an em dash (answer fifteen,
+// item 8), and names the room's own chain: bungalowDoors.test.ts pins both.
 const settledDesc = (name, chain) =>
-  `${name} has a settled bungalow on Jungle Bay Island — contract, trade route ` +
-  `and held-time heat live today on ${chain}. The full art skin opens with the ` +
-  `community's drop. Dank Memes + Time = Memetic Finance.`;
+  `${name} has a settled bungalow on Jungle Bay Island, living on ${chain}. Its ` +
+  `contract, trade route and held-time heat are live today. The full art skin opens ` +
+  `with the community's drop. Dank Memes + Time = Memetic Finance.`;
 const settledAlt = (name) =>
-  `${name}'s bungalow door on Jungle Bay Island — classic island art until the community's drop`;
+  `${name}'s bungalow door on Jungle Bay Island, in classic island art until the community's drop`;
 // The first frame: BungalowHero's H1 (heroTitle, heroLine) over pageArt('home', 0).
 const SETTLED_LINE = 'Settled on Jungle Bay Island.';
+
+// The open lot's landing (BungalowDoorLanding) is no hero: its plaque sits 6rem down (the
+// nav's 3.5rem, then pt-10) across the whole column, under an eyebrow line (16.5 px, then
+// mb-2), over a veil. Its frame holds the same, so the heading does not move. Measured in
+// a production build; LotFrame in DoorFrame.tsx carries the same four.
+export const LOT_FRAME = {
+  wrap: 'padding-top:6rem',
+  col: 'max-width:none',
+  spacer: 'height:16.5px;margin:0 0 0.5rem',
+  veil: 'position:absolute;inset:0;background:rgba(6,12,26,0.62)',
+};
 
 export const DOORS = [
   {
     path: 'bayla',
     title: 'BAYLA | The muse of Jungle Bay Island',
     description:
-      'Bayla is the muse of Jungle Bay Island — brought to light by the Jungle Bay ' +
+      'Bayla is the muse of Jungle Bay Island, brought to light by the Jungle Bay ' +
       'Artists Collective, living on Solana. Trade her, hold her for heat, and stake ' +
-      'at the lighthouse — the pool is live on-chain. Dank Memes + Time = Memetic Finance.',
+      'at the lighthouse: the pool is live on-chain. Dank Memes + Time = Memetic Finance.',
     image: '/art/bayla/bayla-23.jpg',
     imageType: 'image/jpeg',
     imageWidth: '2048',
     imageHeight: '1152',
-    imageAlt: 'BAYLA / SOL on Jungle Bay Island — the muse of the island, on Solana',
+    imageAlt: 'BAYLA / SOL on Jungle Bay Island: the muse of the island, on Solana',
     heroTitle: 'BAYLA.',
     heroLine: 'The muse was always here.',
     heroArt: '/art/bayla/bayla-05.jpg',
@@ -168,7 +182,7 @@ export const DOORS = [
   {
     path: 'rizz',
     title: 'RIZZ | Jungle Bay Island',
-    description: settledDesc('RIZZ', 'Base'),
+    description: settledDesc('RIZZ', 'Solana'),
     image: '/art/jungle-dark.jpg',
     imageType: 'image/jpeg',
     imageWidth: '238',
@@ -178,8 +192,47 @@ export const DOORS = [
     heroLine: SETTLED_LINE,
     heroArt: '/art/rizz/367449C0-2CBC-44FA-9EF2-933F3EF7846F.png',
   },
-  // toweli (and its /towelie alias) and nb1 have no entry: they serve the stock
-  // shell, where the venue's frame opens only on `/`.
+  // The default room (answer fifteen, item 5: every door). Its hero is HomePage's
+  // classic cluster, TOWELI_HERO in lib/bungalows.ts, over the classic home:0 art.
+  // `aliases`: App.tsx's other door into the same room, written the same page.
+  {
+    path: 'toweli',
+    aliases: ['towelie'],
+    title: 'TOWELI | Jungle Bay Island',
+    description:
+      'Toweli has the original bungalow on Jungle Bay Island, in classic Tegridy art, ' +
+      'living on Ethereum. Farm TOWELI, and check our work. Dank Memes + Time = Memetic Finance.',
+    image: '/art/iphone/IMG_0148.jpg',
+    imageType: 'image/jpeg',
+    imageWidth: '2048',
+    imageHeight: '1448',
+    imageAlt: "Toweli's bungalow door on Jungle Bay Island, in classic Tegridy art",
+    heroTitle: 'Farm TOWELI.',
+    heroLine: 'Check our work.',
+    heroArt: '/art/iphone/IMG_0148.jpg',
+    heroPosition: '4% 85%',
+  },
+  // The island's open lot (answer sixteen, ruling 9: every door means every door). Its
+  // first frame is its landing's heading (OPEN_LOT_HERO in lib/bungalows.ts) over the
+  // owner's pick, in the landing's place (LOT_FRAME). No chain: the lot has none yet.
+  // "13" is typed here (no TS loader); bungalowDoors.test.ts pins it to BUNGALOW_COUNT + 1.
+  {
+    path: 'nb1',
+    title: 'Lot 13 | Jungle Bay Island',
+    description:
+      'Lot 13 on Jungle Bay Island is unmarked: an open lot, for the next community. ' +
+      "The island's harbor says how a community gets a bungalow here. Dank Memes + Time = Memetic Finance.",
+    image: '/splash/new/7.jpg',
+    imageType: 'image/jpeg',
+    imageWidth: '1536',
+    imageHeight: '2048',
+    imageAlt: 'Lot 13 on Jungle Bay Island, unmarked: a monkey with a pick and a pack walks toward the hills at sunrise',
+    heroTitle: 'Unmarked.',
+    heroLine: 'Lot 13, for the next community.',
+    heroArt: '/splash/new/7.jpg',
+    heroPosition: '50% 28%',
+    frame: LOT_FRAME,
+  },
 ];
 
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -193,6 +246,22 @@ export function srcsetFor(src, manifest) {
   return [...widths.map((w) => `${derivedUrl(src, w)} ${w}w`), `${src} ${natural}w`].join(', ');
 }
 
+/** The door's structured data (answer fifteen, item 8: it named MEMETICS.FINANCE). The
+ *  page is its own subject: a WebPage named and described as the door, at its own address.
+ *  The venue stays only as the site the page is part of, the WebApplication index.html
+ *  declares, pointed at by its address rather than its name. Every `<` is written as a
+ *  JSON unicode escape, so no field can close the script element it sits in. */
+export function doorJsonLd(door) {
+  return JSON.stringify({
+    '@context': 'https://schema.org',
+    '@type': 'WebPage',
+    name: door.title,
+    description: door.description,
+    url: `${SITE}/${door.path}`,
+    isPartOf: { '@type': 'WebApplication', url: SITE },
+  }).replace(/</g, '\\u003c');
+}
+
 /** The heading's markup: BungalowHero's H1, a real space before the break. */
 const headingHtml = (door) => `${esc(door.heroTitle)} <br><span>${esc(door.heroLine)}</span>`;
 
@@ -202,7 +271,8 @@ const headingHtml = (door) => `${esc(door.heroTitle)} <br><span>${esc(door.heroL
 export const PILL_ROW_STYLE = 'height:24.5px;margin:0 0 1.25rem';
 export const HEADING_STYLE = 'letter-spacing:0.01em';
 
-/** The door's first frame: the ff-* markup index.html styles, with no venue copy. */
+/** The door's first frame: the ff-* markup index.html styles, with no venue copy. A door
+ *  with a `frame` (the open lot) sits in its own page's place instead of the hero's. */
 function doorFrame(door, manifest) {
   const srcset = srcsetFor(door.heroArt, manifest);
   const img = [
@@ -211,9 +281,11 @@ function doorFrame(door, manifest) {
     'alt="" width="1200" height="800" fetchpriority="high" decoding="async"',
     door.heroPosition && `style="object-position:${esc(door.heroPosition)}"`,
   ].filter(Boolean).join(' ');
+  const f = door.frame;
+  const styled = (style) => (style ? ` style="${esc(style)}"` : '');
   return (
-    `<!-- first-frame --><div id="first-frame"><div class="ff-bg"><img ${img}></div>` +
-    `<div class="ff-wrap"><div class="ff-col"><div aria-hidden="true" style="${PILL_ROW_STYLE}"></div>` +
+    `<!-- first-frame --><div id="first-frame"><div class="ff-bg"><img ${img}>${f ? `<div${styled(f.veil)}></div>` : ''}</div>` +
+    `<div class="ff-wrap"${styled(f?.wrap)}><div class="ff-col"${styled(f?.col)}><div aria-hidden="true" style="${esc(f?.spacer ?? PILL_ROW_STYLE)}"></div>` +
     `<h1 class="ff-h1" elementtiming="first-frame-h1" style="${HEADING_STYLE}">${headingHtml(door)}</h1></div></div></div><!-- /first-frame -->`
   );
 }
@@ -267,6 +339,10 @@ export function transform(html, door, manifest = JSON.parse(readFileSync(MANIFES
   swap('twitter:image" ', /<meta name="twitter:image" content="[^"]*" \/>/, `<meta name="twitter:image" content="${abs(door.image)}" />`);
   swap('twitter:image:alt', /<meta name="twitter:image:alt" content="[^"]*" \/>/, `<meta name="twitter:image:alt" content="${alt}" />`);
   swap('twitter:url', /<meta name="twitter:url" content="[^"]*" \/>/, `<meta name="twitter:url" content="${url}" />`);
+  // The venue's structured data out, the door's in. Its CSP hash is the door's own:
+  // scripts/csp-hash.mjs --write pins it in vercel.json, and the build checks it below.
+  swap('JSON-LD', /<script type="application\/ld\+json">[\s\S]*?<\/script>/,
+    `<script type="application/ld+json">${doorJsonLd(door)}</script>`);
   // The venue's frame out, the door's in. The attribute means "a static frame is on
   // screen": index.html's CSS shows it, theme-init keeps it, and the first route skips
   // its fade-in. The no-script heading becomes a paragraph, so the door's is the only h1.
@@ -293,6 +369,17 @@ if (launched) {
   }
   const shell = readFileSync(shellPath, 'utf8');
   const manifest = JSON.parse(readFileSync(MANIFEST_PATH, 'utf8'));
+  // The CSP pins every inline script by hash, and vercel.json is what Vercel serves it
+  // from. Check the pages this build wrote, not the source: they are what a browser hashes.
+  const pinned = new Set(pinnedHashes(readFileSync(resolve(process.cwd(), 'vercel.json'), 'utf8')));
+  const checkPinned = (route, page) => {
+    for (const hash of pageHashes(page)) {
+      if (!pinned.has(hash)) {
+        throw new Error(`[bungalow-doors] ${route}: vercel.json's CSP does not pin its inline script ${hash}. Run \`node scripts/csp-hash.mjs --write\` and commit vercel.json.`);
+      }
+    }
+  };
+  checkPinned('/', shell);
 
   for (const door of DOORS) {
     for (const file of [door.image, door.heroArt]) {
@@ -308,10 +395,14 @@ if (launched) {
         throw new Error(`[bungalow-doors] ${door.path}: ${candidate} is not in dist/.`);
       }
     }
-    const dir = resolve(DIST, door.path);
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(resolve(dir, 'index.html'), transform(shell, door, manifest));
-    console.log(`[bungalow-doors] wrote dist/${door.path}/index.html`);
+    const page = transform(shell, door, manifest);
+    checkPinned(`/${door.path}`, page);
+    for (const path of [door.path, ...(door.aliases ?? [])]) {
+      const dir = resolve(DIST, path);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(resolve(dir, 'index.html'), page);
+      console.log(`[bungalow-doors] wrote dist/${path}/index.html`);
+    }
   }
   console.log(`[bungalow-doors] ${DOORS.length} door(s) rendered.`);
 }

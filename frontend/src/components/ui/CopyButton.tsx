@@ -1,6 +1,13 @@
 import { useState, useRef, useEffect } from 'react';
 
-export function CopyButton({ text, display, className = '', style }: { text: string; display?: string; className?: string; style?: React.CSSProperties }) {
+export function CopyButton({ text, display, className = '', wordsClassName, style }: {
+  text: string;
+  display?: string;
+  className?: string;
+  /** Wraps the words and the icon in a span of this class, for a caller that styles them apart from the button's box. */
+  wordsClassName?: string;
+  style?: React.CSSProperties;
+}) {
   const [copied, setCopied] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -28,13 +35,8 @@ export function CopyButton({ text, display, className = '', style }: { text: str
     timerRef.current = setTimeout(() => setCopied(false), 2000);
   };
 
-  return (
-    <button
-      onClick={handleCopy}
-      className={`inline-flex items-center gap-1.5 cursor-pointer transition-opacity hover:opacity-80 ${className}`}
-      style={style}
-      title="Copy to clipboard"
-    >
+  const words = (
+    <>
       {display ?? text}
       {copied ? (
         <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-success flex-shrink-0">
@@ -46,6 +48,17 @@ export function CopyButton({ text, display, className = '', style }: { text: str
           <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
         </svg>
       )}
+    </>
+  );
+
+  return (
+    <button
+      onClick={handleCopy}
+      className={`inline-flex items-center gap-1.5 cursor-pointer transition-opacity hover:opacity-80 ${className}`}
+      style={style}
+      title="Copy to clipboard"
+    >
+      {wordsClassName ? <span className={`inline-flex items-center gap-1.5 ${wordsClassName}`}>{words}</span> : words}
       <span aria-live="polite" className="sr-only">
         {copied ? 'Copied to clipboard' : ''}
       </span>

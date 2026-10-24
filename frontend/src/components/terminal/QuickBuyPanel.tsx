@@ -8,6 +8,7 @@ import type { GeckoNetwork } from '../../lib/geckoTerminal/pools';
 import { terminalFeeDisclosure } from '../../lib/terminal/terminalFee';
 import { buyAcknowledgement, isKnownSafe, type RowSafety } from '../../lib/terminal/rowSafety';
 import { SafetyBadge } from './SafetyBadge';
+import { FinePrint } from '../ui/FinePrint';
 
 // Buying, over the EXISTING paths — and saying plainly where there is no path.
 //
@@ -139,13 +140,7 @@ export function QuickBuyPanel({ token, safety, network, pool }: QuickBuyPanelPro
       <Shell>
         {header}
         <p className="mt-3 text-xs leading-relaxed text-white/80">
-          The venue&rsquo;s in-app swap is Ethereum mainnet only, so nothing is bought from this
-          page. This is a link to the Solana swap page with this mint preset.
-        </p>
-        <p className="mt-2 text-[11px] leading-relaxed text-white/65">
-          That page resolves the mint&rsquo;s decimals from Jupiter before it shows a quote. If
-          Jupiter cannot resolve this mint it keeps its own default output token rather than
-          guessing — so check the token on the page before you trade.
+          Quick buy is Ethereum mainnet only, so nothing is bought from this page.
         </p>
         <p className="mt-3">
           <Link to={`/solana?out=${encodeURIComponent(address)}`} className={`text-xs ${LINK}`}>
@@ -159,21 +154,33 @@ export function QuickBuyPanel({ token, safety, network, pool }: QuickBuyPanelPro
             {buyAcknowledgement(safety)}
           </p>
         ) : null}
+        <FinePrint summary="Before you trade">
+          <p>
+            That page resolves the mint&rsquo;s decimals from Jupiter before it shows a quote. If
+            Jupiter cannot resolve this mint it keeps its own default output token rather than
+            guessing — so check the token on the page before you trade.
+          </p>
+        </FinePrint>
       </Shell>
     );
   }
 
-  // ── Base: no rail, said out loud, with the two reads that do work ──────────
+  // ── Base: quick buy has no rail here (useSwap() with no chain is Ethereum's); the
+  //    Swap page trades on Base since 2026-10-17, so it is offered, plus the two reads ──
   if (network === 'base') {
     const poolAddress = pool ? validAddress(pool, 'base') : null;
     return (
       <Shell>
         {header}
         <p className="mt-3 text-xs leading-relaxed text-white/80">
-          This pool is on Base. The venue&rsquo;s swap path is Ethereum mainnet only, so there is no
-          in-app buy here and this page will not pretend otherwise.
+          This pool is on Base. Quick buy is Ethereum mainnet only, so there is no buy on this page.
         </p>
         <ul className="mt-3 space-y-2 text-xs">
+          <li>
+            <Link to="/swap?c=8453" className={LINK}>
+              Open the Base swap (paste this token&rsquo;s address there) &rarr;
+            </Link>
+          </li>
           <li>
             <Link to={`/scan?token=${encodeURIComponent(address)}&chain=base`} className={LINK}>
               Scan this token&rsquo;s holder distribution on Base &rarr;
@@ -206,16 +213,21 @@ export function QuickBuyPanel({ token, safety, network, pool }: QuickBuyPanelPro
     <Shell>
       {header}
       {!resolved ? (
-        <p className="mt-3 text-xs leading-relaxed text-white/80">
-          Buy via Trade after import. In-app buys here route only tokens you have already imported
-          and verified on{' '}
-          <Link to="/swap" className={LINK}>
-            Trade
-          </Link>
-          , where a token&rsquo;s on-chain symbol and decimals are checked against the import data
-          before it can be routed. Everything else is a link to that importer. This token is not on
-          the list yet.
-        </p>
+        <>
+          <p className="mt-3 text-xs leading-relaxed text-white/80">
+            Buy via Trade after import. This token is not on the list yet.
+          </p>
+          <FinePrint>
+            <p>
+              In-app buys here route only tokens you have already imported and verified on{' '}
+              <Link to="/swap" className={LINK}>
+                Trade
+              </Link>
+              , where a token&rsquo;s on-chain symbol and decimals are checked against the import data
+              before it can be routed. Everything else is a link to that importer.
+            </p>
+          </FinePrint>
+        </>
       ) : (
         <>
           <label className="mt-3 block text-[11px] font-medium uppercase tracking-wide text-white/60">

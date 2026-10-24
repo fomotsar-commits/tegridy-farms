@@ -1,4 +1,4 @@
-import { BUNGALOWS } from './bungalows';
+import { BUNGALOWS, CARDS_ROOM_ID, type Bungalow } from './bungalows';
 
 /**
  * WAVE SEVEN, ruling 2 (row Q): EVERY ROUTE SPEAKS AS THE VENUE OR LIVES BEHIND
@@ -20,12 +20,13 @@ export type RouteVoice = 'venue' | 'toweli' | 'bungalow' | 'record' | 'legal';
  * TOWELI's protocol pages. They describe one resident's protocol, so they open
  * in the TOWELI room: its band, its way back (components/layout/ToweliRoomStrip).
  *
- * The island named fifteen; six are here, and the other nine are not missed:
+ * The island named fifteen; seven are here, and the rest are not missed:
  *   - /restake, /grants, /governance, /bounties and /bribes are redirects (to
- *     /farm and /community). A redirect has no page to put in a room.
- *   - /farm is the venue's Earn landing for a venue visitor (VenueEarn); the
- *     TOWELI farm already opens behind the room's own door. Moving that hub is
- *     the owner's call, not a copy pass.
+ *     /earn/toweli and /community). A redirect has no page to put in a room.
+ *   - /earn is the venue's list of every resident's pool. TOWELI's farm has had
+ *     its own address since 2026-09-30, /earn/toweli, and is in the room; until
+ *     then it shared /farm with the list, and only the stored room told them
+ *     apart (the owner's call: Earn always leads back to the list).
  *   - /vesting, /airdrop and /history render no TOWELI content at all. They are
  *     venue tools, and the census proves it by reading zero TOWELI-voice nodes.
  */
@@ -34,8 +35,8 @@ export const TOWELI_ROOM_PATHS: ReadonlySet<string> = new Set([
   '/treasury',
   '/premium',
   '/lore',
-  '/referrals',
   '/zap',
+  '/earn/toweli',
 ]);
 
 /** The venue's records (ruling 1): dated, labeled, exempt from the sweep by structure. */
@@ -63,7 +64,92 @@ export function routeVoice(pathname: string): RouteVoice {
   return 'venue';
 }
 
+/** The room whose own page this is, by the path alone: its door (/bayla), its lock page
+ *  (/earn/bayla), and for TOWELI its protocol pages. Null on every venue route. */
+export function routeRoomId(pathname: string): string | null {
+  const path = normalize(pathname);
+  if (TOWELI_DOORS.has(path) || TOWELI_ROOM_PATHS.has(path)) return 'toweli';
+  const id = /^\/(?:earn\/)?([^/]+)$/.exec(path)?.[1];
+  return id !== undefined && BUNGALOWS.some((b) => b.id === id) ? id : null;
+}
+
+/** May the room opened last speak here (its words, its footer, Towelie)? Only on its own
+ *  pages (docs/FACE_LAWS.md, law 21). /dashboard is the one route left: it draws that
+ *  room's positions, which have no address of their own yet. */
+export function roomSpeaksOn(pathname: string, roomId: string): boolean {
+  return routeRoomId(pathname) === roomId || normalize(pathname).toLowerCase() === '/dashboard';
+}
+
 /** A TOWELI protocol page (not the room's own doors, which ARE the room). */
 export function isToweliRoomPage(pathname: string): boolean {
   return TOWELI_ROOM_PATHS.has(normalize(pathname));
+}
+
+/**
+ * The Solana pages whose path alone says so. /earn/<id> and /dashboard are judged below.
+ *
+ * EVERY PAGE THAT MOUNTS ITS OWN SolanaProviders BELONGS HERE (or below).
+ * /solana-lp was added to the router without being added here. Until its
+ * Solana section had mounted, the top bar treated it as a page with none and
+ * mounted its own connection; the section then mounted and took that one
+ * away. A wallet approval still open at that moment landed nowhere, and a
+ * hand-off into a wallet's app (lib/solanaSurface.ts) was used up by the
+ * connection that was about to be unmounted (review, 2026-10-03).
+ */
+const SOLANA_PATHS: ReadonlySet<string> = new Set(['/solana', '/pools', '/solana-lp', '/curve-launch']);
+
+/**
+ * Pages whose wallet action is on Solana, read from the path alone, before
+ * that page's Solana section has loaded: the top bar's first tap there must
+ * never open the Ethereum list (lib/solanaSurface.ts). Once the page's
+ * SolanaProviders mounts, its report is the truth; TopNav reads both.
+ *
+ * /earn/<id> mirrors BungalowFarmPanel: a live Solana room with a pool mounts
+ * a Solana card. /dashboard mirrors DashboardPage: `room` is
+ * getBungalowIdentity(), and a Solana room gets the Solana panel.
+ */
+/**
+ * Pages that connect Ethereum AND carry a Solana section of their own: the venue home, the
+ * island lobby and BAYLA's door, whose cards swap to BAYLA, lock it and add SOL + BAYLA (owner,
+ * 2026-10-16 and 2026-10-19; components/VenueCards.tsx). The top bar keeps its wallet sheet
+ * there, and does not mount a Solana connection of its own: the cards' is on its way, and two on
+ * one page would disagree (lib/solanaSurface.ts). Matched as the router matches them, whatever
+ * their case.
+ */
+export function hasMixedSolanaSection(pathname: string): boolean {
+  let path = normalize(pathname);
+  try {
+    path = decodeURI(path);
+  } catch {
+    /* a malformed escape: judged as written */
+  }
+  const lower = path.toLowerCase();
+  return path === '/' || lower === '/island' || lower === `/${CARDS_ROOM_ID}`;
+}
+
+export function isSolanaPage(pathname: string, room: Pick<Bungalow, 'chain'> | null = null): boolean {
+  const exact = normalize(pathname);
+  // As written only: these four are tabs whose own match is exact (/POOLS draws
+  // the Ethereum tab, with no Solana section).
+  if (SOLANA_PATHS.has(exact)) return true;
+  // The rest are routes the router matches whatever their case, after decoding
+  // them: /Earn/bobo and /earn/%62obo draw the Solana pool, and read as "no
+  // Solana section" here they were /solana-lp over again (skeptic, 2026-10-03).
+  // The mint and the pool id stay as written, as the pages read them.
+  let path = exact;
+  try {
+    path = decodeURI(exact);
+  } catch {
+    /* a malformed escape: judged as written */
+  }
+  // One launch's page mounts its Solana section for a real mint address only;
+  // a mistyped one draws "Not a token address", with no wallet section at all.
+  const mint = /^\/curve-launch\/([^/]+)$/i.exec(path)?.[1];
+  if (mint !== undefined) return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(mint);
+  if (path.toLowerCase() === '/dashboard') return room?.chain === 'solana';
+  const id = /^\/earn\/([^/]+)$/i.exec(path)?.[1];
+  return (
+    id !== undefined &&
+    BUNGALOWS.some((b) => b.id === id && b.live && b.chain === 'solana' && Boolean(b.stakePool || b.ladderPool))
+  );
 }

@@ -1,32 +1,33 @@
-// The EVM own-curve surface — create a launch on the zero-toll Memetics curve and
-// trade any live curve token. Distinct from /curve-launch (Solana) and /launch
-// (the Doppler auction rail): this is OUR curve, no Airlock, no petition, 100%
-// of the fee kept in-house.
-//
-// Gated on deployment the same way every L2 piece is: until the operator
-// broadcasts DeployCurveLauncher (M.16), curveLauncherOn(CHAIN_ID) answers
-// 'not-deployed' and the page shows the coming-soon state + how-it-works, never
-// a dead button.
+// The EVM own curve: create a launch on the zero-toll Memetics curve and trade any live
+// curve token. Distinct from /curve-launch (Solana) and /launch (the Doppler rail). Only
+// the create form sits behind the heat door; the list and trade are open to anyone. A
+// chain whose launcher is not deployed (curveLauncherOn answers 'not-deployed') shows
+// the coming-soon state and how-it-works, never a dead button.
 
 import { useEffect, useMemo, useState } from 'react';
 import { m } from 'framer-motion';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { useChainId, useReadContracts } from 'wagmi';
+import { useReadContracts } from 'wagmi';
 import { isAddress, type Address } from 'viem';
 import { usePageTitle } from '../hooks/usePageTitle';
+import { useCurveChainId } from '../hooks/useCurveChainId';
 import { trackPageView } from '../lib/analytics';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
+import { CardArt } from '../components/ui/CardArt';
+import { FinePrint } from '../components/ui/FinePrint';
 import { FeatureNotDeployed } from '../components/ui/FeatureNotDeployed';
 import { WrongChainBanner } from '../components/ui/WrongChainGuard';
-import { CHAIN_ID } from '../lib/constants';
 import { getChainConfig } from '../lib/chains/registry';
 import { curveLauncherOn, CURVE_LAUNCHER_ABI } from '../lib/launcher/curve';
 import { deployedCurveChains, curveChainNames } from '../lib/launcher/curveChains';
+import { LaunchGate } from '../components/LaunchGate';
+import { VenueLaunchLines } from '../components/launcher/VenueLaunchLines';
 import { CurveCreatePanel } from '../components/launcher/CurveCreatePanel';
 import { CurveTradePanel } from '../components/launcher/CurveTradePanel';
 import { CurveLaunchesGrid } from '../components/launcher/CurveLaunchesGrid';
 
 const PAGE_ID = 'eth-curve';
+// eth-curve art idx: 0 backdrop, 1-3 cards here, 4-14 in components/launcher and CurveTokenPage.
 const cardStyle = { border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(6,12,26,0.6)' } as const;
 
 /** Pure, prop-free explainer of the curve's economics — safe to render anywhere. */
@@ -39,8 +40,14 @@ export function CurveHowItWorks() {
     { k: 'Creators keep 0.40% of volume', v: 'On-chain, claimable any time from the token page — multiples of the going launchpad creator share.' },
   ];
   return (
-    <div className="rounded-2xl p-5 space-y-3" style={cardStyle}>
+    <div className="relative isolate rounded-2xl p-5 space-y-3" style={cardStyle}>
+      <CardArt pageId="eth-curve" idx={3} />
       <h2 className="text-white font-semibold text-sm">How the Memetics curve works</h2>
+      {/* What a trader pays and where it goes, in one visible line; the rest folds. */}
+      <p className="text-white/70 text-[12px] leading-relaxed">
+        1% trade fee: 40% to the creator, 25% to the Jungle Bay treasury, 35% to the protocol.
+      </p>
+      <FinePrint>
       <ul className="space-y-2">
         {points.map((p) => (
           <li key={p.k} className="text-[12px] leading-relaxed">
@@ -68,6 +75,7 @@ export function CurveHowItWorks() {
           <Link to="/bayla" className="text-sky-300/80 hover:text-sky-200 underline">Jungle Bay Island</Link>.
         </p>
       </div>
+      </FinePrint>
     </div>
   );
 }
@@ -83,7 +91,8 @@ function TradeByAddress({ launcher, chainId, prefill }: { launcher: Address; cha
   const token = useMemo<Address | null>(() => (isAddress(input) ? (input as Address) : null), [input]);
   return (
     <div className="space-y-3">
-      <div className="rounded-2xl p-5" style={cardStyle}>
+      <div className="relative isolate rounded-2xl p-5" style={cardStyle}>
+        <CardArt pageId="eth-curve" idx={2} />
         <label className="block text-[11px] text-white/55 mb-1">Trade a curve token — paste its address</label>
         <input
           className="w-full px-3 py-2 rounded-lg bg-black/55 text-white text-[13px] font-mono outline-none"
@@ -101,24 +110,10 @@ function TradeByAddress({ launcher, chainId, prefill }: { launcher: Address; cha
 }
 
 /**
- * WHICH CHAIN YOU ARE LAUNCHING ON — and how many launches each one carries.
- *
- * WHY THIS EXISTS. The grid below shows ONE chain, seeded from the wallet and
- * defaulting to mainnet — so a disconnected visitor saw mainnet's launches and
- * had no way to know two other chains carried any. Discovery is the binding
- * constraint for a launchpad and that halved it.
- *
- * 🔧 PROMOTED ABOVE THE CREATE PANEL, 2026-09-04. It used to sit UNDER the
- * create form and read "Launches by chain", which is a stat heading — so the
- * one control that switches the launcher looked like a leaderboard, and the
- * operator's report was the predictable one: the Base and Robinhood launchers
- * are not named anywhere you would look, and the Robinhood one cannot be found
- * at all. It is now the first thing on the page, above the form it retargets,
- * and it says what it does. The counts stayed — they are the reason to pick one.
- *
- * WHY EACH COUNT CARRIES ITS OWN STATE. A `launchCount` that did not return is
- * not zero. Every chain reads independently and an unread one says so, rather
- * than advertising an empty chain we never actually asked about.
+ * The chain picker, with each chain's launch count. It sits above the create form
+ * because it decides which launcher the form writes to, and it names every deployed
+ * chain so none is hidden from a disconnected visitor. Each chain reads on its own,
+ * and a count that did not return says so: it is never shown as zero.
  */
 function ChainLaunchCounts({
   chains,
@@ -141,11 +136,11 @@ function ChainLaunchCounts({
   });
 
   return (
-    <div className="rounded-2xl p-3" style={cardStyle}>
+    <div className="relative isolate rounded-2xl p-3" style={cardStyle}>
+      <CardArt pageId="eth-curve" idx={1} />
       <p className="text-white/50 text-[11px] uppercase tracking-wider mb-1">Launch on</p>
       <p className="text-white/60 text-[12px] mb-2 leading-relaxed">
-        The same curve, deployed on each of these. Pick one and the form below — and every
-        launch it lists — follows it. Your choice is in the URL, so a chain is linkable.
+        The same curve, deployed on each of these.
       </p>
       <div className="flex flex-wrap gap-2">
         {chains.map((c, i) => {
@@ -174,10 +169,16 @@ function ChainLaunchCounts({
           );
         })}
       </div>
-      <p className="text-white/40 text-[11px] mt-2 leading-relaxed">
-        Counts are read from each chain&rsquo;s launcher. A chain whose read did not return says
-        so — it is never shown as zero.
-      </p>
+      <FinePrint className="mt-1">
+        <p>
+          Pick one and the form below — and every launch it lists — follows it. Your choice is in
+          the URL, so a chain is linkable.
+        </p>
+        <p>
+          Counts are read from each chain&rsquo;s launcher. A chain whose read did not return says
+          so — it is never shown as zero.
+        </p>
+      </FinePrint>
     </div>
   );
 }
@@ -196,36 +197,16 @@ export default function EthCurvePage() {
   // launcher for the wallet's chain when it has one; otherwise default to mainnet
   // (a disconnected wallet resolves to mainnet too). A wallet already on a served
   // curve chain then reads + writes on that chain with no wrong-chain banner.
-  const walletChainId = useChainId();
-  const seededChainId =
-    curveLauncherOn(walletChainId).status === 'deployed' ? walletChainId : CHAIN_ID;
-  // The wallet seeds the view; an explicit pick overrides it. Mainnet stays the
-  // default for a disconnected visitor, exactly as before.
-  //
-  // 🔗 THE PICK LIVES IN THE URL (`?c=<chainId>`), not in component state, since
-  // 2026-09-04. It was `useState`, which meant the Base and Robinhood launchers
-  // had no address of their own: nothing could be linked to them, bookmarked,
-  // pasted into chat or landed on from a search — the only way to reach one was
-  // to already be on this page and click. That is most of why the operator could
-  // not find the Robinhood launcher. /eth-curve?c=4663 now IS the Robinhood
-  // launcher, and the tab strip's Memetics Curve entry lands on whichever chain
-  // the visitor last linked.
-  //
-  // Validated, not trusted: `?c=` is visitor-supplied, so a chain we do not serve
-  // (or garbage, which `Number` turns into NaN and `Number('')` into 0) falls
-  // back to the seed rather than driving a read at an undefined launcher.
+  // The wallet seeds the view (mainnet when disconnected); an explicit pick overrides it
+  // and lives in the URL (`?c=<chainId>`), so each launcher is linkable. The rule is
+  // useCurveChainId's, shared with the Launch section's network drop-down.
   const [searchParams, setSearchParams] = useSearchParams();
-  const requestedChainId = Number(searchParams.get('c'));
-  const pickedChainId =
-    Number.isInteger(requestedChainId) && curveLauncherOn(requestedChainId).status === 'deployed'
-      ? requestedChainId
-      : null;
+  const activeChainId = useCurveChainId();
   const setPickedChainId = (chainId: number) => {
     const next = new URLSearchParams(searchParams);
     next.set('c', String(chainId));
     setSearchParams(next);
   };
-  const activeChainId = pickedChainId ?? seededChainId;
   const availability = curveLauncherOn(activeChainId);
   const curveChains = useMemo(() => deployedCurveChains(), []);
   const chainName = getChainConfig(activeChainId)?.name ?? 'Ethereum';
@@ -245,13 +226,11 @@ export default function EthCurvePage() {
             )}
           </div>
           <p className="text-white/60 text-[13px] mt-1 leading-relaxed">
-            Our own bonding curve. Launch a token in one signature, trade it as it climbs, and
-            graduate into our own pool with the liquidity burned — no third party takes a cut.
+            Our own bonding curve. Launch, trade, then graduate into our own pool.
             {curveChains.length > 0 && (
               <>
                 {' '}
-                Live on <span className="text-white/85">{curveChainNames()}</span> — the same
-                launcher on each, picked below.
+                Live on <span className="text-white/85">{curveChainNames()}</span>.
               </>
             )}
           </p>
@@ -259,18 +238,20 @@ export default function EthCurvePage() {
 
         {availability.status === 'deployed' ? (
           <m.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }} className="space-y-4">
-            {/* FIRST, not last: this is the control that decides which launcher the
-                form below writes to. It sat under the form until 2026-09-04 — see
-                ChainLaunchCounts' own comment. */}
+            {/* First: it decides which launcher the create form below writes to. */}
             {curveChains.length > 1 && (
               <ChainLaunchCounts chains={curveChains} selected={activeChainId} onSelect={setPickedChainId} />
             )}
             <WrongChainBanner requiredChainId={activeChainId} />
-            <CurveCreatePanel
-              launcher={availability.address}
-              chainId={activeChainId}
-              onTrade={(token) => navigate(`/eth-curve/${token}?c=${activeChainId}`)}
-            />
+            {/* Only the create form sits behind the door; the list and trade below stay
+                open to anyone. The panel reads the wallet again at submit. */}
+            <LaunchGate rail="ethereum" below={<VenueLaunchLines rail="ethereum" />}>
+              <CurveCreatePanel
+                launcher={availability.address}
+                chainId={activeChainId}
+                onTrade={(token) => navigate(`/eth-curve/${token}?c=${activeChainId}`)}
+              />
+            </LaunchGate>
             <CurveLaunchesGrid launcher={availability.address} chainId={activeChainId} chainName={chainName} />
             <TradeByAddress launcher={availability.address} chainId={activeChainId} />
             <CurveHowItWorks />

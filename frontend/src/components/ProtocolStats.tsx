@@ -1,5 +1,9 @@
 import { m } from 'framer-motion';
 import { useProtocolStats } from '../hooks/useProtocolStats';
+import { CardArt } from './ui/CardArt';
+
+// Up to six tiles render (items.slice(0, 6)); idx wraps if that ever grows.
+const STAT_ART_SLOTS = 6;
 
 function fmtUsd(n: number): string {
   if (!Number.isFinite(n) || n <= 0) return '—';
@@ -36,7 +40,7 @@ export function ProtocolStats() {
   // HONESTY 2026-07-24: this reads collected router fees, NOT RevenueDistributor
   // .totalDistributed — labelling it "distributed to stakers" would overstate the
   // moment the first fee lands. Name what the number actually measures.
-  if (s.feesUsd > 0) live.push({ l: 'Protocol Fees Collected', v: fmtUsd(s.feesUsd), sub: 'in ETH — routed to stakers, liquidity & ops', icon: '💸' });
+  if (s.feesUsd > 0) live.push({ l: 'Protocol Fees Collected', v: fmtUsd(s.feesUsd), sub: 'in ETH: a referral share, the rest toward stakers', icon: '💸' });
   if (s.rewardPoolToweli > 0) live.push({ l: 'Reward Pool', v: fmtToken(s.rewardPoolToweli), sub: 'TOWELI staking rewards', icon: '💰' });
   if (s.dailyEmissionToweli > 0) live.push({ l: 'Daily Emissions', v: `${fmtToken(s.dailyEmissionToweli)}/day`, sub: 'to stakers', icon: '⚡' });
   // Below ~$1k the USD figure undersells the position — show the token count.
@@ -46,11 +50,11 @@ export function ProtocolStats() {
   // Reintroduce only from indexer data (SwapExecuted event count).
 
   const evergreen: StatItem[] = [
-    // F68: don't freeze a governable on-chain split (stakerShareBps) into a fixed
-    // "100%" that contradicts the hero's three-way (stakers / liquidity / ops)
-    // framing. F67: "bounty live" → "responsible disclosure" to match the hero
-    // trust badge (the bounty has no funded pool yet).
-    { l: 'Fee Routing', v: 'On-chain', sub: 'fees → stakers, liquidity & ops, in ETH', icon: '💸' },
+    // F68: no fixed "100%": the router fee pays a 20% referral share first, and the
+    // liquidity share is 0 on chain (polShareBps, read 2026-10-10). F67: "bounty
+    // live" → "responsible disclosure" to match the hero trust badge (the bounty has
+    // no funded pool yet).
+    { l: 'Fee Routing', v: 'On-chain', sub: 'fees → referral share, then stakers, in ETH', icon: '💸' },
     { l: 'LP Locked', v: '~69 yrs', sub: 'Uniswap LP in UNCX until 2093', icon: '🔐' },
     { l: 'Fixed Supply', v: '1B', sub: 'TOWELI — no mint function, ever', icon: '🧱' },
     // F-2026-07-24: "82+ findings resolved" is unverifiable by a visitor and the
@@ -81,12 +85,13 @@ export function ProtocolStats() {
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true }}
     >
-      {items.map((it) => (
+      {items.map((it, i) => (
         <div
           key={it.l}
-          className="rounded-xl p-3 md:p-4"
+          className="relative isolate rounded-xl p-3 md:p-4"
           style={{ border: '1px solid var(--color-purple-75)', background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)' }}
         >
+          <CardArt pageId="protocol-stats" idx={0 + (i % STAT_ART_SLOTS)} />
           <p
             className="text-[11px] uppercase tracking-wider mb-1.5 flex items-center gap-1.5"
             style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}

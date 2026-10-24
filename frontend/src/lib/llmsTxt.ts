@@ -20,8 +20,7 @@ import {
 } from './constants';
 import * as ladder from './lighthouseLadder';
 import * as baylaLadder from './ladder/program';
-import { heatLaunchFloor } from './heat/heatGateConfig';
-import { tierAtFloor } from './heat/heatOracle';
+import { LAUNCH_FLOOR, tierAtFloor } from './heat/heatOracle';
 import { OPEN_DOOR_IDS } from '../components/VenueDoors';
 
 /** The shape of frontend/scripts/addresses.json this module reads. */
@@ -59,6 +58,8 @@ export interface DoorFact {
 export interface LlmsFacts {
   siteUrl: string;
   description: string;
+  /** The public line agreed with Jungle Bay Island, verbatim (VENUE.venueLine). */
+  venueLine: string;
   heroLine: string;
   heatPlain: string;
   heatOnePerson: string;
@@ -124,7 +125,9 @@ export function isLiveInLedger(ledger: AddressLedger, chain: string, address: st
 }
 
 export function collectFacts(ledger: AddressLedger, deployConfig?: RedirectConfig): LlmsFacts {
-  const floor = heatLaunchFloor();
+  // The production floor, never a dial: llms.txt ships beside the production bundle,
+  // and the door there ignores VITE_HEAT_LAUNCH_FLOOR (heat/heatGateConfig.ts).
+  const floor = LAUNCH_FLOOR;
   const doors: DoorFact[] = BUNGALOWS.filter((b) => b.chain !== 'tbd' && b.address).map((b) => ({
     id: b.id,
     name: b.name,
@@ -152,6 +155,7 @@ export function collectFacts(ledger: AddressLedger, deployConfig?: RedirectConfi
   return {
     siteUrl: SITE_URL,
     description: VENUE.description,
+    venueLine: VENUE.venueLine,
     heroLine: VENUE.heroLine,
     heatPlain: VENUE.heatPlain,
     heatOnePerson: VENUE.heatOnePerson,
@@ -168,7 +172,10 @@ export function collectFacts(ledger: AddressLedger, deployConfig?: RedirectConfi
     ladderStaking: {
       minLockSeconds: Number(ladder.MIN_LOCK_SECS),
       maxLockSeconds: Number(ladder.MAX_LOCK_SECS),
-      earlyExitBps: Number(ladder.PENALTY_BPS),
+      // The pools live today, not the build: a flat 25% until the owner's redeploy lands,
+      // then the ladder's law (the time left over four years, capped at 75%).
+      earlyExitBps: Number(ladder.LIVE_LADDER_EXIT_BPS),
+      earlyExitSchedule: ladder.LIVE_LADDER_EXIT_SCHEDULE,
       minBoostBps: Number(ladder.MIN_BOOST_BPS),
       maxBoostBps: Number(ladder.MAX_BOOST_BPS),
     },
@@ -231,7 +238,7 @@ const CHAIN_NAME: Record<string, string> = { ethereum: 'Ethereum', base: 'Base',
 
 export function renderLlmsTxt(f: LlmsFacts, meta: { date: string; commit?: string | null }): string {
   const out: string[] = [];
-  out.push('# memetics.finance', '', `> ${f.description}`, '');
+  out.push('# memetics.finance', '', `> ${f.description}`, '', f.venueLine, '');
 
   out.push('## Held time', '');
   out.push(f.heroLine, '', f.heatPlain, '', f.heatOnePerson, '');
@@ -239,7 +246,7 @@ export function renderLlmsTxt(f: LlmsFacts, meta: { date: string; commit?: strin
   out.push(f.launchFloorLine, '');
 
   out.push('## Read any wallet', '');
-  out.push(`- ${f.siteUrl}/read/<address>: the held time of any Ethereum or Solana wallet. No wallet connection needed.`);
+  out.push(`- ${f.siteUrl}/read/<address>: the held time of any Ethereum, Base, or Solana wallet. No wallet connection needed.`);
   out.push(`- ${f.siteUrl}/scan: holder concentration for a token. A descriptive measurement, not a verdict.`, '');
 
   const doorLine = (d: DoorFact) =>

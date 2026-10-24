@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, act } from "@testing-library/react";
 import { CollectionProvider } from "./contexts/CollectionContext";
+import { CONTRACT } from "./constants";
 
 // The detail modal's two market panels read feeds that fail routinely: the
 // OpenSea proxy rate-limits under normal browsing, and the activity feed answers
@@ -106,13 +107,14 @@ describe("fetchTokenOfferBook reports reachability alongside the data", () => {
   it("flags unavailable when a leg rejects, and not when both answer", async () => {
     const { fetchTokenOfferBook } = await import("./api-offers");
 
-    const ok = await fetchTokenOfferBook("11007", { contract: "0x1", slug: COL });
+    // The book is read on the collection its contract names.
+    const ok = await fetchTokenOfferBook("11007", { contract: CONTRACT, slug: COL });
     expect(ok.unavailable).toBe(false);
     expect(ok.offers).toEqual([]);
     expect(ok.bestOffer).toBeNull();
 
     proxyState.openseaFails = true;
-    const down = await fetchTokenOfferBook("11007", { contract: "0x1", slug: COL });
+    const down = await fetchTokenOfferBook("11007", { contract: CONTRACT, slug: COL });
     expect(down.unavailable).toBe(true);
     expect(down.offers).toEqual([]);
     expect(down.bestOffer).toBeNull();

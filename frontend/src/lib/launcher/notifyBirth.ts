@@ -30,7 +30,7 @@ export interface NotifyBirthInput {
 export function recordOrigin(explicit?: string): string {
   if (explicit) return explicit;
   const configured = (import.meta.env.VITE_CANONICAL_ORIGIN as string | undefined)?.trim();
-  // The fallback is the canonical host (SITE_URL), never the memetic.fun redirect alias.
+  // The fallback is SITE_URL's value (src/lib/constants.ts), the venue's canonical host.
   return configured || 'https://memetics.finance';
 }
 

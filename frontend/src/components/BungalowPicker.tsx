@@ -7,6 +7,7 @@ import { isToweliVoice } from '../lib/arrival';
 import { OPEN_DOOR_IDS } from './VenueDoors';
 import {
   BUNGALOWS,
+  BUNGALOW_COUNT,
   getActiveBungalow,
   setActiveBungalow,
   type Bungalow,
@@ -67,11 +68,12 @@ export function BungalowPicker({ open, onClose }: { open: boolean; onClose: () =
       art={ART.jungleBus.src}
     >
       <p className="text-white/80 text-[13px] leading-relaxed mb-4">
+        {/* The count is read from the registry, never typed: the open lot is no bungalow. */}
         {isToweliVoice()
-          ? 'Thirteen bungalows, one island. Live bungalows dress the app\u2019s backgrounds in their own art; settled doors are open \u2014 plaque, contract and trade route \u2014 while their art drops arrive. Same farm, same rails, different vibes.'
+          ? `${BUNGALOW_COUNT} bungalows, one island. Live bungalows dress the app\u2019s backgrounds in their own art; settled doors are open \u2014 plaque, contract and trade route \u2014 while their art drops arrive. Same farm, same rails, different vibes.`
           /* ARRIVAL IDENTITY 2026-08-31: the venue speaks its own law here
              (island-authored venue strings carry no em dashes, per lane law). */
-          : 'Thirteen bungalows, one island. Open doors show in full color; settled doors are greyed while their people move in, and each still opens to its plaque, contract and trade route. Walk in where you hold.'}
+          : `${BUNGALOW_COUNT} bungalows, one island. Open doors show in full color; settled doors are greyed while their people move in, and each still opens to its plaque, contract and trade route. Walk in where you hold.`}
       </p>
 
       <div

@@ -3,6 +3,7 @@ import { Eth } from "./Icons";
 import NftImage from "./NftImage";
 import { PLATFORM_FEE_BPS, PLATFORM_FEE_RECIPIENT, BUNDLE_LISTING_ENABLED } from "../constants";
 import { createNativeBundleListing, MAX_BUNDLE_ITEMS } from "../lib/orderbook";
+import { toastTxNotice } from "../lib/txOutcome";
 import { useActiveCollection } from "../contexts/CollectionContext";
 import { useToast } from "../contexts/ToastContext";
 import { formatPrice } from "../lib/formatPrice";
@@ -191,7 +192,7 @@ export default function BundleListing({ nfts, onClose, wallet, tokens, collectio
         );
         onListingCreated?.();
         onClose();
-      } else {
+      } else if (!toastTxNotice(addToast, result)) {
         addToast(result?.message || "Failed to create bundle listing", "error");
       }
     } catch (err) {

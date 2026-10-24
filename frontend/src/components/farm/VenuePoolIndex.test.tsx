@@ -1,18 +1,16 @@
-// "Open <symbol>" switches the skin in place and stays on the Earn page, which
-// re-reads the room through the skin store. A document navigation would load
-// the app again for a switch the store already carries.
+// "Open <symbol>" is a real link to that pool's own address, /earn/<id>, and it
+// navigates inside the app: the pool's route enters its room on arrival
+// (App.tsx EarnPoolRoute). Until 2026-09-30 it was a button that switched the
+// stored room and re-rendered /farm, so the address never said which pool, and
+// nothing on the pool led back here.
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { VenuePoolIndex } from './VenuePoolIndex';
-import { BUNGALOW_STORAGE_KEY, BUNGALOWS, subscribeActiveBungalow } from '../../lib/bungalows';
+import { BUNGALOW_STORAGE_KEY, BUNGALOWS } from '../../lib/bungalows';
 
 let realLocation: Location | null = null;
-
-beforeEach(() => {
-  vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
-});
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -22,13 +20,13 @@ afterEach(() => {
 });
 
 describe('VenuePoolIndex', () => {
-  it('opens a room in place, with no document navigation', () => {
+  it("links each pool to its own address and opens it inside the app", () => {
     realLocation = window.location;
     const assign = vi.fn();
     Object.defineProperty(window, 'location', {
       configurable: true,
       writable: true,
-      value: { href: 'http://localhost/farm', search: '', pathname: '/farm', assign, reload: vi.fn() },
+      value: { href: 'http://localhost/earn', search: '', pathname: '/earn', assign, reload: vi.fn() },
     });
     const room = BUNGALOWS.find((b) => b.live && (b.stakePool || b.ladderPool))!;
     let path = '';
@@ -37,32 +35,26 @@ describe('VenuePoolIndex', () => {
       return null;
     }
     render(
-      <MemoryRouter initialEntries={['/farm']}>
+      <MemoryRouter initialEntries={['/earn']}>
         <VenuePoolIndex />
         <WhereAmI />
       </MemoryRouter>,
     );
-    fireEvent.click(screen.getByRole('button', { name: `Open ${room.symbol}` }));
+    const open = screen.getByRole('link', { name: `Open ${room.symbol}` });
+    expect(open).toHaveAttribute('href', `/earn/${room.id}`);
+    fireEvent.click(open);
     expect(assign, 'no document navigation').not.toHaveBeenCalled();
-    expect(localStorage.getItem(BUNGALOW_STORAGE_KEY)).toBe(room.id);
-    expect(path).toBe('/farm');
-    expect(window.scrollTo, 'the room opens at its top').toHaveBeenCalledWith(0, 0);
+    expect(path).toBe(`/earn/${room.id}`);
   });
 
-  it('announces the switch, so the page and the nav read the new room', () => {
+  it('writes no room itself: the address carries the choice', () => {
     const room = BUNGALOWS.find((b) => b.live && (b.stakePool || b.ladderPool))!;
-    const heard = vi.fn();
-    const off = subscribeActiveBungalow(heard);
-    try {
-      render(
-        <MemoryRouter initialEntries={['/farm']}>
-          <VenuePoolIndex />
-        </MemoryRouter>,
-      );
-      fireEvent.click(screen.getByRole('button', { name: `Open ${room.symbol}` }));
-    } finally {
-      off();
-    }
-    expect(heard).toHaveBeenCalled();
+    render(
+      <MemoryRouter initialEntries={['/earn']}>
+        <VenuePoolIndex />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole('link', { name: `Open ${room.symbol}` }));
+    expect(localStorage.getItem(BUNGALOW_STORAGE_KEY)).toBeNull();
   });
 });

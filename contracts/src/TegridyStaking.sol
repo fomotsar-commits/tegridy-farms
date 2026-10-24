@@ -2331,7 +2331,10 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
 
     event RewardNotifierSet(address indexed notifier, bool enabled);
 
-    function setRewardNotifier(address notifier, bool enabled) external onlyOwner {
+    /// @dev AUDIT MICROSCOPE_2026_04_30 M-S6: was an instant `onlyOwner` grant. Now
+    ///      written only by TegridyStakingAdmin after its 48h timelock, like every
+    ///      other admin parameter (`proposeRewardNotifier` / `executeRewardNotifier`).
+    function applyRewardNotifier(address notifier, bool enabled) external onlyAdmin {
         rewardNotifiers[notifier] = enabled;
         emit RewardNotifierSet(notifier, enabled);
     }
@@ -2505,9 +2508,15 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         emit StakingAdminReplacementCancelled(proposed);
     }
 
+    /// @dev One private body for the six `apply*` setters (M-S6 added the sixth), the
+    ///      same EIP-170 fold as `_requireContract`: an inlined modifier pays per call site.
     modifier onlyAdmin() {
-        if (msg.sender != stakingAdmin) revert Unauthorized();
+        _onlyAdmin();
         _;
+    }
+
+    function _onlyAdmin() private view {
+        if (msg.sender != stakingAdmin) revert Unauthorized();
     }
 
     /// @notice Apply a new reward rate. Caller must be the wired admin contract.

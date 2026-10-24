@@ -23,7 +23,7 @@ function makeReq(query = {}, headers = {}) {
   return {
     method: "GET",
     query: { route: "scan", chain: "ethereum", address: TOKEN, ...query },
-    headers: { origin: "https://memetic.fun", "x-api-key": KEY, ...headers },
+    headers: { origin: "https://memetics.finance", "x-api-key": KEY, ...headers },
   };
 }
 
@@ -269,7 +269,7 @@ describe("the sold route is not reachable for free", () => {
     serve(upstream(JSON.stringify({ holders: [HOLDER] })));
     const { res, statusSpy, jsonSpy } = makeRes();
     await handler(
-      { method: "GET", query: { route: "erc20scan", contract: TOKEN }, headers: { origin: "https://memetic.fun" } },
+      { method: "GET", query: { route: "erc20scan", contract: TOKEN }, headers: { origin: "https://memetics.finance" } },
       res,
     );
     expect(statusSpy).not.toHaveBeenCalledWith(401);

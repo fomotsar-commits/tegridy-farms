@@ -41,6 +41,12 @@ function renderChart(path = '/chart') {
   );
 }
 
+/** The plot, if one is drawn. The page's fold-out disclosures (FinePrint) carry a
+ *  chevron svg of their own, which is not a chart axis and must not count as one. */
+function plotSvg(container: HTMLElement): SVGSVGElement | null {
+  return Array.from(container.querySelectorAll('svg')).find((s) => !s.closest('details')) ?? null;
+}
+
 function poolButtons(): HTMLElement[] {
   return within(screen.getByRole('region', { name: 'Pool' })).getAllByRole('button');
 }
@@ -114,7 +120,7 @@ describe('ChartPage when GeckoTerminal cannot be reached', () => {
     const { container } = await renderOffline();
     // An axis with no candles on it reads as "this did not trade". There is no
     // svg in this state, full stop.
-    expect(container.querySelector('svg')).toBeNull();
+    expect(plotSvg(container)).toBeNull();
     expect(screen.getByText(/GeckoTerminal did not answer, so no candles were read/)).toBeInTheDocument();
     expect(
       screen.getByText(/Nothing here is a statement about this pool’s price or whether it traded/),
@@ -195,8 +201,8 @@ describe('ChartPage when GeckoTerminal answers', () => {
   it('draws one body per returned bucket and a hatched column for the ones that were not', async () => {
     stubOk();
     const { container } = renderChart();
-    await waitFor(() => expect(container.querySelector('svg')).not.toBeNull());
-    const svg = container.querySelector('svg')!;
+    await waitFor(() => expect(plotSvg(container)).not.toBeNull());
+    const svg = plotSvg(container)!;
     // Six bodies would mean the three missing hours had been filled in.
     expect(svg.querySelectorAll('g > rect')).toHaveLength(2);
     expect(svg.querySelectorAll('rect[fill="url(#candle-gap-hatch)"]')).toHaveLength(1);
@@ -220,7 +226,7 @@ describe('ChartPage when GeckoTerminal answers', () => {
   it('marks only the newest body as possibly-open', async () => {
     stubOk();
     const { container } = renderChart();
-    await waitFor(() => expect(container.querySelector('svg')).not.toBeNull());
+    await waitFor(() => expect(plotSvg(container)).not.toBeNull());
     const titles = [...container.querySelectorAll('svg g > rect > title')].map((t) => t.textContent ?? '');
     expect(titles).toHaveLength(2);
     expect(titles[0]).not.toContain('bucket may still be open');
@@ -230,7 +236,7 @@ describe('ChartPage when GeckoTerminal answers', () => {
   it('never prints a trade count for a source that does not report one', async () => {
     stubOk();
     const { container } = renderChart();
-    await waitFor(() => expect(container.querySelector('svg')).not.toBeNull());
+    await waitFor(() => expect(plotSvg(container)).not.toBeNull());
     // Mutation: `trades: 0` on a GeckoTerminal candle and this matches "0
     // trades" — a measurement nobody made, on a bucket with four real prices.
     expect(container.textContent ?? '').not.toMatch(/\d+\s+trades?\b/);
@@ -311,7 +317,7 @@ describe('ChartPage when GeckoTerminal answers', () => {
       expect(screen.getByText(/GeckoTerminal returned no bucket for this window/)).toBeInTheDocument(),
     );
     // Different screen, different sentence — and no bare axis.
-    expect(container.querySelector('svg')).toBeNull();
+    expect(plotSvg(container)).toBeNull();
     expect(screen.getByText(/not the price being zero/)).toBeInTheDocument();
     expect(screen.queryByText(/Nothing here is a statement about this pool’s price/)).toBeNull();
   });

@@ -13,6 +13,7 @@ import {
 } from '../../lib/heat/gateAudit';
 import { heatLaunchFloor } from '../../lib/heat/heatGateConfig';
 import { shortenAddress, formatTimeAgo } from '../../lib/formatting';
+import { CardArt } from '../ui/CardArt';
 
 /** Enough to cover a session's worth of doors without turning the panel into a log file. */
 const DEFAULT_LIMIT = 12;
@@ -114,9 +115,10 @@ export function GateAuditPanel({ address, onReRead, limit = DEFAULT_LIMIT }: Gat
       {open && (
         <div
           id={panelId}
-          className="mt-2 rounded-xl p-4"
+          className="relative isolate mt-2 rounded-xl p-4"
           style={{ background: 'rgba(0,0,0,0.45)', border: '1px solid var(--color-purple-25)' }}
         >
+          <CardArt pageId="gate-audit-panel" idx={0} />
           <p className="text-[11.5px] text-white/55 leading-relaxed mb-3">
             Every decision this door takes is written down on this device, with the reading it used.
             It is kept here and nowhere else — it is never sent anywhere, and it is not analytics.

@@ -6,6 +6,7 @@ import { fulfillSeaportOrder, fulfillSeaportOrdersBatch, getProvider } from "../
 import { fulfillNativeOrder } from "../lib/orderbook";
 import { recordTransaction } from "../lib/transactions";
 import { getFriendlyError } from "../lib/errorMessages";
+import { toastTxNotice } from "../lib/txOutcome";
 import { validateOrderQuick } from "../lib/orderValidator";
 import { useActiveCollection } from "../contexts/CollectionContext";
 import { useWallet } from "../contexts/WalletContext";
@@ -97,6 +98,8 @@ export default function ShoppingCart({
   const purchasableItems = cart.filter(item => item.orderHash);
 
   const totalPrice = purchasableItems.reduce((sum, item) => sum + (item.price || 0), 0);
+  // No item has a live order: there is no total to state and no purchase to start.
+  const nothingPurchasable = cart.length > 0 && purchasableItems.length === 0;
 
   // Estimate gas for the batch purchase
   const estimateGas = useCallback(async () => {
@@ -324,6 +327,10 @@ export default function ShoppingCart({
         addToast?.(`${item.name} is no longer available — removed from cart`, "warning");
         onRemove(item.id);
         continue;
+      } else if (toastTxNotice(addToast, result)) {
+        // Unconfirmed or replaced: stop here rather than send more blind. The
+        // item stays in the cart and the notice says to check before resending.
+        break;
       } else {
         const friendly = getFriendlyError(result.message || result.error || "Transaction failed");
         addToast?.(`Failed to buy ${item.name} — ${friendly}`, "error");
@@ -362,6 +369,7 @@ export default function ShoppingCart({
       {/* Drawer */}
       <aside
         ref={panelRef}
+        className="cart-drawer"
         tabIndex={-1}
         role="dialog"
         aria-label="Shopping cart"
@@ -370,11 +378,12 @@ export default function ShoppingCart({
         // `inert` its Close/Remove/Sweep/Clear controls stay in the keyboard tab
         // order and a11y tree. `inert` removes them from both while closed.
         {...(isOpen ? {} : { inert: "" })}
+        // `bottom` lives in App.css (.cart-drawer): on a phone the drawer
+        // ends above the fixed bottom nav.
         style={{
           position: "fixed",
           top: 0,
           right: 0,
-          bottom: 0,
           width: "min(380px, 100vw)",
           maxWidth: "100vw",
           zIndex: 8001,
@@ -601,7 +610,17 @@ export default function ShoppingCart({
             borderTop: "1px solid var(--border, #222)",
             padding: "16px 20px 20px",
           }}>
+            {nothingPurchasable && (
+              <div role="status" style={{
+                fontFamily: "var(--mono)", fontSize: 11, lineHeight: 1.6,
+                color: "var(--text-dim)", marginBottom: 12, letterSpacing: "0.02em",
+              }}>
+                Nothing in the cart can be bought right now: no item in it has a live listing.
+              </div>
+            )}
+
             {/* Summary */}
+            {!nothingPurchasable && (
             <div style={{ marginBottom: 14 }}>
               <div style={{
                 display: "flex",
@@ -707,6 +726,7 @@ export default function ShoppingCart({
 
               {/* Gas estimation shown above when available */}
             </div>
+            )}
 
             {/* Stale price warning */}
             {staleItems.length > 0 && !buying && (
@@ -872,7 +892,7 @@ export default function ShoppingCart({
             )}
 
             {/* Sweep All */}
-            {!confirming && (
+            {!confirming && !nothingPurchasable && (
               <button
                 onClick={handleSweepClick}
                 disabled={buying || validating}

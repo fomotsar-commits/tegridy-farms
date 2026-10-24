@@ -107,24 +107,32 @@ finish line — the worst possible moment.
 configuration past the curve's ceiling and make graduation unreachable again.
 
 **How big, exactly.** Computed from cp-swap's own `LEN` constants
-(`states/oracle.rs`, `states/pool.rs`) at `minimum_balance = (128 + size) * 6960`:
+(`states/oracle.rs`, `states/pool.rs`). Mainnet rent is `minimum_balance = (128 + size) * 5080`,
+read with `getMinimumBalanceForRentExemption` on 2026-10-14 (slot 456,823,210). This table
+was first written at the old rate of 6,960 a byte; that column is kept because the program
+constant below still carries it.
 
-| what the authority pays for | bytes | lamports |
-| --- | --- | --- |
-| `observation_state` | 4075 | 29,252,880 |
-| `pool_state` | 637 | 5,324,400 |
-| `token_0_vault` | 165 | 2,039,280 |
-| `token_1_vault` | 165 | 2,039,280 |
-| `lp_mint` | 82 | 1,461,600 |
-| `creator_lp_token` ATA | 165 | 2,039,280 |
-| **rent subtotal** | | **42,156,720** |
-| `create_pool_fee` (Raydium mainnet 0.15 SOL) | | 150,000,000 |
-| **REQUIRED MINIMUM** | | **192,156,720** (~0.1922 SOL) |
+| what the authority pays for | bytes | lamports today (5,080/byte) | at the old 6,960/byte |
+| --- | --- | --- | --- |
+| `observation_state` | 4075 | 21,351,240 | 29,252,880 |
+| `pool_state` | 637 | 3,886,200 | 5,324,400 |
+| `token_0_vault` | 165 | 1,488,440 | 2,039,280 |
+| `token_1_vault` | 165 | 1,488,440 | 2,039,280 |
+| `lp_mint` | 82 | 1,066,800 | 1,461,600 |
+| `creator_lp_token` ATA | 165 | 1,488,440 | 2,039,280 |
+| **rent subtotal** | | **30,769,560** | 42,156,720 |
+| `create_pool_fee` (Raydium mainnet 0.15 SOL) | | 150,000,000 | 150,000,000 |
+| **REQUIRED MINIMUM** | | **180,769,560** (~0.1808 SOL) | 192,156,720 |
 
-So `migration_reserve_lamports` must be **at least ~0.1922 SOL** on mainnet, and
-`observation_state` alone is ~70% of the rent. The rehearsal uses 0.25 SOL, which
-leaves 57,843,280 lamports (~0.058 SOL) of headroom; the surplus is swept back to
+So `migration_reserve_lamports` must be **at least ~0.1808 SOL** on mainnet today, and
+`observation_state` alone is ~69% of the rent. At today's rent 0.25 SOL leaves
+69,230,440 lamports (~0.069 SOL) of headroom; the surplus is swept back to
 the caller (decision 8), so over-provisioning costs nothing but the raise.
+
+**The program's own floor is a constant at the old rate.** `MIN_MIGRATION_RESERVE_LAMPORTS`
+(`src/state.rs`) is 42,156,720, the old-rate subtotal. `initialize_global` refuses any reserve
+below it, which is stricter than today's rent needs and harmless, since the practical minimum
+(180,769,560) is above it anyway. Changing the constant needs a program upgrade.
 
 ⚠️ **A too-small reserve fails at the finish line**, after the pool exists. The
 rehearsal now charges the real 0.15 SOL fee and asserts the fee receiver was

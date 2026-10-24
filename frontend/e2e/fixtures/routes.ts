@@ -45,7 +45,12 @@ export type RouteGate =
    * plugin declared `apply: 'serve'`, so no write endpoint is served at all.
    * Unlike `dev-only` there is no redirect to assert, so no `redirectsTo`.
    */
-  | 'unlisted';
+  | 'unlisted'
+  /**
+   * Routed only once what it needs is on the chain. Until then App.tsx declares no route for
+   * it in any build the suite runs, the nav lists nothing, and the path is the not-found page.
+   */
+  | 'not-yet-routed';
 
 export interface RouteSpec {
   /** Path as written in App.tsx. */
@@ -100,11 +105,8 @@ export interface RouteSpec {
 export const ROUTE_MOUNT_TIMEOUT = 20_000;
 
 /**
- * The Tradermigos splash gets its own, larger budget. It is not a lazy chunk
- * behind Suspense — it is a full-viewport animated intro that runs a loading
- * sequence before it reaches `ready`, and on WebKit with nine workers sharing
- * one preview server it has been measured past 20s. This is the one surface in
- * the app whose mount time is a product decision rather than a network cost.
+ * The Tradermigos splash and the landing after it get a larger budget: on WebKit
+ * with nine workers sharing one preview server they have been measured past 20s.
  */
 export const SPLASH_MOUNT_TIMEOUT = 60_000;
 
@@ -178,20 +180,13 @@ export async function waitForQuiescence(
 }
 
 /**
- * `/nakamigos` opens on the Tradermigos splash, a full-viewport gate with no
- * `main` behind it until dismissed. Splash persistence is per-mount by product
- * decision (no sessionStorage flag — see nakamigos/App.jsx), so there is
- * nothing to pre-seed and the gate has to be driven the way a user drives it.
+ * `/nakamigos` as a first visit: the splash plays, leaves by itself within 3.2 s,
+ * and the landing's `main` follows. Never tap it: a tap only skips ahead, and on a
+ * WebKit worker drawing few frames a click's "stable" check outlasts the splash,
+ * then waits on a button that is gone (e2e/nakamigos-splash.spec.ts).
  */
 export async function gotoNakamigos(page: Page): Promise<void> {
   await page.goto('/nakamigos');
-  // The splash root is itself the control (role="button", tabIndex 0,
-  // self-focusing). Click it rather than pressing Enter: the "OR PRESS ENTER
-  // TO SKIP" affordance is desktop-only (`!isMobile` in SplashScreen.jsx), so
-  // a keypress path passes on chromium and times out on iPhone and iPad.
-  const splash = page.getByRole('button', { name: /tradermigos/i }).first();
-  await splash.waitFor({ timeout: SPLASH_MOUNT_TIMEOUT });
-  await splash.click();
   await page.locator('main').first().waitFor({ state: 'attached', timeout: SPLASH_MOUNT_TIMEOUT });
   await page.locator('main').first().getByRole('heading', { level: 1 }).waitFor({ timeout: SPLASH_MOUNT_TIMEOUT });
 }
@@ -316,20 +311,38 @@ export const ROUTES: readonly RouteSpec[] = [
     }),
   ),
   {
-    path: '/farm',
+    // 2026-09-30: Earn's landing tab moved from /farm to /earn, and it is ALWAYS
+    // the list of every pool, whatever room is stored (the walletMock stores
+    // toweli, and this still renders the list). One pool is /earn/:poolId.
+    path: '/earn',
     voice: 'venue',
     owner: 'pages/FarmPage.tsx',
-    // 2026-09-05: /farm is the Earn section's landing tab now, so it renders
-    // through EarnPage with a strip above it. FarmPage is still the page in the
-    // panel, which is why `owner` does not move.
-    tabOf: 'EarnPage · farm',
+    tabOf: 'EarnPage · earn',
+    gate: null,
+    knownViolations: [],
+  },
+  {
+    // One pool, its room entered on arrival. Audited at /earn/toweli, the
+    // TOWELI farm, which inherits /farm's two measurements: the disconnected
+    // surface is a wallet gate with no top-level heading (its h1 exists only
+    // in the connected branch), and connecting brings the stake form's label
+    // finding. Both lists are kept because a fix must satisfy both.
+    path: '/earn/:poolId',
+    voice: 'toweli',
+    owner: 'pages/FarmPage.tsx',
+    tabOf: 'EarnPage · earn',
     gate: null,
     knownViolations: ['page-has-heading-one'],
-    // Connecting REMOVES the missing-h1 finding: the disconnected surface is a
-    // wallet gate with no top-level heading, and the page's own h1 only exists
-    // in the connected branch. Both lists are kept because a fix must satisfy
-    // both, and a reader comparing them can see the split.
     connectedViolations: ['form-field-label'],
+  },
+  {
+    path: '/farm',
+    voice: null,
+    owner: 'App.tsx',
+    gate: 'redirect',
+    why: "Earn's address until 2026-09-30. An old link keeps its meaning: the stored room's pool (the walletMock stores toweli), or the list with no room.",
+    redirectsTo: '/earn/toweli',
+    knownViolations: [],
   },
   {
     path: '/swap',
@@ -392,13 +405,39 @@ export const ROUTES: readonly RouteSpec[] = [
     tabOf: 'PoolsHostPage · pools',
     gate: null,
     why:
-      'The venue AMM is not deployed (its program id was closed 2026-08-13), so this audits the ' +
-      'live-probe status card and the proposed fee sheet — which is what the page actually shows until ' +
-      'create_amm_config runs, not a placeholder.',
+      'A build without VITE_SOLANA_CPSWAP_PROGRAM has no program to read, so this audits the ' +
+      'live-probe status card and the "Fees · not read" sheet, which is what the page actually shows ' +
+      'until its chain read returns a config, not a placeholder.',
+    knownViolations: [],
+  },
+  {
+    path: '/solana-lp',
+    voice: 'venue',
+    owner: 'pages/SolanaLpPage.tsx',
+    tabOf: 'PoolsHostPage · solana-lp',
+    gate: null,
+    why:
+      'The LP section mounts only once the venue read returns live, which in this suite depends on the ' +
+      'preview proxy reaching Solana; with no answer it audits the hero, the status card and the program card alone.',
+    knownViolations: [],
+  },
+  {
+    path: '/range-pools',
+    voice: null,
+    owner: 'pages/RangePoolsPage.tsx',
+    tabOf: 'PoolsHostPage · range-pools',
+    gate: 'not-yet-routed',
+    why:
+      'The Range tab is routed only while rangePoolsVisible() (lib/solana/clmm/programId.ts): never until ' +
+      'the owner opens range pools (RANGE_POOLS_OPEN), except in a `--mode range-preview` build. The suite runs ' +
+      'the production build, where the path is the not-found page; the sweep asserts that instead.',
     knownViolations: [],
   },
   { path: '/curve-launch', voice: 'venue', owner: 'pages/CurveLaunchPage.tsx',
     tabOf: 'LaunchHubPage · curve-launch', gate: null, knownViolations: [] },
+  // One launch on the Solana curve. With writes off (every build but the owner's flip and
+  // the local-validator e2e) it renders its h1 and the "not switched on here yet" card.
+  { path: '/curve-launch/:mint', voice: 'venue', owner: 'pages/CurveLaunchDetailPage.tsx', gate: null, knownViolations: [] },
   { path: '/eth-curve', voice: 'venue', owner: 'pages/EthCurvePage.tsx',
     tabOf: 'LaunchHubPage · eth-curve', gate: null, knownViolations: [] },
   { path: '/eth-curve/:token', voice: 'venue', owner: 'pages/CurveTokenPage.tsx', gate: null, knownViolations: [] },
@@ -512,25 +551,11 @@ export const ROUTES: readonly RouteSpec[] = [
   },
   {
     path: '/competitions',
-    voice: 'venue',
-    owner: 'pages/CompetitionsPage.tsx',
-    tabOf: 'EarnPage · competitions',
-    gate: null,
-    why:
-      'Two halves with two different answers. The Island Cup reads api.geckoterminal.com live and keyless ' +
-      'and nothing stubs it, so it renders either the ranked board or its coverage notice depending on what ' +
-      'the feed answers at run time; both states carry the same landmarks (one h1, a captioned table with ' +
-      'scoped headers, a labelled select and input, named buttons) and both are pinned deterministically by ' +
-      'src/components/competitions/CupBoard.test.tsx. Season 1 is the router season and is always unread ' +
-      'here — it is scored from an indexer this build does not configure — so its notice renders and its ' +
-      'standings table does not. The season picker and the scoring rules render from lib/competitions and ' +
-      'are fully audited either way. ' +
-      BOTH_BRANCHES_MEASURED +
-      'Here the ready DOM is a 77-row Cup board of ~9.3k chars and the degraded one has no table at all ' +
-      '(~3.4k). This route also happens to be the one that proves the concern was worth measuring rather ' +
-      'than assuming: a live unstubbed read of its 13 pools rate-limits part-way through on a real run ' +
-      '(5 answered, 8 refused), so a THIRD, partial DOM is reachable in CI — 227 rows on the pass that ' +
-      'was measured. It violates nothing either.',
+    voice: null,
+    owner: 'App.tsx',
+    gate: 'redirect',
+    why: 'The trading competitions were deleted 2026-10-15 (island item 4: no seasons); an old link lands on Earn.',
+    redirectsTo: '/earn',
     knownViolations: [],
   },
   {
@@ -605,10 +630,11 @@ export const ROUTES: readonly RouteSpec[] = [
   },
   {
     path: '/leaderboard',
-    voice: 'venue',
-    owner: 'pages/ActivityPage.tsx',
-    tabOf: 'ActivityPage · points',
-    gate: null,
+    voice: null,
+    owner: 'App.tsx',
+    gate: 'redirect',
+    why: 'The points program (Venue Score) was deleted 2026-10-15 (island item 4); an old link lands on History.',
+    redirectsTo: '/history',
     knownViolations: [],
   },
   { path: '/community', voice: 'venue', owner: 'pages/CommunityPage.tsx', gate: null, knownViolations: ['aria-valid-attr-value'] },
@@ -658,8 +684,8 @@ export const ROUTES: readonly RouteSpec[] = [
     voice: null,
     owner: 'App.tsx',
     gate: 'redirect',
-    why: 'RestakePage was merged into FarmPage.',
-    redirectsTo: '/farm',
+    why: 'RestakePage was merged into the TOWELI farm, now at /earn/toweli.',
+    redirectsTo: '/earn/toweli',
     knownViolations: [],
   },
   {
@@ -688,8 +714,9 @@ export const ROUTES: readonly RouteSpec[] = [
     voice: 'venue',
     owner: 'pages/LendingPage.tsx',
     gate: null,
-    knownViolations: ['aria-valid-attr-value', 'form-field-label', 'heading-order'],
-    connectedViolations: ['aria-valid-attr-value', 'form-field-label', 'heading-order'],
+    // heading-order left with the fewer-words pass (2026-10-14): no heading skips a level now.
+    knownViolations: ['aria-valid-attr-value', 'form-field-label'],
+    connectedViolations: ['aria-valid-attr-value', 'form-field-label'],
   },
   {
     path: '/lending',
@@ -822,17 +849,11 @@ export const ROUTES: readonly RouteSpec[] = [
   },
   {
     path: '/referrals',
-    voice: 'toweli',
-    owner: 'pages/ReferralsPage.tsx',
-    tabOf: 'EarnPage · referrals',
-    gate: null,
-    why:
-      'Audited with no wallet, which is the disconnected branch: the earning requirement is stated in full ' +
-      '(it is deliberately unconditional — a visitor deciding whether to join is exactly who the staking ' +
-      'threshold surprises), and the link, balance and attribution cards each say they have no wallet to ' +
-      'read rather than rendering an empty figure. The verdict states (qualified / below-threshold / ' +
-      'unknown), the claim states and the code-store states need a connected wallet and a server answer ' +
-      'this sweep cannot produce; they are covered by unit tests instead.',
+    voice: null,
+    owner: 'App.tsx',
+    gate: 'redirect',
+    why: 'Referrals left the Earn tabs on 2026-10-14 (owner); the claim and share box stays on the TOWELI room dashboard.',
+    redirectsTo: '/earn',
     knownViolations: [],
   },
   {
@@ -990,6 +1011,8 @@ export const CONNECTED_AUDIT_ROUTES = ROUTES.filter((r) => r.connectedViolations
 export function navigablePath(route: RouteSpec): string {
   if (route.path === '/*') return '/this-path-matches-no-route-a11y-sweep';
   if (route.path === '/launch/:token') return '/launch/0x0000000000000000000000000000000000000000';
+  // TOWELI's pool: the classic farm, and the pool whose measurements /farm carried.
+  if (route.path === '/earn/:poolId') return '/earn/toweli';
   // Any registry id works; in the built app this leg redirects to / anyway.
   if (route.path === '/bungalow-studio/:bungalowId') return '/bungalow-studio/bayla';
   // Zero address: every launcher probe fails -> the page's honest not-found
@@ -998,5 +1021,7 @@ export function navigablePath(route: RouteSpec): string {
   // Any well-formed address works: this leg only redirects to /?heat=<address>,
   // and the instrument's own invalid-address state is covered by HeatCard's suite.
   if (route.path === '/read/:address') return '/read/0x0000000000000000000000000000000000000000';
+  // Any well-formed base58 key: with writes off the page never reads the chain for it.
+  if (route.path === '/curve-launch/:mint') return '/curve-launch/So11111111111111111111111111111111111111112';
   return route.path;
 }

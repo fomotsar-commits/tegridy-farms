@@ -1,15 +1,22 @@
-import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { m, AnimatePresence } from 'framer-motion';
-import { useReadContract, useWriteContract, useWaitForTransactionReceipt, useChainId } from 'wagmi';
-import { parseEther } from 'viem';
+import { useReadContract, useWriteContract, useWaitForTransactionReceipt, useChainId, usePublicClient } from 'wagmi';
+import { formatEther, parseEther } from 'viem';
 import { toast } from 'sonner';
 import { TEGRIDY_DROP_V2_ABI } from '../../lib/contracts';
 import { CHAIN_ID } from '../../lib/constants';
 import { safeParseEther } from '../../lib/safeParseEther';
 import { pageArt } from '../../lib/artConfig';
+import {
+  DROP_TIMELOCK_KEYS, cloneImplementation, isPricingModeSwitch, proposalState, rulesFromCode,
+  type DropRules, type ProposalState,
+} from '../../lib/dropRules';
 import { INPUT, LABEL, BTN_EMERALD, PHASE_LABELS } from './launchpadConstants';
 import { ArtCard } from './launchpadShared';
 import { TypedConfirmation } from '../ui/TypedConfirmation';
+import { FinePrint } from '../ui/FinePrint';
+import { useReceiptOutcome } from '../../hooks/useReceiptOutcome';
+import { noteReplacement } from '../../lib/txErrors';
 
 /** Whole non-negative integer, as typed. `type=number` still admits "1.5" and "1e3". */
 function safeWholeBigInt(value: string): bigint | null {
@@ -37,15 +44,25 @@ function localInputToUnix(value: string): string {
   return Number.isFinite(ms) ? String(Math.floor(ms / 1000)) : '';
 }
 
-/// OwnerAdminPanelV2 — richer admin surface for TegridyDropV2 clones.
-/// Extends the legacy panel with V2-only controls:
-///   - setContractURI (ERC-7572 collection metadata update)
-///   - configureDutchAuction full builder (legacy panel only toggles phase)
-///   - pause / unpause
-///   - 2-step ownership transfer
-/// The legacy V1 panel still covers mintPhase / merkleRoot / reveal / withdraw
-/// / cancelSale — don't duplicate those here. Choose the panel based on
-/// whether the drop was deployed via v1 or v2 factory.
+/** Unix seconds, re-read every 15 s so a waiting proposal turns ready on screen. */
+function useNowSeconds(): number {
+  const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
+  useEffect(() => {
+    const id = setInterval(() => setNow(Math.floor(Date.now() / 1000)), 15_000);
+    return () => clearInterval(id);
+  }, []);
+  return now;
+}
+
+function localTime(unix: bigint): string {
+  return new Date(Number(unix) * 1000).toLocaleString();
+}
+
+/// OwnerAdminPanelV2: the owner's controls for a TegridyDropV2 clone.
+/// Price, allowlist root and auction changes are propose / execute / cancel
+/// with a 24h wait on every template; the one-step setters revert. Which
+/// template the clone runs (lib/dropRules.ts) decides only how a sale may
+/// switch between a fixed price and an auction.
 export function OwnerAdminPanelV2({ dropAddress, deployed }: {
   dropAddress: string;
   deployed: boolean;
@@ -70,12 +87,19 @@ export function OwnerAdminPanelV2({ dropAddress, deployed }: {
   const [dutchDuration, setDutchDuration] = useState('');
 
   const { writeContract, data: txHash, isPending } = useWriteContract();
-  const { data: receipt, isLoading: isConfirming, isSuccess: isReceiptFetched } = useWaitForTransactionReceipt({ hash: txHash });
+  const receiptQuery = useWaitForTransactionReceipt({ hash: txHash, onReplaced: noteReplacement });
+  const { isLoading: isConfirming } = receiptQuery;
   // AUDIT (receipt-status, 2026-08-24): wagmi's isSuccess only means the receipt
-  // was FETCHED — it latches true for on-chain REVERTED txs too. Gate on
-  // receipt.status so a reverted admin write can't read as applied.
-  const isReverted = isReceiptFetched && !!receipt && receipt.status !== 'success';
-  const isSuccess = isReceiptFetched && !isReverted;
+  // was FETCHED; a reverted admin write must not read as applied.
+  //
+  // 2026-09-17: and a revert never reached isSuccess anyway — wagmi THROWS on a
+  // reverted receipt, so the revert toast below was dead and the submit-time
+  // "<fn> succeeded" stood uncorrected. useReceiptOutcome reads the thrown revert.
+  const { isSuccess, isReverted } = useReceiptOutcome(receiptQuery, {
+    hash: txHash,
+    chainId: CHAIN_ID,
+    repeatCost: 'sending it again applies the change a second time, or reverts if it can only happen once.',
+  });
   const busy = isPending || isConfirming || !deployed;
 
   const { data: onchainPhase, refetch: refetchPhase } = useReadContract({
@@ -112,6 +136,66 @@ export function OwnerAdminPanelV2({ dropAddress, deployed }: {
     query: { enabled: deployed },
   });
 
+  // Which template this clone runs, from its code: the clone's own code names the
+  // template, and the template's dispatcher has `fixedPriceNeedsProposal` or not.
+  // null = still reading; 'unread' = a read failed, and nothing is assumed.
+  const publicClient = usePublicClient({ chainId: CHAIN_ID });
+  const [rules, setRules] = useState<DropRules | 'unread' | null>(null);
+  useEffect(() => {
+    if (!deployed || !publicClient) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const code = await publicClient.getCode({ address: contractAddr });
+        if (!code || code === '0x') throw new Error('no code at the drop');
+        const template = cloneImplementation(code);
+        const logic = template ? await publicClient.getCode({ address: template }) : code;
+        if (!logic || logic === '0x') throw new Error('no code at the template');
+        if (!cancelled) setRules(rulesFromCode(logic));
+      } catch {
+        if (!cancelled) setRules('unread');
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [deployed, publicClient, contractAddr]);
+
+  const { data: needsNewPriceData, isError: needsNewPriceUnread, refetch: refetchNeedsNewPrice } = useReadContract({
+    address: contractAddr, abi: TEGRIDY_DROP_V2_ABI, functionName: 'fixedPriceNeedsProposal',
+    chainId: CHAIN_ID,
+    query: { enabled: deployed && rules === 'needs-new-price', refetchInterval: 30_000 },
+  });
+  const needsNewPrice = typeof needsNewPriceData === 'boolean' ? needsNewPriceData : undefined;
+
+  // The three timelocked changes: what is proposed, and when it can be carried out.
+  const etaQuery = (key: `0x${string}`) => ({
+    address: contractAddr, abi: TEGRIDY_DROP_V2_ABI, functionName: 'proposalExecuteAfter' as const, args: [key] as const,
+    chainId: CHAIN_ID, query: { enabled: deployed, refetchInterval: 30_000 },
+  });
+  const { data: priceEta, isError: priceEtaUnread, refetch: refetchPriceEta } = useReadContract(etaQuery(DROP_TIMELOCK_KEYS.mintPrice));
+  const { data: dutchEta, isError: dutchEtaUnread, refetch: refetchDutchEta } = useReadContract(etaQuery(DROP_TIMELOCK_KEYS.dutchAuction));
+  const { data: rootEta, isError: rootEtaUnread, refetch: refetchRootEta } = useReadContract(etaQuery(DROP_TIMELOCK_KEYS.merkleRoot));
+  const { data: pendingPrice, refetch: refetchPendingPrice } = useReadContract({
+    address: contractAddr, abi: TEGRIDY_DROP_V2_ABI, functionName: 'pendingMintPrice',
+    chainId: CHAIN_ID, query: { enabled: deployed },
+  });
+  const { data: pendingDutch, refetch: refetchPendingDutch } = useReadContract({
+    address: contractAddr, abi: TEGRIDY_DROP_V2_ABI, functionName: 'pendingDutchConfig',
+    chainId: CHAIN_ID, query: { enabled: deployed },
+  });
+  const { data: pendingRoot, refetch: refetchPendingRoot } = useReadContract({
+    address: contractAddr, abi: TEGRIDY_DROP_V2_ABI, functionName: 'pendingMerkleRoot',
+    chainId: CHAIN_ID, query: { enabled: deployed },
+  });
+  const now = useNowSeconds();
+  // null = still reading; 'unread' = the read failed and nothing is assumed.
+  const stateOf = (eta: unknown, unread: boolean): ProposalState | 'unread' | null =>
+    typeof eta === 'bigint' ? proposalState(eta, now) : unread ? 'unread' : null;
+  const priceState = stateOf(priceEta, priceEtaUnread);
+  const dutchState = stateOf(dutchEta, dutchEtaUnread);
+  const rootState = stateOf(rootEta, rootEtaUnread);
+  const waiting = (s: ProposalState | 'unread' | null) => s === 'waiting' || s === 'ready' || s === 'expired';
+  const anyPending = [priceState, dutchState, rootState].some(waiting);
+
   const currentPhaseNum = onchainPhase !== undefined ? Number(onchainPhase) : -1;
   const isCancelled = currentPhaseNum === 4;
   // AUDIT NEW-L1: withdraw only allowed when the sale is formally ended.
@@ -122,6 +206,20 @@ export function OwnerAdminPanelV2({ dropAddress, deployed }: {
   const canWithdraw = !isCancelled && (isClosed || soldOut);
   const selectedPhase =
     phase ?? (currentPhaseNum >= 0 && currentPhaseNum <= 3 ? String(currentPhaseNum) : '0');
+  const selectedPhaseNum = Number(selectedPhase);
+  // Why "Set Phase" is held, in the contract's own order: a waiting change
+  // freezes the phase (MerkleRotationPending); after an auction a fixed-price
+  // sale needs a new price (FixedPriceNeedsProposal); and this panel never
+  // switches a live sale straight between a fixed price and an auction, on
+  // either template, so a buyer's waiting mint fails rather than pays the other price.
+  const phaseHold: string | null =
+    selectedPhaseNum === currentPhaseNum || currentPhaseNum < 0 ? null
+      : anyPending ? 'A change is waiting. Carry it out or cancel it first.'
+        : isPricingModeSwitch(currentPhaseNum, selectedPhaseNum) ? 'Close the sale first.'
+          : rules === 'needs-new-price' && needsNewPrice === true && (selectedPhaseNum === 1 || selectedPhaseNum === 2)
+            ? 'Propose a new price first.'
+            : null;
+  const isPausedNow = isPaused === true;
 
   // F250: refetch in an effect, not the render body — `isSuccess` stays true
   // until the next tx, so a render-body refetch resolved → re-render → refetched
@@ -131,19 +229,36 @@ export function OwnerAdminPanelV2({ dropAddress, deployed }: {
       void refetchPhase();
       void refetchContractURI();
       void refetchPaused();
+      void refetchNeedsNewPrice();
+      void refetchPriceEta(); void refetchDutchEta(); void refetchRootEta();
+      void refetchPendingPrice(); void refetchPendingDutch(); void refetchPendingRoot();
     }
-  }, [isSuccess, refetchPhase, refetchContractURI, refetchPaused]);
+  }, [isSuccess, refetchPhase, refetchContractURI, refetchPaused, refetchNeedsNewPrice,
+    refetchPriceEta, refetchDutchEta, refetchRootEta, refetchPendingPrice, refetchPendingDutch, refetchPendingRoot]);
 
-  // Surface on-chain reverts: the submission toast in `exec` fires on submit
-  // ("<fn> succeeded"), so without this a reverted tx would read as applied.
+  // writeContract's onSuccess = SUBMITTED (hash in hand), not confirmed. `exec`
+  // records what each hash was for; "<fn> succeeded" and the field reset wait
+  // for that hash's receipt. Taking the record makes it once per hash, and the
+  // deps leave out the refetch fns so a re-render can't repeat it.
+  const submittedRef = useRef<{ hash: `0x${string}`; fn: string; onConfirmed?: () => void } | null>(null);
+  useEffect(() => {
+    const submitted = submittedRef.current;
+    if (!isSuccess || !submitted || submitted.hash !== txHash) return;
+    submittedRef.current = null;
+    toast.success(`${submitted.fn} succeeded`);
+    submitted.onConfirmed?.();
+  }, [isSuccess, txHash]);
+
+  // Surface on-chain reverts: without this a reverted tx would sit on its
+  // "submitted" toast with no word that nothing was applied.
   useEffect(() => {
     if (isReverted) {
-      toast.error('Transaction reverted on-chain — no admin change was applied.');
+      toast.error('Transaction reverted on-chain. No admin change was applied.');
     }
   }, [isReverted]);
 
   // R071 M-072-05: client-side Dutch-auction invariants mirror the Solidity
-  // guards (TegridyDropV2.configureDutchAuction). Surfacing them inline lets
+  // guards (TegridyDropV2.proposeDutchAuction). Surfacing them inline lets
   // the operator fix the issue before signing — beats waiting for a revert.
   //   1. startTime > 0
   //   2. duration > 0
@@ -179,7 +294,7 @@ export function OwnerAdminPanelV2({ dropAddress, deployed }: {
 
   const chainId = useChainId();
 
-  const exec = useCallback((fn: string, args?: unknown[], opts?: { onSuccess?: () => void }) => {
+  const exec = useCallback((fn: string, args?: unknown[], opts?: { onConfirmed?: () => void }) => {
     // AUDIT FIX M-8: refuse on wrong chain so admin actions aren't sent to a
     // phantom address on Sepolia/Base/Arbitrum.
     if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
@@ -191,7 +306,10 @@ export function OwnerAdminPanelV2({ dropAddress, deployed }: {
     writeContract(
       { chainId: CHAIN_ID, address: contractAddr, abi: TEGRIDY_DROP_V2_ABI, functionName: fn, args: args as never[] } as unknown as WriteArg,
       {
-        onSuccess: () => { toast.success(`${fn} succeeded`); opts?.onSuccess?.(); },
+        onSuccess: (hash) => {
+          submittedRef.current = { hash, fn, onConfirmed: opts?.onConfirmed };
+          toast.info(`${fn} submitted. Confirming on-chain…`);
+        },
         onError: (e) => toast.error(e.message.slice(0, 80)),
       },
     );
@@ -232,9 +350,28 @@ export function OwnerAdminPanelV2({ dropAddress, deployed }: {
             <div className="space-y-5 pt-4">
               {!deployed && (
                 <p className="text-amber-400/70 text-xs text-center py-2 rounded-lg bg-amber-500/5 border border-amber-500/10">
-                  Contract Not Deployed — Admin actions disabled
+                  Contract not deployed, so admin actions are off.
                 </p>
               )}
+
+              <div>
+                <p className="text-[12px] text-white/80">
+                  Price, allowlist and auction changes can be carried out 24 hours after you propose them.
+                </p>
+                <FinePrint summary="How changes work" testId="owner-rules">
+                  <p>Propose while the sale is Closed (an allowlist can also change while paused or cancelled). Carry the change out after 24 hours and within 7 days, or cancel it. While a change waits, the phase cannot change.</p>
+                  <p>This panel never switches a live sale straight between a fixed price and an auction. Close it first, so a buyer&apos;s waiting mint fails instead of paying the other price.</p>
+                  {rules === 'needs-new-price' && (
+                    <p data-testid="owner-rules-template">This collection runs on the template with the 2026-10-14 fixes. Opening an auction sets the fixed price to 0. After that, an allowlist or public sale cannot open until a new price, even 0, has been proposed and carried out.</p>
+                  )}
+                  {rules === 'instant-switch' && (
+                    <p data-testid="owner-rules-template">This collection runs on the template deployed before the 2026-10-14 fixes. On it the phase can switch between a fixed price and an auction in one step, and the fixed price is kept. Only this panel holds that switch back.</p>
+                  )}
+                  {rules === 'unread' && (
+                    <p data-testid="owner-rules-template">Which template this collection runs on could not be read.</p>
+                  )}
+                </FinePrint>
+              </div>
 
               {/* Phase — R071 H-072-01: only 0..3 are settable via setMintPhase.
                   CANCELLED (4) is reachable only via cancelSale() in the Danger
@@ -266,11 +403,25 @@ export function OwnerAdminPanelV2({ dropAddress, deployed }: {
                 <p className="text-[10px] text-white/60 mt-2">
                   {currentPhaseNum >= 0
                     ? `Contract is currently in ${PHASE_LABELS[currentPhaseNum] ?? 'an unknown phase'}.`
-                    : 'Current phase not read yet — the selection below is not confirmed against the contract.'}
+                    : 'Current phase not read yet, so the selection below is not confirmed against the contract.'}
                 </p>
+                {rules === 'needs-new-price' && (
+                  <p className="text-[10px] text-white/60 mt-1" data-testid="needs-new-price">
+                    {needsNewPrice === true
+                      ? 'A fixed-price sale needs a new price first.'
+                      : needsNewPrice === false
+                        ? 'No new price needed for a fixed-price sale.'
+                        : needsNewPriceUnread
+                          ? 'Whether a fixed-price sale needs a new price could not be read.'
+                          : 'Checking whether a new price is needed.'}
+                  </p>
+                )}
+                {phaseHold && (
+                  <p role="status" className="text-[11px] text-amber-300 mt-1">{phaseHold}</p>
+                )}
                 <ExecButton
                   busy={busy}
-                  disabled={isCancelled || currentPhaseNum < 0 || selectedPhase === String(currentPhaseNum)}
+                  disabled={isCancelled || currentPhaseNum < 0 || selectedPhase === String(currentPhaseNum) || phaseHold !== null}
                   onClick={() => exec('setMintPhase', [Number(selectedPhase)])}
                 >
                   {selectedPhase === String(currentPhaseNum)
@@ -288,7 +439,7 @@ export function OwnerAdminPanelV2({ dropAddress, deployed }: {
                   className={`${INPUT} font-mono text-xs`}
                 />
                 <ExecButton busy={busy} disabled={isCancelled || !contractURI}
-                  onClick={() => exec('setContractURI', [contractURI], { onSuccess: () => setContractURI('') })}>
+                  onClick={() => exec('setContractURI', [contractURI], { onConfirmed: () => setContractURI('') })}>
                   Update contractURI
                 </ExecButton>
               </AdminSection>
@@ -302,7 +453,7 @@ export function OwnerAdminPanelV2({ dropAddress, deployed }: {
                   className={`${INPUT} font-mono text-xs`}
                 />
                 <ExecButton busy={busy} disabled={isCancelled || !baseURI}
-                  onClick={() => exec('setBaseURI', [baseURI], { onSuccess: () => setBaseURI('') })}>
+                  onClick={() => exec('setBaseURI', [baseURI], { onConfirmed: () => setBaseURI('') })}>
                   Set Placeholder
                 </ExecButton>
               </AdminSection>
@@ -316,12 +467,13 @@ export function OwnerAdminPanelV2({ dropAddress, deployed }: {
                   className={`${INPUT} font-mono text-xs`}
                 />
                 <ExecButton busy={busy} disabled={isCancelled || !revealURI}
-                  onClick={() => exec('reveal', [revealURI], { onSuccess: () => setRevealURI('') })}>
+                  onClick={() => exec('reveal', [revealURI], { onConfirmed: () => setRevealURI('') })}>
                   Reveal
                 </ExecButton>
               </AdminSection>
 
-              {/* Merkle Root */}
+              {/* Merkle Root: proposeMerkleRoot, then executeMerkleRoot 24h later.
+                  The contract takes a proposal only while CLOSED, CANCELLED or paused. */}
               <AdminSection label="Merkle Root (allowlist)">
                 <input
                   value={merkleRoot}
@@ -329,10 +481,23 @@ export function OwnerAdminPanelV2({ dropAddress, deployed }: {
                   placeholder="0x…"
                   className={`${INPUT} font-mono text-xs`}
                 />
-                <ExecButton busy={busy} disabled={isCancelled || !/^0x[0-9a-fA-F]{64}$/.test(merkleRoot)}
-                  onClick={() => exec('setMerkleRoot', [merkleRoot as `0x${string}`], { onSuccess: () => setMerkleRoot('') })}>
-                  Set Merkle Root
+                <ExecButton busy={busy}
+                  disabled={!/^0x[0-9a-fA-F]{64}$/.test(merkleRoot) || !(isClosed || isCancelled || isPausedNow) || waiting(rootState)}
+                  onClick={() => exec('proposeMerkleRoot', [merkleRoot as `0x${string}`], { onConfirmed: () => setMerkleRoot('') })}>
+                  Propose Root
                 </ExecButton>
+                <PendingChange
+                  state={rootState}
+                  eta={rootEta}
+                  what={typeof pendingRoot === 'string' ? `Root ${truncate(pendingRoot, 14)}` : 'Root'}
+                  busy={busy}
+                  executeBlocked={isPausedNow ? 'Unpause to carry it out.' : !(isClosed || isCancelled) ? 'Close the sale to carry it out.' : null}
+                  onExecute={() => {
+                    if (typeof pendingRoot !== 'string' || typeof rootEta !== 'bigint') return;
+                    exec('executeMerkleRoot', [pendingRoot, rootEta]);
+                  }}
+                  onCancel={() => exec('cancelMerkleRoot')}
+                />
               </AdminSection>
 
               {/* Mint price / wallet cap */}
@@ -347,13 +512,32 @@ export function OwnerAdminPanelV2({ dropAddress, deployed }: {
                   />
                   {mintPrice !== '' && mintPriceWei === null && (
                     <p role="alert" className="mt-1 text-[11px] text-red-400">
-                      Enter a plain decimal amount — no exponent notation, at most 18 decimals.
+                      Enter a plain decimal amount: no exponent notation, at most 18 decimals.
                     </p>
                   )}
-                  <ExecButton busy={busy} disabled={isCancelled || mintPriceWei === null}
-                    onClick={() => exec('setMintPrice', [mintPriceWei], { onSuccess: () => setMintPrice('') })}>
-                    Set Price
+                  {/* proposeMintPrice takes a proposal only while CLOSED, and
+                      executeMintPrice lands it 24h later (and clears
+                      fixedPriceNeedsProposal on the fixed template). */}
+                  <ExecButton busy={busy}
+                    disabled={isCancelled || mintPriceWei === null || !isClosed || waiting(priceState)}
+                    onClick={() => exec('proposeMintPrice', [mintPriceWei], { onConfirmed: () => setMintPrice('') })}>
+                    Propose Price
                   </ExecButton>
+                  {!isClosed && currentPhaseNum >= 0 && !isCancelled && (
+                    <p className="text-[10px] text-white/60 mt-1">Close the sale to propose a price.</p>
+                  )}
+                  <PendingChange
+                    state={priceState}
+                    eta={priceEta}
+                    what={typeof pendingPrice === 'bigint' ? `${formatEther(pendingPrice)} ETH` : 'Price'}
+                    busy={busy}
+                    executeBlocked={isPausedNow ? 'Unpause to carry it out.' : null}
+                    onExecute={() => {
+                      if (typeof pendingPrice !== 'bigint' || typeof priceEta !== 'bigint') return;
+                      exec('executeMintPrice', [pendingPrice, priceEta]);
+                    }}
+                    onCancel={() => exec('cancelMintPrice')}
+                  />
                 </AdminSection>
                 <AdminSection label="Max / Wallet">
                   <input
@@ -368,8 +552,8 @@ export function OwnerAdminPanelV2({ dropAddress, deployed }: {
                       Enter a whole number of tokens.
                     </p>
                   )}
-                  <ExecButton busy={busy} disabled={isCancelled || maxPerWalletBig === null}
-                    onClick={() => exec('setMaxPerWallet', [maxPerWalletBig], { onSuccess: () => setMaxPerWallet('') })}>
+                  <ExecButton busy={busy} disabled={isCancelled || maxPerWalletBig === null || !isClosed}
+                    onClick={() => exec('setMaxPerWallet', [maxPerWalletBig], { onConfirmed: () => setMaxPerWallet('') })}>
                     Set Cap
                   </ExecButton>
                 </AdminSection>
@@ -428,7 +612,7 @@ export function OwnerAdminPanelV2({ dropAddress, deployed }: {
                   </p>
                 )}
                 <ExecButton busy={busy}
-                  disabled={isCancelled || !dutchStartPrice || !dutchEndPrice || !dutchStartTime || !dutchDuration || dutchValidationError !== null}
+                  disabled={isCancelled || !isClosed || waiting(dutchState) || !dutchStartPrice || !dutchEndPrice || !dutchStartTime || !dutchDuration || dutchValidationError !== null}
                   onClick={() => {
                     // R071: re-check at click in case the memo lags one tick
                     // behind a typed-then-rage-click race.
@@ -437,10 +621,29 @@ export function OwnerAdminPanelV2({ dropAddress, deployed }: {
                     try { startWei = parseEther(dutchStartPrice); endWei = parseEther(dutchEndPrice); } catch { return; }
                     let startUnix: bigint, durationSec: bigint;
                     try { startUnix = BigInt(dutchStartTime); durationSec = BigInt(dutchDuration); } catch { return; }
-                    exec('configureDutchAuction', [startWei, endWei, startUnix, durationSec]);
+                    exec('proposeDutchAuction', [startWei, endWei, startUnix, durationSec]);
                   }}>
-                  Configure Dutch Auction
+                  Propose Auction
                 </ExecButton>
+                {!isClosed && currentPhaseNum >= 0 && !isCancelled && (
+                  <p className="text-[10px] text-white/60 mt-1">Close the sale to propose an auction.</p>
+                )}
+                <PendingChange
+                  state={dutchState}
+                  eta={dutchEta}
+                  what={Array.isArray(pendingDutch) && pendingDutch.length === 4
+                    ? `${formatEther(pendingDutch[0] as bigint)} to ${formatEther(pendingDutch[1] as bigint)} ETH from ${localTime(pendingDutch[2] as bigint)}, ${String(pendingDutch[3])} s`
+                    : 'Auction'}
+                  busy={busy}
+                  executeBlocked={isPausedNow ? 'Unpause to carry it out.' : null}
+                  onExecute={() => {
+                    if (!Array.isArray(pendingDutch) || pendingDutch.length !== 4 || typeof dutchEta !== 'bigint') return;
+                    const [s, e, t, d] = pendingDutch as readonly bigint[];
+                    if (s === undefined || e === undefined || t === undefined || d === undefined) return;
+                    exec('executeDutchAuction', [s, e, t, d, dutchEta]);
+                  }}
+                  onCancel={() => exec('cancelDutchAuction')}
+                />
               </AdminSection>
 
               {/* Pause */}
@@ -464,7 +667,7 @@ export function OwnerAdminPanelV2({ dropAddress, deployed }: {
                   className={`${INPUT} font-mono text-xs`}
                 />
                 <ExecButton busy={busy} disabled={!/^0x[0-9a-fA-F]{40}$/.test(newOwner)}
-                  onClick={() => exec('transferOwnership', [newOwner as `0x${string}`], { onSuccess: () => setNewOwner('') })}>
+                  onClick={() => exec('transferOwnership', [newOwner as `0x${string}`], { onConfirmed: () => setNewOwner('') })}>
                   Initiate Transfer
                 </ExecButton>
                 <p className="text-[10px] text-white/60 mt-1">
@@ -483,7 +686,7 @@ export function OwnerAdminPanelV2({ dropAddress, deployed }: {
                   canWithdraw
                     ? 'Withdraw mint proceeds (creator + platform split)'
                     : soldOut
-                      ? 'Sold out — withdraw available'
+                      ? 'Sold out, so withdraw is available'
                       : 'Close the mint (phase → CLOSED) or wait until sold out before withdrawing.'
                 }
                 onClick={() => exec('withdraw')}
@@ -551,12 +754,49 @@ function ExecButton({
 }) {
   return (
     <button
-      className={`mt-2 w-full py-2 rounded-lg text-xs ${BTN_EMERALD} disabled:opacity-40`}
+      className={`mt-2 w-full min-h-[44px] py-2 rounded-lg text-xs ${BTN_EMERALD} disabled:opacity-40`}
       disabled={busy || disabled}
       onClick={onClick}
     >
       {busy ? 'Working…' : children}
     </button>
+  );
+}
+
+/**
+ * A proposed change and its two ways out. 'unread' is said as such; 'none' and
+ * null (still reading) render nothing.
+ */
+function PendingChange({ state, eta, what, busy, executeBlocked, onExecute, onCancel }: {
+  state: ProposalState | 'unread' | null;
+  eta: unknown;
+  what: string;
+  busy: boolean;
+  executeBlocked: string | null;
+  onExecute: () => void;
+  onCancel: () => void;
+}) {
+  if (state === 'none' || state === null) return null;
+  if (state === 'unread') {
+    return <p className="mt-2 text-[10px] text-white/60">Waiting change: could not be read.</p>;
+  }
+  const when = typeof eta === 'bigint' ? localTime(eta) : '';
+  const line = state === 'waiting' ? `${what}: proposed, ready ${when}.`
+    : state === 'ready' ? `${what}: ready to carry out.`
+      : `${what}: expired. Cancel it to propose again.`;
+  return (
+    <div className="mt-2 rounded-lg border border-white/15 p-2" data-testid="pending-change">
+      <p className="text-[11px] text-white/80">{line}</p>
+      {state === 'ready' && executeBlocked && <p className="text-[10px] text-amber-300 mt-1">{executeBlocked}</p>}
+      <div className="grid grid-cols-2 gap-2">
+        <ExecButton busy={busy} disabled={state !== 'ready' || executeBlocked !== null} onClick={onExecute}>
+          Carry Out
+        </ExecButton>
+        <ExecButton busy={busy} onClick={onCancel}>
+          Cancel
+        </ExecButton>
+      </div>
+    </div>
   );
 }
 

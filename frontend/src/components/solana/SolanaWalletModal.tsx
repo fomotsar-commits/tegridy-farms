@@ -17,8 +17,20 @@ import { Cuer } from 'cuer';
 import { WalletReadyState } from '@solana/wallet-adapter-base';
 import { useWallet, type Wallet } from '@solana/wallet-adapter-react';
 import { WalletModalContext, useWalletModal } from '@solana/wallet-adapter-react-ui';
-import { orderWallets, rowStatus, walletLabel } from '../../lib/solanaWalletOrder';
+import { toast } from 'sonner';
+import {
+  PHONE_WALLET_ROW,
+  opensInWalletApp,
+  orderWallets,
+  rowStatus,
+  scansForWallet,
+  waitedOnWalletLabel,
+  walletLabel,
+} from '../../lib/solanaWalletOrder';
 import { WalletConnectWalletAdapter, type WalletConnectPairing } from '../../lib/solanaWalletConnect';
+import { markSolanaHandoff, shortSolanaAddress } from '../../lib/solanaSurface';
+import { useWalletResync } from './useWalletResync';
+import { usePhoneWalletFailure, type PhoneWalletFailure } from './usePhoneWalletFailure';
 
 /**
  * The Solana connect modal — upstream's WalletModal (wallet-adapter-react-ui
@@ -80,9 +92,31 @@ import { WalletConnectWalletAdapter, type WalletConnectPairing } from '../../lib
  *     if the restore connects, and goes on to the QR if it finds nothing.
  *     Swapping between the list and the QR moves focus to the new view's
  *     title, because the button that had it — the row, or Back — is gone.
+ *  7. Trust's and Jupiter's rows, where that wallet is not in this browser
+ *     but the WalletConnect row exists (a computer or an iPad), show that
+ *     same QR, named for the wallet, with its extension as the second choice
+ *     — not the extension's install page. Both phone apps scan it
+ *     (solanaWalletOrder.ts SCANNABLE_WALLETS). The connection is the
+ *     WalletConnect row's: the same adapter, saved under the same name.
+ *  8. An "Open app" row (a phone browser) says where the connect went, and
+ *     the page it opens inside the wallet's app connects by itself
+ *     (lib/solanaSurface.ts markSolanaHandoff). Before, that page looked like
+ *     the start again and the same three presses had to be repeated.
+ *  9. A wallet detected in this browser is listed once: a row of ours under
+ *     the same label is dropped (solanaWalletOrder.ts orderWallets).
+ * 10. The row WalletProvider adds on Android Chrome is named in plain words,
+ *     and its failed connect brings this list back (usePhoneWalletFailure.ts).
  */
 
 const FADE_MS = 150;
+/** How long the page left behind by an "Open app" press says where the connect went. */
+const HANDOFF_NOTICE_MS = 20_000;
+
+/** The wallet a QR was opened for (change 7): its row label and its install page. */
+interface ScanFor {
+  readonly label: string;
+  readonly installUrl: string;
+}
 
 const IDLE_PAIRING: WalletConnectPairing = { phase: 'idle' };
 const noSubscription = () => () => {};
@@ -100,11 +134,14 @@ function useWalletConnectPairing(adapter: WalletConnectWalletAdapter | null): Wa
   );
 }
 
-function SolanaWalletModal() {
+function SolanaWalletModal({ phoneWallet }: { phoneWallet: PhoneWalletFailure }) {
+  // `asked` and `seen` never change, so hideModal keeps its identity: the
+  // focus and scroll-lock effect below is keyed on it.
+  const { failed: phoneWalletFailed, asked: phoneWalletAsked, seen: phoneWalletSeen } = phoneWallet;
   const ref = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const titleId = useId();
-  const { wallets, wallet: selected, select, connect, connected, connecting } = useWallet();
+  const { wallets, wallet: selected, select, connect, disconnect, connected, connecting, publicKey } = useWallet();
   const { setVisible } = useWalletModal();
   const [fadeIn, setFadeIn] = useState(false);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -117,8 +154,33 @@ function SolanaWalletModal() {
         .find((a): a is WalletConnectWalletAdapter => a instanceof WalletConnectWalletAdapter) ?? null,
     [wallets],
   );
+  const walletConnectWallet = useMemo(
+    () => (walletConnect ? (wallets.find((w) => w.adapter === walletConnect) ?? null) : null),
+    [wallets, walletConnect],
+  );
+  // The wallet whose row opened the QR (change 7), named on it; null for the
+  // WalletConnect row itself.
+  const [scanFor, setScanFor] = useState<ScanFor | null>(null);
   const pairing = useWalletConnectPairing(walletConnect);
   const pairingActive = pairing.phase === 'starting' || pairing.phase === 'scan';
+  const connectedAs = connected && publicKey ? shortSolanaAddress(publicKey.toBase58()) : null;
+  // A phone's own browser has no wallet in it: every row then leaves for a wallet app.
+  // Said once, above the rows, so the list does not read as seven dead ends.
+  const opensApps =
+    connectedAs === null &&
+    !ordered.some((w) => w.readyState === WalletReadyState.Installed) &&
+    ordered.some((w) => rowStatus(w.readyState, w.adapter.name, walletConnectWallet !== null) === 'Open app');
+  // The wallet a connect is still waiting on: a locked wallet, or an approval
+  // window nobody saw, answers late or never, and until 2026-10-03 nothing
+  // named it. WalletConnect's own wait is its QR, or its saved session's restore.
+  const waitingNow = connecting && !connected && selected ? waitedOnWalletLabel(selected.adapter.name) : null;
+  // What the list shows is held as it was once the dialog starts to close. A
+  // pick starts a connect and the list then fades for FADE_MS, still mounted:
+  // following `connecting` through that fade, it said "it may be locked" at
+  // every ordinary connect, in a live region, about a wallet asked a moment ago.
+  const [closing, setClosing] = useState(false);
+  const [waitingFor, setWaitingFor] = useState(waitingNow);
+  if (!closing && waitingFor !== waitingNow) setWaitingFor(waitingNow);
   // The WalletConnect row clicked while its own saved session was still being
   // restored: connect once the restore is over, if it did not connect.
   const connectAfterRestore = useRef(false);
@@ -130,10 +192,14 @@ function SolanaWalletModal() {
     connectAfterRestore.current = false;
     walletConnect?.cancelPairing();
     walletConnect?.dismissPairing();
+    setClosing(true);
     setFadeIn(false);
     if (hideTimer.current) clearTimeout(hideTimer.current);
-    hideTimer.current = setTimeout(() => setVisible(false), FADE_MS);
-  }, [setVisible, walletConnect]);
+    hideTimer.current = setTimeout(() => {
+      phoneWalletSeen();
+      setVisible(false);
+    }, FADE_MS);
+  }, [setVisible, walletConnect, phoneWalletSeen]);
 
   // A WalletConnect attempt that ends CONNECTED closes the dialog. One that
   // fails leaves it open, showing the reason above the list.
@@ -147,6 +213,14 @@ function SolanaWalletModal() {
       sawPairing.current = false;
       hideModal();
     }
+  }, [connected, hideModal]);
+  // The list a phone-wallet failure brought back closes if the wallet app
+  // answers after all: the attempt goes on behind its own late error.
+  const openedOnFailure = useRef(phoneWalletFailed);
+  useEffect(() => {
+    if (!connected || !openedOnFailure.current) return;
+    openedOnFailure.current = false;
+    hideModal();
   }, [connected, hideModal]);
   useEffect(() => {
     if (!connectAfterRestore.current || connecting) return;
@@ -168,6 +242,13 @@ function SolanaWalletModal() {
     document.getElementById(titleId)?.focus();
   }, [pairingActive, titleId]);
 
+  const handleDisconnect = useCallback(() => {
+    disconnect().catch(() => {
+      /* surfaced by the provider's error handler */
+    });
+    hideModal();
+  }, [disconnect, hideModal]);
+
   const handleClose = useCallback(
     (event: MouseEvent) => {
       event.preventDefault();
@@ -177,13 +258,38 @@ function SolanaWalletModal() {
   );
 
   const handleWalletClick = useCallback(
-    (event: MouseEvent, wallet: Wallet) => {
+    (event: MouseEvent, clicked: Wallet) => {
       event.preventDefault();
-      if (wallet.readyState === WalletReadyState.NotDetected) {
-        // Change 3: the install page, now, in this click — and no selection.
-        window.open(wallet.adapter.url, '_blank', 'noopener,noreferrer');
-        return;
+      let wallet = clicked;
+      if (clicked.readyState === WalletReadyState.NotDetected) {
+        if (!walletConnectWallet || !scansForWallet(clicked.readyState, clicked.adapter.name, true)) {
+          // Change 3: the install page, now, in this click — and no selection.
+          window.open(clicked.adapter.url, '_blank', 'noopener,noreferrer');
+          return;
+        }
+        // Change 7: Trust or Jupiter, not in this browser — the QR its phone app scans.
+        wallet = walletConnectWallet;
       }
+      // Change 8: an "Open app" row reopens this page inside the wallet's app.
+      // The address it is handed carries a marker, so the page that opens
+      // there asks the wallet to connect by itself (lib/solanaSurface.ts), and
+      // the page left behind here says where the connect went.
+      if (opensInWalletApp(clicked.readyState, clicked.adapter.name)) {
+        const label = walletLabel(clicked.adapter.name);
+        // Not carried where tab storage is blocked: the page in the app then waits for a press.
+        const carried = markSolanaHandoff();
+        // Long, because the wallet's app covers this page a moment after the press.
+        toast(
+          carried
+            ? `Opening ${label}. This site opens again inside the ${label} app, and connects there.`
+            : `Opening ${label}. This site opens again inside the ${label} app. Press Connect there.`,
+          { duration: HANDOFF_NOTICE_MS },
+        );
+      }
+      setScanFor(
+        wallet === clicked ? null : { label: walletLabel(clicked.adapter.name), installUrl: clicked.adapter.url },
+      );
+      if (wallet.adapter.name === PHONE_WALLET_ROW) phoneWalletAsked();
       // WalletConnect's QR is drawn in this dialog, so its row does not close it.
       const keepOpen = wallet.adapter === walletConnect;
       if (keepOpen) walletConnect.dismissPairing();
@@ -200,13 +306,16 @@ function SolanaWalletModal() {
           sawPairing.current = true;
           connectAfterRestore.current = true;
         }
-        if (!keepOpen) hideModal();
+        // Connected already (the top bar's address opens this list): the row
+        // of the wallet in use closes it, WalletConnect's included. That row
+        // otherwise stays open for a QR, and here there is none to draw.
+        if (!keepOpen || connected) hideModal();
         return;
       }
       select(wallet.adapter.name);
       if (!keepOpen) hideModal();
     },
-    [selected, connected, connecting, connect, select, hideModal, walletConnect],
+    [selected, connected, connecting, connect, select, hideModal, walletConnect, walletConnectWallet, phoneWalletAsked],
   );
 
   // Focus in, Escape, Tab kept inside, scroll lock, focus back out.
@@ -289,23 +398,69 @@ function SolanaWalletModal() {
             </svg>
           </button>
           {pairingActive && walletConnect ? (
-            <WalletConnectQr pairing={pairing} titleId={titleId} onBack={() => walletConnect.cancelPairing()} />
+            <WalletConnectQr
+              pairing={pairing}
+              titleId={titleId}
+              scanFor={scanFor}
+              onBack={() => walletConnect.cancelPairing()}
+            />
           ) : ordered.length > 0 ? (
             <>
+              {/* The top bar's address opens this list while connected: it then
+                  says so, names the wallet in use, and offers the way out the
+                  Solana pages lacked (only the dashboard panel had one). */}
               <h1 id={titleId} tabIndex={-1} className="wallet-adapter-modal-title">
-                Connect a wallet on Solana to continue
+                {connectedAs ? 'Switch Solana wallet' : 'Connect a wallet on Solana to continue'}
               </h1>
+              {connectedAs && (
+                <p className="wallet-adapter-modal-note">
+                  Connected as {connectedAs}.{' '}
+                  <button type="button" onClick={handleDisconnect} className="underline font-semibold text-white">
+                    Disconnect
+                  </button>
+                </p>
+              )}
+              {opensApps && (
+                <p className="wallet-adapter-modal-note" data-testid="wallet-opens-apps">
+                  No wallet was found in this browser. Open app hands you to that wallet’s own app to connect; most
+                  load this page inside it. The app has to be installed on this device.
+                </p>
+              )}
+              {waitingFor && (
+                <p role="status" className="wallet-adapter-modal-note">
+                  Waiting for {waitingFor} to answer. Open {waitingFor}: it may be locked, or waiting for you to
+                  approve this site. Or pick another wallet below.
+                </p>
+              )}
               {pairing.phase === 'failed' && (
                 <p role="alert" className="wallet-adapter-modal-note">
                   {pairing.reason}
                 </p>
               )}
+              {phoneWalletFailed && (
+                <p role="alert" className="wallet-adapter-modal-note">
+                  Could not connect to a wallet app on this device. Pick a wallet below to open this page inside
+                  its app.
+                </p>
+              )}
               <ul className="wallet-adapter-modal-list">
                 {ordered.map((wallet) => (
-                  <WalletRow key={wallet.adapter.name} wallet={wallet} onClick={handleWalletClick} />
+                  <WalletRow
+                    key={wallet.adapter.name}
+                    wallet={wallet}
+                    canScan={walletConnectWallet !== null}
+                    current={connectedAs !== null && selected?.adapter.name === wallet.adapter.name}
+                    onClick={handleWalletClick}
+                  />
                 ))}
               </ul>
-              <p className="wallet-adapter-modal-note">Only wallets that work on Solana are listed.</p>
+              {/* On a Solana page the top bar's Connect opens this list
+                  (lib/solanaSurface.ts). An Ethereum wallet connected on
+                  another page is a separate connection and never shows here. */}
+              <p className="wallet-adapter-modal-note">
+                Only wallets that work on Solana are listed. This connects your Solana account. An Ethereum or
+                Base connection is separate and stays as it is.
+              </p>
             </>
           ) : (
             <h1 id={titleId} className="wallet-adapter-modal-title">
@@ -322,9 +477,14 @@ function SolanaWalletModal() {
 
 function WalletRow({
   wallet,
+  canScan,
+  current,
   onClick,
 }: {
   wallet: Wallet;
+  canScan: boolean;
+  /** The wallet connected right now. */
+  current: boolean;
   onClick: (event: MouseEvent, wallet: Wallet) => void;
 }) {
   const label = walletLabel(wallet.adapter.name);
@@ -335,7 +495,7 @@ function WalletRow({
           <img src={wallet.adapter.icon} alt="" />
         </i>
         {label}
-        <span>{rowStatus(wallet.readyState, wallet.adapter.name)}</span>
+        <span>{current ? 'Connected' : rowStatus(wallet.readyState, wallet.adapter.name, canScan)}</span>
       </button>
     </li>
   );
@@ -350,10 +510,12 @@ function WalletRow({
 function WalletConnectQr({
   pairing,
   titleId,
+  scanFor,
   onBack,
 }: {
   pairing: WalletConnectPairing;
   titleId: string;
+  scanFor: ScanFor | null;
   onBack: () => void;
 }) {
   const [copy, setCopy] = useState<'idle' | 'copied' | 'failed'>('idle');
@@ -373,7 +535,11 @@ function WalletConnectQr({
   return (
     <>
       <h1 id={titleId} tabIndex={-1} className="wallet-adapter-modal-title">
-        {uri ? 'Scan with your phone’s wallet' : 'Starting WalletConnect…'}
+        {!uri
+          ? 'Starting WalletConnect…'
+          : scanFor
+            ? `Scan with ${scanFor.label} on your phone`
+            : 'Scan with your phone’s wallet'}
       </h1>
       {uri && (
         <>
@@ -384,12 +550,24 @@ function WalletConnectQr({
             </Cuer.Root>
           </div>
           <p className="wallet-adapter-modal-note">
-            Use a wallet app that supports Solana through WalletConnect. Phantom and Solflare can’t connect this way.
+            {scanFor
+              ? `Open ${scanFor.label} on your phone and scan this code with its scanner. It connects your Solana account.`
+              : 'Use a wallet app that supports Solana through WalletConnect, such as Trust Wallet or Jupiter. Phantom and Solflare can’t connect this way.'}
           </p>
           <button type="button" className="wallet-adapter-button" onClick={copyLink}>
             {copy === 'copied' ? 'Link copied' : copy === 'failed' ? 'Couldn’t copy — scan instead' : 'Copy link'}
           </button>
         </>
+      )}
+      {scanFor && (
+        <button
+          type="button"
+          className="wallet-adapter-button"
+          onClick={() => window.open(scanFor.installUrl, '_blank', 'noopener,noreferrer')}
+        >
+          {/* One text node: this button is a flex row, and split text lays out as separate items. */}
+          {`Use the ${scanFor.label} extension instead`}
+        </button>
       )}
       <button type="button" className="wallet-adapter-button" onClick={onBack}>
         Back to wallets
@@ -404,11 +582,15 @@ function WalletConnectQr({
  */
 export function SolanaWalletModalProvider({ children }: { children: ReactNode }) {
   const [visible, setVisible] = useState(false);
+  // Here because this provider is mounted once inside every Solana section's WalletProvider.
+  useWalletResync();
+  const openList = useCallback(() => setVisible(true), []);
+  const phoneWallet = usePhoneWalletFailure(openList);
   const value = useMemo(() => ({ visible, setVisible }), [visible]);
   return (
     <WalletModalContext.Provider value={value}>
       {children}
-      {visible && <SolanaWalletModal />}
+      {visible && <SolanaWalletModal phoneWallet={phoneWallet} />}
     </WalletModalContext.Provider>
   );
 }

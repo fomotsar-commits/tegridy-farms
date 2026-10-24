@@ -40,3 +40,7 @@ dist-audit*
 # committed on purpose: artSrcSet.ts imports it, so tsc and vitest need it to
 # exist in a fresh clone that has never run a build.
 public/_derived/
+
+# The genesis accounts scripts/solana-localnet/genesis-accounts.mjs writes for the
+# /curve-launch e2e validator (its build and reports go to the OS temp dir instead).
+/scripts/solana-localnet/.accounts

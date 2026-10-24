@@ -13,6 +13,8 @@ import { createClient } from "@supabase/supabase-js";
 import { createHash, randomUUID } from "crypto";
 import { recoverMessageAddress, decodeAbiParameters, parseAbiParameters } from "viem";
 import { checkRateLimit } from "./_lib/ratelimit.js";
+import { VENUE_CONTRACTS } from "./_lib/venue-registry.js";
+import { platformFeeError } from "./_lib/platform-fee.js";
 import { verifySeaportSignature, verifyNftOwnership, verifyBundleOwnership, fetchNftOwner, MAX_PRICE_WEI, priceWeiToEthNumber } from "./_lib/seaport-verify.js";
 import { computeSeaportOrderHash, isValidSeaportOrderHash } from "./_lib/seaportHash.js";
 // AUDIT FIX 2026-05-26 [H-20]: bound the Alchemy RPC response so a hostile /
@@ -22,12 +24,9 @@ import { readBoundedText, MAX_RESPONSE_BYTES } from "./_lib/bodycap.js";
 import { fetchAlchemyWithFailover, alchemyKeyChain } from "./_lib/alchemy-failover.js";
 import { sendPushToWallet } from "./_lib/push.js";
 
-// Whitelist allowed contract addresses (lowercase)
-const ALLOWED_CONTRACTS = new Set([
-  "0xd774557b647330c91bf44cfeab205095f7e6c367", // Nakamigos
-  "0xa1de9f93c56c290c48849b1393b09eb616d55dbb", // GNSS Art
-  "0xd37264c71e9af940e49795f0d3a8336afaafdda9", // Jungle Bay
-]);
+// The venue's collections (lowercase): the only contracts the book stores,
+// serves or trades.
+export const ALLOWED_CONTRACTS = VENUE_CONTRACTS;
 
 // Max NFTs in one bundle listing. Bounds the per-item ownership RPC fan-out (one
 // ownerOf call each) and the signed-message size.
@@ -323,7 +322,8 @@ const supabase = SUPABASE_URL && SUPABASE_KEY ? createClient(SUPABASE_URL, SUPAB
  *   CREATE INDEX idx_orders_price ON native_orders(price_eth ASC) WHERE status = 'active';
  */
 
-const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || "https://memetic.fun";
+// Echoed to unmatched origins, so a host this venue serves — not memetic.fun. See alchemy.js.
+const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || "https://memetics.finance";
 
 // ── Shared validation helpers ──
 const ETH_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
@@ -360,9 +360,6 @@ function redactInactiveOrder(row) {
 function setCors(req, res) {
   const origin = req.headers.origin || "";
   const ALLOWED_ORIGINS = new Set([
-    
-    "https://memetic.fun",
-    "https://www.memetic.fun",
     "https://memetics.finance",
     "https://www.memetics.finance",
     "https://tegridyfarms.vercel.app",
@@ -605,7 +602,7 @@ export default async function handler(req, res) {
       res.setHeader("Cache-Control", "s-maxage=20, stale-while-revalidate=60");
     }
     const orders = (data || []).map(redactInactiveOrder);
-    return res.json({ orders, count: orders.length });
+    return res.status(200).json({ orders, count: orders.length });
   }
 
   // ── POST: Create or cancel orders ──
@@ -788,6 +785,11 @@ export default async function handler(req, res) {
       // denominated listings are ever a real feature.)
       if (isListing && currencyAddr !== "0x0000000000000000000000000000000000000000") {
         return res.status(400).json({ error: "Only native-ETH listings are supported" });
+      }
+      // The venue's 1% is a consideration item only the client adds. See platform-fee.js.
+      if (isListing) {
+        const feeError = platformFeeError(params.consideration, priceWeiBig);
+        if (feeError) return res.status(400).json({ error: feeError });
       }
       const decimals = TOKEN_DECIMALS[currencyAddr];
       if (decimals === undefined) {
@@ -1230,6 +1232,8 @@ export default async function handler(req, res) {
       if (currencyAddr !== "0x0000000000000000000000000000000000000000") {
         return res.status(400).json({ error: "Only native-ETH listings are supported" });
       }
+      const bundleFeeError = platformFeeError(params.consideration, priceWeiBig);
+      if (bundleFeeError) return res.status(400).json({ error: bundleFeeError });
       const decimals = TOKEN_DECIMALS[currencyAddr];
       if (decimals === undefined) {
         return res.status(400).json({ error: `Unsupported currency: ${currencyAddr}` });

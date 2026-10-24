@@ -285,6 +285,9 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
         _checkCircularReferral(_referrer, msg.sender);
 
         referrerOf[msg.sender] = _referrer;
+        // AUDIT MICROSCOPE_2026_04_30 M-G3: start the 30-day clock here, so the FIRST
+        // `updateReferrer` waits like every later one (it compared against 0 before).
+        lastReferrerChange[msg.sender] = block.timestamp;
         totalReferred[_referrer] += 1;
         if (referrerRegisteredAt[_referrer] == 0) {
             referrerRegisteredAt[_referrer] = block.timestamp;

@@ -90,4 +90,13 @@ describe('BungalowFarmPanel layout', () => {
     await screen.findByTestId('lighthouse-card');
     expect(fundingCard().className).not.toMatch(/lg:col-span-2/);
   });
+
+  // The top bar's Connect connects Solana on this page now (lib/solanaSurface.ts),
+  // so the note sending visitors to the card instead would be false.
+  it('no longer says the top-bar Connect does not connect Solana', async () => {
+    draw(MEMBERS_ONLY);
+    await screen.findByTestId('ladder-card');
+    expect(screen.queryByText(/does not connect Solana/)).toBeNull();
+    expect(screen.queryByText(/pool card below/)).toBeNull();
+  });
 });

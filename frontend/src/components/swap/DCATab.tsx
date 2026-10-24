@@ -1,12 +1,16 @@
 import { useState } from 'react';
 import { useAccount } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
+import { CONNECT_ETHEREUM_WALLET } from '../../lib/copy';
 import { useDCA, DEFAULT_SLIPPAGE_BPS, MIN_SLIPPAGE_BPS, MAX_SLIPPAGE_BPS } from '../../hooks/useDCA';
 import { DEFAULT_TOKENS } from '../../lib/tokenList';
 import { InfoTooltip } from '../ui/InfoTooltip';
+import { FinePrint } from '../ui/FinePrint';
 import { DcaYieldPanel } from '../yield/DcaYieldPanel';
 import { dcaIdleTotal } from '../../lib/yield/dcaYield';
 import { formatTokenAmount } from '../../lib/formatting';
+import { getTxUrl } from '../../lib/explorer';
+import { CHAIN_ID } from '../../lib/constants';
 
 
 const INTERVALS = [
@@ -106,8 +110,7 @@ export function DCATab() {
 
   return (
     <div className="p-5">
-      <p className="text-white text-[11px] mb-2" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Set reminders to buy TOWELI at regular intervals. Your wallet signs each swap when it&rsquo;s due &mdash; keep this tab open. (Dollar-cost-averaging pattern, but execution is tab-local, not a keeper.)</p>
-      <p className="text-amber-300 text-[10px] mb-4 rounded px-2 py-1.5 border border-amber-500/50" style={{ background: 'rgba(0,0,0,0.70)', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>&#9888; Browser-only feature: DCA schedules only run while this tab is open. Closing the browser stops all scheduled swaps. A keeper-based on-chain DCA is planned for v2.</p>
+      <p className="text-amber-300 text-[10px] mb-4 rounded px-2 py-1.5 border border-amber-500/50" style={{ background: 'rgba(0,0,0,0.70)', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>&#9888; Runs only while this tab is open. Your wallet signs each swap.</p>
 
       {/* Amount per swap */}
       <div className="mb-3">
@@ -251,21 +254,26 @@ export function DCATab() {
         <ConnectButton.Custom>
           {({ openConnectModal, mounted }) => (
             <div {...(!mounted && { style: { opacity: 0, pointerEvents: 'none' } })}>
-              <button onClick={openConnectModal} className="btn-primary w-full py-3 text-[13px]">Connect Wallet</button>
+              <button onClick={openConnectModal} className="btn-primary w-full py-3 text-[13px]">{CONNECT_ETHEREUM_WALLET}</button>
             </div>
           )}
         </ConnectButton.Custom>
       )}
 
-      <p className="text-white/15 text-[10px] text-center mt-2">
-        Swaps execute automatically when due. Keep this tab open — your wallet will prompt for approval.
-      </p>
-      <p className="text-white/15 text-[10px] text-center mt-1">
-        Buys route to the better price of our own pool (net of fee) and Uniswap.
-      </p>
-      <p className="text-amber-200/90 text-[10px] text-center mt-1">
-        Schedules are stored in your browser. Clearing browser data or switching devices will remove them.
-      </p>
+      <FinePrint summary="How it works" className="mt-2">
+        <p>
+          Set reminders to buy TOWELI at regular intervals. Your wallet signs each swap when it&rsquo;s due &mdash; keep
+          this tab open. (Dollar-cost-averaging pattern, but execution is tab-local, not a keeper.)
+        </p>
+        <p>
+          Browser-only feature: DCA schedules only run while this tab is open. Closing the browser stops all
+          scheduled swaps. A keeper-based on-chain DCA is planned for v2.
+        </p>
+        <p>Buys route to the better price of our own pool (net of fee) and Uniswap.</p>
+        <p>
+          Schedules are stored in your browser. Clearing browser data or switching devices will remove them.
+        </p>
+      </FinePrint>
 
       {/* Active DCA Schedules */}
       {activeSchedules.length > 0 && (
@@ -303,6 +311,15 @@ export function DCATab() {
                 <span className="text-success text-[10px]">{s.completedSwaps}/{s.totalSwaps}</span>
                 {dueSchedules.some(d => d.id === s.id) && (
                   <span className="badge badge-warning text-[9px]">Due</span>
+                )}
+                {/* Its last swap has no result we could read yet. The schedule
+                    will not swap again until it has one, so say so and link it. */}
+                {s.pendingTx && (
+                  <a href={getTxUrl(CHAIN_ID, s.pendingTx)} target="_blank" rel="noopener noreferrer"
+                    title="The last swap has no confirmed result yet. This schedule will not swap again until it has one."
+                    className="badge badge-primary text-[9px]">
+                    Confirming
+                  </a>
                 )}
                 {s.status === 'active' ? (
                   <button onClick={() => pauseSchedule(s.id)}

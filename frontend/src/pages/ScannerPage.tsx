@@ -6,7 +6,10 @@ import { useTokenScan } from '../hooks/useTokenScan';
 import { detectChain } from '../lib/scanner';
 import { ScanReport } from '../components/scanner/ScanReport';
 import { TOWELI_ADDRESS } from '../lib/constants';
+import { getBungalowIdentity } from '../lib/bungalows';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
+import { CardArt } from '../components/ui/CardArt';
+import { FinePrint } from '../components/ui/FinePrint';
 
 // PUBLIC TOKEN SCANNER — a free, shareable, standalone magnet tool.
 //
@@ -53,10 +56,17 @@ export default function ScannerPage() {
     setParams(next);
   }
 
+  // Inside a room the example is the room's coin (owner, 2026-10-17: the BAYLA room offered
+  // TOWELI); elsewhere it is ours.
+  const room = getBungalowIdentity();
+  const example = room?.address
+    ? { address: room.address, label: `Try ${room.symbol}`, base: room.chain === 'base' }
+    : { address: TOWELI_ADDRESS, label: 'Try our token (TOWELI)', base: false };
   function loadExample() {
-    setDraft(TOWELI_ADDRESS);
+    setDraft(example.address);
     const next = new URLSearchParams();
-    next.set('token', TOWELI_ADDRESS);
+    next.set('token', example.address);
+    if (example.base) next.set('chain', 'base');
     setParams(next);
   }
 
@@ -79,14 +89,13 @@ export default function ScannerPage() {
       <m.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="mb-6">
         <h1 className="heading-luxury text-2xl md:text-4xl text-text-primary tracking-tight mb-2">Token Scanner</h1>
         <p className="text-[14px] text-text-secondary max-w-[640px]">
-          Paste an Ethereum, Base or Solana token address for a holder-concentration and distribution read. It is a{' '}
-          <span className="text-text-primary font-medium">descriptive measurement</span>: a disclosed method with its
-          components, the addresses it excluded, and a timestamp. Not a verdict on anyone&apos;s intent.
+          Paste an Ethereum, Base or Solana token address to see who holds it.
         </p>
       </m.div>
 
       {/* ── Address form ───────────────────────────────────────────── */}
-      <form onSubmit={submit} className="glass-card rounded-xl p-4 mb-4">
+      <form onSubmit={submit} className="glass-card relative isolate rounded-xl p-4 mb-4">
+        <CardArt pageId="scanner" idx={1} />
         <label htmlFor="scan-address" className="block text-[11px] uppercase tracking-wider text-text-muted mb-2">
           Token address
         </label>
@@ -142,9 +151,16 @@ export default function ScannerPage() {
             </span>
           )}
           <button type="button" onClick={loadExample} className="text-[11px] text-text-muted underline underline-offset-2 hover:text-text-secondary">
-            Try our token (TOWELI)
+            {example.label}
           </button>
         </div>
+        <FinePrint summary="How it works">
+          <p>
+            A holder-concentration and distribution read. It is a{' '}
+            <span className="text-text-primary font-medium">descriptive measurement</span>: a disclosed method with its
+            components, the addresses it excluded, and a timestamp. Not a verdict on anyone&apos;s intent.
+          </p>
+        </FinePrint>
       </form>
 
       {/* ── Result area ────────────────────────────────────────────── */}
@@ -157,7 +173,8 @@ export default function ScannerPage() {
       )}
 
       {scan.status === 'loading' && (
-        <div className="glass-card rounded-xl p-6 text-center">
+        <div className="glass-card relative isolate rounded-xl p-6 text-center">
+          <CardArt pageId="scanner" idx={4} />
           <p className="text-[13px] text-text-secondary animate-pulse">
             Reading {scan.chain ? CHAIN_LABEL[scan.chain] : ''} holders and computing distribution…
           </p>
@@ -167,11 +184,14 @@ export default function ScannerPage() {
       {scan.status === 'unavailable' && (
         <StateCard tone="muted" title="Not enabled on this deployment yet">
           <p>{scan.errorMessage}</p>
-          <p className="mt-2 text-text-muted">
-            Solana token scans work today. Ethereum scans need the holder-data source configured on the server — the
-            route may be deployed and simply missing its upstream API key (see the deployment notes). Until then this
-            tab stays honest about the gap rather than showing invented numbers.
-          </p>
+          <p className="mt-2 text-text-muted">Solana token scans work today.</p>
+          <FinePrint summary="Why">
+            <p>
+              Ethereum scans need the holder-data source configured on the server — the route may be deployed and
+              simply missing its upstream API key (see the deployment notes). Until then this tab stays honest about
+              the gap rather than showing invented numbers.
+            </p>
+          </FinePrint>
         </StateCard>
       )}
 
@@ -185,8 +205,7 @@ export default function ScannerPage() {
               message (the 422 path), so this card no longer has to carry that guess
               as its headline explanation. */}
           <p className="mt-2 text-text-muted">
-            Double-check the address is a token (not a wallet or an NFT) — or the token really has no holders left to
-            enumerate, which is how a fully-burned supply reads.
+            Double-check the address is a token, not a wallet or an NFT. A fully-burned supply also reads this way.
           </p>
         </StateCard>
       )}
@@ -215,14 +234,14 @@ export default function ScannerPage() {
               Ethereum-only — the deployer graph reads EVM contract-creations. */}
           {(scan.outcome.chain === 'ethereum' || scan.outcome.chain === 'base') && (
             <p className="text-[12px] text-text-muted mt-3 leading-relaxed">
-              Launched on our curve? It has a home at{' '}
+              Launched on our curve? See{' '}
               <Link
                 to={`/eth-curve/${scan.outcome.address}${scan.outcome.chain === 'base' ? '?c=8453' : ''}`}
                 className="text-emerald-400/80 hover:text-emerald-300 underline transition-colors"
               >
                 its token page
-              </Link>{' '}
-              (which answers honestly if it wasn&apos;t) — and the venue swap lives at{' '}
+              </Link>
+              . Swap at{' '}
               <Link to="/swap" className="text-emerald-400/80 hover:text-emerald-300 underline transition-colors">
                 /swap
               </Link>
@@ -240,11 +259,11 @@ export default function ScannerPage() {
           )}
           {scan.outcome.chain === 'ethereum' && (
             <p className="text-[12px] text-text-muted mt-4 leading-relaxed">
-              Want to know who deployed it? Paste the deployer&apos;s wallet into the{' '}
+              Who deployed it? Try the{' '}
               <Link to="/deployer" className="text-emerald-400/80 hover:text-emerald-300 underline transition-colors">
                 Deployer Graph
-              </Link>{' '}
-              to see what else that address has shipped — or check your own holdings with{' '}
+              </Link>
+              . Your own holdings:{' '}
               <Link to="/exposure" className="text-emerald-400/80 hover:text-emerald-300 underline transition-colors">
                 Wallet Exposure
               </Link>
@@ -260,17 +279,21 @@ export default function ScannerPage() {
 
 function IdleHint() {
   return (
-    <div className="glass-card rounded-xl p-5">
-      <h2 className="text-[14px] font-semibold text-text-primary mb-2">What you'll get</h2>
-      <ul className="space-y-1.5 text-[12.5px] text-text-secondary">
-        <li>• A plain-English effective-holder count (how many equally-sized holders this concentration is worth).</li>
-        <li>• Top-holder shares, HHI, and a Nakamoto coefficient, with burns, contracts and program accounts excluded. Large unlabeled wallets lower the confidence flag.</li>
-        <li>• A three-band read (Well distributed / Mixed / Concentrated) plus a separate data-confidence flag.</li>
-        <li>• Every exclusion shown, a timestamp, the method, and a way to dispute a label.</li>
-      </ul>
-      <p className="text-[11px] text-text-muted mt-3">
-        This tool never invents data. When a signal isn't measurable it says &ldquo;not measured&rdquo; rather than guessing.
-      </p>
+    <div className="glass-card relative isolate rounded-xl p-5">
+      <CardArt pageId="scanner" idx={2} />
+      <h2 className="text-[14px] font-semibold text-text-primary mb-1">What you'll get</h2>
+      <p className="text-[12.5px] text-text-secondary">Holder concentration, a three-band read, and a confidence flag.</p>
+      <FinePrint>
+        <ul className="space-y-1.5">
+          <li>• A plain-English effective-holder count (how many equally-sized holders this concentration is worth).</li>
+          <li>• Top-holder shares, HHI, and a Nakamoto coefficient, with burns, contracts and program accounts excluded. Large unlabeled wallets lower the confidence flag.</li>
+          <li>• A three-band read (Well distributed / Mixed / Concentrated) plus a separate data-confidence flag.</li>
+          <li>• Every exclusion shown, a timestamp, the method, and a way to dispute a label.</li>
+        </ul>
+        <p>
+          This tool never invents data. When a signal isn't measurable it says &ldquo;not measured&rdquo; rather than guessing.
+        </p>
+      </FinePrint>
     </div>
   );
 }
@@ -287,7 +310,8 @@ function StateCard({
   const color =
     tone === 'danger' ? 'var(--color-danger)' : tone === 'warning' ? 'var(--color-warning)' : 'var(--color-text-muted)';
   return (
-    <div className="glass-card rounded-xl p-5" style={{ borderColor: color }}>
+    <div className="glass-card relative isolate rounded-xl p-5" style={{ borderColor: color }}>
+      <CardArt pageId="scanner" idx={3} />
       <h2 className="text-[14px] font-semibold mb-1.5" style={{ color }}>
         {title}
       </h2>

@@ -1,6 +1,6 @@
 import { TOWELI_WETH_LP_ADDRESS } from '../constants';
 import type { GeckoNetwork } from '../geckoTerminal/pools';
-import { geckoEdgeUrl } from '../geckoTerminal/edge';
+import { GECKO_STALE_OK_HEADERS, geckoEdgeUrl, type GeckoFreshness } from '../geckoTerminal/edge';
 import { readOhlcvBars, type OhlcvBar, type OhlcvUnreadReason } from './ohlcv';
 
 /**
@@ -130,11 +130,14 @@ export const CHART_CANDLES_CACHE_MAX = 8;
 export type ChartCandlesReason = OhlcvUnreadReason | 'timeout';
 
 export type ChartCandlesRead =
-  | { ok: true; bars: OhlcvBar[] }
+  // `freshness` travels with the bars so the chart can say how old they are:
+  // this reader asks the edge for its last good copy when GeckoTerminal refuses.
+  | { ok: true; bars: OhlcvBar[]; freshness: GeckoFreshness }
   | { ok: false; reason: ChartCandlesReason; detail: string };
 
 interface CandleCacheEntry {
   bars: OhlcvBar[];
+  freshness: GeckoFreshness;
   storedAt: number;
 }
 
@@ -169,7 +172,9 @@ export async function readChartCandles(
   const clock = opts.now ?? Date.now;
   const key = ohlcvCacheKey(market, tf);
   const hit = candleCache.get(key);
-  if (hit && clock() - hit.storedAt < CHART_CANDLES_TTL_MS) return { ok: true, bars: hit.bars };
+  if (hit && clock() - hit.storedAt < CHART_CANDLES_TTL_MS) {
+    return { ok: true, bars: hit.bars, freshness: hit.freshness };
+  }
 
   // The caller's signal and our own deadline both have to be able to abort the
   // request, so they are merged into one controller. `timedOut` tells the two
@@ -191,7 +196,7 @@ export async function readChartCandles(
 
   let read;
   try {
-    read = await readOhlcvBars(ohlcvUrl(market, tf), opts.fetchImpl ?? fetch, ac.signal);
+    read = await readOhlcvBars(ohlcvUrl(market, tf), opts.fetchImpl ?? fetch, ac.signal, GECKO_STALE_OK_HEADERS);
   } catch (err) {
     done();
     if (timedOut) {
@@ -207,10 +212,14 @@ export async function readChartCandles(
 
   if (!read.ok) return { ok: false, reason: read.reason, detail: read.detail };
 
-  if (candleCache.size >= CHART_CANDLES_CACHE_MAX) {
-    const oldest = candleCache.keys().next();
-    if (!oldest.done) candleCache.delete(oldest.value);
+  // A kept copy is shown but not cached here: the next switch back should ask
+  // again, and the edge answers it from memory without touching GeckoTerminal.
+  if (!read.freshness.stale) {
+    if (candleCache.size >= CHART_CANDLES_CACHE_MAX) {
+      const oldest = candleCache.keys().next();
+      if (!oldest.done) candleCache.delete(oldest.value);
+    }
+    candleCache.set(key, { bars: read.bars, freshness: read.freshness, storedAt: clock() });
   }
-  candleCache.set(key, { bars: read.bars, storedAt: clock() });
-  return { ok: true, bars: read.bars };
+  return { ok: true, bars: read.bars, freshness: read.freshness };
 }

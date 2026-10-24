@@ -45,10 +45,11 @@ function isRevocationRequired() {
 //
 // 2026-08-02: `nakamigos.gallery` removed — the project does not control that
 // domain. See auth/siwe.js. Do NOT re-add it.
+//
+// 2026-09-23: `memetic.fun` + `www.memetic.fun` removed — they serve the Island
+// Lab, not this venue. See auth/siwe.js. Do NOT re-add them.
 function buildAllowedOrigins() {
   const set = new Set([
-    "https://memetic.fun",
-    "https://www.memetic.fun",
     "https://memetics.finance",
     "https://www.memetics.finance",
     "https://tegridyfarms.vercel.app",

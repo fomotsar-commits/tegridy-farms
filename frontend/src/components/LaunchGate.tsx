@@ -12,6 +12,7 @@ import type { GateDecision } from '../lib/heat/heatOracle';
 import type { GateAuditRow } from '../lib/heat/gateAudit';
 import { HeatCard } from './HeatCard';
 import { GateAuditPanel } from './heat/GateAuditPanel';
+import { CardArt } from './ui/CardArt';
 import { shortenAddress } from '../lib/formatting';
 
 /**
@@ -37,21 +38,86 @@ type Phase =
   | { kind: 'reading' }
   | { kind: 'decided'; decision: GateDecision; audit: GateAuditRow | null };
 
-export interface LaunchGateProps {
-  /**
-   * Called with the gate audit row once the wallet has cleared the door AND proved
-   * ownership. `row.id` is `gate_decision_id` — the value the birth notify carries, so
-   * the island can tie the token back to the decision that permitted it.
-   */
+export type LaunchGateProps =
+  | {
+      rail?: 'ethereum';
+      /** Called with the audit row once the wagmi wallet cleared the door AND signed the
+       *  ownership proof. `row.id` is the `gate_decision_id` a birth notify carries. */
+      onOpen?: (row: GateAuditRow | null) => void;
+      /** Shown directly under the door in every state, before anything the door lets through. */
+      below?: React.ReactNode;
+      children?: React.ReactNode;
+    }
+  | {
+      rail: 'solana';
+      /** The connected Solana wallet (base58) or null, read by the page's own wallet hook:
+       *  this file never imports @solana/*, so EVM pages never load vendor-solana. */
+      wallet: string | null;
+      /** The page's connect control, shown while no Solana wallet is connected. */
+      connect?: React.ReactNode;
+      /** Shown directly under the door in every state, before anything the door lets through. */
+      below?: React.ReactNode;
+      /** For a page where no launch can be made: the sentence that says so. The door then
+       *  shows the reading and that sentence, gives no verdict, and lets nothing through. */
+      launchingOff?: string;
+      children?: React.ReactNode;
+    };
+
+/** The same rule on both rails; only the wallet it reads and the proof step differ. */
+export function LaunchGate(props: LaunchGateProps) {
+  if (props.rail === 'solana') {
+    return (
+      <Door
+        rail="solana"
+        address={props.wallet ?? undefined}
+        connect={props.connect}
+        below={props.below}
+        launchingOff={props.launchingOff}
+      >
+        {props.children}
+      </Door>
+    );
+  }
+  return (
+    <EthereumDoor onOpen={props.onOpen} below={props.below}>
+      {props.children}
+    </EthereumDoor>
+  );
+}
+
+function EthereumDoor({
+  onOpen,
+  below,
+  children,
+}: {
   onOpen?: (row: GateAuditRow | null) => void;
-  /** Rail label, for the copy only. The rule is identical on both. */
-  rail?: 'ethereum' | 'solana';
+  below?: React.ReactNode;
+  children?: React.ReactNode;
+}) {
+  const { address } = useAccount();
+  const { signMessageAsync } = useSignMessage();
+  const signProof = useCallback((message: string) => signMessageAsync({ message }), [signMessageAsync]);
+  return (
+    <Door rail="ethereum" address={address} signProof={signProof} onOpen={onOpen} below={below}>
+      {children}
+    </Door>
+  );
+}
+
+interface DoorProps {
+  rail: 'ethereum' | 'solana';
+  address: string | undefined;
+  /** Ethereum only: the ownership proof. The Solana door asks for no sign-message: the
+   *  launch transaction is signed by this same wallet, and that signature proves it. */
+  signProof?: (message: string) => Promise<unknown>;
+  onOpen?: (row: GateAuditRow | null) => void;
+  connect?: React.ReactNode;
+  below?: React.ReactNode;
+  launchingOff?: string;
   children?: React.ReactNode;
 }
 
-export function LaunchGate({ onOpen, rail = 'ethereum', children }: LaunchGateProps) {
-  const { address } = useAccount();
-  const { signMessageAsync } = useSignMessage();
+function Door({ rail, address, signProof, onOpen, connect, below, launchingOff, children }: DoorProps) {
   const [phase, setPhase] = useState<Phase>({ kind: 'no-wallet' });
   const [proving, setProving] = useState(false);
   const [proveError, setProveError] = useState<string | null>(null);
@@ -85,11 +151,11 @@ export function LaunchGate({ onOpen, rail = 'ethereum', children }: LaunchGatePr
   }, [read]);
 
   const prove = useCallback(async () => {
-    if (!address) return;
+    if (!address || !signProof) return;
     setProving(true);
     setProveError(null);
     try {
-      await signMessageAsync({ message: ownershipMessage(address, new Date().toISOString()) });
+      await signProof(ownershipMessage(address, new Date().toISOString()));
       setProvedFor(address);
       if (phase.kind === 'decided') onOpen?.(phase.audit);
     } catch {
@@ -98,50 +164,77 @@ export function LaunchGate({ onOpen, rail = 'ethereum', children }: LaunchGatePr
     } finally {
       setProving(false);
     }
-  }, [address, signMessageAsync, phase, onOpen]);
+  }, [address, signProof, phase, onOpen]);
 
   if (phase.kind === 'no-wallet') {
     return (
-      <Frame>
-        <Title>Who may plant</Title>
-        <p className="text-[13px] text-white/60 leading-relaxed">
-          The lane reads your <strong className="text-white/85">held time</strong> live from Jungle Bay
-          Island. Connect the Ethereum wallet that carries it, or read any address below.
-          {rail === 'solana' && (
-            <>
-              {' '}
-              An Ethereum address is the qualifying identity today — Solana linking rides the island&apos;s
-              multiwallet rail when it ships, so a Solana-only wallet cannot yet be measured.
-            </>
-          )}
-        </p>
-
-        {/* The card reads a pasted address, as VenueHero mounts it. It reads; it does not
-            open: the lane needs the connected wallet's signature (heat, then custody, then
-            the signature), and the launch call re-reads that wallet at submit. */}
-        <div className="mt-4 pt-4" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-          <HeatCard variant="embedded" showEligibility />
-          <p className="text-[12px] text-white/45 mt-3">
-            A reading is not a key. The lane opens for a wallet that signs.
+      <>
+        <Frame>
+          <Title>Who may plant</Title>
+          <p className="text-[13px] text-white/60 leading-relaxed">
+            The lane reads your <strong className="text-white/85">held time</strong> live from Jungle Bay
+            Island.{' '}
+            {rail === 'solana' ? (
+              <>
+                {launchingOff ? 'Connect a Solana wallet to see its reading' : 'Connect the Solana wallet that will sign the launch'},
+                or read any address below. One person, every wallet. Link Ethereum and Base, link Solana, and the
+                island reads you whole.
+              </>
+            ) : (
+              'Connect the Ethereum wallet that carries it, or read any address below.'
+            )}
           </p>
-        </div>
-      </Frame>
+          {connect && <div className="mt-3">{connect}</div>}
+
+          {/* The card reads a pasted address, as VenueHero mounts it. It reads; it does not
+              open: the lane opens for the connected wallet, and the launch call re-reads
+              that wallet at submit. The wallet fill asks the door's own network only. The
+              Solana door never reads the Ethereum wallet, so an empty draft also keeps the
+              connected one out of the field. With launching off there is no "can launch" line. */}
+          <div className="mt-4 pt-4" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+            <HeatCard
+              variant="embedded"
+              showEligibility={!launchingOff}
+              initialDraft={rail === 'solana' ? '' : null}
+              fillFrom={rail}
+            />
+            <p className="text-[12px] text-white/45 mt-3">
+              {launchingOff
+                ? `A reading is not a key. ${launchingOff}`
+                : rail === 'solana'
+                  ? 'A reading is not a key. The lane opens for the connected wallet, and the launch reads it again before anything is signed.'
+                  : 'A reading is not a key. The lane opens for a wallet that signs.'}
+            </p>
+          </div>
+        </Frame>
+        {below}
+      </>
     );
   }
 
   if (phase.kind === 'reading') {
     return (
-      <Frame>
-        <Title>Who may plant</Title>
-        <p className="text-[13px] text-white/55 animate-pulse">Reading {shortenAddress(address ?? '', 6)} against the island&apos;s instrument…</p>
-      </Frame>
+      <>
+        <Frame>
+          <Title>Who may plant</Title>
+          <p className="text-[13px] text-white/55 animate-pulse">Reading {shortenAddress(address ?? '', 6)} against the island&apos;s instrument…</p>
+        </Frame>
+        {below}
+      </>
     );
   }
 
   const { decision } = phase;
-  const open = decision.state === 'WARM' && proved;
+  // A verdict opens the lane only for the wallet it was read for, never for the one
+  // that replaced it before the re-read lands. Solana has no proof step (see DoorProps).
+  // Dialled off, the door only informs on both rails: the lane stays open whatever the
+  // reading, as the note below says, and the call at submit reads the wallet again.
+  // With launching off there is no lane, so nothing opens it.
+  const forThisWallet = decision.address === address;
+  const verdictOpens = rail === 'solana' ? decision.state === 'WARM' : decision.state === 'WARM' && proved;
+  const open = !launchingOff && forThisWallet && (verdictOpens || !isHeatGateEnabled());
 
-  return (
+  const door = (
     <Frame state={decision.state}>
       <div className="flex flex-wrap items-baseline justify-between gap-2 mb-2">
         <Title>Who may plant</Title>
@@ -152,8 +245,11 @@ export function LaunchGate({ onOpen, rail = 'ethereum', children }: LaunchGatePr
         {/* ── WARM ───────────────────────────────────────────────────────────── */}
         {decision.state === 'WARM' && (
           <m.div key="warm" initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
-            <p className="text-[13px] text-white/75 leading-relaxed mb-3">{decision.detail}</p>
-            {!proved ? (
+            {/* `detail` ends "The launch lane is open."; with launching off only the reading is said. */}
+            <p className="text-[13px] text-white/75 leading-relaxed mb-3">
+              {launchingOff ? `This wallet reads ${decision.degrees?.toFixed(2)}° (${decision.tier}).` : decision.detail}
+            </p>
+            {!signProof ? null : !proved ? (
               <>
                 <button onClick={() => void prove()} disabled={proving} className="btn-primary px-5 py-2 text-[13px] disabled:opacity-40">
                   {proving ? 'Waiting for your wallet…' : 'Prove this wallet is yours'}
@@ -211,16 +307,28 @@ export function LaunchGate({ onOpen, rail = 'ethereum', children }: LaunchGatePr
         )}
       </AnimatePresence>
 
-      {/* The gate is ADVISORY: both rails sign client-side. Say so where a launcher reads it. */}
-      {!isHeatGateEnabled() && (
-        <p className="text-[11px] text-white/40 mt-3">
-          Denial is currently dialled off, so the reading above is shown for information and the lane
-          stays open either way.
-        </p>
+      {/* The gate is ADVISORY: both rails sign client-side. Say so where a launcher reads it.
+          With launching off there is no launcher: the door ends on the page's sentence. */}
+      {launchingOff ? (
+        <p className="text-[13px] text-white/75 leading-relaxed mt-3">{launchingOff}</p>
+      ) : (
+        !isHeatGateEnabled() && (
+          <p className="text-[11px] text-white/40 mt-3">
+            Denial is currently dialled off, so the reading above is shown for information and the lane
+            stays open either way.
+          </p>
+        )
       )}
-
-      {open && children}
     </Frame>
+  );
+  // Both rails: the lane sits below the door and its lines as its own card, full width
+  // on a phone, so the order there is door, lines, form.
+  return (
+    <>
+      {door}
+      {below}
+      {open && children}
+    </>
   );
 }
 
@@ -233,9 +341,11 @@ function Frame({ children, state }: { children: React.ReactNode; state?: GateDec
     // thing that decides whether the wizard leads anywhere.
     <section
       aria-label="Who may plant"
-      className="rounded-2xl p-5 md:p-6"
+      className="relative isolate rounded-2xl p-5 md:p-6"
       style={{ background: 'rgba(6,12,26,0.78)', border: `1px solid ${border}`, backdropFilter: 'blur(10px)', WebkitBackdropFilter: 'blur(10px)' }}
     >
+      {/* One surface for the door on every rail and route that mounts it (/launch, /eth-curve, /curve-launch). */}
+      <CardArt pageId="launch-gate" idx={0} />
       {children}
     </section>
   );

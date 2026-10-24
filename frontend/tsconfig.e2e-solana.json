@@ -1,0 +1,15 @@
+{
+  // The Solana browser tests in e2e-solana/. Strict, like the app, with every
+  // setting the app has (noUncheckedIndexedAccess too: an account or array read
+  // that may be missing is guarded, so the test wallet refuses a short
+  // instruction by name instead of crashing). allowJs is off so the validator
+  // scripts' plain .mjs modules stay untyped, as their @ts-expect-error says.
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.e2e-solana.tsbuildinfo",
+    "types": ["node", "vite/client"],
+    "allowJs": false
+  },
+  "include": ["src/**/*.d.ts", "e2e-solana"],
+  "exclude": []
+}

@@ -1,21 +1,9 @@
-// The advisory gate, and the ways a gate like this normally stops being one.
-//
-// .github/workflows/npm-advisories.yml is the repo's first workflow that fails
-// on a known-exploitable dependency. Three things have to stay true or it is
-// theatre:
-//
-//   1. A report it cannot recognise is an ERROR, never zero advisories. `npm
-//      audit` exits non-zero for "found something" and for "the registry was
-//      unreachable" alike; reading the second as a clean bill of health is the
-//      outage-as-green-check shape the house forbids.
-//   2. Suppression is per-GHSA. A package-level mute would absorb next
-//      quarter's advisory in the same package silently.
-//   3. Every suppression expires. A permanent allowlist entry is a deleted
-//      finding with extra steps.
-//
-// Also pinned here: the seeded baseline is what was actually measured on
-// 2026-08-18, and the workflow's project matrix still matches the lockfiles on
-// disk — a fourth npm project must not be able to land ungated.
+// The advisory gate (.github/workflows/npm-advisories.yml) and the ways one stops being a gate:
+//   1. A report it cannot recognise is an ERROR, never zero advisories.
+//   2. A suppression covers one GHSA id in the projects it names: never a package, never everywhere.
+//   3. Every suppression expires.
+// Also pinned: the committed allowlist, and that the workflow's project matrix matches the
+// lockfiles on disk, so a fourth npm project cannot land ungated.
 
 import { describe, it, expect } from 'vitest';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
@@ -165,7 +153,7 @@ describe('suppression is per-advisory and always dated', () => {
     const r = evaluate({
       report: reportWith(adv),
       allowlist: {
-        accepted: [{ ghsa: 'GHSA-aaaa-bbbb-cccc', expires: '2099-01-01' }],
+        accepted: [{ ghsa: 'GHSA-aaaa-bbbb-cccc', expires: '2099-01-01', projects: ['frontend'] }],
         baseline: { expires: '2099-01-01', projects: {} },
       },
       project: 'frontend',
@@ -177,12 +165,15 @@ describe('suppression is per-advisory and always dated', () => {
     const r = evaluate({
       report: reportWith(adv),
       allowlist: {
-        accepted: [{ ghsa: 'GHSA-aaaa-bbbb-cccc', reason: 'not reachable from any shipped code path' }],
+        accepted: [
+          { ghsa: 'GHSA-aaaa-bbbb-cccc', reason: 'not reachable from any shipped code path', projects: ['frontend'] },
+        ],
         baseline: { expires: '2099-01-01', projects: {} },
       },
       project: 'frontend',
     });
     expect(r.blocking).toHaveLength(1);
+    expect(r.blocking[0].why).toMatch(/acceptance expired/);
   });
 
   it('a valid, dated, reasoned acceptance passes and is reported as suppressed', () => {
@@ -190,7 +181,12 @@ describe('suppression is per-advisory and always dated', () => {
       report: reportWith(adv),
       allowlist: {
         accepted: [
-          { ghsa: 'GHSA-aaaa-bbbb-cccc', reason: 'not reachable from any shipped code path', expires: '2099-01-01' },
+          {
+            ghsa: 'GHSA-aaaa-bbbb-cccc',
+            reason: 'not reachable from any shipped code path',
+            expires: '2099-01-01',
+            projects: ['frontend'],
+          },
         ],
         baseline: { expires: '2099-01-01', projects: {} },
       },
@@ -221,6 +217,96 @@ describe('suppression is per-advisory and always dated', () => {
     });
     expect(r.blocking).toEqual([]);
     expect(r.stale).toEqual(['GHSA-gone-0000-0000']);
+  });
+});
+
+describe('an acceptance counts only in the projects it names', () => {
+  const ID = 'GHSA-aaaa-bbbb-cccc';
+  const present = reportWith([{ ghsa: ID, severity: 'high', name: 'braces' }]);
+  const gone = reportWith([]);
+  const REASON = 'not reachable from any code the indexer runs';
+  const entry = (extra: Record<string, unknown>) => ({ ghsa: ID, reason: REASON, expires: '2099-01-01', ...extra });
+  const listing = (...accepted: Record<string, unknown>[]) => ({
+    accepted,
+    baseline: { expires: '2099-01-01', projects: {} },
+  });
+  const forIndexer = listing(entry({ projects: ['indexer'] }));
+
+  it('forgives the advisory in a project it names', () => {
+    const r = evaluate({ report: present, allowlist: forIndexer, project: 'indexer' });
+    expect(r.blocking).toEqual([]);
+    expect(r.accepted.map((a: { ghsa: string }) => a.ghsa)).toEqual([ID]);
+  });
+
+  it('does not forgive it in a project it does not name, and says where it was accepted', () => {
+    for (const project of ['frontend', '.']) {
+      const r = evaluate({ report: present, allowlist: forIndexer, project });
+      expect(r.accepted, project).toEqual([]);
+      expect(r.blocking.map((a: { ghsa: string }) => a.ghsa), project).toEqual([ID]);
+      expect(r.blocking[0].why, project).toMatch(/accepted for indexer only/);
+    }
+  });
+
+  it('is not reported stale by a project outside its scope', () => {
+    // The root and frontend runs used to say "prune" about an id the indexer run was using.
+    for (const project of ['frontend', '.']) {
+      expect(evaluate({ report: gone, allowlist: forIndexer, project }).stale, project).toEqual([]);
+    }
+  });
+
+  it('is reported stale by a project inside its scope once the advisory is gone', () => {
+    expect(evaluate({ report: gone, allowlist: forIndexer, project: 'indexer' }).stale).toEqual([ID]);
+  });
+
+  it('counts nowhere without a `projects` list, and the block says so', () => {
+    for (const projects of [undefined, [], 'indexer', null]) {
+      const unscoped = listing(entry(projects === undefined ? {} : { projects }));
+      const r = evaluate({ report: present, allowlist: unscoped, project: 'indexer' });
+      expect(r.accepted, JSON.stringify(projects)).toEqual([]);
+      expect(r.blocking[0]?.why, JSON.stringify(projects)).toMatch(/without a `projects` list/);
+      expect(evaluate({ report: gone, allowlist: unscoped, project: 'indexer' }).stale).toEqual([]);
+    }
+  });
+
+  it('still needs a reason and a live expiry inside its scope', () => {
+    const bare = listing({ ghsa: ID, expires: '2099-01-01', projects: ['indexer'] });
+    expect(evaluate({ report: present, allowlist: bare, project: 'indexer' }).blocking[0].why).toMatch(
+      /without a written reason/,
+    );
+    const lapsed = listing(entry({ expires: '2000-01-01', projects: ['indexer'] }));
+    expect(evaluate({ report: present, allowlist: lapsed, project: 'indexer' }).blocking[0].why).toMatch(
+      /acceptance expired 2000-01-01/,
+    );
+  });
+
+  it('judges two entries for one advisory each in its own project', () => {
+    const both = listing(
+      entry({ projects: ['frontend'], reason: 'build-time only in the frontend' }),
+      entry({ projects: ['indexer'] }),
+    );
+    const reasonIn = (project: string) => evaluate({ report: present, allowlist: both, project }).accepted[0]?.reason;
+    expect(reasonIn('frontend')).toBe('build-time only in the frontend');
+    expect(reasonIn('indexer')).toBe(REASON);
+    expect(evaluate({ report: present, allowlist: both, project: '.' }).blocking).toHaveLength(1);
+  });
+
+  it('leaves a project outside its scope to that project s own baseline', () => {
+    const r = evaluate({
+      report: present,
+      allowlist: { ...forIndexer, baseline: { expires: '2099-01-01', projects: { frontend: [ID] } } },
+      project: 'frontend',
+    });
+    expect(r.blocking).toEqual([]);
+    expect(r.baselined).toHaveLength(1);
+  });
+
+  it('tells a project to prune only for itself', () => {
+    // Accepted for two projects and gone from one: deleting the entry would turn the other red.
+    const shared = listing(entry({ projects: ['frontend', 'indexer'] }));
+    const summary = renderSummary('frontend', evaluate({ report: gone, allowlist: shared, project: 'frontend' }));
+    const pruneLine = summary.split('\n').find((l: string) => l.includes(ID));
+    expect(pruneLine).toMatch(/prune/);
+    expect(pruneLine).toContain('`frontend`');
   });
 });
 
@@ -265,13 +351,10 @@ describe('the summary discloses its own suppressions', () => {
 });
 
 describe('the workflow leaves the verdict to the gate', () => {
-  // Everything above tests the gate in isolation, which is how a correct gate
-  // spent four days reporting nothing: GitHub runs each `run:` block under
-  // `bash -e`, `set -uo pipefail` does not clear errexit, and `npm audit` exits
-  // non-zero whenever it finds anything. An unguarded invocation ends the step
-  // before the gate reads the report — red on every project that had an
-  // advisory, green only on the one that had none, and the allowlist never
-  // consulted either way.
+  // GitHub runs each `run:` block under `bash -e`, `set -uo pipefail` does not clear errexit, and
+  // `npm audit` exits non-zero whenever it finds anything. An unguarded invocation ends the step
+  // before the gate reads the report: red wherever there is an advisory, and the allowlist is
+  // never consulted either way.
   const auditStepLine = () =>
     readFileSync(WORKFLOW_PATH, 'utf-8')
       .split('\n')
@@ -318,6 +401,34 @@ describe('the committed allowlist', () => {
       expect(entry.ghsa, JSON.stringify(entry)).toMatch(/^GHSA-/);
       expect(String(entry.reason ?? '').length, `${entry.ghsa} has no written reason`).toBeGreaterThan(9);
       expect(entry.expires, `${entry.ghsa} never expires`).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    }
+  });
+
+  it('names the audited projects every acceptance was judged for', () => {
+    const { accepted, baseline } = allowlist();
+    const audited = Object.keys(baseline.projects);
+    for (const entry of accepted) {
+      expect(Array.isArray(entry.projects), `${entry.ghsa} names no projects, so it forgives nothing`).toBe(true);
+      expect(entry.projects.length, `${entry.ghsa} names no projects, so it forgives nothing`).toBeGreaterThan(0);
+      expect(
+        entry.projects.filter((p: string) => !audited.includes(p)),
+        `${entry.ghsa} names a project the workflow does not audit`,
+      ).toEqual([]);
+    }
+  });
+
+  it('forgives each accepted advisory in the projects its entry names, and in no other', () => {
+    const list = allowlist();
+    for (const entry of list.accepted) {
+      const report = reportWith([{ ghsa: entry.ghsa, severity: 'high' }]);
+      const now = new Date(`${entry.expires}T00:00:00Z`);
+      const named = list.accepted
+        .filter((e: { ghsa: string }) => e.ghsa === entry.ghsa)
+        .flatMap((e: { projects?: string[] }) => e.projects ?? []);
+      for (const project of Object.keys(list.baseline.projects)) {
+        const forgiven = evaluate({ report, allowlist: list, project, now }).accepted.length === 1;
+        expect(forgiven, `${entry.ghsa} in ${project}`).toBe(named.includes(project));
+      }
     }
   });
 

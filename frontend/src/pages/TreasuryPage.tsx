@@ -20,6 +20,7 @@ import { getAddressUrl, getTxUrl } from '../lib/explorer';
 import { fetchAddressTxList, type TxRecord } from '../lib/txHistory';
 import { CopyButton } from '../components/ui/CopyButton';
 import { ArtImg } from '../components/ArtImg';
+import { CardArt } from '../components/ui/CardArt';
 
 const fade = { hidden: { opacity: 0, y: 24 }, visible: { opacity: 1, y: 0 } };
 // Cards sit on a darkened glass layer so stat text stays readable against
@@ -472,8 +473,9 @@ export default function TreasuryPage() {
             stats fall back to on-chain values). */}
         {treasuryRotationPending && routerTreasury && (
           <div role="alert"
-            className="mb-4 rounded-xl border px-4 py-3 text-[13px]"
+            className="relative isolate mb-4 rounded-xl border px-4 py-3 text-[13px]"
             style={{ background: 'rgba(239,68,68,0.12)', borderColor: 'rgba(239,68,68,0.45)', color: '#fecaca' }}>
+            <CardArt pageId="treasury" idx={8} />
             <strong className="font-semibold">Treasury rotation pending.</strong> The on-chain SwapFeeRouter
             treasury is{' '}
             <span className="font-mono">{shortenAddress(routerTreasury as string, 6)}</span>{' '}
@@ -484,16 +486,18 @@ export default function TreasuryPage() {
         )}
         {routerPaused === true && (
           <div role="status"
-            className="mb-4 rounded-xl border px-4 py-3 text-[13px]"
+            className="relative isolate mb-4 rounded-xl border px-4 py-3 text-[13px]"
             style={{ background: 'rgba(245,158,11,0.12)', borderColor: 'rgba(245,158,11,0.4)', color: '#fde68a' }}>
+            <CardArt pageId="treasury" idx={9} />
             <strong className="font-semibold">Fee routing paused.</strong> SwapFeeRouter is currently
             paused; new swap fees are not being distributed to stakers, POL, or treasury until it resumes.
           </div>
         )}
         {price.oracleStale && (
           <div role="status"
-            className="mb-6 rounded-xl border px-4 py-3 text-[13px]"
+            className="relative isolate mb-6 rounded-xl border px-4 py-3 text-[13px]"
             style={{ background: 'rgba(139,92,246,0.10)', borderColor: 'rgba(139,92,246,0.40)', color: '#ddd6fe' }}>
+            <CardArt pageId="treasury" idx={10} />
             <strong className="font-semibold">Price oracle is stale.</strong> USD figures shown derive
             from a delayed price feed; ETH amounts on-chain are authoritative.
           </div>

@@ -2,8 +2,10 @@
 //
 // FOUR THINGS CAN ROT HERE, AND EVERY ONE OF THEM IS SILENT.
 //
-// 1. THE FUNCTION BUDGET. Vercel Hobby caps a deployment at 12 serverless
-//    functions (api/SERVERLESS_BUDGET.md). Commerce shipped as a `?resource=`
+// 1. THE FUNCTION BUDGET. Vercel Hobby capped a deployment at 12 serverless
+//    functions (api/SERVERLESS_BUDGET.md); the project moved to Pro on 2026-09-04
+//    and the cap is gone, so the test now holds the tree to the budget's written
+//    list instead of a number. Commerce shipped as a `?resource=`
 //    branch on the aggregator catchall precisely so the count would not move, and
 //    the branch has to sit ABOVE the `const provider` line — a `?resource=` call
 //    carries no provider, so a branch placed after it never runs and 404s.
@@ -64,8 +66,11 @@ describe('the commerce store costs no serverless function', () => {
     );
   });
 
-  it('the deployment stays at or under the Hobby cap of 12', () => {
-    expect(countFunctions(API_DIR).length).toBeLessThanOrEqual(12);
+  it('every function in the tree is on the budget list, so a new route is written down', () => {
+    const budget = readFileSync(BUDGET, 'utf8');
+    for (const fn of countFunctions(API_DIR)) {
+      expect(budget, `api/${fn} is a function but SERVERLESS_BUDGET.md does not list it`).toContain(`\`api/${fn}\``);
+    }
   });
 
   it('dispatches ?resource=commerce behind a lazy import', () => {

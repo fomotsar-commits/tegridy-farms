@@ -27,4 +27,25 @@ describe('TransactionReceipt sanitize', () => {
     expect(out.length).toBe(120);
     expect(out).toBe('x'.repeat(120));
   });
+
+  // The cap counted UTF-16 units, so it could keep half of an emoji, and the
+  // receipt's share link then threw a URIError in encodeURIComponent.
+  it('caps by character, never keeping half of an emoji', () => {
+    const emoji = '\u{1F600}';
+    expect(sanitize(`${'A'.repeat(119)}${emoji}`)).toBe(`${'A'.repeat(119)}${emoji}`);
+    expect(sanitize(`${'A'.repeat(120)}${emoji}`)).toBe('A'.repeat(120));
+    expect(sanitize(emoji.repeat(200))).toBe(emoji.repeat(120));
+  });
+
+  it('drops a half character already in the value', () => {
+    expect(sanitize('AB\u{D83D}CD')).toBe('ABCD');
+    expect(sanitize('AB\u{DE00}CD')).toBe('ABCD');
+    expect(sanitize('\u{D83D}')).toBe('');
+  });
+
+  it('always returns text a URL can carry', () => {
+    for (const s of [`${'A'.repeat(119)}\u{1F600}`, 'x\u{D83D}', '\u{DE00}y', `${'\u{1F33F}'.repeat(130)}`]) {
+      expect(() => encodeURIComponent(sanitize(s))).not.toThrow();
+    }
+  });
 });

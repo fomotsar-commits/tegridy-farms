@@ -4,7 +4,9 @@ import { formatEther } from 'viem';
 import { toast } from 'sonner';
 import { TEGRIDY_RESTAKING_ABI, TEGRIDY_STAKING_ABI } from '../lib/contracts';
 import { TEGRIDY_RESTAKING_ADDRESS, TEGRIDY_STAKING_ADDRESS, CHAIN_ID, isDeployed as checkDeployed } from '../lib/constants';
-import { surfaceTxError } from '../lib/txErrors';
+import { surfaceTxError, surfaceUnconfirmedTx, receiptOutcome, noteReplacement } from '../lib/txErrors';
+import { useReplacedTxNotice } from './useReceiptOutcome';
+import { getTxUrl } from '../lib/explorer';
 
 export function useRestaking() {
   const chainId = useChainId();
@@ -14,12 +16,19 @@ export function useRestaking() {
   const isDeployed = checkDeployed(TEGRIDY_RESTAKING_ADDRESS);
 
   const { writeContract, data: hash, isPending, reset, error: writeError } = useWriteContract();
-  const { data: receipt, isLoading: isConfirming, isSuccess: isReceiptFetched, isError: isTxError } = useWaitForTransactionReceipt({ chainId: CHAIN_ID, hash });
+  const receiptQuery = useWaitForTransactionReceipt({ chainId: CHAIN_ID, hash, onReplaced: noteReplacement });
+  const { isLoading: isConfirming } = receiptQuery;
   // AUDIT (receipt-status, 2026-08-24): wagmi's raw `isSuccess` only means "the
-  // receipt was FETCHED" — it latches true for on-chain REVERTED txs too. Only
-  // receipt.status === 'success' is a real success; the toasts below key off this.
-  const isReverted = isReceiptFetched && !!receipt && receipt.status !== 'success';
-  const isSuccess = isReceiptFetched && !isReverted;
+  // receipt was FETCHED". Only receipt.status === 'success' is a real success.
+  //
+  // 2026-09-17: and wagmi's `isError` is TWO facts. A real revert arrives there
+  // (wagmi THROWS on a reverted receipt, so the revert effect below never fired)
+  // and so does "we could not READ the receipt". receiptOutcome splits them by
+  // error type; see lib/txErrors.ts. And a receipt is only proof of its OWN
+  // transaction: a cancelled restake resolves with the cancel's success receipt.
+  const outcome = receiptOutcome(receiptQuery, hash);
+  const { isSuccess, isReverted, isReceiptUnreadable } = outcome;
+  useReplacedTxNotice(outcome, hash, chainId);
 
   // Read user's staking position + restaking state in parallel.
   // R043 H-062-02: chainId pin on every entry. NOT also gated on the wallet's
@@ -142,12 +151,20 @@ export function useRestaking() {
     }
   }, [isSuccess, refetch]);
 
+  // The receipt READ failed. This used to be "Transaction failed on-chain" for
+  // every wagmi `isError`, which was right for a revert and a claim nobody observed
+  // for an unreadable receipt. See surfaceUnconfirmedTx in lib/txErrors.ts.
   useEffect(() => {
-    if (isTxError) toast.error('Transaction failed on-chain');
-  }, [isTxError]);
+    if (!isReceiptUnreadable || !hash) return;
+    surfaceUnconfirmedTx(toast, {
+      hash,
+      explorerUrl: getTxUrl(chainId, hash),
+      repeatCost: 'sending it again restakes, unrestakes or claims a second time.',
+    });
+  }, [isReceiptUnreadable, hash, chainId]);
 
-  // On-chain revert: the receipt fetch succeeded (so isTxError stays false) but
-  // the tx failed — honest error instead of the success toast (see derivation above).
+  // On-chain revert: we read the receipt and the tx failed — honest error instead
+  // of the success toast (see derivation above).
   useEffect(() => {
     if (isReverted) {
       toast.error('Transaction reverted on-chain', {

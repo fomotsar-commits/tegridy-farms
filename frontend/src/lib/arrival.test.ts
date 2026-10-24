@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { arrivalVoice, isToweliVoice, loaderIdentity, VENUE } from './arrival';
+import { arrivalVoice, voiceAt, isToweliVoice, loaderIdentity, VENUE } from './arrival';
+import { TOWELI_ROOM_PATHS } from './routeVoice';
+import { onboardingSteps } from '../components/onboarding/onboardingSteps';
 import { BUNGALOW_STORAGE_KEY } from './bungalows';
 
 /**
@@ -42,9 +44,9 @@ describe('arrivalVoice resolution matrix', () => {
     expect(arrivalVoice()).toBe('toweli');
   });
 
-  it('is toweli when the stored choice is toweli', () => {
+  it('is the venue on the home page, whatever room was opened last', () => {
     localStorage.setItem(BUNGALOW_STORAGE_KEY, 'toweli');
-    expect(arrivalVoice()).toBe('toweli');
+    expect(arrivalVoice()).toBe('venue');
   });
 
   it('is bungalow when a non-default identity bungalow is stored (bayla)', () => {
@@ -55,6 +57,78 @@ describe('arrivalVoice resolution matrix', () => {
   it('falls back to venue on an unknown stored id', () => {
     localStorage.setItem(BUNGALOW_STORAGE_KEY, 'not-a-bungalow');
     expect(arrivalVoice()).toBe('venue');
+  });
+});
+
+/**
+ * THE FARM SPEAKS ONLY IN ITS ROOM (docs/FACE_LAWS.md, law 21).
+ *
+ * One visit to /toweli stores the room, and the stored room used to speak on every
+ * route after it: the farm's footer, Towelie and the farm's words on /start. The
+ * stored room still dresses the art and the trade route. It speaks only on its own pages.
+ */
+describe('the room opened last speaks only on its own pages', () => {
+  const VENUE_ROUTES = ['/', '/start', '/leaderboard', '/launch', '/nb1', '/swap', '/solana', '/earn', '/pools', '/scan', '/bayla', '/earn/bayla'];
+  const FARM_PAGES = ['/toweli', '/towelie', ...TOWELI_ROOM_PATHS];
+
+  it('is the venue on every venue route after a visit to /toweli', () => {
+    localStorage.setItem(BUNGALOW_STORAGE_KEY, 'toweli');
+    for (const path of VENUE_ROUTES) {
+      goto(path);
+      expect(arrivalVoice(), path).toBe('venue');
+      expect(isToweliVoice(), path).toBe(false);
+    }
+  });
+
+  it('is still the farm on the farm’s own pages, for a visitor who came through its door', () => {
+    // The counter-test: a fix that silenced the farm everywhere would pass the case above.
+    localStorage.setItem(BUNGALOW_STORAGE_KEY, 'toweli');
+    expect(FARM_PAGES).toContain('/tokenomics');
+    expect(FARM_PAGES).toContain('/earn/toweli');
+    for (const path of FARM_PAGES) {
+      goto(path);
+      expect(arrivalVoice(), path).toBe('toweli');
+    }
+  });
+
+  it('does not start speaking to a stranger who lands on a farm protocol page', () => {
+    // As before: only the two doors speak with nothing stored (routeVoice.ts says why).
+    for (const path of TOWELI_ROOM_PATHS) {
+      goto(path);
+      expect(arrivalVoice(), path).toBe('venue');
+    }
+  });
+
+  it('follows the room last opened on /dashboard, which draws that room’s positions', () => {
+    // The one route left: the farm's positions page has no address of its own yet.
+    localStorage.setItem(BUNGALOW_STORAGE_KEY, 'toweli');
+    goto('/dashboard');
+    expect(arrivalVoice()).toBe('toweli');
+    localStorage.clear();
+    expect(arrivalVoice()).toBe('venue');
+  });
+
+  it('answers for a given path the same way, without reading the address bar', () => {
+    localStorage.setItem(BUNGALOW_STORAGE_KEY, 'toweli');
+    goto('/toweli');
+    expect(voiceAt('/start', '')).toBe('venue');
+    expect(voiceAt('/tokenomics', '')).toBe('toweli');
+    goto('/start');
+    expect(voiceAt('/toweli', '')).toBe('toweli');
+  });
+
+  it('keeps the venue’s words in step one of /start', () => {
+    localStorage.setItem(BUNGALOW_STORAGE_KEY, 'toweli');
+    goto('/start');
+    const first = onboardingSteps()[0]!.body.join(' ');
+    expect(first).toContain('stake a resident community’s token');
+    expect(first).not.toContain('TOWELI');
+  });
+
+  it('never forms the farm’s loader words on a venue route', () => {
+    localStorage.setItem(BUNGALOW_STORAGE_KEY, 'toweli');
+    goto('/launch');
+    expect(loaderIdentity().main).toBe('MEMETICS');
   });
 });
 

@@ -4,6 +4,7 @@ import { SHIELD_COPY } from '../../lib/shield/automation';
 import { ShieldAutomationNotice } from './ShieldAutomationNotice';
 import { ShieldCoverageNotice } from './ShieldCoverageNotice';
 import { ShieldPositionCard } from './ShieldPositionCard';
+import { CardArt } from '../ui/CardArt';
 
 // The shield surface.
 //
@@ -25,10 +26,8 @@ export function ShieldPanel() {
 
   return (
     <section className="space-y-3" aria-label={SHIELD_COPY.title}>
-      <div>
-        <h3 className="heading-luxury text-[15px] text-white">{SHIELD_COPY.title}</h3>
-        <p className="text-white/60 text-[12px] mt-0.5">{SHIELD_COPY.subtitle}</p>
-      </div>
+      {/* The subtitle moved into the notice's "How it works" (owner 2026-10-14: fewer words). */}
+      <h3 className="heading-luxury text-[15px] text-white">{SHIELD_COPY.title}</h3>
 
       <ShieldAutomationNotice />
 
@@ -78,10 +77,11 @@ export function ShieldPanel() {
 
       {alerts.rules.length > 0 && (
         <section
-          className="rounded-xl p-4"
+          className="relative isolate rounded-xl p-4"
           style={{ background: '#000', border: '1px solid var(--color-purple-75)' }}
           aria-label="Deadline alerts"
         >
+          <CardArt pageId="shield" idx={3} />
           <p className="text-white text-[12px] font-semibold">
             Deadline alerts — {alerts.rules.length} rule{alerts.rules.length === 1 ? '' : 's'}
           </p>

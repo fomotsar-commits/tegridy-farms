@@ -1,5 +1,9 @@
 import { m } from 'framer-motion';
 import { isBootstrapApr, BOOTSTRAP_APR_NOTE } from '../../lib/copy';
+import { CardArt } from '../ui/CardArt';
+
+// The strip's five tiles; a tile added later reuses a registered art surface (idx wraps).
+const INCENTIVE_ART_SLOTS = 5;
 
 interface IncentivesStripProps {
   apr: string;
@@ -85,7 +89,7 @@ export function IncentivesStrip({ apr, aprNum, rewardPool, dailyEmissions, rewar
   // Name the deduction rather than leaving an unexplained 80%. Only rendered
   // when the read landed, so the sentence can never quote a number we don't have.
   const feeShareSub = referralFeeBps !== null && referralFeeBps > 0
-    ? `after the ${Number.isInteger(referralFeeBps / 100) ? referralFeeBps / 100 : (referralFeeBps / 100).toFixed(2)}% referral cut taken off the top`
+    ? `after a ${Number.isInteger(referralFeeBps / 100) ? referralFeeBps / 100 : (referralFeeBps / 100).toFixed(2)}% referral cut`
     : undefined;
   // F101: prefer the honest "rewards remaining" figure (balance − staked −
   // unsettled) over the cumulative totalFunded when it's available, and label it
@@ -110,7 +114,7 @@ export function IncentivesStrip({ apr, aprNum, rewardPool, dailyEmissions, rewar
       l: hasRemaining ? 'Rewards Remaining' : 'Reward Pool',
       v: hasRemaining ? rewardsRemaining! : reserveEmpty ? '0 TOWELI' : rewardPool,
       icon: '💰',
-      sub: reserveEmpty ? drySub : runway ? `≈ ${runway} of runway left at the current rate` : undefined,
+      sub: reserveEmpty ? drySub : runway ? `≈ ${runway} left at this rate` : undefined,
     },
     { l: 'Daily Emissions', v: reserveEmpty ? '0 / day' : dailyEmissions === '–' ? '–' : `${dailyEmissions} / day`, icon: '⚡' },
     { l: 'Max Boost', v: '4.0× · 4-yr lock', icon: '🚀' },
@@ -123,12 +127,13 @@ export function IncentivesStrip({ apr, aprNum, rewardPool, dailyEmissions, rewar
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.05 }}
     >
-      {items.map((s) => (
+      {items.map((s, i) => (
         <div
           key={s.l}
-          className="rounded-xl p-3 md:p-4"
+          className="relative isolate rounded-xl p-3 md:p-4"
           style={{ border: '1px solid var(--color-purple-75)', background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)' }}
         >
+          <CardArt pageId="incentives-strip" idx={0 + (i % INCENTIVE_ART_SLOTS)} />
           <p
             className="text-[11px] uppercase tracking-wider mb-1.5 flex items-center gap-1.5"
             style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}

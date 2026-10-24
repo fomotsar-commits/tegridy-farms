@@ -1,5 +1,6 @@
 import type { LedgerRead } from '../../hooks/useWalletLedger';
 import { MAX_LEDGER_PAGES } from '../../hooks/useWalletLedger';
+import { CardArt } from '../ui/CardArt';
 
 // WHAT WAS READ, SAID BEFORE ANY FIGURE IS SHOWN.
 //
@@ -112,7 +113,8 @@ const TONE_CLASS: Record<'neutral' | 'good' | 'warn', string> = {
 export function LedgerStatusCard({ read }: { read: LedgerRead }) {
   const { tone, lines } = bodyFor(read);
   return (
-    <section className={`rounded-xl border p-4 ${TONE_CLASS[tone]}`}>
+    <section className={`relative isolate rounded-xl border p-4 ${TONE_CLASS[tone]}`}>
+      <CardArt pageId="tax" idx={4} />
       <h2 className="text-sm font-semibold text-white">What was read</h2>
       {lines.map((line) => (
         <p key={line.slice(0, 48)} className="mt-2 text-[13px] leading-relaxed text-white/85">

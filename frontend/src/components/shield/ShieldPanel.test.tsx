@@ -101,7 +101,7 @@ describe('the automation claim is on screen before anything else', () => {
     ['at risk', () => buildSnapshot([raw()], NOW)],
   ])('in the %s state it says execution is the user’s', (_name, make) => {
     mount(make() as ShieldPositionsSnapshot);
-    expect(screen.getAllByText(/You execute this yourself/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/You repay it yourself/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Not automated/i).length).toBeGreaterThan(0);
   });
 
@@ -123,7 +123,7 @@ describe('the automation claim is on screen before anything else', () => {
   it('renders the sentence alongside the signing button, not on another screen', () => {
     mount(buildSnapshot([raw()], NOW));
     expect(screen.getByRole('button', { name: /Review and sign repayment/i })).toBeTruthy();
-    expect(screen.getAllByText(/You execute this yourself/i).length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText(/You repay it yourself/i).length).toBeGreaterThanOrEqual(2);
   });
 });
 

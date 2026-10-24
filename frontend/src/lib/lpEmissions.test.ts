@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { lpEmissionsPhase, dayTwoEconomyPhrase, dayTwoEconomyShortPhrase } from './lpEmissions';
+import { lpEmissionsPhase, dayTwoEconomyPhrase, dayTwoEconomyShortPhrase, lpFarmDeposit } from './lpEmissions';
 
 // The real mainnet reading, 2026-07-31 (TegridyLPFarming 0x1171…e149):
 //   periodFinish() = 1781493095  → 2026-06-15 UTC, in the PAST
@@ -52,5 +52,26 @@ describe('day-2 economy copy', () => {
   it('says the funding state is unreadable rather than guessing', () => {
     expect(dayTwoEconomyPhrase('unknown')).toMatch(/could not read/i);
     expect(dayTwoEconomyShortPhrase('unknown')).toMatch(/could not read/i);
+  });
+});
+
+describe('lpFarmDeposit: no new stake into a farm that stopped paying (owner, 2026-10-14)', () => {
+  it('closes at the real mainnet end, with that date and no other', () => {
+    const d = lpFarmDeposit(MAINNET_PERIOD_FINISH, NOW_2026_07_31);
+    expect(d.open).toBe(false);
+    if (d.open) return;
+    expect(d.reason).toBe('ended');
+    expect(d.line).toBe('Rewards ended Jun 15, 2026, so new stakes are closed. Withdraw and claim still work.');
+  });
+
+  it('holds an unread end and says no date', () => {
+    const d = lpFarmDeposit(null, NOW_2026_07_31);
+    expect(d).toMatchObject({ open: false, reason: 'unread' });
+    if (!d.open) expect(d.line).not.toMatch(/20\d\d/);
+  });
+
+  it('stays open while the period runs, and for a farm never funded (0)', () => {
+    expect(lpFarmDeposit(MAINNET_PERIOD_FINISH, Date.parse('2026-06-01T00:00:00Z'))).toEqual({ open: true });
+    expect(lpFarmDeposit(0, NOW_2026_07_31)).toEqual({ open: true });
   });
 });

@@ -4,7 +4,7 @@ import { BUNGALOW_ART_FILES } from './bungalowArtPools';
 import { safeGetItem, safeSetItem } from './storage';
 import { TOWELI_ADDRESS } from './constants';
 
-// Jungle Bay Island: the 13 bungalows, from the island's published canon (memetics.wtf
+// Jungle Bay Island: the bungalows and one open lot, from the island's published canon (memetics.wtf
 // SPOTS + SIGNSV2). Addresses are verbatim: re-read the source, never guess or "fix" one.
 // A bungalow re-skins pageArt() backgrounds and, with an `identity`, the hero, farm and
 // footer speak its token; buttons, nav, rails and contracts never change. The skin is
@@ -65,6 +65,12 @@ export interface Bungalow {
 
   /** Closed to new deposits (a UI gate, not on chain). Claim, unstake and rescue never close. Absent = open. */
   depositsClosed?: true;
+  /** Solana only: this coin's SOL pool on the venue's own pool program, the deepest if several. It puts the
+   *  LP door on the room (`bungalowLpDoor`). The finder reads and checks the pool on chain before any form opens,
+   *  so a stale entry opens nothing; a pool opened later shows its door once it is added here.
+   *  Read on chain 2026-10-18: every Solana room has one. BAYLA's (10-03), RIZZ's (10-16), BRAINLET's and
+   *  BOBO's (10-17), SOY's (10-18). */
+  venueSolPool?: string;
   /** Decimals fallback before the live mint read lands (which wins). */
   decimals?: number;
   /** The primary pool the chart and market strip read, as GeckoTerminal names it. `network` is GeckoTerminal's
@@ -97,6 +103,14 @@ export const BAYLA_ART: ArtPiece[] = bungalowArtFor('bayla', 'Bayla') ?? [];
 
 export const DEFAULT_BUNGALOW_ID = 'toweli';
 
+/** The TOWELI room's hero heading, which HomePage's classic cluster renders. Its door's
+ *  static frame (scripts/render-bungalow-doors.mjs) and React fallback (DoorFrame) read
+ *  the same two lines. Not an `identity`: one would swap that cluster for BungalowHero. */
+export const TOWELI_HERO: Pick<BungalowIdentity, 'heroTitle' | 'heroLine'> = {
+  heroTitle: 'Farm TOWELI.',
+  heroLine: 'Check our work.',
+};
+
 export const BAYLA_MINT = '7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump';
 
 // The BAYLA lighthouse pool (mainnet, nonce 1); reward pool 3ysyH5py46Q4XUXkumGy3DhWjPbNVhLMfQZmpQMdDruf.
@@ -122,6 +136,14 @@ export const ISLAND_READ_POOLS: readonly { chain: Bungalow['chain']; pool: strin
   { chain: 'solana', pool: 'Bq6jovnQhayMjr5RqsezGMxgmF5851mqFAhX6LrsXTXV' }, // lock ladder
   { chain: 'solana', pool: 'EFWpSpH9rU6jGqpMPpo9VavMdBd64CdodakaJtCXEZ9f' }, // BAYLA lighthouse
 ];
+
+/** A ladder card's one line on where its rewards came from (answer sixteen, ruling 6). Keyed
+ *  by pool address like ISLAND_READ_POOLS, so a repointed or devnet pool draws none. The
+ *  2,000,000 left the Workshop, passed two wallets and entered the reward vault by NotifyReward
+ *  57FJHePC99Cm1Heox2U2gUTEtVqzCDENrmx399PL3yh9Zcv8WeDcK8Dtgw1sSgVZ64tcMLtkepD4dfcg1M5MUJWP. */
+export const LADDER_FUNDING_LINES: ReadonlyMap<string, string> = new Map([
+  ['Bq6jovnQhayMjr5RqsezGMxgmF5851mqFAhX6LrsXTXV', "2,000,000 of this ladder's rewards came from the island's Workshop on 2026-09-24."],
+]);
 
 /** Read by the island: yes or no. Exact on Solana (base58), case-blind on EVM. */
 export function poolReadByIsland(
@@ -208,6 +230,8 @@ export const BUNGALOWS: Bungalow[] = [
     ladderPool: BAYLA_LADDER_POOL || undefined,
     // Retiring for `bayla-ladder`: positions keep claim, unstake and rescue; only the stake form goes.
     depositsClosed: true,
+    // BAYLA/SOL on the venue's pool program, opened 2026-10-02 by the owner's wallet.
+    venueSolPool: 'ErvzV1NMZmcfAqZtGH4AQhYAjn77nJEworKK1mYPz5w4',
     // Token-2022, 6 decimals, no transfer-fee extension: staked and claimed amounts are exact.
     decimals: 6,
     live: true,
@@ -234,15 +258,18 @@ export const BUNGALOWS: Bungalow[] = [
       lore: {
         title: 'The muse of Jungle Bay Island',
         paragraphs: [
+          // Trimmed to 41 words (owner, 2026-10-14: fewer words); the map line went.
           'An island in a sea of rugs, built by the memes: bungalows for token ' +
           'communities, an artist economy, and time held is what counts. Bayla is ' +
           'its muse: brought to light by the Jungle Bay Artists Collective, seated ' +
-          'at the lighthouse, the newest name on the island map.',
+          'at the lighthouse.',
           'Her pull reaches every kind of maker. The work is yours. The light is ' +
           'hers. Dank Memes + Time = Memetic Finance.',
         ],
         links: [
           { href: 'https://memetics.wtf/', label: 'The island' },
+          // The island's own label on its /bayla page. A link only: its numbers stay there.
+          { href: 'https://memetics.wtf/receipts', label: 'Check it on the ledger' },
           { href: 'https://opensea.io/collection/junglebay', label: 'Jungle Bay on OpenSea' },
           { href: 'https://x.com/JungleBayAC', label: '@JungleBayAC' },
         ],
@@ -257,15 +284,30 @@ export const BUNGALOWS: Bungalow[] = [
   { id: 'mfer', name: 'MFER', symbol: 'MFER', chain: 'base', address: '0xe3086852a4b125803c815a158249ae468a3254ca', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#b8b8b8', swapUrl: 'https://dexscreener.com/base/0xe3086852a4b125803c815a158249ae468a3254ca', thumbPosition: '50% 26%', thumb: '/art/mfers-heaven.jpg', decimals: 18, market: { network: 'base', pool: '0xb08a99ab559e5456907278727a3b0d968c0a313b', label: '$MFER / WETH' }, stakePool: '0xeCB3C54488A2A0dF764444f67B2Df6b8Ad4EaDd6', poolKind: 'ladder', artPool: bungalowArtFor('mfer', 'MFER'), live: true, identity: settledIdentity('MFER', 'MFER', 'Base') },
   { id: 'bnkr', name: 'BNKR', symbol: 'BNKR', chain: 'base', address: '0x22af33fe49fd1fa80c7149773dde5890d3c76f3b', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#4ac9a8', swapUrl: 'https://dexscreener.com/base/0x22af33fe49fd1fa80c7149773dde5890d3c76f3b', thumbPosition: '50% 18%', thumb: '/art/wrestler.jpg', community: { label: 'bankr.bot', url: 'https://bankr.bot' }, decimals: 18, market: { network: 'base', pool: '0xaec085e5a5ce8d96a7bdd3eb3a62445d4f6ce703', label: 'BNKR / WETH' }, stakePool: '0xe6abC8AcA0415aFaC426ec1242BB17afABe8Dbcf', poolKind: 'ladder', artPool: bungalowArtFor('bnkr', 'BNKR'), live: true, identity: settledIdentity('BNKR', 'BNKR', 'Base') },
   { id: 'drb', name: 'DRB', symbol: 'DRB', chain: 'base', address: '0x3ec2156d4c0a9cbdab4a016633b7bcf6a8d68ea2', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#d4b168', swapUrl: 'https://dexscreener.com/base/0x3ec2156d4c0a9cbdab4a016633b7bcf6a8d68ea2', thumbPosition: '50% 28%', thumb: '/art/boxing-ring.jpg', community: { label: 'drb task force', url: 'https://bio.site/drbtaskforce' }, decimals: 18, market: { network: 'base', pool: '0x5116773e18a9c7bb03ebb961b38678e45e238923', label: 'DRB / WETH' }, stakePool: '0x0aCB93fcFD5b1950D94064998017a2601b36D7bB', poolKind: 'ladder', artPool: bungalowArtFor('drb', 'DRB'), live: true, identity: settledIdentity('DRB', 'DRB', 'Base', 'drb task force') },
-  { id: 'bobo', name: 'BOBO', symbol: 'BOBO', chain: 'solana', address: '4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump', status: 'SETTLED · hammers up', tagline: 'Built brick by brick by its people.', accent: '#dcae60', swapUrl: 'https://jup.ag/swap/SOL-4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump', thumbPosition: '50% 32%', thumb: '/art/ape-hug.jpg', community: { label: 'bobothebear.io', url: 'https://bobothebear.io' }, decimals: 6, market: { network: 'solana', pool: '31ZmTzEufRDBGKsJ7NicCkEKxtPQgAEMQvdbCuUfE6GX', label: 'BOBO / SOL' }, stakePool: 'PkwDYVNxyesAukE9STqRQL9H1pBpXbt1tVbiYVMX96w', artPool: bungalowArtFor('bobo', 'BOBO'), live: true, identity: settledIdentity('BOBO', 'BOBO', 'Solana', 'bobothebear.io') },
+  { id: 'bobo', name: 'BOBO', symbol: 'BOBO', chain: 'solana', address: '4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump', status: 'SETTLED · hammers up', tagline: 'Built brick by brick by its people.', accent: '#dcae60', swapUrl: 'https://jup.ag/swap/SOL-4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump', thumbPosition: '50% 32%', thumb: '/art/ape-hug.jpg', community: { label: 'bobothebear.io', url: 'https://bobothebear.io' }, decimals: 6, market: { network: 'solana', pool: '31ZmTzEufRDBGKsJ7NicCkEKxtPQgAEMQvdbCuUfE6GX', label: 'BOBO / SOL' }, stakePool: 'PkwDYVNxyesAukE9STqRQL9H1pBpXbt1tVbiYVMX96w', venueSolPool: '9mHGFULXNFjcdkZ9fLy24A3pp4iYVk6y889NNcUvSgRV', artPool: bungalowArtFor('bobo', 'BOBO'), live: true, identity: settledIdentity('BOBO', 'BOBO', 'Solana', 'bobothebear.io') },
   { id: 'jbm', name: 'JBM', symbol: 'JBM', chain: 'base', address: '0x3313338fe4bb2a166b81483bfcb2d4a6a1ebba8d', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#ffd078', swapUrl: 'https://dexscreener.com/base/0x3313338fe4bb2a166b81483bfcb2d4a6a1ebba8d', thumbPosition: '50% 24%', thumb: '/art/bus-crew.jpg', decimals: 18, market: { network: 'base', pool: '0xbc6156458bc948cba71dd0be99bfa472bd636331', label: 'JBM / WETH' }, stakePool: '0x3C339692ec7B3b96ad6F8fbEb5F5202164b44465', poolKind: 'ladder', artPool: bungalowArtFor('jbm', 'JBM'), live: true, identity: settledIdentity('JBM', 'JBM', 'Base') },
-  { id: 'soy', name: 'SOY', symbol: 'SOY', chain: 'solana', address: '8zsZESzrGoYVi1dVH4QNWXJ2EfW4v287aEGNiDvQpump', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#b5c95f', swapUrl: 'https://jup.ag/swap/SOL-8zsZESzrGoYVi1dVH4QNWXJ2EfW4v287aEGNiDvQpump', thumbPosition: '50% 30%', thumb: '/art/dance-night.jpg', community: { label: 'SOY / SOL', url: 'https://soyjak.life' }, decimals: 6, market: { network: 'solana', pool: 'H8yiDq5XaNkiT6J3QXDeBVfsFHNaVwTRNicbWZnibexi', label: 'SOY / SOL' }, stakePool: '5hgUVCWW4fwM7oq3SQyaj5ucVQFa2dQ4YqQc4JqrGXHj', artPool: bungalowArtFor('soy', 'SOY'), live: true, identity: settledIdentity('SOY', 'SOY', 'Solana', 'soyjak.life') },
-  { id: 'brainlet', name: 'Brainlet', symbol: 'BRAINLET', chain: 'solana', address: '4XKGjKaKowFvL5sYwh2AKx72vj9iwC8MNvpL44E9pump', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#5fc9b0', swapUrl: 'https://jup.ag/swap/SOL-4XKGjKaKowFvL5sYwh2AKx72vj9iwC8MNvpL44E9pump', thumbPosition: '50% 30%', thumb: '/art/chaos-scene.jpg', community: { label: 'BRAINLET / SOL', url: 'https://x.com/brainletbadger' }, decimals: 6, market: { network: 'solana', pool: '3whYbw26asxFG5Qh9emHA6Mi6uizvduYg1cVKLQ1eetq', label: 'BRAINLET / SOL' }, stakePool: '2qSZBzjpxKzhJWmyaoN5kP3XQxUikH3SQR5suXuQjkZR', artPool: bungalowArtFor('brainlet', 'Brainlet'), live: true, identity: settledIdentity('Brainlet', 'BRAINLET', 'Solana', '@brainletbadger') },
+  { id: 'soy', name: 'SOY', symbol: 'SOY', chain: 'solana', address: '8zsZESzrGoYVi1dVH4QNWXJ2EfW4v287aEGNiDvQpump', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#b5c95f', swapUrl: 'https://jup.ag/swap/SOL-8zsZESzrGoYVi1dVH4QNWXJ2EfW4v287aEGNiDvQpump', thumbPosition: '50% 30%', thumb: '/art/dance-night.jpg', community: { label: 'SOY / SOL', url: 'https://soyjak.life' }, decimals: 6, market: { network: 'solana', pool: 'H8yiDq5XaNkiT6J3QXDeBVfsFHNaVwTRNicbWZnibexi', label: 'SOY / SOL' }, stakePool: '5hgUVCWW4fwM7oq3SQyaj5ucVQFa2dQ4YqQc4JqrGXHj', venueSolPool: '5M4SZy9Ytu1LGWWjBUwiDZ98bGdpQL4fD3PHETEXPAN8', artPool: bungalowArtFor('soy', 'SOY'), live: true, identity: settledIdentity('SOY', 'SOY', 'Solana', 'soyjak.life') },
+  { id: 'brainlet', name: 'Brainlet', symbol: 'BRAINLET', chain: 'solana', address: '4XKGjKaKowFvL5sYwh2AKx72vj9iwC8MNvpL44E9pump', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#5fc9b0', swapUrl: 'https://jup.ag/swap/SOL-4XKGjKaKowFvL5sYwh2AKx72vj9iwC8MNvpL44E9pump', thumbPosition: '50% 30%', thumb: '/art/chaos-scene.jpg', community: { label: 'BRAINLET / SOL', url: 'https://x.com/brainletbadger' }, decimals: 6, market: { network: 'solana', pool: '3whYbw26asxFG5Qh9emHA6Mi6uizvduYg1cVKLQ1eetq', label: 'BRAINLET / SOL' }, stakePool: '2qSZBzjpxKzhJWmyaoN5kP3XQxUikH3SQR5suXuQjkZR', venueSolPool: 'HaRnur2ETP44bFtjUU4haQcFVYrCDTSaJfjKY3E3bDDD', artPool: bungalowArtFor('brainlet', 'Brainlet'), live: true, identity: settledIdentity('Brainlet', 'BRAINLET', 'Solana', '@brainletbadger') },
   // RIZZ is the SOLANA mint below: a Base deployment carries the same name and symbol.
-  { id: 'rizz', name: 'RIZZ', symbol: 'RIZZ', chain: 'solana', address: '5ad4puH6yDBoeCcrQfwV5s9bxvPnAeWDoYDj3uLyBS8k', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#7fe0b0', swapUrl: 'https://jup.ag/swap/SOL-5ad4puH6yDBoeCcrQfwV5s9bxvPnAeWDoYDj3uLyBS8k', thumbPosition: '50% 30%', thumb: '/art/rose-ape.jpg', decimals: 6, market: { network: 'solana', pool: 'dgaDYLCP67MqAzt28WAYtE6pYCHUbRMHtWYLniH1DaL', label: 'RIZZ / SOL' }, stakePool: 'BZ1rGCD8G5kXyKkXxmNh2Xf92QLz4PUZitzauMEdxd5c', artPool: bungalowArtFor('rizz', 'RIZZ'), live: true, identity: settledIdentity('RIZZ', 'RIZZ', 'Solana') },
-  // ——— The quiet one ———
-  { id: 'nb1', name: 'Unmarked', symbol: '?', chain: 'tbd', status: 'QUIET', tagline: 'Someone is building here.', accent: '#f2ffe9', thumb: '/art/jungle-dark.jpg', live: false },
+  { id: 'rizz', name: 'RIZZ', symbol: 'RIZZ', chain: 'solana', address: '5ad4puH6yDBoeCcrQfwV5s9bxvPnAeWDoYDj3uLyBS8k', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#7fe0b0', swapUrl: 'https://jup.ag/swap/SOL-5ad4puH6yDBoeCcrQfwV5s9bxvPnAeWDoYDj3uLyBS8k', thumbPosition: '50% 30%', thumb: '/art/rose-ape.jpg', decimals: 6, market: { network: 'solana', pool: 'dgaDYLCP67MqAzt28WAYtE6pYCHUbRMHtWYLniH1DaL', label: 'RIZZ / SOL' }, stakePool: 'BZ1rGCD8G5kXyKkXxmNh2Xf92QLz4PUZitzauMEdxd5c', venueSolPool: '3yDDaZtABgj7z4BNtPKpfnK4yrx5bvEphDXYGGTnTmfA', artPool: bungalowArtFor('rizz', 'RIZZ'), live: true, identity: settledIdentity('RIZZ', 'RIZZ', 'Solana') },
+  // ——— The quiet one: the island's next open lot, not a bungalow ———
+  { id: 'nb1', name: 'Unmarked', symbol: '?', chain: 'tbd', status: 'QUIET', tagline: 'For the next community.', accent: '#f2ffe9', thumb: '/art/jungle-dark.jpg', live: false },
 ];
+
+/** How many bungalows the island has: every row but an open lot (chain 'tbd'). The island
+ *  numbers its lots after its bungalows, so the open lot here is BUNGALOW_COUNT + 1. */
+export const BUNGALOW_COUNT = BUNGALOWS.filter((b) => b.chain !== 'tbd').length;
+
+/** The open lot's heading and picture (answer sixteen, ruling 9). Its landing
+ *  (BungalowDoorLanding) and its busy fallback (LotFrame) read these; its static frame
+ *  (scripts/render-bungalow-doors.mjs) is pinned to them by bungalowDoors.test.ts. The
+ *  picture is the owner's pick (naka31, 2026-10-02), fixed: no stored skin changes it. */
+export const OPEN_LOT_HERO = {
+  heroTitle: 'Unmarked.',
+  heroLine: `Lot ${BUNGALOW_COUNT + 1}, for the next community.`,
+  heroArt: '/splash/new/7.jpg',
+  heroPosition: '50% 28%',
+} as const;
 
 /** Storage key. Survives quota eviction only because storage.ts lists it in EVICTION_PROTECTED_KEYS. */
 export const BUNGALOW_STORAGE_KEY = 'tegridy-bungalow';
@@ -381,6 +423,23 @@ function isDexscreenerUrl(url: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * The room whose coin the venue's three cards swap to, lock and pool (components/HomeModules.tsx;
+ * owner, 2026-10-16: "the bayla staking module and the lp pool module"). The cards are on the
+ * home, the island lobby and this room's own door (owner, 2026-10-19), and on no other room's:
+ * they are this coin's, and a room speaks only of its own (docs/FACE_LAWS.md, law 21).
+ */
+export const CARDS_ROOM_ID = 'bayla';
+
+/**
+ * The LP door (island, answer twenty): one press from a room to the Add form of its coin's SOL pool,
+ * with the token and the pool already answered. A room with no pool on the venue gets none.
+ */
+export function bungalowLpDoor(b: Bungalow): { to: string; label: string } | null {
+  if (b.chain !== 'solana' || !b.address || !b.venueSolPool) return null;
+  return { to: `/solana-lp?mint=${b.address}&task=add&pool=${b.venueSolPool}`, label: `Add SOL + ${b.symbol}` };
 }
 
 /** In-venue scanner route. Base carries the explicit chain: a 0x address is ambiguous with Ethereum. */

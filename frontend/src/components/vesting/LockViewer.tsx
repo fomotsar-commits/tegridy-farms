@@ -3,6 +3,7 @@ import { formatUnits, isAddress, type Address } from 'viem';
 import { useVestingLockView } from '../../hooks/useVestingLockView';
 import { FeatureNotDeployed } from '../ui/FeatureNotDeployed';
 import { NoData, UnavailableNotice } from './NoData';
+import { CardArt } from '../ui/CardArt';
 
 /**
  * The lock viewer: `LaunchLockView.snapshot` for one token, with the view's own
@@ -44,7 +45,8 @@ export function LockViewer() {
 
   return (
     <div className="space-y-4">
-      <div className="rounded-2xl border border-white/10 bg-black/20 p-5">
+      <div className="relative isolate rounded-2xl border border-white/10 bg-black/20 p-5">
+        <CardArt pageId="vesting" idx={4} />
         <label htmlFor="lock-token" className="block text-white/70 text-[13px] font-semibold mb-2">
           Token address
         </label>
@@ -75,13 +77,15 @@ export function LockViewer() {
         <p className="text-white/45 text-[13px]">Enter a token address to read its vesting and lock rails.</p>
       ) : view.readFailed || !snap ? (
         <UnavailableNotice
+          art={<CardArt pageId="vesting" idx={3} />}
           title="The view did not answer"
           detail={`LaunchLockView at ${view.address} could not be read for ${token}. Nothing is known about this token's locks or vesting from this page right now — this is not a report that it has none.`}
         />
       ) : (
         <div className="grid gap-4 sm:grid-cols-2">
           {/* ─── Vesting rail ─── */}
-          <div className="rounded-2xl border border-white/10 bg-black/20 p-5">
+          <div className="relative isolate rounded-2xl border border-white/10 bg-black/20 p-5">
+            <CardArt pageId="vesting" idx={5} />
             <h2 className="text-white/85 font-semibold text-sm mb-3">Vesting rail</h2>
             {!snap.vestingSourceAvailable ? (
               <UnavailableNotice
@@ -107,7 +111,8 @@ export function LockViewer() {
           </div>
 
           {/* ─── Lock rail ─── */}
-          <div className="rounded-2xl border border-white/10 bg-black/20 p-5">
+          <div className="relative isolate rounded-2xl border border-white/10 bg-black/20 p-5">
+            <CardArt pageId="vesting" idx={6} />
             <h2 className="text-white/85 font-semibold text-sm mb-3">Lock rail</h2>
             {!snap.lockSourceAvailable ? (
               <UnavailableNotice
