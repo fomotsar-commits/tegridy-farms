@@ -23,14 +23,16 @@ export const COMPILER = 'aiken v1.0.24-alpha+982eff4';
 // from what a download of the tag serves today.
 export const STDLIB = { repo: 'https://github.com/aiken-lang/stdlib', commit: '97cd61345bcc8925c521b30d0f354859eb0148cd', version: '1.7.0' };
 
-// Minswap's published mainnet hashes: README.md at the pin, and deployed/mainnet/script.json.
+// Minswap's published mainnet hashes (README.md at the pin, deployed/mainnet/script.json) and the
+// UTxOs holding each as a reference script (deployed/mainnet/references.json). Pinned here, so
+// --chain sends Koios only these, and a changed references.json fails instead of steering it.
 export const MAINNET = {
-  authen: { title: 'authen_minting_policy.validate_authen', hash: 'f5808c2c990d86da54bfc97d89cee6efa20cd8461616359478d96b4c', scriptKey: 'authenScript', refKey: 'authenTxId' },
-  pool: { title: 'pool_validator.validate_pool', hash: 'ea07b733d932129c378af627436e7cbc2ef0bf96e0036bb51b3bde6b', scriptKey: 'poolScript', refKey: 'poolTxId' },
-  poolBatching: { title: 'pool_validator.validate_pool_batching', hash: '1eae96baf29e27682ea3f815aba361a0c6059d45e4bfbe95bbd2f44a', scriptKey: 'poolBatchingScript', refKey: 'poolBatchingTxId' },
-  expiredOrderCancel: { title: 'order_validator.validate_expired_order_cancel', hash: 'c8b0cc61374d409ff9c8512317003e7196a3e4d48553398c656cc124', scriptKey: 'expiredOrderCancelScript', refKey: 'expiredOrderCancelTxId' },
-  order: { title: 'order_validator.validate_order', hash: 'c3e28c36c3447315ba5a56f33da6a6ddc1770a876a8d9f0cb3a97c4c', scriptKey: 'orderScript', refKey: 'orderTxId' },
-  factory: { title: 'factory_validator.validate_factory', hash: '7bc5fbd41a95f561be84369631e0e35895efb0b73e0a7480bb9ed730', scriptKey: 'factoryScript', refKey: 'factoryTxId' },
+  authen: { title: 'authen_minting_policy.validate_authen', hash: 'f5808c2c990d86da54bfc97d89cee6efa20cd8461616359478d96b4c', scriptKey: 'authenScript', refKey: 'authenTxId', ref: 'dbc1498500a6e79baa0f34d10de55cdb4289ca6c722bd70e1e1b78a858f136b9#0' },
+  pool: { title: 'pool_validator.validate_pool', hash: 'ea07b733d932129c378af627436e7cbc2ef0bf96e0036bb51b3bde6b', scriptKey: 'poolScript', refKey: 'poolTxId', ref: '2536194d2a976370a932174c10975493ab58fd7c16395d50e62b7c0e1949baea#0' },
+  poolBatching: { title: 'pool_validator.validate_pool_batching', hash: '1eae96baf29e27682ea3f815aba361a0c6059d45e4bfbe95bbd2f44a', scriptKey: 'poolBatchingScript', refKey: 'poolBatchingTxId', ref: 'd46bd227bd2cf93dedd22ae9b6d92d30140cf0d68b756f6608e38d680c61ad17#0' },
+  expiredOrderCancel: { title: 'order_validator.validate_expired_order_cancel', hash: 'c8b0cc61374d409ff9c8512317003e7196a3e4d48553398c656cc124', scriptKey: 'expiredOrderCancelScript', refKey: 'expiredOrderCancelTxId', ref: 'ef3acc7dfc5a98bffe8f4d4400e65a9ade5a1316b2fcb7145c3b83dba38a66f5#0' },
+  order: { title: 'order_validator.validate_order', hash: 'c3e28c36c3447315ba5a56f33da6a6ddc1770a876a8d9f0cb3a97c4c', scriptKey: 'orderScript', refKey: 'orderTxId', ref: 'cf4ecddde0d81f9ce8fcc881a85eb1f8ccdaf6807f03fea4cd02da896a621776#0' },
+  factory: { title: 'factory_validator.validate_factory', hash: '7bc5fbd41a95f561be84369631e0e35895efb0b73e0a7480bb9ed730', scriptKey: 'factoryScript', refKey: 'factoryTxId', ref: '59c7fa5c30cbab4e6d38f65e15d1adef71495321365588506ad089d237b602e0#0' },
 };
 
 // Plutus Data as CBOR hex, encoded as Plutus itself does: a constructor's non-empty field list
@@ -133,11 +135,11 @@ function applyMainnet(dir) {
   return JSON.parse(readFileSync(join(dir, 'plutus.json'), 'utf-8')).validators;
 }
 
-async function chainScripts(refs) {
+async function chainScripts() {
   const res = await fetch('https://api.koios.rest/api/v1/utxo_info', {
     method: 'POST',
     headers: { 'content-type': 'application/json', ...(process.env.KOIOS_API_KEY ? { authorization: `Bearer ${process.env.KOIOS_API_KEY}` } : {}) },
-    body: JSON.stringify({ _utxo_refs: refs, _extended: true }),
+    body: JSON.stringify({ _utxo_refs: Object.values(MAINNET).map((s) => s.ref), _extended: true }),
   });
   if (!res.ok) throw new Error(`Koios answered HTTP ${res.status}: the chain check did not complete`);
   return res.json();
@@ -163,20 +165,21 @@ async function main() {
     const applied = applyMainnet(ms);
     const deployed = JSON.parse(readFileSync(join(ms, 'deployed/mainnet/script.json'), 'utf-8'));
     const refs = JSON.parse(readFileSync(join(ms, 'deployed/mainnet/references.json'), 'utf-8'));
-    const onChain = chain ? await chainScripts(Object.values(MAINNET).map((s) => refs[s.refKey])) : [];
+    const onChain = chain ? await chainScripts() : [];
     for (const [name, s] of Object.entries(MAINNET)) {
       const v = applied.find((x) => x.title === s.title);
       const left = (v.parameters ?? []).length;
       if (left) problems.push(`${name}: ${left} parameter(s) not applied`);
       if (v.hash !== s.hash) problems.push(`${name}: builds to ${v.hash}, Minswap's mainnet script is ${s.hash}`);
       if (unwrapBytes(deployed[s.scriptKey].script) !== v.compiledCode) problems.push(`${name}: our bytes are not deployed/mainnet/script.json's ${s.scriptKey}`);
+      if (refs[s.refKey] !== s.ref) problems.push(`${name}: references.json names ${refs[s.refKey]}, not the pinned ${s.ref}`);
       let line = `${name}: ${v.hash} = Minswap mainnet, ${v.compiledCode.length / 2} bytes = script.json`;
       if (chain) {
-        const [tx, ix] = refs[s.refKey].split('#');
+        const [tx, ix] = s.ref.split('#');
         const u = onChain.find((x) => x.tx_hash === tx && x.tx_index === Number(ix));
-        if (!u?.reference_script) problems.push(`${name}: Koios returned no reference script at ${refs[s.refKey]}: the chain check did not complete`);
-        else if (u.reference_script.bytes !== v.compiledCode || u.reference_script.hash !== v.hash) problems.push(`${name}: the reference script at ${refs[s.refKey]} is not our build`);
-        else line += ` = the reference script at ${refs[s.refKey]}${u.is_spent ? ' (spent)' : ''}`;
+        if (!u?.reference_script) problems.push(`${name}: Koios returned no reference script at ${s.ref}: the chain check did not complete`);
+        else if (u.reference_script.bytes !== v.compiledCode || u.reference_script.hash !== v.hash) problems.push(`${name}: the reference script at ${s.ref} is not our build`);
+        else line += ` = the reference script at ${s.ref}${u.is_spent ? ' (spent)' : ''}`;
       }
       console.log(line);
     }
