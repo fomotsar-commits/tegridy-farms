@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { cleanup, render, screen, waitFor, within, fireEvent } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor, within, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { PublicKey } from '@solana/web3.js';
 import * as validate from '../../../lib/launchMetadata/validate.js';
@@ -292,6 +292,47 @@ describe('card 03, the depth chart, in the section', () => {
     const depth = await screen.findByTestId('range-depth');
     await waitFor(() => expect(depth.textContent).toContain('The pool’s liquidity could not be read just now (down). This does not mean it is empty.'));
     expect(screen.getByTestId('range-pools').textContent).not.toContain('could not be read');
+  });
+
+  it('while card 04’s deposit is under review, the chart’s edges do not move', async () => {
+    wallet.publicKey = ME;
+    wallet.signTransaction = vi.fn();
+    const api = fakeApi();
+    vi.mocked(api.prepareRangeOpen).mockResolvedValue({ ok: true, prepared: prepared(openSummary()) });
+    show(readers(), api);
+    const open = await screen.findByTestId('range-open');
+    const depth = await screen.findByTestId('range-depth');
+    await within(depth).findByTestId('range-depth-body');
+    fireEvent.click(within(open).getByRole('button', { name: 'Wide' }));
+    fireEvent.change(within(open).getByLabelText(/How much BAYLA to put in/), { target: { value: '2.5' } });
+    const step = () => within(depth).getByRole('button', { name: 'Lowest price, one step higher' }) as HTMLButtonElement;
+    expect(step().disabled).toBe(false);
+    const review = await within(open).findByRole('button', { name: 'Review: open this position' });
+    await waitFor(() => expect((review as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(review);
+    await within(open).findByTestId('range-review-disclosure');
+    const low = within(open).getByLabelText(/^Lowest price/) as HTMLInputElement;
+    const before = low.value;
+    expect(step().disabled).toBe(true);
+    fireEvent.keyDown(within(depth).getByRole('slider', { name: 'Lowest price of your range' }), { key: 'ArrowRight' });
+    expect(low.value).toBe(before);
+    expect(within(open).getByTestId('range-review-disclosure')).toBeInTheDocument();
+  });
+
+  it('card 03 reads its window again every 60 s, and not sooner', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    try {
+      const r = readers();
+      show(r);
+      await screen.findByTestId('range-depth-body');
+      expect(r.bandsWindow).toHaveBeenCalledTimes(1);
+      act(() => vi.advanceTimersByTime(59_000));
+      expect(r.bandsWindow).toHaveBeenCalledTimes(1);
+      act(() => vi.advanceTimersByTime(1_000));
+      await waitFor(() => expect(r.bandsWindow).toHaveBeenCalledTimes(2));
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

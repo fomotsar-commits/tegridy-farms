@@ -118,6 +118,22 @@ describe('the depth walk', () => {
     expect(d.bandsUnread).toBe(1);
   });
 
+  it('an unread band below the price ends the walk down there, and above still draws', () => {
+    const c = chain();
+    const d = walkDepth(windowOf(c, { unread: [-14_400] }));
+    const { min, max } = usableTickBounds(S);
+    expect(d.gaps).toEqual([
+      { from: min, to: -14_400, kind: 'not-known' },
+      { from: -14_400, to: -7_200, kind: 'unread' },
+    ]);
+    // No run reaches into the unread band, whatever was in use just above it.
+    expect(d.runs[0]!.from).toBe(-7_200);
+    expect(d.runs.some((r) => r.from < -7_200)).toBe(false);
+    expect(d.runs[d.runs.length - 1]!.to).toBe(max);
+    for (const r of d.runs) expect(r.liquidity).toBe(sumNetUpTo(c.ticks, r.from));
+    expect(d.bandsUnread).toBe(1);
+  });
+
   it('the band at the price unread: nothing on either side is drawn', () => {
     const d = walkDepth(windowOf(chain(), { unread: [0] }));
     expect(d.runs).toEqual([]);
@@ -195,5 +211,16 @@ describe('what moves the price 2%', () => {
     const thin = chain({ positions: [[6_000, 7_200, 1_000_000n]], orders: [] });
     expect(moveCost(windowOf(thin), tier, UP)).toEqual({ kind: 'free' });
     expect(moveCost(windowOf(chain(), { unread: [0] }), tier, UP).kind).toBe('unread');
+  });
+
+  it('nothing in use that far down is one answer, no swap can, however the chain says it', () => {
+    const DOWN = { num: 98n, den: 100n };
+    const one = (positions: [number, number, bigint][]) => moveCost(windowOf(chain({ positions, orders: [] })), tier, DOWN);
+    // A maker's token-only position above the price, in the band at the price (swap.rs:598, LiquidityInsufficient).
+    expect(one([[1_200, 2_400, 1_000_000_000n]])).toEqual({ kind: 'none-that-way' });
+    // The same a band higher, so the band at the price is not in use (InsufficientLiquidityForDirection).
+    expect(one([[8_400, 9_600, 1_000_000_000n]])).toEqual({ kind: 'none-that-way' });
+    // In use part of the way, then nothing: the program refuses a swap that far as well.
+    expect(one([[480, 2_400, 1_000_000_000n]])).toEqual({ kind: 'none-that-way' });
   });
 });

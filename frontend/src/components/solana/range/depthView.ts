@@ -150,7 +150,7 @@ export function stepWords(pair: Pair, flipped: boolean, from: number, to: number
 }
 
 /** The chart in one paragraph, for a screen reader. */
-export function summaryWords(o: { pair: Pair; flipped: boolean; depth: Depth; pool: Pick<PoolStateView, 'sqrtPriceX64' | 'tickCurrent'>; range: TickRange | null; nowWords: string }): string {
+export function summaryWords(o: { pair: Pair; flipped: boolean; depth: Depth; pool: Pick<PoolStateView, 'sqrtPriceX64' | 'tickCurrent'>; range: TickRange | null; nowWords: string; marketWords: string | null }): string {
   const { pair, flipped, depth: d, range } = o;
   const unit = unitText(pair, flipped);
   const parts: string[] = [];
@@ -165,6 +165,7 @@ export function summaryWords(o: { pair: Pair; flipped: boolean; depth: Depth; po
   } else {
     parts.push(`This pool’s price is ${o.nowWords} ${unit}.`);
   }
+  if (o.marketWords !== null) parts.push(`The market price (Jupiter) is ${o.marketWords} ${unit}.`);
   const most = valueSpan(d, o.pool, 0.1, 0.9);
   if (most) {
     const [a, b] = spanPrices(pair, flipped, most.from, most.to);

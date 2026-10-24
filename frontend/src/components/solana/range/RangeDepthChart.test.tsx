@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { PublicKey } from '@solana/web3.js';
 import { BAYLA_MINT, WSOL_MINT } from '../../../lib/solana/lp/tokenSafety';
 import { decodeAmmConfig, decodePoolState, decodeTickArray, sortMints } from '../../../lib/solana/clmm/program';
@@ -88,7 +88,7 @@ function windowOf(o: { unread?: number[]; each?: number; positions?: [number, nu
 
 const RANGE: TickRange = { tickLower: BASE - 1_200, tickUpper: BASE + 1_200 };
 
-function show(o: { read?: Read<BandsWindow> | null; range?: TickRange | null; locked?: boolean; window?: ReturnType<typeof windowOf> } = {}) {
+function show(o: { read?: Read<BandsWindow> | null; range?: TickRange | null; locked?: boolean; window?: ReturnType<typeof windowOf>; market?: number | null } = {}) {
   const x = o.window ?? windowOf();
   const onRange = vi.fn();
   const onStart = vi.fn();
@@ -103,7 +103,7 @@ function show(o: { read?: Read<BandsWindow> | null; range?: TickRange | null; lo
       onRange={onRange}
       onStart={onStart}
       locked={o.locked ?? false}
-      market={0.00041}
+      market={o.market === undefined ? 0.00041 : o.market}
       positions={[{ tickLower: BASE - 2_400, tickUpper: BASE + 2_400 }]}
     />,
   );
@@ -171,6 +171,54 @@ describe('card 03, Liquidity', () => {
   it('says what moves the price 2% each way, from the swap maths', () => {
     show();
     expect(screen.getByTestId('range-depth-move').textContent).toMatch(/^Moves the price 2% up: [\d.,]+ SOL in\. 2% down: [\d.,]+ BAYLA in\.$/);
+  });
+
+  it('a one-sided pool: the side with nothing in use says no swap can, never that it could not be worked out', () => {
+    // A maker's token-only position just past the price, in the band at the price, and nothing the other way.
+    show({ window: windowOf({ positions: [[BASE + 1_200, BASE + 2_400, L]], orders: [] }) });
+    const line = screen.getByTestId('range-depth-move').textContent!;
+    expect(line).toContain('no swap can, as nothing is in use that far');
+    expect(line).not.toContain('could not be worked out');
+    expect(line).not.toContain('LiquidityInsufficient');
+  });
+
+  it('a market price off the view is named at its edge, and the screen reader hears it', () => {
+    // Three times this pool's price: far to the right of a view fitted to the range.
+    show({ market: 0.0012 });
+    expect(screen.getByTestId('range-depth-line-market').textContent).toBe('market (Jupiter) →');
+    expect(screen.getByTestId('range-depth-line-pool').textContent).toBe('this pool');
+    expect(screen.getByTestId('range-depth-picture').getAttribute('aria-label')).toContain('The market price (Jupiter) is 0.0012 SOL per BAYLA.');
+    // In view, it sits at its line with no arrow.
+    cleanup();
+    show();
+    expect(screen.getByTestId('range-depth-line-market').textContent).toBe('market (Jupiter)');
+  });
+
+  it('nothing it draws paints past its frame, zoomed in or not', () => {
+    const { card } = show();
+    const box = screen.getByTestId('range-depth-picture').parentElement!;
+    expect(box.className).toMatch(/(^| )overflow-hidden( |$)/);
+    const W = 343;
+    const inside = () => {
+      const svg = card.querySelector('svg')!;
+      for (const r of svg.querySelectorAll(':scope > rect, :scope > g > rect')) {
+        const x = Number(r.getAttribute('x'));
+        expect(x).toBeGreaterThanOrEqual(0);
+        expect(x + Number(r.getAttribute('width'))).toBeLessThanOrEqual(W + 0.01);
+      }
+      for (const l of svg.querySelectorAll(':scope > line, :scope > g > line')) {
+        for (const a of ['x1', 'x2']) {
+          expect(Number(l.getAttribute(a))).toBeGreaterThanOrEqual(0);
+          expect(Number(l.getAttribute(a))).toBeLessThanOrEqual(W + 0.01);
+        }
+      }
+    };
+    // The position is wider than the view from the start; zoomed in, the range band is too.
+    inside();
+    fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }));
+    inside();
+    expect(screen.getAllByTestId('range-depth-position')).toHaveLength(1);
   });
 
   it('a tapped bar says what would trade there and the orders resting on it', () => {

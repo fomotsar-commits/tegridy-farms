@@ -262,7 +262,7 @@ export type MoveCost =
   | { kind: 'ok'; amountIn: bigint; inIsToken0: boolean }
   /** Nothing is in use as far as that price: it moves for next to nothing. */
   | { kind: 'free' }
-  /** No band is in use that way at all: the program refuses any swap in that direction. */
+  /** Nothing is in use from some price on that way, and no band past it: the program refuses a swap that far. */
   | { kind: 'none-that-way' }
   | { kind: 'paused' }
   | { kind: 'not-open' }
@@ -296,7 +296,8 @@ export function moveCost(w: BandsWindow, config: Pick<AmmConfigView, 'tradeFeeRa
   if (q.kind === 'ok') return { kind: 'ok', amountIn: q.amountIn, inIsToken0: zeroForOne };
   if (q.kind === 'needs-band') return { kind: 'unread', detail: 'a band it crosses was not read' };
   if (q.code === 'TooSmallInputOrOutputAmount') return { kind: 'free' };
-  if (q.code === 'InsufficientLiquidityForDirection') return { kind: 'none-that-way' };
+  // No band that way (bitmap.ts), or no used tick past the last one crossed (swap.rs:598): one fact.
+  if (q.code === 'InsufficientLiquidityForDirection' || q.code === 'LiquidityInsufficient') return { kind: 'none-that-way' };
   if (q.code === 'NotApproved') return { kind: 'paused' };
   if (q.code === 'RequireGtViolated') return { kind: 'not-open' };
   return { kind: 'unread', detail: `the swap maths stopped (${q.code})` };

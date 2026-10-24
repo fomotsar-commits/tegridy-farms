@@ -171,7 +171,11 @@ function Chart(p: BodyProps & { depth: Depth }) {
 
   const nowNumber = priceNumber(priceAtSqrt(pair, w.pool.sqrtPriceX64));
   const nowWords = formatSolPrice(flipped ? 1 / nowNumber : nowNumber);
-  const summary = summaryWords({ pair, flipped, depth, pool: w.pool, range, nowWords });
+  const marketWords = p.market === null ? null : formatSolPrice(flipped ? 1 / p.market : p.market);
+  const summary = summaryWords({ pair, flipped, depth, pool: w.pool, range, nowWords, marketWords });
+  // What the chart paints stays inside its frame: a shape is cut at the edge, a line past it is not drawn.
+  const clampX = (px: number) => Math.min(W, Math.max(0, px));
+  const inView = (px: number) => px >= 0 && px <= W;
   const unit = unitText(pair, flipped);
 
   const stepAt = (clientX: number) => Math.floor((sign * uAt(clientX)) / s) * s;
@@ -217,7 +221,7 @@ function Chart(p: BodyProps & { depth: Depth }) {
       return `${roughAmount(c.amountIn, isToken ? pair.tokenDecimals : pair.quoteDecimals)} ${isToken ? tokenUnit(pair) : pair.quote.symbol} in`;
     }
     if (c.kind === 'free') return 'next to nothing in, as no liquidity is in use there';
-    if (c.kind === 'none-that-way') return 'no swap can, as nothing is in use that way';
+    if (c.kind === 'none-that-way') return 'no swap can, as nothing is in use that far';
     if (c.kind === 'unread') return `could not be worked out (${c.detail})`;
     return '';
   };
@@ -250,7 +254,7 @@ function Chart(p: BodyProps & { depth: Depth }) {
       <figure className="!mt-3 !mb-0" data-testid="range-depth-chart">
         <div
           ref={box}
-          className="relative h-[180px] md:h-[220px] lg:h-[260px] border-y border-white/[0.14] select-none"
+          className="relative overflow-hidden h-[180px] md:h-[220px] lg:h-[260px] border-y border-white/[0.14] select-none"
           style={{ background: 'rgba(5,8,15,0.92)', backgroundImage: 'linear-gradient(to right, rgba(245,228,184,0.06) 1px, transparent 1px)', backgroundSize: '10% 100%' }}
         >
           <div
@@ -262,7 +266,7 @@ function Chart(p: BodyProps & { depth: Depth }) {
             onPointerLeave={(e) => e.pointerType === 'mouse' && setInspect(null)}
             onClick={(e) => setInspect(stepAt(e.clientX))}
           >
-            <svg width={W} height={H} aria-hidden="true" className="absolute inset-0 overflow-visible">
+            <svg width={W} height={H} aria-hidden="true" className="absolute inset-0">
               <defs>
                 <pattern id={hatch} width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
                   <line x1="0" y1="0" x2="0" y2="6" stroke="rgba(251,191,36,0.55)" strokeWidth="1.5" />
@@ -282,25 +286,30 @@ function Chart(p: BodyProps & { depth: Depth }) {
               {bars.map((b) => (
                 <rect key={b.key} data-testid="range-depth-bar" x={b.x} y={H - 1 - b.h} width={b.w} height={b.h} fill={EDITORIAL_INK} fillOpacity={0.55} />
               ))}
-              {edges && <rect data-testid="range-depth-band" x={x(edges.lo)} y={0} width={Math.max(0, x(edges.hi) - x(edges.lo))} height={H} fill="rgba(34,197,94,0.24)" />}
-              {inspectU && <rect x={x(inspectU.lo)} y={TOP - 2} width={Math.max(1, x(inspectU.hi) - x(inspectU.lo))} height={H - TOP + 1} fill="rgba(255,255,255,0.08)" stroke="rgba(255,255,255,0.55)" strokeWidth={1} />}
+              {edges && <rect data-testid="range-depth-band" x={clampX(x(edges.lo))} y={0} width={Math.max(0, clampX(x(edges.hi)) - clampX(x(edges.lo)))} height={H} fill="rgba(34,197,94,0.24)" />}
+              {inspectU && <rect x={clampX(x(inspectU.lo))} y={TOP - 2} width={Math.max(1, clampX(x(inspectU.hi)) - clampX(x(inspectU.lo)))} height={H - TOP + 1} fill="rgba(255,255,255,0.08)" stroke="rgba(255,255,255,0.55)" strokeWidth={1} />}
               {showMine &&
                 p.positions.map((r) => {
                   const u = toU(sign, r.tickLower, r.tickUpper);
-                  return <rect key={`${r.tickLower}:${r.tickUpper}`} data-testid="range-depth-position" x={x(u.lo)} y={TOP + 4} width={Math.max(1, x(u.hi) - x(u.lo))} height={H - TOP - 5} fill="none" stroke="rgba(255,255,255,0.5)" strokeWidth={1} strokeDasharray="2 2" />;
+                  const [a, b] = [x(u.lo), x(u.hi)];
+                  if (b < 0 || a > W) return null;
+                  // A side past the frame is not drawn, so a wide position never reads as ending at the frame.
+                  return (
+                    <g key={`${r.tickLower}:${r.tickUpper}`} data-testid="range-depth-position" stroke="rgba(255,255,255,0.5)" strokeWidth={1} strokeDasharray="2 2">
+                      <line x1={clampX(a)} x2={clampX(b)} y1={TOP + 4} y2={TOP + 4} />
+                      {inView(a) && <line x1={a} x2={a} y1={TOP + 4} y2={H - 1} />}
+                      {inView(b) && <line x1={b} x2={b} y1={TOP + 4} y2={H - 1} />}
+                    </g>
+                  );
                 })}
               {ordersInView.map((o) => (
                 <OrderMark key={o.tick} x={x(sign * o.tick)} sells={orderSellsToken(pair, o)} />
               ))}
               <line x1={0} x2={W} y1={H - 0.5} y2={H - 0.5} stroke="rgba(245,228,184,0.25)" />
-              {edges && (
-                <>
-                  <line x1={x(edges.lo)} x2={x(edges.lo)} y1={0} y2={H} stroke={GREEN} strokeWidth={1.5} />
-                  <line x1={x(edges.hi)} x2={x(edges.hi)} y1={0} y2={H} stroke={GREEN} strokeWidth={1.5} />
-                </>
-              )}
-              {marketU !== null && <line x1={x(marketU)} x2={x(marketU)} y1={0} y2={H} stroke={EDITORIAL_INK} strokeDasharray="3 3" strokeOpacity={0.8} />}
-              <line x1={x(nowU)} x2={x(nowU)} y1={0} y2={H} stroke={GREEN} strokeWidth={1} />
+              {edges && inView(x(edges.lo)) && <line x1={x(edges.lo)} x2={x(edges.lo)} y1={0} y2={H} stroke={GREEN} strokeWidth={1.5} />}
+              {edges && inView(x(edges.hi)) && <line x1={x(edges.hi)} x2={x(edges.hi)} y1={0} y2={H} stroke={GREEN} strokeWidth={1.5} />}
+              {marketU !== null && inView(x(marketU)) && <line x1={x(marketU)} x2={x(marketU)} y1={0} y2={H} stroke={EDITORIAL_INK} strokeDasharray="3 3" strokeOpacity={0.8} />}
+              {inView(x(nowU)) && <line x1={x(nowU)} x2={x(nowU)} y1={0} y2={H} stroke={GREEN} strokeWidth={1} />}
             </svg>
             {gapsInView.map(({ g, u }) => (
               <GapLabel key={`l${g.from}`} gap={g} left={x(Math.max(u.lo, view.lo))} right={x(Math.min(u.hi, view.hi))} />
@@ -311,8 +320,8 @@ function Chart(p: BodyProps & { depth: Depth }) {
             {offRight.length > 0 && (
               <span data-testid="range-depth-off-right" className="absolute right-1 bottom-1 font-mono text-[10px] px-1 bg-black/80 text-amber-200/90">{`${offWords(offRight)} →`}</span>
             )}
-            <LineLabel at={(x(nowU) / W) * 100} color={GREEN} text="this pool" row={0} />
-            {marketU !== null && <LineLabel at={(x(marketU) / W) * 100} color={EDITORIAL_INK} text="market (Jupiter)" row={1} />}
+            <LineLabel at={(x(nowU) / W) * 100} color={GREEN} text="this pool" row={0} testId="range-depth-line-pool" />
+            {marketU !== null && <LineLabel at={(x(marketU) / W) * 100} color={EDITORIAL_INK} text="market (Jupiter)" row={1} testId="range-depth-line-market" />}
           </div>
           {edges &&
             (['lo', 'hi'] as const).map((which) => {
@@ -434,16 +443,20 @@ function OrderMark({ x, sells }: { x: number; sells: boolean }) {
   );
 }
 
-function LineLabel({ at, color, text, row }: { at: number; color: string; text: string; row: number }) {
-  if (!(at >= -1 && at <= 101)) return null;
-  const right = at > 66;
+/** A line's name beside it; a line past the view is named at that edge with an arrow, never dropped. */
+function LineLabel({ at, color, text, row, testId }: { at: number; color: string; text: string; row: number; testId: string }) {
+  if (!Number.isFinite(at)) return null;
+  const off = at < 0 ? 'left' : at > 100 ? 'right' : null;
+  const place = off === 'left' ? { left: 4 } : off === 'right' ? { right: 4 } : { left: `${at}%` };
+  const shift = off ? '' : at > 66 ? '-translate-x-full -ml-1' : 'ml-1';
   return (
     <span
       aria-hidden="true"
-      className={`absolute whitespace-nowrap font-mono text-[10px] uppercase tracking-[0.14em] px-1 bg-black/70 ${right ? '-translate-x-full -ml-1' : 'ml-1'}`}
-      style={{ left: `${at}%`, top: TOP + row * 16, color }}
+      data-testid={testId}
+      className={`absolute whitespace-nowrap font-mono text-[10px] uppercase tracking-[0.14em] px-1 bg-black/70 ${shift}`}
+      style={{ ...place, top: TOP + row * 16, color }}
     >
-      {text}
+      {off === 'left' ? `← ${text}` : off === 'right' ? `${text} →` : text}
     </span>
   );
 }
