@@ -47,6 +47,7 @@ async function build(): Promise<WriteApi> {
     readWriteGate: config.readWriteGate,
     writeActions: config.writeActions,
     explorerTxUrl: config.explorerTxUrl,
+    explorerAddressUrl: config.explorerAddressUrl,
 
     quoteOpeningBuy: launch.quoteOpeningBuy,
     priceImpactBps: trade.priceImpactBps,

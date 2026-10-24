@@ -131,6 +131,8 @@ export interface WriteApi {
     opts?: { migrationEligible?: boolean },
   ): ActionAvailability;
   explorerTxUrl(signature: string, cluster: SolanaCluster): string;
+  /** `page: 'token'` for a mint: Solscan's token page, not its account page. */
+  explorerAddressUrl(address: string, cluster: SolanaCluster, page?: 'account' | 'token'): string;
 
   quoteOpeningBuy(global: GlobalConfig, lamportsIn: bigint): OpeningBuyQuote;
   priceImpactBps(c: CurveTerms, side: 'buy' | 'sell', amountIn: bigint, amountOut: bigint): bigint | null;
@@ -198,8 +200,8 @@ export interface WriteApi {
 
 // ── what the review needs, and the pools page's own write API ───────────────
 
-/** What `TxFlowView` uses: the explorer link and the display-safe text rule. Both APIs satisfy it. */
-export type TxViewApi = Pick<WriteApi, 'explorerTxUrl'> & { meta: Pick<MetadataApi, 'displaySafe'> };
+/** What `TxFlowView` uses: the explorer links and the display-safe text rule. Every write API satisfies it. */
+export type TxViewApi = Pick<WriteApi, 'explorerTxUrl' | 'explorerAddressUrl'> & { meta: Pick<MetadataApi, 'displaySafe'> };
 
 /**
  * Adding and removing liquidity, and opening a pool, on /pools. A sibling of `WriteApi`,
@@ -236,6 +238,7 @@ export interface RangeWriteApi {
   submitPrepared(rpc: WriteRpc, signer: TxSigner, p: PreparedTx, deps?: SubmitDeps): Promise<TxOutcome>;
   recheckOutcome(rpc: WriteRpc, signature: string, opts?: { lastValidBlockHeight?: number }): Promise<TxOutcome>;
   explorerTxUrl(signature: string, cluster: SolanaCluster): string;
+  explorerAddressUrl(address: string, cluster: SolanaCluster, page?: 'account' | 'token'): string;
   meta: Pick<MetadataApi, 'displaySafe'>;
 }
 
@@ -253,5 +256,6 @@ export interface VenueSwapApi {
   submitPrepared(rpc: WriteRpc, signer: TxSigner, p: PreparedTx, deps?: SubmitDeps): Promise<TxOutcome>;
   recheckOutcome(rpc: WriteRpc, signature: string, opts?: { lastValidBlockHeight?: number; blockhash?: NoteBlockhash; cfg?: CurveWriteConfig; kind?: LpKind }): Promise<TxOutcome>;
   explorerTxUrl(signature: string, cluster: SolanaCluster): string;
+  explorerAddressUrl(address: string, cluster: SolanaCluster, page?: 'account' | 'token'): string;
   meta: Pick<MetadataApi, 'displaySafe'>;
 }

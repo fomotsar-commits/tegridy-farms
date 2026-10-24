@@ -90,6 +90,7 @@ function fakeApi(): RangeWriteApi {
     submitPrepared: vi.fn(),
     recheckOutcome: vi.fn(),
     explorerTxUrl: vi.fn((sig: string) => `https://explorer.test/tx/${sig}`),
+    explorerAddressUrl: vi.fn((address: string) => `https://explorer.test/account/${address}`),
     meta: { displaySafe: validate.displaySafe },
   };
 }

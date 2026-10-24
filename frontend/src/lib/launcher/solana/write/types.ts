@@ -656,7 +656,12 @@ export interface PreparedTx {
   lastValidBlockHeight: number;
   /** Serialized size in bytes (Solana's limit is 1,232). */
   sizeBytes: number;
-  simulation: { unitsConsumed: number; logs: string[] };
+  /**
+   * The test run of these final bytes, as the network answered it: units it used (null when
+   * it did not say), its log, the slot it ran at (null when not given) and when it answered
+   * (this device's clock, ms). Shown under "What you are signing".
+   */
+  simulation: { unitsConsumed: number | null; logs: string[]; slot: number | null; at: number };
   fees: {
     /** 5,000 lamports per signature. */
     baseLamports: bigint;

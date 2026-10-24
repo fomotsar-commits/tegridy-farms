@@ -35,6 +35,7 @@ async function build(): Promise<RangeWriteApi> {
     submitPrepared: submit.submitPrepared,
     recheckOutcome: (rpc, signature, opts) => submit.recheckOutcome(rpc, signature, opts ?? {}),
     explorerTxUrl: config.explorerTxUrl,
+    explorerAddressUrl: config.explorerAddressUrl,
     meta: { displaySafe: validate.displaySafe },
   };
 }

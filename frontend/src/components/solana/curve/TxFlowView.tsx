@@ -10,6 +10,7 @@ import { perMillionPercent } from '../../../lib/solana/clmm/feeText';
 import type { FeeSplitView, NotSent, PreparedTx, SolanaCluster, TokenRole, TxKind, TxOutcome, TxSigner, TxSummary, TxViewApi } from './ports';
 import { reviewLines } from './reviewLines';
 import { RangeRows } from './RangeRows';
+import { UnderTheHood } from './UnderTheHood';
 import { rangeVenueEarns, type RangeVenueEarns } from '../../../lib/solana/clmm/venueEarns';
 import type { ReviewState, TxFlow } from './useTxFlow';
 import { quoteCoin, type QuoteCoin } from '../../../lib/solana/lp/quotes';
@@ -1316,6 +1317,8 @@ export function TxFlowView({
           extra={extraReview}
           headingRef={setFocus}
         />
+        {/* Outside TxReview: these move with every rebuild, so they are never lines Sign compares. */}
+        <UnderTheHood prepared={s.prepared} decimals={decimals} api={api} cluster={cluster} />
         {s.replaced && <ReviewChanged changed={s.replaced} boxRef={changedRef} />}
         {dead ? (
           <p ref={staleRef} tabIndex={-1} role="alert" className="text-amber-300/90 outline-none">
