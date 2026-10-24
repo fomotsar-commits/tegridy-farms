@@ -17,11 +17,11 @@ import {
   decodePoolState,
 } from '../../../solana/cpswap/program';
 import { lpTokensToTradingTokens } from '../../../solana/cpswap/math';
-import { spendableSol } from '../../../solana/lp/liquidityMath';
+import { isqrt, spendableSol } from '../../../solana/lp/liquidityMath';
 import { estimatedLoss } from '../../../solana/lp/opening';
 import { assessPool } from '../../../solana/lp/poolHealth';
 import { BUILDABLE_EXTENSIONS, EXTENSION, classifyToken } from '../../../solana/lp/tokenSafety';
-import { observationBytes } from '../../../solana/lp/testkit.fixture';
+import { observationBytes, steadyRecord } from '../../../solana/lp/testkit.fixture';
 import type { OutsidePrice } from '../../../solana/lp/outsidePrice';
 import { METAPLEX_TOKEN_METADATA_ID, metadataPda } from './metaplex';
 import {
@@ -215,7 +215,8 @@ function world(o: {
   const pool = addPool(chain, mint, {
     sol: o.sol ?? SOL_RESERVE,
     tokens: o.tokens ?? TOKEN_RESERVE,
-    lpSupply: o.lpSupply ?? LP_SUPPLY,
+    // A launch pool's shares are the ones the pool program opened it with (addPool's default).
+    lpSupply: o.lpSupply ?? (o.launch ? undefined : LP_SUPPLY),
     status: o.status,
     openTime: o.openTime,
     launch: o.launch,
@@ -730,14 +731,10 @@ describe('prepareLpDeposit', () => {
       const launch = addPool(w.chain, w.mint, { sol: SOL_RESERVE, tokens: TOKEN_RESERVE, launch: true, ...o.launch });
       return { w, launch };
     }
-    /** An hour of trading on `pool` at `perBase` lamports a token base unit, last written ten seconds ago. */
+    /** An hour of steady trading on `pool` at `perBase` lamports a token base unit, last written ten seconds ago. */
     function traded(chain: FakeChain, pool: PoolFixture, perBase: bigint) {
-      const Q32 = 1n << 32n;
-      const [first, last] = [NOW - 3_610n, NOW - 10n];
-      const own = perBase * Q32 * (last - first);
-      const other = ((Q32 * Q32) / (perBase * Q32)) * (last - first);
-      const [c0, c1] = pool.quoteIsToken0 ? [other, own] : [own, other];
-      chain.set(pool.observation, { lamports: rent(4075), owner: CPSWAP, data: observationBytes({ pool: pool.address, index: 1, lastUpdate: last, obs: [[0, first, 0n, 0n], [1, last, c0, c1]] }) });
+      const data = steadyRecord({ pool: pool.address, quoteIsToken0: pool.quoteIsToken0, perBaseX32: perBase << 32n, first: NOW - 3_610n, last: NOW - 10n });
+      chain.set(pool.observation, { lamports: rent(4075), owner: CPSWAP, data });
     }
     /** Every address each account read asked for, in order. */
     function reads(w: World): string[][] {
@@ -775,15 +772,17 @@ describe('prepareLpDeposit', () => {
       }
     });
 
-    it('the launch pool is read fresh: its price moves after the page read it, and the review follows', async () => {
+    // A never-traded launch pool's price moves only by a transfer into a vault (M-1009-6),
+    // and a pool whose price moved that way is no reference: the review says so.
+    it('the launch pool is read fresh: tokens sent into it after the page read it take it away as a reference, and the review follows', async () => {
       // The stranger's pool sits at 0.02 SOL a token. The page saw the launch pool there too.
       const { w, launch } = besideLaunch({ sol: 2n * 10n ** 9n, tokens: 100n * 10n ** 6n, launch: { sol: 2n * SOL_RESERVE } });
       expect((await summaryOf(w)).price).toMatchObject({ state: 'agrees', against: 'launch-pool' });
-      // Before Review the launch pool is back at 0.01: the stranger's pool is now 100% above it.
-      w.chain.tokenAccount(launch.solVault, WSOL_MINT, new PublicKey(w.chain.accounts.get(launch.solVault.toBase58())!.data.subarray(32, 64)), SOL_RESERVE);
+      // Before Review, as many tokens again are sent straight into the launch pool's token vault: 0.01 a token, its shares unchanged.
+      w.chain.tokenAccount(launch.tokenVault, w.mint, new PublicKey(w.chain.accounts.get(launch.tokenVault.toBase58())!.data.subarray(32, 64)), 2n * TOKEN_RESERVE);
       const s = await summaryOf(w);
-      expect(s.price).toMatchObject({ state: 'disagrees', against: 'launch-pool' });
-      expect(s.priceGap!.diff).toBeCloseTo(1, 9);
+      expect(s.price).toMatchObject({ state: 'no-market', detail: 'Jupiter has no route for this token' });
+      expect(s.warnings).toEqual([NO_MARKET_DEPOSIT]);
     });
 
     it('at the launch price it agrees with the launch pool: nothing to warn of, and no price gap', async () => {
@@ -849,26 +848,18 @@ describe('prepareLpDeposit', () => {
     });
   });
 
-  // Owner ruling 2026-10-07: a brand-new launch pool (no route, under 10 minutes of
-  // trading) takes deposits. Its record is too short to prove anything, so the price was
-  // checked against nothing: the builder builds, and the warning reaches the review the
-  // person signs. Before, this was `unchecked` and nothing was built.
-  describe('a launch pool with no route and under 10 minutes of trading', () => {
+  // Owner ruling 2026-10-07: a brand-new launch pool (no route, too short a record) takes
+  // deposits. Its record proves nothing yet, so the price was checked against nothing: the
+  // builder builds, and the warning reaches the review the person signs. "Too short" is
+  // under 24 minutes since M-1009-6 (ownPrice.ts TRUSTED_HISTORY_SECS).
+  describe('a launch pool with no route and under 24 minutes of trading', () => {
     const TOO_NEW =
-      'This pool has traded for under 10 minutes and Jupiter has no price for this token, so its price was checked against nothing. If someone has just pushed it, a deposit now pays for that.';
-    /** A launch pool whose first trade was `age` seconds ago, at today's price, last written ten seconds ago. */
+      'This pool has traded for under 24 minutes and Jupiter has no price for this token, so its price was checked against nothing. If someone has just pushed it, a deposit now pays for that.';
+    /** A launch pool that has traded steadily at today's price since `age` seconds ago, last written ten seconds ago. */
     const tradedFor = (age: bigint, o: Parameters<typeof world>[0] = {}) => {
       const w = world({ launch: true, ...o });
-      const Q32 = 1n << 32n;
-      const [first, last] = [NOW - age, NOW - 10n];
-      const own = 10n * Q32 * (last - first);
-      const other = ((Q32 * Q32) / (10n * Q32)) * (last - first);
-      const [c0, c1] = w.pool.quoteIsToken0 ? [other, own] : [own, other];
-      w.chain.set(w.pool.observation, {
-        lamports: rent(4075),
-        owner: CPSWAP,
-        data: observationBytes({ pool: w.pool.address, index: 1, lastUpdate: last, obs: [[0, first, 0n, 0n], [1, last, c0, c1]] }),
-      });
+      const data = steadyRecord({ pool: w.pool.address, quoteIsToken0: w.pool.quoteIsToken0, perBaseX32: 10n << 32n, first: NOW - age, last: NOW - 10n });
+      w.chain.set(w.pool.observation, { lamports: rent(4075), owner: CPSWAP, data });
       return w;
     };
 
@@ -888,9 +879,9 @@ describe('prepareLpDeposit', () => {
       expect(young.check.expect.maxSolOut).toBe(old.check.expect.maxSolOut);
     });
 
-    it('one second short of 10 minutes is "too new"; at 10 minutes it is checked against its own average', async () => {
-      expect((ok(await deposit(tradedFor(599n), {}, answering(NO_ROUTE))).summary as LpDepositSummary).price.state).toBe('too-new');
-      expect((ok(await deposit(tradedFor(600n), {}, answering(NO_ROUTE))).summary as LpDepositSummary).price.state).toBe('agrees');
+    it('one second short of 24 minutes is "too new"; at 24 minutes it is checked against its own average', async () => {
+      expect((ok(await deposit(tradedFor(1_439n), {}, answering(NO_ROUTE))).summary as LpDepositSummary).price.state).toBe('too-new');
+      expect((ok(await deposit(tradedFor(1_440n), {}, answering(NO_ROUTE))).summary as LpDepositSummary).price.state).toBe('agrees');
     });
 
     // UNREAD IS STILL REFUSED: the same brand-new pool builds nothing when something was not read.
@@ -906,6 +897,65 @@ describe('prepareLpDeposit', () => {
 
     it('it lifts nothing else: the same pool with withdrawals switched off is still refused', async () => {
       expect(refused(await deposit(tradedFor(120n, { status: POOL_STATUS_DISABLE_WITHDRAW }), {}, answering(NO_ROUTE)))).toMatch(/^We did not build this deposit: Withdrawals are switched off/);
+    });
+  });
+
+  // M-1009-6 at prepare time, on the fresh read: the same rule as the card (assessPool). A
+  // launch pool whose price may have moved without a trade builds, and its warning reaches
+  // the review the person signs (warn, not refuse). Removing never reads any of it.
+  describe('a launch pool with no route whose price may have moved without a trade', () => {
+    const RESERVES_MOVED =
+      'Nobody has traded in this pool, yet it holds more than its shares account for, and Jupiter has no price for this token. Someone may have moved its price by sending tokens or SOL straight into it; if so, a deposit now pays for that.';
+    const TOO_QUIET =
+      'This pool has had long gaps between trades over the last half hour, and Jupiter has no price for this token, so its own average cannot show its price is honest. If someone moved it between trades, a deposit now pays for that.';
+    /** The launch pool as the pool program opened it (10 SOL, 1,000 tokens), holding `tokens` now; the wallet holds a tenth of its shares. */
+    const opened = (tokens = TOKEN_RESERVE) => world({ launch: true, tokens, lpSupply: isqrt(SOL_RESERVE * TOKEN_RESERVE), heldLp: isqrt(SOL_RESERVE * TOKEN_RESERVE) / 10n });
+    /** A price record at `perBase` lamports a token base unit, a slot every `step` seconds for an hour, ending `endedAgo` seconds ago. */
+    const record = (w: World, perBase: bigint, step: bigint, endedAgo = 10n) => {
+      const data = steadyRecord({ pool: w.pool.address, quoteIsToken0: w.pool.quoteIsToken0, perBaseX32: perBase << 32n, first: NOW - endedAgo - 3_600n, last: NOW - endedAgo, step });
+      w.chain.set(w.pool.observation, { lamports: rent(4075), owner: CPSWAP, data });
+    };
+
+    it('never traded, tokens sent straight into its vault: it builds, with the warning on the summary; Remove still prepares', async () => {
+      const w = opened(2n * TOKEN_RESERVE);
+      const s = ok(await deposit(w, {}, answering(NO_ROUTE))).summary as LpDepositSummary;
+      expect(s.price.state).toBe('reserves-moved');
+      expect(s.warnings).toEqual([RESERVES_MOVED]);
+      expect(s.priceGap).toBeNull();
+      expect((await withdraw(w)).ok).toBe(true);
+    });
+
+    it('a transfer, then one dust swap (two slots an hour apart, both at the moved price): it builds, warned; Remove still prepares', async () => {
+      const w = opened(2n * TOKEN_RESERVE);
+      record(w, 5n, 3_600n);
+      const s = ok(await deposit(w, {}, answering(NO_ROUTE))).summary as LpDepositSummary;
+      expect(s.price.state).toBe('too-quiet');
+      expect(s.warnings).toEqual([TOO_QUIET]);
+      expect((await withdraw(w)).ok).toBe(true);
+    });
+
+    it('steady trading that stopped an hour ago: warned the same way', async () => {
+      const w = opened();
+      record(w, 10n, 60n, 3_600n);
+      expect((ok(await deposit(w, {}, answering(NO_ROUTE))).summary as LpDepositSummary).warnings).toEqual([TOO_QUIET]);
+    });
+
+    it('the warning decides nothing: the same shares, limits and bounds as the same pool trading steadily up to now, which has nothing to warn of', async () => {
+      const quiet = opened();
+      record(quiet, 10n, 60n, 3_600n);
+      const steady = opened();
+      record(steady, 10n, 60n);
+      const q = ok(await deposit(quiet, {}, answering(NO_ROUTE)));
+      const s = ok(await deposit(steady, {}, answering(NO_ROUTE)));
+      expect((s.summary as LpDepositSummary).price).toMatchObject({ state: 'agrees', against: 'own-average' });
+      expect((s.summary as LpDepositSummary).warnings).toEqual([]);
+      const [qs, ss] = [q.summary as LpDepositSummary, s.summary as LpDepositSummary];
+      expect([qs.lpAmount, qs.max, qs.quoted]).toEqual([ss.lpAmount, ss.max, ss.quoted]);
+      expect(q.check.expect.maxSolOut).toBe(s.check.expect.maxSolOut);
+    });
+
+    it('two sides below what its shares account for (a state the pool program never makes): unread, so nothing is built', async () => {
+      expect(refused(await deposit(opened(TOKEN_RESERVE / 2n), {}, answering(NO_ROUTE)))).toMatch(/^We did not build this deposit: .*below what its shares account for/);
     });
   });
 
