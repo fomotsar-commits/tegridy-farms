@@ -77,9 +77,11 @@ for (const size of SIZES) {
         await expect(index.getByRole('link', { name: word, exact: true }), word).toBeVisible();
       }
       // Owner, 2026-10-18: the shadowed features, each one tap; 2026-10-19: organised, under their words.
-      for (const [word, name] of [['Island', 'Marketplace'], ['Lock', 'NFT Loans'], ['Check', 'Charting'], ['Island', 'Lore']] as const) {
+      for (const [word, name] of [['Lock', 'NFT Loans'], ['Check', 'Charting'], ['Island', 'Lore']] as const) {
         await expect(index.getByRole('region', { name: word }).getByRole('link', { name, exact: true }), `${name} under ${word}`).toBeVisible();
       }
+      // Owner, 2026-10-24: the Nakamigos marketplace is no longer in the index.
+      await expect(index.getByRole('link', { name: 'Marketplace', exact: true })).toHaveCount(0);
       // The groups run in one, two or three columns, never more; no word is cut short, and the
       // index runs off the screen neither sideways nor under the picture.
       const lefts = await index.getByRole('heading', { level: 2 }).evaluateAll((hs) => hs.map((h) => Math.round(h.getBoundingClientRect().left)));
