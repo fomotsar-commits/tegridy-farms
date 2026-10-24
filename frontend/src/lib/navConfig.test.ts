@@ -145,6 +145,7 @@ describe('the drawer', () => {
     expect(POOLS_SECTION.items.map((i) => [i.to, i.tabLabel ?? i.label])).toEqual([
       ['/liquidity', 'Add / Remove'],
       ['/solana-lp', 'Solana LP'],
+      ['/range-pools', 'Range'],
       ['/pools', 'Venue AMM'],
       ['/zap', 'Zap'],
     ]);
