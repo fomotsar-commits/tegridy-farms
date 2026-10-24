@@ -228,6 +228,15 @@ describe('IslandDashboard: every pool on the island', () => {
     expect(screen.queryByRole('heading', { level: 1 })).toBeNull();
   });
 
+  // Owner, 2026-10-23: "the mobile and ipad dont have the dashboard updated like pc version". The
+  // big frame was `hidden` under 1024px, so a phone and an upright iPad drew the board without it.
+  it('draws the big frame at every width, not only from 1024px', () => {
+    mount();
+    const frame = screen.getByText('fig. 01').closest('[aria-hidden="true"]')!;
+    expect(frame.className.split(/\s+/)).not.toContain('hidden');
+    expect(frame).toHaveTextContent('Bayla');
+  });
+
   it('routes to the venue\'s own liquidity', () => {
     mount();
     expect(screen.getByRole('link', { name: /provide liquidity on venue pools/i })).toHaveAttribute('href', '/liquidity');
