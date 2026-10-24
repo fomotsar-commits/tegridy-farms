@@ -15,6 +15,44 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-23: a trunk failure that the next run passed was two green PRs red together, not a flake
+
+**Believed:** five tests that failed once on trunk (merge `08596661`, run 38501066916) and
+passed on the next trunk run were intermittent. Each one waited out its 20 s `findByRole`
+and said `Unable to find role="button"`, which is what a slow runner looks like.
+
+**Measured** (2026-10-23, vitest on an idle machine, `-t` set to only those five tests):
+
+- #790 changed the coin the Solana swap page shows while a link's token is looked up, from
+  USDC to $BAYLA, and merged at 2026-10-14 02:26:32Z. #791 merged 19 s later. #791's last
+  CI had run on 2026-10-10 21:09Z, before #790 was on trunk, and its tests waited for
+  "Buy USDC".
+- The merge commit failed all five on every run. #791's own head passed all five. With
+  `DEBUG_PRINT_LIMIT=200000`, the DOM dump showed "Buy BAYLA" on the button the whole time.
+- The next trunk run passed these five because the next merge (#809) carried a commit that
+  changed them to wait for "Buy BAYLA". Nothing about the failure was random.
+- `git merge-tree --write-tree <trunk just before #791> <#791's head>` gave exactly the
+  real merge tree. It differed from the tree #791's CI tested by 33 files, among them the
+  page and the rule that picks the opening coin. The 2026-10-01 entry's tree check
+  ("compare the merged tree with the PR's tree") would have caught this before the merge.
+
+**Do:** before calling a trunk failure intermittent, run the failing tests alone on the
+merge commit and on the PR's own head. If one is red every time and the other is green,
+it is a collision: look at what merged just before. When a test leans on a value that
+other code decides (a default, a fallback), check that value right after render, with a
+message that names it. A `findBy*` on the old value only says "Unable to find", and only
+after its timeout. PR #963 does this for these five tests: a moved fallback now fails in
+28–184 ms and names both coins, where before it took 5 × 20 s.
+
+### Incidental
+
+- In CI's log, the DOM dump stopped at the amount box, above the Buy button, so the log
+  never showed what the button said. Testing Library cuts its dump at `DEBUG_PRINT_LIMIT`,
+  7000 characters unless that is set (read in `@testing-library/dom/dist/pretty-dom.js`).
+  To see the rest, rerun locally with the limit raised.
+
+---
+
 ## 2026-10-23: "Swap not checked" blamed the test run, but the test run never failed: one Jupiter press is four Jupiter calls
 
 **Believed:** a Solana swap toast saying the check "keeps failing on our side" means the
