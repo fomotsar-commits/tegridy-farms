@@ -13,7 +13,7 @@ import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, WSOL_MINT } from '../curve/pro
 import { associatedTokenAddress } from '../curve/ix';
 import { formatTokenAmount } from '../curve/format';
 import { quoteCoin, type QuoteCoin } from '../../../solana/lp/quotes';
-import { BUILDABLE_EXTENSIONS, decodeMintAccount, extensionPlain, freezeWarning } from '../../../solana/lp/tokenSafety';
+import { BUILDABLE_EXTENSIONS, EXTENSION, decodeMintAccount, extensionPlain, freezeWarning } from '../../../solana/lp/tokenSafety';
 import type { RawAccount } from '../../../solana/lp/accounts';
 import type { OutsidePrice } from '../../../solana/lp/outsidePrice';
 import { CLOCK_SYSVAR, chainTimeOf, tokenVault } from '../../../solana/lp/poolFinder';
@@ -53,6 +53,7 @@ import type {
   RangePins,
   RangePoolLine,
   RangePositionPins,
+  RangeRewardPaid,
   TxSummary,
   WatchList,
   WriteRpc,
@@ -82,7 +83,12 @@ export const RANGE_COPY = {
   removingPaused: 'Taking liquidity out of this pool is switched off by the venue’s vault right now.',
   collectingPaused: 'Collecting fees from this pool is switched off by the venue’s vault right now.',
   rewardsPaused: 'Collecting rewards from this pool is switched off by the venue’s vault right now.',
-  rewardVaultShort: (paid: string) => `A reward’s vault holds less than this position is owed, so it pays ${paid} now and the rest stays owed.`,
+  earnedWaitsOnRemoval:
+    'Taking liquidity out of this pool is switched off by the venue’s vault right now, so what this position earned since it was last changed cannot be collected yet. It stays owed to it.',
+  paysRecordOnly:
+    'Taking liquidity out of this pool is switched off by the venue’s vault right now, so this pays only what the position’s record held at its last change. What it earned since stays owed to it.',
+  closeRewardShort:
+    'A reward’s vault holds less than this position is owed, and the program closes a position only once every reward owed is paid, so it cannot be closed now. Take out 100% and keep it open instead: that pays what the vault holds, and the rest stays owed to it.',
   badRange: 'That range is not one a position may use in this pool.',
   buysNothing: 'That amount buys nothing in this range: a range above the price takes the token only, and one below it takes the pairing coin only.',
   noTokenAccount: (address: string) => LP_COPY.noTokenAccount(address),
@@ -636,20 +642,30 @@ async function prepareDecrease(rpc: WriteRpc, cfg: CurveWriteConfig, programId: 
   // date only while removal is on (decrease_liquidity.rs); otherwise the record's own figures.
   const bands = bandRaw.map((b) => (b && b.owner === programId.toBase58() ? decodeTickArray('', b.data) : null));
   const accrues = poolAllows(pool, POOL_STATUS_BIT.decreaseLiquidity);
-  const fees: [bigint, bigint] | null = accrues ? feesNow(pool, position, bands) : [position.tokenFeesOwed0, position.tokenFeesOwed1];
-  const rewards = accrues ? rewardsNow(pool, position, bands, now) : positionRewardsAt(pool, { ...position, liquidity: 0n }, null, null, null);
+  const owedFees = feesNow(pool, position, bands);
+  const owedRewards = rewardsNow(pool, position, bands, now);
+  const fees: [bigint, bigint] | null = accrues ? owedFees : [position.tokenFeesOwed0, position.tokenFeesOwed1];
+  const rewards = accrues ? owedRewards : positionRewardsAt(pool, { ...position, liquidity: 0n }, null, null, null);
   const rewardsOwed = rewards ? rewards.map((r) => r.owed) : null;
   const known0 = (v: bigint[] | null) => v !== null && v.every((x) => x === 0n);
   // Closing needs every reward owed collected first, and a pool whose rewards cannot be collected now cannot do that.
   if (kind === 'range-close' && pins.rewards.length === 0 && (rewardsOwed ?? position.rewardInfos.map((r) => r.rewardAmountOwed)).some((x) => x > 0n)) {
     return notSent('build', RANGE_COPY.rewardsPaused);
   }
-  // A collect of nothing still costs a network fee: refused when what it would pay is known to be zero.
+  // Nor can a reward's vault that holds less than is owed: it pays what it holds and the rest stays owed (close_position.rs).
+  if (kind === 'range-close' && pins.rewards.some((pin, i) => (rewards?.find((r) => r.mint === pin.mint.toBase58())?.owed ?? 0n) > tokenAmountOf(rewardRaw[i] ?? null))) {
+    return notSent('build', RANGE_COPY.closeRewardShort);
+  }
+  // A collect of nothing still costs a network fee: refused when what it would pay is known to be zero, for the reason it is.
   if (kind === 'range-remove' && liquidity === 0n) {
     const feesPaid = poolAllows(pool, POOL_STATUS_BIT.collectFee) ? fees : [0n, 0n];
     const rewardsPaid = pins.rewards.length > 0 ? rewardsOwed : [];
+    const earned = !(known0(owedFees) && known0(owedRewards && owedRewards.map((r) => r.owed)));
     if (known0(feesPaid) && known0(rewardsPaid)) {
-      return notSent('build', !known0(fees) ? RANGE_COPY.collectingPaused : !known0(rewardsOwed) ? RANGE_COPY.rewardsPaused : RANGE_COPY.nothingToTake);
+      return notSent(
+        'build',
+        !known0(fees) ? RANGE_COPY.collectingPaused : !known0(rewardsOwed) ? RANGE_COPY.rewardsPaused : !accrues && earned ? RANGE_COPY.earnedWaitsOnRemoval : RANGE_COPY.nothingToTake,
+      );
     }
   }
 
@@ -667,10 +683,12 @@ async function prepareDecrease(rpc: WriteRpc, cfg: CurveWriteConfig, programId: 
   const [tokenAcc, coinAcc] = accounts as [RawAccount | null, RawAccount | null];
   const rewardMintRaw = accounts.slice(2 + rewardRecipients.length);
   const notices: string[] = [];
+  if (!accrues && position.liquidity > 0n) notices.push(RANGE_COPY.paysRecordOnly);
   if (!poolAllows(pool, POOL_STATUS_BIT.collectFee) && fees && !known0(fees)) notices.push(`${RANGE_COPY.collectingPaused} Its fees stay owed to it.`);
   if (pins.rewards.length === 0 && !known0(rewardsOwed) && rewardsOwed !== null) notices.push(`${RANGE_COPY.rewardsPaused} Its rewards stay owed to it.`);
-  // Each reward pays what is owed, or what its vault holds if that is less (decrease_liquidity.rs collect_rewards).
-  let rewardsPays: RewardPaid[] | null = [];
+  // Each reward pays what is owed, or what its vault holds if that is less (decrease_liquidity.rs
+  // collect_rewards), less any fee its own coin takes on the way out.
+  let rewardsPays: RangeRewardPaid[] | null = [];
   for (const [i, pin] of pins.rewards.entries()) {
     const owed = rewards?.find((r) => r.mint === pin.mint.toBase58())?.owed;
     if (owed === undefined) {
@@ -680,11 +698,8 @@ async function prepareDecrease(rpc: WriteRpc, cfg: CurveWriteConfig, programId: 
     const held = tokenAmountOf(rewardRaw[i] ?? null);
     const m = rewardMintRaw[i];
     const d = m ? decodeMintAccount(m.owner, m.data) : null;
-    rewardsPays.push({ mint: pin.mint, owed, amount: owed < held ? owed : held, decimals: d?.ok ? d.value.decimals : null });
-  }
-  for (const r of rewardsPays ?? []) {
-    const paid = r.decimals === null ? `${r.amount} smallest units` : formatTokenAmount(r.amount, r.decimals, r.decimals).text;
-    if (r.amount < r.owed) notices.push(RANGE_COPY.rewardVaultShort(`${paid} of the coin at ${r.mint.toBase58()}`));
+    const feeOnTransfer = d?.ok ? d.value.extensions.includes(EXTENSION.TransferFeeConfig) : null;
+    rewardsPays.push({ mint: pin.mint, owed, amount: owed < held ? owed : held, decimals: d?.ok ? d.value.decimals : null, feeOnTransfer });
   }
   const tokenCheck = accountCheck(tokenAcc, tokenSide.want);
   if (tokenCheck.refuse) return notSent('build', tokenCheck.refuse);
@@ -804,7 +819,7 @@ async function prepareDecrease(rpc: WriteRpc, cfg: CurveWriteConfig, programId: 
         min,
         quoted,
         fees: feesSides,
-        rewards: rewardsPays && rewardsPays.map((r) => ({ mint: r.mint, amount: r.amount, decimals: r.decimals })),
+        rewards: rewardsPays,
         unwrapsWsol: wsol?.closeAfter ?? false,
         notices,
         poolLine: poolLine(pins, pair, tier, pool),
@@ -815,7 +830,6 @@ async function prepareDecrease(rpc: WriteRpc, cfg: CurveWriteConfig, programId: 
 }
 
 type BandView = ReturnType<typeof decodeTickArray>;
-type RewardPaid = { mint: PublicKey; owed: bigint; amount: bigint; decimals: number | null };
 
 /** The tick `t` from the bands read, or null when its band did not read. */
 function tickIn(pool: PoolStateView, bands: (BandView | null)[], t: number) {

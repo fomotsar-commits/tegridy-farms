@@ -90,8 +90,9 @@ const EDITORIAL_CARD_STYLE = { border: '1px solid rgba(245,228,184,0.16)', backg
  * is never split in the middle of a number (review of the phone fixes, 2026-10-04).
  */
 /**
- * `line`: on a review, what moves this row without the transaction changing (a market, or
- * the network's fees), so Sign on a review built again does not shut on it (reviewLines.ts).
+ * `line`: on a review, what moves this row without the transaction changing (a market, the
+ * network's fees, or the chain's clock), so Sign on a review built again does not shut on it
+ * (reviewLines.ts).
  */
 export function Row({
   label,
@@ -105,7 +106,7 @@ export function Row({
   value: ReactNode;
   mono?: boolean;
   words?: boolean;
-  line?: 'market' | 'fee';
+  line?: 'market' | 'fee' | 'clock';
   /** A value that is a warning, in `Notice`'s warning colour. */
   tone?: 'warn';
 }) {

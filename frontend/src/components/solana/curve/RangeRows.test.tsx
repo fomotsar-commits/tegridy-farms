@@ -8,6 +8,8 @@ import { RangeRows } from './RangeRows';
 import { TxReview } from './TxFlowView';
 import { prepared } from './fakeWriteApi.fixture';
 import type { RangeSummary } from './ports';
+import type { RangeRewardPaid } from '../../../lib/launcher/solana/write/types';
+import { reviewLines } from './reviewLines';
 
 /** A range position's review says the fee, the venue's cut and where that cut goes, from the pool's tier. */
 
@@ -131,6 +133,8 @@ describe('the range review’s fee lines', () => {
 });
 
 describe('a collect’s review', () => {
+  const BAYLA = new PublicKey('7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump');
+  const paid = (o: Partial<RangeRewardPaid> = {}): RangeRewardPaid => ({ mint: BAYLA, owed: 48_200_000n, amount: 48_200_000n, decimals: 6, feeOnTransfer: false, ...o });
   const collect = (rewards: Extract<RangeSummary, { kind: 'range-remove' | 'range-close' }>['rewards']): RangeSummary => ({
     ...(opening({ owner: PLATFORM_TREASURY_VAULT.toBase58(), fundOwner: WORKSHOP_WALLET.toBase58() }) as Extract<RangeSummary, { kind: 'range-open' }>),
     kind: 'range-remove', position: key(9), percent: 0, liquidity: 0n, min: { token: 0n, quote: 0n }, quoted: { token: 0n, quote: 0n },
@@ -138,9 +142,29 @@ describe('a collect’s review', () => {
   }) as unknown as RangeSummary;
 
   it('says each reward it pays, in its coin, and that it takes out the fees and rewards only', () => {
-    render(<RangeRows summary={collect([{ mint: new PublicKey('7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump'), amount: 48_200_000n, decimals: 6 }])} />);
+    render(<RangeRows summary={collect([paid()])} />);
     expect(screen.getByText('Rewards it pays').parentElement).toHaveTextContent('48.2 BAYLA');
     expect(screen.getByText('no liquidity: the fees and rewards only')).toBeInTheDocument();
+  });
+
+  it('a running reward’s row is a line the chain’s clock moves; nothing else on a collect is', () => {
+    const got = reviewLines(<RangeRows summary={collect([paid()])} />);
+    expect(got.clock).toEqual(['Rewards it pays: 48.2 BAYLA']);
+    expect(got.lines.some((l) => l.startsWith('Rewards it pays'))).toBe(false);
+  });
+
+  it('a reward’s vault holding less than is owed: what it pays, by the coin’s ticker, and the rest stays owed', () => {
+    render(<RangeRows summary={collect([paid({ owed: 999_999n, amount: 400_000n })])} />);
+    expect(screen.getByText('This reward’s vault holds less than the position is owed, so it pays 0.4 BAYLA now and the rest stays owed to it.')).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain(BAYLA.toBase58());
+  });
+
+  it('a reward coin that takes a fee out of each transfer says less arrives; one whose mint did not read says that is not known', () => {
+    const { unmount } = render(<RangeRows summary={collect([paid({ feeOnTransfer: true })])} />);
+    expect(screen.getByText('BAYLA takes its own fee out of each transfer, so less BAYLA than this arrives in your wallet.')).toBeInTheDocument();
+    unmount();
+    render(<RangeRows summary={collect([paid({ decimals: null, feeOnTransfer: null })])} />);
+    expect(screen.getByText('BAYLA’s mint could not be read just now, so whether it takes a fee out of each transfer is not known.')).toBeInTheDocument();
   });
 
   it('a reward that could not be worked out is said, never 0; a pool with none says fees only', () => {

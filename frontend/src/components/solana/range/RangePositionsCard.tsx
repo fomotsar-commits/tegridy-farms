@@ -5,6 +5,7 @@ import type { Read, WalletPosition, WalletPositionsRead } from '../../../lib/sol
 import { feeSplit, poolFeeCeiling } from '../../../lib/solana/clmm/feeText';
 import { formatSolPrice } from '../../../lib/solana/lp/format';
 import { priceNumber } from '../../../lib/solana/clmm/rangeMath';
+import { POOL_STATUS_BIT, poolAllows } from '../../../lib/solana/clmm/program';
 import { CardArt } from '../../ui/CardArt';
 import { Card, Notice, Row, SlippagePicker } from '../curve/ui';
 import { DEFAULT_SLIPPAGE_BPS } from '../curve/uiFormat';
@@ -14,7 +15,7 @@ import { useReturnFocus, useTxFlow } from '../curve/useTxFlow';
 import type { CurveSignerState } from '../curve/useCurveSigner';
 import type { PendingTradesState } from '../curve/usePendingTrades';
 import type { CurveWriteConfig, RangeWriteApi, WriteRpc } from '../curve/ports';
-import { bothAmounts, priceText, rewardAmount, tokenWord, utcClock } from './rangeText';
+import { PAUSED_TEXT, bothAmounts, priceText, rewardAmount, rewardCoin, tokenWord, utcClock } from './rangeText';
 import { useFlowReports } from './useRangeData';
 import { chipCls } from './editorialUi';
 
@@ -119,9 +120,23 @@ function PositionRow(p: {
       : { tone: 'warn' as const, text: `Out of range (the price is ${w.status === 'below' ? 'below' : 'above'} it): earning nothing until the price comes back into it.` };
   const both = (a0: bigint, a1: bigint) => (pair ? bothAmounts(pair, a0, a1) : `${a0} and ${a1} (in each coin’s smallest units)`);
   const prices = pair ? rangePrices(pair, { tickLower: w.position.tickLowerIndex, tickUpper: w.position.tickUpperIndex }) : null;
-  // Collect is offered unless both fees and rewards are known to be zero: a collect of nothing still costs a network fee.
-  const nothingOwed = w.fees !== null && w.fees.fee0 === 0n && w.fees.fee1 === 0n && w.rewards !== null && w.rewards.every((r) => r.owed === 0n);
   const empty = w.position.liquidity === 0n;
+  // What a Collect pays now: brought up to date only while removal is on, else the record's own
+  // figures (decrease_liquidity.rs), and nothing a paused collection holds back.
+  const removalOn = poolAllows(w.pool, POOL_STATUS_BIT.decreaseLiquidity);
+  const feesOn = poolAllows(w.pool, POOL_STATUS_BIT.collectFee);
+  const rewardsOn = poolAllows(w.pool, POOL_STATUS_BIT.collectReward);
+  const recorded = w.pool.rewardInfos.flatMap((r, i) => (r.initialized ? [w.position.rewardInfos[i]?.rewardAmountOwed ?? 0n] : []));
+  const paysFees = !feesOn ? [] : removalOn || empty ? (w.fees && [w.fees.fee0, w.fees.fee1]) : [w.position.tokenFeesOwed0, w.position.tokenFeesOwed1];
+  const paysRewards = !rewardsOn ? [] : removalOn || empty ? (w.rewards && w.rewards.map((r) => r.owed)) : recorded;
+  const known0 = (v: bigint[] | null) => v !== null && v.every((x) => x === 0n);
+  // Collect is offered unless what it pays is known to be zero: a collect of nothing still costs a network fee.
+  const nothingOwed = known0(paysFees) && known0(paysRewards);
+  const hasRewards = w.pool.rewardInfos.some((r) => r.initialized);
+  const paused: string[] = [];
+  if (!removalOn && !empty) paused.push(PAUSED_TEXT.removal);
+  if (!feesOn) paused.push(PAUSED_TEXT.fees);
+  if (!rewardsOn && hasRewards) paused.push(PAUSED_TEXT.rewards);
   return (
     <div className="rounded-xl border border-white/10 bg-black/25 p-3 space-y-1.5" data-testid="range-position">
       {pair && tokenWord(pair) === 'tokens' && <Row label="Token (mint)" value={pair.tokenMint} />}
@@ -129,12 +144,17 @@ function PositionRow(p: {
       {prices && pair && <Row label="Range" value={`${priceText(pair, prices.min)} to ${formatSolPrice(priceNumber(prices.max))}`} mono={false} />}
       <Notice tone={status.tone}>{status.text}</Notice>
       <Row label="Holds now" value={w.amounts ? both(w.amounts.amount0, w.amounts.amount1) : 'could not be worked out just now'} mono={false} />
-      <Row label="Waiting to collect" value={waitingText(w, both)} mono={false} />
+      <Row label="Waiting to collect" value={waitingText(w, both, paused.length === 0)} mono={false} />
       {(w.fees !== null || w.rewards !== null) && (
         <p className="text-white/45 text-[10px] font-mono" data-testid="range-position-waiting-basis">
           {`worked out from accounts read together${w.chainTime !== null ? ` at ${utcClock(w.chainTime)}` : ''}; the exact amount is fixed when you collect`}
         </p>
       )}
+      {paused.map((t) => (
+        <Notice key={t} tone="warn">
+          {t}
+        </Notice>
+      ))}
       <Row label="Position" value={id} />
       {w.nftProgram === 'token' ? (
         <Notice>
@@ -265,13 +285,19 @@ function ActionInner(p: {
 
 /**
  * "212 BAYLA and 0.093 SOL in fees · 48.2 BAYLA in rewards". A part that could not be
- * worked out says so, never 0: Collect pays it in full all the same.
+ * worked out says so, never 0; with nothing paused, Collect pays it in full all the same.
  */
-function waitingText(w: WalletPosition, both: (a0: bigint, a1: bigint) => string): string {
-  const all = 'could not be worked out just now; Collect pays them in full all the same';
-  if (w.fees === null && (w.rewards === null || w.rewards.length === 0)) return all;
+function waitingText(w: WalletPosition, both: (a0: bigint, a1: bigint) => string, inFull: boolean): string {
+  const tail = inFull ? '; Collect pays them in full all the same' : '';
+  if (w.fees === null && (w.rewards === null || w.rewards.length === 0)) return `could not be worked out just now${tail}`;
   const parts = [w.fees ? `${both(w.fees.fee0, w.fees.fee1)} in fees` : 'the fees could not be worked out just now'];
   if (w.rewards === null) parts.push('the rewards could not be worked out just now');
-  else if (w.rewards.length > 0) parts.push(`${w.rewards.map((r) => rewardAmount(r.owed, r.decimals, r.mint)).join(' and ')} in rewards`);
-  return parts.join(' · ') + (w.fees === null || w.rewards === null ? '; Collect pays them in full all the same' : '');
+  else if (w.rewards.length > 0) {
+    const each = w.rewards.map((r) => {
+      const coin = rewardCoin(r.mint);
+      return rewardAmount(r.owed, r.decimals, r.mint) + (r.feeOnTransfer ? ` (${coin} takes its own fee out of each transfer, so less arrives)` : '');
+    });
+    parts.push(`${each.join(' and ')} in rewards`);
+  }
+  return parts.join(' · ') + (w.fees === null || w.rewards === null ? tail : '');
 }

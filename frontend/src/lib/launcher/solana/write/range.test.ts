@@ -33,6 +33,7 @@ import type { OutsidePrice } from '../../../solana/lp/outsidePrice';
 import { decodeIntent } from './intent';
 import { RANGE_COPY, freezeLines, prepareRangeClose, prepareRangeOpen, prepareRangeRemove, stepsProblem, type RangeOpenReads } from './range';
 import { encodeMint } from './testkit.fixture';
+import { EXTENSION } from '../../../solana/lp/tokenSafety';
 import { BAYLA_QUOTE, SOL_QUOTE, USDC_QUOTE } from '../../../solana/lp/quotes';
 import { FakeChain, cfgLocal, openAccount, rent, setClock, type SimHandler } from './testkit.fixture';
 import type { IntentStep, PreparedTx, RangeIntent, RangeSummary, WriteRpc } from './types';
@@ -409,13 +410,13 @@ describe('an account this opens keeps the deposit its own mint needs', () => {
 });
 
 /** A position of ME's in the pool, its NFT in ME's own Token-2022 account. */
-function withPosition(c: FakeChain, o: { liquidity?: bigint; fees?: [bigint, bigint]; nftOwner?: PublicKey } = {}) {
+function withPosition(c: FakeChain, o: { liquidity?: bigint; fees?: [bigint, bigint]; nftOwner?: PublicKey; rewardOwed?: bigint } = {}) {
   const nft = Keypair.generate().publicKey;
   const position = derivePersonalPosition(PROG, nft);
   c.set(position, {
     lamports: rent(281),
     owner: PROG,
-    data: encodePosition({ nftMint: nft, pool: POOL, ...inRange, liquidity: o.liquidity ?? 10n ** 12n, feesOwed0: o.fees?.[0] ?? 0n, feesOwed1: o.fees?.[1] ?? 0n }),
+    data: encodePosition({ nftMint: nft, pool: POOL, ...inRange, liquidity: o.liquidity ?? 10n ** 12n, feesOwed0: o.fees?.[0] ?? 0n, feesOwed1: o.fees?.[1] ?? 0n, rewards: o.rewardOwed === undefined ? undefined : [{ owed: o.rewardOwed }] }),
   });
   c.token2022Account(positionNftAccount(ME, nft), nft, o.nftOwner ?? ME, 1n);
   c.set(deriveTickArray(PROG, POOL, 0), {
@@ -436,10 +437,15 @@ function withPosition(c: FakeChain, o: { liquidity?: bigint; fees?: [bigint, big
  */
 const REWARD_MINT = Keypair.generate().publicKey;
 const REWARD_VAULT = Keypair.generate().publicKey;
-function chainWithReward(o: { held?: bigint; status?: number; clock?: bigint | null } = {}): FakeChain {
+function chainWithReward(o: { held?: bigint; status?: number; clock?: bigint | null; transferFee?: boolean } = {}): FakeChain {
   const c = ready(chainWith({ status: o.status, reward: { mint: REWARD_MINT, vault: REWARD_VAULT, openTime: 1_000n, endTime: 1_000_000n, lastUpdateTime: 1_000n, emissionsPerSecondX64: 1_000_000n << 64n } }));
-  c.mint(REWARD_MINT, { decimals: 6 });
-  c.tokenAccount(REWARD_VAULT, REWARD_MINT, POOL, o.held ?? 10n ** 12n);
+  if (o.transferFee) {
+    c.mint2022(REWARD_MINT, [[EXTENSION.TransferFeeConfig, 108]], { decimals: 6 });
+    c.token2022Account(REWARD_VAULT, REWARD_MINT, POOL, o.held ?? 10n ** 12n);
+  } else {
+    c.mint(REWARD_MINT, { decimals: 6 });
+    c.tokenAccount(REWARD_VAULT, REWARD_MINT, POOL, o.held ?? 10n ** 12n);
+  }
   setClock(c, o.clock === undefined ? 2_000n : o.clock);
   return c;
 }
@@ -451,20 +457,39 @@ describe('collecting a reward', () => {
     const p = ok(await prepareRangeRemove(W(c), cfgLocal, PROG, { owner: ME, position, percent: 0, toleranceBps: 100 }));
     const s = p.summary as Exclude<RangeSummary, { kind: 'range-open' }>;
     expect([s.liquidity, s.fees]).toEqual([0n, { token: 0n, quote: 0n }]);
-    expect(s.rewards).toEqual([{ mint: REWARD_MINT, amount: 999_999n, decimals: 6 }]);
+    expect(s.rewards).toEqual([{ mint: REWARD_MINT, owed: 999_999n, amount: 999_999n, decimals: 6, feeOnTransfer: false }]);
     // Wrapped SOL opened and closed around it, the reward's own account opened for the wallet, and the take-out names the reward's vault.
     expect(p.steps.map((x) => x.kind).filter((k) => !k.startsWith('compute'))).toEqual(['create-token-account', 'create-token-account', 'range-decrease', 'close-wsol']);
     expect(p.fees.newAccountRentLamports).toBe(BigInt(rent(165)));
     expect(body(p).find((ix) => ix.programId.equals(PROG))!.keys.map((k) => k.pubkey.toBase58())).toContain(REWARD_VAULT.toBase58());
   });
 
-  it('a reward vault holding less than is owed pays what it holds, and says so', async () => {
+  it('a reward vault holding less than is owed pays what it holds; the review says so from the owed and paid it carries', async () => {
     const c = chainWithReward({ held: 400_000n });
     const { position } = withPosition(c);
     const p = ok(await prepareRangeRemove(W(c), cfgLocal, PROG, { owner: ME, position, percent: 0, toleranceBps: 100 }));
     const s = p.summary as Exclude<RangeSummary, { kind: 'range-open' }>;
-    expect(s.rewards).toEqual([{ mint: REWARD_MINT, amount: 400_000n, decimals: 6 }]);
-    expect(s.notices).toContain(RANGE_COPY.rewardVaultShort(`0.4 of the coin at ${REWARD_MINT.toBase58()}`));
+    expect(s.rewards).toEqual([{ mint: REWARD_MINT, owed: 999_999n, amount: 400_000n, decimals: 6, feeOnTransfer: false }]);
+    // No line names the coin by its address alone: the rows say it, by its ticker (RangeRows).
+    expect(s.notices.some((n) => n.includes(REWARD_MINT.toBase58()))).toBe(false);
+  });
+
+  it('a close whose reward vault holds less than is owed is refused before it is built: the program closes only a position owed nothing', async () => {
+    const c = chainWithReward({ held: 400_000n });
+    const { position } = withPosition(c);
+    const r = await prepareRangeClose(W(c), cfgLocal, PROG, { owner: ME, position, toleranceBps: 100 });
+    expect(r.ok ? null : r.outcome.message).toBe(RANGE_COPY.closeRewardShort);
+    // A vault holding all of it: the close is built.
+    const full = chainWithReward();
+    const b = withPosition(full);
+    ok(await prepareRangeClose(W(full), cfgLocal, PROG, { owner: ME, position: b.position, toleranceBps: 100 }));
+  });
+
+  it('a reward coin that takes a fee out of each transfer is marked so on what the collect pays', async () => {
+    const c = chainWithReward({ transferFee: true });
+    const { position } = withPosition(c);
+    const p = ok(await prepareRangeRemove(W(c), cfgLocal, PROG, { owner: ME, position, percent: 0, toleranceBps: 100 }));
+    expect((p.summary as Exclude<RangeSummary, { kind: 'range-open' }>).rewards).toEqual([{ mint: REWARD_MINT, owed: 999_999n, amount: 999_999n, decimals: 6, feeOnTransfer: true }]);
   });
 
   it('with the Clock unread the reward could not be worked out: the collect is still built, never refused as nothing, and the review says so', async () => {
@@ -474,15 +499,27 @@ describe('collecting a reward', () => {
     expect((p.summary as Exclude<RangeSummary, { kind: 'range-open' }>).rewards).toBeNull();
   });
 
-  it('with reward collection switched off and no fees, a collect is refused in words; with removal switched off, nothing builds up, so nothing is owed', async () => {
+  it('with reward collection switched off and no fees, a collect is refused in words', async () => {
     const off = chainWithReward({ status: 1 << POOL_STATUS_BIT.collectReward });
     const a = withPosition(off);
     const r = await prepareRangeRemove(W(off), cfgLocal, PROG, { owner: ME, position: a.position, percent: 0, toleranceBps: 100 });
     expect(r.ok ? null : r.outcome.message).toBe(RANGE_COPY.rewardsPaused);
+  });
+
+  it('with removal switched off and only a live reward owed, a collect is refused for the pause, never as nothing to take', async () => {
     const frozen = chainWithReward({ status: 1 << POOL_STATUS_BIT.decreaseLiquidity });
     const b = withPosition(frozen);
     const q = await prepareRangeRemove(W(frozen), cfgLocal, PROG, { owner: ME, position: b.position, percent: 0, toleranceBps: 100 });
-    expect(q.ok ? null : q.outcome.message).toBe(RANGE_COPY.nothingToTake);
+    expect(q.ok ? null : q.outcome.message).toBe(RANGE_COPY.earnedWaitsOnRemoval);
+  });
+
+  it('with removal switched off, a collect of what the record holds is built and says it pays only that', async () => {
+    const frozen = chainWithReward({ status: 1 << POOL_STATUS_BIT.decreaseLiquidity });
+    const { position } = withPosition(frozen, { rewardOwed: 300_000n });
+    const p = ok(await prepareRangeRemove(W(frozen), cfgLocal, PROG, { owner: ME, position, percent: 0, toleranceBps: 100 }));
+    const s = p.summary as Exclude<RangeSummary, { kind: 'range-open' }>;
+    expect(s.rewards).toEqual([{ mint: REWARD_MINT, owed: 300_000n, amount: 300_000n, decimals: 6, feeOnTransfer: false }]);
+    expect(s.notices).toContain(RANGE_COPY.paysRecordOnly);
   });
 
   it('a reward in the pool’s own token, for a wallet with no account for it: that account is opened once, and its deposit counted once', async () => {
@@ -495,7 +532,7 @@ describe('collecting a reward', () => {
     const opened = body(p).filter((ix) => ix.programId.equals(ASSOCIATED_TOKEN_PROGRAM_ID)).map((ix) => ix.keys[1]!.pubkey.toBase58());
     expect(opened.filter((k) => k === TOKEN_ATA.toBase58())).toHaveLength(1);
     expect(p.fees.newAccountRentLamports).toBe(BigInt(rent(165)));
-    expect((p.summary as Exclude<RangeSummary, { kind: 'range-open' }>).rewards).toEqual([{ mint: TOKEN, amount: 999_999n, decimals: 6 }]);
+    expect((p.summary as Exclude<RangeSummary, { kind: 'range-open' }>).rewards).toEqual([{ mint: TOKEN, owed: 999_999n, amount: 999_999n, decimals: 6, feeOnTransfer: false }]);
   });
 
   it('closing with reward collection switched off and a reward owed live is refused before it is built', async () => {

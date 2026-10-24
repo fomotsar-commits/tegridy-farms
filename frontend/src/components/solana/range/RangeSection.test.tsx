@@ -4,9 +4,9 @@ import { MemoryRouter } from 'react-router-dom';
 import { PublicKey } from '@solana/web3.js';
 import * as validate from '../../../lib/launchMetadata/validate.js';
 import { BAYLA_MINT, WSOL_MINT } from '../../../lib/solana/lp/tokenSafety';
-import { decodeAmmConfig, decodePersonalPosition, decodePoolState, sortMints, type AmmConfigView } from '../../../lib/solana/clmm/program';
+import { POOL_STATUS_BIT, decodeAmmConfig, decodePersonalPosition, decodePoolState, sortMints, type AmmConfigView } from '../../../lib/solana/clmm/program';
 import { getTickAtSqrtPrice } from '../../../lib/solana/clmm/math';
-import { encodeAmmConfig, encodePool, encodePosition } from '../../../lib/solana/clmm/encode.fixture';
+import { encodeAmmConfig, encodePool, encodePosition, type RewardFields } from '../../../lib/solana/clmm/encode.fixture';
 import type { MintFreeze, RangePool, Read, WalletPosition, WalletPositionsRead } from '../../../lib/solana/clmm/read';
 import type { CurveWriteConfig, Prepared, RangeWriteApi } from '../curve/ports';
 import { PLATFORM_TREASURY_VAULT } from '../../../lib/launcher/solana/curve/program';
@@ -18,7 +18,7 @@ import { PROGRAM_ID as LAUNCH_PROGRAM_ID } from '../../../lib/launcher/solana/cu
 import type { OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
 import { LIVE_PROGRAM_ID } from '../../../lib/solana/cpswap/program';
 import { depositFrom, pairOf, planFromCeiling, presetRange } from '../../../lib/solana/clmm/rangeMath';
-import { bothAmounts } from './rangeText';
+import { PAUSED_TEXT, bothAmounts } from './rangeText';
 import { RANGE_RISK_SHORT } from './RangeRisks';
 import { prepared } from '../curve/fakeWriteApi.fixture';
 import { SOL_QUOTE, USDC_QUOTE } from '../../../lib/solana/lp/quotes';
@@ -64,10 +64,11 @@ function tier(rates: Partial<{ tradeFeeRate: number; protocolFeeRate: number; fu
   )!;
 }
 
-function poolOn(config: AmmConfigView): RangePool {
+function poolOn(config: AmmConfigView, o: { status?: number; rewards?: RewardFields[] } = {}): RangePool {
   const data = encodePool({
     ammConfig: CONFIG, mint0: M0, mint1: M1, vault0: key(5), vault1: key(6), observation: key(7),
     decimals0: BAYLA_IS_0 ? 6 : 9, decimals1: BAYLA_IS_0 ? 9 : 6, tickSpacing: 120, liquidity: 10n ** 12n, sqrtPriceX64: SQRT, tickCurrent: TICK,
+    status: o.status, rewards: o.rewards,
   });
   return { pool: decodePoolState(POOL.toBase58(), data)!, config };
 }
@@ -495,7 +496,7 @@ describe('your positions', () => {
     const rp = poolOn(tier());
     const api = fakeApi();
     // 48.2 BAYLA owed at the chain's time 14:02:11 UTC on 24 Oct 2026; no fees at all.
-    const w = positionOf({ n: 6, lower: -1200, upper: 1200, status: 'in-range', fees: { fee0: 0n, fee1: 0n }, rewards: [{ index: 0, mint: BAYLA_MINT, owed: 48_200_000n, decimals: 6 }], chainTime: 1_792_850_531n }, rp);
+    const w = positionOf({ n: 6, lower: -1200, upper: 1200, status: 'in-range', fees: { fee0: 0n, fee1: 0n }, rewards: [{ index: 0, mint: BAYLA_MINT, owed: 48_200_000n, decimals: 6, feeOnTransfer: false }], chainTime: 1_792_850_531n }, rp);
     show(readers({ positions: { kind: 'ok', value: { positions: [w], unread: [] } } }), api);
     const row = await screen.findByTestId('range-position');
     expect(row.textContent).toContain('Waiting to collect');
@@ -522,7 +523,7 @@ describe('your positions', () => {
           value: {
             positions: [
               positionOf({ n: 7, lower: -1200, upper: 1200, status: 'in-range', fees: { fee0: 0n, fee1: 0n }, rewards: null }, rp),
-              positionOf({ n: 8, lower: -1200, upper: 1200, status: 'in-range', fees: { fee0: 0n, fee1: 0n }, rewards: [{ index: 1, mint: unknown, owed: 1_500n, decimals: null }] }, rp),
+              positionOf({ n: 8, lower: -1200, upper: 1200, status: 'in-range', fees: { fee0: 0n, fee1: 0n }, rewards: [{ index: 1, mint: unknown, owed: 1_500n, decimals: null, feeOnTransfer: null }] }, rp),
             ],
             unread: [],
           },
@@ -533,6 +534,40 @@ describe('your positions', () => {
     expect(rows[0]!.textContent).toContain('0 BAYLA and 0 SOL in fees · the rewards could not be worked out just now; Collect pays them in full all the same');
     await waitFor(() => expect((within(rows[0]!).getByRole('button', { name: 'Collect' }) as HTMLButtonElement).disabled).toBe(false));
     expect(rows[1]!.textContent).toContain(`1500 smallest units of Unknown token · ${unknown} in rewards`);
+  });
+
+  // The vault paused removal: the program brings nothing up to date, so a collect pays only the record's figures.
+  it('with removal paused, the row says so, Collect is off while the record holds nothing, and it never says Collect pays in full', async () => {
+    wallet.publicKey = ME;
+    wallet.signTransaction = vi.fn();
+    const rp = poolOn(tier(), { status: 1 << POOL_STATUS_BIT.decreaseLiquidity, rewards: [{ mint: new PublicKey(BAYLA_MINT), vault: key(30) }] });
+    const owed = (n: number, rewards: WalletPosition['rewards']) => positionOf({ n, lower: -1200, upper: 1200, status: 'in-range', fees: { fee0: 0n, fee1: 0n }, rewards }, rp);
+    show(
+      readers({
+        positions: {
+          kind: 'ok',
+          value: { positions: [owed(6, [{ index: 0, mint: BAYLA_MINT, owed: 48_200_000n, decimals: 6, feeOnTransfer: false }]), owed(7, null)], unread: [] },
+        },
+      }),
+    );
+    const rows = await screen.findAllByTestId('range-position');
+    expect(rows[0]!.textContent).toContain('0 BAYLA and 0 SOL in fees · 48.2 BAYLA in rewards');
+    expect(rows[0]!.textContent).toContain(PAUSED_TEXT.removal);
+    await waitFor(() => expect((within(rows[0]!).getByRole('button', { name: 'Close' }) as HTMLButtonElement).disabled).toBe(false));
+    expect((within(rows[0]!).getByRole('button', { name: 'Collect' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(rows[1]!.textContent).toContain('the rewards could not be worked out just now');
+    expect(rows[1]!.textContent).not.toContain('Collect pays them in full all the same');
+    expect((within(rows[1]!).getByRole('button', { name: 'Collect' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('a reward coin that takes a fee out of each transfer: the row says less arrives', async () => {
+    wallet.publicKey = ME;
+    wallet.signTransaction = vi.fn();
+    const rp = poolOn(tier(), { rewards: [{ mint: new PublicKey(BAYLA_MINT), vault: key(30) }] });
+    const w = positionOf({ n: 6, lower: -1200, upper: 1200, status: 'in-range', fees: { fee0: 0n, fee1: 0n }, rewards: [{ index: 0, mint: BAYLA_MINT, owed: 48_200_000n, decimals: 6, feeOnTransfer: true }] }, rp);
+    show(readers({ positions: { kind: 'ok', value: { positions: [w], unread: [] } } }));
+    const row = await screen.findByTestId('range-position');
+    expect(row.textContent).toContain('48.2 BAYLA (BAYLA takes its own fee out of each transfer, so less arrives) in rewards');
   });
 
   it('positions that did not read are said as unread, never as none', async () => {

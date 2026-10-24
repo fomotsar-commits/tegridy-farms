@@ -750,11 +750,12 @@ const lines = (p: PreparedTx): ReviewText => {
     market: [],
     warnings: [],
     fees: [`Priority fee: ${p.fees.priorityLamports}`],
+    clock: [],
   };
 };
 
 /** Every line of a review, in the order of its groups. */
-const allOf = (t: ReviewText) => [...t.lines, ...t.market, ...t.warnings, ...t.fees];
+const allOf = (t: ReviewText) => [...t.lines, ...t.market, ...t.warnings, ...t.fees, ...t.clock];
 
 const pastItsClock = () =>
   act(() => {
@@ -821,7 +822,7 @@ describe('a review left open past its blockhash', () => {
       },
     ],
     // Two empty readings agree with each other and say nothing about the review.
-    ['reads no lines at all', () => ({ lines: [], market: [], warnings: [], fees: [] })],
+    ['reads no lines at all', () => ({ lines: [], market: [], warnings: [], fees: [], clock: [] })],
   ])('a flow that %s never signs a rebuilt transaction unread', async (_what, read) => {
     vi.useFakeTimers();
     const fresh = again();
@@ -1330,6 +1331,44 @@ describe('built again at the press: what shuts the wallet and what only moved', 
     expect(state).toMatchObject({ step: 'review', prepared: fresh });
   });
 
+  // A collect of a running reward: the reward owed grows each second, and nothing else moves.
+  const collectOf = (paid: bigint, held = 10n ** 12n): TxSummary => ({
+    ...rangeOpen(),
+    kind: 'range-remove', position: KEY(53), percent: 0, liquidity: 0n, min: { token: 0n, quote: 0n }, quoted: { token: 0n, quote: 0n },
+    fees: { token: 0n, quote: 0n }, unwrapsWsol: true, notices: [],
+    rewards: [{ mint: KEY(54), owed: paid, amount: paid < held ? paid : held, decimals: 6, feeOnTransfer: false }],
+  }) as TxSummary;
+
+  it('a collect whose running reward grew while it was read signs on the rebuild, and the reward is listed among what moved', async () => {
+    const fresh = again(collectOf(52_200_000n), CAP);
+    const { api } = await pressPastItsClock(prepared(collectOf(48_200_000n), CAP), fresh);
+    expect(signed(api)).toEqual([fresh]);
+    vi.useRealTimers();
+    vi.useFakeTimers();
+    const open = fakeApi({ submitPrepared: vi.fn(() => new Promise<TxOutcome>(() => undefined)) });
+    render(<Flow api={open} build={builds(prepared(collectOf(48_200_000n), CAP), again(collectOf(52_200_000n), CAP))} />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Review' }));
+    });
+    pastItsClock();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Sign in wallet' }));
+      await vi.waitFor(() => expect(open.submitPrepared).toHaveBeenCalled());
+    });
+    const moved = screen.getByTestId('tx-moved');
+    expect(moved).toHaveTextContent(`Rewards it pays: 52.2 Unknown token · ${KEY(54).toBase58()}`);
+    expect(moved).toHaveTextContent(`Rewards it pays: 48.2 Unknown token · ${KEY(54).toBase58()}`);
+  });
+
+  it('a collect whose reward vault ran short since it was read: shut, and the new line is listed', async () => {
+    const fresh = again(collectOf(52_200_000n, 50_000_000n), CAP);
+    const { api, state } = await pressPastItsClock(prepared(collectOf(48_200_000n, 50_000_000n), CAP), fresh);
+    expect(api.submitPrepared).not.toHaveBeenCalled();
+    expect(state).toMatchObject({ step: 'review', prepared: fresh, replaced: { n: 1 } });
+    const now = state.step === 'review' ? (state.replaced?.now ?? []) : [];
+    expect(now.some((l) => /holds less than the position is owed, so it pays 50/.test(l))).toBe(true);
+  });
+
   // Only the price gap differs here, over the same bytes: what the gap check alone decides.
   // A real rebuild of an opening always signs a fresh NFT key, so it is always shown again (next test).
   it('the price-gap check alone does not shut a range opening for a small move in the same words', async () => {
@@ -1375,7 +1414,7 @@ describe('built again at the press: what shuts the wallet and what only moved', 
     });
     expect(screen.getByRole('status')).toHaveTextContent('Waiting for your wallet.');
     const moved = screen.getByTestId('tx-moved');
-    expect(moved).toHaveTextContent("These moved with the market or the network's fees since you read the review; every other line, and every instruction, is the same:");
+    expect(moved).toHaveTextContent("These moved with the market, the network's fees or the chain's clock since you read the review; every other line, and every instruction, is the same:");
     expect(moved).toHaveTextContent('Price check: 0.9% above the outside price (Jupiter), read just now');
     expect(moved).toHaveTextContent('In place of:');
     expect(moved).toHaveTextContent('Price check: 0.4% above the outside price (Jupiter), read just now');
@@ -1447,7 +1486,7 @@ describe('the review, sorted by what can move each line', () => {
         <p data-review-line="market">moved</p>
       </div>,
     );
-    expect(got).toEqual({ lines: ['kept'], market: ['moved'], warnings: [], fees: [] });
+    expect(got).toEqual({ lines: ['kept'], market: ['moved'], warnings: [], fees: [], clock: [] });
   });
 });
 

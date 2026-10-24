@@ -209,10 +209,54 @@ describe("a wallet's positions", () => {
     // 300 s at 2 coins a second over the pool's liquidity, plus the 1 per unit the counter already held; the
     // position was last changed at growth 0 and holds L of the pool's 10^12.
     const growth = Q64 + (300n * (2_000_000n << 64n)) / 10n ** 12n;
-    expect(p.rewards).toEqual([{ index: 0, mint: REWARD_MINT.toBase58(), owed: (growth * L) / Q64, decimals: 6 }]);
+    expect(p.rewards).toEqual([{ index: 0, mint: REWARD_MINT.toBase58(), owed: (growth * L) / Q64, decimals: 6, feeOnTransfer: false }]);
     expect(p.chainTime).toBe(1_400n);
     // Token accounts twice, then three batches: the records, the pools, then everything the sums need together.
     expect(c.calls.filter((m) => m === 'getMultipleAccounts')).toHaveLength(3);
+  });
+
+  it('a record that changed between the finding and the sums is read again with its pool: a collect landed in between pays nothing twice', async () => {
+    const { c, nft } = walletWith();
+    const record = derivePersonalPosition(PROG, nft);
+    // The collect: owed reset to 0 and growth inside brought up to the pool's 3 per unit.
+    const collected = encodePosition({ nftMint: nft, pool: POOL, tickLower: LOWER, tickUpper: UPPER, liquidity: L, feeGrowthInside0Last: 3n * Q64 });
+    const rpc: SolanaRpc = async (method, params) => {
+      const out = await c.rpc(method, params);
+      if (method === 'getMultipleAccounts' && (params[0] as string[]).includes(record.toBase58())) c.set(record, { owner: PROG, data: collected });
+      return out;
+    };
+    const r = await readWalletPositions(rpc, PROG, ME);
+    if (r.kind !== 'ok') throw new Error(r.detail);
+    expect(r.value.positions[0]!.fees).toEqual({ fee0: 0n, fee1: 0n });
+  });
+
+  it('past 100 keys, each position’s record, pool, tier, two bands and the Clock are read in one call', async () => {
+    const c = withTiers();
+    c.set(POOL, { owner: PROG, data: poolData({ rewards: [running] }) });
+    c.set(CLOCK, clockAt(1_400n));
+    const records: { record: string; lower: number; upper: number }[] = [];
+    for (let k = 1; k <= 40; k++) {
+      const nft = Keypair.generate().publicKey;
+      const [lower, upper] = [-7_200 * k, 7_200 * k];
+      c.set(derivePersonalPosition(PROG, nft), { owner: PROG, data: encodePosition({ nftMint: nft, pool: POOL, tickLower: lower, tickUpper: upper, liquidity: L }) });
+      c.tokenAccounts.push({ pubkey: Keypair.generate().publicKey, mint: nft, amount: 1n });
+      records.push({ record: derivePersonalPosition(PROG, nft).toBase58(), lower, upper });
+    }
+    const calls: string[][] = [];
+    const rpc: SolanaRpc = async (method, params) => {
+      if (method === 'getMultipleAccounts') calls.push(params[0] as string[]);
+      return c.rpc(method, params);
+    };
+    const r = await readWalletPositions(rpc, PROG, ME);
+    if (r.kind !== 'ok') throw new Error(r.detail);
+    expect(r.value.positions).toHaveLength(40);
+    for (const { record, lower, upper } of records) {
+      const band = (t: number) => deriveTickArray(PROG, POOL, Math.floor(t / (SPACING * 60)) * SPACING * 60).toBase58();
+      const together = calls.filter((keys) => keys.includes(CLOCK.toBase58()) && keys.includes(record));
+      expect(together.length, record).toBe(1);
+      expect(together[0]).toEqual(expect.arrayContaining([POOL.toBase58(), CONFIG0.toBase58(), REWARD_MINT.toBase58(), band(lower), band(upper)]));
+    }
+    for (const keys of calls) expect(keys.length).toBeLessThanOrEqual(100);
   });
 
   it('with the Clock unread a running reward could not be worked out: null, never 0', async () => {
