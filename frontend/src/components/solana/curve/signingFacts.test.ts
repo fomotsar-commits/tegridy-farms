@@ -5,13 +5,14 @@
 // the unsigned bytes. Node, not jsdom: web3's byte encoders need the real Uint8Array.
 import { describe, expect, it } from 'vitest';
 import { ComputeBudgetProgram, Keypair, PublicKey, Transaction, TransactionInstruction, VersionedTransaction } from '@solana/web3.js';
+import { openPositionWithToken22NftIx } from '../../../lib/solana/clmm/ix';
 import { TX_SIZE_LIMIT } from '../../../lib/launcher/solana/write/prepare';
 import { SOL_QUOTE, USDC_QUOTE } from '../../../lib/solana/lp/quotes';
 import { lpCreateSummary, lpDepositSummary } from '../lp/fakeLpWriteApi.fixture';
 import { CREATOR, KEY } from './fakeWriteApi.fixture';
 import type { PreparedTx } from './ports';
 import { BAYLA, EVERY_KIND, POOL_LINE, rangeOpening, rangeTakeOut, underTheHood } from './reviewKinds.fixture';
-import { SOLANA_TX_BYTES, legAmount, logCutShort, programName, siteAndNetwork, stepText, unsignedBase64, writtenAccounts } from './signingFacts';
+import { SOLANA_TX_BYTES, legAmount, logCutShort, poolCoins, programName, siteAndNetwork, stepText, unsignedBase64, writtenAccounts, type StepContext } from './signingFacts';
 
 type Step = PreparedTx['steps'][number];
 const FEES = { baseLamports: 5_000n, priorityLamports: 12_000n, priorityFeeRead: true, newAccountRentLamports: 59_300_000n };
@@ -161,26 +162,44 @@ describe('the steps in words', () => {
     'range-swap': { kind: 'range-swap', pool: k(51), inputMint: k(5), outputMint: k(6), amountIn: 1_000n, minimumAmountOut: 900n },
   };
 
+  const plain = (over: Partial<StepContext> = {}): StepContext => ({ wallet: null, display: (s) => s, coins: null, ...over });
+
   it.each(Object.values(EVERY_STEP))('$kind has words of its own, with no em dash', (step) => {
-    const t = stepText(step, CREATOR.toBase58(), (s) => s);
+    const t = stepText(step, plain({ wallet: CREATOR.toBase58() }));
     expect(t).not.toMatch(/no words for/);
     expect(t).not.toContain(String.fromCharCode(0x2014));
     expect(t.length).toBeGreaterThan(10);
   });
 
   it('raw values stay raw: ticks, liquidity and base units, every address whole', () => {
-    expect(stepText(EVERY_STEP['range-open'], null, (s) => s)).toBe(
+    expect(stepText(EVERY_STEP['range-open'], plain())).toBe(
       `Open a position in the pool ${k(51).toBase58()} from tick -1200 to tick 1200: liquidity 1,284,112, at most 10 and 20 base units of its two coins; its NFT is ${k(52).toBase58()}`,
     );
-    expect(stepText(EVERY_STEP['range-decrease'], null, (s) => s)).toMatch(/^Collect what the position .* is owed$/);
+    expect(stepText(EVERY_STEP['range-decrease'], plain())).toMatch(/^Collect what the position .* is owed$/);
+  });
+
+  it("the pool's two coins by name, coin 0 first, when the summary says which is which", () => {
+    // BAYLA's mint sorts after wrapped SOL's, so in a BAYLA with SOL pool SOL is coin 0.
+    const flipped = rangeOpening({ poolLine: { ...POOL_LINE, tokenIsToken0: false } });
+    expect(poolCoins(flipped)).toEqual(['SOL', 'BAYLA']);
+    expect(poolCoins(rangeOpening())).toEqual(['BAYLA', 'SOL']);
+    expect(poolCoins(lpDepositSummary(KEY(30), KEY(31), { quoteIsToken0: true }))).toEqual(['SOL', 'the token']);
+    expect(poolCoins(EVERY_KIND.buy)).toBeNull();
+    expect(stepText(EVERY_STEP['range-open'], plain({ coins: ['SOL', 'BAYLA'] }))).toContain('at most 10 base units of SOL and 20 of BAYLA; its NFT is');
+  });
+
+  it("a coin the site knows carries its ticker beside its whole address", () => {
+    const wrap = { kind: 'create-token-account' as const, owner: CREATOR, mint: new PublicKey(SOL_QUOTE.mint), address: k(9) };
+    expect(stepText(wrap, plain())).toContain(`for the mint ${SOL_QUOTE.mint} (SOL), owned by`);
+    expect(stepText(EVERY_STEP['plant-burn'], plain())).toContain(`of ${BAYLA.toBase58()} (BAYLA) from`);
   });
 
   it("the wallet's own address is named as your wallet", () => {
-    expect(stepText(EVERY_STEP['create-token-account'], CREATOR.toBase58(), (s) => s)).toMatch(/, owned by your wallet$/);
+    expect(stepText(EVERY_STEP['create-token-account'], plain({ wallet: CREATOR.toBase58() }))).toMatch(/, owned by your wallet$/);
   });
 
   it("a token's own name goes through the page's display rule", () => {
-    expect(stepText(EVERY_STEP['create-metadata'], null, (s) => `[${s}]`)).toContain('name "[A]", symbol "[AB]", link [https://x]');
+    expect(stepText(EVERY_STEP['create-metadata'], plain({ display: (s) => `[${s}]` }))).toContain('name "[A]", symbol "[AB]", link [https://x]');
   });
 
   it('a public program by its name; this venue’s own by the step it decoded as', () => {
@@ -195,10 +214,34 @@ describe('the accounts it writes', () => {
   it('the wallet first, each account once, read-only ones left out, each named where the steps say what it is', () => {
     const got = writtenAccounts(underTheHood(EVERY_KIND['range-open']));
     expect(got).toEqual([
-      { address: CREATOR.toBase58(), wallet: true, label: 'Your wallet, which pays the fees' },
-      { address: KEY(51).toBase58(), wallet: false, label: 'The pool' },
-      { address: KEY(54).toBase58(), wallet: false, label: null },
+      { address: CREATOR.toBase58(), wallet: true, label: 'Your wallet, which pays the fees', field: 'payer' },
+      { address: KEY(52).toBase58(), wallet: false, label: "Your position's NFT", field: 'position_nft_mint' },
+      { address: KEY(56).toBase58(), wallet: false, label: null, field: 'position_nft_account' },
+      { address: KEY(51).toBase58(), wallet: false, label: 'The pool', field: 'pool_state' },
+      { address: KEY(54).toBase58(), wallet: false, label: null, field: 'tick_array_lower' },
     ]);
+  });
+
+  it("a real range opening's accounts carry the program's own names, as its account list has them", () => {
+    const owner = Keypair.generate().publicKey;
+    const pool = { address: KEY(51).toBase58(), tokenMint0: SOL_QUOTE.mint, tokenMint1: BAYLA.toBase58(), tokenVault0: KEY(58).toBase58(), tokenVault1: KEY(59).toBase58(), tickSpacing: 120 };
+    const ix = openPositionWithToken22NftIx({
+      programId: KEY(70), payer: owner, owner, positionNftMint: KEY(52), pool, tokenAccount0: KEY(61), tokenAccount1: KEY(62),
+      tickLower: -1200, tickUpper: 1200, liquidity: 1n, amount0Max: 1n, amount1Max: 1n, baseFlag: null,
+    });
+    const tx = new Transaction({ feePayer: owner, blockhash: KEY(7).toBase58(), lastValidBlockHeight: 1 });
+    tx.add(ix);
+    const step: Step = { kind: 'range-open', pool: KEY(51), nftMint: KEY(52), tickLower: -1200, tickUpper: 1200, liquidity: 1n, max0: 1n, max1: 1n };
+    const got = writtenAccounts({ ...underTheHood(EVERY_KIND['range-open']), tx, steps: [step] });
+    const fieldOf = (k: PublicKey) => got.find((a) => a.address === k.toBase58())?.field;
+    expect(got[0]).toMatchObject({ address: owner.toBase58(), wallet: true, field: 'payer' });
+    expect(fieldOf(KEY(51))).toBe('pool_state');
+    expect(fieldOf(KEY(58))).toBe('token_vault_0');
+    expect(fieldOf(KEY(59))).toBe('token_vault_1');
+    expect(fieldOf(KEY(61))).toBe('token_account_0');
+    expect(got.map((a) => a.field)).toEqual(expect.arrayContaining(['tick_array_lower', 'tick_array_upper', 'personal_position', 'position_nft_account']));
+    // Read-only accounts (the programs, the mints, the protocol position) are not written, so not listed.
+    expect(got.map((a) => a.field)).not.toContain('system_program');
   });
 });
 

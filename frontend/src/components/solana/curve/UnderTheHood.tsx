@@ -7,6 +7,7 @@ import {
   SOLANA_TX_BYTES,
   decodedSteps,
   grouped,
+  poolCoins,
   legAmount,
   logCutShort,
   programName,
@@ -158,6 +159,7 @@ function WhatYouAreSigning({ prepared: p, api, cluster }: { prepared: PreparedTx
   const wallet = p.tx.feePayer?.toBase58() ?? null;
   const link = (address: string) => api.explorerAddressUrl(address, cluster);
   const steps = orNull(() => decodedSteps(p));
+  const ctx = { wallet, display: api.meta.displaySafe, coins: orNull(() => poolCoins(p.summary)) };
   const accounts = orNull(() => writtenAccounts(p));
   const logs = p.simulation.logs;
   return (
@@ -168,7 +170,7 @@ function WhatYouAreSigning({ prepared: p, api, cluster }: { prepared: PreparedTx
           <ol className="list-decimal pl-5 space-y-2 [overflow-wrap:anywhere]">
             {steps.map(({ step, program }, i) => (
               <li key={`${i}:${step.kind}`}>
-                {stepText(step, wallet, api.meta.displaySafe)}.
+                {stepText(step, ctx)}.
                 <span className="block text-white/55">
                   {programName(step, program)}: <Address address={program} href={link(program)} />
                 </span>
@@ -184,7 +186,13 @@ function WhatYouAreSigning({ prepared: p, api, cluster }: { prepared: PreparedTx
           <ul className="space-y-2">
             {accounts.map((a) => (
               <li key={a.address}>
-                {a.label && <span className="block text-white/55">{a.label}</span>}
+                {(a.label || a.field) && (
+                  <span className="block text-white/55">
+                    {a.label}
+                    {a.label && a.field && ' · '}
+                    {a.field && <span className="font-mono text-[11px]">{a.field}</span>}
+                  </span>
+                )}
                 {a.wallet ? <span className="font-mono text-[11px] break-all">{a.address}</span> : <Address address={a.address} href={link(a.address)} />}
               </li>
             ))}

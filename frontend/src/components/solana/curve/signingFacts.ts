@@ -4,8 +4,9 @@
 
 import { Transaction, type PublicKey } from '@solana/web3.js';
 import { formatSol, formatTokenAmount } from '../../../lib/launcher/solana/curve';
+import { CLOSE_POSITION_ACCOUNTS, DECREASE_LIQUIDITY_V2_ACCOUNTS, OPEN_POSITION_WITH_TOKEN22_NFT_ACCOUNTS, SWAP_V2_ACCOUNTS, type AccountSpec } from '../../../lib/solana/clmm/ix';
 import { SOL_QUOTE, quoteCoin, type QuoteCoin } from '../../../lib/solana/lp/quotes';
-import type { PreparedTx, SimulatedEffect } from './ports';
+import type { PreparedTx, SimulatedEffect, TxSummary } from './ports';
 
 /** Solana's packet limit: prepare.ts `TX_SIZE_LIMIT` (the write layer is not imported here; a test pins the two). */
 export const SOLANA_TX_BYTES = 1_232;
@@ -202,12 +203,40 @@ export function programName(step: Step, programId: string): string {
   }
 }
 
+/** What a step's words need beside the step: the fee payer, the page's text rule, the pool's coins in order. */
+export interface StepContext {
+  wallet: string | null;
+  display: (s: string, max: number) => string;
+  /** The pool's coin 0 and coin 1 by name, when the summary says which is which. */
+  coins: [string, string] | null;
+}
+
+/** The pool's two coins by name, coin 0 first, from a summary that says which side is which. */
+export function poolCoins(s: TxSummary): [string, string] | null {
+  const named = (mint: PublicKey) => quoteCoin(mint.toBase58())?.symbol ?? 'the token';
+  if (s.kind === 'range-open' || s.kind === 'range-remove' || s.kind === 'range-close' || s.kind === 'range-swap') {
+    const l = s.poolLine;
+    return l.tokenIsToken0 ? [named(l.tokenMint), l.quote.symbol] : [l.quote.symbol, named(l.tokenMint)];
+  }
+  if (s.kind === 'lp-deposit' || s.kind === 'lp-withdraw' || s.kind === 'lp-create') {
+    return s.quoteIsToken0 ? [s.quote.symbol, named(s.tokenMint)] : [named(s.tokenMint), s.quote.symbol];
+  }
+  return null;
+}
+
 /**
  * One step in words, with its raw values (base units, ticks, whole addresses) for whoever
- * checks them. `wallet` is the fee payer's address; `display` keeps a token's own name safe.
+ * checks them; a coin the site knows carries its ticker beside its address.
  */
-export function stepText(step: Step, wallet: string | null, display: (s: string, max: number) => string): string {
-  const who = (k: PublicKey) => (wallet !== null && k.toBase58() === wallet ? 'your wallet' : k.toBase58());
+export function stepText(step: Step, ctx: StepContext): string {
+  const who = (k: PublicKey) => (ctx.wallet !== null && k.toBase58() === ctx.wallet ? 'your wallet' : k.toBase58());
+  const mint = (k: PublicKey) => {
+    const sym = quoteCoin(k.toBase58())?.symbol;
+    return sym ? `${k.toBase58()} (${sym})` : k.toBase58();
+  };
+  const two = (a: bigint, b: bigint) =>
+    ctx.coins ? `${n(a)} base units of ${ctx.coins[0]} and ${n(b)} of ${ctx.coins[1]}` : `${n(a)} and ${n(b)} base units of its two coins`;
+  const display = ctx.display;
   switch (step.kind) {
     case 'compute-limit':
       return `Compute limit: ${n(step.units)} units`;
@@ -222,7 +251,7 @@ export function stepText(step: Step, wallet: string | null, display: (s: string,
     case 'create-launch':
       return `Create the launch of ${step.mint.toBase58()}; its platform reserve goes to ${step.treasuryToken.toBase58()}, the account of ${step.feeRecipient.toBase58()}`;
     case 'create-token-account':
-      return `Open the token account ${step.address.toBase58()} for the mint ${step.mint.toBase58()}, owned by ${who(step.owner)}`;
+      return `Open the token account ${step.address.toBase58()} for the mint ${mint(step.mint)}, owned by ${who(step.owner)}`;
     case 'curve-buy':
       return `Buy ${step.mint.toBase58()} on its curve: at most ${sol(step.maxLamportsIn)} in, at least ${n(step.minTokensOut)} base units out`;
     case 'curve-sell':
@@ -237,23 +266,23 @@ export function stepText(step: Step, wallet: string | null, display: (s: string,
       return 'Close your wrapped SOL account: what is in it comes back as SOL';
     case 'pool-swap':
     case 'range-swap':
-      return `Swap in the pool ${step.pool.toBase58()}: ${n(step.amountIn)} base units of ${step.inputMint.toBase58()} in, at least ${n(step.minimumAmountOut)} base units of ${step.outputMint.toBase58()} out`;
+      return `Swap in the pool ${step.pool.toBase58()}: ${n(step.amountIn)} base units of ${mint(step.inputMint)} in, at least ${n(step.minimumAmountOut)} base units of ${mint(step.outputMint)} out`;
     case 'plant-burn':
-      return `Burn ${n(step.amount)} base units of ${step.mint.toBase58()} from ${step.account.toBase58()}`;
+      return `Burn ${n(step.amount)} base units of ${mint(step.mint)} from ${step.account.toBase58()}`;
     case 'plant-transfer':
-      return `Send ${n(step.amount)} base units of ${step.mint.toBase58()} from ${step.from.toBase58()} to ${step.to.toBase58()}`;
+      return `Send ${n(step.amount)} base units of ${mint(step.mint)} from ${step.from.toBase58()} to ${step.to.toBase58()}`;
     case 'pool-deposit':
-      return `Add to the pool ${step.pool.toBase58()}: exactly ${n(step.lpAmount)} pool shares, at most ${n(step.max0)} and ${n(step.max1)} base units of its two coins`;
+      return `Add to the pool ${step.pool.toBase58()}: exactly ${n(step.lpAmount)} pool shares, at most ${two(step.max0, step.max1)}`;
     case 'pool-withdraw':
-      return `Give ${n(step.lpAmount)} pool shares back to the pool ${step.pool.toBase58()} from ${step.lpAccount.toBase58()}, for at least ${n(step.min0)} and ${n(step.min1)} base units of its two coins`;
+      return `Give ${n(step.lpAmount)} pool shares back to the pool ${step.pool.toBase58()} from ${step.lpAccount.toBase58()}, for at least ${two(step.min0, step.min1)}`;
     case 'pool-create':
-      return `Open the pool ${step.pool.toBase58()} on the fee tier ${step.ammConfig.toBase58()}, with exactly ${n(step.init0)} and ${n(step.init1)} base units of its two coins`;
+      return `Open the pool ${step.pool.toBase58()} on the fee tier ${step.ammConfig.toBase58()}, with exactly ${two(step.init0, step.init1)}`;
     case 'range-open':
-      return `Open a position in the pool ${step.pool.toBase58()} from tick ${step.tickLower} to tick ${step.tickUpper}: liquidity ${n(step.liquidity)}, at most ${n(step.max0)} and ${n(step.max1)} base units of its two coins; its NFT is ${step.nftMint.toBase58()}`;
+      return `Open a position in the pool ${step.pool.toBase58()} from tick ${step.tickLower} to tick ${step.tickUpper}: liquidity ${n(step.liquidity)}, at most ${two(step.max0, step.max1)}; its NFT is ${step.nftMint.toBase58()}`;
     case 'range-decrease':
       return step.liquidity === 0n
         ? `Collect what the position ${step.position.toBase58()} in the pool ${step.pool.toBase58()} is owed`
-        : `Take liquidity ${n(step.liquidity)} out of the position ${step.position.toBase58()} in the pool ${step.pool.toBase58()}, for at least ${n(step.min0)} and ${n(step.min1)} base units of its two coins, with what it is owed`;
+        : `Take liquidity ${n(step.liquidity)} out of the position ${step.position.toBase58()} in the pool ${step.pool.toBase58()}, for at least ${two(step.min0, step.min1)}, with what it is owed`;
     case 'range-close':
       return `Close the position ${step.position.toBase58()}: burn its NFT ${step.nftMint.toBase58()} and give its deposits back`;
     default:
@@ -281,6 +310,31 @@ export interface Written {
   /** The fee payer: never put in a link. */
   wallet: boolean;
   label: string | null;
+  /** The range program's own name for the account, from its instruction's account list (clmm/ix.ts). */
+  field: string | null;
+}
+
+/** The range program's accounts per step, in its own names (ix.test.ts holds them to the Rust structs). */
+const RANGE_FIELDS: Partial<Record<Step['kind'], readonly AccountSpec[]>> = {
+  'range-open': OPEN_POSITION_WITH_TOKEN22_NFT_ACCOUNTS,
+  'range-decrease': DECREASE_LIQUIDITY_V2_ACCOUNTS,
+  'range-close': CLOSE_POSITION_ACCOUNTS,
+  'range-swap': SWAP_V2_ACCOUNTS,
+};
+
+/** Each account of a range step by the program's own name; past the list, a swap's bands, else extra accounts. */
+function rangeFields(p: PreparedTx): Map<string, string> {
+  const at = new Map<string, string>();
+  if (p.tx.instructions.length !== p.steps.length) return at;
+  p.steps.forEach((step, i) => {
+    const spec = RANGE_FIELDS[step.kind];
+    if (!spec) return;
+    p.tx.instructions[i]!.keys.forEach((k, j) => {
+      const name = spec[j]?.name ?? (step.kind === 'range-swap' ? 'tick_array' : 'remaining_account');
+      if (!at.has(k.pubkey.toBase58())) at.set(k.pubkey.toBase58(), name);
+    });
+  });
+  return at;
 }
 
 /** What the decoded steps and the watch list say each account is. */
@@ -310,12 +364,14 @@ function accountLabels(p: PreparedTx, wallet: string | null): Map<string, string
 export function writtenAccounts(p: PreparedTx): Written[] {
   const wallet = p.tx.feePayer?.toBase58() ?? null;
   const labels = accountLabels(p, wallet);
+  const fields = rangeFields(p);
   const seen = new Set<string>();
   const out: Written[] = [];
   const add = (a: string) => {
     if (seen.has(a)) return;
     seen.add(a);
-    out.push({ address: a, wallet: a === wallet, label: a === wallet ? 'Your wallet, which pays the fees' : (labels.get(a) ?? null) });
+    const label = a === wallet ? 'Your wallet, which pays the fees' : (labels.get(a) ?? null);
+    out.push({ address: a, wallet: a === wallet, label, field: fields.get(a) ?? null });
   };
   if (wallet) add(wallet);
   for (const ix of p.tx.instructions) for (const k of ix.keys) if (k.isWritable) add(k.pubkey.toBase58());

@@ -95,15 +95,21 @@ export const LOG = [
 /** A compute-budget instruction from its bytes (web3's encoder fails under jsdom): 2 = unit limit, 3 = unit price. */
 const budgetIx = (data: number[]) => new TransactionInstruction({ programId: ComputeBudgetProgram.programId, keys: [], data: Buffer.from(data) });
 
-/** The venue's own step, as one instruction of the range program that writes the pool and a vault. */
+/**
+ * The venue's own step: a range opening's first seven accounts in the program's order (payer,
+ * NFT owner, NFT mint, NFT account, pool, protocol position, lower band), the rest left off.
+ */
 const ownIx = () =>
   new TransactionInstruction({
     programId: RANGE_PROGRAM,
     keys: [
       { pubkey: CREATOR, isSigner: true, isWritable: true },
+      { pubkey: CREATOR, isSigner: false, isWritable: false },
+      { pubkey: KEY(52), isSigner: true, isWritable: true },
+      { pubkey: KEY(56), isSigner: false, isWritable: true },
       { pubkey: KEY(51), isSigner: false, isWritable: true },
+      { pubkey: KEY(57), isSigner: false, isWritable: false },
       { pubkey: KEY(54), isSigner: false, isWritable: true },
-      { pubkey: KEY(55), isSigner: false, isWritable: false },
     ],
     data: Buffer.from([1, 2, 3]),
   });

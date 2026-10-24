@@ -54,10 +54,10 @@ describe('What you are signing', () => {
 
   it("lists every account it writes, the wallet first; the wallet's address is in no link", async () => {
     const fold = await reviewOf(underTheHood(EVERY_KIND['range-open']));
-    expect(fold).toHaveTextContent('Accounts it writes (3)');
-    expect(fold).toHaveTextContent(`Your wallet, which pays the fees${CREATOR.toBase58()}`);
-    expect(within(fold).getByRole('link', { name: KEY(51).toBase58() }).closest('li')).toHaveTextContent('The pool');
-    expect(within(fold).getByRole('link', { name: KEY(54).toBase58() })).toBeInTheDocument();
+    expect(fold).toHaveTextContent('Accounts it writes (5)');
+    expect(fold).toHaveTextContent(`Your wallet, which pays the fees · payer${CREATOR.toBase58()}`);
+    expect(within(fold).getByRole('link', { name: KEY(51).toBase58() }).closest('li')).toHaveTextContent('The pool · pool_state');
+    expect(within(fold).getByRole('link', { name: KEY(54).toBase58() }).closest('li')).toHaveTextContent(/^tick_array_lower/);
     for (const a of Array.from(document.querySelectorAll('a'))) expect(a.getAttribute('href') ?? '').not.toContain(CREATOR.toBase58());
   });
 
