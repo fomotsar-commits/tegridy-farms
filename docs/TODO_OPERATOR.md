@@ -29,6 +29,16 @@ stop and say so — a surprise is information.
 
 ---
 
+## 2026-10-24: for later, Jupiter's paid plan (you: "stay on free now")
+
+- ⬜ **Jupiter's Developer plan, $25 a month**, on the "memetics" org that owns
+  `JUPITER_API_KEY`. It allows 10 requests a second; the free key allows 1 (developers.jup.ag/pricing,
+  read 2026-10-24). Why it matters: on the free key, Buy spaces its five exact quotes one a second,
+  so they take at least 5 seconds to firm up. After you upgrade, tell a session: it removes that
+  spacing, a small code change. Until then nothing is broken, only slower.
+
+---
+
 ## ✅ 2026-10-22: two merges only you can press (both done)
 
 A session's merge was refused on 2026-10-22 as a production deploy, after a general "merge". A
