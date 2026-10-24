@@ -8,6 +8,8 @@ import { describe, it, expect } from 'vitest';
 import { Keypair, PublicKey, SystemProgram, TransactionInstruction, type VersionedTransaction } from '@solana/web3.js';
 import { ExtensionType, createTransferInstruction, getMintLen } from '@solana/spl-token';
 import { pack as packTokenMetadata } from '@solana/spl-token-metadata';
+import { siteAndNetwork } from '../../../../components/solana/curve/signingFacts';
+import { networkFeeOf } from './testkit.fixture';
 import { ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, WSOL_MINT } from '../curve/program';
 import { BPF_LOADER_UPGRADEABLE_ID } from '../curve/read';
 import { associatedTokenAddress } from '../curve/ix';
@@ -35,8 +37,7 @@ import { decodeIntent } from './intent';
 import { RANGE_COPY, freezeLines, positionNftMintSize, prepareRangeClose, prepareRangeOpen, prepareRangeRemove, stepsProblem, type RangeOpenReads } from './range';
 import { encodeMint } from './testkit.fixture';
 import { BAYLA_QUOTE, SOL_QUOTE, USDC_QUOTE } from '../../../solana/lp/quotes';
-import { FakeChain, cfgLocal, networkFeeOf, openAccount, rent, type SimHandler } from './testkit.fixture';
-import { siteAndNetwork } from '../../../../components/solana/curve/signingFacts';
+import { FakeChain, cfgLocal, openAccount, rent, type SimHandler } from './testkit.fixture';
 import type { IntentStep, PreparedTx, RangeIntent, RangeSummary, WriteRpc } from './types';
 
 const W = (c: FakeChain) => c as unknown as WriteRpc;
@@ -443,48 +444,6 @@ function withPosition(c: FakeChain, o: { liquidity?: bigint; fees?: [bigint, big
   return { nft, position };
 }
 
-describe("an opening's NFT mint and the review's two lines", () => {
-  /** Mainnet's test run takes the network fee and the priority fee from the wallet (measured 2026-10-24); the fake's does not. */
-  const charged = (c: FakeChain): FakeChain => {
-    const sim = c.simulate;
-    c.simulate = (vtx, config, chain) => {
-      const r = sim(vtx, config, chain);
-      return r.accounts ? { ...r, accounts: r.accounts.map((a, i) => (i === 0 && a ? { ...a, lamports: a.lamports - networkFeeOf(vtx) } : a)) } : r;
-    };
-    return c;
-  };
-  const same = (p: PreparedTx) => siteAndNetwork(p, 6)!.legs.map((l) => [l.name, l.network === l.site ? 'same' : `site ${l.site}, network ${l.network}`]);
-
-  it('the NFT mint is the size Token-2022 makes it: 469 bytes for a 44-character record address, 468 for 43', () => {
-    for (const len of [44, 43]) {
-      let seed = 0;
-      let record = Keypair.fromSeed(new Uint8Array(32)).publicKey;
-      while (record.toBase58().length !== len) record = Keypair.fromSeed(new Uint8Array(32).fill(++seed)).publicKey;
-      expect(positionNftMintSize(record)).toBe(nftMintBytes(record));
-      expect(positionNftMintSize(record)).toBe(425 + len);
-    }
-  });
-
-  it('a SOL opening at a price that did not move: this site and the test run agree to the last unit', async () => {
-    const p = ok(await prepareRangeOpen(W(charged(ready(chainWith()))), cfgLocal, PROG, READS, { owner: ME, pool: POOL, ...inRange, side: 'token', amount: 5_000_000n, toleranceBps: 100 }));
-    expect(same(p)).toEqual([
-      ['tokens', 'same'],
-      ['SOL', 'same'],
-    ]);
-  });
-
-  it('a wallet whose empty wrapped-SOL account the opening closes: the deposit that comes back is not read as a price move', async () => {
-    const c = ready(chainWith());
-    c.tokenAccount(WSOL_ATA, WSOL_MINT, ME, 0n, { native: { reserve: BigInt(rent(165)) } });
-    const p = ok(await prepareRangeOpen(W(charged(c)), cfgLocal, PROG, READS, { owner: ME, pool: POOL, ...inRange, side: 'token', amount: 5_000_000n, toleranceBps: 100 }));
-    expect(p.steps.some((s) => s.kind === 'close-wsol')).toBe(true);
-    expect(same(p)).toEqual([
-      ['tokens', 'same'],
-      ['SOL', 'same'],
-    ]);
-  });
-});
-
 describe('taking out, collecting and closing', () => {
   it('half out: the liquidity halved, floors a tolerance under what comes back, SOL unwrapped', async () => {
     const c = ready(chainWith());
@@ -651,5 +610,47 @@ describe('the pins are held to the chain', () => {
     c.set(POOL, { ...pool, data });
     const r = await prepareRangeOpen(W(c), cfgLocal, PROG, READS, { owner: ME, pool: POOL, ...inRange, side: 'token', amount: 5_000_000n, toleranceBps: 100 });
     expect(r.ok ? null : r.outcome.message).toBe(RANGE_COPY.poolChanged('its vaults'));
+  });
+});
+
+describe("an opening's NFT mint and the review's two lines", () => {
+  /** Mainnet's test run takes the network fee and the priority fee from the wallet (measured 2026-10-24); the fake's does not. */
+  const charged = (c: FakeChain): FakeChain => {
+    const sim = c.simulate;
+    c.simulate = (vtx, config, chain) => {
+      const r = sim(vtx, config, chain);
+      return r.accounts ? { ...r, accounts: r.accounts.map((a, i) => (i === 0 && a ? { ...a, lamports: a.lamports - networkFeeOf(vtx) } : a)) } : r;
+    };
+    return c;
+  };
+  const same = (p: PreparedTx) => siteAndNetwork(p, 6)!.legs.map((l) => [l.name, l.network === l.site ? 'same' : `site ${l.site}, network ${l.network}`]);
+
+  it('the NFT mint is the size Token-2022 makes it: 469 bytes for a 44-character record address, 468 for 43', () => {
+    for (const len of [44, 43]) {
+      let seed = 0;
+      let record = Keypair.fromSeed(new Uint8Array(32)).publicKey;
+      while (record.toBase58().length !== len) record = Keypair.fromSeed(new Uint8Array(32).fill(++seed)).publicKey;
+      expect(positionNftMintSize(record)).toBe(nftMintBytes(record));
+      expect(positionNftMintSize(record)).toBe(425 + len);
+    }
+  });
+
+  it('a SOL opening at a price that did not move: this site and the test run agree to the last unit', async () => {
+    const p = ok(await prepareRangeOpen(W(charged(ready(chainWith()))), cfgLocal, PROG, READS, { owner: ME, pool: POOL, ...inRange, side: 'token', amount: 5_000_000n, toleranceBps: 100 }));
+    expect(same(p)).toEqual([
+      ['tokens', 'same'],
+      ['SOL', 'same'],
+    ]);
+  });
+
+  it('a wallet whose empty wrapped-SOL account the opening closes: the deposit that comes back is not read as a price move', async () => {
+    const c = ready(chainWith());
+    c.tokenAccount(WSOL_ATA, WSOL_MINT, ME, 0n, { native: { reserve: BigInt(rent(165)) } });
+    const p = ok(await prepareRangeOpen(W(charged(c)), cfgLocal, PROG, READS, { owner: ME, pool: POOL, ...inRange, side: 'token', amount: 5_000_000n, toleranceBps: 100 }));
+    expect(p.steps.some((s) => s.kind === 'close-wsol')).toBe(true);
+    expect(same(p)).toEqual([
+      ['tokens', 'same'],
+      ['SOL', 'same'],
+    ]);
   });
 });
