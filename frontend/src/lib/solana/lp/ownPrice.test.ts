@@ -2,7 +2,7 @@
 //
 // The launch pool's own recent average, from its observation account (oracle.rs).
 import { describe, it, expect } from 'vitest';
-import { AVERAGE_WINDOW_SECS, MIN_HISTORY_SECS, MIN_HISTORY_TEXT, TOO_NEW_WHY, decodeObservationState, ownAveragePrice } from './ownPrice';
+import { AVERAGE_WINDOW_SECS, MIN_HISTORY_SECS, MIN_HISTORY_TEXT, TOO_NEW_WHY, TRUSTED_HISTORY_SECS, decodeObservationState, ownAveragePrice } from './ownPrice';
 import { key, observationBytes } from './testkit.fixture';
 
 const Q32 = 1n << 32n;
@@ -91,10 +91,38 @@ describe('ownAveragePrice', () => {
     expect(unread(ownAveragePrice({ ...base, obs: obs([1_000n, 0n], [4_600n, 0n], 4_600n), now: 4_600n }))).toBe('its price record does not give a usable price');
   });
 
-  it('the minimum is said in words from the number itself, once', () => {
+  // "Too new" is said of a launch pool's record under TRUSTED_HISTORY_SECS (poolHealth.ts);
+  // under MIN_HISTORY_SECS no average is worked out at all.
+  it('the span that counts is said in words from the number itself, once', () => {
     expect(MIN_HISTORY_SECS).toBe(600n);
-    expect(MIN_HISTORY_TEXT).toBe('10 minutes');
-    expect(MIN_HISTORY_TEXT).toBe(`${Number(MIN_HISTORY_SECS) / 60} minutes`);
-    expect(TOO_NEW_WHY).toBe('this pool has traded for under 10 minutes and Jupiter has no price for this token');
+    expect(TRUSTED_HISTORY_SECS).toBe(1_440n);
+    expect(MIN_HISTORY_TEXT).toBe('24 minutes');
+    expect(MIN_HISTORY_TEXT).toBe(`${Number(TRUSTED_HISTORY_SECS) / 60} minutes`);
+    expect(TOO_NEW_WHY).toBe('this pool has traded for under 24 minutes and Jupiter has no price for this token');
+  });
+});
+
+// M-1009-6: only swaps write the record, so the average cannot see a price moved by a
+// transfer in a quiet stretch. It says how quiet its own window was (poolHealth.ts weighs it).
+describe('ownAveragePrice: the longest silence in its window', () => {
+  const base = { tokenIsToken0: false, solReserve: 10n * 10n ** 9n, tokenReserve: 1_000n * 10n ** 6n, tokenDecimals: 6 };
+  /** Slots at 1,000, 1,060 and 1,500 at today's price, last written at 1,520. */
+  const r = decodeObservationState(
+    observationBytes({ pool, index: 2, lastUpdate: 1_520n, obs: [1_000n, 1_060n, 1_500n].map((t, i): [number, bigint, bigint, bigint] => [i, t, 0n, 10n * Q32 * (t - 1_000n)]) }),
+  )!;
+  const silence = (now: bigint) => {
+    const p = ownAveragePrice({ ...base, obs: r, now });
+    return p.kind === 'ok' ? [p.windowSecs, p.silenceSecs] : p.kind;
+  };
+
+  it('is the longest stretch with no swap recorded: slot to slot, last slot to last update, last update to now', () => {
+    expect(silence(1_630n)).toEqual([630n, 440n]);
+    // Later: the stretch since the last update is the longest.
+    expect(silence(2_100n)).toEqual([1_100n, 580n]);
+  });
+
+  it('counts only its own window: a quiet stretch before the window starts is not in it', () => {
+    // The window starts at the slot at 1,500: the 440 s before it are outside.
+    expect(silence(3_400n)).toEqual([1_900n, 1_880n]);
   });
 });

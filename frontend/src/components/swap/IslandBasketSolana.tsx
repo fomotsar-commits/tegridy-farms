@@ -1,21 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { VersionedTransaction } from '@solana/web3.js';
+import { PublicKey, VersionedTransaction, type Transaction } from '@solana/web3.js';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { SOL_MINT, SOLANA_PLATFORM_FEE_BPS, isSolanaFeeConfigured } from '../../lib/solana';
 import { NoRouteError, buildSwapTransaction, fromBaseUnits, getQuote, getUsdPrices, simulateSwap, swapCarriesPlatformFee, type JupiterQuote, type PriorityLevel } from '../../lib/jupiter';
 import { MIN_USD_PER_COIN, SOL_BASKET, shortAmount, splitEvenly, usdText, usdToBaseUnits, type SolBasketCoin } from '../../lib/islandBasket';
-import { pinnedGetQuote, prepareSolLeg, retryingGetQuote, solLegRoute, BASKET_COPY, PoolNotNamedError } from '../../lib/solana/swap/islandBasketSol';
-import { within } from '../../lib/solana/swap/ownPoolRoute';
+import { pinnedGetQuote, prepareSolLeg, retryingGetQuote, sendSigned, signatureOf, solLegRoute, stampBlockhash, BASKET_COPY, PoolNotNamedError, type PreparedSolLeg } from '../../lib/solana/swap/islandBasketSol';
+import { freshDecision, within } from '../../lib/solana/swap/ownPoolRoute';
 import { whileJupiterBusy } from '../../lib/solana/swap/jupiterBusy';
 import type { VenuePoolCandidate } from '../../lib/solana/swap/venuePools';
 import { pollConfirm } from '../../lib/solana/confirm';
-import { readSendThrow } from '../../lib/solana/walletThrow';
+import { readSendThrow, signThrowCopy } from '../../lib/solana/walletThrow';
 import { HELD_NOT_SENT, LOST_ANSWER_TITLE, lostAnswerCopy } from '../../lib/solana/swap/walletCopy';
 import { jupiterLastValidAtMost } from '../../lib/solana/swap/jupiterNote';
 import { blockhashSeen, recentBlockhashOf, type NoteBlockhash } from '../../lib/solana/blockhashWindow';
 import { swapPendingScope } from '../solana/curve/pendingTrade';
 import type { PendingTradesState } from '../solana/curve/usePendingTrades';
+import type { PreparedTx, SwapOpenGate, TxSigner, VenueSwapApi } from '../solana/curve/ports';
 import { recordActivity } from '../../lib/solanaActivity';
 import { setLastBuy } from '../../lib/heat/lastBuy';
 import { bungalowByAddress } from '../../lib/bungalows';
@@ -31,6 +32,11 @@ import { BasketCta, IslandBasketButton, IslandBasketDialog, type BasketRow, type
 const REQUOTE_MS = 60_000;
 /** While a price is missing, it is asked for again this soon. */
 const RETRY_MS = 15_000;
+/**
+ * While SOL's price is missing, it is asked for again this soon: without it the order
+ * cannot be sized at all. It is one call the relay shares between visitors (PRICE_IDS).
+ */
+const PRICE_RETRY_MS = 4_000;
 /**
  * Between one coin's Jupiter quote and the next. Jupiter's free key allows the whole site
  * one request a second, every visitor and every call alike (developers.jup.ag rate limits,
@@ -81,16 +87,23 @@ type LegRead = Partial<LegQuote>;
 const settled = (q: LegRead): q is LegQuote => q.jupiter !== undefined && q.own !== undefined;
 type LegState =
   | { kind: 'busy'; text: string }
-  | { kind: 'bought' }
-  | { kind: 'own' }
+  | { kind: 'bought'; via: Via }
   | { kind: 'not-sent'; why: string }
   | { kind: 'refused' }
   | { kind: 'unknown' };
+/** Where a coin was bought: our own pool, or its pool through Jupiter. */
+type Via = 'own' | 'jupiter';
+/** Our pools' swap code and its gate, open on the program the page reads pools from (useVenueSwap). */
+type OwnSwap = { api: VenueSwapApi; gate: SwapOpenGate };
+/** One coin built and test-run, ready for the wallet. `words`: what it is quoted to buy. */
+type Built = { i: number; leg: Leg; words: string } & ({ via: 'jupiter'; tx: VersionedTransaction } | { via: 'own'; prepared: PreparedTx });
+/** What one coin's send came to: bought, done without buying, or a stop for the coins after it. */
+type Sent = 'bought' | 'next' | 'stop';
 
 const sol = (lamports: bigint) => Number(fromBaseUnits(lamports.toString(), 9));
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/** A coin a press may (re)buy: never one bought, one left for our pool's review, or one we cannot tell about. */
+/** A coin a press may (re)buy: never one bought, or one we cannot tell about. */
 const buyable = (s: LegState | undefined): boolean => !s || s.kind === 'not-sent' || s.kind === 'refused';
 
 /**
@@ -109,17 +122,21 @@ function shownRoute(q: LegRead | undefined): { decision: 'own' | 'jupiter' | 'no
 }
 
 /**
- * The island order on Solana. Each coin is its own transaction, built and test-run just
- * before its own wallet prompt. A coin our own pool wins is handed to the swap form, whose
- * review buys it (`onOwnLeg`). The page's pending notes hold this order exactly as they
- * hold Buy: one sent swap that is not confirmed stops the rest.
+ * The island order on Solana. Buy buys every coin, here: each is its own transaction,
+ * through Jupiter or, where it pays at least as much, our own pool, built and test-run
+ * first. A wallet that signs several transactions at once is asked once for the whole
+ * order; any other wallet once per coin, just after that coin is built. The page's pending
+ * notes hold this order exactly as they hold Buy: a sent swap the chain has not answered
+ * for keeps the wallet from being asked again.
  */
 export function IslandBasketSolana(p: {
   slippageBps: number;
   priority: PriorityLevel;
-  pending: Pick<PendingTradesState, 'hold' | 'release' | 'holdsNow'>;
-  /** Put this coin's share on the swap form, where our pool's review buys it. */
-  onOwnLeg: (coin: SolBasketCoin, lamports: bigint) => void;
+  pending: Pick<PendingTradesState, 'hold' | 'release' | 'holdsNow' | 'sent' | 'record'>;
+  /** Our pools' swap, once its code is loaded and its gate open; null until then, or while it cannot be used here. */
+  ownSwap: OwnSwap | null;
+  /** The order is open: load our pools' swap, so a coin our pool wins is bought there. */
+  wantOwnSwap?: () => void;
   /** The swap form has a trade on its way, or a sent one holds this wallet. */
   busy: boolean;
   /** Tests pass 0; QUOTE_GAP_MS otherwise. */
@@ -127,7 +144,7 @@ export function IslandBasketSolana(p: {
 }) {
   const gap = p.quoteGapMs ?? QUOTE_GAP_MS;
   const { connection } = useConnection();
-  const { publicKey, sendTransaction } = useWallet();
+  const { publicKey, sendTransaction, signTransaction, signAllTransactions } = useWallet();
   const [open, setOpen] = useState(false);
   const [usd, setUsd] = useState('10');
   // USD prices by mint (PRICE_IDS), the last read that answered.
@@ -184,12 +201,20 @@ export function IslandBasketSolana(p: {
       .finally(() => { pricesBusy.current = false; });
   }, []);
   useEffect(() => { readPrices(); }, [readPrices]);
+  // Without SOL's price nothing can be sized: it is asked again within seconds, not a round.
+  const solMissing = solUsd === null;
   useEffect(() => {
     if (!open) return;
-    if (Date.now() - pricesAt.current >= REQUOTE_MS) readPrices();
-    const iv = running ? null : setInterval(readPrices, REQUOTE_MS);
+    if (solMissing || Date.now() - pricesAt.current >= REQUOTE_MS) readPrices();
+    const iv = running ? null : setInterval(readPrices, solMissing ? PRICE_RETRY_MS : REQUOTE_MS);
     return () => { if (iv) clearInterval(iv); };
-  }, [open, running, tick, readPrices]);
+  }, [open, running, tick, readPrices, solMissing]);
+
+  // Our pools' swap is loaded once the order is opened, and read at the press as it is then.
+  const { wantOwnSwap } = p;
+  useEffect(() => { if (open) wantOwnSwap?.(); }, [open, wantOwnSwap]);
+  const ownAt = useRef(p.ownSwap);
+  useEffect(() => { ownAt.current = p.ownSwap; }, [p.ownSwap]);
 
   // This wallet's SOL while the order is open.
   useEffect(() => {
@@ -258,41 +283,284 @@ export function IslandBasketSolana(p: {
     return () => clearInterval(iv);
   }, [open, running, anyUnread]);
 
+  // Not one prompt per coin: one for the whole order, when the wallet can sign several at once.
+  const oneApproval = signAllTransactions !== undefined;
+
+  /**
+   * One coin, checked and built the way the swap builds a trade: quoted again, held to the
+   * figure shown, compared with our pools, test-run. Null, with the row saying why, when
+   * nothing is to be sent for it. `own`: our pools' swap, null when it cannot be used here,
+   * and then our pools take nothing (as on the swap: the trade goes through Jupiter).
+   */
+  async function buildLeg(i: number, leg: Leg, q: LegQuote, owner: PublicKey, own: OwnSwap | null): Promise<Built | null> {
+    setLeg(i, { kind: 'busy', text: 'Checking…' });
+    const user = owner.toBase58();
+    const ownPools = () => (own ? within(readOwnPoolsFor(SOL_MINT, leg.coin.mint, leg.amountIn), OWN_CHECK_MS, null) : Promise.resolve([]));
+    const words = (out: bigint | string) => `≈${shortAmount(Number(fromBaseUnits(out.toString(), leg.coin.decimals)))} ${leg.coin.symbol}`;
+    let route: PreparedSolLeg;
+    if (!q.jupiter) {
+      // Jupiter had no price through its pool: our pool takes it if one quotes now, otherwise nothing is sent.
+      const chosen = freshDecision((await ownPools()) ?? (own ? (q.own ?? []) : []), null).chosen;
+      if (chosen?.venue !== 'own-pool' || !chosen.poolAddress) {
+        setLeg(i, { kind: 'not-sent', why: q.why ?? 'It had no price when the order was shown.' });
+        return null;
+      }
+      route = { kind: 'own', pool: chosen.poolAddress, aggregator: q.why === BASKET_COPY.noRoute ? { kind: 'no-route' } : { kind: 'unreachable' } };
+    } else {
+      route = await prepareSolLeg(
+        {
+          getQuote: pinnedGetQuote(quoteForPress, leg.coin),
+          buildSwapTransaction: pressBuild,
+          simulateSwap: (b64) => simulateSwap(b64),
+          swapCarriesPlatformFee,
+          ownPools,
+        },
+        { coin: leg.coin, inputMint: SOL_MINT, amountIn: leg.amountIn, shown: q.jupiter, shownOwn: own ? q.own : [], slippageBps: p.slippageBps, user, priority: p.priority },
+      );
+    }
+    if (route.kind === 'not-sent') {
+      setLeg(i, { kind: 'not-sent', why: route.why });
+      return null;
+    }
+    if (route.kind === 'ready') {
+      const tx = VersionedTransaction.deserialize(Uint8Array.from(atob(route.swapTransaction), (c) => c.charCodeAt(0)));
+      return { i, leg, via: 'jupiter', tx, words: words(route.quote.outAmount) };
+    }
+    // Our pool takes it: its swap is built from a fresh read of that pool, and is not built
+    // when the pool now pays less than Jupiter was just seen to.
+    let built: Awaited<ReturnType<OwnSwap['api']['prepareVenueSwap']>>;
+    try {
+      if (!own) throw new Error('our pools cannot be used here');
+      built = await own.api.prepareVenueSwap(connection, own.gate, {
+        owner,
+        pool: new PublicKey(route.pool),
+        inputMint: new PublicKey(SOL_MINT),
+        outputMint: new PublicKey(leg.coin.mint),
+        amountIn: leg.amountIn,
+        slippageBps: BigInt(p.slippageBps),
+        aggregator: route.aggregator,
+      });
+    } catch {
+      setLeg(i, { kind: 'not-sent', why: 'Our pool’s swap for it could not be built just now, so nothing was sent for it.' });
+      return null;
+    }
+    if (!built.ok) {
+      setLeg(i, { kind: 'not-sent', why: built.outcome.message });
+      return null;
+    }
+    const s = built.prepared.summary;
+    return { i, leg, via: 'own', prepared: built.prepared, words: s.kind === 'venue-swap' ? words(s.quoted.outAmount) : leg.coin.symbol };
+  }
+
+  /** A coin the chain confirmed: kept in "Your recent activity" and on the heat strip, as the swap keeps one. */
+  function boughtIt(b: Built, sig: string, user: string) {
+    setLeg(b.i, { kind: 'bought', via: b.via });
+    recordActivity(user, { sig, ts: Date.now(), kind: 'swap', summary: `Bought ${b.words}${b.via === 'own' ? ', in our own pool' : ''} (island order)` });
+    const room = bungalowByAddress('solana', b.leg.coin.mint);
+    if (room) setLastBuy({ hash: sig, symbol: room.symbol, tokenAddress: b.leg.coin.mint, chain: room.chain, buyer: user, atUnix: Math.floor(Date.now() / 1000) });
+  }
+
+  /** Sent, and the chain did not answer while the order watched: its note holds the wallet. */
+  function notConfirmed(b: Built, sig: string, user: string) {
+    setLeg(b.i, { kind: 'unknown' });
+    surfaceUnconfirmedTx(toast, { hash: sig, explorerUrl: `https://solscan.io/tx/${sig}`, repeatCost: `buying again buys ${b.leg.coin.symbol} a second time.` });
+    recordActivity(user, { sig, ts: Date.now(), kind: 'swap', summary: `Sent, not confirmed: ${b.words} (island order)` });
+  }
+
+  /**
+   * The note that holds Buy for this wallet until the chain answers for a Jupiter coin: the
+   * swap's own. Its reads start now, before the wallet is asked; the returned function
+   * writes it once there is a signature (null: the wallet's answer went missing).
+   */
+  function jupiterNote(tx: VersionedTransaction, scope: string) {
+    const lastValid: { at: number | null } = { at: null };
+    const heightRead = jupiterLastValidAtMost(() => connection.getBlockHeight('confirmed')).then((h) => (lastValid.at = h));
+    const proof: { bh: NoteBlockhash | null } = { bh: null };
+    const bhRead = blockhashSeen(connection, recentBlockhashOf(tx)).then((b) => (proof.bh = b));
+    return (signature: string | null) => {
+      const sentAt = Date.now();
+      const write = () => p.pending.hold({ kind: 'jupiter-swap', signature, lastValidBlockHeight: signature ? lastValid.at : null, blockhash: proof.bh, sentAt }, scope);
+      write();
+      const had = { at: lastValid.at, bh: proof.bh };
+      void Promise.all([heightRead, bhRead]).then(() => {
+        if ((signature !== null && had.at === null && lastValid.at !== null) || (had.bh === null && proof.bh !== null)) write();
+      });
+    };
+  }
+
+  /** A watched coin's ending, said on its row. A sent coin the chain did not answer for stops the coins after it. */
+  function settleJupiter(b: Built, sig: string, outcome: 'confirmed' | 'reverted' | 'unknown', user: string, scope: string): Sent {
+    if (outcome !== 'unknown') p.pending.release(sig, scope);
+    if (outcome === 'reverted') {
+      setLeg(b.i, { kind: 'refused' });
+      return 'next';
+    }
+    if (outcome === 'unknown') {
+      notConfirmed(b, sig, user);
+      return 'stop';
+    }
+    boughtIt(b, sig, user);
+    return 'bought';
+  }
+
+  /**
+   * One coin in our own pool, through the write layer's own send (submit.ts): the wallet
+   * signs (`signer`), what it signed is checked against what was built, our RPC sends and
+   * watches it. Its note is the swap's own (`sent`, then `record`).
+   */
+  async function sendOwn(b: Built & { via: 'own' }, signer: TxSigner, own: OwnSwap, user: string): Promise<Sent> {
+    let sig: string | null = null;
+    const outcome = await own.api.submitPrepared(connection, signer, b.prepared, {
+      onSent: (s) => { sig = s; p.pending.sent(s, b.prepared); },
+      timeoutMs: CONFIRM_TIMEOUT_MS,
+    });
+    p.pending.record(outcome, b.prepared, sig);
+    switch (outcome.status) {
+      case 'confirmed':
+        boughtIt(b, outcome.signature, user);
+        return 'bought';
+      case 'reverted':
+        setLeg(b.i, { kind: 'refused' });
+        return 'next';
+      case 'unknown':
+        notConfirmed(b, outcome.signature, user);
+        return 'stop';
+      case 'expired':
+        setLeg(b.i, { kind: 'not-sent', why: outcome.message });
+        return 'next';
+      default:
+        setLeg(b.i, { kind: 'not-sent', why: outcome.message });
+        // A cancel, or a wallet that did not sign, stops the order; a refusal at the first send does not.
+        return outcome.stage === 'sign' ? 'stop' : 'next';
+    }
+  }
+
+  /** One coin through Jupiter, its own wallet prompt: the wallet signs and sends it. */
+  async function sendJupiterAlone(b: Built & { via: 'jupiter' }, user: string, scope: string): Promise<Sent> {
+    const note = jupiterNote(b.tx, scope);
+    let sig: string;
+    try {
+      sig = await sendTransaction(b.tx, connection);
+    } catch (e) {
+      const t = readSendThrow(e);
+      if (t.kind === 'unsure') {
+        note(null);
+        setLeg(b.i, { kind: 'unknown' });
+        toast.warning(LOST_ANSWER_TITLE, { description: lostAnswerCopy(t.reason, `it sent ${b.words} for ${sol(b.leg.amountIn).toFixed(4)} SOL`) });
+      } else {
+        setLeg(b.i, { kind: 'not-sent', why: t.message });
+      }
+      // A cancel, a wallet that did not sign, or an answer that went missing stops the order.
+      return 'stop';
+    }
+    note(sig);
+    setLeg(b.i, { kind: 'busy', text: 'Confirming…' });
+    const { outcome } = await pollConfirm(connection, sig, CONFIRM_TIMEOUT_MS);
+    return settleJupiter(b, sig, outcome, user, scope);
+  }
+
+  /**
+   * Every built coin, one wallet prompt. All on one fresh blockhash first, so none runs
+   * out while the wallet is open; nothing is awaited between the last read of this wallet's
+   * notes and the prompt. Once signed, each is sent and watched on its own: a coin already
+   * bought stays bought whatever another one does.
+   */
+  async function signAndSendAll(batch: Built[], signAll: NonNullable<typeof signAllTransactions>, owner: PublicKey, own: OwnSwap | null, scope: string): Promise<number> {
+    const user = owner.toBase58();
+    const txOf = (b: Built): Transaction | VersionedTransaction => (b.via === 'jupiter' ? b.tx : b.prepared.tx);
+    const fresh = await connection.getLatestBlockhash('confirmed').catch(() => null);
+    if (fresh) {
+      stampBlockhash(batch.map(txOf), fresh.blockhash);
+      for (const b of batch) if (b.via === 'own') b.prepared = { ...b.prepared, blockhash: fresh.blockhash, lastValidBlockHeight: fresh.lastValidBlockHeight };
+    }
+    const notes = new Map(batch.flatMap((b) => (b.via === 'jupiter' ? [[b.i, jupiterNote(b.tx, scope)] as const] : [])));
+    if (p.pending.holdsNow(scope)) {
+      for (const b of batch) setLeg(b.i, { kind: 'not-sent', why: HELD_NOT_SENT });
+      setNotice({ tone: 'warn', text: HELD_NOT_SENT });
+      return 0;
+    }
+    for (const b of batch) setLeg(b.i, { kind: 'busy', text: 'At your wallet…' });
+    setNotice({ tone: 'busy', text: batch.length > 1 ? `One approval in your wallet buys all ${batch.length}.` : 'Approve it in your wallet.' });
+    let signed: (Transaction | VersionedTransaction)[];
+    try {
+      signed = await signAll(batch.map(txOf));
+    } catch (e) {
+      // Signing alone: whatever the wallet says, nothing left the page.
+      const why = signThrowCopy(e);
+      for (const b of batch) setLeg(b.i, { kind: 'not-sent', why });
+      setNotice(null);
+      return 0;
+    }
+    setNotice(null);
+    // Settled one by one: a coin whose bookkeeping throws takes no other coin's answer with it.
+    const results = await Promise.allSettled(
+      batch.map(async (b, k): Promise<Sent> => {
+        const got = signed[k];
+        if (b.via === 'own') {
+          if (!own || !got) {
+            setLeg(b.i, { kind: 'not-sent', why: 'Your wallet did not sign it, so nothing was sent for it.' });
+            return 'next';
+          }
+          // The write layer's send, handed what the wallet already signed: every check it makes still runs.
+          return sendOwn(b, { publicKey: owner, signTransaction: async <T extends Transaction>() => got as T }, own, user);
+        }
+        let tx: VersionedTransaction;
+        let sig: string | null;
+        try {
+          // Read back from its bytes: a wallet bundling its own web3.js returns a lookalike class.
+          tx = VersionedTransaction.deserialize(got!.serialize());
+          sig = signatureOf(tx);
+          if (!tx.message.staticAccountKeys[0]?.equals(owner)) sig = null;
+        } catch {
+          sig = null;
+          tx = b.tx;
+        }
+        if (!sig) {
+          setLeg(b.i, { kind: 'not-sent', why: 'Your wallet did not sign it, so nothing was sent for it.' });
+          return 'next';
+        }
+        // The note exists before the first byte leaves: from here it may land even if the page goes.
+        notes.get(b.i)?.(sig);
+        setLeg(b.i, { kind: 'busy', text: 'Confirming…' });
+        const r = await sendSigned(connection, tx.serialize(), sig, CONFIRM_TIMEOUT_MS);
+        if (r.kind === 'not-sent') {
+          p.pending.release(sig, scope);
+          setLeg(b.i, { kind: 'not-sent', why: r.why });
+          return 'next';
+        }
+        return settleJupiter(b, sig, r.outcome, user, scope);
+      }),
+    );
+    return results.filter((r) => r.status === 'fulfilled' && r.value === 'bought').length;
+  }
+
   async function buy() {
     if (!publicKey || !legs || !shares || !ready || running) return;
-    const user = publicKey.toBase58();
+    const owner = publicKey;
+    const user = owner.toBase58();
     const scope = swapPendingScope(user);
     const before = states;
+    const own = ownAt.current;
+    const signAll = signAllTransactions ?? null;
     setRunning(true);
     setNotice(null);
     setFrozen({ usd, shares });
     stopAfter.current = false;
     let bought = 0;
     try {
+      // With one approval, every coin is built first and signed together; otherwise each
+      // is sent as soon as it is built, so no blockhash waits on the others.
+      const batch: Built[] = [];
       for (let i = 0; i < legs.length; i++) {
         if (!buyable(before[i])) continue;
         if (stopAfter.current) break;
-        const leg = legs[i]!;
-        const q = ready[i]!;
-        if (!q.jupiter) {
-          // No Jupiter price was shown for it: our pool takes it if it quoted, otherwise nothing is sent.
-          if (shownRoute(q)?.decision === 'own') setLeg(i, { kind: 'own' });
-          else setLeg(i, { kind: 'not-sent', why: q.why ?? 'It had no price when the order was shown.' });
+        const b = await buildLeg(i, legs[i]!, ready[i]!, owner, own);
+        if (!b) continue;
+        if (signAll) {
+          batch.push(b);
+          setLeg(i, { kind: 'busy', text: 'Ready' });
           continue;
         }
-        setLeg(i, { kind: 'busy', text: 'Checking…' });
-        const prepared = await prepareSolLeg(
-          {
-            getQuote: pinnedGetQuote(quoteForPress, leg.coin),
-            buildSwapTransaction: pressBuild,
-            simulateSwap: (b64) => simulateSwap(b64),
-            swapCarriesPlatformFee,
-            ownPools: () => within(readOwnPoolsFor(SOL_MINT, leg.coin.mint, leg.amountIn), OWN_CHECK_MS, null),
-          },
-          { coin: leg.coin, inputMint: SOL_MINT, amountIn: leg.amountIn, shown: q.jupiter, shownOwn: q.own, slippageBps: p.slippageBps, user, priority: p.priority },
-        );
-        if (prepared.kind === 'own') { setLeg(i, { kind: 'own' }); continue; }
-        if (prepared.kind === 'not-sent') { setLeg(i, { kind: 'not-sent', why: prepared.why }); continue; }
         // A swap this wallet sent, in any tab, that the chain has not answered for holds the
         // rest. From this read to the wallet's prompt nothing is awaited.
         if (p.pending.holdsNow(scope)) {
@@ -300,59 +568,18 @@ export function IslandBasketSolana(p: {
           setNotice({ tone: 'warn', text: HELD_NOT_SENT });
           break;
         }
-        const tx = VersionedTransaction.deserialize(Uint8Array.from(atob(prepared.swapTransaction), (c) => c.charCodeAt(0)));
-        const outWords = `≈${shortAmount(Number(fromBaseUnits(prepared.quote.outAmount, leg.coin.decimals)))} ${leg.coin.symbol}`;
-        // The note that holds Buy for this wallet until the chain answers: the swap's own.
-        const lastValid: { at: number | null } = { at: null };
-        const heightRead = jupiterLastValidAtMost(() => connection.getBlockHeight('confirmed')).then((h) => (lastValid.at = h));
-        const proof: { bh: NoteBlockhash | null } = { bh: null };
-        const bhRead = blockhashSeen(connection, recentBlockhashOf(tx)).then((b) => (proof.bh = b));
-        const note = (signature: string | null) => {
-          const sentAt = Date.now();
-          const write = () => p.pending.hold({ kind: 'jupiter-swap', signature, lastValidBlockHeight: signature ? lastValid.at : null, blockhash: proof.bh, sentAt }, scope);
-          write();
-          const had = { at: lastValid.at, bh: proof.bh };
-          void Promise.all([heightRead, bhRead]).then(() => {
-            if ((signature !== null && had.at === null && lastValid.at !== null) || (had.bh === null && proof.bh !== null)) write();
-          });
-        };
         setLeg(i, { kind: 'busy', text: 'At your wallet…' });
-        let sig: string;
-        try {
-          sig = await sendTransaction(tx, connection);
-        } catch (e) {
-          const t = readSendThrow(e);
-          if (t.kind === 'unsure') {
-            note(null);
-            setLeg(i, { kind: 'unknown' });
-            toast.warning(LOST_ANSWER_TITLE, { description: lostAnswerCopy(t.reason, `it sent ${outWords} for ${sol(leg.amountIn).toFixed(4)} SOL`) });
-          } else {
-            setLeg(i, { kind: 'not-sent', why: t.message });
-          }
-          // A cancel, a wallet that did not sign, or an answer that went missing stops the order.
-          break;
+        let r: Sent;
+        if (b.via === 'jupiter') r = await sendJupiterAlone(b, user, scope);
+        else if (own && signTransaction) r = await sendOwn(b, { publicKey: owner, signTransaction }, own, user);
+        else {
+          setLeg(i, { kind: 'not-sent', why: 'This wallet cannot sign a transaction for this page to send, so nothing was sent for it.' });
+          r = 'next';
         }
-        note(sig);
-        setLeg(i, { kind: 'busy', text: 'Confirming…' });
-        const { outcome } = await pollConfirm(connection, sig, CONFIRM_TIMEOUT_MS);
-        if (outcome !== 'unknown') p.pending.release(sig, scope);
-        if (outcome === 'reverted') {
-          setLeg(i, { kind: 'refused' });
-          continue;
-        }
-        if (outcome === 'unknown') {
-          setLeg(i, { kind: 'unknown' });
-          surfaceUnconfirmedTx(toast, { hash: sig, explorerUrl: `https://solscan.io/tx/${sig}`, repeatCost: `buying again buys ${leg.coin.symbol} a second time.` });
-          recordActivity(user, { sig, ts: Date.now(), kind: 'swap', summary: `Sent, not confirmed: ${outWords} (island order)` });
-          // Its note holds this wallet now: the rest wait until the chain answers.
-          break;
-        }
-        bought++;
-        setLeg(i, { kind: 'bought' });
-        recordActivity(user, { sig, ts: Date.now(), kind: 'swap', summary: `Bought ${outWords} (island order)` });
-        const room = bungalowByAddress('solana', leg.coin.mint);
-        if (room) setLastBuy({ hash: sig, symbol: room.symbol, tokenAddress: leg.coin.mint, chain: room.chain, buyer: user, atUnix: Math.floor(Date.now() / 1000) });
+        if (r === 'bought') bought++;
+        if (r === 'stop') break;
       }
+      if (signAll && batch.length > 0) bought += await signAndSendAll(batch, signAll, owner, own, scope);
     } finally {
       setRunning(false);
       if (bought > 0) toast.success(`Bought ${bought} of ${legs.length} island coins`);
@@ -370,12 +597,14 @@ export function IslandBasketSolana(p: {
     const s = states[i];
     const coinUsd = prices?.[coin.mint];
     const estimate = !r && usdEach > 0 && typeof coinUsd === 'number' && Number.isFinite(coinUsd) && coinUsd > 0 ? (usdEach / coinUsd) * (1 - feeShare) : null;
-    const venue = !r ? (estimate !== null ? 'market price' : null) : r.decision === 'own' ? 'Our pool' : r.decision === 'jupiter' ? `${coin.pool.dex === 'pumpswap' ? 'PumpSwap' : 'Raydium'} via Jupiter` : r.decision === 'unread' ? 'Price not read' : 'No route';
+    const viaJupiter = `${coin.pool.dex === 'pumpswap' ? 'PumpSwap' : 'Raydium'} via Jupiter`;
+    // A bought coin names where it was bought, whatever the quotes on screen say by then.
+    const venue = s?.kind === 'bought' ? (s.via === 'own' ? 'Our pool' : viaJupiter)
+      : !r ? (estimate !== null ? 'market price' : null) : r.decision === 'own' ? 'Our pool' : r.decision === 'jupiter' ? viaJupiter : r.decision === 'unread' ? 'Price not read' : 'No route';
     const status: BasketRow['status'] =
       !s ? (q?.own === null ? { tone: 'muted', text: 'Our pools not read' } : r && q && q.own === undefined ? { tone: 'busy', text: 'Comparing our pool…' } : undefined)
       : s.kind === 'busy' ? { tone: 'busy', text: s.text }
       : s.kind === 'bought' ? { tone: 'ok', text: 'Bought' }
-      : s.kind === 'own' ? { tone: 'warn', text: 'Our pool: review below' }
       : s.kind === 'refused' ? { tone: 'err', text: 'Refused on chain' }
       : s.kind === 'unknown' ? { tone: 'warn', text: 'Sent, not confirmed' }
       : { tone: 'err', text: s.why };
@@ -391,7 +620,6 @@ export function IslandBasketSolana(p: {
     };
   });
 
-  const ownLegs = SOL_BASKET.flatMap((coin, i) => (states[i]?.kind === 'own' ? [{ coin, i }] : []));
   const feeLine = isSolanaFeeConfigured()
     ? `Site fee: ${(SOLANA_PLATFORM_FEE_BPS / 100).toFixed(2)}% of each coin bought through Jupiter goes to the venue. A coin bought in our own pool pays its pool fee instead, inside its quote.`
     : 'No site fee is taken here. A coin bought in our own pool pays its pool fee, inside its quote.';
@@ -419,7 +647,7 @@ export function IslandBasketSolana(p: {
   else if (unread) [label, disabled] = ['A price could not be read', true];
 
   const shownNotice = notice
-    ?? (solUsd === null && !frozen && dollars > 0 && !tooSmall && open ? { tone: 'warn' as const, text: 'SOL’s price could not be read yet, so the order cannot be sized.' } : null)
+    ?? (solUsd === null && !frozen && dollars > 0 && !tooSmall && open ? { tone: 'warn' as const, text: 'SOL’s price could not be read yet, so the order cannot be sized. It is asked again every few seconds.', action: { label: 'Try again', onClick: () => setTick((x) => x + 1) } } : null)
     ?? (unread && !quoting ? { tone: 'warn' as const, text: 'A price could not be read. It is asked again in a moment.', action: { label: 'Try again', onClick: () => setTick((x) => x + 1) } } : null)
     ?? (tight ? { tone: 'warn' as const, text: `Keep about ${sol(reserve).toFixed(3)} SOL more than this for fees and new coin accounts, or a coin may not go through.` } : null);
 
@@ -440,31 +668,17 @@ export function IslandBasketSolana(p: {
         notice={shownNotice}
         cta={<BasketCta label={label} disabled={disabled} onClick={() => void buy()} />}
         after={
-          running ? (
+          // With one approval every coin is already signed: there is no coin to stop after.
+          running && !oneApproval ? (
             <button type="button" onClick={() => { stopAfter.current = true; }} className="text-white/70 text-[11px] underline underline-offset-2 min-h-[36px]">
               Stop after this coin
             </button>
-          ) : ownLegs.length > 0 && legs ? (
-            <span className="flex flex-col gap-1.5" data-testid="island-basket-own">
-              {ownLegs.map(({ coin, i }) => (
-                <button
-                  key={coin.room}
-                  type="button"
-                  onClick={() => { setOpen(false); p.onOwnLeg(coin, legs[i]!.amountIn); }}
-                  className="w-full py-2 min-h-[40px] rounded-lg text-[12px] font-semibold text-white"
-                  style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid var(--color-stan)' }}
-                >
-                  Review {coin.symbol} in our pool
-                </button>
-              ))}
-            </span>
           ) : null
         }
         finePrint={
           <>
-            <p>Each coin is bought through one pool, read on chain: PumpSwap for BAYLA, BOBO, SOY and BRAINLET, Raydium for RIZZ. Jupiter is asked for that pool only, and an answer through any other pool is refused. Old launch pools that migrated are never touched.</p>
-            <p>Each coin is its own transaction, built and test-run just before its own wallet prompt. A coin already bought stays bought if a later one is not sent. If one is sent but not confirmed, the rest wait, so nothing is bought twice.</p>
-            <p>Our own pool takes a coin when it pays at least as much, the swap’s rule. Every swap in our pool shows its review first, so that coin opens in the swap form.</p>
+            <p>Each coin is bought through one pool, read on chain: PumpSwap for BAYLA, BOBO, SOY and BRAINLET, Raydium for RIZZ, or our own pool for that coin when it pays at least as much (the swap’s rule). Jupiter is asked for the coin’s pool only, and an answer through any other pool is refused. Old launch pools that migrated are never touched.</p>
+            <p>Each coin is its own transaction, built and test-run before your wallet is asked. Most wallets are asked once for the whole order; a wallet that cannot sign several at once is asked once per coin. A coin already bought stays bought if another one does not go through. If one is sent but not confirmed, Buy waits, so nothing is bought twice.</p>
             <p>Slippage is your swap setting ({(p.slippageBps / 100).toFixed(2)}%). The amount is split at SOL’s price from Jupiter. At least {usdText(MIN_USD_PER_COIN)} a coin. A coin you do not hold yet opens an account for about 0.002 SOL, which you get back if you close it.</p>
           </>
         }

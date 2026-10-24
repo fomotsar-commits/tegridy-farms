@@ -10,6 +10,7 @@ import { readOutsidePrice, type OutsidePrice } from '../../../lib/solana/lp/outs
 import { ownPoolPrograms } from '../../../lib/solana/lp/ownPools';
 import { readPoolPastPage, type PoolPastPage } from '../../../lib/solana/lp/poolPast';
 import { listPools, type PoolListRead } from '../../../lib/solana/lp/poolList';
+import { readPoolHolders, type HoldersRead } from '../../../lib/solana/lp/holders';
 import { placeShareOnChain, readPositions, type ChainPlacement, type PositionsRead } from '../../../lib/solana/lp/positions';
 import type { QuoteCoin } from '../../../lib/solana/lp/quotes';
 import { lpFetch } from '../../../lib/solana/lp/readFetch';
@@ -63,6 +64,11 @@ export interface LpReaders {
    */
   ledger?(share: { lpAccount: string; lpMint: string; owner: PublicKey; lpAmount: bigint }, view: PoolView, opts?: { before?: string }): Promise<LedgerRead>;
   poolPast?(view: PoolView, opts?: { before?: string }): Promise<PoolPastPage>;
+  /**
+   * Every holder of one pool's shares (holders.ts), for "Every position". Optional: a
+   * reader without it shows no such card, and every existing fake still fits.
+   */
+  holders?(view: PoolView): Promise<HoldersRead>;
 }
 
 /**
@@ -88,11 +94,13 @@ export function browserLpReaders(): LpReaders | null {
   const opts = { programId, launchProgramId: LAUNCH_PROGRAM_ID };
   const indexOpts = { ...opts, fetchImpl: lpFetch({ what: 'the pool index' }) };
   const jupiter = lpFetch({ what: 'Jupiter' });
+  // All pools and Every position ask for the list together: they share the one read in flight.
+  let listing: Promise<PoolListRead> | null = null;
   return {
     programId: programId.toBase58(),
     safety: (mints) => readTokenSafety(rpc, mints),
     findPools: (mint, also) => findPools(rpc, mint, also?.length ? { ...indexOpts, also } : indexOpts),
-    listPools: () => listPools(rpc, indexOpts),
+    listPools: () => (listing ??= listPools(rpc, indexOpts).finally(() => { listing = null; })),
     outsidePrice: (mint, decimals, o) => readOutsidePrice(mint, decimals, { rpc, programId: ownPoolPrograms([programId.toBase58()]) }, jupiter, undefined, o),
     positions: (owner, limit) => readPositions(rpc, owner, { ...indexOpts, limit }),
     feeTiers: () => readFeeTiers(rpc, programId),
@@ -100,5 +108,6 @@ export function browserLpReaders(): LpReaders | null {
     placeShareOnChain: (share) => placeShareOnChain(rpc, opts, share),
     ledger: (share, view, o) => readLedger(rpc, { ...share, owner: share.owner.toBase58() }, view, programId.toBase58(), o ?? {}),
     poolPast: (view, o) => readPoolPastPage(rpc, view, programId.toBase58(), o ?? {}),
+    holders: (view) => readPoolHolders(rpc, view),
   };
 }
