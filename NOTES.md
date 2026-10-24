@@ -15,6 +15,24 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-24: a finalized signature list reaches the slot another finalized read returned
+
+**Believed:** after `getProgramAccounts` (finalized) answers at slot S, a finalized
+`getSignaturesForAddress` lists every signature up to S, so a count can move its cursor to S.
+
+**Measured** (2026-10-24, `api.mainnet-beta.solana.com`, read only): the public RPC spreads calls
+over nodes, and nothing ties one call's node to another's. Passed `minContextSlot`, the list
+call refuses instead of answering short: far ahead of the finalized slot it answered -32016
+"Minimum context slot has not been reached" with the node's `contextSlot`; 10 slots behind it
+answered normally. For the eight recorded Raydium transactions, the instruction trace
+(`transaction.message.instructions` and `meta.innerInstructions`, with `meta.loadedAddresses`
+for address tables) held exactly as many runs of the program as the log's `invoke` lines, and
+the one cut log's Raydium frame ended before the cut. The trace is not cut with the log.
+
+**Do:** pass `minContextSlot` (the slot the other read returned) to every list a cursor moves
+past, and retry -32016. Before calling a cut log a hole, count the program's runs in the trace:
+none means nothing of its can be missing; all ended before `Log truncated` means none is.
+
 ## 2026-10-24: `maxSupportedTransactionVersion: 0` reads every Solana transaction there is
 
 **Believed:** Solana has legacy and version 0 transactions, so `getTransaction` with
