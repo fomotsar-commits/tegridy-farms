@@ -766,10 +766,10 @@ that answer.
    About 0.00024 SOL. **You should see** `confirmed. signature ...`. If it says `not confirmed`, do
    not send again: run the dry run, which reads what the chain holds now.
 5. **The two pool-share links are written by the pool program's new instruction, which any
-   wallet may call** once the program is upgraded (a separate change; the owner's upgrade pack
-   has the paying wallet send both). The vault only upgrades the program and renames the two
-   records afterwards. Nothing on the site side stops anyone writing a link from the moment the
-   upgrade executes, so steps 1 and 2 come first there too.
+   wallet may call** now that the program is upgraded (O-0929-10 below; the owner's upgrade
+   pack has the paying wallet send both, after the execute). The vault upgraded the program
+   and renames the two records afterwards. Nothing on the site side stops anyone writing a
+   link, which is why steps 1 and 2 came first there too.
 
 **Four things to know afterwards.**
 
@@ -801,6 +801,48 @@ run the generator, and only the JSON files change.
 
 ---
 
+## 🔴 2026-10-03: analytics events kept 90 days, then deleted automatically (PR #695)
+
+Your decision of 2026-10-03: an analytics event (the `analytics_events` table, migration 013,
+written by `/api/analytics`) is **kept for 90 days and then deleted automatically**, and the
+Privacy page's sections 3 and 5 now say so. Until this change nothing deleted those rows and the
+page named no time limit. Keeping less for less long narrows what we hold, so section 9's 14-day
+notice does not apply.
+
+The delete runs in the same hourly workflow as the 30-day error-report delete. That workflow
+is now named **Data Retention** (same file, `error-retention.yml`), and it uses the same two
+secrets, so there is nothing new to set. `/api/analytics` also deletes after it stores a batch,
+at most once an hour per server instance, for when GitHub's schedule is late.
+
+The weekly backup (`supabase-backup.yml`) does not copy `analytics_events`, so no copy outlives
+the 90 days there. A test fails if that table is ever added to its list.
+
+1. **Check whether the table exists.** In the Supabase SQL Editor run
+   `select to_regclass('public.analytics_events');`
+   If it returns `null`, migration 013 was never applied: no event can have been stored, the
+   hourly run stays green with a notice saying so, and steps 2 and 4 wait until the day you
+   apply 013. Then apply 027 straight after it.
+2. **Apply migration 027.** First run `select to_regclass('public.schema_migrations');`. If it
+   returns `null`, run the nine statements in `frontend/supabase/MIGRATIONS.md` section 1 first.
+   Then paste `frontend/supabase/migrations/027_analytics_events_retention.sql` and run it.
+   Never `supabase db push`. It gives the server key permission to delete from that one table
+   and indexes the time each event arrived; it grants the public keys nothing. It is safe to run
+   twice. **You should see** one row from
+   `select filename, applied_at from public.schema_migrations where filename = '027_analytics_events_retention.sql';`
+   Doing this before step 3 matters: without it the delete may be refused, and every hourly run
+   is red until it is done.
+3. **Merge PR #695 and let it deploy.** The first run deletes, for good, every analytics event
+   already more than 90 days old. That is the decision; if you want old totals kept, write the
+   counts down first.
+4. **Check the delete.** GitHub, Actions, Data Retention, Run workflow. **You should see** a
+   green run that says `Deleted N analytics event(s) received before ... (older than 90 days)`,
+   next to the error-report line. A red run whose message says `(42501)` means step 2 is not done.
+   Then, in the SQL Editor, the check query:
+   `select count(*) from analytics_events where received_at < now() - interval '90 days';`
+   **You should see** `0`.
+
+---
+
 ## 🔴 2026-10-02: turn on error reports (PR #466), in this order
 
 ✅ **Done 2026-10-16** (see that day's section): 026 applied, the four server variables present,
@@ -818,7 +860,7 @@ so a step done late costs a delay, never a flood. **026 does not depend on 024 o
 creates and grants only its own table, so it can run before them, after them or alone; 024 and
 025 keep their own runbook further down.
 
-**No new secret.** The 30-day delete runs hourly in a new GitHub workflow, Error Retention, with
+**No new secret.** The 30-day delete runs hourly in a new GitHub workflow, Data Retention, with
 the `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` repository secrets the Supabase backup already uses.
 Nothing named `CRON_SECRET`, or anything else, needs creating.
 
@@ -840,7 +882,7 @@ Nothing named `CRON_SECRET`, or anything else, needs creating.
    other `/api` route from per-instance to shared rate limits, which is the intended mode.
 4. **Check the 30-day delete.** GitHub, Settings, Secrets and variables, Actions: `SUPABASE_URL`
    and `SUPABASE_SERVICE_KEY` should be listed (they were set on 2026-07-30). They must point at
-   the **same Supabase project** as Vercel's. Then Actions, Error Retention, Run workflow.
+   the **same Supabase project** as Vercel's. Then Actions, Data Retention, Run workflow.
    **You should see** a green run that says `Deleted 0 error report(s)` (or, before step 2, a
    notice that `error_events` does not exist yet). A red run means a report may be kept past 30
    days: the run's message says whether a secret is missing, the key was refused, or Supabase did
@@ -1049,9 +1091,33 @@ GIT_HOSTING.md, the runbook's four GitLab lines and `OUR_REPOS` in
 
 ## 🟡 2026-09-29: at the next cp-swap upgrade, point its on-chain security.txt at our own domain
 
-### ⬜ O-0929-10: four `security_txt!` fields. In source since 2026-10-06, waiting for the upgrade
+### ⬜ O-0929-10: four `security_txt!` fields. On chain since the upgrade; one look left
 
-**Where it stands (2026-10-06).** The values below are in the source, on the branch that adds
+**Where it stands now: the upgrade has executed.** The pool program on mainnet is the build
+that carries the four values below (sha256 `1e55bcdc…`, 725,176 bytes; the same upgrade also
+closed fee tier 0 to a public pool opening, pull request #899). The day, the slot and
+the transaction are in `solana/tegridy-amm/MAINNET_RUNBOOK.md`, section 4b. The website
+wording that went false with the upgrade shipped with it (runbook 4b, part C).
+
+**One thing is left, and it is the tick.** Open the program's page and choose its security
+tab:
+
+```powershell
+start "https://explorer.solana.com/address/EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT"
+```
+
+**You should see** the project `https://memetics.finance`, a contact that begins
+`email:fomotsar@gmail.com`, and a policy link and a source link that both begin
+`https://memetics.finance/source/`. Then tick this box. If the tab still shows `memetic.fun`,
+the explorer may be showing an old copy: the pack's check after the upgrade reads the text
+out of the chain itself, and that read is the one to trust.
+
+**Everything below is the record of how the upgrade got there, kept as written. The upgrade
+itself is done and is not to be run again.** What the pack still has after the execute, the
+two name records and the rename (its parts 5 and 6), is finished from the pack's own pages,
+not from here.
+
+**Where it stood (2026-10-06).** The values below are in the source, on the branch that adds
 `create_lp_metadata` (PR #758), and the stale comment is gone. **Nothing on chain has
 changed.** The program on mainnet shows the old text until the Squads vault upgrades it. The
 owner was asked "one upgrade or two" and delegated the call on 2026-10-06. The answer is ONE:
@@ -1059,7 +1125,7 @@ the same upgrade carries the instruction and this text. Its gates and its order 
 `solana/tegridy-amm/MAINNET_RUNBOOK.md`, section 4b. Tick this box when the explorer shows the
 new values, not before.
 
-**Where it stands (2026-10-08).** The source is on `mvp-launch` (pull request #758, merged at
+**Where it stood (2026-10-08).** The source is on `mvp-launch` (pull request #758, merged at
 07:40 UTC). **Nothing on chain has changed.** That day the whole upgrade was rehearsed three
 times on a private copy of mainnet on this computer: making the program account larger,
 uploading the new program, both members approving through the local page, the two name
@@ -1084,7 +1150,7 @@ The paying wallet needs about 3.854 SOL at its peak. About 3.68 SOL of that come
 moment the upgrade executes, and about 0.21 SOL is spent for good. No wallet of ours held
 that much on 2026-10-08.
 
-**Do, when all three are true:** open the pack's first page.
+**The step that was left on 2026-10-08, once all three were true:** open the pack's first page.
 
 ```powershell
 notepad "C:\Users\jimbo\solana-launch-release-2026-09-26\pool-program-upgrade-2026-10\START-HERE.md"
@@ -1097,9 +1163,9 @@ pack's local page checks that the uploaded file is the reviewed one.
 What was rehearsed and what was not, every cost, and what to do when a step does not go as
 written: `solana/tegridy-amm/MAINNET_RUNBOOK.md`, section 4b.
 
-**What is wrong.** cp-swap has been live on mainnet since 2026-09-29
+**What was wrong, until the upgrade.** cp-swap has been live on mainnet since 2026-09-29
 (`EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT`). Explorers show its on-chain security.txt,
-and no link in it does its job. Measured 2026-09-30: `policy` opens `SECURITY.md` on GitHub's
+and no link in the text it was deployed with did its job. Measured 2026-09-30: `policy` opens `SECURITY.md` on GitHub's
 `main`, a stale branch that lacks 1,817 of `mvp-launch`'s commits. `source_code` is a `404`,
 because `main` has no `solana/tegridy-amm`. `contacts` points at `memetic.fun/trust`, which is
 now another project's 404. And all three depend on one git host, which went dark from
@@ -1134,14 +1200,17 @@ solana_security_txt::security_txt! {
   put a git-host URL in a program binary again.
 - The edit changes cp-swap's diff against upstream Raydium, so the diff-guard's
   `EXPECTED_DELTA_SHA256` moved in the same commit, from `2bbd1e55…` to `5d7baf26…`. The
-  pin's history: `5c737ac7…` is the delta of the binary on mainnet (the deployed branch,
-  `ship/solana-launch-on`). `c18d4d63…` and then `2bbd1e55…` came on 2026-10-06 with
+  pin's history: `5c737ac7…` is the delta of the binary deployed on 2026-09-29, which
+  mainnet ran until the upgrade (the deployed branch, `ship/solana-launch-on`). `c18d4d63…`
+  and then `2bbd1e55…` came on 2026-10-06 with
   `create_lp_metadata`, the instruction that names a pool's lp token. `5d7baf26…` adds this
   text: eight changed lines, four of them these values and four of them comments.
-- These strings are in the binary, so the build that carries them (`99a9e73d…`, 724,688
-  bytes) is a different file from the build made earlier that day with the instruction alone
-  (`7648994d…`, 724,672 bytes). Runbook 4b has the full hash and what the upgrade costs.
-  Never deploy the earlier build: it still carries the dead links.
+- These strings are in the binary, so the build that carries them (724,688 bytes on
+  2026-10-06) is a different file from the build made earlier that day with the instruction
+  alone (`7648994d…`, 724,672 bytes). The build the upgrade installed carries them too, with
+  the launch-tier refusal of pull request #899 (`1e55bcdc…`, 725,176 bytes). Runbook 4b has
+  the full hash and what the upgrade costs. Never deploy the earlier builds: the first still
+  carries the dead links, and neither has the launch-tier refusal.
 
 **You should see**, before the upgrade:
 `curl -sI https://memetics.finance/source/solana/tegridy-amm/SECURITY.md` answers `307`, and

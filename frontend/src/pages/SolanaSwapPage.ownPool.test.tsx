@@ -1821,6 +1821,14 @@ describe('what a press writes lands only on the trade it was pressed for', () =>
       expect(label).toBe('Buy BAYLA');
     }
   };
+  const buyPick = () => screen.getByTestId('solana-receive').parentElement!.querySelector('button')!.textContent;
+  /**
+   * A link's token still being looked up: $BAYLA stands on the form meanwhile, the page's
+   * opening coin (SolanaSwapPage.openingPair.test.tsx owns that rule). Said at once, so a
+   * moved opening coin fails here by name, not as a Buy button that never shows (#791
+   * met #790's move from USDC that way, and it read as a slow machine).
+   */
+  const baylaStands = () => expect(buyPick(), 'the coin on the form while the link’s token is looked up').toBe('BAYLA▾');
   beforeEach(() => {
     h.getQuote.mockImplementation(async (p: { outputMint: string; amount: string; noPlatformFee?: boolean }) => {
       const out = p.outputMint === JITO ? per(p.amount, 95_000_000n) : per(p.amount, h.carriesFee.value ? (p.noPlatformFee ? 1_012_000n : 1_005_000n) : 1_000_000n);
@@ -1841,8 +1849,8 @@ describe('what a press writes lands only on the trade it was pressed for', () =>
     window.history.replaceState(null, '', `/solana?out=${OTHER}`);
     h.ownOut.value = 990_000n;
     render(<MemoryRouter><SolanaSwapPage /></MemoryRouter>);
+    baylaStands();
     fireEvent.change(amountBox(), { target: { value: '0.1' } });
-    // $BAYLA stands on the form while the link's token is looked up.
     const buy = await screen.findByRole('button', { name: 'Buy BAYLA' }, { timeout: 20_000 });
     await waitFor(() => expect(buy).toBeEnabled());
     await waitFor(() => expect(routeLine()).toMatch(/Jupiter pays/));
@@ -1852,7 +1860,7 @@ describe('what a press writes lands only on the trade it was pressed for', () =>
     fireEvent.click(buy);
     await waitFor(() => expect(h.readVenuePools.mock.calls.length).toBeGreaterThan(reads));
     looked.release({ mint: OTHER, symbol: 'DOGGO', name: 'Doggo', decimals: 6, verified: false });
-    await waitFor(() => expect(screen.getByTestId('solana-receive').parentElement!.querySelector('button')!.textContent).toBe('DOGGO▾'));
+    await waitFor(() => expect(buyPick()).toBe('DOGGO▾'));
     held.release({ kind: 'ok', pair: [SOL_MINT, OTHER] });
     await waitFor(() => expect(h.toast.info).toHaveBeenCalledWith('Not sent', { description: OWN_ROUTE_COPY.formChanged }));
     expect(h.sendTransaction).not.toHaveBeenCalled();
@@ -1861,13 +1869,13 @@ describe('what a press writes lands only on the trade it was pressed for', () =>
 
   describe('whatever our pools hold, the wallet is never asked for a pair the form no longer shows', () => {
     const OTHER = 'Dog1111111111111111111111111111111111111111';
-    const buyPick = () => screen.getByTestId('solana-receive').parentElement!.querySelector('button')!.textContent;
     /** Arrive by a link whose token is still being looked up ($BAYLA stands meanwhile), type 0.1 SOL, and have Buy BAYLA live on `line`. */
     async function arrivedByLink(line: RegExp) {
       const looked = defer<unknown>();
       h.resolveMint.mockImplementation((mint: string) => (mint === OTHER ? looked.p : Promise.resolve(null)));
       window.history.replaceState(null, '', `/solana?out=${OTHER}`);
       render(<MemoryRouter><SolanaSwapPage /></MemoryRouter>);
+      baylaStands();
       fireEvent.change(amountBox(), { target: { value: '0.1' } });
       const buy = await screen.findByRole('button', { name: 'Buy BAYLA' }, { timeout: 20_000 });
       await waitFor(() => expect(buy).toBeEnabled());
