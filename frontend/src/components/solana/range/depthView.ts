@@ -63,10 +63,13 @@ export function uBounds(spacing: number, sign: 1 | -1): View {
   return toU(sign, min, max);
 }
 
+/** A view's edges are whole ticks: a price is only worked out at a whole tick, and throws between two. */
+export const wholeView = (lo: number, hi: number, b: View): View => ({ lo: Math.max(b.lo, Math.floor(lo)), hi: Math.min(b.hi, Math.ceil(hi)) });
+
 const pad = (v: View, share: number, spacing: number, minSteps: number, b: View): View => {
   const mid = (v.lo + v.hi) / 2;
   const half = Math.max(((v.hi - v.lo) / 2) * (1 + share), (minSteps * spacing) / 2);
-  return { lo: Math.max(b.lo, mid - half), hi: Math.min(b.hi, mid + half) };
+  return wholeView(mid - half, mid + half, b);
 };
 
 /** The view around a range and the pool's price. */

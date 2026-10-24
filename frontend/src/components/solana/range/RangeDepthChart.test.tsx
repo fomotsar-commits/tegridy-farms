@@ -173,6 +173,27 @@ describe('card 03, Liquidity', () => {
     expect(screen.getByTestId('range-depth-move').textContent).toMatch(/^Moves the price 2% up: [\d.,]+ SOL in\. 2% down: [\d.,]+ BAYLA in\.$/);
   });
 
+  it('zoomed in on a range whose width does not halve evenly, the view stays on whole ticks and the card stays up', () => {
+    // 23 steps wide: the second zoom would put the view's edges between two ticks.
+    const { card } = show({ range: { tickLower: BASE - 1_320, tickUpper: BASE + 1_440 } });
+    const ends = () => card.querySelector('figure > div[aria-hidden="true"]')!.textContent;
+    const before = ends();
+    fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Show as a table' }));
+    expect(ends()).toMatch(/^[\d.]+[\d.]+$/);
+    expect(ends()).not.toBe(before);
+    expect(screen.getByTestId('range-depth-table')).toBeInTheDocument();
+  });
+
+  it('with no range, a pool whose price sits past its liquidity fits the view on whole ticks', () => {
+    // The view spans the price (an odd tick) to the liquidity, so its middle falls between two ticks.
+    show({ range: null, window: windowOf({ positions: [[BASE + 1_200, BASE + 2_400, L]], orders: [] }) });
+    expect(screen.getByTestId('range-depth-caption').textContent).toMatch(/^SOL per BAYLA · log scale/);
+    fireEvent.click(screen.getByRole('button', { name: 'Fit all liquidity' }));
+    expect(screen.getByTestId('range-depth-body')).toBeInTheDocument();
+  });
+
   it('a one-sided pool: the side with nothing in use says no swap can, never that it could not be worked out', () => {
     // A maker's token-only position just past the price, in the band at the price, and nothing the other way.
     show({ window: windowOf({ positions: [[BASE + 1_200, BASE + 2_400, L]], orders: [] }) });

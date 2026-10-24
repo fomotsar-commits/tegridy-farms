@@ -28,6 +28,7 @@ import {
   toU,
   tokenUnit,
   unitText,
+  wholeView,
   type View,
 } from './depthView';
 
@@ -239,7 +240,8 @@ function Chart(p: BodyProps & { depth: Depth }) {
       const { min, max } = usableTickBounds(s);
       const mid = (o.from + o.to) / 2;
       const half = Math.max(((o.to - o.from) / 2) * by, 4 * s);
-      return { from: Math.max(min, mid - half), to: Math.min(max, mid + half) };
+      const v = wholeView(mid - half, mid + half, { lo: min, hi: max });
+      return { from: v.lo, to: v.hi };
     });
   // A part not known that lies off the view is named at that edge, so the view never reads as all there is.
   const offLeft = depth.gaps.filter((g) => toU(sign, g.from, g.to).lo < view.lo);
