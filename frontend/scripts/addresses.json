@@ -616,7 +616,7 @@
     {
       "id": "venue-lp-mint-bayla-sol",
       "address": "BQZth5DhHZT9H1AxZonoLAwGHknWo4LebQBxjKWtzY8e",
-      "role": "Pool-share (LP) mint of venue-pool-bayla-sol: PDA seeds [\"pool_lp_mint\", pool] under cp-swap-program-restart, bump 255, derived and matched. A classic SPL Token mint, 9 decimals, no freeze authority; its mint authority is cp-swap-authority-restart. The site serves its name and picture at /mint/BQZth5DhHZT9H1AxZonoLAwGHknWo4LebQBxjKWtzY8e.json: \"BAYLA/SOL Pool Share\", symbol BAYLA-SOL.",
+      "role": "Pool-share (LP) mint of venue-pool-bayla-sol: PDA seeds [\"pool_lp_mint\", pool] under cp-swap-program-restart, bump 255, derived and matched. A classic SPL Token mint, 9 decimals, no freeze authority; its mint authority is cp-swap-authority-restart. The site serves its name and picture at /mint/BQZth5DhHZT9H1AxZonoLAwGHknWo4LebQBxjKWtzY8e.json: \"BAYLA/SOL LP\", symbol BAYLA-SOL.",
       "custody": "program-derived, no key. Only the pool program mints it, on a deposit, and burns it, on a withdrawal.",
       "status": "live, supply 362.216155450 shares at finalized slot 454,077,498 (2026-10-07T01:38Z). No on-chain name yet: it has no Metaplex record, and only an instruction of the pool program can create one, because the record needs this mint's authority to sign.",
       "expect": {
@@ -626,7 +626,7 @@
     {
       "id": "venue-lp-mint-bayla-usdc",
       "address": "3D3EKJxfePDQ1N8YtNwg8W6eSL4mjVpbYf57pnqgcAQx",
-      "role": "Pool-share (LP) mint of venue-pool-bayla-usdc: PDA seeds [\"pool_lp_mint\", pool] under cp-swap-program-restart, bump 254, derived and matched. A classic SPL Token mint, 9 decimals, no freeze authority; its mint authority is cp-swap-authority-restart. The site serves its name and picture at /mint/3D3EKJxfePDQ1N8YtNwg8W6eSL4mjVpbYf57pnqgcAQx.json: \"BAYLA/USDC Pool Share\", symbol BAYLA-USDC.",
+      "role": "Pool-share (LP) mint of venue-pool-bayla-usdc: PDA seeds [\"pool_lp_mint\", pool] under cp-swap-program-restart, bump 254, derived and matched. A classic SPL Token mint, 9 decimals, no freeze authority; its mint authority is cp-swap-authority-restart. The site serves its name and picture at /mint/3D3EKJxfePDQ1N8YtNwg8W6eSL4mjVpbYf57pnqgcAQx.json: \"BAYLA/USDC LP\", symbol BAYLA-USDC.",
       "custody": "program-derived, no key. Only the pool program mints it, on a deposit, and burns it, on a withdrawal.",
       "status": "live, supply 5.006253412 shares at finalized slot 454,077,498 (2026-10-07T01:38Z). No on-chain name yet: it has no Metaplex record, and only an instruction of the pool program can create one, because the record needs this mint's authority to sign.",
       "expect": {
