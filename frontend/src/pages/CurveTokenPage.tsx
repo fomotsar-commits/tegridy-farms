@@ -85,7 +85,7 @@ export function CurveCreatorClaimView({ claimableWei, pending, mining = false, o
         </button>
       </div>
       <p className="text-white/40 text-[11px] mt-2 leading-relaxed">
-        40% of every trade's fee accrues here while the curve runs — on-chain, claimable only by
+        The creator's share of every trade's fee accrues here while the curve runs — on-chain, claimable only by
         the creator address, never pausable.
       </p>
     </div>

@@ -744,7 +744,7 @@ export default function TradePage() {
         {tab === 'swap' && (
           <>
             {/* The venue story, where a competitor's user first lands: fees here
-                are REAL yield to stakers, and the curve pays creators 0.40% of
+                are REAL yield to stakers, and the curve pays creators 0.50% of
                 every trade — a checkable on-chain number, not a superlative
                 (the honesty-vocabulary bar). Both claims link to their
                 checkable surfaces. */}
@@ -754,7 +754,7 @@ export default function TradePage() {
               <p className="text-[13px] text-text-secondary leading-relaxed">
                 <span className="text-text-primary font-medium">Launching something?</span>{' '}
                 The <Link to="/eth-curve" className="text-emerald-400/80 hover:text-emerald-300 underline">Memetics Curve</Link>{' '}
-                pays creators <span className="text-text-primary font-medium">0.40% of every trade</span> (40% of the 1% fee).
+                pays creators <span className="text-text-primary font-medium">0.50% of every trade</span> (50% of the 1% fee).
               </p>
               <FinePrint summary="Details">
                 <p>
