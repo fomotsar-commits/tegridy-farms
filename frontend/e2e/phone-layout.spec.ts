@@ -263,3 +263,10 @@ test('/nft-finance at 390x844: the section tab row is whole on screen, clear of 
   expect(read.top, 'the row starts under the top bar').toBeGreaterThanOrEqual(read.header);
   expect(read.bottom, `the row (${Math.round(read.top)} to ${Math.round(read.bottom)}px) runs under the bottom bar at ${read.bar}px`).toBeLessThanOrEqual(read.bar!);
 });
+
+test('/solana at 320px: the trending row wraps under its heading, and the page does not slide', async ({ page, walletMock: _w }) => {
+  // "Trending on Solana" and its three choices once needed 333px in a 320px window.
+  await settle(page, '/solana', { width: 320, height: 640 });
+  await expect(page.getByRole('heading', { name: 'Trending on Solana' })).toBeVisible({ timeout: 15_000 });
+  await expectNoSidewaysScroll(page);
+});
