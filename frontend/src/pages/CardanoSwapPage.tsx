@@ -542,7 +542,8 @@ function ReviewCard({
   const c = prepared.checked;
   const fmtIn = (n: bigint) => amountText(n, labels.inLabel);
   const fmtOut = (n: bigint) => amountText(n, labels.outLabel);
-  const coinTicker = (isAda(prepared.plan.assetIn) ? labels.outLabel : labels.inLabel).ticker ?? 'Coin';
+  const selling = !isAda(prepared.plan.assetIn);
+  const coinTicker = (selling ? labels.inLabel : labels.outLabel).ticker ?? 'Coin';
   return (
     <div className="rounded-xl p-3 space-y-2" style={FIELD} data-testid="cardano-review">
       <p className="text-white text-[13px] font-semibold">Check, then sign</p>
@@ -553,14 +554,27 @@ function ReviewCard({
       <Line label="You get about" value={fmtOut(prepared.quote.expectedOut)} note="from the pool as read just now" />
       <Line label="You get at least" value={fmtOut(prepared.plan.minimumReceive)} note="or your coins come back" />
       <Line label="Leaves your wallet, all in" value={formatAda(c.paidLovelace)} note={c.paidToken ? `and ${fmtIn(c.paidToken.quantity)}` : undefined} />
-      <Line label="Of that: the order" value={formatAda(c.orderLovelace)} note="the swap, up to 2 ADA batcher fee, and the 2 ADA deposit that comes back" />
+      {/* On a sell the swap is the coin, locked in the order beside the ADA (checkSwapTx holds it to swapAmount). */}
+      <Line
+        label="Of that: the order"
+        value={formatAda(c.orderLovelace)}
+        note={
+          selling
+            ? `and the ${fmtIn(prepared.plan.swapAmount)} you sell; the ADA is up to 2 ADA batcher fee and the 2 ADA deposit that comes back`
+            : 'the swap, up to 2 ADA batcher fee, and the 2 ADA deposit that comes back'
+        }
+      />
       <Line label="Venue fee" value={c.venueFeeLovelace > 0n ? formatAda(c.venueFeeLovelace) : 'None'} note={venueFeeText(prepared.plan.venueFee)} />
       <Line
         label="Network fee"
         value={formatAda(c.networkFee)}
         note={c.networkFeeExcess > 0n ? `${NETWORK_FEE_NOTE}. It includes ${formatAda(c.networkFeeExcess)} left over: too little to send back as change` : NETWORK_FEE_NOTE}
       />
-      <Line label="Paid to" value={shortCardanoAddress(prepared.plan.trader.bech32)} note="your own address, whole, as the order says" />
+      {/* Whole, so it can be matched against the wallet's own screen (the datum check holds it to the order). */}
+      <Line label="Paid to" value="your own address" note="as the order says, staking key included:" />
+      <p className="font-mono text-[10px] text-white/60 break-all" data-testid="cardano-review-paid-to">
+        {prepared.plan.trader.bech32}
+      </p>
       <p className="text-[11px] text-white/60">Checked: nothing in this transaction pays anyone else or touches your stake.</p>
       <div className="flex gap-2">
         <button type="button" onClick={onBack} className="flex-1 min-h-[48px] rounded-xl text-white text-[13px]" style={{ background: 'rgba(0,0,0,0.45)', border: '1px solid rgba(255,255,255,0.18)' }}>

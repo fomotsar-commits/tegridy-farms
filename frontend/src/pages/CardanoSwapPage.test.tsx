@@ -59,23 +59,31 @@ let trader: ParsedAddress;
 let submitted: string[] = [];
 let signed: string[] = [];
 
-function walletUtxoHex(i: number, lovelace: bigint): string {
+function walletUtxoHex(i: number, lovelace: bigint, ascend?: bigint): string {
   const input = csl.TransactionInput.new(csl.TransactionHash.from_hex(i.toString(16).padStart(64, 'b')), i);
-  const out = csl.TransactionOutput.new(csl.Address.from_bytes(hexToBytes(trader.hex)), csl.Value.new(csl.BigNum.from_str(lovelace.toString())));
+  const value = csl.Value.new(csl.BigNum.from_str(lovelace.toString()));
+  if (ascend !== undefined) {
+    const assets = csl.Assets.new();
+    assets.insert(csl.AssetName.new(hexToBytes(ASCEND.assetName)), csl.BigNum.from_str(ascend.toString()));
+    const ma = csl.MultiAsset.new();
+    ma.insert(csl.ScriptHash.from_hex(ASCEND.policyId), assets);
+    value.set_multiasset(ma);
+  }
+  const out = csl.TransactionOutput.new(csl.Address.from_bytes(hexToBytes(trader.hex)), value);
   return csl.TransactionUnspentOutput.new(input, out).to_hex();
 }
 
 /** The stand-in wallet's knobs, reset before each test. */
-let wallet: { changeAddress: () => string; utxosGate: Promise<void> };
+let wallet: { changeAddress: () => string; utxosGate: Promise<void>; utxos: () => string[] };
 
 function installWallet() {
-  wallet = { changeAddress: () => trader.hex, utxosGate: Promise.resolve() };
+  wallet = { changeAddress: () => trader.hex, utxosGate: Promise.resolve(), utxos: () => [walletUtxoHex(1, 900_000_000n), walletUtxoHex(2, 40_000_000n)] };
   const api = {
     getNetworkId: async () => 1,
     getChangeAddress: async () => wallet.changeAddress(),
     getUtxos: async () => {
       await wallet.utxosGate;
-      return [walletUtxoHex(1, 900_000_000n), walletUtxoHex(2, 40_000_000n)];
+      return wallet.utxos();
     },
     signTx: async (txHex: string) => {
       signed.push(txHex);
@@ -186,6 +194,8 @@ describe('CardanoSwapPage', () => {
     const review = await screen.findByTestId('cardano-review', {}, { timeout: 3000 });
     expect(review.textContent).toMatch(/Leaves your wallet, all in/);
     expect(review.textContent).toMatch(/404 ADA/); // the 400 ADA swap + 4 ADA order lock
+    // Paid to the trader's whole address, to match against the wallet's own screen.
+    expect(within(review).getByTestId('cardano-review-paid-to').textContent).toBe(trader.bech32);
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Sign in wallet' }));
     });
@@ -205,6 +215,25 @@ describe('CardanoSwapPage', () => {
     const row = screen.getByTestId('cardano-order');
     expect(row.textContent).toMatch(/400 ADA for at least [\d,.]+ ASCEND/);
     expect(row.textContent).toContain(`ASCEND: ${ASCEND.policyId}.${ASCEND.assetName}`);
+  });
+
+  it('reviews a sell as one: the order holds the coin sold beside its 4 ADA, never "the swap" in ADA', async () => {
+    wallet.utxos = () => [walletUtxoHex(1, 40_000_000n), walletUtxoHex(3, 2_000_000n, 500_000_000n)];
+    renderPage();
+    await connect();
+    fireEvent.click(screen.getByRole('button', { name: 'Sell for ADA' }));
+    fireEvent.change(screen.getByLabelText(/The coin/), { target: { value: ASCEND.policyId + ASCEND.assetName } });
+    await screen.findByText('ASCEND');
+    fireEvent.change(screen.getByLabelText(/You pay/), { target: { value: '100' } });
+    await screen.findByTestId('cardano-quote', {}, { timeout: 3000 });
+    fireEvent.click(screen.getByRole('button', { name: 'Review swap' }));
+    const review = await screen.findByTestId('cardano-review', {}, { timeout: 3000 });
+    const order = within(review).getByText('Of that: the order').parentElement!;
+    expect(order.textContent).toMatch(/4 ADA/);
+    expect(order.textContent).toMatch(/and the 100 ASCEND you sell/);
+    expect(order.textContent).not.toMatch(/the swap,/);
+    expect(review.textContent).toMatch(/Leaves your wallet, all in[\s\S]*and 100 ASCEND/);
+    expect(within(review).getByTestId('cardano-review-paid-to').textContent).toBe(trader.bech32);
   });
 
   it('holds the form still while a review is built, so what is signed is what was asked', async () => {
