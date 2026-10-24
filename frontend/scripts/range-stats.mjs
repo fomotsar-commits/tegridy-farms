@@ -81,15 +81,31 @@ export function rpc({ fetchImpl = globalThis.fetch, url = SOLANA_RPC, pauseMs = 
   };
 }
 
+/** The RPC's refusal when its node has not reached `minContextSlot`. */
+export const MIN_CONTEXT_SLOT_NOT_REACHED = -32016;
+
+// A node behind `atSlot` refuses rather than list short. The public RPC spreads calls over
+// nodes, so a later try usually meets one that has caught up; else the pool waits a run.
+async function listedFrom(call, params, atSlot, wait) {
+  for (let i = 0; ; i++) {
+    try {
+      return await call("getSignaturesForAddress", [params[0], { ...params[1], minContextSlot: atSlot }]);
+    } catch (e) {
+      if (e?.code !== MIN_CONTEXT_SLOT_NOT_REACHED || i >= 4) throw e;
+      await wait(2000 * (i + 1));
+    }
+  }
+}
+
 /**
- * The address's finalized signatures after slot `through`, oldest first. `reachedEnd`: paging
- * met `until`, that slot or the first signature, so nothing between is missing.
+ * The address's finalized signatures after slot `through`, oldest first, from a node that has
+ * reached `atSlot`. `reachedEnd`: paging met `until`, that slot or the first signature.
  */
-export async function signaturesSince(call, address, until, through, maxPages) {
+export async function signaturesSince(call, address, until, through, maxPages, atSlot, wait = sleep) {
   const out = [];
   let before;
   for (let page = 0; page < maxPages; page++) {
-    const got = await call("getSignaturesForAddress", [address, { limit: 1000, commitment: "finalized", ...(until ? { until } : {}), ...(before ? { before } : {}) }]);
+    const got = await listedFrom(call, [address, { limit: 1000, commitment: "finalized", ...(until ? { until } : {}), ...(before ? { before } : {}) }], atSlot, wait);
     if (!Array.isArray(got)) throw new Error("getSignaturesForAddress did not answer a list");
     out.push(...got);
     if (got.length < 1000 || got[got.length - 1].slot <= through) return { list: out.reverse(), reachedEnd: true };
@@ -245,6 +261,8 @@ const hourOut = (h) => h && { hour: h.hour, swaps: h.swaps, ...Object.fromEntrie
 export async function countPool({ call, pool, cursor, budget, deadline, now = Date.now, wait = sleep, maxPages = LIMITS.maxSignaturePages }) {
   const address = pool.address;
   const through0 = cursor ? Number(cursor.through_slot) : 0;
+  // Its counters would sit beside totals counted past them.
+  if (pool.slot < through0) throw new Error(`the pool was read at slot ${pool.slot}, before the count's slot ${through0}: an RPC node behind`);
   const st = {
     totals: bigTotals(cursor?.totals),
     hour: hourIn(cursor?.open_hour ?? null),
@@ -306,13 +324,16 @@ export async function countPool({ call, pool, cursor, budget, deadline, now = Da
       return;
     }
     const mine = read.events.filter((e) => e.pool === address);
-    if (first) {
-      const born = mine.find((e) => e.name === "PoolCreatedEvent");
-      if (born) rows.openPoint = { slot: s.slot - 1, time, price: born.sqrtPriceX64 };
-      else {
-        rows.gaps.push(historyGap(address, s.slot));
-        st.opened = { seen: false, first_slot: s.slot };
-      }
+    const born = mine.find((e) => e.name === "PoolCreatedEvent");
+    if (first && !born) {
+      rows.gaps.push(historyGap(address, s.slot));
+      st.opened = { seen: false, first_slot: s.slot };
+    }
+    // Anyone can send to the pool's address before it is made, but no event of the pool can
+    // come before its creation: that is its zero point, and nothing before it is a hole.
+    if (born && st.opened?.seen !== true && TOTAL_KEYS.every((k) => st.totals[k] === 0n)) {
+      rows.openPoint = { slot: s.slot - 1, time, price: born.sqrtPriceX64 };
+      rows.gaps = rows.gaps.filter((g) => g.kind !== "history-not-backfilled");
     }
     const t = st.totals;
     for (const e of mine) {
@@ -359,7 +380,7 @@ export async function countPool({ call, pool, cursor, budget, deadline, now = Da
   }
 
   const fresh = (list) => list.filter((s) => s.slot > through0 && s.slot <= pool.slot && !seen.has(s.signature));
-  const page = await signaturesSince(call, address, cursor?.last_signature ?? null, through0, maxPages);
+  const page = await signaturesSince(call, address, cursor?.last_signature ?? null, through0, maxPages, pool.slot, wait);
   if (!page.reachedEnd) {
     // Paging stopped short: the oldest slot it reached may hold more, so the gap includes it.
     const oldest = page.list[0];
@@ -376,7 +397,7 @@ export async function countPool({ call, pool, cursor, budget, deadline, now = Da
   // Only a swap moves the price, so the pool's price must be the last counted swap's. If not,
   // read the signatures once more (an RPC can trail its own finalized slot), then say so.
   if (complete && st.lastPrice !== null && st.lastPrice !== pool.sqrtPriceX64) {
-    const again = await signaturesSince(call, address, cursor?.last_signature ?? null, through0, maxPages);
+    const again = await signaturesSince(call, address, cursor?.last_signature ?? null, through0, maxPages, pool.slot, wait);
     complete = await walk(fresh(again.list));
     if (complete && st.lastPrice !== null && st.lastPrice !== pool.sqrtPriceX64) {
       const from = (st.lastPriceSlot ?? through0) + 1;
@@ -484,7 +505,11 @@ async function writePool(db, address, out, row, nowIso) {
   const enc = encodeURIComponent(address);
   await insert(db, "range_swap", out.rows.swaps, "signature,pool,event_index");
   await insert(db, "range_collection", out.rows.collections, "signature,pool,event_index");
-  await patch(db, `range_gap?pool=eq.${enc}&gap_key=like.backlog-truncated:wait:*&resolved_at=is.null`, { resolved_at: nowIso });
+  // A wait this run writes again keeps its open row; any other has been counted past.
+  const wait = out.rows.gaps.find((g) => g.gap_key.startsWith("backlog-truncated:wait:"));
+  const still = wait ? `&gap_key=neq.${encodeURIComponent(wait.gap_key)}` : "";
+  await patch(db, `range_gap?pool=eq.${enc}&gap_key=like.backlog-truncated:wait:*${still}&resolved_at=is.null`, { resolved_at: nowIso });
+  if (out.rows.openPoint) await patch(db, `range_gap?pool=eq.${enc}&kind=eq.history-not-backfilled&resolved_at=is.null`, { resolved_at: nowIso });
   await insert(db, "range_gap", out.rows.gaps, "pool,gap_key");
   await insert(db, "range_hour", out.rows.hours, "pool,hour", "merge-duplicates");
   if (out.rows.openPoint) await insert(db, "range_venue_snapshot", [out.rows.openPoint], "pool,slot");

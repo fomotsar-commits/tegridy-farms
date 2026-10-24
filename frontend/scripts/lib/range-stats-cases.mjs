@@ -8,7 +8,8 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { AMM_CONFIG, EVENTS, POOL_STATE, RANGE_PROGRAM_ID, base58, decodeEvent, fromBase64, programFrames, rangeTxEvents } from "../../api/_lib/rangeEvents.js";
-import { BAYLA_MINT, RpcError, SOL_MINT, countPool, main, orderPools } from "../range-stats.mjs";
+import * as RangeEvents from "../../api/_lib/rangeEvents.js";
+import { BAYLA_MINT, LIMITS, RpcError, SOL_MINT, countPool, main, orderPools } from "../range-stats.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const RAYDIUM = JSON.parse(readFileSync(join(HERE, "..", "fixtures", "range-stats", "raydium-mainnet-logs.json"), "utf8"));
@@ -135,9 +136,37 @@ export const createdData = ({ pool = POOL, price }) => encodeEvent("PoolCreatedE
 /** The program's own split of a fee: 10.4% and 5.6%, each rounded down. */
 export const split = (fee) => ({ vault: (fee * 104_000n) / 1_000_000n, workshop: (fee * 56_000n) / 1_000_000n });
 
+/**
+ * The instruction trace getTransaction answers beside a log: a run for each invoke line before
+ * any cut, then `after`, [program, depth] runs the cut hid. `keys`: accounts no instruction runs.
+ */
+export function traceOf(lines, { after = [], keys = [] } = {}) {
+  const cut = lines.indexOf("Log truncated");
+  const logged = (cut < 0 ? lines : lines.slice(0, cut)).map((l) => /^Program (\S+) invoke \[(\d+)\]$/.exec(l)).filter(Boolean).map((m) => [m[1], Number(m[2])]);
+  const runs = [...logged, ...after];
+  const accountKeys = [key(60), ...new Set([...keys, ...runs.map(([p]) => p)])];
+  const instructions = [];
+  const innerInstructions = [];
+  for (const [program, depth] of runs) {
+    const programIdIndex = accountKeys.indexOf(program);
+    if (depth === 1) {
+      instructions.push({ programIdIndex });
+      innerInstructions.push({ index: instructions.length - 1, instructions: [] });
+    } else innerInstructions.at(-1).instructions.push({ programIdIndex, stackHeight: depth });
+  }
+  return { transaction: { message: { accountKeys, instructions } }, meta: { innerInstructions: innerInstructions.filter((g) => g.instructions.length), loadedAddresses: { writable: [], readonly: [] } } };
+}
+
+/** A landed transaction's getTransaction answer: its log, with `trace` when the RPC gives one. */
+export const answer = (lines, trace = null) => ({ ...(trace ? { transaction: trace.transaction } : {}), meta: { err: null, logMessages: lines, ...(trace?.meta ?? {}) } });
+
+/** A recorded Raydium transaction with the instruction trace that was read beside its log. */
+export const withTrace = (t) => ({ ...t, transaction: t.trace.transaction, meta: { ...t.meta, ...t.trace.meta } });
+
 /** A chain with pools, their signatures and transactions, answering the count's RPC calls. */
 export function world({ slot = 5000, time = T0 + 3 * 3600 } = {}) {
-  const w = { slot, blockTimes: new Map([[slot, time]]), accounts: new Map(), programPools: [], sigs: new Map(), txs: new Map(), calls: [], gpaError: null, seq: 0 };
+  // `behind`: call by call, the slot reached by the node that lists signatures (default `slot`).
+  const w = { slot, blockTimes: new Map([[slot, time]]), accounts: new Map(), programPools: [], sigs: new Map(), txs: new Map(), calls: [], gpaError: null, seq: 0, behind: [] };
   w.accounts.set(TIER, { owner: RANGE_PROGRAM_ID, data: [encodeTier(RATES), "base64"] });
   w.pool = (address = POOL, f = {}) => {
     const v0 = key(200 + w.programPools.length * 2);
@@ -150,7 +179,7 @@ export function world({ slot = 5000, time = T0 + 3 * 3600 } = {}) {
     if (!w.programPools.includes(address)) w.programPools.push(address);
   };
   /** A transaction on `pools`, at `slot` (default: the next one). */
-  w.tx = ({ pools = [POOL], lines, err = null, at = null, txSlot = null, missing = false, rpcError = null } = {}) => {
+  w.tx = ({ pools = [POOL], lines, err = null, at = null, txSlot = null, missing = false, rpcError = null, trace = null } = {}) => {
     const s = txSlot ?? 100 + w.seq * 10;
     const signature = base58(Uint8Array.from({ length: 64 }, (_, i) => (w.seq * 31 + i * 7 + 3) % 256));
     w.seq++;
@@ -162,7 +191,10 @@ export function world({ slot = 5000, time = T0 + 3 * 3600 } = {}) {
       w.sigs.set(p, list);
     }
     if (rpcError) w.txs.set(signature, { rpcError });
-    else if (!missing) w.txs.set(signature, { slot: s, blockTime, meta: { err, logMessages: lines } });
+    else if (!missing) {
+      const a = answer(lines, trace);
+      w.txs.set(signature, { slot: s, blockTime, ...a, meta: { ...a.meta, err } });
+    }
     return signature;
   };
   w.advance = (slot, time) => {
@@ -181,8 +213,10 @@ export function world({ slot = 5000, time = T0 + 3 * 3600 } = {}) {
     if (method === "getMultipleAccounts") return { context: { slot: w.slot }, value: params[0].map((k) => w.accounts.get(k) ?? null) };
     if (method === "getBlockTime") return w.blockTimes.get(params[0]) ?? null;
     if (method === "getSignaturesForAddress") {
-      const [address, { limit, until, before }] = params;
-      let list = (w.sigs.get(address) ?? []).filter((s) => s.slot <= w.slot);
+      const [address, { limit, until, before, minContextSlot }] = params;
+      const reached = w.behind.length ? w.behind.shift() : w.slot;
+      if (minContextSlot !== undefined && reached < minContextSlot) throw new RpcError(method, -32016, "Minimum context slot has not been reached");
+      let list = (w.sigs.get(address) ?? []).filter((s) => s.slot <= reached);
       if (before) list = list.slice(list.findIndex((s) => s.signature === before) + 1);
       if (until) {
         const i = list.findIndex((s) => s.signature === until);
@@ -632,6 +666,159 @@ export const CASES = [
       const nested = [`Program ${RANGE_PROGRAM_ID} invoke [2]`, `Program ${RANGE_PROGRAM_ID} success`];
       assert.equal(rangeTxEvents({ meta: { err: null, logMessages: nested } }).status, "malformed");
       assert.equal(rangeTxEvents({ meta: { err: null } }).status, "no-log");
+    },
+  ],
+  [
+    "a node behind the pool read refuses to list, so nothing in the slots it lacks is lost",
+    async () => {
+      const w = world();
+      w.tx({ lines: ix(RANGE_PROGRAM_ID, "CreatePool", [createdData({ price: 1n << 64n })]), txSlot: 100 });
+      w.pool();
+      const db = fakeDb();
+      assert.equal(await run(w, db), 0);
+      // A collection moves no price, so the price check cannot see it go missing.
+      w.advance(9000, T0 + 4 * 3600);
+      w.tx({ lines: ix(RANGE_PROGRAM_ID, "CollectProtocolFee", [collectData({ amount0: 3_000n })]), txSlot: 8900 });
+      w.behind.push(8800);
+      assert.equal(await run(w, db), 0);
+      assert.equal(db.data.range_cursor[0].totals.vault_collected_0, "3000");
+      assert.equal(db.data.range_cursor[0].through_slot, 9000);
+      // A node that stays behind: the pool waits a run with its cursor where it was.
+      w.advance(9500, T0 + 5 * 3600);
+      w.behind.push(9400, 9400, 9400, 9400, 9400);
+      assert.equal(await run(w, db), 1);
+      assert.equal(db.data.range_cursor[0].through_slot, 9000);
+      assert.match(db.data.range_cursor[0].last_error, /Minimum context slot/);
+      assert.ok(w.calls.filter((c) => c.method === "getSignaturesForAddress").every((c) => c.params[1].minContextSlot > 0));
+    },
+  ],
+  [
+    "a cut log is no hole when the trace says our program never ran in it, or ran wholly before the cut",
+    async () => {
+      const filler = [1, 2, 3].flatMap(() => ix(key(77), "Noop"));
+      const cut = (lines) => [...lines, "Log truncated"];
+      // A stranger lists the pool in a transaction of its own and runs the log past the limit.
+      const stranger = cut(filler);
+      const ours = ix(RANGE_PROGRAM_ID, "SwapV2", [swapData({ fee0: 10_000n, price: 2n << 64n })]);
+      const before = cut([...ours, ...filler]);
+      const w = world();
+      w.tx({ lines: ix(RANGE_PROGRAM_ID, "CreatePool", [createdData({ price: 1n << 64n })]), txSlot: 100 });
+      w.tx({ lines: stranger, txSlot: 200, trace: traceOf(stranger, { keys: [POOL] }) });
+      w.tx({ lines: stranger, txSlot: 250, trace: traceOf(stranger, { keys: [POOL, RANGE_PROGRAM_ID] }) });
+      w.tx({ lines: before, txSlot: 300, trace: traceOf(before, { keys: [POOL] }) });
+      w.pool(POOL, { price: 2n << 64n });
+      const out = await countOnce(w);
+      assert.deepEqual(out.rows.gaps, []);
+      assert.equal(out.cursor.totals.fees_0, "10000");
+      // Still a hole: ours ran again after the cut, was cut mid-frame, or the trace was not read.
+      assert.equal(rangeTxEvents(answer(before, traceOf(before, { after: [[RANGE_PROGRAM_ID, 1]] }))).status, "truncated");
+      const mid = cut(ours.slice(0, 3));
+      assert.equal(rangeTxEvents(answer(mid, traceOf(mid))).status, "truncated");
+      assert.equal(rangeTxEvents(answer(before)).status, "truncated");
+      // A whole log that shows a run the trace lacks, or lacks one the trace has, is not read.
+      assert.equal(rangeTxEvents(answer(ours, traceOf(filler))).status, "malformed");
+      assert.equal(rangeTxEvents(answer(ours, traceOf(ours, { after: [[RANGE_PROGRAM_ID, 1]] }))).status, "malformed");
+      // Real: Raydium ran once, inside Jupiter, from an address table, and ended before the cut.
+      for (const t of RAYDIUM.txs) {
+        const runs = t.meta.logMessages.filter((l) => l.startsWith(`Program ${RAYDIUM.program} invoke`)).length;
+        assert.equal(RangeEvents.invocations?.(withTrace(t), RAYDIUM.program), runs, t.signature);
+        const read = rangeTxEvents(withTrace(t), RAYDIUM.program);
+        assert.equal(read.status, "ok", t.signature);
+        assert.ok(read.events.some((e) => e.name === "SwapEvent" && encodeBack(e) === t.event), `${t.signature}: the recorded event`);
+      }
+    },
+  ],
+  [
+    "a pool whose address was sent to before it opened still has its zero point",
+    async () => {
+      // Anyone can send to the pool's address before it is made, and the creation still lands.
+      const transfer = ix("11111111111111111111111111111111", "Transfer");
+      for (const cap of [2000, 1]) {
+        const w = world();
+        w.tx({ lines: transfer, txSlot: 50, trace: traceOf(transfer, { keys: [POOL] }) });
+        w.tx({ lines: ix(RANGE_PROGRAM_ID, "CreatePool", [createdData({ price: 1n << 64n })]), txSlot: 100 });
+        w.tx({ lines: ix(RANGE_PROGRAM_ID, "SwapV2", [swapData({ fee0: 10_000n, price: 2n << 64n })]), txSlot: 200 });
+        w.pool(POOL, { price: 2n << 64n, protocolFees0: 1_040n, fundFees0: 560n });
+        const db = fakeDb();
+        // With a cap of 1, the transfer, the creation and the swap are each a run of their own.
+        for (let i = 0; i < 3; i++) await run(w, db, { limits: { ...LIMITS, maxTransactions: cap } });
+        assert.deepEqual(db.data.range_venue_snapshot.filter((s) => s.at_open).map((s) => s.slot), [99], `cap ${cap}`);
+        assert.deepEqual(db.data.range_gap.filter((g) => g.resolved_at === null).map((g) => g.kind), [], `cap ${cap}`);
+        assert.equal(db.data.range_pool[0].opened_slot, 100);
+        assert.equal(db.data.range_cursor[0].totals.fees_0, "10000");
+      }
+    },
+  ],
+  [
+    "a run cut short writes no snapshot, so no window pairs the pool's counters with totals that stop early",
+    async () => {
+      const w = world();
+      w.tx({ lines: ix(RANGE_PROGRAM_ID, "CreatePool", [createdData({ price: 1n << 64n })]), txSlot: 100 });
+      for (const [slot, fee] of [[200, 10_000n], [300, 20_000n], [400, 30_000n]]) w.tx({ lines: ix(RANGE_PROGRAM_ID, "SwapV2", [swapData({ fee0: fee, price: BigInt(slot) << 64n })]), txSlot: slot });
+      w.pool(POOL, { price: 400n << 64n, protocolFees0: 6_240n, fundFees0: 3_360n });
+      const db = fakeDb();
+      assert.equal(await run(w, db, { limits: { ...LIMITS, maxTransactions: 2 } }), 0);
+      assert.equal(db.data.range_cursor[0].through_slot, 200);
+      assert.deepEqual(db.data.range_venue_snapshot.filter((s) => !s.at_open), [], "no snapshot of slot 5000's counters beside totals cut at slot 200");
+      assert.equal(await run(w, db), 0);
+      assert.deepEqual(db.data.range_venue_snapshot.filter((s) => !s.at_open).map((s) => [s.slot, s.cum_fees_0]), [[w.slot, "60000"]]);
+    },
+  ],
+  [
+    "a pool that waits keeps its open waiting row until a run counts it to the newest slot",
+    async () => {
+      const w = world();
+      const [A, B] = [key(10), key(11)];
+      w.pool(A, { held0: 2000n });
+      w.pool(B, { held0: 1000n });
+      for (const p of [A, B]) w.tx({ pools: [p], lines: ix(RANGE_PROGRAM_ID, "CreatePool", [createdData({ pool: p, price: 1n << 64n })]) });
+      const db = fakeDb();
+      const tight = { limits: { ...LIMITS, maxTransactions: 2 } };
+      const swapOn = (p, txSlot) => w.tx({ pools: [p], lines: ix(RANGE_PROGRAM_ID, "SwapV2", [swapData({ pool: p, price: 1n << 64n })]), txSlot });
+      const waiting = () => db.data.range_gap.filter((g) => g.pool === B && g.gap_key.startsWith("backlog-truncated:wait:") && g.resolved_at === null).map((g) => g.gap_key);
+      const through = (p) => db.data.range_cursor.find((c) => c.pool === p).through_slot;
+      assert.equal(await run(w, db, tight), 0);
+      // A, which holds more, takes the run's two transactions; B waits.
+      w.advance(6000, T0 + 4 * 3600);
+      [[A, 5100], [A, 5200], [B, 5300]].forEach(([p, s]) => swapOn(p, s));
+      assert.equal(await run(w, db, tight), 0);
+      assert.deepEqual(waiting(), ["backlog-truncated:wait:5001"]);
+      // Again no room for B: it is still waiting, from the same slot.
+      w.advance(7000, T0 + 5 * 3600);
+      [[A, 6100], [A, 6200]].forEach(([p, s]) => swapOn(p, s));
+      assert.equal(await run(w, db, tight), 0);
+      assert.equal(through(B), 5000);
+      assert.deepEqual(waiting(), ["backlog-truncated:wait:5001"]);
+      // Room at last: B is counted to the newest slot and waits no more.
+      assert.equal(await run(w, db, tight), 0);
+      assert.equal(through(B), 7000);
+      assert.deepEqual(waiting(), []);
+    },
+  ],
+  [
+    "a transaction after the pool read is summed against the next snapshot, not this one",
+    async () => {
+      const w = world();
+      w.tx({ lines: ix(RANGE_PROGRAM_ID, "CreatePool", [createdData({ price: 1n << 64n })]), txSlot: 100 });
+      w.tx({ lines: ix(RANGE_PROGRAM_ID, "SwapV2", [swapData({ fee0: 10_000n, price: 2n << 64n })]), txSlot: 300 });
+      w.pool(POOL);
+      // The pool read at slot 250: its counters do not hold the swap at 300 yet.
+      const early = await countPool({ call: w.call, pool: { ...freshPool(w), slot: 250 }, cursor: null, budget: { left: 2000 }, deadline: Infinity, wait: noWait });
+      assert.deepEqual([early.cursor.totals.fees_0, early.cursor.through_slot, early.snapshot.cum_fees_0], ["0", 250, "0"]);
+      w.pool(POOL, { price: 2n << 64n, protocolFees0: 1_040n, fundFees0: 560n });
+      const next = await countOnce(w, early.cursor);
+      assert.deepEqual([next.cursor.totals.fees_0, next.snapshot.cum_fees_0], ["10000", "10000"]);
+    },
+  ],
+  [
+    "a pool read at a slot before the count's is not counted that run",
+    async () => {
+      const w = world();
+      w.tx({ lines: ix(RANGE_PROGRAM_ID, "CreatePool", [createdData({ price: 1n << 64n })]), txSlot: 100 });
+      w.pool();
+      const first = await countOnce(w);
+      const older = { ...freshPool(w), slot: 4000 };
+      await assert.rejects(countPool({ call: w.call, pool: older, cursor: first.cursor, budget: { left: 2000 }, deadline: Infinity, wait: noWait }), /before the count's slot 5000/);
     },
   ],
 ];

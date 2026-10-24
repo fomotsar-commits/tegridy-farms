@@ -159,22 +159,28 @@ const IX_NAME = /^Program log: Instruction: ([A-Za-z0-9_]+)$/;
 /**
  * Our program's "Program data:" lines, each with the instruction its frame ran. Frames come
  * from the runtime's invoke and success lines, which no program can write. `truncated`: the
- * runtime cut the log, so events may be missing. `malformed`: the frames do not nest.
+ * runtime cut the log; every line before the cut is whole, so `opened` and `closed` count our
+ * frames begun and ended before it. `malformed`: the frames do not nest.
  */
 export function programFrames(logMessages, programId = RANGE_PROGRAM_ID) {
   const stack = [];
   const events = [];
+  let opened = 0;
+  let closed = 0;
+  const out = (truncated, malformed) => ({ truncated, malformed, opened, closed, events });
   for (const line of logMessages) {
-    if (line === "Log truncated") return { truncated: true, malformed: false, events };
+    if (line === "Log truncated") return out(true, false);
     let m = INVOKE.exec(line);
     if (m) {
-      if (Number(m[2]) !== stack.length + 1) return { truncated: false, malformed: true, events };
+      if (Number(m[2]) !== stack.length + 1) return out(false, true);
       stack.push({ program: m[1], ix: null });
+      if (m[1] === programId) opened++;
       continue;
     }
     m = END.exec(line);
     if (m) {
-      if (stack.pop()?.program !== m[1]) return { truncated: false, malformed: true, events };
+      if (stack.pop()?.program !== m[1]) return out(false, true);
+      if (m[1] === programId) closed++;
       continue;
     }
     const top = stack[stack.length - 1];
@@ -183,8 +189,31 @@ export function programFrames(logMessages, programId = RANGE_PROGRAM_ID) {
     if (m && top.ix === null) top.ix = m[1];
     else if (line.startsWith("Program data: ")) events.push({ ix: top.ix, data: line.slice("Program data: ".length) });
   }
-  if (stack.length) return { truncated: false, malformed: true, events };
-  return { truncated: false, malformed: false, events };
+  return out(false, stack.length > 0);
+}
+
+/**
+ * How many times the program ran in a getTransaction answer (encoding "json"), from its
+ * instructions and inner instructions, which the log limit never cuts. A program runs only
+ * when its account is in the transaction. Null when the answer cannot say.
+ */
+export function invocations(tx, programId = RANGE_PROGRAM_ID) {
+  const msg = tx?.transaction?.message;
+  const loaded = tx?.meta?.loadedAddresses;
+  if (!Array.isArray(msg?.accountKeys) || !Array.isArray(msg.instructions)) return null;
+  if (msg.addressTableLookups?.length && !(Array.isArray(loaded?.writable) && Array.isArray(loaded?.readonly))) return null;
+  const keys = [...msg.accountKeys, ...(loaded?.writable ?? []), ...(loaded?.readonly ?? [])];
+  if (!keys.every((k) => typeof k === "string")) return null;
+  if (!keys.includes(programId)) return 0;
+  const inner = tx.meta?.innerInstructions;
+  if (!Array.isArray(inner) || !inner.every((g) => Array.isArray(g?.instructions))) return null;
+  let n = 0;
+  for (const i of [...msg.instructions, ...inner.flatMap((g) => g.instructions)]) {
+    const k = keys[i?.programIdIndex];
+    if (k === undefined) return null;
+    if (k === programId) n++;
+  }
+  return n;
 }
 
 /**
@@ -196,10 +225,15 @@ export function programFrames(logMessages, programId = RANGE_PROGRAM_ID) {
 export function rangeTxEvents(tx, programId = RANGE_PROGRAM_ID) {
   if (tx?.meta?.err) return { status: "failed" };
   const logs = tx?.meta?.logMessages;
-  if (!Array.isArray(logs)) return { status: "no-log" };
-  const frames = programFrames(logs, programId);
-  if (frames.truncated) return { status: "truncated" };
+  const frames = Array.isArray(logs) ? programFrames(logs, programId) : null;
+  // A cut log hides none of ours when the trace says each of our runs ended before the cut.
+  // With the trace read, the log must show exactly its runs.
+  const runs = invocations(tx, programId);
+  if (runs === 0 && !frames?.opened) return { status: "ok", events: [] };
+  if (!frames) return { status: "no-log" };
   if (frames.malformed) return { status: "malformed" };
+  if (frames.truncated && (runs === null || frames.opened !== runs || frames.closed !== runs)) return { status: "truncated" };
+  if (!frames.truncated && runs !== null && frames.closed !== runs) return { status: "malformed" };
   const events = [];
   for (let index = 0; index < frames.events.length; index++) {
     const { ix, data } = frames.events[index];

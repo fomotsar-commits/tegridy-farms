@@ -67,11 +67,32 @@ export interface RangePoolCreatedEvent {
 export type RangeEvent = RangeSwapEvent | RangeCollectEvent | RangePoolCreatedEvent;
 export function decodeEvent(data: Uint8Array): RangeEvent | null;
 
-export function programFrames(logMessages: string[], programId?: string): { truncated: boolean; malformed: boolean; events: { ix: string | null; data: string }[] };
+export function programFrames(
+  logMessages: string[],
+  programId?: string,
+): { truncated: boolean; malformed: boolean; opened: number; closed: number; events: { ix: string | null; data: string }[] };
+
+/** The parts of a getTransaction answer (encoding "json") the count reads. */
+export interface RangeTxAnswer {
+  transaction?: {
+    message?: {
+      accountKeys?: string[];
+      instructions?: { programIdIndex: number }[];
+      addressTableLookups?: unknown[] | null;
+    };
+  };
+  meta?: {
+    err?: unknown;
+    logMessages?: string[] | null;
+    innerInstructions?: { index: number; instructions: { programIdIndex: number }[] }[] | null;
+    loadedAddresses?: { writable: string[]; readonly: string[] } | null;
+  } | null;
+}
+/** How many times the program ran, from the instruction trace; null when the answer cannot say. */
+export function invocations(tx: RangeTxAnswer | null | undefined, programId?: string): number | null;
 
 export type RangeTxRead =
   | { status: 'failed' | 'no-log' | 'truncated' | 'malformed' }
   | { status: 'undecodable'; why: string }
   | { status: 'ok'; events: (RangeEvent & { index: number })[] };
-/** A getTransaction answer (encoding "json"); only `meta.err` and `meta.logMessages` are read. */
-export function rangeTxEvents(tx: { meta?: { err?: unknown; logMessages?: string[] | null } } | null | undefined, programId?: string): RangeTxRead;
+export function rangeTxEvents(tx: RangeTxAnswer | null | undefined, programId?: string): RangeTxRead;

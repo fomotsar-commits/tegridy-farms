@@ -1,7 +1,7 @@
 // ?resource=range-stats, range-pools and range-swaps: the venue's own count of each range pool
 // (scripts/range-stats.mjs into migration 030), read as service_role and cached at the edge.
 // A window's figures are the difference of two snapshots of the pool's own counters. A window
-// a hole overlaps answers complete: false and no number; a failed read is "unread", never 0.
+// or hour a hole touches answers complete: false and no number; a failed read is "unread".
 
 import { checkRateLimit, checkGlobalLimit } from "./ratelimit.js";
 import { isOriginAllowed, isRequestOriginAllowed } from "./aggregator-proxy.js";
@@ -64,6 +64,41 @@ export function windowFigures(start, end, gaps) {
   return out;
 }
 
+const HOUR = 3600_000;
+const HOUR_SUMS = ["volume_0", "volume_1", "fees_0", "fees_1"];
+const HOUR_PRICES = ["open_price", "high_price", "low_price", "close_price"];
+
+/**
+ * Each closed hour from the first the count can speak for. An hour has numbers only when a
+ * snapshot before it and one after it bracket it and no fault gap touches it: a gap with both
+ * times by those, one without by its slots between the two snapshots. The opening snapshot
+ * comes before every event of the pool. An hour with no row and no gap had no swap.
+ */
+export function hourFigures(rows, snaps, gaps, fromMs, toMs) {
+  const t = (s) => Date.parse(s.block_time);
+  const faults = gaps.filter((g) => !g.standing);
+  const touches = (g, h, a, b) => (g.from_time != null && g.to_time != null ? Date.parse(g.from_time) < h + HOUR && Date.parse(g.to_time) >= h : overlaps(g, a.slot, b.slot));
+  const byHour = new Map(rows.map((r) => [Date.parse(r.hour), r]));
+  const out = [];
+  if (!snaps.length) return out;
+  for (let h = Math.max(Math.ceil(fromMs / HOUR) * HOUR, Math.floor(t(snaps[0]) / HOUR) * HOUR); h + HOUR <= toMs; h += HOUR) {
+    const a = snaps.filter((s) => s.at_open === true || t(s) < h).pop();
+    const b = snaps.find((s) => t(s) >= h + HOUR);
+    const hour = new Date(h).toISOString();
+    if (!a || !b || faults.some((g) => touches(g, h, a, b))) {
+      out.push({ hour, complete: false });
+      continue;
+    }
+    const r = byHour.get(h);
+    out.push({
+      hour, complete: true, swaps: r?.swaps ?? 0,
+      ...Object.fromEntries(HOUR_SUMS.map((k) => [k, r?.[k] ?? "0"])),
+      ...Object.fromEntries(HOUR_PRICES.map((k) => [k, r?.[k] ?? null])),
+    });
+  }
+  return out;
+}
+
 /** ok, or behind with why: late, the last run failed on this pool, or it waits past the cap. */
 export function stateOf({ cursor, latest, gaps, nowMs }) {
   if (!cursor || !latest) return { state: "unread", reason: "not-counted" };
@@ -122,6 +157,27 @@ async function gate(req, res, identifier, fetchImpl) {
   };
 }
 
+/** The most snapshots one hours read takes in; more is treated as unread. */
+const SNAP_LIST = 1000;
+const HOUR_ROW = `hour,swaps,${[...HOUR_SUMS, ...HOUR_PRICES].map((k) => `${k}::text`).join(",")}`;
+
+/** The last week's closed hours, from `anchor` (the snapshot at or before its start) on. */
+async function hoursOf(read, p, latest, anchor, end) {
+  const fromMs = end - WINDOWS["7d"];
+  const toMs = Math.floor(end / HOUR) * HOUR;
+  const [later, rows] = await Promise.all([
+    read(`range_venue_snapshot?${p}&slot=${anchor ? `gt.${anchor.slot}` : "gte.0"}&slot=lte.${latest.slot}&order=slot.asc&limit=${SNAP_LIST}&select=slot,block_time,at_open`),
+    read(`range_hour?${p}&hour=gte.${new Date(fromMs).toISOString()}&hour=lt.${new Date(toMs).toISOString()}&order=hour.asc&limit=200&select=${HOUR_ROW}`),
+  ]);
+  if (later.length === SNAP_LIST) throw new Error("range_venue_snapshot holds more than one read returns");
+  const snaps = anchor ? [anchor, ...later] : later;
+  if (!snaps.length) return [];
+  const gaps = await read(`range_gap?${p}&resolved_at=is.null&standing=is.false&from_slot=lte.${latest.slot}&to_slot=gt.${snaps[0].slot}&select=${GAP}&limit=${GAP_LIST}`);
+  // A full read may not hold every gap, so no hour gets a number.
+  const holes = gaps.length === GAP_LIST ? [{ standing: false, from_slot: 0, to_slot: null }] : gaps;
+  return hourFigures(rows, snaps, holes, fromMs, toMs);
+}
+
 const poolParam = (req) => (typeof req.query?.pool === "string" && ADDRESS.test(req.query.pool) ? req.query.pool : null);
 const optional = (p) => p.then((v) => v, () => null);
 
@@ -157,11 +213,12 @@ export async function handleRangeStats(req, res, { nowMs = Date.now(), fetchImpl
       windows[name] = inside[i].length === GAP_LIST ? { complete: false, reason: "gap", gaps: inside[i].map(gapOut) } : windowFigures(from[i], latest, inside[i]);
     });
     let partial = false;
-    const extra = async (q) => {
-      const v = await optional(read(q));
+    const soft = async (promise) => {
+      const v = await optional(promise);
       if (v === null) partial = true;
       return v;
     };
+    const extra = (q) => soft(read(q));
     const span = (w) => `${p}&slot=gt.${w.from_slot}&slot=lte.${w.to_slot}`;
     await Promise.all([
       ...Object.keys(WINDOWS).map(async (name) => {
@@ -180,7 +237,7 @@ export async function handleRangeStats(req, res, { nowMs = Date.now(), fetchImpl
     ]);
     const [collections, hours] = await Promise.all([
       extra(`range_collection?${p}&slot=lte.${latest.slot}&order=slot.desc&limit=10&select=signature,slot,block_time,by_whom,amount_0::text,amount_1::text`),
-      extra(`range_hour?${p}&hour=gte.${new Date(end - WINDOWS["7d"]).toISOString()}&hour=lt.${new Date(Math.floor(end / 3600_000) * 3600_000).toISOString()}&order=hour.asc&limit=200&select=hour,swaps,volume_0::text,volume_1::text,fees_0::text,fees_1::text,open_price::text,high_price::text,low_price::text,close_price::text`),
+      soft(hoursOf(read, p, latest, from[1], end)),
     ]);
     res.setHeader("Cache-Control", partial ? "s-maxage=30" : "s-maxage=300, stale-while-revalidate=600");
     return res.status(200).json({
@@ -231,10 +288,13 @@ export async function handleRangePools(req, res, { nowMs = Date.now(), fetchImpl
   }
 }
 
+/** The most swaps of one pool one slot is read for. */
+const SLOT_SWAPS = 1000;
+
 /**
  * `?resource=range-swaps&pool=<address>[&before=<slot>][&limit=<1..500>]`: counted swaps, newest
  * first, with the holes inside the span. A full page ends at a whole slot, so `next_before`
- * resumes without skipping a swap.
+ * resumes without skipping a swap; a slot with more swaps than `limit` comes whole.
  */
 export async function handleRangeSwaps(req, res, { nowMs = Date.now(), fetchImpl = globalThis.fetch } = {}) {
   const pool = poolParam(req);
@@ -250,11 +310,18 @@ export async function handleRangeSwaps(req, res, { nowMs = Date.now(), fetchImpl
     const cursor = (await read(`range_cursor?${p}&select=through_slot,last_ok_at,last_error_at`))[0];
     if (!cursor) return unread(res, 200, { pool, reason: "not-counted" });
     const top = before === null ? cursor.through_slot : Math.min(cursor.through_slot, before - 1);
-    let swaps = await read(`range_swap?${p}&slot=lte.${top}&order=slot.desc,signature.desc,event_index.desc&limit=${limit}&select=${SWAP}`);
+    const NEWEST = "order=slot.desc,signature.desc,event_index.desc";
+    let swaps = await read(`range_swap?${p}&slot=lte.${top}&${NEWEST}&limit=${limit}&select=${SWAP}`);
     let nextBefore = null;
     if (swaps.length === limit) {
       const oldest = swaps[swaps.length - 1].slot;
       if (swaps[0].slot !== oldest) swaps = swaps.filter((s) => s.slot !== oldest);
+      else {
+        // One slot fills the page: it comes whole. The pool's per-block write cap keeps a
+        // slot far under SLOT_SWAPS; a read that fills it is unread, never short.
+        swaps = await read(`range_swap?${p}&slot=eq.${oldest}&${NEWEST}&limit=${SLOT_SWAPS}&select=${SWAP}`);
+        if (swaps.length === SLOT_SWAPS) throw new Error(`slot ${oldest} holds more swaps than one read returns`);
+      }
       nextBefore = swaps[swaps.length - 1].slot;
     }
     const from = swaps.length ? swaps[swaps.length - 1].slot : top;

@@ -115,11 +115,11 @@ describe("frames", () => {
       `Program log: Program ${P} invoke [1]`,
       `Program ${P} success`,
     ];
-    expect(E.programFrames(lines, P)).toEqual({ truncated: false, malformed: false, events: [{ ix: "SwapV2", data: "BBBB" }] });
+    expect(E.programFrames(lines, P)).toEqual({ truncated: false, malformed: false, opened: 1, closed: 1, events: [{ ix: "SwapV2", data: "BBBB" }] });
   });
 
   it("stops at the runtime's cut, even when a line follows it", () => {
     const f = E.programFrames([`Program ${P} invoke [1]`, "Program data: AAAA", "Log truncated", "Program data: BBBB"], P);
-    expect(f.truncated).toBe(true);
+    expect([f.truncated, f.opened, f.closed]).toEqual([true, 1, 0]);
   });
 });

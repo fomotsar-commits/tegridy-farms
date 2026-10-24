@@ -1,5 +1,5 @@
 {
- "about": "Real Raydium CLMM (CAMMCzo5..., the layout the venue's range program shares) swaps from mainnet-beta, read 2026-10-24 by getTransaction (encoding json, maxSupportedTransactionVersion 0; the version 1 ones were left out). The signatures and recorded events are those of src/lib/solana/clmm/__fixtures__/mainnet-swaps.json. Only the log and the outcome are kept.",
+ "about": "Real Raydium CLMM (CAMMCzo5..., the layout the venue's range program shares) swaps from mainnet-beta, read 2026-10-24 by getTransaction (encoding json, maxSupportedTransactionVersion 0; the version 1 ones were left out). The signatures and recorded events are those of src/lib/solana/clmm/__fixtures__/mainnet-swaps.json. Only the log, the outcome and the instruction trace are kept: which program each instruction and inner instruction ran, by account index, with the accounts that index reads.",
  "program": "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK",
  "rpcHost": "api.mainnet-beta.solana.com",
  "recordedAt": "2026-10-24T06:45:03.881Z",
@@ -70,6 +70,162 @@
      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
      "Program ComputeBudget111111111111111111111111111111 success"
     ]
+   },
+   "trace": {
+    "transaction": {
+     "message": {
+      "accountKeys": [
+       "XXASeovVFsEwvKtk6f3LWHbt97WT76yZa6EiGVZ6uJL",
+       "Hhfmed6zEyNcMqNpyg8zmpZdqFdxX3K9wuhjyP1WaYsu",
+       "45vt49CAqmzq7nmqZL22MgKmGNqkKKqFT2KevStpcJDC",
+       "8SdNgwM6ANGcufSZuR4LXPq4UeMU3WxXRJLPNJP9S6VC",
+       "9iFER3bpjf1PTTCQCfTRu17EJgvsxo9pVyA9QWwEuX4x",
+       "2CntbsRKrr4an5zekGb8WZyPyPzbXv9R2CErrRQSQVo2",
+       "AuMgjpeVRZcqqVb8owttY1xiwmwv2Bopirxn5j6vis1E",
+       "routeUGWgWzqBWFcrCfv8tritsqukccJPu3q5GPP3xS",
+       "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr",
+       "ComputeBudget111111111111111111111111111111"
+      ],
+      "instructions": [
+       {
+        "programIdIndex": 7
+       },
+       {
+        "programIdIndex": 7
+       },
+       {
+        "programIdIndex": 9
+       },
+       {
+        "programIdIndex": 9
+       }
+      ],
+      "addressTableLookups": [
+       {
+        "accountKey": "2immgwYNHBbyVQKVGCEkgWpi53bLwWNRMB5G2nbgYV17",
+        "writableIndexes": [],
+        "readonlyIndexes": [
+         2,
+         3,
+         7,
+         0,
+         16
+        ]
+       },
+       {
+        "accountKey": "8TM3cxoXfnNXU7XUjsAeyN8niu7dQMDf5ZB47nmrTcLD",
+        "writableIndexes": [
+         10,
+         122,
+         169,
+         172,
+         173,
+         174,
+         175,
+         2
+        ],
+        "readonlyIndexes": []
+       },
+       {
+        "accountKey": "47Fi43gX1EHVN1LX1Nu73MDpmZ3yooB8fwtBuxufyzX7",
+        "writableIndexes": [
+         120,
+         124,
+         123,
+         125,
+         126
+        ],
+        "readonlyIndexes": []
+       }
+      ]
+     }
+    },
+    "meta": {
+     "innerInstructions": [
+      {
+       "index": 0,
+       "instructions": [
+        {
+         "programIdIndex": 27,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 23,
+         "stackHeight": 3
+        },
+        {
+         "programIdIndex": 23,
+         "stackHeight": 3
+        },
+        {
+         "programIdIndex": 25,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 23,
+         "stackHeight": 3
+        },
+        {
+         "programIdIndex": 26,
+         "stackHeight": 3
+        },
+        {
+         "programIdIndex": 23,
+         "stackHeight": 3
+        },
+        {
+         "programIdIndex": 23,
+         "stackHeight": 3
+        },
+        {
+         "programIdIndex": 27,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 23,
+         "stackHeight": 3
+        },
+        {
+         "programIdIndex": 23,
+         "stackHeight": 3
+        }
+       ]
+      },
+      {
+       "index": 1,
+       "instructions": [
+        {
+         "programIdIndex": 23,
+         "stackHeight": 2
+        }
+       ]
+      }
+     ],
+     "loadedAddresses": {
+      "readonly": [
+       "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+       "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+       "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
+       "11111111111111111111111111111111",
+       "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK"
+      ],
+      "writable": [
+       "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+       "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+       "BZtgQEyS6eXUXicYPHecYQ7PybqodXQMvkjUbP4R8mUU",
+       "4iJQGzZpys4N13rGXbsB3NqehPkrgrcmDUEcLw7D6GKL",
+       "7NQjToK5NenQZvhPRc1nC1URuKJ4nuLxGPdTbpTiz9EN",
+       "3YZE41e4GKm9Uqvx6H4QA1FdyxT15nEjUP8LbvdiDF2t",
+       "HSJS4BrYCZq9DmCNFNfctqq9o2sfTY5YQiy9n4W8djcB",
+       "So11111111111111111111111111111111111111112",
+       "3nMFwZXwY1s1M5s8vYAHqd4wGs4iSxXE4LRoUMMYqEgF",
+       "2n6fxuD6PA5NYgEnXXYMh2iWD1JBJ1LGf76kFJAayZmX",
+       "AbcuyoPeYnddzFoFQudsiFka8qd6tTwvLgxwtpTKTpKC",
+       "Cqb16WaM7dDDP8koxYASDJLWgan4STDB1R3LiSH8r3GR",
+       "2ncinnTcJxbZ1nUHavBVJ3Ap3R4CE7p2LJ6Jtpd1vLzd"
+      ]
+     }
+    }
    }
   },
   {
@@ -216,6 +372,337 @@
      "Program 11111111111111111111111111111111 invoke [1]",
      "Program 11111111111111111111111111111111 success"
     ]
+   },
+   "trace": {
+    "transaction": {
+     "message": {
+      "accountKeys": [
+       "EistviXbMbxAJj8KG8JxqDZPmRXHyUP52ygcKdVWsmx4",
+       "pHnkoj6wRWqeXDM9K5CNioiGie73H6BFxKF4H9mrEqG",
+       "3q9QKj7GoJMv4pgrMCDv56aRuXC1QPMzrDgSkFiaHBMG",
+       "4bxyBPmTkjfYMFooGmxihE1XY287E4oavHoq2V5gmDUk",
+       "4gQT88rvHr6ay8XvmUUriL5FTjsSuvkvH8ybz3etVLBb",
+       "6TPvMQgVf4skxKBsKdAKN3scGAmqeLfhupfbrWcrnoEC",
+       "6Wzuv7vLc6Vq8HJcHwwSCE9SKcdJiuoJmJm3EMFkWERN",
+       "7UojyannZrfzdtCY56zF7g1FqdyUQsHj4RgLpTnFD9EL",
+       "84z7SCPSzAtvpsYNq6DFCZtaGgaNvUXzgj1RjJk2xPXy",
+       "8qg7dwfT4cSY2HVV769ME85saxpVTmfigy1bD2HiYHen",
+       "9HcJeBEsq5px2bYZbdo7vzQWVsPK3SHTkchy42hBn7HC",
+       "AuMgjpeVRZcqqVb8owttY1xiwmwv2Bopirxn5j6vis1E",
+       "HJEB6ZtWcAXeHFHLoj1ak2DugrVFWv5LQVCVNnu2kUcW",
+       "Hk2Fki1WNc2sTPdmrah7TWwCgy2fSN8ga6qsgoDxxshW",
+       "11111111111111111111111111111111",
+       "ComputeBudget111111111111111111111111111111",
+       "jitonobundLe1111111111111111111111111111123",
+       "DF1ow4tspfHX9JwWJsAb9epbkA8hmpSEAtxXy1V27QBH"
+      ],
+      "instructions": [
+       {
+        "programIdIndex": 15
+       },
+       {
+        "programIdIndex": 15
+       },
+       {
+        "programIdIndex": 17
+       },
+       {
+        "programIdIndex": 17
+       },
+       {
+        "programIdIndex": 14
+       }
+      ],
+      "addressTableLookups": [
+       {
+        "accountKey": "9rVP9Ly5RC1nix3WDm5QgkoWJbxV7Kteth1KHtYk5hT9",
+        "writableIndexes": [
+         226
+        ],
+        "readonlyIndexes": [
+         86,
+         27,
+         8,
+         40,
+         184,
+         1,
+         5,
+         6,
+         10,
+         7,
+         20,
+         21,
+         65,
+         85,
+         218,
+         185,
+         186,
+         169
+        ]
+       },
+       {
+        "accountKey": "6rqx7NGgRAtGiAsBE6RAxWMaNQfSgzRy1tMSNML4GzQm",
+        "writableIndexes": [
+         45,
+         52,
+         47,
+         54,
+         49,
+         48,
+         44
+        ],
+        "readonlyIndexes": [
+         56,
+         99,
+         53
+        ]
+       },
+       {
+        "accountKey": "5A5XJTxSYiFzmYtMiFwjqH9Cu3Lan6wFsjMuLTSjsGLB",
+        "writableIndexes": [
+         43,
+         23,
+         22,
+         24
+        ],
+        "readonlyIndexes": [
+         41,
+         33
+        ]
+       },
+       {
+        "accountKey": "Ed6B5ko96rrwe868H2DVfhpMRUj5T3LL9myhvpgcyfxU",
+        "writableIndexes": [
+         182,
+         176,
+         179,
+         180
+        ],
+        "readonlyIndexes": [
+         177
+        ]
+       },
+       {
+        "accountKey": "F82bQDMeZaUvRUJe73uw6K5y5Nf7zUUPqPcALBE3AfgZ",
+        "writableIndexes": [
+         6,
+         8,
+         13,
+         3
+        ],
+        "readonlyIndexes": []
+       }
+      ]
+     }
+    },
+    "meta": {
+     "innerInstructions": [
+      {
+       "index": 2,
+       "instructions": [
+        {
+         "programIdIndex": 49,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 44,
+         "stackHeight": 3
+        },
+        {
+         "programIdIndex": 44,
+         "stackHeight": 3
+        },
+        {
+         "programIdIndex": 17,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 47,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 44,
+         "stackHeight": 3
+        },
+        {
+         "programIdIndex": 14,
+         "stackHeight": 3
+        },
+        {
+         "programIdIndex": 44,
+         "stackHeight": 3
+        },
+        {
+         "programIdIndex": 44,
+         "stackHeight": 3
+        },
+        {
+         "programIdIndex": 39,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 44,
+         "stackHeight": 3
+        },
+        {
+         "programIdIndex": 44,
+         "stackHeight": 3
+        },
+        {
+         "programIdIndex": 39,
+         "stackHeight": 3
+        },
+        {
+         "programIdIndex": 39,
+         "stackHeight": 3
+        },
+        {
+         "programIdIndex": 17,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 47,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 44,
+         "stackHeight": 3
+        },
+        {
+         "programIdIndex": 14,
+         "stackHeight": 3
+        },
+        {
+         "programIdIndex": 44,
+         "stackHeight": 3
+        },
+        {
+         "programIdIndex": 44,
+         "stackHeight": 3
+        },
+        {
+         "programIdIndex": 41,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 44,
+         "stackHeight": 3
+        },
+        {
+         "programIdIndex": 44,
+         "stackHeight": 3
+        },
+        {
+         "programIdIndex": 17,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 48,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 44,
+         "stackHeight": 3
+        },
+        {
+         "programIdIndex": 44,
+         "stackHeight": 3
+        },
+        {
+         "programIdIndex": 17,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 44,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 44,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 44,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 17,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 44,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 44,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 17,
+         "stackHeight": 2
+        }
+       ]
+      },
+      {
+       "index": 3,
+       "instructions": [
+        {
+         "programIdIndex": 44,
+         "stackHeight": 2
+        }
+       ]
+      }
+     ],
+     "loadedAddresses": {
+      "readonly": [
+       "HT2PLQBcG5EiCcNSaMHAjSgd9F98ecpATbk4Sk5oYuM",
+       "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo",
+       "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr",
+       "REALQqNEomY6cQGZJUGwywTBD2UmDT32rZcNnfxQ5N2",
+       "So11111111111111111111111111111111111111112",
+       "Sysvar1nstructions1111111111111111111111111",
+       "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+       "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+       "8xeaWCsJYxRoudEZGJWURdfrtFhLYZz9b4iHJnW5tb3d",
+       "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
+       "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK",
+       "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C",
+       "D1ZN9Wj1fRSUQfCjhvnu1hqDMT7hzjzBBpi12nVniYD6",
+       "Dpw1EAVrSB1ibxiDQyTAW6Zip3J4Btk2x4SgApQCeFbX",
+       "EEv8QeM4TkfKJbSPK6h1nRWzm44j4McGsUhDngy41xzr",
+       "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+       "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+       "GpMZbSM2GgvTKHJirzeGfMFoaZ8UR2X7F4v8vHTvxFbL",
+       "96FHuHDcv9FL55qhoBoUGAmxZg9XM47fBM3t2vdefGW2",
+       "9iFER3bpjf1PTTCQCfTRu17EJgvsxo9pVyA9QWwEuX4x",
+       "AsotAq6Hb5KW6bAExHq2hJctDNuErLEjaVSaR4yJ5WEj",
+       "2ncinnTcJxbZ1nUHavBVJ3Ap3R4CE7p2LJ6Jtpd1vLzd",
+       "D4FPEruKEHrG5TenZ2mpDGEfu1iUvTiqBxvpU8HLBvC2",
+       "DvjbEsdca43oQcw2h3HW1CT7N3x5vRcr3QrvTUHnXvgV"
+      ],
+      "writable": [
+       "BhaCHMxFQRev38yvEnZFGyaAuR9Ebs1NCdKXZh3iVNAU",
+       "23XoPQqGw9WMsLoqTu8HMzJLD6RnXsufbKyWPLJywsCT",
+       "5ipEofiHQt2z9EXBZZMbMLcgeD6SFRFGKfQgfo65PKCc",
+       "6nMF76wKdFZaE78eRRDcNikVw1jMKMC4zoj7ibq1N25f",
+       "8vdCZ5Ks2TcgAfJjE7q9RKdBt1A9dWPM7fKQPFaC3Z3E",
+       "DbRjFtYNCvPCs7YSk3Cs1feaRfxe2HuCZnpUYEjmR3nQ",
+       "EWXF1h46ahk9i4c768wRCxxWjR7eEDs3PAvFwms95hqf",
+       "J9WJF4NbJwio4DiKiTGsb7uDnxbruWjEVkj7M6bLhCRa",
+       "2n6fxuD6PA5NYgEnXXYMh2iWD1JBJ1LGf76kFJAayZmX",
+       "3nMFwZXwY1s1M5s8vYAHqd4wGs4iSxXE4LRoUMMYqEgF",
+       "AbcuyoPeYnddzFoFQudsiFka8qd6tTwvLgxwtpTKTpKC",
+       "Cqb16WaM7dDDP8koxYASDJLWgan4STDB1R3LiSH8r3GR",
+       "31mbs1syFfZioCsu3pQGpsWAQwNGSWgsnYtnrFbwtBBT",
+       "5KXE8RMF7iW9Ptn665AHfzsMFjYb4LV2Ta8eZEtsTwWC",
+       "7jzdRNd8rutdT38CKGkSeuaBmQDyucFJfbh6WEfwnDss",
+       "AQrpuddRvJeVvbBbtQrUdV8YFeh3om9eyBQX2h5ojKh2",
+       "EgEYXef2FCoEYLHJJW74dMbom1atLXo6KwPuA6mSATYA",
+       "H7j5NPopj3tQvDg4N8CxwtYciTn3e8AEV6wSVrxpyDUc",
+       "HTvjzsfX3yU6BUodCjZ5vZkUrAxMDTrBs3CJaq43ashR",
+       "HbYjRzx7teCxqW3unpXBEcNHhfVZvW2vW9MQ99TkizWt"
+      ]
+     }
+    }
    }
   },
   {
@@ -290,6 +777,187 @@
      "Program 11111111111111111111111111111111 invoke [1]",
      "Program 11111111111111111111111111111111 success"
     ]
+   },
+   "trace": {
+    "transaction": {
+     "message": {
+      "accountKeys": [
+       "MenuxY5yMzJkeKZTvDTcovjh4fuJHMHhJyjJ5v5LzG6",
+       "6eYad7AG1nYv7ujaWDgBZS7XUUrgwwwMwMghsw9eAdQ",
+       "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4",
+       "UUUXQdoC85FmgUgDMfYj3UsBWMLSjU7gVj4QmYGdMRx",
+       "2ncinnTcJxbZ1nUHavBVJ3Ap3R4CE7p2LJ6Jtpd1vLzd",
+       "42Xtwh4LeVX7yHtn77wXSXsDMKFqggcafgdHWKvsguxu",
+       "4bxyBPmTkjfYMFooGmxihE1XY287E4oavHoq2V5gmDUk",
+       "5DMkwX1edkbAywTecSjP2nyPjzmi8dCKvWfQXybVLvCw",
+       "6MVAYWDnJCPRBD1gM62Vg3TZupXmEyc1Ye6HCqha1jiE",
+       "6PMK33AGG7qCyMn2uMYdWBMqdESW3VNUQHbqUFUqSgwP",
+       "ADuUkR4vqLUMWXxW9gh6D6L8pMSawimctcNZ5pGwDcEt",
+       "AuMgjpeVRZcqqVb8owttY1xiwmwv2Bopirxn5j6vis1E",
+       "EPUHjseXG3izk3MVUJ1PcyWT9xeBhtAnq8gUpq3j8Uni",
+       "FCgtbMQPyLVNnvd7mpxc3SCE8Ne8qEL9xkU2gwf7xceA",
+       "H6mmDwnQHBq68tqEhBConeRBBDUobqHrQbDUcBVNTW9M",
+       "11111111111111111111111111111111",
+       "ComputeBudget111111111111111111111111111111",
+       "DF1ow4tspfHX9JwWJsAb9epbkA8hmpSEAtxXy1V27QBH"
+      ],
+      "instructions": [
+       {
+        "programIdIndex": 16
+       },
+       {
+        "programIdIndex": 16
+       },
+       {
+        "programIdIndex": 2
+       },
+       {
+        "programIdIndex": 17
+       },
+       {
+        "programIdIndex": 2
+       },
+       {
+        "programIdIndex": 15
+       }
+      ],
+      "addressTableLookups": [
+       {
+        "accountKey": "BM9vc97sgo1VY4td5esHv1cFVZxp5oiwQ59DCrcrbNVp",
+        "writableIndexes": [
+         87,
+         122,
+         118,
+         88,
+         108,
+         110,
+         121,
+         117,
+         162,
+         89
+        ],
+        "readonlyIndexes": [
+         12,
+         39,
+         5,
+         2,
+         3,
+         191,
+         49,
+         138,
+         4,
+         16,
+         14,
+         35,
+         186,
+         40,
+         41
+        ]
+       },
+       {
+        "accountKey": "5vYAMFaBTGJszDNMxaET41TrQFqC5T4qKc4n8brNzxEZ",
+        "writableIndexes": [
+         101
+        ],
+        "readonlyIndexes": []
+       }
+      ]
+     }
+    },
+    "meta": {
+     "innerInstructions": [
+      {
+       "index": 3,
+       "instructions": [
+        {
+         "programIdIndex": 38,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 32,
+         "stackHeight": 3
+        },
+        {
+         "programIdIndex": 32,
+         "stackHeight": 3
+        },
+        {
+         "programIdIndex": 17,
+         "stackHeight": 2
+        }
+       ]
+      },
+      {
+       "index": 4,
+       "instructions": [
+        {
+         "programIdIndex": 39,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 32,
+         "stackHeight": 3
+        },
+        {
+         "programIdIndex": 32,
+         "stackHeight": 3
+        },
+        {
+         "programIdIndex": 2,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 41,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 32,
+         "stackHeight": 3
+        },
+        {
+         "programIdIndex": 32,
+         "stackHeight": 3
+        },
+        {
+         "programIdIndex": 2,
+         "stackHeight": 2
+        }
+       ]
+      }
+     ],
+     "loadedAddresses": {
+      "readonly": [
+       "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr",
+       "So11111111111111111111111111111111111111112",
+       "Sysvar1nstructions1111111111111111111111111",
+       "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+       "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+       "4cG31VNF9TzFinNc7BmnjhFvGjxkY3sCETVMtMgbrhPs",
+       "8xeaWCsJYxRoudEZGJWURdfrtFhLYZz9b4iHJnW5tb3d",
+       "9iFER3bpjf1PTTCQCfTRu17EJgvsxo9pVyA9QWwEuX4x",
+       "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
+       "BiSoNHVpsVZW2F7rx2eQ59yQwKxzU5NvBcmKshCSUypi",
+       "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK",
+       "D8cy77BBepLMngZx6ZukaTff5hCt1HrWyKk3Hnd9oitf",
+       "DRVSpZ2YUYYKgZP8XtLhAGtT1zYSCKzeHfb4DgRnrgqD",
+       "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+       "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"
+      ],
+      "writable": [
+       "13poMUGenFGFeqvpnAs2b5BR841eGUVTeHG9wCRtSZv4",
+       "2Y7HATmn9aJBcxCskE5V2U2epmjvkZmB51zTJBbhj4cU",
+       "2n6fxuD6PA5NYgEnXXYMh2iWD1JBJ1LGf76kFJAayZmX",
+       "3ak9tBaEgPP593oiDzV5DXekPK4HLcfz4zGhmJgx97M2",
+       "3nMFwZXwY1s1M5s8vYAHqd4wGs4iSxXE4LRoUMMYqEgF",
+       "8FnX3xo2yYw3EUE6w3nQA4GfXGS9wpK6oj3veJpbFzLo",
+       "ATRsNGv2nDw7hSMfkUTBoVUDsFDwN7po7KbecyiGWNB4",
+       "AbcuyoPeYnddzFoFQudsiFka8qd6tTwvLgxwtpTKTpKC",
+       "Cqb16WaM7dDDP8koxYASDJLWgan4STDB1R3LiSH8r3GR",
+       "FbnBvCu7LXHeLwsqGhCRsSMfNh2ZxYoqHCHmb5EEdn8t",
+       "H7o7KCr5n3whqcPsPkeCPWrzivKrarqzidD3kt8fijvB"
+      ]
+     }
+    }
    }
   },
   {
@@ -327,6 +995,91 @@
      "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA consumed 76 of 504526 compute units",
      "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA success"
     ]
+   },
+   "trace": {
+    "transaction": {
+     "message": {
+      "accountKeys": [
+       "3Wfw9oADJdaK6JsHo2nxcNuGRsq1qrtfsPdnZwD6NDud",
+       "2n6fxuD6PA5NYgEnXXYMh2iWD1JBJ1LGf76kFJAayZmX",
+       "2ncinnTcJxbZ1nUHavBVJ3Ap3R4CE7p2LJ6Jtpd1vLzd",
+       "3RA4PDZAZ49nm6hdDCnCTrnECqQD93ny8oHP4T1CSTcR",
+       "3nMFwZXwY1s1M5s8vYAHqd4wGs4iSxXE4LRoUMMYqEgF",
+       "4bxyBPmTkjfYMFooGmxihE1XY287E4oavHoq2V5gmDUk",
+       "6TPvMQgVf4skxKBsKdAKN3scGAmqeLfhupfbrWcrnoEC",
+       "6jnoezHqmwwF6S2Nk4G2oepezm3zczRgxsTChTSm9A4Y",
+       "6mWrwGLpUxNDEiuZc44bcBofwsN4385Nqcv7ZeF5EXYP",
+       "8L8piPrAyqxP1cj26CCgpog4YpPbqZAbQqtvjVxueZzz",
+       "A2Y2rEDWggxE9uBYNvJ2RHjrobHsduBF8TLRYVCZbYjx",
+       "AFeYZWppZkLo81Vi6qSri98MpTvJ5WyC4aeT5V35LPLZ",
+       "AbcuyoPeYnddzFoFQudsiFka8qd6tTwvLgxwtpTKTpKC",
+       "AuMgjpeVRZcqqVb8owttY1xiwmwv2Bopirxn5j6vis1E",
+       "CMDwNEZzd3DA1VinbUtPzMwLBmJYpYuCgTPYM7CqGcW8",
+       "Cqb16WaM7dDDP8koxYASDJLWgan4STDB1R3LiSH8r3GR",
+       "EYREBRLESMFuw6dNR6nprEw785qD4bKAc9kR3bSDXKRj",
+       "EzBAxMwkfXUUAr6ym1RuEoh9DGYQowF5EyETdA8yrZP1",
+       "Fn36tL89G9foSjbcG4UuaFfJ7mB39wZGSWEXwNGF1ugK",
+       "GH6R72bzY4CgK9wR5xck5Z9d8sJt6GS5pPE5e6kZjyiz",
+       "GXHX7spKwa81PkUYGDXHiSFnwX6LCukXnDa7j9DXRArs",
+       "J6p4x6CnwCJYoX2x17YKzuAvKY1bUrkWgbcbRbggE2Sn",
+       "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr",
+       "So11111111111111111111111111111111111111112",
+       "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+       "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+       "3XCQJQryqpDvvZBfGxR7CLAw5dpGJ9aa7kt1jRLdyxuZ",
+       "7JA5eZdCzztSfQbJvS8aVVxMFfd81Rs9VvwnocV1mKHu",
+       "9iFER3bpjf1PTTCQCfTRu17EJgvsxo9pVyA9QWwEuX4x",
+       "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK",
+       "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"
+      ],
+      "instructions": [
+       {
+        "programIdIndex": 29
+       },
+       {
+        "programIdIndex": 29
+       },
+       {
+        "programIdIndex": 24
+       }
+      ],
+      "addressTableLookups": []
+     }
+    },
+    "meta": {
+     "innerInstructions": [
+      {
+       "index": 0,
+       "instructions": [
+        {
+         "programIdIndex": 24,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 24,
+         "stackHeight": 2
+        }
+       ]
+      },
+      {
+       "index": 1,
+       "instructions": [
+        {
+         "programIdIndex": 24,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 24,
+         "stackHeight": 2
+        }
+       ]
+      }
+     ],
+     "loadedAddresses": {
+      "readonly": [],
+      "writable": []
+     }
+    }
    }
   },
   {
@@ -441,6 +1194,244 @@
      "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA consumed 105 of 41625 compute units",
      "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA success"
     ]
+   },
+   "trace": {
+    "transaction": {
+     "message": {
+      "accountKeys": [
+       "FHpcNSe6tb2n15bAdq4BkeYWGyZKFD7yLYrH92ng7wCT",
+       "HGGav2hguQ579HvayGwLbW2AGEbtAXsstrNq48RWZToe",
+       "KvwtFEaXm3sy33Jgez7UHC3LzYkFkvD5vijYJ8e9RF8",
+       "237RdkREKuq4BQno3P27Umo1PYdnt31mESMAuCGeyiMP",
+       "3F72P7DKhYUZtTtz7WcgTcqcTe8trr2z8TBRw2mVXtnr",
+       "4Q4LLT2yTPCPciT88GAuXEHdM8WU3u84moJ3Uy6eBmqm",
+       "5X5i31Uwhfg7YZoivaBgX2E3vs58sDJw7WWXmZsbcaFP",
+       "5y7Sf7pBkphY782V9iUefmkcmzhBC7A3macVrGhABYyP",
+       "6AFCGr3jath8fJ4wCMhneNzYULbsnmKjQhPFERjqqCTW",
+       "6FU5UnMQoAQTPncAdF2wPc6ag3czKvwD2U5ZBRwaPWEi",
+       "6LwLp6GzNP9B89SKr6ohNjtG79keWVkHso2xdjANnAFY",
+       "7SFVf9dnWcZ2rESFqtG6fw3me9PfpUiFve3GHaezySJF",
+       "9k1D1LnL1uCjfLvNf9j4GCz2wFGvkKVnpox3HFApyx52",
+       "FpBY8oqpjWeqN5sACricJSia5t3LFeqZh6i6Arr3FzLo",
+       "HYZPffYeH8Q6xuxWR58QPVwceP75momnzqZD8WgHGfer",
+       "HveW4qQrtVnMtep2tEHArVfuiGYQRjjP8k2prY2kRjkc",
+       "ComputeBudget111111111111111111111111111111",
+       "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+       "6Vo3245eszAb5wuqEMw8mGdbfRUdKbHhDHP5LcaGuTAB",
+       "7gUDvf45et6627atavR45Md4BjgYqJHMZe9EPqeR9Sya",
+       "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+      ],
+      "instructions": [
+       {
+        "programIdIndex": 16
+       },
+       {
+        "programIdIndex": 16
+       },
+       {
+        "programIdIndex": 17
+       },
+       {
+        "programIdIndex": 20
+       },
+       {
+        "programIdIndex": 20
+       },
+       {
+        "programIdIndex": 18
+       },
+       {
+        "programIdIndex": 17
+       }
+      ],
+      "addressTableLookups": [
+       {
+        "accountKey": "EwhVfL6x9bdFnt74jGCeSwBLyodNTFDrmfPA7LH7Yn3H",
+        "writableIndexes": [
+         142,
+         152,
+         144,
+         145,
+         25
+        ],
+        "readonlyIndexes": [
+         3,
+         67,
+         19,
+         164,
+         10,
+         149,
+         6,
+         24,
+         23,
+         21
+        ]
+       },
+       {
+        "accountKey": "Hyif6eWb8x88RVrvjPfabsgRYnwkVnyByEXTVTXbUcyP",
+        "writableIndexes": [
+         161,
+         70
+        ],
+        "readonlyIndexes": [
+         10,
+         163,
+         160,
+         164
+        ]
+       },
+       {
+        "accountKey": "9AsimPML6N36BAe8keQRAHpLuKgCKv9QJV9912TXZhBD",
+        "writableIndexes": [
+         109,
+         144,
+         105
+        ],
+        "readonlyIndexes": [
+         108
+        ]
+       }
+      ]
+     }
+    },
+    "meta": {
+     "innerInstructions": [
+      {
+       "index": 3,
+       "instructions": [
+        {
+         "programIdIndex": 17,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 41,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 17,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 17,
+         "stackHeight": 2
+        }
+       ]
+      },
+      {
+       "index": 4,
+       "instructions": [
+        {
+         "programIdIndex": 32,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 41,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 32,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 32,
+         "stackHeight": 2
+        }
+       ]
+      },
+      {
+       "index": 5,
+       "instructions": [
+        {
+         "programIdIndex": 42,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 38,
+         "stackHeight": 3
+        },
+        {
+         "programIdIndex": 17,
+         "stackHeight": 4
+        },
+        {
+         "programIdIndex": 17,
+         "stackHeight": 4
+        },
+        {
+         "programIdIndex": 34,
+         "stackHeight": 3
+        },
+        {
+         "programIdIndex": 17,
+         "stackHeight": 4
+        },
+        {
+         "programIdIndex": 17,
+         "stackHeight": 4
+        },
+        {
+         "programIdIndex": 42,
+         "stackHeight": 3
+        },
+        {
+         "programIdIndex": 33,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 32,
+         "stackHeight": 3
+        },
+        {
+         "programIdIndex": 17,
+         "stackHeight": 3
+        },
+        {
+         "programIdIndex": 17,
+         "stackHeight": 3
+        },
+        {
+         "programIdIndex": 33,
+         "stackHeight": 3
+        },
+        {
+         "programIdIndex": 17,
+         "stackHeight": 2
+        }
+       ]
+      }
+     ],
+     "loadedAddresses": {
+      "readonly": [
+       "So11111111111111111111111111111111111111112",
+       "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+       "pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA",
+       "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc",
+       "5PHirr8joyTMp9JMm6nW7hNDVyEYdkzDqazxPD7RaTjx",
+       "9iFER3bpjf1PTTCQCfTRu17EJgvsxo9pVyA9QWwEuX4x",
+       "ADyA8hdefvWN2dbGGWFotbzWxrAvLW83WG6QCVXvJKqw",
+       "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK",
+       "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+       "GS4CU59F31iL7aR2Q8zVS8DRrcRnXX1yjQ66TqNVQnaR",
+       "11111111111111111111111111111111",
+       "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4",
+       "jitodontfront111111111111111111nopainnogain",
+       "D8cy77BBepLMngZx6ZukaTff5hCt1HrWyKk3Hnd9oitf",
+       "GwRSc3EPw2fCLJN7zWwcApXgHSrfmj9m4H5sfk1W2SUJ"
+      ],
+      "writable": [
+       "3MsJXVvievxAbsMsaT6TS4i6oMitD9jazucuq3X234tC",
+       "6P4tvbzRY6Bh3MiWDHuLqyHywovsRwRpfskPvyeSoHsz",
+       "6mK4Pxs6GhwnessH7CvPivqDYauiHZmAdbEFDpXFk9zt",
+       "8sLbNZoA1cfnvMJLPfp98ZLAnFSYCFApfJKMbiXNLwxj",
+       "DoPuiZfJu7sypqwR4eiU7C5TMcmmiFoU4HaF5SoD8mRy",
+       "7xrjio4HMDaBCXCHdFoqBUvP3epvh7DKnECpmVBZ5ZW3",
+       "HjQjngTDqoHE6aaGhUqfz9aQ7WZcBRjy5xB8PScLSr8i",
+       "dwxR9YF7WwnJJu7bPC4UNcWFpcSsooH6fxbpoa3fTbJ",
+       "83v8iPyZihDEjDdY8RdZddyZNyUtXngz69Lgo9Kt5d6d",
+       "D3CDPQLoa9jY1LXCkpUqd3JQDWz8DX1LDE1dhmJt9fq4"
+      ]
+     }
+    }
    }
   },
   {
@@ -506,6 +1497,152 @@
      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
      "Program ComputeBudget111111111111111111111111111111 success"
     ]
+   },
+   "trace": {
+    "transaction": {
+     "message": {
+      "accountKeys": [
+       "5BF4vXLwUPqYsgVaMCBWmAyTAkK9yfn7Z4WHWvyd5Tur",
+       "6FU5UnMQoAQTPncAdF2wPc6ag3czKvwD2U5ZBRwaPWEi",
+       "9iFER3bpjf1PTTCQCfTRu17EJgvsxo9pVyA9QWwEuX4x",
+       "DVBQzCPv6xrmLiKJ5chavTb9tkDr1ZoFJgyZn1XBch8m",
+       "Dy4JXKeM5hXRv9kcsKQCpxzHahxyBJHDTZs1m7sNgkFQ",
+       "J6cpPWrXzaD3sZ5pY4kRNusbarjdkeKZfWM8rJ5gvUZH",
+       "5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1",
+       "ComputeBudget111111111111111111111111111111",
+       "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr",
+       "routeUGWgWzqBWFcrCfv8tritsqukccJPu3q5GPP3xS"
+      ],
+      "instructions": [
+       {
+        "programIdIndex": 9
+       },
+       {
+        "programIdIndex": 7
+       },
+       {
+        "programIdIndex": 7
+       }
+      ],
+      "addressTableLookups": [
+       {
+        "accountKey": "2immgwYNHBbyVQKVGCEkgWpi53bLwWNRMB5G2nbgYV17",
+        "writableIndexes": [],
+        "readonlyIndexes": [
+         0,
+         14,
+         7,
+         16,
+         2,
+         3
+        ]
+       },
+       {
+        "accountKey": "6kLgAQxSaPa5Ru8jfVYWGDBJR5TXhHRNwjunVqNEmKEf",
+        "writableIndexes": [
+         202,
+         201,
+         200,
+         197,
+         203
+        ],
+        "readonlyIndexes": []
+       },
+       {
+        "accountKey": "7YB4PJYXPBfNi9UYV44CUjx1fRL5CyxonE1pERmfwCE5",
+        "writableIndexes": [
+         32,
+         33,
+         136,
+         29,
+         31,
+         3
+        ],
+        "readonlyIndexes": []
+       }
+      ]
+     }
+    },
+    "meta": {
+     "innerInstructions": [
+      {
+       "index": 0,
+       "instructions": [
+        {
+         "programIdIndex": 23,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 25,
+         "stackHeight": 3
+        },
+        {
+         "programIdIndex": 21,
+         "stackHeight": 3
+        },
+        {
+         "programIdIndex": 25,
+         "stackHeight": 3
+        },
+        {
+         "programIdIndex": 25,
+         "stackHeight": 3
+        },
+        {
+         "programIdIndex": 22,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 25,
+         "stackHeight": 3
+        },
+        {
+         "programIdIndex": 25,
+         "stackHeight": 3
+        },
+        {
+         "programIdIndex": 24,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 25,
+         "stackHeight": 3
+        },
+        {
+         "programIdIndex": 25,
+         "stackHeight": 3
+        },
+        {
+         "programIdIndex": 25,
+         "stackHeight": 2
+        }
+       ]
+      }
+     ],
+     "loadedAddresses": {
+      "readonly": [
+       "11111111111111111111111111111111",
+       "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8",
+       "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
+       "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK",
+       "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+       "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+      ],
+      "writable": [
+       "3MsJXVvievxAbsMsaT6TS4i6oMitD9jazucuq3X234tC",
+       "6mK4Pxs6GhwnessH7CvPivqDYauiHZmAdbEFDpXFk9zt",
+       "6P4tvbzRY6Bh3MiWDHuLqyHywovsRwRpfskPvyeSoHsz",
+       "8sLbNZoA1cfnvMJLPfp98ZLAnFSYCFApfJKMbiXNLwxj",
+       "DoPuiZfJu7sypqwR4eiU7C5TMcmmiFoU4HaF5SoD8mRy",
+       "2XBtW29MmUv7KHksZHV8Ynaw81W75tjc6WYn2Cv3P4DF",
+       "4HgT6zGNoodx5wrP2FZWchK6kaRzSwGQYzzPBRWkdhb3",
+       "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+       "H4nhs3HUWKTEvpmg3z4ntsUtaASQduYXNQfrSSQTuKCS",
+       "SKRbvo6Gf7GondiT3BbTfuRDPqLWei4j2Qy2NPGZhW3",
+       "So11111111111111111111111111111111111111112"
+      ]
+     }
+    }
    }
   },
   {
@@ -597,6 +1734,222 @@
      "Program 11111111111111111111111111111111 invoke [1]",
      "Program 11111111111111111111111111111111 success"
     ]
+   },
+   "trace": {
+    "transaction": {
+     "message": {
+      "accountKeys": [
+       "7JCe3GHwkEr3feHgtLXnmuJ1yB3A7coSeyynxTBgdG8k",
+       "gEBBhorJZUb7pW5i3PxDBmp5L1kotYBNvb6RuN767ZZ",
+       "cwNdPY3aR5pXkaKVqq2oTfYtSyS5KcLx9YgQCxSaGUq",
+       "2uiHT7N6Xtt8uGiJddERVgZphWB4YdvTtDtN6ana8oma",
+       "6FU5UnMQoAQTPncAdF2wPc6ag3czKvwD2U5ZBRwaPWEi",
+       "EjWtzEWQm12AUFSfo6jRSfe8eMXNeNeZciyj4aEHiSbT",
+       "FFMTujCW7yCGwf5uH497BEEvGGB6rJhspbbuyQQa2tAo",
+       "FFoqz1CRXPaVcjU3GpBw4HpwcoLhyKCS6atzVuUgpDpD",
+       "HfnuVHJbZmQ7xSAqBnEwSBDWZJs63NkEYG2962bJpG7Q",
+       "HphFBHYrmw4VD7WPzicSgp9PJ3w46kQPgKjHUDDHcEvz",
+       "11111111111111111111111111111111",
+       "ComputeBudget111111111111111111111111111111",
+       "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4",
+       "2aK5D9P3DqB37vaYCoaBBAETPzbuSspkUbGFePXzU678",
+       "58PMEdUAwvLytNNwCbzrYyhLoh3jpsNV4fW9dT9ibuRc",
+       "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
+       "BVsVzWfjxVQc1Zdveoj9HyqoQW2wMRixspbnF7WdGtNa"
+      ],
+      "instructions": [
+       {
+        "programIdIndex": 11
+       },
+       {
+        "programIdIndex": 11
+       },
+       {
+        "programIdIndex": 15
+       },
+       {
+        "programIdIndex": 15
+       },
+       {
+        "programIdIndex": 12
+       },
+       {
+        "programIdIndex": 14
+       },
+       {
+        "programIdIndex": 10
+       }
+      ],
+      "addressTableLookups": [
+       {
+        "accountKey": "3vwxVdZD5vQHxQkRoNvbS4XZbSqwBUmU3GQyuPNysca7",
+        "writableIndexes": [
+         99,
+         251,
+         9,
+         8
+        ],
+        "readonlyIndexes": [
+         95,
+         50,
+         51,
+         7,
+         96,
+         0,
+         94
+        ]
+       },
+       {
+        "accountKey": "ETFRk9J8hqdQ9JLVs1bCMewfGL6WqrPY5hGZbWWiwhim",
+        "writableIndexes": [
+         158,
+         156,
+         106,
+         154,
+         162,
+         160
+        ],
+        "readonlyIndexes": [
+         1,
+         109,
+         157
+        ]
+       },
+       {
+        "accountKey": "EwhVfL6x9bdFnt74jGCeSwBLyodNTFDrmfPA7LH7Yn3H",
+        "writableIndexes": [
+         142,
+         152,
+         144,
+         145,
+         25
+        ],
+        "readonlyIndexes": [
+         149
+        ]
+       }
+      ]
+     }
+    },
+    "meta": {
+     "innerInstructions": [
+      {
+       "index": 2,
+       "instructions": [
+        {
+         "programIdIndex": 33,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 10,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 33,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 33,
+         "stackHeight": 2
+        }
+       ]
+      },
+      {
+       "index": 4,
+       "instructions": [
+        {
+         "programIdIndex": 34,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 17,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 17,
+         "stackHeight": 3
+        },
+        {
+         "programIdIndex": 34,
+         "stackHeight": 3
+        },
+        {
+         "programIdIndex": 33,
+         "stackHeight": 3
+        },
+        {
+         "programIdIndex": 17,
+         "stackHeight": 3
+        },
+        {
+         "programIdIndex": 12,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 36,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 33,
+         "stackHeight": 3
+        },
+        {
+         "programIdIndex": 33,
+         "stackHeight": 3
+        },
+        {
+         "programIdIndex": 12,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 33,
+         "stackHeight": 2
+        }
+       ]
+      },
+      {
+       "index": 5,
+       "instructions": [
+        {
+         "programIdIndex": 33,
+         "stackHeight": 2
+        }
+       ]
+      }
+     ],
+     "loadedAddresses": {
+      "readonly": [
+       "So11111111111111111111111111111111111111112",
+       "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+       "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+       "BQ72nSv9f3PRyRKCBnHLVrerrv37CYTHm5h3s9VSGQDV",
+       "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK",
+       "D8cy77BBepLMngZx6ZukaTff5hCt1HrWyKk3Hnd9oitf",
+       "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+       "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr",
+       "D1ZN9Wj1fRSUQfCjhvnu1hqDMT7hzjzBBpi12nVniYD6",
+       "D42TjMjz5H7toPu5md5KBXreZkCSdZMEfLQwmBhJXvb1",
+       "9iFER3bpjf1PTTCQCfTRu17EJgvsxo9pVyA9QWwEuX4x"
+      ],
+      "writable": [
+       "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo",
+       "qGs8S6yAyu7meRUF17Ns1wUqsJfML7Q7cp2DsVNxKT8",
+       "7u7cD7NxcZEuzRCBaYo8uVpotRdqZwez47vvuwzCov43",
+       "8ctcHN52LY21FEipCjr1MVWtoZa1irJQTPyAaTj72h7S",
+       "GS4iz2fzSAKwhtuDP7V8m1sCL3n5qdgAiRCiCScABqq",
+       "4mD7YQvATUEF4TDA52pTnpHm8Q1XtwXYcn9B7M37F5iv",
+       "84ffCpsGaLPJNLAPTL9AK5G3Q1nxMuugN4SU6MFeHJUo",
+       "AvPa2kZpo98zh6YLHF9udjRQ6jUWxJy5PftvTreWJjk5",
+       "BX3Z5EMxvMNi3Q2P2j6d3aFXSb9tCjqqQzM73sZuBHVT",
+       "EeYVgTgjG3kgKPit12EWHRkyFvhUUPS2cdACnkwK1vYL",
+       "3MsJXVvievxAbsMsaT6TS4i6oMitD9jazucuq3X234tC",
+       "6P4tvbzRY6Bh3MiWDHuLqyHywovsRwRpfskPvyeSoHsz",
+       "6mK4Pxs6GhwnessH7CvPivqDYauiHZmAdbEFDpXFk9zt",
+       "8sLbNZoA1cfnvMJLPfp98ZLAnFSYCFApfJKMbiXNLwxj",
+       "DoPuiZfJu7sypqwR4eiU7C5TMcmmiFoU4HaF5SoD8mRy"
+      ]
+     }
+    }
    }
   },
   {
@@ -751,6 +2104,332 @@
      "Log truncated",
      "Program log: Instruction: CollectCreatorFeeV2"
     ]
+   },
+   "trace": {
+    "transaction": {
+     "message": {
+      "accountKeys": [
+       "FCcH6NowSESDgEQGcx3TdND6Gs8V1ean7xC77ZNn56Te",
+       "2DB3StvAqBEAPh4RsGe25a1dxqppi2wJm9fKFWEotmnK",
+       "5MysMGza83jg6EbgGHMvG2LoE1pSBJBHzX2mmoMdLS7L",
+       "7E5mzecyu1i1RZbTd3HHN7HSj7q5Ppu536afGPcoiQ6S",
+       "81Zra5W1P6RCJ4Fd8Xa8CpvYenmmjP2G69kkXJsw7jEz",
+       "AatpWGa75tVbLdeRnuqfXYGx77WHK3kRoZQLpGgrh52o",
+       "D9d17vcn5cqN3DEA7ainHbeoXMTNJLfGpFUbdbuMZ32v",
+       "EbsbFFwYB2KFgfvfjkC3aSF1ycMkSEf5a2xNgo9MPdTG",
+       "F2ScoZzuw3QrQQLw9nWSukfJUrBYAthusnmy2DojY1wG",
+       "FQZfVpurK2UnkoCfBCdwmzFkgHFH2aDLyBbuNBTmPzgh",
+       "G1F94PzWNBSsbR6ykHGcGFEv49UMX4hJtYRnWez6MMAH",
+       "JBDoSutMtjiaxjbSaWZvkLjLLh4ggJG7azfYApQosKSN",
+       "11111111111111111111111111111111",
+       "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P",
+       "ComputeBudget111111111111111111111111111111",
+       "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4",
+       "L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95",
+       "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+       "462vV4KwwuRe2Mt6afw8Ke9aDd3FfXd3LN5g4GsFykjR",
+       "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
+       "GuPSpANvFBUwhmWx1EnmAroFUSzzUac8ty4TWp7qpump"
+      ],
+      "instructions": [
+       {
+        "programIdIndex": 14
+       },
+       {
+        "programIdIndex": 14
+       },
+       {
+        "programIdIndex": 19
+       },
+       {
+        "programIdIndex": 12
+       },
+       {
+        "programIdIndex": 17
+       },
+       {
+        "programIdIndex": 15
+       },
+       {
+        "programIdIndex": 19
+       },
+       {
+        "programIdIndex": 19
+       },
+       {
+        "programIdIndex": 16
+       },
+       {
+        "programIdIndex": 13
+       },
+       {
+        "programIdIndex": 13
+       },
+       {
+        "programIdIndex": 16
+       },
+       {
+        "programIdIndex": 17
+       },
+       {
+        "programIdIndex": 19
+       },
+       {
+        "programIdIndex": 13
+       },
+       {
+        "programIdIndex": 16
+       },
+       {
+        "programIdIndex": 12
+       }
+      ],
+      "addressTableLookups": [
+       {
+        "accountKey": "DWPEkdZ8MbmFDCrk6WRKHEVTbp5XEHSjELzm4RP1cGMS",
+        "writableIndexes": [
+         0,
+         29,
+         17,
+         4,
+         5
+        ],
+        "readonlyIndexes": [
+         26,
+         28,
+         8,
+         10,
+         11,
+         12,
+         24,
+         13
+        ]
+       },
+       {
+        "accountKey": "9yrGavXdnRv8Y82fj3d5HyCXBraZ71jCpn7hCmPsg251",
+        "writableIndexes": [
+         227,
+         217,
+         219,
+         225,
+         226,
+         220
+        ],
+        "readonlyIndexes": [
+         31,
+         32,
+         222
+        ]
+       },
+       {
+        "accountKey": "H8aGhGv1PkrJowP74is1euChvc7eyTMbLjLS7XXwxs7P",
+        "writableIndexes": [
+         73,
+         56
+        ],
+        "readonlyIndexes": []
+       }
+      ]
+     }
+    },
+    "meta": {
+     "innerInstructions": [
+      {
+       "index": 2,
+       "instructions": [
+        {
+         "programIdIndex": 17,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 12,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 17,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 17,
+         "stackHeight": 2
+        }
+       ]
+      },
+      {
+       "index": 5,
+       "instructions": [
+        {
+         "programIdIndex": 43,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 17,
+         "stackHeight": 3
+        },
+        {
+         "programIdIndex": 17,
+         "stackHeight": 3
+        },
+        {
+         "programIdIndex": 15,
+         "stackHeight": 2
+        }
+       ]
+      },
+      {
+       "index": 6,
+       "instructions": [
+        {
+         "programIdIndex": 35,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 12,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 35,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 35,
+         "stackHeight": 2
+        }
+       ]
+      },
+      {
+       "index": 7,
+       "instructions": [
+        {
+         "programIdIndex": 17,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 12,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 17,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 17,
+         "stackHeight": 2
+        }
+       ]
+      },
+      {
+       "index": 9,
+       "instructions": [
+        {
+         "programIdIndex": 36,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 35,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 17,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 17,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 17,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 17,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 13,
+         "stackHeight": 2
+        }
+       ]
+      },
+      {
+       "index": 10,
+       "instructions": [
+        {
+         "programIdIndex": 17,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 13,
+         "stackHeight": 2
+        }
+       ]
+      },
+      {
+       "index": 13,
+       "instructions": [
+        {
+         "programIdIndex": 17,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 12,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 17,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 17,
+         "stackHeight": 2
+        }
+       ]
+      },
+      {
+       "index": 14,
+       "instructions": [
+        {
+         "programIdIndex": 17,
+         "stackHeight": 2
+        },
+        {
+         "programIdIndex": 13,
+         "stackHeight": 2
+        }
+       ]
+      }
+     ],
+     "loadedAddresses": {
+      "readonly": [
+       "So11111111111111111111111111111111111111112",
+       "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+       "pfeeUxB6jkeY1Hxd7CsFCAjcbHA9rWtchMGdZ6VojVZ",
+       "4wTV1YmiEkRvAtNtsSGPtUrqRYQMe5SKy2uB4Jjaxnjf",
+       "8Wf5TiAheLUqBrKXeYg2JtAFFMWtKdG2BSFgqUcPVwTt",
+       "Ce6TQqeHC9p8KetsN6JsjHK7UTZk7nasjjnr7XxXp9F1",
+       "D8cy77BBepLMngZx6ZukaTff5hCt1HrWyKk3Hnd9oitf",
+       "Hq2wp8uJ9jCPsYgNHex8RtqdvMPfVGoYwjvF1ATiwn2Y",
+       "shib5gSoVKPjwkXrxRk7SbQFzb2R9rQB3TgQWYX4RwW",
+       "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK",
+       "DQeN7dZyQvXKT7YwmgqyuC7AYFkwMoP7RwtucsDEdfYZ"
+      ],
+      "writable": [
+       "9M4giFFMxmFGXtc3feFzRai56WbBqehoSeRE5GK7gf7",
+       "2HmanyxrkvUyK7yXZSSF7qiaVCVnTqyqUSH5ybb16XNe",
+       "2nyhqdwKcJZR2vcqCyrYsaPVdAnFoJjiksCXJ7hfEYgD",
+       "7VtfL8fvgNfhz17qKRMjzQEXgbdpnHHHQRh54R9jP2RJ",
+       "AUBJwo4kMwXLr36GWsvZdk9MURkHquVMkLoLNtbCH6Z5",
+       "BDoohZUsZ3SD3aHByDy27UuhQ6YH2KwKBCpSY4v6WmL",
+       "nSv5fR2gY9T1nKn9Qdgq2BadG1Q3SsNWBBVJMKte28w",
+       "3WaFrMTDbve2daYxDYQyEhuXBmTZsJF6EExCrPxuPcej",
+       "3qp7EeMZVViWTotysHNzg6FawzaGs9MSLcumuZkiuGcK",
+       "ACYDUUdYpMYABZz9PAayXeKEE444Fi3KfMTJwQR9ZVnJ",
+       "EFR8B6aJR14nqeDa7FcgiVUMsvHojHhYqmMFVSBkUMUv",
+       "BcDXMpqQ3seXAYCaqN8WdEKg8QbXpPtqLAVJ5HffxLnY",
+       "F8J5rWMh7hXQZstMwDgAgyU5CGhityYb51x56WwQ6rg3"
+      ]
+     }
+    }
    }
   }
  ]

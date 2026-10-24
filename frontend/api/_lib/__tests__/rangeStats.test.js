@@ -7,7 +7,8 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { BEHIND_AFTER_MS, stateOf, windowFigures } from "../rangeStats.js";
-import { ENV, POOL, T0, key, seededPool } from "../../../scripts/lib/range-stats-cases.mjs";
+import { RANGE_PROGRAM_ID } from "../rangeEvents.js";
+import { ENV, POOL, T0, createdData, fakeDb, ix, key, run, seededPool, split, swapData, world } from "../../../scripts/lib/range-stats-cases.mjs";
 
 vi.mock("../ratelimit.js", () => ({
   checkRateLimit: vi.fn(async () => true),
@@ -121,7 +122,10 @@ describe("the three resources over a counted pool", () => {
     expect(b.windows["24h"].largest.by_fee_0.map((s) => s.fee_0)).toEqual(["60000", "40000"]);
     expect(b.collections).toEqual([expect.objectContaining({ by_whom: "vault", amount_0: "5000", amount_1: "0" })]);
     expect(b.venue_waiting).toMatchObject({ vault_0: String(seeded.vault - seeded.collected), workshop_0: String(seeded.workshop) });
-    expect(b.hours.map((h) => h.swaps)).toEqual([2, 1, 2]);
+    // Every closed hour from the opening hour to the last one counted, each one whole.
+    expect(b.hours).toHaveLength(26);
+    expect(b.hours.every((h) => h.complete)).toBe(true);
+    expect(b.hours.filter((h) => h.swaps).map((h) => h.swaps)).toEqual([2, 1, 2]);
     expect(b.gaps).toEqual([]);
   });
 
@@ -194,6 +198,54 @@ describe("the three resources over a counted pool", () => {
     const rest = (await call("handleRangeSwaps", { resource: "range-swaps", pool: POOL, before: "8500", limit: "500" })).body;
     expect(rest.swaps.map((s) => s.slot)).toEqual([8000, 250, 200, 150]);
     expect((await call("handleRangeSwaps", { resource: "range-swaps", pool: POOL, limit: "501" })).status).toBe(400);
+  });
+
+  it("range-swaps serves a slot whole when it holds more swaps than a page", async () => {
+    const at200 = seeded.db.data.range_swap.find((s) => s.slot === 200);
+    seeded.db.data.range_swap.push({ ...at200, event_index: 1, fee_0: "1" });
+    const id = (s) => `${s.slot}/${s.event_index}`;
+    const all = (await call("handleRangeSwaps", { resource: "range-swaps", pool: POOL })).body.swaps.map(id);
+    expect(all).toEqual(["8500/0", "8000/0", "250/0", "200/1", "200/0", "150/0"]);
+    const paged = [];
+    let before = null;
+    for (let i = 0; i < 10; i++) {
+      const b = (await call("handleRangeSwaps", { resource: "range-swaps", pool: POOL, limit: "1", ...(before ? { before: String(before) } : {}) })).body;
+      paged.push(...b.swaps.map(id));
+      if (b.next_before === null) break;
+      before = b.next_before;
+    }
+    expect(paged).toEqual(all);
+  });
+
+  it("an hour a hole touches has no number; the hours beside it keep theirs", async () => {
+    // Three swaps in the 10:00 hour, the middle one's log cut; one at 11:30. Counted at 12:01.
+    const w = world({ slot: 400, time: T0 + 2 * 3600 + 60 });
+    const db = fakeDb();
+    const price = (i) => (1n << 64n) + BigInt(i);
+    let fees = 0n;
+    const swap = (txSlot, t, fee, i, cutLog = false) => {
+      fees += fee;
+      const lines = ix(RANGE_PROGRAM_ID, "SwapV2", [swapData({ fee0: fee, price: price(i) })]);
+      w.tx({ lines: cutLog ? [...lines, "Log truncated"] : lines, txSlot, at: T0 + t });
+    };
+    w.tx({ lines: ix(RANGE_PROGRAM_ID, "CreatePool", [createdData({ price: price(0) })]), txSlot: 100, at: T0 });
+    swap(150, 600, 10_000n, 1);
+    swap(200, 1200, 90_000n, 2, true);
+    swap(250, 1800, 20_000n, 3);
+    swap(300, 5400, 5_000n, 4);
+    const { vault, workshop } = split(fees);
+    w.pool(POOL, { price: price(4), protocolFees0: vault, fundFees0: workshop });
+    expect(await run(w, db)).toBe(0);
+    const at = (T0 + 2 * 3600 + 120) * 1000;
+    const iso = (s) => new Date(s * 1000).toISOString();
+    const hours = async () => (await call("handleRangeStats", { resource: "range-stats", pool: POOL }, at, db.fetchImpl)).body.hours;
+    expect(await hours()).toEqual([
+      { hour: iso(T0), complete: false },
+      { hour: iso(T0 + 3600), complete: true, swaps: 1, volume_0: "1000000", volume_1: "2000000", fees_0: "5000", fees_1: "0", open_price: String(price(4)), high_price: String(price(4)), low_price: String(price(4)), close_price: String(price(4)) },
+    ]);
+    // A hole known only by its slots could sit in either hour, so neither has a number.
+    db.data.range_gap.push({ id: 7, pool: POOL, gap_key: "backlog-truncated:skip:260", kind: "backlog-truncated", standing: false, signature: null, from_slot: 260, to_slot: 290, from_time: null, to_time: null, detail: "skipped", resolved_at: null });
+    expect((await hours()).map((h) => h.complete)).toEqual([false, false]);
   });
 
   it("each branch sits above `const provider` in the catchall", () => {
