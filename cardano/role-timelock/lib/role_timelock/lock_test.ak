@@ -193,9 +193,10 @@ fn pool_in() -> Input {
   }
 }
 
-/// The pool with the venue's fee share switched on: 1666 / 10000 of the fee.
+/// The pool with the venue's fee share switched on: 1333 / 10000 of the fee,
+/// the owner's rate, under the floor our one patch to Minswap lowers.
 fn shared() -> PoolDatum {
-  PoolDatum { ..pool_datum(), fee_sharing_numerator_opt: Some(1666) }
+  PoolDatum { ..pool_datum(), fee_sharing_numerator_opt: Some(1333) }
 }
 
 fn set_pool(after: PoolDatum, stake: ByteArray) -> Change {
@@ -781,6 +782,19 @@ test execute_pool_fee() {
 
 test minswap_takes_the_pool_fee_change() {
   minswap_updates_pool(fee_tx(shared()), UpdatePoolFee)
+}
+
+// The patched floor is 1333 exactly: one less is still refused by Minswap.
+test minswap_refuses_a_share_under_the_floor() fail {
+  let under =
+    PoolDatum { ..pool_datum(), fee_sharing_numerator_opt: Some(1332) }
+  minswap_updates_pool(
+    inputs(
+      fee_tx(under),
+      [lock_in(ready(set_pool(under, pool_stake))), pool_in(), wallet_in()],
+    ),
+    UpdatePoolFee,
+  )
 }
 
 test execute_one_ms_early() fail {

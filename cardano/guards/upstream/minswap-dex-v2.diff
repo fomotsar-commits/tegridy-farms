@@ -1,0 +1,5 @@
+=== lib/amm_dex_v2/utils.ak ===
+61c61
+< pub const min_fee_sharing_numerator = 1666
+---
+> pub const min_fee_sharing_numerator = 1333

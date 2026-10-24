@@ -58,7 +58,7 @@ pub const min_trading_fee_numerator = 5
 pub const max_fee_sharing_numerator = 5000
 
 // Min 16.66%
-pub const min_fee_sharing_numerator = 1666
+pub const min_fee_sharing_numerator = 1333
 
 pub const min_pool_ada = 4500000
 

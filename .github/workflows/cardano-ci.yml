@@ -1,16 +1,19 @@
 name: cardano-ci
 
-# cardano/: Minswap V2's audited contracts, copied unchanged, and the role timelock, the venue's
-# one new validator, which holds Minswap's admin roles behind 48 hours and two keys.
+# cardano/: Minswap V2's audited contracts with one constant patched (the fee-share floor), and the
+# role timelock, the venue's one new validator, which holds Minswap's admin roles behind 48 hours
+# and two keys.
 # Gates:
-#   1. provenance - every copied file is upstream's at the pin, by hash, with no clone; the guard
-#      first refuses known-bad copies.
-#   2. build-proof - Aiken v1.0.24-alpha, the compiler Minswap used, turns our copy into Minswap's
-#      six mainnet scripts byte for byte; the role timelock is formatted, passes its tests, and
-#      builds to its committed plutus.json. The proof first refuses a tampered copy.
+#   1. provenance - every copied file is upstream's at the pin, or upstream's plus exactly the
+#      reviewed patch, by hash, with no clone; the guard first refuses known-bad copies. It reads
+#      the patch with solana/guards/provenance.mjs, so that file is in scope too.
+#   2. build-proof - Aiken v1.0.24-alpha, the compiler Minswap used, turns our copy with the patch
+#      undone into Minswap's six mainnet scripts byte for byte, and with it changes only the pool
+#      validator; the role timelock is formatted, passes its tests, and builds to its committed
+#      plutus.json. The proof first refuses a tampered copy.
 on:
   push:
-    paths: ["cardano/**", ".github/workflows/cardano-ci.yml"]
+    paths: ["cardano/**", "solana/guards/provenance.mjs", ".github/workflows/cardano-ci.yml"]
   # No `paths:` here: the `scope` job decides, as in solana-ci.yml.
   pull_request:
 
@@ -63,6 +66,7 @@ jobs:
           fi
           verdict=$(printf '%s\n' "$files" | node .github/scripts/diff-scope.mjs \
             'cardano/**' \
+            'solana/guards/provenance.mjs' \
             '.github/workflows/cardano-ci.yml')
           case "$verdict" in
             true|false) say "$verdict" ;;
@@ -83,7 +87,7 @@ jobs:
           node-version: 24
       - name: Each guard tamper is refused
         run: node cardano/guards/provenance.mjs --self-test
-      - name: Every copied file is Minswap's at c3293ad4
+      - name: Every copied file is Minswap's at c3293ad4, plus exactly the reviewed patch
         run: node cardano/guards/provenance.mjs
 
   build-proof:

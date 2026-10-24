@@ -1,8 +1,9 @@
 #!/usr/bin/env node
-// Our copy of Minswap V2, built with the compiler Minswap used, is Minswap's mainnet code: the
-// build reproduces upstream's plutus.json, and Minswap's own mainnet parameters turn it into the
-// six deployed scripts byte for byte, with the hashes Minswap publishes. The role timelock builds
-// with the same compiler and library, passes its tests, and reproduces its committed plutus.json.
+// Built with the compiler Minswap used, our copy with the reviewed patch undone is Minswap's
+// mainnet code: it reproduces upstream's plutus.json, and Minswap's own mainnet parameters turn it
+// into the six deployed scripts byte for byte. Our copy as it stands changes exactly the
+// validators PATCH_CHANGES names, and every other one keeps Minswap's bytes. The role timelock
+// builds with the same compiler, passes its tests, and reproduces its committed plutus.json.
 //   node cardano/guards/prove-build.mjs [--chain] [--root <dir>]   (AIKEN=<path>, else aiken on PATH)
 //   --chain also reads each script from its mainnet reference UTxO (Koios) and compares.
 //   --root checks the cardano/ folder of another tree (the CI self-test hands it a tampered copy).
@@ -12,6 +13,8 @@ import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, stat
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+import { DELTA, readPatch, upstreamText } from './provenance.mjs';
 
 const at = process.argv.indexOf('--root');
 const ROOT = at > 0 ? resolve(process.argv[at + 1]) : resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -34,6 +37,12 @@ export const MAINNET = {
   order: { title: 'order_validator.validate_order', hash: 'c3e28c36c3447315ba5a56f33da6a6ddc1770a876a8d9f0cb3a97c4c', scriptKey: 'orderScript', refKey: 'orderTxId', ref: 'cf4ecddde0d81f9ce8fcc881a85eb1f8ccdaf6807f03fea4cd02da896a621776#0' },
   factory: { title: 'factory_validator.validate_factory', hash: '7bc5fbd41a95f561be84369631e0e35895efb0b73e0a7480bb9ed730', scriptKey: 'factoryScript', refKey: 'factoryTxId', ref: '59c7fa5c30cbab4e6d38f65e15d1adef71495321365588506ad089d237b602e0#0' },
 };
+
+// The fee-share floor the patch lowers is read only by pool_validation's pool-fee update, which
+// only the pool validator calls. With Minswap's own mainnet parameters the pool's hash changes,
+// and so do the three scripts whose parameters name it.
+export const PATCH_CHANGES = ['pool_validator.validate_pool'];
+export const PATCH_CHANGES_APPLIED = ['pool', 'poolBatching', 'order', 'factory'];
 
 // Plutus Data as CBOR hex, encoded as Plutus itself does: a constructor's non-empty field list
 // is indefinite-length.
@@ -156,11 +165,15 @@ async function main() {
     const stdlib = fetchStdlib(work);
     console.log(`stdlib: ${STDLIB.repo} @ ${STDLIB.commit} (${STDLIB.version})`);
 
+    // Minswap's code: our copy with the reviewed patch undone.
+    const patch = readPatch(join(ROOT, 'cardano/guards/upstream'));
+    problems.push(...patch.problems);
     const ms = stage(join(ROOT, 'cardano/minswap-dex-v2'), join(work, 'minswap-dex-v2'), stdlib);
+    for (const p of DELTA.patched) writeFileSync(join(ms, p), upstreamText(p, readFileSync(join(ms, p), 'utf-8'), patch.sections));
     const upstream = JSON.parse(readFileSync(join(ms, 'plutus.json'), 'utf-8'));
     const built = build(ms);
-    if (!same(built, upstream)) problems.push('minswap-dex-v2: our build is not upstream\'s plutus.json');
-    else console.log(`minswap-dex-v2: the build reproduces upstream's plutus.json (${built.validators.length} validators)`);
+    if (!same(built, upstream)) problems.push('minswap-dex-v2: Minswap\'s code does not build to upstream\'s plutus.json');
+    else console.log(`Minswap's code (our copy, patch undone): the build reproduces upstream's plutus.json (${built.validators.length} validators)`);
 
     const applied = applyMainnet(ms);
     const deployed = JSON.parse(readFileSync(join(ms, 'deployed/mainnet/script.json'), 'utf-8'));
@@ -182,6 +195,24 @@ async function main() {
         else line += ` = the reference script at ${s.ref}${u.is_spent ? ' (spent)' : ''}`;
       }
       console.log(line);
+    }
+
+    // Ours: the copy as it stands, patch applied.
+    const mine = stage(join(ROOT, 'cardano/minswap-dex-v2'), join(work, 'minswap-ours'), stdlib);
+    const ours = build(mine);
+    const changed = upstream.validators.filter((u) => ours.validators.find((v) => v.title === u.title)?.compiledCode !== u.compiledCode).map((u) => u.title);
+    if (!same(ours.definitions, upstream.definitions) || ours.validators.length !== upstream.validators.length) problems.push('ours: the patch changed a type or the set of validators');
+    if (changed.join('|') !== PATCH_CHANGES.join('|')) problems.push(`ours: the patch changes ${changed.join(', ') || 'no validator'}, not exactly ${PATCH_CHANGES.join(', ')}`);
+    for (const u of upstream.validators) {
+      const v = ours.validators.find((x) => x.title === u.title);
+      console.log(`ours: ${u.title} ${changed.includes(u.title) ? `changed, ${u.hash} -> ${v.hash} (${u.compiledCode.length / 2} -> ${v.compiledCode.length / 2} bytes)` : `${v.hash} = Minswap's bytes`}`);
+    }
+    const oursApplied = applyMainnet(mine);
+    const differ = Object.entries(MAINNET).filter(([, s]) => oursApplied.find((x) => x.title === s.title).hash !== s.hash).map(([n]) => n);
+    if (differ.join('|') !== PATCH_CHANGES_APPLIED.join('|')) problems.push(`ours with Minswap's mainnet parameters: ${differ.join(', ') || 'nothing'} differs from mainnet, not exactly ${PATCH_CHANGES_APPLIED.join(', ')}`);
+    for (const [name, s] of Object.entries(MAINNET)) {
+      const h = oursApplied.find((x) => x.title === s.title).hash;
+      console.log(`ours with Minswap's mainnet parameters: ${name} ${h === s.hash ? `${h} = Minswap mainnet` : `${h}, not mainnet's ${s.hash}`}`);
     }
 
     const rt = stage(join(ROOT, 'cardano/role-timelock'), join(work, 'role-timelock'), stdlib);
