@@ -556,7 +556,9 @@ describe('the risks, beside the deposit and on the review', () => {
     // With range pools in the swap route, the site's own swap is where their trades come from.
     expect(risks).toHaveTextContent(/This site’s own swap sends a trade to one only when it pays the trader at least as much as Jupiter does/);
     const earns = screen.getByTestId('range-earns');
-    expect(earns).toHaveTextContent(/A band of prices nobody has used yet also takes a deposit that never comes back, about 0\.072 SOL each/);
+    // Rent is the chain's to say (mainnet's fell: 0.0527 SOL a band on 2026-10-24, not 0.072): the review reads it, the fine print names no figure.
+    expect(earns).toHaveTextContent(/A band of prices nobody has used yet also takes a deposit that never comes back; Review shows how much, read from the chain\./);
+    expect(earns).not.toHaveTextContent(/\d SOL each/);
     expect(earns).not.toHaveTextContent(/refundable/);
     expect(earns).not.toHaveTextContent(/The range program is the venue’s own/);
   });
