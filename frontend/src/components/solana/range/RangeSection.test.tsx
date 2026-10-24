@@ -4,7 +4,8 @@ import { MemoryRouter } from 'react-router-dom';
 import { PublicKey } from '@solana/web3.js';
 import * as validate from '../../../lib/launchMetadata/validate.js';
 import { BAYLA_MINT, WSOL_MINT } from '../../../lib/solana/lp/tokenSafety';
-import { decodeAmmConfig, decodePersonalPosition, decodePoolState, sortMints, type AmmConfigView } from '../../../lib/solana/clmm/program';
+import { decodeAmmConfig, decodePersonalPosition, decodePoolState, sortMints, type AmmConfigView, type PoolStateView } from '../../../lib/solana/clmm/program';
+import type { BandsWindow } from '../../../lib/solana/clmm/depth';
 import { getTickAtSqrtPrice } from '../../../lib/solana/clmm/math';
 import { encodeAmmConfig, encodePool, encodePosition } from '../../../lib/solana/clmm/encode.fixture';
 import type { MintFreeze, RangePool, Read, WalletPosition, WalletPositionsRead } from '../../../lib/solana/clmm/read';
@@ -97,7 +98,7 @@ function fakeApi(): RangeWriteApi {
 /** Jupiter's price for BAYLA by default: the pool's own, 0.0003 SOL. */
 const MARKET_AGREES: OutsidePrice = { kind: 'ok', solPerToken: 0.0003, source: 'Jupiter' };
 
-function readers(o: { tiers?: Read<AmmConfigView[]>; pools?: Read<RangePool[]>; positions?: Read<WalletPositionsRead>; market?: OutsidePrice; freeze?: Read<MintFreeze> } = {}): RangeReaders {
+function readers(o: { tiers?: Read<AmmConfigView[]>; pools?: Read<RangePool[]>; positions?: Read<WalletPositionsRead>; market?: OutsidePrice; freeze?: Read<MintFreeze>; window?: Read<BandsWindow> } = {}): RangeReaders {
   const t = tier();
   return {
     programId: PROG,
@@ -106,6 +107,8 @@ function readers(o: { tiers?: Read<AmmConfigView[]>; pools?: Read<RangePool[]>; 
     walletPositions: vi.fn(async () => o.positions ?? { kind: 'ok' as const, value: { positions: [], unread: [] } }),
     outsidePrice: vi.fn(async () => o.market ?? MARKET_AGREES),
     freezeAuthority: vi.fn(async () => o.freeze ?? { kind: 'ok' as const, value: { kind: 'mint' as const, freezeAuthority: null } }),
+    // The chart's window: the pool as read, no band marked (its liquidity runs end to end).
+    bandsWindow: vi.fn(async (pool: PoolStateView) => o.window ?? { kind: 'ok' as const, value: { pool, extension: null, bands: [], beyondBelow: null, beyondAbove: null, at: Date.UTC(2026, 9, 24, 14, 2, 11) } }),
   };
 }
 
@@ -239,6 +242,56 @@ describe('picking a pool', () => {
     const card = await screen.findByTestId('range-pools');
     await waitFor(() => expect(card.textContent).toContain('1% fee per swap'));
     expect(card.textContent).toContain('Pool price now 0.0003 SOL per BAYLA');
+  });
+});
+
+describe('card 03, the depth chart, in the section', () => {
+  it('sits between Pick a pool and Pick your range, numbered 03, and reads the pool it is given', async () => {
+    const r = readers();
+    show(r);
+    const depth = await screen.findByTestId('range-depth');
+    const pools = screen.getByTestId('range-pools');
+    const open = await screen.findByTestId('range-open');
+    expect(pools.compareDocumentPosition(depth) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(depth.compareDocumentPosition(open) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(depth).getByRole('heading').textContent).toBe('03Liquidity');
+    expect(within(open).getByRole('heading').textContent).toBe('04Pick your range');
+    await waitFor(() => expect(r.bandsWindow).toHaveBeenCalledWith(expect.objectContaining({ address: POOL.toBase58() })));
+  });
+
+  it('a range picked in card 04 is drawn on the chart; an edge moved on the chart fills card 04’s fields', async () => {
+    show(readers());
+    const open = await screen.findByTestId('range-open');
+    const depth = await screen.findByTestId('range-depth');
+    await within(depth).findByTestId('range-depth-body');
+    expect(within(depth).queryByTestId('range-depth-handle-lo')).toBeNull();
+    fireEvent.click(within(open).getByRole('button', { name: 'Wide' }));
+    expect(within(depth).getByTestId('range-depth-handle-lo')).toBeInTheDocument();
+    const low = within(open).getByLabelText(/^Lowest price/) as HTMLInputElement;
+    const before = low.value;
+    fireEvent.click(within(depth).getByRole('button', { name: 'Lowest price, one step higher' }));
+    expect(low.value).not.toBe(before);
+    expect(Number(low.value)).toBeGreaterThan(Number(before));
+    // The preset no longer names the range: the chart's edges do.
+    expect(within(open).getByRole('button', { name: 'Wide' }).getAttribute('aria-pressed')).toBe('false');
+    expect(within(open).getByTestId('range-chosen').textContent).toContain(`${low.value} SOL per BAYLA`);
+  });
+
+  it('with no range picked, the chart’s one press picks the range close to this pool’s price', async () => {
+    show(readers());
+    const open = await screen.findByTestId('range-open');
+    const depth = await screen.findByTestId('range-depth');
+    fireEvent.click(await within(depth).findByRole('button', { name: 'Start a range near this pool’s price' }));
+    expect(within(open).getByRole('button', { name: 'Close to this pool’s price' }).getAttribute('aria-pressed')).toBe('true');
+    // And the chart comes to it: the band fills a good part of the 343px view.
+    expect(Number(within(depth).getByTestId('range-depth-band').getAttribute('width'))).toBeGreaterThan(100);
+  });
+
+  it('a window that did not read says so in card 03 and nowhere else', async () => {
+    show(readers({ window: { kind: 'unread', detail: 'down' } }));
+    const depth = await screen.findByTestId('range-depth');
+    await waitFor(() => expect(depth.textContent).toContain('The pool’s liquidity could not be read just now (down). This does not mean it is empty.'));
+    expect(screen.getByTestId('range-pools').textContent).not.toContain('could not be read');
   });
 });
 

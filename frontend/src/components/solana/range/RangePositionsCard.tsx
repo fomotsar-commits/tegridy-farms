@@ -54,7 +54,7 @@ export function RangePositionsCard(p: {
   const list = p.read?.kind === 'ok' ? p.read.value : null;
 
   return (
-    <Card title="Your range positions" testId="range-positions" index={4} art={<CardArt pageId="range-pools" idx={3} />}>
+    <Card title="Your range positions" testId="range-positions" index={5} art={<CardArt pageId="range-pools" idx={3} />}>
       {!connected ? (
         <>
           <p className="text-white/70">Connect a wallet to see the range positions it holds.</p>

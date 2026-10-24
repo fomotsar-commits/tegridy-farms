@@ -11,6 +11,7 @@ The site's Changelog tab shows both files.
 
 - Solana swap: Buy asks Jupiter for less, so it waits less. A quote under 10 seconds old is built as shown instead of asked for again, our pools are read at the click instead of after Jupiter's answer, the trending list, the risk warnings and the pair's prices are shared by every visitor for a short time (prices are still read fresh in USD mode), and "Swap confirmed" is checked every second for the first 10 seconds.
 - Pools: a Range tab on Solana. Put liquidity in the venue's own range pools between two prices you pick; it earns while the price is between them: 84% of each swap's fee (the fee is 1% or 0.25% of the swap, by the pool's tier), shared by the liquidity in range, and the venue keeps 16% (10.4% to the team's shared wallet, 5.6% to the island's Workshop). Solana swaps can route through these pools too.
+- Range pools: a Liquidity card shows where a pool's money sits by price, read from the chain: the liquidity at each price step, orders resting at one price, this pool's price and the market's, your range as a green band and your positions. Drag the range's edges from 768px wide; on a phone, step them or slide them while the page scrolls as usual. Flip the price, see it as a table, and read what it takes to move the price 2% each way, the pool's fee and resting orders included. A part that could not be read is striped and says so; nothing past what was read is drawn as empty.
 
 ### 2026-10-23
 

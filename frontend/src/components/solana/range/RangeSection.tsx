@@ -15,12 +15,13 @@ import { QUOTE_COINS, quoteCoin } from '../../../lib/solana/lp/quotes';
 import { BAYLA_MINT } from '../../../lib/solana/lp/tokenSafety';
 import { RANGE_PROGRAM_ID } from '../../../lib/solana/clmm/program';
 import { ownPoolPrograms } from '../../../lib/solana/lp/ownPools';
-import { readFeeTiers, readFreezeAuthority, readPairPools, readWalletPositions, type MintFreeze, type Read, type RangePool, type WalletPositionsRead } from '../../../lib/solana/clmm/read';
+import { readBandsWindow, readFeeTiers, readFreezeAuthority, readPairPools, readWalletPositions, type MintFreeze, type Read, type RangePool, type WalletPositionsRead } from '../../../lib/solana/clmm/read';
+import type { BandsWindow } from '../../../lib/solana/clmm/depth';
 import { freezeWarning } from '../../../lib/solana/lp/tokenSafety';
-import type { AmmConfigView } from '../../../lib/solana/clmm/program';
+import type { AmmConfigView, PoolStateView } from '../../../lib/solana/clmm/program';
 import { feePaidIn, feeSplit, poolFeeCeiling } from '../../../lib/solana/clmm/feeText';
 import { rangeVenueEarns } from '../../../lib/solana/clmm/venueEarns';
-import { pairOf, priceAtSqrt, type Pair } from '../../../lib/solana/clmm/rangeMath';
+import { pairOf, priceAtSqrt, type Pair, type TickRange } from '../../../lib/solana/clmm/rangeMath';
 import { CardArt } from '../../ui/CardArt';
 import { FinePrint } from '../../ui/FinePrint';
 import { CoinRiskNotice } from '../lp/LpDisclosures';
@@ -32,16 +33,18 @@ import { useCurveSigner } from '../curve/useCurveSigner';
 import { usePendingTrades, type CheckSignature } from '../curve/usePendingTrades';
 import type { RangeWriteApi, WriteRpc } from '../curve/ports';
 import { RangeOpenCard } from './RangeOpenCard';
+import { RangeDepthChart } from './RangeDepthChart';
+import { useRangePick } from './rangePick';
 import { RangePositionsCard } from './RangePositionsCard';
 import { loadRangeWriteApi } from './rangeWriteApi';
 import { priceText, tokenWord } from './rangeText';
-import { useChainRead, useRangeWrites } from './useRangeData';
+import { useChainRead, useMarketGap, usePoll, useRangeWrites } from './useRangeData';
 import { chipCls } from './editorialUi';
 import { EDITORIAL_INK, HEADING_FONT, pad2 } from '../../../lib/editorial';
 
 /**
  * The Range tab's section: how a range position pays, the pools of one pair (one per fee
- * tier), the range picker and deposit, and the wallet's positions. Everything is read from
+ * tier), the pool's depth (card 03), the range picker and deposit, and the wallet's positions. Everything is read from
  * the range program at the address `clmm/programId.ts` names, over `/api/solrpc`. Writes
  * follow LP's own switch: 'on' opens positions and takes out, 'withdraw-only' only takes
  * out, 'off' fetches no write code at all. `?mint=` picks the token; nothing else is read
@@ -66,6 +69,8 @@ export interface RangeReaders {
   freezeAuthority(mint: string): Promise<Read<MintFreeze>>;
   /** Jupiter's price, refused when it comes through a range pool: the opening's market check. */
   outsidePrice(mint: string, decimals: number, opts?: { fresh?: boolean }): Promise<OutsidePrice>;
+  /** The pool again and its bands near the price, at one slot: the depth chart's read. */
+  bandsWindow(pool: PoolStateView): Promise<Read<BandsWindow>>;
 }
 
 // eslint-disable-next-line react-refresh/only-export-components
@@ -77,6 +82,7 @@ export function browserRangeReaders(rpc: SolanaRpc, programId: PublicKey): Range
     walletPositions: (owner) => readWalletPositions(rpc, programId, new PublicKey(owner)),
     freezeAuthority: (mint) => readFreezeAuthority(rpc, mint),
     outsidePrice: (mint, decimals, o) => readOutsidePrice(mint, decimals, { rpc, programId: ownPoolPrograms([programId.toBase58()]) }, lpFetch({ what: 'Jupiter' }), undefined, o),
+    bandsWindow: (pool) => readBandsWindow(rpc, programId, pool),
   };
 }
 
@@ -118,6 +124,20 @@ export function RangeInner({ readers, load, mode }: { readers: RangeReaders; loa
 
   const owner = signerState.kind === 'disconnected' ? null : signerState.address;
   const positions = useChainRead(owner ? `positions:${owner}` : null, nonce, () => readers.walletPositions(owner!));
+
+  // The range being picked, shared by the chart (03) and the deposit card (04).
+  const pick = useRangePick(pool, pair);
+  const picked: TickRange | null = pick.range && typeof pick.range === 'object' ? pick.range : null;
+  const gap = useMarketGap((mint, decimals) => readers.outsidePrice(mint, decimals), pair, pool?.pool ?? null);
+  // The chart reads once a pool is picked, then every 60 s while the page is in view.
+  const depthPoll = usePoll(60_000, pool !== null);
+  const [depthAgain, setDepthAgain] = useState(0);
+  const depth = useChainRead(pool ? `depth:${pool.pool.address}` : null, nonce + depthPoll + depthAgain, () => readers.bandsWindow(pool!.pool));
+  const positionList = positions.read?.kind === 'ok' ? positions.read.value.positions : null;
+  const myRanges = useMemo(
+    () => (pool && positionList ? positionList.filter((x) => x.pool.address === pool.pool.address).map((x) => ({ tickLower: x.position.tickLowerIndex, tickUpper: x.position.tickUpperIndex })) : []),
+    [pool, positionList],
+  );
 
   const check = useMemo<CheckSignature | null>(
     () => (write ? (sig, lvbh) => write.api.recheckOutcome(writeRpc, sig, { lastValidBlockHeight: lvbh ?? undefined }) : null),
@@ -237,6 +257,22 @@ export function RangeInner({ readers, load, mode }: { readers: RangeReaders; loa
       </Card>
 
       {pool && pair && (
+        <RangeDepthChart
+          key={`depth:${pool.pool.address}`}
+          pool={pool}
+          pair={pair}
+          read={depth.read}
+          onReadAgain={() => setDepthAgain((n) => n + 1)}
+          range={picked}
+          onRange={pick.setEdges}
+          onStart={() => pick.pickPreset('close')}
+          locked={busyBy.open}
+          market={gap && (gap.state === 'agrees' || gap.state === 'disagrees') ? gap.reference : null}
+          positions={myRanges}
+        />
+      )}
+
+      {pool && pair && (
         <RangeOpenCard
           key={pool.pool.address}
           pool={pool}
@@ -252,6 +288,8 @@ export function RangeInner({ readers, load, mode }: { readers: RangeReaders; loa
           held={held || busyBy.positions}
           onBusy={openBusy}
           onFinished={finished}
+          pick={pick}
+          gap={gap}
         />
       )}
 

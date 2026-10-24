@@ -789,6 +789,7 @@ export const SURFACES: Surface[] = [
   { group: 'Pools · Range', pageId: 'range-pools', idx: 1, label: 'Pick a pool' },
   { group: 'Pools · Range', pageId: 'range-pools', idx: 2, label: 'Pick your range (a pool picked)' },
   { group: 'Pools · Range', pageId: 'range-pools', idx: 3, label: 'Your range positions' },
+  { group: 'Pools · Range', pageId: 'range-pools', idx: 4, label: 'Liquidity (the depth chart)' },
 
   // Pools · Venue AMM
   { group: 'Pools · Venue AMM', pageId: 'venue-amm', idx: 3, label: 'For liquidity providers card' },

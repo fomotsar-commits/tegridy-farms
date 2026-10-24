@@ -113,6 +113,7 @@ export interface TickFields {
   feeGrowthOutside0?: bigint;
   feeGrowthOutside1?: bigint;
   ordersAmount?: bigint;
+  partFilledOrdersRemaining?: bigint;
 }
 
 export function encodeTickArray(pool: PublicKey, start: number, spacing: number, ticks: TickFields[]): Uint8Array {
@@ -132,7 +133,8 @@ export function encodeTickArray(pool: PublicKey, start: number, spacing: number,
     w.u128(at + s.feeGrowthOutside0X64, t.feeGrowthOutside0 ?? 0n);
     w.u128(at + s.feeGrowthOutside1X64, t.feeGrowthOutside1 ?? 0n);
     w.u64(at + s.ordersAmount, t.ordersAmount ?? 0n);
-    if (t.liquidityGross > 0n || (t.ordersAmount ?? 0n) > 0n) used++;
+    w.u64(at + s.partFilledOrdersRemaining, t.partFilledOrdersRemaining ?? 0n);
+    if (t.liquidityGross > 0n || (t.ordersAmount ?? 0n) > 0n || (t.partFilledOrdersRemaining ?? 0n) > 0n) used++;
   }
   w.u8(o.initializedTickCount, used);
   return w.d;

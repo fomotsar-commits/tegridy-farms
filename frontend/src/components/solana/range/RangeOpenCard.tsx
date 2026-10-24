@@ -1,19 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useState } from 'react';
 import { PublicKey } from '@solana/web3.js';
 import { parseDecimalToBaseUnits } from '../../../lib/launcher/solana/curve';
-import {
-  depositFrom,
-  holdsNow,
-  parsePrice,
-  planFromCeiling,
-  presetRange,
-  priceAtSqrt,
-  rangeFromPrices,
-  rangePrices,
-  type Pair,
-  type Preset,
-  type TickRange,
-} from '../../../lib/solana/clmm/rangeMath';
+import { depositFrom, holdsNow, planFromCeiling, priceAtSqrt, rangePrices, type Pair, type Preset, type TickRange } from '../../../lib/solana/clmm/rangeMath';
 import type { RangePool } from '../../../lib/solana/clmm/read';
 import { formatSolPrice } from '../../../lib/solana/lp/format';
 import { priceNumber } from '../../../lib/solana/clmm/rangeMath';
@@ -27,22 +15,23 @@ import type { CurveSignerState } from '../curve/useCurveSigner';
 import type { PendingTradesState } from '../curve/usePendingTrades';
 import type { CurveWriteConfig, RangeWriteApi, WriteRpc } from '../curve/ports';
 import type { RangeOpenReads } from '../../../lib/launcher/solana/write/range';
-import { marketGap, type MarketGap } from '../../../lib/solana/clmm/priceCheck';
-import type { OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
+import type { MarketGap } from '../../../lib/solana/clmm/priceCheck';
 import { RangeReviewDisclosure, RangeRisks } from './RangeRisks';
 import { bothAmounts, coinAmount, priceNumberText, priceText, tokenAmount, tokenName, tokenWord } from './rangeText';
 import { useFlowReports } from './useRangeData';
 import { RangeStrip } from './RangeStrip';
 import { FIELD_CLS, FIELD_LABEL_CLS, chipCls } from './editorialUi';
+import type { RangePick } from './rangePick';
 
 const TOLERANCE_HINT =
   'Your deposit takes at most this much more of either coin than shown. If the price moves enough to need more before it runs, it is refused and only the network fee is spent.';
 
 /**
- * Pick a range and put liquidity in it. The presets and the two prices give a range of
- * usable ticks (rangeMath.ts), from this pool's price, shown beside the market's. The typed
- * amount of ONE coin is the most the deposit takes of it: a fixed liquidity is planned from
- * it less the tolerance, both coins capped. Review reads the pool again and test-runs it.
+ * Pick a range and put liquidity in it. The presets, the two prices and the chart's edges
+ * (card 03, through `pick`) give a range of usable ticks (rangeMath.ts), from this pool's
+ * price, shown beside the market's (`gap`). The typed amount of ONE coin is the most the
+ * deposit takes of it: a liquidity is planned from it less the tolerance, both coins capped.
+ * Review reads the pool again and test-runs it.
  */
 export function RangeOpenCard(p: {
   pool: RangePool;
@@ -58,12 +47,12 @@ export function RangeOpenCard(p: {
   held: boolean;
   onBusy: (busy: boolean) => void;
   onFinished: () => void;
+  pick: RangePick;
+  /** This pool's price against the market's, read once per pool and price; null while reading. */
+  gap: MarketGap | null;
 }) {
-  const { pool, pair } = p;
+  const { pool, pair, gap } = p;
   const v = pool.pool;
-  const [preset, setPreset] = useState<Preset | null>(null);
-  const [minText, setMinText] = useState('');
-  const [maxText, setMaxText] = useState('');
   const [chosenSide, setChosenSide] = useState<'token' | 'coin'>('token');
   const [amountText, setAmountText] = useState('');
   const [tolerance, setTolerance] = useState<bigint | null>(DEFAULT_SLIPPAGE_BPS);
@@ -75,24 +64,6 @@ export function RangeOpenCard(p: {
   };
 
   const now = priceAtSqrt(pair, v.sqrtPriceX64);
-  // The market's price beside this pool's own, read when the pool is picked (Review asks again, fresh).
-  // Kept with the pool and price it was read for, so a stale answer is never shown for another.
-  const gapKey = `${v.address}:${v.sqrtPriceX64}`;
-  const [read, setRead] = useState<{ key: string; gap: MarketGap } | null>(null);
-  const gap = read?.key === gapKey ? read.gap : null;
-  const reads = p.reads;
-  useEffect(() => {
-    let live = true;
-    const pr = pair;
-    const ask = (mint: string, decimals: number) =>
-      reads.outsidePrice(mint, decimals).catch((e: unknown): OutsidePrice => ({ kind: 'unread', detail: e instanceof Error ? e.message : String(e) }));
-    void Promise.all([ask(pr.tokenMint, pr.tokenDecimals), pr.quote.native ? Promise.resolve(null) : ask(pr.quote.mint, pr.quote.decimals)]).then(([token, coin]) => {
-      if (live) setRead({ key: `${v.address}:${v.sqrtPriceX64}`, gap: marketGap(pr, v.sqrtPriceX64, token, coin) });
-    });
-    return () => {
-      live = false;
-    };
-  }, [reads, pair, v.address, v.sqrtPriceX64]);
   const marketText =
     gap === null
       ? 'reading…'
@@ -101,14 +72,7 @@ export function RangeOpenCard(p: {
         : gap.state === 'unread'
           ? `could not be read just now (${gap.detail})`
           : priceNumberText(pair, gap.reference);
-  const range = useMemo(() => {
-    if (preset) return presetRange(pair, v, preset);
-    const min = parsePrice(minText);
-    const max = parsePrice(maxText);
-    if (!minText && !maxText) return null;
-    if (!min || !max) return 'unreadable-price' as const;
-    return rangeFromPrices(pair, min, max);
-  }, [preset, minText, maxText, pair, v]);
+  const { preset, minText, maxText, range } = p.pick;
   const r: TickRange | null = range && typeof range === 'object' ? range : null;
   const holds = r ? holdsNow(pair, v, r) : null;
   const side = holds === 'token-only' ? 'token' : holds === 'coin-only' ? 'coin' : chosenSide;
@@ -117,15 +81,7 @@ export function RangeOpenCard(p: {
   // Planned as the builder plans it, so the card and the review show one figure.
   const plan = r && amount !== null && amount > 0n ? depositFrom(pair, v, r, side, planFromCeiling(amount, Number(tolerance ?? 0n))) : null;
 
-  const pick = (to: Preset) => {
-    const pr = presetRange(pair, v, to);
-    setPreset(to);
-    if (typeof pr === 'object') {
-      const prices = rangePrices(pair, pr);
-      setMinText(formatSolPrice(priceNumber(prices.min)));
-      setMaxText(formatSolPrice(priceNumber(prices.max)));
-    }
-  };
+  const pick = (to: Preset) => p.pick.pickPreset(to);
   const PRESETS: { id: Preset; label: string }[] = [
     { id: 'close', label: 'Close to this pool’s price' },
     { id: 'wide', label: 'Wide' },
@@ -156,7 +112,7 @@ export function RangeOpenCard(p: {
           : null;
 
   return (
-    <Card title="Pick your range" testId="range-open" index={3} art={<CardArt pageId="range-pools" idx={2} />}>
+    <Card title="Pick your range" testId="range-open" index={4} art={<CardArt pageId="range-pools" idx={2} />}>
       <Row label="This pool’s price now" value={priceText(pair, now)} mono={false} />
       <Row label="Market price (Jupiter)" value={marketText} mono={false} />
       {gap?.state === 'disagrees' && (
@@ -202,10 +158,7 @@ export function RangeOpenCard(p: {
             autoComplete="off"
             className={FIELD_CLS}
             value={minText}
-            onChange={(e) => {
-              setPreset(null);
-              setMinText(e.target.value);
-            }}
+            onChange={(e) => p.pick.typeMin(e.target.value)}
           />
         </label>
         <label className="block">
@@ -215,10 +168,7 @@ export function RangeOpenCard(p: {
             autoComplete="off"
             className={FIELD_CLS}
             value={maxText}
-            onChange={(e) => {
-              setPreset(null);
-              setMaxText(e.target.value);
-            }}
+            onChange={(e) => p.pick.typeMax(e.target.value)}
           />
         </label>
       </div>
