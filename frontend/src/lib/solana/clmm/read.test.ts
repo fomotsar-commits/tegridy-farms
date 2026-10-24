@@ -5,7 +5,7 @@ import type { SolanaRpc } from '../../launcher/solana/curve/rpc';
 import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from '../cpswap/ix';
 import { getDeltaAmountsSigned, getSqrtPriceAtTick } from './math';
 import { decodePoolState, deriveAmmConfig, deriveObservation, derivePersonalPosition, derivePool, deriveTickArray, deriveVault, sortMints } from './program';
-import { encodeAmmConfig, encodePool, encodePosition, encodeTickArray } from './encode.fixture';
+import { encodeAmmConfig, encodePool, encodePosition, encodeTickArray, type RewardFields } from './encode.fixture';
 import { positionNeedsExtension, rangeStatus, readBandsNear, readFeeTiers, readFreezeAuthority, readPairPools, readWalletPositions } from './read';
 import { encodeMint } from '../../launcher/solana/write/testkit.fixture';
 
@@ -63,14 +63,22 @@ const CONFIG0 = deriveAmmConfig(PROG, 0);
 const CONFIG1 = deriveAmmConfig(PROG, 1);
 const POOL = derivePool(PROG, CONFIG0, M0, M1);
 
-function poolData(o: { config?: PublicKey; tick?: number; feeGrowth0?: bigint; bits?: number[] } = {}) {
+function poolData(o: { config?: PublicKey; tick?: number; feeGrowth0?: bigint; bits?: number[]; rewards?: RewardFields[] } = {}) {
   return encodePool({
     ammConfig: o.config ?? CONFIG0, mint0: M0, mint1: M1,
     vault0: deriveVault(PROG, POOL, M0), vault1: deriveVault(PROG, POOL, M1), observation: deriveObservation(PROG, POOL),
     decimals0: 9, decimals1: 6, tickSpacing: SPACING, liquidity: 10n ** 12n,
     sqrtPriceX64: o.tick === undefined ? SQRT : getSqrtPriceAtTick(o.tick), tickCurrent: o.tick ?? TICK,
-    feeGrowth0: o.feeGrowth0, bitmapBits: o.bits,
+    feeGrowth0: o.feeGrowth0, bitmapBits: o.bits, rewards: o.rewards,
   });
+}
+
+const CLOCK = new PublicKey('SysvarC1ock11111111111111111111111111111111');
+const SYSVAR = new PublicKey('Sysvar1111111111111111111111111111111111111');
+function clockAt(unix: bigint): Acct {
+  const d = new Uint8Array(40);
+  new DataView(d.buffer).setBigInt64(32, unix, true);
+  return { owner: SYSVAR, data: d };
 }
 
 function withTiers(): Chain {
@@ -147,9 +155,9 @@ describe("a wallet's positions", () => {
   const UPPER = 1_200;
   const L = 5_000_000_000n;
 
-  function walletWith(o: { band?: boolean; pool?: boolean; feeGrowth0?: bigint } = {}) {
+  function walletWith(o: { band?: boolean; pool?: boolean; feeGrowth0?: bigint; rewards?: RewardFields[] } = {}) {
     const c = withTiers();
-    if (o.pool !== false) c.set(POOL, { owner: PROG, data: poolData({ feeGrowth0: o.feeGrowth0 ?? 3n * Q64 }) });
+    if (o.pool !== false) c.set(POOL, { owner: PROG, data: poolData({ feeGrowth0: o.feeGrowth0 ?? 3n * Q64, rewards: o.rewards }) });
     if (o.band !== false) {
       c.set(deriveTickArray(PROG, POOL, -7_200), { owner: PROG, data: encodeTickArray(POOL, -7_200, SPACING, [{ tick: LOWER, liquidityNet: L, liquidityGross: L }]) });
       c.set(deriveTickArray(PROG, POOL, 0), { owner: PROG, data: encodeTickArray(POOL, 0, SPACING, [{ tick: UPPER, liquidityNet: -L, liquidityGross: L }]) });
@@ -183,8 +191,47 @@ describe("a wallet's positions", () => {
     expect(p.amounts).toEqual({ amount0: a0, amount1: a1 });
     // Inside the range the whole pool's growth counts: (3 - 1) per unit of liquidity since its last update.
     expect(p.fees).toEqual({ fee0: 7n + 2n * L, fee1: 11n });
-    expect(p.rewardsOwed).toEqual([0n, 0n, 0n]);
+    expect(p.rewards).toEqual([]);
     expect(c.calls).not.toContain('getProgramAccounts');
+  });
+
+  // A reward of 2 BAYLA a second (6 decimals) since 1,000 s, last brought up to date at 1,100 s.
+  const REWARD_MINT = Keypair.generate().publicKey;
+  const running: RewardFields = { mint: REWARD_MINT, vault: Keypair.generate().publicKey, openTime: 1_000n, endTime: 100_000n, lastUpdateTime: 1_100n, emissionsPerSecondX64: 2_000_000n << 64n, growthGlobalX64: Q64 };
+
+  it('a running reward is worked out to the chain’s own clock, read in the same batch as the pool and its bands, with its coin’s decimals', async () => {
+    const { c } = walletWith({ rewards: [running] });
+    c.set(CLOCK, clockAt(1_400n));
+    c.set(REWARD_MINT, { owner: TOKEN_PROGRAM_ID, data: encodeMint({ decimals: 6 }) });
+    const r = await readWalletPositions(c.rpc, PROG, ME);
+    if (r.kind !== 'ok') throw new Error(r.detail);
+    const p = r.value.positions[0]!;
+    // 300 s at 2 coins a second over the pool's liquidity, plus the 1 per unit the counter already held; the
+    // position was last changed at growth 0 and holds L of the pool's 10^12.
+    const growth = Q64 + (300n * (2_000_000n << 64n)) / 10n ** 12n;
+    expect(p.rewards).toEqual([{ index: 0, mint: REWARD_MINT.toBase58(), owed: (growth * L) / Q64, decimals: 6 }]);
+    expect(p.chainTime).toBe(1_400n);
+    // Token accounts twice, then three batches: the records, the pools, then everything the sums need together.
+    expect(c.calls.filter((m) => m === 'getMultipleAccounts')).toHaveLength(3);
+  });
+
+  it('with the Clock unread a running reward could not be worked out: null, never 0', async () => {
+    const { c } = walletWith({ rewards: [running] });
+    const r = await readWalletPositions(c.rpc, PROG, ME);
+    if (r.kind !== 'ok') throw new Error(r.detail);
+    expect(r.value.positions[0]!.rewards).toBeNull();
+    expect(r.value.positions[0]!.chainTime).toBeNull();
+    // The fees do not need the clock.
+    expect(r.value.positions[0]!.fees).not.toBeNull();
+  });
+
+  it('a reward coin whose mint did not read still has its amount, with no decimals to read it by', async () => {
+    const { c } = walletWith({ rewards: [running] });
+    c.set(CLOCK, clockAt(1_400n));
+    const r = await readWalletPositions(c.rpc, PROG, ME);
+    if (r.kind !== 'ok') throw new Error(r.detail);
+    expect(r.value.positions[0]!.rewards![0]!.decimals).toBeNull();
+    expect(r.value.positions[0]!.rewards![0]!.owed > 0n).toBe(true);
   });
 
   it('when a band holding one of its ends does not read, the fees are unknown, not zero', async () => {

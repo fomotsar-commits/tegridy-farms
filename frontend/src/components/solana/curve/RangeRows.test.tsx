@@ -102,7 +102,7 @@ describe('the range review’s fee lines', () => {
   it('a removal’s notices stay among its rows: nothing on a removal gives a reason to wait', () => {
     const removal: RangeSummary = {
       ...(opening({ owner: PLATFORM_TREASURY_VAULT.toBase58(), fundOwner: WORKSHOP_WALLET.toBase58() }) as Extract<RangeSummary, { kind: 'range-open' }>),
-      kind: 'range-remove', position: key(9), percent: 50, liquidity: 1n, min: { token: 1n, quote: 1n }, quoted: { token: 1n, quote: 1n }, fees: null, notices: ['A notice about your account.'],
+      kind: 'range-remove', position: key(9), percent: 50, liquidity: 1n, min: { token: 1n, quote: 1n }, quoted: { token: 1n, quote: 1n }, fees: null, rewards: [], notices: ['A notice about your account.'],
     } as unknown as RangeSummary;
     render(<TxReview prepared={prepared(removal)} decimals={6} display={(x) => x} />);
     expect(screen.queryByTestId('tx-review-warnings')).toBeNull();
@@ -127,5 +127,28 @@ describe('the range review’s fee lines', () => {
     review({ owner: PLATFORM_TREASURY_VAULT.toBase58(), fundOwner: WORKSHOP_WALLET.toBase58() });
     expect(screen.queryByTestId('tx-review-venue-elsewhere')).toBeNull();
     expect(screen.getByText(/The venue’s cut is split: 10\.4% of each fee/)).toBeInTheDocument();
+  });
+});
+
+describe('a collect’s review', () => {
+  const collect = (rewards: Extract<RangeSummary, { kind: 'range-remove' | 'range-close' }>['rewards']): RangeSummary => ({
+    ...(opening({ owner: PLATFORM_TREASURY_VAULT.toBase58(), fundOwner: WORKSHOP_WALLET.toBase58() }) as Extract<RangeSummary, { kind: 'range-open' }>),
+    kind: 'range-remove', position: key(9), percent: 0, liquidity: 0n, min: { token: 0n, quote: 0n }, quoted: { token: 0n, quote: 0n },
+    fees: { token: 0n, quote: 0n }, rewards, unwrapsWsol: true, notices: [],
+  }) as unknown as RangeSummary;
+
+  it('says each reward it pays, in its coin, and that it takes out the fees and rewards only', () => {
+    render(<RangeRows summary={collect([{ mint: new PublicKey('7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump'), amount: 48_200_000n, decimals: 6 }])} />);
+    expect(screen.getByText('Rewards it pays').parentElement).toHaveTextContent('48.2 BAYLA');
+    expect(screen.getByText('no liquidity: the fees and rewards only')).toBeInTheDocument();
+  });
+
+  it('a reward that could not be worked out is said, never 0; a pool with none says fees only', () => {
+    const { unmount } = render(<RangeRows summary={collect(null)} />);
+    expect(screen.getByText('Rewards it pays').parentElement).toHaveTextContent('could not be worked out just now; what it is owed is paid out all the same');
+    unmount();
+    render(<RangeRows summary={collect([])} />);
+    expect(screen.queryByText('Rewards it pays')).toBeNull();
+    expect(screen.getByText('no liquidity: the fees only')).toBeInTheDocument();
   });
 });

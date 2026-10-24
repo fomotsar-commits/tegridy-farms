@@ -16,7 +16,7 @@ import { quoteCoin, type QuoteCoin } from '../../../solana/lp/quotes';
 import { BUILDABLE_EXTENSIONS, decodeMintAccount, extensionPlain, freezeWarning } from '../../../solana/lp/tokenSafety';
 import type { RawAccount } from '../../../solana/lp/accounts';
 import type { OutsidePrice } from '../../../solana/lp/outsidePrice';
-import { tokenVault } from '../../../solana/lp/poolFinder';
+import { CLOCK_SYSVAR, chainTimeOf, tokenVault } from '../../../solana/lp/poolFinder';
 import { tokenAccountSize } from '../../../solana/lp/tokenAccountSize';
 import { rangePriceCheck } from '../../../solana/clmm/priceCheck';
 import { closePositionIx, decreaseLiquidityV2Ix, openPositionWithToken22NftIx, positionNftAccount } from '../../../solana/clmm/ix';
@@ -39,6 +39,7 @@ import {
 import { getArrayStartIndex } from '../../../solana/clmm/bitmap';
 import { depositFrom, holdsNow, lessTolerance, pairOf, planFromCeiling, priceNumber, rangePrices, withTolerance, type Pair, type TickRange } from '../../../solana/clmm/rangeMath';
 import { poolFeeCeiling } from '../../../solana/clmm/feeText';
+import { positionRewardsAt, type RewardOwed } from '../../../solana/clmm/rewards';
 import { MAX_OWN_PRIORITY_LAMPORTS } from './budget';
 import { LP_COPY, accountCheck, coinAccount, rentOf, toRaw, type AccountWant } from './liquidity';
 import { bodySteps, buildAndSimulate, notSent } from './prepare';
@@ -80,6 +81,8 @@ export const RANGE_COPY = {
     `The outside price could not be read just now (${why}), so this pool’s price was not checked against it. Anyone can open a range pool at any price.`,
   removingPaused: 'Taking liquidity out of this pool is switched off by the venue’s vault right now.',
   collectingPaused: 'Collecting fees from this pool is switched off by the venue’s vault right now.',
+  rewardsPaused: 'Collecting rewards from this pool is switched off by the venue’s vault right now.',
+  rewardVaultShort: (paid: string) => `A reward’s vault holds less than this position is owed, so it pays ${paid} now and the rest stays owed.`,
   badRange: 'That range is not one a position may use in this pool.',
   buysNothing: 'That amount buys nothing in this range: a range above the price takes the token only, and one below it takes the pairing coin only.',
   noTokenAccount: (address: string) => LP_COPY.noTokenAccount(address),
@@ -87,7 +90,7 @@ export const RANGE_COPY = {
   short: (need: string, have: string) => LP_COPY.overBalance(need, have),
   notAPosition: 'This address is not a range position of this venue.',
   notYourNft: 'The position’s NFT is not in your wallet’s own account for it, so this site cannot take it out for you.',
-  nothingToTake: 'There is nothing in this position to take out, and no fees to collect.',
+  nothingToTake: 'There is nothing in this position to take out, and no fees or rewards to collect.',
   badPercent: 'Choose how much to take out: from 0% (fees only) to 100%.',
   badTolerance: 'The price tolerance must be from 0% to 50%.',
 } as const;
@@ -590,7 +593,7 @@ async function prepareDecrease(rpc: WriteRpc, cfg: CurveWriteConfig, programId: 
   const bandKeys = [...new Set([getArrayStartIndex(peekPos.tickLowerIndex, peekPool.tickSpacing), getArrayStartIndex(peekPos.tickUpperIndex, peekPool.tickSpacing)])].map((s) =>
     deriveTickArray(programId, poolKey, s),
   );
-  const extra = [a.position, nftAccount, a.owner, ...liveRewards.map((r) => new PublicKey(r.tokenVault)), ...bandKeys];
+  const extra = [a.position, nftAccount, a.owner, ...liveRewards.map((r) => new PublicKey(r.tokenVault)), ...bandKeys, new PublicKey(CLOCK_SYSVAR)];
   const fresh = await readFresh(rpc, programId, poolKey, new PublicKey(peekPool.ammConfig), [new PublicKey(peekPool.tokenMint0), new PublicKey(peekPool.tokenMint1)], extra);
   if (!fresh) return notSent('build', RANGE_COPY.readFailed);
   if (!deployed(fresh.program)) return notSent('build', RANGE_COPY.notDeployed);
@@ -598,7 +601,8 @@ async function prepareDecrease(rpc: WriteRpc, cfg: CurveWriteConfig, programId: 
   if (typeof pool === 'string') return notSent('build', pool);
   const [posRaw, nftRaw] = fresh.extra as [RawAccount | null, RawAccount | null];
   const rewardRaw = fresh.extra.slice(3, 3 + liveRewards.length);
-  const bandRaw = fresh.extra.slice(3 + liveRewards.length);
+  const bandRaw = fresh.extra.slice(3 + liveRewards.length, 3 + liveRewards.length + bandKeys.length);
+  const now = chainTimeOf(fresh.extra[3 + liveRewards.length + bandKeys.length] ?? null);
   if (!posRaw || posRaw.owner !== programId.toBase58()) return notSent('build', RANGE_COPY.notAPosition);
   const position = decodePersonalPosition(a.position.toBase58(), posRaw.data) as PersonalPositionView | null;
   if (!position || position.poolId !== pool.address || position.nftMint !== nftMint.toBase58()) return notSent('build', RANGE_COPY.notAPosition);
@@ -618,7 +622,7 @@ async function prepareDecrease(rpc: WriteRpc, cfg: CurveWriteConfig, programId: 
   // 2. How much, and the floors.
   const liquidity = kind === 'range-close' ? position.liquidity : (position.liquidity * BigInt(a.percent)) / 100n;
   if (liquidity > 0n && !poolAllows(pool, POOL_STATUS_BIT.decreaseLiquidity)) return notSent('build', RANGE_COPY.removingPaused);
-  if (liquidity === 0n && !poolAllows(pool, POOL_STATUS_BIT.collectFee)) return notSent('build', RANGE_COPY.collectingPaused);
+  if (kind === 'range-close' && liquidity === 0n && !poolAllows(pool, POOL_STATUS_BIT.collectFee)) return notSent('build', RANGE_COPY.collectingPaused);
   let amounts: [bigint, bigint];
   try {
     amounts = liquidity > 0n ? getDeltaAmountsSigned(pool.tickCurrent, pool.sqrtPriceX64, position.tickLowerIndex, position.tickUpperIndex, -liquidity) : [0n, 0n];
@@ -628,13 +632,25 @@ async function prepareDecrease(rpc: WriteRpc, cfg: CurveWriteConfig, programId: 
   }
   const min0 = liquidity > 0n ? lessTolerance(amounts[0], a.toleranceBps) : 0n;
   const min1 = liquidity > 0n ? lessTolerance(amounts[1], a.toleranceBps) : 0n;
-  const fees = feesNow(pool, position, bandRaw.map((b) => (b && b.owner === programId.toBase58() ? decodeTickArray('', b.data) : null)));
+  // What the take-out pays, as the program works it out: fees and rewards are brought up to
+  // date only while removal is on (decrease_liquidity.rs); otherwise the record's own figures.
+  const bands = bandRaw.map((b) => (b && b.owner === programId.toBase58() ? decodeTickArray('', b.data) : null));
+  const accrues = poolAllows(pool, POOL_STATUS_BIT.decreaseLiquidity);
+  const fees: [bigint, bigint] | null = accrues ? feesNow(pool, position, bands) : [position.tokenFeesOwed0, position.tokenFeesOwed1];
+  const rewards = accrues ? rewardsNow(pool, position, bands, now) : positionRewardsAt(pool, { ...position, liquidity: 0n }, null, null, null);
+  const rewardsOwed = rewards ? rewards.map((r) => r.owed) : null;
+  const known0 = (v: bigint[] | null) => v !== null && v.every((x) => x === 0n);
   // Closing needs every reward owed collected first, and a pool whose rewards cannot be collected now cannot do that.
-  if (kind === 'range-close' && pins.rewards.length === 0 && position.rewardInfos.some((r) => r.rewardAmountOwed > 0n)) {
-    return notSent('build', RANGE_COPY.collectingPaused);
+  if (kind === 'range-close' && pins.rewards.length === 0 && (rewardsOwed ?? position.rewardInfos.map((r) => r.rewardAmountOwed)).some((x) => x > 0n)) {
+    return notSent('build', RANGE_COPY.rewardsPaused);
   }
-  if (kind === 'range-remove' && liquidity === 0n && fees && fees[0] === 0n && fees[1] === 0n && position.rewardInfos.every((r) => r.rewardAmountOwed === 0n)) {
-    return notSent('build', RANGE_COPY.nothingToTake);
+  // A collect of nothing still costs a network fee: refused when what it would pay is known to be zero.
+  if (kind === 'range-remove' && liquidity === 0n) {
+    const feesPaid = poolAllows(pool, POOL_STATUS_BIT.collectFee) ? fees : [0n, 0n];
+    const rewardsPaid = pins.rewards.length > 0 ? rewardsOwed : [];
+    if (known0(feesPaid) && known0(rewardsPaid)) {
+      return notSent('build', !known0(fees) ? RANGE_COPY.collectingPaused : !known0(rewardsOwed) ? RANGE_COPY.rewardsPaused : RANGE_COPY.nothingToTake);
+    }
   }
 
   // 3. Where it goes: the signer's own accounts, opened if missing.
@@ -651,6 +667,25 @@ async function prepareDecrease(rpc: WriteRpc, cfg: CurveWriteConfig, programId: 
   const [tokenAcc, coinAcc] = accounts as [RawAccount | null, RawAccount | null];
   const rewardMintRaw = accounts.slice(2 + rewardRecipients.length);
   const notices: string[] = [];
+  if (!poolAllows(pool, POOL_STATUS_BIT.collectFee) && fees && !known0(fees)) notices.push(`${RANGE_COPY.collectingPaused} Its fees stay owed to it.`);
+  if (pins.rewards.length === 0 && !known0(rewardsOwed) && rewardsOwed !== null) notices.push(`${RANGE_COPY.rewardsPaused} Its rewards stay owed to it.`);
+  // Each reward pays what is owed, or what its vault holds if that is less (decrease_liquidity.rs collect_rewards).
+  let rewardsPays: RewardPaid[] | null = [];
+  for (const [i, pin] of pins.rewards.entries()) {
+    const owed = rewards?.find((r) => r.mint === pin.mint.toBase58())?.owed;
+    if (owed === undefined) {
+      rewardsPays = null;
+      break;
+    }
+    const held = tokenAmountOf(rewardRaw[i] ?? null);
+    const m = rewardMintRaw[i];
+    const d = m ? decodeMintAccount(m.owner, m.data) : null;
+    rewardsPays.push({ mint: pin.mint, owed, amount: owed < held ? owed : held, decimals: d?.ok ? d.value.decimals : null });
+  }
+  for (const r of rewardsPays ?? []) {
+    const paid = r.decimals === null ? `${r.amount} smallest units` : formatTokenAmount(r.amount, r.decimals, r.decimals).text;
+    if (r.amount < r.owed) notices.push(RANGE_COPY.rewardVaultShort(`${paid} of the coin at ${r.mint.toBase58()}`));
+  }
   const tokenCheck = accountCheck(tokenAcc, tokenSide.want);
   if (tokenCheck.refuse) return notSent('build', tokenCheck.refuse);
   notices.push(...tokenCheck.notices);
@@ -743,9 +778,10 @@ async function prepareDecrease(rpc: WriteRpc, cfg: CurveWriteConfig, programId: 
       const tokenRow = { account: tokenSide.address, mint: pins.tokenMint, minDelta: min.token, maxDelta: 2n ** 64n };
       const rent = openedRent(pre);
       if (!wsol) return { maxSolOut: rent, tokens: [tokenRow, { account: coinSide.address, mint: new PublicKey(pins.quote.mint), minDelta: min.quote, maxDelta: 2n ** 64n }] };
-      // SOL out of the position: closed, it arrives as plain SOL; kept, as wrapped SOL.
+      // SOL out of the position: closed, it arrives as plain SOL, less the deposits of accounts
+      // this opens (a reward's, say), so the bound may sit below zero; kept, as wrapped SOL.
       return wsol.closeAfter
-        ? { maxSolOut: rent, minSolIn: min.quote > rent ? min.quote - rent : 0n, tokens: [tokenRow, { account: wsol.ata, mint: WSOL_MINT, minDelta: 0n, maxDelta: 0n }] }
+        ? { maxSolOut: rent, minSolIn: min.quote - rent, tokens: [tokenRow, { account: wsol.ata, mint: WSOL_MINT, minDelta: 0n, maxDelta: 0n }] }
         : { maxSolOut: rent, tokens: [tokenRow, { account: wsol.ata, mint: WSOL_MINT, minDelta: min.quote, maxDelta: 2n ** 64n }] };
     },
     newAccountRent: (pre) => openedRent(pre),
@@ -767,6 +803,7 @@ async function prepareDecrease(rpc: WriteRpc, cfg: CurveWriteConfig, programId: 
         min,
         quoted,
         fees: feesSides,
+        rewards: rewardsPays && rewardsPays.map((r) => ({ mint: r.mint, amount: r.amount, decimals: r.decimals })),
         unwrapsWsol: wsol?.closeAfter ?? false,
         notices,
         poolLine: poolLine(pins, pair, tier, pool),
@@ -776,16 +813,26 @@ async function prepareDecrease(rpc: WriteRpc, cfg: CurveWriteConfig, programId: 
   });
 }
 
+type BandView = ReturnType<typeof decodeTickArray>;
+type RewardPaid = { mint: PublicKey; owed: bigint; amount: bigint; decimals: number | null };
+
+/** The tick `t` from the bands read, or null when its band did not read. */
+function tickIn(pool: PoolStateView, bands: (BandView | null)[], t: number) {
+  const band = bands.find((b) => b && b.startTickIndex === getArrayStartIndex(t, pool.tickSpacing));
+  const tick = band?.ticks[(t - band.startTickIndex) / pool.tickSpacing];
+  return tick && tick.tick === t ? tick : null;
+}
+
+/** Each running reward and what the position is owed of it at the chain's time `now` (rewards.ts); null when that could not be worked out. */
+function rewardsNow(pool: PoolStateView, p: PersonalPositionView, bands: (BandView | null)[], now: bigint | null): RewardOwed[] | null {
+  return positionRewardsAt(pool, p, tickIn(pool, bands, p.tickLowerIndex), tickIn(pool, bands, p.tickUpperIndex), now);
+}
+
 /** A position's fees owed now: as of its last update, plus what built up since. Null when its bands did not read. */
-function feesNow(pool: PoolStateView, p: PersonalPositionView, bands: (ReturnType<typeof decodeTickArray> | null)[]): [bigint, bigint] | null {
+function feesNow(pool: PoolStateView, p: PersonalPositionView, bands: (BandView | null)[]): [bigint, bigint] | null {
   if (p.liquidity === 0n) return [p.tokenFeesOwed0, p.tokenFeesOwed1];
-  const tickOf = (t: number) => {
-    const band = bands.find((b) => b && b.startTickIndex === getArrayStartIndex(t, pool.tickSpacing));
-    const tick = band?.ticks[(t - band.startTickIndex) / pool.tickSpacing];
-    return tick && tick.tick === t ? tick : null;
-  };
-  const lower = tickOf(p.tickLowerIndex);
-  const upper = tickOf(p.tickUpperIndex);
+  const lower = tickIn(pool, bands, p.tickLowerIndex);
+  const upper = tickIn(pool, bands, p.tickUpperIndex);
   if (!lower || !upper) return null;
   try {
     const [g0, g1] = getFeeGrowthInside(lower, upper, pool.tickCurrent, pool.feeGrowthGlobal0X64, pool.feeGrowthGlobal1X64);

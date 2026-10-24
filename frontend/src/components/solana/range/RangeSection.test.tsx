@@ -72,10 +72,10 @@ function poolOn(config: AmmConfigView): RangePool {
   return { pool: decodePoolState(POOL.toBase58(), data)!, config };
 }
 
-function positionOf(o: { n: number; lower: number; upper: number; status: WalletPosition['status']; fees: WalletPosition['fees']; liquidity?: bigint; nftProgram?: WalletPosition['nftProgram'] }, rp: RangePool): WalletPosition {
+function positionOf(o: { n: number; lower: number; upper: number; status: WalletPosition['status']; fees: WalletPosition['fees']; liquidity?: bigint; nftProgram?: WalletPosition['nftProgram']; rewards?: WalletPosition['rewards']; chainTime?: bigint | null }, rp: RangePool): WalletPosition {
   const nft = key(40 + o.n);
   const position = decodePersonalPosition(key(60 + o.n).toBase58(), encodePosition({ nftMint: nft, pool: POOL, tickLower: o.lower, tickUpper: o.upper, liquidity: o.liquidity ?? 10n ** 9n }))!;
-  return { position, nftAccount: key(80 + o.n).toBase58(), nftProgram: o.nftProgram ?? 'token-2022', pool: rp.pool, config: rp.config, status: o.status, amounts: { amount0: 1_000_000n, amount1: 2_000_000_000n }, fees: o.fees, rewardsOwed: [0n, 0n, 0n] };
+  return { position, nftAccount: key(80 + o.n).toBase58(), nftProgram: o.nftProgram ?? 'token-2022', pool: rp.pool, config: rp.config, status: o.status, amounts: { amount0: 1_000_000n, amount1: 2_000_000_000n }, fees: o.fees, rewards: o.rewards === undefined ? [] : o.rewards, chainTime: o.chainTime ?? null };
 }
 
 const cfg: CurveWriteConfig = { programId: key(9), cpSwapProgram: key(10), cluster: 'localnet' } as CurveWriteConfig;
@@ -423,7 +423,7 @@ describe('your positions', () => {
     expect(card.textContent).toContain('Connect a wallet to see the range positions it holds.');
   });
 
-  it('says in range or not, the fees, and offers Claim, Remove and Close; a fee it could not work out is said, never zero', async () => {
+  it('says in range or not, the fees, and offers Collect, Remove and Close; a fee it could not work out is said, never zero', async () => {
     wallet.publicKey = ME;
     wallet.signTransaction = vi.fn();
     const rp = poolOn(tier());
@@ -448,13 +448,13 @@ describe('your positions', () => {
     expect(rows).toHaveLength(2);
     expect(rows[0]!.textContent).toContain('In range: earning fees now.');
     expect(rows[1]!.textContent).toContain('Out of range (the price is below it): earning nothing until the price comes back into it.');
-    expect(rows[1]!.textContent).toContain('could not be worked out just now; Claim pays them in full all the same');
+    expect(rows[1]!.textContent).toContain('could not be worked out just now; Collect pays them in full all the same');
     expect(card.textContent).toContain(`A position (${key(99).toBase58()}) could not be read just now`);
-    // Claim asks for a take of nothing; Close for the closing.
-    const claim = within(rows[0]!).getByRole('button', { name: 'Claim fees' });
+    // Collect asks for a take-out of nothing; Close for the closing.
+    const claim = within(rows[0]!).getByRole('button', { name: 'Collect' });
     await waitFor(() => expect((claim as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(claim);
-    fireEvent.click(within(rows[0]!).getByRole('button', { name: 'Review: claim fees' }));
+    fireEvent.click(within(rows[0]!).getByRole('button', { name: 'Review: collect' }));
     await waitFor(() => expect(api.prepareRangeRemove).toHaveBeenCalledTimes(1));
     expect(vi.mocked(api.prepareRangeRemove).mock.calls[0]![3]).toMatchObject({ percent: 0 });
   });
@@ -467,9 +467,9 @@ describe('your positions', () => {
     const w = positionOf({ n: 3, lower: -1200, upper: 1200, status: 'in-range', fees: { fee0: 0n, fee1: 0n } }, rp);
     show(readers({ positions: { kind: 'ok', value: { positions: [w], unread: [] } } }), api);
     const row = await screen.findByTestId('range-position');
-    // No fees earned: nothing to claim.
+    // No fees earned and no reward on the pool: nothing to collect.
     await waitFor(() => expect((within(row).getByRole('button', { name: 'Close' }) as HTMLButtonElement).disabled).toBe(false));
-    expect((within(row).getByRole('button', { name: 'Claim fees' }) as HTMLButtonElement).disabled).toBe(true);
+    expect((within(row).getByRole('button', { name: 'Collect' }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(within(row).getByRole('button', { name: 'Close' }));
     fireEvent.click(within(row).getByRole('button', { name: 'Review: close the position' }));
     await waitFor(() => expect(api.prepareRangeClose).toHaveBeenCalledTimes(1));
@@ -486,7 +486,53 @@ describe('your positions', () => {
     expect(row).toHaveTextContent(w.position.address);
     expect(row).toHaveTextContent('This position’s NFT is a classic SPL token, and this site takes out only positions whose NFT is a Token-2022 one');
     expect(row).toHaveTextContent('It is still yours');
-    for (const name of ['Claim fees', 'Remove', 'Close']) expect(within(row).queryByRole('button', { name })).toBeNull();
+    for (const name of ['Collect', 'Remove', 'Close']) expect(within(row).queryByRole('button', { name })).toBeNull();
+  });
+
+  it('Collect is enabled with fees 0 and a reward owed: the row says what is waiting, worked out at the chain’s clock, and Review asks for a collect', async () => {
+    wallet.publicKey = ME;
+    wallet.signTransaction = vi.fn();
+    const rp = poolOn(tier());
+    const api = fakeApi();
+    // 48.2 BAYLA owed at the chain's time 14:02:11 UTC on 24 Oct 2026; no fees at all.
+    const w = positionOf({ n: 6, lower: -1200, upper: 1200, status: 'in-range', fees: { fee0: 0n, fee1: 0n }, rewards: [{ index: 0, mint: BAYLA_MINT, owed: 48_200_000n, decimals: 6 }], chainTime: 1_792_850_531n }, rp);
+    show(readers({ positions: { kind: 'ok', value: { positions: [w], unread: [] } } }), api);
+    const row = await screen.findByTestId('range-position');
+    expect(row.textContent).toContain('Waiting to collect');
+    expect(row.textContent).toContain('0 BAYLA and 0 SOL in fees · 48.2 BAYLA in rewards');
+    expect(within(row).getByTestId('range-position-waiting-basis').textContent).toBe('worked out from accounts read together at 14:02:11 UTC; the exact amount is fixed when you collect');
+    const collect = within(row).getByRole('button', { name: 'Collect' });
+    await waitFor(() => expect((collect as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(collect);
+    expect(within(row).getByText('Pays out what it has earned. The liquidity stays in.')).toBeInTheDocument();
+    fireEvent.click(within(row).getByRole('button', { name: 'Review: collect' }));
+    await waitFor(() => expect(api.prepareRangeRemove).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(api.prepareRangeRemove).mock.calls[0]![3]).toMatchObject({ percent: 0, position: new PublicKey(w.position.address) });
+  });
+
+  it('rewards that could not be worked out are said, never 0, and Collect stays offered; a coin off the site’s list is named by its whole address', async () => {
+    wallet.publicKey = ME;
+    wallet.signTransaction = vi.fn();
+    const rp = poolOn(tier());
+    const unknown = key(77).toBase58();
+    show(
+      readers({
+        positions: {
+          kind: 'ok',
+          value: {
+            positions: [
+              positionOf({ n: 7, lower: -1200, upper: 1200, status: 'in-range', fees: { fee0: 0n, fee1: 0n }, rewards: null }, rp),
+              positionOf({ n: 8, lower: -1200, upper: 1200, status: 'in-range', fees: { fee0: 0n, fee1: 0n }, rewards: [{ index: 1, mint: unknown, owed: 1_500n, decimals: null }] }, rp),
+            ],
+            unread: [],
+          },
+        },
+      }),
+    );
+    const rows = await screen.findAllByTestId('range-position');
+    expect(rows[0]!.textContent).toContain('0 BAYLA and 0 SOL in fees · the rewards could not be worked out just now; Collect pays them in full all the same');
+    await waitFor(() => expect((within(rows[0]!).getByRole('button', { name: 'Collect' }) as HTMLButtonElement).disabled).toBe(false));
+    expect(rows[1]!.textContent).toContain(`1500 smallest units of Unknown token · ${unknown} in rewards`);
   });
 
   it('positions that did not read are said as unread, never as none', async () => {
@@ -501,8 +547,8 @@ describe('your positions', () => {
     const rp = poolOn(tier());
     const load = show(readers({ positions: { kind: 'ok', value: { positions: [positionOf({ n: 4, lower: -1200, upper: 1200, status: 'in-range', fees: null }, rp)], unread: [] } } }), fakeApi(), 'off');
     const row = await screen.findByTestId('range-position');
-    expect((within(row).getByRole('button', { name: 'Claim fees' }) as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByTestId('range-positions').textContent).toContain('Claiming and taking out are not switched on here yet.');
+    expect((within(row).getByRole('button', { name: 'Collect' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByTestId('range-positions').textContent).toContain('Collecting and taking out are not switched on here yet.');
     expect(load).not.toHaveBeenCalled();
   });
 });

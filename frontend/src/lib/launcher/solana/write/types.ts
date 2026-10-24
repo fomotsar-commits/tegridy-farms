@@ -392,6 +392,11 @@ export type RangeSummary =
       quoted: { token: bigint; quote: bigint };
       /** Fees owed now, from the fresh read; null when they could not be worked out. */
       fees: { token: bigint; quote: bigint } | null;
+      /**
+       * Each reward this pays: owed at the chain's clock, capped at what its vault holds, as
+       * the program pays it. Empty when it pays none; null when that could not be worked out.
+       */
+      rewards: { mint: PublicKey; amount: bigint; decimals: number | null }[] | null;
       unwrapsWsol: boolean;
       notices: string[];
     } & { poolLine: RangePoolLine; range: RangeLine });

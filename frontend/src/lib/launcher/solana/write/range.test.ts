@@ -27,14 +27,14 @@ import {
 } from '../../../solana/clmm/program';
 import { getDeltaAmountsSigned, getLiquidityFromSingleAmount0, getLiquidityFromSingleAmount1, getSqrtPriceAtTick } from '../../../solana/clmm/math';
 import { positionNftAccount } from '../../../solana/clmm/ix';
-import { encodeAmmConfig, encodePool, encodePosition, encodeTickArray } from '../../../solana/clmm/encode.fixture';
+import { encodeAmmConfig, encodePool, encodePosition, encodeTickArray, type RewardFields } from '../../../solana/clmm/encode.fixture';
 import { pairOf, priceAtSqrt, priceNumber } from '../../../solana/clmm/rangeMath';
 import type { OutsidePrice } from '../../../solana/lp/outsidePrice';
 import { decodeIntent } from './intent';
 import { RANGE_COPY, freezeLines, prepareRangeClose, prepareRangeOpen, prepareRangeRemove, stepsProblem, type RangeOpenReads } from './range';
 import { encodeMint } from './testkit.fixture';
 import { BAYLA_QUOTE, SOL_QUOTE, USDC_QUOTE } from '../../../solana/lp/quotes';
-import { FakeChain, cfgLocal, openAccount, rent, type SimHandler } from './testkit.fixture';
+import { FakeChain, cfgLocal, openAccount, rent, setClock, type SimHandler } from './testkit.fixture';
 import type { IntentStep, PreparedTx, RangeIntent, RangeSummary, WriteRpc } from './types';
 
 const W = (c: FakeChain) => c as unknown as WriteRpc;
@@ -74,7 +74,7 @@ function deployed(chain: FakeChain, program: PublicKey) {
   chain.set(pd, { lamports: 10_000_000, owner: BPF_LOADER_UPGRADEABLE_ID, data: new Uint8Array(64) });
 }
 
-function chainWith(o: { status?: number; deploy?: boolean; tokens?: bigint | null; token2022?: boolean; frozenVault?: 0 | 1; vaultMissing?: boolean; reward?: boolean; freezeAuthority?: PublicKey } = {}): FakeChain {
+function chainWith(o: { status?: number; deploy?: boolean; tokens?: bigint | null; token2022?: boolean; frozenVault?: 0 | 1; vaultMissing?: boolean; reward?: boolean | RewardFields; freezeAuthority?: PublicKey } = {}): FakeChain {
   const c = new FakeChain();
   if (o.deploy !== false) deployed(c, PROG);
   c.set(CONFIG, { lamports: rent(117), owner: PROG, data: encodeAmmConfig({ index: 0, tradeFeeRate: 10_000, protocolFeeRate: 104_000, fundFeeRate: 56_000, tickSpacing: SPACING, owner: TIER_OWNER, fundOwner: FUND_OWNER }) });
@@ -87,7 +87,7 @@ function chainWith(o: { status?: number; deploy?: boolean; tokens?: bigint | nul
       observation: deriveObservation(PROG, POOL),
       decimals0: D0, decimals1: D1, tickSpacing: SPACING, liquidity: L_POOL, sqrtPriceX64: SQRT, tickCurrent: TICK, status: o.status,
       // A reward the vault set up on the pool: its mint and vault.
-      rewards: o.reward ? [{ mint: Keypair.generate().publicKey, vault: Keypair.generate().publicKey }] : undefined,
+      rewards: o.reward === true ? [{ mint: Keypair.generate().publicKey, vault: Keypair.generate().publicKey }] : o.reward ? [o.reward] : undefined,
     }),
   });
   if (o.token2022) c.mint2022(TOKEN, [], { decimals: 6, freezeAuthority: o.freezeAuthority });
@@ -429,6 +429,70 @@ function withPosition(c: FakeChain, o: { liquidity?: bigint; fees?: [bigint, big
   return { nft, position };
 }
 
+/**
+ * A reward of 1 coin a second (6 decimals) running since 1,000 s on the chain's clock, its
+ * vault holding `held`. At 2,000 s a position of 10^12 of the pool's 10^15, in range and last
+ * changed before it began, is owed 999,999: 1,000 s of 0.1%, less the program's rounding down.
+ */
+const REWARD_MINT = Keypair.generate().publicKey;
+const REWARD_VAULT = Keypair.generate().publicKey;
+function chainWithReward(o: { held?: bigint; status?: number; clock?: bigint | null } = {}): FakeChain {
+  const c = ready(chainWith({ status: o.status, reward: { mint: REWARD_MINT, vault: REWARD_VAULT, openTime: 1_000n, endTime: 1_000_000n, lastUpdateTime: 1_000n, emissionsPerSecondX64: 1_000_000n << 64n } }));
+  c.mint(REWARD_MINT, { decimals: 6 });
+  c.tokenAccount(REWARD_VAULT, REWARD_MINT, POOL, o.held ?? 10n ** 12n);
+  setClock(c, o.clock === undefined ? 2_000n : o.clock);
+  return c;
+}
+
+describe('collecting a reward', () => {
+  it('a percent-0 build with recorded owed 0 and live owed above 0 builds: it pays the reward worked out at the chain’s clock', async () => {
+    const c = chainWithReward();
+    const { position } = withPosition(c);
+    const p = ok(await prepareRangeRemove(W(c), cfgLocal, PROG, { owner: ME, position, percent: 0, toleranceBps: 100 }));
+    const s = p.summary as Exclude<RangeSummary, { kind: 'range-open' }>;
+    expect([s.liquidity, s.fees]).toEqual([0n, { token: 0n, quote: 0n }]);
+    expect(s.rewards).toEqual([{ mint: REWARD_MINT, amount: 999_999n, decimals: 6 }]);
+    // Wrapped SOL opened and closed around it, the reward's own account opened for the wallet, and the take-out names the reward's vault.
+    expect(p.steps.map((x) => x.kind).filter((k) => !k.startsWith('compute'))).toEqual(['create-token-account', 'create-token-account', 'range-decrease', 'close-wsol']);
+    expect(p.fees.newAccountRentLamports).toBe(BigInt(rent(165)));
+    expect(body(p).find((ix) => ix.programId.equals(PROG))!.keys.map((k) => k.pubkey.toBase58())).toContain(REWARD_VAULT.toBase58());
+  });
+
+  it('a reward vault holding less than is owed pays what it holds, and says so', async () => {
+    const c = chainWithReward({ held: 400_000n });
+    const { position } = withPosition(c);
+    const p = ok(await prepareRangeRemove(W(c), cfgLocal, PROG, { owner: ME, position, percent: 0, toleranceBps: 100 }));
+    const s = p.summary as Exclude<RangeSummary, { kind: 'range-open' }>;
+    expect(s.rewards).toEqual([{ mint: REWARD_MINT, amount: 400_000n, decimals: 6 }]);
+    expect(s.notices).toContain(RANGE_COPY.rewardVaultShort(`0.4 of the coin at ${REWARD_MINT.toBase58()}`));
+  });
+
+  it('with the Clock unread the reward could not be worked out: the collect is still built, never refused as nothing, and the review says so', async () => {
+    const c = chainWithReward({ clock: null });
+    const { position } = withPosition(c);
+    const p = ok(await prepareRangeRemove(W(c), cfgLocal, PROG, { owner: ME, position, percent: 0, toleranceBps: 100 }));
+    expect((p.summary as Exclude<RangeSummary, { kind: 'range-open' }>).rewards).toBeNull();
+  });
+
+  it('with reward collection switched off and no fees, a collect is refused in words; with removal switched off, nothing builds up, so nothing is owed', async () => {
+    const off = chainWithReward({ status: 1 << POOL_STATUS_BIT.collectReward });
+    const a = withPosition(off);
+    const r = await prepareRangeRemove(W(off), cfgLocal, PROG, { owner: ME, position: a.position, percent: 0, toleranceBps: 100 });
+    expect(r.ok ? null : r.outcome.message).toBe(RANGE_COPY.rewardsPaused);
+    const frozen = chainWithReward({ status: 1 << POOL_STATUS_BIT.decreaseLiquidity });
+    const b = withPosition(frozen);
+    const q = await prepareRangeRemove(W(frozen), cfgLocal, PROG, { owner: ME, position: b.position, percent: 0, toleranceBps: 100 });
+    expect(q.ok ? null : q.outcome.message).toBe(RANGE_COPY.nothingToTake);
+  });
+
+  it('closing with reward collection switched off and a reward owed live is refused before it is built', async () => {
+    const c = chainWithReward({ status: 1 << POOL_STATUS_BIT.collectReward });
+    const { position } = withPosition(c);
+    const r = await prepareRangeClose(W(c), cfgLocal, PROG, { owner: ME, position, toleranceBps: 100 });
+    expect(r.ok ? null : r.outcome.message).toBe(RANGE_COPY.rewardsPaused);
+  });
+});
+
 describe('taking out, collecting and closing', () => {
   it('half out: the liquidity halved, floors a tolerance under what comes back, SOL unwrapped', async () => {
     const c = ready(chainWith());
@@ -452,6 +516,14 @@ describe('taking out, collecting and closing', () => {
     const { position: none } = withPosition(empty, { liquidity: 0n });
     const r = await prepareRangeRemove(W(empty), cfgLocal, PROG, { owner: ME, position: none, percent: 0, toleranceBps: 100 });
     expect(r.ok ? null : r.outcome.message).toBe(RANGE_COPY.nothingToTake);
+  });
+
+  it('a collect that opens the token’s account for the wallet is built: the SOL bound leaves room for that account’s deposit', async () => {
+    const c = ready(chainWith({ tokens: null }));
+    const { position } = withPosition(c, { fees: [7n, 9n] });
+    const p = ok(await prepareRangeRemove(W(c), cfgLocal, PROG, { owner: ME, position, percent: 0, toleranceBps: 100 }));
+    expect(p.steps.map((x) => x.kind).filter((k) => !k.startsWith('compute'))[0]).toBe('create-token-account');
+    expect(p.fees.newAccountRentLamports).toBe(BigInt(rent(165)));
   });
 
   it('closing takes all of it out and closes the position in one transaction', async () => {

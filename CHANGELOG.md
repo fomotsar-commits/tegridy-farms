@@ -9,6 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-10-24
 
+- Pools, Range: each of your range positions says what is waiting to collect, its fees and now its rewards, worked out to the chain's own clock, and Collect (it was "Claim fees") works when a position is owed rewards only. A reward that could not be worked out says so, never 0.
 - Solana swap: Buy asks Jupiter for less, so it waits less. A quote under 10 seconds old is built as shown instead of asked for again, our pools are read at the click instead of after Jupiter's answer, the trending list, the risk warnings and the pair's prices are shared by every visitor for a short time (prices are still read fresh in USD mode), and "Swap confirmed" is checked every second for the first 10 seconds.
 - Pools: a Range tab on Solana. Put liquidity in the venue's own range pools between two prices you pick; it earns while the price is between them: 84% of each swap's fee (the fee is 1% or 0.25% of the swap, by the pool's tier), shared by the liquidity in range, and the venue keeps 16% (10.4% to the team's shared wallet, 5.6% to the island's Workshop). Solana swaps can route through these pools too.
 
