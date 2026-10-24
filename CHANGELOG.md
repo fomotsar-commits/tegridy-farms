@@ -9,6 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-10-24
 
+- Solana swap: when your limit orders or DCAs cannot be read, the Limit and DCA tabs say so, with Try again. Before, they said "No open orders" or "No active DCAs".
 - Solana swap: Buy asks Jupiter for less, so it waits less. A quote under 10 seconds old is built as shown instead of asked for again, our pools are read at the click instead of after Jupiter's answer, the trending list, the risk warnings and the pair's prices are shared by every visitor for a short time (prices are still read fresh in USD mode), and "Swap confirmed" is checked every second for the first 10 seconds.
 
 ### 2026-10-23
