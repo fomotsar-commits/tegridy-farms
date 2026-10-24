@@ -45,7 +45,7 @@ export function rangeOpening(over: Partial<Extract<RangeSummary, { kind: 'range-
 export function rangeTakeOut(kind: 'range-remove' | 'range-close', over: Partial<Extract<RangeSummary, { kind: 'range-remove' | 'range-close' }>> = {}): RangeSummary {
   return {
     kind, position: KEY(53), percent: kind === 'range-close' ? 100 : 50, liquidity: 1_000n, min: { token: 4_900_000_000n, quote: 2_000_000_000n },
-    quoted: { token: 5_000_000_000n, quote: 2_049_400_000n }, fees: { token: 12_000_000n, quote: 4_900_000n }, unwrapsWsol: true, notices: [],
+    quoted: { token: 5_000_000_000n, quote: 2_049_400_000n }, fees: { token: 12_000_000n, quote: 4_900_000n }, rewards: [], unwrapsWsol: true, notices: [],
     poolLine: POOL_LINE, range: RANGE, ...over,
   } as RangeSummary;
 }
