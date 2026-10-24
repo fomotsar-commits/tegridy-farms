@@ -332,6 +332,12 @@ nothing is lost.
   `public.schema_migrations`, not 027). Then Actions > Venue Volume > Run workflow once: the first
   run reads all of history in a few minutes; after that it runs hourly by itself. Until 028 is in,
   the job counts nothing and stays green, and the home page says the volume could not be read.
+- ⬜ **Migration 029, after the fill scoreboard PR merges** (free). Paste
+  `frontend/supabase/migrations/029_fill_scoreboard.sql` in the SQL editor (it needs only
+  `public.schema_migrations`). Then Actions > Fill Scoreboard > Run workflow once: the first run
+  reads all of history (47 swaps on 2026-10-22, about a minute); after that it runs hourly by
+  itself. Until 029 is in, the job writes nothing and stays green, and the Solana swap page shows
+  no fill line.
 - ⬜ **One sitting with real phones** [was O-1009-8], now with #722 (the Solana wallet list on a
   phone): on Android, does Phantom open its app, and does it connect by itself inside Phantom; in
   Trust's own browser, is Trust listed once; does the list fit a small phone. On a 320 by 568

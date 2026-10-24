@@ -276,7 +276,7 @@ async function getTx(call, signature) {
 }
 
 /** Walk one address's new transactions; `onTx` decides what each one is. */
-async function walk(call, address, until, onTx) {
+export async function walk(call, address, until, onTx) {
   const sigs = await newSignatures(call, address, until);
   for (const s of sigs) {
     if (!s.err) onTx(await getTx(call, s.signature), s);

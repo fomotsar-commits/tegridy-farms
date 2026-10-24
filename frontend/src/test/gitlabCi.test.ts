@@ -29,6 +29,7 @@ const EXCLUDED: Record<string, string> = {
   'contracts-coverage.yml': 'Schedule and dispatch only; not run off GitHub, by decision.',
   'mirror-to-gitlab.yml': 'GitHub only: it copies the branches and tags on GitHub to GitLab; on GitLab it would push the project to itself.',
   'venue-volume.yml': 'Schedule only, and it holds the Supabase service key, which this runner never gets; off GitHub the count waits and the site says it is not up to date.',
+  'fill-scoreboard.yml': 'Schedule only, and it holds the Supabase service key, which this runner never gets; off GitHub the scoreboard waits and the swap page says its figures are not up to date.',
   'changelog.yml': 'GitHub only: it reads a GitHub pull request\'s file list and description through the GitHub API; a merge request has neither there.',
 };
 const REPLACED: Record<string, { job: string; why: string }> = {

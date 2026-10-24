@@ -533,6 +533,13 @@ export default async function handler(req, res) {
     return handleVenueVolume(req, res);
   }
 
+  // `?resource=fill-scoreboard`: quote against fill for the site's Jupiter swaps, scored
+  // hourly by fill-scoreboard.yml and cached at the edge. Above `const provider`, like the rest.
+  if (req.query.resource === "fill-scoreboard") {
+    const { handleFillScoreboard } = await import("./_lib/fillScoreboard.js");
+    return handleFillScoreboard(req, res);
+  }
+
   // FLAT function at /api/aggregator. AUDIT FIX 2026-07-10: Vercel's nested /
   // catch-all dynamic function routing under /api/aggregator (both
   // `[provider]/[...path]` and a single `[...slug]`) did NOT route reliably with
