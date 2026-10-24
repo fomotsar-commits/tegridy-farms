@@ -147,8 +147,8 @@ itself: it lets `git clone https://memetics.finance/source` work, and `held-thro
 publishes that address as the repo. So when the code moves hosts, the site and
 `held-through.json` keep working after **one edit: four lines of `frontend/vercel.json`**. No
 page changes. A program's on-chain security.txt gets the same protection once it uses these
-links. cp-swap's source has used them since 2026-10-06. The program on mainnet does not yet:
-it gets them at its next upgrade (TODO_OPERATOR O-0929-10).
+links. cp-swap's source has used them since 2026-10-06, and the program on mainnet has since
+its first upgrade (TODO_OPERATOR O-0929-10).
 
 **Today the links go to GitHub, the primary.** These are the four lines in
 `frontend/vercel.json`, one rule per line:

@@ -3,12 +3,12 @@
 //
 // EVERY ACCOUNT LIST THE WRITE PATH SENDS, HELD AGAINST THE PROGRAMS' OWN IDLs.
 //
-// The IDLs are the ones emitted with the exact mainnet binaries
-// (C:\Users\jimbo\solana-launch-release-2026-09-26\artifacts), committed under
-// solana/tegridy-amm/idl/ and pinned here by sha256 against that release's
-// SHA256SUMS. One exception since 2026-10-06: the pool IDL also lists
-// `create_lp_metadata`, which the source has and mainnet does not run yet (see SHA256
-// below). The site sends no such instruction. For each instruction a transaction can carry we check, position by
+// The IDLs are the ones emitted with the exact mainnet binaries, committed under
+// solana/tegridy-amm/idl/ and pinned here by sha256: the launcher's against the
+// 2026-09-26 release's SHA256SUMS (C:\Users\jimbo\solana-launch-release-2026-09-26\artifacts),
+// the pool program's against the build mainnet has run since its upgrade, which added
+// `create_lp_metadata` (see SHA256 below). The site sends no such instruction. For each
+// instruction a transaction can carry we check, position by
 // position: the account's IDL name maps to the address we put there, and its signer
 // and writable flags equal the IDL's. Discriminators and argument layouts too.
 // An account list that only agrees with itself is how this repo shipped two
@@ -66,17 +66,19 @@ const LAUNCH_IDL_PATH = resolve(IDL_DIR, 'tegridy_launch.json');
 const CPSWAP_IDL_PATH = resolve(IDL_DIR, 'raydium_cp_swap.json');
 
 /**
- * `launch` and `cpswapRelease` are from the release's artifacts/SHA256SUMS: the IDLs of the
- * binaries mainnet runs. `cpswap` is the committed pool IDL, which is one instruction AHEAD of
- * that release: the source now has `create_lp_metadata` (it names a pool's share token), and
- * mainnet does not run it until the owner upgrades the pool program. The test below holds the
- * two together: take that one instruction out and the file is the release's, byte for byte.
+ * `launch` and `cpswap` are the IDLs of the binaries mainnet runs. `launch` is from the
+ * 2026-09-26 release's artifacts/SHA256SUMS. `cpswap` is the IDL of the build the pool
+ * program was upgraded to, which has `create_lp_metadata` (it names a pool's share token).
+ * `cpswapBeforeUpgrade` is the IDL of the build mainnet ran from 2026-09-29 until that
+ * upgrade (the release's own, in artifacts/SHA256SUMS). The test below holds the two
+ * together: take that one instruction out and the file is the earlier one, byte for byte.
+ * So the upgrade changed the program's interface by one instruction and nothing else.
  */
 const SHA256 = {
   // The reserve-at-create build (artifacts/SHA256SUMS; d987fafe, the reserve-held build, is superseded).
   launch: 'cd9e173c666940f82222a2798dc1c5bc0cf30edf7b32450530e65aa523a3cb31',
   cpswap: '1e8fd7928c0fce6788b880703a1cbfc932e808ab5acadfd5217eb637d739f736',
-  cpswapRelease: '939bc040fa0f65b6639f07545be9d23fde0492e9b5fc3d90229a313b0fcf0262',
+  cpswapBeforeUpgrade: '939bc040fa0f65b6639f07545be9d23fde0492e9b5fc3d90229a313b0fcf0262',
 };
 
 interface IdlAccount {
@@ -112,12 +114,12 @@ describe('the committed IDLs are the pinned ones', () => {
     expect(createHash('sha256').update(load(LAUNCH_IDL_PATH).raw).digest('hex')).toBe(SHA256.launch);
     expect(createHash('sha256').update(load(CPSWAP_IDL_PATH).raw).digest('hex')).toBe(SHA256.cpswap);
   });
-  it('the pool IDL is the release IDL plus create_lp_metadata, and nothing else', () => {
+  it('the pool IDL is the IDL from before the upgrade plus create_lp_metadata, and nothing else', () => {
     const { idl } = load(CPSWAP_IDL_PATH);
     expect(idl.instructions.filter((i) => i.name === 'create_lp_metadata')).toHaveLength(1);
     // The IDL tool writes two-space JSON with no final newline, which is what this re-emits.
     const without = { ...idl, instructions: idl.instructions.filter((i) => i.name !== 'create_lp_metadata') };
-    expect(createHash('sha256').update(JSON.stringify(without, null, 2)).digest('hex')).toBe(SHA256.cpswapRelease);
+    expect(createHash('sha256').update(JSON.stringify(without, null, 2)).digest('hex')).toBe(SHA256.cpswapBeforeUpgrade);
   });
   it('create_lp_metadata takes no argument and names nine accounts, with only the payer signing', () => {
     const ix = load(CPSWAP_IDL_PATH).idl.instructions.find((i) => i.name === 'create_lp_metadata');
@@ -354,7 +356,7 @@ describe('cp-swap swap_base_input matches the fork IDL', () => {
 describe('cp-swap deposit and withdraw match the committed mainnet IDL', () => {
   // Deposit and withdraw have never run on the mainnet binary from this site; until
   // now only ix.test.ts held them, and it reads the Rust source. These hold them to
-  // the release's own IDL: the account list as data (name, order, flags), the built
+  // the program's own IDL: the account list as data (name, order, flags), the built
   // instruction position by position, the discriminators, and where each argument sits.
   const lpAccounts = (spec: IdlIx) => spec.accounts.map((a) => [a.name, !!a.signer, !!a.writable]);
   const lpPool = poolStatePda(MINT, LAUNCH);
@@ -407,7 +409,7 @@ describe('cp-swap deposit and withdraw match the committed mainnet IDL', () => {
 
 describe('cp-swap initialize matches the committed mainnet IDL', () => {
   // Opening a pool from this site (lp-create). The decoder pins all 20 slots by name and
-  // order (intent.ts poolInitialize), so the list it pins is held to the release's IDL.
+  // order (intent.ts poolInitialize), so the list it pins is held to the program's own IDL.
   const flags = (spec: IdlIx) => spec.accounts.map((a) => [a.name, !!a.signer, !!a.writable]);
   const tier1 = publicTierConfig(CPSWAP);
   const [t0, t1] = sortMints(WSOL_MINT, MINT);

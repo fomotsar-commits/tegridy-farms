@@ -13,12 +13,12 @@ import { LOCKED_SHARES_TEXT, solAbout, solExact } from './panelKit';
 // stretches a measure over time is pace.ts's, with its basis (format.ts FORECAST_WORDS).
 // Where a pool's trades come from is said as the routes that exist, never as a volume.
 
-// True of the pool program RUNNING on mainnet, which was built before the source gained
-// create_lp_metadata (the instruction that names pool share tokens). It goes false the day
-// that program is upgraded, so reword it in the same release as the upgrade:
-// src/test/poolProgramCopy.test.ts fails that release until you do, and holds the wording.
+// True of the pool program RUNNING on mainnet since its upgrade: that build has
+// create_lp_metadata, and its public initialize refuses fee tier 0. Before the upgrade this
+// said "with only its admin keys changed". src/test/poolProgramCopy.test.ts ties the wording
+// to the binary the local harness pins, so the two can only move together (a roll-back too).
 const FORK_LINE =
-  "Our pool program is Raydium's, with only its admin keys changed. Those changes have not had their own independent review yet. Put in only what you can afford to lose.";
+  "Our pool program is Raydium's, with its admin keys changed, one added instruction that names pool share tokens and one added check that keeps the launch fee tier for launches. Those changes have not had their own independent review yet. Put in only what you can afford to lose.";
 /**
  * The risk in one sentence (owner, 2026-10-17: off the page, first in every Risks drop-down):
  * what the team's vault can do, that each change waits 48 hours after both keys approve
