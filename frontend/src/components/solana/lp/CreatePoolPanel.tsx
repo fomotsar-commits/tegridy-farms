@@ -261,11 +261,13 @@ function CreateInner({
     const done = (price: OutsidePrice) => {
       if (live) setCoinPrice({ key: coinKey, price });
     };
-    readers.outsidePrice(coin.mint, coin.decimals).then(done, (e: unknown) => done({ kind: 'unread', detail: e instanceof Error ? e.message : String(e) }));
+    // Read again (`coinAsk`) asks Jupiter itself, as the card's own read again does (PoolFinder.tsx).
+    const read = coinAsk > 0 ? readers.outsidePrice(coin.mint, coin.decimals, { fresh: true }) : readers.outsidePrice(coin.mint, coin.decimals);
+    read.then(done, (e: unknown) => done({ kind: 'unread', detail: e instanceof Error ? e.message : String(e) }));
     return () => {
       live = false;
     };
-  }, [readers, coinKey, coin.mint, coin.decimals]);
+  }, [readers, coinKey, coinAsk, coin.mint, coin.decimals]);
   // Only the answer to the read that is out now. While the coin's price is read again its
   // old price is not a price: beside the token's new one it would give a market price of
   // no moment at all. Until both are in, the form says "reading" and Match is off.
@@ -945,7 +947,7 @@ function CreateInner({
           mono={false}
         />
       </div>
-      <LpBeforeYouOpen fee={fee ?? 0n} neverRefunded={neverRefunded} walletConnected={!!signer} coin={coin} />
+      <LpBeforeYouOpen fee={fee ?? 0n} neverRefunded={neverRefunded} walletConnected={!!signer} coin={coin} reviewing={flow.state.step === 'review'} />
       <p role="status" className="sr-only">
         {flow.state.step === 'idle' ? [coinSaid, status].filter(Boolean).join(' ') : ''}
       </p>

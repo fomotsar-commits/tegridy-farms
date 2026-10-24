@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useMemo, useRef, lazy, Suspense } fro
 import { useLocation, useNavigate } from "react-router-dom";
 import { MotionConfig } from "framer-motion";
 import { fetchTokensByIds } from "./api";
+import { holdReload } from "../lib/reloadHold";
 // CSS imported eagerly in main.tsx to avoid Vite CSS preload errors on lazy chunks
 import { ThemeProvider, useTheme } from "./contexts/ThemeContext";
 import { TradingModeProvider, useTradingMode, LITE_HIDDEN_ALL } from "./contexts/TradingModeContext";
@@ -19,6 +20,7 @@ import Gallery from "./components/Gallery";
 import Toast from "./components/Toast";
 import NftMarquee from "./components/NftMarquee";
 import SplashScreen from "./components/SplashScreen";
+import { pageArt } from "../lib/artConfig";
 import PageTransition from "./components/PageTransition";
 import PriceAlertPanel, { usePriceAlerts } from "./components/PriceAlerts";
 import useSmartAlerts from "./hooks/useSmartAlerts";
@@ -173,7 +175,7 @@ const TAB_KEYS = {
 // regardless of how the NFT was opened. The Gallery/Floor grids pre-merge these,
 // but Hero, marquee, favorites, and the ?token= deep link set `selected` from a
 // raw token — without this they lost the price/buy button and the buyer (and the
-// 1% treasury fee) got redirected to OpenSea. Doing it at render time covers
+// 0.5% treasury fee) got redirected to OpenSea. Doing it at render time covers
 // every entry path in one place. (2026-07-24)
 function enrichWithListing(nft, listings) {
   if (!nft) return null;
@@ -307,6 +309,18 @@ function LandingShell({ themeName, onCycleTheme, walletName, disconnect, childre
 
   return (
     <div style={{ minHeight: "100vh", background: "transparent", color: "var(--text)", fontFamily: "var(--display)", position: "relative" }}>
+      {/* The studio's marketplace backdrop (surface marketplace:0): a fixed
+          layer UNDER the collage with its own scrim, so a bungalow skin can
+          dress the landing while the marketplace's own art stays on top. The
+          collage's layers are fixed at z-index 0 as well and come later in
+          the DOM, so they paint over this one. */}
+      <div
+        aria-hidden="true"
+        style={{
+          position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none",
+          background: `linear-gradient(180deg, rgba(8,10,18,0.78) 0%, rgba(8,10,18,0.86) 100%), url(${pageArt("marketplace", 0).src}) center / cover no-repeat`,
+        }}
+      />
       <Background />
       <Header
         tab="landing"
@@ -1183,6 +1197,10 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
 // App.css — do not reintroduce an external stylesheet.
 
 export default function App() {
+  // The marketplace signs through its own wallet code, which the site's records of an
+  // open transaction do not see. While it is on screen the page never reloads itself
+  // (lib/staleBuild.ts); its boundary offers the reload as a button.
+  useEffect(() => holdReload(), []);
   return (
     <ErrorBoundary title="App initialization error" onReset={() => window.location.href = '/nakamigos'}>
       <WalletProvider>

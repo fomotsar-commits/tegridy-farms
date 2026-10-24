@@ -70,6 +70,9 @@ export const config = {
  * functions, not production's). Only the public-facing stamps move.
  */
 const CANONICAL_ORIGIN = "https://memetics.finance";
+// The venue's default card: Bayla at the door, the home page's first picture (index.html
+// carries the same). A page with its own image (the island's painted card) keeps it.
+const VENUE_CARD = `${CANONICAL_ORIGIN}/og.jpg`;
 
 // Social unfurlers only — all fetch previews without executing JS.
 const UNFURL_BOTS = /twitterbot|discordbot|telegrambot|facebookexternalhit|linkedinbot|slackbot|slack-imgproxy|slack-linkexpanding|whatsapp|embedly|pinterest(bot)?|redditbot|skypeuripreview|vkshare|tumblr/i;
@@ -240,7 +243,7 @@ async function tokenIdentity(address) {
 async function trustCard(url) {
   // The PATH is the crawler's; the HOST is ours. See CANONICAL_ORIGIN.
   const pageUrl = CANONICAL_ORIGIN + url.pathname + url.search;
-  const image = `${CANONICAL_ORIGIN}/og.png`;
+  const image = VENUE_CARD;
   const siteName = "Tegridy Farms";
 
   if (url.pathname === "/scan") {
@@ -327,7 +330,7 @@ async function heatReading(address) {
 }
 
 async function readCard(url) {
-  const image = `${CANONICAL_ORIGIN}/og.png`;
+  const image = VENUE_CARD;
   const siteName = "memetics.finance";
   const address = (url.pathname.split("/")[2] || "").trim();
 
@@ -389,7 +392,7 @@ export default async function middleware(req) {
     return respond(ogHtml({
       title: "Tradermigos — NFT trading floor",
       description: "Browse, trade, and analyze Nakamigos, GNSS Art & Jungle Bay. P2P swaps settled on Seaport, live floors, rarity, and a 1% flat fee that funds the treasury.",
-      image: `${CANONICAL_ORIGIN}/og.png`,
+      image: VENUE_CARD,
       url: `${CANONICAL_ORIGIN}/nakamigos`,
     }));
   }

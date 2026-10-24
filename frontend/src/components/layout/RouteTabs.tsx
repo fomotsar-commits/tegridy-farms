@@ -1,63 +1,27 @@
+import type { ReactNode } from 'react';
 import { useTabListKeys } from '../../hooks/useTabListKeys';
 import type { NavItem } from '../../lib/navConfig';
 import { tabDomId } from './routeTabId';
 import { useRevealSelectedTab } from './tabStripScroll';
 
 /**
- * The pill tab strip shared by every route-navigating tabbed host.
- *
- * IN THE PAGE'S FLOW, NEVER PINNED (2026-10-14). Fixed under the top bar, it covered
- * fields, buttons and links on 19 pages once they scrolled. It now hangs from a
- * zero-height anchor where the page starts, below the header or a TOWELI room's band,
- * over the panel's own top padding, and scrolls away with the page.
- *
- * WHY IT EXISTS. LearnPage, InfoPage and ActivityPage each carry their own
- * hand-copied version of this markup — same fixed shell, same frosted pill row,
- * same `useTabListKeys` wiring, three chances to drift. The 2026-09-04 dropdown
- * condensation added four more hosts (Launch / Earn / Stats / Trust & Safety),
- * and writing the strip a fourth, fifth, sixth and seventh time was not an
- * option, so it lives here once.
- *
- * ✅ THE THREE ORIGINALS NOW RENDER THIS. They were left on their own copies for
- * one change-set — which meant the app shipped the 44px touch floor below on the
- * four new strips and a flat 40px on the three it was extracted from — and were
- * migrated immediately after. There is one strip in the app now, and
- * e2e/tab-target-size.spec.ts measures all of /community, /nft-finance, /trust,
- * /launch, /lore, /contracts and /leaderboard against the floor, so a future
- * regression fails on every host at once instead of on whichever one a reader
- * happened to check.
- *
- * The per-host quirks all survived the move, because none of them live in the
- * strip: a host still owns its own path→tab derivation and its own panel. The
- * sharp one is ActivityPage, which filters the Gold Card tab out of `items`
- * entirely while PREMIUM_ACCESS is dark and passes `active="/leaderboard"` when
- * the URL says `/premium` — this component simply renders the list and the
- * active route it is handed, and has no opinion about either.
- *
- * IT KEEPS THE PILLS. A section that collapses into tabs must not lose the
- * amber SOON / green LIVE signal its dropdown entries carried — that pill is the
- * answer to "can I do the thing this label names", and navConfig.ts spends
- * several hundred lines explaining why each one reads the way it does. So a tab
- * renders exactly the same two pills the "More" menu renders, from the same
- * `NavItem`. Losing them here would silently un-disclose four gated surfaces.
- *
- * The strip is keyed by ROUTE (`item.to`), not by an invented tab id. That is
- * what let the three originals move onto it at all: they had each grown a tab-id
- * union plus a hand-written TAB_LABELS and TAB_PATHS pair to map it back to a
- * URL, three maps to keep in step, and keying by the route deletes all three. A
- * SectionHost-driven host goes further and hands over its nav section directly,
- * so its tabs and its menu rows cannot disagree.
+ * The tab strip every tabbed host shares, keyed by route, in the page's flow (pinned, it covered
+ * fields once a page scrolled). An entry off today (`soon`) is not listed and nothing says Soon
+ * (docs/FACE_LAWS.md, law 23); on its own page, reached by URL, its tab is listed and lit.
+ * A host owns its path-to-tab rule and its panel; this renders the list and the active route.
  */
 export interface RouteTabsProps {
   /** Prefix for the tab element ids. The host's panel must be `${idPrefix}-panel`. */
   idPrefix: string;
   /** Accessible name for the tablist, e.g. "Trust & Safety sections". */
   ariaLabel: string;
-  /** The section's entries, in menu order. */
+  /** The section's entries, in menu order. An off entry is listed only while it is `active`. */
   items: readonly NavItem[];
   /** `to` of the entry currently rendered in the panel. */
   active: string;
   onSelect: (to: string) => void;
+  /** Drawn before the strip, outside its scroll box so a drop-down under it is not clipped. */
+  leading?: ReactNode;
 }
 
 /**
@@ -78,7 +42,8 @@ function TabLabel({ item }: { item: NavItem }) {
   );
 }
 
-export function RouteTabs({ idPrefix, ariaLabel, items, active, onSelect }: RouteTabsProps) {
+export function RouteTabs({ idPrefix, ariaLabel, items: all, active, onSelect, leading }: RouteTabsProps) {
+  const items = all.filter((i) => !i.soon || i.to === active);
   const keys = items.map((i) => i.to);
   const tabKeys = useTabListKeys(keys, active, onSelect);
   const listRef = useRevealSelectedTab(active, keys.join(' '));
@@ -88,19 +53,18 @@ export function RouteTabs({ idPrefix, ariaLabel, items, active, onSelect }: Rout
        above the panel's padding it lies over. flow-root: a panel's -mt-14 would else
        collapse through the empty anchor and lift the strip 56px, under the top bar. */
     <div data-route-tabs className="relative z-30 h-0 flow-root">
-      <div className="absolute inset-x-4 md:inset-x-6 top-0 max-w-[900px] mx-auto pt-3">
+      <div className="absolute inset-x-4 md:inset-x-6 top-0 max-w-[900px] mx-auto pt-3 flex gap-1.5 md:gap-2">
+        {leading}
         <div
           ref={listRef}
           role="tablist"
           aria-label={ariaLabel}
           onKeyDown={tabKeys.onKeyDown}
-          /* overflow-x-auto is load-bearing, not defensive: the Trust & Safety
-             strip is seven tabs wide and must scroll on a 390px phone rather
-             than clip its last two. */
-          className="flex gap-1 md:gap-1.5 p-1 rounded-2xl overflow-x-auto no-scrollbar"
+          /* overflow-x-auto is load-bearing: the Check strip is seven tabs wide and must scroll
+             on a 390px phone rather than clip its last two. */
+          className="flex-1 min-w-0 flex gap-1 md:gap-1.5 p-1 rounded-2xl overflow-x-auto no-scrollbar"
           style={{
-            // F509: 0.92 (not 0.72) so headings and footer links underneath stop
-            // ghosting through the translucent bar. Matches BottomNav's ~0.95.
+            // 0.92, so headings and links underneath do not ghost through. Matches BottomNav's ~0.95.
             background: 'rgba(13,21,48,0.92)',
             border: '1px solid rgba(255,255,255,0.22)',
             backdropFilter: 'blur(20px)',
@@ -118,29 +82,10 @@ export function RouteTabs({ idPrefix, ariaLabel, items, active, onSelect }: Rout
               tabIndex={tabKeys.tabIndex(item.to)}
               ref={tabKeys.ref(item.to)}
               onClick={() => onSelect(item.to)}
-              /* WIDTH: each tab starts at 64px (the floor) and takes an equal
-                 share of spare room, wider only where its label needs it. It
-                 never shrinks below label plus padding (min-w-max, shrink 0), so
-                 no label paints over the next tab; a strip too wide scrolls
-                 sideways instead. Padding only sets that minimum, and md:px-1
-                 keeps the 13.5px labels inside an iPad strip's equal share. */
-              /* 44px ON TOUCH (A11Y-R07's floor), 40px on desktop. The three
-                 hosts this markup was extracted from all shipped a flat 40px —
-                 about 4px under the repo's own touch floor for the primary way
-                 to move between a page's sections, which is the exact defect
-                 e2e/tab-target-size.spec.ts was written for on /community and
-                 /nft-finance. Desktop keeps the tighter 40px: the floor is a
-                 finger, not a cursor.
-
-                 ⚠️ THE BREAKPOINT IS 800, NOT `md` (768), CORRECTED 2026-09-05.
-                 "Desktop" in this app means >=800px — that is where BottomNav
-                 hides and the TopNav row appears, and the seven coupled sites
-                 that define it are listed in TopNav.tsx. Keying the touch floor
-                 to `md` opened a 32px window, 768-799, where the app still
-                 renders its TOUCH chrome (BottomNav) while these tabs shrank to
-                 40px. Measured live across nine hosts at 799px before the fix.
-                 e2e/tab-target-size.spec.ts only ever swept 390px, which is why
-                 nothing caught it. */
+              /* Each tab starts at 64px and takes an equal share of spare room; it never shrinks
+                 below its label (min-w-max, shrink 0), so a strip too wide scrolls instead. 44px
+                 tall below 800px, where the app's touch chrome (BottomNav) shows, 40px above it;
+                 "desktop" here means 800px, as in TopNav.tsx. e2e/tab-target-size.spec.ts measures. */
               className="relative flex-[1_0_64px] min-w-max px-2 md:px-1 py-2 min-h-[44px] min-[800px]:min-h-[40px] rounded-xl text-[11.5px] md:text-[13.5px] font-medium text-white transition-all whitespace-nowrap inline-flex items-center justify-center gap-1.5"
               style={
                 active === item.to
@@ -149,11 +94,6 @@ export function RouteTabs({ idPrefix, ariaLabel, items, active, onSelect }: Rout
               }
             >
               <TabLabel item={item} />
-              {item.soon && (
-                <span className="rounded-full bg-amber-500/20 text-amber-200 border border-amber-500/30 text-[8.5px] font-semibold leading-none px-1 py-0.5 uppercase tracking-wide">
-                  Soon
-                </span>
-              )}
               {item.live && (
                 <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/20 text-emerald-200 border border-emerald-500/30 text-[8.5px] font-semibold leading-none px-1 py-0.5 uppercase tracking-wide">
                   <span className="w-1 h-1 rounded-full bg-emerald-400 animate-pulse" aria-hidden="true" />

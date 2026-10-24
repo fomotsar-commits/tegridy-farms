@@ -163,7 +163,7 @@ describe.each(COINS)('adding to a pool paired with $symbol: the review', (coin) 
   // 0.214427 of the coin. Read as lamports that is 0.000214427 SOL, a thousand times too small.
   it('the estimated cost of a price that is off is in the coin, in the coin’s own decimals', async () => {
     const said = [
-      'Its price is 10.0% above the outside price. A deposit here would hand that gap to the first arbitrage trade.',
+      'Its price is 10.0% above the outside price. If you add now, whoever trades it back takes up to about 0.1% of what you add (about $0.11 per $100).',
       `At these amounts, a move back to the outside price would take up to about 0.214427 ${C} of what you put in. That is an estimate.`,
     ];
     await review(deposit(coin, { price: OFF_PRICE, warnings: said, priceGap: { diff: 0.1, lossQuote: 214_427n } }));
@@ -184,7 +184,7 @@ describe.each(COINS)('adding to a pool paired with $symbol: the review', (coin) 
   // deposit. The token HAS a price then, so the review's price row names the coin, and
   // nothing on it says "Jupiter has no market price for this token".
   it('adding to a pool whose coin Jupiter has no price for: the warning first, and the row names the coin, never "this token"', async () => {
-    const WARNING = `Jupiter has no price for ${C} right now, so this pool’s price in ${C} was not checked against anything. If it is off, a deposit here hands the difference to whoever trades it back.`;
+    const WARNING = `Jupiter has no price for ${C} right now, so this pool’s price in ${C} was not checked against anything. If it is off, whoever trades it back takes part of what you add.`;
     await review(deposit(coin, { price: { state: 'no-market', of: 'coin', pool: 2, detail: `Jupiter has no route for ${C}` }, warnings: [WARNING] }));
     expect(value('Price check')).toBe(`not checked against anything: Jupiter has no price for ${C} right now`);
     // The same clause as every other screen (poolHealth.ts `noPriceClause`).
@@ -533,7 +533,7 @@ describe('the coin’s own risk line', () => {
   }, 30_000);
 
   it('USDC, with the builder’s own warnings: after them, still once', async () => {
-    const said = ['Its price is 10.0% above the outside price. A deposit here would hand that gap to the first arbitrage trade.'];
+    const said = ['Its price is 10.0% above the outside price. If you add now, whoever trades it back takes up to about 0.1% of what you add (about $0.11 per $100).'];
     for (const summary of [deposit(USDC_QUOTE, { warnings: said }), create(USDC_QUOTE, { warnings: said })]) {
       await review(summary);
       expect(warningsBox().lines).toEqual([...said, RISK]);

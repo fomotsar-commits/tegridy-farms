@@ -14,7 +14,8 @@ const TOWELI = '0x420698CFdEDdEa6bc78D59bC17798113ad278F9D' as Address;
 const ASSET = '0x00000000000000000000000000000000000000aa' as Address;
 
 const multicall = vi.fn();
-const publicClient = { multicall };
+const getLogs = vi.fn();
+const publicClient = { multicall, getLogs };
 
 vi.mock('wagmi', () => ({
   usePublicClient: () => publicClient,
@@ -133,6 +134,28 @@ describe('useIntegratorFees', () => {
     expect(result.current.fees).toHaveLength(1);
     expect(result.current.fees[0]?.amount).toBe(9n);
     expect(result.current.fees[0]?.decimals).toBe(18);
+  });
+
+  // Measured on the live site 2026-10-14: handed the raw client, the scan asked the
+  // browser's RPC for the Airlock's Create history from block 21,000,000, publicnode
+  // answered "Archive requests require a personal token" and drpc "ranges over 10000
+  // blocks are not supported", so asset discovery failed on every read.
+  it('reads the launch history from our backend, never the browser RPC', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ assets: [ASSET] }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      const { result } = renderHook(() => useIntegratorFees(true));
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+      const client = readOurLaunches.mock.calls.at(-1)?.[0]?.client;
+      await expect(client.getLogs()).resolves.toEqual([{ args: { asset: ASSET } }]);
+      expect(String(fetchMock.mock.calls[0]?.[0])).toContain('resource=launch-cohort');
+      expect(getLogs).not.toHaveBeenCalled();
+      // Everything but getLogs still reaches the real client.
+      expect(client.multicall).toBeTypeOf('function');
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('does not read at all when disabled', async () => {

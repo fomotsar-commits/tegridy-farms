@@ -74,11 +74,8 @@ export default function LaunchTokenPage() {
   const address = parsed.ok ? parsed.address : null;
   const publicClient = usePublicClient({ chainId: CHAIN_ID });
   const [state, setState] = useState<LoadState>({ phase: 'loading' });
-  // The attestation lookup is loaded SEPARATELY, and deliberately so: it is the one
-  // read that has to walk EAS logs, and on the public RPCs this app ships with it
-  // fails slowly (verified in a real browser: ~15s across the fallback transports).
-  // Awaiting it inline held the whole page on a spinner while every other read had
-  // already landed. null = still in flight.
+  // The attestation lookup loads SEPARATELY: it waits on our backend's log scan and then
+  // one eth_call per uid, and no other read on the page needs it. null = still in flight.
   const [attestation, setAttestation] = useState<AttestationLookup | null>(null);
 
   usePageTitle(
@@ -330,11 +327,12 @@ function ProvenanceCard({ p }: { p: Provenance }) {
         <Pill tone={tone}>{p.label}</Pill>
       </div>
       <p className="text-[12.5px] text-text-secondary leading-relaxed mt-2 break-words">{p.detail}</p>
-      <FinePrint summary="Source">
+      <FinePrint summary={p.failure ? 'Details' : 'Source'}>
         <p>
-          Read directly from Doppler’s Airlock record for this asset — the only place a launch’s
+          Read directly from Doppler’s Airlock record for this asset, the only place a launch’s
           integrator is recoverable. A token we did not launch is always said so plainly.
         </p>
+        {p.failure && <p className="break-words">What failed: {p.failure}</p>}
       </FinePrint>
     </section>
   );
@@ -407,7 +405,7 @@ function AttestationCard({ lookup }: { lookup: AttestationLookup | null }) {
           </p>
           <FinePrint>
             <p>
-              That is not a mark against the token — most tokens have never been attested, and an attestation is a
+              That is not a mark against the token: most tokens have never been attested, and an attestation is a
               timestamped disclosure, not a warranty.
             </p>
           </FinePrint>
@@ -417,17 +415,16 @@ function AttestationCard({ lookup }: { lookup: AttestationLookup | null }) {
       {lookup?.status === 'unverifiable' && (
         <>
           <p className="text-[12.5px] text-text-secondary leading-relaxed mt-2">
-            We could not determine whether this token has been attested. Treat it as unknown.
+            We could not check whether this token has been attested, so treat it as unknown.
           </p>
-          {/* Bounded: viem's error carries the entire JSON-RPC request body, which dumped a
-              wall of hex onto the page. The leading sentence + URL is the diagnostic part. */}
-          <p className="text-[11px] text-text-muted mt-2 break-words">Reason: {clip(lookup.reason)}</p>
-          <FinePrint>
+          {/* The visible line is ours; what failed, in a developer's words, waits in here. */}
+          <FinePrint testId="attestation-unverifiable-detail">
             <p>
-              Ethereum mainnet has no EAS indexer contract, and the public RPCs this app uses refuse the
-              full-history log query the lookup needs. Treat this as unknown — it says nothing either way about the
-              token.
+              The check asks a public block explorer for every attestation of this token under our disclosure
+              schema, then reads each one back from the EAS contract. This time it did not complete, which says
+              nothing either way about the token.
             </p>
+            <p className="break-words">What failed: {clip(lookup.detail)}</p>
             <p>You can check it yourself on the EAS explorer via the “Attestations on EAS” link above.</p>
           </FinePrint>
         </>

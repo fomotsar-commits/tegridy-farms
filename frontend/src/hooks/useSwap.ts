@@ -5,8 +5,9 @@ import { useReadContract, useWriteContract, useWaitForTransactionReceipt, useAcc
 import { parseUnits, formatUnits } from 'viem';
 import { toast } from 'sonner';
 import { ERC20_ABI, SWAP_FEE_ROUTER_ABI, UNISWAP_V2_ROUTER_ABI } from '../lib/contracts';
-import { WETH_ADDRESS, SWAP_FEE_ROUTER_ADDRESS, UNISWAP_V2_ROUTER, CHAIN_ID } from '../lib/constants';
-import { type TokenInfo, DEFAULT_TOKENS } from '../lib/tokenList';
+import { CHAIN_ID } from '../lib/constants';
+import { type TokenInfo, defaultTokensFor, headlineTokenFor } from '../lib/tokenList';
+import { swapVenueOn } from '../lib/chains/swapVenue';
 import { decodeRevertReason } from '../lib/revertDecoder';
 import { trackSwap } from '../lib/analytics';
 import { getTxUrl } from '../lib/explorer';
@@ -70,16 +71,77 @@ async function verifyCustomTokenOnChain(
   }
 }
 
-export function useSwap() {
+/** The pair the form opens on: ETH into the chain's headline token (lib/tokenList.ts). */
+function startingPair(chain: number): [TokenInfo | null, TokenInfo | null] {
+  const eth = defaultTokensFor(chain).find(t => t.isNative) ?? null;
+  return [eth, headlineTokenFor(chain)];
+}
+
+// AUDIT FIX D-FE-L1: chain-scope the storage key. Pre-fix, custom tokens
+// imported on Sepolia/test would leak into mainnet on next page load and
+// vice-versa. Address-only keys also opened a cross-chain typo path where
+// a token at the same address on a fork chain (e.g. an L2) impersonated
+// the mainnet token in the swap modal.
+const customTokensKey = (chain: number) => `tegridy_custom_tokens_v2_${chain}`;
+
+function loadCustomTokens(chain: number): TokenInfo[] {
+  try {
+    const stored = localStorage.getItem(customTokensKey(chain));
+    if (!stored) return [];
+    const parsed = JSON.parse(stored);
+    if (!Array.isArray(parsed)) return [];
+    // AUDIT FIX D-FE-L2: validate every rehydrated entry against the
+    // symbol-spoofing rule already enforced at import time in
+    // TokenSelectModal. Without this, a malicious browser extension or a
+    // separate tab could write `[{symbol:"ETH",address:"0xATTACKER",isNative:true}]`
+    // and the next page load would route swap allowance + approval at the
+    // attacker address. Drop any entry whose symbol collides with a
+    // verified default token at a different address, or that fails basic
+    // shape validation.
+    const defaults = defaultTokensFor(chain);
+    const filtered: TokenInfo[] = [];
+    for (const raw of parsed) {
+      if (!raw || typeof raw !== 'object') continue;
+      const t = raw as Record<string, unknown>;
+      if (typeof t.symbol !== 'string' || typeof t.decimals !== 'number') continue;
+      if (t.decimals < 0 || t.decimals > 18) continue;
+      const sym = (t.symbol as string).toUpperCase();
+      const addr = typeof t.address === 'string' ? (t.address as string).toLowerCase() : '';
+      const isNative = t.isNative === true;
+      // Reject native impostors entirely (only ETH is native and is in the defaults).
+      if (isNative) continue;
+      if (!/^0x[a-fA-F0-9]{40}$/.test(addr)) continue;
+      // Drop any entry whose symbol collides with a verified token at a
+      // DIFFERENT address. Mirrors TokenSelectModal.tsx isSpoofedSymbol.
+      const collides = defaults.some(d =>
+        d.symbol.toUpperCase() === sym && d.address.toLowerCase() !== addr
+      );
+      if (collides) continue;
+      filtered.push(raw as TokenInfo);
+    }
+    return filtered;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * `opts.chainId` is the chain the form trades on (TradePage passes useSwapChainId()).
+ * Omitted, the swap is Ethereum's, as it always was; the terminal's quick-buy panel
+ * relies on that.
+ */
+export function useSwap(opts?: { chainId?: number }) {
   const chainId = useChainId();
   const { address } = useAccount();
-  const publicClient = usePublicClient({ chainId: CHAIN_ID });
-  const [fromToken, setFromToken] = useState<TokenInfo | null>(() =>
-    DEFAULT_TOKENS.find(t => t.symbol === 'ETH') ?? null
-  );
-  const [toToken, setToToken] = useState<TokenInfo | null>(() =>
-    DEFAULT_TOKENS.find(t => t.symbol === 'TOWELI') ?? null
-  );
+  // ONE venue: every read and write below takes its chain and addresses from it.
+  const venue = swapVenueOn(opts?.chainId ?? CHAIN_ID);
+  // A chain with no venue (a wallet on a network we do not swap on) reads nothing
+  // and signs nothing; its balances fall back to Ethereum's, as before.
+  const swapChain = venue?.chainId ?? CHAIN_ID;
+  const switchMessage = `Please switch to ${swapChain === CHAIN_ID ? 'Ethereum Mainnet' : venue!.name}`;
+  const publicClient = usePublicClient({ chainId: swapChain });
+  const [fromToken, setFromToken] = useState<TokenInfo | null>(() => startingPair(swapChain)[0]);
+  const [toToken, setToToken] = useState<TokenInfo | null>(() => startingPair(swapChain)[1]);
   const [inputAmount, setInputAmount] = useState('');
   const [slippageRaw, setSlippageRaw] = useState(1.0);
   // SECURITY FIX: Reduced max slippage from 49% to 20%.
@@ -89,60 +151,28 @@ export function useSwap() {
   }, []);
   const [deadline, setDeadline] = useState(5);
   const [supportsFeeOnTransfer, setSupportsFeeOnTransfer] = useState(false);
-  const [customTokens, setCustomTokens] = useState<TokenInfo[]>(() => {
-    // AUDIT FIX D-FE-L1: chain-scope the storage key. Pre-fix, custom tokens
-    // imported on Sepolia/test would leak into mainnet on next page load and
-    // vice-versa. Address-only keys also opened a cross-chain typo path where
-    // a token at the same address on a fork chain (e.g. an L2) impersonated
-    // the mainnet token in the swap modal.
-    const STORAGE_KEY = `tegridy_custom_tokens_v2_${CHAIN_ID}`;
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (!stored) return [];
-      const parsed = JSON.parse(stored);
-      if (!Array.isArray(parsed)) return [];
-      // AUDIT FIX D-FE-L2: validate every rehydrated entry against the
-      // symbol-spoofing rule already enforced at import time in
-      // TokenSelectModal. Without this, a malicious browser extension or a
-      // separate tab could write `[{symbol:"ETH",address:"0xATTACKER",isNative:true}]`
-      // and the next page load would route swap allowance + approval at the
-      // attacker address. Drop any entry whose symbol collides with a
-      // verified DEFAULT_TOKEN at a different address, or that fails basic
-      // shape validation.
-      const filtered: TokenInfo[] = [];
-      for (const raw of parsed) {
-        if (!raw || typeof raw !== 'object') continue;
-        const t = raw as Record<string, unknown>;
-        if (typeof t.symbol !== 'string' || typeof t.decimals !== 'number') continue;
-        if (t.decimals < 0 || t.decimals > 18) continue;
-        const sym = (t.symbol as string).toUpperCase();
-        const addr = typeof t.address === 'string' ? (t.address as string).toLowerCase() : '';
-        const isNative = t.isNative === true;
-        // Reject native impostors entirely (only ETH is native and is in DEFAULT_TOKENS).
-        if (isNative) continue;
-        if (!/^0x[a-fA-F0-9]{40}$/.test(addr)) continue;
-        // Drop any entry whose symbol collides with a verified token at a
-        // DIFFERENT address. Mirrors TokenSelectModal.tsx isSpoofedSymbol.
-        const collides = DEFAULT_TOKENS.some(d =>
-          d.symbol.toUpperCase() === sym && d.address.toLowerCase() !== addr
-        );
-        if (collides) continue;
-        filtered.push(raw as TokenInfo);
-      }
-      return filtered;
-    } catch {
-      return [];
-    }
-  });
-  // Persist custom tokens to localStorage
+  // Custom tokens belong to ONE chain. `tokensChain` is the chain they were loaded
+  // for; when the form moves to another chain, the pair, the amount and the custom
+  // list are reset together during render, so no effect can ever see one chain's
+  // tokens beside another chain's id (and persist them under the wrong key).
+  const [customTokens, setCustomTokens] = useState<TokenInfo[]>(() => loadCustomTokens(swapChain));
+  const [tokensChain, setTokensChain] = useState(swapChain);
+  if (tokensChain !== swapChain) {
+    const [eth, headline] = startingPair(swapChain);
+    setTokensChain(swapChain);
+    setCustomTokens(loadCustomTokens(swapChain));
+    setFromToken(eth);
+    setToToken(headline);
+    setInputAmount('');
+  }
+  // Persist custom tokens to localStorage, under the chain they belong to.
   useEffect(() => {
-    const STORAGE_KEY = `tegridy_custom_tokens_v2_${CHAIN_ID}`;
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(customTokens));
+      localStorage.setItem(customTokensKey(tokensChain), JSON.stringify(customTokens));
     } catch {
       // Storage full or unavailable -- ignore
     }
-  }, [customTokens]);
+  }, [customTokens, tokensChain]);
 
   // AUDIT FIX FE-HIGH-6: re-verify every rehydrated custom token's symbol+decimals
   // against the on-chain ERC20 once we have a publicClient. The synchronous
@@ -151,14 +181,13 @@ export function useSwap() {
   // bespoke symbol like "USDCv2" pointing at their own contract. Any token
   // whose on-chain shape doesn't match its stored shape is dropped here so
   // the swap UI never lets the user approve against it. We only run this
-  // once per address+chain so users don't get tokens evicted on every flaky
-  // RPC tick.
-  const verificationRanRef = useRef(false);
+  // once per chain so users don't get tokens evicted on every flaky RPC tick.
+  const verifiedChainRef = useRef<number | null>(null);
   useEffect(() => {
-    if (verificationRanRef.current) return;
+    if (verifiedChainRef.current === tokensChain) return;
     if (!publicClient || customTokens.length === 0) return;
-    if (chainId !== CHAIN_ID) return;
-    verificationRanRef.current = true;
+    if (chainId !== tokensChain) return;
+    verifiedChainRef.current = tokensChain;
     let cancelled = false;
     (async () => {
       const verified: TokenInfo[] = [];
@@ -181,9 +210,9 @@ export function useSwap() {
     })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [publicClient, chainId]);
+  }, [publicClient, chainId, tokensChain]);
 
-  const { data: ethBalance } = useBalance({ address, chainId: CHAIN_ID, query: { refetchInterval: 30_000 } });
+  const { data: ethBalance } = useBalance({ address, chainId: swapChain, query: { refetchInterval: 30_000 } });
 
   // Derived values
   const swapType = fromToken && toToken ? getSwapType(fromToken, toToken) : null;
@@ -200,13 +229,13 @@ export function useSwap() {
   }, [inputAmount, fromDecimals]);
 
   // ---- Quote & Routing (delegated to useSwapQuote) ----
-  const quote = useSwapQuote(fromToken, toToken, parsedAmount, slippage, address);
+  const quote = useSwapQuote(fromToken, toToken, parsedAmount, slippage, address, opts?.chainId);
 
   // ---- Transaction writing ----
   const { writeContract, data: hash, isPending, reset, error: writeError } = useWriteContract();
 
   // ---- Allowance (delegated to useSwapAllowance) ----
-  const allowance = useSwapAllowance(fromToken, parsedAmount, quote.selectedRoute, quote.selectedOnChainRoute.source, address, writeContract);
+  const allowance = useSwapAllowance(fromToken, parsedAmount, quote.selectedRoute, quote.selectedOnChainRoute.source, address, writeContract, venue);
 
   const lastActionRef = useRef<'approve' | 'swap' | null>(null);
   // F465: guard the receipt-success effect so it handles each confirmed hash
@@ -223,32 +252,33 @@ export function useSwap() {
 
   const approveAndTag = useCallback(() => {
     if (isPendingRef.current) return;
-    if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
+    if (chainId !== swapChain) { toast.error(switchMessage); return; }
     lastActionRef.current = 'approve';
     isPendingRef.current = true;
     allowance.approve();
-  }, [allowance, chainId]);
+  }, [allowance, chainId, swapChain, switchMessage]);
 
   // Refetch allowance and balances after successful tx + toast + auto-reset
+  const NO_TOKEN = '0x0000000000000000000000000000000000000000' as const;
   const { data: fromTokenBalance, refetch: refetchFromBalance } = useReadContract({
-    address: (fromToken && !fromToken.isNative ? fromToken.address : WETH_ADDRESS) as `0x${string}`,
+    address: (fromToken && !fromToken.isNative ? fromToken.address : NO_TOKEN) as `0x${string}`,
     abi: ERC20_ABI,
     functionName: 'balanceOf',
     args: [address!],
-    chainId: CHAIN_ID,
+    chainId: swapChain,
     query: { enabled: !!address && !!fromToken && !fromToken.isNative, refetchInterval: 30_000 },
   });
 
   const { data: toTokenBalance } = useReadContract({
-    address: (toToken && !toToken.isNative ? toToken.address : WETH_ADDRESS) as `0x${string}`,
+    address: (toToken && !toToken.isNative ? toToken.address : NO_TOKEN) as `0x${string}`,
     abi: ERC20_ABI,
     functionName: 'balanceOf',
     args: [address!],
-    chainId: CHAIN_ID,
+    chainId: swapChain,
     query: { enabled: !!address && !!toToken && !toToken.isNative, refetchInterval: 30_000 },
   });
 
-  const receiptQuery = useWaitForTransactionReceipt({ chainId: CHAIN_ID, hash, onReplaced: noteReplacement });
+  const receiptQuery = useWaitForTransactionReceipt({ chainId: swapChain, hash, onReplaced: noteReplacement });
   const { isLoading: isConfirming } = receiptQuery;
   // AUDIT (receipt-status): wagmi's `isSuccess` only means "the receipt was
   // FETCHED", so on its own it fired "WAGMI! Swap confirmed" + trackSwap for
@@ -316,10 +346,10 @@ export function useSwap() {
     // WAVE SEVEN, element O: latch a buy that landed in a resident's token, so
     // the room can say one true sentence about this buyer's own clock. Here
     // rather than in a page, so the terminal's quick-buy panel is served too.
-    // This rail is pinned to Ethereum mainnet (see the guard in executeSwap),
-    // which is why the chain word is not derived from chainId. No network
-    // call is added: the line peeks at a reading the venue already holds.
-    const boughtAddress = toToken?.address;
+    // Rooms live on Ethereum (and Solana), so only an Ethereum fill can be a
+    // room's token; an L2 address must not be looked up in Ethereum's book. No
+    // network call is added: the line peeks at a reading the venue already holds.
+    const boughtAddress = swapChain === CHAIN_ID ? toToken?.address : undefined;
     const room = boughtAddress ? bungalowByAddress('ethereum', boughtAddress) : null;
     if (room && address) {
       setLastBuy({
@@ -338,7 +368,7 @@ export function useSwap() {
     setFotRetryAttempted(false);
     const t = setTimeout(() => { reset(); setInputAmount(''); }, 4000);
     return () => clearTimeout(t);
-  }, [isSuccess, hash, allowance, refetchFromBalance, fromToken, toToken, reset, chainId, inputAmount, quote.selectedRoute, address]);
+  }, [isSuccess, hash, allowance, refetchFromBalance, fromToken, toToken, reset, chainId, inputAmount, quote.selectedRoute, address, swapChain]);
 
   // AUDIT (receipt-status): terminal handler for a receipt that came back
   // REVERTED. Shares `lastHandledHashRef` with the success effect so exactly
@@ -473,7 +503,8 @@ export function useSwap() {
   const executeSwap = useCallback(() => {
     if (isPendingRef.current) return; // R033 H-04
     if (!address || !fromToken || !toToken || parsedAmount === 0n || insufficientBalance || !swapType) return;
-    if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
+    if (!venue) { toast.error('Swaps are not available on this network'); return; }
+    if (chainId !== swapChain) { toast.error(switchMessage); return; }
     if (allowance.needsApproval) { toast.error('Please approve the token first'); return; }
     // R033 H-02: if the displayed quote is stale, force a refresh and bail.
     if (quote.isQuoteStale) {
@@ -488,8 +519,8 @@ export function useSwap() {
     submittedInputAmountRef.current = inputAmount;
     submittedRouteRef.current = quote.selectedRoute;
     // Prevent swapping a token for itself
-    const fromAddr = fromToken.isNative ? WETH_ADDRESS : fromToken.address;
-    const toAddr = toToken.isNative ? WETH_ADDRESS : toToken.address;
+    const fromAddr = fromToken.isNative ? venue.weth : fromToken.address;
+    const toAddr = toToken.isNative ? venue.weth : toToken.address;
     if (fromAddr.toLowerCase() === toAddr.toLowerCase()) {
       toast.error('Cannot swap a token for itself');
       isPendingRef.current = false;
@@ -522,11 +553,11 @@ export function useSwap() {
         // through SwapFeeRouter so the protocol earns its fee on native execution.
         const maxFeeBps = 100n;
         if (swapType === 'ethForTokens') {
-          writeContract({ chainId: CHAIN_ID, address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'swapExactETHForTokens', args: [onChainMin, path, address, deadlineTs, maxFeeBps], value: parsedAmount });
+          writeContract({ chainId: swapChain, address: venue.swapFeeRouter, abi: SWAP_FEE_ROUTER_ABI, functionName: 'swapExactETHForTokens', args: [onChainMin, path, address, deadlineTs, maxFeeBps], value: parsedAmount });
         } else if (swapType === 'tokensForEth') {
-          writeContract({ chainId: CHAIN_ID, address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'swapExactTokensForETH', args: [parsedAmount, onChainMin, path, address, deadlineTs, maxFeeBps] });
+          writeContract({ chainId: swapChain, address: venue.swapFeeRouter, abi: SWAP_FEE_ROUTER_ABI, functionName: 'swapExactTokensForETH', args: [parsedAmount, onChainMin, path, address, deadlineTs, maxFeeBps] });
         } else {
-          writeContract({ chainId: CHAIN_ID, address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'swapExactTokensForTokens', args: [parsedAmount, onChainMin, path, address, deadlineTs, maxFeeBps] });
+          writeContract({ chainId: swapChain, address: venue.swapFeeRouter, abi: SWAP_FEE_ROUTER_ABI, functionName: 'swapExactTokensForTokens', args: [parsedAmount, onChainMin, path, address, deadlineTs, maxFeeBps] });
         }
       } else {
         // AUDIT FIX (deep-pool routing): the on-chain fallback for an aggregator
@@ -535,11 +566,11 @@ export function useSwap() {
         // native TegridyRouter (our deep-POL venue), so a Uniswap-priced minOut sent
         // through it executes on the (currently thin) native pool and reverts.
         if (swapType === 'ethForTokens') {
-          writeContract({ chainId: CHAIN_ID, address: UNISWAP_V2_ROUTER, abi: UNISWAP_V2_ROUTER_ABI, functionName: 'swapExactETHForTokens', args: [onChainMin, path, address, deadlineTs], value: parsedAmount });
+          writeContract({ chainId: swapChain, address: venue.uniswapV2Router, abi: UNISWAP_V2_ROUTER_ABI, functionName: 'swapExactETHForTokens', args: [onChainMin, path, address, deadlineTs], value: parsedAmount });
         } else if (swapType === 'tokensForEth') {
-          writeContract({ chainId: CHAIN_ID, address: UNISWAP_V2_ROUTER, abi: UNISWAP_V2_ROUTER_ABI, functionName: 'swapExactTokensForETH', args: [parsedAmount, onChainMin, path, address, deadlineTs] });
+          writeContract({ chainId: swapChain, address: venue.uniswapV2Router, abi: UNISWAP_V2_ROUTER_ABI, functionName: 'swapExactTokensForETH', args: [parsedAmount, onChainMin, path, address, deadlineTs] });
         } else {
-          writeContract({ chainId: CHAIN_ID, address: UNISWAP_V2_ROUTER, abi: UNISWAP_V2_ROUTER_ABI, functionName: 'swapExactTokensForTokens', args: [parsedAmount, onChainMin, path, address, deadlineTs] });
+          writeContract({ chainId: swapChain, address: venue.uniswapV2Router, abi: UNISWAP_V2_ROUTER_ABI, functionName: 'swapExactTokensForTokens', args: [parsedAmount, onChainMin, path, address, deadlineTs] });
         }
       }
     } else if (selectedRoute === 'tegridy') {
@@ -551,20 +582,20 @@ export function useSwap() {
       const maxFeeBps = 100n;
       if (swapType === 'ethForTokens') {
         writeContract({
-          chainId: CHAIN_ID,
-          address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'swapExactETHForTokens',
+          chainId: swapChain,
+          address: venue.swapFeeRouter, abi: SWAP_FEE_ROUTER_ABI, functionName: 'swapExactETHForTokens',
           args: [minReceivedRaw, path, address, deadlineTs, maxFeeBps], value: parsedAmount,
         });
       } else if (swapType === 'tokensForEth') {
         writeContract({
-          chainId: CHAIN_ID,
-          address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'swapExactTokensForETH',
+          chainId: swapChain,
+          address: venue.swapFeeRouter, abi: SWAP_FEE_ROUTER_ABI, functionName: 'swapExactTokensForETH',
           args: [parsedAmount, minReceivedRaw, path, address, deadlineTs, maxFeeBps],
         });
       } else {
         writeContract({
-          chainId: CHAIN_ID,
-          address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'swapExactTokensForTokens',
+          chainId: swapChain,
+          address: venue.swapFeeRouter, abi: SWAP_FEE_ROUTER_ABI, functionName: 'swapExactTokensForTokens',
           args: [parsedAmount, minReceivedRaw, path, address, deadlineTs, maxFeeBps],
         });
       }
@@ -579,47 +610,47 @@ export function useSwap() {
       if (supportsFeeOnTransfer) {
         if (swapType === 'ethForTokens') {
           writeContract({
-            chainId: CHAIN_ID,
-            address: UNISWAP_V2_ROUTER, abi: UNISWAP_V2_ROUTER_ABI,
+            chainId: swapChain,
+            address: venue.uniswapV2Router, abi: UNISWAP_V2_ROUTER_ABI,
             functionName: 'swapExactETHForTokensSupportingFeeOnTransferTokens',
             args: [minReceivedRaw, path, address, deadlineTs], value: parsedAmount,
           });
         } else if (swapType === 'tokensForEth') {
           writeContract({
-            chainId: CHAIN_ID,
-            address: UNISWAP_V2_ROUTER, abi: UNISWAP_V2_ROUTER_ABI,
+            chainId: swapChain,
+            address: venue.uniswapV2Router, abi: UNISWAP_V2_ROUTER_ABI,
             functionName: 'swapExactTokensForETHSupportingFeeOnTransferTokens',
             args: [parsedAmount, minReceivedRaw, path, address, deadlineTs],
           });
         } else {
           writeContract({
-            chainId: CHAIN_ID,
-            address: UNISWAP_V2_ROUTER, abi: UNISWAP_V2_ROUTER_ABI,
+            chainId: swapChain,
+            address: venue.uniswapV2Router, abi: UNISWAP_V2_ROUTER_ABI,
             functionName: 'swapExactTokensForTokensSupportingFeeOnTransferTokens',
             args: [parsedAmount, minReceivedRaw, path, address, deadlineTs],
           });
         }
       } else if (swapType === 'ethForTokens') {
         writeContract({
-          chainId: CHAIN_ID,
-          address: UNISWAP_V2_ROUTER, abi: UNISWAP_V2_ROUTER_ABI, functionName: 'swapExactETHForTokens',
+          chainId: swapChain,
+          address: venue.uniswapV2Router, abi: UNISWAP_V2_ROUTER_ABI, functionName: 'swapExactETHForTokens',
           args: [minReceivedRaw, path, address, deadlineTs], value: parsedAmount,
         });
       } else if (swapType === 'tokensForEth') {
         writeContract({
-          chainId: CHAIN_ID,
-          address: UNISWAP_V2_ROUTER, abi: UNISWAP_V2_ROUTER_ABI, functionName: 'swapExactTokensForETH',
+          chainId: swapChain,
+          address: venue.uniswapV2Router, abi: UNISWAP_V2_ROUTER_ABI, functionName: 'swapExactTokensForETH',
           args: [parsedAmount, minReceivedRaw, path, address, deadlineTs],
         });
       } else {
         writeContract({
-          chainId: CHAIN_ID,
-          address: UNISWAP_V2_ROUTER, abi: UNISWAP_V2_ROUTER_ABI, functionName: 'swapExactTokensForTokens',
+          chainId: swapChain,
+          address: venue.uniswapV2Router, abi: UNISWAP_V2_ROUTER_ABI, functionName: 'swapExactTokensForTokens',
           args: [parsedAmount, minReceivedRaw, path, address, deadlineTs],
         });
       }
     }
-  }, [address, chainId, fromToken, toToken, parsedAmount, insufficientBalance, swapType, deadline, quote, writeContract, supportsFeeOnTransfer, allowance.needsApproval, inputAmount]);
+  }, [address, chainId, fromToken, toToken, parsedAmount, insufficientBalance, swapType, deadline, quote, writeContract, supportsFeeOnTransfer, allowance.needsApproval, inputAmount, venue, swapChain, switchMessage, slippage]);
 
   const flipDirection = useCallback(() => {
     const prev = fromToken;
@@ -633,10 +664,10 @@ export function useSwap() {
 
   const addCustomToken = useCallback(async (token: TokenInfo) => {
     // F198: refuse import on the wrong chain. The custom-token store is
-    // mainnet-scoped and on-chain verification can't run, so previously a
-    // wrong-chain import slipped an unverified entry into the mainnet list.
-    if (chainId !== CHAIN_ID) {
-      toast.error('Switch to Ethereum Mainnet to import tokens');
+    // chain-scoped and on-chain verification reads the form's chain, so a
+    // wrong-chain import would slip an unverified entry into another list.
+    if (chainId !== swapChain) {
+      toast.error(`Switch to ${swapChain === CHAIN_ID ? 'Ethereum Mainnet' : venue?.name ?? 'Ethereum Mainnet'} to import tokens`);
       return;
     }
     toast.warning('Unverified token', {
@@ -662,7 +693,7 @@ export function useSwap() {
       if (prev.find(t => t.address.toLowerCase() === token.address.toLowerCase())) return prev;
       return [...prev, token];
     });
-  }, [publicClient, chainId]);
+  }, [publicClient, chainId, swapChain, venue]);
 
   return {
     fromToken,
@@ -708,8 +739,8 @@ export function useSwap() {
     // AUDIT FIX FE-HIGH-6: surface the custom-ness of the active from/to so
     // TradePage can render a permanent "unverified token" banner. Cheaper to
     // compute here once than to re-derive in the consumer.
-    isFromTokenCustom: !!fromToken && !DEFAULT_TOKENS.some(d => d.address.toLowerCase() === fromToken.address.toLowerCase()),
-    isToTokenCustom: !!toToken && !DEFAULT_TOKENS.some(d => d.address.toLowerCase() === toToken.address.toLowerCase()),
+    isFromTokenCustom: !!fromToken && !defaultTokensFor(swapChain).some(d => d.address.toLowerCase() === fromToken.address.toLowerCase()),
+    isToTokenCustom: !!toToken && !defaultTokensFor(swapChain).some(d => d.address.toLowerCase() === toToken.address.toLowerCase()),
     unlimitedApproval: allowance.unlimitedApproval,
     toggleUnlimitedApproval: allowance.toggleUnlimitedApproval,
     isApprovingMultiStep: allowance.isApprovingMultiStep,
@@ -722,6 +753,9 @@ export function useSwap() {
     bestAggregatorName: quote.bestAggregatorName,
     allAggQuotes: quote.allAggQuotes,
     txHash: hash,
+    /** The chain this form quotes and signs on, and its venue (null: no swap here). */
+    swapChainId: swapChain,
+    venue,
     supportsFeeOnTransfer,
     setSupportsFeeOnTransfer,
     // R033 H-02: quote freshness surface

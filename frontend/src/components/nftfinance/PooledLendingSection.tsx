@@ -91,10 +91,17 @@ function PoolCard({ state, slot }: { state: PooledVaultState; slot: number }) {
         </span>
       </div>
 
-      {state.detail && (
+      {/* "Could not be read" stays visible: an unreadable pool must never look fine.
+          Why an undeployed pool shows no figure is one press away; its chip says so. */}
+      {state.detail && status === 'unreadable' && (
         <p className="text-[12px] text-white/60 leading-relaxed mb-3" style={LABEL_STYLE}>
           {state.detail}
         </p>
+      )}
+      {state.detail && status !== 'unreadable' && (
+        <FinePrint summary="Why no numbers" className="mb-2">
+          <p>{state.detail}</p>
+        </FinePrint>
       )}
 
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
@@ -160,7 +167,7 @@ export function PooledLendingSection() {
           Pooled lending
         </h2>
         <p className="text-[12px] text-white/70 leading-relaxed" style={LABEL_STYLE}>
-          Deposit WETH into one collection&rsquo;s pool; borrowers draw against it instantly.
+          Lend WETH to one collection&rsquo;s pool. Borrowers pay it interest.
         </p>
         <FinePrint summary="How it works">
           <p>
@@ -172,7 +179,7 @@ export function PooledLendingSection() {
       </div>
 
       <RiskBanner variant="warning" art={<CardArt pageId="nft-finance" idx={23} />}>
-        <span className="font-semibold">Small market, illiquid collateral.</span>
+        <span className="font-semibold">Small market. An NFT can be hard to sell.</span>
         <FinePrint summary="Risks">
           <p>
             <span className="font-semibold">This is a small market and the surface will not pretend otherwise.</span>{' '}
@@ -216,11 +223,17 @@ export function PooledLendingSection() {
             No realized-yield or liquidation history
           </p>
           <p className="text-[12px] text-white/60 leading-relaxed" style={LABEL_STYLE}>
-            {history.detail}
+            None could be read, not none happened.
           </p>
+          <FinePrint summary="Why">
+            <p>{history.detail}</p>
+          </FinePrint>
         </div>
       )}
 
+      {/* How it works, one press away (owner, 2026-10-13: how-it-works goes in a closed
+          drop-down). The five-step strip and its art sit inside, word for word. */}
+      <FinePrint summary="How it works" testId="pooled-lending-how">
       <HowItWorks
         storageKey="tegridy-pooled-lending-how"
         title="How a pooled loan works"
@@ -243,7 +256,7 @@ export function PooledLendingSection() {
           {
             label: 'A default is settled by an actual sale',
             description:
-              'Overdue collateral can be handed to the configured liquidation route by anyone. Nothing sweeps overdue loans on a timer — this venue runs no keeper. Sale proceeds repay the pool first and anything above the debt goes back to the borrower.',
+              'Overdue collateral can be handed to the configured liquidation route by anyone. Nothing sweeps overdue loans on a timer. This venue runs no keeper. Sale proceeds repay the pool first and anything above the debt goes back to the borrower.',
           },
           {
             label: 'Withdrawals are bounded by cash on hand',
@@ -252,6 +265,7 @@ export function PooledLendingSection() {
           },
         ]}
       />
+      </FinePrint>
     </m.div>
   );
 }

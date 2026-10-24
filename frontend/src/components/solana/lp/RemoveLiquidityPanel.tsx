@@ -1,19 +1,23 @@
 import { useCallback, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { PublicKey } from '@solana/web3.js';
 import { associatedTokenAddress } from '../../../lib/launcher/solana/curve/ix';
+import { formatTokenAmount } from '../../../lib/launcher/solana/curve/format';
 import { displaySafe } from '../../../lib/launchMetadata/validate';
 import { swapEnabled } from '../../../lib/solana/cpswap/program';
 import { feeReserveFor, isPlanProblem, planWithdraw, type PlanProblem, type WithdrawPlan } from '../../../lib/solana/lp/liquidityMath';
 import type { PoolView } from '../../../lib/solana/lp/poolFinder';
 import { formatWhen } from '../../../lib/solana/lp/poolHealth';
 import type { Position } from '../../../lib/solana/lp/positions';
+import { quoteCoin } from '../../../lib/solana/lp/quotes';
+import { tokenTicker } from '../../../lib/solana/lp/identity';
 import { TOKEN_PROGRAM, type TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { Notice, Row, SlippagePicker } from '../curve/ui';
 import { DEFAULT_SLIPPAGE_BPS, sharePercent } from '../curve/uiFormat';
 import { TxFlowView } from '../curve/TxFlowView';
 import { WalletNeeded } from '../curve/WalletNeeded';
 import { useReturnFocus, useTxFlow } from '../curve/useTxFlow';
-import type { LpOpenGate, LpWriteApi } from '../curve/ports';
+import type { LpOpenGate, LpWriteApi, PreparedTx } from '../curve/ports';
 import { ALL_BPS, PercentPicker } from './PercentPicker';
 import { PanelFrame } from './PanelFrame';
 import { coinAbout, coinExact, sharePct, solAbout, solExact, tokensAbout, unitsExact, useDebounced, useFlowReports, useSettledAlert, useWalletFacts } from './panelKit';
@@ -38,6 +42,10 @@ const BASE_FEE_LAMPORTS = 5_000n;
  * account, not a balance that could not be read, not a wallet that may be short of the
  * SOL to open an account. That last one is said as a warning, and the review's own
  * reads and its test run decide.
+ *
+ * AFTER IT LANDS. The confirmed card says what came out, from the review's own figures, and
+ * offers the two ways on: swap the token on the site's Solana swap, or the All pools list
+ * (`onAllPools`, set by the section) to add it somewhere else.
  */
 export function RemoveLiquidityPanel(p: {
   position: Position;
@@ -47,6 +55,8 @@ export function RemoveLiquidityPanel(p: {
   chainNow: bigint | null;
   setAside: boolean;
   onClose: () => void;
+  /** Set by the section: "Add to another pool" brings the All pools list onto the screen. */
+  onAllPools?: () => void;
 }) {
   const writes = useLpWrites();
   const gate = writes?.gate?.kind === 'open' ? writes.gate : null;
@@ -62,6 +72,7 @@ function RemoveInner({
   chainNow,
   setAside,
   onClose,
+  onAllPools,
   writes,
   api,
   gate,
@@ -73,6 +84,7 @@ function RemoveInner({
   chainNow: bigint | null;
   setAside: boolean;
   onClose: () => void;
+  onAllPools?: () => void;
   writes: LpWrites;
   api: LpWriteApi;
   gate: LpOpenGate;
@@ -214,6 +226,49 @@ function RemoveInner({
     ? `${displaySafe(safety.name ?? '', 32)} (${displaySafe(safety.symbol ?? '', 12)})`
     : null;
 
+  // The token by name on the confirmed card, as the pool's heading says it (identity.ts): a
+  // copy of a well-known ticker reads "fake USDC", never "5 USDC". A row set aside, or a
+  // blocked token, is named only when it is a pairing coin. Else "tokens".
+  const tokenName =
+    !setAside && (safety?.kind !== 'read' || safety.verdict !== 'blocked') ? tokenTicker(view.tokenMint, safety) : (quoteCoin(view.tokenMint)?.symbol ?? null);
+  // What came out, from the transaction that was signed: "about", as the review said it
+  // (the pool read when it was built). Nothing is said without that summary.
+  const removed = (prepared: PreparedTx | null) => {
+    const s = prepared?.summary.kind === 'lp-withdraw' ? prepared.summary : null;
+    const got = s
+      ? `${coinAbout(s.quoted.quote, s.quote)} and ${tokenName ? `${formatTokenAmount(s.quoted.token, s.tokenDecimals, 4).text} ${tokenName}` : tokensAbout(s.quoted.token, s.tokenDecimals)}`
+      : null;
+    return (
+      <div className="space-y-2" data-testid="lp-removed">
+        {got && <p className="text-white/85">You got about {got}.</p>}
+        <div className="flex flex-col sm:flex-row gap-2">
+          {/* The swap opens paying with the token for the pool's coin, each by its address. A set-aside token is not offered. */}
+          {!setAside && (
+            <Link
+              to={`/solana?in=${view.tokenMint}&out=${coin.mint}`}
+              className="btn-secondary min-h-[44px] w-full px-4 text-[12px] inline-flex items-center justify-center"
+            >
+              Swap it
+            </Link>
+          )}
+          {onAllPools && (
+            <button
+              type="button"
+              className="btn-secondary min-h-[44px] w-full px-4 text-[12px]"
+              onClick={() => {
+                // The pools and positions are read again, as Close does, and the list comes onto the screen.
+                writes.finished();
+                onAllPools();
+              }}
+            >
+              Add to another pool
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <PanelFrame testId="lp-remove-panel" title="Remove liquidity from this pool" headingRef={headingRef}>
       <div className="space-y-1.5">
@@ -241,6 +296,7 @@ function RemoveInner({
           decimals={decimals}
           signer={signer}
           preparingText="Reading the pool again and test-running your withdrawal on the network…"
+          afterConfirmed={removed}
         />
       ) : (
         <>

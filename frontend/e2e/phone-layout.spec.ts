@@ -39,9 +39,10 @@ test('/nft-finance?section=pooled at 360px: the "Not deployed" badges stay on sc
 });
 
 test('in the TOWELI room at 390px, the corner steps aside from a section tab instead of covering it', async ({ page, walletMock: _w }) => {
-  // The NFT AMM's own tabs ("My Pools") pass under the corner as the page scrolls. The
-  // section row no longer does: it sits under the heading (2026-10-14).
-  await settle(page, '/nft-finance?section=amm&bungalow=toweli', { width: 390, height: 844 });
+  // Token Lending's own tabs ("My Loans") pass under the corner as the page scrolls. The
+  // section row no longer does: it sits under the heading (2026-10-14). Nor do the NFT
+  // AMM's: the fewer-words pass lifted them above the corner's line on a first screen.
+  await settle(page, '/nft-finance?section=lending&bungalow=toweli', { width: 390, height: 844 });
   // By CSS: a corner that has stepped aside is hidden, so no role query finds it.
   await expect(page.locator('button[aria-label="Towelie says hi"]')).toHaveCount(1, { timeout: 15_000 });
   const scan = await page.evaluate(async () => {
@@ -65,7 +66,8 @@ test('in the TOWELI room at 390px, the corner steps aside from a section tab ins
         const hit = document.elementFromPoint((x0 + x1) / 2, (y0 + y1) / 2);
         const visible = corner.checkVisibility({ visibilityProperty: true, opacityProperty: true });
         if (!hit || !tab.contains(hit) || visible) {
-          covered.push(`at ${y}px scrolled, "${(tab.textContent ?? '').trim().slice(0, 20)}" is under the corner (${visible ? 'shown' : 'hidden'}, a press there lands on ${hit ? hit.tagName.toLowerCase() : 'nothing'})`);
+          const owner = hit?.closest('[aria-label]')?.getAttribute('aria-label') ?? 'no label';
+          covered.push(`at ${y}px scrolled, "${(tab.textContent ?? '').trim().slice(0, 20)}" is under the corner (${visible ? 'shown' : 'hidden'}, a press there lands on ${hit ? hit.tagName.toLowerCase() : 'nothing'} in "${owner}")`);
         }
       }
     }
@@ -74,6 +76,54 @@ test('in the TOWELI room at 390px, the corner steps aside from a section tab ins
   expect(scan.under, 'no tab ever passed under the corner: the page changed shape').toBeGreaterThan(0);
   expect(scan.shown, 'the corner never showed: it must step aside, not leave').toBeGreaterThan(0);
   expect(scan.covered, 'tabs the corner covered').toEqual([]);
+});
+
+test('in the TOWELI room at 390px with motion on, a press on a tab sliding under the corner lands on the tab while the corner fades', async ({ page, walletMock: _w }) => {
+  // The corner takes 200ms to fade aside, and a fading element still takes presses: the
+  // first step that brought a tab ("My Pools", then) under it pressed Towelie (2026-10-14).
+  // Token Lending's "My Loans" is the tab that passes under it now. The other tests run
+  // with motion reduced, where only WebKit's fade lasts long enough to see.
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await settle(page, '/nft-finance?section=lending&bungalow=toweli', { width: 390, height: 844 });
+  await expect(page.locator('button[aria-label="Towelie says hi"]')).toHaveCount(1, { timeout: 15_000 });
+  const scan = await page.evaluate(async () => {
+    const frame = () => new Promise((r) => requestAnimationFrame(() => r(null)));
+    const corner = document.querySelector('button[aria-label="Towelie says hi"]')!;
+    const opacity = () => {
+      let o = 1;
+      for (let e: Element | null = corner; e; e = e.parentElement) o *= Number(getComputedStyle(e).opacity);
+      return o;
+    };
+    const under = () => {
+      const m = corner.getBoundingClientRect();
+      return Array.from(document.querySelectorAll('[role="tab"]')).flatMap((tab) => {
+        const b = tab.getBoundingClientRect();
+        const x0 = Math.max(b.left, m.left), x1 = Math.min(b.right, m.right);
+        const y0 = Math.max(b.top, m.top), y1 = Math.min(b.bottom, m.bottom);
+        return b.width === 0 || x1 <= x0 || y1 <= y0 ? [] : [{ tab, x: (x0 + x1) / 2, y: (y0 + y1) / 2 }];
+      });
+    };
+    const missed: string[] = [];
+    let fading = 0;
+    const max = document.documentElement.scrollHeight - innerHeight;
+    for (let y = 0; y <= max; y += 40) {
+      window.scrollTo(0, y);
+      // Press at the first frame the corner has begun to step aside, mid-fade.
+      for (let i = 0; i < 30 && under().length && opacity() >= 1; i++) await frame();
+      const o = opacity();
+      for (const { tab, x, y: py } of under()) {
+        if (o > 0 && o < 1) fading += 1;
+        const hit = document.elementFromPoint(x, py);
+        if (!hit || !tab.contains(hit)) {
+          const owner = hit?.closest('[aria-label]')?.getAttribute('aria-label') ?? 'no label';
+          missed.push(`at ${y}px scrolled, a press on "${(tab.textContent ?? '').trim().slice(0, 20)}" lands on ${hit ? hit.tagName.toLowerCase() : 'nothing'} in "${owner}" (corner opacity ${o.toFixed(2)})`);
+        }
+      }
+    }
+    return { missed, fading };
+  });
+  expect(scan.fading, 'no press was made while the corner faded: the page or its timing changed').toBeGreaterThan(0);
+  expect(scan.missed, 'presses on a tab the fading corner took').toEqual([]);
 });
 
 for (const path of ['/', '/toweli']) {
@@ -93,7 +143,7 @@ for (const path of ['/', '/toweli']) {
         };
       }),
     );
-    expect(pills.map((p) => p.text)).toEqual(['SOLANA', 'ETHEREUM', 'BASE']);
+    expect(pills.map((p) => p.text)).toEqual(['SOLANA', 'ETHEREUM', 'BASE', 'ROBINHOOD']);
     for (const p of pills) {
       expect(p.painted, `${p.text}: the pill grew`).toBeLessThan(30);
       expect(p.tall, `${p.text}: a press 22px above or below its middle misses it`).toEqual([true, true]);

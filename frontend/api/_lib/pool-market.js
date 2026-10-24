@@ -37,7 +37,7 @@
 //   upstream, which is genuinely better than a naive proxy — a proxy funnels the
 //   whole fleet through one origin IP and would hit the keyless limit SOONER.
 //   The win is not the proxy, it is `s-maxage`: Vercel's CDN answers from the
-//   edge, so upstream sees at most ~1 request per pool per CACHE_SECONDS no
+//   edge, so upstream sees at most ~1 request per pool per fresh window no
 //   matter how many people are reading, instead of 2 per page view. That is what
 //   makes this strictly better rather than a lateral move, and it is why the
 //   Cache-Control header below is load-bearing rather than decoration. Removing
@@ -47,19 +47,19 @@
 // stays in the client's geckoTerminalPoolSchema (R080), so the hostile-JSON
 // handling keeps exactly one tested implementation and this adapter stays a
 // thin, cacheable pipe.
+//
+// THE FETCH ITSELF lives in `_lib/gecko-upstream.js` (2026-10-15), shared with
+// gecko-read: one GeckoTerminal budget per minute for both, a cool-down after a
+// refusal, a one-minute fresh window for a market strip, and the last good copy,
+// marked with its age, for a caller that asks (usePoolMarket does, and prints
+// the age). A refusal now arrives as 429, not 502.
 
-import { checkRateLimit, checkGlobalLimit } from "./ratelimit.js";
 import { isRequestOriginAllowed } from "./aggregator-proxy.js";
-import { readBoundedText, MAX_RESPONSE_BYTES } from "./bodycap.js";
-import { logSafe } from "./logSafe.js";
-
-// ── Config ───────────────────────────────────────────────────────────────
-const GECKO_BASE = "https://api.geckoterminal.com/api/v2";
-
-// The edge answers from cache for this long, so the keyless upstream sees at
-// most ~1.3 requests per minute per pool regardless of traffic. Short enough
-// that a market strip is not stale in a way a reader would notice.
-const CACHE_SECONDS = 45;
+import {
+  serveGeckoRead,
+  GECKO_CORS_ALLOW_HEADERS,
+  GECKO_CORS_EXPOSE_HEADERS,
+} from "./gecko-upstream.js";
 
 // Both of these are interpolated into an UPSTREAM URL PATH, so they are gated on
 // ANCHORED allowlists rather than escaped. A slash, a dot, a percent or a colon
@@ -97,7 +97,8 @@ function setCors(req, res) {
   }
   res.setHeader("Vary", "Origin");
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Headers", GECKO_CORS_ALLOW_HEADERS);
+  res.setHeader("Access-Control-Expose-Headers", GECKO_CORS_EXPOSE_HEADERS);
 }
 
 // ── Handler ────────────────────────────────────────────────────────────────
@@ -121,58 +122,11 @@ export async function handlePoolMarket(req, res) {
     return res.status(400).json({ error: "Invalid network or pool" });
   }
 
-  // Per-IP bounds one caller. The edge cache means a warm pool never reaches
-  // here at all, so this only ever throttles cache misses.
-  const allowed = await checkRateLimit(req, res, {
-    limit: 30,
-    windowSec: 60,
+  // Per-IP bounds one caller's cache misses. The budget that protects
+  // GeckoTerminal is the shared one inside serveGeckoRead, not this.
+  return serveGeckoRead(req, res, {
+    path: `/networks/${network}/pools/${pool}`,
+    perIpLimit: 30,
     identifier: "pool-market",
   });
-  if (!allowed) return;
-
-  // The aggregate breaker bounds the fleet against a shared keyless upstream that
-  // rate-limits US, not the individual visitor.
-  const underCap = await checkGlobalLimit(res, {
-    limit: Number(process.env.POOL_MARKET_GLOBAL_RPM) || 120,
-    windowSec: 60,
-    identifier: "pool-market",
-  });
-  if (!underCap) return;
-
-  try {
-    const upstream = await fetch(`${GECKO_BASE}/networks/${network}/pools/${pool}`, {
-      headers: { Accept: "application/json" },
-    });
-    if (!upstream.ok) {
-      // Pass the upstream's own shape of failure through rather than flattening
-      // every fault to one code: a 404 is "no such pool" and is permanent, a 429
-      // is "try later". Never cached — see below.
-      return res
-        .status(upstream.status === 404 ? 404 : 502)
-        .json({ error: `Upstream HTTP ${upstream.status}` });
-    }
-
-    const { text, truncated } = await readBoundedText(upstream, MAX_RESPONSE_BYTES);
-    if (truncated) return res.status(502).json({ error: "Upstream response too large" });
-
-    let json;
-    try {
-      json = JSON.parse(text);
-    } catch {
-      return res.status(502).json({ error: "Upstream response was not JSON" });
-    }
-
-    // The header is the whole point of this file (see the note at the top).
-    // It is set ONLY on a 200: caching a failure would pin the honest-outage
-    // state in front of every visitor for the whole window, which is the exact
-    // symptom this change exists to remove.
-    res.setHeader(
-      "Cache-Control",
-      `s-maxage=${CACHE_SECONDS}, stale-while-revalidate=${CACHE_SECONDS * 4}`,
-    );
-    return res.status(200).json(json);
-  } catch (err) {
-    console.error("pool-market error:", logSafe(err));
-    return res.status(502).json({ error: "Failed to read pool" });
-  }
 }

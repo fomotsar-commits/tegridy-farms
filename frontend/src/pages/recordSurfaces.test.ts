@@ -50,10 +50,10 @@ describe('records (ruling 1)', () => {
 describe('unread-read ledgers', () => {
   const ledgers = declaring(/data-unread-ledger\s*=/g);
 
-  it("only the volume board's coverage notice reports a read this way", () => {
-    expect(ledgers.map((f) => f.file).sort()).toEqual([
-      'components/competitions/CupCoverageNotice.tsx',
-    ]);
+  // The volume board's coverage notice was the one ledger; it left with the trading
+  // competitions on 2026-10-15 (island item 4). A new one must be argued here first.
+  it('no surface reports a read this way today', () => {
+    expect(ledgers.map((f) => f.file).sort()).toEqual([]);
   });
 
   // THREE, and each one is argued in that file's header: the heading (five

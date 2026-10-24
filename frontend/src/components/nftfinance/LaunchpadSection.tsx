@@ -131,7 +131,7 @@ export function LaunchpadSection() {
         <div className="relative z-10 m-2 md:m-3 rounded-lg p-4 md:p-5" style={PANEL_STYLE}>
           <h3 className="text-sm font-semibold mb-3" style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>NFT Launchpad</h3>
           <p className="text-[12px] mb-4" style={{ color: '#22c55e', textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>
-            Deploy an ERC-721 collection. No code required.
+            Launch your own NFT collection. No code needed.
           </p>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
             {FEATURE_BULLETS.map(({ label, icon, color }) => (

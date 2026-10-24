@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { fetchHeat, isSupportedHeatAddress } from '../../lib/heat/heatClient';
 import type { HeatReading } from '../../lib/heat/heatOracle';
 import { CardArt } from '../ui/CardArt';
+import { FinePrint } from '../ui/FinePrint';
 
 /**
  * "Check your heat" on a room's farm: one address in, the island oracle's reading out,
@@ -33,7 +34,7 @@ export function HeatCard({ defaultAddress }: { defaultAddress?: string }) {
     try {
       setReading(await fetchHeat(address.trim()));
     } catch {
-      setError('The Island is quiet right now. The oracle could not be read. That is an outage, not a zero.');
+      setError('The Island is quiet: the oracle could not be read. An outage, not a zero.');
     } finally {
       setLoading(false);
     }
@@ -42,14 +43,15 @@ export function HeatCard({ defaultAddress }: { defaultAddress?: string }) {
   return (
     <div className="relative isolate mt-6 rounded-2xl p-6" style={{ background: 'rgba(4,9,18,0.72)', border: '1px solid var(--color-purple-25)' }}>
       <CardArt pageId="bungalow-heat-card" idx={0} />
-      <p className="text-[10px] uppercase tracking-wider mb-1" style={{ color: 'var(--color-kyle)' }}>Check your heat</p>
+      {/* The kicker is the card's one heading now; one line under it, the rest folded below. */}
+      <h2 className="heading-luxury text-xl text-white mb-1">Check your heat</h2>
       <p className="text-white/70 text-[12px] mb-3">
-        Time held is what counts. Give the Island an address and it answers with what you held.
+        Give the Island an address: it answers with what you held.
       </p>
       <div className="flex flex-wrap items-center gap-2">
-        <label htmlFor="bungalow-heat-address" className="sr-only">Wallet address</label>
         <input
           id="bungalow-heat-address"
+          aria-label="Wallet address"
           type="text"
           value={address}
           onChange={(e) => setAddress(e.target.value)}
@@ -75,6 +77,9 @@ export function HeatCard({ defaultAddress }: { defaultAddress?: string }) {
       {error && (
         <p className="text-[12px] mt-3" style={{ color: '#f0b26b' }}>{error}</p>
       )}
+      <FinePrint className="mt-1">
+        <p>Time held is what counts. Give the Island an address and it answers with what you held.</p>
+      </FinePrint>
       {reading && (
         <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1 text-[13px]">
           <span className="text-white">

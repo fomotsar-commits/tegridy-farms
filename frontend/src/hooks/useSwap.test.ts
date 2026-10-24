@@ -488,3 +488,93 @@ describe('useSwap', () => {
     expect(result.current.isConfirming).toBe(false);
   });
 });
+
+describe('useSwap on Base and Robinhood Chain (2026-10-17)', () => {
+  const BASE_SFR = '0xa24C7287eC56A7DEFDc70033803451240e267a52';
+  const BASE_UNI = '0x4752ba5DBc23f44D87826276BF6Fd6b1C372aD24';
+  const RH_SFR = '0xE9F83A07b071748E795d2489651d5310fA098Db8';
+  const RH_UNI = '0x89e5DB8B5aA49aA85AC63f691524311AEB649eba';
+  const BASE_USDC = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
+
+  beforeEach(() => {
+    resetWagmi();
+    quoteState.current = defaultQuote();
+    allowanceState.needsApproval = false;
+    try { window.localStorage.clear(); } catch { /* jsdom only */ }
+  });
+
+  it.each([
+    [8453, 'tegridy', BASE_SFR, 5],
+    [8453, 'uniswap', BASE_UNI, 4],
+    [4663, 'tegridy', RH_SFR, 5],
+    [4663, 'uniswap', RH_UNI, 4],
+  ] as const)('chain %i, %s route: signs on that chain at that chain\'s router', (chain, route, router, argCount) => {
+    wagmiState.chainId = chain;
+    quoteState.current = { ...defaultQuote(), selectedRoute: route, selectedOnChainRoute: { source: route, output: 1000n * 10n ** 18n } };
+    const { result } = renderHook(() => useSwap({ chainId: chain }));
+    // Robinhood opens with nothing to receive; pick a token on both chains alike.
+    act(() => result.current.setToToken({ address: '0x4444444444444444444444444444444444444444', symbol: 'FOO', name: 'Foo', decimals: 18, logoURI: '' }));
+    act(() => result.current.setInputAmount('0.5'));
+    act(() => result.current.executeSwap());
+    const write = wagmiState.writeContractMock;
+    expect(write).toHaveBeenCalledTimes(1);
+    const call = write.mock.calls[0][0];
+    expect(call.chainId).toBe(chain);
+    expect(call.address).toBe(router);
+    expect(call.functionName).toBe('swapExactETHForTokens');
+    expect(call.args).toHaveLength(argCount);
+  });
+
+  it('refuses a wallet on Ethereum when the form is on Base, naming Base', async () => {
+    const { toast } = await import('sonner');
+    wagmiState.chainId = 1;
+    const { result } = renderHook(() => useSwap({ chainId: 8453 }));
+    act(() => result.current.setInputAmount('1'));
+    act(() => result.current.executeSwap());
+    expect(wagmiState.writeContractMock).not.toHaveBeenCalled();
+    expect(toast.error).toHaveBeenCalledWith('Please switch to Base');
+  });
+
+  it('opens Base on ETH to Circle USDC, and Robinhood on ETH to Global Dollar (USDG)', () => {
+    wagmiState.chainId = 8453;
+    const base = renderHook(() => useSwap({ chainId: 8453 })).result.current;
+    expect(base.fromToken?.isNative).toBe(true);
+    expect(base.toToken?.address).toBe(BASE_USDC);
+    expect(base.swapChainId).toBe(8453);
+    wagmiState.chainId = 4663;
+    const rh = renderHook(() => useSwap({ chainId: 4663 })).result.current;
+    expect(rh.fromToken?.isNative).toBe(true);
+    // From the Uniswap Labs Default list, read on chain 2026-10-18 (lib/tokenList.ts).
+    expect(rh.toToken?.address).toBe('0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168');
+    expect(rh.toToken?.symbol).toBe('USDG');
+  });
+
+  it('resets the pair and the amount when the form moves to another chain', () => {
+    const { result, rerender } = renderHook(({ chain }: { chain: number }) => useSwap({ chainId: chain }), { initialProps: { chain: 1 } });
+    expect(result.current.toToken?.symbol).toBe('TOWELI');
+    act(() => result.current.setInputAmount('2'));
+    rerender({ chain: 8453 });
+    expect(result.current.toToken?.address).toBe(BASE_USDC);
+    expect(result.current.inputAmount).toBe('');
+    expect(result.current.swapChainId).toBe(8453);
+  });
+
+  it('keeps each chain\'s imported tokens under that chain\'s own key', () => {
+    window.localStorage.setItem('tegridy_custom_tokens_v2_8453', JSON.stringify([{ address: '0x3333333333333333333333333333333333333333', symbol: 'BASEFOO', name: 'Base Foo', decimals: 18, logoURI: '' }]));
+    const { result, rerender } = renderHook(({ chain }: { chain: number }) => useSwap({ chainId: chain }), { initialProps: { chain: 1 } });
+    expect(result.current.customTokens).toEqual([]);
+    rerender({ chain: 8453 });
+    expect(result.current.customTokens.map((t) => t.symbol)).toEqual(['BASEFOO']);
+    // Ethereum's key was never written with Base's list.
+    expect(window.localStorage.getItem('tegridy_custom_tokens_v2_1')).toBe('[]');
+  });
+
+  it('without a chain, still swaps on Ethereum only, as the quick-buy panel relies on', () => {
+    wagmiState.chainId = 8453;
+    const { result } = renderHook(() => useSwap());
+    act(() => result.current.setInputAmount('1'));
+    act(() => result.current.executeSwap());
+    expect(wagmiState.writeContractMock).not.toHaveBeenCalled();
+    expect(result.current.swapChainId).toBe(CHAIN_ID);
+  });
+});

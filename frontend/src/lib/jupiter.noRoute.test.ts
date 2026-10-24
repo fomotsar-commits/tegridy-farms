@@ -66,3 +66,41 @@ describe('getQuote: only the proxy’s own NO_ROUTE answer is "no route"', () =>
     await expect(getQuote(ASK)).resolves.toEqual(quote);
   });
 });
+
+describe('getQuote: a pin asks for one hop on one DEX, and only a pin does', () => {
+  const asked = () => {
+    const f = vi.fn(async () => new Response(JSON.stringify({ outAmount: '1' }), { status: 200 }));
+    vi.stubGlobal('fetch', f);
+    return () => new URL(String((f.mock.calls[0] as unknown[])[0]), 'https://x.test').searchParams;
+  };
+
+  it('a pinned quote carries onlyDirectRoutes and the DEX', async () => {
+    const params = asked();
+    await getQuote({ ...ASK, pin: { dex: 'Pump.fun Amm' } });
+    expect(params().get('onlyDirectRoutes')).toBe('true');
+    expect(params().get('dexes')).toBe('Pump.fun Amm');
+  });
+
+  it('an ordinary quote carries neither: the swap form’s route is Jupiter’s to choose', async () => {
+    const params = asked();
+    await getQuote(ASK);
+    expect(params().has('onlyDirectRoutes')).toBe(false);
+    expect(params().has('dexes')).toBe(false);
+  });
+});
+
+// V1 refuses the venue's SOL fee on a coin that is Token-2022 (6014), so the swap went out
+// with no fee; V2 takes it (measured 2026-10-23, SOL -> BAYLA: +0.5% of the SOL paid).
+describe('getQuote: every trade quote asks for Jupiter’s V2 instructions', () => {
+  it.each([
+    ['an ordinary quote', ASK],
+    ['a pinned quote', { ...ASK, pin: { dex: 'Pump.fun Amm' } }],
+    ['the no-fee re-quote', { ...ASK, noPlatformFee: true }],
+  ])('%s', async (_name, ask) => {
+    const f = vi.fn(async () => new Response(JSON.stringify({ outAmount: '1' }), { status: 200 }));
+    vi.stubGlobal('fetch', f);
+    await getQuote(ask);
+    const params = new URL(String((f.mock.calls[0] as unknown[])[0]), 'https://x.test').searchParams;
+    expect(params.get('instructionVersion')).toBe('V2');
+  });
+});

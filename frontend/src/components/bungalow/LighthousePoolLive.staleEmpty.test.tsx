@@ -67,7 +67,7 @@ const BUNGALOW = {
   stakePool: 'PooLAddr1111111111111111111111111111111111', address: 'MintAddr',
 } as unknown as Bungalow & { stakePool: string };
 
-const noteText = () => screen.getByText('Your share —').parentElement!.textContent ?? '';
+const noteText = () => screen.getByText('Your share:').parentElement!.textContent ?? '';
 
 beforeEach(() => { reads.n = 0; reads.held = []; });
 

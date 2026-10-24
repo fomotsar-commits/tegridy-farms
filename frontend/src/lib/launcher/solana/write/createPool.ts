@@ -508,10 +508,11 @@ export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: Lp
   }
 
   // 8. The market price, read again: the token's, and the pairing coin's own when the
-  // pool is not paired with SOL (the opening price is checked in that coin).
+  // pool is not paired with SOL (the opening price is checked in that coin). Fresh from
+  // Jupiter: the panel's own read may be the edge's 30-second copy.
   const readPrice = async (mint: string, d: number): Promise<OutsidePrice> => {
     try {
-      return await reads.outsidePrice(mint, d);
+      return await reads.outsidePrice(mint, d, { fresh: true });
     } catch (e) {
       return { kind: 'unread', detail: e instanceof Error ? e.message : String(e) };
     }

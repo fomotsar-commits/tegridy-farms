@@ -81,7 +81,6 @@ export const PAGE_ROUTES: Record<string, string> = {
   lore: '/lore',
   changelog: '/changelog',
   'changelog-cards': '/changelog',
-  leaderboard: '/leaderboard',
   premium: '/premium',
   history: '/history',
   security: '/security',
@@ -91,7 +90,6 @@ export const PAGE_ROUTES: Record<string, string> = {
   faq: '/faq',
   admin: '/admin',
   'admin-dashboard': '/admin',
-  'tegridy-score': '/dashboard',
   'referral-widget': '/dashboard',
   checkout: '/checkout',
   tax: '/tax',
@@ -100,7 +98,7 @@ export const PAGE_ROUTES: Record<string, string> = {
   terminal: '/terminal',
   developer: '/developers',
   'nav-drawer': '/',
-  seasonal: '/',
+  'island-basket': '/swap',
   'legacy-exit': '/earn/toweli',
   wizard: '/nft-finance',
   // 2026-10-03: the pageIds minted for card art, plus the older ones that had
@@ -111,6 +109,7 @@ export const PAGE_ROUTES: Record<string, string> = {
   'flames-board': '/',
   'three-paths': '/',
   'venue-doors': '/',
+  'island-dashboard': '/',
   'yield-calculator': '/',
   'bungalow-dashboard': '/dashboard',
   portfolio: '/dashboard',
@@ -128,7 +127,9 @@ export const PAGE_ROUTES: Record<string, string> = {
   'wrong-chain': '/earn/toweli',
   island: '/island',
   gallery: '/gallery',
-  'heat-card': '/leaderboard',
+  // The Tradermigos landing. Its three pop-ups above have the same host route.
+  marketplace: '/nakamigos',
+  'heat-card': '/exposure',
   'clock-line': '/swap',
   'solana-swap': '/solana',
   'il-calculator': '/liquidity',
@@ -136,6 +137,8 @@ export const PAGE_ROUTES: Record<string, string> = {
   'pending-trade': '/solana-lp',
   'solana-lp': '/solana-lp',
   'venue-amm': '/solana-lp',
+  // Listed and routed only while range pools show (clmm/programId.ts).
+  'range-pools': '/range-pools',
   zap: '/zap',
   'venue-launch-lines': '/curve-launch',
   'gate-audit-panel': '/launch',
@@ -143,7 +146,6 @@ export const PAGE_ROUTES: Record<string, string> = {
   'launch-token': '/launch',
   shield: '/nft-finance',
   'copy-trading': '/copy-trading',
-  competitions: '/competitions',
   trust: '/trust',
   chart: '/chart',
   alerts: '/alerts',
@@ -186,6 +188,8 @@ export const SURFACES: Surface[] = [
   // surface on the site was unregistered and unplaceable in either studio until
   // 2026-09-13, even though artOverrides.ts has carried a pick for it all along.
   { group: 'Home', pageId: 'venue-home', idx: 0, label: 'H0 — Venue hero bg (non-bungalow)' },
+  // The venue home's cards (owner, 2026-10-16): swap and stake wear their own pages' art; this is the LP card's.
+  { group: 'Home', pageId: 'venue-home', idx: 1, label: 'Venue home: Add SOL + BAYLA card' },
 
   // Dashboard (14)
   { group: 'Dashboard', pageId: 'dashboard', idx: 0, label: 'D1 — BG disconnected' },
@@ -194,7 +198,6 @@ export const SURFACES: Surface[] = [
   { group: 'Dashboard', pageId: 'dashboard', idx: 3, label: 'D4 — Stat: ETH Balance' },
   { group: 'Dashboard', pageId: 'dashboard', idx: 4, label: 'D5 — Stat: Claimable' },
   { group: 'Dashboard', pageId: 'dashboard', idx: 5, label: 'D6 — Stat: TOWELI Price' },
-  { group: 'Dashboard', pageId: 'dashboard', idx: 6, label: 'D7 — Venue Score block' },
   { group: 'Dashboard', pageId: 'dashboard', idx: 7, label: 'D8 — ETH Revenue Claim' },
   { group: 'Dashboard', pageId: 'dashboard', idx: 8, label: 'D9 — POL Accumulator' },
   { group: 'Dashboard', pageId: 'dashboard', idx: 9, label: 'D10 — DCA Due Alerts' },
@@ -241,27 +244,27 @@ export const SURFACES: Surface[] = [
   { group: 'Trade', pageId: 'yield', idx: 3, label: 'YR4 — Venue deposit card' },
 
   // NFT Finance
-  { group: 'Earn · NFT Loans', pageId: 'nft-finance', idx: 0, label: 'NF1 — Page bg' },
-  { group: 'Earn · NFT Loans', pageId: 'nft-finance', idx: 1, label: 'NF2 — Token Lending intro' },
-  { group: 'Earn · NFT Loans', pageId: 'nft-finance', idx: 2, label: 'NF3 — NFT Lending intro' },
-  { group: 'Earn · NFT Loans', pageId: 'nft-finance', idx: 3, label: 'NF4 — NFT AMM intro' },
-  { group: 'Earn · NFT Loans', pageId: 'nft-lending', idx: 0, label: 'NL1 — Total Offers stat' },
-  { group: 'Earn · NFT Loans', pageId: 'nft-lending', idx: 1, label: 'NL2 — Active Loans stat' },
-  { group: 'Earn · NFT Loans', pageId: 'nft-lending', idx: 2, label: 'NL3 — Protocol Fee stat' },
-  { group: 'Earn · NFT Loans', pageId: 'nft-lending', idx: 3, label: 'NL4 — Collections stat' },
-  { group: 'Earn · NFT Loans', pageId: 'nft-lending', idx: 4, label: 'NL5 — Empty borrow tab' },
+  { group: 'Earn · NFT Finance', pageId: 'nft-finance', idx: 0, label: 'NF1 — Page bg' },
+  { group: 'Earn · NFT Finance', pageId: 'nft-finance', idx: 1, label: 'NF2 — Token Lending intro' },
+  { group: 'Earn · NFT Finance', pageId: 'nft-finance', idx: 2, label: 'NF3 — NFT Lending intro' },
+  { group: 'Earn · NFT Finance', pageId: 'nft-finance', idx: 3, label: 'NF4 — NFT AMM intro' },
+  { group: 'Earn · NFT Finance', pageId: 'nft-lending', idx: 0, label: 'NL1 — Total Offers stat' },
+  { group: 'Earn · NFT Finance', pageId: 'nft-lending', idx: 1, label: 'NL2 — Active Loans stat' },
+  { group: 'Earn · NFT Finance', pageId: 'nft-lending', idx: 2, label: 'NL3 — Protocol Fee stat' },
+  { group: 'Earn · NFT Finance', pageId: 'nft-lending', idx: 3, label: 'NL4 — Collections stat' },
+  { group: 'Earn · NFT Finance', pageId: 'nft-lending', idx: 4, label: 'NL5 — Empty borrow tab' },
   // LendingSection calls pageArt('lending-section', N) for N = 1..14 — it has no
   // idx 0, so the range starts at 1. (It listed 0..14 until 2026-09-13; the
   // extra card was placeable in the studio and rendered nowhere.)
   ...Array.from({ length: 14 }, (_, i): Surface => ({
-    group: 'Earn · NFT Loans',
+    group: 'Earn · NFT Finance',
     pageId: 'lending-section',
     idx: i + 1,
     label: `LS${i + 1} — Lending panel ${i + 1}`,
   })),
-  { group: 'Earn · NFT Loans', pageId: 'launchpad-section', idx: 0, label: 'LP1 — Launchpad overview' },
-  { group: 'Earn · NFT Loans', pageId: 'launchpad-section', idx: 1, label: 'LP2 — Launchpad featured' },
-  { group: 'Earn · NFT Loans', pageId: 'launchpad-section', idx: 2, label: 'LP3 — Launchpad create pool' },
+  { group: 'Earn · NFT Finance', pageId: 'launchpad-section', idx: 0, label: 'LP1 — Launchpad overview' },
+  { group: 'Earn · NFT Finance', pageId: 'launchpad-section', idx: 1, label: 'LP2 — Launchpad featured' },
+  { group: 'Earn · NFT Finance', pageId: 'launchpad-section', idx: 2, label: 'LP3 — Launchpad create pool' },
 
   // Community
   { group: 'Community', pageId: 'community', idx: 0, label: 'CP1 — Page bg' },
@@ -318,12 +321,6 @@ export const SURFACES: Surface[] = [
   })),
 
   // Leaderboard (6)
-  { group: 'Leaderboard', pageId: 'leaderboard', idx: 0, label: 'LB1 — Page bg' },
-  { group: 'Leaderboard', pageId: 'leaderboard', idx: 1, label: 'LB2 — Your Stats' },
-  { group: 'Leaderboard', pageId: 'leaderboard', idx: 2, label: 'LB3 — Empty state' },
-  { group: 'Leaderboard', pageId: 'leaderboard', idx: 3, label: 'LB4 — How Points Work' },
-  { group: 'Leaderboard', pageId: 'leaderboard', idx: 4, label: 'LB5 — Tier Breakdown' },
-  { group: 'Leaderboard', pageId: 'leaderboard', idx: 5, label: 'LB6 — All Badges' },
 
   // Premium (3)
   { group: 'Premium', pageId: 'premium', idx: 0, label: 'PR1 — Page bg' },
@@ -374,7 +371,6 @@ export const SURFACES: Surface[] = [
   { group: 'Misc pages', pageId: 'terminal', idx: 0, label: 'TM1 — Pro Terminal page bg' },
   { group: 'Misc pages', pageId: 'developer', idx: 0, label: 'DV1 — Developer API page bg' },
 
-  { group: 'Misc widgets', pageId: 'tegridy-score', idx: 0, label: 'TS1 — TegridyScore widget' },
   { group: 'Misc widgets', pageId: 'referral-widget', idx: 0, label: 'RW1 — Referral widget' },
 
   // Pop-up / modal cards — the surfaces that appear over other pages. Registered
@@ -414,7 +410,6 @@ export const SURFACES: Surface[] = [
   { group: 'Trust tools',   pageId: 'chart',            idx: 1, label: 'TT5b — Pro Charting pool picker card' },
   { group: 'Trust tools',   pageId: 'chart',            idx: 2, label: 'TT5c — Pro Charting sources card' },
   { group: 'Engage',        pageId: 'copy-trading',     idx: 0, label: 'EN2 — Copy Trading backdrop' },
-  { group: 'Engage',        pageId: 'competitions',     idx: 0, label: 'EN3 — Competitions backdrop' },
   { group: 'Engage',        pageId: 'checkout',         idx: 0, label: 'EN4 — Checkout backdrop' },
   // idx 1 is the merchant's minted payment link; idx 2 is the buyer's
   // merchant-signature strip. Both are the cards a person stares at while
@@ -465,31 +460,31 @@ export const SURFACES: Surface[] = [
 
   // ArtCard section backgrounds — moved from fixed ART.<piece> onto pageArt so the
   // studio can tune them too (coverage audit 2026-07-25).
-  { group: 'Earn · NFT Loans · AMM', pageId: 'amm', idx: 0,  label: 'AMM art 1' },
-  { group: 'Earn · NFT Loans · AMM', pageId: 'amm', idx: 1,  label: 'AMM art 2' },
-  { group: 'Earn · NFT Loans · AMM', pageId: 'amm', idx: 2,  label: 'AMM art 3' },
-  { group: 'Earn · NFT Loans · AMM', pageId: 'amm', idx: 3,  label: 'AMM art 4' },
-  { group: 'Earn · NFT Loans · AMM', pageId: 'amm', idx: 4,  label: 'AMM art 5' },
-  { group: 'Earn · NFT Loans · AMM', pageId: 'amm', idx: 5,  label: 'AMM art 6' },
-  { group: 'Earn · NFT Loans · AMM', pageId: 'amm', idx: 6,  label: 'AMM art 7' },
-  { group: 'Earn · NFT Loans · AMM', pageId: 'amm', idx: 7,  label: 'AMM art 8' },
-  { group: 'Earn · NFT Loans · AMM', pageId: 'amm', idx: 8,  label: 'AMM art 9' },
-  { group: 'Earn · NFT Loans · AMM', pageId: 'amm', idx: 9,  label: 'AMM art 10' },
-  { group: 'Earn · NFT Loans · AMM', pageId: 'amm', idx: 10, label: 'AMM art 11' },
-  { group: 'Earn · NFT Loans · AMM', pageId: 'amm', idx: 11, label: 'AMM art 12' },
-  { group: 'Earn · NFT Loans · AMM', pageId: 'amm', idx: 12, label: 'AMM art 13' },
-  { group: 'Earn · NFT Loans · AMM', pageId: 'amm', idx: 13, label: 'AMM art 14' },
-  { group: 'Earn · NFT Loans · AMM', pageId: 'amm', idx: 14, label: 'AMM art 15' },
-  { group: 'Earn · NFT Loans · AMM', pageId: 'amm', idx: 15, label: 'AMM art 16' },
-  { group: 'Earn · NFT Loans · AMM', pageId: 'amm', idx: 18, label: 'AMM art 19 (pool owner-view)' },
-  { group: 'Earn · NFT Loans · Launchpad', pageId: 'launchpad-collection', idx: 0, label: 'Collection detail 1' },
-  { group: 'Earn · NFT Loans · Launchpad', pageId: 'launchpad-collection', idx: 1, label: 'Collection detail 2' },
-  { group: 'Earn · NFT Loans · Launchpad', pageId: 'launchpad-collection', idx: 2, label: 'Collection detail 3' },
-  { group: 'Earn · NFT Loans · Launchpad', pageId: 'launchpad-shared', idx: 0, label: 'Launchpad shared 1' },
-  { group: 'Earn · NFT Loans · Launchpad', pageId: 'launchpad-shared', idx: 1, label: 'Launchpad shared 2' },
-  { group: 'Earn · NFT Loans · Launchpad', pageId: 'launchpad-owner', idx: 0, label: 'Owner admin panel' },
-  { group: 'Earn · NFT Loans · Launchpad', pageId: 'launchpad-wizard', idx: 0, label: 'Create wizard' },
-  { group: 'Earn · NFT Loans · Launchpad', pageId: 'launchpad-traits', idx: 0, label: 'Trait editor' },
+  { group: 'Earn · NFT Finance · AMM', pageId: 'amm', idx: 0,  label: 'AMM art 1' },
+  { group: 'Earn · NFT Finance · AMM', pageId: 'amm', idx: 1,  label: 'AMM art 2' },
+  { group: 'Earn · NFT Finance · AMM', pageId: 'amm', idx: 2,  label: 'AMM art 3' },
+  { group: 'Earn · NFT Finance · AMM', pageId: 'amm', idx: 3,  label: 'AMM art 4' },
+  { group: 'Earn · NFT Finance · AMM', pageId: 'amm', idx: 4,  label: 'AMM art 5' },
+  { group: 'Earn · NFT Finance · AMM', pageId: 'amm', idx: 5,  label: 'AMM art 6' },
+  { group: 'Earn · NFT Finance · AMM', pageId: 'amm', idx: 6,  label: 'AMM art 7' },
+  { group: 'Earn · NFT Finance · AMM', pageId: 'amm', idx: 7,  label: 'AMM art 8' },
+  { group: 'Earn · NFT Finance · AMM', pageId: 'amm', idx: 8,  label: 'AMM art 9' },
+  { group: 'Earn · NFT Finance · AMM', pageId: 'amm', idx: 9,  label: 'AMM art 10' },
+  { group: 'Earn · NFT Finance · AMM', pageId: 'amm', idx: 10, label: 'AMM art 11' },
+  { group: 'Earn · NFT Finance · AMM', pageId: 'amm', idx: 11, label: 'AMM art 12' },
+  { group: 'Earn · NFT Finance · AMM', pageId: 'amm', idx: 12, label: 'AMM art 13' },
+  { group: 'Earn · NFT Finance · AMM', pageId: 'amm', idx: 13, label: 'AMM art 14' },
+  { group: 'Earn · NFT Finance · AMM', pageId: 'amm', idx: 14, label: 'AMM art 15' },
+  { group: 'Earn · NFT Finance · AMM', pageId: 'amm', idx: 15, label: 'AMM art 16' },
+  { group: 'Earn · NFT Finance · AMM', pageId: 'amm', idx: 18, label: 'AMM art 19 (pool owner-view)' },
+  { group: 'Earn · NFT Finance · Launchpad', pageId: 'launchpad-collection', idx: 0, label: 'Collection detail 1' },
+  { group: 'Earn · NFT Finance · Launchpad', pageId: 'launchpad-collection', idx: 1, label: 'Collection detail 2' },
+  { group: 'Earn · NFT Finance · Launchpad', pageId: 'launchpad-collection', idx: 2, label: 'Collection detail 3' },
+  { group: 'Earn · NFT Finance · Launchpad', pageId: 'launchpad-shared', idx: 0, label: 'Launchpad shared 1' },
+  { group: 'Earn · NFT Finance · Launchpad', pageId: 'launchpad-shared', idx: 1, label: 'Launchpad shared 2' },
+  { group: 'Earn · NFT Finance · Launchpad', pageId: 'launchpad-owner', idx: 0, label: 'Owner admin panel' },
+  { group: 'Earn · NFT Finance · Launchpad', pageId: 'launchpad-wizard', idx: 0, label: 'Create wizard' },
+  { group: 'Earn · NFT Finance · Launchpad', pageId: 'launchpad-traits', idx: 0, label: 'Trait editor' },
   // Chrome art — loader splash / page transitions / nav logo / token icon.
   { group: 'Chrome', pageId: 'nav-logo', idx: 0, label: 'Nav brand logo' },
   { group: 'Chrome', pageId: 'token-icon', idx: 0, label: 'TOWELI token icon' },
@@ -578,7 +573,7 @@ export const SURFACES: Surface[] = [
   // rendered rotation art with no way to override it from the studio.
   // ───────────────────────────────────────────────────────────────────────────
 
-  { group: 'Earn · NFT Loans', pageId: 'nft-finance', idx: 4, label: 'NF5 — Feature: Launchpad' },
+  { group: 'Earn · NFT Finance', pageId: 'nft-finance', idx: 4, label: 'NF5 — Feature: Launchpad' },
 
   // Deployer page (/deployer)
 
@@ -608,8 +603,18 @@ export const SURFACES: Surface[] = [
   // happen to be on, so the Live-page preview can't scroll to them (it will
   // report "not found"). Use the Art tab to place them.
   { group: 'Popups', pageId: 'nav-drawer', idx: 0, label: 'MO3 — Mobile nav drawer' },
-  { group: 'Popups', pageId: 'seasonal', idx: 0, label: 'MO5 — Seasonal event banner' },
+  // The index's groups, each with its own picture (navConfig.ts INDEX_GROUPS `art`; Dashboard's
+  // is NavDrawer.tsx DASHBOARD_ART). 0 is the menu's own, and the Records group's.
+  { group: 'Popups', pageId: 'nav-drawer', idx: 1, label: 'MO3a — Menu group: Pools' },
+  { group: 'Popups', pageId: 'nav-drawer', idx: 2, label: 'MO3b — Menu group: Check' },
+  { group: 'Popups', pageId: 'nav-drawer', idx: 3, label: 'MO3c — Menu group: Island' },
+  { group: 'Popups', pageId: 'nav-drawer', idx: 4, label: 'MO3d — Menu row: Dashboard' },
+  { group: 'Popups', pageId: 'nav-drawer', idx: 5, label: 'MO3e — Menu group: Swap' },
+  { group: 'Popups', pageId: 'nav-drawer', idx: 6, label: 'MO3f — Menu group: Lock' },
+  { group: 'Popups', pageId: 'nav-drawer', idx: 7, label: 'MO3g — Menu group: Launch' },
   { group: 'Popups', pageId: 'legacy-exit', idx: 0, label: 'MO6 — Legacy staking notice' },
+  // "Buy all bungalows" on the swap card (IslandBasket.tsx).
+  { group: 'Popups', pageId: 'island-basket', idx: 0, label: 'MO7 — Buy all bungalows' },
 
   // Launchpad wizard (gated) — the last cards in the app that had no art at all.
   { group: 'Launchpad wizard', pageId: 'wizard', idx: 0, label: 'WZ1 — Arweave upload cost' },
@@ -633,10 +638,11 @@ export const SURFACES: Surface[] = [
   { group: 'Home', pageId: 'bungalow-market', idx: 0, label: 'Market card (room with a market pool)' },
   { group: 'Home', pageId: 'flames-board', idx: 0, label: 'The board card (venue home and /island, when the island bo…)' },
   { group: 'Home', pageId: 'home', idx: 18, label: 'Your held time card (room with a token)' },
-  { group: 'Home', pageId: 'three-paths', idx: 0, label: 'Three paths card 1' },
-  { group: 'Home', pageId: 'three-paths', idx: 1, label: 'Three paths card 2' },
-  { group: 'Home', pageId: 'three-paths', idx: 2, label: 'Three paths card 3' },
+  { group: 'Home', pageId: 'three-paths', idx: 0, label: 'Three paths card 1 (NFT Finance)' },
+  { group: 'Home', pageId: 'three-paths', idx: 1, label: 'Three paths card 2 (Marketplace)' },
+  { group: 'Home', pageId: 'three-paths', idx: 2, label: 'Three paths card 3 (Launch)' },
   { group: 'Home', pageId: 'venue-doors', idx: 0, label: 'Hall of doors panel (venue home)' },
+  { group: 'Home', pageId: 'island-dashboard', idx: 0, label: 'Dashboard panel (venue home, above the three cards; also /dashboard)' },
   { group: 'Home', pageId: 'yield-calculator', idx: 0, label: 'Yield calculator (TOWELI room, not connected)' },
 
   // Dashboard
@@ -691,17 +697,23 @@ export const SURFACES: Surface[] = [
   { group: 'Island', pageId: 'island', idx: 1, label: 'Door card: Gallery' },
   { group: 'Island', pageId: 'island', idx: 2, label: 'Door card: Marketplace' },
   { group: 'Island', pageId: 'island', idx: 3, label: 'Door card: Community' },
-  { group: 'Island', pageId: 'island', idx: 4, label: 'Door card: Venue Score' },
   { group: 'Island', pageId: 'island', idx: 5, label: 'Door card: Treasury & numbers' },
 
   // Island · Gallery
   { group: 'Island · Gallery', pageId: 'gallery', idx: 0, label: 'Page background' },
   { group: 'Island · Gallery', pageId: 'gallery', idx: 1, label: 'No gallery pieces card (empty)' },
 
+  // Island · Marketplace: the Tradermigos landing at /nakamigos. Owner 2026-10-14:
+  // "the bayla bungalow doesnt even show the marketplace". Until now only its
+  // three pop-ups (PU10 to PU12) were listed, so no skin could dress the page
+  // or its cards. The backdrop sits UNDER the marketplace's own collage.
+  { group: 'Island · Marketplace', pageId: 'marketplace', idx: 0, label: 'Page backdrop behind the landing (under the collage)' },
+  { group: 'Island · Marketplace', pageId: 'marketplace', idx: 1, label: 'Start card (Browse, Buy, Sell, Make offer, the numbers)' },
+  { group: 'Island · Marketplace', pageId: 'marketplace', idx: 2, label: 'Collection card (one surface, every card in the grid)' },
+
   // Community
   { group: 'Community', pageId: 'toweli-section-band', idx: 0, label: 'TOWELI protocol band above the tabs' },
   { group: 'Community', pageId: 'bounties', idx: 6, label: 'Bounty claims could not be read notice (error)' },
-  { group: 'Community', pageId: 'community', idx: 6, label: 'Venue Score link card' },
   { group: 'Community', pageId: 'community', idx: 7, label: 'Community chat link card' },
   { group: 'Community', pageId: 'community', idx: 8, label: 'Gallery link card' },
   { group: 'Community', pageId: 'gauge-voting', idx: 7, label: 'Pending reveal banner (gauge controller wired, vote committed and…)' },
@@ -715,8 +727,6 @@ export const SURFACES: Surface[] = [
 
   // Leaderboard
   { group: 'Leaderboard', pageId: 'heat-card', idx: 0, label: 'Heat card (panel variant only)' },
-  { group: 'Leaderboard', pageId: 'leaderboard', idx: 7, label: 'Season line under the heading' },
-  { group: 'Leaderboard', pageId: 'leaderboard', idx: 6, label: 'On-chain verified points banner' },
 
   // Premium
   { group: 'Premium', pageId: 'premium', idx: 3, label: 'Connect your wallet card (not connected)' },
@@ -742,7 +752,8 @@ export const SURFACES: Surface[] = [
   // Swap · Ethereum
   { group: 'Swap · Ethereum', pageId: 'clock-line', idx: 0, label: 'Your clock line card (after a buy is recorded)' },
   { group: 'Swap · Ethereum', pageId: 'trade', idx: 4, label: 'Launching something card' },
-  { group: 'Swap · Ethereum', pageId: 'trade', idx: 5, label: 'Swapping not live here banner (wallet on a chain with no swaps)' },
+  { group: 'Swap · Ethereum', pageId: 'trade', idx: 5, label: 'Not-on-this-chain banner (a trade tab that does not run on this chain)' },
+  { group: 'Swap · Ethereum', pageId: 'trade', idx: 6, label: 'Where the fee goes card (Swap on Base / Robinhood)' },
 
   // Swap · Solana
   { group: 'Swap · Solana', pageId: 'solana-swap', idx: 0, label: 'Page background' },
@@ -760,7 +771,7 @@ export const SURFACES: Surface[] = [
   { group: 'Pools · Solana LP', pageId: 'swap', idx: 0, label: 'Page background (Solana LP and Venue AMM tabs)' },
   { group: 'Pools · Solana LP', pageId: 'pending-trade', idx: 0, label: 'Transaction may still be landing (a sent transaction is not confirmed yet)' },
   { group: 'Pools · Solana LP', pageId: 'solana-lp', idx: 0, label: 'Before you provide liquidity (venue live)' },
-  { group: 'Pools · Solana LP', pageId: 'solana-lp', idx: 1, label: 'Fee tiers card (venue live)' },
+  { group: 'Pools · Solana LP', pageId: 'solana-lp', idx: 1, label: 'Rates card (venue live, both Pools tabs)' },
   { group: 'Pools · Solana LP', pageId: 'solana-lp', idx: 2, label: 'Create, add or remove liquidity (venue live)' },
   { group: 'Pools · Solana LP', pageId: 'solana-lp', idx: 3, label: 'Your positions card (venue live)' },
   { group: 'Pools · Solana LP', pageId: 'solana-lp', idx: 4, label: 'Adding and removing liquidity notice (liquidity writes blocked or not loaded)' },
@@ -768,17 +779,20 @@ export const SURFACES: Surface[] = [
   { group: 'Pools · Solana LP', pageId: 'solana-lp', idx: 6, label: 'Pools result card (after a lookup)' },
   { group: 'Pools · Solana LP', pageId: 'solana-lp', idx: 7, label: 'Pool card (after a lookup, one per pool found)' },
   { group: 'Pools · Solana LP', pageId: 'solana-lp', idx: 8, label: 'Pool not read card (after a lookup, a pool that could not be r…)' },
-  { group: 'Pools · Solana LP', pageId: 'solana-lp', idx: 9, label: 'Open a new pool card (after a lookup, liquidity writes on)' },
-  { group: 'Pools · Solana LP', pageId: 'solana-lp', idx: 10, label: 'Risk line above the forms' },
-  { group: 'Pools · Solana LP', pageId: 'solana-lp', idx: 11, label: 'How you earn card' },
-  { group: 'Pools · Solana LP', pageId: 'solana-lp', idx: 12, label: 'How the venue earns card' },
+  { group: 'Pools · Solana LP', pageId: 'solana-lp', idx: 9, label: 'Open a pool card (after a lookup, liquidity writes on)' },
+  { group: 'Pools · Solana LP', pageId: 'solana-lp', idx: 13, label: 'All pools card (every pool on the venue, before a lookup)' },
   { group: 'Pools · Solana LP', pageId: 'venue-amm', idx: 0, label: 'Venue status card' },
   { group: 'Pools · Solana LP', pageId: 'venue-amm', idx: 1, label: 'The program card' },
 
+  // Pools · Range (hidden until range pools open; 'swap' idx 0 is its backdrop too)
+  { group: 'Pools · Range', pageId: 'range-pools', idx: 0, label: 'How a range position earns' },
+  { group: 'Pools · Range', pageId: 'range-pools', idx: 1, label: 'Pick a pool' },
+  { group: 'Pools · Range', pageId: 'range-pools', idx: 2, label: 'Pick your range (a pool picked)' },
+  { group: 'Pools · Range', pageId: 'range-pools', idx: 3, label: 'Your range positions' },
+
   // Pools · Venue AMM
-  { group: 'Pools · Venue AMM', pageId: 'venue-amm', idx: 2, label: 'Fee sheet card' },
   { group: 'Pools · Venue AMM', pageId: 'venue-amm', idx: 3, label: 'For liquidity providers card' },
-  { group: 'Pools · Venue AMM', pageId: 'venue-amm', idx: 4, label: 'How the swap routes card' },
+  { group: 'Pools · Venue AMM', pageId: 'venue-amm', idx: 4, label: 'Swap routes card (both Pools tabs)' },
 
   // Pools · Zap
   { group: 'Pools · Zap', pageId: 'zap', idx: 0, label: 'Page background' },
@@ -890,31 +904,31 @@ export const SURFACES: Surface[] = [
   { group: 'Launch · Vesting', pageId: 'vesting', idx: 7, label: 'What these numbers say' },
 
   // NFT Finance
-  { group: 'Earn · NFT Loans', pageId: 'nft-finance', idx: 5, label: 'Connect wallet intro card (not connected)' },
-  { group: 'Earn · NFT Loans', pageId: 'nft-finance', idx: 6, label: 'Pooled lending intro card' },
-  { group: 'Earn · NFT Loans', pageId: 'nft-finance', idx: 7, label: 'No pool deployed notice (no pool deployed)' },
-  { group: 'Earn · NFT Loans', pageId: 'nft-finance', idx: 8, label: 'Pooled lending pool card 1' },
-  { group: 'Earn · NFT Loans', pageId: 'nft-finance', idx: 9, label: 'Pooled lending pool card 2' },
-  { group: 'Earn · NFT Loans', pageId: 'nft-finance', idx: 10, label: 'Pooled lending pool card 3' },
-  { group: 'Earn · NFT Loans', pageId: 'nft-finance', idx: 11, label: 'No pool history notice (history unavailable)' },
-  { group: 'Earn · NFT Loans', pageId: 'nft-finance', idx: 12, label: 'Pay in instalments intro card' },
-  { group: 'Earn · NFT Loans', pageId: 'nft-finance', idx: 13, label: 'Instalment desk not deployed notice (desk not deployed)' },
-  { group: 'Earn · NFT Loans', pageId: 'nft-finance', idx: 14, label: 'What a plan would cost card' },
-  { group: 'Earn · NFT Loans', pageId: 'nft-finance', idx: 15, label: 'Launchpad not deployed card (launchpad factory not deployed)' },
-  { group: 'Earn · NFT Loans', pageId: 'nft-finance', idx: 16, label: 'Deployed collections list card' },
-  { group: 'Earn · NFT Loans', pageId: 'nft-finance', idx: 17, label: 'Estimated interest earned card (Lend tab, once principal and APR are typed)' },
-  { group: 'Earn · NFT Loans', pageId: 'nft-finance', idx: 18, label: 'Loan offer card (Borrow tab, one per offer, every offer sha…)' },
-  { group: 'Earn · NFT Loans', pageId: 'nft-finance', idx: 19, label: 'My loans empty card (My Loans tab)' },
-  { group: 'Earn · NFT Loans', pageId: 'nft-finance', idx: 20, label: 'Loan card (My Loans tab, one per loan, every loan sha…)' },
-  { group: 'Earn · NFT Loans', pageId: 'nft-finance', idx: 21, label: 'Pool unreachable card (error)' },
-  { group: 'Earn · NFT Loans', pageId: 'nft-finance', idx: 22, label: 'Pool factory unset notice (flag off)' },
-  { group: 'Earn · NFT Loans', pageId: 'nft-finance', idx: 23, label: 'Pooled lending small-market warning' },
-  { group: 'Earn · NFT Loans', pageId: 'nft-finance', idx: 24, label: 'Pay-later missed payment warning' },
-  { group: 'Earn · NFT Loans', pageId: 'nft-finance', idx: 25, label: 'Lend offer summary (amounts typed)' },
-  { group: 'Earn · NFT Loans', pageId: 'shield', idx: 0, label: 'Loan repayment position card (connected, has NFT loans)' },
-  { group: 'Earn · NFT Loans', pageId: 'shield', idx: 1, label: 'How this shield works notice' },
-  { group: 'Earn · NFT Loans', pageId: 'shield', idx: 2, label: 'Not covered by this page notice' },
-  { group: 'Earn · NFT Loans', pageId: 'shield', idx: 3, label: 'Deadline alerts card (has deadline alert rules)' },
+  { group: 'Earn · NFT Finance', pageId: 'nft-finance', idx: 5, label: 'Connect wallet intro card (not connected)' },
+  { group: 'Earn · NFT Finance', pageId: 'nft-finance', idx: 6, label: 'Pooled lending intro card' },
+  { group: 'Earn · NFT Finance', pageId: 'nft-finance', idx: 7, label: 'No pool deployed notice (no pool deployed)' },
+  { group: 'Earn · NFT Finance', pageId: 'nft-finance', idx: 8, label: 'Pooled lending pool card 1' },
+  { group: 'Earn · NFT Finance', pageId: 'nft-finance', idx: 9, label: 'Pooled lending pool card 2' },
+  { group: 'Earn · NFT Finance', pageId: 'nft-finance', idx: 10, label: 'Pooled lending pool card 3' },
+  { group: 'Earn · NFT Finance', pageId: 'nft-finance', idx: 11, label: 'No pool history notice (history unavailable)' },
+  { group: 'Earn · NFT Finance', pageId: 'nft-finance', idx: 12, label: 'Pay in instalments intro card' },
+  { group: 'Earn · NFT Finance', pageId: 'nft-finance', idx: 13, label: 'Instalment desk not deployed notice (desk not deployed)' },
+  { group: 'Earn · NFT Finance', pageId: 'nft-finance', idx: 14, label: 'What a plan would cost card' },
+  { group: 'Earn · NFT Finance', pageId: 'nft-finance', idx: 15, label: 'Launchpad not deployed card (launchpad factory not deployed)' },
+  { group: 'Earn · NFT Finance', pageId: 'nft-finance', idx: 16, label: 'Deployed collections list card' },
+  { group: 'Earn · NFT Finance', pageId: 'nft-finance', idx: 17, label: 'Estimated interest earned card (Lend tab, once principal and APR are typed)' },
+  { group: 'Earn · NFT Finance', pageId: 'nft-finance', idx: 18, label: 'Loan offer card (Borrow tab, one per offer, every offer sha…)' },
+  { group: 'Earn · NFT Finance', pageId: 'nft-finance', idx: 19, label: 'My loans empty card (My Loans tab)' },
+  { group: 'Earn · NFT Finance', pageId: 'nft-finance', idx: 20, label: 'Loan card (My Loans tab, one per loan, every loan sha…)' },
+  { group: 'Earn · NFT Finance', pageId: 'nft-finance', idx: 21, label: 'Pool unreachable card (error)' },
+  { group: 'Earn · NFT Finance', pageId: 'nft-finance', idx: 22, label: 'Pool factory unset notice (flag off)' },
+  { group: 'Earn · NFT Finance', pageId: 'nft-finance', idx: 23, label: 'Pooled lending small-market warning' },
+  { group: 'Earn · NFT Finance', pageId: 'nft-finance', idx: 24, label: 'Pay-later missed payment warning' },
+  { group: 'Earn · NFT Finance', pageId: 'nft-finance', idx: 25, label: 'Lend offer summary (amounts typed)' },
+  { group: 'Earn · NFT Finance', pageId: 'shield', idx: 0, label: 'Loan repayment position card (connected, has NFT loans)' },
+  { group: 'Earn · NFT Finance', pageId: 'shield', idx: 1, label: 'How this shield works notice' },
+  { group: 'Earn · NFT Finance', pageId: 'shield', idx: 2, label: 'Not covered by this page notice' },
+  { group: 'Earn · NFT Finance', pageId: 'shield', idx: 3, label: 'Deadline alerts card (has deadline alert rules)' },
 
   // Earn · Referrals
 
@@ -935,15 +949,6 @@ export const SURFACES: Surface[] = [
   { group: 'Earn · Copy Trading', pageId: 'copy-trading', idx: 6, label: 'Wallets trading the venue card (indexer configured and router board read)' },
 
   // Earn · Competitions
-  { group: 'Earn · Competitions', pageId: 'competitions', idx: 1, label: 'Pool coverage notice' },
-  { group: 'Earn · Competitions', pageId: 'competitions', idx: 2, label: 'Volume board card (a pool board was read)' },
-  { group: 'Earn · Competitions', pageId: 'competitions', idx: 3, label: 'Find a sender card (a pool board was read)' },
-  { group: 'Earn · Competitions', pageId: 'competitions', idx: 4, label: 'How this is scored card' },
-  { group: 'Earn · Competitions', pageId: 'competitions', idx: 5, label: 'No season declared card (indexer configured, no season declared)' },
-  { group: 'Earn · Competitions', pageId: 'competitions', idx: 6, label: 'Season picker card (indexer configured, season declared)' },
-  { group: 'Earn · Competitions', pageId: 'competitions', idx: 7, label: 'Standings read notice (indexer configured)' },
-  { group: 'Earn · Competitions', pageId: 'competitions', idx: 8, label: 'Season standings card (indexer configured and standings read)' },
-  { group: 'Earn · Competitions', pageId: 'competitions', idx: 9, label: 'Season standings not open yet' },
 
   // Earn · Checkout
   { group: 'Earn · Checkout', pageId: 'checkout', idx: 1, label: 'Link names two invoices card (Pay tab, URL carries both a signed invoice…)' },

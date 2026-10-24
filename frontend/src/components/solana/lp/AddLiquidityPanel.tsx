@@ -1,4 +1,4 @@
-import { useCallback, useId, useMemo, useState } from 'react';
+import { useCallback, useId, useMemo, useState, type ReactNode } from 'react';
 import { PublicKey } from '@solana/web3.js';
 import { parseDecimalToBaseUnits } from '../../../lib/launcher/solana/curve/format';
 import { displaySafe } from '../../../lib/launchMetadata/validate';
@@ -12,7 +12,7 @@ import { Notice, Row, SlippagePicker } from '../curve/ui';
 import { DEFAULT_SLIPPAGE_BPS, baseUnitsToInput } from '../curve/uiFormat';
 import { TxFlowView } from '../curve/TxFlowView';
 import { WalletNeeded } from '../curve/WalletNeeded';
-import { useReturnFocus, useTxFlow } from '../curve/useTxFlow';
+import { useReturnFocus, useTxFlow, type OnSettled } from '../curve/useTxFlow';
 import type { LpOpenGate, LpWriteApi } from '../curve/ports';
 import { FundingNextStep } from './FundingNextStep';
 import { LpAmountPair, type LpSide } from './LpAmountPair';
@@ -48,11 +48,24 @@ const ADD_HINT = 'If the pool’s price moves more than this before your deposit
  * A price that is off also gets what it is estimated to cost at the amounts typed, in the
  * pool's own coin. A warning never switches Review off: the visitor is told, and decides.
  */
-export function AddLiquidityPanel(p: { view: PoolView; health: PoolHealth; safety: TokenSafety | null; tokenDecimals: number | null; onClose: () => void }) {
+export function AddLiquidityPanel(p: AddPanelProps) {
   const writes = useLpWrites();
   const gate = writes?.gate?.kind === 'open' ? writes.gate : null;
   if (!writes || !writes.api || !gate) return null;
   return <AddInner {...p} writes={writes} api={writes.api} gate={gate} />;
+}
+
+interface AddPanelProps {
+  view: PoolView;
+  health: PoolHealth;
+  safety: TokenSafety | null;
+  tokenDecimals: number | null;
+  onClose: () => void;
+  /** Step 2 of "Add with one coin" (AddOneCoinPanel.tsx): the amount and slippage it opens with, its title, the line above it, and its answers. */
+  initial?: { side: LpSide; text: string; bps?: bigint };
+  title?: string;
+  lead?: ReactNode;
+  onSettled?: OnSettled;
 }
 
 function AddInner({
@@ -61,15 +74,14 @@ function AddInner({
   safety,
   tokenDecimals,
   onClose,
+  initial,
+  title = 'Add liquidity to this pool',
+  lead,
+  onSettled,
   writes,
   api,
   gate,
-}: {
-  view: PoolView;
-  health: PoolHealth;
-  safety: TokenSafety | null;
-  tokenDecimals: number | null;
-  onClose: () => void;
+}: AddPanelProps & {
   writes: LpWrites;
   api: LpWriteApi;
   gate: LpOpenGate;
@@ -84,10 +96,18 @@ function AddInner({
   const [factsNonce, setFactsNonce] = useState(0);
   const facts = useWalletFacts(writes, signer?.publicKey ?? null, { tokenMint: view.tokenMint, tokenProgram, lpMint: pool.lpMint, quote: coin }, factsNonce);
 
-  const [typed, setTyped] = useState<{ side: LpSide; text: string } | null>(null);
-  const [slippageBps, setSlippageBps] = useState<bigint | null>(DEFAULT_SLIPPAGE_BPS);
+  const [typed, setTyped] = useState<{ side: LpSide; text: string } | null>(initial ? { side: initial.side, text: initial.text } : null);
+  const [slippageBps, setSlippageBps] = useState<bigint | null>(initial?.bps ?? DEFAULT_SLIPPAGE_BPS);
 
-  const flow = useTxFlow(api, writes.rpc, writes.pending.record, writes.pending.sent);
+  const { record } = writes.pending;
+  const settled = useCallback<OnSettled>(
+    (outcome, prepared, sig) => {
+      record(outcome, prepared, sig);
+      onSettled?.(outcome, prepared, sig);
+    },
+    [record, onSettled],
+  );
+  const flow = useTxFlow(api, writes.rpc, settled, writes.pending.sent);
   const { target: reviewRef, fallback: headingRef } = useReturnFocus(flow.state.step);
   const reread = useCallback(() => setFactsNonce((n) => n + 1), []);
   useFlowReports(writes, flow.state.step, flow.locked, reread);
@@ -322,7 +342,8 @@ function AddInner({
     : null;
 
   return (
-    <PanelFrame testId="lp-add-panel" title="Add liquidity to this pool" headingRef={headingRef}>
+    <PanelFrame testId="lp-add-panel" title={title} headingRef={headingRef}>
+      {lead}
       <div className="space-y-1.5">
         <Row label="Pool" value={view.address} />
         <Row label="Token" value={view.tokenMint} />
@@ -461,7 +482,7 @@ function AddInner({
           <WhatIfPriceMoves view={view} />
         </>
       )}
-      <LpBeforeYouAdd launchPool={view.origin === 'launch-pool'} config={view.config} enableCreatorFee={pool.enableCreatorFee} />
+      <LpBeforeYouAdd launchPool={view.origin === 'launch-pool'} config={view.config} enableCreatorFee={pool.enableCreatorFee} reviewing={flow.state.step === 'review'} />
       <p role="status" className="sr-only">
         {flow.state.step === 'idle' ? status : ''}
       </p>

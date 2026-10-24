@@ -228,9 +228,27 @@ structurally refuse to ship the contracts without one.
 > the multisig await the **2-of-2 accept ceremony** on each chain — both role Safes are at
 > `nonce() == 0`, and an N-of-M is unproven until something has executed at the new threshold.
 
-### Bungalow lighthouses — `LighthouseLadder`, deployed 2026-08-30
+### Bungalow lighthouses — `LighthouseLadder`, redeployed 2026-09-05
 
 | Bungalow | Chain | Pool |
+|---|---|---|
+| PEPE | Ethereum | `0xBE1905de5FCDe60E13a9F1AfA44BEfdE1C5aaA1D` |
+| QR | Base | `0x55B72f09d31f43834bf7Eba42f53a419a716F554` |
+| MFER | Base | `0xeCB3C54488A2A0dF764444f67B2Df6b8Ad4EaDd6` |
+| BNKR | Base | `0xe6abC8AcA0415aFaC426ec1242BB17afABe8Dbcf` |
+| DRB | Base | `0x0aCB93fcFD5b1950D94064998017a2601b36D7bB` |
+| JBM | Base | `0x3C339692ec7B3b96ad6F8fbEb5F5202164b44465` |
+
+These six charge a flat 25% early exit. Owner, 2026-10-18: the room ladders keep the ladder's law
+(an early exit costs the time left on the lock over four years, capped at 75%, as the BAYLA ladder
+charges it), so they are replaced by that build when the owner deploys it
+(`docs/LADDER_EXIT_75_REDEPLOY.md`); this table is repinned when that lands. These are the pools the app uses (`frontend/src/lib/bungalows.ts`, and the `ladder-*` entries
+in `frontend/scripts/addresses.json`). They replaced the first six ladders, deployed
+2026-08-30, whose build let a reward payout spend other stakers' principal (C1 in
+`docs/LIGHTHOUSE_AUDIT_2026_09_01.md`). Those six were **retired 2026-09-05 (PR #433), before
+anyone staked**. Do not stake in or fund them:
+
+| Bungalow | Chain | Retired pool |
 |---|---|---|
 | PEPE | Ethereum | `0xdC0B34cE782029f30382F42097f6b33F0544329c` |
 | QR | Base | `0xdcc3a95A0921b83326157132B17770f02094c8E3` |
@@ -241,8 +259,8 @@ structurally refuse to ship the contracts without one.
 
 PEPE's pool was first deployed as a vendored Synthetix `StakingRewards` at
 `0xA43F3F1C4171A8C9A1Be4dc6EAA9a16AB94f6c32`, then **retired the same day — never funded,
-never staked** — and replaced by the ladder above. Both entries stay in the registry, the old
-one marked retired, so the address change has a reason attached to it.
+never staked** — and replaced by the first PEPE ladder. The registry keeps it, marked retired,
+so the address change has a reason attached to it.
 
 ### Solana
 

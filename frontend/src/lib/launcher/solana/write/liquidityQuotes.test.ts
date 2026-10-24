@@ -356,7 +356,7 @@ describe('prepareLpDeposit: a pool paired with USDC or BAYLA', () => {
     expect(s.price).toEqual({ state: 'no-market', of: 'coin', pool: expect.closeTo(2, 9), detail: `Jupiter has no route for ${quote.symbol}` });
     expect(s.priceGap).toBeNull();
     expect(s.warnings).toEqual([
-      `Jupiter has no price for ${quote.symbol} right now, so this pool’s price in ${quote.symbol} was not checked against anything. If it is off, a deposit here hands the difference to whoever trades it back.`,
+      `Jupiter has no price for ${quote.symbol} right now, so this pool’s price in ${quote.symbol} was not checked against anything. If it is off, whoever trades it back takes part of what you add.`,
     ]);
     // The token HAS a price: Jupiter's own "this token" never reaches the review.
     expect(s.warnings.join(' ')).not.toMatch(/this token/);
@@ -376,7 +376,7 @@ describe('prepareLpDeposit: a pool paired with USDC or BAYLA', () => {
     expect(s.price).toMatchObject({ state: 'no-market' });
     expect(s.priceGap).toBeNull();
     expect(s.warnings).toEqual([
-      'Jupiter has no market price for this token, so this pool’s price was not checked against anything. If it is off, a deposit here hands the difference to whoever trades it back.',
+      'Jupiter has no market price for this token, so this pool’s price was not checked against anything. If it is off, whoever trades it back takes part of what you add.',
     ]);
   });
 
@@ -398,7 +398,7 @@ describe('prepareLpDeposit: a pool paired with USDC or BAYLA', () => {
       expect(s.price.state === 'disagrees' && s.price.reference).toBeCloseTo(4, 9);
       expect(s.priceGap!.diff).toBeCloseTo(-0.5, 9);
       expect(s.warnings).toHaveLength(2);
-      expect(s.warnings[0]).toBe('Its price is 50.0% below the launch pool’s price. A deposit here would hand that gap to the first arbitrage trade.');
+      expect(s.warnings[0]).toBe('Its price is 50.0% below the launch pool’s price. If you add now, whoever trades it back takes up to about 5.7% of what you add (about $5.72 per $100).');
       expect(s.warnings[1]).toMatch(new RegExp(`^At these amounts, a move back to the launch pool’s price would take up to about 1[67]\\.\\d+ ${quote.symbol} of what you put in\\. That is an estimate\\.$`));
       expect(s.warnings.join(' ')).not.toMatch(/\bSOL\b/);
     });
@@ -429,7 +429,7 @@ describe('prepareLpDeposit: a pool paired with USDC or BAYLA', () => {
     expect(loss).toBeGreaterThan(16.5);
     expect(loss).toBeLessThan(17.5);
     expect(s.warnings).toHaveLength(2);
-    expect(s.warnings[0]).toBe('Its price is 50.0% below the outside price. A deposit here would hand that gap to the first arbitrage trade.');
+    expect(s.warnings[0]).toBe('Its price is 50.0% below the outside price. If you add now, whoever trades it back takes up to about 5.7% of what you add (about $5.72 per $100).');
     expect(s.warnings[1]).toMatch(new RegExp(`^At these amounts, a move back to the outside price would take up to about 1[67]\\.\\d+ ${quote.symbol} of what you put in\\. That is an estimate\\.$`));
     expect(s.warnings.join(' ')).not.toMatch(/\bSOL\b/);
   });

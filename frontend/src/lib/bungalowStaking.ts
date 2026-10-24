@@ -1022,7 +1022,19 @@ const REFUSED_AFTER_SIGNING = /failed to simulate transaction|^Raw transaction \
 /** The runtime's own line for a program that failed with a custom error. A program's printing starts "Program log:", so it cannot write this. */
 const RUNTIME_FAILED = /^Program ([1-9A-HJ-NP-Za-km-z]{32,44}) failed: custom program error: 0x([0-9a-fA-F]{1,8})$/;
 /** Streamflow's reward programs, classic and dynamic: on both, 6000 is ArithmeticError (their IDLs). */
-const REWARD_PROGRAMS: ReadonlySet<string> = new Set(['RWRDdfRbi3339VgKxTAXg4cjyniF7cbhNbMxZWiSKmj', 'RWRDyfZa6Rk9UYi85yjYYfGmoUqffLqjo6vZdFawEez']);
+const CLASSIC_REWARD_PROGRAM = 'RWRDdfRbi3339VgKxTAXg4cjyniF7cbhNbMxZWiSKmj';
+const DYNAMIC_REWARD_PROGRAM = 'RWRDyfZa6Rk9UYi85yjYYfGmoUqffLqjo6vZdFawEez';
+const REWARD_PROGRAMS: ReadonlySet<string> = new Set([CLASSIC_REWARD_PROGRAM, DYNAMIC_REWARD_PROGRAM]);
+
+/** Did any program logs come back, on the error or one it wraps? Then they, not the words, say what failed. */
+function carriesLogs(err: unknown): boolean {
+  for (let cur = err, i = 0; cur != null && typeof cur === 'object' && i < 4; i++) {
+    const o = cur as { transactionLogs?: unknown; logs?: unknown; cause?: unknown; error?: unknown };
+    if ((Array.isArray(o.transactionLogs) && o.transactionLogs.length > 0) || (Array.isArray(o.logs) && o.logs.length > 0)) return true;
+    cur = o.cause ?? o.error;
+  }
+  return false;
+}
 
 /**
  * The program that failed first and its custom error code, from the logs a test run or the
@@ -1050,12 +1062,17 @@ function writeFailure(err: unknown, fallback: string, walletSigned = false): Fai
   const signed = (err as { signature?: unknown } | null)?.signature;
   const t = walletSigned || (typeof signed === 'string' && signed !== '') ? null : readSendThrow(err);
   if (t && t.kind !== 'unsure') return { ok: false, reason: t.message };
+  // What failed is read from the runtime's own log line first (failedProgram). The
+  // words are read only when no logs came back: the SDK's message carries its last
+  // log lines, and a compute count ("consumed 6012 of 200000") is not an error code.
+  const failed = failedProgram(err);
+  const logged = carriesLogs(err);
   // Streamflow custom error 6012 = the reward vault cannot cover the rewards
   // this action must pay out. PROVEN ON DEVNET (2026-08-28, same program ids
   // as mainnet): while accrued > vault, claim AND unstake&claim both revert —
   // principal stays locked until the vault is topped up, and the backlog is
   // NOT forfeited (a post-funding claim paid the full dry-window accrual).
-  if (/\b6012\b/.test(msg)) {
+  if (logged ? failed?.program === CLASSIC_REWARD_PROGRAM && failed.code === 6012 : /\b6012\b/.test(msg)) {
     return {
       ok: false,
       reason:
@@ -1085,7 +1102,6 @@ function writeFailure(err: unknown, fallback: string, walletSigned = false): Fai
   // `permanent` lets the rescue close the entry and give up its rewards, so it is
   // read only from the runtime's log line naming a reward program (failedProgram),
   // never from the words: other programs' 6000 is not this (stake: InvalidDuration).
-  const failed = failedProgram(err);
   if (failed && failed.code === 6000 && REWARD_PROGRAMS.has(failed.program)) {
     return {
       ok: false,
@@ -1110,7 +1126,11 @@ function writeFailure(err: unknown, fallback: string, walletSigned = false): Fai
   //
   // Verified by simulation 2026-09-06 against live dynamic pool 9YJfse8B…:
   // `AnchorError ... Error Code: RewardPoolDrained. Error Number: 6013`.
-  if (/RewardPoolDrained/i.test(msg) || /\b6013\b/.test(msg) && /reward/i.test(msg)) {
+  if (
+    logged
+      ? failed?.program === DYNAMIC_REWARD_PROGRAM && failed.code === 6013
+      : /RewardPoolDrained/i.test(msg) || (/\b6013\b/.test(msg) && /reward/i.test(msg))
+  ) {
     return {
       ok: false,
       reason:

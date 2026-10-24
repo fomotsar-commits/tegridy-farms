@@ -37,7 +37,7 @@ export default function SolanaLpPage() {
   // The keyboard's ring goes round the words (`ring-on-words`, index.css).
   const venueAmmLink = (
     <Link to={withMint('/pools', params)} className="inline-block py-3.5 -my-1.5 underline underline-offset-2 text-white hover:text-white/80 ring-on-words">
-      <span className="ring-words">Fees, status and how the pools work, on the Venue AMM tab</span>
+      <span className="ring-words">Fees and status, on the Venue AMM tab</span>
     </Link>
   );
 
@@ -76,7 +76,7 @@ export default function SolanaLpPage() {
         {venueIsOpen && (
           <div className="mb-6">
             <Suspense fallback={<p className="text-white/60 text-[13px]">Loading the pool finder…</p>}>
-              <SolanaLpSection finderFirst />
+              <SolanaLpSection />
             </Suspense>
             <p className="text-[13px] mt-4">{venueAmmLink}</p>
           </div>
@@ -109,7 +109,7 @@ const PAGE_DESCRIPTION =
 // read alone does not say each can be done right now: the section's own reads do.
 const HERO_LINE: Record<LpWriteMode, string> = {
   // Short: on a phone each of its lines pushes the three buttons under it down the screen.
-  on: 'Create a pool, add liquidity or take it out.',
+  on: 'Open a pool, add liquidity or take it out.',
   'withdraw-only': 'Take your liquidity out. Adding and opening pools are paused here.',
   off: 'Find a pool and check its health. Adding and removing are not switched on yet.',
 };

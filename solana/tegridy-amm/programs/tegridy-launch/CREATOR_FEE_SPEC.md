@@ -9,7 +9,7 @@
 > | §1 prescribes | What was actually built |
 > | --- | --- |
 > | share is a **compile-time constant** | `creator_fee_share_bps: u64` stored on `GlobalConfig` **and** snapshotted onto each `BondingCurve` at `create_launch`, so a live launch can never be repriced |
-> | (not anticipated) | `payable_creator_split()` folds an **undeliverable** creator credit into the protocol leg — paying an arbitrary creator account makes it writable on every trade, and Solana rejects a writable account moved into the rent-paying band, which otherwise bricked *sells* under ~0.178 SOL |
+> | (not anticipated) | `payable_creator_split()` folds an **undeliverable** creator credit into the protocol leg — paying an arbitrary creator account makes it writable on every trade, and Solana rejects a writable account moved into the rent-paying band, which otherwise bricked *sells* under ~0.178 SOL at the old rent rate (~0.135 SOL at today's, §5) |
 >
 > Read §1 as the decision record, not as a description of the code. Reconcile the two before
 > the audit RFQ goes out — the RFQ prices the trade paths, and these change them.
@@ -155,7 +155,9 @@ exactly, because `protocol_cut` is defined by subtraction and the fold moves lam
 
 **This program already documents the mechanism in its own words**, at `lib.rs:836-850`: a
 writable account whose post-instruction balance lands strictly between 1 lamport and
-`minimum_balance(0)` (= 890,880) is rejected with `InsufficientFundsForRent`. Because
+`minimum_balance(0)` is rejected with `InsufficientFundsForRent`. On mainnet that is **650,240**
+(read with `getMinimumBalanceForRentExemption(0)` on 2026-10-14); this spec was written at the
+old rate, when it was 890,880, and the table below gives both. Because
 `creator` must be `mut` to be credited, it enters that check.
 
 Against a creator account at zero, at 100 bps / 4,800 share:
@@ -163,15 +165,16 @@ Against a creator account at zero, at 100 bps / 4,800 share:
 | gross trade size X (lamports) | `creator_cut` | outcome with no guard |
 | --- | --- | --- |
 | X ≤ 200 | 0 | succeeds (nothing credited) |
-| 201 ≤ X ≤ 185,599,900 | 1 … 890,879 | **whole transaction fails** |
-| X ≥ 185,599,901 (≈0.1856 SOL) | ≥ 890,880 | succeeds, and repairs the account |
+| 201 ≤ X ≤ 135,466,600 | 1 … 650,239 | **whole transaction fails** (today's rent) |
+| X ≥ 135,466,601 (≈0.1355 SOL) | ≥ 650,240 | succeeds, and repairs the account (today's rent) |
+| 201 ≤ X ≤ 185,599,900 | 1 … 890,879 | the same band at the old 890,880 floor |
 
 This is **not** an acceptable stall. It lands on `sell` — the instruction `lib.rs:563-564` and
 `state.rs:116-118` both declare must stay open through a pause, "the one instruction holders
 cannot be denied." It converts an operator-proof exit into a **creator-pausable** one: exit
 priority is worth money on a constant-product curve, rent state is checked per instruction so
 `[sell][drain creator to 0]` in one transaction takes the exit and re-arms the freeze
-atomically, and repairing it costs a third party 890,880 lamports **which land in the
+atomically, and repairing it costs a third party 650,240 lamports today (890,880 at the old rate) **which land in the
 creator's wallet** while re-draining costs the creator a 5,000-lamport fee. The griefer pays
 the griefer's victim.
 

@@ -62,7 +62,7 @@ describe('only `ready` may be read as an answer', () => {
   });
 
   it('the idle sentence says nothing is being watched yet', () => {
-    expect(IDLE_DETAIL).toMatch(/nothing is being watched/i);
+    expect(IDLE_DETAIL).toMatch(/nothing is watched until then/i);
   });
 });
 

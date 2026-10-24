@@ -22,6 +22,7 @@ import { DEFAULT_TOKENS, type TokenInfo } from '../../lib/tokenList';
 import { zapVenues, type ZapVenueId } from '../../lib/zap/venues';
 import { useZapPlan } from '../../hooks/useZapPlan';
 import { useZapRun } from '../../hooks/useZapRun';
+import { useLpFarmDeposit } from '../../hooks/useLpEmissionsPhase';
 import { CardArt } from '../ui/CardArt';
 import { FinePrint } from '../ui/FinePrint';
 import { ZapStepList } from './ZapStepList';
@@ -45,7 +46,8 @@ export function ZapPanel() {
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
 
-  const venues = useMemo(() => zapVenues(), []);
+  const lpFarm = useLpFarmDeposit();
+  const venues = useMemo(() => zapVenues(lpFarm), [lpFarm]);
   const firstAvailable = venues.find((v) => v.available);
   const [venueId, setVenueId] = useState<ZapVenueId>(
     firstAvailable && firstAvailable.available ? firstAvailable.venue.id : 'staking-lock',
@@ -353,7 +355,7 @@ export function ZapPanel() {
 
       {/* ─── The button ────────────────────────────────────────────────── */}
       {!isConnected ? (
-        <p className="text-[12px] text-white/60">Connect an Ethereum wallet to compose a zap.</p>
+        <p className="text-[12px] text-white/60">Connect an Ethereum wallet.</p>
       ) : wrongChain ? (
         <p className="text-[12px] text-amber-200">Switch to Ethereum mainnet — every contract this zap touches is there.</p>
       ) : (

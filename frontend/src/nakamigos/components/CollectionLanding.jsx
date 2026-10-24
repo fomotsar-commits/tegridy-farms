@@ -1,14 +1,26 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { COLLECTIONS, COLLECTION_LORE } from "../constants";
+import { COLLECTIONS, COLLECTION_LORE, DEFAULT_COLLECTION } from "../constants";
 import { fetchCollectionStats, fetchTokens } from "../api";
 import { formatPrice } from "../lib/formatPrice";
 import { IpfsImg } from "../../components/IpfsImg";
 import { formatMarketAmount } from "../lib/marketAmount";
 import { canTradeOnVenue, VENUE_COLLECTIONS, chainLabel, descriptionSourceTag, supplyLabel } from "../lib/venue";
 import { fetchExternalStats } from "../lib/externalMarket";
+import { pageArt } from "../../lib/artConfig";
+import { FinePrint } from "../../components/ui/FinePrint";
 
 const COLLECTION_LIST = Object.values(COLLECTIONS);
+
+// What a visitor came to press, on the first screen (owner 2026-10-14). Each
+// opens the flagship collection's tab where that action lives: Floor lists
+// what is for sale and hosts the offer panels; My NFTs is where a holder lists.
+const START_ACTIONS = [
+  ["Browse", "gallery", "btn-primary"],
+  ["Buy", "listings", "btn-primary"],
+  ["Sell / List", "collection", "btn-secondary"],
+  ["Make offer", "listings", "btn-secondary"],
+];
 
 // The chains the registry spans, in registry order ("Ethereum · Base · Solana").
 const CHAIN_LIST = [...new Set(COLLECTION_LIST.map(chainLabel).filter(Boolean))];
@@ -481,26 +493,31 @@ function CollectionCard({ collection, stats, statsLoading, statsError, previewIm
   const isError = !stats && statsError ? statsError : false;
   const dash = "\u2014";
 
+  // The card's own words (description, its source, the creator) live in the
+  // small print under the card. A <details> cannot sit inside a <button>, so
+  // the box is a div: the picture, name and numbers are the button, and the
+  // small print follows it inside the same box.
+  const lore = COLLECTION_LORE[collection.slug];
+  const sourceTag = collection.description && descriptionSourceTag(collection);
+  const hasSmallPrint = !!(collection.description || lore?.creator?.name);
+
   return (
-    <button
+    <div
       ref={cardRef}
-      onClick={onClick}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
         display: "flex",
         flexDirection: "column",
-        background: hovered ? "rgba(20, 20, 24, 0.85)" : "var(--surface-glass)",
+        // Studio surface marketplace:2 under a scrim, so the words stay
+        // readable and the collection's own picture above keeps its frame.
+        background: `linear-gradient(180deg, rgba(10,12,20,0.80) 0%, rgba(10,12,20,0.90) 100%), url(${pageArt("marketplace", 2).src}) center / cover no-repeat, ${hovered ? "rgba(20, 20, 24, 0.85)" : "var(--surface-glass)"}`,
         border: `1px solid ${hovered ? "rgba(111,168,220,0.35)" : "var(--border)"}`,
         borderRadius: 20,
         overflow: "hidden",
-        cursor: "pointer",
         transition: "all 0.4s cubic-bezier(0.16, 1, 0.3, 1)",
         backdropFilter: "var(--glass-blur)",
         textAlign: "left",
-        padding: 0,
-        color: "inherit",
-        fontFamily: "inherit",
         transform: visible
           ? (hovered ? "translateY(-8px) scale(1.015)" : "translateY(0)")
           : "translateY(32px)",
@@ -510,6 +527,24 @@ function CollectionCard({ collection, stats, statsLoading, statsError, previewIm
           : "0 2px 12px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.02)",
         position: "relative",
         width: "100%",
+        textShadow: "0 1px 8px rgba(0,0,0,0.9)",
+      }}
+    >
+    <button
+      onClick={onClick}
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        flex: 1,
+        width: "100%",
+        background: "none",
+        border: "none",
+        cursor: "pointer",
+        textAlign: "left",
+        padding: 0,
+        color: "inherit",
+        fontFamily: "inherit",
+        textShadow: "inherit",
       }}
     >
       {/* ── Hover glow line at top ── */}
@@ -643,45 +678,13 @@ function CollectionCard({ collection, stats, statsLoading, statsError, previewIm
           {viewOnly && collection.market?.name && <MarketBadge market={collection.market.name} />}
         </div>
 
-        {/* Tagline */}
-        {COLLECTION_LORE[collection.slug]?.tagline && (
+        {/* Tagline: the card's one line of prose. */}
+        {lore?.tagline && (
           <div style={{
             fontFamily: "var(--display)", fontSize: 10, color: "var(--gold)",
             fontStyle: "italic", margin: "0 0 8px", opacity: 0.85,
           }}>
-            {COLLECTION_LORE[collection.slug].tagline}
-          </div>
-        )}
-
-        {/* Description — div (not p): paragraphs aren't valid inside a <button> */}
-        <div style={{
-          fontFamily: "var(--mono)",
-          fontSize: 10,
-          color: "var(--text-muted)",
-          margin: "0 0 6px",
-          lineHeight: 1.6,
-          display: "-webkit-box",
-          WebkitLineClamp: 2,
-          WebkitBoxOrient: "vertical",
-          overflow: "hidden",
-          minHeight: 32,
-        }}>
-          {collection.description}
-        </div>
-        {/* A collection's own words name their source, so they never read as the venue's. */}
-        {collection.description && descriptionSourceTag(collection) && (
-          <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)", letterSpacing: "0.04em", margin: "0 0 8px" }}>
-            {descriptionSourceTag(collection).charAt(0).toUpperCase() + descriptionSourceTag(collection).slice(1)}
-          </div>
-        )}
-
-        {/* Creator */}
-        {COLLECTION_LORE[collection.slug]?.creator?.name && (
-          <div style={{
-            fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)",
-            marginBottom: 8, letterSpacing: "0.04em",
-          }}>
-            by {COLLECTION_LORE[collection.slug].creator.name}
+            {lore.tagline}
           </div>
         )}
 
@@ -757,6 +760,31 @@ function CollectionCard({ collection, stats, statsLoading, statsError, previewIm
         )}
       </div>
     </button>
+
+      {/* The small print: the collection's own words, their source, the creator. */}
+      {hasSmallPrint && (
+        <div style={{ padding: "0 22px 14px" }}>
+          <FinePrint summary="About">
+            {collection.description && (
+              <p style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)", margin: 0, lineHeight: 1.6 }}>
+                {collection.description}
+              </p>
+            )}
+            {/* A collection's own words name their source, so they never read as the venue's. */}
+            {sourceTag && (
+              <p style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)", letterSpacing: "0.04em", margin: 0 }}>
+                {sourceTag.charAt(0).toUpperCase() + sourceTag.slice(1)}
+              </p>
+            )}
+            {lore?.creator?.name && (
+              <p style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)", letterSpacing: "0.04em", margin: 0 }}>
+                by {lore.creator.name}
+              </p>
+            )}
+          </FinePrint>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -863,13 +891,43 @@ export default function CollectionLanding() {
           lineHeight: 1.6,
           letterSpacing: "0.02em",
         }}>
-          Browse, trade, and analyze NFT collections
+          Browse. Buy. Sell. Make offers.
         </p>
 
-        {/* ── Unified collection count + chain badge ── */}
+        {/* Start card (studio surface marketplace:2 is the collection card;
+            this is marketplace:1): what to press, then the numbers, then the
+            money line. The explanations sit closed underneath. */}
+        <section
+          aria-label="Start here"
+          style={{
+            maxWidth: 720,
+            margin: "0 auto",
+            padding: "18px 18px 10px",
+            borderRadius: 16,
+            border: "1px solid var(--border)",
+            background: `linear-gradient(180deg, rgba(10,12,20,0.80) 0%, rgba(10,12,20,0.88) 100%), url(${pageArt("marketplace", 1).src}) center / cover no-repeat, var(--surface-glass)`,
+            textShadow: "0 1px 8px rgba(0,0,0,0.9)",
+          }}
+        >
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center", marginBottom: 14 }}>
+            {START_ACTIONS.map(([label, tab, cls]) => (
+              <button
+                key={label}
+                className={cls}
+                onClick={() => navigate(`/nakamigos/${DEFAULT_COLLECTION}/${tab}`)}
+                style={{ minHeight: 44, padding: "0 18px", fontSize: 11, whiteSpace: "nowrap" }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+        {/* The numbers: collection count, chains, how many trade here */}
         <div style={{
           display: "inline-flex",
           alignItems: "center",
+          flexWrap: "wrap",
+          justifyContent: "center",
           gap: 8,
           fontFamily: "var(--mono)",
           fontSize: 10,
@@ -892,19 +950,43 @@ export default function CollectionLanding() {
           <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
             {CHAIN_LIST.join(" \u00b7 ")}
           </span>
+          <span style={{
+            width: 3,
+            height: 3,
+            borderRadius: "50%",
+            background: "var(--text-dim)",
+            display: "inline-block",
+          }} />
+          <span>{VENUE_COLLECTIONS.length} trade here</span>
         </div>
 
-        {/* Native-orderbook value line: factual (flat 1% to the protocol
-            treasury, on-chain Seaport settlement) — no stale fee comparisons */}
+        {/* The money line stays visible: what the venue takes (flat 0.5% to the
+            protocol treasury, on-chain Seaport settlement). The full sentence
+            it used to be sits in the small print below, word for word. */}
         <div style={{
           fontFamily: "var(--mono)",
           fontSize: 10,
           color: "var(--text-dim)",
-          marginTop: 14,
+          marginTop: 12,
           letterSpacing: "0.04em",
         }}>
-          {`Native listings: one flat 1% fee on the ${VENUE_COLLECTIONS.length} collections that trade here, every fee funds the treasury`}
+          {`Flat 0.5% fee on the ${VENUE_COLLECTIONS.length} collections that trade here. It funds the treasury.`}
         </div>
+
+          <div style={{ display: "flex", justifyContent: "center", marginTop: 2 }}>
+            <FinePrint summary="Details">
+              <p style={{ margin: 0 }}>
+                {`Browse, Buy, Sell / List and Make offer open the ${COLLECTIONS[DEFAULT_COLLECTION].name} collection. For another collection, open its card below.`}
+              </p>
+              <p style={{ margin: 0 }}>
+                {`Native listings: one flat 0.5% fee on the ${VENUE_COLLECTIONS.length} collections that trade here, every fee funds the treasury`}
+              </p>
+              <p style={{ margin: 0 }}>
+                A collection that trades elsewhere shows that market's numbers here and opens there.
+              </p>
+            </FinePrint>
+          </div>
+        </section>
 
         {/* Decorative line below */}
         <div style={{

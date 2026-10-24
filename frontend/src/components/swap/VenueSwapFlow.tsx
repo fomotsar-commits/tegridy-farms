@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { PendingTradeCard } from '../solana/curve/PendingTradeCard';
 import { TxFlowView } from '../solana/curve/TxFlowView';
 import { Notice } from '../solana/curve/ui';
@@ -17,7 +18,7 @@ import { signerScope, type VenueSwap } from './useVenueSwap';
  * connected wallet sent from this browser, by either route, that is not confirmed yet.
  * Its own chunk: the page asks for it only when one of those is on screen.
  */
-export default function VenueSwapFlow({ swap }: { swap: VenueSwap }) {
+export default function VenueSwapFlow({ swap, extraReview }: { swap: VenueSwap; extraReview?: ReactNode }) {
   const { flow, api, cfg, signerState, pending } = swap;
   const cluster = cfg?.cluster ?? 'mainnet';
   const s = flow.state;
@@ -64,6 +65,7 @@ export default function VenueSwapFlow({ swap }: { swap: VenueSwap }) {
           cluster={cluster}
           decimals={null}
           signer={signerState.kind === 'ready' ? signerState.signer : null}
+          extraReview={extraReview}
           onOutcomeReset={startOver}
           resetMeans={unsure ? HOLD_DISMISS_MEANS : undefined}
         />

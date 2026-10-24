@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom';
 import type { Bungalow } from '../../lib/bungalows';
 import { bungalowExplorerUrl, bungalowScanRoute, bungalowTradeRoute, stakePoolMembersOnly } from '../../lib/bungalows';
 import { isSolanaSwapLive, isSolanaFeeConfigured } from '../../lib/solana';
+// From ./registry, not the chains barrel (it drags a viem transport in; see ChainSwapAvailability).
+import { getChainConfig } from '../../lib/chains/registry';
 import { HeatCard } from './HeatCard';
 import { usePageTitle } from '../../hooks/usePageTitle';
 
@@ -61,15 +63,18 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
   );
   const explorer = bungalowExplorerUrl(bungalow);
   const chainLabel = bungalow.chain === 'solana' ? 'Solana' : bungalow.chain === 'base' ? 'Base' : 'Ethereum';
-  // Each chain's own swap fee. Solana: the fee account. Ethereum: SwapFeeRouter charges only
-  // on a fill in the venue's own pools, and pays stakers, POL and treasury. Base: the swap
-  // stack does not trade there (chains/registry.ts `ammSwap: false`).
+  // Each chain's own swap fee. Solana: the fee account. An EVM chain the swap runs on
+  // (chains/registry.ts `ammSwap`; Ethereum, and Base since 2026-10-17): SwapFeeRouter charges
+  // only on a fill in the venue's own pools, and its fee never reaches a room's pool (on
+  // Ethereum it goes to stakers and treasury, on Base to the venue's fee Safe there).
+  const evmSwapRuns = bungalow.chain !== 'solana'
+    && getChainConfig(bungalow.chain === 'base' ? 8453 : 1)?.capabilities.ammSwap === true;
   const swapFeeLine =
     bungalow.chain === 'solana'
       ? isSolanaFeeConfigured()
         ? 'the Solana swap surface captures a platform fee, and a share of it can route here.'
         : 'the Solana swap surface is live but takes no platform fee today.'
-      : bungalow.chain === 'ethereum'
+      : evmSwapRuns
         ? `the ${chainLabel} swap surface takes a fee only on fills in the venue's own pools; none of it routes here today.`
         : `the venue runs no swap on ${chainLabel}, so there is no swap fee to share.`;
   // Row 2 holds the lighthouse pool and the funding card side by side. With a ladder and
@@ -85,13 +90,12 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
         {/* A light scrim (0.38), so the resident's art reads through. */}
         <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.38)' }} />
       </div>
-      <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6 pt-8 pb-16">
+      <div className="relative z-10 page-column mx-auto px-4 md:px-6 pt-8 pb-16">
       <BackToEarn />
       {/* Header */}
+      {/* FEWER WORDS (owner, 2026-10-14): one heading and one line. The island eyebrow
+          ("Jungle Bay Island · status") moved into About, word for word. */}
       <div className="mb-8">
-        <p className="text-white/70 text-[11px] uppercase tracking-[0.2em] mb-2">
-          Jungle Bay Island · {bungalow.status}
-        </p>
         <h1 className="heading-luxury text-3xl md:text-5xl text-white tracking-tight mb-3">
           Stake {bungalow.symbol}.
         </h1>
@@ -101,6 +105,9 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
             : <>The lighthouse pool is being built for {bungalow.symbol} on {chainLabel}.</>}
         </p>
         <FinePrint summary="About" className="max-w-lg">
+          <p className="text-[11px] uppercase tracking-[0.2em]">
+            Jungle Bay Island · {bungalow.status}
+          </p>
           <p>
             {bungalow.tagline}{' '}
             {poolIsLive
@@ -192,17 +199,22 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
           </div>
           <div className="absolute inset-0" style={{ background: 'rgba(4,9,18,0.78)' }} />
           <div className="relative z-10 p-6">
-            <p className="text-[10px] uppercase tracking-wider mb-2" style={{ color: 'var(--color-kyle)' }}>How the pool gets funded</p>
-            <h2 className="heading-luxury text-xl text-white mb-3">Routes under evaluation</h2>
-            <ul className="text-white/85 text-[13px] leading-relaxed space-y-2 list-disc pl-4">
-              {/* No creator-fee route: the venue does not control a pump.fun coin's creator
-                  fee, and BAYLA's goes whole to the island. */}
-              <li>
-                <strong>Venue swap fees</strong>: {swapFeeLine}
-              </li>
-              {/* Names the mechanism, never another resident. */}
-              <li><strong>Community top-ups</strong>: visible transfers into the reward pool, as every pool here is seeded.</li>
-            </ul>
+            {/* One heading, one line; the two routes are spelled out in Details, word for word. */}
+            <h2 className="heading-luxury text-xl text-white mb-2">How the pool gets funded</h2>
+            <p className="text-white/85 text-[13px] leading-relaxed m-0">
+              Two routes under evaluation: venue swap fees and community top-ups.
+            </p>
+            <FinePrint summary="Details">
+              <ul className="space-y-2 list-disc pl-4 m-0">
+                {/* No creator-fee route: the venue does not control a pump.fun coin's creator
+                    fee, and BAYLA's goes whole to the island. */}
+                <li>
+                  <strong>Venue swap fees</strong>: {swapFeeLine}
+                </li>
+                {/* Names the mechanism, never another resident. */}
+                <li><strong>Community top-ups</strong>: visible transfers into the reward pool, as every pool here is seeded.</li>
+              </ul>
+            </FinePrint>
           </div>
         </div>
       </div>

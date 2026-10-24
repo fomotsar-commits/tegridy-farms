@@ -254,7 +254,7 @@ export async function expectMinedSuccessfully(page: Page, what: string, since: n
  *
  * ⚠ THIS IS THE BUG THAT KEPT THREE ANVIL LEGS RED, and it was never a missing fixture.
  * Every money surface here renders ONE button that renames itself: "Approve TOWELI" while
- * the allowance is short, the real verb ("Stake & Lock for 90 Days", "Grow the Crop")
+ * the allowance is short, the real verb ("Stake & Lock for 90 Days", "Add liquidity")
  * once it is not. A spec that clicks that button ONCE, on a cold fork, spends its click
  * on the APPROVAL — and an approval deliberately surfaces no `/tx/0x…` receipt
  * (FarmPage.tsx tags it precisely so no stake receipt is fabricated). The spec then waits

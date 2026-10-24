@@ -83,8 +83,8 @@ function expectTopToBottom(named: [string, HTMLElement][]) {
 }
 
 const RISK_LINE =
-  'Admin-key changes not independently reviewed yet: put in only what you can afford to lose.';
-const LP_PARTS = ['lp-risk-line', 'lp-finder', 'lp-positions', 'lp-disclosure', 'fee-tiers'];
+  "The team's vault can pause removing, change fees or replace the program, 48 hours after both its keys approve. No outside firm has checked our changes. Only add what you can afford to lose.";
+const LP_PARTS = ['lp-earn-line', 'lp-finder', 'lp-positions', 'fee-tiers', 'lp-routes', 'lp-disclosure'];
 
 beforeEach(() => { vi.clearAllMocks(); readVenue.mockResolvedValue(LIVE); });
 
@@ -110,7 +110,7 @@ describe('the ?mint= link on /solana-lp', () => {
 // The finder used to sit 1,506px down a phone, under the status card, the risk card and
 // the fee tiers, where a visitor did not find it. On this tab it comes first.
 describe('/solana-lp opens on the pool finder', () => {
-  it('live: the risk line, the finder, the positions, the full notice, the fee tiers, the Venue AMM link, the status card, "The program"', async () => {
+  it('live: the earn line, the finder, the positions, the rates, the routes, the full notice, the Venue AMM link, the status card, "The program"', async () => {
     fakeReaders();
     await mount('/solana-lp');
     await screen.findByTestId('lp-finder');
@@ -118,32 +118,33 @@ describe('/solana-lp opens on the pool finder', () => {
     expectTopToBottom([
       ['the heading', h1],
       ...LP_PARTS.map((id): [string, HTMLElement] => [id, screen.getByTestId(id)]),
-      ['the Venue AMM link', screen.getByRole('link', { name: /fees, status and how the pools work/i })],
+      ['the Venue AMM link', screen.getByRole('link', { name: /fees and status, on the Venue AMM tab/i })],
       ['the status card', screen.getByRole('region', { name: 'Venue status' })],
       ['"The program"', screen.getByRole('region', { name: 'The program' })],
     ]);
     expect(screen.getByRole('region', { name: 'Venue status' })).toHaveTextContent(/Pools are open/);
-    // Between the hero's words and the finder there are two short lines and nothing else: the risk line, then
-    // the one line on earning (fees need no claim). e2e/tab-target-size.spec.ts holds the finder on the first screen.
+    // Between the hero's words and the finder there is one short line and nothing else: the one line on
+    // earning (fees need no claim); no risk line (owner, 2026-10-17). e2e/tab-target-size.spec.ts holds the finder on the first screen.
     expect(h1.parentElement!.nextElementSibling!.firstElementChild).toBe(screen.getByTestId('lp-section'));
-    expect(screen.getByTestId('lp-section').firstElementChild).toBe(screen.getByTestId('lp-risk-line'));
-    expect(screen.getByTestId('lp-risk-line').nextElementSibling).toBe(screen.getByTestId('lp-earn-line'));
+    expect(screen.queryByTestId('lp-risk-line')).toBeNull();
+    expect(screen.getByTestId('lp-section').firstElementChild).toBe(screen.getByTestId('lp-earn-line'));
     expect(screen.getByTestId('lp-earn-line').nextElementSibling).toBe(screen.getByTestId('lp-finder'));
     expect(within(h1.parentElement!).queryByRole('link')).toBeNull();
   });
 
-  // The line may be short only because the whole notice is on the same page, where it says.
-  it('the risk line says exactly this, and the full notice is below the positions, after the two earning cards', async () => {
+  // The vault sentence is behind a press now, first in the notice's Risks, on the same page.
+  it('the vault sentence leads the full notice, below the positions, after the rates and the routes', async () => {
     fakeReaders();
     await mount('/solana-lp');
-    const line = await screen.findByTestId('lp-risk-line');
-    expect(line.textContent).toBe(RISK_LINE);
+    await screen.findByTestId('lp-finder');
     const full = screen.getByTestId('lp-disclosure');
-    // How you earn is the positions' next neighbour; the long notice follows it.
-    expect(screen.getByTestId('lp-positions').nextElementSibling).toBe(screen.getByTestId('lp-how-it-pays'));
-    expect(screen.getByTestId('lp-how-it-pays').nextElementSibling).toBe(full);
+    expect(within(full).getByText(RISK_LINE).closest('details')).not.toHaveAttribute('open');
+    // The rates are the positions' next neighbour, then the routes; the long notice follows them.
+    expect(screen.getByTestId('lp-positions').nextElementSibling).toBe(screen.getByTestId('fee-tiers'));
+    expect(screen.getByTestId('fee-tiers').nextElementSibling).toBe(screen.getByTestId('lp-routes'));
+    expect(screen.getByTestId('lp-routes').nextElementSibling).toBe(full);
     expect(full).toHaveTextContent(/have not had their own independent review yet/);
-    expect(full).toHaveTextContent(/It can switch off deposits,\s+withdrawals or swaps on any pool/);
+    expect(full).toHaveTextContent(/The vault can switch off adding, removing or trading on any pool/);
     expect(full).toHaveTextContent(PROGRAM);
     expect(screen.getAllByTestId('lp-disclosure')).toHaveLength(1);
   });
@@ -160,19 +161,19 @@ describe('/solana-lp opens on the pool finder', () => {
   });
 });
 
-describe('/pools keeps the order it had', () => {
-  it('the status card, the disclosure, the fee tiers, the finder, the positions, the fee sheet, and no risk line', async () => {
+describe('/pools leads with the same actions', () => {
+  it('the earn line, the finder, the positions, the rates, the routes, the full notice, the status card, and one rates card only', async () => {
     fakeReaders();
     await mountPools();
     await screen.findByTestId('lp-finder');
     expectTopToBottom([
       ['the heading', screen.getByRole('heading', { level: 1 })],
+      ...LP_PARTS.map((id): [string, HTMLElement] => [id, screen.getByTestId(id)]),
       ['the status card', screen.getByRole('region', { name: 'Venue status' })],
-      ...['lp-disclosure', 'fee-tiers', 'lp-finder', 'lp-positions'].map((id): [string, HTMLElement] => [id, screen.getByTestId(id)]),
-      ['the fee sheet', screen.getByRole('region', { name: 'Fee sheet' })],
       ['"The program"', screen.getByRole('region', { name: 'The program' })],
     ]);
-    expect(screen.queryByTestId('lp-risk-line')).toBeNull();
+    expect(screen.queryByRole('region', { name: 'Fee sheet' })).toBeNull();
+    expect(screen.getAllByTestId('fee-tiers')).toHaveLength(1);
     expect(document.body.textContent).not.toContain('The full notice is below your positions.');
   });
 });

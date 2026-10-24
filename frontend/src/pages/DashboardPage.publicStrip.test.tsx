@@ -127,7 +127,6 @@ vi.mock('../hooks/useTowelie', () => ({ useTowelie: () => ({ say: vi.fn() }) }))
 
 vi.mock('../components/ArtImg', () => ({ ArtImg: () => null }));
 vi.mock('../components/PositionHealth', () => ({ PositionHealth: () => null }));
-vi.mock('../components/TegridyScoreMini', () => ({ TegridyScoreMini: () => null }));
 vi.mock('../components/ReferralWidget', () => ({ ReferralWidget: () => null }));
 vi.mock('../components/PriceAlertWidget', () => ({ PriceAlertWidget: () => null }));
 vi.mock('../components/chart/PriceChart', () => ({ PriceChart: () => null }));

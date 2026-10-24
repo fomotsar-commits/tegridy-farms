@@ -7,16 +7,16 @@
 import { useEffect, useMemo, useState } from 'react';
 import { m } from 'framer-motion';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { useChainId, useReadContracts } from 'wagmi';
+import { useReadContracts } from 'wagmi';
 import { isAddress, type Address } from 'viem';
 import { usePageTitle } from '../hooks/usePageTitle';
+import { useCurveChainId } from '../hooks/useCurveChainId';
 import { trackPageView } from '../lib/analytics';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
 import { CardArt } from '../components/ui/CardArt';
 import { FinePrint } from '../components/ui/FinePrint';
 import { FeatureNotDeployed } from '../components/ui/FeatureNotDeployed';
 import { WrongChainBanner } from '../components/ui/WrongChainGuard';
-import { CHAIN_ID } from '../lib/constants';
 import { getChainConfig } from '../lib/chains/registry';
 import { curveLauncherOn, CURVE_LAUNCHER_ABI } from '../lib/launcher/curve';
 import { deployedCurveChains, curveChainNames } from '../lib/launcher/curveChains';
@@ -197,24 +197,16 @@ export default function EthCurvePage() {
   // launcher for the wallet's chain when it has one; otherwise default to mainnet
   // (a disconnected wallet resolves to mainnet too). A wallet already on a served
   // curve chain then reads + writes on that chain with no wrong-chain banner.
-  const walletChainId = useChainId();
-  const seededChainId =
-    curveLauncherOn(walletChainId).status === 'deployed' ? walletChainId : CHAIN_ID;
   // The wallet seeds the view (mainnet when disconnected); an explicit pick overrides it
-  // and lives in the URL (`?c=<chainId>`), so each launcher is linkable. `?c=` is visitor
-  // input: a chain we do not serve, or garbage (NaN, or 0 from ''), falls back to the seed.
+  // and lives in the URL (`?c=<chainId>`), so each launcher is linkable. The rule is
+  // useCurveChainId's, shared with the Launch section's network drop-down.
   const [searchParams, setSearchParams] = useSearchParams();
-  const requestedChainId = Number(searchParams.get('c'));
-  const pickedChainId =
-    Number.isInteger(requestedChainId) && curveLauncherOn(requestedChainId).status === 'deployed'
-      ? requestedChainId
-      : null;
+  const activeChainId = useCurveChainId();
   const setPickedChainId = (chainId: number) => {
     const next = new URLSearchParams(searchParams);
     next.set('c', String(chainId));
     setSearchParams(next);
   };
-  const activeChainId = pickedChainId ?? seededChainId;
   const availability = curveLauncherOn(activeChainId);
   const curveChains = useMemo(() => deployedCurveChains(), []);
   const chainName = getChainConfig(activeChainId)?.name ?? 'Ethereum';

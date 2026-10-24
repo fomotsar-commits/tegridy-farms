@@ -22,6 +22,7 @@ import { usePublicClient } from 'wagmi';
 import type { Address, PublicClient } from 'viem';
 import { readClaimableFees, NATIVE_CURRENCY } from '../lib/launcher/integratorFees';
 import { readOurLaunches } from '../lib/launcher/ourLaunches';
+import { cohortLogClient } from '../lib/launcher/cohortLogSource';
 import { allowedNumeraires } from '../lib/launcher/config';
 import { ERC20_ABI } from '../lib/contracts';
 import { TOWELI_ADDRESS, TOWELI_DECIMALS, CHAIN_ID } from '../lib/constants';
@@ -151,8 +152,12 @@ export function useIntegratorFees(enabled: boolean): UseIntegratorFeesResult {
         // be permanently false. Its `complete` flag is the only real signal, and it is
         // false whenever the scan could not finish (getLogs failed, aborted, or any one
         // asset's provenance was unreadable under its all-or-nothing rule).
+        //
+        // The logs come from our backend, as on the Launch page: every RPC the browser
+        // can reach refuses the Airlock's Create history, so the raw client made this
+        // scan fail on every read and the list could only ever be numeraires.
         const { baselines, complete } = await readOurLaunches({
-          client: publicClient,
+          client: cohortLogClient(publicClient, { signal: ac.signal }),
           signal: ac.signal,
         });
         const assets: Address[] = baselines.map((b) => b.token as Address);

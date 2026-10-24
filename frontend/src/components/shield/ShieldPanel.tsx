@@ -26,10 +26,8 @@ export function ShieldPanel() {
 
   return (
     <section className="space-y-3" aria-label={SHIELD_COPY.title}>
-      <div>
-        <h3 className="heading-luxury text-[15px] text-white">{SHIELD_COPY.title}</h3>
-        <p className="text-white/60 text-[12px] mt-0.5">{SHIELD_COPY.subtitle}</p>
-      </div>
+      {/* The subtitle moved into the notice's "How it works" (owner 2026-10-14: fewer words). */}
+      <h3 className="heading-luxury text-[15px] text-white">{SHIELD_COPY.title}</h3>
 
       <ShieldAutomationNotice />
 

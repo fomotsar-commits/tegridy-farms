@@ -25,17 +25,20 @@ export function Card({
   testId,
   headingRef,
   art,
+  className,
 }: {
   title: string;
   children: ReactNode;
   testId?: string;
+  /** Appended to the card's box, for a state the card wears (the position ring). */
+  className?: string;
   /** Set when focus may be sent to the heading (a flow ending with no button to return to). */
   headingRef?: Ref<HTMLHeadingElement>;
   /** The card's CardArt, written at the call site so the studio's scan finds a literal pageId and idx. */
   art?: ReactNode;
 }) {
   return (
-    <section className={art ? `${CARD} isolate` : CARD} style={CARD_STYLE} data-testid={testId}>
+    <section className={`${art ? `${CARD} isolate` : CARD}${className ? ` ${className}` : ''}`} style={CARD_STYLE} data-testid={testId}>
       {art}
       <h2
         ref={headingRef}
@@ -65,11 +68,30 @@ export function Card({
  * first and inside one only when it cannot fit, so the address still wraps and the amount
  * is never split in the middle of a number (review of the phone fixes, 2026-10-04).
  */
-export function Row({ label, value, mono = true, words = false }: { label: string; value: string; mono?: boolean; words?: boolean }) {
+/**
+ * `line`: on a review, what moves this row without the transaction changing (a market, or
+ * the network's fees), so Sign on a review built again does not shut on it (reviewLines.ts).
+ */
+export function Row({
+  label,
+  value,
+  mono = true,
+  words = false,
+  line,
+  tone,
+}: {
+  label: string;
+  value: ReactNode;
+  mono?: boolean;
+  words?: boolean;
+  line?: 'market' | 'fee';
+  /** A value that is a warning, in `Notice`'s warning colour. */
+  tone?: 'warn';
+}) {
   return (
-    <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 text-white/75">
+    <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 text-white/75" data-review-line={line}>
       <span className="break-words">{label}</span>
-      <span className={`text-right min-w-0 ${mono ? (words ? 'font-mono [overflow-wrap:anywhere]' : 'font-mono break-all') : '[overflow-wrap:anywhere]'}`}>{value}</span>
+      <span className={`text-right min-w-0 ${tone === 'warn' ? 'text-amber-300/90 ' : ''}${mono ? (words ? 'font-mono [overflow-wrap:anywhere]' : 'font-mono break-all') : '[overflow-wrap:anywhere]'}`}>{value}</span>
     </div>
   );
 }
@@ -148,7 +170,8 @@ export function ExplorerLink({ href }: { href: string }) {
 }
 
 /** A plain notice line. `tone` picks the colour only; the words carry the meaning. */
-export function Notice({ tone = 'info', children }: { tone?: 'info' | 'warn' | 'bad' | 'good'; children: ReactNode }) {
+/** `line`: as on `Row`. */
+export function Notice({ tone = 'info', children, line }: { tone?: 'info' | 'warn' | 'bad' | 'good'; children: ReactNode; line?: 'fee' }) {
   const cls =
     tone === 'warn'
       ? 'text-amber-300/90'
@@ -159,7 +182,11 @@ export function Notice({ tone = 'info', children }: { tone?: 'info' | 'warn' | '
           : 'text-white/55';
   // A 44-character address has no place to break: without this it ran off the right edge
   // of a phone and lost its last characters (phone walk, 2026-10-03).
-  return <p className={`${cls} [overflow-wrap:anywhere]`}>{children}</p>;
+  return (
+    <p className={`${cls} [overflow-wrap:anywhere]`} data-review-line={line}>
+      {children}
+    </p>
+  );
 }
 
 /** The price impact row, and its warning when it is large or could not be computed. Form and review alike. */

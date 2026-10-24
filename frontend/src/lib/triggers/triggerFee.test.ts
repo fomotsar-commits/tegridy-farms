@@ -16,7 +16,8 @@ import {
 } from './triggerFee';
 import { PROVIDER_FEE_LEGS } from '../fees/swapFee';
 
-const RECIPIENT = '0x6d5791A660e79175F74C6D639584C98422d5956E';
+// The mainnet treasury Safe: the only recipient the policy accepts on CHAIN_ID.
+const RECIPIENT = '0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d';
 
 function enableFee(bps: string) {
   vi.stubEnv('VITE_SWAP_FEE_BPS', bps);
@@ -89,6 +90,22 @@ describe('the CoW leg is withheld, and the zero says which zero it is', () => {
         expect(fee.params.partnerFeeBps).toBe(String(TRIGGER_EXECUTION_FEE_BPS));
         expect(fee.recipient).toBe(RECIPIENT);
       }
+    } finally {
+      (PROVIDER_FEE_LEGS as Record<string, unknown>).cowswap = original;
+    }
+  });
+
+  it('charges nothing when the recipient is not the Safe on the chain the order settles on', () => {
+    const original = PROVIDER_FEE_LEGS.cowswap;
+    try {
+      (PROVIDER_FEE_LEGS as Record<string, unknown>).cowswap = {
+        status: 'ready',
+        params: ['partnerFeeBps'],
+        query: (p: { bps: number; recipient: string }) => ({ partnerFeeBps: String(p.bps) }),
+      };
+      vi.stubEnv('VITE_SWAP_FEE_BPS', '25');
+      vi.stubEnv('VITE_SWAP_FEE_RECIPIENT', '0x796c22ff58F24e4a5d07683d8A5c03Ec54dB38C0');
+      expect(triggerExecutionFee('safe-composable-cow').charged).toBe(false);
     } finally {
       (PROVIDER_FEE_LEGS as Record<string, unknown>).cowswap = original;
     }

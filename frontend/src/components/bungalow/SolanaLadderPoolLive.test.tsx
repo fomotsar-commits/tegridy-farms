@@ -16,6 +16,7 @@
 // which is what makes those three assertions mean anything.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, within, fireEvent, waitFor, act } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import type { Bungalow } from '../../lib/bungalows';
 
 const DAY = 86_400;
@@ -713,7 +714,7 @@ describe('what the exit buttons promise', () => {
   it('the DEGRADED banner names BOTH early doors as penalty-free, and does not promise forever', async () => {
     reads.pool = { ok: true, value: poolView({ degraded: true }) };
     draw();
-    const banner = (await screen.findByText(/declared degraded/)).parentElement!;
+    const banner = (await screen.findByText(/declared degraded/)).closest('[role="alert"]')!;
     const text = banner.textContent ?? '';
     expect(text).toMatch(/early exit/i);
     expect(text).toMatch(/emergency hatch/i);
@@ -1360,5 +1361,82 @@ describe("the ladder line: the real pool's ledger says where its rewards came fr
     const ledger = await statGrid();
     await waitFor(() => expect(ledger.textContent).toMatch(/Minimum stake/));
     expect(document.body.textContent).not.toMatch(/Workshop|of this ladder's rewards/);
+  });
+});
+
+/* ────────── an ended reward window takes no new stake (owner, 2026-10-14) ────────── */
+
+describe('an ended reward window offers no new lock', () => {
+  it('says it ended with the read date, and shows no amount field or Lock button; claim and exits stay', async () => {
+    reads.pool = { ok: true, value: poolView({ rewardRate: 1_000_000n, periodFinish: BigInt(NOW - 2 * DAY) }) };
+    draw();
+    // NOW - 2 days is 2027-01-13 UTC.
+    expect(await screen.findByTestId('ladder-window-ended')).toHaveTextContent(
+      'Rewards ended Jan 13, 2027, so new stakes are closed. Withdraw and claim still work.',
+    );
+    expect(screen.queryByLabelText('Amount')).toBeNull();
+    expect(screen.queryByRole('button', { name: /Lock BAYLA/ })).toBeNull();
+    expect(await screen.findByRole('button', { name: /Claim rewards/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Emergency withdraw/ })).toBeTruthy();
+  });
+
+  it('a live window keeps the form (negative control)', async () => {
+    reads.pool = { ok: true, value: poolView({ rewardRate: 1_000_000n }) };
+    draw();
+    expect(await screen.findByLabelText('Amount')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Lock BAYLA/ })).toBeTruthy();
+    expect(screen.queryByTestId('ladder-window-ended')).toBeNull();
+  });
+});
+
+// THE HOME'S CARD (owner, 2026-10-16: "the staking module is too long ... needs to be shorter
+// than the lp module"). The lock lengths in one row, the amount and Lock; no meter, no positions
+// list, no ledger. A wallet with positions gets one line and the way to them on Earn.
+describe('compact: the home card', () => {
+  const mountCompact = () => render(
+    <MemoryRouter>
+      <SolanaLadderPoolCard bungalow={BUNGALOW} compact />
+    </MemoryRouter>,
+  );
+
+  it('keeps the rungs, the amount and Lock, and leaves the meter, the positions and the ledger out', async () => {
+    mountCompact();
+    await screen.findByRole('button', { name: 'Lock BAYLA for 7d' });
+    expect(screen.getByRole('heading', { level: 2, name: 'Lock BAYLA' })).toBeInTheDocument();
+    // One row of seven, not the tall staircase.
+    expect(within(screen.getByTestId('ladder-rungs-row')).getAllByRole('button', { name: / lock, .+ weight$/ })).toHaveLength(7);
+    expect(screen.getAllByRole('button', { name: / lock, .+ weight$/ })).toHaveLength(7);
+    expect(screen.getByText(/leaving early costs a penalty/)).toBeInTheDocument();
+    expect(screen.getByText('Upgrade risk')).toBeInTheDocument();
+    for (const region of ['Your earnings', 'Your positions', 'The pool']) {
+      expect(screen.queryByRole('region', { name: region })).toBeNull();
+    }
+    // Every description it points at is on the card: the Notes it leaves out are not referenced.
+    for (const el of document.querySelectorAll('[aria-describedby]')) {
+      for (const id of el.getAttribute('aria-describedby')!.split(/\s+/)) expect(document.getElementById(id), `#${id}`).not.toBeNull();
+    }
+  });
+
+  it('a wallet with positions gets one line and the way to them', async () => {
+    mountCompact();
+    const line = await screen.findByTestId('ladder-compact-you');
+    expect(line).toHaveTextContent(/BAYLA earned · 1 open/);
+    expect(within(line).getByRole('link', { name: 'Claim and manage' })).toHaveAttribute('href', '/earn/bayla');
+  });
+
+  it('a wallet with no positions gets no line', async () => {
+    reads.wallet = { ok: true, value: { stats: null, slots: [], open: [], truncated: false } };
+    mountCompact();
+    await screen.findByRole('button', { name: 'Lock BAYLA for 7d' });
+    expect(screen.queryByTestId('ladder-compact-you')).toBeNull();
+  });
+
+  it('stakes through the same instruction as the full card', async () => {
+    mountCompact();
+    fireEvent.click(await screen.findByRole('button', { name: '30d lock, 0.46× weight' }));
+    fireEvent.change(screen.getByLabelText('Amount'), { target: { value: '200' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Lock BAYLA for 30d' }));
+    await waitFor(() => expect(writes.stake).toHaveBeenCalledTimes(1));
+    expect(writes.stake).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ amountRaw: 200_000_000n, lockSecs: 30 * DAY }));
   });
 });

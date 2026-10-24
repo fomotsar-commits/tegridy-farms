@@ -14,7 +14,7 @@
 //   The fix: only ever read `request.ip`, then `x-real-ip`, then XFF[last].
 
 import { describe, it, expect } from "vitest";
-import { extractIp, buildRateLimitKey, memoryRateLimit, checkRateLimit } from "../ratelimit.js";
+import { extractIp, buildRateLimitKey, ipBucket, memoryRateLimit, checkRateLimit } from "../ratelimit.js";
 
 function makeReq({ ip, headers = {} } = {}) {
   return { ip, headers };
@@ -113,6 +113,32 @@ describe("buildRateLimitKey — per-wallet keying", () => {
     // be the rate-limit key.
     const req = makeReq({ headers: { "x-forwarded-for": "1.1.1.1, 2.2.2.2, 3.3.3.3" } });
     expect(buildRateLimitKey(req)).toBe("ip:3.3.3.3");
+  });
+});
+
+// An IPv6 caller is handed a /64 (2^64 addresses): keyed per address, it could step to a
+// fresh bucket on every request. One /64 is one caller.
+describe("buildRateLimitKey — an IPv6 caller is its /64", () => {
+  it("every address in one /64 shares one bucket, however it is written", () => {
+    const keys = ["2001:db8:85a3:42::1", "2001:db8:85a3:42:ffff:ffff:ffff:ffff", "2001:0DB8:85A3:0042:0000:0000:0000:0002", "2001:db8:85a3:42::abcd%eth0"].map((ip) => buildRateLimitKey(makeReq({ ip })));
+    expect(new Set(keys)).toEqual(new Set(["ip:2001:db8:85a3:42::/64"]));
+  });
+
+  it("another /64 is another bucket, and IPv4 (also written as IPv6) is the address itself", () => {
+    expect(buildRateLimitKey(makeReq({ ip: "2001:db8:85a3:43::1" }))).toBe("ip:2001:db8:85a3:43::/64");
+    expect(buildRateLimitKey(makeReq({ ip: "::1" }))).toBe("ip:0:0:0:0::/64");
+    expect(buildRateLimitKey(makeReq({ ip: "9.9.9.9" }))).toBe("ip:9.9.9.9");
+    expect(ipBucket("::ffff:9.9.9.9")).toBe("9.9.9.9");
+    expect(ipBucket("0:0:0:0:0:ffff:9.9.9.9")).toBe("9.9.9.9");
+  });
+
+  it("the /64 rule holds for the IP read from the trusted end of x-forwarded-for too", () => {
+    const req = makeReq({ headers: { "x-forwarded-for": "1.1.1.1, 2001:db8:1:2:3:4:5:6" } });
+    expect(buildRateLimitKey(req)).toBe("ip:2001:db8:1:2::/64");
+  });
+
+  it("anything that is not an address is counted as it is, never merged with others", () => {
+    for (const x of ["unknown", "1:2:3", "1::2::3", "zz::1", "1:2:3:4:5:6:7:8:9"]) expect(ipBucket(x)).toBe(x);
   });
 });
 

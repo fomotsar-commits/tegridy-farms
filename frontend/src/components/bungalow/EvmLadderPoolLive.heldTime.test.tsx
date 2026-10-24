@@ -15,6 +15,13 @@ type Query = { address: string; functionName: string; args?: readonly unknown[] 
 const wagmiState = vi.hoisted(() => ({ answers: new Map<string, ReadCell>(), loading: false }));
 const keyOf = (q: Query) => `${q.functionName}:${(q.args ?? []).map(String).join(',')}`;
 
+// The connect button is RainbowKit's; the card only needs its render prop.
+vi.mock('@rainbow-me/rainbowkit', () => ({
+  ConnectButton: {
+    Custom: ({ children }: { children: (p: { openConnectModal: () => void; mounted: boolean }) => unknown }) =>
+      children({ openConnectModal: () => {}, mounted: true }),
+  },
+}));
 vi.mock('wagmi', () => ({
   useAccount: () => ({ address: undefined, isConnected: false }),
   useChainId: () => 8453,
@@ -85,7 +92,7 @@ describe('the held-time line on the EVM ladder card', () => {
     render(<EvmLadderPoolLive bungalow={QR} />);
     const line = screen.getByText(UNREAD);
     expect(screen.queryByText(READ)).toBeNull();
-    expect(statGrid().nextElementSibling).toBe(line);
+    expect(statGrid().nextElementSibling).toBe(line.closest('[data-held-time]'));
     // The short line and its "How it works" both say it; the first one is the visible line.
     const explainer = screen.getAllByText(/Longer locks earn a larger/)[0]!;
     expect(line.compareDocumentPosition(explainer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -96,7 +103,7 @@ describe('the held-time line on the EVM ladder card', () => {
     render(<EvmLadderPoolLive bungalow={QR} />);
     const line = screen.getByText(READ);
     expect(screen.queryByText(UNREAD)).toBeNull();
-    expect(statGrid().nextElementSibling).toBe(line);
+    expect(statGrid().nextElementSibling).toBe(line.closest('[data-held-time]'));
   });
 
   it('shows no line when the pool cannot be read, because the figures are withheld', () => {
@@ -113,5 +120,19 @@ describe('the held-time line on the EVM ladder card', () => {
     expect(screen.getByText('Reward vault')).toBeTruthy();
     expect(screen.queryByText(UNREAD)).toBeNull();
     expect(screen.queryByText(READ)).toBeNull();
+  });
+});
+
+// Island, answer seventeen item 3: the farm's lock names stay in the farm's room. An
+// island room's rungs read their plain lengths and the weight, nothing else.
+describe('the lock rungs on an island room', () => {
+  it('read their plain lengths, never the farm names', async () => {
+    const { LOCK_DURATIONS } = await import('../../lib/copy');
+    render(<EvmLadderPoolLive bungalow={QR} />);
+    for (const d of LOCK_DURATIONS) {
+      expect(screen.getByRole('button', { name: new RegExp(`^${d.sublabel}`) })).toBeTruthy();
+    }
+    const text = document.body.textContent ?? '';
+    for (const d of LOCK_DURATIONS) expect(text).not.toContain(d.label);
   });
 });

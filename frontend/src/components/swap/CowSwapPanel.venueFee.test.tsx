@@ -7,6 +7,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { PROVIDER_FEE_LEGS } from '../../lib/fees/swapFee';
+import { COW_PARTNER_FEE_BPS } from '../../lib/cowProtocol';
 
 vi.mock('wagmi', () => ({
   useAccount: () => ({ isConnected: true }),
@@ -17,6 +18,7 @@ const getQuote = vi.fn(async () => ({
   sellAmount: 10n ** 18n,
   buyAmount: 2n * 10n ** 18n,
   feeAmount: 0n,
+  protocolFeeBps: 0,
   validTo: 0,
   quoteId: null,
 }));
@@ -64,23 +66,31 @@ describe('the signing surface discloses the venue fee', () => {
     await waitFor(() => expect(screen.getByText('Venue fee')).toBeInTheDocument(), { timeout: 3000 });
   });
 
-  it('shows "None" rather than a claim that the trade is free of charges', async () => {
+  it('shows the 0.5% before the user signs, and that third-party costs are separate', async () => {
     renderPanel();
-    await waitFor(() => expect(screen.getByText('None')).toBeInTheDocument(), { timeout: 3000 });
-    const note = screen.getByText(/The venue adds no fee/i);
+    await waitFor(() => expect(screen.getByText('0.5%')).toBeInTheDocument(), { timeout: 3000 });
+    const note = screen.getByText(/Added by the venue to this CowSwap route before you sign/i);
     expect(note.textContent).toMatch(/pool/i);
     expect(note.textContent).toMatch(/gas/i);
+    expect(screen.queryByText('None')).toBeNull();
   });
 
-  it('stays at zero even with the venue fee configured, because CoW’s leg is withheld', async () => {
-    // Pins the reason the panel may read the policy directly: there is no CoW request
-    // parameter for this module to disagree with. Unblocking the leg means wiring
-    // cowProtocol.ts's appData at the same time, and this test is the tripwire.
-    expect(PROVIDER_FEE_LEGS.cowswap.status).toBe('blocked');
-    vi.stubEnv('VITE_SWAP_FEE_BPS', '25');
-    vi.stubEnv('VITE_SWAP_FEE_RECIPIENT', '0x6d5791A660e79175F74C6D639584C98422d5956E');
+  it('shows the CoW amount after the venue fee', async () => {
+    // Mock quote: 2.0 TOWELI, no network cost, no protocol fee → 0.5% off = 1.99.
     renderPanel();
-    await waitFor(() => expect(screen.getByText('None')).toBeInTheDocument(), { timeout: 3000 });
+    await waitFor(() => expect(screen.getByText(/^1\.9900 TOWELI$/)).toBeInTheDocument(), { timeout: 3000 });
+  });
+
+  it('shows the rate the signed order carries, not the aggregator policy', async () => {
+    // The panel reads COW_PARTNER_FEE_BPS, the rate in the market-swap appData it
+    // signs. The aggregator's venue-fee setting never reaches a CoW order (that leg
+    // stays withheld), so setting it must not change what this panel discloses.
+    expect(PROVIDER_FEE_LEGS.cowswap.status).toBe('blocked');
+    expect(COW_PARTNER_FEE_BPS).toBe(50);
+    vi.stubEnv('VITE_SWAP_FEE_BPS', '25');
+    vi.stubEnv('VITE_SWAP_FEE_RECIPIENT', '0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d');
+    renderPanel();
+    await waitFor(() => expect(screen.getByText('0.5%')).toBeInTheDocument(), { timeout: 3000 });
     expect(screen.queryByText(/0\.25%/)).toBeNull();
   });
 });

@@ -26,6 +26,7 @@ import {
 } from './solanaTokenList';
 import { BAYLA_MINT } from './bungalows';
 import { QUOTE_COINS } from './solana/lp/quotes';
+import { cspAllows } from '../test/csp';
 
 describe('isUnverified — the one verified/unverified decision', () => {
   it('treats an UNSET flag as unverified (the curated BAYLA case)', () => {
@@ -271,5 +272,36 @@ describe('iconSrc moves IPFS icons off retired gateways before proxying', () => 
     expect(upstream(iconSrc('ipfs://bafkreiabc'))).toBe('https://ipfs.filebase.io/ipfs/bafkreiabc');
     expect(upstream(iconSrc('https://static.jup.ag/jup/icon.png'))).toBe('https://static.jup.ag/jup/icon.png');
     expect(iconSrc('')).toBe('');
+  });
+});
+
+// 2026-10-15: wsrv.nl now refuses every *.irys.xyz source ("Domain or TLD blocked
+// by policy", HTTP 400), so tokens whose picture lives on Irys rendered as
+// initials. 6 of 100 Jupiter trending icons were on gateway.irys.xyz that day.
+describe('iconSrc loads Irys icons directly', () => {
+  // A real trending token's icon, read 2026-10-15. Irys redirects it to its CDN.
+  const IRYS_ICON = 'https://gateway.irys.xyz/9y3EEjMgUU9jHAS5cse5AC4GjVBh4Qr1QYDtZ78G3UzV';
+  const IRYS_CDN = 'https://qu4iushfl2rpiehjflwll5vgle2rphc24bs76gmdvzn4hnx6kpza.mainnet-1.datasprite-cdn.com/9y3EEjMgUU9jHAS5cse5AC4GjVBh4Qr1QYDtZ78G3UzV/';
+
+  it('never routes an Irys icon through wsrv.nl, which refuses it', () => {
+    const src = iconSrc(IRYS_ICON);
+    expect(new URL(src).hostname).not.toBe('wsrv.nl');
+    expect(src).toBe(IRYS_ICON);
+  });
+
+  it('keeps every other host on the proxy, and refuses to go direct on a lookalike', () => {
+    expect(new URL(iconSrc('https://static.jup.ag/jup/icon.png')).hostname).toBe('wsrv.nl');
+    expect(new URL(iconSrc('https://gateway.irys.xyz.evil.example/x')).hostname).toBe('wsrv.nl');
+    expect(new URL(iconSrc('http://gateway.irys.xyz/x')).hostname).toBe('wsrv.nl');
+    expect(new URL(iconSrc('https://user@gateway.irys.xyz/x')).hostname).toBe('wsrv.nl');
+  });
+
+  it('only ever produces a URL the served img-src allows, redirect target included', () => {
+    for (const logo of [IRYS_ICON, 'https://static.jup.ag/jup/icon.png', 'ipfs://bafkreiabc']) {
+      const src = iconSrc(logo);
+      expect(cspAllows('img-src', src), `img-src blocks ${src}`).toBe(true);
+    }
+    // The browser follows Irys's redirect, and img-src is checked again there.
+    expect(cspAllows('img-src', IRYS_CDN), 'img-src blocks the Irys CDN the gateway redirects to').toBe(true);
   });
 });

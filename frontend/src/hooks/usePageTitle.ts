@@ -10,7 +10,9 @@ import { SITE_URL } from '../lib/constants';
 // the classic Tegridy identity lives on that bungalow's surfaces, not in
 // the global title suffix.
 const BASE_TITLE = 'MEMETICS.FINANCE';
-const DEFAULT_OG_IMAGE = `${SITE_URL}/art/gallery-collage.jpg`;
+// Same default card as index.html's static head (Bayla at the door), so a crawler that
+// runs scripts reads the same picture as one that does not.
+const DEFAULT_OG_IMAGE = `${SITE_URL}/og.jpg`;
 
 // F15: mirror the index.html default description so pages that don't pass one
 // reset the tags instead of inheriting the previous route's description.

@@ -10,7 +10,7 @@ vi.mock('../lib/solana/cpswap/read', () => ({ readVenue: (...a: unknown[]) => re
 vi.mock('../lib/launcher/solana/curve/rpc', () => ({ browserCurveRpc: () => ({}), browserRpc: () => ({}) }));
 vi.mock('../lib/analytics', () => ({ trackPageView: vi.fn() }));
 vi.mock('../components/solana/lp/SolanaLpSection', () => ({
-  default: ({ finderFirst = false }: { finderFirst?: boolean }) => <div data-testid="lp-section" data-finder-first={String(finderFirst)} />,
+  default: () => <div data-testid="lp-section" />,
 }));
 const lp = vi.hoisted(() => ({ mode: 'on' as 'off' | 'on' | 'withdraw-only' }));
 vi.mock('../lib/launcher/solana/lpWriteFlag', async (importOriginal) => ({
@@ -58,7 +58,7 @@ function expectNoLpSection() {
   expect(screen.queryByText(/Loading the pool finder/)).toBeNull();
 }
 
-const venueAmmLink = () => screen.getByRole('link', { name: /fees, status and how the pools work/i });
+const venueAmmLink = () => screen.getByRole('link', { name: /fees and status, on the Venue AMM tab/i });
 
 /** The hero block, and each thing after it in the page's column, top to bottom. */
 function column() {
@@ -77,11 +77,10 @@ describe('when the venue reads live', () => {
   it('mounts the LP section finder-first right under the hero, then the status card, then "The program"', async () => {
     await mount();
     const section = await screen.findByTestId('lp-section');
-    expect(section).toHaveAttribute('data-finder-first', 'true');
     const card = screen.getByRole('region', { name: 'Venue status' });
     expect(card).toHaveTextContent(/Pools are open/);
     const { hero, after } = column();
-    expect(hero).toHaveTextContent(/Create a pool, add liquidity or take it out/);
+    expect(hero).toHaveTextContent(/Open a pool, add liquidity or take it out/);
     expect(after).toHaveLength(3);
     expect(after[0]!.firstElementChild).toBe(section);
     expect(after[1]).toBe(card);
@@ -94,7 +93,7 @@ describe('when the venue reads live', () => {
     const section = await screen.findByTestId('lp-section');
     const { hero, after } = column();
     expect(within(hero).queryByRole('link')).toBeNull();
-    expect(hero.lastElementChild).toHaveTextContent(/^Create a pool, add liquidity or take it out/);
+    expect(hero.lastElementChild).toHaveTextContent(/^Open a pool, add liquidity or take it out/);
     const link = venueAmmLink();
     expect(link).toHaveAttribute('href', `/pools?mint=${M}`);
     expect(after[0]).toContainElement(link);
@@ -118,7 +117,7 @@ describe('when the venue reads live', () => {
     expect(document.title).toMatch(/^Solana liquidity/);
     // The venue read alone does not say each can be done right now: the section's own reads do.
     expect(
-      screen.getByText(/^Create a pool, add liquidity or take it out\.$/),
+      screen.getByText(/^Open a pool, add liquidity or take it out\.$/),
     ).toBeInTheDocument();
   });
 

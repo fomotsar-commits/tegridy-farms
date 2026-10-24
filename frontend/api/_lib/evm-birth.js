@@ -16,7 +16,7 @@ export const LAUNCH_CREATED_TOPIC0 = "0x27bf21dabc3fdff383eb57006a7345f5ff0deaaa
 export const TRANSFER_TOPIC0 = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 const ZERO_TOPIC = "0x" + "0".repeat(64);
 
-const ETH_BLOCKSCOUT = "https://eth.blockscout.com/api";
+export const ETH_BLOCKSCOUT = "https://eth.blockscout.com/api";
 const BASE_BLOCKSCOUT = "https://base.blockscout.com/api";
 const ROBINHOOD_RPC = "https://rpc.mainnet.chain.robinhood.com";
 
@@ -97,12 +97,20 @@ async function readJson(url, init) {
   return JSON.parse(text);
 }
 
-/** Blockscout's Etherscan-style getLogs. `[]` only for its own "No logs found". */
-export async function blockscoutLogs(base, { address, topic0, topic1, fromBlock }) {
+/**
+ * Blockscout's Etherscan-style getLogs. `[]` only for its own "No logs found". It refuses a
+ * query with two topics and no operator between them, so every pair here names `and`.
+ */
+export async function blockscoutLogs(base, { address, topic0, topic1, topic3, fromBlock }) {
   const q = new URLSearchParams({ module: "logs", action: "getLogs", fromBlock: String(fromBlock), toBlock: "latest", address, topic0 });
   if (topic1) {
     q.set("topic1", topic1);
     q.set("topic0_1_opr", "and");
+  }
+  if (topic3) {
+    q.set("topic3", topic3);
+    q.set("topic0_3_opr", "and");
+    if (topic1) q.set("topic1_3_opr", "and");
   }
   const j = await readJson(`${base}?${q}`, { headers: { accept: "application/json" } });
   if (j?.status === "1" && Array.isArray(j.result)) {
@@ -171,7 +179,8 @@ export async function findDopplerBirth(token) {
   return birthTxFrom(logs, want, { earliest: true });
 }
 
-async function gate(req, res) {
+/** CORS, OPTIONS, the origin and the method. False when it has already answered. */
+export async function gate(req, res) {
   setCors(req, res);
   if (req.method === "OPTIONS") {
     res.status(200).end();

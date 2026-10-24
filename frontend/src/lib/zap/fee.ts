@@ -1,22 +1,11 @@
-// What a zap costs the user in venue fees, which is: nothing this module adds.
-//
-// The zap composes calls the app already makes. It introduces NO dial of its own — there
-// is no `VITE_ZAP_FEE_*`, and `zapFeeDial.test.ts` fails the build if one appears in
-// `src/lib/zap`, `src/hooks/useZap*` or `src/components/zap`. The single venue dial is
-// `src/lib/fees/swapFee.ts`, off by default and off until an operator sets BOTH halves;
-// this module reads it rather than restating it, so a rate can never be advertised here
-// that the rest of the app does not agree with.
-//
-// The fee a zap's swap leg actually pays comes from the router that executes it, exactly
-// as it does on the swap page:
-//   · the venue's own SwapFeeRouter takes its on-chain `feeBps`, which is a LIVE READ and
-//     therefore can be unavailable;
-//   · a real Uniswap route pays Uniswap, and the venue takes nothing (you cannot fee a
-//     trade you do not host).
-//
-// An unavailable read renders as unavailable. Rendering it as 0% would be the same class
-// of lie as an outage rendering as a legitimate zero.
+// What a zap costs in venue fees: nothing this module adds. It has NO dial of its own
+// (fee.test.ts fails on any `import.meta.env.VITE_*` in the zap folders); it reads the venue
+// dial in src/lib/fees/swapFee.ts, on CHAIN_ID, the only chain a zap executes on.
+// The swap leg pays what its executing router takes: SwapFeeRouter's on-chain `feeBps`
+// (a LIVE READ, so it can be unavailable, and unavailable is never rendered as 0%), or
+// nothing to the venue on a real Uniswap route.
 
+import { CHAIN_ID } from '../constants';
 import { swapFeePolicy } from '../fees/swapFee';
 
 export type ZapExecutorKind = 'swap-fee-router' | 'uniswap-v2';
@@ -54,7 +43,7 @@ export function zapFeeDisclosure(input: ZapFeeInput): ZapFeeDisclosure {
   // Read the single dial even when it plays no part in this route. It is the thing that
   // would have to change for the venue to start charging, so a surface that never consults
   // it could keep saying "no fee" after one was switched on.
-  const policy = swapFeePolicy();
+  const policy = swapFeePolicy(CHAIN_ID);
 
   if (input.executor === null) {
     return {

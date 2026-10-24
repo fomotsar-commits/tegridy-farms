@@ -2,18 +2,19 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, within, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { PublicKey } from '@solana/web3.js';
-import { LpInner, type LpWritesOverrides } from './SolanaLpSection';
+import { LpInner } from './SolanaLpSection';
 import type { LpReaders } from './readers';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { FORECAST_WORDS } from '../../../lib/solana/lp/format';
 import { SOL_QUOTE } from '../../../lib/solana/lp/quotes';
 import type { PoolSearchRead, PoolView } from '../../../lib/solana/lp/poolFinder';
-import { POOL_STATUS_DISABLE_WITHDRAW, decodeAmmConfig, decodePoolState } from '../../../lib/solana/cpswap/program';
+import { POOL_STATUS_DISABLE_WITHDRAW, decodeAmmConfig, decodePoolState, type AmmConfigView } from '../../../lib/solana/cpswap/program';
 import type { Position } from '../../../lib/solana/lp/positions';
 import { ExplorerLink, Row } from '../curve/ui';
 import { buildPool, key } from '../../../lib/solana/lp/testkit.fixture';
 import { fakeLpApi, unusedGateRpc } from './fakeLpWriteApi.fixture';
-import { recordedFeeTiers, recordedTier } from '../../../lib/solana/cpswap/mainnetVenueReplay.fixture';
+import { recordedFeeTiers, recordedTier, splitFeeTiers } from '../../../lib/solana/cpswap/mainnetVenueReplay.fixture';
+import { CP_SWAP_PROGRAM_ID, PLATFORM_TREASURY_MULTISIG, PLATFORM_TREASURY_VAULT } from '../../../lib/launcher/solana/curve/program';
 
 const wallet = vi.hoisted(() => ({ publicKey: null as null | { toBase58(): string } }));
 // useConnection is only reached with LP's mode 'on' (the last describe below).
@@ -95,7 +96,7 @@ describe('the LP section', () => {
     mount(readers(), '/pools');
     const d = screen.getByTestId('lp-disclosure');
     expect(d).toHaveTextContent(/have not had their own independent review yet/);
-    expect(d).toHaveTextContent(/switch off deposits, withdrawals or swaps on any pool/);
+    expect(d).toHaveTextContent(/switch off adding, removing or trading on any pool/);
     expect(d).toHaveTextContent(/only reads/);
     // Both tabs that mount this section end with "The program", so the pointer is plain text.
     expect(d).toHaveTextContent('(see “The program” below)');
@@ -108,7 +109,7 @@ describe('the LP section', () => {
     const card = await screen.findByTestId('lp-pool');
     expect(card).toHaveAttribute('data-deposits', 'allowed');
     expect(card).toHaveAttribute('data-price', 'agrees');
-    expect(within(card).getAllByText('1 token = 0.01 SOL')).toHaveLength(2); // here and outside
+    expect(within(card).getAllByText('1 CORN = 0.01 SOL')).toHaveLength(2); // here and outside
     expect(screen.getByTestId('token-safety')).toHaveAttribute('data-verdict', 'ok');
     // The mint is always on screen, in full.
     expect(within(screen.getByTestId('token-safety')).getByText(M)).toBeInTheDocument();
@@ -229,7 +230,7 @@ describe('the LP section', () => {
     const cfg0 = view().config!;
     const r = readers({ feeTiers: vi.fn(async () => ({ kind: 'ok' as const, openingDeposits: 41_000_000n, tiers: [{ index: 0, address: 'a', config: { ...cfg0, index: 0, createPoolFee: 0n, disableCreatePool: false }, state: 'live' as const }] })) });
     mount(r, '/pools');
-    const tier = await screen.findByTestId('fee-tier');
+    const tier = await screen.findByTestId('fee-tier-detail');
     expect(tier).toHaveTextContent('No fee, plus about 0.041 SOL of account deposits that are never refunded');
     expect(tier).not.toHaveTextContent(/\bfree\b/);
   });
@@ -237,7 +238,7 @@ describe('the LP section', () => {
   it('reads the fee tiers from the chain and says when tier 1 does not exist yet', async () => {
     mount(readers(), '/pools');
     await waitFor(() => expect(screen.getAllByTestId('fee-tier')).toHaveLength(2));
-    expect(screen.getAllByTestId('fee-tier')[1]).toHaveAttribute('data-state', 'absent');
+    expect(screen.getAllByTestId('fee-tier').find((r) => r.getAttribute('data-index') === '1')).toHaveAttribute('data-state', 'absent');
     expect(screen.getAllByText('not created yet')).toHaveLength(2);
   });
 });
@@ -260,7 +261,16 @@ describe('what a trade costs, on the tiers mainnet holds (recorded)', () => {
   it('the fee-tier card: a launch pool on tier 0 costs 0.3% a trade, the creator fee has its own row, tier 1 costs 1%', async () => {
     mount(readers({ feeTiers: vi.fn(async () => recordedFeeTiers()) }), '/pools');
     await waitFor(() => expect(screen.getAllByTestId('fee-tier')).toHaveLength(2));
-    const [t0, t1] = screen.getAllByTestId('fee-tier') as [HTMLElement, HTMLElement];
+    // The rows: the public tier first (every pool opened here is on it), its numbers in plain sight.
+    const rows = screen.getAllByTestId('fee-tier');
+    expect(rows.map((r) => r.getAttribute('data-index'))).toEqual(['1', '0']);
+    const cells = (r: HTMLElement) => [...r.querySelectorAll('td')].map((td) => td.textContent);
+    expect(cells(rows[0]!)).toEqual(['1%', '0.84%', '0.16%']);
+    // A launch pool costs the trade fee AND the creator's part, never the 0.25% trade fee alone.
+    expect(cells(rows[1]!)).toEqual(['0.3%incl. 0.05% creator', '0.2%', '0.05%']);
+    expect(rows[0]!.closest('details')).toBeNull();
+    // The sentences, one press away, in the same order.
+    const [t1, t0] = screen.getAllByTestId('fee-tier-detail') as [HTMLElement, HTMLElement];
     expect(rowValue(t0, 'Tier 0 (graduated launches)')).toBe('0.3% a trade in launch pools (0.25% trade fee, 0.05% creator fee); 0.25% in a pool anyone opens');
     expect(rowValue(t0, 'Split')).toBe('LPs 0.200%, venue 0.050% of each trade');
     expect(rowValue(t0, 'Creator fee')).toBe("0.05% a trade on top of the trade fee, in launch pools only; it goes to the token's creator, not to LPs");
@@ -275,11 +285,11 @@ describe('what a trade costs, on the tiers mainnet holds (recorded)', () => {
     const card = await screen.findByTestId('lp-pool');
     expect(rowValue(card, 'Fee tier 0')).toBe('Traders pay 0.3% a trade (0.25% trade fee, 0.05% creator fee)');
     expect(rowValue(card, 'Of that fee')).toBe("LPs keep 0.200% of each trade, the venue 0.050%, the pool's creator 0.050%");
-    expect(rowValue(card, 'Creator fee')).toBe("0.05% a trade on top of the trade fee, paid to the wallet that opened this pool (Opened by, below), not to LPs");
+    expect(rowValue(card, 'Creator fee')).toBe("0.05% a trade on top of the trade fee, paid to the wallet that opened this pool (Opened by, on this card), not to LPs");
     // The wallet the creator fee goes to stays in view on a pool that charges one, short, with the whole address a press away.
     const openedBy = within(card).getByRole('group', { name: 'Opened by' });
     expect(within(card).getByTestId('lp-pool-more')).not.toContainElement(openedBy);
-    fireEvent.click(within(openedBy).getByRole('button', { name: /Show whole/ }));
+    fireEvent.click(within(openedBy).getByRole('button', { name: /Show full address/ }));
     expect(rowValue(openedBy, 'Opened by')).toBe(v.snapshot.pool.poolCreator);
   });
 
@@ -441,16 +451,15 @@ describe('your positions: a share too small to take out', () => {
   });
 });
 
-// /pools keeps the order it has always had. /solana-lp passes `finderFirst`: the finder
-// comes first, under a one-line risk notice; then one line on earning, the positions, the
-// two earning cards, and the full notice. The owner looked for how he earns and found it
-// three screens down, under the long notice (walk of 2026-10-10).
+// One order on both tabs (owner, 2026-10-14: "the actions people need to take spotlighted and
+// their positions and the rates and routes getting the attention"): the earn line, the three
+// actions, the positions, the rates, the routes, the full notice last. No risk line on the page
+// (owner, 2026-10-17: "remove this warning from everywhere"): it leads the notice's Risks.
 describe('the order of the section', () => {
   const RISK_LINE =
-    'Admin-key changes not independently reviewed yet: put in only what you can afford to lose.';
+    "The team's vault can pause removing, change fees or replace the program, 48 hours after both its keys approve. No outside firm has checked our changes. Only add what you can afford to lose.";
+  const ORDER = ['lp-earn-line', 'lp-finder', 'lp-positions', 'fee-tiers', 'lp-routes', 'lp-disclosure'];
   const parts = () => [...screen.getByTestId('lp-section').children].map((c) => c.getAttribute('data-testid'));
-  const mountFirst = (r: LpReaders, writes: LpWritesOverrides = { mode: 'off' }) =>
-    render(<MemoryRouter initialEntries={['/solana-lp']}><LpInner readers={r} writes={writes} finderFirst /></MemoryRouter>);
   // A gate that could not be read: its banner is the top of the section's write half.
   const unreadGate = () => ({
     mode: 'on' as const,
@@ -458,43 +467,76 @@ describe('the order of the section', () => {
     gateRpc: unusedGateRpc,
   });
 
-  it('by default: the disclosure, how it pays, the fee tiers, the finder, the positions, and no risk line', () => {
-    mount(readers(), '/pools');
-    expect(parts()).toEqual(['lp-disclosure', 'lp-how-it-pays', 'fee-tiers', 'lp-finder', 'lp-positions']);
-    expect(screen.queryByTestId('lp-risk-line')).toBeNull();
+  it('on both tabs: the earn line, the actions, the positions, the rates, the routes, the full notice', () => {
+    for (const path of ['/pools', '/solana-lp']) {
+      const view = mount(readers(), path);
+      expect(parts()).toEqual(ORDER);
+      view.unmount();
+    }
   });
 
-  it('finderFirst: the risk line, the earn line, the finder, the positions, how it pays, the full disclosure, the fee tiers', () => {
-    mountFirst(readers());
-    expect(parts()).toEqual(['lp-risk-line', 'lp-earn-line', 'lp-finder', 'lp-positions', 'lp-how-it-pays', 'lp-disclosure', 'fee-tiers']);
-  });
-
-  it('how you earn comes straight after the positions, before the long notice, and one line says so before them', () => {
-    mountFirst(readers());
-    const order = parts();
-    // The invariant, whatever else joins the section: the earning cards are the positions' next neighbour, above the notice.
-    expect(screen.getByTestId('lp-positions').nextElementSibling).toBe(screen.getByTestId('lp-how-it-pays'));
-    expect(order.indexOf('lp-how-it-pays')).toBeLessThan(order.indexOf('lp-disclosure'));
+  it('the rates come straight after the positions, and the earn line stands above the actions', () => {
+    mount(readers(), '/solana-lp');
+    expect(screen.getByTestId('lp-positions').nextElementSibling).toBe(screen.getByTestId('fee-tiers'));
+    expect(screen.getByTestId('fee-tiers').nextElementSibling).toBe(screen.getByTestId('lp-routes'));
     const line = screen.getByTestId('lp-earn-line');
-    expect(line.textContent).toBe('Fees are added to your pool shares as trades happen. Nothing to claim.');
-    // Where it points is true: it stands before the positions, and the cards are under them.
-    expect(order.indexOf('lp-earn-line')).toBeLessThan(order.indexOf('lp-positions'));
-    // It stands above the finder in the page itself, at every size: what is drawn first is what a screen reader
-    // hears first, and no CSS order moves either line (e2e/tab-target-size.spec.ts holds the first screen).
-    expect(screen.getByTestId('lp-risk-line').nextElementSibling).toBe(line);
-    expect(order.indexOf('lp-earn-line')).toBeLessThan(order.indexOf('lp-finder'));
-    for (const el of [line, screen.getByTestId('lp-risk-line')]) expect(el.className).not.toMatch(/\border-/);
+    expect(line.textContent).toBe('Fees grow your pool shares. Nothing to claim.');
+    // Drawn first, heard first: no CSS order moves it (e2e/tab-target-size.spec.ts holds the first screen).
+    expect(screen.queryByTestId('lp-risk-line')).toBeNull();
+    expect(screen.getByTestId('lp-section').firstElementChild).toBe(line);
+    expect(line.nextElementSibling).toBe(screen.getByTestId('lp-finder'));
+    expect(line.className).not.toMatch(/\border-/);
     expect(line.textContent).not.toMatch(FORECAST_WORDS);
     expect(line.textContent).not.toContain('—');
   });
 
-  it('the risk line says exactly this, and the full notice it points at is below the positions', () => {
-    mountFirst(readers());
-    expect(screen.getByTestId('lp-risk-line').textContent).toBe(RISK_LINE);
+  // The vault's powers: the pool program's admin and its upgrade authority are both vault 0 of
+  // a 2-of-2 Squads multisig whose time lock is 172,800 s since Squads #14 (read 2026-10-20).
+  it('the vault sentence names what the team’s vault can do, with both keys and the 48-hour wait, and keeps the afford-to-lose clause', () => {
+    mount(readers(), '/solana-lp');
+    const line = within(screen.getByTestId('lp-disclosure')).getByText(RISK_LINE).textContent ?? '';
+    expect(line).toContain('48 hours after both its keys approve');
+    expect(line).not.toMatch(/no waiting period|at once/);
+    expect(line).toContain('can pause removing');
+    expect(line).toContain('change fees');
+    expect(line).toContain('replace the program');
+    expect(line).toContain('No outside firm has checked our changes.');
+    expect(line).toMatch(/Only add what you can afford to lose\.$/);
+    // The line it replaced did not say that removing can be paused; it is gone from the page.
+    expect(screen.getByTestId('lp-section')).not.toHaveTextContent(/Admin-key changes|independently reviewed/);
+    // One line, under the word budget the first screen has room for (e2e/word-budget.spec.ts).
+    expect(line.split(/\s+/).length).toBeLessThan(35);
+    expect(line).not.toContain('—');
+  });
+
+  it('the vault sentence is not on the page: it leads the full notice’s small print, below the positions, with the addresses', () => {
+    mount(readers(), '/pools');
+    expect(screen.queryByTestId('lp-risk-line')).toBeNull();
     const full = screen.getByTestId('lp-disclosure');
     expect(screen.getByTestId('lp-positions').compareDocumentPosition(full) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(full).toHaveTextContent(/have not had their own independent review yet/);
-    expect(full).toHaveTextContent(/switch off deposits, withdrawals or swaps on any pool/);
+    // Once, and only behind a press: inside the notice's closed Risks drop-down, first.
+    const [sentence] = screen.getAllByText(RISK_LINE);
+    expect(screen.getAllByText(RISK_LINE)).toHaveLength(1);
+    const small = full.querySelector('details');
+    expect(small).not.toBeNull();
+    expect(small).not.toHaveAttribute('open');
+    expect(small).toContainElement(sentence!);
+    expect(small!.querySelector('p')).toBe(sentence);
+    expect(small).toHaveTextContent(/have not had their own independent review yet/);
+    for (const fact of [
+      'Read on chain 2026-10-20',
+      `one key is both the admin of pool program ${CP_SWAP_PROGRAM_ID.toBase58()} and the only key that can replace it`,
+      `That key is the team’s vault ${PLATFORM_TREASURY_VAULT.toBase58()}, vault 0 of the Squads multisig ${PLATFORM_TREASURY_MULTISIG.toBase58()}`,
+      'The multisig needs 2 of its 2 keys to approve anything the vault does. Since 2026-10-19 each approved action then waits 48 hours (a time lock of 172,800 seconds) before it can run.',
+      'Only those 2 keys, together, can change its rules, and such a change waits 48 hours too.',
+      'The vault can switch off adding, removing or trading on any pool.',
+      'replace the program',
+      'Every pool’s coins sit in accounts that program controls, so a replacement could move them.',
+      'you could not take your money out of that pool until it switched removing back on',
+    ]) {
+      expect(small).toHaveTextContent(fact);
+    }
+    expect(small).not.toHaveTextContent(/no waiting period|time lock of 0|at once/);
   });
 
   // Where a pool's fees come from is said as the routes that exist, and no more. Every trade
@@ -510,96 +552,154 @@ describe('the order of the section', () => {
     expect(full).not.toHaveTextContent(/\bbots?\b|arbitrage|most trades|mostly/i);
   });
 
-  it('a gate banner stays above the finder in both orders', async () => {
-    const first = render(<MemoryRouter initialEntries={['/pools']}><LpInner readers={readers()} writes={unreadGate()} /></MemoryRouter>);
+  it('a gate banner stands above the actions', async () => {
+    render(<MemoryRouter initialEntries={['/pools']}><LpInner readers={readers()} writes={unreadGate()} /></MemoryRouter>);
     await screen.findByTestId('lp-gate-banner');
-    expect(parts()).toEqual(['lp-disclosure', 'lp-gate-banner', 'lp-how-it-pays', 'fee-tiers', 'lp-finder', 'lp-positions']);
-    first.unmount();
-    mountFirst(readers(), unreadGate());
-    await screen.findByTestId('lp-gate-banner');
-    expect(parts()).toEqual(['lp-risk-line', 'lp-earn-line', 'lp-gate-banner', 'lp-finder', 'lp-positions', 'lp-how-it-pays', 'lp-disclosure', 'fee-tiers']);
+    expect(parts()).toEqual(['lp-earn-line', 'lp-gate-banner', 'lp-finder', 'lp-positions', 'fee-tiers', 'lp-routes', 'lp-disclosure']);
   });
 });
 
 // Owner, 2026-10-09: "update the front end so people actually know how they are earning and
-// explain how we make money too, no need to be too wordy but be transparent". Two short
-// cards, their numbers the public fee tier's from the section's one tier read.
-describe('how you earn, and how the venue earns', () => {
+// explain how we make money too, no need to be too wordy but be transparent". Owner,
+// 2026-10-14: "drop the duplicate fee cards". One card: the numbers in a row per kind of pool,
+// every sentence the four old cards carried one press away.
+describe('the rates: what a trade pays, what stays in the pool, what the venue takes', () => {
   const VAULT = 'GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd';
-  const cards = async () => {
+  const OTHER = 'Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6';
+  const cells = (r: HTMLElement) => [...r.querySelectorAll('td')].map((td) => td.textContent);
+  const card = async () => {
     await waitFor(() => expect(screen.getAllByTestId('fee-tier')).toHaveLength(2));
-    return { you: screen.getByTestId('lp-how-you-earn'), venue: screen.getByTestId('lp-how-venue-earns') };
+    return screen.getByTestId('fee-tiers');
   };
 
-  it('on the tiers mainnet holds: what a trade pays, what stays in the pool, that there is nothing to claim; and the venue’s three ways, with its wallet', async () => {
-    const r = readers({ feeTiers: vi.fn(async () => recordedFeeTiers()) });
+  it('on the tiers mainnet holds: the numbers in plain sight, every sentence and both wallets one press away', async () => {
+    const r = readers({ feeTiers: vi.fn(async () => splitFeeTiers()) });
     mount(r, '/pools');
-    const { you, venue } = await cards();
-    expect(within(you).getByRole('heading', { level: 2 })).toHaveTextContent('How you earn');
-    // The one line in plain sight (owner, 2026-10-13: fewer words); the rest is one press away.
-    const split = within(you).getByTestId('lp-earn-split');
-    expect(split.textContent).toBe('In a public pool, each trade pays 1%: 0.84% stays with LPs, 0.16% goes to the venue.');
-    expect(split.closest('details')).toBeNull();
-    expect(you).toHaveTextContent('Each trade in a public pool pays a 1% fee. 0.84% of the trade stays in the pool, and your part is added to your position automatically.');
-    expect(you).toHaveTextContent('Nothing to claim: you receive it when you remove liquidity.');
-    expect(you).toHaveTextContent('Few trades means small fees.');
-    expect(within(venue).getByRole('heading', { level: 2 })).toHaveTextContent('How the venue earns');
-    expect(within(venue).getAllByRole('listitem').slice(0, 2).map((li) => li.textContent)).toEqual(['0.16% of each trade in a public pool.', '0.15 SOL when a public pool is opened.']);
-    expect(within(venue).getAllByRole('listitem')[2]).toHaveTextContent(/a swap sent through Jupiter/);
-    expect(venue).toHaveTextContent(/the team’s shared wallet, which needs two signatures and can change the pool rates\./);
-    // The wallet is the one the tier itself names, short, with the whole address one press away.
-    const wallet = within(venue).getByRole('group', { name: 'Team’s shared wallet' });
+    const rates = await card();
+    expect(within(rates).getByRole('heading', { level: 2 })).toHaveTextContent('Rates');
+    expect(within(rates).getAllByRole('columnheader').map((h) => h.textContent)).toEqual(['Pool', 'Trade fee', 'To the pool', 'To the venue']);
+    const pub = within(rates).getAllByTestId('fee-tier')[0]!;
+    expect(within(pub).getByRole('rowheader')).toHaveTextContent('Public pools');
+    expect(cells(pub)).toEqual(['1%', '0.84%', '0.16%']);
+    expect(pub.closest('details')).toBeNull();
+    const open = within(rates).getByTestId('lp-open-cost');
+    expect(open.textContent).toMatch(/^Open a pool: 0\.15 SOL \+ [\d.]+ SOL setup, not refunded\.$/);
+    expect(open.closest('details')).toBeNull();
+    // What How you earn and How the venue earns said, word for word, one press away.
+    const sentence = within(rates).getByText('In a public pool, each trade pays 1%: 0.84% stays with LPs, 0.16% goes to the venue.');
+    expect(sentence.closest('details')).not.toBeNull();
+    expect(rates).toHaveTextContent('Each trade in a public pool pays a 1% fee. 0.84% of the trade stays in the pool, and your part is added to your position automatically.');
+    expect(rates).toHaveTextContent('Nothing to claim: you receive it when you remove liquidity.');
+    expect(rates).toHaveTextContent('Few trades means small fees.');
+    const sources = within(rates).getByTestId('lp-venue-sources');
+    expect(within(sources).getAllByRole('listitem').slice(0, 2).map((li) => li.textContent)).toEqual(['0.16% of each trade in a public pool.', '0.15 SOL when a public pool is opened.']);
+    expect(within(sources).getAllByRole('listitem')[2]).toHaveTextContent(/a swap sent through Jupiter/);
+    expect(rates).toHaveTextContent(
+      'Of each trade’s fee, 10.4% (0.104% of the trade) goes to the team’s shared wallet, which needs two signatures and can change the pool rates, and 5.6% (0.056% of the trade) to the island’s Workshop, the island’s agreed share.',
+    );
+    // The cut follows the agreed split, so both wallets are one press away: short, the whole address a press further.
+    expect(within(rates).queryByTestId('lp-venue-elsewhere')).toBeNull();
+    expect(within(rates).getByRole('group', { name: 'Island’s Workshop' }).closest('details')).not.toBeNull();
+    const wallet = within(rates).getByRole('group', { name: 'Team’s shared wallet' });
+    expect(wallet.closest('details')).not.toBeNull();
     expect(wallet).toHaveTextContent('GRMt…8osd');
     expect(wallet).not.toHaveTextContent(VAULT);
-    fireEvent.click(within(wallet).getByRole('button', { name: /Show whole/ }));
-    expect(within(venue).getByRole('group', { name: 'Team’s shared wallet' })).toHaveTextContent(VAULT);
-    // One read of the tiers feeds this and the Fee tiers card.
+    fireEvent.click(within(wallet).getByRole('button', { name: /Show full address/ }));
+    expect(within(rates).getByRole('group', { name: 'Team’s shared wallet' })).toHaveTextContent(VAULT);
+    // One read of the tiers feeds every number on the card.
     expect(r.feeTiers).toHaveBeenCalledTimes(1);
     expect(screen.queryByTestId('lp-no-rate')).toBeNull();
   });
 
-  it('each number is the tier’s as read: another tier 1, other sentences', async () => {
+  it('each number is the tier’s as read: another tier 1, other numbers and other sentences', async () => {
     const other = recordedFeeTiers();
     if (other.kind !== 'ok') throw new Error('the recording did not read');
     other.tiers[1] = { ...other.tiers[1]!, config: { ...other.tiers[1]!.config!, tradeFeeRate: 2_500n, protocolFeeRate: 200_000n, createPoolFee: 2_000_000_000n } };
     mount(readers({ feeTiers: vi.fn(async () => other) }), '/pools');
-    const { you, venue } = await cards();
-    expect(you).toHaveTextContent('Each trade in a public pool pays a 0.25% fee. 0.2% of the trade stays in the pool');
-    expect(venue).toHaveTextContent('0.05% of each trade in a public pool.');
-    expect(venue).toHaveTextContent('2 SOL when a public pool is opened.');
-    expect(you).not.toHaveTextContent(/0\.84%|\b1% fee/);
-    expect(venue).not.toHaveTextContent(/0\.16%|0\.15 SOL/);
+    const rates = await card();
+    expect(cells(within(rates).getAllByTestId('fee-tier')[0]!)).toEqual(['0.25%', '0.2%', '0.05%']);
+    expect(within(rates).getByTestId('lp-open-cost').textContent).toMatch(/^Open a pool: 2(\.0+)? SOL \+/);
+    expect(rates).toHaveTextContent('Each trade in a public pool pays a 0.25% fee. 0.2% of the trade stays in the pool');
+    expect(rates).toHaveTextContent('0.05% of each trade in a public pool.');
+    expect(rates).toHaveTextContent('2 SOL when a public pool is opened.');
+    expect(rates).not.toHaveTextContent(/0\.84%|0\.16%|\b1% fee|0\.15 SOL/);
   });
 
-  it('still reading, a read that failed, a tier that is not there: three states, each said, and none prints a pool rate or a wallet', async () => {
-    const states: [LpReaders['feeTiers'] | null, string][] = [
+  // Venue money going anywhere but the agreed split is said in plain sight, in bold (owner, 2026-10-10).
+  const flagged = async (over: Partial<AmmConfigView>) => {
+    const other = splitFeeTiers();
+    if (other.kind !== 'ok') throw new Error('the recording did not read');
+    other.tiers[1] = { ...other.tiers[1]!, config: { ...other.tiers[1]!.config!, ...over } };
+    mount(readers({ feeTiers: vi.fn(async () => other) }), '/pools');
+    const flag = within(await card()).getByTestId('lp-venue-elsewhere');
+    expect(flag.closest('details')).toBeNull();
+    expect(flag.querySelector('strong')).toHaveTextContent(/^The venue’s cut does not follow the agreed split \(10\.4% of each trade’s fee to the team’s shared wallet, 5\.6% to the island’s Workshop\)\. /);
+    return flag;
+  };
+
+  it('a tier that sends part of the venue’s cut to another wallet says so in plain sight, in bold, with the wallet', async () => {
+    const flag = await flagged({ protocolOwner: OTHER });
+    expect(flag.querySelector('strong')).toHaveTextContent(/this tier sends nothing to the team’s shared wallet, 5\.6% \(0\.056% of the trade\) to the island’s Workshop and 10\.4% \(0\.104% of the trade\) to another wallet\./);
+    expect(within(flag).getByRole('group', { name: 'Another wallet, 10.4% of each trade’s fee' })).toHaveTextContent('Fu7m…tTb6');
+  });
+
+  it('a fund owner that is the team’s vault (the program’s default) keeps the island’s part: said in bold, not as the agreed split', async () => {
+    const flag = await flagged({ fundOwner: VAULT });
+    expect(flag.querySelector('strong')).toHaveTextContent(/this tier sends 16% \(0\.16% of the trade\) to the team’s shared wallet and nothing to the island’s Workshop\./);
+    expect(within(flag).getByRole('group', { name: 'Team’s shared wallet, 16% of each trade’s fee' })).toBeInTheDocument();
+    expect(within(flag).getByRole('group', { name: 'Island’s Workshop' })).toBeInTheDocument();
+  });
+
+  it('the right wallets at other rates: said in bold too', async () => {
+    const flag = await flagged({ protocolFeeRate: 120_000n, fundFeeRate: 40_000n });
+    expect(flag.querySelector('strong')).toHaveTextContent(/this tier sends 12% \(0\.12% of the trade\) to the team’s shared wallet and 4% \(0\.04% of the trade\) to the island’s Workshop\./);
+  });
+
+  it('still reading, a read that failed, tiers that are not there: each said, and none prints a pool rate or a wallet', async () => {
+    const states: [LpReaders['feeTiers'] | null, string | null][] = [
       [vi.fn(() => new Promise<never>(() => {})), 'Reading the rates from the chain…'],
-      [vi.fn(async () => ({ kind: 'unread' as const, detail: 'the chain did not answer in 20 seconds' })), 'The fee tiers could not be read, so no rate is shown.'],
-      // The default readers: both tiers answered, and neither exists.
-      [null, 'No public fee tier yet, so no rate is shown.'],
+      [vi.fn(async () => ({ kind: 'unread' as const, detail: 'the chain did not answer in 20 seconds' })), 'The rates could not be read (the chain did not answer in 20 seconds), so none is shown.'],
+      // The default readers: both tiers answered, and neither exists. The rows say so.
+      [null, null],
     ];
     for (const [feeTiers, said] of states) {
       const view = mount(readers(feeTiers ? { feeTiers } : {}), '/pools');
-      const you = screen.getByTestId('lp-how-you-earn');
-      const venue = screen.getByTestId('lp-how-venue-earns');
-      // Said once, under both cards.
-      await waitFor(() => expect(screen.getByTestId('lp-no-rate').textContent).toBe(said));
-      expect(you).toHaveTextContent('Each trade in a pool pays a fee. Part of it stays in the pool, and your part is added to your position automatically.');
-      expect(you.textContent).not.toMatch(/\d/);
-      expect(within(venue).getAllByRole('listitem').slice(0, 2).map((li) => li.textContent)).toEqual(['A cut of each trade in its pools.', 'A fee when a public pool is opened.']);
-      expect(within(venue).queryByRole('group')).toBeNull();
-      expect(venue).not.toHaveTextContent(/shared wallet/);
+      const rates = screen.getByTestId('fee-tiers');
+      if (said) await waitFor(() => expect(screen.getByTestId('lp-no-rate').textContent).toBe(said));
+      else await waitFor(() => expect(within(rates).getAllByText('not created yet')).toHaveLength(2));
+      expect(rates.textContent).not.toMatch(/\d\s*%|\d\s*SOL\b/);
+      expect(rates).toHaveTextContent('Each trade in a pool pays a fee. Part of it stays in the pool, and your part is added to your position automatically.');
+      expect(within(within(rates).getByTestId('lp-venue-sources')).getAllByRole('listitem').slice(0, 2).map((li) => li.textContent)).toEqual(['A cut of each trade in its pools.', 'A fee when a public pool is opened.']);
+      expect(within(rates).queryByRole('group', { name: /wallet/i })).toBeNull();
+      expect(rates).not.toHaveTextContent(/shared wallet/);
       view.unmount();
     }
   });
 
-  it('neither card forecasts a return', async () => {
+  it('neither the rates nor the routes forecast a return', async () => {
     mount(readers({ feeTiers: vi.fn(async () => recordedFeeTiers()) }), '/pools');
-    const { you, venue } = await cards();
-    for (const card of [you, venue]) {
-      expect(card.textContent).not.toMatch(FORECAST_WORDS);
-      expect(card.textContent).not.toContain('—');
+    const rates = await card();
+    for (const c of [rates, screen.getByTestId('lp-routes')]) {
+      expect(c.textContent).not.toMatch(FORECAST_WORDS);
+      expect(c.textContent).not.toContain('—');
     }
+  });
+});
+
+// Where a swap goes, on both tabs, as two rules a glance can read. The swap sends each trade
+// where it pays the trader more, a tie going to our pool; the sentence is in the small print.
+describe('swap routes', () => {
+  it('two rules, the swap one press away, the venue fee said, the full sentence in the small print', () => {
+    mount(readers(), '/solana-lp');
+    const routes = screen.getByTestId('lp-routes');
+    expect(within(routes).getByRole('heading', { level: 2 })).toHaveTextContent('Swap routes');
+    const rules = within(within(routes).getByTestId('lp-route-rules')).getAllByRole('listitem').map((li) => li.textContent);
+    expect(rules).toEqual(['Our poolswhen they pay you at least as much', 'Jupiterwhen it pays you more']);
+    expect(within(routes).getByRole('link', { name: 'Swap' })).toHaveAttribute('href', '/solana');
+    expect(within(routes).getByTestId('lp-route-fee').textContent).toMatch(/^Venue fee through Jupiter: (none|\d+(\.\d+)?%)$/);
+    const sentence = within(routes).getByText(/to\s+our pool when ours pays at least as much as Jupiter, and through Jupiter\s+when it does not\./);
+    expect(sentence.closest('details')).not.toBeNull();
+    for (const bad of [/takes (whichever|the one)/i, /whichever is better/i, /still goes through\s+Jupiter/i]) expect(routes.textContent).not.toMatch(bad);
   });
 });
 
@@ -639,3 +739,55 @@ describe('the outside price for a token with no pool', () => {
     expect(off.outsidePrice).not.toHaveBeenCalled();
   });
 });
+
+// Owner, 2026-10-17: the explorer links "aren't showing the right addresses and are not
+// labelled properly and are carrying you to the wrong part of it". Each said "Explorer" and
+// opened Solscan's account page: a mint by way of a redirect, and the pool on its own record
+// account, whose "Total Value" there is its rent (about $0.40), not the coins in it. Now each
+// link says what it opens, a mint opens its token page, and the two vaults that hold the
+// pool's coins are rows of their own.
+describe('the pool card’s explorer links', () => {
+  // The same pool with its coins in the other order: the vault called SOL's must follow the mint, not the slot.
+  const mirrored = (v: PoolView): PoolView => {
+    const p = v.snapshot.pool;
+    return { ...v, quoteIsToken0: !v.quoteIsToken0, snapshot: { ...v.snapshot, pool: { ...p, token0Mint: p.token1Mint, token1Mint: p.token0Mint, token0Vault: p.token1Vault, token1Vault: p.token0Vault } } };
+  };
+
+  for (const order of ['as built', 'in the other order'] as const) {
+    it(`each says what it opens, and opens it (its coins ${order})`, async () => {
+      const built = view();
+      const v = order === 'as built' ? built : mirrored(built);
+      const p = v.snapshot.pool;
+      const solVault = p.token0Mint === SOL_QUOTE.mint ? p.token0Vault : p.token1Vault;
+      const tokenVault = p.token0Mint === M ? p.token0Vault : p.token1Vault;
+      expect(solVault).not.toBe(tokenVault);
+      render(
+        <MemoryRouter initialEntries={[`/pools?mint=${M}`]}>
+          <LpInner readers={readers({ findPools: vi.fn(async () => search([v])) })} writes={{ mode: 'on', load: vi.fn(async () => fakeLpApi()), gateRpc: unusedGateRpc }} />
+        </MemoryRouter>,
+      );
+      const card = await screen.findByTestId('lp-pool');
+      const link = (group: string) => within(within(card).getByRole('group', { name: group })).getByRole('link');
+      await waitFor(() => expect(link('Pool address')).toBeInTheDocument());
+      const expected: Array<[string, string, string]> = [
+        ['Pool address', 'Transactions', `account/${v.address}`],
+        ['Holds its SOL', 'Balance', `account/${solVault}`],
+        ['Holds its CORN', 'Balance', `account/${tokenVault}`],
+        ['Token', 'Token', `token/${M}`],
+        ['Opened by', 'Wallet', `account/${p.poolCreator}`],
+      ];
+      for (const [group, shows, path] of expected) {
+        // The fake write code is on a local validator, whose explorer is the Solana Explorer.
+        expect(link(group), group).toHaveAccessibleName(`${shows} on the Solana Explorer (opens in a new tab)`);
+        expect(link(group), group).toHaveTextContent(`${shows} on the Solana Explorer ↗`);
+        expect(link(group).getAttribute('href'), group).toBe(`https://explorer.test/${path}`);
+      }
+      const more = within(card).getByTestId('lp-pool-more');
+      for (const [group] of expected) expect(more).toContainElement(within(card).getByRole('group', { name: group }));
+      // A vault holds the venue's and any creator's fees until they are collected, so its balance is a little above "In the pool".
+      expect(more).toHaveTextContent('Each also holds fees not collected yet.');
+      expect(within(card).queryByText('Explorer', { exact: true })).toBeNull();
+    });
+  }
+});
+

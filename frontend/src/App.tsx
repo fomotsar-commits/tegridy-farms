@@ -20,6 +20,10 @@ import { BUNGALOWS, getActiveBungalow } from './lib/bungalows';
 import { useSectionLink } from './hooks/useSectionLink';
 import { BungalowDoor, VENUE_ID } from './components/bungalow/BungalowDoor';
 import { EARN_PATH, isEarnPoolId, legacyFarmTarget } from './lib/earnRoutes';
+import { lazyLoadFailed } from './lib/staleBuild';
+import { holdReloadWhileWalletWorks } from './lib/reloadHold';
+import { StaleBuildFallback } from './components/StaleBuildFallback';
+import { rangePoolsVisible } from './lib/solana/clmm/programId';
 
 const HomePage = lazy(() => import('./pages/HomePage'));
 const DashboardPage = lazy(() => import('./pages/DashboardPage'));
@@ -69,12 +73,12 @@ const VestingPage = lazy(() => import('./pages/VestingPage'));
 const OnboardingFlow = lazy(() => import('./components/onboarding/OnboardingFlow'));
 
 // Error boundary catches render errors in lazy-loaded pages and prevents white-screen crashes
-class RouteErrorBoundary extends Component<{ children: ReactNode; resetKey?: string }, { hasError: boolean }> {
+class RouteErrorBoundary extends Component<{ children: ReactNode; resetKey?: string }, { hasError: boolean; error?: unknown }> {
   constructor(props: { children: ReactNode; resetKey?: string }) {
     super(props);
     this.state = { hasError: false };
   }
-  static getDerivedStateFromError() { return { hasError: true }; }
+  static getDerivedStateFromError(error: unknown) { return { hasError: true, error }; }
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error('Route render error:', error, info.componentStack);
   }
@@ -87,7 +91,7 @@ class RouteErrorBoundary extends Component<{ children: ReactNode; resetKey?: str
   }
   render() {
     if (this.state.hasError) {
-      return (
+      const generic = (
         <div className="min-h-[60vh] flex items-center justify-center px-6">
           <div className="text-center max-w-sm">
             <h1 className="heading-luxury text-3xl text-white mb-3">Something went wrong</h1>
@@ -103,6 +107,8 @@ class RouteErrorBoundary extends Component<{ children: ReactNode; resetKey?: str
           </div>
         </div>
       );
+      // As in ui/ErrorBoundary: a lazy load that failed may be a deploy, not a fault.
+      return lazyLoadFailed(this.state.error) ? <StaleBuildFallback>{generic}</StaleBuildFallback> : generic;
     }
     return this.props.children;
   }
@@ -117,6 +123,10 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+// While a wagmi write, signature or receipt wait is open on this client, the page never
+// reloads itself (lib/staleBuild.ts).
+holdReloadWhileWalletWorks(queryClient);
 
 function NotFoundPage() {
   // No canonical (a soft-404 served 200) and noindex. A colon, not an em dash: AppLayout
@@ -303,6 +313,8 @@ function AnimatedRoutes() {
         {/* Pools is its own section: /liquidity, /solana-lp, /pools and /zap. */}
         <Route path="liquidity" element={<Suspense fallback={<SwapSkeleton />}><PoolsHostPage /></Suspense>} />
         <Route path="solana-lp" element={<Suspense fallback={<SwapSkeleton />}><PoolsHostPage /></Suspense>} />
+        {/* The Range tab: no route at all until range pools open (clmm/programId.ts). */}
+        {rangePoolsVisible() && <Route path="range-pools" element={<Suspense fallback={<SwapSkeleton />}><PoolsHostPage /></Suspense>} />}
         <Route path="pools" element={<Suspense fallback={<SwapSkeleton />}><PoolsHostPage /></Suspense>} />
         {/* No /solana-launch and no redirect for it: it 404s, because the rail it
             would point at cannot launch either. */}
@@ -320,7 +332,8 @@ function AnimatedRoutes() {
         <Route path="yield" element={<Suspense fallback={<PageSkeleton />}><EarnPage /></Suspense>} />
         {/* The nav labels this "Trade" — make the natural /trade URL resolve instead of 404. */}
         <Route path="copy-trading" element={<Suspense fallback={<PageSkeleton />}><EarnPage /></Suspense>} />
-        <Route path="competitions" element={<Suspense fallback={<PageSkeleton />}><EarnPage /></Suspense>} />
+        {/* The trading competitions were deleted 2026-10-15 (island item 4); old links land on Earn. */}
+        <Route path="competitions" element={<Navigate to="/earn" replace />} />
         <Route path="trade" element={<Navigate to="/swap" replace />} />
         <Route path="dashboard" element={<Suspense fallback={<DashboardSkeleton />}><DashboardPage /></Suspense>} />
         {/* The Island lobby is cards, not tabs (IslandPage.tsx). */}
@@ -331,7 +344,8 @@ function AnimatedRoutes() {
         <Route path="lore" element={<Suspense fallback={<PageSkeleton />}><LearnPage /></Suspense>} />
         {/* /learn is a legacy alias for the first tab LearnPage owns. */}
         <Route path="learn" element={<Navigate to="/lore" replace />} />
-        <Route path="leaderboard" element={<Suspense fallback={<PageSkeleton />}><ActivityPage /></Suspense>} />
+        {/* The points program was deleted 2026-10-15 (island item 4); old links land on History. */}
+        <Route path="leaderboard" element={<Navigate to="/history" replace />} />
         <Route path="community" element={<Suspense fallback={<PageSkeleton />}><CommunityPage /></Suspense>} />
         <Route path="grants" element={<Navigate to="/community" replace />} />
         <Route path="bounties" element={<Navigate to="/community?section=bounties" replace />} />

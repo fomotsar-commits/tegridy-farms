@@ -1,9 +1,13 @@
+import { FinePrint } from "../../components/ui/FinePrint";
+
+// One short line each (owner 2026-10-14: fewer words). Anything that explains
+// goes in `detail`, which renders closed under the line.
 const EMPTY_STATES = {
   // --- Core browsing ---
   gallery: {
     icon: "\uD83D\uDDBC",
     title: "No NFTs available",
-    description: "There are no tokens to display right now. Check back soon.",
+    description: "Nothing to show right now.",
   },
   search: {
     icon: "\uD83D\uDD0D",
@@ -20,8 +24,7 @@ const EMPTY_STATES = {
   collection: {
     icon: "\uD83D\uDDBC",
     title: "No NFTs found",
-    description:
-      "Connect your wallet to see your collection, or start browsing to find your first.",
+    description: "Connect your wallet to see yours.",
     action: "Browse Gallery",
     tab: "gallery",
   },
@@ -35,30 +38,28 @@ const EMPTY_STATES = {
   watchlist: {
     icon: "\uD83D\uDC41",
     title: "Watchlist is empty",
-    description: "Add {collection} NFTs to track price changes and get alerts.",
+    description: "Add {collection} NFTs to follow their price.",
     action: "Browse Gallery",
     tab: "gallery",
   },
   cart: {
     icon: "\uD83D\uDED2",
     title: "Cart is empty",
-    description: "Add listed NFTs to your cart for batch purchasing.",
+    description: "Add listed NFTs to buy several at once.",
     action: "View Listings",
     tab: "listings",
   },
   portfolio: {
     icon: "\uD83D\uDCBC",
     title: "No NFTs in this wallet",
-    description:
-      "This wallet doesn't hold any NFTs from this collection. Try switching collections or wallets.",
+    description: "This wallet holds none from this collection.",
   },
 
   // --- Marketplace ---
   listings: {
     icon: "\uD83D\uDCC9",
     title: "No listings available",
-    description:
-      "There are no active listings right now. Check back later or create your own.",
+    description: "Nothing is listed right now.",
   },
   offers: {
     icon: "\uD83E\uDD1D",
@@ -79,7 +80,8 @@ const EMPTY_STATES = {
   myListings: {
     icon: "\uD83D\uDCCB",
     title: "No active listings",
-    description: "You don't have any active listings on the Tegridy order book for this collection. This page shows only orders created here — a listing you made on OpenSea won't appear. List from the My NFTs tab to see it here.",
+    description: "Nothing of yours is listed on the Tegridy order book for this collection.",
+    detail: "This page shows only orders created here. A listing you made on OpenSea won't appear. List from the My NFTs tab to see it here.",
   },
 
   // --- Bids & trading ---
@@ -91,8 +93,7 @@ const EMPTY_STATES = {
   bidsReceived: {
     icon: "\uD83D\uDCE9",
     title: "No offers received",
-    description:
-      "When someone makes an offer on one of your NFTs it will appear here.",
+    description: "Offers on your NFTs appear here.",
   },
   trades: {
     icon: "\uD83E\uDD1D",
@@ -116,13 +117,12 @@ const EMPTY_STATES = {
   analytics: {
     icon: "\uD83D\uDCCA",
     title: "No analytics data available",
-    description: "Analytics will populate once token and sales data is loaded.",
+    description: "Appears once token and sales data load.",
   },
   holders: {
     icon: "\uD83D\uDCCA",
     title: "No holder data",
-    description:
-      "Holder analytics will appear once on-chain data has been indexed.",
+    description: "Appears once the chain data is indexed.",
   },
 
   // --- Social & community ---
@@ -134,23 +134,21 @@ const EMPTY_STATES = {
   alerts: {
     icon: "\uD83D\uDD14",
     title: "No alerts set",
-    description:
-      "Set up price or trait alerts to get notified when conditions are met.",
+    description: "Set a price or trait alert to get notified.",
   },
 
   // --- Rarity & sniping ---
   rarity: {
     icon: "\uD83D\uDD0D",
     title: "No opportunities found",
-    description:
-      "Adjust your filters or check back later for underpriced listings.",
+    description: "Change the filters or check back later.",
   },
 
   // --- Wallet & auth ---
   wallet: {
     icon: "\uD83D\uDD12",
     title: "Wallet Not Connected",
-    description: "Connect your wallet to access this feature.",
+    description: "Connect your wallet to use this.",
     action: "Connect Wallet",
   },
 
@@ -200,6 +198,8 @@ export default function EmptyState({
   const resolvedIcon = icon || config.icon;
   const resolvedTitle = title || customTitle || config.title;
   const resolvedDesc = description || customSubtitle || config.description;
+  // The explanation under the line, closed; only the config carries one.
+  const resolvedDetail = config.detail;
   const resolvedActionLabel = actionLabel || config.action;
   const resolvedActionTab = actionTab || config.tab;
 
@@ -239,6 +239,9 @@ export default function EmptyState({
         <div className="empty-state-text" style={compactTextStyle}>
           {finalDesc}
         </div>
+      )}
+      {resolvedDetail && (
+        <FinePrint summary="Details">{interpolate(resolvedDetail)}</FinePrint>
       )}
       {resolvedActionLabel && onAction && (
         <button

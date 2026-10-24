@@ -67,9 +67,9 @@ const VOICE_DEBT: Record<string, number> = {
 };
 
 const NAKAMIGOS = '/nakamigos';
-// The same four GeckoTerminal routes element I pins in their degraded branch,
+// The same three GeckoTerminal routes element I pins in their degraded branch,
 // for the same reason: a count must not depend on a third party answering.
-const FEED_ROUTES = new Set(['/terminal', '/chart', '/copy-trading', '/competitions']);
+const FEED_ROUTES = new Set(['/terminal', '/chart', '/copy-trading']);
 
 async function settle(page: Page, path: string) {
   if (path === NAKAMIGOS) await gotoNakamigos(page);

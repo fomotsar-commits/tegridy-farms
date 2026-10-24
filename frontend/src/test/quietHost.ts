@@ -36,7 +36,8 @@ export interface Ended<T> {
 /**
  * Runs `call` on the fake clock. Says how it ended and when, or null if it was still
  * pending after `watchMs`. Small steps: a timer armed by a promise chain is only seen
- * once the chain has run.
+ * once the chain has run. The whole window passes in milliseconds of real time, so
+ * real-async work before the timer (a hash) must be done before the watch starts.
  */
 export async function watch<T>(call: () => Promise<T>, watchMs: number, stepMs = 50): Promise<Ended<T> | null> {
   const start = Date.now();

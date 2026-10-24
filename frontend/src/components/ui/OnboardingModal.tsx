@@ -54,7 +54,8 @@ const toweliSteps = [
   // or through Jupiter. Of swap fees it claims only the on-chain route: a referral share,
   // then stakers. No percentage the owner can retune (the router fee and the 20% referral
   // share both can), and no yield not yet paid (RevenueDistributor had received 0 wei on
-  // 2026-10-10). LPs keep the pool's whole 0.3%: its one-sixth cut was never switched on.
+  // 2026-10-10). The pool's one-sixth cut (on for TOWELI/WETH since 2026-10-16) goes to the
+  // treasury, not stakers, so this step does not mention it.
   {
     title: 'Welcome to the TOWELI bungalow',
     body: 'An art-first protocol on Ethereum and Solana. Stake TOWELI on Ethereum and protocol swap fees route on-chain, after a referral share, to stakers in ETH; on Solana, swap in our own pools or through Jupiter and scan any token on either chain.',

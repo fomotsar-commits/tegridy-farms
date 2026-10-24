@@ -112,7 +112,7 @@ describe('the card carries the number', () => {
 // cold or unread wallet keeps the venue's card, because the island's cold card prints
 // "DAY 0" and the venue never posts a zero.
 describe('the picture is the island’s painted card, for a wallet it reads', () => {
-  const VENUE_CARD = `${ORIGIN}/og.png`;
+  const VENUE_CARD = `${ORIGIN}/og.jpg`;
   const painted = (address) => `https://memetics.wtf/api/card?w=${address}`;
   const images = (html) =>
     [...html.matchAll(/<meta (?:property|name)="(og:image|twitter:image)" content="([^"]*)">/g)].map((m) => [m[1], m[2]]);

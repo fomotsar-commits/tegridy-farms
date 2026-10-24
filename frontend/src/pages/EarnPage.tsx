@@ -1,67 +1,43 @@
 import { lazy } from 'react';
 import { SectionHost } from './SectionHost';
-import { EARN_SECTION } from '../lib/navConfig';
+import { LOCK_SECTION, lockRoute } from '../lib/navConfig';
+import { EARN_PATH } from '../lib/earnRoutes';
 
-// Yield routing (#32 / #21 / #34) — a comparison of THIRD-PARTY liquid staking and
-// stablecoin lending venues. This venue issues nothing here and deploys no contract:
-// every figure is read live from Ethereum mainnet over the public RPC roster, and each
-// route sends the deposit straight to that protocol's own permissionless entry function
-// in lib/yield/venues.ts. Not flag-gated. The counterparty disclosures and the
-// structural refusals (a venue with no on-chain growth rate, or no market leg, says so)
-// are as much the product as the routing.
+// Yield routing compares THIRD-PARTY staking and lending venues: the venue deploys nothing,
+// every figure is read live from mainnet, and each route deposits straight into that
+// protocol's own entry function (lib/yield/venues.ts). A venue that cannot be read says so.
 const YieldPage = lazy(() => import('./YieldPage'));
-// Copy trading (#7) and trading competitions (#50). Both read the ISLAND TAPE —
-// GeckoTerminal's pool-trade feed for the registry's resident pools plus the venue's
-// own TOWELI/WETH pool — so neither needs an env var, a key or a proxy. NOT flag-gated,
-// and the refusals rather than the feed are what make routing them right: no wallet on
-// either board carries a profit figure (a pool fill is one leg of a trade), nothing
-// executes for you because this venue runs no keeper, and no season pays or settles.
-// A read that fails is named by each page's own ledger, not flattened into an empty table.
+// Copy trading reads the island tape (GeckoTerminal's trades for the resident pools), so it needs
+// no key. No wallet carries a profit figure and nothing executes for you; a read that fails is
+// named by the page's own ledger. (The trading competitions were deleted 2026-10-15.)
 const CopyTradingPage = lazy(() => import('./CopyTradingPage'));
-const CompetitionsPage = lazy(() => import('./CompetitionsPage'));
-// Merchant checkout + recurring billing (#68 / #69). NOT flag-gated, because the
-// states it can be in are the product: the buyer is shown the exact amount and the
-// exact settlement asset before signing, and no signature is offered at all when the
-// route cannot guarantee the merchant's exact amount. Non-custodial by construction —
-// both legs are signed in the buyer's own wallet with the merchant as the direct
-// recipient, and api/_lib/commerce.js holds no key. The invoice itself needs no server:
-// it is an EIP-712 document the merchant signs and carries in the link's `#i=` fragment,
-// which the buyer's browser verifies against the merchant address. `021_commerce.sql`
-// still gates only the optional short `?invoice=` form, and that lookup answers 503
-// `schema-missing` rather than "no such invoice" until an operator applies it.
+// Merchant checkout: the buyer sees the exact amount and asset before signing, both legs are
+// signed in the buyer's wallet to the merchant, and the invoice is an EIP-712 document in the
+// link's `#i=` fragment. `021_commerce.sql` gates only the short `?invoice=` form (503 until applied).
 const CheckoutPage = lazy(() => import('./CheckoutPage'));
-// The pools themselves — staking, locks, LP farming. Came in from the top bar
-// on 2026-09-05, where it was called "Farm": DeFi jargon, and the same idea this
-// section was already named after, so one thing wore two names at two levels.
+// The pools themselves: staking, locks, LP farming.
 const FarmPage = lazy(() => import('./FarmPage'));
-// Borrowing against an NFT, and the NFT AMM. Also came in from the top bar,
-// where it was "NFT Finance" — a category, not something anyone wants to do.
+// Borrowing against an NFT, and the NFT AMM.
 const LendingPage = lazy(() => import('./LendingPage'));
 
 /**
- * EarnPage — the Earn section as ONE page with tabs.
- *
- * What these five share is the visitor's job: turn attention, capital or a
- * customer into income. What they do NOT share is a contract, a feed or a
- * counterparty, which is why each keeps its own route, its own gating predicate
- * and its own disclosures — /yield's venues are other people's protocols,
- * /copy-trading and /competitions read a third-party tape and settle nothing,
- * /checkout is a browser-signed transfer. The tab strip carries each entry's
- * SOON pill straight from navConfig so collapsing the menu cannot quietly
- * un-disclose a gated one.
+ * The Lock section as one page with tabs (the bar's word is Lock; the page is Earn). Each tab
+ * keeps its own route, gate and disclosures: they share the visitor's job, not a contract or a
+ * counterparty. A tab that is off is left out of the strip (RouteTabs.tsx).
  */
 export default function EarnPage() {
   return (
     <SectionHost
-      section={EARN_SECTION}
+      section={LOCK_SECTION}
       idPrefix="earn"
       ariaLabel="Earn sections"
+      // Staking opens the room's own pool, as the Lock word does (owner, 2026-10-15).
+      tabTo={(to) => (to === EARN_PATH ? lockRoute() : to)}
       panels={{
         '/earn': FarmPage,
         '/nft-finance': LendingPage,
         '/yield': YieldPage,
         '/copy-trading': CopyTradingPage,
-        '/competitions': CompetitionsPage,
         '/checkout': CheckoutPage,
       }}
     />

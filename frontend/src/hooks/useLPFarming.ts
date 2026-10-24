@@ -6,6 +6,7 @@ import { LP_FARMING_ABI, ERC20_ABI } from '../lib/contracts';
 import { LP_FARMING_ADDRESS, TEGRIDY_LP_ADDRESS, CHAIN_ID, isDeployed as checkDeployed } from '../lib/constants';
 import { getTxUrl } from '../lib/explorer';
 import { safeParseEtherPositive } from '../lib/safeParseEther';
+import { lpFarmDeposit } from '../lib/lpEmissions';
 import { surfaceTxError, surfaceUnconfirmedTx, receiptOutcome, noteReplacement } from '../lib/txErrors';
 import { useReplacedTxNotice } from './useReceiptOutcome';
 
@@ -196,6 +197,11 @@ export function useLPFarming() {
 
   const isActive = periodFinish > Math.floor(Date.now() / 1000);
 
+  // Entry [2] alone. The section closes Stake on an ended period and holds it on
+  // an unread one (lib/lpEmissions.ts lpFarmDeposit); statsUnread is too wide for
+  // that, since an unread MIN_STAKE must not hold a stake.
+  const periodFinishUnread = isDeployed && !isReadLoading && data?.[2]?.status !== 'success';
+
   // F100: the raw Synthetix-style `rewardRate` storage value stays non-zero
   // after `periodFinish`, but the contract's earned() stops accruing then.
   // Zero the per-day/per-year figures once the period has lapsed so the UI
@@ -319,6 +325,12 @@ export function useLPFarming() {
     }
     const want = safeParseEtherPositive(amount);
     if (want === null) return;
+    // No new stake into a farm whose rewards ended, or whose end was not read.
+    const deposit = lpFarmDeposit(data?.[2]?.status === 'success' ? Number(data[2].result) : null);
+    if (!deposit.open) {
+      toast.error(deposit.line);
+      return;
+    }
     if (lpAllowance < want) {
       toast.error('Approve LP token first (Allowance too low)');
       return;
@@ -458,6 +470,8 @@ export function useLPFarming() {
      * invitation derived from one.
      */
     statsUnread,
+    /** `periodFinish` was asked and did not land: new stakes wait, no end date is said. */
+    periodFinishUnread,
     pendingReward,
     pendingRewardFormatted: formatEther(pendingReward),
     walletLPBalance,

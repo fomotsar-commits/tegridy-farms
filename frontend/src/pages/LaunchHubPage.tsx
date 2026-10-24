@@ -23,6 +23,10 @@ const LaunchSimulatorPage = lazy(() => import('./LaunchSimulatorPage'));
 /**
  * LaunchHubPage — the Launch section as ONE page with four tabs.
  *
+ * The network drop-down leads the strip: Ethereum, Base and Robinhood Chain open the EVM curve
+ * on that chain (Ethereum also the launchpad), Solana the Solana curve, and the simulator, which
+ * names no chain, stays on every one (lib/sectionChains.ts).
+ *
  * NAMED "…Hub" rather than "LaunchPage" because LaunchPage is the Doppler rail
  * it hosts in its first tab. Two files, two jobs: this one is the strip, that
  * one is the wizard.
@@ -38,6 +42,7 @@ export default function LaunchHubPage() {
       section={LAUNCH_SECTION}
       idPrefix="launch"
       ariaLabel="Launch sections"
+      chains={{ label: 'Launch network', missing: 'No launches here' }}
       panels={{
         '/launch': LaunchPage,
         '/curve-launch': CurveLaunchPage,

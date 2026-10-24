@@ -79,3 +79,21 @@ describe('vercel.json CSP img-src: the Jungle Bay family', () => {
     expect(allowsImage('https://seadn.io.evil.example/x.png')).toBe(false);
   });
 });
+
+// Token pictures hosted on Irys load directly since 2026-10-15, because wsrv.nl
+// refuses every *.irys.xyz source (solanaTokenList.ts iconSrc). The gateway
+// answers with a 302 to its own CDN, and img-src is checked again on the
+// redirect, so BOTH hosts must be allowed or the picture is blocked after all.
+describe('vercel.json CSP img-src: Irys token pictures', () => {
+  it.each([
+    'https://gateway.irys.xyz/9y3EEjMgUU9jHAS5cse5AC4GjVBh4Qr1QYDtZ78G3UzV',
+    'https://qu4iushfl2rpiehjflwll5vgle2rphc24bs76gmdvzn4hnx6kpza.mainnet-1.datasprite-cdn.com/9y3EEjMgUU9jHAS5cse5AC4GjVBh4Qr1QYDtZ78G3UzV/',
+  ])('permits %s', (url) => {
+    expect(allowsImage(url), `img-src blocks ${url}`).toBe(true);
+  });
+
+  it('opens Irys by name, not every irys.xyz host', () => {
+    expect(allowsImage('https://uploader.irys.xyz/x')).toBe(false);
+    expect(allowsImage('https://datasprite-cdn.com.evil.example/x.png')).toBe(false);
+  });
+});

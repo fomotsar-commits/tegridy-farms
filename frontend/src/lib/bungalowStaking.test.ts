@@ -95,6 +95,7 @@ const bn = (v: string | number) => ({ toString: () => String(v) });
 const POOL = 'PooLAddr111111111111111111111111111111111111';
 
 const REWARD_PROGRAM = 'RWRDdfRbi3339VgKxTAXg4cjyniF7cbhNbMxZWiSKmj';
+const DYNAMIC_REWARD_PROGRAM = 'RWRDyfZa6Rk9UYi85yjYYfGmoUqffLqjo6vZdFawEez';
 const STAKE_PROGRAM = 'STAKEvGqQTtzJZH6BWDcbpzXXn2BBerPAgQ3EGLN2GH';
 /**
  * A program's custom error as the SDK throws it from its test run: web3's SendTransactionError
@@ -395,6 +396,33 @@ describe('stake', () => {
     }
   });
 
+  // Money review 2026-10-14 (m-5): once logs came back, the failing program and its code
+  // decide, never the words. The SDK's message ends with its last log lines.
+  const sdkSays = (program: string, code: number, more: string[]) => {
+    const e = programSays(program, code);
+    e.message += ` Logs: ${JSON.stringify(more)}`;
+    return e;
+  };
+  const unstakeSays = async (thrown: unknown) => {
+    const lib = await import('./bungalowStaking');
+    unstakeAndClaim.mockReset().mockRejectedValue(thrown);
+    const r = await lib.unstakeAndClaim({ invoker, pool, entryNonce: 0 });
+    return r.ok ? '' : r.reason;
+  };
+
+  it('with logs, a STAKE-program 6013 (LockedStake) is never a drained vault, whatever words the message carries', async () => {
+    const reason = await unstakeSays(sdkSays(STAKE_PROGRAM, 6013, ['Program log: Instruction: ClaimRewards', 'Program log: Error Code: LockedStake. Error Number: 6013.']));
+    expect(reason).not.toMatch(/reward vault cannot cover/);
+    expect(reason).toMatch(/^The unstake did not go through/);
+  });
+
+  it('with logs, a drained vault is read from its own program: classic 6012, dynamic 6013; a compute count is not a code', async () => {
+    expect(await unstakeSays(programSays(REWARD_PROGRAM, 6012))).toMatch(/cannot cover the accrued rewards/);
+    expect(await unstakeSays(programSays(DYNAMIC_REWARD_PROGRAM, 6013))).toMatch(/This one DOES clear/);
+    const counted = await unstakeSays(sdkSays(DYNAMIC_REWARD_PROGRAM, 6001, [`Program ${DYNAMIC_REWARD_PROGRAM} consumed 6012 of 200000 compute units`]));
+    expect(counted).not.toMatch(/reward vault cannot cover/);
+  });
+
   // The SDK signs with the wallet, then test-runs and sends, in one call (client.execute).
   const signsThen = (thrown: unknown) => async (_args: unknown, ext: { invoker: { signTransaction(tx: unknown): Promise<unknown> } }) => {
     await ext.invoker.signTransaction({});
@@ -633,6 +661,22 @@ describe('unstakeAndCloseForfeitingRewards', () => {
     // Attempted, refused by the program, then closed — the principal is not
     // held hostage to rewards that provably cannot be collected.
     expect(claimRewards).toHaveBeenCalledTimes(1);
+    expect(r.ok).toBe(true);
+    expect(unstakeAndClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('a 6000 still reads as 6000 when the message carries a compute count of 6012 (money review 2026-10-14, m-5)', async () => {
+    // The SDK's message ends with the last log lines, compute counts included.
+    const thrown = rewardProgramSays(6000);
+    thrown.message += ` Logs: ["Program log: Instruction: ClaimRewards", "Program ${REWARD_PROGRAM} consumed 6012 of 200000 compute units"]`;
+    claimRewards.mockRejectedValue(thrown);
+    unstakeAndClose.mockResolvedValue({ txId: 'CLOSE_SIG' });
+    const r = await unstakeAndCloseForfeitingRewards({
+      invoker,
+      pool: poolWith([rp(0, 'fixed')]),
+      entryNonce: 7,
+      entry: { createdTs: 1_000, pendingRaw: { 0: 4_000n } },
+    });
     expect(r.ok).toBe(true);
     expect(unstakeAndClose).toHaveBeenCalledTimes(1);
   });

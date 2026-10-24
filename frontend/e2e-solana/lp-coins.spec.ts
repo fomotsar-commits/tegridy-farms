@@ -32,7 +32,7 @@ import {
   actor, closeAll, connect, esc, openAdd, openPools, openRemove, poolCard, positionRow, press, reviewDeposit, reviewRows, sidesOf, signConfirmed, signedSol,
   signedTok, SOL, solExact, tok, units, waitPoolOpenByWallClock, withdrawPlan, type Actor, type Prices,
 } from './fixtures/lpPage';
-import { lossAtMarketUp, marketIn, matchAtMarket, priceOf } from './fixtures/market';
+import { gapCostOf, lossAtMarketUp, marketIn, matchAtMarket, priceOf } from './fixtures/market';
 import { ui, expectPressableAtSizes, tokensToInput } from './fixtures/ui';
 import { USDC_MINT, giveUsdc, usdc, usdcAccount, usdcAmount } from './fixtures/usdc';
 import { parseDecimalToBaseUnits } from '../src/lib/launcher/solana/curve/format';
@@ -307,7 +307,7 @@ test.describe('a BAYLA/USDC pool (chromium only)', () => {
     // it, and the card names them: "no SOL or USDC pool", never a bare "no pool" (a pair
     // that was not looked for is not said to have none).
     await expect(ui.lp.create.card(p)).toContainText('There is no SOL or USDC pool to add liquidity to yet. Opening one is how the first liquidity goes in.');
-    await expect(ui.lp.create.card(p)).toContainText('No SOL or USDC pool for this token yet. You can open the first one on the public fee tier:');
+    await expect(ui.lp.create.card(p)).toContainText('No SOL or USDC pool for this token yet. You can open the first one on the public fee tier (read just now):');
     await expect(ui.lp.noPools(p)).toHaveText('No pools pairing this token with SOL or USDC found.');
 
     const panel = await openCreateForm(p, USDC_COIN);
@@ -393,7 +393,8 @@ test.describe('a BAYLA/USDC pool (chromium only)', () => {
     await expect(card).toHaveAttribute('data-origin', 'standard');
     await expect(card).toHaveAttribute('data-price', 'agrees');
     await expect(card).toHaveAttribute('data-deposits', 'allowed');
-    await expect(card).toContainText(`1 token = ${formatSolPrice(S.market)} USDC`);
+    // The card names a token the site lists by its symbol (PoolCard.tsx tokenUnits).
+    await expect(card).toContainText(`1 BAYLA = ${formatSolPrice(S.market)} USDC`);
 
     const { panel } = await openAdd(p, S.pool, USDC_COIN);
     await expect(panel.getByTestId('lp-add-coin-risk')).toContainText(USDC_RISK);
@@ -796,7 +797,9 @@ test.describe('one opening each (chromium only)', () => {
     const card = poolCard(p, pool);
     await expect(card).toHaveAttribute('data-price', 'disagrees', { timeout: 60_000 });
     await expect(card).toHaveAttribute('data-deposits', 'allowed');
-    await expect(ui.lp.poolWarnings(card)).toContainText(`Its price is ${gap} the outside price. A deposit here would hand that gap to the first arbitrage trade.`);
+    await expect(ui.lp.poolWarnings(card)).toContainText(
+      `Its price is ${gap} the outside price. If you add now, ${gapCostOf(priceOf(coinIn, tokenIn, DEC, SOL_COIN), market)}.`,
+    );
     expect(a.wallet.signed()).toHaveLength(1);
     expect(a.rpc.violations).toEqual([]);
     await a.ctx.close();

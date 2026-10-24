@@ -2,7 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { clipDetail } from '../../../lib/launcher/solana/curve';
 import { isLpKind } from '../../../lib/launcher/solana/write/lpKinds';
 import { sameToSign } from '../../../lib/launcher/solana/write/sameToSign';
+import { holdReload } from '../../../lib/reloadHold';
 import type { Prepared, PreparedTx, TxOutcome, TxSigner, WriteApi, WriteRpc } from './ports';
+import type { ReviewText } from './reviewLines';
 
 // One transaction, start to finish, for any kind:
 //
@@ -12,10 +14,12 @@ import type { Prepared, PreparedTx, TxOutcome, TxSigner, WriteApi, WriteRpc } fr
 // Nothing reaches the wallet without a review whose every line is true of it.
 
 /**
- * How long a review may be signed as it is, from the Review press. Its blockhash is read
- * while preparing and lasts 150 blocks: about 40 seconds at mainnet's 0.27 s a block
- * (measured 2026-10-03), so this clock runs out with SIGN_MARGIN_BLOCKS and more to
- * spare. Past it the reviewed transaction is never handed to the wallet.
+ * How long a prepared transaction may be signed as it is, from the Review press. Its
+ * blockhash is read while preparing and lasts 150 blocks: about 40 seconds at mainnet's
+ * 0.27 s a block (measured 2026-10-03), so this clock runs out with SIGN_MARGIN_BLOCKS and
+ * more to spare. Past it the prepared transaction is never handed to the wallet. A
+ * repeatable review is never shut by it while it is read: Sign builds it again (island,
+ * answer eighteen: reading time is never a failure).
  */
 export const REVIEW_TTL_MS = 30_000;
 /** Blocks the wallet prompt and the first send must still have: about 7 seconds. */
@@ -45,32 +49,95 @@ async function confirmedHeight(rpc: WriteRpc): Promise<number | null> {
 const nearlyOver = (height: number | null, p: PreparedTx) => height !== null && height + SIGN_MARGIN_BLOCKS >= p.lastValidBlockHeight;
 
 /** A review's lines as its reader sees them: `reviewLines` in TxFlowView. */
-export type ReviewLines = (p: PreparedTx) => string[];
+export type ReviewLines = (p: PreparedTx) => ReviewText;
 
 type Changed = { now: string[]; gone: string[] };
 
+/** `now`'s lines that `was` does not have, and `was`'s that `now` does not: each line counted once. */
+function diff(was: string[], now: string[]): Changed {
+  const left = [...was];
+  const added = now.filter((l) => {
+    const at = left.indexOf(l);
+    if (at >= 0) left.splice(at, 1);
+    return at < 0;
+  });
+  return { now: added, gone: left };
+}
+
+/** A line's words with every number taken out: a warning whose numbers moved still says the same thing. */
+const wordsOf = (line: string) => line.replace(/\d[\d,.]*/g, '#');
+
 /**
- * Is `fresh` the review being read: every line the same and every instruction the same,
- * byte for byte? `null` = yes. Otherwise the lines that read differently, and empty lists
- * when the lines could not be read or only the bytes differ: unreadable is never "same".
+ * Further off than this since it was read, and the price check is news, not a market
+ * move: poolHealth.ts `PRICE_TOLERANCE`, the gap at which the page starts to warn (a test
+ * pins the two together; that module is not imported here, it reads the chain).
  */
-function whatChanged(reviewed: PreparedTx, fresh: PreparedTx, lines: ReviewLines | undefined): Changed | null {
-  const unknown: Changed = { now: [], gone: [] };
+export const PRICE_RUN = 0.03;
+
+/** How far the pool's price is from what it was checked against, when it was compared with anything. */
+function gapOf(p: PreparedTx): number | null {
+  const s = p.summary;
+  if (s.kind === 'range-open') return s.price.state === 'agrees' || s.price.state === 'disagrees' ? Math.abs(s.price.diff) : null;
+  if (s.kind !== 'lp-deposit' && s.kind !== 'lp-create') return null;
+  return s.price.state === 'agrees' || s.price.state === 'disagrees' ? Math.abs(s.price.diff) : null;
+}
+
+/**
+ * Only the network's fees moved the fee lines: the base fee is the same, the priority fee
+ * is inside this page's own cap, and the SOL the test run moved, fees aside, is the same
+ * to the lamport. A cap that cannot be read is never "inside it".
+ */
+function onlyFeesMoved(reviewed: PreparedTx, fresh: PreparedTx): boolean {
+  const fees = (p: PreparedTx) => p.fees.baseLamports + p.fees.priorityLamports;
+  const cap = fresh.check?.intent?.maxPriorityLamports;
+  return (
+    typeof cap === 'bigint' &&
+    fresh.fees.priorityLamports <= cap &&
+    fresh.fees.baseLamports === reviewed.fees.baseLamports &&
+    fresh.simulated.signerLamportsDelta + fees(fresh) === reviewed.simulated.signerLamportsDelta + fees(reviewed)
+  );
+}
+
+/**
+ * May `fresh` go to the wallet in place of the review being read? `changed: null` = yes:
+ * the transaction's own lines read the same, in order, every instruction is the same byte
+ * for byte, and the rest moved only as a market or the network's fees move (`moved`, shown
+ * while the wallet is open). Otherwise `changed` lists what reads differently, with empty
+ * lists when the lines could not be read or only the bytes differ: unreadable is never
+ * "same". What shuts the wallet besides the transaction's own lines: a warning whose words
+ * are new, a price check that ran more than PRICE_RUN further off, and fee lines that moved
+ * for any reason but the fees.
+ */
+function compare(reviewed: PreparedTx, fresh: PreparedTx, lines: ReviewLines | undefined): { changed: Changed | null; moved: Changed } {
+  const none: Changed = { now: [], gone: [] };
+  const unknown = { changed: none, moved: none };
   if (!lines) return unknown;
   try {
     const was = lines(reviewed);
     const now = lines(fresh);
-    const same = was.length > 0 && was.length === now.length && was.every((l, i) => l === now[i]);
-    if (!same) {
-      const left = [...was];
-      const added = now.filter((l) => {
-        const at = left.indexOf(l);
-        if (at >= 0) left.splice(at, 1);
-        return at < 0;
-      });
-      return { now: added, gone: left };
-    }
-    return sameToSign(reviewed, fresh) ? null : unknown;
+    // Two empty readings agree with each other and say nothing about the review.
+    if (was.lines.length === 0) return unknown;
+    const own = diff(was.lines, now.lines);
+    const market = diff(was.market, now.market);
+    const warned = diff(was.warnings, now.warnings);
+    const fees = diff(was.fees, now.fees);
+    const seen = new Set(was.warnings.map(wordsOf));
+    const news = warned.now.filter((l) => !seen.has(wordsOf(l)));
+    const gapWas = gapOf(reviewed);
+    const gapNow = gapOf(fresh);
+    const ran = gapWas !== null && gapNow !== null && gapNow - gapWas > PRICE_RUN;
+    const feesHold = (fees.now.length === 0 && fees.gone.length === 0) || onlyFeesMoved(reviewed, fresh);
+    // Every line that reads differently: all of them are listed when the wallet stays shut,
+    // so "every other line reads as it did" beside the button stays true.
+    const all: Changed = {
+      now: [...own.now, ...market.now, ...warned.now, ...fees.now],
+      gone: [...own.gone, ...market.gone, ...warned.gone, ...fees.gone],
+    };
+    const shut = own.now.length > 0 || own.gone.length > 0 || news.length > 0 || ran || !feesHold;
+    if (shut) return { changed: all, moved: none };
+    const inOrder = was.lines.length === now.lines.length && was.lines.every((l, i) => l === now.lines[i]);
+    if (!inOrder || !sameToSign(reviewed, fresh)) return unknown;
+    return { changed: null, moved: all };
   } catch {
     return unknown;
   }
@@ -79,14 +146,19 @@ function whatChanged(reviewed: PreparedTx, fresh: PreparedTx, lines: ReviewLines
 export interface ReviewState {
   step: 'review';
   prepared: PreparedTx;
-  /** Too old to hand to the wallet: its clock ran out, or the block height said so. */
+  /**
+   * Too old to hand to the wallet as it is. A review that is not renewable goes so when its
+   * clock runs out, and only Start over is left. A renewable one never goes so while it is
+   * read: only when a Sign press built it again and the network moved on before the wallet
+   * could open, so the next press builds it once more.
+   */
   expired: boolean;
   expiresAt: number;
   /** The panel said its build only reads, so Sign on a stale review builds it again. */
   renewable: boolean;
   /** Sign was pressed and the block height is being read before the wallet opens. */
   checking?: boolean;
-  /** Sign was pressed on a stale review and it is being built again. */
+  /** Sign was pressed on a review past its clock and it is being built again. */
   renewing?: boolean;
   /**
    * This review took the place of the one being read (`n` counts them). `now`: its lines
@@ -100,8 +172,11 @@ export type TxFlowState =
   | { step: 'idle' }
   | { step: 'preparing' }
   | ReviewState
-  /** The wallet's turn. */
-  | { step: 'submitting'; prepared: PreparedTx }
+  /**
+   * The wallet's turn. `moved`: built again at the press, the lines a market or the
+   * network's fees moved since the review was read (nothing else had changed).
+   */
+  | { step: 'submitting'; prepared: PreparedTx; moved?: Changed }
   /** The signature is known: from here it may land even if this tab goes away. */
   | { step: 'sent'; prepared: PreparedTx; signature: string }
   /** `checks`: how many times "Check again" has answered, so each answer reads as new. */
@@ -177,8 +252,9 @@ export function useTxFlow(
     return () => window.removeEventListener('beforeunload', ask);
   }, [inFlight]);
 
-  // Expire the review. The timer is tied to the prepared transaction it guards.
-  const reviewing = state.step === 'review' ? state.prepared : null;
+  // Expire a review whose build may not run twice. The timer is tied to the prepared
+  // transaction it guards. A renewable review has no timer: its clock is read at the press.
+  const reviewing = state.step === 'review' && !state.renewable ? state.prepared : null;
   const expiresAt = state.step === 'review' ? state.expiresAt : 0;
   useEffect(() => {
     if (!reviewing) return;
@@ -229,7 +305,8 @@ export function useTxFlow(
       const mine = ++press.current;
       const abandoned = () => press.current !== mine || !alive.current;
       let prepared = s.prepared;
-      let stale = s.expired;
+      let moved: Changed | null = null;
+      let stale = s.expired || Date.now() >= s.expiresAt;
       if (!stale) {
         // A signature the network can no longer accept is wasted: read the height first.
         // Unreadable is not "fine", but it is not "stale" either; the first send runs
@@ -249,7 +326,7 @@ export function useTxFlow(
         // reads, with every check a first prepare makes.
         rebuilding.current = true;
         setState((cur) =>
-          cur.step === 'review' && cur.prepared === prepared ? { ...cur, expired: true, checking: false, renewing: true } : cur,
+          cur.step === 'review' && cur.prepared === prepared ? { ...cur, checking: false, renewing: true } : cur,
         );
         const startedAt = Date.now();
         let r: Prepared;
@@ -268,12 +345,12 @@ export function useTxFlow(
         }
         const fresh = r.prepared;
         const review = { step: 'review' as const, prepared: fresh, expiresAt: startedAt + REVIEW_TTL_MS, renewable: true };
-        const changed = whatChanged(prepared, fresh, lines);
-        if (changed) {
+        const compared = compare(prepared, fresh, lines);
+        if (compared.changed) {
           // Not the review that was read: it is shown, and signing it takes another press.
           rebuilding.current = false;
           busy.current = false;
-          setState({ ...review, expired: false, replaced: { n: (s.replaced?.n ?? 0) + 1, ...changed } });
+          setState({ ...review, expired: false, replaced: { n: (s.replaced?.n ?? 0) + 1, ...compared.changed } });
           return;
         }
         // The review that was read, on a newer blockhash: held to both clocks like any other.
@@ -286,8 +363,12 @@ export function useTxFlow(
           return;
         }
         prepared = fresh;
+        if (compared.moved.now.length > 0 || compared.moved.gone.length > 0) moved = compared.moved;
       }
-      setState({ step: 'submitting', prepared });
+      setState(moved ? { step: 'submitting', prepared, moved } : { step: 'submitting', prepared });
+      // From the wallet's turn to the answer the page does not reload itself
+      // (lib/staleBuild.ts), whether or not this panel is still on screen.
+      const release = holdReload();
       let sentSignature: string | null = null;
       let outcome: TxOutcome;
       try {
@@ -312,6 +393,8 @@ export function useTxFlow(
           signature: sentSignature ?? '',
           message: `We lost track of this transaction (${clipDetail(e)}). Check your wallet's activity before trying again.`,
         };
+      } finally {
+        release();
       }
       busy.current = false;
       setState({ step: 'outcome', outcome, prepared, rechecking: false, checks: 0 });

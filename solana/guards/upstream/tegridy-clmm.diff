@@ -1,0 +1,238 @@
+=== Anchor.toml ===
+13c13,14
+< raydium_clmm = "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK"
+---
+> # memetics.finance: the venue's program id (lib.rs).
+> raydium_clmm = "7ghzbbmq59QEbdweSzM1ggpeBH1Q2CyxZg4Tr2x8Aso"
+32,37c33,34
+< # amm config address, index 0
+< [[test.validator.clone]]
+< address = "4BLNHtVe942GSs4teSZqGX24xwKNkqU7bGgNn3iUiUpw"
+< # amm config address, index 1
+< [[test.validator.clone]]
+< address = "E64NGkDLLCdQ2yFNPcavaKptrEgmiQaNykUuLC1Qgwyp"
+---
+> # memetics.finance: upstream also cloned Raydium's two AMM configs here. A config of this
+> # copy is made by its own admin, so they are gone.
+=== Cargo.toml ===
+3c3,6
+< members = ["programs/*", "client"]
+---
+> members = ["programs/*"]
+> # memetics.finance: Raydium's uint fork, at the commit upstream's lock named, so the build
+> # fetches nothing from Raydium. Not a member: its own dev-dependencies stay out of the lock.
+> exclude = ["vendor"]
+=== programs/amm/Cargo.toml ===
+4c4
+< description = "Anchor client and source for Raydium concentrated liquidity AMM"
+---
+> description = "memetics.finance range pools: raydium-clmm (Apache-2.0) under the venue's own keys"
+23a24,25
+> # memetics.finance: lets devnet or localnet build at all (lib.rs). Never for a release.
+> test-chain-keys = []
+37c39
+< uint = { git = "https://github.com/raydium-io/parity-common", package = "uint" }
+---
+> uint = { path = "../../vendor/uint", package = "uint" }
+=== programs/amm/src/lib.rs ===
+12a13,17
+> // Changed by memetics.finance (tegridy-clmm): raydium-clmm @ ed1eb415 (Apache-2.0) with every
+> // address upstream hard-codes for itself replaced by the venue's, plus its name, links and memos.
+> // Beside that only the build gates below differ; the guards in solana/guards/ hold that
+> // (docs/RANGE_POOLS_PLAN.md).
+> // No `auditors` line: upstream's audits do not cover this copy.
+15,21c20,25
+<     name: "raydium-clmm",
+<     project_url: "https://raydium.io",
+<     contacts: "link:https://immunefi.com/bounty/raydium",
+<     policy: "https://immunefi.com/bounty/raydium",
+<     source_code: "https://github.com/raydium-io/raydium-clmm",
+<     preferred_languages: "en",
+<     auditors: "https://github.com/raydium-io/raydium-docs/blob/master/audit/OtterSec%20Q3%202022/Raydium%20concentrated%20liquidity%20(CLMM)%20program.pdf"
+---
+>     name: "memetics-range-pools",
+>     project_url: "https://memetics.finance",
+>     contacts: "email:fomotsar@gmail.com,link:https://memetics.finance/.well-known/security.txt",
+>     policy: "https://memetics.finance/.well-known/security.txt",
+>     source_code: "https://memetics.finance/source/solana/tegridy-clmm",
+>     preferred_languages: "en"
+23a28,37
+> // The venue's program id, made by the owner on 2026-10-21 (step 7 of docs/RANGE_POOLS_PLAN.md).
+> // `devnet` gives every power to one test key and `localnet` reads the admin from the build's
+> // environment. Neither builds unless `test-chain-keys` is also named, so no release can move a
+> // power off the vault by a feature flag. The deploy pack keeps this gate.
+> #[cfg(all(any(feature = "devnet", feature = "localnet"), not(feature = "test-chain-keys")))]
+> compile_error!("tegridy-clmm: devnet and localnet give every power to a test key; add the test-chain-keys feature to build one, and never deploy that build");
+> // `paramset` shortens reward periods for tests: it too builds only with `test-chain-keys`.
+> #[cfg(all(feature = "paramset", not(feature = "test-chain-keys")))]
+> compile_error!("tegridy-clmm: paramset is for tests; add the test-chain-keys feature to build one, and never deploy that build");
+> // A devnet build (every power to a test key) gets an address nobody holds a key for: it runs nowhere.
+25c39
+< declare_id!("DRayAUgENGQBKVaX8owNhgzkEDyoHTGVEGHVJT1E9pfH");
+---
+> declare_id!("RangePoo1DEVNETarmNotDep1oyed11111111111111");
+27c41
+< declare_id!("CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK");
+---
+> declare_id!("7ghzbbmq59QEbdweSzM1ggpeBH1Q2CyxZg4Tr2x8Aso");
+39c53
+<     pub const ID: Pubkey = pubkey!("DRayqG9RXYi8WHgWEmRQGrUWRWbhjYWYkCRJDd6JBBak");
+---
+>     pub const ID: Pubkey = pubkey!("GgE6AfEH2AVSrKGckyKMzC6mhtXWiAn39EzAikAsWq5a");
+41c55
+<     pub const ID: Pubkey = pubkey!("GThUX1Atko4tqhN2NaiTazWSeFWMuiUvfFnyJyUghFMJ");
+---
+>     pub const ID: Pubkey = pubkey!("GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd");
+47c61
+<     pub const ID: Pubkey = pubkey!("DRaypkxM96mjYYnqMmuYjsSL3stHxLf1CvYuTcqxUaav");
+---
+>     pub const ID: Pubkey = pubkey!("GgE6AfEH2AVSrKGckyKMzC6mhtXWiAn39EzAikAsWq5a");
+49c63
+<     pub const ID: Pubkey = pubkey!("Ray8HHtixhL9zvnokMyELCVGp622PDPJj96zcVC9RWp");
+---
+>     pub const ID: Pubkey = pubkey!("GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd");
+55c69
+<     pub const ID: Pubkey = pubkey!("DRay9ncC4JVKemPgT4FBaAV2wyTK21CUa7reZKgKdE9B");
+---
+>     pub const ID: Pubkey = pubkey!("GgE6AfEH2AVSrKGckyKMzC6mhtXWiAn39EzAikAsWq5a");
+57c71
+<     pub const ID: Pubkey = pubkey!("Ray9LdYRLXsHzL8pr3Ceahfiz8MsS2pZagzHo1ckdfJ");
+---
+>     pub const ID: Pubkey = pubkey!("GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd");
+63c77
+<     pub const ID: Pubkey = pubkey!("DRayDktajVnqaNPyuYATWmZXyiJkdXpmUPdBYEapgaLY");
+---
+>     pub const ID: Pubkey = pubkey!("GgE6AfEH2AVSrKGckyKMzC6mhtXWiAn39EzAikAsWq5a");
+65c79
+<     pub const ID: Pubkey = pubkey!("FundHfY8oo8J9KYGyfXFFuQCHe7Z1VBNmsj84eMcdYs4");
+---
+>     pub const ID: Pubkey = pubkey!("GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd");
+71c85
+<     pub const ID: Pubkey = pubkey!("DRayDktajVnqaNPyuYATWmZXyiJkdXpmUPdBYEapgaLY");
+---
+>     pub const ID: Pubkey = pubkey!("GgE6AfEH2AVSrKGckyKMzC6mhtXWiAn39EzAikAsWq5a");
+73c87
+<     pub const ID: Pubkey = pubkey!("projjosVCPQH49d5em7VYS7fJZzaqKixqKtus7yk416");
+---
+>     pub const ID: Pubkey = pubkey!("GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd");
+=== programs/amm/src/instructions/admin/collect_fund_fee.rs ===
+9,10c9,10
+<     /// Only admin or fund_owner can collect fee now
+<     #[account(constraint = (owner.key() == amm_config.fund_owner || owner.key() == crate::admin::ID) @ ErrorCode::NotApproved)]
+---
+>     /// Only fund_owner can collect fee now
+>     #[account(constraint = (owner.key() == amm_config.fund_owner) @ ErrorCode::NotApproved)]
+=== programs/amm/src/instructions/admin/create_amm_config.rs ===
+40c40
+<     require_gt!(FEE_RATE_DENOMINATOR_VALUE, trade_fee_rate);
+---
+>     require_gte!(MAX_FEE_RATE_NUMERATOR, trade_fee_rate);
+42c42
+<         FEE_RATE_DENOMINATOR_VALUE,
+---
+>         MAX_PROTOCOL_AND_FUND_FEE_RATE,
+=== programs/amm/src/instructions/admin/create_permission_pda.rs ===
+5a6
+> // Changed by memetics.finance (tegridy-clmm): the venue's keys replace upstream's here.
+9c10
+<     pub const ID: Pubkey = pubkey!("DRaybMsRNbqoKazUkpZVJ5A2zodQVfoUqC4Cm8fv1mgD");
+---
+>     pub const ID: Pubkey = pubkey!("GgE6AfEH2AVSrKGckyKMzC6mhtXWiAn39EzAikAsWq5a");
+11c12
+<     pub const ID: Pubkey = pubkey!("RayzVBPm6p6xtG7fU3KX4k44UexK4NjewDk2QCwoLqa");
+---
+>     pub const ID: Pubkey = pubkey!("GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd");
+=== programs/amm/src/instructions/admin/create_support_mint_associated.rs ===
+6a7
+> // Changed by memetics.finance (tegridy-clmm): the venue's keys replace upstream's here.
+10c11
+<     pub const ID: Pubkey = pubkey!("rayf3nEbb3bnfN6RDGFpqPbjc5uUa3tRUzu6UVYrRx5");
+---
+>     pub const ID: Pubkey = pubkey!("GgE6AfEH2AVSrKGckyKMzC6mhtXWiAn39EzAikAsWq5a");
+12c13
+<     pub const ID: Pubkey = pubkey!("RayVyjyJQz9vAi126A4sGexKnSU1XeZaHTRcM1mZMPY");
+---
+>     pub const ID: Pubkey = pubkey!("GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd");
+=== programs/amm/src/instructions/admin/transfer_reward_owner.rs ===
+21,23d20
+<     for reward_info in &mut pool_state.reward_infos {
+<         reward_info.authority = new_owner;
+<     }
+=== programs/amm/src/instructions/admin/update_amm_config.rs ===
+63c63
+<         FEE_RATE_DENOMINATOR_VALUE,
+---
+>         MAX_PROTOCOL_AND_FUND_FEE_RATE,
+71c71
+<     require_gt!(FEE_RATE_DENOMINATOR_VALUE, trade_fee_rate);
+---
+>     require_gte!(MAX_FEE_RATE_NUMERATOR, trade_fee_rate);
+79c79
+<         FEE_RATE_DENOMINATOR_VALUE,
+---
+>         MAX_PROTOCOL_AND_FUND_FEE_RATE,
+=== programs/amm/src/instructions/collect_remaining_rewards.rs ===
+12c12,13
+< pub const COLLECT_REMAINING_MEMO_MSG: &'static [u8] = b"raydium_collect_remaining";
+---
+> // Changed by memetics.finance (tegridy-clmm): the venue's name in the memo.
+> pub const COLLECT_REMAINING_MEMO_MSG: &'static [u8] = b"memetics_collect_remaining";
+=== programs/amm/src/instructions/decrease_liquidity.rs ===
+13c13,14
+< pub const DECREASE_MEMO_MSG: &'static [u8] = b"raydium_decrease";
+---
+> // Changed by memetics.finance (tegridy-clmm): the venue's name in the memo.
+> pub const DECREASE_MEMO_MSG: &'static [u8] = b"memetics_decrease";
+=== programs/amm/src/instructions/open_position.rs ===
+798a799,800
+> // Changed by memetics.finance (tegridy-clmm): the venue's name, symbol and link. The link is
+> // not served yet; it must be before any deploy (docs/RANGE_POOLS_PLAN.md).
+801,802c803,804
+<         String::from("Raydium Concentrated Liquidity"),
+<         String::from("RCL"),
+---
+>         String::from("Memetics Range Position"),
+>         String::from("MEM-RANGE"),
+804c806
+<             "https://dynamic-ipfs.raydium.io/clmm/position?id={}",
+---
+>             "https://memetics.finance/position/{}.json",
+=== programs/amm/src/instructions/swap_v2.rs ===
+13c13,14
+< pub const SWAP_MEMO_MSG: &'static [u8] = b"raydium_swap";
+---
+> // Changed by memetics.finance (tegridy-clmm): the venue's name in the memo.
+> pub const SWAP_MEMO_MSG: &'static [u8] = b"memetics_swap";
+=== programs/amm/src/states/config.rs ===
+7a8,10
+> /// memetics.finance: a tier's protocol and fund rates together are at most 16% of each fee.
+> pub const MAX_PROTOCOL_AND_FUND_FEE_RATE: u32 = 160_000;
+> 
+=== programs/amm/src/states/pool_fee.rs ===
+5,6c5,6
+< // Maximum fee rate numerator, 10%
+< pub const MAX_FEE_RATE_NUMERATOR: u32 = 100_000;
+---
+> // Maximum fee rate numerator, 4% (memetics.finance): no tier and no dynamic fee charges more
+> pub const MAX_FEE_RATE_NUMERATOR: u32 = 40_000;
+=== programs/amm/src/states/tickarray_bitmap_extension.rs ===
+268c268
+<             Pubkey::from_str("CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK").unwrap(),
+---
+>             Pubkey::from_str("7ghzbbmq59QEbdweSzM1ggpeBH1Q2CyxZg4Tr2x8Aso").unwrap(), // Changed by memetics.finance: this copy's program id
+=== programs/amm/src/util/token.rs ===
+25a26,27
+> // Changed by memetics.finance (tegridy-clmm): upstream lists an outside issuer here; this copy lists
+> // none, so no position NFT is frozen at mint (an owner decision, docs/RANGE_POOLS_PLAN.md).
+27c29
+<     use super::{pubkey, Pubkey};
+---
+>     use super::Pubkey;
+31c33
+<     pub const IDS: [Pubkey; 1] = [pubkey!("3TRuL3MFvzHaUfQAb6EsSAbQhWdhmYrKxEiViVkdQfXu")];
+---
+>     pub const IDS: [Pubkey; 0] = [];
+33c35
+<     pub const IDS: [Pubkey; 1] = [pubkey!("2Yq4T3mPNfjtEyTxSbRjRKqLf1pwbTasuCQrWe6QpM7x")];
+---
+>     pub const IDS: [Pubkey; 0] = [];

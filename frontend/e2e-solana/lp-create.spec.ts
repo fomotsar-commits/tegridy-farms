@@ -23,14 +23,14 @@ import {
   wrapSol, CP_SWAP_PROGRAM,
 } from './fixtures/chain';
 import {
-  CREATE_POOL_FEE_RECEIVER, createClassicToken, createSolPool, createToken2022MetadataOnly, createTransferHookToken, freshPricedToken, squatStandard,
+  CREATE_POOL_FEE_RECEIVER, createClassicToken, createLaunchTierPool, createSolPool, createToken2022MetadataOnly, createTransferHookToken, freshPricedToken, squatStandard,
   transferTokens, type CreatedPool, type JupiterStub,
 } from './fixtures/lp';
 import {
   actor, closeAll, connect, ensureConnected, openPools, openRemove, pendingNotes, poolCard, positionRow, press, pressable, reviewDeposit, reviewRows,
   shareRow, signConfirmed, signedSol, solExact, SOL, tok, units, withdrawPlan, openAdd, type Actor, type Prices,
 } from './fixtures/lpPage';
-import { ui, expectPressableAtSizes, tokensToInput } from './fixtures/ui';
+import { ui, expectNoWord, expectPressableAtSizes, guardText, tokensToInput } from './fixtures/ui';
 import { formatSol, parseDecimalToBaseUnits } from '../src/lib/launcher/solana/curve/format';
 import { initializeIx, withdrawIx } from '../src/lib/solana/cpswap/ix';
 import {
@@ -325,8 +325,10 @@ test.describe('group A (chromium and mobile-chrome)', () => {
     const tier = await tierView(1);
     await expect(createCard(p)).toHaveAttribute('data-create', 'offer', { timeout: 60_000 });
     await expect(createCard(p)).toContainText(
-      `No pool for this token yet. You can open the first one on the public fee tier: ${tradeCostText(tier, CREATOR_FEE_SWITCH.publicOpen)}, ${formatSol(tier.createPoolFee, 9)} SOL to open (read just now).`,
+      `No pool for this token yet. You can open the first one on the public fee tier (read just now): ${tradeCostText(tier, CREATOR_FEE_SWITCH.publicOpen)}.`,
     );
+    // The fee to open is said once, in the cost line right above the button.
+    await expect(createCard(p).getByTestId('lp-create-cost')).toContainText(`Opening a pool costs ${formatSol(tier.createPoolFee, 9)} SOL to the venue plus about `);
     await expect(createCard(p)).toContainText(MONEY);
     await openCreate(p);
     const market = stubMarket(FAIR);
@@ -399,7 +401,7 @@ test.describe('group A (chromium and mobile-chrome)', () => {
     const signature = a.wallet.lastSigned().signature!;
     await expect(out).toContainText(signature);
     await expect(out).toContainText('It may still land. Opening a pool again now could open a second pool and pay the fee to open twice.');
-    await expect(out).not.toContainText(/fail/i);
+    await expectNoWord(out, /fail/i);
     // It did land: the chain holds the pool. Asked of the pool itself, not of the
     // signature. By now the opening is over a minute old, and under a full run's load the
     // local validator keeps only a few hundred slots of transaction history (chain.ts
@@ -411,7 +413,7 @@ test.describe('group A (chromium and mobile-chrome)', () => {
     await expect(pending).toBeVisible({ timeout: 60_000 });
     await expect(pending).toContainText(signature);
     await expect(pending).toContainText('opening a pool. Opening another pool stays off until this is checked.');
-    await expect(pending).not.toContainText(/fail/i);
+    await expectNoWord(pending, /fail/i);
     expect(await pendingNotes(p)).toContain(signature);
     await expect(createCard(p)).toHaveAttribute('data-create', 'held', { timeout: 60_000 });
     await expect(ui.lp.create.openButton(p)).toHaveCount(0);
@@ -431,7 +433,7 @@ test.describe('group A (chromium and mobile-chrome)', () => {
     await expect.poll(() => a.rpc.failedCount('getSignatureStatuses'), { timeout: 60_000 }).toBeGreaterThan(failedBefore);
     await expect(pending.getByRole('button', { name: 'Check again' })).toBeEnabled({ timeout: 60_000 });
     await expect(pending).toBeVisible();
-    await expect(pending).not.toContainText(/fail/i);
+    await expectNoWord(pending, /fail/i);
     expect(await pendingNotes(p)).toContain(signature);
     await expect(createCard(p)).toHaveAttribute('data-create', 'held');
 
@@ -518,7 +520,8 @@ test.describe('group B (chromium only)', () => {
       (async () => {
         B.c6 = await fundedKeypair(5);
         B.t6 = await freshPricedToken(B.c6, book);
-        B.p6 = await createSolPool(B.c6, B.t6, { configIndex: 0, sol: sol(1), tokens: 1_000_000n * UNIT, at: 'standard' });
+        // On tier 0, so P6 can take tier 1 out of the page's reads and this pool's own tier stays.
+        B.p6 = await createLaunchTierPool(B.c6, B.t6, { sol: sol(1), tokens: 1_000_000n * UNIT });
       })(),
       (async () => {
         B.c8 = await fundedKeypair(5);
@@ -677,7 +680,8 @@ test.describe('group B (chromium only)', () => {
     await connect(p);
     const tier1Row = ui.lp.feeTiers(p).and(p.locator('[data-index="1"]'));
     await expect(tier1Row).toHaveAttribute('data-state', 'absent', { timeout: 60_000 });
-    await expect(tier1Row).toContainText('Tier 1');
+    // The Rates card names a tier by its kind of pool (RatesAndRoutes.tsx tierName).
+    await expect(tier1Row).toContainText('Public pools');
     await expect(tier1Row).toContainText('not created yet');
     await expect(createCard(p)).toHaveAttribute('data-create', 'tier-not-open', { timeout: 60_000 });
     await expect(createCard(p)).toContainText(
@@ -766,7 +770,7 @@ test.describe('group B (chromium only)', () => {
     await openPools(p, B.t8);
     await connect(p);
     await expect(createCard(p)).toHaveAttribute('data-create', 'offer', { timeout: 60_000 });
-    await expect(createCard(p)).toContainText(`${formatSol(lie, 9)} SOL to open`);
+    await expect(createCard(p).getByTestId('lp-create-cost')).toContainText(`Opening a pool costs ${formatSol(lie, 9)} SOL to the venue`);
     const panel = await openCreate(p);
     await expect(panel).toContainText(`${formatSol(lie, 9)} SOL, paid to the team's vault (read just now)`);
     await solThenMatch(p, '0.2');
@@ -1281,9 +1285,12 @@ test.describe('group B (chromium only)', () => {
     await connect(p);
     await expect(createCard(p)).toHaveAttribute('data-create', 'offer', { timeout: 60_000 });
     await expect(createCard(p)).toContainText(MONEY);
-    const body = (await p.locator('body').innerText()).replace(/\s+/g, ' ');
+    // The page's lines for "on" sit in small print (the hero's and the status card's Details,
+    // the Swap routes card's How it works): textContent reads them folded. The status card
+    // is under the LP section, so its line says "above".
+    const body = ((await p.locator('main').textContent()) ?? '').replace(/\s+/g, ' ');
     expect(body).toContain('This site reads pools and shares, and below you can add liquidity to a pool whose checks pass, take yours out, or open a new pool on the public fee tier (the pools section says whether that can be done right now).');
-    expect(body).toContain('This site can add and remove liquidity, and open new pools on the public fee tier (the pools section below says whether it can right now).');
+    expect(body).toContain('This site can add and remove liquidity, and open new pools on the public fee tier (the pools section above says whether it can right now).');
     // Whether tier 1 exists is said only by the create card's live read, never by fixed page copy.
     expect(body).not.toMatch(/once (the public fee tier|that tier) exists/);
     expect(body).toContain('to our pool when ours pays at least as much as Jupiter, and through Jupiter when it does not.');
@@ -1297,10 +1304,12 @@ test.describe('group B (chromium only)', () => {
     expect(rows['Fee tier']).toBe(tierText(t1));
     expect(tierText(t1)).not.toBe(tierText(t0));
     await expect(ui.review(p).getByTestId('lp-review-disclosure')).toContainText(MONEY);
-    // No "yield" anywhere in the section: what a pool or a position earned is said as a
-    // measure from the chain (the section's own sentence says so), never as a forecast.
-    const section = (await ui.lp.section(p).innerText()).replace(/\s+/g, ' ');
-    expect(section).not.toMatch(/APR|APY|yield/i);
+    // No "yield" anywhere in the section, small print included: what a pool or a position
+    // earned is said as a measure from the chain (the Risks sentence says so), never as a
+    // forecast. Whole words, read without the addresses (guardText): a random base58
+    // address can spell "apr" or "apy", or start with "yieLd".
+    const section = ((await ui.lp.section(p).textContent()) ?? '').replace(/\s+/g, ' ');
+    expect(await guardText(ui.lp.section(p))).not.toMatch(/\bAPR\b|\bAPY\b|\byield/i);
     expect(section).toContain('What this page says a pool or a position earned is measured from the chain, and is never a forecast.');
     expect(section).not.toMatch(/earn fees on every trade/i);
     await press(p.getByRole('button', { name: 'Cancel', exact: true }), 'Cancel');

@@ -103,17 +103,14 @@ describe("the footer's chrome follows the route", () => {
     expect(text).not.toContain('—');
   });
 
-  it('names no resident beside the room label in a TOWELI room', () => {
-    // The label reads "Bungalows · <room>" on a door. In a protocol room it is
-    // the bare word, because the room is not theirs. The separator is a middle
-    // dot and not an em dash, which is element I's business: an em dash here
-    // billed one dash of venue CHROME to all fourteen doors at once.
+  // The footer carries no room label since 2026-10-15: the bar's Island word opens the hall. So a TOWELI
+  // room, carrying Bayla, names no resident anywhere in its footer, and bills no prose dash.
+  it('names no resident in a TOWELI room', () => {
     walkedThrough('bayla');
     const { container } = at('/tokenomics', <Footer />);
-    const label = container.textContent ?? '';
-    expect(label).toContain('Bungalows');
-    expect(label).not.toContain('Bungalows · Bayla');
-    expect(label).not.toContain('—');
+    const text = container.textContent ?? '';
+    expect(text).not.toContain('Bayla');
+    expect(text).not.toContain('—');
   });
 });
 

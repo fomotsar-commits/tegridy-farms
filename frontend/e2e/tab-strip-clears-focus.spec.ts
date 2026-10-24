@@ -30,11 +30,15 @@ async function settle(page: Page, path: string, size = PHONE): Promise<void> {
 }
 
 // One page per tabbed host, the TOWELI room's band included, on a phone and a laptop.
-const SCROLLED_PAGES = ['/liquidity', '/zap', '/leaderboard', '/launch', '/nft-finance', '/scan', '/faq'];
+const SCROLLED_PAGES = ['/liquidity', '/zap', '/premium', '/launch', '/nft-finance', '/scan', '/faq'];
 const SCREENS = [{ width: 390, height: 844 }, { width: 1280, height: 800 }];
+// Since the eight-link footer (#838), /scan fits a 1280x800 screen with 44px to scroll,
+// too little to measure; a shorter laptop window gives it room to scroll under the strip.
+const SHORTER: Record<string, { width: number; height: number }> = { '/scan': { width: 1280, height: 600 } };
 
-for (const size of SCREENS) {
+for (const screen of SCREENS) {
   for (const path of SCROLLED_PAGES) {
+    const size = screen.width === 1280 && SHORTER[path] ? SHORTER[path] : screen;
     test(`${path} at ${size.width}x${size.height}: as the page scrolls, the tab strip covers no field, button or link`, async ({ page, walletMock: _w }) => {
       test.setTimeout(120_000);
       await settle(page, path, size);

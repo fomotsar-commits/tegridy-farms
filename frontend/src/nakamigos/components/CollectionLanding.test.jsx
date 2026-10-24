@@ -77,12 +77,17 @@ async function renderLanding() {
   return render(<MemoryRouter><CollectionLanding /></MemoryRouter>);
 }
 
-/** The card (a <button>) whose heading names this collection. */
+/** The card's control (a <button>) whose heading names this collection. */
 function card(slug) {
   const name = COLLECTIONS[slug]?.name ?? EXPECTED_FAMILY[slug]?.name;
   const heading = screen.getAllByRole("heading", { level: 3 }).find((h) => h.textContent.trim() === name);
   expect(heading, `no card for ${slug}`).toBeTruthy();
   return heading.closest("button");
+}
+
+/** The whole card box: the control plus the small print under it. */
+function cardBox(slug) {
+  return card(slug).parentElement;
 }
 
 const settle = () => waitFor(() => expect(screen.queryAllByText(/^Floor$/).length).toBeGreaterThan(0));
@@ -106,7 +111,17 @@ describe("the landing lists nine collections", () => {
 
   it("the fee line names how many collections actually trade here", async () => {
     await renderLanding();
-    expect(screen.getByText("Native listings: one flat 1% fee on the 4 collections that trade here, every fee funds the treasury")).toBeInTheDocument();
+    // The visible money line (owner 2026-10-14: one line), and the full
+    // sentence it used to be, kept word for word in the closed small print.
+    expect(screen.getByText("Flat 0.5% fee on the 4 collections that trade here. It funds the treasury.")).toBeVisible();
+    expect(screen.getByText("Native listings: one flat 0.5% fee on the 4 collections that trade here, every fee funds the treasury")).toBeInTheDocument();
+  });
+
+  it("the first screen says what to press: Browse, Buy, Sell / List, Make offer", async () => {
+    await renderLanding();
+    for (const name of ["Browse", "Buy", "Sell / List", "Make offer"]) {
+      expect(screen.getByRole("button", { name })).toBeVisible();
+    }
   });
 });
 
@@ -284,9 +299,11 @@ describe("cross-collection search", () => {
 });
 
 // A family collection's card shows that collection's own words, read from its
-// OpenSea page or its NFT metadata. Clamped and unlabelled in the venue's own
-// style they read as the venue speaking, so each card names the source, as
-// About and the Hero do. The three the venue wrote copy for carry no tag.
+// OpenSea page or its NFT metadata. Unlabelled in the venue's own style they
+// read as the venue speaking, so each card names the source, as About and the
+// Hero do. The three the venue wrote copy for carry no tag. Since 2026-10-14
+// the words and their tag sit in the card's closed small print (a <details>
+// under the control), so they are read from the card box, not the button.
 describe("a card names where its description came from", () => {
   const TAGS = {
     junglebaygoldcards: "First paragraph of its OpenSea description",
@@ -296,17 +313,22 @@ describe("a card names where its description came from", () => {
     bojungles: "From its OpenSea page",
   };
 
-  it("each family card with a description carries its source tag", async () => {
+  it("each family card with a description carries its source tag, in its small print", async () => {
     await renderLanding();
     for (const [slug, tag] of Object.entries(TAGS)) {
-      expect(text(card(slug)), slug).toContain(tag);
+      const box = cardBox(slug);
+      expect(text(box), slug).toContain(tag);
+      expect(text(box), slug).toContain(COLLECTIONS[slug].description.slice(0, 40));
+      // The words are the collection's, so they live under a closed drop-down.
+      expect(box.querySelector("details"), slug).toBeTruthy();
+      expect(box.querySelector("details").open, slug).toBe(false);
     }
   });
 
   it("a card with no description, and the venue's own three, carry no tag", async () => {
     await renderLanding();
     for (const slug of ["raretowelie", "nakamigos", "gnssart", "junglebay"]) {
-      expect(text(card(slug)), slug).not.toMatch(/From its OpenSea page|From its NFT metadata|of its OpenSea description/);
+      expect(text(cardBox(slug)), slug).not.toMatch(/From its OpenSea page|From its NFT metadata|of its OpenSea description/);
     }
   });
 });

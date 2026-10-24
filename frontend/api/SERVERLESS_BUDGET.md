@@ -89,6 +89,7 @@ into the 404.
 | `launch-cohort` | `_lib/launch-cohort.js` | Airlock `Create` enumeration |
 | `curve-birth` | `_lib/evm-birth.js` | ONE Memetics Curve launch's birth transaction (its `LaunchCreated` log), from keyless Blockscout on Ethereum and Base and the Robinhood RPC in 10,000,000-block windows. A HINT only: the browser reads that receipt and checks every log before it shows the maker's create-buy |
 | `doppler-birth` | `_lib/evm-birth.js` | ONE Doppler token's birth transaction (its own first mint, a `Transfer` from the zero address) from keyless `eth.blockscout.com`, for the maker's allocation and lock on `/launch/:token`. Same hint rule |
+| `eas-attested` | `_lib/eas-attested.js` | ONE token's EAS `Attested` logs under the Fact Sheet disclosure schema (the only schema it accepts), from keyless `eth.blockscout.com`, for the attestation line on `/launch/:token`. Same hint rule: the browser re-reads each uid with `getAttestation` |
 | `heat` | `_lib/heat.js` | Jungle Bay Island held-time oracle (CORS-forced, not an optimisation) |
 | `births` | `_lib/births.js` | HMAC-signed birth notify to the island's enrollment socket |
 | `record` | `_lib/record.js` | A token's birth certificate as JSON, derived from chain on read |
@@ -98,6 +99,7 @@ into the 404.
 | `commerce` | `_lib/commerce.js` | Merchant invoice store + settlement record behind `/checkout`: one id in, one invoice out. OPTIONAL short-link enrichment only — the signed `#i=` payment link is verified in the buyer's browser and needs none of it, so this resource is not on the path that moves money |
 | `pools` | `_lib/pool-index.js` | The Solana pool index behind `/api/pools` (a rewrite): filtered `getProgramAccounts` scans of the cp-swap program, one per pairing coin (SOL, USDC, BAYLA) for a token and one for an LP mint, cached 30 s, ADDRESSES ONLY. The browser reads and checks every address itself, so this can at worst leave a pool out; it exists so `/api/solrpc` never has to allow a program scan |
 | `bot-link` | `_lib/botLink.js` | Telegram chat ↔ wallet binding: the bot's only server surface, and the reason it never holds a key |
+| `venue-volume` | `_lib/venueVolume.js` | The home page's all-time volume: the `venue_volume` rows (migration 028) that `.github/workflows/venue-volume.yml` adds to every hour, summed. Exists for its `s-maxage`: the edge answers, so a visitor costs nothing. Says "unread" for a source never counted and "behind" for a late or failing one, never a partial sum as current |
 
 `airdrop` is the one resource here whose absent branch is the security property. It has no
 endpoint that returns a campaign's recipient list, because a recipient list is a

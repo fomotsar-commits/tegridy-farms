@@ -576,12 +576,23 @@ for (const width of ARROW_WIDTHS) {
     const count = await tabs.count();
     expect(count, 'too few tabs to cut one at each end').toBeGreaterThan(3);
 
-    // The tab before the last and the tab after the first: the strip can scroll past each.
+    // The tab before the last and the tab after the first, where the strip can scroll past each;
+    // else the end tab itself (at 900px, with no Soon chip on any tab, the strip overflows by less
+    // than a tab). Each is left showing at its end before it is pressed.
     const presses = [
-      { side: 'right', tab: tabs.nth(count - 2) },
-      { side: 'left', tab: tabs.nth(1) },
+      { side: 'right', candidates: [tabs.nth(count - 2), tabs.nth(count - 1)] },
+      { side: 'left', candidates: [tabs.nth(1), tabs.nth(0)] },
     ] as const;
-    for (const { side, tab } of presses) {
+    for (const { side, candidates } of presses) {
+      let tab = candidates[1];
+      for (const candidate of candidates) {
+        await list.evaluate((el) => el.scrollIntoView({ block: 'center', inline: 'nearest' }));
+        await candidate.evaluate(leaveShowing, { side, shown: LEFT_SHOWING_PX });
+        if ((await candidate.evaluate(cutPx, width)) > TOLERANCE_PX) {
+          tab = candidate;
+          break;
+        }
+      }
       const id = await tab.getAttribute('id');
       await list.evaluate((el) => el.scrollIntoView({ block: 'center', inline: 'nearest' }));
       await tab.evaluate(leaveShowing, { side, shown: LEFT_SHOWING_PX });

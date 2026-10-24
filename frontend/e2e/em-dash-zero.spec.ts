@@ -54,14 +54,13 @@ const VENUE_VOICE_DEBT: Record<string, number> = {
   '/terminal': 2,
   '/solana': 1,
   '/launch-simulator': 2,
-  '/leaderboard': 3,
-  '/community': 2,
+  '/community': 1,
   '/liquidity': 5,
   '/privacy': 7,
   '/trust': 5,
-  '/pools': 1,
+  '/pools': 0,
   '/solana-lp': 0,
-  '/nft-finance': 7,
+  '/nft-finance': 6,
   '/developers': 10,
   '/risks': 3,
   '/copy-trading': 10,
@@ -69,18 +68,16 @@ const VENUE_VOICE_DEBT: Record<string, number> = {
   '/curve-launch': 7,
   '/eth-curve': 9,
   '/alerts': 16,
-  // ScoringRules' written paragraphs; the Cup's coverage notice is a data-unread-ledger.
-  '/competitions': 3,
   '/yield': 21,
   '/launch': 24,
 
 };
 
-/** The four GeckoTerminal routes, read with the feed aborted, so the degraded branch is
+/** The three GeckoTerminal routes, read with the feed aborted, so the degraded branch is
  *  what is pinned. The abort needs serviceWorkers: 'block' in playwright.config and a glob
  *  that matches the same-origin edge: import GECKO_EDGE_GLOB, never a literal. A dead stub
  *  fails nothing; it measures the SPA fallback's parse failure instead. */
-const FEED_ROUTES = new Set(['/terminal', '/chart', '/copy-trading', '/competitions']);
+const FEED_ROUTES = new Set(['/terminal', '/chart', '/copy-trading']);
 
 /** The routes that ask /api/solrpc, which the preview proxies to Solana mainnet: what the
  *  chain answers picks the branch (/curve-launch's write mode, /pools' live AMM card), so
@@ -235,11 +232,16 @@ test.describe('element I: em dashes in venue-voice prose', () => {
 // Element I in the rooms: a second table, owed by different people. Fourteen doors, the
 // thirteen registry ids plus the /towelie alias. On /toweli and /towelie TOWELI's protocol
 // copy counts, because in its own room it is that room's prose.
+// The reads are sealed, as on the farms below: TOWELI's home has cards that show or drop a
+// dashed line on what Ethereum answers ("Don't trust, verify" shows only once a read lands;
+// the fixed-supply card leaves when four live stats fill the row), so unsealed the count
+// moved with the runner's RPC: 13 on most CI runs, 12 on three PRs on 2026-10-14 that never
+// touch the page. Sealed, it is 12 on every machine.
 const ROOM_VOICE_DEBT: Record<string, number> = {
   // The settled rooms are at 0 and fail on their first prose dash (roomProse.test.tsx guards
   // the same sources on every push). The TOWELI-skin doors carry the protocol cluster.
-  '/toweli': 13,
-  '/towelie': 13,
+  '/toweli': 11,
+  '/towelie': 11,
   '/bayla': 0,
   '/pepe': 0,
   '/qr': 0,
@@ -267,6 +269,8 @@ test.describe('element I: em dashes in the rooms', () => {
           localStorage.setItem('tegridy-bungalow', 'venue');
         } catch { /* private mode */ }
       });
+      await page.route('**/api/**', (r) => r.abort());
+      await page.route((url) => url.hostname !== 'localhost', (r) => r.abort());
       await settle(page, path);
 
       const hits = await proseDashes(page);
@@ -302,19 +306,19 @@ test.describe('element I: em dashes in the rooms', () => {
 // branch is walked in the next block. toweli's farm is its own room's prose, and nb1, not
 // yet live, goes to the venue's list.
 const ROOM_FARM_DEBT: Record<string, number> = {
-  toweli: 8,
+  toweli: 4,
   bayla: 0,
   bobo: 0,
   soy: 0,
   brainlet: 0,
   rizz: 0,
-  // The six EVM ladders: the unread card's "The pool could not be read just now" line.
-  pepe: 1,
-  qr: 1,
-  mfer: 1,
-  bnkr: 1,
-  drb: 1,
-  jbm: 1,
+  // The six EVM ladders: their unread line lost its dash on 2026-10-14 (fewer-words pass).
+  pepe: 0,
+  qr: 0,
+  mfer: 0,
+  bnkr: 0,
+  drb: 0,
+  jbm: 0,
   nb1: 0,
 };
 
@@ -452,10 +456,9 @@ test.describe('element I: the BAYLA lock ladder card, once its pool reads', () =
 // read unanswered, some card would be on its unread branch and the count would be of a
 // mixed page. The count holds both ways, like every budget here, and the page must show
 // the figures it read, or the test fails: a sheet that never read proves nothing.
-// The one it carries is the same one the sealed branch does (VENUE_VOICE_DEBT['/pools']), in the
-// sections below the sheet that do not depend on the read. It was three until the Solana
-// LP section moved to its own tab (/solana-lp) and took two with it.
-const POOLS_LIVE_DEBT: number = 1;
+// Zero since 2026-10-14: the last one, in the "Deposit a pair" card's small print (the same one
+// the sealed branch carried), became a period when the duplicate fee cards went.
+const POOLS_LIVE_DEBT: number = 0;
 
 test.describe('element I: /pools, once its venue reads', () => {
   const path = '/pools';
@@ -501,15 +504,15 @@ test.describe('element I: /pools, once its venue reads', () => {
     ).toEqual([]);
     // The live branch, from the recording: the venue card, the sheet's figures and both tiers.
     await expect(page.getByRole('region', { name: 'Venue status' }), 'the venue did not read').toContainText('Pools are open');
-    const sheet = page.getByRole('region', { name: 'Fee sheet' });
-    await expect(sheet, 'the fee sheet did not read').toContainText('read from the chain when this page loads');
-    // One per tier the sheet shows: the public tier first, then the launch tier.
-    const paid = await sheet.getByText('Trader pays', { exact: true }).evaluateAll((els) => els.map((el) => el.nextElementSibling?.textContent ?? ''));
-    expect(paid, 'the sheet shows the public tier and the launch tier').toHaveLength(2);
-    for (const figure of paid) expect(figure, 'Trader pays is a figure it read').toMatch(/^\d+(\.\d+)?%$/);
+    // The one rates card (owner, 2026-10-14: the duplicate fee cards dropped), its small print folded.
+    const rates = page.getByRole('region', { name: 'Rates' });
+    await expect(rates, 'the rates did not read').toContainText('Read from the chain when this page loads');
+    await expect(page.locator('[data-testid="fee-tier"][data-state="live"]'), 'the fee tiers did not read').toHaveCount(2);
+    // One row per tier: the public tier first, then the launch tier, each with the trade fee it read.
+    const paid = await rates.locator('[data-testid="fee-tier"] td:first-of-type .stat-value').allTextContents();
+    expect(paid, 'the rates show the public tier and the launch tier').toHaveLength(2);
+    for (const figure of paid) expect(figure, 'the trade fee is a figure it read').toMatch(/^\d+(\.\d+)?%$/);
     const traderPays = paid.join(' on the public tier, ') + ' on the launch tier';
-    await expect(page.getByTestId('fee-tier'), 'the fee tiers did not read').toHaveCount(2);
-    await expect(page.locator('[data-testid="fee-tier"][data-state="live"]')).toHaveCount(2);
     test.info().annotations.push({ type: 'venue', description: `recorded at slot ${MAINNET_VENUE_RECORDING.slot}: trader pays ${traderPays}` });
 
     const hits = await proseDashes(page);

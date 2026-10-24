@@ -86,13 +86,13 @@ describe('BungalowHolders', () => {
   it('issues no scan until the reader asks for one', () => {
     mount();
     expect(scan.calls, 'mounting must not trigger a chain scan').toBe(0);
-    expect(screen.getByRole('button', { name: /read distribution/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /read holders/i })).toBeTruthy();
   });
 
   it('scans once armed, and then offers a refresh instead', () => {
     scan.state = { ...scan.state, status: 'success', outcome: successOutcome() };
     mount();
-    fireEvent.click(screen.getByRole('button', { name: /read distribution/i }));
+    fireEvent.click(screen.getByRole('button', { name: /read holders/i }));
     expect(scan.calls).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: /refresh/i })).toBeTruthy();
   });
@@ -100,7 +100,7 @@ describe('BungalowHolders', () => {
   it('renders the band, the top-N shares and the Nakamoto coefficient', () => {
     scan.state = { ...scan.state, status: 'success', outcome: successOutcome() };
     mount();
-    fireEvent.click(screen.getByRole('button', { name: /read distribution/i }));
+    fireEvent.click(screen.getByRole('button', { name: /read holders/i }));
     expect(screen.getByText('mixed')).toBeTruthy();
     expect(screen.getByText('18.4%')).toBeTruthy();
     expect(screen.getByText('40.2%')).toBeTruthy();
@@ -111,7 +111,7 @@ describe('BungalowHolders', () => {
   it('states the coverage limit rather than implying a full read', () => {
     scan.state = { ...scan.state, status: 'success', outcome: successOutcome() };
     mount();
-    fireEvent.click(screen.getByRole('button', { name: /read distribution/i }));
+    fireEvent.click(screen.getByRole('button', { name: /read holders/i }));
     expect(screen.getByText(/largest 20 accounts were read/i)).toBeTruthy();
     // "upper bound" is said twice on purpose — once in the scanner's own
     // coverage note, once in the source line under the figures.
@@ -135,7 +135,7 @@ describe('BungalowHolders', () => {
         <BungalowHolders bungalow={DRB} />
       </MemoryRouter>,
     );
-    fireEvent.click(screen.getByRole('button', { name: /read distribution/i }));
+    fireEvent.click(screen.getByRole('button', { name: /read holders/i }));
     expect(scan.lastChain, "the scan must run on the token's own chain").toBe('base');
     const full = screen.getByRole('link', { name: /full scan/i });
     expect(full.getAttribute('href')).toContain('chain=base');
@@ -148,7 +148,7 @@ describe('BungalowHolders', () => {
       errorMessage: 'Too many scans right now — try again in a moment.',
     };
     mount();
-    fireEvent.click(screen.getByRole('button', { name: /read distribution/i }));
+    fireEvent.click(screen.getByRole('button', { name: /read holders/i }));
     expect(screen.getByText(/too many scans right now/i)).toBeTruthy();
     // The failure must not paint any concentration figure.
     expect(screen.queryByText(/%$/)).toBeNull();

@@ -106,7 +106,7 @@ test.describe('Connect prompt surfaces', () => {
     // `/lending` is also just a redirect to /nft-finance (App.tsx:236).
     // Copy comes from SECTION_PROMPTS in src/pages/LendingPage.tsx:48.
     await gotoRoute(page, '/nft-finance');
-    const banner = page.getByText(/Connect to (lend ETH against|borrow against your NFTs|trade NFTs on)/i);
+    const banner = page.getByText(/Connect to (lend or borrow ETH|borrow against your NFT|trade NFTs in a pool)/i);
     await expect(banner.first()).toBeVisible();
   });
 });

@@ -14,8 +14,8 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
   // ── Core protocol ────────────────────────────────────────────
   {
     // The ETH that stakers are in line for is the ROUTER's fee, less the referral share.
-    // The pair's own 0.3% never reaches them: its one-sixth venue cut is off (kLast 0,
-    // read 2026-10-10) and would mint LP to the treasury Safe, not to stakers.
+    // The pair's own 0.3% never reaches them: its one-sixth venue cut (on for TOWELI/WETH
+    // since 2026-10-16) mints LP to the treasury Safe, not to stakers.
     keywords: ['toweli', 'token'],
     answer: "TOWELI is the farm's token. 1B fixed supply, no mint function. Stake it and you earn TOWELI today. After a referral share, the venue's swap fee is routed toward stakers as ETH, in payout rounds that need 1 ETH of fees first. /premium shows what has been paid. That's the whole pitch.",
   },
@@ -131,10 +131,11 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
     // Two fees, read 2026-10-10. SwapFeeRouter.feeBps is 50, ReferralSplitter takes
     // referralFeeBps (2000) first, and stakerShareBps sends all of the rest toward stakers;
     // the owner can move all three through timelocks. The distributor has received 0.
-    // The pair's 0.3% stays in the pool. A static answer cannot read the chain, so each
-    // figure that can move carries its date or points at the page that reads it.
+    // The pair's 0.3% stays in the pool, less the venue's one-sixth cut on a pool where the
+    // owner switched it on (TOWELI/WETH, 2026-10-16). A static answer cannot read the chain,
+    // so each figure that can move carries its date or points at the page that reads it.
     keywords: ['fee', 'swap', 'cost', 'percent'],
-    answer: "Two fees. A swap through our own router pays a venue fee. On 10 October 2026 it was 0.5%: 20% of that was the referral share, which goes to your referrer if they stake enough TOWELI and to the treasury otherwise, and the other 80% was routed toward TOWELI stakers as ETH. By that date the router had taken 0.000003 ETH in all and stakers had been paid none. The swap screen shows the live rate before you sign, and /premium shows the live total paid. Underneath, the pool itself charges 0.3%, which stays in the pool for liquidity providers.",
+    answer: "Two fees. A swap through our own router pays a venue fee. On 10 October 2026 it was 0.5%: 20% of that was the referral share, which goes to your referrer if they stake enough TOWELI and to the treasury otherwise, and the other 80% was routed toward TOWELI stakers as ETH. By that date the router had taken 0.000003 ETH in all and stakers had been paid none. The swap screen shows the live rate before you sign, and /premium shows the live total paid. Underneath, the pool itself charges 0.3% for its liquidity providers. On the TOWELI/ETH pool the venue has taken one sixth of that for its treasury since 16 October 2026, so providers there keep about 0.25%.",
   },
 
   // ── Liquidity ───────────────────────────────────────────────
@@ -256,7 +257,7 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
   },
   {
     keywords: ['jupiter', 'jup', 'swap solana', 'solana swap'],
-    answer: "Jupiter is one of the two routes behind /solana: it shops your trade across Solana's DEXes. When one of our own pools pays you at least as much, the trade goes to that pool instead. A Jupiter trade's platform fee is shown before you sign, every time. A swap in one of our pools pays that pool's own fee inside the quote: 1% of the trade on a public pool, with 0.16% of the trade going to the venue. No platform fee is added on top.",
+    answer: "Jupiter is one of the two routes behind /solana: it shops your trade across Solana's DEXes. When one of our own pools pays you at least as much, the trade goes to that pool instead. A Jupiter trade's platform fee is shown before you sign, every time. A swap in one of our pools pays that pool's own fee inside the quote: 1% of the trade on a public pool, with 0.16% of the trade as the venue's take (0.104% to its vault, 0.056% to the island's Workshop). No platform fee is added on top.",
   },
   {
     // The Meteora rail was retired 2026-08-23; anyone asking about it gets that answer.
@@ -325,20 +326,12 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
     answer: "Cancel from /premium → Manage. You get a pro-rata refund on the unused portion as a pull-payment credit — claim it from the same screen after you cancel.",
   },
   {
-    keywords: ['leaderboard', 'points', 'rank', 'ranking'],
-    answer: "Earn points for staking, claiming, voting, etc. Top of /leaderboard gets bragging rights and seasonal rewards.",
-  },
-  {
     // HONESTY PASS 2026-08-28: "you both earn bonus" was the joiner-bonus
     // overclaim /referrals and the changelog already record as fixed — the
     // splitter credits the REFERRER only (ReferralSplitter.sol). This was the
     // last surface still promising the friend a cut.
     keywords: ['referral', 'invite', 'friend', 'code'],
     answer: "Dashboard has your referral link. When someone you refer trades, the referral share of their fee is credited to YOU — the joiner gets no discount or bonus, and /referrals says so up front. Tegridy through community.",
-  },
-  {
-    keywords: ['tegridy', 'score'],
-    answer: "Venue Score measures commitment: stake size, lock length, NFT boost, vote activity. Higher = better perks.",
   },
 
   // ── Misc ────────────────────────────────────────────────────

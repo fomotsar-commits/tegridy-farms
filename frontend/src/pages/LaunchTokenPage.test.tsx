@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import type { Address, Hex } from 'viem';
@@ -74,9 +74,19 @@ function renderAt(token: string) {
   );
 }
 
+/** What `?resource=eas-attested` answers; every other backend read fails, as in a preview. */
+const easReply = vi.hoisted(() => ({ current: null as null | (() => Promise<unknown>) }));
+const json = (body: unknown, status = 200) => ({ ok: status >= 200 && status < 300, status, json: async () => body });
+
 beforeEach(() => {
   clientRef.current = makeClient();
+  easReply.current = async () => json({ attestations: [] });
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string) => (String(url).includes('resource=eas-attested') ? easReply.current!() : json({ error: 'no backend' }, 502))),
+  );
 });
+afterEach(() => vi.unstubAllGlobals());
 
 describe('LaunchTokenPage — invalid / unknown addresses', () => {
   it('renders a clean not-found state for a malformed address, with no chain reads', () => {
@@ -116,14 +126,68 @@ describe('LaunchTokenPage — honest unknown states', () => {
     expect(screen.queryByText('Not launched here')).not.toBeInTheDocument();
   });
 
-  it('reports a refused attestation log query as "Cannot verify", never as "No attestation"', async () => {
-    clientRef.current = makeClient({
-      code: DOPPLER_CLONE_CODE,
-      logs: new Error('ranges over 10000 blocks are not supported on free plan'),
-    });
+  it('keeps what failed reading the Airlock record inside Details, out of the visible line', async () => {
+    clientRef.current = makeClient({ code: DOPPLER_CLONE_CODE, asset: new Error('HTTP request failed. URL: https://eth.drpc.org') });
+    renderAt(TOKEN);
+    expect(await screen.findByText('Provenance unverified')).toBeInTheDocument();
+    const card = screen.getByText('Provenance').closest('section')!;
+    const details = card.querySelector('details')!;
+    expect(details.textContent).toMatch(/What failed: HTTP request failed\. URL: https:\/\/eth\.drpc\.org/);
+    const outside = card.cloneNode(true) as HTMLElement;
+    outside.querySelectorAll('details').forEach((d) => d.remove());
+    expect(outside.textContent).not.toMatch(/HTTP request failed|eth\.drpc\.org/);
+  });
+
+  // Live 2026-10-23 on 0x10422e41…e790: "…names a different integrator (0x21E2…) — it did not
+  // come through this rail.", and the Source small print carried one more.
+  it('the Provenance card carries no em dash, Source included', async () => {
+    clientRef.current = makeClient({ code: DOPPLER_CLONE_CODE, asset: assetTuple(FOREIGN) });
+    renderAt(TOKEN);
+    const card = (await screen.findByText(/names a different integrator/)).closest('section')!;
+    expect(card.textContent).toMatch(/Airlock record for this asset/);
+    expect(card.textContent).not.toContain('—');
+  });
+
+  it('reports a failed attestation lookup as "Cannot verify", never as "No attestation"', async () => {
+    clientRef.current = makeClient({ code: DOPPLER_CLONE_CODE });
+    easReply.current = async () => json({ error: 'Attestations could not be looked up right now' }, 502);
     renderAt(TOKEN);
     expect(await screen.findByText('Cannot verify')).toBeInTheDocument();
     expect(screen.queryByText('No attestation')).not.toBeInTheDocument();
+  });
+
+  // Measured live 2026-10-14: the card printed "Reason: RPC Request failed. URL: ... Request
+  // body: {"method":"eth_getLogs",...}" as its visible line.
+  it('says one plain sentence when the lookup fails, and keeps what failed inside Details', async () => {
+    clientRef.current = makeClient({
+      code: DOPPLER_CLONE_CODE,
+      logs: new Error('RPC Request failed. URL: https://eth.drpc.org Request body: {"method":"eth_getLogs"}'),
+    });
+    easReply.current = async () => json({ error: 'Attestations could not be looked up right now' }, 502);
+    renderAt(TOKEN);
+    expect(await screen.findByText('We could not check whether this token has been attested, so treat it as unknown.')).toBeInTheDocument();
+    const details = screen.getByTestId('attestation-unverifiable-detail');
+    expect(details.tagName).toBe('DETAILS');
+    expect(details.textContent).toMatch(/What failed: the lookup answered HTTP 502/);
+    const card = screen.getByText('Disclosure attestation').closest('section')!;
+    const outside = card.cloneNode(true) as HTMLElement;
+    outside.querySelectorAll('details').forEach((d) => d.remove());
+    expect(outside.textContent).not.toMatch(/Request body|eth_getLogs|HTTP 502|Reason:/);
+  });
+
+  it('never runs the refused eth_getLogs, and shows "No attestation" when the history holds none', async () => {
+    let scans = 0;
+    clientRef.current = {
+      ...makeClient({ code: DOPPLER_CLONE_CODE }),
+      getLogs: async () => {
+        scans += 1;
+        throw new Error('Archive requests require a personal token');
+      },
+    };
+    renderAt(TOKEN);
+    expect(await screen.findByText('No attestation')).toBeInTheDocument();
+    expect(screen.queryByText('Cannot verify')).not.toBeInTheDocument();
+    expect(scans).toBe(0);
   });
 
   it('reports the unreadable locker as "Graduation state unverified", never as "Not graduated"', async () => {
@@ -168,11 +232,9 @@ describe('LaunchTokenPage — honest unknown states', () => {
 
 describe('LaunchTokenPage — the slow attestation read does not hold the page', () => {
   it('renders the dossier while the attestation lookup is still in flight', async () => {
-    let release: (v: unknown[]) => void = () => {};
-    clientRef.current = {
-      ...makeClient({ code: DOPPLER_CLONE_CODE }),
-      getLogs: () => new Promise<unknown[]>((res) => { release = res; }),
-    };
+    let release: (v: unknown) => void = () => {};
+    clientRef.current = makeClient({ code: DOPPLER_CLONE_CODE });
+    easReply.current = () => new Promise((res) => { release = res; });
     renderAt(TOKEN);
     // Everything else is on screen …
     expect(await screen.findByText('Launch Fact Sheet')).toBeInTheDocument();
@@ -180,7 +242,7 @@ describe('LaunchTokenPage — the slow attestation read does not hold the page',
     expect(screen.getByText('Checking…')).toBeInTheDocument();
     expect(screen.queryByText('No attestation')).not.toBeInTheDocument();
 
-    release([]);
+    release(json({ attestations: [] }));
     expect(await screen.findByText('No attestation')).toBeInTheDocument();
   });
 });

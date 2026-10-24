@@ -10,3 +10,30 @@
 # credential. It is not one (it is no real account, and a Solana address is
 # public anyway). The variable is renamed in the commit that adds this file.
 3fce07daae97ebe29719774c039aa2d0b89f5b91:frontend/src/components/layout/TopNav.solanaConnect.test.tsx:generic-api-key:56
+#
+# 2026-10-14, PR #800. Two false positives in commit c7f8f33b, both read by the
+# `generic-api-key` rule as "<name> = <high-entropy string>":
+#   - the test file's line 38 is Raydium's CLMM admin address, a public Solana
+#     account that the key guard exists to refuse (it is line 31 of
+#     solana/guards/upstream/deny-keys.txt). It is test data, not a secret.
+#   - provenance.mjs line 26 is the sha256 hash of deny-keys.txt, pinned so the
+#     list cannot be edited unnoticed. A hash of a public file is not a secret.
+c7f8f33b2a3fe593de41317f8a80548be07dfdbf:frontend/src/test/solanaGuardTampers.test.ts:generic-api-key:38
+c7f8f33b2a3fe593de41317f8a80548be07dfdbf:solana/guards/provenance.mjs:generic-api-key:26
+#
+# 2026-10-15, PR #839. A made-up Jupiter key used as test data, in a variable named
+# KEY ("test-jup-key-…", no real account). The variable is renamed FAKE_JUP in the
+# commit that adds this line, so the rule has nothing to read on the branch head.
+448e1e7d20e37792f73cbf81d741151e6fcb9027:frontend/api/__tests__/aggregator-jupiter-key.test.js:generic-api-key:15
+#
+# 2026-10-20, PR #911. The range client's test listed the program's instruction names on
+# one line, and the generic-api-key rule took one name for a key. They are function names
+# in public source; the list is one name a line since. The first fingerprint is that line.
+# The next four are this entry's first wording, which quoted the flagged words and so was
+# flagged itself, once in each of the four range branches (#911, #913, #915, #916). This
+# wording quotes nothing.
+5336ecbab594b5e431016103fb062bbe83120ac5:frontend/src/lib/solana/clmm/program.test.ts:generic-api-key:132
+9ca544e070bc5a51bfcd382d35bc39f929d32a55:.gitleaksignore:generic-api-key:30
+143fced7e65d06c3191cdb64fff86496d6c882c1:.gitleaksignore:generic-api-key:30
+a0bafd057be3908533ba7c63a792b14d59740396:.gitleaksignore:generic-api-key:30
+ddf8b25d41c5286459d5726ceb153a25061bd1b6:.gitleaksignore:generic-api-key:30

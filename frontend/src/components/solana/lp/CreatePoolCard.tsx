@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { formatSol } from '../../../lib/launcher/solana/curve/format';
 import { noPriceClause, tokenReasons, type PoolHealth } from '../../../lib/solana/lp/poolHealth';
-import { isCreatedPool, type PoolSearchRead, type PoolView } from '../../../lib/solana/lp/poolFinder';
+import { isCreatedPool, type FeeTierRead, type PoolSearchRead, type PoolView } from '../../../lib/solana/lp/poolFinder';
 import type { OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
 import { MIN_HISTORY_TEXT } from '../../../lib/solana/lp/ownPrice';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
@@ -16,7 +16,7 @@ import type { CreateFacts, TierState } from '../curve/ports';
 import { CreatePoolPanel } from './CreatePoolPanel';
 import { MONEY_NOTE } from './LpDisclosures';
 import { createOffer, depositOffer, depositWarned, lpHeld, openingCautions, pairFacts, poolListCut, type CreateOffer, type PairFacts } from './offers';
-import { coinAbout } from './panelKit';
+import { coinAbout, solAbout } from './panelKit';
 import { useLpWrites, type LpWrites } from './useLpWrites';
 
 const NATIVE_2022_LINE = `This is SOL under the newer token program. Pools here pair a token with ${QUOTE_COINS_OR}.`;
@@ -24,18 +24,36 @@ const NATIVE_2022_LINE = `This is SOL under the newer token program. Pools here 
 const solFee = (lamports: bigint) => formatSol(lamports, 9);
 
 /**
- * "Open a new pool", under a token's pool list (SPEC_S2_CREATE 4.2). Only with an
+ * What opening a pool costs, in one line, beside its button: the tier's fee and the
+ * account deposits (rent) the new pool's accounts keep for good. The fee goes to the
+ * venue: cp-swap's `create_pool_fee_reveiver` is the team vault's wrapped-SOL account
+ * (write/config.ts `CP_CREATE_POOL_FEE_RECEIVER`), and the opening's test run must show it
+ * arrive there. `feeTiers` is the section's one read: null while it reads. A deposit
+ * figure that was not read is said so, never 0. It names what costs: beside a pool to
+ * add to, the line sits right under Go to that pool, which costs nothing.
+ */
+function costLine(fee: bigint, feeTiers: FeeTierRead | null): string {
+  const venue = `Opening a pool costs ${fee > 0n ? `${solFee(fee)} SOL` : 'nothing'} to the venue plus`;
+  const deposits = feeTiers?.kind === 'ok' ? feeTiers.openingDeposits : null;
+  if (deposits !== null) return `${venue} about ${solAbout(deposits)} account setup you do not get back.`;
+  return `${venue} account setup you do not get back (${feeTiers === null ? 'reading the amount…' : 'amount not read'}).`;
+}
+
+/**
+ * "Open a pool", under a token's pool list (SPEC_S2_CREATE 4.2). Only with an
  * `LpWritesProvider` above it (LP's switch not 'off'); without one it renders nothing.
  *
- * One line per `createOffer` answer, and the **Open a pool** button only for `offer`.
- * Every input it judges was read for this search: the token, its pools and their
- * checks (`healths`, the same the pool cards show), Jupiter's price, and the public fee
- * tier and the fee account (`createFacts`). Unread is never "no": each unread input has
- * its own line, and most have a **Read again**.
+ * One line per `createOffer` answer, and the **Open a pool** button only for `offer`,
+ * with what it costs right above it (`costLine`). Every input it judges was read for
+ * this search: the token, its pools and their checks (`healths`, the same the pool cards
+ * show), Jupiter's price, and the public fee tier and the fee account (`createFacts`).
+ * Unread is never "no": each unread input has its own line, and most have a **Refresh**.
  *
  * A pool that already exists never takes the button away. The card names the pool to add
  * to first (`createAdvice`: one this tab opened, else the biggest passing pool on the
- * public tier) and says a new pool is separate; the choice is the opener's.
+ * public tier) and says a new pool is separate; the choice is the opener's. Its button
+ * for that pool is **Go to that pool**: it opens that pool card's own Add form, so there
+ * is one Add, on the pool's card.
  *
  * ANY TOKEN MAY HAVE A POOL (owner ruling 2026-10-04). A token that copies a well-known
  * name, one its creator can freeze, and one with no market price are offered like any
@@ -58,6 +76,8 @@ export function CreatePoolCard(p: {
   outside: OutsidePrice | null;
   /** When Jupiter's price was read (ms), for the panel's "read at" time. */
   outsideAt: number | null;
+  /** The section's one read of the fee tiers, or null while it reads: the opening's account deposits. */
+  feeTiers: FeeTierRead | null;
   /** Search the same token again (pools, token and price). */
   onReread: () => void;
   /** The search on screen is the last answer, shown while the same token is read again. */
@@ -84,6 +104,7 @@ function CreateCard({
   healths,
   outside,
   outsideAt,
+  feeTiers,
   onReread,
   refreshing = false,
   openNow = 0,
@@ -115,7 +136,7 @@ function CreateCard({
   // What the opener is warned about before any button. Only beside an offer: a stopped card has no button.
   const cautions = offer === 'offer' ? openingCautions(safety, outside) : [];
   const otherSide = otherSideLine(mint);
-  // A pressed Read again: what the card said before, until the new answer is in.
+  // A pressed Refresh: what the card said before, until the new answer is in.
   const [asked, setAsked] = useState<string | null>(null);
   const [said, setSaid] = useState<'same' | 'changed' | null>(null);
   if (asked !== null && !reading) {
@@ -158,6 +179,8 @@ function CreateCard({
   // Add button follows. It sits beside Open a pool, which stays: a token may have as
   // many pools as people open (owner ruling 2026-10-03). One button per pool pointed to,
   // and with more than one each says its coin, so "that pool" is never a guess.
+  // It says Go to, not Add: it opens that pool card's own Add form (the same panel key as
+  // the card's Add button), which comes to the top of the screen there.
   // Not for a pool whose price is off the market: this card does not suggest adding to
   // it (`adviceCaveat`), so it puts no button for that here. The pool's own card keeps
   // its Add button.
@@ -187,7 +210,7 @@ function CreateCard({
     >
       <CardArt pageId="solana-lp" idx={9} />
       <h3 id={headingId} ref={headingRef} tabIndex={-1} className="text-white font-semibold text-[13px] mb-2 outline-none" style={SHADOW}>
-        Open a new pool
+        Open a pool
       </h3>
       <div className="text-white/70 text-[12px] leading-relaxed space-y-2">
         {/* A changed answer is read out as it lands. */}
@@ -219,9 +242,9 @@ function CreateCard({
             </div>
           )}
         </div>
-        {/* What the last Read again found, so the same answer is not silence. */}
+        {/* What the last Refresh found, so the same answer is not silence. */}
         <p role="status" className="text-white/55 text-[11px]" data-testid="lp-create-reread">
-          {asked !== null ? 'Reading again…' : said === 'same' ? 'Read again just now: the same answer.' : said === 'changed' ? 'Read again just now: the answer above is new.' : ''}
+          {asked !== null ? 'Refreshing…' : said === 'same' ? 'Refreshed just now: the same answer.' : said === 'changed' ? 'Refreshed just now: the answer above is new.' : ''}
         </p>
         {addInstead.length > 0 && (
           <div className="flex flex-col sm:flex-row sm:flex-wrap gap-2">
@@ -234,18 +257,24 @@ function CreateCard({
                 data-coin={coin.symbol}
                 onClick={(e) => writes.open('add', `add:${pool.address}`, e.currentTarget)}
               >
-                {pointers.length > 1 ? `Add liquidity to the ${coin.symbol} pool` : 'Add liquidity to that pool'}
+                {pointers.length > 1 ? `Go to the ${coin.symbol} pool` : 'Go to that pool'}
               </button>
             ))}
           </div>
         )}
         {offer === 'offer' && (
           <>
+            {/* The whole cost, on the screen, right above the press that pays it. */}
+            {tier?.kind === 'ready' && (
+              <p className="text-white/85" data-testid="lp-create-cost">
+                {costLine(tier.config.createPoolFee, feeTiers)}
+              </p>
+            )}
             {/* Stays mounted while its panel is open, so focus can come back to it on Close. */}
             <button
               ref={openButton}
               type="button"
-              // Beside "Add liquidity to that pool" this is the second choice, and looks it.
+              // Beside "Go to that pool" this is the second choice, and looks it.
               className={`${addInstead.length > 0 ? 'btn-secondary' : 'btn-primary'} w-full sm:w-auto min-h-[44px] px-4 text-[13px] disabled:opacity-60`}
               disabled={blockedByOther}
               aria-expanded={open}
@@ -361,7 +390,7 @@ function answerKey(
   ].join('|');
 }
 
-/** Read again. While a read runs it stays focusable but does nothing (aria-disabled), so focus is not lost. */
+/** Refresh: read again. While a read runs it stays focusable but does nothing (aria-disabled), so focus is not lost. */
 function ReadAgain({ onClick, busy = false }: { onClick: () => void; busy?: boolean }) {
   return (
     <button
@@ -372,7 +401,7 @@ function ReadAgain({ onClick, busy = false }: { onClick: () => void; busy?: bool
         if (!busy) onClick();
       }}
     >
-      Read again
+      Refresh
     </button>
   );
 }
@@ -408,7 +437,8 @@ function OfferLines({
     case 'offer': {
       if (tier?.kind !== 'ready') return null;
       // Opened with cp-swap's `initialize`, so the new pool never charges the tier's creator fee.
-      const terms = `${tradeCostText(tier.config, CREATOR_FEE_SWITCH.publicOpen)}, ${solFee(tier.config.createPoolFee)} SOL to open`;
+      // What opening costs is its own line, above the button (`costLine`), so it is said once.
+      const terms = tradeCostText(tier.config, CREATOR_FEE_SWITCH.publicOpen);
       const pools = search.kind === 'ok' ? search.search.pools.flatMap((e) => (e.kind === 'pool' ? [e.view] : [])) : [];
       // A cut list (see poolListCut) is never "no pool yet", and a new pool never "the first".
       const cut = poolListCut(search);
@@ -420,7 +450,7 @@ function OfferLines({
         return (
           <>
             <p>
-              No {aPool} for this token yet. You can open the first one on the public fee tier: {terms} (read just now).
+              No {aPool} for this token yet. You can open the first one on the public fee tier (read just now): {terms}.
             </p>
             {/* With no pool anywhere there is nothing to press "Add liquidity" on: say that this is the way in. */}
             <FinePrint summary="Details">
@@ -480,7 +510,7 @@ function OfferLines({
             <p>
               {cut ? 'None of the pools read for this token' : "None of this token's pools"}
               {onPublicTier} passes the checks above.{' '}
-              You can open a new one on the public fee tier ({terms}). It will be a separate pool: it does not fix or join the others.
+              You can open a new one on the public fee tier, at {terms}. It will be a separate pool: it does not fix or join the others.
             </p>
             {noneYetLine}
             {otherTierLine}
@@ -522,8 +552,8 @@ function OfferLines({
           {noneYetLine}
           <p data-testid="lp-create-still">
             {allMine
-              ? `You can still open another on the public fee tier (${terms}). It will be a separate pool, and the fee to open is paid again.`
-              : `You can still open your own on the public fee tier (${terms}). It will be a separate pool: it does not share ${several ? "the other pools'" : "the other pool's"} liquidity or fees.`}
+              ? `You can still open another on the public fee tier, at ${terms}. It will be a separate pool, and the fee to open is paid again.`
+              : `You can still open your own on the public fee tier, at ${terms}. It will be a separate pool: it does not share ${several ? "the other pools'" : "the other pool's"} liquidity or fees.`}
           </p>
           {!allMine && otherTierLine}
           {cutLine}

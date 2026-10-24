@@ -4,13 +4,29 @@
 // (tx 0x730b0c9f…, block 25038892): one schedule (no cliff, one day), 80% to the sender.
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { encodeAbiParameters, encodeEventTopics, getAddress, toEventSelector, toFunctionSelector, type Address, type Hex } from 'viem';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import {
+  TransactionReceiptNotFoundError,
+  createPublicClient,
+  encodeAbiParameters,
+  encodeEventTopics,
+  fallback,
+  getAddress,
+  http,
+  toEventSelector,
+  toFunctionSelector,
+  type Address,
+  type Hex,
+} from 'viem';
 import { airlockAbi, dopplerERC20V1Abi } from '@whetstone-research/doppler-sdk/evm';
+import { cspAllows } from '../../test/csp';
 import { CURVE_LAUNCHER_ABI, CURVE_TOTAL_SUPPLY, previewBuy, saleSupplyForReserveBps } from './curve';
 import { AIRLOCK_CREATE_EVENT } from './ourLaunches';
 import { LAUNCHER_INTEGRATOR_ADDRESS } from './config';
 import {
   DOPPLER_PLATES_ABI,
+  RECEIPT_HOSTS,
   asBirthReceipt,
   curveCreateBuyFromReceipt,
   dopplerBirthFromReceipt,
@@ -423,6 +439,116 @@ describe('readDopplerPlates: only a Doppler launch, and unread is never 0', () =
     expect((await readDopplerPlates(client(), TOKEN, async () => Promise.reject(new Error('502')))).kind).toBe('unreadable');
     const broken = { getTransactionReceipt: async () => Promise.reject(new Error('rpc')), readContract: async () => assetRecord() };
     expect((await readDopplerPlates(broken, TOKEN, async () => TX)).kind).toBe('unreadable');
+  });
+});
+
+// ─────────────────── a host with no copy of the receipt is not the last word ───────────────────
+
+describe("a host with no copy of the receipt is asked past, by name (viem's fallback never moves on a null)", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  /** The receipt as a JSON-RPC host sends it: hex status, each log with its own index. */
+  const onTheWire = (r: BirthReceipt) => ({
+    status: r.status === 'success' ? '0x1' : '0x0',
+    from: r.from,
+    to: r.to,
+    transactionHash: r.transactionHash,
+    blockNumber: '0x17e0f2c',
+    logs: r.logs.map((l, i) => ({ address: l.address, topics: l.topics, data: l.data, logIndex: `0x${i.toString(16)}`, transactionHash: r.transactionHash })),
+  });
+
+  /**
+   * Every host behind one fetch. Each answers eth_getTransactionReceipt with the receipt, a null
+   * (HTTP 200 and no error: a host that keeps no copy) or HTTP 500. Returns the hosts asked, in order.
+   */
+  function chainHosts(answers: Record<string, BirthReceipt | null | 500>) {
+    const asked: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+        const host = new URL(input instanceof Request ? input.url : String(input)).host;
+        asked.push(host);
+        const body = JSON.parse(String(init?.body)) as { id: number; method: string };
+        const a = answers[host];
+        if (body.method !== 'eth_getTransactionReceipt' || a === undefined) throw new Error(`unexpected ${body.method} to ${host}`);
+        if (a === 500) return new Response('upstream down', { status: 500 });
+        const json = { jsonrpc: '2.0', id: body.id, result: a && onTheWire(a) };
+        return new Response(JSON.stringify(json), { status: 200, headers: { 'content-type': 'application/json' } });
+      }),
+    );
+    return asked;
+  }
+
+  /** The page's reader as wagmi builds it: one fallback over the roster, first host first. */
+  const pageReader = (urls: string[]) => createPublicClient({ transport: fallback(urls.map((u) => http(u))) });
+
+  it('reads the Doppler birth from eth.drpc.org when publicnode answers null, as it did on 2026-10-14', async () => {
+    const asked = chainHosts({ 'ethereum-rpc.publicnode.com': null, 'eth.drpc.org': dopplerBirth() });
+    const shared = pageReader(['https://ethereum-rpc.publicnode.com', 'https://eth.drpc.org']);
+    // The trap itself: the fallback takes publicnode's null as the answer and never asks drpc.
+    await expect(shared.getTransactionReceipt({ hash: TX })).rejects.toBeInstanceOf(TransactionReceiptNotFoundError);
+    expect(asked).toEqual(['ethereum-rpc.publicnode.com']);
+    asked.length = 0;
+
+    const reads: Record<string, unknown> = { getAssetData: assetRecord(), vestingStart: 1_778_105_483n, vestingOf: [8n * E26, 0n] };
+    const c = {
+      getTransactionReceipt: (a: { hash: Hex }) => shared.getTransactionReceipt(a),
+      readContract: async (a: { functionName: string }) => reads[a.functionName],
+    };
+    const p = await readDopplerPlates(c, TOKEN, async () => TX);
+    expect(p.kind === 'read' && [p.birth.tx, p.birth.maker, p.birth.makerAmount]).toEqual([TX, MAKER, 8n * E26]);
+    expect(asked).toEqual(['ethereum-rpc.publicnode.com', 'eth.drpc.org']);
+  });
+
+  it('on Base, asks each named host in turn until one has it', async () => {
+    const birth = receipt([launchCreated(), curveBuy({ buyer: MAKER, ethGross: 10n ** 17n })]);
+    const asked = chainHosts({ 'base-rpc.publicnode.com': null, 'base.drpc.org': null, 'mainnet.base.org': birth });
+    const r = await readCurveCreateBuy(pageReader(['https://base-rpc.publicnode.com', 'https://base.drpc.org']), { chainId: 8453, ...WANT }, async () => TX);
+    expect(r.kind === 'unreadable' ? r.detail : r.kind).toBe('ok');
+    expect(asked).toEqual(['base-rpc.publicnode.com', 'base.drpc.org', 'mainnet.base.org']);
+  });
+
+  it('asks no other host when the page reader has the receipt', async () => {
+    const asked = chainHosts({});
+    const c = { getTransactionReceipt: async () => receipt([launchCreated()]), readContract: vi.fn() };
+    expect((await readCurveCreateBuy(c, { chainId: 1, ...WANT }, async () => TX)).kind).toBe('ok');
+    expect(asked).toEqual([]);
+  });
+
+  it('when every host has no copy or fails, the receipt "could not be read": never "not found", never a failed transaction', async () => {
+    chainHosts({ 'ethereum-rpc.publicnode.com': null, 'eth.drpc.org': 500 });
+    const r = await readCurveCreateBuy(pageReader(['https://ethereum-rpc.publicnode.com']), { chainId: 1, ...WANT }, async () => TX);
+    const detail = r.kind === 'unreadable' ? r.detail : `read as ${r.kind}`;
+    expect(detail).toMatch(/^its launch receipt could not be read: /);
+    expect(detail).toMatch(/eth\.drpc\.org failed/);
+    expect(detail).toMatch(/ethereum-rpc\.publicnode\.com had no copy/);
+    expect(detail).not.toMatch(/could not be found|not found|did not succeed|revert/i);
+
+    // Doppler, every host answering null: the card says it could not read, and names who it asked.
+    chainHosts({ 'ethereum-rpc.publicnode.com': null, 'eth.drpc.org': null });
+    const reader = pageReader(['https://ethereum-rpc.publicnode.com', 'https://eth.drpc.org']);
+    const c = { getTransactionReceipt: (a: { hash: Hex }) => reader.getTransactionReceipt(a), readContract: async () => assetRecord() };
+    expect(await readDopplerPlates(c, TOKEN, async () => TX)).toEqual({
+      kind: 'unreadable',
+      detail: 'its launch receipt could not be read: our usual host had no copy, eth.drpc.org had no copy, ethereum-rpc.publicnode.com had no copy',
+    });
+
+    // Robinhood Chain has one public host, so there is no one else to ask; the words hold.
+    const asked = chainHosts({});
+    const none = { getTransactionReceipt: async () => Promise.reject(new TransactionReceiptNotFoundError({ hash: TX })), readContract: vi.fn() };
+    const q = await readCurveCreateBuy(none, { chainId: 4663, ...WANT }, async () => TX);
+    expect(q).toEqual({ kind: 'unreadable', detail: 'its launch receipt could not be read: our usual host had no copy' });
+    expect(asked).toEqual([]);
+  });
+
+  it('asks only hosts on the roster in chains/viemChains.ts, each one the CSP lets the browser reach', () => {
+    const roster = readFileSync(join(process.cwd(), 'src', 'lib', 'chains', 'viemChains.ts'), 'utf-8');
+    const hosts = Object.values(RECEIPT_HOSTS).flat();
+    expect(hosts.length).toBeGreaterThanOrEqual(2);
+    for (const url of hosts) {
+      expect(roster, `${url} is not on the roster`).toContain(`'${url}'`);
+      expect(cspAllows('connect-src', url), `connect-src blocks ${url}`).toBe(true);
+    }
   });
 });
 

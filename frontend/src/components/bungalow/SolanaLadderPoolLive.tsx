@@ -1,6 +1,7 @@
 // Polyfill MUST load before any @solana/* import — same rule as SolanaProviders.
 import '../../lib/solanaPolyfill';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { m } from 'framer-motion';
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
 import type { SignerWalletAdapter } from '@solana/wallet-adapter-base';
@@ -32,9 +33,11 @@ import { Fact, HEAD, PANEL_BG, LEDGER_BG, HAIR, DIVIDED_BG } from './ledger';
 import { HeldTimeLine } from './HeldTimeLine';
 import { CardArt } from '../ui/CardArt';
 import { FinePrint } from '../ui/FinePrint';
+import { rewardsEndedLine } from '../../lib/rewardsEnded';
 import { Reveal } from '../motion/Reveal';
 import { DUR, EASE_OUT, pressTap, staggerContainer, staggerItem } from '../../lib/motion';
 
+import { PositionMark, positionHost } from '../ui/PositionMark';
 /**
  * A `bayla-ladder` pool, LIVE.
  *
@@ -114,8 +117,14 @@ function resolveConfig(poolAddress: string): Config {
   }
 }
 
-/** The card WITHOUT its own wallet context, for SolanaPoolStack. Elsewhere use SolanaLadderPoolLive. */
-export function SolanaLadderPoolCard({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
+/**
+ * The card WITHOUT its own wallet context, for SolanaPoolStack. Elsewhere use SolanaLadderPoolLive.
+ * `compact` is the home's card (owner, 2026-10-16: "the staking module is too long"): the lock
+ * lengths in one row, the amount and the Lock button, the penalty line and the upgrade risk. A
+ * wallet with positions gets one line and a link to this room's full card on Earn, where its
+ * positions, the pool's figures and the notes are; nothing here can claim or exit.
+ */
+export function SolanaLadderPoolCard({ bungalow, compact = false }: { bungalow: Bungalow & { ladderPool: string }; compact?: boolean }) {
   const { publicKey, wallet } = useWallet();
   const { connection } = useConnection();
   const openConnect = useSolanaConnect();
@@ -437,22 +446,26 @@ export function SolanaLadderPoolCard({ bungalow }: { bungalow: Bungalow & { ladd
       label="Minimum stake"
       value={pool ? fmtRaw(pool.minStakeRaw, decimals) : '–'}
       unit={sym}
-      describedBy={`${fid}-min`}
+      // The note it points at is in the ledger's Notes, which the compact card leaves out.
+      describedBy={compact ? undefined : `${fid}-min`}
     />
   );
 
   return (
     <Reveal>
-    <div className="relative isolate overflow-hidden rounded-2xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>
+    <div className={positionHost('relative isolate overflow-hidden rounded-2xl glass-card-animated', positions.length > 0)} style={{ border: '1px solid var(--color-purple-75)' }}>
+      <PositionMark inPosition={positions.length > 0} />
       <CardArt pageId="solana-ladder-pool-live" idx={0} scrim="transparent" />
       <div className="absolute inset-0" style={{ background: 'rgba(4,9,18,0.52)' }} />
-      <div className="relative z-10 p-5 sm:p-6 flex flex-col gap-6">
+      <div className={compact ? 'relative z-10 p-4 flex flex-col gap-3' : 'relative z-10 p-5 sm:p-6 flex flex-col gap-6'}>
         <header>
-          <p className="text-[11px] uppercase tracking-[0.14em] mb-3 m-0" style={{ color: 'var(--color-kyle)', fontFamily: HEAD }}>
-            The lock ladder · LIVE
-          </p>
-          <h2 className="heading-luxury text-xl sm:text-2xl text-white mb-3">
-            Lock {sym}, earn a weighted share
+          {!compact && (
+            <p className="text-[11px] uppercase tracking-[0.14em] mb-3 m-0" style={{ color: 'var(--color-kyle)', fontFamily: HEAD }}>
+              The lock ladder · LIVE
+            </p>
+          )}
+          <h2 className={compact ? 'heading-luxury text-xl text-white mb-1' : 'heading-luxury text-xl sm:text-2xl text-white mb-3'}>
+            {compact ? `Lock ${sym}` : `Lock ${sym}, earn a weighted share`}
           </h2>
           {/* Owner-mandated disclosure. Every rule on this card is what the DEPLOYED
               program enforces; the upgrade authority can change any of it. */}
@@ -504,14 +517,31 @@ export function SolanaLadderPoolCard({ bungalow }: { bungalow: Bungalow & { ladd
         {pool && !identityMismatch && (
           <>
             {pool.degraded && (
-              <p role="alert" className="text-[13px] rounded-lg p-3 m-0" style={{ background: 'rgba(240,178,107,0.10)', border: '1px solid rgba(240,178,107,0.4)', color: '#f0b26b' }}>
-                <strong>This pool has been declared degraded.</strong> It takes no new stakes. Every open
-                position still exits, and neither early exit nor the emergency hatch charges a penalty. The
-                deployed program has no instruction to switch it back.
-              </p>
+              <div role="alert" className="text-[13px] rounded-lg p-3" style={{ background: 'rgba(240,178,107,0.10)', border: '1px solid rgba(240,178,107,0.4)', color: '#f0b26b' }}>
+                <p className="m-0"><strong>This pool has been declared degraded.</strong> It takes no new stakes.</p>
+                <FinePrint summary="What still works">
+                  <p className="m-0">
+                    Every open position still exits, and neither early exit nor the emergency hatch charges a
+                    penalty. The deployed program has no instruction to switch it back.
+                  </p>
+                </FinePrint>
+              </div>
             )}
 
             {/* ── 1. THE METER, and you in this pool ────────────────────── */}
+            {compact ? (
+              <CompactYou
+                walletUnreadable={walletUnreadable || null}
+                onReread={reread}
+                show={youLoaded && !walletEmpty}
+                unreadPositions={youLoaded && !walletEmpty && !walletUpdating && positions.length === 0}
+                earned={myEarned === null ? null : fmtRaw(myEarned, decimals)}
+                carried={carriedRaw !== null && carriedRaw > 0n ? fmtRaw(carriedRaw, decimals) : null}
+                open={openCount}
+                sym={sym}
+                manageTo={`/earn/${bungalow.id}`}
+              />
+            ) : (
             <section aria-label="Your earnings" className="@container">
               <div className="grid grid-cols-1 gap-4 @min-[52rem]:grid-cols-12">
                 <div
@@ -667,16 +697,19 @@ export function SolanaLadderPoolCard({ bungalow }: { bungalow: Bungalow & { ladd
               </div>
               <HeldTimeLine chain={bungalow.chain} pool={bungalow.ladderPool} className="mt-3" />
             </section>
+            )}
 
             {/* ── 2. THE STAIRCASE, and the action rail ─────────────────── */}
             {/* Visible WITHOUT a wallet: anyone can climb the ladder and see what each
                 rung weighs before deciding to connect. The amount, the verdict and
                 the Lock button still render only for a read wallet. */}
-            <section aria-label="Open a position" className="@container rounded-[14px] px-3 py-5 sm:p-6" style={{ background: PANEL_BG, border: `1px solid ${HAIR}` }}>
-              <div className="grid grid-cols-1 gap-6 @min-[52rem]:grid-cols-12">
-                <div className="min-w-0 @min-[52rem]:col-span-7">
+            <section aria-label="Open a position" className={compact ? '@container rounded-[14px] p-3' : '@container rounded-[14px] px-3 py-5 sm:p-6'} style={{ background: PANEL_BG, border: `1px solid ${HAIR}` }}>
+              <div className={compact ? 'grid grid-cols-1 gap-3' : 'grid grid-cols-1 gap-6 @min-[52rem]:grid-cols-12'}>
+                <div className={compact ? 'min-w-0' : 'min-w-0 @min-[52rem]:col-span-7'}>
+                  {/* FEWER WORDS (owner, 2026-10-14): the label is the label; the sentence it
+                      carried, and the footer's, sit in the ledger's Notes, word for word. */}
                   <p className="text-[12px] mb-3 m-0" style={{ color: 'rgba(255,255,255,0.78)' }} id="ladder-rungs-label">
-                    Lock length: a longer lock carries more weight, and a larger share.
+                    Lock length
                   </p>
                   {/* TAP TARGETS (2026-09-21): seven rungs across a phone came out 40px
                       wide at 393px, under the 44px floor. On a narrow panel the rungs
@@ -685,6 +718,33 @@ export function SolanaLadderPoolCard({ bungalow }: { bungalow: Bungalow & { ladd
                       3px padding. The weight label is tracked in slightly so "4.00×"
                       stays inside its rung at 320px, where it overlapped by 1.3px; self-center
                       centres it even when it is wider than the content box. */}
+                  {compact ? (
+                    // One row: each rung's length over its weight, no bars (the home's card).
+                    <div role="group" aria-labelledby="ladder-rungs-label" className="grid grid-cols-7 gap-1" data-testid="ladder-rungs-row">
+                      {RUNGS.map((secs) => {
+                        const on = secs === lockSecs;
+                        const bps = boostBpsForLock(secs);
+                        return (
+                          <button
+                            key={secs}
+                            type="button"
+                            aria-pressed={on}
+                            aria-label={`${lockLabel(secs)} lock, ${boostLabel(bps)} weight`}
+                            onClick={() => setLockSecs(secs)}
+                            className="flex min-h-[44px] min-w-0 flex-col items-center justify-center gap-0.5 rounded-lg outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-kyle)]"
+                            style={{ background: on ? 'rgba(76,175,80,0.22)' : 'rgba(139,92,246,0.10)', border: `1px solid ${on ? 'var(--color-kyle)' : 'var(--color-purple-25)'}` }}
+                          >
+                            <span aria-hidden="true" className="text-[12px] leading-none" style={{ fontFamily: HEAD, fontWeight: 600, color: on ? '#fff' : 'rgba(255,255,255,0.78)' }}>
+                              {lockLabel(secs)}
+                            </span>
+                            <span aria-hidden="true" className="text-[10px] tabular-nums leading-none tracking-[-0.03em] whitespace-nowrap" style={{ fontFamily: MONO, color: on ? '#fff' : 'rgba(255,255,255,0.6)' }}>
+                              {boostLabel(bps)}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : (
                   <div role="group" aria-labelledby="ladder-rungs-label" className="grid grid-cols-7 gap-0 -mx-2.5 @min-[30rem]:mx-0 @min-[30rem]:gap-1.5 h-[116px] @min-[30rem]:h-[132px] @min-[52rem]:h-[148px]">
                     {RUNGS.map((secs, i) => {
                       const on = secs === lockSecs;
@@ -730,17 +790,25 @@ export function SolanaLadderPoolCard({ bungalow }: { bungalow: Bungalow & { ladd
                       );
                     })}
                   </div>
+                  )}
                   <div className="mt-2 pt-2 flex justify-end" style={{ borderTop: '1px solid rgba(255,255,255,0.1)' }}>
                     <p className="m-0 text-[11px] text-right" style={{ color: 'rgba(255,255,255,0.62)' }}>
-                      weight grows with lock length · capped at {MAX_LOCK_SECS / (365 * DAY)} years
+                      longer lock, bigger share
                       {!pool.degraded && ' · leaving early costs a penalty'}
                     </p>
                   </div>
                 </div>
 
                 {/* ── the action rail ──────────────────────────────────── */}
-                <div className="min-w-0 @min-[52rem]:col-span-5">
-                  {!publicKey ? (
+                <div className={compact ? 'min-w-0' : 'min-w-0 @min-[52rem]:col-span-5'}>
+                  {/* An ended reward window takes no new stake (owner, 2026-10-14): the
+                      date the pool read returned, and no form. Claim and the exit
+                      doors below are untouched. */}
+                  {rewardWindow === 'ended' ? (
+                    <div className="flex flex-col gap-4" data-testid="ladder-window-ended">
+                      <p className="m-0 text-[12px]" style={{ color: '#f0b26b' }}>{rewardsEndedLine(pool.periodFinish)}</p>
+                    </div>
+                  ) : !publicKey ? (
                     <div className="flex flex-col gap-4">
                       {minStakeFact}
                       <button type="button" onClick={openConnect} className="btn-primary w-full px-6 py-2.5 text-[13px]">
@@ -795,14 +863,16 @@ export function SolanaLadderPoolCard({ bungalow }: { bungalow: Bungalow & { ladd
                               </li>
                             )}
                           </ul>
-                          <p className="text-[12px] m-0" style={{ color: 'rgba(255,255,255,0.72)' }}>
-                            This would carry a weight of{' '}
-                            <strong className="text-white">{fmtRaw(weightForStake(amountRaw, lockSecs), decimals)}</strong>{' '}
-                            and unlock in {humanDuration(lockSecs)}.{' '}
-                            {pool.degraded
-                              ? 'While the pool is degraded it accepts no new stakes.'
-                              : `Leaving straight away would forfeit ${penaltyPct(penaltyFor(amountRaw, BigInt(lockSecs), 0n), amountRaw)} of the principal; the penalty is the time left on the lock over four years, capped at ${MAX_EARLY_EXIT_PENALTY_BPS / 100}%, so it shrinks as the lock runs down.`}
-                          </p>
+                          <FinePrint summary="This lock">
+                            <p className="m-0">
+                              This would carry a weight of{' '}
+                              <strong className="text-white">{fmtRaw(weightForStake(amountRaw, lockSecs), decimals)}</strong>{' '}
+                              and unlock in {humanDuration(lockSecs)}.{' '}
+                              {pool.degraded
+                                ? 'While the pool is degraded it accepts no new stakes.'
+                                : `Leaving straight away would forfeit ${penaltyPct(penaltyFor(amountRaw, BigInt(lockSecs), 0n), amountRaw)} of the principal; the penalty is the time left on the lock over four years, capped at ${MAX_EARLY_EXIT_PENALTY_BPS / 100}%, so it shrinks as the lock runs down.`}
+                            </p>
+                          </FinePrint>
                         </>
                       )}
 
@@ -843,7 +913,7 @@ export function SolanaLadderPoolCard({ bungalow }: { bungalow: Bungalow & { ladd
               </div>
             </section>
 
-            {youLoaded && (
+            {youLoaded && !compact && (
               <>
                 {/* Carried rewards are real money in a field. A UI that never shows
                     them hides a balance the program deliberately preserved: the hatch
@@ -852,11 +922,17 @@ export function SolanaLadderPoolCard({ bungalow }: { bungalow: Bungalow & { ladd
                 {carriedRaw !== null && carriedRaw > 0n && (
                   <div className="rounded-[14px] p-4 flex flex-wrap items-center justify-between gap-3"
                     style={{ background: LEDGER_BG, border: '1px solid var(--color-kyle-40)' }}>
-                    <p className="text-white/85 text-[13px] m-0">
-                      <strong>{fmtRaw(carriedRaw, decimals)} {sym}</strong> carried from a closed position:
-                      rewards the reward vault could not cover when it closed, or that the emergency hatch set
-                      aside. They are still yours.
-                    </p>
+                    <div className="min-w-0">
+                      <p className="text-white/85 text-[13px] m-0">
+                        <strong>{fmtRaw(carriedRaw, decimals)} {sym}</strong> carried from a closed position. Still yours.
+                      </p>
+                      <FinePrint summary="Why">
+                        <p className="m-0">
+                          Rewards the reward vault could not cover when it closed, or that the emergency hatch set
+                          aside. They are still yours.
+                        </p>
+                      </FinePrint>
+                    </div>
                     <button type="button" disabled={!canWrite || !ctx}
                       onClick={() => ctx && void run('Claim carried', () => ladderClaimCarried(ctx))}
                       className="btn-secondary px-4 py-2.5 text-[12px] disabled:opacity-50">
@@ -917,6 +993,7 @@ export function SolanaLadderPoolCard({ bungalow }: { bungalow: Bungalow & { ladd
                 desktop. Helper sentences live in the footnotes below, word for word,
                 always visible, and each cell points at its own with
                 aria-describedby. */}
+            {!compact && (
             <section data-ledger aria-label="The pool" className="@container flex flex-col gap-3">
               <p className="m-0 text-[11px] uppercase tracking-[0.14em]" style={{ color: 'rgba(255,255,255,0.7)', fontFamily: HEAD }}>
                 The pool
@@ -972,10 +1049,16 @@ export function SolanaLadderPoolCard({ bungalow }: { bungalow: Bungalow & { ladd
                   <strong className="font-semibold" style={{ color: '#fff' }}>Minimum stake:</strong>{' '}
                   the deployed program has no setter for it.
                 </li>
+                <li>
+                  <strong className="font-semibold" style={{ color: '#fff' }}>Lock length:</strong>{' '}
+                  a longer lock carries more weight, and a larger share. Weight grows with lock length, capped
+                  at {MAX_LOCK_SECS / (365 * DAY)} years{!pool.degraded && ', and leaving early costs a penalty'}.
+                </li>
                 {fundingLine && <li>{fundingLine}</li>}
               </ul>
               </FinePrint>
             </section>
+            )}
 
             {action?.note && (
               <p role="status" className="text-[12px] m-0 rounded-lg p-3" style={{ background: LEDGER_BG, border: '1px solid var(--color-purple-25)', color: 'rgba(255,255,255,0.85)' }}>
@@ -1001,6 +1084,49 @@ export function SolanaLadderPoolCard({ bungalow }: { bungalow: Bungalow & { ladd
       </div>
     </div>
     </Reveal>
+  );
+}
+
+/**
+ * The home card's one line about the wallet (compact): what it has earned and how many
+ * positions, and the way to them. A figure that could not be read says so, as the full
+ * card does; nothing is shown for a wallet with no positions or before a wallet is read.
+ */
+function CompactYou({ walletUnreadable, onReread, show, unreadPositions, earned, carried, open, sym, manageTo }: {
+  walletUnreadable: string | null;
+  onReread: () => void;
+  show: boolean;
+  unreadPositions: boolean;
+  earned: string | null;
+  carried: string | null;
+  open: number | null;
+  sym: string;
+  manageTo: string;
+}) {
+  if (walletUnreadable) {
+    return (
+      <p role="alert" className="text-[12px] rounded-lg p-2.5 m-0" style={{ background: 'rgba(240,178,107,0.10)', border: '1px solid rgba(240,178,107,0.4)', color: '#f0b26b' }}>
+        {walletUnreadable} Not read, so no figure is shown.{' '}
+        <button type="button" onClick={onReread} className="underline underline-offset-2">Try again</button>
+      </p>
+    );
+  }
+  if (!show) return null;
+  return (
+    <p className="m-0 text-[12px] flex flex-wrap items-baseline gap-x-2" data-testid="ladder-compact-you" style={{ color: 'rgba(255,255,255,0.85)' }}>
+      {unreadPositions ? (
+        <span style={{ color: '#f0b26b' }}>Your positions could not be fully read, so no figure is shown.</span>
+      ) : (
+        <span>
+          {earned === null ? 'Earned: not read' : `${earned} ${sym} earned`}
+          {open !== null && ` · ${open} open`}
+          {carried && ` · ${carried} ${sym} carried`}
+        </span>
+      )}
+      <Link to={manageTo} className="underline underline-offset-2" style={{ color: 'var(--color-kyle)' }}>
+        Claim and manage
+      </Link>
+    </p>
   );
 }
 
@@ -1195,11 +1321,6 @@ function PositionRow({
             open, so only the open one is offered. */}
         <ExitButton
           label={matured ? `Withdraw ${fmtRaw(normal.receivesRaw, decimals)} ${sym}` : `Exit early: keep ${fmtRaw(normal.receivesRaw, decimals)} ${sym}`}
-          detail={matured
-            ? `No penalty. ${rewardsPaid}`
-            : pool.degraded
-              ? `No penalty while the pool is degraded. ${rewardsPaid}`
-              : `${fmtRaw(normal.penaltyRaw, decimals)} ${sym} is retained. ${rewardsPaid}`}
           needsConfirm={!matured}
           confirmed={confirmFor === key('normal')}
           onArm={() => setConfirmFor(key('normal'))}
@@ -1216,7 +1337,6 @@ function PositionRow({
           label={hatch.penaltyRaw > 0n
             ? `Emergency withdraw: costs ${fmtRaw(hatch.penaltyRaw, decimals)} ${sym}`
             : 'Emergency withdraw: no penalty'}
-          detail={hatch.reason}
           needsConfirm
           confirmed={confirmFor === key('hatch')}
           onArm={() => setConfirmFor(key('hatch'))}
@@ -1227,15 +1347,27 @@ function PositionRow({
           tone="danger"
         />
       </div>
+      {/* What each door pays, one press away (owner, 2026-10-14: fewer words). The
+          sentences are the ones that sat under the buttons, word for word; the price
+          itself stays on the button. */}
+      <FinePrint summary="What each exit pays">
+        <p className="m-0">
+          {matured
+            ? `No penalty. ${rewardsPaid}`
+            : pool.degraded
+              ? `No penalty while the pool is degraded. ${rewardsPaid}`
+              : `${fmtRaw(normal.penaltyRaw, decimals)} ${sym} is retained. ${rewardsPaid}`}
+        </p>
+        <p className="m-0">{hatch.reason}</p>
+      </FinePrint>
     </li>
   );
 }
 
 function ExitButton({
-  label, detail, needsConfirm, confirmed, onArm, onCancel, onGo, disabled, busy, tone,
+  label, needsConfirm, confirmed, onArm, onCancel, onGo, disabled, busy, tone,
 }: {
   label: string;
-  detail: string;
   needsConfirm: boolean;
   confirmed: boolean;
   onArm: () => void;
@@ -1261,7 +1393,6 @@ function ExitButton({
             </button>
           )}
         </span>
-        <span className="text-white/60 text-[11px]">{detail}</span>
       </span>
     );
   }
@@ -1272,7 +1403,6 @@ function ExitButton({
         style={{ background: 'rgba(0,0,0,0.5)', border: `1px solid ${border}`, color: 'rgba(255,255,255,0.9)' }}>
         {label}
       </button>
-      <span className="text-white/60 text-[11px]">{detail}</span>
     </span>
   );
 }

@@ -9,6 +9,7 @@ import { describe, it, expect } from 'vitest';
 import { NATIVE_MINT_2022 } from '@solana/spl-token';
 import { TOKEN_2022_NATIVE_MINT, arbitrageLoss, assessOpening, estimatedLoss, matchMarket, mostBothAtMarket, openingSolPerToken } from './opening';
 import type { OutsidePrice } from './outsidePrice';
+import { gapCostFraction } from './poolHealth';
 import type { TokenSafety } from './tokenSafety';
 import { key } from './testkit.fixture';
 import { BAYLA_QUOTE, SOL_QUOTE, USDC_QUOTE, type QuoteCoin } from './quotes';
@@ -326,5 +327,40 @@ describe('estimatedLoss', () => {
     expect(estimatedLoss({ quoteAmount: 1n, token: 10n ** 19n, tokenDecimals: 0, marketPricePerToken: 1e290, quote: SOL_QUOTE })).toBeNull();
     // The panel's own helper keeps its old answer for those: this one must not copy it.
     expect(arbitrageLoss({ quoteAmount: 1_000_000_000n, token: 5_000_000n, tokenDecimals: 6, marketPricePerToken: 0, quote: SOL_QUOTE })).toBe(0);
+  });
+});
+
+// The pool card's price warning says a cost before any amount is typed: the same sum, as a
+// share of what goes in at the pool's price, valued at the price it was checked against.
+describe('gapCostFraction', () => {
+  it('is estimatedLoss over the deposit’s value at the reference, for gaps above and below', () => {
+    const reference = 0.01;
+    for (const pool of [0.00804, 0.0095, 0.0097, 0.0103, 0.0125, 0.03, 0.1]) {
+      // 1,000 whole tokens and the SOL that matches them at the pool's own price.
+      const tokens = 1_000_000_000n;
+      const lamports = BigInt(Math.round(1000 * pool * 1e9));
+      const loss = estimatedLoss({ quoteAmount: lamports, token: tokens, tokenDecimals: 6, marketPricePerToken: reference, quote: SOL_QUOTE })!;
+      const value = Number(lamports) + 1000 * reference * 1e9;
+      expect(gapCostFraction(pool, reference), String(pool)).toBeCloseTo(Number(loss) / value, 8);
+    }
+  });
+
+  it('does not depend on the deposit’s size, and is far below the gap itself', () => {
+    // 19.6% below the reference: about 0.59% of what goes in, not 19.6%.
+    expect(gapCostFraction(0.804, 1)).toBeCloseTo(0.0059, 4);
+    expect(gapCostFraction(80.4, 100)).toBeCloseTo(gapCostFraction(0.804, 1)!, 12);
+    expect(gapCostFraction(1, 1)).toBe(0);
+  });
+
+  it('what cannot be worked out is null, never 0', () => {
+    for (const [p, m] of [
+      [0, 1],
+      [1, 0],
+      [-1, 1],
+      [Number.NaN, 1],
+      [1, Number.POSITIVE_INFINITY],
+      [Number.POSITIVE_INFINITY, 1],
+      [1e300, 1e-300],
+    ]) expect(gapCostFraction(p!, m!), `${p} ${m}`).toBeNull();
   });
 });

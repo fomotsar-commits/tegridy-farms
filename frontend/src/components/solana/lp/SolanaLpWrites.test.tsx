@@ -4,6 +4,7 @@
 // pools, positions and wallet are fake readers. Nothing here touches a chain.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { RISK_SHORT } from './LpDisclosures';
 import { act, render, screen, waitFor, within, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { PublicKey } from '@solana/web3.js';
@@ -182,7 +183,8 @@ describe('Add liquidity', () => {
     const c = await card();
     expect(await within(c).findByRole('button', { name: 'Add liquidity' })).toBeInTheDocument();
     expect(c).toHaveAttribute('data-add', 'offer');
-    expect(within(c).getByText('Checks run again on fresh reads when you press Review.')).toBeInTheDocument();
+    // The checks are said at Review, where they run; nothing about them under the buttons (owner, 2026-10-17).
+    expect(within(c).queryByText('Checks run again on fresh reads when you press Review.')).toBeNull();
     expect(screen.getByTestId('lp-disclosure')).toHaveTextContent(/Opening a pool, adding and removing liquidity here send real transactions/);
     expect(screen.getByTestId('lp-disclosure')).not.toHaveTextContent(/only reads/);
     // A clean token at the market price: the same green pass as ever, and no warning anywhere.
@@ -326,8 +328,8 @@ describe('Add liquidity', () => {
     expect(heading).toHaveFocus();
     expect(panel).toHaveAccessibleName('Add liquidity to this pool');
     const before = within(panel).getByTestId('lp-before-you-add');
-    expect(before).toHaveTextContent(/Our pool program is Raydium's, with only its admin keys changed\. Those changes have not had their own independent review yet\./);
-    expect(before).toHaveTextContent(/change its fee rates at once/);
+    expect(before).toHaveTextContent(/Our pool program is Raydium's, with its admin keys changed, one added instruction that names pool share tokens and one added check that keeps the launch fee tier for launches\. Those changes have not had their own independent review yet\./);
+    expect(before).toHaveTextContent(/change its fee rates, and upgrade the program. Each change waits 48 hours after both have signed./);
     expect(before).toHaveTextContent("Jupiter does not send trades to these pools yet. This site's own swap sends a trade to this pool only when it pays the trader at least as much as Jupiter does, so fees can be small.");
     expect(before).toHaveTextContent('When the price moves, you can end up with less than if you had just held both tokens.');
     // No word on who trades a pool: "mostly bots" was a guess the chain has not borne out.
@@ -813,7 +815,16 @@ describe('the review', () => {
     expect(await within(panel).findByRole('heading', { name: 'Review: add liquidity' })).toBeInTheDocument();
     const disclosure = within(panel).getByTestId('lp-review-disclosure');
     expect(disclosure).toHaveTextContent(/have not had their own independent review yet/);
-    expect(disclosure).toHaveTextContent(/change its fee rates at once/);
+    expect(disclosure).toHaveTextContent(/change its fee rates, and upgrade the program. Each change waits 48 hours after both have signed./);
+    // Island, answer eighteen: the two risk notices stand once, above the rows. The list under
+    // the panel said them again under the Sign button; it keeps its other lines.
+    expect(within(panel).getAllByText(/have not had their own independent review yet/)).toHaveLength(1);
+    expect(within(panel).getAllByText(/change its fee rates, and upgrade the program. Each change waits 48 hours after both have signed./)).toHaveLength(1);
+    expect(within(panel).getAllByText(RISK_SHORT)).toHaveLength(1);
+    expect(within(panel).getByTestId('lp-before-you-add')).toHaveTextContent('When the price moves, you can end up with less than if you had just held both tokens.');
+    // Back on the form, with no review on screen, the list says them again.
+    fireEvent.click(within(panel).getByRole('button', { name: 'Cancel' }));
+    expect(within(panel).getByTestId('lp-before-you-add')).toHaveTextContent(/have not had their own independent review yet/);
   });
 });
 
@@ -876,6 +887,97 @@ describe('a review too old to sign when Sign in wallet is pressed', () => {
   });
 });
 
+// What a confirmed withdrawal leaves on screen: what came out, from the review's own
+// figures, and the two ways on (the swap, opened on the token; the All pools list). Only the
+// Remove panel's confirmed card says this: the shared outcome card is otherwise unchanged.
+describe('after a confirmed withdrawal', () => {
+  const listed = { listPools: vi.fn(async () => ({ kind: 'ok' as const, list: { pools: [], unread: 0, truncated: false, chainNow: null, safety: new Map() } })) };
+  const confirmed = () => vi.fn(async (): Promise<TxOutcome> => ({ status: 'confirmed', signature: SIG, slot: 1 }));
+
+  async function removeHalf(o: Partial<LpReaders> = {}, where: () => Promise<HTMLElement> = () => screen.findByTestId('lp-position')) {
+    const v = view();
+    const p = position(v);
+    const summary = lpWithdrawSummary(new PublicKey(v.address), MINT, new PublicKey(p.lpAccount));
+    const api = fakeLpApi({ prepareLpWithdraw: vi.fn(async () => ({ ok: true as const, prepared: prepared(summary) })), submitPrepared: confirmed() });
+    const positions = vi.fn(async () => ({ kind: 'ok' as const, chainNow: 5n, totalShares: 1, positions: [p] }));
+    mount(readers({ positions, ...o }), { api, path: '/pools' });
+    fireEvent.click(await within(await where()).findByRole('button', { name: 'Remove liquidity' }));
+    const panel = await screen.findByTestId('lp-remove-panel');
+    fireEvent.click(within(within(panel).getByRole('group', { name: 'How much to take out' })).getByRole('button', { name: '50%' }));
+    await act(async () => {
+      fireEvent.click(within(panel).getByRole('button', { name: 'Review: remove liquidity' }));
+    });
+    await act(async () => {
+      fireEvent.click(await within(panel).findByRole('button', { name: 'Sign in wallet' }));
+    });
+    const outcome = await within(panel).findByTestId('tx-outcome');
+    expect(outcome).toHaveAttribute('data-status', 'confirmed');
+    return { outcome, positions };
+  }
+
+  it('says what came out, and offers the swap on that token, the All pools list and Close', async () => {
+    const { outcome, positions } = await removeHalf(listed);
+    // The review's figures: 0.05 SOL and 5 of the token, said by the name it read as.
+    expect(within(outcome).getByTestId('lp-removed')).toHaveTextContent(/^You got about 0\.05 SOL and 5 CORN\./);
+    expect(within(outcome).getByRole('link', { name: 'Swap it' })).toHaveAttribute('href', `/solana?in=${M}&out=${SOL_QUOTE.mint}`);
+    expect(within(outcome).getByRole('button', { name: 'Close' })).toBeInTheDocument();
+    const reads = positions.mock.calls.length;
+    fireEvent.click(within(outcome).getByRole('button', { name: 'Add to another pool' }));
+    expect(screen.getByRole('region', { name: 'All pools' })).toHaveFocus();
+    // The pools and positions are read again, as Close has them read.
+    await waitFor(() => expect(positions.mock.calls.length).toBeGreaterThan(reads));
+  });
+
+  it('a section with no pool list offers no "Add to another pool"', async () => {
+    const { outcome } = await removeHalf();
+    expect(within(outcome).getByRole('link', { name: 'Swap it' })).toBeInTheDocument();
+    expect(within(outcome).queryByRole('button', { name: 'Add to another pool' })).toBeNull();
+  });
+
+  it('a set-aside share is not offered the swap, and its token is not named', async () => {
+    const blocked = { ...okToken, verdict: 'blocked', blocks: [{ code: 'extension', text: 'It uses a transfer hook.' }] } as TokenSafety;
+    const { outcome } = await removeHalf({ ...listed, safety: vi.fn(async () => new Map([[M, blocked]])) }, () => screen.findByTestId('lp-positions-set-aside'));
+    expect(within(outcome).getByTestId('lp-removed')).toHaveTextContent(/^You got about 0\.05 SOL and 5 tokens\./);
+    expect(within(outcome).queryByRole('link', { name: 'Swap it' })).toBeNull();
+    expect(within(outcome).getByRole('button', { name: 'Add to another pool' })).toBeInTheDocument();
+  });
+
+  it('a token whose symbol copies a well-known one is named "fake", never by it alone', async () => {
+    const copy = {
+      ...okToken,
+      name: 'USD Coin',
+      symbol: 'USDC',
+      verdict: 'warn',
+      warnings: [{ code: 'copies-known-name', text: 'It calls itself USDC, but it is not USDC.' }],
+    } as TokenSafety;
+    const { outcome } = await removeHalf({ ...listed, safety: vi.fn(async () => new Map([[M, copy]])) });
+    expect(within(outcome).getByTestId('lp-removed')).toHaveTextContent(/^You got about 0\.05 SOL and 5 fake USDC\./);
+    expect(within(outcome).getByTestId('lp-removed')).not.toHaveTextContent(/\b5 USDC/);
+  });
+
+  it('a confirmed deposit says none of it', async () => {
+    const v = view();
+    const summary = lpDepositSummary(new PublicKey(v.address), MINT);
+    const api = fakeLpApi({ prepareLpDeposit: vi.fn(async () => ({ ok: true as const, prepared: prepared(summary) })), submitPrepared: confirmed() });
+    mount(readers({ ...listed, findPools: vi.fn(async () => search([v])) }), { api });
+    fireEvent.click(await within(await card()).findByRole('button', { name: 'Add liquidity' }));
+    const panel = await screen.findByTestId('lp-add-panel');
+    await within(panel).findByRole('button', { name: 'Max SOL' });
+    fireEvent.change(within(panel).getByLabelText('SOL to add'), { target: { value: '0.1' } });
+    await act(async () => {
+      fireEvent.click(within(panel).getByRole('button', { name: 'Review: add liquidity' }));
+    });
+    await act(async () => {
+      fireEvent.click(await within(panel).findByRole('button', { name: 'Sign in wallet' }));
+    });
+    const outcome = await within(panel).findByTestId('tx-outcome');
+    expect(outcome).toHaveAttribute('data-status', 'confirmed');
+    expect(within(outcome).queryByTestId('lp-removed')).toBeNull();
+    expect(within(outcome).queryByRole('link', { name: 'Swap it' })).toBeNull();
+    expect(within(outcome).queryByRole('button', { name: 'Add to another pool' })).toBeNull();
+  });
+});
+
 // A launch pool on tier 0 exactly as mainnet holds it (scripts/record-pools-venue-fixture.mjs):
 // the launch program opens it with its creator fee switched on, so a trade costs the 0.25%
 // trade fee plus the tier's 0.05% creator fee. What LPs keep is unchanged; the creator's part
@@ -901,7 +1003,7 @@ describe('adding to a launch pool that charges the creator fee', () => {
     mount(readers({ findPools: vi.fn(async () => search([off])) }));
     fireEvent.click(await within(await card()).findByRole('button', { name: 'Add liquidity' }));
     const before = await screen.findByTestId('lp-before-you-add');
-    expect(before).toHaveTextContent("Of each trade, liquidity providers keep 0.200%, read from this pool's fee tier just now. The vault can change");
+    expect(before).toHaveTextContent("Of each trade, liquidity providers keep 0.200%, read from this pool's fee tier just now. The vault can change that tier's rates. A change waits 48 hours after both its keys approve");
     // ("creator" alone also names the token's creator, in the freeze-account risk line.)
     expect(before).not.toHaveTextContent(/pool's creator|creator fee/i);
   });

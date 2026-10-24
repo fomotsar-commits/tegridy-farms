@@ -283,10 +283,33 @@ export async function fetchTrending(
  * and its Jupiter icon are https://ipfs.io/... URLs, and since that gateway was
  * retired (2026-09-21) wsrv.nl answers 404 for them. Via ipfs.filebase.io it
  * answers 200. (Not via Pinata: it rate-limits wsrv.nl's shared IP.)
+ *
+ * IRYS icons skip the proxy (2026-10-15). wsrv.nl now refuses every *.irys.xyz
+ * source ("Domain or TLD blocked by policy", HTTP 400), so those tokens showed
+ * initials. They load straight from gateway.irys.xyz instead, which redirects to
+ * its own CDN; img-src in vercel.json names both hosts. Measured 2026-10-15: 6 of
+ * 100 Jupiter trending icons were on gateway.irys.xyz. The image is still drawn
+ * with no referrer (TokenAvatar), so the page address does not go with it.
  */
+export const DIRECT_ICON_HOSTS: readonly string[] = ['gateway.irys.xyz'];
+
 export function iconSrc(url?: string): string {
   if (!url) return '';
+  const direct = directIconUrl(url);
+  if (direct) return direct;
   return `https://wsrv.nl/?url=${encodeURIComponent(liveIpfsUrl(url))}&w=64&h=64&fit=cover&output=webp`;
+}
+
+/** An https URL on one of DIRECT_ICON_HOSTS, re-serialised; null for anything else. */
+function directIconUrl(url: string): string | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== 'https:' || parsed.username || parsed.password || parsed.port) return null;
+  return DIRECT_ICON_HOSTS.includes(parsed.hostname.toLowerCase()) ? parsed.href : null;
 }
 
 // ─── Recents + favorites (localStorage, per-browser convenience) ─────────────

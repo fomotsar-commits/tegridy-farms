@@ -7,7 +7,9 @@ import { readTokenSafety, type TokenSafety } from '../../../lib/solana/lp/tokenS
 import { findPools, readFeeTiers, type FeeTierRead, type PoolSearchRead, type PoolView } from '../../../lib/solana/lp/poolFinder';
 import { readLedger, type LedgerRead } from '../../../lib/solana/lp/ledger';
 import { readOutsidePrice, type OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
+import { ownPoolPrograms } from '../../../lib/solana/lp/ownPools';
 import { readPoolPastPage, type PoolPastPage } from '../../../lib/solana/lp/poolPast';
+import { listPools, type PoolListRead } from '../../../lib/solana/lp/poolList';
 import { placeShareOnChain, readPositions, type ChainPlacement, type PositionsRead } from '../../../lib/solana/lp/positions';
 import type { QuoteCoin } from '../../../lib/solana/lp/quotes';
 import { lpFetch } from '../../../lib/solana/lp/readFetch';
@@ -28,7 +30,16 @@ export interface LpReaders {
    * as what the index names, under the same this-token-only filter (poolFinder.ts).
    */
   findPools(mint: PublicKey, also?: readonly string[]): Promise<PoolSearchRead>;
-  outsidePrice(mint: string, decimals: number): Promise<OutsidePrice>;
+  /**
+   * Every pool on the venue, for the list shown before a token is picked (poolList.ts).
+   * Optional: a reader without it shows no list, and every existing fake still fits.
+   */
+  listPools?(): Promise<PoolListRead>;
+  /**
+   * `fresh`: ask Jupiter itself, not the copy the edge shares for 30 seconds
+   * (outsidePrice.ts). The check run again at Review, and a visitor's own Read again.
+   */
+  outsidePrice(mint: string, decimals: number, opts?: { fresh?: boolean }): Promise<OutsidePrice>;
   /** `limit`: how many pool shares to place (each costs one index lookup). */
   positions(owner: PublicKey, limit?: number): Promise<PositionsRead>;
   feeTiers(): Promise<FeeTierRead>;
@@ -81,7 +92,8 @@ export function browserLpReaders(): LpReaders | null {
     programId: programId.toBase58(),
     safety: (mints) => readTokenSafety(rpc, mints),
     findPools: (mint, also) => findPools(rpc, mint, also?.length ? { ...indexOpts, also } : indexOpts),
-    outsidePrice: (mint, decimals) => readOutsidePrice(mint, decimals, { rpc, programId: programId.toBase58() }, jupiter),
+    listPools: () => listPools(rpc, indexOpts),
+    outsidePrice: (mint, decimals, o) => readOutsidePrice(mint, decimals, { rpc, programId: ownPoolPrograms([programId.toBase58()]) }, jupiter, undefined, o),
     positions: (owner, limit) => readPositions(rpc, owner, { ...indexOpts, limit }),
     feeTiers: () => readFeeTiers(rpc, programId),
     wallet: (owner, tokenMint, tokenProgram, lpMint, o) => readWalletFacts(rpc, walletArgs(owner, tokenMint, tokenProgram, lpMint, o)),

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { Keypair } from '@solana/web3.js';
 import { readOutsidePrice, PROBE_LAMPORTS, type OwnPoolGuard } from './outsidePrice';
+import { getQuote } from '../../jupiter';
 import { POOL_INDEX_MAX, readPoolIndex } from './poolIndex';
 import { fakeRpc, PROGRAM } from './testkit.fixture';
 
@@ -42,6 +43,52 @@ describe('readOutsidePrice', () => {
     expect(first.searchParams.has('platformFeeBps')).toBe(false);
   });
 
+  // The edge shares only quotes marked as the price check's (api/aggregator.js `edgeCache`):
+  // both of the check's quotes carry the mark, and the swap page's quote of the very same
+  // trade never does, so a trade is never built from a shared quote.
+  it('marks both of its quotes as the price check, and the swap page’s quote of the same trade is not marked', async () => {
+    const f = jupiter(0.0042, 0.01);
+    expect((await readOutsidePrice(MINT, 6, guard(), f as unknown as typeof fetch)).kind).toBe('ok');
+    expect(f).toHaveBeenCalledTimes(2);
+    const [buy, sell] = f.mock.calls.map((c) => new URL(c[0], 'http://x'));
+    expect([buy!.searchParams.get('priceCheck'), sell!.searchParams.get('priceCheck')]).toEqual(['1', '1']);
+    const swap = vi.fn(async (_url: string) => new Response(JSON.stringify({ outAmount: '1' }), { status: 200 }));
+    vi.stubGlobal('fetch', swap);
+    try {
+      await getQuote({ inputMint: SOL, outputMint: MINT, amount: PROBE_LAMPORTS.toString(), slippageBps: 50 });
+      await getQuote({ inputMint: SOL, outputMint: MINT, amount: PROBE_LAMPORTS.toString(), slippageBps: 50, noPlatformFee: true });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    expect(swap).toHaveBeenCalledTimes(2);
+    for (const [url] of swap.mock.calls) {
+      const u = new URL(url, 'http://x');
+      expect(u.pathname).toBe(buy!.pathname);
+      expect(u.searchParams.has('priceCheck')).toBe(false);
+    }
+    // Same trade, same read, but for the mark: the mark is the ONLY thing that tells them apart.
+    const unmarked = new URL(buy!);
+    unmarked.searchParams.delete('priceCheck');
+    expect(new URL(swap.mock.calls[1]![0], 'http://x').search).toBe(unmarked.search);
+  });
+
+  // Review's check runs "on fresh reads" (PoolCard.tsx), and Read again must read again: a
+  // fresh read carries no mark, so the edge never answers it with its 30-second copy.
+  it('a fresh read marks neither quote, and is otherwise the same read', async () => {
+    const shared = jupiter(0.0042, 0.01);
+    const fresh = jupiter(0.0042, 0.01);
+    expect((await readOutsidePrice(MINT, 6, guard(), shared as unknown as typeof fetch)).kind).toBe('ok');
+    expect((await readOutsidePrice(MINT, 6, guard(), fresh as unknown as typeof fetch, undefined, { fresh: true })).kind).toBe('ok');
+    expect(fresh).toHaveBeenCalledTimes(2);
+    fresh.mock.calls.forEach(([url], i) => {
+      const u = new URL(url, 'http://x');
+      expect(u.searchParams.has('priceCheck')).toBe(false);
+      const marked = new URL(shared.mock.calls[i]![0], 'http://x');
+      marked.searchParams.delete('priceCheck');
+      expect(u.pathname + u.search).toBe(marked.pathname + marked.search);
+    });
+  });
+
   it('no price is "unread", never a number: HTTP error, wrong trade, zero out, thrown fetch', async () => {
     const bad = [
       async () => new Response('{}', { status: 502 }),
@@ -65,6 +112,17 @@ describe('readOutsidePrice', () => {
   it('a price that came through a pool our program owns is not an outside price', async () => {
     const r = await readOutsidePrice(MINT, 6, guard({ [ROUTE_POOL]: PROGRAM.toBase58() }), jupiter(0.0042) as unknown as typeof fetch);
     expect(r).toMatchObject({ kind: 'unread', detail: expect.stringMatching(/our own pools/) });
+  });
+
+  it('a guard naming several of our programs (a range opening: the range program and our other pools) refuses a price through any of them', async () => {
+    const other = Keypair.generate().publicKey.toBase58();
+    for (const owner of [PROGRAM.toBase58(), other]) {
+      const g = { ...guard({ [ROUTE_POOL]: owner }), programId: [PROGRAM.toBase58(), other] };
+      const r = await readOutsidePrice(MINT, 6, g, jupiter(0.0042) as unknown as typeof fetch);
+      expect(r, owner).toMatchObject({ kind: 'unread', detail: expect.stringMatching(/our own pools/) });
+    }
+    const outside = { ...guard(), programId: [PROGRAM.toBase58(), other] };
+    expect((await readOutsidePrice(MINT, 6, outside, jupiter(0.0042) as unknown as typeof fetch)).kind).toBe('ok');
   });
 
   it('a quote without its route, or a route we could not check, is not an outside price', async () => {

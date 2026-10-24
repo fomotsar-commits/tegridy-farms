@@ -1,7 +1,5 @@
 import { Link } from 'react-router-dom';
-import { BUNGALOWS, DEFAULT_BUNGALOW_ID } from '../../lib/bungalows';
-import { TEGRIDY_STAKING_ADDRESS, isDeployed } from '../../lib/constants';
-import { poolShape } from '../../lib/poolShape';
+import { CHAIN_LABEL, rowTerms, venuePoolRows } from '../../lib/venuePools';
 import { CardArt } from '../ui/CardArt';
 import { FinePrint } from '../ui/FinePrint';
 
@@ -33,136 +31,98 @@ import { FinePrint } from '../ui/FinePrint';
  * self-gating panel, which can name the pool that failed and the reason it gave.
  * The rule this follows is the repo's: a number is publishable only when a read
  * returned it.
+ *
+ * ⚠️ ONE TABLE, TWO LAYOUTS, SINCE 2026-10-14. The table was 520px wide by
+ * declaration inside a sideways-scrolling wrapper, so on a 390px phone the
+ * "Open" column sat off the right edge and the visitor's first screen showed
+ * three rows of wrapped terms and nothing to press (the lead's walk, Bayla
+ * skin). Below `sm` the same <table> now lays each row out as a wrapped flex
+ * line with its button on it, and the header row is hidden; the table, row and
+ * cell roles are written out so a screen reader keeps the table once `display`
+ * is no longer `table-*`. venueVoice.test.tsx reads the index by its table
+ * role. The name column is hidden on phones; the symbol is the name there.
  */
 
-const CHAIN_LABEL: Record<string, string> = {
-  ethereum: 'Ethereum',
-  base: 'Base',
-  solana: 'Solana',
-  tbd: '—',
-};
-
-/** A row, whether it comes from the registry or from constants.ts. */
-interface PoolRow {
-  id: string;
-  symbol: string;
-  name: string;
-  chain: string;
-  accent?: string;
-  terms: string;
-}
+/** A cell that reads as "· Ethereum" on a phone line and as a plain column on a desktop row. */
+const PHONE_INLINE_CELL =
+  "max-sm:p-0 max-sm:text-[12px] max-sm:before:mr-2 max-sm:before:text-white/30 max-sm:before:content-['·']";
 
 export function VenuePoolIndex() {
-  // Every settled resident that actually has a staking program registered. A
-  // bungalow with no `stakePool` has nothing to list, and listing it with a
-  // dash would advertise a pool that does not exist.
-  const rows: PoolRow[] = BUNGALOWS.filter((b) => b.live && (b.stakePool || b.ladderPool)).map((b) => ({
-    id: b.id,
-    symbol: b.symbol,
-    name: b.name,
-    chain: b.chain,
-    accent: b.accent,
-    terms: poolShape(b),
-  }));
-
-  // ⚠️ TOWELI IS A ROW, NOT A FOOTNOTE, AND THAT IS THE WHOLE POINT OF THE PAGE.
-  // The first cut of this component listed the eleven registry pools and then
-  // gave Towelie its own "Open the Towelie bungalow →" link underneath — which
-  // is the exact favouritism this page exists to end, just wearing a smaller
-  // font. Towelie is one resident of thirteen. Its pool is a peer.
-  //
-  // It needs a hand-written entry only because its staking program predates the
-  // registry: every other resident carries a `stakePool`, while TOWELI's is
-  // TEGRIDY_STAKING_ADDRESS in constants.ts (the ladder the classic farm reads).
-  // Same shape, same lock terms, different place of declaration.
-  const toweli = BUNGALOWS.find((b) => b.id === DEFAULT_BUNGALOW_ID);
-  if (toweli && isDeployed(TEGRIDY_STAKING_ADDRESS)) {
-    rows.push({
-      id: toweli.id,
-      symbol: toweli.symbol,
-      name: toweli.name,
-      chain: toweli.chain,
-      accent: toweli.accent,
-      terms: poolShape({ poolKind: 'ladder', chain: toweli.chain }),
-    });
-  }
+  const rows = venuePoolRows();
 
   return (
     <section aria-labelledby="venue-pools-index" className="mb-8">
-      <div className="mb-4">
-        <h2 id="venue-pools-index" className="text-white text-lg font-semibold mb-1">
-          Earn across Jungle Bay Island
-        </h2>
-        <p className="text-white/65 text-[13px] leading-relaxed max-w-[64ch]">
-          Pick a pool to see its live rate and rewards.
-        </p>
-      </div>
-
       <div
         className="relative isolate rounded-2xl overflow-hidden"
         style={{ background: 'rgba(4,9,18,0.72)', border: '1px solid var(--color-purple-25)' }}
       >
         <CardArt pageId="earn" idx={1} />
-        {/* `relative` IS LOAD-BEARING — it is what CONTAINS the sr-only span in the
-            last <th>. Tailwind's `sr-only` is `position:absolute`, and an
-            absolutely-positioned element is clipped by an ancestor's overflow
-            ONLY if that ancestor is its containing block, i.e. positioned. With
-            a STATIC scroll wrapper the span escaped the clip, painted at the
-            520px table's right edge, and dragged `documentElement.scrollWidth`
-            to 521 on a 390px phone — so the whole PAGE scrolled sideways while
-            the table itself sat there looking perfectly contained.
-
-            Measured live before the fix: /liquidity and /farm both scrolled
-            horizontally at 390px; /trust (same RouteTabs, no wide table) did
-            not. Proven by A/B/A in the page: remove the span -> 390, restore it
-            -> 521, add `relative` here -> 390. */}
-        <div className="relative overflow-x-auto">
-          <table className="w-full text-left border-collapse min-w-[520px]">
-            <thead>
-              <tr className="text-[10px] uppercase tracking-wider text-white/50">
-                <th scope="col" className="font-semibold px-4 py-3">Pool</th>
-                <th scope="col" className="font-semibold px-4 py-3">Chain</th>
-                <th scope="col" className="font-semibold px-4 py-3">Terms</th>
-                <th scope="col" className="font-semibold px-4 py-3 text-right">
-                  <span className="sr-only">Open</span>
+        {/* The card's one heading. venueVoice.test.tsx reads it by text: the
+            venue names the whole island, not one resident. */}
+        <h2
+          id="venue-pools-index"
+          className="px-4 pt-3.5 pb-1 text-[11px] uppercase tracking-wider font-semibold text-white/60"
+        >
+          Earn across Jungle Bay Island
+        </h2>
+        <table role="table" className="w-full text-left border-collapse max-sm:block">
+          <thead className="max-sm:hidden">
+            <tr role="row" className="text-[10px] uppercase tracking-wider text-white/50">
+              <th role="columnheader" scope="col" className="font-semibold px-4 py-3">Pool</th>
+              <th role="columnheader" scope="col" className="font-semibold px-4 py-3">Chain</th>
+              <th role="columnheader" scope="col" className="font-semibold px-4 py-3">Terms</th>
+              <th role="columnheader" scope="col" className="font-semibold px-4 py-3 text-right">
+                <span className="sr-only">Open</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody className="max-sm:block">
+            {rows.map((b) => (
+              <tr
+                key={b.id}
+                role="row"
+                className="max-sm:flex max-sm:flex-wrap max-sm:items-center max-sm:gap-x-2 max-sm:gap-y-1 max-sm:px-4 max-sm:py-2.5"
+                style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}
+              >
+                <th role="rowheader" scope="row" className="px-4 py-3.5 font-normal max-sm:p-0">
+                  <span className="flex items-center gap-2.5">
+                    <span
+                      className="w-2 h-2 rounded-full flex-shrink-0"
+                      style={{ background: b.accent ?? 'var(--color-kyle)' }}
+                      aria-hidden="true"
+                    />
+                    <span className="text-white text-[14px] font-semibold">{b.symbol}</span>
+                    <span className="hidden sm:inline text-white/45 text-[12px]">{b.name}</span>
+                  </span>
                 </th>
+                <td role="cell" className={`px-4 py-3.5 text-white/75 text-[13px] ${PHONE_INLINE_CELL}`}>
+                  {CHAIN_LABEL[b.chain] ?? b.chain}
+                </td>
+                <td role="cell" className={`px-4 py-3.5 text-white/60 text-[12.5px] ${PHONE_INLINE_CELL}`}>
+                  {rowTerms(b.terms)}
+                </td>
+                <td role="cell" className="px-4 py-3.5 text-right max-sm:p-0 max-sm:ml-auto">
+                  {/* A real link: each pool has its own address, /earn/<id>, which
+                      enters that pool's room on arrival (App.tsx EarnPoolRoute). */}
+                  <Link
+                    to={`/earn/${b.id}`}
+                    className="inline-flex items-center justify-center whitespace-nowrap px-3.5 py-2 min-h-[36px] rounded-lg text-[12.5px] font-semibold transition-all hover:brightness-110"
+                    style={{ background: 'rgba(0,0,0,0.72)', border: '1px solid rgba(76,175,80,0.55)', color: 'var(--color-kyle)' }}
+                  >
+                    Open {b.symbol}
+                  </Link>
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {rows.map((b) => (
-                <tr key={b.id} style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-                  <th scope="row" className="px-4 py-3.5 font-normal">
-                    <span className="flex items-center gap-2.5">
-                      <span
-                        className="w-2 h-2 rounded-full flex-shrink-0"
-                        style={{ background: b.accent ?? 'var(--color-kyle)' }}
-                        aria-hidden="true"
-                      />
-                      <span className="text-white text-[14px] font-semibold">{b.symbol}</span>
-                      <span className="text-white/45 text-[12px]">{b.name}</span>
-                    </span>
-                  </th>
-                  <td className="px-4 py-3.5 text-white/75 text-[13px]">{CHAIN_LABEL[b.chain] ?? b.chain}</td>
-                  <td className="px-4 py-3.5 text-white/60 text-[12.5px]">{b.terms}</td>
-                  <td className="px-4 py-3.5 text-right">
-                    {/* A real link: each pool has its own address, /earn/<id>, which
-                        enters that pool's room on arrival (App.tsx EarnPoolRoute). */}
-                    <Link
-                      to={`/earn/${b.id}`}
-                      className="inline-flex items-center justify-center whitespace-nowrap px-3.5 py-2 min-h-[36px] rounded-lg text-[12.5px] font-semibold transition-all hover:brightness-110"
-                      style={{ background: 'rgba(0,0,0,0.72)', border: '1px solid rgba(76,175,80,0.55)', color: 'var(--color-kyle)' }}
-                    >
-                      Open {b.symbol}
-                    </Link>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+            ))}
+          </tbody>
+        </table>
       </div>
 
-      <FinePrint summary="Why no rates here" className="mt-1.5">
+      <FinePrint summary="Why no rates?" className="mt-1.5">
+        <p>
+          Pick a pool to see its live rate and rewards. &ldquo;Lock 7d–4y, 0.40×–4.00×&rdquo; is a
+          lock ladder: lock from seven days to four years for that share of the pool&rsquo;s rewards.
+        </p>
         <p>
           Every resident community runs its own pool, in its own token, on its own chain. Pick a
           room to see its live rate, its reward balance and what your position is worth. Those
@@ -185,7 +145,7 @@ export function VenuePoolIndex() {
           to="/liquidity"
           className="text-[13px] underline underline-offset-2 text-white/80 hover:text-white"
         >
-          Provide liquidity on the venue&apos;s own pools →
+          Provide liquidity on venue pools →
         </Link>
       </div>
     </section>

@@ -197,7 +197,7 @@ describe('BungalowBurn, no full read', () => {
     render(<BungalowBurn bungalow={room('drb')} />);
     const card = screen.getByRole('region', { name: 'DRB burn' });
     expect(within(card).getByRole('status').textContent).toBe(
-      'The DRB burn could not be read right now. That is an outage, not a zero.',
+      'The DRB burn could not be read. An outage, not a zero.',
     );
     expect(card.querySelector('dl')).toBeNull();
     expect(card.textContent).not.toMatch(/[0-9]/);

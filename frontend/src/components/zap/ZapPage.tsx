@@ -22,11 +22,11 @@ export default function ZapPage() {
         <h1 className="text-2xl font-semibold text-white">Zap</h1>
         {/* One line: what it does, and the risk of depositing through it. */}
         <p className="mt-2 text-[13px] text-white/65">
-          Any asset into any position. Several transactions, so it can stop part-way.
+          Any coin in, a position out. It can stop part-way.
         </p>
         <FinePrint summary="How it works">
           <p>
-            Any asset into any position. The swap, the pairing and the deposit are composed for you and, on a wallet
+            Any asset into any position. Several transactions, so it can stop part-way. The swap, the pairing and the deposit are composed for you and, on a wallet
             that supports it, grouped into fewer confirmations.
           </p>
           <p>

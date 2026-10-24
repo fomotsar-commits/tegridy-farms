@@ -107,9 +107,15 @@ const h = vi.hoisted(() => ({
   /** What the price service answers, and the chain's block height (a review goes stale past it). */
   prices: { value: {} as Record<string, number> },
   height: { value: 10 },
+  /** The 24h average read; unset, it answers "could not be read". */
+  pairAverage: vi.fn(),
 }));
 
 vi.mock('sonner', () => ({ toast: h.toast }));
+vi.mock('../lib/solana/swap/pairAverage', async (orig) => ({
+  ...(await orig<typeof import('../lib/solana/swap/pairAverage')>()),
+  fetchPairAverage: async (...args: unknown[]) => (await h.pairAverage(...args)) ?? { kind: 'unread' },
+}));
 vi.mock('../lib/analytics', () => ({ trackPageView: vi.fn() }));
 vi.mock('../hooks/usePageTitle', () => ({ usePageTitle: vi.fn() }));
 vi.mock('../components/ArtImg', () => ({ ArtImg: () => null }));
@@ -1793,6 +1799,14 @@ describe('what a press writes lands only on the trade it was pressed for', () =>
       expect(label).toBe('Buy BAYLA');
     }
   };
+  const buyPick = () => screen.getByTestId('solana-receive').parentElement!.querySelector('button')!.textContent;
+  /**
+   * A link's token still being looked up: $BAYLA stands on the form meanwhile, the page's
+   * opening coin (SolanaSwapPage.openingPair.test.tsx owns that rule). Said at once, so a
+   * moved opening coin fails here by name, not as a Buy button that never shows (#791
+   * met #790's move from USDC that way, and it read as a slow machine).
+   */
+  const baylaStands = () => expect(buyPick(), 'the coin on the form while the link’s token is looked up').toBe('BAYLA▾');
   beforeEach(() => {
     h.getQuote.mockImplementation(async (p: { outputMint: string; amount: string; noPlatformFee?: boolean }) => {
       const out = p.outputMint === JITO ? per(p.amount, 95_000_000n) : per(p.amount, h.carriesFee.value ? (p.noPlatformFee ? 1_012_000n : 1_005_000n) : 1_000_000n);
@@ -1813,8 +1827,8 @@ describe('what a press writes lands only on the trade it was pressed for', () =>
     window.history.replaceState(null, '', `/solana?out=${OTHER}`);
     h.ownOut.value = 990_000n;
     render(<MemoryRouter><SolanaSwapPage /></MemoryRouter>);
+    baylaStands();
     fireEvent.change(amountBox(), { target: { value: '0.1' } });
-    // $BAYLA stands on the form while the link's token is looked up.
     const buy = await screen.findByRole('button', { name: 'Buy BAYLA' }, { timeout: 20_000 });
     await waitFor(() => expect(buy).toBeEnabled());
     await waitFor(() => expect(routeLine()).toMatch(/Jupiter pays/));
@@ -1824,7 +1838,7 @@ describe('what a press writes lands only on the trade it was pressed for', () =>
     fireEvent.click(buy);
     await waitFor(() => expect(h.readVenuePools.mock.calls.length).toBeGreaterThan(reads));
     looked.release({ mint: OTHER, symbol: 'DOGGO', name: 'Doggo', decimals: 6, verified: false });
-    await waitFor(() => expect(screen.getByTestId('solana-receive').parentElement!.querySelector('button')!.textContent).toBe('DOGGO▾'));
+    await waitFor(() => expect(buyPick()).toBe('DOGGO▾'));
     held.release({ kind: 'ok', pair: [SOL_MINT, OTHER] });
     await waitFor(() => expect(h.toast.info).toHaveBeenCalledWith('Not sent', { description: OWN_ROUTE_COPY.formChanged }));
     expect(h.sendTransaction).not.toHaveBeenCalled();
@@ -1833,13 +1847,13 @@ describe('what a press writes lands only on the trade it was pressed for', () =>
 
   describe('whatever our pools hold, the wallet is never asked for a pair the form no longer shows', () => {
     const OTHER = 'Dog1111111111111111111111111111111111111111';
-    const buyPick = () => screen.getByTestId('solana-receive').parentElement!.querySelector('button')!.textContent;
     /** Arrive by a link whose token is still being looked up ($BAYLA stands meanwhile), type 0.1 SOL, and have Buy BAYLA live on `line`. */
     async function arrivedByLink(line: RegExp) {
       const looked = defer<unknown>();
       h.resolveMint.mockImplementation((mint: string) => (mint === OTHER ? looked.p : Promise.resolve(null)));
       window.history.replaceState(null, '', `/solana?out=${OTHER}`);
       render(<MemoryRouter><SolanaSwapPage /></MemoryRouter>);
+      baylaStands();
       fireEvent.change(amountBox(), { target: { value: '0.1' } });
       const buy = await screen.findByRole('button', { name: 'Buy BAYLA' }, { timeout: 20_000 });
       await waitFor(() => expect(buy).toBeEnabled());
@@ -2565,5 +2579,37 @@ describe('the token picker tells the venue’s BAYLA from its copies', () => {
     fireEvent.change(screen.getByLabelText('Search tokens'), { target: { value: 'bayla' } });
     await waitFor(() => expect(rows(dialog).map((r) => r.getAttribute('data-token-row'))).toEqual([BAYLA_MINT]));
     expect(dialog.textContent).toMatch(/Search is unavailable just now/);
+  });
+});
+
+describe('the 24h average line (owner, 2026-10-13: "we want the best vwap")', () => {
+  // 0.09 SOL a BAYLA on average; the form's trade is 0.1 SOL for 1.01 BAYLA (our pool), 10.0% above.
+  beforeEach(() => {
+    h.pairAverage.mockImplementation(async () => ({ kind: 'ok', baseMint: BAYLA_MINT, quoteMint: SOL_MINT, price: 0.09 }));
+  });
+  afterEach(() => {
+    h.pairAverage.mockReset();
+  });
+  const line = (id = 'pair-average-line') => screen.getByTestId(id).textContent;
+
+  it('on the form: the average and this trade against it, in one line; and the same line on the review', async () => {
+    const buy = await readyToBuy();
+    await waitFor(() => expect(line()).toBe('BAYLA 24h average: 0.09 SOL · this trade 10.0% above'));
+    fireEvent.click(buy);
+    expect(await screen.findByText('Review your swap', {}, { timeout: 20_000 })).toBeInTheDocument();
+    // The review's figures are its own transaction's: 0.1 SOL in, 1.01 BAYLA quoted.
+    await waitFor(() => expect(line('review-pair-average-line')).toBe('BAYLA 24h average: 0.09 SOL · this trade 10.0% above'));
+    // A reference only: Sign is not held by it.
+    expect(screen.getByRole('button', { name: 'Sign in wallet' })).toBeEnabled();
+  });
+
+  it('a quote for another amount is never compared: the average stands alone until this amount is quoted', async () => {
+    h.ownOut.value = null; // Jupiter's route, whose answer is always for 0.1 SOL here.
+    await readyToBuy();
+    await waitFor(() => expect(line()).toBe('BAYLA 24h average: 0.09 SOL · this trade 11.1% above'));
+    fireEvent.change(amountBox(), { target: { value: '0.2' } });
+    await waitFor(() => expect(h.getQuote).toHaveBeenCalledWith(expect.objectContaining({ amount: '200000000' })));
+    await new Promise((r) => setTimeout(r, 100));
+    expect(line()).toBe('BAYLA 24h average: 0.09 SOL');
   });
 });

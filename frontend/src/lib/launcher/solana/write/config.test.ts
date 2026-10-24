@@ -21,6 +21,7 @@ import {
   CP_CREATE_POOL_FEE_RECEIVER,
   GENESIS_HASH,
   curveWriteConfig,
+  explorerAddressUrl,
   explorerTxUrl,
   readWriteGate,
   writeActions,
@@ -327,5 +328,14 @@ describe('explorer links', () => {
     expect(explorerTxUrl('abc', 'localnet')).toBe(
       'https://explorer.solana.com/tx/abc?cluster=custom&customUrl=http%3A%2F%2F127.0.0.1%3A8899',
     );
+  });
+
+  it("an address opens Solscan's account page; a mint its token page, with no redirect on the way", () => {
+    expect(explorerAddressUrl('abc', 'mainnet')).toBe('https://solscan.io/account/abc');
+    expect(explorerAddressUrl('abc', 'mainnet', 'account')).toBe('https://solscan.io/account/abc');
+    expect(explorerAddressUrl('abc', 'mainnet', 'token')).toBe('https://solscan.io/token/abc');
+    expect(explorerAddressUrl('abc', 'devnet', 'token')).toBe('https://solscan.io/token/abc?cluster=devnet');
+    // The Solana Explorer has one page for both.
+    expect(explorerAddressUrl('abc', 'localnet', 'token')).toBe(explorerAddressUrl('abc', 'localnet'));
   });
 });

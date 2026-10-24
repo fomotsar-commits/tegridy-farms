@@ -152,8 +152,11 @@ afterEach(() => {
 });
 
 describe("TopNav: the top bar's own Solana connection, with the real provider and list", () => {
-  it('a first Solana connect from the home page leaves the page scrollable, and focus on the top bar', async () => {
-    mount('/');
+  // Not the home: its cards bring a Solana connection of their own (owner, 2026-10-16), so the
+  // top bar mounts none there (lib/routeVoice.ts hasMixedSolanaSection), nor on the island lobby, which
+  // has the same cards (owner, 2026-10-19). The gallery has none.
+  it('a first Solana connect from a page with no Solana section leaves the page scrollable, and focus on the top bar', async () => {
+    mount('/gallery');
     expect(getSolanaSurfaceState()).toMatchObject({ surface: null, ownWanted: false });
     const connect = topConnect();
     connect.focus();
@@ -178,7 +181,7 @@ describe("TopNav: the top bar's own Solana connection, with the real provider an
   // One live Solana connection per page: a page that has its own Solana
   // section must not have the top bar's beside it.
   it('unmounts on the way into a Solana page, and comes back on the way out', async () => {
-    mount('/');
+    mount('/gallery');
     fireEvent.click(topConnect());
     fireEvent.click(within(screen.getByRole('dialog', { name: 'Connect a wallet' })).getByRole('button', { name: /^Solana/ }));
     const list = await solanaList();
@@ -209,14 +212,14 @@ describe('TopNav: a saved Solana wallet that never answers, with the real provid
     within(screen.getByRole('dialog', { name: 'Connect a wallet' })).getByRole('button', { name: /^Solana/ });
   const list = () => screen.queryByRole('dialog', { name: /on Solana to continue/ });
 
-  /** The Solana row tapped on the home page; the saved Phantom's restore is now running, for ever. */
+  /** The Solana row tapped on the gallery; the saved Phantom's restore is now running, for ever. */
   async function waitingOnPhantom() {
     // Loaded before the clock is replaced, so nothing in it keeps a stand-in timer.
     await import('../solana/SolanaProviders');
     const phantom = registerPhantomThatNeverAnswers();
     localStorage.setItem('walletName', JSON.stringify('Phantom'));
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-    mount('/');
+    mount('/gallery');
     fireEvent.click(topConnect());
     fireEvent.click(sheetRow());
     await until(

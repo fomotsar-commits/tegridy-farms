@@ -13,19 +13,23 @@ import { LOCKED_SHARES_TEXT, solAbout, solExact } from './panelKit';
 // stretches a measure over time is pace.ts's, with its basis (format.ts FORECAST_WORDS).
 // Where a pool's trades come from is said as the routes that exist, never as a volume.
 
-// True of the pool program RUNNING on mainnet, which was built before the source gained
-// create_lp_metadata (the instruction that names pool share tokens). It goes false the day
-// that program is upgraded, so reword it in the same release as the upgrade:
-// src/test/poolProgramCopy.test.ts fails that release until you do, and holds the wording.
+// True of the pool program RUNNING on mainnet since its upgrade: that build has
+// create_lp_metadata, and its public initialize refuses fee tier 0. Before the upgrade this
+// said "with only its admin keys changed". src/test/poolProgramCopy.test.ts ties the wording
+// to the binary the local harness pins, so the two can only move together (a roll-back too).
 const FORK_LINE =
-  "Our pool program is Raydium's, with only its admin keys changed. Those changes have not had their own independent review yet. Put in only what you can afford to lose.";
+  "Our pool program is Raydium's, with its admin keys changed, one added instruction that names pool share tokens and one added check that keeps the launch fee tier for launches. Those changes have not had their own independent review yet. Put in only what you can afford to lose.";
 /**
- * FORK_LINE's risk in one visible sentence (owner, 2026-10-13: fewer words, the rest one
- * press away). The same day as FORK_LINE, reword this one too.
+ * The risk in one sentence (owner, 2026-10-17: off the page, first in every Risks drop-down):
+ * what the team's vault can do, that each change waits 48 hours after both keys approve
+ * (Squads #14's time lock, read on chain 2026-10-20), and that no outside firm has checked our
+ * changes. LpDisclosure's small print (SolanaLpSection.tsx) says it in full, with the
+ * addresses. It names no change to the program, so the pool program's upgrade leaves it true.
  */
-export const RISK_SHORT = 'Admin-key changes not independently reviewed yet: put in only what you can afford to lose.';
+export const RISK_SHORT =
+  "The team's vault can pause removing, change fees or replace the program, 48 hours after both its keys approve. No outside firm has checked our changes. Only add what you can afford to lose.";
 const VAULT_LINE =
-  "The team's vault (a Squads multisig, two signatures) can switch off deposits, withdrawals or swaps on this pool, change its fee rates at once, and upgrade the program. If it switched off withdrawals, you could not take your money out until it switched them back on.";
+  "The team's vault (a Squads multisig, two signatures) can switch off deposits, withdrawals or swaps on this pool, change its fee rates, and upgrade the program. Each change waits 48 hours after both have signed. If it switched off withdrawals, you could not take your money out until it switched them back on.";
 const LAUNCH_POOL_LINE =
   "The launch program opened this pool when the token graduated and burned the launch's own pool shares, so that part can never be taken out. You get shares only for what you add, and you can take your part back out. The creator's fee and the venue's share are kept apart in the pool and are not yours.";
 const ROUTING_LINE =
@@ -36,7 +40,7 @@ const PRICE_MOVES_LINE = 'When the price moves, you can end up with less than if
 
 /** What the vault can do to a pool this site opens, and to the tier it opens on. */
 const CREATE_VAULT_LINE =
-  "The team's vault (a Squads multisig, two signatures) can switch off deposits, withdrawals or swaps on this pool, change the public fee tier's rates and its fee to open a pool at once, and upgrade the program. If it switched off withdrawals, you could not take your money out until it switched them back on.";
+  "The team's vault (a Squads multisig, two signatures) can switch off deposits, withdrawals or swaps on this pool, change the public fee tier's rates and its fee to open a pool, and upgrade the program. Each change waits 48 hours after both have signed. If it switched off withdrawals, you could not take your money out until it switched them back on.";
 
 /**
  * How a new pool earns, honestly, in short: on the card and the review. Jupiter does not
@@ -61,16 +65,31 @@ function lpShareLine(config: AmmConfigView | null, enableCreatorFee: boolean): s
   if (!config) return "This pool's fee settings could not be read, so what liquidity providers keep of each trade is not shown.";
   const creator = chargedCreatorFeeRate(config, enableCreatorFee);
   const creatorLine = creator > 0n ? ` Traders also pay this pool's creator ${feeRateText(creator)} of each trade on top; that part is not yours.` : '';
-  return `Of each trade, liquidity providers keep ${feeSplit(config).lpKeepsPct.toFixed(3)}%, read from this pool's fee tier just now.${creatorLine} The vault can change that tier's rates at once, and a change applies to what you put in too.`;
+  return `Of each trade, liquidity providers keep ${feeSplit(config).lpKeepsPct.toFixed(3)}%, read from this pool's fee tier just now.${creatorLine} The vault can change that tier's rates. A change waits 48 hours after both its keys approve, then applies to what you put in too.`;
 }
 
-export function LpBeforeYouAdd({ launchPool, config, enableCreatorFee }: { launchPool: boolean; config: AmmConfigView | null; enableCreatorFee: boolean }) {
+/**
+ * `reviewing`: a review is on screen, and it says the risk line, the fork line and the
+ * vault line above its rows, so they are not said a second time under its Sign button
+ * (island, answer eighteen: the two risk notices stand once).
+ */
+export function LpBeforeYouAdd({
+  launchPool,
+  config,
+  enableCreatorFee,
+  reviewing = false,
+}: {
+  launchPool: boolean;
+  config: AmmConfigView | null;
+  enableCreatorFee: boolean;
+  reviewing?: boolean;
+}) {
   return (
     <div className="space-y-2" data-testid="lp-before-you-add">
-      <p className="text-amber-300/90">{RISK_SHORT}</p>
       <LpRisksDetails>
-        <li>{FORK_LINE}</li>
-        <li>{VAULT_LINE}</li>
+        {!reviewing && <li>{RISK_SHORT}</li>}
+        {!reviewing && <li>{FORK_LINE}</li>}
+        {!reviewing && <li>{VAULT_LINE}</li>}
         <li>{PRICE_MOVES_LINE}</li>
         <li>{ROUTING_LINE}</li>
         <li>{lpShareLine(config, enableCreatorFee)}</li>
@@ -127,6 +146,7 @@ export function LpBeforeYouOpen({
   neverRefunded,
   walletConnected = true,
   coin = SOL_QUOTE,
+  reviewing = false,
 }: {
   fee: bigint;
   neverRefunded: bigint | null;
@@ -134,6 +154,8 @@ export function LpBeforeYouOpen({
   walletConnected?: boolean;
   /** The coin the new pool is paired with. Left out, it is SOL. */
   coin?: QuoteCoin;
+  /** As on `LpBeforeYouAdd`: the review on screen says the risk line, the fork line and the vault line. */
+  reviewing?: boolean;
 }) {
   const deposits =
     neverRefunded !== null
@@ -143,10 +165,10 @@ export function LpBeforeYouOpen({
         : 'account deposits that never come back (the fee tiers list on this page has their amount)';
   return (
     <div className="space-y-2" data-testid="lp-before-you-open">
-      <p className="text-amber-300/90">{RISK_SHORT}</p>
       <LpRisksDetails>
-        <li>{FORK_LINE}</li>
-        <li>{CREATE_VAULT_LINE}</li>
+        {!reviewing && <li>{RISK_SHORT}</li>}
+        {!reviewing && <li>{FORK_LINE}</li>}
+        {!reviewing && <li>{CREATE_VAULT_LINE}</li>}
         <li>{MONEY_LINE}</li>
         <li>
           Opening costs {solExact(fee)}, paid to the team&apos;s vault, and {deposits}.{' '}
@@ -169,8 +191,8 @@ export function LpReviewDisclosure(p: { kind: 'add'; origin: 'launch-pool' | 'st
     <div className="space-y-1" data-testid="lp-review-disclosure" data-kind={p.kind}>
       {/* On a phone the review is two screens long and its button is at the end of it. */}
       <Notice>Read this through. The Sign in wallet button is at the end of it.</Notice>
-      <Notice tone="warn">{RISK_SHORT}</Notice>
       <FinePrint summary="Risks">
+        <p>{RISK_SHORT}</p>
         <p>{FORK_LINE}</p>
         <p>{p.kind === 'create' ? CREATE_VAULT_LINE : VAULT_LINE}</p>
         {p.kind === 'add' && p.origin === 'launch-pool' && <p>{LAUNCH_POOL_LINE}</p>}

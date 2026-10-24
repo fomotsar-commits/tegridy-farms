@@ -10,6 +10,7 @@ import {
   type Timeframe,
 } from '../../lib/chart/market';
 import { useTheme } from '../../contexts/ThemeContext';
+import { geckoAsOfLine, type GeckoFreshness } from '../../lib/geckoTerminal/edge';
 
 // WHAT A REFUSED READ SAYS. Every branch names the READ, never the market: a
 // chart that cannot be drawn because the feed refused us is not a chart of a
@@ -53,6 +54,9 @@ function PriceChartInner({ market }: { market: ChartMarket }) {
   const [tf, setTf] = useState<Timeframe>('1d');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // How old the drawn candles are. Null until a read lands, and cleared with
+  // every new read, so a line can never describe the PREVIOUS pool's bars.
+  const [freshness, setFreshness] = useState<GeckoFreshness | null>(null);
   const [useEmbed, setUseEmbed] = useState(false);
   const retryCountRef = useRef(0);
   const { isDark } = useTheme();
@@ -172,6 +176,7 @@ function PriceChartInner({ market }: { market: ChartMarket }) {
 
     setLoading(true);
     setError(null);
+    setFreshness(null);
 
     readChartCandles(market, timeframe, { signal: controller.signal })
       .then((read) => {
@@ -219,6 +224,7 @@ function PriceChartInner({ market }: { market: ChartMarket }) {
         try {
           seriesRef.current.setData(bars);
           chartRef.current?.timeScale().fitContent();
+          setFreshness(read.freshness);
         } catch (chartErr) {
           console.warn('Chart setData error, falling back to embed:', chartErr);
           setUseEmbed(true);
@@ -251,6 +257,8 @@ function PriceChartInner({ market }: { market: ChartMarket }) {
       abortRef.current?.abort();
     };
   }, [tf, loadData]);
+
+  const asOfLine = !loading && !error && freshness ? geckoAsOfLine(freshness) : null;
 
   // If in embed mode, show GeckoTerminal iframe
   if (useEmbed) {
@@ -310,6 +318,11 @@ function PriceChartInner({ market }: { market: ChartMarket }) {
           GeckoTerminal &#8599;
         </a>
       </div>
+
+      {/* The candles' age, whenever they are not fresh or are a kept copy. */}
+      {asOfLine && (
+        <p className="px-1 mb-1 text-[10px] text-white/55" data-testid="chart-as-of">{asOfLine}</p>
+      )}
 
       <div className="flex-1 relative min-h-0">
         <div ref={containerRef} className="absolute inset-0" />

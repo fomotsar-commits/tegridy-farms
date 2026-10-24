@@ -335,3 +335,39 @@ describe("a member's position when the pool read failed", () => {
     }
   });
 });
+
+// Island, answer seventeen item 3: no configured APR over an empty vault, on any door.
+// The open pool's card keeps the vault and says it pays nothing; the rate goes.
+describe('an open pool whose reward vault is empty', () => {
+  it('shows the vault and no configured rate', async () => {
+    const rp = fixtures.pool.rewardPools[0]!;
+    const funded = rp.fundedRaw;
+    rp.fundedRaw = 0n;
+    try {
+      fixtures.walletKey = null;
+      mount(OPEN);
+      expect(await screen.findByText('Reward vault')).toBeTruthy();
+      expect(screen.queryByText('Configured rate')).toBeNull();
+      expect(pageText()).toMatch(/Empty vault: it pays nothing until someone funds it\./);
+      expect(pageText()).not.toMatch(/% APR/);
+    } finally {
+      rp.fundedRaw = funded;
+    }
+  });
+});
+
+// Owner, 2026-10-14: the room's dashboard shows the marketplace and NFT loans doors too,
+// in the quick-links row beside Trade and the pool.
+describe('the quick links carry the marketplace and NFT loans doors', () => {
+  it.each([
+    ['a members-only pool', MEMBERS_ONLY],
+    ['an open pool', OPEN],
+  ])('%s: Marketplace goes to /nakamigos and NFT loans to /nft-finance', async (_label, b) => {
+    fixtures.walletKey = null;
+    mount(b);
+    expect(screen.getByRole('link', { name: 'Marketplace' }).getAttribute('href')).toBe('/nakamigos');
+    expect(screen.getByRole('link', { name: 'NFT loans' }).getAttribute('href')).toBe('/nft-finance');
+    expect(screen.getByRole('link', { name: `Trade ${b.symbol}` })).toBeTruthy();
+    await settle();
+  });
+});

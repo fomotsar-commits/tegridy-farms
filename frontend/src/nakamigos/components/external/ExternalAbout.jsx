@@ -1,6 +1,7 @@
 import { chainLabel, standardLabel, supplyLabel, explorerAddressUrl, descriptionSourceLabel } from "../../lib/venue";
 import MarketButton from "./MarketButton";
 import { explainerLine } from "./externalCopy";
+import { FinePrint } from "../../../components/ui/FinePrint";
 
 function short(addr) {
   return typeof addr === "string" && addr.length > 12 ? `${addr.slice(0, 6)}...${addr.slice(-4)}` : addr;
@@ -34,11 +35,14 @@ export default function ExternalAbout({ collection }) {
         <h2 className="ext-about-title">{collection.name.toUpperCase()}</h2>
         <p className="ext-about-lead">{explainerLine(collection)}</p>
 
+        {/* The collection's own words, in the small print under the one line. */}
         {collection.description && sourceLabel && (
-          <figure className="ext-description">
-            <figcaption className="ext-description-source">{sourceLabel}</figcaption>
-            <blockquote className="ext-description-text">{collection.description}</blockquote>
-          </figure>
+          <FinePrint summary="Its own words">
+            <figure className="ext-description">
+              <figcaption className="ext-description-source">{sourceLabel}</figcaption>
+              <blockquote className="ext-description-text">{collection.description}</blockquote>
+            </figure>
+          </FinePrint>
         )}
 
         {collection.tags?.length > 0 && (

@@ -26,7 +26,7 @@ import {
   reassignAtaOwner, sol, swapDirect, tokenAmount, wrapSol, CP_SWAP_PROGRAM, LAUNCH_PROGRAM, type PoolFacts,
 } from './fixtures/chain';
 import {
-  closeTokenAccount, createClassicToken, createSolPool, createToken2022MetadataOnly, createTransferFeeToken, freezeVault,
+  closeTokenAccount, createClassicToken, createLaunchTierPool, createSolPool, createToken2022MetadataOnly, createTransferFeeToken, freezeVault,
   squatStandard, transferLp, transferTokens, type CreatedPool,
 } from './fixtures/lp';
 import { SOL_COIN } from './fixtures/coins';
@@ -35,8 +35,8 @@ import {
   reviewDeposit, reviewRows, shareRow, shareText, sidesOf, signConfirmed, signedSol, signedTok, solExact, tok, units, withdrawPlan, type Prices,
 } from './fixtures/lpPage';
 // The market sums, worked out by hand (never the page's own): see fixtures/market.ts.
-import { gapOf, lossAtMarketUp, priceOf, stubMid } from './fixtures/market';
-import { ui, expectPressableAtSizes } from './fixtures/ui';
+import { gapCostOf, gapOf, lossAtMarketUp, priceOf, stubMid } from './fixtures/market';
+import { ui, expectNoWord, expectPressableAtSizes, guardText } from './fixtures/ui';
 import { formatSol, parseDecimalToBaseUnits } from '../src/lib/launcher/solana/curve/format';
 import { poolStatePda } from '../src/lib/launcher/solana/curve/program';
 import { withdrawIx } from '../src/lib/solana/cpswap/ix';
@@ -69,7 +69,8 @@ async function books(owner: PublicKey, f: PoolFacts): Promise<Books> {
 
 // ════════════════════════════════════════════════════════════════════════════
 // GROUP A: chromium AND mobile-chrome. One clean classic token, its pools on tier 1
-// ("pool A") and tier 0 ("pool B") at the stub price, opened by the creator; wallet B.
+// ("pool A") and tier 0 ("pool B", opened the permissioned way) at the stub price, both
+// funded by the creator, who holds every share; wallet B.
 // ════════════════════════════════════════════════════════════════════════════
 
 const A = {} as { creator: Keypair; walletB: Keypair; mint: PublicKey; poolA: CreatedPool; poolB: CreatedPool; prices: Prices };
@@ -81,7 +82,7 @@ test.describe('group A (chromium and mobile-chrome)', () => {
     A.walletB = await fundedKeypair(10);
     A.mint = await createClassicToken(A.creator, { supply: 10_000_000n * UNIT, name: { name: 'E2E Write A', symbol: 'EWRA' } });
     A.poolA = await createSolPool(A.creator, A.mint, { configIndex: 1, sol: sol(2), tokens: 2_000_000n * UNIT, at: 'standard' });
-    A.poolB = await createSolPool(A.creator, A.mint, { configIndex: 0, sol: sol(1), tokens: 1_000_000n * UNIT, at: 'standard' });
+    A.poolB = await createLaunchTierPool(A.creator, A.mint, { sol: sol(1), tokens: 1_000_000n * UNIT });
     await transferTokens(A.creator, A.walletB.publicKey, A.mint, 2_000_000n * UNIT);
     A.prices = priced(A.mint);
   });
@@ -209,7 +210,7 @@ test.describe('group A (chromium and mobile-chrome)', () => {
     const signature = a.wallet.lastSigned().signature!;
     await expect(out).toContainText(signature);
     await expect(out).toContainText('Sent, not confirmed yet');
-    await expect(out).not.toContainText(/fail/i);
+    await expectNoWord(out, /fail/i);
     expect(a.rpc.failedCount('getSignatureStatuses')).toBeGreaterThan(0);
     // It did land: the chain holds the shares. Asked of the share account, not of the
     // signature. By now the deposit is over a minute old, and under a full run's load the
@@ -222,7 +223,7 @@ test.describe('group A (chromium and mobile-chrome)', () => {
     await expect(pending).toBeVisible({ timeout: 60_000 });
     await expect(pending).toContainText(signature);
     await expect(pending).toContainText('adding liquidity');
-    await expect(pending).not.toContainText(/fail/i);
+    await expectNoWord(pending, /fail/i);
     // At the top of the section: above the pool finder.
     const top = (l: Locator) => l.evaluate((el) => el.getBoundingClientRect().top + window.scrollY);
     expect(await top(pending)).toBeLessThan(await top(ui.lp.finder(p)));
@@ -308,7 +309,7 @@ test.describe('group B (chromium only)', () => {
     const name = (n: string, s: string) => ({ name: n, symbol: s });
     const classic = (owner: Keypair, n: string, s: string, supply = 10_000_000n * UNIT, o: { freezable?: boolean } = {}) =>
       createClassicToken(owner, { supply, name: name(n, s), freezable: o.freezable });
-    const pool = (c: Keypair, m: PublicKey, configIndex: 0 | 1, s: number, t: bigint, at: 'standard' | 'fresh' = 'standard', tokenProgram?: PublicKey) =>
+    const pool = (c: Keypair, m: PublicKey, configIndex: 1, s: number, t: bigint, at: 'standard' | 'fresh' = 'standard', tokenProgram?: PublicKey) =>
       createSolPool(c, m, { configIndex, sol: sol(s), tokens: t * UNIT, at, tokenProgram });
 
     B.pusher = await fundedKeypair(20);
@@ -319,7 +320,7 @@ test.describe('group B (chromium only)', () => {
         B.creator1 = await fundedKeypair(20);
         B.t1 = await classic(B.creator1, 'E2E Write B1', 'EWB1');
         B.a1 = await pool(B.creator1, B.t1, 1, 2, 2_000_000n);
-        B.b1 = await pool(B.creator1, B.t1, 0, 1, 1_000_000n);
+        B.b1 = await createLaunchTierPool(B.creator1, B.t1, { sol: sol(1), tokens: 1_000_000n * UNIT });
         B.w6 = await fundedKeypair(3);
         B.w13 = await fundedKeypair(2);
         await transferTokens(B.creator1, B.w6.publicKey, B.t1, 1_000_000n * UNIT);
@@ -336,7 +337,7 @@ test.describe('group B (chromium only)', () => {
       (async () => {
         B.creator3 = await fundedKeypair(5);
         B.t3 = await createToken2022MetadataOnly(B.creator3, { name: 'E2E Meta Only 2022', symbol: 'EMETA22', supply: 10_000_000n * UNIT });
-        B.p3 = await pool(B.creator3, B.t3, 0, 1, 1_000_000n, 'standard', TOKEN_2022_PROGRAM_ID);
+        B.p3 = await pool(B.creator3, B.t3, 1, 1, 1_000_000n, 'standard', TOKEN_2022_PROGRAM_ID);
         B.w3 = await fundedKeypair(3);
         await transferTokens(B.creator3, B.w3.publicKey, B.t3, 100_000n * UNIT);
       })(),
@@ -370,9 +371,9 @@ test.describe('group B (chromium only)', () => {
         B.ts = await classic(B.stranger, 'E2E Write Squat', 'EWSQ');
         B.squat = await squatStandard(B.stranger, B.ts, { priceX: 100, openTimeFromNow: TEN_YEARS });
         B.tf = await classic(B.stranger, 'E2E Write Freeze', 'EWFZ', 10_000_000n * UNIT, { freezable: true });
-        B.pf = await pool(B.stranger, B.tf, 0, 1, 1_000_000n);
+        B.pf = await pool(B.stranger, B.tf, 1, 1, 1_000_000n);
         B.tf2 = await classic(B.stranger, 'E2E Write Freeze 2', 'EWFZ2', 10_000_000n * UNIT, { freezable: true });
-        B.pf2 = await pool(B.stranger, B.tf2, 0, 0.5, 500_000n);
+        B.pf2 = await pool(B.stranger, B.tf2, 1, 0.5, 500_000n);
       })(),
       (async () => {
         B.creator11 = await fundedKeypair(5);
@@ -382,7 +383,7 @@ test.describe('group B (chromium only)', () => {
         B.creator15 = await fundedKeypair(3);
         B.t15 = await classic(B.creator15, 'E2E Write Dust', 'EWDUST', 2_000_000n * UNIT);
         // 0.0001 SOL against 10^12 token units: the fewest shares that pay both sides is about 3,163.
-        B.p15 = await createSolPool(B.creator15, B.t15, { configIndex: 0, sol: 100_000n, tokens: 1_000_000_000_000n, at: 'standard' });
+        B.p15 = await createSolPool(B.creator15, B.t15, { configIndex: 1, sol: 100_000n, tokens: 1_000_000_000_000n, at: 'standard' });
         B.b15 = await fundedKeypair(1);
       })(),
       (async () => {
@@ -585,13 +586,16 @@ test.describe('group B (chromium only)', () => {
     const owner = B.creator7.publicKey;
     // The outside price the page reads for this token, worked out from the stub's own numbers.
     const market = stubMid(FAIR, DEC);
-    const offLine = (gap: string) => `Its price is ${gap} the outside price. A deposit here would hand that gap to the first arbitrage trade.`;
     const lossLine = (lamports: bigint) => `At these amounts, a move back to the outside price would take up to about ${solExact(lamports)} of what you put in. That is an estimate.`;
-    /** How far the pool's price is from that outside price, from a read of its reserves in Node. */
-    const gapOfPool = (f: PoolFacts) => {
+    /** The pool's price, from a read of its reserves in Node. */
+    const priceOfPool = (f: PoolFacts) => {
       const s = sidesOf(f);
-      return gapOf(priceOf(s.coinIs0 ? f.snapshot.reserve0 : f.snapshot.reserve1, s.coinIs0 ? f.snapshot.reserve1 : f.snapshot.reserve0, DEC, SOL_COIN), market);
+      return priceOf(s.coinIs0 ? f.snapshot.reserve0 : f.snapshot.reserve1, s.coinIs0 ? f.snapshot.reserve1 : f.snapshot.reserve0, DEC, SOL_COIN);
     };
+    /** How far the pool's price is from that outside price. */
+    const gapOfPool = (f: PoolFacts) => gapOf(priceOfPool(f), market);
+    /** The pool's price warning at that read: the gap, then what a deposit loses when it is traded back. */
+    const offLine = (f: PoolFacts) => `Its price is ${gapOfPool(f)} the outside price. If you add now, ${gapCostOf(priceOfPool(f), market)}.`;
     const lossOf = (plan: { costSol: bigint; costTok: bigint }) =>
       lossAtMarketUp({ coinAmount: plan.costSol, tokenAmount: plan.costTok, tokenDecimals: DEC, marketPricePerToken: market, coin: SOL_COIN });
 
@@ -616,7 +620,7 @@ test.describe('group B (chromium only)', () => {
     expect(rows['Price check']).toBe(`${gap} the outside price (Jupiter), read just now. That is off by more than 3%.`);
     expect(rows['Estimated cost of that gap']).toBe(`up to about ${solExact(loss)} of what you put in`);
     await expect(ui.reviewWarnings(p)).toContainText('Read these warnings first. Nothing here stops you signing, and each one is a risk to what you put in:');
-    await expect(ui.reviewWarnings(p)).toContainText(offLine(gap));
+    await expect(ui.reviewWarnings(p)).toContainText(offLine(f));
     await expect(ui.reviewWarnings(p)).toContainText(lossLine(loss));
     const lpAcc = ata(s.lpMint, owner);
     const heldBefore = (await tokenAmount(lpAcc))!;
@@ -631,11 +635,11 @@ test.describe('group B (chromium only)', () => {
     await expect(card).toHaveAttribute('data-add', 'offer');
     await expect(card).toContainText('Deposits: the checks pass, with warnings');
     const f2 = await poolFacts(B.p7.address);
-    await expect(ui.lp.poolWarnings(card)).toContainText(offLine(gapOfPool(f2)));
+    await expect(ui.lp.poolWarnings(card)).toContainText(offLine(f2));
     // And its Add form says the warning before anything is typed, then what the typed amount may lose. Review stays on.
     const again = await openAdd(p, B.p7.address);
     await expect(ui.lp.addWarnings(again.panel)).toContainText('Read these before you review. You can still add, and each one is a risk to what you put in:');
-    await expect(ui.lp.addWarnings(again.panel)).toContainText(offLine(gapOfPool(f2)));
+    await expect(ui.lp.addWarnings(again.panel)).toContainText(offLine(f2));
     await expect(ui.lp.addWarnings(again.panel)).toContainText('Type an amount to see about how much that could cost you.');
     await ui.lp.solToAdd(again.panel).fill('0.05');
     await expect(ui.lp.addWarnings(again.panel)).toContainText(lossLine(lossOf(depositPlan(f2, 'sol', sol(0.05)))));
@@ -910,7 +914,7 @@ test.describe('group B (chromium only)', () => {
     const p = a.page;
     const owner = B.creator18.publicKey;
     const noMarket =
-      'Jupiter has no market price for this token, so this pool’s price was not checked against anything. If it is off, a deposit here hands the difference to whoever trades it back.';
+      'Jupiter has no market price for this token, so this pool’s price was not checked against anything. If it is off, whoever trades it back takes part of what you add.';
     // No route: allowed, with the warning on the card.
     await openPools(p, B.tu);
     const unpriced = poolCard(p, B.pu.address);
@@ -943,7 +947,7 @@ test.describe('group B (chromium only)', () => {
     await expect(routed).toHaveAttribute('data-price', 'unread');
     await expect(routed).toHaveAttribute('data-add', 'checks');
     await expect(routed).toContainText('came through our own pools');
-    await expect(routed).toContainText('We offer adding liquidity only when every check above could be run, and one of them could not be run just now.');
+    await expect(routed).toContainText('Adding is off: a check above could not be run just now.');
     await expect(ui.lp.poolWarnings(routed)).toHaveCount(0);
     await expect(ui.lp.addButton(routed)).toHaveCount(0);
 
@@ -967,25 +971,30 @@ test.describe('group B (chromium only)', () => {
     await expect(poolCard(p, B.a1.address)).toHaveAttribute('data-add', 'offer', { timeout: 60_000 });
     const page = (await p.locator('body').innerText()).replace(/\s+/g, ' ');
     for (const bad of [/takes (whichever|the one)/i, /unless elsewhere is better/i, /whichever is better/i]) expect(page).not.toMatch(bad);
-    expect(page).toContain('to our pool when ours pays at least as much as Jupiter, and through Jupiter when it does not.');
+    // The routing sentence is in the Swap routes card's small print (textContent reads it folded).
+    const routes = ((await p.getByTestId('lp-routes').textContent()) ?? '').replace(/\s+/g, ' ');
+    expect(routes).toContain('to our pool when ours pays at least as much as Jupiter, and through Jupiter when it does not.');
     expect(page).not.toContain('still goes through Jupiter');
     expect(page).not.toContain('adding and removing liquidity from here is not switched on yet');
 
     const tierText = (f: PoolFacts) =>
       // The pool's own creator-fee switch decides whether the tier's creator fee is in the cost.
       `${f.ammConfig.index}: traders pay ${tradeCostText(f.ammConfig, f.pool.enableCreatorFee)}; LPs keep ${feeSplit(f.ammConfig).lpKeepsPct.toFixed(3)}% of each trade`;
+    // Whole words, small print included, read without the addresses (guardText): a random
+    // base58 address in the section can spell "apr" or "apy" (DYbyM8apn7KA5g1ApYWR… failed it once).
+    const NO_YIELD = /\bAPR\b|\bAPY\b|yield of/i;
     const seen: string[] = [];
     for (const pool of [B.a1, B.b1]) {
       const { panel } = await addAndReview(a, pool.address, '0.05');
       const { rows, f } = await reviewDeposit(a, panel, pool.address, 'sol', sol(0.05));
       expect(rows['Fee tier']).toBe(tierText(f));
       seen.push(rows['Fee tier']!);
-      expect((await ui.lp.section(p).innerText())).not.toMatch(/APR|APY|yield of/i);
+      expect(await guardText(ui.lp.section(p))).not.toMatch(NO_YIELD);
       await press(p.getByRole('button', { name: 'Cancel', exact: true }), 'Cancel');
       await press(panel.getByRole('button', { name: 'Close', exact: true }), 'close the panel');
     }
     expect(seen[0]).not.toBe(seen[1]);
-    expect(await ui.lp.section(p).innerText()).not.toMatch(/APR|APY|yield of/i);
+    expect(await guardText(ui.lp.section(p))).not.toMatch(NO_YIELD);
     expect(a.wallet.records).toEqual([]);
     expect(a.rpc.violations).toEqual([]);
     await a.ctx.close();
@@ -1027,7 +1036,8 @@ test.describe('group B (chromium only)', () => {
     await connect(p);
     const aside = p.getByTestId('lp-positions-set-aside');
     await expect(aside).toBeVisible({ timeout: 60_000 });
-    if (!(await aside.evaluate((el) => (el as HTMLDetailsElement).open))) await press(aside.locator('summary'), 'set-aside list');
+    // The list's own summary: each share in it has a "More about this share" summary too.
+    if (!(await aside.evaluate((el) => (el as HTMLDetailsElement).open))) await press(aside.locator(':scope > summary'), 'set-aside list');
     const row = positionRow(p, B.pfee.address);
     await expect(row).toContainText('Set aside: this site does not open or add to pools for its token.');
     // The row's "Token check" value.

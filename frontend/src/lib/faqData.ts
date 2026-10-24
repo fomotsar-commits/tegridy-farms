@@ -58,7 +58,7 @@ export function venueFaq(floor: number): FAQSection[] {
       items: [
         {
           q: 'How does providing liquidity work?',
-          a: "Deposit both sides of a pair and hold the LP token. Fees add to the pool as it trades. Withdraw any time; no lock. The pools page shows the venue's live status, read from the chain.",
+          a: "Deposit both sides of a pair and hold the LP token. Fees add to the pool as it trades. There is no lock. On Ethereum pools you can remove any time; on our Solana pools the team's vault can pause removing on a pool. The pools page shows the venue's live status, read from the chain.",
         },
         {
           q: 'What can go wrong?',
@@ -96,7 +96,6 @@ export const TOWELI_FAQ_DATA: FAQSection[] = [
     items: [
       { q: 'Where do rewards come from?', a: "Right now, from a one-time 6.4M TOWELI emissions seed funded at launch. No new tokens are ever minted; supply is fixed. The ETH side is on chain. A swap through the venue's own router pays a venue fee. On 10 October 2026 that fee was 0.5%: 20% of it was the referral share, which goes to the trader's referrer if they stake enough TOWELI and to the treasury otherwise, and the other 80% was routed toward stakers. The owner wallet can change those figures through a timelock, and the contract caps the fee at 1%. Stakers are paid in rounds by the RevenueDistributor, and a round can open only after 1 ETH has arrived. By that date the router had taken 0.000003 ETH in fees in all, and stakers had been paid none. The Premium page shows the live total, and both contracts are verifiable on Etherscan." },
       { q: 'How often can I claim rewards?', a: 'Anytime. Rewards accrue continuously in real-time and can be claimed whenever you want with no minimum threshold.' },
-      { q: 'What is the Venue Score?', a: 'A points system based on your on-chain activity — staking, swapping, and referrals all earn points (voting joins once gauge voting goes live). Higher scores unlock tier benefits and leaderboard rankings.' },
     ],
   },
   {

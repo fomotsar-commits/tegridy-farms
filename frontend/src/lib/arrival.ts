@@ -102,6 +102,11 @@ export const VENUE = {
     'memetics.finance is the venue of Jungle Bay Island. Bungalows for meme ' +
     'communities, Heat-gated launches, and verifiable staking and swaps on ' +
     'Ethereum, Base and Solana.',
+  /** The public line agreed with Jungle Bay Island on 2026-10-18, verbatim, in plain ASCII:
+   *  the footer on every page and llms.txt. Footer.eightLinks.test.tsx and llmsTxt.test.ts pin it. */
+  venueLine:
+    "memetics.finance is the island's venue: built and run by greencifer, its take shared " +
+    "across the island after the venue's costs, every month, read on chain.",
 } as const;
 
 // Loader identity: which words the particles form, which the glitch flashes, which art shows.

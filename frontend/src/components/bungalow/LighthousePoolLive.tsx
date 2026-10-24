@@ -48,7 +48,9 @@ import {
 } from '../../lib/bungalowStaking';
 import { sharePct } from '../../lib/ladder/program';
 import { basisBehindWrite, FENCE_RETRY_MS, type WriteFence } from '../../lib/ladder/writeFence';
+import { holdReload } from '../../lib/reloadHold';
 
+import { PositionMark, positionHost } from '../ui/PositionMark';
 /**
  * The lighthouse pool, LIVE — rendered by BungalowFarmPanel when the
  * bungalow has a configured Streamflow stake-pool address.
@@ -158,6 +160,16 @@ function humanDuration(secs: number): string {
   const h = Math.floor(secs / 3600);
   if (h >= 1) return `${h}h`;
   return `${Math.max(1, Math.floor(secs / 60))}m`;
+}
+
+/** Until a write is answered the page does not reload itself (lib/staleBuild.ts). */
+async function held<T>(fn: () => Promise<T>): Promise<T> {
+  const release = holdReload();
+  try {
+    return await fn();
+  } finally {
+    release();
+  }
 }
 
 /** A write fence, plus the signature it belongs to (so a late slot lands on its own write). */
@@ -459,7 +471,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
         ? 'reading your stakes…'
         : myShare === null
           ? 'could not be read.'
-          : 'of each payout — it moves as others stake.';
+          : 'of each payout. It moves as others stake.';
 
   const stakedTotal = openEntries.reduce((a, e) => a + e.amountRaw, 0n);
   // THE HEADER TOTAL MUST NOT COUNT WHAT CAN NEVER BE PAID. This reduce was a
@@ -493,7 +505,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
 
   const run = async (label: string, fn: () => Promise<{ ok: true; txId: string } | { ok: false; reason: string }>) => {
     setAction({ busy: label });
-    const res = await fn();
+    const res = await held(fn);
     if (res.ok) {
       setStaleEntries(latestEntriesRead.current);
       setWriteFence({ key: walletKey, slot: null, sig: res.txId });
@@ -530,7 +542,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
             tone: myShare === null ? 'muted' as const : 'good' as const,
             note: shareNote,
           },
-          { key: 'pays', label: 'How it pays', value: 'Budget', note: 'not a fixed rate — split by weighted stake.' },
+          { key: 'pays', label: 'How it pays', value: 'Budget', note: 'not a fixed rate, split by weighted stake.' },
         ]
       : [
           {
@@ -540,7 +552,9 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
             unit: ratePercent ? 'APR' : `per ${bungalow.symbol}/yr`,
             tone: payingNow > 0 ? 'good' as const : 'muted' as const,
           },
-          {
+          // Island, answer seventeen item 3 (owner, 2026-10-03): no configured APR over
+          // an empty vault, on any door. "Paying now" above already says 0.
+          ...(vaultDry ? [] : [{
             key: 'configured',
             label: 'Configured',
             value: !ratePercent
@@ -550,7 +564,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                 : pct(configuredRate),
             unit: ratePercent ? 'APR' : `per ${bungalow.symbol}/yr`,
             note: weighted ? `${labelForDays(minDays)} → ${labelForDays(maxDays)}.` : undefined,
-          },
+          }]),
         ]),
     ...(weighted
       ? [{
@@ -572,7 +586,8 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
     // SECONDARY, WHOLE (2026-09-20): a quieter border, no glow loop, a heavier scrim,
     // and every control it has. Drawn for an open pool, or a closed one with no ladder;
     // a closed pool beside a ladder is members-only and gets LighthouseClaimStrip.
-    <div className="relative isolate overflow-hidden rounded-2xl" style={{ border: '1px solid var(--color-purple-25)' }}>
+    <div className={positionHost('relative isolate overflow-hidden rounded-2xl', Boolean(publicKey) && openEntries.length > 0)} style={{ border: '1px solid var(--color-purple-25)' }}>
+      <PositionMark inPosition={Boolean(publicKey) && openEntries.length > 0} />
       <CardArt pageId="lighthouse-pool-live" idx={0} scrim="transparent" />
       {/* ART VISIBILITY 2026-08-31 (owner): this scrim was 0.85 and the
           resident's art underneath was barely readable — a dark page scrim
@@ -620,7 +635,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
             styling as EvmLadderPoolLive.tsx:175-180. */}
         {identityMismatch && (
           <p className="text-[13px] rounded-lg p-3" style={{ background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.4)', color: '#fca5a5' }}>
-            This pool does not stake {bungalow.symbol} — it reports {poolMint.slice(0, 6)}…{poolMint.slice(-4)} as its
+            This pool does not stake {bungalow.symbol}. It reports {poolMint.slice(0, 6)}…{poolMint.slice(-4)} as its
             staking mint. That is a configuration error, not a network problem, so no figures are shown and nothing
             here will send a transaction.
           </p>
@@ -658,15 +673,30 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                   />
                 ))}
               </m.div>
-              {lhCells.some((c) => c.note) && (
-                <ul className="list-none m-0 p-0 flex flex-col gap-1 text-[11.5px] leading-relaxed" style={{ color: 'rgba(255,255,255,0.62)' }}>
-                  {lhCells.filter((c) => c.note).map((c) => (
-                    <li key={c.key} id={`${fid}-${c.key}`}>
-                      <strong className="font-semibold" style={{ color: '#fff' }}>{c.label} —</strong>{' '}{c.note}
-                    </li>
-                  ))}
-                </ul>
-              )}
+              {/* FEWER WORDS (owner, 2026-10-14): the share's note stays in view, because a
+                  dash with no reason under it reads as a zero; every other footnote sits in
+                  Notes, word for word, still the target of its cell's aria-describedby. */}
+              {(() => {
+                const noted = lhCells.filter((c) => c.note);
+                const shown = noted.filter((c) => c.key === 'share');
+                const folded = noted.filter((c) => c.key !== 'share');
+                const line = (c: LhCell) => (
+                  <li key={c.key} id={`${fid}-${c.key}`}>
+                    <strong className="font-semibold" style={{ color: '#fff' }}>{c.label}:</strong>{' '}{c.note}
+                  </li>
+                );
+                const list = 'list-none m-0 p-0 flex flex-col gap-1 text-[11.5px] leading-relaxed';
+                return (
+                  <>
+                    {shown.length > 0 && <ul className={list} style={{ color: 'rgba(255,255,255,0.62)' }}>{shown.map(line)}</ul>}
+                    {folded.length > 0 && (
+                      <FinePrint summary="Notes">
+                        <ul className={list}>{folded.map(line)}</ul>
+                      </FinePrint>
+                    )}
+                  </>
+                );
+              })()}
               <HeldTimeLine chain={bungalow.chain} pool={bungalow.stakePool} />
             </section>
 
@@ -697,18 +727,17 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                     reason used to arrive first and the consequence fourth, which
                     buried "staking is paused" inside a paragraph of rate talk. */}
                 <p className="m-0">
-                  <strong>Staking is paused until the reward vault is funded.</strong>{' '}
-                  The vault is {funded === 0n ? 'empty' : 'effectively empty'}, so paying now is 0%.
+                  <strong>Staking is paused until the reward vault is funded.</strong>
                 </p>
                 <FinePrint summary="Why">
                   <p className="m-0">
-                    {ratePercent ? `A configured ${pct(rateAtMax)} tops out at nothing` : 'A configured rate pays nothing'}{' '}
-                    until someone tops it up.
+                    The vault is {funded === 0n ? 'empty' : 'effectively empty'}, so paying now is 0%. A configured rate pays
+                    nothing until someone tops it up.
                   </p>
                   <p className="m-0">
                     Deposits stay closed on purpose: while accrued rewards exceed the vault
                     the program <strong>reverts</strong> claims and unstakes, even after a lock
-                    opens — so a deposit here could become principal nothing can release.
+                    opens, so a deposit here could become principal nothing can release.
                     Accrual itself is never lost; it pays in full after a top-up.
                   </p>
                 </FinePrint>
@@ -786,6 +815,32 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
             {/* ── Stake ──────────────────────────────────────────────────── */}
             <div className="rounded-xl p-4 mb-4" style={{ background: 'rgba(0,0,0,0.5)', border: '1px solid var(--color-purple-25)' }}>
               <p className="text-[10px] uppercase tracking-wider mb-3" style={{ color: 'var(--color-kyle)' }}>Stake {bungalow.symbol}</p>
+              {/* THE WAY IN, FIRST (owner, 2026-10-14: "see the stuff they are to interact
+                  with"): a visitor with no wallet meets the risk line and Connect at the top
+                  of the form, not under the ladder. The ladder stays public below. */}
+              {!publicKey && (
+                <div className="mb-4">
+                  {/* The no-early-exit fact belongs BEFORE the wallet, not after
+                      it: this is the screen where someone decides whether to take
+                      part at all. */}
+                  <p className="text-[12px] mb-1 max-w-md leading-relaxed" style={{ color: '#e3b341' }}>
+                    There is no early exit. Pick a lock you can wait out.
+                  </p>
+                  <FinePrint summary="Why" className="mb-2">
+                    <p className="m-0">
+                      Your principal comes back to you when the lock opens.
+                    </p>
+                    <p className="m-0">
+                      The program refuses an unstake until the
+                      lock you choose opens: not for a fee, not by the venue, not by
+                      anyone.
+                    </p>
+                  </FinePrint>
+                  <button type="button" onClick={openConnect} className="btn-primary px-6 py-2.5 text-[13px]">
+                    Connect Solana Wallet
+                  </button>
+                </div>
+              )}
               {/* Amount + balance/MAX, the venue's own staking-card idiom. Only a
                   connected wallet has a balance to spend, so this half waits —
                   but the lock table below does NOT, because what each lock earns
@@ -861,7 +916,9 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                               {weighted && `${stakeWeight(pool, opt.seconds).toFixed(2)}×`}
                               {dynamicPool
                                 ? (weighted ? ' share' : '—')
-                                : `${weighted ? ' · ' : ''}${ratePercent ? pct(optRate) : optRate.toLocaleString(undefined, { maximumFractionDigits: 3 })}`}
+                                : vaultDry
+                                  ? (weighted ? '' : '—')
+                                  : `${weighted ? ' · ' : ''}${ratePercent ? pct(optRate) : optRate.toLocaleString(undefined, { maximumFractionDigits: 3 })}`}
                             </span>
                           </button>
                         );
@@ -891,49 +948,56 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                       <span className="text-white/55 text-[11px]">days ({minDays}–{maxDays})</span>
                     </div>
 
-                    {vaultDry && (
-                      <p className="text-[11px] mt-2" style={{ color: '#e3b341' }}>
-                        Every rate on those buttons is the pool&rsquo;s <strong>configured</strong> rate.
-                        {funded === 0n
-                          ? ' With the vault at zero, all six of them pay 0 today.'
-                          : ' The vault cannot back them today, so all six pay 0.'}
-                      </p>
-                    )}
-
-                    {/* Only the FLAT case needs saying in prose. On a weighted
-                        pool the ladder is already on every button (1.32× · 28.9%)
-                        and in the Max boost stat, so a sentence repeating it was
-                        just one more line to read. */}
-                    {flatWeight && (
-                      <p className="text-white/45 text-[11px] mt-2 leading-relaxed">
-                        Every lock weighs 1.00&times; here: a longer lock does
-                        <strong className="text-white/70"> not</strong> raise the rate, it only sets
-                        when you can take your {bungalow.symbol} back.
-                      </p>
-                    )}
-
                     {/* THE VENUE'S CEILING, said out loud. The pool still allows
-                        longer — its durations are create-only and cannot be
-                        changed — so this must read as "we stopped offering it",
+                        longer (its durations are create-only and cannot be
+                        changed), so this must read as "we stopped offering it",
                         never as "the pool changed". Claiming the latter would be
                         the kind of quiet substitution the honesty rules exist to
                         prevent, and anyone can check the pool on-chain. */}
                     {ceilingApplies && (
-                      <div className="text-[11px] mt-2 leading-relaxed" style={{ color: '#f0b26b' }}>
-                        <p className="m-0">
-                          We currently offer locks up to <strong>{labelForDays(maxDays)}</strong>, though this
-                          pool itself allows up to {labelForDays(poolMaxDays)}.
-                        </p>
-                        <FinePrint summary="Why">
-                          <p className="m-0">
-                            Longer locks are paused while
-                            the reward rail is replaced: past roughly {maxDays} days a position&rsquo;s reward
-                            accounting runs out before the lock opens, and it stops paying for the rest of its
-                            term. Your {bungalow.symbol} would still come back in full — but it would sit there
-                            earning nothing collectable, and you could not move it.
+                      <p className="text-[11px] mt-2 m-0 leading-relaxed" style={{ color: '#f0b26b' }}>
+                        Locks past {labelForDays(maxDays)} are paused here for now.
+                      </p>
+                    )}
+                    {/* FEWER WORDS (owner, 2026-10-14): the three notes about these locks
+                        (the configured rate on a dry vault, the flat-weight case, the venue's
+                        ceiling and why) sit here word for word, one press away. */}
+                    {(vaultDry || flatWeight || ceilingApplies) && (
+                      <FinePrint summary="About these locks" className="mt-1">
+                        {vaultDry && (
+                          <p className="m-0" style={{ color: '#e3b341' }}>
+                            Every rate on those buttons is the pool&rsquo;s <strong>configured</strong> rate.
+                            {funded === 0n
+                              ? ' With the vault at zero, all six of them pay 0 today.'
+                              : ' The vault cannot back them today, so all six pay 0.'}
                           </p>
-                        </FinePrint>
-                      </div>
+                        )}
+                        {/* Only the FLAT case needs saying in prose. On a weighted
+                            pool the ladder is already on every button (1.32× · 28.9%)
+                            and in the Max boost stat. */}
+                        {flatWeight && (
+                          <p className="m-0">
+                            Every lock weighs 1.00&times; here: a longer lock does
+                            <strong className="text-white/70"> not</strong> raise the rate, it only sets
+                            when you can take your {bungalow.symbol} back.
+                          </p>
+                        )}
+                        {ceilingApplies && (
+                          <>
+                            <p className="m-0">
+                              We currently offer locks up to <strong>{labelForDays(maxDays)}</strong>, though this
+                              pool itself allows up to {labelForDays(poolMaxDays)}.
+                            </p>
+                            <p className="m-0">
+                              Longer locks are paused while
+                              the reward rail is replaced: past roughly {maxDays} days a position&rsquo;s reward
+                              accounting runs out before the lock opens, and it stops paying for the rest of its
+                              term. Your {bungalow.symbol} would still come back in full, but it would sit there
+                              earning nothing collectable, and you could not move it.
+                            </p>
+                          </>
+                        )}
+                      </FinePrint>
                     )}
                   </div>
 
@@ -954,10 +1018,11 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                         <p className="stat-value text-2xl leading-tight" style={{ color: '#bfdbfe' }}>{pct(share)}</p>
                         <p className="text-white/45 text-[11px] mt-1 leading-relaxed">
                           of every payout, at a {stakeWeight(pool, chosenSecs).toFixed(2)}× weight on{' '}
-                          {labelForDays(chosenDays).toLowerCase()}. It falls as others stake and rises as they leave.
+                          {labelForDays(chosenDays).toLowerCase()}.
                         </p>
                         <FinePrint summary="Details">
                           <p className="m-0">
+                            It falls as others stake and rises as they leave.
                             Computed against the stake in the pool right now. No amount is
                             projected here because the payout depends on future funding, which is not a
                             number this page can know.
@@ -971,10 +1036,10 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                       welded on. Renders even at zero, because "0" IS the answer
                       today and hiding it would be the softer lie. FIXED pools
                       only: a dynamic pool has no rate to project from. */}
-                  {!dynamicPool && amountRaw !== null && amountRaw > 0n && primaryRp && (
+                  {!dynamicPool && !vaultDry && amountRaw !== null && amountRaw > 0n && primaryRp && (
                     <div className="rounded-lg p-4 mb-4" style={{ background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.15)' }}>
                       <p className="text-emerald-400 text-[11px] font-semibold mb-2 uppercase tracking-wider">
-                        {vaultDry ? 'What it would earn once funded' : 'Projected rewards'}
+                        Projected rewards
                       </p>
                       <div className="grid grid-cols-3 gap-3">
                         {[
@@ -993,7 +1058,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                                   whose text is duplicated in an aria-label. */}
                               <p className="text-white/40 text-[11px] uppercase mb-0.5">{label}</p>
                               <p className="stat-value text-white text-[13px]">
-                                {vaultDry ? '0' : projected < 0.01 ? '<0.01' : projected.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                                {projected < 0.01 ? '<0.01' : projected.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                               </p>
                               <p className="text-white/30 text-[11px]">
                                 {bungalow.symbol}{held < d ? ` · ${held}d locked` : ''}
@@ -1002,49 +1067,16 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                           );
                         })}
                       </div>
-                      <p className="text-white/35 text-[11px] mt-2 text-center leading-relaxed">
-                        {vaultDry ? (
-                          <>
-                            Zero, because the vault is empty. At the configured{' '}
-                            {ratePercent ? pct(configuredRate) : `${configuredRate.toFixed(3)} per ${bungalow.symbol}`} a
-                            year it would be{' '}
-                            {(toNum(amountRaw, decimals) * configuredRate).toLocaleString(undefined, { maximumFractionDigits: 2 })}{' '}
-                            {bungalow.symbol} over a year — once someone funds it.
-                          </>
-                        ) : (
-                          <>
-                            At the configured {ratePercent ? pct(configuredRate) : 'rate'}. Rewards stop the moment
-                            the vault empties; nothing here assumes a top-up.
-                          </>
-                        )}
-                      </p>
+                      <FinePrint summary="Details" className="mt-1">
+                        <p className="m-0">
+                          At the configured {ratePercent ? pct(configuredRate) : 'rate'}. Rewards stop the moment
+                          the vault empties; nothing here assumes a top-up.
+                        </p>
+                      </FinePrint>
                     </div>
                   )}
 
-                  {!publicKey ? (
-                    <>
-                      <p className="text-white/80 text-[13px] mb-2 max-w-md leading-relaxed">
-                        Your principal comes back to you when the lock opens.
-                      </p>
-                      {/* The no-early-exit fact belongs BEFORE the wallet, not after
-                          it: this is the screen where someone decides whether to take
-                          part at all. It used to appear only under the stake button,
-                          which a disconnected visitor never reaches. */}
-                      <p className="text-[12px] mb-1 max-w-md leading-relaxed" style={{ color: '#e3b341' }}>
-                        There is no early exit. Pick a lock you can wait out.
-                      </p>
-                      <FinePrint summary="Why" className="mb-2">
-                        <p className="m-0">
-                          The program refuses an unstake until the
-                          lock you choose opens — not for a fee, not by the venue, not by
-                          anyone.
-                        </p>
-                      </FinePrint>
-                      <button type="button" onClick={openConnect} className="btn-primary px-6 py-2.5 text-[13px]">
-                        Connect Solana Wallet
-                      </button>
-                    </>
-                  ) : (
+                  {publicKey && (
                   <>
                   <button
                     type="button"
@@ -1065,7 +1097,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                   {!entriesKnown && entriesForWallet?.reason && (
                     <p className="text-[11px] mt-2" style={{ color: '#f0b26b' }}>
                       {entriesForWallet.reason} Staking waits until your existing stakes are
-                      readable — a new stake could otherwise collide with one of them.
+                      readable; a new stake could otherwise collide with one of them.
                     </p>
                   )}
                   <p className="text-white/45 text-[11px] text-center mt-2">
@@ -1093,7 +1125,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                         <span className="stat-value text-[14px]" style={{ color: '#e3b341' }}>
                           {fmt(pendingAtRisk, decimals)}
                         </span>{' '}
-                        <span style={{ color: '#e3b341' }}>at risk — try claiming</span>
+                        <span style={{ color: '#e3b341' }}>at risk, try claiming</span>
                       </>
                     )}
                   </p>
@@ -1283,7 +1315,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
               </p>
             )}
 
-            {action?.busy && <p className="text-white/70 text-[12px] mt-3">{action.busy} — waiting for the wallet…</p>}
+            {action?.busy && <p className="text-white/70 text-[12px] mt-3">{action.busy}: waiting for the wallet…</p>}
             {action?.note && (
               <p className="text-[12px] mt-3 text-white/85">
                 {action.note}{' '}
@@ -1317,7 +1349,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
             </div>
             <FinePrint summary="About this pool">
               <p className="m-0">
-                A Streamflow staking pool — audited program, non-custodial, verifiable on-chain.
+                A Streamflow staking pool: audited program, non-custodial, verifiable on-chain.
                 {primaryRp && (primaryRp.permissionless
                   ? ' Reward vault funding is permissionless: anyone can top it up, and the balance above is the proof.'
                   : ' Only the pool authority can fund the reward vault.')}
@@ -1469,7 +1501,7 @@ export function LighthouseClaimStrip({ bungalow }: { bungalow: Bungalow & { stak
     const key = walletKey;
     setRescueFor(null);
     setAction({ key, busy: label });
-    const res = await fn();
+    const res = await held(fn);
     setAction(res.ok ? { key, note: `${label} confirmed.`, tx: res.txId } : { key, note: res.reason });
     reread();
   };

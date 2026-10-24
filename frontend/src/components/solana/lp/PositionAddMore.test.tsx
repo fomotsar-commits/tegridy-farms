@@ -431,7 +431,7 @@ describe('it goes to that pool or to nowhere', () => {
     // alone is only the pool's pair and tier, which the card beside it can carry too.
     const heading = within(its).getByRole('heading', { level: 3 });
     expect(heading).toHaveFocus();
-    expect(heading.textContent).toBe(pairLabel(mine));
+    expect(heading.textContent).toBe(pairLabel(mine, okToken));
     const why = within(its).getByTestId('lp-wish-why');
     expect(why).toHaveTextContent('This is your position’s pool. Its Add form was not opened:');
     expect(why).toHaveTextContent(c.why);

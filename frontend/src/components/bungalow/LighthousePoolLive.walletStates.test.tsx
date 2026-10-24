@@ -86,7 +86,7 @@ function shareParts() {
   const label = within(figures).getByText('Your share');
   const cell = label.parentElement as HTMLElement;
   const value = label.nextElementSibling as HTMLElement;
-  const note = within(figures).getByText('Your share —').parentElement as HTMLElement;
+  const note = within(figures).getByText('Your share:').parentElement as HTMLElement;
   return { figures, cell, value, note };
 }
 

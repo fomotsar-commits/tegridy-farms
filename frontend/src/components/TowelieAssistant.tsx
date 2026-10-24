@@ -106,7 +106,6 @@ const ROUTE_TIPS: Record<string, string> = {
   // behind a timelock). The Farm strip quotes the live number; this points at it.
   '/tokenomics':  "1B supply. Protocol fees route on-chain to stakers, after the referral carve.",
   '/security':    "Internally red-teamed to hell and back. Safer than my last job.",
-  '/leaderboard': "Climb the ranks. Earn points. Brag responsibly.",
   '/changelog':   "Every shipped feature, receipts and all.",
   '/premium':     "Randy's Gold Card. Bonus rewards for the loyal.",
   '/gallery':     "All the art. Look, don't lick.",
@@ -166,8 +165,9 @@ type BubbleSource = 'route' | 'idle' | 'click' | 'event' | 'api' | 'chat' | null
 
 /**
  * True while a section tab lies under `ref`'s box, unless focus is inside it. The corner
- * then steps aside (hidden, not pressable) until the page moves the tab away, so it never
- * covers one: at 390px it sat over /nft-finance's Launchpad tab. e2e/phone-layout.spec.ts.
+ * then steps aside until the page moves the tab away, so it never covers one: at 390px it
+ * sat over /nft-finance's Launchpad tab. It goes `inert` at once, because it stays
+ * pressable until its fade ends (in WebKit even with motion reduced). e2e/phone-layout.spec.ts.
  */
 function useYieldsToTabs(ref: RefObject<HTMLElement | null>): boolean {
   const [yielding, setYielding] = useState(false);
@@ -428,6 +428,7 @@ export function TowelieAssistant() {
   return (
     <div
       ref={corner}
+      inert={yielding}
       className={`fixed right-4 z-[60] flex items-end gap-2 pointer-events-none select-none bottom-20 min-[800px]:bottom-4 transition-[opacity,visibility] duration-200 ${yielding ? 'opacity-0 invisible' : ''}`}
       style={{ paddingBottom: 'env(safe-area-inset-bottom, 0)' }}
     >

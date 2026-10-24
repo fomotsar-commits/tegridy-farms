@@ -46,10 +46,10 @@ const { BottomNav } = await import('./BottomNav');
 const { ThemeProvider } = await import('../../contexts/ThemeContext');
 const { announceActiveBungalow, setActiveBungalow } = await import('../../lib/bungalows');
 
-/** Mounted on a path no door owns, so only the store can move what is rendered. */
-function mount(node: React.ReactNode) {
+/** Mounted once at one path, so only the store can move what is rendered. */
+function mount(node: React.ReactNode, path = '/') {
   return render(
-    <MemoryRouter initialEntries={['/']}>
+    <MemoryRouter initialEntries={[path]}>
       <ThemeProvider>{node}</ThemeProvider>
     </MemoryRouter>,
   );
@@ -71,11 +71,12 @@ afterEach(() => {
 });
 
 describe('a door reaches the surfaces that outlive it', () => {
-  it("moves the footer's room label with no re-render of the tree", () => {
-    const { container } = mount(<Footer />);
-    expect(container.textContent ?? '').not.toContain('Bayla');
+  // On the room's own door the footer carries that room's card (docs/FACE_LAWS.md, law 21).
+  it("moves the footer's room card with no re-render of the tree", () => {
+    const { container } = mount(<Footer />, '/bayla');
+    expect(container.textContent ?? '').not.toContain('BAYLA contract');
     aDoorOpens('bayla');
-    expect(container.textContent ?? '', 'the footer still names the room it was mounted in').toContain('Bungalows · Bayla');
+    expect(container.textContent ?? '', 'the footer still speaks for the room it was mounted in').toContain('BAYLA contract');
   });
 
   it('moves the memoized top nav chip with no re-render of the tree', () => {

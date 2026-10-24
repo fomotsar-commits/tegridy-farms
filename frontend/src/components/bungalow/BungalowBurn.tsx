@@ -39,9 +39,6 @@ export function BungalowBurn({ bungalow }: { bungalow: Bungalow }) {
     >
       <CardArt pageId="bungalow-burn" idx={0} />
       <div className="flex items-center gap-3 flex-wrap mb-4">
-        <p className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--color-kyle)' }}>
-          The burn
-        </p>
         <h2 className="heading-luxury text-xl text-white">{symbol} burnt</h2>
         <span className="text-[11px] text-white/45">{CHAIN_LABEL[bungalow.chain]}</span>
         {/* ml-auto, not a spacer: when the row wraps on a phone the button still sits at the right. */}
@@ -61,7 +58,7 @@ export function BungalowBurn({ bungalow }: { bungalow: Bungalow }) {
         <p className="text-[12px] text-white/55">Reading the {symbol} burn…</p>
       ) : burn.status === 'unread' ? (
         <p role="status" className="text-[12px]" style={{ color: AMBER }}>
-          The {symbol} burn could not be read right now. That is an outage, not a zero.
+          The {symbol} burn could not be read. An outage, not a zero.
         </p>
       ) : (
         <p role="status" className="text-[12px]" style={{ color: AMBER }}>

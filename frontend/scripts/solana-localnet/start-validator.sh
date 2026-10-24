@@ -8,13 +8,20 @@
 # ends both), so start it in a terminal of its own or as a background job.
 #
 # What it loads, and nothing else:
-#   - tegridy-launch and cp-swap: the EXACT 2026-09-26 mainnet .so files, at their
-#     mainnet ids, upgrade authority none. Their sha256 must match the release's
-#     SHA256SUMS AND the pins below, or nothing starts.
+#   - tegridy-launch and cp-swap: the EXACT .so files mainnet runs, at their mainnet
+#     ids, upgrade authority none. tegridy-launch is the 2026-09-26 release's file.
+#     cp-swap is the build it was upgraded to (1e55bcdc…, 725,176 bytes: the one with
+#     create_lp_metadata, whose public initialize refuses fee tier 0), which sits in the
+#     same folder under its own name with its own checksum list. The release's
+#     cp_swap.mainnet.so (88b98aa9…, what mainnet ran
+#     before the upgrade) stays in that folder and is not loaded. Each file's sha256
+#     must match the checksum list that came with it AND the pins below, or nothing
+#     starts. genesis-accounts.mjs says which three files the upgrade added.
 #   - Metaplex Token Metadata, cloned from mainnet at genesis (read-only).
 #   - The genesis accounts from genesis-accounts.mjs: GlobalConfig, AmmConfig index 0 and
 #     index 1 (the public tier the vault is proposing; see ammConfig1Values),
-#     the cp-swap Permission for ["migauth"], the vault GRMtSx… and its WSOL account,
+#     the cp-swap Permissions for ["migauth"] and for the e2e's launch-tier opener (a test
+#     key, genesis-accounts.mjs launchTierOpener), the vault GRMtSx… and its WSOL account,
 #     and the stand-in $BAYLA mint 7hmVkPX…pump (mainnet's bytes; only its mint authority
 #     is a test key, so the e2e can give makers $BAYLA for the plant).
 #   - The mainnet feature set (read-only clone), so the runtime behaves as mainnet's.
@@ -48,20 +55,35 @@ LAUNCH=64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2
 CPSWAP=EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT
 METAPLEX=metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s
 PIN_LAUNCH=a3c41afaf9dce3ee5dd5d30061c09d8dfb0bf581ba8f39e1d24524dbb43d3f4d
-PIN_CPSWAP=88b98aa91559824c682f6e6c31906abf222d189ce7a45f16af117368b33db882
+PIN_CPSWAP=1e55bcdcb10c39ee9678efb697b453cb23415621bded4968c01950629de4fd22
+SO_CPSWAP=cp_swap.upgrade-1e55bcdc.mainnet.so
+SUMS_CPSWAP=SHA256SUMS.upgrade-1e55bcdc
 
 die() { echo "REFUSING: $*" >&2; exit 1; }
 
-# ── 1. the binaries are the release, byte for byte ────────────────────────────
-( cd "$ART" && grep -E ' \*?(tegridy_launch|cp_swap)\.mainnet\.so$' SHA256SUMS | sha256sum -c --strict - ) \
-  || die "the .so files in $ART do not match their SHA256SUMS"
+# ── 1. the binaries are the ones mainnet runs, byte for byte ──────────────────
+[ -f "$ART/$SO_CPSWAP" ] && [ -f "$ART/$SUMS_CPSWAP" ] \
+  || die "no $SO_CPSWAP or no $SUMS_CPSWAP in $ART: the pool program's upgrade build has not been copied there (see genesis-accounts.mjs)"
+# A checksum list typed or saved on Windows ends its lines in CR LF. The CR is not part of a
+# file name, so it is dropped before the list is read. genesis-accounts.mjs, the same check
+# on the Windows side, already reads such a list; without this the two disagreed, and this
+# script said the FILE did not match when the list's line ends were the only difference.
+# A list that does not name the file at all gets its own message for the same reason.
+check_against_list() {
+  local list=$1 file=$2 line
+  line=$(tr -d '\r' < "$ART/$list" | grep -E " \*?${file//./\\.}\$" || true)
+  [ -n "$line" ] || die "$list in $ART has no line for $file"
+  ( cd "$ART" && printf '%s\n' "$line" | sha256sum -c --strict - ) || die "$file in $ART does not match its $list"
+}
+check_against_list SHA256SUMS tegridy_launch.mainnet.so
+check_against_list "$SUMS_CPSWAP" "$SO_CPSWAP"
 [ "$(sha256sum "$ART/tegridy_launch.mainnet.so" | cut -d' ' -f1)" = "$PIN_LAUNCH" ] || die "tegridy_launch.mainnet.so is not the pinned release build"
-[ "$(sha256sum "$ART/cp_swap.mainnet.so" | cut -d' ' -f1)" = "$PIN_CPSWAP" ] || die "cp_swap.mainnet.so is not the pinned release build"
+[ "$(sha256sum "$ART/$SO_CPSWAP" | cut -d' ' -f1)" = "$PIN_CPSWAP" ] || die "$SO_CPSWAP is not the pinned build of the pool program's upgrade"
 
 # ── 2. the genesis accounts exist and are the ones the manifest describes ─────
 [ -f "$ACC/manifest.json" ] || die "no $ACC/manifest.json: run 'node scripts/solana-localnet/genesis-accounts.mjs' on Windows first"
 ACCOUNT_ARGS=()
-for f in global amm-config amm-config-1 permission vault fee-ata bayla-mint usdc-mint; do
+for f in global amm-config amm-config-1 permission permission-opener vault fee-ata bayla-mint usdc-mint; do
   [ -f "$ACC/$f.json" ] || die "missing $ACC/$f.json"
   ACCOUNT_ARGS+=(--account - "$ACC/$f.json")
 done
@@ -76,7 +98,7 @@ rm -rf "$LEDGER"; mkdir -p "$LEDGER"
   --url https://api.mainnet-beta.solana.com --clone-feature-set \
   --clone-upgradeable-program "$METAPLEX" \
   --upgradeable-program "$LAUNCH" "$ART/tegridy_launch.mainnet.so" none \
-  --upgradeable-program "$CPSWAP" "$ART/cp_swap.mainnet.so" none \
+  --upgradeable-program "$CPSWAP" "$ART/$SO_CPSWAP" none \
   "${ACCOUNT_ARGS[@]}" \
   --limit-ledger-size "$KEEP_SHREDS" \
   --rpc-port "$PORT" --quiet > "$LEDGER/../tegridy-e2e-validator.out" 2>&1 &
@@ -97,14 +119,14 @@ case $G in 5eykt4*|EtWTRAB*|4uhcVJ*) die "$URL reports a PUBLIC genesis $G";; es
 for P in "$LAUNCH" "$CPSWAP"; do
   "$BIN/solana" program dump -u "$URL" "$P" "$LEDGER/dump-$P.so" >/dev/null
 done
-for pair in "$LAUNCH:$ART/tegridy_launch.mainnet.so" "$CPSWAP:$ART/cp_swap.mainnet.so"; do
+for pair in "$LAUNCH:$ART/tegridy_launch.mainnet.so" "$CPSWAP:$ART/$SO_CPSWAP"; do
   P=${pair%%:*}; SO=${pair#*:}
   LEN=$(stat -c%s "$SO")
   # A dump carries the ProgramData tail padding; compare the first LEN bytes.
   [ "$(head -c "$LEN" "$LEDGER/dump-$P.so" | sha256sum | cut -d' ' -f1)" = "$(sha256sum "$SO" | cut -d' ' -f1)" ] \
-    || die "the program at $P is not the release binary"
+    || die "the program at $P is not the pinned binary"
 done
 "$BIN/solana" program show -u "$URL" "$METAPLEX" >/dev/null || die "Metaplex Token Metadata was not cloned"
 
-echo "READY genesis=$G launch=$LAUNCH cpswap=$CPSWAP (both = release bytes; upgrade authority none) metaplex=cloned"
+echo "READY genesis=$G launch=$LAUNCH cpswap=$CPSWAP (both = the bytes mainnet runs; upgrade authority none) metaplex=cloned"
 wait $VP

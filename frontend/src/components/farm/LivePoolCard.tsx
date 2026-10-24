@@ -16,9 +16,9 @@ import { FinePrint } from '../ui/FinePrint';
  * `SwapFeeRouter.totalETHFees()` (usePoolTVL.ts) — the VENUE's own platform
  * fee, skimmed off `msg.value` BEFORE the swap ever reaches the pair — and
  * annualised against this pool's TVL. It is the protocol's income, not the
- * liquidity provider's. An LP's income is the pair's 0.3% swap fee, all of
- * which accrues into the reserves while the pair's one-sixth `feeTo` cut
- * (TegridyPair.sol:16-17) stays off, as it was on 2026-10-10 (`kLast` = 0):
+ * liquidity provider's. An LP's income is the pair's 0.3% swap fee, which
+ * accrues into the reserves, less the pair's one-sixth `feeTo` cut (minted
+ * to the treasury Safe; switched on for TOWELI/WETH 2026-10-16, `kLast` set):
  * a different party, a different cut, a different base. `totalETHFees` also counts only swaps that went THROUGH the fee
  * router, so it undercounts the pool's real activity on top of that.
  *
@@ -93,9 +93,21 @@ export function LivePoolCard({ poolData }: { poolData: ReturnType<typeof usePool
             being read as something it is not, and it names what a dash means so
             a failed read is never taken for a zero. */}
         <p className="text-white/75 text-[11px] mb-1 leading-relaxed">
-          Venue fee / TVL is the venue&apos;s income, not what LPs earn. A dash means not read.
+          Venue fee / TVL is the venue&apos;s cut, not your earnings.
         </p>
+        {/* Rendered only while a tile IS a dash, so a visitor looking at three
+            figures is not told about a dash they cannot see, and one looking at
+            a dash is never left to read it as a zero. The flags initialise
+            TRUE and mean "not computed", per the note at the top. */}
+        {(!poolData.isLoaded || poolData.aprIsEstimated || poolData.volIsEstimated) && (
+          <p className="text-[11px] mb-1 leading-relaxed" style={{ color: '#e3b341', opacity: 0.85 }}>
+            A dash means not read.
+          </p>
+        )}
         <FinePrint summary="Details" className="mb-2">
+          <p>
+            Venue fee / TVL is the venue&apos;s income, not what LPs earn. A dash means not read.
+          </p>
           <p>
             &ldquo;Venue fee / TVL&rdquo; annualises the venue router&apos;s own platform fee against pool
             depth &mdash; the protocol&apos;s income, not what providing liquidity pays.
@@ -107,7 +119,7 @@ export function LivePoolCard({ poolData }: { poolData: ReturnType<typeof usePool
 
         {/* Action */}
         <Link to="/liquidity" className="btn-primary w-full py-2.5 text-[13px] text-center block">
-          Provide Liquidity
+          Add liquidity
         </Link>
       </div>
     </div>

@@ -138,7 +138,7 @@ test.describe('Liquidity surface', () => {
 
     // ⚠ THE SUBMIT CTA CANNOT BE FOUND BY NAME ON THIS SURFACE, and that is what broke
     // this test — not the fork. LiquidityTab gives the mode toggles the SAME accessible
-    // names as the submit buttons they switch to ("Grow the Crop" / "Pull Crop Out",
+    // names as the submit buttons they switch to (it did: "Grow the Crop" / "Pull Crop Out"; since 2026-10-14 the toggles read "Add" / "Remove",
     // LiquidityTab.tsx:250 and :255 vs :453 and :543).
     //
     // This used to be `panel.locator('button:not([aria-pressed])').last()`, which
@@ -183,7 +183,7 @@ test.describe('Liquidity surface', () => {
     // WARM fork the allowance is already set, the CTA reads "Grow the Crop", the regex
     // matches NOTHING at all, and the 20s `toBeEnabled` guard fires — that is the 22.4s
     // and 21.9s retries. One cause, all three durations.
-    await advancePastApproval(cta, /^Grow the Crop$/, 'add liquidity');
+    await advancePastApproval(cta, /^Add liquidity$/, 'add liquidity');
     // ASK THE CHAIN, THEN THE PAGE. `expectMinedSuccessfully` reads this click's own
     // transaction off the node, so a revert fails HERE, under a message that says so,
     // instead of surfacing later as a missing or stale link. The receipt check then demands
@@ -204,13 +204,13 @@ test.describe('Liquidity surface', () => {
     ).toBeVisible({ timeout: 30_000 });
 
     // ── REMOVE ───────────────────────────────────────────────────────────────────
-    // The mode toggle, not the submit: in add mode "Pull Crop Out" is unambiguous.
-    await page.getByRole('button', { name: 'Pull Crop Out', exact: true }).click();
+    // The mode toggle, not the submit: "Remove" alone, exact, is the toggle; the submit says "Remove liquidity".
+    await page.getByRole('button', { name: 'Remove', exact: true }).click();
     // The burn is gated on the percentage slider — at 0% the CTA reads "Move the
     // slider" and stays disabled (LiquidityTab.tsx:538-542). Take the whole position.
     await panel.getByRole('button', { name: '100%' }).click();
 
-    await advancePastApproval(cta, /^Pull Crop Out$/, 'remove liquidity');
+    await advancePastApproval(cta, /^Remove liquidity$/, 'remove liquidity');
     const removeSent = forkTxCount(page);
     await cta.click();
     // ⚠ THIS IS THE LEG THAT FLAKED. It failed in CI in three shapes — the empty-state
@@ -259,7 +259,7 @@ test.describe('Liquidity surface', () => {
       'the pool did not auto-pair Token B from its reserves — see the add → remove leg above.',
     ).not.toHaveValue('', { timeout: 20_000 });
     // The approval confirms while receipts still work: these legs are about the ADD.
-    await advancePastApproval(cta, /^Grow the Crop$/, 'add liquidity');
+    await advancePastApproval(cta, /^Add liquidity$/, 'add liquidity');
     return cta;
   }
 

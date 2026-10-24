@@ -25,6 +25,7 @@ import { Connection, PublicKey, Keypair } from '@solana/web3.js';
 import { WalletNotConnectedError, WalletSendTransactionError, WalletSignTransactionError, type SignerWalletAdapter } from '@solana/wallet-adapter-base';
 import { DECLINED_IN_WALLET, lostAnswerCopy } from '../solana/swap/walletCopy';
 import { notSignedCopy } from '../solana/walletThrow';
+import { reloadHeld } from '../reloadHold';
 import { poolPda, stakeVaultPda, rewardVaultPda, ASSOCIATED_TOKEN_PROGRAM_ID, MIN_LOCK_SECS } from './program';
 import { createAtaIdempotentIx } from './ix';
 import {
@@ -264,6 +265,17 @@ const SOME_IX = [createAtaIdempotentIx({
 })];
 
 describe('submitLadder', () => {
+  it('holds the page from reloading for a new deploy until the write is answered, sent or thrown', async () => {
+    const heldAtWallet: boolean[] = [];
+    const conn = fakeConn({ statuses: [{ err: null, confirmationStatus: 'confirmed' }], onStatuses: () => heldAtWallet.push(reloadHeld()) });
+    expect(reloadHeld()).toBe(false);
+    await submitLadder(conn, fakeWallet(async () => { heldAtWallet.push(reloadHeld()); return SIG; }), SOME_IX, noSleep);
+    expect(heldAtWallet).toEqual([true, true]);
+    expect(reloadHeld()).toBe(false);
+    await submitLadder(conn, fakeWallet(async () => { throw new WalletSendTransactionError('lost'); }), SOME_IX, noSleep);
+    expect(reloadHeld()).toBe(false);
+  });
+
   it('returns the signature once the status says confirmed', async () => {
     const conn = fakeConn({ statuses: [{ err: null, confirmationStatus: 'confirmed' }] });
     const r = await submitLadder(conn, fakeWallet(async () => SIG), SOME_IX, noSleep);

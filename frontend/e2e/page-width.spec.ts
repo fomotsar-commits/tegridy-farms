@@ -4,9 +4,11 @@
  * open most routes at a phone's width or a laptop's only. Each page is loaded at 820px and
  * then widened, the way a tablet is turned.
  */
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { test, expect } from './fixtures/wallet';
 import { expectNoSidewaysScroll, readPageWidth } from './fixtures/pageWidth';
-import { AUDITABLE_ROUTES, gotoNakamigos, gotoRoute, navigablePath, waitForQuiescence } from './fixtures/routes';
+import { AUDITABLE_ROUTES, GECKO_EDGE_GLOB, gotoNakamigos, gotoRoute, navigablePath, waitForQuiescence } from './fixtures/routes';
 
 const IPAD_WIDTHS = [820, 1024];
 
@@ -55,3 +57,34 @@ for (const route of AUDITABLE_ROUTES) {
     }
   });
 }
+
+// /terminal draws its market table only when the GeckoTerminal feed answers, and `vite preview`
+// has no /api/aggregator, so the loop above only ever measures it with no table. Live on
+// 2026-10-14 the drawn table (min-width 840px) made the page 122px too wide at 768px and 70px
+// at 820px. Here the feed gets the committed capture, so the table is on the page being measured.
+const ETH_NEW_POOLS = readFileSync(
+  fileURLToPath(new URL('../src/lib/geckoTerminal/fixtures/eth_new_pools.json', import.meta.url)),
+  'utf8',
+);
+
+test("/terminal with its market table drawn is no wider than an iPad's window", async ({ page, walletMock: _w }) => {
+  test.skip(!ENGINES.includes(test.info().project.name), 'one pass per engine: the test sets the width, not the project');
+  await page.route(GECKO_EDGE_GLOB, (r) =>
+    r.request().url().includes('new_pools')
+      ? r.fulfill({ status: 200, contentType: 'application/json', body: ETH_NEW_POOLS })
+      : r.abort(),
+  );
+
+  await page.setViewportSize({ width: 768, height: 1080 });
+  await gotoRoute(page, '/terminal');
+  await expect(page.locator('main table')).toBeVisible();
+
+  for (const width of [768, ...IPAD_WIDTHS]) {
+    await test.step(`${width}px`, async () => {
+      await page.setViewportSize({ width, height: 1080 });
+      await waitForQuiescence(page, { quietMs: 500, timeout: 6_000 });
+      await page.evaluate(() => document.fonts.ready);
+      await expectNoSidewaysScroll(page);
+    });
+  }
+});

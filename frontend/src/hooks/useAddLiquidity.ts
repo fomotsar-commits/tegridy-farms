@@ -12,9 +12,12 @@ import { useReplacedTxNotice } from './useReceiptOutcome';
 const ZERO_ADDR = '0x0000000000000000000000000000000000000000' as const;
 const PLACEHOLDER_ADDR = '0x0000000000000000000000000000000000000001' as const;
 
-export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | null) {
+export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | null, chainIdOverride?: number) {
   const { address } = useAccount();
-  const chainId = useChainId();
+  const walletChainId = useChainId();
+  // The page's chain (useLiquidityChainId): the wallet's whenever one is connected, so a write
+  // is always addressed to the chain that signs it; only a disconnected read can follow `?c=`.
+  const chainId = chainIdOverride ?? walletChainId;
   /**
    * Router + factory + WETH for the CONNECTED chain, resolved together so an
    * address and a chainId can never come from different chains. Null where we
@@ -180,6 +183,11 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
   const lpUnread = pairExists && !!data
     && (data[2]?.status !== 'success' || data[3]?.status !== 'success');
   const isEmptyPool = !pairExists || (!reservesUnread && reserveA === 0n && reserveB === 0n);
+  // The same fact, only once it was READ: the factory answered (no pair), or the pair's
+  // reserves answered 0 and 0. isEmptyPool is also true while those reads are still out,
+  // which is fine for a banner but not for offering to set the pool's price.
+  const knownNewPool = pairAddress !== undefined
+    && (!pairExists || (reserves !== undefined && reserveA === 0n && reserveB === 0n));
 
   // Calculate price ratio (B per A)
   const priceRatio = useMemo(() => {
@@ -475,6 +483,7 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
     pairAddress: pairExists ? pairAddress : null,
     pairExists,
     isEmptyPool,
+    knownNewPool,
     reservesUnread,
     lpUnread,
     involvesETH,

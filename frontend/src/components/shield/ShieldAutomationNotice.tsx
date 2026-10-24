@@ -27,6 +27,7 @@ export function ShieldAutomationNotice() {
       <p className="mt-1 text-white text-[13px] leading-snug">{state.statusDetail}</p>
 
       <FinePrint summary="How it works" className="mt-1">
+        <p>{SHIELD_COPY.subtitle}</p>
         <p>{SHIELD_COPY.monitoringScope}</p>
         <p>{SHIELD_COPY.alertIsNotAnAction}</p>
         <p>{SHIELD_COPY.onlyFullRepayment}</p>

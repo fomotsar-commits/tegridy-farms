@@ -442,7 +442,7 @@ function StatsBar({ allOffers, allLoans }: { allOffers: Offer[]; allLoans: Loan[
   ];
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
       {stats.map((s, idx) => (
         <m.div
           key={s.label}
@@ -783,7 +783,7 @@ function LendTab({ deployed, onCreated }: { deployed: boolean; onCreated?: () =>
         {/* APR */}
         <div>
           <label className="text-[11px] uppercase tracking-wider label-pill text-white mb-1.5 flex items-center gap-1.5">
-            APR (bps · e.g. 850 = 8.50%)
+            APR (bps)
             <InfoTooltip text="Annual Percentage Rate in basis points. 100 bps = 1%. Example: 850 bps = 8.50% APR. The borrower pays this rate pro-rata — if they repay early, they pay less." />
           </label>
           <div className="flex items-center gap-3">
@@ -1256,14 +1256,17 @@ function OfferRow({
                           <TxSummary>
                             You'll lock NFT <span className="font-mono text-white font-semibold">#{tokenId}</span> and receive <span className="font-mono text-white font-semibold">{formatTokenAmount(principalEth)} ETH</span>.
                             Total repayment: <span className="font-mono text-emerald-400 font-semibold">{formatTokenAmount(totalRepay)} ETH</span> ({formatTokenAmount(principalEth)} principal + {formatTokenAmount(maxInterest)} interest over {daysFromSeconds(offer.duration)}d).
-                            <span className="block text-[11px] text-white/70 mt-1">Repay early to save — interest is calculated pro-rata.</span>
+                            <span className="block text-[11px] text-white/70 mt-1">Repay early to save. Interest is calculated pro-rata.</span>
                           </TxSummary>
                         );
                       })()}
 
-                      {/* Risk Warning */}
+                      {/* The risk line stays visible; the full warning is one press away. */}
                       <RiskBanner variant="warning">
-                        Your staking NFT (#{tokenId}) will be locked as collateral. If you don't repay by the deadline, the lender can claim it permanently.
+                        <span className="font-semibold">Miss the deadline and the lender can keep staking NFT #{tokenId}.</span>
+                        <FinePrint summary="Details">
+                          <p>Your staking NFT (#{tokenId}) will be locked as collateral. If you don't repay by the deadline, the lender can claim it permanently.</p>
+                        </FinePrint>
                       </RiskBanner>
 
                       {/* Step Indicator */}
@@ -1967,17 +1970,6 @@ export function LendingSection({ address: _propAddress }: { address?: string }) 
       )}
       <StatsBar allOffers={allOffers} allLoans={allLoans} />
 
-      <HowItWorks
-        storageKey="tegridy-token-lending-how"
-        title="How does Token Lending work?"
-        steps={[
-          { label: 'Create an Offer', description: 'Lenders deposit ETH and set their terms — APR, duration, and minimum collateral value.' },
-          { label: 'Lock Collateral', description: 'Borrowers lock their staking position NFT as collateral and receive the ETH.' },
-          { label: 'Repay on Time', description: 'Borrowers repay principal + pro-rata interest before the deadline to reclaim their NFT.' },
-          { label: 'Default Protection', description: 'If the borrower misses the deadline, the lender can claim the staking NFT.' },
-        ]}
-      />
-
       <TabNav tab={tab} setTab={setTab} />
       <AnimatePresence mode="wait">
         <m.div
@@ -1992,6 +1984,25 @@ export function LendingSection({ address: _propAddress }: { address?: string }) 
           {tab === 'myloans' && <MyLoansTab deployed={deployed} allLoans={allLoans} loansLoading={loansLoading} onLoanChanged={refetchLoans} />}
         </m.div>
       </AnimatePresence>
+
+      {/* How it works, one press away (owner, 2026-10-13: how-it-works goes in a closed
+          drop-down). The one visible line is the risk line. The four-step strip and its
+          art sit inside, word for word. */}
+      <div className="space-y-1">
+        <p className="text-white/80 text-[13px]">Staking NFT in, ETH out. Repay on time or the lender keeps it.</p>
+        <FinePrint summary="How it works" testId="token-lending-how">
+          <HowItWorks
+            storageKey="tegridy-token-lending-how"
+            title="How does Token Lending work?"
+            steps={[
+              { label: 'Create an Offer', description: 'Lenders deposit ETH and set their terms: APR, duration, and minimum collateral value.' },
+              { label: 'Lock Collateral', description: 'Borrowers lock their staking position NFT as collateral and receive the ETH.' },
+              { label: 'Repay on Time', description: 'Borrowers repay principal + pro-rata interest before the deadline to reclaim their NFT.' },
+              { label: 'Default Protection', description: 'If the borrower misses the deadline, the lender can claim the staking NFT.' },
+            ]}
+          />
+        </FinePrint>
+      </div>
     </section>
   );
 }

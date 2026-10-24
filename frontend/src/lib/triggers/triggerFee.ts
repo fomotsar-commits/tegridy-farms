@@ -1,24 +1,11 @@
-// The 0.1% execution fee on a triggered order.
-//
-// This is NOT a second fee mechanism. Whether a fee exists at all, and who receives
-// it, come from lib/fees/swapFee.ts — the same two dials, both default-off, that
-// gate every other venue fee. What this module adds is one number and one rule:
-//
-//   docs/BATTLE_PLAN.md #16 publishes the trigger rate as 0.1% per EXECUTION. The
-//   operator's dial can only LOWER that; a dial set for the swap surface's higher
-//   rate does not raise what a triggered order pays. A published rate that the
-//   configuration can quietly exceed is not a published rate.
-//
-// And one consequence, which is why the fee is currently uncollectable on the only
-// executor that exists: a triggered order settles through CoW, and CoW's fee leg is
-// `blocked` in the policy table because it rides an appData document whose hash has
-// not been re-pinned. Blocked means withheld, so the honest figure here is None —
-// and the disclosure says which of the two reasons it is, because "the venue turned
-// its fee off" and "the venue cannot attach its fee to this route" are different
-// facts about the same zero.
-//
-// Untriggered orders cost nothing: there is no execution to charge.
+// The 0.1% execution fee on a triggered order. NOT a second mechanism: whether a fee
+// exists and who receives it come from lib/fees/swapFee.ts. The one rule added here:
+// docs/BATTLE_PLAN.md #16 publishes 0.1% per EXECUTION, and the dial can only lower it.
+// Orders settle through CoW on CHAIN_ID, so that is the chain the fee is asked about.
+// CoW's leg is `blocked` (its appData hash is not re-pinned), so this reads None today,
+// and the disclosure says which reason. An untriggered order costs nothing.
 
+import { CHAIN_ID } from '../constants';
 import { PROVIDER_FEE_LEGS, swapFeePolicy } from '../fees/swapFee';
 import type { TriggerPath } from './armState';
 
@@ -45,14 +32,12 @@ export type TriggerFeeState =
     };
 
 /**
- * The fee actually attached to one triggered execution on `path`.
- *
- * Callers display `bps` from this object and never from `swapFeePolicy()`: the
- * policy can be enabled while this returns zero, and a surface reading the policy
- * would advertise a charge no request carried.
+ * The fee actually attached to one triggered execution on `path`. Display `bps` from
+ * this object, never from `swapFeePolicy()`: the policy can be enabled while this
+ * returns zero.
  */
 export function triggerExecutionFee(path: TriggerPath): TriggerFeeState {
-  const policy = swapFeePolicy();
+  const policy = swapFeePolicy(CHAIN_ID);
   if (!policy.enabled || policy.recipient === null) {
     return {
       charged: false,

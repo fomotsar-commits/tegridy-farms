@@ -1,56 +1,11 @@
 #!/usr/bin/env node
 /**
- * Does every ladder pool the APP SHIPS run the fixed bytecode?
- *
- * WHY THIS EXISTS
- * ---------------
- * The LighthouseLadder dust-divisor bug (3 wei of principal captures the whole
- * emission stream) was fixed in SOURCE by PR #374. Source edits do not change
- * deployed bytecode, so six live pools still carry the vulnerable build. They are
- * inert only because nobody has funded them.
- *
- * Two guards already exist and both are real:
- *   - DeployLighthouseLadder    L-INV-11/12: a pre-fix BUILD cannot be deployed unnoticed.
- *   - FundLighthouseStaking     PR #393: refuses to fund a pre-fix ladder outright.
- *
- * Neither covers the gap between them. `docs/LIGHTHOUSE_AUDIT_2026_09_01.md:96` (C4)
- * named it: between a redeploy and the MANUAL registry repoint, the only ladder
- * addresses written down anywhere — `frontend/src/lib/bungalows.ts`, `addresses.json`,
- * every one marked live — are still the SIX VULNERABLE ONES. Funding is blocked, so
- * the money is safe; what is not blocked is SHIPPING A UI that points real users at
- * pre-fix pools, and a repoint that is forgotten fails silently in exactly that way.
- *
- * So this reads the registry the app actually ships and asks the chain about every
- * ladder in it. A receipt is not proof of state; the registry is not proof of state.
- *
- * WHAT IT CHECKS, per `poolKind: 'ladder'` entry
- * ----------------------------------------------
- *   eth_getCode        the address is a contract at all
- *   totalBoosted()     it IS a ladder (no plain vendored StakingRewards answers this)
- *   MIN_STAKE()        it is the FIXED ladder, and equals the audited 100e18
- *   MIN_BOOST()        derives from MIN_STAKE, so a half-applied fix is caught
- *   totalSupply() / rewardRate() / periodFinish()
- *                      whether the replace-vs-migrate window is still open
- *
- * THE DISCRIMINATOR IS `totalBoosted()`, NOT `MIN_STAKE()`, and that is not a style
- * choice: a PRE-FIX LADDER and a PLAIN pool BOTH revert `MIN_STAKE()`, so that
- * selector alone cannot separate "vulnerable" from "legitimately has no floor".
- * Every ladder build answers `totalBoosted()`; no plain pool does. Same reasoning as
- * FundLighthouseStaking.s.sol — kept identical on purpose, so the funding gate and
- * the shipping gate can never disagree about what a pre-fix ladder looks like.
- *
- * USAGE
- *   node scripts/verify-ladder-builds.mjs
- *   node scripts/verify-ladder-builds.mjs --json
- *   node scripts/verify-ladder-builds.mjs --self-test
- *   node scripts/verify-ladder-builds.mjs --rpc-eth https://… --rpc-base https://…
- *   ETH_RPC=… BASE_RPC=… node scripts/verify-ladder-builds.mjs
- *
- * Exit 0 = every shipped ladder runs the fixed build. Exit 1 = at least one does not,
- * or could not be read. Read-only: it never sends a transaction.
- *
- * ⚠️ AN UNREADABLE POOL IS A FAILURE, NOT A PASS. An RPC outage must not be able to
- * certify a vulnerable registry — see [[reference_unreadable_must_not_read_as_fine]].
+ * Does every `poolKind: 'ladder'` pool in frontend/src/lib/bungalows.ts run the fixed
+ * LighthouseLadder build? Reads code, totalBoosted(), MIN_STAKE()/MIN_BOOST(), the exit
+ * (EARLY_EXIT_PENALTY_BPS() on the retired flat builds; MAX_EARLY_EXIT_PENALTY_BPS() and a
+ * penaltyFor() quote on the ladder's-law build) and totalSupply/rewardRate/periodFinish;
+ * never sends a transaction. Exit 0 = all fixed, 1 = any pre-fix, unaudited or UNREADABLE pool. Flags: --json, --self-test,
+ * --rpc-eth URL, --rpc-base URL, --rpc-robinhood URL (or ETH_RPC, BASE_RPC, RH_RPC).
  */
 
 import { readFileSync } from 'node:fs';
@@ -61,16 +16,15 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const REGISTRY = join(HERE, '..', 'frontend', 'src', 'lib', 'bungalows.ts');
 
 /**
- * Fallback lists, not single URLs.
- *
- * ⚠️ Base endpoints REJECT a non-browser User-Agent — a bespoke agent string gets a
- * 403 that is indistinguishable from "the node is down". A guard that cannot read
- * Base fails every run, and a guard that always fails is one people stop reading. So:
- * a browser UA, and a second endpoint behind the first.
+ * Fallback lists, not single URLs. Base endpoints answer a non-browser User-Agent
+ * with a 403 that looks exactly like "node down", hence a browser UA and a second
+ * endpoint behind the first.
  */
 const DEFAULT_RPC = {
   ethereum: ['https://ethereum-rpc.publicnode.com', 'https://eth.drpc.org'],
   base: ['https://mainnet.base.org', 'https://base.drpc.org'],
+  // No room ladder lives here yet (2026-10-18); listed so the first one is read, not skipped.
+  robinhood: ['https://rpc.mainnet.chain.robinhood.com'],
 };
 
 const BROWSER_UA =
@@ -88,23 +42,51 @@ const SEL = {
   MIN_STAKE: '0xcb1c2b5c', // cast sig "MIN_STAKE()"
   MIN_BOOST: '0x0a7486c7', // cast sig "MIN_BOOST()"
   totalBoosted: '0x631516c2', // cast sig "totalBoosted()"
+  EARLY_EXIT_PENALTY_BPS: '0x5c82a112', // cast sig "EARLY_EXIT_PENALTY_BPS()" (the retired flat builds)
+  MAX_EARLY_EXIT_PENALTY_BPS: '0x5efd5ee9', // cast sig "MAX_EARLY_EXIT_PENALTY_BPS()" (the ladder's law)
 };
+/** cast sig "penaltyFor(uint256,uint64)"; the two arguments are appended, each 32 bytes. */
+const PENALTY_FOR_SEL = '0xf10b1600';
+const ONE_TOKEN = 10n ** 18n;
+const YEAR_SECS = 365n * 86_400n;
+const word = (v) => v.toString(16).padStart(64, '0');
+export const penaltyForCalldata = (amount, lockEnd) => PENALTY_FOR_SEL + word(amount) + word(lockEnd);
 
 /** The audited post-fix constants. A ladder that answers anything else is not this build. */
 export const AUDITED_MIN_STAKE = 100n * 10n ** 18n;
 /** MIN_BOOST = MIN_STAKE * MIN_BOOST_BPS / BPS, with MIN_BOOST_BPS = 4_000, BPS = 10_000. */
 export const AUDITED_MIN_BOOST = (AUDITED_MIN_STAKE * 4000n) / 10000n;
+/**
+ * Owner, 2026-10-18: the room ladders keep the ladder's law, the time left over four
+ * years capped at 75%. The build the deploy script ships answers this cap and quotes
+ * exactly 25% with one year left (ONE_YEAR_QUOTE, within the drift of a block or two).
+ */
+export const AUDITED_EXIT_CAP_BPS = 7500n;
+export const ONE_YEAR_QUOTE = ONE_TOKEN / 4n;
+export const QUOTE_TOLERANCE = 10n ** 14n; // about 3.5 hours of schedule, far from any flat rate
+/** The 2026-09-05 six charge this flat rate. Retired 2026-10-18; redeploy pending. */
+export const RETIRED_FLAT_EXIT_BPS = 2500n;
+/**
+ * The exit the SITE says the shipped ladders charge: `LIVE_LADDER_EXIT_SCHEDULE` and
+ * `LIVE_LADDER_EXIT_BPS` in frontend/src/lib/lighthouseLadder.ts, read as text like
+ * the registry. A shipped pool whose exit differs from that pair fails here, so a
+ * repin that forgets the switch, or a switch flipped before the repin, is caught by
+ * the daily job.
+ */
+const LIVE_SWITCH = join(HERE, '..', 'frontend', 'src', 'lib', 'lighthouseLadder.ts');
+export function parseLiveExit(src) {
+  const sched = /export const LIVE_LADDER_EXIT_SCHEDULE: 'flat' \| 'time-left' = '(flat|time-left)';/.exec(src);
+  const bps = /export const LIVE_LADDER_EXIT_BPS = ([\d_]+)n;/.exec(src);
+  if (!sched || !bps) throw new Error('LIVE_LADDER_EXIT_SCHEDULE / LIVE_LADDER_EXIT_BPS not found in lighthouseLadder.ts');
+  return { schedule: sched[1], bps: BigInt(bps[1].replace(/_/g, '')) };
+}
 
 // ── registry parsing (pure, self-tested) ──────────────────────────────────
 
 /**
- * Pull every ladder pool out of the shipped registry.
- *
- * Deliberately parses the REAL `bungalows.ts` rather than a hand-kept address list:
- * a guard that reads its own copy of the addresses proves nothing about what the app
- * serves, which is the entire failure this file exists to catch.
- *
- * One entry per line in that file, so a per-line scan is exact and needs no TS parser.
+ * Every ladder pool in the real bungalows.ts, never a hand-kept copy: a guard that
+ * reads its own list proves nothing about what the app serves. One entry per line
+ * there, so a per-line scan is exact.
  */
 export function parseLadders(src) {
   const out = [];
@@ -122,13 +104,15 @@ export function parseLadders(src) {
 // ── classification (pure, self-tested) ────────────────────────────────────
 
 /**
- * Decide what a pool IS from the four reads.
- *
- * `null` means the call reverted or returned nothing — the caller must pass null,
- * never 0, for an absent selector. Collapsing "reverted" into "returned zero" is how
- * a vulnerable pool would classify as a fixed one with a zero floor.
+ * What a pool IS, from its reads; `null` means reverted or empty, never 0. The
+ * discriminator is totalBoosted(): every ladder build answers it and no plain pool
+ * does, while a pre-fix ladder and a plain pool both revert MIN_STAKE().
+ * FundLighthouseStaking.s.sol tests the same way, so funding and shipping agree.
  */
-export function classify({ codeBytes, totalBoosted, minStake, minBoost }) {
+export function classify(
+  { codeBytes, totalBoosted, minStake, minBoost, flatExit, exitCap, yearQuote },
+  { live = { schedule: 'time-left', bps: AUDITED_EXIT_CAP_BPS } } = {},
+) {
   if (!codeBytes) return { build: 'absent', ok: false, note: 'no contract at this address' };
   if (totalBoosted === null) {
     return { build: 'plain', ok: true, note: 'vendored StakingRewards — no ladder, no floor by design' };
@@ -143,7 +127,35 @@ export function classify({ codeBytes, totalBoosted, minStake, minBoost }) {
     // A floor that does not match its own boost derivation is a half-applied fix.
     return { build: 'unaudited', ok: false, note: `MIN_BOOST ${minBoost} does not derive from MIN_STAKE` };
   }
-  return { build: 'fixed', ok: true, note: 'post-fix ladder, audited constants' };
+  // The exit, in one of the two shapes that ever shipped. A flat rate answers
+  // EARLY_EXIT_PENALTY_BPS; the ladder's law answers the cap and quotes one year
+  // left at 25% (a flat 75% answers the cap too, and fails the quote).
+  let shape;
+  let build;
+  if (flatExit !== null && flatExit !== undefined) {
+    if (flatExit !== RETIRED_FLAT_EXIT_BPS) {
+      return { build: 'unaudited', ok: false, note: `a flat EARLY_EXIT_PENALTY_BPS of ${flatExit}: no build ever shipped that` };
+    }
+    shape = { schedule: 'flat', bps: flatExit };
+    build = 'exit25';
+  } else if (exitCap !== null && exitCap !== undefined) {
+    const quoteOk = typeof yearQuote === 'bigint' && (yearQuote > ONE_YEAR_QUOTE ? yearQuote - ONE_YEAR_QUOTE : ONE_YEAR_QUOTE - yearQuote) <= QUOTE_TOLERANCE;
+    if (exitCap !== AUDITED_EXIT_CAP_BPS || !quoteOk) {
+      return { build: 'unaudited', ok: false, note: `exit cap ${exitCap}, one year left quotes ${yearQuote}: not the ladder's law (cap 7500, 25% with a year left)` };
+    }
+    shape = { schedule: 'time-left', bps: exitCap };
+    build = 'fixed';
+  } else {
+    return { build: 'unaudited', ok: false, note: 'answers neither a flat exit nor a cap' };
+  }
+  if (shape.schedule !== live.schedule || shape.bps !== live.bps) {
+    // The site says one exit and this pool charges another: whichever side is
+    // stale, it must not ship.
+    return { build, ok: false, note: `the site says ${live.schedule} ${Number(live.bps) / 100}% (LIVE_LADDER_EXIT_*), this pool charges ${shape.schedule} ${Number(shape.bps) / 100}%` };
+  }
+  return build === 'fixed'
+    ? { build, ok: true, note: "the ladder's law: time left over four years, capped at 75%" }
+    : { build, ok: true, note: 'WARN: the flat 25% build, retired 2026-10-18; redeploy pending (docs/LADDER_EXIT_75_REDEPLOY.md)' };
 }
 
 /** Is the replace-vs-migrate window still open for this pool? */
@@ -153,28 +165,11 @@ export function isReplaceable({ totalSupply, rewardRate, periodFinish }) {
 
 // ── chain I/O ─────────────────────────────────────────────────────────────
 
-/**
- * One JSON-RPC call, tried across every endpoint for the chain.
- *
- * Returns `{ transport, value }`. The distinction is load-bearing:
- *   transport:false  we never got an answer      -> the caller must NOT classify
- *   transport:true, value:null   the call REVERTED (selector absent) -> a real answer
- * Collapsing those two is how an outage would certify a vulnerable pool as fine.
- */
 const nap = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/**
- * Minimum gap between OUTBOUND calls, not just between retries.
- *
- * Backoff alone was not enough: a public node serves roughly five rapid calls
- * then 429s for a while, and this script makes seven per pool (eth_getCode plus
- * six selectors). Retrying a request that was rejected for arriving too fast,
- * without slowing the ones that follow, just walks the whole run into the limiter.
- * Pacing the stream is what fixes it. MEASURED on the six shipped ladders:
- * unpaced 5 of 6 UNREADABLE, backoff-only 3 of 6, paced + 429-aware 0 of 6.
- *
- * A guard that reads the chain is allowed to be slow. It is not allowed to be wrong.
- */
+// Minimum gap between outbound calls, not only between retries: a public node
+// serves about five rapid calls then 429s, and each pool takes seven. Measured on
+// the six shipped ladders: unpaced 5 of 6 unreadable, paced and 429-aware 0 of 6.
 const MIN_CALL_GAP_MS = 450;
 let lastCallAt = 0;
 async function pace() {
@@ -184,20 +179,10 @@ async function pace() {
 }
 
 /**
- * Is this JSON-RPC error the CONTRACT answering, or the INFRASTRUCTURE refusing?
- *
- * Only an execution revert is an answer about the contract. Everything else --
- * rate limits, auth, method-not-found, an overloaded node -- is an endpoint
- * problem wearing an error's clothes.
- *
- * MEASURED 2026-09-05: mainnet.base.org returns `-32016 over rate limit` with
- * HTTP **429**, so `!res.ok` already caught it and this path was never the live
- * bug. But `if (j.error)` accepted ANY error as a revert, and an endpoint that
- * returns a rate limit with HTTP 200 is entirely ordinary. That path is the
- * dangerous direction and it is one line to close: `classify()` reads a null
- * `totalBoosted` as `build: 'plain', ok: TRUE`, so a throttled read there would
- * certify a vulnerable ladder as a fine plain pool -- the exact collapse the
- * header of this file says must never happen. Allowlist reverts; refuse the rest.
+ * Only an execution revert is the contract answering; a rate limit, auth error or
+ * missing method is the endpoint refusing, even under HTTP 200. classify() reads a
+ * null totalBoosted as a fine plain pool, so a throttle misread as a revert would
+ * certify a pre-fix ladder. Allowlist reverts; refuse the rest.
  */
 function isExecutionRevert(err) {
   if (!err || typeof err !== 'object') return false;
@@ -206,13 +191,15 @@ function isExecutionRevert(err) {
   return err.code === -32000 && /execution reverted|revert/i.test(String(err.message ?? ''));
 }
 
+/**
+ * One JSON-RPC call across every endpoint for the chain. `transport: false` means
+ * no answer, and the caller must not classify; `transport: true, value: null`
+ * means the call REVERTED, which is an answer.
+ */
 async function rpcCall(urls, method, params) {
   for (const url of urls) {
-    // Backoff, not just repetition. Two back-to-back attempts against a throttled
-    // endpoint both fail for the same reason, exhaust every URL, and report
-    // `transport:false`. That is why 5 of 6 Base ladders read UNREADABLE on the
-    // 2026-09-05 trunk run while answering a paced client perfectly: a public node
-    // serves ~5 rapid calls then 429s, and this script makes 6 per pool.
+    // Back off between attempts: two back-to-back tries at a throttled endpoint
+    // fail for the same reason.
     for (let attempt = 0; attempt < 5; attempt++) {
       await pace();
       let res;
@@ -226,9 +213,8 @@ async function rpcCall(urls, method, params) {
         await nap(600 * 2 ** attempt);
         continue; // network-level: try the next attempt / endpoint
       }
-      // 429 is not a generic failure -- it is the node saying the window is full,
-      // and it clears on its own. Treating it like a 5xx (retry at once, then move
-      // to the next endpoint) walks straight into the next limiter. Wait it out.
+      // A 429 means the window is full and clears on its own: wait it out rather
+      // than retry at once or move to the next endpoint's limiter.
       if (res.status === 429) {
         await nap(1500 * (attempt + 1)); // 1.5s / 3s / 4.5s / 6s
         continue;
@@ -263,7 +249,13 @@ async function getCodeBytes(urls, addr) {
   return (r.raw.length - 2) / 2;
 }
 
-async function inspect(pool, rpc) {
+async function latestTimestamp(urls) {
+  const r = await rpcCall(urls, 'eth_getBlockByNumber', ['latest', false]);
+  if (!r.transport || !r.raw || typeof r.raw.timestamp !== 'string') return null;
+  return BigInt(r.raw.timestamp);
+}
+
+async function inspect(pool, rpc, live) {
   const url = rpc[pool.chain];
   if (!url) return { ...pool, unreadable: true, note: `no RPC configured for chain "${pool.chain}"` };
 
@@ -278,12 +270,26 @@ async function inspect(pool, rpc) {
     reads[k] = value;
   }
 
+  // The schedule's one-year point, quoted at the chain's own clock (not this
+  // machine's): a block or two of drift is inside QUOTE_TOLERANCE.
+  let yearQuote = null;
+  if (reads.MAX_EARLY_EXIT_PENALTY_BPS !== null) {
+    const now = await latestTimestamp(url);
+    if (now === null) return { ...pool, unreadable: true, note: 'eth_getBlockByNumber failed (transport)' };
+    const q = await ethCall(url, pool.stakePool, penaltyForCalldata(ONE_TOKEN, now + YEAR_SECS));
+    if (!q.transport) return { ...pool, unreadable: true, note: 'eth_call penaltyFor failed (transport)' };
+    yearQuote = q.value;
+  }
+
   const verdict = classify({
     codeBytes,
     totalBoosted: reads.totalBoosted,
     minStake: reads.MIN_STAKE,
     minBoost: reads.MIN_BOOST,
-  });
+    flatExit: reads.EARLY_EXIT_PENALTY_BPS,
+    exitCap: reads.MAX_EARLY_EXIT_PENALTY_BPS,
+    yearQuote,
+  }, { live });
   return {
     ...pool,
     codeBytes,
@@ -293,7 +299,7 @@ async function inspect(pool, rpc) {
       rewardRate: reads.rewardRate ?? 0n,
       periodFinish: reads.periodFinish ?? 0n,
     }),
-    reads,
+    reads: { ...reads, yearQuote },
   };
 }
 
@@ -301,24 +307,24 @@ async function inspect(pool, rpc) {
 
 function selfTest() {
   const fails = [];
+  let checked = 0;
   const eq = (label, got, want) => {
+    checked++;
     if (got !== want) fails.push(`${label}: got ${got}, want ${want}`);
   };
 
   const SRC = [
-    `  { id: 'pepe', chain: 'ethereum', stakePool: '0xdC0B34cE782029f30382F42097f6b33F0544329c', poolKind: 'ladder', live: true },`,
-    `  { id: 'bobo', chain: 'solana', stakePool: 'PkwDYVNx', live: true },`,
-    `  { id: 'qr', chain: 'base', stakePool: '0xdcc3a95A0921b83326157132B17770f02094c8E3', poolKind: 'ladder', live: true },`,
+    `  { id: 'pepe', chain: 'ethereum', stakePool: '0xBE1905de5FCDe60E13a9F1AfA44BEfdE1C5aaA1D', poolKind: 'ladder', live: true },`,
+    `  { id: 'bobo', chain: 'solana', stakePool: 'PkwDYVNxyesAukE9STqRQL9H1pBpXbt1tVbiYVMX96w', live: true },`,
+    `  { id: 'qr', chain: 'base', stakePool: '0x55B72f09d31f43834bf7Eba42f53a419a716F554', poolKind: 'ladder', live: true },`,
   ].join('\n');
   const parsed = parseLadders(SRC);
   eq('parse: ladder count', parsed.length, 2);
   eq('parse: skips non-ladder', parsed.some((p) => p.id === 'bobo'), false);
   eq('parse: chain', parsed[0].chain, 'ethereum');
 
-  // An infrastructure error is NOT the contract answering. This is the guard on the
-  // one path where a wrong call is SILENT: classify() reads a null totalBoosted as
-  // `plain, ok: true`, so a throttled read misfiled as a revert certifies a
-  // vulnerable ladder as fine. Reverts in, everything else out.
+  // An infrastructure error is NOT the contract answering: misfiled as a revert,
+  // it would certify a pre-fix ladder as a fine plain pool. Reverts in, rest out.
   eq('revert: geth code 3', isExecutionRevert({ code: 3, message: 'execution reverted' }), true);
   eq('revert: -32000 text', isExecutionRevert({ code: -32000, message: 'execution reverted' }), true);
   eq('revert: rate limit is NOT', isExecutionRevert({ code: -32016, message: 'over rate limit' }), false);
@@ -332,7 +338,34 @@ function selfTest() {
   // A plain pool also reverts MIN_STAKE — it must NOT be called vulnerable.
   eq('classify plain', classify({ codeBytes: 4000, totalBoosted: null, minStake: null, minBoost: null }).build, 'plain');
   eq('classify plain ok', classify({ codeBytes: 4000, totalBoosted: null, minStake: null, minBoost: null }).ok, true);
-  eq('classify fixed', classify({ codeBytes: 6500, totalBoosted: 0n, minStake: AUDITED_MIN_STAKE, minBoost: AUDITED_MIN_BOOST }).build, 'fixed');
+  const LAW = { schedule: 'time-left', bps: 7500n };
+  const FLAT25 = { schedule: 'flat', bps: 2500n };
+  const fixed = { codeBytes: 6500, totalBoosted: 0n, minStake: AUDITED_MIN_STAKE, minBoost: AUDITED_MIN_BOOST, flatExit: null, exitCap: AUDITED_EXIT_CAP_BPS, yearQuote: ONE_YEAR_QUOTE };
+  eq('classify fixed', classify(fixed, { live: LAW }).build, 'fixed');
+  eq('classify fixed ok', classify(fixed, { live: LAW }).ok, true);
+  // A block of drift on the one-year quote is still the law; a flat 75% is not.
+  eq('classify fixed, quote a few seconds off', classify({ ...fixed, yearQuote: ONE_YEAR_QUOTE - 10n ** 11n }, { live: LAW }).ok, true);
+  eq('classify flat 75 behind a cap is unaudited', classify({ ...fixed, yearQuote: (ONE_TOKEN * 3n) / 4n }, { live: LAW }).build, 'unaudited');
+  eq('classify cap 25 is unaudited', classify({ ...fixed, exitCap: 2500n }, { live: LAW }).build, 'unaudited');
+  eq('classify unread quote is not ok', classify({ ...fixed, yearQuote: null }, { live: LAW }).ok, false);
+  // The flat 25% six: a WARN while the site says flat 25%, a FAIL once the site says the
+  // law; and a law pool fails while the site still says flat 25%. Both sides are held.
+  const exit25 = { ...fixed, flatExit: RETIRED_FLAT_EXIT_BPS, exitCap: null, yearQuote: null };
+  eq('classify exit25 build', classify(exit25, { live: FLAT25 }).build, 'exit25');
+  eq('classify exit25 ok while the site says flat 25%', classify(exit25, { live: FLAT25 }).ok, true);
+  eq('classify exit25 warns', /WARN/.test(classify(exit25, { live: FLAT25 }).note), true);
+  eq('classify exit25 fails once the site says the law', classify(exit25, { live: LAW }).ok, false);
+  eq('classify fixed fails while the site says flat 25%', classify(fixed, { live: FLAT25 }).ok, false);
+  eq('classify odd flat exit', classify({ ...exit25, flatExit: 5000n }, { live: FLAT25 }).build, 'unaudited');
+  eq('classify no exit getter at all', classify({ ...fixed, exitCap: null, yearQuote: null }, { live: LAW }).ok, false);
+  const sw = parseLiveExit("export const LIVE_LADDER_EXIT_SCHEDULE: 'flat' | 'time-left' = 'flat';\nexport const LIVE_LADDER_EXIT_BPS = 2_500n;\n");
+  eq('parse live switch schedule', sw.schedule, 'flat');
+  eq('parse live switch bps', sw.bps, 2500n);
+  eq('parse live switch law', parseLiveExit("export const LIVE_LADDER_EXIT_SCHEDULE: 'flat' | 'time-left' = 'time-left';\nexport const LIVE_LADDER_EXIT_BPS = 7_500n;").schedule, 'time-left');
+  let threw = false;
+  try { parseLiveExit('nothing here'); } catch { threw = true; }
+  eq('parse live switch missing throws', threw, true);
+  eq('penaltyFor calldata', penaltyForCalldata(ONE_TOKEN, 1800000000n), '0xf10b16000000000000000000000000000000000000000000000000000de0b6b3a7640000000000000000000000000000000000000000000000000000000000006b49d200');
   // A floor that is present but wrong is not the audited build.
   eq('classify moved floor', classify({ codeBytes: 6500, totalBoosted: 0n, minStake: 1n, minBoost: null }).build, 'unaudited');
   eq('classify drifted boost', classify({ codeBytes: 6500, totalBoosted: 0n, minStake: AUDITED_MIN_STAKE, minBoost: 1n }).build, 'unaudited');
@@ -349,16 +382,14 @@ function selfTest() {
     for (const f of fails) console.error('  ' + f);
     process.exit(1);
   }
-  console.log(`self-test: ${13} assertions passed`);
+  console.log(`self-test: ${checked} assertions passed`);
   process.exit(0);
 }
 
 // ── main ──────────────────────────────────────────────────────────────────
 //
-// Guarded so IMPORTING this module does not run the CLI. `parseLadders`,
-// `classify` and `isReplaceable` are exported for unit tests, and without this an
-// `import` would fire the whole thing — network calls, then `process.exit` out of
-// the test runner. A module that hijacks its own importer cannot be tested.
+// Guarded so importing this module (its pure functions are exported for tests)
+// does not fire network calls and then `process.exit` out of the test runner.
 const IS_ENTRYPOINT =
   process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 
@@ -374,15 +405,9 @@ const arg = (flag) => {
 if (argv.includes('--self-test')) selfTest();
 
 /**
- * A preferred endpoint goes to the FRONT of the list; it does not replace it.
- *
- * `ETH_RPC`/`BASE_RPC` mirror the names registry-onchain.yml already binds, so
- * pointing that workflow at a paid endpoint moves this check with it. But
- * REPLACING the list would strand the guard on one host: this check's failure mode
- * is "could not read, therefore FAIL", so a single throttled endpoint turns a
- * correct registry red — and a guard that cries wolf is one people stop reading.
- * Falling back to a public node leaks nothing: these are read-only eth_calls on
- * public addresses.
+ * A preferred endpoint goes to the FRONT of the list and never replaces it: one
+ * throttled host would turn a correct registry red. ETH_RPC, BASE_RPC and RH_RPC are
+ * the names registry-onchain.yml binds. The fallbacks see only read-only public calls.
  */
 const prefer = (chosen, defaults) =>
   chosen ? [chosen, ...defaults.filter((u) => u !== chosen)] : defaults;
@@ -390,6 +415,7 @@ const prefer = (chosen, defaults) =>
 const rpc = {
   ethereum: prefer(arg('--rpc-eth') ?? process.env.ETH_RPC, DEFAULT_RPC.ethereum),
   base: prefer(arg('--rpc-base') ?? process.env.BASE_RPC, DEFAULT_RPC.base),
+  robinhood: prefer(arg('--rpc-robinhood') ?? process.env.RH_RPC, DEFAULT_RPC.robinhood),
 };
 
 const ladders = parseLadders(readFileSync(REGISTRY, 'utf8'));
@@ -398,8 +424,9 @@ if (ladders.length === 0) {
   process.exit(1);
 }
 
+const live = parseLiveExit(readFileSync(LIVE_SWITCH, 'utf8'));
 const rows = [];
-for (const pool of ladders) rows.push(await inspect(pool, rpc));
+for (const pool of ladders) rows.push(await inspect(pool, rpc, live));
 
 const asJson = argv.includes('--json');
 if (asJson) {
@@ -416,11 +443,14 @@ if (asJson) {
 } else {
   console.log('LADDER BUILDS SHIPPED BY THE REGISTRY (frontend/src/lib/bungalows.ts)\n');
   const pad = (s, n) => String(s).padEnd(n);
-  console.log(`${pad('pool', 8)}${pad('chain', 10)}${pad('bytes', 7)}${pad('build', 11)}${pad('window', 13)}note`);
+  console.log(`${pad('pool', 8)}${pad('chain', 10)}${pad('bytes', 7)}${pad('build', 11)}${pad('exit', 10)}${pad('window', 13)}note`);
   for (const r of rows) {
     const build = r.unreadable ? 'UNREADABLE' : r.build;
     const win = r.unreadable ? '-' : r.replaceable ? 'replaceable' : 'CLOSED';
-    console.log(`${pad(r.id, 8)}${pad(r.chain, 10)}${pad(r.codeBytes ?? '-', 7)}${pad(build, 11)}${pad(win, 13)}${r.note}`);
+    const flat = r.reads?.EARLY_EXIT_PENALTY_BPS;
+    const cap = r.reads?.MAX_EARLY_EXIT_PENALTY_BPS;
+    const exit = typeof flat === 'bigint' ? `${Number(flat) / 100}% flat` : typeof cap === 'bigint' ? `law<=${Number(cap) / 100}%` : '-';
+    console.log(`${pad(r.id, 8)}${pad(r.chain, 10)}${pad(r.codeBytes ?? '-', 7)}${pad(build, 11)}${pad(exit, 10)}${pad(win, 13)}${r.note}`);
   }
 }
 
@@ -436,6 +466,13 @@ if (bad.length) {
   }
   process.exit(1);
 }
-if (!asJson) console.log(`\nOK: all ${rows.length} shipped ladders run the audited fixed build.`);
+if (!asJson) {
+  const warned = rows.filter((r) => r.build === 'exit25').length;
+  console.log(
+    warned
+      ? `\nOK with ${warned} WARN: ${rows.length - warned} of ${rows.length} shipped ladders run the ladder's law; ${warned} still charge the retired flat 25% (redeploy pending).`
+      : `\nOK: all ${rows.length} shipped ladders run the audited fixed build.`,
+  );
+}
 process.exit(0);
 }

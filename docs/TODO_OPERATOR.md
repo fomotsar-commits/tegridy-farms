@@ -29,6 +29,506 @@ stop and say so — a surprise is information.
 
 ---
 
+## 🔴 2026-10-22: two merges only you can press (#930 done, #776 on Day 2)
+
+A session's merge was refused on 2026-10-22 as a production deploy, after a general "merge". A
+second word that names the one PR ("merge 930") has let a merge through before, but not always.
+So press these two yourself, or name each one to a session when it is ready. Each takes one
+command.
+
+- ✅ **Done 2026-10-22 10:53 UTC** (merge commit `592ad1833`, Vercel deployed it 11:04 UTC).
+  **Merge #930** (notes only: 40 added lines in `NOTES.md`, nothing removed, no change a visitor
+  sees). Trunk is merged into it. On 2026-10-22 its checks were still running, with none failed.
+  When it is done, check it first:
+
+  ```bash
+  gh pr view 930 --json mergeStateStatus,headRefOid --jq '"\(.mergeStateStatus) \(.headRefOid)"'
+  ```
+
+  **You should see** `CLEAN` and a head that begins `c63cd3d9e`. Then:
+
+  ```bash
+  gh pr merge 930 --merge --match-head-commit c63cd3d9ec2aa22e5d73321a20e0ec224aea9583
+  ```
+
+  If the head is different, or it says anything but `CLEAN`, do not merge: ask a session to look.
+  (#933, the splash art held still under reduced motion, merged 2026-10-22 at 10:36 UTC and is
+  live.)
+
+- ⬜ **Merge #776 within the hour after the pool upgrade executes on Day 2** (pool proposal #15,
+  executable from 2026-10-23 06:20:22 UTC, read on chain 2026-10-22; the ladder's #17 follows at
+  06:37:12). Not before: until the execute, everything
+  #776 says about mainnet is false. It is a draft, level with trunk at `cdacf9c49`, and keeps
+  three checks red on purpose until the execute. The steps are the checklist at the top of its
+  description, in order: the pack's check after the upgrade, the four values of the record
+  (`read-upgrade-record.mjs`), the changelog line, the copy of the three staged files (then
+  `genesis-accounts.mjs` must end `wrote 9 accounts`), trunk merged in again, the checks, and
+  only then your merge. A session does every step but the merge: tell one "the pool upgrade
+  executed" and give it the minute.
+
+---
+
+## 2026-10-21: the position link's two limits (nothing to do unless wallets report refusals)
+
+A range position NFT's link, `/position/<id>.json`, has two limits, both Vercel env vars:
+`POSITION_IP_RPM` (default 60 a minute per caller; an IPv6 caller counts by its /64) and
+`POSITION_GLOBAL_RPM` (default 600 a minute, shared by everyone). Two limits remain by design:
+about ten callers at the per-caller cap can fill the shared one for a minute (documents the edge
+already holds keep serving; a new link gets a 503 and wallets retry), and a big wallet indexer
+reading many new positions from one address can get 429s. If either is reported, raise the env
+var, or add a Vercel firewall rate rule on `/position/*`.
+
+## 🔴 2026-10-20: the BAYLA ladder's four-year upgrade and the December refill
+
+Newer than every section below. You decided on 2026-10-19: keep the four-year change, with the
+upgrade's Day 0 between Mon 2026-11-16 and Mon 2026-11-30. **Day 0 was brought forward and done
+on 2026-10-21:** ladder proposal #17, approved by both members at 06:37:12 UTC, can execute from
+Fri 2026-10-23 06:37:12 UTC (read on chain 2026-10-22). This section replaces the 2026-10-15
+item "BAYLA ladder rewards stop 2026-12-23T15:32Z" [was O-1009-10].
+
+**What the upgrade changes.** One number in the ladder program: how long a refill of the reward
+pot is paid out over, 90 days today and 4 years after. The 2,000,000 refill of 2026-09-24 pays
+22,678.62 BAYLA a day and stops at **2026-12-23 15:32:16 UTC**; spread over 4 years, the same
+amount would pay 1,369.79 a day. Stakes, locks and the early-exit fee do not change.
+
+**How the money moves.** Stakers earn BAYLA from the reward pot, shared every second by weight
+(the amount staked times the lock boost: 0.40x for 7 days up to 4.00x for 4 years, fixed when
+they stake). The venue earns nothing from the ladder. Early-exit fees go into the reward pot and
+pay nobody until a later refill names them. **BAYLA sent into the pot never comes back out, and
+the daily rate cannot be lowered for the 4 years.** Your own two 4-year stakes hold 8.8% of the
+weight, so about 8.8% of any refill comes back to you.
+
+### Your decisions, by Sun 2026-11-15
+
+- ⬜ **The refill amount.** Read on 2026-10-20 (weight 45,272,392; 50 stakes; 23 wallets). The
+  rates are a year's rewards over the amount staked:
+
+  | Refill, exact (BAYLA) | Per day | 4-year lock | 1.00x lock | 7-day lock | Value on 10-20 | Under the 27.64% cap? |
+  |---|---|---|---|---|---|---|
+  | 1,999,886.976 (the "2M" of last time) | 1,369.79 | 4.4% | 1.1% | 0.44% | about $1,200 | yes, always |
+  | **7,703,866.368 (recommended)** | **5,276.62** | **17.0%** | **4.25%** | **1.70%** | **about $4,670** | **yes, even if only today's 4-year lockers stay** |
+  | 11,336,687.424 | 7,764.85 | 25.0% | 6.3% | 2.5% | about $6,870 | until about 2028-09-20 |
+  | 12,515,250.816 | 8,572.09 | 27.6% | 6.9% | 2.8% | about $7,580 | only at today's exact weight |
+  | 33,110,781.696 (today's rate) | 22,678.62 | 73% | 18% | 7.3% | about $20,050 | no |
+
+  The cap is 27.64% a year for a 4-year lock: above it, "lock 4 years and leave early" pays more
+  than an honest shorter lock. Why 7.70M: if every staker except today's 4-year lockers left,
+  weight would fall to 27,867,557, and 7.70M still stays under the cap. Too big is permanent; too
+  small can be topped up, but a top-up must bring at least the daily rate times the days since the
+  last refill (1,925,966.592 after one year at 7.70M), so a top-up is cheapest early. Each amount
+  above is an exact multiple of the window (126,144,000 raw); any other amount leaves up to 126.144
+  BAYLA unpaid in the pot. The smallest refill that pays anything is 5,802.624 BAYLA, not the
+  "about 5,700" the pack's R1 says. Values use about $0.0006 a BAYLA; buying that much on the
+  market would move the price.
+- ⬜ **Who pays for it.** The team's wallets hold about 44,706 BAYLA free (about $27). The
+  2,000,000 of 2026-09-24 came from the island's Workshop,
+  `G2EHPseTXetHbBvvRDs27XQyXfQikXXyxP9uMbsKrbu`, which held 58,300,000 on 2026-10-20 (135,491,275
+  on 2026-09-24). Ask the island in writing, early, for the amount and for its OK that the BAYLA
+  passes through the vault's BAYLA account: the split agreement says neither side holds the
+  other's coin.
+- ⬜ **Tell the stakers, with dates.** Every amount above is a cut from today's 22,678.62 a day
+  (the recommended one is 77% lower). Early-exit fees after 12-23 sit in the pot until a big
+  top-up or the window's end in 2030: say so too.
+
+### The steps, in order (UTC)
+
+| When | What | Who |
+|---|---|---|
+| ✅ Before Day 0 (done) | Start GitHub's build of the four-year program (below). Send 2.65 SOL to the paying wallet and 0.06 SOL to member A (below). | you |
+| ✅ **Day 0, done 2026-10-21** (planned Mon 11-16 to Mon 11-30) | Steps 1 to 14 of `C:\Users\jimbo\solana-launch-release-2026-09-26\ladder-four-year-upgrade-2026-10\START-HERE.md`: upload, hand over, propose, approve. About 40 minutes. Proposal #17. | you, both members |
+| **Day 2, Fri 10-23 from 06:37:12** (48 hours after step 14; the page names the minute) | Steps 15 and 16: execute, check. Then merge its pull request, #942 (branch `feat/bayla-ladder-four-year-gated`). | either member |
+| ✅ Done 2026-10-20 (due by Fri 12-18) | The refill page is built (the ladder pack's refill step). It must refuse unless the four-year program is live. | a session |
+| Fri 12-18 to Sun 12-20 | A session runs the ladder's sweep (anyone may: it moves 35,713.98 BAYLA of emergency-exit fees into the pot). Send the refill BAYLA to the vault's BAYLA account `4HUXwHSie4q52eZiazheRqTHCABQZXJ4Yx3GkdBAwavy`, a tiny test amount first. Member A proposes the refill on the refill page. | you, member A, a session |
+| **By Mon 12-21 15:32:16** | Member B's approval, the second one. The 48 hours run from it. | member B |
+| **Wed 12-23 15:32:16, or just after** | Execute the refill. Rewards then run to 2030-12-22. Every hour later pays stakers nothing. | either member |
+
+The latest the pack allows: Day 0 by 12-13 15:32:16 (room for one failed round), the upgrade's
+second approval by 12-18 15:32:16, its execute by 12-20 15:32:16.
+
+**GitHub's build.** It only builds; it never deploys. Run it from the repo folder:
+
+```powershell
+gh workflow run solana-deploy-artifact.yml --repo fomotsar-commits/tegridy-farms --ref feat/bayla-ladder-four-year-gated -f program=bayla-ladder -f cluster=mainnet -f program_id=EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ -f deployer=Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6
+```
+
+**You should see** the run's log print sha256
+`e0fd775d59b2eed1d356fc341b1c0acdcf6254d3928e24cc46308fbc5654a6bd`, the same as the pack's
+`binary-to-deploy` file. Any other value: stop and say so before Day 0.
+
+**The wallets.**
+
+- The paying wallet is the ladder's old deployer, `Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6`
+  (0.18 SOL on 2026-10-20). Send it 2.65 SOL; the 2.62 SOL parked in the upload comes back on Day 2.
+- Member A, `5QHzAqbGk3W8qGRBHCMyWjhLXf8YJcs3yPEh14Ymcwgz`, held 0.001 SOL: not enough for one
+  proposal. Send it 0.06 SOL: 0.05 covers both upgrade packs, the rest the refill proposal.
+- Member B, `6VHowW4pnD4WTGsXhqBp6yxGgC3EExVmYgebSrRNu2tY`, held 0.027 SOL: enough.
+
+### What must never happen
+
+- **The refill executed while the 90-day program is live.** 7.70M would then pay out in about
+  three months, at about 276% a year, and the rate could not be lowered. The upgrade executes
+  first; the refill page refuses otherwise.
+- **An address copied from your wallet's history.** Seven seconds after the Workshop's 2,000,000
+  reached you, a look-alike, `G2EHCBHQFRppk9dKMJBfr4xtkf47YMWsoiXWRS9Ltrbu`, sent you dust. Take
+  every address from this page or `frontend/scripts/addresses.json`.
+- **SOL or BAYLA sent to the vault "to be safe".** Anything in the vault leaves only through a
+  proposal and another 48 hours.
+
+### Corrections to the lists below
+
+- **"Name the staking receipt"** (2026-10-15 money list; O-1009-5): done on 2026-10-14 for the old
+  Streamflow pool, whose receipt `g8W2HWmS1dKJwHHKDkR1k7SmtTTx7ic97z1ssAZ8NwN` now reads "Bayla
+  Staking" / "sBAYLA". The ladder makes no receipt token at all, so there is nothing to name. A
+  wallet receipt for the ladder needs a program change, an audit and its own upgrade: later, your
+  call.
+- **The pool-program upgrade** (O-1009-4): its pack was reworked on 2026-10-19 for the 48-hour
+  lock and now prepares a roll-back on Day 0, so the paying wallet
+  `CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg` needs 7.40 SOL, not 3.90, and member A needs
+  0.02 SOL. Its START-HERE has the steps. The three to-dos below now say so (2026-10-20).
+- **Every vault action now waits 48 hours after its second approval** (Squads #14, 2026-10-19),
+  an emergency pause too.
+
+---
+
+## 🔴 2026-10-18: the room ladders keep the ladder's law (six broadcasts, your signature)
+
+Owner's word, 2026-10-18: "the staking exit needs to be 75 on solana eth base robinhood", then,
+with the island's answer on the split (section 4), "The six room ladders keep the ladder's law":
+an early exit costs the time left on the lock over four years, capped at 75%, as the BAYLA ladder
+charges it. PR #885 ships `LighthouseLadder.sol` with that schedule (`penaltyFor`, cap
+`MAX_EARLY_EXIT_PENALTY_BPS` 7_500, both doors), a deploy gate that refuses a flat rate or another
+cap (L-INV-13 to 16), a funding script that refuses the flat builds, and a room card that reads
+the pool it shows: a flat 25% on the six live pools, each position's own quote on the new ones,
+no copy switch. The six live ladders still charge a flat 25% until you redeploy them: `docs/LADDER_EXIT_75_REDEPLOY.md`, phases A to E, Base first with QR as
+the rehearsal, PEPE on Ethereum last, then hand the six addresses to an agent for the repin PR.
+TOWELI staking's 75% is the venue's own call, PR #824, unchanged. The BAYLA ladder on Solana already
+charges this schedule. The Streamflow rooms have no early exit. Robinhood has no room ladder and no
+room coin ("do the same for robinhood too even though we wont be using it right now"): the kit is
+prepared, not deployed, and deploys one under the same law with one command the day a room lives
+there (`ROBINHOOD_STAKING_TOKEN=... ./script/ladders-75.sh robinhood ...`), the fee-remittance Safe
+as notifier; rehearsed on a 4663 fork with WETH standing in.
+
+---
+
+## 🔴 2026-10-18: ship the NFT pool royalty fix (a new factory)
+
+- ⬜ **Pause the old NFT pool factory** `0xbB8E49Ba4e3A85E2B8B70e00208770F429B56F5B` from the Safe
+  `0xA36053477568Fb5382492F3A5970D35Fe896b7F8`: one `pause()`, free, and `unpause()` undoes it. Its pool template pays a buy's royalty out of the pool's own
+  ETH, so a hostile collection can drain any pool made on it, and the NFT AMM tab lets anyone make
+  one today. It has 0 pools, so nothing is lost yet.
+- ⬜ **Deploy the new factory** with your key: one transaction, about 0.001 ETH at today's gas.
+  It takes 0.25% a swap, your call of 2026-10-18 (the live one takes 0.5%). Then run the fork
+  check. Every command and what you should see:
+  [`NFT_POOL_FACTORY_REDEPLOY.md`](NFT_POOL_FACTORY_REDEPLOY.md). One call first: who owns it
+  (the default is the same Safe as today).
+
+---
+
+## 🔴 2026-10-16: done tonight, and what changed on your list
+
+Newer than the 2026-10-15 section below. That section's lists still stand, except where an item
+is ticked here or there.
+
+### Done on 2026-10-16
+
+- ✅ **#841** (02:05 UTC): this list's 2026-10-15 section. **#840** (02:05 UTC): the /scan browser
+  test is measured in a window where the page scrolls, and trunk's tests are green again.
+  **#822** (04:36 UTC, its own session): the front-end pass, with #808 inside it.
+- ✅ **Supabase migrations 024, 025 and 026** (02:51 to 02:52 UTC). Each was pasted from the repo
+  after a read-only preflight, and each wrote its row into `public.schema_migrations`:
+  - 024: the "Anyone can read" rules on `user_watchlist` and `user_favorites` are gone; the
+    "Owner reads" rules stay.
+  - 025: the public (anon) key can no longer insert, update or delete on `user_profiles`,
+    `user_favorites`, `user_watchlist` and `votes`. Signed-in writes keep all twelve rights.
+  - 026: `error_events` exists, with row-level security on, no public access, and only the
+    server key able to write and delete.
+- ✅ **Migration 023** (02:55 UTC): `prune_revoked_jwts()` can now be called only with the server
+  key. Before, the public and signed-in keys could call it and clear revoked sign-ins. Its only
+  caller, the sign-out code, already uses the server key.
+- ✅ **Error reports are on.** Vercel Production `VITE_ERROR_ENDPOINT=/api/errors`, redeployed and
+  read back from the live code (03:04 UTC). The operator check in the 2026-10-02 section answered
+  `accepted: 1`. Its one test row clears with the 30-day delete, or remove it now with
+  `delete from error_events where message = 'operator check';`.
+- ✅ **Vercel build costs cut.** This billing cycle (Oct 3 to Nov 3) stood at $57.04 after 13 days,
+  $45.28 of it build time, because every branch push built a preview on an 8-CPU machine. Now:
+  Ignored Build Step is **Only build production**, the build machine is **Standard** (4 CPUs,
+  8 GB) instead of Elastic, and builds run **one per branch** instead of skipping the queue.
+  Speed Insights Plus ($10 a month) stays on, as you chose.
+
+### What changed on your list
+
+- ⬜ **Migration 022** (`native_orders` and `trade_offers`: close public reads) is still not
+  applied. Its header asks for your decision first.
+- ⬜ **Watch the first live build on the Standard machine** (the #822 deploy). If a build ever runs
+  out of memory, set the build machine back to Enhanced in Vercel's Build and Deployment settings.
+- **A pull request's "Vercel" check now shows as skipped.** Branches no longer build a preview.
+  That is expected, not a failure: GitHub's own Build and E2E jobs still build and test every pull
+  request.
+- ⬜ **Two bills not looked at yet:** Alchemy and Upstash (Chrome was not signed in to either).
+  Both services answer on the live site. Supabase is on the Pro plan; Railway is on its $5 plan
+  with $1.78 used this cycle; the domain is paid to 2027-08-02.
+
+---
+
+## 🔴 2026-10-15: what merged today, what to know about money, and your list as it now stands
+
+Where this section and the 2026-10-14 list below disagree, this one is newer. "Your list" here
+replaces "Your list" in the 2026-10-14 section; every open item from it is carried below, so
+nothing is lost.
+
+### Merged or closed on 2026-10-15
+
+- ✅ **Train #828** (02:50 UTC): #812 (notes and this list), #819 (add liquidity with one coin),
+  #820 (the 24h average price on the Solana swap), #821 (a farm that stopped paying takes no new
+  stake), #826 (money-review fixes), #793 (a tab left open across a deploy reloads once) and #800
+  (the range program, as source only: its deploy is off, see the money list).
+- ✅ **#813 and #831** (06:50 UTC, island session): the Solana review stays open while you take
+  your time, and a shared link shows Bayla at the door.
+- ✅ **Train #832** (13:18 UTC): #830 (a tab sliding under Towelie opens on the first press), #829
+  (the token page's attestation line), #818 (the launch fee panels read the full history), #825
+  (Pro Terminal on an upright iPad), #814 and #823 (notes).
+- ✅ **Train #836** (13:19 UTC): #815 (every Solana pool listed before a token is searched), #833
+  (a launch receipt is asked of a second host before it is called unreadable), #834 (the swap fee
+  can only ever name the Ethereum treasury Safe on Ethereum) and #835 (bungalow charts stay
+  within GeckoTerminal's limit; Irys token pictures show again).
+- ✅ **#838** (13:49 UTC, island session): the new bar (Heat, Rooms, Lock, Launch, Swap), the
+  drawer and the eight-link footer. It merged before its main test job finished, and trunk's
+  browser tests then failed one check on /scan (the test needs the page to scroll; visitors are
+  not affected). The island session is fixing the test.
+- ✅ **Closed without merging:** #827 (a copy of #826's fix), #730 (replaced by #815), #823 (its
+  notes shipped in #832), #660 and #658 (Streamflow's staking library pins web3.js 1.98.4
+  exactly, so the bump installs two copies; revisit when Streamflow moves to 1.99).
+- ✅ **Done by you:** Vercel Production `VITE_SWAP_FEE_RECIPIENT` is now the Ethereum treasury
+  Safe `0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d`, redeployed, and read back from the live site.
+  This closes the 2026-10-14 item.
+
+### Money: what to know
+
+- 🔴 **New Ethereum launches send the protocol's fee share to the OLD staking payouts, forever.**
+  LockerClaimer `0xD2Ac3dC13c6fd09855F0e4a077826983Aa66E6C7` forwards to the old
+  RevenueDistributor `0xF993316E2fC079de4358c489A935E01e03E23E17` and cannot be re-pointed. After
+  the staking release that money pays only the 16 old positions, while the launch page says it goes
+  to "Tegridy stakers". Nothing has gone through it yet, and Ethereum launches are paused. The fix
+  is a new LockerClaimer, deployed with or before the staking release. Your decision.
+- 🔴 **The old staking contract owes more than it holds:** about 2.79M TOWELI short when read on
+  2026-10-14, and it accrues about 71,220 TOWELI a day. TOWELI sent into it can only ever leave as
+  staker rewards.
+- **Our BAYLA/SOL pool sold BAYLA about 5% below the market** when checked on 2026-10-14, at the
+  liquidity providers' expense (yours). Small at that week's volume: 7 swaps, about $118.
+
+### Your list: free, no money (soonest first)
+
+- ✅ **Done 2026-10-16, with 023 too (see the section above).** **Supabase migrations 024, 025 and 026, before 2026-10-16.** Paste them by hand in the SQL
+  editor, in that order, in one sitting; never `supabase db push`. [was O-1009-2]
+- ⬜ **Migration 027, then #695** (analytics kept 90 days). First run
+  `select to_regclass('public.analytics_events');` and `select to_regclass('public.schema_migrations');`
+  in the SQL editor: if either is null, say so before going further. Then paste
+  `frontend/supabase/migrations/027_analytics_events_retention.sql`. Its first run deletes
+  analytics older than 90 days, so export first if you want the old totals. Merging #695 before
+  027 turns the hourly Data Retention job red.
+- ✅ **Done 2026-10-22 ~02:10 UTC** (first count 02:12 UTC; the home page's volume line is live).
+  **Migration 028, after the all-time volume PR merges** (free). Paste
+  `frontend/supabase/migrations/028_venue_volume.sql` in the SQL editor (it needs only
+  `public.schema_migrations`, not 027). Then Actions > Venue Volume > Run workflow once: the first
+  run reads all of history in a few minutes; after that it runs hourly by itself. Until 028 is in,
+  the job counts nothing and stays green, and the home page says the volume could not be read.
+- ⬜ **One sitting with real phones** [was O-1009-8], now with #722 (the Solana wallet list on a
+  phone): on Android, does Phantom open its app, and does it connect by itself inside Phantom; in
+  Trust's own browser, is Trust listed once; does the list fit a small phone. On a 320 by 568
+  screen it scrolls about 50px because of the "No wallet was found in this browser" note: fewer
+  words there is your call. Also: a Galaxy inside Phantom, adding liquidity from Trust on Android,
+  the room doors and `/nb1` on an iPhone.
+- ✅ **Merged 2026-10-17 02:22 UTC.** **#837** (points, Venue Score, tiers and competitions removed): you said to merge it when its
+  checks are green. It waits for the /scan test fix to clear trunk first.
+- ⬜ **GitHub security switches** (Dependency graph, Dependabot alerts, secret scanning, push
+  protection) and **branch protection on `mvp-launch`** (none today, and its one ruleset is
+  disabled; draft #776 keeps three checks red on purpose until upgrade day). [was O-1009-20, O-1009-7]
+- ⬜ **Phantom's review form** for the "could be malicious" warning (pack:
+  `phantom-flag-dispute.md`) and **Jupiter's verify form** for BAYLA. If either is filed, say so.
+  [was O-1009-6]
+- ⬜ **A free Jupiter developer key.** `lite-api.jup.ag` is being retired; another session's #839
+  keeps swaps working without one, but a key is the lasting answer. [was O-1009-18]
+- ⬜ **Small, whenever:** delete the stale Vercel project `tegridyfarms` (confirm on its Domains tab
+  that it is the one behind `tegridyfarms-three`); look at Railway for a Solana indexer service;
+  say who holds the key of the old fee wallet `DVGiHe98CzEf7VuCS6YpVDFnp38ubJmKNLt6aMJwAyER`.
+  [was O-1009-12, O-1009-21]
+- ⏸️ **GitLab's mirror secret** `GITLAB_MIRROR_SSH_KEY` stays parked, as you asked on 2026-10-02.
+  Until it is set, the "Mirror to GitLab" job fails on every push to `mvp-launch`; that red is
+  expected.
+
+### Your list: items that cost money
+
+- ⬜ **The staking release** (draft #824, pack
+  `C:\Users\jimbo\dev\owner-packs\staking-release-2026-10\START-HERE.md`): the new staking
+  contract with a 75% early-exit fee, paying the same rate as the old one
+  (824300000000000000 wei a second). Ten contracts, about 24.7M gas: put at least 0.05 ETH in the
+  owner wallet first. After the deploy, the pack's step 5 (`node scripts/fill-staking-release.mjs`)
+  fills in every address for the site; a session commits it, you approve the merge, and 48 hours
+  later the re-point. Both contracts together pay about 142,439 TOWELI a day (about 52M a year);
+  you held about 906k on 2026-10-14. Decide the LockerClaimer (money list above) at the same time.
+- ⬜ **The NFT launchpad redeploy** (draft #817, pack
+  `C:\Users\jimbo\dev\owner-packs\launchpad-v2-redeploy-2026-10\START-HERE.md`): about 7.03M gas;
+  the owner wallet held enough on 2026-10-14. Tell a session the new address; it fills #817.
+- ⬜ **Name the staking receipt:** about 0.00024 SOL. From
+  `C:\Users\jimbo\tegriddy-worktrees\lp-token-identity\frontend`, run
+  `node scripts/streamflow-receipt-name.mjs` (signs nothing), then the same with
+  `--broadcast --keypair <the pool authority's key file>`. The dry run passed on 2026-10-14.
+  [was O-1009-5]
+- ✅ **Day 0 done 2026-10-21**: proposals #15 (the upgrade) and #16 (the roll-back) approved by
+  both members; #15 can execute from 2026-10-23 06:20:22 UTC. Day 2 is in the 2026-10-22 section
+  above. **The pool-program upgrade** (the LP receipt names): 7.40 SOL in the deploy wallet
+  `CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg` and 0.02 SOL to member A `5QHzAqbGk3W8qGRBHCMyWjhLXf8YJcs3yPEh14Ymcwgz`
+  (about 7.20 comes back: 3.68 on Day 2, 3.51 on Day 4), both multisig members on the pack's own
+  page, in three sittings 48 hours apart. Tell a session first: #776 goes out in the hour of
+  Day 2's execute. [was O-1009-4]
+- ⬜ **The TOWELI staking top-up** you decided on 2026-09-17 (see the money list for the gap).
+  Say which wallet; a session re-reads the numbers before and after. [was O-1009-1]
+- ➡️ **Moved to the 2026-10-20 section above** (the amount, who pays, and the steps).
+  **BAYLA ladder rewards stop 2026-12-23T15:32Z** unless reloaded. Decide the amount and the
+  source by mid-November. [was O-1009-10]
+- ⬜ **The other Ethereum redeploys** the audit fixes in #799 owe: the referral splitter alone
+  (about 3.85M gas), beyond the staking release and the launchpad above.
+- ⏸️ **The range program deploy is off**, by your word on 2026-10-14 ("range program: do the
+  website-only steps"). #800 is merged as source only; its fee tiers and an outside review wait
+  with it.
+
+### Still being done by sessions (nothing needed from you)
+
+- The /scan test fix (the island nav session), island PR 3 (#837) and the next island items.
+- #822, the front-end pass (actions first on Pools, fewer words on the remaining pages), by its own
+  session.
+- #839 (swaps survive Jupiter's free host retiring) and a pools audit, by other sessions.
+- Noted, not started: after the staking release, the ops monitors (revenue-watch, revenue-rails,
+  caller-credit, verify-ownership, the indexer) must watch both staking contracts; two more
+  em-dash counts (/yield, /eth-curve) move with outside reads like the room ones did; about 80
+  old working folders are still on disk.
+
+---
+
+## 🔴 2026-10-14: what merged today, what is settled, and your list as it now stands
+
+Where this section and the 2026-10-09 list below disagree, this one is newer. Your list here
+replaces "Only you can do these" below; the old ids are kept in brackets so nothing is lost.
+
+### Merged on 2026-10-14
+
+- ✅ **Train #809** (11:03 UTC). It carried eleven pull requests, each now marked merged:
+  #797 (a page is at the top before it is drawn), #807 (a section link lands on its section),
+  #794 (the offline worker never stores the page under an asset's name), #798 (Pools, Earn and
+  their tabs can be dressed in the studio), #803 (fewer words; small print in drop-downs),
+  #805 (every swap in our own pool stops on its review; an unchecked Jupiter test run sends
+  nothing; the DCA tab refuses Token-2022 coins), #806 (a sent swap holds Buy in every tab; no
+  "Swap failed" for a lost answer), #804 (the Solana pool card reads like a pool), #802 (nine
+  phone layout faults), #801 (the daily registry check reads who holds our Solana authorities;
+  stale lines corrected) and #799 (the four open audit findings fixed in source; the deployed
+  contracts still owe a redeploy, see the money list).
+- ✅ **#811** (11:05 UTC): your art placements on 102 more surfaces, Pools and Earn included.
+- ✅ **#810** (11:09 UTC): the Jungle Bay music nod in the footer, island page and empty History.
+- Still open: #800 (range program phase 0; red on "Scan for secrets" with two false positives),
+  #793 (a tab left open across a deploy reloads once; its own new test fails on both Safari
+  projects), #808 (Earn and Liquidity buttons on a phone, another session's), and #776 (upgrade
+  day only: do not merge).
+
+### Settled: your rulings of 2026-10-13, and the calls made for you
+
+Your words, 2026-10-13: always show the review for a swap in our own pool; audit findings are
+fixed, never accepted ("we cannot have bad code ever"); fix every bug found; range pools only on
+our own program, and no money to Raydium ever; the best VWAP, our own if it saves money; use as
+few words as possible, with disclaimers in drop-downs; for the rest, do what is best. The calls
+made under "the rest", now settled and being built:
+
+- ✅ **D1:** when a wallet's answer is lost, Buy is held until the transaction's blockhash dies
+  (2 minutes at most), with a "Turn Buy back on now" button. Built in #806.
+- ✅ **D2:** two unchecked Jupiter test runs in a row offer our own pool's review instead. Built
+  in #805.
+- ✅ **D3:** the staking boost rounds up.
+- ✅ **D5:** the DCA tab's $50 minimum check holds Start until it passes.
+- ✅ **D6:** a pending-swap hold ends after 10 minutes at most. Built in #806.
+- ✅ **D8:** fewer words wins everywhere, except what stays visible: how you earn and what the
+  venue takes, one risk line where money goes in, warnings about an action in progress, and
+  "not read" under a dash. Built in #803.
+- ✅ **D9:** the range program uses Token-2022 position NFTs only; its keeper is the vault;
+  anyone may open a pool; the issuer list is empty; BAYLA's liquidity stays where it is.
+  Being built in #800.
+- ✅ **D10:** add-with-one-coin swaps half as an ordinary swap, with the swap page's ordinary
+  rules and fees, said in one line. This answers O-1009-15 below.
+- ✅ **D11:** a farm or pool that no longer pays rewards is not offered for new deposits. It says
+  it ended, with the date a read returned, and withdraw and claim keep working.
+
+### Your list: free clicks, no money
+
+- ⬜ **GitHub security switches** (free, about 5 minutes, Settings, Advanced Security). The
+  Dependency graph, Dependabot alerts, secret scanning and push protection are all off.
+  Dependabot stopped on 2026-09-21 because the graph is off. [was O-1009-20]
+- ⬜ **GitHub branch protection** (free, about 10 minutes). `mvp-launch` has none, and its one
+  ruleset, "121", is disabled. Draft #776 keeps three checks red on purpose until upgrade day;
+  pick the required checks knowing that. [was O-1009-7]
+- ⬜ **Vercel: delete the stale `tegridyfarms` project** (free, about 5 minutes). It has no Git
+  repository connected; confirm on its Domains tab that it is the one behind
+  `tegridyfarms-three` first. [was O-1009-12 and O-1009-21]
+- ✅ **Done 2026-10-15 (see the section above).** **Vercel: fix `VITE_SWAP_FEE_RECIPIENT`** (free, a few minutes, then a redeploy). It held the
+  Base treasury Safe `0x796c22ff58F24e4a5d07683d8A5c03Ec54dB38C0`, which has no contract on
+  Ethereum. Set Production to the Ethereum treasury Safe `0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d`.
+  Once `fix/swap-fee-recipient-chain-bound` ships the code refuses any other address on Ethereum,
+  so until then the Ethereum swap fee stays off (it has never been collected).
+- ✅ **Done 2026-10-16 (see that day's section).** **Supabase migrations 024, 025 and 026** (free, about 15 minutes, before 2026-10-16). Paste
+  them by hand in the SQL editor, in that order, in one sitting; never `supabase db push`. 027 is
+  optional and deletes older analytics on its first run. [was O-1009-2]
+- ⬜ **Phantom's review form** for the "could be malicious" warning (free, about 15 minutes; the
+  pack is `phantom-flag-dispute.md`). If already filed, say so. [was O-1009-6]
+- ⬜ **Jupiter's verify form** for BAYLA (free, about 15 minutes; it signs in with X). [was O-1009-6]
+- ⬜ **A free Jupiter developer key** (free, about 10 minutes). `lite-api.jup.ag`, which the whole
+  Solana side uses, is being retired with no date given. A session cannot sign up for you. Make
+  the key at developers.jup.ag (portal), then paste it into Vercel → Settings → Environment
+  Variables as `JUPITER_API_KEY`, Production only, and redeploy. Never name it `VITE_…`: that
+  would publish it. Until it is set, the site keeps using the free host. [was O-1009-18]
+- ⬜ **Railway: check whether a Solana indexer service exists** (free, a look). Say what you see;
+  a session takes it from there.
+- ⬜ **Who holds the key of the old fee wallet**
+  `DVGiHe98CzEf7VuCS6YpVDFnp38ubJmKNLt6aMJwAyER`? One sentence from you. If nobody does,
+  anything still sent there is lost to the venue.
+
+### Your list: items that cost money
+
+- ⬜ **The TOWELI staking top-up** you decided on 2026-09-17. Not sent when last read
+  (2026-10-09); about 2.45M TOWELI short then. Say which wallet; a session re-reads the numbers
+  before and after. [was O-1009-1]
+- ✅ **Day 0 done 2026-10-21** (see the 2026-10-15 list and the 2026-10-22 section).
+  **The pool-program upgrade:** 7.40 SOL in the deploy wallet
+  `CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg` and 0.02 SOL to member A
+  `5QHzAqbGk3W8qGRBHCMyWjhLXf8YJcs3yPEh14Ymcwgz`. About 7.20 SOL comes back (3.68 on Day 2, 3.51 on Day 4), so it
+  costs about 0.22 SOL. Both multisig members sign on the pack's own page, in three sittings 48
+  hours apart. #776 goes out in the hour of Day 2's execute. [was O-1009-4]
+- ⬜ **Name the staking receipt:** about 0.00024 SOL. Steps 3 and 4 of the 2026-10-07 section
+  below. [was O-1009-5]
+- ➡️ **Moved to the 2026-10-20 section above.**
+  **BAYLA ladder rewards stop 2026-12-23T15:32Z** unless reloaded. Decide the amount and the
+  source by mid-November; the multisig's own BAYLA account is funded first, then both members
+  sign. [was O-1009-10]
+- ✅ **Done 2026-10-21 07:01 UTC**: live on mainnet, its upgrade authority the vault (registry
+  rows `range-clmm-program` and `range-clmm-programdata`).
+  **Deploy the range program** (after #800 and its later phases): about 7.74 SOL of rent locked
+  while the program exists, and about 15.48 SOL in hand during the deploy (half of it comes back
+  at the end), plus about 0.01 SOL of fees. Figures from `docs/RANGE_POOLS_PLAN.md` on #800's
+  branch, at the rent rate read 2026-10-14.
+- ⬜ **Proposed and approved by both members 2026-10-21** (Squads #19, 13:45:21 UTC). It may
+  execute from 2026-10-23 14:00 UTC, the date the public notice gives. Each tier's 16% is now
+  10.4% to the vault and 5.6% to the island's Workshop (registry rows `range-clmm-amm-config-0`
+  and `-1`). **The range fee tiers** proposed in `docs/RANGE_POOLS_PLAN.md` (#800): 1% and 0.25%, liquidity
+  providers keep 84% of each fee and the venue 16%. They need the vault's signature, about
+  0.0012 SOL of rent each. A tier, once made, cannot be removed.
+- ⬜ **An outside review of the range program.** No quote yet.
+- ⬜ **The Ethereum contract redeploys** that the audit fixes in #799 owe (gas from
+  `docs/audits/audit_101/OPEN_FINDINGS_FIXED_IN_SOURCE_2026_10_14.md`, at 0.0636 gwei read
+  2026-10-14, and at 10 gwei): staking, nine contracts and about 25 wiring calls, 23,182,403 gas,
+  0.00147 ETH (0.23 ETH at 10 gwei), or 32,958,433 gas, 0.00210 ETH (0.33 ETH) if
+  `GaugeController` and `VoteIncentives` are kept and replaced too; the referral splitter alone,
+  3,848,482 gas, 0.00024 ETH (0.038 ETH); the NFT launchpad, 7,057,673 gas, 0.00045 ETH
+  (0.071 ETH). One key, `0x14898258122C0740106391E6e8E4F17F3b6d456E`, owns every contract and
+  signs each step. The old staking contract keeps its 16 positions; holders move themselves.
+
+---
+
 ## 🔴 2026-10-09: one list of everything open, from every session
 
 Written after a read-only sweep of all 43 open pull requests, every recent session and the
@@ -48,9 +548,13 @@ merged or changed by the sweep. Where an older section below disagrees, this one
 
 ### Only you can do these, soonest first
 
+2026-10-14: the open items here are carried into "Your list" in the 2026-10-14 section
+above, with what each costs. That list is the one to work from.
+
 - ⬜ **O-1009-1: send the TOWELI staking top-up** you decided on 2026-09-17. It had not been sent
   when read on 2026-10-09. Say which wallet it comes from; a session re-reads the numbers after.
-- ⬜ **O-1009-2: database migrations, before 2026-10-16.** 026 is not applied (the hourly retention
+- ✅ **Done 2026-10-16 for 024, 025 and 026** (see the 2026-10-15 list; 027 is still open there).
+  **O-1009-2: database migrations, before 2026-10-16.** 026 is not applied (the hourly retention
   job says so), and the Privacy page says error reports start on the 16th. Paste 024, 025 and 026
   by hand in the SQL editor, in that order, in one sitting. Add 027 if you want the 90-day
   analytics limit (PR #695): its first run deletes older analytics for good, so export first if
@@ -58,10 +562,12 @@ merged or changed by the sweep. Where an older section below disagrees, this one
 - ✅ **O-1009-3: answered on 2026-10-10: yes.** The two Solana programs are inside the security
   policy (O-0929-12, PR #775, which you merged that day). It had to be settled before the
   pool-program upgrade, and it is.
-- ⬜ **O-1009-4: the pool-program upgrade.** The pack is ready. It needs 3.90 SOL in the deploy
-  wallet `CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg` (about 3.68 comes back) and both
-  multisig members, on the pack's own page and never in the Squads app. Tell a session before
-  you start: draft PR #776 has to go out in the same hour, and not before.
+- ✅ **Day 0 done 2026-10-21** (see the 2026-10-15 list and the 2026-10-22 section).
+  **O-1009-4: the pool-program upgrade.** The pack is ready. It needs 7.40 SOL in the deploy
+  wallet `CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg` (about 7.20 comes back: 3.68 on Day 2,
+  3.51 on Day 4), 0.02 SOL for member A `5QHzAqbGk3W8qGRBHCMyWjhLXf8YJcs3yPEh14Ymcwgz`, and both multisig members,
+  on the pack's own page and never in the Squads app. Tell a session before you start: draft PR
+  #776 has to go out in the hour of Day 2's execute, and not before.
 - ⬜ **O-1009-5: name the staking receipt.** Steps 3 and 4 of the 2026-10-07 section below. Not run
   as of 2026-10-09.
 - ⬜ **O-1009-6: two forms.** Jupiter verification for BAYLA (its pack is in the release folder),
@@ -74,7 +580,8 @@ merged or changed by the sweep. Where an older section below disagrees, this one
   the room doors and `/nb1` on an iPhone.
 - ⬜ **O-1009-9: send the island its reply** (the answer-seventeen block), if it has not gone. The
   next block must also say the BAYLA tick box went on 2026-10-08 (PR #769).
-- ⬜ **O-1009-10: BAYLA ladder rewards stop 2026-12-23T15:32Z.** Decide the amount and where the
+- ➡️ **Moved to the 2026-10-20 section above.**
+  **O-1009-10: BAYLA ladder rewards stop 2026-12-23T15:32Z.** Decide the amount and where the
   BAYLA comes from by mid-November. The reload is signed by both multisig members from the
   multisig's own BAYLA account, which has to be funded first.
 - ⬜ **O-1009-11: look at two cloud sessions on claude.ai/code.** They wrote
@@ -190,7 +697,9 @@ by design. Only one proven range program may lawfully be copied, Raydium's CLMM 
 Orca's licence forbids it since 2025-02-27, Meteora's range program is not published. All BAYLA
 markets together trade under $2,000 a day, so none of this creates volume.
 
-- ⬜ **O-1009-15: "add with one coin" on our own pools.** Website only, about a week: the site
+- ✅ **O-1009-15: "add with one coin" on our own pools.** Settled 2026-10-14 as D10 (see the
+  2026-10-14 section): the swapped half is an ordinary swap with the swap page's rules and
+  fees. The question as it was put: Website only, about a week: the site
   swaps about half by the best-price rule, then adds both. Two calls are yours: always the
   cheapest route for the person (recommended), and whether to waive the site's 0.5% on the
   swapped half.
@@ -207,10 +716,10 @@ markets together trade under $2,000 a day, so none of this creates volume.
   uses is being retired, with no date given. A session cannot sign up for the key.
 - ⬜ **O-1009-19: one real small order from each Jupiter tab.** A $10 BAYLA limit order, watched to
   a fill. Jupiter is winding down the older order system both tabs use.
-- ⬜ **C-1009-11: the DCA tab offers a BAYLA order that cannot work** (the program rejects
+- ✅ **C-1009-11: the DCA tab offers a BAYLA order that cannot work** (the program rejects
   Token-2022 tokens, buying and selling). Say so before signing, and fix the minimum it quotes.
-  You started this as its own session on 2026-10-10. No pull request for it was open when this
-  line was written.
+  Built: PR #805 (the tab refuses Token-2022 coins), merged in train #809 on 2026-10-14. The
+  $50 minimum check holding Start is D5.
 - ⬜ **C-1009-12: our pool program is about three Raydium releases behind.** It still has a
   four-token bypass list Raydium deleted in September. Assess it read-only; do not touch the
   ready upgrade pack. You started this as its own session on 2026-10-10. No pull request for it
@@ -251,10 +760,10 @@ that answer.
    About 0.00024 SOL. **You should see** `confirmed. signature ...`. If it says `not confirmed`, do
    not send again: run the dry run, which reads what the chain holds now.
 5. **The two pool-share links are written by the pool program's new instruction, which any
-   wallet may call** once the program is upgraded (a separate change; the owner's upgrade pack
-   has the paying wallet send both). The vault only upgrades the program and renames the two
-   records afterwards. Nothing on the site side stops anyone writing a link from the moment the
-   upgrade executes, so steps 1 and 2 come first there too.
+   wallet may call** now that the program is upgraded (O-0929-10 below; the owner's upgrade
+   pack has the paying wallet send both, after the execute). The vault upgraded the program
+   and renames the two records afterwards. Nothing on the site side stops anyone writing a
+   link, which is why steps 1 and 2 came first there too.
 
 **Four things to know afterwards.**
 
@@ -286,7 +795,52 @@ run the generator, and only the JSON files change.
 
 ---
 
+## 🔴 2026-10-03: analytics events kept 90 days, then deleted automatically (PR #695)
+
+Your decision of 2026-10-03: an analytics event (the `analytics_events` table, migration 013,
+written by `/api/analytics`) is **kept for 90 days and then deleted automatically**, and the
+Privacy page's sections 3 and 5 now say so. Until this change nothing deleted those rows and the
+page named no time limit. Keeping less for less long narrows what we hold, so section 9's 14-day
+notice does not apply.
+
+The delete runs in the same hourly workflow as the 30-day error-report delete. That workflow
+is now named **Data Retention** (same file, `error-retention.yml`), and it uses the same two
+secrets, so there is nothing new to set. `/api/analytics` also deletes after it stores a batch,
+at most once an hour per server instance, for when GitHub's schedule is late.
+
+The weekly backup (`supabase-backup.yml`) does not copy `analytics_events`, so no copy outlives
+the 90 days there. A test fails if that table is ever added to its list.
+
+1. **Check whether the table exists.** In the Supabase SQL Editor run
+   `select to_regclass('public.analytics_events');`
+   If it returns `null`, migration 013 was never applied: no event can have been stored, the
+   hourly run stays green with a notice saying so, and steps 2 and 4 wait until the day you
+   apply 013. Then apply 027 straight after it.
+2. **Apply migration 027.** First run `select to_regclass('public.schema_migrations');`. If it
+   returns `null`, run the nine statements in `frontend/supabase/MIGRATIONS.md` section 1 first.
+   Then paste `frontend/supabase/migrations/027_analytics_events_retention.sql` and run it.
+   Never `supabase db push`. It gives the server key permission to delete from that one table
+   and indexes the time each event arrived; it grants the public keys nothing. It is safe to run
+   twice. **You should see** one row from
+   `select filename, applied_at from public.schema_migrations where filename = '027_analytics_events_retention.sql';`
+   Doing this before step 3 matters: without it the delete may be refused, and every hourly run
+   is red until it is done.
+3. **Merge PR #695 and let it deploy.** The first run deletes, for good, every analytics event
+   already more than 90 days old. That is the decision; if you want old totals kept, write the
+   counts down first.
+4. **Check the delete.** GitHub, Actions, Data Retention, Run workflow. **You should see** a
+   green run that says `Deleted N analytics event(s) received before ... (older than 90 days)`,
+   next to the error-report line. A red run whose message says `(42501)` means step 2 is not done.
+   Then, in the SQL Editor, the check query:
+   `select count(*) from analytics_events where received_at < now() - interval '90 days';`
+   **You should see** `0`.
+
+---
+
 ## 🔴 2026-10-02: turn on error reports (PR #466), in this order
+
+✅ **Done 2026-10-16** (see that day's section): 026 applied, the four server variables present,
+Error Retention green, `VITE_ERROR_ENDPOINT` set and redeployed, and the operator check accepted.
 
 Approved by the owner on 2026-10-02, with two decisions: **reports are kept 30 days, then
 deleted automatically**, and **nothing is sent or stored before 2026-10-16**, because the Privacy
@@ -300,7 +854,7 @@ so a step done late costs a delay, never a flood. **026 does not depend on 024 o
 creates and grants only its own table, so it can run before them, after them or alone; 024 and
 025 keep their own runbook further down.
 
-**No new secret.** The 30-day delete runs hourly in a new GitHub workflow, Error Retention, with
+**No new secret.** The 30-day delete runs hourly in a new GitHub workflow, Data Retention, with
 the `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` repository secrets the Supabase backup already uses.
 Nothing named `CRON_SECRET`, or anything else, needs creating.
 
@@ -322,7 +876,7 @@ Nothing named `CRON_SECRET`, or anything else, needs creating.
    other `/api` route from per-instance to shared rate limits, which is the intended mode.
 4. **Check the 30-day delete.** GitHub, Settings, Secrets and variables, Actions: `SUPABASE_URL`
    and `SUPABASE_SERVICE_KEY` should be listed (they were set on 2026-07-30). They must point at
-   the **same Supabase project** as Vercel's. Then Actions, Error Retention, Run workflow.
+   the **same Supabase project** as Vercel's. Then Actions, Data Retention, Run workflow.
    **You should see** a green run that says `Deleted 0 error report(s)` (or, before step 2, a
    notice that `error_events` does not exist yet). A red run means a report may be kept past 30
    days: the run's message says whether a secret is missing, the key was refused, or Supabase did
@@ -531,9 +1085,33 @@ GIT_HOSTING.md, the runbook's four GitLab lines and `OUR_REPOS` in
 
 ## 🟡 2026-09-29: at the next cp-swap upgrade, point its on-chain security.txt at our own domain
 
-### ⬜ O-0929-10: four `security_txt!` fields. In source since 2026-10-06, waiting for the upgrade
+### ⬜ O-0929-10: four `security_txt!` fields. On chain since the upgrade; one look left
 
-**Where it stands (2026-10-06).** The values below are in the source, on the branch that adds
+**Where it stands now: the upgrade has executed.** The pool program on mainnet is the build
+that carries the four values below (sha256 `1e55bcdc…`, 725,176 bytes; the same upgrade also
+closed fee tier 0 to a public pool opening, pull request #899). The day, the slot and
+the transaction are in `solana/tegridy-amm/MAINNET_RUNBOOK.md`, section 4b. The website
+wording that went false with the upgrade shipped with it (runbook 4b, part C).
+
+**One thing is left, and it is the tick.** Open the program's page and choose its security
+tab:
+
+```powershell
+start "https://explorer.solana.com/address/EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT"
+```
+
+**You should see** the project `https://memetics.finance`, a contact that begins
+`email:fomotsar@gmail.com`, and a policy link and a source link that both begin
+`https://memetics.finance/source/`. Then tick this box. If the tab still shows `memetic.fun`,
+the explorer may be showing an old copy: the pack's check after the upgrade reads the text
+out of the chain itself, and that read is the one to trust.
+
+**Everything below is the record of how the upgrade got there, kept as written. The upgrade
+itself is done and is not to be run again.** What the pack still has after the execute, the
+two name records and the rename (its parts 5 and 6), is finished from the pack's own pages,
+not from here.
+
+**Where it stood (2026-10-06).** The values below are in the source, on the branch that adds
 `create_lp_metadata` (PR #758), and the stale comment is gone. **Nothing on chain has
 changed.** The program on mainnet shows the old text until the Squads vault upgrades it. The
 owner was asked "one upgrade or two" and delegated the call on 2026-10-06. The answer is ONE:
@@ -541,7 +1119,7 @@ the same upgrade carries the instruction and this text. Its gates and its order 
 `solana/tegridy-amm/MAINNET_RUNBOOK.md`, section 4b. Tick this box when the explorer shows the
 new values, not before.
 
-**Where it stands (2026-10-08).** The source is on `mvp-launch` (pull request #758, merged at
+**Where it stood (2026-10-08).** The source is on `mvp-launch` (pull request #758, merged at
 07:40 UTC). **Nothing on chain has changed.** That day the whole upgrade was rehearsed three
 times on a private copy of mainnet on this computer: making the program account larger,
 uploading the new program, both members approving through the local page, the two name
@@ -566,7 +1144,7 @@ The paying wallet needs about 3.854 SOL at its peak. About 3.68 SOL of that come
 moment the upgrade executes, and about 0.21 SOL is spent for good. No wallet of ours held
 that much on 2026-10-08.
 
-**Do, when all three are true:** open the pack's first page.
+**The step that was left on 2026-10-08, once all three were true:** open the pack's first page.
 
 ```powershell
 notepad "C:\Users\jimbo\solana-launch-release-2026-09-26\pool-program-upgrade-2026-10\START-HERE.md"
@@ -579,9 +1157,9 @@ pack's local page checks that the uploaded file is the reviewed one.
 What was rehearsed and what was not, every cost, and what to do when a step does not go as
 written: `solana/tegridy-amm/MAINNET_RUNBOOK.md`, section 4b.
 
-**What is wrong.** cp-swap has been live on mainnet since 2026-09-29
+**What was wrong, until the upgrade.** cp-swap has been live on mainnet since 2026-09-29
 (`EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT`). Explorers show its on-chain security.txt,
-and no link in it does its job. Measured 2026-09-30: `policy` opens `SECURITY.md` on GitHub's
+and no link in the text it was deployed with did its job. Measured 2026-09-30: `policy` opens `SECURITY.md` on GitHub's
 `main`, a stale branch that lacks 1,817 of `mvp-launch`'s commits. `source_code` is a `404`,
 because `main` has no `solana/tegridy-amm`. `contacts` points at `memetic.fun/trust`, which is
 now another project's 404. And all three depend on one git host, which went dark from
@@ -616,14 +1194,17 @@ solana_security_txt::security_txt! {
   put a git-host URL in a program binary again.
 - The edit changes cp-swap's diff against upstream Raydium, so the diff-guard's
   `EXPECTED_DELTA_SHA256` moved in the same commit, from `2bbd1e55…` to `5d7baf26…`. The
-  pin's history: `5c737ac7…` is the delta of the binary on mainnet (the deployed branch,
-  `ship/solana-launch-on`). `c18d4d63…` and then `2bbd1e55…` came on 2026-10-06 with
+  pin's history: `5c737ac7…` is the delta of the binary deployed on 2026-09-29, which
+  mainnet ran until the upgrade (the deployed branch, `ship/solana-launch-on`). `c18d4d63…`
+  and then `2bbd1e55…` came on 2026-10-06 with
   `create_lp_metadata`, the instruction that names a pool's lp token. `5d7baf26…` adds this
   text: eight changed lines, four of them these values and four of them comments.
-- These strings are in the binary, so the build that carries them (`99a9e73d…`, 724,688
-  bytes) is a different file from the build made earlier that day with the instruction alone
-  (`7648994d…`, 724,672 bytes). Runbook 4b has the full hash and what the upgrade costs.
-  Never deploy the earlier build: it still carries the dead links.
+- These strings are in the binary, so the build that carries them (724,688 bytes on
+  2026-10-06) is a different file from the build made earlier that day with the instruction
+  alone (`7648994d…`, 724,672 bytes). The build the upgrade installed carries them too, with
+  the launch-tier refusal of pull request #899 (`1e55bcdc…`, 725,176 bytes). Runbook 4b has
+  the full hash and what the upgrade costs. Never deploy the earlier builds: the first still
+  carries the dead links, and neither has the launch-tier refusal.
 
 **You should see**, before the upgrade:
 `curl -sI https://memetics.finance/source/solana/tegridy-amm/SECURITY.md` answers `307`, and
@@ -1532,6 +2113,8 @@ GUARD bug, not a chain fact. It is fixed and merged; the guard now reads **6/6
 technique is still the right one whenever a guard reports UNREADABLE:
 
 ```powershell
+# RETIRED pools: the pre-fix five as measured 2026-09-05. For the live pools, use the
+# ladder-* entries in frontend/scripts/addresses.json.
 $pools = @{ QR='0xdcc3a95A0921b83326157132B17770f02094c8E3'; MFER='0x7288DbF43D3BDBfC439B6E8a47Aef225D4816273'; BNKR='0xe0A152EBC21891FD47a7Dcd6018cfE3a64363178'; DRB='0xB62BaD165997E95C503044787b2Dcc85DC6D83F1'; JBM='0xA0D43eF39C4940e68b2f81d51E6316a45C136D93' }
 foreach ($k in $pools.Keys) {
   $body = @{ jsonrpc='2.0'; id=1; method='eth_call'; params=@(@{ to=$pools[$k]; data='0x18160ddd' }, 'latest') } | ConvertTo-Json -Depth 5 -Compress
@@ -1559,7 +2142,7 @@ setter and no undo. Do **QR first** as the cheap rehearsal, then the other four
 Base pools, then PEPE on mainnet last. Add `--broadcast --interactive` to the
 Phase A2 line, changing only `STAKING_TOKEN`:
 
-| # | Pool | Chain | `STAKING_TOKEN` | replaces `stakePool` |
+| # | Pool | Chain | `STAKING_TOKEN` | replaced `stakePool` (RETIRED 2026-09-05) |
 |---|------|-------|-----------------|----------------------|
 | 1 | QR   | Base 8453 | `0x2b5050f01d64fbb3e4ac44dc07f0732bfb5ecadf` | `0xdcc3a95A0921b83326157132B17770f02094c8E3` |
 | 2 | MFER | Base 8453 | `0xe3086852a4b125803c815a158249ae468a3254ca` | `0x7288DbF43D3BDBfC439B6E8a47Aef225D4816273` |
@@ -2457,7 +3040,9 @@ number does not exist. One column makes all three real.
 ## 2.4 Fee dials — a flag and a price are two decisions
 
 Nothing charges anything today. Each needs both halves:
-- **Swap/trigger/terminal:** `VITE_SWAP_FEE_BPS` + `VITE_SWAP_FEE_RECIPIENT`
+- **Swap/trigger/terminal:** `VITE_SWAP_FEE_BPS` + `VITE_SWAP_FEE_RECIPIENT`. The recipient must be
+  the treasury Safe of the chain the fee is collected on (Ethereum: `0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d`);
+  the code refuses any other address there, so a wrong one leaves the fee off rather than misdirected.
 - ~~**Heat-tier launch pricing:** `VITE_LAUNCH_TIER_PRICING=on` + a **full five-tier** bps table (all
   five tier words, or it refuses to apply — a partial table would silently price someone at a
   default they never chose)~~ **Struck 2026-09-30:** the island rules "Same price for everyone."

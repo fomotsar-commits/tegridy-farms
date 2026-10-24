@@ -88,7 +88,7 @@ function nameToken(chain: FakeChain, mint: PublicKey, name: string, symbol: stri
 }
 
 const NO_MARKET_DEPOSIT =
-  'Jupiter has no market price for this token, so this pool’s price was not checked against anything. If it is off, a deposit here hands the difference to whoever trades it back.';
+  'Jupiter has no market price for this token, so this pool’s price was not checked against anything. If it is off, whoever trades it back takes part of what you add.';
 const COPY_DEPOSIT =
   'It calls itself by a well-known token’s name but has a different mint, so it is not that token. If the copy turns out to be worth nothing, so is your share of this pool.';
 const FREEZE_DEPOSIT =
@@ -437,9 +437,24 @@ describe('prepareLpDeposit', () => {
     // About 0.1 SOL at 4% off costs about 0.00002 SOL, never more than what goes in.
     expect(loss).toBeLessThan(s.quoted.quote / 1_000n);
     expect(s.warnings).toEqual([
-      'Its price is 4.0% above the outside price. A deposit here would hand that gap to the first arbitrage trade.',
+      'Its price is 4.0% above the outside price. If you add now, whoever trades it back takes up to about 0.02% of what you add (about $0.02 per $100).',
       `At these amounts, a move back to the outside price would take up to about ${(Number(loss) / 1e9).toFixed(9).replace(/0+$/, '')} SOL of what you put in. That is an estimate.`,
     ]);
+  });
+
+  // The card's check may have read the edge's 30-second copy of Jupiter's answer
+  // (outsidePrice.ts). Review's says "fresh reads" (PoolCard.tsx), so it asks Jupiter itself.
+  it('the outside price at Review is asked fresh, never the copy the edge shares', async () => {
+    const w = world();
+    const asked: [string, number, { fresh?: boolean } | undefined][] = [];
+    const reads: LpPrepareReads = {
+      outsidePrice: async (mint, decimals, opts) => {
+        asked.push([mint, decimals, opts]);
+        return { kind: 'ok', solPerToken: 0.01, source: 'Jupiter' };
+      },
+    };
+    ok(await deposit(w, {}, reads));
+    expect(asked).toEqual([[w.mint.toBase58(), 6, { fresh: true }]]);
   });
 
   it('the estimated loss never decides anything: a pool 50% off still builds, and the transaction is the one a pool at the market gets', async () => {
@@ -698,7 +713,7 @@ describe('prepareLpDeposit', () => {
     expect(s.priceGap!.lossQuote).toBe(loss);
     expect(loss).toBeGreaterThan(0n);
     expect(s.warnings).toEqual([
-      'Its price is 99.4% above its own average over the last half hour. Someone may have just pushed it; a deposit now would pay for that.',
+      'Its price is 99.4% above its own average over the last half hour. Someone may have just pushed it; if you add now, whoever trades it back takes up to about 5.7% of what you add (about $5.68 per $100).',
       `At these amounts, a move back to its own average would take up to about ${(Number(loss) / 1e9).toFixed(9).replace(/0+$/, '')} SOL of what you put in. That is an estimate.`,
     ]);
     // Nothing here names a market this token does not have.
@@ -734,7 +749,7 @@ describe('prepareLpDeposit', () => {
       };
       return asked;
     }
-    const GAP = 'Its price is 900.0% above the launch pool’s price. A deposit here would hand that gap to the first arbitrage trade.';
+    const GAP = 'Its price is 900.0% above the launch pool’s price. If you add now, whoever trades it back takes up to about 42.5% of what you add (about $42.50 per $100).';
     const summaryOf = async (w: World, r: LpPrepareReads = answering(NO_ROUTE)) => ok(await deposit(w, {}, r)).summary as LpDepositSummary;
 
     it('at ten times the launch price it builds as off-price: the gap and the estimated loss, against the launch pool read just now', async () => {

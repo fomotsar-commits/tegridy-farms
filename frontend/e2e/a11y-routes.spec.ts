@@ -174,19 +174,13 @@ test.describe('a11y — shared chrome', () => {
     // second time and reporting a pass.
     await hamburger.or(bar).first().waitFor({ state: 'visible', timeout: ROUTE_MOUNT_TIMEOUT });
 
-    if (!(await hamburger.isVisible())) {
-      // DESKTOP: no disclosure exists. The six words are always rendered, so
-      // the real assertion is that they are there and reachable without one.
-      await expect(bar.getByRole('link').first()).toBeVisible({ timeout: ROUTE_MOUNT_TIMEOUT });
-      expect(
-        await bar.getByRole('link').count(),
-        'the desktop bar rendered fewer than the six section words',
-      ).toBeGreaterThanOrEqual(6);
-      return;
-    }
+    // The bar carries the four words at every width (Island · Lock · Launch · Swap),
+    // and the drawer carries the rest at every width, so both are asserted everywhere.
+    const visibleBar = page.locator('nav[aria-label="Main navigation"]:visible');
+    await expect(visibleBar.getByRole('link').first()).toBeVisible({ timeout: ROUTE_MOUNT_TIMEOUT });
+    expect(await visibleBar.getByRole('link').count(), 'the bar rendered other than its four words').toBe(4);
+    await expect(hamburger, 'the drawer has no button at this width').toBeVisible();
 
-    // PHONE / narrow tablet: the drawer is the whole nav, so it is the thing
-    // that has to audit clean.
     await hamburger.click();
     const panel = page.getByRole('dialog', { name: 'Navigation menu' });
     await panel.waitFor({ state: 'visible', timeout: ROUTE_MOUNT_TIMEOUT });
@@ -234,6 +228,11 @@ test.describe('routes that are not audited', () => {
         await expect(page).toHaveURL(new RegExp(`${route.redirectsTo!.replace('/', '\\/')}$`), {
           timeout: ROUTE_MOUNT_TIMEOUT,
         });
+      }
+      if (route.gate === 'not-yet-routed') {
+        // Still assert the production behaviour: no route, so the not-found page and not the surface.
+        await page.goto(route.path);
+        await expect(page.getByRole('heading', { level: 2, name: 'Page Not Found' })).toBeVisible({ timeout: ROUTE_MOUNT_TIMEOUT });
       }
       test.skip(true, `${route.path}: ${route.why}`);
     });

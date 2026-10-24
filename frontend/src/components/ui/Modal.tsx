@@ -2,12 +2,13 @@ import { useEffect, useId, useRef, type ReactNode } from 'react';
 import { m, AnimatePresence } from 'framer-motion';
 import { useTheme } from '../../contexts/ThemeContext';
 import { artImgProps } from '../../lib/artSrcSet';
+import { EDITORIAL_GRAIN, EDITORIAL_INK, HEADING_FONT } from '../../lib/editorial';
 
 interface ModalProps {
   open: boolean;
   onClose: () => void;
   children: ReactNode;
-  title?: string;
+  title?: ReactNode;
   /** Max width class — defaults to 'max-w-md' */
   maxWidth?: string;
   /**
@@ -22,6 +23,11 @@ interface ModalProps {
    * the app. Purely cosmetic — content stays fully legible over the scrim.
    */
   art?: string;
+  /**
+   * 'editorial': the island's sheet (lib/editorial.ts): hard corners, near-black, cream ink,
+   * grain and the heading face, the same in both themes. Default: the app's rounded glass.
+   */
+  chrome?: 'default' | 'editorial';
 }
 
 // R039: discover focusable descendants for the Tab/Shift+Tab cycle. A simple
@@ -56,7 +62,9 @@ export function Modal({
   maxWidth = 'max-w-md',
   dismissOnBackdrop = true,
   art,
+  chrome = 'default',
 }: ModalProps) {
+  const editorial = chrome === 'editorial';
   const dialogRef = useRef<HTMLDivElement>(null);
   // R039: remember the element that had focus when the modal opened so we
   // can return focus to it on close. Without this, screen-reader and
@@ -149,16 +157,20 @@ export function Modal({
               aria-modal="true"
               {...(title ? { 'aria-labelledby': titleId } : { 'aria-label': 'Dialog' })}
               tabIndex={-1}
-              className={`relative w-full ${maxWidth} rounded-2xl border p-6 shadow-2xl pointer-events-auto outline-none ${art ? 'overflow-hidden' : ''}`}
-              style={{
-                // AUDIT THEME: was hardcoded rgba(13, 21, 48, 0.95) — light-mode
-                // users saw a dark modal on a light page. Now branches off isDark
-                // from ThemeContext. Opacity stays high so the backdrop scrim is
-                // what sells the "modal-ness", not the card translucency.
-                background: isDark ? 'rgba(13, 21, 48, 0.95)' : 'rgba(255, 250, 244, 0.97)',
-                borderColor: 'var(--color-purple-20)',
-                color: isDark ? undefined : '#1a1a1a',
-              }}
+              className={`relative w-full ${maxWidth} ${editorial ? 'rounded-none' : 'rounded-2xl'} border p-6 shadow-2xl pointer-events-auto outline-none ${art || editorial ? 'overflow-hidden' : ''}`}
+              style={
+                editorial
+                  ? { background: 'rgba(5,8,15,0.96)', borderColor: 'rgba(245,228,184,0.3)', color: EDITORIAL_INK, textShadow: 'none' }
+                  : {
+                      // AUDIT THEME: was hardcoded rgba(13, 21, 48, 0.95) — light-mode
+                      // users saw a dark modal on a light page. Now branches off isDark
+                      // from ThemeContext. Opacity stays high so the backdrop scrim is
+                      // what sells the "modal-ness", not the card translucency.
+                      background: isDark ? 'rgba(13, 21, 48, 0.95)' : 'rgba(255, 250, 244, 0.97)',
+                      borderColor: 'var(--color-purple-20)',
+                      color: isDark ? undefined : '#1a1a1a',
+                    }
+              }
               initial={{ opacity: 0, scale: 0.95, y: 10 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 10 }}
@@ -185,12 +197,19 @@ export function Modal({
                   <div
                     className="absolute inset-0"
                     style={{
-                      background: isDark
+                      // The editorial sheet sets cream copy on the piece, so its scrim is the
+                      // near-black, deepest through the band the copy sits in.
+                      background: editorial
+                        ? 'linear-gradient(180deg, rgba(5,8,15,0.55) 0%, rgba(5,8,15,0.88) 30%, rgba(5,8,15,0.88) 78%, rgba(5,8,15,0.6) 100%)'
+                        : isDark
                         ? 'linear-gradient(180deg, rgba(11,18,42,0.34) 0%, rgba(11,18,42,0.62) 34%, rgba(11,18,42,0.62) 72%, rgba(11,18,42,0.34) 100%)'
                         : 'linear-gradient(180deg, rgba(255,250,244,0.5) 0%, rgba(255,250,244,0.72) 34%, rgba(255,250,244,0.72) 72%, rgba(255,250,244,0.5) 100%)',
                     }}
                   />
                 </div>
+              )}
+              {editorial && (
+                <div aria-hidden="true" className="absolute inset-0 pointer-events-none opacity-[0.08] mix-blend-screen" style={{ backgroundImage: EDITORIAL_GRAIN }} />
               )}
 
               {/* Close button.
@@ -206,7 +225,9 @@ export function Modal({
               <button
                 onClick={onClose}
                 className={`absolute top-3 right-3 z-20 transition-colors text-xl leading-none min-w-[44px] min-h-[44px] flex items-center justify-center ${
-                  isDark
+                  editorial
+                    ? 'text-[#f5e4b8]/60 hover:text-[#f5e4b8]'
+                    : isDark
                     ? 'text-gray-400 hover:text-white'
                     : 'text-black/55 hover:text-black'
                 }`}
@@ -221,7 +242,7 @@ export function Modal({
                 // so the scrim can stay light. Theme-aware: dark halo in dark mode,
                 // light halo in light mode.
                 style={
-                  art
+                  art && !editorial
                     ? {
                         textShadow: isDark
                           ? '0 1px 10px rgba(0,0,0,0.95), 0 0 3px rgba(0,0,0,0.9)'
@@ -231,9 +252,11 @@ export function Modal({
                 }
               >
                 {/* Title */}
-                {title && (
+                {title && (editorial ? (
+                  <h2 id={titleId} className="mb-3 pr-10 font-black leading-[0.95] tracking-[-0.045em] text-[28px] md:text-[32px]" style={{ ...HEADING_FONT, color: EDITORIAL_INK, textShadow: 'none' }}>{title}</h2>
+                ) : (
                   <h2 id={titleId} className={`heading-luxury text-xl mb-4 pr-8 ${isDark ? 'text-white' : 'text-black'}`}>{title}</h2>
-                )}
+                ))}
 
                 {children}
               </div>
