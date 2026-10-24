@@ -7,6 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-10-24
+
+- Solana swap: Buy asks Jupiter for less, so it waits less. A quote under 10 seconds old is built as shown instead of asked for again, our pools are read at the click instead of after Jupiter's answer, the trending list, the risk warnings and the pair's prices are shared by every visitor for a short time (prices are still read fresh in USD mode), and "Swap confirmed" is checked every second for the first 10 seconds.
+
 ### 2026-10-23
 
 - Solana pools: the pool program was upgraded. It now has one added instruction, which lets a pool's share token carry a name and a picture in wallets, and one added check: opening a pool the public way no longer accepts the launch fee tier, which is kept for launches. Its on-chain security contact is an email and links on memetics.finance. The lines you read before adding liquidity or opening a pool say so: our pool program is Raydium's, with its admin keys changed, one added instruction that names pool share tokens and one added check that keeps the launch fee tier for launches, and those changes have not had their own independent review yet. "The program" card on /pools and /solana-lp no longer says the program is waiting for an upgrade.
