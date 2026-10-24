@@ -18,7 +18,6 @@ import { SolanaConnectButton } from '../components/solana/SolanaConnectButton';
 import { ChainSwitch } from '../components/swap/ChainSwitch';
 import { SolanaRouteLine } from '../components/swap/SolanaRouteLine';
 import { IslandBasketSolana } from '../components/swap/IslandBasketSolana';
-import type { SolBasketCoin } from '../lib/islandBasket';
 import { isRangeCandidate, useSolanaRoute } from '../components/swap/useSolanaRoute';
 import type { TxSummary } from '../components/solana/curve/ports';
 import { useVenueSwap } from '../components/swap/useVenueSwap';
@@ -810,6 +809,16 @@ function ActivityRail() {
   );
 }
 
+/** A wallet's order list whose read did not answer: said as that, with a way to read it again. */
+function OrdersUnread({ what, onRetry }: { what: string; onRetry: () => void }) {
+  return (
+    <p className="text-white/60 text-[11px]">
+      {what} could not be read just now.{' '}
+      <button type="button" onClick={onRetry} className="text-white underline hover:text-white/80 px-1 py-2.5 -my-2">Try again</button>
+    </p>
+  );
+}
+
 // DCA: Jupiter Recurring (time-based). Deposit once, keepers buy the pair on a fixed
 // cadence, fee-off. Its program cannot take a Token-2022 token, so both mints' programs
 // are read before anything is signed (lib/solana/swap/dcaPair.ts). Jupiter asks for at
@@ -826,7 +835,8 @@ function DcaTab({ payToken, buyToken, payUsd, shieldWarnings, needsAck, ack, set
   const [numBuys, setNumBuys] = useState(4);
   const [intervalSecs, setIntervalSecs] = useState(86_400);
   const [placing, setPlacing] = useState(false);
-  const [orders, setOrders] = useState<RecurringOrder[]>([]);
+  // Null: the read did not answer (OrdersUnread), never an empty list.
+  const [orders, setOrders] = useState<RecurringOrder[] | null>([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [cancelling, setCancelling] = useState<string | null>(null);
   const payBalance = useTokenBalance(payToken);
@@ -866,7 +876,7 @@ function DcaTab({ payToken, buyToken, payUsd, shieldWarnings, needsAck, ack, set
     setOrdersLoading(true);
     getRecurringOrders(publicKey.toBase58())
       .then((o) => setOrders(o))
-      .catch(() => setOrders([]))
+      .catch(() => setOrders(null))
       .finally(() => setOrdersLoading(false));
   }, [publicKey]);
 
@@ -1061,6 +1071,8 @@ function DcaTab({ payToken, buyToken, payUsd, shieldWarnings, needsAck, ack, set
           </div>
           {ordersLoading ? (
             <p className="text-white/50 text-[11px]">Loading…</p>
+          ) : orders === null ? (
+            <OrdersUnread what="Your DCAs" onRetry={loadOrders} />
           ) : orders.length === 0 ? (
             <p className="text-white/60 text-[11px]">No active DCAs.</p>
           ) : (
@@ -1111,7 +1123,8 @@ function LimitTab({ payToken, buyToken, shieldWarnings, needsAck, ack, setAck, o
   const [price, setPrice] = useState('');
   const [expiryDays, setExpiryDays] = useState(7);
   const [placing, setPlacing] = useState(false);
-  const [orders, setOrders] = useState<TriggerOrder[]>([]);
+  // Null: the read did not answer (OrdersUnread), never an empty list.
+  const [orders, setOrders] = useState<TriggerOrder[] | null>([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [cancelling, setCancelling] = useState<string | null>(null);
   const payBalance = useTokenBalance(payToken);
@@ -1133,7 +1146,7 @@ function LimitTab({ payToken, buyToken, shieldWarnings, needsAck, ack, setAck, o
     setOrdersLoading(true);
     getTriggerOrders(publicKey.toBase58())
       .then((o) => setOrders(o))
-      .catch(() => setOrders([]))
+      .catch(() => setOrders(null))
       .finally(() => setOrdersLoading(false));
   }, [publicKey]);
 
@@ -1310,6 +1323,8 @@ function LimitTab({ payToken, buyToken, shieldWarnings, needsAck, ack, setAck, o
           </div>
           {ordersLoading ? (
             <p className="text-white/50 text-[11px]">Loading…</p>
+          ) : orders === null ? (
+            <OrdersUnread what="Your open orders" onRetry={loadOrders} />
           ) : orders.length === 0 ? (
             <p className="text-white/60 text-[11px]">No open orders.</p>
           ) : (
@@ -1619,8 +1634,11 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
     [forgetPools, retryPayBalance],
   );
   const requote = useCallback(() => setQuoteAttempt((n) => n + 1), []);
+  // The island order was opened: it buys a coin our pool wins in our pool, so it needs the swap code too.
+  const [islandWantsOwn, setIslandWantsOwn] = useState(false);
+  const wantOwnForIsland = useCallback(() => setIslandWantsOwn(true), []);
   const venueSwap = useVenueSwap({
-    wanted: route.own === 'quoted',
+    wanted: route.own === 'quoted' || islandWantsOwn,
     programId: route.venue?.kind === 'live' ? route.venue.programId : null,
     onSettled: onOwnSettled,
     onResolved: requote,
@@ -1824,29 +1842,6 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
       () => toast.success('Trade link copied', { description: `${payToken.symbol} → ${buyToken.symbol}` }),
       () => toast.error('Could not copy the link'),
     );
-  }
-
-  /**
-   * A coin of the island order that our own pool wins: its share goes on this form, in SOL,
-   * where our pool's review buys it (every swap in our pool shows its review first).
-   */
-  function takeOwnLeg(coin: SolBasketCoin, lamports: bigint) {
-    if (held) return;
-    setMode('swap');
-    setPayToken(SOL);
-    setUsdMode(false);
-    setAmount(fromBaseUnits(lamports.toString(), SOL.decimals));
-    const known = findSolToken(coin.mint);
-    if (known) {
-      setBuyToken(known);
-      return;
-    }
-    resolveMint(coin.mint)
-      .then((t) => {
-        if (t) setBuyToken(t);
-        else toast.error('Not loaded', { description: `${coin.symbol} could not be loaded into the form. Pick it there to buy it.` });
-      })
-      .catch(() => toast.error('Not loaded', { description: `${coin.symbol} could not be loaded into the form. Pick it there to buy it.` }));
   }
 
   /**
@@ -2441,7 +2436,8 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
                 slippageBps={slippageBps}
                 priority={speed}
                 pending={venueSwap.pending}
-                onOwnLeg={takeOwnLeg}
+                ownSwap={venueSwap.ready}
+                wantOwnSwap={wantOwnForIsland}
                 busy={held || pendingNote}
               />
             </div>
