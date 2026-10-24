@@ -37,10 +37,16 @@ const LAST_UPDATE_OFFSET = OBS_START + OBS_LEN * OBSERVATION_NUM;
 
 /** How far back the average reaches, when the ring holds that much history. */
 export const AVERAGE_WINDOW_SECS = 30n * 60n;
-/** Less history than this since the first swap, and the average proves nothing yet. */
+/** Less history than this since the first swap, and no average is worked out at all. */
 export const MIN_HISTORY_SECS = 10n * 60n;
-/** That span in words ("10 minutes"), for every sentence that names it: the number is typed once, above. */
-export const MIN_HISTORY_TEXT = `${(MIN_HISTORY_SECS / 60n).toString()} minutes`;
+/**
+ * Less history than this, and a launch pool's average is no evidence (poolHealth.ts
+ * `too-new`): the record starts at the first swap, so a price moved by a transfer before
+ * it is written over all of it. Not 30 minutes: 100 slots at least 15 s apart hold 24m45s.
+ */
+export const TRUSTED_HISTORY_SECS = 24n * 60n;
+/** That span in words ("24 minutes"), for every sentence that names it: the number is typed once, above. */
+export const MIN_HISTORY_TEXT = `${(TRUSTED_HISTORY_SECS / 60n).toString()} minutes`;
 /**
  * Why a launch pool's price was compared with nothing when its record is that short
  * (poolHealth.ts `too-new`), as the clause every screen says it in: the pool card's
@@ -95,7 +101,8 @@ export function decodeObservationState(data: Uint8Array): ObservationStateView |
 export type OwnPrice =
   /** No swap has ever happened: the price is still the one the pool was opened at. */
   | { kind: 'no-trades' }
-  | { kind: 'ok'; solPerToken: number; windowSecs: bigint }
+  /** `silenceSecs`: the longest stretch of the window with no swap recorded (`longestSilence`). */
+  | { kind: 'ok'; solPerToken: number; windowSecs: bigint; silenceSecs: bigint }
   /**
    * The record was READ, and it spans less than `MIN_HISTORY_SECS` since the pool's first
    * trade: too short for an average to prove anything. An ANSWER about the pool, not a
@@ -105,9 +112,36 @@ export type OwnPrice =
   | { kind: 'too-new'; historySecs: bigint }
   | { kind: 'unread'; detail: string };
 
+/** Where the average starts: the newest slot at least AVERAGE_WINDOW old; failing that, the oldest one there is. */
+function windowStart(obs: ObservationStateView, lastUpdate: bigint, now: bigint): Observation | null {
+  const valid = obs.observations.filter((o) => o.blockTimestamp > 0n && o.blockTimestamp <= lastUpdate);
+  let from: Observation | null = null;
+  for (const o of valid) if (o.blockTimestamp <= now - AVERAGE_WINDOW_SECS && (!from || o.blockTimestamp > from.blockTimestamp)) from = o;
+  if (!from) for (const o of valid) if (!from || o.blockTimestamp < from.blockTimestamp) from = o;
+  return from;
+}
+
+/**
+ * The longest stretch from `from` to `now` with no swap recorded: slot to slot, last slot
+ * to last update, last update to now. Only swaps write the record, so a transfer into a
+ * vault moves the price unrecorded, and the next swap credits the moved price to the whole
+ * quiet stretch before it.
+ */
+function longestSilence(obs: ObservationStateView, from: bigint, lastUpdate: bigint, now: bigint): bigint {
+  const times = obs.observations
+    .map((o) => o.blockTimestamp)
+    .filter((t) => t >= from && t <= lastUpdate)
+    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  times.push(lastUpdate, now);
+  let longest = 0n;
+  for (let i = 1; i < times.length; i++) if (times[i]! - times[i - 1]! > longest) longest = times[i]! - times[i - 1]!;
+  return longest;
+}
+
 /**
  * The pool's average price (SOL per whole token) over up to the last 30 minutes, ending
- * now. `tokenIsToken0` says which side is the token; reserves are net of fees.
+ * now. `tokenIsToken0` says which side is the token; reserves are net of fees. A price moved
+ * by a transfer during a quiet stretch reads as the average: `silenceSecs` says how quiet.
  */
 export function ownAveragePrice(input: {
   obs: ObservationStateView;
@@ -124,11 +158,7 @@ export function ownAveragePrice(input: {
   const lastUpdate = obs.lastUpdate > 0n ? obs.lastUpdate : latest.blockTimestamp;
   if (latest.blockTimestamp === 0n || lastUpdate > now) return { kind: 'unread', detail: 'its price record is later than the network clock' };
 
-  // Pick the newest slot at least AVERAGE_WINDOW old; failing that, the oldest one there is.
-  const valid = obs.observations.filter((o) => o.blockTimestamp > 0n && o.blockTimestamp <= lastUpdate);
-  let from: Observation | null = null;
-  for (const o of valid) if (o.blockTimestamp <= now - AVERAGE_WINDOW_SECS && (!from || o.blockTimestamp > from.blockTimestamp)) from = o;
-  if (!from) for (const o of valid) if (!from || o.blockTimestamp < from.blockTimestamp) from = o;
+  const from = windowStart(obs, lastUpdate, now);
   if (!from) return { kind: 'unread', detail: 'its price record is empty' };
   const window = now - from.blockTimestamp;
   // Read, and too short: an answer, with how long the record is. Never `unread`.
@@ -148,5 +178,5 @@ export function ownAveragePrice(input: {
   if (avgOwn >= avgOther) solPerToken = (Number(avgOwn) / Number(Q32)) * scale;
   else solPerToken = avgOther > 0n ? (Number(Q32) / Number(avgOther)) * scale : NaN;
   if (!Number.isFinite(solPerToken) || solPerToken <= 0) return { kind: 'unread', detail: 'its price record does not give a usable price' };
-  return { kind: 'ok', solPerToken, windowSecs: window };
+  return { kind: 'ok', solPerToken, windowSecs: window, silenceSecs: longestSilence(obs, from.blockTimestamp, lastUpdate, now) };
 }

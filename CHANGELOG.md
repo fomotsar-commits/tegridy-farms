@@ -9,6 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-10-24
 
+- Solana pools: adding to a launch pool Jupiter has no price for now warns when its price may have been moved without a trade: when nobody has traded it yet it holds more than its shares account for, or when it has had long gaps between trades over the last half hour. Its own average counts only after 24 minutes of trading, not 10. Such a pool is no longer the price the token's other pools are checked against. Removing liquidity is unchanged.
 - Solana swap: Buy asks Jupiter for less, so it waits less. A quote under 10 seconds old is built as shown instead of asked for again, our pools are read at the click instead of after Jupiter's answer, the trending list, the risk warnings and the pair's prices are shared by every visitor for a short time (prices are still read fresh in USD mode), and "Swap confirmed" is checked every second for the first 10 seconds.
 
 ### 2026-10-23
