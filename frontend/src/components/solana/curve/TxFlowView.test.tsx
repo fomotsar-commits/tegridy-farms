@@ -1332,11 +1332,11 @@ describe('built again at the press: what shuts the wallet and what only moved', 
   });
 
   // A collect of a running reward: the reward owed grows each second, and nothing else moves.
-  const collectOf = (paid: bigint, held = 10n ** 12n): TxSummary => ({
+  const collectOf = (paid: bigint, held = 10n ** 12n, mint = KEY(54)): TxSummary => ({
     ...rangeOpen(),
     kind: 'range-remove', position: KEY(53), percent: 0, liquidity: 0n, min: { token: 0n, quote: 0n }, quoted: { token: 0n, quote: 0n },
     fees: { token: 0n, quote: 0n }, unwrapsWsol: true, notices: [],
-    rewards: [{ mint: KEY(54), owed: paid, amount: paid < held ? paid : held, decimals: 6, feeOnTransfer: false }],
+    rewards: [{ mint, owed: paid, amount: paid < held ? paid : held, decimals: 6, feeOnTransfer: false }],
   }) as TxSummary;
 
   it('a collect whose running reward grew while it was read signs on the rebuild, and the reward is listed among what moved', async () => {
@@ -1358,6 +1358,13 @@ describe('built again at the press: what shuts the wallet and what only moved', 
     const moved = screen.getByTestId('tx-moved');
     expect(moved).toHaveTextContent(`Rewards it pays: 52.2 Unknown token · ${KEY(54).toBase58()}`);
     expect(moved).toHaveTextContent(`Rewards it pays: 48.2 Unknown token · ${KEY(54).toBase58()}`);
+  });
+
+  it('a clock line that changed more than its numbers (another coin): shut', async () => {
+    const fresh = again(collectOf(48_200_000n, 10n ** 12n, KEY(55)), CAP);
+    const { api, state } = await pressPastItsClock(prepared(collectOf(48_200_000n), CAP), fresh);
+    expect(api.submitPrepared).not.toHaveBeenCalled();
+    expect(state).toMatchObject({ step: 'review', prepared: fresh, replaced: { n: 1 } });
   });
 
   it('a collect whose reward vault ran short since it was read: shut, and the new line is listed', async () => {
