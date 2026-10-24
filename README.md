@@ -132,9 +132,9 @@ our fee Safe. There is no TOWELI staking on either chain.
   [`SAFE_REHOME_RUNBOOK.md`](docs/SAFE_REHOME_RUNBOOK.md) and not done. The treasury is a
   two-signature Safe, and the EVM curve launchers are owned by two-signature Safes.
 - **Reviews:** many internal adversarial reviews ([`AUDITS.md`](docs/AUDITS.md)), no paid
-  firm. The pool program's changes from Raydium's (its admin keys, plus one added instruction
-  that names pool share tokens and one check that keeps the launch fee tier for launches, both
-  live since its upgrade) have had no independent review, and the site says so. Report a security issue privately: [`SECURITY.md`](SECURITY.md).
+  firm. The pool program's changes from Raydium's (its admin keys; the source also adds one
+  instruction that names pool share tokens and one check that keeps the launch fee tier for
+  launches, which mainnet ran from 2026-10-23 until a roll-back on 2026-10-24) have had no independent review, and the site says so. Report a security issue privately: [`SECURITY.md`](SECURITY.md).
 
 ---
 

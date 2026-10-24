@@ -140,7 +140,9 @@ superseded: that program had `release_platform_reserve` and an 8-account `create
 Both programs have been live on mainnet at those ids since 2026-09-29. No IDL has been
 written on chain.
 
-**`raydium_cp_swap.json` is the IDL of the pool program mainnet runs since its upgrade.** It
+**`raydium_cp_swap.json` is the IDL of the upgraded pool program**, which mainnet ran from
+2026-10-23 until the roll-back of 2026-10-24. Mainnet runs the release's build again, whose IDL
+is `939bc040…`. It
 was re-emitted on 2026-10-06 with `anchor idl build -p raydium_cp_swap` (anchor-cli 0.32.1,
 in WSL, no features) from the source that adds `create_lp_metadata`, the instruction that
 gives a pool's lp token a name record. From that day until the upgrade
