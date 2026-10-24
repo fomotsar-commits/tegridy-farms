@@ -99,7 +99,17 @@ A general "merge what you can" is refused as a production deploy.
 
 ---
 
-## 🔴 2026-10-22: two merges only you can press (#930 done, #776 on Day 2)
+## 2026-10-24: for later, Jupiter's paid plan (you: "stay on free now")
+
+- ⬜ **Jupiter's Developer plan, $25 a month**, on the "memetics" org that owns
+  `JUPITER_API_KEY`. It allows 10 requests a second; the free key allows 1 (developers.jup.ag/pricing,
+  read 2026-10-24). Why it matters: on the free key, Buy spaces its five exact quotes one a second,
+  so they take at least 5 seconds to firm up. After you upgrade, tell a session: it removes that
+  spacing, a small code change. Until then nothing is broken, only slower.
+
+---
+
+## ✅ 2026-10-22: two merges only you can press (both done)
 
 A session's merge was refused on 2026-10-22 as a production deploy, after a general "merge". A
 second word that names the one PR ("merge 930") has let a merge through before, but not always.
@@ -125,8 +135,10 @@ command.
   (#933, the splash art held still under reduced motion, merged 2026-10-22 at 10:36 UTC and is
   live.)
 
-- ✅ **Done 2026-10-23 15:55 UTC** (merge commit `e1ff3b467`), after the pool upgrade executed at
-  08:44:16 UTC. The text below is kept as it was.
+- ✅ **Done 2026-10-23 15:55 UTC** (merge commit `e1ff3b467`, Vercel deployed it 15:59 UTC). Pool
+  proposal #15 executed at 08:44:16 UTC in slot 460,379,427; mainnet runs `1e55bcdc…`, and the
+  record is in `solana/tegridy-amm/MAINNET_RUNBOOK.md` section 4b. Left from it: tick O-0929-10
+  (below) once the explorer's security tab shows the new text.
   **Merge #776 within the hour after the pool upgrade executes on Day 2** (pool proposal #15,
   executable from 2026-10-23 06:20:22 UTC, read on chain 2026-10-22; the ladder's #17 follows at
   06:37:12). Not before: until the execute, everything
