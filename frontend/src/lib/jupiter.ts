@@ -307,9 +307,9 @@ export function fromBaseUnits(raw: string, decimals: number): string {
 // ─── Conversion polish: USD prices + route transparency ─────────────────────
 
 /**
- * USD prices for a set of mints in one price/v3 call (via our proxy). `shared`: a fixed
- * list every visitor asks for alike, which the proxy keeps at the edge for 30 s
- * (`priceCheck`, api/aggregator.js); never for a pair a visitor picked.
+ * USD prices for a set of mints in one price/v3 call (via our proxy). `shared`: the read
+ * the proxy keeps at the edge for 30 s (`priceCheck`, api/aggregator.js), so every visitor
+ * asking for the same list shares one Jupiter call; never where the price sizes a trade.
  */
 export async function getUsdPrices(mints: string[], signal?: AbortSignal, opts: { shared?: boolean } = {}): Promise<Record<string, number>> {
   const ids = [...new Set(mints.filter(Boolean))];

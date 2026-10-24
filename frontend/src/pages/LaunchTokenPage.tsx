@@ -327,11 +327,12 @@ function ProvenanceCard({ p }: { p: Provenance }) {
         <Pill tone={tone}>{p.label}</Pill>
       </div>
       <p className="text-[12.5px] text-text-secondary leading-relaxed mt-2 break-words">{p.detail}</p>
-      <FinePrint summary="Source">
+      <FinePrint summary={p.failure ? 'Details' : 'Source'}>
         <p>
-          Read directly from Doppler’s Airlock record for this asset — the only place a launch’s
+          Read directly from Doppler’s Airlock record for this asset, the only place a launch’s
           integrator is recoverable. A token we did not launch is always said so plainly.
         </p>
+        {p.failure && <p className="break-words">What failed: {p.failure}</p>}
       </FinePrint>
     </section>
   );

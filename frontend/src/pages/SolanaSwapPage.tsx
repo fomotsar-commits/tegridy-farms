@@ -67,6 +67,7 @@ import {
   getShield,
   simulateSwap,
   swapCarriesPlatformFee,
+  quoteHasPlatformFee,
   createTriggerOrder,
   getTriggerOrders,
   cancelTriggerOrder,
@@ -120,6 +121,14 @@ const VenueSwapFlow = lazy(loadVenueSwapFlow);
 
 /** How long Buy waits for our pools to be read again before it goes on with the route on screen. */
 const OWN_CHECK_MS = 4_000;
+
+/**
+ * A quote on screen younger than this is built as shown: the press does not ask Jupiter
+ * again (the site's free key is one request a second for every visitor together). Its
+ * minimum is the trader's floor on chain and the test run still runs on it. One press per
+ * quote: the press after asks afresh.
+ */
+const SHOWN_QUOTE_FRESH_MS = 10_000;
 
 // A press's quote and build, each asked again while Jupiter refuses the call (jupiterBusy.ts).
 const pressQuote = whileJupiterBusy((p: Parameters<typeof getQuote>[0]) => getQuote(p));
@@ -1437,6 +1446,8 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
   const [quoteFail, setQuoteFail] = useState<'no-route' | 'unavailable' | null>(null);
   // Bumped by "Try again": asks for the same quote again, the form untouched.
   const [quoteAttempt, setQuoteAttempt] = useState(0);
+  // When Jupiter answered each quote the form asked for (SHOWN_QUOTE_FRESH_MS).
+  const quoteSeenAt = useRef(new WeakMap<JupiterQuote, number>());
   const [swapping, setSwapping] = useState(false);
   const [picker, setPicker] = useState<'pay' | 'buy' | null>(null);
   const [mode, setMode] = useState<'swap' | 'limit' | 'dca'>('swap');
@@ -1513,6 +1524,7 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
         .then((q) => {
           if (ctrl.signal.aborted) return;
           if (noFee) setWaivedQuote(q);
+          quoteSeenAt.current.set(q, Date.now());
           setQuote(q); setQuoteFail(null); setQuoteLoading(false);
         })
         .catch((err: unknown) => {
@@ -1528,10 +1540,12 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
   }, [baseAmount, canQuote, payToken.mint, buyToken.mint, slippageBps, quoteAttempt]);
 
   // USD prices for the pay and receive legs, read again on a pair change. The 30 s
-  // refresh in USD mode is further down: it waits while a trade is on its way.
+  // refresh in USD mode is further down: it waits while a trade is on its way. Outside
+  // USD mode a price only labels amounts, so the read is the one every visitor shares at
+  // the edge (up to 45 s old); in USD mode it sizes the trade and is read fresh.
   useEffect(() => {
     let cancelled = false;
-    getUsdPrices([payToken.mint, buyToken.mint])
+    getUsdPrices([payToken.mint, buyToken.mint], undefined, { shared: !usdMode })
       .then((p) => { if (!cancelled) setPrices(p); })
       .catch(() => { /* USD context is best-effort */ });
     return () => { cancelled = true; };
@@ -1977,24 +1991,24 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
 
   /**
    * THE ROUTE, HELD AT THE CLICK, with Jupiter on screen. If one of our pools, read
-   * again now, pays at least what the transaction about to be signed would pay (`q`),
-   * `q` goes on screen so the line shows that route, and the trader presses Buy on it.
-   * A read that fails or hangs changes nothing when a comparison was on screen; with none
-   * on screen yet (our pools still being read), a read that does not answer sends nothing.
+   * again at the click (`ownRead`), pays at least what the transaction about to be signed
+   * would pay (`q`), `q` goes on screen so the line shows that route, and the trader
+   * presses Buy on it. A read that fails or hangs changes nothing when a comparison was on
+   * screen; with none on screen yet (our pools still being read), a read that does not
+   * answer sends nothing.
    */
-  async function ownPoolTakesIt(q: JupiterQuote, noSiteFee: boolean, pressedFor: string): Promise<boolean> {
-    if (!ownMayCompete || !baseAmount) return false;
+  async function ownPoolTakesIt(q: JupiterQuote, noSiteFee: boolean, pressedFor: string, ownRead: ReturnType<typeof route.refresh> | null): Promise<boolean> {
+    if (!ownRead) return false;
     let aggregatorOut: bigint;
     try {
       aggregatorOut = BigInt(q.outAmount);
     } catch {
       return false;
     }
-    const amountIn = BigInt(baseAmount);
     // The press's render: no comparison with our pools was on screen.
     const unread = route.own === 'pending';
     // Null: the read did not answer in time, or could not read our pools.
-    const own = await within<Awaited<ReturnType<typeof route.refresh>>>(route.refresh(amountIn), OWN_CHECK_MS, null);
+    const own = await within(ownRead, OWN_CHECK_MS, null);
     // The trade on the form changed while our pools were read: the one pressed is not sent.
     if (formNow.current !== pressedFor) {
       toast.info('Not sent', { description: OWN_ROUTE_COPY.formChanged });
@@ -2013,13 +2027,14 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
 
   /**
    * Jupiter's transaction for the trade pressed failed its test run, so it is not sent.
-   * If one of our pools, read again now, quotes that trade, the refusal is kept for it:
-   * the line names our pool and why, and the next press builds there. A read that fails
-   * or hangs, or a pool that cannot quote, leaves the press to end as it did.
+   * If one of our pools, read again at the click (`ownRead`), quotes that trade, the
+   * refusal is kept for it: the line names our pool and why, and the next press builds
+   * there. A read that fails or hangs, or a pool that cannot quote, leaves the press to
+   * end as it did.
    */
-  async function ownPoolInstead(why: string | null): Promise<boolean> {
-    if (!ownMayCompete || !baseAmount) return false;
-    const own = await within<Awaited<ReturnType<typeof route.refresh>>>(route.refresh(BigInt(baseAmount)), OWN_CHECK_MS, null);
+  async function ownPoolInstead(why: string | null, ownRead: ReturnType<typeof route.refresh> | null): Promise<boolean> {
+    if (!ownRead) return false;
+    const own = await within(ownRead, OWN_CHECK_MS, null);
     if (!own?.length) return false;
     // Kept for the trade pressed, whatever the form shows by now, with the cause the test run gave.
     setRefusedTrade({ key: refusalKey, why });
@@ -2041,6 +2056,9 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
     // fee-bearing, is about 0.5% under it by construction and is not the trade
     // being compared: see the two guards below.
     const shownWaived = feeWaived;
+    // When Jupiter answered the quote clicked, taken once: the press after this one asks again.
+    const shownAt = quoteSeenAt.current.get(shown);
+    quoteSeenAt.current.delete(shown);
     // THE TRADE PRESSED. The form can come to show another while the press is on its way
     // (a link's token that lands late, a price that re-sizes a dollar amount). From then
     // on nothing is written or sent for the one pressed, whatever our pools hold: this is
@@ -2068,20 +2086,38 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
     // Until this swap is answered the page does not reload itself (lib/staleBuild.ts).
     const release = holdReload();
     try {
+      // Our pools are read once for this press, from the click, while Jupiter is asked:
+      // the read the route is held on (ownPoolTakesIt) and the one a refusal turns to
+      // (ownPoolInstead). Each waits at most OWN_CHECK_MS for it from where it is needed.
+      const ownRead = ownMayCompete ? route.refresh(BigInt(baseAmount)).catch(() => null) : null;
+      const carriesFee = swapCarriesPlatformFee(payToken.mint, buyToken.mint);
       // Re-quote right before building so the on-chain min-out + routing match
-      // the live market (the displayed quote may be seconds-to-minutes stale).
-      const fresh = await pressQuote({
-        inputMint: payToken.mint,
-        outputMint: buyToken.mint,
-        amount: baseAmount,
-        slippageBps,
-      });
+      // the live market (the displayed quote may be seconds-to-minutes stale),
+      // unless the quote clicked is seconds old and is the one this press would ask
+      // for: the same trade, at this slippage, fee-bearing as the pair is.
+      const shownIsFresh =
+        shownAt !== undefined &&
+        Date.now() - shownAt < SHOWN_QUOTE_FRESH_MS &&
+        !shownWaived &&
+        shown.inputMint === payToken.mint &&
+        shown.outputMint === buyToken.mint &&
+        shown.inAmount === baseAmount &&
+        shown.swapMode === 'ExactIn' &&
+        shown.slippageBps === slippageBps &&
+        quoteHasPlatformFee(shown) === carriesFee;
+      const fresh = shownIsFresh
+        ? shown
+        : await pressQuote({
+            inputMint: payToken.mint,
+            outputMint: buyToken.mint,
+            amount: baseAmount,
+            slippageBps,
+          });
       if (formMoved()) return;
       // With no site fee on this pair, `fresh` is what Jupiter's transaction pays, so
       // the route is held on it before anything is built. With a fee it is held further
       // down, on the quote of the transaction that passed its test run.
-      const carriesFee = swapCarriesPlatformFee(payToken.mint, buyToken.mint);
-      if (!carriesFee && (await ownPoolTakesIt(fresh, false, pressedFor))) return;
+      if (!carriesFee && (await ownPoolTakesIt(fresh, false, pressedFor, ownRead))) return;
       // DISPLAY-VS-SUBMIT GUARD (2026-07-24): the user consented to `shown`.
       // slippageBps protects the tx on-chain, but the re-quoted BASELINE itself
       // could be materially worse than what they saw. If `fresh` dropped beyond
@@ -2146,7 +2182,7 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
           return;
         }
         // A refused transaction is no route, so our pool is offered, with the cause its test run gave.
-        if (await ownPoolInstead(refusalWhy(prepared, slippageBps))) return;
+        if (await ownPoolInstead(refusalWhy(prepared, slippageBps), ownRead)) return;
         // Only what the network wrote: `prepared.reason` can be a line a token's own program printed.
         toast.error('Swap would fail', { description: refusedSaid(prepared, slippageBps) });
         return;
@@ -2167,7 +2203,7 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
       const sent = asTested(prepared.quote, prepared.tested);
       const feeWaivedOnSend = prepared.siteFeeWaived;
       // With no site fee our pools were held to `fresh` before the build: again only if the test run paid less.
-      if ((carriesFee || sent !== prepared.quote) && (await ownPoolTakesIt(sent, feeWaivedOnSend, pressedFor))) return;
+      if ((carriesFee || sent !== prepared.quote) && (await ownPoolTakesIt(sent, feeWaivedOnSend, pressedFor, ownRead))) return;
       if (!shownWaived && sent !== prepared.quote) {
         try {
           const shownOut = BigInt(shown.outAmount);
