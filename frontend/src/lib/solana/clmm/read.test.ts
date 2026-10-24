@@ -4,9 +4,9 @@ import { Keypair, PublicKey } from '@solana/web3.js';
 import type { SolanaRpc } from '../../launcher/solana/curve/rpc';
 import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from '../cpswap/ix';
 import { getDeltaAmountsSigned, getSqrtPriceAtTick } from './math';
-import { decodePoolState, deriveAmmConfig, deriveObservation, derivePersonalPosition, derivePool, deriveTickArray, deriveVault, sortMints } from './program';
+import { TICK_ARRAY_STATE_OFFSETS, TICK_STATE_LEN, decodePoolState, deriveAmmConfig, deriveObservation, derivePersonalPosition, derivePool, deriveTickArray, deriveVault, sortMints } from './program';
 import { encodeAmmConfig, encodePool, encodePosition, encodeTickArray } from './encode.fixture';
-import { positionNeedsExtension, rangeStatus, readBandsNear, readFeeTiers, readFreezeAuthority, readPairPools, readWalletPositions } from './read';
+import { positionNeedsExtension, rangeStatus, readBandsNear, readBandsWindow, readFeeTiers, readFreezeAuthority, readPairPools, readWalletPositions } from './read';
 import { encodeMint } from '../../launcher/solana/write/testkit.fixture';
 
 /**
@@ -139,6 +139,52 @@ describe('the bands near the price', () => {
     expect([...(await readBandsNear(c.rpc, PROG, view, null)).keys()]).toEqual([-7_200, 0, 7_200]);
     c.accounts.delete(deriveTickArray(PROG, POOL, 7_200).toBase58());
     await expect(readBandsNear(c.rpc, PROG, view, null)).rejects.toThrow(/7200/);
+  });
+});
+
+describe("the depth chart's window", () => {
+  const pool = (bits: number[]) => {
+    const c = withTiers().set(POOL, { owner: PROG, data: poolData({ bits }) });
+    return { c, view: decodePoolState(POOL.toBase58(), c.accounts.get(POOL.toBase58())!.data)! };
+  };
+  const band = (c: Chain, s: number) => c.set(deriveTickArray(PROG, POOL, s), { owner: PROG, data: encodeTickArray(POOL, s, SPACING, []) });
+
+  it('reads the pool and its bands in one call; a band that comes back missing is that band unread, the rest still read', async () => {
+    const { c, view } = pool([511, 512, 513]);
+    for (const s of [-7_200, 0]) band(c, s);
+    const w = await readBandsWindow(c.rpc, PROG, view);
+    if (w.kind !== 'ok') throw new Error(w.detail);
+    expect(c.calls).toEqual(['getMultipleAccounts']);
+    expect(w.value.bands.map((b) => [b.start, b.band === null])).toEqual([[-7_200, false], [0, false], [7_200, true]]);
+    expect(w.value.pool.address).toBe(POOL.toBase58());
+    expect(w.value.beyondAbove).toBeNull();
+  });
+
+  it('a band whose used tick sits at the wrong price is unread, never read as liquidity elsewhere', async () => {
+    const { c, view } = pool([512]);
+    const data = encodeTickArray(POOL, 0, SPACING, [{ tick: 1_200, liquidityNet: 5n, liquidityGross: 5n }]);
+    new DataView(data.buffer).setInt32(TICK_ARRAY_STATE_OFFSETS.ticks + 10 * TICK_STATE_LEN, 2_400, true);
+    c.set(deriveTickArray(PROG, POOL, 0), { owner: PROG, data });
+    const w = await readBandsWindow(c.rpc, PROG, view);
+    if (w.kind !== 'ok') throw new Error(w.detail);
+    expect(w.value.bands[0]!.band).toBeNull();
+  });
+
+  it('when the fresh pool marks other bands than the one it was picked from, those are read too', async () => {
+    const { c } = pool([511, 512, 513]);
+    for (const s of [-7_200, 0, 7_200]) band(c, s);
+    const stale = decodePoolState(POOL.toBase58(), poolData({ bits: [512] }))!;
+    const w = await readBandsWindow(c.rpc, PROG, stale);
+    if (w.kind !== 'ok') throw new Error(w.detail);
+    expect(c.calls).toEqual(['getMultipleAccounts', 'getMultipleAccounts']);
+    expect(w.value.bands.map((b) => b.start)).toEqual([-7_200, 0, 7_200]);
+  });
+
+  it('a pool that does not read makes the whole window unread', async () => {
+    const { c, view } = pool([512]);
+    band(c, 0);
+    c.accounts.delete(POOL.toBase58());
+    expect((await readBandsWindow(c.rpc, PROG, view)).kind).toBe('unread');
   });
 });
 

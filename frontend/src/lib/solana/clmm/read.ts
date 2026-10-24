@@ -18,12 +18,14 @@ import {
   derivePool,
   deriveTickArray,
   sortMints,
+  tickIsInitialized,
   type AmmConfigView,
   type BitmapExtensionView,
   type PersonalPositionView,
   type PoolStateView,
   type TickArrayView,
 } from './program';
+import { WINDOW_BANDS_EACH_SIDE, bandWindow, type BandsWindow, type WindowBand } from './depth';
 
 /**
  * What the site reads of the range program, over the browser's proxy (`/api/solrpc`),
@@ -145,6 +147,56 @@ export async function readBandsNear(
     out.set(want[i]!, band!);
   });
   return out;
+}
+
+/**
+ * The depth chart's read: the pool, its far-band map when its spacing needs one, and the
+ * used bands of `bandWindow`, in one call so all are at one slot. The bands are picked from
+ * the pool as last read; if the fresh pool marks other bands, they are read again. A band
+ * that comes back missing or wrong is that band unread, never "no liquidity"; a pool or map
+ * that does not read makes the whole window unread.
+ */
+export function readBandsWindow(rpc: SolanaRpc, programId: PublicKey, pool: PoolStateView, each = WINDOW_BANDS_EACH_SIDE): Promise<Read<BandsWindow>> {
+  return guard(async () => {
+    let known = pool;
+    let knownExt: BitmapExtensionView | null = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const picked = bandWindow(known, knownExt, each);
+      const extAddress = known.tickSpacing < 15 ? deriveBitmapExtension(programId, new PublicKey(known.address)).toBase58() : null;
+      const bandAddresses = picked.starts.map((s) => deriveTickArray(programId, new PublicKey(known.address), s).toBase58());
+      const accounts = await getMultipleAccounts(rpc, [known.address, ...(extAddress ? [extAddress] : []), ...bandAddresses]);
+      const at = Date.now();
+      const [poolAccount, ...rest] = accounts;
+      if (!owned(poolAccount ?? null, programId)) unreadable('the pool did not read');
+      const fresh = decodePoolState(known.address, poolAccount!.data);
+      if (!fresh || fresh.ammConfig !== pool.ammConfig) unreadable('the pool did not decode');
+      let ext: BitmapExtensionView | null = null;
+      if (extAddress) {
+        const a = rest.shift() ?? null;
+        if (!neverCreated(a)) {
+          if (!owned(a, programId)) unreadable('the far-band map is not the program’s');
+          ext = decodeBitmapExtension(extAddress, a!.data);
+          if (!ext || ext.poolId !== known.address) unreadable('the far-band map did not decode');
+        }
+      }
+      const again = bandWindow(fresh!, ext, each);
+      if (again.starts.join() !== picked.starts.join() || again.beyondBelow !== picked.beyondBelow || again.beyondAbove !== picked.beyondAbove) {
+        // The pool's map moved between reads: pick from the fresh one and read again.
+        known = fresh!;
+        knownExt = ext;
+        continue;
+      }
+      const bands: WindowBand[] = picked.starts.map((start, i) => {
+        const a = rest[i] ?? null;
+        if (!owned(a, programId)) return { start, band: null, detail: `band ${start} the pool marks did not read` };
+        const band = decodeTickArray(bandAddresses[i]!, a!.data);
+        const fits = band && band.poolId === known.address && band.startTickIndex === start && band.ticks.every((t, j) => !tickIsInitialized(t) || t.tick === start + j * known.tickSpacing);
+        return fits ? { start, band: band! } : { start, band: null, detail: `band ${start} did not decode` };
+      });
+      return { pool: fresh!, extension: ext, bands, beyondBelow: picked.beyondBelow, beyondAbove: picked.beyondAbove, at };
+    }
+    return unreadable('the pool kept changing while it was read');
+  });
 }
 
 /** Where the price is against a position's range. */

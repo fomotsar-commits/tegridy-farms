@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Read } from '../../../lib/solana/clmm/read';
+import { marketGap, type MarketGap } from '../../../lib/solana/clmm/priceCheck';
+import type { Pair } from '../../../lib/solana/clmm/rangeMath';
+import type { OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
+import { optionalReadAllowed } from '../../../lib/solana/lp/rpcBudget';
 import type { CurveWriteConfig, RangeWriteApi } from '../curve/ports';
 
 /**
@@ -78,4 +82,54 @@ export function useFlowReports(step: string, locked: boolean, onBusy: (busy: boo
     prev.current = step;
     if (was === 'outcome' && step === 'idle') report.current.onFinished();
   }, [step]);
+}
+
+/**
+ * The market's price beside this pool's own, read once when a pool is picked (Review asks
+ * again, fresh). Kept with the pool and price it was read for, so a stale answer is never
+ * shown for another. Card 03 draws it and card 04 says it.
+ */
+export function useMarketGap(
+  ask: (mint: string, decimals: number) => Promise<OutsidePrice>,
+  pair: Pair | null,
+  pool: { address: string; sqrtPriceX64: bigint } | null,
+): MarketGap | null {
+  const [read, setRead] = useState<{ key: string; gap: MarketGap } | null>(null);
+  const key = pool ? `${pool.address}:${pool.sqrtPriceX64}` : null;
+  const askRef = useRef(ask);
+  useEffect(() => {
+    askRef.current = ask;
+  });
+  const sqrt = pool?.sqrtPriceX64 ?? null;
+  useEffect(() => {
+    if (!pair || key === null || sqrt === null) return;
+    let live = true;
+    const one = (mint: string, decimals: number) =>
+      askRef.current(mint, decimals).catch((e: unknown): OutsidePrice => ({ kind: 'unread', detail: e instanceof Error ? e.message : String(e) }));
+    void Promise.all([one(pair.tokenMint, pair.tokenDecimals), pair.quote.native ? Promise.resolve(null) : one(pair.quote.mint, pair.quote.decimals)]).then(([token, coin]) => {
+      if (live) setRead({ key, gap: marketGap(pair, sqrt, token, coin) });
+    });
+    return () => {
+      live = false;
+    };
+  }, [pair, key, sqrt]);
+  return read && read.key === key ? read.gap : null;
+}
+
+/**
+ * A count that goes up every `ms` while the page is in view and the chain budget allows an
+ * optional read: a card's refresh, never its first read. Hidden tabs and busy budgets skip.
+ */
+export function usePoll(ms: number, enabled: boolean): number {
+  const [n, setN] = useState(0);
+  useEffect(() => {
+    if (!enabled) return;
+    const id = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      if (!optionalReadAllowed()) return;
+      setN((x) => x + 1);
+    }, ms);
+    return () => clearInterval(id);
+  }, [ms, enabled]);
+  return n;
 }
