@@ -341,7 +341,7 @@ describe('SolanaSwapPage: while the waiver is on screen nothing else on the card
     h.simulateSwap.mockResolvedValue(OK);
     await typeAmountAndBuy();
     await waitFor(() => expect(h.sendTransaction).toHaveBeenCalledTimes(1));
-    expect(atSign!.footer).toMatch(/% platform fee applies on pairs that include SOL or USDC\./);
+    expect(atSign!.footer).toMatch(/^A 0\.5% platform fee applies on pairs that include SOL or USDC, and 0\.05% between SOL, USDC, USDT and staked SOL\.$/);
   });
 });
 
