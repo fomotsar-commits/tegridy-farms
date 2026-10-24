@@ -654,7 +654,8 @@ function TrendingRail({ onPick }: { onPick: (t: SolToken) => void }) {
 
   return (
     <div className="mt-6">
-      <div className="flex items-center justify-between mb-2 gap-2">
+      {/* Wraps: below about 335px the three choices go under the heading, not off the screen. */}
+      <div className="flex flex-wrap items-center justify-between mb-2 gap-2">
         <h2 className="text-white text-[13px] font-semibold flex-shrink-0">Trending on Solana</h2>
         <div className="flex gap-1">
           {CATS.map((c) => (

@@ -238,8 +238,8 @@ export const TopNav = React.memo(function TopNav() {
         }} />
         {/* px-2 below 400px, px-3 to 480, then px-4: the narrowest phones need every pixel. */}
         <div className="page-column mx-auto h-14 px-2 min-[400px]:px-3 min-[480px]:px-4 md:px-6 flex items-center justify-between">
-          {/* THE 360px ROW. The wordmark stays whole at every width (owner, 2026-08-31), so the
-              row fits on its gaps and padding: its intrinsic width is 350px. CI rasterises
+          {/* THE 320px ROW. The wordmark stays whole at every width (owner, 2026-08-31), so the
+              row fits on its gaps, padding and the wordmark's stack below 360px. CI rasterises
               Archivo a shade wider than a local run, so re-run e2e/header-reachability.spec.ts
               (it sweeps real widths) after any change here, never a local 360px look. */}
           <div className="flex items-center gap-0.5 min-[400px]:gap-1 min-[480px]:gap-2">
@@ -265,9 +265,12 @@ export const TopNav = React.memo(function TopNav() {
                 />
               </span>
               {/* The venue's name is the only one the app speaks, in every room, and it is never
-                  abbreviated: below 480px it is sized down instead, so the row fits at 375px. */}
-              <span className="heading-luxury text-[12px] min-[480px]:text-[16px] tracking-wide text-white">{VENUE.markMain}</span>
-              <span className="text-[11px] min-[480px]:text-[15px] font-semibold tracking-tight" style={{ color: 'var(--color-kyle)' }}>{VENUE.markSub}</span>
+                  abbreviated: below 480px it is sized down, and below 360px its two parts stack,
+                  so the row fits at 320px with the menu button on screen. */}
+              <span className="flex flex-col max-[359px]:leading-none min-[360px]:flex-row min-[360px]:items-center min-[360px]:gap-1.5 min-[480px]:gap-2">
+                <span className="heading-luxury text-[12px] min-[480px]:text-[16px] tracking-wide text-white">{VENUE.markMain}</span>
+                <span className="text-[11px] min-[480px]:text-[15px] font-semibold tracking-tight" style={{ color: 'var(--color-kyle)' }}>{VENUE.markSub}</span>
+              </span>
             </Link>
             {/* The bungalow chooser, from any page (AppLayout listens for the event). It names
                 where you are; icon-only below lg to spare the crowded bar. */}

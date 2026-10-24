@@ -4,7 +4,6 @@ import { ExplorerLink, ImpactRows, Notice, Row } from './ui';
 import { DIVIDER, bpsPercent, fractionToBps, sharePercent } from './uiFormat';
 import { CREATOR_FEE_SWITCH, feeSplit } from '../../../lib/solana/cpswap/venue';
 import { feeRateText, formatSolPrice, tradeCostText } from '../../../lib/solana/lp/format';
-import { TOO_NEW_WHY } from '../../../lib/solana/lp/ownPrice';
 import { edgePercent } from '../../../lib/solana/route';
 import { perMillionPercent } from '../../../lib/solana/clmm/feeText';
 import type { FeeSplitView, NotSent, PreparedTx, SolanaCluster, TokenRole, TxKind, TxOutcome, TxSigner, TxSummary, TxViewApi } from './ports';
@@ -13,7 +12,7 @@ import { RangeRows } from './RangeRows';
 import { rangeVenueEarns, type RangeVenueEarns } from '../../../lib/solana/clmm/venueEarns';
 import type { ReviewState, TxFlow } from './useTxFlow';
 import { quoteCoin, type QuoteCoin } from '../../../lib/solana/lp/quotes';
-import type { PriceReference } from '../../../lib/solana/lp/poolHealth';
+import { NOTHING_WHY, type PriceReference } from '../../../lib/solana/lp/poolHealth';
 
 // What the user sees between pressing a Review button and the chain's answer.
 // Every word here is about THIS transaction, and the numbers come from the
@@ -328,8 +327,10 @@ function priceText(p: Extract<TxSummary, { kind: 'lp-deposit' }>['price']): stri
     case 'no-trades-yet':
       return 'nobody has traded since the launch program opened it';
     case 'too-new':
-      // A launch pool with no route and too short a record: built for, with a warning.
-      return `not checked against anything: ${TOO_NEW_WHY}`;
+    case 'reserves-moved':
+    case 'too-quiet':
+      // A launch pool with no route whose own record proves nothing: built for, with a warning.
+      return `not checked against anything: ${NOTHING_WHY[p.state]}`;
     case 'empty-pool':
       return 'not checked: the pool is empty';
     case 'no-market':
