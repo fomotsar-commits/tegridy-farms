@@ -4,7 +4,8 @@
 # or hash out of a workflow, so a workflow edit changes both hosts at once.
 # Switch, runner and first run: docs/CI_ON_GITLAB.md. Guard: frontend/src/test/gitlabCi.test.ts.
 
-# Not run here (the test holds the reasons): codeql.yml (GitHub-only SARIF and licence),
+# Not run here (the test holds the reasons): range-stats.yml (schedule only, holds the service
+# key; off GitHub the count waits), codeql.yml (GitHub-only SARIF and licence),
 # gitleaks.yml (replaced by the gitleaks job), release.yml (GitHub Releases API),
 # solana-deploy-artifact.yml (manual mainnet builds), the schedule-only
 # arb-linkage-monitor.yml, revenue-watch.yml, synthetic-monitor.yml and supabase-backup.yml
@@ -12,8 +13,7 @@
 # Supabase service key; off GitHub api/errors.js and api/analytics.js purge after a stored batch),
 # contracts-coverage.yml (not run off GitHub), mirror-to-gitlab.yml (GitHub copying
 # itself to GitLab), changelog.yml (reads a GitHub pull request's files and description),
-# and venue-volume.yml and range-stats.yml (schedule only, hold the service key; off GitHub
-# the counts wait).
+# and venue-volume.yml (schedule only, holds the service key; off GitHub the count waits).
 
 workflow:
   rules:
