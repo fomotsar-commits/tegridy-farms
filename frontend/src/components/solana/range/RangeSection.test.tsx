@@ -184,11 +184,20 @@ describe('how a range position earns', () => {
 });
 
 describe('picking a pool', () => {
-  it('fee tiers that did not read are said as unread, never as no pools', async () => {
+  it('fee tiers that did not read are said as unread, never as no tiers or no pools', async () => {
     show(readers({ tiers: { kind: 'unread', detail: 'down' } }));
     const card = await screen.findByTestId('range-pools');
     await waitFor(() => expect(card.textContent).toContain('could not be read just now. This does not mean there are none.'));
     expect(card.textContent).not.toContain('No range pool');
+    expect(card.textContent).not.toContain('no fee tiers');
+    expect(within(card).getByRole('button', { name: 'Read again' })).toBeInTheDocument();
+  });
+
+  it('no fee tiers on chain is said as that, apart from a read that failed', async () => {
+    show(readers({ tiers: { kind: 'ok', value: [] } }));
+    const card = await screen.findByTestId('range-pools');
+    await waitFor(() => expect(card.textContent).toContain('The range program has no fee tiers on this network yet'));
+    expect(card.textContent).not.toContain('could not be read just now');
   });
 
   it('a pair with no pool on any tier says so', async () => {

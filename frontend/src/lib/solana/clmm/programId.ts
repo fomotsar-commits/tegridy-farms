@@ -9,10 +9,10 @@ export const RANGE_PROGRAM_ADDRESS: string = '7ghzbbmq59QEbdweSzM1ggpeBH1Q2CyxZg
 
 /**
  * Whether visitors see range pools: the Range tab, its route, and range pools in the swap
- * route. The owner's switch, kept off until the fee tiers exist on chain; programId.test.ts
- * and the route table's 'not-yet-routed' gate change with it.
+ * route. The owner's switch, on once the fee tiers exist on chain (vault proposal #19, checked
+ * by the deploy pack's 6-verify-tiers); programId.test.ts and the route table's row change with it.
  */
-export const RANGE_POOLS_OPEN: boolean = false;
+export const RANGE_POOLS_OPEN: boolean = true;
 
 /**
  * Shown once opened; or in a local build made with `vite build --mode range-preview`, which

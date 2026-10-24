@@ -18,6 +18,8 @@ vi.mock('./LiquidityPage', () => ({ default: () => <div>add-remove panel</div> }
 vi.mock('./SolanaLpPage', () => ({ default: () => <div>solana-lp panel</div> }));
 vi.mock('./PoolsPage', () => ({ default: () => <div>venue-amm panel</div> }));
 vi.mock('../components/zap/ZapPage', () => ({ default: () => <div>zap panel</div> }));
+// The real Range page; only its section, which reads the chain, is a stub.
+vi.mock('../components/solana/range/RangeSection', () => ({ default: () => <div>range section</div> }));
 
 const APP = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'App.tsx'), 'utf-8');
 
@@ -40,5 +42,19 @@ describe('PoolsHostPage', () => {
     expect(screen.getByRole('tab', { name: 'Solana LP' })).toHaveAttribute('aria-selected', 'true');
     expect(await screen.findByText('solana-lp panel')).toBeInTheDocument();
     expect(screen.queryByText('venue-amm panel')).toBeNull();
+  });
+
+  it('opens /range-pools on the Range tab, with the range pools themselves, never the not-open line', { timeout: 20_000 }, async () => {
+    render(
+      <MemoryRouter initialEntries={['/range-pools']}>
+        <PoolsHostPage />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole('tab', { name: 'Range' })).toHaveAttribute('aria-selected', 'true');
+    // The real page loads lazily, with its art: a cold import takes a few seconds here.
+    expect(await screen.findByRole('heading', { level: 1, name: 'Range pools.' }, { timeout: 10_000 })).toBeInTheDocument();
+    expect(await screen.findByText('range section', undefined, { timeout: 10_000 })).toBeInTheDocument();
+    expect(screen.getByText('Put liquidity in between two prices you pick. It earns while the price is between them.')).toBeInTheDocument();
+    expect(screen.queryByText(/open here once their fee tiers are set/)).toBeNull();
   });
 });
