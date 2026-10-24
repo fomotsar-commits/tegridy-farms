@@ -485,6 +485,19 @@ describe('collecting a reward', () => {
     expect(q.ok ? null : q.outcome.message).toBe(RANGE_COPY.nothingToTake);
   });
 
+  it('a reward in the pool’s own token, for a wallet with no account for it: that account is opened once, and its deposit counted once', async () => {
+    const vault = Keypair.generate().publicKey;
+    const c = ready(chainWith({ tokens: null, reward: { mint: TOKEN, vault, openTime: 1_000n, endTime: 1_000_000n, lastUpdateTime: 1_000n, emissionsPerSecondX64: 1_000_000n << 64n } }));
+    c.tokenAccount(vault, TOKEN, POOL, 10n ** 12n);
+    setClock(c, 2_000n);
+    const { position } = withPosition(c);
+    const p = ok(await prepareRangeRemove(W(c), cfgLocal, PROG, { owner: ME, position, percent: 0, toleranceBps: 100 }));
+    const opened = body(p).filter((ix) => ix.programId.equals(ASSOCIATED_TOKEN_PROGRAM_ID)).map((ix) => ix.keys[1]!.pubkey.toBase58());
+    expect(opened.filter((k) => k === TOKEN_ATA.toBase58())).toHaveLength(1);
+    expect(p.fees.newAccountRentLamports).toBe(BigInt(rent(165)));
+    expect((p.summary as Exclude<RangeSummary, { kind: 'range-open' }>).rewards).toEqual([{ mint: TOKEN, amount: 999_999n, decimals: 6 }]);
+  });
+
   it('closing with reward collection switched off and a reward owed live is refused before it is built', async () => {
     const c = chainWithReward({ status: 1 << POOL_STATUS_BIT.collectReward });
     const { position } = withPosition(c);

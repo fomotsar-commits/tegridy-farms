@@ -713,7 +713,8 @@ async function prepareDecrease(rpc: WriteRpc, cfg: CurveWriteConfig, programId: 
     opens.push(coinSide.address);
   }
   pins.rewards.forEach((r, i) => {
-    if (accounts[2 + i]) return;
+    // A reward in one of the pool's own coins lands in the account opened for that coin above.
+    if (accounts[2 + i] || opens.some((k) => k.equals(rewardRecipients[i]!))) return;
     body.push(openAta(a.owner, rewardRecipients[i]!, r.mint, r.program));
     opens.push(rewardRecipients[i]!);
   });
