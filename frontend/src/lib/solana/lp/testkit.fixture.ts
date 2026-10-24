@@ -364,5 +364,7 @@ export function viewOf(b: BuiltPool, s: { sol: bigint; tok: bigint; origin?: Poo
     tokenReserve: s.tok,
     vaultsFrozen: s.frozen ?? false,
     history: s.history ?? { kind: 'not-read' },
+    // From the config's own bytes: a `plain` pool's addresses are random, and jsdom cannot derive.
+    launchTierWithoutLaunch: (s.origin ?? 'other') !== 'launch-pool' && decodeAmmConfig(b.config.toBase58(), b.accounts[b.config.toBase58()]!.data)?.index === 0,
   };
 }
