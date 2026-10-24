@@ -167,8 +167,9 @@ export default async function handler(req, res) {
     return res.status(403).json({ error: "Origin not allowed" });
   }
 
-  // Generous per-IP limit: an active swap polls getSignatureStatuses every ~2s
-  // for up to 60s plus balance reads, so a single confirm can be ~30 calls.
+  // Generous per-IP limit: an active swap polls getSignatureStatuses every second
+  // for its first 10s, then every ~2s for up to 90s, plus balance reads, so a
+  // single confirm can be ~50 calls (src/lib/solana/confirm.ts).
   const allowed = await checkRateLimit(req, res, SOL_RATE_LIMIT);
   if (!allowed) return;
 
