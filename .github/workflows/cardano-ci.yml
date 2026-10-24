@@ -1,0 +1,124 @@
+name: cardano-ci
+
+# cardano/: Minswap V2's audited contracts, copied unchanged, and the role timelock, the venue's
+# one new validator, which holds Minswap's admin roles behind 48 hours and two keys.
+# Gates:
+#   1. provenance - every copied file is upstream's at the pin, by hash, with no clone; the guard
+#      first refuses known-bad copies.
+#   2. build-proof - Aiken v1.0.24-alpha, the compiler Minswap used, turns our copy into Minswap's
+#      six mainnet scripts byte for byte; the role timelock is formatted, passes its tests, and
+#      builds to its committed plutus.json. The proof first refuses a tampered copy.
+on:
+  push:
+    paths: ["cardano/**", ".github/workflows/cardano-ci.yml"]
+  # No `paths:` here: the `scope` job decides, as in solana-ci.yml.
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  AIKEN_VERSION: v1.0.24-alpha
+  # sha256 of aiken_v1.0.24-alpha_linux_amd64.tar.gz, github.com/aiken-lang/aiken/releases,
+  # taken 2026-10-24. It prints aiken v1.0.24-alpha+982eff4, as plutus.json names.
+  AIKEN_SHA256: a1a4d050d2d89a482eb9234fc87f3881c446e329df71ac805834b9bb55836f24
+
+jobs:
+  scope:
+    name: scope
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      run: ${{ steps.q.outputs.run }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Does this diff touch cardano/?
+        id: q
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -uo pipefail
+          # Every uncertain path answers `true`: a wrong `false` would skip the gate and report success.
+          say() { echo "run=$1" >> "$GITHUB_OUTPUT"; exit 0; }
+          [ -n "${PR:-}" ] || { echo "not a pull_request: in scope by trigger"; say true; }
+          files=$(gh api --paginate "repos/$REPO/pulls/$PR/files" \
+            --jq '.[] | .filename, (.previous_filename // empty)') || {
+            echo "::warning::gh could not list every changed file, running the real jobs"
+            say true
+          }
+          if [ -z "$files" ]; then
+            echo "::warning::could not list this PR's changed files, running the real jobs"
+            say true
+          fi
+          if [ "$(printf '%s\n' "$files" | wc -l)" -ge 3000 ]; then
+            echo "::warning::changed-file list is at the API cap, running the real jobs"
+            say true
+          fi
+          verdict=$(printf '%s\n' "$files" | node .github/scripts/diff-scope.mjs \
+            'cardano/**' \
+            '.github/workflows/cardano-ci.yml')
+          case "$verdict" in
+            true|false) say "$verdict" ;;
+            *) echo "::warning::diff-scope returned '$verdict', running the real jobs"; say true ;;
+          esac
+
+  provenance:
+    needs: scope
+    if: >-
+      !cancelled() &&
+      (needs.scope.result != 'success' || needs.scope.outputs.run == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - name: Each guard tamper is refused
+        run: node cardano/guards/provenance.mjs --self-test
+      - name: Every copied file is Minswap's at c3293ad4
+        run: node cardano/guards/provenance.mjs
+
+  build-proof:
+    needs: scope
+    if: >-
+      !cancelled() &&
+      (needs.scope.result != 'success' || needs.scope.outputs.run == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - name: Install Aiken ${{ env.AIKEN_VERSION }} from its pinned release tarball
+        run: |
+          set -euo pipefail
+          curl -sSfL -o /tmp/aiken.tar.gz \
+            "https://github.com/aiken-lang/aiken/releases/download/${AIKEN_VERSION}/aiken_${AIKEN_VERSION}_linux_amd64.tar.gz"
+          echo "${AIKEN_SHA256}  /tmp/aiken.tar.gz" | sha256sum -c -
+          mkdir -p /tmp/aiken && tar -xzf /tmp/aiken.tar.gz -C /tmp/aiken
+          /tmp/aiken/aiken --version
+      - name: The proof refuses a copy with one Minswap check edited
+        run: |
+          set -uo pipefail
+          mkdir -p /tmp/tampered && cp -r cardano /tmp/tampered/
+          sed -i 's/pool_in_value == pool_out_value,/pool_in_value == pool_in_value,/' \
+            /tmp/tampered/cardano/minswap-dex-v2/lib/amm_dex_v2/pool_validation.ak
+          grep -q 'pool_in_value == pool_in_value,' /tmp/tampered/cardano/minswap-dex-v2/lib/amm_dex_v2/pool_validation.ak \
+            || { echo "::error::the tamper did not apply, so this step would prove nothing"; exit 1; }
+          if AIKEN=/tmp/aiken/aiken node cardano/guards/prove-build.mjs --root /tmp/tampered > /tmp/tampered.log 2>&1; then
+            echo "::error::the build proof passed a tampered copy"; cat /tmp/tampered.log; exit 1
+          fi
+          grep -qF "pool: builds to" /tmp/tampered.log \
+            || { echo "::error::refused, but not for the pool's hash"; cat /tmp/tampered.log; exit 1; }
+          echo "refused: $(grep -c '::error::' /tmp/tampered.log) mismatches"
+      - name: Our copy builds into Minswap's mainnet scripts; the role timelock passes its tests
+        run: AIKEN=/tmp/aiken/aiken node cardano/guards/prove-build.mjs

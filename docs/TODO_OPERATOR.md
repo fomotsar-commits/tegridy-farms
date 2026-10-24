@@ -109,6 +109,22 @@ A general "merge what you can" is refused as a production deploy.
 
 ---
 
+## 2026-10-24: Cardano pools, your decisions before the audit
+
+Our copy of Minswap V2 is proven to build into Minswap's mainnet scripts byte for byte, and the
+48-hour, two-key lock that fixes CertiK's MIN-01 is written and tested. Nothing is deployed. Brief
+for the auditor, and the detail behind each item: [`CARDANO_AUDIT_SCOPE.md`](CARDANO_AUDIT_SCOPE.md).
+
+- ⬜ **The licence.** Minswap's files say GPL-3.0 in one place and Apache-2.0 in another. A
+  lawyer's read is owed before any deploy.
+- ⬜ **Fees:** the trade fee for pools the venue creates (Minswap allows 0.05% to 20%), and the
+  venue's share of it (16.66% to 50%, or off).
+- ⬜ **Who holds the two owner keys**, and the treasury address the fee share is paid to.
+- ⬜ **Where the batcher runs** and who holds its hot key (it is not written yet).
+- ⬜ **Which auditor.** The scope is the lock, the deploy parameters and the batcher.
+
+---
+
 ## ✅ 2026-10-22: two merges only you can press (both done)
 
 A session's merge was refused on 2026-10-22 as a production deploy, after a general "merge". A
