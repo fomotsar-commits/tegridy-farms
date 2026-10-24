@@ -4,8 +4,9 @@ import { CARDANO_SWAP_OPEN, cardanoSwapVisible } from './flags';
 import { isCardanoPage } from '../routeVoice';
 
 describe('the Cardano swap switch', () => {
-  it('ships off: the owner opens it once a fee address is registered and a real swap is walked', () => {
-    expect(CARDANO_SWAP_OPEN).toBe(false);
+  it('is open (owner, 2026-10-24, after a real buy and sell on mainnet); closed, a production build hides it', () => {
+    expect(CARDANO_SWAP_OPEN).toBe(true);
+    expect(cardanoSwapVisible()).toBe(true);
     expect(cardanoSwapVisible(false, 'production')).toBe(false);
   });
 
@@ -19,8 +20,10 @@ describe('the Cardano swap switch', () => {
     expect(isCardanoPage('/cardano/', true)).toBe(true);
     expect(isCardanoPage('/solana', true)).toBe(false);
     expect(isCardanoPage('/cardano-lp', true)).toBe(false);
-    // Off (as shipped), /cardano is the 404 page: the top bar keeps its usual wallet button.
-    expect(isCardanoPage('/cardano')).toBe(false);
+    // Closed, /cardano is the 404 page: the top bar keeps its usual wallet button.
+    expect(isCardanoPage('/cardano', false)).toBe(false);
+    // As shipped (open), it is the Cardano page.
+    expect(isCardanoPage('/cardano')).toBe(true);
   });
 });
 
@@ -39,9 +42,11 @@ describe('with the swap shown', () => {
 
   it('and with it hidden, no drop-down or tab carries Cardano', async () => {
     vi.resetModules();
+    vi.doMock('./flags', () => ({ CARDANO_SWAP_OPEN: false, cardanoSwapVisible: () => false }));
     const { VENUE_CHAINS } = await import('../sectionChains');
     const { SWAP_SECTION } = await import('../navConfig');
     expect(VENUE_CHAINS.map((c) => c.id)).not.toContain('cardano');
     expect(SWAP_SECTION.items.map((i) => i.to)).not.toContain('/cardano');
+    vi.doUnmock('./flags');
   });
 });

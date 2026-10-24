@@ -28,14 +28,14 @@ lp", under the rule: battle-tested code that has never been hacked, our own only
   custody until payout. Hence ruling 1.
 - A Cardano DEX swap is an **order**, filled by a batcher a few blocks later. "Confirmed" is "placed".
 
-## Part 1: the swap (this PR, behind `CARDANO_SWAP_OPEN = false`)
+## Part 1: the swap (open since 2026-10-24, `CARDANO_SWAP_OPEN = true`, no venue fee yet)
 
 How the money moves on one swap, ADA in:
 
 | Line | Amount | Goes to |
 |---|---|---|
 | The swap | what you pay | Minswap V2's order script, then the pool |
-| Pool fee | that pool's rate (often 0.3% or 1%) of what you pay in | the pool's LPs; Minswap keeps 1/6 of it (its fee switch) |
+| Pool fee | that pool's rate (often 0.3% or 1%, and it can differ by direction) of what you pay in | the pool's LPs; Minswap keeps a share each pool sets (1/6 by default; the ADA/MIN pool keeps 1/3) |
 | Batcher fee | up to 2 ADA | Minswap's batcher |
 | Order deposit | 2 ADA | comes back with your coins |
 | **Venue fee** | **0.5% of the ADA side** | **the venue's own address, in the same transaction** |
@@ -45,14 +45,16 @@ The venue fee is not charged when it would be under about 1 ADA (a Cardano outpu
 much), so swaps under about 200 ADA pay none. It is paid with the order: an order the batcher
 returns (price moved past the minimum) has still paid it.
 
-**Before it can open, the owner:**
-1. Registers the venue's Cardano fee address in `frontend/src/lib/cardano/venueFee.ts`
-   (`CARDANO_VENUE_FEE_ADDRESS`). Until then the swap works and charges no venue fee, and says so.
-   A native-script multisig (two signatures) is the Squads-vault analog.
-2. Sets `KOIOS_API_KEY` on Vercel (Koios free tier: 50,000 reads a day, a key is free). Without it the
-   public tier allows 5,000 a day for the whole site.
-3. Walks one real swap on mainnet with a small amount, then flips `CARDANO_SWAP_OPEN` in
-   `frontend/src/lib/cardano/flags.ts`. A `vite build --mode cardano-preview` shows the tab before then.
+**How it opened (2026-10-24):**
+1. ⬜ The venue's Cardano fee address in `frontend/src/lib/cardano/venueFee.ts`
+   (`CARDANO_VENUE_FEE_ADDRESS`) is still null: the owner opened the swap without it ("Go live
+   without the venue fee for now, and add it when the treasury exists"). Until it is registered the
+   swap charges no venue fee and says so. A native-script multisig (two signatures) is the
+   Squads-vault analog; Eternl makes one only with Eternl Pro.
+2. ✅ `KOIOS_API_KEY` is set on Vercel (Koios free tier: 50,000 reads a day). Without it the public
+   tier allows 5,000 a day for the whole site.
+3. ✅ A real buy and a real sell were walked on mainnet, each filled at exactly the quoted amount;
+   then `CARDANO_SWAP_OPEN` in `frontend/src/lib/cardano/flags.ts` was flipped.
 
 ## Part 2: our own pools (next, its own branch)
 
