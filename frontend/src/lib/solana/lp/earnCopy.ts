@@ -22,11 +22,13 @@ export interface JupiterFee { bps: number; wallet: string; majorBps?: number }
 
 /**
  * " (0.05% between SOL, USDC, USDT and staked SOL)" when majors pay less, else "". `short`
- * says "between majors", for the card held to 90 words (the swap page names them in full).
+ * says "(majors 0.05%)", two words, for the card held to its word cap (the swap page names them in full).
  */
 function majorNote(fee: JupiterFee, short = false): string {
   if (fee.majorBps === undefined || fee.majorBps >= fee.bps) return '';
-  return ` (${pctText(fee.majorBps / 100)} between ${short ? 'majors' : 'SOL, USDC, USDT and staked SOL'})`;
+  return short
+    ? ` (majors ${pctText(fee.majorBps / 100)})`
+    : ` (${pctText(fee.majorBps / 100)} between SOL, USDC, USDT and staked SOL)`;
 }
 
 /** "0.5%", or "0.5% (0.05% between SOL, USDC, USDT and staked SOL)" when majors pay less. */

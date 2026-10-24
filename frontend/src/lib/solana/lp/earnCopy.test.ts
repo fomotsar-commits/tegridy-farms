@@ -82,14 +82,14 @@ describe('How you earn', () => {
 
 describe('How the venue earns', () => {
   it('says the lower rate between majors only when it is lower', () => {
-    expect(howVenueEarns(null, { bps: 50, wallet: VAULT, majorBps: 5 }).sources[2]).toBe('0.5% of a swap sent through Jupiter (0.05% between majors), where the route allows it.');
+    expect(howVenueEarns(null, { bps: 50, wallet: VAULT, majorBps: 5 }).sources[2]).toBe('0.5% of a swap sent through Jupiter (majors 0.05%), where the route allows it.');
     expect(howVenueEarns(null, { bps: 50, wallet: VAULT, majorBps: 50 }).sources[2]).toBe('0.5% of a swap sent through Jupiter, where the route allows it.');
     expect(howVenueEarns(null, { bps: 50, wallet: VAULT }).sources[2]).toBe('0.5% of a swap sent through Jupiter, where the route allows it.');
   });
 
   it('on the public tier as mainnet holds it since the split: three sources, and each part of the cut said as a share of the fee and of the trade', () => {
     expect(howVenueEarns(split1(), jupiter)).toEqual({
-      sources: ['0.16% of each trade in a public pool.', '0.15 SOL when a public pool is opened.', '0.5% of a swap sent through Jupiter (0.05% between majors), where the route allows it.'],
+      sources: ['0.16% of each trade in a public pool.', '0.15 SOL when a public pool is opened.', '0.5% of a swap sent through Jupiter (majors 0.05%), where the route allows it.'],
       where: `${SPLIT_WHERE} The swap fee goes to the team’s shared wallet.`,
       wallets: [VAULT_ROW, WORKSHOP_ROW],
       elsewhere: false,
@@ -203,7 +203,7 @@ describe('How the venue earns', () => {
     expect(v).toEqual({ sources: ['A cut of each trade in its pools.', 'A fee when a public pool is opened.', 'No fee on a swap sent through Jupiter: none is set up.'], where: null, wallets: [], elsewhere: false });
     expect(v.sources.join(' ')).not.toMatch(/\d/);
     // The swap fee is the build's own setting, not the tier's: it is still said.
-    expect(howVenueEarns(null, jupiter).sources[2]).toBe('0.5% of a swap sent through Jupiter (0.05% between majors), where the route allows it.');
+    expect(howVenueEarns(null, jupiter).sources[2]).toBe('0.5% of a swap sent through Jupiter (majors 0.05%), where the route allows it.');
   });
 });
 
