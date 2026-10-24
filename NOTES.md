@@ -15,6 +15,44 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-23: a trunk failure that the next run passed was two green PRs red together, not a flake
+
+**Believed:** five tests that failed once on trunk (merge `08596661`, run 38501066916) and
+passed on the next trunk run were intermittent. Each one waited out its 20 s `findByRole`
+and said `Unable to find role="button"`, which is what a slow runner looks like.
+
+**Measured** (2026-10-23, vitest on an idle machine, `-t` set to only those five tests):
+
+- #790 changed the coin the Solana swap page shows while a link's token is looked up, from
+  USDC to $BAYLA, and merged at 2026-10-14 02:26:32Z. #791 merged 19 s later. #791's last
+  CI had run on 2026-10-10 21:09Z, before #790 was on trunk, and its tests waited for
+  "Buy USDC".
+- The merge commit failed all five on every run. #791's own head passed all five. With
+  `DEBUG_PRINT_LIMIT=200000`, the DOM dump showed "Buy BAYLA" on the button the whole time.
+- The next trunk run passed these five because the next merge (#809) carried a commit that
+  changed them to wait for "Buy BAYLA". Nothing about the failure was random.
+- `git merge-tree --write-tree <trunk just before #791> <#791's head>` gave exactly the
+  real merge tree. It differed from the tree #791's CI tested by 33 files, among them the
+  page and the rule that picks the opening coin. The 2026-10-01 entry's tree check
+  ("compare the merged tree with the PR's tree") would have caught this before the merge.
+
+**Do:** before calling a trunk failure intermittent, run the failing tests alone on the
+merge commit and on the PR's own head. If one is red every time and the other is green,
+it is a collision: look at what merged just before. When a test leans on a value that
+other code decides (a default, a fallback), check that value right after render, with a
+message that names it. A `findBy*` on the old value only says "Unable to find", and only
+after its timeout. PR #963 does this for these five tests: a moved fallback now fails in
+28–184 ms and names both coins, where before it took 5 × 20 s.
+
+### Incidental
+
+- In CI's log, the DOM dump stopped at the amount box, above the Buy button, so the log
+  never showed what the button said. Testing Library cuts its dump at `DEBUG_PRINT_LIMIT`,
+  7000 characters unless that is set (read in `@testing-library/dom/dist/pretty-dom.js`).
+  To see the rest, rerun locally with the limit raised.
+
+---
+
 ## 2026-10-23: "Swap not checked" blamed the test run, but the test run never failed: one Jupiter press is four Jupiter calls
 
 **Believed:** a Solana swap toast saying the check "keeps failing on our side" means the
@@ -353,6 +391,39 @@ the rest of `docs/` out.
 (`gh api repos/<owner>/<repo>/commits/<sha>/statuses`); "merged" is not "live". For a file a build
 reads from outside the uploaded folder, add the `.vercelignore` line and a test that evaluates the
 ignore file against the plugin's own file list.
+
+## 2026-10-19: under a Squads time lock, a proposal checked the day it is approved is checked against the wrong day
+
+**Believed:** a vault proposal that simulates green when it is approved will execute green, and one
+that simulates red is wrong. That held while the vault had no lock.
+
+**Measured** (2026-10-19): Squads v4 executes an approved vault proposal only when
+`Clock - approvedAt >= time_lock` (`vault_transaction_execute.rs`), so the execute meets the chain 48
+hours after the approval; on a local validator with mainnet's multisig the page and the chain both
+refused it until then (6021). A ladder reload simulated as the vault on mainnet, inside the running
+window (`notify_reward`, 0 fresh + 1,000 from budget, sigVerify off, nothing sent) came back 6028
+(`RewardRateWouldDecrease`). Approved two days before the window's end, that same reload is right:
+the guard is `now >= period_finish || new_rate >= old_rate` (math.rs), so it is off when the lock
+releases. The reverse also holds: mainnet epochs were ~26 h that day, so a 48 h wait spans at least
+one feature-activation boundary; what can change in 48 hours must be read again at the execute.
+
+**Do:** a page that proposes under a lock must run every gate again before the execute, read the
+network's Clock sysvar (not the computer's clock) for "is the wait over", and, where a step is
+meant to wait for a chain event, accept exactly the one refusal that event lifts, and only when the
+event falls before the release.
+
+## 2026-10-19: a JSON round trip of a `solana account --output json` file stops the test validator from starting
+
+**Believed:** reading an account file the harness wrote, changing one field of its data, and writing
+it back with `JSON.stringify` keeps it loadable by `solana-test-validator --account`.
+
+**Measured** (solana-test-validator 3.1.11, 2026-10-19): the validator exited during startup, three
+times in a row. The file's `"rentEpoch": 18446744073709551615` (u64::MAX) came back as
+`18446744073709552000`, a float past u64.
+
+**Do:** treat the file as text: replace only the base64 data string, and assert `rentEpoch` is still
+`18446744073709551615` before writing.
+
 ## 2026-10-19: drpc's free tier says it caps eth_getLogs at 10,000 blocks, but it refuses anything over 100
 
 **Believed:** keyless Ethereum logs come from `eth.drpc.org` in windows under 10,000 blocks (the
@@ -410,7 +481,7 @@ rebuilt, and the enlarge size only once the real upload is tried.
 
 **Measured** (WSL, 2026-10-19): `cargo build-sbf -- --locked` (2.3.0, platform-tools v1.48,
 rustc 1.84.1) in `programs/cp-swap` of a clean `git archive` of trunk `71a7bba8` gave
-`99a9e73d…`, 724,688 bytes: byte for byte the pack's file, built on another day in other folders.
+the 2026-10-06 build, 724,688 bytes: byte for byte the pack's file, built on another day in other folders.
 The same build of a source change gives that change's pack hash. On a local validator holding
 mainnet's binary, `solana program extend <id> <new − current bytes>` and then
 `solana program deploy --no-auto-extend` upgraded with no error, so that byte count is enough.

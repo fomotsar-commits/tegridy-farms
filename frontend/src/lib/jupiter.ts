@@ -163,6 +163,10 @@ export async function getQuote(params: {
     slippageBps: String(params.slippageBps),
     swapMode: 'ExactIn',
     restrictIntermediateTokens: 'true',
+    // Jupiter's V1 instructions refuse the venue's SOL fee when the coin bought is Token-2022
+    // (6014, every time, so the no-fee rebuild went out instead). V2 takes it; the swap built
+    // from this quote follows the quote's version.
+    instructionVersion: 'V2',
   });
   if (params.pin) {
     qs.set('onlyDirectRoutes', 'true');
@@ -303,11 +307,15 @@ export function fromBaseUnits(raw: string, decimals: number): string {
 
 // ─── Conversion polish: USD prices + route transparency ─────────────────────
 
-/** USD prices for a set of mints in one keyless price/v3 call (via our proxy). */
-export async function getUsdPrices(mints: string[], signal?: AbortSignal): Promise<Record<string, number>> {
+/**
+ * USD prices for a set of mints in one price/v3 call (via our proxy). `shared`: a fixed
+ * list every visitor asks for alike, which the proxy keeps at the edge for 30 s
+ * (`priceCheck`, api/aggregator.js); never for a pair a visitor picked.
+ */
+export async function getUsdPrices(mints: string[], signal?: AbortSignal, opts: { shared?: boolean } = {}): Promise<Record<string, number>> {
   const ids = [...new Set(mints.filter(Boolean))];
   if (ids.length === 0) return {};
-  const res = await fetch(`${JUPITER_TOKENS_BASE}/price/v3?ids=${ids.join(',')}`, {
+  const res = await fetch(`${JUPITER_TOKENS_BASE}/price/v3?ids=${ids.join(',')}${opts.shared ? '&priceCheck=1' : ''}`, {
     headers: { Accept: 'application/json' },
     signal,
   });

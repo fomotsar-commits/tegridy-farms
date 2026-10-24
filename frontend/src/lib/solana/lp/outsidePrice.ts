@@ -106,6 +106,8 @@ async function quote(
     slippageBps: '50',
     swapMode: 'ExactIn',
     restrictIntermediateTokens: 'true',
+    // The swap page's own quote asks for V2 (lib/jupiter.ts getQuote): the same read, so the same version.
+    instructionVersion: 'V2',
   });
   // Marks this read as the price check's, the one shape the edge may share (header above).
   if (!fresh) qs.set('priceCheck', '1');
