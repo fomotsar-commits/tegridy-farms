@@ -4,8 +4,7 @@ import { REFERENCE_NAME, formatWhen, vaultFreezer, type PoolHealth, type PriceRe
 import { feeRateText, quoteText, tokenText, tradeCostText, turnedDiff } from '../../../lib/solana/lp/format';
 import { pairLabel, tokenTicker } from '../../../lib/solana/lp/identity';
 import type { QuoteCoin } from '../../../lib/solana/lp/quotes';
-import { noPriceClause } from '../../../lib/solana/lp/poolHealth';
-import { TOO_NEW_WHY } from '../../../lib/solana/lp/ownPrice';
+import { NOTHING_WHY, noPriceClause } from '../../../lib/solana/lp/poolHealth';
 import { chargedCreatorFeeRate, feeSplit } from '../../../lib/solana/cpswap/venue';
 import { ratePercent } from '../../../lib/solana/cpswap/math';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
@@ -130,12 +129,14 @@ function PriceRows({ price, quote, unit }: { price: PoolHealth['price']; quote: 
         </>
       );
     case 'too-new':
-      // A launch pool with no route and under ten minutes of trading. Read, not unread:
+    case 'reserves-moved':
+    case 'too-quiet':
+      // A launch pool with no route whose own record proves nothing. Read, not unread:
       // the price is shown, and why it was compared with nothing.
       return (
         <>
           <Row label="Price here" value={here(price.pool)} mono={false} />
-          <Row label="Checked against" value={`Nothing: ${TOO_NEW_WHY}`} mono={false} />
+          <Row label="Checked against" value={`Nothing: ${NOTHING_WHY[price.state]}`} mono={false} />
         </>
       );
     case 'no-trades-yet':
