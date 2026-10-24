@@ -15,6 +15,32 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-24: a page clock paused right after the art shows can be paused after the splash has left
+
+**Believed:** in `e2e/splash-reduced-motion.spec.ts`, pausing the page clock at the page's
+`Date.now()` plus 200 ms, right after `waitFor` sees the first Tradermigos art piece, stops the
+splash well inside its 1.8 s loading beat. So "0% of the watercolour in sight" on `ipad-safari`
+meant the page buried that piece.
+
+**Measured** (2026-10-24: CI runs 40112259354 and 40113091884, and the CI build of 8be9ce8d6
+served in WSL Ubuntu 24.04, Playwright 1.62.1, `ipad-safari`): the old spec failed 2 of 20 and 3
+of 24 runs there. Logged at the count, every failure read WELCOME, had the splash's 120 exit cover
+blocks in the page, a cover block on top at the watercolour's centre, and all ten pieces at 0%.
+Every pass was still loading, with no blocks and every piece at 36% or more. The watercolour was
+named only because it is drawn first: spread 2 failed the same way naming frogking. All four CI
+failures' page snapshots read WELCOME too. The page's timers ran in real time while Playwright
+reported the art, or read the page's time (2.2 s once), late.
+
+Stopping the clock before `goto` left the page on its loading fallback: React waits on a 300 ms
+timer to swap a lazy route in. Stopped before `goto` and stepped 50 ms at a time, the art came up
+in 6 or 7 steps, and the spec passed 40 of 40 on `ipad-safari` and 48 of 48 across all four
+devices.
+
+**Do:** to catch a page before one of its timers fires, stop the page clock before `goto` and step
+it with `runFor` until the element is there (`locator.count()` between steps). And a hit test that
+reads 0 for every piece is something on top of all of them: log what `elementFromPoint` returns
+before blaming the layout.
+
 ## 2026-10-24: a test pool's round share count looked neutral, but no pool program ever makes one
 
 **Believed:** the LP testkits' default `lp_supply` (1,000,000 in `buildPool`, 1,000,000,000 in
@@ -368,9 +394,9 @@ on seeds 4 to 40, on both devices.
 **Do:** count what a visitor sees with the browser's own hit test: turn `pointer-events` on for the
 pictures, sample `document.elementFromPoint` on a grid, turn it back off. Step a
 `requestAnimationFrame` loop with `page.clock`, which fakes rAF too: `runFor(100)` fires about six
-frames whatever WebKit's starved compositor draws. A `clock.pauseAt` aimed at the page's
-`Date.now()` plus 10 ms landed in the past on chromium, and plus 200 ms did once under two workers:
-catch "Cannot fast-forward to the past" and aim again.
+frames whatever WebKit's starved compositor draws. Stop the clock before `goto` and step it until
+the art is up: a pause aimed at the page's `Date.now()` once the art shows can land after the
+splash has left (the 2026-10-24 entry above).
 
 ## 2026-10-20: a press area made of padding and a matching negative margin loses its lower part to the rows after it
 
