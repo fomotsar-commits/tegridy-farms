@@ -114,7 +114,6 @@ export async function restoreCardanoWallet(): Promise<void> {
     await finishConnect(key, await wallet.enable());
   } catch {
     // A silent restore that fails stays silent: the visitor presses Connect.
-    if (state.status === 'connecting') set({ status: 'idle' });
   }
 }
 

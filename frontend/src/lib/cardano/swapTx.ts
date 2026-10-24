@@ -11,15 +11,16 @@
 // collateral, no required signer, no script, no metadata. A Cardano transaction can move a
 // trader's stake or rewards as well as coins, so each of those is refused by name.
 
+import type { FixedTransaction, TransactionOutput, TransactionWitnessSet, Value } from '@emurgo/cardano-serialization-lib-browser';
 import type { Csl } from './csl';
 import type { ProtocolParams } from './chain';
 import { bytesToHex, hexToBytes, type ParsedAddress } from './address';
 import { encodeSwapOrderDatum, isAda, orderAddressFor, orderValue, type CardanoAsset, type PoolState } from './minswapV2';
 import type { VenueFee } from './venueFee';
 
-type CslTx = InstanceType<Csl['FixedTransaction']>;
-type CslValue = InstanceType<Csl['Value']>;
-type CslOutput = InstanceType<Csl['TransactionOutput']>;
+type CslTx = FixedTransaction;
+type CslValue = Value;
+type CslOutput = TransactionOutput;
 
 /** The most network fee a swap order may carry. A real one costs about 0.2 ADA. */
 export const MAX_NETWORK_FEE = 1_000_000n;
@@ -309,7 +310,7 @@ export type AssembleResult = { ok: true; signedHex: string; txHash: string } | {
  * bytes (FixedTransaction keeps them), and refuses anything but plain key signatures.
  */
 export function assembleSigned(csl: Csl, checkedTxHex: string, witnessSetHex: string, checkedTxHash: string): AssembleResult {
-  let ws: InstanceType<Csl['TransactionWitnessSet']>;
+  let ws: TransactionWitnessSet;
   try {
     ws = csl.TransactionWitnessSet.from_hex(witnessSetHex);
   } catch {

@@ -11,7 +11,7 @@ const FILLS = fixture<{ tx_hash: string }[]>('koios-tx-info-two-fills.json');
 
 function note(txHash: string, bech: string, assetIn: PendingOrder['assetIn'], assetOut: PendingOrder['assetOut']): PendingOrder {
   const a = parseAddressBech32(bech)!;
-  return { txHash, orderIndex: 0, traderHex: a.hex, traderPaymentCred: a.payment.hash, assetIn, assetOut, amountIn: '1', minimumReceive: '1', placedAt: 1 };
+  return { txHash, orderIndex: 0, traderHex: a.hex, traderPaymentCred: a.payment.hash, assetIn, assetOut, amountIn: '1', minimumReceive: '1', ttlSlot: 201256000, placedAt: 1 };
 }
 
 const SELL_ASCEND = note(ORDER_TXS.tokenIn, 'addr1qyawx3jznhwfhsen5kg3dq4nxgvkexrw7fa6uj8qkx95cynn60n5e0298xn7eyj7lzks2lv5tcmxsqsu7ne7sa7jf4xsulzg6g', ASCEND, ADA);
@@ -79,9 +79,14 @@ describe('readOrderStatus', () => {
     expect(await readOrderStatus(BUY_NIGHT)).toEqual({ kind: 'placed', depth: 3 });
   });
 
-  it('says not seen when the chain has not shown the transaction', async () => {
-    stubProxy({ utxo: [], txstatus: [{ tx_hash: BUY_NIGHT.txHash, num_confirmations: null }] });
+  it('says not seen when the chain has not shown the transaction, before its expiry', async () => {
+    stubProxy({ utxo: [], txstatus: [{ tx_hash: BUY_NIGHT.txHash, num_confirmations: null }], tip: [{ abs_slot: 201255999, block_height: 1, block_time: 1 }] });
     expect(await readOrderStatus(BUY_NIGHT)).toEqual({ kind: 'not-seen' });
+  });
+
+  it('says expired, safe to retry, once a never-seen transaction is past its expiry', async () => {
+    stubProxy({ utxo: [], txstatus: [{ tx_hash: BUY_NIGHT.txHash, num_confirmations: null }], tip: [{ abs_slot: 201256001, block_height: 1, block_time: 1 }] });
+    expect(await readOrderStatus(BUY_NIGHT)).toEqual({ kind: 'expired' });
   });
 
   it('says unknown, never failed, when a read fails', async () => {

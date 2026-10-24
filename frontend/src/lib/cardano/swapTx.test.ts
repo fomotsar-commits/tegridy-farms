@@ -2,6 +2,7 @@
 // someone else is tried against the check. Each tamper is a separate test, so a check that
 // stops catching one fails by name.
 import { beforeAll, describe, expect, it } from 'vitest';
+import type { PrivateKey, TransactionBody, TransactionInput, TransactionOutput } from '@emurgo/cardano-serialization-lib-browser';
 import type { Csl } from './csl';
 import type { ProtocolParams } from './chain';
 import { bytesToHex, composeAddress, hexToBytes, type ParsedAddress } from './address';
@@ -37,7 +38,7 @@ const TIP = 201_255_884;
 const ADA_1 = 1_000_000n;
 
 let csl: Csl;
-let key: InstanceType<Csl['PrivateKey']>;
+let key: PrivateKey;
 let trader: ParsedAddress;
 let venue: ParsedAddress;
 let stranger: ParsedAddress;
@@ -57,9 +58,9 @@ const POOL: PoolState = {
   allowDynamicFee: false,
 };
 
-type Body = InstanceType<Csl['TransactionBody']>;
-type Out = InstanceType<Csl['TransactionOutput']>;
-type In = InstanceType<Csl['TransactionInput']>;
+type Body = TransactionBody;
+type Out = TransactionOutput;
+type In = TransactionInput;
 
 function addrOf(a: ParsedAddress) {
   return csl.Address.from_bytes(hexToBytes(a.hex));

@@ -17,6 +17,7 @@
 // at least the minimum. So "confirmed" means "order placed", never "swapped" (orderWatch.ts).
 
 import { sha3_256 } from '@noble/hashes/sha3';
+import type { PlutusData } from '@emurgo/cardano-serialization-lib-browser';
 import type { Csl } from './csl';
 import { bytesToHex, composeAddress, hexToBytes, type Credential, type ParsedAddress } from './address';
 import { FEE_DENOMINATOR } from './math';
@@ -131,17 +132,17 @@ export interface PoolState {
 
 export type PoolRead = { kind: 'pool'; pool: PoolState } | { kind: 'not-a-pool'; reason: string };
 
-function constrOf(d: InstanceType<Csl['PlutusData']>, alternative: number, fields: number): InstanceType<Csl['PlutusData']>[] | null {
+function constrOf(d: PlutusData, alternative: number, fields: number): PlutusData[] | null {
   const c = d.as_constr_plutus_data();
   if (!c || c.alternative().to_str() !== String(alternative)) return null;
   const list = c.data();
   if (list.len() !== fields) return null;
-  const out: InstanceType<Csl['PlutusData']>[] = [];
+  const out: PlutusData[] = [];
   for (let i = 0; i < list.len(); i++) out.push(list.get(i));
   return out;
 }
 
-function intOf(d: InstanceType<Csl['PlutusData']> | undefined): bigint | null {
+function intOf(d: PlutusData | undefined): bigint | null {
   const i = d?.as_integer();
   if (!i) return null;
   try {
@@ -151,19 +152,19 @@ function intOf(d: InstanceType<Csl['PlutusData']> | undefined): bigint | null {
   }
 }
 
-function bytesOf(d: InstanceType<Csl['PlutusData']> | undefined): string | null {
+function bytesOf(d: PlutusData | undefined): string | null {
   const b = d?.as_bytes();
   return b ? bytesToHex(b) : null;
 }
 
-function boolOf(d: InstanceType<Csl['PlutusData']> | undefined): boolean | null {
+function boolOf(d: PlutusData | undefined): boolean | null {
   const c = d?.as_constr_plutus_data();
   if (!c || c.data().len() !== 0) return null;
   const alt = c.alternative().to_str();
   return alt === '0' ? false : alt === '1' ? true : null;
 }
 
-function assetOf(d: InstanceType<Csl['PlutusData']> | undefined): CardanoAsset | null {
+function assetOf(d: PlutusData | undefined): CardanoAsset | null {
   if (!d) return null;
   const f = constrOf(d, 0, 2);
   if (!f) return null;
@@ -197,7 +198,7 @@ export function readPool(csl: Csl, u: ChainUtxo, pair: [CardanoAsset, CardanoAss
   const lp = lpAsset(want0, want1);
   if (quantityOf(u, lp) <= 0n) return no("does not hold this pair's LP token");
   if (u.inlineDatumHex === null) return no('no datum');
-  let datum: InstanceType<Csl['PlutusData']>;
+  let datum: PlutusData;
   try {
     datum = csl.PlutusData.from_hex(u.inlineDatumHex);
   } catch {
@@ -275,25 +276,25 @@ export interface SwapOrderTerms {
   minimumReceive: bigint;
 }
 
-function credentialData(csl: Csl, c: Credential): InstanceType<Csl['PlutusData']> {
+function credentialData(csl: Csl, c: Credential): PlutusData {
   // types.ak via aiken stdlib: VerificationKeyCredential = Constr 0, ScriptCredential = Constr 1.
   return constr(csl, c.kind === 'key' ? 0 : 1, [csl.PlutusData.new_bytes(hexToBytes(c.hash))]);
 }
 
-function constr(csl: Csl, alternative: number, fields: InstanceType<Csl['PlutusData']>[]): InstanceType<Csl['PlutusData']> {
+function constr(csl: Csl, alternative: number, fields: PlutusData[]): PlutusData {
   const list = csl.PlutusList.new();
   for (const f of fields) list.add(f);
   return csl.PlutusData.new_constr_plutus_data(csl.ConstrPlutusData.new(csl.BigNum.from_str(String(alternative)), list));
 }
 
-function addressData(csl: Csl, a: ParsedAddress): InstanceType<Csl['PlutusData']> {
+function addressData(csl: Csl, a: ParsedAddress): PlutusData {
   // Address { payment_credential, stake_credential: Option<Referenced<Credential>> }:
   // Some(Inline(cred)) = Constr 0 [Constr 0 [cred]], None = Constr 1 [].
   const stake = a.stake ? constr(csl, 0, [constr(csl, 0, [credentialData(csl, a.stake)])]) : constr(csl, 1, []);
   return constr(csl, 0, [credentialData(csl, a.payment), stake]);
 }
 
-function int(csl: Csl, n: bigint): InstanceType<Csl['PlutusData']> {
+function int(csl: Csl, n: bigint): PlutusData {
   return csl.PlutusData.new_integer(csl.BigInt.from_str(n.toString()));
 }
 

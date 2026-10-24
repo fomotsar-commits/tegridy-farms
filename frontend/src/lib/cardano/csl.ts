@@ -50,7 +50,7 @@ async function loadFromNetwork(): Promise<Csl> {
   if (!res.ok || !type.includes('application/wasm')) {
     throw new CslLoadError('The Cardano library did not load. Reload the page and try again.');
   }
-  const { instance } = await WebAssembly.instantiate(await res.arrayBuffer(), { [GLUE_MODULE]: glue });
+  const { instance } = await WebAssembly.instantiate(await res.arrayBuffer(), { [GLUE_MODULE]: glue as unknown as WebAssembly.ModuleImports });
   return attach(glue, instance);
 }
 
@@ -68,7 +68,7 @@ export function loadCsl(): Promise<Csl> {
 /** Tests: the same library, from the .wasm bytes on disk. */
 export async function loadCslFromBytes(bytes: BufferSource): Promise<Csl> {
   const glue = await import('@emurgo/cardano-serialization-lib-browser/cardano_serialization_lib_bg.js');
-  const { instance } = await WebAssembly.instantiate(bytes, { [GLUE_MODULE]: glue });
+  const { instance } = await WebAssembly.instantiate(bytes, { [GLUE_MODULE]: glue as unknown as WebAssembly.ModuleImports });
   const csl = attach(glue, instance);
   loading = Promise.resolve(csl);
   return csl;

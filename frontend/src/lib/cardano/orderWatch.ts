@@ -3,6 +3,7 @@
 // page has more states than "sent" and "done", and each is said for what it is:
 //
 //   not-seen   sent, and the chain has not shown it yet
+//   expired    never seen, and its expiry slot has passed: it can never land, so a retry is safe
 //   placed     the order is on chain, waiting for the batcher (with its depth)
 //   filled     the batcher paid the trader the coins bought
 //   returned   the batcher returned the coins (the price moved past the minimum)
@@ -24,12 +25,15 @@ export interface PendingOrder {
   assetOut: CardanoAsset;
   amountIn: string;
   minimumReceive: string;
+  /** The transaction's expiry slot: past it, a transaction never seen can never land. */
+  ttlSlot: number;
   /** Unix ms, from this browser's clock, for ordering notes only. */
   placedAt: number;
 }
 
 export type OrderStatus =
   | { kind: 'not-seen' }
+  | { kind: 'expired' }
   | { kind: 'placed'; depth: number }
   | { kind: 'filled'; fillTx: string; received: bigint; depositBack: bigint }
   | { kind: 'returned'; fillTx: string }
@@ -58,7 +62,11 @@ export async function readOrderStatus(order: PendingOrder, signal?: AbortSignal)
   if (spent.data === null) {
     const depth = await readTxDepth(order.txHash, signal);
     if (depth.status !== 'ok') return { kind: 'unknown', reason: depth.reason };
-    return depth.data === null ? { kind: 'not-seen' } : { kind: 'placed', depth: depth.data };
+    if (depth.data !== null) return { kind: 'placed', depth: depth.data };
+    // Never seen. Past its expiry it can never land; before it, it still may.
+    const tip = await readTip(signal);
+    if (tip.status !== 'ok') return { kind: 'unknown', reason: tip.reason };
+    return tip.data.slot > order.ttlSlot ? { kind: 'expired' } : { kind: 'not-seen' };
   }
 
   // Spent: find the transaction that spent it, among the trader's own (the fill pays them).
@@ -98,7 +106,10 @@ const NOTE_LIFETIME_MS = 7 * 24 * 3600 * 1000;
 function isNote(x: unknown): x is PendingOrder {
   if (typeof x !== 'object' || x === null) return false;
   const o = x as Record<string, unknown>;
-  return typeof o.txHash === 'string' && /^[0-9a-f]{64}$/.test(o.txHash) && o.orderIndex === 0 && typeof o.traderHex === 'string' && typeof o.placedAt === 'number';
+  return (
+    typeof o.txHash === 'string' && /^[0-9a-f]{64}$/.test(o.txHash) && o.orderIndex === 0 && typeof o.traderHex === 'string' &&
+    typeof o.traderPaymentCred === 'string' && typeof o.ttlSlot === 'number' && typeof o.placedAt === 'number'
+  );
 }
 
 export function readOrderNotes(now: number = Date.now()): PendingOrder[] {

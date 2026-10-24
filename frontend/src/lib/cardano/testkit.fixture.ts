@@ -6,15 +6,18 @@ import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 import { loadCslFromBytes, type Csl } from './csl';
 
-let csl: Promise<Csl> | null = null;
-
+/**
+ * One instance per test file, shared with any mock of csl.ts through globalThis: two instances
+ * attached to the same glue module overwrite each other's memory (CSL's glue holds ONE wasm).
+ */
 export function testCsl(): Promise<Csl> {
-  if (!csl) {
+  const g = globalThis as { __cardanoTestCsl?: Promise<Csl> };
+  if (!g.__cardanoTestCsl) {
     const require = createRequire(import.meta.url);
     const wasm = require.resolve('@emurgo/cardano-serialization-lib-browser/cardano_serialization_lib_bg.wasm');
-    csl = loadCslFromBytes(readFileSync(wasm));
+    g.__cardanoTestCsl = loadCslFromBytes(readFileSync(wasm));
   }
-  return csl;
+  return g.__cardanoTestCsl;
 }
 
 export function fixture<T = unknown>(name: string): T {

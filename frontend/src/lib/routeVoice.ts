@@ -99,6 +99,17 @@ export function isToweliRoomPage(pathname: string): boolean {
 const SOLANA_PATHS: ReadonlySet<string> = new Set(['/solana', '/pools', '/solana-lp', '/curve-launch']);
 
 /**
+ * The Cardano pages. The top bar's wallet slot there is the page's Cardano wallet
+ * (lib/cardano/walletStore.ts), never the Ethereum list: no EVM connect can reach Cardano.
+ * Exact, as the router matches these tabs.
+ */
+const CARDANO_PATHS: ReadonlySet<string> = new Set(['/cardano']);
+
+export function isCardanoPage(pathname: string): boolean {
+  return CARDANO_PATHS.has(normalize(pathname));
+}
+
+/**
  * Pages whose wallet action is on Solana, read from the path alone, before
  * that page's Solana section has loaded: the top bar's first tap there must
  * never open the Ethereum list (lib/solanaSurface.ts). Once the page's

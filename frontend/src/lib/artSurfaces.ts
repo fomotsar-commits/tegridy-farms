@@ -132,6 +132,8 @@ export const PAGE_ROUTES: Record<string, string> = {
   'heat-card': '/exposure',
   'clock-line': '/swap',
   'solana-swap': '/solana',
+  // Listed and routed only while the Cardano swap shows (lib/cardano/flags.ts).
+  'cardano-swap': '/cardano',
   'il-calculator': '/liquidity',
   liquidity: '/liquidity',
   'pending-trade': '/solana-lp',
@@ -758,6 +760,11 @@ export const SURFACES: Surface[] = [
   // Swap · Solana
   { group: 'Swap · Solana', pageId: 'solana-swap', idx: 0, label: 'Page background' },
   { group: 'Swap · Solana', pageId: 'solana-swap', idx: 1, label: 'Price chart card (swap mode, buy token is not a stablecoin)' },
+
+  // Swap · Cardano (hidden until the Cardano swap opens)
+  { group: 'Swap · Cardano', pageId: 'cardano-swap', idx: 0, label: 'Page background' },
+  { group: 'Swap · Cardano', pageId: 'cardano-swap', idx: 1, label: 'Swap card' },
+  { group: 'Swap · Cardano', pageId: 'cardano-swap', idx: 2, label: 'Your order card (after an order is placed)' },
 
   // Pools · Add / Remove
   { group: 'Pools · Add / Remove', pageId: 'il-calculator', idx: 0, label: 'Impermanent loss calculator card (calculator opened)' },
