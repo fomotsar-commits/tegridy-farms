@@ -9,7 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-10-24
 
-- Solana swap: Buy all bungalows buys every coin itself. A coin our own pool pays more for is bought in our pool, in the same order, instead of being sent to the swap form for its own review. Wallets that can sign several transactions at once (Phantom, Solflare, Backpack and most others) are asked once for the whole order; any other wallet once per coin. When SOL's price cannot be read, the order asks again every few seconds instead of once a minute.
+- Solana swap: Buy all bungalows buys every coin itself. A coin our own pool pays more for is bought in our pool, in the same order, instead of being sent to the swap form for its own review. Wallets that can sign several transactions at once (Phantom, Solflare, Backpack and most others) are asked once for the whole order; any other wallet once per coin. When SOL's price cannot be read, the order asks again every few seconds instead of once a minute. It also compares prices correctly again: since 2026-10-23 it misread every Jupiter quote and counted every coin as our pool's, even where Jupiter paid more (about 30% more for BRAINLET).
 - Solana swap: Buy asks Jupiter for less, so it waits less. A quote under 10 seconds old is built as shown instead of asked for again, our pools are read at the click instead of after Jupiter's answer, the trending list, the risk warnings and the pair's prices are shared by every visitor for a short time (prices are still read fresh in USD mode), and "Swap confirmed" is checked every second for the first 10 seconds.
 
 ### 2026-10-23

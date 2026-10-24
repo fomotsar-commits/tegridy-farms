@@ -38,12 +38,17 @@ export class PoolNotNamedError extends Error {
   }
 }
 
-/** The one pool a quote trades through, or null when it is not a single whole hop. */
+/**
+ * The one pool a quote trades through, or null when it is not a single whole hop. A hop's
+ * share is `percent` (100) or, in a quote asked with instructionVersion V2, `bps` (10000)
+ * with `percent` null. Reading `percent` alone threw out every V2 quote from 2026-10-23
+ * to 10-24, and our pool then took every coin, whatever it paid.
+ */
 export function quotedPool(q: Pick<JupiterQuote, 'routePlan'>): string | null {
   const plan = q.routePlan;
   if (!Array.isArray(plan) || plan.length !== 1) return null;
-  const hop = plan[0] as { percent?: unknown; swapInfo?: { ammKey?: unknown } } | null;
-  if (!hop || hop.percent !== 100 || typeof hop.swapInfo?.ammKey !== 'string') return null;
+  const hop = plan[0] as { percent?: unknown; bps?: unknown; swapInfo?: { ammKey?: unknown } } | null;
+  if (!hop || !(hop.percent === 100 || hop.bps === 10_000) || typeof hop.swapInfo?.ammKey !== 'string') return null;
   return hop.swapInfo.ammKey;
 }
 

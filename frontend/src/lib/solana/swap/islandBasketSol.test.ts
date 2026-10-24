@@ -27,6 +27,14 @@ describe('quotedPool', () => {
     expect(quotedPool({ routePlan: [] })).toBeNull();
     expect(quotedPool({ routePlan: [{ percent: 100, swapInfo: {} }] })).toBeNull();
   });
+
+  it('reads a whole hop in basis points: Jupiter’s answer for a V2 quote (percent null, bps 10000)', () => {
+    // As Jupiter answered SOL → BRAINLET pinned to its PumpSwap pool, instructionVersion=V2, 2026-10-24.
+    const v2 = { routePlan: [{ swapInfo: { ammKey: brainlet.pool.address, label: 'Pump.fun Amm' }, percent: null, bps: 10000 }] };
+    expect(quotedPool(v2)).toBe(brainlet.pool.address);
+    expect(quotedPool({ routePlan: [{ swapInfo: { ammKey: brainlet.pool.address }, percent: null, bps: 6000 }] })).toBeNull();
+    expect(quotedPool({ routePlan: [{ swapInfo: { ammKey: brainlet.pool.address }, percent: null, bps: null }] })).toBeNull();
+  });
 });
 
 describe('pinnedGetQuote', () => {
