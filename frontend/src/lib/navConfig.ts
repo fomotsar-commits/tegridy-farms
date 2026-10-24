@@ -11,6 +11,8 @@ import {
   PREMIUM_ACCESS_ADDRESS,
 } from './constants';
 import { isSolanaSwapLive } from './solana';
+// Plain text only, like rangePoolsVisible below: the Cardano swap's switch (lib/cardano/flags.ts).
+import { cardanoSwapVisible } from './cardano/flags';
 import { BUNGALOWS, getActiveBungalow } from './bungalows';
 import { EARN_PATH, earnPoolPath, isEarnPoolId } from './earnRoutes';
 import { hasRoutableYieldVenue } from './yield/venues';
@@ -129,6 +131,8 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { to: '/swap', label: 'Swap', tabLabel: 'Ethereum' },
       ...(SOLANA_LIVE ? [{ to: '/solana', label: 'Solana Swap', tabLabel: 'Solana' }] : []),
+      // Hidden, with no route, until the owner opens it (CARDANO_SWAP_OPEN, lib/cardano/flags.ts).
+      ...(cardanoSwapVisible() ? [{ to: '/cardano', label: 'Cardano Swap', tabLabel: 'Cardano' }] : []),
     ],
   },
   {

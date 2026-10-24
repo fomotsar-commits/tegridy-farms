@@ -11,7 +11,10 @@ import { safeGetItem } from '../../lib/storage';
 import { pageArt } from '../../lib/artConfig';
 import { getActiveBungalow, getBungalowIdentity, OPEN_BUNGALOWS_EVENT } from '../../lib/bungalows';
 import { useActiveBungalowId } from '../../hooks/useActiveBungalowId';
-import { hasMixedSolanaSection, isSolanaPage, isToweliRoomPage } from '../../lib/routeVoice';
+import { hasMixedSolanaSection, isCardanoPage, isSolanaPage, isToweliRoomPage } from '../../lib/routeVoice';
+// No Cardano library: the connection's store and the address's bech32 only (lib/cardano/walletStore.ts).
+import { requestCardanoWalletList, useCardanoWallet } from '../../lib/cardano/walletStore';
+import { shortCardanoAddress } from '../../lib/cardano/address';
 import {
   cancelSolanaOpenRequest,
   requestSolanaOpen,
@@ -76,6 +79,33 @@ function SolanaWalletSlot({ surface, pending }: { surface: SolanaSurface | null;
         className={`${CONNECT_BUTTON_CLASS}${busy ? ' opacity-60' : ''}`}
         style={CONNECT_BUTTON_STYLE}
       >
+        Connect
+      </button>
+    </div>
+  );
+}
+
+/**
+ * On a Cardano page the slot is that page's Cardano wallet: a press opens the page's own list
+ * (CardanoWalletModal), and one made before the page has loaded waits for it.
+ */
+function CardanoWalletSlot() {
+  const wallet = useCardanoWallet();
+  if (wallet.status === 'connected') {
+    const short = shortCardanoAddress(wallet.address.bech32);
+    return (
+      <div className="min-w-0">
+        <button type="button" onClick={requestCardanoWalletList} aria-label={`Cardano wallet ${short}, copy or disconnect`} title="Cardano wallet" className={ACCOUNT_CHIP_CLASS} style={ACCOUNT_CHIP_STYLE}>
+          <span className={ACCOUNT_DOT_CLASS} />
+          <span className="truncate">{short}</span>
+        </button>
+      </div>
+    );
+  }
+  const busy = wallet.status === 'connecting';
+  return (
+    <div className="min-w-0">
+      <button type="button" onClick={requestCardanoWalletList} aria-label="Connect a Cardano wallet" aria-busy={busy || undefined} className={`${CONNECT_BUTTON_CLASS}${busy ? ' opacity-60' : ''}`} style={CONNECT_BUTTON_STYLE}>
         Connect
       </button>
     </div>
@@ -312,7 +342,9 @@ export const TopNav = React.memo(function TopNav() {
 
             {/* The wallet, then the menu button at the far right. Padding, font size and the name's
                 width shrink on a phone so a long ENS name never pushes the menu button off-screen. */}
-            {solanaPage ? (
+            {isCardanoPage(location.pathname) ? (
+              <CardanoWalletSlot />
+            ) : solanaPage ? (
               <SolanaWalletSlot surface={solana} pending={solanaOpenPending} />
             ) : (
             <ConnectButton.Custom>

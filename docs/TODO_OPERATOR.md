@@ -99,6 +99,21 @@ A general "merge what you can" is refused as a production deploy.
 
 ---
 
+## 2026-10-24: Cardano, after the swap's pull request merges (you: "cardano in every aspect")
+
+The swap ships switched off (`CARDANO_SWAP_OPEN = false`); nothing a visitor sees changes until
+you do these, in order. Plan and rulings: [`CARDANO_PLAN.md`](CARDANO_PLAN.md).
+
+1. **Make the venue's Cardano fee address** (a two-signature native-script wallet is the vault's
+   equivalent) and send it to a session, which puts it in `frontend/src/lib/cardano/venueFee.ts`.
+   Until then the swap charges no venue fee and says so.
+2. **Get a free Koios key** (koios.rest, 50,000 reads a day) and set `KOIOS_API_KEY` on Vercel
+   (Production). Without it the whole site shares the public 5,000 a day.
+3. **One real swap, small**, in a `--mode cardano-preview` build or on a preview, then say "open it"
+   and a session flips the switch. Under about 200 ADA no venue fee is charged.
+
+Next after that: our own Cardano pools (plan Part 2), which ends in an audit you pay for.
+
 ## 2026-10-24: for later, Jupiter's paid plan (you: "stay on free now")
 
 - ⬜ **Jupiter's Developer plan, $25 a month**, on the "memetics" org that owns
