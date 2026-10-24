@@ -1215,9 +1215,14 @@ GIT_HOSTING.md, the runbook's four GitLab lines and `OUR_REPOS` in
 
 ## 🟡 2026-09-29: at the next cp-swap upgrade, point its on-chain security.txt at our own domain
 
-### ⬜ O-0929-10: four `security_txt!` fields. On chain since the upgrade; one look left
+### ⬜ O-0929-10: four `security_txt!` fields. Off chain again since the roll-back of 2026-10-24
 
-**Where it stands now: the upgrade has executed.** The pool program on mainnet is the build
+**2026-10-24: rolled back.** The pre-staged roll-back, proposal #16, executed at 17:03:00 UTC
+(slot 460,927,956), so mainnet runs the 2026-09-29 build `88b98aa9…` again and the explorer's
+security tab shows the old text. Do not tick this box until the re-upgrade has executed and the
+tab shows the new values. The paragraph below was true from 2026-10-23 until the roll-back.
+
+**Where it stood from 2026-10-23: the upgrade had executed.** The pool program on mainnet was the build
 that carries the four values below (sha256 `1e55bcdc…`, 725,176 bytes; the same upgrade also
 closed fee tier 0 to a public pool opening, pull request #899). The day, the slot and
 the transaction are in `solana/tegridy-amm/MAINNET_RUNBOOK.md`, section 4b. The website
