@@ -422,6 +422,17 @@ export const ROUTES: readonly RouteSpec[] = [
     knownViolations: [],
   },
   {
+    path: '/cardano',
+    voice: null,
+    owner: 'pages/CardanoSwapPage.tsx',
+    gate: 'not-yet-routed',
+    why:
+      'The Cardano swap is routed only while cardanoSwapVisible() (lib/cardano/flags.ts): never until the ' +
+      'owner opens it (CARDANO_SWAP_OPEN), except in a `--mode cardano-preview` build. The suite runs the ' +
+      'production build, where the path is the not-found page; the sweep asserts that instead.',
+    knownViolations: [],
+  },
+  {
     path: '/range-pools',
     voice: null,
     owner: 'pages/RangePoolsPage.tsx',

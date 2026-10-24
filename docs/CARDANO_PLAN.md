@@ -1,5 +1,7 @@
 # Cardano on the venue: swap now, our own pools next
 
+> The one to-do list is [docs/TODO_OPERATOR.md](TODO_OPERATOR.md). This file is the plan for Cardano and the owner's rulings on it.
+
 Owner, 2026-10-24: "i need cardano integrated in every aspect of this app. start with swap, and
 lp", under the rule: battle-tested code that has never been hacked, our own only where none exists.
 
