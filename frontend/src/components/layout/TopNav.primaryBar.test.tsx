@@ -191,7 +191,7 @@ describe('TopNav: the menu', () => {
   it("keeps a group whole when its own word is typed, and says so when nothing is called that", () => {
     openDrawer();
     fireEvent.change(field(), { target: { value: 'pools' } });
-    expect(within(dialog()).getAllByRole('link').map((l) => l.textContent)).toEqual(['Pools', 'Add / Remove', 'Solana LP', 'Venue AMM', 'Zap']);
+    expect(within(dialog()).getAllByRole('link').map((l) => l.textContent)).toEqual(['Pools', 'Add / Remove', 'Solana LP', 'Range', 'Venue AMM', 'Zap']);
     fireEvent.change(field(), { target: { value: 'zebra' } });
     expect(within(dialog()).queryAllByRole('link')).toEqual([]);
     expect(within(dialog()).getByRole('status').textContent).toMatch(/zebra/);

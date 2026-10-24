@@ -16,6 +16,7 @@ import type { PendingTradesState } from '../curve/usePendingTrades';
 import type { CurveWriteConfig, RangeWriteApi, WriteRpc } from '../curve/ports';
 import { bothAmounts, priceText, tokenWord } from './rangeText';
 import { useFlowReports } from './useRangeData';
+import { chipCls } from './editorialUi';
 
 const TAKE_HINT = 'If the price moves more than this before your withdrawal runs, it is refused and only the network fee is spent.';
 const PERCENTS = [25, 50, 75, 100] as const;
@@ -53,7 +54,7 @@ export function RangePositionsCard(p: {
   const list = p.read?.kind === 'ok' ? p.read.value : null;
 
   return (
-    <Card title="Your range positions" testId="range-positions" art={<CardArt pageId="range-pools" idx={3} />}>
+    <Card title="Your range positions" testId="range-positions" index={4} art={<CardArt pageId="range-pools" idx={3} />}>
       {!connected ? (
         <>
           <p className="text-white/70">Connect a wallet to see the range positions it holds.</p>
@@ -234,7 +235,7 @@ function ActionInner(p: {
               key={x}
               type="button"
               aria-pressed={percent === x}
-              className={`min-h-[44px] px-3 rounded-lg border text-[12px] ${percent === x ? 'border-emerald-300/70 bg-emerald-400/15 text-white' : 'border-white/15 bg-white/5 text-white/80'}`}
+              className={chipCls(percent === x)}
               onClick={() => setPercent(x)}
             >
               {x}%

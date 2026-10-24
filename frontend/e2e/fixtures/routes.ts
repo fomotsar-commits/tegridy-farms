@@ -423,14 +423,13 @@ export const ROUTES: readonly RouteSpec[] = [
   },
   {
     path: '/range-pools',
-    voice: null,
+    voice: 'venue',
     owner: 'pages/RangePoolsPage.tsx',
     tabOf: 'PoolsHostPage · range-pools',
-    gate: 'not-yet-routed',
+    gate: null,
     why:
-      'The Range tab is routed only while rangePoolsVisible() (lib/solana/clmm/programId.ts): never until ' +
-      'the owner opens range pools (RANGE_POOLS_OPEN), except in a `--mode range-preview` build. The suite runs ' +
-      'the production build, where the path is the not-found page; the sweep asserts that instead.',
+      'Its fee tiers and pools are read live through the preview proxy to Solana, so it audits whichever ' +
+      'answer comes: the pools, "none yet", or the "could not be read just now" notice. The em dash sweep seals it.',
     knownViolations: [],
   },
   { path: '/curve-launch', voice: 'venue', owner: 'pages/CurveLaunchPage.tsx',

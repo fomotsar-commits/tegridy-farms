@@ -57,7 +57,7 @@ describe('Pools, with its network drop-down', () => {
   it("shows only Solana's tabs on a Solana page", () => {
     at(POOLS_SECTION, '/solana-lp', 'Pools network');
     expect(screen.getByRole('button', { name: 'Pools network: Solana' })).toBeInTheDocument();
-    expect(tabs()).toEqual(['Solana LP', 'Venue AMM']);
+    expect(tabs()).toEqual(['Solana LP', 'Range', 'Venue AMM']);
   });
 
   it("shows Ethereum's tabs on the add / remove form with no wallet", () => {
