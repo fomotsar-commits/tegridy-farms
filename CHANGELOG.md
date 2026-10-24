@@ -7,6 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-10-25
+
+- Cardano swap: Swap's network menu now lists Cardano. /cardano swaps ADA for a coin, or a coin for ADA, through that pair's Minswap V2 pool, signed in a Cardano wallet (Eternl, Lace, VESPR, Begin, Typhon, GeroWallet or NuFi). The page names each coin by its ticker and whole id, shows every fee and who gets it before you sign, and follows your order until Minswap's batcher fills it or sends it back. The venue charges no fee on Cardano yet.
+
 ### 2026-10-24
 
 - Solana pools: the pool program's upgrade was rolled back, so it runs its 2026-09-29 build again: pool share tokens can't get a name in wallets and the launch fee tier is open to anyone again until it is upgraded once more. The lines you read before adding liquidity or opening a pool say so again: our pool program is Raydium's, with only its admin keys changed.
