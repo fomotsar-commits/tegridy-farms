@@ -781,6 +781,7 @@ export const SURFACES: Surface[] = [
   { group: 'Pools · Solana LP', pageId: 'solana-lp', idx: 8, label: 'Pool not read card (after a lookup, a pool that could not be r…)' },
   { group: 'Pools · Solana LP', pageId: 'solana-lp', idx: 9, label: 'Open a pool card (after a lookup, liquidity writes on)' },
   { group: 'Pools · Solana LP', pageId: 'solana-lp', idx: 13, label: 'All pools card (every pool on the venue, before a lookup)' },
+  { group: 'Pools · Solana LP', pageId: 'solana-lp', idx: 14, label: 'Every position card (every holder of every pool)' },
   { group: 'Pools · Solana LP', pageId: 'venue-amm', idx: 0, label: 'Venue status card' },
   { group: 'Pools · Solana LP', pageId: 'venue-amm', idx: 1, label: 'The program card' },
 

@@ -15,6 +15,30 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-24: a test pool's round share count looked neutral, but no pool program ever makes one
+
+**Believed:** the LP testkits' default `lp_supply` (1,000,000 in `buildPool`, 1,000,000,000 in
+`addPool`) and a "traded" price record of two slots an hour apart are harmless placeholders.
+
+**Measured** (vitest, 2026-10-24, the launch-pool moved-price check of M-1009-6 on trunk's
+fixtures): 44 of 4,845 Solana tests failed. Apart from 11 timeouts in files the change does not
+reach, and pins of the "10 minutes" copy that changed on purpose, they failed on fixtures only:
+- a never-traded launch pool whose `lp_supply` is not `isqrt(side0 x side1)` holds more than
+  its shares account for, which on chain means tokens were sent straight into a vault;
+- two slots an hour apart is one swap, an hour of silence, one swap: the shape of a price
+  moved by a transfer and written over by a dust swap.
+
+**Do:** build a launch pool with the shares the program opens it with (`isqrt(quote x token)`;
+`addPool({ launch: true })` now defaults to that) and a traded pool's record with
+`steadyRecord` (lp `testkit.fixture.ts`). A fixture is a claim about the chain: make it one
+the chain can produce.
+
+### Incidental
+
+The first mutation run left one mutant alive: a guard that re-read the price record could
+never see "not read", because the average had read the same record and clock a line earlier.
+A branch no test can reach is code no one has checked. It was deleted, not tested.
+
 ## 2026-10-24: a `.max(200)` on a zod array did not stop a huge body, because zod below 4.6.6 parsed every element first
 
 **Believed:** `z.array(row).max(200)` refuses an oversized batch before it costs anything, so
