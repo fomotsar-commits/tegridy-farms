@@ -74,6 +74,36 @@ describe('readOrderStatus', () => {
     });
   });
 
+  // No returned order was in the mainnet sample, so these spenders are written by hand, in the
+  // shape a batcher's refund takes: the order's own coins back to the trader, less its fee.
+  function refund(order: PendingOrder, bech: string, value: string, assets: unknown[] | null) {
+    return [
+      {
+        tx_hash: 'ab'.repeat(32),
+        inputs: [{ tx_hash: order.txHash, tx_index: 0 }],
+        outputs: [{ tx_index: 0, payment_addr: { bech32: bech }, value, inline_datum: null, asset_list: assets }],
+      },
+    ];
+  }
+  const spentAt = (order: PendingOrder) => ({
+    utxo: [{ tx_hash: order.txHash, tx_index: 0, is_spent: true }],
+    tip: [{ abs_slot: 1, block_height: 14108900, block_time: 1 }],
+    txstatus: [{ tx_hash: order.txHash, num_confirmations: 5 }],
+    credtxs: [{ tx_hash: 'ab'.repeat(32), block_height: 14108899 }],
+  });
+
+  it('says returned when a token-for-ADA order’s token comes back', async () => {
+    const bech = 'addr1qyawx3jznhwfhsen5kg3dq4nxgvkexrw7fa6uj8qkx95cynn60n5e0298xn7eyj7lzks2lv5tcmxsqsu7ne7sa7jf4xsulzg6g';
+    stubProxy({ ...spentAt(SELL_ASCEND), tx: refund(SELL_ASCEND, bech, '2000000', [{ policy_id: ASCEND.policyId, asset_name: ASCEND.assetName, quantity: '104749799' }]) });
+    expect(await readOrderStatus(SELL_ASCEND)).toEqual({ kind: 'returned', fillTx: 'ab'.repeat(32) });
+  });
+
+  it('says returned when an ADA-for-token order’s ADA comes back with no token', async () => {
+    const bech = 'addr1qxflw7x7effnuy8j699cw03e7px2efsxlhgs5gjsvmaqdj23uxk5phjd4ljhup35cu2dmmkzktaadra6v5j6amt2sm7spk6n2a';
+    stubProxy({ ...spentAt(BUY_NIGHT), tx: refund(BUY_NIGHT, bech, '752000000', null) });
+    expect(await readOrderStatus(BUY_NIGHT)).toEqual({ kind: 'returned', fillTx: 'ab'.repeat(32) });
+  });
+
   it('says placed, with its depth, while the order waits', async () => {
     stubProxy({ utxo: [{ tx_hash: BUY_NIGHT.txHash, tx_index: 0, is_spent: false }], txstatus: [{ tx_hash: BUY_NIGHT.txHash, num_confirmations: 3 }] });
     expect(await readOrderStatus(BUY_NIGHT)).toEqual({ kind: 'placed', depth: 3 });
