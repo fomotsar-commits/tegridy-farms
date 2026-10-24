@@ -54,8 +54,11 @@ pre-stages a roll-back (your choice on 2026-10-24); decide that again when you d
   venue there, 0.05% on the launch tier).**
 - The share-naming instruction (`create_lp_metadata`): no new pool's share can get a name record,
   so the "name every pool share" work waits. The two BAYLA records already exist.
-- The site's wording about the pool program (from #776) says it has both. That is not true again
-  until the re-upgrade. No page of the site calls the missing instruction.
+- The site's wording about the pool program (from #776) says it has both. **Pull request #991**
+  (not merged; your word) puts the wording, the address registry and the local test chain back on
+  the old build. Until it merges, the site says more than the program does. No page of the site
+  calls the missing instruction. On re-upgrade day a session undoes #991 again; the plan's step
+  R15b says how.
 
 **Before you do the re-upgrade:**
 - ⬜ Send the paying wallet `CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg` **3.69 SOL**, or **7.21
