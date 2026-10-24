@@ -29,6 +29,50 @@ stop and say so — a surprise is information.
 
 ---
 
+## 🔴 2026-10-24, 17:03 UTC: the pool program was rolled back by mistake; re-upgrade postponed
+
+Read on chain on 2026-10-24 at 17:07 UTC. Newer than the section below.
+
+**What happened.** Proposal #16, the pre-staged roll-back, was executed at 17:03:00 UTC; the one
+meant was #18.
+- The pool program `EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT` runs the old build `88b98aa9`
+  again (slot 460,927,956). It is still held by the vault.
+- Both pools trade, and the pack's check after a roll-back passed.
+- **#18 is dead.** It would have returned the roll-back buffer's SOL, but #16 used that buffer up,
+  and the buffer's 3.514 SOL went back to the paying wallet. #18 can never execute. Leave it.
+- **#20 is untouched.** It renames the two BAYLA pool shares from 2026-10-25 09:07:08 UTC, and it
+  does not depend on which pool build runs.
+
+**You postponed the re-upgrade** ("im not tryna lock my sol again tbh"). Its plan is
+`C:\Users\jimbo\solana-launch-release-2026-09-26\pool-program-upgrade-2026-10\RE-UPGRADE-2026-10-24.md`.
+No enlarge is needed: the program account is still large enough. As written, the plan also
+pre-stages a roll-back (your choice on 2026-10-24); decide that again when you do it.
+
+**What stays off until the re-upgrade:**
+- **The launch-tier gate. Anyone can open a pool on the launch tier (fee tier 0) the public way,
+  which skips the venue's 0.15 SOL opening fee and the 1% public tier (0.16% of each trade to the
+  venue there, 0.05% on the launch tier).**
+- The share-naming instruction (`create_lp_metadata`): no new pool's share can get a name record,
+  so the "name every pool share" work waits. The two BAYLA records already exist.
+- The site's wording about the pool program (from #776) says it has both. That is not true again
+  until the re-upgrade. No page of the site calls the missing instruction.
+
+**Before you do the re-upgrade:**
+- ⬜ Send the paying wallet `CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg` **3.69 SOL**, or **7.21
+  SOL** if you pre-stage a roll-back again. You are moving its 7.281902 SOL to
+  `Upmhw8i6RSLXoj4yGzq9ZYLXb4UzZMRm7BSX8BxCdEd` now, so it will be empty. The upload's 3.68 SOL
+  comes back when the upgrade executes.
+- ⬜ Send member A `5QHzAqbGk3W8qGRBHCMyWjhLXf8YJcs3yPEh14Ymcwgz` **0.02 SOL**. It holds 0.0043,
+  and each proposal costs it 0.0046.
+- ⬜ Then follow the plan: today's steps, and the execute 48 hours after member B's approval.
+
+**Your decision: unpausing launches (paused until at least 2026-10-26 08:00 UTC).** The re-upgrade
+does not have to come first. A graduation opens its pool through the launcher, at the launcher's
+own address, and the old build does that just as well. A stranger's pool on the launch tier cannot
+take that address. The gap above costs fees whether launches are paused or not.
+
+---
+
 ## 🔴 2026-10-24: what is left after upgrade Day 2 (read this first)
 
 Read on chain and on GitHub on 2026-10-24, about 03:30 UTC.
@@ -77,9 +121,8 @@ Read on chain and on GitHub on 2026-10-24, about 03:30 UTC.
    node "C:\Users\jimbo\solana-launch-release-2026-09-26\pool-program-upgrade-2026-10\proposer\serve.mjs"
    ```
 
-   Then step 22b: **execute #18 only if the upgraded pool program has behaved since Day 2.** It
-   returns the roll-back buffer's 3.514 SOL to the paying wallet and ends the roll-back option for
-   good. Then steps 23 and 24. Never execute #16 unless you are rolling back.
+   Skip step 22b: #18 can never execute now (see the section above, 17:03 UTC). Then steps 23
+   and 24.
 
 3. ⬜ **#968, Every position:** the Solana LP page lists every holder of each of our pools, with the
    connected wallet's rows marked. The owner said "merge 968 when green" on 2026-10-24, and a
