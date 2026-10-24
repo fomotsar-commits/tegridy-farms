@@ -16,6 +16,7 @@ import { SITE_URL } from './constants';
 import { BUNGALOWS } from './bungalows';
 import { REGISTERED_PROGRAM_ID, deriveAuthority, deriveLpMint } from './solana/cpswap/program';
 import {
+  COINS,
   DEFAULT_FILE,
   DEFAULT_TOKEN,
   LIMITS,
@@ -60,27 +61,86 @@ const readMetadata = (file: string) => {
 /** The picture a metadata file names, as a file name under public/mint/img/. */
 const pictureOf = (file: string) => String(readMetadata(file).json.image).split('/').pop()!;
 
+/** The ticker each coin in our pools reads by, from the list's own COINS table. */
+const TICKER = new Map(Object.entries(COINS).map(([ticker, mint]) => [mint, ticker]));
+const PAIRING_COINS = [COINS.SOL, COINS.USDC];
+
 describe('the one list of tokens', () => {
-  it('lists the two pool shares, the staking receipt and a default, each once', () => {
-    expect(MINT_TOKENS.map((t) => t.kind).sort()).toEqual(['pool-share', 'pool-share', 'staking-receipt']);
+  it('lists the eight pool shares, the staking receipt and a default, each once', () => {
+    expect(MINT_TOKENS.map((t) => t.kind).sort()).toEqual([...Array(8).fill('pool-share'), 'staking-receipt']);
     const all = [...MINT_TOKENS, DEFAULT_TOKEN];
     expect(new Set(MINT_TOKENS.map((t) => t.mint)).size).toBe(MINT_TOKENS.length);
-    for (const key of ['name', 'symbol', 'picture', 'ring'] as const) {
+    for (const key of ['name', 'symbol'] as const) {
       expect(new Set(all.map((t) => t[key])).size, `two tokens share a ${key}`).toBe(all.length);
     }
+    // Tokens may share a picture, never a picture slug that stands for two different pictures.
+    const look = (t: { ring: string; art?: string }) => `${t.art ?? 'island'}:${t.ring}`;
+    const bySlug = new Map<string, string>();
+    for (const t of all) {
+      expect(bySlug.get(t.picture) ?? look(t), `the slug ${t.picture} names two different pictures`).toBe(look(t));
+      bySlug.set(t.picture, look(t));
+    }
+    expect(new Set(bySlug.values()).size, 'one picture under two slugs').toBe(bySlug.size);
   });
 
-  it('carries the names the owner ruled on 2026-10-08 (the bungalow, then what the token does) and the symbols of 2026-10-06, word for word', () => {
+  it('carries the names the owner ruled on, word for word', () => {
     // Written out here on purpose. Every other check compares the files with the list, so
     // a name changed in the list and regenerated would pass them all.
+    // 2026-10-08: the BAYLA shares and the receipt. 2026-10-24: "<first coin>/<second coin> LP",
+    // and BRAINLET's symbol "use brain instead drop the L".
     expect(MINT_TOKENS.map((t) => [t.mint, t.name, t.symbol])).toEqual([
       ['BQZth5DhHZT9H1AxZonoLAwGHknWo4LebQBxjKWtzY8e', 'Bayla LP SOL', 'BAYLA-SOL'],
       ['3D3EKJxfePDQ1N8YtNwg8W6eSL4mjVpbYf57pnqgcAQx', 'Bayla LP USDC', 'BAYLA-USDC'],
+      ['8LUVkr5K9PFuLnXeZ2GfgiRXHxrQQQdzjnw1EiCQxcgZ', 'RIZZ/SOL LP', 'RIZZ-SOL'],
+      ['3YMYSG627S1gFMtG8GMWpzqVYd3DThRPMbxrgyqtpzUj', 'SOY/SOL LP', 'SOY-SOL'],
+      ['CcLsQeUD1dWhrR3aNW3sjcKHeLbMdPvzFRyBniUTCtNJ', 'BOBO/SOL LP', 'BOBO-SOL'],
+      ['AgSTcTMvo2U3hhRMxq6UVbaSNuiaBJSQRZ5b78A5ymc4', 'BRAINLET/SOL LP', 'BRAIN-SOL'],
+      ['4HPgmQyPSEXMGcCQHUDeo1EhJWKpjrnugPBSNLkyrrzh', 'CRYING/SOL LP', 'CRYING-SOL'],
+      ['45SMHUNbwLi91E792o3auPy7v8C4F58v6Yk5Yre7a4pC', 'SOL/USDC LP', 'SOL-USDC'],
       ['g8W2HWmS1dKJwHHKDkR1k7SmtTTx7ic97z1ssAZ8NwN', 'Bayla Staking', 'sBAYLA'],
     ]);
     // The default is what the pool program writes on chain for every pool, so these two
     // must stay the words fixed in that program.
     expect([DEFAULT_TOKEN.name, DEFAULT_TOKEN.symbol]).toEqual(['Memetics Pool Share', 'MEM-LP']);
+  });
+
+  it('names every pool share "<first coin>/<second coin> LP", its own coin first and the coin it is paired with last', () => {
+    // The two BAYLA shares keep the names of 2026-10-08 until the pool program is upgraded
+    // again: that upgrade's page refuses unless their live files are its reviewed copies.
+    const held = new Set(['BQZth5DhHZT9H1AxZonoLAwGHknWo4LebQBxjKWtzY8e', '3D3EKJxfePDQ1N8YtNwg8W6eSL4mjVpbYf57pnqgcAQx']);
+    for (const t of MINT_TOKENS.filter((x) => x.kind === 'pool-share')) {
+      const [first, second] = t.coins!;
+      expect(TICKER.has(first) && TICKER.has(second), `${t.name}: a coin missing from COINS`).toBe(true);
+      expect(first).not.toBe(second);
+      expect(PAIRING_COINS, `${t.name}: the second coin is not one a pool is paired with`).toContain(second);
+      // A pool of the two pairing coins reads SOL first, as the site shows it.
+      if (PAIRING_COINS.includes(first)) expect([first, second]).toEqual([COINS.SOL, COINS.USDC]);
+      expect(t.description).toContain(`the ${TICKER.get(first)}/${TICKER.get(second)} pool`);
+      if (held.has(t.mint)) continue;
+      expect(t.name).toBe(`${TICKER.get(first)}/${TICKER.get(second)} LP`);
+    }
+  });
+
+  it("gives a bungalow coin's share that bungalow's own art and every other share BAYLA's, ringed by the coin it is paired with", () => {
+    // Owner, 2026-10-24: "only bungalows get their art inside their rings everything else gets baylas art".
+    const rooms = new Map(BUNGALOWS.filter((b) => b.chain === 'solana' && b.address).map((b) => [b.address!, b.id]));
+    for (const t of MINT_TOKENS.filter((x) => x.kind === 'pool-share')) {
+      const [first, second] = t.coins!;
+      const room = rooms.get(first);
+      // BAYLA's own art is the island mark the pictures without `art` are made from.
+      expect(t.art, t.name).toBe(room && room !== 'bayla' ? room : undefined);
+      expect(t.ring, t.name).toBe(second === COINS.SOL ? 'sol' : 'usdc');
+      if (!t.art) expect(t.picture, t.name).toBe(`bayla-${t.ring}`);
+    }
+  });
+
+  it('says the whole address of a coin that is not one of the island\'s, never only its ticker', () => {
+    const island = new Set([...BUNGALOWS.filter((b) => b.chain === 'solana' && b.address).map((b) => b.address!), ...PAIRING_COINS]);
+    for (const t of MINT_TOKENS.filter((x) => x.kind === 'pool-share')) {
+      for (const coin of t.coins!) {
+        if (!island.has(coin)) expect(t.description, t.name).toContain(`${TICKER.get(coin)} (${coin})`);
+      }
+    }
   });
 
   it('names the canonical host and no other', () => {
@@ -151,8 +211,8 @@ describe('public/mint/ holds exactly the files the list names', () => {
   });
 
   it('has exactly the pictures those files name and the retired ones, and nothing else', () => {
-    const named = ROWS.map((r) => pictureOf(r.file)).sort();
-    expect(new Set(named).size).toBe(ROWS.length);
+    const named = [...new Set(ROWS.map((r) => pictureOf(r.file)))].sort();
+    expect(named.length, 'two different pictures for one slug').toBe(new Set(ROWS.map((r) => r.token.picture)).size);
     expect(readdirSync(IMG_DIR).sort()).toEqual([...named, ...RETIRED_PICTURES].sort());
     const onDisk = readdirSync(IMG_DIR).map((name) => ({ name, sha256: sha256(readFileSync(join(IMG_DIR, name))) }));
     expect(pictureFolderProblems(onDisk, named)).toEqual([]);
