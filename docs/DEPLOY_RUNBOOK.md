@@ -230,9 +230,10 @@ against `origin/mvp-launch` before writing a fix — otherwise you re-fix shippe
 
 ---
 
-## Function count ceiling
+## Function count
 
-The Vercel Hobby plan caps serverless functions at **12**. `frontend/api/` currently
-resolves to 10 real functions (the rest of the `.js` files are `__tests__`). When
-adding an endpoint, add a `?resource=` branch to an existing catchall rather than a new
-file, or the deploy fails on the cap.
+The project has been on Vercel Pro since 2026-09-04, so the Hobby plan's 12-function cap
+no longer binds. `frontend/api/SERVERLESS_BUDGET.md` lists every function: a new
+`api/*.js` route goes on that list in the same PR, or `commerce-surface-parity` and
+`alerts-surface-parity` fail. An endpoint that shares an existing catchall's gate is
+still a `?resource=` branch on it.
