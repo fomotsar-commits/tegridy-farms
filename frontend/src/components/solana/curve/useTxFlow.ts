@@ -105,8 +105,8 @@ function onlyFeesMoved(reviewed: PreparedTx, fresh: PreparedTx): boolean {
  * while the wallet is open). Otherwise `changed` lists what reads differently, with empty
  * lists when the lines could not be read or only the bytes differ: unreadable is never
  * "same". What shuts the wallet besides the transaction's own lines: a warning whose words
- * are new, a price check that ran more than PRICE_RUN further off, and fee lines that moved
- * for any reason but the fees.
+ * are new, a price check that ran more than PRICE_RUN further off, fee lines that moved
+ * for any reason but the fees, and a clock line that came, went or changed its words.
  */
 function compare(reviewed: PreparedTx, fresh: PreparedTx, lines: ReviewLines | undefined): { changed: Changed | null; moved: Changed } {
   const none: Changed = { now: [], gone: [] };
@@ -121,19 +121,23 @@ function compare(reviewed: PreparedTx, fresh: PreparedTx, lines: ReviewLines | u
     const market = diff(was.market, now.market);
     const warned = diff(was.warnings, now.warnings);
     const fees = diff(was.fees, now.fees);
+    const clock = diff(was.clock, now.clock);
     const seen = new Set(was.warnings.map(wordsOf));
     const news = warned.now.filter((l) => !seen.has(wordsOf(l)));
     const gapWas = gapOf(reviewed);
     const gapNow = gapOf(fresh);
     const ran = gapWas !== null && gapNow !== null && gapNow - gapWas > PRICE_RUN;
     const feesHold = (fees.now.length === 0 && fees.gone.length === 0) || onlyFeesMoved(reviewed, fresh);
+    // A clock line may move only its numbers: the reward owed grows each second.
+    const ticked = new Set(clock.gone.map(wordsOf));
+    const clockHolds = clock.now.length === clock.gone.length && clock.now.every((l) => ticked.has(wordsOf(l)));
     // Every line that reads differently: all of them are listed when the wallet stays shut,
     // so "every other line reads as it did" beside the button stays true.
     const all: Changed = {
-      now: [...own.now, ...market.now, ...warned.now, ...fees.now],
-      gone: [...own.gone, ...market.gone, ...warned.gone, ...fees.gone],
+      now: [...own.now, ...market.now, ...warned.now, ...fees.now, ...clock.now],
+      gone: [...own.gone, ...market.gone, ...warned.gone, ...fees.gone, ...clock.gone],
     };
-    const shut = own.now.length > 0 || own.gone.length > 0 || news.length > 0 || ran || !feesHold;
+    const shut = own.now.length > 0 || own.gone.length > 0 || news.length > 0 || ran || !feesHold || !clockHolds;
     if (shut) return { changed: all, moved: none };
     const inOrder = was.lines.length === now.lines.length && was.lines.every((l, i) => l === now.lines[i]);
     if (!inOrder || !sameToSign(reviewed, fresh)) return unknown;

@@ -1,9 +1,10 @@
 import { PublicKey } from '@solana/web3.js';
 import type { SolanaRpc } from '../../launcher/solana/curve/rpc';
 import { clipDetail } from '../../launcher/solana/curve/read';
-import { getMultipleAccounts, getTokenAccountsByOwner, type RawAccount } from '../lp/accounts';
+import { MAX_ACCOUNTS_PER_CALL, getMultipleAccounts, getTokenAccountsByOwner, type RawAccount } from '../lp/accounts';
 import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from '../cpswap/ix';
-import { decodeMintAccount } from '../lp/tokenSafety';
+import { EXTENSION, decodeMintAccount } from '../lp/tokenSafety';
+import { CLOCK_SYSVAR, chainTimeOf } from '../lp/poolFinder';
 import { getArrayStartIndex, initializedTickArrayStarts, isOverflowDefaultTickarrayBitmap } from './bitmap';
 import { ClmmMathError, calculateLatestTokenFees, getDeltaAmountsSigned, getFeeGrowthInside } from './math';
 import {
@@ -24,6 +25,7 @@ import {
   type PoolStateView,
   type TickArrayView,
 } from './program';
+import { positionRewardsAt, type RewardOwed } from './rewards';
 
 /**
  * What the site reads of the range program, over the browser's proxy (`/api/solrpc`),
@@ -173,8 +175,14 @@ export interface WalletPosition {
   amounts: { amount0: bigint; amount1: bigint } | null;
   /** Fees the position could collect now: owed as of its last update, plus what built up since. */
   fees: { fee0: bigint; fee1: bigint } | null;
-  /** Rewards the pool pays that this position is owed. Any above zero must be collected before closing. */
-  rewardsOwed: bigint[];
+  /**
+   * Each reward the pool runs, and what this position is owed of it at the chain's clock
+   * (rewards.ts); `decimals` and `feeOnTransfer` (the coin takes a fee out of each transfer)
+   * null when its mint did not read. Null when they could not be worked out.
+   */
+  rewards: (RewardOwed & { decimals: number | null; feeOnTransfer: boolean | null })[] | null;
+  /** The chain's unix time, from the Clock read in the same call as this position's record, pool and bands; null when it did not read. */
+  chainTime: bigint | null;
 }
 
 export interface WalletPositionsRead {
@@ -207,65 +215,84 @@ export function readWalletPositions(rpc: SolanaRpc, programId: PublicKey, owner:
     });
     if (found.length === 0) return { positions: [], unread: [] };
 
+    // The pools first, for each one's spacing, tier and reward coins. Then each position's
+    // record, pool, tier, two bands and reward mints are read in one call with the Clock, so
+    // what it is owed is worked out from one slot's accounts. Past 100 keys, more calls.
     const poolIds = [...new Set(found.map((f) => f.position.poolId))];
-    const poolAccounts = await getMultipleAccounts(rpc, poolIds);
-    const pools = new Map<string, PoolStateView>();
-    poolAccounts.forEach((a, i) => {
+    const first = new Map<string, PoolStateView>();
+    (await getMultipleAccounts(rpc, poolIds)).forEach((a, i) => {
       if (!owned(a, programId)) return;
       const p = decodePoolState(poolIds[i]!, a!.data);
-      if (p) pools.set(p.address, p);
+      if (p) first.set(p.address, p);
     });
-    const configIds = [...new Set([...pools.values()].map((p) => p.ammConfig))];
-    const configs = new Map<string, AmmConfigView>();
-    (await getMultipleAccounts(rpc, configIds)).forEach((a, i) => {
-      if (!owned(a, programId)) return;
-      const c = decodeAmmConfig(configIds[i]!, a!.data);
-      if (c) configs.set(c.address, c);
-    });
-
-    // The bands holding each position's two ends: their fee records say what it earned since.
-    const bandKey = (pool: string, start: number) => `${pool}:${start}`;
+    const unread: WalletPositionsRead['unread'] = [];
+    const POOL_UNREAD = 'its pool or the pool’s fee tier did not read';
     const bandAddresses = new Map<string, string>();
-    for (const { position } of found) {
-      const pool = pools.get(position.poolId);
-      if (!pool) continue;
-      for (const t of [position.tickLowerIndex, position.tickUpperIndex]) {
-        const start = getArrayStartIndex(t, pool.tickSpacing);
-        bandAddresses.set(bandKey(pool.address, start), deriveTickArray(programId, new PublicKey(pool.address), start).toBase58());
+    const bandOf = (pool: PoolStateView, t: number) => {
+      const start = getArrayStartIndex(t, pool.tickSpacing);
+      const id = `${pool.address}:${start}`;
+      if (!bandAddresses.has(id)) bandAddresses.set(id, deriveTickArray(programId, new PublicKey(pool.address), start).toBase58());
+      return bandAddresses.get(id)!;
+    };
+    const calls: { keys: string[]; members: typeof found }[] = [];
+    for (const f of found) {
+      const pool = first.get(f.position.poolId);
+      if (!pool) {
+        unread.push({ position: f.position.address, detail: POOL_UNREAD });
+        continue;
       }
+      const mints = pool.rewardInfos.filter((r) => r.initialized).map((r) => r.tokenMint);
+      const keys = [pool.address, pool.ammConfig, ...mints, f.position.address, bandOf(pool, f.position.tickLowerIndex), bandOf(pool, f.position.tickUpperIndex)];
+      let call = calls[calls.length - 1];
+      const adds = (c: { keys: string[] }) => [...new Set(keys)].filter((k) => !c.keys.includes(k));
+      if (!call || call.keys.length + adds(call).length > MAX_ACCOUNTS_PER_CALL) calls.push((call = { keys: [CLOCK_SYSVAR], members: [] }));
+      call.keys.push(...adds(call));
+      call.members.push(f);
     }
-    const keys = [...bandAddresses.keys()];
-    const bandAccounts = await getMultipleAccounts(rpc, keys.map((k) => bandAddresses.get(k)!));
-    const bands = new Map<string, TickArrayView>();
-    bandAccounts.forEach((a, i) => {
-      if (!owned(a, programId)) return;
-      const b = decodeTickArray(bandAddresses.get(keys[i]!)!, a!.data);
-      if (b) bands.set(keys[i]!, b);
-    });
+    const readIn = new Map<string, Map<string, RawAccount | null>>();
+    for (const call of calls) {
+      const got = await getMultipleAccounts(rpc, call.keys);
+      const byKey = new Map(call.keys.map((k, i) => [k, got[i] ?? null]));
+      for (const f of call.members) readIn.set(f.position.address, byKey);
+    }
 
     const positions: WalletPosition[] = [];
-    const unread: WalletPositionsRead['unread'] = [];
-    for (const { position, nftAccount, nftProgram } of found) {
-      const pool = pools.get(position.poolId);
-      const config = pool ? configs.get(pool.ammConfig) : undefined;
+    for (const { position: foundRecord, nftAccount, nftProgram } of found) {
+      const acc = readIn.get(foundRecord.address);
+      if (!acc) continue;
+      const at = (k: string) => acc.get(k) ?? null;
+      const chainTime = chainTimeOf(at(CLOCK_SYSVAR));
+      const rec = at(foundRecord.address);
+      if (!owned(rec, programId)) {
+        unread.push({ position: foundRecord.address, detail: 'its record did not read again with its pool' });
+        continue;
+      }
+      const position = decodePersonalPosition(foundRecord.address, rec!.data);
+      if (!position || position.nftMint !== foundRecord.nftMint) unreadable('a position record did not decode');
+      const poolA = at(position.poolId);
+      const pool = owned(poolA, programId) ? decodePoolState(position.poolId, poolA!.data) : null;
+      const configA = pool ? at(pool.ammConfig) : null;
+      const config = pool && owned(configA, programId) ? decodeAmmConfig(pool.ammConfig, configA!.data) : null;
       if (!pool || !config) {
-        unread.push({ position: position.address, detail: 'its pool or the pool’s fee tier did not read' });
+        unread.push({ position: position.address, detail: POOL_UNREAD });
         continue;
       }
       const tickOf = (t: number) => {
-        const band = bands.get(bandKey(pool.address, getArrayStartIndex(t, pool.tickSpacing)));
+        const address = bandOf(pool, t);
+        const a = at(address);
+        const band = owned(a, programId) ? decodeTickArray(address, a!.data) : null;
         return band?.ticks[(t - band.startTickIndex) / pool.tickSpacing] ?? null;
       };
       let amounts: WalletPosition['amounts'] = null;
       let fees: WalletPosition['fees'] = null;
+      const lower = tickOf(position.tickLowerIndex);
+      const upper = tickOf(position.tickUpperIndex);
       try {
         const [a0, a1] = position.liquidity > 0n ? getDeltaAmountsSigned(pool.tickCurrent, pool.sqrtPriceX64, position.tickLowerIndex, position.tickUpperIndex, -position.liquidity) : [0n, 0n];
         amounts = { amount0: a0, amount1: a1 };
         if (position.liquidity === 0n) {
           fees = { fee0: position.tokenFeesOwed0, fee1: position.tokenFeesOwed1 };
         } else {
-          const lower = tickOf(position.tickLowerIndex);
-          const upper = tickOf(position.tickUpperIndex);
           if (lower && upper && lower.tick === position.tickLowerIndex && upper.tick === position.tickUpperIndex) {
             const [g0, g1] = getFeeGrowthInside(lower, upper, pool.tickCurrent, pool.feeGrowthGlobal0X64, pool.feeGrowthGlobal1X64);
             fees = {
@@ -277,6 +304,11 @@ export function readWalletPositions(rpc: SolanaRpc, programId: PublicKey, owner:
       } catch (e) {
         if (!(e instanceof ClmmMathError)) throw e;
       }
+      const mintFacts = (m: string) => {
+        const a = at(m);
+        const d = a ? decodeMintAccount(a.owner, a.data) : null;
+        return d?.ok ? { decimals: d.value.decimals, feeOnTransfer: d.value.extensions.includes(EXTENSION.TransferFeeConfig) } : { decimals: null, feeOnTransfer: null };
+      };
       positions.push({
         position,
         nftAccount,
@@ -286,7 +318,8 @@ export function readWalletPositions(rpc: SolanaRpc, programId: PublicKey, owner:
         status: rangeStatus(pool, position),
         amounts,
         fees,
-        rewardsOwed: position.rewardInfos.map((r) => r.rewardAmountOwed),
+        rewards: positionRewardsAt(pool, position, lower, upper, chainTime)?.map((r) => ({ ...r, ...mintFacts(r.mint) })) ?? null,
+        chainTime,
       });
     }
     return { positions, unread };

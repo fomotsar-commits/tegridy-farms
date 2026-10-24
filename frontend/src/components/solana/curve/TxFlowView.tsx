@@ -1036,8 +1036,8 @@ function signStatus(s: ReviewState): string {
 }
 
 /**
- * While the wallet is open on a transaction built again at the press: what a market or
- * the network's fees moved since the review was read. Nothing else had changed.
+ * While the wallet is open on a transaction built again at the press: what a market, the
+ * network's fees or the chain's clock moved since the review was read. Nothing else had changed.
  */
 function MovedLines({ moved }: { moved: { now: string[]; gone: string[] } }) {
   const list = (items: string[]) => (
@@ -1049,7 +1049,7 @@ function MovedLines({ moved }: { moved: { now: string[]; gone: string[] } }) {
   );
   return (
     <div className="text-white/55 space-y-1" data-testid="tx-moved">
-      <p>Built again on fresh numbers before your wallet opened. These moved with the market or the network&apos;s fees since you read the review; every other line, and every instruction, is the same:</p>
+      <p>Built again on fresh numbers before your wallet opened. These moved with the market, the network&apos;s fees or the chain&apos;s clock since you read the review; every other line, and every instruction, is the same:</p>
       {moved.now.length > 0 && list(moved.now)}
       {moved.gone.length > 0 && <p>{moved.now.length > 0 ? 'In place of:' : 'No longer on it:'}</p>}
       {moved.gone.length > 0 && list(moved.gone)}

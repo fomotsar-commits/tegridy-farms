@@ -1,9 +1,11 @@
+import { Fragment } from 'react';
 import { formatSol, formatTokenAmount } from '../../../lib/launcher/solana/curve';
 import { formatSolPrice } from '../../../lib/solana/lp/format';
 import { feeSplit } from '../../../lib/solana/clmm/feeText';
 import { rangeVenueEarns } from '../../../lib/solana/clmm/venueEarns';
 import { Notice, Row } from './ui';
 import type { RangeSummary } from './ports';
+import { rewardAmount, rewardCoin } from '../range/rangeText';
 
 /**
  * The review of a range-position transaction. Every amount is the prepared transaction's:
@@ -59,10 +61,28 @@ export function RangeRows({ summary: s }: { summary: RangeSummary }) {
       ) : (
         <>
           <Row label="Position" value={s.position.toBase58()} />
-          <Row label="Taking out" value={s.percent === 0 ? 'no liquidity: the fees only' : `${s.percent}% of its liquidity`} mono={false} />
+          <Row label="Taking out" value={s.percent > 0 ? `${s.percent}% of its liquidity` : s.rewards?.length === 0 ? 'no liquidity: the fees only' : 'no liquidity: the fees and rewards only'} mono={false} />
           {s.percent > 0 && <Row label="You get about" value={both(s.quoted)} mono={false} />}
           {s.percent > 0 && <Row label="At least" value={both(s.min)} mono={false} />}
           <Row label="Fees it has earned" value={s.fees ? both(s.fees) : 'could not be worked out just now; they are paid out in full all the same'} mono={false} />
+          {s.rewards === null ? (
+            <Row label="Rewards it pays" value="could not be worked out just now; what it is owed is paid out all the same" mono={false} />
+          ) : (
+            // A running reward grows each second, so this line moves with the chain's clock alone.
+            s.rewards.length > 0 && <Row label="Rewards it pays" value={s.rewards.map((r) => rewardAmount(r.amount, r.decimals, r.mint.toBase58())).join(' and ')} mono={false} line="clock" />
+          )}
+          {s.rewards?.map((r) => {
+            const coin = rewardCoin(r.mint.toBase58());
+            return (
+              <Fragment key={r.mint.toBase58()}>
+                {r.amount < r.owed && (
+                  <Notice tone="warn">{`This reward’s vault holds less than the position is owed, so it pays ${rewardAmount(r.amount, r.decimals, r.mint.toBase58())} now and the rest stays owed to it.`}</Notice>
+                )}
+                {r.feeOnTransfer === true && <Notice tone="warn">{`${coin} takes its own fee out of each transfer, so less ${coin} than this arrives in your wallet.`}</Notice>}
+                {r.feeOnTransfer === null && <Notice tone="warn">{`${coin}’s mint could not be read just now, so whether it takes a fee out of each transfer is not known.`}</Notice>}
+              </Fragment>
+            );
+          })}
           {s.kind === 'range-close' && (
             <Notice>The position&apos;s NFT is burned and its record closed, and their deposits come back to you.</Notice>
           )}

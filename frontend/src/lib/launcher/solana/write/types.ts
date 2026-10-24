@@ -362,6 +362,18 @@ export interface RangeLine {
   holds: 'both' | 'token-only' | 'coin-only';
 }
 
+/** One reward a take-out pays, as the program pays it (decrease_liquidity.rs collect_rewards). */
+export interface RangeRewardPaid {
+  mint: PublicKey;
+  /** Owed at the chain's clock. */
+  owed: bigint;
+  /** What leaves the reward's vault: what is owed, or what the vault holds if that is less. */
+  amount: bigint;
+  decimals: number | null;
+  /** True when the coin takes its own fee out of each transfer, so less than `amount` arrives; null when its mint did not read. */
+  feeOnTransfer: boolean | null;
+}
+
 export type RangeSummary =
   | ({
       kind: 'range-open';
@@ -392,6 +404,8 @@ export type RangeSummary =
       quoted: { token: bigint; quote: bigint };
       /** Fees owed now, from the fresh read; null when they could not be worked out. */
       fees: { token: bigint; quote: bigint } | null;
+      /** Each reward this pays. Empty when it pays none; null when that could not be worked out. */
+      rewards: RangeRewardPaid[] | null;
       unwrapsWsol: boolean;
       notices: string[];
     } & { poolLine: RangePoolLine; range: RangeLine });
