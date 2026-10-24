@@ -1,4 +1,8 @@
+import { base58 } from '@scure/base';
+import type { Connection, Transaction, VersionedTransaction } from '@solana/web3.js';
 import { NoRouteError, type JupiterQuote, type PriorityLevel, type SwapSimulation } from '../../jupiter';
+import type { AggregatorSeen } from '../../launcher/solana/write/types';
+import { pollConfirm, type ConfirmOutcome } from '../confirm';
 import { minOut, type SolBasketCoin } from '../../islandBasket';
 import { prepareJupiterSwap, refusedSaid, NOT_TEST_RUN_COPY, type FeeRetryDeps } from './jupiterFeeRetry';
 import { freshDecision } from './ownPoolRoute';
@@ -12,16 +16,18 @@ import type { VenuePoolCandidate } from './venuePools';
  * migrated or stray pool is never touched.
  *
  * Our own pools are compared exactly as the swap compares them (swap/ownPoolRoute.ts):
- * one that pays at least as much takes the coin. That coin is NOT sent from here: every
- * swap in our pool shows its own review first (owner, 2026-10-13), so the order hands it
- * to the swap form's review.
+ * one that pays at least as much takes the coin, and the order buys it there itself. The
+ * order sheet, each coin with its pool and figure, is that coin's review (owner,
+ * 2026-10-24: "buy all these tokens for me when i click buy, not just route me to the
+ * swap"). Until then a coin our pool won was handed to the swap form's own review.
  */
 
 export const BASKET_COPY = {
   poolNotNamed: 'Jupiter answered through a different pool than the one this order uses, so nothing was sent for it.',
   noRoute: 'Jupiter has no route through this coin’s pool right now, so nothing was sent for it.',
   moved: 'Its price dropped beyond your slippage since the order was shown, so nothing was sent for it.',
-  ownWins: 'Our own pool pays at least as much for this coin. It opens in the swap form, with its review.',
+  tooSlow: 'It took too long to approve in your wallet, so it ran out of time. Nothing was sent for it.',
+  refusedFirst: 'The network refused it before sending it, so nothing was sent for it.',
 } as const;
 
 /** Jupiter's answer names another pool, or splits the trade: not this order's route. */
@@ -95,8 +101,8 @@ export interface SolLegDeps {
 export type PreparedSolLeg =
   /** Hand `swapTransaction` to the wallet: it passed its test run. Show `quote`'s amounts. */
   | { kind: 'ready'; quote: JupiterQuote; swapTransaction: string; siteFeeWaived: boolean }
-  /** Our pool takes it: the swap form's review buys it. */
-  | { kind: 'own' }
+  /** Our pool `pool` takes it, held to what Jupiter was seen to pay for the same share (`aggregator`). */
+  | { kind: 'own'; pool: string; aggregator: AggregatorSeen }
   | { kind: 'not-sent'; why: string };
 
 /**
@@ -122,9 +128,10 @@ export async function prepareSolLeg(
   // Our pools now. A read that fails changes nothing: what was on screen stands, and an
   // unread read on screen is no pool, as on the swap (ownPoolTakesIt: only a comparison that
   // never answered at all holds a trade, and the order is only shown once every read answered).
-  const ownTakes = async (out: bigint): Promise<boolean> => {
+  const ownTakes = async (out: bigint): Promise<PreparedSolLeg | null> => {
     const own = (await deps.ownPools().catch(() => null)) ?? a.shownOwn ?? [];
-    return solLegRoute(out, own) === 'own';
+    const chosen = freshDecision(own, out).chosen;
+    return chosen?.venue === 'own-pool' && chosen.poolAddress ? { kind: 'own', pool: chosen.poolAddress, aggregator: { kind: 'quoted', out, when: 'now' } } : null;
   };
 
   let fresh: JupiterQuote;
@@ -147,7 +154,8 @@ export async function prepareSolLeg(
   if (floor === null || freshOut < floor) return { kind: 'not-sent', why: BASKET_COPY.moved };
 
   const carriesFee = deps.swapCarriesPlatformFee(a.inputMint, a.coin.mint);
-  if (!carriesFee && (await ownTakes(freshOut))) return { kind: 'own' };
+  const ownFirst = carriesFee ? null : await ownTakes(freshOut);
+  if (ownFirst) return ownFirst;
 
   let prepared: Awaited<ReturnType<typeof prepareJupiterSwap>>;
   try {
@@ -168,7 +176,63 @@ export async function prepareSolLeg(
     } catch {
       return { kind: 'not-sent', why: BASKET_COPY.moved };
     }
-    if (await ownTakes(sentOut)) return { kind: 'own' };
+    const ownNow = await ownTakes(sentOut);
+    if (ownNow) return ownNow;
   }
   return { kind: 'ready', quote: prepared.quote, swapTransaction: prepared.swapTransaction, siteFeeWaived: prepared.siteFeeWaived };
+}
+
+/**
+ * Every transaction of one press on the same fresh blockhash, set just before the one
+ * wallet prompt that signs them all: each was built a few seconds apart (Jupiter answers
+ * one call a second), and a blockhash lasts about 40 s here, so the first one built would
+ * otherwise run out while the wallet is open. The blockhash is no part of what a test run
+ * checked. Nothing is signed yet, so nothing signed changes.
+ */
+export function stampBlockhash(txs: readonly (Transaction | VersionedTransaction)[], blockhash: string): void {
+  for (const tx of txs) {
+    if ('version' in tx) tx.message.recentBlockhash = blockhash;
+    else tx.recentBlockhash = blockhash;
+  }
+}
+
+/** The fee payer's signature on a signed transaction, or null when it is not signed. */
+export function signatureOf(tx: VersionedTransaction): string | null {
+  const s = tx.signatures[0];
+  return s && s.some((b) => b !== 0) ? base58.encode(s) : null;
+}
+
+/** How often the same signed bytes are sent again while the chain has not answered. */
+const RESEND_MS = 2_000;
+
+export type SentLeg = { kind: 'not-sent'; why: string } | { kind: 'sent'; outcome: ConfirmOutcome['outcome'] };
+
+/**
+ * Send a transaction the wallet signed (and did not send) through our own RPC, and watch
+ * it. The first send runs the network's own check: a refusal there never reached the
+ * chain, and is `not-sent`. After that, the same bytes go again every RESEND_MS until the
+ * chain answers or `timeoutMs` runs out (same bytes, same signature: a re-send can never
+ * buy twice). Any other error at the first send may have come after the RPC passed it on,
+ * so it is watched, never said to be "not sent". Never throws.
+ */
+export async function sendSigned(
+  conn: Pick<Connection, 'sendRawTransaction' | 'getSignatureStatuses'>,
+  raw: Uint8Array,
+  signature: string,
+  timeoutMs: number,
+): Promise<SentLeg> {
+  try {
+    await conn.sendRawTransaction(raw, { skipPreflight: false, preflightCommitment: 'confirmed', maxRetries: 0 });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e ?? '');
+    if (/Blockhash not found/i.test(msg)) return { kind: 'not-sent', why: BASKET_COPY.tooSlow };
+    if (/simulation failed|preflight/i.test(msg) && !/already been processed/i.test(msg)) return { kind: 'not-sent', why: BASKET_COPY.refusedFirst };
+  }
+  const again = setInterval(() => { void conn.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0 }).catch(() => {}); }, RESEND_MS);
+  try {
+    const { outcome } = await pollConfirm(conn, signature, timeoutMs);
+    return { kind: 'sent', outcome };
+  } finally {
+    clearInterval(again);
+  }
 }

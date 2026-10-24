@@ -3,7 +3,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { NoRouteError, type JupiterQuote } from '../../jupiter';
 import { SOL_BASKET } from '../../islandBasket';
 import { NOT_TEST_RUN_COPY } from './jupiterFeeRetry';
-import { BASKET_COPY, PoolNotNamedError, pinnedGetQuote, prepareSolLeg, quotedPool, retryingGetQuote, solLegRoute, type SolLegDeps } from './islandBasketSol';
+import { Keypair, PublicKey, Transaction, TransactionMessage, VersionedTransaction } from '@solana/web3.js';
+import { BASKET_COPY, PoolNotNamedError, pinnedGetQuote, prepareSolLeg, quotedPool, retryingGetQuote, sendSigned, signatureOf, solLegRoute, stampBlockhash, type SolLegDeps } from './islandBasketSol';
 import type { VenuePoolCandidate } from './venuePools';
 
 const SOL = 'So11111111111111111111111111111111111111112';
@@ -15,6 +16,8 @@ const quote = (out: string, o: { pool?: string; percent?: number; hops?: number;
   routePlan: Array.from({ length: o.hops ?? 1 }, () => ({ percent: o.percent ?? 100, swapInfo: { ammKey: o.pool ?? brainlet.pool.address, label: 'Pump.fun Amm' } })),
 });
 const own = (out: bigint): VenuePoolCandidate => ({ venue: 'own-pool', outAmount: out, label: 'venue pool', poolAddress: 'OwnPool111' } as VenuePoolCandidate);
+/** Our pool takes the coin, its swap held to what Jupiter's transaction was just seen to pay. */
+const ownAt = (jupiterOut: bigint) => ({ kind: 'own', pool: 'OwnPool111', aggregator: { kind: 'quoted', out: jupiterOut, when: 'now' } });
 
 describe('quotedPool', () => {
   it('names the pool of a single whole hop, and nothing else', () => {
@@ -78,21 +81,21 @@ describe('prepareSolLeg', () => {
     await expect(prepareSolLeg(deps({ fresh: quote('9900') }), base)).resolves.toMatchObject({ kind: 'ready' });
   });
 
-  it('hands the coin to our pool’s review when our pool pays at least as much, before anything is built on a fee-free pair', async () => {
+  it('gives the coin to our pool when it pays at least as much, held to Jupiter’s fresh figure, before anything is built on a fee-free pair', async () => {
     const d = deps({ feePair: false, ownPools: async () => [own(10_000n)] });
-    await expect(prepareSolLeg(d, base)).resolves.toEqual({ kind: 'own' });
+    await expect(prepareSolLeg(d, base)).resolves.toEqual(ownAt(10_000n));
     expect(d.built).not.toHaveBeenCalled();
   });
 
   it('compares our pool with what Jupiter’s transaction FROM THIS SITE pays, on a fee pair', async () => {
     // Jupiter's built quote pays 10,000; our pool 10,000 → ours (the tie goes to us).
-    await expect(prepareSolLeg(deps({ ownPools: async () => [own(10_000n)] }), base)).resolves.toEqual({ kind: 'own' });
+    await expect(prepareSolLeg(deps({ ownPools: async () => [own(10_000n)] }), base)).resolves.toEqual(ownAt(10_000n));
     await expect(prepareSolLeg(deps({ ownPools: async () => [own(9_999n)] }), base)).resolves.toMatchObject({ kind: 'ready' });
   });
 
   it('an unread read of our pools changes nothing: what was on screen stands, and an unread one on screen is no pool', async () => {
     const fails = async () => { throw new Error('rpc down'); };
-    await expect(prepareSolLeg(deps({ ownPools: fails }), { ...base, shownOwn: [own(20_000n)] })).resolves.toEqual({ kind: 'own' });
+    await expect(prepareSolLeg(deps({ ownPools: fails }), { ...base, shownOwn: [own(20_000n)] })).resolves.toEqual(ownAt(10_000n));
     await expect(prepareSolLeg(deps({ ownPools: async () => null }), { ...base, shownOwn: null })).resolves.toMatchObject({ kind: 'ready' });
   });
 
@@ -128,3 +131,53 @@ describe('retryingGetQuote', () => {
   });
 });
 
+
+describe('stampBlockhash', () => {
+  it('puts one blockhash on every transaction of a press, versioned and legacy alike', () => {
+    const payer = Keypair.generate().publicKey;
+    const v0 = new VersionedTransaction(new TransactionMessage({ payerKey: payer, recentBlockhash: '11111111111111111111111111111111', instructions: [] }).compileToV0Message());
+    const legacy = new Transaction({ feePayer: payer, recentBlockhash: '11111111111111111111111111111111' });
+    const fresh = new PublicKey(Keypair.generate().publicKey).toBase58();
+    stampBlockhash([v0, legacy], fresh);
+    expect(v0.message.recentBlockhash).toBe(fresh);
+    expect(legacy.recentBlockhash).toBe(fresh);
+  });
+});
+
+describe('signatureOf', () => {
+  it('reads the fee payer’s signature, and nothing from a transaction that is not signed', () => {
+    const payer = Keypair.generate();
+    const tx = new VersionedTransaction(new TransactionMessage({ payerKey: payer.publicKey, recentBlockhash: '11111111111111111111111111111111', instructions: [] }).compileToV0Message());
+    expect(signatureOf(tx)).toBeNull();
+    tx.sign([payer]);
+    expect(signatureOf(tx)).toMatch(/^[1-9A-HJ-NP-Za-km-z]{64,90}$/);
+  });
+});
+
+describe('sendSigned', () => {
+  const raw = new Uint8Array([1, 2, 3]);
+  const conn = (o: { first?: () => Promise<string>; status?: () => unknown }) => ({
+    sendRawTransaction: vi.fn(o.first ?? (async () => 'SIG')),
+    getSignatureStatuses: vi.fn(async () => ({ value: [o.status ? o.status() : { err: null, confirmationStatus: 'confirmed', slot: 9 }] })),
+  });
+
+  it('sends the signed bytes through the network’s own check first, then watches them to the chain’s answer', async () => {
+    const c = conn({});
+    await expect(sendSigned(c as never, raw, 'SIG', 5_000)).resolves.toEqual({ kind: 'sent', outcome: 'confirmed' });
+    expect(c.sendRawTransaction).toHaveBeenCalledWith(raw, expect.objectContaining({ skipPreflight: false }));
+  });
+
+  it('a refusal at the first send never reached the chain: not sent, with why; a blockhash gone is a wallet left open too long', async () => {
+    const refused = conn({ first: async () => { throw new Error('Transaction simulation failed: Error processing Instruction 3'); } });
+    await expect(sendSigned(refused as never, raw, 'SIG', 5_000)).resolves.toEqual({ kind: 'not-sent', why: BASKET_COPY.refusedFirst });
+    expect(refused.getSignatureStatuses).not.toHaveBeenCalled();
+    const late = conn({ first: async () => { throw new Error('Transaction simulation failed: Blockhash not found'); } });
+    await expect(sendSigned(late as never, raw, 'SIG', 5_000)).resolves.toEqual({ kind: 'not-sent', why: BASKET_COPY.tooSlow });
+  });
+
+  it('any other error at the first send may have come after it was passed on: it is watched, never called not sent', async () => {
+    const dropped = conn({ first: async () => { throw new Error('fetch failed'); } });
+    await expect(sendSigned(dropped as never, raw, 'SIG', 5_000)).resolves.toEqual({ kind: 'sent', outcome: 'confirmed' });
+    expect(dropped.getSignatureStatuses).toHaveBeenCalled();
+  });
+});
