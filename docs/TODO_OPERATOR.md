@@ -29,7 +29,7 @@ stop and say so — a surprise is information.
 
 ---
 
-## 🔴 2026-10-22: two merges only you can press (#930 done, #776 on Day 2)
+## ✅ 2026-10-22: two merges only you can press (both done)
 
 A session's merge was refused on 2026-10-22 as a production deploy, after a general "merge". A
 second word that names the one PR ("merge 930") has let a merge through before, but not always.
@@ -55,7 +55,11 @@ command.
   (#933, the splash art held still under reduced motion, merged 2026-10-22 at 10:36 UTC and is
   live.)
 
-- ⬜ **Merge #776 within the hour after the pool upgrade executes on Day 2** (pool proposal #15,
+- ✅ **Done 2026-10-23 15:55 UTC** (merge commit `e1ff3b467`, Vercel deployed it 15:59 UTC). Pool
+  proposal #15 executed at 08:44:16 UTC in slot 460,379,427; mainnet runs `1e55bcdc…`, and the
+  record is in `solana/tegridy-amm/MAINNET_RUNBOOK.md` section 4b. Left from it: tick O-0929-10
+  (below) once the explorer's security tab shows the new text.
+  **Merge #776 within the hour after the pool upgrade executes on Day 2** (pool proposal #15,
   executable from 2026-10-23 06:20:22 UTC, read on chain 2026-10-22; the ladder's #17 follows at
   06:37:12). Not before: until the execute, everything
   #776 says about mainnet is false. It is a draft, level with trunk at `cdacf9c49`, and keeps
