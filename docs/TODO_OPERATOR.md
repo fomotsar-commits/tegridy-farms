@@ -29,6 +29,76 @@ stop and say so — a surprise is information.
 
 ---
 
+## 🔴 2026-10-24: what is left after upgrade Day 2 (read this first)
+
+Read on chain and on GitHub on 2026-10-24, about 03:30 UTC.
+
+**Done on 2026-10-22 and 23:**
+
+- The Base BRB/WETH pool `0x48A7CADc6b785654Ba6BB620cc2B8352631D08D0` pays the venue its cut
+  again: the L2 Safe ran `harvest()` (Safe transaction 5, tx
+  `0x49284b556086b0768ac9fa4999fd8d5c62112d215b49ae23116000c59c89e796`). The old NFT pool factory
+  `0xbB8E49Ba4e3A85E2B8B70e00208770F429B56F5B` is paused (governance Safe transaction 0).
+- Upgrade Day 2: the ladder runs its four-year build (#17), and the pool program is the build
+  `1e55bcdc` (#15, executed 08:44:16 UTC, slot 460,379,427). Each pack's step 16 passed, including
+  the launch tier refusing a stranger's pool. The three upgrade-day files are in `artifacts\`. Both
+  pool shares have their name records, and the rename (#20) is approved by both members.
+- Merged: #776, #942, #695 (migration 027 applied first), #956, #926, #932, #940, #943, #963 and
+  #967. `JUPITER_API_KEY` is set in Vercel for Production. The island was sent the range-fee date.
+
+**Left, in this order:**
+
+1. ⬜ **Execute the range fee tiers (#19). It can run now.** The public notice said no sooner than
+   2026-10-23 14:00 UTC. Read on 2026-10-24: not executed (the range program owns no accounts).
+   The folder's START-HERE, steps 4 and 5:
+
+   ```bash
+   node "C:\Users\jimbo\solana-launch-release-2026-09-26\range-pools-tiers-2026-10\scripts\5-record-notice.mjs"
+   ```
+   ```bash
+   node "C:\Users\jimbo\solana-launch-release-2026-09-26\range-pools-tiers-2026-10\proposer\serve.mjs"
+   ```
+
+   Open **http://127.0.0.1:5499/**, connect either member, and press **EXECUTE proposal #19**. You
+   should see `Done: proposal #19 is EXECUTED. Run 6-verify-tiers.mjs.` Then:
+
+   ```bash
+   node "C:\Users\jimbo\solana-launch-release-2026-09-26\range-pools-tiers-2026-10\scripts\6-verify-tiers.mjs"
+   ```
+
+   After that a session opens the one-line pull request that turns `RANGE_POOLS_OPEN` on. Until it
+   merges, the Range tab and the range pools in the swap route stay hidden.
+
+2. ⬜ **Day 4, Sunday 2026-10-25, from 09:07 UTC: the pool pack's step 22.** Start the page, open
+   **http://127.0.0.1:5299/**, connect a member and execute **#20** (the rename to "Bayla LP SOL"
+   and "Bayla LP USDC"):
+
+   ```bash
+   node "C:\Users\jimbo\solana-launch-release-2026-09-26\pool-program-upgrade-2026-10\proposer\serve.mjs"
+   ```
+
+   Then step 22b: **execute #18 only if the upgraded pool program has behaved since Day 2.** It
+   returns the roll-back buffer's 3.514 SOL to the paying wallet and ends the roll-back option for
+   good. Then steps 23 and 24. Never execute #16 unless you are rolling back.
+
+3. ⬜ **#968, Every position:** the Solana LP page lists every holder of each of our pools, with the
+   connected wallet's rows marked. The owner said "merge 968 when green" on 2026-10-24, and a
+   session merges it once every check passes and GitHub reads it `CLEAN`. If it is still open, ask
+   a session to bring trunk in again.
+
+4. ⬜ **Decisions:** the keeper bot #844 (fund a small keeper, or close the pull request); the 0.25%
+   fee tier proposal (it unblocks #887 and #880, and #877 also needs its 7 days' public notice);
+   #824 and #817 wait for their deploys.
+
+5. ⬜ **The BAYLA December refill.** Pick the amount by 2026-11-15 (7,703,866.368 BAYLA is the
+   recommendation). The second approval is due by 2026-12-21 15:32:16 UTC, and the execute runs from
+   2026-12-23 15:32:16 UTC: the ladder pack's steps R1 to R4.
+
+**How merges work now:** a session merges a pull request only when the owner names it ("merge 968").
+A general "merge what you can" is refused as a production deploy.
+
+---
+
 ## 🔴 2026-10-22: two merges only you can press (#930 done, #776 on Day 2)
 
 A session's merge was refused on 2026-10-22 as a production deploy, after a general "merge". A
@@ -55,7 +125,9 @@ command.
   (#933, the splash art held still under reduced motion, merged 2026-10-22 at 10:36 UTC and is
   live.)
 
-- ⬜ **Merge #776 within the hour after the pool upgrade executes on Day 2** (pool proposal #15,
+- ✅ **Done 2026-10-23 15:55 UTC** (merge commit `e1ff3b467`), after the pool upgrade executed at
+  08:44:16 UTC. The text below is kept as it was.
+  **Merge #776 within the hour after the pool upgrade executes on Day 2** (pool proposal #15,
   executable from 2026-10-23 06:20:22 UTC, read on chain 2026-10-22; the ladder's #17 follows at
   06:37:12). Not before: until the execute, everything
   #776 says about mainnet is false. It is a draft, level with trunk at `cdacf9c49`, and keeps
