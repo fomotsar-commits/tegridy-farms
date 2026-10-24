@@ -332,6 +332,12 @@ nothing is lost.
   `public.schema_migrations`, not 027). Then Actions > Venue Volume > Run workflow once: the first
   run reads all of history in a few minutes; after that it runs hourly by itself. Until 028 is in,
   the job counts nothing and stays green, and the home page says the volume could not be read.
+- ⬜ **Migration 030, after the range stats PR merges** (free). Paste
+  `frontend/supabase/migrations/030_range.sql` in the SQL editor (it needs only
+  `public.schema_migrations`, not 029). Then Actions > Range Stats > Run workflow once; after that
+  it runs hourly at minute 47 by itself, with the same two Supabase secrets as Venue Volume. Until
+  030 is in, the job counts nothing and stays green, and the range figures say "could not be
+  read". The four check queries are at the end of the file.
 - ⬜ **One sitting with real phones** [was O-1009-8], now with #722 (the Solana wallet list on a
   phone): on Android, does Phantom open its app, and does it connect by itself inside Phantom; in
   Trust's own browser, is Trust listed once; does the list fit a small phone. On a 320 by 568

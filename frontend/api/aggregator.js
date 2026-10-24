@@ -533,6 +533,21 @@ export default async function handler(req, res) {
     return handleVenueVolume(req, res);
   }
 
+  // `?resource=range-stats`, `range-pools`, `range-swaps`: the hourly range-stats.yml count of
+  // each range pool (migration 030), cached at the edge. Above `const provider`, like the rest.
+  if (req.query.resource === "range-stats") {
+    const { handleRangeStats } = await import("./_lib/rangeStats.js");
+    return handleRangeStats(req, res);
+  }
+  if (req.query.resource === "range-pools") {
+    const { handleRangePools } = await import("./_lib/rangeStats.js");
+    return handleRangePools(req, res);
+  }
+  if (req.query.resource === "range-swaps") {
+    const { handleRangeSwaps } = await import("./_lib/rangeStats.js");
+    return handleRangeSwaps(req, res);
+  }
+
   // FLAT function at /api/aggregator. AUDIT FIX 2026-07-10: Vercel's nested /
   // catch-all dynamic function routing under /api/aggregator (both
   // `[provider]/[...path]` and a single `[...slug]`) did NOT route reliably with

@@ -12,7 +12,8 @@
 # Supabase service key; off GitHub api/errors.js and api/analytics.js purge after a stored batch),
 # contracts-coverage.yml (not run off GitHub), mirror-to-gitlab.yml (GitHub copying
 # itself to GitLab), changelog.yml (reads a GitHub pull request's files and description),
-# and venue-volume.yml (schedule only, holds the service key; off GitHub the count waits).
+# and venue-volume.yml and range-stats.yml (schedule only, hold the service key; off GitHub
+# the counts wait).
 
 workflow:
   rules:

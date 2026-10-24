@@ -1,0 +1,38 @@
+name: Range Stats
+
+# Every hour, counts each range pool's new swaps and the venue's take into migration 030's
+# tables, which /api/aggregator?resource=range-stats serves. Keyless chain reads, free minutes.
+# RED means a pool, the pool list or a write was not counted this hour; the site then says the
+# figure is behind. No npm install: no third-party code runs next to the service key.
+
+on:
+  schedule:
+    - cron: "47 * * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: range-stats
+  cancel-in-progress: false
+
+jobs:
+  count:
+    runs-on: ubuntu-latest
+    # A run stops reading after 20 minutes and saves what it read.
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      - name: Count range pools
+        shell: bash
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: node frontend/scripts/range-stats.mjs
