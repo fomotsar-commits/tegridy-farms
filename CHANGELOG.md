@@ -7,6 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-10-24
+
+- On phones and on an iPad held upright, the dashboard now shows its big picture too: the room's door art with the coin's name, captioned like a magazine plate, under your holdings and positions. It used to show only on wider screens.
+
 ### 2026-10-23
 
 - Solana pools: the pool program was upgraded. It now has one added instruction, which lets a pool's share token carry a name and a picture in wallets, and one added check: opening a pool the public way no longer accepts the launch fee tier, which is kept for launches. Its on-chain security contact is an email and links on memetics.finance. The lines you read before adding liquidity or opening a pool say so: our pool program is Raydium's, with its admin keys changed, one added instruction that names pool share tokens and one added check that keeps the launch fee tier for launches, and those changes have not had their own independent review yet. "The program" card on /pools and /solana-lp no longer says the program is waiting for an upgrade.

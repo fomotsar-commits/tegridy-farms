@@ -40,7 +40,8 @@ import { FinePrint } from './ui/FinePrint';
  *
  * The menu's editorial look (lib/editorial.ts): heavy type, hairlines, mono captions, hard
  * corners, grain. Every row carries its room's door picture: beside the word under 1024px, and
- * from 1024px in a big frame that follows the pointer.
+ * from 1024px in a big frame that follows the pointer. The frame shows at every width: under
+ * 1024px it is a wide plate under the board.
  */
 
 const GREEN = '#22c55e';
@@ -441,15 +442,20 @@ function ConnectButtons({ solana, evm }: { solana: boolean; evm: boolean }) {
   );
 }
 
-/** The big frame, from 1024px: the door picture of the row under the pointer, captioned as a plate. */
+/**
+ * The big frame: the door picture of the row under the pointer, captioned as a plate. From 1024px
+ * it stands beside the board. Under 1024px (a phone, an upright iPad) it is a wide plate under the
+ * board, so the rows still come first (owner, 2026-10-23: "the mobile and ipad dont have the
+ * dashboard updated like pc version"; it was hidden there).
+ */
 function Figure({ n, roomId, caption }: { n: number; roomId: string; caption: string }) {
   const room = BUNGALOWS.find((b) => b.id === roomId);
   const door = doorOf(roomId);
   const reduce = prefersReducedMotion();
   const srcSet = door ? artSrcSet(door.src) : undefined;
   return (
-    <div aria-hidden="true" className="hidden lg:block lg:sticky lg:top-24 self-start pt-4">
-      <div className="relative aspect-[4/5] overflow-hidden border border-white/15" style={{ background: EDITORIAL_BG }}>
+    <div aria-hidden="true" className="mt-6 lg:mt-0 lg:sticky lg:top-24 self-start lg:pt-4">
+      <div className="relative aspect-[4/3] md:aspect-[16/9] lg:aspect-[4/5] overflow-hidden border border-white/15" style={{ background: EDITORIAL_BG }}>
         <AnimatePresence initial={false}>
           <m.div key={roomId} className="absolute inset-0"
             initial={reduce ? { opacity: 0 } : { clipPath: 'inset(100% 0% 0% 0%)' }}
@@ -458,7 +464,7 @@ function Figure({ n, roomId, caption }: { n: number; roomId: string; caption: st
             transition={{ duration: 0.7, ease: EDITORIAL_EASE }}>
             {door && (
               // art-bright: index.css dims any full-bleed art to 0.45; nothing but a caption sits on this one.
-              <img src={door.src} {...(srcSet ? { srcSet, sizes: '360px' } : {})} alt="" loading="lazy" decoding="async"
+              <img src={door.src} {...(srcSet ? { srcSet, sizes: '(min-width: 1024px) 360px, 100vw' } : {})} alt="" loading="lazy" decoding="async"
                 className="w-full h-full object-cover art-bright"
                 style={door.objectPosition ? { objectPosition: door.objectPosition } : undefined} />
             )}
@@ -466,7 +472,7 @@ function Figure({ n, roomId, caption }: { n: number; roomId: string; caption: st
         </AnimatePresence>
         <span className="absolute inset-x-0 bottom-0 h-2/5 pointer-events-none" style={{ background: `linear-gradient(to top, ${EDITORIAL_BG} 0%, rgba(5,8,15,0) 100%)` }} />
         {/* The resident's word, outlined and cut by the frame's foot. */}
-        <span key={`w-${roomId}`} className="absolute left-4 bottom-0 translate-y-[24%] whitespace-nowrap font-black leading-none tracking-[-0.06em] text-[clamp(3.5rem,6.2vw,5.75rem)] select-none"
+        <span key={`w-${roomId}`} className="absolute left-4 bottom-0 translate-y-[24%] whitespace-nowrap font-black leading-none tracking-[-0.06em] text-[clamp(3.5rem,15vw,7.5rem)] lg:text-[clamp(3.5rem,6.2vw,5.75rem)] select-none"
           style={{ ...HEADING_FONT, ...OUTLINE }}>
           {room?.symbol ?? ''}
         </span>
