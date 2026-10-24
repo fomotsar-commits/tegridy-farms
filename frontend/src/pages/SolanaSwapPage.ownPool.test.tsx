@@ -1154,6 +1154,8 @@ describe('a press asks Jupiter only what it must: the site’s key is one reques
 
   it('the pair’s USD prices are the read every visitor shares, except in USD mode, where they size the trade', async () => {
     const pairReads = () => vi.mocked(getUsdPrices).mock.calls.filter(([ids]) => ids.join() === `${SOL_MINT},${BAYLA_MINT}`);
+    // USD mode is offered once SOL's price is in hand.
+    h.prices.value = { [SOL_MINT]: 150 };
     render(<MemoryRouter><SolanaSwapPage /></MemoryRouter>);
     await waitFor(() => expect(pairReads().length).toBeGreaterThan(0));
     expect(pairReads().map((c) => c[2])).toEqual(pairReads().map(() => ({ shared: true })));
