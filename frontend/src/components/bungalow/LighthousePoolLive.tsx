@@ -51,6 +51,7 @@ import { basisBehindWrite, FENCE_RETRY_MS, type WriteFence } from '../../lib/lad
 import { holdReload } from '../../lib/reloadHold';
 
 import { PositionMark, positionHost } from '../ui/PositionMark';
+import { RoomTorches } from '../RoomTorches';
 /**
  * The lighthouse pool, LIVE — rendered by BungalowFarmPanel when the
  * bungalow has a configured Streamflow stake-pool address.
@@ -721,6 +722,9 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
               </div>
             )}
 
+            {/* A pool that pays nothing: the room's torches above its notice, and the notice
+                stays (owner, 2026-10-15). */}
+            {vaultDry && <RoomTorches roomId={bungalow.id} compact />}
             {vaultDry && (
               <div className="text-[12px] mb-4 rounded-lg px-3 py-2" style={{ background: 'rgba(227,179,65,0.1)', border: '1px solid rgba(227,179,65,0.4)', color: '#e3b341' }}>
                 {/* Lead with the fact that changes what the visitor can DO. The

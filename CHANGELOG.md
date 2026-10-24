@@ -7,6 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-10-24
+
+- Every room's door shows its torches from Jungle Bay Island: how many of twelve are lit, the next torch's price in $BAYLA, who lit the last one and when, and Torch it, which opens the room's page on the island. A pool that pays nothing shows them above its notice. The home has a strip under the doors: $BAYLA locked in the ladder, $BAYLA fed to the fire, the flames, the days left in the season and the island's last torch. Each is read on load; one that cannot be read is left out, never shown as 0.
+
 ### 2026-10-23
 
 - A launched token's page: when the maker's allocation, the maker's create-buy or the token's Provenance cannot be read, the card says so in one plain sentence and keeps what failed under Details. The Provenance card no longer uses em dashes.

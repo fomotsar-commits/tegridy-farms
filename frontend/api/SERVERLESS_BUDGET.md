@@ -91,6 +91,7 @@ into the 404.
 | `doppler-birth` | `_lib/evm-birth.js` | ONE Doppler token's birth transaction (its own first mint, a `Transfer` from the zero address) from keyless `eth.blockscout.com`, for the maker's allocation and lock on `/launch/:token`. Same hint rule |
 | `eas-attested` | `_lib/eas-attested.js` | ONE token's EAS `Attested` logs under the Fact Sheet disclosure schema (the only schema it accepts), from keyless `eth.blockscout.com`, for the attestation line on `/launch/:token`. Same hint rule: the browser re-reads each uid with `getAttestation` |
 | `heat` | `_lib/heat.js` | Jungle Bay Island held-time oracle (CORS-forced, not an optimisation) |
+| `torches` | `_lib/torches.js` | Jungle Bay Island's torches, season, fire total and flame count in one call, for each room's torch line and the home's strip. CORS-forced like `heat`; forwards only the fields those surfaces paint, and an unread part is null, never a zero |
 | `births` | `_lib/births.js` | HMAC-signed birth notify to the island's enrollment socket |
 | `record` | `_lib/record.js` | A token's birth certificate as JSON, derived from chain on read |
 | `alerts` | `_lib/alerts.js` | Per-wallet alert-rule CRUD under RLS (the user's own SIWE JWT is forwarded to PostgREST) |
