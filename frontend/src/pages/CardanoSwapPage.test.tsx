@@ -183,6 +183,14 @@ describe('CardanoSwapPage', () => {
     expect(q.textContent).toMatch(/comes back with your coins/);
   });
 
+  it('with no venue fee address, the explainer never speaks of a venue fee being paid', async () => {
+    renderPage();
+    const explainer = (await screen.findByText('How a Cardano swap works')).closest('details') ?? document.body;
+    expect(explainer.textContent).toMatch(/pays only the order and your change to your own address/);
+    expect(explainer.textContent).not.toMatch(/venue fee/i);
+    expect(explainer.textContent).not.toMatch(/must send your coins back/);
+  });
+
   it('reviews the checked transaction, then signs and sends exactly those bytes', async () => {
     renderPage();
     await connect();
@@ -209,12 +217,32 @@ describe('CardanoSwapPage', () => {
     expect(order.address().to_hex().slice(2, 58)).toBe(MINSWAP_V2.orderScriptHash);
     // The order is followed below, and was noted before it left.
     await waitFor(() => expect(screen.getAllByTestId('cardano-order')).toHaveLength(1));
-    expect(JSON.parse(localStorage.getItem('tegridy.cardano.orders.v1') ?? '[]')).toHaveLength(1);
+    expect(JSON.parse(localStorage.getItem('tegridy.minswap.orders.v1') ?? '[]')).toHaveLength(1);
     // The row says its own coins, by ticker and whole id, whatever the form holds now.
     fireEvent.change(screen.getByLabelText(/The coin/), { target: { value: '' } });
     const row = screen.getByTestId('cardano-order');
     expect(row.textContent).toMatch(/400 ADA for at least [\d,.]+ ASCEND/);
     expect(row.textContent).toContain(`ASCEND: ${ASCEND.policyId}.${ASCEND.assetName}`);
+  });
+
+  it('shows an order that ended on an earlier visit as saved, and never reads the chain for it again', async () => {
+    localStorage.setItem(
+      'tegridy.minswap.orders.v1',
+      JSON.stringify([
+        {
+          txHash: 'e'.repeat(64), orderIndex: 0, traderHex: trader.hex, traderPaymentHash: trader.payment.hash,
+          assetIn: { policyId: '', assetName: '' }, assetOut: ASCEND, amountIn: '400000000', minimumReceive: '1',
+          inLabel: { ticker: 'ADA', decimals: 6 }, outLabel: { ticker: 'ASCEND', decimals: 6 }, ttlSlot: 1, submitted: true, placedAt: Date.now(),
+          settled: { kind: 'filled', fillTx: 'f'.repeat(64), received: '5000000', depositBack: '2000000' },
+        },
+      ]),
+    );
+    renderPage();
+    await connect();
+    const row = await screen.findByTestId('cardano-order');
+    await waitFor(() => expect(row.textContent).toMatch(/Filled: 5 ASCEND/));
+    const reads = (globalThis.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls.map((c) => String(c[0]));
+    expect(reads.filter((u) => /\/api\/cardano\/(utxo|txstatus|credtxs|tx)\b/.test(u))).toEqual([]);
   });
 
   it('reviews a sell as one: the order holds the coin sold beside its 4 ADA, never "the swap" in ADA', async () => {

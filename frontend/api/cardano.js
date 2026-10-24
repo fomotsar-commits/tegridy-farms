@@ -19,10 +19,16 @@ import { buildKoiosRequest } from "./_lib/cardano-ops.js";
 const CARDANO_RATE_LIMIT = { limit: 120, windowSec: 60, identifier: "cardano" };
 
 // The whole site shares ONE Koios quota (the free key: 50,000 reads a day, about 35 a minute
-// on average), so a per-IP limit alone lets one caller spend a day's quota in hours. This caps
-// every caller together and sheds load with 503. Raise CARDANO_GLOBAL_RPM (env, no redeploy)
-// with the key's plan.
+// on average), so a per-IP limit alone lets one caller spend a day's quota in hours. The
+// per-minute cap sheds a burst (503); it is 432,000 a day, so it cannot guard the quota. The
+// DAILY caps do: one per caller, so one script needs several addresses, and one for the site,
+// held under the key's quota so Koios never refuses the key itself. Raise CARDANO_GLOBAL_RPM
+// and CARDANO_GLOBAL_DAILY (env, no redeploy) with the key's plan.
 const CARDANO_GLOBAL_RPM_DEFAULT = 300;
+// 6,000 a day per caller: an open order read once a minute all day is about 2,900 (the page
+// slows to that after 10 minutes), leaving room for quotes; one script still needs 8 addresses.
+const CARDANO_DAILY_LIMIT = { limit: 6000, windowSec: 86_400, identifier: "cardano-day" };
+const CARDANO_GLOBAL_DAILY_DEFAULT = 45_000;
 
 export default async function handler(req, res) {
   if (req.method !== "GET") {
@@ -32,14 +38,20 @@ export default async function handler(req, res) {
   if (!isRequestOriginAllowed(req)) {
     return res.status(403).json({ error: "Origin not allowed" });
   }
-  const allowed = await checkRateLimit(req, res, CARDANO_RATE_LIMIT);
-  if (!allowed) return;
+  if (!(await checkRateLimit(req, res, CARDANO_RATE_LIMIT))) return;
+  if (!(await checkRateLimit(req, res, CARDANO_DAILY_LIMIT))) return;
   const underGlobalCap = await checkGlobalLimit(res, {
     limit: Number(process.env.CARDANO_GLOBAL_RPM) || CARDANO_GLOBAL_RPM_DEFAULT,
     windowSec: 60,
     identifier: "cardano",
   });
   if (!underGlobalCap) return;
+  const underDailyCap = await checkGlobalLimit(res, {
+    limit: Number(process.env.CARDANO_GLOBAL_DAILY) || CARDANO_GLOBAL_DAILY_DEFAULT,
+    windowSec: 86_400,
+    identifier: "cardano-day",
+  });
+  if (!underDailyCap) return;
 
   const { op, ...query } = req.query ?? {};
   const built = buildKoiosRequest(Array.isArray(op) ? op[0] : op, query, process.env.KOIOS_API_KEY);

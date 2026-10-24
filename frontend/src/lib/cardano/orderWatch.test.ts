@@ -3,7 +3,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { parseAddressBech32 } from './address';
 import { ADA } from './minswapV2';
-import { EXPIRY_MARGIN_SLOTS, markOrderSubmitted, readOrderNotes, readOrderStatus, writeOrderNote, dropOrderNote, type PendingOrder } from './orderWatch';
+import { EXPIRY_MARGIN_SLOTS, markOrderSettled, markOrderSubmitted, pollDelayMs, readOrderNotes, readOrderStatus, settledStatus, writeOrderNote, dropOrderNote, type PendingOrder } from './orderWatch';
 import { ASCEND, ORDER_TXS, fixture } from './testkit.fixture';
 
 const NIGHT = { policyId: '0691b2fecca1ac4f53cb6dfb00b7013e561d1f34403b957cbb5af1fa', assetName: '4e49474854' };
@@ -163,6 +163,20 @@ describe('readOrderStatus', () => {
     expect(s.kind).toBe('unknown');
   });
 
+  it('finds the fill oldest first, however busy the wallet has been since (review 2026-10-24)', async () => {
+    // Twenty later transactions of the trader's, listed newest first: the fill, a block after
+    // the order, would sit past a newest-first search's twelve.
+    const later = Array.from({ length: 20 }, (_, i) => ({ tx_hash: (i + 1).toString(16).padStart(64, 'c'), block_height: 14108900 - i }));
+    stubProxy({
+      utxo: [{ tx_hash: SELL_ASCEND.txHash, tx_index: 0, is_spent: true }],
+      tip: [{ abs_slot: 201256000, block_height: 14108900, block_time: 1792822300 }],
+      txstatus: [{ tx_hash: SELL_ASCEND.txHash, num_confirmations: 92 }],
+      credtxs: [...later, { tx_hash: '1d0b2abf488f1861a63725e3d3bdc161ec5696bbf0c6f622e605f4a4afac58cd', block_height: 14108809 }, { tx_hash: SELL_ASCEND.txHash, block_height: 14108808 }],
+      tx: FILLS.filter((f) => f.tx_hash.startsWith('1d0b2abf')),
+    });
+    expect((await readOrderStatus(SELL_ASCEND)).kind).toBe('filled');
+  });
+
   it('says spent, not filled, when the spender is not in the trader’s history', async () => {
     stubProxy({
       utxo: [{ tx_hash: BUY_NIGHT.txHash, tx_index: 0, is_spent: true }],
@@ -191,7 +205,49 @@ describe('order notes', () => {
   });
 
   it('forget notes a week old and anything malformed', () => {
-    localStorage.setItem('tegridy.cardano.orders.v1', JSON.stringify([{ ...BUY_NIGHT, placedAt: 0 }, { txHash: 'x' }, 7]));
+    localStorage.setItem('tegridy.minswap.orders.v1', JSON.stringify([{ ...BUY_NIGHT, placedAt: 0 }, { txHash: 'x' }, 7]));
     expect(readOrderNotes()).toEqual([]);
+  });
+
+  it('keep how an order ended, amounts and all, so a later visit need not read it again', () => {
+    writeOrderNote({ ...BUY_NIGHT, placedAt: Date.now() });
+    const filled = { kind: 'filled' as const, fillTx: 'f'.repeat(64), received: 1580426944n, depositBack: 2000000n };
+    markOrderSettled(BUY_NIGHT.txHash, { kind: 'placed', depth: 3 });
+    expect(settledStatus(readOrderNotes()[0]!)).toBeNull(); // not final: not kept
+    markOrderSettled(BUY_NIGHT.txHash, filled);
+    expect(settledStatus(readOrderNotes()[0]!)).toEqual(filled);
+    markOrderSettled(BUY_NIGHT.txHash, { kind: 'spent', fillTx: 'a'.repeat(64) });
+    expect(settledStatus(readOrderNotes()[0]!)).toEqual({ kind: 'spent', fillTx: 'a'.repeat(64) });
+  });
+
+  it('are read every 10 s while an open one is fresh, once a minute after (a stuck order must not spend the day’s reads)', () => {
+    const now = 1_000_000_000;
+    const fresh = { txHash: 'a'.repeat(64), placedAt: now - 60_000 };
+    const old = { txHash: 'b'.repeat(64), placedAt: now - 11 * 60_000 };
+    const open = () => false;
+    expect(pollDelayMs([fresh, old], open, now)).toBe(10_000);
+    expect(pollDelayMs([old], open, now)).toBe(60_000);
+    // A fresh order that has ended does not keep the page fast.
+    expect(pollDelayMs([fresh, old], (tx) => tx === fresh.txHash, now)).toBe(60_000);
+    expect(pollDelayMs([], open, now)).toBe(60_000);
+  });
+
+  it('never keep "spent, spender not found": it may be a read lagging another, so the next visit looks again', () => {
+    writeOrderNote({ ...BUY_NIGHT, placedAt: Date.now() });
+    markOrderSettled(BUY_NIGHT.txHash, { kind: 'spent', fillTx: null });
+    // Not written at all (the read below would also drop it: two layers, each held here).
+    expect(JSON.parse(localStorage.getItem('tegridy.minswap.orders.v1') ?? '[]')[0]).not.toHaveProperty('settled');
+    expect(readOrderNotes()[0]?.settled).toBeUndefined();
+    // Nor is one read back if a note somehow holds it.
+    localStorage.setItem('tegridy.minswap.orders.v1', JSON.stringify([{ ...BUY_NIGHT, placedAt: Date.now(), settled: { kind: 'spent', fillTx: null } }]));
+    expect(settledStatus(readOrderNotes()[0]!)).toBeNull();
+  });
+
+  it('drop a malformed saved ending, never the note: that order is read again', () => {
+    localStorage.setItem('tegridy.minswap.orders.v1', JSON.stringify([{ ...BUY_NIGHT, placedAt: Date.now(), settled: { kind: 'filled', fillTx: 'f'.repeat(64), received: '1e9', depositBack: '2' } }]));
+    const [n] = readOrderNotes();
+    expect(n?.txHash).toBe(BUY_NIGHT.txHash);
+    expect(n?.settled).toBeUndefined();
+    expect(settledStatus(n!)).toBeNull();
   });
 });

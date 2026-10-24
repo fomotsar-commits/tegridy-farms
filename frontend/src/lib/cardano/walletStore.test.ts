@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { parseAddressBech32 } from './address';
-import { CARDANO_WALLETS, detectWallets, sortWalletError } from './cip30';
+import { CIP30_WALLETS, detectWallets, sortWalletError } from './cip30';
 import { connectCardanoWallet, disconnectCardanoWallet, getCardanoWallet, resetCardanoWalletForTests, restoreCardanoWallet } from './walletStore';
 
 const TRADER = parseAddressBech32('addr1qyawx3jznhwfhsen5kg3dq4nxgvkexrw7fa6uj8qkx95cynn60n5e0298xn7eyj7lzks2lv5tcmxsqsu7ne7sa7jf4xsulzg6g')!;
@@ -34,7 +34,7 @@ afterEach(() => {
 
 describe('the Cardano wallet connection', () => {
   it('offers no Yoroi, SecondFi, Nami or Flint', () => {
-    const keys = CARDANO_WALLETS.map((w) => w.walletId);
+    const keys = CIP30_WALLETS.map((w) => w.walletId);
     for (const gone of ['yoroi', 'secondfi', 'nami', 'flint', 'ctrl']) expect(keys).not.toContain(gone);
   });
 
@@ -75,12 +75,12 @@ describe('the Cardano wallet connection', () => {
     const w = fakeWallet({ enabled: false });
     await restoreCardanoWallet();
     expect(w.enable).not.toHaveBeenCalled(); // nothing remembered
-    localStorage.setItem('tegridy.cardano.wallet', 'eternl');
+    localStorage.setItem('tegridy.cip30.wallet', 'eternl');
     await restoreCardanoWallet();
     expect(w.enable).not.toHaveBeenCalled(); // remembered, but the wallet says not connected
     resetCardanoWalletForTests();
     const w2 = fakeWallet({ enabled: true });
-    localStorage.setItem('tegridy.cardano.wallet', 'eternl');
+    localStorage.setItem('tegridy.cip30.wallet', 'eternl');
     await restoreCardanoWallet();
     expect(w2.enable).toHaveBeenCalledTimes(1);
     expect(getCardanoWallet().status).toBe('connected');
@@ -91,6 +91,6 @@ describe('the Cardano wallet connection', () => {
     await connectCardanoWallet('eternl');
     disconnectCardanoWallet();
     expect(getCardanoWallet()).toEqual({ status: 'idle' });
-    expect(localStorage.getItem('tegridy.cardano.wallet')).toBeNull();
+    expect(localStorage.getItem('tegridy.cip30.wallet')).toBeNull();
   });
 });

@@ -27,22 +27,28 @@ const HEIGHT = /^\d{1,10}$/;
 const NO_STORE = "private, no-store";
 
 /**
- * op → { cache, build(query) }. build returns the upstream request, or null when a param is
- * missing or malformed. Cache: only reads that are the same for every visitor are cached at
- * the edge; anything about one wallet or one transaction is no-store.
+ * op → { params, cache, build(query) }. `params` are the only query keys the read takes: any
+ * other key, or one repeated, is refused before Koios is asked, so `tip?x=1`, `tip?x=2`, ...
+ * cannot each miss the edge cache and spend the shared key's quota. build returns the upstream
+ * request, or null when a param is missing or malformed. Cache: only reads that are the same
+ * for every visitor are cached at the edge; anything about one wallet or one transaction is
+ * no-store.
  */
 export const CARDANO_OPS = {
   tip: {
+    params: [],
     cache: "public, max-age=5, s-maxage=10",
     build: () => ({ path: "/tip", method: "GET" }),
   },
   params: {
+    params: [],
     cache: "public, max-age=300, s-maxage=600",
     build: () => ({ path: "/cli_protocol_params", method: "GET" }),
   },
   // Every UTxO at Minswap V2's pool script holding this LP token: the pool, and any pool that
   // holds the LP token as its coin. The browser decides which is the pool (minswapV2.readPool).
   pool: {
+    params: ["lp"],
     cache: NO_STORE,
     build: (q) =>
       HEX64.test(q.lp ?? "")
@@ -54,6 +60,7 @@ export const CARDANO_OPS = {
         : null,
   },
   asset: {
+    params: ["policy", "name"],
     cache: "public, max-age=600, s-maxage=3600",
     build: (q) =>
       HEX56.test(q.policy ?? "") && ASSET_NAME.test(q.name ?? "")
@@ -61,26 +68,32 @@ export const CARDANO_OPS = {
         : null,
   },
   txstatus: {
+    params: ["tx"],
     cache: NO_STORE,
     build: (q) => (HEX64.test(q.tx ?? "") ? { path: "/tx_status", method: "POST", body: { _tx_hashes: [q.tx] } } : null),
   },
   utxo: {
+    params: ["ref"],
     cache: NO_STORE,
     build: (q) => (UTXO_REF.test(q.ref ?? "") ? { path: "/utxo_info", method: "POST", body: { _utxo_refs: [q.ref], _extended: false } } : null),
   },
-  // A wallet's recent transactions, newest first, capped: how a fill is found.
+  // A wallet's transactions from the order's block on, OLDEST first, capped: how a fill is
+  // found. The batcher fills within a few blocks, so the fill is among the first rows however
+  // busy the wallet has been since (newest first, an active wallet pushed it past the cap).
   credtxs: {
+    params: ["cred", "after"],
     cache: NO_STORE,
     build: (q) =>
       HEX56.test(q.cred ?? "") && HEIGHT.test(q.after ?? "")
         ? {
-            path: "/credential_txs?order=block_height.desc&limit=40",
+            path: "/credential_txs?order=block_height.asc&limit=40",
             method: "POST",
             body: { _payment_credentials: [q.cred], _after_block_height: Number(q.after) },
           }
         : null,
   },
   tx: {
+    params: ["tx"],
     cache: NO_STORE,
     build: (q) =>
       HEX64.test(q.tx ?? "")
@@ -110,6 +123,9 @@ function flatQuery(query) {
 export function buildKoiosRequest(op, query, apiKey) {
   const def = typeof op === "string" && Object.prototype.hasOwnProperty.call(CARDANO_OPS, op) ? CARDANO_OPS[op] : null;
   if (!def) return { error: 404, message: "Unknown Cardano read" };
+  for (const [k, v] of Object.entries(query ?? {})) {
+    if (!def.params.includes(k) || Array.isArray(v)) return { error: 400, message: "Bad parameters" };
+  }
   const built = def.build(flatQuery(query));
   if (!built) return { error: 400, message: "Bad parameters" };
   const headers = { Accept: "application/json" };

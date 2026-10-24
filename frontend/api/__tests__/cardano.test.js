@@ -77,6 +77,26 @@ describe("cardano-ops", () => {
     }
   });
 
+  it("refuses a param the read does not take, or one repeated, so a junk query cannot miss the edge cache", () => {
+    for (const [op, q] of [
+      ["tip", { x: "1" }],
+      ["params", { v: "2" }],
+      ["asset", { policy: "ab".repeat(28), name: "", bust: "1" }],
+      ["asset", { policy: ["ab".repeat(28), "cd".repeat(28)], name: "" }],
+      ["pool", { lp: LP, lp2: LP }],
+      ["tx", { tx: TX, _inputs: "false" }],
+    ]) {
+      expect(buildKoiosRequest(op, q, "")).toEqual({ error: 400, message: "Bad parameters" });
+    }
+    // The reads as the browser sends them still pass.
+    expect(buildKoiosRequest("tip", {}, "").url).toMatch(/\/tip$/);
+    expect(buildKoiosRequest("asset", { policy: "ab".repeat(28), name: "" }, "").url).toMatch(/\/asset_info$/);
+  });
+
+  it("asks for a wallet's history oldest first, so the fill (a few blocks after the order) is in the first rows", () => {
+    expect(buildKoiosRequest("credtxs", { cred: "ab".repeat(28), after: "5" }, "").url).toContain("order=block_height.asc");
+  });
+
   it("caches only what is the same for everyone", () => {
     expect(buildKoiosRequest("params", {}, "").cache).toMatch(/^public/);
     expect(buildKoiosRequest("tip", {}, "").cache).toMatch(/^public/);
@@ -174,6 +194,27 @@ describe("api/cardano", () => {
     const { res, out } = makeRes();
     await handler(makeReq({ query: { op: "tip" } }), res);
     expect(out.status).toBe(503);
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it("keeps a daily cap per caller and one for the site under the key's 50,000-a-day quota", async () => {
+    const rl = await import("../_lib/ratelimit.js");
+    rl.checkRateLimit.mockClear();
+    rl.checkGlobalLimit.mockClear();
+    globalThis.fetch = upstream("[{}]");
+    const { res } = makeRes();
+    await handler(makeReq({ query: { op: "tip" } }), res);
+    expect(rl.checkRateLimit).toHaveBeenCalledWith(expect.anything(), expect.anything(), { limit: 6000, windowSec: 86_400, identifier: "cardano-day" });
+    expect(rl.checkGlobalLimit).toHaveBeenCalledWith(expect.anything(), { limit: 45_000, windowSec: 86_400, identifier: "cardano-day" });
+    // A day's cap that is spent stops the read before Koios is asked.
+    rl.checkGlobalLimit.mockImplementationOnce(async () => true).mockImplementationOnce(async (r) => {
+      r.status(503).json({ error: "Service temporarily unavailable" });
+      return false;
+    });
+    globalThis.fetch = upstream("[{}]");
+    const second = makeRes();
+    await handler(makeReq({ query: { op: "tip" } }), second.res);
+    expect(second.out.status).toBe(503);
     expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 

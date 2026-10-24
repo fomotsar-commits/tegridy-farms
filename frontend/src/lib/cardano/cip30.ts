@@ -37,7 +37,7 @@ export interface CardanoWalletInfo {
  *   drained from 2026-06-23, and both are shut down. Keys it made stay exposed in any wallet.
  * - Nami: folded into Lace. Flint: discontinued.
  */
-export const CARDANO_WALLETS: readonly CardanoWalletInfo[] = [
+export const CIP30_WALLETS: readonly CardanoWalletInfo[] = [
   { walletId: 'eternl', name: 'Eternl', site: 'https://eternl.io' },
   { walletId: 'lace', name: 'Lace', site: 'https://www.lace.io' },
   { walletId: 'vespr', name: 'VESPR', site: 'https://vespr.xyz' },
@@ -56,7 +56,7 @@ export function injectedWallet(walletId: string, win: unknown = typeof window !=
 
 /** The offered wallets, each marked by whether this browser has it. */
 export function detectWallets(win?: unknown): { info: CardanoWalletInfo; installed: boolean }[] {
-  return CARDANO_WALLETS.map((info) => ({ info, installed: injectedWallet(info.walletId, win) !== null }));
+  return CIP30_WALLETS.map((info) => ({ info, installed: injectedWallet(info.walletId, win) !== null }));
 }
 
 /**

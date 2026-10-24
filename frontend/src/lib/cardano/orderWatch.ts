@@ -39,7 +39,23 @@ export interface PendingOrder {
   submitted: boolean;
   /** Unix ms, from this browser's clock, for ordering notes only. */
   placedAt: number;
+  /**
+   * How the order ended, once read: a later visit shows it without reading the chain again
+   * (a week of notes, each up to ~16 reads, would otherwise spend the visitor's read limit).
+   * Amounts as decimal strings, like amountIn.
+   */
+  settled?: SettledNote;
 }
+
+/**
+ * Only endings read off the spending transaction itself. "Spent, and the spender not found"
+ * is never kept: it can be one read lagging another (the history not yet indexed), and a later
+ * visit should look again rather than show it for a week.
+ */
+export type SettledNote =
+  | { kind: 'filled'; fillTx: string; received: string; depositBack: string }
+  | { kind: 'returned'; fillTx: string }
+  | { kind: 'spent'; fillTx: string };
 
 export interface CoinLabel {
   /** The ticker, or 'ADA'; null when the coin has none on record. */
@@ -56,8 +72,23 @@ export type OrderStatus =
   | { kind: 'spent'; fillTx: string | null }
   | { kind: 'unknown'; reason: string };
 
-/** How many history transactions are searched for the fill before saying "spent". */
+/** How many history transactions, oldest first from the order's block, are searched for the fill before saying "spent". */
 const FILL_SEARCH = 12;
+
+const POLL_MS = 10_000;
+const POLL_SLOW_MS = 60_000;
+/** An order still open this long after it was placed is read once a minute, not every 10 s. */
+const POLL_SLOW_AFTER_MS = 10 * 60_000;
+
+/**
+ * How long until the page reads its open orders again: 10 s while any open order is under 10
+ * minutes old, else a minute. A fill normally lands within a minute; a page left open on a
+ * stuck order would otherwise spend the visitor's daily read limit (api/cardano.js) and stop
+ * their quotes with it.
+ */
+export function pollDelayMs(orders: readonly Pick<PendingOrder, 'txHash' | 'placedAt'>[], isFinal: (txHash: string) => boolean, now: number): number {
+  return orders.some((o) => !isFinal(o.txHash) && now - o.placedAt < POLL_SLOW_AFTER_MS) ? POLL_MS : POLL_SLOW_MS;
+}
 
 /** 20 minutes of slots past the expiry before a never-seen transaction is called expired. */
 export const EXPIRY_MARGIN_SLOTS = 1200;
@@ -121,9 +152,45 @@ export async function readOrderStatus(order: PendingOrder, signal?: AbortSignal)
   return { kind: 'spent', fillTx: null };
 }
 
-const NOTES_KEY = 'tegridy.cardano.orders.v1';
+const NOTES_KEY = 'tegridy.minswap.orders.v1';
 /** Notes older than this are dropped: by then the order has long settled one way or the other. */
 const NOTE_LIFETIME_MS = 7 * 24 * 3600 * 1000;
+
+const TX_HASH = /^[0-9a-f]{64}$/;
+const DECIMAL = /^\d{1,40}$/;
+
+function isSettled(s: unknown): s is SettledNote {
+  if (typeof s !== 'object' || s === null) return false;
+  const o = s as Record<string, unknown>;
+  const tx = (v: unknown) => typeof v === 'string' && TX_HASH.test(v);
+  if (o.kind === 'filled') return tx(o.fillTx) && typeof o.received === 'string' && DECIMAL.test(o.received) && typeof o.depositBack === 'string' && DECIMAL.test(o.depositBack);
+  if (o.kind === 'returned') return tx(o.fillTx);
+  if (o.kind === 'spent') return tx(o.fillTx);
+  return false;
+}
+
+/** The status a note saved when its order ended, or null: never one read off a malformed note. */
+export function settledStatus(note: PendingOrder): OrderStatus | null {
+  const s = note.settled;
+  if (!isSettled(s)) return null;
+  return s.kind === 'filled' ? { kind: 'filled', fillTx: s.fillTx, received: BigInt(s.received), depositBack: BigInt(s.depositBack) } : s;
+}
+
+/** Saves how the order ended, when it was read off the spending transaction: filled, returned, or spent by a known transaction. Anything else is not kept. */
+export function markOrderSettled(txHash: string, status: OrderStatus): void {
+  const settled: SettledNote | null =
+    status.kind === 'filled' ? { kind: 'filled', fillTx: status.fillTx, received: status.received.toString(), depositBack: status.depositBack.toString() }
+    : status.kind === 'returned' ? status
+    : status.kind === 'spent' && status.fillTx !== null ? { kind: 'spent', fillTx: status.fillTx }
+    : null;
+  if (!settled) return;
+  try {
+    const notes = readOrderNotes();
+    localStorage.setItem(NOTES_KEY, JSON.stringify(notes.map((n) => (n.txHash === txHash ? { ...n, settled } : n))));
+  } catch {
+    /* storage blocked: the page holds the status in memory */
+  }
+}
 
 function isNote(x: unknown): x is PendingOrder {
   if (typeof x !== 'object' || x === null) return false;
@@ -140,7 +207,12 @@ function isNote(x: unknown): x is PendingOrder {
 export function readOrderNotes(now: number = Date.now()): PendingOrder[] {
   try {
     const raw = JSON.parse(localStorage.getItem(NOTES_KEY) ?? '[]') as unknown;
-    return Array.isArray(raw) ? raw.filter(isNote).filter((n) => now - n.placedAt < NOTE_LIFETIME_MS) : [];
+    if (!Array.isArray(raw)) return [];
+    // A malformed `settled` is dropped, never the note: the order is then read again.
+    return raw
+      .filter(isNote)
+      .filter((n) => now - n.placedAt < NOTE_LIFETIME_MS)
+      .map((n) => (n.settled === undefined || isSettled(n.settled) ? n : { ...n, settled: undefined }));
   } catch {
     return [];
   }

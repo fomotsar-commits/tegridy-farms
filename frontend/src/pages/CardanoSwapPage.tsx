@@ -13,9 +13,9 @@ import { ADA, feePercentText, isAda, type CardanoAsset } from '../lib/cardano/mi
 import { readTokenInfo, type Read, type TokenInfo } from '../lib/cardano/chain';
 import { prepareSwap, quoteNow, signAndSend, type Prepared } from '../lib/cardano/swapFlow';
 import type { SwapQuote } from '../lib/cardano/quote';
-import { venueFeeText } from '../lib/cardano/venueFee';
+import { venueFeeAddress, venueFeeText } from '../lib/cardano/venueFee';
 import { cardanoscanToken, cardanoscanTx, formatAda, formatAmount, LOVELACE_DECIMALS, parseAmount, parseTokenId } from '../lib/cardano/format';
-import { dropOrderNote, readOrderNotes, readOrderStatus, type CoinLabel, type OrderStatus, type PendingOrder } from '../lib/cardano/orderWatch';
+import { dropOrderNote, markOrderSettled, pollDelayMs, readOrderNotes, readOrderStatus, settledStatus, type CoinLabel, type OrderStatus, type PendingOrder } from '../lib/cardano/orderWatch';
 import { restoreCardanoWallet, subscribeCardanoWalletList, takeCardanoWalletListRequest, useCardanoWallet } from '../lib/cardano/walletStore';
 import { shortCardanoAddress } from '../lib/cardano/address';
 
@@ -53,7 +53,6 @@ type Flow =
   | { kind: 'done'; message: string; tone: 'ok' | 'warn' };
 
 const SLIPPAGES = [50, 100, 300] as const;
-const POLL_MS = 10_000;
 /** "Expired" is believed only when this many polls in a row say so (orderWatch.ts EXPIRY_MARGIN_SLOTS). */
 const EXPIRED_POLLS = 2;
 
@@ -71,6 +70,9 @@ function coinName(info: TokenInfo | null): string {
 function amountText(n: bigint, label: CoinLabel): string {
   return label.ticker === 'ADA' ? formatAda(n) : `${formatAmount(n, label.decimals)} ${label.ticker ?? 'units'}`;
 }
+
+/** Whether a venue fee address is registered: the explainer only speaks of a fee that is charged. */
+const VENUE_FEE_ON = venueFeeAddress() !== null;
 
 function Line({ label, value, note }: { label: string; value: string; note?: string }) {
   return (
@@ -103,7 +105,8 @@ function statusText(s: OrderStatus | undefined, order: PendingOrder, expiredPoll
         final: true,
       };
     case 'returned':
-      return { text: 'Returned: your coins came back, less the batcher’s fee (the price moved past your minimum, or the order was cancelled).', final: true };
+      // The same status covers a batcher's return (it keeps its fee) and the trader's own cancel (no batcher fee).
+      return { text: 'Returned: your coins came back. If Minswap’s batcher returned it (the price moved past your minimum), it kept its fee of up to 2 ADA.', final: true };
     case 'spent':
       return { text: 'The order was spent, and this page could not tell how. Your wallet shows what arrived.', final: true };
     case 'unknown':
@@ -207,6 +210,13 @@ function CardanoSwapInner({ csl, cslError, retryCsl }: { csl: Csl | null; cslErr
     const tick = async () => {
       for (const o of orders) {
         if (finals.current.has(o.txHash)) continue;
+        // Ended on an earlier visit: shown as it was saved, never read again.
+        const saved = settledStatus(o);
+        if (saved) {
+          finals.current.add(o.txHash);
+          setStatuses((prev) => ({ ...prev, [o.txHash]: saved }));
+          continue;
+        }
         const s = await readOrderStatus(o, ac.signal);
         if (stopped) return;
         setStatuses((prev) => ({ ...prev, [o.txHash]: s }));
@@ -215,15 +225,28 @@ function CardanoSwapInner({ csl, cslError, retryCsl }: { csl: Csl | null; cslErr
           if (s.kind === 'expired' && n >= EXPIRED_POLLS) finals.current.add(o.txHash);
           return { ...prev, [o.txHash]: n };
         });
-        if (s.kind === 'filled' || s.kind === 'returned' || s.kind === 'spent') finals.current.add(o.txHash);
+        if (s.kind === 'filled' || s.kind === 'returned' || s.kind === 'spent') {
+          finals.current.add(o.txHash);
+          markOrderSettled(o.txHash, s);
+        }
       }
     };
-    void tick();
-    const timer = setInterval(() => void tick(), POLL_MS);
+    // The next round starts after this one ENDS: rounds never overlap, so a slow read never has
+    // two or three rounds reading the same orders at once (orderWatch.ts pollDelayMs).
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const loop = async () => {
+      try {
+        await tick();
+      } catch {
+        /* a round that threw is tried again next round, never the end of following */
+      }
+      if (!stopped) timer = setTimeout(() => void loop(), pollDelayMs(orders, (tx) => finals.current.has(tx), Date.now()));
+    };
+    void loop();
     return () => {
       stopped = true;
       ac.abort();
-      clearInterval(timer);
+      clearTimeout(timer);
     };
   }, [orders]);
 
@@ -464,11 +487,12 @@ function CardanoSwapInner({ csl, cslError, retryCsl }: { csl: Csl | null; cslErr
 
           <FinePrint summary="How a Cardano swap works">
             <p>
-              Your transaction does not trade. It places an order at Minswap V2’s order contract, saying which pool, how much, the least you accept, and that only you are paid. Minswap’s batcher fills it a few blocks later. The contract lets it only if you get at least your minimum; if the price has moved past it, the batcher must send your coins back, keeping its fee of up to 2 ADA.
+              Your transaction does not trade. It places an order at Minswap V2’s order contract, saying which pool, how much, the least you accept, and that only you are paid. Minswap’s batcher fills it a few blocks later. The contract lets it fill only if you get at least your minimum; if the price has moved past it, the order lets the batcher send your coins back instead, keeping its fee of up to 2 ADA. Until then the order stays yours: only your wallet can cancel it.
             </p>
-            <p>The venue fee is paid with the order, not with the fill, so an order that comes back has still paid it.</p>
+            {VENUE_FEE_ON && <p>The venue fee is paid with the order, not with the fill, so an order that comes back has still paid it.</p>}
             <p>
-              Before your wallet is asked to sign, this page reads the transaction back out of its own bytes and refuses it unless it pays only the order, the venue fee to the venue’s registered address, and your change to your own address. It never changes your stake or your vote.
+              Before your wallet is asked to sign, this page reads the transaction back out of its own bytes and refuses it unless it pays only the order
+              {VENUE_FEE_ON ? ', the venue fee to the venue’s registered address,' : ''} and your change to your own address. It never changes your stake or your vote.
             </p>
             <p>
               Minswap V2’s contracts were audited by CertiK and Anastasia Labs. This page writes Minswap’s own order format, checked byte for byte against real orders Minswap filled.

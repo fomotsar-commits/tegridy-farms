@@ -10,7 +10,7 @@
 
 import { useSyncExternalStore } from 'react';
 import { parseAddressHex, MAINNET_NETWORK_ID, type ParsedAddress } from './address';
-import { CARDANO_WALLETS, injectedWallet, sortWalletError, type Cip30Api } from './cip30';
+import { CIP30_WALLETS, injectedWallet, sortWalletError, type Cip30Api } from './cip30';
 
 export type CardanoWalletState =
   | { status: 'idle' }
@@ -19,7 +19,7 @@ export type CardanoWalletState =
   | { status: 'error'; walletId: string; message: string };
 
 /** Which wallet extension this browser last connected: its public id, never anything from inside it. */
-const REMEMBERED_WALLET = 'tegridy.cardano.wallet';
+const REMEMBERED_WALLET = 'tegridy.cip30.wallet';
 
 let state: CardanoWalletState = { status: 'idle' };
 const listeners = new Set<() => void>();
@@ -72,7 +72,7 @@ async function readAddress(api: Cip30Api): Promise<ParsedAddress | string> {
 }
 
 async function finishConnect(walletId: string, api: Cip30Api) {
-  const name = CARDANO_WALLETS.find((w) => w.walletId === walletId)?.name ?? walletId;
+  const name = CIP30_WALLETS.find((w) => w.walletId === walletId)?.name ?? walletId;
   const address = await readAddress(api);
   if (typeof address === 'string') {
     set({ status: 'error', walletId, message: address });

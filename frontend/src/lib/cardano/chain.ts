@@ -264,7 +264,8 @@ export async function readCredentialTxs(paymentCred: string, afterHeight: number
     if (!isRecord(row) || typeof row.tx_hash !== 'string' || typeof row.block_height !== 'number') return unread('a history row was malformed');
     out.push({ txHash: row.tx_hash, blockHeight: row.block_height });
   }
-  return { status: 'ok', data: out.sort((a, b) => b.blockHeight - a.blockHeight) };
+  // Oldest first: a fill comes a few blocks after its order, so it leads the list.
+  return { status: 'ok', data: out.sort((a, b) => a.blockHeight - b.blockHeight) };
 }
 
 export interface ChainTx {
