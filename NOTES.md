@@ -15,6 +15,29 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-09-30 — the Vite dev server does not 404 an `/api/x` it has no proxy for: it serves `api/x.js` as a browser module
+
+**Believed:** a same-origin `/api/aggregator?...` read under `npx vite` goes through some dev
+middleware that runs the function, and an import error naming `api/aggregator.js?resource=...`
+means that middleware loaded the module with the query attached.
+
+**Measured** (Vite 8.3.0, trunk `a9efbf05`, curl and Playwright Chromium against
+`npx vite --host 127.0.0.1`): no such middleware existed. Vite's transform middleware takes any
+extensionless URL for a module request and resolves `/api/aggregator` to `api/aggregator.js`
+under the root. With `?resource=heat` it answered 200 `text/javascript`: the server source,
+where the page wanted JSON. With `?resource=gecko-read&path=/simple/...` the query stays in the
+module id, the importer's directory is cut inside that query, `./_lib/*.js` fails to resolve,
+and the request gets a 500 plus the error overlay (stack ends in `viteTransformMiddleware`).
+Plugin middleware added in `configureServer` runs after Vite's host check and CORS, before
+`server.proxy` and the transform middleware.
+
+**Do:** read the overlay's stack before blaming config: `viteTransformMiddleware` means Vite
+served the URL as a module. `/api/<route>` in dev is now `devApiPlugin` in `vite.config.ts`.
+`src/` imports `api/_lib/*.js`, so the browser fetches `/api/_lib/*.js` as modules: a dev
+route for `/api/*` must leave URLs with an extension to Vite.
+
+---
+
 ## 2026-09-24 — MetaMask's SDK does not read through your wagmi transports, and `enableAnalytics: false` does not switch its analytics off
 
 **Believed:** once the CSP allows every RPC host in the wagmi transports, a connected wallet
