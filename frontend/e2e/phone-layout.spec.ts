@@ -265,7 +265,13 @@ test('/nft-finance at 390x844: the section tab row is whole on screen, clear of 
 });
 
 test('/solana at 320px: the trending row wraps under its heading, and the page does not slide', async ({ page, walletMock: _w }) => {
-  // "Trending on Solana" and its three choices once needed 333px in a 320px window.
+  // "Trending on Solana" and its three choices once needed 333px in a 320px window. The list
+  // hides when Jupiter answers with nothing, so the test answers it.
+  const trending = [
+    { id: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', symbol: 'USDC', name: 'USD Coin', decimals: 6 },
+    { id: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', symbol: 'USDT', name: 'Tether USD', decimals: 6 },
+  ];
+  await page.route('**/api/jupiter/tokens/v2/**', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(trending) }));
   await settle(page, '/solana', { width: 320, height: 640 });
   await expect(page.getByRole('heading', { name: 'Trending on Solana' })).toBeVisible({ timeout: 15_000 });
   await expectNoSidewaysScroll(page);
