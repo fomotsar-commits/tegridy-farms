@@ -62,8 +62,8 @@ function SiteAndNetworkRows({ prepared, decimals }: { prepared: PreparedTx; deci
   const agree = agreementText(c);
   return (
     <div className="space-y-1.5" data-testid="tx-site-and-network">
-      <Row label="Worked out by this site" value={c.unread ? `Could not be worked out: ${c.unread}.` : legsLine(c.legs, 'site')} mono={false} />
-      <Row label="The network's test run moved" value={legsLine(c.legs, 'network')} mono={false} />
+      <Row label="Worked out by this site" value={c.unread ? `Could not be worked out: ${c.unread}.` : legsLine(c.legs, 'site')} mono={!c.unread} words />
+      <Row label="The network's test run moved" value={legsLine(c.legs, 'network')} words />
       {agree && <p className="text-white/55 [overflow-wrap:anywhere]">{agree}</p>}
       {c.solNetted && <p className="text-white/40 text-[10px]">SOL on both lines leaves out the fees and deposits listed above.</p>}
       {c.solLeftOut && <p className="text-white/40 text-[10px]">{c.solLeftOut}</p>}
@@ -211,7 +211,7 @@ function WhatYouAreSigning({ prepared: p, api, cluster }: { prepared: PreparedTx
           <>
             {logCutShort(logs) && <p>The network cut this log short.</p>}
             <CopyButton label="Copy log" text={() => logs.join('\n')} />
-            <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-all rounded bg-black/30 p-2 font-mono text-[10px] text-white/70">{logs.join('\n')}</pre>
+            <pre className="max-h-64 overflow-auto whitespace-pre-wrap [overflow-wrap:anywhere] rounded bg-black/30 p-2 font-mono text-[10px] text-white/70">{logs.join('\n')}</pre>
           </>
         )}
       </FinePrint>

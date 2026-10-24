@@ -195,7 +195,8 @@ describe('the steps in words', () => {
   });
 
   it("the wallet's own address is named as your wallet", () => {
-    expect(stepText(EVERY_STEP['create-token-account'], plain({ wallet: CREATOR.toBase58() }))).toMatch(/, owned by your wallet$/);
+    // Create-if-missing is the only kind intent.ts accepts, so it never claims the account is new.
+    expect(stepText(EVERY_STEP['create-token-account'], plain({ wallet: CREATOR.toBase58() }))).toMatch(/, owned by your wallet, if it is not open yet$/);
   });
 
   it("a token's own name goes through the page's display rule", () => {

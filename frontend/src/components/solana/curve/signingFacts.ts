@@ -251,7 +251,7 @@ export function stepText(step: Step, ctx: StepContext): string {
     case 'create-launch':
       return `Create the launch of ${step.mint.toBase58()}; its platform reserve goes to ${step.treasuryToken.toBase58()}, the account of ${step.feeRecipient.toBase58()}`;
     case 'create-token-account':
-      return `Open the token account ${step.address.toBase58()} for the mint ${mint(step.mint)}, owned by ${who(step.owner)}`;
+      return `Open the token account ${step.address.toBase58()} for the mint ${mint(step.mint)}, owned by ${who(step.owner)}, if it is not open yet`;
     case 'curve-buy':
       return `Buy ${step.mint.toBase58()} on its curve: at most ${sol(step.maxLamportsIn)} in, at least ${n(step.minTokensOut)} base units out`;
     case 'curve-sell':
@@ -347,7 +347,8 @@ function accountLabels(p: PreparedTx, wallet: string | null): Map<string, string
     if ('pool' in s) name(s.pool, 'The pool');
     if (s.kind === 'range-decrease' || s.kind === 'range-close') name(s.position, "Your position's record");
     if (s.kind === 'range-open' || s.kind === 'range-close') name(s.nftMint, "Your position's NFT");
-    if (s.kind === 'create-token-account') name(s.address, s.owner.toBase58() === wallet ? 'A new token account of yours' : 'A new token account');
+    // intent.ts accepts only create-if-missing: the account may already be there.
+    if (s.kind === 'create-token-account') name(s.address, s.owner.toBase58() === wallet ? 'A token account of yours, opened if missing' : 'A token account, opened if missing');
     if (s.kind === 'create-mint-account' || s.kind === 'init-mint' || s.kind === 'create-launch') name(s.mint, "The new token's mint");
     if (s.kind === 'create-launch') name(s.treasuryToken, "The platform treasury's token account");
     if (s.kind === 'pool-withdraw') name(s.lpAccount, 'Your pool-share account');
