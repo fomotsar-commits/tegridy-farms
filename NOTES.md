@@ -15,6 +15,41 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-24: a finalized signature list reaches the slot another finalized read returned
+
+**Believed:** after `getProgramAccounts` (finalized) answers at slot S, a finalized
+`getSignaturesForAddress` lists every signature up to S, so a count can move its cursor to S.
+
+**Measured** (2026-10-24, `api.mainnet-beta.solana.com`, read only): the public RPC spreads calls
+over nodes, and nothing ties one call's node to another's. Passed `minContextSlot`, the list
+call refuses instead of answering short: far ahead of the finalized slot it answered -32016
+"Minimum context slot has not been reached" with the node's `contextSlot`; 10 slots behind it
+answered normally. For the eight recorded Raydium transactions, the instruction trace
+(`transaction.message.instructions` and `meta.innerInstructions`, with `meta.loadedAddresses`
+for address tables) held exactly as many runs of the program as the log's `invoke` lines, and
+the one cut log's Raydium frame ended before the cut. The trace is not cut with the log.
+
+**Do:** pass `minContextSlot` (the slot the other read returned) to every list a cursor moves
+past, and retry -32016. Before calling a cut log a hole, count the program's runs in the trace:
+none means nothing of its can be missing; all ended before `Log truncated` means none is.
+
+## 2026-10-24: `maxSupportedTransactionVersion: 0` reads every Solana transaction there is
+
+**Believed:** Solana has legacy and version 0 transactions, so `getTransaction` with
+`maxSupportedTransactionVersion: 0` can read any landed one.
+
+**Measured** (2026-10-24, `api.mainnet-beta.solana.com`, the 23 Raydium CLMM swaps of
+`frontend/src/lib/solana/clmm/__fixtures__/mainnet-swaps.json`, recorded 10-20): 15 of 23 came
+back as JSON-RPC error -32015 "Transaction version (1) is not supported by the requesting
+client". The two retried with `maxSupportedTransactionVersion: 1` read, `"version": 1`, their
+message carrying a `transactionConfig` field. The same run showed a real log with a line after
+`Log truncated`, and pool programs' `Program data:` lines beside Raydium's in one transaction.
+
+**Do:** ask for version 1, and treat -32015 as "this transaction was not read", never as "no
+swap". `frontend/scripts/lib/venue-volume-chain.mjs` still asks for 0, so by its code (not run) its
+first version 1 transaction will stop that source. Stop reading a log at `Log truncated`, and take an event only
+from a frame the runtime's `invoke` and `success` lines opened for the program.
+
 ## 2026-10-24: `git reset --soft origin/mvp-launch` to squash a branch reverts whatever trunk gained since the branch was cut
 
 **Believed:** squashing an unpushed branch with `git reset --soft origin/mvp-launch` and one

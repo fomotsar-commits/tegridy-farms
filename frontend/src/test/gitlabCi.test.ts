@@ -18,6 +18,7 @@ const workflowFiles = () => readdirSync(WORKFLOW_DIR).filter((f) => /\.ya?ml$/.t
 // Workflows GitLab CI does not run. A new push or pull_request workflow that is in neither
 // list and has no GitLab job turns this suite red.
 const EXCLUDED: Record<string, string> = {
+  'range-stats.yml': 'Schedule only, and it holds the Supabase service key, which this runner never gets; off GitHub the count waits and the site says the range figures are behind.',
   'codeql.yml': 'GitHub only: SARIF goes to GitHub code scanning, and the CodeQL licence covers CI for code hosted on GitHub.com.',
   'release.yml': 'Publishes a GitHub Release through the GitHub API (softprops/action-gh-release); no v* tag has ever been cut.',
   'solana-deploy-artifact.yml': 'Manual mainnet builds: its inputs are spliced into scripts, so an act port needs an input allowlist first.',

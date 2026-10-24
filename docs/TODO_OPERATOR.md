@@ -338,6 +338,12 @@ nothing is lost.
   screen it scrolls about 50px because of the "No wallet was found in this browser" note: fewer
   words there is your call. Also: a Galaxy inside Phantom, adding liquidity from Trust on Android,
   the room doors and `/nb1` on an iPhone.
+- ⬜ **Migration 030, after the range stats PR merges** (free). Paste
+  `frontend/supabase/migrations/030_range.sql` in the SQL editor (it needs only
+  `public.schema_migrations`, not 029). Then Actions > Range Stats > Run workflow once; after that
+  it runs hourly at minute 47 by itself, with the same two Supabase secrets as Venue Volume. Until
+  030 is in, the job counts nothing and stays green, and the range figures say "could not be
+  read". The four check queries are at the end of the file.
 - ✅ **Merged 2026-10-17 02:22 UTC.** **#837** (points, Venue Score, tiers and competitions removed): you said to merge it when its
   checks are green. It waits for the /scan test fix to clear trunk first.
 - ⬜ **GitHub security switches** (Dependency graph, Dependabot alerts, secret scanning, push

@@ -307,6 +307,13 @@ jobs:
         if: ${{ !cancelled() }}
         run: node scripts/check-unread-signal.mjs --self-test
 
+      # range-stats.yml runs the range count with no npm install, next to the service key, so its
+      # decision cases run here the same bare way: another program's data line, a failed or cut
+      # transaction, the caps, a refused write. Fakes only: no chain, no database, no secrets.
+      - name: Range stats counter self-test
+        if: ${{ !cancelled() }}
+        run: node scripts/range-stats.mjs --self-test
+
       # Which pubkeys are baked into the deployed Solana programs.
       #
       # A `pubkey!()` constant cannot be read from an account or an explorer, and

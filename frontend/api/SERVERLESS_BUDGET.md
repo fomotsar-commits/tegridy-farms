@@ -100,6 +100,9 @@ into the 404.
 | `pools` | `_lib/pool-index.js` | The Solana pool index behind `/api/pools` (a rewrite): filtered `getProgramAccounts` scans of the cp-swap program, one per pairing coin (SOL, USDC, BAYLA) for a token and one for an LP mint, cached 30 s, ADDRESSES ONLY. The browser reads and checks every address itself, so this can at worst leave a pool out; it exists so `/api/solrpc` never has to allow a program scan |
 | `bot-link` | `_lib/botLink.js` | Telegram chat ↔ wallet binding: the bot's only server surface, and the reason it never holds a key |
 | `venue-volume` | `_lib/venueVolume.js` | The home page's all-time volume: the `venue_volume` rows (migration 028) that `.github/workflows/venue-volume.yml` adds to every hour, summed. Exists for its `s-maxage`: the edge answers, so a visitor costs nothing. Says "unread" for a source never counted and "behind" for a late or failing one, never a partial sum as current |
+| `range-stats` | `_lib/rangeStats.js` | One range pool's count from `.github/workflows/range-stats.yml` (migration 030): 24 h, 7 d, 30 d and since-open windows, each the difference of two snapshots of the pool's own counters (fees to positions, the vault's and the Workshop's take, the share from fills with no range in use), its collections, closed hours and gaps. A window a gap overlaps answers `complete: false` and no number |
+| `range-pools` | `_lib/rangeStats.js` | Every range pool the count has found, the registry's first, and whether the last run read the whole pool list |
+| `range-swaps` | `_lib/rangeStats.js` | One range pool's counted swaps, newest first, a page at a time, with the gaps inside the span. Holds no wallet: the count never stores a swap's sender |
 
 `airdrop` is the one resource here whose absent branch is the security property. It has no
 endpoint that returns a campaign's recipient list, because a recipient list is a

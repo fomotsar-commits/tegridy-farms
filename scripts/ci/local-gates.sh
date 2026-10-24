@@ -87,6 +87,7 @@ gate frontend "address registry" frontend node scripts/verify-addresses.mjs
 gate frontend "address registry self-test" frontend node scripts/verify-addresses.mjs --self-test
 gate frontend "outage-as-zero ratchet" frontend node scripts/check-unread-signal.mjs
 gate frontend "outage-as-zero self-test" frontend node scripts/check-unread-signal.mjs --self-test
+gate frontend "range stats counter self-test" frontend node scripts/range-stats.mjs --self-test
 ladder_program=$(from_workflow ci.yml 's/^ *VITE_BAYLA_LADDER_PROGRAM: *\([[:alnum:]]*\) *$/\1/p')
 ladder_pool=$(from_workflow ci.yml 's/^ *VITE_BAYLA_LADDER_POOL: *\([[:alnum:]]*\) *$/\1/p')
 if [ -n "$ladder_program" ] && [ -n "$ladder_pool" ]; then
