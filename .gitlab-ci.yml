@@ -99,6 +99,12 @@ solana-ci:
   script:
     - bash scripts/ci/act-job.sh solana-ci.yml
 
+cardano-ci:
+  extends: .act-workflow
+  timeout: 1h
+  script:
+    - bash scripts/ci/act-job.sh cardano-ci.yml
+
 npm-advisories:
   extends: .act-workflow
   timeout: 30m
