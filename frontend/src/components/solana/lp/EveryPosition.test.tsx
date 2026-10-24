@@ -36,7 +36,7 @@ function readers(pools: PoolView[], holders: (v: PoolView) => Promise<HoldersRea
   return {
     programId: 'EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT',
     safety: vi.fn(async (mints: string[]) => new Map(mints.map((m) => [m, okToken(m)]))),
-    findPools: vi.fn(async () => ({ kind: 'unread' as const, detail: 'not stubbed' })),
+    findPools: vi.fn(async () => { throw new Error('not stubbed'); }),
     listPools: vi.fn(async () => listOf(pools)),
     outsidePrice: vi.fn(async () => ({ kind: 'ok' as const, solPerToken: 0.01, source: 'Jupiter' as const })),
     positions: vi.fn(async () => ({ kind: 'ok' as const, positions: [], chainNow: 1n, totalShares: 0 })),
