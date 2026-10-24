@@ -19,7 +19,7 @@ import { prepareMigrate } from './graduate';
 import { LAUNCH_TERMS_CHANGED, METADATA_URI_MAX_BYTES, prepareCreateLaunch, quoteOpeningBuy } from './launch';
 import { BAYLA_MINT, WORKSHOP_BAYLA_ACCOUNT, WORKSHOP_WALLET, baylaAccountOf } from './plant';
 import { preparePoolSwap } from './poolSwap';
-import { TX_SIZE_LIMIT, checkEffect } from './prepare';
+import { TX_SIZE_LIMIT, checkEffect, wsolLamportsDelta } from './prepare';
 import { prepareCurveBuy, prepareCurveSell, priceImpactBps } from './trade';
 import {
   AMM_CONFIG,
@@ -299,6 +299,74 @@ describe('curve buy', () => {
 function SOL_n() {
   return 1_000_000_000n;
 }
+
+// What "What you are signing" shows under the review comes from the test run of the FINAL
+// bytes, as the network answered it (spec 5.6, PR 4).
+describe('the test run kept on the prepared transaction', () => {
+  /** Two test runs that answer differently: slots 100 and 200, each with its own log and units. */
+  function twoRuns(chain: FakeChain, units: [number | undefined, number | undefined], withSlot: boolean) {
+    const q = { n: 0 };
+    chain.simulate = (_vtx, config) => {
+      q.n += 1;
+      return {
+        err: null,
+        logs: [`Program log: run ${q.n}`],
+        unitsConsumed: units[q.n - 1],
+        ...(config?.accounts ? { accounts: chain.post(config.accounts.addresses, buyChanges) } : {}),
+      };
+    };
+    const answer = chain.simulateTransaction;
+    chain.simulateTransaction = async (vtx, config) => {
+      const r = await answer(vtx, config);
+      return withSlot ? { ...r, context: { slot: q.n * 100 } } : ({ value: r.value } as typeof r);
+    };
+  }
+  let buyChanges: Changes = {};
+  async function buy(units: [number | undefined, number | undefined], withSlot = true) {
+    const { chain, gate, curve } = await setup();
+    const q = quoteBuyOnCurve(curve.curve, 300_000_000n);
+    if (!q.ok) throw new Error('quote');
+    buyChanges = {
+      [ME.toBase58()]: { lamportsDelta: -(300_000_000 + TOKEN_RENT) },
+      [ATA.toBase58()]: { tokenAmount: q.value.tokensOut, mint: MINT, owner: ME },
+    };
+    twoRuns(chain, units, withSlot);
+    const startedAt = Date.now();
+    const p = ok(await prepareCurveBuy(W(chain), gate, { trader: ME, mint: MINT, curve, lamportsIn: 300_000_000n, slippageBps: 100n }));
+    return { p, startedAt };
+  }
+
+  it("keeps the final bytes' test run: its units, its log, the slot it ran at and when it answered", async () => {
+    const { p, startedAt } = await buy([60_000, 58_123]);
+    expect(p.simulation).toEqual({ unitsConsumed: 58_123, logs: ['Program log: run 2'], slot: 200, at: expect.any(Number), wsolLamportsDelta: null });
+    expect(p.simulation.at).toBeGreaterThanOrEqual(startedAt);
+    expect(p.simulation.at).toBeLessThanOrEqual(Date.now());
+  });
+
+  it('units the network did not report stay unreported, never the limit; a slot it did not give is null', async () => {
+    const { p } = await buy([60_000, undefined], false);
+    expect(p.steps[0]).toEqual({ kind: 'compute-limit', units: 69_000 });
+    expect(p.simulation.unitsConsumed).toBeNull();
+    expect(p.simulation.slot).toBeNull();
+  });
+});
+
+describe("the wrapped-SOL account's lamports, the whole account", () => {
+  const acct = Keypair.generate().publicKey;
+  const other = Keypair.generate().publicKey;
+  const watch = (role: 'wsol' | 'token') => ({ signer: ME, tokenAccounts: [{ account: other, mint: MINT, role: 'token' as const }, { account: acct, mint: WSOL_MINT, role }] });
+  const pre = (lamports: bigint) => ({ signerLamports: 0n, tokens: new Map([[acct.toBase58(), { exists: true, amount: 0n, lamports, nativeReserve: lamports }]]) });
+  const post = (lamports: number | null) => [{ lamports: 1, data: [] }, { lamports: 7, data: [] }, lamports === null ? null : { lamports, data: [] }];
+
+  it('a close hands back all it held; a kept account counts what it gained', () => {
+    expect(wsolLamportsDelta(watch('wsol'), pre(2_039_280n), post(null))).toBe(-2_039_280n);
+    expect(wsolLamportsDelta(watch('wsol'), pre(2_039_280n), post(102_039_280))).toBe(100_000_000n);
+  });
+
+  it('no wrapped-SOL account watched: null, not 0', () => {
+    expect(wsolLamportsDelta(watch('token'), pre(2_039_280n), post(null))).toBeNull();
+  });
+});
 
 describe('curve sell', () => {
   it('quotes WITH the rent floor, stays open while paused, and prepares when exactly the tokens sold leave', async () => {

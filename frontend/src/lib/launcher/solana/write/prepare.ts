@@ -136,6 +136,8 @@ interface SimOutcome {
   logs: string[];
   unitsConsumed: number | undefined;
   accounts: Array<{ lamports: number; data: string[] } | null> | null;
+  /** The slot the node ran it at, or null when its answer did not say. */
+  slot: number | null;
 }
 
 /** Simulate with signature checks off and the blockhash as given. Returns post-state for `watch`. */
@@ -151,12 +153,14 @@ export async function simulate(rpc: WriteRpc, tx: Transaction, watch: WatchList 
   const v = r?.value;
   if (!v || typeof v !== 'object') throw new Error('the simulation returned nothing');
   const logs = Array.isArray(v.logs) ? v.logs : [];
+  const slot: unknown = r?.context?.slot;
   return {
     ok: v.err === null || v.err === undefined,
     err: v.err ?? null,
     logs,
     unitsConsumed: typeof v.unitsConsumed === 'number' ? v.unitsConsumed : undefined,
     accounts: Array.isArray(v.accounts) ? (v.accounts as SimOutcome['accounts']) : null,
+    slot: typeof slot === 'number' && Number.isSafeInteger(slot) && slot >= 0 ? slot : null,
   };
 }
 
@@ -189,6 +193,19 @@ export function simulatedEffect(watch: WatchList, pre: PreState, post: SimOutcom
     });
   }
   return { signerLamportsDelta, tokenDeltas };
+}
+
+/**
+ * The lamports the signer's wrapped-SOL account (`role: 'wsol'`) gained or lost: the whole
+ * account, so a close hands back all it held and a sync moves none. Null when none is watched.
+ */
+export function wsolLamportsDelta(watch: WatchList, pre: PreState, post: NonNullable<SimOutcome['accounts']>): bigint | null {
+  let sum: bigint | null = null;
+  watch.tokenAccounts.forEach((t, i) => {
+    if (t.role !== 'wsol') return;
+    sum = (sum ?? 0n) + BigInt(post[i + 1]?.lamports ?? 0) - (pre.tokens.get(t.account.toBase58())?.lamports ?? 0n);
+  });
+  return sum;
 }
 
 /** Does the simulated effect fall inside the expectation? `null` = yes, else the reason. */
@@ -299,6 +316,7 @@ export async function buildAndSimulate(rpc: WriteRpc, spec: BuildSpec): Promise<
   } catch (e) {
     return notRead('simulate', `Could not run the safety check: ${clipDetail(e)}`);
   }
+  const ranAt = Date.now();
   if (!second.ok) {
     const why = explainFailure(second.err, second.logs, spec.intent.cfg, spec.kind);
     return lagged(second) ? notRead('simulate', why.message) : notSent('simulate', why.message, second.logs);
@@ -324,7 +342,15 @@ export async function buildAndSimulate(rpc: WriteRpc, spec: BuildSpec): Promise<
     blockhash,
     lastValidBlockHeight,
     sizeBytes,
-    simulation: { unitsConsumed: second.unitsConsumed ?? limit, logs: second.logs },
+    // Units the node did not report stay null: the limit is not what it used.
+    simulation: {
+      unitsConsumed: second.unitsConsumed ?? null,
+      logs: second.logs,
+      slot: second.slot,
+      at: ranAt,
+      // simulatedEffect above checked that every watched account came back.
+      wsolLamportsDelta: wsolLamportsDelta(spec.watch, pre, second.accounts ?? []),
+    },
     fees: {
       baseLamports,
       priorityLamports: priorityFee,

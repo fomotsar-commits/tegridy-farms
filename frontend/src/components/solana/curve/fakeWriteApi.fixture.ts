@@ -127,7 +127,7 @@ export function prepared(summary: TxSummary, over: Partial<PreparedTx> = {}): Pr
     blockhash: '11111111111111111111111111111111',
     lastValidBlockHeight: 1234,
     sizeBytes: 900,
-    simulation: { unitsConsumed: 61_234, logs: [] },
+    simulation: { unitsConsumed: 61_234, logs: [], slot: 460_729_140, at: Date.UTC(2026, 9, 24, 14, 2, 11), wsolLamportsDelta: null },
     fees: { baseLamports: 5_000n, priorityLamports: 12_000n, priorityFeeRead: true, newAccountRentLamports: 2_039_280n },
     steps: [],
     simulated: { signerLamportsDelta: -(SOL / 10n) - 17_000n, tokenDeltas: [] },
@@ -163,6 +163,7 @@ export function fakeApi(over: Partial<WriteApi> = {}): WriteApi {
     readWriteGate: vi.fn(async () => openGate()),
     writeActions: vi.fn(() => ({ create: true, buy: true, sell: true, migrate: false, poolSwap: false })),
     explorerTxUrl: vi.fn((sig: string) => `https://explorer.test/tx/${sig}`),
+    explorerAddressUrl: vi.fn((address: string) => `https://explorer.test/account/${address}`),
     quoteOpeningBuy: vi.fn(() => ({
       ok: true as const,
       value: { lamportsIn: SOL / 10n, feeLamports: SOL / 1000n, lamportsToCurve: 0n, tokensOut: 3_500_000_000_000n, capped: false },

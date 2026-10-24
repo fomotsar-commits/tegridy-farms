@@ -72,6 +72,14 @@ const UNMOUNTED_BY_DESIGN: Array<{ pattern: RegExp; because: string }> = [
       'pages/CurveLaunchDetailPage.test.tsx), which is the only place it is imported.',
   },
   {
+    pattern: /^solana\/curve\/reviewKinds\.fixture\.ts$/,
+    because:
+      'Test-only by construction: it builds on fakeWriteApi.fixture, which imports `vi` from ' +
+      'vitest, so it cannot ship. It holds one summary of every kind and a prepared transaction ' +
+      'with real bytes for the review suites (TxFlowView, UnderTheHood, signingFacts), the only ' +
+      'places it is imported.',
+  },
+  {
     pattern: /^solana\/lp\/fakeLpWriteApi\.fixture\.ts$/,
     because:
       'Test-only by construction: it imports `vi` from vitest, so it cannot ship. It is the ' +

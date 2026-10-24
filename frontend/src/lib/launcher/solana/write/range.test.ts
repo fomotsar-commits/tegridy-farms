@@ -6,7 +6,10 @@
 // wallet or a stranger could make to one is refused.
 import { describe, it, expect } from 'vitest';
 import { Keypair, PublicKey, SystemProgram, TransactionInstruction, type VersionedTransaction } from '@solana/web3.js';
-import { createTransferInstruction } from '@solana/spl-token';
+import { ExtensionType, createTransferInstruction, getMintLen } from '@solana/spl-token';
+import { pack as packTokenMetadata } from '@solana/spl-token-metadata';
+import { siteAndNetwork } from '../../../../components/solana/curve/signingFacts';
+import { networkFeeOf } from './testkit.fixture';
 import { ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, WSOL_MINT } from '../curve/program';
 import { BPF_LOADER_UPGRADEABLE_ID } from '../curve/read';
 import { associatedTokenAddress } from '../curve/ix';
@@ -31,7 +34,7 @@ import { encodeAmmConfig, encodePool, encodePosition, encodeTickArray } from '..
 import { pairOf, priceAtSqrt, priceNumber } from '../../../solana/clmm/rangeMath';
 import type { OutsidePrice } from '../../../solana/lp/outsidePrice';
 import { decodeIntent } from './intent';
-import { RANGE_COPY, freezeLines, prepareRangeClose, prepareRangeOpen, prepareRangeRemove, stepsProblem, type RangeOpenReads } from './range';
+import { RANGE_COPY, freezeLines, positionNftMintSize, prepareRangeClose, prepareRangeOpen, prepareRangeRemove, stepsProblem, type RangeOpenReads } from './range';
 import { encodeMint } from './testkit.fixture';
 import { BAYLA_QUOTE, SOL_QUOTE, USDC_QUOTE } from '../../../solana/lp/quotes';
 import { FakeChain, cfgLocal, openAccount, rent, type SimHandler } from './testkit.fixture';
@@ -112,6 +115,17 @@ function chainWith(o: { status?: number; deploy?: boolean; tokens?: bigint | nul
 }
 
 const fail = (code: number) => ({ err: { InstructionError: [2, { Custom: code }] }, logs: [`Program ${PROG.toBase58()} failed: custom program error: 0x${code.toString(16)}`], unitsConsumed: 40_000 });
+/**
+ * A position NFT's mint as Token-2022 itself sizes it (spl-token's own sums, not this site's):
+ * its close authority and metadata pointer, then the metadata the program writes.
+ */
+function nftMintBytes(record: PublicKey): number {
+  const uri = `https://memetics.finance/position/${record.toBase58()}.json`;
+  const meta = { updateAuthority: record, mint: PublicKey.default, name: 'Memetics Range Position', symbol: 'MEM-RANGE', uri, additionalMetadata: [] };
+  return getMintLen([ExtensionType.MintCloseAuthority, ExtensionType.MetadataPointer], { [ExtensionType.TokenMetadata]: packTokenMetadata(meta).length });
+}
+/** The deposit an opening's NFT mint keeps: its record's address is in its link. */
+const nftRent = (p: PreparedTx) => rent(nftMintBytes(derivePersonalPosition(PROG, p.extraSigners[0]!.publicKey)));
 const amountAt = (c: FakeChain, k: PublicKey) => {
   const a = c.accounts.get(k.toBase58());
   return a && a.data.length >= 72 ? new DataView(a.data.buffer, a.data.byteOffset, a.data.byteLength).getBigUint64(64, true) : null;
@@ -169,7 +183,7 @@ const rangeSim: SimHandler = (vtx: VersionedTransaction, config, chain) => {
     d0 = -need0;
     d1 = -need1;
     const newBands = [...new Set([Math.floor(lower / 7200) * 7200, Math.floor(upper / 7200) * 7200])].filter((s) => !chain.accounts.get(deriveTickArray(PROG, POOL, s).toBase58())).length;
-    programLamports = -(rent(281) + rent(469) + rent(170) + newBands * rent(10_240));
+    programLamports = -(rent(281) + rent(nftMintBytes(r.accounts[8]!)) + rent(170) + newBands * rent(10_240));
   } else if (IX_DECREASE_LIQUIDITY_V2.every((b, i) => r.data[i] === b)) {
     const pos = decodePersonalPosition('', chain.accounts.get(r.accounts[2]!.toBase58())!.data)!;
     const liq = dv.getBigUint64(8, true) | (dv.getBigUint64(16, true) << 64n);
@@ -178,7 +192,7 @@ const rangeSim: SimHandler = (vtx: VersionedTransaction, config, chain) => {
     d0 = out0 + pos.tokenFeesOwed0;
     d1 = out1 + pos.tokenFeesOwed1;
     // Closing hands back the record's, the NFT mint's and the NFT account's deposits.
-    if (ixs.some((i) => i.program.equals(PROG) && i.data[0] === 123)) programLamports = rent(281) + rent(469) + rent(170);
+    if (ixs.some((i) => i.program.equals(PROG) && i.data[0] === 123)) programLamports = rent(281) + rent(nftMintBytes(r.accounts[2]!)) + rent(170);
   } else {
     return { err: 'unknown range instruction', logs: [], unitsConsumed: 1 };
   }
@@ -191,7 +205,8 @@ const rangeSim: SimHandler = (vtx: VersionedTransaction, config, chain) => {
   const changes: Parameters<FakeChain['post']>[1] = {
     [ME.toBase58()]: { lamportsDelta: signerDelta },
     [tokenAta.toBase58()]: { tokenAmount: tokenBefore + dToken, mint: TOKEN, owner: ME },
-    [WSOL_ATA.toBase58()]: closesWsol ? { closed: true } : { tokenAmount: wsolAfter, mint: WSOL_MINT, owner: ME },
+    // Wrapped SOL is lamports: a kept account's lamports move with its balance.
+    [WSOL_ATA.toBase58()]: closesWsol ? { closed: true } : { tokenAmount: wsolAfter, mint: WSOL_MINT, owner: ME, lamportsDelta: Number(wsolAfter - wsolBefore) },
   };
   return { err: null, logs: [], unitsConsumed: 120_000, accounts: chain.post(config.accounts.addresses, changes) };
 };
@@ -247,13 +262,13 @@ describe('opening a range position', () => {
     const open = p.steps.find((x) => x.kind === 'range-open');
     expect(open?.kind === 'range-open' && open.nftMint.equals(p.extraSigners[0]!.publicKey)).toBe(true);
     // The deposits: the position and its NFT. Both ends sit in the band at 0, which exists.
-    expect(s.rentLamports).toBe(BigInt(rent(281) + rent(512) + rent(170)));
+    expect(s.rentLamports).toBe(BigInt(rent(281) + nftRent(p) + rent(170)));
   });
 
   it('a range whose end is in a band nobody has used yet pays that band’s deposit too', async () => {
     const wide = TOKEN_IS_0 ? { tickLower: 0, tickUpper: 7_200 } : { tickLower: -7_200, tickUpper: 1_200 };
     const p = ok(await prepareRangeOpen(W(ready(chainWith())), cfgLocal, PROG, READS, { owner: ME, pool: POOL, ...wide, side: 'token', amount: 5_000_000n, toleranceBps: 100 }));
-    expect((p.summary as Extract<RangeSummary, { kind: 'range-open' }>).rentLamports).toBe(BigInt(rent(281) + rent(512) + rent(170) + rent(10_240)));
+    expect((p.summary as Extract<RangeSummary, { kind: 'range-open' }>).rentLamports).toBe(BigInt(rent(281) + nftRent(p) + rent(170) + rent(10_240)));
   });
 
   it('the token only, above the price: nothing is wrapped, and the review says it earns nothing until the price rises into it', async () => {
@@ -397,7 +412,7 @@ describe('an account this opens keeps the deposit its own mint needs', () => {
     // When the token sorts first, coin only is the band below the price, whose lower end is in
     // the band at -7200: nobody has used it yet, so its deposit is in the total too.
     const newBand = coinOnly === below ? rent(10_240) : 0;
-    expect(p.fees.newAccountRentLamports).toBe(BigInt(rent(281) + rent(512) + rent(170) + rent(170) + newBand));
+    expect(p.fees.newAccountRentLamports).toBe(BigInt(rent(281) + nftRent(p) + rent(170) + rent(170) + newBand));
   });
 
   it('taking out: the account opened for a Token-2022 token is 170 bytes, not 165', async () => {
@@ -595,5 +610,47 @@ describe('the pins are held to the chain', () => {
     c.set(POOL, { ...pool, data });
     const r = await prepareRangeOpen(W(c), cfgLocal, PROG, READS, { owner: ME, pool: POOL, ...inRange, side: 'token', amount: 5_000_000n, toleranceBps: 100 });
     expect(r.ok ? null : r.outcome.message).toBe(RANGE_COPY.poolChanged('its vaults'));
+  });
+});
+
+describe("an opening's NFT mint and the review's two lines", () => {
+  /** Mainnet's test run takes the network fee and the priority fee from the wallet (measured 2026-10-24); the fake's does not. */
+  const charged = (c: FakeChain): FakeChain => {
+    const sim = c.simulate;
+    c.simulate = (vtx, config, chain) => {
+      const r = sim(vtx, config, chain);
+      return r.accounts ? { ...r, accounts: r.accounts.map((a, i) => (i === 0 && a ? { ...a, lamports: a.lamports - networkFeeOf(vtx) } : a)) } : r;
+    };
+    return c;
+  };
+  const same = (p: PreparedTx) => siteAndNetwork(p, 6)!.legs.map((l) => [l.name, l.network === l.site ? 'same' : `site ${l.site}, network ${l.network}`]);
+
+  it('the NFT mint is the size Token-2022 makes it: 469 bytes for a 44-character record address, 468 for 43', () => {
+    for (const len of [44, 43]) {
+      let seed = 0;
+      let record = Keypair.fromSeed(new Uint8Array(32)).publicKey;
+      while (record.toBase58().length !== len) record = Keypair.fromSeed(new Uint8Array(32).fill(++seed)).publicKey;
+      expect(positionNftMintSize(record)).toBe(nftMintBytes(record));
+      expect(positionNftMintSize(record)).toBe(425 + len);
+    }
+  });
+
+  it('a SOL opening at a price that did not move: this site and the test run agree to the last unit', async () => {
+    const p = ok(await prepareRangeOpen(W(charged(ready(chainWith()))), cfgLocal, PROG, READS, { owner: ME, pool: POOL, ...inRange, side: 'token', amount: 5_000_000n, toleranceBps: 100 }));
+    expect(same(p)).toEqual([
+      ['tokens', 'same'],
+      ['SOL', 'same'],
+    ]);
+  });
+
+  it('a wallet whose empty wrapped-SOL account the opening closes: the deposit that comes back is not read as a price move', async () => {
+    const c = ready(chainWith());
+    c.tokenAccount(WSOL_ATA, WSOL_MINT, ME, 0n, { native: { reserve: BigInt(rent(165)) } });
+    const p = ok(await prepareRangeOpen(W(charged(c)), cfgLocal, PROG, READS, { owner: ME, pool: POOL, ...inRange, side: 'token', amount: 5_000_000n, toleranceBps: 100 }));
+    expect(p.steps.some((s) => s.kind === 'close-wsol')).toBe(true);
+    expect(same(p)).toEqual([
+      ['tokens', 'same'],
+      ['SOL', 'same'],
+    ]);
   });
 });

@@ -5,6 +5,7 @@ import { FeeRows, TxFlowView, TxOutcomeCard, TxReview } from './TxFlowView';
 import { reviewLines, type ReviewText } from './reviewLines';
 import { PRICE_RUN, REVIEW_TTL_MS, SIGN_MARGIN_BLOCKS, useTxFlow } from './useTxFlow';
 import { CREATOR, KEY, PLANT_SUMMARY, SIG, buySummary, fakeApi, prepared } from './fakeWriteApi.fixture';
+import { BAYLA, EVERY_KIND, rangeOpening, underTheHood } from './reviewKinds.fixture';
 import { lpCreateSummary, lpDepositSummary, lpWithdrawSummary } from '../lp/fakeLpWriteApi.fixture';
 import type { Prepared, PreparedTx, TxOutcome, TxSigner, TxSummary, WriteApi, WriteRpc } from './ports';
 import { SOL_QUOTE } from '../../../lib/solana/lp/quotes';
@@ -374,6 +375,55 @@ describe('review', () => {
     await act(() => result.current.prepare(async () => ({ ok: true, prepared: prepared(buySummary()) })));
     render(<TxFlowView flow={result.current} api={api} cluster="localnet" decimals={6} signer={null} />);
     expect(screen.getByRole('button', { name: 'Sign in wallet' })).toBeDisabled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Under the review (spec 5.6, PR 4): this site's figures beside the network's test run,
+// and "What you are signing", on every kind's review.
+// ---------------------------------------------------------------------------
+
+describe('under the review', () => {
+  async function reviewOf(p: PreparedTx, api: WriteApi = fakeApi()) {
+    const { result } = flowAt(api);
+    await act(() => result.current.prepare(async () => ({ ok: true, prepared: p })));
+    render(<TxFlowView flow={result.current} api={api} cluster="localnet" decimals={6} signer={signer} />);
+    return { api, result };
+  }
+
+  it.each(Object.entries(EVERY_KIND))("every kind's review has What you are signing with compute units and size: %s", async (kind, summary) => {
+    expect(summary.kind).toBe(kind);
+    await reviewOf(underTheHood(summary));
+    const fold = screen.getByTestId('tx-under-the-hood');
+    expect(within(fold).getByText('What you are signing')).toBeInTheDocument();
+    expect(fold).toHaveTextContent('Compute: 84,211 units, limit 120,000.');
+    expect(fold).toHaveTextContent('Size: 1,014 of 1,232 bytes. Your wallet may add guard instructions.');
+    expect(fold).toHaveTextContent('Test run at slot 460,729,140 (14:02:11 UTC).');
+    expect(screen.getByRole('button', { name: 'Sign in wallet' })).not.toBeDisabled();
+  });
+
+  it('a site figure and a test-run figure that differ inside the bounds are both shown and the review stays signable', async () => {
+    // Worked out: 10,000 BAYLA and 4.0988 SOL in. The test run moved 4.0991 SOL, plus the fees and deposits listed.
+    const fees = { baseLamports: 5_000n, priorityLamports: 12_000n, priorityFeeRead: true, newAccountRentLamports: 59_300_000n };
+    const p = underTheHood(rangeOpening(), {
+      fees,
+      simulated: {
+        signerLamportsDelta: -(4_099_100_000n + 5_000n + 12_000n + 59_300_000n),
+        tokenDeltas: [{ mint: BAYLA, account: KEY(60), delta: -10_000_000_000n, role: 'token', decimals: 6 }],
+      },
+    });
+    const { api } = await reviewOf(p, confirmedApi());
+    const box = screen.getByTestId('tx-site-and-network');
+    expect(within(box).getByText('Worked out by this site').parentElement).toHaveTextContent(/^Worked out by this site-10,000 BAYLA and -4\.0988 SOL$/);
+    expect(within(box).getByText("The network's test run moved").parentElement).toHaveTextContent(/^The network's test run moved-10,000 BAYLA and -4\.0991 SOL$/);
+    expect(box).toHaveTextContent("They differ by 0.0003 SOL. The price can move between this site's read and the test run. You are held to the limits above, not to either line.");
+    expect(box).toHaveTextContent('SOL on both lines counts your wrapped-SOL account as SOL, and leaves out the fees and deposits listed above.');
+    const sign = screen.getByRole('button', { name: 'Sign in wallet' });
+    expect(sign).not.toBeDisabled();
+    await act(async () => {
+      fireEvent.click(sign);
+    });
+    expect(signed(api)).toEqual([p]);
   });
 });
 

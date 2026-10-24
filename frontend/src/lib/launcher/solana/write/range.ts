@@ -92,8 +92,19 @@ export const RANGE_COPY = {
   badTolerance: 'The price tolerance must be from 0% to 50%.',
 } as const;
 
-/** The largest a position's Token-2022 NFT mint gets: its name, symbol and link included (469 bytes for ours). */
+/** The ceiling's room for a position's NFT mint: above the size the program gives it (468 or 469 bytes). */
 const NFT_MINT_SIZE_BOUND = 512;
+
+/**
+ * A position NFT's mint as the program sizes and funds it (open_position.rs get_metadata_data,
+ * token.rs): a Token-2022 mint with a close authority and a metadata pointer (270 bytes), then
+ * the metadata's header, its two keys, its name, symbol and link to the position record (each
+ * after its length) and an empty list of extra fields.
+ */
+export function positionNftMintSize(personalPosition: PublicKey): number {
+  const words = ['Memetics Range Position', 'MEM-RANGE', `https://memetics.finance/position/${personalPosition.toBase58()}.json`];
+  return 270 + 4 + 32 + 32 + words.reduce((n, w) => n + 4 + new TextEncoder().encode(w).length, 0) + 4;
+}
 const PERSONAL_POSITION_SIZE = 281;
 const NFT_ACCOUNT_SIZE = 170;
 const TICK_ARRAY_SIZE_BYTES = 10_240;
@@ -350,14 +361,25 @@ export async function prepareRangeOpen(rpc: WriteRpc, cfg: CurveWriteConfig, pro
   const coinSize = quote.native ? 165 : coinMintRaw ? tokenAccountSize(coinMintRaw) : 'its mint was not read';
   if (typeof tokenSize === 'string') return notSent('build', RANGE_COPY.cannotSize(tokenSize));
   if (typeof coinSize === 'string') return notSent('build', RANGE_COPY.cannotSize(coinSize));
+  // The NFT's address names its record, whose address is in the NFT's link: so its size.
+  const nft = Keypair.generate();
+  const nftMintSize = positionNftMintSize(derivePersonalPosition(programId, nft.publicKey));
   let accounts: (RawAccount | null)[];
-  let rents: { position: bigint; nftMint: bigint; nftAccount: bigint; band: bigint; tokenAccount: bigint; coinAccount: bigint };
+  let rents: { position: bigint; nftMint: bigint; nftMintBound: bigint; nftAccount: bigint; band: bigint; tokenAccount: bigint; coinAccount: bigint };
   try {
     accounts = toRaw([tokenSide.address, coinSide.address, a.owner], await rpc.getMultipleAccountsInfo([tokenSide.address, coinSide.address, a.owner], 'confirmed'));
-    const [position, nftMint, nftAccount, band, tokenAccount, coinAccount] = await Promise.all(
-      [PERSONAL_POSITION_SIZE, NFT_MINT_SIZE_BOUND, NFT_ACCOUNT_SIZE, TICK_ARRAY_SIZE_BYTES, tokenSize, coinSize].map((n) => rpc.getMinimumBalanceForRentExemption(n)),
+    const [position, nftMint, nftMintBound, nftAccount, band, tokenAccount, coinAccount] = await Promise.all(
+      [PERSONAL_POSITION_SIZE, nftMintSize, NFT_MINT_SIZE_BOUND, NFT_ACCOUNT_SIZE, TICK_ARRAY_SIZE_BYTES, tokenSize, coinSize].map((n) => rpc.getMinimumBalanceForRentExemption(n)),
     );
-    rents = { position: rentOf(position), nftMint: rentOf(nftMint), nftAccount: rentOf(nftAccount), band: rentOf(band), tokenAccount: rentOf(tokenAccount), coinAccount: rentOf(coinAccount) };
+    rents = {
+      position: rentOf(position),
+      nftMint: rentOf(nftMint),
+      nftMintBound: rentOf(nftMintBound),
+      nftAccount: rentOf(nftAccount),
+      band: rentOf(band),
+      tokenAccount: rentOf(tokenAccount),
+      coinAccount: rentOf(coinAccount),
+    };
   } catch {
     return notSent('build', RANGE_COPY.readFailed);
   }
@@ -438,7 +460,6 @@ export async function prepareRangeOpen(rpc: WriteRpc, cfg: CurveWriteConfig, pro
 
   // 4. The body. Both coin accounts must exist for the program, so a missing one with
   // nothing to give is opened (the wrapped-SOL account is closed again at the end).
-  const nft = Keypair.generate();
   const opens: PublicKey[] = [];
   const body: TransactionInstruction[] = [];
   if (!tokenAcc) {
@@ -476,6 +497,7 @@ export async function prepareRangeOpen(rpc: WriteRpc, cfg: CurveWriteConfig, pro
 
   const bandRent = BigInt(fresh.extra.slice(0, bands.length).filter((b) => b === null || b.owner !== programId.toBase58()).length) * rents.band;
   const positionRent = rents.position + rents.nftMint + rents.nftAccount;
+  const positionCeiling = rents.position + rents.nftMintBound + rents.nftAccount;
   // What the accounts this opens keep as deposits, each sized by its own mint.
   const openedRent = (pre: { tokens: Map<string, { exists: boolean }> }) =>
     opens
@@ -507,14 +529,14 @@ export async function prepareRangeOpen(rpc: WriteRpc, cfg: CurveWriteConfig, pro
       const tokenRow = { account: tokenSide.address, mint: pins.tokenMint, minDelta: -max.token, maxDelta: 2n ** 64n };
       if (!plan2) {
         return {
-          maxSolOut: positionRent + bandRent + accountRents,
+          maxSolOut: positionCeiling + bandRent + accountRents,
           tokens: [tokenRow, { account: coinSide.address, mint: new PublicKey(quote.mint), minDelta: -max.quote, maxDelta: 2n ** 64n }],
         };
       }
       // SOL wrapped in and not used: closed, it comes back as SOL; kept, it stays wrapped.
       const kept = plan2.closeAfter ? 0n : syncCredit(pre.tokens.get(plan2.ata.toBase58()), r.tokenAccount);
       return {
-        maxSolOut: max.quote + positionRent + bandRent + accountRents,
+        maxSolOut: max.quote + positionCeiling + bandRent + accountRents,
         tokens: [tokenRow, { account: plan2.ata, mint: WSOL_MINT, minDelta: kept, maxDelta: plan2.closeAfter ? 0n : kept + max.quote }],
       };
     },
