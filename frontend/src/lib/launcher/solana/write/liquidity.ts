@@ -58,7 +58,7 @@ import type { RawAccount } from '../../../solana/lp/accounts';
 import { isPlanProblem, planDeposit, planWithdraw, solSetAside, spendableSol, type PlanProblem } from '../../../solana/lp/liquidityMath';
 import { estimatedLoss } from '../../../solana/lp/opening';
 import type { OutsidePrice } from '../../../solana/lp/outsidePrice';
-import { CLOCK_SYSVAR, chainTimeOf, poolViewFrom, type PoolView } from '../../../solana/lp/poolFinder';
+import { CLOCK_SYSVAR, LAUNCH_TIER_POOL, chainTimeOf, poolViewFrom, type PoolView } from '../../../solana/lp/poolFinder';
 import { REFERENCE_NAME, assessPool, formatWhen, type PriceCheck } from '../../../solana/lp/poolHealth';
 import { QUOTE_COINS_OR, canPair, quoteCoin, type QuoteCoin } from '../../../solana/lp/quotes';
 import { tokenAccountSize } from '../../../solana/lp/tokenAccountSize';
@@ -81,6 +81,7 @@ const coin = (raw: bigint, q: QuoteCoin) => (q.native ? sol(raw) : `${formatToke
 export const LP_COPY = {
   depositPaused: 'Adding liquidity from this site is paused right now. Removing it still works.',
   depositPoolUnread: 'We could not read the pool just now, so nothing was built. Try again in a moment.',
+  launchTier: `${LAUNCH_TIER_POOL} Nothing was built.`,
   withdrawPoolUnread: 'We could not read the pool just now, so we could not build the withdrawal. Your pool shares are safe in your wallet. Try again.',
   poolChanged: (field: string) => `This pool no longer matches what the page read (${field}). Read the pools again.`,
   notThisPair: (symbol: string) => `This pool does not pair this token with ${symbol}.`,
@@ -650,6 +651,7 @@ export async function prepareLpDeposit(rpc: WriteRpc, gate: LpOpenGate, reads: L
   if (snap === POOL_READ_FAILED) return notSent('build', LP_COPY.depositPoolUnread);
   if (typeof snap === 'string') return notSent('build', snap);
   const { view } = snap;
+  if (view.launchTierWithoutLaunch) return notSent('build', LP_COPY.launchTier);
   const p = view.snapshot.pool;
   const quoteIsToken0 = view.quoteIsToken0;
   const tokenProgram = new PublicKey(quoteIsToken0 ? p.token1Program : p.token0Program);

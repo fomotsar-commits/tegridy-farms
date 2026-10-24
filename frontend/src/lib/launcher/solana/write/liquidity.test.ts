@@ -15,6 +15,7 @@ import {
   POOL_STATUS_DISABLE_SWAP,
   POOL_STATUS_DISABLE_WITHDRAW,
   decodePoolState,
+  deriveAmmConfig,
 } from '../../../solana/cpswap/program';
 import { lpTokensToTradingTokens } from '../../../solana/cpswap/math';
 import { isqrt, spendableSol } from '../../../solana/lp/liquidityMath';
@@ -204,6 +205,8 @@ function world(o: {
   heldLp?: bigint;
   heldWsol?: bigint;
   record?: Parameters<typeof addPool>[2]['record'];
+  ammConfig?: PublicKey;
+  address?: PublicKey;
 } = {}): World {
   const chain = FakeChain.healthy();
   chain.simulate = lpSimulator;
@@ -224,6 +227,8 @@ function world(o: {
     tokenProgram,
     frozenTokenVault: o.frozenTokenVault,
     record: o.record,
+    ammConfig: o.ammConfig,
+    address: o.address,
     ...(o.poolDecimals === undefined ? {} : { tokenDecimals: o.poolDecimals }),
   });
   setClock(chain, NOW);
@@ -1033,6 +1038,25 @@ describe('prepareLpDeposit', () => {
 });
 
 // ── withdraw ─────────────────────────────────────────────────────────────────
+
+describe('a pool opened on the launch tier (fee tier 0) without a launch', () => {
+  const tier0 = deriveAmmConfig(CPSWAP, 0);
+
+  it('takes no deposit from this site, at the standard address or at its own', async () => {
+    for (const address of [undefined, Keypair.generate().publicKey]) {
+      expect(refused(await deposit(world({ ammConfig: tier0, address })))).toBe(LP_COPY.launchTier);
+    }
+  });
+
+  it('still lets a holder take their liquidity out', async () => {
+    const p = ok(await withdraw(holding({ ammConfig: tier0, address: Keypair.generate().publicKey })));
+    expect(p.steps.map((s) => s.kind)).toContain('pool-withdraw');
+  });
+
+  it('the launch pool on the same tier still takes a deposit', async () => {
+    ok(await deposit(world({ ammConfig: tier0, launch: true })));
+  });
+});
 
 describe('prepareLpWithdraw: the leave rule', () => {
   it('a clean withdrawal: one withdrawal, a minimum of at least 1 on each side, and it all comes to you', async () => {

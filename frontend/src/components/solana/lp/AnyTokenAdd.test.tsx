@@ -73,6 +73,7 @@ function view(coin: QuoteCoin, o: { frozen?: boolean; origin?: PoolView['origin'
     quoteReserve: q,
     tokenReserve: t,
     vaultsFrozen: o.frozen ?? false,
+    launchTierWithoutLaunch: false,
     history: o.history ?? { kind: 'not-read' },
   };
 }
@@ -106,6 +107,7 @@ function search(v: PoolView): PoolSearchRead {
       index: { kind: 'ok', pools: [v.address], truncated: false },
       pools: [{ kind: 'pool' as const, view: v }],
       otherPairs: 0,
+      launchTierPools: [],
       knownState: {},
       chainNow: 1_000n,
     },
