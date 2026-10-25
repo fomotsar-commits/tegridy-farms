@@ -99,7 +99,7 @@ for (const path of ['/', '/liquidity', '/earn', '/island', '/swap', '/trust']) {
 }
 
 /**
- * /solana-lp is measured in each state it settles into, never at first paint: its wide
+ * /pools is measured in each state it settles into, never at first paint: its wide
  * content is the LP section, which mounts only after a live venue read and a lazy chunk,
  * so at first paint the page is a hero and a "Reading" line. Live is a played venue
  * (fixtures/playedVenue.ts), so the section and its fee tiers are up on every machine.
@@ -107,8 +107,8 @@ for (const path of ['/', '/liquidity', '/earn', '/island', '/swap', '/trust']) {
 const A_MINT = '4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R';
 
 /**
- * /solana-lp (or /pools, which mounts the same section) on the played venue, settled: the
- * LP section is up and both fee tiers read. `gateOpen`: the venue also answers the LP gate,
+ * /pools on the played venue, settled: the LP section is up and both fee tiers read.
+ * `gateOpen`: the venue also answers the LP gate,
  * so the page is as production shows it, with no "could not check the network" banner.
  */
 async function settledSolanaLp(page: Page, path: string, { gateOpen = false } = {}): Promise<void> {
@@ -123,7 +123,7 @@ async function settledSolanaLp(page: Page, path: string, { gateOpen = false } = 
   expect(venue.answered, 'the page asked the played venue').toContain('getMultipleAccounts');
 }
 
-for (const path of ['/solana-lp', `/solana-lp?mint=${A_MINT}`]) {
+for (const path of ['/pools', `/pools?mint=${A_MINT}`]) {
   test(`${path} with its LP section mounted does not scroll horizontally at 390px`, async ({ page, walletMock: _w }) => {
     await page.setViewportSize(IPHONE_390);
     await settledSolanaLp(page, path);
@@ -132,7 +132,7 @@ for (const path of ['/solana-lp', `/solana-lp?mint=${A_MINT}`]) {
 }
 
 /**
- * /solana-lp opens on what a visitor can DO: Open a pool, Add liquidity and Remove
+ * /pools opens on what a visitor can DO: Open a pool, Add liquidity and Remove
  * liquidity are whole inside the first screen, above the phone's bottom bar where there is
  * one, and under nothing. Pressing Open a pool brings the site's own tokens and the token
  * address field onto the screen under them, so a second press reaches a form.
@@ -165,9 +165,9 @@ async function bottomBarHeight(page: Page): Promise<number> {
 }
 
 for (const vp of FIRST_SCREENS) {
-  test(`/solana-lp shows Open a pool, Add liquidity and Remove liquidity in the first screen at ${vp.name}`, async ({ page, walletMock: _w }) => {
+  test(`/pools shows Open a pool, Add liquidity and Remove liquidity in the first screen at ${vp.name}`, async ({ page, walletMock: _w }) => {
     await page.setViewportSize(vp.size);
-    await settledSolanaLp(page, '/solana-lp', { gateOpen: true });
+    await settledSolanaLp(page, '/pools', { gateOpen: true });
     await expect(page.getByTestId('lp-gate-banner'), 'the played LP gate did not open').toHaveCount(0);
     await page.evaluate(() => document.fonts.ready);
     await page.evaluate(() => window.scrollTo(0, 0));
@@ -239,9 +239,9 @@ for (const vp of FIRST_SCREENS) {
  * there the page's own scroll is what this measures.
  */
 for (const size of [{ width: 390, height: 664 }, { width: 1280, height: 720 }]) {
-  test(`/solana-lp: a live Refresh that fails keeps focus on Refresh and shows its answer, at ${size.width}x${size.height}`, async ({ page, walletMock: _w }) => {
+  test(`/pools: a live Refresh that fails keeps focus on Refresh and shows its answer, at ${size.width}x${size.height}`, async ({ page, walletMock: _w }) => {
     await page.setViewportSize(size);
-    await settledSolanaLp(page, '/solana-lp', { gateOpen: true });
+    await settledSolanaLp(page, '/pools', { gateOpen: true });
     const card = page.getByRole('region', { name: 'Venue status' });
     await expect(card.getByRole('heading', { name: 'Pools are open' })).toBeVisible();
     // Focusing the button scrolls the card into view, down under the whole LP section.
@@ -306,9 +306,9 @@ async function expectRingOnWords(page: Page, target: Locator): Promise<void> {
  * (2026-10-04) measured Refresh at 40x17 and the copy buttons at 79x18: text links with no
  * height of their own. The card is the same at every width, so one phone size holds it.
  */
-test('/solana-lp: the venue status card\'s Refresh and copy buttons are 44px press targets at 390px', async ({ page, walletMock: _w, browserName }) => {
+test('/pools: the venue status card\'s Refresh and copy buttons are 44px press targets at 390px', async ({ page, walletMock: _w, browserName }) => {
   await page.setViewportSize(IPHONE_390);
-  await settledSolanaLp(page, '/solana-lp', { gateOpen: true });
+  await settledSolanaLp(page, '/pools', { gateOpen: true });
   await page.evaluate(() => document.fonts.ready);
   const card = page.getByRole('region', { name: 'Venue status' });
   await expect(card.getByRole('heading', { name: 'Pools are open' })).toBeVisible();
@@ -359,7 +359,8 @@ test('/solana-lp: the venue status card\'s Refresh and copy buttons are 44px pre
  * (measured 2026-10-20, at 390 only). Swept at 4px in from each button's left edge, which
  * at 390 is over the other chip's button too.
  */
-for (const path of ['/pools', '/solana-lp']) {
+{
+  const path = '/pools';
   test(`${path}: each venue copy button answers a press over 44px and never copies the other address, at 390, 820 and 1280`, async ({ page, walletMock: _w }) => {
     await page.setViewportSize(IPHONE_390);
     await settledSolanaLp(page, path, { gateOpen: true });
@@ -393,49 +394,10 @@ for (const path of ['/pools', '/solana-lp']) {
   });
 }
 
-/**
- * The two links that lead between the Solana LP tab and the Venue AMM tab are a line of
- * text with a finger-sized press area around it. The same sweep measured the first at
- * 391x36. Measured where each fits on one line (on a phone the first wraps to two, which
- * is over 44px whatever the press area is). The line itself stays the height it has
- * always had (35.5px): the extra press area is taken back by a negative margin. That
- * height is font size times line height plus fixed padding, so 2px of room is for
- * rounding alone.
- */
-const TAB_LINKS = [
-  { path: '/solana-lp', to: 'the Venue AMM tab', name: /on the Venue AMM tab$/ },
-  // Its words follow what this site can do with the pools; every form of them ends the same.
-  { path: '/pools', to: 'the Solana LP tab', name: /the Solana LP tab$/ },
-];
-for (const link of TAB_LINKS) {
-  test(`${link.path}: the link to ${link.to} is a 44px press target that leaves its line as it was, at 799px`, async ({ page, walletMock: _w, browserName }) => {
-    await page.setViewportSize({ width: 799, height: 900 });
-    await settledSolanaLp(page, link.path, { gateOpen: true });
-    await page.evaluate(() => document.fonts.ready);
-    const target = page.getByRole('link', { name: link.name });
-    await expect(target).toHaveCount(1);
-    await target.scrollIntoViewIfNeeded();
-    const seen = await target.evaluate((el) => {
-      el.scrollIntoView({ block: 'center' });
-      const b = el.getBoundingClientRect();
-      const hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
-      return {
-        height: Math.round(b.height),
-        line: Math.round(el.parentElement!.getBoundingClientRect().height),
-        onTop: !!hit && (hit === el || el.contains(hit)),
-      };
-    });
-    expect(seen.height, 'the link is shorter than a finger').toBeGreaterThanOrEqual(FLOOR);
-    expect(seen.onTop, 'something covers the link').toBe(true);
-    expect(seen.line, 'the link stretches its line, or no longer fits on one').toBeLessThanOrEqual(38);
-    if (browserName === 'chromium') await expectRingOnWords(page, target);
-  });
-}
-
-test('/solana-lp with the chain unreadable does not scroll horizontally at 390px', async ({ page, walletMock: _w }) => {
+test('/pools with the chain unreadable does not scroll horizontally at 390px', async ({ page, walletMock: _w }) => {
   await page.setViewportSize(IPHONE_390);
   await page.route('**/api/solrpc', (r) => r.abort());
-  await gotoRoute(page, '/solana-lp');
+  await gotoRoute(page, '/pools');
   await expect(page.getByRole('heading', { name: 'The chain could not be read' })).toBeVisible({ timeout: 20_000 });
   await expectNoSidewaysScroll(page);
 });

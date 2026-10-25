@@ -120,7 +120,7 @@ function History() {
   return null;
 }
 
-function mount(path = '/solana-lp', mode: LpWritesOverrides['mode'] = 'on', over: Partial<LpReaders> = {}) {
+function mount(path = '/pools', mode: LpWritesOverrides['mode'] = 'on', over: Partial<LpReaders> = {}) {
   const r = readers(over);
   const api = fakeLpApi({ readCreateFacts: vi.fn(async () => readyFacts()) });
   render(
@@ -174,14 +174,14 @@ describe('what a visitor can do is on the first card, as buttons', () => {
   });
 
   it('with adding paused, only Remove is offered and the card says so', async () => {
-    mount('/solana-lp', 'withdraw-only');
+    mount('/pools', 'withdraw-only');
     const tasks = within(await finder()).getByTestId('lp-tasks');
     expect(within(tasks).getAllByRole('button').map((b) => b.textContent)).toEqual(['Remove liquidity']);
     expect(tasks).toHaveTextContent('Adding and opening pools are paused here. Removing still works.');
   });
 
   it('with liquidity switched off, the card is only a finder', async () => {
-    mount('/solana-lp', 'off');
+    mount('/pools', 'off');
     const f = await finder();
     expect(within(f).queryByTestId('lp-tasks')).toBeNull();
     expect(f).toHaveTextContent('Find a pool');
@@ -252,7 +252,7 @@ describe('a lookup asked for with a button ends in a form', () => {
 
   it("Add liquidity on a token whose pool takes deposits opens that pool's Add form, and never the Open-a-pool form beside it", async () => {
     const v = poolView();
-    mount('/solana-lp', 'on', {
+    mount('/pools', 'on', {
       findPools: vi.fn(async (mint: PublicKey) => onePool(mint.toBase58(), v)),
       // The pool's own price, so its deposit checks pass.
       outsidePrice: vi.fn(async () => ({ kind: 'ok' as const, solPerToken: 0.01, source: 'Jupiter' as const })),
@@ -270,7 +270,7 @@ describe('a lookup asked for with a button ends in a form', () => {
 
   it('Open a pool on that same token opens the Open-a-pool form, and not the Add form', async () => {
     const v = poolView();
-    mount('/solana-lp', 'on', {
+    mount('/pools', 'on', {
       findPools: vi.fn(async (mint: PublicKey) => onePool(mint.toBase58(), v)),
       outsidePrice: vi.fn(async () => ({ kind: 'ok' as const, solPerToken: 0.01, source: 'Jupiter' as const })),
     });
@@ -284,7 +284,7 @@ describe('a lookup asked for with a button ends in a form', () => {
   // from then on "Open a pool" then BAYLA ended on a card with nothing to press.
   it('Open a pool on a token that already has a pool on the public tier: the card says so, on the screen, with a button that opens that pool\'s Add form', async () => {
     const v = poolView(true);
-    mount('/solana-lp', 'on', {
+    mount('/pools', 'on', {
       findPools: vi.fn(async (mint: PublicKey) => onePool(mint.toBase58(), v)),
       outsidePrice: vi.fn(async () => ({ kind: 'ok' as const, solPerToken: 0.01, source: 'Jupiter' as const })),
     });
@@ -347,7 +347,7 @@ describe('a lookup asked for with a button ends in a form', () => {
   });
 
   it('with a token already on the page (a link from a wallet app), Open a pool opens its form at once, reading nothing again', async () => {
-    const r = mount(`/solana-lp?mint=${BAYLA}`);
+    const r = mount(`/pools?mint=${BAYLA}`);
     await within(await screen.findByTestId('lp-create')).findByRole('button', { name: 'Open a pool' });
     expect(screen.queryByTestId('lp-create-panel')).toBeNull();
     const reads = (r.findPools as ReturnType<typeof vi.fn>).mock.calls.length;
@@ -358,7 +358,7 @@ describe('a lookup asked for with a button ends in a form', () => {
   });
 
   it('before a press, a token already on the page is named by where its address is', async () => {
-    mount(`/solana-lp?mint=${BAYLA}`);
+    mount(`/pools?mint=${BAYLA}`);
     await screen.findByTestId('lp-create');
     expect(screen.getByTestId('lp-task-line')).toHaveTextContent(
       'Open a pool and Add liquidity act on the token in the box below.',
@@ -369,7 +369,7 @@ describe('a lookup asked for with a button ends in a form', () => {
   it('Open a pool pressed while the linked token is still being read: the form opens when the answer arrives', async () => {
     let release!: () => void;
     const held = new Promise<PoolSearchRead>((res) => (release = () => res(noPools(BAYLA))));
-    mount(`/solana-lp?mint=${BAYLA}`, 'on', { findPools: vi.fn(() => held) });
+    mount(`/pools?mint=${BAYLA}`, 'on', { findPools: vi.fn(() => held) });
     await finder();
     fireEvent.click(await task('Open a pool'));
     expect(screen.queryByTestId('lp-create-panel')).toBeNull();
@@ -378,7 +378,7 @@ describe('a lookup asked for with a button ends in a form', () => {
   });
 
   it('a link that carries a token opens nothing and does not move the page', async () => {
-    mount(`/solana-lp?mint=${BAYLA}`);
+    mount(`/pools?mint=${BAYLA}`);
     await within(await screen.findByTestId('lp-create')).findByRole('button', { name: 'Open a pool' });
     expect(screen.queryByTestId('lp-create-panel')).toBeNull();
     expect(scrolled).not.toHaveBeenCalled();
@@ -406,7 +406,7 @@ describe('a lookup asked for with a button ends in a form', () => {
   it('is spent by the form it opened: a pool that appears in a later read does not get its Add form opened by itself', async () => {
     const v = poolView();
     let withPool = false;
-    mount('/solana-lp', 'on', {
+    mount('/pools', 'on', {
       findPools: vi.fn(async (mint: PublicKey) => (withPool ? onePool(mint.toBase58(), v) : noPools(mint.toBase58()))),
       outsidePrice: vi.fn(async () => ({ kind: 'ok' as const, solPerToken: 0.01, source: 'Jupiter' as const })),
     });
@@ -542,7 +542,7 @@ describe('a lookup the visitor asked for is brought onto the screen', () => {
 
 describe('a token with no pool yet', () => {
   it('is told that opening the pool is how the first liquidity goes in', async () => {
-    mount(`/solana-lp?mint=${BAYLA}`);
+    mount(`/pools?mint=${BAYLA}`);
     const card = await screen.findByTestId('lp-create');
     // BAYLA is a pairing coin itself: it was searched against SOL and USDC only, and the
     // card names those two (BAYLA with BAYLA is no pair, and was never looked for).

@@ -42,7 +42,6 @@ describe('which tab serves which network', () => {
   it('adds liquidity wherever our router, factory and WETH are deployed', () => {
     expect(tabChains('/liquidity')).toEqual(['ethereum', 'base', 'robinhood']);
     expect(tabChains('/zap')).toEqual(['ethereum']);
-    expect(tabChains('/solana-lp')).toEqual(['solana']);
     expect(tabChains('/pools')).toEqual(['solana']);
   });
 
@@ -65,7 +64,7 @@ describe('where a pick goes', () => {
   });
 
   it("else goes to the section's first live tab on that network", () => {
-    expect(chainDestination(pools, '/liquidity', 'solana')).toBe('/solana-lp');
+    expect(chainDestination(pools, '/liquidity', 'solana')).toBe('/pools');
     expect(chainDestination(pools, '/pools', 'ethereum')).toBe('/liquidity');
     expect(chainDestination(pools, '/zap', 'base')).toBe('/liquidity');
     expect(chainDestination(launch, '/launch', 'robinhood')).toBe('/eth-curve');
@@ -100,6 +99,6 @@ describe('where a pick goes', () => {
     expect(chainHref('/launch-simulator', 'solana')).toBe('/launch-simulator?chain=solana');
     expect(chainHref('/swap', 'ethereum')).toBe('/swap?c=1');
     expect(chainHref('/swap', 'base')).toBe('/swap?c=8453');
-    expect(chainHref('/solana-lp', 'solana')).toBe('/solana-lp');
+    expect(chainHref('/pools', 'solana')).toBe('/pools');
   });
 });

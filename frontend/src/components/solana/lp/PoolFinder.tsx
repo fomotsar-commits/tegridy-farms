@@ -270,7 +270,7 @@ export function PoolFinder({
   const reread = useCallback(() => setNonce((n) => n + 1), []);
   // The home card reads again by itself when a read failed, a few times and spaced out: a busy
   // RPC answers a later ask more often than not, and the card has no field to press Find in.
-  // Each try is a fresh lookup. After the last, Read again and the Solana LP tab stay on screen.
+  // Each try is a fresh lookup. After the last, Read again and the Venue AMM tab stay on screen.
   const autoTries = useRef(0);
   const onlyFailed =
     Boolean(only) && state.status === 'done' && !state.refreshing &&
@@ -809,7 +809,7 @@ function SearchResults({
 const ONLY_RETRY_MS = [2_000, 6_000, 15_000] as const;
 
 /**
- * The home card's way on when a read failed: read again here, or add on the Solana LP tab,
+ * The home card's way on when a read failed: read again here, or add on the Venue AMM tab,
  * where the LP door opens Add with one coin on this pool (SolanaLpSection, `task=add`).
  */
 function OnlyWayOn({ mint, pool, onRetry }: { mint: string; pool: string; onRetry?: () => void }) {
@@ -821,11 +821,11 @@ function OnlyWayOn({ mint, pool, onRetry }: { mint: string; pool: string; onRetr
         </button>
       )}
       <Link
-        to={`/solana-lp?mint=${mint}&task=add&pool=${pool}`}
+        to={`/pools?mint=${mint}&task=add&pool=${pool}`}
         className="inline-flex items-center min-h-[44px] px-1 text-[13px] underline underline-offset-4"
         style={{ color: 'var(--color-kyle)' }}
       >
-        Add on the Solana LP tab
+        Add on the Venue AMM tab
       </Link>
     </div>
   );

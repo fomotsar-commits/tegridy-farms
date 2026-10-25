@@ -5,8 +5,8 @@ const CARD = { background: 'rgba(4,9,18,0.90)', border: '1px solid var(--color-p
 
 /**
  * "The program": what the venue's Solana AMM is built from, and how a pool list is made.
- * The LP section's disclosure says to see it below, so it is the last section of both
- * tabs that mount that section (/pools and /solana-lp).
+ * The LP section's disclosure says to see it below, so it is the last section of the
+ * tab that mounts that section (/pools).
  */
 export function VenueProgramCard() {
   return (

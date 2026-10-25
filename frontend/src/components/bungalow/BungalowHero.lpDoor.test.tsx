@@ -23,14 +23,14 @@ const ROOM_POOLS: [id: string, symbol: string, pool: string][] = [
 describe('bungalowLpDoor', () => {
   it('BAYLA opens its SOL pool’s Add form, the token and the pool named in the link', () => {
     expect(bungalowLpDoor(room('bayla'))).toEqual({
-      to: `/solana-lp?mint=${BAYLA_MINT}&task=add&pool=${BAYLA_SOL_POOL}`,
+      to: `/pools?mint=${BAYLA_MINT}&task=add&pool=${BAYLA_SOL_POOL}`,
       label: 'Add SOL + BAYLA',
     });
   });
 
   it.each(ROOM_POOLS)('%s opens its own SOL pool, and only that one', (id, symbol, pool) => {
     expect(bungalowLpDoor(room(id))).toEqual({
-      to: `/solana-lp?mint=${room(id).address}&task=add&pool=${pool}`,
+      to: `/pools?mint=${room(id).address}&task=add&pool=${pool}`,
       label: `Add SOL + ${symbol}`,
     });
   });
