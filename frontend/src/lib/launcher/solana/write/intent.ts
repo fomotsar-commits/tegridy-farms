@@ -57,6 +57,7 @@ import {
   IX_INITIALIZE,
   IX_SWAP_BASE_INPUT,
   IX_WITHDRAW,
+  PUBLIC_TIER_INDICES,
   deriveAmmConfig,
   deriveAuthority,
   deriveLpMint,
@@ -663,14 +664,15 @@ const INITIALIZE_DATA_LEN = 32;
 const INITIALIZE_KEY_COUNT = 20;
 
 /**
- * cp-swap `initialize`: opening a pool, always on the public fee tier (tier 1).
+ * cp-swap `initialize`: opening a pool, always on a public fee tier (`PUBLIC_TIER_INDICES`).
  *
- * Every one of the 20 accounts is pinned. The tier is derived here from the constant,
- * never from a read or a caller; the pool, its vaults, its share token and its price
- * record are derived from the pool address prepare chose; the creator's accounts are
- * the signer's own under each mint's program. The amounts must clear the site's
- * share rule (`openingProblem`: the locked part at most 0.1%, and the opener's own shares
- * able to leave), and the pool must open for trading at once.
+ * Every one of the 20 accounts is pinned. The pinned tier must be one of the addresses
+ * derived here from the constant list, never one a read or a caller made up; the pool,
+ * its vaults, its share token and its price record are derived from the pool address
+ * prepare chose; the creator's accounts are the signer's own under each mint's program.
+ * The amounts must clear the site's share rule (`openingProblem`: the locked part at most
+ * 0.1%, and the opener's own shares able to leave), and the pool must open for trading
+ * at once.
  */
 function poolInitialize(ix: TransactionInstruction, ctx: PoolIntent): IntentStep {
   const d = ix.data;
@@ -678,7 +680,6 @@ function poolInitialize(ix: TransactionInstruction, ctx: PoolIntent): IntentStep
   expectKeyCount(ix, INITIALIZE_KEY_COUNT, 'opening a pool');
   const cp = ctx.cfg.cpSwapProgram;
   const p = ctx.pins;
-  const tier1 = publicTierConfig(cp);
   // The pair: the token and the pool's pairing coin, the coin under its own program.
   // Only a pair this site reads that way round (BAYLA/SOL is BAYLA priced in SOL).
   const quote = pinnedQuote(ctx);
@@ -688,16 +689,21 @@ function poolInitialize(ix: TransactionInstruction, ctx: PoolIntent): IntentStep
   const prog = (m: PublicKey) => (m.equals(quoteMint) ? new PublicKey(quote.program) : p.tokenProgram);
 
   // The launch tier by name, before the generic fee-tier refusal below.
-  if (key(ix, 1).equals(deriveAmmConfig(cp, 0))) refuse('the pool would open on the launch tier (fee tier 0), which this site never does');
+  if (key(ix, 1).equals(deriveAmmConfig(cp, 0)) || p.ammConfig.equals(deriveAmmConfig(cp, 0))) {
+    refuse('the pool would open on the launch tier (fee tier 0), which this site never does');
+  }
+  // The pinned tier must be a public tier, by derivation: a pin naming any other address is refused.
+  if (!PUBLIC_TIER_INDICES.some((i) => publicTierConfig(cp, i).equals(p.ammConfig))) refuse('the pool would open on a fee tier this site does not use');
+  const tier = p.ammConfig;
   // Only the launch program opens a launch pool; this site opens a pool at the standard
-  // address or at a fresh key of its own, and the pins must say which, truthfully.
+  // address (the pinned tier's own) or at a fresh key, and the pins must say which, truthfully.
   if (p.origin !== 'standard' && p.origin !== 'other') refuse("the pool's address does not match the review");
-  if ((p.origin === 'standard') !== p.address.equals(derivePool(cp, tier1, t0, t1))) refuse("the pool's address does not match the review");
+  if ((p.origin === 'standard') !== p.address.equals(derivePool(cp, tier, t0, t1))) refuse("the pool's address does not match the review");
 
   const lpMint = deriveLpMint(cp, p.address);
   const checks: Array<[number, PublicKey, string]> = [
     [0, ctx.signer, 'the pool is opened and paid for by someone else'],
-    [1, tier1, 'the pool would open on a fee tier this site does not use'],
+    [1, tier, 'the pool would open on a fee tier this site does not use'],
     [2, deriveAuthority(cp), 'the opening names the wrong pool authority'],
     [3, p.address, 'the opening creates a different pool than the one checked'],
     [4, t0, 'the opening pairs different tokens than the review names'],
@@ -728,7 +734,7 @@ function poolInitialize(ix: TransactionInstruction, ctx: PoolIntent): IntentStep
   if (problem?.problem === 'cannot-leave') refuse('your own share of the pool could never be taken out: it would pay out nothing on one side');
   if (problem) refuse('the pool would keep more than 0.1% of what you put in forever');
   if (openTime !== 0n) refuse('the pool would open for trading later, not now');
-  return { kind: 'pool-create', pool: p.address, ammConfig: tier1, init0, init1 };
+  return { kind: 'pool-create', pool: p.address, ammConfig: tier, init0, init1 };
 }
 
 // ── range positions ──────────────────────────────────────────────────────────

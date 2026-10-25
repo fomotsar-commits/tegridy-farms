@@ -11,7 +11,7 @@ import type { Position } from '../../../lib/solana/lp/positions';
 import type { SafetyReason, TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { TOKEN_2022_NATIVE_MINT } from '../../../lib/solana/lp/opening';
 import { PROGRAM, buildPool, key, viewOf } from '../../../lib/solana/lp/testkit.fixture';
-import type { CreateFacts } from '../../../lib/launcher/solana/write/types';
+import type { CreateFacts, TierState } from '../../../lib/launcher/solana/write/types';
 import type { PendingTrade } from '../curve/pendingTrade';
 import type { CurveWriteConfig, LpGate } from '../curve/ports';
 import { BAYLA_QUOTE, SOL_QUOTE, USDC_QUOTE, type QuoteCoin } from '../../../lib/solana/lp/quotes';
@@ -269,12 +269,15 @@ describe('createOffer', () => {
   // names that program: tier 1 is then the testkit's tier 1.
   const lpCfg = { programId: key(), cpSwapProgram: PROGRAM, cluster: 'localnet' } as CurveWriteConfig;
   const GATE: LpGate = { kind: 'open', cfg: lpCfg, mode: 'on' };
-  const TIER1 = publicTierConfig(PROGRAM);
+  const TIER1 = publicTierConfig(PROGRAM, 1);
   const tierConfig = {
     address: TIER1.toBase58(), index: 1, disableCreatePool: false, tradeFeeRate: 10_000n, protocolFeeRate: 160_000n,
     fundFeeRate: 0n, createPoolFee: 150_000_000n, creatorFeeRate: 0n, protocolOwner: key().toBase58(), fundOwner: key().toBase58(),
   };
-  const READY: CreateFacts = { tier: { kind: 'ready', address: TIER1, config: tierConfig }, feeAccount: { kind: 'ready' } };
+  // Mainnet as it stood before the 0.25% tier: tier 1 as given, tier 2 not created.
+  const TIER2 = publicTierConfig(PROGRAM, 2);
+  const tiersWith = (t: TierState): TierState[] => [t, { kind: 'not-open', index: 2, address: TIER2 }];
+  const READY: CreateFacts = { tiers: tiersWith({ kind: 'ready', index: 1, address: TIER1, config: tierConfig }), feeAccount: { kind: 'ready' } };
   const healthOf = (verdict: PoolHealth['deposits']['verdict']): PoolHealth => ({
     swaps: { state: 'open' }, withdrawals: 'open', price: { state: 'empty-pool' }, deposits: { verdict, reasons: [], warnings: [] },
   });
@@ -313,11 +316,11 @@ describe('createOffer', () => {
     ['paused-here', (a) => ({ ...a, mode: 'withdraw-only' })],
     ['held', (a) => ({ ...a, notes: [noteOf('lp-create', null)] })],
     ['checking', (a) => ({ ...a, facts: null })],
-    ['tier-unread', (a) => (a.facts ? { ...a, facts: { ...a.facts, tier: { kind: 'unread', address: TIER1, detail: 'HTTP 429' } } } : a)],
-    ['tier-not-open', (a) => (a.facts ? { ...a, facts: { ...a.facts, tier: { kind: 'not-open', address: TIER1 } } } : a)],
-    ['tier-bad', (a) => (a.facts ? { ...a, facts: { ...a.facts, tier: { kind: 'not-a-tier', address: TIER1, detail: 'x' } } } : a)],
-    ['tier-off', (a) => (a.facts ? { ...a, facts: { ...a.facts, tier: { kind: 'switched-off', address: TIER1, config: tierConfig } } } : a)],
-    ['tier-fee-too-high', (a) => (a.facts ? { ...a, facts: { ...a.facts, tier: { kind: 'fee-too-high', address: TIER1, config: tierConfig, limit: 1n } } } : a)],
+    ['tier-unread', (a) => (a.facts ? { ...a, facts: { ...a.facts, tiers: tiersWith({ kind: 'unread', index: 1, address: TIER1, detail: 'HTTP 429' }) } } : a)],
+    ['tier-not-open', (a) => (a.facts ? { ...a, facts: { ...a.facts, tiers: tiersWith({ kind: 'not-open', index: 1, address: TIER1 }) } } : a)],
+    ['tier-bad', (a) => (a.facts ? { ...a, facts: { ...a.facts, tiers: tiersWith({ kind: 'not-a-tier', index: 1, address: TIER1, detail: 'x' }) } } : a)],
+    ['tier-off', (a) => (a.facts ? { ...a, facts: { ...a.facts, tiers: tiersWith({ kind: 'switched-off', index: 1, address: TIER1, config: tierConfig }) } } : a)],
+    ['tier-fee-too-high', (a) => (a.facts ? { ...a, facts: { ...a.facts, tiers: tiersWith({ kind: 'fee-too-high', index: 1, address: TIER1, config: tierConfig, limit: 1n }) } } : a)],
     ['fee-account-unread', (a) => (a.facts ? { ...a, facts: { ...a.facts, feeAccount: { kind: 'unread', detail: 'x' } } } : a)],
     ['fee-account', (a) => (a.facts ? { ...a, facts: { ...a.facts, feeAccount: { kind: 'missing' } } } : a)],
     ['token-unread', (a) => ({ ...a, safety: { kind: 'unread', mint: mint.toBase58(), detail: 'x' } })],
@@ -348,7 +351,7 @@ describe('createOffer', () => {
     const unread: Array<[string, In]> = [
       ['gate null', { ...base(), gate: null }],
       ['facts null', { ...base(), facts: null }],
-      ['tier unread', { ...base(), facts: { ...READY, tier: { kind: 'unread', address: TIER1, detail: 'x' } } }],
+      ['tier unread', { ...base(), facts: { ...READY, tiers: tiersWith({ kind: 'unread', index: 1, address: TIER1, detail: 'x' }) } }],
       ['fee account unread', { ...base(), facts: { ...READY, feeAccount: { kind: 'unread', detail: 'x' } } }],
       ['token unread', { ...base(), safety: { kind: 'unread', mint: mint.toBase58(), detail: 'x' } }],
       ['price null', { ...base(), outside: null }],
@@ -713,7 +716,7 @@ describe('createOffer', () => {
           kind: 'ok',
           search: { mint: mint.toBase58(), known, index: { kind: 'ok', pools: [], truncated: false }, pools: [], otherPairs: 0, knownState, chainNow: NOW },
         });
-        const states = (s: PoolSearchRead) => [SOL_QUOTE, USDC_QUOTE, BAYLA_QUOTE].map((q) => standardState(s, q));
+        const states = (s: PoolSearchRead) => [SOL_QUOTE, USDC_QUOTE, BAYLA_QUOTE].map((q) => standardState(s, q, 1));
 
         expect(states(withState({ [solStd!]: 'pool', [usdcStd!]: 'absent', [baylaStd!]: 'absent' }))).toEqual(['taken', 'empty', 'empty']);
         expect(states(withState({ [solStd!]: 'absent', [usdcStd!]: 'pool', [baylaStd!]: 'absent' }))).toEqual(['empty', 'taken', 'empty']);
@@ -723,9 +726,9 @@ describe('createOffer', () => {
         // An unread address may hold something: the opening goes to an address of its own, and Prepare reads again.
         expect(states(withState({ [usdcStd!]: 'unread' }))).toEqual(['empty', 'taken', 'empty']);
         // An unread search, and a coin the search has no address for.
-        expect(standardState({ kind: 'unread', detail: 'x', index: { kind: 'unread', detail: 'x' } }, USDC_QUOTE)).toBe('empty');
-        expect(standardState(searchOf([]), USDC_QUOTE)).toBe('empty');
-        expect(pairFacts({ tokenMint: mint.toBase58(), gate: GATE, search: withState({ [usdcStd!]: 'pool' }), healths: new Map(), openedHere: () => false, advise: true }).map((x) => x.standard)).toEqual(['empty', 'taken', 'empty']);
+        expect(standardState({ kind: 'unread', detail: 'x', index: { kind: 'unread', detail: 'x' } }, USDC_QUOTE, 1)).toBe('empty');
+        expect(standardState(searchOf([]), USDC_QUOTE, 1)).toBe('empty');
+        expect(pairFacts({ tokenMint: mint.toBase58(), gate: GATE, search: withState({ [usdcStd!]: 'pool' }), healths: new Map(), openedHere: () => false, advise: true }).map((x) => x.standard[1])).toEqual(['empty', 'taken', 'empty']);
       });
     });
   });
@@ -830,7 +833,7 @@ describe('Add and Remove never read the create facts', () => {
 
   it('at run time: with every create fact bad, Remove and Add are still offered', () => {
     const v = view();
-    const bad = { facts: { tier: { kind: 'unread' }, feeAccount: { kind: 'missing' } } };
+    const bad = { facts: { tiers: [{ kind: 'unread' }], feeAccount: { kind: 'missing' } } };
     expect(withdrawOffer({ mode: 'on', gate: OPEN, position: position(v), held: false, ...bad } as Parameters<typeof withdrawOffer>[0])).toBe('offer');
     expect(depositOffer({ mode: 'on', gate: OPEN, health: health(v), held: false, ...bad } as Parameters<typeof depositOffer>[0])).toBe('offer');
   });

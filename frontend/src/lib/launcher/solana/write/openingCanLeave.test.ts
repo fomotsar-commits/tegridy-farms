@@ -77,7 +77,7 @@ function world(quote: QuoteCoin, decimals: number): World {
 }
 
 const open = (w: World, quote: bigint, token: bigint, reads: LpPrepareReads = noMarket(w.quote)) =>
-  prepareLpCreate(W(w.chain), OPEN, reads, { owner: ME, tokenMint: w.mint, quoteMint: w.quoteMint, quote, token, shown: { terms: TERMS, standard: 'empty' } });
+  prepareLpCreate(W(w.chain), OPEN, reads, { owner: ME, tokenMint: w.mint, quoteMint: w.quoteMint, quote, token, tier: 1, shown: { terms: TERMS, standard: 'empty' } });
 
 function refusal(r: Prepared): string {
   if (r.ok) throw new Error('expected the builder to refuse, but it prepared');

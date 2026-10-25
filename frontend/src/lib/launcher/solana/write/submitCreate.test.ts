@@ -40,13 +40,14 @@ async function preparedOneOff(): Promise<{ chain: FakeChain; p: PreparedTx }> {
   chain.fund(ME, 20_000_000_000);
   chain.tokenAccount(associatedTokenAddress(mint, ME), mint, ME, 1_000_000_000n);
   const { token0, token1 } = sortMints(WSOL_MINT, mint);
-  chain.fund(deriveVault(CPSWAP, derivePool(CPSWAP, publicTierConfig(CPSWAP), token0, token1), WSOL_MINT), 10_000_000);
+  chain.fund(deriveVault(CPSWAP, derivePool(CPSWAP, publicTierConfig(CPSWAP, 1), token0, token1), WSOL_MINT), 10_000_000);
   const r = await prepareLpCreate(W(chain), OPEN, { outsidePrice: async () => ({ kind: 'ok', solPerToken: 0.01, source: 'Jupiter' }) }, {
     owner: ME,
     tokenMint: mint,
     quoteMint: WSOL_MINT,
     quote: 1_000_000_000n,
     token: 100_000_000n,
+    tier: 1,
     shown: { terms: TERMS, standard: 'empty' },
   });
   if (!r.ok) throw new Error(r.outcome.message);

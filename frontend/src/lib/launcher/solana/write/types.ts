@@ -98,24 +98,25 @@ export type SwapGate = { kind: 'off' } | { kind: 'blocked'; reason: GateBlock; d
 
 export type SwapOpenGate = Extract<SwapGate, { kind: 'open' }>;
 
-/** The public fee tier's terms a person is shown before opening a pool, and that prepare re-checks. */
+/** A public fee tier's terms a person is shown before opening a pool, and that prepare re-checks. */
 export type TierTerms = Pick<AmmConfigView, 'createPoolFee' | 'tradeFeeRate' | 'protocolFeeRate' | 'fundFeeRate' | 'creatorFeeRate'>;
 
 /**
- * The public fee tier (tier 1), as read for opening a pool. Separate from `LpGate`:
- * nothing here can close or open adding and removing liquidity (spec N3).
+ * One public fee tier (`PUBLIC_TIER_INDICES`), as read for opening a pool; `index` says
+ * which. Separate from `LpGate`: nothing here can close or open adding and removing
+ * liquidity (spec N3).
  */
 export type TierState =
-  | { kind: 'ready'; address: PublicKey; config: AmmConfigView }
+  | { kind: 'ready'; index: number; address: PublicKey; config: AmmConfigView }
   /** No account there: the vault has not created the tier yet. */
-  | { kind: 'not-open'; address: PublicKey }
+  | { kind: 'not-open'; index: number; address: PublicKey }
   /** The tier's `disable_create_pool` is on. */
-  | { kind: 'switched-off'; address: PublicKey; config: AmmConfigView }
+  | { kind: 'switched-off'; index: number; address: PublicKey; config: AmmConfigView }
   /** Its fee to open is above this site's ceiling. */
-  | { kind: 'fee-too-high'; address: PublicKey; config: AmmConfigView; limit: bigint }
-  /** Something is there, but not the pool program's tier 1 (wrong owner, undecodable, another index). */
-  | { kind: 'not-a-tier'; address: PublicKey; detail: string }
-  | { kind: 'unread'; address: PublicKey; detail: string };
+  | { kind: 'fee-too-high'; index: number; address: PublicKey; config: AmmConfigView; limit: bigint }
+  /** Something is there, but not the pool program's tier of this index (wrong owner, undecodable, another index). */
+  | { kind: 'not-a-tier'; index: number; address: PublicKey; detail: string }
+  | { kind: 'unread'; index: number; address: PublicKey; detail: string };
 
 /** The pool program's fee account for openings: it must be a native wrapped-SOL account, or every opening fails. */
 export type FeeAccountState =
@@ -125,7 +126,8 @@ export type FeeAccountState =
   | { kind: 'unread'; detail: string };
 
 export interface CreateFacts {
-  tier: TierState;
+  /** Every public fee tier, in `PUBLIC_TIER_INDICES` order; an opening is offered while any is ready. */
+  tiers: TierState[];
   feeAccount: FeeAccountState;
 }
 
@@ -571,9 +573,9 @@ export interface LpWithdrawSummary {
 export interface LpCreateSummary {
   kind: 'lp-create';
   pool: PublicKey;
-  /** `standard`: the pool's standard address for tier 1. `other`: a fresh key made in this browser. */
+  /** `standard`: the pool's standard address for its tier. `other`: a fresh key made in this browser. */
   origin: 'standard' | 'other';
-  /** Tier 1 as read while preparing. Never null: prepare refuses without it. */
+  /** The chosen public tier as read while preparing (`config.index` says which). Never null: prepare refuses without it. */
   config: AmmConfigView;
   tokenMint: PublicKey;
   tokenDecimals: number;

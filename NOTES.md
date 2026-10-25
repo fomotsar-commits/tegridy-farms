@@ -980,6 +980,36 @@ so it skips the file-serving check. Keep the plugin in its own file and import i
 extension: when `vitest.config.ts` imports `vite.config.ts`, Vite prints the
 `configLoader: 'native'` warning for `vite.config.ts`'s extensionless imports.
 
+## 2026-10-18: a derived-address helper beside a mocked export is not mocked, and a recorded RPC answers only the exact key list it recorded
+
+**Believed:** giving the site a list of public fee tiers is a matter of looping over
+`publicTierConfig` wherever tier 1 was hardwired, and the existing tests would follow.
+
+**Measured** (adding the 0.25% tier picker, 2026-10-18):
+
+- Eight jsdom suites mock `publicTierConfig` with a fixed key, because `findProgramAddressSync`
+  cannot run under jsdom. A helper written in `cpswap/program.ts` that loops over
+  `publicTierConfig` calls the real function from inside its own module, so the mock never
+  reaches it, and "is this pool on a public tier" would compare mainnet derivations with the
+  fixture's fixed keys. What worked: the component builds the set from the addresses the
+  facts read already carries (`TierState.address`), and the one helper that must derive sits
+  in `offers.ts`, where the import is the mocked one.
+- `mainnetVenueReplay.fixture.ts` keys each answer by `method:first-param`, and for
+  `getMultipleAccounts` the first param is the whole key list. Widening `readFeeTiers`'s
+  default from `[0, 1]` to `[0, 1, 2]` made a new key the recording does not hold, so the
+  replay threw and the read came back `unread`. The recorded test now names `[0, 1]`; the
+  recording is re-run once tier 2 is live.
+- On `vite preview` the create card never offers Open a pool: `/api/pools` is not forwarded,
+  the SPA fallback answers index.html, and the card reads `pools-unread` ("the pool index says
+  this address is not a token mint"). Route `/api/pools` to the branch's own handler in Node
+  (`api/_lib/pool-index.js`), as `_every-pool-walk.mjs` does. Three walks inside two minutes
+  on the keyless public RPC then read the LP gate as `gate` (cannot reach the pool program):
+  a rate limit, not a bug; the next walk a minute later read it fine.
+
+**So:** when a module's export is mocked in jsdom, keep every derivation that must agree with
+the mock in an importing module, or carry the derived value in the read result. A recorded
+RPC is a test of the exact calls made; a wider read needs a wider recording.
+
 ## 2026-10-17: Solscan values a pool's address at its rent; the pool's coins are in its vaults
 
 **Believed:** an explorer link to a pool's address shows the pool and what is in it.

@@ -37,7 +37,7 @@ import { SOL_QUOTE } from '../../../solana/lp/quotes';
 const ME = Keypair.generate().publicKey;
 const STRANGER = Keypair.generate().publicKey;
 const fresh = () => Keypair.generate().publicKey;
-const TIER1 = publicTierConfig(CPSWAP);
+const TIER1 = publicTierConfig(CPSWAP, 1);
 const TIER0 = deriveAmmConfig(CPSWAP, 0);
 
 const standardOf = (tokenMint: PublicKey) => {
@@ -49,7 +49,7 @@ const standardOf = (tokenMint: PublicKey) => {
 function pinsFor(o: { tokenProgram?: PublicKey; oneOff?: boolean; tokenMint?: PublicKey } = {}): PoolPins {
   const tokenMint = o.tokenMint ?? fresh();
   const address = o.oneOff ? fresh() : standardOf(tokenMint);
-  const p = createPins(cfgLocal, { address, tokenMint, tokenProgram: o.tokenProgram ?? TOKEN_PROGRAM_ID, signer: ME, quote: SOL_QUOTE });
+  const p = createPins(cfgLocal, { address, tokenMint, tokenProgram: o.tokenProgram ?? TOKEN_PROGRAM_ID, signer: ME, quote: SOL_QUOTE, tier: 1 });
   if (typeof p === 'string') throw new Error(p);
   return p;
 }
@@ -117,7 +117,7 @@ const refused = (ixs: TransactionInstruction[], why: RegExp, c: IntentContext) =
 
 describe('the public fee tier is derived, never read', () => {
   it('on mainnet, tier 1 is CapqvAA9… and tier 0 (the launch tier) is BHMteE8u…', () => {
-    expect(publicTierConfig(REGISTERED_PROGRAM_ID).toBase58()).toBe('CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy');
+    expect(publicTierConfig(REGISTERED_PROGRAM_ID, 1).toBase58()).toBe('CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy');
     expect(deriveAmmConfig(REGISTERED_PROGRAM_ID, 0).toBase58()).toBe('BHMteE8u6LAppswQmFmd2h7hp1fCfWtGahvVJnhRk8jW');
   });
 });
@@ -155,8 +155,8 @@ describe("the site's own opening decodes into one pool-create", () => {
 
   it('createPins pins the derivations from the address, and says standard only for the standard address', () => {
     const tokenMint = fresh();
-    const std = createPins(cfgLocal, { address: standardOf(tokenMint), tokenMint, tokenProgram: TOKEN_PROGRAM_ID, signer: ME, quote: SOL_QUOTE });
-    const other = createPins(cfgLocal, { address: fresh(), tokenMint, tokenProgram: TOKEN_PROGRAM_ID, signer: ME, quote: SOL_QUOTE });
+    const std = createPins(cfgLocal, { address: standardOf(tokenMint), tokenMint, tokenProgram: TOKEN_PROGRAM_ID, signer: ME, quote: SOL_QUOTE, tier: 1 });
+    const other = createPins(cfgLocal, { address: fresh(), tokenMint, tokenProgram: TOKEN_PROGRAM_ID, signer: ME, quote: SOL_QUOTE, tier: 1 });
     if (typeof std === 'string' || typeof other === 'string') throw new Error('no pins');
     expect(std.origin).toBe('standard');
     expect(other.origin).toBe('other');
@@ -168,8 +168,8 @@ describe("the site's own opening decodes into one pool-create", () => {
       expect(p.observation.equals(deriveObservation(CPSWAP, p.address))).toBe(true);
       expect(p.lpAccount.equals(associatedTokenAddress(p.lpMint, ME, TOKEN_PROGRAM_ID))).toBe(true);
     }
-    expect(createPins(cfgLocal, { address: fresh(), tokenMint, tokenProgram: fresh(), signer: ME, quote: SOL_QUOTE })).toMatch(/token program/);
-    expect(createPins(cfgLocal, { address: fresh(), tokenMint: WSOL_MINT, tokenProgram: TOKEN_PROGRAM_ID, signer: ME, quote: SOL_QUOTE })).toMatch(/SOL/);
+    expect(createPins(cfgLocal, { address: fresh(), tokenMint, tokenProgram: fresh(), signer: ME, quote: SOL_QUOTE, tier: 1 })).toMatch(/token program/);
+    expect(createPins(cfgLocal, { address: fresh(), tokenMint: WSOL_MINT, tokenProgram: TOKEN_PROGRAM_ID, signer: ME, quote: SOL_QUOTE, tier: 1 })).toMatch(/SOL/);
   });
 });
 

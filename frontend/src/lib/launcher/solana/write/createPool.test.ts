@@ -54,7 +54,7 @@ const W = (c: FakeChain) => c as unknown as WriteRpc;
 const ME = Keypair.generate().publicKey;
 const STRANGER = Keypair.generate().publicKey;
 const OPEN: LpOpenGate = { kind: 'open', cfg: cfgLocal, mode: 'on' };
-const TIER1 = publicTierConfig(CPSWAP);
+const TIER1 = publicTierConfig(CPSWAP, 1);
 const SOL = 1_000_000_000n; // 1 SOL
 const TOKENS = 100_000_000n; // 100 tokens at 6 decimals: 0.01 SOL a token
 const METADATA_ONLY: Array<[number, number]> = [[EXT.MetadataPointer, 64], [EXT.TokenMetadata, 76]];
@@ -155,6 +155,7 @@ const args = (w: World, o: Partial<LpCreateArgs> = {}): LpCreateArgs => ({
   quoteMint: WSOL_MINT,
   quote: SOL,
   token: TOKENS,
+  tier: 1,
   shown: { terms: TERMS, standard: 'empty' },
   ...o,
 });
@@ -222,7 +223,7 @@ describe('readCreateSnapshot: one read for both possible addresses', () => {
   it('called on its own: exactly one account read, and a failed read is a string, never a snapshot', async () => {
     const w = world();
     const fresh = Keypair.generate().publicKey;
-    const snap = (await readCreateSnapshot(W(w.chain), cfgLocal, { tokenMint: w.mint, owner: ME, fresh, quote: SOL_QUOTE })) as CreateSnapshot;
+    const snap = (await readCreateSnapshot(W(w.chain), cfgLocal, { tokenMint: w.mint, owner: ME, fresh, quote: SOL_QUOTE, tier: 1 })) as CreateSnapshot;
     expect(w.chain.calls).toEqual(['getMultipleAccountsInfo']);
     expect(snap.tier?.owner).toBe(CPSWAP.toBase58());
     expect(snap.standard.address.equals(w.standard)).toBe(true);
@@ -233,7 +234,7 @@ describe('readCreateSnapshot: one read for both possible addresses', () => {
     w.chain.getMultipleAccountsInfo = async () => {
       throw new Error('HTTP 502');
     };
-    expect(typeof (await readCreateSnapshot(W(w.chain), cfgLocal, { tokenMint: w.mint, owner: ME, fresh, quote: SOL_QUOTE }))).toBe('string');
+    expect(typeof (await readCreateSnapshot(W(w.chain), cfgLocal, { tokenMint: w.mint, owner: ME, fresh, quote: SOL_QUOTE, tier: 1 }))).toBe('string');
   });
 });
 
@@ -377,8 +378,8 @@ describe('prepareLpCreate: what refuses it, each in its own words', () => {
   });
 
   it('tier 1: gone, switched off, its fee above the ceiling, or not tier 1 at all', async () => {
-    expect(refused(await create(world({ tier: null })))).toBe(CREATE_COPY.tierNotOpen);
-    expect(refused(await create(world({ tier: { disableCreatePool: true } })))).toBe(CREATE_COPY.tierOff);
+    expect(refused(await create(world({ tier: null })))).toBe(CREATE_COPY.tierNotOpen(1));
+    expect(refused(await create(world({ tier: { disableCreatePool: true } })))).toBe(CREATE_COPY.tierOff(1));
     expect(refused(await create(world({ tier: { createPoolFee: 2_000_000_000n } })))).toBe(CREATE_COPY.tierFeeTooHigh('2', '1'));
     const w = world();
     w.chain.set(TIER1, { lamports: 1, owner: CPSWAP, data: encodeAmmConfig({ ...TIER1_VALUES, index: 0 }) });

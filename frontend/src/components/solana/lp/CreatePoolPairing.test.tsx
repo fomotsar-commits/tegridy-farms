@@ -342,6 +342,7 @@ describe('an amount typed for a coin is that coin’s, to the base unit', () => 
       quoteMint: new PublicKey(USDC),
       quote: 50_000_000n,
       token: 25_000_000n,
+      tier: 1,
       shown: { terms: TERMS, standard: 'empty' },
     });
   });
@@ -860,6 +861,7 @@ describe('the pool to add to first is the chosen coin’s (advice, never a block
       quoteMint: new PublicKey(USDC),
       quote: 50_000_000n,
       token: 2_500_000_000n,
+      tier: 1,
       shown: { terms: TERMS, standard: 'empty' },
     });
   }, LONG);

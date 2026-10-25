@@ -22,7 +22,7 @@ function world() {
   const chain = FakeChain.healthy().addTier1();
   const mint = Keypair.generate().publicKey;
   chain.mint(mint, { decimals: 6 });
-  const pool = addPool(chain, mint, { sol: 24n * SOL, tokens: 5_000_000n * 10n ** 6n, tokenProgram: TOKEN_PROGRAM_ID, quote: SOL_QUOTE, ammConfig: publicTierConfig(CPSWAP), openTime: NOW - 100n });
+  const pool = addPool(chain, mint, { sol: 24n * SOL, tokens: 5_000_000n * 10n ** 6n, tokenProgram: TOKEN_PROGRAM_ID, quote: SOL_QUOTE, ammConfig: publicTierConfig(CPSWAP, 1), openTime: NOW - 100n });
   setClock(chain, NOW);
   chain.fund(ME, Number(20n * SOL));
   const args: VenueSwapArgs = { owner: ME, pool: pool.address, inputMint: new PublicKey(SOL_QUOTE.mint), outputMint: mint, amountIn: SOL, slippageBps: 100n, aggregator: { kind: 'no-route' } };

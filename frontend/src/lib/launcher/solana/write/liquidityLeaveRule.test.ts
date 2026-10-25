@@ -97,7 +97,7 @@ const withdraw = (type: number | number[]) => {
 const create = (type: number | number[]) => {
   const mint = Keypair.generate().publicKey;
   const chain = chainWith(mint, type).addTier1({}).addFeeReceiver({});
-  return prepareLpCreate(W(chain), OPEN, priced, { owner: ME, tokenMint: mint, quoteMint: WSOL_MINT, quote: 1_000_000_000n, token: 100_000_000n, shown: { terms: TERMS, standard: 'empty' } });
+  return prepareLpCreate(W(chain), OPEN, priced, { owner: ME, tokenMint: mint, quoteMint: WSOL_MINT, quote: 1_000_000_000n, token: 100_000_000n, tier: 1, shown: { terms: TERMS, standard: 'empty' } });
 };
 
 /** Past every check of the builder's own: it stopped only at the test run. */

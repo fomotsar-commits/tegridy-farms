@@ -5,7 +5,7 @@ import { isCreatedPool, type FeeTierRead, type PoolSearchRead, type PoolView } f
 import type { OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
 import { MIN_HISTORY_TEXT } from '../../../lib/solana/lp/ownPrice';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
-import { tradeCostText } from '../../../lib/solana/lp/format';
+import { feeRateText, tradeCostText } from '../../../lib/solana/lp/format';
 import { CREATOR_FEE_SWITCH } from '../../../lib/solana/cpswap/venue';
 import { QUOTE_COINS_OR, orList, otherSideLine, quoteCoin, searchedCoinsOr, type QuoteCoin } from '../../../lib/solana/lp/quotes';
 import { Notice } from '../curve/ui';
@@ -15,7 +15,7 @@ import { FinePrint } from '../../ui/FinePrint';
 import type { CreateFacts, TierState } from '../curve/ports';
 import { CreatePoolPanel } from './CreatePoolPanel';
 import { MONEY_NOTE } from './LpDisclosures';
-import { createOffer, depositOffer, depositWarned, lpHeld, openingCautions, pairFacts, poolListCut, type CreateOffer, type PairFacts } from './offers';
+import { createOffer, depositOffer, depositWarned, lpHeld, offeredTiers, openingCautions, pairFacts, poolListCut, readyTiers, tierStop, type CreateOffer, type PairFacts, type ReadyTier } from './offers';
 import { coinAbout, solAbout } from './panelKit';
 import { useLpWrites, type LpWrites } from './useLpWrites';
 
@@ -24,16 +24,20 @@ const NATIVE_2022_LINE = `This is SOL under the newer token program. Pools here 
 const solFee = (lamports: bigint) => formatSol(lamports, 9);
 
 /**
- * What opening a pool costs, in one line, beside its button: the tier's fee and the
- * account deposits (rent) the new pool's accounts keep for good. The fee goes to the
- * venue: cp-swap's `create_pool_fee_reveiver` is the team vault's wrapped-SOL account
- * (write/config.ts `CP_CREATE_POOL_FEE_RECEIVER`), and the opening's test run must show it
- * arrive there. `feeTiers` is the section's one read: null while it reads. A deposit
- * figure that was not read is said so, never 0. It names what costs: beside a pool to
- * add to, the line sits right under Go to that pool, which costs nothing.
+ * What opening a pool costs, in one line, beside its button: the tier's fee (each tier's,
+ * when the ready tiers differ) and the account deposits (rent) the new pool's accounts
+ * keep for good. The fee goes to the venue: cp-swap's `create_pool_fee_reveiver` is the
+ * team vault's wrapped-SOL account (write/config.ts `CP_CREATE_POOL_FEE_RECEIVER`), and
+ * the opening's test run must show it arrive there. `feeTiers` is the section's one
+ * read: null while it reads. A deposit figure that was not read is said so, never 0. It
+ * names what costs: beside a pool to add to, the line sits right under Go to that pool,
+ * which costs nothing.
  */
-function costLine(fee: bigint, feeTiers: FeeTierRead | null): string {
-  const venue = `Opening a pool costs ${fee > 0n ? `${solFee(fee)} SOL` : 'nothing'} to the venue plus`;
+function costLine(ready: readonly ReadyTier[], feeTiers: FeeTierRead | null): string {
+  const feeOf = (fee: bigint) => (fee > 0n ? `${solFee(fee)} SOL` : 'nothing');
+  const same = ready.every((t) => t.config.createPoolFee === ready[0]?.config.createPoolFee);
+  const fee = same ? feeOf(ready[0]?.config.createPoolFee ?? 0n) : ready.map((t) => `${feeOf(t.config.createPoolFee)} (${feeRateText(t.config.tradeFeeRate)} tier)`).join(' or ');
+  const venue = `Opening a pool costs ${fee} to the venue plus`;
   const deposits = feeTiers?.kind === 'ok' ? feeTiers.openingDeposits : null;
   if (deposits !== null) return `${venue} about ${solAbout(deposits)} account setup you do not get back.`;
   return `${venue} account setup you do not get back (${feeTiers === null ? 'reading the amount…' : 'amount not read'}).`;
@@ -194,7 +198,9 @@ function CreateCard({
 
   // Another panel's flow is running: this one cannot open over it.
   const blockedByOther = writes.busy && !open;
-  const tier: TierState | null = facts?.tier ?? null;
+  // The public tiers an opening of this token can go on right now, in offer order; the form offers each its pair is offered.
+  const ready = readyTiers(facts, mint);
+  const tiers: readonly TierState[] = facts?.tiers ?? [];
 
   return (
     <section
@@ -265,9 +271,9 @@ function CreateCard({
         {offer === 'offer' && (
           <>
             {/* The whole cost, on the screen, right above the press that pays it. */}
-            {tier?.kind === 'ready' && (
+            {ready.length > 0 && (
               <p className="text-white/85" data-testid="lp-create-cost">
-                {costLine(tier.config.createPoolFee, feeTiers)}
+                {costLine(ready, feeTiers)}
               </p>
             )}
             {/* Stays mounted while its panel is open, so focus can come back to it on Close. */}
@@ -297,7 +303,7 @@ function CreateCard({
             decimals={decimals}
             outside={outside}
             outsideAt={outsideAt}
-            tier={tier}
+            tiers={tiers}
             pairs={pairs}
             cut={poolListCut(search)}
             offer={offer}
@@ -391,7 +397,8 @@ function answerKey(
     // Each coin's own answer: the pool pointed to and what it holds, or that it has none.
     pairs.map((x) => (x.advice.kind === 'none' ? `${x.coin.symbol}:${x.hasPool ? 'no-advice' : 'no-pool'}` : `${x.coin.symbol}:${x.advice.kind}:${x.advice.pool.address}:${x.advice.pool.quoteReserve}`)).join(','),
     outside?.kind === 'unread' ? outside.detail : '',
-    facts?.tier.kind === 'unread' ? facts.tier.detail : '',
+    // Which tiers can take an opening, and what stopped the others: a tier that appears is a new answer.
+    (facts?.tiers ?? []).map((t) => `${t.index}:${t.kind}${t.kind === 'unread' ? `:${t.detail}` : ''}`).join(','),
     facts?.feeAccount.kind === 'unread' ? facts.feeAccount.detail : '',
     offer === 'pools-unread' ? poolsUnreadDetail(search, healths) : '',
   ].join('|');
@@ -436,16 +443,28 @@ function OfferLines({
   busy: boolean;
   /** Read the token, its pools and the price again. */
   onReread: () => void;
-  /** Read the public fee tier and the fee account again. */
+  /** Read the public fee tiers and the fee account again. */
   onRereadFacts: () => void;
 }) {
-  const tier = facts?.tier;
+  // The tiers this site offers this token (offers.ts `offeredTiers`: 0.25% for SOL against USDC only).
+  const offered = facts ? offeredTiers(facts.tiers, safety.mint) : [];
+  const ready = readyTiers(facts, safety.mint);
+  // With no tier ready, the tier whose state the card explains (offers.ts `tierStop`).
+  const stop = facts ? tierStop(offered) : null;
+  // "No other fee tier is open for new pools": said after a stop whenever there is more than one tier to speak of.
+  const others = offered.length > 1 ? ' No other fee tier is open for new pools.' : '';
   switch (offer) {
     case 'offer': {
-      if (tier?.kind !== 'ready') return null;
+      if (ready.length === 0) return null;
       // Opened with cp-swap's `initialize`, so the new pool never charges the tier's creator fee.
       // What opening costs is its own line, above the button (`costLine`), so it is said once.
-      const terms = tradeCostText(tier.config, CREATOR_FEE_SWITCH.publicOpen);
+      // With one tier ready the words are the old ones ("on the public fee tier"); with more,
+      // each tier's rate is said, and a pool's tier is named by the rate read from its own config.
+      const several = ready.length > 1;
+      const terms = ready.map((t) => tradeCostText(t.config, CREATOR_FEE_SWITCH.publicOpen)).join(' or ');
+      const openAt = several ? `at ${terms}` : `on the public fee tier, at ${terms}`;
+      const onPublicTier = several ? ' on a public fee tier' : ' on the public fee tier';
+      const tierOf = (pool: PoolView) => (!several ? 'the public fee tier' : pool.config ? `the ${feeRateText(pool.config.tradeFeeRate)} fee tier` : 'a public fee tier');
       const pools = search.kind === 'ok' ? search.search.pools.flatMap((e) => (e.kind === 'pool' ? [e.view] : [])) : [];
       // A cut list (see poolListCut) is never "no pool yet", and a new pool never "the first".
       const cut = poolListCut(search);
@@ -457,7 +476,8 @@ function OfferLines({
         return (
           <>
             <p>
-              No {aPool} for this token yet. You can open the first one on the public fee tier (read just now): {terms}.
+              No {aPool} for this token yet.{' '}
+              {several ? `You can open the first one at ${terms} (fee tiers read just now).` : `You can open the first one on the public fee tier (read just now): ${terms}.`}
             </p>
             {/* With no pool anywhere there is nothing to press "Add liquidity" on: say that this is the way in. */}
             <FinePrint summary="Details">
@@ -466,12 +486,14 @@ function OfferLines({
           </>
         );
       }
-      const tier1 = tier.address.toBase58();
+      // Every public tier's address this token is offered, as read (each TierState carries its
+      // derived address): a BAYLA pool on the 0.25% tier is a pool on another fee tier here.
+      const publicTiers = new Set(offered.map((t) => t.address.toBase58()));
       // The pools on another fee tier that take deposits, by tier. A tier is said to have a
       // pool that "passes the checks" only when one of its pools carries no warning at all
       // (`depositWarned`: the pool card's own heading test). A tier whose pools all carry
       // one "takes deposits, with a warning": a pool off its price is 'allowed' too now.
-      const elsewhere = pools.filter((v) => v.snapshot.pool.ammConfig !== tier1 && healths.get(v.address)?.deposits.verdict === 'allowed');
+      const elsewhere = pools.filter((v) => !publicTiers.has(v.snapshot.pool.ammConfig) && healths.get(v.address)?.deposits.verdict === 'allowed');
       const tiersOf = (list: PoolView[]) => [...new Set(list.map((v) => String(v.config?.index ?? '?')))];
       const otherTiers = tiersOf(elsewhere);
       const cleanTiers = tiersOf(elsewhere.filter((v) => !depositWarned(healths.get(v.address))));
@@ -485,7 +507,7 @@ function OfferLines({
           </p>
         </FinePrint>
       );
-      const onPublicTier = otherTiers.length > 0 ? ' on the public fee tier' : '';
+      const onPublic = otherTiers.length > 0 ? onPublicTier : '';
       const otherTierLine = otherTiers.length > 0 && (
         <>
           {cleanTiers.length > 0 && (
@@ -506,7 +528,7 @@ function OfferLines({
       // that do not pass, and those with no pool at all. A cut list never says "no pool yet"
       // for a coin: a pool that was not read may be paired with it.
       const pointers = pairs.flatMap((x) => (x.advice.kind === 'none' ? [] : [{ coin: x.coin, kind: x.advice.kind, pool: x.advice.pool, warned: x.warned }]));
-      const several = pointers.length > 1;
+      const severalPointed = pointers.length > 1;
       const unpointed = pairs.filter((x) => x.advice.kind === 'none');
       const failing = unpointed.filter((x) => x.hasPool).map((x) => x.coin.symbol);
       const empty = cut ? [] : unpointed.filter((x) => !x.hasPool).map((x) => x.coin.symbol);
@@ -516,8 +538,8 @@ function OfferLines({
           <>
             <p>
               {cut ? 'None of the pools read for this token' : "None of this token's pools"}
-              {onPublicTier} passes the checks above.{' '}
-              You can open a new one on the public fee tier, at {terms}. It will be a separate pool: it does not fix or join the others.
+              {onPublic} passes the checks above.{' '}
+              You can open a new one {openAt}. It will be a separate pool: it does not fix or join the others.
             </p>
             {noneYetLine}
             {otherTierLine}
@@ -533,7 +555,7 @@ function OfferLines({
       return (
         <>
           {pointers.map(({ coin, kind, pool, warned }) => {
-            const aPool = several || !coin.native ? `a ${coin.symbol} pool` : 'a pool';
+            const aPool = severalPointed || !coin.native ? `a ${coin.symbol} pool` : 'a pool';
             return kind === 'opened-here' ? (
               <p key={coin.mint} data-testid="lp-create-opened" data-coin={coin.symbol}>
                 You opened {aPool} for this token just now (<span className="font-mono break-all">{pool.address}</span>). Your share is under
@@ -544,7 +566,7 @@ function OfferLines({
                 {/* "Passes the checks" only with no warning at all, about its price or its token
                     (`PairFacts.warned`, which the form's own line reads too). The suggestion
                     after it is about the price alone (`adviceCaveat`). */}
-                This token already has {aPool} on the public fee tier{' '}
+                This token already has {aPool} on {tierOf(pool)}{' '}
                 {warned ? 'that takes deposits, with a warning (above)' : 'that passes the checks (above)'}. The biggest is{' '}
                 <span className="font-mono break-all">{pool.address}</span>, holding {coinAbout(pool.quoteReserve, coin)}.{' '}
                 {adviceCaveat(healths.get(pool.address), coin)?.line ?? 'We suggest adding to it: liquidity in one place gives traders a better price.'}
@@ -553,14 +575,14 @@ function OfferLines({
           })}
           {failing.length > 0 && (
             <p data-testid="lp-create-failing">
-              None of this token&apos;s {orList(failing)} pools{onPublicTier} passes the checks above.
+              None of this token&apos;s {orList(failing)} pools{onPublic} passes the checks above.
             </p>
           )}
           {noneYetLine}
           <p data-testid="lp-create-still">
             {allMine
-              ? `You can still open another on the public fee tier, at ${terms}. It will be a separate pool, and the fee to open is paid again.`
-              : `You can still open your own on the public fee tier, at ${terms}. It will be a separate pool: it does not share ${several ? "the other pools'" : "the other pool's"} liquidity or fees.`}
+              ? `You can still open another ${openAt}. It will be a separate pool, and the fee to open is paid again.`
+              : `You can still open your own ${openAt}. It will be a separate pool: it does not share ${severalPointed ? "the other pools'" : "the other pool's"} liquidity or fees.`}
           </p>
           {!allMine && otherTierLine}
           {cutLine}
@@ -623,29 +645,40 @@ function OfferLines({
         </>
       );
     case 'tier-fee-too-high':
-      return tier?.kind === 'fee-too-high' ? (
+      return stop?.kind === 'fee-too-high' ? (
         <p>
-          The fee to open a pool on the public fee tier is set to {solFee(tier.config.createPoolFee)} SOL, above this site&apos;s limit of{' '}
-          {solFee(tier.limit)} SOL, so this site will not open one.
+          The fee to open a pool on fee tier {stop.index} is set to {solFee(stop.config.createPoolFee)} SOL, above this site&apos;s limit of{' '}
+          {solFee(stop.limit)} SOL, so this site will not open one.{others}
         </p>
       ) : null;
     case 'tier-off':
-      return <p>Opening new pools on the public fee tier is switched off right now by the pool program&apos;s admin (the team&apos;s vault).</p>;
+      return (
+        <p>
+          Opening new pools on {stop ? `fee tier ${stop.index}` : 'the public fee tier'} is switched off right now by the pool program&apos;s admin (the
+          team&apos;s vault).{others}
+        </p>
+      );
     case 'tier-bad':
       return (
-        <p>The public fee tier&apos;s account is not what this site expects ({tier?.kind === 'not-a-tier' ? tier.detail : 'not a fee tier'}), so opening a pool is off.</p>
+        <p>
+          {stop ? `Fee tier ${stop.index}’s` : 'The public fee tier’s'} account is not what this site expects ({stop?.kind === 'not-a-tier' ? stop.detail : 'not a fee tier'}
+          ), so opening a pool is off.{others}
+        </p>
       );
     case 'tier-not-open':
       return (
         <p>
-          New pools from this site go on the public fee tier (tier 1), and that tier has not been created on the network yet. When the team&apos;s
-          vault creates it, the Open a pool button appears here.
+          New pools from this site go on a public fee tier, and none has been created on the network yet. When the team&apos;s vault creates one,
+          the Open a pool button appears here.
         </p>
       );
     case 'tier-unread':
       return (
         <>
-          <p>We could not read the public fee tier just now ({tier?.kind === 'unread' ? tier.detail : 'not read'}), so opening a pool is off until we can.</p>
+          <p>
+            We could not read {stop ? `fee tier ${stop.index}` : 'the fee tiers'} just now ({stop?.kind === 'unread' ? stop.detail : 'not read'}), so opening a
+            pool is off until we can.
+          </p>
           <ReadAgain onClick={onRereadFacts} busy={busy} />
         </>
       );

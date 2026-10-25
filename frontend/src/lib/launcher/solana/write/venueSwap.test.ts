@@ -34,7 +34,7 @@ const TOK = 10n ** 6n;
 const COIN_RESERVE = 24n * SOL;
 const TOKEN_RESERVE = 5_000_000n * TOK;
 const METADATA_ONLY: Array<[number, number]> = [[EXT.MetadataPointer, 64], [EXT.TokenMetadata, 76]];
-const TIER1 = publicTierConfig(CPSWAP);
+const TIER1 = publicTierConfig(CPSWAP, 1);
 const CLOCK = 'SysvarC1ock11111111111111111111111111111111';
 
 const ceilPpm = (amount: bigint, ppm: bigint) => (amount * ppm + 999_999n) / 1_000_000n;

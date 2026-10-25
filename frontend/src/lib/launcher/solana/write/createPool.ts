@@ -1,24 +1,27 @@
-// Opening a new pool on the public fee tier (`lp-create`).
+// Opening a new pool on a public fee tier (`lp-create`).
 //
 // An opening has no pool to read yet, so its pins come from DERIVATION only: the tier
-// from the constant (`publicTierConfig`), the pool's vaults, share token and price
-// record from the pool address prepare chose, and the opener's pool-share account from
-// that share token. The decoder (intent.ts `poolInitialize`) derives the same things
-// again from the same address, so a pin can never point an opening anywhere else.
+// from the chosen index and the constant list (`publicTierConfig`), the pool's vaults,
+// share token and price record from the pool address prepare chose, and the opener's
+// pool-share account from that share token. The decoder (intent.ts `poolInitialize`)
+// derives the same things again from the same address, so a pin can never point an
+// opening anywhere else.
 //
-// The address is either the pool's STANDARD address for tier 1, or a fresh key made in
-// this browser (when anything at all sits at the standard address or its accounts).
+// The address is either the pool's STANDARD address for the chosen tier (each tier has
+// its own per pair), or a fresh key made in this browser (when anything at all sits at
+// the standard address or its accounts).
 //
 // Every press of Review builds from scratch, in a fixed order (SPEC_S2_CREATE 3.1):
 //
-//   1. the inputs: the LP switch is 'on', both amounts are between 1 and u64::MAX;
+//   1. the inputs: the LP switch is 'on', the tier is a public one, both amounts are
+//      between 1 and u64::MAX;
 //   2. a fresh one-off key, in memory only (it is just a random number until it signs);
-//   3. ONE read of 18 accounts, all derivable before anything is read: tier 1, the fee
-//      account, the token and its name record, the wallet and its three accounts, and
-//      the five accounts of BOTH possible pool addresses (the standard one and the
-//      fresh key's), so whichever path is taken was read in the same slot;
-//   4-5. tier 1 and the fee account, judged by the same two functions the panel used,
-//      and tier 1's terms equal to what the panel showed;
+//   3. ONE read of 18 accounts, all derivable before anything is read: the chosen tier,
+//      the fee account, the token and its name record, the wallet and its three
+//      accounts, and the five accounts of BOTH possible pool addresses (the standard one
+//      and the fresh key's), so whichever path is taken was read in the same slot;
+//   4-5. the tier and the fee account, judged by the same two functions the panel used,
+//      and the tier's terms equal to what the panel showed;
 //   6. the token, judged again (the deposit gate's token rules, plus create's own);
 //   7. where the pool goes: the standard address only when it and its four derived
 //      accounts are all empty; otherwise the fresh key, whose own accounts must be;
@@ -64,8 +67,10 @@ import {
   deriveObservation,
   derivePool,
   deriveVault,
+  isPublicTierIndex,
   publicTierConfig,
   sortMints,
+  type PublicTierIndex,
 } from '../../../solana/cpswap/program';
 import { initializeIx } from '../../../solana/cpswap/ix';
 import { ratePercent } from '../../../solana/cpswap/math';
@@ -74,6 +79,7 @@ import { LOCKED_LP, LOCKED_SHARES_TEXT, U64_MAX, feeReserveFor, isqrt, lockedBeh
 import { TOKEN_2022_NATIVE_MINT, assessOpening, estimatedLoss } from '../../../solana/lp/opening';
 import { coinPriceDetail, type OutsidePrice } from '../../../solana/lp/outsidePrice';
 import { QUOTE_COINS_OR, canPair, quoteCoin, type QuoteCoin } from '../../../solana/lp/quotes';
+import { LOW_TIER_PAIR, offersTier } from '../../../solana/lp/tierOffer';
 import { BUILDABLE_EXTENSIONS, classifyToken, decodeMintAccount, extensionPlain } from '../../../solana/lp/tokenSafety';
 import { MAX_OWN_PRIORITY_LAMPORTS } from './budget';
 import { CP_CREATE_POOL_FEE_RECEIVER, MAX_CREATE_FEE_LAMPORTS, feeAccountStateOf, tierStateOf } from './config';
@@ -95,13 +101,15 @@ export const CREATE_COPY = {
   emptySide: 'Enter an amount above zero on both sides.',
   tooLarge: 'The amounts are too large for one transaction.',
   readFailed: 'We could not read the network just now, so nothing was built. Try again in a moment.',
-  tierNotOpen: 'New pools from this site go on the public fee tier (tier 1), and that tier has not been created on the network yet.',
-  tierOff: "Opening new pools on the public fee tier is switched off right now by the pool program's admin (the team's vault).",
+  notAPublicTier: (index: number) => `Fee tier ${index} is not one this site opens pools on. Nothing was built.`,
+  tierNotOpen: (index: number) => `Fee tier ${index} has not been created on the network yet, so this site cannot open a pool on it.`,
+  tierOff: (index: number) => `Opening new pools on fee tier ${index} is switched off right now by the pool program's admin (the team's vault).`,
   tierFeeTooHigh: (fee: string, limit: string) =>
     `The fee to open a pool is set to ${fee} SOL, above this site's limit of ${limit} SOL, so this site will not open one.`,
-  tierUnread: (detail: string) => `We could not confirm the public fee tier just now (${detail}), so nothing was built. Try again in a moment.`,
+  tierUnread: (detail: string) => `We could not confirm the fee tier just now (${detail}), so nothing was built. Try again in a moment.`,
+  tierNotForPair: (rate: string) => `The ${rate} fee tier is for ${LOW_TIER_PAIR} only, so this site does not open this pool on it. Nothing was built.`,
   termsChanged: (what: string) =>
-    `The public fee tier's terms changed since this page read them (${what}). Check the new terms and press Review again.`,
+    `The fee tier's terms changed since this page read them (${what}). Check the new terms and press Review again.`,
   feeAccount: (detail: string) =>
     `The account that receives the fee to open a pool is not set up (${detail}), so opening a pool would fail. Nothing was built.`,
   tokenUnread: 'We could not read the token just now, so we did not build the opening. Try again in a moment.',
@@ -138,13 +146,14 @@ export const CREATE_COPY = {
 // ── pins ─────────────────────────────────────────────────────────────────────
 
 /**
- * The pins for an opening at `address`, by derivation only: there is no pool to read
- * yet. `origin` is 'standard' exactly when `address` is the standard tier-1 address for
- * this pair, and 'other' otherwise. A string says why no pins can be made.
+ * The pins for an opening at `address` on public tier `tier`, by derivation only: there
+ * is no pool to read yet. `origin` is 'standard' exactly when `address` is that tier's
+ * standard address for this pair, and 'other' otherwise. A string says why no pins can
+ * be made.
  */
 export function createPins(
   cfg: CurveWriteConfig,
-  a: { address: PublicKey; tokenMint: PublicKey; tokenProgram: PublicKey; signer: PublicKey; quote: QuoteCoin },
+  a: { address: PublicKey; tokenMint: PublicKey; tokenProgram: PublicKey; signer: PublicKey; quote: QuoteCoin; tier: PublicTierIndex },
 ): PoolPins | string {
   if (a.tokenMint.equals(WSOL_MINT)) return 'a pool here pairs a token with SOL, not SOL with itself';
   // A coin is only priced in the coins that outrank it (quotes.ts): BAYLA in SOL or USDC, never SOL in BAYLA.
@@ -153,7 +162,7 @@ export function createPins(
     return 'the token is not owned by either token program';
   }
   const cp = cfg.cpSwapProgram;
-  const ammConfig = publicTierConfig(cp);
+  const ammConfig = publicTierConfig(cp, a.tier);
   const quoteMint = new PublicKey(a.quote.mint);
   const { token0, token1 } = sortMints(quoteMint, a.tokenMint);
   const quoteIsToken0 = token0.equals(quoteMint);
@@ -242,27 +251,28 @@ function fiveKeys(cp: PublicKey, pool: PublicKey, token0: PublicKey, token1: Pub
 
 /**
  * The one fresh read (3.1 step 3): ONE getMultipleAccountsInfo of the 18 keys, in this
- * order: tier 1, the fee account, the token mint, its name record, the wallet, its token
- * account under the classic program and under Token-2022, its account for the pairing
- * coin (the wrapped-SOL account for SOL), the standard pool's five accounts, then the
- * fresh key's five. For a coin that is not SOL a 19th follows: the coin's own mint. A
- * string = the read failed (its detail); nothing else is a string.
+ * order: the chosen tier, the fee account, the token mint, its name record, the wallet,
+ * its token account under the classic program and under Token-2022, its account for the
+ * pairing coin (the wrapped-SOL account for SOL), the standard pool's five accounts (that
+ * tier's standard address), then the fresh key's five. For a coin that is not SOL a 19th
+ * follows: the coin's own mint. A string = the read failed (its detail); nothing else is
+ * a string.
  */
 export async function readCreateSnapshot(
   rpc: WriteRpc,
   cfg: CurveWriteConfig,
-  a: { tokenMint: PublicKey; owner: PublicKey; fresh: PublicKey; quote: QuoteCoin },
+  a: { tokenMint: PublicKey; owner: PublicKey; fresh: PublicKey; quote: QuoteCoin; tier: PublicTierIndex },
 ): Promise<CreateSnapshot | string> {
   const cp = cfg.cpSwapProgram;
-  const tier1 = publicTierConfig(cp);
+  const tierAddress = publicTierConfig(cp, a.tier);
   const quoteMintKey = new PublicKey(a.quote.mint);
   const { token0, token1 } = sortMints(quoteMintKey, a.tokenMint);
-  const standard = derivePool(cp, tier1, token0, token1);
+  const standard = derivePool(cp, tierAddress, token0, token1);
   // SOL: the wrapped-SOL account (the same address as ever). Any other coin: the
   // signer's account for it, under the coin's own program.
   const wsolAddress = associatedTokenAddress(quoteMintKey, a.owner, new PublicKey(a.quote.program));
   const keys = [
-    tier1,
+    tierAddress,
     CP_CREATE_POOL_FEE_RECEIVER,
     a.tokenMint,
     metadataPda(a.tokenMint),
@@ -350,11 +360,13 @@ export interface LpCreateArgs {
    */
   quote: bigint;
   token: bigint;
-  /** What the panel showed: tier 1's terms as read, and whether the standard pool address held anything. */
+  /** The public fee tier the opener chose, by index (`PUBLIC_TIER_INDICES`). Any other index is refused. */
+  tier: number;
+  /** What the panel showed: the chosen tier's terms as read, and whether that tier's standard pool address held anything. */
   shown: { terms: TierTerms; standard: 'empty' | 'taken' };
 }
 
-/** Each tier-1 term that differs from what the panel showed, in plain words. */
+/** Each term of the tier that differs from what the panel showed, in plain words. */
 function termChanges(shown: TierTerms, now: TierTerms): string[] {
   const pct = (r: bigint) => `${ratePercent(r)}%`;
   const rows: Array<[keyof TierTerms, string, (v: bigint) => string]> = [
@@ -413,6 +425,9 @@ const allEmpty = (five: Five): boolean => five.every((acc) => acc === null);
 export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: LpPrepareReads, a: LpCreateArgs): Promise<Prepared> {
   // 1. Inputs.
   if (gate.kind !== 'open' || gate.mode !== 'on') return notSent('build', CREATE_COPY.paused);
+  // The tier, before any read: an index outside the list (tier 0 included) builds nothing.
+  if (!isPublicTierIndex(a.tier)) return notSent('build', CREATE_COPY.notAPublicTier(a.tier));
+  const tierIndex: PublicTierIndex = a.tier;
   if (a.quote < 1n || a.token < 1n) return notSent('build', CREATE_COPY.emptySide);
   if (a.quote > U64_MAX || a.token > U64_MAX) return notSent('build', CREATE_COPY.tooLarge);
   const quote = quoteCoin(a.quoteMint.toBase58());
@@ -426,18 +441,18 @@ export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: Lp
   const kp = Keypair.generate();
 
   // 3. One fresh read covering both possible addresses.
-  const snap = await readCreateSnapshot(rpc, cfg, { tokenMint: a.tokenMint, owner: a.owner, fresh: kp.publicKey, quote });
+  const snap = await readCreateSnapshot(rpc, cfg, { tokenMint: a.tokenMint, owner: a.owner, fresh: kp.publicKey, quote, tier: tierIndex });
   if (typeof snap === 'string') return notSent('build', CREATE_COPY.readFailed);
 
-  // 4. Tier 1, again, and the terms the panel showed.
-  const tier = tierStateOf(publicTierConfig(cp), snap.tier, cp);
+  // 4. The chosen tier, again, and the terms the panel showed.
+  const tier = tierStateOf(tierIndex, snap.tier, cp);
   switch (tier.kind) {
     case 'ready':
       break;
     case 'not-open':
-      return notSent('build', CREATE_COPY.tierNotOpen);
+      return notSent('build', CREATE_COPY.tierNotOpen(tierIndex));
     case 'switched-off':
-      return notSent('build', CREATE_COPY.tierOff);
+      return notSent('build', CREATE_COPY.tierOff(tierIndex));
     case 'fee-too-high':
       return notSent('build', CREATE_COPY.tierFeeTooHigh(formatSol(tier.config.createPoolFee, 9), formatSol(MAX_CREATE_FEE_LAMPORTS, 9)));
     case 'not-a-tier':
@@ -445,6 +460,8 @@ export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: Lp
       return notSent('build', CREATE_COPY.tierUnread(tier.detail));
   }
   const config = tier.config;
+  // The pair must be offered this tier, by its rate as just read (tierOffer.ts, owner 2026-10-24).
+  if (!offersTier(config.tradeFeeRate, a.tokenMint.toBase58(), quote.mint)) return notSent('build', CREATE_COPY.tierNotForPair(`${ratePercent(config.tradeFeeRate)}%`));
   const changed = termChanges(a.shown.terms, config);
   if (changed.length) return notSent('build', CREATE_COPY.termsChanged(changed.join('; ')));
   const createFee = config.createPoolFee;
@@ -616,7 +633,7 @@ export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: Lp
   if ('problem' in planned) return notSent('build', createProblemCopy(planned, decimals, quote));
 
   // 13. Pins.
-  const pins = createPins(cfg, { address, tokenMint: a.tokenMint, tokenProgram, signer: a.owner, quote });
+  const pins = createPins(cfg, { address, tokenMint: a.tokenMint, tokenProgram, signer: a.owner, quote, tier: tierIndex });
   if (typeof pins === 'string') return notSent('build', CREATE_COPY.tokenRefused(pins));
   if (pins.origin !== origin) return notSent('build', CREATE_COPY.signerMismatch);
   const extraSigners = origin === 'other' ? [kp] : [];

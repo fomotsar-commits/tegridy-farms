@@ -24,7 +24,7 @@ import { CPSWAP, FakeChain, VAULT, cfgLocal, encodeAmmConfig, encodeTokenAccount
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const GOLDEN_FEE_ACCOUNT = resolve(HERE, '../../../../../scripts/solana-localnet/golden/fee-ata.mainnet.json');
-const TIER1 = publicTierConfig(CPSWAP);
+const TIER1 = publicTierConfig(CPSWAP, 1);
 const CP = CPSWAP.toBase58();
 
 /** AmmConfig bytes with the owner's tier-1 values: index 1, 1% trade, 16% protocol, 0.15 SOL to open. */
@@ -51,30 +51,30 @@ const acc = (owner: PublicKey | string, data: Uint8Array) => ({ owner: typeof ow
 
 describe('the public tier is derived from its index', () => {
   it('on mainnet, tier 1 is CapqvAA9… and tier 0 is BHMteE8u…', () => {
-    expect(publicTierConfig(REGISTERED_PROGRAM_ID).toBase58()).toBe('CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy');
+    expect(publicTierConfig(REGISTERED_PROGRAM_ID, 1).toBase58()).toBe('CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy');
     expect(deriveAmmConfig(REGISTERED_PROGRAM_ID, 0).toBase58()).toBe('BHMteE8u6LAppswQmFmd2h7hp1fCfWtGahvVJnhRk8jW');
   });
 });
 
 describe('tierStateOf', () => {
   it('no account: not open yet (the vault has not created the tier)', () => {
-    expect(tierStateOf(TIER1, null, CPSWAP)).toEqual({ kind: 'not-open', address: TIER1 });
+    expect(tierStateOf(1, null, CPSWAP)).toEqual({ kind: 'not-open', index: 1, address: TIER1 });
   });
 
   it('not the pool program’s, not a tier, or another tier at this address: not a tier this site uses', () => {
-    expect(tierStateOf(TIER1, acc(Keypair.generate().publicKey, tierBytes()), CPSWAP)).toMatchObject({ kind: 'not-a-tier', detail: /not owned by the pool program/ });
-    expect(tierStateOf(TIER1, acc(CP, new Uint8Array(236)), CPSWAP)).toMatchObject({ kind: 'not-a-tier', detail: /not a fee tier/ });
-    expect(tierStateOf(TIER1, acc(CP, tierBytes({ index: 0 })), CPSWAP)).toMatchObject({ kind: 'not-a-tier', detail: 'it is fee tier 0, not 1' });
+    expect(tierStateOf(1, acc(Keypair.generate().publicKey, tierBytes()), CPSWAP)).toMatchObject({ kind: 'not-a-tier', detail: /not owned by the pool program/ });
+    expect(tierStateOf(1, acc(CP, new Uint8Array(236)), CPSWAP)).toMatchObject({ kind: 'not-a-tier', detail: /not a fee tier/ });
+    expect(tierStateOf(1, acc(CP, tierBytes({ index: 0 })), CPSWAP)).toMatchObject({ kind: 'not-a-tier', detail: 'it is fee tier 0, not 1' });
   });
 
   it('its switch on: switched off', () => {
-    expect(tierStateOf(TIER1, acc(CP, tierBytes({ disable: true })), CPSWAP)).toMatchObject({ kind: 'switched-off', config: { disableCreatePool: true } });
+    expect(tierStateOf(1, acc(CP, tierBytes({ disable: true })), CPSWAP)).toMatchObject({ kind: 'switched-off', config: { disableCreatePool: true } });
   });
 
   it('a fee to open of exactly 1 SOL is ready; one lamport more is too high', () => {
     expect(MAX_CREATE_FEE_LAMPORTS).toBe(1_000_000_000n);
-    expect(tierStateOf(TIER1, acc(CP, tierBytes({ createPoolFee: 1_000_000_000n })), CPSWAP)).toMatchObject({ kind: 'ready' });
-    expect(tierStateOf(TIER1, acc(CP, tierBytes({ createPoolFee: 1_000_000_001n })), CPSWAP)).toMatchObject({
+    expect(tierStateOf(1, acc(CP, tierBytes({ createPoolFee: 1_000_000_000n })), CPSWAP)).toMatchObject({ kind: 'ready' });
+    expect(tierStateOf(1, acc(CP, tierBytes({ createPoolFee: 1_000_000_001n })), CPSWAP)).toMatchObject({
       kind: 'fee-too-high',
       limit: 1_000_000_000n,
       config: { createPoolFee: 1_000_000_001n },
@@ -82,7 +82,7 @@ describe('tierStateOf', () => {
   });
 
   it('the owner’s tier 1 reads ready with its live terms', () => {
-    const s = tierStateOf(TIER1, acc(CP, tierBytes()), CPSWAP);
+    const s = tierStateOf(1, acc(CP, tierBytes()), CPSWAP);
     expect(s).toMatchObject({ kind: 'ready', address: TIER1, config: { index: 1, tradeFeeRate: 10_000n, protocolFeeRate: 160_000n, createPoolFee: 150_000_000n } });
   });
 });
@@ -145,23 +145,23 @@ function createChain(o: { tier?: Uint8Array | null; fail?: PublicKey[]; failSync
 }
 
 describe('readCreateFacts', () => {
-  it('reads both, in one round', async () => {
+  it('reads every public tier and the fee account, in one round', async () => {
     const c = createChain();
     const f = await readCreateFacts(c, cfgLocal);
-    expect(f.tier).toMatchObject({ kind: 'ready', address: TIER1 });
+    expect(f.tiers[0]).toMatchObject({ kind: 'ready', address: TIER1 });
     expect(f.feeAccount).toEqual({ kind: 'ready' });
-    expect(c.calls).toEqual(['getAccountInfo', 'getAccountInfo']);
+    expect(c.calls).toEqual(['getAccountInfo', 'getAccountInfo', 'getAccountInfo']);
   });
 
   it('a tier read that throws is unread, and the fee account is still read', async () => {
     const f = await readCreateFacts(createChain({ fail: [TIER1] }), cfgLocal);
-    expect(f.tier).toMatchObject({ kind: 'unread', address: TIER1, detail: expect.stringMatching(/HTTP 429/) });
+    expect(f.tiers[0]).toMatchObject({ kind: 'unread', address: TIER1, detail: expect.stringMatching(/HTTP 429/) });
     expect(f.feeAccount).toEqual({ kind: 'ready' });
   });
 
   it('never throws: both reads failing, even before returning a promise, are both unread', async () => {
-    const f = await readCreateFacts(createChain({ fail: [TIER1, CP_CREATE_POOL_FEE_RECEIVER], failSync: true }), cfgLocal);
-    expect(f.tier.kind).toBe('unread');
+    const f = await readCreateFacts(createChain({ fail: [TIER1, publicTierConfig(CPSWAP, 2), CP_CREATE_POOL_FEE_RECEIVER], failSync: true }), cfgLocal);
+    expect(f.tiers.map((t) => t.kind)).toEqual(['unread', 'unread']);
     expect(f.feeAccount.kind).toBe('unread');
   });
 
@@ -169,7 +169,7 @@ describe('readCreateFacts', () => {
     const c = createChain({ tier: null });
     c.accounts.delete(CP_CREATE_POOL_FEE_RECEIVER.toBase58());
     const f = await readCreateFacts(c, cfgLocal);
-    expect(f).toEqual({ tier: { kind: 'not-open', address: TIER1 }, feeAccount: { kind: 'missing' } });
+    expect(f).toEqual({ tiers: [{ kind: 'not-open', index: 1, address: TIER1 }, { kind: 'not-open', index: 2, address: publicTierConfig(CPSWAP, 2) }], feeAccount: { kind: 'missing' } });
   });
 });
 

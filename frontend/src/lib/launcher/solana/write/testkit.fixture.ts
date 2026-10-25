@@ -203,6 +203,20 @@ export const TIER1_VALUES: AmmConfigOverrides = {
   creatorFeeRate: 0n,
 };
 
+/**
+ * The 0.25% tier (tier 2) as the owner's Squads step creates it (2026-10-18): index 2,
+ * 0.25% a trade, 16% of that to the protocol, no fund or creator fee, 0.15 SOL to open.
+ */
+export const TIER2_VALUES: AmmConfigOverrides = {
+  index: 2,
+  disableCreatePool: false,
+  tradeFeeRate: 2_500n,
+  protocolFeeRate: 160_000n,
+  fundFeeRate: 0n,
+  createPoolFee: 150_000_000n,
+  creatorFeeRate: 0n,
+};
+
 export interface FeeReceiverOptions {
   /** The program that owns the account (default: the classic token program). */
   program: PublicKey;
@@ -595,7 +609,12 @@ export class FakeChain {
 
   /** The public fee tier (tier 1) at its derived address, with the owner's values unless `over` says otherwise. */
   addTier1(over: Partial<AmmConfigOverrides> = {}): this {
-    return this.set(publicTierConfig(CPSWAP), { lamports: rent(AMM_CONFIG_LEN), owner: CPSWAP, data: encodeAmmConfig({ ...TIER1_VALUES, ...over }) });
+    return this.set(publicTierConfig(CPSWAP, 1), { lamports: rent(AMM_CONFIG_LEN), owner: CPSWAP, data: encodeAmmConfig({ ...TIER1_VALUES, ...over }) });
+  }
+
+  /** The 0.25% tier (tier 2) at its derived address, with the owner's values unless `over` says otherwise. */
+  addTier2(over: Partial<AmmConfigOverrides> = {}): this {
+    return this.set(publicTierConfig(CPSWAP, 2), { lamports: rent(AMM_CONFIG_LEN), owner: CPSWAP, data: encodeAmmConfig({ ...TIER2_VALUES, ...over }) });
   }
 
   /** The pool program's fee account for openings (`CP_CREATE_POOL_FEE_RECEIVER`), ready unless `over` says otherwise. */

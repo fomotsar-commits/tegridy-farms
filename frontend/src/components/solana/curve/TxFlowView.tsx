@@ -570,7 +570,7 @@ function LpCreateRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp-
         label="Pool kind"
         value={
           s.origin === 'standard'
-            ? 'Standard address for fee tier 1'
+            ? `Standard address for fee tier ${s.config.index}`
             : 'Its own address: the standard address is taken, so this pool gets a new address made in this browser'
         }
         mono={false}

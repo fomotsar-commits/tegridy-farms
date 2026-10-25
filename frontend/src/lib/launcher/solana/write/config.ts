@@ -24,9 +24,8 @@
 // Adding and removing liquidity have their own pair, `lpWriteConfig` and
 // `readLpGate`: LP's own switch (lpWriteFlag.ts), and a gate that reads only the
 // cluster and the pool program, so the launch program can never close a pool's exit.
-// Opening a pool reads two more facts BESIDE that gate (`readCreateFacts`): the public
-// fee tier and the pool program's fee account. They can stop an opening, never a
-// withdrawal.
+// Opening a pool reads more facts BESIDE that gate (`readCreateFacts`): each public fee
+// tier and the pool program's fee account. They can stop an opening, never a withdrawal.
 //
 // Nothing here signs or sends.
 
@@ -49,9 +48,10 @@ import {
   LIVE_PROGRAM_ID as CPSWAP_LIVE_PROGRAM_ID,
   REGISTERED_PROGRAM_ID as CPSWAP_REGISTERED_PROGRAM_ID,
   SPENT_PROGRAM_ID as CPSWAP_SPENT_PROGRAM_ID,
-  PUBLIC_TIER_INDEX,
+  PUBLIC_TIER_INDICES,
   decodeAmmConfig,
   publicTierConfig,
+  type PublicTierIndex,
 } from '../../../solana/cpswap/program';
 import { CURVE_WRITES_ENABLED, curveWriteEnvOverridesAllowed, isCurveWriteEnabled } from '../curveWriteFlag';
 import { lpWriteMode, type LpWriteMode } from '../lpWriteFlag';
@@ -460,19 +460,20 @@ const TOKEN_ACCOUNT_STATE = 108;
 const TOKEN_ACCOUNT_IS_NATIVE = 109;
 
 /**
- * What the account at the public tier's address says. `null` = no account there: the
- * tier has not been created. Owned by anything but the pool program, not an AmmConfig,
- * or an AmmConfig of another index: not a tier this site can use.
+ * What the account at public tier `index`'s address (derived) says. `null` = no account
+ * there: the tier has not been created. Owned by anything but the pool program, not an
+ * AmmConfig, or an AmmConfig of another index: not a tier this site can use.
  */
-export function tierStateOf(address: PublicKey, acc: { owner: string; data: Uint8Array } | null, cpSwapProgram: PublicKey): TierState {
-  if (!acc) return { kind: 'not-open', address };
-  if (acc.owner !== cpSwapProgram.toBase58()) return { kind: 'not-a-tier', address, detail: 'the account is not owned by the pool program' };
+export function tierStateOf(index: PublicTierIndex, acc: { owner: string; data: Uint8Array } | null, cpSwapProgram: PublicKey): TierState {
+  const address = publicTierConfig(cpSwapProgram, index);
+  if (!acc) return { kind: 'not-open', index, address };
+  if (acc.owner !== cpSwapProgram.toBase58()) return { kind: 'not-a-tier', index, address, detail: 'the account is not owned by the pool program' };
   const config = decodeAmmConfig(address.toBase58(), acc.data);
-  if (!config) return { kind: 'not-a-tier', address, detail: 'the account is not a fee tier' };
-  if (config.index !== PUBLIC_TIER_INDEX) return { kind: 'not-a-tier', address, detail: `it is fee tier ${config.index}, not ${PUBLIC_TIER_INDEX}` };
-  if (config.disableCreatePool) return { kind: 'switched-off', address, config };
-  if (config.createPoolFee > MAX_CREATE_FEE_LAMPORTS) return { kind: 'fee-too-high', address, config, limit: MAX_CREATE_FEE_LAMPORTS };
-  return { kind: 'ready', address, config };
+  if (!config) return { kind: 'not-a-tier', index, address, detail: 'the account is not a fee tier' };
+  if (config.index !== index) return { kind: 'not-a-tier', index, address, detail: `it is fee tier ${config.index}, not ${index}` };
+  if (config.disableCreatePool) return { kind: 'switched-off', index, address, config };
+  if (config.createPoolFee > MAX_CREATE_FEE_LAMPORTS) return { kind: 'fee-too-high', index, address, config, limit: MAX_CREATE_FEE_LAMPORTS };
+  return { kind: 'ready', index, address, config };
 }
 
 /**
@@ -497,12 +498,12 @@ export function feeAccountStateOf(acc: { owner: string; data: Uint8Array } | nul
 }
 
 /**
- * The two facts opening a pool needs that the LP gate does not read: the public tier
- * and the fee account, read together. A failed read is `unread` for that fact alone.
- * Never throws.
+ * The facts opening a pool needs that the LP gate does not read: each public tier and
+ * the fee account, read together. A failed read is `unread` for that fact alone: a tier
+ * that could not be read is never offered, and never stands in for another. Never throws.
  */
 export async function readCreateFacts(rpc: GateRpc, cfg: CurveWriteConfig): Promise<CreateFacts> {
-  const address = publicTierConfig(cfg.cpSwapProgram);
+  const cp = cfg.cpSwapProgram;
   // Through a resolved promise, so even a call that throws before returning one is caught.
   const read = (key: PublicKey) =>
     Promise.resolve()
@@ -511,9 +512,12 @@ export async function readCreateFacts(rpc: GateRpc, cfg: CurveWriteConfig): Prom
       (a) => ({ ok: true as const, acc: a ? { owner: a.owner.toBase58(), data: a.data } : null }),
       (e: unknown) => ({ ok: false as const, detail: clipDetail(e) }),
     );
-  const [tier, fee] = await Promise.all([read(address), read(CP_CREATE_POOL_FEE_RECEIVER)]);
+  const [fee, ...tiers] = await Promise.all([read(CP_CREATE_POOL_FEE_RECEIVER), ...PUBLIC_TIER_INDICES.map((i) => read(publicTierConfig(cp, i)))]);
   return {
-    tier: tier.ok ? tierStateOf(address, tier.acc, cfg.cpSwapProgram) : { kind: 'unread', address, detail: tier.detail },
+    tiers: PUBLIC_TIER_INDICES.map((index, k) => {
+      const t = tiers[k]!;
+      return t.ok ? tierStateOf(index, t.acc, cp) : { kind: 'unread', index, address: publicTierConfig(cp, index), detail: t.detail };
+    }),
     feeAccount: fee.ok ? feeAccountStateOf(fee.acc) : { kind: 'unread', detail: fee.detail },
   };
 }

@@ -11,7 +11,8 @@
 // Opening a pool (`createOffer`) is the only one that reads the create facts (the
 // public fee tier and the fee account): neither Add nor Remove ever takes them.
 
-import { publicTierConfig, withdrawEnabled } from '../../../lib/solana/cpswap/program';
+import type { PublicKey } from '@solana/web3.js';
+import { PUBLIC_TIER_INDICES, publicTierConfig, withdrawEnabled } from '../../../lib/solana/cpswap/program';
 import type { LpWriteMode } from '../../../lib/launcher/solana/lpWriteFlag';
 import { minLpForBothSides } from '../../../lib/solana/lp/liquidityMath';
 import { TOKEN_2022_NATIVE_MINT } from '../../../lib/solana/lp/opening';
@@ -20,9 +21,10 @@ import { tokenReasons, type PoolHealth } from '../../../lib/solana/lp/poolHealth
 import type { PoolSearchRead, PoolView } from '../../../lib/solana/lp/poolFinder';
 import type { Position } from '../../../lib/solana/lp/positions';
 import { SOL_QUOTE, quotesFor, type QuoteCoin } from '../../../lib/solana/lp/quotes';
+import { offersTier } from '../../../lib/solana/lp/tierOffer';
 import type { SafetyReason, TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { isLpKind } from '../../../lib/launcher/solana/write/lpKinds';
-import type { CreateFacts } from '../../../lib/launcher/solana/write/types';
+import type { CreateFacts, TierState } from '../../../lib/launcher/solana/write/types';
 import type { PendingTrade } from '../curve/pendingTrade';
 import type { LpGate, LpKind } from '../curve/ports';
 
@@ -144,15 +146,52 @@ export function poolListCut(search: PoolSearchRead): boolean {
   return search.kind === 'ok' && search.search.index.kind === 'ok' && search.search.index.truncated;
 }
 
+/** The public tiers that can take an opening right now: the ones the form offers. */
+export type ReadyTier = Extract<TierState, { kind: 'ready' }>;
+
+/**
+ * The public tiers this site offers `tokenMint` paired with `coinMint`, or with any coin
+ * it can be paired with when no coin is named (the card, before a coin is picked): a tier
+ * under 1% only for SOL against USDC (tierOffer.ts, owner 2026-10-24). A tier whose rate
+ * was not read (unread, not created) is kept: nothing says it is not offered. A token that
+ * pairs with no coin (SOL itself) is refused by the token check, not here.
+ */
+export function offeredTiers(tiers: readonly TierState[], tokenMint: string, coinMint?: string): TierState[] {
+  const coins = coinMint ? [coinMint] : quotesFor(tokenMint).map((q) => q.mint);
+  if (coins.length === 0) return [...tiers];
+  return tiers.filter((t) => !('config' in t) || coins.some((c) => offersTier(t.config.tradeFeeRate, tokenMint, c)));
+}
+
+/** Of the tiers offered to `tokenMint` (with `coinMint`, or any coin), the ones ready to take an opening. */
+export function readyTiers(facts: CreateFacts | null, tokenMint: string, coinMint?: string): ReadyTier[] {
+  return facts ? offeredTiers(facts.tiers, tokenMint, coinMint).filter((t): t is ReadyTier => t.kind === 'ready') : [];
+}
+
+/**
+ * With no public tier ready, the tier whose state the card explains: one whose read
+ * failed first (unread is never "no", and Refresh can fix it), then one that exists but
+ * takes no opening (switched off, fee too high, not a tier), then the first not created.
+ */
+export function tierStop(tiers: readonly TierState[]): TierState | null {
+  return tiers.find((t) => t.kind === 'unread') ?? tiers.find((t) => t.kind !== 'not-open') ?? tiers[0] ?? null;
+}
+
+/** The public fee tiers' addresses, by derivation: a pool on any other tier (tier 0 included) is on "another fee tier". */
+export function publicTierAddresses(cpSwapProgram: PublicKey): Set<string> {
+  return new Set(PUBLIC_TIER_INDICES.map((i) => publicTierConfig(cpSwapProgram, i).toBase58()));
+}
+
 /**
  * Open a new pool, in this order (the first that applies wins): LP switched off → the
  * gate is not open → paused ('withdraw-only') → an opening is still pending → the create
- * facts are not read yet → the public tier: unread, not created, not a tier, switched
- * off, fee above the ceiling → the fee account: unread, not set up → the token: unread,
- * refused → the market price unread → any pool unread or unchecked → offer.
+ * facts are not read yet → no public tier ready (`tierStop` says which state: unread,
+ * not created, not a tier, switched off, fee above the ceiling) → the fee account:
+ * unread, not set up → the token: unread, refused → the market price unread → any pool
+ * unread or unchecked → offer.
  *
  * Unread is never "no": every unread input stops here before `offer`. A truncated index
- * is not unread (`poolListCut`): the answer comes from the pools that were read.
+ * is not unread (`poolListCut`): the answer comes from the pools that were read. A tier
+ * whose read failed beside a ready one does not stop the offer: it is simply not offered.
  *
  * ANY TOKEN MAY HAVE A POOL (owner ruling 2026-10-04). A token is refused only when it is
  * absent or blocked (tokenSafety.ts says what still blocks), or is SOL under the newer
@@ -181,19 +220,20 @@ export function createOffer(a: {
   if (createHeld(a.notes)) return 'held';
   if (!a.facts) return 'checking';
 
-  switch (a.facts.tier.kind) {
-    case 'unread':
-      return 'tier-unread';
-    case 'not-open':
-      return 'tier-not-open';
-    case 'not-a-tier':
-      return 'tier-bad';
-    case 'switched-off':
-      return 'tier-off';
-    case 'fee-too-high':
-      return 'tier-fee-too-high';
-    case 'ready':
-      break;
+  if (readyTiers(a.facts, a.safety.mint).length === 0) {
+    switch (tierStop(offeredTiers(a.facts.tiers, a.safety.mint))?.kind) {
+      case 'not-open':
+        return 'tier-not-open';
+      case 'not-a-tier':
+        return 'tier-bad';
+      case 'switched-off':
+        return 'tier-off';
+      case 'fee-too-high':
+        return 'tier-fee-too-high';
+      default:
+        // Unread, or no tier in the list at all: nothing was confirmed.
+        return 'tier-unread';
+    }
   }
   if (a.facts.feeAccount.kind === 'unread') return 'fee-account-unread';
   if (a.facts.feeAccount.kind !== 'ready') return 'fee-account';
@@ -251,8 +291,8 @@ export function openingCautions(safety: TokenSafety, outside: OutsidePrice | nul
  * The pool an opener is pointed to before they open another. Advice, never a stop:
  *
  *   - 'opened-here': a pool this tab opened in this session, whatever its checks say;
- *   - 'exists': else the pool on the public tier that passes the deposit checks and
- *     holds the most of the coin (the same tier a new pool would go on, so the same fees);
+ *   - 'exists': else the pool on a public tier that passes the deposit checks and holds
+ *     the most of the coin (a tier a new pool could go on; the card says which it is on);
  *   - 'none': neither. A passing pool on ANOTHER tier is not a referral (the card names
  *     it and says a new pool will not share its liquidity or fees).
  *
@@ -283,8 +323,10 @@ export function createAdvice(a: {
     list.reduce<PoolView | null>((best, v) => (best === null || v.quoteReserve > best.quoteReserve ? v : best), null);
   const mine = biggest(views.filter((v) => a.openedHere(v.address)));
   if (mine) return { kind: 'opened-here', pool: mine };
-  const tier1 = publicTierConfig(a.gate.cfg.cpSwapProgram).toBase58();
-  const passing = views.filter((v) => v.snapshot.pool.ammConfig === tier1 && a.healths.get(v.address)?.deposits.verdict === 'allowed');
+  const publicTiers = publicTierAddresses(a.gate.cfg.cpSwapProgram);
+  // A tier this site does not offer the pair (a BAYLA pool on 0.25%) is "another fee tier" here, never a referral.
+  const offered = (v: PoolView) => v.config === null || offersTier(v.config.tradeFeeRate, v.tokenMint, v.quote.mint);
+  const passing = views.filter((v) => publicTiers.has(v.snapshot.pool.ammConfig) && offered(v) && a.healths.get(v.address)?.deposits.verdict === 'allowed');
   // A pool more than 3% off its reference is 'allowed' now, with a warning (owner ruling
   // 2026-10-04). One big pool at a wrong price must not hide a smaller one at the market:
   // the biggest pool whose price is not off is the one pointed to, and an off-price pool
@@ -337,19 +379,20 @@ export interface PairFacts {
   warned: boolean;
   /** Did the search read any pool paired with this coin, passing its checks or not? */
   hasPool: boolean;
-  /** Whether the search found anything at THIS pair's standard tier-1 address. Prepare decides for good. */
-  standard: 'empty' | 'taken';
+  /** Whether the search found anything at THIS pair's standard address, per public tier index. Prepare decides for good. */
+  standard: Readonly<Record<number, 'empty' | 'taken'>>;
 }
 
 /**
- * Whether anything sits at the standard tier-1 address of the token paired with `coin`.
- * Every pair has its own standard address (the address is made from both mints), so a
- * SOL pool at the SOL pair's address says nothing about where a USDC pool would go. An
- * address the search did not read is 'empty' here, and Prepare reads it again.
+ * Whether anything sits at the standard address, on public tier `tier`, of the token
+ * paired with `coin`. Every pair has its own standard address on every tier (the address
+ * is made from the tier and both mints), so a SOL pool at the SOL pair's tier-1 address
+ * says nothing about where a USDC pool, or a tier-2 SOL pool, would go. An address the
+ * search did not read is 'empty' here, and Prepare reads it again.
  */
-export function standardState(search: PoolSearchRead, coin: QuoteCoin): 'empty' | 'taken' {
+export function standardState(search: PoolSearchRead, coin: QuoteCoin, tier: number): 'empty' | 'taken' {
   if (search.kind !== 'ok') return 'empty';
-  const address = search.search.known.standard.find((s) => s.index === 1 && s.quote === coin.mint)?.address;
+  const address = search.search.known.standard.find((s) => s.index === tier && s.quote === coin.mint)?.address;
   const state = address ? search.search.knownState[address] : undefined;
   return state !== undefined && state !== 'absent' ? 'taken' : 'empty';
 }
@@ -375,7 +418,7 @@ export function pairFacts(a: {
       advice,
       warned: advice.kind !== 'none' && depositWarned(a.healths.get(advice.pool.address)),
       hasPool: paired.has(coin.mint),
-      standard: standardState(a.search, coin),
+      standard: Object.fromEntries(PUBLIC_TIER_INDICES.map((i) => [i, standardState(a.search, coin, i)])),
     };
   });
 }

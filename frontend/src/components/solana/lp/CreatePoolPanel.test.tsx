@@ -219,6 +219,7 @@ describe('the panel', () => {
         quoteMint: new PublicKey(SOL_QUOTE.mint),
         quote: 1_000_000_000n,
         token: 100_000_000n,
+        tier: 1,
         shown: { terms: { createPoolFee: 150_000_000n, tradeFeeRate: 10_000n, protocolFeeRate: 160_000n, fundFeeRate: 0n, creatorFeeRate: 0n }, standard: 'empty' },
       },
     );

@@ -10,7 +10,7 @@ import { priceInQuote, type OutsidePrice } from '../../../lib/solana/lp/outsideP
 import { noPriceClause } from '../../../lib/solana/lp/poolHealth';
 import { SOL_QUOTE, lowerCoins, quoteCoin, type QuoteCoin } from '../../../lib/solana/lp/quotes';
 import { TOKEN_2022_PROGRAM, TOKEN_PROGRAM, type TokenSafety } from '../../../lib/solana/lp/tokenSafety';
-import { formatSolPrice, tradeCostText } from '../../../lib/solana/lp/format';
+import { formatSolPrice, pctText, tradeCostText } from '../../../lib/solana/lp/format';
 import { Notice, Row } from '../curve/ui';
 import { SHADOW, TOGGLE_CLS, baseUnitsToInput } from '../curve/uiFormat';
 import { TxFlowView } from '../curve/TxFlowView';
@@ -23,7 +23,7 @@ import { CoinRiskNotice, LpBeforeYouOpen, LpReviewDisclosure } from './LpDisclos
 import { PanelFrame } from './PanelFrame';
 import { FinePrint } from '../../ui/FinePrint';
 import { LOCKED_SHARES_TEXT, NOTES_BELOW, cannotFundText, coinExact, reviewOffWhy, sharePct, solAbout, solAboutUp, solExact, tokensAbout, unitsExact, useDebounced, useFlowReports, useSettledAlert, useWalletFacts } from './panelKit';
-import { POOL_RISK_CODES, createHeld, type CreateOffer, type PairFacts } from './offers';
+import { POOL_RISK_CODES, createHeld, offeredTiers, type CreateOffer, type PairFacts, type ReadyTier } from './offers';
 import { useLpWrites, type LpWrites } from './useLpWrites';
 
 const LP_DECIMALS = 9;
@@ -54,7 +54,7 @@ const cannotLeave = (what: string) =>
   `Too small: your own share of this pool could never be taken out, because it would pay out less than one unit of ${what}. Put in more of it.`;
 
 /** A token that can be paired with nothing (SOL itself) still draws the form, on SOL, with Review off elsewhere. */
-const NO_PAIR: PairFacts = { coin: SOL_QUOTE, advice: { kind: 'none' }, warned: false, hasPool: false, standard: 'empty' };
+const NO_PAIR: PairFacts = { coin: SOL_QUOTE, advice: { kind: 'none' }, warned: false, hasPool: false, standard: {} };
 
 /**
  * Why an open panel's Review is off when its card no longer offers an opening. 'held'
@@ -128,6 +128,34 @@ const terms = (c: AmmConfigView): TierTerms => ({
   creatorFeeRate: c.creatorFeeRate,
 });
 
+/**
+ * One fee tier as a choice: what LPs keep of each trade and what the venue takes, from
+ * the tier as read, and its fee to open only when the ready tiers' fees differ (the Fee
+ * to open row below says the chosen one's either way).
+ */
+function tierChoiceLine(config: AmmConfigView, ready: readonly ReadyTier[]): string {
+  const split = feeSplit(config);
+  const sameFee = ready.every((t) => t.config.createPoolFee === ready[0]?.config.createPoolFee);
+  return `LPs keep ${pctText(split.lpKeepsPct)} of each trade, the venue ${pctText(split.venueTakesPct)}.${sameFee ? '' : ` ${formatSol(config.createPoolFee, 9)} SOL to open.`}`;
+}
+
+/** A public tier that is not offered, and why, in one line; null for a ready tier or one not created (nothing to say). */
+function tierAsideLine(t: TierState): string | null {
+  switch (t.kind) {
+    case 'unread':
+      return `Fee tier ${t.index} could not be read (${t.detail}), so it is not offered.`;
+    case 'switched-off':
+      return `Fee tier ${t.index} is switched off for new pools right now, so it is not offered.`;
+    case 'fee-too-high':
+      return `Fee tier ${t.index}’s fee to open is ${formatSol(t.config.createPoolFee, 9)} SOL, above this site’s limit of ${formatSol(t.limit, 9)} SOL, so it is not offered.`;
+    case 'not-a-tier':
+      return `Fee tier ${t.index}’s account is not what this site expects (${t.detail}), so it is not offered.`;
+    case 'ready':
+    case 'not-open':
+      return null;
+  }
+}
+
 // A line that is shown once typing settles is kept for half a second after it changes. A
 // change of coin inside that half second must not leave the old coin's line on the new
 // coin's form, so a settled line carries the coin it was worked out for, and is shown
@@ -139,11 +167,19 @@ const ofCoin = (coin: QuoteCoin, kept: string) => (kept.startsWith(`${coin.mint}
 const priceKey = (p: OutsidePrice | null) => (p === null ? 'none' : p.kind === 'ok' ? `ok:${p.solPerToken}` : `${p.kind}:${p.detail}`);
 
 /**
- * Open a new pool for one token on the public fee tier, in place inside its card
+ * Open a new pool for one token on a public fee tier, in place inside its card
  * (SPEC_S2_CREATE 4.3). The person types both sides; the boxes never move each other.
  * Everything shown before Review is worked out from what the page read, for the preview
  * only: Review reads the tier, the fee account, the token, the market price and the
  * wallet again, and builds from those (write/createPool.ts `prepareLpCreate`).
+ *
+ * THE FEE TIER (owner, 2026-10-18). With more than one public tier ready the opener picks
+ * one, and each choice says what LPs keep and the venue takes, from the tier as read. The
+ * first ready tier is chosen until another is picked. A tier that is not ready is not
+ * offered: one not created is not mentioned (it appears once it is on chain); one whose
+ * read failed, or that exists but takes no opening, is said so beside the choice, never
+ * shown as a choice. Everything below the choice (the terms rows, the standard address,
+ * what Review sends) is the chosen tier's.
  *
  * THE PAIRING COIN. The opener chooses what the token is paired with (quotes.ts: SOL,
  * USDC or BAYLA, as far as the token allows). Everything on the coin's side is in THAT
@@ -171,7 +207,8 @@ export function CreatePoolPanel(p: {
   /** The TOKEN's market price, in SOL. A coin that is not SOL has its own price read here. */
   outside: OutsidePrice | null;
   outsideAt: number | null;
-  tier: TierState | null;
+  /** Every public fee tier as read (offers.ts `readyTiers` picks the ones that can take an opening). */
+  tiers: readonly TierState[];
   /**
    * One entry per coin this token can be paired with, SOL first (offers.ts `pairFacts`):
    * that pair's own pool to add to first, and whether its standard address is free.
@@ -200,7 +237,7 @@ function CreateInner({
   decimals,
   outside,
   outsideAt,
-  tier,
+  tiers,
   pairs,
   cut,
   offer,
@@ -211,18 +248,30 @@ function CreateInner({
   api,
   gate,
 }: Parameters<typeof CreatePoolPanel>[0] & { writes: LpWrites; api: LpWriteApi; gate: LpOpenGate }) {
-  // The terms shown are the last ones read as ready. A re-read that finds the tier
-  // changed shows the new terms; one that finds it gone keeps the panel (and any outcome
-  // on it) and switches Review off.
-  const readyConfig = tier?.kind === 'ready' ? tier.config : null;
-  const [shownConfig, setShownConfig] = useState<AmmConfigView | null>(readyConfig);
-  if (readyConfig && readyConfig !== shownConfig) setShownConfig(readyConfig);
-  const config = readyConfig ?? shownConfig;
-
   // The coin the pool is paired with. It starts on SOL, the first in rank order.
   const [picked, setPicked] = useState<string | null>(null);
   const pair = pairs.find((x) => x.coin.mint === picked) ?? pairs[0] ?? NO_PAIR;
   const coin = pair.coin;
+
+  // The tiers this site offers this pair (offers.ts `offeredTiers`: 0.25% for SOL against
+  // USDC only), and of those the ones that can take an opening, in offer order; the first
+  // is chosen until another is picked.
+  const offered = offeredTiers(tiers, mint, coin.mint);
+  const ready = offered.filter((t): t is ReadyTier => t.kind === 'ready');
+  const [pickedTier, setPickedTier] = useState<number | null>(null);
+  const chosen = ready.find((t) => t.index === pickedTier) ?? ready[0] ?? null;
+  // The terms shown are the last ones read as ready. A re-read that finds the tier
+  // changed shows the new terms; one that finds it gone keeps the panel (and any outcome
+  // on it) and switches Review off.
+  const readyConfig = chosen?.config ?? null;
+  const [shownConfig, setShownConfig] = useState<AmmConfigView | null>(readyConfig);
+  if (readyConfig && readyConfig !== shownConfig) setShownConfig(readyConfig);
+  const config = readyConfig ?? shownConfig;
+  // This pair's tiers that are not ready, and why: said beside the choice, never as a choice.
+  const asides = offered.flatMap((t) => {
+    const line = tierAsideLine(t);
+    return line ? [{ index: t.index, unread: t.kind === 'unread', line }] : [];
+  });
 
   const tokenProgram = safety.kind === 'read' && safety.facts?.program === 'token-2022' ? TOKEN_2022_PROGRAM : TOKEN_PROGRAM;
   const quoteIsToken0 = useMemo(() => sortMints(new PublicKey(coin.mint), new PublicKey(mint)).token0.toBase58() === coin.mint, [mint, coin.mint]);
@@ -516,7 +565,7 @@ function CreateInner({
     !flow.locked &&
     !blockedByOther;
   const review = () => {
-    if (!canReview || !signer || !config || quoteRaw === null || tokRaw === null) return;
+    if (!canReview || !signer || !config || !chosen || quoteRaw === null || tokRaw === null) return;
     const build = () =>
       api.prepareLpCreate(writes.rpc, gate, writes.readers, {
         owner: signer.publicKey,
@@ -525,7 +574,9 @@ function CreateInner({
         quoteMint: new PublicKey(coin.mint),
         quote: quoteRaw,
         token: tokRaw,
-        shown: { terms: terms(config), standard: pair.standard },
+        // The chosen tier, and whether the search found anything at ITS standard address for this pair.
+        tier: chosen.index,
+        shown: { terms: terms(config), standard: pair.standard[chosen.index] ?? 'empty' },
       });
     void flow.prepare(build, { repeatable: true });
   };
@@ -628,6 +679,8 @@ function CreateInner({
   const pairLabel = useId();
   const warningsId = useId();
   const pairName = useId();
+  const tierLabel = useId();
+  const tierName = useId();
   // What Review is described by, so a screen reader says it when focus reaches the button:
   // the check's warnings, then what the chosen coin itself adds to the risks. The coin's
   // line was not among them, so a clean USDC opening had a Review described by nothing.
@@ -650,7 +703,7 @@ function CreateInner({
         )}
       </div>
       {readyConfig === null && flow.state.step === 'idle' && (
-        <Notice tone="warn">The public fee tier is not ready to open pools right now (see the card above), so Review is off.</Notice>
+        <Notice tone="warn">No fee tier is ready to open pools right now (see the card above), so Review is off.</Notice>
       )}
       {readyConfig !== null && flow.state.step === 'idle' && offerOffLine(offer) && <Notice tone="warn">{offerOffLine(offer)}</Notice>}
       {confirmedPool && (
@@ -695,6 +748,52 @@ function CreateInner({
           ) : (
             // Nothing to choose: the coin is said, and no group is drawn.
             <Row label="Paired with" value={`${coin.symbol}: this site pairs this token with ${coin.symbol} only${otherSide}`} mono={false} />
+          )}
+          {/* The fee tier, only when there is a choice: one ready tier is simply the tier (the
+              terms rows below say it). Stacked, one line each: the rate, then what LPs keep and
+              the venue takes, from the tier as read. Real radio buttons, as for the coin. */}
+          {ready.length > 1 && chosen && (
+            <div role="radiogroup" aria-labelledby={tierLabel} data-testid="lp-create-tier" data-tier={chosen.index}>
+              <span id={tierLabel} className="text-white text-[11px] block mb-1.5" style={SHADOW}>
+                Fee tier
+              </span>
+              <div className="flex flex-col gap-2">
+                {ready.map((t) => (
+                  <label
+                    key={t.index}
+                    className={`${TOGGLE_CLS} relative flex items-center gap-2 px-3 py-2 cursor-pointer text-left has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-white/70`}
+                    style={{ background: t.index === chosen.index ? 'rgba(45,139,78,0.45)' : 'rgba(0,0,0,0.45)', border: '1px solid rgba(255,255,255,0.18)' }}
+                  >
+                    <input type="radio" name={tierName} value={t.index} checked={t.index === chosen.index} onChange={() => setPickedTier(t.index)} />
+                    <span className="text-[12px] leading-snug">
+                      <span className="font-semibold">{tradeCostText(t.config, CREATOR_FEE_SWITCH.publicOpen)}.</span> {tierChoiceLine(t.config, ready)}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+          {/* A tier that is not offered, and why. Unread is never silence: it gets its own Refresh. */}
+          {ready.length > 0 && asides.length > 0 && (
+            <div className="space-y-1.5" data-testid="lp-create-tier-aside">
+              {asides.map((a) => (
+                <p key={a.index} className="text-amber-300/90 text-[12px]">
+                  {a.line}
+                </p>
+              ))}
+              {asides.some((a) => a.unread) && (
+                <button
+                  type="button"
+                  className="btn-secondary w-full sm:w-auto min-h-[44px] px-4 text-[13px] aria-disabled:opacity-60"
+                  aria-disabled={reading}
+                  onClick={() => {
+                    if (!reading) refreshCreateFacts();
+                  }}
+                >
+                  Refresh
+                </button>
+              )}
+            </div>
           )}
           <CoinRiskNotice coin={coin} id={coinRiskId} />
           {readyConfig !== null && offer === 'offer' && advice && (
@@ -936,14 +1035,20 @@ function CreateInner({
         {/* Opened with cp-swap's `initialize`, so the new pool never charges the tier's creator fee. */}
         <Row
           label="Fee tier"
-          value={config ? `1: traders pay ${tradeCostText(config, CREATOR_FEE_SWITCH.publicOpen)}; LPs keep ${feeSplit(config).lpKeepsPct.toFixed(3)}% of each trade` : 'not read'}
+          value={config ? `${config.index}: traders pay ${tradeCostText(config, CREATOR_FEE_SWITCH.publicOpen)}; LPs keep ${feeSplit(config).lpKeepsPct.toFixed(3)}% of each trade` : 'not read'}
           mono={false}
         />
         <Row label="Fee to open" value={fee === null ? 'not read' : `${formatSol(fee, 9)} SOL, paid to the team's vault (read just now)`} mono={false} />
-        {/* Each pair has its own standard address: this row is the chosen coin's. */}
+        {/* Each pair has its own standard address on each tier: this row is the chosen coin's, on the chosen tier. */}
         <Row
           label="Pool address"
-          value={pair.standard === 'empty' ? 'the standard address for fee tier 1' : 'a new address of its own (the standard address is already taken)'}
+          value={
+            config === null
+              ? 'not read'
+              : (pair.standard[config.index] ?? 'empty') === 'empty'
+                ? `the standard address for fee tier ${config.index}`
+                : 'a new address of its own (the standard address is already taken)'
+          }
           mono={false}
         />
       </div>

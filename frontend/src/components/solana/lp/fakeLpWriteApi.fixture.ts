@@ -154,12 +154,39 @@ export function tier1Config(over: Partial<AmmConfigView> = {}): AmmConfigView {
   };
 }
 
+/** Where the fake 0.25% tier (tier 2) lives: a second fixed key. */
+export const TIER2_ADDRESS = new PublicKey(new Uint8Array(32).fill(42));
+
+/** Tier 2 as the owner's Squads step creates it (2026-10-18): 0.25% a trade, 16% of it to the venue, 0.15 SOL to open. */
+export function tier2Config(over: Partial<AmmConfigView> = {}): AmmConfigView {
+  return { ...tier1Config(), address: TIER2_ADDRESS.toBase58(), index: 2, tradeFeeRate: 2_500n, ...over };
+}
+
+/** Mainnet as it stood before the 0.25% tier was created: tier 1 ready, tier 2 not there. */
 export const readyFacts = (over: Partial<AmmConfigView> = {}): CreateFacts => ({
-  tier: { kind: 'ready', address: TIER1_ADDRESS, config: tier1Config(over) },
+  tiers: [
+    { kind: 'ready', index: 1, address: TIER1_ADDRESS, config: tier1Config(over) },
+    { kind: 'not-open', index: 2, address: TIER2_ADDRESS },
+  ],
   feeAccount: { kind: 'ready' },
 });
 
-export const notOpenFacts = (): CreateFacts => ({ tier: { kind: 'not-open', address: TIER1_ADDRESS }, feeAccount: { kind: 'ready' } });
+/** Both public tiers ready: the form offers the choice. */
+export const bothTiersFacts = (over1: Partial<AmmConfigView> = {}, over2: Partial<AmmConfigView> = {}): CreateFacts => ({
+  tiers: [
+    { kind: 'ready', index: 1, address: TIER1_ADDRESS, config: tier1Config(over1) },
+    { kind: 'ready', index: 2, address: TIER2_ADDRESS, config: tier2Config(over2) },
+  ],
+  feeAccount: { kind: 'ready' },
+});
+
+export const notOpenFacts = (): CreateFacts => ({
+  tiers: [
+    { kind: 'not-open', index: 1, address: TIER1_ADDRESS },
+    { kind: 'not-open', index: 2, address: TIER2_ADDRESS },
+  ],
+  feeAccount: { kind: 'ready' },
+});
 
 /**
  * An `lp-create` summary, as a prepare would return it. With `quote` in `over` set to USDC

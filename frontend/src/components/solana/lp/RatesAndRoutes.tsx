@@ -1,10 +1,11 @@
 import { Link } from 'react-router-dom';
-import { PUBLIC_TIER_INDEX, type AmmConfigView } from '../../../lib/solana/cpswap/program';
+import { PUBLIC_TIER_INDICES, isPublicTierIndex, type AmmConfigView } from '../../../lib/solana/cpswap/program';
 import { CREATOR_FEE_SWITCH, chargedCreatorFeeRate, feeSplit, solOf, tradeCost } from '../../../lib/solana/cpswap/venue';
 import { feeRateText, pctText, solText, tradeCostText } from '../../../lib/solana/lp/format';
 import { SOLANA_FEE_ACCOUNT, SOLANA_PLATFORM_FEE_BPS, isSolanaFeeConfigured } from '../../../lib/solana';
-import { howVenueEarns, howYouEarn, type JupiterFee } from '../../../lib/solana/lp/earnCopy';
+import { howVenueEarns, howYouEarn, poolWords, type JupiterFee } from '../../../lib/solana/lp/earnCopy';
 import type { FeeTierRead } from '../../../lib/solana/lp/poolFinder';
+import { LOW_TIER_PAIR, forEveryPair } from '../../../lib/solana/lp/tierOffer';
 import { Card, Notice, Row } from '../curve/ui';
 import { CardArt } from '../../ui/CardArt';
 import { FinePrint } from '../../ui/FinePrint';
@@ -24,14 +25,24 @@ const BUILD_JUPITER_FEE: JupiterFee | null =
  * fee sheet, which all printed the same split from the same chain read. Every sentence
  * they carried is in its Details, word for word.
  *
- * Every number is the tier as the section's one read returned it; with no read, none.
+ * Every number is a tier as the section's one read returned it; with no read, none.
+ *
+ * The public tiers come first, in the order the form offers them, then the launch tier.
+ * A public tier past the first that is not on chain is not listed (law 23: off is not
+ * listed); the first public tier and the launch tier are, as "not created yet", because
+ * either missing is a state worth a row.
  */
 export function Rates({ read, jupiterFee = BUILD_JUPITER_FEE }: { read: FeeTierRead | null; jupiterFee?: JupiterFee | null }) {
-  const publicTier = read?.kind === 'ok' ? read.tiers.find((t) => t.index === PUBLIC_TIER_INDEX && t.state === 'live')?.config ?? null : null;
-  const venue = howVenueEarns(publicTier, jupiterFee);
+  const rows = read?.kind === 'ok' ? read.tiers : [];
+  // The public tiers a pool can be opened on, live, in offer order: every pool rate on the card is one of theirs.
+  const publicTiers: AmmConfigView[] = PUBLIC_TIER_INDICES.flatMap((i) => {
+    const t = rows.find((r) => r.index === i);
+    return t?.state === 'live' && t.config ? [t.config] : [];
+  });
+  const venue = howVenueEarns(publicTiers, jupiterFee);
   const explorer = explorerOf(useLpWrites());
-  // The public tier first: every pool opened from this site is on it.
-  const tiers = read?.kind === 'ok' ? [...read.tiers].sort((a, b) => rank(a.index) - rank(b.index)) : [];
+  const tiers = rows.filter((t) => t.state !== 'absent' || t.index === 0 || t.index === PUBLIC_TIER_INDICES[0]).sort((a, b) => rank(a.index) - rank(b.index));
+  const severalPublic = tiers.filter((t) => isPublicTierIndex(t.index)).length > 1;
   const wallets = venue.wallets.map((w) => (
     <AddressRow key={w.address} label={w.label} value={w.address} explorer={explorer(w.address, 'wallet')} />
   ));
@@ -58,7 +69,7 @@ export function Rates({ read, jupiterFee = BUILD_JUPITER_FEE }: { read: FeeTierR
               <tbody>
                 {tiers.map((t) => (
                   <tr key={t.index} data-testid="fee-tier" data-index={t.index} data-state={t.state} style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-                    <th scope="row" className="py-2.5 pr-2 font-normal text-white text-[13px] leading-tight">{tierName(t.index)}</th>
+                    <th scope="row" className="py-2.5 pr-2 font-normal text-white text-[13px] leading-tight">{tierName(t, severalPublic)}</th>
                     {t.state === 'live' && t.config ? (
                       <TierCells config={t.config} />
                     ) : (
@@ -70,9 +81,9 @@ export function Rates({ read, jupiterFee = BUILD_JUPITER_FEE }: { read: FeeTierR
                 ))}
               </tbody>
             </table>
-            {publicTier && (
+            {publicTiers.length > 0 && (
               <p className="text-white/70 text-[12px]" data-testid="lp-open-cost">
-                {openLine(publicTier, read.openingDeposits)}
+                {openLine(publicTiers, read.openingDeposits)}
               </p>
             )}
             {/* A cut that is anything but the agreed split (wallets or rates) is said in plain
@@ -87,8 +98,10 @@ export function Rates({ read, jupiterFee = BUILD_JUPITER_FEE }: { read: FeeTierR
         )}
         <FinePrint summary="Details">
           <p>Read from the chain when this page loads.</p>
-          {publicTier && <p>{earnSentence(publicTier)}</p>}
-          {howYouEarn(publicTier).map((line) => (
+          {publicTiers.map((t) => (
+            <p key={t.index}>{earnSentence(t, publicTiers)}</p>
+          ))}
+          {howYouEarn(publicTiers).map((line) => (
             <p key={line}>{line}</p>
           ))}
           <ul className="list-disc pl-4 space-y-1" data-testid="lp-venue-sources">
@@ -103,7 +116,7 @@ export function Rates({ read, jupiterFee = BUILD_JUPITER_FEE }: { read: FeeTierR
               t.state === 'live' && t.config ? (
                 <div key={t.index} data-testid="fee-tier-detail" data-index={t.index} className="space-y-1 pt-1">
                   <Row
-                    label={`Tier ${t.index}${t.index === 0 ? ' (graduated launches)' : t.index === PUBLIC_TIER_INDEX ? ' (public pools)' : ''}`}
+                    label={`Tier ${t.index}${t.index === 0 ? ' (graduated launches)' : isPublicTierIndex(t.index) ? ' (public pools)' : ''}`}
                     value={tierCostText(t.config)}
                     mono={false}
                   />
@@ -139,7 +152,7 @@ export function Rates({ read, jupiterFee = BUILD_JUPITER_FEE }: { read: FeeTierR
  * rows a glance can read; the sentence is in How it works, word for word.
  */
 export function Routes({ jupiterFee = BUILD_JUPITER_FEE }: { jupiterFee?: JupiterFee | null }) {
-  const swapFee = howVenueEarns(null, jupiterFee).sources[2];
+  const swapFee = howVenueEarns([], jupiterFee).sources[2];
   return (
     <section data-testid="lp-routes" aria-label="Swap routes">
       <Card title="Swap routes" art={<CardArt pageId="venue-amm" idx={4} />}>
@@ -194,28 +207,40 @@ function TierCells({ config }: { config: AmmConfigView }) {
   );
 }
 
+/** The public tiers first, in offer order, then every other by index. */
 function rank(index: number): number {
-  return index === PUBLIC_TIER_INDEX ? -1 : index;
+  const k = (PUBLIC_TIER_INDICES as readonly number[]).indexOf(index);
+  return k >= 0 ? k - PUBLIC_TIER_INDICES.length : index;
 }
 
-function tierName(index: number): string {
-  if (index === PUBLIC_TIER_INDEX) return 'Public pools';
-  if (index === 0) return 'Launch pools';
-  return `Tier ${index}`;
+/**
+ * A row's name: "Public pools" while one public tier is listed; each by its read rate once
+ * there are more. A public tier under 1% says the pair it is offered (tierOffer.ts), in the
+ * row itself, so the table never reads as 0.25% for any coin.
+ */
+function tierName(t: { index: number; config: AmmConfigView | null }, severalPublic: boolean): string {
+  if (t.index === 0) return 'Launch pools';
+  if (!isPublicTierIndex(t.index)) return `Tier ${t.index}`;
+  const pair = t.config && !forEveryPair(t.config.tradeFeeRate) ? ` (${LOW_TIER_PAIR})` : '';
+  if (!severalPublic) return `Public pools${pair}`;
+  return t.config ? `${feeRateText(t.config.tradeFeeRate)} pools${pair}` : `Public pools (tier ${t.index})`;
 }
 
-/** What opening a pool on the public tier costs, in one line: the fee and the setup, neither refunded. */
-function openLine(config: AmmConfigView, deposits: bigint | null): string {
-  if (config.disableCreatePool) return 'Opening a pool: switched off.';
-  const fee = config.createPoolFee > 0n ? solText(config.createPoolFee) : 'no fee';
+/** What opening a pool costs, in one line: the fee (per tier when they differ) and the setup, neither refunded. */
+function openLine(tiers: readonly AmmConfigView[], deposits: bigint | null): string {
+  const open = tiers.filter((t) => !t.disableCreatePool);
+  if (open.length === 0) return 'Opening a pool: switched off.';
+  const feeOf = (t: AmmConfigView) => (t.createPoolFee > 0n ? solText(t.createPoolFee) : 'no fee');
+  const same = open.every((t) => t.createPoolFee === open[0]!.createPoolFee);
+  const fee = same ? feeOf(open[0]!) : open.map((t) => `${feeOf(t)} (${feeRateText(t.tradeFeeRate)} pools)`).join(' or ');
   const setup = deposits === null ? 'setup (not read)' : `${solText(deposits)} setup`;
   return `Open a pool: ${fee} + ${setup}, not refunded.`;
 }
 
-/** The split as a sentence, in the small print. */
-function earnSentence(tier: AmmConfigView): string {
+/** The split as a sentence, in the small print, one per public tier. */
+function earnSentence(tier: AmmConfigView, tiers: readonly AmmConfigView[]): string {
   const split = feeSplit(tier);
-  return `In a public pool, each trade pays ${feeRateText(tier.tradeFeeRate)}: ${pctText(split.lpKeepsPct)} stays with LPs, ${pctText(split.venueTakesPct)} goes to the venue.`;
+  return `In ${poolWords(tier, tiers)}, each trade pays ${feeRateText(tier.tradeFeeRate)}: ${pctText(split.lpKeepsPct)} stays with LPs, ${pctText(split.venueTakesPct)} goes to the venue.`;
 }
 
 /**
