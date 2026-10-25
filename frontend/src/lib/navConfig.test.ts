@@ -200,11 +200,13 @@ describe('navConfig', () => {
     }
   });
 
-  // "Trade" beside "Marketplace" gave no clue which sold tokens and which sold art.
-  it('files the art Marketplace on the Island, not beside the token swap', () => {
+  // Owner, 2026-10-24: the Nakamigos marketplace leaves the nav (and the home and the
+  // venue's metadata). /nakamigos still opens it; nothing of the venue's points there.
+  it('lists no door to the Nakamigos marketplace', () => {
+    expect(ALL_NAV.map((n) => n.to)).not.toContain('/nakamigos');
+    expect(ALL_NAV.map((n) => n.label)).not.toContain('Marketplace');
     const island = NAV_SECTIONS.find((sec) => sec.heading === 'Island');
-    expect(island?.items.map((i) => i.to)).toContain('/nakamigos');
-    expect(ALL_NAV.find((n) => n.to === '/nakamigos')?.label).toBe('Marketplace');
+    expect(island?.items.map((i) => i.to)).not.toContain('/nakamigos');
   });
 
   it('no duplicate paths in ALL_NAV', () => {

@@ -1,19 +1,20 @@
-// The three paths: NFT Finance, Marketplace, Launch. The floor is read, never typed: the
+// The paths under the hero: NFT Finance and Launch. The floor is read, never typed: the
 // test moves the dial and the card must follow, because a hardcoded 80 looks identical
-// until an operator moves it. Exactly three doors, and zero em dashes in the rendered copy.
+// until an operator moves it. Exactly two doors, no door to the marketplace, and zero em
+// dashes in the rendered copy.
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { MemoryRouter } from 'react-router-dom';
-import { ThreePaths } from './ThreePaths';
+import { VenuePaths } from './VenuePaths';
 import { LAUNCH_FLOOR } from '../lib/heat/heatOracle';
 
 function mount() {
   return render(
     <MemoryRouter>
-      <ThreePaths />
+      <VenuePaths />
     </MemoryRouter>,
   );
 }
@@ -71,37 +72,47 @@ describe('the launch floor is read, never typed', () => {
 });
 
 // Owner, 2026-10-17: "instead of these three buttons we should show nft finance,
-// marketplace and launch there". Hold and Provide LP left the row.
+// marketplace and launch there". Owner, 2026-10-24: the marketplace leaves the home page,
+// the nav and the venue's metadata; /nakamigos itself stays.
 describe('the doors', () => {
-  it('offers exactly three, to NFT Finance, the marketplace and launch', () => {
+  it('offers exactly two, to NFT Finance and launch', () => {
     mount();
     const links = screen.getAllByRole('link');
-    expect(links.map((l) => l.getAttribute('href'))).toEqual(['/nft-finance', '/nakamigos', '/launch']);
+    expect(links.map((l) => l.getAttribute('href'))).toEqual(['/nft-finance', '/launch']);
   });
 
-  it('names them NFT Finance, Marketplace and Launch, in that order', () => {
+  it('names them NFT Finance and Launch, in that order, and no Marketplace', () => {
     mount();
-    expect(screen.getAllByRole('heading').map((h) => h.textContent)).toEqual(['NFT Finance', 'Marketplace', 'Launch']);
+    expect(screen.getAllByRole('heading').map((h) => h.textContent)).toEqual(['NFT Finance', 'Launch']);
+    expect(screen.queryByRole('heading', { name: 'Marketplace' })).toBeNull();
+    expect(screen.queryByRole('link', { name: /Marketplace/ })).toBeNull();
     expect(screen.queryByRole('heading', { name: 'Hold' })).toBeNull();
     expect(screen.queryByRole('heading', { name: 'Provide LP' })).toBeNull();
   });
 
-  // Each line is its page's own, so the door cannot promise more than the room.
+  it('links nowhere near the marketplace', () => {
+    const { container } = mount();
+    expect(container.querySelector('a[href^="/nakamigos"]')).toBeNull();
+    expect(container.textContent).not.toMatch(/nakamigos|tradermigos/i);
+  });
+
+  // The line is its page's own, so the door cannot promise more than the room.
   it.each([
     ['NFT Finance', 'Borrow against your NFT, lend to others, or trade NFTs in a pool.', 'pages/LendingPage.tsx'],
-    ['Marketplace', 'Browse. Buy. Sell. Make offers.', 'nakamigos/components/CollectionLanding.jsx'],
   ])('%s carries the line its own page says', (title, line, page) => {
     mount();
     expect(screen.getByRole('link', { name: new RegExp(title) }).textContent).toContain(line);
     expect(readFileSync(join(process.cwd(), 'src', page), 'utf8')).toContain(line);
   });
 
+  // Keyed by card, not by position: Launch keeps the surface the studios placed for it
+  // (three-paths:2) now that the middle card is gone.
   it('every card wears its own registered art surface', () => {
     mount();
     const surfaces = screen
       .getAllByRole('link')
       .map((l) => l.querySelector('[data-card-art] [data-art-surface]')?.getAttribute('data-art-surface'));
-    expect(surfaces).toEqual(['three-paths:0', 'three-paths:1', 'three-paths:2']);
+    expect(surfaces).toEqual(['three-paths:0', 'three-paths:2']);
   });
 });
 

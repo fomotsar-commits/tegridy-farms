@@ -167,8 +167,6 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { to: '/island',      label: 'The island',  tabLabel: 'Island' },
       { to: '/gallery',     label: 'Gallery' },
-      // Mounted outside AppLayout (App.tsx), so it could never render in a host's panel.
-      { to: '/nakamigos',   label: 'Marketplace' },
       ...(COMMUNITY_LIVE ? [{ to: '/community', label: 'Community' }] : []),
       // NUMBERS_TABS[0]; StatsPage hosts /tokenomics, /treasury and /tax. The test keeps the two equal.
       { to: '/tokenomics',  label: 'Treasury & numbers', tabLabel: 'Numbers' },
