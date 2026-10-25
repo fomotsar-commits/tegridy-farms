@@ -121,6 +121,10 @@ contract Audit195RouterTest is Test {
 
     uint256 constant INITIAL_LIQUIDITY = 100 ether;
 
+    // This contract is the factory's feeTo, so it takes the 0.006 ETH opening fee
+    // (TegridyFactory.POOL_OPENING_FEE, owner ruling 2026-10-25) for each pair it opens.
+    receive() external payable {}
+
     function setUp() public {
         deployer = address(this);
 
@@ -143,7 +147,7 @@ contract Audit195RouterTest is Test {
     // â”€â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     function _createAndFundPair(address t0, address t1, uint256 amt0, uint256 amt1) internal returns (address pair) {
-        pair = factory.createPair(t0, t1);
+        pair = factory.createPair{value: 0.006 ether}(t0, t1);
         (address sorted0, address sorted1) = t0 < t1 ? (t0, t1) : (t1, t0);
         (uint256 sortedAmt0, uint256 sortedAmt1) = t0 < t1 ? (amt0, amt1) : (amt1, amt0);
 
@@ -153,7 +157,7 @@ contract Audit195RouterTest is Test {
     }
 
     function _createAndFundWETHPair(address token, uint256 amtToken, uint256 amtETH) internal returns (address pair) {
-        pair = factory.createPair(token, address(weth));
+        pair = factory.createPair{value: 0.006 ether}(token, address(weth));
         IERC20(token).transfer(pair, amtToken);
         weth.deposit{value: amtETH}();
         weth.transfer(pair, amtETH);
@@ -501,7 +505,7 @@ contract Audit195RouterTest is Test {
     function test_Finding12_FeeOnTransferTokenSwapCorrectness() public {
         FeeOnTransferToken_195 fot = new FeeOnTransferToken_195("FeeToken", "FOT", 5);
 
-        address pair = factory.createPair(address(fot), address(tokenB));
+        address pair = factory.createPair{value: 0.006 ether}(address(fot), address(tokenB));
         fot.transfer(pair, INITIAL_LIQUIDITY); // pair receives 95 ether
         tokenB.transfer(pair, INITIAL_LIQUIDITY);
         TegridyPair(pair).mint(deployer);

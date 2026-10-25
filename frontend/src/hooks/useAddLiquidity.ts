@@ -3,7 +3,7 @@ import { useAccount, useWriteContract, useWaitForTransactionReceipt, useReadCont
 import { parseUnits, formatUnits } from 'viem';
 import { toast } from 'sonner';
 import { TEGRIDY_ROUTER_ABI, TEGRIDY_FACTORY_ABI, ERC20_ABI, UNISWAP_V2_PAIR_ABI } from '../lib/contracts';
-import { liquidityVenueOn, type LiquidityVenue } from '../lib/chains/liquidityVenue';
+import { liquidityVenueOn, openingVenueOn, type LiquidityVenue } from '../lib/chains/liquidityVenue';
 import { type TokenInfo } from '../lib/tokenList';
 import { getTxUrl } from '../lib/explorer';
 import { surfaceTxError, surfaceUnconfirmedTx, receiptOutcome, noteReplacement } from '../lib/txErrors';
@@ -24,7 +24,13 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
    * cannot serve a venue — never a fallback to mainnet, because falling back is
    * how a wallet on Robinhood signs a mainnet-addressed approval.
    */
-  const venue = useMemo(() => liquidityVenueOn(chainId), [chainId]);
+  const baseVenue = useMemo(() => liquidityVenueOn(chainId), [chainId]);
+  /**
+   * Where NEW pools open once the 0.006 ETH opening-fee factory is deployed (owner ruling
+   * 2026-10-25); null until then, which keeps everything on `baseVenue` as before. The venue
+   * this hook reads and signs against is chosen per pair, below.
+   */
+  const openingVenue = useMemo(() => openingVenueOn(chainId), [chainId]);
   const userAddr = address ?? PLACEHOLDER_ADDR;
 
   const { writeContract, data: hash, isPending, reset, error: writeError } = useWriteContract();
@@ -64,19 +70,18 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
   // It errs toward saying less, never more: a smart-contract wallet whose transaction
   // reaches the router through a bundler has the EntryPoint as its `to`, so a real add
   // confirms with no line on the card (the toast still reports it).
-  const isLiquidityReceipt =
-    !!receipt && !!venue && receipt.to?.toLowerCase() === venue.router.toLowerCase();
+  // (isLiquidityReceipt is derived below, once the pair's venue is known.)
 
-  // Resolve addresses (substitute WETH for native ETH)
+  // Resolve addresses (substitute WETH for native ETH). Both venues share the chain's WETH.
   const addrA = useMemo(() => {
     if (!tokenA) return ZERO_ADDR;
-    return (tokenA.isNative ? (venue?.weth ?? ZERO_ADDR) : tokenA.address) as `0x${string}`;
-  }, [tokenA, venue]);
+    return (tokenA.isNative ? (baseVenue?.weth ?? ZERO_ADDR) : tokenA.address) as `0x${string}`;
+  }, [tokenA, baseVenue]);
 
   const addrB = useMemo(() => {
     if (!tokenB) return ZERO_ADDR;
-    return (tokenB.isNative ? (venue?.weth ?? ZERO_ADDR) : tokenB.address) as `0x${string}`;
-  }, [tokenB, venue]);
+    return (tokenB.isNative ? (baseVenue?.weth ?? ZERO_ADDR) : tokenB.address) as `0x${string}`;
+  }, [tokenB, baseVenue]);
 
   const decimalsA = tokenA?.decimals ?? 18;
   const decimalsB = tokenB?.decimals ?? 18;
@@ -97,18 +102,58 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
   // which is what lets Base and Robinhood add liquidity at all. Their factories
   // hold ZERO pairs today (measured: allPairsLength() == 0, allPairs(0) reverts,
   // factory nonce 0x1), and addLiquidity is the call that creates the first one.
-  const onRightChain = !!venue;
+  const onRightChain = !!baseVenue;
 
-  const { data: pairAddress, refetch: refetchPair } = useReadContract({
-    address: venue?.factory ?? ZERO_ADDR,
+  const { data: basePairAddress, refetch: refetchPair } = useReadContract({
+    address: baseVenue?.factory ?? ZERO_ADDR,
     abi: TEGRIDY_FACTORY_ABI,
     functionName: 'getPair',
     args: [addrA, addrB],
-    chainId: venue?.chainId ?? 0,
+    chainId: baseVenue?.chainId ?? 0,
     query: { enabled: onRightChain && tokensSelected },
   });
+  const { data: openingPairAddress, refetch: refetchOpeningPair } = useReadContract({
+    address: openingVenue?.factory ?? ZERO_ADDR,
+    abi: TEGRIDY_FACTORY_ABI,
+    functionName: 'getPair',
+    args: [addrA, addrB],
+    chainId: openingVenue?.chainId ?? 0,
+    query: { enabled: !!openingVenue && tokensSelected },
+  });
+  // Read from the factory, not copied: the wallet must be asked for exactly what it charges.
+  const openingFeeRead = useReadContract({
+    address: openingVenue?.factory ?? ZERO_ADDR,
+    abi: TEGRIDY_FACTORY_ABI,
+    functionName: 'POOL_OPENING_FEE',
+    chainId: openingVenue?.chainId ?? 0,
+    query: { enabled: !!openingVenue },
+  });
+
+  // A pool already on the old factory stays there (its LP, its swaps). Every other pair
+  // belongs to the opening venue once it is deployed: found there, or opened there.
+  const basePairExists = !!basePairAddress && basePairAddress !== ZERO_ADDR;
+  const onOpeningVenue = !!openingVenue && basePairAddress !== undefined && !basePairExists;
+  const venue = onOpeningVenue ? openingVenue : baseVenue;
+  const pairAddress = onOpeningVenue ? openingPairAddress : basePairAddress;
+  // With an opening venue, which router to approve or call is known only once the factories
+  // have answered. Without one there is a single venue, as before.
+  const venueKnown = !openingVenue
+    || (basePairAddress !== undefined && (basePairExists || openingPairAddress !== undefined));
+
+  const isLiquidityReceipt =
+    !!receipt && !!venue && receipt.to?.toLowerCase() === venue.router.toLowerCase();
 
   const pairExists = !!pairAddress && pairAddress !== ZERO_ADDR;
+  /**
+   * The ETH this add pays to OPEN the pool, on top of the liquidity: the opening factory's
+   * POOL_OPENING_FEE when this add creates the pair there, 0n otherwise (an existing pair, or
+   * no opening factory on this chain). Undefined while that fee is unread: no add is built.
+   */
+  const opensPoolWithFee = onOpeningVenue && openingPairAddress !== undefined && !pairExists;
+  const openingFeeWei: bigint | undefined = !opensPoolWithFee
+    ? 0n
+    : openingFeeRead.data !== undefined ? openingFeeRead.data as bigint : undefined;
+  const openingFeeUnread = opensPoolWithFee && openingFeeRead.isError;
   const pairAddr = pairExists ? pairAddress as `0x${string}` : PLACEHOLDER_ADDR;
 
   // Fetch pair reserves + token0 + LP info + user balances + allowances
@@ -317,6 +362,10 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
       toast.error('No liquidity venue on this network — switch to a supported chain');
       return null;
     }
+    if (!venueKnown) {
+      toast.error('Still finding this pool — try again in a moment');
+      return null;
+    }
     return venue;
   }
 
@@ -379,6 +428,10 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
     const v = _ensureVenue();
     if (!v) return;
     if (!address || !tokenA || !tokenB) return;
+    if (openingFeeWei === undefined) {
+      toast.error('Could not read the pool-opening fee — reload before opening this pool');
+      return;
+    }
     lastActionRef.current = 'liquidity';
     const deadline = BigInt(Math.floor(Date.now() / 1000) + 1800); // 30min
     const slippageFactor = BigInt(10000 - slippageBps);
@@ -399,7 +452,8 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
           abi: TEGRIDY_ROUTER_ABI,
           functionName: 'addLiquidityETH',
           args: [tokenAddr, tokenAmount, tokenMin, ethMin, address, deadline],
-          value: ethAmount,
+          // The router keeps the opening fee for the factory and pools only the rest.
+          value: ethAmount + openingFeeWei,
         });
       } else {
         // Both are ERC20 tokens — use addLiquidity
@@ -414,6 +468,8 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
           abi: TEGRIDY_ROUTER_ABI,
           functionName: 'addLiquidity',
           args: [addrA, addrB, amountAWei, amountBWei, amountAMin, amountBMin, address, deadline],
+          // Exactly the opening fee when this add opens the pool, nothing otherwise.
+          value: openingFeeWei,
         });
       }
     } catch {
@@ -482,6 +538,10 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
     // Pair info
     pairAddress: pairExists ? pairAddress : null,
     pairExists,
+    // Opening fee (owner ruling 2026-10-25): see openingFeeWei above.
+    opensPoolWithFee,
+    openingFeeWei,
+    openingFeeUnread,
     isEmptyPool,
     knownNewPool,
     reservesUnread,
@@ -525,6 +585,6 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
     isLoadingPool,
     hash,
     reset,
-    refetch: () => { refetch(); refetchPair(); },
+    refetch: () => { refetch(); refetchPair(); refetchOpeningPair(); },
   };
 }

@@ -78,7 +78,7 @@ contract Audit20260712_PoolFactoryCensorshipTest is Test {
     function _create(address who) internal returns (address pool) {
         uint256[] memory ids;
         vm.prank(who);
-        pool = factory.createPool{value: 0.05 ether}(
+        pool = factory.createPool{value: 0.05 ether + 0.006 ether}(
             address(nft), TegridyNFTPool.PoolType.TRADE, SPOT_PRICE, DELTA, LP_FEE_BPS, ids
         );
     }
@@ -101,7 +101,7 @@ contract Audit20260712_PoolFactoryCensorshipTest is Test {
         uint256[] memory ids;
         vm.prank(attacker);
         vm.expectRevert(bytes("MAX_POOLS_PER_CREATOR_COLLECTION"));
-        factory.createPool{value: 0.05 ether}(
+        factory.createPool{value: 0.05 ether + 0.006 ether}(
             address(nft), TegridyNFTPool.PoolType.TRADE, SPOT_PRICE, DELTA, LP_FEE_BPS, ids
         );
     }
@@ -133,7 +133,7 @@ contract Audit20260712_PoolFactoryCensorshipTest is Test {
         // Same attacker, DIFFERENT collection — still allowed.
         uint256[] memory ids;
         vm.prank(attacker);
-        address p = factory.createPool{value: 0.05 ether}(
+        address p = factory.createPool{value: 0.05 ether + 0.006 ether}(
             address(other), TegridyNFTPool.PoolType.TRADE, SPOT_PRICE, DELTA, LP_FEE_BPS, ids
         );
         assertTrue(p != address(0));

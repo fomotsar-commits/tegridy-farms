@@ -38,6 +38,15 @@ contract TegridyNFTPoolFactoryDeployTest is NFTPoolRoundTrip {
         assertEq(factory.getPoolCount(), 0);
     }
 
+    // Opening a pool costs 0.006 ETH, paid to the treasury: the owner's call of 2026-10-25.
+    function test_scriptFactory_chargesTheOpeningFee_toTheTreasury() public {
+        TegridyNFTPoolFactory factory = script.runForTest(_cfg());
+        assertEq(factory.POOL_OPENING_FEE(), 0.006 ether);
+        uint256 before = TREASURY.balance;
+        _roundTripLoss(address(factory));
+        assertEq(TREASURY.balance - before, 0.006 ether, "the treasury did not get the opening fee");
+    }
+
     function test_scriptTemplate_roundTripsCostThePoolNothing() public {
         TegridyNFTPoolFactory factory = script.runForTest(_cfg());
         assertEq(_roundTripLoss(address(factory)), 0, "the pool paid the buy-side royalty");

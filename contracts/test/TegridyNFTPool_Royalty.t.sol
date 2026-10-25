@@ -160,7 +160,7 @@ contract TegridyNFTPoolRoyaltyTest is Test {
     {
         vm.startPrank(alice);
         IERC721(collection).setApprovalForAll(address(factory), true);
-        address pool = factory.createPool{value: ethAmount}(
+        address pool = factory.createPool{value: ethAmount + 0.006 ether}(
             collection,
             TegridyNFTPool.PoolType.TRADE,
             SPOT_PRICE,

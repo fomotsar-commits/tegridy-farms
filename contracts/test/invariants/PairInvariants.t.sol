@@ -114,13 +114,17 @@ contract PairInvariantsTest is Test {
     PairR061Handler public handler;
     address public actor = makeAddr("r061_pair_actor");
 
+    // This contract is the factory's feeTo, so it takes the 0.006 ETH opening fee
+    // (TegridyFactory.POOL_OPENING_FEE, owner ruling 2026-10-25) for each pair it opens.
+    receive() external payable {}
+
     function setUp() public {
         factory = new TegridyFactory(address(this), address(this), address(this)); // F-30-9 initial guardian
         t0 = new PairR061Token("T0", "T0");
         t1 = new PairR061Token("T1", "T1");
         if (address(t0) > address(t1)) (t0, t1) = (t1, t0);
 
-        pair = TegridyPair(factory.createPair(address(t0), address(t1)));
+        pair = TegridyPair(factory.createPair{value: 0.006 ether}(address(t0), address(t1)));
 
         // Seed actor with both tokens.
         t0.transfer(actor, 100_000_000 ether);

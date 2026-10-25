@@ -76,6 +76,10 @@ contract TegridyHarvestVaultTest is Test {
     uint256 internal constant REWARD_AMOUNT = 100_000 ether;
     uint256 internal constant DURATION = 7 days;
 
+    // This contract is the factory's feeTo, so it takes the 0.006 ETH opening fee
+    // (TegridyFactory.POOL_OPENING_FEE, owner ruling 2026-10-25) for each pair it opens.
+    receive() external payable {}
+
     function setUp() public {
         deployer = address(this);
 
@@ -86,7 +90,7 @@ contract TegridyHarvestVaultTest is Test {
         factory = new TegridyFactory(deployer, deployer, deployer);
         router = new TegridyRouter(address(factory), address(weth));
 
-        pair = TegridyPair(factory.createPair(address(toweli), address(weth)));
+        pair = TegridyPair(factory.createPair{value: 0.006 ether}(address(toweli), address(weth)));
 
         // Deep pool so the harvest swap's price impact does not dominate the assertions.
         vm.deal(deployer, 20_000 ether);

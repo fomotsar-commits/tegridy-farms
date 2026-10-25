@@ -9,8 +9,9 @@ import {WETHFallbackLib, IWETH} from "./lib/WETHFallbackLib.sol";
 
 interface ITegridyFactoryRouter {
     function getPair(address tokenA, address tokenB) external view returns (address pair);
-    function createPair(address tokenA, address tokenB) external returns (address pair);
+    function createPair(address tokenA, address tokenB) external payable returns (address pair);
     function disabledPairs(address pair) external view returns (bool);
+    function POOL_OPENING_FEE() external view returns (uint256);
 }
 
 /// @title TegridyRouter — Swap router for Tegridy DEX
@@ -102,7 +103,7 @@ contract TegridyRouter is ReentrancyGuard {
         uint256 amountADesired, uint256 amountBDesired,
         uint256 amountAMin, uint256 amountBMin,
         address to, uint256 deadline
-    ) external nonReentrant ensure(deadline) returns (uint256 amountA, uint256 amountB, uint256 liquidity) {
+    ) external payable nonReentrant ensure(deadline) returns (uint256 amountA, uint256 amountB, uint256 liquidity) {
         // AUDIT FIX 2026-05-26 [L-23] — zero-recipient gate to match removeLiquidity
         // (line 151) and the ETH variants. Keeps error surfaces uniform across the
         // four liquidity entry points.
@@ -113,10 +114,10 @@ contract TegridyRouter is ReentrancyGuard {
         // an attacker to seed the pool at a manipulated price between createPair and
         // mint. Verbatim Uniswap V2 Router02 since 2020 (multi-billion-dollar TVL).
         // `_calculateLiquidity` already handles the empty-reserves case (line 570).
-        address pair = ITegridyFactoryRouter(factory).getPair(tokenA, tokenB);
-        if (pair == address(0)) {
-            pair = ITegridyFactoryRouter(factory).createPair(tokenA, tokenB);
-        }
+        (address pair, uint256 openingFee) = _pairOrOpen(tokenA, tokenB);
+        // msg.value is the opening fee and nothing else: exactly the fee when this call
+        // opens the pair, zero when it exists. No ETH can be left in the router (no sweep).
+        require(msg.value == openingFee, "OPENING_FEE");
 
         (amountA, amountB) = _calculateLiquidity(pair, tokenA, tokenB, amountADesired, amountBDesired, amountAMin, amountBMin);
 
@@ -138,12 +139,12 @@ contract TegridyRouter is ReentrancyGuard {
         // [H2 STRUCTURAL FIX 2026-05-30] Atomic create-or-find — see addLiquidity above
         // for the full rationale (canonical Uniswap V2 Router02 pattern, closes the
         // first-mint front-run window structurally for the ETH-pair path too).
-        address pair = ITegridyFactoryRouter(factory).getPair(token, WETH);
-        if (pair == address(0)) {
-            pair = ITegridyFactoryRouter(factory).createPair(token, WETH);
-        }
+        (address pair, uint256 openingFee) = _pairOrOpen(token, WETH);
+        // When this call opens the pair, msg.value is the opening fee plus the liquidity ETH;
+        // only the remainder is liquidity, and only the remainder can be refunded.
+        uint256 ethIn = msg.value - openingFee;
 
-        (amountToken, amountETH) = _calculateLiquidity(pair, token, WETH, amountTokenDesired, msg.value, amountTokenMin, amountETHMin);
+        (amountToken, amountETH) = _calculateLiquidity(pair, token, WETH, amountTokenDesired, ethIn, amountTokenMin, amountETHMin);
 
         // SECURITY FIX: Prevent minting LP tokens to the pair itself
         require(to != pair, "INVALID_TO");
@@ -154,8 +155,8 @@ contract TegridyRouter is ReentrancyGuard {
         require(liquidity > 0, "INSUFFICIENT_LIQUIDITY_MINTED"); // AUDIT FIX M-25: Validate mint return
         emit LiquidityAdded(msg.sender, token, WETH, amountToken, amountETH, liquidity);
 
-        if (msg.value > amountETH) {
-            uint256 refund = msg.value - amountETH;
+        if (ethIn > amountETH) {
+            uint256 refund = ethIn - amountETH;
             // SECURITY FIX M-03: If ETH refund fails (contract caller without receive()),
             // wrap as WETH and send instead to prevent permanently locking excess ETH.
             WETHFallbackLib.safeTransferETHOrWrap(WETH, msg.sender, refund);
@@ -470,6 +471,17 @@ contract TegridyRouter is ReentrancyGuard {
     }
 
     // ─── Internal ─────────────────────────────────────────────────────
+
+    /// @dev Find the pair, or open it and pay the factory's opening fee out of msg.value.
+    ///      Returns the fee paid: POOL_OPENING_FEE when this call opened the pair, else 0.
+    function _pairOrOpen(address tokenA, address tokenB) internal returns (address pair, uint256 openingFee) {
+        pair = ITegridyFactoryRouter(factory).getPair(tokenA, tokenB);
+        if (pair == address(0)) {
+            openingFee = ITegridyFactoryRouter(factory).POOL_OPENING_FEE();
+            require(msg.value >= openingFee, "OPENING_FEE");
+            pair = ITegridyFactoryRouter(factory).createPair{value: openingFee}(tokenA, tokenB);
+        }
+    }
 
     /// @dev SECURITY FIX H5: Validate path has no cyclic pairs BEFORE any token transfers.
     /// Prevents tokens getting stuck in pairs when cyclic path reverts after transfer.

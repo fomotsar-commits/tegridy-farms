@@ -96,6 +96,13 @@ export interface ChainContracts {
   readonly weth: Address;
   readonly factory: Address;
   readonly router: Address;
+  /**
+   * The factory + router that charge to open a pool (0.006 ETH, owner ruling 2026-10-25), or
+   * null until deployed here. Null keeps today's behaviour: pools open on `factory`. Set, only
+   * NEW pools open here; a pool already on `factory` stays on `factory`/`router`.
+   */
+  readonly openingFactory: Address | null;
+  readonly openingRouter: Address | null;
   readonly twap: Address;
   readonly swapFeeRouter: Address;
   readonly swapFeeRouterAdmin: Address;

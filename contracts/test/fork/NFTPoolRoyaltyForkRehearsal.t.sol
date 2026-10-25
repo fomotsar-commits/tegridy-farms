@@ -78,6 +78,7 @@ contract NFTPoolRoyaltyForkRehearsal is NFTPoolRoundTrip {
         assertEq(fresh.protocolFeeBps(), NEW_FEE_BPS, "protocol fee is not 25 bps");
         assertEq(fresh.protocolFeeRecipient(), live.protocolFeeRecipient(), "fee recipient changed");
         assertEq(fresh.weth(), live.weth(), "weth changed");
+        assertEq(fresh.POOL_OPENING_FEE(), 0.006 ether, "opening a pool does not cost 0.006 ETH");
         assertTrue(_dispatches(template, GET_BUY_QUOTE_WITH_ROYALTY), "new template lacks the fix");
         assertEq(keccak256(template.code), keccak256(type(TegridyNFTPool).runtimeCode), "template != this tree's build");
         assertEq(_roundTripLoss(address(fresh)), 0, "the pool paid the buy-side royalty");

@@ -62,3 +62,20 @@ export function liquidityVenueOn(chainId: number | undefined | null): LiquidityV
     weth,
   };
 }
+
+/**
+ * The venue that NEW pools open on: the factory + router that charge 0.006 ETH to open a
+ * pool (owner ruling 2026-10-25). Null where they are not deployed, which keeps today's
+ * behaviour: pools open on `liquidityVenueOn`'s factory for free. A pool that already exists
+ * on the old factory stays there either way; useAddLiquidity picks between the two per pair.
+ */
+export function openingVenueOn(chainId: number | undefined | null): LiquidityVenue | null {
+  const config = getChainConfig(chainId);
+  const base = liquidityVenueOn(chainId);
+  if (!config || !base) return null;
+
+  const { openingFactory, openingRouter } = config.contracts;
+  if (!openingFactory || !openingRouter) return null;
+
+  return { ...base, router: openingRouter, factory: openingFactory };
+}

@@ -72,6 +72,12 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin, Re
     ///         cap (MAX_POOLS_PER_CREATOR_COLLECTION) added below.
     uint256 public constant MIN_DEPOSIT = 0.05 ether;
 
+    /// @notice Owner ruling 2026-10-25: opening a pool costs exactly 0.006 ETH, paid by the
+    ///         opener on top of their own deposit, straight to `protocolFeeRecipient`. Unlike
+    ///         MIN_DEPOSIT it is not refundable. Fixed: a different fee is a new factory.
+    ///         Shape copied from Raydium cp-swap `create_pool_fee` (initialize.rs).
+    uint256 public constant POOL_OPENING_FEE = 0.006 ether;
+
     /// @notice AUDIT FIX 2026-07-12 [MED]: per-creator cap on pools created for
     ///         a single collection. `_poolsByCollection` is append-only (no
     ///         removal path) and the MIN_DEPOSIT seed is recoverable, so without
@@ -259,9 +265,12 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin, Re
         // AUDIT FIX FRESH-2026 (post-fix scan3 EIP-7702 retrofit): length-23 carve-out.
         uint256 _ncLen = nftCollection.code.length;
         require(_ncLen > 0 && _ncLen != 23, "NOT_CONTRACT");
+        // msg.value = POOL_OPENING_FEE + the opener's deposit. The fee is never deposit.
+        require(msg.value >= POOL_OPENING_FEE, "OPENING_FEE");
+        uint256 deposit = msg.value - POOL_OPENING_FEE;
         // AUDIT FIX (pass-8): C5 / LOOP-01 — MIN_DEPOSIT (0.05 ETH) is a spam
         // speed-bump on pool creation.
-        require(msg.value >= MIN_DEPOSIT || initialTokenIds.length > 0, "MIN_DEPOSIT");
+        require(deposit >= MIN_DEPOSIT || initialTokenIds.length > 0, "MIN_DEPOSIT");
         // AUDIT FIX 2026-07-12 [MED, durable close]: there is deliberately NO hard
         // global cap on pools-per-collection. A prior wave capped it at
         // MAX_POOLS_PER_COLLECTION to stop the legacy unbounded getBestBuy/SellPool
@@ -344,8 +353,8 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin, Re
         isPool[pool] = true;
 
         // Deposit initial ETH liquidity
-        if (msg.value > 0) {
-            (bool success,) = pool.call{value: msg.value}("");
+        if (deposit > 0) {
+            (bool success,) = pool.call{value: deposit}("");
             require(success, "ETH_TRANSFER_FAILED");
         }
 
@@ -356,6 +365,10 @@ contract TegridyNFTPoolFactory is OwnableNoRenounce, Pausable, TimelockAdmin, Re
                 nft.safeTransferFrom(msg.sender, pool, initialTokenIds[i]);
             }
         }
+
+        // The opening fee goes to the treasury now, not into the claimable-fee balance
+        // (30k-gas push; wraps to WETH if the recipient refuses ETH, so it cannot brick).
+        WETHFallbackLib.safeTransferETHOrWrap(weth, protocolFeeRecipient, POOL_OPENING_FEE);
 
         emit PoolCreated(pool, nftCollection, _poolType, _spotPrice, _delta, _feeBps, msg.sender);
     }

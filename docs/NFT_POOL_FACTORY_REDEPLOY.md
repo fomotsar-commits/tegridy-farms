@@ -39,8 +39,11 @@ The pool owner earns the buy-sell spread plus any pool fee they set. The venue's
 pool until anyone calls the factory's `claimPoolFees`; then the factory's owner withdraws it to the
 treasury Safe `0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d`. The new factory takes 0.25% a swap,
 half the live factory's 0.5% (your call of 2026-10-18), so traders pay less and the venue earns
-half as much per swap. It pays the same treasury and uses the same WETH: the fork rehearsal reads
-those off the live factory and checks they match, and checks the fee is 25 bps.
+half as much per swap. It also charges 0.006 ETH to open a pool, sent to the treasury in the same
+transaction (your call of 2026-10-25; the live factory charges nothing to open); the opener's
+deposit stays theirs (runbook: `POOL_OPENING_FEE_EVM.md`). It pays the same treasury and uses the
+same WETH: the fork rehearsal reads those off the live factory and checks they match, and checks
+the fee is 25 bps and the opening fee 0.006 ETH.
 
 ## Two calls for you
 

@@ -173,7 +173,7 @@ contract NFTPoolInvariantsTest is Test {
         vm.deal(lp, 200 ether);
         vm.startPrank(lp);
         nft.setApprovalForAll(address(factory), true);
-        pool = TegridyNFTPool(payable(factory.createPool{value: 100 ether}(
+        pool = TegridyNFTPool(payable(factory.createPool{value: 100 ether + 0.006 ether}(
             address(nft),
             TegridyNFTPool.PoolType.TRADE,
             SPOT,

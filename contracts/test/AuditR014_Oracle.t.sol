@@ -44,7 +44,7 @@ contract AuditR014OracleTest is Test {
             (tokenA, tokenB) = (tokenB, tokenA);
         }
 
-        address pairAddr = factory.createPair(address(tokenA), address(tokenB));
+        address pairAddr = factory.createPair{value: 0.006 ether}(address(tokenA), address(tokenB));
         pair = TegridyPair(pairAddr);
 
         // Seed an asymmetric pool so spotPrice0 != spotPrice1 (avoids degenerate
@@ -123,7 +123,7 @@ contract AuditR014OracleTest is Test {
         MockToken tokenC = new MockToken("Token C", "TKC");
         MockToken tokenD = new MockToken("Token D", "TKD");
         if (address(tokenC) > address(tokenD)) (tokenC, tokenD) = (tokenD, tokenC);
-        address newPair = factory.createPair(address(tokenC), address(tokenD));
+        address newPair = factory.createPair{value: 0.006 ether}(address(tokenC), address(tokenD));
         assertTrue(factory.isPair(newPair), "second factory-created pair is registered");
     }
 
