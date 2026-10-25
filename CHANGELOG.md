@@ -9,6 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-10-25
 
+- Pools: the Solana LP tab is gone. Its pool finder, Add liquidity, Remove liquidity and Open a pool were already on the Venue AMM tab, which now sits left of Range. The Pools menu opens Venue AMM, and an old /solana-lp link opens /pools on the same token.
 - Cardano swap: Swap's network menu now lists Cardano. /cardano swaps ADA for a coin, or a coin for ADA, through that pair's Minswap V2 pool, signed in a Cardano wallet (Eternl, Lace, VESPR, Begin, Typhon, GeroWallet or NuFi). The page names each coin by its ticker and whole id, shows every fee and who gets it before you sign, and follows your order until Minswap's batcher fills it or sends it back. The venue charges no fee on Cardano yet.
 
 ### 2026-10-24

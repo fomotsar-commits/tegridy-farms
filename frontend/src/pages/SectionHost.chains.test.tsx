@@ -55,9 +55,9 @@ beforeEach(() => {
 
 describe('Pools, with its network drop-down', () => {
   it("shows only Solana's tabs on a Solana page", () => {
-    at(POOLS_SECTION, '/solana-lp', 'Pools network');
+    at(POOLS_SECTION, '/pools', 'Pools network');
     expect(screen.getByRole('button', { name: 'Pools network: Solana' })).toBeInTheDocument();
-    expect(tabs()).toEqual(['Solana LP', 'Venue AMM']);
+    expect(tabs()).toEqual(['Venue AMM']);
   });
 
   it("shows Ethereum's tabs on the add / remove form with no wallet", () => {
@@ -67,7 +67,7 @@ describe('Pools, with its network drop-down', () => {
   });
 
   it('opens Base on the add / remove form by its URL, without a wallet prompt', () => {
-    at(POOLS_SECTION, '/solana-lp', 'Pools network');
+    at(POOLS_SECTION, '/pools', 'Pools network');
     fireEvent.click(screen.getByRole('button', { name: 'Pools network: Solana' }));
     fireEvent.click(screen.getByRole('option', { name: /^Base/ }));
     expect(where()).toBe('/liquidity?c=8453');
@@ -100,7 +100,7 @@ describe('Pools, with its network drop-down', () => {
     at(POOLS_SECTION, '/liquidity', 'Pools network');
     fireEvent.click(screen.getByRole('button', { name: 'Pools network: Ethereum' }));
     fireEvent.click(screen.getByRole('option', { name: /Solana/ }));
-    expect(where()).toBe('/solana-lp');
+    expect(where()).toBe('/pools');
     expect(wallet.switchChain).not.toHaveBeenCalled();
   });
 });

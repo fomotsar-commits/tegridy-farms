@@ -42,11 +42,11 @@ afterEach(() => {
   lp.mode = 'on';
 });
 
-describe('/liquidity points a Solana visitor at the Solana LP tab', () => {
+describe('/liquidity points a Solana visitor at the Venue AMM tab', () => {
   it('with a link in its header, before the paragraph and the pool table', () => {
     mount();
-    const link = screen.getByRole('link', { name: 'On Solana? Create, add or remove on the Solana LP tab' });
-    expect(link).toHaveAttribute('href', '/solana-lp');
+    const link = screen.getByRole('link', { name: 'On Solana? Create, add or remove on the Venue AMM tab' });
+    expect(link).toHaveAttribute('href', '/pools');
     const header = screen.getByRole('heading', { level: 1, name: 'Liquidity' }).parentElement!;
     expect(header).toContainElement(link);
     const before = (a: Element, b: Element) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
@@ -63,12 +63,12 @@ describe('/liquidity points a Solana visitor at the Solana LP tab', () => {
   });
 
   it.each<[LpWriteMode, string, RegExp]>([
-    ['withdraw-only', 'On Solana? Take liquidity out on the Solana LP tab', /create|add/i],
-    ['off', 'On Solana? Find a pool on the Solana LP tab', /create|add|remove|take/i],
+    ['withdraw-only', 'On Solana? Take liquidity out on the Venue AMM tab', /create|add/i],
+    ['off', 'On Solana? Find a pool on the Venue AMM tab', /create|add|remove|take/i],
   ])('LP %s: the link promises only what that tab can do', (mode, text, never) => {
     lp.mode = mode;
     const pointer = mount();
-    expect(screen.getByRole('link', { name: text })).toHaveAttribute('href', '/solana-lp');
+    expect(screen.getByRole('link', { name: text })).toHaveAttribute('href', '/pools');
     expect(pointer.textContent ?? '').not.toMatch(never);
   });
 });

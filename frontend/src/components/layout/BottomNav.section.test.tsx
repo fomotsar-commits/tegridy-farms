@@ -83,7 +83,7 @@ describe('BottomNav: a word is lit on every page it owns', () => {
     for (const item of section.items) expect(lit(item.to), item.to).toEqual([label]);
   });
 
-  it.each(['/solana-lp', '/liquidity', '/trust', '/changelog', '/dashboard'])('nothing on %s', (path) => {
+  it.each(['/pools', '/liquidity', '/trust', '/changelog', '/dashboard'])('nothing on %s', (path) => {
     account.isConnected = true;
     expect(lit(path)).toEqual([]);
   });

@@ -412,13 +412,13 @@ export const ROUTES: readonly RouteSpec[] = [
   },
   {
     path: '/solana-lp',
-    voice: 'venue',
-    owner: 'pages/SolanaLpPage.tsx',
-    tabOf: 'PoolsHostPage · solana-lp',
-    gate: null,
+    voice: null,
+    owner: 'App.tsx',
+    gate: 'redirect',
     why:
-      'The LP section mounts only once the venue read returns live, which in this suite depends on the ' +
-      'preview proxy reaching Solana; with no answer it audits the hero, the status card and the program card alone.',
+      'The Solana LP tab until 2026-10-24 (owner: "remove solana lp keep venue amm"): it mounted the same ' +
+      'LP section as /pools, so a room door, a bookmark or a wallet card that still says /solana-lp lands there, query kept.',
+    redirectsTo: '/pools',
     knownViolations: [],
   },
   {

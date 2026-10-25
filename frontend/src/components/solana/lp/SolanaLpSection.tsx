@@ -25,7 +25,7 @@ import { LpWritesProvider, useLpWrites } from './useLpWrites';
 import { browserLpReaders, type LpReaders } from './readers';
 
 /**
- * The Solana LP section on /pools and /solana-lp, in one order on both (owner, 2026-10-14:
+ * The Solana LP section on /pools (owner, 2026-10-14:
  * "the actions people need to take spotlighted and their positions and the rates and
  * routes getting the attention"): the earn line, the three actions
  * (the finder), every pool, the wallet's positions, the rates read from the chain, where a swap goes,
@@ -196,7 +196,7 @@ function LpBody({ readers, mode, reloadKey, home }: { readers: LpReaders; mode: 
         {writesTop}
         {finder}
         {/* No Your positions card: each Add form carries its own Connect, and a wallet's
-            shares are on the Solana LP tab. The full notice is one drop-down. */}
+            shares are on the Venue AMM tab. The full notice is one drop-down. */}
         {disclosure}
       </div>
     );
@@ -303,7 +303,7 @@ export function LpDisclosure({ programId, mode = 'off', programBelow = true, bar
               (src/test/poolProgramCopy.test.ts fails that release until you do, and holds the wording). */}
           <p>
             Our pool program is Raydium’s constant-product pool; we changed only its admin keys (see “The program”{' '}
-            {programBelow ? 'below' : 'on the Solana LP tab'}).{' '}
+            {programBelow ? 'below' : 'on the Venue AMM tab'}).{' '}
             <strong>Those changes have not had their own independent review yet.</strong> Put in only what you can afford to lose.
           </p>
           {/* Multisig read 2026-10-20, finalized slot 459,251,370: threshold 2 of 2 members, time_lock 172,800 (Squads #14),

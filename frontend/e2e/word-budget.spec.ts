@@ -46,8 +46,6 @@ const BUDGET: Record<string, { desktop: number; phone: number }> = {
   '/': { desktop: 410, phone: 410 },
   '/earn': { desktop: 140, phone: 125 },
   '/liquidity': { desktop: 140, phone: 140 },
-  // Raised 2026-10-15 for the All pools card the owner kept (220 / 215 before it).
-  '/solana-lp': { desktop: 260, phone: 255 },
   // One Rates card and one Swap routes card since 2026-10-14 (four fee cards before);
   // raised 2026-10-15 for the All pools card (290 / 285 before it).
   '/pools': { desktop: 340, phone: 335 },
