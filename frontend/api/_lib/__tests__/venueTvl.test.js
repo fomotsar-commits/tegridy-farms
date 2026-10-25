@@ -49,8 +49,9 @@ function world() {
   const chainOf = new Map(Object.entries(EVM_CHAINS).flatMap(([name, c]) => c.rpcs.map((u) => [u, name])));
   w.fetchImpl = vi.fn(async (url, init = {}) => {
     const u = String(url);
-    if (u.includes("coinbase.com")) return json({ data: { amount: String(u.includes("SOL") ? w.sol : w.eth) } });
-    if (u.includes("coingecko.com")) return json(u.includes("solana") ? { solana: { usd: w.sol } } : { ethereum: { usd: w.eth } });
+    const { host, pathname, search } = new URL(u);
+    if (host === "api.coinbase.com") return json({ data: { amount: String(pathname.includes("SOL-USD") ? w.sol : w.eth) } });
+    if (host === "api.coingecko.com") return json(search.includes("ids=solana") ? { solana: { usd: w.sol } } : { ethereum: { usd: w.eth } });
     const body = JSON.parse(init.body);
     w.calls.push(body.method);
     if (u === "https://sol.test") {
