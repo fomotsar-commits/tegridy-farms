@@ -10,9 +10,10 @@ fake chain). So this is new code, and it is in the audit's scope.
 | Piece | State |
 |---|---|
 | `src/math.ts`: the contract's integer math, ported line by line from `math.ak` | done; every `math.ak` test vector and a real mainnet fill reproduced |
-| Reading pool and order data from the chain | next |
-| The order engine (SwapExactIn, SwapExactOut, Deposit, Withdraw), proven by replaying real Minswap V2 batches | next |
-| Building a batch, reading it back, and simulating it against our compiled contracts (`aiken tx simulate`) | then |
+| `src/types.ts`, `src/plutus.ts`, `src/chain.ts`: pool and order data read as strictly as the contract's own casts; data hashed from Plutus's own serialisation | done |
+| `src/engine.ts`: the order engine (SwapExactIn, SwapExactOut, Deposit, Withdraw; anything else refused by name) | done |
+| `src/verify.ts`: reads a batch exactly as the pool contract does and recomputes it | done; 11 real Minswap V2 batches reproduced to the unit, 10 tampered ones rejected naming the rule |
+| Building a batch and simulating it against our compiled contracts (`aiken tx simulate`), then reading it back with `verify.ts` before signing | next |
 | Watching the chain (hosted Ogmios + Kupo, a Koios key of its own as backup) and sending | then |
 | Railway service, heartbeat alert, fee cap | last |
 
