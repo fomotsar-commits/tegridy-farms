@@ -58,10 +58,10 @@ export type OutsidePrice =
 
 class NoRoute extends Error {}
 
-/** How to tell whether a route goes through our own pools: the chain, and our program. */
+/** How to tell whether a route goes through our own pools: the chain, and our pool program or programs. */
 export interface OwnPoolGuard {
   rpc: SolanaRpc;
-  programId: string;
+  programId: string | readonly string[];
 }
 
 interface QuoteShape {
@@ -106,6 +106,8 @@ async function quote(
     slippageBps: '50',
     swapMode: 'ExactIn',
     restrictIntermediateTokens: 'true',
+    // The swap page's own quote asks for V2 (lib/jupiter.ts getQuote): the same read, so the same version.
+    instructionVersion: 'V2',
   });
   // Marks this read as the price check's, the one shape the edge may share (header above).
   if (!fresh) qs.set('priceCheck', '1');
@@ -170,7 +172,8 @@ export async function readOutsidePrice(
   if (pools.length > MAX_ROUTE_POOLS) return { kind: 'unread', detail: 'Jupiter’s price came through more pools than we can check' };
   try {
     const owners = await getMultipleAccounts(guard.rpc, pools);
-    if (owners.some((a) => a?.owner === guard.programId)) {
+    const ours: readonly string[] = typeof guard.programId === 'string' ? [guard.programId] : guard.programId;
+    if (owners.some((a) => a !== null && a !== undefined && ours.includes(a.owner))) {
       return { kind: 'unread', detail: 'Jupiter’s price came through our own pools, so it is not an outside price' };
     }
   } catch (e) {

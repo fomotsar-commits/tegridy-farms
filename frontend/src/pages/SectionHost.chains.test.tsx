@@ -13,6 +13,8 @@ vi.mock('wagmi', () => ({
   useChainId: () => wallet.chainId,
   useSwitchChain: () => ({ switchChain: wallet.switchChain }),
 }));
+const toastError = vi.hoisted(() => vi.fn());
+vi.mock('sonner', () => ({ toast: { error: toastError } }));
 
 import { SectionHost } from './SectionHost';
 import { LAUNCH_SECTION, POOLS_SECTION, type NavSection } from '../lib/navConfig';
@@ -48,6 +50,7 @@ beforeEach(() => {
   wallet.isConnected = false;
   wallet.chainId = 1;
   wallet.switchChain.mockReset();
+  toastError.mockReset();
 });
 
 describe('Pools, with its network drop-down', () => {
@@ -78,7 +81,18 @@ describe('Pools, with its network drop-down', () => {
     at(POOLS_SECTION, '/liquidity', 'Pools network');
     fireEvent.click(screen.getByRole('button', { name: 'Pools network: Ethereum' }));
     fireEvent.click(screen.getByRole('option', { name: /Robinhood Chain/ }));
-    expect(wallet.switchChain).toHaveBeenCalledWith({ chainId: 4663 });
+    expect(wallet.switchChain).toHaveBeenCalledWith({ chainId: 4663 }, expect.anything());
+  });
+
+  it('says so when the wallet refuses the switch, instead of snapping back in silence', () => {
+    wallet.isConnected = true;
+    at(POOLS_SECTION, '/liquidity', 'Pools network');
+    fireEvent.click(screen.getByRole('button', { name: 'Pools network: Ethereum' }));
+    fireEvent.click(screen.getByRole('option', { name: /^Base/ }));
+    expect(toastError).not.toHaveBeenCalled();
+    const [, handlers] = wallet.switchChain.mock.calls[0] as [unknown, { onError: (e: Error) => void }];
+    handlers.onError(new Error('User rejected the request.'));
+    expect(toastError).toHaveBeenCalledWith('Your wallet did not switch to Base. Switch it in your wallet to use Base here.');
   });
 
   it('leaves the wallet alone when the pick is Solana', () => {

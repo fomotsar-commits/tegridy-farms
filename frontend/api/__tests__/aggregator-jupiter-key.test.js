@@ -148,6 +148,21 @@ describe("jupiter key — the 0.5% fee settings reach Jupiter unchanged on both 
     expect(keyed.pathname + keyed.search).toBe(lite.pathname + lite.search);
   });
 
+  // Without V2, a SOL fee on a coin that is Token-2022 is refused (Jupiter's 6014) and the
+  // swap goes out with no fee: measured 2026-10-23 on SOL -> BAYLA.
+  it("instructionVersion=V2 in the quote query string", async () => {
+    const v2 = () => makeReq({ method: "GET", query: { provider: "jupiter", path: ["swap", "v1", "quote"], ...QUOTE_QUERY, instructionVersion: "V2" } });
+    globalThis.fetch = upstream({ status: 200, payload: { ok: 1 } });
+    await run(v2());
+    process.env.JUPITER_API_KEY = FAKE_JUP;
+    await run(v2());
+    const [lite, keyed] = [callUrl(globalThis.fetch, 0), callUrl(globalThis.fetch, 1)];
+    expect([lite.origin, keyed.origin]).toEqual([LITE, KEYED]);
+    expect(lite.searchParams.get("instructionVersion")).toBe("V2");
+    expect(keyed.searchParams.get("instructionVersion")).toBe("V2");
+    expect(keyed.searchParams.get("platformFeeBps")).toBe("50");
+  });
+
   it("feeAccount in the POST /swap/v1/swap body, byte-identical", async () => {
     globalThis.fetch = upstream({ status: 200, payload: { swapTransaction: "tx" } });
     await run(swapReq());

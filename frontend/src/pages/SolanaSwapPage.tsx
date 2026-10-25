@@ -17,7 +17,9 @@ import { SolanaProviders } from '../components/solana/SolanaProviders';
 import { SolanaConnectButton } from '../components/solana/SolanaConnectButton';
 import { ChainSwitch } from '../components/swap/ChainSwitch';
 import { SolanaRouteLine } from '../components/swap/SolanaRouteLine';
-import { useSolanaRoute } from '../components/swap/useSolanaRoute';
+import { IslandBasketSolana } from '../components/swap/IslandBasketSolana';
+import { isRangeCandidate, useSolanaRoute } from '../components/swap/useSolanaRoute';
+import type { TxSummary } from '../components/solana/curve/ports';
 import { useVenueSwap } from '../components/swap/useVenueSwap';
 import { useReturnFocus, type OnSettled } from '../components/solana/curve/useTxFlow';
 import { holdReload } from '../lib/reloadHold';
@@ -63,6 +65,7 @@ import {
   getShield,
   simulateSwap,
   swapCarriesPlatformFee,
+  quoteHasPlatformFee,
   createTriggerOrder,
   getTriggerOrders,
   cancelTriggerOrder,
@@ -83,8 +86,11 @@ import {
 } from '../lib/jupiter';
 import { prepareJupiterSwap, refusalWhy, refusedSaid, NO_SITE_FEE_ROUTE_COPY, NOT_TEST_RUN_COPY, type PreparedJupiterSwap } from '../lib/solana/swap/jupiterFeeRetry';
 import { OWN_ROUTE_COPY, freshDecision, ownPoolNowWins, prepareOwnPoolSwap, within } from '../lib/solana/swap/ownPoolRoute';
+import { whileJupiterBusy } from '../lib/solana/swap/jupiterBusy';
 import { applySlippage } from '../lib/launcher/solana/curve/math';
 import { tradeCostText } from '../lib/solana/lp/format';
+import { perMillionPercent } from '../lib/solana/clmm/feeText';
+import { isFeeOnInput } from '../lib/solana/clmm/program';
 import { quietEnding } from '../components/swap/quietSwap';
 import { checkDcaPair, dcaToken2022Copy, DCA_MIN_PER_BUY_USD, DCA_UNREAD_COPY, DCA_UNREAD_NOTE, type DcaPairCheck } from '../lib/solana/swap/dcaPair';
 import { CHECK_KEEPS_FAILING, HELD_NOT_SENT, LOST_ANSWER_TITLE, OWN_POOL_REVIEW_OFFER, lostAnswerCopy, nothingSentCopy } from '../lib/solana/swap/walletCopy';
@@ -113,6 +119,18 @@ const VenueSwapFlow = lazy(loadVenueSwapFlow);
 
 /** How long Buy waits for our pools to be read again before it goes on with the route on screen. */
 const OWN_CHECK_MS = 4_000;
+
+/**
+ * A quote on screen younger than this is built as shown: the press does not ask Jupiter
+ * again (the site's free key is one request a second for every visitor together). Its
+ * minimum is the trader's floor on chain and the test run still runs on it. One press per
+ * quote: the press after asks afresh.
+ */
+const SHOWN_QUOTE_FRESH_MS = 10_000;
+
+// A press's quote and build, each asked again while Jupiter refuses the call (jupiterBusy.ts).
+const pressQuote = whileJupiterBusy((p: Parameters<typeof getQuote>[0]) => getQuote(p));
+const pressBuild = whileJupiterBusy((p: Parameters<typeof buildSwapTransaction>[0]) => buildSwapTransaction(p));
 
 const SLIPPAGE_PRESETS = [50, 100, 300]; // bps
 
@@ -636,7 +654,8 @@ function TrendingRail({ onPick }: { onPick: (t: SolToken) => void }) {
 
   return (
     <div className="mt-6">
-      <div className="flex items-center justify-between mb-2 gap-2">
+      {/* Wraps: below about 335px the three choices go under the heading, not off the screen. */}
+      <div className="flex flex-wrap items-center justify-between mb-2 gap-2">
         <h2 className="text-white text-[13px] font-semibold flex-shrink-0">Trending on Solana</h2>
         <div className="flex gap-1">
           {CATS.map((c) => (
@@ -790,6 +809,16 @@ function ActivityRail() {
   );
 }
 
+/** A wallet's order list whose read did not answer: said as that, with a way to read it again. */
+function OrdersUnread({ what, onRetry }: { what: string; onRetry: () => void }) {
+  return (
+    <p className="text-white/60 text-[11px]">
+      {what} could not be read just now.{' '}
+      <button type="button" onClick={onRetry} className="text-white underline hover:text-white/80 px-1 py-2.5 -my-2">Try again</button>
+    </p>
+  );
+}
+
 // DCA: Jupiter Recurring (time-based). Deposit once, keepers buy the pair on a fixed
 // cadence, fee-off. Its program cannot take a Token-2022 token, so both mints' programs
 // are read before anything is signed (lib/solana/swap/dcaPair.ts). Jupiter asks for at
@@ -806,7 +835,8 @@ function DcaTab({ payToken, buyToken, payUsd, shieldWarnings, needsAck, ack, set
   const [numBuys, setNumBuys] = useState(4);
   const [intervalSecs, setIntervalSecs] = useState(86_400);
   const [placing, setPlacing] = useState(false);
-  const [orders, setOrders] = useState<RecurringOrder[]>([]);
+  // Null: the read did not answer (OrdersUnread), never an empty list.
+  const [orders, setOrders] = useState<RecurringOrder[] | null>([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [cancelling, setCancelling] = useState<string | null>(null);
   const payBalance = useTokenBalance(payToken);
@@ -846,7 +876,7 @@ function DcaTab({ payToken, buyToken, payUsd, shieldWarnings, needsAck, ack, set
     setOrdersLoading(true);
     getRecurringOrders(publicKey.toBase58())
       .then((o) => setOrders(o))
-      .catch(() => setOrders([]))
+      .catch(() => setOrders(null))
       .finally(() => setOrdersLoading(false));
   }, [publicKey]);
 
@@ -1041,6 +1071,8 @@ function DcaTab({ payToken, buyToken, payUsd, shieldWarnings, needsAck, ack, set
           </div>
           {ordersLoading ? (
             <p className="text-white/50 text-[11px]">Loading…</p>
+          ) : orders === null ? (
+            <OrdersUnread what="Your DCAs" onRetry={loadOrders} />
           ) : orders.length === 0 ? (
             <p className="text-white/60 text-[11px]">No active DCAs.</p>
           ) : (
@@ -1091,7 +1123,8 @@ function LimitTab({ payToken, buyToken, shieldWarnings, needsAck, ack, setAck, o
   const [price, setPrice] = useState('');
   const [expiryDays, setExpiryDays] = useState(7);
   const [placing, setPlacing] = useState(false);
-  const [orders, setOrders] = useState<TriggerOrder[]>([]);
+  // Null: the read did not answer (OrdersUnread), never an empty list.
+  const [orders, setOrders] = useState<TriggerOrder[] | null>([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [cancelling, setCancelling] = useState<string | null>(null);
   const payBalance = useTokenBalance(payToken);
@@ -1113,7 +1146,7 @@ function LimitTab({ payToken, buyToken, shieldWarnings, needsAck, ack, setAck, o
     setOrdersLoading(true);
     getTriggerOrders(publicKey.toBase58())
       .then((o) => setOrders(o))
-      .catch(() => setOrders([]))
+      .catch(() => setOrders(null))
       .finally(() => setOrdersLoading(false));
   }, [publicKey]);
 
@@ -1290,6 +1323,8 @@ function LimitTab({ payToken, buyToken, shieldWarnings, needsAck, ack, setAck, o
           </div>
           {ordersLoading ? (
             <p className="text-white/50 text-[11px]">Loading…</p>
+          ) : orders === null ? (
+            <OrdersUnread what="Your open orders" onRetry={loadOrders} />
           ) : orders.length === 0 ? (
             <p className="text-white/60 text-[11px]">No open orders.</p>
           ) : (
@@ -1426,6 +1461,8 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
   const [quoteFail, setQuoteFail] = useState<'no-route' | 'unavailable' | null>(null);
   // Bumped by "Try again": asks for the same quote again, the form untouched.
   const [quoteAttempt, setQuoteAttempt] = useState(0);
+  // When Jupiter answered each quote the form asked for (SHOWN_QUOTE_FRESH_MS).
+  const quoteSeenAt = useRef(new WeakMap<JupiterQuote, number>());
   const [swapping, setSwapping] = useState(false);
   const [picker, setPicker] = useState<'pay' | 'buy' | null>(null);
   const [mode, setMode] = useState<'swap' | 'limit' | 'dca'>('swap');
@@ -1502,6 +1539,7 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
         .then((q) => {
           if (ctrl.signal.aborted) return;
           if (noFee) setWaivedQuote(q);
+          quoteSeenAt.current.set(q, Date.now());
           setQuote(q); setQuoteFail(null); setQuoteLoading(false);
         })
         .catch((err: unknown) => {
@@ -1517,10 +1555,12 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
   }, [baseAmount, canQuote, payToken.mint, buyToken.mint, slippageBps, quoteAttempt]);
 
   // USD prices for the pay and receive legs, read again on a pair change. The 30 s
-  // refresh in USD mode is further down: it waits while a trade is on its way.
+  // refresh in USD mode is further down: it waits while a trade is on its way. Outside
+  // USD mode a price only labels amounts, so the read is the one every visitor shares at
+  // the edge (up to 45 s old); in USD mode it sizes the trade and is read fresh.
   useEffect(() => {
     let cancelled = false;
-    getUsdPrices([payToken.mint, buyToken.mint])
+    getUsdPrices([payToken.mint, buyToken.mint], undefined, { shared: !usdMode })
       .then((p) => { if (!cancelled) setPrices(p); })
       .catch(() => { /* USD context is best-effort */ });
     return () => { cancelled = true; };
@@ -1572,8 +1612,9 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
       const sent = outcome.status === 'confirmed' || (outcome.status === 'unknown' && outcome.signature !== '');
       // Recorded for the wallet that signed it, whichever is connected when the chain answers.
       const wallet = t?.owner;
-      if (prepared?.summary.kind === 'venue-swap' && t && wallet && sent) {
-        const got = prettyAmount(fromBaseUnits(prepared.summary.quoted.outAmount.toString(), t.outDecimals));
+      const ownGot = ownSwapOut(prepared?.summary);
+      if (ownGot !== null && t && wallet && sent) {
+        const got = prettyAmount(fromBaseUnits(ownGot.toString(), t.outDecimals));
         const words = `≈${got} ${t.buy} with ${t.amount} ${t.pay}, in our own pool`;
         // Kept in "Your recent activity", as a Jupiter swap is, so the signature outlives the page.
         recordActivity(wallet, { sig: outcome.signature, ts: Date.now(), kind: 'swap', summary: outcome.status === 'confirmed' ? `Bought ${words}` : `Sent, not confirmed: ${words}` });
@@ -1593,8 +1634,11 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
     [forgetPools, retryPayBalance],
   );
   const requote = useCallback(() => setQuoteAttempt((n) => n + 1), []);
+  // The island order was opened: it buys a coin our pool wins in our pool, so it needs the swap code too.
+  const [islandWantsOwn, setIslandWantsOwn] = useState(false);
+  const wantOwnForIsland = useCallback(() => setIslandWantsOwn(true), []);
   const venueSwap = useVenueSwap({
-    wanted: route.own === 'quoted',
+    wanted: route.own === 'quoted' || islandWantsOwn,
     programId: route.venue?.kind === 'live' ? route.venue.programId : null,
     onSettled: onOwnSettled,
     onResolved: requote,
@@ -1628,7 +1672,7 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
   const { target: buyRef, fallback: headingRef } = useReturnFocus(ownFlowOpen ? flowState.step : 'idle');
   // The swap at the wallet or on its way to the chain, as built.
   const inFlightTx = flowState.step === 'review' || flowState.step === 'submitting' || flowState.step === 'sent' ? flowState.prepared : null;
-  const inFlight = inFlightTx?.summary.kind === 'venue-swap' ? inFlightTx.summary : null;
+  const inFlight = inFlightTx ? ownSwapView(inFlightTx.summary) : null;
 
   const { reset: resetOwn } = venueSwap.flow;
   const explorerOwn = venueSwap.api?.explorerTxUrl;
@@ -1639,8 +1683,8 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
     if (!ending) return;
     const t = ownTrade.current;
     if (ending.kind === 'confirmed') {
-      const s = flowState.prepared?.summary;
-      const got = s?.kind === 'venue-swap' && t ? `≈${prettyAmount(fromBaseUnits(s.quoted.outAmount.toString(), t.outDecimals))} ${t.buy} for ${t.amount} ${t.pay}` : shortSig(ending.signature);
+      const out = ownSwapOut(flowState.prepared?.summary);
+      const got = out !== null && t ? `≈${prettyAmount(fromBaseUnits(out.toString(), t.outDecimals))} ${t.buy} for ${t.amount} ${t.pay}` : shortSig(ending.signature);
       const url = explorerOwn ? explorerOwn(ending.signature, ownCluster) : `https://solscan.io/tx/${ending.signature}`;
       toast.success(t ? `${t.done} ${t.symbol}` : 'Swap confirmed', { description: got, action: { label: 'View', onClick: () => window.open(url, '_blank', 'noopener,noreferrer') } });
     } else if (ending.kind === 'not-signed') {
@@ -1721,7 +1765,7 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
         paySymbol: pressed.pay,
         buySymbol: pressed.buy,
         payAmount: Number(inFlight.amountIn) / 10 ** (inFlight.paysCoin ? inFlight.coin.decimals : inFlight.tokenDecimals),
-        buyAmount: Number(inFlight.quoted.outAmount) / 10 ** (inFlight.paysCoin ? inFlight.tokenDecimals : inFlight.coin.decimals),
+        buyAmount: Number(inFlight.outAmount) / 10 ** (inFlight.paysCoin ? inFlight.tokenDecimals : inFlight.coin.decimals),
       }}
     />
   ) : null;
@@ -1829,8 +1873,8 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
     const user = owner.toBase58();
     ownTrade.current = { owner: user, pay: payToken.symbol, buy: buyToken.symbol, buyMint: outputMint, amount: prettyAmount(tokenAmount), outDecimals: buyToken.decimals, done: said.done, symbol: said.symbol };
     const priority = speed;
-    const buildIn = (pool: string, aggregator: AggregatorSeen) =>
-      ready.api.prepareVenueSwap(venueSwap.rpc, ready.gate, {
+    const buildIn = (pool: string, aggregator: AggregatorSeen) => {
+      const args = {
         owner,
         pool: new PublicKey(pool),
         inputMint: new PublicKey(inputMint),
@@ -1838,7 +1882,10 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
         amountIn,
         slippageBps: BigInt(bps),
         aggregator,
-      });
+      };
+      // A range pool (shown only once the range program is deployed) has its own builder.
+      return route.isRangePool(pool) ? ready.api.prepareRangeSwap(venueSwap.rpc, ready.gate, args) : ready.api.prepareVenueSwap(venueSwap.rpc, ready.gate, args);
+    };
     void venueSwap.flow.prepare(
       async () => {
         // Offered after Jupiter's test run could not run press after press: our best pool, built
@@ -1865,7 +1912,7 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
         };
         const jupiterTx = (fresh: JupiterQuote) =>
           prepareJupiterSwap(
-            { getQuote, buildSwapTransaction, simulateSwap, swapCarriesPlatformFee },
+            { getQuote: pressQuote, buildSwapTransaction: pressBuild, simulateSwap, swapCarriesPlatformFee },
             { fresh, shown: fresh, inputMint, outputMint, amount: baseAmount, slippageBps: bps, user, priority },
           );
         const built = await prepareOwnPoolSwap(
@@ -1877,7 +1924,7 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
             aggregatorOut: async () => {
               let fresh: JupiterQuote;
               try {
-                fresh = await getQuote({ inputMint, outputMint, amount: baseAmount, slippageBps: bps });
+                fresh = await pressQuote({ inputMint, outputMint, amount: baseAmount, slippageBps: bps });
               } catch (e) {
                 // "No route" is Jupiter's own answer: there is no other venue to hold the pool to.
                 if (e instanceof NoRouteError) return null;
@@ -1939,24 +1986,24 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
 
   /**
    * THE ROUTE, HELD AT THE CLICK, with Jupiter on screen. If one of our pools, read
-   * again now, pays at least what the transaction about to be signed would pay (`q`),
-   * `q` goes on screen so the line shows that route, and the trader presses Buy on it.
-   * A read that fails or hangs changes nothing when a comparison was on screen; with none
-   * on screen yet (our pools still being read), a read that does not answer sends nothing.
+   * again at the click (`ownRead`), pays at least what the transaction about to be signed
+   * would pay (`q`), `q` goes on screen so the line shows that route, and the trader
+   * presses Buy on it. A read that fails or hangs changes nothing when a comparison was on
+   * screen; with none on screen yet (our pools still being read), a read that does not
+   * answer sends nothing.
    */
-  async function ownPoolTakesIt(q: JupiterQuote, noSiteFee: boolean, pressedFor: string): Promise<boolean> {
-    if (!ownMayCompete || !baseAmount) return false;
+  async function ownPoolTakesIt(q: JupiterQuote, noSiteFee: boolean, pressedFor: string, ownRead: ReturnType<typeof route.refresh> | null): Promise<boolean> {
+    if (!ownRead) return false;
     let aggregatorOut: bigint;
     try {
       aggregatorOut = BigInt(q.outAmount);
     } catch {
       return false;
     }
-    const amountIn = BigInt(baseAmount);
     // The press's render: no comparison with our pools was on screen.
     const unread = route.own === 'pending';
     // Null: the read did not answer in time, or could not read our pools.
-    const own = await within<Awaited<ReturnType<typeof route.refresh>>>(route.refresh(amountIn), OWN_CHECK_MS, null);
+    const own = await within(ownRead, OWN_CHECK_MS, null);
     // The trade on the form changed while our pools were read: the one pressed is not sent.
     if (formNow.current !== pressedFor) {
       toast.info('Not sent', { description: OWN_ROUTE_COPY.formChanged });
@@ -1975,13 +2022,14 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
 
   /**
    * Jupiter's transaction for the trade pressed failed its test run, so it is not sent.
-   * If one of our pools, read again now, quotes that trade, the refusal is kept for it:
-   * the line names our pool and why, and the next press builds there. A read that fails
-   * or hangs, or a pool that cannot quote, leaves the press to end as it did.
+   * If one of our pools, read again at the click (`ownRead`), quotes that trade, the
+   * refusal is kept for it: the line names our pool and why, and the next press builds
+   * there. A read that fails or hangs, or a pool that cannot quote, leaves the press to
+   * end as it did.
    */
-  async function ownPoolInstead(why: string | null): Promise<boolean> {
-    if (!ownMayCompete || !baseAmount) return false;
-    const own = await within<Awaited<ReturnType<typeof route.refresh>>>(route.refresh(BigInt(baseAmount)), OWN_CHECK_MS, null);
+  async function ownPoolInstead(why: string | null, ownRead: ReturnType<typeof route.refresh> | null): Promise<boolean> {
+    if (!ownRead) return false;
+    const own = await within(ownRead, OWN_CHECK_MS, null);
     if (!own?.length) return false;
     // Kept for the trade pressed, whatever the form shows by now, with the cause the test run gave.
     setRefusedTrade({ key: refusalKey, why });
@@ -2003,6 +2051,9 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
     // fee-bearing, is about 0.5% under it by construction and is not the trade
     // being compared: see the two guards below.
     const shownWaived = feeWaived;
+    // When Jupiter answered the quote clicked, taken once: the press after this one asks again.
+    const shownAt = quoteSeenAt.current.get(shown);
+    quoteSeenAt.current.delete(shown);
     // THE TRADE PRESSED. The form can come to show another while the press is on its way
     // (a link's token that lands late, a price that re-sizes a dollar amount). From then
     // on nothing is written or sent for the one pressed, whatever our pools hold: this is
@@ -2030,20 +2081,38 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
     // Until this swap is answered the page does not reload itself (lib/staleBuild.ts).
     const release = holdReload();
     try {
+      // Our pools are read once for this press, from the click, while Jupiter is asked:
+      // the read the route is held on (ownPoolTakesIt) and the one a refusal turns to
+      // (ownPoolInstead). Each waits at most OWN_CHECK_MS for it from where it is needed.
+      const ownRead = ownMayCompete ? route.refresh(BigInt(baseAmount)).catch(() => null) : null;
+      const carriesFee = swapCarriesPlatformFee(payToken.mint, buyToken.mint);
       // Re-quote right before building so the on-chain min-out + routing match
-      // the live market (the displayed quote may be seconds-to-minutes stale).
-      const fresh = await getQuote({
-        inputMint: payToken.mint,
-        outputMint: buyToken.mint,
-        amount: baseAmount,
-        slippageBps,
-      });
+      // the live market (the displayed quote may be seconds-to-minutes stale),
+      // unless the quote clicked is seconds old and is the one this press would ask
+      // for: the same trade, at this slippage, fee-bearing as the pair is.
+      const shownIsFresh =
+        shownAt !== undefined &&
+        Date.now() - shownAt < SHOWN_QUOTE_FRESH_MS &&
+        !shownWaived &&
+        shown.inputMint === payToken.mint &&
+        shown.outputMint === buyToken.mint &&
+        shown.inAmount === baseAmount &&
+        shown.swapMode === 'ExactIn' &&
+        shown.slippageBps === slippageBps &&
+        quoteHasPlatformFee(shown) === carriesFee;
+      const fresh = shownIsFresh
+        ? shown
+        : await pressQuote({
+            inputMint: payToken.mint,
+            outputMint: buyToken.mint,
+            amount: baseAmount,
+            slippageBps,
+          });
       if (formMoved()) return;
       // With no site fee on this pair, `fresh` is what Jupiter's transaction pays, so
       // the route is held on it before anything is built. With a fee it is held further
       // down, on the quote of the transaction that passed its test run.
-      const carriesFee = swapCarriesPlatformFee(payToken.mint, buyToken.mint);
-      if (!carriesFee && (await ownPoolTakesIt(fresh, false, pressedFor))) return;
+      if (!carriesFee && (await ownPoolTakesIt(fresh, false, pressedFor, ownRead))) return;
       // DISPLAY-VS-SUBMIT GUARD (2026-07-24): the user consented to `shown`.
       // slippageBps protects the tx on-chain, but the re-quoted BASELINE itself
       // could be materially worse than what they saw. If `fresh` dropped beyond
@@ -2073,7 +2142,7 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
       // build is answered by ONE no-fee rebuild that must pass too (jupiterFeeRetry.ts).
       step = 'build';
       const prepared = await prepareJupiterSwap(
-        { getQuote, buildSwapTransaction, simulateSwap, swapCarriesPlatformFee },
+        { getQuote: pressQuote, buildSwapTransaction: pressBuild, simulateSwap, swapCarriesPlatformFee },
         {
           fresh,
           shown,
@@ -2108,7 +2177,7 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
           return;
         }
         // A refused transaction is no route, so our pool is offered, with the cause its test run gave.
-        if (await ownPoolInstead(refusalWhy(prepared, slippageBps))) return;
+        if (await ownPoolInstead(refusalWhy(prepared, slippageBps), ownRead)) return;
         // Only what the network wrote: `prepared.reason` can be a line a token's own program printed.
         toast.error('Swap would fail', { description: refusedSaid(prepared, slippageBps) });
         return;
@@ -2127,7 +2196,7 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
       }
       const sent = prepared.quote;
       const feeWaivedOnSend = prepared.siteFeeWaived;
-      if (carriesFee && (await ownPoolTakesIt(sent, feeWaivedOnSend, pressedFor))) return;
+      if (carriesFee && (await ownPoolTakesIt(sent, feeWaivedOnSend, pressedFor, ownRead))) return;
       // A swap this wallet sent in another tab while this press was on its way holds it too.
       // From this read to the wallet's prompt nothing is awaited.
       if (holdsNow(noteScope)) {
@@ -2360,7 +2429,19 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
               <VenueSwapFlow swap={venueSwap} extraReview={reviewAverage} />
             </Suspense>
           ) : mode === 'swap' ? (
-            // Held while a trade is on its way, by either route (`held`).
+            <>
+            {/* One amount split across every island coin on Solana (owner, 2026-10-18). */}
+            <div className="flex justify-end mb-2">
+              <IslandBasketSolana
+                slippageBps={slippageBps}
+                priority={speed}
+                pending={venueSwap.pending}
+                ownSwap={venueSwap.ready}
+                wantOwnSwap={wantOwnForIsland}
+                busy={held || pendingNote}
+              />
+            </div>
+            {/* Held while a trade is on its way, by either route (`held`). */}
             <fieldset disabled={held} className="border-0 p-0 m-0 min-w-0">
           {/* You pay */}
           <div className="mb-1">
@@ -2567,7 +2648,7 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
             // The transaction's own figures, not the form's: the form's quote can be older.
             <p role="status" data-testid="own-swap-status" className="text-[10px] leading-relaxed mt-2 rounded-lg px-2.5 py-1.5 text-white/80" style={{ background: 'rgba(0,0,0,0.35)', border: '1px solid rgba(255,255,255,0.10)' }}>
               {inFlight && pressed
-                ? `At your wallet: ${pressed.amount} ${pressed.pay} for ${prettyAmount(fromBaseUnits(inFlight.quoted.outAmount.toString(), pressed.outDecimals))} ${pressed.buy}, at least ${prettyAmount(fromBaseUnits(inFlight.minimumAmountOut.toString(), pressed.outDecimals))}.`
+                ? `At your wallet: ${pressed.amount} ${pressed.pay} for ${prettyAmount(fromBaseUnits(inFlight.outAmount.toString(), pressed.outDecimals))} ${pressed.buy}, at least ${prettyAmount(fromBaseUnits(inFlight.minimumAmountOut.toString(), pressed.outDecimals))}.`
                 : 'Checking both prices once more…'}
             </p>
           ) : swapping ? (
@@ -2585,7 +2666,11 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
               // Our own pool: no platform fee is added. Its own fee is inside the quote.
               <div className="flex items-center justify-between text-white/70" data-testid="own-pool-fee">
                 <span>Pool fee (inside the quote)</span>
-                <span className="font-mono">{ownBest.view.config ? tradeCostText(ownBest.view.config, ownBest.view.snapshot.pool.enableCreatorFee) : '–'}</span>
+                <span className="font-mono">
+                  {isRangeCandidate(ownBest)
+                    ? `${perMillionPercent(ownBest.range.config.tradeFeeRate)} of ${isFeeOnInput(ownBest.range.pool.feeOn, payToken.mint === ownBest.range.pool.tokenMint0) ? 'what you pay' : 'what the pool pays out'}`
+                    : ownBest.view.config ? tradeCostText(ownBest.view.config, ownBest.view.snapshot.pool.enableCreatorFee) : '–'}
+                </span>
               </div>
             ) : (
               <SiteFeeRow feePct={feePct} feeMintSymbol={feeMintSymbol} waived={feeWaived} />
@@ -2752,6 +2837,7 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
             )}
           </p>
             </fieldset>
+            </>
           ) : mode === 'limit' ? (
             <LimitTab payToken={payToken} buyToken={buyToken} shieldWarnings={shieldWarnings} needsAck={needsAck} ack={ack} setAck={onAck} onPickPay={() => setPicker('pay')} onPickBuy={() => setPicker('buy')} />
           ) : (
@@ -2795,6 +2881,22 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
     </>
   );
 }
+
+/**
+ * A swap in one of our pools, either kind, as the page says it: what is paid and what comes
+ * out, from the prepared transaction's own summary. Null for any other transaction.
+ */
+function ownSwapView(s: TxSummary | undefined) {
+  if (s?.kind === 'venue-swap') {
+    return { paysCoin: s.paysCoin, coin: s.coin, tokenMint: s.tokenMint, tokenDecimals: s.tokenDecimals, amountIn: s.amountIn, minimumAmountOut: s.minimumAmountOut, outAmount: s.quoted.outAmount };
+  }
+  if (s?.kind === 'range-swap') {
+    const l = s.poolLine;
+    return { paysCoin: s.paysCoin, coin: l.quote, tokenMint: l.tokenMint, tokenDecimals: l.tokenDecimals, amountIn: s.amountIn, minimumAmountOut: s.minimumAmountOut, outAmount: s.quotedOut };
+  }
+  return null;
+}
+const ownSwapOut = (s: TxSummary | undefined): bigint | null => ownSwapView(s)?.outAmount ?? null;
 
 export default function SolanaSwapPage() {
   usePageTitle('Solana Swap', 'Swap Solana tokens on memetics.finance, through our own pools or Jupiter.');

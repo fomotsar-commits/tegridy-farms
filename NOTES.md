@@ -15,6 +15,971 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-24: a test pool's round share count looked neutral, but no pool program ever makes one
+
+**Believed:** the LP testkits' default `lp_supply` (1,000,000 in `buildPool`, 1,000,000,000 in
+`addPool`) and a "traded" price record of two slots an hour apart are harmless placeholders.
+
+**Measured** (vitest, 2026-10-24, the launch-pool moved-price check of M-1009-6 on trunk's
+fixtures): 44 of 4,845 Solana tests failed. Apart from 11 timeouts in files the change does not
+reach, and pins of the "10 minutes" copy that changed on purpose, they failed on fixtures only:
+- a never-traded launch pool whose `lp_supply` is not `isqrt(side0 x side1)` holds more than
+  its shares account for, which on chain means tokens were sent straight into a vault;
+- two slots an hour apart is one swap, an hour of silence, one swap: the shape of a price
+  moved by a transfer and written over by a dust swap.
+
+**Do:** build a launch pool with the shares the program opens it with (`isqrt(quote x token)`;
+`addPool({ launch: true })` now defaults to that) and a traded pool's record with
+`steadyRecord` (lp `testkit.fixture.ts`). A fixture is a claim about the chain: make it one
+the chain can produce.
+
+### Incidental
+
+The first mutation run left one mutant alive: a guard that re-read the price record could
+never see "not read", because the average had read the same record and clock a line earlier.
+A branch no test can reach is code no one has checked. It was deleted, not tested.
+
+## 2026-10-24: a `.max(200)` on a zod array did not stop a huge body, because zod below 4.6.6 parsed every element first
+
+**Believed:** `z.array(row).max(200)` refuses an oversized batch before it costs anything, so
+the cap in `frontend/api/_lib/proxy-schemas.js` kept a stranger's giant body from running the
+write proxy out of memory.
+
+**Measured** (vitest, 2026-10-24: `validateBody` on 201 rows whose `wallet` is a counting
+getter): zod 4.4.3 read the getter 201 times, then reported the cap. zod 4.6.6 read it 0
+times. Both returned the same error. The change is zod commit a0ebf970, "check array, set and
+map size bounds before parsing elements", the fix for GHSA-mrhx-c7xc-m3w5. Before it, every bad
+element added an issue before the cap was looked at.
+
+**Do:** to prove a size cap protects, count reads of the elements (a getter or a Proxy), not
+only that the call fails. A cap checked after the elements limits what is stored, not what is
+spent.
+
+### Incidental
+
+npm audit called the fix "semver-major" and named `@base-org/account` 2.5.5, which still
+depends on the same cdp-sdk and its zod 3. The fix for the copy our code imports was a minor
+bump, 4.4.3 to 4.6.6. Read which copy each `nodes` path is before trusting the fix column.
+
+## 2026-10-23: a trunk failure that the next run passed was two green PRs red together, not a flake
+
+**Believed:** five tests that failed once on trunk (merge `08596661`, run 38501066916) and
+passed on the next trunk run were intermittent. Each one waited out its 20 s `findByRole`
+and said `Unable to find role="button"`, which is what a slow runner looks like.
+
+**Measured** (2026-10-23, vitest on an idle machine, `-t` set to only those five tests):
+
+- #790 changed the coin the Solana swap page shows while a link's token is looked up, from
+  USDC to $BAYLA, and merged at 2026-10-14 02:26:32Z. #791 merged 19 s later. #791's last
+  CI had run on 2026-10-10 21:09Z, before #790 was on trunk, and its tests waited for
+  "Buy USDC".
+- The merge commit failed all five on every run. #791's own head passed all five. With
+  `DEBUG_PRINT_LIMIT=200000`, the DOM dump showed "Buy BAYLA" on the button the whole time.
+- The next trunk run passed these five because the next merge (#809) carried a commit that
+  changed them to wait for "Buy BAYLA". Nothing about the failure was random.
+- `git merge-tree --write-tree <trunk just before #791> <#791's head>` gave exactly the
+  real merge tree. It differed from the tree #791's CI tested by 33 files, among them the
+  page and the rule that picks the opening coin. The 2026-10-01 entry's tree check
+  ("compare the merged tree with the PR's tree") would have caught this before the merge.
+
+**Do:** before calling a trunk failure intermittent, run the failing tests alone on the
+merge commit and on the PR's own head. If one is red every time and the other is green,
+it is a collision: look at what merged just before. When a test leans on a value that
+other code decides (a default, a fallback), check that value right after render, with a
+message that names it. A `findBy*` on the old value only says "Unable to find", and only
+after its timeout. PR #963 does this for these five tests: a moved fallback now fails in
+28–184 ms and names both coins, where before it took 5 × 20 s.
+
+### Incidental
+
+- In CI's log, the DOM dump stopped at the amount box, above the Buy button, so the log
+  never showed what the button said. Testing Library cuts its dump at `DEBUG_PRINT_LIMIT`,
+  7000 characters unless that is set (read in `@testing-library/dom/dist/pretty-dom.js`).
+  To see the rest, rerun locally with the limit raised.
+
+---
+
+## 2026-10-23: "Swap not checked" blamed the test run, but the test run never failed: one Jupiter press is four Jupiter calls
+
+**Believed:** a Solana swap toast saying the check "keeps failing on our side" means the
+pre-sign test run (`simulateTransaction` through `/api/solrpc`) is failing, so the RPC is
+the place to look.
+
+**Measured** (2026-10-23 ~04:20Z, a node script making the browser's exact calls against
+production, read-only: fee quote and build through `/api/jupiter`, the test run through
+`/api/solrpc` with a funded mainnet wallet as payer, nothing signed): the test run answered
+200 with a result every time. For SOL to BAYLA (a Token-2022 pump coin, fee taken in WSOL)
+the fee-bearing build's test run is Jupiter's 6014 on every press, so every press also runs
+the no-fee re-quote and rebuild: four calls to Jupiter's keyless tier, which refuses at
+random behind Vercel's shared egress (our relay says 502). Five presses spaced 8 s apart:
+3 died on a 502, at the fee quote twice and the fee build once. A refusal in the no-fee half
+is reported as a test run that could not run, so the toast named the wrong step. PR #958
+asks again on a 502 or 429 (`lib/solana/swap/jupiterBusy.ts`).
+
+**Do:** before blaming the RPC for an "unchecked" test run, list every network call between
+the press and the simulate, and run them yourself in order with the page's exact parameters
+and a funded wallet as payer (a simulation with `sigVerify: false` needs no signature). Count
+the failures per call, not per press.
+
+### Incidental
+
+- `vercel logs` on this project returned at most 50 rows per query whatever `--limit` said,
+  and nothing older than about 50 minutes: a `--since 24h --status-code 5xx` query gave 46
+  rows, the oldest 50 minutes old. To read a window, slice it under a minute; for anything
+  older, reproduce instead of reading.
+- `--query solrpc` and `--query jupiter` matched; `--query jupiter/swap/v1/swap` matched
+  nothing. A path with slashes is not a usable query.
+
+## 2026-10-22: testing the indexer's GraphQL needs no RPC, no Postgres and no sync
+
+**Believed:** a change under the indexer's GraphQL (graphql-yoga, @graphql-tools) can only be
+tested against a running `ponder start`, which needs an RPC and a synced database.
+
+**Measured** (ponder 0.8.33, node 24.13, 2026-10-22): ponder's own handler runs outside
+`ponder start`. Import `getSql`, `buildGraphQLSchema` and `graphql` from
+`node_modules/ponder/dist/chunk-*.js`; node 24 imports `ponder.schema.ts` as is. Create the tables
+in an in-memory PGlite from `getSql(schema).tables.sql`, insert rows, set `db` (drizzle-orm/pglite,
+`casing: "snake_case"`), `metadataStore` and `graphqlSchema` on the Hono context as
+`createServer` in `dist/bin/ponder.js` does, and serve it with `@hono/node-server`. 24 probes
+(the site's own queries, `@include`/`@skip` on variables, fragments, paging, the armor limits,
+errors) gave the same answers on trunk's tree and on graphql-yoga 5.24.6. Five differed only in key
+order: executor 2 returns fields in the order the query asks, executor 1 put `_meta` first.
+Forcing utils 12.1.0 under executor 1.5.2 failed the five directive probes, the break found on
+2026-10-06, so the probe does catch it.
+
+**Do:** prove an indexer GraphQL bump this way: old tree against new tree, queries with variables
+in directives, answers compared with key order ignored.
+
+## 2026-10-22: an inline `style` colour silently cancels every `hover:` class on the element
+
+**Believed:** a Tailwind `hover:bg-[#22c55e]` on a button works whatever else the
+element carries, so a base colour may live in `style={{ background }}` while the
+hover state lives in a class.
+
+**Measured** (branch build of PR #954, Playwright chromium, `getComputedStyle` after
+`locator.hover()`): the "Buy all bungalows" stub with `style={{ background:
+'rgba(5,8,15,0.92)' }}` and `hover:bg-[#22c55e]` read `backgroundColor:
+rgba(5, 8, 15, 0.92)` on hover while its inner span's `group-hover:text-[#05080f]` had
+already turned the ink `rgb(5, 8, 15)`: near-black on near-black, an empty box. An
+inline declaration outranks any class, hover variants included, and no lint or test
+says so; jsdom unit tests pass because they never compute styles. With the
+background moved to `bg-[#05080f]/90` the same read gave `rgb(34, 197, 94)`. Two
+dashboard controls shipped a week earlier had the same shape (`style={{ color }}` plus
+`hover:text-*`) and had never changed colour on hover.
+
+**Do:** a colour that changes on hover, focus or `group-hover` is a class, and so is
+its resting value; keep `style` for what no class expresses (a per-row accent read
+from data, a font family). Verify a hover state by computed style in a real
+browser, not by the class list.
+
+### Incidental
+
+- An `inline-grid` whose column holds a `width: max-content` marquee grows to the
+  whole run (a seven-ticker tape made the stub 510 px). `w-0 min-w-full` on the
+  tape's wrapper fills the column without asking for any width.
+- A clipped `page.screenshot({ clip })` taken after `locator.hover()` can catch the
+  card's own hover transform mid-move and show the wrong element; `locator.screenshot()`
+  re-resolves the box.
+
+## 2026-10-22: a backfill that saves nothing when it stops never finishes on GitHub's shared runners
+
+**Believed:** a history read that works from this machine works the same in a scheduled
+workflow, so an all-or-nothing write is enough.
+
+**Measured** (venue-volume.yml runs 39725739438 and 39726068637, 2026-10-22 05:02Z and 05:06Z):
+Base's backlog was about 45,000 blocks, which the keyless RPCs serve only 100 blocks a call
+(`base.drpc.org`, `base.gateway.tenderly.co`; publicnode answers "archive", `mainnet.base.org`
+"request limit reached"). Both runs were cut off by HTTP 429 after about 100 seconds, kept
+nothing, and the backlog grew by about 1,800 blocks an hour. The same read from this machine
+finished in 332 seconds.
+
+**Do:** save progress as windows succeed and resume from it, with a time budget per run and
+a long wait after a 429; keep the source marked as never counted until it reaches the head once.
+
+## 2026-10-22: Blockscout trails the finalized head, so a reader that waits for it to reach the head never finishes
+
+**Believed:** an indexer that has caught up with the chain covers every block up to the finalized
+one, so "read old history from Blockscout up to the head" is one call.
+
+**Measured** (the volume counter's first live run on GitHub, 2026-10-22 02:13Z): eth.blockscout.com
+had indexed to 26,245,041 while the finalized head was 26,245,050, nine blocks short, so the guard
+refused the whole Ethereum range. On Base, `base-rpc.publicnode.com` refused logs 50,000 blocks back
+(about 28 hours) as archive, `mainnet.base.org` answered every `eth_getLogs` with "request limit
+reached", `base.blockscout.com` answered 403 (Cloudflare) from this machine, and `base.drpc.org`
+served any age in 100-block windows.
+
+**Do:** take from an indexer only up to the block it says it has indexed and read the rest from an
+RPC; when no indexer answers, shrink the RPC window to the free limit instead of failing.
+
+## 2026-10-21: GitHub calls a train CONFLICTING when it shares two merge bases with trunk, though git merges it cleanly
+
+**Believed:** `git merge-tree --write-tree` exiting 0 against trunk means GitHub will call the
+pull request mergeable and run its CI.
+
+**Measured** (train #928, 2026-10-21): the train carried #922, whose branch held #910's two commits
+unchanged. #910 then merged on its own (`8147c6aeb`). The train and trunk now had two merge bases
+(`cf385ec45` and `51e3036b6`, from `git merge-base --all`). `git merge-tree` exited 0, while
+`gh pr view 928 --json mergeable` read CONFLICTING and no workflow ran. Merging trunk into the
+train changed no file (`80e26e098`) and made it mergeable; CI started.
+
+**Do:** when a train carries a PR whose commits another PR also carries, and that one lands alone,
+merge trunk into the train at once. After every trunk move, read `mergeable` from GitHub, not
+only `merge-tree`.
+
+## 2026-10-21: a train ships each PR's head as it was when the train was cut, and a DIRTY PR can already be red
+
+**Believed:** merging a train closes every PR it carries, and a PR listed as DIRTY only needs trunk.
+
+**Measured** (train #928, merged 2026-10-21 15:40Z): 23 of its 24 PRs closed as merged. #903 stayed
+open: a trunk merge (`e4b78095d`) was pushed to its branch at about 13:59Z, after the train took
+its head `2e397e5e9`. Separately, #895 had been listed as "DIRTY, bring trunk in", but its last
+E2E run, from 2026-10-19, was red (`/bayla` at 432 to 488 words, against a 320 cap). A DIRTY PR
+runs no new CI, so that red sat on the page unread until the train ran it again.
+
+**Do:** before cutting a train, read each DIRTY PR's last run for reds. Right before merging,
+check that every carried PR's current head is in the train (`git merge-base --is-ancestor`).
+Close by hand any PR GitHub leaves open.
+
+## 2026-10-21: a property test that rejects nearly every draw of a branch fails "at random", and Raydium's compute_swap_step_test is one
+
+**Believed:** a red `compute_swap_step_test` in the range program's `clmm-build` ("amount_used (2)
+should equal amount_remaining (1) when target not reached") means the program can pay a swap
+wrong, and a test that passes most runs checks every branch it names.
+
+**Measured** (2026-10-21, a WSL copy of the deployed source): the test is wrong, not the program.
+For an exact output with the fee on the output coin it adds the fee to what the user received
+and expects the amount asked, which holds only at a zero fee (raydium-io/raydium-clmm `c6789199`).
+It fails rarely because its `prop_assume!` bounds reject all but about one draw in a million of
+that kind: about 0.02 such cases in a 65,536-case run (`bf7c2413` set the count), so a few runs
+in 100 go red. A test drawing each kind directly (`programs/amm/tests/swap_math_fee_rule.rs`)
+runs about 10,000 of those steps per run; the user got exactly the amount asked in every one.
+
+**Do:** read a property test's reject counts (`global rejects: ... times at <line>` in its
+failure output) before trusting a branch it names. Draw each branch directly instead of
+rejecting into it, and assert per-branch counts so a later sampler change cannot quietly empty
+one. Kill a mutant per guarded line: here two of four survived upstream's price and liquidity
+ranges until prices were drawn by tick and liquidity up to 2^80.
+
+## 2026-10-21: a concentrated-liquidity deposit with liquidity 0 and a base coin is protected on that coin only, so a sandwich passes
+
+**Believed:** an `open_position` / `increase_liquidity` sent with `liquidity: 0`, a base coin
+(`base_flag: Some`) and a tolerance maximum on both coins is refused when the price moves past
+the tolerance either way.
+
+**Read** (the range program's `add_liquidity`, `solana/tegridy-clmm/programs/amm/src/instructions/open_position.rs`,
+which Raydium's CLMM shares): with liquidity 0 the program works the liquidity out from the base
+coin's maximum at the price the deposit lands at, so the base coin always fits its maximum. Only
+the other coin's maximum can refuse, and only for a move that raises it. A price pushed the other
+way (front-run, then back-run) passes, and the deposit goes in at the pushed price: the review on
+#915 found it, and a test replaying the program's rule lets the old opening through a 300-tick move one way.
+
+**Do:** send the liquidity planned from a fresh read with `base_flag: None` and a tolerance
+ceiling on both coins; then a move either way raises one side past its ceiling. To keep the typed
+amount as the most it takes, plan from the amount less the tolerance.
+
+## 2026-10-21: hiding one layer at a time finds nothing when a page's frame cost is a sum, and headless Windows WebKit pays it per pixel
+
+**Believed:** that Playwright WebKit drawing almost no animation frames on /nakamigos, while
+its timers ran close to on time, meant one heavy layer that hiding layers one at a time would
+find. And that this frame count says how an iPad runs the page.
+
+**Measured:** 2026-10-21, a production build on `vite preview`, Playwright 1.62.1, the
+`ipad-safari` descriptor (810x1080, DPR 2), reduced motion on as in every e2e project. An
+init script ran its own `requestAnimationFrame` loop and counted frames per 250 ms over the
+Tradermigos splash (0.75 to 3.2 s), two runs per row. Windows WebKit:
+
+- As built: 0.1 to 0.2. Hiding any one of the splash's eleven layers: still 0.1 to 0.2.
+- Keeping only one layer: all hidden 6.5, backdrop 4.9, title block 3.8, spotlight 3.5,
+  grain 3.5, sparks 2.6, bokeh 2.0, grid/scanline/vignette 1.1, aurora 0.3, the ten art
+  pieces 0.2 (canvas and dust motes: no cost). Per frame that adds about 1.2 s for the
+  pieces, 0.8 s for the aurora, 0.2 s for the overlays and 13 to 90 ms for each of the rest:
+  about one frame per 2.5 s, which is what the page as built draws.
+- It is paid per pixel. Aurora with its 80/80/100px blurs 0.3, blurs at 8px 1.5, blurs off
+  3.5. Art images alone: 1 piece 3.5, 3 pieces 2.0, 10 pieces 0.8. DPR 1 instead of 2 made
+  every layer about four times faster (images 0.8 to 3.0, all hidden 6.5 to 13.5). During
+  the splash timers ran at most 0.3 s late, so most of the time went off the main thread.
+- Same build and viewport in Chromium: 3.6 to 6.1 on the splash, with SwiftShader and with
+  the Intel GPU (D3D11) alike. Its main thread was 61% busy over the splash (style 26%,
+  script 14%), about 35 ms per frame on this desktop CPU.
+- The landing after the splash is a separate stall that ends: main-thread stalls of 0.6 to
+  3.4 s, then about 15 per 250 ms from 3 to 5 s after it mounts (1.5 to 2.5 s with images
+  hidden).
+- Linux WebKit (WSL Ubuntu 24.04, the release CI runs, same Playwright): the splash also
+  starves (0.1 to 1.8; 7.8 to 11.4 with its layers hidden), but there the main thread stalls
+  0.3 to 2.1 s at a time and /risks and /swap also drew almost nothing for 2 to 18 s after
+  load, so Linux does not single the route out. CI run 39535606941 failed /nakamigos on the
+  two WebKit projects only.
+
+**Do:** bisect a frame cost both ways, hide one and keep only one. When no single hide helps
+and every keep-one costs something, the cost is a sum: rank layers by their keep-one rates.
+Change DPR once: a rate that moves about four times is paid per pixel by the compositor, not
+by the page's script. A headless WebKit frame count is a fact about the test browser; what an
+iPad draws on the same page stays unmeasured until a real one is timed (Safari's Web
+Inspector, Timelines).
+
+## 2026-10-21: npm always takes the newest release in a transitive range, so the floor needs an override or a hand edit
+
+**Believed:** when a fixed package asks for a newer transitive (vite 8.3.3 asks for rolldown
+`~1.2.11`), npm resolves it to the newest match (1.2.14, a week old), and holding it at the floor
+means an `overrides` entry, which blocks the next bump, or editing the lockfile by hand.
+
+**Measured** (npm 11.21.0, `frontend/package-lock.json`, 2026-10-21): `npm install -D
+rolldown@1.2.11 --package-lock-only`, then `npm uninstall -D rolldown --package-lock-only`. The
+second command drops the direct dependency and keeps the 1.2.11 node, because it still satisfies
+vite's range. package.json ends as it started, rolldown's 15 bindings and its `@oxc-project/types`
+pin follow, and `npm install --package-lock-only` afterwards changes nothing.
+
+**Do:** to land a transitive at the oldest release that works, install it as a direct dependency
+at that version and uninstall it. Then check the lock is stable with a second lock-only install.
+## 2026-10-21: a button "detached from the DOM" under a click was not re-mounted; it left by itself, and the click raced it
+
+**Believed:** a `locator.click` call log reading "element is visible, enabled and stable … element
+was detached from the DOM, retrying" on the Tradermigos splash meant the app re-mounted the button
+under the tap: a parent re-render, a key change, a lazy chunk swapping it.
+
+**Measured** (Playwright 1.62, production build on `vite preview`, Windows WebKit, 2026-10-21): a
+MutationObserver counted one mount (+0.6 s), the exit's class (+2.6 s) and one unmount (+4.0 s),
+never a second mount; CI's call log never printed a second "locator resolved to". The splash has
+left by itself at 3.2 s since 2026-10-14. On WebKit `/nakamigos` drew about 0 frames per 250 ms
+(`/risks` and `/swap` about 12) with timers on time, and Playwright's "stable" check counts frames,
+so the click was still checking when the splash left, then waited for a button that never came
+back, to the 120 s test timeout. Turning off filters, shadows, CSS animations, `will-change` or
+canvas each left the frames at 0; hiding every image and background brought the landing's back,
+not the splash's.
+
+**Do:** before calling a detach a re-mount, look for a second "locator resolved to" in the log.
+Never click a control that removes itself on a timer; wait for what replaces it. To make a lost
+race certain in a test, keep the target moving (a linear `translate` animation, `!important` past
+the reduced-motion rule) so no click can find it stable.
+
+## 2026-10-21: art laid out to move can bury a piece once held still, and a bounding-box check passes it
+
+**Believed:** under reduced motion, holding the Tradermigos splash's pieces where they spawn keeps
+every piece in sight, and a check that each piece's box is on screen proves it.
+
+**Measured** (production build, Playwright 1.62.1, chromium 1280x720 and ipad-safari 810x1080, 20
+loads each, 2026-10-21): held where they spawn, the most-covered desktop piece had 1-32% of its
+picture in sight (median 9%), and the on-screen box check passed every piece. The spawn rule clamps
+two zones to points 128 px apart at 1280x720, so one tall piece sits under another. Choosing the
+draw order alone still left 9% in 2 loads of 20. Easing overlaps apart first (a tenth of each
+overlap per round, 100 rounds), then drawing the most buried last, kept every piece at 31% or more
+on seeds 4 to 40, on both devices.
+
+**Do:** count what a visitor sees with the browser's own hit test: turn `pointer-events` on for the
+pictures, sample `document.elementFromPoint` on a grid, turn it back off. Step a
+`requestAnimationFrame` loop with `page.clock`, which fakes rAF too: `runFor(100)` fires about six
+frames whatever WebKit's starved compositor draws. A `clock.pauseAt` aimed at the page's
+`Date.now()` plus 10 ms landed in the past on chromium, and plus 200 ms did once under two workers:
+catch "Cannot fast-forward to the past" and aim again.
+
+## 2026-10-20: a press area made of padding and a matching negative margin loses its lower part to the rows after it
+
+**Believed:** `py-3.5 -my-3.5` on an inline-block in a list of rows makes a 44px press area
+that moves nothing, and a 44px `getBoundingClientRect().height` proves it.
+
+**Measured** (/pools price flip, production build, chromium at 390, 820 and 1280, hit-tested
+every 0.5px down the box): the box was 45.9px on a pool card and 48.3px in All pools, but a
+press landed on it over only 39 to 42px. The next row's text and the "No trades yet" tag come
+later in the page, paint over the box's lower 6 to 7px, and take the press. Nothing above it
+did. With `relative` on the button it is painted above them and the whole box answers.
+
+**Do:** give such a button `relative` (it stays under the z-50 bars), and certify the area by
+hit tests down the box, not by its height. The 2026-10-14 entry on `::before` is the same trap.
+
+## 2026-10-20: the local Solana e2e suite is not green on trunk, because no CI job runs it
+
+**Believed:** `frontend/e2e-solana` passes on trunk with today's pool program, so after moving its
+tier-0 fixtures a run on the upgrade build should come back fully green.
+
+**Measured** (WSL validator, the four LP specs on chromium and mobile-chrome, 2026-10-20): trunk
+`50b34098f` on the release build already fails P1, P6, P19, E1, E18, E20 and two lp-read tests. They
+check page copy and a 44 px tap target that /pools has since changed (`aa3973a46`, `d3e239d31`,
+`36a08925c`). Each failure restarts the worker, and fresh fixtures then fail E2 and E16 too. Separately,
+E19's `not.toMatch(/APR|APY|yield of/i)` on the section's text failed once on a random pool address
+(`DYbyM8apn7KA5g1ApYWR…`): base58 keys can spell those letters, so the check flakes.
+
+**Do:** before reading a red e2e-solana run as your change, run the same tests on trunk against the same
+validator (`-g` on the failing titles takes about 20 minutes). Match copy guards on word boundaries, or
+on text with the addresses taken out.
+## 2026-10-20: where two buttons' padded press areas meet, `relative` only picks which one loses
+
+**Believed:** a padded press area that loses its lower part to the rows after it is fixed by
+`relative` on the button (the 2026-10-20 entry on padding and a matching negative margin).
+
+**Measured** (venue status card on /pools and /solana-lp, production build, chromium,
+mobile-chrome, iPhone and iPad, hit-tested every 0.5px down each box): on a phone the Program
+and Config copy chips wrap onto rows 12px apart, and each 46px area reached 7px out of its chip.
+Config, later in the page, took Program's bottom 3px of press, 1px more than the boxes overlap.
+`relative` on either button only moves the loss to the other.
+
+**Do:** split the padding so the two reaches into the shared gap add up to less than the gap
+(1px clear held on all four devices), each area still 44px or more. Certify by the sweep.
+## 2026-10-20: a build step that reads a file outside frontend/ passes every local build and every CI job, and fails every production deploy
+
+**Believed:** a Vite plugin that reads `../CHANGELOG.md` is safe once `vite build` passes locally
+and in CI, because Vercel builds the same repository.
+
+**Measured** (Vercel build logs, `npx vercel inspect dpl_EnewCRdDML6XsV2PkmxTZrhV2N5a --logs`,
+2026-10-19/20): every production build from #878 on stopped at
+`[plugin changelog-files] Error: ENOENT: no such file or directory, open '/vercel/path0/CHANGELOG.md'`.
+`.vercelignore` opens with `*` and re-includes only `frontend/`, so the upload has no repo-root
+files, while a local or CI checkout has all of them. Three merges (#878, #882, #893) went in over
+about ten hours and none went live. The site kept serving the build before them, and nothing went
+red where anyone was looking: previews are skipped for this project, so every PR showed the usual
+skipped Vercel check.
+
+**Also measured:** re-including the file alone is not enough when it sits in a folder.
+`*` then `!docs/CHANGELOG_EARLIER.md` still leaves it out under the `ignore` package (git's rule:
+a file can't come back while its folder is excluded). It takes `!docs` first, and `*` still keeps
+the rest of `docs/` out.
+
+**Do:** after a merge, read the merge commit's `Vercel` status, not the PR's
+(`gh api repos/<owner>/<repo>/commits/<sha>/statuses`); "merged" is not "live". For a file a build
+reads from outside the uploaded folder, add the `.vercelignore` line and a test that evaluates the
+ignore file against the plugin's own file list.
+
+## 2026-10-19: under a Squads time lock, a proposal checked the day it is approved is checked against the wrong day
+
+**Believed:** a vault proposal that simulates green when it is approved will execute green, and one
+that simulates red is wrong. That held while the vault had no lock.
+
+**Measured** (2026-10-19): Squads v4 executes an approved vault proposal only when
+`Clock - approvedAt >= time_lock` (`vault_transaction_execute.rs`), so the execute meets the chain 48
+hours after the approval; on a local validator with mainnet's multisig the page and the chain both
+refused it until then (6021). A ladder reload simulated as the vault on mainnet, inside the running
+window (`notify_reward`, 0 fresh + 1,000 from budget, sigVerify off, nothing sent) came back 6028
+(`RewardRateWouldDecrease`). Approved two days before the window's end, that same reload is right:
+the guard is `now >= period_finish || new_rate >= old_rate` (math.rs), so it is off when the lock
+releases. The reverse also holds: mainnet epochs were ~26 h that day, so a 48 h wait spans at least
+one feature-activation boundary; what can change in 48 hours must be read again at the execute.
+
+**Do:** a page that proposes under a lock must run every gate again before the execute, read the
+network's Clock sysvar (not the computer's clock) for "is the wait over", and, where a step is
+meant to wait for a chain event, accept exactly the one refusal that event lifts, and only when the
+event falls before the release.
+
+## 2026-10-19: a JSON round trip of a `solana account --output json` file stops the test validator from starting
+
+**Believed:** reading an account file the harness wrote, changing one field of its data, and writing
+it back with `JSON.stringify` keeps it loadable by `solana-test-validator --account`.
+
+**Measured** (solana-test-validator 3.1.11, 2026-10-19): the validator exited during startup, three
+times in a row. The file's `"rentEpoch": 18446744073709551615` (u64::MAX) came back as
+`18446744073709552000`, a float past u64.
+
+**Do:** treat the file as text: replace only the base64 data string, and assert `rentEpoch` is still
+`18446744073709551615` before writing.
+
+## 2026-10-19: drpc's free tier says it caps eth_getLogs at 10,000 blocks, but it refuses anything over 100
+
+**Believed:** keyless Ethereum logs come from `eth.drpc.org` in windows under 10,000 blocks (the
+2026-10-14 entry below), and an empty Blockscout answer means no logs.
+
+**Measured** (2026-10-19, the all-time volume counter's backfill): drpc answered "ranges over
+10000 blocks are not supported on free plan" to windows of 5,000, 1,000 and 300 blocks, and
+returned logs at 100. `ethereum-rpc.publicnode.com` and `base-rpc.publicnode.com` served 5,000-block
+windows near the head and "Archive requests require a personal token" from 20,000 blocks back.
+Blockscout v1 `getLogs` returned the pair's whole history in one call; its empty answer is exactly
+`{"message":"No logs found","result":[],"status":"0"}`, and `/api/v2/main-page/blocks` gives the
+block it has indexed to.
+
+**Do:** read recent windows from publicnode; read older ranges from Blockscout, accepting only its
+`OK` or exact `No logs found` shape, and only up to its indexed block, so a rate-limited or lagging
+answer cannot pass as a range with no swaps (`frontend/scripts/lib/venue-volume-chain.mjs`).
+
+## 2026-10-19: a SwapFeeRouter swap is also a Swap log on our pair, so adding the two counts it twice
+
+**Believed:** the venue's Ethereum volume is the pair's Swap logs plus the router's `SwapExecuted`.
+
+**Measured:** the router's one swap (tx
+`0x7bc084a4304ad497222b7d666863a91ded491b8af2fb1062509387c3bdba415c`, block 25,723,600) is also one of the pair's
+29 Swap logs: `router()` is the Tegridy router, whose `factory()` is our factory. The hand read of
+2026-10-19 said 68 swaps; there were 67. On Solana, a Jupiter `route` that takes our fee from the
+input emits its `FeeEvent` first and a `SwapEvent` whose input is already net of the fee, so the
+swap's own input is the SwapEvent's plus the fee (0.06965 + 0.00035 = 0.07 SOL in tx
+`4zSJhJGt9DEGqmzy4Vi4DCxpQE6WH9NDX4KzDzbyf8cuaT4XJx1cu84eyxAxhmL3cYY8E5rNpUGnFskoSq3X5J2o`).
+
+**Do:** count our factories' pairs only. For Jupiter, read the leg from its events, adding the
+fee back when it came off the input; that matches fee ÷ rate without knowing the rate.
+## 2026-10-19: `forge coverage --ir-minimum` over a whole suite needs more RAM than a runner has, and `--match-path` does not shrink its compile
+
+**Believed:** the weekly coverage job was red because it lacked the IR-minimum workaround for
+"stack too deep".
+
+**Measured** (forge 1.7.1, ubuntu-latest 16 GB, 2026-10-19): the workflow already passed
+`--ir-minimum`, and two things were wrong. (1) A Yul exception, bisected by keeping a subset of
+`src/` and `--skip`ping the rest, to a 20-argument `string.concat` in one deployed contract; plain
+`forge coverage` (no flag) dies in legacy codegen instead, and a per-file `additional_compiler_profiles`
+entry with `via_ir` did not escape `--ir-minimum`'s settings. (2) With that file gone, the ~480-file
+compile was killed at exit 143 after 3.5 to 6 minutes: `free -m` every 10 s showed solc rising about
+70 MB/s into the 16 GB ceiling. `--match-path` filters which tests run, not what compiles; `--skip
+<path>` does. Skipping every test file outside a slice gave 7.5 GB, 2 to 4 minutes per slice.
+
+**Do:** slice coverage like the test matrix and merge the lcov by line. Exit 143 with no annotation
+is the runner killing a step for memory, not a timeout; a `| tail` on the step hides everything it
+printed, so sample memory to the log live. Do not repeat these compiles in WSL: three of them took
+the whole WSL service down (`Wsl/Service/E_UNEXPECTED`, back after 20 to 60 s), and a poll loop
+that calls `wsl` every few seconds keeps it down.
+## 2026-10-19: a pool-program upgrade's file hash and enlarge size can be known before the pack is rebuilt
+
+**Believed:** the hash of the file an upgrade pack uploads is only known once the pack is
+rebuilt, and the enlarge size only once the real upload is tried.
+
+**Measured** (WSL, 2026-10-19): `cargo build-sbf -- --locked` (2.3.0, platform-tools v1.48,
+rustc 1.84.1) in `programs/cp-swap` of a clean `git archive` of trunk `71a7bba8` gave
+the 2026-10-06 build, 724,688 bytes: byte for byte the pack's file, built on another day in other folders.
+The same build of a source change gives that change's pack hash. On a local validator holding
+mainnet's binary, `solana program extend <id> <new − current bytes>` and then
+`solana program deploy --no-auto-extend` upgraded with no error, so that byte count is enough.
+
+**Do:** before rebuilding a pack for a source change, build its archive this way and quote the
+hash. Prove the enlarge number with `--no-auto-extend`, so the CLI can't quietly enlarge for you.
+
+## 2026-10-19: `pkill -f` sent through `wsl -e bash -lc "…"` kills the shell that runs it
+
+**Believed:** `pkill -f '<pattern>'` never matches itself, so it is safe as a one-liner.
+
+**Measured** (2026-10-19): `wsl -e bash -lc "pkill -f 'ledger-old'; …"` returned exit 15 and
+never ran the rest. pkill skips its own process, not its parent: the `bash -lc` process carries
+the pattern in its own command line, so it matched and got SIGTERM.
+
+**Do:** make the pattern unable to match its own text: `pkill -f '[s]olana-test-validator --ledger …'`.
+Or kill by a pid you saved when you started the process.
+## 2026-10-19: Tailwind v4 cannot order `2xl:` against `min-[1920px]:`, so the px rule lands first and loses
+
+**Believed:** `2xl:grid-cols-3 min-[1920px]:grid-cols-6` reads mobile-first, as `md:` and `lg:`
+do: three columns from 1536px, six from 1920px.
+
+**Measured:** a Playwright screenshot of the BAYLA door at 1920 (`npx vite --port 5199` of the
+worktree) still showed three columns. Tailwind v4 sorts min-width variants by value only when
+they share a unit; `2xl` is `96rem`, `1920px` is not comparable, so the arbitrary one was
+emitted first and the later `2xl` rule won at every width above 1536. `min-[120rem]` sorts
+after `2xl` and the six columns appeared. The repo's `min-[1440px]:` + `min-[1700px]:` pairs
+work because both are px. Beside a named breakpoint, write an arbitrary min-width in rem.
+
+## 2026-10-19: a container query is not a drop-in for a viewport breakpoint when the column's padding changes on that breakpoint
+
+**Believed:** a card's `md:grid-cols-3 lg:grid-cols-6` could become `@min-[42rem]:grid-cols-3
+@min-[58rem]:grid-cols-6` on the card itself, so the same card adapts to a narrower slot on a
+wide screen with no change at any window width: in the 1200px column (`px-4 md:px-6`) a `p-6`
+card's content box is exactly 672px (42rem) at a 768px window and 928px (58rem) at 1024px.
+
+**Measured** (Playwright, Chromium, `vite` dev of the BAYLA door, screenshots hashed before and
+after): identical at 390, 810, 1280, 1440 and 1535; different at 768 and 1024. The card's content
+box by `getComputedStyle`: 687px at a 767px window, 672px at 768, 927px at 1023, 928px at 1024.
+The column's padding steps from 16px to 24px at md, so the card SHRINKS by 16px as md turns on,
+and it is already 42rem wide from a 752px window where md is still off: the container query is
+on 16px early, and no single card width maps to the breakpoint. (At exactly 768 and 1024 the
+shots differed too, in the sliver of card above the fold; that cause was not run down.) What
+worked: keep the viewport breakpoints and add the narrow-slot ones behind a prop that the one
+host with a narrow slot passes (`wideGrid`, `HomePage.tsx`). The slot's width is then a function
+of the window alone, every other host is untouched by construction, and all seven widths hashed
+the same again.
+
+## 2026-10-19: Git Bash hands a Node script `/bayla` as `C:/Program Files/Git/bayla`
+
+**Believed:** `node shoot.mjs /bayla 1920` passes the route through.
+
+**Measured:** the script navigated to `http://localhost:5199C:/Program Files/Git/bayla`. MSYS
+path conversion rewrites any argument that starts with `/`. `MSYS_NO_PATHCONV=1 node shoot.mjs
+/bayla 1920` passes it untouched (PowerShell has no such rule). Also, an ESM script in the
+scratchpad cannot `import '@playwright/test'`, since resolution starts from the script's own
+folder: `createRequire('<worktree>/frontend/package.json')('@playwright/test')` loads the
+worktree's copy.
+
+## 2026-10-20: a test with one `expect` per item in a 130,000-step loop passes alone and times out in the full suite
+
+**Believed:** a round trip over every 7th tick of the range program (about 130,000 ticks, up to
+three `expect` calls each) is a few seconds of plain arithmetic, inside vitest's default 5 s.
+
+**Measured** (vitest 5.0.3, `npx vitest run` of all 1,028 files on the shared box, 2026-10-20):
+the test passed when its file ran alone, then failed the full run at 6,169 ms with `Test timed
+out in 5000ms`. The arithmetic was not the cost: with plain `!==` comparisons, mismatches pushed
+to an array and one `expect(bad).toEqual([])`, the whole file ran in 1.08 s.
+
+**Do:** in a big loop, compare without `expect`, collect what differs, assert once, and give the
+test its own timeout as headroom. A test that only passes alone is a CI flake waiting for a busy runner.
+
+## 2026-10-20: in Raydium's range-pool program, a top-up of someone else's reward goes to that reward's starter
+
+**Believed:** when the admin (our vault) pays into a reward a pool's opener started, by re-windowing
+or topping it up, whatever is not paid out comes back to the vault.
+
+**Measured** (`solana/clmm-localnet`, check R14, a local chain): the vault paid 30,000 base units to
+move alice's reward on pool B to a 30 s window; after the end, `collect_remaining_rewards` gave
+alice her 604,800,000 and the vault's 30,000. The unpaid rest goes to `reward_info.authority`, the
+reward's starter, whoever paid in.
+
+**Do:** the vault never tops up or re-windows a reward it did not start.
+
+## 2026-10-20: Git Bash rewrites a `/root/...` path inside an environment variable it hands to node
+
+**Believed:** `CLMM_SO=/root/clmm-p1/.../raydium_clmm.so node run.mjs` in Git Bash passes that WSL
+path through, as it would on Linux.
+
+**Measured** (Git Bash on Windows 11, node 24): the validator was started with
+`C:/Program Files/Git/root/clmm-p1/...` and exited at once. MSYS converts anything that looks like a
+POSIX path, in arguments and in the environment of a native program.
+
+**Do:** set such variables from PowerShell (`$env:CLMM_SO = '/root/...'`), or exclude them with
+`MSYS2_ENV_CONV_EXCL=CLMM_SO`.
+
+## 2026-10-20: a comment that moves lines changes an Anchor program's build hash
+
+**Believed:** editing only a comment in an Anchor program's source leaves the `.so` byte for byte
+the same, so a build hash pinned before the edit still holds.
+
+**Measured** (WSL, Solana 3.1.11, `cargo build-sbf -- --locked`, tegridy-clmm with a throwaway id):
+splitting one comment line of `lib.rs` into two (and adding a gated `compile_error!`) changed the
+1,523,176-byte build's sha256 from `4180d4a9...` to `cd8f7647...`, same size. Anchor's error paths
+compile in the file and line they were raised from, so every line below the edit moved.
+
+**Do:** pin a build hash only from the exact commit that will be deployed, and rebuild after any
+edit, comments included.
+
+## 2026-10-20: a program address made public before its deploy can be blocked for good with 0.001 SOL
+
+**Believed:** a program's address is safe to publish before the deploy (in the source, on the
+website), because only the holder of its key can deploy there.
+
+**Measured** (`solana/clmm-deploy/rehearsal/rehearse.mjs`, check S1, a local chain, solana-cli
+4.1.1): 0.001 SOL sent to the address's program-data account (the loader's PDA of the program id)
+made `solana program deploy --program-id <that key>` fail, and nothing was created. The loader makes
+that account with a plain create, which refuses an account that already holds SOL, and nobody can
+sign to empty it.
+
+**Do:** keep a program address private until the deploy itself; build from a local branch, deploy,
+then publish. Before any upload, check the data address holds nothing (`addressesFree` in
+`solana/clmm-deploy/scripts/lib/pack.mjs`).
+
+## 2026-10-20: a deploy from a buffer never needs two buffers' worth of SOL
+
+**Believed:** `solana program deploy --buffer` needs the program's data rent on top of the
+buffer's, so an exact-size deploy of a 1.5 MB program peaks at about twice its rent (15.49 SOL on
+mainnet for the range program).
+
+**Measured** (`solana/clmm-deploy/rehearsal/rehearse.mjs`, a local chain, solana-cli 4.1.1): the
+paying wallet held exactly buffer rent + the 36-byte program account + (data rent - buffer rent)
++ 0.03 SOL. The upload left it 0.023 SOL; the deploy then cost it only 0.0012 more, because the
+loader moves the buffer's lamports into the program's data inside the same instruction. Peak on
+mainnet: about 7.77 SOL.
+
+**Do:** fund one buffer's worth plus fees; ask for the measured sum, not twice the rent.
+
+## 2026-10-20: a key the program compares against is not in the `.so` as 32 plain bytes
+
+**Believed:** a program built with `pubkey!("<vault>")` as its admin carries those 32 bytes, so
+searching the build for them proves which admin it names.
+
+**Measured** (the range program's no-features build, 1,523,176 bytes): its own program id is in
+the file; the vault, its admin in seven places, is not. The compiler folds a compared constant into
+instructions. Every check that searched for it refused a correct build.
+
+**Do:** prove the admin on chain: simulate the admin's own call (it must work) and a stranger's
+(it must be refused), and check the source's keys at staging.
+
+## 2026-10-20: vite 8 installs no esbuild
+
+**Believed:** a frontend with vite has esbuild in `node_modules`, so a script can bundle with it.
+
+**Measured** (this repo's `frontend/node_modules`, vite 8.3.0): no `esbuild`; vite 8 bundles with
+`rolldown` (1.2.8 here).
+
+**Do:** bundle with `rolldown` from `frontend/node_modules`, as the owner packs' pages do.
+
+## 2026-10-20: the list of Raydium's keys also holds the SPL Memo program, so "no transaction touched a deny key" fails on every v2 swap
+
+**Believed:** `solana/guards/upstream/deny-keys.txt` lists Raydium's own addresses, so a run of
+the range-pool program that touches none of them pays Raydium nothing, and a run that touches one
+has found a leak.
+
+**Measured** (`solana/clmm-localnet`, check G1, 135 transactions): the one deny key touched was
+`MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr`, SPL's Memo program, which `swap_v2` and the v2
+withdrawals must name (`address = anchor_spl::memo::ID`). The list is every key Raydium's two
+repositories write, less the three system keys `allowed-keys.json` names, so it also holds Memo
+and four stablecoin mints.
+
+**Do:** in a runtime check, treat Memo as named-only (a program, never paid) and fail on any other
+deny key; take its address from the crate the program builds with, not from memory.
+
+## 2026-10-20: `cargo build-sbf` writes a fresh program key beside the program when none exists
+
+**Believed:** building a program makes no keys; a program key exists only when someone runs
+`solana-keygen`.
+
+**Measured** (WSL, Solana 3.1.11, `cargo build-sbf --features placeholder-id -- --locked` in a
+copy of `solana/tegridy-clmm`): `target/deploy/raydium_clmm-keypair.json` appeared next to the
+1,523,176-byte `.so`. A plain `solana program deploy target/deploy/raydium_clmm.so` would use it
+and claim that random address as the program id.
+
+**Do:** delete it after every build that is not the owner's deploy (`shred -u`); the deploy pack
+names its key file explicitly.
+
+## 2026-10-20: a Squads vault can sign on a local chain at its real address
+
+**Believed:** testing admin actions "signed by the vault" locally needs a build whose admin is a
+local key (`localnet`, `devnet`), so the release build's own admin checks are never run.
+
+**Measured:** a Squads vault's address comes from its multisig's address and the vault index,
+not from the members. Loading mainnet's multisig account (`EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK`) with its two member keys
+swapped for local keys and its time lock shortened (bytes 74..78) gave vault 0 = the real vault
+`GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd`, and the release-shaped build's every admin check accepted it through
+`vault_transaction_execute` (`solana/clmm-localnet`, checks T1 to T9).
+
+**Do:** keep the threshold and config authority as mainnet's, write the member keys sorted, and
+keep each member's permission mask.
+
+## 2026-10-20: a validator detached inside WSL still dies when the last `wsl.exe` client exits
+
+**Believed:** `solana-test-validator` started in WSL with `setsid nohup ... &` keeps running until
+it is stopped, whatever happens on the Windows side.
+
+**Measured:** started from Node with `spawn('wsl', ['-e','bash','-lc', cmd])`, it exited 0 when the
+Windows side ended. Detached with `setsid nohup`, it ran for a 25-minute suite only while another
+session's validator held a `wsl.exe` client open; once that ended, WSL's machine restarted
+(`uptime` 17 s) and took every process with it, that other session's validator included, leaving
+stale PID files whose numbers a new process may reuse.
+
+With four validators starting at once, about one start in ten also died at birth under
+`setsid nohup cmd &`: empty log, ledger untouched, a PID file naming nothing. The exiting shell's
+hang-up reached it before `setsid` detached it; `nohup setsid cmd &` (hang-up ignored first) and a
+2-second `kill -0` check stopped it.
+
+**Do:** hold a `wsl.exe` client open for the length of the run (`spawn('wsl', ['-e','bash','-lc',
+'exec sleep 86400'])`, killed at the end), start with `nohup setsid`, confirm the PID is alive
+before saying it started, and treat a PID as yours only if `/proc/<pid>/cmdline` names
+`solana-test-validator` (`solana/clmm-localnet/run.mjs`, `validator.mjs`).
+
+## 2026-10-20: Base's public RPCs answer eth_call but refuse eth_getLogs, so "no PairCreated found" from them is a search that did not run
+
+**Believed:** the three Base hosts in `viemChains.ts` can find a factory's `PairCreated` event, as
+they read its `allPairsLength()`.
+
+**Measured** (viem `getLogs` from Node, 2026-10-20/21, Base factory `0x12a2…9fEC`): every 2,000-block
+window on `mainnet.base.org` failed ("RPC Request failed"), `base-rpc.publicnode.com` refused a
+500-block window ("Invalid parameters"), and `base.drpc.org` failed six 500-block windows in a row.
+The same hosts answered every `eth_call`. `base.blockscout.com/api/v2` gave curl a Cloudflare
+challenge page. A loop that swallows those errors prints "not found" for a pair that exists.
+
+**Do:** count the failed windows and say "did not complete" when any failed. Read the pair's own
+state by `eth_call` (`allPairs(i)`, `token0`, `getReserves`), which these hosts do serve.
+
+## 2026-10-19: a dev-server walk that stubs every /api/ request renders a blank page, because the app imports from /api/_lib/
+
+**Believed:** on `vite dev`, which has no serverless functions, answering every same-origin
+`/api/*` request with a 503 JSON body only turns the page's live reads into dashes.
+
+**Measured** (Playwright 1.x chromium against `npx vite --port 5199`, 2026-10-19): with
+`page.route('**/api/**', 503)` the BAYLA door was an empty `<body>` with no `pageerror`; the one
+request the stub answered was `GET /api/_lib/errorPolicy.js`, loaded by the bundle as an ES module.
+Unstubbed, the page's own `fetch('/api/aggregator.js?...')` made vite try to compile the function,
+fail on `./_lib/aggregator-proxy.js`, and draw its error overlay over the page, which then
+intercepted every click.
+
+**Do:** stub by path, and spare the shared code: `page.route((url) => url.pathname.startsWith('/api/')
+&& !url.pathname.startsWith('/api/_lib/'), …)`. The reads fail honestly, the layout renders, no overlay.
+
+## 2026-10-19: a framer-motion stand-in built on a Proxy remounts the tree on every render, so an element held across a state change goes stale
+
+**Believed:** `vi.mock('framer-motion', …)` with `m = new Proxy({}, { get: () => (props) => <div/> })`
+is a transparent pass-through, so a dialog element captured once can be queried after typing into it.
+
+**Measured** (`TopNav.primaryBar.test.tsx`, vitest 5, 2026-10-19): every read of `m.div` returns a
+new function, so React sees a new component type on each render and remounts the whole panel. After
+`fireEvent.change` on the menu's search field, the captured dialog node was detached and still held
+all 38 links; the live dialog held 2. The test passed the assertion only once it re-queried
+`screen.getByRole('dialog', …)` after the change.
+
+**Do:** with that mock, re-query the container and the field after every state change, or return
+one memoised component per tag from the Proxy.
+
+## 2026-10-18: a three-minute fake-clock watch is over in milliseconds, so a real hash before the timer outlasts it
+
+**Believed:** `watch()` (`frontend/src/test/quietHost.ts`), stepping a fake clock 180 s in
+500 ms steps, leaves plenty of room for a call that hashes with WebCrypto before it arms its
+own timeout.
+
+**Measured** (vitest 5.0.3, Node 24, this Windows box): all 360 steps of
+`vi.advanceTimersByTimeAsync(500)` passed in 5 to 16 ms of real time. With each
+`crypto.subtle.digest` held 1.5 s by a spy, both "an answer that stops part-way" tests in
+`launchMetadata/upload.test.ts` returned null ("still pending after 180 s"), the message CI
+gave once on #866 (run 39081813182). The fake clock moves on whether or not the hash has
+answered. How long the CI runner's hash took was not measured.
+
+**Do:** when real-async work runs before the timer, have the stub fetch resolve a promise,
+wait for it in real time, then start the watch, counting from that moment.
+
+## 2026-10-18: a staking pot paid over four years cannot run short, but upstream Synthetix strands every stretch with nobody staked
+
+**Believed:** a reward rate set by hand is fine while someone watches the pot; Synthetix
+`notifyRewardAmount` can be dropped in as it is; a contract over EIP-170 is fixed by shaving
+small things; and one edited contract is a quick rebuild.
+
+**Measured** (PR #824, the new `TegridyStaking`, commits `c57c22e6` and `cef7720c`):
+- Each funding sets `rate = (received + still scheduled) / (4 * 365 days)`, so a day pays the
+  pot ÷ 1,460 and the total paid cannot pass the total received. The old contract's rate is set
+  by the admin and is tied to nothing it holds. `MAX_REWARD_RATE` (1e18 wei a second) turns into
+  a pot ceiling: one schedule tops out at 126,144,000 TOWELI.
+- Upstream Synthetix keeps its clock running while nothing is staked (here also while paused),
+  credits nobody, and leaves that stretch out of the next funding's leftover, so it stays in the
+  contract for good. Funding before the first stake is the usual case. The fix moves the end back
+  by the skipped stretch: `if (periodFinish > lastUpdateTime) periodFinish += now - lastUpdateTime`
+  (`StakingRewardLib.accumulateRewards`).
+- Size, limit 24,576 B, ratchet 24,489 B: written inline, 24,693 B. Three small cuts (two
+  constants made internal, the rate-cap check and one event dropped): 24,548 B, with a check
+  lost. The end date moved out of the library's state struct into host code, plus those cuts:
+  24,629 B. A two-line inline unpause instead of a call to the private settle routine: +39 B.
+  The whole funding body moved into the delegatecalled `StakingRewardLib`, no cuts: 24,356 B
+  (the library went from 7,760 to 8,506 B).
+- 64 test and script files import `TegridyStaking.sol`, so one edit meant a full `via_ir`
+  rebuild: 1 h 58 min, solc sampled at 18.2 GB. A scratch copy of `src/`, `test/` and `script/`
+  with lib paths made absolute in `foundry.toml` built the contract alone
+  (`forge build src/TegridyStaking.sol`) in 14.5 s, and
+  `FOUNDRY_SPARSE_MODE=true forge test --match-path <file>` ran one suite in about 4 min. Sparse
+  mode still parses every test file: with `script/` left out it failed with "Source not found".
+- The full suite after the change: 3,039 passed, 26 failed, each failure a test written for a
+  fixed rate: a rate in the constructor, TOWELI sent straight to the contract, a shortfall rig
+  that needed emission to outrun the pot (it no longer can), a known-defect test asserting the
+  over-mint the schedule removes, and a top-up test that funded an empty pool (whose end now
+  moves back).
+
+**Do:** pay a reward pot on a fund-backed schedule and move its end back over any stretch that
+pays nobody. Near EIP-170, move the biggest body into a library before cutting checks, and
+measure each candidate with a one-contract build in a scratch copy. When the rate model changes,
+keep each old test's property and rebuild its rig: simulate a loss with `deal()` instead of
+over-emission.
+
+## 2026-10-18: a plain `git worktree remove` empties a junction's target, and Git Bash splits a `C:/` folder on `PATH` at its colon
+
+**Believed:** removing a worktree removes only the worktree; a `C:/...` folder put first on
+`PATH` in Git Bash is searched first; and adding `MSYS_NO_PATHCONV=1` is always harmless.
+
+**Measured** (2026-10-18, Git for Windows 2.53.0, Windows 11, while archiving idle sessions):
+- One app-made worktree under `.claude\worktrees` had `frontend\node_modules` as a junction to
+  the main checkout's `node_modules`. The app's archive setting says an archived session's
+  worktree is removed unless it has uncommitted changes (read in the settings text, not run).
+  In a scratch repo with `node_modules` gitignored and junctioned to a 7-entry folder, a plain
+  `git worktree remove` (no `--force`) exited 0 and left the target with 0 entries. Not ignored,
+  the junction made it refuse ("contains modified or untracked files"). `cmd /c rmdir <link>`
+  (no `/s`) removed the link and left all 7.
+- `PATH="C:/.../fakebin:$PATH"`: Git Bash splits `PATH` at every colon, so the first entry was
+  `C` and the next `/Users/...`, and `command -v gh` found the real `gh`. With
+  `$(cygpath -u C:/.../fakebin)` the fake ran.
+- `MSYS_NO_PATHCONV=1 git -C /c/Users/... rev-parse HEAD` failed with "cannot change to
+  '/c/Users/...'". Without the variable, or with `C:/Users/...`, it worked: `git.exe` is a
+  native program and needs the conversion the variable switches off.
+
+**Do:** before a worktree is removed or its session archived, list its junctions
+(`cmd /c dir /AL <folder>` shows `<JUNCTION>`), unlink each with `cmd /c rmdir <link>`, and
+count the target's entries before and after. In Git Bash, put folders on `PATH` only in `/c/...`
+form (`cygpath -u`). When a command sets `MSYS_NO_PATHCONV=1`, pass every path as `C:/...`.
+
+## 2026-10-18: a coin with no name in a wallet can still be a room's coin, and a pool someone else opens gives no signal
+
+**Believed:** a pool whose coin shows no name in a wallet pairs some stranger's coin, and a
+room's "Add SOL + <coin>" door appears once its coin has a SOL pool on the venue.
+
+**Measured** (`getProgramAccounts` and `getAccountInfo` on the public mainnet RPC,
+2026-10-18): the venue's pool program held seven pools, and four were SOL pools of room coins
+that no room named: RIZZ's (opened 10-16 18:56Z), BRAINLET's, BOBO's and SOY's (10-17 and
+10-18). An earlier note had called RIZZ's coin unnamed. It is not unnamed on chain: mint
+`5ad4puH6yDBoeCcrQfwV5s9bxvPnAeWDoYDj3uLyBS8k` has a Metaplex metadata account
+(`GYw8brrmdibD5S2RwksCmpqqZNtdA9RJeszeowh593dr`) whose name is
+"SigmaGyattOhioFanumSkibidiGooner" and whose symbol is "Rizz". Its details link points at
+`cf-ipfs.com`, which no longer resolves, so a wallet that loads the coin's details from that
+link gets nothing. The door is hand-written (`venueSolPool` in `lib/bungalows.ts`): until
+#871 named the four pools, those rooms had no door, and nothing said so. #873's check, run
+against the registry before #871, named exactly those four rooms and pools.
+
+**So:** before calling a pool's coin unnamed or a stranger's, match its mint against
+`lib/bungalows.ts`. A coin's on-chain name need not match its room, and a dead details link
+blanks it in a wallet. And any list written by hand that mirrors what others can create on
+chain needs something that reads the program, or it falls behind without anyone knowing.
+
+## 2026-10-18: a token with the same name and a smaller market can be the real coin, carried over a bridge
+
+**Believed:** a second token with the same name and symbol as a resident, on another chain, with a
+far smaller market, is an impostor (the 08-30 check called Base RIZZ `0x58d6…b238` one).
+
+**Measured** (`cast call` on Base, 2026-10-18): Wormhole's token bridge on Base
+(`0x8d2de8d2f73F1F4cAB472AC9A881C9b123C79627`, `chainId()` = 30) answers
+`wrappedAsset(1, <RIZZ's Solana mint as bytes32>)` with exactly `0x58d6…b238`, and that token's own
+`chainId()` = 1 and `nativeContract()` = the mint. Same bridge, `wrappedAsset(2, TOWELI)` = Base
+`0x279e…87ca`; the 52,681,394 TOWELI held by Wormhole's Ethereum bridge
+(`0x3ee18B2214AFF97000D974cf647E7C347E8fa585`) equal that token's whole Base supply. The OP-stack
+standard bridge marks its tokens the same way: Base BOBO `0x570b…3947` answers `remoteToken()` =
+Ethereum BOBO. None of this shows in `name()`/`symbol()`, and the market-size test reads a bridge
+copy exactly like a fake.
+
+**So:** before calling a namesake real or fake, ask the bridges. `wrappedAsset(chain, address)` on
+Wormhole's token bridge, and `remoteToken()`/`l1Token()` on the token for the OP standard bridge, are
+one call each. A wrapped copy is the same coin; whether it is worth listing is a separate question
+(Wormhole's PEPE and $mfer copies on Solana exist and have no market that trades).
+
+## 2026-10-18: Uniswap's SwapRouter02 on Base cannot reach a V2 pair
+
+**Believed:** SwapRouter02 swaps through V2 and V3 on every chain it is deployed to, so one
+`multicall` can buy a basket across both.
+
+**Measured** (`cast call`, 2026-10-18): on Ethereum, `0x68b3…Fc45.factoryV2()` = Uniswap V2's
+factory. On Base, `0x2626…1e481.factoryV2()` = `0x0000…0000`: its `swapExactTokensForTokens` has no
+pairs to reach. Its V3 side works; a fork run (anvil on mainnet.base.org) bought six coins through
+one `multicall(deadline, [exactInputSingle × 6, refundETH])`, each leg paid from the ETH sent with
+the call (the router wraps exactly that leg's amount), no approval. Promising one leg 20% more than
+its pool paid made the whole transaction revert: no coin bought.
+
+**So:** read `factoryV2()` before routing a V2 leg through SwapRouter02 on an L2. A V2 leg on Base is
+its own transaction through the V2 Router02. A `multicall` of exact-input legs paid from `msg.value`
+is all-or-nothing, which is the property a basket wants.
+
+## 2026-10-18: Jupiter's keyless tier refuses the sixth quote in a burst, for longer than a short retry waits
+
+**Believed:** five or six quotes a second apart, or one retry after a 429, stay inside Jupiter's free
+tier.
+
+**Measured** (`curl` through a local `vite preview` relay to lite-api.jup.ag, 2026-10-18): six quotes
+250 ms apart answered 200, 200, 200, 200, 200, 429, and the next one 3 s later was still 429. A
+production build walked with Playwright quoted five coins 1.1 s apart, then the first two quotes at
+the press failed even after a 2.5 s retry; the third, a few seconds later, passed. Before the fix, a
+coin whose Jupiter quote failed was shown as going to the other venue that did quote.
+
+**So:** a failed quote is "price not read", never a reason to route elsewhere. Space a burst about a
+second apart, and give the quote a trade is about to be sent on a longer backoff (2.5, 5, 10 s) than
+a figure on screen. The site's own relay also caps Jupiter at 60 calls a minute per visitor.
+
+## 2026-10-18: a fixed dialog inside an animated card is trapped under the page's fixed bars
+
+**Believed:** a `position: fixed` dialog with `z-index: 101` covers a top bar and a tab bar at
+`z-index: 50`, wherever it is rendered.
+
+**Measured** (Playwright, production build, 1280 px and 390 px, 2026-10-18): rendered inside the swap
+card, which framer-motion animates with a `transform`, the dialog was laid out against the card
+and stacked inside it. The top bar covered its title and close button and, on a phone, the tab bar
+covered its main button. Portalled to `document.body`, the same dialog covered both bars.
+
+**So:** a dialog opened from inside a card renders through `createPortal(…, document.body)`. Any
+ancestor with a transform, filter or `will-change` becomes the containing block and the stacking
+context of a fixed child.
+## 2026-10-18: a `?raw` import of a file outside `frontend/` is denied, and allowing the file does not fix it
+
+**Believed:** a file outside the Vite root can be imported as text with `?raw` once that file is
+listed in `server.fs.allow`.
+
+**Measured** (Vite 8.3, `frontend/`, 2026-10-18, building #878):
+`import t from '../../../CHANGELOG.md?raw'` fails with `Denied ID <path>?raw`, in vitest and in
+the dev server. Listing the file itself in `server.fs.allow` changed nothing. Vite's
+`isServerAccessDeniedForTransform` checks the id with and without its `?raw` query, and
+`isFileInTargetPath` matches the id that carries the query only against a directory entry. So
+only a directory (the repo root) clears it, and that lets the dev server serve every file in
+the repo.
+
+**Do:** read the file in a small plugin and hand its text over as a virtual module
+(`frontend/changelogFilesPlugin.ts`, #878: `load()` reads the two named files and exports their
+text; `vite.config.ts` and `vitest.config.ts` both register it). A virtual id starts with `\0`,
+so it skips the file-serving check. Keep the plugin in its own file and import it with its `.ts`
+extension: when `vitest.config.ts` imports `vite.config.ts`, Vite prints the
+`configLoader: 'native'` warning for `vite.config.ts`'s extensionless imports.
+
 ## 2026-10-18: a derived-address helper beside a mocked export is not mocked, and a recorded RPC answers only the exact key list it recorded
 
 **Believed:** giving the site a list of public fee tiers is a matter of looping over
@@ -2123,6 +3088,149 @@ card under the same hang gave up by itself after about 81 s, because viem's tran
 failure (an `AbortController` and a timer, cleared on answer and on unmount). Test it with a
 fetch that only ever ends by being aborted, under fake timers.
 
+## 2026-10-03: no Ethereum connect can ask a wallet for Solana, and a note saying so stops no one
+
+**Believed:** a wallet that holds both networks (Trust, MetaMask, Phantom), picked in the header's
+connect list, can be offered Solana as well; and where it cannot, a sentence on the page saying
+"the top Connect does not connect Solana" is enough.
+
+**Measured:** the owner picked Trust from the header on a Solana pool and Trust's approval sheet
+listed Ethereum, Robinhood Chain and Base: exactly wagmi's chains `[1, 4663, 8453]`. The proposal is
+`eip155` only by construction, not by configuration: `@wagmi/connectors` 8.2.0
+`walletConnect.js:8` has `const NAMESPACE = 'eip155'`, `@walletconnect/ethereum-provider` 2.25.0
+has `namespace = "eip155"` as a class field, and wagmi's `WalletConnectParameters` type removes
+`chains`, `methods` and `events` from what a caller may pass. The note had been live for two days
+(PR #681). The Solana connect button it pointed at sat 786px down on a 915px-tall Android page,
+1900px down on /pools and 2300px down on /curve-launch.
+
+**Do:** do not look for an option that adds Solana to an Ethereum connect; there is none short of
+replacing the connector. Make the button people already tap do the right thing for the page: on a
+Solana page it opens that page's Solana list, and elsewhere it asks which network first
+(`frontend/src/lib/solanaSurface.ts`, `components/layout/WalletSheet.tsx`). Jumper's "select an
+ecosystem" step and Uniswap's one chip listing both wallets are the same answer.
+
+---
+
+## 2026-10-03: a child's first effect runs before `WalletProvider` is listening
+
+**Believed:** a component under `@solana/wallet-adapter-react`'s `WalletProvider` may call
+`connect()` from its own mount effect, the way a click handler does.
+
+**Measured:** React runs a child's effects before its parent's, and `WalletProviderBase` attaches
+`adapter.on('connect', …)` and starts autoConnect in ITS effects. A wallet that awaits a popup
+emits `connect` later and nothing shows. A trusted Wallet Standard wallet with accounts already
+present (Trust's in-app browser after a first approval; any test fake that emits with no await)
+emits synchronously, before the listener exists. Result, with a fake that emits synchronously:
+`connectCalls === 1`, provider `publicKey === null`, and every later connect returns early on
+`wallet.adapter.connected`. Stuck until a reload. The same ordering makes the provider's first
+visible state `connecting: false` even when a restore is about to start one effect later.
+
+**Do:** never act on a queued or deferred connect in a mount effect under `WalletProvider`. Wait a
+render (gate on something only a later render can see; `SolanaSurfaceBridge` gates on its own
+report showing in an external store), and treat "not connecting" as unknown until then. A test fake
+must emit `connect` with no await to expose this; one that awaits hides it.
+
+---
+
+## 2026-10-03: `requestAnimationFrame` is not "after the close" when the close was asked for from an effect
+
+**Believed:** to hand over from one dialog to the next, close the first and open the second on the
+next animation frame; by then the first has released the page.
+
+**Measured:** `components/ui/Modal.tsx` locks `body` overflow in an effect and restores it in the
+cleanup. The Solana wallet list reads the COMPUTED overflow in a layout effect as it opens and
+writes that value back when it closes. A `setState` made inside a passive effect is rendered by a
+later Scheduler task, and nothing orders that task before a frame. When the frame came first, the
+list mounted in the same commit that closed the sheet, read `hidden` as the page's own state, and
+put `hidden` back on close: no scroll until a reload, focus on `<body>`. On the built app, first
+Solana connect from the home page: locked in 1 try of 10 at full CPU, 7 of 10 at 2x slowdown,
+10 of 10 at 4x. A close made in a click handler is flushed synchronously, so only the
+effect-driven path raced, and manual testing on a desktop never saw it. jsdom with `act()` hides
+it, and the e2e suite runs with reduced motion, which nearly does.
+
+**Do:** use no clock. Leave "what to open next" in a ref, close the first dialog, and open the
+next from a `useEffect` keyed on the first dialog's `open`. In the commit that closes it React runs
+every effect cleanup before any effect body, so the lock is released and focus handed back first.
+Pin it with the real second dialog in a unit test (`document.body.style.overflow === ''` and focus
+after it closes) and with `Emulation.setCPUThrottlingRate { rate: 4 }` over CDP in the e2e.
+
+---
+
+## 2026-10-03: `.then(ok, failed)` on a Vite `import()` never hears a failed stylesheet, and an in-place retry cannot work
+
+**Believed:** `import('./Chunk').then(use, onFail)` reports every way that load can fail, and a
+"tap to try again" that runs the import again will fetch it again.
+
+**Measured:** Vite compiles `import()` into a preload helper that also loads the chunk's CSS, and
+the helper is what rejects when a stylesheet fails. With `.then(ok, failed)` attached to the inner
+import, aborting `SolanaProviders-*.css` left the row on "Loading…" past the e2e's 8 s allowance,
+until the row's own 15 s limit; with `try { await import() } catch` the failure showed inside the
+8 s (e2e, both forms run). A
+browser does not refetch a failed chunk or stylesheet in the same tab, and after a deploy the old
+file name is gone, so retrying in place can only fail again. The e2e first passed on the broken
+form because the time limit eventually printed the same words.
+
+**Do:** await a dynamic import inside `try`, make the retry a page reload and say so, and give a
+"loading" state a limit. In the test, allow less time than the limit, or the limit passes it.
+
+---
+
+## 2026-10-03: `font-mono` is the device's own font, so Windows measures the narrowest case; simulate the widest with a width, not a font
+
+**Believed:** a header chip that fits at 360px here fits at 360px; and the widest device font can
+be simulated in Playwright by swapping the font family and adding a little letter-spacing.
+
+**Measured:** `.font-mono` resolves to the system stack, not the self-hosted face. Nine characters
+at 11.5px are 56.9px in Consolas (Windows), 62.1px in Liberation Mono (CI) and on Android, 64px in
+SF Mono (iPhone). The 360px header row has 0px to spare, so the chip that fit on Windows overflowed
+by 3px at the widest case, and by 1px at 800px. Then the simulation itself failed: with
+`font-family: "Courier New", "Liberation Mono"; letter-spacing: 0.02em` the same code measured
+over 0.615em per character in one CI run and 0.6001em in the next, three attempts running. Which
+font a name resolves to on a runner, and whether a quarter-pixel of spacing survives glyph
+rounding, is the runner's business.
+
+**Do:** sweep a width-critical element at the widest case, and set that case as a WIDTH:
+`span { display: block; flex: none; width: 5.58em }` for nine characters at 0.62em, checked with
+`toBeCloseTo(0.62, 2)` before the sweep is trusted. Nothing had swept a connected header at all;
+`e2e/topbar-solana-connect.spec.ts` does.
+
+---
+
+## 2026-10-03: the wallet adapter saves a wallet's name when its row is tapped, not when it connects
+
+**Believed:** `localStorage.walletName` set means a Solana wallet was connected here, so it is the
+thing to restore on.
+
+**Measured:** `WalletProvider` writes `walletName` in `select()`, before any connect, and clears it
+only on a connect error or a disconnect. On a phone the usual row is "Open app", which hands the
+page to the wallet's app and returns normally: the name stays saved in a browser where that wallet
+can never connect. A restore keyed on it downloaded `vendor-solana` (405 KB raw, about 105 KB
+compressed) plus the provider chunk on every page load, for nothing.
+
+**Do:** restore on a flag that only a real connection writes (set when an address is first
+reported, cleared when that same connection reports none), and require the saved name as well.
+
+---
+
+## 2026-10-03: gitleaks reads `const KEY = '<a Solana address>'` as a credential, and scans every commit of the pull request
+
+**Believed:** a made-up public address in a test cannot trip the secret scanner, and if it does,
+renaming the variable in a new commit clears it.
+
+**Measured:** `generic-api-key` needs a keyword (`key`, `token`, `secret`, `auth`, …) before the
+assignment plus an entropy of about 3.5 or more; `const KEY = 'Bq6j…'` scored 4.74 and failed
+"Scan for secrets" on PR #706. The action runs `git log -p <first commit>^..<head>`, so the line in
+the first commit still fails after a later commit renames it. Rewriting the branch is not available
+(a forced branch move is refused here). A `.gitleaksignore` line with the finding's fingerprint
+(`<commit>:<file>:<rule>:<line>`) clears exactly that one line of that one commit, and the new root
+file then failed `frontDoor.test.ts`, whose `ROOT_ALLOWLIST` names every entry tracked at the root.
+
+**Do:** never name test data `key`, `token` or `secret`. If a finding is already pushed, add its
+fingerprint to `.gitleaksignore`, rename the variable in the same commit, and do not widen
+`.gitleaks.toml`'s allowlist for a value that is not a real public id on trunk.
+
+---
+
 ## 2026-10-03: minted minus today's supply is what was burnt
 
 **Believed:** for a fixed-supply ERC-20, everything ever minted minus `totalSupply()` is the
@@ -3439,6 +4547,78 @@ against GitHub says nothing about the day the links fail over to GitLab.
 **Do:** check a source link's path against `git ls-files`, never against the host's status
 code. `frontend/src/test/sourceLinks.test.ts` does this for every literal path in the code
 and for every link the pages that link source render.
+
+---
+
+## 2026-09-26 — the "Treasury Safe" row in one chain's table is an address nobody controls on another chain
+
+**Believed:** the treasury Safe is the treasury everywhere, so one `VITE_SWAP_FEE_RECIPIENT`
+could serve every chain, and a checker that finds the var set has found it fine.
+
+**Measured:** production baked `0x796c22ff58F24e4a5d07683d8A5c03Ec54dB38C0`, the README's
+Base-section "Treasury Safe", as ParaSwap's `partnerAddress` on Ethereum quotes.
+`eth_getCode` returned 171 bytes (a SafeProxy) on Base and `0x` on Ethereum. ParaSwap's fee
+vault credits the partner address, and only that address can withdraw, so a mainnet credit
+there waits until someone deploys that Safe on mainnet. Nothing was lost, only because the
+venue never builds a ParaSwap transaction. `verify-env.mjs` reported the gate `OK`.
+
+The address is recoverable. An `eth_call` of `createProxyWithNonce` on the mainnet
+SafeProxyFactory, with the singleton, initializer and salt from the Base broadcast
+(`contracts/broadcast/DeployRoleSafes.s.sol/8453/run-latest.json`), returned exactly
+`0x796c22ff58F24e4a5d07683d8A5c03Ec54dB38C0`. The resulting Safe has the owners in the
+initializer, not any owners changed later on Base.
+
+**Do:** treat a Safe address as a (chain, address) pair. Accept a money recipient only if
+it is the registry's entry for the chain the money moves on, and fail closed otherwise
+(`lib/fees/swapFee.ts` does this now). Where a var's hazard is a wrong value, a presence
+check is not a check: compare the value too, and never echo it.
+
+---
+
+## 2026-09-25 — a differential test against a generated fixture proves the port matches the program as it was, not as it is
+
+**Believed:** `math.test.ts` replays 3,815 rows produced by compiling the real `curve.rs`, so
+while it is green the TypeScript port quotes what the program executes.
+
+**Measured:** the fixture was generated on 2026-08-01 at `3cc2b0ba`. On 2026-08-18,
+`b990f8b2` made `quote_sell` refuse a sell whose whole proceeds go to the fee
+(`ZeroAmount`) and added a `ShareTooHigh` variant to `CurveError`. The port never got the
+check, and CI stayed green for 38 days: it replays the committed rows and never regenerates
+them. The generator's exhaustive `match` on `CurveError` had also stopped compiling, so the
+tool that would have shown the drift could not run. Rebuilt and rerun on 2026-09-25, it
+changed 6 of 820 `quoteSell` rows from `['1','1','0']` to `'ZeroAmount'`. On the trade page
+that was "You receive 0 SOL" for a sell the program rejects.
+
+**Do:** read a green differential as "matches the fixture". When the source of truth
+changes, regenerate before trusting it, and make the generator's build part of the gate
+that runs the program's own tests.
+
+---
+
+## 2026-09-25 — MetaMask's "Malicious" pill is a stored domain label, not a reading of the site
+
+**Believed:** if MetaMask calls a dapp malicious, it is reacting to something the site does
+(a signature on load, an unlimited approval, a scam list someone put it on), so the fix is in
+the code or on a public blocklist.
+
+**Measured:** the red "Malicious — flagged as unsafe" pill on MetaMask's connect screen is
+drawn when `GET https://dapp-scanning.api.cx.metamask.io/v2/scan?url=<host>` answers
+`recommendedAction` `BLOCK` or `WARN` (extension v13.50.0, `multichain-accounts-connect-page.tsx`
+~525-684). The unversioned `/scan?url=<host>` gives the reason: for memetics.finance and
+memetic.fun it was `DRAINER / CRITICAL / "Domain identified as a wallet drainer."` The label
+covered the whole domain: a made-up subdomain that does not resolve in DNS came back `BLOCK`,
+and memetic.fun stayed `BLOCK` while serving a page with no wallet code at all. Neither domain was
+on eth-phishing-detect, MetaMask's stalelist or hotlist, ChainPatrol, ScamSniffer, Phantom's list,
+GoPlus or Google Safe Browsing. An instrumented wallet across 27 routes saw only EIP-6963 discovery
+and a silent `eth_accounts` on load. Separately, every obscure `*.vercel.app` host tested came back
+`BLOCK` by default, including live sites and our own deployment URL, while popular ones were `NONE`.
+The wallet caches a verdict for one minute (`DEFAULT_URL_SCAN_CACHE_TTL`, phishing-controller).
+
+**Do:** check the verdict with `curl` before touching code; the full-page "Deceptive site" block is
+a different mechanism (the eth-phishing-detect lists), and so is its dispute. Clearing the pill
+takes a vendor dispute (Blockaid's project verification), and asking to be allowlisted rather than
+just cleared. Never send users to a hostname, alias or preview URL until `v2/scan` answers `NONE`
+for it. `scripts/monitoring/walletReputationWatch.mjs` asks MetaMask what it asks, hourly.
 
 ---
 

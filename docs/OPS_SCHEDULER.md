@@ -5,8 +5,9 @@ owner's steps live in [TODO_OPERATOR.md](TODO_OPERATOR.md).
 
 ## The short version
 
-- **GitHub Actions runs the scheduled jobs, day to day.** That is ten scheduled workflows
-  (the monitors, the weekly Supabase backup, the hourly 30-day delete of error reports, CodeQL,
+- **GitHub Actions runs the scheduled jobs, day to day.** That is eleven scheduled workflows
+  (the monitors, the weekly Supabase backup, the hourly 30-day delete of error reports, the
+  hourly volume count, CodeQL,
   contract coverage, and the daily full copy to the GitLab standby) plus Dependabot. Nothing
   here replaces them.
 - **In September 2026 those schedules stopped for more than five days, and nothing told
@@ -28,7 +29,7 @@ owner's steps live in [TODO_OPERATOR.md](TODO_OPERATOR.md).
 |---|---|---|---|
 | `synthetic-monitor.yml` | GitHub | every 30 minutes | a `prod-incident` GitHub issue |
 | its last step, the heartbeat | GitHub | every 30 minutes | the `github-crons` check, when the pings stop |
-| the other scheduled workflows: arb linkage, revenue watch, registry, npm advisories, Supabase backup, error retention, CodeQL, contract coverage | GitHub | as each workflow says | GitHub's own notices |
+| the other scheduled workflows: arb linkage, revenue watch, registry, npm advisories, Supabase backup, error retention, venue volume, CodeQL, contract coverage | GitHub | as each workflow says | GitHub's own notices |
 | `mirror-to-gitlab.yml`, the daily full copy to the standby | GitHub | daily, 06:41 UTC | the `gitlab-standby` check (`docs/GIT_HOSTING.md` 2E) |
 | `backup-pull` | this PC (Task Scheduler) | weekly, Wednesday 12:53 local | the `backup-pull` check |
 | `git-vault-backup`, the daily git bundles | this PC (Task Scheduler) | daily, 03:30 local | the `git-vault-backup` check (`docs/GIT_HOSTING.md` 2G) |
@@ -409,6 +410,7 @@ before it is printed or pinged. Section 3 says what this does not protect agains
 - **Each task's time limit** is longer than its job's own timeouts plus the pings, so a slow run
   is reported by the runner instead of being killed silently by Task Scheduler.
 - **`error-retention` has no failover job.** Off GitHub, `/api/errors` still deletes reports
-  older than 30 days after it stores one (at most once an hour per server instance), but not
-  while no report arrives. In a failover longer than a day, run it by hand from the repo root
-  with `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` set: `node frontend/scripts/purge-error-events.mjs`.
+  older than 30 days after it stores one, and `/api/analytics` deletes events older than 90 days
+  after it stores a batch (each at most once an hour per server instance), but not while nothing
+  arrives. In a failover longer than a day, run it by hand from the repo root with
+  `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` set: `node frontend/scripts/purge-expired-events.mjs`.

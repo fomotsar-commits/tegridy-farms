@@ -20,6 +20,8 @@ import { fakeRpc, key, mintBytes, tokenAccountBytes, type FakeAccount } from '..
 import { TOKEN_2022_PROGRAM, TOKEN_PROGRAM } from '../../../lib/solana/lp/tokenSafety';
 import { readWalletFacts } from '../../../lib/solana/lp/walletFacts';
 import { browserLpReaders, walletArgs } from './readers';
+import { RANGE_PROGRAM_ADDRESS } from '../../../lib/solana/clmm/programId';
+import { PROGRAM_ID as LAUNCH_PROGRAM_ID } from '../../../lib/launcher/solana/curve/program';
 
 // The reads themselves are stubbed: only what the browser readers HAND them is under test.
 vi.mock('../../../lib/solana/lp/poolFinder', async (importOriginal) => {
@@ -84,6 +86,14 @@ describe('browserLpReaders: every read goes through a fetch that ends, named for
     const posOpts = vi.mocked(readPositions).mock.calls[0]?.[2];
     expect(posOpts?.limit).toBe(3);
     expect(await after20s(posOpts?.fetchImpl)).toBe('the pool index did not answer in 20 seconds');
+  });
+
+  it('outsidePrice refuses a price through ANY pool of ours: constant-product, range and launch', async () => {
+    const readers = browserLpReaders()!;
+    await readers.outsidePrice(key().toBase58(), 6);
+    const guard = vi.mocked(readOutsidePrice).mock.calls.at(-1)?.[2];
+    const ids = typeof guard?.programId === 'string' ? [guard.programId] : [...(guard?.programId ?? [])];
+    expect(ids).toEqual(expect.arrayContaining([readers.programId, RANGE_PROGRAM_ADDRESS, LAUNCH_PROGRAM_ID.toBase58()]));
   });
 
   it('outsidePrice gets Jupiter’s fetch: "Jupiter did not answer in 20 seconds"', async () => {

@@ -85,8 +85,8 @@ export function Rates({ read, jupiterFee = BUILD_JUPITER_FEE }: { read: FeeTierR
                 {openLine(publicTiers, read.openingDeposits)}
               </p>
             )}
-            {/* Venue money going to a wallet other than the team's shared one is said in plain
-                sight, in bold (owner, 2026-10-10). The usual case keeps the wallet one press away. */}
+            {/* A cut that is anything but the agreed split (wallets or rates) is said in plain
+                sight, in bold (owner, 2026-10-10). The agreed split keeps its wallets one press away. */}
             {venue.elsewhere && (
               <div data-testid="lp-venue-elsewhere" className="space-y-1">
                 <p className="text-amber-200 text-[12px]"><strong>{venue.where}</strong></p>

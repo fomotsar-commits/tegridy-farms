@@ -464,6 +464,7 @@ export function addPool(
   o: {
     sol: bigint;
     tokens: bigint;
+    /** Default 1,000,000,000; a launch pool's, isqrt(sol x tokens), as the pool program opens it. */
     lpSupply?: bigint;
     status?: number;
     openTime?: bigint;
@@ -502,6 +503,7 @@ export function addPool(
   const lpMint = deriveLpMint(CPSWAP, address);
   const observation = deriveObservation(CPSWAP, address);
   const off = POOL_STATE_OFFSETS;
+  const lpSupply = o.lpSupply ?? (o.launch ? isqrt(o.sol * o.tokens) : 1_000_000_000n);
   const d = new Uint8Array(POOL_STATE_LEN);
   d.set(ACCOUNT_POOL_STATE, 0);
   const r = o.record ?? {};
@@ -523,7 +525,7 @@ export function addPool(
   const dec = o.tokenDecimals ?? 6;
   d[off.mint0Decimals] = quoteIsToken0 ? quote.decimals : dec;
   d[off.mint1Decimals] = quoteIsToken0 ? dec : quote.decimals;
-  d.set(u64le(o.lpSupply ?? 1_000_000_000n), off.lpSupply);
+  d.set(u64le(lpSupply), off.lpSupply);
   d.set(u64le(o.openTime ?? 0n), off.openTime);
   if (o.enableCreatorFee) {
     d[off.creatorFeeOn] = quoteIsToken0 ? CREATOR_FEE_ON_TOKEN_0 : CREATOR_FEE_ON_TOKEN_1;
@@ -538,7 +540,7 @@ export function addPool(
   const vaultOpts = { state: o.frozenTokenVault ? (2 as const) : (1 as const) };
   if (tokenProgram.equals(TOKEN_2022_PROGRAM_ID)) chain.token2022Account(tokenVault, mint, authority, o.tokens, vaultOpts);
   else chain.tokenAccount(tokenVault, mint, authority, o.tokens, vaultOpts);
-  chain.mint(lpMint, { decimals: 9, mintAuthority: authority, supply: o.lpSupply ?? 1_000_000_000n });
+  chain.mint(lpMint, { decimals: 9, mintAuthority: authority, supply: lpSupply });
   if (o.launch) {
     // A never-traded price record: initialized 0, naming this pool.
     const obs = new Uint8Array(4075);

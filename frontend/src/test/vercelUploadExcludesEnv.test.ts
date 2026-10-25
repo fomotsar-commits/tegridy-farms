@@ -1,5 +1,6 @@
 // A manual `vercel --prod` from the repo root uploads whatever `.vercelignore` does not
-// exclude. This pins that no env file can ride along in that upload.
+// exclude. This pins that no env file can ride along in that upload, and that the files the
+// build reads from outside frontend/ do.
 //
 // WHY THIS IS NOT PARANOIA. `.vercelignore` opens with `*` and then re-includes the whole
 // frontend tree with `!frontend` / `!frontend/**`. Under last-match-wins semantics that
@@ -16,9 +17,10 @@
 // `frontend/.env*` as `frontend/.env**` or as an equivalent set of lines keeps it green;
 // narrowing it back to a list of specific names does not.
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { dirname, join, posix } from 'node:path';
+import { CHANGELOG_FILES } from '../../changelogFilesPlugin';
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const IGNORE_FILE = join(REPO_ROOT, '.vercelignore');
@@ -28,8 +30,10 @@ type Rule = { negated: boolean; re: RegExp };
 /**
  * One .vercelignore/.gitignore pattern as a matcher.
  *
- * `*` matches within a path segment, `**` across segments, and a pattern with no wildcard
- * matches that path or anything beneath it (so `frontend/node_modules` covers its contents).
+ * `*` matches within a path segment and `**` across segments. As in git, a pattern with no
+ * `/` matches a name at any depth (`*` is every file and folder; `!docs` is the folder only,
+ * not what is in it), and one with a `/` is anchored at the repo root. What sits beneath an
+ * excluded folder is handled by isExcluded's folder rule, not here.
  */
 function compile(pattern: string): Rule {
   const negated = pattern.startsWith('!');
@@ -42,15 +46,24 @@ function compile(pattern: string): Rule {
     .split('**')
     .map((piece) => piece.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '[^/]*'))
     .join('.*');
-  // Anchored, and a bare path also matches everything under it.
-  return { negated, re: new RegExp(`^${escaped}(?:/.*)?$`) };
+  return { negated, re: body.includes('/') ? new RegExp(`^${escaped}$`) : new RegExp(`(?:^|/)${escaped}$`) };
 }
 
-/** Is `path` excluded from the upload? Last matching rule wins, as git and Vercel do it. */
-function isExcluded(path: string, rules: Rule[]): boolean {
+/** Last matching rule wins, as git and Vercel do it. */
+function lastMatchExcludes(path: string, rules: Rule[]): boolean {
   let excluded = false;
   for (const r of rules) if (r.re.test(path)) excluded = !r.negated;
   return excluded;
+}
+
+/** Is `path` excluded from the upload? As in git, a file whose folder (or any folder above it)
+ *  is excluded stays excluded, whatever a later `!` line says about the file itself. */
+function isExcluded(path: string, rules: Rule[]): boolean {
+  const parts = path.split('/');
+  for (let i = 1; i < parts.length; i++) {
+    if (lastMatchExcludes(parts.slice(0, i).join('/'), rules)) return true;
+  }
+  return lastMatchExcludes(path, rules);
 }
 
 const rules = (): Rule[] =>
@@ -103,5 +116,33 @@ describe('a repo-root vercel deploy uploads no env file', () => {
     expect(isExcluded('frontend/.env.production', rs)).toBe(true);
     expect(isExcluded('frontend/src/main.tsx', rs)).toBe(false);
     expect(isExcluded('contracts/foundry.toml', rs)).toBe(true);
+    // git's folder rule: a file cannot come back while its folder stays out...
+    expect(isExcluded('docs/a.md', [compile('*'), compile('!docs/a.md')])).toBe(true);
+    // ...and bringing the folder back brings back only what is named in it.
+    const docs = [compile('*'), compile('!docs'), compile('!docs/a.md')];
+    expect(isExcluded('docs/a.md', docs)).toBe(false);
+    expect(isExcluded('docs/b.md', docs)).toBe(true);
+  });
+});
+
+describe('a deploy uploads every file the build reads from outside frontend/', () => {
+  // From #878 (2026-10-19) the build reads CHANGELOG.md and docs/CHANGELOG_EARLIER.md from the
+  // repo root. .vercelignore uploaded only frontend/, so every production build failed with
+  // ENOENT /vercel/path0/CHANGELOG.md and the live site stayed on the build before it.
+  it('uploads the changelog files the Changelog page is built from', () => {
+    const rs = rules();
+    const needed = Object.values(CHANGELOG_FILES).map((f) => posix.normalize(`frontend/${f}`));
+    expect(needed).toEqual(['CHANGELOG.md', 'docs/CHANGELOG_EARLIER.md']);
+    for (const f of needed) {
+      expect(existsSync(join(REPO_ROOT, f)), `${f} exists`).toBe(true);
+      expect(isExcluded(f, rs), `${f} is uploaded`).toBe(false);
+    }
+  });
+
+  it('brings back only those two, not the rest of the repo root or docs/', () => {
+    const rs = rules();
+    for (const left of ['README.md', 'NOTES.md', 'docs/TODO_OPERATOR.md', 'contracts/foundry.toml']) {
+      expect(isExcluded(left, rs), left).toBe(true);
+    }
   });
 });

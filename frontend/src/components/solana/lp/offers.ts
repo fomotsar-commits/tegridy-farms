@@ -321,14 +321,14 @@ export function createAdvice(a: {
 /**
  * Did a pool's price check end in a warning: its price is more than 3% off its reference,
  * or it was compared with nothing (Jupiter has no price for the token or for the pool's
- * pairing coin, `no-market`; or a launch pool with no route has traded for too short a
- * time for its own average to count, `too-new`)? A deposit there may lose money to the
- * price alone, so an Add wish that names no pool passes such a pool over while another
- * offers adding (PoolFinder `addTo`).
+ * pairing coin, `no-market`; or a launch pool with no route whose own record proves
+ * nothing: too short, `too-new`; moved without a trade, `reserves-moved`; too quiet,
+ * `too-quiet`)? A deposit there may lose money to the price alone, so an Add wish that
+ * names no pool passes such a pool over while another offers adding (PoolFinder `addTo`).
  */
 export function priceWarned(health: PoolHealth | undefined): boolean {
   const state = health?.price.state;
-  return state === 'disagrees' || state === 'no-market' || state === 'too-new';
+  return state === 'disagrees' || state === 'no-market' || state === 'too-new' || state === 'reserves-moved' || state === 'too-quiet';
 }
 
 /**

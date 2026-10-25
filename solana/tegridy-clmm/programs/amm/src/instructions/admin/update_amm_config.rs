@@ -60,7 +60,7 @@ fn update_protocol_fee_rate(
 ) -> Result<()> {
     require_gte!(FEE_RATE_DENOMINATOR_VALUE, protocol_fee_rate);
     require_gte!(
-        FEE_RATE_DENOMINATOR_VALUE,
+        MAX_PROTOCOL_AND_FUND_FEE_RATE,
         protocol_fee_rate + amm_config.fund_fee_rate
     );
     amm_config.protocol_fee_rate = protocol_fee_rate;
@@ -68,7 +68,7 @@ fn update_protocol_fee_rate(
 }
 
 fn update_trade_fee_rate(amm_config: &mut Account<AmmConfig>, trade_fee_rate: u32) -> Result<()> {
-    require_gt!(FEE_RATE_DENOMINATOR_VALUE, trade_fee_rate);
+    require_gte!(MAX_FEE_RATE_NUMERATOR, trade_fee_rate);
     amm_config.trade_fee_rate = trade_fee_rate;
     Ok(())
 }
@@ -76,7 +76,7 @@ fn update_trade_fee_rate(amm_config: &mut Account<AmmConfig>, trade_fee_rate: u3
 fn update_fund_fee_rate(amm_config: &mut Account<AmmConfig>, fund_fee_rate: u32) -> Result<()> {
     require_gte!(FEE_RATE_DENOMINATOR_VALUE, fund_fee_rate);
     require_gte!(
-        FEE_RATE_DENOMINATOR_VALUE,
+        MAX_PROTOCOL_AND_FUND_FEE_RATE,
         fund_fee_rate + amm_config.protocol_fee_rate
     );
     amm_config.fund_fee_rate = fund_fee_rate;

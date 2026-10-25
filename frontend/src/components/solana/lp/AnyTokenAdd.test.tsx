@@ -231,8 +231,8 @@ describe.each(CASES)('a %s pool whose price is 10%% above the outside price', (s
     // Allowed: no lead-in that sets the warnings apart from a refusal.
     expect(deposits).not.toHaveTextContent('apart from that');
     // The price rows are in the pool's own coin, and the difference says which side of the line it is.
-    expect(cardRow(c, 'Price here')).toBe(`1 token = 0.01 ${symbol}`);
-    expect(cardRow(c, 'Outside price (Jupiter)')).toBe(`1 token = 0.009091 ${symbol}`);
+    expect(cardRow(c, 'Price here')).toBe(`1 CORN = 0.01 ${symbol}`);
+    expect(cardRow(c, 'Outside price (Jupiter)')).toBe(`1 CORN = 0.009091 ${symbol}`);
     expect(cardRow(c, 'Difference')).toBe('10.0% above the outside price');
     expect(within(c).getByRole('button', { name: 'Add liquidity' })).toBeEnabled();
   });
@@ -327,7 +327,7 @@ describe.each([
     expect(within(c).getByText('Deposits: the checks pass, with warnings')).toBeInTheDocument();
     expect(within(c).getByTestId('lp-pool-warnings')).toHaveTextContent(NO_MARKET);
     // Read, not unread: the price is there, in the pool's coin, and nothing is called "not checked".
-    expect(cardRow(c, 'Price here')).toBe(`1 token = 0.01 ${symbol}`);
+    expect(cardRow(c, 'Price here')).toBe(`1 CORN = 0.01 ${symbol}`);
     expect(cardRow(c, 'Checked against')).toBe('Nothing: Jupiter has no market price for this token');
     expect(c).not.toHaveTextContent('Deposits: not checked');
     expect(c).not.toHaveTextContent('could not be run');
@@ -360,7 +360,7 @@ describe.each([
     expect(c).toHaveAttribute('data-price', 'no-market');
     expect(within(c).getByText('Deposits: the checks pass, with warnings')).toHaveClass('text-amber-300/90');
     expect(within(c).getByTestId('lp-pool-warnings')).toHaveTextContent(NO_COIN_PRICE);
-    expect(cardRow(c, 'Price here')).toBe(`1 token = 0.01 ${symbol}`);
+    expect(cardRow(c, 'Price here')).toBe(`1 CORN = 0.01 ${symbol}`);
     expect(cardRow(c, 'Checked against')).toBe(`Nothing: Jupiter has no price for ${symbol} right now`);
     // The token HAS a price. Nothing on the card says it has none, and nothing says "not checked".
     expect(c).not.toHaveTextContent(/no market price for this token|no route for this token/);
@@ -394,12 +394,12 @@ describe.each([
 });
 
 // Owner ruling 2026-10-07: a brand-new launch pool takes deposits. Jupiter has no route for
-// its token, and its own price record is under 10 minutes long, so its price was checked
+// its token, and its own price record is under 24 minutes long, so its price was checked
 // against nothing: a warning on the card, on the form, and Review is on. It was "not
 // checked" with no Add button before.
-describe('a launch pool Jupiter has no route for, with under 10 minutes of trading', () => {
+describe('a launch pool Jupiter has no route for, with under 24 minutes of trading', () => {
   const TOO_NEW =
-    'This pool has traded for under 10 minutes and Jupiter has no price for this token, so its price was checked against nothing. If someone has just pushed it, a deposit now pays for that.';
+    'This pool has traded for under 24 minutes and Jupiter has no price for this token, so its price was checked against nothing. If someone has just pushed it, a deposit now pays for that.';
   /** A price record whose first trade was `age` seconds before the search's clock (1,000). */
   const record = (v: PoolView, age: bigint): PoolView['history'] => ({
     kind: 'ok',
@@ -419,8 +419,8 @@ describe('a launch pool Jupiter has no route for, with under 10 minutes of tradi
     expect(within(c).getByText('Deposits: the checks pass, with warnings')).toHaveClass('text-amber-300/90');
     expect(within(c).queryByText('Deposits: the checks pass')).toBeNull();
     expect(within(c).getByTestId('lp-pool-warnings')).toHaveTextContent(TOO_NEW);
-    expect(cardRow(c, 'Price here')).toBe('1 token = 0.01 SOL');
-    expect(cardRow(c, 'Checked against')).toBe('Nothing: this pool has traded for under 10 minutes and Jupiter has no price for this token');
+    expect(cardRow(c, 'Price here')).toBe('1 CORN = 0.01 SOL');
+    expect(cardRow(c, 'Checked against')).toBe('Nothing: this pool has traded for under 24 minutes and Jupiter has no price for this token');
     expect(c).not.toHaveTextContent('Deposits: not checked');
     expect(c).not.toHaveTextContent('could not be run');
     // A SOL pool says what it is paired with, like every other pool (owner ruling 2026-10-07).
@@ -449,6 +449,40 @@ describe('a launch pool Jupiter has no route for, with under 10 minutes of tradi
     expect(within(c).queryByTestId('lp-pool-warnings')).toBeNull();
     expect(within(c).queryByRole('button', { name: 'Add liquidity' })).toBeNull();
   });
+});
+
+// M-1009-6: the deposit check of closed #737, rebuilt to warn. A launch pool nobody has
+// traded that holds more than its shares account for: someone may have moved its price by
+// sending tokens straight into it. It read "the checks pass", with nothing to warn of.
+describe('a launch pool Jupiter has no route for, topped up by a plain transfer before anyone traded', () => {
+  const RESERVES_MOVED =
+    'Nobody has traded in this pool, yet it holds more than its shares account for, and Jupiter has no price for this token. Someone may have moved its price by sending tokens or SOL straight into it; if so, a deposit now pays for that.';
+  /** Opened at 10 SOL and 500 tokens (isqrt(10e9 x 500e6) shares); 500 more tokens were then sent straight into its vault. */
+  const toppedUp = (): PoolView => {
+    const v = view(SOL_QUOTE, { origin: 'launch-pool' });
+    const history: PoolView['history'] = { kind: 'ok', obs: decodeObservationState(observationBytes({ pool: new PublicKey(v.address), initialized: false }))! };
+    return { ...v, history, snapshot: { ...v.snapshot, pool: { ...v.snapshot.pool, lpSupply: 2_236_067_977n } } };
+  };
+
+  it('is open with a warning: the card says what its price was not checked against, and the form says the warning above Review', async () => {
+    const api = mount(readers(toppedUp(), { token: NO_ROUTE }));
+    const c = await cardWith('offer');
+    expect(c).toHaveAttribute('data-deposits', 'allowed');
+    expect(c).toHaveAttribute('data-price', 'reserves-moved');
+    expect(within(c).getByText('Deposits: the checks pass, with warnings')).toHaveClass('text-amber-300/90');
+    expect(within(c).getByTestId('lp-pool-warnings')).toHaveTextContent(RESERVES_MOVED);
+    expect(cardRow(c, 'Price here')).toBe('1 CORN = 0.01 SOL');
+    expect(cardRow(c, 'Checked against')).toBe('Nothing: nobody has traded in this pool, yet it holds more than its shares account for, and Jupiter has no price for this token');
+
+    const { type, review, said } = await openAdd(c, SOL_QUOTE);
+    type('1');
+    expect(said()).toEqual([RESERVES_MOVED]);
+    expect(review()).toBeEnabled();
+    await act(async () => {
+      fireEvent.click(review());
+    });
+    expect(api.prepareLpDeposit).toHaveBeenCalledTimes(1);
+  }, 20_000);
 });
 
 describe('a USDC pool 10% off the market whose token is a freezable copy', () => {
@@ -483,7 +517,7 @@ describe('a USDC pool 10% off the market whose token is a freezable copy', () =>
     const onCard = Array.from(within(c).getByTestId('lp-pool-warnings').querySelectorAll('p')).map((p) => p.textContent);
     expect(onCard).toEqual([copy, freeze, gap]);
     expect(cardRow(c, 'Paired with')).toBe('USDC');
-    expect(cardRow(c, 'Outside price (Jupiter)')).toBe('1 token = 0.009091 USDC');
+    expect(cardRow(c, 'Outside price (Jupiter)')).toBe('1 fake USDC = 0.009091 USDC');
     expect(c).not.toHaveTextContent(/does not take deposits|blocked on this site|does not add to pools|refused/);
 
     // The form: the token's own two sentences at the top, then the pool's three and the cost, above Review.
@@ -580,7 +614,7 @@ describe('a launch pool whose price is off its own average', () => {
     );
     const c = await cardWith('offer');
     expect(within(c).getByText('Deposits: the checks pass, with warnings')).toBeInTheDocument();
-    expect(cardRow(c, 'Its own average, last 30 minutes')).toBe('1 token = 0.008 SOL');
+    expect(cardRow(c, 'Its own average, last 30 minutes')).toBe('1 CORN = 0.008 SOL');
     expect(cardRow(c, 'Difference')).toBe('25.0% above its own average');
     const { type, said } = await openAdd(c, SOL_QUOTE);
     type('1');
@@ -625,7 +659,7 @@ describe('a pool anyone could open whose price is off the launch pool’s', () =
     );
     const c = await cardWith('offer');
     expect(within(c).getByText('Deposits: the checks pass, with warnings')).toBeInTheDocument();
-    expect(cardRow(c, 'The launch pool’s price')).toBe('1 token = 0.008 SOL');
+    expect(cardRow(c, 'The launch pool’s price')).toBe('1 CORN = 0.008 SOL');
     expect(cardRow(c, 'Difference')).toBe('25.0% above the launch pool’s price');
     // Not one of the other references' labels.
     expect(c).not.toHaveTextContent(/Outside price \(Jupiter\)|Its own average/);

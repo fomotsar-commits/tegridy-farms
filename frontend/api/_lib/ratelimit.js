@@ -136,10 +136,32 @@ export function extractIp(req) {
 }
 
 /**
+ * The bucket an address is counted in: an IPv4 address itself, an IPv6 address by its /64
+ * (the block one subscriber or one VM is handed, so stepping through its 2^64 addresses is
+ * still one caller). IPv4 written as IPv6 (`::ffff:a.b.c.d`) is the IPv4 address. Anything
+ * that does not parse is counted as it is.
+ */
+export function ipBucket(ip) {
+  const s = String(ip).trim().split('%')[0].toLowerCase();
+  if (!s.includes(':')) return s;
+  const v4 = s.match(/^(?:::|(?:0{1,4}:){5})ffff:(\d{1,3}(?:\.\d{1,3}){3})$/);
+  if (v4) return v4[1];
+  const halves = s.split('::');
+  if (halves.length > 2) return s;
+  const head = halves[0] ? halves[0].split(':') : [];
+  const tail = halves.length === 2 && halves[1] ? halves[1].split(':') : [];
+  const fill = halves.length === 2 ? 8 - head.length - tail.length : 0;
+  if (fill < 0 || (halves.length === 2 && fill === 0)) return s;
+  const groups = [...head, ...Array(fill).fill('0'), ...tail];
+  if (groups.length !== 8 || !groups.every((g) => /^[0-9a-f]{1,4}$/.test(g))) return s;
+  return `${groups.slice(0, 4).map((g) => g.replace(/^0+(?=.)/, '')).join(':')}::/64`;
+}
+
+/**
  * AUDIT R051 M: build a rate-limit key, preferring verified wallet over IP.
  *
  * - With wallet  → `wallet:0x<addr>` (lowercased).
- * - Without      → `ip:<extracted-ip>`.
+ * - Without      → `ip:<extracted-ip>`, an IPv6 address by its /64 (`ipBucket`).
  *
  * Distinct namespace prefixes prevent any cross-namespace collision (an IP
  * literally `0x...` won't match a wallet bucket).
@@ -151,7 +173,7 @@ export function buildRateLimitKey(req, walletAddress) {
   if (walletAddress && typeof walletAddress === 'string' && walletAddress.length > 0) {
     return `wallet:${walletAddress.toLowerCase()}`;
   }
-  return `ip:${extractIp(req)}`;
+  return `ip:${ipBucket(extractIp(req))}`;
 }
 
 // ── Degraded-mode fallback (2026-06-09) ─────────────────────────────────

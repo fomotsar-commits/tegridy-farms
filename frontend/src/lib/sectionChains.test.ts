@@ -16,9 +16,9 @@ import {
   venueChainOfEvm,
 } from './sectionChains';
 
-describe('the four networks', () => {
-  it('are Ethereum, Base, Robinhood Chain and Solana, named as the registry names them', () => {
-    expect(VENUE_CHAINS.map((c) => c.name)).toEqual(['Ethereum', 'Base', 'Robinhood Chain', 'Solana']);
+describe('the five networks', () => {
+  it('are Ethereum, Base, Robinhood Chain, Solana and Cardano, named as the registry names them', () => {
+    expect(VENUE_CHAINS.map((c) => c.name)).toEqual(['Ethereum', 'Base', 'Robinhood Chain', 'Solana', 'Cardano']);
     for (const c of VENUE_CHAINS) {
       if (c.evmChainId !== null) expect(getChainConfig(c.evmChainId)?.name).toBe(c.name);
     }

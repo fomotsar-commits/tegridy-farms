@@ -48,6 +48,13 @@
       ]
     },
     {
+      "source": "/position/(.*)",
+      "headers": [
+        { "key": "Cross-Origin-Resource-Policy", "value": "cross-origin" },
+        { "key": "X-Robots-Tag", "value": "noindex" }
+      ]
+    },
+    {
       "source": "/",
       "headers": [
         { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }
@@ -73,6 +80,12 @@
       "source": "/art/(.*)",
       "headers": [
         { "key": "Cache-Control", "value": "public, max-age=604800" }
+      ]
+    },
+    {
+      "source": "/art/pool-party.jpg",
+      "headers": [
+        { "key": "Cross-Origin-Resource-Policy", "value": "cross-origin" }
       ]
     },
     {
@@ -175,8 +188,11 @@
     { "source": "/api/swapapi/:path*", "destination": "/api/aggregator?provider=swapapi&p=:path*" },
     { "source": "/api/jupiter/:path*", "destination": "/api/aggregator?provider=jupiter&p=:path*" },
     { "source": "/api/pools", "destination": "/api/aggregator?resource=pools" },
+    { "source": "/api/cardano/:op", "destination": "/api/cardano?op=:op" },
     { "source": "/record/:chain/:ca.json", "destination": "/api/aggregator?resource=record&chain=:chain&ca=:ca" },
     { "source": "/record/:path*", "destination": "/api/aggregator?resource=record&path=:path*" },
+    { "source": "/position/:id.json", "destination": "/api/aggregator?resource=position&id=:id" },
+    { "source": "/position/:path*", "destination": "/api/aggregator?resource=position&path=:path*" },
     { "source": "/mint/(.*)", "destination": "/mint/default.json" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }
   ]

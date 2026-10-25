@@ -21,7 +21,7 @@
 // floor is 0, rather than presenting an unarmed green check as coverage.
 
 import { describe, it, expect } from 'vitest';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -93,5 +93,66 @@ describe('the workflow discloses when the ratchet is not armed', () => {
 
   it('still hard-fails when the floor file is absent', () => {
     expect(source()).toMatch(/Coverage floor not armed/);
+  });
+});
+
+// One `forge coverage` over the whole suite compiles ~480 files under --ir-minimum and is
+// killed at about 15 GB on a 16 GB runner (2026-10-19, with the Yul stack-too-deep in
+// TegridyTokenURIReader.sol fixed by leaving it out). The workflow therefore runs one job
+// per test slice and merges. Each pin below is a way that arrangement goes quietly wrong.
+describe('the coverage workflow measures slice by slice and refuses a partial number', () => {
+  // Comment lines are not code: a pin must not pass on a sentence that mentions the thing.
+  const code = () =>
+    readFileSync(WORKFLOW_PATH, 'utf-8')
+      .split(/\r?\n/)
+      .filter((l) => !/^\s*#/.test(l))
+      .join('\n');
+
+  it('builds its matrix from the test-slice manifest, the one list contracts-ci.yml also runs', () => {
+    expect(code()).toMatch(/check-test-slice-coverage\.mjs --emit-matrix/);
+    expect(code()).toMatch(/matrix:\s*\$\{\{\s*fromJSON\(needs\.slices\.outputs\.matrix\)\s*\}\}/);
+  });
+
+  it('compiles only its own slice: every other test file is --skipped', () => {
+    // Without the skip, `forge coverage` compiles every test file whatever --match-path says,
+    // which is the run that was killed for memory.
+    expect(code()).toMatch(/check-test-slice-coverage\.mjs --expect "\$SLICE"/);
+    expect(code()).toMatch(/comm -23 \/tmp\/all\.txt \/tmp\/keep\.txt/);
+    expect(code()).toMatch(/SKIPS\+=\(--skip "\$f"\)/);
+  });
+
+  it('keeps --ir-minimum and leaves the scripts out of the compile', () => {
+    expect(code()).toMatch(/forge coverage --ir-minimum /);
+    expect(code()).toMatch(/SKIPS=\(--skip script\)/);
+  });
+
+  it('names only files that still exist on the list of what cannot be built', () => {
+    // A skip of a renamed file silently skips nothing, and the Yul error comes back.
+    const list = /UNBUILDABLE=\(([^)]*)\)/.exec(code());
+    expect(list, 'the workflow has no UNBUILDABLE list').not.toBeNull();
+    const files = list![1].split(/\s+/).filter(Boolean);
+    expect(files).toContain('src/TegridyTokenURIReader.sol');
+    for (const f of files) {
+      expect(existsSync(join(REPO_ROOT, 'contracts', f)), `${f} is on the skip list and is gone`).toBe(true);
+    }
+  });
+
+  it('excludes the optimized-size tests, and a test contract of that name exists', () => {
+    expect(code()).toMatch(/--no-match-contract 'EIP170Size'/);
+    const sized = readdirSync(join(REPO_ROOT, 'contracts', 'test')).filter((f) => /EIP170Size\.t\.sol$/.test(f));
+    expect(sized.length, 'no EIP170Size test left: the exclusion matches nothing').toBeGreaterThan(0);
+  });
+
+  it('merges nothing unless every slice finished, and counts the reports it merges', () => {
+    // A number over part of the suite would read as a coverage drop and trip the floor.
+    expect(code()).toMatch(/\$COVERAGE_RESULT" != "success"/);
+    expect(code()).toMatch(/needs\.coverage\.result/);
+    expect(code()).toMatch(/\[ "\$FOUND" = "\$EXPECTED" \]/);
+  });
+
+  it('joins the slices with the tested lcov merge', () => {
+    expect(code()).toMatch(/node \.\.\/scripts\/lib\/lcov-merge\.mjs lcov\.info slices\/\*\/lcov\.info/);
+    expect(existsSync(join(REPO_ROOT, 'scripts', 'lib', 'lcov-merge.mjs'))).toBe(true);
+    expect(existsSync(join(REPO_ROOT, 'scripts', 'lib', 'lcov-merge.test.mjs'))).toBe(true);
   });
 });
