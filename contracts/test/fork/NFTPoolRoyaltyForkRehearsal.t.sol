@@ -62,6 +62,12 @@ contract NFTPoolRoyaltyForkRehearsal is NFTPoolRoundTrip {
             vm.skip(true);
             return;
         }
+        // The owner paused the live factory (runbook step 1); on the fork, unpause it to show
+        // the drain that pause guards against.
+        if (live.paused()) {
+            vm.prank(live.owner());
+            live.unpause();
+        }
         uint256 loss = _roundTripLoss(LIVE_FACTORY);
         emit log_named_decimal_uint("live template: pool ETH lost over the round trips", loss, 18);
         assertGt(loss, 1 ether, "live template no longer drains");
