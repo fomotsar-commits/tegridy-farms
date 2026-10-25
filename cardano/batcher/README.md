@@ -88,24 +88,40 @@ node src/main.ts settings.json --once     # one round, then exit
 ```
 
 `settings.json` holds no secrets (the deployment's hashes and reference-script UTxOs, the batcher
-key's hash and address, the fee per order, the float cap). The environment holds the rest:
-`OGMIOS_URL` and `OGMIOS_WS` (Demeter puts the key in the host name), `KUPO_URL`, `KOIOS_URL`
-and `KOIOS_TOKEN`, `BATCHER_KEY_FILE`. Every log line is one JSON object, scrubbed of those.
+key's hash and its own enterprise address, the fee per order, the float cap, the window and the
+limits; every one required and range-checked). The environment holds the rest: `OGMIOS_URL` and
+`OGMIOS_WS` (Demeter puts the key in the host name), `KUPO_URL`, `KOIOS_URL` and `KOIOS_TOKEN`,
+`BATCHER_KEY_FILE`. Every log line is one JSON object, scrubbed of those. When the batcher stops
+itself the process exits with code 2 (3: it must restart), so its supervisor sees it.
 
-Each round reads from one source only: Ogmios + Kupo, or, if anything there fails, Koios. A
-batch is judged by that source's node and signed only after it passed. Its inputs are held until
-its window closes (5 minutes), sent or not. The rules:
+Each round reads its UTxOs, the tip and the node's answers from one source: Ogmios + Kupo (once
+Kupo shows it is connected, indexed and covering every pattern asked; until then, and whenever
+it fails, Koios). The batching account's balance comes from Koios either way (Ogmios cannot see
+it), and the last value read stands in when Koios is down. A batch is judged by that source's
+node and signed only after it passed. Its inputs are held until its window closes (about 4
+minutes after it is built), sent or not. The rules:
 
-- **A source failing, or a node that cannot see an input yet, is never held against an order.**
-  Only a script that ran and failed is (Ogmios's 3012 inside a 3010).
-- **Too big** (bytes, or memory by the chain's own limit): halved, oldest orders kept.
-- **Refused by the scripts**: halved the same way; an order refused alone is set aside for an
-  hour, and that is an alert (our engine and the contract disagree).
-- **Refused at submission**: an input gone or the window passed is normal; any other refusal
-  counts, and `maxRefusalsInARow` of them in a row stop the batcher.
-- **Above the float cap**, or with fewer than two plain ADA UTxOs: it stops and says why.
-- Anyone can make orders: each is read as strictly as the contract reads it, and the rest are
-  left alone with a reason (logged). Datums of hash-only orders: at most 20 lookups a round.
+- **A source failing, a tip far from the clock, or a node that cannot see an input yet is never
+  held against an order.** Only a script that ran and failed is (Ogmios's 3012 inside a 3010).
+- **Too big** (bytes, memory by the chain's own limit, or a fee the collateral cannot cover):
+  halved, oldest orders kept.
+- **Refused for the batch itself** (by the scripts, by the read-back, or the node will not judge
+  it): halved the same way; an order failing alone is set aside for `quarantineSlots`, the round
+  goes on without it, and a refusal by the node or the read-back is an alert (our engine and the
+  contract disagree; five in a row raise a louder one). It never stops the batcher: that would
+  hand anyone who found such an order a switch that stops every pool.
+- **Refused at submission**: an input gone, the window passed, or the batching account changed is
+  normal (ten in a row raise an alert); any other refusal counts, and `maxRefusalsInARow` of them
+  in a row stop the batcher.
+- **Its own wallet or settings wrong**, above the float cap, or without two plain ADA UTxOs (one
+  of at least 5 ADA for collateral): it stops and says why. With every fee UTxO in a batch still
+  in flight, it waits.
+- Anyone can make orders: each is read as strictly as the contract reads it (and as the ledger
+  can carry it), and the rest are left alone with a reason, logged once. Datums of hash-only
+  orders: at most 20 lookups a round, oldest orders first, a miss asked again after an hour.
+- **Bytes from strangers are walked before EMURGO's library reads them** (`src/cbor.ts`): a datum
+  nested about 1,600 deep breaks the library's memory for the whole process. One unreadable UTxO
+  is left out with its reason, never the whole answer.
 
 ## Traps met building it (never undo these)
 

@@ -1,10 +1,13 @@
 // What the watcher needs from the chain, whichever source answers: the primary (Ogmios for the
-// node's answers, Kupo for UTxOs) or the backup (Koios). One iteration reads from one source
-// only, so a batch is never built from two sources' different views of the chain.
+// node's answers, Kupo for UTxOs) or the backup (Koios). A round reads its UTxOs, the tip and the
+// node's answers from one source only, so a batch is never built from two views of the chain.
+// The one exception is the batching account's balance, which only Koios can read (Ogmios leaves
+// out an account delegated nowhere): the watcher keeps the last value read, and a stale one can
+// only get a batch refused (3141), never move money.
 import CSL from '@emurgo/cardano-serialization-lib-nodejs';
 import type { ProtocolParams } from './build.ts';
 import type { Koios } from './koios.ts';
-import type { Kupo } from './kupo.ts';
+import type { Kupo, KupoAnswer } from './kupo.ts';
 import { ogmiosEvaluator, protocolParams, SourceUnavailable, submit, tip, type Endpoint, type Tip } from './ogmios.ts';
 import type { Utxo } from './plan.ts';
 import type { Evaluator } from './prepare.ts';
@@ -69,25 +72,39 @@ export function koiosView(k: Koios, network: number): ChainView {
 }
 
 /**
- * The primary: Ogmios for the node's answers, Kupo for UTxOs. A round's Kupo answers count only
- * if Kupo had indexed up to the node's tip when it gave them (within `maxLagSlots`), so a batch
- * is never built from a pool or order the node has already seen spent.
+ * The primary: Ogmios for the node's answers, Kupo for UTxOs. Each Kupo answer carries the point
+ * Kupo had indexed to; a round's answers count only if they all come from one point, within
+ * `maxLagSlots` of the node's tip. Anything spent since that point is caught by the node's
+ * evaluator (InputsGone): the round is retried, and no order is blamed.
  */
 export function ogmiosKupoView(o: Endpoint, k: Kupo, rewardBalance: (scriptHash: string) => Promise<bigint>, maxLagSlots = 60n): ChainView {
   let nodeTip: Tip | null = null;
-  const fresh = <T>(read: Promise<T>): Promise<T> =>
-    read.then((x) => {
-      const at = k.lastCheckpoint;
-      if (nodeTip && (at === null || at + maxLagSlots < nodeTip.slot)) throw new SourceUnavailable(`Kupo has indexed to slot ${at}, the node is at ${nodeTip.slot}`);
-      return x;
-    });
+  let point: bigint | null = null;
+  const fresh = async <T>(read: Promise<KupoAnswer<T>>): Promise<T> => {
+    const a = await read;
+    if (a.checkpoint === null) throw new SourceUnavailable('Kupo did not say how far it had indexed');
+    if (nodeTip && a.checkpoint + maxLagSlots < nodeTip.slot) throw new SourceUnavailable(`Kupo has indexed to slot ${a.checkpoint}, the node is at ${nodeTip.slot}`);
+    if (point === null) point = a.checkpoint;
+    else if (a.checkpoint !== point) throw new SourceUnavailable(`Kupo moved from slot ${point} to ${a.checkpoint} during the round`);
+    return a.value;
+  };
   return {
     name: 'ogmios+kupo',
-    tip: async () => (nodeTip = await tip(o)),
+    tip: async () => {
+      point = null;
+      return (nodeTip = await tip(o));
+    },
     protocolParams: () => protocolParams(o),
     utxosAtCredential: (cred) => fresh(k.unspent(`${cred}/*`)),
     utxosWithAsset: (policy, name, cred) => fresh(k.unspent(`${policy}.${name}`)).then((us) => us.filter((u) => paymentScript(u) === cred || paymentKey(u) === cred)),
-    utxos: (refs) => Promise.all(refs.map((r) => { const [tx, ix] = r.split('#'); return fresh(k.unspent(`${ix}@${tx}`)); })).then((x) => x.flat()),
+    utxos: (refs) =>
+      Promise.all(
+        refs.map((r) => {
+          const [tx, ix] = r.split('#');
+          return fresh(k.unspent(`${ix}@${tx}`));
+        }),
+      ).then((x) => x.flat()),
+    // A datum is named by its hash: any point serves.
     datum: (hash) => k.datum(hash),
     rewardBalance,
     evaluate: ogmiosEvaluator(o),

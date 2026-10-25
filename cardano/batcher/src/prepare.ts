@@ -4,7 +4,8 @@
 // Only a batch that comes out of this is ever offered to the key.
 import { currentTimeApproximation } from './engine.ts';
 import { slotToPosixMs } from './chain.ts';
-import { BatchTooBig, buildBatchTx, type BatchTxRequest, type ExUnits, type ProtocolParams } from './build.ts';
+import CSL from '@emurgo/cardano-serialization-lib-nodejs';
+import { BatchTooBig, SetupError, buildBatchTx, type BatchTxRequest, type ExUnits, type ProtocolParams } from './build.ts';
 import { planBatch, type Utxo } from './plan.ts';
 import type { PlutusData } from './plutus.ts';
 import type { SimulationResult } from './simulate.ts';
@@ -23,7 +24,7 @@ export class SimulationFailed extends Error {
   }
 }
 
-export { BatchTooBig };
+export { BatchTooBig, SetupError };
 
 export interface PrepareInput extends Omit<BatchTxRequest, 'plan' | 'budgets'> {
   dex: DexConstants;
@@ -68,7 +69,24 @@ export async function prepareBatch(input: PrepareInput, pp: ProtocolParams, eval
     if (!declared || b.mem > declared.mem || b.steps > declared.steps) throw new SimulationFailed('with exact budgets', `${b.tag} ${b.index} needs more than it declares`);
   }
   const report = verifySinglePoolBatch(exact.txHex, input.spent, input.dex);
+  paysOnlyWhomItShould(exact.txHex, input.orders.length, input.batcher.address);
   return { txHex: exact.txHex, fee: exact.fee, totalCollateral: exact.totalCollateral, budgets, report };
+}
+
+/**
+ * The read-back checks the traders' outputs and the pool's; this checks the rest. A batch pays
+ * the traders, then the pool, then exactly one change output to the batcher's own address, and
+ * its collateral's return goes there too. Anything else is a fault of this batcher: it stops.
+ */
+export function paysOnlyWhomItShould(txHex: string, orders: number, batcherAddress: string): void {
+  const body = CSL.Transaction.from_hex(txHex).body();
+  const outs = body.outputs();
+  if (outs.len() !== orders + 2) throw new SetupError(`the batch has ${outs.len()} outputs; ${orders} orders, the pool and the batcher's change make ${orders + 2}`);
+  const change = outs.get(outs.len() - 1);
+  if (change.address().to_bech32(undefined) !== batcherAddress) throw new SetupError("the batch pays its change to an address that is not the batcher's");
+  if (change.amount().multiasset()?.len()) throw new SetupError('the batch pays tokens to the batcher');
+  const back = body.collateral_return();
+  if (back && back.address().to_bech32(undefined) !== batcherAddress) throw new SetupError("the batch returns its collateral to an address that is not the batcher's");
 }
 
 export type { Utxo };

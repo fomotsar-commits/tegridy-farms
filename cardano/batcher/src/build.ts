@@ -12,7 +12,7 @@ import CSL from '@emurgo/cardano-serialization-lib-nodejs';
 import { ContractFailure } from './math.ts';
 import { DecodeError, mkConstr, type PlutusData } from './plutus.ts';
 import { addressToCsl, batchingRedeemer, compareRefs, parseRef, type PlannedBatch, type Utxo } from './plan.ts';
-import { Unsupported } from './engine.ts';
+import { Unsupported, type OrderOutput } from './engine.ts';
 import { ledgerMinFee, rational } from './fee.ts';
 import type { Value } from './value.ts';
 
@@ -70,6 +70,45 @@ export interface BatchTxRequest {
  * orders. A batch of one order that is too big means that order can never be batched.
  */
 export class BatchTooBig extends Error {}
+
+/**
+ * The batcher's own wallet or settings are wrong (a fee UTxO that cannot pay, a reference-script
+ * UTxO without its script, an address that is not the batcher's own): no order is to blame, and
+ * no batch can be built until a person fixes it.
+ */
+export class SetupError extends Error {}
+
+/** Whether `address` is the batcher's own enterprise address on `network`: its key, no stake part. */
+export function isBatcherAddress(address: string, keyHash: string, network: number): boolean {
+  let a: CSL.Address;
+  try {
+    a = CSL.Address.from_bech32(address);
+  } catch {
+    return false;
+  }
+  const e = CSL.EnterpriseAddress.from_address(a);
+  return !!e && a.network_id() === network && e.payment_cred().to_keyhash()?.to_hex() === keyHash;
+}
+
+/**
+ * Why an order's output cannot be carried by any batch, or null: a script receiver whose datum
+ * the batcher does not hold, too little ADA for its coins, or a value too big for one output.
+ * The same rules assemble() applies, asked before anything is built or judged.
+ */
+export function orderOutputProblem(o: OrderOutput, network: number, pp: ProtocolParams): string | null {
+  if (o.receiver.payment.kind === 'script' && o.receiverDatum.kind === 'inline') return 'an inline receiver datum this batcher does not hold';
+  let output: CSL.TransactionOutput;
+  try {
+    output = CSL.TransactionOutput.new(addressToCsl(o.receiver, network), valueToCsl(o.value));
+    if (o.receiver.payment.kind === 'script' && o.receiverDatum.kind === 'hash') output.set_data_hash(CSL.DataHash.from_hex(o.receiverDatum.hash));
+  } catch (e) {
+    return `its output cannot be written (${e instanceof Error ? e.message : String(e)})`;
+  }
+  const minAda = BigInt(CSL.min_ada_for_output(output, CSL.DataCost.new_coins_per_byte(big(pp.utxoCostPerByte))).to_str());
+  if (BigInt(output.amount().coin().to_str()) < minAda) return `its output would hold less than the ${minAda} lovelace it needs`;
+  if (output.amount().to_bytes().length > pp.maxValueSize) return 'its output would hold more coins than one output may';
+  return null;
+}
 
 const PLACEHOLDER: Record<'spend' | 'reward', ExUnits> = {
   spend: { mem: 1_000_000n, steps: 400_000_000n },
@@ -138,7 +177,7 @@ function costModels(pp: ProtocolParams, languages: CSL.Language[]): CSL.Costmdls
 export function referenceScriptOf(u: Utxo): { hash: string; language: CSL.Language; size: number } {
   const sr = CSL.TransactionOutput.from_hex(u.outputHex).script_ref();
   const script = sr?.is_plutus_script() ? sr.plutus_script() : undefined;
-  if (!script) throw new DecodeError(`${u.ref} carries no Plutus reference script`);
+  if (!script) throw new SetupError(`${u.ref} carries no Plutus reference script`);
   return { hash: script.hash().to_hex(), language: script.language_version(), size: script.bytes().length };
 }
 
@@ -233,7 +272,7 @@ function assemble(req: BatchTxRequest, pp: ProtocolParams, totalCollateral: bigi
 
   if (minFee > 0n) b.set_min_fee(big(minFee));
   b.calc_script_data_hash(costModels(pp, [...new Map(Object.values(scripts).map((s) => [s.language.kind(), s.language])).values()]));
-  if (!b.add_change_if_needed(CSL.Address.from_bech32(req.batcher.address))) throw new DecodeError('no change output: the batcher UTxOs do not cover the fee');
+  if (!b.add_change_if_needed(CSL.Address.from_bech32(req.batcher.address))) throw new SetupError('no change output: the batcher UTxOs do not cover the fee');
   return b.build_tx();
 }
 
@@ -257,8 +296,10 @@ function emurgo<T>(f: () => T): T {
  * and the collateral pledged covers the collateral percentage of that fee.
  */
 export function buildBatchTx(req: BatchTxRequest, pp: ProtocolParams): { txHex: string; fee: bigint; totalCollateral: bigint } {
+  // The batcher's change and its collateral's return go to this address: it must be its own.
+  if (!isBatcherAddress(req.batcher.address, req.batcher.keyHash, req.network)) throw new SetupError(`${req.batcher.address} is not the batcher key's own enterprise address`);
   for (const u of [...req.batcher.feeUtxos, req.batcher.collateral]) {
-    if (!isPlainBatcherUtxo(u, req.batcher.keyHash)) throw new DecodeError(`${u.ref} is not plain ADA at the batcher's own key: never spent by a batch`);
+    if (!isPlainBatcherUtxo(u, req.batcher.keyHash)) throw new SetupError(`${u.ref} is not plain ADA at the batcher's own key: never spent by a batch`);
   }
   const known: Record<string, string> = {};
   for (const u of [req.pool, ...req.orders, ...req.batcher.feeUtxos, req.batcher.collateral, req.globalSetting, req.scripts.pool, req.scripts.order, req.scripts.poolBatching]) known[u.ref] = u.outputHex;
@@ -287,7 +328,8 @@ export function buildBatchTx(req: BatchTxRequest, pp: ProtocolParams): { txHex: 
     const tx = emurgo(() => assemble(req, pp, total, floor));
     const fee = BigInt(tx.body().fee().to_str());
     const min = ledgerMinFee(tx.to_hex(), known, pp);
-    if (needed(fee) > coin) throw new DecodeError(`the collateral UTxO holds ${coin} lovelace; this batch's fee needs ${needed(fee)} pledged`);
+    // A smaller batch pays a smaller fee: too big for this collateral, not wrong.
+    if (needed(fee) > coin) throw new BatchTooBig(`the collateral UTxO holds ${coin} lovelace; this batch's fee needs ${needed(fee)} pledged`);
     if (pass > 0 && fee >= min && total >= needed(fee)) return { txHex: tx.to_hex(), fee, totalCollateral: total };
     if (min > floor) floor = min;
     total = pledge(fee > floor ? fee : floor);

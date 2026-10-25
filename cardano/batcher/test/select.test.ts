@@ -10,7 +10,8 @@ import { MAINNET_TIME } from '../src/chain.ts';
 import type { Utxo } from '../src/plan.ts';
 import { batcherIndex, chooseBatch, readGlobalSetting, readOrders, readPools, type Deployment, type Policy } from '../src/select.ts';
 import type { ChainUtxo } from '../src/view.ts';
-import { BATCHER_KEY, DEX, LP_NAME, NETWORK, S, TOK, order, orderDatum, scriptRefOf, step, utxo, value, world } from './world.ts';
+import { BATCHER_KEY, DEX, LP_NAME, NETWORK, PP, S, TOK, order, orderDatum, scriptRefOf, step, traderKey as orderDatumKey, utxo, value, world } from './world.ts';
+import { orderOutputProblem } from '../src/build.ts';
 
 const ADA = 1_000_000n;
 const TIP = 160_000_000n;
@@ -146,4 +147,52 @@ test('every real Minswap V2 pool and order in the fixtures is read by the same r
   assert.ok(orders.orders.length >= 20, `${orders.orders.length}`);
   assert.ok(orders.orders.every((o) => names.has(o.datum.lpAsset.assetName)), 'an order names a pool not in the fixtures');
   void TOK;
+});
+
+test('an order whose output no batch can carry is left alone up front, never built or judged', () => {
+  const w = world();
+  const { pools } = readPools(DEP, [aged(w.pool, 1n)]);
+  const a = swap(`${'e1'.repeat(32)}#0`, 1);
+  const b = swap(`${'e2'.repeat(32)}#0`, 2);
+  const { orders } = readOrders(DEP, POLICY, [aged(a.utxo, 1n), aged(b.utxo, 2n)], new Map());
+  const problem = (o: { receiver: { payment: { hash: string } } }) => (o.receiver.payment.hash === orderDatumKey(1) ? 'too little ADA' : null);
+  const { candidate, skipped } = chooseBatch(DEP, POLICY, pools, orders, new Set(), TIP, problem as never);
+  assert.deepEqual(candidate!.orders.map((o) => o.utxo.ref), [b.utxo.ref]);
+  assert.deepEqual(skipped.map((s) => [s.ref, s.reason]), [[a.utxo.ref, 'no batch can carry its output (too little ADA)']]);
+  // The builder's own rule, asked for real: a receiver whose output is under the ledger's minimum.
+  const plan = chooseBatch(DEP, POLICY, pools, orders, new Set(), TIP).candidate!;
+  assert.ok(plan.orders.length === 2);
+  const tiny = { ...readOrders(DEP, POLICY, [aged(a.utxo, 1n)], new Map()).orders[0]! };
+  void tiny;
+  assert.match(orderOutputProblem({ receiver: { payment: { kind: 'key', hash: orderDatumKey(1) }, stake: null }, receiverDatum: { kind: 'none' }, value: new Map([['', 1n]]) } as never, NETWORK, PP) ?? '', /less than the \d+ lovelace it needs/);
+  assert.match(orderOutputProblem({ receiver: { payment: { kind: 'script', hash: orderDatumKey(1) }, stake: null }, receiverDatum: { kind: 'inline', hash: '00'.repeat(32) }, value: new Map([['', 5_000_000n]]) } as never, NETWORK, PP) ?? '', /inline receiver datum/);
+  assert.equal(orderOutputProblem({ receiver: { payment: { kind: 'key', hash: orderDatumKey(1) }, stake: null }, receiverDatum: { kind: 'none' }, value: new Map([['', 5_000_000n]]) } as never, NETWORK, PP), null);
+});
+
+test('orders made in the same slot go by their place in the block; an order naming another deployment’s pool says so', () => {
+  const late = swap(`${'00'.repeat(32)}#0`, 1);
+  const early = swap(`${'ff'.repeat(32)}#0`, 2);
+  const { orders } = readOrders(DEP, POLICY, [aged(late.utxo, 5n, 3), aged(early.utxo, 5n, 1)], new Map());
+  assert.deepEqual(orders.map((o) => o.utxo.ref), [early.utxo.ref, late.utxo.ref], 'by place in the block, not by reference');
+  const foreign = (() => {
+    const o = CSL.TransactionOutput.from_hex(late.utxo.outputHex);
+    const d = orderDatum(3, step.swapIn(true, 25n * ADA, 1n));
+    const f = d.as_constr_plutus_data()!.data();
+    const fields = CSL.PlutusList.new();
+    for (let i = 0; i < f.len(); i++) fields.add(i === 5 ? CSL.PlutusData.new_constr_plutus_data(CSL.ConstrPlutusData.new(CSL.BigNum.from_str('0'), (() => { const l = CSL.PlutusList.new(); l.add(CSL.PlutusData.new_bytes(Buffer.from('99'.repeat(28), 'hex'))); l.add(CSL.PlutusData.new_bytes(Buffer.from(LP_NAME, 'hex'))); return l; })())) : f.get(i));
+    o.set_plutus_data(CSL.PlutusData.new_constr_plutus_data(CSL.ConstrPlutusData.new(CSL.BigNum.from_str('0'), fields)));
+    return { ref: `${'ee'.repeat(32)}#0`, outputHex: o.to_hex() };
+  })();
+  const r = readOrders(DEP, POLICY, [aged(foreign, 1n)], new Map());
+  assert.deepEqual(r.skipped.map((s) => s.reason), ['names no pool of this deployment']);
+});
+
+test('a receiver key hash of 27 bytes is refused when read: no batch could ever write its output', () => {
+  const o = swap(`${'e3'.repeat(32)}#0`, 1);
+  const out = CSL.TransactionOutput.from_hex(o.utxo.outputHex);
+  const hex = out.plutus_data()!.to_hex().replaceAll(`581c${orderDatumKey(1)}`, `581b${orderDatumKey(1).slice(2)}`);
+  out.set_plutus_data(CSL.PlutusData.from_hex(hex));
+  const r = readOrders(DEP, POLICY, [aged({ ref: o.utxo.ref, outputHex: out.to_hex() }, 1n)], new Map());
+  assert.equal(r.orders.length, 0);
+  assert.match(r.skipped[0]!.reason, /27 bytes, not 28/);
 });

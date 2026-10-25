@@ -70,14 +70,14 @@ export const step = {
   zapOut: () => mkConstr(6, [TRUE, mkConstr(0, [mkInt(1n)]), mkInt(1n), TRUE]),
 };
 
-export function orderDatum(trader: number, s: PlutusData, maxFee = 2_000_000n): PlutusData {
+export function orderDatum(trader: number, s: PlutusData, maxFee = 2_000_000n, lpName = LP_NAME): PlutusData {
   return mkConstr(0, [
     mkConstr(0, [mkBytes(traderKey(trader))]), // canceller: OAMSignature
     keyAddressData(trader),
     EOD_NONE,
     keyAddressData(trader),
     EOD_NONE,
-    asset(DEX.authenPolicy, LP_NAME),
+    asset(DEX.authenPolicy, lpName),
     s,
     mkInt(maxFee),
     NONE,
@@ -85,8 +85,8 @@ export function orderDatum(trader: number, s: PlutusData, maxFee = 2_000_000n): 
 }
 
 /** An order UTxO at our order script, with the trader's stake key. */
-export function order(ref: string, trader: number, lovelace: bigint, tokens: [string, string, bigint][], s: PlutusData, opts: { byHash?: boolean } = {}): { utxo: Utxo; datum: PlutusData } {
-  const datum = orderDatum(trader, s);
+export function order(ref: string, trader: number, lovelace: bigint, tokens: [string, string, bigint][], s: PlutusData, opts: { byHash?: boolean; lpName?: string } = {}): { utxo: Utxo; datum: PlutusData } {
+  const datum = orderDatum(trader, s, 2_000_000n, opts.lpName);
   const address = CSL.BaseAddress.new(NETWORK, scriptCred(S.order.hash), keyCred(traderKey(trader))).to_address();
   if (!opts.byHash) return { utxo: utxo(ref, address, value(lovelace, tokens), datum), datum };
   const o = CSL.TransactionOutput.new(address, value(lovelace, tokens));
@@ -99,6 +99,33 @@ export const POOL_RESERVE_B = 5_000_000_000_000n; // 5,000,000 TOK (6 decimals)
 export const POOL_SHARE_ACCRUED = 1_234_567n; // fee share already held: value reserve A = datum + this
 export const TOTAL_LIQUIDITY = 22_360_679_774n;
 const MAX_LP = 9_223_372_036_854_775_807n;
+
+/** An ADA/`token` pool at our pool script, with the 1333 fee share and some share already accrued. */
+export function makePool(ref: string, token = TOKEN): Utxo {
+  const authen = DEX.authenPolicy;
+  const poolDatum = mkConstr(0, [
+    mkConstr(0, [mkConstr(1, [mkBytes(S.poolBatching.hash)])]), // Inline(ScriptCredential(batching))
+    asset('', ''),
+    asset(token.policyId, token.assetName),
+    mkInt(TOTAL_LIQUIDITY),
+    mkInt(POOL_RESERVE_A),
+    mkInt(POOL_RESERVE_B),
+    mkInt(30n),
+    mkInt(30n),
+    some(mkInt(1333n)),
+    FALSE,
+  ]);
+  return utxo(
+    ref,
+    CSL.BaseAddress.new(NETWORK, scriptCred(S.pool.hash), keyCred(deployment.test.poolStakeKeyHash)).to_address(),
+    value(4_500_000n + POOL_RESERVE_A + POOL_SHARE_ACCRUED, [
+      [authen, '4d5350', 1n],
+      [token.policyId, token.assetName, POOL_RESERVE_B],
+      [authen, lpAssetName({ policyId: '', assetName: '' }, token), MAX_LP - TOTAL_LIQUIDITY],
+    ]),
+    poolDatum,
+  );
+}
 
 export function world() {
   const authen = DEX.authenPolicy;
@@ -114,28 +141,7 @@ export function world() {
   const scriptUtxo = (name: 'pool' | 'order' | 'poolBatching', ix: number): Utxo =>
     utxo(`${'a2'.repeat(32)}#${ix}`, CSL.EnterpriseAddress.new(NETWORK, keyCred(ADMIN_KEY)).to_address(), value(100_000_000n), undefined, scriptRefOf(name));
   const scripts = { pool: scriptUtxo('pool', 0), order: scriptUtxo('order', 1), poolBatching: scriptUtxo('poolBatching', 2) };
-  const poolDatum = mkConstr(0, [
-    mkConstr(0, [mkConstr(1, [mkBytes(S.poolBatching.hash)])]), // Inline(ScriptCredential(batching))
-    asset('', ''),
-    asset(TOKEN.policyId, TOKEN.assetName),
-    mkInt(TOTAL_LIQUIDITY),
-    mkInt(POOL_RESERVE_A),
-    mkInt(POOL_RESERVE_B),
-    mkInt(30n),
-    mkInt(30n),
-    some(mkInt(1333n)),
-    FALSE,
-  ]);
-  const pool = utxo(
-    `${'a3'.repeat(32)}#0`,
-    CSL.BaseAddress.new(NETWORK, scriptCred(S.pool.hash), keyCred(deployment.test.poolStakeKeyHash)).to_address(),
-    value(4_500_000n + POOL_RESERVE_A + POOL_SHARE_ACCRUED, [
-      [authen, '4d5350', 1n],
-      [TOKEN.policyId, TOKEN.assetName, POOL_RESERVE_B],
-      [authen, LP_NAME, MAX_LP - TOTAL_LIQUIDITY],
-    ]),
-    poolDatum,
-  );
+  const pool = makePool(`${'a3'.repeat(32)}#0`);
   const feeUtxo = utxo(`${'b1'.repeat(32)}#0`, BATCHER_ADDRESS, value(20_000_000n));
   const collateral = utxo(`${'b1'.repeat(32)}#1`, BATCHER_ADDRESS, value(10_000_000n));
   const spent: Record<string, string> = {};

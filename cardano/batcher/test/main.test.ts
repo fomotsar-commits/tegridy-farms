@@ -1,11 +1,15 @@
-// The process's settings are checked before anything starts, and no secret reaches a log line.
+// The process's settings are checked before anything starts (every one required, in range, and
+// the batcher's address its own key's), and no secret reaches a log line or an error.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { logger, readSettings, type Settings } from '../src/main.ts';
+import CSL from '@emurgo/cardano-serialization-lib-nodejs';
+import { logger, readEnv, readSettings, type Settings } from '../src/main.ts';
 
+const KEY = '55'.repeat(28);
+const enterprise = (network: number, key: string) => CSL.EnterpriseAddress.new(network, CSL.Credential.from_keyhash(CSL.Ed25519KeyHash.from_hex(key))).to_address().to_bech32(undefined);
 const GOOD: Settings = {
   network: 1,
   deployment: {
@@ -15,8 +19,8 @@ const GOOD: Settings = {
     poolBatchingScriptHash: '44'.repeat(28),
     scriptRefs: { pool: `${'aa'.repeat(32)}#0`, order: `${'aa'.repeat(32)}#1`, poolBatching: `${'aa'.repeat(32)}#2` },
   },
-  batcherKeyHash: '55'.repeat(28),
-  batcherAddress: 'addr1v9dhugez3ka82k2kgh7r2lg0j7aztr8uell46kydfwu3vkc8dnqfk',
+  batcherKeyHash: KEY,
+  batcherAddress: enterprise(1, KEY),
   batcherFee: '2000000',
   floatCap: '100000000',
   maxOrdersPerBatch: 25,
@@ -43,28 +47,68 @@ test('good settings are read into exact amounts', () => {
   assert.equal(c.policy.batcherFee, 2_000_000n);
   assert.equal(c.floatCap, 100_000_000n);
   assert.equal(c.deployment.dex.poolScriptHash, '22'.repeat(28));
+  assert.equal(c.batcher.address, GOOD.batcherAddress);
 });
 
-test('settings that would make a wrong batch are refused before anything starts', () => {
+test('the batcher’s change can only go to its own key’s enterprise address on mainnet', () => {
+  const stranger = enterprise(1, '66'.repeat(28));
+  const testnet = enterprise(0, KEY);
+  const withStake = CSL.BaseAddress.new(1, CSL.Credential.from_keyhash(CSL.Ed25519KeyHash.from_hex(KEY)), CSL.Credential.from_keyhash(CSL.Ed25519KeyHash.from_hex('77'.repeat(28)))).to_address().to_bech32(undefined);
+  for (const batcherAddress of [stranger, testnet, withStake, 'addr1notanaddress', '']) assert.throws(() => read({ ...GOOD, batcherAddress }), /batcherAddress is not the batcher key's own/, batcherAddress);
+});
+
+test('settings that would make a wrong batch, or turn a safety off, are refused before anything starts', () => {
   assert.throws(() => read({ ...GOOD, batcherKeyHash: 'xyz' }), /batcherKeyHash is not a 28-byte hash/);
   assert.throws(() => read({ ...GOOD, deployment: { ...GOOD.deployment, orderScriptHash: '33'.repeat(27) } }), /orderScriptHash/);
   assert.throws(() => read({ ...GOOD, deployment: { ...GOOD.deployment, scriptRefs: { ...GOOD.deployment.scriptRefs, pool: 'aa#0' } } }), /scriptRefs.pool/);
   assert.throws(() => read({ ...GOOD, slotsBefore: 300, slotsAfter: 301 }), /at most 600 slots/);
   assert.throws(() => read({ ...GOOD, network: 0 }), /only mainnet/);
+  const bad: [Partial<Record<keyof Settings, unknown>>, RegExp][] = [
+    [{ maxRefusalsInARow: undefined }, /maxRefusalsInARow/],
+    [{ maxRefusalsInARow: 0 }, /maxRefusalsInARow/],
+    [{ idleRoundMs: undefined }, /idleRoundMs/],
+    [{ idleRoundMs: 0 }, /idleRoundMs/],
+    [{ slotsBefore: -100 }, /slotsBefore/],
+    [{ slotsAfter: 0 }, /slotsAfter/],
+    [{ quarantineSlots: 0 }, /quarantineSlots/],
+    [{ maxOrdersPerBatch: 0 }, /maxOrdersPerBatch/],
+    [{ maxOrdersPerBatch: 65 }, /maxOrdersPerBatch/],
+    [{ maxOrdersPerBatch: 2.5 }, /maxOrdersPerBatch/],
+    [{ batcherFee: '0' }, /batcherFee/],
+    [{ batcherFee: '-1' }, /batcherFee/],
+    [{ batcherFee: 2000000 }, /batcherFee/],
+    [{ floatCap: undefined }, /floatCap/],
+  ];
+  for (const [change, why] of bad) assert.throws(() => read({ ...GOOD, ...change }), why, JSON.stringify(change));
 });
 
-test('no log line carries a host that holds a key, or the Koios token', () => {
+test('no log line carries a host that holds a key, the chain-sync host, a malformed endpoint, or the Koios token', () => {
   const lines: string[] = [];
   const env = {
     OGMIOS_URL: 'https://dmtr_ogmios1secretsecret.mainnet-v6.ogmios-m1.demeter.run',
-    OGMIOS_WS: 'wss://dmtr_ogmios1secretsecret.mainnet-v6.ogmios-m1.demeter.run',
-    KUPO_URL: 'https://dmtr_kupo1secretsecret.mainnet-v2.kupo-m1.demeter.run',
+    OGMIOS_WS: 'wss://dmtr_ogmios1othersecret.mainnet-v6.ogmios-m1.demeter.run',
+    KUPO_URL: '"https://dmtr_kupo1quotedsecret.mainnet-v2.kupo-m1.demeter.run"',
     KOIOS_TOKEN: 'eyJhbGciOiJIUzI1NiJ9.koios-token',
   };
   const log = logger(env, (l) => lines.push(l));
-  log({ kind: 'error', error: 'getaddrinfo ENOTFOUND dmtr_ogmios1secretsecret.mainnet-v6.ogmios-m1.demeter.run', more: 'dmtr_kupo1secretsecret.mainnet-v2.kupo-m1.demeter.run', token: 'Bearer eyJhbGciOiJIUzI1NiJ9.koios-token', amount: 9_223_372_036_854_775_807n });
+  // A value that is no URL at all (pasted without its scheme) is scrubbed whole.
+  const bare: string[] = [];
+  logger({ OGMIOS_URL: 'dmtr_ogmios1barevaluesecret' }, (l) => bare.push(l))({ kind: 'error', error: 'connect to dmtr_ogmios1barevaluesecret failed' });
+  assert.ok(!bare[0]!.includes('barevaluesecret'), bare[0]);
+  log({ kind: 'error', error: 'getaddrinfo ENOTFOUND dmtr_ogmios1secretsecret.mainnet-v6.ogmios-m1.demeter.run', ws: 'dmtr_ogmios1othersecret.mainnet-v6.ogmios-m1.demeter.run', more: env.KUPO_URL, token: 'Bearer eyJhbGciOiJIUzI1NiJ9.koios-token', amount: 9_223_372_036_854_775_807n });
   assert.equal(lines.length, 1);
-  assert.ok(!/secretsecret|koios-token/.test(lines[0]!), lines[0]);
+  assert.ok(!/secretsecret|othersecret|quotedsecret|koios-token/.test(lines[0]!), lines[0]);
   assert.match(lines[0]!, /9223372036854775807/);
   assert.ok(lines[0]!.endsWith('\n'));
+});
+
+test('a malformed endpoint is refused by name, never by repeating it (it holds the key)', () => {
+  const value = '"https://dmtr_ogmios1secretsecret.mainnet-v6.ogmios-m1.demeter.run"';
+  assert.throws(
+    () => readEnv({ OGMIOS_URL: value }),
+    (e: unknown) => e instanceof Error && e.message === 'OGMIOS_URL is not a URL' && !e.message.includes('secret'),
+  );
+  assert.throws(() => readEnv({ OGMIOS_WS: 'https://not-a-socket.invalid' }), /OGMIOS_WS must start with wss: or ws:/);
+  assert.throws(() => readEnv({ KOIOS_URL: 'http://koios.invalid' }), /KOIOS_URL must start with https:/);
+  assert.deepEqual(readEnv({ KOIOS_URL: 'https://api.koios.rest/api/v1' }), { ogmios: undefined, ws: undefined, kupo: undefined, koios: 'https://api.koios.rest/api/v1' });
 });

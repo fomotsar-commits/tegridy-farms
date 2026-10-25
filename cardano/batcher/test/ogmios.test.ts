@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import CSL from '@emurgo/cardano-serialization-lib-nodejs';
 import { parseExact, stringifyExact } from '../src/json.ts';
-import { InputsGone, OgmiosError, SourceUnavailable, budgetsFromOgmios, ogmiosEvaluator, protocolParamsFromOgmios, refusalFromOgmios, toOgmiosUtxo } from '../src/ogmios.ts';
+import { InputsGone, NotJudged, OgmiosError, SourceUnavailable, SubmitRefused, budgetsFromOgmios, ogmiosEvaluator, protocolParamsFromOgmios, refusalFromOgmios, toOgmiosUtxo } from '../src/ogmios.ts';
 import { prepareBatch } from '../src/prepare.ts';
 import type { Utxo } from '../src/plan.ts';
 import { DEX, NETWORK, PP, order, scriptRefOf, step, world } from './world.ts';
@@ -25,7 +25,7 @@ function declared(txHex: string): Map<string, { mem: bigint; steps: bigint }> {
   return new Map(Array.from({ length: rs.len() }, (_, i) => [`${tags[rs.get(i).tag().kind()]}:${rs.get(i).index().to_str()}`, { mem: BigInt(rs.get(i).ex_units().mem().to_str()), steps: BigInt(rs.get(i).ex_units().steps().to_str()) }]));
 }
 
-const answering = (t: { mock: { method: (o: object, m: string, f: unknown) => unknown } }, body: string | (() => never), status = 200) =>
+const answering = (t: { mock: { method: (o: object, m: string, f: unknown) => unknown; restoreAll: () => void } }, body: string | (() => never), status = 200) =>
   t.mock.method(globalThis, 'fetch', async () => (typeof body === 'function' ? body() : new Response(body, { status })));
 
 test('mainnet’s node accepted a real Minswap batch, measuring exactly the budgets Minswap declared', async (t) => {
@@ -49,17 +49,29 @@ test('a script out of budget is a verdict marked too big; a script that fails is
   assert.equal(!failed.ok && failed.overBudget, false);
 });
 
-test('anything but a script verdict is thrown, so no order is ever blamed for the node or the network', async (t) => {
-  answering(t, stringifyExact({ jsonrpc: '2.0', method: 'evaluateTransaction', error: { code: 3117, message: 'Unknown transaction input (missing from UTxO set)', data: [] } }));
-  await assert.rejects(() => Promise.resolve(ogmiosEvaluator(EP)('', {})), (e: unknown) => e instanceof OgmiosError && e.code === 3117);
+const rpcError = (code: number, message: string, data: unknown = {}) => stringifyExact({ jsonrpc: '2.0', method: 'evaluateTransaction', error: { code, message, data } });
+const evaluated = async (t: Parameters<typeof answering>[0], body: string, status = 400) => {
   t.mock.restoreAll();
-  answering(t, '<html>502 Bad Gateway</html>', 502);
-  await assert.rejects(() => Promise.resolve(ogmiosEvaluator(EP)('', {})), SourceUnavailable);
+  answering(t, body, status);
+  return Promise.resolve(ogmiosEvaluator(EP)('', {}));
+};
+
+test('anything but a script verdict is thrown, so no order is ever blamed for the node or the network', async (t) => {
+  // An input gone, said at the top level: InputsGone.
+  await assert.rejects(() => evaluated(t, rpcError(3117, 'Unknown transaction input')), InputsGone);
+  await assert.rejects(() => evaluated(t, rpcError(3004, 'Cannot create evaluation context', { reason: 'Unknown transaction input (missing from UTxO set): aa#0' })), InputsGone);
+  // The node or the connection: thrown as they are (the round tries another source).
+  for (const code of [-32000, -32603, 3003]) await assert.rejects(() => evaluated(t, rpcError(code, 'node trouble')), (e: unknown) => e instanceof OgmiosError && e.code === code);
+  await assert.rejects(() => evaluated(t, '<html>502 Bad Gateway</html>', 502), SourceUnavailable);
   t.mock.restoreAll();
   answering(t, () => {
     throw new TypeError('fetch failed');
   });
   await assert.rejects(() => Promise.resolve(ogmiosEvaluator(EP)('', {})), SourceUnavailable);
+  // About the batch, but not a verdict: NotJudged (set aside, alerted; never an outage, never a verdict).
+  await assert.rejects(() => evaluated(t, rpcError(-32602, 'Invalid transaction; It looks like the given transaction wasn’t well-formed.')), NotJudged);
+  await assert.rejects(() => evaluated(t, rpcError(3000, 'IncompatibleEra')), NotJudged);
+  await assert.rejects(() => evaluated(t, rpcError(3004, 'Cannot create evaluation context', { reason: 'Uncomputable slot arithmetic' })), NotJudged);
 });
 
 test('the node’s protocol parameters are read exactly, and different reference-script tiers are refused', () => {
@@ -68,6 +80,14 @@ test('the node’s protocol parameters are read exactly, and different reference
   assert.deepEqual(pp.executionUnitPrices, { priceMemory: '577/10000', priceSteps: '721/10000000' });
   assert.deepEqual(pp.costModelPlutusV2, PP.costModelPlutusV2);
   assert.throws(() => protocolParamsFromOgmios({ ...r, minFeeReferenceScripts: { base: 15n, range: 25_600n, multiplier: 1.3 } }), /x1.3/);
+  assert.throws(() => protocolParamsFromOgmios({ ...r, minFeeReferenceScripts: { base: 15n, range: 20_000n, multiplier: 1.2 } }), /20000 bytes/);
+  // A rate in a shape this batcher cannot price is a source failure now, never a surprise inside a batch.
+  for (const bad of [null, { numerator: 577, denominator: 10_000 }, 'abc', '1/0']) {
+    assert.throws(() => protocolParamsFromOgmios({ ...r, scriptExecutionPrices: { memory: bad, cpu: '721/10000000' } }), (e: unknown) => e instanceof SourceUnavailable && /memory price/.test((e as Error).message));
+  }
+  assert.throws(() => protocolParamsFromOgmios({ ...r, minFeeReferenceScripts: { base: null, range: 25_600n, multiplier: 1.2 } }), /reference-script price/);
+  const models = r.plutusCostModels as Record<string, bigint[]>;
+  assert.throws(() => protocolParamsFromOgmios({ ...r, plutusCostModels: { ...models, 'plutus:v2': [...models['plutus:v2']!.slice(1), 2n ** 60n] } }), /past what this batcher writes exactly/);
 });
 
 test('inputs passed along to the node keep every amount exact (a pool’s 9.2e18 LP tokens)', () => {
@@ -138,25 +158,31 @@ test('live: mainnet’s node rejects our batch with one output a unit short', { 
   assert.match(r.ok ? '' : r.error, /withdraw/);
 });
 
-test('a 3010 that holds "input gone" (3004, 3110, 3117) is not a verdict: InputsGone, so no order is blamed', async (t) => {
+const within3010 = (...items: { code: number; message: string; data?: unknown }[]) =>
+  rpcError(3010, 'Some scripts of the transactions terminated with error(s).', items.map((error, i) => ({ validator: { index: BigInt(i), purpose: 'spend' }, error: { data: {}, ...error } })));
+
+test('inside a 3010, each code on its own: "gone" (3117, 3004 naming an unknown input) is InputsGone; a verdict needs every script to have run', async (t) => {
   // As mainnet's node answered a batch whose inputs were already spent (research-ogmios, live).
-  const gone = (code: number) =>
-    stringifyExact({
-      jsonrpc: '2.0',
-      method: 'evaluateTransaction',
-      error: { code: 3010, message: 'Some scripts of the transactions terminated with error(s).', data: [{ validator: { index: 0n, purpose: 'spend' }, error: { code: 3110, message: 'Extraneous redeemers', data: {} } }, { validator: { index: 0n, purpose: 'withdraw' }, error: { code, message: 'Unknown transaction input (missing from UTxO set)', data: {} } }] },
-    });
-  for (const code of [3004, 3110, 3117]) {
-    t.mock.restoreAll();
-    answering(t, gone(code));
-    await assert.rejects(() => Promise.resolve(ogmiosEvaluator(EP)('', {})), InputsGone, `code ${code}`);
+  await assert.rejects(() => evaluated(t, within3010({ code: 3117, message: 'Unknown output references' })), InputsGone);
+  await assert.rejects(() => evaluated(t, within3010({ code: 3004, message: 'Cannot create evaluation context', data: { reason: 'Unknown transaction input (missing from UTxO set): 518515c2#1' } })), InputsGone);
+  await assert.rejects(() => evaluated(t, within3010({ code: 3110, message: 'Extraneous redeemers' }, { code: 3004, message: 'Unknown transaction input (missing from UTxO set)' })), InputsGone);
+  // 3110 alone (our builder adding a redeemer) and the other non-verdicts: NotJudged.
+  for (const code of [3110, 3011, 3111, 3115, 3161]) await assert.rejects(() => evaluated(t, within3010({ code, message: 'not run' })), NotJudged, `code ${code}`);
+  // A script that ran and failed (3012), or an unsuitable input (3013): a verdict.
+  for (const code of [3012, 3013]) {
+    const r = await evaluated(t, within3010({ code, message: 'Some of the scripts failed', data: { validationError: 'An error has occurred', traces: [] } }));
+    assert.equal(r.ok, false, `code ${code}`);
   }
-  // A 3010 holding a code that is neither a verdict nor "gone" (missing cost model): thrown as it is, never a verdict.
-  t.mock.restoreAll();
-  answering(t, stringifyExact({ jsonrpc: '2.0', method: 'evaluateTransaction', error: { code: 3010, message: 'x', data: [{ validator: { index: 0n, purpose: 'spend' }, error: { code: 3115, message: 'Missing cost models', data: {} } }] } }));
-  await assert.rejects(() => Promise.resolve(ogmiosEvaluator(EP)('', {})), (e: unknown) => e instanceof OgmiosError && !(e instanceof InputsGone));
+  // A verdict mixed with a code that is not one: not a verdict.
+  await assert.rejects(() => evaluated(t, within3010({ code: 3012, message: 'failed' }, { code: 3115, message: 'Missing cost models' })), NotJudged);
 });
 
-test('submission refusals: inputs gone and window passed are benign; a withdrawal refusal says so; the rest count', () => {
-  assert.deepEqual([3117, 3118, 3122, 3141, 3136].map((c) => { const r = refusalFromOgmios(new OgmiosError(c, 'refused', {})); return [c, r.benign, r.withdrawal]; }), [[3117, true, false], [3118, true, false], [3122, false, false], [3141, false, true], [3136, false, false]]);
+test('submission refusals: only the ledger’s own codes; inputs gone and window passed are benign; a withdrawal says so; the rest count', () => {
+  const read = (c: number) => {
+    const r = refusalFromOgmios(new OgmiosError(c, 'refused', {}));
+    return r instanceof SubmitRefused ? [c, r.benign, r.withdrawal] : [c, 'may have reached the node'];
+  };
+  assert.deepEqual([3117, 3118, 3122, 3141, 3136].map(read), [[3117, true, false], [3118, true, false], [3122, false, false], [3141, false, true], [3136, false, false]]);
+  // A JSON-RPC error, or the mempool's own failure, says nothing about the transaction: it may have been sent.
+  for (const c of [-32000, -32603, -32600, -32001, 3997, 3004]) assert.ok(refusalFromOgmios(new OgmiosError(c, 'x', {})) instanceof SourceUnavailable, `code ${c}`);
 });

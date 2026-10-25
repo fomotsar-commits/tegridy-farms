@@ -4,6 +4,7 @@
 // some queries. Every message goes through src/json.ts: amounts stay exact.
 import CSL from '@emurgo/cardano-serialization-lib-nodejs';
 import type { ProtocolParams } from './build.ts';
+import { rational } from './fee.ts';
 import { refKey } from './chain.ts';
 import { parseExact, stringifyExact } from './json.ts';
 import type { Evaluator } from './prepare.ts';
@@ -47,7 +48,10 @@ export class SubmitRefused extends Error {
 }
 
 /** Ogmios's submit codes: 3117 unknown (spent) inputs, 3118 outside the validity window, 3141 incomplete withdrawals. */
-export function refusalFromOgmios(e: OgmiosError): SubmitRefused {
+export function refusalFromOgmios(e: OgmiosError): SubmitRefused | SourceUnavailable {
+  // Only the ledger's own codes are a refusal; a JSON-RPC error (-32xxx) or an unexpected mempool
+  // error (3997) says nothing about the transaction, which may have reached the node.
+  if (e.code < 3005 || e.code > 3168 || e.code === 3997) return new SourceUnavailable(`submission may or may not have reached the node: ${e.message}`);
   return new SubmitRefused(`${e.message} ${stringifyExact(e.data)}`.slice(0, 4000), e.code === 3117 || e.code === 3118, e.code === 3141);
 }
 
@@ -95,7 +99,21 @@ const bytes = (x: unknown, what: string): bigint => {
 };
 const ints = (x: unknown, what: string): number[] => {
   if (!Array.isArray(x)) throw new SourceUnavailable(`Ogmios: ${what} is not a list`);
-  return x.map((v) => Number(big(v, what)));
+  return x.map((v) => {
+    const n = big(v, what);
+    if (n > BigInt(Number.MAX_SAFE_INTEGER) || n < BigInt(Number.MIN_SAFE_INTEGER)) throw new SourceUnavailable(`Ogmios: ${what} holds ${n}, past what this batcher writes exactly`);
+    return Number(n);
+  });
+};
+/** A rate as published ("n/d" or a number), checked now: never a surprise inside a batch. */
+const rate = (x: unknown, what: string): string => {
+  const s = typeof x === 'bigint' ? x.toString() : typeof x === 'number' || typeof x === 'string' ? String(x) : '';
+  try {
+    rational(s);
+  } catch {
+    throw new SourceUnavailable(`Ogmios: ${what} is not a rate (${s || typeof x})`);
+  }
+  return s;
 };
 
 /**
@@ -122,8 +140,8 @@ export function protocolParamsFromOgmios(r: unknown): ProtocolParams {
     maxTxSize: Number(bytes(r.maxTransactionSize, 'maxTransactionSize')),
     maxValueSize: Number(bytes(r.maxValueSize, 'maxValueSize')),
     collateralPercentage: Number(big(r.collateralPercentage, 'collateralPercentage')),
-    executionUnitPrices: { priceMemory: String(prices.memory), priceSteps: String(prices.cpu) },
-    minFeeRefScriptCostPerByte: typeof base === 'bigint' ? base.toString() : String(base),
+    executionUnitPrices: { priceMemory: rate(prices.memory, 'the memory price'), priceSteps: rate(prices.cpu, 'the step price') },
+    minFeeRefScriptCostPerByte: rate(base, 'the reference-script price'),
     stakeAddressDeposit: Number(lovelace(r.stakeCredentialDeposit, 'stakeCredentialDeposit')),
     stakePoolDeposit: Number(lovelace(r.stakePoolDeposit, 'stakePoolDeposit')),
     costModelPlutusV2: ints(models['plutus:v2'], 'plutus:v2 cost model'),
@@ -164,17 +182,27 @@ export function budgetsFromOgmios(r: unknown): ScriptBudget[] {
 export const SCRIPT_FAILURES = 3010;
 /** Inside a 3010: the script ran and failed (3012), or a script input is unsuitable (3013). */
 const VERDICTS = new Set([3012, 3013]);
-/** Inside a 3010: an input is gone or unknown to this node (3004, 3110, 3117): not the batch's fault. */
-const INPUT_GONE = new Set([3004, 3110, 3117]);
+/** Codes about the node or the connection, not the transaction: try again. */
+const NODE_STATE = new Set([-32000, -32001, -32603, 3003]);
 
 /** The node cannot judge the batch: an input is gone or unknown to it (spent since it was read, or it lags). */
 export class InputsGone extends SourceUnavailable {}
 
 /**
+ * The node read the batch and would not judge it, for a reason about this batch rather than the
+ * node (it does not decode, a script or datum or cost model is missing, an era it cannot use...).
+ * Never a verdict on an order, never an outage: the batch is set aside, with an alert.
+ */
+export class NotJudged extends Error {}
+
+/** "an input is gone": 3117 (unknown output references), or 3004 naming an unknown input. 3110 alone is not. */
+const isGone = (code: number, text: string) => code === 3117 || (code === 3004 && /Unknown transaction input/i.test(text));
+
+/**
  * The node's own evaluator, as prepare.ts's judge: the chain's live cost model and limits.
  * Only a script that ran and failed is a verdict ({ ok: false }). An input the node cannot see
- * (spent since the read, or a node a block behind) throws InputsGone, and anything else is thrown
- * as it is: the caller tries again, or alerts, and never blames an order for it.
+ * (spent since the read, or a node a block behind) throws InputsGone; trouble with the node or the
+ * connection throws SourceUnavailable or OgmiosError; anything else about the batch throws NotJudged.
  * `withInputs` passes every input's output along (additionalUtxo), for inputs not on chain (tests).
  */
 export function ogmiosEvaluator(ep: Endpoint, opts: { withInputs?: boolean } = {}): Evaluator {
@@ -184,11 +212,16 @@ export function ogmiosEvaluator(ep: Endpoint, opts: { withInputs?: boolean } = {
     try {
       return { ok: true, budgets: budgetsFromOgmios(await rpc(ep, 'evaluateTransaction', params)) };
     } catch (e) {
-      if (!(e instanceof OgmiosError) || e.code !== SCRIPT_FAILURES) throw e;
+      if (!(e instanceof OgmiosError)) throw e;
       const detail = stringifyExact(e.data);
-      const codes = (Array.isArray(e.data) ? e.data : []).map((x: unknown) => (isObject(x) && isObject(x.error) ? Number(x.error.code) : NaN));
-      if (codes.some((c) => INPUT_GONE.has(c))) throw new InputsGone(`the node cannot see every input: ${detail.slice(0, 1000)}`);
-      if (!codes.length || !codes.every((c) => VERDICTS.has(c))) throw new OgmiosError(e.code, `not a script verdict: ${e.message}`, e.data);
+      if (e.code !== SCRIPT_FAILURES) {
+        if (isGone(e.code, `${e.message} ${detail}`)) throw new InputsGone(`the node cannot see every input: ${detail.slice(0, 1000)}`);
+        if (NODE_STATE.has(e.code)) throw e;
+        throw new NotJudged(`the node would not judge the batch: ${e.message} ${detail}`.slice(0, 4000));
+      }
+      const items = (Array.isArray(e.data) ? e.data : []).map((x: unknown) => (isObject(x) && isObject(x.error) ? { code: Number(x.error.code), text: stringifyExact(x.error) } : { code: NaN, text: '' }));
+      if (items.some((i) => isGone(i.code, i.text))) throw new InputsGone(`the node cannot see every input: ${detail.slice(0, 1000)}`);
+      if (!items.length || !items.every((i) => VERDICTS.has(i.code))) throw new NotJudged(`the node would not judge the batch: ${e.message} ${detail}`.slice(0, 4000));
       return { ok: false, error: `${e.message} ${detail}`.slice(0, 4000), overBudget: /overspending the budget/.test(detail) };
     }
   };

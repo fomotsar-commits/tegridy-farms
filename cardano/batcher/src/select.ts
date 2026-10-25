@@ -6,7 +6,7 @@
 // less than the batcher's fee is left alone, with its reason. Oldest order first, across pools.
 import CSL from '@emurgo/cardano-serialization-lib-nodejs';
 import { outputDatum, plutusDataHash, slotToPosixMs, valueFromCsl } from './chain.ts';
-import { Unsupported, currentTimeApproximation } from './engine.ts';
+import { Unsupported, currentTimeApproximation, type OrderOutput } from './engine.ts';
 import { ContractFailure } from './math.ts';
 import { planBatch, type Utxo } from './plan.ts';
 import { DecodeError, mkBytes, mkConstr, type PlutusData } from './plutus.ts';
@@ -172,6 +172,8 @@ export function chooseBatch(
   orders: readonly Order[],
   exclude: ReadonlySet<string>,
   tipSlot: bigint,
+  /** Why an order's output could not be built (build.ts orderOutputProblem), or null: such an order is left alone. */
+  outputProblem: (o: OrderOutput) => string | null = () => null,
 ): { candidate: Candidate | null; skipped: Skipped[] } {
   const validFromSlot = tipSlot - policy.slotsBefore;
   const validToSlot = tipSlot + policy.slotsAfter;
@@ -196,7 +198,7 @@ export function chooseBatch(
       if (taken.length >= policy.maxOrdersPerBatch) break;
       const trial = [...taken, o];
       try {
-        planBatch(
+        const plan = planBatch(
           dep.dex,
           pool.utxo,
           trial.map((x) => x.utxo),
@@ -205,6 +207,11 @@ export function chooseBatch(
           null,
           new Map(trial.flatMap((x) => (x.witness ? [[x.witness.hash, x.witness.data] as const] : []))),
         );
+        const problem = outputProblem(plan.outputs[plan.outputs.length - 1]!);
+        if (problem) {
+          skipped.push({ ref: o.utxo.ref, reason: `no batch can carry its output (${problem})` });
+          continue;
+        }
         taken.push(o);
       } catch (e) {
         if (!(e instanceof ContractFailure || e instanceof DecodeError || e instanceof Unsupported)) throw e;

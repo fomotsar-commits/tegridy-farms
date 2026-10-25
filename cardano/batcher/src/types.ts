@@ -84,15 +84,28 @@ export interface PoolBatchingRedeemer {
 
 const ORDER_STEP_NAMES = ['SwapExactIn', 'StopLoss', 'OCO', 'SwapExactOut', 'Deposit', 'Withdraw', 'ZapOut', 'PartialSwap', 'WithdrawImbalance', 'SwapMultiRouting', 'Donation'];
 
+// The contract's casts take any byte string; the ledger does not. A credential that is not 28
+// bytes, a datum hash that is not 32, or an asset the ledger cannot hold makes an output no
+// transaction can carry, so an order holding one can never be filled: it is refused here.
+const sized = (hex: string, n: number, what: string): string => {
+  if (hex.length !== n * 2) throw new DecodeError(`${what} is ${hex.length / 2} bytes, not ${n}`);
+  return hex;
+};
+
 export function decodeAsset(d: PlutusData, what: string): Asset {
   const [p, n] = fieldsOf(d, 0, 2, what);
-  return { policyId: bytes(p!, `${what}.policy_id`), assetName: bytes(n!, `${what}.asset_name`) };
+  const policyId = bytes(p!, `${what}.policy_id`);
+  const assetName = bytes(n!, `${what}.asset_name`);
+  if (policyId === '' && assetName !== '') throw new DecodeError(`${what} names an asset without a policy`);
+  if (policyId !== '') sized(policyId, 28, `${what}.policy_id`);
+  if (assetName.length > 64) throw new DecodeError(`${what}.asset_name is longer than 32 bytes`);
+  return { policyId, assetName };
 }
 
 function decodeCredential(d: PlutusData, what: string): Credential {
   const c = constr(d, what);
   if (c.fields.length !== 1 || c.alt > 1) throw new DecodeError(`${what} is not a Credential`);
-  return { kind: c.alt === 0 ? 'key' : 'script', hash: bytes(c.fields[0]!, `${what}.hash`) };
+  return { kind: c.alt === 0 ? 'key' : 'script', hash: sized(bytes(c.fields[0]!, `${what}.hash`), 28, `${what}.hash`) };
 }
 
 function decodeStakeCredential(d: PlutusData, what: string): StakeCredential {
@@ -112,8 +125,8 @@ export function decodeAddress(d: PlutusData, what: string): Address {
 function decodeExtraOrderDatum(d: PlutusData, what: string): ExtraOrderDatum {
   const c = constr(d, what);
   if (c.alt === 0 && c.fields.length === 0) return { kind: 'none' };
-  if (c.alt === 1 && c.fields.length === 1) return { kind: 'hash', hash: bytes(c.fields[0]!, what) };
-  if (c.alt === 2 && c.fields.length === 1) return { kind: 'inline', hash: bytes(c.fields[0]!, what) };
+  if (c.alt === 1 && c.fields.length === 1) return { kind: 'hash', hash: sized(bytes(c.fields[0]!, what), 32, what) };
+  if (c.alt === 2 && c.fields.length === 1) return { kind: 'inline', hash: sized(bytes(c.fields[0]!, what), 32, what) };
   throw new DecodeError(`${what} is not an ExtraOrderDatum`);
 }
 

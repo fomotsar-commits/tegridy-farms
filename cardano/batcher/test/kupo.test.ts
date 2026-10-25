@@ -9,6 +9,7 @@ import CSL from '@emurgo/cardano-serialization-lib-nodejs';
 import { valueFromCsl } from '../src/chain.ts';
 import { parseExact, stringifyExact } from '../src/json.ts';
 import { Kupo, checkKupoReady, utxoFromKupo } from '../src/kupo.ts';
+import { SourceUnavailable } from '../src/ogmios.ts';
 import { equals } from '../src/value.ts';
 
 const fx = JSON.parse(readFileSync(new URL('./fixtures/koios-responses.json', import.meta.url), 'utf8')) as { creatingTxs: Record<string, string> };
@@ -87,16 +88,50 @@ test('the client asks with bare flags and exact quantities, and a broken body is
     return new Response(body, { status: 200, headers: { 'x-most-recent-checkpoint': checkpoint } });
   });
   const k = new Kupo({ url: 'https://kupo.invalid', headers: { 'dmtr-api-key': 'test' } });
-  assert.deepEqual(await k.unspent('c3e28c36c3447315ba5a56f33da6a6ddc1770a876a8d9f0cb3a97c4c/*'), []);
+  assert.deepEqual(await k.unspent('c3e28c36c3447315ba5a56f33da6a6ddc1770a876a8d9f0cb3a97c4c/*'), { value: [], checkpoint: 201_339_477n });
   assert.equal(asked[0]!.url, 'https://kupo.invalid/matches/c3e28c36c3447315ba5a56f33da6a6ddc1770a876a8d9f0cb3a97c4c/*?unspent&resolve_hashes');
   assert.equal(asked[0]!.accept, 'application/json;asset-quantity=string');
-  assert.equal(k.lastCheckpoint, 201_339_477n);
   body = '[{"transaction_index":0,"transaction_id":"';
   await assert.rejects(() => k.unspent('*'), /unreadable answer/);
   checkpoint = 'nonsense';
   body = '[]';
-  await k.unspent('*');
-  assert.equal(k.lastCheckpoint, null);
+  assert.equal((await k.unspent('*')).checkpoint, null);
+});
+
+test('a deep datum or script is refused before EMURGO’s library reads it, and one bad match leaves the rest of the answer', async (t) => {
+  const withDatum = outputs.find((x) => x.out.plutus_data())!;
+  const withScript = outputs.find((x) => x.out.script_ref()?.is_plutus_script())!;
+  const deep = `${'81'.repeat(1_600)}00`;
+  const good = asKupo(withDatum.hash, withDatum.index, withDatum.out);
+  const deepDatum = { ...good, output_index: 99n, datum: deep };
+  const deepScript = { ...asKupo(withScript.hash, withScript.index, withScript.out), output_index: 98n, script: { script: deep, language: 'plutus:v2' } };
+  const future = { ...asKupo(withScript.hash, withScript.index, withScript.out), output_index: 97n, script: { script: '4d01000033222220051200120011', language: 'plutus:v4' } };
+  assert.throws(() => utxoFromKupo(deepDatum), /nested too deep/);
+  assert.throws(() => utxoFromKupo(deepScript), /nested too deep/);
+  assert.equal(CSL.BigNum.from_str('1').to_str(), '1', "EMURGO's library still works");
+  t.mock.method(globalThis, 'fetch', async () => new Response(stringifyExact([good, deepDatum, deepScript, future]), { status: 200, headers: { 'x-most-recent-checkpoint': '1' } }));
+  const refused: string[] = [];
+  const k = new Kupo({ url: 'https://kupo.invalid', onRefused: (ref, why) => refused.push(`${ref.split('#')[1]} ${why}`) });
+  const got = await k.unspent('*');
+  assert.deepEqual(got.value.map((u) => u.ref), [`${withDatum.hash}#${withDatum.index}`]);
+  assert.equal(refused.length, 3);
+  assert.match(refused.join(' | '), /99 .*nested too deep.*98 .*nested too deep.*97 .*plutus:v4/);
+});
+
+test('a datum by its hash: the bytes Kupo kept, "not seen", or a failure', async (t) => {
+  let body = '{"datum":"d87980"}';
+  let status = 200;
+  t.mock.method(globalThis, 'fetch', async () => new Response(body, { status, headers: { 'x-most-recent-checkpoint': '1' } }));
+  const k = new Kupo({ url: 'https://kupo.invalid' });
+  assert.equal(await k.datum('aa'.repeat(32)), 'd87980');
+  body = 'null';
+  assert.equal(await k.datum('aa'.repeat(32)), null);
+  body = '{"hint":"bad hash"}';
+  status = 400;
+  await assert.rejects(() => k.datum('aa'), SourceUnavailable);
+  status = 200;
+  body = '{"something":"else"}';
+  await assert.rejects(() => k.datum('aa'.repeat(32)), SourceUnavailable);
 });
 
 test('health is asked for as JSON (Kupo answers Prometheus text to Node’s default */*)', async (t) => {

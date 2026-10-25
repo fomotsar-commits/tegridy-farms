@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import CSL from '@emurgo/cardano-serialization-lib-nodejs';
 import { Unsupported } from '../src/engine.ts';
-import { BatchTooBig, prepareBatch } from '../src/prepare.ts';
+import { BatchTooBig, SetupError, paysOnlyWhomItShould, prepareBatch } from '../src/prepare.ts';
 import { simulate } from '../src/simulate.ts';
 import { BatchMismatch, verifySinglePoolBatch } from '../src/verify.ts';
 import type { PlutusData } from '../src/plutus.ts';
@@ -237,4 +237,21 @@ test('each script’s language is read from its reference script: a V3 one with 
     () => run([swap()], { world: (w) => void (w.scripts.order = utxo(w.scripts.order.ref, BATCHER_ADDRESS, value(100n * ADA), undefined, v3)) }),
     (e: unknown) => e instanceof Unsupported && e.kind === 'PlutusV3',
   );
+});
+
+test('the batcher’s change goes to its own address only: another address is refused before anything is built', async () => {
+  const stranger = traderAddress(7).to_bech32(undefined);
+  await assert.rejects(() => run([swap()], { world: (w) => void (w.batcher.address = stranger) }), (e: unknown) => e instanceof SetupError && /not the batcher key's own enterprise address/.test(e.message));
+});
+
+test('a built batch pays the traders, the pool and the batcher’s own address, and no one else', { skip }, async () => {
+  const b = await run([swap()]);
+  const own = BATCHER_ADDRESS.to_bech32(undefined);
+  paysOnlyWhomItShould(b.txHex, 1, own);
+  const outs = CSL.Transaction.from_hex(b.txHex).body().outputs();
+  // The change, sent anywhere else.
+  const elsewhere = withOutput(b.txHex, outs.len() - 1, () => ({ address: traderAddress(7) }));
+  assert.throws(() => paysOnlyWhomItShould(elsewhere, 1, own), (e: unknown) => e instanceof SetupError && /change to an address/.test(e.message));
+  // One output more or fewer than the orders, the pool and the change.
+  assert.throws(() => paysOnlyWhomItShould(b.txHex, 2, own), /outputs/);
 });

@@ -21,6 +21,13 @@ test('a new key: only its hash and address printed, the file never overwritten, 
     assert.ok(!out.includes(file.cborHex.slice(4)), 'the key itself was printed');
     assert.match(printed.address, /^addr1v/);
     if (process.platform !== 'win32') assert.equal(statSync(path).mode & 0o077, 0, 'the key file is readable by others');
+    else {
+      // Node ignores the mode on Windows: the access list must name this user alone.
+      const acl = execFileSync('icacls', [path], { encoding: 'utf8' });
+      const entries = acl.split(/\r?\n/).map((l) => l.replace(path, '').trim()).filter((l) => /:\(/.test(l));
+      assert.equal(entries.length, 1, acl);
+      assert.ok(entries[0]!.toLowerCase().includes(`\\${String(process.env.USERNAME).toLowerCase()}:(f)`), acl);
+    }
     assert.throws(() => execFileSync(process.execPath, [SCRIPT, path], { stdio: 'pipe' }), /never overwritten/);
     assert.equal(readFileSync(path, 'utf8').includes(file.cborHex), true);
 

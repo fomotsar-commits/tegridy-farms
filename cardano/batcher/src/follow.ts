@@ -41,17 +41,30 @@ export class Follower {
   readonly #events: FollowEvents;
   readonly #socket: SocketFactory;
   readonly #maxBackoffMs: number;
+  readonly #silentMs: number;
   #ws: SocketLike | null = null;
+  #watchdog: ReturnType<typeof setTimeout> | null = null;
   #stopped = false;
   #backoffMs = 1_000;
   #nextId = 1;
   #pending = new Map<number, (r: { result?: unknown; error?: unknown }) => void>();
 
-  constructor(url: string, events: FollowEvents, opts: { socket?: SocketFactory; maxBackoffMs?: number } = {}) {
+  /**
+   * `silentMs`: with no answer to nextBlock for this long (mainnet makes a block about every 20 s),
+   * the connection is taken as dead (a half-open socket never says so) and made again.
+   */
+  constructor(url: string, events: FollowEvents, opts: { socket?: SocketFactory; maxBackoffMs?: number; silentMs?: number } = {}) {
     this.#url = url;
     this.#events = events;
     this.#socket = opts.socket ?? ((u) => new WebSocket(u) as unknown as SocketLike);
     this.#maxBackoffMs = opts.maxBackoffMs ?? 30_000;
+    this.#silentMs = opts.silentMs ?? 300_000;
+  }
+
+  #watch(ws: SocketLike): void {
+    if (this.#watchdog) clearTimeout(this.#watchdog);
+    this.#watchdog = setTimeout(() => this.#lost(ws, `no block for ${this.#silentMs / 1000} s`), this.#silentMs);
+    this.#watchdog.unref?.();
   }
 
   start(): void {
@@ -84,6 +97,8 @@ export class Follower {
   #lost(ws: SocketLike, why: string): void {
     if (this.#ws !== ws) return;
     this.#ws = null;
+    if (this.#watchdog) clearTimeout(this.#watchdog);
+    this.#watchdog = null;
     ws.onopen = ws.onmessage = ws.onerror = ws.onclose = null;
     try {
       ws.close();
@@ -110,7 +125,10 @@ export class Follower {
     } catch {
       return this.#lost(ws, 'an unreadable message');
     }
-    if (!isObject(msg) || typeof msg.id !== 'bigint') return;
+    if (!isObject(msg)) return;
+    // An error Ogmios could not tie to a request (id null) leaves ours unanswered: the connection is lost.
+    if (msg.id === null && msg.error !== undefined) return this.#lost(ws, `Ogmios: ${stringifyExact(msg.error)}`);
+    if (typeof msg.id !== 'bigint') return;
     const resolve = this.#pending.get(Number(msg.id));
     if (!resolve) return;
     this.#pending.delete(Number(msg.id));
@@ -132,12 +150,17 @@ export class Follower {
     if (!isObject(tip) || typeof tip.slot !== 'bigint' || typeof tip.id !== 'string') throw new Error('findIntersection: no tip');
     await this.#call(ws, 'findIntersection', { points: [{ slot: tip.slot, id: tip.id }] });
     this.#backoffMs = 1_000;
+    // After an intersection, Ogmios's first answer always steps back to it: that is no rollback.
+    let atIntersection = true;
     while (this.#ws === ws && !this.#stopped) {
+      this.#watch(ws);
       const r = await this.#call(ws, 'nextBlock');
       if (!isObject(r)) throw new Error('nextBlock: not an object');
       if (r.direction === 'forward' && isObject(r.block)) this.#events.forward(blockOf(r.block));
-      else if (r.direction === 'backward') this.#events.backward(isObject(r.point) && typeof r.point.slot === 'bigint' && typeof r.point.id === 'string' ? { slot: r.point.slot, id: r.point.id } : 'origin');
-      else throw new Error(`nextBlock: direction ${String(r.direction)}`);
+      else if (r.direction === 'backward') {
+        if (!atIntersection) this.#events.backward(isObject(r.point) && typeof r.point.slot === 'bigint' && typeof r.point.id === 'string' ? { slot: r.point.slot, id: r.point.id } : 'origin');
+      } else throw new Error(`nextBlock: direction ${String(r.direction)}`);
+      atIntersection = false;
     }
   }
 }
