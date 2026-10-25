@@ -23,13 +23,13 @@ const evaluate = (tx: string, spent: Readonly<Record<string, string>>) => simula
 const SLOT = 160_000_000n;
 const ADA = 1_000_000n;
 
-function run(orders: { utxo: Utxo; datum: PlutusData }[], opts: { fees?: bigint[]; world?: (w: World) => void; pp?: ProtocolParams; rewardBalance?: bigint } = {}) {
+async function run(orders: { utxo: Utxo; datum: PlutusData }[], opts: { fees?: bigint[]; world?: (w: World) => void; pp?: ProtocolParams; rewardBalance?: bigint } = {}) {
   const w = world();
   opts.world?.(w);
   const spent: Record<string, string> = { ...w.spent };
   for (const u of [w.pool, w.globalSetting, w.batcher.collateral, ...w.batcher.feeUtxos, ...orders.map((o) => o.utxo)]) spent[u.ref] = u.outputHex;
   const datumsByHash = new Map(orders.map((o) => [CSL.hash_plutus_data(o.datum).to_hex(), o.datum]));
-  const b = prepareBatch(
+  const b = await prepareBatch(
     {
       network: NETWORK,
       dex: DEX,
@@ -56,9 +56,9 @@ function run(orders: { utxo: Utxo; datum: PlutusData }[], opts: { fees?: bigint[
 const tokenOf = (o: CSL.TransactionOutput, name = TOK.assetName, policy = TOK.policyId) =>
   BigInt(o.amount().multiasset()?.get(CSL.ScriptHash.from_hex(policy))?.get(CSL.AssetName.new(Buffer.from(name, 'hex')))?.to_str() ?? '0');
 
-test('one swap, ADA in: built, every script passes, read back, the trader paid exactly', { skip }, () => {
+test('one swap, ADA in: built, every script passes, read back, the trader paid exactly', { skip }, async () => {
   const o = order(`${'c1'.repeat(32)}#0`, 1, 30n * ADA, [], step.swapIn(true, 25n * ADA, 1n));
-  const b = run([o]);
+  const b = await run([o]);
   assert.deepEqual(b.report.orders, [{ step: 'SwapExactIn', fee: 2n * ADA, filled: true }]);
   const tx = CSL.Transaction.from_hex(b.txHex);
   const out0 = tx.body().outputs().get(0);
@@ -72,7 +72,7 @@ test('one swap, ADA in: built, every script passes, read back, the trader paid e
   assert.ok([...b.budgets.keys()].includes('reward:0'));
 });
 
-test('five orders of four types, processed in the batcher’s order, not the ledger’s', { skip }, () => {
+test('five orders of four types, processed in the batcher’s order, not the ledger’s', { skip }, async () => {
   const lp = (n: bigint): [string, string, bigint] => [DEX.authenPolicy, LP_NAME, n];
   const tok = (n: bigint): [string, string, bigint] => [TOK.policyId, TOK.assetName, n];
   const orders = [
@@ -83,7 +83,7 @@ test('five orders of four types, processed in the batcher’s order, not the led
     order(`${'c3'.repeat(32)}#1`, 5, 4n * ADA, [lp(1_000_000n)], step.withdraw(1_000_000n, 1n, 1n)),
     order(`${'c1'.repeat(32)}#3`, 6, 14n * ADA, [], step.swapIn(true, 10n * ADA, 1n)),
   ];
-  const b = run(orders);
+  const b = await run(orders);
   assert.deepEqual(b.report.orders.map((o) => o.step), ['SwapExactIn', 'SwapExactOut', 'Deposit', 'Withdraw', 'SwapExactIn']);
   assert.ok(b.report.orders.every((o) => o.filled));
   assert.deepEqual(b.report.redeemer.inputIndexes, [4, 1, 3, 2, 0]); // c5, c2, c4, c3, c1 among the sorted orders
@@ -94,43 +94,43 @@ test('five orders of four types, processed in the batcher’s order, not the led
   assert.ok(s.stateOut.valueReserveA - s.stateOut.datumReserveA > s.stateIn.valueReserveA - s.stateIn.datumReserveA);
 });
 
-test('a killable order the price no longer meets is refunded in the same batch, less only the fee', { skip }, () => {
+test('a killable order the price no longer meets is refunded in the same batch, less only the fee', { skip }, async () => {
   const fill = order(`${'c1'.repeat(32)}#0`, 1, 30n * ADA, [], step.swapIn(true, 25n * ADA, 1n));
   const miss = order(`${'c2'.repeat(32)}#0`, 2, 30n * ADA, [], step.swapIn(true, 25n * ADA, 10n ** 15n));
-  const b = run([fill, miss], { fees: [2n * ADA, ADA] });
+  const b = await run([fill, miss], { fees: [2n * ADA, ADA] });
   assert.deepEqual(b.report.orders.map((o) => o.filled), [true, false]);
   const refund = CSL.Transaction.from_hex(b.txHex).body().outputs().get(1);
   assert.equal(BigInt(refund.amount().coin().to_str()), 29n * ADA);
   assert.equal(refund.amount().multiasset(), undefined);
 });
 
-test('an order holding only its datum hash: the datum is carried in the batch', { skip }, () => {
+test('an order holding only its datum hash: the datum is carried in the batch', { skip }, async () => {
   const o = order(`${'c1'.repeat(32)}#0`, 1, 30n * ADA, [], step.swapIn(true, 25n * ADA, 1n), { byHash: true });
-  const b = run([o]);
+  const b = await run([o]);
   assert.equal(b.report.orders[0]!.filled, true);
   assert.equal(CSL.Transaction.from_hex(b.txHex).witness_set().plutus_data()?.len(), 1);
 });
 
-test('an order that leaves too little ADA to carry its coins back is refused, never built', { skip }, () => {
+test('an order that leaves too little ADA to carry its coins back is refused, never built', { skip }, async () => {
   const o = order(`${'c4'.repeat(32)}#0`, 4, 53n * ADA, [[TOK.policyId, TOK.assetName, 2_500_000_000n]], step.deposit(50n * ADA, 2_500_000_000n, 1n));
-  assert.throws(() => run([o]), /its output cannot exist/);
+  await assert.rejects(() => run([o]), /its output cannot exist/);
 });
 
-test('a batch whose scripts need more than one transaction may use is refused, to be split', { skip }, () => {
+test('a batch whose scripts need more than one transaction may use is refused, to be split', { skip }, async () => {
   const o = order(`${'c1'.repeat(32)}#0`, 1, 30n * ADA, [], step.swapIn(true, 25n * ADA, 1n));
   const tight = { ...PP, maxTxExecutionUnits: { memory: 1_000_000, steps: 1_000_000_000 } };
-  assert.throws(() => run([o], { pp: tight }), BatchTooBig);
+  await assert.rejects(() => run([o], { pp: tight }), BatchTooBig);
 });
 
-test('an order type the batcher does not build is refused before anything is built', { skip }, () => {
+test('an order type the batcher does not build is refused before anything is built', { skip }, async () => {
   const o = order(`${'c1'.repeat(32)}#0`, 1, 30n * ADA, [], step.zapOut());
-  assert.throws(() => run([o]), (e: unknown) => e instanceof Unsupported && e.kind === 'ZapOut');
+  await assert.rejects(() => run([o]), (e: unknown) => e instanceof Unsupported && e.kind === 'ZapOut');
 });
 
-test('our contracts reject the built batch with one order paid a unit short', { skip }, () => {
+test('our contracts reject the built batch with one order paid a unit short', { skip }, async () => {
   const o = order(`${'c1'.repeat(32)}#0`, 1, 30n * ADA, [], step.swapIn(true, 25n * ADA, 1n));
   const w = world();
-  const b = run([o]);
+  const b = await run([o]);
   const spent = { ...w.spent, [o.utxo.ref]: o.utxo.outputHex };
   const bad = withOutput(b.txHex, 0, (out) => ({ value: plusFirstToken(out.amount(), -1n) }));
   const sim = evaluate(bad, spent);
@@ -152,12 +152,12 @@ const changeOf = (txHex: string) => {
   return BigInt(outs.get(outs.len() - 1).amount().coin().to_str());
 };
 
-test('a pool carrying a reference script: the batch pays the ledger for its bytes, and the pool comes out without it', { skip }, () => {
+test('a pool carrying a reference script: the batch pays the ledger for its bytes, and the pool comes out without it', { skip }, async () => {
   // Anyone can make a pool whose first output carries one (the factory never looks). Aiken 1.0.24
   // cannot run a batch whose inputs carry a script nothing in it uses (the ledger can), so the
   // script here is the pool's own.
-  const plain = run([swap()]);
-  const b = run([swap()], { world: (w) => void (w.pool = withScriptRef(w.pool, scriptRefOf('pool'))) });
+  const plain = await run([swap()]);
+  const b = await run([swap()], { world: (w) => void (w.pool = withScriptRef(w.pool, scriptRefOf('pool'))) });
   assert.ok(b.fee >= ledgerMinFee(b.txHex, b.spent, PP), `fee ${b.fee} below the ledger's ${ledgerMinFee(b.txHex, b.spent, PP)}`);
   // 22,263 bytes of reference scripts become 22,263 + the pool script's 3,965: past the first tier.
   const perByte = { n: 15n, d: 1n };
@@ -166,31 +166,31 @@ test('a pool carrying a reference script: the batch pays the ledger for its byte
   assert.equal(CSL.Transaction.from_hex(b.txHex).body().outputs().get(1).script_ref(), undefined);
 });
 
-test('the fee covers the transaction as signed by the batcher’s real key', { skip }, () => {
-  const b = run([swap()]);
+test('the fee covers the transaction as signed by the batcher’s real key', { skip }, async () => {
+  const b = await run([swap()]);
   const signed = CSL.FixedTransaction.from_hex(b.txHex);
   signed.sign_and_add_vkey_signature(BATCHER_SKEY);
   assert.equal(ledgerMinFee(signed.to_hex(), b.spent, PP), ledgerMinFee(b.txHex, b.spent, PP));
   assert.ok(b.fee >= ledgerMinFee(signed.to_hex(), b.spent, PP));
 });
 
-test('an order carrying a reference script is left alone: the batch would pay for its bytes', { skip }, () => {
+test('an order carrying a reference script is left alone: the batch would pay for its bytes', { skip }, async () => {
   const o = swap();
   const carrying = { utxo: withScriptRef(o.utxo, scriptRefOf('pool')), datum: o.datum };
-  assert.throws(() => run([carrying]), (e: unknown) => e instanceof Unsupported && e.kind === 'ReferenceScript');
+  await assert.rejects(() => run([carrying]), (e: unknown) => e instanceof Unsupported && e.kind === 'ReferenceScript');
 });
 
-test('a UTxO someone sent the batcher is never spent: one with a reference script, a collateral with a token', { skip }, () => {
+test('a UTxO someone sent the batcher is never spent: one with a reference script, a collateral with a token', { skip }, async () => {
   const refused = /not plain ADA at the batcher's own key/;
-  assert.throws(() => run([swap()], { world: (w) => void (w.batcher.feeUtxos = [withScriptRef(w.batcher.feeUtxos[0]!, scriptRefOf('order'))]) }), refused);
+  await assert.rejects(() => run([swap()], { world: (w) => void (w.batcher.feeUtxos = [withScriptRef(w.batcher.feeUtxos[0]!, scriptRefOf('order'))]) }), refused);
   const tokenCollateral = utxo(`${'b1'.repeat(32)}#1`, BATCHER_ADDRESS, value(10n * ADA, [[TOK.policyId, TOK.assetName, 1n]]));
-  assert.throws(() => run([swap()], { world: (w) => void (w.batcher.collateral = tokenCollateral) }), refused);
+  await assert.rejects(() => run([swap()], { world: (w) => void (w.batcher.collateral = tokenCollateral) }), refused);
 });
 
-test('collateral of any size the fee allows: 1.1, 3 and 5.5 ADA all build, pledging no more than they hold', { skip }, () => {
+test('collateral of any size the fee allows: 1.1, 3 and 5.5 ADA all build, pledging no more than they hold', { skip }, async () => {
   for (const lovelace of [1_100_000n, 3n * ADA, 5_500_000n]) {
     const c = utxo(`${'b1'.repeat(32)}#1`, BATCHER_ADDRESS, value(lovelace));
-    const b = run([swap()], { world: (w) => void (w.batcher.collateral = c) });
+    const b = await run([swap()], { world: (w) => void (w.batcher.collateral = c) });
     const back = BigInt(CSL.Transaction.from_hex(b.txHex).body().collateral_return()?.amount().coin().to_str() ?? '0');
     assert.equal(b.totalCollateral + back, lovelace, `${lovelace}`);
     assert.ok(b.totalCollateral * 100n >= b.fee * BigInt(PP.collateralPercentage), `${lovelace}`);
@@ -199,41 +199,41 @@ test('collateral of any size the fee allows: 1.1, 3 and 5.5 ADA all build, pledg
   }
   // Too small for the fee's share: refused, never built short.
   const tiny = utxo(`${'b1'.repeat(32)}#1`, BATCHER_ADDRESS, value(900_000n));
-  assert.throws(() => run([swap()], { world: (w) => void (w.batcher.collateral = tiny) }), /collateral UTxO holds 900000/);
+  await assert.rejects(() => run([swap()], { world: (w) => void (w.batcher.collateral = tiny) }), /collateral UTxO holds 900000/);
 });
 
-test('a batch of more bytes than one transaction may be is refused as too big, to be split', { skip }, () => {
+test('a batch of more bytes than one transaction may be is refused as too big, to be split', { skip }, async () => {
   // Four orders, each carrying 56 tokens of its own, which go back to the trader.
   const junk = (k: number): [string, string, bigint][] => Array.from({ length: 56 }, (_, i) => [(k * 1000 + i).toString(16).padStart(56, '0'), 'aa'.repeat(32), 1n]);
   const orders = Array.from({ length: 4 }, (_, j) => order(`${(0xc1 + j).toString(16).repeat(32)}#0`, 1 + j, 60n * ADA, junk(j + 1), step.swapIn(true, 25n * ADA, 1n)));
-  assert.throws(() => run(orders), (e: unknown) => e instanceof BatchTooBig && /more bytes than one transaction/.test(e.message));
+  await assert.rejects(() => run(orders), (e: unknown) => e instanceof BatchTooBig && /more bytes than one transaction/.test(e.message));
 });
 
-test('a batch whose script runs out of the simulator’s budget is refused as too big, to be split', { skip }, () => {
+test('a batch whose script runs out of the simulator’s budget is refused as too big, to be split', { skip }, async () => {
   const orders = Array.from({ length: 40 }, (_, j) => order(`${(0x10 + j).toString(16).repeat(32)}#0`, 1 + (j % 8), 14n * ADA, [], step.swapIn(true, 10n * ADA, 1n)));
-  assert.throws(() => run(orders), (e: unknown) => e instanceof BatchTooBig && /ran out of budget/.test(e.message));
+  await assert.rejects(() => run(orders), (e: unknown) => e instanceof BatchTooBig && /ran out of budget/.test(e.message));
 });
 
-test('a reward balance someone paid into the batching account is withdrawn whole, into the batcher’s change', { skip }, () => {
-  const plain = run([swap()]);
-  const b = run([swap()], { rewardBalance: 3n * ADA });
+test('a reward balance someone paid into the batching account is withdrawn whole, into the batcher’s change', { skip }, async () => {
+  const plain = await run([swap()]);
+  const b = await run([swap()], { rewardBalance: 3n * ADA });
   const w = CSL.Transaction.from_hex(b.txHex).body().withdrawals()!;
   assert.equal(w.get(w.keys().get(0))!.to_str(), String(3n * ADA));
   assert.equal(changeOf(b.txHex) - changeOf(plain.txHex), 3n * ADA - (b.fee - plain.fee));
 });
 
-test('rates as Ogmios prints them ("n/d") give the same batch; a rate printed in e-notation builds', { skip }, () => {
-  const plain = run([swap()]);
+test('rates as Ogmios prints them ("n/d") give the same batch; a rate printed in e-notation builds', { skip }, async () => {
+  const plain = await run([swap()]);
   const ogmios = { ...PP, executionUnitPrices: { priceMemory: '577/10000', priceSteps: '721/10000000' }, minFeeRefScriptCostPerByte: '15/1' };
-  assert.equal(run([swap()], { pp: ogmios }).fee, plain.fee);
+  assert.equal((await run([swap()], { pp: ogmios })).fee, plain.fee);
   const tiny = { ...PP, executionUnitPrices: { ...PP.executionUnitPrices, priceSteps: 7.21e-7 } };
-  assert.ok(run([swap()], { pp: tiny }).fee < plain.fee);
+  assert.ok((await run([swap()], { pp: tiny })).fee < plain.fee);
 });
 
-test('each script’s language is read from its reference script: a V3 one with no V3 cost model is refused', { skip }, () => {
+test('each script’s language is read from its reference script: a V3 one with no V3 cost model is refused', { skip }, async () => {
   const v3 = CSL.ScriptRef.new_plutus_script(CSL.PlutusScript.new_with_version(Buffer.from(S.order.compiledCode, 'hex'), CSL.Language.new_plutus_v3()));
   assert.equal(referenceScriptOf(utxo(`${'a2'.repeat(32)}#1`, BATCHER_ADDRESS, value(ADA), undefined, v3)).language.kind(), CSL.LanguageKind.PlutusV3);
-  assert.throws(
+  await assert.rejects(
     () => run([swap()], { world: (w) => void (w.scripts.order = utxo(w.scripts.order.ref, BATCHER_ADDRESS, value(100n * ADA), undefined, v3)) }),
     (e: unknown) => e instanceof Unsupported && e.kind === 'PlutusV3',
   );

@@ -15,7 +15,7 @@ import { verifySinglePoolBatch, type BatchReport, type DexConstants } from './ve
  * (Ogmios), which uses the chain's current cost model and limits; `aiken tx simulate` (Aiken
  * 1.0.24's built-in cost model) in tests.
  */
-export type Evaluator = (txHex: string, spent: Readonly<Record<string, string>>) => SimulationResult;
+export type Evaluator = (txHex: string, spent: Readonly<Record<string, string>>) => SimulationResult | Promise<SimulationResult>;
 
 export class SimulationFailed extends Error {
   constructor(stage: string, detail: string) {
@@ -40,13 +40,13 @@ export interface PreparedBatch {
   report: BatchReport;
 }
 
-export function prepareBatch(input: PrepareInput, pp: ProtocolParams, evaluate: Evaluator): PreparedBatch {
+export async function prepareBatch(input: PrepareInput, pp: ProtocolParams, evaluate: Evaluator): Promise<PreparedBatch> {
   const now = currentTimeApproximation(slotToPosixMs(input.validFromSlot, input.dex.time), slotToPosixMs(input.validToSlot, input.dex.time));
   const plan = planBatch(input.dex, input.pool, input.orders, input.fees, now, input.volFee, input.datumsByHash);
   const request: BatchTxRequest = { ...input, plan, budgets: new Map() };
 
   const first = buildBatchTx(request, pp);
-  const sim1 = evaluate(first.txHex, input.spent);
+  const sim1 = await evaluate(first.txHex, input.spent);
   if (!sim1.ok && sim1.overBudget) throw new BatchTooBig(`a script ran out of budget: ${sim1.error}`);
   if (!sim1.ok) throw new SimulationFailed('with placeholder budgets', sim1.error);
   const budgets = new Map<string, ExUnits>(sim1.budgets.map((b) => [`${b.tag.toLowerCase()}:${b.index}`, { mem: b.mem, steps: b.steps }]));
@@ -61,7 +61,7 @@ export function prepareBatch(input: PrepareInput, pp: ProtocolParams, evaluate: 
   // so every script runs again on it. Neither evaluator holds a script to the budget the
   // transaction declares, so that is checked here, redeemer by redeemer.
   const exact = buildBatchTx({ ...request, budgets }, pp);
-  const sim2 = evaluate(exact.txHex, input.spent);
+  const sim2 = await evaluate(exact.txHex, input.spent);
   if (!sim2.ok) throw new SimulationFailed('with exact budgets', sim2.error);
   for (const b of sim2.budgets) {
     const declared = budgets.get(`${b.tag.toLowerCase()}:${b.index}`);

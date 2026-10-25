@@ -15,8 +15,11 @@ fake chain). So this is new code, and it is in the audit's scope.
 | `src/verify.ts`: reads a batch exactly as the pool contract does and recomputes it | done; 11 real Minswap V2 batches reproduced to the unit, 10 tampered ones rejected naming the rule |
 | `src/plan.ts`, `src/build.ts`, `src/prepare.ts`: each batch built, every script run against our compiled contracts (`aiken tx simulate`), rebuilt with the exact budgets, run again, then read back with `verify.ts` before signing | done; reviewed, its 7 findings fixed |
 | `src/fee.ts`: the ledger's own minimum fee, not EMURGO's estimate (EMURGO misses reference scripts a stranger attaches) | done; 12 real mainnet batches all paid 6,380 to 6,644 lovelace over it, never under |
-| Watching the chain (hosted Ogmios + Kupo, a Koios key of its own as backup), the node's own evaluator in place of Aiken's, and sending | next |
-| Railway service, heartbeat alert, fee cap | last |
+| `src/ogmios.ts`: the node's own answers and its evaluator, the judge of every batch | done; mainnet's node re-judged all 12 real Minswap batches at exactly the budgets they declared, and judges ours live (40 swaps, which Aiken refuses, fit) |
+| `src/kupo.ts`, `src/koios.ts`, `src/view.ts`: UTxOs from Kupo (primary) or Koios (backup), rebuilt into the exact outputs the chain holds | done; every real Minswap UTxO recorded rebuilt to the byte against the transaction that made it, amounts past 2^53 included |
+| `src/follow.ts`: chain-sync, a round per block | done; follows mainnet live |
+| `src/select.ts`, `src/watcher.ts`, `src/main.ts`: what to batch next, and the loop (failover, in-flight inputs, halving, set-aside, refusals, float cap, dry run) | done |
+| Railway service, heartbeat alert | next |
 
 ## What a batch costs (our contracts, mainnet prices)
 
@@ -27,8 +30,9 @@ fake chain). So this is new code, and it is in the audit's scope.
 | 10 | 0.998 ADA | 4.57M |
 | 25 | 1.560 ADA | 9.85M |
 
-The batcher pays this from the batcher fee each order carries. Under Aiken's limits a batch
-tops out at about 38 simple swaps; a bigger one is refused as `BatchTooBig`, to be split.
+The batcher pays this from the batcher fee each order carries. By the chain's own limits a batch
+holds about 40 simple swaps (Aiken's per-script limit stops at about 38); a bigger one is
+refused as `BatchTooBig`, to be split.
 
 ## Before it runs on mainnet
 
@@ -41,12 +45,12 @@ tops out at about 38 simple swaps; a bigger one is refused as `BatchTooBig`, to 
 - **Read the account's balance for every batch** (`batchingRewardBalance`): the ledger only
   lets a withdrawal take all of it, and anyone can pay into it (a governance deposit's refund
   can name any reward account). It is normally 0; anything in it goes to the batcher.
-- **Judge with the node's evaluator (Ogmios), not Aiken.** Aiken 1.0.24 uses its built-in cost
-  model, gives each script a fixed 14M memory (the chain gives the whole transaction 16.5M), and
-  cannot run a batch whose inputs carry a reference script that nothing in the batch uses (the
-  chain can). Today its memory figures match mainnet's exactly and its steps run 14 to 28%
-  high, so it is safe, but cautious. Read the protocol parameters (prices, cost model) every
-  epoch.
+- **The judge is the node's evaluator (Ogmios), never Aiken** (`src/main.ts` only uses Ogmios).
+  Aiken 1.0.24 uses its built-in cost model, gives each script a fixed 14M memory (the chain
+  gives the whole transaction 16.5M), and cannot run a batch whose inputs carry a reference
+  script nothing in the batch uses (the chain can). Its memory figures match mainnet's exactly
+  and its steps run 14 to 28% high: the tests still use it, offline. Protocol parameters are read
+  every round.
 - **Keep the float in plain ADA UTxOs at the batcher's key**, and a collateral UTxO of about
   5 ADA. Anything else sent to that address is never spent by a batch.
 
@@ -76,6 +80,48 @@ Keep the float small.
 - Minswap's `batcher-sample.ts` builds the pool's ADA from the datum reserve: wrong once a pool
   has a fee share, as all of ours do. Value reserves and datum reserves differ by the share.
 
+## How it runs
+
+```
+node src/main.ts settings.json            # a round per block; without BATCHER_KEY_FILE, a dry run
+node src/main.ts settings.json --once     # one round, then exit
+```
+
+`settings.json` holds no secrets (the deployment's hashes and reference-script UTxOs, the batcher
+key's hash and address, the fee per order, the float cap). The environment holds the rest:
+`OGMIOS_URL` and `OGMIOS_WS` (Demeter puts the key in the host name), `KUPO_URL`, `KOIOS_URL`
+and `KOIOS_TOKEN`, `BATCHER_KEY_FILE`. Every log line is one JSON object, scrubbed of those.
+
+Each round reads from one source only: Ogmios + Kupo, or, if anything there fails, Koios. A
+batch is judged by that source's node and signed only after it passed. Its inputs are held until
+its window closes (5 minutes), sent or not. The rules:
+
+- **A source failing, or a node that cannot see an input yet, is never held against an order.**
+  Only a script that ran and failed is (Ogmios's 3012 inside a 3010).
+- **Too big** (bytes, or memory by the chain's own limit): halved, oldest orders kept.
+- **Refused by the scripts**: halved the same way; an order refused alone is set aside for an
+  hour, and that is an alert (our engine and the contract disagree).
+- **Refused at submission**: an input gone or the window passed is normal; any other refusal
+  counts, and `maxRefusalsInARow` of them in a row stop the batcher.
+- **Above the float cap**, or with fewer than two plain ADA UTxOs: it stops and says why.
+- Anyone can make orders: each is read as strictly as the contract reads it, and the rest are
+  left alone with a reason (logged). Datums of hash-only orders: at most 20 lookups a round.
+
+## Traps met building it (never undo these)
+
+- **Plain `JSON.parse` changes a pool.** A pool holds about 9.2 x 10^18 unissued LP tokens;
+  read as a JavaScript number it becomes another pool, and the node rejects every batch built on
+  it. Kupo and Ogmios send amounts as bare numbers: everything goes through `src/json.ts`.
+- **Kupo's flags are bare** (`?unspent`, never `?unspent=`: Node's URLSearchParams writes the
+  second, which Kupo refuses), and a pattern Kupo does not index answers `[]`, exactly like
+  "nothing there".
+- **Ogmios's 3010 is not always a verdict.** "The pool was spent meanwhile" arrives as 3010 too,
+  holding 3004, 3110 or 3117: counted as a verdict, a block's lag would set good orders aside.
+- **Ogmios cannot see our batching account**: it leaves out a registered account delegated to
+  no pool and no DRep, which a withdraw-zero script account is. Koios's `account_info` can.
+- **Koios scans big sets slowly** (Minswap's orders: 32 s; its pools: 113 s): fine for our own
+  small deployment as a backup, and the reason Kupo is the primary.
+
 ## Run the tests
 
 ```
@@ -84,4 +130,8 @@ npm test
 npm run typecheck
 ```
 
-Node 24 runs the TypeScript directly (type stripping): erasable syntax only.
+Node 24 runs the TypeScript directly (type stripping): erasable syntax only. The tests that run
+scripts need `AIKEN=<path to Aiken 1.0.24>`; the live ones need `OGMIOS_URL` (e.g.
+`https://api.koios.rest/api/v1/ogmios`, keyless) and `OGMIOS_WS` (e.g.
+`wss://api.koios.rest/api/v1/ogmios`). Recorded answers are refreshed with
+`node scripts/fetch-source-fixtures.ts` and `node scripts/fetch-ogmios-fixtures.ts`.
