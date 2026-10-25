@@ -21,10 +21,12 @@ const RUNNING_GAP_MS = 120_000;
  * one side: it opens at the first look where a correction would have paid, and
  * closes only when the gap comes back inside the fees (or flips side). A look that
  * is outside the band but does not pay, or is unread, neither closes it nor adds to
- * it. Each episode counts once, at the best confirmed profit seen in it, because
- * nothing closes the gap while the keeper only watches. If any look in an episode
- * hit the size cap, that episode would have taken several corrections, so its
- * figure is a floor.
+ * it. Each episode gives two figures. `live` is the confirmed profit of its FIRST look
+ * that pays: a live keeper fixes the gap right there, so that is about what it takes
+ * (a gap that keeps drifting adds a few small fixes after it). `made` is the best
+ * confirmed profit seen in it, which only one late trade at the biggest gap could take:
+ * what a stranger can take, never the keeper's estimate. If a look hit the size cap,
+ * that fix would have needed several corrections, so its figure is a floor.
  */
 export function summarize(rows) {
   const pools = new Map();
@@ -32,7 +34,7 @@ export function summarize(rows) {
   for (const r of sorted) {
     const p = pools.get(r.pool) ?? {
       coin: r.coin ?? '', checks: 0, unread: 0, first: r.t, last: r.t, lastAt: null, runningMs: 0,
-      maxGap: null, maxGapAt: null, episodes: 0, made: 0, capped: 0, paused: 0, unsteady: 0,
+      maxGap: null, maxGapAt: null, episodes: 0, live: 0, liveCapped: 0, made: 0, capped: 0, paused: 0, unsteady: 0,
       episode: null, // { side, best, capped }
       size: { fits: 0, tooBig: 0, tooBigUpper: 0, failed: 0, lastFailure: null, notChecked: 0, maxBytes: 0 },
       jumps: 0, inJump: false, leaks: 0, repointed: 0,
@@ -76,6 +78,9 @@ export function summarize(rows) {
       if (!p.episode) {
         p.episode = { side, best: 0, capped: false };
         p.episodes++;
+        // A live keeper fixes the gap at this first paying look.
+        p.live += r.confirmedProfit;
+        if (r.capped) p.liveCapped++;
       }
       if (r.capped && !p.episode.capped) {
         p.episode.capped = true;
@@ -106,7 +111,11 @@ export function describe(pools) {
       const among = p.unread ? ` among the ${read} looks it could read` : '';
       lines.push(`  Biggest gap${among}: ${p.maxGap >= 0 ? '+' : ''}${p.maxGap.toFixed(2)}%${p.maxGapAt ? ` (${p.maxGapAt})` : ''}.`);
       if (p.episodes === 0) lines.push(`  A correction would not have paid in any look it could read${p.unread ? `; ${p.unread} were unread` : ''}.`);
-      else lines.push(`  A correction would have paid in ${p.episodes} stretch(es), making about ${p.made.toFixed(6)} ${p.coin} for the treasury${p.capped ? ` (at least: ${p.capped} stretch(es) hit the size cap)` : ''}${p.unread ? `, not counting ${p.unread} unread looks` : ''}.`);
+      else {
+        lines.push(`  A correction would have paid in ${p.episodes} stretch(es)${p.unread ? `, not counting ${p.unread} unread looks` : ''}.`);
+        lines.push(`  A live keeper fixes each at its first paying look: about ${p.live.toFixed(6)} ${p.coin} for the treasury${p.liveCapped ? ` (at least: ${p.liveCapped} first fix(es) hit the size cap)` : ''}; a gap that keeps drifting adds a few small fixes after that.`);
+        lines.push(`  One late trade at each stretch's biggest gap could have taken about ${p.made.toFixed(6)} ${p.coin}${p.capped ? ` (at least: ${p.capped} stretch(es) hit the size cap)` : ''}: what a stranger can take, not the keeper.`);
+      }
     }
     if (p.paused) lines.push(`  ${p.paused} look(s) were not counted because pump.fun's price had just jumped (the live keeper pauses then).`);
     if (p.unsteady) lines.push(`  ${p.unsteady} look(s) were not counted because the outside price moved while it was read.`);

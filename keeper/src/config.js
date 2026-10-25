@@ -22,9 +22,26 @@ export const ISLAND_WORKSHOP = 'G2EHPseTXetHbBvvRDs27XQyXfQikXXyxP9uMbsKrbu';
  * Where a live correction's profit goes (owner, 2026-10-25: "it should pay to our treasury
  * and we can distribute how we want"): the treasury, never the pool's LPs and never kept in
  * the keeper's wallet. Only what is above the owner's float is ever sent; the float stays
- * the owner's. Week 1 sends nothing: this only names it in the log and the report.
+ * the owner's. Week 1 sends nothing: the watcher names this address when it starts, and
+ * nothing else reads it until the live keeper's own reviewed change.
  */
 export const PROFIT_TO = VENUE_VAULT;
+
+/**
+ * USDC profit goes to the vault's own USDC account: frontend/scripts/addresses.json
+ * squads-vault-usdc-ata, where the site's USDC swap fee already lands (read on chain
+ * 2026-10-25: classic token program, mint USDC, owner the vault).
+ */
+export const PROFIT_TO_USDC = '3gGzyz6cushQWNTAYRj4qJoQJyGcqdctXh98vNwBRvZ6';
+
+/**
+ * The fee settings the pools must be on, and the agreed split's rates on them (per million
+ * of the fee): read on chain 2026-10-25. Any other tier or rate is flagged as money, like a
+ * wrong fee owner, until this is changed on purpose.
+ */
+export const AGREED_TIERS = {
+  CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy: { tradeFeeRate: 10_000n, protocolFeeRate: 104_000n, fundFeeRate: 56_000n },
+};
 
 export const SOL_MINT = 'So11111111111111111111111111111111111111112';
 /** Read from the BAYLA/USDC pool's own account on 2026-10-16, not from memory. */
@@ -64,8 +81,15 @@ export const BIG_MOVE_WINDOW_MS = 60_000;
 
 /** One signature's network fee. */
 export const BASE_FEE_LAMPORTS = 5_000n;
-/** Jito tip the live keeper would pay; the median tip on 10-16 was ~10,300 lamports. */
+/**
+ * Jito tip the live keeper would pay, itself, as a plain transfer to a Jito tip account; the
+ * median tip on 10-16 was ~10,300 lamports. It never asks Jupiter to add a tip: Jupiter's
+ * own tip has had a 0.001 SOL floor since at least 2026-10-25 (HTTP 400 below it), 100
+ * times this.
+ */
 export const TIP_LAMPORTS = 10_000n;
+/** One of Jito's eight tip accounts, as Jito's getTipAccounts answered on 2026-10-25. */
+export const JITO_TIP_ACCOUNT = '96gYZGLnJYVFmbjzopPSU6QiEV5fGqZNyN9nmNhvrZU5';
 /** A correction must clear this after every cost (0.00005 SOL). */
 export const MIN_PROFIT_LAMPORTS = 50_000n;
 

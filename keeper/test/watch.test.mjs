@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs';
 import { alertsFor, cycle, line, makeContext } from '../src/watch.js';
 import { decode } from '../src/base58.js';
 import { snapshotFrom } from '../src/pool.js';
-import { readEnv, BAYLA_MINT, PUMP_AMM_PROGRAM, PUMP_BAYLA_POOL, SOL_MINT, USDC_MINT, UNREAD_ALERT_MS, VENUE_VAULT } from '../src/config.js';
+import { readEnv, BAYLA_MINT, PUMP_AMM_PROGRAM, PUMP_BAYLA_POOL, SOL_MINT, USDC_MINT, UNREAD_ALERT_MS, VENUE_VAULT, ISLAND_WORKSHOP } from '../src/config.js';
 
 const FIX = JSON.parse(readFileSync(new URL('./fixtures/mainnet.json', import.meta.url)));
 const RPC = 'http://rpc.test';
@@ -28,7 +28,7 @@ const cpmm = (x, rin, rout) => {
   return (rout * xin) / (rin + xin);
 };
 
-function fakeNet({ jupiterDown = false, quotesDown = false, hopLabel = 'Whirlpool', rpcFailFor = null, protocolOwner = null, fundOwner = null, market = { X, Y }, mutatePool = null } = {}) {
+function fakeNet({ jupiterDown = false, quotesDown = false, hopLabel = 'Whirlpool', rpcFailFor = null, protocolOwner = null, fundOwner = null, rates = null, market = { X, Y }, mutatePool = null } = {}) {
   return async (url, init) => {
     const u = new URL(String(url));
     if (String(url) === RPC) {
@@ -44,10 +44,15 @@ function fakeNet({ jupiterDown = false, quotesDown = false, hopLabel = 'Whirlpoo
         mutatePool(pool);
         value = [{ ...value[0], data: [pool.toString('base64'), 'base64'] }, ...value.slice(1)];
       }
-      if ((protocolOwner || fundOwner) && keys.length === 4) {
+      if ((protocolOwner || fundOwner || rates) && keys.length === 4) {
         const cfg = Buffer.from(value[1].data[0], 'base64');
         if (protocolOwner) Buffer.from(protocolOwnerBytes(protocolOwner)).copy(cfg, 44);
         if (fundOwner) Buffer.from(protocolOwnerBytes(fundOwner)).copy(cfg, 76);
+        if (rates) {
+          if (rates.trade !== undefined) cfg.writeBigUInt64LE(rates.trade, 12);
+          if (rates.protocol !== undefined) cfg.writeBigUInt64LE(rates.protocol, 20);
+          if (rates.fund !== undefined) cfg.writeBigUInt64LE(rates.fund, 28);
+        }
         value = [value[0], { ...value[1], data: [cfg.toString('base64'), 'base64'] }, value[2], value[3]];
       }
       return Response.json({ jsonrpc: '2.0', id: 1, result: { context: entry.answer.context, value } });
@@ -148,6 +153,43 @@ test('the agreed split (venue to our vault, island to its Workshop) is not money
   await alertsFor(rows, ctx);
   assert.ok(!printed.some((s) => s.includes('MONEY')));
   assert.doesNotMatch(line(rows[0]), /AGREED SPLIT/);
+});
+
+test('the venue’s share paid to the island’s Workshop is money, and so are the two shares swapped', async () => {
+  for (const owners of [{ protocolOwner: ISLAND_WORKSHOP }, { protocolOwner: ISLAND_WORKSHOP, fundOwner: VENUE_VAULT }]) {
+    const { ctx, printed } = ctxWith(fakeNet(owners));
+    const rows = await cycle(ctx);
+    assert.ok(rows.every((r) => r.leak === true), JSON.stringify(owners));
+    await alertsFor(rows, ctx);
+    assert.ok(printed.some((s) => s.includes('MONEY') && s.includes(`protocol owner ${ISLAND_WORKSHOP}`)));
+  }
+});
+
+test('the right owners at other rates are money too: the venue’s 10.4% moved to the island, or any change', async () => {
+  const cases = [
+    { protocol: 0n, fund: 160_000n }, // the venue's share moved to the island
+    { protocol: 88_000n, fund: 72_000n }, // any other split
+    { protocol: 0n }, // the venue's share alone cut to nothing
+    { fund: 0n }, // the island's share alone cut to nothing
+    { trade: 0n }, // a free tier: nobody is paid
+  ];
+  for (const rates of cases) {
+    const { ctx, printed } = ctxWith(fakeNet({ rates }));
+    const rows = await cycle(ctx);
+    const said = `${rates.trade ?? 10_000n}/${rates.protocol ?? 104_000n}/${rates.fund ?? 56_000n}`;
+    assert.ok(rows.every((r) => r.leak === true), said);
+    await alertsFor(rows, ctx);
+    assert.ok(printed.some((s) => s.includes('MONEY') && s.includes(`trade/protocol/fund rates ${said}`)), said);
+  }
+});
+
+test('a pool on fee settings the keeper does not know is money, said with the settings it names', async () => {
+  const OTHER_TIER = 'BHMteE8u6LAppswQmFmd2h7hp1fCfWtGahvVJnhRk8jW'; // tier 0, the launch tier
+  const { ctx, printed } = ctxWith(fakeNet({ mutatePool: (pool) => Buffer.from(decode(OTHER_TIER)).copy(pool, 8) }));
+  const rows = await cycle(ctx);
+  assert.ok(rows.length > 0 && rows.every((r) => r.leak === true && !r.unread));
+  await alertsFor(rows, ctx);
+  assert.ok(printed.some((s) => s.includes('MONEY') && s.includes(`fee settings ${OTHER_TIER}`)));
 });
 
 test('the island’s share paid anywhere but its Workshop is money, the vault included (the pre-split shape)', async () => {

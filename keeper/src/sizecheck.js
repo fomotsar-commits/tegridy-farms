@@ -15,7 +15,7 @@
 // A token account Jupiter's setup names is used only when Jupiter creates it for
 // the taker, paid by the taker, and it is none of our pool's own accounts.
 
-import { PROGRAM_ID, MAX_JUPITER_ACCOUNTS, TIP_LAMPORTS, SOL_MINT } from './config.js';
+import { PROGRAM_ID, MAX_JUPITER_ACCOUNTS, JITO_TIP_ACCOUNT, SOL_MINT } from './config.js';
 import { checkForcedRoute, checkHop } from './jupiter.js';
 import { measure } from './txsize.js';
 import { encode } from './base58.js';
@@ -134,7 +134,8 @@ export async function sizeCheck({ jupiter, rpc, names, pool, snap, record, taker
   const named = {};
   for (const h of hops) {
     const { forced, ...ask } = h;
-    const b = await jupiter.build({ ...ask, taker, maxAccounts: MAX_JUPITER_ACCOUNTS, tipLamports: outside.length === 0 ? TIP_LAMPORTS : 0n });
+    // No tip from Jupiter (its floor is 0.001 SOL): the keeper's own Jito tip is added below.
+    const b = await jupiter.build({ ...ask, taker, maxAccounts: MAX_JUPITER_ACCOUNTS });
     if (forced) checkForcedRoute(b.steps, names);
     else checkHop(b.steps, names, ownPools);
     outside.push(...b.instructions);
@@ -156,7 +157,9 @@ export async function sizeCheck({ jupiter, rpc, names, pool, snap, record, taker
     ? ourLeg({ snap, taker, inputMint: pool.coin, outputMint: pool.token, ataOf })
     : ourLeg({ snap, taker, inputMint: pool.token, outputMint: pool.coin, ataOf });
 
-  const m = measure({ payer: taker, instructions: [...legOurs, ...outside], lookupTables: tables });
+  // The keeper's own Jito tip (TIP_LAMPORTS): a plain transfer to one of Jito's tip accounts.
+  const tip = { programId: SYSTEM_PROGRAM, accounts: [{ pubkey: taker, isSigner: true, isWritable: true }, { pubkey: JITO_TIP_ACCOUNT, isSigner: false, isWritable: true }], dataLength: 12 };
+  const m = measure({ payer: taker, instructions: [...legOurs, ...outside, tip], lookupTables: tables });
   return {
     ...m,
     upperBound: standIns > 0,

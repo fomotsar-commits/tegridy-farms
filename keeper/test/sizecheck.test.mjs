@@ -5,7 +5,7 @@ import { atasNamedBy, decodeLookupTable, sizeCheck, ATA_PROGRAM, ALT_PROGRAM } f
 import { snapshotFrom } from '../src/pool.js';
 import { venueNames } from '../src/jupiter.js';
 import { decode, encode } from '../src/base58.js';
-import { BAYLA_MINT, POOLS, PUMP_AMM_PROGRAM, PUMP_BAYLA_POOL, SOL_MINT } from '../src/config.js';
+import { BAYLA_MINT, JITO_TIP_ACCOUNT, POOLS, PUMP_AMM_PROGRAM, PUMP_BAYLA_POOL, SOL_MINT } from '../src/config.js';
 
 const FIX = JSON.parse(readFileSync(new URL('./fixtures/mainnet.json', import.meta.url)));
 const NAMES = venueNames({ [PUMP_AMM_PROGRAM]: 'Pump.fun Amm', CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK: 'Raydium CLMM' });
@@ -71,4 +71,39 @@ test('the size is measured with the tables the chain holds, not the ones Jupiter
   const missing = await sizeCheck({ jupiter, names: NAMES, pool: POOLS[0], snap, record, taker: TAKER, ownPools: [], rpc: async () => ({ value: [null] }) });
   assert.equal(missing.tablesOnChain, 0, 'a table the chain does not have counts as none');
   assert.ok(missing.bytes > honest.bytes);
+});
+
+test('Jupiter is asked for no tip; the keeper’s own Jito tip transfer is in what is measured', async () => {
+  const p = FIX.pools['BAYLA/SOL'];
+  const snap = snapshotFrom({ address: p.addresses[0], slot: 1, accounts: p.answer.value });
+  snap.accounts.vault0 = p.addresses[2];
+  snap.accounts.vault1 = p.addresses[3];
+  const routeAccounts = Array.from({ length: 20 }, (_, i) => addr(10 + i));
+  const TABLE = addr(200);
+  const asked = [];
+  const jupiter = {
+    build: async (a) => {
+      asked.push(a);
+      return {
+        out: 1n,
+        steps: [{ ammKey: PUMP_BAYLA_POOL, label: 'Pump.fun Amm' }],
+        instructions: [{ programId: PUMP_AMM_PROGRAM, accounts: routeAccounts.map((pubkey) => ({ pubkey, isSigner: false, isWritable: true })), dataLength: 24 }],
+        lookupTables: { [TABLE]: [...routeAccounts, JITO_TIP_ACCOUNT] },
+      };
+    },
+  };
+  const table = (addresses) => {
+    const d = Buffer.alloc(56 + 32 * addresses.length);
+    d.writeUInt32LE(1, 0);
+    d.writeBigUInt64LE(0xffffffffffffffffn, 4);
+    addresses.forEach((a, i) => Buffer.from(decode(a)).copy(d, 56 + 32 * i));
+    return { owner: ALT_PROGRAM, data: [d.toString('base64'), 'base64'] };
+  };
+  const record = { direction: 'buy-here-sell-outside', legs: [{ where: 'our pool', in: 1, out: 10 }, { where: 'pump.fun', in: 10, out: 1 }] };
+  const run = (chainList) => sizeCheck({ jupiter, names: NAMES, pool: POOLS[0], snap, record, taker: TAKER, ownPools: [], rpc: async () => ({ value: [table(chainList)] }) });
+  const tipStatic = await run(routeAccounts);
+  const tipInTable = await run([...routeAccounts, JITO_TIP_ACCOUNT]);
+  // The tip account costs a full key unless a table holds it: so the tip transfer is measured.
+  assert.equal(tipStatic.bytes - tipInTable.bytes, 31);
+  assert.ok(asked.length > 0 && asked.every((a) => !a.tipLamports), 'no tip is ever asked of Jupiter');
 });

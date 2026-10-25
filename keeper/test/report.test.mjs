@@ -34,7 +34,19 @@ test('a look outside the fees that does not pay keeps the stretch open; only com
 
 test('a stretch that reaches the size cap later is still reported as a floor', () => {
   const rows = [pay('00:00', 0.0002), pay('00:30', 0.03, { capped: true }), pay('01:00', 0.03, { capped: true })];
-  assert.match(describe(summarize(rows)), /1 stretch\(es\), making about 0\.030000 SOL for the treasury \(at least: 1 stretch\(es\) hit the size cap\)/);
+  const text = describe(summarize(rows));
+  assert.match(text, /One late trade at each stretch's biggest gap could have taken about 0\.030000 SOL \(at least: 1 stretch\(es\) hit the size cap\): what a stranger can take, not the keeper\./);
+});
+
+test('the treasury figure is what a live keeper takes: each stretch at its first paying look, never its peak', () => {
+  // A gap that drifts from paying 0.0002 to 0.03: a live keeper fixes it at 00:00.
+  const rows = [pay('00:00', 0.0002), pay('00:30', 0.01), pay('01:00', 0.03, { capped: true }), row('01:30', {}), pay('02:00', 0.0005, { capped: true })];
+  const s = p(rows);
+  assert.ok(Math.abs(s.live - 0.0007) < 1e-12, `live ${s.live}`);
+  assert.ok(Math.abs(s.made - 0.0305) < 1e-12, `peak ${s.made}`);
+  const text = describe(summarize(rows));
+  assert.match(text, /A live keeper fixes each at its first paying look: about 0\.000700 SOL for the treasury \(at least: 1 first fix\(es\) hit the size cap\)/);
+  assert.doesNotMatch(text, /0\.030500 SOL for the treasury/);
 });
 
 test('unread looks are never "no gap": an all-unread pool says nothing is known', () => {

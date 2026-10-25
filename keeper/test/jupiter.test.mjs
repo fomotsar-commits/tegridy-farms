@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { checkForcedRoute, checkHop, makeJupiter, venueNames } from '../src/jupiter.js';
+import { checkForcedRoute, checkHop, JUPITER_TIP_FLOOR_LAMPORTS, makeJupiter, retryWaitMs, venueNames } from '../src/jupiter.js';
 import { BAYLA_MINT, POOLS, PROGRAM_ID, PUMP_AMM_PROGRAM, PUMP_BAYLA_POOL, SOL_MINT, USDC_MINT } from '../src/config.js';
 
 const KEY = 'test-key-never-printed';
@@ -29,7 +29,7 @@ function fakeFetch(answers) {
     seen.push({ url: String(url), headers: init?.headers ?? {} });
     const a = answers.shift();
     if (a instanceof Error) throw a;
-    return new Response(JSON.stringify(a.body ?? {}), { status: a.status ?? 200 });
+    return new Response(JSON.stringify(a.body ?? {}), { status: a.status ?? 200, headers: a.headers ?? {} });
   };
   f.seen = seen;
   return f;
@@ -143,8 +143,45 @@ test('/build needs a key and a real taker address, and nothing it returns is sig
   await assert.rejects(makeJupiter({ apiKey: KEY, minGapMs: 0 }).build({ ...ask, taker: 'nope', maxAccounts: 40, tipLamports: 0n }), /KEEPER_TAKER/);
   const ix = { programId: PUMP_AMM_PROGRAM, accounts: [{ pubkey: PUMP_BAYLA_POOL, isSigner: false, isWritable: true }], data: Buffer.from([1, 2, 3]).toString('base64') };
   const f = fakeFetch([{ body: { ...quoteBody(), swapInstruction: ix, setupInstructions: [], addressesByLookupTableAddress: { [OTHER_POOL]: [PUMP_BAYLA_POOL] } } }]);
-  const b = await makeJupiter({ apiKey: KEY, fetchImpl: f, minGapMs: 0 }).build({ ...ask, taker: OTHER_POOL, maxAccounts: 40, tipLamports: 10_000n });
+  const b = await makeJupiter({ apiKey: KEY, fetchImpl: f, minGapMs: 0 }).build({ ...ask, taker: OTHER_POOL, maxAccounts: 40 });
   assert.equal(new URL(f.seen[0].url).pathname, '/swap/v2/build');
+  // The keeper tips Jito itself: Jupiter is asked for no tip at all.
+  assert.equal(new URL(f.seen[0].url).searchParams.get('tipAmount'), null);
   assert.equal(b.instructions[0].dataLength, 3);
   assert.deepEqual(b.lookupTables, { [OTHER_POOL]: [PUMP_BAYLA_POOL] });
+});
+
+test('a Jupiter tip under its 0.001 SOL floor is never asked for; one at the floor is passed on', async () => {
+  const j = makeJupiter({ apiKey: KEY, fetchImpl: fakeFetch([]), minGapMs: 0 });
+  for (const tipLamports of [1n, 10_000n, 999_999n]) {
+    await assert.rejects(j.build({ ...ask, taker: OTHER_POOL, maxAccounts: 40, tipLamports }), /0\.001 SOL/);
+  }
+  const ix = { programId: PUMP_AMM_PROGRAM, accounts: [], data: '' };
+  const f = fakeFetch([{ body: { ...quoteBody(), swapInstruction: ix } }]);
+  await makeJupiter({ apiKey: KEY, fetchImpl: f, minGapMs: 0 }).build({ ...ask, taker: OTHER_POOL, maxAccounts: 40, tipLamports: JUPITER_TIP_FLOOR_LAMPORTS });
+  assert.equal(new URL(f.seen[0].url).searchParams.get('tipAmount'), '1000000');
+});
+
+test('keyless, a 429 waits out the window Jupiter names and asks once more on lite-api', async () => {
+  const waited = [];
+  const sleep = async (ms) => { waited.push(ms); };
+  const f = fakeFetch([{ status: 429, headers: { 'x-ratelimit-reset': '4' } }, { body: quoteBody() }]);
+  const q = await makeJupiter({ fetchImpl: f, minGapMs: 0, sleep }).quote(ask);
+  assert.equal(q.out, 8_100_000_000n);
+  assert.deepEqual(waited, [4_000]);
+  assert.deepEqual(f.seen.map((s) => new URL(s.url).origin), ['https://lite-api.jup.ag', 'https://lite-api.jup.ag']);
+  // A second 429 in a row ends the look's ask: one retry, never a loop.
+  const g = fakeFetch([{ status: 429 }, { status: 429 }]);
+  await assert.rejects(makeJupiter({ fetchImpl: g, minGapMs: 0, sleep }).quote(ask), /HTTP 429/);
+  assert.equal(g.seen.length, 2);
+});
+
+test('the wait Jupiter names is held between 1 s and 10 s, as seconds or as a unix time', () => {
+  const res = (v) => new Response('{}', { status: 429, headers: v === undefined ? {} : { 'x-ratelimit-reset': v } });
+  assert.equal(retryWaitMs(res('4')), 4_000);
+  assert.equal(retryWaitMs(res('60')), 10_000);
+  assert.equal(retryWaitMs(res('0.2')), 1_000);
+  assert.equal(retryWaitMs(res(undefined)), 3_000);
+  assert.equal(retryWaitMs(res('nonsense')), 3_000);
+  assert.equal(retryWaitMs(res('1792900005'), 1_792_900_000_000), 5_000);
 });

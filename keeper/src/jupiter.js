@@ -22,6 +22,8 @@ import { PROGRAM_ID, PUMP_AMM_PROGRAM, PUMP_BAYLA_POOL } from './config.js';
 const LITE = 'https://lite-api.jup.ag';
 const KEYED = 'https://api.jup.ag';
 const FALLBACK_ON = [401, 403, 404, 429];
+/** Jupiter's own tip is refused below this (HTTP 400 "Tip amount must be at least 1000000", 2026-10-25). */
+export const JUPITER_TIP_FLOOR_LAMPORTS = 1_000_000n;
 /** A quote, a venue list or a build is a few dozen KB; anything past this is refused unread. */
 const MAX_BODY_BYTES = 1024 * 1024;
 
@@ -38,22 +40,45 @@ function spacer(minGapMs) {
   };
 }
 
-export function makeJupiter({ apiKey = null, fetchImpl = fetch, timeoutMs = 8_000, minGapMs } = {}) {
-  const wait = spacer(minGapMs ?? (apiKey ? 1_100 : 2_100));
+/** Longest wait for a keyless rate-limit window before the one retry. */
+const MAX_RETRY_WAIT_MS = 10_000;
+
+/**
+ * How long Jupiter asks a rate-limited caller to wait: `x-ratelimit-reset` as seconds to
+ * wait or as a unix time in seconds, held between 1 s and MAX_RETRY_WAIT_MS; 3 s if absent.
+ */
+export function retryWaitMs(res, now = Date.now()) {
+  const raw = Number(res.headers?.get?.('x-ratelimit-reset'));
+  if (!Number.isFinite(raw) || raw <= 0) return 3_000;
+  const ms = raw > 1e9 ? raw * 1000 - now : raw * 1000;
+  return Math.min(MAX_RETRY_WAIT_MS, Math.max(1_000, ms));
+}
+
+export function makeJupiter({ apiKey = null, fetchImpl = fetch, timeoutMs = 8_000, minGapMs, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {}) {
+  const wait = spacer(minGapMs ?? (apiKey ? 1_100 : 2_500));
 
   async function get(path, { keyedOnly = false } = {}) {
     const attempts = apiKey
       ? [{ base: KEYED, headers: { 'x-api-key': apiKey } }, ...(keyedOnly ? [] : [{ base: LITE, headers: {}, fallback: true }])]
       : [{ base: LITE, headers: {} }];
     let lastStatus = null;
+    const ask = async (a) => {
+      try {
+        return await fetchImpl(`${a.base}${path}`, { headers: { Accept: 'application/json', ...a.headers }, signal: AbortSignal.timeout(timeoutMs) });
+      } catch (e) {
+        throw new JupiterError(`Jupiter ${e?.name === 'TimeoutError' ? 'timed out' : 'did not answer'}`);
+      }
+    };
     for (const a of attempts) {
       if (a.fallback && !FALLBACK_ON.includes(lastStatus)) break;
       await wait();
-      let res;
-      try {
-        res = await fetchImpl(`${a.base}${path}`, { headers: { Accept: 'application/json', ...a.headers }, signal: AbortSignal.timeout(timeoutMs) });
-      } catch (e) {
-        throw new JupiterError(`Jupiter ${e?.name === 'TimeoutError' ? 'timed out' : 'did not answer'}`);
+      let res = await ask(a);
+      // Keyless, a 429 is usually other callers on the same IP: wait out the window Jupiter
+      // names and ask once more, rather than leave the whole look unread.
+      if (res.status === 429 && a.base === LITE) {
+        await sleep(retryWaitMs(res));
+        await wait();
+        res = await ask(a);
       }
       if (res.ok) {
         let text;
@@ -107,12 +132,15 @@ export function makeJupiter({ apiKey = null, fetchImpl = fetch, timeoutMs = 8_00
   }
 
   /**
-   * The outside leg as raw instructions (/swap/v2/build), for the size check only.
-   * Needs a key: Jupiter serves /build on api.jup.ag alone. Nothing here signs.
+   * The outside leg as raw instructions (/swap/v2/build), for the size check only. Asked
+   * with a key: keyless calls are too scarce to spend on it (lite-api also serves /build).
+   * No tip is asked for by default: the keeper tips Jito itself (config.js TIP_LAMPORTS),
+   * and Jupiter refuses a tip under its 0.001 SOL floor. Nothing here signs.
    */
-  async function build({ inputMint, outputMint, amount, taker, dexes = null, excludeDexes = null, maxAccounts, tipLamports }) {
+  async function build({ inputMint, outputMint, amount, taker, dexes = null, excludeDexes = null, maxAccounts, tipLamports = 0n }) {
     if (!apiKey) throw new JupiterError('the size check needs JUPITER_API_KEY');
     if (!isAddress(taker)) throw new JupiterError('KEEPER_TAKER is not an address');
+    if (tipLamports > 0n && tipLamports < JUPITER_TIP_FLOOR_LAMPORTS) throw new JupiterError('Jupiter refuses a tip under 0.001 SOL; the keeper tips Jito itself');
     const qs = new URLSearchParams({
       inputMint,
       outputMint,
@@ -120,8 +148,8 @@ export function makeJupiter({ apiKey = null, fetchImpl = fetch, timeoutMs = 8_00
       taker,
       slippageBps: '50',
       maxAccounts: String(maxAccounts),
-      tipAmount: tipLamports.toString(),
     });
+    if (tipLamports > 0n) qs.set('tipAmount', tipLamports.toString());
     if (dexes) qs.set('dexes', dexes.join(','));
     if (excludeDexes) qs.set('excludeDexes', excludeDexes.join(','));
     const b = await get(`/swap/v2/build?${qs}`, { keyedOnly: true });

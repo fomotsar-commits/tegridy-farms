@@ -82,9 +82,18 @@ export async function cycle(ctx) {
     try {
       const snap = await readPool(ctx.rpc, pool.address, ctx.poolCache);
       snaps.set(pool.name, snap);
-      // The agreed split: the venue's share to the vault, the island's share to its Workshop.
-      const leak = snap.protocolOwner !== C.VENUE_VAULT || snap.fundOwner !== C.ISLAND_WORKSHOP;
-      money.set(pool.name, { leak, ...(leak ? { feeOwners: { protocol: snap.protocolOwner, fund: snap.fundOwner } } : {}) });
+      // The agreed split: the venue's share to the vault, the island's share to its Workshop,
+      // at the agreed rates on the agreed fee settings (config.js AGREED_TIERS).
+      const tier = C.AGREED_TIERS[snap.accounts.ammConfig];
+      const leak =
+        snap.protocolOwner !== C.VENUE_VAULT ||
+        snap.fundOwner !== C.ISLAND_WORKSHOP ||
+        !tier ||
+        snap.tradeFeeRate !== tier.tradeFeeRate ||
+        snap.protocolFeeRate !== tier.protocolFeeRate ||
+        snap.fundFeeRate !== tier.fundFeeRate;
+      const feeOwners = { protocol: snap.protocolOwner, fund: snap.fundOwner, tier: snap.accounts.ammConfig, rates: `${snap.tradeFeeRate}/${snap.protocolFeeRate}/${snap.fundFeeRate}` };
+      money.set(pool.name, { leak, ...(leak ? { feeOwners } : {}) });
     } catch (e) {
       rows.push(unread(pool, 'our pool', e));
     }
@@ -214,7 +223,7 @@ export function line(r) {
 export async function alertsFor(rows, ctx) {
   for (const r of rows) {
     if (r.leak && ctx.gate(`leak:${r.pool}`)) {
-      await ctx.alert(`MONEY: ${r.pool}'s fee tier no longer pays the agreed split, the venue's share to our vault and the island's to its Workshop (protocol owner ${r.feeOwners.protocol}, fund owner ${r.feeOwners.fund}).`);
+      await ctx.alert(`MONEY: ${r.pool}'s fee tier no longer pays the agreed split, the venue's share to our vault and the island's to its Workshop at the agreed rates (protocol owner ${r.feeOwners.protocol}, fund owner ${r.feeOwners.fund}, fee settings ${r.feeOwners.tier}, trade/protocol/fund rates ${r.feeOwners.rates}).`);
     }
     if (r.repointed && ctx.gate(`repoint:${r.pool}`)) {
       await ctx.alert(`MONEY: ${r.pool} now names a different fee tier or vault than when the keeper started. Nothing of ours can do that. It stays unread until the keeper is restarted on purpose.`);
@@ -279,7 +288,8 @@ async function main() {
 
   console.log('Price keeper, WATCH ONLY: it holds no key and signs or sends nothing.');
   console.log(`Watching ${C.POOLS.map((p) => p.name).join(' and ')} against pump.fun${once ? ', once' : ` every ${env.intervalMs / 1000} s; log in ${logDir}`}.`);
-  console.log(`Jupiter: ${env.jupiterApiKey ? 'with your key' : 'keyless'}. Size check: ${env.jupiterApiKey && env.taker ? 'on' : 'off (needs JUPITER_API_KEY and KEEPER_TAKER)'}. Alerts: ${env.telegramToken && env.telegramChat ? 'Telegram and this window' : 'this window only'}.`);
+  console.log(`Jupiter: ${env.jupiterApiKey ? "with a key (the keeper's own, never the site's: the site's allows one request a second for the whole site)" : 'keyless'}. Size check: ${env.jupiterApiKey && env.taker ? 'on' : 'off (needs JUPITER_API_KEY and KEEPER_TAKER)'}. Alerts: ${env.telegramToken && env.telegramChat ? 'Telegram and this window' : 'this window only'}.`);
+  console.log(`When live, its profit goes to the treasury: ${C.PROFIT_TO} (USDC to ${C.PROFIT_TO_USDC}). Week 1 sends nothing.`);
 
   let stopping = false;
   let wake = null;

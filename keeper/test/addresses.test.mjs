@@ -14,6 +14,9 @@ test('every address in config.js and sizecheck.js is 32 bytes that re-encode to 
     VENUE_VAULT: C.VENUE_VAULT,
     ISLAND_WORKSHOP: C.ISLAND_WORKSHOP,
     PROFIT_TO: C.PROFIT_TO,
+    PROFIT_TO_USDC: C.PROFIT_TO_USDC,
+    JITO_TIP_ACCOUNT: C.JITO_TIP_ACCOUNT,
+    ...Object.fromEntries(Object.keys(C.AGREED_TIERS).map((a) => [`AGREED_TIERS ${a}`, a])),
     SOL_MINT: C.SOL_MINT,
     USDC_MINT: C.USDC_MINT,
     BAYLA_MINT: C.BAYLA_MINT,
@@ -43,6 +46,14 @@ test('the vault, the Workshop and the profit address are the site’s own, and p
   // Owner, 2026-10-25: a live correction's profit goes to the treasury, not to LPs or the keeper.
   assert.equal(C.PROFIT_TO, C.VENUE_VAULT);
   assert.notEqual(C.ISLAND_WORKSHOP, C.VENUE_VAULT);
+  // The vault's USDC account and the pools' fee settings, as the site's address registry records them.
+  const registry = JSON.parse(readFileSync(new URL('../../frontend/scripts/addresses.json', import.meta.url), 'utf8'));
+  const entries = JSON.stringify(registry);
+  const idOf = (address) => entries.match(new RegExp(`"id":"([^"]+)","address":"${address}"`))?.[1];
+  assert.equal(idOf(C.PROFIT_TO_USDC), 'squads-vault-usdc-ata');
+  assert.deepEqual(Object.keys(C.AGREED_TIERS).map(idOf), ['cp-swap-amm-config-public-restart']);
+  // Every pool the keeper watches is on agreed fee settings at the agreed split (10.4% / 5.6% of the 1%).
+  for (const t of Object.values(C.AGREED_TIERS)) assert.deepEqual(t, { tradeFeeRate: 10_000n, protocolFeeRate: 104_000n, fundFeeRate: 56_000n });
 });
 
 test('the base58 codec round-trips and refuses what is not an address', () => {
