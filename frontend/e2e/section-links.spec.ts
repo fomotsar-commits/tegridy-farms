@@ -202,7 +202,7 @@ test.describe('a section address opened directly', () => {
   test('Back to it is the browser\'s to place: the venue makes no jump', async ({ page }) => {
     await prepare(page);
     await page.goto('/#hall');
-    const toNftFinance = page.locator('section[aria-label="Three paths"] a[href="/nft-finance"]');
+    const toNftFinance = page.locator('section[aria-label="Paths"] a[href="/nft-finance"]');
     await expect(toNftFinance).toBeVisible({ timeout: 20_000 });
     await toNftFinance.click();
     await expect(page.getByRole('heading', { name: 'NFT Finance', level: 1 })).toBeVisible({ timeout: 20_000 });

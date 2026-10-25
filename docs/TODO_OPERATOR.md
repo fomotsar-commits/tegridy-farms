@@ -145,6 +145,23 @@ A general "merge what you can" is refused as a production deploy.
 
 ---
 
+## 2026-10-24: Cardano swap (you: "cardano in every aspect")
+
+The swap is **open** (`CARDANO_SWAP_OPEN = true`), on your word: "Go live without the venue fee
+for now, and add it when the treasury exists". Plan and rulings: [`CARDANO_PLAN.md`](CARDANO_PLAN.md).
+
+1. ⬜ **Make the venue's two-key Cardano treasury** (a two-signature native-script wallet, the
+   vault's equivalent) and send its address to a session, which puts it in
+   `frontend/src/lib/cardano/venueFee.ts`. **Until then Cardano swaps earn the venue nothing** and
+   the page says so. Eternl makes multi-sig wallets only with Eternl Pro ($96 a year); your keys A
+   and B are made. After it is registered, one real swap of at least 200 ADA shows the fee line live
+   (under about 200 ADA no venue fee is charged: a Cardano output must hold about 1 ADA).
+2. ✅ **Koios key** set as `KOIOS_API_KEY` on Vercel (Production), 2026-10-24.
+3. ✅ **Real swaps walked on mainnet**, 2026-10-24, from key A: a buy (25 ADA for 1,580.426944 MIN)
+   and a sell (the same MIN for 24.532531 ADA), each filled at exactly the quoted amount.
+
+Next after that: our own Cardano pools (plan Part 2), which ends in an audit you pay for.
+
 ## 2026-10-24: for later, Jupiter's paid plan (you: "stay on free now")
 
 - ⬜ **Jupiter's Developer plan, $25 a month**, on the "memetics" org that owns
