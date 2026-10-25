@@ -15,6 +15,64 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-24: a Tailwind `min-[720px]:` lost to `sm:` on a wider screen, because v4 sorts breakpoints by unit before width
+
+**Believed:** the wider breakpoint wins, so `min-[720px]:aspect-[3/4]` overrides
+`sm:aspect-[5/2]` (640px) from 720px up, as `md:` would.
+
+**Measured** (tailwindcss 4.3.3, the repo's version, 2026-10-24: `compile('@import
+"tailwindcss"')` from `dist/lib.js`, `build()` on px, rem and named breakpoint classes, then
+the order of the `@media` rules read): `640px`, `720px`, `40rem`, `45rem`, `48rem`, `64rem`.
+The sort compares
+units first, as text, and widths only within a unit. The named breakpoints are rem (`sm` is
+40rem), so every px arbitrary rule comes out before every named one, and at equal specificity
+the later rule wins. In PR #1009's branch build the upright iPad's frame took `sm:`'s 5/2 and
+came out 163px tall instead of 372 (the PR's Playwright walk). `min-[45rem]:` sorted between
+`sm` and `md`, where its width puts it.
+
+**Do:** never mix px arbitrary breakpoints with named ones on one property unless every named
+one there is wider than every px one; write an arbitrary breakpoint in rem to sort it among the
+named ones. Check by reading rule order in the built `dist/assets/index-*.css`, not the class
+list. The selector escapes `[ ] / :`, so `min-[720px]:aspect-[3/4]` is
+`.min-\[720px\]\:aspect-\[3\/4\]`.
+
+## 2026-10-24: a sticky grid item pinned past the end of its row, because a grid area does not hold a sticky box
+
+**Believed:** a `position: sticky` frame in grid area `fig` of `'board fig' 'pools pools'`
+pins while row 1 scrolls by and stops where row 1 ends.
+
+**Measured** (PR #1009's branch build, Playwright Chromium and WebKit at an upright iPad's
+820px, 2026-10-24): it pinned on past row 1 and over the full-width pool list in row 2, hiding
+the rows' arrows. In both engines the sticky box was held by the grid container's box, not its
+grid area. With the area moved to a wrapper slot and `sticky` on the slot's child, it stopped
+at the end of row 1: a grid item stretches to its row's height, so the slot is a box exactly
+as tall as the row. `e2e/dashboard-frame.spec.ts` checks that no pool row is under the frame at
+points through the list, and fails on the old structure.
+
+**Do:** never put `sticky` on the grid item itself when it must stop at its row: give the area
+to a slot and pin the slot's child. Where the same markup is block layout (a phone), make the
+slot `display: contents`, so the child pins against the card as before.
+
+### Incidental
+
+- The desktop frame's `lg:sticky` had never stuck: the card was `overflow: hidden`, which makes
+  it a scroll box of its own, so the frame pinned to a box that never scrolls. `overflow: clip`
+  clips the same and is not a scroll box: `overflow-hidden supports-[overflow:clip]:overflow-clip`
+  keeps `hidden` for a browser without `clip`. body's `overflow-x: hidden` did not stop it:
+  with `html` left `visible`, body's overflow goes to the viewport.
+
+## 2026-10-24: a `mouseenter` is not a pointer that moved: WebKit fires one on a row that scrolls under a resting pointer
+
+**Believed:** an enter on a row means a mouse or finger moved onto it, so on a screen where the
+frame follows the scroll, an enter can safely mean "the pointer takes over".
+
+**Measured** (PR #1009's branch build, Playwright WebKit with `hasTouch`, 2026-10-24): with the
+pointer resting where it last was, scrolling fired `mouseenter` on each row that slid under it,
+and each took the frame from the row the scroll had reached.
+
+**Do:** treat an enter that arrives within about 300ms of the last `scroll` event as the
+scroll's, and ignore it. Test the guard in WebKit with `hasTouch`, where this was seen.
+
 ## 2026-10-24: a test pool's round share count looked neutral, but no pool program ever makes one
 
 **Believed:** the LP testkits' default `lp_supply` (1,000,000 in `buildPool`, 1,000,000,000 in
