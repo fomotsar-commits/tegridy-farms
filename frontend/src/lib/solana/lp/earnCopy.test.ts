@@ -45,7 +45,8 @@ describe('the recorded chain says what the sentences say', () => {
     expect([zero.index, zero.tradeFeeRate, zero.protocolFeeRate, zero.fundFeeRate, zero.creatorFeeRate, zero.createPoolFee]).toEqual([0, 2_500n, 130_000n, 70_000n, 5_000n, 0n]);
     for (const t of [one, zero]) expect([t.protocolOwner, t.fundOwner]).toEqual([VAULT, WORKSHOP]);
     expect(WORKSHOP_WALLET.toBase58()).toBe(WORKSHOP);
-    expect(AGREED_SPLIT).toEqual({ 0: { protocol: 130_000n, fund: 70_000n }, 1: { protocol: 104_000n, fund: 56_000n } });
+    // Tier 2 (0.25%, not on chain yet) carries tier 1's split (owner, 2026-10-24).
+    expect(AGREED_SPLIT).toEqual({ 0: { protocol: 130_000n, fund: 70_000n }, 1: { protocol: 104_000n, fund: 56_000n }, 2: { protocol: 104_000n, fund: 56_000n } });
   });
 
   it('the account the opening fee is paid to (a program constant) is a token account that vault owns', () => {
@@ -137,7 +138,7 @@ describe('How the venue earns', () => {
   });
 
   it('a tier with no agreed split is said in bold, whatever it pays', () => {
-    const v = howVenueEarns([{ ...split1(), index: 2 }], null);
+    const v = howVenueEarns([{ ...split1(), index: 3 }], null);
     expect(v.elsewhere).toBe(true);
     expect(v.where).toBe(
       'This fee tier has no split agreed with the island. Of each trade’s fee, this tier sends 10.4% (0.104% of the trade) to the team’s shared wallet and 5.6% (0.056% of the trade) to the island’s Workshop.',
@@ -201,21 +202,23 @@ describe('How the venue earns', () => {
     ]);
   });
 
-  it('two tiers on the agreed split: each tier’s parts by its rate, what the vault can do said once', () => {
-    const v = howVenueEarns([split1(), splitTier(0)], null);
+  it('both public tiers on the agreed split: tier 2 (0.25%) carries tier 1’s split, each said by its rate, what the vault can do said once', () => {
+    const v = howVenueEarns([split1(), { ...split1(), index: 2, tradeFeeRate: 2_500n }], null);
     expect(v.elsewhere).toBe(false);
     expect(v.where).toBe(
-      'In a 1% pool, of each trade’s fee, 10.4% (0.104% of the trade) goes to the team’s shared wallet, which needs two signatures and can change the pool rates, and 5.6% (0.056% of the trade) to the island’s Workshop, the island’s agreed share. In a 0.25% pool, of each trade’s fee, 13% (0.0325% of the trade) goes to the team’s shared wallet and 7% (0.0175% of the trade) to the island’s Workshop, the island’s agreed share.',
+      'In a 1% pool, of each trade’s fee, 10.4% (0.104% of the trade) goes to the team’s shared wallet, which needs two signatures and can change the pool rates, and 5.6% (0.056% of the trade) to the island’s Workshop, the island’s agreed share. In a 0.25% pool, of each trade’s fee, 10.4% (0.026% of the trade) goes to the team’s shared wallet and 5.6% (0.014% of the trade) to the island’s Workshop, the island’s agreed share.',
     );
     expect(v.wallets).toEqual([VAULT_ROW, WORKSHOP_ROW]);
+    // Each tier is judged against its own row: the launch tier's split on tier 1 is not tier 1's.
+    expect(howVenueEarns([split1(), splitTier(0)], null).elsewhere).toBe(false);
   });
 
-  it('a second tier with no agreed split is said first, in bold, by its rate; the agreed one after', () => {
-    const v = howVenueEarns([split1(), { ...split1(), index: 2, tradeFeeRate: 2_500n }], jupiter);
+  it('tier 2 created with the 2026-10-18 rates (all 16% to the vault) is off the agreed split: said first, in bold, by its rate; the agreed tier after', () => {
+    const v = howVenueEarns([split1(), { ...split1(), index: 2, tradeFeeRate: 2_500n, protocolFeeRate: 160_000n, fundFeeRate: 0n }], jupiter);
     expect(v.elsewhere).toBe(true);
     expect(v.sources.slice(0, 2)).toEqual(['0.16% of each trade in a 1% pool.', '0.04% of each trade in a 0.25% pool.']);
     expect(v.where).toBe(
-      'The 0.25% fee tier has no split agreed with the island. Of each trade’s fee, this tier sends 10.4% (0.026% of the trade) to the team’s shared wallet and 5.6% (0.014% of the trade) to the island’s Workshop. In a 1% pool, of each trade’s fee, 10.4% (0.104% of the trade) goes to the team’s shared wallet, which needs two signatures and can change the pool rates, and 5.6% (0.056% of the trade) to the island’s Workshop, the island’s agreed share. The swap fee goes to the team’s shared wallet.',
+      'The 0.25% fee tier’s cut does not follow the agreed split (10.4% of each trade’s fee to the team’s shared wallet, 5.6% to the island’s Workshop). Of each trade’s fee, this tier sends 16% (0.04% of the trade) to the team’s shared wallet and nothing to the island’s Workshop. In a 1% pool, of each trade’s fee, 10.4% (0.104% of the trade) goes to the team’s shared wallet, which needs two signatures and can change the pool rates, and 5.6% (0.056% of the trade) to the island’s Workshop, the island’s agreed share. The swap fee goes to the team’s shared wallet.',
     );
     expect(v.wallets).toEqual([VAULT_ROW, WORKSHOP_ROW]);
   });

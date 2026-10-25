@@ -44,11 +44,15 @@ export function howYouEarn(tiers: readonly AmmConfigView[]): string[] {
 /**
  * The split agreed with the island (2026-10-18), per fee tier index, per million of the
  * trade fee: the protocol part to the team's shared wallet, the fund part to the island's
- * Workshop. Squads #13 set both tiers this way on 2026-10-19. A tier with no row has none.
+ * Workshop. Squads #13 set tiers 0 and 1 this way on 2026-10-19. Tier 2, the 0.25% public
+ * tier, carries tier 1's split (owner, 2026-10-24); it is agreed here before the vault
+ * creates it, so a tier 2 created with any other split is said in bold. A tier with no row
+ * has none.
  */
 export const AGREED_SPLIT: Readonly<Record<number, { protocol: bigint; fund: bigint }>> = {
   0: { protocol: 130_000n, fund: 70_000n },
   1: { protocol: 104_000n, fund: 56_000n },
+  2: { protocol: 104_000n, fund: 56_000n },
 };
 
 export interface VenueEarns {
