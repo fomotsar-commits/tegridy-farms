@@ -4,7 +4,7 @@
 // not be read says so, never a zero or "you hold nothing".
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import type { ReactNode } from 'react';
 import type { WalletBoard } from '../hooks/useWalletBoard';
@@ -183,6 +183,127 @@ describe('IslandDashboard: what is drawn, from what was read', () => {
     const items = within(screen.getByRole('region', { name: 'Holdings' })).getAllByRole('listitem');
     expect(items[0]).toHaveTextContent('01');
     expect(items[1]).toHaveTextContent('02');
+  });
+});
+
+// The big frame on a phone and an iPad (owner, 2026-10-24: "the mobile and ipad versions to have
+// the dashboard too"). jsdom lays nothing out, so the screen is drawn here: the frame pinned under
+// the top bar (top 56, bottom 244) above rows 80px tall from `rowsTop` down, as on a phone.
+describe('IslandDashboard: the frame on a phone and an iPad', () => {
+  const sol = '7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU';
+  let handheld = true;
+  let rowsTop = 600;
+  let frames: FrameRequestCallback[] = [];
+  const realRect = Element.prototype.getBoundingClientRect;
+
+  const rect = (top: number, height: number, left = 0, width = 390) =>
+    ({ top, bottom: top + height, left, right: left + width, width, height, x: left, y: top, toJSON: () => ({}) }) as DOMRect;
+
+  beforeEach(() => {
+    handheld = true;
+    rowsTop = 600;
+    frames = [];
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      value: (q: string) => ({ matches: q.includes('pointer: coarse') && handheld, media: q, addEventListener() {}, removeEventListener() {} }),
+    });
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => frames.push(cb));
+    vi.stubGlobal('cancelAnimationFrame', () => {});
+    // A long page, so the frame's end-of-page rule stays out of the way unless a test asks for it.
+    Object.defineProperty(document.documentElement, 'scrollHeight', { configurable: true, value: 100_000 });
+    Element.prototype.getBoundingClientRect = function (this: Element) {
+      if ((this as HTMLElement).dataset?.testid === 'dashboard-figure') return rect(56, 188);
+      const key = (this as HTMLElement).dataset?.figKey;
+      if (!key) return rect(0, 0, 0, 0);
+      const rows = Array.from(document.querySelectorAll('[data-fig-key]')).filter((el) => !el.closest('details:not([open])'));
+      return rect(rowsTop + rows.indexOf(this) * 80, 80);
+    };
+    return () => {
+      Element.prototype.getBoundingClientRect = realRect;
+      Reflect.deleteProperty(window, 'matchMedia');
+      Reflect.deleteProperty(document.documentElement, 'scrollHeight');
+      vi.unstubAllGlobals();
+    };
+  });
+
+  const scrollTo = (top: number) => {
+    rowsTop = top;
+    act(() => { window.dispatchEvent(new Event('scroll')); });
+    act(() => { while (frames.length) frames.shift()!(0); });
+  };
+  const figure = () => screen.getByTestId('dashboard-figure');
+  const lit = () => Array.from(document.querySelectorAll('[data-current]')).map((el) => el.getAttribute('data-fig-key'));
+
+  function wallet3() {
+    board.value = wallet({
+      solanaAddress: sol,
+      holdings: [leg('h', 'your Solana coins', { status: 'ok', rows: [holding({ key: 'sol', symbol: 'SOL', roomId: null, to: null, amount: '1.5', usd: 300 }), holding({ key: 'bayla' })] })],
+      positions: [leg('p', 'your BAYLA locks', { status: 'ok', rows: [position({ key: 'lock' })] })],
+    });
+  }
+
+  it('draws the frame at every width, first in the board so a phone can pin it above the rows', () => {
+    wallet3();
+    mount();
+    const fig = figure();
+    expect(fig.className).not.toMatch(/(^|\s)hidden(\s|$)/);
+    expect(fig.className).toMatch(/(^|\s)sticky(\s|$)/);
+    const holdings = screen.getByRole('region', { name: 'Holdings' });
+    expect(fig.compareDocumentPosition(holdings) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // A box with hidden overflow is a scroll box of its own, and nothing inside it can pin to the screen.
+    expect(fig.closest('section')!.className).toContain('supports-[overflow:clip]:overflow-clip');
+  });
+
+  it('follows the scroll: the first row you can read under the frame is the one shown, and it lights', () => {
+    wallet3();
+    mount();
+    scrollTo(600);
+    // Nothing has reached the frame yet: the wallet's first row with a room, and no row lit.
+    expect(figure()).toHaveTextContent('Bayla · Solana');
+    expect(lit()).toEqual([]);
+
+    scrollTo(230); // SOL is at the line and mostly in view: its chain's plate, not a door.
+    expect(figure()).toHaveTextContent('SOL · Solana');
+    expect(screen.getByTestId('chain-plate')).toBeInTheDocument();
+    expect(lit()).toEqual(['h:sol']);
+
+    scrollTo(200); // SOL is half under the frame: the next row takes over.
+    expect(figure()).toHaveTextContent('BAYLA · Solana');
+    expect(lit()).toEqual(['h:bayla']);
+
+    scrollTo(100);
+    expect(figure()).toHaveTextContent('fig. 02');
+    expect(figure()).toHaveTextContent('BAYLA lock · Solana');
+    expect(lit()).toEqual(['p:lock']);
+    expect(screen.getByTestId('figure-progress').style.transform).toBe('scaleX(1)');
+  });
+
+  it('shows the last row at the bottom of the page, where the rows can no longer reach the line', () => {
+    wallet3();
+    Object.defineProperty(document.documentElement, 'scrollHeight', { configurable: true, value: window.innerHeight });
+    mount();
+    scrollTo(600);
+    expect(lit()).toEqual(['p:lock']);
+  });
+
+  it('leaves the rows of a closed pool list out', () => {
+    mount();
+    scrollTo(0);
+    expect(lit()).toEqual([]);
+    expect(screen.queryByTestId('figure-progress')).toBeNull();
+  });
+
+  it('with a pointer, follows the pointer and not the scroll, and lights nothing', () => {
+    handheld = false;
+    wallet3();
+    mount();
+    scrollTo(100);
+    expect(figure()).toHaveTextContent('Bayla · Solana');
+    expect(lit()).toEqual([]);
+    expect(screen.queryByTestId('figure-progress')).toBeNull();
+    // Pointing at SOL, which has no room, shows its chain rather than nothing.
+    fireEvent.mouseEnter(document.querySelector('[data-fig-key="h:sol"]')!);
+    expect(figure()).toHaveTextContent('SOL · Solana');
   });
 });
 
