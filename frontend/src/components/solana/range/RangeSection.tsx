@@ -16,7 +16,8 @@ import { BAYLA_MINT } from '../../../lib/solana/lp/tokenSafety';
 import { RANGE_PROGRAM_ID } from '../../../lib/solana/clmm/program';
 import { ownPoolPrograms } from '../../../lib/solana/lp/ownPools';
 import { readFeeTiers, readFreezeAuthority, readPairPools, readWalletPositions, type MintFreeze, type Read, type RangePool, type WalletPositionsRead } from '../../../lib/solana/clmm/read';
-import { freezeWarning } from '../../../lib/solana/lp/tokenSafety';
+import { freezeWarning, readTokenSafety, type TokenSafety } from '../../../lib/solana/lp/tokenSafety';
+import { siteNamed, tokenTicker } from '../../../lib/solana/lp/identity';
 import type { AmmConfigView } from '../../../lib/solana/clmm/program';
 import { feePaidIn, feeSplit, poolFeeCeiling } from '../../../lib/solana/clmm/feeText';
 import { rangeVenueEarns } from '../../../lib/solana/clmm/venueEarns';
@@ -34,7 +35,7 @@ import type { RangeWriteApi, WriteRpc } from '../curve/ports';
 import { RangeOpenCard } from './RangeOpenCard';
 import { RangePositionsCard } from './RangePositionsCard';
 import { loadRangeWriteApi } from './rangeWriteApi';
-import { priceText, tokenWord } from './rangeText';
+import { priceText, tokenWord, withTokenLabel, type NamedPair } from './rangeText';
 import { useChainRead, useRangeWrites } from './useRangeData';
 
 /**
@@ -64,6 +65,8 @@ export interface RangeReaders {
   freezeAuthority(mint: string): Promise<Read<MintFreeze>>;
   /** Jupiter's price, refused when it comes through a range pool: the opening's market check. */
   outsidePrice(mint: string, decimals: number, opts?: { fresh?: boolean }): Promise<OutsidePrice>;
+  /** Each token's check (tokenSafety.ts), for the ticker every line names it by. */
+  tokenSafety(mints: string[]): Promise<Map<string, TokenSafety>>;
 }
 
 // eslint-disable-next-line react-refresh/only-export-components
@@ -75,8 +78,13 @@ export function browserRangeReaders(rpc: SolanaRpc, programId: PublicKey): Range
     walletPositions: (owner) => readWalletPositions(rpc, programId, new PublicKey(owner)),
     freezeAuthority: (mint) => readFreezeAuthority(rpc, mint),
     outsidePrice: (mint, decimals, o) => readOutsidePrice(mint, decimals, { rpc, programId: ownPoolPrograms([programId.toBase58()]) }, lpFetch({ what: 'Jupiter' }), undefined, o),
+    tokenSafety: (mints) => readTokenSafety(rpc, mints),
   };
 }
+
+/** The tickers of `mints`, read once each (a ticker does not change), as a Range read. */
+const checksOf = (readers: RangeReaders, mints: string[]): Promise<Read<Map<string, TokenSafety>>> =>
+  readers.tokenSafety(mints).then((value) => ({ kind: 'ok', value }));
 
 export function RangeInner({ readers, load, mode }: { readers: RangeReaders; load: () => Promise<RangeWriteApi>; mode: LpWriteMode }) {
   const programId = readers.programId;
@@ -113,9 +121,20 @@ export function RangeInner({ readers, load, mode }: { readers: RangeReaders; loa
   const pool: RangePool | null = poolList?.find((x) => x.pool.address === chosen) ?? poolList?.[0] ?? null;
   // One object per pool read, so the opening card asks the market price once per pool, not per render.
   const pair: Pair | null = useMemo(() => (pool ? pairOf(pool.pool) : null), [pool]);
+  // Every line names the token by its ticker ("fake SOY" for a copy), as the pool screens do.
+  const tokenCheck = useChainRead(`check:${tokenMint}`, 0, () => checksOf(readers, [tokenMint]));
+  const tokenLabel = tokenTicker(tokenMint, tokenCheck.read?.kind === 'ok' ? tokenCheck.read.value.get(tokenMint) : null);
+  const named: NamedPair | null = useMemo(() => (pair ? withTokenLabel(pair, tokenLabel) : null), [pair, tokenLabel]);
 
   const owner = signerState.kind === 'disconnected' ? null : signerState.address;
   const positions = useChainRead(owner ? `positions:${owner}` : null, nonce, () => readers.walletPositions(owner!));
+  // The positions' tokens, named the same way, in one read.
+  const positionMints = positions.read?.kind === 'ok' ? [...new Set(positions.read.value.positions.flatMap((w) => pairOf(w.pool)?.tokenMint ?? []))].sort() : [];
+  const positionChecks = useChainRead(positionMints.length ? `checks:${positionMints.join(',')}` : null, 0, () => checksOf(readers, positionMints));
+  const nameOf = useCallback(
+    (mint: string) => tokenTicker(mint, positionChecks.read?.kind === 'ok' ? positionChecks.read.value.get(mint) : null),
+    [positionChecks.read],
+  );
 
   const check = useMemo<CheckSignature | null>(
     () => (write ? (sig, lvbh) => write.api.recheckOutcome(writeRpc, sig, { lastValidBlockHeight: lvbh ?? undefined }) : null),
@@ -149,7 +168,7 @@ export function RangeInner({ readers, load, mode }: { readers: RangeReaders; loa
 
   return (
     <div className="space-y-4">
-      <HowItPays pool={pool} pair={pair} />
+      <HowItPays pool={pool} pair={named} />
 
       {held && write && (
         <PendingTradeCard
@@ -168,7 +187,9 @@ export function RangeInner({ readers, load, mode }: { readers: RangeReaders; loa
       )}
 
       <Card title="Pick a pool" testId="range-pools" art={<CardArt pageId="range-pools" idx={1} />}>
-        <Row label="Token" value={quoteCoin(tokenMint)?.symbol ?? tokenMint} mono={!quoteCoin(tokenMint)} />
+        <Row label="Token" value={tokenLabel ?? tokenMint} mono={tokenLabel === null} />
+        {/* A ticker off the site's own list is the coin's claim: its whole address goes with it. */}
+        {tokenLabel !== null && !siteNamed(tokenMint) && <Row label="Token address" value={tokenMint} />}
         <TokenFreezeNotice mint={tokenMint} read={freeze.read} />
         {raw && parsed && !parsed.ok && <Notice tone="warn">{`The token in the link is not one this page can read (${parsed.reason}). Showing BAYLA.`}</Notice>}
         {parsed?.ok && tokenMint !== BAYLA_MINT && (
@@ -204,7 +225,7 @@ export function RangeInner({ readers, load, mode }: { readers: RangeReaders; loa
         ) : tierList.length === 0 ? (
           <Notice>The range program has no fee tiers on this network yet, so there is no pool to put liquidity in.</Notice>
         ) : poolList.length === 0 ? (
-          <Notice>{`No range pool for ${quoteCoin(tokenMint)?.symbol ?? 'this token'} with ${coin.symbol} yet.`}</Notice>
+          <Notice>{`No range pool for ${tokenLabel ?? 'this token'} with ${coin.symbol} yet.`}</Notice>
         ) : (
           <div className="space-y-2" role="group" aria-label="Pools by fee">
             {poolList.map((x) => {
@@ -221,7 +242,7 @@ export function RangeInner({ readers, load, mode }: { readers: RangeReaders; loa
                   onClick={() => setChosen(x.pool.address)}
                 >
                   <span className="block text-white text-[12px]">{`${s.fee} fee per swap`}</span>
-                  <span className="block text-white/60 text-[11px]">{pr ? `Pool price now ${priceText(pr, priceAtSqrt(pr, x.pool.sqrtPriceX64))}` : 'A pair this site does not read'}</span>
+                  <span className="block text-white/60 text-[11px]">{pr ? `Pool price now ${priceText(withTokenLabel(pr, tokenLabel), priceAtSqrt(pr, x.pool.sqrtPriceX64))}` : 'A pair this site does not read'}</span>
                 </button>
               );
             })}
@@ -236,6 +257,7 @@ export function RangeInner({ readers, load, mode }: { readers: RangeReaders; loa
           key={pool.pool.address}
           pool={pool}
           pair={pair}
+          tokenLabel={tokenLabel}
           canOpen={canOpen}
           why={why}
           write={write}
@@ -252,6 +274,7 @@ export function RangeInner({ readers, load, mode }: { readers: RangeReaders; loa
 
       <RangePositionsCard
         read={positions.read}
+        nameOf={nameOf}
         reading={positions.reading}
         onReadAgain={finished}
         signerState={signerState}
@@ -313,7 +336,7 @@ function TokenFreezeNotice({ mint, read }: { mint: string; read: Read<MintFreeze
  * out of range earns nothing. Where the venue's cut goes is said as the /solana-lp Rates
  * card says it: the agreed split in the fine print, any other wallet in bold in plain sight.
  */
-function HowItPays({ pool, pair }: { pool: RangePool | null; pair: Pair | null }) {
+function HowItPays({ pool, pair }: { pool: RangePool | null; pair: NamedPair | null }) {
   const ceiling = pool ? poolFeeCeiling(pool.pool, pool.config.tradeFeeRate) : null;
   const s = pool ? feeSplit(pool.config, ceiling) : null;
   const venue = pool ? rangeVenueEarns(pool.config, ceiling) : null;

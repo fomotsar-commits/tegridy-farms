@@ -7,6 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-10-25
+
+- Solana swap and the Range tab: a coin whose ticker copies SOL, USDC, BAYLA or an island coin at another address now reads "fake SOY" (for example), as on the pool screens. In the swap page's token list, a coin the site does not name itself shows its whole address, not just its first and last characters. The Range tab names every coin by its own ticker, with its whole address, instead of "tokens".
+
 ### 2026-10-24
 
 - Solana pools: the pool program's upgrade was rolled back, so it runs its 2026-09-29 build again: pool share tokens can't get a name in wallets and the launch fee tier is open to anyone again until it is upgraded once more. The lines you read before adding liquidity or opening a pool say so again: our pool program is Raydium's, with only its admin keys changed.
