@@ -1,8 +1,8 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest';
 import { Keypair } from '@solana/web3.js';
-import { BAYLA_MINT, USDC_MINT, WSOL_MINT } from '../lp/tokenSafety';
-import { offersTier, tiersOffered } from './tierOffer';
+import { BAYLA_MINT, USDC_MINT, WSOL_MINT } from './tokenSafety';
+import { forEveryPair, offersTier, tiersOffered } from './tierOffer';
 
 /** The tiers this site offers a pair (owner, 2026-10-24): under 1% only for SOL against a dollar coin. */
 
@@ -26,6 +26,13 @@ describe('the tiers a pair is offered', () => {
   it('the line is 1%: just under it is a low tier, anything from 1% up is offered to all', () => {
     expect(offersTier(9_999, BAYLA_MINT, WSOL_MINT)).toBe(false);
     expect(offersTier(40_000, BAYLA_MINT, WSOL_MINT)).toBe(true);
+    expect([forEveryPair(9_999), forEveryPair(10_000)]).toEqual([false, true]);
+  });
+
+  it('reads a standard pool tier’s rate (a bigint) the same as a range tier’s (a number)', () => {
+    expect(offersTier(2_500n, BAYLA_MINT, WSOL_MINT)).toBe(false);
+    expect(offersTier(2_500n, USDC_MINT, WSOL_MINT)).toBe(true);
+    expect(offersTier(10_000n, BAYLA_MINT, WSOL_MINT)).toBe(true);
   });
 
   it('keeps the offered tiers in the order given', () => {

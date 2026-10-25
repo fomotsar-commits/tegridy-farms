@@ -6,7 +6,7 @@ import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from '../cpswap/ix';
 import { decodeMintAccount } from '../lp/tokenSafety';
 import { getArrayStartIndex, initializedTickArrayStarts, isOverflowDefaultTickarrayBitmap } from './bitmap';
 import { ClmmMathError, calculateLatestTokenFees, getDeltaAmountsSigned, getFeeGrowthInside } from './math';
-import { tiersOffered } from './tierOffer';
+import { tiersOffered } from '../lp/tierOffer';
 import {
   decodeAmmConfig,
   decodeBitmapExtension,
@@ -92,7 +92,7 @@ export interface RangePool {
 
 /**
  * The pools of one pair, one per tier that has one, on the tiers this site offers the pair
- * (tierOffer.ts): a BAYLA pool on the 0.25% tier is never read, so never listed or routed
+ * (lp/tierOffer.ts): a BAYLA pool on the 0.25% tier is never read, so never listed or routed
  * through. The Range tab and the swap route both find their pools here.
  */
 export function readPairPools(rpc: SolanaRpc, programId: PublicKey, mintA: string, mintB: string, allTiers: AmmConfigView[]): Promise<Read<RangePool[]>> {

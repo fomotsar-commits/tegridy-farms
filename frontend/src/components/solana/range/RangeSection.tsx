@@ -19,7 +19,7 @@ import { readFeeTiers, readFreezeAuthority, readPairPools, readWalletPositions, 
 import { freezeWarning } from '../../../lib/solana/lp/tokenSafety';
 import type { AmmConfigView } from '../../../lib/solana/clmm/program';
 import { feePaidIn, feeSplit, poolFeeCeiling } from '../../../lib/solana/clmm/feeText';
-import { tiersOffered } from '../../../lib/solana/clmm/tierOffer';
+import { tiersOffered } from '../../../lib/solana/lp/tierOffer';
 import { rangeVenueEarns } from '../../../lib/solana/clmm/venueEarns';
 import { pairOf, priceAtSqrt, type Pair } from '../../../lib/solana/clmm/rangeMath';
 import { CardArt } from '../../ui/CardArt';
