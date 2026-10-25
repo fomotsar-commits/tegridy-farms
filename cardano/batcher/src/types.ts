@@ -156,9 +156,21 @@ function decodeStep(d: PlutusData): OrderStep {
   }
 }
 
+/**
+ * types.ak OrderAuthorizationMethod: OAMSignature, OAMSpendScript, OAMWithdrawScript or
+ * OAMMintScript, each one ByteArray. Only cancels read it, but the contract's
+ * `expect order_in_datum: OrderDatum` checks its shape on every batch: an order with a
+ * malformed canceller fails the whole batch, so it must never be picked up.
+ */
+function checkCanceller(d: PlutusData): void {
+  const c = constr(d, 'canceller');
+  if (c.alt > 3 || c.fields.length !== 1) throw new DecodeError('canceller is not an OrderAuthorizationMethod');
+  bytes(c.fields[0]!, 'canceller hash');
+}
+
 export function decodeOrderDatum(d: PlutusData): OrderDatum {
   const f = fieldsOf(d, 0, 9, 'OrderDatum');
-  constr(f[0]!, 'canceller'); // read by cancels only; its shape is still checked
+  checkCanceller(f[0]!);
   const expiry = option(f[8]!, 'expiry_setting_opt', (e) => {
     // A 2-tuple is encoded as a list of two items.
     const pair = list(e, 'expiry pair');
@@ -179,6 +191,7 @@ export function decodeOrderDatum(d: PlutusData): OrderDatum {
 
 export function decodePoolDatum(d: PlutusData): PoolDatum {
   const f = fieldsOf(d, 0, 10, 'PoolDatum');
+  decodeStakeCredential(f[0]!, 'pool_batching_stake_credential'); // shape checked, as the contract's cast does
   return {
     batchingStakeCredential: f[0]!,
     assetA: decodeAsset(f[1]!, 'asset_a'),

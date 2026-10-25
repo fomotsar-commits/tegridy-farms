@@ -94,6 +94,34 @@ export function poolDatumPlus(d: PlutusData, index: number, delta: bigint): Plut
   );
 }
 
+/** The batch with a second, zero withdrawal from some other script. */
+export function withExtraWithdrawal(txHex: string): string {
+  const tx = CSL.Transaction.from_hex(txHex);
+  const body = tx.body();
+  const outs = body.outputs();
+  const b = rebuildBody(body, outs);
+  const w = CSL.Withdrawals.from_hex(body.withdrawals()!.to_hex());
+  const other = CSL.RewardAddress.new(1, CSL.Credential.from_scripthash(CSL.ScriptHash.from_hex('bb'.repeat(28))));
+  w.insert(other, CSL.BigNum.from_str('0'));
+  b.set_withdrawals(w);
+  return CSL.Transaction.new(b, tx.witness_set(), tx.auxiliary_data()).to_hex();
+}
+
+/** The batch with the spend redeemer at input position `index` (ledger order) replaced. */
+export function withSpendRedeemer(txHex: string, index: number, data: PlutusData): string {
+  const tx = CSL.Transaction.from_hex(txHex);
+  const ws = tx.witness_set();
+  const rs = ws.redeemers()!;
+  const next = CSL.Redeemers.new();
+  for (let i = 0; i < rs.len(); i++) {
+    const r = rs.get(i);
+    const hit = r.tag().kind() === 0 && Number(r.index().to_str()) === index;
+    next.add(CSL.Redeemer.new(r.tag(), r.index(), hit ? data : r.data(), r.ex_units()));
+  }
+  ws.set_redeemers(next);
+  return CSL.Transaction.new(tx.body(), ws, tx.auxiliary_data()).to_hex();
+}
+
 /** The batch with the batching redeemer's input_indexes reversed. */
 export function withReversedIndexes(txHex: string): string {
   const tx = CSL.Transaction.from_hex(txHex);

@@ -34,6 +34,7 @@ export interface DexConstants {
 
 const POOL_NFT_NAME = '4d5350'; // "MSP"
 const GLOBAL_SETTING_NAME = '4d534753'; // "MSGS"
+const REDEEMER_TAG_SPEND = 0;
 const REDEEMER_TAG_REWARD = 3;
 
 export class BatchMismatch extends Error {
@@ -90,22 +91,20 @@ export function verifySinglePoolBatch(txHex: string, spentHex: Readonly<Record<s
   if (globalDatum.kind !== 'inline') throw new DecodeError('the global setting has no inline datum');
   const setting = decodeGlobalSetting(globalDatum.data);
 
-  // The batching withdrawal's redeemer.
+  // Redeemers by (purpose, index): a spend's index is its input's place in ledger order, a
+  // withdrawal's its place among the withdrawals. A batch this checker reads has exactly one
+  // withdrawal, the pool's batching script, so the batching redeemer is reward redeemer 0.
   const redeemers = ws.redeemers();
-  const rewardRedeemers: PlutusData[] = [];
+  const redeemerAt = new Map<string, PlutusData>();
   for (let i = 0; redeemers && i < redeemers.len(); i++) {
     const r = redeemers.get(i);
-    if (r.tag().kind() === REDEEMER_TAG_REWARD) rewardRedeemers.push(r.data());
+    redeemerAt.set(`${r.tag().kind()}:${r.index().to_str()}`, r.data());
   }
-  const decoded = rewardRedeemers.flatMap((d) => {
-    try {
-      return [decodeBatchingRedeemer(d)];
-    } catch {
-      return [];
-    }
-  });
-  if (decoded.length !== 1) throw new DecodeError(`expected one pool batching redeemer, found ${decoded.length}`);
-  const redeemer = decoded[0]!;
+  const withdrawalCount = body.withdrawals()?.len() ?? 0;
+  if (withdrawalCount !== 1) throw new DecodeError(`a batch makes exactly one withdrawal, the pool's batching script; this one makes ${withdrawalCount}`);
+  const batchingData = redeemerAt.get(`${REDEEMER_TAG_REWARD}:0`);
+  if (!batchingData) throw new DecodeError('the batching withdrawal has no redeemer');
+  const redeemer = decodeBatchingRedeemer(batchingData);
 
   // The batcher, and its authorization.
   const batcher = setting.batchers[Number(redeemer.batcherIndex)];
@@ -147,6 +146,17 @@ export function verifySinglePoolBatch(txHex: string, spentHex: Readonly<Record<s
   check(redeemer.inputIndexes.length > 0 && new Set(redeemer.inputIndexes).size === redeemer.inputIndexes.length && redeemer.inputIndexes.every((x) => x < 64), 'input_indexes must be non-empty, unique and below 64');
   const sorted = redeemer.inputIndexes.map((x) => orderInputs[x]);
   if (sorted.some((s) => s === undefined)) throw new DecodeError('an input index points past the order inputs');
+  // The pool is spent as Batching and every order as ApplyOrder, both constructor 0 with no
+  // fields (types.ak PoolRedeemer, OrderRedeemer); any other redeemer runs other checks on chain.
+  const spendRedeemerIs0 = (ref: string) => {
+    const at = inputs.findIndex((i) => i.ref === ref);
+    const data = redeemerAt.get(`${REDEEMER_TAG_SPEND}:${at}`);
+    if (!data) return false;
+    const c = constr(data, 'spend redeemer');
+    return c.alt === 0 && c.fields.length === 0;
+  };
+  check(spendRedeemerIs0(poolIns[0]!.ref), 'the pool is not spent with the Batching redeemer');
+  for (const o of orderInputs) check(spendRedeemerIs0(o.ref), `order ${o.ref} is not spent with the ApplyOrder redeemer`);
 
   // Pool datums and values (get_batching_pool).
   const inDatum = outputDatum(poolIn);

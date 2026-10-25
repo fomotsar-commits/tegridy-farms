@@ -3,7 +3,7 @@
 // the validate_* functions): one changed field from an order that fills.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { applyOrder, currentTimeApproximation, tradingFeeNumerator, type OrderInput, type PoolContext, type PoolState } from '../src/engine.ts';
+import { Unsupported, applyOrder, currentTimeApproximation, tradingFeeNumerator, type OrderInput, type PoolContext, type PoolState } from '../src/engine.ts';
 import { ContractFailure } from '../src/math.ts';
 import { ADA, type Address, type Asset, type OrderDatum } from '../src/types.ts';
 import { quantityOf, valueOf } from '../src/value.ts';
@@ -72,6 +72,12 @@ test('a price miss on an order that is not killable fails the whole batch', () =
 test('refuses a swap of nothing, and an ADA-only order swapping B to A', () => {
   assert.throws(() => applyOrder(ctx, pool, buy({}, { swapAmount: { kind: 'specific', amount: 0n } }), 2_000_000n, NOW), ContractFailure);
   assert.throws(() => applyOrder(ctx, pool, buy({}, { aToB: false, minimumReceive: 1n }), 2_000_000n, NOW), ContractFailure);
+});
+
+test('leaves alone an order paying a pointer address (the ledger bounds them, CSL does not)', () => {
+  const pointer: Address = { ...TRADER, stake: { kind: 'pointer', slot: 1n << 40n, txIndex: 0n, certIndex: 0n } };
+  assert.throws(() => applyOrder(ctx, pool, buy({ successReceiver: pointer }), 2_000_000n, NOW), Unsupported);
+  assert.throws(() => applyOrder(ctx, pool, buy({ refundReceiver: pointer }), 2_000_000n, NOW), Unsupported);
 });
 
 test('the contract’s time: the midpoint of a window of at most 10 minutes, both ends set', () => {

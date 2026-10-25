@@ -210,6 +210,9 @@ export function applyOrder(ctx: PoolContext, state: PoolState, order: OrderInput
   expect(usedFee <= d.maxBatcherFee, 'batcher fee above the order maximum');
   expect(sameAsset(d.lpAsset, ctx.lpAsset), 'the order names another pool');
   if (d.expiry !== null) expect(nowMs <= d.expiry.expiredTime, 'the order has expired');
+  // The ledger bounds pointer addresses (32-bit slot, 16-bit indexes) where CSL does not, so
+  // an output to one may not read back as the datum names it: such orders are left alone.
+  if (d.successReceiver.stake?.kind === 'pointer' || d.refundReceiver.stake?.kind === 'pointer') throw new Unsupported('a receiver with a pointer address');
   switch (d.step.kind) {
     case 'SwapExactIn':
       return swapExactIn(ctx, state, order, usedFee, d.step);

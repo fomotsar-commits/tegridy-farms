@@ -57,16 +57,104 @@ export function outputDatum(o: CSL.TransactionOutput): OutputDatum {
   return { kind: 'none' };
 }
 
+// ---- Plutus's own serialisation of Data (builtin serialise_data) ----
+// plutus-core PlutusCore.Data encodeData: Constr i -> tag 121+i (i < 7), tag 1280+(i-7)
+// (i < 128), else tag 102 [i, fields]; lists definite when empty, indefinite otherwise; maps
+// definite; integers as CBOR ints, past 64 bits as bignum tags 2/3; byte strings definite up to
+// 64 bytes, else indefinite in 64-byte chunks. CSL keeps whatever bytes data arrived in, so a
+// hash of CSL's bytes is not what the contract computes.
+
+function head(major: number, n: bigint): number[] {
+  const m = major << 5;
+  if (n < 24n) return [m | Number(n)];
+  if (n < 0x100n) return [m | 24, Number(n)];
+  if (n < 0x10000n) return [m | 25, Number(n >> 8n), Number(n & 0xffn)];
+  if (n < 0x100000000n) return [m | 26, ...[24n, 16n, 8n, 0n].map((s) => Number((n >> s) & 0xffn))];
+  return [m | 27, ...[56n, 48n, 40n, 32n, 24n, 16n, 8n, 0n].map((s) => Number((n >> s) & 0xffn))];
+}
+
+function encBytes(b: Uint8Array): number[] {
+  if (b.length <= 64) return [...head(2, BigInt(b.length)), ...b];
+  const out = [0x5f];
+  for (let i = 0; i < b.length; i += 64) {
+    const chunk = b.subarray(i, i + 64);
+    out.push(...head(2, BigInt(chunk.length)), ...chunk);
+  }
+  out.push(0xff);
+  return out;
+}
+
+function encInteger(n: bigint): number[] {
+  const U64 = 1n << 64n;
+  if (n >= 0n && n < U64) return head(0, n);
+  if (n < 0n && -1n - n < U64) return head(1, -1n - n);
+  const mag = n >= 0n ? n : -1n - n;
+  let hex = mag.toString(16);
+  if (hex.length % 2) hex = `0${hex}`;
+  return [...head(6, n >= 0n ? 2n : 3n), ...encBytes(Buffer.from(hex, 'hex'))];
+}
+
+function encList(items: PlutusData[]): number[] {
+  if (items.length === 0) return [0x80];
+  return [0x9f, ...items.flatMap(encData), 0xff];
+}
+
+function encData(d: PlutusData): number[] {
+  switch (d.kind()) {
+    case 0: {
+      const c = d.as_constr_plutus_data()!;
+      const alt = BigInt(c.alternative().to_str());
+      const fields: PlutusData[] = [];
+      for (let i = 0; i < c.data().len(); i++) fields.push(c.data().get(i));
+      if (alt < 7n) return [...head(6, 121n + alt), ...encList(fields)];
+      if (alt < 128n) return [...head(6, 1280n + alt - 7n), ...encList(fields)];
+      return [...head(6, 102n), 0x82, ...encInteger(alt), ...encList(fields)];
+    }
+    case 1: {
+      const m = d.as_map()!;
+      const keys = m.keys();
+      const out = head(5, BigInt(keys.len()));
+      for (let i = 0; i < keys.len(); i++) {
+        const k = keys.get(i);
+        const vals = m.get(k)!;
+        if (vals.len() !== 1) throw new DecodeError('a map with a repeated key');
+        out.push(...encData(k), ...encData(vals.get(0)!));
+      }
+      return out;
+    }
+    case 2: {
+      const l = d.as_list()!;
+      const items: PlutusData[] = [];
+      for (let i = 0; i < l.len(); i++) items.push(l.get(i));
+      return encList(items);
+    }
+    case 3:
+      return encInteger(BigInt(d.as_integer()!.to_str()));
+    case 4:
+      return encBytes(d.as_bytes()!);
+    default:
+      throw new DecodeError('unknown Plutus data kind');
+  }
+}
+
+/** builtin serialise_data: the bytes the contract hashes. */
+export function plutusSerialise(d: PlutusData): Uint8Array {
+  return Uint8Array.from(encData(d));
+}
+
+/** blake2b-256 of builtin serialise_data, as is_valid_datum computes it on chain. */
+export function plutusDataHash(d: PlutusData): string {
+  return CSL.hash_plutus_data(CSL.PlutusData.from_bytes(plutusSerialise(d))).to_hex();
+}
+
 /**
- * order_validation.ak is_valid_datum, for a script receiver. An inline datum is hashed from
- * Plutus's own serialisation of it on chain; this compares CSL's encoding of the same data,
- * so it is only trusted when the bytes we carry are the canonical ones (the builder refuses
- * inline-datum receivers it cannot reproduce).
+ * order_validation.ak is_valid_datum, for a script receiver: an inline datum is hashed from
+ * Plutus's own serialisation of it, never from the bytes it arrived in.
  */
 export function datumMatches(rule: ExtraOrderDatum, d: OutputDatum): boolean {
   if (rule.kind === 'none') return d.kind === 'none';
   if (rule.kind === 'hash') return d.kind === 'hash' && d.hash === rule.hash;
-  return d.kind === 'inline' && CSL.hash_plutus_data(d.data).to_hex() === rule.hash;
+  return d.kind === 'inline' && plutusDataHash(d.data) === rule.hash;
 }
 
 /** "txhash#index", the key spent outputs are looked up by. */
