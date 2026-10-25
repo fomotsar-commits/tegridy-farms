@@ -164,9 +164,10 @@ only.
    chain); the notice went public the same day and the proposal is #19. #19's second approval came
    through the Squads app minutes after the first, so the chain allows its execute from
    2026-10-23 13:45:21 UTC. The owner then ruled (2026-10-22) to update the promise date: the notice
-   now names 2026-10-23 14:00 UTC, and the page holds the execute until then. One sitting is left,
-   the execute, from that time, in a folder of its own (`stage.mjs --tiers-only`), because the
-   deploy's folder is in use: no 10-26 approval sitting.
+   now names 2026-10-23 14:00 UTC, and the page holds the execute until then. **2026-10-25:** the
+   owner ruled one tier, 1% (below), before #19 executed. Both members cancel #19, and a new
+   proposal goes through the page in a folder of its own (`stage.mjs --tiers-only`): propose,
+   the second approval, 48 hours, the execute.
 3. **Serve the position link before any position can exist.** Each position NFT keeps the link it
    was born with, `https://memetics.finance/position/<id>.json`. No position can be made before the
    fee tiers execute, so the page refuses to approve or execute them until the link answers 404 for
@@ -196,25 +197,30 @@ only.
    111-line diff and of the deploy pack, as its own step. **An outside review after launch**
    (owner decision 2026-10-20).
 
-## Fee tiers (decided by the owner 2026-10-20; the vault signs them)
+## Fee tier (decided by the owner 2026-10-25; the vault signs it)
 
-Two tiers to start; more can be added later, none removed. Each is born with the island split
-our cp-swap tiers carry since 2026-10-19.
+One tier: "there should only be one fee tier that is 1%" (the owner, 2026-10-25). More could be
+added later by a vault proposal, none removed. It is born with the island split our cp-swap tiers
+carry since 2026-10-19.
 
 | Tier | Price steps (tick spacing) | For | LPs keep | The venue's share | The island's share |
 |---|---|---|---|---|---|
-| 1% | 120 | meme coins, BAYLA/SOL | 0.84% of each swap | 0.104% | 0.056% |
-| 0.25% | 60 | SOL against a dollar coin | 0.21% | 0.026% | 0.014% |
+| 1% | 120 | every pair | 0.84% of each swap | 0.104% | 0.056% |
 
 How LPs earn: each swap through their range pays the tier's fee, and 84% of it stays with the
 positions whose range was in use; each position collects its own. How the venue earns: 10.4% of
 each fee, collected by the vault. How the island earns: 5.6% of each fee, collected by its
 Workshop (`island-workshop-wallet` in `frontend/scripts/addresses.json`). In the program that is
-`trade_fee_rate` 10,000 or 2,500, `protocol_fee_rate` 104,000 and `fund_fee_rate` 56,000 (all per
-million). One vault proposal makes both tiers and points each one's fund owner at the Workshop
-(per tier `create_amm_config`, then `update_amm_config` with param 4, as cp-swap's tiers were
-made): one 48-hour wait, and no moment when one tier exists without the other.
-Each tier costs the vault 0.0012 SOL in rent.
+`trade_fee_rate` 10,000, `protocol_fee_rate` 104,000 and `fund_fee_rate` 56,000 (all per
+million). One vault proposal makes the tier and points its fund owner at the Workshop
+(`create_amm_config`, then `update_amm_config` with param 4, as cp-swap's tiers were made): one
+48-hour wait, and both in one transaction, so the tier never exists with another fund owner.
+The tier costs the vault 0.0012 SOL in rent.
+
+**Squads proposal 19 is cancelled, not executed.** It was made 2026-10-21 for the two tiers then
+decided (1% and a 0.25% tier with spacing 60) and has both approvals. A tier cannot be removed once
+made, so both members cancel #19 (an approved proposal of a 2-of-2 ends only with both cancels) and
+a new proposal makes the one tier: `solana/clmm-deploy/START-HERE-TIERS.md`.
 
 **The vault can still move the island's share** by a proposal ("How the vault can still move the
 island's share", above), but it can no longer collect it directly (check V9: refused). The island
@@ -224,7 +230,7 @@ Sources: our cp-swap's own tiers (`CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy`
 `BHMteE8u6LAppswQmFmd2h7hp1fCfWtGahvVJnhRk8jW`) carry the same 104,000 and 56,000 since Squads
 proposal 13 (2026-10-19), so a swap pays the same split in either kind of pool. Raydium's live
 range program has 21 tiers, from 0.01% to 4%, every one sending 16% of each fee to Raydium; it
-pairs 0.25% with spacing 60 and 1% with spacing 120 (read 2026-10-14).
+pairs 1% with spacing 120 (read 2026-10-14).
 
 ## What costs money
 
@@ -255,9 +261,9 @@ locked, with about 0.008 SOL spent on upload fees. CI prints the deploy rows aga
 at that day's rate.
 
 **The vault needs SOL before rewards can start.** It held 0.0152 SOL on 2026-10-20 (read at slot
-459,289,546). Two tiers take 0.0025 of it; the operation account, which every reward stream needs
+459,289,546). The tier takes 0.0012 of it; the operation account, which every reward stream needs
 (even one a pool's opener pays for), takes 0.0186 more. So the vault must be topped up by at
-least 0.006 SOL before the first reward, and by 0.0015 more for each reward the vault itself
+least 0.005 SOL before the first reward, and by 0.0015 more for each reward the vault itself
 funds. Squads proposal accounts are paid by the member who proposes, not by the vault.
 
 **An outside review**: no quote has been read. Request letters exist
@@ -283,7 +289,8 @@ left the rest to the builder. Decided on that basis:
 
 ## Decided 2026-10-20
 
-1. **Fee tiers**: 1% (spacing 120) and 0.25% (spacing 60), with the island split (table above).
+1. **Fee tiers**: 1% (spacing 120) and 0.25% (spacing 60), with the island split. Replaced on
+   2026-10-25 (below).
 2. **Review**: our own hard internal review before mainnet; an outside review after launch.
 3. **The deploy**: exact size; the owner makes the real program key and signs every mainnet step;
    the upgrade authority goes to the vault right after the deploy; devnet first.
@@ -291,6 +298,12 @@ left the rest to the builder. Decided on that basis:
    only the Workshop collects the island's share; fees at most 4% of a swap and 16% of each fee to the
    venue and the island together; a reward's unpaid rest stays with whoever started it. Kept and
    disclosed ("What else the vault can still do", above): the pause, and the 48 hours.
+
+## Decided 2026-10-25
+
+1. **One fee tier, 1%** (spacing 120), with the island split: "there should only be one fee tier
+   that is 1%". #19, which makes the 1% and the 0.25% tier, is cancelled by both members; a new
+   proposal makes the one tier (table above).
 
 ## Still the owner's
 

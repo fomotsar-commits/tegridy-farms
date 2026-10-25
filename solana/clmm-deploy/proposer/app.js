@@ -31,7 +31,7 @@ $('net').className = `net ${net}`;
 const okNet = (cfg.kind === 'mainnet' && net === 'mainnet') || (cfg.kind === 'rehearsal' && net === 'local');
 const pct = (r) => `${(r / 10000).toLocaleString('en-US', { maximumFractionDigits: 4 })}%`;
 $('what').innerHTML = `<h2>What this one proposal does, when it executes</h2>
-<p>It makes the range program's two fee tiers, with the island split, and points each tier's fund share at the island's Workshop. The vault signs it; the vault pays ${cfg.tiers.length} x 0.0012 SOL of rent.</p>
+<p>It makes the range program's one fee tier, with the island split, and points its fund share at the island's Workshop. The vault signs it; the vault pays 0.0012 SOL of rent.</p>
 <table><tr><th>Tier</th><th>Fee of each swap</th><th>Price steps</th><th>LPs keep</th><th>Venue (vault)</th><th>Island (Workshop)</th><th>Account</th></tr>
 ${cfg.tiers.map((t) => `<tr><td>${t.index}</td><td>${pct(t.tradeFeeRate)}</td><td>${t.tickSpacing}</td><td>${pct((t.tradeFeeRate * (1e6 - t.protocolFeeRate - t.fundFeeRate)) / 1e6)}</td><td>${pct((t.tradeFeeRate * t.protocolFeeRate) / 1e6)}</td><td>${pct((t.tradeFeeRate * t.fundFeeRate) / 1e6)}</td><td><code>${core.ammConfig(t.index).toBase58()}</code></td></tr>`).join('')}</table>
 <p>Program <code>${esc(cfg.programId)}</code> · vault <code>${esc(cfg.addr.vault)}</code> · Workshop <code>${esc(cfg.addr.workshop)}</code></p>`;
@@ -75,7 +75,7 @@ function render() {
   if (otherTab) { act.innerHTML = '<div class="halt">STOP: this page is open in another tab. Close every other tab of it, then reload this one.</div>'; return; }
   if (!d) { act.innerHTML = ''; return; }
   const words = { propose: 'Sign: create the tier proposal and approve it', approve: `Approve proposal #${d.index}`, execute: `EXECUTE proposal #${d.index}` };
-  if (d.action === 'done') act.innerHTML = '<div class="ready">ALREADY DONE: both fee tiers exist. Nothing to sign. Run 6-verify-tiers.mjs.</div>';
+  if (d.action === 'done') act.innerHTML = '<div class="ready">ALREADY DONE: the fee tier exists. Nothing to sign. Run 6-verify-tiers.mjs.</div>';
   else if (d.action) act.innerHTML = `<div class="ready">Ready. <button id="go">${words[d.action]}</button> <button id="again">Check again</button></div>`;
   else act.innerHTML = '<div class="halt">Nothing for this wallet to sign now. <button id="again">Check again</button></div>';
   if ($('go')) $('go').onclick = () => run(d.action);
@@ -100,7 +100,7 @@ async function run(action) {
     if (disagree) { log(`STOP: ${disagree}. Nothing was signed. Check again in a minute; if it stays, stop and ask`); return refresh(); }
     const sim = await core.simulate(conn, member, ixs);
     if (!sim.ok) { log(`STOP: the network says this would fail (${JSON.stringify(sim.err)}). Nothing was signed. Last lines: ${sim.logs.slice(-3).join(' | ')}`); return refresh(); }
-    log(`the network worked it out without sending: it would succeed${action === 'execute' ? ' and make both tiers' : ''}`);
+    log(`the network worked it out without sending: it would succeed${action === 'execute' ? ' and make the fee tier' : ''}`);
     const { vtx, lastValidBlockHeight } = await core.txFor(conn, member, ixs);
     const signed = await provider().signTransaction(vtx);
     if (!Buffer.from(signed.message.serialize()).equals(Buffer.from(vtx.message.serialize()))) { log('STOP: your wallet changed the transaction before signing it. Nothing was sent'); return refresh(); }

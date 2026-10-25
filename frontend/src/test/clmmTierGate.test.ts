@@ -2,13 +2,18 @@
 //
 // When the range-pool fee-tier page (solana/clmm-deploy) offers the approval and the execute. The
 // execute waits for the later of the vault's time lock and the notice: the owner's fixed time when
-// the folder names one (2026-10-23 14:00 UTC, ruled 2026-10-22), else the notice's days. Every
-// other gate holds at that time too.
+// the folder names one (2026-10-23 14:00 UTC), else the notice's days. Every other gate holds at
+// that time too. The tier the page makes is the owner's: one, 1% (2026-10-25).
 
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   decide,
   noticeEnds,
+  TIERS,
+  NOTICE_LINE,
   // eslint-disable-next-line @typescript-eslint/ban-ts-comment
   // @ts-ignore -- plain .mjs pack module, deliberately untyped and outside src/
 } from '../../../solana/clmm-deploy/scripts/lib/tiers.mjs';
@@ -32,7 +37,7 @@ function state(clock: number, over: Record<string, unknown> = {}, status = 'Appr
   return {
     ms: { threshold: 2, timeLock: LOCK, configAuthority: '11111111111111111111111111111111', transactionIndex: 19, members: [{ key: 'A', mask: 7 }, { key: 'B', mask: 7 }] },
     program: { exists: true, sameBuild: true, authority: 'Vault' },
-    tiers: [{ want: { index: 0 }, state: 'absent' }, { want: { index: 1 }, state: 'absent' }],
+    tiers: [{ want: { index: 0 }, state: 'absent' }],
     proposals: [{ index: 19, kind: 'vault', live: true, ours: true, touches: true, proposal: { status, timestamp: APPROVED, approved } }],
     clock,
     member: 'A',
@@ -96,5 +101,37 @@ describe('with no fixed time, the notice\'s days as before', () => {
   it('offers the execute only once the notice has been public for its days', () => {
     expect(decide(c, state(start + 7 * 86400 - 1)).action).toBeNull();
     expect(decide(c, state(start + 7 * 86400)).action).toBe('execute');
+  });
+});
+
+describe('the tier the page makes (owner, 2026-10-25: "only one fee tier that is 1%")', () => {
+  const REPO = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+
+  it('is one tier: index 0, 1% of each swap, 120 price steps, 10.4% of each fee to the vault and 5.6% to the Workshop', () => {
+    expect(TIERS).toEqual([{ index: 0, tickSpacing: 120, tradeFeeRate: 10_000, protocolFeeRate: 104_000, fundFeeRate: 56_000 }]);
+  });
+
+  it('is the one the public notice names, and the changelog carries that line byte for byte', () => {
+    expect(NOTICE_LINE).toMatch(/^- Notice, updated: range pools get one fee tier, 1% of each swap, no sooner than 2026-10-23 14:00 UTC /);
+    const lines = ['CHANGELOG.md', 'docs/CHANGELOG_EARLIER.md'].flatMap((f) => readFileSync(join(REPO, f), 'utf-8').replace(/\r/g, '').split('\n'));
+    expect(lines.filter((l) => l === NOTICE_LINE)).toHaveLength(1);
+    expect(lines.filter((l) => l.startsWith('- Notice') && /range pools get/.test(l))).toEqual([NOTICE_LINE]);
+  });
+
+  it('refuses to go on while the old two-tier #19 can execute, and offers the next proposal once both members cancel it', () => {
+    const at = t('2026-10-25T07:00:00Z');
+    const other = (index: number) => ({ index, kind: 'vault', live: true, ours: false, touches: false, proposal: { status: 'Approved', timestamp: at, approved: ['A', 'B'] } });
+    const old19 = (status: string, cancelled: string[]) => ({ index: 19, kind: 'vault', live: status === 'Approved', ours: false, touches: true, proposal: { status, timestamp: at, approved: ['A', 'B'], cancelled } });
+    const c = cfg({ days: 7, notBefore: NOT_BEFORE });
+    const withProposals = (p: unknown[]) => state(at, { proposals: p, ms: { ...state(at).ms, transactionIndex: 20 } });
+
+    for (const cancelled of [[], ['A']]) {
+      const d = decide(c, withProposals([other(18), old19('Approved', cancelled), other(20)]));
+      expect(d.action).toBeNull();
+      expect(d.lines.some((l: { ok: boolean; w: string }) => !l.ok && /#19 \(Approved\) touches the range program but is NOT this page's: never approve or execute it\. Both members cancel it/.test(l.w))).toBe(true);
+    }
+    const d = decide(c, withProposals([other(18), old19('Cancelled', ['A', 'B']), other(20)]));
+    expect(d).toMatchObject({ action: 'propose' });
+    expect(last(d)).toMatch(/#21 will be created/);
   });
 });

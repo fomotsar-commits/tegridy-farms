@@ -95,26 +95,21 @@ Read on chain and on GitHub on 2026-10-24, about 03:30 UTC.
 
 **Left, in this order:**
 
-1. ⬜ **Execute the range fee tiers (#19). It can run now.** The public notice said no sooner than
-   2026-10-23 14:00 UTC. Read on 2026-10-24: not executed (the range program owns no accounts).
-   The folder's START-HERE, steps 4 and 5:
+1. ⬜ **The range fee tier: cancel #19, then make the one 1% tier.** You ruled on 2026-10-25: one
+   fee tier, 1%. **Never execute #19**: it makes two tiers, 1% and 0.25%, it has both approvals and
+   its lock is over, and a tier once made can never be removed. Read on 2026-10-25 (slot
+   461,165,601): no tier exists. The new folder's START-HERE has every step:
+   `C:\Users\jimbo\solana-launch-release-2026-09-26\range-pools-tier-1pct-2026-10`.
+   1. Now: both members cancel #19 in the Squads app, back to back (an approved proposal of a 2 of 2
+      ends only with both cancels).
+   2. One member proposes on that folder's page (#21, or the next free number). It costs about
+      0.0043 SOL, which is all member A held on 2026-10-25: let member B propose, or top A up first.
+   3. Once the pull request that changes the notice to one tier is merged: record the notice, and
+      the other member approves on the page. That starts the 48-hour lock.
+   4. 48 hours later: execute on the page, then `6-verify-tiers.mjs` (it also refuses if any other
+      tier exists).
 
-   ```bash
-   node "C:\Users\jimbo\solana-launch-release-2026-09-26\range-pools-tiers-2026-10\scripts\5-record-notice.mjs"
-   ```
-   ```bash
-   node "C:\Users\jimbo\solana-launch-release-2026-09-26\range-pools-tiers-2026-10\proposer\serve.mjs"
-   ```
-
-   Open **http://127.0.0.1:5499/**, connect either member, and press **EXECUTE proposal #19**. You
-   should see `Done: proposal #19 is EXECUTED. Run 6-verify-tiers.mjs.` Then:
-
-   ```bash
-   node "C:\Users\jimbo\solana-launch-release-2026-09-26\range-pools-tiers-2026-10\scripts\6-verify-tiers.mjs"
-   ```
-
-   After that a session opens the one-line pull request that turns `RANGE_POOLS_OPEN` on. Until it
-   merges, the Range tab and the range pools in the swap route stay hidden.
+   The first tiers folder (`range-pools-tiers-2026-10`) is retired: its page makes two tiers.
 
 2. ⬜ **Day 4, Sunday 2026-10-25, from 09:07 UTC: the pool pack's step 22.** Start the page, open
    **http://127.0.0.1:5299/**, connect a member and execute **#20** (the rename to "Bayla LP SOL"
@@ -658,12 +653,11 @@ made under "the rest", now settled and being built:
   while the program exists, and about 15.48 SOL in hand during the deploy (half of it comes back
   at the end), plus about 0.01 SOL of fees. Figures from `docs/RANGE_POOLS_PLAN.md` on #800's
   branch, at the rent rate read 2026-10-14.
-- ⬜ **Proposed and approved by both members 2026-10-21** (Squads #19, 13:45:21 UTC). It may
-  execute from 2026-10-23 14:00 UTC, the date the public notice gives. Each tier's 16% is now
-  10.4% to the vault and 5.6% to the island's Workshop (registry rows `range-clmm-amm-config-0`
-  and `-1`). **The range fee tiers** proposed in `docs/RANGE_POOLS_PLAN.md` (#800): 1% and 0.25%, liquidity
-  providers keep 84% of each fee and the venue 16%. They need the vault's signature, about
-  0.0012 SOL of rent each. A tier, once made, cannot be removed.
+- ⬜ **One range fee tier, 1%** (your ruling, 2026-10-25; item 1 of "Left, in this order" above).
+  Squads #19 (approved by both 2026-10-21) makes two, 1% and 0.25%: both members cancel it, and a
+  new proposal makes the one. Of each fee, liquidity providers keep 84%, the vault gets 10.4% and
+  the island's Workshop 5.6% (registry row `range-clmm-amm-config-0`). It needs the vault's
+  signature and 0.0012 SOL of rent. A tier, once made, cannot be removed.
 - ⬜ **An outside review of the range program.** No quote yet.
 - ⬜ **The Ethereum contract redeploys** that the audit fixes in #799 owe (gas from
   `docs/audits/audit_101/OPEN_FINDINGS_FIXED_IN_SOURCE_2026_10_14.md`, at 0.0636 gwei read

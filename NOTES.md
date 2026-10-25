@@ -15,6 +15,21 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-25: one member's cancel does not stop an approved Squads proposal of a 2-of-2
+
+**Believed:** cancelling works like rejecting. On a 2-of-2, one rejection ends an Active
+proposal, so one cancel would end an Approved one.
+
+**Measured** (the deploy pack's rehearsal, `solana/clmm-deploy/rehearsal/rehearse.mjs` T5b and
+T5c, on the real Squads v4 program dumped from mainnet, 2026-10-25): after member A's cancel the
+proposal was still `Approved` with one cancel, and the page still refused. Only member B's cancel
+made it `Cancelled`. An execute after that failed with `InvalidProposalStatus` (6008): Squads
+checks the status before the time lock, so a cancelled proposal never executes, lock over or not.
+
+**Do:** a cancel needs votes up to the threshold, so on a 2-of-2 both members cancel, back to
+back: between the two, any member can still execute it, and once its lock is over nothing else
+holds it.
+
 ## 2026-10-24: a test pool's round share count looked neutral, but no pool program ever makes one
 
 **Believed:** the LP testkits' default `lp_supply` (1,000,000 in `buildPool`, 1,000,000,000 in

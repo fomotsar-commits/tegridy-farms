@@ -19,6 +19,7 @@ import { createRequire } from 'node:module';
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { allowedUrl } from './scripts/lib/hosts.mjs';
+import { TIERS, NOTICE_LINE, NOTICE_NOT_BEFORE, makeCore } from './scripts/lib/tiers.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, '..', '..');
@@ -88,16 +89,7 @@ walkRs(join(REPO, 'solana/tegridy-clmm/programs/amm/src'));
 const mainnetKeys = srcKeys.filter((k) => !k.devnet);
 if (mainnetKeys.length !== 7 || mainnetKeys.some((k) => k.key !== row('squads-vault'))) fail(`the program's mainnet keys are not the seven vault keys: ${JSON.stringify(mainnetKeys)}`);
 
-// The owner's decisions, 2026-10-20 (docs/RANGE_POOLS_PLAN.md): two tiers, the island split.
-const TIERS = [
-  { index: 0, tickSpacing: 120, tradeFeeRate: 10_000, protocolFeeRate: 104_000, fundFeeRate: 56_000 },
-  { index: 1, tickSpacing: 60, tradeFeeRate: 2_500, protocolFeeRate: 104_000, fundFeeRate: 56_000 },
-];
-// The owner's ruling of 2026-10-22 ("update the promise date"): #19's second approval came through the
-// Squads app on 2026-10-21, so the chain allows its execute from 2026-10-23T13:45:21Z. The notice now
-// names its own date instead of counting seven days. This line must match CHANGELOG.md byte for byte.
-const NOTICE_LINE = '- Notice, updated: range pools get two fee tiers, 1% and 0.25% of each swap, no sooner than 2026-10-23 14:00 UTC (it said seven days from 2026-10-21). Of each fee, 84% stays with the liquidity providers whose range is in use, 10.4% goes to memetics.finance and 5.6% to Jungle Bay Island.';
-const NOTICE_NOT_BEFORE = '2026-10-23T14:00:00Z';
+// The tier and the notice line are the owner's decisions, pinned in scripts/lib/tiers.mjs.
 if (!NOTICE_LINE.includes(`no sooner than ${NOTICE_NOT_BEFORE.slice(0, 10)} ${NOTICE_NOT_BEFORE.slice(11, 16)} UTC`)) fail('the notice line does not name NOTICE_NOT_BEFORE');
 const TIERS_ONLY = argv.includes('--tiers-only');
 if (TIERS_ONLY && KIND !== 'mainnet') fail('--tiers-only is for a mainnet folder');
@@ -238,7 +230,6 @@ const cfg = {
 };
 if (KIND === 'rehearsal' && (!cfg.notice.days || !opt('--notice-repo') || !cfg.positionLink.base)) fail('a rehearsal needs --notice-days, --notice-repo and --position-base');
 // The proposal's message size, from the very module the page uses.
-const { makeCore } = await import(new URL('./scripts/lib/tiers.mjs', import.meta.url));
 if (programId) {
   const core = makeCore({ web3, cfg });
   cfg.squads.vaultTransactionBytes = vtBytes(3 + 4 + 32 * core.EXPECTED.message.accountKeys.length + 4 + core.EXPECTED.message.instructions.reduce((s, ix) => s + 1 + 4 + ix.accountIndexes.length + 4 + ix.data.length / 2, 0) + 4);
@@ -287,7 +278,7 @@ const win = (p) => p.replace(/\//g, '\\');
 const fill = {
   STAGED: cfg.stagedAt.replace(/\.\d+Z$/, 'Z'), STAGED_DAY: cfg.stagedAt.slice(0, 10), COMMIT: cfg.repoCommit.slice(0, 12), PACK: win(OUT),
   SOLANA: solanaExe, KEYGEN: solanaExe.replace(/solana\.exe$/, 'solana-keygen.exe'), PROGRAM_KEY: cfg.keyFiles.program, PAYER_KEY: cfg.keyFiles.payer,
-  PAYER: cfg.addr.deployWallet, VAULT: cfg.addr.vault, WORKSHOP: cfg.addr.workshop, MEMBER_A: cfg.addr.memberA, MEMBER_B: cfg.addr.memberB,
+  PAYER: cfg.addr.deployWallet, VAULT: cfg.addr.vault, MULTISIG: cfg.addr.multisig, WORKSHOP: cfg.addr.workshop, MEMBER_A: cfg.addr.memberA, MEMBER_B: cfg.addr.memberB,
   FOR: { key: 'the program key only', devnet: 'DEVNET only (the practice run, with a throwaway address)', mainnet: 'MAINNET', rehearsal: 'a LOCAL REHEARSAL chain only' }[KIND],
   DEVNET_PACK: win(join(RELEASE, 'range-pools-devnet-2026-10')), MAINNET_PACK: win(join(RELEASE, 'range-pools-deploy-2026-10')),
 };
@@ -299,7 +290,7 @@ if (binary) {
   Object.assign(fill, {
     PROGRAM_ID: programId, BINARY_FILE: binary.file, BINARY_FILE_WIN: win(binary.file), BYTES: binary.bytes.toLocaleString('en-US'), SHA256: binary.sha256,
     DATA_BYTES: (45 + binary.bytes).toLocaleString('en-US'), DATA_SOL: SOL(dataRent, 4), PROG_SOL: SOL(progRent, 5), BUFFER_SOL: SOL(bufferRent, 4),
-    FEES_SOL: SOL(fees, 4), TIERS_SOL: SOL(tierRent * 2n, 4), OP_SOL: SOL(opRent, 4), MEMBER_A_SOL: SOL(vtRent + prRent + 5000n, 4),
+    FEES_SOL: SOL(fees, 4), TIERS_SOL: SOL(tierRent * BigInt(TIERS.length), 4), OP_SOL: SOL(opRent, 4), MEMBER_A_SOL: SOL(vtRent + prRent + 5000n, 4),
     NEED_PAYER: (Math.ceil(Number(need) / 1e7) / 100).toFixed(2), SPENT_SOL: SOL(dataRent + progRent + fees, 3),
     POOL_PEAK: cfg.poolPack ? SOL(cfg.poolPack.peakLamports, 3) : '0',
     CU_PRICE: String(cfg.cuPrice), MAINNET_RPC: RPCS.mainnet, PORT: String(cfg.page.port), BUFFER_KEY_FILE: cfg.bufferKeyFile, NOTICE_LINE, NOTICE_WHEN: cfg.notice.notBefore ? `${cfg.notice.notBefore.replace('T', ' ').replace(':00Z', ' UTC')}` : `${cfg.notice.days} days after the notice`,

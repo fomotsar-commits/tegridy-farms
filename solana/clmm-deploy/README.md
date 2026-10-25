@@ -1,6 +1,6 @@
 # The range program's deploy pack (step 7 of docs/RANGE_POOLS_PLAN.md)
 
-The owner's folders for putting `solana/tegridy-clmm` on mainnet and giving it its two fee tiers.
+The owner's folders for putting `solana/tegridy-clmm` on mainnet and giving it its one fee tier (1%).
 The owner signs every step; nothing here signs or sends unless the owner adds `--send`, and no
 script opens a key file (addresses are asked of the owner's own Solana tool). Every script checks
 its folder against `SHA256SUMS` before it does anything.
@@ -41,7 +41,9 @@ only by the deploy itself:
    Tests of that gate: `node --test "solana/clmm-deploy/test/*.test.mjs"`, and in CI
    `frontend/src/test/clmmTierGate.test.ts`. `stage.mjs --kind mainnet --tiers-only` makes the
    folder for that last sitting (`START-HERE-TIERS.md`: scripts 4, 5 and 6 and the page), because
-   the deploy folder is in use and is never restaged over.
+   the deploy folder is in use and is never restaged over. The owner ruled one tier, 1%, on
+   2026-10-25 (`TIERS` in `scripts/lib/tiers.mjs`): #19, which makes two, is cancelled by both
+   members, and the page refuses to go on while it can still execute.
 
 ## Files
 

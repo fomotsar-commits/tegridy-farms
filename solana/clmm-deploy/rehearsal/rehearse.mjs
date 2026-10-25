@@ -268,28 +268,45 @@ try {
   d = decide(CFG, { ...(await state(null)), member: web3.Keypair.generate().publicKey.toBase58() });
   step('T1', 'the page offers nothing to a wallet outside the multisig', d.action === null && /not a member/.test(d.lines.at(-1).w));
 
-  // Two proposals made outside the page: other tier values, and one that only NAMES the program's data account.
+  // Two proposals made outside the page: mainnet's #19 as this pack made it before the owner ruled one
+  // tier (2026-10-25), the 1% tier and a 0.25% one, approved by both; and one that only NAMES the
+  // program's data account.
   const ms0 = await core.readMultisig(conn);
-  const foreign = makeCore({ web3, cfg: { ...CFG, tiers: CFG.tiers.map((x) => ({ ...x, protocolFeeRate: 160_000, fundFeeRate: 0 })) } });
-  let a = await act(A, foreign.proposeIxs(A.publicKey.toBase58(), ms0.transactionIndex + 1));
+  const OLD_19 = [...CFG.tiers, { index: 1, tickSpacing: 60, tradeFeeRate: 2_500, protocolFeeRate: 104_000, fundFeeRate: 56_000 }];
+  const two = makeCore({ web3, cfg: { ...CFG, tiers: OLD_19 } });
+  const old = ms0.transactionIndex + 1;
+  let a = await act(A, two.proposeIxs(A.publicKey.toBase58(), old));
   const naming = core.compile([web3.SystemProgram.transfer({ fromPubkey: new web3.PublicKey(CFG.addr.vault), toPubkey: core.PROGRAM_DATA, lamports: 1 })]);
   const a2 = await act(A, core.proposeIxs(A.publicKey.toBase58(), ms0.transactionIndex + 2, naming));
-  step('T2', 'two proposals are made outside the page (for the refusals)', a.ok && a2.ok, a.why ?? a2.why ?? 'ok');
+  step('T2', 'two proposals are made outside the page (for the refusals): the old two-tier one and one naming the data account', a.ok && a2.ok, a.why ?? a2.why ?? 'ok');
+  const proposalOf = async (i) => core.decodeProposal((await conn.getAccountInfo(core.proposalPda(i))).data);
+  a = await act(B, [core.approveIx(B.publicKey.toBase58(), old)]);
+  const approved = await proposalOf(old);
+  step('T2b', 'member B approves the two-tier one too: Approved by both, as mainnet\'s #19 is', a.ok && approved.status === 'Approved', a.why ?? `#${old} ${approved.status}`);
   const st3 = await state(B);
   d = decide(CFG, st3);
   const stops = d.lines.filter((l) => !l.ok).map((l) => l.w);
   console.log(`  (scan: ${st3.proposals.filter((x) => x.index > ms0.transactionIndex).map((x) => `#${x.index} ${x.kind} live=${x.live} touches=${x.touches} ours=${x.ours} ${x.proposal?.status}`).join('; ')})`);
-  step('T3', 'the page refuses to go on while either touches the range program, even one that only names its data account', d.action === null && stops.some((w) => w.includes(`#${ms0.transactionIndex + 1} `)) && stops.some((w) => w.includes(`#${ms0.transactionIndex + 2} `)), stops.join(' | ').slice(0, 260));
+  step('T3', 'the page refuses to go on while either touches the range program (both members cancel the approved two-tier one), even one that only names its data account', d.action === null && stops.some((w) => w.includes(`#${old} (Approved)`) && /Both members cancel it/.test(w)) && stops.some((w) => w.includes(`#${ms0.transactionIndex + 2} `)), stops.join(' | ').slice(0, 260));
   r = packStep('1-preflight.mjs');
   step('T4', '1-preflight also names them and refuses', r.code === 1 && /NOT this folder's/.test(r.out), r.result);
-  const rejectIx = (member, i) => new web3.TransactionInstruction({ programId: new web3.PublicKey(CFG.addr.squads), keys: [
+  const voteIx = (vote, member, i) => new web3.TransactionInstruction({ programId: new web3.PublicKey(CFG.addr.squads), keys: [
     { pubkey: new web3.PublicKey(CFG.addr.multisig), isSigner: false, isWritable: false }, { pubkey: member.publicKey, isSigner: true, isWritable: true }, { pubkey: core.proposalPda(i), isSigner: false, isWritable: true }],
-  data: Buffer.concat([createRequire(import.meta.url)('node:crypto').createHash('sha256').update('global:proposal_reject').digest().subarray(0, 8), Buffer.from([0])]) });
-  a = await act(B, [rejectIx(B, ms0.transactionIndex + 1), rejectIx(B, ms0.transactionIndex + 2)]);
-  step('T5', 'member B rejects both (one rejection of a 2-of-2 ends each)', a.ok, a.why ?? a.sig);
+  data: Buffer.concat([createRequire(import.meta.url)('node:crypto').createHash('sha256').update(`global:proposal_${vote}`).digest().subarray(0, 8), Buffer.from([0])]) });
+  a = await act(B, [voteIx('reject', B, ms0.transactionIndex + 2)]);
+  step('T5', 'member B rejects the one naming the data account (one rejection of a 2-of-2 ends it)', a.ok, a.why ?? a.sig);
+  a = await act(A, [voteIx('cancel', A, old)]);
+  let p = await proposalOf(old);
+  d = decide(CFG, await state(A));
+  step('T5b', 'member A cancels the two-tier one: one cancel of a 2-of-2 is not enough, it stays Approved and the page still refuses', a.ok && p.status === 'Approved' && p.cancelled.length === 1 && d.action === null && d.lines.some((l) => !l.ok && l.w.includes(`#${old} (Approved)`)), a.why ?? `#${old} ${p.status}, ${p.cancelled.length} cancel`);
+  a = await act(B, [voteIx('cancel', B, old)]);
+  p = await proposalOf(old);
+  // Squads reads the lock only for an Approved proposal: any other status is InvalidProposalStatus.
+  const late = await two.simulate(conn, A.publicKey.toBase58(), [two.executeIx(A.publicKey.toBase58(), old)]);
+  step('T5c', 'member B cancels it too: Cancelled, and an execute of it is refused for its status (InvalidProposalStatus), not for the lock', a.ok && p.status === 'Cancelled' && !late.ok && late.logs.some((l) => /InvalidProposalStatus/.test(l)), a.why ?? `#${old} ${p.status}; execute: ${late.logs.filter((l) => /Error/.test(l)).slice(-1).join('')}`);
 
   d = decide(CFG, await state(A));
-  step('T6', 'with both rejected, the page offers member A to propose', d.action === 'propose', d.lines.at(-1).w);
+  step('T6', 'with both ended, the page offers member A to propose', d.action === 'propose', d.lines.at(-1).w);
   const aBefore = await bal(A.publicKey.toBase58());
   const idx = (await core.readMultisig(conn)).transactionIndex + 1;
   a = await act(A, core.proposeIxs(A.publicKey.toBase58(), idx));
@@ -383,15 +400,25 @@ try {
   await tab.click('#go');
   await tab.waitForFunction(() => /EXECUTED|STOP|FAILED|stopped/.test(document.getElementById('log').textContent), null, { timeout: 90_000 });
   const logText = await tab.textContent('#log');
-  step('T17', 'the page executes the proposal: both tiers are made (one address had been sent SOL first)', /proposal #\d+ is EXECUTED/.test(logText), `${logText.slice(0, 200)}; the vault paid ${vaultBefore - (await bal(CFG.addr.vault))} lamports of rent`);
+  step('T17', 'the page executes the proposal: the fee tier is made (its address had been sent SOL first)', /proposal #\d+ is EXECUTED/.test(logText), `${logText.slice(0, 200)}; the vault paid ${vaultBefore - (await bal(CFG.addr.vault))} lamports of rent`);
   await tab.click('#again').catch(() => {});
   await tab.waitForFunction(() => /ALREADY DONE/.test(document.getElementById('act').textContent), null, { timeout: 30_000 }).catch(() => {});
   step('T19', 'the page then says ALREADY DONE and offers nothing', /ALREADY DONE/.test(await tab.textContent('#act')));
   step('W3', 'no error in the page\'s console', errors.length === 0, errors.join(' | ').slice(0, 200));
   r = packStep('6-verify-tiers.mjs');
-  step('T18', '6-verify-tiers: both tiers exactly as decided, owner the vault, fund owner the Workshop', r.code === 0, r.result);
+  step('T18', '6-verify-tiers: the fee tier exactly as decided, owner the vault, fund owner the Workshop, and no other tier', r.code === 0 && /owns no other fee tier/.test(r.out), r.result);
   r = packStep('4-verify-program.mjs');
-  step('V2', '4-verify-program still passes after the tiers', r.code === 0, r.result);
+  step('V2', '4-verify-program still passes after the tier', r.code === 0, r.result);
+
+  // A tier the pack does not make, as the old #19 would have: its 0.25% one, by a proposal of its own.
+  const extra = makeCore({ web3, cfg: { ...CFG, tiers: OLD_19.slice(1) } });
+  const si = (await core.readMultisig(conn)).transactionIndex + 1;
+  a = await act(A, extra.proposeIxs(A.publicKey.toBase58(), si));
+  const a3 = a.ok ? await act(B, [extra.approveIx(B.publicKey.toBase58(), si)]) : a;
+  while (a3.ok && (await core.clock(conn)) < (await proposalOf(si)).timestamp + LOCK + 1) await sleep(1000);
+  const a4 = a3.ok ? await act(A, [extra.executeIx(A.publicKey.toBase58(), si)]) : a3;
+  r = packStep('6-verify-tiers.mjs');
+  step('T20', '6-verify-tiers refuses once a tier this pack does not make exists (the 0.25% one, made by a proposal of its own)', a4.ok && r.code === 1 && /a fee tier this pack does not make exists: index 1, 0.25%/.test(r.out), a4.why ?? r.out.split('\n').find((l) => /REFUSED :/.test(l)) ?? r.result);
 
   // ---- what it cost ----------------------------------------------------------------------------------
   const S = (l) => `${(Number(l) / 1e9).toFixed(6)} SOL`;

@@ -75,7 +75,7 @@ await main(async () => {
     const core = makeCore({ web3, cfg: CFG });
     const tierRent = (await rent(conn, 117)) * BigInt(CFG.tiers.length);
     const vault = await balance(conn, CFG.addr.vault);
-    R.check(vault >= tierRent, `the vault holds ${sol(vault)}; the ${CFG.tiers.length} fee tiers will lock ${sol(tierRent)} of it`, `the vault holds ${sol(vault)}; the fee tiers need ${sol(tierRent)}`);
+    R.check(vault >= tierRent, `the vault holds ${sol(vault)}; the fee tier proposal will lock ${sol(tierRent)} of it`, `the vault holds ${sol(vault)}; the fee tier proposal needs ${sol(tierRent)}`);
     R.note(`later, not in this folder: before any pool can carry a reward, the vault must pay ${sol(await rent(conn, 3529))} for the program's operation account`);
     const proposalRent = (await rent(conn, CFG.squads.vaultTransactionBytes)) + (await rent(conn, CFG.squads.proposalBytes));
     const memberA = await balance(conn, CFG.addr.memberA);

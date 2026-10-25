@@ -1,4 +1,4 @@
-# Start here: deploy the range program, and its two fee tiers
+# Start here: deploy the range program, and its fee tier
 
 Staged {{STAGED}} from commit `{{COMMIT}}`, for {{FOR}}. Nothing in this folder has been sent
 anywhere. You are the only one who signs. All times are UTC.
@@ -11,7 +11,7 @@ chain and refuses one that differs from the decided tiers by a single byte. The 
 
 Range pools run on their own program: the venue's copy of Raydium's range-pool program, with every
 admin power held by the vault and none by Raydium. This folder puts it on mainnet and gives it its
-two fee tiers.
+one fee tier.
 
 | | |
 |---|---|
@@ -19,12 +19,11 @@ two fee tiers.
 | The one program file | `{{BINARY_FILE}}`, {{BYTES}} bytes, sha256 `{{SHA256}}` (two separate builds, byte for byte the same) |
 | Who can change it after the deploy | only the vault, `{{VAULT}}`: two approvals, then 48 hours |
 
-The two fee tiers, as you decided on 2026-10-20 (docs/RANGE_POOLS_PLAN.md in the repo):
+The fee tier, as you decided on 2026-10-25 (docs/RANGE_POOLS_PLAN.md in the repo): one, 1%.
 
 | Tier | Fee of each swap | Price steps (tick spacing) | LPs whose range is in use keep | The venue (the vault) | The island (Workshop `{{WORKSHOP}}`) |
 |---|---|---|---|---|---|
 | 0 | 1% | 120 | 0.84% | 0.104% | 0.056% |
-| 1 | 0.25% | 60 | 0.21% | 0.026% | 0.014% |
 
 How money moves once pools are open: an LP earns 84% of the fee of every swap that trades through
 their range. The venue's 10.4% collects in the pool and only the vault can take it out. The island's
@@ -42,16 +41,15 @@ vault can do is listed in `docs/RANGE_POOLS_PLAN.md` ("What else the vault can s
 | 1 | done | the program's key (the key folder) | nobody |
 | 2 | any day | the devnet practice run, in its own folder: `{{DEVNET_PACK}}` | the paying wallet, on devnet |
 | **3** | after sitting 2 went as written | **the deploy**: upload, deploy, hand-over to the vault. About one hour | the paying wallet |
-| **4** | done 2026-10-21 | **the notice and the proposal**: the changelog line went public, #19 was proposed | member B |
-| **5** | done 2026-10-21 | **the second approval** of #19, through the Squads app: the chain's 48-hour lock ended 2026-10-23 13:45:21 UTC | member A |
-| **6** | from {{NOTICE_WHEN}} (the page names the minute) | **the execute**: both tiers are made | either member |
+| **4** | once the position link is live | **the notice and the proposal**: the changelog line goes public, member A proposes | member A |
+| **5** | from 48 hours before the notice's date | **the second approval**: it starts the vault's 48-hour lock | member B |
+| **6** | from {{NOTICE_WHEN}}, and 48 hours after sitting 5 (the page names the minute) | **the execute**: the fee tier is made | either member |
 
-Why this date: the notice tells everyone, in the public changelog, what the fees will be and from
-when. It first said seven days from 2026-10-21. #19's second approval came the same day through the
-Squads app, so the chain allows its execute from 2026-10-23 13:45:21 UTC. On 2026-10-22 you updated
-the notice to name its own date, {{NOTICE_WHEN}}. This page holds the execute until that date or the
-chain's lock, whichever is later. Any other tool could execute #19 from the lock's end, so execute
-it only on this page.
+Why this date: the notice tells everyone, in the public changelog, what the fee will be and from
+when: {{NOTICE_WHEN}}. This page holds the execute until that date or the chain's lock, whichever is
+later. Any other tool could execute the proposal from the lock's end, so execute it only on this
+page. #19, the two-tier proposal made before you ruled one tier, is cancelled by both members first:
+the page refuses to go on while it can still execute.
 
 **The pool pack shares two things with this folder.** It pays from the same wallet (see the money,
 below), and its proposals are numbered #15 to #18 in its paper. Make the tier proposal (sitting 4)
@@ -81,7 +79,7 @@ Prices are mainnet's, read when this folder was staged ({{STAGED_DAY}}). Step 3 
 | Network fees (about 1,500 upload transactions) | about {{FEES_SOL}} | the paying wallet | Never |
 | The tier proposal | {{MEMBER_A_SOL}} | member A | Never |
 | Approve and execute | 0.00002 | member B, then either | Never |
-| The two fee tiers | {{TIERS_SOL}} | the vault | Never: locked in the two tier accounts |
+| The fee tier | {{TIERS_SOL}} | the vault | Never: locked in the tier account |
 
 **The paying wallet needs {{NEED_PAYER}} SOL for this deploy.** It never needs two buffers' worth:
 the deploy moves the buffer's SOL into the program's data in the same step (the rehearsal measured
@@ -100,7 +98,7 @@ The wallets:
 - **Member A** is `{{MEMBER_A}}`. Step 3 says whether it holds enough for the proposal; if it
   refuses, send member A 0.02 SOL and run step 3 again.
 - **Member B** is `{{MEMBER_B}}`. It needs almost nothing.
-- **The vault**, `{{VAULT}}`, pays the two tiers' rent. Step 3 checks it holds it.
+- **The vault**, `{{VAULT}}`, pays the tier's rent. Step 3 checks it holds it.
 
 Later, and not in this folder: before any pool can carry a reward (a second stream of tokens to
 its LPs), the vault pays {{OP_SOL}} SOL once for the program's operation account. That is a
@@ -262,8 +260,8 @@ Open **http://127.0.0.1:{{PORT}}/** in the browser that has your wallet. The bar
 **Step 13. Member A proposes.** (Member A signs. It costs member A {{MEMBER_A_SOL}} SOL.)
 
 1. Click **Connect a member wallet** and choose member A.
-2. Read the table: two tiers, 1% with 120 price steps and 0.25% with 60, the shares as in the table
-   at the top of this paper.
+2. Read the table: one tier, 1% with 120 price steps, the shares as in the table at the top of this
+   paper.
 
 You should see: every line under "Checks" starting with `OK`, and **Ready.** with the button
 **Sign: create the tier proposal and approve it**.
@@ -274,8 +272,6 @@ You should see: `Done: proposal #N is created and you approved it.` (N is the ne
 the page always shows the right one.) Stop the page (Ctrl+C in its window).
 
 # SITTING 5: THE SECOND APPROVAL (48 hours before the notice's date at the earliest)
-
-#19 already has both approvals (2026-10-21): skip to sitting 6. This sitting is for a new proposal only.
 
 **Step 14.** Run step 11 again, then step 12, then:
 
@@ -300,19 +296,19 @@ You should see: `Done: you approved proposal #N.`, then after **Check again**:
 You should see: `OK: the fee notice is public and the date the notice names (<TIME>) has passed` and the button
 **EXECUTE proposal #N**. If instead it names a later time, come back then.
 
-Click **EXECUTE proposal #N** and approve in your wallet. (The vault pays the tiers' {{TIERS_SOL}} SOL.)
+Click **EXECUTE proposal #N** and approve in your wallet. (The vault pays the tier's {{TIERS_SOL}} SOL.)
 
 You should see: `Done: proposal #N is EXECUTED. Run 6-verify-tiers.mjs.`
 
-**Step 16. Check the tiers.** (Nobody signs.)
+**Step 16. Check the tier.** (Nobody signs.)
 
 ```powershell
 node "{{PACK}}\scripts\6-verify-tiers.mjs"
 ```
 
-You should see, for each tier, a `PASS` line with its fee, its price steps, the vault as owner and
-the Workshop as the fund's owner, and
-`RESULT: both fee tiers are live with the island split. Anyone may now open a range pool on them.`
+You should see a `PASS` line for tier 0 with its fee, its price steps, the vault as owner and the
+Workshop as the fund's owner, then `PASS    : the program owns no other fee tier (1 account of a tier's size)`,
+and `RESULT: the fee tier is live with the island split, and it is the only one. Anyone may now open a range pool on it.`
 
 Tell a session. The website then opens range pools (its own pull requests, each with your word).
 

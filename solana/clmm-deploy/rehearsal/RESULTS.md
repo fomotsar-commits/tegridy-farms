@@ -5,35 +5,38 @@ rehearsal`) ran end to end on a local chain: the owner's own Solana tool (4.1.1)
 the deploy and the hand-over to the vault; the proposal was made, approved and executed against the
 real Squads program and a copy of the vault's multisig (members swapped for local keys, a
 20-second lock standing in for 48 hours, a 240-second notice for 7 days);
+the proposal makes the one fee tier the owner ruled on 2026-10-25, 1%, and a copy of mainnet's #19
+(the 1% and the 0.25% tier, approved by both members) was refused by the page, cancelled by both
+members with Squads' own cancel, and then refused by Squads itself;
 a stand-in served GitHub's merge history and the website's position link; the execute went through
 the real page in headless Chromium, signed by a stand-in wallet with the local member key. Each
-refusal the folder promises was tried. 63 steps, none failed.
+refusal the folder promises was tried. 67 steps, none failed.
 
-The paying wallet was funded with exactly what the check before anything is spent asks (10.630588 SOL at that chain's rent, which is higher than mainnet's), plus the pool pack's share, and that was enough. The upload took 10.607379 SOL from it: 10.599391 SOL parked in the buffer and 0.007988 SOL in fees. The deploy then moved the buffer's SOL into the program's data and charged the wallet only the rest: it held 1.023209 SOL before the deploy and 1.021997 SOL after, the pool pack's share untouched. It never needed two buffers' worth. Member A's proposal cost it 0.006512 SOL.
+The paying wallet was funded with exactly what the check before anything is spent asks (10.630588 SOL at that chain's rent, which is higher than mainnet's), plus the pool pack's share, and that was enough. The upload took 10.607379 SOL from it: 10.599391 SOL parked in the buffer and 0.007988 SOL in fees. The deploy then moved the buffer's SOL into the program's data and charged the wallet only the rest: it held 1.023209 SOL before the deploy and 1.021997 SOL after, the pool pack's share untouched. It never needed two buffers' worth. Member A's proposal cost it 0.005864 SOL.
 
 The program file was this source, with the vault-power fixes of the owner's ruling (2026-10-20), run
 through `program-id-change.mjs` for a throwaway address (`86rg5urhiPz5xaTmP6a6pSsyiAGhofRVxwrdLwtVC26L`, a local key, never used on
 mainnet or devnet), built with no features: 1,522,736 bytes, sha256
 `028ae72ddcd31a275c0c761ecc97802cae5adc6d9bf8bc415ec4dd17d91aa03e`.
 
-Run 2026-10-21T03:31:25.164Z. Nothing was deployed anywhere but the local chain, and nothing was signed or sent on
+Run 2026-10-25T07:20:50.979Z. Nothing was deployed anywhere but the local chain, and nothing was signed or sent on
 mainnet or devnet: they were only read.
 
 | | What was tried | | What happened |
 |---|---|---|---|
-| R0 | stage.mjs makes a rehearsal folder | pass | staged a rehearsal folder at C:\Users\jimbo\dev\clmm-localnet-work\rehearsal\pack |   program 86rg5urhiPz5xaTmP6a6pSsyiAGhofRVxwrdLwtVC26L, binary sha256 028ae72ddcd31a275c0c761ecc97802cae5adc6d9bf8bc415ec4dd17d91aa03e ( |
+| R0 | stage.mjs makes a rehearsal folder | pass | staged a rehearsal folder at C:\Users\jimbo\dev\clmm-localnet-work\rehearsal\pack \|   program 86rg5urhiPz5xaTmP6a6pSsyiAGhofRVxwrdLwtVC26L, binary sha256 028ae72ddcd31a275c0c761ecc97802cae5adc6d9bf8bc |
 | R1 | stage.mjs refuses to replace a folder it did not make (it never deletes one) | pass | STOPPED: C:\Users\jimbo\dev\clmm-localnet-work\rehearsal exists and was not made by this script: it is never replaced. Choose another --out |
 | K1 | 0-program-key: the rehearsal key and its data address are fresh on mainnet and devnet | pass | this key may become the range program's address. |
 | K2 | 0-program-key refuses a key the build tool wrote (target\deploy) | pass | REFUSED (1 line). Do not use this key. Make a new one with the command in START-HERE.md. |
-| B0 | a buffer holding another build (the placeholder one) is uploaded, for the refusals | pass | Buffer: EnZBZixPqkNnnFn21cfTe2tUXJ3kN15sznxYW6NhFevQ |
+| B0 | a buffer holding another build (the placeholder one) is uploaded, for the refusals | pass | Buffer: FeiGaj1CUDgH9xDFy8yYBFfAJf2bCdH89iNzEhRMJALY |
 | B1 | 2-verify-buffer refuses a buffer that is not the reviewed build | pass | REFUSED (1 line). Do not deploy from this buffer. Do what the REFUSED line says. |
 | B2 | 3-deploy --send refuses that buffer and sends nothing | pass | REFUSED (1 line). Nothing was sent. Do what the REFUSED line says. |
 | C1 | 7-close-buffer refuses a buffer of another build, and sends nothing | pass | REFUSED (1 line). Nothing was sent. |
 | S1 | the attack is real: with SOL at its data address, the loader refuses to deploy that address | pass |   Program BPFLoaderUpgradeab1e11111111111111111111111 failed: custom program error: 0x0 |
 | S2 | the folder's check refuses such an address before anything is uploaded | pass |  |
-| B3 | the paying wallet takes that buffer's SOL back alone (rehearsal clean-up) | pass | EnZBZixPqkNnnFn21cfTe2tUXJ3kN15sznxYW6NhFevQ | BBvaW9mvUDT1Waf9vXDwSU3TpLU2fBgjs8AzvRGFxayD | 10.59939096 SOL |
+| B3 | the paying wallet takes that buffer's SOL back alone (rehearsal clean-up) | pass | FeiGaj1CUDgH9xDFy8yYBFfAJf2bCdH89iNzEhRMJALY \| BBvaW9mvUDT1Waf9vXDwSU3TpLU2fBgjs8AzvRGFxayD \| 10.59939096 SOL |
 | S0a | an upload stopped half way: 2-verify-buffer says it is not finished, and nothing is lost | pass | REFUSED (1 line). Do not deploy from this buffer. Do what the REFUSED line says. |
-| S0 | the very same upload command again carries on, and the buffer then holds the build | pass | Buffer: 67LphznKdtZdZsmv6yQzHezpRtDsUEXkfWYuhUqn7Jjg; every line passed. This buffer may be deployed. |
+| S0 | the very same upload command again carries on, and the buffer then holds the build | pass | Buffer: 5sTvSWr3EzgYrov6TbQqvoe6EnSWEkVJKpZNHEye78pU; every line passed. This buffer may be deployed. |
 | C2 | 7-close-buffer refuses this build's buffer when the paying wallet is not its authority | pass | REFUSED (1 line). Nothing was sent. |
 | C3 | 7-close-buffer as a dry run passes on the paying wallet's own buffer of this build, and sends nothing | pass | the dry run passed. Run the same command with --send to take the SOL back. |
 | C4 | 7-close-buffer --send closes it, and the SOL comes back to the paying wallet | pass | 10599385960 lamports back (the buffer held 10599390960) |
@@ -51,39 +54,43 @@ mainnet or devnet: they were only read.
 | V1 | 4-verify-program: byte for byte, exact size, authority the vault; the vault's tier would work, a stranger's is refused | pass | the program is live, byte for byte the reviewed build, and only the vault can change it. |
 | P3 | 1-preflight after the deploy refuses to start over | pass | REFUSED (1 line). Do what each REFUSED line says, then run this check again. |
 | N0 | 5-record-notice refuses while the line is not on mvp-launch | pass | REFUSED (1 line). The notice is not public. |
-| N1 | 5-record-notice records the notice: first seen by the network's clock, and the merge it came in | pass | the notice is public. The tiers may execute from 2026-10-21T03:32:09.000Z. Run this again within the hour before the approval and before the execute. |
+| N1 | 5-record-notice records the notice: first seen by the network's clock, and the merge it came in | pass | the notice is public. The tiers may execute from 2026-10-25T07:21:18.000Z. Run this again within the hour before the approval and before the execute. |
 | T0 | the page asks for a member wallet first | pass |  |
 | T1 | the page offers nothing to a wallet outside the multisig | pass |  |
-| T2 | two proposals are made outside the page (for the refusals) | pass | ok |
-| T3 | the page refuses to go on while either touches the range program, even one that only names its data account | pass | proposal #15 (Active) touches the range program but is NOT this page's: never approve or execute it. A member rejects it in the Squads app; then check again | proposal #16 (Active) touches the range program but is NOT th |
+| T2 | two proposals are made outside the page (for the refusals): the old two-tier one and one naming the data account | pass | ok |
+| T2b | member B approves the two-tier one too: Approved by both, as mainnet's #19 is | pass | #21 Approved |
+| T3 | the page refuses to go on while either touches the range program (both members cancel the approved two-tier one), even one that only names its data account | pass | proposal #21 (Approved) touches the range program but is NOT this page's: never approve or execute it. Both members cancel it in the Squads app; then check again \| proposal #22 (Active) touches the ra |
 | T4 | 1-preflight also names them and refuses | pass | REFUSED (2 lines). Do what each REFUSED line says, then run this check again. |
-| T5 | member B rejects both (one rejection of a 2-of-2 ends each) | pass | 3JjfjqkFUzFdUk4aZisKPZR4j6oA5M5LSdEk34MMTeRkUysR4MpqEVU8NorQ32RWCLmqbTn4jhx3ZWxRqhFnL9iL |
-| T6 | with both rejected, the page offers member A to propose | pass | no tier proposal yet: #17 will be created, with your approval |
-| T7 | member A creates and approves the tier proposal | pass | #17, member A spent 6511670 lamports; the transaction account 416 bytes (folder says 416), the proposal 262 (folder says 262) |
+| T5 | member B rejects the one naming the data account (one rejection of a 2-of-2 ends it) | pass | 45BityRKNV5zFfepJNESd68kRbfUzrKVdRrqczKoPAKV6aCa9RnotsvYKznSUyzV8aP8CBDSP1xsshPhqekuzq9s |
+| T5b | member A cancels the two-tier one: one cancel of a 2-of-2 is not enough, it stays Approved and the page still refuses | pass | #21 Approved, 1 cancel |
+| T5c | member B cancels it too: Cancelled, and an execute of it is refused for its status (InvalidProposalStatus), not for the lock | pass | #21 Cancelled; execute: Program log: AnchorError thrown in programs/squads_multisig_program/src/instructions/vault_transaction_execute.rs:75. Error Code: InvalidProposalStatus. Error Number: 6008. Err |
+| T6 | with both ended, the page offers member A to propose | pass | no tier proposal yet: #23 will be created, with your approval |
+| T7 | member A creates and approves the tier proposal | pass | #23, member A spent 5864390 lamports; the transaction account 323 bytes (folder says 323), the proposal 262 (folder says 262) |
 | T7b | the folder sizes the proposal accounts right (for the SOL member A needs) | pass |  |
 | T8 | the stored proposal is byte for byte the page's | pass |  |
 | T9 | member A, having approved, has nothing more to sign | pass |  |
-| T10 | right after the proposal, the page tells member B to wait: the approval would let the lock end before the notice's days | pass | #17 waits for your approval from 2026-10-21T03:31:49Z by the network's clock, so that its 0.005555555555555556-hour lock ends no sooner than 0.002777777777777778 days after the notice (2026-10-21T03:32:09Z) |
+| T10 | right after the proposal, the page tells member B to wait: the approval would let the lock end before the notice's days | pass | #23 waits for your approval from 2026-10-25T07:20:58Z by the network's clock, so that its 0.005555555555555556-hour lock ends no sooner than 0.002777777777777778 days after the notice (2026-10-25T07:2 |
 | T10b | at that time it offers the approval (worked out with the network's clock moved there) | pass |  |
-| T10c | it refuses while the website's position link answers for another program | pass | not live for this program ({"error":"No range position at this address.","program":"CApqWFyGB8wAb3FWTDxs2rUiX8aywzXNPPzKE4aBdjqi"}) |
+| T10c | it refuses while the website's position link answers for another program | pass | not live for this program ({"error":"No range position at this address.","program":"2u9iQYNsT1hBz1i5BEgTSjGu5wnkrNZHabvtbR7Kkgjh"}) |
 | T10d | it refuses a notice record with a time that does not read as a time, or one checked over an hour ago | pass |  |
-| T11 | an approval sent around the page lands (Squads cannot know of the notice) | pass | 3L77WEhMdCZBdkMCaGc4RFXAomk53p6bGCd9ipCp3idLKFtkYar7PyJQ2v9YTqDMvQo33xQePxxfVZfsu92usVwm |
-| T12 | the page then offers no execute: the time lock holds it, by the network's clock | pass | #17 has both approvals. The time lock holds it until 2026-10-21T03:28:32Z by the network's clock |
+| T11 | an approval sent around the page lands (Squads cannot know of the notice) | pass | 4MDDshxnp7pxNgkM8ZdkWx8kNQHUvZaNez2zDMUrPGpvXoNjZZLUdAEQqWHTuwPLZs1KtUYsJjd1yme2DcaNQXoV |
+| T12 | the page then offers no execute: the time lock holds it, by the network's clock | pass | #23 has both approvals. The time lock holds it until 2026-10-25T07:17:43Z by the network's clock |
 | T13 | an execute sent around the page now is refused by Squads itself (time lock) | pass |  |
-| T14 | after the lock, the page still waits for the notice's days (the approval came early) | pass | the tiers may execute from 2026-10-21T03:32:09Z (0.002777777777777778 days after the notice), by the network's clock |
+| T14 | after the lock, the page still waits for the notice's days (the approval came early) | pass | the tiers may execute from 2026-10-25T07:21:18Z (0.002777777777777778 days after the notice), by the network's clock |
 | T15 | with the line gone from mvp-launch, the record refuses and so does the page | pass | at the last check the notice line was NOT on mvp-launch: stop and ask |
-| T15b | with it back, the notice starts again from the merge that brought it back | pass | first notice 2026-10-21T03:28:09.000Z, now 2026-10-21T03:28:40.000Z |
-| T15c | SOL sent to a tier's address reads as "not made yet", and the page goes on | pass | the tiers may execute from 2026-10-21T03:32:40Z (0.002777777777777778 days after the notice), by the network's clock |
+| T15b | with it back, the notice starts again from the merge that brought it back | pass | first notice 2026-10-25T07:17:18.000Z, now 2026-10-25T07:17:48.000Z |
+| T15c | SOL sent to a tier's address reads as "not made yet", and the page goes on | pass | the tiers may execute from 2026-10-25T07:21:48Z (0.002777777777777778 days after the notice), by the network's clock |
 | T16 | with the lock over and the notice public for its days without a gap, the page offers the execute | pass | the fee notice has been public for 0.002777777777777778 days, without a gap |
 | W0 | the page's server answers, and forbids being framed by another page | pass |  |
 | W0b | the relay refuses a call from another web page | pass |  |
 | W1 | the page loads on the local chain and says so | pass |  |
 | W2 | connected as member A, the page offers the execute | pass |  |
-| T17 | the page executes the proposal: both tiers are made (one address had been sent SOL first) | pass | 03:31:23  Done: proposal #17 is EXECUTED. Run 6-verify-tiers.mjs.03:31:22  sent 3afUKUWYsW96Whjbr4GdVk5JQJBwx165ssryUi7Za4zAThJ84vW3sKDhVpmQevpwG3D5bsVW5sdE2YP4oNoC2p3d03:31:22  the network worked it ; the vault paid 170 |
+| T17 | the page executes the proposal: the fee tier is made (its address had been sent SOL first) | pass | 07:20:25  Done: proposal #23 is EXECUTED. Run 6-verify-tiers.mjs.07:20:24  sent 3wErLf3dVvBbDsHU1uaa7YF5CmFRSU6tjKJ3f6tPsQacqtTiterM7M6saTw62aSv8oB9KAifZEYERYbHPHHadR9b07:20:24  the network worked it  |
 | T19 | the page then says ALREADY DONE and offers nothing | pass |  |
 | W3 | no error in the page's console | pass |  |
-| T18 | 6-verify-tiers: both tiers exactly as decided, owner the vault, fund owner the Workshop | pass | both fee tiers are live with the island split. Anyone may now open a range pool on them. |
-| V2 | 4-verify-program still passes after the tiers | pass | the program is live, byte for byte the reviewed build, and only the vault can change it. |
+| T18 | 6-verify-tiers: the fee tier exactly as decided, owner the vault, fund owner the Workshop, and no other tier | pass | the fee tier is live with the island split, and it is the only one. Anyone may now open a range pool on it. |
+| V2 | 4-verify-program still passes after the tier | pass | the program is live, byte for byte the reviewed build, and only the vault can change it. |
+| T20 | 6-verify-tiers refuses once a tier this pack does not make exists (the 0.25% one, made by a proposal of its own) | pass |   REFUSED : a fee tier this pack does not make exists: index 1, 0.25% of each swap (5DjsHWfk3dpBEmqsGn6dr7H5aKiJxdpkkCsVgE4RntgE). It cannot be removed. Stop and ask |
 
 Run it again: `node solana/clmm-deploy/rehearsal/rehearse.mjs --binary <a build for a throwaway id>
 --program-key <that id's key>` (see `../README.md`).

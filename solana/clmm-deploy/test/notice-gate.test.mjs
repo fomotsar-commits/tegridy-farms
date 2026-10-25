@@ -1,18 +1,16 @@
 // The tier page's notice gate, without a chain: decide() and noticeEnds() from scripts/lib/tiers.mjs.
 // The rehearsal (rehearsal/rehearse.mjs, T10-T15) covers the gate end to end with a notice counted in
-// days. These cover a notice that names its own date (cfg.notice.notBefore, the owner's ruling of
-// 2026-10-22: "update the promise date" after #19's second approval came through the Squads app).
+// days. These cover a notice that names its own date (cfg.notice.notBefore).
 //   node --test "solana/clmm-deploy/test/*.test.mjs"
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { decide, noticeEnds } from '../scripts/lib/tiers.mjs';
+import { decide, noticeEnds, NOTICE_LINE as LINE } from '../scripts/lib/tiers.mjs';
 
 const VAULT = 'GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd';
 const A = '5QHzAqbGk3W8qGRBHCMyWjhLXf8YJcs3yPEh14Ymcwgz';
 const B = '6VHowW4pnD4WTGsXhqBp6yxGgC3EExVmYgebSrRNu2tY';
 const LOCK = 172_800;
 const T = (iso) => Date.parse(iso) / 1000;
-const LINE = '- Notice, updated: range pools get two fee tiers, 1% and 0.25% of each swap, no sooner than 2026-10-23 14:00 UTC (it said seven days from 2026-10-21). Of each fee, 84% stays with the liquidity providers whose range is in use, 10.4% goes to memetics.finance and 5.6% to Jungle Bay Island.';
 
 const cfg = (notice) => ({
   timeLock: LOCK, binary: { sha256: 'fc'.repeat(32) }, addr: { vault: VAULT }, stagedAt: '2026-10-22T03:00:00Z',
@@ -23,7 +21,7 @@ const record = (clock) => ({ line: LINE, seenAt: '2026-10-22T04:00:00Z', continu
 const state = ({ clock, status = 'Approved', approvedAt = T('2026-10-21T13:45:21Z'), approved = [B, A], member = A }) => ({
   ms: { threshold: 2, members: [{ key: A, mask: 7 }, { key: B, mask: 7 }], timeLock: LOCK, configAuthority: '11111111111111111111111111111111', transactionIndex: 19 },
   program: { exists: true, sameBuild: true, authority: VAULT },
-  tiers: [{ state: 'absent', want: { index: 0 } }, { state: 'absent', want: { index: 1 } }],
+  tiers: [{ state: 'absent', want: { index: 0 } }],
   proposals: [{ index: 19, live: true, ours: true, touches: true, kind: 'vault', proposal: { status, timestamp: approvedAt, approved } }],
   member, clock, notice: record(clock), positionLink: { ok: true, why: 'the position link answers for this program' },
 });

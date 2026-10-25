@@ -1,11 +1,21 @@
-// The fee-tier proposal: one vault proposal that makes both tiers with the island split and points
-// each tier's fund share at the island's Workshop. Used by the page (bundled for the browser), by
-// the scripts and by the rehearsal, so all three build and check the very same bytes.
+// The fee-tier proposal: one vault proposal that makes the one fee tier with the island split and
+// points its fund share at the island's Workshop. Used by the page (bundled for the browser), by the
+// scripts and by the rehearsal, so all three build and check the very same bytes.
 //
 // It never trusts a proposal it did not build: approve and execute are offered only for a
 // proposal whose stored message is, byte for byte, the one this module compiles from config.json.
 // No hashing happens here: every discriminator is pinned in config.json by stage.mjs.
 import { Buffer } from 'buffer';
+
+// The owner's decision, 2026-10-25: one fee tier, 1% of each swap, the island split. stage.mjs pins
+// it in config.json; frontend/src/test/clmmTierGate.test.ts pins it here.
+export const TIERS = [
+  { index: 0, tickSpacing: 120, tradeFeeRate: 10_000, protocolFeeRate: 104_000, fundFeeRate: 56_000 },
+];
+// The public notice: CHANGELOG.md (or docs/CHANGELOG_EARLIER.md) carries this line byte for byte,
+// and 5-record-notice.mjs counts it from the merge that brought it. It names its own date.
+export const NOTICE_LINE = '- Notice, updated: range pools get one fee tier, 1% of each swap, no sooner than 2026-10-23 14:00 UTC (it said two tiers, 1% and 0.25%, and seven days from 2026-10-21). Of each fee, 84% stays with the liquidity providers whose range is in use, 10.4% goes to memetics.finance and 5.6% to Jungle Bay Island.';
+export const NOTICE_NOT_BEFORE = '2026-10-23T14:00:00Z';
 
 export function makeCore({ web3, cfg }) {
   const { PublicKey, TransactionInstruction, SystemProgram, TransactionMessage, VersionedTransaction } = web3;
@@ -267,8 +277,7 @@ export function decide(cfg, s) {
   const exact = s.tiers?.filter((t) => t.state === 'exact').length ?? 0;
   const wrong = s.tiers?.filter((t) => t.state === 'wrong') ?? [];
   if (wrong.length) fine = stop(`a fee tier exists with other values (index ${wrong.map((t) => t.want.index).join(', ')}): someone made it outside this page. Stop and ask`);
-  if (s.tiers && exact === s.tiers.length) return { action: 'done', lines: [...lines, { ok: true, w: 'ALREADY DONE: both fee tiers exist with the island split, owned by the vault, fund share to the Workshop' }] };
-  if (exact > 0) fine = stop('only one of the two tiers exists: a proposal made outside this page did it. Stop and ask');
+  if (s.tiers && exact === s.tiers.length) return { action: 'done', lines: [...lines, { ok: true, w: 'ALREADY DONE: the fee tier exists with the island split, owned by the vault, fund share to the Workshop' }] };
   const foreign = s.proposals?.filter((x) => x.live && x.touches && !x.ours) ?? [];
   for (const x of foreign) fine = stop(x.kind === 'vault'
     ? `proposal #${x.index} (${x.proposal.status}) touches the range program but is NOT this page's: never approve or execute it. ${x.proposal.status === 'Approved' ? 'Both members cancel it' : 'A member rejects it'} in the Squads app; then check again`

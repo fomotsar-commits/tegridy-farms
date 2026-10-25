@@ -9,6 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-10-25
 
+- Notice, updated: range pools get one fee tier, 1% of each swap, no sooner than 2026-10-23 14:00 UTC (it said two tiers, 1% and 0.25%, and seven days from 2026-10-21). Of each fee, 84% stays with the liquidity providers whose range is in use, 10.4% goes to memetics.finance and 5.6% to Jungle Bay Island.
 - Pools: the Solana LP tab is gone. Its pool finder, Add liquidity, Remove liquidity and Open a pool were already on the Venue AMM tab, which now sits left of Range. The Pools menu opens Venue AMM, and an old /solana-lp link opens /pools on the same token.
 - Cardano swap: Swap's network menu now lists Cardano. /cardano swaps ADA for a coin, or a coin for ADA, through that pair's Minswap V2 pool, signed in a Cardano wallet (Eternl, Lace, VESPR, Begin, Typhon, GeroWallet or NuFi). The page names each coin by its ticker and whole id, shows every fee and who gets it before you sign, and follows your order until Minswap's batcher fills it or sends it back. The venue charges no fee on Cardano yet.
 
@@ -42,7 +43,6 @@ The site's Changelog tab shows both files.
 - Solana pools' Rates card says each part of the venue's cut as a share of the fee and of the trade, and says in bold, in plain sight, when a fee tier pays anything but the agreed split: the island's part kept by the team's vault, another wallet, or other rates. Before, a tier that sent the island's part to the vault read as fine.
 - The home's all-time volume says it counts our pools on Base and Robinhood as well as Ethereum, and is counted every few hours, which is how often it runs. It says "not up to date" only after nine hours with no count, or when a count fails.
 - Solana LP: every pool card now shows what is in the pool, its price, the outside price and the difference in plain view, above the deposit checks and the Add buttons. They were inside More about this pool.
-- Notice, updated: range pools get two fee tiers, 1% and 0.25% of each swap, no sooner than 2026-10-23 14:00 UTC (it said seven days from 2026-10-21). Of each fee, 84% stays with the liquidity providers whose range is in use, 10.4% goes to memetics.finance and 5.6% to Jungle Bay Island.
 - With reduced motion on, the Tradermigos splash holds its art still, every piece in sight, with no sparks or flashes; the pieces had kept bouncing.
 - Opening a new pool on Ethereum, Base or Robinhood Chain: the form shows the market price from that network's Uniswap V2 pool, Match the market price fills the other amount at it, and a price you type off the market says how far off it is.
 - Base and Robinhood Chain: Liquidity lists the venue's own pools on that network, with what each holds and how its 0.3% fee is split; Add or Remove opens the form on that pool.

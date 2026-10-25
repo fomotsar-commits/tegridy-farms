@@ -519,9 +519,9 @@
     {
       "id": "range-clmm-amm-config-0",
       "address": "9makve2QUjz3FpwqHzqioY2DLmiQ73VVtcuYYHnm9kvR",
-      "role": "tegridy-clmm AmmConfig index 0 under range-clmm-program, seeds [\"amm_config\", 0u16 big-endian], bump 255, derived and matched: the 1% tier as range-clmm-tiers-transaction-19 makes it, create_amm_config(0, tick spacing 120, trade fee 10,000 per million of each swap, protocol fee 104,000 and fund fee 56,000 per million of that fee), then its fund owner set to island-workshop-wallet. So of each fee, 84% stays with the liquidity providers in range, 10.4% to squads-vault and 5.6% to the island's Workshop (the CHANGELOG notice of 2026-10-21).",
+      "role": "tegridy-clmm AmmConfig index 0 under range-clmm-program, seeds [\"amm_config\", 0u16 big-endian], bump 255, derived and matched: the one fee tier (the owner's ruling of 2026-10-25: one tier, 1%) as solana/clmm-deploy's tier proposal makes it, create_amm_config(0, tick spacing 120, trade fee 10,000 per million of each swap, protocol fee 104,000 and fund fee 56,000 per million of that fee), then its fund owner set to island-workshop-wallet. So of each fee, 84% stays with the liquidity providers in range, 10.4% to squads-vault and 5.6% to the island's Workshop (the CHANGELOG notice, updated 2026-10-25).",
       "custody": "program-derived, no key. Once created it is owned by range-clmm-program; its owner field is squads-vault and its fund owner island-workshop-wallet.",
-      "status": "NOT YET CREATED: value:null at finalized slot 459,710,510 (2026-10-21). `expect.type: absent` is a tripwire: the day the fee-tier proposal executes, the chain read goes red here, and this row must become program-owned, with its fee fields asserted in solanaFields.",
+      "status": "NOT YET CREATED: value:null at confirmed slot 461,163,113 (2026-10-25), and the program owned no account of a tier's size at slot 461,165,601. `expect.type: absent` is a tripwire: the day the fee-tier proposal executes, the chain read goes red here, and this row must become program-owned, with its fee fields asserted in solanaFields.",
       "expect": {
         "type": "absent"
       }
@@ -529,9 +529,9 @@
     {
       "id": "range-clmm-amm-config-1",
       "address": "CYfA3WyMS9Ygx2Z988d5Uk4KsuBRsDZqkqXy9hhroW6Q",
-      "role": "tegridy-clmm AmmConfig index 1 under range-clmm-program, seeds [\"amm_config\", 1u16 big-endian], bump 255, derived and matched: the 0.25% tier as range-clmm-tiers-transaction-19 makes it, create_amm_config(1, tick spacing 60, trade fee 2,500 per million of each swap, protocol fee 104,000 and fund fee 56,000 per million of that fee), then its fund owner set to island-workshop-wallet. The same split as range-clmm-amm-config-0.",
-      "custody": "program-derived, no key. Once created it is owned by range-clmm-program; its owner field is squads-vault and its fund owner island-workshop-wallet.",
-      "status": "NOT YET CREATED: value:null at finalized slot 459,710,510 (2026-10-21). `expect.type: absent` is a tripwire: the day the fee-tier proposal executes, the chain read goes red here, and this row must become program-owned, with its fee fields asserted in solanaFields.",
+      "role": "tegridy-clmm AmmConfig index 1 under range-clmm-program, seeds [\"amm_config\", 1u16 big-endian], bump 255, derived and matched: the 0.25% tier range-clmm-tiers-transaction-19 would make, create_amm_config(1, tick spacing 60, trade fee 2,500 per million of each swap, protocol fee 104,000 and fund fee 56,000 per million of that fee). The owner ruled one fee tier, 1%, on 2026-10-25: this tier is never to be made, and #19 is cancelled.",
+      "custody": "program-derived, no key. Nobody is to create it; once created it could never be removed.",
+      "status": "MUST STAY ABSENT: value:null at confirmed slot 461,163,113 (2026-10-25). `expect.type: absent` is a tripwire: the chain read goes red here if any proposal makes this tier.",
       "expect": {
         "type": "absent"
       }
@@ -539,7 +539,7 @@
     {
       "id": "range-clmm-tiers-transaction-19",
       "address": "CL6cZ2zDsmA72f6ncLYz1UcSLcQ41kL4WRTtFGy5BmNM",
-      "role": "Squads v4 vault transaction 19 of squads-multisig, seeds [\"multisig\", multisig, \"transaction\", 19u64 little-endian] under SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf, derived and matched: the fee-tier proposal. Its stored message is byte for byte the one solana/clmm-deploy/scripts/lib/tiers.mjs compiles (the page's `isOurs`, read 2026-10-21T17:22:43Z): both tiers above, then each tier's fund owner set to island-workshop-wallet.",
+      "role": "Squads v4 vault transaction 19 of squads-multisig, seeds [\"multisig\", multisig, \"transaction\", 19u64 little-endian] under SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf, derived and matched: the two-tier proposal. Its stored message is byte for byte what solana/clmm-deploy/scripts/lib/tiers.mjs compiled before the owner ruled one tier (the page's `isOurs`, read 2026-10-21T17:22:43Z): range-clmm-amm-config-0 and range-clmm-amm-config-1, then each tier's fund owner set to island-workshop-wallet. That module now compiles the one 1% tier, so its page treats #19 as another tool's proposal and refuses to go on while #19 can execute.",
       "custody": "program-derived, owned by the Squads v4 program; only a member of squads-multisig can execute it.",
       "status": "LIVE, created 2026-10-21T13:42:48Z (slot 459,649,865, transaction 5XZuPgxthnJZyBCtcaPw5p1xnqyetb9phudUSurr1uCkNXtsuXRB69xg3LkcV71AJqNHJvUvPFw6ECWiqZo2uzzk, signed by squads member 6VHowW4pnD4WTGsXhqBp6yxGgC3EExVmYgebSrRNu2tY). 416 bytes. Not executed: see range-clmm-tiers-proposal-19.",
       "expect": {
@@ -551,7 +551,7 @@
       "address": "DvGQ2Hhdqn8i9TJMTkMC7adxiWujxeSJEm77ctZkWBfg",
       "role": "Squads v4 proposal for vault transaction 19, seeds [\"multisig\", multisig, \"transaction\", 19u64 little-endian, \"proposal\"] under SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf, derived and matched.",
       "custody": "program-derived, owned by the Squads v4 program.",
-      "status": "APPROVED 2 of 2, NOT EXECUTED. Member 6VHowW4pnD4WTGsXhqBp6yxGgC3EExVmYgebSrRNu2tY created and approved it at 2026-10-21T13:42:48Z; member 5QHzAqbGk3W8qGRBHCMyWjhLXf8YJcs3yPEh14Ymcwgz approved at 13:45:21Z (slot 459,650,577, transaction 2CXCRAHzRGhTniquvdecQugMSfoZw56BdndVcuQs2sRGmzR6FhvWVMvZxeYYKonqjfZVNfFCkhDK8gU312XqHCc8). Read at finalized slot 459,710,510: status Approved at 13:45:21Z. So the chain's 48-hour lock is over at 2026-10-23T13:45:21Z, five days before the seven days the first notice (#929) promised. The owner then moved the promise (2026-10-22, 'update the promise date'; #938): the notice now says no sooner than 2026-10-23 14:00 UTC, and it executes from the deploy pack's page no sooner than 2026-10-23T14:00:00Z (tiers.mjs `decide`, gated at the later of the lock's end and that time). The Squads app does not read the notice: from the lock's end it would execute it at once.",
+      "status": "APPROVED 2 of 2, NOT EXECUTED, TO BE CANCELLED (the owner's ruling of 2026-10-25: one fee tier, 1%). Member 6VHowW4pnD4WTGsXhqBp6yxGgC3EExVmYgebSrRNu2tY created and approved it at 2026-10-21T13:42:48Z; member 5QHzAqbGk3W8qGRBHCMyWjhLXf8YJcs3yPEh14Ymcwgz approved at 13:45:21Z (slot 459,650,577, transaction 2CXCRAHzRGhTniquvdecQugMSfoZw56BdndVcuQs2sRGmzR6FhvWVMvZxeYYKonqjfZVNfFCkhDK8gU312XqHCc8). Read at confirmed slot 461,164,490 (2026-10-25T06:59:58Z): status Approved at 13:45:21Z, no cancels. Its 48-hour lock ended 2026-10-23T13:45:21Z, so any member could execute it now, in the Squads app or any tool, and that would make range-clmm-amm-config-1 for good. It ends only when both members cancel it (Squads v4: cancel votes up to the threshold of 2).",
       "expect": {
         "type": "program-owned"
       }

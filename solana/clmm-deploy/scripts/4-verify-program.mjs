@@ -26,8 +26,8 @@ await main(async () => {
   R.note(`last deployed in slot ${num(p.deploySlot)}`);
 
   // The admin, asked of the program itself: the network works out (sends nothing, checks no
-  // signature) the first fee tier made by the vault, which must work, and by a stranger (the
-  // paying wallet), which must be refused. Only while that tier does not exist yet.
+  // signature) the fee tier made by the vault, which must work, and by a stranger (the paying
+  // wallet), which must be refused. Only while that tier does not exist yet.
   const core = makeCore({ web3, cfg: CFG });
   const t = await read('the fee tiers', () => core.tiers(conn));
   if (t[0].state === 'absent') {
@@ -42,7 +42,7 @@ await main(async () => {
     const sim = await read('the network working out a fee tier made by a stranger', () => core.simulate(conn, CFG.addr.deployWallet, [ix]));
     const refusedByProgram = !sim.ok && sim.logs.some((l) => /Error Code: NotApproved/.test(l));
     R.check(refusedByProgram, 'a fee tier asked for by someone who is not the vault is refused by the program (NotApproved): only the vault can make one', `a stranger's fee tier was NOT refused as expected (${sim.ok ? 'it would succeed' : JSON.stringify(sim.err)}). Stop and ask`);
-  } else R.note('the first fee tier exists, so the admin is read from it: its owner must be the vault (below)');
+  } else R.note('the fee tier exists, so the admin is read from it: its owner must be the vault (below)');
   for (const x of t) R.note(`fee tier ${x.want.index} (${x.want.tradeFeeRate / 10000}%, spacing ${x.want.tickSpacing}): ${x.state === 'absent' ? 'not made yet (the vault proposal makes it)' : x.state === 'exact' ? 'made, exactly as decided' : 'EXISTS WITH OTHER VALUES: stop and ask'}`);
   if (t.some((x) => x.state === 'wrong')) R.refuse('a fee tier exists with values other than the decided ones');
   return R.end('the program is live, byte for byte the reviewed build, and only the vault can change it.', 'Do what the REFUSED line says.');
