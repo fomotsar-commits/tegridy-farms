@@ -1122,6 +1122,21 @@ that build).
 **Do:** a word that shares a pathname with another is a plain `Link` with `aria-current` from
 its own rule; give each drawer row its own block (`<li>`).
 
+## 2026-10-14: a Solana address is not always 44 characters; a random one is 43 about 1 time in 17
+
+**Believed:** a Solana address is 44 base58 characters, so a test may pin `toHaveLength(44)` on
+a key from `Keypair.generate()`.
+
+**Measured:** 32 bytes spell 44 characters only when their number is at least 58^43, about
+14.9 × 2^248: a first byte of 15 or more always gives 44, 13 or less never does. A random key
+falls short 5.8% of the time; 25 of 500 drawn in a test were 43. The pool card test pinned 44
+on two random keys and failed 19 of 200 runs on trunk `6c3119e0` (and real checks on #821 and
+#800). The testkit's `keyStartingWith(6)`, a token that sorts before wrapped SOL, is never 44.
+
+**Do:** pin a length only on a fixed address. The LP testkit's `key()` hands out seeded
+keypairs, skipping any under 44, so its keys are the same on every run. Where a key must be
+random, assert 32 to 44 characters.
+
 ## 2026-10-14: an element fading out with `visibility` still takes presses, and WebKit can call it hidden while it does
 
 **Believed:** a control hidden with `opacity-0 invisible` and a `transition-[opacity,visibility]`
