@@ -296,6 +296,16 @@ test opens_paying_the_fee_in_two_outputs() {
   )
 }
 
+// The fee is a floor: an opener may pay more, or send change to the treasury.
+test opens_paying_more_than_the_fee() {
+  test_opens(
+    test_opening(
+      [test_paid(test_fee + 1, test_treasury_address())],
+      test_setting(test_fee),
+    ),
+  )
+}
+
 // The fee re-set to nothing through the lock.
 test opens_free_when_the_fee_is_zero() {
   test_opens(test_opening([], test_setting(0)))

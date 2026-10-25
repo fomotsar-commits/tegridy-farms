@@ -161,16 +161,20 @@ the same code. Nothing is deployed, so no live hash moves.
 **What to check.**
 
 1. **Double counting.** The fee is the sum over outputs to the receiver, so a transaction that also
-   pays the receiver for another reason counts that payment toward the fee. Minswap's factory
-   allows one factory input, so one pool per transaction. The other on-chain paths that pay the
-   treasury are the lock's `WithdrawFeeSharing` (both owner keys) and, in principle, a batch whose
-   order names the treasury as its receiver (an authorised batcher only). Is there a path a
-   stranger can combine with opening a pool to pay less?
+   paid the receiver for another reason would count that payment toward the fee. We found no path
+   that can share a transaction with opening a pool: Minswap's factory allows one factory input
+   (one pool per transaction); a batch needs the pool-batching withdrawal, which refuses any mint
+   (`pool_validator.ak`, `value.is_zero(...mint)`) and opening a pool mints; the expired-order
+   cancel decodes every script input as an order, and the factory's datum is not one; the lock's
+   `WithdrawFeeSharing` allows exactly one output holding a pool NFT, and opening adds a second.
+   Did we miss one?
 2. **The receiver.** It must be the treasury, a native-script (Lace shared wallet) address, so any
    output to it is spendable whatever datum it carries. Minswap's `validate_global_setting` does
    not check the two new fields; the lock refuses a `SetGlobalSetting` whose receiver is not its
-   `treasury` parameter or whose fee is negative (section 3). The first GlobalSetting, written at
-   `DexInitialization`, is checked by nobody, so the deploy must write it (section 4).
+   `treasury` parameter or whose fee is negative (section 3). That holds while the lock is the
+   admin: an announced change that hands the admin to someone else hands them the receiver too,
+   as it does every other role. The first GlobalSetting, written at `DexInitialization`, is checked
+   by nobody, so the deploy script must assert it names the lock's `treasury` exactly (section 4).
 3. **The reference input.** An opener must now reference the GlobalSetting. A junk UTxO at the
    authen script referenced before it makes Minswap's lookup fail: the opener's own transaction
    fails, as with Minswap's batching today. Anything worse?
@@ -178,18 +182,19 @@ the same code. Nothing is deployed, so no live hash moves.
    decodes two more fields once per batch; the batcher re-measures its batch sizes against this
    build.
 
-**Tests.** `cardano/minswap-tests/factory_validator.ak`, 13 tests, run by `prove-build.mjs`
+**Tests.** `cardano/minswap-tests/factory_validator.ak`, 14 tests, run by `prove-build.mjs`
 appended to a staged copy of `validators/factory_validator.ak` (Aiken v1.0.24 tests can call a
 validator only from its own module). They call the real validator on a whole Pool Creation
-transaction: a pool opens paying 73 ADA, paying it in two outputs, or paying nothing when the fee
-is 0; it is refused with no payment, one lovelace short, paid to a stranger, paid to the
+transaction: a pool opens paying 73 ADA, paying more, paying it in two outputs, or paying nothing
+when the fee is 0; it is refused with no payment, one lovelace short, paid to a stranger, paid to the
 treasury's script with another stake key, paid in a token instead of ADA, with no GlobalSetting,
 against a GlobalSetting without its token, with the GlobalSetting spent instead of referenced, and
 against Minswap's six-field GlobalSetting; and a test pins the datum's field order. Each refused
 case is a passing transaction with one thing changed. Run against Minswap's own factory, 9 of the
-13 fail. A mutation pass (2026-10-25) broke the factory check seven ways (the check removed, `>=`
-made `>`, only the payment credential compared, no sum, the setting read from the spent inputs,
-tokens counted as lovelace, the two fields swapped): every mutant was caught by at least one test.
+14 fail. A mutation pass (2026-10-25) broke the factory check eight ways (the check removed, `>=`
+made `>` or `==`, only the payment credential compared, no sum, the setting read from the spent
+inputs, tokens counted as lovelace, the two fields swapped): every mutant was caught by at least
+one test.
 CI also runs the proof on a copy with the check removed and requires failing factory tests.
 
 ## 3. In scope: the role timelock (new code)
@@ -231,7 +236,7 @@ differ).
 | Mint (once) | The seed UTxO is spent; exactly one lock token is minted; it goes into the lock with nothing announced. No later mint or burn is possible (the seed is gone). |
 | `Announce` | Adds one announcement whose `ready_at` is at least the transaction's upper time bound + 48 h. Moves no pool or GlobalSetting. At most 16 waiting. |
 | `Cancel { index }` | Removes one announcement. Moves no pool or GlobalSetting. |
-| `Execute { index }` | In the window `[ready_at, ready_at + 14 days]` (the lower bound must be at or after `ready_at`, the upper at or before the end), removes the announcement and makes exactly that change. `SetGlobalSetting(s)`: one UTxO moved, the GlobalSetting output's inline datum equals `s` as Data, `s`'s pool creation fee is not negative, and its receiver is the lock's `treasury`, so the venue's opening fees can only ever be sent there. `SetPool {...}`: one pool moved, its value unchanged (so no fee withdrawal rides along), and its new datum's pair, both base fees, fee share and dynamic-fee flag, and its address's stake credential, all equal the announcement. Minswap itself pins the pool's other fields. |
+| `Execute { index }` | In the window `[ready_at, ready_at + 14 days]` (the lower bound must be at or after `ready_at`, the upper at or before the end), removes the announcement and makes exactly that change. `SetGlobalSetting(s)`: one UTxO moved, the GlobalSetting output's inline datum equals `s` as Data, `s`'s pool creation fee is not negative, and its receiver is the lock's `treasury`, so while the lock is the admin the venue's opening fees go nowhere else. (A change the lock makes can still hand the admin itself to another key or script, as it can every role; that one is the 48-hour notice.) `SetPool {...}`: one pool moved, its value unchanged (so no fee withdrawal rides along), and its new datum's pair, both base fees, fee share and dynamic-fee flag, and its address's stake credential, all equal the announcement. Minswap itself pins the pool's other fields. |
 | `WithdrawFeeSharing` | One pool moved, its address and datum unchanged, the lock unchanged, and the outputs to the treasury hold at least everything that left the pool, asset by asset. No wait: this changes nothing. |
 
 A UTxO sent to the lock's address without the lock token can never be spent, so a forged
@@ -294,12 +299,12 @@ with it pays its ADA staking rewards to Minswap.
 | NFT names `MSF`, `MSP`, `MSGS` | constants in Minswap's code, not parameters | unchanged |
 | Pool stake credential | where each new pool's ADA is staked, and so who earns its staking rewards (and, since Plomin, which DRep it delegates to) | the venue's |
 | Role timelock `Params` | `seed` (a second UTxO), `owner_a`, `owner_b`, `treasury`, `authen_policy_id` (ours) | treasury: a Lace shared wallet, a 2-of-2 native script the owner is creating; keys: owner's decision |
-| First GlobalSetting | `batchers` = the batcher's key(s); the five roles = `PAMSpendScript(role timelock hash)`; `pool_creation_fee` = 73,000,000 lovelace; `pool_creation_fee_receiver` = the treasury, exactly the lock's `treasury` parameter (`DexInitialization` checks neither field, and the lock refuses any later receiver but that one) | fee: owner's ruling, 2026-10-25; treasury: **owed**, the frontend's `CARDANO_VENUE_FEE_ADDRESS` is still null until the two-key wallet exists |
+| First GlobalSetting | `batchers` = the batcher's key(s); the five roles = `PAMSpendScript(role timelock hash)`; `pool_creation_fee` = 73,000,000 lovelace; `pool_creation_fee_receiver` = the treasury, exactly the lock's `treasury` parameter (`DexInitialization` checks neither field, so the deploy script must assert both; the lock refuses any later receiver but that one) | fee: owner's ruling, 2026-10-25; treasury: **owed**, the frontend's `CARDANO_VENUE_FEE_ADDRESS` is still null until the two-key wallet exists |
 | Pools the site opens | base fee 30 / 10000 on both sides (0.3%); fee share switched on at 1333 / 10000 by a `SetPool` announcement | owner's ruling, 2026-10-24 |
 
 Order: pick both seeds, compute the authen policy, compute the lock's hash with it, mint the lock
 token (both keys sign), then `DexInitialization` with the first GlobalSetting naming the lock.
-Changing a key or the treasury later means a new lock and a 48-hour `SetGlobalSetting` to it.
+Changing a key or the treasury later means a new lock and a 48-hour `SetGlobalSetting` to it. A new treasury takes two such changes, at least 96 hours: the old lock refuses any receiver but its own treasury, so first the GlobalSetting names the new lock with the old receiver, then the new lock re-points the receiver.
 
 ## 5. In scope later: the batcher
 

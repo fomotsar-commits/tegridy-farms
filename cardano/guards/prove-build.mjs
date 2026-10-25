@@ -64,7 +64,7 @@ export const PATCH_TYPES = {
 
 // Our tests of the patched Pool Creation. Aiken v1.0.24 tests reach a validator only from its
 // own module, so they run appended to a staged copy of the factory validator.
-export const FACTORY_TESTS = { file: 'cardano/minswap-tests/factory_validator.ak', into: 'validators/factory_validator.ak', module: 'factory_validator', min: 13 };
+export const FACTORY_TESTS = { file: 'cardano/minswap-tests/factory_validator.ak', into: 'validators/factory_validator.ak', module: 'factory_validator', min: 14 };
 
 // Plutus Data as CBOR hex, encoded as Plutus itself does: a constructor's non-empty field list
 // is indefinite-length.
