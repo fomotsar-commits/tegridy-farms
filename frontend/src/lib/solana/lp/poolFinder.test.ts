@@ -49,7 +49,7 @@ describe('findPools', () => {
 
   it('still reads the known addresses when the index is down, and says the index is unread', async () => {
     const mint = key();
-    const std = buildPool({ mint, configIndex: 0, quoteReserve: 10n ** 9n, tokenReserve: 10n ** 12n });
+    const std = buildPool({ mint, configIndex: 1, quoteReserve: 10n ** 9n, tokenReserve: 10n ** 12n });
     const r = await findPools(fakeRpc({ ...std.accounts, [CLOCK]: clockAccount(5n) }), mint, opts(fakeIndex({}, { status: 502 })));
     expect(r.kind).toBe('ok');
     if (r.kind !== 'ok') return;
@@ -122,7 +122,7 @@ describe('findPools: what a pool read must not hide', () => {
     const e = r.kind === 'ok' ? r.search.pools[0] : null;
     expect(e?.kind === 'pool' && e.view.vaultsFrozen).toBe(true);
 
-    const q = buildPool({ mint, configIndex: 0, quoteReserve: 10n ** 9n, tokenReserve: 10n ** 9n });
+    const q = buildPool({ mint, configIndex: 1, quoteReserve: 10n ** 9n, tokenReserve: 10n ** 9n });
     const vaultAddr = Object.keys(q.accounts).find((a) => q.accounts[a]!.data.length === 165 && q.accounts[a]!.data[108] === 1)!;
     q.accounts[vaultAddr] = { owner: TOKEN_PROGRAM, data: tokenAccountBytes(mint, key(), 5n, 0) }; // state 0: uninitialized
     const r2 = await findPools(fakeRpc({ ...q.accounts, [CLOCK]: clockAccount(5n) }), mint, opts(fakeIndex({})));
@@ -151,9 +151,9 @@ describe('findPools: what a pool read must not hide', () => {
   });
 
   // S1-R01: everything the index may return is read; nothing it names is cut here.
-  it('reads every address the index may return, plus the seven it works out', async () => {
-    // The launch pool, and a standard address on each of two fee tiers for each of three coins.
-    expect(MAX_CANDIDATES).toBe(1 + 2 * QUOTE_COINS.length + POOL_INDEX_MAX);
+  it('reads every address the index may return, plus the four it works out', async () => {
+    // The launch pool, and the public tier's standard address for each of three coins.
+    expect(MAX_CANDIDATES).toBe(1 + QUOTE_COINS.length + POOL_INDEX_MAX);
     const mint = key();
     const pools = Array.from({ length: POOL_INDEX_MAX }, (_, i) => buildPool({ mint, configIndex: 1, address: key(), quoteReserve: BigInt(i + 1) * 10n ** 6n, tokenReserve: 10n }));
     const accounts = Object.assign({ [CLOCK]: clockAccount(5n) }, ...pools.map((p) => p.accounts));
@@ -171,15 +171,15 @@ describe('findPools: what a pool read must not hide', () => {
 });
 
 describe('knownPoolAddresses', () => {
-  it('for each pairing coin, SOL first: the public tier (1) before the graduation tier (0), for the sorted pair', () => {
+  it('for each pairing coin, SOL first: the public tier (1) only, for the sorted pair', () => {
     const mint = key();
     const k = knownPoolAddresses(mint, PROGRAM, LAUNCH);
-    expect(k.standard.map((s) => [s.quote, s.index])).toEqual(QUOTE_COINS.flatMap((q) => [[q.mint, 1], [q.mint, 0]]));
+    expect(k.standard.map((s) => [s.quote, s.index])).toEqual(QUOTE_COINS.map((q) => [q.mint, 1]));
     for (const s of k.standard) {
       const quote = QUOTE_COINS.find((q) => q.mint === s.quote)!;
       expect(s.address, `${quote.symbol} tier ${s.index}`).toBe(buildPool({ mint, quote, configIndex: s.index, quoteReserve: 1n, tokenReserve: 1n }).address.toBase58());
     }
-    expect(new Set(k.standard.map((s) => s.address)).size).toBe(6);
+    expect(new Set(k.standard.map((s) => s.address)).size).toBe(3);
     expect(k.launchPool).toBe(poolStatePda(mint, LAUNCH).toBase58());
     expect(WSOL.toBase58()).not.toBe(mint.toBase58());
   });
@@ -285,7 +285,7 @@ describe('findPools: pools paired with USDC and BAYLA', () => {
   it('only a SOL pool can be the launch pool: the launch program opens no other kind', async () => {
     const mint = key();
     const launchAddress = poolStatePda(mint, LAUNCH);
-    const usdcThere = buildPool({ mint, quote: USDC_QUOTE, configIndex: 0, address: launchAddress, quoteReserve: 5n, tokenReserve: 5n });
+    const usdcThere = buildPool({ mint, quote: USDC_QUOTE, configIndex: 1, address: launchAddress, quoteReserve: 5n, tokenReserve: 5n });
     const accounts: Record<string, FakeAccount> = {
       ...usdcThere.accounts, [CLOCK]: clockAccount(5n),
       [usdcThere.observation.toBase58()]: { owner: PROGRAM.toBase58(), data: observationBytes({ pool: usdcThere.address, initialized: false }) },
