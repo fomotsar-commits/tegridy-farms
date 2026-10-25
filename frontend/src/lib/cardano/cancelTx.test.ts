@@ -189,7 +189,12 @@ describe('buildCancelTx + checkCancelTx: the untampered build', () => {
 
   it('refuses to build when no coin of the wallet can be collateral', () => {
     const script1 = composeAddress({ kind: 'script', hash: 'aa'.repeat(28) }, trader.stake);
-    expect(() => buildCancelTx(csl, params, script, [coin(7, trader, 1_000_000n), coin(8, script1, 50n * ADA_1)], plan())).toThrow(CancelBuildError);
+    // A Byron coin CSL would take as collateral, but the check would refuse: never tried.
+    const root = csl.Bip32PrivateKey.from_bip39_entropy(new Uint8Array(16).fill(3), new Uint8Array());
+    const byron = csl.ByronAddress.icarus_from_key(root.to_public(), 764824073).to_address(); // mainnet's protocol magic
+    const byronIn = csl.TransactionInput.new(csl.TransactionHash.from_hex('9'.repeat(64)), 9);
+    const byronCoin = { txHash: '9'.repeat(64), index: 9, hex: csl.TransactionUnspentOutput.new(byronIn, csl.TransactionOutput.new(byron, lovelace(20n * ADA_1))).to_hex() };
+    expect(() => buildCancelTx(csl, params, script, [coin(7, trader, 1_000_000n), coin(8, script1, 50n * ADA_1), byronCoin], plan())).toThrow(CancelBuildError);
   });
 });
 
@@ -389,6 +394,35 @@ describe('checkCancelTx refuses every tamper', () => {
     assets.insert(csl.AssetName.new(hexToBytes('41')), csl.Int.new_i32(1));
     m.insert(csl.ScriptHash.from_hex('ab'.repeat(28)), assets);
     expectRefused(rebuild(txHex, { also: (b) => b.set_mint(m) }), /mints or burns/);
+  });
+
+  it('a vote', () => {
+    const vp = csl.VotingProcedures.new();
+    vp.insert(
+      csl.Voter.new_drep_credential(csl.Credential.from_keyhash(csl.Ed25519KeyHash.from_hex(trader.payment.hash))),
+      csl.GovernanceActionId.new(csl.TransactionHash.from_hex('ab'.repeat(32)), 0),
+      csl.VotingProcedure.new(csl.VoteKind.Yes),
+    );
+    expectRefused(rebuild(txHex, { also: (b) => b.set_voting_procedures(vp) }), /votes or proposes/);
+  });
+
+  it('a donation to the treasury', () => {
+    expectRefused(rebuild(txHex, { also: (b) => b.set_donation(csl.BigNum.from_str('1000000')) }), /pays the treasury/);
+  });
+
+  it('another network', () => {
+    expectRefused(rebuild(txHex, { also: (b) => b.set_network_id(csl.NetworkId.testnet()) }), /another network/);
+  });
+
+  it('what comes back sent with a datum', () => {
+    const bad = rebuild(txHex, {
+      outputs: (o) => {
+        const x = csl.TransactionOutput.new(o[0]!.address(), o[0]!.amount());
+        x.set_plutus_data(csl.PlutusData.from_hex('d87980'));
+        return [x];
+      },
+    });
+    expectRefused(bad, /carries a datum or a script/);
   });
 
   it('metadata', () => {

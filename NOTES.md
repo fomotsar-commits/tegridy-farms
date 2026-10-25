@@ -15,6 +15,26 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-24: a Plutus script budget looked unmeasurable without a live input, but mainnet's node runs one supplied by hand
+
+**Believed:** pinning a script's execution units (the Cardano order cancel) meant guessing, or
+copying a stranger's figure off a transaction that differs from ours.
+
+**Measured** (2026-10-24): Koios's public `POST /api/v1/ogmios` answers Ogmios
+`evaluateTransaction`, and its `additionalUtxo` param takes inputs that are not on chain. A
+cancel built for a made-up Minswap V2 order, with the order passed that way and the real order
+script read from its reference UTxO, came back 153,779 memory / 44,191,460 steps: the exact
+figure on Minswap's own mainnet cancels. Nothing is signed or sent.
+
+Three more traps from the same work:
+- **Mainnet runs protocol version 11: the Plutus V1 and V2 cost models are 332 entries.** A
+  script data hash over a library's built-in model is wrong; CSL 17's `hash_script_data` over the
+  model as `cli_protocol_params` returns it equals the hash on real transactions.
+- **Koios `utxo_info` with `_extended: false` sends `asset_list` and `inline_datum` as null.** An
+  order read that way looks like ADA with no datum.
+- **Koios `tx_info` `plutus_contracts` redeemers carry `datum.value` (JSON) and no bytes.**
+  Filtering on `datum.bytes === 'd87a80'` found no cancels in 1,000 transactions.
+
 ## 2026-10-24: a test pool's round share count looked neutral, but no pool program ever makes one
 
 **Believed:** the LP testkits' default `lp_supply` (1,000,000 in `buildPool`, 1,000,000,000 in

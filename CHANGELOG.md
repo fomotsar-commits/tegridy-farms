@@ -9,6 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-10-25
 
+- Cardano swap: an order Minswap's batcher has not filled has Cancel order under Your orders. It brings back everything the order holds, less a network fee of about 0.24 ADA and no batcher fee, after showing what comes back and checking the transaction before your wallet signs; the order then reads Returned.
 - Cardano swap: Swap's network menu now lists Cardano. /cardano swaps ADA for a coin, or a coin for ADA, through that pair's Minswap V2 pool, signed in a Cardano wallet (Eternl, Lace, VESPR, Begin, Typhon, GeroWallet or NuFi). The page names each coin by its ticker and whole id, shows every fee and who gets it before you sign, and follows your order until Minswap's batcher fills it or sends it back. The venue charges no fee on Cardano yet.
 
 ### 2026-10-24

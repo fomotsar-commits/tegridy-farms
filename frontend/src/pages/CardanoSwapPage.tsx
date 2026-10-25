@@ -332,10 +332,8 @@ function CardanoSwapInner({ csl, cslError, retryCsl }: { csl: Csl | null; cslErr
     const { orderTx, prepared } = cancelFlow;
     setCancelFlow({ orderTx, kind: 'signing' });
     const r = await signAndSendCancel(csl, wallet.api, orderTx, prepared);
-    if (r.kind === 'sent' || r.kind === 'unsure') {
-      setSessionOrders((prev) => prev.map((x) => (x.txHash === orderTx ? { ...x, cancel: r.cancel } : x)));
-      notesChanged();
-    }
+    // A new session list re-reads the notes as well (the orders memo), so the cancel just noted shows at once.
+    if (r.kind === 'sent' || r.kind === 'unsure') setSessionOrders((prev) => prev.map((x) => (x.txHash === orderTx ? { ...x, cancel: r.cancel } : x)));
     // Sent: the order's own line says so from its note (statusText), here and after a reload.
     if (r.kind === 'sent') setCancelFlow(null);
     else if (r.kind === 'unsure') setCancelFlow({ orderTx, kind: 'done', message: r.message });
