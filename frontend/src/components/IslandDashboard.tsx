@@ -67,39 +67,46 @@ function doorOf(id: string) {
   return b ? doorArt(b) : null;
 }
 
-/** What the big frame shows: a row's room, or, for a coin with no room (SOL, ETH), its chain. */
-type Fig = { key: string; roomId: string | null; chain: string; word: string; caption: string; n: number };
+/**
+ * What the big frame shows: a row's room, or, for a coin with no room (SOL, ETH), its chain. `no`
+ * is its plate number: the row's section and place ("01.05", the fifth coin held), or a pool's place.
+ */
+type Fig = { key: string; roomId: string | null; chain: string; word: string; caption: string; no: string };
 
-// index.css's `handheld` variant, in the older syntax so an older iPad's Safari reads it too.
-const HANDHELD = '(max-width: 1023px), (hover: none) and (pointer: coarse)';
+// Touch-first: no hover, or a coarse pointer. Width alone is not it: a mouse in a narrow window
+// points, and an iPad with a trackpad attached reports a fine pointer that hovers.
+const TOUCH = '(hover: none), (pointer: coarse)';
+// A phone held sideways, or any window this short: a pinned frame would fill it.
+const SHORT = '(max-height: 500px)';
 
-function handheldQuery(): MediaQueryList | null {
-  return typeof window !== 'undefined' && typeof window.matchMedia === 'function' ? window.matchMedia(HANDHELD) : null;
+function mediaQuery(query: string): MediaQueryList | null {
+  return typeof window !== 'undefined' && typeof window.matchMedia === 'function' ? window.matchMedia(query) : null;
 }
 
-/** A phone or an iPad: narrower than 1024px, or touch-first at any width. */
-function useHandheld(): boolean {
-  const [on, setOn] = useState(() => handheldQuery()?.matches ?? false);
+function useMedia(query: string): boolean {
+  const [on, setOn] = useState(() => mediaQuery(query)?.matches ?? false);
   useEffect(() => {
-    const mq = handheldQuery();
+    const mq = mediaQuery(query);
     if (!mq) return;
     const sync = () => setOn(mq.matches);
     mq.addEventListener('change', sync);
     return () => mq.removeEventListener('change', sync);
-  }, []);
+  }, [query]);
   return on;
 }
 
-type Picked = { key: string; i: number; total: number } | null;
+type Picked = { key: string; i: number; total: number; near: string[] } | null;
 
 /**
  * The frame follows the scroll where there is no pointer: it shows the row at the reading line.
  * The line is just under the frame where the frame is pinned above the rows (a phone), and 45%
  * down the screen where it stands beside them. Rows are the board's `data-fig-key` elements that
- * are shown; a closed pool list's are not.
+ * are shown; a closed pool list's are not. `clear` hands the frame back until the next scroll, for
+ * a row a finger tapped or the keyboard focused.
  */
-function useFollow(on: boolean, wrap: RefObject<HTMLDivElement | null>, fig: RefObject<HTMLDivElement | null>, rowKeys: string): Picked {
+function useFollow(on: boolean, wrap: RefObject<HTMLDivElement | null>, fig: RefObject<HTMLDivElement | null>, rowKeys: string) {
   const [picked, setPicked] = useState<Picked>(null);
+  const lastScroll = useRef(0);
   useEffect(() => {
     if (!on) return;
     let frame = 0;
@@ -116,7 +123,8 @@ function useFollow(on: boolean, wrap: RefObject<HTMLDivElement | null>, fig: Ref
       const first = rows[0]?.r;
       const last = rows[rows.length - 1]?.r;
       const stacked = first ? f.left < first.right && f.right > first.left : false;
-      let line = stacked ? f.bottom + 8 : window.innerHeight * 0.45;
+      // Never below the screen: a short screen unpins the frame, and its foot may be anywhere.
+      let line = Math.min(stacked ? f.bottom + 8 : window.innerHeight * 0.45, window.innerHeight * 0.8);
       // Where the page ends before the last rows can reach the line, the line slides down to meet
       // them over the last stretch of scroll, so the bottom of the page shows the last row.
       const page = document.scrollingElement ?? document.documentElement;
@@ -125,28 +133,68 @@ function useFollow(on: boolean, wrap: RefObject<HTMLDivElement | null>, fig: Ref
       if (stop > line) line += (stop - line) * Math.min(1, Math.max(0, 1 - left / (window.innerHeight * 0.75)));
       let at = -1;
       rows.forEach((x, i) => { if (x.r.top <= line) at = i; });
-      // A row more than half past the line (on a phone, half under the frame) hands over to the next,
-      // so the lit row is always one you can read.
+      // The lit row is always one you can read: on a phone the next row takes over as soon as this
+      // one starts to slide under the frame, and beside the frame once it is half past the line.
       const reached = rows[at]?.r;
-      if (reached && at < rows.length - 1 && (reached.top + reached.bottom) / 2 < line) at += 1;
-      const next = at < 0 ? null : { key: rows[at]!.key, i: at, total: rows.length };
+      const passing = reached && (stacked ? reached.top < f.bottom - 4 : (reached.top + reached.bottom) / 2 < line);
+      if (passing && at < rows.length - 1) at += 1;
+      const next = at < 0 ? null : {
+        key: rows[at]!.key, i: at, total: rows.length,
+        near: [rows[at - 1]?.key, rows[at + 1]?.key].filter((k): k is string => Boolean(k)),
+      };
       setPicked((p) => (p?.key === next?.key && p?.i === next?.i && p?.total === next?.total ? p : next));
     };
     const schedule = () => { if (!frame) frame = requestAnimationFrame(pick); };
+    const scrolled = () => {
+      lastScroll.current = performance.now();
+      schedule();
+    };
     schedule();
     const root = wrap.current;
-    window.addEventListener('scroll', schedule, { passive: true });
+    window.addEventListener('scroll', scrolled, { passive: true });
     window.addEventListener('resize', schedule);
     // Opening the pool list adds rows; `toggle` does not bubble, so it is caught on the way down.
     root?.addEventListener('toggle', schedule, true);
+    // Rows that move without a scroll (a part finishing its read, the tape arriving above them).
+    const resized = typeof ResizeObserver === 'function' ? new ResizeObserver(schedule) : null;
+    if (root) resized?.observe(root);
     return () => {
       cancelAnimationFrame(frame);
-      window.removeEventListener('scroll', schedule);
+      window.removeEventListener('scroll', scrolled);
       window.removeEventListener('resize', schedule);
       root?.removeEventListener('toggle', schedule, true);
+      resized?.disconnect();
     };
   }, [on, wrap, fig, rowKeys]);
-  return on ? picked : null;
+  // A row sliding under a resting pointer during a scroll fires the same "entered" as a pointer
+  // moved onto it, so a hand-back that close behind a scroll is the scroll's, and is ignored.
+  const clear = () => {
+    if (performance.now() - lastScroll.current > 300) setPicked(null);
+  };
+  return { picked: on ? picked : null, clear };
+}
+
+/** The value once it has stopped changing for `ms`: the frame's picture waits for the scroll to rest. */
+function useSettled<T>(value: T, ms: number): T {
+  const [settled, setSettled] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setSettled(value), ms);
+    return () => clearTimeout(t);
+  }, [value, ms]);
+  return settled;
+}
+
+/** Fetch a frame's picture ahead, at the size the frame will ask for, so it is there when the frame turns to it. */
+function preloadDoor(roomId: string | null) {
+  const door = roomId ? doorOf(roomId) : null;
+  if (!door || typeof Image === 'undefined') return;
+  const img = new Image();
+  const set = artSrcSet(door.src);
+  if (set) {
+    img.sizes = FIG_SIZES;
+    img.srcset = set;
+  }
+  img.src = door.src;
 }
 
 const accentOf = (roomId: string | null) => (roomId ? BUNGALOWS.find((b) => b.id === roomId)?.accent : undefined);
@@ -536,62 +584,125 @@ function ConnectButtons({ solana, evm }: { solana: boolean; evm: boolean }) {
   );
 }
 
-// The frame's place in each layout. A phone: a wide plate across the card, pinned under the top bar
-// while the rows scroll beneath it, on a solid strip so a passing row never shows through its
-// caption. From 768px: pinned beside the board. The card is `overflow-clip`, not `hidden`, for this:
-// a hidden-overflow box is a scroll box of its own, and nothing inside it can pin to the screen.
-const FIG_CLASS =
-  'sticky z-10 self-start -mx-4 mt-5 top-[calc(3.5rem+env(safe-area-inset-top,0px))] bg-[#05080f] md:mx-0 md:mt-0 md:pt-4 md:top-20 md:bg-transparent lg:top-24 md:[grid-area:fig]';
+// The picture's widths in each layout, for srcset: the desktop frame, the upright iPad's, the phone's strip.
+const FIG_SIZES = '(min-width: 1024px) 360px, (min-width: 720px) 224px, 100vw';
+
+/**
+ * The frame's place in each layout. `slot` owns the grid area and `frame` is what pins: a pinned
+ * box stays inside its parent box, and a grid area is not one, so without the slot the frame rode
+ * on over the pool list below its row. The card is `overflow-clip`, not `hidden`, for the same
+ * reason: a hidden-overflow box is a scroll box of its own, and nothing inside it can pin.
+ *
+ * `follow` (a wallet is connected, so there are rows): a phone gets a wide plate across the card,
+ * pinned under the top bar while the rows scroll beneath it, on a solid strip so a passing row never
+ * shows through its caption; from 720px (an iPad mini upright and up) a tall frame pinned beside
+ * the board; from 1024px as before. `still` (no wallet): nothing to follow, so under 1024px it is a
+ * plate under the connect buttons, never pinned over them. A screen 500px tall or less (a phone
+ * held sideways) pins neither: the frame would fill it (IslandDashboard, `short`).
+ */
+const FIG_LAYOUT = {
+  follow: {
+    slot: 'contents min-[720px]:block [grid-area:fig]',
+    frame: 'sticky z-10 -mx-4 mt-5 top-[calc(3.5rem+env(safe-area-inset-top,0px)+var(--app-alert-h,0px))] bg-[#05080f] min-[720px]:mx-0 min-[720px]:mt-0 min-[720px]:pt-4 min-[720px]:top-[calc(5rem+var(--app-alert-h,0px))] min-[720px]:bg-transparent lg:top-24',
+    plate: 'aspect-[16/7] min-[640px]:aspect-[5/2] min-[720px]:aspect-[3/4] lg:aspect-[4/5] border-y min-[720px]:border',
+    // An upright iPad's 14rem frame sets its caption on two lines rather than cut the name.
+    caption: 'px-4 py-2 min-[720px]:px-0 min-[720px]:py-0 min-[720px]:mt-2 min-[720px]:max-lg:flex-col min-[720px]:max-lg:gap-1',
+    name: 'min-[720px]:max-lg:whitespace-normal min-[720px]:max-lg:line-clamp-2 min-[720px]:max-lg:min-h-[2.6em]',
+  },
+  still: {
+    slot: '[grid-area:fig]',
+    frame: 'mt-6 lg:sticky lg:z-10 lg:top-24 lg:mt-0 lg:pt-4',
+    plate: 'aspect-[16/7] min-[640px]:aspect-[5/2] lg:aspect-[4/5] border',
+    caption: 'mt-2',
+    name: '',
+  },
+} as const;
+
+/** `#rrggbb` at an alpha, for a chain colour's glow. */
+function tint(hex: string, alpha: number): string {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${alpha})`;
+}
+
+/**
+ * A chain's mark drawn as outlines, the way the frame's word is: the Ethereum diamond (ETH on
+ * Base is still ETH, in Base's blue) or Solana's three bars. The hairline stays a hairline at
+ * any frame size.
+ */
+function ChainArt({ chain }: { chain: string }) {
+  const stroke = CHAIN_DOT[chain] ?? GREEN;
+  const line = { fill: tint(stroke, 0.08), stroke, strokeWidth: 1.5, strokeLinejoin: 'round' as const, vectorEffect: 'non-scaling-stroke' as const };
+  return chain === 'solana' ? (
+    <svg viewBox="-2 -2 124 104" className="absolute right-[8%] top-1/2 -translate-y-[58%] h-[56%] w-auto">
+      <path d="M22 0H120L98 24H0Z" {...line} />
+      <path d="M0 38H98L120 62H22Z" {...line} />
+      <path d="M22 76H120L98 100H0Z" {...line} />
+    </svg>
+  ) : (
+    <svg viewBox="-2 -2 104 164" className="absolute right-[10%] top-1/2 -translate-y-[56%] h-[72%] w-auto">
+      <path d="M50 0L100 82L50 110L0 82Z" {...line} />
+      <path d="M50 0V110M0 82L50 60L100 82" {...line} fill="none" />
+      <path d="M50 122L100 94L50 160L0 94Z" {...line} />
+    </svg>
+  );
+}
 
 /**
  * The big frame: the door picture of the row you are on, captioned as a plate. A coin with no room
- * (SOL, ETH) shows its chain's colour and mark. The frame is a size container, so its word and mark
- * are sized by the frame they sit in, whatever the screen makes of it.
+ * (SOL, ETH) shows its chain's mark on the dark plate, in the chain's colour. The frame is a size
+ * container, so its word and mark are sized by the frame they sit in, and the word by its length
+ * too, so a long one is never cut at the frame's side. The word wipes in with its picture.
  */
-function Figure({ fig, progress, frameRef }: { fig: Fig; progress: number | null; frameRef: RefObject<HTMLDivElement | null> }) {
+function Figure({ fig, mode, unpinned, quick, progress, frameRef }: {
+  fig: Fig; mode: keyof typeof FIG_LAYOUT; unpinned: boolean; quick: boolean; progress: number | null; frameRef: RefObject<HTMLDivElement | null>;
+}) {
+  const layout = FIG_LAYOUT[mode];
   const door = fig.roomId ? doorOf(fig.roomId) : null;
   const reduce = prefersReducedMotion();
   const srcSet = door ? artSrcSet(door.src) : undefined;
   const plate = fig.roomId ?? `chain:${fig.chain}`;
   return (
-    <div ref={frameRef} aria-hidden="true" data-testid="dashboard-figure" className={FIG_CLASS}>
-      <div className="relative aspect-[16/7] sm:aspect-[5/2] md:aspect-[3/4] lg:aspect-[4/5] overflow-hidden border-y md:border border-white/15 [container-type:size]" style={{ background: EDITORIAL_BG }}>
-        <AnimatePresence initial={false}>
-          <m.div key={plate} className="absolute inset-0"
-            initial={reduce ? { opacity: 0 } : { clipPath: 'inset(100% 0% 0% 0%)' }}
-            animate={reduce ? { opacity: 1 } : { clipPath: 'inset(0% 0% 0% 0%)' }}
-            exit={{ opacity: 0, transition: { duration: 0.3 } }}
-            transition={{ duration: 0.7, ease: EDITORIAL_EASE }}>
-            {door ? (
-              // art-bright: index.css dims any full-bleed art to 0.45; nothing but a caption sits on this one.
-              <img src={door.src} {...(srcSet ? { srcSet, sizes: '(min-width: 1024px) 360px, (min-width: 768px) 224px, 100vw' } : {})} alt="" loading="lazy" decoding="async"
-                className="w-full h-full object-cover art-bright"
-                style={door.objectPosition ? { objectPosition: door.objectPosition } : undefined} />
-            ) : (
-              <span data-testid="chain-plate" className="absolute inset-0 flex items-center justify-end pr-[8%]" style={{ background: CHAIN_DOT[fig.chain] ?? GREEN }}>
-                <span className="font-black leading-none text-[#05080f] text-[5rem] supports-[height:1cqh]:text-[length:62cqh]" style={HEADING_FONT}>
-                  {fig.chain === 'solana' ? '◎' : 'Ξ'}
+    <div className={layout.slot}>
+      <div ref={frameRef} aria-hidden="true" data-testid="dashboard-figure" className={layout.frame} style={unpinned ? { position: 'static' } : undefined}>
+        <div className={`relative overflow-hidden border-white/15 [container-type:size] ${layout.plate}`} style={{ background: EDITORIAL_BG }}>
+          <AnimatePresence initial={false}>
+            <m.div key={plate} className="absolute inset-0"
+              initial={reduce ? { opacity: 0 } : { clipPath: 'inset(100% 0% 0% 0%)' }}
+              animate={reduce ? { opacity: 1 } : { clipPath: 'inset(0% 0% 0% 0%)' }}
+              exit={{ opacity: 0, transition: { duration: 0.3 } }}
+              // Following a scroll, a shorter wipe: the next row is never far behind.
+              transition={{ duration: quick ? 0.45 : 0.7, ease: EDITORIAL_EASE }}>
+              {door ? (
+                // art-bright: index.css dims any full-bleed art to 0.45; nothing but a caption sits on this one.
+                <img src={door.src} {...(srcSet ? { srcSet, sizes: FIG_SIZES } : {})} alt="" loading="lazy" decoding="async"
+                  className="w-full h-full object-cover art-bright"
+                  style={door.objectPosition ? { objectPosition: door.objectPosition } : undefined} />
+              ) : (
+                <span data-testid="chain-plate" className="absolute inset-0"
+                  style={{ background: `radial-gradient(120% 95% at 82% 42%, ${tint(CHAIN_DOT[fig.chain] ?? GREEN, 0.3)} 0%, ${EDITORIAL_BG} 68%)` }}>
+                  <span className="absolute inset-0 opacity-[0.1] mix-blend-screen" style={{ backgroundImage: EDITORIAL_GRAIN }} />
+                  <ChainArt chain={fig.chain} />
                 </span>
+              )}
+              <span className="absolute inset-x-0 bottom-0 h-2/5 pointer-events-none" style={{ background: `linear-gradient(to top, ${EDITORIAL_BG} 0%, rgba(5,8,15,0) 100%)` }} />
+              {/* The word, outlined and cut by the frame's foot. */}
+              <span className="absolute left-4 bottom-0 translate-y-[24%] whitespace-nowrap font-black leading-none tracking-[-0.06em] text-[clamp(3rem,15vw,5rem)] max-lg:supports-[width:1cqw]:text-[length:min(26cqw,46cqh,calc(135cqw/var(--len)))] lg:text-[clamp(3.5rem,6.2vw,5.75rem)] select-none"
+                style={{ ...HEADING_FONT, ...OUTLINE, '--len': Math.max(fig.word.length, 3) } as CSSProperties}>
+                {fig.word}
               </span>
-            )}
-          </m.div>
-        </AnimatePresence>
-        <span className="absolute inset-x-0 bottom-0 h-2/5 pointer-events-none" style={{ background: `linear-gradient(to top, ${EDITORIAL_BG} 0%, rgba(5,8,15,0) 100%)` }} />
-        {/* The word, outlined and cut by the frame's foot. */}
-        <span key={`w-${plate}`} className="absolute left-4 bottom-0 translate-y-[24%] whitespace-nowrap font-black leading-none tracking-[-0.06em] text-[clamp(3rem,15vw,5rem)] max-lg:supports-[width:1cqw]:text-[length:min(26cqw,46cqh)] lg:text-[clamp(3.5rem,6.2vw,5.75rem)] select-none"
-          style={{ ...HEADING_FONT, ...OUTLINE }}>
-          {fig.word}
-        </span>
-      </div>
-      <div className="relative flex justify-between gap-3 px-4 py-2 md:px-0 md:py-0 md:mt-2 font-mono text-[11px] tracking-[0.12em] text-[#f5e4b8]/60">
-        {/* The number never wraps; a caption too long for an upright iPad's frame is cut instead. */}
-        <span className="shrink-0 whitespace-nowrap">fig. {pad2(fig.n)}</span>
-        <span className="truncate">{fig.caption}</span>
-        {/* A phone, an iPad: how far down the board the frame has followed you. */}
-        {progress !== null && (
-          <span data-testid="figure-progress" className="absolute left-0 bottom-0 md:-bottom-2 h-px w-full origin-left bg-[#22c55e] transition-transform duration-300 ease-out"
-            style={{ transform: `scaleX(${progress})` }} />
-        )}
+            </m.div>
+          </AnimatePresence>
+        </div>
+        <div className={`relative flex justify-between gap-3 font-mono text-[11px] tracking-[0.12em] text-[#f5e4b8]/60 ${layout.caption}`}>
+          {/* The number never wraps. */}
+          <span className="shrink-0 whitespace-nowrap">fig. {fig.no}</span>
+          <span className={`truncate ${layout.name}`}>{fig.caption}</span>
+          {/* Following a scroll: how far down the board the frame has followed you. */}
+          {progress !== null && (
+            <span data-testid="figure-progress" className="absolute left-0 bottom-0 min-[720px]:-bottom-2 h-px w-full origin-left bg-[#22c55e] transition-transform duration-300 ease-out"
+              style={{ transform: `scaleX(${progress})` }} />
+          )}
+        </div>
       </div>
     </div>
   );
@@ -608,30 +719,44 @@ export function IslandDashboard({ headingLevel = 2 }: { headingLevel?: 1 | 2 }) 
   const heldRows = board.holdings.flatMap((l) => (l.leg.status === 'ok' ? l.leg.rows : []));
   const positionRows = board.positions.flatMap((l) => (l.leg.status === 'ok' ? l.leg.rows : []));
   const symbolOf = (roomId: string | null) => (roomId ? BUNGALOWS.find((b) => b.id === roomId)?.symbol : undefined);
-  const holdingFig = (r: HoldingRow): Fig =>
-    ({ key: `h:${r.key}`, roomId: r.roomId, chain: r.chain, word: symbolOf(r.roomId) ?? r.symbol, caption: `${r.symbol} · ${WALLET_CHAIN_LABEL[r.chain]}`, n: 1 });
-  const positionFig = (r: PositionRow): Fig =>
-    ({ key: `p:${r.key}`, roomId: r.roomId, chain: r.chain, word: symbolOf(r.roomId) ?? r.title.split(' ')[0] ?? '', caption: `${r.title} · ${WALLET_CHAIN_LABEL[r.chain]}`, n: 2 });
+  // A plate is numbered by its row: section and place for the wallet's rows (the board's "01" and
+  // "02" headings, and each row's own number), the place alone for a pool.
+  const holdingFig = (r: HoldingRow, i: number): Fig =>
+    ({ key: `h:${r.key}`, roomId: r.roomId, chain: r.chain, word: symbolOf(r.roomId) ?? r.symbol, caption: `${r.symbol} · ${WALLET_CHAIN_LABEL[r.chain]}`, no: `01.${pad2(i + 1)}` });
+  const positionFig = (r: PositionRow, i: number): Fig =>
+    ({ key: `p:${r.key}`, roomId: r.roomId, chain: r.chain, word: symbolOf(r.roomId) ?? r.title.split(' ')[0] ?? '', caption: `${r.title} · ${WALLET_CHAIN_LABEL[r.chain]}`, no: `02.${pad2(i + 1)}` });
   const poolFig = (row: VenuePoolRow, i: number): Fig =>
-    ({ key: `pool:${row.id}`, roomId: row.id, chain: row.chain, word: symbolOf(row.id) ?? row.symbol, caption: `${row.name} · ${CHAIN_LABEL[row.chain] ?? row.chain}`, n: i + 1 });
-  const figs = new Map([...heldRows.map(holdingFig), ...positionRows.map(positionFig), ...pools.map(poolFig)].map((f) => [f.key, f]));
+    ({ key: `pool:${row.id}`, roomId: row.id, chain: row.chain, word: symbolOf(row.id) ?? row.symbol, caption: `${row.name} · ${CHAIN_LABEL[row.chain] ?? row.chain}`, no: pad2(i + 1) });
+  const walletFigs = [...heldRows.map(holdingFig), ...positionRows.map(positionFig)];
+  const figs = new Map([...walletFigs, ...pools.map(poolFig)].map((f) => [f.key, f]));
 
-  // The frame shows the row you are on: under the pointer, or on a phone or an iPad the row the
-  // scroll has brought to the reading line. Else the wallet's first row with a room, else the first pool.
-  const handheld = useHandheld();
+  // The frame shows the row you are on: under the pointer, or, on a touch screen with a wallet's
+  // rows to follow, the row the scroll has brought to the reading line. Else the wallet's first row
+  // with a room, else the first pool. A tap or a focus takes it back until the next scroll.
+  const mode = connected ? 'follow' : 'still';
+  const touch = useMedia(TOUCH);
+  const short = useMedia(SHORT);
   const wrapRef = useRef<HTMLDivElement>(null);
   const frameRef = useRef<HTMLDivElement>(null);
-  const picked = useFollow(handheld, wrapRef, frameRef, [...figs.keys()].join('|'));
+  const { picked, clear } = useFollow(touch && connected, wrapRef, frameRef, [...figs.keys()].join('|'));
   const followed = picked ? figs.get(picked.key) ?? null : null;
+  // The row lights at once; the picture waits for the scroll to rest, so a quick scroll is not a
+  // run of half-finished wipes. The rows either side are fetched ahead.
+  const settledKey = useSettled(followed?.key ?? null, 150);
+  const settled = settledKey ? figs.get(settledKey) ?? null : null;
+  const nearRooms = (picked?.near ?? []).map((k) => figs.get(k)?.roomId ?? '').filter(Boolean).join('|');
+  useEffect(() => { for (const room of nearRooms.split('|')) if (room) preloadDoor(room); }, [nearRooms]);
   const [hovered, setHovered] = useState<Fig | null>(null);
-  const fallbackRoom = [...heldRows, ...positionRows].find((r) => r.roomId)?.roomId ?? pools[0]?.id ?? 'bayla';
-  const fallback = BUNGALOWS.find((b) => b.id === fallbackRoom);
-  const shown: Fig = followed ?? hovered ?? {
-    key: 'fallback', roomId: fallbackRoom, chain: fallback?.chain ?? 'solana', word: fallback?.symbol ?? '',
-    caption: fallback ? `${fallback.name} · ${CHAIN_LABEL[fallback.chain] ?? fallback.chain}` : '', n: 1,
+  const fallback = walletFigs.find((f) => f.roomId) ?? (pools[0] ? poolFig(pools[0], 0) : null);
+  const shown = settled ?? hovered ?? fallback;
+  const show = (f: Fig) => () => {
+    setHovered(f);
+    clear();
   };
-  const show = (f: Fig) => () => setHovered(f);
   const isCurrent = (f: Fig) => followed?.key === f.key;
+  const figure = shown && (
+    <Figure fig={shown} mode={mode} unpinned={short} quick={touch} progress={picked ? (picked.i + 1) / picked.total : null} frameRef={frameRef} />
+  );
 
   const total = holdingsTotal(board.holdings.map((l) => l.leg));
   // Shares and the tape only over a whole read: a part left out would misstate the rest.
@@ -700,25 +825,30 @@ export function IslandDashboard({ headingLevel = 2 }: { headingLevel?: 1 | 2 }) 
 
       {connected && everyLegRead && heldRows.length > 0 && <WalletTape rows={heldRows} />}
 
-      {/* A phone: one column, the frame first so it can pin above the rows. From 768px the board and
-          the frame stand side by side with the pool list under both; from 1024px the frame runs on
-          beside the pool list too (its row is 1fr, so a tall frame never opens a gap above the list). */}
+      {/* With a wallet: a phone stacks it, the frame first so it can pin above the rows (and every
+          control under it scrolls clear of the pinned frame when focused); from 720px the board and
+          the frame stand side by side with the pool list under both. Without one, the frame follows
+          the connect buttons. From 1024px, either way, the frame runs on beside the pool list too
+          (its row is 1fr, so a tall frame never opens a gap above the list). Grid areas are named on
+          the parts themselves: outside a grid they do nothing. */}
       <div ref={wrapRef}
-        className="relative md:grid md:gap-x-7 lg:gap-x-10 md:grid-cols-[minmax(0,1fr)_14rem] lg:grid-cols-[minmax(0,1fr)_minmax(0,21rem)] lg:grid-rows-[auto_1fr] md:[grid-template-areas:'board_fig'_'pools_pools'] lg:[grid-template-areas:'board_fig'_'pools_fig']">
-        <Figure fig={shown} progress={picked ? (picked.i + 1) / picked.total : null} frameRef={frameRef} />
-        <div className="min-w-0 md:[grid-area:board]">
+        className={mode === 'follow'
+          ? "relative min-[720px]:grid min-[720px]:gap-x-7 lg:gap-x-10 min-[720px]:grid-cols-[minmax(0,1fr)_14rem] lg:grid-cols-[minmax(0,1fr)_minmax(0,21rem)] lg:grid-rows-[auto_1fr] min-[720px]:[grid-template-areas:'board_fig'_'pools_pools'] lg:[grid-template-areas:'board_fig'_'pools_fig'] max-[719px]:[&_:is(a,button,summary)]:scroll-mt-[46vw]"
+          : "relative lg:grid lg:gap-x-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,21rem)] lg:grid-rows-[auto_1fr] lg:[grid-template-areas:'board_fig'_'pools_fig']"}>
+        {mode === 'follow' && figure}
+        <div className="min-w-0 [grid-area:board]">
           {connected ? (
             <>
               <LegBlock n={1} title="Holdings" legs={board.holdings}
                 empty="No SOL, ETH or island coins in this wallet."
                 render={(r, i) => {
-                  const f = holdingFig(r);
+                  const f = holdingFig(r, i);
                   return <HoldingItem key={r.key} n={i + 1} row={r} share={shareOf.get(r.key)} onShow={show(f)} figKey={f.key} current={isCurrent(f)} />;
                 }} />
               <LegBlock n={2} title="Positions" legs={board.positions}
                 empty="No locks, stakes or pool shares here yet. Every pool is listed below."
                 render={(r, i) => {
-                  const f = positionFig(r);
+                  const f = positionFig(r, i);
                   return <PositionItem key={r.key} n={i + 1} row={r} onShow={show(f)} figKey={f.key} current={isCurrent(f)} />;
                 }} />
               {(!board.solanaAddress || !board.evmAddress) && (
@@ -729,14 +859,15 @@ export function IslandDashboard({ headingLevel = 2 }: { headingLevel?: 1 | 2 }) 
               )}
             </>
           ) : (
-            <div className="py-8">
+            <div className="pt-8 pb-2 lg:pb-8">
               <ConnectButtons solana={false} evm={false} />
             </div>
           )}
         </div>
+        {mode === 'still' && figure}
 
         {/* Every pool on the island, one press away: where a position starts. */}
-        <details className="group/pools mt-6 border-t border-white/25 md:[grid-area:pools]">
+        <details className="group/pools mt-6 border-t border-white/25 [grid-area:pools]">
           <summary className="flex items-center justify-between gap-3 min-h-[52px] cursor-pointer select-none list-none font-mono text-[11px] uppercase tracking-[0.16em] text-[#f5e4b8]/80 hover:text-[#22c55e] [&::-webkit-details-marker]:hidden">
             <span>All {pools.length} pools on the island · {chains} chains</span>
             <span aria-hidden="true" className="text-[16px] transition-transform duration-300 group-open/pools:rotate-45">+</span>

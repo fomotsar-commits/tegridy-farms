@@ -124,6 +124,24 @@ export function AppLayout() {
   // guard is structurally unreachable dead code.
   const wrongNetwork = isConnected && walletChainId != null && !isChainConfigured(walletChainId);
 
+  // The banner's height, as `--app-alert-h` on <html>, so anything else pinned under the top bar
+  // (the dashboard's frame, IslandDashboard.tsx) pins under the banner instead of beneath it. Its
+  // copy wraps to three lines on a phone, so it is measured, not assumed.
+  const alertRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = alertRef.current;
+    const root = document.documentElement;
+    if (!el) return;
+    const measure = () => root.style.setProperty('--app-alert-h', `${el.offsetHeight}px`);
+    measure();
+    const resized = typeof ResizeObserver === 'function' ? new ResizeObserver(measure) : null;
+    resized?.observe(el);
+    return () => {
+      resized?.disconnect();
+      root.style.removeProperty('--app-alert-h');
+    };
+  }, [wrongNetwork]);
+
   useEffect(() => {
     if (isConnected && connector?.name) trackWalletConnect(connector.name);
   }, [isConnected, connector?.name]);
@@ -221,6 +239,7 @@ export function AppLayout() {
             it fixed in the first place: it stays visible as the page scrolls. */}
         {wrongNetwork && (
           <div
+            ref={alertRef}
             className="sticky z-50 bg-red-600/95 backdrop-blur-sm text-white text-center py-2 px-4 text-[12px] md:text-[13px] font-medium shadow-lg"
             style={{
               top: 'calc(56px + env(safe-area-inset-top, 0px))',
