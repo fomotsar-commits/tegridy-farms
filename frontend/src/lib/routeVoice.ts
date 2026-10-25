@@ -1,4 +1,6 @@
 import { BUNGALOWS, CARDS_ROOM_ID, type Bungalow } from './bungalows';
+// Plain text only: whether the Cardano swap is shown (lib/cardano/flags.ts).
+import { cardanoSwapVisible } from './cardano/flags';
 
 /**
  * WAVE SEVEN, ruling 2 (row Q): EVERY ROUTE SPEAKS AS THE VENUE OR LIVES BEHIND
@@ -97,6 +99,18 @@ export function isToweliRoomPage(pathname: string): boolean {
  * connection that was about to be unmounted (review, 2026-10-03).
  */
 const SOLANA_PATHS: ReadonlySet<string> = new Set(['/solana', '/pools', '/solana-lp', '/curve-launch']);
+
+/**
+ * The Cardano pages. The top bar's wallet slot there is the page's Cardano wallet
+ * (lib/cardano/walletStore.ts), never the Ethereum list: no EVM connect can reach Cardano.
+ * Exact, as the router matches these tabs.
+ */
+const CARDANO_PATHS: ReadonlySet<string> = new Set(['/cardano']);
+
+/** Only while the Cardano swap is shown: with it off, /cardano is the 404 page, with no Cardano wallet to connect. */
+export function isCardanoPage(pathname: string, shown: boolean = cardanoSwapVisible()): boolean {
+  return shown && CARDANO_PATHS.has(normalize(pathname));
+}
 
 /**
  * Pages whose wallet action is on Solana, read from the path alone, before

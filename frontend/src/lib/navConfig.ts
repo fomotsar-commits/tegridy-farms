@@ -11,6 +11,8 @@ import {
   PREMIUM_ACCESS_ADDRESS,
 } from './constants';
 import { isSolanaSwapLive } from './solana';
+// Plain text only, like rangePoolsVisible below: the Cardano swap's switch (lib/cardano/flags.ts).
+import { cardanoSwapVisible } from './cardano/flags';
 import { BUNGALOWS, getActiveBungalow } from './bungalows';
 import { EARN_PATH, earnPoolPath, isEarnPoolId } from './earnRoutes';
 import { hasRoutableYieldVenue } from './yield/venues';
@@ -129,6 +131,8 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { to: '/swap', label: 'Swap', tabLabel: 'Ethereum' },
       ...(SOLANA_LIVE ? [{ to: '/solana', label: 'Solana Swap', tabLabel: 'Solana' }] : []),
+      // Hidden, with no route, until the owner opens it (CARDANO_SWAP_OPEN, lib/cardano/flags.ts).
+      ...(cardanoSwapVisible() ? [{ to: '/cardano', label: 'Cardano Swap', tabLabel: 'Cardano' }] : []),
     ],
   },
   {
@@ -163,8 +167,6 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { to: '/island',      label: 'The island',  tabLabel: 'Island' },
       { to: '/gallery',     label: 'Gallery' },
-      // Mounted outside AppLayout (App.tsx), so it could never render in a host's panel.
-      { to: '/nakamigos',   label: 'Marketplace' },
       ...(COMMUNITY_LIVE ? [{ to: '/community', label: 'Community' }] : []),
       // NUMBERS_TABS[0]; StatsPage hosts /tokenomics, /treasury and /tax. The test keeps the two equal.
       { to: '/tokenomics',  label: 'Treasury & numbers', tabLabel: 'Numbers' },

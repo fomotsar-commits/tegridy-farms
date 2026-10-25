@@ -29,7 +29,150 @@ stop and say so — a surprise is information.
 
 ---
 
-## 🔴 2026-10-22: two merges only you can press (#930 done, #776 on Day 2)
+## 🔴 2026-10-24, 17:03 UTC: the pool program was rolled back by mistake; re-upgrade postponed
+
+Read on chain on 2026-10-24 at 17:07 UTC. Newer than the section below.
+
+**What happened.** Proposal #16, the pre-staged roll-back, was executed at 17:03:00 UTC; the one
+meant was #18.
+- The pool program `EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT` runs the old build `88b98aa9`
+  again (slot 460,927,956). It is still held by the vault.
+- Both pools trade, and the pack's check after a roll-back passed.
+- **#18 is dead.** It would have returned the roll-back buffer's SOL, but #16 used that buffer up,
+  and the buffer's 3.514 SOL went back to the paying wallet. #18 can never execute. Leave it.
+- **#20 is untouched.** It renames the two BAYLA pool shares from 2026-10-25 09:07:08 UTC, and it
+  does not depend on which pool build runs.
+
+**You postponed the re-upgrade** ("im not tryna lock my sol again tbh"). Its plan is
+`C:\Users\jimbo\solana-launch-release-2026-09-26\pool-program-upgrade-2026-10\RE-UPGRADE-2026-10-24.md`.
+No enlarge is needed: the program account is still large enough. As written, the plan also
+pre-stages a roll-back (your choice on 2026-10-24); decide that again when you do it.
+
+**What stays off until the re-upgrade:**
+- **The launch-tier gate. Anyone can open a pool on the launch tier (fee tier 0) the public way,
+  which skips the venue's 0.15 SOL opening fee and the 1% public tier (0.16% of each trade to the
+  venue there, 0.05% on the launch tier).**
+- The share-naming instruction (`create_lp_metadata`): no new pool's share can get a name record,
+  so the "name every pool share" work waits. The two BAYLA records already exist.
+- The site's wording about the pool program (from #776) says it has both. **Pull request #991**
+  (not merged; your word) puts the wording, the address registry and the local test chain back on
+  the old build. Until it merges, the site says more than the program does. No page of the site
+  calls the missing instruction. On re-upgrade day a session undoes #991 again; the plan's step
+  R15b says how.
+
+**Before you do the re-upgrade:**
+- ⬜ Send the paying wallet `CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg` **3.69 SOL**, or **7.21
+  SOL** if you pre-stage a roll-back again. You are moving its 7.281902 SOL to
+  `Upmhw8i6RSLXoj4yGzq9ZYLXb4UzZMRm7BSX8BxCdEd` now, so it will be empty. The upload's 3.68 SOL
+  comes back when the upgrade executes.
+- ⬜ Send member A `5QHzAqbGk3W8qGRBHCMyWjhLXf8YJcs3yPEh14Ymcwgz` **0.02 SOL**. It holds 0.0043,
+  and each proposal costs it 0.0046.
+- ⬜ Then follow the plan: today's steps, and the execute 48 hours after member B's approval.
+
+**Your decision: unpausing launches (paused until at least 2026-10-26 08:00 UTC).** The re-upgrade
+does not have to come first. A graduation opens its pool through the launcher, at the launcher's
+own address, and the old build does that just as well. A stranger's pool on the launch tier cannot
+take that address. The gap above costs fees whether launches are paused or not.
+
+---
+
+## 🔴 2026-10-24: what is left after upgrade Day 2 (read this first)
+
+Read on chain and on GitHub on 2026-10-24, about 03:30 UTC.
+
+**Done on 2026-10-22 and 23:**
+
+- The Base BRB/WETH pool `0x48A7CADc6b785654Ba6BB620cc2B8352631D08D0` pays the venue its cut
+  again: the L2 Safe ran `harvest()` (Safe transaction 5, tx
+  `0x49284b556086b0768ac9fa4999fd8d5c62112d215b49ae23116000c59c89e796`). The old NFT pool factory
+  `0xbB8E49Ba4e3A85E2B8B70e00208770F429B56F5B` is paused (governance Safe transaction 0).
+- Upgrade Day 2: the ladder runs its four-year build (#17), and the pool program is the build
+  `1e55bcdc` (#15, executed 08:44:16 UTC, slot 460,379,427). Each pack's step 16 passed, including
+  the launch tier refusing a stranger's pool. The three upgrade-day files are in `artifacts\`. Both
+  pool shares have their name records, and the rename (#20) is approved by both members.
+- Merged: #776, #942, #695 (migration 027 applied first), #956, #926, #932, #940, #943, #963 and
+  #967. `JUPITER_API_KEY` is set in Vercel for Production. The island was sent the range-fee date.
+
+**Left, in this order:**
+
+1. ⬜ **Execute the range fee tiers (#19). It can run now.** The public notice said no sooner than
+   2026-10-23 14:00 UTC. Read on 2026-10-24: not executed (the range program owns no accounts).
+   The folder's START-HERE, steps 4 and 5:
+
+   ```bash
+   node "C:\Users\jimbo\solana-launch-release-2026-09-26\range-pools-tiers-2026-10\scripts\5-record-notice.mjs"
+   ```
+   ```bash
+   node "C:\Users\jimbo\solana-launch-release-2026-09-26\range-pools-tiers-2026-10\proposer\serve.mjs"
+   ```
+
+   Open **http://127.0.0.1:5499/**, connect either member, and press **EXECUTE proposal #19**. You
+   should see `Done: proposal #19 is EXECUTED. Run 6-verify-tiers.mjs.` Then:
+
+   ```bash
+   node "C:\Users\jimbo\solana-launch-release-2026-09-26\range-pools-tiers-2026-10\scripts\6-verify-tiers.mjs"
+   ```
+
+   After that a session opens the one-line pull request that turns `RANGE_POOLS_OPEN` on. Until it
+   merges, the Range tab and the range pools in the swap route stay hidden.
+
+2. ⬜ **Day 4, Sunday 2026-10-25, from 09:07 UTC: the pool pack's step 22.** Start the page, open
+   **http://127.0.0.1:5299/**, connect a member and execute **#20** (the rename to "Bayla LP SOL"
+   and "Bayla LP USDC"):
+
+   ```bash
+   node "C:\Users\jimbo\solana-launch-release-2026-09-26\pool-program-upgrade-2026-10\proposer\serve.mjs"
+   ```
+
+   Skip step 22b: #18 can never execute now (see the section above, 17:03 UTC). Then steps 23
+   and 24.
+
+3. ⬜ **#968, Every position:** the Solana LP page lists every holder of each of our pools, with the
+   connected wallet's rows marked. The owner said "merge 968 when green" on 2026-10-24, and a
+   session merges it once every check passes and GitHub reads it `CLEAN`. If it is still open, ask
+   a session to bring trunk in again.
+
+4. ⬜ **Decisions:** the keeper bot #844 (fund a small keeper, or close the pull request); the 0.25%
+   fee tier proposal (it unblocks #887 and #880, and #877 also needs its 7 days' public notice);
+   #824 and #817 wait for their deploys.
+
+5. ⬜ **The BAYLA December refill.** Pick the amount by 2026-11-15 (7,703,866.368 BAYLA is the
+   recommendation). The second approval is due by 2026-12-21 15:32:16 UTC, and the execute runs from
+   2026-12-23 15:32:16 UTC: the ladder pack's steps R1 to R4.
+
+**How merges work now:** a session merges a pull request only when the owner names it ("merge 968").
+A general "merge what you can" is refused as a production deploy.
+
+---
+
+## 2026-10-24: Cardano swap (you: "cardano in every aspect")
+
+The swap is **open** (`CARDANO_SWAP_OPEN = true`), on your word: "Go live without the venue fee
+for now, and add it when the treasury exists". Plan and rulings: [`CARDANO_PLAN.md`](CARDANO_PLAN.md).
+
+1. ⬜ **Make the venue's two-key Cardano treasury** (a two-signature native-script wallet, the
+   vault's equivalent) and send its address to a session, which puts it in
+   `frontend/src/lib/cardano/venueFee.ts`. **Until then Cardano swaps earn the venue nothing** and
+   the page says so. Eternl makes multi-sig wallets only with Eternl Pro ($96 a year); your keys A
+   and B are made. After it is registered, one real swap of at least 200 ADA shows the fee line live
+   (under about 200 ADA no venue fee is charged: a Cardano output must hold about 1 ADA).
+2. ✅ **Koios key** set as `KOIOS_API_KEY` on Vercel (Production), 2026-10-24.
+3. ✅ **Real swaps walked on mainnet**, 2026-10-24, from key A: a buy (25 ADA for 1,580.426944 MIN)
+   and a sell (the same MIN for 24.532531 ADA), each filled at exactly the quoted amount.
+
+Next after that: our own Cardano pools (plan Part 2), which ends in an audit you pay for.
+
+## 2026-10-24: for later, Jupiter's paid plan (you: "stay on free now")
+
+- ⬜ **Jupiter's Developer plan, $25 a month**, on the "memetics" org that owns
+  `JUPITER_API_KEY`. It allows 10 requests a second; the free key allows 1 (developers.jup.ag/pricing,
+  read 2026-10-24). Why it matters: on the free key, Buy spaces its five exact quotes one a second,
+  so they take at least 5 seconds to firm up. After you upgrade, tell a session: it removes that
+  spacing, a small code change. Until then nothing is broken, only slower.
+
+---
+
+## ✅ 2026-10-22: two merges only you can press (both done)
 
 A session's merge was refused on 2026-10-22 as a production deploy, after a general "merge". A
 second word that names the one PR ("merge 930") has let a merge through before, but not always.
@@ -55,7 +198,11 @@ command.
   (#933, the splash art held still under reduced motion, merged 2026-10-22 at 10:36 UTC and is
   live.)
 
-- ⬜ **Merge #776 within the hour after the pool upgrade executes on Day 2** (pool proposal #15,
+- ✅ **Done 2026-10-23 15:55 UTC** (merge commit `e1ff3b467`, Vercel deployed it 15:59 UTC). Pool
+  proposal #15 executed at 08:44:16 UTC in slot 460,379,427; mainnet runs `1e55bcdc…`, and the
+  record is in `solana/tegridy-amm/MAINNET_RUNBOOK.md` section 4b. Left from it: tick O-0929-10
+  (below) once the explorer's security tab shows the new text.
+  **Merge #776 within the hour after the pool upgrade executes on Day 2** (pool proposal #15,
   executable from 2026-10-23 06:20:22 UTC, read on chain 2026-10-22; the ladder's #17 follows at
   06:37:12). Not before: until the execute, everything
   #776 says about mainnet is false. It is a draft, level with trunk at `cdacf9c49`, and keeps
@@ -1085,9 +1232,14 @@ GIT_HOSTING.md, the runbook's four GitLab lines and `OUR_REPOS` in
 
 ## 🟡 2026-09-29: at the next cp-swap upgrade, point its on-chain security.txt at our own domain
 
-### ⬜ O-0929-10: four `security_txt!` fields. On chain since the upgrade; one look left
+### ⬜ O-0929-10: four `security_txt!` fields. Off chain again since the roll-back of 2026-10-24
 
-**Where it stands now: the upgrade has executed.** The pool program on mainnet is the build
+**2026-10-24: rolled back.** The pre-staged roll-back, proposal #16, executed at 17:03:00 UTC
+(slot 460,927,956), so mainnet runs the 2026-09-29 build `88b98aa9…` again and the explorer's
+security tab shows the old text. Do not tick this box until the re-upgrade has executed and the
+tab shows the new values. The paragraph below was true from 2026-10-23 until the roll-back.
+
+**Where it stood from 2026-10-23: the upgrade had executed.** The pool program on mainnet was the build
 that carries the four values below (sha256 `1e55bcdc…`, 725,176 bytes; the same upgrade also
 closed fee tier 0 to a public pool opening, pull request #899). The day, the slot and
 the transaction are in `solana/tegridy-amm/MAINNET_RUNBOOK.md`, section 4b. The website

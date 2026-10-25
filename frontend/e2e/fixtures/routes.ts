@@ -422,6 +422,16 @@ export const ROUTES: readonly RouteSpec[] = [
     knownViolations: [],
   },
   {
+    path: '/cardano',
+    voice: 'venue',
+    owner: 'pages/CardanoSwapPage.tsx',
+    gate: null,
+    why:
+      'Opened 2026-10-24 (CARDANO_SWAP_OPEN, lib/cardano/flags.ts). The form audits with no wallet ' +
+      'connected; quotes need the /api/cardano chain reads, so it renders without live prices in this suite.',
+    knownViolations: [],
+  },
+  {
     path: '/range-pools',
     voice: null,
     owner: 'pages/RangePoolsPage.tsx',

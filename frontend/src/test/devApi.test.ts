@@ -56,6 +56,18 @@ describe('dev /api runs the function, never the module server', () => {
     }
   });
 
+  // /api/cardano/<op> is a vercel.json rewrite, not an api/ file: the Cardano dev route
+  // (cardanoDevApiPlugin) answers it, ahead of this plugin, which would call it a 404.
+  // Both requests are refused by the named-read table before any upstream call.
+  it('the Cardano reads are answered by their own dev route, not called missing', async () => {
+    const junk = await get('/api/cardano/tip?x=1');
+    expect(junk.status).toBe(400);
+    expect(JSON.parse(junk.body)).toEqual({ error: 'Bad parameters' });
+    const unknown = await get('/api/cardano/no-such-read');
+    expect(unknown.status).toBe(404);
+    expect(JSON.parse(unknown.body)).toEqual({ error: 'Unknown Cardano read' });
+  });
+
   // src/ imports api/_lib/apiTiers.js and record-core.js, so the browser loads them by URL.
   it('a module URL under /api still reaches the module server', async () => {
     const r = await get('/api/_lib/apiTiers.js');

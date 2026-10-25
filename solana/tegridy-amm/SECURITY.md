@@ -33,7 +33,7 @@ one.
 
 | Component | Provenance | Audited? |
 |---|---|---|
-| `programs/cp-swap/` | Fork of [raydium-cp-swap](https://github.com/raydium-io/raydium-cp-swap) @ `78f254e` (Apache-2.0); delta = four authority constants, the program's own name and contact text, plus one added instruction, `create_lp_metadata` (it names a pool's lp token; in source since 2026-10-06), and one added refusal in `initialize` (a public opening on fee tier 0; in source since 2026-10-19), both in the mainnet binary since the program's first upgrade, CI-enforced | **Upstream was audited by MadShield. This fork was not.** The audit is evidence about the code we did not change. It says nothing about the added instruction or the added refusal. |
+| `programs/cp-swap/` | Fork of [raydium-cp-swap](https://github.com/raydium-io/raydium-cp-swap) @ `78f254e` (Apache-2.0); delta = four authority constants, the program's own name and contact text, plus one added instruction, `create_lp_metadata` (it names a pool's lp token; in source since 2026-10-06), and one added refusal in `initialize` (a public opening on fee tier 0; in source since 2026-10-19), both in the mainnet binary from the program's first upgrade (2026-10-23) until its roll-back (2026-10-24), CI-enforced | **Upstream was audited by MadShield. This fork was not.** The audit is evidence about the code we did not change. It says nothing about the added instruction or the added refusal. |
 | `programs/tegridy-launch/` | Novel — written for this repo | **No.** No upstream to compare against. `migrate_to_amm` moves an entire raised balance in one instruction; treat it as the highest-risk surface here. |
 
 Both programs have been on Solana mainnet since 2026-09-29: `cp-swap` at

@@ -15,6 +15,52 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-24: a test pool's round share count looked neutral, but no pool program ever makes one
+
+**Believed:** the LP testkits' default `lp_supply` (1,000,000 in `buildPool`, 1,000,000,000 in
+`addPool`) and a "traded" price record of two slots an hour apart are harmless placeholders.
+
+**Measured** (vitest, 2026-10-24, the launch-pool moved-price check of M-1009-6 on trunk's
+fixtures): 44 of 4,845 Solana tests failed. Apart from 11 timeouts in files the change does not
+reach, and pins of the "10 minutes" copy that changed on purpose, they failed on fixtures only:
+- a never-traded launch pool whose `lp_supply` is not `isqrt(side0 x side1)` holds more than
+  its shares account for, which on chain means tokens were sent straight into a vault;
+- two slots an hour apart is one swap, an hour of silence, one swap: the shape of a price
+  moved by a transfer and written over by a dust swap.
+
+**Do:** build a launch pool with the shares the program opens it with (`isqrt(quote x token)`;
+`addPool({ launch: true })` now defaults to that) and a traded pool's record with
+`steadyRecord` (lp `testkit.fixture.ts`). A fixture is a claim about the chain: make it one
+the chain can produce.
+
+### Incidental
+
+The first mutation run left one mutant alive: a guard that re-read the price record could
+never see "not read", because the average had read the same record and clock a line earlier.
+A branch no test can reach is code no one has checked. It was deleted, not tested.
+
+## 2026-10-24: a `.max(200)` on a zod array did not stop a huge body, because zod below 4.6.6 parsed every element first
+
+**Believed:** `z.array(row).max(200)` refuses an oversized batch before it costs anything, so
+the cap in `frontend/api/_lib/proxy-schemas.js` kept a stranger's giant body from running the
+write proxy out of memory.
+
+**Measured** (vitest, 2026-10-24: `validateBody` on 201 rows whose `wallet` is a counting
+getter): zod 4.4.3 read the getter 201 times, then reported the cap. zod 4.6.6 read it 0
+times. Both returned the same error. The change is zod commit a0ebf970, "check array, set and
+map size bounds before parsing elements", the fix for GHSA-mrhx-c7xc-m3w5. Before it, every bad
+element added an issue before the cap was looked at.
+
+**Do:** to prove a size cap protects, count reads of the elements (a getter or a Proxy), not
+only that the call fails. A cap checked after the elements limits what is stored, not what is
+spent.
+
+### Incidental
+
+npm audit called the fix "semver-major" and named `@base-org/account` 2.5.5, which still
+depends on the same cdp-sdk and its zod 3. The fix for the copy our code imports was a minor
+bump, 4.4.3 to 4.6.6. Read which copy each `nodes` path is before trusting the fix column.
+
 ## 2026-10-23: a trunk failure that the next run passed was two green PRs red together, not a flake
 
 **Believed:** five tests that failed once on trunk (merge `08596661`, run 38501066916) and

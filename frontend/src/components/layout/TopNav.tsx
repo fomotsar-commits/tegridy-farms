@@ -11,7 +11,10 @@ import { safeGetItem } from '../../lib/storage';
 import { pageArt } from '../../lib/artConfig';
 import { getActiveBungalow, getBungalowIdentity, OPEN_BUNGALOWS_EVENT } from '../../lib/bungalows';
 import { useActiveBungalowId } from '../../hooks/useActiveBungalowId';
-import { hasMixedSolanaSection, isSolanaPage, isToweliRoomPage } from '../../lib/routeVoice';
+import { hasMixedSolanaSection, isCardanoPage, isSolanaPage, isToweliRoomPage } from '../../lib/routeVoice';
+// No Cardano library: the connection's store and the address's bech32 only (lib/cardano/walletStore.ts).
+import { requestCardanoWalletList, useCardanoWallet } from '../../lib/cardano/walletStore';
+import { shortCardanoAddress } from '../../lib/cardano/address';
 import {
   cancelSolanaOpenRequest,
   requestSolanaOpen,
@@ -76,6 +79,33 @@ function SolanaWalletSlot({ surface, pending }: { surface: SolanaSurface | null;
         className={`${CONNECT_BUTTON_CLASS}${busy ? ' opacity-60' : ''}`}
         style={CONNECT_BUTTON_STYLE}
       >
+        Connect
+      </button>
+    </div>
+  );
+}
+
+/**
+ * On a Cardano page the slot is that page's Cardano wallet: a press opens the page's own list
+ * (CardanoWalletModal), and one made before the page has loaded waits for it.
+ */
+function CardanoWalletSlot() {
+  const wallet = useCardanoWallet();
+  if (wallet.status === 'connected') {
+    const short = shortCardanoAddress(wallet.address.bech32);
+    return (
+      <div className="min-w-0">
+        <button type="button" onClick={requestCardanoWalletList} aria-label={`Cardano wallet ${short}, copy or disconnect`} title="Cardano wallet" className={ACCOUNT_CHIP_CLASS} style={ACCOUNT_CHIP_STYLE}>
+          <span className={ACCOUNT_DOT_CLASS} />
+          <span className="truncate">{short}</span>
+        </button>
+      </div>
+    );
+  }
+  const busy = wallet.status === 'connecting';
+  return (
+    <div className="min-w-0">
+      <button type="button" onClick={requestCardanoWalletList} aria-label="Connect a Cardano wallet" aria-busy={busy || undefined} className={`${CONNECT_BUTTON_CLASS}${busy ? ' opacity-60' : ''}`} style={CONNECT_BUTTON_STYLE}>
         Connect
       </button>
     </div>
@@ -238,8 +268,8 @@ export const TopNav = React.memo(function TopNav() {
         }} />
         {/* px-2 below 400px, px-3 to 480, then px-4: the narrowest phones need every pixel. */}
         <div className="page-column mx-auto h-14 px-2 min-[400px]:px-3 min-[480px]:px-4 md:px-6 flex items-center justify-between">
-          {/* THE 360px ROW. The wordmark stays whole at every width (owner, 2026-08-31), so the
-              row fits on its gaps and padding: its intrinsic width is 350px. CI rasterises
+          {/* THE 320px ROW. The wordmark stays whole at every width (owner, 2026-08-31), so the
+              row fits on its gaps, padding and the wordmark's stack below 360px. CI rasterises
               Archivo a shade wider than a local run, so re-run e2e/header-reachability.spec.ts
               (it sweeps real widths) after any change here, never a local 360px look. */}
           <div className="flex items-center gap-0.5 min-[400px]:gap-1 min-[480px]:gap-2">
@@ -265,9 +295,12 @@ export const TopNav = React.memo(function TopNav() {
                 />
               </span>
               {/* The venue's name is the only one the app speaks, in every room, and it is never
-                  abbreviated: below 480px it is sized down instead, so the row fits at 375px. */}
-              <span className="heading-luxury text-[12px] min-[480px]:text-[16px] tracking-wide text-white">{VENUE.markMain}</span>
-              <span className="text-[11px] min-[480px]:text-[15px] font-semibold tracking-tight" style={{ color: 'var(--color-kyle)' }}>{VENUE.markSub}</span>
+                  abbreviated: below 480px it is sized down, and below 360px its two parts stack,
+                  so the row fits at 320px with the menu button on screen. */}
+              <span className="flex flex-col max-[359px]:leading-none min-[360px]:flex-row min-[360px]:items-center min-[360px]:gap-1.5 min-[480px]:gap-2">
+                <span className="heading-luxury text-[12px] min-[480px]:text-[16px] tracking-wide text-white">{VENUE.markMain}</span>
+                <span className="text-[11px] min-[480px]:text-[15px] font-semibold tracking-tight" style={{ color: 'var(--color-kyle)' }}>{VENUE.markSub}</span>
+              </span>
             </Link>
             {/* The bungalow chooser, from any page (AppLayout listens for the event). It names
                 where you are; icon-only below lg to spare the crowded bar. */}
@@ -312,7 +345,9 @@ export const TopNav = React.memo(function TopNav() {
 
             {/* The wallet, then the menu button at the far right. Padding, font size and the name's
                 width shrink on a phone so a long ENS name never pushes the menu button off-screen. */}
-            {solanaPage ? (
+            {isCardanoPage(location.pathname) ? (
+              <CardanoWalletSlot />
+            ) : solanaPage ? (
               <SolanaWalletSlot surface={solana} pending={solanaOpenPending} />
             ) : (
             <ConnectButton.Custom>

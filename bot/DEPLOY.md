@@ -41,9 +41,10 @@ for it; it is gated on an audit wave that has not happened.
 **Recommended: Railway**, on the same project as the indexer.
 
 1. **Long-running process, not serverless.** The bot holds an open long-poll to
-   Telegram. Vercel is the wrong shape, and the 12-function Hobby cap is real and
-   already at 11 — see `frontend/api/SERVERLESS_BUDGET.md`. **Do not add an
-   `api/bot.js` webhook function.**
+   Telegram, and a serverless function is the wrong shape for that. (The 12-function
+   Hobby cap once cited here is gone: Vercel Pro since 2026-09-04, see
+   `frontend/api/SERVERLESS_BUDGET.md`.) **Do not add an `api/bot.js` webhook
+   function.**
 2. **No inbound port needed.** Long polling means the host needs no public
    hostname, no TLS certificate and no webhook secret rotation. A private worker
    service is enough.

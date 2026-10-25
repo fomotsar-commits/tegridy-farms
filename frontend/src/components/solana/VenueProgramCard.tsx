@@ -13,8 +13,8 @@ export function VenueProgramCard() {
     <section className="relative isolate rounded-2xl p-6 mt-6" style={CARD} aria-label="The program">
       <CardArt pageId="venue-amm" idx={1} />
       <p className="text-[10px] uppercase tracking-wider mb-2" style={{ color: 'var(--color-kyle)' }}>The program</p>
-      {/* True of the program running since its upgrade and of the source: both carry our authority
-          constants. The small print names what else the fork adds. */}
+      {/* True of the program running today and of the source: both carry our authority constants. The
+          additions are the source's alone until the upgrade, so the small print names them. */}
       <h2 className="heading-luxury text-lg text-white mb-3">Raydium&rsquo;s CPMM, with our keys</h2>
       <p className="text-white/80 text-[13px] leading-relaxed mb-1">
         A pinned fork of <strong>raydium-cp-swap</strong>; the trading maths are Raydium&rsquo;s.
@@ -35,9 +35,13 @@ export function VenueProgramCard() {
           Raydium&rsquo;s, not ours, and the quotes on the swap page run that same maths
           client-side.
         </p>
-        {/* Until the pool program's upgrade a paragraph here said the program on Solana was built
-            before that instruction was added. It went out with the upgrade, and
-            src/test/poolProgramCopy.test.ts keeps it out for as long as the harness pins that build. */}
+        {/* True while mainnet runs the build from before the additions (again since the roll-back of
+            2026-10-24). Delete it in the release that ships with the re-upgrade:
+            src/test/poolProgramCopy.test.ts fails that release until you do. */}
+        <p>
+          The program on Solana today was built before that instruction and that check were added. It
+          gets them only through a program upgrade.
+        </p>
         <p>
           A browser cannot list pools itself: <code className="font-mono">getProgramAccounts</code> stays
           off our RPC proxy&rsquo;s allowlist as an unbounded scan. Our server runs that one scan,
