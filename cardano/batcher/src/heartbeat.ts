@@ -1,15 +1,20 @@
 // The batcher's alarm: two healthchecks.io checks (the venue's alarm path, docs/OPS_SCHEDULER.md
 // section 2). The pings are scripts/ops/lib/healthchecks.mjs's, copied: `<url>/start` at boot,
 // `<url>` while healthy, `<url>/fail` when not; retries; https only; the URL is never logged, and
-// every body is scrubbed of secrets (run-job.mjs does the same) before it leaves.
+// every body is scrubbed of secrets (run-job.mjs does the same) before it leaves. A ping counts as
+// answered only when healthchecks.io says exactly "OK": a check that does not exist answers 200
+// "OK (not found)", and a rate-limited ping 200 "OK (rate limited)" (its API docs).
 //   cardano-batcher (HC_PING_URL_CARDANO_BATCHER): the dead-man. An ok every `everyMs` whatever
 //     the batcher's state, its report in the body. It never says fail: a fail would hold it DOWN,
 //     and a process dying meanwhile would send no new email (the venue's rule). DOWN: the process
 //     is gone.
 //   cardano-batcher-alerts (HC_PING_URL_CARDANO_BATCHER_ALERTS): whether it works. Fail when it
 //     stopped itself (the float cap, refusals, its wallet or settings: a person is needed), when no
-//     round has reached a source for `quietMs`, or for what it alerted on (one such fail every
-//     `alertGapMs` at most, so a bad hour sends one email, not twenty); ok otherwise.
+//     round has reached a source for `quietMs`, while the last three batches it sent never reached a
+//     block, or for what it alerted on (one such fail every `alertGapMs` at most, so a bad hour sends
+//     one email, not twenty); ok otherwise. healthchecks.io emails only when a check changes, so a
+//     new reason while it is already DOWN (a stop after an alert, say) first sends an ok, and then
+//     the fail: an email for every new reason, none for the same one again.
 import type { WatcherEvent } from './watcher.ts';
 
 export const BODY_LIMIT = 10_000;
@@ -21,6 +26,8 @@ export const PING_ENV = 'HC_PING_URL_CARDANO_BATCHER';
 export const ALERTS_PING_ENV = 'HC_PING_URL_CARDANO_BATCHER_ALERTS';
 /** Alerts kept while held back; past this many, only counted. */
 const MAX_HELD = 100;
+/** Batches in a row that never reached a block, that fail the alerts check until one does. */
+export const UNLANDED_FAIL = 3;
 
 /** The ping URL when set and valid; otherwise null and why. Never echoes the value. */
 export function resolvePingUrl(env: Readonly<Record<string, string | undefined>>, name: string = PING_ENV): { url: string | null; problem: string | null } {
@@ -73,8 +80,9 @@ export async function sendPing({ url, kind, body = '', fetchImpl = fetch, attemp
         body: clampBody(body),
         signal: AbortSignal.timeout(timeoutMs),
       });
-      if (res.ok) return { ok: true, status: res.status };
-      last = { ok: false, status: res.status, error: `HTTP ${res.status}` };
+      const said = (await res.text()).trim().slice(0, 100);
+      if (res.ok && said === 'OK') return { ok: true, status: res.status };
+      last = { ok: false, status: res.status, error: res.ok ? `answered "${said}"` : `HTTP ${res.status}` };
     } catch (e) {
       last = { ok: false, error: `${(e as Error)?.name || 'Error'}: ${(e as Error)?.message || String(e)}` };
     }
@@ -120,6 +128,10 @@ export class Heartbeat {
   #fees = 0n;
   #lastRound = '';
   #wallet: { held: bigint; cap: bigint } | null = null;
+  #prepared = 0;
+  #unlanded = 0;
+  /** What the alerts check was last failed for ('stopped', 'quiet', 'unlanded', 'alert', 'start'), or null: it was last ok. */
+  #downFor: string | null = null;
   #pending: Promise<unknown> = Promise.resolve();
 
   constructor(c: HeartbeatConfig, log: (e: object) => void) {
@@ -140,6 +152,7 @@ export class Heartbeat {
       case 'idle':
         return this.#good(`idle via ${ev.source}${ev.reason ? `: ${ev.reason}` : ''}`);
       case 'prepared':
+        this.#prepared++;
         return this.#good(`prepared ${ev.orders.length} orders via ${ev.source}${ev.dryRun ? ' (dry run)' : ''}`);
       case 'inputs-gone':
         return this.#good(`an input was spent meanwhile, via ${ev.source}`);
@@ -156,6 +169,12 @@ export class Heartbeat {
       case 'wallet':
         this.#wallet = { held: ev.held, cap: ev.cap };
         return;
+      case 'unlanded':
+        this.#unlanded = ev.inARow;
+        return;
+      case 'landed':
+        this.#unlanded = 0;
+        return;
       case 'source-down':
         this.#lastProblem = `${ev.source}: ${ev.error}`;
         return;
@@ -166,7 +185,7 @@ export class Heartbeat {
         return this.#alert(`error: ${ev.error}`);
       case 'stopped':
         this.#stopped = ev.reason;
-        return this.#failAlerts(`STOPPED${ev.fatal ? ' (fatal: the process restarts)' : ''}: ${ev.reason}`);
+        return this.#failAlerts(`STOPPED${ev.fatal ? ' (fatal: the process restarts)' : ''}: ${ev.reason}`, 'stopped');
     }
   }
 
@@ -178,20 +197,35 @@ export class Heartbeat {
   #alert(text: string): void {
     if (this.#alerts.length < MAX_HELD) this.#alerts.push(text);
     else this.#moreAlerts++;
-    if (this.#now() - this.#lastAlertPing >= this.#c.alertGapMs) this.#failAlerts(null);
+    if (this.#now() - this.#lastAlertPing >= this.#c.alertGapMs) this.#failAlerts(null, 'alert');
   }
 
-  /** One fail on the alerts check: `head` (a stop, the quiet), then every alert held back. Alerts that do not get through are held again. */
-  #failAlerts(head: string | null): void {
-    const held = this.#alerts;
-    const more = this.#moreAlerts;
+  /**
+   * One fail on the alerts check: `head` (a stop, the quiet), then the alerts held back, once an
+   * hour has passed since the last (or at exit: `all`). Already DOWN for another reason, or with
+   * alerts, it first sends an ok: healthchecks.io emails only when a check changes. Alerts that do
+   * not get through are held again.
+   */
+  #failAlerts(head: string | null, why: string, all = false): void {
+    const due = all || this.#now() - this.#lastAlertPing >= this.#c.alertGapMs;
+    const held = due ? this.#alerts : [];
+    const more = due ? this.#moreAlerts : 0;
     if (head === null && !held.length) return;
-    this.#alerts = [];
-    this.#moreAlerts = 0;
+    if (due) {
+      this.#alerts = [];
+      this.#moreAlerts = 0;
+    }
     const before = this.#lastAlertPing;
     if (held.length) this.#lastAlertPing = this.#now();
+    const flip = this.#downFor !== null && (this.#downFor !== why || held.length > 0);
+    if (flip) void this.#ping(this.#c.alerts, 'ok', 'not recovered: a new problem follows');
+    const wasDownFor = this.#downFor;
+    this.#downFor = why;
     const alerts = held.length ? `ALERT (${held.length + more}):\n${held.join('\n')}${more ? `\n(and ${more} more)` : ''}` : null;
-    void this.#ping(this.#c.alerts, 'fail', [head, alerts].filter((x) => x !== null).join('\n'), () => {
+    const body = [head, alerts].filter((x) => x !== null).join('\n');
+    void this.#ping(this.#c.alerts, 'fail', `${this.#c.dryRun ? 'DRY RUN, signing nothing. ' : ''}${body}`, () => {
+      // It did not get through: the check is as the last ping that did left it.
+      this.#downFor = flip ? null : wasDownFor;
       if (!held.length) return;
       this.#alerts = [...held, ...this.#alerts].slice(0, MAX_HELD);
       this.#moreAlerts += more;
@@ -209,7 +243,7 @@ export class Heartbeat {
 
   /** A fail on the alerts check now, whatever the rhythm (the process could not start). */
   fail(text: string): void {
-    this.#failAlerts(text);
+    this.#failAlerts(text, 'start');
   }
 
   /** Called every `everyMs`: the dead-man's ok, and the alerts check's ok or fail. */
@@ -219,16 +253,19 @@ export class Heartbeat {
     const report = [
       `${this.#c.dryRun ? 'DRY RUN, signing nothing. ' : ''}${this.#stopped ? `STOPPED: ${this.#stopped}` : (quiet ?? 'working')}`,
       `running ${Math.round((now - this.#since) / 60_000)} minutes; last round: ${this.#lastRound || 'none yet'}`,
-      `since the last report: ${this.#sent} batches sent, ${this.#fees} lovelace in network fees`,
+      `since the last report: ${this.#prepared} batches prepared, ${this.#sent} sent, ${this.#fees} lovelace in network fees`,
     ];
     if (this.#wallet) report.push(`wallet: ${this.#wallet.held} lovelace, its cap ${this.#wallet.cap}`);
     if (this.#alerts.length) report.push(`alerts held back (one alert email an hour at most): ${this.#alerts.length + this.#moreAlerts}`);
+    this.#prepared = 0;
     this.#sent = 0;
     this.#fees = 0n;
     void this.#ping(this.#c.alive, 'ok', report.join('\n'));
-    if (this.#stopped) return this.#failAlerts(`STOPPED: ${this.#stopped}`);
-    if (quiet) return this.#failAlerts(quiet);
-    if (this.#alerts.length && now - this.#lastAlertPing >= this.#c.alertGapMs) return this.#failAlerts(null);
+    if (this.#stopped) return this.#failAlerts(`STOPPED: ${this.#stopped}`, 'stopped');
+    if (quiet) return this.#failAlerts(quiet, 'quiet');
+    if (this.#unlanded >= UNLANDED_FAIL) return this.#failAlerts(`the last ${this.#unlanded} batches sent never reached a block before their window closed: is the submitting node passing them on?`, 'unlanded');
+    if (this.#alerts.length && now - this.#lastAlertPing >= this.#c.alertGapMs) return this.#failAlerts(null, 'alert');
+    this.#downFor = null;
     void this.#ping(this.#c.alerts, 'ok', report.join('\n'));
   }
 
@@ -253,7 +290,7 @@ export class Heartbeat {
 
   /** Before the process exits: alerts still held back go out now, then every ping is waited for. */
   async close(): Promise<void> {
-    this.#failAlerts(null);
+    this.#failAlerts(null, 'alert', true);
     await this.#pending;
   }
 }

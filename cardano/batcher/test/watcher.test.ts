@@ -161,42 +161,71 @@ test('the batcher’s own wallet or settings wrong: it stops with the reason, an
   assert.equal(noScript.watcher.setAside.size, 0);
 });
 
-test('a batcher the global setting does not name stops at once, with the reason', async () => {
+test('a batcher the global setting does not name stops at once, saying what to do (not "unreadable data")', async () => {
   const { watcher } = setup(1, { config: { batcher: { keyHash: '00'.repeat(28), address: CSL.EnterpriseAddress.new(NETWORK, CSL.Credential.from_keyhash(CSL.Ed25519KeyHash.from_hex('00'.repeat(28)))).to_address().to_bech32(undefined) } }, signer: null });
   await watcher.round();
-  assert.match(watcher.stopped?.reason ?? '', /not among the global setting's batchers/);
+  assert.match(watcher.stopped?.reason ?? '', /^the batcher key 0+ is not among the global setting's batchers: name it there through the 48-hour lock, and redeploy once that has executed$/);
 });
 
-test('EMURGO’s library broken (its wasm trapped): a fatal stop, for the process to restart, naming the orders it broke on', async () => {
-  class RuntimeError extends Error {}
+class RuntimeError extends Error {}
+
+test('EMURGO’s library broken (its wasm trapped): a fatal stop, for the process to restart, naming what it broke on', async () => {
   const { watcher, events, orders } = setup(2, { evaluate: evaluator(() => new RuntimeError('memory access out of bounds')) });
   await watcher.round();
   assert.equal(watcher.stopped?.fatal, true);
   const stop = events.find((e) => e.kind === 'stopped');
   assert.ok(stop && stop.kind === 'stopped' && stop.fatal);
-  assert.deepEqual(stop.setAside, { refs: orders.map((o) => o.utxo.ref), untilSlot: TIP + 3_600n });
-  assert.match(stop.reason, /set aside until slot 160003600/);
-  // Broken anywhere else (no batch being prepared): fatal, and no order is named.
+  assert.deepEqual(stop.trapped, orders.map((o) => o.utxo.ref));
+  assert.match(stop.reason, /^EMURGO's library failed on the batch of .*, each tried alone by the next process \(memory access out of bounds\)/);
+  // One order alone: named, never read again by the next process.
+  const one = setup(1, { evaluate: evaluator(() => new RuntimeError('unreachable')) });
+  await one.watcher.round();
+  const alone = one.events.find((e) => e.kind === 'stopped');
+  assert.ok(alone && alone.kind === 'stopped' && alone.fatal);
+  assert.deepEqual(alone.trapped, [one.orders[0]!.utxo.ref]);
+  assert.match(alone.reason, /, which the next process never reads/);
+  // Broken where no stranger's bytes are (the tip): fatal, and nothing is named.
   const tip = setup(1);
   tip.primary.tip = async () => {
     throw new RuntimeError('unreachable');
   };
   await tip.watcher.round();
   const other = tip.events.find((e) => e.kind === 'stopped');
-  assert.ok(other && other.kind === 'stopped' && other.fatal && other.setAside === undefined);
+  assert.ok(other && other.kind === 'stopped' && other.fatal && other.trapped === undefined);
 });
 
-test('orders an earlier process set aside stay aside until their slot, then are batched', async () => {
-  const w = world();
-  const o = swapOn(`${'d0'.repeat(32)}#0`, 1);
-  const view = new FakeView('primary', [w.globalSetting, w.scripts.pool, w.scripts.order, w.scripts.poolBatching, w.pool, w.batcher.feeUtxos[0]!, w.batcher.collateral, o.utxo]);
-  const config: WatcherConfig = { deployment: DEP, policy: POLICY, batcher: { keyHash: BATCHER_KEY, address: BATCHER_ADDRESS.to_bech32(undefined) }, floatCap: 100n * ADA, quarantineSlots: 3_600n, maxRefusalsInARow: 3, now: () => Number(slotToPosixMs(view.slot)), setAside: new Map([[o.utxo.ref, TIP + 100n]]) };
-  const watcher = new Watcher([view], SIGNER, config, () => {});
+test('a UTxO whose bytes break the library while they are read (a datum of a hash-only order) is named', async (t) => {
+  const poison = order(`${'47'.repeat(32)}#0`, 1, 30n * ADA, [], step.swapIn(true, 25n * ADA, 1n), { byHash: true });
+  const { watcher, events, primary } = setup(1, { extra: [poison.utxo], backup: false });
+  const bad = poison.datum.to_hex();
+  primary.datums.set(CSL.hash_plutus_data(poison.datum).to_hex(), bad);
+  const fromHex = CSL.PlutusData.from_hex.bind(CSL.PlutusData);
+  t.mock.method(CSL.PlutusData, 'from_hex', (hex: string) => {
+    if (hex === bad) throw new RuntimeError('unreachable');
+    return fromHex(hex);
+  });
   await watcher.round();
-  assert.equal(view.submitted.length, 0);
-  view.slot = TIP + 101n;
+  const stop = events.find((e) => e.kind === 'stopped');
+  assert.ok(stop && stop.kind === 'stopped' && stop.fatal);
+  assert.deepEqual(stop.trapped, [poison.utxo.ref]);
+});
+
+test('the orders of a batch the library broke on, in an earlier process, are each prepared alone first, then cleared', async () => {
+  const { watcher, events, orders, primary } = setup(3, { backup: false, config: { suspects: new Set([`${'d1'.repeat(32)}#0`]) } });
   await watcher.round();
-  assert.equal(view.submitted.length, 1);
+  // The suspect alone, cleared; then the other two together, once its batch is out of the way.
+  assert.deepEqual(ordersIn(primary.submitted[0]!, orders), [orders[1]!.utxo.ref]);
+  assert.deepEqual(events.filter((e) => e.kind === 'suspect-cleared'), [{ kind: 'suspect-cleared', ref: orders[1]!.utxo.ref }]);
+  primary.chain = primary.chain.filter((u) => u.ref !== orders[1]!.utxo.ref);
+  primary.slot = TIP + 241n;
+  await watcher.round();
+  assert.deepEqual(ordersIn(primary.submitted[1]!, orders), [orders[0]!.utxo.ref, orders[2]!.utxo.ref]);
+  // A suspect that breaks it alone is named alone.
+  const again = setup(2, { backup: false, evaluate: evaluator((inputs) => (inputs.includes(`${'d0'.repeat(32)}#0`) ? new RuntimeError('unreachable') : null)), config: { suspects: new Set([`${'d0'.repeat(32)}#0`, `${'d1'.repeat(32)}#0`]) } });
+  await again.watcher.round();
+  const stop = again.events.find((e) => e.kind === 'stopped');
+  assert.ok(stop && stop.kind === 'stopped');
+  assert.deepEqual(stop.trapped, [`${'d0'.repeat(32)}#0`]);
 });
 
 test('refusals: benign ones (an input gone, the account changed) never count; three real ones in a row stop it; a success resets the count', async () => {
@@ -408,7 +437,8 @@ test('each batch sent is looked for in the blocks: landed, or three in a row nev
     await watcher.round();
     watcher.blockSeen(TIP + at + 300n, []);
   }
-  assert.equal(events.filter((e) => e.kind === 'alert' && /never reached a block/.test(e.reason)).length, 1);
+  // The alarm decides (src/heartbeat.ts fails while three in a row never landed); the watcher only counts.
+  assert.ok(!events.some((e) => e.kind === 'alert'));
   // One that lands starts the count again: the next one never landing is the first in a row.
   primary.slot = TIP + 2_700n;
   await watcher.round();
@@ -428,4 +458,85 @@ test('each batch sent is looked for in the blocks: landed, or three in a row nev
   watcher.blockSeen(TIP + 4_800n, []);
   assert.equal(events.filter((e) => e.kind === 'unlanded').length, 4);
   assert.equal(sent().length, 9);
+});
+
+// A second pool, on another coin, for what one batch in flight does to every other pool.
+const POOL2 = makePool(`${'a4'.repeat(32)}#0`, TOK2);
+
+test('a batch in flight whose order another spent first (a cancel that won the race) is released at once: the other pools do not wait out its window', async () => {
+  const other = swapOn(`${'e1'.repeat(32)}#0`, 3, LP2);
+  const { watcher, events, orders, primary } = setup(1, { backup: false, extra: [POOL2, other.utxo], config: { checkLanding: true } });
+  await watcher.round();
+  assert.equal(primary.submitted.length, 1, 'one fee UTxO: one batch at a time');
+  // The first batch's order is cancelled; its pool UTxO is not spent: that batch can never land.
+  primary.chain = primary.chain.filter((u) => u.ref !== orders[0]!.utxo.ref);
+  await watcher.round();
+  const out = events.find((e) => e.kind === 'outrun');
+  assert.ok(out && out.kind === 'outrun' && out.spent === orders[0]!.utxo.ref);
+  assert.equal(primary.submitted.length, 2, "the other pool's order went in the same round");
+  assert.deepEqual(ordersIn(primary.submitted[1]!, [other]), [other.utxo.ref]);
+  // A batch that landed (its order and its pool both spent) is not "outrun".
+  const landed = setup(1, { backup: false });
+  await landed.watcher.round();
+  landed.primary.chain = landed.primary.chain.filter((u) => u.ref !== landed.orders[0]!.utxo.ref && u.ref !== landed.w.pool.ref);
+  await landed.watcher.round();
+  assert.ok(!landed.events.some((e) => e.kind === 'outrun'));
+});
+
+test('a stranger’s dust at the batcher’s address is never its fee UTxO: it waits, never stops', async () => {
+  const w = world();
+  const dust = utxo(`${'b3'.repeat(32)}#0`, BATCHER_ADDRESS, value(857_690n));
+  const other = swapOn(`${'e1'.repeat(32)}#0`, 3, LP2);
+  const { watcher, events, primary } = setup(1, { backup: false, wallet: [w.batcher.feeUtxos[0]!, w.batcher.collateral, dust], extra: [POOL2, other.utxo] });
+  // One batch a round: the first pool's takes the float; the next round, the other pool's order waits.
+  await watcher.round();
+  await watcher.round();
+  assert.equal(watcher.stopped, null);
+  assert.equal(primary.submitted.length, 1);
+  assert.ok(!inputsOf(primary.submitted[0]!).includes(dust.ref));
+  const last = events.at(-1)!;
+  assert.ok(last.kind === 'idle' && last.reason === 'every fee UTxO is in a batch still in flight', last.kind);
+  // A float under 10 ADA is not one: it stops, saying so.
+  const small = setup(1, { wallet: [utxo(`${'b1'.repeat(32)}#1`, BATCHER_ADDRESS, value(6n * ADA)), utxo(`${'b1'.repeat(32)}#0`, BATCHER_ADDRESS, value(9n * ADA))] });
+  await small.watcher.round();
+  assert.match(small.watcher.stopped?.reason ?? '', /and its float, of at least 10000000/);
+});
+
+test('with no order to batch, the wallet and the settings are still checked: at the first round, then every 10 minutes', async () => {
+  const w = world();
+  const rich = utxo(`${'b2'.repeat(32)}#0`, BATCHER_ADDRESS, value(95n * ADA));
+  const { watcher, primary } = setup(0, { backup: false });
+  await watcher.round();
+  assert.equal(primary.calls.get('utxosWithAsset'), 2, 'the global setting and the pools were read');
+  await watcher.round();
+  primary.slot = TIP + 599n;
+  await watcher.round();
+  assert.equal(primary.calls.get('utxosWithAsset'), 2, 'nothing more within the 10 minutes');
+  primary.chain.push({ ...rich, createdSlot: 0n, createdTxIndex: 0 });
+  primary.slot = TIP + 600n;
+  await watcher.round();
+  assert.match(watcher.stopped?.reason ?? '', /^the batcher holds 125000000 lovelace, above its cap of 100000000: no sweep exists yet, so raise floatCap in BATCHER_SETTINGS and redeploy/);
+  // A process started over the cap (a redeploy) stops at its first round, order or not.
+  const fresh = setup(0, { backup: false, wallet: [w.batcher.feeUtxos[0]!, w.batcher.collateral, rich] });
+  await fresh.watcher.round();
+  assert.match(fresh.watcher.stopped?.reason ?? '', /above its cap/);
+});
+
+test('the honest orders of a batch that lost a cancel race go in the next round, with nothing else waiting', async () => {
+  const { watcher, events, orders, primary } = setup(2, { backup: false });
+  await watcher.round();
+  assert.deepEqual(ordersIn(primary.submitted[0]!, orders), orders.map((o) => o.utxo.ref));
+  primary.chain = primary.chain.filter((u) => u.ref !== orders[0]!.utxo.ref);
+  primary.slot = TIP + 20n;
+  await watcher.round();
+  assert.ok(events.some((e) => e.kind === 'outrun'));
+  assert.deepEqual(ordersIn(primary.submitted[1]!, orders), [orders[1]!.utxo.ref]);
+});
+
+test('a suspect refused alone for an ordinary reason (not a broken library) is cleared too', async () => {
+  const suspect = `${'d0'.repeat(32)}#0`;
+  const { watcher, events } = setup(1, { backup: false, config: { suspects: new Set([suspect]) }, evaluate: evaluator(() => ({ ok: false, error: 'Some scripts failed: 3012', overBudget: false })) });
+  await watcher.round();
+  assert.ok(events.some((e) => e.kind === 'set-aside' && e.ref === suspect));
+  assert.deepEqual(events.filter((e) => e.kind === 'suspect-cleared'), [{ kind: 'suspect-cleared', ref: suspect }]);
 });

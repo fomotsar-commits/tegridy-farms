@@ -6,9 +6,10 @@
 // is unreadable, never empty. Each answer carries how far Kupo had indexed when it gave it
 // (X-Most-Recent-Checkpoint), so each is judged on its own point. Every datum and script is
 // walked by src/cbor.ts before EMURGO's library sees it, and one unreadable match is left out
-// with its reason (`onRefused`), never the whole answer.
+// with its reason (`onRefused`), never the whole answer. A match the library breaks on is named
+// (LibraryTrapped); one an earlier process named is never decoded again (`skip`).
 import CSL from '@emurgo/cardano-serialization-lib-nodejs';
-import { isWasmTrap, shallowCbor } from './cbor.ts';
+import { blaming, isWasmTrap, shallowCbor } from './cbor.ts';
 import { parseExact } from './json.ts';
 import { SourceUnavailable } from './ogmios.ts';
 import type { ChainUtxo } from './view.ts';
@@ -20,6 +21,8 @@ export interface KupoConfig {
   timeoutMs?: number;
   /** Told of every match left out because it could not be read, and why. */
   onRefused?: (ref: string, reason: string) => void;
+  /** Matches never decoded: EMURGO's library broke on them before. */
+  skip?: (ref: string) => boolean;
 }
 
 type Json = Record<string, unknown>;
@@ -108,11 +111,12 @@ export class Kupo {
     if (!Array.isArray(r.value)) throw new SourceUnavailable('Kupo /matches: not a list');
     const utxos: ChainUtxo[] = [];
     for (const m of r.value as unknown[]) {
+      const ref = isObject(m) ? `${String(m.transaction_id)}#${String(m.output_index)}` : '?';
+      if (this.#c.skip?.(ref)) continue;
       try {
-        utxos.push(utxoFromKupo(m));
+        utxos.push(blaming([ref], () => utxoFromKupo(m)));
       } catch (e) {
         if (!(e instanceof SourceUnavailable)) throw e;
-        const ref = isObject(m) ? `${String(m.transaction_id)}#${String(m.output_index)}` : '?';
         this.#c.onRefused?.(ref, e.message);
       }
     }

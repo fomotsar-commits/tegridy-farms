@@ -7,6 +7,28 @@
 /** CSL's wasm trapped: its memory is broken for the whole process, until it restarts. */
 export const isWasmTrap = (e: unknown): boolean => e instanceof Error && e.constructor.name === 'RuntimeError';
 
+/**
+ * CSL trapped on these UTxOs' bytes. The process must restart, and the next one sets them aside
+ * (src/main.ts keeps them beside the key): named, a stranger's UTxO cannot break every restart.
+ */
+export class LibraryTrapped extends Error {
+  readonly refs: string[];
+  constructor(refs: string[], cause: unknown) {
+    super(cause instanceof Error ? cause.message : String(cause), { cause });
+    this.refs = refs;
+  }
+}
+
+/** Runs `f`; a trap inside it is named as these UTxOs' doing. */
+export function blaming<T>(refs: string[], f: () => T): T {
+  try {
+    return f();
+  } catch (e) {
+    if (isWasmTrap(e)) throw new LibraryTrapped(refs, e);
+    throw e;
+  }
+}
+
 /** The deepest nesting a datum or script this batcher reads may have. Real Minswap V2 data is under 17. */
 export const MAX_CBOR_DEPTH = 64;
 

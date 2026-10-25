@@ -11,14 +11,6 @@ name: cardano-ci
 #      undone into Minswap's six mainnet scripts byte for byte, and with it changes only the pool
 #      validator; the role timelock is formatted, passes its tests, and builds to its committed
 #      plutus.json. The proof first refuses a tampered copy.
-#   3. batcher - the batcher's tests (cardano/batcher), every one but the live ones and at least
-#      MIN_PASS of them, on the Node its image runs, with the Aiken above as its offline script
-#      runner; its scripts typechecked too.
-#   4. batcher-image - the image Railway builds: it holds only the batcher and its one runtime
-#      dependency, refuses a key anywhere but the top of a mounted volume, makes it there as `node`
-#      alone with every privilege dropped, shows only the key's hash, finds the same key at every
-#      later boot and never makes a second, refuses settings that name another key and a live
-#      batcher with no alarm, and stops cleanly on SIGTERM.
 on:
   push:
     paths: ["cardano/**", "solana/guards/provenance.mjs", ".github/workflows/cardano-ci.yml"]
@@ -135,6 +127,14 @@ jobs:
       - name: Our copy builds into Minswap's mainnet scripts; the role timelock passes its tests
         run: AIKEN=/tmp/aiken/aiken node cardano/guards/prove-build.mjs
 
+  # The batcher (cardano/batcher), two gates more:
+  #   batcher - its tests, every one but the live ones and at least MIN_PASS of them, on the Node
+  #     its image runs, with the Aiken above as its offline script runner; its scripts typechecked.
+  #   batcher-image - the image Railway builds: it holds only the batcher and its one runtime
+  #     dependency, refuses a key anywhere but the top of a mounted volume, makes it there as `node`
+  #     alone with every privilege dropped, shows only the key's hash, finds the same key at every
+  #     later boot and never makes a second, refuses settings that name another key and a live
+  #     batcher with no alarm, and, running, stops cleanly on SIGTERM.
   batcher:
     needs: scope
     if: >-
@@ -144,7 +144,7 @@ jobs:
     timeout-minutes: 20
     env:
       # Fewer passing tests than this means tests were lost, even with none failing. Raise it with the suite.
-      MIN_PASS: 184
+      MIN_PASS: 208
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: The Node the image runs, from the Dockerfile's pinned base
@@ -306,6 +306,8 @@ jobs:
             if docker logs batcher-run 2>&1 | grep -q '"kind":"source-down"'; then break; fi
             sleep 1
           done
+          # Still running when the signal goes: an exit 0 by itself would pass what follows.
+          [ "$(docker inspect -f '{{.State.Running}}' batcher-run)" = true ] || { docker logs batcher-run; echo "::error::it had already stopped by itself"; exit 1; }
           docker stop -t 30 batcher-run > /dev/null
           code=$(docker inspect -f '{{.State.ExitCode}}' batcher-run)
           logs=$(docker logs batcher-run 2>&1)

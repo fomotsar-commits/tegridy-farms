@@ -53,6 +53,8 @@ export class FakeView implements ChainView {
   calls = new Map<string, number>();
   evaluate: Evaluator;
   datums = new Map<string, string>();
+  /** UTxOs a real source would leave out unread (src/main.ts's skip: the library broke on them). */
+  skip: (ref: string) => boolean = () => false;
   constructor(name: string, utxos: Utxo[], evaluate: Evaluator = evaluator()) {
     this.name = name;
     this.chain = utxos.map((u, i) => ({ ...u, createdSlot: BigInt(i), createdTxIndex: 0 }));
@@ -76,15 +78,15 @@ export class FakeView implements ChainView {
   }
   async utxosAtCredential(cred: string) {
     this.#call('utxosAtCredential');
-    return this.chain.filter((u) => this.#cred(u) === cred);
+    return this.chain.filter((u) => !this.skip(u.ref) && this.#cred(u) === cred);
   }
   async utxosWithAsset(policy: string, name: string, cred: string) {
     this.#call('utxosWithAsset');
-    return this.chain.filter((u) => this.#cred(u) === cred && (CSL.TransactionOutput.from_hex(u.outputHex).amount().multiasset()?.get_asset(CSL.ScriptHash.from_hex(policy), CSL.AssetName.new(Buffer.from(name, 'hex'))).to_str() ?? '0') !== '0');
+    return this.chain.filter((u) => !this.skip(u.ref) && this.#cred(u) === cred && (CSL.TransactionOutput.from_hex(u.outputHex).amount().multiasset()?.get_asset(CSL.ScriptHash.from_hex(policy), CSL.AssetName.new(Buffer.from(name, 'hex'))).to_str() ?? '0') !== '0');
   }
   async utxos(refs: string[]) {
     this.#call('utxos');
-    return this.chain.filter((u) => refs.includes(u.ref));
+    return this.chain.filter((u) => !this.skip(u.ref) && refs.includes(u.ref));
   }
   async datum(hash: string): Promise<string | null> {
     this.#call('datum');

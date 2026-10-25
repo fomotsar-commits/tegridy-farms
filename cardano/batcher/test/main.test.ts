@@ -12,12 +12,12 @@ import { join } from 'node:path';
 import CSL from '@emurgo/cardano-serialization-lib-nodejs';
 import { MAINNET_TIME } from '../src/chain.ts';
 import { ALERTS_PING_ENV, PING_ENV } from '../src/heartbeat.ts';
-import { HEARTBEAT, SET_ASIDE_FILE, logger, main, makeKeyIfAsked, readEnv, readSettings, type Settings } from '../src/main.ts';
+import { HEARTBEAT, logger, main, makeKeyIfAsked, readEnv, readSetAside, readSettings, setAsideFileOf, writeSetAside, type Settings } from '../src/main.ts';
 import type { SocketFactory, SocketLike } from '../src/follow.ts';
 import { parseExact, stringifyExact } from '../src/json.ts';
 import type { Evaluator } from '../src/prepare.ts';
 import type { ChainView } from '../src/view.ts';
-import { ADA, DEP, FakeView, swapOn } from './fake-view.ts';
+import { ADA, DEP, FakeView, evaluator, inputsOf, swapOn } from './fake-view.ts';
 import { BATCHER_ADDRESS, BATCHER_KEY, BATCHER_SKEY, S, utxo, value, world } from './world.ts';
 
 const KEY = '55'.repeat(28);
@@ -257,7 +257,7 @@ afterEach(() => {
   for (const stop of running.splice(0)) stop();
 });
 
-function start(env: Record<string, string>, views: ChainView[], opts: { argv?: string[]; answering?: () => boolean; socket?: SocketFactory } = {}) {
+function start(env: Record<string, string>, views: ChainView[], opts: { argv?: string[]; answering?: () => boolean; socket?: SocketFactory; rhythm?: typeof HEARTBEAT; realPings?: boolean } = {}) {
   const lines: Record<string, unknown>[] = [];
   const pings: { check: 'alive' | 'alerts'; kind: string; body: string }[] = [];
   let stop: () => void = () => {};
@@ -267,12 +267,20 @@ function start(env: Record<string, string>, views: ChainView[], opts: { argv?: s
     argv: opts.argv ?? [],
     write: (l) => lines.push(JSON.parse(l) as Record<string, unknown>),
     onStop: (s) => (stop = s),
-    rhythm: { everyMs: 25, quietMs: 600_000, alertGapMs: 3_600_000 },
-    send: async (p) => {
-      pings.push({ check: p.url === ALIVE_URL ? 'alive' : 'alerts', kind: p.kind, body: p.body });
-      return (opts.answering?.() ?? true) ? { ok: true, status: 200 } : { ok: false, error: 'HTTP 404' };
+    rhythm: opts.rhythm ?? { everyMs: 25, quietMs: 600_000, alertGapMs: 3_600_000 },
+    ...(opts.realPings
+      ? {}
+      : {
+          send: async (p: { url: string; kind: string; body: string }) => {
+            pings.push({ check: p.url === ALIVE_URL ? 'alive' : 'alerts', kind: p.kind, body: p.body });
+            return (opts.answering?.() ?? true) ? { ok: true, status: 200 } : { ok: false, error: 'HTTP 404' };
+          },
+        }),
+    // The stand-in chain leaves out what a real source would never decode.
+    views: (skip) => {
+      for (const v of views) if (v instanceof FakeView) v.skip = skip;
+      return views;
     },
-    views,
     socket: opts.socket,
     pollMs: 10,
     alarmRetryMs: 20,
@@ -341,29 +349,132 @@ test('stopped for a person (above the float cap): it stays up, the alerts check 
   }
 });
 
-test('EMURGO’s library broken on an order: exit 3 to restart, the order kept on the volume, and the next process sets it aside', async () => {
-  class RuntimeError extends Error {}
-  const broken = chain({ evaluate: () => {
-    throw new RuntimeError('memory access out of bounds');
-  } });
+class RuntimeError extends Error {}
+const kept = (key: string) => JSON.parse(readFileSync(setAsideFileOf(key), 'utf8')) as Record<string, string>;
+
+test('EMURGO’s library broken on an order alone: exit 3 to restart, the order kept beside the key, and the next process never reads it; the key is untouched', async () => {
+  const broken = chain({
+    evaluate: () => {
+      throw new RuntimeError('memory access out of bounds');
+    },
+  });
   const { dir, key } = keyDir();
   try {
+    const before = readFileSync(key, 'utf8');
     const r = start({ BATCHER_KEY_FILE: key }, [broken.view]);
     await r.done;
     assert.equal(r.code(), 3);
     const ref = broken.orders[0]!.utxo.ref;
-    const kept = JSON.parse(readFileSync(join(dir, SET_ASIDE_FILE), 'utf8')) as Record<string, string>;
-    assert.deepEqual(Object.keys(kept), [ref]);
-    assert.equal(BigInt(kept[ref]!), broken.view.slot + 3_600n);
-    assert.match(r.of('alerts', 'fail')[0]!.body, /^STOPPED \(fatal: the process restarts\): EMURGO's library failed preparing/);
-    // The next process: the same order, now set aside; nothing prepared.
-    const next = chain();
-    const again = start({ BATCHER_KEY_FILE: key }, [next.view]);
+    assert.deepEqual(kept(key), { [ref]: 'trap' });
+    assert.equal(readFileSync(key, 'utf8'), before, 'the key file was written over');
+    assert.match(r.of('alerts', 'fail')[0]!.body, /^DRY RUN, signing nothing\. STOPPED \(fatal: the process restarts\): EMURGO's library failed on [0-9a-f]+#0, which the next process never reads/);
+    // The next process: the same order, never read; nothing prepared.
+    const again = start({ BATCHER_KEY_FILE: key }, [chain().view]);
     await until(() => again.has('idle'));
     again.stop();
     await again.done;
-    assert.deepEqual(again.lines.find((l) => l.kind === 'set-aside-restored')?.orders, { [ref]: Number(kept[ref]) });
-    assert.ok(!again.has('prepared'));
+    assert.deepEqual(again.lines.find((l) => l.kind === 'set-aside-restored'), { at: again.lines.find((l) => l.kind === 'set-aside-restored')!.at, kind: 'set-aside-restored', trapped: [ref], suspects: [] });
+    assert.equal(again.lines.find((l) => l.kind === 'idle')?.orders, 0, 'the order was read');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('broken on a batch of two: both suspects; the next process tries the older alone (it breaks: a trap), and the one after the other alone (it passes: cleared)', async () => {
+  const { dir, key } = keyDir();
+  try {
+    const poison = chain({ orders: 2 }).orders[0]!.utxo.ref;
+    const breaking = () =>
+      chain({
+        orders: 2,
+        evaluate: evaluator((inputs) => (inputs.includes(poison) ? new RuntimeError('unreachable') : null)),
+      });
+    const first = breaking();
+    const honest = first.orders[1]!.utxo.ref;
+    const r1 = start({ BATCHER_KEY_FILE: key }, [first.view]);
+    await r1.done;
+    assert.equal(r1.code(), 3);
+    assert.deepEqual(kept(key), { [poison]: 'suspect', [honest]: 'suspect' });
+    const r2 = start({ BATCHER_KEY_FILE: key }, [breaking().view]);
+    await r2.done;
+    assert.equal(r2.code(), 3);
+    assert.deepEqual(kept(key), { [poison]: 'trap', [honest]: 'suspect' });
+    const third = breaking();
+    const r3 = start({ BATCHER_KEY_FILE: key }, [third.view]);
+    await until(() => r3.has('suspect-cleared'));
+    r3.stop();
+    await r3.done;
+    assert.equal(r3.code(), 0);
+    assert.deepEqual(kept(key), { [poison]: 'trap' });
+    const prepared = r3.lines.find((l) => l.kind === 'prepared');
+    assert.deepEqual(prepared?.orders, [honest]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a key file named like the batcher’s own files beside it is refused, so a set-aside can never write over it', async () => {
+  const { dir } = keyDir();
+  try {
+    for (const name of ['batcher.skey.set-aside.json', 'batcher.skey.new', 'set-aside.json.new']) {
+      const r = start({ BATCHER_KEY_FILE: join(dir, name), BATCHER_MAKE_KEY: '1', BATCHER_SETTINGS: '' }, []);
+      await r.done;
+      assert.equal(r.code(), 1, name);
+      assert.match(String(r.lines.find((l) => l.kind === 'fatal')?.error), /may not end in \.new or \.set-aside\.json/);
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('the first report goes out right after the first round, not a whole period later', async () => {
+  const { view } = chain();
+  const { dir, key } = keyDir();
+  try {
+    const r = start({ BATCHER_KEY_FILE: key }, [view], { rhythm: { everyMs: 600_000, quietMs: 600_000, alertGapMs: 3_600_000 } });
+    await until(() => r.of('alive', 'ok').length === 1 && r.of('alerts', 'ok').length === 1, 5_000);
+    r.stop();
+    await r.done;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('the alarm’s bodies are scrubbed by the process: an error quoting a host that holds a key reaches healthchecks.io redacted', async () => {
+  const { view } = chain();
+  const host = 'dmtr_ogmios1wiringsecret.mainnet-v6.ogmios-m1.demeter.run';
+  view.utxosAtCredential = async () => {
+    throw new Error(`getaddrinfo ENOTFOUND ${host}`);
+  };
+  const r = start({ OGMIOS_URL: `https://${host}` }, [view]);
+  await until(() => r.of('alerts', 'fail').length >= 1);
+  r.stop();
+  await r.done;
+  assert.equal(r.of('alerts', 'fail')[0]!.body, 'DRY RUN, signing nothing. ALERT (1):\nerror: getaddrinfo ENOTFOUND [redacted]');
+  assert.ok(!JSON.stringify(r.pings).includes('wiringsecret') && !JSON.stringify(r.lines).includes('wiringsecret'));
+});
+
+test('a stop signal sends the alerts still held back before the process ends', async () => {
+  const { view, orders } = chain({ orders: 2, evaluate: evaluator(() => ({ ok: false, error: 'Some scripts failed: 3012', overBudget: false })) });
+  const r = start({}, [view]);
+  await until(() => r.lines.filter((l) => l.kind === 'set-aside').length === 2);
+  assert.equal(r.of('alerts', 'fail').length, 1, 'the second alert is held (one an hour)');
+  r.stop();
+  await r.done;
+  assert.match(r.of('alerts', 'fail').at(-1)!.body, new RegExp(`^DRY RUN, signing nothing\\. ALERT \\(1\\):\\nset aside ${orders[1]!.utxo.ref}: `));
+});
+
+test('live, with a ping URL naming no check (healthchecks.io answers 200 "OK (not found)"): nothing is signed', async (t) => {
+  const { view } = chain();
+  const { dir, key } = keyDir();
+  try {
+    t.mock.method(globalThis, 'fetch', async (url: string) => new Response(String(url).startsWith(ALERTS_URL) ? 'OK (not found)' : 'OK', { status: 200 }));
+    const r = start({ BATCHER_KEY_FILE: key, BATCHER_LIVE: '1' }, [view], { realPings: true });
+    await until(() => r.has('alarm-unreachable'), 15_000);
+    r.stop();
+    await r.done;
+    assert.equal(view.calls.get('tip') ?? 0, 0, 'a source was asked');
+    assert.deepEqual(r.lines.find((l) => l.kind === 'heartbeat-failed'), { at: r.lines.find((l) => l.kind === 'heartbeat-failed')!.at, kind: 'heartbeat-failed', check: 'alerts', ping: 'start', error: 'answered "OK (not found)"' });
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -394,7 +505,7 @@ test('a process that cannot start fails the alerts check, saying why, and exits 
   const r = start({ BATCHER_SETTINGS: '{' }, []);
   await r.done;
   assert.equal(r.code(), 1);
-  assert.deepEqual(r.of('alerts').map((p) => [p.kind, p.body]), [['fail', 'could not start: settings: not JSON']]);
+  assert.deepEqual(r.of('alerts').map((p) => [p.kind, p.body]), [['fail', 'DRY RUN, signing nothing. could not start: settings: not JSON']]);
   assert.equal(r.of('alive').length, 0);
 });
 
@@ -405,7 +516,7 @@ test('with chain-sync down, an idle round every idleRoundMs, counted from the la
   try {
     const settings = JSON.stringify({ ...JSON.parse(WORLD_SETTINGS), idleRoundMs: 20_000 });
     let stop: () => void = () => {};
-    const done = main({ env: { BATCHER_SETTINGS: settings }, argv: [], write: () => {}, onStop: (s) => (stop = s), views: [view] });
+    const done = main({ env: { BATCHER_SETTINGS: settings }, argv: [], write: () => {}, onStop: (s) => (stop = s), views: () => [view] });
     const settle = () => new Promise((r) => setImmediate(r));
     for (let i = 0; i < 5; i++) await settle();
     for (let s = 0; s < 60; s += 5) {
@@ -453,15 +564,21 @@ test('chain-sync wired in: a batch seen in a block and then rolled back never la
   const { dir, key } = keyDir();
   try {
     let r!: ReturnType<typeof start>;
+    let idlesAtRollback = 0;
     const sent = () => r.lines.filter((l) => l.kind === 'sent').map((l) => String(l.txId));
     const steps: (() => Promise<unknown>)[] = [
       async () => atIntersection,
       // The first block: chain-sync is up. An order arrives, and its batch is sent.
       async () => (view.chain.push(held[0]!), fwd(S, [])),
       async () => (await until(() => sent().length === 1), fwd(S + 1n, [sent()[0]!])),
-      async () => ({ direction: 'backward', point: { slot: S, id: fwd(S, []).block.id }, tip }),
-      // Past its window, never seen again: never landed. The next order's batch is sent.
       async () => {
+        idlesAtRollback = r.lines.filter((l) => l.kind === 'idle').length;
+        return { direction: 'backward', point: { slot: S, id: fwd(S, []).block.id }, tip };
+      },
+      // Past its window, never seen again: never landed. The next order's batch is sent. (The chain
+      // changes only once the rollback's round is over: a round reads one chain, never a torn one.)
+      async () => {
+        await until(() => r.lines.filter((l) => l.kind === 'idle').length > idlesAtRollback);
         view.slot = S + 241n;
         view.chain = view.chain.filter((u) => u !== held[0]).concat(held[1]!);
         return fwd(S + 241n, []);
@@ -480,6 +597,28 @@ test('chain-sync wired in: a batch seen in a block and then rolled back never la
     assert.ok(r.has('chain-sync-down'));
     assert.deepEqual(r.lines.filter((l) => l.kind === 'unlanded').map((l) => [l.txId, l.inARow]), [[sent()[0], 1]]);
     assert.ok(!r.has('landed'));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('the set-aside file: one UTxO alone is a trap, and stays one; a batch’s orders are suspects until cleared; an unreadable file sets nothing aside', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'batcher-state-'));
+  try {
+    const file = join(dir, 'k.skey.set-aside.json');
+    const [a, b, c] = ['a1', 'b2', 'c3'].map((x) => `${x.repeat(32)}#0`);
+    writeSetAside(file, { trapped: [a!, b!] });
+    writeSetAside(file, { trapped: [a!] });
+    writeSetAside(file, { trapped: [a!, c!] });
+    assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { [a!]: 'trap', [b!]: 'suspect', [c!]: 'suspect' });
+    writeSetAside(file, { cleared: b! });
+    const s = readSetAside(file, () => {});
+    assert.deepEqual([[...s.trapped], [...s.suspects]], [[a], [c]]);
+    const logs: Record<string, unknown>[] = [];
+    writeFileSync(file, '{"not a ref": "trap"}');
+    const bad = readSetAside(file, (e) => logs.push(e as Record<string, unknown>));
+    assert.deepEqual([bad.trapped.size, bad.suspects.size], [0, 0]);
+    assert.equal(logs[0]!.kind, 'set-aside-unreadable');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

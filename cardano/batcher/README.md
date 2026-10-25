@@ -61,11 +61,11 @@ refused as `BatchTooBig`, to be split.
 - **Reads the chain from hosted Ogmios + Kupo** (Demeter.run), with a **second Koios key used
   only by the batcher**. Never the site's `KOIOS_API_KEY`: the site needs its daily allowance.
 - **Its signing key is made on the server and never copied.** If it is lost, everything its
-  wallet holds is lost: the collateral, the float, and the fees earned since the last sweep (up to
-  the float cap). A replacement is named through the 48-hour lock; sweep the wallet before a key
-  is retired.
+  wallet holds is lost: the collateral, the float, and every fee earned (up to the float cap). A
+  replacement is named through the 48-hour lock. Before a key is retired, its wallet must be
+  emptied, and no sweep exists yet (see "The float cap" below).
 - **Its earnings stay in its own wallet, capped.** Above the cap it stops and alerts; once the
-  two-key treasury exists, they are swept there.
+  two-key treasury exists, they are swept there (a sweep still to be built).
 
 ## What it can and cannot do
 
@@ -95,12 +95,16 @@ key's hash and its own enterprise address, the fee per order, the float cap, the
 limits; every one required and range-checked). The environment holds the rest: `OGMIOS_URL` and
 `OGMIOS_WS` (Demeter puts the key in the host name), `KUPO_URL`, `KOIOS_URL` and `KOIOS_TOKEN`,
 `BATCHER_KEY_FILE`, `HC_PING_URL_CARDANO_BATCHER` and `HC_PING_URL_CARDANO_BATCHER_ALERTS`. Every
-log line and every alarm ping is scrubbed of those. **It signs only with `BATCHER_LIVE=1`**, and
-then only once both alarm checks have answered; otherwise it prepares and judges every batch and
-signs nothing. When it stops itself it stays up, its alerts check failing, until a person
-redeploys (Railway restarts any exit but 0, and a restarted batcher would read as recovered). It
-exits 3 only when EMURGO's library broke: the orders it broke on are written beside the key
-(`set-aside.json`) and the restarted process sets them aside, so no order can break every restart.
+log line and every alarm ping is scrubbed of the endpoints, the Koios token and the ping URLs.
+**It signs only with `BATCHER_LIVE=1`**, and then only once both alarm checks have answered
+(healthchecks.io's "OK"; a check that does not exist answers "OK (not found)", which is not an
+answer); otherwise it prepares and judges every batch and signs nothing. When it stops itself it
+stays up, its alerts check failing, until a person redeploys (Railway restarts any exit but 0,
+and a restarted batcher would read as recovered). It exits 3 only when EMURGO's library broke,
+and `src/supervise.ts`, the container's process, starts it again in the same container (so
+Railway's ten restarts stay for real crashes). What broke it is written beside the key
+(`<key file>.set-aside.json`): a UTxO that broke it alone is never read again; the orders of a
+batch that broke it are each tried alone first, so the one to blame is found and the rest go on.
 
 Each round reads its UTxOs, the tip and the node's answers from one source: Ogmios + Kupo (once
 Kupo shows it is connected, indexed and covering every pattern asked; until then, and whenever
@@ -122,17 +126,23 @@ minutes after it is built), sent or not. The rules:
   normal (ten in a row raise an alert); any other refusal counts, and `maxRefusalsInARow` of them
   in a row stop the batcher.
 - **Its own wallet or settings wrong**, above the float cap, or without two plain ADA UTxOs (one
-  of at least 5 ADA for collateral): it stops and says why. With every fee UTxO in a batch still
-  in flight, it waits.
+  of at least 5 ADA for collateral, a float of at least 10 ADA): it stops and says why. With no
+  order to batch, these are still checked at the first round and every 10 minutes, so a stop
+  comes back after any redeploy. With every fee UTxO of at least 10 ADA in a batch still in
+  flight, it waits (a stranger's dust at its address is never a fee UTxO).
+- **A batch in flight one of whose orders another spent first** (a cancel that won the race),
+  its pool not: it can never land, so it is let go at once, and the other pools do not wait out
+  its window.
 - Anyone can make orders: each is read as strictly as the contract reads it (and as the ledger
   can carry it), and the rest are left alone with a reason, logged once. Datums of hash-only
   orders: at most 20 lookups a round, oldest orders first, a miss asked again after an hour.
 - **Bytes from strangers are walked before EMURGO's library reads them** (`src/cbor.ts`): a datum
   nested about 1,600 deep breaks the library's memory for the whole process. One unreadable UTxO
-  is left out with its reason, never the whole answer.
-- **Every batch sent is looked for in the blocks** (chain-sync) until its window closes; three in
-  a row that never landed raise an alert (the submitting node is not passing them on). A lost
-  chain-sync starts again at the new tip, so batches awaiting a block then are not judged.
+  is left out with its reason, never the whole answer. Bytes that break the library anyway are
+  named by the UTxO they came from, wherever they are read (Kupo, Koios, selection, datums).
+- **Every batch sent is looked for in the blocks** (chain-sync) until its window closes; while the
+  last three never landed, the alerts check fails (the submitting node is not passing them on).
+  A lost chain-sync starts again at the new tip, so batches awaiting a block then are not judged.
 
 ## Run it on Railway (the owner's steps)
 
@@ -145,9 +155,14 @@ until a week of dry runs is clean.
    branch `mvp-launch`. In the service's settings: **Root Directory** `/cardano/batcher`, **Config
    file** `/cardano/batcher/railway.json` (it builds the `Dockerfile`, redeploys only when
    `cardano/batcher/` changes, and restarts a crashed batcher at most ten times), and turn on
-   **Wait for CI** (a change whose CI is red is never deployed). Do **not** generate a domain: the
-   batcher listens on no port. On the Railway account: two-factor on, and **no other members**
-   in this project (anyone in it can open a shell in the service and read the key).
+   **Wait for CI** (a change whose CI is red is never deployed). Wait for CI waits for **every**
+   workflow on the commit, not only the batcher's: today "Mirror to GitLab" fails on every push to
+   `mvp-launch` until its secret `GITLAB_MIRROR_SSH_KEY` is set (`docs/GIT_HOSTING.md` 2C), and
+   while it does, every batcher deploy is skipped with no notice. Set that secret first. After
+   each merge that touches `cardano/batcher/`, open the deployments, click **Show Skipped**, and
+   check the merge commit is the one running. Do **not** generate a domain: the batcher listens on
+   no port. On the Railway account: two-factor on, and **no other members** in this project
+   (anyone in it can open a shell in the service and read the key).
 2. **Add a volume**, mounted at `/data`. It holds the key. A service with a volume never runs two
    deployments at once (Railway's own rule), so there is only ever one batcher. Leave Railway's
    **volume backups off**: each backup is a copy of the key, which the ruling forbids (turning
@@ -166,32 +181,52 @@ until a week of dry runs is clean.
    `waiting` (no settings yet). A different hash, or none, means the key did not survive: stop
    here, fund nothing.
 5. **Name it a batcher and fund it.** Put the key hash in our global setting's batchers (through
-   the 48-hour lock). Send the address two plain ADA UTxOs: about 5 ADA for collateral, and the
-   float (well under the cap).
+   the 48-hour lock). Send the address plain ADA UTxOs: about 5 ADA for collateral, and the float,
+   at least 10 ADA and well under the cap (two float UTxOs let a batch be in flight while the
+   next pool's goes). **Wait until the lock has executed**: the global setting must name the
+   hash before step 6, or the first order stops the dry run ("not among the global setting's
+   batchers").
 6. **A dry run.** Set `BATCHER_SETTINGS` to the settings JSON (the deployment's hashes and
    reference-script UTxOs from our deploy, the key hash and address from step 4, the fee per
    order, the float cap; "How it runs" above lists them) and, as **sealed** variables,
    `OGMIOS_URL`, `OGMIOS_WS`, `KUPO_URL` (Demeter puts the key in the host name), `KOIOS_URL` =
    `https://api.koios.rest/api/v1` and `KOIOS_TOKEN` (the batcher's own Koios key, never the
    site's). Deploy. Without `BATCHER_LIVE` it prepares and judges every batch and signs nothing;
-   every report says `DRY RUN`. **Within 5 minutes both checks must turn green** (a check never
-   pinged stays grey and alerts no one): if not, a ping URL is wrong. Run it a week.
-7. **Go live**, once the step-5 registration has executed (else the batcher stops at once: its key
-   is not among the global setting's batchers) and the dry run is clean: set `BATCHER_LIVE` =
-   `1`. It signs nothing until both checks have answered (`alarm-unreachable` in the log until
-   then), so a wrong ping URL keeps it from signing rather than signing with no alarm.
+   every report and every email says `DRY RUN`. **Within a minute of the start both checks must
+   turn green** (the first report goes out after the first round; a check never pinged stays grey
+   and alerts no one): if not, a ping URL is wrong. Run it a week, counted from the first
+   `"kind":"prepared"` line (each report says how many batches were prepared): with no real
+   order, place one small order per pool, or the week judges nothing.
+7. **Go live**, once the dry run is clean: set `BATCHER_LIVE` = `1`. It signs nothing until both
+   checks have answered "OK" (`alarm-unreachable` in the log until then), so a wrong ping URL,
+   even one naming a check that does not exist, keeps it from signing rather than signing with
+   no alarm. After changing any ping URL, see both checks green again.
 
 **What the emails mean.**
 - `cardano-batcher` DOWN: the process is gone (Railway gave up after ten restarts, or the
   project is down). Open Railway's logs.
-- `cardano-batcher-alerts` DOWN: read the reason in the email. `STOPPED: ...` means it stopped
-  itself (the float cap: sweep the wallet; refusals in a row; its wallet or settings): it stays
-  up and idle until you fix the cause and redeploy. `no round has reached a source for N minutes`
-  names the last problem (Demeter or Koios down, a wrong key). `ALERT (n): ...` is something to
-  read (our engine and the contract disagreeing on an order, every batch refused as expired,
-  batches that never reach a block): at most one such email an hour, and the next healthy ping
-  clears it. `STOPPED (fatal ...)`: EMURGO's library broke; Railway restarts it with the order it
-  broke on set aside.
+- `cardano-batcher-alerts` DOWN: read the reason in the email.
+  - `STOPPED: ...`: it stopped itself (refusals in a row; its wallet or settings; the float cap,
+    below): it stays up and idle until you fix the cause and redeploy.
+  - `the last N batches sent never reached a block`: the submitting node takes them and passes
+    none on. It stays DOWN until one lands.
+  - `no round has reached a source for N minutes` names the last problem (Demeter or Koios down,
+    a wrong key).
+  - `ALERT (n): ...` is something to read (our engine and the contract disagreeing on an order,
+    every batch refused as expired): at most one such email an hour, and the next healthy ping
+    clears it.
+  - `could not start: ...`: a variable is wrong (it names which); fix it, and Railway retries.
+  - `STOPPED (fatal ...)`: EMURGO's library broke; the container starts the batcher again by
+    itself, with what broke it set aside.
+  healthchecks.io emails only when a check changes. So when a new reason comes while the check
+  is already DOWN, the batcher first pings it UP ("not recovered: a new problem follows") and
+  then DOWN again: an UP email straight before a DOWN one means "read the DOWN one".
+- **The float cap.** The batcher keeps every fee it earns, and stops above `floatCap`. No sweep
+  exists yet (the owner's ruling sweeps to the two-key treasury, once it exists), so until then
+  the only way on is to raise `floatCap` in `BATCHER_SETTINGS` and redeploy; what it holds stays
+  at its key. Anyone can send ADA to its address and push it over the cap: the gift is the
+  venue's, but every pool stops until the cap is raised. Whether to sweep the excess to the
+  treasury instead of stopping, once the treasury exists, is the owner's call.
 
 ## Traps met building it (never undo these)
 

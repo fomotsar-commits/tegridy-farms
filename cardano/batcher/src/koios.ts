@@ -3,11 +3,13 @@
 // strings. UTxOs come back as JSON and are rebuilt here into the outputs the chain holds: same
 // address, value, datum bytes and reference script, each hash checked against its bytes, and
 // anything nested deeper than src/cbor.ts allows refused before EMURGO's library sees it. One
-// unreadable UTxO is left out with its reason (`onRefused`); it never fails the whole read.
+// unreadable UTxO is left out with its reason (`onRefused`); it never fails the whole read. One
+// EMURGO's library breaks on is named (LibraryTrapped); one an earlier process named is never
+// decoded again (`skip`).
 import CSL from '@emurgo/cardano-serialization-lib-nodejs';
 import type { ProtocolParams } from './build.ts';
 import { MAINNET_TIME, type NetworkTime } from './chain.ts';
-import { isWasmTrap, shallowCbor } from './cbor.ts';
+import { blaming, isWasmTrap, shallowCbor } from './cbor.ts';
 import { parseExact, stringifyExact } from './json.ts';
 import { ogmiosEvaluator, protocolParamsFromOgmios, rpc, SourceUnavailable, SubmitRefused, type Endpoint, type Tip } from './ogmios.ts';
 import type { Evaluator } from './prepare.ts';
@@ -21,6 +23,8 @@ export interface KoiosConfig {
   time?: NetworkTime;
   /** Told of every UTxO left out because it could not be read, and why. */
   onRefused?: (ref: string, reason: string) => void;
+  /** UTxOs never decoded: EMURGO's library broke on them before. */
+  skip?: (ref: string) => boolean;
 }
 
 type Json = Record<string, unknown>;
@@ -83,11 +87,13 @@ export class Koios {
   #rebuild(items: Json[]): ChainUtxo[] {
     const out: ChainUtxo[] = [];
     for (const u of items) {
+      const ref = `${String(u.tx_hash)}#${String(u.tx_index)}`;
+      if (this.#c.skip?.(ref)) continue;
       try {
-        out.push(utxoFromKoios(u, this.#c.time));
+        out.push(blaming([ref], () => utxoFromKoios(u, this.#c.time)));
       } catch (e) {
         if (!(e instanceof SourceUnavailable)) throw e;
-        this.#c.onRefused?.(`${String(u.tx_hash)}#${String(u.tx_index)}`, e.message);
+        this.#c.onRefused?.(ref, e.message);
       }
     }
     return out;

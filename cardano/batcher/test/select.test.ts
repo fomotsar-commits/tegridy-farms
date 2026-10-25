@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import CSL from '@emurgo/cardano-serialization-lib-nodejs';
 import { MAINNET_TIME } from '../src/chain.ts';
+import { LibraryTrapped } from '../src/cbor.ts';
 import type { Utxo } from '../src/plan.ts';
 import { batcherIndex, chooseBatch, readGlobalSetting, readOrders, readPools, type Deployment, type Policy } from '../src/select.ts';
 import type { ChainUtxo } from '../src/view.ts';
@@ -195,4 +196,19 @@ test('a receiver key hash of 27 bytes is refused when read: no batch could ever 
   const r = readOrders(DEP, POLICY, [aged({ ref: o.utxo.ref, outputHex: out.to_hex() }, 1n)], new Map());
   assert.equal(r.orders.length, 0);
   assert.match(r.skipped[0]!.reason, /27 bytes, not 28/);
+});
+
+test('an order or a pool whose bytes break EMURGO’s library while they are read is named', (t) => {
+  class RuntimeError extends Error {}
+  const w = world();
+  const a = swap(`${'61'.repeat(32)}#0`);
+  const b = swap(`${'62'.repeat(32)}#0`, 2);
+  const fromHex = CSL.TransactionOutput.from_hex.bind(CSL.TransactionOutput);
+  const poisoned = new Set([b.utxo.outputHex, w.pool.outputHex]);
+  t.mock.method(CSL.TransactionOutput, 'from_hex', (hex: string) => {
+    if (poisoned.has(hex)) throw new RuntimeError('unreachable');
+    return fromHex(hex);
+  });
+  assert.throws(() => readOrders(DEP, POLICY, [aged(a.utxo, 1n), aged(b.utxo, 2n)], new Map()), (e: unknown) => e instanceof LibraryTrapped && e.refs.join() === b.utxo.ref);
+  assert.throws(() => readPools(DEP, [aged(w.pool, 1n)]), (e: unknown) => e instanceof LibraryTrapped && e.refs.join() === w.pool.ref);
 });

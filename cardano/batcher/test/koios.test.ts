@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import CSL from '@emurgo/cardano-serialization-lib-nodejs';
 import { valueFromCsl } from '../src/chain.ts';
+import { LibraryTrapped } from '../src/cbor.ts';
 import { parseExact, stringifyExact } from '../src/json.ts';
 import { Koios, utxoFromKoios } from '../src/koios.ts';
 import { SourceUnavailable, SubmitRefused } from '../src/ogmios.ts';
@@ -171,4 +172,19 @@ test('Koios refusals are read as the ledger words them; an accepted id comes bac
   status = 502;
   body = '<html>Bad gateway</html>';
   await assert.rejects(() => k.submit('84a0a0f5f6'), SourceUnavailable);
+});
+
+test('a UTxO whose bytes break EMURGO’s library is named (the process restarts); one named before is never decoded', async (t) => {
+  class RuntimeError extends Error {}
+  const poison = { ...withInline, tx_index: 77n, inline_datum: { ...(withInline.inline_datum as Record<string, unknown>), bytes: 'd87a80' } };
+  const fromHex = CSL.PlutusData.from_hex.bind(CSL.PlutusData);
+  t.mock.method(CSL.PlutusData, 'from_hex', (hex: string) => {
+    if (hex === 'd87a80') throw new RuntimeError('unreachable');
+    return fromHex(hex);
+  });
+  t.mock.method(globalThis, 'fetch', async () => new Response(stringifyExact([withInline, poison]), { status: 200, headers: { 'content-range': '0-1/2' } }));
+  const ref = `${String(withInline.tx_hash)}#77`;
+  await assert.rejects(new Koios({ url: KOIOS }).utxosAtCredential('c3e28c36c3447315ba5a56f33da6a6ddc1770a876a8d9f0cb3a97c4c'), (e: unknown) => e instanceof LibraryTrapped && e.refs.length === 1 && e.refs[0] === ref);
+  const got = await new Koios({ url: KOIOS, skip: (r) => r === ref }).utxosAtCredential('c3e28c36c3447315ba5a56f33da6a6ddc1770a876a8d9f0cb3a97c4c');
+  assert.deepEqual(got.map((u) => u.ref), [`${String(withInline.tx_hash)}#${String(withInline.tx_index)}`]);
 });

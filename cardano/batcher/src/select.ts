@@ -9,6 +9,7 @@ import { outputDatum, plutusDataHash, slotToPosixMs, valueFromCsl } from './chai
 import { Unsupported, currentTimeApproximation, type OrderOutput } from './engine.ts';
 import { ContractFailure } from './math.ts';
 import { planBatch, type Utxo } from './plan.ts';
+import { blaming } from './cbor.ts';
 import { DecodeError, mkBytes, mkConstr, type PlutusData } from './plutus.ts';
 import { decodeGlobalSetting, decodeOrderDatum, decodePoolDatum, type GlobalSetting, type OrderDatum, type PoolDatum } from './types.ts';
 import { quantityOf } from './value.ts';
@@ -74,10 +75,13 @@ export function readGlobalSetting(dep: Deployment, utxos: ChainUtxo[]): { utxo: 
   return { utxo: found[0]!, setting: decodeGlobalSetting(d.data) };
 }
 
+/** The global setting does not (or no longer) name this batcher's key: a person is needed. */
+export class NotABatcher extends Error {}
+
 /** This batcher's place in the global setting's list of batchers (the batching redeemer names it). */
 export function batcherIndex(setting: GlobalSetting, keyHash: string): number {
   const i = setting.batchers.findIndex((b) => b.kind === 'signature' && b.hash === keyHash);
-  if (i < 0) throw new DecodeError(`the batcher key ${keyHash} is not among the global setting's batchers`);
+  if (i < 0) throw new NotABatcher(`the batcher key ${keyHash} is not among the global setting's batchers: name it there through the 48-hour lock, and redeploy once that has executed`);
   return i;
 }
 
@@ -87,7 +91,7 @@ export function readPools(dep: Deployment, utxos: ChainUtxo[]): { pools: Map<str
   const skipped: Skipped[] = [];
   const twice = new Set<string>();
   for (const u of utxos) {
-    const reason = (() => {
+    const reason = blaming([u.ref], () => {
       const o = CSL.TransactionOutput.from_hex(u.outputHex);
       if (scriptCredOf(u) !== dep.dex.poolScriptHash) return 'not at the pool script';
       if (quantityOf(valueFromCsl(o.amount()), { policyId: dep.dex.authenPolicy, assetName: POOL_NFT }) !== 1n) return 'no pool NFT';
@@ -105,7 +109,7 @@ export function readPools(dep: Deployment, utxos: ChainUtxo[]): { pools: Map<str
       if (pools.has(lpName)) twice.add(lpName);
       pools.set(lpName, { utxo: u, datum, lpName });
       return null;
-    })();
+    });
     if (reason) skipped.push({ ref: u.ref, reason });
   }
   for (const name of twice) {
@@ -120,42 +124,25 @@ export function readOrders(dep: Deployment, policy: Policy, utxos: ChainUtxo[], 
   const orders: Order[] = [];
   const skipped: Skipped[] = [];
   for (const u of [...utxos].sort(compareAge)) {
-    const o = CSL.TransactionOutput.from_hex(u.outputHex);
-    const skip = (reason: string) => skipped.push({ ref: u.ref, reason });
-    if (scriptCredOf(u) !== dep.orderScriptHash) {
-      skip('not at the order script');
-      continue;
-    }
-    if (o.has_script_ref()) {
-      skip('carries a reference script');
-      continue;
-    }
-    const d = outputDatum(o);
-    const data = d.kind === 'inline' ? d.data : d.kind === 'hash' ? datums.get(d.hash) : undefined;
-    if (!data) {
-      skip(d.kind === 'hash' ? 'its datum is not known (hash only)' : 'no datum');
-      continue;
-    }
-    let datum: OrderDatum;
-    try {
-      datum = decodeOrderDatum(data);
-    } catch (e) {
-      skip(`unreadable datum (${(e as Error).message})`);
-      continue;
-    }
-    if (datum.step.kind === 'Unsupported') {
-      skip(`order type ${datum.step.name} is not built by this batcher`);
-      continue;
-    }
-    if (datum.lpAsset.policyId !== dep.dex.authenPolicy) {
-      skip('names no pool of this deployment');
-      continue;
-    }
-    if (datum.maxBatcherFee < policy.batcherFee) {
-      skip(`allows a batcher fee of ${datum.maxBatcherFee}, below ${policy.batcherFee}`);
-      continue;
-    }
-    orders.push({ utxo: u, datum, witness: d.kind === 'hash' ? { hash: d.hash, data } : null });
+    const skip = (reason: string) => void skipped.push({ ref: u.ref, reason });
+    blaming([u.ref], () => {
+      const o = CSL.TransactionOutput.from_hex(u.outputHex);
+      if (scriptCredOf(u) !== dep.orderScriptHash) return skip('not at the order script');
+      if (o.has_script_ref()) return skip('carries a reference script');
+      const d = outputDatum(o);
+      const data = d.kind === 'inline' ? d.data : d.kind === 'hash' ? datums.get(d.hash) : undefined;
+      if (!data) return skip(d.kind === 'hash' ? 'its datum is not known (hash only)' : 'no datum');
+      let datum: OrderDatum;
+      try {
+        datum = decodeOrderDatum(data);
+      } catch (e) {
+        return skip(`unreadable datum (${(e as Error).message})`);
+      }
+      if (datum.step.kind === 'Unsupported') return skip(`order type ${datum.step.name} is not built by this batcher`);
+      if (datum.lpAsset.policyId !== dep.dex.authenPolicy) return skip('names no pool of this deployment');
+      if (datum.maxBatcherFee < policy.batcherFee) return skip(`allows a batcher fee of ${datum.maxBatcherFee}, below ${policy.batcherFee}`);
+      orders.push({ utxo: u, datum, witness: d.kind === 'hash' ? { hash: d.hash, data } : null });
+    });
   }
   return { orders, skipped };
 }

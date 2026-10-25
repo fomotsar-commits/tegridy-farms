@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import CSL from '@emurgo/cardano-serialization-lib-nodejs';
 import { valueFromCsl } from '../src/chain.ts';
+import { LibraryTrapped } from '../src/cbor.ts';
 import { parseExact, stringifyExact } from '../src/json.ts';
 import { Kupo, checkKupoReady, utxoFromKupo } from '../src/kupo.ts';
 import { SourceUnavailable } from '../src/ogmios.ts';
@@ -174,4 +175,21 @@ test('a hash-only output’s datum, sent along by Kupo, is kept only if it hashe
   assert.equal(CSL.TransactionOutput.from_hex(u.outputHex).plutus_data(), undefined);
   assert.throws(() => utxoFromKupo({ ...m, datum: CSL.PlutusData.new_integer(CSL.BigInt.from_str('1')).to_hex() }), /do not hash/);
   assert.equal(utxoFromKupo({ ...m, datum: null }).witnessDatum, undefined);
+});
+
+test('a match whose bytes break EMURGO’s library is named (the process restarts); one named before is never decoded', async (t) => {
+  class RuntimeError extends Error {}
+  const withDatum = outputs.find((x) => x.out.plutus_data())!;
+  const good = asKupo(withDatum.hash, withDatum.index, withDatum.out);
+  const poison = { ...good, output_index: 77n, datum: 'd87a80', datum_hash: CSL.hash_plutus_data(CSL.PlutusData.from_hex('d87a80')).to_hex() };
+  const fromHex = CSL.PlutusData.from_hex.bind(CSL.PlutusData);
+  t.mock.method(CSL.PlutusData, 'from_hex', (hex: string) => {
+    if (hex === 'd87a80') throw new RuntimeError('unreachable');
+    return fromHex(hex);
+  });
+  t.mock.method(globalThis, 'fetch', async () => new Response(stringifyExact([good, poison]), { status: 200, headers: { 'x-most-recent-checkpoint': '1' } }));
+  const ref = `${withDatum.hash}#77`;
+  await assert.rejects(new Kupo({ url: 'https://kupo.invalid' }).unspent('*'), (e: unknown) => e instanceof LibraryTrapped && e.refs.length === 1 && e.refs[0] === ref);
+  const got = await new Kupo({ url: 'https://kupo.invalid', skip: (r) => r === ref }).unspent('*');
+  assert.deepEqual(got.value.map((u) => u.ref), [`${withDatum.hash}#${withDatum.index}`]);
 });

@@ -16,11 +16,11 @@
 // cap, refusals, its wallet or settings) stays up, its alerts check failing, until a person
 // redeploys: Railway restarts any exit but 0, and a restarted batcher would read as recovered.
 // Exit codes: 0 the key was made (or found, with no settings yet), or a stop signal; 1 the
-// settings or the environment are wrong; 3 EMURGO's library broke (the process must restart: the
-// orders it broke on are kept on the volume, set aside); with --once, 2 it stopped itself.
+// settings or the environment are wrong; 3 EMURGO's library broke (the process must restart: what
+// it broke on is kept beside the key, and src/supervise.ts starts it again in the same container);
+// with --once, 2 it stopped itself.
 //   node src/main.ts [<settings.json>] [--once]      (--once: one round, then exit; no alarm)
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
 import { isBatcherAddress } from './build.ts';
 import { MAINNET_TIME } from './chain.ts';
 import { Follower, type SocketFactory } from './follow.ts';
@@ -205,31 +205,50 @@ export function makeKeyIfAsked(env: Readonly<Record<string, string | undefined>>
   return makeKeyFile(path, 1);
 }
 
-/** Orders EMURGO's library broke on, kept beside the key so the next process sets them aside too. */
-export const SET_ASIDE_FILE = 'set-aside.json';
+/**
+ * UTxOs EMURGO's library broke on, kept beside the key for the next process: named after the key
+ * file, so it can never be the key file (whose name may not end in either suffix).
+ */
+export const setAsideFileOf = (keyFile: string) => `${keyFile}.set-aside.json`;
+const STATE_SUFFIXES = /\.(new|set-aside\.json)$/;
 
-/** {"<txhash>#<index>": "<until slot>"}; a file that cannot be read is said, and none are set aside. */
-export function readSetAside(path: string, log: (e: object) => void): Map<string, bigint> {
-  const m = new Map<string, bigint>();
-  if (!existsSync(path)) return m;
+/** One alone: never read again ("trap"). The orders of a batch: each tried alone first ("suspect"). */
+export interface SetAside {
+  trapped: Set<string>;
+  suspects: Set<string>;
+}
+
+/** {"<txhash>#<index>": "trap" | "suspect"}; a file that cannot be read is said, and nothing is set aside. */
+export function readSetAside(path: string, log: (e: object) => void): SetAside {
+  const s: SetAside = { trapped: new Set(), suspects: new Set() };
+  if (!existsSync(path)) return s;
   try {
     const j = JSON.parse(readFileSync(path, 'utf8')) as unknown;
     if (typeof j !== 'object' || j === null || Array.isArray(j)) throw new Error('not an object');
-    for (const [ref, until] of Object.entries(j)) {
-      if (!REF.test(ref) || typeof until !== 'string' || !/^\d+$/.test(until)) throw new Error(`${ref}: not an order and a slot`);
-      m.set(ref, BigInt(until));
+    for (const [ref, kind] of Object.entries(j)) {
+      if (!REF.test(ref) || (kind !== 'trap' && kind !== 'suspect')) throw new Error(`${ref}: not a UTxO and "trap" or "suspect"`);
+      (kind === 'trap' ? s.trapped : s.suspects).add(ref);
     }
-    return m;
+    return s;
   } catch (e) {
     log({ kind: 'set-aside-unreadable', file: path, error: e instanceof Error ? e.message : String(e) });
-    return new Map();
+    return { trapped: new Set(), suspects: new Set() };
   }
 }
 
-export function writeSetAside(path: string, add: { refs: string[]; untilSlot: bigint }): void {
-  const kept = Object.fromEntries([...readSetAside(path, () => {})].map(([r, u]) => [r, String(u)]));
-  for (const r of add.refs) kept[r] = String(add.untilSlot);
-  writeFileSync(`${path}.new`, `${JSON.stringify(kept)}\n`, { mode: 0o600 });
+/** A break named (one UTxO alone: a trap; a batch's orders: suspects), or a suspect cleared. */
+export function writeSetAside(path: string, change: { trapped?: string[]; cleared?: string }): void {
+  const s = readSetAside(path, () => {});
+  const t = change.trapped ?? [];
+  if (t.length === 1) {
+    s.suspects.delete(t[0]!);
+    s.trapped.add(t[0]!);
+  } else for (const r of t) if (!s.trapped.has(r)) s.suspects.add(r);
+  if (change.cleared) s.suspects.delete(change.cleared);
+  const out: Record<string, string> = {};
+  for (const r of s.trapped) out[r] = 'trap';
+  for (const r of s.suspects) out[r] = 'suspect';
+  writeFileSync(`${path}.new`, `${JSON.stringify(out)}\n`, { mode: 0o600 });
   renameSync(`${path}.new`, path);
 }
 
@@ -254,7 +273,8 @@ export interface Proc {
   onStop: (stop: () => void) => void;
   rhythm?: typeof HEARTBEAT;
   send?: HeartbeatConfig['send'];
-  views?: ChainView[];
+  /** Stand-in sources, given the UTxOs a real source must never decode. */
+  views?: (skip: (ref: string) => boolean) => ChainView[];
   socket?: SocketFactory;
   /** How often the loop looks for a stop and an idle round (5 s). */
   pollMs?: number;
@@ -290,6 +310,7 @@ export async function main(p: Proc): Promise<number> {
   try {
     const path = p.argv.find((a) => !a.startsWith('--'));
     const text = path ? readFileSync(path, 'utf8') : env.BATCHER_SETTINGS;
+    if (env.BATCHER_KEY_FILE && STATE_SUFFIXES.test(env.BATCHER_KEY_FILE)) throw new Error("BATCHER_KEY_FILE may not end in .new or .set-aside.json: those names are the batcher's own files beside the key");
     // Left on, it would make a fresh key whenever the old one is missing, and say "fund it".
     if (env.BATCHER_MAKE_KEY === '1' && text !== undefined) throw new Error('BATCHER_MAKE_KEY=1 is for the first boot only, before there are settings: remove it');
     const made = makeKeyIfAsked(env);
@@ -318,18 +339,23 @@ export async function main(p: Proc): Promise<number> {
     for (const [variable, r] of [[PING_ENV, alive], [ALERTS_PING_ENV, alerts]] as const) if (!once && r.problem && r.problem !== 'unset') log({ kind: 'alarm-url-refused', variable, problem: r.problem });
     const e = readEnv(env);
 
+    const stateFile = env.BATCHER_KEY_FILE ? setAsideFileOf(env.BATCHER_KEY_FILE) : null;
+    const state = stateFile ? readSetAside(stateFile, log) : { trapped: new Set<string>(), suspects: new Set<string>() };
+    if (state.trapped.size || state.suspects.size) log({ kind: 'set-aside-restored', trapped: [...state.trapped], suspects: [...state.suspects] });
+    // A UTxO the library broke on alone is never decoded again.
+    const skip = (ref: string) => state.trapped.has(ref);
     const refused = new Set<string>();
     const onRefused = (ref: string, reason: string) => {
       if (refused.has(ref)) return;
       refused.add(ref);
       log({ kind: 'unreadable-utxo', ref, reason });
     };
-    const koios = e.koios ? new Koios({ url: e.koios, token: env.KOIOS_TOKEN, timeoutMs: Number(env.KOIOS_TIMEOUT_MS ?? 30_000), onRefused }) : null;
-    const views: ChainView[] = p.views ? [...p.views] : [];
+    const koios = e.koios ? new Koios({ url: e.koios, token: env.KOIOS_TOKEN, timeoutMs: Number(env.KOIOS_TIMEOUT_MS ?? 30_000), onRefused, skip }) : null;
+    const views: ChainView[] = p.views ? p.views(skip) : [];
     if (!p.views && e.ogmios && e.kupo) {
       if (!koios) throw new Error('KOIOS_URL is needed too: only Koios reads the batching account (Ogmios leaves out an account delegated nowhere)');
       const stake = koiosView(koios, c.network);
-      const kupo = new Kupo({ url: e.kupo, onRefused });
+      const kupo = new Kupo({ url: e.kupo, onRefused, skip });
       const d = c.deployment;
       const patterns = [`${d.orderScriptHash}/*`, `${d.dex.authenPolicy}.4d5350`, `${d.dex.authenPolicy}.4d534753`, `${c.batcher.keyHash}/*`, ...Object.values(d.scriptRefs).map((r) => `${r.split('#')[1]}@${r.split('#')[0]}`)];
       // Kupo must be ready before it is believed; until then (and when it is not, at start) Koios serves.
@@ -338,19 +364,20 @@ export async function main(p: Proc): Promise<number> {
     if (!p.views && koios) views.push(koiosView(koios, c.network));
     if (!views.length) throw new Error('no source: set OGMIOS_URL and KUPO_URL, and/or KOIOS_URL');
 
-    const stateFile = env.BATCHER_KEY_FILE ? join(dirname(env.BATCHER_KEY_FILE), SET_ASIDE_FILE) : null;
-    const setAside = stateFile ? readSetAside(stateFile, log) : new Map<string, bigint>();
-    if (setAside.size) log({ kind: 'set-aside-restored', orders: Object.fromEntries(setAside) });
     const signer = live ? key : null;
-    const watcher = new Watcher(views, signer, { ...c, setAside, checkLanding: e.ws !== undefined }, (ev) => {
-      log(ev);
-      heartbeat.observe(ev);
-      if (ev.kind !== 'stopped' || !ev.setAside || !stateFile) return;
+    const save = (change: { trapped?: string[]; cleared?: string }) => {
+      if (!stateFile) return;
       try {
-        writeSetAside(stateFile, ev.setAside);
+        writeSetAside(stateFile, change);
       } catch (err) {
         log({ kind: 'set-aside-unsaved', error: err instanceof Error ? err.message : String(err) });
       }
+    };
+    const watcher = new Watcher(views, signer, { ...c, suspects: state.suspects, checkLanding: e.ws !== undefined }, (ev) => {
+      log(ev);
+      heartbeat.observe(ev);
+      if (ev.kind === 'stopped' && ev.trapped) save({ trapped: ev.trapped });
+      if (ev.kind === 'suspect-cleared') save({ cleared: ev.ref });
     });
     log({ kind: 'start', sources: views.map((v) => v.name), dryRun: signer === null, batcher: c.batcher.keyHash, alarm: { alive: alive.url !== null && !once, alerts: alerts.url !== null && !once } });
     if (once) {
@@ -422,7 +449,10 @@ export async function main(p: Proc): Promise<number> {
         }
       }, Math.min(c.idleRoundMs, p.pollMs ?? 5_000));
       const beat = setInterval(() => heartbeat.tick(), rhythm.everyMs);
-      void watcher.trigger();
+      // The first report right after the first round: the checks turn green within a minute of the start.
+      void watcher.trigger().then(() => {
+        if (!done) heartbeat.tick();
+      });
       void stopSignal.then(() => finish(0));
     });
   } catch (err) {
