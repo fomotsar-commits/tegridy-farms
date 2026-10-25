@@ -78,31 +78,32 @@ function withTiers(): Chain {
 }
 
 describe('fee tiers', () => {
-  it('reads the tiers at the addresses their indexes derive, and only those that are there', async () => {
+  // One tier, 1% (owner, 2026-10-25: "there should only be one fee tier that is 1%"), at index 0.
+  it('reads the tier at index 0 only: a tier at any other index is never listed', async () => {
     const r = await readFeeTiers(withTiers().rpc, PROG);
     expect(r.kind).toBe('ok');
     if (r.kind !== 'ok') return;
-    expect(r.value.map((t) => [t.index, t.tradeFeeRate, t.protocolFeeRate + t.fundFeeRate])).toEqual([[0, 2_500, 160_000], [1, 5_000, 160_000]]);
+    expect(r.value.map((t) => [t.index, t.tradeFeeRate, t.protocolFeeRate + t.fundFeeRate])).toEqual([[0, 2_500, 160_000]]);
   });
 
   it('SOL sent to an unused tier address (an empty account the system owns) is the chain saying "never created": absent, not unread', async () => {
-    const funded = withTiers().set(deriveAmmConfig(PROG, 5), { owner: SYSTEM, data: new Uint8Array(0) });
+    const funded = withTiers().set(deriveAmmConfig(PROG, 0), { owner: SYSTEM, data: new Uint8Array(0) });
     const r = await readFeeTiers(funded.rpc, PROG);
-    expect(r.kind === 'ok' && r.value.map((t) => t.index)).toEqual([0, 1]);
+    expect(r.kind === 'ok' && r.value.map((t) => t.index)).toEqual([]);
     // The same at an unopened pool's address: the pair reads, with no pool there.
     const c = withTiers().set(POOL, { owner: SYSTEM, data: new Uint8Array(0) });
     const tiers = await readFeeTiers(c.rpc, PROG);
     if (tiers.kind !== 'ok') throw new Error('tiers');
     expect(await readPairPools(c.rpc, PROG, TOKEN.toBase58(), WSOL.toBase58(), tiers.value)).toEqual({ kind: 'ok', value: [] });
     // A system account WITH data is not that answer: still unread.
-    const odd = withTiers().set(deriveAmmConfig(PROG, 5), { owner: SYSTEM, data: new Uint8Array(8) });
+    const odd = withTiers().set(deriveAmmConfig(PROG, 0), { owner: SYSTEM, data: new Uint8Array(8) });
     expect((await readFeeTiers(odd.rpc, PROG)).kind).toBe('unread');
   });
 
   it('a tier address held by another program, a tier that does not decode, or a failed call is unread', async () => {
-    const stranger = withTiers().set(deriveAmmConfig(PROG, 2), { owner: Keypair.generate().publicKey, data: tier(2) });
-    const wrongIndex = withTiers().set(deriveAmmConfig(PROG, 2), { owner: PROG, data: tier(3) });
-    const short = withTiers().set(deriveAmmConfig(PROG, 2), { owner: PROG, data: tier(2).subarray(0, 40) });
+    const stranger = withTiers().set(deriveAmmConfig(PROG, 0), { owner: Keypair.generate().publicKey, data: tier(0) });
+    const wrongIndex = withTiers().set(deriveAmmConfig(PROG, 0), { owner: PROG, data: tier(3) });
+    const short = withTiers().set(deriveAmmConfig(PROG, 0), { owner: PROG, data: tier(0).subarray(0, 40) });
     for (const c of [stranger, wrongIndex, short]) expect((await readFeeTiers(c.rpc, PROG)).kind).toBe('unread');
     expect((await readFeeTiers(async () => { throw new Error('down'); }, PROG)).kind).toBe('unread');
   });
