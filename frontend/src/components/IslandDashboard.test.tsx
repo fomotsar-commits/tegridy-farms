@@ -4,7 +4,7 @@
 // not be read says so, never a zero or "you hold nothing".
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import type { ReactNode } from 'react';
 import type { WalletBoard } from '../hooks/useWalletBoard';
@@ -222,6 +222,224 @@ describe('IslandDashboard: what is drawn, from what was read', () => {
     const items = within(screen.getByRole('region', { name: 'Holdings' })).getAllByRole('listitem');
     expect(items[0]).toHaveTextContent('01');
     expect(items[1]).toHaveTextContent('02');
+  });
+});
+
+// The big frame on a phone and an iPad (owner, 2026-10-24: "the mobile and ipad versions to have
+// the dashboard too"). jsdom lays nothing out, so the screen is drawn here: the frame pinned under
+// the top bar (top 56, bottom 244) above rows 80px tall from `rowsTop` down, as on a phone; or,
+// with `beside`, the frame in a column of its own to the right of the rows, as on an iPad.
+describe('IslandDashboard: the frame on a phone and an iPad', () => {
+  const sol = '7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU';
+  let touch = true;
+  let short = false;
+  let beside = false;
+  let rowsTop = 600;
+  let frames: FrameRequestCallback[] = [];
+  const realRect = Element.prototype.getBoundingClientRect;
+
+  const rect = (top: number, height: number, left = 0, width = 390) =>
+    ({ top, bottom: top + height, left, right: left + width, width, height, x: left, y: top, toJSON: () => ({}) }) as DOMRect;
+
+  beforeEach(() => {
+    touch = true;
+    short = false;
+    beside = false;
+    rowsTop = 600;
+    frames = [];
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] });
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      value: (q: string) => ({
+        matches: (q.includes('pointer: coarse') && touch) || (q.includes('max-height') && short),
+        media: q, addEventListener() {}, removeEventListener() {},
+      }),
+    });
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => frames.push(cb));
+    vi.stubGlobal('cancelAnimationFrame', () => {});
+    // A long page, so the frame's end-of-page rule stays out of the way unless a test asks for it.
+    Object.defineProperty(document.documentElement, 'scrollHeight', { configurable: true, value: 100_000 });
+    Element.prototype.getBoundingClientRect = function (this: Element) {
+      if ((this as HTMLElement).dataset?.testid === 'dashboard-figure') return beside ? rect(80, 339, 600, 224) : rect(56, 188);
+      const key = (this as HTMLElement).dataset?.figKey;
+      if (!key) return rect(0, 0, 0, 0);
+      const rows = Array.from(document.querySelectorAll('[data-fig-key]')).filter((el) => !el.closest('details:not([open])'));
+      return rect(rowsTop + rows.indexOf(this) * 80, 80, 0, beside ? 560 : 390);
+    };
+    return () => {
+      Element.prototype.getBoundingClientRect = realRect;
+      Reflect.deleteProperty(window, 'matchMedia');
+      Reflect.deleteProperty(document.documentElement, 'scrollHeight');
+      vi.unstubAllGlobals();
+      vi.useRealTimers();
+    };
+  });
+
+  const flush = () => act(() => { while (frames.length) frames.shift()!(0); });
+  // A scroll, then the rest that lets the picture settle (it waits 150ms; the lit row does not).
+  const scrollTo = (top: number, rest = true) => {
+    rowsTop = top;
+    act(() => { window.dispatchEvent(new Event('scroll')); });
+    flush();
+    if (rest) act(() => { vi.advanceTimersByTime(200); });
+  };
+  const figure = () => screen.getByTestId('dashboard-figure');
+  const lit = () => Array.from(document.querySelectorAll('[data-current]')).map((el) => el.getAttribute('data-fig-key'));
+
+  function wallet3() {
+    board.value = wallet({
+      solanaAddress: sol,
+      holdings: [leg('h', 'your Solana coins', { status: 'ok', rows: [holding({ key: 'sol', symbol: 'SOL', roomId: null, to: null, amount: '1.5', usd: 300 }), holding({ key: 'bayla' })] })],
+      positions: [leg('p', 'your BAYLA locks', { status: 'ok', rows: [position({ key: 'lock' })] })],
+    });
+  }
+
+  it('with a wallet, draws the frame first in the board, pinned, so a phone can hold it above the rows', () => {
+    wallet3();
+    mount();
+    const fig = figure();
+    expect(fig.className).not.toMatch(/(^|\s)hidden(\s|$)/);
+    expect(fig.className).toMatch(/(^|\s)sticky(\s|$)/);
+    expect(fig.style.position).toBe('');
+    const holdings = screen.getByRole('region', { name: 'Holdings' });
+    expect(fig.compareDocumentPosition(holdings) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // A box with hidden overflow is a scroll box of its own, and nothing inside it can pin to the screen.
+    expect(fig.closest('section')!.className).toContain('supports-[overflow:clip]:overflow-clip');
+    // The frame pins inside a slot that owns its grid area: pinned straight in the grid, it rode on
+    // over the pool list below its row.
+    expect(fig.parentElement!.className).toContain('[grid-area:fig]');
+    expect(fig.className).not.toContain('grid-area');
+  });
+
+  it('without a wallet, follows the connect buttons and is not pinned over them below 1024px', () => {
+    mount();
+    const fig = figure();
+    expect(fig.className).not.toMatch(/(^|\s)sticky(\s|$)/);
+    expect(fig.className).toContain('lg:sticky');
+    const connect = screen.getByRole('button', { name: /Connect Solana wallet/ });
+    expect(connect.compareDocumentPosition(fig) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // And with nothing of the wallet's to follow, a scroll lights nothing.
+    scrollTo(100);
+    expect(lit()).toEqual([]);
+  });
+
+  it('pins nothing on a screen 500px tall or less, a phone held sideways', () => {
+    short = true;
+    wallet3();
+    mount();
+    expect(figure().style.position).toBe('static');
+  });
+
+  it('follows the scroll on a phone: the first row you can read whole under the frame is shown, and it lights', () => {
+    wallet3();
+    mount();
+    scrollTo(600);
+    // Nothing has reached the frame yet: the wallet's first row with a room, and no row lit.
+    expect(figure()).toHaveTextContent('fig. 01.02');
+    expect(figure()).toHaveTextContent('BAYLA · Solana');
+    expect(lit()).toEqual([]);
+
+    scrollTo(245); // SOL at the line, all of it in view: its chain's mark, drawn, on the dark plate.
+    expect(figure()).toHaveTextContent('fig. 01.01');
+    expect(figure()).toHaveTextContent('SOL · Solana');
+    const plate = screen.getByTestId('chain-plate');
+    expect(plate.querySelector('svg')).not.toBeNull();
+    expect(plate.textContent).toBe('');
+    expect(lit()).toEqual(['h:sol']);
+
+    scrollTo(230); // SOL's top has slid under the frame: the next row takes over.
+    expect(figure()).toHaveTextContent('BAYLA · Solana');
+    expect(lit()).toEqual(['h:bayla']);
+
+    scrollTo(100);
+    expect(figure()).toHaveTextContent('fig. 02.01');
+    expect(figure()).toHaveTextContent('BAYLA lock · Solana');
+    expect(lit()).toEqual(['p:lock']);
+    expect(screen.getByTestId('figure-progress').style.transform).toBe('scaleX(1)');
+  });
+
+  it('lights the row at once, and turns the picture only once the scroll rests', () => {
+    wallet3();
+    mount();
+    scrollTo(600);
+    scrollTo(245, false);
+    expect(lit()).toEqual(['h:sol']);
+    expect(figure()).toHaveTextContent('BAYLA · Solana'); // the picture has not turned yet
+    act(() => { vi.advanceTimersByTime(100); });
+    expect(figure()).toHaveTextContent('BAYLA · Solana');
+    act(() => { vi.advanceTimersByTime(100); });
+    expect(figure()).toHaveTextContent('SOL · Solana');
+  });
+
+  it('follows the scroll beside the frame (an iPad): the row at 45% down the screen is shown', () => {
+    beside = true;
+    wallet3();
+    mount();
+    scrollTo(240); // Rows at 240, 320, 400; the line at 45% of 768 is 346: BAYLA spans it.
+    expect(lit()).toEqual(['h:bayla']);
+    expect(figure()).toHaveTextContent('BAYLA · Solana');
+  });
+
+  it('shows the last row at the bottom of the page, where the rows can no longer reach the line', () => {
+    wallet3();
+    Object.defineProperty(document.documentElement, 'scrollHeight', { configurable: true, value: window.innerHeight });
+    mount();
+    scrollTo(600);
+    expect(lit()).toEqual(['p:lock']);
+  });
+
+  it('leaves the rows of a closed pool list out, and follows them once it is opened', () => {
+    wallet3();
+    mount();
+    scrollTo(-110);
+    expect(lit()).toEqual(['p:lock']);
+    // Opening the list is read at once, before any scroll: the third pool is the first you can read.
+    const details = screen.getByRole('list', { name: 'Pools on the island' }).closest('details')!;
+    details.open = true;
+    act(() => { details.dispatchEvent(new Event('toggle')); });
+    flush();
+    act(() => { vi.advanceTimersByTime(200); });
+    const third = venuePoolRows()[2]!;
+    expect(lit()).toEqual([`pool:${third.id}`]);
+    expect(figure()).toHaveTextContent(third.name);
+  });
+
+  it('gives the frame to a row a finger taps or the keyboard reaches, until the next scroll', () => {
+    wallet3();
+    mount();
+    scrollTo(230);
+    expect(lit()).toEqual(['h:bayla']);
+    act(() => { vi.advanceTimersByTime(400); }); // the scroll is over
+    act(() => { document.querySelector<HTMLElement>('[data-fig-key="p:lock"]')!.focus(); });
+    act(() => { vi.advanceTimersByTime(200); });
+    expect(lit()).toEqual([]);
+    expect(figure()).toHaveTextContent('BAYLA lock · Solana');
+    scrollTo(245);
+    expect(lit()).toEqual(['h:sol']);
+    expect(figure()).toHaveTextContent('SOL · Solana');
+  });
+
+  it('keeps the frame on the scroll when a row slides under a resting pointer during it', () => {
+    wallet3();
+    mount();
+    scrollTo(230);
+    fireEvent.mouseEnter(document.querySelector('[data-fig-key="p:lock"]')!);
+    act(() => { vi.advanceTimersByTime(200); });
+    expect(lit()).toEqual(['h:bayla']);
+    expect(figure()).toHaveTextContent('BAYLA · Solana');
+  });
+
+  it('with a mouse, follows the pointer and not the scroll, at any width, and lights nothing', () => {
+    touch = false;
+    wallet3();
+    mount();
+    scrollTo(100);
+    expect(figure()).toHaveTextContent('BAYLA · Solana');
+    expect(lit()).toEqual([]);
+    expect(screen.queryByTestId('figure-progress')).toBeNull();
+    // Pointing at SOL, which has no room, shows its chain rather than nothing.
+    fireEvent.mouseEnter(document.querySelector('[data-fig-key="h:sol"]')!);
+    expect(figure()).toHaveTextContent('SOL · Solana');
   });
 });
 

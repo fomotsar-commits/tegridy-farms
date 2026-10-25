@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { AnimatePresence, m } from 'framer-motion';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
@@ -42,8 +42,14 @@ import { FinePrint } from './ui/FinePrint';
  * (VenuePoolIndex.tsx says why): its rows and terms come from the registry (lib/venuePools.ts).
  *
  * The menu's editorial look (lib/editorial.ts): heavy type, hairlines, mono captions, hard
- * corners, grain. Every row carries its room's door picture: beside the word under 1024px, and
- * from 1024px in a big frame that follows the pointer.
+ * corners, grain. Every row carries its room's door picture, and the big frame shows the row
+ * you are on, laid out for the screen (owner, 2026-10-24: "the mobile and ipad versions to have
+ * the dashboard too ... aesthetic according to the space given"):
+ *   - from 1024px, beside the board, following the pointer;
+ *   - an upright iPad (768px to 1023px), beside the board as a tall frame, the pool list under both;
+ *   - a phone, a wide plate pinned under the top bar while the rows scroll beneath it.
+ * A phone or an iPad has no pointer, so there the frame follows the scroll instead (useFollow),
+ * and the row it shows lights as a pointed-at row does.
  */
 
 const GREEN = '#22c55e';
@@ -62,6 +68,136 @@ function prefersReducedMotion(): boolean {
 function doorOf(id: string) {
   const b = BUNGALOWS.find((x) => x.id === id);
   return b ? doorArt(b) : null;
+}
+
+/**
+ * What the big frame shows: a row's room, or, for a coin with no room (SOL, ETH), its chain. `no`
+ * is its plate number: the row's section and place ("01.05", the fifth coin held), or a pool's place.
+ */
+type Fig = { key: string; roomId: string | null; chain: string; word: string; caption: string; no: string };
+
+// Touch-first: no hover, or a coarse pointer. Width alone is not it: a mouse in a narrow window
+// points, and an iPad with a trackpad attached reports a fine pointer that hovers.
+const TOUCH = '(hover: none), (pointer: coarse)';
+// A phone held sideways, or any window this short: a pinned frame would fill it.
+const SHORT = '(max-height: 500px)';
+
+function mediaQuery(query: string): MediaQueryList | null {
+  return typeof window !== 'undefined' && typeof window.matchMedia === 'function' ? window.matchMedia(query) : null;
+}
+
+function useMedia(query: string): boolean {
+  const [on, setOn] = useState(() => mediaQuery(query)?.matches ?? false);
+  useEffect(() => {
+    const mq = mediaQuery(query);
+    if (!mq) return;
+    const sync = () => setOn(mq.matches);
+    mq.addEventListener('change', sync);
+    return () => mq.removeEventListener('change', sync);
+  }, [query]);
+  return on;
+}
+
+type Picked = { key: string; i: number; total: number; near: string[] } | null;
+
+/**
+ * The frame follows the scroll where there is no pointer: it shows the row at the reading line.
+ * The line is just under the frame where the frame is pinned above the rows (a phone), and 45%
+ * down the screen where it stands beside them. Rows are the board's `data-fig-key` elements that
+ * are shown; a closed pool list's are not. `clear` hands the frame back until the next scroll, for
+ * a row a finger tapped or the keyboard focused.
+ */
+function useFollow(on: boolean, wrap: RefObject<HTMLDivElement | null>, fig: RefObject<HTMLDivElement | null>, rowKeys: string) {
+  const [picked, setPicked] = useState<Picked>(null);
+  const lastScroll = useRef(0);
+  useEffect(() => {
+    if (!on) return;
+    let frame = 0;
+    const pick = () => {
+      frame = 0;
+      const root = wrap.current;
+      const f = fig.current?.getBoundingClientRect();
+      if (!root || !f) return;
+      // A closed <details> still lays its rows out in Chrome, so its rows are left out by name.
+      const rows = Array.from(root.querySelectorAll<HTMLElement>('[data-fig-key]'))
+        .filter((el) => !el.closest('details:not([open])'))
+        .map((el) => ({ key: el.dataset.figKey ?? '', r: el.getBoundingClientRect() }))
+        .filter((x) => x.r.height > 0);
+      const first = rows[0]?.r;
+      const last = rows[rows.length - 1]?.r;
+      const stacked = first ? f.left < first.right && f.right > first.left : false;
+      // Never below the screen: a short screen unpins the frame, and its foot may be anywhere.
+      let line = Math.min(stacked ? f.bottom + 8 : window.innerHeight * 0.45, window.innerHeight * 0.8);
+      // Where the page ends before the last rows can reach the line, the line slides down to meet
+      // them over the last stretch of scroll, so the bottom of the page shows the last row.
+      const page = document.scrollingElement ?? document.documentElement;
+      const left = Math.max(0, page.scrollHeight - window.innerHeight - window.scrollY);
+      const stop = last ? last.top - left : line;
+      if (stop > line) line += (stop - line) * Math.min(1, Math.max(0, 1 - left / (window.innerHeight * 0.75)));
+      let at = -1;
+      rows.forEach((x, i) => { if (x.r.top <= line) at = i; });
+      // The lit row is always one you can read: on a phone the next row takes over as soon as this
+      // one starts to slide under the frame, and beside the frame once it is half past the line.
+      const reached = rows[at]?.r;
+      const passing = reached && (stacked ? reached.top < f.bottom - 4 : (reached.top + reached.bottom) / 2 < line);
+      if (passing && at < rows.length - 1) at += 1;
+      const next = at < 0 ? null : {
+        key: rows[at]!.key, i: at, total: rows.length,
+        near: [rows[at - 1]?.key, rows[at + 1]?.key].filter((k): k is string => Boolean(k)),
+      };
+      setPicked((p) => (p?.key === next?.key && p?.i === next?.i && p?.total === next?.total ? p : next));
+    };
+    const schedule = () => { if (!frame) frame = requestAnimationFrame(pick); };
+    const scrolled = () => {
+      lastScroll.current = performance.now();
+      schedule();
+    };
+    schedule();
+    const root = wrap.current;
+    window.addEventListener('scroll', scrolled, { passive: true });
+    window.addEventListener('resize', schedule);
+    // Opening the pool list adds rows; `toggle` does not bubble, so it is caught on the way down.
+    root?.addEventListener('toggle', schedule, true);
+    // Rows that move without a scroll (a part finishing its read, the tape arriving above them).
+    const resized = typeof ResizeObserver === 'function' ? new ResizeObserver(schedule) : null;
+    if (root) resized?.observe(root);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener('scroll', scrolled);
+      window.removeEventListener('resize', schedule);
+      root?.removeEventListener('toggle', schedule, true);
+      resized?.disconnect();
+    };
+  }, [on, wrap, fig, rowKeys]);
+  // A row sliding under a resting pointer during a scroll fires the same "entered" as a pointer
+  // moved onto it, so a hand-back that close behind a scroll is the scroll's, and is ignored.
+  const clear = () => {
+    if (performance.now() - lastScroll.current > 300) setPicked(null);
+  };
+  return { picked: on ? picked : null, clear };
+}
+
+/** The value once it has stopped changing for `ms`: the frame's picture waits for the scroll to rest. */
+function useSettled<T>(value: T, ms: number): T {
+  const [settled, setSettled] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setSettled(value), ms);
+    return () => clearTimeout(t);
+  }, [value, ms]);
+  return settled;
+}
+
+/** Fetch a frame's picture ahead, at the size the frame will ask for, so it is there when the frame turns to it. */
+function preloadDoor(roomId: string | null) {
+  const door = roomId ? doorOf(roomId) : null;
+  if (!door || typeof Image === 'undefined') return;
+  const img = new Image();
+  const set = artSrcSet(door.src);
+  if (set) {
+    img.sizes = FIG_SIZES;
+    img.srcset = set;
+  }
+  img.src = door.src;
 }
 
 const accentOf = (roomId: string | null) => (roomId ? BUNGALOWS.find((b) => b.id === roomId)?.accent : undefined);
@@ -133,7 +269,7 @@ function Terms({ terms }: { terms: string }) {
 }
 
 /** One pool: its number, its word, its chain and terms, and the door into its room. */
-function PoolRow({ n, row, onShow }: { n: number; row: VenuePoolRow; onShow: () => void }) {
+function PoolRow({ n, row, onShow, figKey, current }: { n: number; row: VenuePoolRow; onShow: () => void; figKey: string; current: boolean }) {
   const door = doorOf(row.id);
   // The 44px thumbnail takes the smallest derivative, as the hall's doors do (VenueDoors.tsx):
   // a door's source is up to 2048px wide, and a phone draws twelve of them here.
@@ -147,16 +283,12 @@ function PoolRow({ n, row, onShow }: { n: number; row: VenuePoolRow; onShow: () 
         aria-label={`Open ${row.symbol}`}
         onMouseEnter={onShow}
         onFocus={onShow}
+        data-fig-key={figKey}
+        data-current={current ? '' : undefined}
         className="group/row relative grid items-center gap-x-3 md:gap-x-4 lg:gap-x-5 grid-cols-[2.75rem_minmax(0,1fr)_2.5rem] md:grid-cols-[2.75rem_1.5rem_minmax(0,1fr)_6.5rem_13rem_2.75rem] lg:grid-cols-[2rem_minmax(0,1fr)_6.5rem_13.5rem_2.75rem] min-h-[64px] py-2.5 pl-0 md:pl-3 border-b border-white/[0.10] no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#22c55e]"
         style={{ color: EDITORIAL_INK }}
       >
-        {/* The resident's color, rising up the row's edge on hover. */}
-        <span aria-hidden="true"
-          className="absolute left-0 top-0 bottom-0 w-[3px] origin-bottom scale-y-0 transition-transform duration-300 ease-out group-hover/row:scale-y-100 group-focus-visible/row:scale-y-100"
-          style={{ background: row.accent ?? GREEN }} />
-        {/* The rule under the row sweeps green, as the menu's do. */}
-        <span aria-hidden="true"
-          className="absolute left-0 right-0 -bottom-px h-px origin-left scale-x-0 bg-[#22c55e] transition-transform duration-500 ease-out group-hover/row:scale-x-100 group-focus-visible/row:scale-x-100" />
+        <RowRules accent={row.accent} edge="-left-3 md:left-0" />
 
         {/* Under 1024px: the door's picture beside the word. From 1024px the big frame shows it. */}
         <span aria-hidden="true" className="lg:hidden relative w-11 h-11 overflow-hidden border border-white/15">
@@ -165,13 +297,10 @@ function PoolRow({ n, row, onShow }: { n: number; row: VenuePoolRow; onShow: () 
               className="w-full h-full object-cover" style={door.objectPosition ? { objectPosition: door.objectPosition } : undefined} />
           )}
         </span>
-        <span aria-hidden="true"
-          className="hidden md:block self-start pt-1 font-mono text-[11px] tracking-[0.12em] tabular-nums text-[#f5e4b8]/45 transition-colors group-hover/row:text-[#22c55e]">
-          {pad2(n)}
-        </span>
+        <Index n={n} />
 
         <span className="min-w-0">
-          <span className="block truncate font-black leading-[0.95] tracking-[-0.045em] text-[24px] md:text-[28px] lg:text-[34px] transition-[transform,color] duration-300 ease-out group-hover/row:translate-x-1.5 group-hover/row:text-white"
+          <span className={`block truncate font-black leading-[0.95] tracking-[-0.045em] text-[24px] md:text-[28px] lg:text-[34px] ${WORD_LIT}`}
             style={HEADING_FONT}>
             {row.symbol}
           </span>
@@ -223,14 +352,24 @@ function Thumb({ roomId, chain, className = '' }: { roomId: string | null; chain
 const ROW_CLASS =
   'group/row relative grid items-center gap-x-3 md:gap-x-4 min-h-[64px] py-2.5 border-b border-white/[0.10] no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#22c55e]';
 
-function RowRules({ accent }: { accent?: string }) {
+// A row lights when pointed at, focused, or (a phone, an iPad) when it is the row the frame shows:
+// `data-current` on the row, set by useFollow's pick.
+const WORD_LIT =
+  'transition-[transform,color] duration-300 ease-out group-hover/row:translate-x-1.5 group-hover/row:text-white group-data-current/row:translate-x-1.5 group-data-current/row:text-white';
+
+/**
+ * The row's resident colour rising up its edge, and the rule under it sweeping green, as the menu's
+ * do. The colour stands in the card's margin, clear of the row's number and picture; a pool row,
+ * padded from 768px, keeps it on its edge there.
+ */
+function RowRules({ accent, edge = '-left-3' }: { accent?: string; edge?: string }) {
   return (
     <>
       <span aria-hidden="true"
-        className="absolute left-0 top-0 bottom-0 w-[3px] origin-bottom scale-y-0 transition-transform duration-300 ease-out group-hover/row:scale-y-100 group-focus-visible/row:scale-y-100"
+        className={`absolute ${edge} top-0 bottom-0 w-[3px] origin-bottom scale-y-0 transition-transform duration-300 ease-out group-hover/row:scale-y-100 group-focus-visible/row:scale-y-100 group-data-current/row:scale-y-100`}
         style={{ background: accent ?? GREEN }} />
       <span aria-hidden="true"
-        className="absolute left-0 right-0 -bottom-px h-px origin-left scale-x-0 bg-[#22c55e] transition-transform duration-500 ease-out group-hover/row:scale-x-100 group-focus-visible/row:scale-x-100" />
+        className="absolute left-0 right-0 -bottom-px h-px origin-left scale-x-0 bg-[#22c55e] transition-transform duration-500 ease-out group-hover/row:scale-x-100 group-focus-visible/row:scale-x-100 group-data-current/row:scale-x-100" />
     </>
   );
 }
@@ -238,7 +377,7 @@ function RowRules({ accent }: { accent?: string }) {
 /** The row's number, from 768px; the picture carries the row on a phone. */
 function Index({ n }: { n: number }) {
   return (
-    <span aria-hidden="true" className="hidden md:block self-start pt-1 font-mono text-[11px] tracking-[0.12em] tabular-nums text-[#f5e4b8]/45 transition-colors group-hover/row:text-[#22c55e]">
+    <span aria-hidden="true" className="hidden md:block self-start pt-1 font-mono text-[11px] tracking-[0.12em] tabular-nums text-[#f5e4b8]/45 transition-colors group-hover/row:text-[#22c55e] group-data-current/row:text-[#22c55e]">
       {pad2(n)}
     </span>
   );
@@ -257,20 +396,21 @@ function Arrow() {
 }
 
 /** One coin the wallet holds: its number, picture, word and chain, the amount, its worth and its share. */
-function HoldingItem({ n, row, share, onShow }: { n: number; row: HoldingRow; share: number | undefined; onShow: () => void }) {
+function HoldingItem({ n, row, share, onShow, figKey, current }: { n: number; row: HoldingRow; share: number | undefined; onShow: () => void; figKey: string; current: boolean }) {
   const body = (
     <>
       <RowRules accent={accentOf(row.roomId)} />
       <Index n={n} />
       <Thumb roomId={row.roomId} chain={row.chain} />
       <span className="min-w-0">
-        <span className="block truncate font-black leading-[0.95] tracking-[-0.045em] text-[24px] md:text-[30px] transition-[transform,color] duration-300 ease-out group-hover/row:translate-x-1.5 group-hover/row:text-white" style={HEADING_FONT}>
+        {/* An upright iPad sets the board beside its frame, so the type steps down a size there. */}
+        <span className={`block truncate font-black leading-[0.95] tracking-[-0.045em] text-[24px] md:text-[26px] lg:text-[30px] ${WORD_LIT}`} style={HEADING_FONT}>
           {row.symbol}
         </span>
         <span className="mt-1 block font-mono text-[10px] uppercase tracking-[0.12em] text-[#f5e4b8]/60"><ChainMark chain={row.chain} /></span>
       </span>
       <span className="text-right">
-        <span className="block font-black leading-none tracking-[-0.03em] text-[20px] md:text-[26px] tabular-nums" style={HEADING_FONT}>{row.amount}</span>
+        <span className="block font-black leading-none tracking-[-0.03em] text-[20px] md:text-[22px] lg:text-[26px] tabular-nums" style={HEADING_FONT}>{row.amount}</span>
         <span className="mt-1 block font-mono text-[11px] tracking-[0.04em] text-[#f5e4b8]/65 tabular-nums">
           <span>{row.usd !== null ? fmtUsd(row.usd) : 'no price read'}</span>
           {/* Its share of the whole, only while the whole is known (holdingShares). */}
@@ -281,43 +421,46 @@ function HoldingItem({ n, row, share, onShow }: { n: number; row: HoldingRow; sh
     </>
   );
   const cls = `${ROW_CLASS} grid-cols-[2.75rem_minmax(0,1fr)_auto_2.5rem] md:grid-cols-[2rem_2.75rem_minmax(0,1fr)_auto_2.5rem]`;
+  const fig = { 'data-fig-key': figKey, 'data-current': current ? '' : undefined };
   return (
     <m.li {...rise(n - 1)}>
       {row.to ? (
-        <Link to={row.to} aria-label={`${row.symbol}: ${row.amount}, open its room`} onMouseEnter={onShow} onFocus={onShow} className={cls} style={{ color: EDITORIAL_INK }}>
+        <Link to={row.to} aria-label={`${row.symbol}: ${row.amount}, open its room`} onMouseEnter={onShow} onFocus={onShow} className={cls} style={{ color: EDITORIAL_INK }} {...fig}>
           {body}
         </Link>
       ) : (
-        <div className={cls} onMouseEnter={onShow}>{body}</div>
+        <div className={cls} onMouseEnter={onShow} {...fig}>{body}</div>
       )}
     </m.li>
   );
 }
 
 /** One position on this site: what it is, its read facts, its place on the ladder, and the door to it. */
-function PositionItem({ n, row, onShow }: { n: number; row: PositionRow; onShow: () => void }) {
+function PositionItem({ n, row, onShow, figKey, current }: { n: number; row: PositionRow; onShow: () => void; figKey: string; current: boolean }) {
   const boost = boostOf(row.facts);
   return (
     <m.li {...rise(n - 1)}>
+      {/* The facts sit beside the title from 1024px; below that (a phone, and an upright iPad, whose
+          board shares its width with the frame) they sit under it. */}
       <Link to={row.to} aria-label={`${row.title}: ${row.facts.join(', ')}. Open it`} onMouseEnter={onShow} onFocus={onShow}
-        className={`${ROW_CLASS} grid-cols-[2.75rem_minmax(0,1fr)_2.5rem] md:grid-cols-[2rem_2.75rem_minmax(0,14rem)_minmax(0,1fr)_2.5rem]`} style={{ color: EDITORIAL_INK }}>
+        data-fig-key={figKey} data-current={current ? '' : undefined}
+        className={`${ROW_CLASS} grid-cols-[2.75rem_minmax(0,1fr)_2.5rem] md:grid-cols-[2rem_2.75rem_minmax(0,1fr)_2.5rem] lg:grid-cols-[2rem_2.75rem_minmax(0,14rem)_minmax(0,1fr)_2.5rem]`} style={{ color: EDITORIAL_INK }}>
         <RowRules accent={accentOf(row.roomId)} />
         <Index n={n} />
         <Thumb roomId={row.roomId} chain={row.chain} />
         <span className="min-w-0">
           <span className="flex items-center gap-2.5 min-w-0">
-            <span className="truncate font-black leading-[0.95] tracking-[-0.045em] text-[20px] md:text-[24px] transition-[transform,color] duration-300 ease-out group-hover/row:translate-x-1.5 group-hover/row:text-white" style={HEADING_FONT}>
+            <span className={`truncate font-black leading-[0.95] tracking-[-0.045em] text-[20px] md:text-[24px] ${WORD_LIT}`} style={HEADING_FONT}>
               {row.title}
             </span>
             {boost !== null && <LockMark boost={boost} />}
           </span>
           <span className="mt-1 block font-mono text-[10px] uppercase tracking-[0.12em] text-[#f5e4b8]/60"><ChainMark chain={row.chain} /></span>
-          {/* A phone: the facts under the title. */}
-          <span className="md:hidden mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-[11px] text-[#f5e4b8]/80">
+          <span className="lg:hidden mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-[11px] text-[#f5e4b8]/80">
             {row.facts.map((f) => <span key={f}>{f}</span>)}
           </span>
         </span>
-        <span className="hidden md:flex flex-wrap gap-x-4 gap-y-1 font-mono text-[12px] tracking-[0.02em] text-[#f5e4b8]/85">
+        <span className="hidden lg:flex flex-wrap gap-x-4 gap-y-1 font-mono text-[12px] tracking-[0.02em] text-[#f5e4b8]/85">
           {row.facts.map((f) => <span key={f} className="whitespace-nowrap">{f}</span>)}
         </span>
         <Arrow />
@@ -444,39 +587,125 @@ function ConnectButtons({ solana, evm }: { solana: boolean; evm: boolean }) {
   );
 }
 
-/** The big frame, from 1024px: the door picture of the row under the pointer, captioned as a plate. */
-function Figure({ n, roomId, caption }: { n: number; roomId: string; caption: string }) {
-  const room = BUNGALOWS.find((b) => b.id === roomId);
-  const door = doorOf(roomId);
+// The picture's widths in each layout, for srcset: the desktop frame, the upright iPad's, the phone's strip.
+const FIG_SIZES = '(min-width: 1024px) 360px, (min-width: 720px) 224px, 100vw';
+
+/**
+ * The frame's place in each layout. `slot` owns the grid area and `frame` is what pins: a pinned
+ * box stays inside its parent box, and a grid area is not one, so without the slot the frame rode
+ * on over the pool list below its row. The card is `overflow-clip`, not `hidden`, for the same
+ * reason: a hidden-overflow box is a scroll box of its own, and nothing inside it can pin.
+ *
+ * `follow` (a wallet is connected, so there are rows): a phone gets a wide plate across the card,
+ * pinned under the top bar while the rows scroll beneath it, on a solid strip so a passing row never
+ * shows through its caption; from 720px (an iPad mini upright and up) a tall frame pinned beside
+ * the board; from 1024px as before. `still` (no wallet): nothing to follow, so under 1024px it is a
+ * plate under the connect buttons, never pinned over them. A screen 500px tall or less (a phone
+ * held sideways) pins neither: the frame would fill it (IslandDashboard, `short`).
+ */
+const FIG_LAYOUT = {
+  follow: {
+    slot: 'contents min-[720px]:block [grid-area:fig]',
+    frame: 'sticky z-10 -mx-4 mt-5 top-[calc(3.5rem+env(safe-area-inset-top,0px)+var(--app-alert-h,0px))] bg-[#05080f] min-[720px]:mx-0 min-[720px]:mt-0 min-[720px]:pt-4 min-[720px]:top-[calc(5rem+var(--app-alert-h,0px))] min-[720px]:bg-transparent lg:top-24',
+    plate: 'aspect-[16/7] min-[640px]:aspect-[5/2] min-[720px]:aspect-[3/4] lg:aspect-[4/5] border-y min-[720px]:border',
+    // An upright iPad's 14rem frame sets its caption on two lines rather than cut the name.
+    caption: 'px-4 py-2 min-[720px]:px-0 min-[720px]:py-0 min-[720px]:mt-2 min-[720px]:max-lg:flex-col min-[720px]:max-lg:gap-1',
+    name: 'min-[720px]:max-lg:whitespace-normal min-[720px]:max-lg:line-clamp-2 min-[720px]:max-lg:min-h-[2.6em]',
+  },
+  still: {
+    slot: '[grid-area:fig]',
+    frame: 'mt-6 lg:sticky lg:z-10 lg:top-24 lg:mt-0 lg:pt-4',
+    plate: 'aspect-[16/7] min-[640px]:aspect-[5/2] lg:aspect-[4/5] border',
+    caption: 'mt-2',
+    name: '',
+  },
+} as const;
+
+/** `#rrggbb` at an alpha, for a chain colour's glow. */
+function tint(hex: string, alpha: number): string {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${alpha})`;
+}
+
+/**
+ * A chain's mark drawn as outlines, the way the frame's word is: the Ethereum diamond (ETH on
+ * Base is still ETH, in Base's blue) or Solana's three bars. The hairline stays a hairline at
+ * any frame size.
+ */
+function ChainArt({ chain }: { chain: string }) {
+  const stroke = CHAIN_DOT[chain] ?? GREEN;
+  const line = { fill: tint(stroke, 0.08), stroke, strokeWidth: 1.5, strokeLinejoin: 'round' as const, vectorEffect: 'non-scaling-stroke' as const };
+  return chain === 'solana' ? (
+    <svg viewBox="-2 -2 124 104" className="absolute right-[8%] top-1/2 -translate-y-[58%] h-[56%] w-auto">
+      <path d="M22 0H120L98 24H0Z" {...line} />
+      <path d="M0 38H98L120 62H22Z" {...line} />
+      <path d="M22 76H120L98 100H0Z" {...line} />
+    </svg>
+  ) : (
+    <svg viewBox="-2 -2 104 164" className="absolute right-[10%] top-1/2 -translate-y-[56%] h-[72%] w-auto">
+      <path d="M50 0L100 82L50 110L0 82Z" {...line} />
+      <path d="M50 0V110M0 82L50 60L100 82" {...line} fill="none" />
+      <path d="M50 122L100 94L50 160L0 94Z" {...line} />
+    </svg>
+  );
+}
+
+/**
+ * The big frame: the door picture of the row you are on, captioned as a plate. A coin with no room
+ * (SOL, ETH) shows its chain's mark on the dark plate, in the chain's colour. The frame is a size
+ * container, so its word and mark are sized by the frame they sit in, and the word by its length
+ * too, so a long one is never cut at the frame's side. The word wipes in with its picture.
+ */
+function Figure({ fig, mode, unpinned, quick, progress, frameRef }: {
+  fig: Fig; mode: keyof typeof FIG_LAYOUT; unpinned: boolean; quick: boolean; progress: number | null; frameRef: RefObject<HTMLDivElement | null>;
+}) {
+  const layout = FIG_LAYOUT[mode];
+  const door = fig.roomId ? doorOf(fig.roomId) : null;
   const reduce = prefersReducedMotion();
   const srcSet = door ? artSrcSet(door.src) : undefined;
+  const plate = fig.roomId ?? `chain:${fig.chain}`;
   return (
-    <div aria-hidden="true" className="hidden lg:block lg:sticky lg:top-24 self-start pt-4">
-      <div className="relative aspect-[4/5] overflow-hidden border border-white/15" style={{ background: EDITORIAL_BG }}>
-        <AnimatePresence initial={false}>
-          <m.div key={roomId} className="absolute inset-0"
-            initial={reduce ? { opacity: 0 } : { clipPath: 'inset(100% 0% 0% 0%)' }}
-            animate={reduce ? { opacity: 1 } : { clipPath: 'inset(0% 0% 0% 0%)' }}
-            exit={{ opacity: 0, transition: { duration: 0.3 } }}
-            transition={{ duration: 0.7, ease: EDITORIAL_EASE }}>
-            {door && (
-              // art-bright: index.css dims any full-bleed art to 0.45; nothing but a caption sits on this one.
-              <img src={door.src} {...(srcSet ? { srcSet, sizes: '360px' } : {})} alt="" loading="lazy" decoding="async"
-                className="w-full h-full object-cover art-bright"
-                style={door.objectPosition ? { objectPosition: door.objectPosition } : undefined} />
-            )}
-          </m.div>
-        </AnimatePresence>
-        <span className="absolute inset-x-0 bottom-0 h-2/5 pointer-events-none" style={{ background: `linear-gradient(to top, ${EDITORIAL_BG} 0%, rgba(5,8,15,0) 100%)` }} />
-        {/* The resident's word, outlined and cut by the frame's foot. */}
-        <span key={`w-${roomId}`} className="absolute left-4 bottom-0 translate-y-[24%] whitespace-nowrap font-black leading-none tracking-[-0.06em] text-[clamp(3.5rem,6.2vw,5.75rem)] select-none"
-          style={{ ...HEADING_FONT, ...OUTLINE }}>
-          {room?.symbol ?? ''}
-        </span>
-      </div>
-      <div className="mt-2 flex justify-between gap-3 font-mono text-[11px] tracking-[0.12em] text-[#f5e4b8]/60">
-        <span>fig. {pad2(n)}</span>
-        <span className="truncate">{caption}</span>
+    <div className={layout.slot}>
+      <div ref={frameRef} aria-hidden="true" data-testid="dashboard-figure" className={layout.frame} style={unpinned ? { position: 'static' } : undefined}>
+        <div className={`relative overflow-hidden border-white/15 [container-type:size] ${layout.plate}`} style={{ background: EDITORIAL_BG }}>
+          <AnimatePresence initial={false}>
+            <m.div key={plate} className="absolute inset-0"
+              initial={reduce ? { opacity: 0 } : { clipPath: 'inset(100% 0% 0% 0%)' }}
+              animate={reduce ? { opacity: 1 } : { clipPath: 'inset(0% 0% 0% 0%)' }}
+              exit={{ opacity: 0, transition: { duration: 0.3 } }}
+              // Following a scroll, a shorter wipe: the next row is never far behind.
+              transition={{ duration: quick ? 0.45 : 0.7, ease: EDITORIAL_EASE }}>
+              {door ? (
+                // art-bright: index.css dims any full-bleed art to 0.45; nothing but a caption sits on this one.
+                <img src={door.src} {...(srcSet ? { srcSet, sizes: FIG_SIZES } : {})} alt="" loading="lazy" decoding="async"
+                  className="w-full h-full object-cover art-bright"
+                  style={door.objectPosition ? { objectPosition: door.objectPosition } : undefined} />
+              ) : (
+                <span data-testid="chain-plate" className="absolute inset-0"
+                  style={{ background: `radial-gradient(120% 95% at 82% 42%, ${tint(CHAIN_DOT[fig.chain] ?? GREEN, 0.3)} 0%, ${EDITORIAL_BG} 68%)` }}>
+                  <span className="absolute inset-0 opacity-[0.1] mix-blend-screen" style={{ backgroundImage: EDITORIAL_GRAIN }} />
+                  <ChainArt chain={fig.chain} />
+                </span>
+              )}
+              <span className="absolute inset-x-0 bottom-0 h-2/5 pointer-events-none" style={{ background: `linear-gradient(to top, ${EDITORIAL_BG} 0%, rgba(5,8,15,0) 100%)` }} />
+              {/* The word, outlined and cut by the frame's foot. */}
+              <span className="absolute left-4 bottom-0 translate-y-[24%] whitespace-nowrap font-black leading-none tracking-[-0.06em] text-[clamp(3rem,15vw,5rem)] max-lg:supports-[width:1cqw]:text-[length:min(26cqw,46cqh,calc(135cqw/var(--len)))] lg:text-[clamp(3.5rem,6.2vw,5.75rem)] select-none"
+                style={{ ...HEADING_FONT, ...OUTLINE, '--len': Math.max(fig.word.length, 3) } as CSSProperties}>
+                {fig.word}
+              </span>
+            </m.div>
+          </AnimatePresence>
+        </div>
+        <div className={`relative flex justify-between gap-3 font-mono text-[11px] tracking-[0.12em] text-[#f5e4b8]/60 ${layout.caption}`}>
+          {/* The number never wraps. */}
+          <span className="shrink-0 whitespace-nowrap">fig. {fig.no}</span>
+          <span className={`truncate ${layout.name}`}>{fig.caption}</span>
+          {/* Following a scroll: how far down the board the frame has followed you. */}
+          {progress !== null && (
+            <span data-testid="figure-progress" className="absolute left-0 bottom-0 min-[720px]:-bottom-2 h-px w-full origin-left bg-[#22c55e] transition-transform duration-300 ease-out"
+              style={{ transform: `scaleX(${progress})` }} />
+          )}
+        </div>
       </div>
     </div>
   );
@@ -498,18 +727,46 @@ export function IslandDashboard({ headingLevel = 2 }: { headingLevel?: 1 | 2 }) 
   const connected = Boolean(board.solanaAddress || board.evmAddress);
 
   const heldRows = board.holdings.flatMap((l) => (l.leg.status === 'ok' ? l.leg.rows : []));
-  // The frame shows the row under the pointer, else the wallet's first row with a room, else the first pool.
-  const walletRooms = [
-    ...heldRows,
-    ...board.positions.flatMap((l) => (l.leg.status === 'ok' ? l.leg.rows : [])),
-  ].flatMap((r) => (r.roomId ? [r.roomId] : []));
-  const [hovered, setHovered] = useState<{ roomId: string; caption: string; n: number } | null>(null);
-  const fallbackRoom = walletRooms[0] ?? pools[0]?.id ?? 'bayla';
-  const fallback = BUNGALOWS.find((b) => b.id === fallbackRoom);
-  const shown = hovered ?? { roomId: fallbackRoom, caption: fallback ? `${fallback.name} · ${CHAIN_LABEL[fallback.chain] ?? fallback.chain}` : '', n: 1 };
-  const show = (roomId: string | null, caption: string, n: number) => () => {
-    if (roomId) setHovered({ roomId, caption, n });
+  const positionRows = board.positions.flatMap((l) => (l.leg.status === 'ok' ? l.leg.rows : []));
+  const symbolOf = (roomId: string | null) => (roomId ? BUNGALOWS.find((b) => b.id === roomId)?.symbol : undefined);
+  // A plate is numbered by its row: section and place for the wallet's rows (the board's "01" and
+  // "02" headings, and each row's own number), the place alone for a pool.
+  const holdingFig = (r: HoldingRow, i: number): Fig =>
+    ({ key: `h:${r.key}`, roomId: r.roomId, chain: r.chain, word: symbolOf(r.roomId) ?? r.symbol, caption: `${r.symbol} · ${WALLET_CHAIN_LABEL[r.chain]}`, no: `01.${pad2(i + 1)}` });
+  const positionFig = (r: PositionRow, i: number): Fig =>
+    ({ key: `p:${r.key}`, roomId: r.roomId, chain: r.chain, word: symbolOf(r.roomId) ?? r.title.split(' ')[0] ?? '', caption: `${r.title} · ${WALLET_CHAIN_LABEL[r.chain]}`, no: `02.${pad2(i + 1)}` });
+  const poolFig = (row: VenuePoolRow, i: number): Fig =>
+    ({ key: `pool:${row.id}`, roomId: row.id, chain: row.chain, word: symbolOf(row.id) ?? row.symbol, caption: `${row.name} · ${CHAIN_LABEL[row.chain] ?? row.chain}`, no: pad2(i + 1) });
+  const walletFigs = [...heldRows.map(holdingFig), ...positionRows.map(positionFig)];
+  const figs = new Map([...walletFigs, ...pools.map(poolFig)].map((f) => [f.key, f]));
+
+  // The frame shows the row you are on: under the pointer, or, on a touch screen with a wallet's
+  // rows to follow, the row the scroll has brought to the reading line. Else the wallet's first row
+  // with a room, else the first pool. A tap or a focus takes it back until the next scroll.
+  const mode = connected ? 'follow' : 'still';
+  const touch = useMedia(TOUCH);
+  const short = useMedia(SHORT);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const frameRef = useRef<HTMLDivElement>(null);
+  const { picked, clear } = useFollow(touch && connected, wrapRef, frameRef, [...figs.keys()].join('|'));
+  const followed = picked ? figs.get(picked.key) ?? null : null;
+  // The row lights at once; the picture waits for the scroll to rest, so a quick scroll is not a
+  // run of half-finished wipes. The rows either side are fetched ahead.
+  const settledKey = useSettled(followed?.key ?? null, 150);
+  const settled = settledKey ? figs.get(settledKey) ?? null : null;
+  const nearRooms = (picked?.near ?? []).map((k) => figs.get(k)?.roomId ?? '').filter(Boolean).join('|');
+  useEffect(() => { for (const room of nearRooms.split('|')) if (room) preloadDoor(room); }, [nearRooms]);
+  const [hovered, setHovered] = useState<Fig | null>(null);
+  const fallback = walletFigs.find((f) => f.roomId) ?? (pools[0] ? poolFig(pools[0], 0) : null);
+  const shown = settled ?? hovered ?? fallback;
+  const show = (f: Fig) => () => {
+    setHovered(f);
+    clear();
   };
+  const isCurrent = (f: Fig) => followed?.key === f.key;
+  const figure = shown && (
+    <Figure fig={shown} mode={mode} unpinned={short} quick={touch} progress={picked ? (picked.i + 1) / picked.total : null} frameRef={frameRef} />
+  );
 
   const total = holdingsTotal(board.holdings.map((l) => l.leg));
   // Shares and the tape only over a whole read: a part left out would misstate the rest.
@@ -523,7 +780,8 @@ export function IslandDashboard({ headingLevel = 2 }: { headingLevel?: 1 | 2 }) 
     <section
       id="dashboard"
       aria-labelledby="island-dashboard-heading"
-      className="relative isolate overflow-hidden scroll-mt-24 border border-white/15 px-4 pt-5 pb-4 md:px-7 md:pt-7 lg:px-10 lg:pt-9 lg:pb-6"
+      // overflow-clip lets the frame pin to the screen (FIG_CLASS); `hidden` stays for a browser without clip.
+      className="relative isolate overflow-hidden supports-[overflow:clip]:overflow-clip scroll-mt-24 border border-white/15 px-4 pt-5 pb-4 md:px-7 md:pt-7 lg:px-10 lg:pt-9 lg:pb-6"
       style={{ background: EDITORIAL_BG, color: EDITORIAL_INK, textShadow: 'none' }}
     >
       <CardArt pageId="island-dashboard" idx={0} scrim="rgba(5,8,15,0.8)" />
@@ -585,16 +843,32 @@ export function IslandDashboard({ headingLevel = 2 }: { headingLevel?: 1 | 2 }) 
 
       {connected && everyLegRead && heldRows.length > 0 && <WalletTape rows={heldRows} />}
 
-      <div className="relative grid lg:grid-cols-[minmax(0,1fr)_minmax(0,21rem)] gap-x-10">
-        <div className="min-w-0">
+      {/* With a wallet: a phone stacks it, the frame first so it can pin above the rows (and every
+          control under it scrolls clear of the pinned frame when focused); from 720px the board and
+          the frame stand side by side with the pool list under both. Without one, the frame follows
+          the connect buttons. From 1024px, either way, the frame runs on beside the pool list too
+          (its row is 1fr, so a tall frame never opens a gap above the list). Grid areas are named on
+          the parts themselves: outside a grid they do nothing. */}
+      <div ref={wrapRef}
+        className={mode === 'follow'
+          ? "relative min-[720px]:grid min-[720px]:gap-x-7 lg:gap-x-10 min-[720px]:grid-cols-[minmax(0,1fr)_14rem] lg:grid-cols-[minmax(0,1fr)_minmax(0,21rem)] lg:grid-rows-[auto_1fr] min-[720px]:[grid-template-areas:'board_fig'_'pools_pools'] lg:[grid-template-areas:'board_fig'_'pools_fig'] max-[719px]:[&_:is(a,button,summary)]:scroll-mt-[46vw]"
+          : "relative lg:grid lg:gap-x-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,21rem)] lg:grid-rows-[auto_1fr] lg:[grid-template-areas:'board_fig'_'pools_fig']"}>
+        {mode === 'follow' && figure}
+        <div className="min-w-0 [grid-area:board]">
           {connected ? (
             <>
               <LegBlock n={1} title="Holdings" legs={board.holdings}
                 empty="No SOL, ETH or island coins in this wallet."
-                render={(r, i) => <HoldingItem key={r.key} n={i + 1} row={r} share={shareOf.get(r.key)} onShow={show(r.roomId, `${r.symbol} · ${WALLET_CHAIN_LABEL[r.chain]}`, 1)} />} />
+                render={(r, i) => {
+                  const f = holdingFig(r, i);
+                  return <HoldingItem key={r.key} n={i + 1} row={r} share={shareOf.get(r.key)} onShow={show(f)} figKey={f.key} current={isCurrent(f)} />;
+                }} />
               <LegBlock n={2} title="Positions" legs={board.positions}
                 empty="No locks, stakes or pool shares here yet. Every pool is listed below."
-                render={(r, i) => <PositionItem key={r.key} n={i + 1} row={r} onShow={show(r.roomId, `${r.title} · ${WALLET_CHAIN_LABEL[r.chain]}`, 2)} />} />
+                render={(r, i) => {
+                  const f = positionFig(r, i);
+                  return <PositionItem key={r.key} n={i + 1} row={r} onShow={show(f)} figKey={f.key} current={isCurrent(f)} />;
+                }} />
               {(!board.solanaAddress || !board.evmAddress) && (
                 <div className="mt-5 flex flex-wrap items-center gap-3">
                   <span className="text-[13px] text-[#f5e4b8]/70">Hold coins on the other chain too?</span>
@@ -603,55 +877,56 @@ export function IslandDashboard({ headingLevel = 2 }: { headingLevel?: 1 | 2 }) 
               )}
             </>
           ) : (
-            <div className="py-8">
+            <div className="pt-8 pb-2 lg:pb-8">
               <ConnectButtons solana={false} evm={false} />
             </div>
           )}
-
-          {/* Every pool on the island, one press away: where a position starts. */}
-          <details className="group/pools mt-6 border-t border-white/25">
-            <summary className="flex items-center justify-between gap-3 min-h-[52px] cursor-pointer select-none list-none font-mono text-[11px] uppercase tracking-[0.16em] text-[#f5e4b8]/80 hover:text-[#22c55e] [&::-webkit-details-marker]:hidden">
-              <span>All {pools.length} pools on the island · {chains} chains</span>
-              <span aria-hidden="true" className="text-[16px] transition-transform duration-300 group-open/pools:rotate-45">+</span>
-            </summary>
-            <p className="flex items-center gap-2.5 pb-2 font-mono text-[10.5px] uppercase tracking-[0.12em] text-[#f5e4b8]/70">
-              <LadderWedge className="text-[#22c55e]" />
-              Longer lock, bigger share
-            </p>
-            <ol className="min-w-0" aria-label="Pools on the island">
-              {pools.map((row, i) => (
-                <PoolRow key={row.id} n={i + 1} row={row} onShow={show(row.id, `${row.name} · ${CHAIN_LABEL[row.chain] ?? row.chain}`, i + 1)} />
-              ))}
-            </ol>
-            <div className="mt-3 flex flex-wrap items-center justify-between gap-x-6">
-              {/* The venue's OWN earning surface: its pools belong to the factory this venue deployed. */}
-              <Link to="/liquidity"
-                // The colour is a class: an inline colour would beat hover:text-*.
-                className="group/lp inline-flex items-center gap-2 min-h-[44px] font-mono text-[11px] uppercase tracking-[0.14em] no-underline text-[#f5e4b8] transition-colors hover:text-[#22c55e]">
-                Provide liquidity on venue pools
-                <span aria-hidden="true" className="transition-transform duration-300 group-hover/lp:translate-x-1">→</span>
-              </Link>
-              <FinePrint summary="Why no rates here?">
-                <p>
-                  Positions live in the room they were opened in. Each resident&apos;s pool is its own token, on
-                  its own chain, read by its own panel. The venue itself holds nothing on your behalf.
-                </p>
-                <p>
-                  &ldquo;Lock 7d–4y, 0.40×–4.00×&rdquo; is a lock ladder: lock from seven days to four years for
-                  that share of the pool&rsquo;s rewards, growing evenly with the lock, as the wedge draws it. A
-                  green mark on a lock&rsquo;s wedge is where that lock sits, from the share its pool reported.
-                </p>
-                <p>
-                  No rate is shown here because none is read here. Twelve pools across three chains would be
-                  twelve calls before this list could draw, and a call that does not answer renders as a zero,
-                  which would read as &ldquo;empty, pays nothing&rdquo; about a pool that may be neither. Pick a
-                  room to see its live rate, its rewards and what your position is worth.
-                </p>
-              </FinePrint>
-            </div>
-          </details>
         </div>
-        <Figure n={shown.n} roomId={shown.roomId} caption={shown.caption} />
+        {mode === 'still' && figure}
+
+        {/* Every pool on the island, one press away: where a position starts. */}
+        <details className="group/pools mt-6 border-t border-white/25 [grid-area:pools]">
+          <summary className="flex items-center justify-between gap-3 min-h-[52px] cursor-pointer select-none list-none font-mono text-[11px] uppercase tracking-[0.16em] text-[#f5e4b8]/80 hover:text-[#22c55e] [&::-webkit-details-marker]:hidden">
+            <span>All {pools.length} pools on the island · {chains} chains</span>
+            <span aria-hidden="true" className="text-[16px] transition-transform duration-300 group-open/pools:rotate-45">+</span>
+          </summary>
+          <p className="flex items-center gap-2.5 pb-2 font-mono text-[10.5px] uppercase tracking-[0.12em] text-[#f5e4b8]/70">
+            <LadderWedge className="text-[#22c55e]" />
+            Longer lock, bigger share
+          </p>
+          <ol className="min-w-0" aria-label="Pools on the island">
+            {pools.map((row, i) => {
+              const f = poolFig(row, i);
+              return <PoolRow key={row.id} n={i + 1} row={row} onShow={show(f)} figKey={f.key} current={isCurrent(f)} />;
+            })}
+          </ol>
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-x-6">
+            {/* The venue's OWN earning surface: its pools belong to the factory this venue deployed. */}
+            <Link to="/liquidity"
+              // The colour is a class: an inline colour would beat hover:text-*.
+              className="group/lp inline-flex items-center gap-2 min-h-[44px] font-mono text-[11px] uppercase tracking-[0.14em] no-underline text-[#f5e4b8] transition-colors hover:text-[#22c55e]">
+              Provide liquidity on venue pools
+              <span aria-hidden="true" className="transition-transform duration-300 group-hover/lp:translate-x-1">→</span>
+            </Link>
+            <FinePrint summary="Why no rates here?">
+              <p>
+                Positions live in the room they were opened in. Each resident&apos;s pool is its own token, on
+                its own chain, read by its own panel. The venue itself holds nothing on your behalf.
+              </p>
+              <p>
+                &ldquo;Lock 7d–4y, 0.40×–4.00×&rdquo; is a lock ladder: lock from seven days to four years for
+                that share of the pool&rsquo;s rewards, growing evenly with the lock, as the wedge draws it. A
+                green mark on a lock&rsquo;s wedge is where that lock sits, from the share its pool reported.
+              </p>
+              <p>
+                No rate is shown here because none is read here. Twelve pools across three chains would be
+                twelve calls before this list could draw, and a call that does not answer renders as a zero,
+                which would read as &ldquo;empty, pays nothing&rdquo; about a pool that may be neither. Pick a
+                room to see its live rate, its rewards and what your position is worth.
+              </p>
+            </FinePrint>
+          </div>
+        </details>
       </div>
     </section>
   );
