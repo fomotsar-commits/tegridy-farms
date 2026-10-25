@@ -9,6 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-10-25
 
+- Connect: Coinbase Wallet is on the Ethereum, Base and Robinhood Chain list by name, with Coinbase's mark, third on a phone. It was there as "Base", fifth on a phone, past the four a phone shows without a swipe. On a phone, tapping it opens this page in the Coinbase Wallet app, where every kind of Coinbase wallet connects; before, it opened Coinbase's sign-in, which takes only an email or a passkey. On a computer it still opens Coinbase's sign-in, and a computer with the Coinbase extension shows the extension's row instead. The connect menu now names Coinbase for Solana too, where it has been listed since September.
 - Cardano swap: Swap's network menu now lists Cardano. /cardano swaps ADA for a coin, or a coin for ADA, through that pair's Minswap V2 pool, signed in a Cardano wallet (Eternl, Lace, VESPR, Begin, Typhon, GeroWallet or NuFi). The page names each coin by its ticker and whole id, shows every fee and who gets it before you sign, and follows your order until Minswap's batcher fills it or sends it back. The venue charges no fee on Cardano yet.
 
 ### 2026-10-24
