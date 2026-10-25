@@ -1,32 +1,55 @@
-import { lazy, Suspense, useCallback, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
-import { ConnectButton } from '@rainbow-me/rainbowkit';
+import type { SignerWalletAdapter } from '@solana/wallet-adapter-base';
 import { useEvmHarvest } from '../../hooks/useEvmHarvest';
-import { useSolanaSurface, requestSolanaOpen } from '../../lib/solanaSurface';
+import { useSolanaSurface } from '../../lib/solanaSurface';
 import { getTxUrl } from '../../lib/explorer';
-import { CONNECT_ETHEREUM_WALLET } from '../../lib/copy';
 import { fmtAmount } from '../../lib/wallet/walletRows';
 import { EVM_CHAIN_IDS, type EvmClaim } from '../../lib/harvest/evm';
+import type { SolanaClaim } from '../../lib/harvest/solana';
 import { runHarvest, runSummary } from '../../lib/harvest/run';
 import {
   HARVEST_CHAIN_LABEL, orderClaims,
-  type ClaimState, type HarvestClaim, type HarvestHeld, type HarvestPlan, type HarvestUnread,
+  type ClaimResult, type ClaimState, type HarvestClaim, type HarvestHeld, type HarvestPlan, type HarvestUnread,
 } from '../../lib/harvest/types';
-import type { SolanaHarvestReport } from './HarvestSolana';
 import { CardArt } from '../ui/CardArt';
 import { FinePrint } from '../ui/FinePrint';
-
-// The Solana half carries the wallet adapter and the staking SDKs: lazy, and mounted only
-// once this visitor has a Solana wallet in play, so a visitor who never touches Solana
-// never downloads it (lib/solanaSurface.ts `ownWanted`).
-const HarvestSolana = lazy(() => import('./HarvestSolana'));
 
 /** A claim as the run snapshot keeps it: what was sent, and what it came to. */
 type RunRow = { claim: HarvestClaim; state: ClaimState };
 
 const txUrl = (claim: HarvestClaim, tx: string) =>
   claim.chain === 'solana' ? `https://solscan.io/tx/${tx}` : getTxUrl(EVM_CHAIN_IDS[claim.chain], tx);
+
+/**
+ * The connected Solana wallet's harvest. The Earn list has NO Solana connection of its
+ * own (lib/solanaSurface.ts: one connection per page, and here it is the top bar's), so
+ * this reads with that connection's address and signs with its `signer`. The Solana code
+ * loads only once an address is there, as the dashboard's reads do (useWalletBoard).
+ */
+function useSolanaHarvest(address: string | null, nonce: number): HarvestPlan<SolanaClaim> | null {
+  // Kept with the wallet it was read for, so a switched wallet never shows the last one's rewards.
+  const [read, setRead] = useState<{ owner: string; plan: HarvestPlan<SolanaClaim> } | null>(null);
+  useEffect(() => {
+    if (!address) return;
+    let live = true;
+    void import('../../lib/harvest/solana')
+      .then((m) => m.readSolanaHarvest(address))
+      .catch((e: unknown): HarvestPlan<SolanaClaim> => ({
+        claims: [],
+        held: [],
+        unread: [{ key: 'sol', chain: 'solana', roomId: '', what: 'your Solana pools', detail: e instanceof Error ? e.message : 'the Solana code could not load' }],
+      }))
+      .then((plan) => {
+        if (live) setRead({ owner: address, plan });
+      });
+    return () => {
+      live = false;
+    };
+  }, [address, nonce]);
+  return address && read?.owner === address ? read.plan : null;
+}
 
 /**
  * Harvest (owner, 2026-10-24): one press claims the connected wallets' staking rewards
@@ -37,46 +60,46 @@ const txUrl = (claim: HarvestClaim, tx: string) =>
  * own coin, and sends one claim per pool position: the pool's own claim, one wallet
  * approval each. A pool that could not be read is listed as not read, never as nothing
  * to claim; rewards a pool cannot pay yet are listed and left alone.
+ *
+ * With no wallet connected it draws nothing: there is nothing of the visitor's to show,
+ * and the top bar's Connect is the way in (the list's word budget, e2e/word-budget.spec.ts).
  */
 export function HarvestCard() {
   const evm = useEvmHarvest();
-  const surface = useSolanaSurface();
-  const [solAsked, setSolAsked] = useState(false);
-  // Latched: once mounted, the page's Solana connection stays for the page's life. Its
-  // own restore briefly reads "no address", and unmounting on that would loop.
-  const [solOn, setSolOn] = useState(false);
-  if (!solOn && (solAsked || surface.ownWanted || Boolean(surface.surface?.address))) setSolOn(true);
-  const [sol, setSol] = useState<SolanaHarvestReport | null>(null);
-  const onReport = useCallback((r: SolanaHarvestReport | null) => setSol(r), []);
-
+  const surface = useSolanaSurface().surface;
+  const solAddress = surface?.address ?? null;
+  const [solNonce, setSolNonce] = useState(0);
+  const solPlan = useSolanaHarvest(solAddress, solNonce);
   const [run, setRun] = useState<{ rows: RunRow[]; done: boolean } | null>(null);
 
-  const solAddress = sol?.address ?? null;
-  const solPlan: HarvestPlan | null = solAddress ? sol?.plan ?? null : null;
   const evmPlan: HarvestPlan<EvmClaim> | null = evm.address ? evm.plan : null;
   const reading = Boolean((solAddress && !solPlan) || (evm.address && !evmPlan));
   const claims: HarvestClaim[] = orderClaims([...(solPlan?.claims ?? []), ...(evmPlan?.claims ?? [])], evm.chain);
   const held: HarvestHeld[] = [...(solPlan?.held ?? []), ...(evmPlan?.held ?? [])];
   const unread: HarvestUnread[] = [...(solPlan?.unread ?? []), ...(evmPlan?.unread ?? [])];
-  const anyWallet = Boolean(solAddress || evm.address);
   const running = run !== null && !run.done;
 
+  if (!solAddress && !evm.address) return null;
+
   const reread = () => {
-    sol?.reread();
+    setSolNonce((n) => n + 1);
     void evm.refetch();
   };
 
   const start = async () => {
     if (running || claims.length === 0) return;
-    const solSend = sol?.send ?? null;
+    // The wallet that signs is the one connected when the press was made.
+    const signer = (surface?.signer ?? null) as SignerWalletAdapter | null;
     const rows: RunRow[] = claims.map((claim) => ({ claim, state: { kind: 'waiting' } }));
     setRun({ rows, done: false });
     const onState = (key: string, state: ClaimState) =>
       setRun((r) => (r ? { ...r, rows: r.rows.map((x) => (x.claim.key === key ? { ...x, state } : x)) } : r));
     const states = await runHarvest(claims, evm.chain, {
-      send: (c) => {
+      send: (c): Promise<ClaimResult> => {
         if (c.chain === 'solana') {
-          return solSend ? solSend(c) : Promise.resolve({ kind: 'unconfirmed' as const, reason: 'Your Solana wallet is not connected, so nothing was sent.' });
+          return signer
+            ? (c as SolanaClaim).send(signer)
+            : Promise.resolve({ kind: 'unconfirmed', reason: 'Your Solana wallet is not connected, so nothing was sent.' });
         }
         return evm.send(c as EvmClaim);
       },
@@ -88,12 +111,6 @@ export function HarvestCard() {
     if (states.some((s) => s.kind === 'claimed')) toast.success(`Harvest: ${summary}`);
     else toast.info(`Harvest: ${summary}`);
     reread();
-  };
-
-  const connectSolana = () => {
-    // This card's own connection opens its list once it loads (SolanaSurfaceBridge takes the tap).
-    setSolAsked(true);
-    requestSolanaOpen();
   };
 
   let label: string;
@@ -121,11 +138,6 @@ export function HarvestCard() {
 
   return (
     <section aria-labelledby="harvest-heading" className="mb-6">
-      {solOn && (
-        <Suspense fallback={null}>
-          <HarvestSolana onReport={onReport} />
-        </Suspense>
-      )}
       <div
         className="relative isolate rounded-2xl overflow-hidden px-4 py-4"
         style={{ background: 'rgba(4,9,18,0.72)', border: '1px solid var(--color-purple-25)' }}
@@ -138,9 +150,7 @@ export function HarvestCard() {
           Each pool pays you from its own reward vault. The venue takes nothing; you pay the network fees.
         </p>
 
-        {!anyWallet ? (
-          <p className="text-white/75 text-[13px] mt-3 mb-0">Connect a wallet to see what you can claim.</p>
-        ) : run ? (
+        {run ? (
           <ul className="list-none p-0 mt-3 mb-0 space-y-1.5" aria-label="This harvest">
             {run.rows.map((r) => <ClaimRow key={r.claim.key} claim={r.claim} state={r.state} />)}
           </ul>
@@ -172,37 +182,16 @@ export function HarvestCard() {
           </>
         )}
 
-        {anyWallet && (
-          <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2">
-            <button type="button" onClick={press} disabled={disabled} className="btn-primary px-5 py-2.5 text-[13px] disabled:opacity-60">
-              {label}
-            </button>
-            {run?.done ? (
-              <span className="text-white/75 text-[12px]" role="status">Done: {runSummary(run.rows.map((r) => r.state))}.</span>
-            ) : claims.length > 1 && !running ? (
-              <span className="text-white/60 text-[12px]">Your wallet asks once per claim.</span>
-            ) : null}
-          </div>
-        )}
-
-        {(!solAddress || !evm.address) && !running && (
-          <div className="mt-3 flex flex-wrap gap-2">
-            {!solAddress && (
-              <button type="button" onClick={connectSolana} className="btn-secondary px-4 py-2 text-[12px]">
-                {surface.surface?.connecting ? 'Connecting…' : 'Connect Solana wallet'}
-              </button>
-            )}
-            {!evm.address && (
-              <ConnectButton.Custom>
-                {({ openConnectModal, mounted }) => (
-                  <button type="button" onClick={openConnectModal} disabled={!mounted} className="btn-secondary px-4 py-2 text-[12px]">
-                    {CONNECT_ETHEREUM_WALLET}
-                  </button>
-                )}
-              </ConnectButton.Custom>
-            )}
-          </div>
-        )}
+        <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2">
+          <button type="button" onClick={press} disabled={disabled} className="btn-primary px-5 py-2.5 text-[13px] disabled:opacity-60">
+            {label}
+          </button>
+          {run?.done ? (
+            <span className="text-white/75 text-[12px]" role="status">Done: {runSummary(run.rows.map((r) => r.state))}.</span>
+          ) : claims.length > 1 && !running ? (
+            <span className="text-white/60 text-[12px]">Your wallet asks once per claim.</span>
+          ) : null}
+        </div>
 
         <FinePrint summary="How it works">
           <p>
@@ -214,7 +203,7 @@ export function HarvestCard() {
           <p>
             A pool it could not read is listed as not read, never as nothing to claim. It leaves alone a reward the
             pool cannot pay yet (its vault is short or empty; nothing is lost, it stays owed), a reward paid in
-            another coin, and the TOWELI farm, whose claim can also extend your lock. Claim those on their own page.
+            another coin, and the classic farm, whose claim can also extend a lock. Claim those on their own page.
           </p>
           <p>
             If you cancel in your wallet, Harvest stops and sends nothing more. A claim whose outcome could not be

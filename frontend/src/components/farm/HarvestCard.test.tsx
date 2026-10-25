@@ -1,10 +1,12 @@
 // The Harvest card on /earn: what it says before, during and after a run. The planning and
 // the run order have their own tests (lib/harvest/*.test.ts); this is the screen.
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import type { EvmClaim } from '../../lib/harvest/evm';
+import type { SolanaClaim } from '../../lib/harvest/solana';
 import type { ClaimResult, HarvestPlan } from '../../lib/harvest/types';
+import { resetSolanaSurfaceForTests, setSolanaSurface } from '../../lib/solanaSurface';
 
 const evm = vi.hoisted(() => ({
   state: {
@@ -16,17 +18,15 @@ const evm = vi.hoisted(() => ({
   switchTo: vi.fn(),
   refetch: vi.fn(),
 }));
+const sol = vi.hoisted(() => ({ read: vi.fn() }));
 
 vi.mock('../../hooks/useEvmHarvest', () => ({
   useEvmHarvest: () => ({ ...evm.state, send: evm.send, switchTo: evm.switchTo, refetch: evm.refetch }),
 }));
-vi.mock('@rainbow-me/rainbowkit', () => ({
-  ConnectButton: { Custom: ({ children }: { children: (p: { openConnectModal: () => void; mounted: boolean }) => unknown }) => children({ openConnectModal: () => {}, mounted: true }) },
-}));
+// The Solana half's reads and claims; loaded by the card only once a Solana address is there.
+vi.mock('../../lib/harvest/solana', () => ({ readSolanaHarvest: sol.read }));
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), info: vi.fn() } }));
 vi.mock('../ArtImg', () => ({ ArtImg: () => null }));
-// The Solana half is lazy and mounts only with a Solana wallet in play; none is here.
-vi.mock('./HarvestSolana', () => ({ default: () => null }));
 
 import { HarvestCard } from './HarvestCard';
 
@@ -42,22 +42,22 @@ beforeEach(() => {
   evm.send.mockReset();
   evm.switchTo.mockReset();
   evm.refetch.mockReset();
+  sol.read.mockReset();
+  resetSolanaSurfaceForTests();
 });
 
 describe('Harvest card', () => {
-  it('with no wallet: says how money moves, and offers both connects', () => {
+  it('with no wallet connected it draws nothing: the top bar is the way in', () => {
+    const { container } = show();
+    expect(container.textContent).toBe('');
+    expect(sol.read).not.toHaveBeenCalled();
+  });
+
+  it('while reading: the button waits and promises nothing, and the money line is in view', () => {
+    evm.state = { address: '0xabc', chain: 'base', plan: null };
     show();
     expect(screen.getByRole('heading', { name: 'Harvest' })).toBeTruthy();
     expect(screen.getByText(/The venue takes nothing; you pay the network fees\./)).toBeTruthy();
-    expect(screen.getByText('Connect a wallet to see what you can claim.')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Connect Solana wallet' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Connect Ethereum wallet' })).toBeTruthy();
-    expect(screen.queryByRole('button', { name: /Harvest all/ })).toBeNull();
-  });
-
-  it('while reading: the button waits and promises nothing', () => {
-    evm.state = { address: '0xabc', chain: 'base', plan: null };
-    show();
     const btn = screen.getByRole('button', { name: 'Reading your pools…' }) as HTMLButtonElement;
     expect(btn.disabled).toBe(true);
   });
@@ -79,6 +79,8 @@ describe('Harvest card', () => {
     expect(screen.getByText(/Could not read your JBM rewards/).textContent).toMatch(/Not a zero\./);
     expect(screen.getByRole('button', { name: 'Harvest all · 2 claims' })).toBeTruthy();
     expect(screen.getByText('Your wallet asks once per claim.')).toBeTruthy();
+    // The venue speaks for every pool, not as one resident (e2e/voice-census.spec.ts).
+    expect(document.body.textContent).not.toMatch(/TOWELI/);
   });
 
   it('a run marks each claim as it lands, links the transaction, and offers to check again', async () => {
@@ -97,6 +99,30 @@ describe('Harvest card', () => {
     expect(screen.getByText(/only the network fee was spent/)).toBeTruthy();
     expect(screen.getByRole('status').textContent).toBe('Done: 1 claimed · 1 reverted.');
     expect(evm.refetch).toHaveBeenCalled();
+  });
+
+  it('a Solana wallet is the page’s one connection: read at its address, claimed with its signer', async () => {
+    const signer = { name: 'the top bar’s wallet' };
+    const send = vi.fn(async (): Promise<ClaimResult> => ({ kind: 'claimed', tx: 'SIG' }));
+    const sc: SolanaClaim = {
+      key: 'sf:1', chain: 'solana', roomId: 'bayla', symbol: 'BAYLA', where: 'lighthouse pool', detail: 'on 1,000 BAYLA staked',
+      amountRaw: 12_500_000n, decimals: 6, caution: null, send,
+    };
+    sol.read.mockResolvedValue({ claims: [sc], held: [], unread: [] });
+    // The top bar's own connection on the Earn list (`own`): reset does not withdraw it, so this test does.
+    const owner = {};
+    act(() => setSolanaSurface(owner, { open: () => {}, address: 'SoLAddr', connecting: false, signer }, true));
+    try {
+      show();
+      // Its code loads on demand, so the read starts a moment after the card draws.
+      await waitFor(() => expect(sol.read).toHaveBeenCalledWith('SoLAddr'));
+      fireEvent.click(await screen.findByRole('button', { name: 'Harvest all · 1 claim' }));
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Check again' })).toBeTruthy());
+      expect(send).toHaveBeenCalledWith(signer);
+      expect((screen.getByRole('link', { name: /Claimed: view the transaction/ }) as HTMLAnchorElement).href).toBe('https://solscan.io/tx/SIG');
+    } finally {
+      act(() => setSolanaSurface(owner, null));
+    }
   });
 
   it('a pool it leaves alone says why, and points to that pool’s page', () => {

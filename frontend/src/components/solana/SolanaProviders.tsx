@@ -131,9 +131,10 @@ export function SolanaSurfaceBridge({ own = false, mixed = false }: { own?: bool
   const [settled, setSettled] = useState(false);
   if (!settled && surface?.open === open) setSettled(true);
   const busy = connecting || !settled;
+  const signer = publicKey ? wallet?.adapter ?? null : null;
   useEffect(() => {
-    setSolanaSurface(owner, { open, address, connecting: busy }, own, mixed);
-  }, [owner, open, address, busy, own, mixed]);
+    setSolanaSurface(owner, { open, address, connecting: busy, signer }, own, mixed);
+  }, [owner, open, address, busy, signer, own, mixed]);
   useEffect(() => {
     if (surface?.open !== open || !openPending || connecting) return;
     // A restore that connected answers the tap; otherwise it is the card's click.

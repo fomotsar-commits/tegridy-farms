@@ -3,8 +3,9 @@ import '../solanaPolyfill';
 import { Connection, PublicKey } from '@solana/web3.js';
 import type { SignerWalletAdapter } from '@solana/wallet-adapter-base';
 // Harvest on Solana: what the wallet can claim in every Streamflow pool and in the lock
-// ladder, and the claim for each. Loaded only with a Solana wallet in play
-// (components/farm/HarvestSolana.tsx), like the dashboard's reads.
+// ladder, and the claim for each. Loaded only once a Solana wallet is connected
+// (components/farm/HarvestCard.tsx's dynamic import), like the dashboard's reads; the
+// claims are signed by the page's one connection (lib/solanaSurface.ts `signer`).
 //
 // Every read and every claim is the pool card's own, wired the way that card wires it:
 // Streamflow through readEntries/readPool and claimRewards (LighthousePoolLive), the
@@ -24,10 +25,15 @@ import type { ClaimResult, HarvestClaim, HarvestPlan, HarvestUnread } from './ty
 export interface SolanaClaim extends HarvestClaim {
   chain: 'solana';
   /** This one claim, sent by the connected wallet. */
-  send: (signer: SignerWalletAdapter, connection: Connection) => Promise<ClaimResult>;
+  send: (signer: SignerWalletAdapter) => Promise<ClaimResult>;
 }
 
 type Plan = HarvestPlan<SolanaClaim>;
+
+// The endpoint and commitment SolanaProviders' ConnectionProvider uses, so a claim here
+// reads and sends exactly as the pool card's would.
+let conn: Connection | null = null;
+const connection = () => (conn ??= new Connection(solanaRpcEndpoint(), 'confirmed'));
 
 const empty = (): Plan => ({ claims: [], held: [], unread: [] });
 
@@ -153,8 +159,8 @@ export function planLadder(room: Bungalow, pool: LadderPoolView, wallet: LadderW
   for (const o of owed) {
     plan.claims.push({
       key: o.key, ...base, detail: o.detail, amountRaw: o.amountRaw, caution,
-      send: async (signer, connection) =>
-        ladderResult(await o.claim({ connection, invoker: signer, programId: ladderProgramId(), pool: poolKey, poolAccounts: pool })),
+      send: async (signer) =>
+        ladderResult(await o.claim({ connection: connection(), invoker: signer, programId: ladderProgramId(), pool: poolKey, poolAccounts: pool })),
     });
   }
   return plan;
@@ -193,7 +199,7 @@ async function readLadderHarvest(owner: string, nowSecs: number): Promise<Plan> 
   if (!room?.ladderPool || !isLadderConfigured()) return empty();
   const unread = (detail: string) => unreadPlan({ key: `ladder:${room.ladderPool}`, chain: 'solana', roomId: room.id, what: `your ${room.symbol} locks`, detail });
   try {
-    const conn = new Connection(solanaRpcEndpoint(), 'confirmed');
+    const conn = connection();
     const programId = ladderProgramId();
     const poolKey = new PublicKey(room.ladderPool);
     const [p, w] = await Promise.all([
