@@ -774,11 +774,11 @@ export const SURFACES: Surface[] = [
   { group: 'Pools · Add / Remove', pageId: 'liquidity-tab', idx: 0, label: 'Add or remove liquidity card' },
 
   // Pools · Solana LP
-  // 'swap' idx 0 is the backdrop of both Solana LP and Venue AMM (SolanaLpPage, PoolsPage).
-  { group: 'Pools · Solana LP', pageId: 'swap', idx: 0, label: 'Page background (Solana LP and Venue AMM tabs)' },
+  // 'swap' idx 0 is the backdrop of the Venue AMM tab (PoolsPage).
+  { group: 'Pools · Solana LP', pageId: 'swap', idx: 0, label: 'Page background (Venue AMM tab)' },
   { group: 'Pools · Solana LP', pageId: 'pending-trade', idx: 0, label: 'Transaction may still be landing (a sent transaction is not confirmed yet)' },
   { group: 'Pools · Solana LP', pageId: 'solana-lp', idx: 0, label: 'Before you provide liquidity (venue live)' },
-  { group: 'Pools · Solana LP', pageId: 'solana-lp', idx: 1, label: 'Rates card (venue live, both Pools tabs)' },
+  { group: 'Pools · Solana LP', pageId: 'solana-lp', idx: 1, label: 'Rates card (venue live)' },
   { group: 'Pools · Solana LP', pageId: 'solana-lp', idx: 2, label: 'Create, add or remove liquidity (venue live)' },
   { group: 'Pools · Solana LP', pageId: 'solana-lp', idx: 3, label: 'Your positions card (venue live)' },
   { group: 'Pools · Solana LP', pageId: 'solana-lp', idx: 4, label: 'Adding and removing liquidity notice (liquidity writes blocked or not loaded)' },

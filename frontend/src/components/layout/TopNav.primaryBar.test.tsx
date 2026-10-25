@@ -108,7 +108,7 @@ describe('TopNav: the bar', () => {
     expect(lit[0]).toHaveAttribute('aria-current', 'page');
   });
 
-  it.each(['/solana-lp', '/trust', '/history'])('lights no word on %s, a drawer page', (path) => {
+  it.each(['/pools', '/trust', '/history'])('lights no word on %s, a drawer page', (path) => {
     mount(path);
     const lit = within(bar())
       .getAllByRole('link')
@@ -136,7 +136,7 @@ describe('TopNav: the menu', () => {
     );
   });
 
-  it("lists every page under its group's word, named as its tab is; Pools lands on Solana LP, Check on the overview", () => {
+  it("lists every page under its group's word, named as its tab is; Pools lands on Venue AMM, Check on the overview", () => {
     const drawer = openDrawer();
     for (const group of INDEX_GROUPS) {
       const region = within(drawer).getByRole('region', { name: group.heading });
@@ -147,7 +147,7 @@ describe('TopNav: the menu', () => {
       expect(pages.map((l) => [l.textContent, l.getAttribute('href')]), group.heading)
         .toEqual(group.items.map((i) => [indexName(group, i), i.to]));
     }
-    expect(within(drawer).getByRole('link', { name: 'Pools' })).toHaveAttribute('href', '/solana-lp');
+    expect(within(drawer).getByRole('link', { name: 'Pools' })).toHaveAttribute('href', '/pools');
     expect(within(drawer).getByRole('link', { name: 'Check' })).toHaveAttribute('href', '/trust');
   });
 
@@ -191,7 +191,7 @@ describe('TopNav: the menu', () => {
   it("keeps a group whole when its own word is typed, and says so when nothing is called that", () => {
     openDrawer();
     fireEvent.change(field(), { target: { value: 'pools' } });
-    expect(within(dialog()).getAllByRole('link').map((l) => l.textContent)).toEqual(['Pools', 'Add / Remove', 'Solana LP', 'Venue AMM', 'Zap']);
+    expect(within(dialog()).getAllByRole('link').map((l) => l.textContent)).toEqual(['Pools', 'Add / Remove', 'Venue AMM', 'Zap']);
     fireEvent.change(field(), { target: { value: 'zebra' } });
     expect(within(dialog()).queryAllByRole('link')).toEqual([]);
     expect(within(dialog()).getByRole('status').textContent).toMatch(/zebra/);

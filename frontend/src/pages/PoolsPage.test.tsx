@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { RECORDING, recordedTier } from '../lib/solana/cpswap/mainnetVenueReplay.fixture';
 
@@ -64,14 +64,11 @@ async function mount(path = '/pools') {
   return render(<MemoryRouter initialEntries={[path]}><PoolsPage /></MemoryRouter>);
 }
 
-// A real mint (32 bytes of base58), for the ?mint= the hero's link carries.
-const M = '4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R';
-/** The hero's door to the Solana LP tab: the one link on the page that goes there. */
-function solanaLpLink() {
-  const links = screen.getAllByRole('link').filter((a) => (a.getAttribute('href') ?? '').startsWith('/solana-lp'));
-  expect(links).toHaveLength(1);
-  return links[0]!;
-}
+// jsdom has no scrollIntoView. The page calls it on the status card, so this is the record.
+const scrolled = vi.fn();
+const proto = Element.prototype as { scrollIntoView?: unknown };
+beforeAll(() => { proto.scrollIntoView = scrolled; });
+afterAll(() => { delete proto.scrollIntoView; });
 
 /** The first read has answered: the status card is past its loading line. */
 async function settled() {
@@ -170,8 +167,9 @@ describe('when the venue is live', () => {
     expect(h1.parentElement!.nextElementSibling).toContainElement(section);
     const card = screen.getByRole('region', { name: 'Venue status' });
     expect(section.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    // `relative isolate` is what its CardArt layer needs, on both tabs.
-    expect(card.className).toBe('relative isolate rounded-2xl p-6');
+    // `relative isolate` is what its CardArt layer needs; `scroll-mt-5` is the air above it when a
+    // failed Refresh scrolls it back into view (e2e measures where, under the tab strip).
+    expect(card.className).toBe('relative isolate rounded-2xl p-6 scroll-mt-5');
   });
 
   // Owner, 2026-10-14: "drop the duplicate fee cards". The section's Rates card is the one
@@ -321,37 +319,19 @@ describe('always', () => {
     expect(screen.queryByText(/Loading the pool finder/)).toBeNull();
   });
 
-  // The hero says "No pool can be opened here yet" until the read says live, so the link
-  // under it may not say what can be done on that tab, in any LP mode.
-  it('links from the hero to the Solana LP tab, claiming nothing while the venue is not live', async () => {
+  // The Solana LP tab was this page's LP section on a page of its own (owner, 2026-10-24:
+  // "remove solana lp keep venue amm"): nothing here sends a reader to it, and the hero is words only.
+  it('links nowhere to the Solana LP tab, which this page replaced, in any LP mode', async () => {
     for (const mode of ['on', 'withdraw-only', 'off'] as const) {
       lp.mode = mode;
       const view = await mount();
       await settled();
-      expect(solanaLpLink()).toHaveAttribute('href', '/solana-lp');
-      expect(solanaLpLink()).toHaveTextContent(/^Go to the Solana LP tab$/);
+      expect(screen.queryAllByRole('link').filter((a) => (a.getAttribute('href') ?? '').startsWith('/solana-lp'))).toEqual([]);
+      expect(screen.queryByText(/Solana LP tab/)).toBeNull();
+      expect(within(screen.getByRole('heading', { level: 1 }).parentElement!).queryByRole('link')).toBeNull();
       view.unmount();
     }
     lp.mode = 'off';
-  });
-
-  it('the link claims nothing while the first read is still in flight', async () => {
-    lp.mode = 'on';
-    readVenue.mockReturnValue(new Promise(() => {}));
-    await mount();
-    await waitFor(() => expect(screen.getByText(/Reading the venue/i)).toBeInTheDocument());
-    expect(solanaLpLink()).toHaveTextContent(/^Go to the Solana LP tab$/);
-    lp.mode = 'off';
-  });
-
-  it('the link carries the token being looked at, and nothing else from the URL', async () => {
-    const first = await mount(`/pools?mint=${M}&amount=5`);
-    await settled();
-    expect(solanaLpLink()).toHaveAttribute('href', `/solana-lp?mint=${M}`);
-    first.unmount();
-    await mount('/pools?mint=not%20a%20mint%3Cb%3E&amount=5');
-    await settled();
-    expect(solanaLpLink()).toHaveAttribute('href', '/solana-lp');
   });
 
   it('keeps "The program" as its last section, where the LP disclosure says it is', async () => {
@@ -393,7 +373,6 @@ describe("what this site can do with the pools follows LP's own switch", () => {
     await waitFor(() => expect(screen.getByText(/Pools are open/i)).toBeInTheDocument());
     expect(screen.getByText(/adding and removing\s+liquidity from here is not switched on yet/i)).toBeInTheDocument();
     expect(screen.getByText(/This site only reads pools so far\./)).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Find a pool on the Solana LP tab' })).toHaveAttribute('href', '/solana-lp');
   });
 
   it("'on': says what the section below can do, and never that it is not switched on", async () => {
@@ -409,7 +388,6 @@ describe("what this site can do with the pools follows LP's own switch", () => {
       screen.getByText(/This site can add and remove liquidity, and open new pools on the public fee tier \(the pools section above says whether it can right now\)\./),
     ).toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/once (the public fee tier|that tier) exists/i);
-    expect(screen.getByRole('link', { name: 'Add or remove liquidity on the Solana LP tab' })).toHaveAttribute('href', '/solana-lp');
     expect(screen.queryByText(/does not open pools/i)).toBeNull();
     // The swap's routing card has no switch of its own to speak of; this is the LP one.
     expect(screen.queryByText(/adding and removing\s+liquidity from here is not switched on yet/i)).toBeNull();
@@ -422,7 +400,53 @@ describe("what this site can do with the pools follows LP's own switch", () => {
     await waitFor(() => expect(screen.getByText(/Pools are open/i)).toBeInTheDocument());
     expect(screen.getByText(/Adding liquidity and opening pools from here are paused; taking yours out still works\./)).toBeInTheDocument();
     expect(screen.getByText(/This site can take liquidity out; adding liquidity and opening pools are paused\./)).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Take your liquidity out on the Solana LP tab' })).toHaveAttribute('href', '/solana-lp');
     expect(screen.queryByText(/adding and removing\s+liquidity from here is not switched on yet/i)).toBeNull();
+  });
+});
+
+// Carried over from the Solana LP tab, which put the LP section above the same card.
+describe('Refresh on a live venue', () => {
+  const UNREADABLE = { kind: 'unreadable', detail: 'proxy timed out' } as const;
+
+  it('keeps the LP section mounted while it reads again', async () => {
+    readVenue.mockResolvedValueOnce(LIVE).mockReturnValueOnce(new Promise(() => {}));
+    await mount();
+    await screen.findByTestId('lp-section');
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    await waitFor(() => expect(readVenue).toHaveBeenCalledTimes(2));
+    expect(screen.getByTestId('lp-section')).toBeInTheDocument();
+    expect(screen.queryByText(/Reading the venue/i)).toBeNull();
+  });
+
+  // One card, live or not: a failed re-read changes what it says, not which button was pressed.
+  it('a re-read that fails keeps keyboard focus on that same Refresh', async () => {
+    readVenue.mockResolvedValueOnce(LIVE).mockResolvedValueOnce(UNREADABLE);
+    await mount();
+    await screen.findByTestId('lp-section');
+    const pressed = screen.getByRole('button', { name: 'Refresh' });
+    pressed.focus();
+    fireEvent.click(pressed);
+    await screen.findByText(/The chain could not be read/i);
+    expect(screen.queryByTestId('lp-section')).toBeNull();
+    expect(document.activeElement).toBe(pressed);
+    expect(within(screen.getByRole('region', { name: 'Venue status' })).getByRole('button', { name: 'Refresh' })).toBe(pressed);
+  });
+
+  // The section above the card goes away, so the card jumps up the page under the reader.
+  it('a re-read that fails brings the card back into view; one that reads live does not scroll', async () => {
+    let answer!: (v: unknown) => void;
+    readVenue.mockResolvedValueOnce(LIVE).mockResolvedValueOnce(LIVE).mockReturnValueOnce(new Promise((r) => { answer = r; }));
+    await mount();
+    await screen.findByTestId('lp-section');
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    await waitFor(() => expect(readVenue).toHaveBeenCalledTimes(2));
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    await waitFor(() => expect(readVenue).toHaveBeenCalledTimes(3));
+    expect(scrolled).not.toHaveBeenCalled();
+    answer(UNREADABLE);
+    await screen.findByText(/The chain could not be read/i);
+    expect(scrolled).toHaveBeenCalledTimes(1);
+    expect(scrolled.mock.contexts[0]).toBe(screen.getByRole('region', { name: 'Venue status' }));
+    expect(scrolled).toHaveBeenCalledWith({ block: 'nearest' });
   });
 });
