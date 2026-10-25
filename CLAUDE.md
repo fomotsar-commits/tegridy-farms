@@ -58,6 +58,7 @@ unchanged: `docs/CI_ON_GITLAB.md`.
 16. A launch on any rail is a venue launch unless it is born in $BAYLA.
 17. Every launch page shows the maker's create-buy and its lock before anyone else can buy.
 18 to 23. The face's laws: `docs/FACE_LAWS.md`.
+24. Before any press on a signing page, read back the page's own "Ready to execute ... proposal #N" line and match it to the step; the executed signature goes in the block.
 
 ## NOTES.md: headings first
 
