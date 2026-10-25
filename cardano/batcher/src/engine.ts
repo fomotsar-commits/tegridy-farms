@@ -20,8 +20,8 @@ import { add, hasNegative, quantityOf, type Value } from './value.ts';
 
 export class Unsupported extends Error {
   readonly kind: string;
-  constructor(kind: string) {
-    super(`order type ${kind} is not built by this batcher`);
+  constructor(kind: string, message = `order type ${kind} is not built by this batcher`) {
+    super(message);
     this.kind = kind;
   }
 }

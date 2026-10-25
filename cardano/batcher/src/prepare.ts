@@ -4,13 +4,17 @@
 // Only a batch that comes out of this is ever offered to the key.
 import { currentTimeApproximation } from './engine.ts';
 import { slotToPosixMs } from './chain.ts';
-import { buildBatchTx, type BatchTxRequest, type ExUnits, type ProtocolParams } from './build.ts';
+import { BatchTooBig, buildBatchTx, type BatchTxRequest, type ExUnits, type ProtocolParams } from './build.ts';
 import { planBatch, type Utxo } from './plan.ts';
 import type { PlutusData } from './plutus.ts';
 import type { SimulationResult } from './simulate.ts';
 import { verifySinglePoolBatch, type BatchReport, type DexConstants } from './verify.ts';
 
-/** Runs every script in a transaction: `aiken tx simulate` in tests, the node's evaluator in production. */
+/**
+ * Runs every script in a transaction and measures each. In production, the node's own evaluator
+ * (Ogmios), which uses the chain's current cost model and limits; `aiken tx simulate` (Aiken
+ * 1.0.24's built-in cost model) in tests.
+ */
 export type Evaluator = (txHex: string, spent: Readonly<Record<string, string>>) => SimulationResult;
 
 export class SimulationFailed extends Error {
@@ -19,12 +23,7 @@ export class SimulationFailed extends Error {
   }
 }
 
-/** The orders' scripts need more than one transaction may use: take fewer orders. */
-export class BatchTooBig extends Error {
-  constructor(mem: bigint, steps: bigint, max: { memory: number; steps: number }) {
-    super(`the batch needs ${mem} memory and ${steps} steps; one transaction may use ${max.memory} and ${max.steps}`);
-  }
-}
+export { BatchTooBig };
 
 export interface PrepareInput extends Omit<BatchTxRequest, 'plan' | 'budgets'> {
   dex: DexConstants;
@@ -48,15 +47,19 @@ export function prepareBatch(input: PrepareInput, pp: ProtocolParams, evaluate: 
 
   const first = buildBatchTx(request, pp);
   const sim1 = evaluate(first.txHex, input.spent);
+  if (!sim1.ok && sim1.overBudget) throw new BatchTooBig(`a script ran out of budget: ${sim1.error}`);
   if (!sim1.ok) throw new SimulationFailed('with placeholder budgets', sim1.error);
   const budgets = new Map<string, ExUnits>(sim1.budgets.map((b) => [`${b.tag.toLowerCase()}:${b.index}`, { mem: b.mem, steps: b.steps }]));
   // The chain rejects a transaction whose scripts together exceed this: such a batch is split, never sent.
   const mem = sim1.budgets.reduce((s, b) => s + b.mem, 0n);
   const steps = sim1.budgets.reduce((s, b) => s + b.steps, 0n);
   if (mem > BigInt(pp.maxTxExecutionUnits.memory) || steps > BigInt(pp.maxTxExecutionUnits.steps)) {
-    throw new BatchTooBig(mem, steps, pp.maxTxExecutionUnits);
+    throw new BatchTooBig(`the batch needs ${mem} memory and ${steps} steps; one transaction may use ${pp.maxTxExecutionUnits.memory} and ${pp.maxTxExecutionUnits.steps}`);
   }
 
+  // Rebuilt with the exact budgets, the transaction changes (fee, collateral, script data hash),
+  // so every script runs again on it. Neither evaluator holds a script to the budget the
+  // transaction declares, so that is checked here, redeemer by redeemer.
   const exact = buildBatchTx({ ...request, budgets }, pp);
   const sim2 = evaluate(exact.txHex, input.spent);
   if (!sim2.ok) throw new SimulationFailed('with exact budgets', sim2.error);

@@ -3,7 +3,7 @@
 // Pure: no chain access, no key.
 import CSL from '@emurgo/cardano-serialization-lib-nodejs';
 import { outputDatum, valueFromCsl } from './chain.ts';
-import { MIN_POOL_ADA, applyOrders, tradingFeeNumerator, type OrderInput, type OrderOutput, type PoolContext, type PoolState } from './engine.ts';
+import { MIN_POOL_ADA, Unsupported, applyOrders, tradingFeeNumerator, type OrderInput, type OrderOutput, type PoolContext, type PoolState } from './engine.ts';
 import { DecodeError, fieldsOf, mkBytes, mkConstr, mkInt, mkList, type PlutusData } from './plutus.ts';
 import { decodeOrderDatum, decodePoolDatum, isAda, type Address, type Asset, type PoolDatum } from './types.ts';
 import { quantityOf, valueOf, type Value } from './value.ts';
@@ -85,6 +85,9 @@ export function planBatch(
   const witnessDatums: PlutusData[] = [];
   const inputs: OrderInput[] = orders.map((o) => {
     const out = CSL.TransactionOutput.from_hex(o.outputHex);
+    // The ledger charges the batch for every reference script on its inputs, and the order
+    // contract never looks: a trader could make every batch carrying the order pay for theirs.
+    if (out.script_ref()) throw new Unsupported('ReferenceScript', `order ${o.ref} carries a reference script; it is left for its owner to cancel`);
     const d = outputDatum(out);
     let data: PlutusData | undefined;
     if (d.kind === 'inline') data = d.data;

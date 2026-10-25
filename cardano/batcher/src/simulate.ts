@@ -15,7 +15,8 @@ export interface ScriptBudget {
   steps: bigint;
 }
 
-export type SimulationResult = { ok: true; budgets: ScriptBudget[] } | { ok: false; error: string };
+/** `overBudget`: a script ran out of budget, which for a valid batch means it is too big. */
+export type SimulationResult = { ok: true; budgets: ScriptBudget[] } | { ok: false; error: string; overBudget?: boolean };
 
 /**
  * The transaction with every CBOR tag 258 removed (the item it wraps kept). Conway marks sets
@@ -127,7 +128,9 @@ export function simulate(aiken: string, txHex: string, spentHex: Readonly<Record
     const stdout = strip(r.stdout);
     const log = strip(r.stderr);
     if (r.error) return { ok: false, error: r.error.message };
-    if (r.status !== 0) return { ok: false, error: `${stdout}${log}`.trim() };
+    // Aiken 1.0.24 ignores the budgets a transaction declares and gives each script a fixed
+    // 14M memory and 10B steps: a batch the chain would take whole can run out here first.
+    if (r.status !== 0) return { ok: false, error: `${stdout}${log}`.trim(), overBudget: /over budget/i.test(`${stdout}${log}`) };
     // stdout: one {mem, cpu} per redeemer, in the order the log names them ("Redeemer Spend → 0").
     let parsed: { mem: number; cpu: number }[];
     try {

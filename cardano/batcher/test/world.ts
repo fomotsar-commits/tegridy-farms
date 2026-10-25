@@ -4,7 +4,7 @@
 // Every hash and key here is made up; nothing exists on any network.
 import { readFileSync } from 'node:fs';
 import CSL from '@emurgo/cardano-serialization-lib-nodejs';
-import type { ProtocolParams, ScriptRef } from '../src/build.ts';
+import type { ProtocolParams } from '../src/build.ts';
 import { MAINNET_TIME } from '../src/chain.ts';
 import { mkBytes, mkConstr, mkInt, mkList, type PlutusData } from '../src/plutus.ts';
 import type { Utxo } from '../src/plan.ts';
@@ -21,7 +21,9 @@ export const DEX: DexConstants = { authenPolicy: S.authen.hash, poolScriptHash: 
 
 export const TOKEN = { policyId: '70'.repeat(28), assetName: '544f4b' }; // "TOK"
 export const LP_NAME = lpAssetName({ policyId: '', assetName: '' }, TOKEN);
-export const BATCHER_KEY = 'ba'.repeat(28);
+/** The test batcher's signing key (made up, never funded anywhere): the tests sign with it to measure real signed sizes. */
+export const BATCHER_SKEY = CSL.PrivateKey.from_normal_bytes(Buffer.alloc(32, 0xba));
+export const BATCHER_KEY = BATCHER_SKEY.to_public().hash().to_hex();
 export const ADMIN_KEY = 'ad'.repeat(28);
 export const traderKey = (n: number) => (0x10 + n).toString(16).padStart(2, '0').repeat(28);
 
@@ -31,7 +33,7 @@ const scriptCred = (h: string) => CSL.Credential.from_scripthash(CSL.ScriptHash.
 export const traderAddress = (n: number) => CSL.BaseAddress.new(NETWORK, keyCred(traderKey(n)), keyCred(traderKey(n))).to_address();
 export const BATCHER_ADDRESS = CSL.EnterpriseAddress.new(NETWORK, keyCred(BATCHER_KEY)).to_address();
 
-function value(lovelace: bigint, tokens: [string, string, bigint][] = []): CSL.Value {
+export function value(lovelace: bigint, tokens: [string, string, bigint][] = []): CSL.Value {
   if (!tokens.length) return CSL.Value.new(big(lovelace));
   const ma = CSL.MultiAsset.new();
   for (const [policy, name, q] of tokens) {
@@ -42,7 +44,10 @@ function value(lovelace: bigint, tokens: [string, string, bigint][] = []): CSL.V
   return CSL.Value.new_with_assets(big(lovelace), ma);
 }
 
-function utxo(ref: string, address: CSL.Address, v: CSL.Value, datum?: PlutusData, scriptRef?: CSL.ScriptRef): Utxo {
+/** One of our compiled scripts as a reference script. */
+export const scriptRefOf = (name: keyof typeof S) => CSL.ScriptRef.new_plutus_script(CSL.PlutusScript.new_with_version(Buffer.from(S[name].compiledCode, 'hex'), CSL.Language.new_plutus_v2()));
+
+export function utxo(ref: string, address: CSL.Address, v: CSL.Value, datum?: PlutusData, scriptRef?: CSL.ScriptRef): Utxo {
   const o = CSL.TransactionOutput.new(address, v);
   if (datum) o.set_plutus_data(datum);
   if (scriptRef) o.set_script_ref(scriptRef);
@@ -106,14 +111,8 @@ export function world() {
       ...Array.from({ length: 5 }, () => mkConstr(0, [mkBytes(ADMIN_KEY)])),
     ]),
   );
-  const scriptUtxo = (name: 'pool' | 'order' | 'poolBatching', ix: number): ScriptRef => {
-    const plutus = CSL.PlutusScript.new_with_version(Buffer.from(S[name].compiledCode, 'hex'), CSL.Language.new_plutus_v2());
-    return {
-      utxo: utxo(`${'a2'.repeat(32)}#${ix}`, CSL.EnterpriseAddress.new(NETWORK, keyCred(ADMIN_KEY)).to_address(), value(100_000_000n), undefined, CSL.ScriptRef.new_plutus_script(plutus)),
-      hash: S[name].hash,
-      size: S[name].compiledCode.length / 2,
-    };
-  };
+  const scriptUtxo = (name: 'pool' | 'order' | 'poolBatching', ix: number): Utxo =>
+    utxo(`${'a2'.repeat(32)}#${ix}`, CSL.EnterpriseAddress.new(NETWORK, keyCred(ADMIN_KEY)).to_address(), value(100_000_000n), undefined, scriptRefOf(name));
   const scripts = { pool: scriptUtxo('pool', 0), order: scriptUtxo('order', 1), poolBatching: scriptUtxo('poolBatching', 2) };
   const poolDatum = mkConstr(0, [
     mkConstr(0, [mkConstr(1, [mkBytes(S.poolBatching.hash)])]), // Inline(ScriptCredential(batching))
@@ -140,7 +139,7 @@ export function world() {
   const feeUtxo = utxo(`${'b1'.repeat(32)}#0`, BATCHER_ADDRESS, value(20_000_000n));
   const collateral = utxo(`${'b1'.repeat(32)}#1`, BATCHER_ADDRESS, value(10_000_000n));
   const spent: Record<string, string> = {};
-  for (const u of [globalSetting, scripts.pool.utxo, scripts.order.utxo, scripts.poolBatching.utxo, pool, feeUtxo, collateral]) spent[u.ref] = u.outputHex;
+  for (const u of [globalSetting, scripts.pool, scripts.order, scripts.poolBatching, pool, feeUtxo, collateral]) spent[u.ref] = u.outputHex;
   return {
     globalSetting,
     scripts,

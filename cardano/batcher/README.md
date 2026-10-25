@@ -13,9 +13,42 @@ fake chain). So this is new code, and it is in the audit's scope.
 | `src/types.ts`, `src/plutus.ts`, `src/chain.ts`: pool and order data read as strictly as the contract's own casts; data hashed from Plutus's own serialisation | done |
 | `src/engine.ts`: the order engine (SwapExactIn, SwapExactOut, Deposit, Withdraw; anything else refused by name) | done |
 | `src/verify.ts`: reads a batch exactly as the pool contract does and recomputes it | done; 11 real Minswap V2 batches reproduced to the unit, 10 tampered ones rejected naming the rule |
-| Building a batch and simulating it against our compiled contracts (`aiken tx simulate`), then reading it back with `verify.ts` before signing | next |
-| Watching the chain (hosted Ogmios + Kupo, a Koios key of its own as backup) and sending | then |
+| `src/plan.ts`, `src/build.ts`, `src/prepare.ts`: each batch built, every script run against our compiled contracts (`aiken tx simulate`), rebuilt with the exact budgets, run again, then read back with `verify.ts` before signing | done; reviewed, its 7 findings fixed |
+| `src/fee.ts`: the ledger's own minimum fee, not EMURGO's estimate (EMURGO misses reference scripts a stranger attaches) | done; 12 real mainnet batches all paid 6,380 to 6,644 lovelace over it, never under |
+| Watching the chain (hosted Ogmios + Kupo, a Koios key of its own as backup), the node's own evaluator in place of Aiken's, and sending | next |
 | Railway service, heartbeat alert, fee cap | last |
+
+## What a batch costs (our contracts, mainnet prices)
+
+| Orders | Network fee | Scripts' memory, of 16.5M a transaction may use |
+|---|---|---|
+| 1 | 0.662 ADA | 1.43M |
+| 5 | 0.809 ADA | 2.80M |
+| 10 | 0.998 ADA | 4.57M |
+| 25 | 1.560 ADA | 9.85M |
+
+The batcher pays this from the batcher fee each order carries. Under Aiken's limits a batch
+tops out at about 38 simple swaps; a bigger one is refused as `BatchTooBig`, to be split.
+
+## Before it runs on mainnet
+
+- **Register the pool-batching script's reward account with the legacy certificate** (the
+  Shelley `stake_registration`, certificate 0). Every batch withdraws from that account, and
+  the ledger refuses a withdrawal from an unregistered one. Conway's own registration
+  certificate needs the script to approve it, and the batching script only approves
+  withdrawals, so it can never be registered that way. If a later era removes the legacy certificate
+  before we register, the script needs a new version.
+- **Read the account's balance for every batch** (`batchingRewardBalance`): the ledger only
+  lets a withdrawal take all of it, and anyone can pay into it (a governance deposit's refund
+  can name any reward account). It is normally 0; anything in it goes to the batcher.
+- **Judge with the node's evaluator (Ogmios), not Aiken.** Aiken 1.0.24 uses its built-in cost
+  model, gives each script a fixed 14M memory (the chain gives the whole transaction 16.5M), and
+  cannot run a batch whose inputs carry a reference script that nothing in the batch uses (the
+  chain can). Today its memory figures match mainnet's exactly and its steps run 14 to 28%
+  high, so it is safe, but cautious. Read the protocol parameters (prices, cost model) every
+  epoch.
+- **Keep the float in plain ADA UTxOs at the batcher's key**, and a collateral UTxO of about
+  5 ADA. Anything else sent to that address is never spent by a batch.
 
 ## The owner's rulings (2026-10-25)
 
