@@ -9,6 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-10-25
 
+- The dashboard opens at once for a wallet it has read before in this browser: it shows that wallet's last reading straight away, says "As of 3h ago · updating" beside Refresh, and swaps in the new reading as it arrives. A part the new reading cannot read still says so, never the old figures. On /dashboard a Solana wallet connected here before reconnects as the page opens, not 1.5 seconds later. Measured on a returning visit: rows in about 0.6 seconds, down from about 3.3.
 - Cardano swap: Swap's network menu now lists Cardano. /cardano swaps ADA for a coin, or a coin for ADA, through that pair's Minswap V2 pool, signed in a Cardano wallet (Eternl, Lace, VESPR, Begin, Typhon, GeroWallet or NuFi). The page names each coin by its ticker and whole id, shows every fee and who gets it before you sign, and follows your order until Minswap's batcher fills it or sends it back. The venue charges no fee on Cardano yet.
 
 ### 2026-10-24

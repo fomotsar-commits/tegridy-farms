@@ -20,6 +20,7 @@ import {
   type PositionRow,
   type WalletChain,
 } from '../lib/wallet/walletRows';
+import { isHoldingRow, isPositionRow, recallWallet, rememberLegs } from '../lib/wallet/boardMemory';
 
 /**
  * The dashboard's reads for the connected wallets (owner, 2026-10-22: "positions on the website
@@ -28,6 +29,8 @@ import {
  *
  * Every leg is loading, read, or not read, never a zero for a read that failed
  * (lib/wallet/walletRows.ts). The Solana code loads only once a Solana wallet is connected.
+ * While a leg is first read, its last read in this browser is drawn, marked with when it was
+ * read (lib/wallet/boardMemory.ts), so a wallet seen before draws at once.
  */
 export interface WalletBoard {
   solanaAddress: string | null;
@@ -278,12 +281,44 @@ function useEvmLegs(user: `0x${string}` | undefined, nonce: number) {
   };
 }
 
+// ── The last read, drawn while the new one is under way (lib/wallet/boardMemory.ts) ──────────
+
+type Legs = { holdings: NamedLeg<HoldingRow>[]; positions: NamedLeg<PositionRow>[] };
+
+/**
+ * Keeps each leg this wallet read, and draws a leg that is loading from its kept rows, with
+ * `readAt`. Only a loading leg: a leg that could not be read says so, kept rows or not. Both
+ * readers key their answers by the wallet (the Solana legs' owner check, wagmi's query keys), so
+ * what is kept under an address was read for that address.
+ */
+function useRemembered(owner: string | null, legs: Legs): Legs {
+  const read: Record<string, unknown[]> = {};
+  for (const l of [...legs.holdings, ...legs.positions]) if (l.leg.status === 'ok') read[l.key] = l.leg.rows;
+  const said = JSON.stringify(read);
+  useEffect(() => {
+    if (owner && said !== '{}') rememberLegs(owner, JSON.parse(said) as Record<string, unknown[]>);
+  }, [owner, said]);
+
+  const loading = [...legs.holdings, ...legs.positions].some((l) => l.leg.status === 'loading');
+  const kept = owner && loading ? recallWallet(owner) : null;
+  const shown = <T,>(l: NamedLeg<T>, isRow: (r: unknown) => r is T): NamedLeg<T> => {
+    const k = kept?.[l.key];
+    return l.leg.status === 'loading' && k && k.rows.every(isRow)
+      ? { ...l, leg: { status: 'ok', rows: k.rows }, readAt: k.at }
+      : l;
+  };
+  return {
+    holdings: legs.holdings.map((l) => shown(l, isHoldingRow)),
+    positions: legs.positions.map((l) => shown(l, isPositionRow)),
+  };
+}
+
 export function useWalletBoard(): WalletBoard {
   const { address: evmAddress } = useAccount();
   const solanaAddress = useSolanaSurface().surface?.address ?? null;
   const [nonce, setNonce] = useState(0);
-  const sol = useSolanaLegs(solanaAddress, nonce);
-  const evm = useEvmLegs(evmAddress, nonce);
+  const sol = useRemembered(solanaAddress, useSolanaLegs(solanaAddress, nonce));
+  const evm = useRemembered(evmAddress ?? null, useEvmLegs(evmAddress, nonce));
   return {
     solanaAddress,
     evmAddress: evmAddress ?? null,
