@@ -2342,7 +2342,7 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
     if (!validCollection) return toast.error('Invalid collection address');
     if (approvalNeeded) return toast.error('Approve the collection first');
     if (factoryPaused === true) return toast.error('Opening new pools is paused on this factory');
-    if (openingFee === undefined) return toast.error('Could not read the pool-opening fee — reload and try again');
+    if (openingFee === undefined) return toast.error('Could not read the pool-opening fee. Reload and try again.');
 
     try {
       writeDeploy(

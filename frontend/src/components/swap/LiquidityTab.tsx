@@ -673,7 +673,7 @@ export function LiquidityTab({ chainId: chainIdProp, pick }: { chainId?: number;
                   : !balanceAKnown ? (balanceAUnread ? `${tokenA.symbol} balance unavailable — reload` : `Reading ${tokenA.symbol} balance…`)
                   : !balanceBKnown ? (balanceBUnread ? `${symB} balance unavailable — reload` : `Reading ${symB} balance…`)
                   : feeNeedsOwnBalance && !nativeBalanceFee ? 'Reading ETH balance…'
-                  : openingFeePending ? (liq.openingFeeUnread ? 'Opening fee unavailable — reload' : 'Reading the opening fee…')
+                  : openingFeePending ? (liq.openingFeeUnread ? 'Opening fee unavailable. Reload' : 'Reading the opening fee…')
                   : insufficientA ? (tokenA.isNative && openingFee > 0n ? `Not enough ETH (incl. ${formatEther(openingFee)} ETH to open)` : `Not enough ${tokenA.symbol}`)
                   : insufficientB ? (tokenB?.isNative && openingFee > 0n ? `Not enough ETH (incl. ${formatEther(openingFee)} ETH to open)` : `Not enough ${symB}`)
                   : insufficientFee ? `Not enough ETH for the ${formatEther(openingFee)} ETH opening fee`

@@ -363,7 +363,7 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
       return null;
     }
     if (!venueKnown) {
-      toast.error('Still finding this pool — try again in a moment');
+      toast.error('Still finding this pool. Try again in a moment.');
       return null;
     }
     return venue;
@@ -429,7 +429,7 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
     if (!v) return;
     if (!address || !tokenA || !tokenB) return;
     if (openingFeeWei === undefined) {
-      toast.error('Could not read the pool-opening fee — reload before opening this pool');
+      toast.error('Could not read the pool-opening fee. Reload before opening this pool.');
       return;
     }
     lastActionRef.current = 'liquidity';
