@@ -8,7 +8,7 @@ import { ThemeProvider } from '../contexts/ThemeContext';
 import type { PrivateKey } from '@emurgo/cardano-serialization-lib-browser';
 import type { Csl } from '../lib/cardano/csl';
 import { composeAddress, hexToBytes, type ParsedAddress } from '../lib/cardano/address';
-import { MINSWAP_V2 } from '../lib/cardano/minswapV2';
+import { ADA, MINSWAP_V2, encodeSwapOrderDatum, lpAsset, orderAddressFor } from '../lib/cardano/minswapV2';
 import { resetCardanoWalletForTests } from '../lib/cardano/walletStore';
 import { ASCEND, fixture, testCsl } from '../lib/cardano/testkit.fixture';
 
@@ -52,6 +52,8 @@ const ASCEND_INFO = [
   },
 ];
 const POOLS = fixture<unknown[]>('koios-asset-utxos-two-pools.json');
+/** Mainnet's parameters with the script prices and cost model a cancel needs (2026-10-24). */
+const PARAMS_FULL = fixture<unknown>('koios-cli-protocol-params.json');
 
 let csl: Csl;
 let key: PrivateKey;
@@ -241,6 +243,7 @@ describe('CardanoSwapPage', () => {
     await connect();
     const row = await screen.findByTestId('cardano-order');
     await waitFor(() => expect(row.textContent).toMatch(/Filled: 5 ASCEND/));
+    expect(within(row).queryByRole('button', { name: 'Cancel order' })).toBeNull();
     const reads = (globalThis.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls.map((c) => String(c[0]));
     expect(reads.filter((u) => /\/api\/cardano\/(utxo|txstatus|credtxs|tx)\b/.test(u))).toEqual([]);
   });
@@ -321,6 +324,113 @@ describe('CardanoSwapPage', () => {
     });
     await screen.findByText(/You declined in the wallet\. Nothing was sent\./);
     expect(submitted).toHaveLength(0);
+  });
+
+  describe('Cancel order', () => {
+    const ORDER_TX = 'a1'.repeat(32);
+    const PLACED_AT = () => Date.now() - 60_000;
+
+    function noteOrder() {
+      localStorage.setItem(
+        'tegridy.minswap.orders.v1',
+        JSON.stringify([
+          {
+            txHash: ORDER_TX, orderIndex: 0, traderHex: trader.hex, traderPaymentHash: trader.payment.hash,
+            assetIn: { policyId: '', assetName: '' }, assetOut: ASCEND, amountIn: '400000000', minimumReceive: '1',
+            inLabel: { ticker: 'ADA', decimals: 6 }, outLabel: { ticker: 'ASCEND', decimals: 6 }, ttlSlot: 201256900, submitted: true, placedAt: PLACED_AT(),
+          },
+        ]),
+      );
+    }
+
+    /** The chain: the order open until a cancel is submitted, then spent by that cancel, which paid the trader. */
+    function stubOrderChain(spentOnSubmit = true) {
+      const datum = encodeSwapOrderDatum(csl, { trader, pool: { ref: { txHash: '11'.repeat(32), index: 0 }, assetA: ADA, assetB: ASCEND, lp: lpAsset(ADA, ASCEND), reserveA: 1n, reserveB: 1n, totalLiquidity: 1n, feeANumerator: 100n, feeBNumerator: 100n, feeSharingNumerator: null, allowDynamicFee: false }, assetIn: ADA, swapAmount: 400_000_000n, minimumReceive: 1n });
+      const orderRow = { tx_hash: ORDER_TX, tx_index: 0, address: orderAddressFor(trader).bech32, value: '404000000', asset_list: null, inline_datum: { bytes: datum } };
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string) => {
+          const u = new URL(url, 'https://site.test');
+          const op = u.pathname.replace('/api/cardano/', '');
+          const cancel = spentOnSubmit && submitted[0] ? csl.FixedTransaction.from_hex(submitted[0]) : null;
+          const cancelHash = cancel?.transaction_hash().to_hex();
+          const back = cancel ? csl.TransactionBody.from_bytes(cancel.raw_body()).outputs().get(0).amount().coin().to_str() : '0';
+          const body =
+            op === 'params' ? PARAMS_FULL
+            : op === 'asset' ? ASCEND_INFO
+            : op === 'tip' ? [{ abs_slot: 201256000, block_height: 14108900, block_time: 1792822300 }]
+            : op === 'utxo' ? [{ ...orderRow, is_spent: cancel !== null }]
+            : op === 'txstatus' ? [{ tx_hash: u.searchParams.get('tx'), num_confirmations: 3 }]
+            : op === 'credtxs' ? (cancelHash ? [{ tx_hash: cancelHash, block_height: 14108899 }] : [])
+            : op === 'tx' && cancelHash ? [{ tx_hash: cancelHash, inputs: [{ tx_hash: ORDER_TX, tx_index: 0 }], outputs: [{ tx_index: 0, payment_addr: { bech32: trader.bech32 }, value: back, inline_datum: null, asset_list: null }] }]
+            : undefined;
+          if (body === undefined) return new Response('no', { status: 500 });
+          return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
+        }),
+      );
+    }
+
+    it('shows on an open order, says what comes back, sends exactly the checked cancel, and then reads Returned', async () => {
+      noteOrder();
+      stubOrderChain();
+      renderPage();
+      await connect();
+      const row = await screen.findByTestId('cardano-order');
+      await within(row).findByText(/Order placed \(3 blocks deep\)/);
+      expect(row.textContent).toMatch(/All of it comes back to your wallet, less the network fee\. A cancel pays no batcher fee\./);
+      fireEvent.click(within(row).getByRole('button', { name: 'Cancel order' }));
+      const review = await within(row).findByTestId('cardano-cancel-review', {}, { timeout: 3000 });
+      // 404 ADA locked, less a network fee of about 0.24 ADA.
+      expect(within(review).getByText('You get back').parentElement!.textContent).toMatch(/403\.7\d+ ADA/);
+      expect(within(review).getByText('Batcher fee').parentElement!.textContent).toMatch(/None/);
+      expect(within(review).getByTestId('cardano-cancel-paid-to').textContent).toBe(trader.bech32);
+      expect(review.textContent).toContain(`ASCEND: ${ASCEND.policyId}.${ASCEND.assetName}`);
+      await act(async () => {
+        fireEvent.click(within(review).getByRole('button', { name: 'Sign the cancel' }));
+      });
+      expect(signed).toHaveLength(1);
+      expect(submitted).toHaveLength(1);
+      // What went out: the checked body, spending only the order with Minswap's owner cancel, the trader's signature on it.
+      const sent = csl.FixedTransaction.from_hex(submitted[0]!);
+      expect(sent.raw_body()).toEqual(csl.FixedTransaction.from_hex(signed[0]!).raw_body());
+      const body = csl.TransactionBody.from_bytes(sent.raw_body());
+      expect(body.inputs().len()).toBe(1);
+      expect(body.inputs().get(0).transaction_id().to_hex()).toBe(ORDER_TX);
+      expect(sent.witness_set().redeemers()!.get(0).data().to_hex()).toBe('d87a80');
+      expect(sent.witness_set().vkeys()!.get(0).vkey().public_key().hash().to_hex()).toBe(trader.payment.hash);
+      expect(JSON.parse(localStorage.getItem('tegridy.minswap.orders.v1') ?? '[]')[0].cancel.txHash).toBe(sent.transaction_hash().to_hex());
+      await within(row).findByText(/Returned: you cancelled it, and all of it came back to your wallet, less the network fee\./, {}, { timeout: 3000 });
+      expect(within(row).queryByRole('button', { name: 'Cancel order' })).toBeNull();
+    });
+
+    it('says the cancel is on its way, with no second Cancel, while the chain still shows the order open, after a reload too', async () => {
+      noteOrder();
+      stubOrderChain(false);
+      const page = renderPage();
+      await connect();
+      const row = await screen.findByTestId('cardano-order');
+      fireEvent.click(await within(row).findByRole('button', { name: 'Cancel order' }));
+      const review = await within(row).findByTestId('cardano-cancel-review', {}, { timeout: 3000 });
+      await act(async () => {
+        fireEvent.click(within(review).getByRole('button', { name: 'Sign the cancel' }));
+      });
+      await within(row).findByText(/Cancel sent\. Your coins come back to your wallet when it lands\./, {}, { timeout: 3000 });
+      expect(within(row).queryByRole('button', { name: 'Cancel order' })).toBeNull();
+      page.unmount();
+      renderPage();
+      const again = await screen.findByTestId('cardano-order');
+      await within(again).findByText(/Cancel sent\. Your coins come back to your wallet when it lands\./, {}, { timeout: 3000 });
+      expect(within(again).queryByRole('button', { name: 'Cancel order' })).toBeNull();
+    });
+
+    it('is not offered on an order the chain has not shown', async () => {
+      noteOrder();
+      renderPage();
+      await connect();
+      const row = await screen.findByTestId('cardano-order');
+      await within(row).findByText(/Sent\. The chain has not shown it yet\./);
+      expect(within(row).queryByRole('button', { name: 'Cancel order' })).toBeNull();
+    });
   });
 
   it('says a pool read that failed is not "no pool"', async () => {
