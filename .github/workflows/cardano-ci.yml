@@ -1,16 +1,19 @@
 name: cardano-ci
 
-# cardano/: Minswap V2's audited contracts with one constant patched (the fee-share floor), and the
-# role timelock, the venue's one new validator, which holds Minswap's admin roles behind 48 hours
-# and two keys.
+# cardano/: Minswap V2's audited contracts with two reviewed patches (the fee-share floor; the
+# pool creation fee, named by the GlobalSetting and checked by the factory), and the role
+# timelock, the venue's one new validator, which holds Minswap's admin roles behind 48 hours and
+# two keys.
 # Gates:
 #   1. provenance - every copied file is upstream's at the pin, or upstream's plus exactly the
 #      reviewed patch, by hash, with no clone; the guard first refuses known-bad copies. It reads
 #      the patch with solana/guards/provenance.mjs, so that file is in scope too.
 #   2. build-proof - Aiken v1.0.24-alpha, the compiler Minswap used, turns our copy with the patch
-#      undone into Minswap's six mainnet scripts byte for byte, and with it changes only the pool
-#      validator; the role timelock is formatted, passes its tests, and builds to its committed
-#      plutus.json. The proof first refuses a tampered copy.
+#      undone into Minswap's six mainnet scripts byte for byte, and with it changes only the
+#      validators and the one type the proof names; our tests of the factory's Pool Creation
+#      (cardano/minswap-tests/) pass; the role timelock is formatted, passes its tests, and builds
+#      to its committed plutus.json. The proof first refuses a tampered copy, and a factory whose
+#      pool creation fee is not checked.
 on:
   push:
     paths: ["cardano/**", "solana/guards/provenance.mjs", ".github/workflows/cardano-ci.yml"]
@@ -124,5 +127,20 @@ jobs:
           grep -qF "pool: builds to" /tmp/tampered.log \
             || { echo "::error::refused, but not for the pool's hash"; cat /tmp/tampered.log; exit 1; }
           echo "refused: $(grep -c '::error::' /tmp/tampered.log) mismatches"
+      - name: The factory tests refuse a factory that does not check the pool creation fee
+        run: |
+          set -uo pipefail
+          mkdir -p /tmp/nofee && cp -r cardano /tmp/nofee/
+          sed -i '/pool_creation_fee_paid >= global_setting.pool_creation_fee,/d' \
+            /tmp/nofee/cardano/minswap-dex-v2/validators/factory_validator.ak
+          if grep -q 'pool_creation_fee_paid >= ' /tmp/nofee/cardano/minswap-dex-v2/validators/factory_validator.ak; then
+            echo "::error::the tamper did not apply, so this step would prove nothing"; exit 1
+          fi
+          if AIKEN=/tmp/aiken/aiken node cardano/guards/prove-build.mjs --root /tmp/nofee > /tmp/nofee.log 2>&1; then
+            echo "::error::the build proof passed a factory without the fee check"; cat /tmp/nofee.log; exit 1
+          fi
+          grep -qF "factory tests: " /tmp/nofee.log && grep -qF "FAIL" /tmp/nofee.log \
+            || { echo "::error::refused, but not by a failing factory test"; cat /tmp/nofee.log; exit 1; }
+          echo "refused: $(grep -c 'FAIL' /tmp/nofee.log) factory tests failed"
       - name: Our copy builds into Minswap's mainnet scripts; the role timelock passes its tests
         run: AIKEN=/tmp/aiken/aiken node cardano/guards/prove-build.mjs

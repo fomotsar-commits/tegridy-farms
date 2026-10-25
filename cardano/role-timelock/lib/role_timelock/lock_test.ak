@@ -219,6 +219,8 @@ fn setting(batcher: ByteArray) -> GlobalSetting {
     pool_stake_key_updater: PAMSpendScript(lock_hash),
     pool_dynamic_fee_updater: PAMSpendScript(lock_hash),
     admin: PAMSpendScript(lock_hash),
+    pool_creation_fee: 73000000,
+    pool_creation_fee_receiver: treasury(),
   }
 }
 
@@ -1181,6 +1183,73 @@ test execute_a_setting_change_on_a_pool() fail {
       ],
     ),
   )
+}
+
+// --- The pool creation fee, re-set by hand ------------------------------------
+
+/// `new` announced, ready, and made exactly.
+fn execute_announced(new: GlobalSetting) -> Bool {
+  lock.spend(
+    params(),
+    ready(SetGlobalSetting(new)),
+    Execute { index: 0 },
+    spend_ctx(
+      [lock_in(ready(SetGlobalSetting(new))), setting_in(), wallet_in()],
+      [setting_out(new), lock_out(empty())],
+      now,
+      now + 10 * minute,
+    ),
+  )
+}
+
+// ADA fell: 73 ADA becomes 100.
+test execute_a_new_pool_creation_fee() {
+  execute_announced(
+    GlobalSetting { ..setting(batcher), pool_creation_fee: 100000000 },
+  )
+}
+
+test execute_no_pool_creation_fee() {
+  execute_announced(GlobalSetting { ..setting(batcher), pool_creation_fee: 0 })
+}
+
+// Announced, waited for and signed by both keys, and still refused: the
+// venue's opening fees would go somewhere other than the treasury.
+test execute_a_pool_creation_fee_to_a_stranger() fail {
+  execute_announced(
+    GlobalSetting {
+      ..setting(batcher),
+      pool_creation_fee_receiver: wallet(stranger),
+    },
+  )
+}
+
+test minswap_would_take_a_pool_creation_fee_to_a_stranger() {
+  minswap_admin_present(
+    setting_tx(
+      GlobalSetting {
+        ..setting(batcher),
+        pool_creation_fee_receiver: wallet(stranger),
+      },
+    ),
+  )
+}
+
+// The treasury's payment script with another stake key is another address.
+test execute_a_pool_creation_fee_to_the_treasury_restaked() fail {
+  execute_announced(
+    GlobalSetting {
+      ..setting(batcher),
+      pool_creation_fee_receiver: Address {
+        ..treasury(),
+        stake_credential: Some(Inline(VerificationKeyCredential(stranger))),
+      },
+    },
+  )
+}
+
+test execute_a_negative_pool_creation_fee() fail {
+  execute_announced(GlobalSetting { ..setting(batcher), pool_creation_fee: -1 })
 }
 
 // --- Withdraw the fee share -------------------------------------------------

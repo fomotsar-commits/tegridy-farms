@@ -247,6 +247,7 @@ fn validate_global_setting(global_setting: GlobalSetting) -> Bool {
     pool_stake_key_updater,
     pool_dynamic_fee_updater,
     admin,
+    ..
   } = global_setting
   and {
     validate_pool_authorization_method(pool_fee_updater),
