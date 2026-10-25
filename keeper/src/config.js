@@ -8,8 +8,23 @@
 /** The venue's pool program (our cp-swap fork). */
 export const PROGRAM_ID = 'EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT';
 
-/** The Squads vault. Both fee owners of every fee tier must be this, or venue money goes elsewhere. */
+/** The Squads vault, the venue's treasury. Every fee tier's protocol (venue) fee owner must be this. */
 export const VENUE_VAULT = 'GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd';
+
+/**
+ * The island's Workshop: every fee tier's fund fee owner, the island's agreed share of each
+ * fee since the split went live (2026-10-19; read on chain 2026-10-25, slot 461,072,652,
+ * on both tiers). frontend/src/lib/launcher/solana/write/plant.ts WORKSHOP_WALLET.
+ */
+export const ISLAND_WORKSHOP = 'G2EHPseTXetHbBvvRDs27XQyXfQikXXyxP9uMbsKrbu';
+
+/**
+ * Where a live correction's profit goes (owner, 2026-10-25: "it should pay to our treasury
+ * and we can distribute how we want"): the treasury, never the pool's LPs and never kept in
+ * the keeper's wallet. Only what is above the owner's float is ever sent; the float stays
+ * the owner's. Week 1 sends nothing: this only names it in the log and the report.
+ */
+export const PROFIT_TO = VENUE_VAULT;
 
 export const SOL_MINT = 'So11111111111111111111111111111111111111112';
 /** Read from the BAYLA/USDC pool's own account on 2026-10-16, not from memory. */

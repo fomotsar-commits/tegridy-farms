@@ -5,7 +5,8 @@
 // whether a correction would pay and how much it would make, and writes one line
 // per pool to keeper/log/watch-<UTC date>.jsonl. It alerts the owner when a pool is
 // 3% or more off, when the outside price jumps, when it cannot read for 10 minutes,
-// when a venue fee owner is not our vault, and when a pool is re-pointed. Once a day
+// when a fee tier stops paying the agreed split (venue to our vault, island to its
+// Workshop), and when a pool is re-pointed. Once a day
 // it sends the summary.
 //
 // It holds no key. It signs nothing and sends nothing: its RPC client refuses every
@@ -81,7 +82,8 @@ export async function cycle(ctx) {
     try {
       const snap = await readPool(ctx.rpc, pool.address, ctx.poolCache);
       snaps.set(pool.name, snap);
-      const leak = snap.protocolOwner !== C.VENUE_VAULT || snap.fundOwner !== C.VENUE_VAULT;
+      // The agreed split: the venue's share to the vault, the island's share to its Workshop.
+      const leak = snap.protocolOwner !== C.VENUE_VAULT || snap.fundOwner !== C.ISLAND_WORKSHOP;
       money.set(pool.name, { leak, ...(leak ? { feeOwners: { protocol: snap.protocolOwner, fund: snap.fundOwner } } : {}) });
     } catch (e) {
       rows.push(unread(pool, 'our pool', e));
@@ -190,7 +192,7 @@ export function sideOf(r) {
 }
 
 export function line(r) {
-  const flags = `${r.leak ? '  ** VENUE FEE OWNER IS NOT OUR VAULT **' : ''}${r.repointed ? '  ** POOL RE-POINTED **' : ''}${r.bigMove ? '  [pump.fun price jumped]' : ''}`;
+  const flags = `${r.leak ? '  ** FEE OWNERS ARE NOT THE AGREED SPLIT **' : ''}${r.repointed ? '  ** POOL RE-POINTED **' : ''}${r.bigMove ? '  [pump.fun price jumped]' : ''}`;
   if (r.unread) return `${r.pool.padEnd(10)} UNREAD (${r.what}): ${r.detail}${flags}`;
   const g = `${r.gapPct >= 0 ? '+' : ''}${r.gapPct.toFixed(2)}%`;
   let s = `${r.pool.padEnd(10)} ours ${fmt(r.ourPrice)}  pump.fun ${fmt(r.outsidePrice)} ${r.coin}  gap ${g}  (a fix pays beyond ${r.breakEvenPct.toFixed(2)}%)`;
@@ -212,7 +214,7 @@ export function line(r) {
 export async function alertsFor(rows, ctx) {
   for (const r of rows) {
     if (r.leak && ctx.gate(`leak:${r.pool}`)) {
-      await ctx.alert(`MONEY: ${r.pool}'s fee tier no longer pays the venue's fees to our vault (protocol owner ${r.feeOwners.protocol}, fund owner ${r.feeOwners.fund}).`);
+      await ctx.alert(`MONEY: ${r.pool}'s fee tier no longer pays the agreed split, the venue's share to our vault and the island's to its Workshop (protocol owner ${r.feeOwners.protocol}, fund owner ${r.feeOwners.fund}).`);
     }
     if (r.repointed && ctx.gate(`repoint:${r.pool}`)) {
       await ctx.alert(`MONEY: ${r.pool} now names a different fee tier or vault than when the keeper started. Nothing of ours can do that. It stays unread until the keeper is restarted on purpose.`);

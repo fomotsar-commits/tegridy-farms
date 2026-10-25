@@ -28,7 +28,7 @@ const cpmm = (x, rin, rout) => {
   return (rout * xin) / (rin + xin);
 };
 
-function fakeNet({ jupiterDown = false, quotesDown = false, hopLabel = 'Whirlpool', rpcFailFor = null, protocolOwner = null, market = { X, Y }, mutatePool = null } = {}) {
+function fakeNet({ jupiterDown = false, quotesDown = false, hopLabel = 'Whirlpool', rpcFailFor = null, protocolOwner = null, fundOwner = null, market = { X, Y }, mutatePool = null } = {}) {
   return async (url, init) => {
     const u = new URL(String(url));
     if (String(url) === RPC) {
@@ -44,9 +44,10 @@ function fakeNet({ jupiterDown = false, quotesDown = false, hopLabel = 'Whirlpoo
         mutatePool(pool);
         value = [{ ...value[0], data: [pool.toString('base64'), 'base64'] }, ...value.slice(1)];
       }
-      if (protocolOwner && keys.length === 4) {
+      if ((protocolOwner || fundOwner) && keys.length === 4) {
         const cfg = Buffer.from(value[1].data[0], 'base64');
-        Buffer.from(protocolOwnerBytes(protocolOwner)).copy(cfg, 44);
+        if (protocolOwner) Buffer.from(protocolOwnerBytes(protocolOwner)).copy(cfg, 44);
+        if (fundOwner) Buffer.from(protocolOwnerBytes(fundOwner)).copy(cfg, 76);
         value = [value[0], { ...value[1], data: [cfg.toString('base64'), 'base64'] }, value[2], value[3]];
       }
       return Response.json({ jsonrpc: '2.0', id: 1, result: { context: entry.answer.context, value } });
@@ -137,7 +138,26 @@ test('a fee tier that pays someone other than our vault is flagged as money', as
   assert.ok(stranger !== VENUE_VAULT);
   await alertsFor(rows, ctx);
   assert.ok(printed.some((s) => s.includes('MONEY') && s.includes(stranger)));
-  assert.match(line(rows[0]), /VENUE FEE OWNER IS NOT OUR VAULT/);
+  assert.match(line(rows[0]), /FEE OWNERS ARE NOT THE AGREED SPLIT/);
+});
+
+test('the agreed split (venue to our vault, island to its Workshop) is not money: no flag, no alert', async () => {
+  const { ctx, printed } = ctxWith(fakeNet());
+  const rows = await cycle(ctx);
+  assert.ok(rows.length > 0 && rows.every((r) => r.leak === false));
+  await alertsFor(rows, ctx);
+  assert.ok(!printed.some((s) => s.includes('MONEY')));
+  assert.doesNotMatch(line(rows[0]), /AGREED SPLIT/);
+});
+
+test('the island’s share paid anywhere but its Workshop is money, the vault included (the pre-split shape)', async () => {
+  for (const fundOwner of [VENUE_VAULT, PUMP_BAYLA_POOL]) {
+    const { ctx, printed } = ctxWith(fakeNet({ fundOwner }));
+    const rows = await cycle(ctx);
+    assert.ok(rows.every((r) => r.leak === true), `fund owner ${fundOwner}`);
+    await alertsFor(rows, ctx);
+    assert.ok(printed.some((s) => s.includes('MONEY') && s.includes(`fund owner ${fundOwner}`)));
+  }
 });
 
 test('alerts: a 3% gap is said once, not every look; unread for 10 minutes is said', async () => {
@@ -167,7 +187,7 @@ test('a fee owner that is not our vault is flagged and alerted even when Jupiter
   assert.ok(rows.every((r) => r.unread && r.leak === true));
   await alertsFor(rows, ctx);
   assert.ok(printed.some((s) => s.startsWith('ALERT  MONEY') && s.includes(stranger)));
-  assert.match(line(rows[0]), /UNREAD .*VENUE FEE OWNER IS NOT OUR VAULT/);
+  assert.match(line(rows[0]), /UNREAD .*FEE OWNERS ARE NOT THE AGREED SPLIT/);
 });
 
 test('a jump in pump.fun’s price pauses the count and is alerted, whatever else happened', async () => {

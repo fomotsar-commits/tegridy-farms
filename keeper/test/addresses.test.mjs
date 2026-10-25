@@ -3,6 +3,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import * as C from '../src/config.js';
 import { ATA_PROGRAM, COMPUTE_BUDGET_PROGRAM, SYSTEM_PROGRAM } from '../src/sizecheck.js';
 import { decode, encode, isAddress } from '../src/base58.js';
@@ -11,6 +12,8 @@ test('every address in config.js and sizecheck.js is 32 bytes that re-encode to 
   const named = {
     PROGRAM_ID: C.PROGRAM_ID,
     VENUE_VAULT: C.VENUE_VAULT,
+    ISLAND_WORKSHOP: C.ISLAND_WORKSHOP,
+    PROFIT_TO: C.PROFIT_TO,
     SOL_MINT: C.SOL_MINT,
     USDC_MINT: C.USDC_MINT,
     BAYLA_MINT: C.BAYLA_MINT,
@@ -25,6 +28,21 @@ test('every address in config.js and sizecheck.js is 32 bytes that re-encode to 
   // Every exported string that looks like an address is in the list above.
   const exported = Object.entries(C).filter(([, v]) => typeof v === 'string' && /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(v));
   for (const [k, v] of exported) assert.ok(Object.values(named).includes(v), `${k} is not checked here`);
+});
+
+test('the vault, the Workshop and the profit address are the site’s own, and profit goes to the treasury', () => {
+  // Read as text: the site's modules import @solana/web3.js, and the keeper loads no package.
+  const site = (path, name) => {
+    const src = readFileSync(new URL(`../../frontend/src/${path}`, import.meta.url), 'utf8');
+    const m = src.match(new RegExp(`export const ${name} = new PublicKey\\('([1-9A-HJ-NP-Za-km-z]{32,44})'\\)`));
+    assert.ok(m, `${name} not found in ${path}`);
+    return m[1];
+  };
+  assert.equal(C.VENUE_VAULT, site('lib/launcher/solana/curve/program.ts', 'PLATFORM_TREASURY_VAULT'));
+  assert.equal(C.ISLAND_WORKSHOP, site('lib/launcher/solana/write/plant.ts', 'WORKSHOP_WALLET'));
+  // Owner, 2026-10-25: a live correction's profit goes to the treasury, not to LPs or the keeper.
+  assert.equal(C.PROFIT_TO, C.VENUE_VAULT);
+  assert.notEqual(C.ISLAND_WORKSHOP, C.VENUE_VAULT);
 });
 
 test('the base58 codec round-trips and refuses what is not an address', () => {

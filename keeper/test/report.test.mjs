@@ -34,7 +34,7 @@ test('a look outside the fees that does not pay keeps the stretch open; only com
 
 test('a stretch that reaches the size cap later is still reported as a floor', () => {
   const rows = [pay('00:00', 0.0002), pay('00:30', 0.03, { capped: true }), pay('01:00', 0.03, { capped: true })];
-  assert.match(describe(summarize(rows)), /1 stretch\(es\), making about 0\.030000 SOL \(at least: 1 stretch\(es\) hit the size cap\)/);
+  assert.match(describe(summarize(rows)), /1 stretch\(es\), making about 0\.030000 SOL for the treasury \(at least: 1 stretch\(es\) hit the size cap\)/);
 });
 
 test('unread looks are never "no gap": an all-unread pool says nothing is known', () => {
@@ -82,6 +82,6 @@ test('paused and unsteady looks are not counted, and a jump is counted once', ()
 
 test('a fee-owner change and a re-pointed pool are reported in capitals', () => {
   const text = describe(summarize([row('00:00', { leak: true }), { t: at('00:30'), pool: 'BAYLA/SOL', unread: true, repointed: true, what: 'our pool', detail: 'x' }]));
-  assert.match(text, /VENUE FEE OWNER WAS NOT OUR VAULT in 1 look/);
+  assert.match(text, /THE FEE OWNERS WERE NOT THE AGREED SPLIT \(venue to our vault, island to its Workshop\) in 1 look/);
   assert.match(text, /THE POOL WAS RE-POINTED/);
 });

@@ -6,7 +6,7 @@ import {
   creatorFeeOnInput, decodePoolState, ownMid, ownSwap, readPool, snapshotFrom,
 } from '../src/pool.js';
 import { swapBaseInput } from '../../frontend/src/lib/solana/cpswap/math.ts';
-import { BAYLA_MINT, POOLS, PROGRAM_ID, SOL_MINT, USDC_MINT, VENUE_VAULT } from '../src/config.js';
+import { BAYLA_MINT, ISLAND_WORKSHOP, POOLS, PROGRAM_ID, SOL_MINT, USDC_MINT, VENUE_VAULT } from '../src/config.js';
 
 const FIX = JSON.parse(readFileSync(new URL('./fixtures/mainnet.json', import.meta.url)));
 const SITE = readFileSync(new URL('../../frontend/src/lib/solana/cpswap/program.ts', import.meta.url), 'utf8');
@@ -37,9 +37,12 @@ test('a recorded mainnet pool decodes to its own mints, fee tier and fee owners'
   const s = fixtureSnap('BAYLA/SOL');
   assert.deepEqual([s.mint0, s.mint1].sort(), [BAYLA_MINT, SOL_MINT].sort());
   assert.equal(s.tradeFeeRate, 10_000n); // 1%
-  assert.equal(s.protocolFeeRate, 160_000n); // 16% of the fee
+  // The agreed split (live since 2026-10-19; the 10-16 recording's tier bytes were updated to
+  // what the chain read on 2026-10-25): 10.4% of the fee to the vault, 5.6% to the island's Workshop.
+  assert.equal(s.protocolFeeRate, 104_000n);
+  assert.equal(s.fundFeeRate, 56_000n);
   assert.equal(s.protocolOwner, VENUE_VAULT);
-  assert.equal(s.fundOwner, VENUE_VAULT);
+  assert.equal(s.fundOwner, ISLAND_WORKSHOP);
   const u = fixtureSnap('BAYLA/USDC');
   assert.deepEqual([u.mint0, u.mint1].sort(), [BAYLA_MINT, USDC_MINT].sort());
 });
@@ -62,10 +65,11 @@ test('a swap quote is the program’s own maths (math.ts), with the fee tier rea
     inputAmount: 100_000_000n,
     inputVaultAmount: solIs0 ? s.reserve0 : s.reserve1,
     outputVaultAmount: solIs0 ? s.reserve1 : s.reserve0,
-    tradeFeeRate: 10_000n, creatorFeeRate: 0n, protocolFeeRate: 160_000n, fundFeeRate: 0n, isCreatorFeeOnInput: true,
+    tradeFeeRate: 10_000n, creatorFeeRate: 0n, protocolFeeRate: 104_000n, fundFeeRate: 56_000n, isCreatorFeeOnInput: true,
   });
   assert.equal(r.outputAmount, direct.outputAmount);
-  assert.equal(r.protocolFee, 160_000n); // 0.16% of 0.1 SOL
+  assert.equal(r.protocolFee, 104_000n); // 0.104% of 0.1 SOL, to the vault
+  assert.equal(r.fundFee, 56_000n); // 0.056% of 0.1 SOL, to the island's Workshop
   assert.equal(ownSwap(s, 'not-a-mint-of-this-pool', 1n), null);
 });
 

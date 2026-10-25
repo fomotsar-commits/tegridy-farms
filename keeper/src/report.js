@@ -106,7 +106,7 @@ export function describe(pools) {
       const among = p.unread ? ` among the ${read} looks it could read` : '';
       lines.push(`  Biggest gap${among}: ${p.maxGap >= 0 ? '+' : ''}${p.maxGap.toFixed(2)}%${p.maxGapAt ? ` (${p.maxGapAt})` : ''}.`);
       if (p.episodes === 0) lines.push(`  A correction would not have paid in any look it could read${p.unread ? `; ${p.unread} were unread` : ''}.`);
-      else lines.push(`  A correction would have paid in ${p.episodes} stretch(es), making about ${p.made.toFixed(6)} ${p.coin}${p.capped ? ` (at least: ${p.capped} stretch(es) hit the size cap)` : ''}${p.unread ? `, not counting ${p.unread} unread looks` : ''}.`);
+      else lines.push(`  A correction would have paid in ${p.episodes} stretch(es), making about ${p.made.toFixed(6)} ${p.coin} for the treasury${p.capped ? ` (at least: ${p.capped} stretch(es) hit the size cap)` : ''}${p.unread ? `, not counting ${p.unread} unread looks` : ''}.`);
     }
     if (p.paused) lines.push(`  ${p.paused} look(s) were not counted because pump.fun's price had just jumped (the live keeper pauses then).`);
     if (p.unsteady) lines.push(`  ${p.unsteady} look(s) were not counted because the outside price moved while it was read.`);
@@ -119,7 +119,7 @@ export function describe(pools) {
       lines.push(s.notChecked ? '  One transaction: not checked (needs JUPITER_API_KEY and KEEPER_TAKER).' : '  One transaction: no correction paid, so nothing was measured.');
     }
     if (p.jumps) lines.push(`  pump.fun's price jumped more than 15% within a minute ${p.jumps} time(s).`);
-    if (p.leaks) lines.push(`  VENUE FEE OWNER WAS NOT OUR VAULT in ${p.leaks} look(s).`);
+    if (p.leaks) lines.push(`  THE FEE OWNERS WERE NOT THE AGREED SPLIT (venue to our vault, island to its Workshop) in ${p.leaks} look(s).`);
     if (p.repointed) lines.push(`  THE POOL WAS RE-POINTED (another fee tier or vault) in ${p.repointed} look(s).`);
   }
   return lines.join('\n');

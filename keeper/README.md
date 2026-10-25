@@ -9,11 +9,17 @@ outside price. **This first version only watches.** It holds no key, signs nothi
 sends nothing. It writes down, every 30 seconds, what a correction would have made, so
 the owner can decide on real numbers whether to go live.
 
+Revived 2026-10-25 (owner: "Revive the price keeper from #844 in its own PR: watch-only
+first for a week"; #844 was closed unmerged on 10-24). When it goes live, **its profit goes
+to the treasury** (the Squads vault), not to the pools' LPs (owner, 2026-10-25: "it should
+pay to our treasury and we can distribute how we want").
+
 ## What it does on each look
 
 1. Reads BAYLA/SOL and BAYLA/USDC from the chain: four accounts per pool in one request,
    so the reserves and the fees they owe come from the same moment. It checks right away
-   that both fee owners are our Squads vault, even if nothing else can be read.
+   that the fee tier pays the agreed split, the venue's share to our Squads vault and the
+   island's share to its Workshop, even if nothing else can be read.
 2. Reads BAYLA's price on pump.fun's pool (the deep one, ~333 SOL a side) from two Jupiter
    quotes: a buy and a sale back. For BAYLA/USDC it also reads SOL's price in USDC.
 3. Works out the gap and the gap at which a correction starts to pay. Buying here and
@@ -33,9 +39,10 @@ of ours. Alerts say it the other way round, as a share of pump.fun's price ("BAY
 It alerts (in its window, and on Telegram if set up) when a pool is 3% or more off, when
 pump.fun's price jumps more than 15% in a minute (the live keeper would pause then, so
 those looks are not counted), when it cannot read for 10 minutes, when a fee tier stops
-paying the venue's fees to our Squads vault, and when a pool suddenly names a different
-fee tier or vault (it then stays unread until restarted on purpose). Once a day it sends
-a summary. If its log cannot be written it says so and keeps watching.
+paying the agreed split (venue to our Squads vault, island to its Workshop), and when a
+pool suddenly names a different fee tier or vault (it then stays unread until restarted
+on purpose). Once a day it sends a summary. If its log cannot be written it says so and
+keeps watching.
 
 ## Run it
 
@@ -102,19 +109,26 @@ needs a lookup table the owner creates and signs: better to know in week 1.
 
 Example: today's best BAYLA/SOL correction, 0.144 SOL in.
 
-- **Our pool's 1% fee:** 0.84% stays in the pool for its LPs; 0.16% goes to the venue's
-  fee account, which only the Squads vault can collect.
+- **Our pool's 1% fee:** 0.84% stays in the pool for its LPs; 0.104% goes to the venue
+  (collectable only by the Squads vault) and 0.056% to the island's Workshop, the agreed
+  split live since 2026-10-19.
 - **pump.fun's ~1% on the other side** goes to pump.fun, its LPs and BAYLA's creator
   account (the island's Workshop, not ours). The exact split is not confirmed. This is the
   keeper's money (the owner's), not venue money.
 - **Jupiter** charges no fee on the call the keeper uses (`/swap/v2/build`).
 - **Jito and validators** get the tip (~0.00001 SOL) and the network fee (0.000005 SOL).
-- **The keeper keeps** about 0.0007 SOL. Expect roughly break-even: this is upkeep that
-  protects LPs, not income. One 20% gap costs LPs about ten times more than ten 2% gaps.
+- **The treasury gets the profit:** about 0.0007 SOL here. Whatever the keeper holds above
+  the owner's float is sent to the Squads vault (`config.js` `PROFIT_TO`), and the owner
+  decides from there how it is shared. LPs do not get it: they still pay the gap, as they
+  do now when a stranger closes it; the difference is who keeps it.
+- **Why it still protects LPs:** what a pool loses to a correction grows with the square of
+  the gap. One 20% gap costs LPs about ten times more than ten 2% gaps, so closing gaps
+  early shrinks their loss even though the profit goes to the treasury. Expect small
+  amounts: this is upkeep, not income.
 - **Trade-off:** the keeper will make corrections that visitors now make through our own
   swap page, and those visitor trades pay the venue 0.5% on their Jupiter leg. On 10-16
   that came to 0.0124 SOL in site fees, while the visitor kept 0.243 SOL of profit after
-  every fee. The keeper keeps that profit instead, so the owner still comes out ahead.
+  every fee. The treasury keeps that profit instead, so the venue still comes out ahead.
 
 ## Before it may go live (week 2, the owner's call)
 
@@ -128,11 +142,16 @@ Example: today's best BAYLA/SOL correction, 0.144 SOL in.
   exact port of the program's exact-out maths, tested against the Rust.
 - It signs only for our pool program, Jupiter, the token and system programs and the Jito
   tip, and refuses anything else.
+- **Profit to the treasury.** Anything the keeper holds above the float is sent to the
+  Squads vault: SOL straight to the vault, USDC to the vault's own USDC account. If the
+  vault has no USDC account yet, USDC profit waits in the keeper until the owner says how
+  to open one. The float itself is never sent anywhere: it stays the owner's.
 - Stops itself after losing 0.02 SOL in a day, after 5 failed sends in a row, or on a
   price that fails its checks. A big outside jump pauses it and alerts the owner.
 - The pool page (`frontend/src/lib/solana/lp/poolPast.ts`) labels the keeper's swaps, and
-  the fine print says the venue runs it. Its trades are never counted as volume or as
-  traction. Other sites will count them anyway.
+  the fine print says the venue runs it and that its profit goes to the treasury, not to
+  the pool's LPs. Its trades are never counted as volume or as traction. Other sites will
+  count them anyway.
 - A lookup table, if the size check says a correction does not fit.
 - `test/watchOnly.test.mjs` is changed on purpose, in its own reviewed change. Until then
   it fails on the known ways to sign or send: any network call outside three files, any
