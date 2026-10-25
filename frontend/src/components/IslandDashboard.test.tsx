@@ -226,10 +226,11 @@ describe('IslandDashboard: the frame on a phone and an iPad', () => {
     };
   });
 
+  const flush = () => act(() => { while (frames.length) frames.shift()!(0); });
   const scrollTo = (top: number) => {
     rowsTop = top;
     act(() => { window.dispatchEvent(new Event('scroll')); });
-    act(() => { while (frames.length) frames.shift()!(0); });
+    flush();
   };
   const figure = () => screen.getByTestId('dashboard-figure');
   const lit = () => Array.from(document.querySelectorAll('[data-current]')).map((el) => el.getAttribute('data-fig-key'));
@@ -286,11 +287,19 @@ describe('IslandDashboard: the frame on a phone and an iPad', () => {
     expect(lit()).toEqual(['p:lock']);
   });
 
-  it('leaves the rows of a closed pool list out', () => {
+  it('leaves the rows of a closed pool list out, and follows them once it is opened', () => {
     mount();
-    scrollTo(0);
+    scrollTo(100);
     expect(lit()).toEqual([]);
     expect(screen.queryByTestId('figure-progress')).toBeNull();
+    // Opening the list is read at once, before any scroll: the third pool is the first you can read.
+    const details = screen.getByRole('list', { name: 'Pools on the island' }).closest('details')!;
+    details.open = true;
+    act(() => { details.dispatchEvent(new Event('toggle')); });
+    flush();
+    const third = venuePoolRows()[2]!;
+    expect(lit()).toEqual([`pool:${third.id}`]);
+    expect(figure()).toHaveTextContent(third.name);
   });
 
   it('with a pointer, follows the pointer and not the scroll, and lights nothing', () => {
