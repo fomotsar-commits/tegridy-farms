@@ -584,7 +584,8 @@ function Figure({ fig, progress, frameRef }: { fig: Fig; progress: number | null
         </span>
       </div>
       <div className="relative flex justify-between gap-3 px-4 py-2 md:px-0 md:py-0 md:mt-2 font-mono text-[11px] tracking-[0.12em] text-[#f5e4b8]/60">
-        <span>fig. {pad2(fig.n)}</span>
+        {/* The number never wraps; a caption too long for an upright iPad's frame is cut instead. */}
+        <span className="shrink-0 whitespace-nowrap">fig. {pad2(fig.n)}</span>
         <span className="truncate">{fig.caption}</span>
         {/* A phone, an iPad: how far down the board the frame has followed you. */}
         {progress !== null && (
