@@ -19,6 +19,7 @@ import { readFeeTiers, readFreezeAuthority, readPairPools, readWalletPositions, 
 import { freezeWarning } from '../../../lib/solana/lp/tokenSafety';
 import type { AmmConfigView } from '../../../lib/solana/clmm/program';
 import { feePaidIn, feeSplit, poolFeeCeiling } from '../../../lib/solana/clmm/feeText';
+import { tiersOffered } from '../../../lib/solana/clmm/tierOffer';
 import { rangeVenueEarns } from '../../../lib/solana/clmm/venueEarns';
 import { pairOf, priceAtSqrt, type Pair } from '../../../lib/solana/clmm/rangeMath';
 import { CardArt } from '../../ui/CardArt';
@@ -151,7 +152,7 @@ export function RangeInner({ readers, load, mode }: { readers: RangeReaders; loa
 
   return (
     <div className="space-y-4">
-      <HowItPays pool={pool} pair={pair} tiers={tierList} />
+      <HowItPays pool={pool} pair={pair} tiers={tierList && tiersOffered(tierList, tokenMint, coin.mint)} />
 
       {held && write && (
         <PendingTradeCard
@@ -313,13 +314,14 @@ function TokenFreezeNotice({ mint, read }: { mint: string; read: Read<MintFreeze
 }
 
 /**
- * The program's fee tiers as the chain has them, one numbered row each: the fee, and what
- * of it the positions in range share and the venue keeps, said before any pool is picked.
- * A tier whose venue cut goes anywhere but the agreed split says so in bold, in its row.
+ * The fee tiers this site offers the pair (tierOffer.ts), as the chain has them, one numbered
+ * row each: the fee, and what of it the positions in range share and the venue keeps, said
+ * before any pool is picked. A tier whose venue cut goes anywhere but the agreed split says
+ * so in bold, in its row.
  */
 function TierIndex({ tiers, picked }: { tiers: AmmConfigView[]; picked: string | null }) {
   return (
-    <ol data-testid="range-tiers" aria-label="Fee tiers on the chain" className="!mt-4 border-t border-white/[0.14]">
+    <ol data-testid="range-tiers" aria-label="Fee tiers for this pair" className="!mt-4 border-t border-white/[0.14]">
       {tiers.map((t, i) => {
         const s = feeSplit(t);
         const venue = rangeVenueEarns(t);

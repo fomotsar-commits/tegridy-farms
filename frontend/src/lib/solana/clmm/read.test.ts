@@ -19,6 +19,7 @@ const PROG = Keypair.generate().publicKey;
 const ME = Keypair.generate().publicKey;
 const TOKEN = Keypair.generate().publicKey;
 const WSOL = new PublicKey('So11111111111111111111111111111111111111112');
+const USDC = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
 const { token0: M0, token1: M1 } = sortMints(WSOL, TOKEN);
 const SPACING = 120;
 const TICK = 600;
@@ -58,7 +59,8 @@ class Chain {
   };
 }
 
-const tier = (i: number, spacing = SPACING) => encodeAmmConfig({ index: i, tradeFeeRate: 2_500 * (i + 1), protocolFeeRate: 120_000, fundFeeRate: 40_000, tickSpacing: spacing });
+/** Tier 0 is 1% and tier 1 is 0.25%, as vault proposal #19 makes them. */
+const tier = (i: number, spacing = SPACING) => encodeAmmConfig({ index: i, tradeFeeRate: i === 0 ? 10_000 : 2_500, protocolFeeRate: 120_000, fundFeeRate: 40_000, tickSpacing: spacing });
 const CONFIG0 = deriveAmmConfig(PROG, 0);
 const CONFIG1 = deriveAmmConfig(PROG, 1);
 const POOL = derivePool(PROG, CONFIG0, M0, M1);
@@ -82,7 +84,7 @@ describe('fee tiers', () => {
     const r = await readFeeTiers(withTiers().rpc, PROG);
     expect(r.kind).toBe('ok');
     if (r.kind !== 'ok') return;
-    expect(r.value.map((t) => [t.index, t.tradeFeeRate, t.protocolFeeRate + t.fundFeeRate])).toEqual([[0, 2_500, 160_000], [1, 5_000, 160_000]]);
+    expect(r.value.map((t) => [t.index, t.tradeFeeRate, t.protocolFeeRate + t.fundFeeRate])).toEqual([[0, 10_000, 160_000], [1, 2_500, 160_000]]);
   });
 
   it('SOL sent to an unused tier address (an empty account the system owns) is the chain saying "never created": absent, not unread', async () => {
@@ -117,6 +119,22 @@ describe("a pair's pools", () => {
       const r = await readPairPools(c.rpc, PROG, a!.toBase58(), b!.toBase58(), tiers.value);
       expect(r.kind === 'ok' && r.value.map((p) => [p.pool.address, p.config.index])).toEqual([[POOL.toBase58(), 0]]);
     }
+  });
+
+  it('the 0.25% tier is read only for SOL against USDC: a meme coin pool there is never listed or routed through (owner, 2026-10-24)', async () => {
+    const memeLow = derivePool(PROG, CONFIG1, M0, M1);
+    const { token0: U0, token1: U1 } = sortMints(WSOL, USDC);
+    const usdcLow = derivePool(PROG, CONFIG1, U0, U1);
+    const c = withTiers()
+      .set(POOL, { owner: PROG, data: poolData() })
+      .set(memeLow, { owner: PROG, data: poolData({ config: CONFIG1 }) })
+      .set(usdcLow, { owner: PROG, data: poolData({ config: CONFIG1 }) });
+    const tiers = await readFeeTiers(c.rpc, PROG);
+    if (tiers.kind !== 'ok') throw new Error('tiers');
+    const meme = await readPairPools(c.rpc, PROG, TOKEN.toBase58(), WSOL.toBase58(), tiers.value);
+    expect(meme.kind === 'ok' && meme.value.map((p) => [p.pool.address, p.config.index])).toEqual([[POOL.toBase58(), 0]]);
+    const usdc = await readPairPools(c.rpc, PROG, USDC.toBase58(), WSOL.toBase58(), tiers.value);
+    expect(usdc.kind === 'ok' && usdc.value.map((p) => [p.pool.address, p.config.index])).toEqual([[usdcLow.toBase58(), 1]]);
   });
 
   it('a pool that names another tier than the one its address derives from is unread', async () => {
