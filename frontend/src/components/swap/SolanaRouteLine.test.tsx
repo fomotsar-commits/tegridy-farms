@@ -19,6 +19,8 @@ const readVenue = vi.fn();
 const readVenuePools = vi.fn();
 const quoteVenuePools = vi.fn();
 
+// The constant-product pools' route only: range pools in the route are SolanaSwapPage.rangePool.test.tsx's.
+vi.mock('../../lib/solana/clmm/programId', async (orig) => ({ ...(await orig<typeof import('../../lib/solana/clmm/programId')>()), rangePoolsVisible: () => false }));
 vi.mock('../../lib/solana/cpswap/read', () => ({ readVenue: (...a: unknown[]) => readVenue(...a) }));
 vi.mock('../../lib/solana/swap/venuePools', () => ({
   readVenuePools: (...a: unknown[]) => readVenuePools(...a),

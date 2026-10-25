@@ -89,16 +89,12 @@ export function isToweliRoomPage(pathname: string): boolean {
 
 /**
  * The Solana pages whose path alone says so. /earn/<id> and /dashboard are judged below.
- *
- * EVERY PAGE THAT MOUNTS ITS OWN SolanaProviders BELONGS HERE (or below).
- * /solana-lp was added to the router without being added here. Until its
- * Solana section had mounted, the top bar treated it as a page with none and
- * mounted its own connection; the section then mounted and took that one
- * away. A wallet approval still open at that moment landed nowhere, and a
- * hand-off into a wallet's app (lib/solanaSurface.ts) was used up by the
- * connection that was about to be unmounted (review, 2026-10-03).
+ * EVERY PAGE THAT MOUNTS ITS OWN SolanaProviders BELONGS HERE (or below): left out, the top
+ * bar mounts a connection of its own until the page's section loads and takes it away, and
+ * a wallet approval or app hand-off open at that moment lands nowhere (lib/solanaSurface.ts).
+ * routeVoice.test.ts holds every Solana-only tab to this.
  */
-const SOLANA_PATHS: ReadonlySet<string> = new Set(['/solana', '/pools', '/solana-lp', '/curve-launch']);
+const SOLANA_PATHS: ReadonlySet<string> = new Set(['/solana', '/pools', '/solana-lp', '/range-pools', '/curve-launch']);
 
 /**
  * The Cardano pages. The top bar's wallet slot there is the page's Cardano wallet
