@@ -9,6 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-10-25
 
+- Home page: TVL now shows beside the all-time volume. It is what our pools hold on Solana, Ethereum, Base and Robinhood, read from the chains every minute, with each chain's figure under What counts. When a chain cannot be read, it says "TVL at least" and names that chain. The all-time volume is now counted every five minutes instead of every few hours, and both figures refresh on the page every minute.
 - Cardano swap: Swap's network menu now lists Cardano. /cardano swaps ADA for a coin, or a coin for ADA, through that pair's Minswap V2 pool, signed in a Cardano wallet (Eternl, Lace, VESPR, Begin, Typhon, GeroWallet or NuFi). The page names each coin by its ticker and whole id, shows every fee and who gets it before you sign, and follows your order until Minswap's batcher fills it or sends it back. The venue charges no fee on Cardano yet.
 
 ### 2026-10-24
