@@ -614,13 +614,13 @@ describe('the rates: what a trade pays, what stays in the pool, what the venue t
   it('each number is the tier’s as read: another tier 1, other numbers and other sentences', async () => {
     const other = recordedFeeTiers();
     if (other.kind !== 'ok') throw new Error('the recording did not read');
-    other.tiers[1] = { ...other.tiers[1]!, config: { ...other.tiers[1]!.config!, tradeFeeRate: 2_500n, protocolFeeRate: 200_000n, createPoolFee: 2_000_000_000n } };
+    other.tiers[1] = { ...other.tiers[1]!, config: { ...other.tiers[1]!.config!, tradeFeeRate: 20_000n, protocolFeeRate: 200_000n, createPoolFee: 2_000_000_000n } };
     mount(readers({ feeTiers: vi.fn(async () => other) }), '/pools');
     const rates = await card();
-    expect(cells(within(rates).getAllByTestId('fee-tier')[0]!)).toEqual(['0.25%', '0.2%', '0.05%']);
+    expect(cells(within(rates).getAllByTestId('fee-tier')[0]!)).toEqual(['2%', '1.6%', '0.4%']);
     expect(within(rates).getByTestId('lp-open-cost').textContent).toMatch(/^Open a pool: 2(\.0+)? SOL \+/);
-    expect(rates).toHaveTextContent('Each trade in a public pool pays a 0.25% fee. 0.2% of the trade stays in the pool');
-    expect(rates).toHaveTextContent('0.05% of each trade in a public pool.');
+    expect(rates).toHaveTextContent('Each trade in a public pool pays a 2% fee. 1.6% of the trade stays in the pool');
+    expect(rates).toHaveTextContent('0.4% of each trade in a public pool.');
     expect(rates).toHaveTextContent('2 SOL when a public pool is opened.');
     expect(rates).not.toHaveTextContent(/0\.84%|0\.16%|\b1% fee|0\.15 SOL/);
   });

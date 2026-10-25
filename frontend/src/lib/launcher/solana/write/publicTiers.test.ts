@@ -19,6 +19,7 @@ import {
 } from '../../../solana/cpswap/program';
 import { initializeIx } from '../../../solana/cpswap/ix';
 import { SOL_QUOTE } from '../../../solana/lp/quotes';
+import { USDC_MINT } from '../../../solana/lp/tokenSafety';
 import { CP_CREATE_POOL_FEE_RECEIVER, readCreateFacts, tierStateOf, type GateRpc } from './config';
 import { CREATE_COPY, createPins, prepareLpCreate, readCreateSnapshot, type CreateSnapshot, type LpCreateArgs } from './createPool';
 import { decodeIntent } from './intent';
@@ -107,10 +108,11 @@ describe('readCreateFacts reads every public tier beside the fee account', () =>
 
 interface World { chain: FakeChain; mint: PublicKey; token0: PublicKey; token1: PublicKey }
 
-function world(o: { tier2?: boolean } = {}): World {
+/** A new token paired with SOL; `usdc`: USDC as the token, the one pair tier 2 is offered (owner, 2026-10-24). */
+function world(o: { tier2?: boolean; usdc?: boolean } = {}): World {
   const chain = chainWith({ tier2: o.tier2 ?? true });
   chain.simulate = createSimulator();
-  const mint = Keypair.generate().publicKey;
+  const mint = o.usdc ? new PublicKey(USDC_MINT) : Keypair.generate().publicKey;
   chain.mint(mint, { decimals: 6 });
   chain.fund(ME, Number(20n * SOL));
   chain.tokenAccount(associatedTokenAddress(mint, ME, TOKEN_PROGRAM_ID), mint, ME, 1_000n * 10n ** 6n, {});
@@ -143,7 +145,7 @@ function refused(r: Awaited<ReturnType<typeof create>>): string {
 
 describe('prepareLpCreate on the tier the opener chose', () => {
   it('tier 2: slot 1 is tier 2, the pool is tier 2’s standard address, and the summary carries tier 2’s terms', async () => {
-    const w = world();
+    const w = world({ usdc: true });
     const p = ok(await create(w, 2));
     const s = p.summary as LpCreateSummary;
     const ix = p.tx.instructions.find((i) => i.programId.equals(CPSWAP))!;
@@ -164,7 +166,7 @@ describe('prepareLpCreate on the tier the opener chose', () => {
   });
 
   it('the two tiers have different standard addresses for the same pair: a tier-1 pool does not take tier 2’s address', async () => {
-    const w = world();
+    const w = world({ usdc: true });
     expect(derivePool(CPSWAP, TIER1, w.token0, w.token1).equals(derivePool(CPSWAP, TIER2, w.token0, w.token1))).toBe(false);
     ok(await create(w, 1));
     // Nothing was sent, so nothing sits at either address; prepare on tier 2 still lands at its own standard address.
@@ -184,7 +186,15 @@ describe('prepareLpCreate on the tier the opener chose', () => {
   });
 
   it('tier 2’s terms shown as tier 1’s: refused as changed terms (the chosen tier is what is re-read)', async () => {
-    expect(refused(await create(world(), 2, termsOf(TIER1_VALUES)))).toBe(CREATE_COPY.termsChanged('trade fee 1% → 0.25%'));
+    expect(refused(await create(world({ usdc: true }), 2, termsOf(TIER1_VALUES)))).toBe(CREATE_COPY.termsChanged('trade fee 1% → 0.25%'));
+  });
+
+  it('tier 2 for any pair but SOL against USDC: refused by its rate as just read, and nothing is built (owner, 2026-10-24)', async () => {
+    const w = world();
+    expect(refused(await create(w, 2))).toBe(CREATE_COPY.tierNotForPair('0.25%'));
+    expect(CREATE_COPY.tierNotForPair('0.25%')).toBe('The 0.25% fee tier is for SOL against USDC only, so this site does not open this pool on it. Nothing was built.');
+    // The same token on tier 1 opens.
+    ok(await create(w, 1));
   });
 
   it('the single read is of the CHOSEN tier and that tier’s standard address', async () => {

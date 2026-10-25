@@ -79,6 +79,7 @@ import { LOCKED_LP, LOCKED_SHARES_TEXT, U64_MAX, feeReserveFor, isqrt, lockedBeh
 import { TOKEN_2022_NATIVE_MINT, assessOpening, estimatedLoss } from '../../../solana/lp/opening';
 import { coinPriceDetail, type OutsidePrice } from '../../../solana/lp/outsidePrice';
 import { QUOTE_COINS_OR, canPair, quoteCoin, type QuoteCoin } from '../../../solana/lp/quotes';
+import { LOW_TIER_PAIR, offersTier } from '../../../solana/lp/tierOffer';
 import { BUILDABLE_EXTENSIONS, classifyToken, decodeMintAccount, extensionPlain } from '../../../solana/lp/tokenSafety';
 import { MAX_OWN_PRIORITY_LAMPORTS } from './budget';
 import { CP_CREATE_POOL_FEE_RECEIVER, MAX_CREATE_FEE_LAMPORTS, feeAccountStateOf, tierStateOf } from './config';
@@ -106,6 +107,7 @@ export const CREATE_COPY = {
   tierFeeTooHigh: (fee: string, limit: string) =>
     `The fee to open a pool is set to ${fee} SOL, above this site's limit of ${limit} SOL, so this site will not open one.`,
   tierUnread: (detail: string) => `We could not confirm the fee tier just now (${detail}), so nothing was built. Try again in a moment.`,
+  tierNotForPair: (rate: string) => `The ${rate} fee tier is for ${LOW_TIER_PAIR} only, so this site does not open this pool on it. Nothing was built.`,
   termsChanged: (what: string) =>
     `The fee tier's terms changed since this page read them (${what}). Check the new terms and press Review again.`,
   feeAccount: (detail: string) =>
@@ -458,6 +460,8 @@ export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: Lp
       return notSent('build', CREATE_COPY.tierUnread(tier.detail));
   }
   const config = tier.config;
+  // The pair must be offered this tier, by its rate as just read (tierOffer.ts, owner 2026-10-24).
+  if (!offersTier(config.tradeFeeRate, a.tokenMint.toBase58(), quote.mint)) return notSent('build', CREATE_COPY.tierNotForPair(`${ratePercent(config.tradeFeeRate)}%`));
   const changed = termChanges(a.shown.terms, config);
   if (changed.length) return notSent('build', CREATE_COPY.termsChanged(changed.join('; ')));
   const createFee = config.createPoolFee;

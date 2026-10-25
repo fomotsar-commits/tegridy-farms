@@ -23,7 +23,7 @@ import { CoinRiskNotice, LpBeforeYouOpen, LpReviewDisclosure } from './LpDisclos
 import { PanelFrame } from './PanelFrame';
 import { FinePrint } from '../../ui/FinePrint';
 import { LOCKED_SHARES_TEXT, NOTES_BELOW, cannotFundText, coinExact, reviewOffWhy, sharePct, solAbout, solAboutUp, solExact, tokensAbout, unitsExact, useDebounced, useFlowReports, useSettledAlert, useWalletFacts } from './panelKit';
-import { POOL_RISK_CODES, createHeld, type CreateOffer, type PairFacts, type ReadyTier } from './offers';
+import { POOL_RISK_CODES, createHeld, offeredTiers, type CreateOffer, type PairFacts, type ReadyTier } from './offers';
 import { useLpWrites, type LpWrites } from './useLpWrites';
 
 const LP_DECIMALS = 9;
@@ -248,8 +248,16 @@ function CreateInner({
   api,
   gate,
 }: Parameters<typeof CreatePoolPanel>[0] & { writes: LpWrites; api: LpWriteApi; gate: LpOpenGate }) {
-  // The tiers that can take an opening, in offer order; the first is chosen until another is picked.
-  const ready = tiers.filter((t): t is ReadyTier => t.kind === 'ready');
+  // The coin the pool is paired with. It starts on SOL, the first in rank order.
+  const [picked, setPicked] = useState<string | null>(null);
+  const pair = pairs.find((x) => x.coin.mint === picked) ?? pairs[0] ?? NO_PAIR;
+  const coin = pair.coin;
+
+  // The tiers this site offers this pair (offers.ts `offeredTiers`: 0.25% for SOL against
+  // USDC only), and of those the ones that can take an opening, in offer order; the first
+  // is chosen until another is picked.
+  const offered = offeredTiers(tiers, mint, coin.mint);
+  const ready = offered.filter((t): t is ReadyTier => t.kind === 'ready');
   const [pickedTier, setPickedTier] = useState<number | null>(null);
   const chosen = ready.find((t) => t.index === pickedTier) ?? ready[0] ?? null;
   // The terms shown are the last ones read as ready. A re-read that finds the tier
@@ -259,16 +267,11 @@ function CreateInner({
   const [shownConfig, setShownConfig] = useState<AmmConfigView | null>(readyConfig);
   if (readyConfig && readyConfig !== shownConfig) setShownConfig(readyConfig);
   const config = readyConfig ?? shownConfig;
-  // Tiers that are not offered, and why: said beside the choice, never as a choice.
-  const asides = tiers.flatMap((t) => {
+  // This pair's tiers that are not ready, and why: said beside the choice, never as a choice.
+  const asides = offered.flatMap((t) => {
     const line = tierAsideLine(t);
     return line ? [{ index: t.index, unread: t.kind === 'unread', line }] : [];
   });
-
-  // The coin the pool is paired with. It starts on SOL, the first in rank order.
-  const [picked, setPicked] = useState<string | null>(null);
-  const pair = pairs.find((x) => x.coin.mint === picked) ?? pairs[0] ?? NO_PAIR;
-  const coin = pair.coin;
 
   const tokenProgram = safety.kind === 'read' && safety.facts?.program === 'token-2022' ? TOKEN_2022_PROGRAM : TOKEN_PROGRAM;
   const quoteIsToken0 = useMemo(() => sortMints(new PublicKey(coin.mint), new PublicKey(mint)).token0.toBase58() === coin.mint, [mint, coin.mint]);

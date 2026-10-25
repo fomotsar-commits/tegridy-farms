@@ -21,6 +21,7 @@ import { tokenReasons, type PoolHealth } from '../../../lib/solana/lp/poolHealth
 import type { PoolSearchRead, PoolView } from '../../../lib/solana/lp/poolFinder';
 import type { Position } from '../../../lib/solana/lp/positions';
 import { SOL_QUOTE, quotesFor, type QuoteCoin } from '../../../lib/solana/lp/quotes';
+import { offersTier } from '../../../lib/solana/lp/tierOffer';
 import type { SafetyReason, TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { isLpKind } from '../../../lib/launcher/solana/write/lpKinds';
 import type { CreateFacts, TierState } from '../../../lib/launcher/solana/write/types';
@@ -148,8 +149,22 @@ export function poolListCut(search: PoolSearchRead): boolean {
 /** The public tiers that can take an opening right now: the ones the form offers. */
 export type ReadyTier = Extract<TierState, { kind: 'ready' }>;
 
-export function readyTiers(facts: CreateFacts | null): ReadyTier[] {
-  return facts ? facts.tiers.filter((t): t is ReadyTier => t.kind === 'ready') : [];
+/**
+ * The public tiers this site offers `tokenMint` paired with `coinMint`, or with any coin
+ * it can be paired with when no coin is named (the card, before a coin is picked): a tier
+ * under 1% only for SOL against USDC (tierOffer.ts, owner 2026-10-24). A tier whose rate
+ * was not read (unread, not created) is kept: nothing says it is not offered. A token that
+ * pairs with no coin (SOL itself) is refused by the token check, not here.
+ */
+export function offeredTiers(tiers: readonly TierState[], tokenMint: string, coinMint?: string): TierState[] {
+  const coins = coinMint ? [coinMint] : quotesFor(tokenMint).map((q) => q.mint);
+  if (coins.length === 0) return [...tiers];
+  return tiers.filter((t) => !('config' in t) || coins.some((c) => offersTier(t.config.tradeFeeRate, tokenMint, c)));
+}
+
+/** Of the tiers offered to `tokenMint` (with `coinMint`, or any coin), the ones ready to take an opening. */
+export function readyTiers(facts: CreateFacts | null, tokenMint: string, coinMint?: string): ReadyTier[] {
+  return facts ? offeredTiers(facts.tiers, tokenMint, coinMint).filter((t): t is ReadyTier => t.kind === 'ready') : [];
 }
 
 /**
@@ -205,8 +220,8 @@ export function createOffer(a: {
   if (createHeld(a.notes)) return 'held';
   if (!a.facts) return 'checking';
 
-  if (readyTiers(a.facts).length === 0) {
-    switch (tierStop(a.facts.tiers)?.kind) {
+  if (readyTiers(a.facts, a.safety.mint).length === 0) {
+    switch (tierStop(offeredTiers(a.facts.tiers, a.safety.mint))?.kind) {
       case 'not-open':
         return 'tier-not-open';
       case 'not-a-tier':
@@ -309,7 +324,9 @@ export function createAdvice(a: {
   const mine = biggest(views.filter((v) => a.openedHere(v.address)));
   if (mine) return { kind: 'opened-here', pool: mine };
   const publicTiers = publicTierAddresses(a.gate.cfg.cpSwapProgram);
-  const passing = views.filter((v) => publicTiers.has(v.snapshot.pool.ammConfig) && a.healths.get(v.address)?.deposits.verdict === 'allowed');
+  // A tier this site does not offer the pair (a BAYLA pool on 0.25%) is "another fee tier" here, never a referral.
+  const offered = (v: PoolView) => v.config === null || offersTier(v.config.tradeFeeRate, v.tokenMint, v.quote.mint);
+  const passing = views.filter((v) => publicTiers.has(v.snapshot.pool.ammConfig) && offered(v) && a.healths.get(v.address)?.deposits.verdict === 'allowed');
   // A pool more than 3% off its reference is 'allowed' now, with a warning (owner ruling
   // 2026-10-04). One big pool at a wrong price must not hide a smaller one at the market:
   // the biggest pool whose price is not off is the one pointed to, and an off-price pool

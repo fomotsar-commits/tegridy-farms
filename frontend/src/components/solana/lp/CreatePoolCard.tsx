@@ -15,7 +15,7 @@ import { FinePrint } from '../../ui/FinePrint';
 import type { CreateFacts, TierState } from '../curve/ports';
 import { CreatePoolPanel } from './CreatePoolPanel';
 import { MONEY_NOTE } from './LpDisclosures';
-import { createOffer, depositOffer, depositWarned, lpHeld, openingCautions, pairFacts, poolListCut, readyTiers, tierStop, type CreateOffer, type PairFacts, type ReadyTier } from './offers';
+import { createOffer, depositOffer, depositWarned, lpHeld, offeredTiers, openingCautions, pairFacts, poolListCut, readyTiers, tierStop, type CreateOffer, type PairFacts, type ReadyTier } from './offers';
 import { coinAbout, solAbout } from './panelKit';
 import { useLpWrites, type LpWrites } from './useLpWrites';
 
@@ -198,8 +198,8 @@ function CreateCard({
 
   // Another panel's flow is running: this one cannot open over it.
   const blockedByOther = writes.busy && !open;
-  // The public tiers an opening can go on right now, in offer order; the form offers each.
-  const ready = readyTiers(facts);
+  // The public tiers an opening of this token can go on right now, in offer order; the form offers each its pair is offered.
+  const ready = readyTiers(facts, mint);
   const tiers: readonly TierState[] = facts?.tiers ?? [];
 
   return (
@@ -446,11 +446,13 @@ function OfferLines({
   /** Read the public fee tiers and the fee account again. */
   onRereadFacts: () => void;
 }) {
-  const ready = readyTiers(facts);
+  // The tiers this site offers this token (offers.ts `offeredTiers`: 0.25% for SOL against USDC only).
+  const offered = facts ? offeredTiers(facts.tiers, safety.mint) : [];
+  const ready = readyTiers(facts, safety.mint);
   // With no tier ready, the tier whose state the card explains (offers.ts `tierStop`).
-  const stop = facts ? tierStop(facts.tiers) : null;
+  const stop = facts ? tierStop(offered) : null;
   // "No other fee tier is open for new pools": said after a stop whenever there is more than one tier to speak of.
-  const others = (facts?.tiers.length ?? 0) > 1 ? ' No other fee tier is open for new pools.' : '';
+  const others = offered.length > 1 ? ' No other fee tier is open for new pools.' : '';
   switch (offer) {
     case 'offer': {
       if (ready.length === 0) return null;
@@ -484,8 +486,9 @@ function OfferLines({
           </>
         );
       }
-      // Every public tier's address, as read (each TierState carries its derived address).
-      const publicTiers = new Set((facts?.tiers ?? []).map((t) => t.address.toBase58()));
+      // Every public tier's address this token is offered, as read (each TierState carries its
+      // derived address): a BAYLA pool on the 0.25% tier is a pool on another fee tier here.
+      const publicTiers = new Set(offered.map((t) => t.address.toBase58()));
       // The pools on another fee tier that take deposits, by tier. A tier is said to have a
       // pool that "passes the checks" only when one of its pools carries no warning at all
       // (`depositWarned`: the pool card's own heading test). A tier whose pools all carry

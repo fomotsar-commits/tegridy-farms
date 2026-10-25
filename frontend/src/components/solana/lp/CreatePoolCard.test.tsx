@@ -21,7 +21,7 @@ import { isqrt } from '../../../lib/solana/lp/liquidityMath';
 import { LP_PENDING_SCOPE, readPendingTrades, savePendingTrade } from '../curve/pendingTrade';
 import { GATE_RETRY_MS } from '../curve/useWriteGate';
 import type { CreateFacts, LpWriteApi, TierState } from '../curve/ports';
-import { TIER1_ADDRESS, fakeLpApi, lpOpenGate, LP_PROGRAM, notOpenFacts, readyFacts, tier1Config, unusedGateRpc } from './fakeLpWriteApi.fixture';
+import { TIER1_ADDRESS, TIER2_ADDRESS, bothTiersFacts, fakeLpApi, lpOpenGate, LP_PROGRAM, notOpenFacts, readyFacts, tier1Config, tier2Config, unusedGateRpc } from './fakeLpWriteApi.fixture';
 import { realToken, reasonText } from './anyToken.fixture';
 
 // web3's address derivation cannot run under jsdom (a cross-realm Uint8Array check): the
@@ -51,15 +51,16 @@ const SIG = '4'.repeat(88);
  * A TOKEN/SOL pool for MINT: 10 SOL and 1,000 tokens (0.01 SOL a token) unless `sol` says
  * otherwise. `tier1` puts it on the public tier; otherwise its tier is a stranger key (index 0).
  */
-function view(o: { tier1?: boolean; openTime?: bigint; address?: PublicKey; sol?: bigint } = {}): PoolView {
+/** `tier2`: on public tier 2, its tier read at 0.25% (fakeLpWriteApi.fixture `tier2Config`). */
+function view(o: { tier1?: boolean; tier2?: boolean; openTime?: bigint; address?: PublicKey; sol?: bigint } = {}): PoolView {
   const s = o.sol ?? 10n * 10n ** 9n;
   const t = 1_000n * 10n ** 6n;
   // The shares the pool program opens these reserves with, so a launch pool nobody traded reads as one.
   const b = buildPool({ plain: true, mint: MINT, address: o.address, configIndex: 1, quoteReserve: s, tokenReserve: t, openTime: o.openTime ?? 1n, lpSupply: isqrt(s * t) });
   const raw = decodePoolState(b.address.toBase58(), b.accounts[b.address.toBase58()]!.data)!;
-  const pool = { ...raw, ammConfig: o.tier1 ? TIER1_ADDRESS.toBase58() : raw.ammConfig };
+  const pool = { ...raw, ammConfig: o.tier1 ? TIER1_ADDRESS.toBase58() : o.tier2 ? TIER2_ADDRESS.toBase58() : raw.ammConfig };
   const decoded = decodeAmmConfig(b.config.toBase58(), b.accounts[b.config.toBase58()]!.data)!;
-  const config = { ...decoded, index: o.tier1 ? 1 : 0 };
+  const config = o.tier2 ? tier2Config() : { ...decoded, index: o.tier1 ? 1 : 0 };
   const quoteIsToken0 = pool.token0Mint.startsWith('So111');
   return {
     address: b.address.toBase58(),
@@ -185,6 +186,14 @@ describe('each answer has its own line, and only `offer` has the button', () => 
     const c = await settled('offer');
     expect(c).toHaveTextContent("None of this token's pools on the public fee tier passes the checks above. You can open a new one on the public fee tier, at 1% a trade. It will be a separate pool: it does not fix or join the others.");
     expect(c).toHaveTextContent('This token also has a pool on fee tier 0 that passes the checks. A new pool will not share its liquidity or fees.');
+  });
+
+  it('a meme coin’s pool on the 0.25% tier is on a tier it is not offered: named as on fee tier 2, never pointed to (owner, 2026-10-24)', async () => {
+    mount(readers({ findPools: vi.fn(async () => search([view({ tier2: true })])) }), { createFacts: bothTiersFacts() });
+    const c = await settled('offer');
+    expect(c).toHaveTextContent('This token also has a pool on fee tier 2 that passes the checks. A new pool will not share its liquidity or fees.');
+    expect(c).toHaveTextContent('You can open a new one on the public fee tier, at 1% a trade.');
+    expect(said(c)).not.toMatch(/at 1% a trade or 0.25%/);
   });
 
   // ATK-3 (audit 2026-10-03): anyone can open enough junk pools to make the index answer

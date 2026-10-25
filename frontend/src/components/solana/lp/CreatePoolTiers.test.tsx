@@ -1,7 +1,9 @@
 // Open a pool with two public fee tiers (owner, 2026-10-18): the opener picks 1% or
 // 0.25%, each choice says in one line what LPs keep and what the venue takes, read from
 // the chain; the 0.25% tier appears only once its account is on chain, and a failed read
-// never shows it; the Rates card lists a public tier only once it exists.
+// never shows it; the Rates card lists a public tier only once it exists. The 0.25% tier is
+// offered for SOL against USDC only (owner, 2026-10-24): the tier choice is walked with USDC
+// as the token, and a meme coin (CORN) is offered 1% alone.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { act, render, screen, waitFor, within, fireEvent } from '@testing-library/react';
@@ -10,7 +12,7 @@ import { PublicKey } from '@solana/web3.js';
 import { LpInner } from './SolanaLpSection';
 import type { LpReaders } from './readers';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
-import { SOL_QUOTE } from '../../../lib/solana/lp/quotes';
+import { SOL_QUOTE, USDC_QUOTE } from '../../../lib/solana/lp/quotes';
 import type { PoolSearchRead } from '../../../lib/solana/lp/poolFinder';
 import type { WalletFacts } from '../../../lib/solana/lp/walletFacts';
 import { key } from '../../../lib/solana/lp/testkit.fixture';
@@ -42,18 +44,23 @@ vi.mock('../SolanaConnectButton', () => ({ SolanaConnectButton: () => <button ty
 
 const MINT = key();
 const M = MINT.toBase58();
+/** USDC as the token: paired with SOL, the one pair the 0.25% tier is offered. */
+const USDC = new PublicKey(USDC_QUOTE.mint);
+const U = USDC.toBase58();
 
 const okToken: TokenSafety = {
   kind: 'read', mint: M, verdict: 'ok', blocks: [], warnings: [], name: 'Corn', symbol: 'CORN', metadataSource: 'metaplex',
   facts: { program: 'spl-token', mintAuthority: null, freezeAuthority: null, supply: 1n, decimals: 6, isInitialized: true, extensions: [], metadataPointer: null, tokenMetadata: null },
 };
 
-function search(): PoolSearchRead {
+const usdcToken: TokenSafety = { ...okToken, mint: U, name: 'USD Coin', symbol: 'USDC', facts: { ...okToken.facts!, decimals: 6 } };
+
+function search(mint = M): PoolSearchRead {
   const [std1, std2] = [key().toBase58(), key().toBase58()];
   return {
     kind: 'ok',
     search: {
-      mint: M,
+      mint,
       known: {
         launchPool: key().toBase58(),
         standard: [
@@ -83,8 +90,8 @@ const walletFacts = (): WalletFacts => ({
 function readers(o: Partial<LpReaders> = {}): LpReaders {
   return {
     programId: LP_PROGRAM,
-    safety: vi.fn(async () => new Map([[M, okToken]])),
-    findPools: vi.fn(async () => search()),
+    safety: vi.fn(async () => new Map([[M, okToken], [U, usdcToken]])),
+    findPools: vi.fn(async (mint: PublicKey) => search(mint.toBase58())),
     outsidePrice: vi.fn(async () => ({ kind: 'ok' as const, solPerToken: 0.01, source: 'Jupiter' as const })),
     positions: vi.fn(async () => ({ kind: 'ok' as const, positions: [], chainNow: 1n, totalShares: 0 })),
     feeTiers: vi.fn(async () => ({ kind: 'ok' as const, openingDeposits: null, tiers: [] })),
@@ -103,6 +110,8 @@ function mount(r: LpReaders, o: { facts?: CreateFacts; api?: Partial<LpWriteApi>
   );
   return { api };
 }
+
+const USDC_PATH = `/pools?mint=${U}`;
 
 async function openPanel() {
   const card = await screen.findByTestId('lp-create');
@@ -127,9 +136,9 @@ beforeEach(() => {
 
 describe('the opener picks a fee tier', () => {
   it('both tiers on chain: the card names both rates, the form has a Fee tier choice, each choice says what LPs keep and the venue takes', async () => {
-    mount(readers());
+    mount(readers(), { path: USDC_PATH });
     const { card, panel } = await openPanel();
-    expect(card).toHaveTextContent('No pool for this token yet. You can open the first one at 1% a trade or 0.25% a trade (fee tiers read just now).');
+    expect(card).toHaveTextContent('No SOL pool for this token yet. You can open the first one at 1% a trade or 0.25% a trade (fee tiers read just now).');
     const group = within(panel).getByRole('radiogroup', { name: 'Fee tier' });
     const options = within(group).getAllByRole('radio');
     expect(options).toHaveLength(2);
@@ -143,15 +152,15 @@ describe('the opener picks a fee tier', () => {
   });
 
   it('the rates are the chain’s, never the site’s: a tier 2 read at 0.5% with a fifth to the venue says so', async () => {
-    mount(readers(), { facts: bothTiersFacts({}, { tradeFeeRate: 5_000n, protocolFeeRate: 200_000n }) });
+    mount(readers(), { path: USDC_PATH, facts: bothTiersFacts({}, { tradeFeeRate: 5_000n, protocolFeeRate: 200_000n }) });
     const { panel } = await openPanel();
     const group = within(panel).getByRole('radiogroup', { name: 'Fee tier' });
     expect(said(within(group).getAllByRole('radio')[1]!.closest('label')!)).toBe('0.5% a trade. LPs keep 0.4% of each trade, the venue 0.1%.');
   });
 
   it('picking 0.25%: the terms, the pool address and the opening sent to prepare are tier 2’s', async () => {
-    const prepareLpCreate = vi.fn(async () => ({ ok: true as const, prepared: prepared(lpCreateSummary(key(), MINT, { config: tier2Config() })) }));
-    mount(readers(), { api: { prepareLpCreate } });
+    const prepareLpCreate = vi.fn(async () => ({ ok: true as const, prepared: prepared(lpCreateSummary(key(), USDC, { config: tier2Config() })) }));
+    mount(readers(), { path: USDC_PATH, api: { prepareLpCreate } });
     const { panel } = await openPanel();
     const group = within(panel).getByRole('radiogroup', { name: 'Fee tier' });
     fireEvent.click(within(group).getAllByRole('radio')[1]!);
@@ -172,6 +181,23 @@ describe('the opener picks a fee tier', () => {
     expect(within(panel).getByText('Pool kind', { exact: true }).nextElementSibling).toHaveTextContent('Standard address for fee tier 2');
   });
 
+  it('a meme coin with both tiers on chain: offered 1% alone, no choice is drawn, and 0.25% is said nowhere on the card or the form', async () => {
+    const prepareLpCreate = vi.fn(async () => ({ ok: true as const, prepared: prepared(lpCreateSummary(key(), MINT)) }));
+    mount(readers(), { api: { prepareLpCreate } });
+    const { card, panel } = await openPanel();
+    expect(card).toHaveTextContent('No pool for this token yet. You can open the first one on the public fee tier (read just now): 1% a trade.');
+    expect(within(panel).queryByRole('radiogroup', { name: 'Fee tier' })).toBeNull();
+    expect(within(panel).queryByTestId('lp-create-tier-aside')).toBeNull();
+    expect(said(card)).not.toMatch(/0.25%|tier 2/);
+    expect(rowValue(panel, 'Pool address')).toEqual(['the standard address for fee tier 1']);
+    fireEvent.change(within(panel).getByLabelText('SOL to put in'), { target: { value: '1' } });
+    fireEvent.click(within(panel).getByTestId('lp-create-match'));
+    await act(async () => {
+      fireEvent.click(within(panel).getByRole('button', { name: 'Review: open the pool' }));
+    });
+    expect(((prepareLpCreate.mock.calls[0] as unknown[])[3] as { tier: number }).tier).toBe(1);
+  });
+
   it('tier 2 not on chain yet (mainnet today): no choice is drawn, and 0.25% is said nowhere', async () => {
     mount(readers(), { facts: readyFacts() });
     const { card, panel } = await openPanel();
@@ -186,7 +212,7 @@ describe('the opener picks a fee tier', () => {
       .fn()
       .mockResolvedValueOnce({ tiers: [readyFacts().tiers[0], { kind: 'unread', index: 2, address: TIER2_ADDRESS, detail: 'HTTP 503' }], feeAccount: { kind: 'ready' } })
       .mockResolvedValue(bothTiersFacts());
-    mount(readers(), { api: { readCreateFacts } });
+    mount(readers(), { path: USDC_PATH, api: { readCreateFacts } });
     const { card, panel } = await openPanel();
     expect(card).toHaveAttribute('data-create', 'offer');
     expect(within(panel).queryByRole('radiogroup', { name: 'Fee tier' })).toBeNull();
@@ -202,7 +228,7 @@ describe('the opener picks a fee tier', () => {
   it('tier 2 switched off beside a ready tier 1: offered on tier 1, and tier 2 is said to be off', async () => {
     const both = bothTiersFacts();
     const off: CreateFacts = { ...both, tiers: [both.tiers[0]!, { kind: 'switched-off', index: 2, address: TIER2_ADDRESS, config: tier2Config({ disableCreatePool: true }) }] };
-    mount(readers(), { facts: off });
+    mount(readers(), { path: USDC_PATH, facts: off });
     const { card, panel } = await openPanel();
     expect(card).toHaveAttribute('data-create', 'offer');
     expect(within(panel).queryByRole('radiogroup', { name: 'Fee tier' })).toBeNull();
@@ -212,7 +238,7 @@ describe('the opener picks a fee tier', () => {
   it('no tier ready: the card’s one line names the tier that decided it', async () => {
     const both = bothTiersFacts();
     const stop: CreateFacts = { ...both, tiers: [{ kind: 'not-open', index: 1, address: TIER1_ADDRESS }, { kind: 'switched-off', index: 2, address: TIER2_ADDRESS, config: tier2Config({ disableCreatePool: true }) }] };
-    mount(readers(), { facts: stop });
+    mount(readers(), { path: USDC_PATH, facts: stop });
     const card = await screen.findByTestId('lp-create');
     await waitFor(() => expect(card).toHaveAttribute('data-create', 'tier-off'));
     expect(card).toHaveTextContent("Opening new pools on fee tier 2 is switched off right now by the pool program's admin (the team's vault). No other fee tier is open for new pools.");
