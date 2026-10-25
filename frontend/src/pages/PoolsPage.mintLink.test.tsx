@@ -5,8 +5,8 @@ import type { ReactNode } from 'react';
 import type { PublicKey } from '@solana/web3.js';
 import type { LpReaders } from '../components/solana/lp/readers';
 
-// The REAL LP section on its two tabs: /solana-lp?mint=<mint> opens the pool finder on that
-// token, as /pools?mint= does; /solana-lp opens on the finder, and /pools keeps its order.
+// The REAL LP section on the Venue AMM tab: /pools?mint=<mint> opens the pool finder on that
+// token (an old /solana-lp?mint= link forwards here, App.tsx), and /pools opens on the finder.
 // Only the reads, the wallet stack and LP's mode (reads-only, so no write code) are faked.
 const readVenue = vi.fn();
 vi.mock('../lib/solana/cpswap/read', () => ({ readVenue: (...a: unknown[]) => readVenue(...a) }));
@@ -59,18 +59,12 @@ function fakeReaders() {
 // (a cold load under a busy machine outran findBy's one second).
 beforeAll(async () => {
   await import('../components/solana/lp/SolanaLpSection');
-  await import('./SolanaLpPage');
   await import('./PoolsPage');
 }, 60_000);
 
-async function mount(path: string) {
-  const { default: SolanaLpPage } = await import('./SolanaLpPage');
-  return render(<MemoryRouter initialEntries={[path]}><SolanaLpPage /></MemoryRouter>);
-}
-
-async function mountPools() {
+async function mount(path = '/pools') {
   const { default: PoolsPage } = await import('./PoolsPage');
-  return render(<MemoryRouter initialEntries={['/pools']}><PoolsPage /></MemoryRouter>);
+  return render(<MemoryRouter initialEntries={[path]}><PoolsPage /></MemoryRouter>);
 }
 
 /** Each element comes after the one before it, reading the page top to bottom. */
@@ -88,10 +82,10 @@ const LP_PARTS = ['lp-earn-line', 'lp-finder', 'lp-positions', 'fee-tiers', 'lp-
 
 beforeEach(() => { vi.clearAllMocks(); readVenue.mockResolvedValue(LIVE); });
 
-describe('the ?mint= link on /solana-lp', () => {
+describe('the ?mint= link on /pools', () => {
   it('opens the finder on that token: the field holds it and its pools are searched', async () => {
     const r = fakeReaders();
-    await mount(`/solana-lp?mint=${M}`);
+    await mount(`/pools?mint=${M}`);
     expect(await screen.findByTestId('lp-finder')).toBeInTheDocument();
     expect(screen.getByLabelText(/Token mint address/)).toHaveValue(M);
     await waitFor(() => expect(r.findPools).toHaveBeenCalled());
@@ -100,7 +94,7 @@ describe('the ?mint= link on /solana-lp', () => {
 
   it('with no ?mint=, the finder waits for a token and searches nothing', async () => {
     const r = fakeReaders();
-    await mount('/solana-lp');
+    await mount();
     expect(await screen.findByTestId('lp-finder')).toBeInTheDocument();
     expect(screen.getByLabelText(/Token mint address/)).toHaveValue('');
     expect(r.findPools).not.toHaveBeenCalled();
@@ -108,23 +102,25 @@ describe('the ?mint= link on /solana-lp', () => {
 });
 
 // The finder used to sit 1,506px down a phone, under the status card, the risk card and
-// the fee tiers, where a visitor did not find it. On this tab it comes first.
-describe('/solana-lp opens on the pool finder', () => {
-  it('live: the earn line, the finder, the positions, the rates, the routes, the full notice, the Venue AMM link, the status card, "The program"', async () => {
+// the fee tiers, where a visitor did not find it. It comes first, right under the hero.
+describe('/pools opens on the pool finder', () => {
+  it('live: the earn line, the finder, the positions, the rates, the routes, the full notice, the status card, "The program"', async () => {
     fakeReaders();
-    await mount('/solana-lp');
+    await mount();
     await screen.findByTestId('lp-finder');
     const h1 = screen.getByRole('heading', { level: 1 });
     expectTopToBottom([
       ['the heading', h1],
       ...LP_PARTS.map((id): [string, HTMLElement] => [id, screen.getByTestId(id)]),
-      ['the Venue AMM link', screen.getByRole('link', { name: /fees and status, on the Venue AMM tab/i })],
       ['the status card', screen.getByRole('region', { name: 'Venue status' })],
       ['"The program"', screen.getByRole('region', { name: 'The program' })],
     ]);
     expect(screen.getByRole('region', { name: 'Venue status' })).toHaveTextContent(/Pools are open/);
-    // Between the hero's words and the finder there is one short line and nothing else: the one line on
-    // earning (fees need no claim); no risk line (owner, 2026-10-17). e2e/tab-target-size.spec.ts holds the finder on the first screen.
+    expect(screen.queryByRole('region', { name: 'Fee sheet' })).toBeNull();
+    expect(screen.getAllByTestId('fee-tiers')).toHaveLength(1);
+    expect(document.body.textContent).not.toContain('The full notice is below your positions.');
+    // The section is the hero's next neighbour: the one line on earning (fees need no claim), then
+    // the finder; no risk line (owner, 2026-10-17). e2e/tab-target-size.spec.ts holds the finder on the first screen.
     expect(h1.parentElement!.nextElementSibling!.firstElementChild).toBe(screen.getByTestId('lp-section'));
     expect(screen.queryByTestId('lp-risk-line')).toBeNull();
     expect(screen.getByTestId('lp-section').firstElementChild).toBe(screen.getByTestId('lp-earn-line'));
@@ -135,7 +131,7 @@ describe('/solana-lp opens on the pool finder', () => {
   // The vault sentence is behind a press now, first in the notice's Risks, on the same page.
   it('the vault sentence leads the full notice, below the positions, after the rates and the routes', async () => {
     fakeReaders();
-    await mount('/solana-lp');
+    await mount();
     await screen.findByTestId('lp-finder');
     const full = screen.getByTestId('lp-disclosure');
     expect(within(full).getByText(RISK_LINE).closest('details')).not.toHaveAttribute('open');
@@ -149,39 +145,21 @@ describe('/solana-lp opens on the pool finder', () => {
     expect(screen.getAllByTestId('lp-disclosure')).toHaveLength(1);
   });
 
-  it('not live: the status card under the hero, and none of the LP section, risk line included', async () => {
+  it('not live: the status card, and none of the LP section, risk line included', async () => {
     fakeReaders();
     readVenue.mockResolvedValue({ kind: 'unreadable', detail: 'proxy timed out' });
-    await mount('/solana-lp');
+    await mount();
     const card = await screen.findByRole('region', { name: 'Venue status' });
     expect(card).toHaveTextContent(/The chain could not be read/);
-    expect(screen.getByRole('heading', { level: 1 }).parentElement!.nextElementSibling).toBe(card);
     for (const id of [...LP_PARTS, 'lp-section']) expect(screen.queryByTestId(id), id).toBeNull();
     expect(screen.queryByText(/Loading the pool finder/)).toBeNull();
   });
 });
 
-describe('/pools leads with the same actions', () => {
-  it('the earn line, the finder, the positions, the rates, the routes, the full notice, the status card, and one rates card only', async () => {
-    fakeReaders();
-    await mountPools();
-    await screen.findByTestId('lp-finder');
-    expectTopToBottom([
-      ['the heading', screen.getByRole('heading', { level: 1 })],
-      ...LP_PARTS.map((id): [string, HTMLElement] => [id, screen.getByTestId(id)]),
-      ['the status card', screen.getByRole('region', { name: 'Venue status' })],
-      ['"The program"', screen.getByRole('region', { name: 'The program' })],
-    ]);
-    expect(screen.queryByRole('region', { name: 'Fee sheet' })).toBeNull();
-    expect(screen.getAllByTestId('fee-tiers')).toHaveLength(1);
-    expect(document.body.textContent).not.toContain('The full notice is below your positions.');
-  });
-});
-
-describe('the disclosure on /solana-lp', () => {
+describe('the disclosure on /pools', () => {
   it('says to see "The program" below, and that section is below it on this page', async () => {
     fakeReaders();
-    await mount('/solana-lp');
+    await mount();
     const d = await screen.findByTestId('lp-disclosure');
     expect(d).toHaveTextContent('(see “The program” below)');
     expect(within(d).queryByRole('link')).toBeNull();

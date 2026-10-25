@@ -15,11 +15,11 @@ import { ChainPoolTable } from '../components/liquidity/ChainPoolTable';
 import { FinePrint } from '../components/ui/FinePrint';
 import { lpWriteMode, type LpWriteMode } from '../lib/launcher/solana/lpWriteFlag';
 
-/** What the Solana LP tab can do follows LP's own switch, so the pointer never promises more. */
+/** What the Venue AMM tab can do follows LP's own switch, so the pointer never promises more. */
 const SOLANA_POINTER: Record<LpWriteMode, string> = {
-  on: 'On Solana? Create, add or remove on the Solana LP tab',
-  'withdraw-only': 'On Solana? Take liquidity out on the Solana LP tab',
-  off: 'On Solana? Find a pool on the Solana LP tab',
+  on: 'On Solana? Create, add or remove on the Venue AMM tab',
+  'withdraw-only': 'On Solana? Take liquidity out on the Venue AMM tab',
+  off: 'On Solana? Find a pool on the Venue AMM tab',
 };
 
 /**
@@ -89,7 +89,7 @@ export default function LiquidityPage() {
         {/* "Pools" opens here, on the Ethereum form, under a tab named Add / Remove. A visitor
             with a Solana token stopped on this screen (owner on a phone, 2026-10-03). */}
         <p className="mb-3 text-[14px]" data-testid="solana-lp-pointer">
-          <Link to="/solana-lp" className="inline-block py-2 underline underline-offset-2 text-white hover:text-white/80">
+          <Link to="/pools" className="inline-block py-2 underline underline-offset-2 text-white hover:text-white/80">
             {SOLANA_POINTER[lpWriteMode()]}
           </Link>
         </p>

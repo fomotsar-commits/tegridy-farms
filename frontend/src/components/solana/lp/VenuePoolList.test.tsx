@@ -66,7 +66,7 @@ function readers(o: Partial<LpReaders> = {}): LpReaders {
 }
 
 function mount(r: LpReaders) {
-  return render(<MemoryRouter initialEntries={['/solana-lp']}><LpInner readers={r} writes={{ mode: 'off' }} /></MemoryRouter>);
+  return render(<MemoryRouter initialEntries={['/pools']}><LpInner readers={r} writes={{ mode: 'off' }} /></MemoryRouter>);
 }
 
 beforeEach(() => { wallet.publicKey = null; });
