@@ -19,6 +19,7 @@
 
 import { readCredentialTxs, readTip, readTx, readTxDepth, readUtxoSpent } from './chain';
 import { isAda, MINSWAP_V2, sameAsset, type CardanoAsset } from './minswapV2';
+import { TTL_SLOTS } from './swapTx';
 
 export interface PendingOrder {
   txHash: string;
@@ -45,6 +46,16 @@ export interface PendingOrder {
    * Amounts as decimal strings, like amountIn.
    */
   settled?: SettledNote;
+  /** The trader's own cancel of this order, once signed (cancelFlow.ts). */
+  cancel?: CancelNote;
+}
+
+export interface CancelNote {
+  txHash: string;
+  /** Unix ms, from this browser's clock. */
+  sentAt: number;
+  /** The cancel's expiry slot. */
+  ttlSlot: number;
 }
 
 /**
@@ -81,17 +92,26 @@ const POLL_SLOW_MS = 60_000;
 const POLL_SLOW_AFTER_MS = 10 * 60_000;
 
 /**
- * How long until the page reads its open orders again: 10 s while any open order is under 10
- * minutes old, else a minute. A fill normally lands within a minute; a page left open on a
- * stuck order would otherwise spend the visitor's daily read limit (api/cardano.js) and stop
- * their quotes with it.
+ * How long until the page reads its open orders again: 10 s while any open order was placed, or
+ * cancelled, under 10 minutes ago, else a minute. A fill or a cancel normally lands within a
+ * minute; a page left open on a stuck order would otherwise spend the visitor's daily read
+ * limit (api/cardano.js) and stop their quotes with it.
  */
-export function pollDelayMs(orders: readonly Pick<PendingOrder, 'txHash' | 'placedAt'>[], isFinal: (txHash: string) => boolean, now: number): number {
-  return orders.some((o) => !isFinal(o.txHash) && now - o.placedAt < POLL_SLOW_AFTER_MS) ? POLL_MS : POLL_SLOW_MS;
+export function pollDelayMs(orders: readonly Pick<PendingOrder, 'txHash' | 'placedAt' | 'cancel'>[], isFinal: (txHash: string) => boolean, now: number): number {
+  return orders.some((o) => !isFinal(o.txHash) && now - Math.max(o.placedAt, o.cancel?.sentAt ?? 0) < POLL_SLOW_AFTER_MS) ? POLL_MS : POLL_SLOW_MS;
 }
 
 /** 20 minutes of slots past the expiry before a never-seen transaction is called expired. */
 export const EXPIRY_MARGIN_SLOTS = 1200;
+
+/**
+ * Whether a cancel sent from here may still land: until its 15-minute expiry and the margin
+ * have passed (one slot is one second). Until then the order shows "cancel sent", not a second
+ * Cancel; after, the button comes back. Two cancels of one order can never both land.
+ */
+export function cancelInFlight(order: Pick<PendingOrder, 'cancel'>, now: number): boolean {
+  return order.cancel !== undefined && now - order.cancel.sentAt < (TTL_SLOTS + EXPIRY_MARGIN_SLOTS) * 1000;
+}
 
 function outputsTo(tx: { outputs: { addressHex: string; lovelace: bigint; assets: { policyId: string; assetName: string; quantity: bigint }[] }[] }, hex: string) {
   return tx.outputs.filter((o) => o.addressHex === hex);
@@ -204,17 +224,34 @@ function isNote(x: unknown): x is PendingOrder {
   );
 }
 
+function isCancelNote(c: unknown): c is CancelNote {
+  if (typeof c !== 'object' || c === null) return false;
+  const o = c as Record<string, unknown>;
+  return typeof o.txHash === 'string' && TX_HASH.test(o.txHash) && Number.isFinite(o.sentAt) && Number.isInteger(o.ttlSlot);
+}
+
 export function readOrderNotes(now: number = Date.now()): PendingOrder[] {
   try {
     const raw = JSON.parse(localStorage.getItem(NOTES_KEY) ?? '[]') as unknown;
     if (!Array.isArray(raw)) return [];
-    // A malformed `settled` is dropped, never the note: the order is then read again.
+    // A malformed `settled` or `cancel` is dropped, never the note: the order is then read again.
     return raw
       .filter(isNote)
       .filter((n) => now - n.placedAt < NOTE_LIFETIME_MS)
-      .map((n) => (n.settled === undefined || isSettled(n.settled) ? n : { ...n, settled: undefined }));
+      .map((n) => (n.settled === undefined || isSettled(n.settled) ? n : { ...n, settled: undefined }))
+      .map((n) => (n.cancel === undefined || isCancelNote(n.cancel) ? n : { ...n, cancel: undefined }));
   } catch {
     return [];
+  }
+}
+
+/** The trader signed a cancel of this order: noted before it leaves, so a reload knows it is on its way. */
+export function markOrderCancelSent(txHash: string, cancel: CancelNote): void {
+  try {
+    const notes = readOrderNotes();
+    localStorage.setItem(NOTES_KEY, JSON.stringify(notes.map((n) => (n.txHash === txHash ? { ...n, cancel } : n))));
+  } catch {
+    /* storage blocked: the page holds the cancel in memory */
   }
 }
 

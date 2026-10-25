@@ -12,10 +12,22 @@ import { loadCsl, type Csl } from '../lib/cardano/csl';
 import { ADA, feePercentText, isAda, type CardanoAsset } from '../lib/cardano/minswapV2';
 import { readTokenInfo, type Read, type TokenInfo } from '../lib/cardano/chain';
 import { prepareSwap, quoteNow, signAndSend, type Prepared } from '../lib/cardano/swapFlow';
+import { prepareCancel, signAndSendCancel, type PreparedCancel } from '../lib/cardano/cancelFlow';
 import type { SwapQuote } from '../lib/cardano/quote';
 import { venueFeeAddress, venueFeeText } from '../lib/cardano/venueFee';
 import { cardanoscanToken, cardanoscanTx, formatAda, formatAmount, LOVELACE_DECIMALS, parseAmount, parseTokenId } from '../lib/cardano/format';
-import { dropOrderNote, markOrderSettled, pollDelayMs, readOrderNotes, readOrderStatus, settledStatus, type CoinLabel, type OrderStatus, type PendingOrder } from '../lib/cardano/orderWatch';
+import {
+  cancelInFlight,
+  dropOrderNote,
+  markOrderSettled,
+  pollDelayMs,
+  readOrderNotes,
+  readOrderStatus,
+  settledStatus,
+  type CoinLabel,
+  type OrderStatus,
+  type PendingOrder,
+} from '../lib/cardano/orderWatch';
 import { restoreCardanoWallet, subscribeCardanoWalletList, takeCardanoWalletListRequest, useCardanoWallet } from '../lib/cardano/walletStore';
 import { shortCardanoAddress } from '../lib/cardano/address';
 
@@ -52,6 +64,15 @@ type Flow =
   | { kind: 'signing'; labels: ReviewLabels }
   | { kind: 'done'; message: string; tone: 'ok' | 'warn' };
 
+/** One order's cancel, from the press of Cancel to the wallet's answer. One at a time. */
+type CancelFlow = { orderTx: string } & (
+  | { kind: 'preparing' }
+  | { kind: 'review'; prepared: Extract<PreparedCancel, { kind: 'review' }> }
+  | { kind: 'signing' }
+  | { kind: 'stopped'; message: string; problems?: string[] }
+  | { kind: 'done'; message: string }
+);
+
 const SLIPPAGES = [50, 100, 300] as const;
 /** "Expired" is believed only when this many polls in a row say so (orderWatch.ts EXPIRY_MARGIN_SLOTS). */
 const EXPIRED_POLLS = 2;
@@ -86,8 +107,10 @@ function Line({ label, value, note }: { label: string; value: string; note?: str
   );
 }
 
-function statusText(s: OrderStatus | undefined, order: PendingOrder, expiredPolls: number): { text: string; final: boolean } {
+function statusText(s: OrderStatus | undefined, order: PendingOrder, expiredPolls: number, now: number): { text: string; final: boolean } {
   if (!s) return { text: 'Reading…', final: false };
+  if (s.kind === 'placed' && cancelInFlight(order, now)) return { text: 'Cancel sent. Your coins come back to your wallet when it lands.', final: false };
+  if (s.kind === 'returned' && order.cancel?.txHash === s.fillTx) return { text: 'Returned: you cancelled it, and all of it came back to your wallet, less the network fee.', final: true };
   switch (s.kind) {
     case 'not-seen':
       return { text: order.submitted ? 'Sent. The chain has not shown it yet.' : 'Not seen on the chain yet; it may not have been sent.', final: false };
@@ -134,6 +157,7 @@ function CardanoSwapInner({ csl, cslError, retryCsl }: { csl: Csl | null; cslErr
   const [sessionOrders, setSessionOrders] = useState<PendingOrder[]>([]);
   const [statuses, setStatuses] = useState<Record<string, OrderStatus>>({});
   const [expiredPolls, setExpiredPolls] = useState<Record<string, number>>({});
+  const [cancelFlow, setCancelFlow] = useState<CancelFlow | null>(null);
 
   useEffect(() => {
     void restoreCardanoWallet();
@@ -192,6 +216,10 @@ function CardanoSwapInner({ csl, cslError, retryCsl }: { csl: Csl | null; cslErr
   useEffect(() => {
     formKeyRef.current = formKey;
   }, [formKey]);
+  const traderHexRef = useRef(traderHex);
+  useEffect(() => {
+    traderHexRef.current = traderHex;
+  }, [traderHex]);
 
   // This wallet's orders, followed until each one ends.
   const orders = useMemo<PendingOrder[]>(() => {
@@ -282,6 +310,36 @@ function CardanoSwapInner({ csl, cslError, retryCsl }: { csl: Csl | null; cslErr
     else if (r.kind === 'declined') setFlow({ kind: 'done', tone: 'warn', message: 'You declined in the wallet. Nothing was sent.' });
     else setFlow({ kind: 'done', tone: 'warn', message: r.message });
   }, [csl, wallet, flow]);
+
+  const onCancel = useCallback(
+    async (o: PendingOrder) => {
+      if (!csl || wallet.status !== 'connected') return;
+      const pressedFor = wallet.address.hex;
+      setCancelFlow({ orderTx: o.txHash, kind: 'preparing' });
+      const p = await prepareCancel(csl, wallet.api, wallet.address, o);
+      // The wallet changed while this was built: it answers for an account no longer connected.
+      if (traderHexRef.current !== pressedFor) {
+        setCancelFlow(null);
+        return;
+      }
+      setCancelFlow(p.kind === 'review' ? { orderTx: o.txHash, kind: 'review', prepared: p } : { orderTx: o.txHash, kind: 'stopped', message: p.message, problems: p.problems });
+    },
+    [csl, wallet],
+  );
+
+  const onSignCancel = useCallback(async () => {
+    if (!csl || wallet.status !== 'connected' || cancelFlow?.kind !== 'review') return;
+    const { orderTx, prepared } = cancelFlow;
+    setCancelFlow({ orderTx, kind: 'signing' });
+    const r = await signAndSendCancel(csl, wallet.api, orderTx, prepared);
+    // A new session list re-reads the notes as well (the orders memo), so the cancel just noted shows at once.
+    if (r.kind === 'sent' || r.kind === 'unsure') setSessionOrders((prev) => prev.map((x) => (x.txHash === orderTx ? { ...x, cancel: r.cancel } : x)));
+    // Sent: the order's own line says so from its note (statusText), here and after a reload.
+    if (r.kind === 'sent') setCancelFlow(null);
+    else if (r.kind === 'unsure') setCancelFlow({ orderTx, kind: 'done', message: r.message });
+    else if (r.kind === 'declined') setCancelFlow({ orderTx, kind: 'done', message: 'You declined in the wallet. Nothing was sent; the order is still open.' });
+    else setCancelFlow({ orderTx, kind: 'done', message: r.message });
+  }, [csl, wallet, cancelFlow]);
 
   const outLabel = side === 'buy' ? tokenLabel : ADA_LABEL;
   // While a review is built or signed, the form holds still: what is signed is what was asked.
@@ -487,7 +545,7 @@ function CardanoSwapInner({ csl, cslError, retryCsl }: { csl: Csl | null; cslErr
 
           <FinePrint summary="How a Cardano swap works">
             <p>
-              Your transaction does not trade. It places an order at Minswap V2’s order contract, saying which pool, how much, the least you accept, and that only you are paid. Minswap’s batcher fills it a few blocks later. The contract lets it fill only if you get at least your minimum; if the price has moved past it, the order lets the batcher send your coins back instead, keeping its fee of up to 2 ADA. Until then the order stays yours: only your wallet can cancel it.
+              Your transaction does not trade. It places an order at Minswap V2’s order contract, saying which pool, how much, the least you accept, and that only you are paid. Minswap’s batcher fills it a few blocks later. The contract lets it fill only if you get at least your minimum; if the price has moved past it, the order lets the batcher send your coins back instead, keeping its fee of up to 2 ADA. Until then the order stays yours, and only your wallet can cancel it: Cancel order, under Your orders, brings back all of it less the network fee.
             </p>
             {VENUE_FEE_ON && <p>The venue fee is paid with the order, not with the fill, so an order that comes back has still paid it.</p>}
             <p>
@@ -511,8 +569,14 @@ function CardanoSwapInner({ csl, cslError, retryCsl }: { csl: Csl | null; cslErr
           <div className="relative z-10 space-y-3">
             <h2 className="text-white text-[14px] font-semibold">Your orders</h2>
             {orders.map((o) => {
-              const s = statusText(statuses[o.txHash], o, expiredPolls[o.txHash] ?? 0);
+              const now = Date.now();
+              const read = statuses[o.txHash];
+              const s = statusText(read, o, expiredPolls[o.txHash] ?? 0, now);
               const coin = isAda(o.assetIn) ? o.assetOut : o.assetIn;
+              const cancel = cancelFlow?.orderTx === o.txHash ? cancelFlow : null;
+              const cancelBusy = cancelFlow !== null && (cancelFlow.kind === 'preparing' || cancelFlow.kind === 'review' || cancelFlow.kind === 'signing');
+              // Only on an order the chain reads as open, with no cancel of it on its way.
+              const canCancel = wallet.status === 'connected' && csl !== null && read?.kind === 'placed' && !cancelInFlight(o, now) && !(cancel && cancelBusy);
               return (
                 <div key={o.txHash} className="text-[12px] text-white/85 space-y-1" data-testid="cardano-order">
                   <p className="text-white">
@@ -522,6 +586,42 @@ function CardanoSwapInner({ csl, cslError, retryCsl }: { csl: Csl | null; cslErr
                     {(isAda(o.assetIn) ? o.outLabel : o.inLabel).ticker ?? 'Coin'}: {coin.policyId}.{coin.assetName || '(no name)'}
                   </p>
                   <p>{s.text}</p>
+                  {canCancel && (
+                    <div className="space-y-1">
+                      <button
+                        type="button"
+                        disabled={cancelBusy}
+                        onClick={() => void onCancel(o)}
+                        className="min-h-[44px] px-3 rounded-lg text-white text-[12px] font-medium disabled:opacity-50"
+                        style={{ background: 'rgba(0,0,0,0.45)', border: '1px solid rgba(255,255,255,0.18)' }}
+                      >
+                        Cancel order
+                      </button>
+                      <p className="text-[11px] text-white/60">All of it comes back to your wallet, less the network fee. A cancel pays no batcher fee.</p>
+                    </div>
+                  )}
+                  {cancel?.kind === 'preparing' && <p role="status">Building and checking the cancel…</p>}
+                  {cancel?.kind === 'review' && (
+                    <CancelReview order={o} prepared={cancel.prepared} onSign={() => void onSignCancel()} onBack={() => setCancelFlow(null)} />
+                  )}
+                  {cancel?.kind === 'signing' && <p role="status">Waiting for your wallet…</p>}
+                  {cancel?.kind === 'stopped' && (
+                    <div role="alert" className="text-danger space-y-1">
+                      <p>{cancel.message}</p>
+                      {cancel.problems && (
+                        <ul className="list-disc pl-5">
+                          {cancel.problems.map((p) => (
+                            <li key={p}>{p}</li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  )}
+                  {cancel?.kind === 'done' && !s.final && (
+                    <p role="status" className="text-white/85">
+                      {cancel.message}
+                    </p>
+                  )}
                   <div className="flex flex-wrap gap-x-4">
                     <a href={cardanoscanTx(o.txHash)} target="_blank" rel="noopener noreferrer nofollow" className="min-h-[44px] inline-flex items-center underline">
                       Order on Cardanoscan <span aria-hidden="true">↗</span>
@@ -606,6 +706,56 @@ function ReviewCard({
         </button>
         <button type="button" onClick={onSign} className="flex-[2] min-h-[48px] rounded-xl text-white text-[14px] font-semibold" style={PRIMARY}>
           Sign in wallet
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function CancelReview({
+  order,
+  prepared,
+  onSign,
+  onBack,
+}: {
+  order: PendingOrder;
+  prepared: Extract<PreparedCancel, { kind: 'review' }>;
+  onSign: () => void;
+  onBack: () => void;
+}) {
+  const c = prepared.checked;
+  const coin = isAda(order.assetIn) ? order.assetOut : order.assetIn;
+  const coinLabel = isAda(order.assetIn) ? order.outLabel : order.inLabel;
+  // An order this page placed holds at most its one coin; anything else is named by its whole id.
+  const tokens = c.backTokens.map((t) =>
+    t.policyId === coin.policyId && t.assetName === coin.assetName ? amountText(t.quantity, coinLabel) : `${t.quantity} units of ${t.policyId}.${t.assetName || '(no name)'}`,
+  );
+  return (
+    <div className="rounded-xl p-3 space-y-2" style={FIELD} data-testid="cardano-cancel-review">
+      <p className="text-white text-[13px] font-semibold">Check, then sign the cancel</p>
+      <p className="font-mono text-[10px] text-white/60 break-all">
+        {coinLabel.ticker ?? 'Coin'}: {coin.policyId}.{coin.assetName || '(no name)'}
+      </p>
+      <Line label="You get back" value={[...tokens, formatAda(c.backLovelace)].join(' and ')} note="everything the order holds, less the network fee" />
+      <Line label="Network fee" value={formatAda(c.networkFee)} note={NETWORK_FEE_NOTE} />
+      <Line label="Batcher fee" value="None" note="a cancel does not go through Minswap’s batcher" />
+      <Line label="Paid to" value="your own address" note="staking key included:" />
+      <p className="font-mono text-[10px] text-white/60 break-all" data-testid="cardano-cancel-paid-to">
+        {prepared.plan.trader.bech32}
+      </p>
+      <p className="text-[11px] text-white/60">Checked: it spends only this order, with Minswap’s own cancel, and pays only you.</p>
+      <FinePrint summary="Collateral">
+        <p>
+          Cardano holds one coin of your wallet as collateral while the order contract runs. It is taken only if the contract fails on chain, and then only{' '}
+          {formatAda(c.collateralAtRisk)} of it; the rest always comes back.
+        </p>
+      </FinePrint>
+      <div className="flex gap-2">
+        <button type="button" onClick={onBack} className="flex-1 min-h-[48px] rounded-xl text-white text-[13px]" style={{ background: 'rgba(0,0,0,0.45)', border: '1px solid rgba(255,255,255,0.18)' }}>
+          Keep the order
+        </button>
+        <button type="button" onClick={onSign} className="flex-[2] min-h-[48px] rounded-xl text-white text-[14px] font-semibold" style={PRIMARY}>
+          Sign the cancel
         </button>
       </div>
     </div>

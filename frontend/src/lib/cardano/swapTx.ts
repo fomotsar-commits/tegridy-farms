@@ -11,7 +11,15 @@
 // collateral, no required signer, no script, no metadata. A Cardano transaction can move a
 // trader's stake or rewards as well as coins, so each of those is refused by name.
 
-import type { FixedTransaction, Transaction, TransactionOutput, TransactionWitnessSet, Value } from '@emurgo/cardano-serialization-lib-browser';
+import type {
+  ExUnitPrices,
+  FixedTransaction,
+  Transaction,
+  TransactionBuilderConfig,
+  TransactionOutput,
+  TransactionWitnessSet,
+  Value,
+} from '@emurgo/cardano-serialization-lib-browser';
 import type { Csl } from './csl';
 import type { ProtocolParams } from './chain';
 import { bytesToHex, hexToBytes, type ParsedAddress } from './address';
@@ -120,17 +128,23 @@ const EXTRA_INPUT_TRIES = 6;
  * becomes change; if none helps, the cheapest build is kept, and the review says how much of
  * its network fee is that leftover (checkSwapTx `networkFeeExcess`).
  */
-export function buildSwapTx(csl: Csl, params: ProtocolParams, utxos: WalletUtxo[], plan: SwapPlan): BuiltSwap {
-  const datumHex = encodeSwapOrderDatum(csl, plan);
-  const config = csl.TransactionBuilderConfigBuilder.new()
+/** CSL's builder, priced by the chain's parameters; `exUnitPrices` for a transaction that runs a script. */
+export function txBuilderConfig(csl: Csl, params: ProtocolParams, exUnitPrices?: ExUnitPrices): TransactionBuilderConfig {
+  let b = csl.TransactionBuilderConfigBuilder.new()
     .fee_algo(csl.LinearFee.new(bn(csl, params.txFeePerByte), bn(csl, params.txFeeFixed)))
     .coins_per_utxo_byte(bn(csl, params.utxoCostPerByte))
     .pool_deposit(bn(csl, params.stakePoolDeposit))
     .key_deposit(bn(csl, params.stakeAddressDeposit))
     .max_value_size(params.maxValueSize)
     .max_tx_size(params.maxTxSize)
-    .ref_script_coins_per_byte(csl.UnitInterval.new(bn(csl, params.minFeeRefScriptCostPerByte), bn(csl, 1)))
-    .build();
+    .ref_script_coins_per_byte(csl.UnitInterval.new(bn(csl, params.minFeeRefScriptCostPerByte), bn(csl, 1)));
+  if (exUnitPrices) b = b.ex_unit_prices(exUnitPrices);
+  return b.build();
+}
+
+export function buildSwapTx(csl: Csl, params: ProtocolParams, utxos: WalletUtxo[], plan: SwapPlan): BuiltSwap {
+  const datumHex = encodeSwapOrderDatum(csl, plan);
+  const config = txBuilderConfig(csl, params);
 
   const lock = orderValue(plan);
   const orderOutput = () => {
@@ -199,13 +213,13 @@ export interface CheckedSwap {
 }
 
 /** A vkey witness in the signed transaction: [vkey (2+32 bytes), signature (2+64 bytes)] plus its array header. */
-const VKEY_WITNESS_BYTES = 101;
+export const VKEY_WITNESS_BYTES = 101;
 /** The signed witness set's map and list headers, over the unsigned one's empty map. */
-const WITNESS_SET_OVERHEAD = 3;
+export const WITNESS_SET_OVERHEAD = 3;
 
 export type SwapCheck = { ok: true; swap: CheckedSwap } | { ok: false; problems: string[] };
 
-function tokenEntries(v: CslValue): { policyId: string; assetName: string; quantity: bigint }[] {
+export function tokenEntries(v: CslValue): { policyId: string; assetName: string; quantity: bigint }[] {
   const out: { policyId: string; assetName: string; quantity: bigint }[] = [];
   const ma = v.multiasset();
   if (!ma) return out;

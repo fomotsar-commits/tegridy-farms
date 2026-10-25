@@ -45,6 +45,12 @@ The venue fee is not charged when it would be under about 1 ADA (a Cardano outpu
 much), so swaps under about 200 ADA pay none. It is paid with the order: an order the batcher
 returns (price moved past the minimum) has still paid it.
 
+**Cancel (draft PR, 2026-10-24):** an order the batcher has not filled has Cancel order under
+Your orders. It is Minswap's own owner cancel (`CancelOrderByOwner`, the order script read from
+Minswap's published reference UTxO), checked out of its own bytes like the swap
+(`frontend/src/lib/cardano/cancelTx.ts`). Everything the order holds comes back less a network
+fee of about 0.24 ADA; no batcher fee. ⬜ A real cancel walked on mainnet by the owner, before merge.
+
 **How it opened (2026-10-24):**
 1. ⬜ The venue's Cardano fee address in `frontend/src/lib/cardano/venueFee.ts`
    (`CARDANO_VENUE_FEE_ADDRESS`) is still null: the owner opened the swap without it ("Go live

@@ -46,6 +46,13 @@ export const MINSWAP_V2 = {
   /** utils.ak bounds on a pool's trading fee, in FEE_DENOMINATOR parts: 0.05% to 20%. */
   minTradingFee: 5n,
   maxTradingFee: 2000n,
+  /**
+   * deployed/mainnet/references.json `orderTxId`: Minswap's UTxO holding the order script as a
+   * reference script, at an address no key can spend. A cancel reads the script from here.
+   */
+  orderScriptRef: { txHash: 'cf4ecddde0d81f9ce8fcc881a85eb1f8ccdaf6807f03fea4cd02da896a621776', index: 0 },
+  /** That script's size in bytes, which the cancel's network fee is priced by (references.json, and on chain). */
+  orderScriptSize: 2659,
 } as const;
 
 export interface CardanoAsset {
@@ -306,7 +313,7 @@ function int(csl: Csl, n: bigint): PlutusData {
  * - killable: TRUE. If the pool has moved past the minimum by the time the batcher reaches the
  *   order, the batcher must return the order (less the batcher fee) instead of leaving it open.
  *   Minswap's own front end writes false and leaves such orders open until cancelled; this
- *   rail has no cancel screen yet, so it never leaves one open.
+ *   rail never leaves one open on a moved price (an order the batcher skips is cancelTx.ts's).
  * - no expiry setting (None), as Minswap's own front end writes.
  */
 export function encodeSwapOrderDatum(csl: Csl, t: SwapOrderTerms): string {
@@ -333,6 +340,62 @@ export function encodeSwapOrderDatum(csl: Csl, t: SwapOrderTerms): string {
     constr(csl, 1, []), // expiry_setting_opt: None
   ]);
   return datum.to_hex();
+}
+
+/**
+ * The spend that hands an order back to its owner. types.ak OrderRedeemer is ApplyOrder,
+ * CancelOrderByOwner, CancelExpiredOrderByAnyone, so this is Constr 1 [] (d87a80), as in every
+ * owner cancel read on mainnet. order_validator.ak passes it when the datum's canceller
+ * authorises the transaction (utils.ak authorize_order_license): OAMSignature(h) when h signs.
+ */
+export function cancelRedeemer(csl: Csl): PlutusData {
+  return constr(csl, 1, []);
+}
+
+function credentialOf(d: PlutusData | undefined): Credential | null {
+  if (!d) return null;
+  for (const [alternative, kind] of [[0, 'key'], [1, 'script']] as const) {
+    const f = constrOf(d, alternative, 1);
+    const hash = f ? bytesOf(f[0]) : null;
+    if (hash !== null) return /^[0-9a-f]{56}$/.test(hash) ? { kind, hash } : null;
+  }
+  return null;
+}
+
+/** An Address as Plutus data (addressData's reverse); null for a pointer stake part or anything malformed. */
+function addressOf(d: PlutusData | undefined): { payment: Credential; stake: Credential | null } | null {
+  const f = d ? constrOf(d, 0, 2) : null;
+  const payment = credentialOf(f?.[0]);
+  if (!f || !payment) return null;
+  if (constrOf(f[1]!, 1, 0)) return { payment, stake: null };
+  const some = constrOf(f[1]!, 0, 1);
+  const inline = some ? constrOf(some[0]!, 0, 1) : null;
+  const stake = credentialOf(inline?.[0]);
+  return stake ? { payment, stake } : null;
+}
+
+export interface OrderOwner {
+  /** OAMSignature's key hash; null when another method (a script) may cancel. */
+  cancellerKeyHash: string | null;
+  refundTo: { payment: Credential; stake: Credential | null };
+  /** Whether the refund is paid with a datum of its own (anything but EODNoDatum). */
+  refundHasDatum: boolean;
+}
+
+/** Who may cancel the order and whom its refund pays, read off its datum; null when it is not an order datum. */
+export function readOrderOwner(csl: Csl, datumHex: string): OrderOwner | null {
+  let datum: PlutusData;
+  try {
+    datum = csl.PlutusData.from_hex(datumHex);
+  } catch {
+    return null;
+  }
+  const f = constrOf(datum, 0, 9);
+  const refundTo = f ? addressOf(f[1]) : null;
+  if (!f || !refundTo) return null;
+  const sig = constrOf(f[0]!, 0, 1);
+  const key = sig ? bytesOf(sig[0]) : null;
+  return { cancellerKeyHash: key !== null && /^[0-9a-f]{56}$/.test(key) ? key : null, refundTo, refundHasDatum: constrOf(f[2]!, 0, 0) === null };
 }
 
 /** What the order locks: the swap, the batcher fee, and the deposit that comes back. */
