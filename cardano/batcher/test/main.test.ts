@@ -2,11 +2,12 @@
 // the batcher's address its own key's), and no secret reaches a log line or an error.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import CSL from '@emurgo/cardano-serialization-lib-nodejs';
-import { logger, readEnv, readSettings, type Settings } from '../src/main.ts';
+import { HEARTBEAT, logger, makeKeyIfAsked, readEnv, readSettings, type Settings } from '../src/main.ts';
 
 const KEY = '55'.repeat(28);
 const enterprise = (network: number, key: string) => CSL.EnterpriseAddress.new(network, CSL.Credential.from_keyhash(CSL.Ed25519KeyHash.from_hex(key))).to_address().to_bech32(undefined);
@@ -111,4 +112,65 @@ test('a malformed endpoint is refused by name, never by repeating it (it holds t
   assert.throws(() => readEnv({ OGMIOS_WS: 'https://not-a-socket.invalid' }), /OGMIOS_WS must start with wss: or ws:/);
   assert.throws(() => readEnv({ KOIOS_URL: 'http://koios.invalid' }), /KOIOS_URL must start with https:/);
   assert.deepEqual(readEnv({ KOIOS_URL: 'https://api.koios.rest/api/v1' }), { ogmios: undefined, ws: undefined, kupo: undefined, koios: 'https://api.koios.rest/api/v1' });
+});
+
+// ---- The process, as Railway runs it ----
+
+const MAIN = new URL('../src/main.ts', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
+function boot(env: Record<string, string>, args: string[] = []) {
+  const keep = Object.fromEntries(Object.entries(process.env).filter(([k]) => ['PATH', 'Path', 'SYSTEMROOT', 'SystemRoot', 'USERNAME', 'TEMP', 'TMP'].includes(k)));
+  const r = spawnSync(process.execPath, [MAIN, ...args], { env: { ...keep, ...env } as NodeJS.ProcessEnv, encoding: 'utf8', timeout: 60_000 });
+  const lines = r.stdout.trim().split('\n').filter(Boolean).map((l) => JSON.parse(l) as Record<string, unknown>);
+  return { code: r.status, lines, stdout: r.stdout, stderr: r.stderr };
+}
+
+test('first boot with BATCHER_MAKE_KEY=1 makes the key, shows only its hash and address, and exits 0; it never makes a second', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'batcher-boot-'));
+  try {
+    const key = join(dir, 'batcher.skey');
+    const first = boot({ BATCHER_MAKE_KEY: '1', BATCHER_KEY_FILE: key });
+    assert.equal(first.code, 0, first.stdout + first.stderr);
+    const made = first.lines.find((l) => l.kind === 'key-made')!;
+    assert.match(String(made.keyHash), /^[0-9a-f]{56}$/);
+    assert.equal(made.address, enterprise(1, String(made.keyHash)));
+    const secret = (JSON.parse(readFileSync(key, 'utf8')) as { cborHex: string }).cborHex.slice(4);
+    assert.ok(!first.stdout.includes(secret) && !first.stderr.includes(secret), 'the key itself was printed');
+    // The next boot finds it: no new key, and on to the settings.
+    const second = boot({ BATCHER_MAKE_KEY: '1', BATCHER_KEY_FILE: key });
+    assert.equal(second.code, 1);
+    assert.ok(!second.lines.some((l) => l.kind === 'key-made'));
+    assert.match(String(second.lines.find((l) => l.kind === 'fatal')?.error), /no settings/);
+    assert.equal((JSON.parse(readFileSync(key, 'utf8')) as { cborHex: string }).cborHex.slice(4), secret, 'the key was replaced');
+    // Settings from BATCHER_SETTINGS that name another key: refused, naming both (hashes are public).
+    const other = boot({ BATCHER_KEY_FILE: key, BATCHER_SETTINGS: JSON.stringify(GOOD) });
+    assert.equal(other.code, 1);
+    assert.equal(other.lines.find((l) => l.kind === 'fatal')?.error, `the key at BATCHER_KEY_FILE is ${made.keyHash}; the settings name ${KEY}`);
+    // Settings naming this key, and no source: past the key, stopped at "no source".
+    const mine = boot({ BATCHER_KEY_FILE: key, BATCHER_SETTINGS: JSON.stringify({ ...GOOD, batcherKeyHash: made.keyHash, batcherAddress: made.address }) });
+    assert.equal(mine.code, 1);
+    assert.match(String(mine.lines.find((l) => l.kind === 'fatal')?.error), /^no source/);
+    assert.equal(mine.lines[0]!.kind, 'boot');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('makeKeyIfAsked: only when asked, only where told, never over a key', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'batcher-key-'));
+  try {
+    const key = join(dir, 'k.skey');
+    assert.equal(makeKeyIfAsked({ BATCHER_KEY_FILE: key }), null);
+    assert.ok(!existsSync(key));
+    assert.throws(() => makeKeyIfAsked({ BATCHER_MAKE_KEY: '1' }), /needs BATCHER_KEY_FILE/);
+    const made = makeKeyIfAsked({ BATCHER_MAKE_KEY: '1', BATCHER_KEY_FILE: key })!;
+    assert.match(made.keyHash, /^[0-9a-f]{56}$/);
+    assert.equal(makeKeyIfAsked({ BATCHER_MAKE_KEY: '1', BATCHER_KEY_FILE: key }), null);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('the heartbeat’s rhythm fits the check it pings: a ping every 5 minutes, 10 quiet minutes a fail, one alert email an hour', () => {
+  assert.deepEqual(HEARTBEAT, { everyMs: 300_000, quietMs: 600_000, alertGapMs: 3_600_000 });
+  assert.ok(HEARTBEAT.quietMs > HEARTBEAT.everyMs);
 });

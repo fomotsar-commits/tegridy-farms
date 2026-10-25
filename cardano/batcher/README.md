@@ -19,7 +19,8 @@ fake chain). So this is new code, and it is in the audit's scope.
 | `src/kupo.ts`, `src/koios.ts`, `src/view.ts`: UTxOs from Kupo (primary) or Koios (backup), rebuilt into the exact outputs the chain holds | done; every real Minswap UTxO recorded rebuilt to the byte against the transaction that made it, amounts past 2^53 included |
 | `src/follow.ts`: chain-sync, a round per block | done; follows mainnet live |
 | `src/select.ts`, `src/watcher.ts`, `src/main.ts`: what to batch next, and the loop (failover, in-flight inputs, halving, set-aside, refusals, float cap, dry run) | done |
-| Railway service, heartbeat alert | next |
+| `Dockerfile`, `docker-entrypoint.sh`, `railway.json`, `src/heartbeat.ts`: the Railway service (its key made on its own volume) and its alarm (a healthchecks.io check) | done; CI builds the image and boots it as Railway would (`cardano-ci.yml` jobs `batcher`, `batcher-image`) |
+| Our own deployment (#988) on mainnet, then a week of dry runs before the key signs | next |
 
 ## What a batch costs (our contracts, mainnet prices)
 
@@ -122,6 +123,44 @@ minutes after it is built), sent or not. The rules:
 - **Bytes from strangers are walked before EMURGO's library reads them** (`src/cbor.ts`): a datum
   nested about 1,600 deep breaks the library's memory for the whole process. One unreadable UTxO
   is left out with its reason, never the whole answer.
+
+## Run it on Railway (the owner's steps)
+
+The owner's rulings: a new Railway project of its own, no public port, its key made on the
+server and never copied, its earnings capped in its own wallet. Everything below is done once.
+
+1. **Railway: New Project** (not the indexer's), *Deploy from GitHub repo*, this repository,
+   branch `mvp-launch`. In the service's settings: **Root Directory** `/cardano/batcher`, **Config
+   file** `/cardano/batcher/railway.json` (it builds the `Dockerfile`, redeploys only when
+   `cardano/batcher/` changes, and restarts a crashed batcher at most three times). Do **not**
+   generate a domain: the batcher listens on no port.
+2. **Add a volume**, mounted at `/data`. It holds the key. A service with a volume never runs two
+   deployments at once (Railway's own rule), so there is only ever one batcher.
+3. **Make the key.** Variables: `BATCHER_KEY_FILE` = `/data/batcher.skey`, `BATCHER_MAKE_KEY` =
+   `1`. Deploy. The log shows one `key-made` line with the **key hash** and the **address**, and
+   the service stops (exit 0). The key itself is shown nowhere and never leaves the volume.
+4. **Name it a batcher and fund it.** Put the key hash in our global setting's batchers (through
+   the 48-hour lock). Send the address two plain ADA UTxOs: about 5 ADA for collateral, and the
+   float (well under the cap).
+5. **Settings.** Remove `BATCHER_MAKE_KEY`. Set `BATCHER_SETTINGS` to the settings JSON (the
+   deployment's hashes and reference-script UTxOs from our deploy, the key hash and address from
+   step 3, the fee per order, the float cap; `README` "How it runs" lists them). **Sealed**
+   variables for the secrets: `OGMIOS_URL`, `OGMIOS_WS`, `KUPO_URL` (Demeter puts the key in the
+   host name), `KOIOS_URL` = `https://api.koios.rest/api/v1` and `KOIOS_TOKEN` (the batcher's
+   own Koios key, never the site's), `HC_PING_URL_CARDANO_BATCHER` (step 6).
+6. **The alarm.** On healthchecks.io (`docs/OPS_SCHEDULER.md` section 2), add a check
+   `cardano-batcher`, Simple schedule, **period 5 minutes, grace 10 minutes**, and put its ping URL
+   in `HC_PING_URL_CARDANO_BATCHER`.
+7. **A dry run first.** For the first days, take `BATCHER_KEY_FILE` out: the batcher prepares and
+   judges every batch and signs nothing (`"kind":"prepared","dryRun":true`). Put it back to start
+   batching.
+
+**What the emails mean.** The batcher pings every 5 minutes while it works. It fails the check
+when it has stopped itself (the float cap, refusals in a row, its wallet or settings: read the
+reason, fix, redeploy), when no source has answered for 10 minutes, or for an alert (our engine
+and the contract disagreeing on an order, every batch refused as expired): at most one such
+email an hour, and the next healthy ping clears it. When the pings stop, the process is gone
+(Railway gave up after three restarts, or the project is down): open Railway's logs.
 
 ## Traps met building it (never undo these)
 

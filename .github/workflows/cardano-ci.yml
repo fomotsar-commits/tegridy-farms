@@ -11,6 +11,11 @@ name: cardano-ci
 #      undone into Minswap's six mainnet scripts byte for byte, and with it changes only the pool
 #      validator; the role timelock is formatted, passes its tests, and builds to its committed
 #      plutus.json. The proof first refuses a tampered copy.
+#   3. batcher - the batcher's tests (cardano/batcher), every one but the live ones, with the
+#      Aiken above as its offline script runner.
+#   4. batcher-image - the image Railway builds: it holds only the batcher and its one runtime
+#      dependency, makes its key on a root-owned volume as `node` alone, shows only the key's hash,
+#      never makes a second key, and refuses settings that name another.
 on:
   push:
     paths: ["cardano/**", "solana/guards/provenance.mjs", ".github/workflows/cardano-ci.yml"]
@@ -126,3 +131,109 @@ jobs:
           echo "refused: $(grep -c '::error::' /tmp/tampered.log) mismatches"
       - name: Our copy builds into Minswap's mainnet scripts; the role timelock passes its tests
         run: AIKEN=/tmp/aiken/aiken node cardano/guards/prove-build.mjs
+
+  batcher:
+    needs: scope
+    if: >-
+      !cancelled() &&
+      (needs.scope.result != 'success' || needs.scope.outputs.run == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - name: Install Aiken ${{ env.AIKEN_VERSION }} from its pinned release tarball
+        run: |
+          set -euo pipefail
+          curl -sSfL -o /tmp/aiken.tar.gz \
+            "https://github.com/aiken-lang/aiken/releases/download/${AIKEN_VERSION}/aiken_${AIKEN_VERSION}_linux_amd64.tar.gz"
+          echo "${AIKEN_SHA256}  /tmp/aiken.tar.gz" | sha256sum -c -
+          mkdir -p /tmp/aiken && tar -xzf /tmp/aiken.tar.gz -C /tmp/aiken
+          /tmp/aiken/aiken --version
+      - name: Install the batcher's pinned dependencies
+        working-directory: cardano/batcher
+        run: npm ci --ignore-scripts
+      - name: Typecheck
+        working-directory: cardano/batcher
+        run: npm run typecheck
+      - name: Every test runs; only the live ones (they need a node) may skip
+        working-directory: cardano/batcher
+        env:
+          AIKEN: /tmp/aiken/aiken
+        run: |
+          # GitHub runs steps with bash -e: off here, so each failure gets its own message.
+          set +e
+          set -uo pipefail
+          npm test 2>&1 | tee /tmp/batcher-tests.log
+          status=${PIPESTATUS[0]}
+          [ "$status" -eq 0 ] || { echo "::error::the batcher's tests failed"; exit 1; }
+          # A skip that is not a live test means AIKEN was not found: a green that ran nothing.
+          bad=$(grep -E '^﹣ ' /tmp/batcher-tests.log | grep -v '^﹣ live:' || true)
+          [ -z "$bad" ] || { echo "::error::tests skipped that must run:"; echo "$bad"; exit 1; }
+          grep -qE '^ℹ pass [1-9][0-9]+$' /tmp/batcher-tests.log || { echo "::error::no test count in the output"; exit 1; }
+          grep -qE '^ℹ fail 0$' /tmp/batcher-tests.log || { echo "::error::a test failed"; exit 1; }
+
+  batcher-image:
+    needs: scope
+    if: >-
+      !cancelled() &&
+      (needs.scope.result != 'success' || needs.scope.outputs.run == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Build the image Railway builds
+        run: docker build -t batcher cardano/batcher
+      - name: Only the batcher and its one runtime dependency are in it
+        run: |
+          set -euo pipefail
+          docker run --rm --entrypoint sh batcher -c '
+            test -d /app/node_modules/@emurgo/cardano-serialization-lib-nodejs &&
+            test ! -e /app/node_modules/typescript && test ! -e /app/test && test ! -e /app/scripts &&
+            node --version | grep -q "^v24\."'
+      - name: First boot makes the key on a root-owned volume, says only its hash, and leaves it to node alone
+        run: |
+          set -euo pipefail
+          docker volume create batcher-data > /dev/null
+          out=$(docker run --rm -v batcher-data:/data -e BATCHER_KEY_FILE=/data/batcher.skey -e BATCHER_MAKE_KEY=1 batcher)
+          echo "$out"
+          echo "$out" | grep -q '"kind":"key-made"' || { echo "::error::no key-made line"; exit 1; }
+          echo "$out" | grep -q '"kind":"boot","uid":1000' || { echo "::error::the batcher did not run as node (uid 1000)"; exit 1; }
+          hash=$(echo "$out" | sed -n 's/.*"keyHash":"\([0-9a-f]\{56\}\)".*/\1/p')
+          address=$(echo "$out" | sed -n 's/.*"address":"\(addr1[0-9a-z]*\)".*/\1/p')
+          [ -n "$hash" ] && [ -n "$address" ] || { echo "::error::no key hash or address"; exit 1; }
+          key=$(docker run --rm -v batcher-data:/data --entrypoint cat batcher /data/batcher.skey | sed -n 's/.*"cborHex": "5820\([0-9a-f]\{64\}\)".*/\1/p')
+          [ ${#key} -eq 64 ] || { echo "::error::no key in the key file"; exit 1; }
+          if echo "$out" | grep -q "$key"; then echo "::error::the key itself was printed"; exit 1; fi
+          perms=$(docker run --rm -v batcher-data:/data --entrypoint stat batcher -c '%U %a' /data/batcher.skey /data)
+          [ "$perms" = "$(printf 'node 600\nnode 700')" ] || { echo "::error::the key is not node's alone: $perms"; exit 1; }
+          echo "HASH=$hash" >> "$GITHUB_ENV"
+          echo "ADDRESS=$address" >> "$GITHUB_ENV"
+      - name: A second boot never makes another key, reads this one as node, and refuses settings naming another
+        run: |
+          # GitHub runs steps with bash -e: off here, as the boots below are expected to exit 1.
+          set +e
+          set -uo pipefail
+          settings() {
+            printf '{"network":1,"deployment":{"authenPolicy":"%s","poolScriptHash":"%s","orderScriptHash":"%s","poolBatchingScriptHash":"%s","scriptRefs":{"pool":"%s#0","order":"%s#1","poolBatching":"%s#2"}},"batcherKeyHash":"%s","batcherAddress":"%s","batcherFee":"2000000","floatCap":"100000000","maxOrdersPerBatch":25,"slotsBefore":60,"slotsAfter":240,"quarantineSlots":3600,"maxRefusalsInARow":5,"idleRoundMs":60000}' \
+              "$(printf '11%.0s' $(seq 28))" "$(printf '22%.0s' $(seq 28))" "$(printf '33%.0s' $(seq 28))" "$(printf '44%.0s' $(seq 28))" \
+              "$(printf 'aa%.0s' $(seq 32))" "$(printf 'aa%.0s' $(seq 32))" "$(printf 'aa%.0s' $(seq 32))" "$1" "$2"
+          }
+          run() { docker run --rm -v "$1":/data -e BATCHER_KEY_FILE=/data/batcher.skey -e BATCHER_MAKE_KEY=1 -e BATCHER_SETTINGS="$2" batcher; }
+          # Settings naming this key, and no source given: past the key, it stops at "no source".
+          out=$(run batcher-data "$(settings "$HASH" "$ADDRESS")"); code=$?
+          echo "$out"
+          [ "$code" -eq 1 ] || { echo "::error::exit $code, not 1"; exit 1; }
+          if echo "$out" | grep -q '"kind":"key-made"'; then echo "::error::a second key was made"; exit 1; fi
+          echo "$out" | grep -q '"error":"no source' || { echo "::error::it did not get past the key"; exit 1; }
+          # Another key's settings: refused, naming both hashes (hashes are public).
+          docker volume create other-data > /dev/null
+          other=$(docker run --rm -v other-data:/data -e BATCHER_KEY_FILE=/data/batcher.skey -e BATCHER_MAKE_KEY=1 batcher)
+          h2=$(echo "$other" | sed -n 's/.*"keyHash":"\([0-9a-f]\{56\}\)".*/\1/p')
+          a2=$(echo "$other" | sed -n 's/.*"address":"\(addr1[0-9a-z]*\)".*/\1/p')
+          out=$(run batcher-data "$(settings "$h2" "$a2")"); code=$?
+          echo "$out"
+          [ "$code" -eq 1 ] || { echo "::error::exit $code, not 1"; exit 1; }
+          echo "$out" | grep -q "the key at BATCHER_KEY_FILE is $HASH; the settings name $h2" || { echo "::error::a key the settings do not name was not refused"; exit 1; }

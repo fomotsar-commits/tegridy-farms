@@ -1,15 +1,19 @@
-// The batcher as a process. Settings come from a JSON file (no secrets in it); endpoints and the
-// key file from the environment, never logged:
+// The batcher as a process (on Railway: Dockerfile, railway.json). Settings come from a JSON file,
+// or the BATCHER_SETTINGS variable (no secrets in them); endpoints and the key from the
+// environment, never logged:
 //   OGMIOS_URL   https://<key>.mainnet-v6.ogmios-m1.demeter.run   (queries, evaluation, submission)
 //   OGMIOS_WS    wss://<key>.mainnet-v6.ogmios-m1.demeter.run     (chain-sync)
 //   KUPO_URL     https://<key>.mainnet-v2.kupo-m1.demeter.run
 //   KOIOS_URL    https://api.koios.rest/api/v1   KOIOS_TOKEN  the batcher's own Koios key
-//   BATCHER_KEY_FILE  the signing key (scripts/new-key.ts); without it, a dry run
+//   BATCHER_KEY_FILE  the signing key; without it, a dry run
+//   BATCHER_MAKE_KEY=1  with no key at BATCHER_KEY_FILE: make it there, say its hash and address, exit
+//   HC_PING_URL_CARDANO_BATCHER  the alarm (src/heartbeat.ts)
 // A round runs on every block, and every `idleRoundMs` anyway (chain-sync may be down). Every
-// event is one JSON line, scrubbed of the secrets above. When the batcher stops itself (the float
-// cap, refusals, its wallet or settings), the process exits with code 2, or 3 if it must restart.
-//   node src/main.ts <settings.json> [--once]      (--once: one round, then exit)
-import { readFileSync } from 'node:fs';
+// event is one JSON line, scrubbed of the secrets above. Exit codes: 0 the key was made, or a stop
+// signal; 1 the settings or the environment are wrong; 2 the batcher stopped itself (the float
+// cap, refusals, its wallet or settings: a person is needed); 3 it must restart.
+//   node src/main.ts [<settings.json>] [--once]      (--once: one round, then exit)
+import { existsSync, readFileSync } from 'node:fs';
 import { isBatcherAddress } from './build.ts';
 import { MAINNET_TIME } from './chain.ts';
 import { Follower } from './follow.ts';
@@ -17,7 +21,8 @@ import { stringifyExact } from './json.ts';
 import { Koios } from './koios.ts';
 import { Kupo, checkKupoReady } from './kupo.ts';
 import { SourceUnavailable } from './ogmios.ts';
-import { keyFromFile, signerOf } from './signer.ts';
+import { Heartbeat, resolvePingUrl } from './heartbeat.ts';
+import { keyFromFile, makeKeyFile, signerOf } from './signer.ts';
 import { koiosView, ogmiosKupoView, type ChainView } from './view.ts';
 import { Watcher, type WatcherConfig } from './watcher.ts';
 
@@ -46,9 +51,20 @@ export interface Settings {
 const HEX56 = /^[0-9a-f]{56}$/;
 const REF = /^[0-9a-f]{64}#\d+$/;
 
+export type ReadSettings = WatcherConfig & { network: number; idleRoundMs: number };
+
+export function readSettings(path: string): ReadSettings {
+  return parseSettings(readFileSync(path, 'utf8'));
+}
+
 /** Every setting is required and checked: a missing or out-of-range one would quietly turn a safety off. */
-export function readSettings(path: string): WatcherConfig & { network: number; idleRoundMs: number } {
-  const s = JSON.parse(readFileSync(path, 'utf8')) as Settings;
+export function parseSettings(text: string): ReadSettings {
+  let s: Settings;
+  try {
+    s = JSON.parse(text) as Settings;
+  } catch {
+    throw new Error('settings: not JSON');
+  }
   const d = s.deployment ?? ({} as Settings['deployment']);
   for (const [k, v] of Object.entries({ authenPolicy: d.authenPolicy, poolScriptHash: d.poolScriptHash, orderScriptHash: d.orderScriptHash, poolBatchingScriptHash: d.poolBatchingScriptHash, batcherKeyHash: s.batcherKeyHash })) {
     if (typeof v !== 'string' || !HEX56.test(v)) throw new Error(`settings: ${k} is not a 28-byte hash`);
@@ -158,21 +174,52 @@ function gated(view: ChainView, ready: () => Promise<void>, recheckMs: number, l
   };
 }
 
+/** The heartbeat's rhythm: a ping every 5 minutes; 10 minutes with no source is a fail; one alert email an hour at most. */
+export const HEARTBEAT = { everyMs: 300_000, quietMs: 600_000, alertGapMs: 3_600_000 };
+
+/**
+ * The one-time key: with BATCHER_MAKE_KEY=1 and no key at BATCHER_KEY_FILE, makes it there and
+ * returns what to show (its hash and the address to fund); with a key there already, returns
+ * null and the key is used as it is. Before any settings are read: the settings can only name
+ * the key once it exists.
+ */
+export function makeKeyIfAsked(env: Readonly<Record<string, string | undefined>>): { keyHash: string; address: string } | null {
+  if (env.BATCHER_MAKE_KEY !== '1') return null;
+  const path = env.BATCHER_KEY_FILE;
+  if (!path) throw new Error('BATCHER_MAKE_KEY=1 needs BATCHER_KEY_FILE: where to keep the key');
+  if (existsSync(path)) return null;
+  return makeKeyFile(path, 1);
+}
+
 async function main(): Promise<number> {
   const env = process.env;
   const log = logger(env, (line) => process.stdout.write(line));
+  log({ kind: 'boot', uid: process.getuid?.() ?? null, node: process.version });
+  const ping = resolvePingUrl(env);
+  const once = process.argv.includes('--once');
+  const heartbeat = new Heartbeat({ url: once ? null : ping.url, ...HEARTBEAT }, log);
   try {
-    const path = process.argv[2];
-    if (!path) throw new Error('usage: node src/main.ts <settings.json> [--once]');
-    const c = readSettings(path);
+    const made = makeKeyIfAsked(env);
+    if (made) {
+      log({ kind: 'key-made', ...made, next: 'register this key hash as a batcher in the global setting (the 48-hour lock), fund the address with two plain ADA UTxOs (5 ADA for collateral, and its float), put the hash and address in the settings, then remove BATCHER_MAKE_KEY' });
+      return 0;
+    }
+    const path = process.argv.slice(2).find((a) => !a.startsWith('--'));
+    const c = path ? readSettings(path) : env.BATCHER_SETTINGS ? parseSettings(env.BATCHER_SETTINGS) : null;
+    if (!c) throw new Error('no settings: give a settings file, or BATCHER_SETTINGS');
     const e = readEnv(env);
+    if (!once && ping.problem) log({ kind: 'heartbeat-off', reason: `${'HC_PING_URL_CARDANO_BATCHER'} is ${ping.problem}: no alarm will reach anyone` });
+
+    // The key first: a key the settings do not name is refused before any source is asked.
+    const signer = env.BATCHER_KEY_FILE ? signerOf(keyFromFile(env.BATCHER_KEY_FILE)) : null;
+    if (signer && signer.keyHash !== c.batcher.keyHash) throw new Error(`the key at BATCHER_KEY_FILE is ${signer.keyHash}; the settings name ${c.batcher.keyHash}`);
+
     const refused = new Set<string>();
     const onRefused = (ref: string, reason: string) => {
       if (refused.has(ref)) return;
       refused.add(ref);
       log({ kind: 'unreadable-utxo', ref, reason });
     };
-
     const koios = e.koios ? new Koios({ url: e.koios, token: env.KOIOS_TOKEN, timeoutMs: Number(env.KOIOS_TIMEOUT_MS ?? 30_000), onRefused }) : null;
     const views: ChainView[] = [];
     if (e.ogmios && e.kupo) {
@@ -187,14 +234,17 @@ async function main(): Promise<number> {
     if (koios) views.push(koiosView(koios, c.network));
     if (!views.length) throw new Error('no source: set OGMIOS_URL and KUPO_URL, and/or KOIOS_URL');
 
-    const signer = env.BATCHER_KEY_FILE ? signerOf(keyFromFile(env.BATCHER_KEY_FILE)) : null;
-    const watcher = new Watcher(views, signer, c, log);
-    log({ kind: 'start', sources: views.map((v) => v.name), dryRun: signer === null, batcher: c.batcher.keyHash });
-    if (process.argv.includes('--once')) {
+    const watcher = new Watcher(views, signer, c, (ev) => {
+      log(ev);
+      heartbeat.observe(ev);
+    });
+    log({ kind: 'start', sources: views.map((v) => v.name), dryRun: signer === null, batcher: c.batcher.keyHash, alarm: ping.url !== null && !once });
+    if (once) {
       await watcher.round();
       log({ kind: 'exit' });
       return watcher.stopped ? (watcher.stopped.fatal ? 3 : 2) : 0;
     }
+    heartbeat.start();
 
     let lastBlock = Date.now();
     const follower = e.ws
@@ -213,10 +263,15 @@ async function main(): Promise<number> {
       : null;
     follower?.start();
     return await new Promise<number>((resolve) => {
+      let done = false;
       const finish = async (code: number) => {
+        if (done) return;
+        done = true;
         clearInterval(timer);
+        clearInterval(beat);
         follower?.stop();
         await watcher.close();
+        await heartbeat.flush();
         log({ kind: 'exit', code });
         resolve(code);
       };
@@ -224,12 +279,16 @@ async function main(): Promise<number> {
         if (watcher.stopped) return void finish(watcher.stopped.fatal ? 3 : 2);
         if (Date.now() - lastBlock >= c.idleRoundMs) void watcher.trigger();
       }, Math.min(c.idleRoundMs, 5_000));
+      const beat = setInterval(() => heartbeat.tick(), HEARTBEAT.everyMs);
       void watcher.trigger();
       process.once('SIGINT', () => void finish(0));
       process.once('SIGTERM', () => void finish(0));
     });
   } catch (err) {
-    log({ kind: 'fatal', error: err instanceof Error ? err.message : String(err) });
+    const error = err instanceof Error ? err.message : String(err);
+    log({ kind: 'fatal', error });
+    heartbeat.fail(`could not start: ${error}`);
+    await heartbeat.flush();
     return 1;
   }
 }
