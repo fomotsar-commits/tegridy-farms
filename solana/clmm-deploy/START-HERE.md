@@ -216,7 +216,7 @@ node "{{PACK}}\scripts\4-verify-program.mjs"
 
 You should see: `PASS    : its upgrade authority is the vault {{VAULT}}`,
 `PASS    : the vault may make a fee tier: the program's admin is the vault`,
-`PASS    : a fee tier asked for by someone who is not the vault is refused by the program (NotApproved): only the vault can make one`, and
+`PASS    : a fee tier asked for by <ADDRESS>, who is not the vault, is refused by the program (NotApproved): only the vault can make one`, and
 `RESULT: the program is live, byte for byte the reviewed build, and only the vault can change it.`
 
 Tell a session: the program is deployed. From here it is live but has no fee tier, so nobody can

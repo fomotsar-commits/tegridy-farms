@@ -5,7 +5,7 @@
 //
 //   node 4-verify-program.mjs [--rpc <url>]
 import path from 'node:path';
-import { CFG, PACK, args, connect, cluster, rpcFor, read, Report, main, Stopped, checkBinary, readProgram, sameAsBuild, PROGRAMDATA_HEADER, num, web3 } from './lib/pack.mjs';
+import { CFG, PACK, args, connect, cluster, rpcFor, read, Report, main, Stopped, checkBinary, readProgram, sameAsBuild, PROGRAMDATA_HEADER, num, web3, balance, rent, sol } from './lib/pack.mjs';
 import { makeCore } from './lib/tiers.mjs';
 
 await main(async () => {
@@ -37,11 +37,22 @@ await main(async () => {
       const asVault = await read('the network working out a fee tier made by the vault', () => core.simulate(conn, CFG.addr.vault, [core.tierIxs()[0]]));
       R.check(asVault.ok, 'the vault may make a fee tier: the program\'s admin is the vault', `a fee tier made by the vault would NOT work (${JSON.stringify(asVault.err)} ${asVault.logs.slice(-2).join(' | ')}). Stop and ask`);
     }
-    const ix = core.tierIxs()[0];
-    ix.keys[0] = { pubkey: new web3.PublicKey(CFG.addr.deployWallet), isSigner: true, isWritable: true };
-    const sim = await read('the network working out a fee tier made by a stranger', () => core.simulate(conn, CFG.addr.deployWallet, [ix]));
-    const refusedByProgram = !sim.ok && sim.logs.some((l) => /Error Code: NotApproved/.test(l));
-    R.check(refusedByProgram, 'a fee tier asked for by someone who is not the vault is refused by the program (NotApproved): only the vault can make one', `a stranger's fee tier was NOT refused as expected (${sim.ok ? 'it would succeed' : JSON.stringify(sim.err)}). Stop and ask`);
+    // The stranger is whichever of the paying wallet and the two members holds the most SOL: the
+    // program makes the tier's account before it reads who asks, so one that cannot pay its rent
+    // fails in the system program instead (the paying wallet is empty since the deploy).
+    const who = [CFG.addr.deployWallet, CFG.addr.memberA, CFG.addr.memberB];
+    const held = []; for (const k of who) held.push(await balance(conn, k));
+    const most = held.reduce((m, x) => (x > m ? x : m), 0n);
+    const stranger = who[held.indexOf(most)];
+    const need = (await rent(conn, 117)) + 100_000n;
+    if (most < need) R.unread(`no wallet of this folder holds the ${sol(need)} a stranger's fee tier needs to be worked out (the most is ${sol(most)}): the program's refusal could not be asked`);
+    else {
+      const ix = core.tierIxs()[0];
+      ix.keys[0] = { pubkey: new web3.PublicKey(stranger), isSigner: true, isWritable: true };
+      const sim = await read('the network working out a fee tier made by a stranger', () => core.simulate(conn, stranger, [ix]));
+      const refusedByProgram = !sim.ok && sim.logs.some((l) => /Error Code: NotApproved/.test(l));
+      R.check(refusedByProgram, `a fee tier asked for by ${stranger}, who is not the vault, is refused by the program (NotApproved): only the vault can make one`, `a stranger's fee tier was NOT refused as expected (${sim.ok ? 'it would succeed' : JSON.stringify(sim.err)}). Stop and ask`);
+    }
   } else R.note('the fee tier exists, so the admin is read from it: its owner must be the vault (below)');
   for (const x of t) R.note(`fee tier ${x.want.index} (${x.want.tradeFeeRate / 10000}%, spacing ${x.want.tickSpacing}): ${x.state === 'absent' ? 'not made yet (the vault proposal makes it)' : x.state === 'exact' ? 'made, exactly as decided' : 'EXISTS WITH OTHER VALUES: stop and ask'}`);
   if (t.some((x) => x.state === 'wrong')) R.refuse('a fee tier exists with values other than the decided ones');
