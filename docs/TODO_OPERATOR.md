@@ -29,6 +29,43 @@ stop and say so — a surprise is information.
 
 ---
 
+## 🔴 2026-10-25: range pools will cost 0.5 SOL to open, once you upgrade the range program
+
+**Do not execute vault proposal #19, or the 1% tier proposal that replaces it (pull request
+#1015), before this upgrade has executed.** Either one makes a range fee tier, and on today's range
+program anyone can then open range pools for free until the upgrade lands.
+
+You ruled on 2026-10-25 that opening a range pool costs 0.5 SOL, paid to the venue. The range
+program's source now charges it (pull request #1019): whoever opens a range pool pays 0.5 SOL to
+the team's vault, whichever of the program's three ways to open one they use. On mainnet it starts
+only when the vault upgrades the program. You put the SOL step off the same day ("the 11 sol or
+whatever we will do another day"). This is that step.
+
+**What to send, to which wallet, and how long it is held** (read on mainnet 2026-10-25, 5,080
+lamports a byte; the pack's first check reads it all again on the day):
+
+| Send | To | For | Held for |
+|---|---|---|---|
+| about **7.85 SOL** | the paying wallet `CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg`, the range program's deployer (it holds 0 SOL) | 7.758 SOL for the upload, 0.052 SOL to enlarge the program, about 0.02 SOL in network fees | **The 7.758 SOL comes back** to that wallet the moment the upgrade executes: at least 48 hours after the second approval. The 0.052 SOL stays in the program for good. The fees are spent. |
+| **0.02 SOL** | member A `5QHzAqbGk3W8qGRBHCMyWjhLXf8YJcs3yPEh14Ymcwgz` (it holds 0.0043 SOL, not enough for one proposal) | the upgrade proposal, about 0.005 SOL | spent |
+
+Member B (0.0124 SOL) and the vault need nothing. Send a small test amount first. (The 10.6 SOL
+said earlier assumed an older rent rate.)
+
+**Two sittings.** Day 0, about an hour: fund, check, enlarge, upload, hand the upload to the vault;
+member A proposes the upgrade on the pack's page, member B approves it there. Day 2, 48 hours after
+the second approval (the page names the minute): execute on the page, then run the check after the
+upgrade. Every command is in
+`C:\Users\jimbo\solana-launch-release-2026-09-26\range-pools-open-fee-upgrade-2026-10\START-HERE.md`.
+Never approve or execute this upgrade in the Squads app: only the pack's page reads the uploaded
+bytes back and refuses a wrong build.
+
+**Then, in this order:** the 1% tier proposal executes (#1015's folder); the check after the
+upgrade, run again, proves that opening a pool on that tier pays the vault 0.5 SOL; then the site's
+line saying so merges (this pull request).
+
+---
+
 ## 🔴 2026-10-24, 17:03 UTC: the pool program was rolled back by mistake; re-upgrade postponed
 
 Read on chain on 2026-10-24 at 17:07 UTC. Newer than the section below.
