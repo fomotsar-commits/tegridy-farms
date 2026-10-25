@@ -257,7 +257,7 @@ describe('the Rates card lists a public tier once it exists', () => {
     await waitFor(() => expect(screen.getAllByTestId('fee-tier')).toHaveLength(3));
     const rows = screen.getAllByTestId('fee-tier');
     expect(rows.map((r) => r.getAttribute('data-index'))).toEqual(['1', '2', '0']);
-    expect(rows.map((r) => within(r).getByRole('rowheader').textContent)).toEqual(['1% pools', '0.25% pools', 'Launch pools']);
+    expect(rows.map((r) => within(r).getByRole('rowheader').textContent)).toEqual(['1% pools', '0.25% pools (SOL against USDC)', 'Launch pools']);
     expect(cells(rows[1]!)).toEqual(['0.25%', '0.21%', '0.04%']);
     const rates = screen.getByTestId('fee-tiers');
     expect(rates).toHaveTextContent('0.16% of each trade in a 1% pool.');

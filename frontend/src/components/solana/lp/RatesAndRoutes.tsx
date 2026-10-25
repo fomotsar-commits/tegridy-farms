@@ -5,6 +5,7 @@ import { feeRateText, pctText, solText, tradeCostText } from '../../../lib/solan
 import { SOLANA_FEE_ACCOUNT, SOLANA_PLATFORM_FEE_BPS, isSolanaFeeConfigured } from '../../../lib/solana';
 import { howVenueEarns, howYouEarn, poolWords, type JupiterFee } from '../../../lib/solana/lp/earnCopy';
 import type { FeeTierRead } from '../../../lib/solana/lp/poolFinder';
+import { LOW_TIER_PAIR, forEveryPair } from '../../../lib/solana/lp/tierOffer';
 import { Card, Notice, Row } from '../curve/ui';
 import { CardArt } from '../../ui/CardArt';
 import { FinePrint } from '../../ui/FinePrint';
@@ -212,12 +213,17 @@ function rank(index: number): number {
   return k >= 0 ? k - PUBLIC_TIER_INDICES.length : index;
 }
 
-/** A row's name: "Public pools" while one public tier is listed; each by its read rate once there are more. */
+/**
+ * A row's name: "Public pools" while one public tier is listed; each by its read rate once
+ * there are more. A public tier under 1% says the pair it is offered (tierOffer.ts), in the
+ * row itself, so the table never reads as 0.25% for any coin.
+ */
 function tierName(t: { index: number; config: AmmConfigView | null }, severalPublic: boolean): string {
   if (t.index === 0) return 'Launch pools';
   if (!isPublicTierIndex(t.index)) return `Tier ${t.index}`;
-  if (!severalPublic) return 'Public pools';
-  return t.config ? `${feeRateText(t.config.tradeFeeRate)} pools` : `Public pools (tier ${t.index})`;
+  const pair = t.config && !forEveryPair(t.config.tradeFeeRate) ? ` (${LOW_TIER_PAIR})` : '';
+  if (!severalPublic) return `Public pools${pair}`;
+  return t.config ? `${feeRateText(t.config.tradeFeeRate)} pools${pair}` : `Public pools (tier ${t.index})`;
 }
 
 /** What opening a pool costs, in one line: the fee (per tier when they differ) and the setup, neither refunded. */
