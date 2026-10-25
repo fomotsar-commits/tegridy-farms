@@ -175,7 +175,7 @@ describe('how a range position earns', () => {
 
   it('lists the fee tiers as the chain has them, each with its split, before any pool exists', async () => {
     const low = { ...tier({ tradeFeeRate: 2_500 }), address: key(31).toBase58() };
-    show(readers({ tiers: { kind: 'ok', value: [tier(), low] }, pools: { kind: 'ok', value: [] } }));
+    show(readers({ tiers: { kind: 'ok', value: [tier(), low] }, pools: { kind: 'ok', value: [] } }), fakeApi(), 'on', `/range-pools?mint=${USDC_QUOTE.mint}`);
     const list = await screen.findByTestId('range-tiers');
     const rows = within(list).getAllByRole('listitem');
     expect(rows.map((r) => r.textContent)).toEqual([
@@ -183,7 +183,18 @@ describe('how a range position earns', () => {
       '020.25%of each swap. 84% of that fee (0.21% of the swap) goes to the positions in range, by their liquidity; the venue keeps 16% (0.04%).',
     ]);
     expect(list.closest('details')).toBeNull();
-    expect(within(await screen.findByTestId('range-pools')).getByText('No range pool for BAYLA with SOL yet.')).toBeInTheDocument();
+    expect(within(await screen.findByTestId('range-pools')).getByText('No range pool for USDC with SOL yet.')).toBeInTheDocument();
+  });
+
+  it('a meme coin is offered the 1% tier only: 0.25% is for SOL against USDC (owner, 2026-10-24)', async () => {
+    const low = { ...tier({ tradeFeeRate: 2_500 }), address: key(31).toBase58() };
+    show(readers({ tiers: { kind: 'ok', value: [tier(), low] }, pools: { kind: 'ok', value: [] } }));
+    const rows = within(await screen.findByTestId('range-tiers')).getAllByRole('listitem');
+    expect(rows.map((r) => r.textContent)).toEqual([
+      '011%of each swap. 84% of that fee (0.84% of the swap) goes to the positions in range, by their liquidity; the venue keeps 16% (0.16%).',
+    ]);
+    fireEvent.click(within(await screen.findByTestId('range-pools')).getByRole('button', { name: 'With USDC' }));
+    await waitFor(() => expect(within(screen.getByTestId('range-tiers')).getAllByRole('listitem')).toHaveLength(1));
   });
 
   it('a tier whose venue cut goes anywhere but the agreed split is said in bold in its row, before any pool is picked', async () => {
