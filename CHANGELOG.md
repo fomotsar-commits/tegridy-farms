@@ -15,6 +15,7 @@ The site's Changelog tab shows both files.
 - Pools: while the page is still reading the chain, or if the read fails, the top of the Venue AMM page no longer says "No pool can be opened here yet". It says nothing until the read lands.
 - The dashboard on phones and iPads: its big picture now shows there too. On a phone it is a wide strip that stays under the top bar while your coins and positions scroll beneath it; on an iPad held upright it stands beside them and stops where your list does. With no mouse to follow, it shows the row you scroll to, and that row lights up; SOL and ETH show their chain's mark. With no wallet connected it sits under the connect buttons, and on a phone held sideways it does not stay on screen. On a computer the picture now stays in view while you scroll a long list.
 - Cardano swap: Swap's network menu now lists Cardano. /cardano swaps ADA for a coin, or a coin for ADA, through that pair's Minswap V2 pool, signed in a Cardano wallet (Eternl, Lace, VESPR, Begin, Typhon, GeroWallet or NuFi). The page names each coin by its ticker and whole id, shows every fee and who gets it before you sign, and follows your order until Minswap's batcher fills it or sends it back. The venue charges no fee on Cardano yet.
+- Moving between pages: on a phone, pages now just open, with no one-second glitch between them. On a computer or tablet the glitch no longer runs into or out of a room with an Add door or the Pools pages; everywhere else it stays, art and all.
 
 ### 2026-10-24
 
