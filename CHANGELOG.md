@@ -9,10 +9,12 @@ The site's Changelog tab shows both files.
 
 ### 2026-10-25
 
+- Cardano swap: Swap's network menu now lists Cardano. /cardano swaps ADA for a coin, or a coin for ADA, through that pair's Minswap V2 pool, signed in a Cardano wallet (Eternl, Lace, VESPR, Begin, Typhon, GeroWallet or NuFi). The page names each coin by its ticker and whole id, shows every fee and who gets it before you sign, and follows your order until Minswap's batcher fills it or sends it back. The venue charges no fee on Cardano yet.
 - Solana swap and the Range tab: a coin whose ticker copies SOL, USDC, BAYLA or an island coin at another address now reads "fake SOY" (for example), as on the pool screens. In the swap page's token list, a coin the site does not name itself shows its whole address, not just its first and last characters. The Range tab names every coin by its own ticker, with its whole address, instead of "tokens".
 
 ### 2026-10-24
 
+- The Nakamigos marketplace is no longer linked from the home page, the site index, the island lobby or the sitemap. It still opens at /nakamigos.
 - Solana pools: the pool program's upgrade was rolled back, so it runs its 2026-09-29 build again: pool share tokens can't get a name in wallets and the launch fee tier is open to anyone again until it is upgraded once more. The lines you read before adding liquidity or opening a pool say so again: our pool program is Raydium's, with only its admin keys changed.
 - Solana swap: Buy all bungalows buys every coin itself. A coin our own pool pays more for is bought in our pool, in the same order, instead of being sent to the swap form for its own review. Wallets that can sign several transactions at once (Phantom, Solflare, Backpack and most others) are asked once for the whole order; any other wallet once per coin. When SOL's price cannot be read, the order asks again every few seconds instead of once a minute. It also compares prices correctly again: since 2026-10-23 it misread every Jupiter quote and counted every coin as our pool's, even where Jupiter paid more (about 30% more for BRAINLET).
 - Solana pools: adding to a launch pool Jupiter has no price for now warns when its price may have been moved without a trade: when nobody has traded it yet it holds more than its shares account for, or when it has had long gaps between trades over the last half hour. Its own average counts only after 24 minutes of trading, not 10. Such a pool is no longer the price the token's other pools are checked against. Removing liquidity is unchanged.
