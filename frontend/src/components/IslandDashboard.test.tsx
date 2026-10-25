@@ -206,7 +206,7 @@ describe('IslandDashboard: what is drawn, from what was read', () => {
   it('marks a lock’s place on the ladder from the share its pool reported, and nothing for a lock without one', () => {
     board.value = wallet({
       solanaAddress: sol,
-      positions: [leg('p', 'your BAYLA locks', { status: 'ok', rows: [position({}), position({ title: 'BAYLA / SOL pool', facts: ['0.12% of the pool'], to: '/solana-lp' })] })],
+      positions: [leg('p', 'your BAYLA locks', { status: 'ok', rows: [position({}), position({ title: 'BAYLA / SOL pool', facts: ['0.12% of the pool'], to: '/pools' })] })],
     });
     mount();
     expect(screen.getByRole('img', { name: `4.00× on the ladder, from ${(MIN_BOOST_BPS / 10_000).toFixed(2)}× to ${(MAX_BOOST_BPS / 10_000).toFixed(2)}×` })).toBeInTheDocument();

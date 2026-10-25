@@ -109,7 +109,7 @@ describe('which word is lit', () => {
     expect(at(path, hash)).toBe(word);
   });
 
-  it.each(['/solana-lp', '/liquidity', '/trust', '/scan', '/history', '/lore', '/changelog', '/dashboard', '/start'])(
+  it.each(['/pools', '/liquidity', '/trust', '/scan', '/history', '/lore', '/changelog', '/dashboard', '/start'])(
     'lights no bar word on %s, a page the drawer or the footer opens',
     (path) => {
       expect(at(path)).toBeNull();
@@ -137,17 +137,34 @@ describe('the drawer', () => {
     }
   });
 
-  // Owner, 2026-10-03: "pools land on solana lp", and Solana LP is to be MORE visible.
-  it('lands the Pools row on the Solana LP tab, and keeps the strip in its order', () => {
+  // Owner, 2026-10-03: "pools land on solana lp"; 2026-10-24: "remove solana lp keep venue amm",
+  // the same LP section, so the row lands there.
+  it('lands the Pools row on the Venue AMM tab, and keeps the strip in its order', () => {
     expect(POOLS_SECTION.hub).toBe('/liquidity');
-    expect(POOLS_SECTION.primaryTo).toBe('/solana-lp');
+    expect(POOLS_SECTION.primaryTo).toBe('/pools');
     expect(DRAWER_SECTIONS[0], 'Pools is the drawer row people come for: it leads').toBe(POOLS_SECTION);
     expect(POOLS_SECTION.items.map((i) => [i.to, i.tabLabel ?? i.label])).toEqual([
       ['/liquidity', 'Add / Remove'],
-      ['/solana-lp', 'Solana LP'],
       ['/pools', 'Venue AMM'],
       ['/zap', 'Zap'],
     ]);
+  });
+
+  // Owner, 2026-10-24: Venue AMM "left of" Range.
+  it('puts Venue AMM left of Range once range pools are shown, and has no Solana LP tab', async () => {
+    vi.resetModules();
+    vi.doMock('./solana/clmm/programId', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('./solana/clmm/programId')>()),
+      rangePoolsVisible: () => true,
+    }));
+    try {
+      const { POOLS_SECTION: withRange } = await import('./navConfig');
+      expect(withRange.items.map((i) => i.tabLabel ?? i.label)).toEqual(['Add / Remove', 'Venue AMM', 'Range', 'Zap']);
+      expect(withRange.items.some((i) => i.to === '/solana-lp')).toBe(false);
+    } finally {
+      vi.doUnmock('./solana/clmm/programId');
+      vi.resetModules();
+    }
   });
 
   it('keeps the detection tools together under Check', () => {
@@ -476,23 +493,23 @@ describe('lockRoute', () => {
 });
 
 // Pools follows the room as Lock does (owner, 2026-10-17: "the wiring for the pages inside the
-// bayla bungalow is off"): in a Solana room with a coin it opens the Solana LP tab on that coin.
+// bayla bungalow is off"): in a Solana room with a coin it opens the Venue AMM tab on that coin.
 describe('poolsRoute', () => {
   afterEach(() => {
     window.localStorage.clear();
   });
 
   it("opens on the room's coin in a Solana room, and as for anyone elsewhere", () => {
-    expect(poolsRoute()).toBe('/solana-lp');
-    expect(POOLS_SECTION.primaryTo).toBe('/solana-lp');
+    expect(poolsRoute()).toBe('/pools');
+    expect(POOLS_SECTION.primaryTo).toBe('/pools');
 
     window.localStorage.setItem('tegridy-bungalow', 'bayla');
     const bayla = BUNGALOWS.find((b) => b.id === 'bayla')!;
-    expect(poolsRoute(), "BAYLA's room opens on BAYLA").toBe(`/solana-lp?mint=${bayla.address}`);
-    expect(POOLS_SECTION.primaryTo).toBe(`/solana-lp?mint=${bayla.address}`);
+    expect(poolsRoute(), "BAYLA's room opens on BAYLA").toBe(`/pools?mint=${bayla.address}`);
+    expect(POOLS_SECTION.primaryTo).toBe(`/pools?mint=${bayla.address}`);
 
     window.localStorage.setItem('tegridy-bungalow', 'toweli');
-    expect(poolsRoute(), 'an Ethereum room keeps the tab as it opens for anyone').toBe('/solana-lp');
+    expect(poolsRoute(), 'an Ethereum room keeps the tab as it opens for anyone').toBe('/pools');
   });
 });
 
@@ -567,8 +584,8 @@ describe("the menu's index", () => {
     expect(indexName(lock, lock.items.find((i) => i.to === '/nft-finance')!)).toBe('NFT Loans');
   });
 
-  it('lands the Pools word on Solana LP and the Check word on the overview', () => {
-    expect(group('Pools').to).toBe('/solana-lp');
+  it('lands the Pools word on Venue AMM and the Check word on the overview', () => {
+    expect(group('Pools').to).toBe('/pools');
     expect(group('Check').to).toBe('/trust');
   });
 
