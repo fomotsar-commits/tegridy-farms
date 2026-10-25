@@ -7,112 +7,18 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import CSL from '@emurgo/cardano-serialization-lib-nodejs';
 import { slotToPosixMs } from '../src/chain.ts';
-import { InputsGone, NotJudged, SourceUnavailable, SubmitRefused, type Tip } from '../src/ogmios.ts';
+import { InputsGone, NotJudged, SourceUnavailable, SubmitRefused } from '../src/ogmios.ts';
 import type { Utxo } from '../src/plan.ts';
 import type { Evaluator } from '../src/prepare.ts';
-import type { Deployment, Policy } from '../src/select.ts';
-import type { SimulationResult } from '../src/simulate.ts';
-import type { ChainUtxo, ChainView } from '../src/view.ts';
 import { lpAssetName } from '../src/verify.ts';
+import { Heartbeat } from '../src/heartbeat.ts';
 import { Watcher, type Signer, type WatcherConfig, type WatcherEvent } from '../src/watcher.ts';
-import { BATCHER_ADDRESS, BATCHER_KEY, BATCHER_SKEY, DEX, NETWORK, PP, S, makePool, order, step, traderAddress, utxo, value, world } from './world.ts';
+import { BATCHER_ADDRESS, BATCHER_KEY, NETWORK, makePool, order, step, traderAddress, utxo, value, world } from './world.ts';
+import { ADA, DEP, FakeView, POLICY, SIGNER, TIP, evaluator, inputsOf, swapOn } from './fake-view.ts';
 
-const ADA = 1_000_000n;
-const TIP = 160_000_000n;
-const DEP: Deployment = { network: NETWORK, dex: DEX, orderScriptHash: S.order.hash, poolBatchingScriptHash: S.poolBatching.hash, scriptRefs: { pool: `${'a2'.repeat(32)}#0`, order: `${'a2'.repeat(32)}#1`, poolBatching: `${'a2'.repeat(32)}#2` } };
-const POLICY: Policy = { batcherFee: 2n * ADA, maxOrdersPerBatch: 25, slotsBefore: 60n, slotsAfter: 240n };
-const SIGNER: Signer = {
-  keyHash: BATCHER_KEY,
-  sign: (tx) => {
-    const f = CSL.FixedTransaction.from_hex(tx);
-    f.sign_and_add_vkey_signature(BATCHER_SKEY);
-    return f.to_hex();
-  },
-};
 const TOK2 = { policyId: '71'.repeat(28), assetName: '544f4b32' };
 const LP2 = lpAssetName({ policyId: '', assetName: '' }, TOK2);
-
-const inputsOf = (tx: string) => {
-  const b = CSL.FixedTransaction.from_hex(tx).body().inputs();
-  return Array.from({ length: b.len() }, (_, i) => `${b.get(i).transaction_id().to_hex()}#${b.get(i).index()}`);
-};
 const ordersIn = (tx: string, orders: { utxo: Utxo }[]) => orders.filter((o) => inputsOf(tx).includes(o.utxo.ref)).map((o) => o.utxo.ref);
-
-/** Every redeemer measured at a small fixed budget; `refuse` decides from the spent inputs (a verdict, or something to throw). */
-function evaluator(refuse: (inputs: string[]) => SimulationResult | Error | null = () => null): Evaluator {
-  return (tx) => {
-    const verdict = refuse(inputsOf(tx));
-    if (verdict instanceof Error) throw verdict;
-    if (verdict) return verdict;
-    const rs = CSL.FixedTransaction.from_hex(tx).witness_set().redeemers()!;
-    return { ok: true, budgets: Array.from({ length: rs.len() }, (_, i) => ({ tag: ['Spend', 'Mint', 'Cert', 'Reward'][rs.get(i).tag().kind()]!, index: Number(rs.get(i).index().to_str()), mem: 10_000n, steps: 1_000_000n })) };
-  };
-}
-
-class FakeView implements ChainView {
-  readonly name: string;
-  slot = TIP;
-  chain: ChainUtxo[];
-  reward = 0n;
-  down = false;
-  failing: string | null = null;
-  rewardDown = false;
-  submitted: string[] = [];
-  submitError: (() => Error) | null = null;
-  calls = new Map<string, number>();
-  evaluate: Evaluator;
-  datums = new Map<string, string>();
-  constructor(name: string, utxos: Utxo[], evaluate: Evaluator = evaluator()) {
-    this.name = name;
-    this.chain = utxos.map((u, i) => ({ ...u, createdSlot: BigInt(i), createdTxIndex: 0 }));
-    this.evaluate = evaluate;
-  }
-  #call(m: string) {
-    this.calls.set(m, (this.calls.get(m) ?? 0) + 1);
-    if (this.down || this.failing === m) throw new SourceUnavailable(`${this.name} ${m}: down`);
-  }
-  async tip(): Promise<Tip> {
-    this.#call('tip');
-    return { slot: this.slot, id: 'ab'.repeat(32) };
-  }
-  async protocolParams() {
-    this.#call('protocolParams');
-    return PP;
-  }
-  #cred(u: Utxo) {
-    const c = CSL.TransactionOutput.from_hex(u.outputHex).address().payment_cred()!;
-    return c.to_scripthash()?.to_hex() ?? c.to_keyhash()!.to_hex();
-  }
-  async utxosAtCredential(cred: string) {
-    this.#call('utxosAtCredential');
-    return this.chain.filter((u) => this.#cred(u) === cred);
-  }
-  async utxosWithAsset(policy: string, name: string, cred: string) {
-    this.#call('utxosWithAsset');
-    return this.chain.filter((u) => this.#cred(u) === cred && (CSL.TransactionOutput.from_hex(u.outputHex).amount().multiasset()?.get_asset(CSL.ScriptHash.from_hex(policy), CSL.AssetName.new(Buffer.from(name, 'hex'))).to_str() ?? '0') !== '0');
-  }
-  async utxos(refs: string[]) {
-    this.#call('utxos');
-    return this.chain.filter((u) => refs.includes(u.ref));
-  }
-  async datum(hash: string): Promise<string | null> {
-    this.#call('datum');
-    return this.datums.get(hash) ?? null;
-  }
-  async rewardBalance() {
-    this.#call('rewardBalance');
-    if (this.rewardDown) throw new SourceUnavailable('Koios: down');
-    return this.reward;
-  }
-  async submit(tx: string) {
-    this.#call('submit');
-    if (this.submitError) throw this.submitError();
-    this.submitted.push(tx);
-    return CSL.FixedTransaction.from_hex(tx).transaction_hash().to_hex();
-  }
-}
-
-const swapOn = (ref: string, trader: number, lpName?: string) => order(ref, trader, 30n * ADA, [], step.swapIn(true, 25n * ADA, 1n), lpName ? { lpName } : {});
 
 function setup(n: number, opts: { evaluate?: Evaluator; backup?: boolean; wallet?: Utxo[]; signer?: Signer | null; extra?: Utxo[]; config?: Partial<WatcherConfig> } = {}) {
   const w = world();
@@ -170,7 +76,7 @@ test('a node that cannot see an input yet blames no order, and the round is not 
   assert.equal(watcher.setAside.size, 0);
   assert.equal(primary.submitted.length + backup.submitted.length, 0);
   assert.equal(backup.calls.get('tip') ?? 0, 0);
-  assert.deepEqual(kinds(), ['inputs-gone']);
+  assert.deepEqual(kinds(), ['wallet', 'inputs-gone']);
 });
 
 test('too big: halved, oldest orders kept, and sent', async () => {
@@ -261,12 +167,36 @@ test('a batcher the global setting does not name stops at once, with the reason'
   assert.match(watcher.stopped?.reason ?? '', /not among the global setting's batchers/);
 });
 
-test('EMURGO’s library broken (its wasm trapped): a fatal stop, for the process to restart', async () => {
+test('EMURGO’s library broken (its wasm trapped): a fatal stop, for the process to restart, naming the orders it broke on', async () => {
   class RuntimeError extends Error {}
-  const { watcher, events } = setup(1, { evaluate: evaluator(() => new RuntimeError('memory access out of bounds')) });
+  const { watcher, events, orders } = setup(2, { evaluate: evaluator(() => new RuntimeError('memory access out of bounds')) });
   await watcher.round();
   assert.equal(watcher.stopped?.fatal, true);
-  assert.ok(events.some((e) => e.kind === 'stopped' && e.fatal));
+  const stop = events.find((e) => e.kind === 'stopped');
+  assert.ok(stop && stop.kind === 'stopped' && stop.fatal);
+  assert.deepEqual(stop.setAside, { refs: orders.map((o) => o.utxo.ref), untilSlot: TIP + 3_600n });
+  assert.match(stop.reason, /set aside until slot 160003600/);
+  // Broken anywhere else (no batch being prepared): fatal, and no order is named.
+  const tip = setup(1);
+  tip.primary.tip = async () => {
+    throw new RuntimeError('unreachable');
+  };
+  await tip.watcher.round();
+  const other = tip.events.find((e) => e.kind === 'stopped');
+  assert.ok(other && other.kind === 'stopped' && other.fatal && other.setAside === undefined);
+});
+
+test('orders an earlier process set aside stay aside until their slot, then are batched', async () => {
+  const w = world();
+  const o = swapOn(`${'d0'.repeat(32)}#0`, 1);
+  const view = new FakeView('primary', [w.globalSetting, w.scripts.pool, w.scripts.order, w.scripts.poolBatching, w.pool, w.batcher.feeUtxos[0]!, w.batcher.collateral, o.utxo]);
+  const config: WatcherConfig = { deployment: DEP, policy: POLICY, batcher: { keyHash: BATCHER_KEY, address: BATCHER_ADDRESS.to_bech32(undefined) }, floatCap: 100n * ADA, quarantineSlots: 3_600n, maxRefusalsInARow: 3, now: () => Number(slotToPosixMs(view.slot)), setAside: new Map([[o.utxo.ref, TIP + 100n]]) };
+  const watcher = new Watcher([view], SIGNER, config, () => {});
+  await watcher.round();
+  assert.equal(view.submitted.length, 0);
+  view.slot = TIP + 101n;
+  await watcher.round();
+  assert.equal(view.submitted.length, 1);
 });
 
 test('refusals: benign ones (an input gone, the account changed) never count; three real ones in a row stop it; a success resets the count', async () => {
@@ -420,4 +350,82 @@ test('each skipped order is logged once while it stays, not every round', async 
   const { watcher, events } = setup(0, { extra: [cheap.utxo] });
   for (let i = 0; i < 3; i++) await watcher.round();
   assert.equal(events.filter((e) => e.kind === 'skipped').length, 1);
+});
+
+test('a round that finds only orders it cannot batch (a limit order waiting for its price, a pool that does not exist) still says it reached a source, and the alarm stays ok', async () => {
+  const limit = order(`${'44'.repeat(32)}#0`, 1, 30n * ADA, [], step.swapIn(true, 25n * ADA, 10n ** 15n, false));
+  const nowhere = swapOn(`${'45'.repeat(32)}#0`, 2, LP2);
+  const { watcher, events, primary } = setup(0, { extra: [limit.utxo, nowhere.utxo], backup: false });
+  let now = 0;
+  const pings: { kind: string; body: string }[] = [];
+  const hb = new Heartbeat({ alive: 'https://hc.invalid/alive', alerts: 'https://hc.invalid/alerts', everyMs: 300_000, quietMs: 600_000, alertGapMs: 3_600_000, dryRun: false, now: () => now, send: async (p) => (pings.push({ kind: p.url.endsWith('alerts') ? `alerts:${p.kind}` : `alive:${p.kind}`, body: p.body }), { ok: true }) }, () => {});
+  for (let minute = 1; minute <= 20; minute++) {
+    now = minute * 60_000;
+    const before = events.length;
+    await watcher.round();
+    for (const e of events.slice(before)) hb.observe(e);
+    if (minute % 5 === 0) hb.tick();
+  }
+  await hb.flush();
+  assert.equal(primary.submitted.length, 0);
+  const last = events.at(-1)!;
+  assert.ok(last.kind === 'idle' && last.reason === 'no order can be batched now' && last.orders === 2, last.kind);
+  assert.deepEqual(pings.filter((p) => p.kind.startsWith('alerts')).map((p) => p.kind), ['alerts:ok', 'alerts:ok', 'alerts:ok', 'alerts:ok']);
+});
+
+test('its wallet is reported when it changes, against its cap', async () => {
+  const { watcher, events, primary } = setup(1, { backup: false });
+  await watcher.round();
+  await watcher.round();
+  primary.slot = TIP + 241n;
+  await watcher.round();
+  const wallet = events.filter((e) => e.kind === 'wallet');
+  assert.deepEqual(wallet, [{ kind: 'wallet', held: 30n * ADA, cap: 100n * ADA }]);
+});
+
+test('each batch sent is looked for in the blocks: landed, or three in a row never landing raise an alert; a rollback un-lands; lost chain-sync judges nothing', async () => {
+  const { watcher, events, primary } = setup(1, { backup: false, config: { checkLanding: true } });
+  const sent = () => events.filter((e) => e.kind === 'sent').map((e) => (e as { txId: string }).txId);
+  // Before chain-sync has delivered a block, a batch sent cannot be looked for.
+  await watcher.round();
+  watcher.blockSeen(TIP + 500n, []);
+  assert.ok(!events.some((e) => e.kind === 'unlanded' || e.kind === 'landed'));
+  // Landed: seen in a block before its window closed.
+  primary.slot = TIP + 600n;
+  await watcher.round();
+  watcher.blockSeen(TIP + 610n, [sent().at(-1)!]);
+  watcher.blockSeen(TIP + 900n, []);
+  assert.deepEqual(events.filter((e) => e.kind === 'landed').map((e) => (e as { slot: bigint }).slot), [TIP + 610n]);
+  // Landed, then rolled back past it: never landed, as far as the chain says.
+  primary.slot = TIP + 1_200n;
+  await watcher.round();
+  watcher.blockSeen(TIP + 1_210n, [sent().at(-1)!]);
+  watcher.rolledBack(TIP + 1_205n);
+  watcher.blockSeen(TIP + 1_500n, []);
+  // Two more never landing: the third in a row is the alert.
+  for (const at of [1_800n, 2_400n]) {
+    primary.slot = TIP + at;
+    await watcher.round();
+    watcher.blockSeen(TIP + at + 300n, []);
+  }
+  assert.equal(events.filter((e) => e.kind === 'alert' && /never reached a block/.test(e.reason)).length, 1);
+  // One that lands starts the count again: the next one never landing is the first in a row.
+  primary.slot = TIP + 2_700n;
+  await watcher.round();
+  watcher.blockSeen(TIP + 2_710n, [sent().at(-1)!]);
+  watcher.blockSeen(TIP + 3_000n, []);
+  primary.slot = TIP + 3_000n;
+  await watcher.round();
+  watcher.blockSeen(TIP + 3_300n, []);
+  const unlanded = events.filter((e) => e.kind === 'unlanded');
+  assert.deepEqual(unlanded.map((e) => (e as { inARow: number }).inARow), [1, 2, 3, 1]);
+  // Chain-sync lost with a batch awaiting: no verdict on it, and none on one sent before the next block.
+  primary.slot = TIP + 3_600n;
+  await watcher.round();
+  watcher.syncLost();
+  primary.slot = TIP + 4_200n;
+  await watcher.round();
+  watcher.blockSeen(TIP + 4_800n, []);
+  assert.equal(events.filter((e) => e.kind === 'unlanded').length, 4);
+  assert.equal(sent().length, 9);
 });

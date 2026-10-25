@@ -10,8 +10,13 @@
 //     the node or our read-back caused is an alert (our engine and the contract disagree), and five
 //     in a row raise a louder one; it never stops the batcher (that would hand anyone who found such
 //     an order a switch that stops every pool).
-//   - the batcher's own wallet or settings (SetupError), or EMURGO's library broken: it stops.
-// Above the float cap it stops. A dry run prepares and judges, and never signs or sends.
+//   - the batcher's own wallet or settings (SetupError), or EMURGO's library broken: it stops. The
+//     library broken while preparing a batch: that batch's orders are named in the stop, to be set
+//     aside by the next process (src/main.ts keeps them on the volume), so one order cannot break
+//     every restart.
+// Above the float cap it stops. A dry run prepares and judges, and never signs or sends. Every round
+// that reached a source says so (the alarm counts it). With chain-sync, each batch sent is looked
+// for in the blocks until its window closes: three in a row that never landed raise an alert.
 import CSL from '@emurgo/cardano-serialization-lib-nodejs';
 import { isBatcherAddress, isPlainBatcherUtxo, orderOutputProblem, type ProtocolParams } from './build.ts';
 import { slotToPosixMs } from './chain.ts';
@@ -42,6 +47,10 @@ export interface WatcherConfig {
   maxRefusalsInARow: number;
   /** The wall clock, in POSIX ms (a source's tip is checked against it). */
   now?: () => number;
+  /** Orders set aside by an earlier process, until the slot given (the library broke on them). */
+  setAside?: ReadonlyMap<string, bigint>;
+  /** Blocks are followed (blockSeen, rolledBack): each batch sent is looked for in them. */
+  checkLanding?: boolean;
 }
 
 export type WatcherEvent =
@@ -53,8 +62,11 @@ export type WatcherEvent =
   | { kind: 'prepared'; source: string; pool: string; orders: string[]; fee: bigint; dryRun: boolean }
   | { kind: 'sent'; txId: string; pool: string; orders: string[]; fee: bigint }
   | { kind: 'refused'; pool: string; error: string; inARow: number; benign: boolean }
+  | { kind: 'wallet'; held: bigint; cap: bigint }
+  | { kind: 'landed'; txId: string; slot: bigint }
+  | { kind: 'unlanded'; txId: string; validToSlot: bigint; inARow: number }
   | { kind: 'alert'; reason: string }
-  | { kind: 'stopped'; reason: string; fatal: boolean }
+  | { kind: 'stopped'; reason: string; fatal: boolean; setAside?: { refs: string[]; untilSlot: bigint } }
   | { kind: 'error'; error: string };
 
 interface InFlight {
@@ -77,6 +89,8 @@ const MAX_PREPARES_PER_ROUND = 12;
 const MAX_ALERTS_IN_A_ROW = 5;
 /** Benign refusals in a row that raise an alert (every batch refused as spent or expired). */
 const BENIGN_ALERT = 10;
+/** Batches in a row whose window closed with no block holding them, that raise an alert. */
+const UNLANDED_ALERT = 3;
 /**
  * A source's tip may be this far from the wall clock either way. Behind: its batches would expire
  * before they land. Ahead: in-flight inputs would be released early (the ledger still refuses any
@@ -84,6 +98,17 @@ const BENIGN_ALERT = 10;
  */
 const TIP_BEHIND_MS = 300_000;
 const TIP_AHEAD_MS = 300_000;
+
+/** EMURGO's library broke while these orders were being prepared. */
+class TrapWhilePreparing extends Error {
+  readonly refs: string[];
+  readonly untilSlot: bigint;
+  constructor(refs: string[], untilSlot: bigint, cause: unknown) {
+    super(message(cause), { cause });
+    this.refs = refs;
+    this.untilSlot = untilSlot;
+  }
+}
 
 export class Watcher {
   readonly #views: readonly ChainView[];
@@ -95,6 +120,12 @@ export class Watcher {
   #refusals = 0;
   #benign = 0;
   #alerts = 0;
+  #unlanded = 0;
+  /** Batches sent, until a block past their window has been seen: in which block each landed, if it did. */
+  readonly #awaiting = new Map<string, { validToSlot: bigint; landedSlot: bigint | null }>();
+  /** Chain-sync has delivered a block since it was last lost: a batch sent now can be looked for. */
+  #syncUp = false;
+  #held: bigint | null = null;
   readonly #datums = new Map<string, PlutusData>();
   readonly #datumMisses = new Map<string, bigint>();
   readonly #logged = new Set<string>();
@@ -114,6 +145,7 @@ export class Watcher {
     this.#signer = signer;
     this.#c = c;
     this.#log = log;
+    for (const [ref, until] of c.setAside ?? []) this.setAside.set(ref, until);
   }
 
   /** Why the batcher stopped (it never starts again by itself), or null. `fatal`: the process must restart. */
@@ -156,6 +188,7 @@ export class Watcher {
         this.#checkTip(tip);
         await this.#roundOn(view, tip);
       } catch (e) {
+        if (e instanceof TrapWhilePreparing) return this.#stop(`EMURGO's library failed preparing ${e.refs.join(', ')} (${message(e)}); its memory is broken until the process restarts, and those orders are set aside until slot ${e.untilSlot}`, true, { refs: e.refs, untilSlot: e.untilSlot });
         if (isWasmTrap(e)) return this.#stop(`EMURGO's library failed (${message(e)}); its memory is broken until the process restarts`, true);
         if (e instanceof InputsGone) return this.#log({ kind: 'inputs-gone', source: view.name, error: message(e) });
         if (e instanceof SourceUnavailable || e instanceof OgmiosError) {
@@ -200,6 +233,8 @@ export class Watcher {
     ]);
 
     const held = wallet.reduce((s, u) => s + coin(u), 0n);
+    if (held !== this.#held) this.#log({ kind: 'wallet', held, cap: this.#c.floatCap });
+    this.#held = held;
     if (held > this.#c.floatCap) return this.#stop(`the batcher holds ${held} lovelace, above its cap of ${this.#c.floatCap}: sweep it to the treasury`, false);
 
     let global: ReturnType<typeof readGlobalSetting>;
@@ -256,8 +291,9 @@ export class Watcher {
             view.evaluate,
           );
         } catch (e) {
-          // The source, the wallet, the settings, a broken library: not this batch's fault.
-          if (e instanceof SourceUnavailable || e instanceof OgmiosError || e instanceof SetupError || isWasmTrap(e)) throw e;
+          // The source, the wallet, the settings: not this batch's fault. A broken library: named.
+          if (isWasmTrap(e)) throw new TrapWhilePreparing(candidate.orders.map((o) => o.utxo.ref), tip.slot + this.#c.quarantineSlots, e);
+          if (e instanceof SourceUnavailable || e instanceof OgmiosError || e instanceof SetupError) throw e;
           if (candidate.orders.length > 1 && prepares < MAX_PREPARES_PER_ROUND) {
             const half = Math.ceil(candidate.orders.length / 2);
             candidate = { ...candidate, orders: candidate.orders.slice(0, half), fees: candidate.fees.slice(0, half) };
@@ -279,6 +315,43 @@ export class Watcher {
       }
     }
     this.#skipped(roundSkipped, orderUtxos);
+    // Orders waiting, none batchable now (a limit order's price, a pool that does not exist): the
+    // source answered all the same.
+    this.#log({ kind: 'idle', source: view.name, slot: tip.slot, orders: orders.orders.length, reason: 'no order can be batched now' });
+  }
+
+  /** A block chain-sync delivered: our batches in it have landed, and windows it passes are judged. */
+  blockSeen(slot: bigint, txIds: readonly string[]): void {
+    this.#syncUp = true;
+    for (const t of txIds) {
+      const a = this.#awaiting.get(t);
+      if (a) a.landedSlot = slot;
+    }
+    for (const [txId, a] of this.#awaiting) {
+      if (slot <= a.validToSlot) continue;
+      this.#awaiting.delete(txId);
+      if (a.landedSlot !== null) {
+        this.#unlanded = 0;
+        this.#log({ kind: 'landed', txId, slot: a.landedSlot });
+        continue;
+      }
+      this.#log({ kind: 'unlanded', txId, validToSlot: a.validToSlot, inARow: ++this.#unlanded });
+      if (this.#unlanded === UNLANDED_ALERT) this.#log({ kind: 'alert', reason: `${this.#unlanded} batches in a row were sent and never reached a block before their window closed: is the submitting node passing them on?` });
+    }
+  }
+
+  /**
+   * Chain-sync was lost: it starts again at the new tip, so the blocks meanwhile are never seen, and
+   * a batch awaiting a block can no longer be judged (nor one sent before a block comes again).
+   */
+  syncLost(): void {
+    this.#syncUp = false;
+    this.#awaiting.clear();
+  }
+
+  /** The chain rolled back to `slot`: a batch landed after it has not landed (yet). */
+  rolledBack(slot: bigint): void {
+    for (const a of this.#awaiting.values()) if (a.landedSlot !== null && a.landedSlot > slot) a.landedSlot = null;
   }
 
   /** The batching account's balance: cached for an hour; if the read fails, the last one read. */
@@ -362,12 +435,13 @@ export class Watcher {
     this.#refusals = 0;
     this.#benign = 0;
     this.#alerts = 0;
+    if (this.#c.checkLanding && this.#syncUp) this.#awaiting.set(txId, { validToSlot: c.validToSlot, landedSlot: null });
     this.#log({ kind: 'sent', txId, pool: c.pool.lpName, orders, fee: b.fee });
   }
 
-  #stop(reason: string, fatal: boolean): void {
+  #stop(reason: string, fatal: boolean, setAside?: { refs: string[]; untilSlot: bigint }): void {
     this.#stopped = { reason, fatal };
-    this.#log({ kind: 'stopped', reason, fatal });
+    this.#log({ kind: 'stopped', reason, fatal, ...(setAside ? { setAside } : {}) });
   }
 }
 

@@ -1,28 +1,35 @@
-// The batcher as a process (on Railway: Dockerfile, railway.json). Settings come from a JSON file,
-// or the BATCHER_SETTINGS variable (no secrets in them); endpoints and the key from the
-// environment, never logged:
+// The batcher as a process (on Railway: Dockerfile, docker-entrypoint.sh, railway.json). Settings
+// come from a JSON file, or the BATCHER_SETTINGS variable (no secrets in them); endpoints and the
+// key from the environment, never logged:
 //   OGMIOS_URL   https://<key>.mainnet-v6.ogmios-m1.demeter.run   (queries, evaluation, submission)
 //   OGMIOS_WS    wss://<key>.mainnet-v6.ogmios-m1.demeter.run     (chain-sync)
 //   KUPO_URL     https://<key>.mainnet-v2.kupo-m1.demeter.run
 //   KOIOS_URL    https://api.koios.rest/api/v1   KOIOS_TOKEN  the batcher's own Koios key
-//   BATCHER_KEY_FILE  the signing key; without it, a dry run
-//   BATCHER_MAKE_KEY=1  with no key at BATCHER_KEY_FILE: make it there, say its hash and address, exit
-//   HC_PING_URL_CARDANO_BATCHER  the alarm (src/heartbeat.ts)
+//   BATCHER_KEY_FILE  the signing key, at the top of the volume (the entrypoint refuses anywhere else)
+//   BATCHER_MAKE_KEY=1  first boot only, before any settings: make the key there, say its hash and
+//                       address, exit
+//   BATCHER_LIVE=1  sign and send; without it, a dry run (every batch prepared and judged, none signed)
+//   HC_PING_URL_CARDANO_BATCHER, HC_PING_URL_CARDANO_BATCHER_ALERTS  the alarm (src/heartbeat.ts);
+//                       a live batcher needs both, and signs nothing until they have answered
 // A round runs on every block, and every `idleRoundMs` anyway (chain-sync may be down). Every
-// event is one JSON line, scrubbed of the secrets above. Exit codes: 0 the key was made, or a stop
-// signal; 1 the settings or the environment are wrong; 2 the batcher stopped itself (the float
-// cap, refusals, its wallet or settings: a person is needed); 3 it must restart.
-//   node src/main.ts [<settings.json>] [--once]      (--once: one round, then exit)
-import { existsSync, readFileSync } from 'node:fs';
+// event is one JSON line, scrubbed of the secrets above. A batcher that stops itself (the float
+// cap, refusals, its wallet or settings) stays up, its alerts check failing, until a person
+// redeploys: Railway restarts any exit but 0, and a restarted batcher would read as recovered.
+// Exit codes: 0 the key was made (or found, with no settings yet), or a stop signal; 1 the
+// settings or the environment are wrong; 3 EMURGO's library broke (the process must restart: the
+// orders it broke on are kept on the volume, set aside); with --once, 2 it stopped itself.
+//   node src/main.ts [<settings.json>] [--once]      (--once: one round, then exit; no alarm)
+import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { isBatcherAddress } from './build.ts';
 import { MAINNET_TIME } from './chain.ts';
-import { Follower } from './follow.ts';
+import { Follower, type SocketFactory } from './follow.ts';
 import { stringifyExact } from './json.ts';
 import { Koios } from './koios.ts';
 import { Kupo, checkKupoReady } from './kupo.ts';
 import { SourceUnavailable } from './ogmios.ts';
-import { Heartbeat, resolvePingUrl } from './heartbeat.ts';
-import { keyFromFile, makeKeyFile, signerOf } from './signer.ts';
+import { ALERTS_PING_ENV, Heartbeat, PING_ENV, resolvePingUrl, type HeartbeatConfig } from './heartbeat.ts';
+import { enterpriseAddress, keyFromFile, makeKeyFile, signerOf } from './signer.ts';
 import { koiosView, ogmiosKupoView, type ChainView } from './view.ts';
 import { Watcher, type WatcherConfig } from './watcher.ts';
 
@@ -50,6 +57,9 @@ export interface Settings {
 
 const HEX56 = /^[0-9a-f]{56}$/;
 const REF = /^[0-9a-f]{64}#\d+$/;
+
+/** The heartbeat's rhythm: a ping every 5 minutes; 10 minutes with no round reaching a source is a fail; one alert email an hour at most. */
+export const HEARTBEAT = { everyMs: 300_000, quietMs: 600_000, alertGapMs: 3_600_000 };
 
 export type ReadSettings = WatcherConfig & { network: number; idleRoundMs: number };
 
@@ -89,7 +99,8 @@ export function parseSettings(text: string): ReadSettings {
   const maxOrdersPerBatch = int('maxOrdersPerBatch', 1, 64);
   const quarantineSlots = int('quarantineSlots', 600, 604_800);
   const maxRefusalsInARow = int('maxRefusalsInARow', 1, 100);
-  const idleRoundMs = int('idleRoundMs', 5_000, 3_600_000);
+  // With chain-sync down, a round still comes at least twice in the alarm's quiet time.
+  const idleRoundMs = int('idleRoundMs', 5_000, HEARTBEAT.quietMs / 2);
   const batcherFee = lovelace('batcherFee', 1n);
   const floatCap = lovelace('floatCap', 10_000_000n);
   // The batcher's change and its collateral's return go to this address: it must be its own key's.
@@ -106,36 +117,42 @@ export function parseSettings(text: string): ReadSettings {
   };
 }
 
-const SECRET_ENV = ['OGMIOS_URL', 'OGMIOS_WS', 'KUPO_URL'] as const;
+const SECRET_ENV = ['OGMIOS_URL', 'OGMIOS_WS', 'KUPO_URL', PING_ENV, ALERTS_PING_ENV] as const;
 
 /**
- * One JSON line per event, scrubbed of every secret in the environment: Demeter puts the API
- * key in the host name, so an error quoting a host must not write it out. A value that is not a
- * URL is scrubbed whole.
+ * Scrubs every secret in the environment out of a text: Demeter puts the API key in the host
+ * name, a ping URL's secret is its path, and a value that is not a URL is scrubbed whole. As
+ * scripts/ops/lib/healthchecks.mjs's scrubSecrets, nothing shorter than 8 characters counts.
  */
-export function logger(env: Readonly<Record<string, string | undefined>>, write: (line: string) => void): (e: object) => void {
+export function scrubber(env: Readonly<Record<string, string | undefined>>): (text: string) => string {
   const secrets = SECRET_ENV.flatMap((k) => {
     const u = env[k];
     if (!u) return [];
-    // The value as given, and cleaned of stray quotes or spaces (then its host, if it has one).
+    // The value as given, and cleaned of stray quotes or spaces (then its URL's parts, if it is one).
     const clean = u.trim().replace(/^["']+|["']+$/g, '');
-    const hosts = [u, clean].flatMap((x) => {
+    const parts = [u, clean].flatMap((x) => {
       try {
-        return [new URL(x).host];
+        const url = new URL(x);
+        return [url.href.replace(/\/+$/, ''), url.host, url.pathname];
       } catch {
         return [];
       }
     });
-    return [u, clean, ...hosts];
+    return [u, clean, ...parts];
   })
     .concat(env.KOIOS_TOKEN ? [env.KOIOS_TOKEN] : [])
-    .filter((s) => s.length > 0)
+    .filter((s) => s.length >= 8)
     .sort((a, b) => b.length - a.length);
-  return (e) => {
-    let line = stringifyExact({ at: new Date().toISOString(), ...e });
-    for (const s of secrets) line = line.split(s).join('[redacted]');
-    write(`${line}\n`);
+  return (text) => {
+    for (const s of secrets) text = text.split(s).join('[redacted]');
+    return text;
   };
+}
+
+/** One JSON line per event, scrubbed of every secret in the environment. */
+export function logger(env: Readonly<Record<string, string | undefined>>, write: (line: string) => void): (e: object) => void {
+  const scrub = scrubber(env);
+  return (e) => write(`${scrub(stringifyExact({ at: new Date().toISOString(), ...e }))}\n`);
 }
 
 /** The endpoints, checked without ever repeating their values (they hold keys). */
@@ -174,9 +191,6 @@ function gated(view: ChainView, ready: () => Promise<void>, recheckMs: number, l
   };
 }
 
-/** The heartbeat's rhythm: a ping every 5 minutes; 10 minutes with no source is a fail; one alert email an hour at most. */
-export const HEARTBEAT = { everyMs: 300_000, quietMs: 600_000, alertGapMs: 3_600_000 };
-
 /**
  * The one-time key: with BATCHER_MAKE_KEY=1 and no key at BATCHER_KEY_FILE, makes it there and
  * returns what to show (its hash and the address to fund); with a key there already, returns
@@ -191,28 +205,118 @@ export function makeKeyIfAsked(env: Readonly<Record<string, string | undefined>>
   return makeKeyFile(path, 1);
 }
 
-async function main(): Promise<number> {
-  const env = process.env;
-  const log = logger(env, (line) => process.stdout.write(line));
-  log({ kind: 'boot', uid: process.getuid?.() ?? null, node: process.version });
-  const ping = resolvePingUrl(env);
-  const once = process.argv.includes('--once');
-  const heartbeat = new Heartbeat({ url: once ? null : ping.url, ...HEARTBEAT }, log);
+/** Orders EMURGO's library broke on, kept beside the key so the next process sets them aside too. */
+export const SET_ASIDE_FILE = 'set-aside.json';
+
+/** {"<txhash>#<index>": "<until slot>"}; a file that cannot be read is said, and none are set aside. */
+export function readSetAside(path: string, log: (e: object) => void): Map<string, bigint> {
+  const m = new Map<string, bigint>();
+  if (!existsSync(path)) return m;
   try {
+    const j = JSON.parse(readFileSync(path, 'utf8')) as unknown;
+    if (typeof j !== 'object' || j === null || Array.isArray(j)) throw new Error('not an object');
+    for (const [ref, until] of Object.entries(j)) {
+      if (!REF.test(ref) || typeof until !== 'string' || !/^\d+$/.test(until)) throw new Error(`${ref}: not an order and a slot`);
+      m.set(ref, BigInt(until));
+    }
+    return m;
+  } catch (e) {
+    log({ kind: 'set-aside-unreadable', file: path, error: e instanceof Error ? e.message : String(e) });
+    return new Map();
+  }
+}
+
+export function writeSetAside(path: string, add: { refs: string[]; untilSlot: bigint }): void {
+  const kept = Object.fromEntries([...readSetAside(path, () => {})].map(([r, u]) => [r, String(u)]));
+  for (const r of add.refs) kept[r] = String(add.untilSlot);
+  writeFileSync(`${path}.new`, `${JSON.stringify(kept)}\n`, { mode: 0o600 });
+  renameSync(`${path}.new`, path);
+}
+
+/** On Linux, what the process may still do (the entrypoint drops every capability, for good). */
+function privileges(): { capEff: string; capBnd: string; noNewPrivs: string } | null {
+  try {
+    const s = readFileSync('/proc/self/status', 'utf8');
+    const field = (k: string) => new RegExp(`^${k}:\\s*(\\S+)`, 'm').exec(s)?.[1] ?? '?';
+    return { capEff: field('CapEff'), capBnd: field('CapBnd'), noNewPrivs: field('NoNewPrivs') };
+  } catch {
+    return null;
+  }
+}
+
+/** What the process is given. Tests stand in for the alarm's pings, the sources and the rhythm. */
+export interface Proc {
+  env: Readonly<Record<string, string | undefined>>;
+  /** The arguments after the script. */
+  argv: readonly string[];
+  write: (line: string) => void;
+  /** Hands over the function that stops the batcher cleanly (SIGINT, SIGTERM). */
+  onStop: (stop: () => void) => void;
+  rhythm?: typeof HEARTBEAT;
+  send?: HeartbeatConfig['send'];
+  views?: ChainView[];
+  socket?: SocketFactory;
+  /** How often the loop looks for a stop and an idle round (5 s). */
+  pollMs?: number;
+  /** How long a live batcher waits before asking its alarm again (60 s). */
+  alarmRetryMs?: number;
+}
+
+export async function main(p: Proc): Promise<number> {
+  const env = p.env;
+  const log = logger(env, p.write);
+  log({ kind: 'boot', uid: process.getuid?.() ?? null, node: process.version, privileges: privileges() });
+  const once = p.argv.includes('--once');
+  const live = env.BATCHER_LIVE === '1';
+  const alive = resolvePingUrl(env, PING_ENV);
+  const alerts = resolvePingUrl(env, ALERTS_PING_ENV);
+  const rhythm = p.rhythm ?? HEARTBEAT;
+  const heartbeat = new Heartbeat({ alive: once ? null : alive.url, alerts: once ? null : alerts.url, ...rhythm, dryRun: !live, scrub: scrubber(env), send: p.send }, log);
+  let stopAsked = false;
+  const stopSignal = new Promise<void>((resolve) =>
+    p.onStop(() => {
+      stopAsked = true;
+      resolve();
+    }),
+  );
+  const wait = (ms: number) =>
+    new Promise<void>((resolve) => {
+      const t = setTimeout(resolve, ms);
+      void stopSignal.then(() => {
+        clearTimeout(t);
+        resolve();
+      });
+    });
+  try {
+    const path = p.argv.find((a) => !a.startsWith('--'));
+    const text = path ? readFileSync(path, 'utf8') : env.BATCHER_SETTINGS;
+    // Left on, it would make a fresh key whenever the old one is missing, and say "fund it".
+    if (env.BATCHER_MAKE_KEY === '1' && text !== undefined) throw new Error('BATCHER_MAKE_KEY=1 is for the first boot only, before there are settings: remove it');
     const made = makeKeyIfAsked(env);
     if (made) {
-      log({ kind: 'key-made', ...made, next: 'register this key hash as a batcher in the global setting (the 48-hour lock), fund the address with two plain ADA UTxOs (5 ADA for collateral, and its float), put the hash and address in the settings, then remove BATCHER_MAKE_KEY' });
+      log({ kind: 'key-made', ...made, next: 'remove BATCHER_MAKE_KEY and redeploy: that boot must show this same hash (key-found), so the key is on the volume. Only then register the hash as a batcher (the 48-hour lock), fund the address with two plain ADA UTxOs (5 ADA for collateral, and its float), and put the hash and address in the settings' });
       return 0;
     }
-    const path = process.argv.slice(2).find((a) => !a.startsWith('--'));
-    const c = path ? readSettings(path) : env.BATCHER_SETTINGS ? parseSettings(env.BATCHER_SETTINGS) : null;
-    if (!c) throw new Error('no settings: give a settings file, or BATCHER_SETTINGS');
-    const e = readEnv(env);
-    if (!once && ping.problem) log({ kind: 'heartbeat-off', reason: `${'HC_PING_URL_CARDANO_BATCHER'} is ${ping.problem}: no alarm will reach anyone` });
-
     // The key first: a key the settings do not name is refused before any source is asked.
-    const signer = env.BATCHER_KEY_FILE ? signerOf(keyFromFile(env.BATCHER_KEY_FILE)) : null;
-    if (signer && signer.keyHash !== c.batcher.keyHash) throw new Error(`the key at BATCHER_KEY_FILE is ${signer.keyHash}; the settings name ${c.batcher.keyHash}`);
+    const key = env.BATCHER_KEY_FILE ? signerOf(keyFromFile(env.BATCHER_KEY_FILE)) : null;
+    if (key) log({ kind: 'key-found', keyHash: key.keyHash, address: enterpriseAddress(key.keyHash, 1) });
+    if (text === undefined) {
+      if (key) {
+        log({ kind: 'waiting', reason: 'no settings yet: put this key hash and address in BATCHER_SETTINGS' });
+        return 0;
+      }
+      throw new Error('no settings: give a settings file, or BATCHER_SETTINGS');
+    }
+    const c = parseSettings(text);
+    if (key && key.keyHash !== c.batcher.keyHash) throw new Error(`the key at BATCHER_KEY_FILE is ${key.keyHash}; the settings name ${c.batcher.keyHash}`);
+    if (live && !key) throw new Error('BATCHER_LIVE=1 needs BATCHER_KEY_FILE: there is nothing to sign with');
+    if (live && !once) {
+      for (const [name, r] of [[PING_ENV, alive], [ALERTS_PING_ENV, alerts]] as const) if (r.problem) throw new Error(`a live batcher needs its alarm: ${name} is ${r.problem}`);
+      if (alive.url === alerts.url) throw new Error(`a live batcher needs its alarm: ${PING_ENV} and ${ALERTS_PING_ENV} are the same check`);
+    }
+    // A dry run goes on without its alarm; a ping URL given but refused is said, by name.
+    for (const [variable, r] of [[PING_ENV, alive], [ALERTS_PING_ENV, alerts]] as const) if (!once && r.problem && r.problem !== 'unset') log({ kind: 'alarm-url-refused', variable, problem: r.problem });
+    const e = readEnv(env);
 
     const refused = new Set<string>();
     const onRefused = (ref: string, reason: string) => {
@@ -221,8 +325,8 @@ async function main(): Promise<number> {
       log({ kind: 'unreadable-utxo', ref, reason });
     };
     const koios = e.koios ? new Koios({ url: e.koios, token: env.KOIOS_TOKEN, timeoutMs: Number(env.KOIOS_TIMEOUT_MS ?? 30_000), onRefused }) : null;
-    const views: ChainView[] = [];
-    if (e.ogmios && e.kupo) {
+    const views: ChainView[] = p.views ? [...p.views] : [];
+    if (!p.views && e.ogmios && e.kupo) {
       if (!koios) throw new Error('KOIOS_URL is needed too: only Koios reads the batching account (Ogmios leaves out an account delegated nowhere)');
       const stake = koiosView(koios, c.network);
       const kupo = new Kupo({ url: e.kupo, onRefused });
@@ -231,66 +335,116 @@ async function main(): Promise<number> {
       // Kupo must be ready before it is believed; until then (and when it is not, at start) Koios serves.
       views.push(gated(ogmiosKupoView({ url: e.ogmios }, kupo, (h) => stake.rewardBalance(h)), () => checkKupoReady(kupo, patterns), 600_000, log));
     }
-    if (koios) views.push(koiosView(koios, c.network));
+    if (!p.views && koios) views.push(koiosView(koios, c.network));
     if (!views.length) throw new Error('no source: set OGMIOS_URL and KUPO_URL, and/or KOIOS_URL');
 
-    const watcher = new Watcher(views, signer, c, (ev) => {
+    const stateFile = env.BATCHER_KEY_FILE ? join(dirname(env.BATCHER_KEY_FILE), SET_ASIDE_FILE) : null;
+    const setAside = stateFile ? readSetAside(stateFile, log) : new Map<string, bigint>();
+    if (setAside.size) log({ kind: 'set-aside-restored', orders: Object.fromEntries(setAside) });
+    const signer = live ? key : null;
+    const watcher = new Watcher(views, signer, { ...c, setAside, checkLanding: e.ws !== undefined }, (ev) => {
       log(ev);
       heartbeat.observe(ev);
+      if (ev.kind !== 'stopped' || !ev.setAside || !stateFile) return;
+      try {
+        writeSetAside(stateFile, ev.setAside);
+      } catch (err) {
+        log({ kind: 'set-aside-unsaved', error: err instanceof Error ? err.message : String(err) });
+      }
     });
-    log({ kind: 'start', sources: views.map((v) => v.name), dryRun: signer === null, batcher: c.batcher.keyHash, alarm: ping.url !== null && !once });
+    log({ kind: 'start', sources: views.map((v) => v.name), dryRun: signer === null, batcher: c.batcher.keyHash, alarm: { alive: alive.url !== null && !once, alerts: alerts.url !== null && !once } });
     if (once) {
       await watcher.round();
       log({ kind: 'exit' });
       return watcher.stopped ? (watcher.stopped.fatal ? 3 : 2) : 0;
     }
-    heartbeat.start();
+    // A live batcher signs nothing until its alarm has answered: else a stop alerts no one.
+    if (live) {
+      while (!(await heartbeat.start())) {
+        log({ kind: 'alarm-unreachable', reason: 'a ping did not get through (heartbeat-failed says why); nothing is signed until both checks answer' });
+        await wait(p.alarmRetryMs ?? 60_000);
+        if (stopAsked) {
+          log({ kind: 'exit', code: 0 });
+          return 0;
+        }
+      }
+    } else void heartbeat.start();
 
     let lastBlock = Date.now();
+    let lastIdle = 0;
     const follower = e.ws
       ? new Follower(e.ws, {
           forward: (b) => {
             lastBlock = Date.now();
+            watcher.blockSeen(b.slot, b.txIds);
             void watcher.trigger();
             log({ kind: 'block', slot: b.slot, height: b.height, ours: b.txIds.filter((t) => watcher.inflight.has(t)) });
           },
-          backward: (p) => {
+          backward: (pt) => {
+            watcher.rolledBack(pt === 'origin' ? 0n : pt.slot);
             void watcher.trigger();
-            log({ kind: 'rollback', to: p === 'origin' ? 'origin' : p.slot });
+            log({ kind: 'rollback', to: pt === 'origin' ? 'origin' : pt.slot });
           },
-          down: (error) => log({ kind: 'chain-sync-down', error }),
-        })
+          down: (error) => {
+            watcher.syncLost();
+            log({ kind: 'chain-sync-down', error });
+          },
+        }, { socket: p.socket })
       : null;
     follower?.start();
     return await new Promise<number>((resolve) => {
       let done = false;
+      let following = follower !== null;
+      const unfollow = () => {
+        if (following) follower!.stop();
+        following = false;
+      };
       const finish = async (code: number) => {
         if (done) return;
         done = true;
         clearInterval(timer);
         clearInterval(beat);
-        follower?.stop();
+        unfollow();
         await watcher.close();
-        await heartbeat.flush();
+        await heartbeat.close();
         log({ kind: 'exit', code });
         resolve(code);
       };
       const timer = setInterval(() => {
-        if (watcher.stopped) return void finish(watcher.stopped.fatal ? 3 : 2);
-        if (Date.now() - lastBlock >= c.idleRoundMs) void watcher.trigger();
-      }, Math.min(c.idleRoundMs, 5_000));
-      const beat = setInterval(() => heartbeat.tick(), HEARTBEAT.everyMs);
+        const s = watcher.stopped;
+        if (s?.fatal) return void finish(3);
+        // Stopped for a person: up, idle, its alerts check failing, until redeployed.
+        if (s) return unfollow();
+        // With no block, a round every idleRoundMs: counted from the last block or idle round.
+        if (Date.now() - Math.max(lastBlock, lastIdle) >= c.idleRoundMs) {
+          lastIdle = Date.now();
+          void watcher.trigger();
+        }
+      }, Math.min(c.idleRoundMs, p.pollMs ?? 5_000));
+      const beat = setInterval(() => heartbeat.tick(), rhythm.everyMs);
       void watcher.trigger();
-      process.once('SIGINT', () => void finish(0));
-      process.once('SIGTERM', () => void finish(0));
+      void stopSignal.then(() => finish(0));
     });
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
     log({ kind: 'fatal', error });
     heartbeat.fail(`could not start: ${error}`);
-    await heartbeat.flush();
+    await heartbeat.close();
     return 1;
   }
 }
 
-if (import.meta.main) process.exitCode = await main();
+if (import.meta.main) {
+  const code = await main({
+    env: process.env,
+    argv: process.argv.slice(2),
+    write: (line) => process.stdout.write(line),
+    onStop: (stop) => {
+      process.once('SIGINT', stop);
+      process.once('SIGTERM', stop);
+    },
+  });
+  process.exitCode = code;
+  // Whatever handle a library left open, the process ends: Railway waits for it to.
+  setTimeout(() => process.exit(code), 1_000).unref();
+}

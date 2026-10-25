@@ -1,13 +1,15 @@
-// The batcher's alarm: a healthchecks.io check (the venue's alarm path, docs/OPS_SCHEDULER.md),
-// its ping URL in HC_PING_URL_CARDANO_BATCHER. The pings are scripts/ops/lib/healthchecks.mjs's,
-// copied: `<url>/start` at boot, `<url>` with a short report while healthy, `<url>/fail` with the
-// reason when it is not; retries; https only; the URL is never logged.
-// Every `everyMs` the batcher says one thing:
-//   fail  it stopped itself (the float cap, refusals, its wallet or settings: a person is needed);
-//         no source has answered for `quietMs`; or something it alerted on (at most one such fail
-//         every `alertGapMs`, so a bad hour sends one email, not twenty)
-//   ok    otherwise, with what it did since the last ping
-// and healthchecks.io emails when a fail arrives, and when the pings stop (the process is gone).
+// The batcher's alarm: two healthchecks.io checks (the venue's alarm path, docs/OPS_SCHEDULER.md
+// section 2). The pings are scripts/ops/lib/healthchecks.mjs's, copied: `<url>/start` at boot,
+// `<url>` while healthy, `<url>/fail` when not; retries; https only; the URL is never logged, and
+// every body is scrubbed of secrets (run-job.mjs does the same) before it leaves.
+//   cardano-batcher (HC_PING_URL_CARDANO_BATCHER): the dead-man. An ok every `everyMs` whatever
+//     the batcher's state, its report in the body. It never says fail: a fail would hold it DOWN,
+//     and a process dying meanwhile would send no new email (the venue's rule). DOWN: the process
+//     is gone.
+//   cardano-batcher-alerts (HC_PING_URL_CARDANO_BATCHER_ALERTS): whether it works. Fail when it
+//     stopped itself (the float cap, refusals, its wallet or settings: a person is needed), when no
+//     round has reached a source for `quietMs`, or for what it alerted on (one such fail every
+//     `alertGapMs` at most, so a bad hour sends one email, not twenty); ok otherwise.
 import type { WatcherEvent } from './watcher.ts';
 
 export const BODY_LIMIT = 10_000;
@@ -16,10 +18,13 @@ export const PING_TIMEOUT_MS = 10_000;
 const retryPause = (i: number) => 1000 * (i + 1);
 
 export const PING_ENV = 'HC_PING_URL_CARDANO_BATCHER';
+export const ALERTS_PING_ENV = 'HC_PING_URL_CARDANO_BATCHER_ALERTS';
+/** Alerts kept while held back; past this many, only counted. */
+const MAX_HELD = 100;
 
 /** The ping URL when set and valid; otherwise null and why. Never echoes the value. */
-export function resolvePingUrl(env: Readonly<Record<string, string | undefined>>): { url: string | null; problem: string | null } {
-  const raw = env[PING_ENV];
+export function resolvePingUrl(env: Readonly<Record<string, string | undefined>>, name: string = PING_ENV): { url: string | null; problem: string | null } {
+  const raw = env[name];
   if (!raw) return { url: null, problem: 'unset' };
   let u: URL;
   try {
@@ -28,6 +33,8 @@ export function resolvePingUrl(env: Readonly<Record<string, string | undefined>>
     return { url: null, problem: 'not a URL' };
   }
   if (u.protocol !== 'https:') return { url: null, problem: 'not https' };
+  // fetch refuses such a URL, and its error quotes the URL whole.
+  if (u.username || u.password) return { url: null, problem: 'carrying a user name or password' };
   return { url: u.href.replace(/\/+$/, ''), problem: null };
 }
 
@@ -77,14 +84,20 @@ export async function sendPing({ url, kind, body = '', fetchImpl = fetch, attemp
 }
 
 export interface HeartbeatConfig {
-  /** null: no alarm set up (the batcher still runs, and says so at start). */
-  url: string | null;
-  /** How often a ping goes out (the check's period). */
+  /** The dead-man check's ping URL; null: not set up. */
+  alive: string | null;
+  /** The alerts check's ping URL; null: not set up. */
+  alerts: string | null;
+  /** How often both are pinged (the checks' period). */
   everyMs: number;
-  /** No source answering for this long is a fail. */
+  /** No round reaching a source for this long is a fail. */
   quietMs: number;
   /** At most one fail for alerts this often. */
   alertGapMs: number;
+  /** It signs nothing: every report says so. */
+  dryRun: boolean;
+  /** Every body, and every ping error logged, passes through this (the logger's scrubber). */
+  scrub?: (text: string) => string;
   now?: () => number;
   send?: (p: { url: string; kind: PingKind; body: string }) => Promise<PingResult>;
 }
@@ -95,14 +108,18 @@ export class Heartbeat {
   readonly #log: (e: object) => void;
   readonly #now: () => number;
   readonly #send: (p: { url: string; kind: PingKind; body: string }) => Promise<PingResult>;
+  readonly #scrub: (text: string) => string;
   readonly #since: number;
   #lastGood: number;
+  #lastProblem: string | null = null;
   #stopped: string | null = null;
   #alerts: string[] = [];
+  #moreAlerts = 0;
   #lastAlertPing = -Infinity;
   #sent = 0;
   #fees = 0n;
   #lastRound = '';
+  #wallet: { held: bigint; cap: bigint } | null = null;
   #pending: Promise<unknown> = Promise.resolve();
 
   constructor(c: HeartbeatConfig, log: (e: object) => void) {
@@ -110,6 +127,7 @@ export class Heartbeat {
     this.#log = log;
     this.#now = c.now ?? Date.now;
     this.#send = c.send ?? ((p) => sendPing(p));
+    this.#scrub = c.scrub ?? ((t) => t);
     this.#since = this.#now();
     this.#lastGood = this.#since;
   }
@@ -118,83 +136,124 @@ export class Heartbeat {
   observe(e: WatcherEvent | { kind: string }): void {
     const ev = e as WatcherEvent;
     switch (ev.kind) {
+      // A round that reached a source, whatever it then found.
       case 'idle':
+        return this.#good(`idle via ${ev.source}${ev.reason ? `: ${ev.reason}` : ''}`);
       case 'prepared':
-      case 'refused':
+        return this.#good(`prepared ${ev.orders.length} orders via ${ev.source}${ev.dryRun ? ' (dry run)' : ''}`);
       case 'inputs-gone':
-        this.#lastGood = this.#now();
-        this.#lastRound = `${ev.kind} via ${'source' in ev ? ev.source : '?'}`;
-        break;
+        return this.#good(`an input was spent meanwhile, via ${ev.source}`);
+      case 'refused':
+        return this.#good(`a batch refused at submission (pool ${ev.pool})`);
       case 'sent':
-        this.#lastGood = this.#now();
         this.#sent++;
         this.#fees += ev.fee;
-        this.#lastRound = `sent ${ev.txId}`;
-        break;
+        return this.#good(`sent ${ev.txId}`);
       case 'set-aside':
-        this.#lastGood = this.#now();
+        this.#good(`set aside ${ev.ref}`);
         if (ev.alert) this.#alert(`set aside ${ev.ref}: ${ev.reason}`);
-        break;
+        return;
+      case 'wallet':
+        this.#wallet = { held: ev.held, cap: ev.cap };
+        return;
+      case 'source-down':
+        this.#lastProblem = `${ev.source}: ${ev.error}`;
+        return;
       case 'alert':
-        this.#alert(ev.reason);
-        break;
+        return this.#alert(ev.reason);
       case 'error':
-        this.#alert(`error: ${ev.error}`);
-        break;
+        this.#lastProblem = ev.error;
+        return this.#alert(`error: ${ev.error}`);
       case 'stopped':
         this.#stopped = ev.reason;
-        this.#ping('fail', `STOPPED${ev.fatal ? ' (fatal: the process restarts)' : ''}: ${ev.reason}`);
-        break;
+        return this.#failAlerts(`STOPPED${ev.fatal ? ' (fatal: the process restarts)' : ''}: ${ev.reason}`);
     }
   }
 
+  #good(round: string): void {
+    this.#lastGood = this.#now();
+    this.#lastRound = round;
+  }
+
   #alert(text: string): void {
-    this.#alerts.push(text);
-    if (this.#now() - this.#lastAlertPing >= this.#c.alertGapMs) this.#flushAlerts();
+    if (this.#alerts.length < MAX_HELD) this.#alerts.push(text);
+    else this.#moreAlerts++;
+    if (this.#now() - this.#lastAlertPing >= this.#c.alertGapMs) this.#failAlerts(null);
   }
 
-  #flushAlerts(): void {
-    if (!this.#alerts.length) return;
-    this.#lastAlertPing = this.#now();
-    const body = `ALERT (${this.#alerts.length}):\n${this.#alerts.join('\n')}`;
+  /** One fail on the alerts check: `head` (a stop, the quiet), then every alert held back. Alerts that do not get through are held again. */
+  #failAlerts(head: string | null): void {
+    const held = this.#alerts;
+    const more = this.#moreAlerts;
+    if (head === null && !held.length) return;
     this.#alerts = [];
-    this.#ping('fail', body);
-  }
-
-  start(): void {
-    if (!this.#c.url) this.#log({ kind: 'heartbeat-off', reason: `${PING_ENV} is not set: no alarm will reach anyone` });
-    this.#ping('start', 'the batcher started');
-  }
-
-  /** A fail now, whatever the rhythm (the process could not start). */
-  fail(text: string): void {
-    this.#ping('fail', text);
-  }
-
-  /** Called every `everyMs`: one ping, ok or fail. */
-  tick(): void {
-    const now = this.#now();
-    if (this.#stopped) return this.#ping('fail', `STOPPED: ${this.#stopped}`);
-    if (now - this.#lastGood >= this.#c.quietMs) return this.#ping('fail', `no source has answered for ${Math.round((now - this.#lastGood) / 60_000)} minutes`);
-    if (this.#alerts.length && now - this.#lastAlertPing >= this.#c.alertGapMs) return this.#flushAlerts();
-    const report = [`ok: running ${Math.round((now - this.#since) / 60_000)} minutes`, `last round: ${this.#lastRound || 'none yet'}`, `sent since the last ping: ${this.#sent} batches, ${this.#fees} lovelace in network fees`];
-    if (this.#alerts.length) report.push(`alerts held back (one fail an hour at most): ${this.#alerts.length}`);
-    this.#sent = 0;
-    this.#fees = 0n;
-    this.#ping('ok', report.join('\n'));
-  }
-
-  #ping(kind: PingKind, body: string): void {
-    const url = this.#c.url;
-    if (!url) return;
-    this.#pending = this.#pending.then(async () => {
-      const r = await this.#send({ url, kind, body });
-      if (!r.ok) this.#log({ kind: 'heartbeat-failed', ping: kind, error: r.error ?? `HTTP ${r.status}` });
+    this.#moreAlerts = 0;
+    const before = this.#lastAlertPing;
+    if (held.length) this.#lastAlertPing = this.#now();
+    const alerts = held.length ? `ALERT (${held.length + more}):\n${held.join('\n')}${more ? `\n(and ${more} more)` : ''}` : null;
+    void this.#ping(this.#c.alerts, 'fail', [head, alerts].filter((x) => x !== null).join('\n'), () => {
+      if (!held.length) return;
+      this.#alerts = [...held, ...this.#alerts].slice(0, MAX_HELD);
+      this.#moreAlerts += more;
+      this.#lastAlertPing = before;
     });
   }
 
-  /** Waits for every ping sent so far (before the process exits). */
+  /** The start pings. Resolves true once every check set up has answered. */
+  start(): Promise<boolean> {
+    const off = [!this.#c.alive && PING_ENV, !this.#c.alerts && ALERTS_PING_ENV].filter((x) => x);
+    if (off.length) this.#log({ kind: 'heartbeat-off', reason: `${off.join(' and ')}: not set up, so ${this.#c.alive ? 'no alert' : 'no alarm'} will reach anyone` });
+    const body = this.#c.dryRun ? 'the batcher started: a dry run, it signs nothing' : 'the batcher started, signing';
+    return Promise.all([this.#ping(this.#c.alive, 'start', body), this.#ping(this.#c.alerts, 'start', body)]).then((rs) => rs.every((r) => r === null || r.ok));
+  }
+
+  /** A fail on the alerts check now, whatever the rhythm (the process could not start). */
+  fail(text: string): void {
+    this.#failAlerts(text);
+  }
+
+  /** Called every `everyMs`: the dead-man's ok, and the alerts check's ok or fail. */
+  tick(): void {
+    const now = this.#now();
+    const quiet = now - this.#lastGood >= this.#c.quietMs ? `no round has reached a source for ${Math.round((now - this.#lastGood) / 60_000)} minutes${this.#lastProblem ? ` (the last problem: ${this.#lastProblem})` : ''}` : null;
+    const report = [
+      `${this.#c.dryRun ? 'DRY RUN, signing nothing. ' : ''}${this.#stopped ? `STOPPED: ${this.#stopped}` : (quiet ?? 'working')}`,
+      `running ${Math.round((now - this.#since) / 60_000)} minutes; last round: ${this.#lastRound || 'none yet'}`,
+      `since the last report: ${this.#sent} batches sent, ${this.#fees} lovelace in network fees`,
+    ];
+    if (this.#wallet) report.push(`wallet: ${this.#wallet.held} lovelace, its cap ${this.#wallet.cap}`);
+    if (this.#alerts.length) report.push(`alerts held back (one alert email an hour at most): ${this.#alerts.length + this.#moreAlerts}`);
+    this.#sent = 0;
+    this.#fees = 0n;
+    void this.#ping(this.#c.alive, 'ok', report.join('\n'));
+    if (this.#stopped) return this.#failAlerts(`STOPPED: ${this.#stopped}`);
+    if (quiet) return this.#failAlerts(quiet);
+    if (this.#alerts.length && now - this.#lastAlertPing >= this.#c.alertGapMs) return this.#failAlerts(null);
+    void this.#ping(this.#c.alerts, 'ok', report.join('\n'));
+  }
+
+  #ping(url: string | null, kind: PingKind, body: string, onFail?: () => void): Promise<PingResult | null> {
+    if (!url) return Promise.resolve(null);
+    const done = this.#pending.then(async () => {
+      const r = await this.#send({ url, kind, body: this.#scrub(body) });
+      if (!r.ok) {
+        this.#log({ kind: 'heartbeat-failed', check: url === this.#c.alive ? 'alive' : 'alerts', ping: kind, error: this.#scrub(r.error ?? `HTTP ${r.status}`) });
+        onFail?.();
+      }
+      return r;
+    });
+    this.#pending = done;
+    return done;
+  }
+
+  /** Waits for every ping sent so far. */
   async flush(): Promise<void> {
+    await this.#pending;
+  }
+
+  /** Before the process exits: alerts still held back go out now, then every ping is waited for. */
+  async close(): Promise<void> {
+    this.#failAlerts(null);
     await this.#pending;
   }
 }
