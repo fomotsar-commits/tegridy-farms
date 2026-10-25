@@ -20,6 +20,7 @@ The site's Changelog tab shows both files.
 - Solana swap: when your limit orders or DCAs cannot be read, the Limit and DCA tabs say so, with Try again. Before, they said "No open orders" or "No active DCAs".
 - Solana swap: Buy asks Jupiter for less, so it waits less. A quote under 10 seconds old is built as shown instead of asked for again, our pools are read at the click instead of after Jupiter's answer, the trending list, the risk warnings and the pair's prices are shared by every visitor for a short time (prices are still read fresh in USD mode), and "Swap confirmed" is checked every second for the first 10 seconds.
 - On a 320px-wide phone the menu button stays on screen: below 360px the top bar's memetics.finance name sits on two lines. The Solana swap page no longer slides sideways at that width.
+- Earn: a new Harvest card claims your staking rewards from every pool with one button, instead of opening each pool. It reads each lighthouse pool and the lock ladder on Solana, and each lighthouse pool on Ethereum and Base, for the wallets you have connected, lists what each pays in its own coin, and sends each pool's own claim, one wallet approval per claim. Each pool pays from its own reward vault; the venue takes nothing. A pool it could not read says so. A reward the pool cannot pay yet, one paid in another coin, and the TOWELI farm (whose claim can also extend your lock) are left for their own page.
 
 ### 2026-10-23
 

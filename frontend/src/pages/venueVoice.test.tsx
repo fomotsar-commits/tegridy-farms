@@ -45,6 +45,12 @@ vi.mock('wagmi', () => ({
   useReadContracts: () => ({ data: undefined, isLoading: false, isError: false }),
   useWriteContract: () => ({ writeContract: vi.fn(), data: undefined, isPending: false, reset: vi.fn() }),
   useWaitForTransactionReceipt: () => ({ data: undefined, isLoading: false, isSuccess: false }),
+  // Harvest's (components/farm/HarvestCard.tsx): rendered for real, so its words are held to this file too.
+  useSwitchChain: () => ({ switchChainAsync: vi.fn() }),
+  usePublicClient: () => undefined,
+}));
+vi.mock('@rainbow-me/rainbowkit', () => ({
+  ConnectButton: { Custom: ({ children }: { children: (p: { openConnectModal: () => void; mounted: boolean }) => unknown }) => children({ openConnectModal: () => {}, mounted: true }) },
 }));
 vi.mock('framer-motion', () => {
   const passthrough = new Proxy(

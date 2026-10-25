@@ -35,6 +35,7 @@ import { BUNGALOWS, DEFAULT_BUNGALOW_ID } from '../lib/bungalows';
 import { useActiveBungalowId } from '../hooks/useActiveBungalowId';
 import { BungalowFarmPanel } from '../components/bungalow/BungalowFarmPanel';
 import { VenuePoolIndex } from '../components/farm/VenuePoolIndex';
+import { HarvestCard } from '../components/farm/HarvestCard';
 import { BackToEarn } from '../components/farm/BackToEarn';
 import { FarmStatsRow } from '../components/farm/FarmStatsRow';
 import { IncentivesStrip } from '../components/farm/IncentivesStrip';
@@ -117,6 +118,8 @@ function VenueEarn() {
             </p>
           </FinePrint>
         </header>
+        {/* One press claims every pool's rewards (owner, 2026-10-24). */}
+        <HarvestCard />
         <VenuePoolIndex />
       </div>
     </div>
