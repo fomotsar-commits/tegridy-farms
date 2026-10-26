@@ -302,8 +302,11 @@ function LendTab() {
   const [selectedCollection, setSelectedCollection] = useState<Address>(COLLECTIONS[0]!.address);
   const [principal, setPrincipal] = useState('');
   const [aprBps, setAprBps] = useState('');
+  // Gondi collection offer by default: any NFT of the collection can be pledged.
+  const [anyToken, setAnyToken] = useState(true);
   const [tokenId, setTokenId] = useState('');
   const [duration, setDuration] = useState(DURATION_PRESETS[2]!.seconds); // default 30d
+  const selectedSymbol = COLLECTIONS.find((c) => c.address === selectedCollection)?.symbol ?? '';
 
   const chainId = useChainId();
   const { writeContract, data: txHash, isPending, reset } = useWriteContract();
@@ -352,17 +355,20 @@ function LendTab() {
       toast.error('Enter a valid APR in basis points');
       return;
     }
-    if (!tokenId || tokenId.trim() === '') {
-      toast.error('Enter the specific Token ID you want as collateral');
-      return;
-    }
-    let tokenIdBig: bigint;
-    try {
-      tokenIdBig = BigInt(tokenId);
-      if (tokenIdBig < 0n) throw new Error('negative');
-    } catch {
-      toast.error('Token ID must be a non-negative integer');
-      return;
+    // A collection offer names no token: Gondi's shape is tokenId 0 + the flag.
+    let tokenIdBig = 0n;
+    if (!anyToken) {
+      if (!tokenId || tokenId.trim() === '') {
+        toast.error('Enter the specific Token ID you want as collateral');
+        return;
+      }
+      try {
+        tokenIdBig = BigInt(tokenId);
+        if (tokenIdBig < 0n) throw new Error('negative');
+      } catch {
+        toast.error('Token ID must be a non-negative integer');
+        return;
+      }
     }
     try {
       writeContract({
@@ -372,7 +378,7 @@ function LendTab() {
         functionName: 'createOffer',
         // De-drift 2026-05-31: createOffer now takes a 6th `_expiry` (absolute unix ts,
         // bounded on-chain to [now+1h, now+90d]). Default the offer to stay open 30 days.
-        args: [parseEther(principal), BigInt(aprBps), BigInt(duration), selectedCollection, tokenIdBig, BigInt(Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60)],
+        args: [parseEther(principal), BigInt(aprBps), BigInt(duration), selectedCollection, tokenIdBig, anyToken, BigInt(Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60)],
         value: parseEther(principal),
       });
     } catch (err: unknown) {
@@ -460,23 +466,52 @@ function LendTab() {
         </div>
       </div>
 
-      {/* Token ID — locks the offer to a specific NFT so the borrower can't
-          swap in a cheaper item from the same collection. */}
+      {/* Which NFTs the offer takes. Default: any NFT in the collection (a Gondi
+          collection offer — the borrower picks one when they accept). "One
+          specific NFT" pins it to a token id the borrower cannot swap out. */}
       <div>
         <label className="text-white/90 text-[11px] uppercase tracking-wider mb-2 flex items-center gap-1.5" style={LABEL_STYLE}>
-          Token ID
-          <InfoTooltip text="The exact tokenId in the selected collection you will accept as collateral. Pick a specific NFT you've appraised — the borrower cannot substitute a different one." />
+          Lend against
+          <InfoTooltip text="Any NFT: anyone holding one from this collection can take your offer and lock the NFT of their choice. One specific NFT: only that exact token can be locked." />
         </label>
-        <input
-          type="number"
-          step="1"
-          min="0"
-          placeholder="e.g. 1234"
-          value={tokenId}
-          onChange={(e) => setTokenId(e.target.value)}
-          className="w-full min-h-[44px] rounded-xl px-4 py-2 text-white text-[13px] bg-transparent outline-none focus:ring-1 focus:ring-purple-500/50 placeholder:text-white/85"
-          style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}
-        />
+        <div className="grid grid-cols-2 gap-2">
+          {[
+            { any: true, label: 'Any NFT in the collection' },
+            { any: false, label: 'One specific NFT' },
+          ].map((o) => (
+            <button
+              key={o.label}
+              type="button"
+              aria-pressed={anyToken === o.any}
+              onClick={() => setAnyToken(o.any)}
+              className={`min-h-[44px] px-3 py-2 rounded-xl text-[13px] font-medium transition-all ${
+                anyToken === o.any
+                  ? 'bg-emerald-500/15 border border-emerald-500/40 text-emerald-400'
+                  : 'border border-white/5 text-white/70 hover:border-white/15'
+              }`}
+              style={anyToken !== o.any ? { background: CARD_BG } : undefined}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+        {anyToken ? (
+          <p className="text-white/85 text-[11px] mt-2" style={LABEL_STYLE}>
+            Borrowers usually lock their cheapest one, so lend at the floor price.
+          </p>
+        ) : (
+          <input
+            type="number"
+            step="1"
+            min="0"
+            placeholder="Token ID, e.g. 1234"
+            aria-label="Token ID"
+            value={tokenId}
+            onChange={(e) => setTokenId(e.target.value)}
+            className="mt-2 w-full min-h-[44px] rounded-xl px-4 py-2 text-white text-[13px] bg-transparent outline-none focus:ring-1 focus:ring-purple-500/50 placeholder:text-white/85"
+            style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}
+          />
+        )}
       </div>
 
       {/* Duration Presets */}
@@ -520,7 +555,11 @@ function LendTab() {
       {/* Transaction Summary */}
       {principal && parseFloat(principal) > 0 && aprBps && parseInt(aprBps) > 0 && (
         <TxSummary art={<CardArt pageId="nft-finance" idx={25} />}>
-          You'll deposit <span className="font-mono text-white font-semibold">{principal} ETH</span>. If a borrower accepts and repays, you earn ~<span className="font-mono text-emerald-400 font-semibold">{interestPreview} ETH</span> interest over {formatDuration(duration)}.
+          You'll deposit <span className="font-mono text-white font-semibold">{principal} ETH</span>{' '}
+          {anyToken
+            ? <>for anyone holding a {selectedSymbol} to borrow.</>
+            : <>for whoever holds {selectedSymbol} #{tokenId || '…'} to borrow.</>}{' '}
+          If they repay, you earn ~<span className="font-mono text-emerald-400 font-semibold">{interestPreview} ETH</span> interest over {formatDuration(duration)}.
         </TxSummary>
       )}
 
@@ -583,6 +622,7 @@ function BorrowTab({ offerCount }: { offerCount: number }) {
     collateralContract: Address;
     tokenId: bigint;
     active: boolean;
+    isFullContractOffer: boolean;
   }
 
   const offers: OfferData[] = useMemo(() => {
@@ -591,9 +631,9 @@ function BorrowTab({ offerCount }: { offerCount: number }) {
     for (let i = 0; i < offersRaw.length; i++) {
       const r = offersRaw[i]!;
       if (r.status !== 'success' || !r.result) continue;
-      const [lender, principal, aprBps, dur, collateral, tokenId, active] = r.result as [Address, bigint, bigint, bigint, Address, bigint, boolean];
+      const [lender, principal, aprBps, dur, collateral, tokenId, active, isFullContractOffer] = r.result as [Address, bigint, bigint, bigint, Address, bigint, boolean, boolean];
       if (!active) continue;
-      result.push({ id: i, lender, principal, aprBps, duration: dur, collateralContract: collateral, tokenId, active });
+      result.push({ id: i, lender, principal, aprBps, duration: dur, collateralContract: collateral, tokenId, active, isFullContractOffer });
     }
     return result;
   }, [offersRaw]);
@@ -735,15 +775,40 @@ function OfferCard({
     duration: bigint;
     collateralContract: Address;
     tokenId: bigint;
+    isFullContractOffer: boolean;
   };
   isExpanded: boolean;
   onToggle: () => void;
   onAccepted?: () => void;
 }) {
-  const { isConnected } = useAccount();
+  const { address, isConnected } = useAccount();
   const chainId = useChainId();
-  // tokenId is fixed on the offer — the borrower cannot substitute a different one.
-  const tokenId = offer.tokenId.toString();
+  const symbol = collectionName(offer.collateralContract);
+  // Mirrors the contract's Gondi `_checkValidators`: the flag opens the offer to
+  // any token only when no token id is named; a non-zero id stays an exact match.
+  const anyToken = offer.isFullContractOffer && offer.tokenId === 0n;
+  // On a collection offer the borrower picks which of their NFTs to lock.
+  const [pickedId, setPickedId] = useState('');
+  const pledgedId: bigint | null = useMemo(() => {
+    if (!anyToken) return offer.tokenId;
+    if (!/^\d+$/.test(pickedId.trim())) return null;
+    return BigInt(pickedId.trim());
+  }, [anyToken, offer.tokenId, pickedId]);
+  const tokenId = pledgedId === null ? '' : pledgedId.toString();
+  const collateralLabel = pledgedId === null ? `your ${symbol}` : `${symbol} #${tokenId}`;
+
+  // Who holds the token the borrower named. An unreadable answer is shown as
+  // unknown, never as "yours" — the contract re-checks ownership on accept.
+  const { data: pledgedOwner, isError: ownerUnreadable, isLoading: ownerLoading } = useReadContract({
+    address: offer.collateralContract,
+    abi: ERC721_ABI,
+    functionName: 'ownerOf',
+    args: pledgedId === null ? undefined : [pledgedId],
+    chainId: CHAIN_ID,
+    query: { enabled: anyToken && isExpanded && pledgedId !== null },
+  });
+  const ownsPledged = !!address && !!pledgedOwner && (pledgedOwner as Address).toLowerCase() === address.toLowerCase();
+  const knownNotOwned = anyToken && !!pledgedOwner && !ownsPledged;
 
   const { writeContract: approveNft, data: approveTx, isPending: approving } = useWriteContract();
   const approveQuery = useWaitForTransactionReceipt({ hash: approveTx, onReplaced: noteReplacement });
@@ -789,28 +854,35 @@ function OfferCard({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- onAccepted is a stable refetch handle; fire once per confirmed tx
   }, [acceptSuccess]);
 
+  // The approval covers one token; picking a different one needs a new approval.
+  const [approvedId, setApprovedId] = useState<bigint | null>(null);
+  const approvedForPledged = approveSuccess && approvedId !== null && approvedId === pledgedId;
+
   const handleApprove = () => {
     // AUDIT FIX M-8: refuse on wrong chain.
     if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     if (!isDeployed(TEGRIDY_NFT_LENDING_ADDRESS)) { toast.error('NFT lending is not deployed yet'); return; }
+    if (pledgedId === null) { toast.error(`Enter the token ID of the ${symbol} you want to lock`); return; }
+    setApprovedId(pledgedId);
     approveNft({
       chainId: CHAIN_ID,
       address: offer.collateralContract,
       abi: ERC721_ABI,
       functionName: 'approve',
-      args: [TEGRIDY_NFT_LENDING_ADDRESS, offer.tokenId],
+      args: [TEGRIDY_NFT_LENDING_ADDRESS, pledgedId],
     });
   };
 
   const handleAccept = () => {
     if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     if (!isDeployed(TEGRIDY_NFT_LENDING_ADDRESS)) { toast.error('NFT lending is not deployed yet'); return; }
+    if (pledgedId === null) { toast.error(`Enter the token ID of the ${symbol} you want to lock`); return; }
     acceptOffer({
       chainId: CHAIN_ID,
       address: TEGRIDY_NFT_LENDING_ADDRESS,
       abi: TEGRIDY_NFT_LENDING_ABI,
       functionName: 'acceptOffer',
-      args: [BigInt(offer.id)],
+      args: [BigInt(offer.id), pledgedId],
     });
   };
 
@@ -825,7 +897,7 @@ function OfferCard({
         <div className="flex items-center justify-between">
           <span className="text-white/70 text-[11px] font-mono">Offer #{offer.id}</span>
           <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/25">
-            {collectionName(offer.collateralContract)}
+            {anyToken ? `${symbol} · any NFT` : `${symbol} #${offer.tokenId.toString()}`}
           </span>
         </div>
         <div>
@@ -860,26 +932,70 @@ function OfferCard({
             onClick={(e) => e.stopPropagation()}
           >
             <div className="px-3 pb-3 md:px-5 md:pb-5 space-y-3 border-t border-white/5 pt-3">
-              {/* Required Token ID — lender fixed the exact NFT. The borrower
-                  must own this specific tokenId; no substitution is allowed
-                  (fixes critique 5.5: no picking the worst NFT). */}
-              <div
-                className="rounded-xl p-3 flex items-center justify-between gap-3"
-                style={{ background: 'rgba(13,21,48,0.8)', border: `1px solid ${CARD_BORDER}` }}
-              >
-                <div>
-                  <p className="text-white/85 text-[11px] uppercase tracking-wider flex items-center gap-1.5" style={LABEL_STYLE}>
-                    Required Collateral
-                    <InfoTooltip text="The lender selected this specific NFT as acceptable collateral. You must own this exact tokenId to accept the offer." />
-                  </p>
-                  <p className="text-white text-[15px] font-semibold font-mono mt-0.5">
-                    {collectionName(offer.collateralContract)} #{tokenId}
-                  </p>
+              {anyToken ? (
+                /* Collection offer — the borrower names which of their NFTs to lock. */
+                <div
+                  className="rounded-xl p-3 space-y-2"
+                  style={{ background: 'rgba(13,21,48,0.8)', border: `1px solid ${CARD_BORDER}` }}
+                >
+                  <label
+                    htmlFor={`nft-offer-${offer.id}-token`}
+                    className="text-white/85 text-[11px] uppercase tracking-wider flex items-center gap-1.5"
+                    style={LABEL_STYLE}
+                  >
+                    Your {symbol} to lock
+                    <InfoTooltip text="This lender takes any NFT from the collection. Enter the token ID of the one you want to lock; you must own it." />
+                  </label>
+                  <input
+                    id={`nft-offer-${offer.id}-token`}
+                    type="number"
+                    step="1"
+                    min="0"
+                    inputMode="numeric"
+                    placeholder="Token ID, e.g. 1234"
+                    value={pickedId}
+                    onChange={(e) => setPickedId(e.target.value)}
+                    className="w-full min-h-[44px] rounded-xl px-4 py-2 text-white text-[13px] font-mono bg-transparent outline-none focus:ring-1 focus:ring-purple-500/50 placeholder:text-white/85"
+                    style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}
+                  />
+                  {pledgedId !== null && (
+                    <p className="text-[11px]" role="status">
+                      {!isConnected ? (
+                        <span className="text-white/70">Connect a wallet to check you own {collateralLabel}.</span>
+                      ) : ownerLoading ? (
+                        <span className="text-white/70">Checking who owns {collateralLabel}…</span>
+                      ) : ownsPledged ? (
+                        <span className="text-emerald-400">You own {collateralLabel}.</span>
+                      ) : knownNotOwned ? (
+                        <span className="text-red-400">{collateralLabel} is not in your wallet.</span>
+                      ) : ownerUnreadable ? (
+                        <span className="text-yellow-400">Couldn't find {collateralLabel}. Check the token ID.</span>
+                      ) : null}
+                    </p>
+                  )}
                 </div>
-                <span className="text-[10px] px-2 py-1 rounded-full bg-purple-500/15 text-purple-300 border border-purple-500/30 whitespace-nowrap">
-                  Fixed by lender
-                </span>
-              </div>
+              ) : (
+                /* Required Token ID — lender fixed the exact NFT. The borrower
+                   must own this specific tokenId; no substitution is allowed
+                   (fixes critique 5.5: no picking the worst NFT). */
+                <div
+                  className="rounded-xl p-3 flex items-center justify-between gap-3"
+                  style={{ background: 'rgba(13,21,48,0.8)', border: `1px solid ${CARD_BORDER}` }}
+                >
+                  <div>
+                    <p className="text-white/85 text-[11px] uppercase tracking-wider flex items-center gap-1.5" style={LABEL_STYLE}>
+                      Required Collateral
+                      <InfoTooltip text="The lender selected this specific NFT as acceptable collateral. You must own this exact tokenId to accept the offer." />
+                    </p>
+                    <p className="text-white text-[15px] font-semibold font-mono mt-0.5">
+                      {symbol} #{tokenId}
+                    </p>
+                  </div>
+                  <span className="text-[10px] px-2 py-1 rounded-full bg-purple-500/15 text-purple-300 border border-purple-500/30 whitespace-nowrap">
+                    Fixed by lender
+                  </span>
+                </div>
+              )}
 
               {/* Repayment Preview */}
               <TxSummary>
@@ -889,7 +1005,7 @@ function OfferCard({
                   const totalRepay = principalEth + maxInterest;
                   return (
                     <>
-                      You'll lock <span className="font-mono text-white font-semibold">{collectionName(offer.collateralContract)} #{tokenId}</span> and receive <span className="font-mono text-white font-semibold">{principalEth.toFixed(4)} ETH</span>.
+                      You'll lock <span className="font-mono text-white font-semibold">{collateralLabel}</span> and receive <span className="font-mono text-white font-semibold">{principalEth.toFixed(4)} ETH</span>.
                       Total repayment: <span className="font-mono text-emerald-400 font-semibold">{totalRepay.toFixed(6)} ETH</span> ({principalEth.toFixed(4)} + {maxInterest.toFixed(6)} interest over {formatDuration(Number(offer.duration))}).
                       <span className="block text-[11px] text-white/70 mt-1">Repay early to save. Interest is pro-rata.</span>
                     </>
@@ -899,30 +1015,30 @@ function OfferCard({
 
               {/* The risk line stays visible; the full warning is one press away. */}
               <RiskBanner variant="warning">
-                <span className="font-semibold">Miss the deadline and the lender keeps {collectionName(offer.collateralContract)} #{tokenId} for good.</span>
+                <span className="font-semibold">Miss the deadline and the lender keeps {collateralLabel} for good.</span>
                 <FinePrint summary="Details">
-                  <p>Your {collectionName(offer.collateralContract)} NFT #{tokenId} will be locked as collateral. If you miss the repayment deadline, the lender keeps it permanently. You must own tokenId #{tokenId} for acceptance to succeed.</p>
+                  <p>{pledgedId === null ? `The ${symbol} you pick` : `Your ${collateralLabel}`} will be locked as collateral. If you miss the repayment deadline, the lender keeps it permanently. You must own it for acceptance to succeed.</p>
                 </FinePrint>
               </RiskBanner>
 
               {/* Step Indicator */}
               <StepIndicator
                 steps={['Approve NFT', 'Accept Offer']}
-                currentStep={approveSuccess ? 1 : 0}
+                currentStep={approvedForPledged ? 1 : 0}
               />
 
               <div className="grid grid-cols-2 gap-2">
                 <button
                   onClick={handleApprove}
-                  disabled={!isConnected || approving || approveConfirming || approveSuccess}
+                  disabled={!isConnected || pledgedId === null || knownNotOwned || approving || approveConfirming || approvedForPledged}
                   className="min-h-[44px] rounded-xl text-[13px] font-medium transition-all disabled:opacity-40 disabled:cursor-not-allowed text-white"
-                  style={{ background: approveSuccess ? 'rgba(16,185,129,0.15)' : 'var(--color-purple-20)', border: `1px solid ${approveSuccess ? 'rgba(16,185,129,0.3)' : 'var(--color-purple-30)'}` }}
+                  style={{ background: approvedForPledged ? 'rgba(16,185,129,0.15)' : 'var(--color-purple-20)', border: `1px solid ${approvedForPledged ? 'rgba(16,185,129,0.3)' : 'var(--color-purple-30)'}` }}
                 >
-                  {approveSuccess ? 'Approved' : approving ? 'Confirm...' : approveConfirming ? 'Approving...' : 'Approve NFT'}
+                  {approvedForPledged ? 'Approved' : approving ? 'Confirm...' : approveConfirming ? 'Approving...' : 'Approve NFT'}
                 </button>
                 <button
                   onClick={handleAccept}
-                  disabled={!isConnected || accepting || acceptConfirming}
+                  disabled={!isConnected || pledgedId === null || knownNotOwned || accepting || acceptConfirming}
                   className="min-h-[44px] rounded-xl text-[13px] font-medium transition-all disabled:opacity-40 disabled:cursor-not-allowed text-white"
                   style={{
                     background: 'linear-gradient(135deg, rgba(16,185,129,0.25), var(--color-purple-25))',
