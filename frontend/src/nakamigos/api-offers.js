@@ -6,6 +6,7 @@ import { openseaGet as rawOpenseaGet, openseaPost as rawOpenseaPost, ApiError } 
 import { cancelSeaportOrder } from "./lib/seaportCancel";
 import { cancelRefusal, venueCollectionByContract, venueCollectionBySlug, venueRefusal, venueRefusalError, venueSlugRefusal } from "./lib/venue";
 import { seaportCallNftTokens } from "./lib/seaportCalldata";
+import { acceptTradeRefusal, decodeSeaportTrade } from "./lib/seaportTrade";
 import { waitForTxOutcome, txOutcomeResult } from "./lib/txOutcome";
 
 // AUDIT FIX M-8 (frontend chain guard): assertOnExpectedChain blocks any
@@ -548,16 +549,35 @@ export async function createItemOffer({ tokenId, priceEth, expirationHours = 168
 
 // The NFT leg of a collection or trait bid is OpenSea's offers/build answer,
 // not ours. Every NFT item in it must be a criteria item (itemType 4) on the
-// venue collection's contract, or nothing is funded or signed.
-function criteriaBuildRefusal(consideration, collection) {
+// venue collection's contract, delivered to the bidder, or nothing is funded or
+// signed. The build's conduit and order type go into the signed order too, so
+// they must be Seaport's standard conduit and an ordinary (non-contract) order.
+export function criteriaBuildRefusal(partial, collection, buyer) {
   const want = collection.contract.toLowerCase();
-  const nfts = consideration.filter((c) => NFT_ITEM_TYPES.has(Number(c?.itemType)));
+  const nfts = partial.consideration.filter((c) => NFT_ITEM_TYPES.has(Number(c?.itemType)));
   const pinned = nfts.length > 0
     && nfts.every((c) => Number(c.itemType) === 4 && String(c.token || "").toLowerCase() === want);
-  return pinned ? null : {
-    error: "nft-mismatch",
-    message: `OpenSea built this bid for something other than ${collection.name}, so nothing was funded or signed.`,
-  };
+  if (!pinned) {
+    return {
+      error: "nft-mismatch",
+      message: `OpenSea built this bid for something other than ${collection.name}, so nothing was funded or signed.`,
+    };
+  }
+  if (!nfts.every((c) => String(c.recipient || "").toLowerCase() === String(buyer).toLowerCase())) {
+    return {
+      error: "wrong-recipient",
+      message: "OpenSea built this bid to deliver the NFT to a different wallet than yours, so nothing was funded or signed.",
+    };
+  }
+  const conduitOk = partial.conduitKey == null || String(partial.conduitKey).toLowerCase() === CONDUIT_KEY.toLowerCase();
+  const orderType = partial.orderType == null ? 2 : Number(partial.orderType);
+  if (!conduitOk || ![0, 1, 2, 3].includes(orderType)) {
+    return {
+      error: "build-mismatch",
+      message: "OpenSea built this bid with settings this venue does not sign, so nothing was funded or signed.",
+    };
+  }
+  return null;
 }
 
 export async function createCollectionOffer({ priceEth, expirationHours = 168, slug = COLLECTION_SLUG, openseaSlug }) {
@@ -601,7 +621,7 @@ export async function createCollectionOffer({ priceEth, expirationHours = 168, s
     if (!partial || !partial.consideration) {
       return { error: "build-failed", message: "OpenSea returned incomplete offer parameters" };
     }
-    const _nftErr = criteriaBuildRefusal(partial.consideration, venueCollectionBySlug(osSlug));
+    const _nftErr = criteriaBuildRefusal(partial, venueCollectionBySlug(osSlug), buyerAddress);
     if (_nftErr) return _nftErr;
 
     // Step 2: WETH balance & approval (reserve gas buffer)
@@ -729,7 +749,7 @@ export async function createTraitOffer({ traitType, traitValue, priceEth, expira
     if (!partial || !partial.consideration) {
       return { error: "build-failed", message: "OpenSea returned incomplete offer parameters" };
     }
-    const _nftErr = criteriaBuildRefusal(partial.consideration, venueCollectionBySlug(osSlug));
+    const _nftErr = criteriaBuildRefusal(partial, venueCollectionBySlug(osSlug), buyerAddress);
     if (_nftErr) return _nftErr;
 
     // Step 2: WETH balance & approval (reserve gas buffer)
@@ -1147,6 +1167,16 @@ export async function acceptOffer(offer) {
     // this runs before the approval below.
     const nftRefusal = fulfillCallRefusal(seaportCallNftTokens(iface, fnName, encoded), [nftContract]);
     if (nftRefusal) return nftRefusal;
+    // ...and so is the rest of what it commits the seller to: no ETH out, only
+    // this one token handed over, every payment on the seller's side to the seller.
+    const fillValue = BigInt(txData.value || 0);
+    const tradeRefusal = acceptTradeRefusal(decodeSeaportTrade(iface, fnName, encoded), {
+      seller: sellerAddress,
+      nftContract,
+      tokenId: fillTokenId,
+      txValue: fillValue,
+    });
+    if (tradeRefusal) return tradeRefusal;
 
     const erc721ABI = [
       "function isApprovedForAll(address,address) view returns (bool)",
@@ -1168,7 +1198,7 @@ export async function acceptOffer(offer) {
 
     const tx = await signer.sendTransaction({
       to: txData.to,
-      value: BigInt(txData.value || 0),
+      value: fillValue,
       data: encoded,
     });
 
