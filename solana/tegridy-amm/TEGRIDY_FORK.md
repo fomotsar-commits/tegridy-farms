@@ -243,10 +243,10 @@ file list.
 
 The current devnet values (`BvBkt84Z…`, `GgE6AfEH…`) are keypairs in `keys/` (gitignored,
 never committed). `BvBkt84Z…` has no mainnet account. **`GgE6AfEH…` is not throwaway**: the
-same key signed on mainnet on 2026-09-01 (two Streamflow reward-pool top-ups) and still holds
-a little SOL there. Read on 2026-10-25, it holds no mainnet authority: it is admin of no
-Streamflow stake or reward pool and upgrade authority of no program. Treat its file as a real
-wallet key.
+same key signed on mainnet on 2026-09-01 (two Streamflow reward-pool top-ups). Its leftover
+0.052 SOL went back to the owner on 2026-10-26 (tx `5Rw92nE2…`), so it now holds nothing.
+Read on 2026-10-25, it holds no mainnet authority: it is admin of no Streamflow stake or reward
+pool and upgrade authority of no program. Treat its file as a real wallet key anyway.
 
 ### The launch-tier gate in `initialize` (2026-10-19)
 
