@@ -90,7 +90,8 @@ text is compiled into the binary, so changing it changes the binary's hash.
 | `create_pool_fee_reveiver::ID` — `lib.rs` | `DNXgeM9EiiaAbaWvwjHj9fQQLAX5ZsfHyvmYUNRAdNC8` (WSOL acct) | `2sa31zceMSTAAbSu5wfSnNA6sBYzS7r97nvZYaQouEXa` (the vault's WSOL ATA) | `27AC7YwwAULHQcQXGErV7rHMsLZAUBWF6ozDNhSpTQE9` | flat pool-creation fee recipient — **must be a WSOL token account**, not a wallet |
 | `create_support_mint_associated_owner::ID` — `create_support_mint_associated.rs` | `Rayv2LG4tFSMizZhMP8aSUYxDPjV8qJtx2NQY9RKYZy` | `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd` (Squads vault PDA) | `GgE6AfEH2AVSrKGckyKMzC6mhtXWiAn39EzAikAsWq5a` | alt authority for the Token-2022 support-mint allowlist (was Raydium's key; now ours) |
 
-The devnet values are throwaway keypairs in `keys/` (gitignored).
+The devnet values are keypairs in `keys/` (gitignored). The admin one is also a mainnet
+wallet: see the note under the minimality check below.
 
 ### The on-chain security text (2026-10-06)
 
@@ -240,8 +241,12 @@ dispatcher and, since 2026-10-06, the added instruction. The CI guard therefore 
 the delta itself against a pinned value and prints it on every run: read that print, not this
 file list.
 
-The current devnet values (`BvBkt84Z…`, `GgE6AfEH…`) are **throwaway devnet keypairs**
-in `keys/` (gitignored, never committed, no real value).
+The current devnet values (`BvBkt84Z…`, `GgE6AfEH…`) are keypairs in `keys/` (gitignored,
+never committed). `BvBkt84Z…` has no mainnet account. **`GgE6AfEH…` is not throwaway**: the
+same key signed on mainnet on 2026-09-01 (two Streamflow reward-pool top-ups) and still holds
+a little SOL there. Read on 2026-10-25, it holds no mainnet authority: it is admin of no
+Streamflow stake or reward pool and upgrade authority of no program. Treat its file as a real
+wallet key.
 
 ### The launch-tier gate in `initialize` (2026-10-19)
 
@@ -394,5 +399,5 @@ programs/cp-swap/src/
   curve/fees.rs     ← fee math (untouched, audited upstream)
   states/config.rs  ← AmmConfig: protocol_owner / fee rates (untouched)
   instructions/     ← swap / deposit / withdraw / admin (otherwise untouched)
-keys/               ← devnet throwaway keypairs (gitignored)
+keys/               ← devnet keypairs (gitignored); the admin one is also a mainnet wallet
 ```
