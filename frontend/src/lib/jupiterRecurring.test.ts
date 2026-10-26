@@ -15,6 +15,14 @@ import {
   type RecurringOrder,
 } from './jupiter';
 
+// These tests pin the REQUEST each call sends. The transaction that comes back is a
+// stand-in, so the check of its contents is stubbed to pass here; that check has its
+// own tests (lib/solana/swap/jupiterTxGuard.test.ts, lib/jupiter.txGuard.test.ts).
+vi.mock('./solana/swap/jupiterTxGuard', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./solana/swap/jupiterTxGuard')>()),
+  jupiterTxRefusal: () => null,
+}));
+
 const fetchMock = vi.fn();
 vi.stubGlobal('fetch', fetchMock);
 

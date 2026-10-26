@@ -19,6 +19,14 @@ import {
   USDC_MINT,
 } from './solana';
 import { JupiterBusyError, jupiterBusy } from './solana/swap/jupiterBusy';
+import { JupiterTxRefused, jupiterTxRefusal, type JupiterTxExpectation } from './solana/swap/jupiterTxGuard';
+
+/** Every transaction Jupiter returns is read against the trade on screen before any caller can sign it. */
+function checked(b64: string, expect: JupiterTxExpectation): string {
+  const why = jupiterTxRefusal(b64, expect);
+  if (why) throw new JupiterTxRefused(why);
+  return b64;
+}
 
 // We only read a few fields; the whole object is passed back to /swap verbatim,
 // so keep an index signature for the rest of Jupiter's response shape.
@@ -236,7 +244,14 @@ export async function buildSwapTransaction(params: {
   }
   const json = (await res.json()) as { swapTransaction?: string };
   if (!json.swapTransaction) throw new Error('No swap transaction returned');
-  return json.swapTransaction;
+  return checked(json.swapTransaction, {
+    kind: 'swap',
+    user: params.userPublicKey,
+    quote: params.quote,
+    feeBps: feeAccount ? SOLANA_PLATFORM_FEE_BPS : 0,
+    feeAccount,
+    maxPriorityLamports: MAX_PRIORITY_LAMPORTS,
+  });
 }
 
 /** Convert a human decimal string to an integer base-unit string (no floats). */
@@ -535,7 +550,15 @@ export async function createTriggerOrder(params: {
   if (!res.ok) throw new Error(`Could not create order (${res.status})`);
   const json = (await res.json()) as { transaction?: string };
   if (!json.transaction) throw new Error('No order transaction returned');
-  return json.transaction;
+  return checked(json.transaction, {
+    kind: 'trigger-create',
+    user: params.maker,
+    inputMint: params.inputMint,
+    outputMint: params.outputMint,
+    makingAmount: params.makingAmount,
+    takingAmount: params.takingAmount,
+    maxPriorityLamports: MAX_PRIORITY_LAMPORTS,
+  });
 }
 
 /** A wallet's active (unfilled) limit orders. */
@@ -559,7 +582,7 @@ export async function cancelTriggerOrder(maker: string, order: string): Promise<
   if (!res.ok) throw new Error(`Could not cancel order (${res.status})`);
   const json = (await res.json()) as { transaction?: string };
   if (!json.transaction) throw new Error('No cancel transaction returned');
-  return json.transaction;
+  return checked(json.transaction, { kind: 'trigger-cancel', user: maker, order, maxPriorityLamports: MAX_PRIORITY_LAMPORTS });
 }
 
 /** Best-effort extraction of an order's pubkey (the field name varies). */
@@ -635,7 +658,16 @@ export async function createRecurringOrder(params: {
   if (!res.ok) throw new Error(`Could not create DCA (${res.status})`);
   const json = (await res.json()) as { transaction?: string };
   if (!json.transaction) throw new Error('No DCA transaction returned');
-  return json.transaction;
+  return checked(json.transaction, {
+    kind: 'recurring-create',
+    user: params.user,
+    inputMint: params.inputMint,
+    outputMint: params.outputMint,
+    inAmount: params.inAmount,
+    numberOfOrders: params.numberOfOrders,
+    intervalSeconds: params.intervalSeconds,
+    maxPriorityLamports: MAX_PRIORITY_LAMPORTS,
+  });
 }
 
 /**
@@ -663,7 +695,7 @@ export async function cancelRecurringOrder(user: string, order: string): Promise
   if (!res.ok) throw new Error(`Could not cancel DCA (${res.status})`);
   const json = (await res.json()) as { transaction?: string };
   if (!json.transaction) throw new Error('No cancel transaction returned');
-  return json.transaction;
+  return checked(json.transaction, { kind: 'recurring-cancel', user, order, maxPriorityLamports: MAX_PRIORITY_LAMPORTS });
 }
 
 /** Best-effort extraction of a DCA order's pubkey (the field name varies). */

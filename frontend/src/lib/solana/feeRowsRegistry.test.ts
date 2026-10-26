@@ -10,6 +10,14 @@ import { readFileSync } from 'node:fs';
 import { REGISTERED_PROGRAM_ID, deriveAmmConfig, publicTierConfig } from './cpswap/program';
 import { SOL_MINT, USDC_MINT } from '../solana';
 
+// These tests pin the REQUEST each call sends. The transaction that comes back is a
+// stand-in, so the check of its contents is stubbed to pass here; that check has its
+// own tests (lib/solana/swap/jupiterTxGuard.test.ts, lib/jupiter.txGuard.test.ts).
+vi.mock('./swap/jupiterTxGuard', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./swap/jupiterTxGuard')>()),
+  jupiterTxRefusal: () => null,
+}));
+
 interface Entry { id?: string; address?: string; expect?: { type?: string } }
 
 const registry = JSON.parse(
