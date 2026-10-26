@@ -227,6 +227,10 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         address collateralContract;
         uint256 tokenId;
         bool active;
+        /// @dev Gondi collection offer: when true, any tokenId of
+        ///      `collateralContract` may be pledged at acceptance (see
+        ///      `_checkValidators`). Packs into `active`'s slot.
+        bool isFullContractOffer;
         /// @dev AUDIT FIX: DEEP-LD-M8 — origination fee held in escrow on the
         ///      offer until acceptance. cancelOffer refunds the lender (gross
         ///      principal), acceptOffer forwards to treasury.
@@ -394,7 +398,8 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         uint256 aprBps,
         uint256 duration,
         address collateralContract,
-        uint256 tokenId
+        uint256 tokenId,
+        bool isFullContractOffer
     );
     event LoanOfferCancelled(uint256 indexed offerId, address indexed lender);
     event LoanAccepted(
@@ -515,6 +520,9 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
     error CollectionNotCurrentlyWhitelisted();
     error CollectionPendingRemoval();
     error CollateralBurnedSinceOffer();
+    /// @dev Gondi MultiSourceLoan errors, kept verbatim with `_checkValidators`.
+    error InvalidCollateralIdError();
+    error InvalidCollateralError();
     /// @dev AUDIT FIX: DEEP-LD-L2 — removal-cancel rate-limit reached.
     error RemovalCancelLimitReached();
     /// @dev AUDIT FIX: LD3-L2 — typed error for the active-loans-present revert
@@ -681,6 +689,7 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         uint256 _duration,
         address _collateralContract,
         uint256 _tokenId,
+        bool _isFullContractOffer,
         uint64 _expiry
     ) external payable nonReentrant whenNotPaused returns (uint256 offerId) {
         // AUDIT FIX (BATCH-I M10): bound expiry between MIN/MAX_OFFER_VALIDITY.
@@ -712,9 +721,12 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
             revert TooManyOffersPerLender();
         }
 
-        // SLITHER 2026-05-18: intentional tuple destructure; external interface tuple shape is fixed
-        // slither-disable-next-line unused-return
-        IERC721(_collateralContract).ownerOf(_tokenId);
+        // A collection offer names no token, so there is none to check exists.
+        if (!_isFullContractOffer) {
+            // SLITHER 2026-05-18: intentional tuple destructure; external interface tuple shape is fixed
+            // slither-disable-next-line unused-return
+            IERC721(_collateralContract).ownerOf(_tokenId);
+        }
 
         // AUDIT FIX: DEEP-LD-M8 — origination fee held in escrow until acceptance.
         uint256 originationFee = (msg.value * originationFeeBps) / BPS;
@@ -729,6 +741,7 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
             collateralContract: _collateralContract,
             tokenId: _tokenId,
             active: true,
+            isFullContractOffer: _isFullContractOffer,
             originationFee: originationFee,
             // AUDIT FIX: DEEP-LD2-M3 — snapshot the live treasury at offer creation.
             treasuryAtCreate: treasury,
@@ -753,7 +766,8 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
             _aprBps,
             _duration,
             _collateralContract,
-            _tokenId
+            _tokenId,
+            _isFullContractOffer
         );
     }
 
@@ -788,8 +802,13 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
 
     // ─── Borrowing ───────────────────────────────────────────────────
 
+    /// @param _tokenId The NFT the borrower pledges. Gondi shape: the borrower
+    ///        names the token at execution and `_checkValidators` decides
+    ///        whether the offer accepts it (exact match, or any id on a
+    ///        collection offer). Same signature as TegridyLending.acceptOffer.
     function acceptOffer(
-        uint256 _offerId
+        uint256 _offerId,
+        uint256 _tokenId
     ) external nonReentrant whenNotPaused returns (uint256 loanId) {
         if (_offerId >= offers.length) revert InvalidOfferId();
         Offer storage offer = offers[_offerId];
@@ -802,6 +821,7 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         // + MIN_OFFER_VALIDITY (1h)`, so post-relaunch every offer has expiry > 0.
         // Sibling-canonical with TegridyLending.acceptOffer (no shim there).
         if (block.timestamp > offer.expiry) revert OfferExpired();
+        _checkValidators(offer, _tokenId);
 
         uint256 principal = offer.principal;
         uint256 aprBps = offer.aprBps;
@@ -816,7 +836,6 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         if (msg.sender == lender) revert SelfDeal();
         uint256 duration = offer.duration;
         address collateralContract = offer.collateralContract;
-        uint256 _tokenId = offer.tokenId;
         uint256 originationFee = offer.originationFee;
         // AUDIT FIX: DEEP-LD2-M3 — use the snapshotted treasury for fee routing
         // so a treasury change between create and accept cannot redirect the fee.
@@ -964,6 +983,35 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
             principal,
             deadline
         );
+    }
+
+    /// @notice Check generic offer validators for a given offer or
+    ///         an exact match if no validators are given.
+    ///         Having one empty validator is used for collection offers (all IDs match).
+    /// @dev    PORTED from Gondi `MultiSourceLoan._checkValidators` (v3.2, mainnet
+    ///         0xE365fF3cad44d19cb7aBa81df8ffd6818A66Ac0a, verified source
+    ///         src/lib/loans/MultiSourceLoan.sol). Two conservative trims, nothing added:
+    ///         - `matchAddress` is always true here (the borrower never names a
+    ///           collection; it is read from the offer), so its terms drop out.
+    ///         - Gondi's plug-in validator contracts (range / bit-vector) are not
+    ///           ported. The only validator set allowed is Gondi's "one empty
+    ///           validator", stored as `isFullContractOffer`.
+    function _checkValidators(Offer storage _loanOffer, uint256 _tokenId) private view {
+        uint256 offerCollateralTokenId = _loanOffer.tokenId;
+
+        bool matchTokenId = offerCollateralTokenId == _tokenId;
+        bool isFullContractOffer = _loanOffer.isFullContractOffer;
+
+        /// @dev backward comp
+        if (offerCollateralTokenId != 0) {
+            if (offerCollateralTokenId != _tokenId) {
+                revert InvalidCollateralIdError();
+            }
+        }
+
+        if (!isFullContractOffer && !matchTokenId) {
+            revert InvalidCollateralError();
+        }
     }
 
     // ─── Repayment ───────────────────────────────────────────────────
@@ -1312,11 +1360,12 @@ contract TegridyNFTLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         uint256 duration,
         address collateralContract,
         uint256 tokenId,
-        bool active
+        bool active,
+        bool isFullContractOffer
     ) {
         if (_offerId >= offers.length) revert InvalidOfferId();
         Offer memory o = offers[_offerId];
-        return (o.lender, o.principal, o.aprBps, o.duration, o.collateralContract, o.tokenId, o.active);
+        return (o.lender, o.principal, o.aprBps, o.duration, o.collateralContract, o.tokenId, o.active, o.isFullContractOffer);
     }
 
     function getLoan(uint256 _loanId) external view returns (

@@ -20,6 +20,11 @@ contract MockERC721 is ERC721 {
         return id;
     }
 
+    /// @dev Test-only: mint a chosen id (token #0 for the Gondi backward-comp case).
+    function mintId(address to, uint256 id) external {
+        _mint(to, id);
+    }
+
     /// @dev Test-only burn helper for AUDIT NFT-CL-L3 regression test.
     function burn(uint256 tokenId) external {
         _burn(tokenId);
@@ -143,6 +148,7 @@ contract TegridyNFTLendingTest is Test {
             30 days,                // duration
             address(nft),           // collateral contract
             bobTokenId,             // specific tokenId
+            false,                  // not a collection offer
             uint64(block.timestamp + 30 days)
         );
 
@@ -154,7 +160,8 @@ contract TegridyNFTLendingTest is Test {
             uint256 duration,
             address collateralContract,
             uint256 tokenId,
-            bool active
+            bool active,
+            bool isFullContractOffer
         ) = lending.getOffer(0);
 
         assertEq(lender, alice);
@@ -164,6 +171,7 @@ contract TegridyNFTLendingTest is Test {
         assertEq(collateralContract, address(nft));
         assertEq(tokenId, bobTokenId);
         assertTrue(active);
+        assertFalse(isFullContractOffer);
         assertEq(lending.offerCount(), 1);
     }
 
@@ -182,7 +190,7 @@ contract TegridyNFTLendingTest is Test {
             // createOffer discards ownerOf(), so re-using bobTokenId is fine —
             // this mirrors the griefing loop (no NFT ownership required).
             ids[i] = lending.createOffer{value: 1 ether}(
-                1 ether, 1000, 30 days, address(nft), bobTokenId, uint64(block.timestamp + 30 days)
+                1 ether, 1000, 30 days, address(nft), bobTokenId, false, uint64(block.timestamp + 30 days)
             );
         }
         vm.stopPrank();
@@ -202,7 +210,7 @@ contract TegridyNFTLendingTest is Test {
         // the OPEN count — pre-fix this path is what would eventually brick.
         vm.prank(alice);
         lending.createOffer{value: 1 ether}(
-            1 ether, 1000, 30 days, address(nft), bobTokenId, uint64(block.timestamp + 30 days)
+            1 ether, 1000, 30 days, address(nft), bobTokenId, false, uint64(block.timestamp + 30 days)
         );
         assertEq(lending.openOffersCount(), 1, "1 open after post-churn create");
         assertEq(lending.offerCount(), 6, "lifetime now 6");
@@ -212,7 +220,7 @@ contract TegridyNFTLendingTest is Test {
         vm.prank(alice);
         vm.expectRevert(TegridyNFTLending.ZeroPrincipal.selector);
         lending.createOffer{value: 0}(
-            0, 1000, 30 days, address(nft), bobTokenId, uint64(block.timestamp + 30 days)
+            0, 1000, 30 days, address(nft), bobTokenId, false, uint64(block.timestamp + 30 days)
         );
     }
 
@@ -220,7 +228,7 @@ contract TegridyNFTLendingTest is Test {
         vm.prank(alice);
         vm.expectRevert(TegridyNFTLending.MsgValueMismatch.selector);
         lending.createOffer{value: 1 ether}(
-            2 ether, 1000, 30 days, address(nft), bobTokenId, uint64(block.timestamp + 30 days)
+            2 ether, 1000, 30 days, address(nft), bobTokenId, false, uint64(block.timestamp + 30 days)
         );
     }
 
@@ -229,7 +237,7 @@ contract TegridyNFTLendingTest is Test {
         vm.prank(alice);
         vm.expectRevert(TegridyNFTLending.PrincipalTooLarge.selector);
         lending.createOffer{value: 1001 ether}(
-            1001 ether, 1000, 30 days, address(nft), bobTokenId, uint64(block.timestamp + 30 days)
+            1001 ether, 1000, 30 days, address(nft), bobTokenId, false, uint64(block.timestamp + 30 days)
         );
     }
 
@@ -242,6 +250,7 @@ contract TegridyNFTLendingTest is Test {
             30 days,
             address(nft),
             bobTokenId,
+            false,
             uint64(block.timestamp + 30 days)
         );
     }
@@ -255,6 +264,7 @@ contract TegridyNFTLendingTest is Test {
             12 hours,               // below MIN_DURATION (1 day)
             address(nft),
             bobTokenId,
+            false,
             uint64(block.timestamp + 30 days)
         );
     }
@@ -268,6 +278,7 @@ contract TegridyNFTLendingTest is Test {
             366 days,               // exceeds MAX_DURATION (365 days)
             address(nft),
             bobTokenId,
+            false,
             uint64(block.timestamp + 30 days)
         );
     }
@@ -276,7 +287,7 @@ contract TegridyNFTLendingTest is Test {
         vm.prank(alice);
         vm.expectRevert(TegridyNFTLending.ZeroAddress.selector);
         lending.createOffer{value: 1 ether}(
-            1 ether, 1000, 30 days, address(0), bobTokenId, uint64(block.timestamp + 30 days)
+            1 ether, 1000, 30 days, address(0), bobTokenId, false, uint64(block.timestamp + 30 days)
         );
     }
 
@@ -284,7 +295,7 @@ contract TegridyNFTLendingTest is Test {
         vm.prank(alice);
         vm.expectRevert(TegridyNFTLending.CollectionNotWhitelisted.selector);
         lending.createOffer{value: 1 ether}(
-            1 ether, 1000, 30 days, address(nftBad), bobTokenId, uint64(block.timestamp + 30 days)
+            1 ether, 1000, 30 days, address(nftBad), bobTokenId, false, uint64(block.timestamp + 30 days)
         );
     }
 
@@ -295,7 +306,7 @@ contract TegridyNFTLendingTest is Test {
     function test_cancelOffer_success() public {
         vm.prank(alice);
         lending.createOffer{value: 5 ether}(
-            5 ether, 1000, 30 days, address(nft), bobTokenId, uint64(block.timestamp + 30 days)
+            5 ether, 1000, 30 days, address(nft), bobTokenId, false, uint64(block.timestamp + 30 days)
         );
 
         uint256 aliceBalanceBefore = alice.balance;
@@ -306,14 +317,14 @@ contract TegridyNFTLendingTest is Test {
         assertEq(alice.balance, aliceBalanceBefore + 5 ether);
 
         // Offer is no longer active
-        (,,,,,, bool active) = lending.getOffer(0);
+        (,,,,,, bool active,) = lending.getOffer(0);
         assertFalse(active);
     }
 
     function test_cancelOffer_revert_notLender() public {
         vm.prank(alice);
         lending.createOffer{value: 1 ether}(
-            1 ether, 1000, 30 days, address(nft), bobTokenId, uint64(block.timestamp + 30 days)
+            1 ether, 1000, 30 days, address(nft), bobTokenId, false, uint64(block.timestamp + 30 days)
         );
 
         vm.prank(carol);
@@ -324,7 +335,7 @@ contract TegridyNFTLendingTest is Test {
     function test_cancelOffer_revert_alreadyCancelled() public {
         vm.prank(alice);
         lending.createOffer{value: 1 ether}(
-            1 ether, 1000, 30 days, address(nft), bobTokenId, uint64(block.timestamp + 30 days)
+            1 ether, 1000, 30 days, address(nft), bobTokenId, false, uint64(block.timestamp + 30 days)
         );
 
         vm.prank(alice);
@@ -347,6 +358,7 @@ contract TegridyNFTLendingTest is Test {
             30 days,
             address(nft),
             bobTokenId,
+            false,
             uint64(block.timestamp + 30 days)
         );
     }
@@ -357,7 +369,7 @@ contract TegridyNFTLendingTest is Test {
         uint256 bobBalanceBefore = bob.balance;
 
         vm.prank(bob);
-        uint256 loanId = lending.acceptOffer(offerId);
+        uint256 loanId = lending.acceptOffer(offerId, bobTokenId);
 
         assertEq(loanId, 0);
 
@@ -368,7 +380,7 @@ contract TegridyNFTLendingTest is Test {
         assertEq(nft.ownerOf(bobTokenId), address(lending));
 
         // Offer deactivated
-        (,,,,,, bool active) = lending.getOffer(offerId);
+        (,,,,,, bool active,) = lending.getOffer(offerId);
         assertFalse(active);
 
         // Loan fields populated
@@ -406,7 +418,7 @@ contract TegridyNFTLendingTest is Test {
 
         vm.prank(carol);
         vm.expectRevert(TegridyNFTLending.NotNFTOwner.selector);
-        lending.acceptOffer(offerId);
+        lending.acceptOffer(offerId, bobTokenId);
     }
 
     function test_acceptOffer_revert_offerNotActive() public {
@@ -418,7 +430,7 @@ contract TegridyNFTLendingTest is Test {
 
         vm.prank(bob);
         vm.expectRevert(TegridyNFTLending.OfferNotActive.selector);
-        lending.acceptOffer(offerId);
+        lending.acceptOffer(offerId, bobTokenId);
     }
 
     function test_acceptOffer_revert_collectionNotWhitelisted() public {
@@ -431,7 +443,7 @@ contract TegridyNFTLendingTest is Test {
         vm.prank(alice);
         vm.expectRevert(TegridyNFTLending.CollectionNotWhitelisted.selector);
         lending.createOffer{value: 1 ether}(
-            1 ether, 1000, 30 days, address(nftBad), badTokenId, uint64(block.timestamp + 30 days)
+            1 ether, 1000, 30 days, address(nftBad), badTokenId, false, uint64(block.timestamp + 30 days)
         );
     }
 
@@ -442,13 +454,12 @@ contract TegridyNFTLendingTest is Test {
         vm.prank(alice);
         vm.expectRevert();
         lending.createOffer{value: 1 ether}(
-            1 ether, 1000, 30 days, address(nft2), bobTokenId, uint64(block.timestamp + 30 days)
+            1 ether, 1000, 30 days, address(nft2), bobTokenId, false, uint64(block.timestamp + 30 days)
         );
     }
 
-    /// @notice Proves the 7c fix: a borrower cannot swap in a different (worse) tokenId
-    /// at acceptance time. The contract escrows the tokenId that was fixed in the
-    /// offer storage, regardless of which NFT the borrower may also own.
+    /// @notice Proves the 7c fix still holds under the Gondi accept shape: on a
+    /// specific-token offer a borrower cannot swap in a different (worse) tokenId.
     function test_acceptOffer_revert_borrowerCannotPickDifferentTokenId() public {
         // Offer locked to bobTokenId (minted in setUp)
         uint256 offerId = _createDefaultOffer();
@@ -458,18 +469,136 @@ contract TegridyNFTLendingTest is Test {
         vm.prank(bob);
         nft.approve(address(lending), bobTokenId2);
 
-        // Bob accepts — no tokenId arg, contract must use offer.tokenId
         vm.prank(bob);
-        uint256 loanId = lending.acceptOffer(offerId);
+        vm.expectRevert(TegridyNFTLending.InvalidCollateralIdError.selector);
+        lending.acceptOffer(offerId, bobTokenId2);
 
-        // Verify the ESCROWED token is bobTokenId (the one Alice chose), NOT bobTokenId2
-        assertEq(nft.ownerOf(bobTokenId), address(lending));
+        // Nothing moved; the offer is still open for the token Alice chose.
         assertEq(nft.ownerOf(bobTokenId2), bob);
+        (,,,,,, bool active,) = lending.getOffer(offerId);
+        assertTrue(active);
+    }
 
-        // Loan stores the offer's tokenId, not bobTokenId2
+    // ═══════════════════════════════════════════════════════════════════
+    // COLLECTION OFFERS (Gondi `_checkValidators` port)
+    // ═══════════════════════════════════════════════════════════════════
+
+    function _createCollectionOffer() internal returns (uint256) {
+        vm.prank(alice);
+        return lending.createOffer{value: 1 ether}(
+            1 ether, 1000, 30 days, address(nft), 0, true, uint64(block.timestamp + 30 days)
+        );
+    }
+
+    /// @notice A collection offer names no token, so creating it must not ask the
+    ///         collection whether a token exists (token #0 does not exist here).
+    function test_collectionOffer_createsWithoutNamingAToken() public {
+        vm.prank(alice);
+        vm.expectEmit(true, true, false, true, address(lending));
+        emit TegridyNFTLending.LoanOfferCreated(0, alice, 1 ether, 1000, 30 days, address(nft), 0, true);
+        uint256 offerId = lending.createOffer{value: 1 ether}(
+            1 ether, 1000, 30 days, address(nft), 0, true, uint64(block.timestamp + 30 days)
+        );
+
+        (,,,, address collateralContract, uint256 tokenId, bool active, bool isFullContractOffer) =
+            lending.getOffer(offerId);
+        assertEq(collateralContract, address(nft));
+        assertEq(tokenId, 0);
+        assertTrue(active);
+        assertTrue(isFullContractOffer);
+    }
+
+    /// @notice The borrower picks ANY token of the collection; that token is escrowed.
+    function test_collectionOffer_borrowerPicksAnyToken() public {
+        uint256 offerId = _createCollectionOffer();
+
+        uint256 bobTokenId2 = nft.mint(bob);
+        vm.prank(bob);
+        nft.approve(address(lending), bobTokenId2);
+
+        uint256 bobBalanceBefore = bob.balance;
+        vm.prank(bob);
+        uint256 loanId = lending.acceptOffer(offerId, bobTokenId2);
+
+        assertEq(bob.balance, bobBalanceBefore + 1 ether);
+        assertEq(nft.ownerOf(bobTokenId2), address(lending));
+        assertEq(nft.ownerOf(bobTokenId), bob, "the other token is untouched");
+        (,,, uint256 loanTokenId, address loanCollection,,,,,,) = lending.getLoan(loanId);
+        assertEq(loanTokenId, bobTokenId2);
+        assertEq(loanCollection, address(nft));
+        assertEq(lending.collateralEscrowLoanIdPlus1(address(nft), bobTokenId2), loanId + 1);
+
+        // One offer funds one loan.
+        vm.prank(bob);
+        vm.expectRevert(TegridyNFTLending.OfferNotActive.selector);
+        lending.acceptOffer(offerId, bobTokenId);
+    }
+
+    /// @notice Naming a token is not owning it: the ownerOf gate still applies.
+    function test_collectionOffer_revert_borrowerDoesNotOwnToken() public {
+        uint256 offerId = _createCollectionOffer();
+
+        vm.prank(carol);
+        vm.expectRevert(TegridyNFTLending.NotNFTOwner.selector);
+        lending.acceptOffer(offerId, bobTokenId);
+    }
+
+    /// @notice The collection comes from the offer; a token of another collection
+    ///         with the same id cannot be pledged against it.
+    function test_collectionOffer_onlyEscrowsTheOffersCollection() public {
+        uint256 offerId = _createCollectionOffer();
+
+        uint256 nft2Token = nft2.mint(bob);
+        vm.prank(bob);
+        nft2.approve(address(lending), nft2Token);
+        assertEq(nft2Token, bobTokenId, "same id in both collections");
+
+        vm.prank(bob);
+        uint256 loanId = lending.acceptOffer(offerId, nft2Token);
+
+        assertEq(nft.ownerOf(bobTokenId), address(lending), "escrowed from the offer's collection");
+        assertEq(nft2.ownerOf(nft2Token), bob, "nft2 untouched");
+        (,,,, address loanCollection,,,,,,) = lending.getLoan(loanId);
+        assertEq(loanCollection, address(nft));
+    }
+
+    /// @notice Gondi backward-comp: an offer that names token #0 WITHOUT the
+    ///         collection flag is an exact match on #0, so the `!= 0` shortcut
+    ///         cannot be used to swap tokens.
+    function test_specificOffer_tokenZero_revert_differentTokenId() public {
+        nft.mintId(bob, 0);
+        vm.prank(alice);
+        uint256 offerId = lending.createOffer{value: 1 ether}(
+            1 ether, 1000, 30 days, address(nft), 0, false, uint64(block.timestamp + 30 days)
+        );
+
+        vm.prank(bob);
+        vm.expectRevert(TegridyNFTLending.InvalidCollateralError.selector);
+        lending.acceptOffer(offerId, bobTokenId);
+
+        vm.prank(bob);
+        nft.approve(address(lending), 0);
+        vm.prank(bob);
+        uint256 loanId = lending.acceptOffer(offerId, 0);
         (,,, uint256 loanTokenId,,,,,,,) = lending.getLoan(loanId);
-        assertEq(loanTokenId, bobTokenId);
-        assertTrue(loanTokenId != bobTokenId2);
+        assertEq(loanTokenId, 0);
+    }
+
+    /// @notice Gondi backward-comp: a collection flag WITH a non-zero token id
+    ///         stays an exact match on that token (verbatim Gondi semantics).
+    function test_collectionFlagWithTokenId_staysExactMatch() public {
+        vm.prank(alice);
+        uint256 offerId = lending.createOffer{value: 1 ether}(
+            1 ether, 1000, 30 days, address(nft), bobTokenId, true, uint64(block.timestamp + 30 days)
+        );
+
+        uint256 bobTokenId2 = nft.mint(bob);
+        vm.prank(bob);
+        nft.approve(address(lending), bobTokenId2);
+
+        vm.prank(bob);
+        vm.expectRevert(TegridyNFTLending.InvalidCollateralIdError.selector);
+        lending.acceptOffer(offerId, bobTokenId2);
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -479,7 +608,7 @@ contract TegridyNFTLendingTest is Test {
     function _createAndAcceptLoan() internal returns (uint256 loanId) {
         uint256 offerId = _createDefaultOffer();
         vm.prank(bob);
-        loanId = lending.acceptOffer(offerId);
+        loanId = lending.acceptOffer(offerId, bobTokenId);
     }
 
     function test_repayLoan_interestMath() public {
@@ -692,11 +821,11 @@ contract TegridyNFTLendingTest is Test {
 
         vm.prank(alice);
         uint256 offerId = lending.createOffer{value: 1 ether}(
-            1 ether, 1000, 30 days, address(hostile), hostileTokenId, uint64(block.timestamp + 30 days)
+            1 ether, 1000, 30 days, address(hostile), hostileTokenId, false, uint64(block.timestamp + 30 days)
         );
 
         vm.prank(bob);
-        loanId = lending.acceptOffer(offerId);
+        loanId = lending.acceptOffer(offerId, hostileTokenId);
     }
 
     function test_L2_repayLoan_collateralStuckThenClaimed() public {
@@ -998,7 +1127,7 @@ contract TegridyNFTLendingTest is Test {
         vm.prank(alice);
         vm.expectRevert();
         lending.createOffer{value: 1 ether}(
-            1 ether, 1000, 30 days, address(nft), bobTokenId, uint64(block.timestamp + 30 days)
+            1 ether, 1000, 30 days, address(nft), bobTokenId, false, uint64(block.timestamp + 30 days)
         );
     }
 
@@ -1028,10 +1157,10 @@ contract TegridyNFTLendingTest is Test {
         // Alice creates offer, bob accepts — active loan created against nft.
         vm.prank(alice);
         uint256 offerId = lending.createOffer{value: 1 ether}(
-            1 ether, 1000, 30 days, address(nft), bobTokenId, uint64(block.timestamp + 30 days)
+            1 ether, 1000, 30 days, address(nft), bobTokenId, false, uint64(block.timestamp + 30 days)
         );
         vm.prank(bob);
-        lending.acceptOffer(offerId);
+        lending.acceptOffer(offerId, bobTokenId);
 
         assertEq(lending.activeLoansOfCollection(address(nft)), 1);
 
@@ -1062,10 +1191,10 @@ contract TegridyNFTLendingTest is Test {
     function test_NEWL3_defaultAlsoDecrementsActiveLoans() public {
         vm.prank(alice);
         uint256 offerId = lending.createOffer{value: 1 ether}(
-            1 ether, 1000, 30 days, address(nft), bobTokenId, uint64(block.timestamp + 30 days)
+            1 ether, 1000, 30 days, address(nft), bobTokenId, false, uint64(block.timestamp + 30 days)
         );
         vm.prank(bob);
-        lending.acceptOffer(offerId);
+        lending.acceptOffer(offerId, bobTokenId);
         assertEq(lending.activeLoansOfCollection(address(nft)), 1);
 
         // Warp past deadline + GRACE_PERIOD so default is claimable.
@@ -1147,6 +1276,7 @@ contract TegridyNFTLendingTest is Test {
             30 days,
             address(nft),
             bobTokenId,
+            false,
             uint64(block.timestamp + 30 days)
         );
 
@@ -1158,7 +1288,7 @@ contract TegridyNFTLendingTest is Test {
         // Bob (or anyone) tries to accept — must hit the typed error.
         vm.prank(bob);
         vm.expectRevert(TegridyNFTLending.CollateralBurnedSinceOffer.selector);
-        lending.acceptOffer(offerId);
+        lending.acceptOffer(offerId, bobTokenId);
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -1543,7 +1673,7 @@ contract TegridyNFTLendingTest is Test {
 
         vm.prank(bob);
         vm.expectRevert(TegridyNFTLending.NFTIsActiveCollateral.selector);
-        lending.acceptOffer(offerId2);
+        lending.acceptOffer(offerId2, bobTokenId);
 
         assertEq(
             lending.collateralEscrowLoanIdPlus1(address(nft), bobTokenId),
@@ -1569,12 +1699,12 @@ contract TegridyNFTLendingTest is Test {
 
         vm.prank(alice);
         uint256 offerId = lending.createOffer{value: 1 ether}(
-            1 ether, 1000, 30 days, address(nft), aliceToken, uint64(block.timestamp + 30 days)
+            1 ether, 1000, 30 days, address(nft), aliceToken, false, uint64(block.timestamp + 30 days)
         );
 
         vm.prank(alice);
         vm.expectRevert(TegridyNFTLending.SelfDeal.selector);
-        lending.acceptOffer(offerId);
+        lending.acceptOffer(offerId, aliceToken);
 
         // The offer is untouched — alice can still cancel and get her ETH back.
         vm.prank(alice);
