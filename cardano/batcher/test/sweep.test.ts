@@ -4,10 +4,11 @@
 // anything else in the transaction (an output, a token, a mint, a withdrawal, a donation...) is
 // refused by name.
 import { test } from 'node:test';
+import { spawnSync } from 'node:child_process';
 import assert from 'node:assert/strict';
 import CSL from '@emurgo/cardano-serialization-lib-nodejs';
 import { ledgerMinFee } from '../src/fee.ts';
-import { MAX_SWEEP_INPUTS, buildSweep, checkTreasury, verifySweep, type Treasury } from '../src/sweep.ts';
+import { MAX_SWEEP_INPUTS, buildSweep, checkTreasury, floatsOf, verifySweep, type Treasury } from '../src/sweep.ts';
 import { BATCHER_ADDRESS, BATCHER_KEY, PP, utxo, value } from './world.ts';
 
 const ADA = 1_000_000n;
@@ -25,30 +26,44 @@ const treasuryOf = (s: CSL.NativeScript): Treasury => ({ address: addressOf(s), 
 
 const TREASURY = treasuryOf(allOf('c1', 'c2'));
 
-test('the treasury: a script of at least two distinct keys, "all of" or "at least n of", that the address is paid to', () => {
-  assert.deepEqual(checkTreasury(TREASURY, 1), TREASURY);
+const baseOf = (pay: CSL.NativeScript, stake: CSL.Credential) => CSL.BaseAddress.new(1, CSL.Credential.from_scripthash(pay.hash()), stake).to_address().to_bech32(undefined);
+
+test('the treasury: scripts of at least two distinct keys, "all of" or "at least n of", that can be met, without the hot key, that its address is paid and staked to', () => {
+  assert.deepEqual(checkTreasury(TREASURY, 1, BATCHER_KEY), TREASURY);
   const twoOfThree = treasuryOf(nOf(2, 'c1', 'c2', 'c3'));
-  assert.deepEqual(checkTreasury(twoOfThree, 1), twoOfThree);
-  // Base address (a stake part of its own), as Lace gives a shared wallet's: the payment part decides.
-  const base = CSL.BaseAddress.new(1, CSL.Credential.from_scripthash(allOf('c1', 'c2').hash()), CSL.Credential.from_scripthash(allOf('d1', 'd2').hash())).to_address().to_bech32(undefined);
-  assert.equal(checkTreasury({ address: base, script: TREASURY.script }, 1).address, base);
-  const refused: [{ address?: unknown; script?: unknown }, RegExp][] = [
-    [treasuryOf(allOf('c1')), /needs 1 key to spend: it must need at least two/],
-    [treasuryOf(nOf(1, 'c1', 'c2')), /needs 1 key to spend/],
+  assert.deepEqual(checkTreasury(twoOfThree, 1, BATCHER_KEY), twoOfThree);
+  // A base address (a two-key wallet's own stake script): both parts checked.
+  const stake = allOf('d1', 'd2');
+  const base = { address: baseOf(allOf('c1', 'c2'), CSL.Credential.from_scripthash(stake.hash())), script: TREASURY.script, stakeScript: stake.to_hex() };
+  assert.deepEqual(checkTreasury(base, 1, BATCHER_KEY), base);
+  const hot = CSL.NativeScript.new_script_all(CSL.ScriptAll.new(scripts(CSL.NativeScript.new_script_pubkey(CSL.ScriptPubkey.new(CSL.Ed25519KeyHash.from_hex(BATCHER_KEY))), pubkey('c2'))));
+  const refused: [{ address?: unknown; script?: unknown; stakeScript?: unknown }, RegExp][] = [
+    [treasuryOf(allOf('c1')), /needs 1 key to sign: it must need at least two/],
+    [treasuryOf(nOf(1, 'c1', 'c2')), /needs 1 key to sign/],
+    [treasuryOf(nOf(3, 'c1', 'c2')), /needs 3 of its 2 keys: no one could ever spend from it/],
     [treasuryOf(CSL.NativeScript.new_script_any(CSL.ScriptAny.new(scripts(pubkey('c1'), pubkey('c2'))))), /must be "all of" or "at least n of"/],
     [treasuryOf(allOf('c1', 'c1')), /names one key twice/],
-    [treasuryOf(CSL.NativeScript.new_script_all(CSL.ScriptAll.new(scripts(pubkey('c1'), pubkey('c2'), CSL.NativeScript.new_timelock_start(CSL.TimelockStart.new_timelockstart(CSL.BigNum.from_str('1'))))))), /every part of the treasury script must be a key/],
-    [treasuryOf(CSL.NativeScript.new_script_all(CSL.ScriptAll.new(scripts(allOf('c1', 'c2'), pubkey('c3'))))), /every part of the treasury script must be a key/],
+    [treasuryOf(hot), /names the batcher's own key/],
+    [treasuryOf(CSL.NativeScript.new_script_all(CSL.ScriptAll.new(scripts(pubkey('c1'), pubkey('c2'), CSL.NativeScript.new_timelock_start(CSL.TimelockStart.new_timelockstart(CSL.BigNum.from_str('1'))))))), /every part of sweep.treasuryScript must be a key/],
+    [treasuryOf(CSL.NativeScript.new_script_all(CSL.ScriptAll.new(scripts(allOf('c1', 'c2'), pubkey('c3'))))), /every part of sweep.treasuryScript must be a key/],
     [{ address: BATCHER_ADDRESS.to_bech32(undefined), script: TREASURY.script }, /paid to one key, not a script/],
     [{ address: addressOf(allOf('c1', 'c2'), 0), script: TREASURY.script }, /not a mainnet address/],
-    [{ address: addressOf(allOf('c1', 'c3')), script: TREASURY.script }, /not the script sweep.treasury is paid to/],
+    [{ address: addressOf(allOf('c1', 'c3')), script: TREASURY.script }, /not the script sweep.treasury's address names/],
+    [{ address: CSL.RewardAddress.new(1, CSL.Credential.from_scripthash(allOf('c1', 'c2').hash())).to_address().to_bech32(undefined), script: TREASURY.script }, /a payment address \(base or enterprise\), never a stake address/],
+    [{ address: CSL.PointerAddress.new(1, CSL.Credential.from_scripthash(allOf('c1', 'c2').hash()), CSL.Pointer.new_pointer(CSL.BigNum.from_str('1'), CSL.BigNum.from_str('2'), CSL.BigNum.from_str('3'))).to_address().to_bech32(undefined), script: TREASURY.script }, /never a stake address/],
+    // A stake part that is one key: whoever holds it stakes the treasury's ADA and takes the rewards.
+    [{ address: baseOf(allOf('c1', 'c2'), CSL.Credential.from_keyhash(kh('ee'))), script: TREASURY.script }, /stake part is one key/],
+    [{ ...base, stakeScript: undefined }, /sweep.treasuryStakeScript is not a script, as hex/],
+    [{ ...base, stakeScript: allOf('d1', 'd3').to_hex() }, /sweep.treasuryStakeScript is not the script/],
+    [{ ...base, address: baseOf(allOf('c1', 'c2'), CSL.Credential.from_scripthash(allOf('d1').hash())), stakeScript: allOf('d1').to_hex() }, /sweep.treasuryStakeScript needs 1 key/],
+    [{ ...TREASURY, stakeScript: stake.to_hex() }, /has no stake part, so sweep.treasuryStakeScript must not be given/],
     [{ address: TREASURY.address, script: 'not hex' }, /not a script, as hex/],
     [{ address: TREASURY.address, script: `${'81'.repeat(80)}00` }, /not a script, as hex/],
     [{ address: TREASURY.address, script: '820000' }, /not a native script|not the script/],
     [{ address: 'addr1nope', script: TREASURY.script }, /not an address/],
     [{ address: TREASURY.address }, /must be the treasury's address and its payment script/],
   ];
-  for (const [t, why] of refused) assert.throws(() => checkTreasury(t, 1), why, JSON.stringify(t));
+  for (const [t, why] of refused) assert.throws(() => checkTreasury(t, 1, BATCHER_KEY), why, JSON.stringify(t));
 });
 
 const plain = (i: number, ada: bigint) => utxo(`${(0x40 + i).toString(16).padStart(2, '0').repeat(32)}#0`, BATCHER_ADDRESS, value(ada * ADA));
@@ -58,13 +73,18 @@ const outsOf = (txHex: string) => {
   return Array.from({ length: o.len() }, (_, i) => ({ to: o.get(i).address().to_bech32(undefined), coin: BigInt(o.get(i).amount().coin().to_str()) }));
 };
 
-test('a sweep: the plain ADA chosen in, keep back to the batcher, the rest less the ledger’s own fee to the treasury', () => {
+test('a sweep: the plain ADA chosen in, keep back to the batcher (two floats once it is two), the rest less the ledger’s own fee to the treasury', () => {
   const us = [plain(1, 60n), plain(2, 50n)];
   const s = buildSweep({ batcher: BATCHER, treasury: TREASURY, utxos: us, keep: 30n * ADA, validToSlot: 1_000n }, PP)!;
   assert.deepEqual(new Set(s.refs), new Set(us.map((u) => u.ref)));
   assert.equal(s.inputs, 110n * ADA);
   assert.equal(s.amount + 30n * ADA + s.fee, 110n * ADA);
-  assert.deepEqual(new Set(outsOf(s.txHex).map((o) => JSON.stringify([o.to, String(o.coin)]))), new Set([JSON.stringify([BATCHER.address, String(30n * ADA)]), JSON.stringify([TREASURY.address, String(s.amount)])]));
+  assert.deepEqual(outsOf(s.txHex).map((o) => [o.to, String(o.coin)]).sort(), [[BATCHER.address, String(15n * ADA)], [BATCHER.address, String(15n * ADA)], [TREASURY.address, String(s.amount)]].sort());
+  // Under two floats' worth, one.
+  const one = buildSweep({ batcher: BATCHER, treasury: TREASURY, utxos: us, keep: 19n * ADA, validToSlot: 1_000n }, PP)!;
+  assert.deepEqual(outsOf(one.txHex).filter((o) => o.to === BATCHER.address).map((o) => o.coin), [19n * ADA]);
+  assert.deepEqual(floatsOf(31n * ADA), [15_500_000n, 15_500_000n]);
+  assert.deepEqual(floatsOf(31n * ADA + 1n), [15_500_001n, 15_500_000n]);
   const known = Object.fromEntries(us.map((u) => [u.ref, u.outputHex]));
   assert.ok(s.fee >= ledgerMinFee(s.txHex, known, PP), 'below the ledger’s own minimum fee');
   assert.ok(s.fee < 300_000n, `a fee of ${s.fee}`);
@@ -88,7 +108,9 @@ test('nothing to sweep under 5 ADA above keep; at most 50 UTxOs, the largest fir
 const REFS = [`${'41'.repeat(32)}#0`, `${'42'.repeat(32)}#0`];
 const IN = 110n * ADA;
 const FEE = 200_000n;
-const EXPECT = { refs: REFS, inputs: IN, keep: 30n * ADA, batcherAddress: BATCHER.address, treasuryAddress: TREASURY.address };
+// Under two floats' worth: one float out, as these hand-built sweeps have.
+const KEEP = 15n * ADA;
+const EXPECT = { refs: REFS, inputs: IN, keep: KEEP, batcherAddress: BATCHER.address, treasuryAddress: TREASURY.address };
 const input = (ref: string) => CSL.TransactionInput.new(CSL.TransactionHash.from_hex(ref.split('#')[0]!), Number(ref.split('#')[1]));
 const out = (to: string, coin: bigint, tokens = false) => CSL.TransactionOutput.new(CSL.Address.from_bech32(to), tokens ? value(coin, [['70'.repeat(28), '544f4b', 1n]]) : CSL.Value.new(CSL.BigNum.from_str(coin.toString())));
 function sweepTx(change: (b: CSL.TransactionBody, outs: CSL.TransactionOutputs, ins: CSL.TransactionInputs) => void = () => {}, opts: { fee?: bigint; refs?: string[]; witness?: (w: CSL.TransactionWitnessSet) => void } = {}): string {
@@ -96,8 +118,8 @@ function sweepTx(change: (b: CSL.TransactionBody, outs: CSL.TransactionOutputs, 
   for (const r of opts.refs ?? REFS) ins.add(input(r));
   const fee = opts.fee ?? FEE;
   const outs = CSL.TransactionOutputs.new();
-  outs.add(out(BATCHER.address, 30n * ADA));
-  outs.add(out(TREASURY.address, IN - 30n * ADA - fee));
+  outs.add(out(BATCHER.address, KEEP));
+  outs.add(out(TREASURY.address, IN - KEEP - fee));
   const b = CSL.TransactionBody.new_tx_body(ins, outs, CSL.BigNum.from_str(fee.toString()));
   change(b, outs, ins);
   const w = CSL.TransactionWitnessSet.new();
@@ -116,15 +138,17 @@ test('before the key signs: exactly the two outputs, in ADA alone, the chosen in
     return CSL.Transaction.new(CSL.TransactionBody.new_tx_body(ins, o, CSL.BigNum.from_str(FEE.toString())), CSL.TransactionWitnessSet.new(), undefined).to_hex();
   };
   const bent: [string, string, RegExp][] = [
-    ['a third output', withOuts([out(BATCHER.address, 30n * ADA), out(TREASURY.address, IN - 31n * ADA - FEE), out(other, ADA)]), /3 outputs, not 2/],
-    ['the treasury output elsewhere', withOuts([out(BATCHER.address, 30n * ADA), out(other, IN - 30n * ADA - FEE)]), /neither the treasury nor the batcher's own/],
-    ['two outputs to the batcher', withOuts([out(BATCHER.address, 30n * ADA), out(BATCHER.address, IN - 30n * ADA - FEE)]), /neither the treasury nor the batcher's own/],
-    ['more kept than it should', withOuts([out(BATCHER.address, 31n * ADA), out(TREASURY.address, IN - 31n * ADA - FEE)]), /the batcher's own address is paid 31000000 lovelace, not 30000000/],
-    ['less to the treasury', withOuts([out(BATCHER.address, 30n * ADA), out(TREASURY.address, IN - 31n * ADA - FEE)]), /the treasury is paid/],
-    ['tokens in an output', withOuts([out(BATCHER.address, 30n * ADA), out(TREASURY.address, IN - 30n * ADA - FEE, true)]), /carries tokens/],
+    ['a third output', withOuts([out(BATCHER.address, KEEP), out(TREASURY.address, IN - KEEP - ADA - FEE), out(other, ADA)]), /3 outputs, not 2/],
+    ['the treasury output elsewhere', withOuts([out(BATCHER.address, KEEP), out(other, IN - KEEP - FEE)]), /neither the treasury nor the batcher's own/],
+    ['two outputs to the batcher', withOuts([out(BATCHER.address, KEEP), out(BATCHER.address, IN - KEEP - FEE)]), /the batcher's own address is paid 94800000 lovelace, not anything more/],
+    ['more kept than it should', withOuts([out(BATCHER.address, KEEP + ADA), out(TREASURY.address, IN - KEEP - ADA - FEE)]), /the batcher's own address is paid 16000000 lovelace, not 15000000/],
+    ['less to the treasury', withOuts([out(BATCHER.address, KEEP), out(TREASURY.address, IN - KEEP - ADA - FEE)]), /the treasury is paid/],
+    ['tokens in an output', withOuts([out(BATCHER.address, KEEP), out(TREASURY.address, IN - KEEP - FEE, true)]), /carries tokens/],
+    ['a datum on an output', withOuts([out(BATCHER.address, KEEP), (() => { const o = out(TREASURY.address, IN - KEEP - FEE); o.set_data_hash(CSL.DataHash.from_hex('ab'.repeat(32))); return o; })()]), /carries a datum or a script/],
     ['another input', sweepTx(undefined, { refs: [...REFS, `${'43'.repeat(32)}#0`] }), /spends other UTxOs than those chosen/],
     ['one input too few', sweepTx(undefined, { refs: [REFS[0]!] }), /spends other UTxOs than those chosen/],
-    ['a fee of 3 ADA', sweepTx(undefined, { fee: 3n * ADA }), /fee of 3000000 lovelace is more than 2000000/],
+    ['a fee of 3 ADA', sweepTx(undefined, { fee: 3n * ADA }), /fee of 3000000 lovelace is more than 500000/],
+    ['a fee of 0.6 ADA (a source reporting fees wrong)', sweepTx(undefined, { fee: 600_000n }), /fee of 600000 lovelace is more than 500000/],
     ['a mint', sweepTx((b) => b.set_mint(CSL.Mint.new_from_entry(CSL.ScriptHash.from_hex('70'.repeat(28)), (() => { const a = CSL.MintAssets.new(); a.insert(CSL.AssetName.new(Buffer.from('54', 'hex')), CSL.Int.new_i32(1)); return a; })()))), /carries a mint/],
     ['a withdrawal', sweepTx((b) => { const w = CSL.Withdrawals.new(); w.insert(CSL.RewardAddress.new(1, CSL.Credential.from_keyhash(kh(BATCHER_KEY.slice(0, 2)))), CSL.BigNum.from_str('1')); b.set_withdrawals(w); }), /carries withdrawals/],
     ['a certificate', sweepTx((b) => { const c = CSL.Certificates.new(); c.add(CSL.Certificate.new_stake_registration(CSL.StakeRegistration.new(CSL.Credential.from_keyhash(kh('99'))))); b.set_certs(c); }), /carries certificates/],
@@ -137,4 +161,42 @@ test('before the key signs: exactly the two outputs, in ADA alone, the chosen in
     ['a script in the witnesses', sweepTx(undefined, { witness: (w) => { const n = CSL.NativeScripts.new(); n.add(pubkey('c1')); w.set_native_scripts(n); } }), /carries scripts or data/],
   ];
   for (const [what, tx, why] of bent) assert.throws(() => verifySweep(tx, EXPECT), why, what);
+});
+
+test('the two floats kept back: exactly the halves of keep, no other split', () => {
+  const keep = 30n * ADA;
+  const x = { ...EXPECT, keep };
+  const tx = (floats: bigint[]) => {
+    const ins = CSL.TransactionInputs.new();
+    for (const r of REFS) ins.add(input(r));
+    const o = CSL.TransactionOutputs.new();
+    for (const f of floats) o.add(out(BATCHER.address, f));
+    o.add(out(TREASURY.address, IN - keep - FEE));
+    return CSL.Transaction.new(CSL.TransactionBody.new_tx_body(ins, o, CSL.BigNum.from_str(FEE.toString())), CSL.TransactionWitnessSet.new(), undefined).to_hex();
+  };
+  verifySweep(tx([15n * ADA, 15n * ADA]), x);
+  assert.throws(() => verifySweep(tx([20n * ADA, 10n * ADA]), x), /the batcher's own address is paid 20000000 lovelace, not 15000000/);
+  assert.throws(() => verifySweep(tx([30n * ADA]), x), /2 outputs, not 3/);
+});
+
+test('the helper finds the scripts from the members’ keys in any order and either form, and refuses one leaning on the batcher', () => {
+  const tool = new URL('../scripts/treasury-script.ts', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
+  const pay = nOf(2, 'c2', 'c1');
+  const stake = allOf('d2', 'd1');
+  const address = baseOf(pay, CSL.Credential.from_scripthash(stake.hash()));
+  const run = (...args: string[]) => spawnSync(process.execPath, [tool, ...args], { encoding: 'utf8' });
+  const ok = run('--address', address, '--payment', 'c1'.repeat(28), 'c2'.repeat(28), '--stake', 'd1'.repeat(28), 'd2'.repeat(28), '--batcher', BATCHER_KEY);
+  assert.equal(ok.status, 0, ok.stderr);
+  assert.deepEqual(JSON.parse(ok.stdout), { treasury: address, treasuryScript: pay.to_hex(), treasuryStakeScript: stake.to_hex() });
+  const hot = run('--address', address, '--payment', 'c1'.repeat(28), 'c2'.repeat(28), '--stake', 'd1'.repeat(28), 'd2'.repeat(28), '--batcher', 'c1'.repeat(28));
+  assert.equal(hot.status, 1);
+  assert.match(hot.stderr, /names the batcher's own key/);
+  const wrong = run('--address', address, '--payment', 'c1'.repeat(28), 'c3'.repeat(28), '--stake', 'd1'.repeat(28), 'd2'.repeat(28));
+  assert.equal(wrong.status, 1);
+  assert.match(wrong.stderr, /no order or form of the --payment keys/);
+});
+
+test('the sweep is read back as it is built: a UTxO a source lists twice is never swept as two', () => {
+  const u = plain(1, 60n);
+  assert.throws(() => buildSweep({ batcher: BATCHER, treasury: TREASURY, utxos: [u, u, plain(2, 50n)], keep: 30n * ADA, validToSlot: 1n }, PP), /spends other UTxOs than those chosen/);
 });

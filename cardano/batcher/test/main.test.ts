@@ -635,6 +635,14 @@ test('the sweep in the settings: the treasury checked, and the float it keeps be
     [{ ...sweep, keep: 30000000 }, /sweep.keep must be a whole number of lovelace, as a string/],
     [{ ...sweep, treasury: GOOD.batcherAddress }, /paid to one key, not a script/],
     [{ ...sweep, treasuryScript: undefined }, /sweep.treasury and sweep.treasuryScript/],
+    [{ ...sweep, treasuryStakeScript: TREASURY.script }, /has no stake part, so sweep.treasuryStakeScript must not be given/],
+    // A treasury leaning on the batcher's own key (GOOD's), as the settings name it.
+    [(() => {
+      const keys = CSL.NativeScripts.new();
+      for (const k of [KEY, 'c2'.repeat(28)]) keys.add(CSL.NativeScript.new_script_pubkey(CSL.ScriptPubkey.new(CSL.Ed25519KeyHash.from_hex(k))));
+      const s = CSL.NativeScript.new_script_all(CSL.ScriptAll.new(keys));
+      return { treasury: CSL.EnterpriseAddress.new(1, CSL.Credential.from_scripthash(s.hash())).to_address().to_bech32(undefined), treasuryScript: s.to_hex(), keep: '30000000' };
+    })(), /names the batcher's own key/],
     ['yes', /sweep must be/],
     [null, /sweep must be/],
   ];
@@ -652,7 +660,7 @@ test('live, above the cap, with the treasury named: it sweeps and stays healthy,
     await r.done;
     assert.ok(!r.has('stopped'));
     assert.ok(r.of('alerts').every((p) => p.kind !== 'fail'));
-    assert.match(r.of('alive', 'ok').find((p) => p.body.includes('swept to the treasury'))?.body ?? '', /swept to the treasury since the last report: \d+ lovelace/);
+    assert.match(r.of('alive', 'ok').find((p) => p.body.includes('sweeps sent to the treasury'))?.body ?? '', /sweeps sent to the treasury since the last report: \d+ lovelace/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

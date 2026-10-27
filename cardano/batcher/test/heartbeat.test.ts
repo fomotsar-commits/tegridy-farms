@@ -133,6 +133,9 @@ test('every kind of round that reached a source keeps it healthy; a source down 
     { kind: 'inputs-gone', source: 'koios', error: 'spent' },
     { kind: 'sent', txId: 'ab'.repeat(32), pool: 'p', orders: ['a#0'], fee: 1n },
     { kind: 'set-aside', ref: 'a#0', reason: 'too big', alert: false },
+    { kind: 'sweep-prepared', amount: 1n, fee: 1n, refs: [], dryRun: true },
+    { kind: 'swept', txId: 'ab'.repeat(32), amount: 1n, fee: 1n, to: 'addr1t' },
+    { kind: 'sweep-refused', txId: 'ab'.repeat(32), error: '3117', benign: true },
   ] as const;
   for (const e of rounds) {
     const { hb, of, at } = rig();
@@ -405,6 +408,6 @@ test('a sweep to the treasury is a round that reached a source, and the next rep
   hb.tick();
   await hb.flush();
   assert.deepEqual(of('alerts').map((p) => p.kind), ['ok', 'ok']);
-  assert.match(of('alive')[0]!.body, /last round: swept 84800000 lovelace to the treasury .*\nswept to the treasury since the last report: 84800000 lovelace/s);
-  assert.ok(!of('alive')[1]!.body.includes('swept to the treasury since'), 'the count did not start again');
+  assert.match(of('alive')[0]!.body, /last round: sent a sweep of 84800000 lovelace to the treasury .*\nsweeps sent to the treasury since the last report: 84800000 lovelace \(one that never lands is sent again\)/s);
+  assert.ok(!of('alive')[1]!.body.includes('sweeps sent to the treasury since'), 'the count did not start again');
 });

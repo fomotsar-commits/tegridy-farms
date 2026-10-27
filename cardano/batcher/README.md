@@ -63,8 +63,9 @@ refused as `BatchTooBig`, to be split.
   only by the batcher**. Never the site's `KOIOS_API_KEY`: the site needs its daily allowance.
 - **Its signing key is made on the server and never copied.** If it is lost, everything its
   wallet holds is lost: the collateral, the float, and every fee earned (up to the float cap). A
-  replacement is named through the 48-hour lock. Before a key is retired, lower `floatCap` to
-  just above `sweep.keep` and the collateral, and the next check sweeps the rest to the treasury.
+  replacement is named through the 48-hour lock. Before a key is retired, set `sweep.keep` to
+  10 ADA and `floatCap` to 20 ADA: the next check sweeps the rest to the treasury. The 10 ADA
+  kept and the collateral stay at the old key for good, so never delete its volume.
 - **Its earnings stay in its own wallet, capped.** Until the two-key treasury exists, above the
   cap it stops and alerts. Once the settings name the treasury, above the cap it sweeps the
   excess there, down to `sweep.keep`, and goes on (the owner's ruling, 2026-10-27).
@@ -205,16 +206,22 @@ until a week of dry runs is clean.
    even one naming a check that does not exist, keeps it from signing rather than signing with
    no alarm. After changing any ping URL, see both checks green again.
 8. **Once the two-key treasury exists, name it**, and the batcher sweeps instead of stopping at
-   the cap. Add to `BATCHER_SETTINGS`:
-   `"sweep": {"treasury": "<the treasury's address>", "treasuryScript": "<its payment script, hex>", "keep": "30000000"}`.
-   The address is the role timelock's `treasury` (cardano/role-timelock), exactly. The script is
-   the shared wallet's payment script; if the wallet does not show it, rebuild it from the two
-   members' payment key hashes and check it against the address:
-   `node scripts/treasury-script.ts all <key hash> <key hash> --address <the treasury's address>`
-   (try `2` in place of `all` if it says the address is not paid to it). The batcher refuses a
-   treasury paid to one key, a script needing fewer than two distinct keys, or a script the
-   address is not paid to. `keep` is the float left after a sweep: at least 10 ADA, and at
-   least 10 ADA below `floatCap`. A dry run prepares each sweep and sends nothing.
+   the cap. The treasury is a multi-signature wallet of two keys (the owner's plan of 10-24:
+   Eternl's multi-sig wallet; Lace's shared wallets are, in Lace's own code, a testnet-only beta
+   that Lace 2.x does not carry over). Its address is the role timelock's `treasury`
+   (cardano/role-timelock), exactly: the same string in both places. Build the settings' block
+   from the address and the wallet's members' key hashes, given in any order:
+   `node scripts/treasury-script.ts --address <the treasury's address> --payment <key hash> <key hash> --stake <key hash> <key hash> --batcher <the batcher's key hash>`
+   (`--stake` only when the address has a stake part). It tries every order and every form
+   ("all of", "at least n of") and prints only scripts the address is paid and staked to, as
+   `{"treasury", "treasuryScript", "treasuryStakeScript"}`. Add `"keep": "30000000"` and put the
+   whole as `"sweep"` in `BATCHER_SETTINGS`. The batcher refuses (by name) a treasury paid or
+   staked to one key, a stake address, a script needing fewer than two distinct keys or more
+   keys than it has, one naming the batcher's own key, or one the address is not paid or staked
+   to. `keep` is what is left at the batcher after a sweep: at least 10 ADA, at least 10 ADA
+   below `floatCap`, and, with the collateral, below the cap (else every sweep leaves it over the
+   cap, and it says so). From 20 ADA it is left as two floats, so two pools can batch at once.
+   A dry run prepares each sweep, sends nothing, and goes on judging batches.
 
 **What the emails mean.**
 - `cardano-batcher` DOWN: the process is gone (Railway gave up after ten restarts, or the
@@ -239,14 +246,19 @@ until a week of dry runs is clean.
   order's batcher fee lands at the batcher's own address, each batch's network fee is paid from
   it, and what is left grows its plain ADA. Above `floatCap` (counting only that plain ADA: a gift
   carrying tokens is never its to spend), with the treasury named, one sweep sends everything
-  above `sweep.keep`, less a network fee of about 0.2 ADA, to the treasury, and batching goes on;
-  never the collateral UTxO, never a UTxO a batch in flight spends. Before the key signs, the
-  sweep is read back: it may spend only the UTxOs chosen and pay only two outputs, exactly
-  `keep` back to the batcher and the rest to the treasury, in ADA alone, with nothing else in
-  it. A plain ADA gift is swept with the rest (it becomes the treasury's). Without a treasury
-  named, it stops above the cap, as before: the only way on is to raise `floatCap` and redeploy.
-  A sweep the node refuses for anything but a spent input or a closed window stops the batcher
-  (a person is needed); `swept` lines and each report say how much went.
+  above `sweep.keep`, less a network fee of about 0.2 ADA (never more than 0.5 ADA, whatever a
+  source says the fees are), to the treasury; never a collateral, never a UTxO a batch in flight
+  spends, at most 50 UTxOs a sweep, one sweep at a time. Before the key signs, and again once
+  signed, the sweep is read back: it may spend only the UTxOs chosen and pay only `keep` back to
+  the batcher (one or two floats) and the rest to the treasury, in ADA alone, with nothing else
+  in it. Batching waits about a block while a sweep is in flight (it takes the float, and gives
+  `keep` back as new floats). A plain ADA gift is swept with the rest (it becomes the
+  treasury's). Without a treasury named, it stops above the cap, as before: the only way on is to
+  raise `floatCap` and redeploy. A sweep refused as spent or expired is tried again after its
+  window (ten in a row alert); refused for anything else, it stops the batcher (`STOPPED: the
+  sweep to the treasury was refused`): read why, and to go on meanwhile, raise `floatCap` above
+  what the batcher holds and redeploy. `swept` lines and each report say how much was sent; a
+  sweep that never lands is sent again (and counted again).
 
 ## Traps met building it (never undo these)
 

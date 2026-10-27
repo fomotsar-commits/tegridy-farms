@@ -31,7 +31,7 @@ import { ContractFailure } from './math.ts';
 import { InputsGone, OgmiosError, SourceUnavailable, SubmitRefused, type Tip } from './ogmios.ts';
 import { DecodeError, type PlutusData } from './plutus.ts';
 import { BatchTooBig, SetupError, prepareBatch, type PreparedBatch } from './prepare.ts';
-import { buildSweep, verifySweep, type PreparedSweep, type Treasury } from './sweep.ts';
+import { MIN_FLOAT, buildSweep, verifySweep, type PreparedSweep, type Treasury } from './sweep.ts';
 import { GLOBAL_SETTING_TOKEN, NotABatcher, POOL_NFT, batcherIndex, chooseBatch, readGlobalSetting, readOrders, readPools, type Candidate, type Deployment, type Policy, type Skipped } from './select.ts';
 import { compareAge, type ChainUtxo, type ChainView } from './view.ts';
 
@@ -92,6 +92,8 @@ interface InFlight {
   validToSlot: bigint;
   /** A sweep: what it pays the treasury. */
   sweep?: bigint;
+  /** The collateral it pledged: spent only if a script fails, so never spent by anything else meanwhile. */
+  collateral?: string;
 }
 
 const ADA = 1_000_000n;
@@ -110,7 +112,7 @@ const MAX_ALERTS_IN_A_ROW = 5;
 /** Benign refusals in a row that raise an alert (every batch refused as spent or expired). */
 const BENIGN_ALERT = 10;
 /** The smallest fee UTxO a batch spends: the first build, on placeholder budgets, must still make change. */
-const MIN_FEE_UTXO = 10n * ADA;
+const MIN_FEE_UTXO = MIN_FLOAT;
 /** With no order to batch, the wallet and the settings are checked at least this often (10 minutes). */
 const SETUP_CHECK_SLOTS = 600n;
 /**
@@ -138,8 +140,13 @@ export class Watcher {
   #syncUp = false;
   #held: bigint | null = null;
   #plainHeld: bigint | null = null;
-  /** Above the cap with nothing to sweep: said once, until it is under the cap again. */
+  /** Above the cap, and the collateral and the float kept are more than the cap: said once, while it lasts. */
   #capAlerted = false;
+  /** A dry run's sweep, prepared and never sent: prepared again only once its window has closed. */
+  #drySweepUntil: bigint | null = null;
+  /** A sweep refused as spent or expired: not tried again before its window closes; how many in a row. */
+  #sweepPausedUntil: bigint | null = null;
+  #benignSweeps = 0;
   /** The slot the wallet and the settings were last checked at. */
   #checkedAt: bigint | null = null;
   readonly #suspects: Set<string>;
@@ -264,27 +271,27 @@ export class Watcher {
     if (held !== this.#held || plainHeld !== this.#plainHeld) this.#log({ kind: 'wallet', held, plain: plainHeld, cap: this.#c.floatCap });
     this.#held = held;
     this.#plainHeld = plainHeld;
+    // A collateral a batch in flight pledged is never spent meanwhile (by a batch, or a sweep), even
+    // when a newer, smaller UTxO (anyone can send one) has become the collateral of the batches after.
+    const pledged = new Set([...this.inflight.values()].flatMap((f) => (f.collateral ? [f.collateral] : [])));
     const collateral = plain.find((u) => coin(u) >= MIN_COLLATERAL);
-    const others = plain.filter((u) => u !== collateral).reverse();
+    const others = plain.filter((u) => u !== collateral && !pledged.has(u.ref)).reverse();
     const sweep = this.#c.sweep;
     if (!sweep && held > this.#c.floatCap) return this.#stop(`the batcher holds ${held} lovelace, above its cap of ${this.#c.floatCap}: no treasury is named to sweep it to, so raise floatCap in BATCHER_SETTINGS and redeploy, or name the treasury (sweep) once it exists`, false);
     if (sweep) {
-      // What it can spend, less what a sweep in flight already takes: a gift of tokens is never
-      // its to sweep, and never stops it.
-      const going = [...this.inflight.values()].reduce((s, f) => s + (f.sweep ?? 0n), 0n);
-      if (plainHeld - going > this.#c.floatCap) {
-        const free = others.filter((u) => !exclude().has(u.ref));
-        const s = buildSweep({ batcher, treasury: sweep.treasury, utxos: free, keep: sweep.keep, validToSlot: tip.slot + policy.slotsAfter }, pp);
-        if (s) {
-          this.#capAlerted = false;
-          return this.#sendSweep(view, s, tip.slot + policy.slotsAfter);
-        }
-        // Nothing in flight, and still nothing to sweep: the collateral and the float kept hold more than the cap.
-        if (!going && free.length === others.length && !this.#capAlerted) {
-          this.#capAlerted = true;
-          this.#log({ kind: 'alert', reason: `the batcher holds ${plainHeld} lovelace in plain ADA, above its cap of ${this.#c.floatCap}, and nothing can be swept: its collateral UTxO and sweep.keep hold more than the cap` });
-        }
-      } else this.#capAlerted = false;
+      // Counted on what it can spend: a gift of tokens is never its to sweep, and never stops it.
+      // One sweep at a time: while one is in flight (or a dry run's is held, or one was just
+      // refused as spent or expired), batching goes on, and the rest waits for the next.
+      const going = [...this.inflight.values()].some((f) => f.sweep !== undefined);
+      const paused = (this.#drySweepUntil !== null && tip.slot <= this.#drySweepUntil) || (this.#sweepPausedUntil !== null && tip.slot <= this.#sweepPausedUntil);
+      // The cap cannot be met while the collateral and the float kept are more than it: said once, while it lasts.
+      const stuck = (collateral ? coin(collateral) : 0n) + sweep.keep > this.#c.floatCap;
+      if (stuck && plainHeld > this.#c.floatCap && !this.#capAlerted) this.#log({ kind: 'alert', reason: `the batcher holds ${plainHeld} lovelace in plain ADA, above its cap of ${this.#c.floatCap}, and no sweep can bring it under: its collateral UTxO (${collateral ? coin(collateral) : 0n}) and sweep.keep (${sweep.keep}) are more than the cap` });
+      this.#capAlerted = stuck && plainHeld > this.#c.floatCap;
+      if (!going && !paused && plainHeld > this.#c.floatCap) {
+        const s = buildSweep({ batcher, treasury: sweep.treasury, utxos: others.filter((u) => !exclude().has(u.ref)), keep: sweep.keep, validToSlot: tip.slot + policy.slotsAfter }, pp);
+        if (s) return this.#sendSweep(view, s, tip.slot + policy.slotsAfter);
+      }
     }
 
     let global: ReturnType<typeof readGlobalSetting>;
@@ -368,7 +375,7 @@ export class Watcher {
         }
         this.#cleared(candidate);
         this.#skipped(roundSkipped, orderUtxos);
-        return this.#send(view, candidate, prepared, [fee.ref]);
+        return this.#send(view, candidate, prepared, [fee.ref], collateral.ref);
       }
     }
     this.#skipped(roundSkipped, orderUtxos);
@@ -478,10 +485,10 @@ export class Watcher {
     if (fresh.length) this.#log({ kind: 'skipped', items: fresh });
   }
 
-  async #send(view: ChainView, c: Candidate, b: PreparedBatch, walletRefs: string[]): Promise<void> {
+  async #send(view: ChainView, c: Candidate, b: PreparedBatch, walletRefs: string[], collateral: string): Promise<void> {
     const orders = c.orders.map((o) => o.utxo.ref);
     const refs = [c.pool.utxo.ref, ...orders, ...walletRefs];
-    const held = { refs, pool: c.pool.utxo.ref, orders, validToSlot: c.validToSlot };
+    const held: InFlight = { refs, pool: c.pool.utxo.ref, orders, validToSlot: c.validToSlot, collateral };
     if (!this.#signer) {
       this.#log({ kind: 'prepared', source: view.name, pool: c.pool.lpName, orders, fee: b.fee, dryRun: true });
       this.inflight.set(`dry-run:${c.pool.utxo.ref}`, held);
@@ -520,9 +527,10 @@ export class Watcher {
   async #sendSweep(view: ChainView, s: PreparedSweep, validToSlot: bigint): Promise<void> {
     const held: InFlight = { refs: s.refs, pool: '', orders: [], validToSlot, sweep: s.amount };
     const sweep = this.#c.sweep!;
+    // A dry run's sweep is never sent, so it holds no UTxO: batches are still prepared and judged.
     if (!this.#signer) {
       this.#log({ kind: 'sweep-prepared', amount: s.amount, fee: s.fee, refs: s.refs, dryRun: true });
-      this.inflight.set('dry-run:sweep', held);
+      this.#drySweepUntil = validToSlot;
       return;
     }
     this.#log({ kind: 'sweep-prepared', amount: s.amount, fee: s.fee, refs: s.refs, dryRun: false });
@@ -540,10 +548,14 @@ export class Watcher {
       }
       this.inflight.delete(txId);
       this.#log({ kind: 'sweep-refused', txId, error: message(e), benign: e.benign });
-      // An input gone or a window passed: the next check sweeps again. Anything else: a person is needed.
-      if (!e.benign) this.#stop(`the sweep to the treasury was refused: ${message(e)}`, false);
+      // Anything but an input gone or a window passed: a person is needed.
+      if (!e.benign) return this.#stop(`the sweep to the treasury was refused: ${message(e)}`, false);
+      // Spent or expired: not tried again before its window closes, and batching goes on meanwhile.
+      this.#sweepPausedUntil = validToSlot;
+      if (++this.#benignSweeps === BENIGN_ALERT) this.#log({ kind: 'alert', reason: `${this.#benignSweeps} sweeps in a row were refused as spent or expired: is the source's tip current?` });
       return;
     }
+    this.#benignSweeps = 0;
     if (this.#c.checkLanding && this.#syncUp) this.#awaiting.set(txId, { validToSlot, landedSlot: null });
     this.#log({ kind: 'swept', txId, amount: s.amount, fee: s.fee, to: sweep.treasury.address });
   }

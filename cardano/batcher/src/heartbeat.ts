@@ -174,7 +174,9 @@ export class Heartbeat {
         return this.#good(`prepared a sweep of ${ev.amount} lovelace to the treasury${ev.dryRun ? ' (dry run)' : ''}`);
       case 'swept':
         this.#swept += ev.amount;
-        return this.#good(`swept ${ev.amount} lovelace to the treasury (${ev.txId})`);
+        return this.#good(`sent a sweep of ${ev.amount} lovelace to the treasury (${ev.txId})`);
+      case 'sweep-refused':
+        return this.#good(`a sweep refused at submission${ev.benign ? ' (spent or expired: tried again after its window)' : ''}`);
       case 'unlanded':
         this.#unlanded = ev.inARow;
         return;
@@ -261,7 +263,7 @@ export class Heartbeat {
       `running ${Math.round((now - this.#since) / 60_000)} minutes; last round: ${this.#lastRound || 'none yet'}`,
       `since the last report: ${this.#prepared} batches prepared, ${this.#sent} sent, ${this.#fees} lovelace in network fees`,
     ];
-    if (this.#swept) report.push(`swept to the treasury since the last report: ${this.#swept} lovelace`);
+    if (this.#swept) report.push(`sweeps sent to the treasury since the last report: ${this.#swept} lovelace (one that never lands is sent again)`);
     if (this.#wallet) report.push(`wallet: ${this.#wallet.held} lovelace (${this.#wallet.plain} of it plain ADA), its cap ${this.#wallet.cap}`);
     if (this.#alerts.length) report.push(`alerts held back (one alert email an hour at most): ${this.#alerts.length + this.#moreAlerts}`);
     this.#prepared = 0;

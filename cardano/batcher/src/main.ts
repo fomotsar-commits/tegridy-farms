@@ -55,7 +55,7 @@ export interface Settings {
   maxRefusalsInARow: number;
   idleRoundMs: number;
   /** Once the two-key treasury exists: above floatCap, the excess is swept there, down to `keep`. */
-  sweep?: { treasury: string; treasuryScript: string; keep: string };
+  sweep?: { treasury: string; treasuryScript: string; treasuryStakeScript?: string; keep: string };
 }
 
 const HEX56 = /^[0-9a-f]{56}$/;
@@ -111,9 +111,9 @@ export function parseSettings(text: string): ReadSettings {
   // Optional until the treasury exists; given, every part of it is checked.
   let sweep: ReadSettings['sweep'];
   if (s.sweep !== undefined) {
-    const w = s.sweep as Partial<Record<'treasury' | 'treasuryScript' | 'keep', unknown>> | null;
-    if (typeof w !== 'object' || w === null || Array.isArray(w)) throw new Error('settings: sweep must be {"treasury", "treasuryScript", "keep"}');
-    const treasury = checkTreasury({ address: w.treasury, script: w.treasuryScript }, s.network);
+    const w = s.sweep as Partial<Record<'treasury' | 'treasuryScript' | 'treasuryStakeScript' | 'keep', unknown>> | null;
+    if (typeof w !== 'object' || w === null || Array.isArray(w)) throw new Error('settings: sweep must be {"treasury", "treasuryScript", "treasuryStakeScript", "keep"}');
+    const treasury = checkTreasury({ address: w.treasury, script: w.treasuryScript, stakeScript: w.treasuryStakeScript }, s.network, s.batcherKeyHash);
     if (typeof w.keep !== 'string' || !/^\d+$/.test(w.keep)) throw new Error('settings: sweep.keep must be a whole number of lovelace, as a string');
     const keep = BigInt(w.keep);
     // The float left after a sweep is a fee UTxO; the cap leaves room above it for the collateral and a sweep worth sending.
