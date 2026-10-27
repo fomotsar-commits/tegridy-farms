@@ -85,6 +85,7 @@ function view(o: { quote?: QuoteCoin; q?: bigint; t?: bigint } = {}): PoolView {
     quoteReserve: q,
     tokenReserve: t,
     vaultsFrozen: false,
+    launchTierWithoutLaunch: false,
     history: { kind: 'not-read' },
   };
 }
@@ -103,6 +104,7 @@ function search(views: PoolView[]): PoolSearchRead {
       index: { kind: 'ok', pools: views.map((v) => v.address), truncated: false },
       pools: views.map((v) => ({ kind: 'pool' as const, view: v })),
       otherPairs: 0,
+      launchTierPools: [],
       knownState: {},
       chainNow: 1_000n,
     },

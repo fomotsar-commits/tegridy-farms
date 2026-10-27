@@ -472,11 +472,16 @@ export function addPool(
     quote?: QuoteCoin;
     /** Override recorded fields (to test a pool whose record and derivation disagree). */
     record?: Partial<Record<'token0Vault' | 'token1Vault' | 'lpMint' | 'observationKey' | 'token0Program' | 'token1Program', PublicKey>>;
-    /** The fee tier the pool is on (its recorded config, and its standard address); default tier 0. */
+    /**
+     * The fee tier the pool is on (its recorded config, and its standard address). Default:
+     * tier 0 for a launch pool, tier 1 for any other (added to the chain if missing): a
+     * pool on tier 0 that is not the launch pool is one this site refuses.
+     */
     ammConfig?: PublicKey;
   },
 ): PoolFixture {
-  const ammConfig = o.ammConfig ?? AMM_CONFIG;
+  const ammConfig = o.ammConfig ?? (o.launch ? AMM_CONFIG : publicTierConfig(CPSWAP));
+  if (ammConfig.equals(publicTierConfig(CPSWAP)) && !chain.accounts.has(ammConfig.toBase58())) chain.addTier1();
   const quote = o.quote ?? SOL_QUOTE;
   const quoteMint = new PublicKey(quote.mint);
   const quoteProgram = new PublicKey(quote.program);

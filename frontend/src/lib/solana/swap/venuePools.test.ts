@@ -25,6 +25,7 @@ import {
 import { EXT, encodeMint2022 } from '../../launcher/solana/write/testkit.fixture';
 import { chooseRoute, type RouteCandidate } from '../route';
 import { quoteVenuePools, readVenuePools, rememberingFetch } from './venuePools';
+import { poolStatePda } from '../../launcher/solana/curve/program';
 
 const NOW = 2_000_000_000n;
 const OPTS = { programId: PROGRAM, launchProgramId: LAUNCH };
@@ -72,7 +73,8 @@ describe('a pool on the public fee tier (tier 1) is found and priced with its ow
   it('prices each pool with the fee of the tier it is on, not one tier for all', async () => {
     const mint = key();
     const t1 = buildPool({ mint, configIndex: 1, quoteReserve: 10n * SOL, tokenReserve: 1_000_000n * TOK });
-    const t0 = buildPool({ mint, configIndex: 0, quoteReserve: 10n * SOL, tokenReserve: 1_000_000n * TOK });
+    // The one pool on tier 0 a swap may use: the token's launch pool.
+    const t0 = buildPool({ mint, configIndex: 0, address: poolStatePda(mint, LAUNCH), quoteReserve: 10n * SOL, tokenReserve: 1_000_000n * TOK });
     // Tier 0 as it is on mainnet: 0.25%.
     t0.accounts[t0.config.toBase58()] = { owner: PROGRAM.toBase58(), data: configBytes(0, 2_500n, 120_000n) };
     const r = await read(base(mint, { ...t1.accounts, ...t0.accounts }), mint);
@@ -356,9 +358,10 @@ describe('a pool that cannot be traded or cannot be read gives no candidate, and
 
   it('a pool beside a second one that trades: the one that trades is the candidate', async () => {
     const mint = key();
-    const frozen = buildPool({ mint, configIndex: 0, quoteReserve: 10n * SOL, tokenReserve: 1_000_000n * TOK, frozenVault: true });
+    const frozen = buildPool({ mint, configIndex: 1, address: key(), quoteReserve: 10n * SOL, tokenReserve: 1_000_000n * TOK, frozenVault: true });
     const good = buildPool({ mint, configIndex: 1, quoteReserve: 10n * SOL, tokenReserve: 1_000_000n * TOK });
-    const q = quoteVenuePools(await read(base(mint, { ...frozen.accounts, ...good.accounts }), mint), WSOL_MINT, SOL);
+    const index = { [`mint:${mint.toBase58()}`]: [frozen.address.toBase58()] };
+    const q = quoteVenuePools(await read(base(mint, { ...frozen.accounts, ...good.accounts }), mint, { index }), WSOL_MINT, SOL);
     expect(q.state).toBe('quoted');
     expect(q.candidates.map((c) => c.poolAddress)).toEqual([good.address.toBase58()]);
   });

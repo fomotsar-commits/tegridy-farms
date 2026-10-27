@@ -490,7 +490,7 @@ const PAST_BUTTON = 'btn-secondary w-full sm:w-auto min-h-[44px] px-4 text-[13px
 
 /**
  * The pool's last transactions, on a press only: one signatures page and at most 20
- * transaction reads a press, behind the budget gate (poolPast.ts). A search can list 103
+ * transaction reads a press, behind the budget gate (poolPast.ts). A search can list 100
  * pools, so nothing here reads by itself. Read 20 more joins the older page's entries and
  * totals them again, up to HISTORY_PAGES_MAX pages. A failed read prints its reason and no
  * count. The first button and the status line stay mounted: focus stays, answers are read out.

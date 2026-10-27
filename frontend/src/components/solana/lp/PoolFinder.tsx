@@ -5,7 +5,7 @@ import { PublicKey } from '@solana/web3.js';
 import { parseMintInput } from '../../../lib/solana/lp/mintInput';
 import { assessPools, type PoolHealth } from '../../../lib/solana/lp/poolHealth';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
-import type { FeeTierRead, PoolSearchRead } from '../../../lib/solana/lp/poolFinder';
+import { LAUNCH_TIER_POOL, type FeeTierRead, type PoolSearchRead } from '../../../lib/solana/lp/poolFinder';
 import type { OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
 import { QUOTE_COINS_OR, otherSideLine, quoteCoin, quotesFor, searchedCoinsOr } from '../../../lib/solana/lp/quotes';
 import { BUNGALOWS } from '../../../lib/bungalows';
@@ -91,6 +91,13 @@ function listsPool(pools: PoolSearchRead, address: string): boolean {
   return pools.kind === 'ok' && pools.search.pools.some((p) => (p.kind === 'pool' ? p.view.address : p.address) === address);
 }
 
+/** This token's pools on the launch tier without a launch, which the list leaves out (poolFinder.ts). */
+function launchTierLine(n: number): string {
+  return n === 1
+    ? '1 pool of this token was opened on the launch fee tier without a launch. This site does not list it, swap in it or add to it.'
+    : `${n} pools of this token were opened on the launch fee tier without a launch. This site does not list them, swap in them or add to them.`;
+}
+
 /**
  * The line for a position's wish whose pool the lookup did not return. A lookup that
  * could not be read says that: it is never told as "your pool is not there". The pool's
@@ -99,6 +106,8 @@ function listsPool(pools: PoolSearchRead, address: string): boolean {
  * that works: the wish is spent, so Read again alone opens nothing.
  */
 function unfoundText(pools: PoolSearchRead, pool: string, door = false): string {
+  // Read, and on the launch tier without a launch: never "did not read".
+  if (pools.kind === 'ok' && pools.search.launchTierPools.includes(pool)) return LAUNCH_TIER_POOL;
   if (door) {
     return pools.kind !== 'ok'
       ? `This token’s pools could not be read just now, so the Add form for this pool (${pool}) was not opened. Try again in a minute.`
@@ -584,9 +593,10 @@ export function PoolFinder({
       {unfoundLine && (
         <DoorPortal when={unfound?.top === true}>
           <div data-testid="lp-wish-unfound" className="text-[13px] leading-relaxed [overflow-wrap:anywhere]">
-            <Notice tone="warn">{unfoundLine}</Notice>
+            <Notice tone="warn">{unfoundLine === LAUNCH_TIER_POOL ? <strong>{unfoundLine}</strong> : unfoundLine}</Notice>
           </div>
         </DoorPortal>
+
       )}
       {state.status === 'done' && (
         <SearchResults
@@ -801,6 +811,11 @@ function SearchResults({
           {!only && pools.search.pools.length > 0 && pools.search.otherPairs > 0 && (
             <Notice>{pools.search.otherPairs} more pool(s) pair this token with something other than {QUOTE_COINS_OR} and are not shown.</Notice>
           )}
+          {!only && pools.search.launchTierPools.length > 0 && (
+            <Notice tone="warn">
+              <strong>{launchTierLine(pools.search.launchTierPools.length)}</strong>
+            </Notice>
+          )}
           {/* With pools listed there is no "no pools" sentence to carry it, so it is said under the list. */}
           {pools.search.pools.length > 0 && otherSide && (
             <div data-testid="lp-other-side">
@@ -891,7 +906,7 @@ function IndexNote({ read }: { read: Extract<PoolSearchRead, { kind: 'ok' }> }) 
         ) : (
           <p>
             Our pool index could not be read ({index.detail}), so only the addresses we can work out ourselves were checked:
-            the launch pool and the standard address on each fee tier, for each coin a pool can pair with. There may be other pools.
+            the launch pool and the public fee tier’s standard address, for each coin a pool can pair with. There may be other pools.
           </p>
         )}
       </FinePrint>

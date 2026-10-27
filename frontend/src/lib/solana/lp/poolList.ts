@@ -41,8 +41,10 @@ export async function listPools(rpc: SolanaRpc, opts: ReadPoolsOptions & { fetch
   const pools: PoolView[] = [];
   let unread = 0;
   for (const e of read.entries) {
-    if (e.kind === 'pool') pools.push(e.view);
-    else if (e.kind === 'unread') unread++;
+    // A pool on the launch tier that is not the launch pool is read and not listed (poolFinder.ts).
+    if (e.kind === 'pool') {
+      if (!e.view.launchTierWithoutLaunch) pools.push(e.view);
+    } else if (e.kind === 'unread') unread++;
     // `absent`, `not-a-pool`, `other-pair`: the index was wrong about an address; nothing to list.
   }
   // The index ranks too, by a read of its own; the order shown is the order just read.

@@ -90,10 +90,14 @@ export default function PoolsPage() {
           <h1 className="heading-luxury text-3xl md:text-5xl text-white tracking-tight mb-3">
             Liquidity pools.
           </h1>
-          <p className="text-white/85 text-[15px] max-w-xl leading-relaxed">
+          {/* Only what a read returned: nothing while reading or after a failed read. The line's
+              height is held, so the page does not jump when the read lands. */}
+          <p className="text-white/85 text-[15px] max-w-xl leading-relaxed min-h-[1lh]">
             {liveConfig
               ? 'Add two coins. Earn from every trade.'
-              : 'Our own Solana AMM. No pool can be opened here yet.'}
+              : status && status.kind !== 'unreadable'
+                ? 'Our own Solana AMM. No pool can be opened here yet.'
+                : null}
           </p>
           <FinePrint summary="Details" className="max-w-xl">
             <p>

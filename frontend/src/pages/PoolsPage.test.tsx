@@ -290,6 +290,34 @@ describe('while the first read is in flight', () => {
     await waitFor(() => expect(screen.getByText(/Reading the venue/i)).toBeInTheDocument());
     expectNoFeeNumbers();
   });
+
+  // Island, answer twenty-two: a slow phone showed "No pool can be opened here yet" for seconds
+  // while eight pools were open. Until the read lands the hero says nothing at all.
+  it('says nothing about pools in the hero until the chain answers', async () => {
+    await mount();
+    await waitFor(() => expect(screen.getByText(/Reading the venue/i)).toBeInTheDocument());
+    expect(screen.queryByText(/No pool can be opened here yet/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Add two coins/i)).not.toBeInTheDocument();
+  });
+});
+
+describe('the hero line follows only what a read returned', () => {
+  it('a failed read does not say no pool can be opened', async () => {
+    readVenue.mockResolvedValue({ kind: 'unreadable', detail: 'proxy timed out' });
+    await mount();
+    await settled();
+    expect(screen.queryByText(/No pool can be opened here yet/i)).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ['no program id', { kind: 'no-program-id' }],
+    ['a live program with no fee config', { kind: 'no-config', programId: PROGRAM }],
+  ])('%s: says no pool can be opened, which that read returned', async (_name, read) => {
+    readVenue.mockResolvedValue(read);
+    await mount();
+    await settled();
+    expect(screen.getByText(/No pool can be opened here yet/i)).toBeInTheDocument();
+  });
 });
 
 describe('always', () => {
