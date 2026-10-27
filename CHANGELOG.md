@@ -7,6 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-10-27
+
+- NFT lending: a lender can lend against any NFT in a collection, and that is now the default. The borrower picks which of their NFTs to lock when they take the offer, and the page checks they own it. "One specific NFT" still ties an offer to one token. Money moves as before: the lender earns the interest, and the venue keeps 5% of that interest when the loan is repaid. This runs on a new lending contract; the old one never had an offer or a loan.
+
 ### 2026-10-25
 
 - Solana pools: a pool opened on the launch fee tier without a launch (free to open on the pool program running now) is never listed, swapped in or added to from this site, and a link or a position that names one says so in one bold line. Holders of one can still remove their liquidity. Graduated launch pools are unchanged.
