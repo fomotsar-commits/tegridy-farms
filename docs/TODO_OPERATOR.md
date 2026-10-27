@@ -95,9 +95,15 @@ Read on chain and on GitHub on 2026-10-24, about 03:30 UTC.
 
 **Left, in this order:**
 
-1. ⬜ **Execute the range fee tiers (#19). It can run now.** The public notice said no sooner than
-   2026-10-23 14:00 UTC. Read on 2026-10-24: not executed (the range program owns no accounts).
-   The folder's START-HERE, steps 4 and 5:
+1. ✅ **Done 2026-10-27 03:52:39 UTC: the owner executed #19** (transaction
+   `5t4B2D81y5Gvj8uLkEKVZ8L8T3CUW4Akf68X2PWZqi2C4Hy8USUYwtz21hhaNZ2rR4c67aUE8xTfoGYRyXFvFa3v`).
+   Both tiers are live, 1% and 0.25%, each with the island split; `6-verify-tiers.mjs` passed the
+   same day. The site reads only the 1% tier (`RANGE_POOLS_OPEN` went on with #1011 on 10-25).
+   **Until the range program charges the 0.5 SOL opening fee (#1019), anyone may open a range
+   pool on either tier for free.** The steps it took, kept for the record:
+
+   ~~**Execute the range fee tiers (#19).**~~ The public notice said no sooner than
+   2026-10-23 14:00 UTC. The folder's START-HERE, steps 4 and 5:
 
    ```bash
    node "C:\Users\jimbo\solana-launch-release-2026-09-26\range-pools-tiers-2026-10\scripts\5-record-notice.mjs"
@@ -116,7 +122,11 @@ Read on chain and on GitHub on 2026-10-24, about 03:30 UTC.
    After that a session opens the one-line pull request that turns `RANGE_POOLS_OPEN` on. Until it
    merges, the Range tab and the range pools in the swap route stay hidden.
 
-2. ⬜ **Day 4, Sunday 2026-10-25, from 09:07 UTC: the pool pack's step 22.** Start the page, open
+2. ✅ **Done 2026-10-27 03:52 UTC: the owner executed #20** (transaction
+   `M2KuWgiLRPSCyYbRFCCa63gVsMmSZG1BbLYNGBxfGtZhtNqU9XSNyBDVUh3wXqbnTJA5XNEuQGFJLEHBPLmNzxY`);
+   `6-read-names.mjs --expect renamed` passed the same day. A try at #18 a minute later failed
+   on chain, as expected (its buffer was closed on 10-24); it cost only the network fee.
+   The steps, kept for the record: ~~**Day 4, Sunday 2026-10-25, from 09:07 UTC: the pool pack's step 22.**~~ Start the page, open
    **http://127.0.0.1:5299/**, connect a member and execute **#20** (the rename to "Bayla LP SOL"
    and "Bayla LP USDC"):
 
@@ -658,8 +668,7 @@ made under "the rest", now settled and being built:
   while the program exists, and about 15.48 SOL in hand during the deploy (half of it comes back
   at the end), plus about 0.01 SOL of fees. Figures from `docs/RANGE_POOLS_PLAN.md` on #800's
   branch, at the rent rate read 2026-10-14.
-- ⬜ **Proposed and approved by both members 2026-10-21** (Squads #19, 13:45:21 UTC). It may
-  execute from 2026-10-23 14:00 UTC, the date the public notice gives. Each tier's 16% is now
+- ✅ **Executed 2026-10-27 03:52:39 UTC** (Squads #19, approved by both members 2026-10-21). Each tier's 16% is now
   10.4% to the vault and 5.6% to the island's Workshop (registry rows `range-clmm-amm-config-0`
   and `-1`). **The range fee tiers** proposed in `docs/RANGE_POOLS_PLAN.md` (#800): 1% and 0.25%, liquidity
   providers keep 84% of each fee and the venue 16%. They need the vault's signature, about
