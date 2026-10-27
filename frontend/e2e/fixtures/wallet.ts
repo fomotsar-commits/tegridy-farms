@@ -32,6 +32,7 @@
  */
 
 import { test as base, expect, type Locator, type Page } from '@playwright/test';
+import { TEGRIDY_NFT_LENDING_ADDRESS } from '../../src/lib/constants';
 
 const DEFAULT_ACCOUNT = '0x71be63f3384f5fb98995898a86b02fb2426c5788'; // Hardhat account #9
 const DEFAULT_CHAIN_ID = 1; // Ethereum mainnet
@@ -47,11 +48,11 @@ const ANVIL_RPC_URL = process.env.ANVIL_RPC_URL;
 const TOWELI = '0x420698CFdEDdEa6bc78D59bC17798113ad278F9D';
 
 // ─── NFT-lending fixture constants ───────────────────────────────────────
-// The deployed NFT lending market (constants.ts TEGRIDY_NFT_LENDING_ADDRESS) and
-// Nakamigos, one of the three collections NFTLendingSection accepts as collateral
-// (NFTLendingSection.tsx:33-37). Measured on a live fork: offerCount() is 0 on
-// mainnet, so the borrow tab has nothing to show until this fixture plants one.
-const NFT_LENDING = '0x89BeB6cc0255B7465c01aA38a6f937efd345f14F';
+// The deployed NFT lending market (read from constants.ts, so a redeploy changes one
+// place) and Nakamigos, one of the three collections NFTLendingSection accepts as
+// collateral (NFTLendingSection.tsx:33-37). Measured on a live fork: offerCount() is 0
+// on mainnet, so the borrow tab has nothing to show until this fixture plants one.
+const NFT_LENDING = TEGRIDY_NFT_LENDING_ADDRESS;
 const NAKAMIGOS = '0xd774557b647330C91Bf44cfEAB205095f7E6c367';
 /** Anvil/hardhat account #1 — plays the lender. No key: the node signs by impersonation. */
 const LENDER_ACCOUNT = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8';
@@ -421,7 +422,8 @@ async function seedNftLendingOffer(rpc: Rpc, borrower: string): Promise<void> {
   ]);
   const market = parseAbi([
     'function offerCount() view returns (uint256)',
-    'function createOffer(uint256,uint256,uint256,address,uint256,uint64) payable returns (uint256)',
+    // (principal, aprBps, duration, collection, tokenId, isFullContractOffer, expiry)
+    'function createOffer(uint256,uint256,uint256,address,uint256,bool,uint64) payable returns (uint256)',
   ]);
 
   const call = async (to: string, data: string): Promise<`0x${string}`> =>
@@ -492,7 +494,8 @@ async function seedNftLendingOffer(rpc: Rpc, borrower: string): Promise<void> {
     encodeFunctionData({
       abi: market,
       functionName: 'createOffer',
-      args: [OFFER_PRINCIPAL_WEI, OFFER_APR_BPS, OFFER_DURATION_S, NAKAMIGOS as `0x${string}`, tokenId, expiry],
+      // Pinned (not a collection offer): the spec's borrower takes it with this exact token.
+      args: [OFFER_PRINCIPAL_WEI, OFFER_APR_BPS, OFFER_DURATION_S, NAKAMIGOS as `0x${string}`, tokenId, false, expiry],
     }),
     OFFER_PRINCIPAL_WEI,
   );
