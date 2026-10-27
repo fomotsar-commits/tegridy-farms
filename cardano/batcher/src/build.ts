@@ -145,7 +145,8 @@ const interval = (x: number | string) => {
   return CSL.UnitInterval.new(big(r.n), big(r.d));
 };
 
-function config(pp: ProtocolParams): CSL.TransactionBuilderConfig {
+/** EMURGO's builder, set to the chain's own parameters (the batch and the sweep both). */
+export function builderConfig(pp: ProtocolParams): CSL.TransactionBuilderConfig {
   return CSL.TransactionBuilderConfigBuilder.new()
     .fee_algo(CSL.LinearFee.new(big(pp.txFeePerByte), big(pp.txFeeFixed)))
     .pool_deposit(big(pp.stakePoolDeposit))
@@ -201,7 +202,7 @@ export function spendIndexes(req: Pick<BatchTxRequest, 'pool' | 'orders' | 'batc
 }
 
 function assemble(req: BatchTxRequest, pp: ProtocolParams, totalCollateral: bigint, minFee: bigint): CSL.Transaction {
-  const b = CSL.TransactionBuilder.new(config(pp));
+  const b = CSL.TransactionBuilder.new(builderConfig(pp));
   const ix = spendIndexes(req);
   const budget = (key: string, kind: 'spend' | 'reward') => req.budgets.get(key) ?? PLACEHOLDER[kind];
   const applyOrder = mkConstr(0, []); // OrderRedeemer ApplyOrder

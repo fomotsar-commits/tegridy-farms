@@ -94,7 +94,7 @@ test('healthy: both checks start, then both ok with what it did since the last r
   hb.observe({ kind: 'idle', source: 'ogmios+kupo', slot: 1n, orders: 0 });
   hb.observe({ kind: 'sent', txId: 'ab'.repeat(32), pool: 'p', orders: ['x#0'], fee: 690_931n });
   hb.observe({ kind: 'sent', txId: 'cd'.repeat(32), pool: 'p', orders: ['y#0'], fee: 700_000n });
-  hb.observe({ kind: 'wallet', held: 30_000_000n, cap: 100_000_000n });
+  hb.observe({ kind: 'wallet', held: 30_000_000n, plain: 29_000_000n, cap: 100_000_000n });
   at(5);
   hb.tick();
   at(10);
@@ -106,7 +106,7 @@ test('healthy: both checks start, then both ok with what it did since the last r
   assert.equal(of('alive')[0]!.body, 'the batcher started, signing');
   assert.match(of('alive')[1]!.body, /^working\n/);
   assert.match(of('alive')[1]!.body, /since the last report: 0 batches prepared, 2 sent, 1390931 lovelace in network fees/);
-  assert.match(of('alive')[1]!.body, /wallet: 30000000 lovelace, its cap 100000000/);
+  assert.match(of('alive')[1]!.body, /wallet: 30000000 lovelace \(29000000 of it plain ADA\), its cap 100000000/);
   assert.match(of('alive')[2]!.body, /0 batches prepared, 0 sent, 0 lovelace/);
   assert.match(of('alive')[2]!.body, /last round: a batch refused at submission \(pool p\)/);
   assert.equal(of('alerts')[1]!.body, of('alive')[1]!.body);
@@ -392,4 +392,19 @@ test('with no ping URL nothing is sent, and the start says, once, that no alarm 
   const half: Record<string, unknown>[] = [];
   void new Heartbeat({ alive: ALIVE, alerts: null, everyMs: 5 * MIN, quietMs: 10 * MIN, alertGapMs: 60 * MIN, dryRun: true, send: async () => ({ ok: true }) }, (e) => half.push(e as Record<string, unknown>)).start();
   assert.match(String(half[0]!.reason), /^HC_PING_URL_CARDANO_BATCHER_ALERTS: not set up, so no alert will reach anyone$/);
+});
+
+test('a sweep to the treasury is a round that reached a source, and the next report says how much went', async () => {
+  const { hb, of, at } = rig();
+  at(9);
+  hb.observe({ kind: 'swept', txId: 'ab'.repeat(32), amount: 84_800_000n, fee: 200_000n, to: 'addr1treasury' });
+  at(10);
+  hb.tick();
+  at(15);
+  hb.observe({ kind: 'idle', source: 'koios', slot: 1n, orders: 0 });
+  hb.tick();
+  await hb.flush();
+  assert.deepEqual(of('alerts').map((p) => p.kind), ['ok', 'ok']);
+  assert.match(of('alive')[0]!.body, /last round: swept 84800000 lovelace to the treasury .*\nswept to the treasury since the last report: 84800000 lovelace/s);
+  assert.ok(!of('alive')[1]!.body.includes('swept to the treasury since'), 'the count did not start again');
 });

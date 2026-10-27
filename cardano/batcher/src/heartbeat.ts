@@ -127,7 +127,8 @@ export class Heartbeat {
   #sent = 0;
   #fees = 0n;
   #lastRound = '';
-  #wallet: { held: bigint; cap: bigint } | null = null;
+  #wallet: { held: bigint; plain: bigint; cap: bigint } | null = null;
+  #swept = 0n;
   #prepared = 0;
   #unlanded = 0;
   /** What the alerts check was last failed for ('stopped', 'quiet', 'unlanded', 'alert', 'start'), or null: it was last ok. */
@@ -167,8 +168,13 @@ export class Heartbeat {
         if (ev.alert) this.#alert(`set aside ${ev.ref}: ${ev.reason}`);
         return;
       case 'wallet':
-        this.#wallet = { held: ev.held, cap: ev.cap };
+        this.#wallet = { held: ev.held, plain: ev.plain, cap: ev.cap };
         return;
+      case 'sweep-prepared':
+        return this.#good(`prepared a sweep of ${ev.amount} lovelace to the treasury${ev.dryRun ? ' (dry run)' : ''}`);
+      case 'swept':
+        this.#swept += ev.amount;
+        return this.#good(`swept ${ev.amount} lovelace to the treasury (${ev.txId})`);
       case 'unlanded':
         this.#unlanded = ev.inARow;
         return;
@@ -255,9 +261,11 @@ export class Heartbeat {
       `running ${Math.round((now - this.#since) / 60_000)} minutes; last round: ${this.#lastRound || 'none yet'}`,
       `since the last report: ${this.#prepared} batches prepared, ${this.#sent} sent, ${this.#fees} lovelace in network fees`,
     ];
-    if (this.#wallet) report.push(`wallet: ${this.#wallet.held} lovelace, its cap ${this.#wallet.cap}`);
+    if (this.#swept) report.push(`swept to the treasury since the last report: ${this.#swept} lovelace`);
+    if (this.#wallet) report.push(`wallet: ${this.#wallet.held} lovelace (${this.#wallet.plain} of it plain ADA), its cap ${this.#wallet.cap}`);
     if (this.#alerts.length) report.push(`alerts held back (one alert email an hour at most): ${this.#alerts.length + this.#moreAlerts}`);
     this.#prepared = 0;
+    this.#swept = 0n;
     this.#sent = 0;
     this.#fees = 0n;
     void this.#ping(this.#c.alive, 'ok', report.join('\n'));

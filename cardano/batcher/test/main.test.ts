@@ -17,7 +17,7 @@ import type { SocketFactory, SocketLike } from '../src/follow.ts';
 import { parseExact, stringifyExact } from '../src/json.ts';
 import type { Evaluator } from '../src/prepare.ts';
 import type { ChainView } from '../src/view.ts';
-import { ADA, DEP, FakeView, evaluator, inputsOf, swapOn } from './fake-view.ts';
+import { ADA, DEP, FakeView, TREASURY, evaluator, inputsOf, swapOn } from './fake-view.ts';
 import { BATCHER_ADDRESS, BATCHER_KEY, BATCHER_SKEY, S, utxo, value, world } from './world.ts';
 
 const KEY = '55'.repeat(28);
@@ -619,6 +619,40 @@ test('the set-aside file: one UTxO alone is a trap, and stays one; a batch’s o
     const bad = readSetAside(file, (e) => logs.push(e as Record<string, unknown>));
     assert.deepEqual([bad.trapped.size, bad.suspects.size], [0, 0]);
     assert.equal(logs[0]!.kind, 'set-aside-unreadable');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('the sweep in the settings: the treasury checked, and the float it keeps between a fee UTxO and 10 ADA below the cap', () => {
+  const sweep = { treasury: TREASURY.address, treasuryScript: TREASURY.script, keep: '30000000' };
+  const c = read({ ...GOOD, sweep });
+  assert.deepEqual(c.sweep, { treasury: TREASURY, keep: 30_000_000n });
+  assert.equal(read(GOOD).sweep, undefined, 'no treasury named: no sweep');
+  const bad: [unknown, RegExp][] = [
+    [{ ...sweep, keep: '9999999' }, /sweep.keep must be at least 10000000 \(the float/],
+    [{ ...sweep, keep: '90000001' }, /sweep.keep must be at least 10000000 below floatCap/],
+    [{ ...sweep, keep: 30000000 }, /sweep.keep must be a whole number of lovelace, as a string/],
+    [{ ...sweep, treasury: GOOD.batcherAddress }, /paid to one key, not a script/],
+    [{ ...sweep, treasuryScript: undefined }, /sweep.treasury and sweep.treasuryScript/],
+    ['yes', /sweep must be/],
+    [null, /sweep must be/],
+  ];
+  for (const [s, why] of bad) assert.throws(() => read({ ...GOOD, sweep: s }), why, JSON.stringify(s));
+});
+
+test('live, above the cap, with the treasury named: it sweeps and stays healthy, never stopped', async () => {
+  const { view } = chain({ rich: true });
+  const { dir, key } = keyDir();
+  try {
+    const settings = JSON.stringify({ ...JSON.parse(WORLD_SETTINGS), sweep: { treasury: TREASURY.address, treasuryScript: TREASURY.script, keep: '30000000' } });
+    const r = start({ BATCHER_KEY_FILE: key, BATCHER_LIVE: '1', BATCHER_SETTINGS: settings }, [view]);
+    await until(() => r.has('swept') && r.of('alerts', 'ok').length >= 2);
+    r.stop();
+    await r.done;
+    assert.ok(!r.has('stopped'));
+    assert.ok(r.of('alerts').every((p) => p.kind !== 'fail'));
+    assert.match(r.of('alive', 'ok').find((p) => p.body.includes('swept to the treasury'))?.body ?? '', /swept to the treasury since the last report: \d+ lovelace/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -8,6 +8,7 @@ import type { Evaluator } from '../src/prepare.ts';
 import type { Deployment, Policy } from '../src/select.ts';
 import type { SimulationResult } from '../src/simulate.ts';
 import type { ChainUtxo, ChainView } from '../src/view.ts';
+import type { Treasury } from '../src/sweep.ts';
 import type { Signer } from '../src/watcher.ts';
 import { BATCHER_KEY, BATCHER_SKEY, DEX, NETWORK, PP, S, order, step } from './world.ts';
 
@@ -106,3 +107,11 @@ export class FakeView implements ChainView {
 }
 
 export const swapOn = (ref: string, trader: number, lpName?: string) => order(ref, trader, 30n * ADA, [], step.swapIn(true, 25n * ADA, 1n), lpName ? { lpName } : {});
+
+/** A two-key treasury (all of two keys), as the settings name it. */
+const treasuryScript = (() => {
+  const keys = CSL.NativeScripts.new();
+  for (const b of ['c1', 'c2']) keys.add(CSL.NativeScript.new_script_pubkey(CSL.ScriptPubkey.new(CSL.Ed25519KeyHash.from_hex(b.repeat(28)))));
+  return CSL.NativeScript.new_script_all(CSL.ScriptAll.new(keys));
+})();
+export const TREASURY: Treasury = { address: CSL.EnterpriseAddress.new(NETWORK, CSL.Credential.from_scripthash(treasuryScript.hash())).to_address().to_bech32(undefined), script: treasuryScript.to_hex() };

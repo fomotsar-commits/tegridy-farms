@@ -15,8 +15,9 @@
 //     next process (src/main.ts keeps them on the volume) never reads a UTxO it broke on alone,
 //     and tries each order of a batch it broke on alone before it may join a batch: one order
 //     cannot break every restart, nor keep honest orders aside.
-// Above the float cap it stops. With no order to batch, the wallet and the settings are still
-// checked every 10 minutes, so a stop for a person comes back after any redeploy. A dry run
+// Above the float cap it sweeps the excess to the two-key treasury (src/sweep.ts), once the
+// settings name it; until then it stops there. With no order to batch, the wallet and the settings
+// are still checked every 10 minutes, so a stop for a person comes back after any redeploy. A dry run
 // prepares and judges, and never signs or sends. Every round that reached a source says so (the
 // alarm counts it). A batch in flight that can never land (an order of it spent by another, its
 // pool not) is released at once. With chain-sync, each batch sent is looked for in the blocks
@@ -30,6 +31,7 @@ import { ContractFailure } from './math.ts';
 import { InputsGone, OgmiosError, SourceUnavailable, SubmitRefused, type Tip } from './ogmios.ts';
 import { DecodeError, type PlutusData } from './plutus.ts';
 import { BatchTooBig, SetupError, prepareBatch, type PreparedBatch } from './prepare.ts';
+import { buildSweep, verifySweep, type PreparedSweep, type Treasury } from './sweep.ts';
 import { GLOBAL_SETTING_TOKEN, NotABatcher, POOL_NFT, batcherIndex, chooseBatch, readGlobalSetting, readOrders, readPools, type Candidate, type Deployment, type Policy, type Skipped } from './select.ts';
 import { compareAge, type ChainUtxo, type ChainView } from './view.ts';
 
@@ -43,8 +45,13 @@ export interface WatcherConfig {
   deployment: Deployment;
   policy: Policy;
   batcher: { keyHash: string; address: string };
-  /** Above this many lovelace in its wallet, the batcher stops and alerts (the owner's cap). */
+  /**
+   * Above this many lovelace in its wallet, the batcher sweeps the excess to the treasury, down to
+   * `sweep.keep`, when the settings name the treasury; without one, it stops and alerts.
+   */
   floatCap: bigint;
+  /** The two-key treasury (src/sweep.ts checked it) and the float left after a sweep. */
+  sweep?: { treasury: Treasury; keep: bigint };
   /** How long an order refused on its own is set aside, in slots. */
   quarantineSlots: bigint;
   /** This many refused submissions in a row stop the batcher. */
@@ -66,7 +73,10 @@ export type WatcherEvent =
   | { kind: 'prepared'; source: string; pool: string; orders: string[]; fee: bigint; dryRun: boolean }
   | { kind: 'sent'; txId: string; pool: string; orders: string[]; fee: bigint }
   | { kind: 'refused'; pool: string; error: string; inARow: number; benign: boolean }
-  | { kind: 'wallet'; held: bigint; cap: bigint }
+  | { kind: 'wallet'; held: bigint; plain: bigint; cap: bigint }
+  | { kind: 'sweep-prepared'; amount: bigint; fee: bigint; refs: string[]; dryRun: boolean }
+  | { kind: 'swept'; txId: string; amount: bigint; fee: bigint; to: string }
+  | { kind: 'sweep-refused'; txId: string; error: string; benign: boolean }
   | { kind: 'landed'; txId: string; slot: bigint }
   | { kind: 'unlanded'; txId: string; validToSlot: bigint; inARow: number }
   | { kind: 'outrun'; txId: string; spent: string }
@@ -80,6 +90,8 @@ interface InFlight {
   pool: string;
   orders: string[];
   validToSlot: bigint;
+  /** A sweep: what it pays the treasury. */
+  sweep?: bigint;
 }
 
 const ADA = 1_000_000n;
@@ -125,6 +137,9 @@ export class Watcher {
   /** Chain-sync has delivered a block since it was last lost: a batch sent now can be looked for. */
   #syncUp = false;
   #held: bigint | null = null;
+  #plainHeld: bigint | null = null;
+  /** Above the cap with nothing to sweep: said once, until it is under the cap again. */
+  #capAlerted = false;
   /** The slot the wallet and the settings were last checked at. */
   #checkedAt: bigint | null = null;
   readonly #suspects: Set<string>;
@@ -241,10 +256,36 @@ export class Watcher {
       this.#rewardBalance(view, tip.slot),
     ]);
 
+    // The wallet: a collateral UTxO (shared by batches in flight: it is only spent if a script
+    // fails) and a fee UTxO no batch in flight is spending. Only plain ADA is ever spent.
     const held = wallet.reduce((s, u) => s + coin(u), 0n);
-    if (held !== this.#held) this.#log({ kind: 'wallet', held, cap: this.#c.floatCap });
+    const plain = wallet.filter((u) => isPlainBatcherUtxo(u, batcher.keyHash)).sort(byCoin);
+    const plainHeld = plain.reduce((s, u) => s + coin(u), 0n);
+    if (held !== this.#held || plainHeld !== this.#plainHeld) this.#log({ kind: 'wallet', held, plain: plainHeld, cap: this.#c.floatCap });
     this.#held = held;
-    if (held > this.#c.floatCap) return this.#stop(`the batcher holds ${held} lovelace, above its cap of ${this.#c.floatCap}: no sweep exists yet, so raise floatCap in BATCHER_SETTINGS and redeploy (what it holds stays at its key)`, false);
+    this.#plainHeld = plainHeld;
+    const collateral = plain.find((u) => coin(u) >= MIN_COLLATERAL);
+    const others = plain.filter((u) => u !== collateral).reverse();
+    const sweep = this.#c.sweep;
+    if (!sweep && held > this.#c.floatCap) return this.#stop(`the batcher holds ${held} lovelace, above its cap of ${this.#c.floatCap}: no treasury is named to sweep it to, so raise floatCap in BATCHER_SETTINGS and redeploy, or name the treasury (sweep) once it exists`, false);
+    if (sweep) {
+      // What it can spend, less what a sweep in flight already takes: a gift of tokens is never
+      // its to sweep, and never stops it.
+      const going = [...this.inflight.values()].reduce((s, f) => s + (f.sweep ?? 0n), 0n);
+      if (plainHeld - going > this.#c.floatCap) {
+        const free = others.filter((u) => !exclude().has(u.ref));
+        const s = buildSweep({ batcher, treasury: sweep.treasury, utxos: free, keep: sweep.keep, validToSlot: tip.slot + policy.slotsAfter }, pp);
+        if (s) {
+          this.#capAlerted = false;
+          return this.#sendSweep(view, s, tip.slot + policy.slotsAfter);
+        }
+        // Nothing in flight, and still nothing to sweep: the collateral and the float kept hold more than the cap.
+        if (!going && free.length === others.length && !this.#capAlerted) {
+          this.#capAlerted = true;
+          this.#log({ kind: 'alert', reason: `the batcher holds ${plainHeld} lovelace in plain ADA, above its cap of ${this.#c.floatCap}, and nothing can be swept: its collateral UTxO and sweep.keep hold more than the cap` });
+        }
+      } else this.#capAlerted = false;
+    }
 
     let global: ReturnType<typeof readGlobalSetting>;
     let index: number;
@@ -259,11 +300,6 @@ export class Watcher {
     const refs = { pool: script(dep.scriptRefs.pool), order: script(dep.scriptRefs.order), poolBatching: script(dep.scriptRefs.poolBatching) };
     const pools = readPools(dep, poolUtxos);
 
-    // The wallet: a collateral UTxO (shared by batches in flight: it is only spent if a script
-    // fails) and a fee UTxO no batch in flight is spending.
-    const plain = wallet.filter((u) => isPlainBatcherUtxo(u, batcher.keyHash)).sort(byCoin);
-    const collateral = plain.find((u) => coin(u) >= MIN_COLLATERAL);
-    const others = plain.filter((u) => u !== collateral).reverse();
     if (!collateral || !others.some((u) => coin(u) >= MIN_FEE_UTXO)) return this.#stop(`the batcher needs two plain ADA UTxOs at its key: one of at least ${MIN_COLLATERAL} lovelace for collateral, and its float, of at least ${MIN_FEE_UTXO}`, false);
     this.#checkedAt = tip.slot;
     this.#releaseOutrun(here, new Set(poolUtxos.map((u) => u.ref)));
@@ -478,6 +514,38 @@ export class Watcher {
     this.#alerts = 0;
     if (this.#c.checkLanding && this.#syncUp) this.#awaiting.set(txId, { validToSlot: c.validToSlot, landedSlot: null });
     this.#log({ kind: 'sent', txId, pool: c.pool.lpName, orders, fee: b.fee });
+  }
+
+  /** The sweep: held like a batch until its window closes, read back again once signed, then sent. */
+  async #sendSweep(view: ChainView, s: PreparedSweep, validToSlot: bigint): Promise<void> {
+    const held: InFlight = { refs: s.refs, pool: '', orders: [], validToSlot, sweep: s.amount };
+    const sweep = this.#c.sweep!;
+    if (!this.#signer) {
+      this.#log({ kind: 'sweep-prepared', amount: s.amount, fee: s.fee, refs: s.refs, dryRun: true });
+      this.inflight.set('dry-run:sweep', held);
+      return;
+    }
+    this.#log({ kind: 'sweep-prepared', amount: s.amount, fee: s.fee, refs: s.refs, dryRun: false });
+    const signed = this.#signer.sign(s.txHex);
+    // The signature adds a witness and nothing else: read back as signed, before it goes.
+    verifySweep(signed, { refs: s.refs, inputs: s.inputs, keep: sweep.keep, batcherAddress: this.#c.batcher.address, treasuryAddress: sweep.treasury.address });
+    const txId = CSL.FixedTransaction.from_hex(signed).transaction_hash().to_hex();
+    this.inflight.set(txId, held);
+    try {
+      await view.submit(signed);
+    } catch (e) {
+      if (!(e instanceof SubmitRefused)) {
+        this.#log({ kind: 'error', error: `the sweep ${txId} may or may not have been sent; its inputs are held until its window closes: ${message(e)}` });
+        return;
+      }
+      this.inflight.delete(txId);
+      this.#log({ kind: 'sweep-refused', txId, error: message(e), benign: e.benign });
+      // An input gone or a window passed: the next check sweeps again. Anything else: a person is needed.
+      if (!e.benign) this.#stop(`the sweep to the treasury was refused: ${message(e)}`, false);
+      return;
+    }
+    if (this.#c.checkLanding && this.#syncUp) this.#awaiting.set(txId, { validToSlot, landedSlot: null });
+    this.#log({ kind: 'swept', txId, amount: s.amount, fee: s.fee, to: sweep.treasury.address });
   }
 
   #stop(reason: string, fatal: boolean, trapped?: string[]): void {

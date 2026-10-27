@@ -144,7 +144,7 @@ jobs:
     timeout-minutes: 20
     env:
       # Fewer passing tests than this means tests were lost, even with none failing. Raise it with the suite.
-      MIN_PASS: 208
+      MIN_PASS: 219
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: The Node the image runs, from the Dockerfile's pinned base

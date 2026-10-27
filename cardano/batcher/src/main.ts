@@ -30,6 +30,7 @@ import { Kupo, checkKupoReady } from './kupo.ts';
 import { SourceUnavailable } from './ogmios.ts';
 import { ALERTS_PING_ENV, Heartbeat, PING_ENV, resolvePingUrl, type HeartbeatConfig } from './heartbeat.ts';
 import { enterpriseAddress, keyFromFile, makeKeyFile, signerOf } from './signer.ts';
+import { checkTreasury } from './sweep.ts';
 import { koiosView, ogmiosKupoView, type ChainView } from './view.ts';
 import { Watcher, type WatcherConfig } from './watcher.ts';
 
@@ -53,6 +54,8 @@ export interface Settings {
   quarantineSlots: number;
   maxRefusalsInARow: number;
   idleRoundMs: number;
+  /** Once the two-key treasury exists: above floatCap, the excess is swept there, down to `keep`. */
+  sweep?: { treasury: string; treasuryScript: string; keep: string };
 }
 
 const HEX56 = /^[0-9a-f]{56}$/;
@@ -105,6 +108,19 @@ export function parseSettings(text: string): ReadSettings {
   const floatCap = lovelace('floatCap', 10_000_000n);
   // The batcher's change and its collateral's return go to this address: it must be its own key's.
   if (typeof s.batcherAddress !== 'string' || !isBatcherAddress(s.batcherAddress, s.batcherKeyHash, s.network)) throw new Error("settings: batcherAddress is not the batcher key's own mainnet enterprise address");
+  // Optional until the treasury exists; given, every part of it is checked.
+  let sweep: ReadSettings['sweep'];
+  if (s.sweep !== undefined) {
+    const w = s.sweep as Partial<Record<'treasury' | 'treasuryScript' | 'keep', unknown>> | null;
+    if (typeof w !== 'object' || w === null || Array.isArray(w)) throw new Error('settings: sweep must be {"treasury", "treasuryScript", "keep"}');
+    const treasury = checkTreasury({ address: w.treasury, script: w.treasuryScript }, s.network);
+    if (typeof w.keep !== 'string' || !/^\d+$/.test(w.keep)) throw new Error('settings: sweep.keep must be a whole number of lovelace, as a string');
+    const keep = BigInt(w.keep);
+    // The float left after a sweep is a fee UTxO; the cap leaves room above it for the collateral and a sweep worth sending.
+    if (keep < 10_000_000n) throw new Error('settings: sweep.keep must be at least 10000000 (the float batches pay from)');
+    if (keep > floatCap - 10_000_000n) throw new Error('settings: sweep.keep must be at least 10000000 below floatCap');
+    sweep = { treasury, keep };
+  }
   return {
     network: s.network,
     deployment: { network: s.network, dex: { authenPolicy: d.authenPolicy, poolScriptHash: d.poolScriptHash, time: MAINNET_TIME }, orderScriptHash: d.orderScriptHash, poolBatchingScriptHash: d.poolBatchingScriptHash, scriptRefs: d.scriptRefs },
@@ -114,6 +130,7 @@ export function parseSettings(text: string): ReadSettings {
     quarantineSlots: BigInt(quarantineSlots),
     maxRefusalsInARow,
     idleRoundMs,
+    ...(sweep ? { sweep } : {}),
   };
 }
 

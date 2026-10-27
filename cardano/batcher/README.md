@@ -20,6 +20,7 @@ fake chain). So this is new code, and it is in the audit's scope.
 | `src/follow.ts`: chain-sync, a round per block | done; follows mainnet live |
 | `src/select.ts`, `src/watcher.ts`, `src/main.ts`: what to batch next, and the loop (failover, in-flight inputs, halving, set-aside, refusals, float cap, dry run) | done |
 | `Dockerfile`, `docker-entrypoint.sh`, `railway.json`, `src/heartbeat.ts`: the Railway service (its key made only at the top of its own volume, a dry run unless told otherwise) and its alarm (two healthchecks.io checks) | done; CI builds the image and boots it as Railway would (`cardano-ci.yml` jobs `batcher`, `batcher-image`); not yet run on Railway itself |
+| `src/sweep.ts`: above the float cap, the excess swept to the two-key treasury (the owner's ruling, 2026-10-27), on as soon as the settings name the treasury; the treasury must be a script needing two keys or more, and every sweep is read back before the key signs it | done; no treasury exists yet, so it is off |
 | Our own deployment (#988) on mainnet, then a week of dry runs before the key signs | next |
 
 ## What a batch costs (our contracts, mainnet prices)
@@ -62,10 +63,11 @@ refused as `BatchTooBig`, to be split.
   only by the batcher**. Never the site's `KOIOS_API_KEY`: the site needs its daily allowance.
 - **Its signing key is made on the server and never copied.** If it is lost, everything its
   wallet holds is lost: the collateral, the float, and every fee earned (up to the float cap). A
-  replacement is named through the 48-hour lock. Before a key is retired, its wallet must be
-  emptied, and no sweep exists yet (see "The float cap" below).
-- **Its earnings stay in its own wallet, capped.** Above the cap it stops and alerts; once the
-  two-key treasury exists, they are swept there (a sweep still to be built).
+  replacement is named through the 48-hour lock. Before a key is retired, lower `floatCap` to
+  just above `sweep.keep` and the collateral, and the next check sweeps the rest to the treasury.
+- **Its earnings stay in its own wallet, capped.** Until the two-key treasury exists, above the
+  cap it stops and alerts. Once the settings name the treasury, above the cap it sweeps the
+  excess there, down to `sweep.keep`, and goes on (the owner's ruling, 2026-10-27).
 
 ## What it can and cannot do
 
@@ -92,7 +94,7 @@ node src/main.ts settings.json --once     # one round, then exit (no alarm)
 
 `settings.json` holds no secrets (the deployment's hashes and reference-script UTxOs, the batcher
 key's hash and its own enterprise address, the fee per order, the float cap, the window and the
-limits; every one required and range-checked). The environment holds the rest: `OGMIOS_URL` and
+limits; every one required and range-checked; and, once the treasury exists, `sweep`). The environment holds the rest: `OGMIOS_URL` and
 `OGMIOS_WS` (Demeter puts the key in the host name), `KUPO_URL`, `KOIOS_URL` and `KOIOS_TOKEN`,
 `BATCHER_KEY_FILE`, `HC_PING_URL_CARDANO_BATCHER` and `HC_PING_URL_CARDANO_BATCHER_ALERTS`. Every
 log line and every alarm ping is scrubbed of the endpoints, the Koios token and the ping URLs.
@@ -125,8 +127,9 @@ minutes after it is built), sent or not. The rules:
 - **Refused at submission**: an input gone, the window passed, or the batching account changed is
   normal (ten in a row raise an alert); any other refusal counts, and `maxRefusalsInARow` of them
   in a row stop the batcher.
-- **Its own wallet or settings wrong**, above the float cap, or without two plain ADA UTxOs (one
-  of at least 5 ADA for collateral, a float of at least 10 ADA): it stops and says why. With no
+- **Above the float cap**: with the treasury named, it sweeps (below); without, it stops.
+- **Its own wallet or settings wrong**, or without two plain ADA UTxOs (one of at least 5 ADA for
+  collateral, a float of at least 10 ADA): it stops and says why. With no
   order to batch, these are still checked at the first round and every 10 minutes, so a stop
   comes back after any redeploy. With every fee UTxO of at least 10 ADA in a batch still in
   flight, it waits (a stranger's dust at its address is never a fee UTxO).
@@ -201,6 +204,17 @@ until a week of dry runs is clean.
    checks have answered "OK" (`alarm-unreachable` in the log until then), so a wrong ping URL,
    even one naming a check that does not exist, keeps it from signing rather than signing with
    no alarm. After changing any ping URL, see both checks green again.
+8. **Once the two-key treasury exists, name it**, and the batcher sweeps instead of stopping at
+   the cap. Add to `BATCHER_SETTINGS`:
+   `"sweep": {"treasury": "<the treasury's address>", "treasuryScript": "<its payment script, hex>", "keep": "30000000"}`.
+   The address is the role timelock's `treasury` (cardano/role-timelock), exactly. The script is
+   the shared wallet's payment script; if the wallet does not show it, rebuild it from the two
+   members' payment key hashes and check it against the address:
+   `node scripts/treasury-script.ts all <key hash> <key hash> --address <the treasury's address>`
+   (try `2` in place of `all` if it says the address is not paid to it). The batcher refuses a
+   treasury paid to one key, a script needing fewer than two distinct keys, or a script the
+   address is not paid to. `keep` is the float left after a sweep: at least 10 ADA, and at
+   least 10 ADA below `floatCap`. A dry run prepares each sweep and sends nothing.
 
 **What the emails mean.**
 - `cardano-batcher` DOWN: the process is gone (Railway gave up after ten restarts, or the
@@ -221,12 +235,18 @@ until a week of dry runs is clean.
   healthchecks.io emails only when a check changes. So when a new reason comes while the check
   is already DOWN, the batcher first pings it UP ("not recovered: a new problem follows") and
   then DOWN again: an UP email straight before a DOWN one means "read the DOWN one".
-- **The float cap.** The batcher keeps every fee it earns, and stops above `floatCap`. No sweep
-  exists yet (the owner's ruling sweeps to the two-key treasury, once it exists), so until then
-  the only way on is to raise `floatCap` in `BATCHER_SETTINGS` and redeploy; what it holds stays
-  at its key. Anyone can send ADA to its address and push it over the cap: the gift is the
-  venue's, but every pool stops until the cap is raised. Whether to sweep the excess to the
-  treasury instead of stopping, once the treasury exists, is the owner's call.
+- **The float cap, and the sweep.** The batcher keeps every fee it earns. How money moves: each
+  order's batcher fee lands at the batcher's own address, each batch's network fee is paid from
+  it, and what is left grows its plain ADA. Above `floatCap` (counting only that plain ADA: a gift
+  carrying tokens is never its to spend), with the treasury named, one sweep sends everything
+  above `sweep.keep`, less a network fee of about 0.2 ADA, to the treasury, and batching goes on;
+  never the collateral UTxO, never a UTxO a batch in flight spends. Before the key signs, the
+  sweep is read back: it may spend only the UTxOs chosen and pay only two outputs, exactly
+  `keep` back to the batcher and the rest to the treasury, in ADA alone, with nothing else in
+  it. A plain ADA gift is swept with the rest (it becomes the treasury's). Without a treasury
+  named, it stops above the cap, as before: the only way on is to raise `floatCap` and redeploy.
+  A sweep the node refuses for anything but a spent input or a closed window stops the batcher
+  (a person is needed); `swept` lines and each report say how much went.
 
 ## Traps met building it (never undo these)
 

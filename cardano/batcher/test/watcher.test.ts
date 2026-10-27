@@ -14,7 +14,7 @@ import { lpAssetName } from '../src/verify.ts';
 import { Heartbeat } from '../src/heartbeat.ts';
 import { Watcher, type Signer, type WatcherConfig, type WatcherEvent } from '../src/watcher.ts';
 import { BATCHER_ADDRESS, BATCHER_KEY, NETWORK, makePool, order, step, traderAddress, utxo, value, world } from './world.ts';
-import { ADA, DEP, FakeView, POLICY, SIGNER, TIP, evaluator, inputsOf, swapOn } from './fake-view.ts';
+import { ADA, DEP, FakeView, POLICY, SIGNER, TIP, TREASURY, evaluator, inputsOf, swapOn } from './fake-view.ts';
 
 const TOK2 = { policyId: '71'.repeat(28), assetName: '544f4b32' };
 const LP2 = lpAssetName({ policyId: '', assetName: '' }, TOK2);
@@ -409,7 +409,7 @@ test('its wallet is reported when it changes, against its cap', async () => {
   primary.slot = TIP + 241n;
   await watcher.round();
   const wallet = events.filter((e) => e.kind === 'wallet');
-  assert.deepEqual(wallet, [{ kind: 'wallet', held: 30n * ADA, cap: 100n * ADA }]);
+  assert.deepEqual(wallet, [{ kind: 'wallet', held: 30n * ADA, plain: 30n * ADA, cap: 100n * ADA }]);
 });
 
 test('each batch sent is looked for in the blocks: landed, or three in a row never landing raise an alert; a rollback un-lands; lost chain-sync judges nothing', async () => {
@@ -515,7 +515,7 @@ test('with no order to batch, the wallet and the settings are still checked: at 
   primary.chain.push({ ...rich, createdSlot: 0n, createdTxIndex: 0 });
   primary.slot = TIP + 600n;
   await watcher.round();
-  assert.match(watcher.stopped?.reason ?? '', /^the batcher holds 125000000 lovelace, above its cap of 100000000: no sweep exists yet, so raise floatCap in BATCHER_SETTINGS and redeploy/);
+  assert.match(watcher.stopped?.reason ?? '', /^the batcher holds 125000000 lovelace, above its cap of 100000000: no treasury is named to sweep it to, so raise floatCap in BATCHER_SETTINGS and redeploy, or name the treasury \(sweep\) once it exists$/);
   // A process started over the cap (a redeploy) stops at its first round, order or not.
   const fresh = setup(0, { backup: false, wallet: [w.batcher.feeUtxos[0]!, w.batcher.collateral, rich] });
   await fresh.watcher.round();
@@ -539,4 +539,72 @@ test('a suspect refused alone for an ordinary reason (not a broken library) is c
   await watcher.round();
   assert.ok(events.some((e) => e.kind === 'set-aside' && e.ref === suspect));
   assert.deepEqual(events.filter((e) => e.kind === 'suspect-cleared'), [{ kind: 'suspect-cleared', ref: suspect }]);
+});
+
+// The sweep: above the cap, with the treasury named, the excess goes there and the batcher goes on.
+const SWEEP = { treasury: TREASURY, keep: 30n * ADA };
+const outputsOf = (tx: string) => {
+  const o = CSL.FixedTransaction.from_hex(tx).body().outputs();
+  return Array.from({ length: o.len() }, (_, i) => [o.get(i).address().to_bech32(undefined), BigInt(o.get(i).amount().coin().to_str())] as const);
+};
+
+test('above the cap, with the treasury named: the excess is swept there, from its plain ADA but its collateral, and the batcher goes on', async () => {
+  const w = world();
+  const rich = utxo(`${'b2'.repeat(32)}#0`, BATCHER_ADDRESS, value(95n * ADA));
+  const { watcher, events, primary } = setup(1, { backup: false, wallet: [w.batcher.feeUtxos[0]!, w.batcher.collateral, rich], config: { sweep: SWEEP } });
+  await watcher.round();
+  assert.equal(watcher.stopped, null);
+  const swept = events.find((e) => e.kind === 'swept');
+  assert.ok(swept && swept.kind === 'swept' && swept.to === TREASURY.address);
+  const tx = primary.submitted[0]!;
+  assert.deepEqual(new Set(inputsOf(tx)), new Set([rich.ref, w.batcher.feeUtxos[0]!.ref]), 'it spent the collateral, or missed a UTxO');
+  assert.deepEqual(new Set(outputsOf(tx).map((o) => o.join())), new Set([[BATCHER_ADDRESS.to_bech32(undefined), 30n * ADA].join(), [TREASURY.address, swept.amount].join()]));
+  assert.equal(swept.amount + 30n * ADA + swept.fee, 115n * ADA);
+  assert.equal(CSL.FixedTransaction.from_hex(tx).witness_set().vkeys()?.len(), 1, 'not signed');
+  // While it is in flight it is not swept again, and the order waits for a fee UTxO.
+  await watcher.round();
+  assert.equal(primary.submitted.length, 1);
+  const last = events.at(-1)!;
+  assert.ok(last.kind === 'idle' && last.reason === 'every fee UTxO is in a batch still in flight', last.kind);
+});
+
+test('with the treasury named, a gift of tokens over the cap is never its to sweep, and never stops it', async () => {
+  const w = world();
+  const gift = utxo(`${'b3'.repeat(32)}#0`, BATCHER_ADDRESS, value(95n * ADA, [['70'.repeat(28), '544f4b', 1n]]));
+  const { watcher, events, primary } = setup(1, { backup: false, wallet: [w.batcher.feeUtxos[0]!, w.batcher.collateral, gift], config: { sweep: SWEEP } });
+  await watcher.round();
+  assert.equal(watcher.stopped, null);
+  assert.ok(!events.some((e) => e.kind === 'swept' || e.kind === 'sweep-prepared'));
+  assert.deepEqual(events.find((e) => e.kind === 'wallet'), { kind: 'wallet', held: 125n * ADA, plain: 30n * ADA, cap: 100n * ADA });
+  assert.ok(!inputsOf(primary.submitted[0]!).includes(gift.ref), 'a batch spent the gift');
+});
+
+test('a dry run prepares the sweep and sends nothing; a sweep refused as spent or expired is tried again; any other refusal stops it', async () => {
+  const w = world();
+  const wallet = () => [w.batcher.feeUtxos[0]!, w.batcher.collateral, utxo(`${'b2'.repeat(32)}#0`, BATCHER_ADDRESS, value(95n * ADA))];
+  const dry = setup(1, { backup: false, signer: null, wallet: wallet(), config: { sweep: SWEEP } });
+  await dry.watcher.round();
+  await dry.watcher.round();
+  assert.equal(dry.primary.calls.get('submit') ?? 0, 0);
+  assert.equal(dry.events.filter((e) => e.kind === 'sweep-prepared' && e.dryRun).length, 1, 'prepared again while the first is held');
+  const benign = setup(1, { backup: false, wallet: wallet(), config: { sweep: SWEEP } });
+  benign.primary.submitError = () => new SubmitRefused('3117 unknown inputs', true, false);
+  await benign.watcher.round();
+  assert.equal(benign.watcher.stopped, null);
+  assert.ok(benign.events.some((e) => e.kind === 'sweep-refused' && e.benign));
+  benign.primary.submitError = null;
+  await benign.watcher.round();
+  assert.ok(benign.events.some((e) => e.kind === 'swept'), 'not tried again');
+  const refused = setup(1, { backup: false, wallet: wallet(), config: { sweep: SWEEP } });
+  refused.primary.submitError = () => new SubmitRefused('3122 fee too small', false, false);
+  await refused.watcher.round();
+  assert.match(refused.watcher.stopped?.reason ?? '', /^the sweep to the treasury was refused: 3122 fee too small$/);
+});
+
+test('above the cap with nothing that can be swept (the collateral and the float kept hold more than the cap): said once, never a stop', async () => {
+  const { watcher, events } = setup(1, { backup: false, wallet: [utxo(`${'b1'.repeat(32)}#0`, BATCHER_ADDRESS, value(49n * ADA)), utxo(`${'b1'.repeat(32)}#1`, BATCHER_ADDRESS, value(52n * ADA))], config: { sweep: { treasury: TREASURY, keep: 90n * ADA } } });
+  await watcher.round();
+  await watcher.round();
+  assert.equal(watcher.stopped, null);
+  assert.equal(events.filter((e) => e.kind === 'alert' && /nothing can be swept/.test(e.reason)).length, 1);
 });
