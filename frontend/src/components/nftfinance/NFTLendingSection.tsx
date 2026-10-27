@@ -484,12 +484,14 @@ function LendTab() {
               type="button"
               aria-pressed={anyToken === o.any}
               onClick={() => setAnyToken(o.any)}
+              // Solid backing in both states: a see-through selected state let the
+              // section art bleed through the label.
               className={`min-h-[44px] px-3 py-2 rounded-xl text-[13px] font-medium transition-all ${
                 anyToken === o.any
-                  ? 'bg-emerald-500/15 border border-emerald-500/40 text-emerald-400'
-                  : 'border border-white/5 text-white/70 hover:border-white/15'
+                  ? 'border border-emerald-500/60 text-emerald-400'
+                  : 'border border-white/10 text-white/70 hover:border-white/25'
               }`}
-              style={anyToken !== o.any ? { background: CARD_BG } : undefined}
+              style={{ background: anyToken === o.any ? 'rgba(6, 40, 30, 0.92)' : CARD_BG }}
             >
               {o.label}
             </button>
@@ -522,12 +524,13 @@ function LendTab() {
             <button
               key={d.seconds}
               onClick={() => setDuration(d.seconds)}
+              // Same solid selected backing as "Lend against": the art bled through.
               className={`min-h-[44px] px-4 py-2 rounded-xl text-[13px] font-medium transition-all ${
                 duration === d.seconds
-                  ? 'bg-emerald-500/15 border border-emerald-500/40 text-emerald-400'
+                  ? 'border border-emerald-500/60 text-emerald-400'
                   : 'border border-white/5 text-white/70 hover:text-white/70 hover:border-white/15'
               }`}
-              style={duration !== d.seconds ? { background: CARD_BG } : undefined}
+              style={{ background: duration === d.seconds ? 'rgba(6, 40, 30, 0.92)' : CARD_BG }}
             >
               {d.label}
             </button>
