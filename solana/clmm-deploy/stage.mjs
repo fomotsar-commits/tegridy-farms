@@ -320,7 +320,7 @@ const fill = {
 if (binary) {
   const [bufferRent, dataRent, progRent, tierRent, opRent] = await Promise.all([37 + binary.bytes, 45 + binary.bytes, 36, 117, 3529].map(mrent));
   const [vtRent, prRent] = cfg.squads.vaultTransactionBytes ? await Promise.all([cfg.squads.vaultTransactionBytes, cfg.squads.proposalBytes].map(mrent)) : [0n, 0n];
-  const fees = reh ? BigInt(reh.lamports.uploadFees) : BigInt(Math.ceil(binary.bytes / 1000) * 5000);
+  const fees = reh?.lamports ? BigInt(reh.lamports.uploadFees) : BigInt(Math.ceil(binary.bytes / 1000) * 5000);
   const need = bufferRent + progRent + (dataRent > bufferRent ? dataRent - bufferRent : 0n) + BigInt(cfg.feeAllowanceLamports);
   Object.assign(fill, {
     PROGRAM_ID: programId, BINARY_FILE: binary.file, BINARY_FILE_WIN: win(binary.file), BYTES: binary.bytes.toLocaleString('en-US'), SHA256: binary.sha256,
