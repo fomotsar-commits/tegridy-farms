@@ -11,6 +11,7 @@ The site's Changelog tab shows both files.
 
 - Range pools: the range program's source now charges 0.5 SOL to open a range pool, paid to the team's vault, by each of the three ways it opens one. It reaches mainnet only when the vault executes an upgrade, which is not proposed yet. Until then the program on mainnet charges nothing to open one: the fee tiers exist since 2026-10-27, so anyone can open a range pool for free until that upgrade executes.
 - Range pools: when a pair has no range pool yet, the Range tab can open one on the 1% tier together with its first position, in one transaction, at the market price; an opening price more than 3% off the market's, or a token with no market price, is refused. Before Review it says the 0.5 SOL fee to the team's vault (not refunded), the deposits that never come back, and how a position earns.
+- TOWELI staking: when the reward reserve can't pay, the site now says so. A claim that pays nothing (on the farm page or the dashboard) says nothing was paid and your rewards stay owed, instead of showing a receipt for TOWELI that was never sent. Claimable stops ticking up and says the reserve is empty. The early-withdraw confirm says how much unpaid reward that exit would lose for good. The exit offered during a pause no longer promises to pay rewards the reserve can't cover.
 
 ### 2026-10-25
 
