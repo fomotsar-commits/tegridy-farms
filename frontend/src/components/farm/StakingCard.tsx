@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { m } from 'framer-motion';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { Link } from 'react-router-dom';
-import { formatTokenAmount, sanitizeDecimalInput } from '../../lib/formatting';
+import { formatTokenAmount, formatTokenAmountGrouped, sanitizeDecimalInput } from '../../lib/formatting';
 import { AnimatedCounter } from '../AnimatedCounter';
 import { CONNECT_ETHEREUM_WALLET, PENALTY_COPY } from '../../lib/copy';
 import type { useFarmActions } from '../../hooks/useFarmActions';
@@ -48,7 +48,11 @@ interface StakingCardProps {
   input: StakeInputState;
   confirms: ConfirmState;
   setConfirm: (key: keyof ConfirmState, val: boolean) => void;
-  pool?: { apr: string; aprNum: number; isDeployed: boolean; isDry?: boolean; secondsRemaining?: number };
+  pool?: {
+    apr: string; aprNum: number; isDeployed: boolean; isDry?: boolean; secondsRemaining?: number;
+    /** usePoolData.rewardsRemaining: balance − staked − IOUs, a forced '0' when unread. */
+    rewardsRemaining?: string; rewardsRemainingUnread?: boolean;
+  };
   computed: {
     boostDisplay: string;
     totalBoostBps: number;
@@ -232,8 +236,15 @@ export function StakingCard({
                   {parseFloat(pos.pendingFormatted) || 0} TOWELI claimable
                 </span>
                 {/* Only rendered when a real on-chain rate exists. Labelled "est."
-                    because it is an interpolation between refreshes, not a fresh read. */}
-                {pos.accrualPerSec > 0 && (
+                    because it is an interpolation between refreshes, not a fresh read.
+                    Not on an empty reserve: the counter above is pinned there
+                    (§2.7) and a "+x/s" beside it was the same phantom accrual. */}
+                {pool?.isDry && (
+                  <p className="text-white/70 text-[11px] mt-0.5" data-testid="claimable-reserve-empty">
+                    Reserve empty: nothing accrues, and a claim pays 0 until it is refilled.
+                  </p>
+                )}
+                {pos.accrualPerSec > 0 && !pool?.isDry && (
                   <p
                     className="text-white/45 text-[11px] mt-0.5 font-mono"
                     title="Estimated between the 30-second on-chain refreshes, using this position's live reward rate. Snaps back to the exact value on each refresh.">
@@ -380,6 +391,16 @@ export function StakingCard({
                   const stakedNum = parseFloat(pos.stakedFormatted) || 0;
                   const penaltyAmt = stakedNum * (EARLY_WITHDRAWAL_PENALTY_PCT / 100);
                   const receiveAmt = stakedNum - penaltyAmt;
+                  // earlyWithdraw pays rewards from the reserve, then BURNS the
+                  // position, so any part the reserve can't pay is gone for good
+                  // (measured on a mainnet fork 2026-10-27, empty reserve: one
+                  // position's 391,192 TOWELI forfeited, no IOU). "Up to": the
+                  // contract books what fits under its IOU cap first, which this
+                  // card does not read. null = a read missing, so no figure.
+                  const readsLanded = !pos.positionUnread && pool?.rewardsRemainingUnread === false;
+                  const lostNum = readsLanded
+                    ? Math.max(0, (parseFloat(pos.pendingFormatted) || 0) - (parseFloat(pool?.rewardsRemaining ?? '') || 0))
+                    : null;
                   return (
                   <div className="col-span-2 rounded-lg p-3" style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.15)' }}>
                     <p className="text-danger text-[12px] font-semibold mb-2">The cops showed up. You'll lose {EARLY_WITHDRAWAL_PENALTY_PCT}% of your crop to the {PENALTY_COPY.earlyExitLabel}. {PENALTY_COPY.earlyExitTagline}</p>
@@ -387,6 +408,16 @@ export function StakingCard({
                       <p className="text-danger/80 text-[11px] mb-1">Penalty: <span className="font-mono font-semibold">{penaltyAmt.toFixed(2)} TOWELI</span> will be sent to treasury</p>
                       <p className="text-white/80 text-[11px]">You will receive: <span className="font-mono font-semibold">{receiveAmt.toFixed(2)} TOWELI</span></p>
                     </div>
+                    {lostNum === null ? (
+                      <p className="text-danger text-[11px] mb-2" data-testid="early-exit-reward-loss">
+                        Unpaid rewards the reward reserve can't cover are lost for good.
+                      </p>
+                    ) : lostNum > 0 ? (
+                      <p className="text-danger text-[11px] font-semibold mb-2" data-testid="early-exit-reward-loss">
+                        You also lose up to {formatTokenAmountGrouped(lostNum, 4)} TOWELI of unpaid rewards for good:
+                        the reward reserve can't pay them, and this closes your position.
+                      </p>
+                    ) : null}
                     <div className="flex gap-2">
                       <button onClick={() => setConfirm('earlyWithdraw', false)}
                         className="flex-1 py-2 rounded-lg text-[12px] text-white cursor-pointer"
@@ -499,8 +530,12 @@ export function StakingCard({
                     data-testid="staking-pause-exit-confirm">
                     {pos.canWithdraw ? (
                       <p className="text-white text-[11px] font-semibold mb-1">
-                        Withdraws your {pos.stakedFormatted} TOWELI and pays the rewards it has
-                        earned in the same transaction. This closes your position.
+                        {/* On an empty reserve the same transaction pays 0 and books
+                            the rewards as Unsettled (an expired lock's shortfall goes
+                            to the IOU past its cap), so "pays" would be false. */}
+                        {pool?.isDry
+                          ? `Withdraws your ${pos.stakedFormatted} TOWELI. The reward reserve is empty, so the rewards it has earned stay owed as Unsettled. This closes your position.`
+                          : `Withdraws your ${pos.stakedFormatted} TOWELI and pays the rewards it has earned in the same transaction. This closes your position.`}
                       </p>
                     ) : (
                       /* The forfeited figure is quoted only when the reads landed:
