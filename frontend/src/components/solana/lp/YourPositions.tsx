@@ -3,7 +3,7 @@ import { m } from 'framer-motion';
 import type { PublicKey } from '@solana/web3.js';
 import { displaySafe } from '../../../lib/launchMetadata/validate';
 import { MAX_POSITIONS, type PositionsRead, type Position } from '../../../lib/solana/lp/positions';
-import type { PoolView } from '../../../lib/solana/lp/poolFinder';
+import { LAUNCH_TIER_POOL, type PoolView } from '../../../lib/solana/lp/poolFinder';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { formatWhen, vaultFreezer, withdrawalsState } from '../../../lib/solana/lp/poolHealth';
 import { swapEnabled } from '../../../lib/solana/cpswap/program';
@@ -771,9 +771,11 @@ function RemoveBlock({
   // card, after its checks. Nor does it wait on Remove: a share too small to take out is
   // one a holder may well want to add to. The one thing the row does know: a pool whose
   // withdrawals are off or whose vault is frozen takes no deposit from this site (nobody
-  // is let in who cannot be let out), so the row that says so does not offer to add.
+  // is let in who cannot be let out), so the row that says so does not offer to add. Nor
+  // does a pool on the launch tier that is not the launch pool: the row says that instead.
+  const launchTier = view?.launchTierWithoutLaunch === true;
   const addMore =
-    onAddMore && !setAside && view && view.snapshot.pool.lpMint === p.lpMint && withdrawalsState(view) === 'open' && addingOpen(writes) ? (
+    onAddMore && !setAside && view && !launchTier && view.snapshot.pool.lpMint === p.lpMint && withdrawalsState(view) === 'open' && addingOpen(writes) ? (
       <button
         type="button"
         className="btn-secondary w-full sm:w-auto min-h-[44px] px-4 text-[13px] disabled:opacity-60"
@@ -905,9 +907,15 @@ function RemoveBlock({
         ) : null;
       break;
   }
-  if (!line && !buttons && !leaving && !panel) return null;
+  const tierLine = launchTier ? (
+    <p className="text-amber-300/90 [overflow-wrap:anywhere]">
+      <strong>{LAUNCH_TIER_POOL}</strong>
+    </p>
+  ) : null;
+  if (!tierLine && !line && !buttons && !leaving && !panel) return null;
   return (
     <div className="space-y-2 pt-1">
+      {tierLine}
       {line}
       {buttons}
       {wait}

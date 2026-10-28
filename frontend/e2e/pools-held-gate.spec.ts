@@ -1,4 +1,4 @@
-// /solana-lp on the production build, with the LP gate's network read held open and
+// /pools on the production build, with the LP gate's network read held open and
 // never answered. Every other read lands, so the LP section is up. The gate must close
 // as unread when the wait is over and say so, ask again by itself, and take the banner
 // down when the network answers.
@@ -7,7 +7,7 @@ import { test, expect } from './fixtures/wallet';
 import { gotoRoute } from './fixtures/routes';
 import { playLiveVenue } from './fixtures/playedVenue';
 
-test('/solana-lp with the gate read never answered: the page says so after its 20 seconds, asks again by itself, and takes the banner down when the network answers', async ({ page, walletMock: _w }) => {
+test('/pools with the gate read never answered: the page says so after its 20 seconds, asks again by itself, and takes the banner down when the network answers', async ({ page, walletMock: _w }) => {
   test.skip(test.info().project.name !== 'chromium', 'the same transport on every device');
   test.slow();
   await playLiveVenue(page, { gateOpen: true });
@@ -21,7 +21,7 @@ test('/solana-lp with the gate read never answered: the page says so after its 2
     held.push(route); // not fulfilled and not aborted until the hold is lifted
   });
 
-  await gotoRoute(page, '/solana-lp');
+  await gotoRoute(page, '/pools');
   await expect(page.getByTestId('lp-finder'), 'the LP section did not mount on the played venue').toBeVisible({ timeout: 20_000 });
   await expect.poll(() => held.length, 'the LP gate asked which network this is').toBe(1);
   const banner = page.getByTestId('lp-gate-banner');

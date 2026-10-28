@@ -46,6 +46,7 @@ const VENUE_VOICE_DEBT: Record<string, number> = {
   '/eth-curve/0x0000000000000000000000000000000000000000': 0,
   '/gallery': 0,
   '/security': 0,
+  '/range-pools': 0,
   // Records: the record subtree is skipped by structure, and the chrome around it is held at 0.
   '/changelog': 0,
   '/contracts': 0,
@@ -59,7 +60,6 @@ const VENUE_VOICE_DEBT: Record<string, number> = {
   '/privacy': 7,
   '/trust': 5,
   '/pools': 0,
-  '/solana-lp': 0,
   '/nft-finance': 6,
   '/developers': 10,
   '/risks': 3,
@@ -84,7 +84,7 @@ const FEED_ROUTES = new Set(['/terminal', '/chart', '/copy-trading']);
  *  the count moved with the network. Sealed, each is the branch that cannot read the chain,
  *  on every machine. A route that starts asking the RPC belongs here. /pools' live branch,
  *  read from a recording, is held in its own block below (POOLS_LIVE_DEBT). */
-const SOLRPC_SEALED_ROUTES = new Set(['/solana', '/pools', '/solana-lp', '/curve-launch']);
+const SOLRPC_SEALED_ROUTES = new Set(['/solana', '/pools', '/range-pools', '/curve-launch']);
 
 /** `/nakamigos` opens on a full-viewport splash with no `main` behind it, so it
  *  needs the fixture's own driver rather than the standard mount probe. */
