@@ -262,7 +262,7 @@ describe('every source link the pages render', () => {
 
   it('finds links on every page it renders', () => {
     for (const file of Object.keys(PAGES)) expect(rendered.filter((l) => l.file === file).length, file).toBeGreaterThan(0);
-    expect(rendered.filter((l) => l.file.endsWith('ContractsPage.tsx')).length).toBeGreaterThan(20);
+    expect(rendered.filter((l) => l.file.endsWith('ContractsPage.tsx')).length).toBeGreaterThan(15); // 20 since 2026-10-28
   });
 
   it('is served by a /source redirect', () => {

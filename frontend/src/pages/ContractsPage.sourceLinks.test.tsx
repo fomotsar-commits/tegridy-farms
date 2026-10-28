@@ -41,6 +41,9 @@ const NOT_IN_REPO: Array<[string, string]> = [
   ['Tegridy Fee Hook (V4)', TEGRIDY_FEE_HOOK_ADDRESS],
 ];
 
+/** On mainnet but unwired (address 0x0, so outside the Etherscan query); source retired 2026-10-27. */
+const RETIRED_SOURCE = ['Gauge Controller', 'Vote Incentives', 'Community Grants', 'Meme Bounty Board'];
+
 /** Rows that are not ours to publish: third-party contracts and retired deployments. */
 const EXTERNAL = [
   'Treasury',
@@ -100,8 +103,8 @@ describe('/contracts source links', () => {
     const { container } = render(<ContractsPage />);
     const record = container.querySelector('[data-record="contracts"]')!;
     const links = sourceLinks(record);
-    // A page that rendered no links would pass vacuously.
-    expect(links.length).toBeGreaterThan(20);
+    // A page that rendered no links would pass vacuously. 18 rows link their source since 2026-10-28.
+    expect(links.length).toBeGreaterThan(15);
     const broken = links.filter((l) => !TRACKED.has(l.path)).map((l) => `${l.label}: ${l.path}`);
     expect(broken, `source links to paths git does not track:\n${broken.join('\n')}`).toEqual([]);
   });
@@ -123,7 +126,7 @@ describe('/contracts source links', () => {
     const { container } = render(<ContractsPage />);
     const saying = (reason: string) =>
       rows(container).filter((r) => plainSource(r)?.startsWith(reason)).map(labelOf).sort();
-    expect(saying('not in this repo (')).toEqual(NOT_IN_REPO.map(([label]) => label).sort());
+    expect(saying('not in this repo (')).toEqual([...NOT_IN_REPO.map(([label]) => label), ...RETIRED_SOURCE].sort());
     // An 'external' row also leaves the Etherscan query, so that set is pinned too.
     expect(saying('external (')).toEqual([...EXTERNAL].sort());
   });
