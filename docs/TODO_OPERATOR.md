@@ -29,6 +29,146 @@ stop and say so — a surprise is information.
 
 ---
 
+## 🔴 2026-10-28: range pools open for free until you upgrade the range program (do this first)
+
+**Why it is urgent.** #19 ran on 2026-10-27 and made both range fee tiers, so on the range program
+running now anyone can open a range pool without paying. None was open on 2026-10-28. You ruled on
+2026-10-25 that opening one costs 0.5 SOL, paid to the venue; the program change is pull request
+#1019 (merging it changes nothing on chain). It reaches mainnet only through a vault upgrade, which
+waits 48 hours. Pools opened before it stay open; the upgrade charges only new openings.
+
+**How the money moves.**
+
+- Whoever opens a range pool after the upgrade pays 0.5 SOL to the vault
+  `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd`. It is never refunded; the opener earns nothing
+  from it.
+- On every swap the pool takes 1% of the swap: positions in range share 84% of that fee, the
+  vault 10.4%, the island's Workshop 5.6%.
+- The upgrade itself: the deploy wallet parks 7.758 SOL in the upload for the 48 hours and gets it
+  back when the upgrade runs. About 0.06 SOL is spent for good (0.052 SOL to make the program
+  account larger, plus network fees). Member A spends about 0.0046 SOL on the proposal.
+
+**What to send** (read on mainnet 2026-10-28; step 3 reads it all again on the day). Send a tiny
+test amount first, see it arrive, then the rest.
+
+| Send | To |
+|---|---|
+| **7.85 SOL** | the deploy wallet `CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg` (holds 0) |
+| **0.02 SOL** | member A `5QHzAqbGk3W8qGRBHCMyWjhLXf8YJcs3yPEh14Ymcwgz` (holds 0.001, short of one proposal) |
+
+Member B `6VHowW4pnD4WTGsXhqBp6yxGgC3EExVmYgebSrRNu2tY` (0.009 SOL) and the vault need nothing.
+
+**Never approve or execute this upgrade in the Squads app.** Only the pack's page reads the
+uploaded program back from the chain and refuses a wrong build. On the page, read back
+"proposal #21" before every press. The pack is
+`C:\Users\jimbo\solana-launch-release-2026-09-26\range-pools-open-fee-upgrade-2026-10`; its
+`START-HERE.md` has the same steps with every "if this goes wrong". Two things in that paper are
+out of date since #19 ran: its warnings about #19, and its "after Day 2: the fee tiers" section.
+Skip both. Skip its optional roll-back steps (11a to 11e, 13b, 14b) too.
+
+### Day 0 (about 40 minutes)
+
+1. **Send the SOL** in the table above.
+2. **Check the key file is the deploy wallet's.** You should see
+   `CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg`; anything else, stop.
+
+   ```powershell
+   & "C:\Users\jimbo\.local\share\solana\install\releases\stable-6a8c724a9ed8f093127ef6066e0bcfb074193cc3\solana-release\bin\solana.exe" address -k "C:\Users\jimbo\solana-keys\mainnet\tegridy-launch-deployer.json"
+   ```
+
+3. **Run the check before anything is spent** (reads only). It must end
+   `RESULT: every line passed`. An `ALARM` that a range fee tier already exists is expected now.
+
+   ```powershell
+   node "C:\Users\jimbo\solana-launch-release-2026-09-26\range-pools-open-fee-upgrade-2026-10\scripts\1-preflight.mjs"
+   ```
+
+4. **Ask how much room the program needs** (reads only). You should see
+   `RESULT: the enlarge will be exactly 10,240 bytes.`
+
+   ```powershell
+   node "C:\Users\jimbo\solana-launch-release-2026-09-26\range-pools-open-fee-upgrade-2026-10\scripts\2-check-before-enlarge.mjs"
+   ```
+
+5. **Add the room** (the deploy wallet signs; 0.052 SOL for good). One window only; wait for it to
+   end with `RESULT: the room is there.` Never type `solana program extend` yourself.
+
+   ```powershell
+   node "C:\Users\jimbo\solana-launch-release-2026-09-26\range-pools-open-fee-upgrade-2026-10\scripts\2b-enlarge.mjs" --send --keypair "C:\Users\jimbo\solana-keys\mainnet\tegridy-launch-deployer.json"
+   ```
+
+6. **Run step 4 again.** It should now say `REFUSED` with `ALREADY 1,533,021 bytes`: the right answer.
+7. **Make the one-time upload key.** The address after `pubkey:` is your BUFFER ADDRESS: copy it.
+
+   ```powershell
+   & "C:\Users\jimbo\.local\share\solana\install\releases\stable-6a8c724a9ed8f093127ef6066e0bcfb074193cc3\solana-release\bin\solana-keygen.exe" new --no-bip39-passphrase --outfile "C:\Users\jimbo\solana-launch-release-2026-09-26\range-pools-open-fee-upgrade-2026-10\owner-run\upgrade-buffer-keypair.json"
+   ```
+
+8. **Upload** (the deploy wallet signs; parks 7.758 SOL). Several minutes, about 1,500 small
+   transactions. If it stops, run the same line again: it carries on and does not pay twice.
+
+   ```powershell
+   & "C:\Users\jimbo\.local\share\solana\install\releases\stable-6a8c724a9ed8f093127ef6066e0bcfb074193cc3\solana-release\bin\solana.exe" program write-buffer "C:\Users\jimbo\solana-launch-release-2026-09-26\range-pools-open-fee-upgrade-2026-10\binary-to-deploy\raydium_clmm.open-fee-1e896e1e.mainnet.so" --buffer "C:\Users\jimbo\solana-launch-release-2026-09-26\range-pools-open-fee-upgrade-2026-10\owner-run\upgrade-buffer-keypair.json" --buffer-authority "C:\Users\jimbo\solana-keys\mainnet\tegridy-launch-deployer.json" --keypair "C:\Users\jimbo\solana-keys\mainnet\tegridy-launch-deployer.json" --with-compute-unit-price 10000 --url https://api.mainnet-beta.solana.com
+   ```
+
+9. **Check the upload before handing it over** (reads only). You should see sha256
+   `1e896e1ec8ebd2b7a8d55c56fdd0ee4e4815a908bde42bc31e965a317ff8d95e` and
+   `RESULT: every line passed. This buffer may now be handed to the vault.`
+
+   ```powershell
+   node "C:\Users\jimbo\solana-launch-release-2026-09-26\range-pools-open-fee-upgrade-2026-10\scripts\3-verify-buffer.mjs" --buffer <BUFFER ADDRESS> --stage uploaded
+   ```
+
+10. **Hand the upload to the vault** (the deploy wallet signs). You should see
+    `Authority: GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd`.
+
+    ```powershell
+    & "C:\Users\jimbo\.local\share\solana\install\releases\stable-6a8c724a9ed8f093127ef6066e0bcfb074193cc3\solana-release\bin\solana.exe" program set-buffer-authority <BUFFER ADDRESS> --buffer-authority "C:\Users\jimbo\solana-keys\mainnet\tegridy-launch-deployer.json" --new-buffer-authority GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd --keypair "C:\Users\jimbo\solana-keys\mainnet\tegridy-launch-deployer.json" --url https://api.mainnet-beta.solana.com
+    ```
+
+11. **Check it again** (reads only). You should see `RESULT: every line passed. This buffer may be proposed.`
+
+    ```powershell
+    node "C:\Users\jimbo\solana-launch-release-2026-09-26\range-pools-open-fee-upgrade-2026-10\scripts\3-verify-buffer.mjs" --buffer <BUFFER ADDRESS>
+    ```
+
+12. **Start the signing page**, and open **http://127.0.0.1:5599/** in ONE tab of the browser with
+    your wallet. It shows a yellow bar, **MAINNET: real money**.
+
+    ```powershell
+    node "C:\Users\jimbo\solana-launch-release-2026-09-26\range-pools-open-fee-upgrade-2026-10\proposer\serve.mjs"
+    ```
+
+13. **Member A proposes.** Connect member A, pick **Upgrade the range program: opening a range pool
+    costs 0.5 SOL**, paste the BUFFER ADDRESS in the first box (leave the second as filled in), click
+    **Check these addresses**. Every line green, among them sha256 `1e896e1e…`. Read back "#21",
+    then press **Sign proposal #21**. You should see `Done: proposal #21 is created and you approved it.`
+14. **Member B approves; this starts the 48 hours.** **Disconnect / switch wallet**, connect member
+    B, pick the same item. Read back "#21", press **Approve proposal #21**, then **Check again**.
+    **Write down the time it says #21 is held until.** Then press Ctrl+C in the page's window.
+
+### Day 2 (at or after the time you wrote down)
+
+15. **Execute.** Start the page again (step 12), connect either member, pick the same item. When it
+    says **Ready to execute.**, read back "#21" and press **EXECUTE proposal #21**. You should see
+    `Done: proposal #21 is EXECUTED.` The 7.758 SOL is back in the deploy wallet. If the page says
+    `UNKNOWN`, do not sign again: go to step 16.
+16. **Check the result** (reads only). It should end
+    `RESULT: the upgrade is live: opening a range pool now costs 0.5 SOL, paid to the vault.` and,
+    since the 1% tier exists, show a stranger opening a pool on it paying the vault exactly 0.5 SOL.
+
+    ```powershell
+    node "C:\Users\jimbo\solana-launch-release-2026-09-26\range-pools-open-fee-upgrade-2026-10\scripts\4-verify-after-upgrade.mjs" --buffer <BUFFER ADDRESS>
+    ```
+
+### After Day 2
+
+- **Merge #1021** (your word): the Range card then says opening a pool costs 0.5 SOL.
+- **Open the first pool, BAYLA/SOL on the 1% tier.** Nothing on the site opens a range pool yet;
+  a session is building that screen. You decide who opens it, at what starting price (the opener
+  sets it), and how much BAYLA and SOL go in.
+- **Mark this section done.**
+
 ## 🔴 2026-10-24, 17:03 UTC: the pool program was rolled back by mistake; re-upgrade postponed
 
 Read on chain on 2026-10-24 at 17:07 UTC. Newer than the section below.
