@@ -12,6 +12,9 @@
 //   --kind rehearsal  --binary <so> --out <dir> --rpc <local rpc> --program-key <file> --payer-key <file>
 //                     --notice-days <d> --notice-repo <url> --position-base <url> [--port <n>] [--pool-pack-peak <lamports>]
 //                     [--notice-not-before <ISO time, UTC>]  a notice that names its own date (mainnet: 2026-10-23T14:00:00Z)
+//   --tier-fee        with --kind mainnet --binary <the deployed so> --rehearsal <results>, or with
+//                     --kind rehearsal --binary <the deployed so> --out <dir> --rpc <local rpc>: the folder whose
+//                     one proposal sets tier CHANGE.index's fee (below). The program and both tiers already exist.
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync, copyFileSync } from 'node:fs';
@@ -101,6 +104,14 @@ const NOTICE_NOT_BEFORE = '2026-10-23T14:00:00Z';
 if (!NOTICE_LINE.includes(`no sooner than ${NOTICE_NOT_BEFORE.slice(0, 10)} ${NOTICE_NOT_BEFORE.slice(11, 16)} UTC`)) fail('the notice line does not name NOTICE_NOT_BEFORE');
 const TIERS_ONLY = argv.includes('--tiers-only');
 if (TIERS_ONLY && KIND !== 'mainnet') fail('--tiers-only is for a mainnet folder');
+// Owner, 2026-10-27: "build the vault proposal that raises Range tier 1 from 0.25% to 1%" (the owner had
+// ruled one 1% tier on 2026-10-25; #19 made both). update_amm_config param 0 sets the trade fee only.
+const TIER_FEE = argv.includes('--tier-fee');
+if (TIER_FEE && !['mainnet', 'rehearsal'].includes(KIND)) fail('--tier-fee is for a mainnet or rehearsal folder');
+if (TIER_FEE && TIERS_ONLY) fail('--tier-fee and --tiers-only are different folders');
+const CHANGE = { index: 1, param: 0, from: 2_500, to: 10_000 };
+if (TIERS.find((t) => t.index === CHANGE.index)?.tradeFeeRate !== CHANGE.from) fail('the change does not start from the tier as made');
+const ON_CHAIN = TIERS_ONLY || TIER_FEE; // the program is deployed already: check it, never deploy it
 
 async function rpc(url, method, params = []) {
   const r = await fetch(allowedUrl(url, { loopback: KIND === 'rehearsal' }), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) });
@@ -125,6 +136,7 @@ const o = 94 + (ms[94] ? 33 : 1) + 1;
 const members = [];
 for (let i = 0, n = ms.readUInt32LE(o), p = o + 4; i < n; i++, p += 33) members.push(new web3.PublicKey(ms.subarray(p, p + 32)).toBase58());
 const timeLock = ms.readUInt32LE(74);
+const msNextIndex = Number(ms.readBigUInt64LE(78)) + 1;
 if (KIND !== 'rehearsal' && timeLock !== 172_800) fail(`mainnet's time lock reads ${timeLock}, not 172,800`);
 const cp = await rpc(RPCS.mainnet, 'getAccountInfo', [row('cp-swap-program-restart'), { encoding: 'base64' }]);
 const loader = cp.value.owner;
@@ -137,7 +149,11 @@ if (KIND !== 'key') {
   const so = opt('--binary');
   if (!so || !existsSync(so)) fail('--binary <raydium_clmm.so>');
   const b = readFileSync(so);
-  if (KIND === 'mainnet') {
+  if (TIER_FEE) {
+    // The deployed build: the chain check below compares it byte for byte with the program there.
+    if (!declared || declared === placeholder) fail('lib.rs still declares the placeholder: the program-id change is not in this checkout');
+    programId = declared;
+  } else if (KIND === 'mainnet') {
     // Two builds made apart, byte for byte the same, and the hash given on the command line.
     const again = opt('--rebuilt');
     if (!again || !existsSync(again)) fail('--rebuilt <a second build of the same commit, made in a fresh copy>');
@@ -156,21 +172,25 @@ if (KIND !== 'key') {
 // A tiers-only folder is for the program already on mainnet: byte for byte this build, the vault
 // its upgrade authority.
 let deployedSlot = null;
-if (TIERS_ONLY) {
-  const p = await rpc(RPCS.mainnet, 'getAccountInfo', [programId, { encoding: 'base64' }]);
+if (ON_CHAIN) {
+  // A fee-change rehearsal reads its local chain, where the same build runs at the same address.
+  const at = TIER_FEE ? chainRpc : RPCS.mainnet;
+  const p = await rpc(at, 'getAccountInfo', [programId, { encoding: 'base64' }]);
   const stub = p?.value && Buffer.from(p.value.data[0], 'base64');
-  if (!stub || p.value.owner !== loader || stub.length !== 36) fail(`${programId} is not deployed on mainnet: stage the full mainnet folder`);
+  if (!stub || p.value.owner !== loader || stub.length !== 36) fail(`${programId} is not deployed on ${TIER_FEE && KIND === 'rehearsal' ? 'the rehearsal chain' : 'mainnet'}: stage the full mainnet folder`);
   const dataId = new web3.PublicKey(stub.subarray(4, 36)).toBase58();
-  const d = Buffer.from((await rpc(RPCS.mainnet, 'getAccountInfo', [dataId, { encoding: 'base64' }])).value.data[0], 'base64');
+  const d = Buffer.from((await rpc(at, 'getAccountInfo', [dataId, { encoding: 'base64' }])).value.data[0], 'base64');
   if (d[12] !== 1 || new web3.PublicKey(d.subarray(13, 45)).toBase58() !== row('squads-vault')) fail('the program\'s upgrade authority is not the vault');
   if (sha(d.subarray(45, 45 + binary.bytes)) !== binary.sha256 || !d.subarray(45 + binary.bytes).every((x) => x === 0)) fail('the program on mainnet is not byte for byte this build');
   deployedSlot = Number(d.readBigUInt64LE(4));
 }
 const reh = opt('--rehearsal') ? JSON.parse(readFileSync(opt('--rehearsal'), 'utf-8')) : null;
 if (['devnet', 'mainnet'].includes(KIND) && (!reh || !reh.results.length || reh.results.some((x) => !x.pass))) fail('--rehearsal <rehearsal-results.json> of a rehearsal where every step passed');
+if (KIND === 'mainnet' && TIER_FEE !== (reh?.purpose === 'tier-fee')) fail(`--rehearsal must be a ${TIER_FEE ? 'fee-change (rehearse-tier-fee.mjs)' : 'deploy (rehearse.mjs)'} rehearsal`);
+if (KIND === 'mainnet' && TIER_FEE && (reh.binary?.sha256 !== binary.sha256 || JSON.stringify(reh.change) !== JSON.stringify(CHANGE))) fail('the rehearsal ran another build or another change than this folder\'s');
 
 // ---- where: a new folder, or one this script made that the owner has not begun to use ----------
-const OUT = resolve(opt('--out') ?? join(RELEASE, TIERS_ONLY ? 'range-pools-tiers-2026-10' : { key: 'range-pools-key-2026-10', devnet: 'range-pools-devnet-2026-10', mainnet: 'range-pools-deploy-2026-10', rehearsal: '' }[KIND]));
+const OUT = resolve(opt('--out') ?? join(RELEASE, TIER_FEE ? 'range-pools-tier1-fee-2026-10' : TIERS_ONLY ? 'range-pools-tiers-2026-10' : { key: 'range-pools-key-2026-10', devnet: 'range-pools-devnet-2026-10', mainnet: 'range-pools-deploy-2026-10', rehearsal: '' }[KIND]));
 if (KIND === 'rehearsal' && !opt('--out')) fail('--out <dir> for a rehearsal');
 if (existsSync(OUT)) {
   const prev = existsSync(join(OUT, 'config.json')) ? JSON.parse(readFileSync(join(OUT, 'config.json'), 'utf-8')) : null;
@@ -199,35 +219,35 @@ What it could not cover: mainnet itself (its fees, its load, its rate limits), G
 const vtBytes = (msgLen) => 8 + 32 + 32 + 8 + 1 + 1 + 1 + 4 + msgLen;
 const local = KIND === 'rehearsal' ? chainRpc : null;
 const cfg = {
-  stagedBy: STAGED_BY, kind: KIND, tiersOnly: TIERS_ONLY, stagedAt: new Date().toISOString(), repoCommit: execFileSync('git', ['-C', REPO, 'rev-parse', 'HEAD'], { encoding: 'utf-8' }).trim(),
+  stagedBy: STAGED_BY, kind: KIND, tiersOnly: TIERS_ONLY, purpose: TIER_FEE ? 'tier-fee' : 'tiers', ...(TIER_FEE ? { change: CHANGE } : {}), stagedAt: new Date().toISOString(), repoCommit: execFileSync('git', ['-C', REPO, 'rev-parse', 'HEAD'], { encoding: 'utf-8' }).trim(),
   programId, binary: binary && { file: binary.file, bytes: binary.bytes, sha256: binary.sha256 }, placeholder,
   addr: {
     vault: row('squads-vault'), multisig, squads, loader, memberA: members[0], memberB: members[1],
-    deployWallet: KIND === 'rehearsal' ? keyAddress(opt('--payer-key')) : row('tegridy-launch-deployer'),
+    deployWallet: KIND === 'rehearsal' ? (opt('--payer-key') ? keyAddress(opt('--payer-key')) : null) : row('tegridy-launch-deployer'),
     workshop: row('island-workshop-wallet'),
   },
   keyFiles: {
-    payer: KIND === 'rehearsal' ? resolve(opt('--payer-key')) : payerKeyMainnet,
-    program: ['rehearsal', 'devnet'].includes(KIND) ? resolve(opt('--program-key')) : 'C:\\Users\\jimbo\\solana-keys\\mainnet\\tegridy-clmm-program-keypair.json',
+    payer: KIND === 'rehearsal' ? (opt('--payer-key') ? resolve(opt('--payer-key')) : null) : payerKeyMainnet,
+    program: ['rehearsal', 'devnet'].includes(KIND) ? (opt('--program-key') ? resolve(opt('--program-key')) : null) : 'C:\\Users\\jimbo\\solana-keys\\mainnet\\tegridy-clmm-program-keypair.json',
   },
   bufferKeyFile: 'buffer-keypair.json',
   solanaExe, cli, packages, web3Version, web3Sha256,
   rpc: { mainnet: RPCS.mainnet, devnet: RPCS.devnet, local, check: KIND === 'rehearsal' ? local : CHECK_RPC },
   genesis, features: { noOldSbpf },
   tiers: TIERS, timeLock,
-  notice: {
+  notice: TIER_FEE ? null : {
     line: NOTICE_LINE, days: KIND === 'rehearsal' ? Number(opt('--notice-days')) : 7, files: ['CHANGELOG.md', 'docs/CHANGELOG_EARLIER.md'],
     ...(KIND === 'mainnet' ? { notBefore: NOTICE_NOT_BEFORE } : KIND === 'rehearsal' && opt('--notice-not-before') ? { notBefore: opt('--notice-not-before') } : {}),
     repo: KIND === 'rehearsal'
       ? { api: `${opt('--notice-repo')}/api`, raw: `${opt('--notice-repo')}/raw`, branch: 'mvp-launch' }
       : { api: 'https://api.github.com/repos/fomotsar-commits/tegridy-farms', raw: 'https://raw.githubusercontent.com/fomotsar-commits/tegridy-farms', branch: 'mvp-launch' },
   },
-  positionLink: { base: KIND === 'rehearsal' ? opt('--position-base') : 'https://memetics.finance/position/', expect: 'No range position at this address.' },
-  poolPack: KIND === 'mainnet' && !TIERS_ONLY ? poolPack() : KIND === 'rehearsal' && opt('--pool-pack-peak')
+  positionLink: TIER_FEE ? null : { base: KIND === 'rehearsal' ? opt('--position-base') : 'https://memetics.finance/position/', expect: 'No range position at this address.' },
+  poolPack: KIND === 'mainnet' && !ON_CHAIN ? poolPack() : KIND === 'rehearsal' && opt('--pool-pack-peak')
     ? { program: web3.Keypair.generate().publicKey.toBase58(), newSha256: '0'.repeat(64), newBytes: 1, bufferKeyFiles: [join(OUT, 'no-such-pool-buffer-1.json'), join(OUT, 'no-such-pool-buffer-2.json')], peakLamports: opt('--pool-pack-peak') }
     : null,
-  devnetRun: KIND === 'mainnet' && !TIERS_ONLY ? devnetRun() : null,
-  page: { port: Number(opt('--port') ?? 5499) },
+  devnetRun: KIND === 'mainnet' && !ON_CHAIN ? devnetRun() : null,
+  page: { port: Number(opt('--port') ?? (TIER_FEE ? 5491 : 5499)) },
   cuPrice: 10_000, feeAllowanceLamports: 30_000_000,
   denyKeys,
   disc: Object.fromEntries([
@@ -236,11 +256,15 @@ const cfg = {
   ]),
   squads: { multisigDisc: disc('account:Multisig'), proposalBytes: 8 + 32 + 8 + 9 + 1 + 3 * (4 + 32 * members.length) },
 };
-if (KIND === 'rehearsal' && (!cfg.notice.days || !opt('--notice-repo') || !cfg.positionLink.base)) fail('a rehearsal needs --notice-days, --notice-repo and --position-base');
+if (KIND === 'rehearsal' && !TIER_FEE && (!cfg.notice.days || !opt('--notice-repo') || !cfg.positionLink.base)) fail('a rehearsal needs --notice-days, --notice-repo and --position-base');
 // The proposal's message size, from the very module the page uses.
 const { makeCore } = await import(new URL('./scripts/lib/tiers.mjs', import.meta.url));
 if (programId) {
   const core = makeCore({ web3, cfg });
+  if (TIER_FEE && KIND === 'mainnet') {
+    const now = await core.tiers(new web3.Connection(chainRpc, 'confirmed'));
+    if (!now.every((t) => t.state === 'exact')) { rmSync(TMP, { recursive: true, force: true }); fail(`the tiers on mainnet are not as #19 made them: ${JSON.stringify(now.map((t) => ({ index: t.want.index, state: t.state, got: t.got })))}`); }
+  }
   cfg.squads.vaultTransactionBytes = vtBytes(3 + 4 + 32 * core.EXPECTED.message.accountKeys.length + 4 + core.EXPECTED.message.instructions.reduce((s, ix) => s + 1 + 4 + ix.accountIndexes.length + 4 + ix.data.length / 2, 0) + 4);
 }
 // What the chains answered goes into config.json only in the shapes it must have.
@@ -260,6 +284,8 @@ if (KIND === 'key') {
 } else {
   cpSync(join(HERE, 'scripts'), join(TMP, 'scripts'), { recursive: true });
   if (TIERS_ONLY) for (const f of ['0-program-key.mjs', '1-preflight.mjs', '2-verify-buffer.mjs', '3-deploy.mjs', '7-close-buffer.mjs']) rmSync(join(TMP, 'scripts', f));
+  // A fee-change folder holds its one check and the library; every other folder lacks that check.
+  for (const f of readdirSync(join(TMP, 'scripts'))) if (f.endsWith('.mjs') && (TIER_FEE ? f !== '8-verify-tier-fee.mjs' : f === '8-verify-tier-fee.mjs')) rmSync(join(TMP, 'scripts', f));
   if (KIND === 'devnet') for (const f of ['5-record-notice.mjs', '6-verify-tiers.mjs']) rmSync(join(TMP, 'scripts', f));
   else {
     mkdirSync(join(TMP, 'proposer'), { recursive: true });
@@ -302,14 +328,27 @@ if (binary) {
     FEES_SOL: SOL(fees, 4), TIERS_SOL: SOL(tierRent * 2n, 4), OP_SOL: SOL(opRent, 4), MEMBER_A_SOL: SOL(vtRent + prRent + 5000n, 4),
     NEED_PAYER: (Math.ceil(Number(need) / 1e7) / 100).toFixed(2), SPENT_SOL: SOL(dataRent + progRent + fees, 3),
     POOL_PEAK: cfg.poolPack ? SOL(cfg.poolPack.peakLamports, 3) : '0',
-    CU_PRICE: String(cfg.cuPrice), MAINNET_RPC: RPCS.mainnet, PORT: String(cfg.page.port), BUFFER_KEY_FILE: cfg.bufferKeyFile, NOTICE_LINE, NOTICE_WHEN: cfg.notice.notBefore ? `${cfg.notice.notBefore.replace('T', ' ').replace(':00Z', ' UTC')}` : `${cfg.notice.days} days after the notice`,
-    REHEARSAL: reh ? rehearsalWords(reh) : 'Not yet run for this folder.',
+    CU_PRICE: String(cfg.cuPrice), MAINNET_RPC: RPCS.mainnet, PORT: String(cfg.page.port), BUFFER_KEY_FILE: cfg.bufferKeyFile, NOTICE_LINE, NOTICE_WHEN: !cfg.notice ? '' : cfg.notice.notBefore ? `${cfg.notice.notBefore.replace('T', ' ').replace(':00Z', ' UTC')}` : `${cfg.notice.days} days after the notice`,
+    REHEARSAL: reh ? (reh.purpose === 'tier-fee' ? reh.about : rehearsalWords(reh)) : 'Not yet run for this folder.',
   });
 }
 // The notice's date as the page and 5-record-notice.mjs each print it.
-if (cfg.notice.notBefore) Object.assign(fill, { NOTICE_WHEN_PAGE: cfg.notice.notBefore, NOTICE_WHEN_SCRIPT: new Date(cfg.notice.notBefore).toISOString() });
-if (TIERS_ONLY) fill.DEPLOYED_SLOT = deployedSlot.toLocaleString('en-US');
-const template = TIERS_ONLY ? 'START-HERE-TIERS.md' : { key: 'START-HERE-KEY.md', devnet: 'START-HERE-DEVNET.md', mainnet: 'START-HERE.md', rehearsal: 'START-HERE.md' }[KIND];
+if (cfg.notice?.notBefore) Object.assign(fill, { NOTICE_WHEN_PAGE: cfg.notice.notBefore, NOTICE_WHEN_SCRIPT: new Date(cfg.notice.notBefore).toISOString() });
+if (ON_CHAIN) fill.DEPLOYED_SLOT = deployedSlot.toLocaleString('en-US');
+if (TIER_FEE) {
+  const { makeCore: mk } = await import(new URL('./scripts/lib/tiers.mjs', import.meta.url));
+  const core = mk({ web3, cfg });
+  const t = TIERS.find((x) => x.index === CHANGE.index);
+  const p = (r) => `${r / 10000}%`;
+  Object.assign(fill, {
+    TIER: String(CHANGE.index), TIER_ADDRESS: core.ammConfig(CHANGE.index).toBase58(), OTHER_TIER: String(TIERS.find((x) => x.index !== CHANGE.index).index),
+    OTHER_TIER_ADDRESS: core.ammConfig(TIERS.find((x) => x.index !== CHANGE.index).index).toBase58(), FEE_FROM: p(CHANGE.from), FEE_TO: p(CHANGE.to), SPACING: String(t.tickSpacing),
+    LP_TO: p((CHANGE.to * (1e6 - t.protocolFeeRate - t.fundFeeRate)) / 1e6), VENUE_TO: p((CHANGE.to * t.protocolFeeRate) / 1e6), ISLAND_TO: p((CHANGE.to * t.fundFeeRate) / 1e6),
+    LP_FROM: p((CHANGE.from * (1e6 - t.protocolFeeRate - t.fundFeeRate)) / 1e6), VENUE_FROM: p((CHANGE.from * t.protocolFeeRate) / 1e6), ISLAND_FROM: p((CHANGE.from * t.fundFeeRate) / 1e6),
+    NEXT_INDEX: String(msNextIndex),
+  });
+}
+const template = TIER_FEE ? 'START-HERE-TIER-FEE.md' : TIERS_ONLY ? 'START-HERE-TIERS.md' : { key: 'START-HERE-KEY.md', devnet: 'START-HERE-DEVNET.md', mainnet: 'START-HERE.md', rehearsal: 'START-HERE.md' }[KIND];
 const paper = readFileSync(join(HERE, template), 'utf-8').replace(/\{\{(\w+)\}\}/g, (m, k) => (k in fill ? fill[k] : m));
 const left = [...new Set(paper.match(/\{\{\w+\}\}/g) ?? [])];
 if (left.length) { rmSync(TMP, { recursive: true, force: true }); fail(`the paper has blanks this staging cannot fill: ${left.join(' ')}`); }
