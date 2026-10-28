@@ -34,10 +34,10 @@ const cardStyle = { border: '1px solid rgba(255,255,255,0.12)', background: 'rgb
 export function CurveHowItWorks() {
   const points: { k: string; v: string }[] = [
     { k: 'Zero third-party tolls', v: 'No Airlock, no migrator, no petition. 100% of the 1% trade fee stays in-house.' },
-    { k: 'Fee split 40 / 25 / 35', v: 'Every trade funds the creator (40%), the Jungle Bay treasury (25%) and the protocol (35%).' },
+    { k: 'Fee split 50 / 25 / 25', v: 'Every trade funds the creator (50%), the Jungle Bay treasury (25%) and the protocol (25%).' },
     { k: 'Graduate to us', v: 'Hitting the raise target seeds our own pool with all raised ETH + unsold tokens — LP burned to 0x…dEaD, nobody can pull it.' },
     { k: '3.69% ecosystem reserve', v: "Carved from each launch's supply and sent to protocol custody at graduation, then used at the protocol's discretion toward that token's ecosystem — liquidity incentives, campaigns and bounties. Discretionary, not enforced on-chain." },
-    { k: 'Creators keep 0.40% of volume', v: 'On-chain, claimable any time from the token page — multiples of the going launchpad creator share.' },
+    { k: 'Creators keep 0.50% of volume', v: 'On-chain, claimable any time from the token page — more than pump.fun pays its creators (0.30%).' },
   ];
   return (
     <div className="relative isolate rounded-2xl p-5 space-y-3" style={cardStyle}>
@@ -45,7 +45,7 @@ export function CurveHowItWorks() {
       <h2 className="text-white font-semibold text-sm">How the Memetics curve works</h2>
       {/* What a trader pays and where it goes, in one visible line; the rest folds. */}
       <p className="text-white/70 text-[12px] leading-relaxed">
-        1% trade fee: 40% to the creator, 25% to the Jungle Bay treasury, 35% to the protocol.
+        1% trade fee: 50% to the creator, 25% to the Jungle Bay treasury, 25% to the protocol.
       </p>
       <FinePrint>
       <ul className="space-y-2">

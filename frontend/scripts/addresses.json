@@ -199,6 +199,16 @@
       }
     },
     {
+      "id": "cp-swap-amm-config-quarter-restart",
+      "address": "4UjFf1iU27SqyJfDif6Ra9YcgPYDjv6ehs9V7YaSUbb8",
+      "role": "cp-swap AmmConfig index 2 under cp-swap-program-restart, seeds [\"amm_config\", 2u16 big-endian], bump 255, derived and matched: the 0.25% tier, a cheaper fee sheet a new pool can choose (owner-approved 2026-10-18; Raydium's default is 0.25% with 16% to Raydium), born with the island's split (the island's answer of 2026-10-18, accepted by the owner). create_amm_config(2, 2500, 104000, 56000, 150000000, 0): trade_fee_rate 2,500 per million (0.25% of each swap), protocol_fee_rate 104,000 per million OF THAT TRADE FEE (10.4% of it, so 0.026% of the swap, to the vault), fund_fee_rate 56,000 per million of the trade fee (5.6% of it, so 0.014% of the swap, to the island), creator_fee_rate 0, create_pool_fee 150,000,000 lamports (0.15 SOL, paid into cpswap-fee-receiver-wsol-ata); 0.21% of each swap stays in the pool. protocol_owner is squads-vault; fund_owner is island-workshop-wallet, set by update_amm_config(4) in the same Squads proposal, so the island collects its share itself. Pre-flight passed as the vault against live mainnet (the squads-proposer, step amm-config-2, rebuilt 2026-10-19).",
+      "custody": "program-derived, no key. Only cp-swap's compiled admin (squads-vault) can change it.",
+      "status": "CREATED by the owner's Squads proposal (2026-10-19). Written as the state this branch REQUIRES: merge only after the proposal executed, or the daily registry-onchain job fails on this row, which is the point.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
       "id": "cp-swap-permission-restart",
       "address": "5H38YELHgJRGuJajSG22iBj859AE7Bhn7YSckaMNTnaD",
       "role": "cp-swap Permission PDA under EKS4C6x…, seeds [\"permission\", tegridy-launch-migauth-restart]: lets tegridy-launch's migration authority create graduation pools. Without it every graduation fails 6021. Created by Squads proposal 2 (MAINNET_GO_LIVE.md §4). Pinned by restartRegistry.test.ts.",
@@ -756,7 +766,7 @@
     {
       "id": "curve-launcher",
       "address": "0xF4Dfa741aD63B3D95dC3Fc10D311caE507CE34dE",
-      "role": "TegridyCurveLauncher — the own zero-toll launch curve. Owner = Treasury Safe. 1% fee split 40 creator / 25 treasury / 35 protocol; graduates into a TegridyFactory pair at 4 ETH with LP burned to 0xdead; 3.69% reserve to the operator address.",
+      "role": "TegridyCurveLauncher — the own zero-toll launch curve. Owner = Treasury Safe. 1% fee split 50 creator / 25 treasury / 25 protocol (owner, 2026-10-18; launches made before keep 40/25/35); graduates into a TegridyFactory pair at 4 ETH with LP burned to 0xdead; 3.69% reserve to the operator address.",
       "custody": "Treasury Safe (owner)",
       "status": "live",
       "expect": {
@@ -2171,6 +2181,19 @@
         "disableCreatePool": 0,
         "index": 1,
         "tradeFeeRate": 10000,
+        "protocolFeeRate": 104000,
+        "fundFeeRate": 56000,
+        "createPoolFee": 150000000,
+        "protocolOwner": "squads-vault",
+        "fundOwner": "island-workshop-wallet",
+        "creatorFeeRate": 0
+      },
+      "cp-swap-amm-config-quarter-restart": {
+        "layout": "cp-swap-amm-config",
+        "owner": "cp-swap-program-restart",
+        "disableCreatePool": 0,
+        "index": 2,
+        "tradeFeeRate": 2500,
         "protocolFeeRate": 104000,
         "fundFeeRate": 56000,
         "createPoolFee": 150000000,

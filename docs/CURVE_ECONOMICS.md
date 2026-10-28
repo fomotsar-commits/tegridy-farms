@@ -4,6 +4,13 @@ The owner set the reserve (3.69%) and asked me to research the competition and p
 **graduation targets** and the **fee split**. This is the reasoning and the resulting
 defaults, all encoded in `script/curve/DeployCurveLauncher.s.sol` (overridable per deploy).
 
+> **2026-10-18: the split is now 50% creator / 25% treasury / 25% protocol** (owner,
+> after a pricing pass against each sector's leader). 40% was the lowest creator share
+> among live EVM launchpads (Zora 50% of 1%, Virtuals and Pons 70%), and 50/50 matches
+> our Solana curve. The script default is 5,000 bps; the three live launchers move by
+> one `setLaunchConfig` each from their owner Safes. Launches made before keep 40/25/35.
+> The reasoning below is the original 2026-08-23 pick, kept as history.
+
 ## Fee split — 40% creator / 25% treasury / 35% protocol (of the 1% trade fee)
 
 The 1% trade fee is split three ways in `TegridyCurveLauncher._accrueFee`: creator and
