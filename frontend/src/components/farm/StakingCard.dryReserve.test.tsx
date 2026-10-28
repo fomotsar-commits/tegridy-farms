@@ -58,14 +58,14 @@ function Harness({ pool }: { pool: Pool }) {
   );
 }
 
-function stubStaker({ expired, paused }: { expired: boolean; paused: boolean }) {
+function stubStaker({ expired, paused, rate = 0n }: { expired: boolean; paused: boolean; rate?: bigint }) {
   const now = Math.floor(Date.now() / 1000);
   const lockEnd = expired ? now - 86_400 : now + 40 * 86_400;
   wagmiMock.setReadResult({ functionName: 'userTokenId', result: 7n });
   wagmiMock.setReadResult({ functionName: 'balanceOf', result: 0n });
   wagmiMock.setReadResult({ functionName: 'allowance', result: 0n });
   wagmiMock.setReadResult({ functionName: 'unsettledRewards', result: 0n });
-  wagmiMock.setReadResult({ functionName: 'rewardRate', result: 0n });
+  wagmiMock.setReadResult({ functionName: 'rewardRate', result: rate });
   wagmiMock.setReadResult({ functionName: 'totalBoostedStake', result: 10n ** 24n });
   wagmiMock.setReadResult({
     functionName: 'getPosition',
@@ -113,6 +113,27 @@ describe('StakingCard — early withdraw on a reserve that cannot pay', () => {
     const line = screen.getByTestId('early-exit-reward-loss');
     expect(line).toHaveTextContent(/can't cover are lost for good/i);
     expect(line).not.toHaveTextContent(/\d/);
+  });
+});
+
+describe('StakingCard — Claimable on an empty reserve', () => {
+  // rewardRate stays non-zero on chain when the reserve empties, so the position
+  // hook still derives a per-second rate. Mainnet, 2026-10-27: "+0.045946/s".
+  const RATE = 824_300_000_000_000_000n;
+
+  it('shows no per-second accrual, and says why', () => {
+    // OLD: "est. live · +0.045946/s" beside a pinned counter.
+    stubStaker({ expired: false, paused: false, rate: RATE });
+    renderWithProviders(<Harness pool={DRY} />);
+    expect(screen.queryByText(/est\. live/i)).toBeNull();
+    expect(screen.getByTestId('claimable-reserve-empty')).toHaveTextContent(/nothing accrues/i);
+  });
+
+  it('keeps the live estimate on a funded reserve', () => {
+    stubStaker({ expired: false, paused: false, rate: RATE });
+    renderWithProviders(<Harness pool={{ ...DRY, isDry: false, rewardsRemaining: '1000' }} />);
+    expect(screen.getByText(/est\. live/i)).toBeInTheDocument();
+    expect(screen.queryByTestId('claimable-reserve-empty')).toBeNull();
   });
 });
 

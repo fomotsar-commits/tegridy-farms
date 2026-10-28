@@ -424,7 +424,9 @@ function ToweliDashboard() {
             // `earned` value on each refetch. Falls back to the static figure when no
             // rate is derivable. The USD sub-line and Portfolio Value deliberately stay
             // on the settled `pendingTotal` so the dollar figure doesn't jitter.
-            { l: 'Claimable', numVal: pos.accrualPerSec > 0 ? pos.pendingLive : pendingTotal, decimals: pos.accrualPerSec > 0 ? 4 : 2, sub: price.isLoaded ? formatCurrency(pendingTotal * price.priceInUsd) : '–', accent: true, art: pageArt('dashboard', 4), loading: pos.isLoading },
+            // Not on an empty reserve: the contract accrues nothing there, so a
+            // ticking figure would be phantom accrual (StakingCard §2.7 pins too).
+            { l: 'Claimable', numVal: pos.accrualPerSec > 0 && !pool.isDry ? pos.pendingLive : pendingTotal, decimals: pos.accrualPerSec > 0 && !pool.isDry ? 4 : 2, sub: price.isLoaded ? formatCurrency(pendingTotal * price.priceInUsd) : '–', accent: true, art: pageArt('dashboard', 4), loading: pos.isLoading },
             // A price that could not be read is neither still loading nor zero: once every
             // leg has answered or failed (priceSettled) with nothing to show, the card says so.
             { l: 'TOWELI Price', numVal: price.priceInUsd, decimals: price.priceInUsd < 0.01 ? 8 : 6, prefix: '$', sub: priceUnread ? 'Could not load' : priceChangeStr || (price.priceInUsd > 0 ? 'Live' : (price.oracleStale ? 'Stale' : '–')), priceUp: price.priceChange > 0, priceDown: price.priceChange < 0, stale: !priceUnread && price.oracleStale, art: pageArt('dashboard', 5), showSparkline: true, isPrice: true, loading: price.priceInUsd <= 0 && !price.priceSettled, error: priceUnread, unread: priceUnread },

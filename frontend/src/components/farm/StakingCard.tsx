@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { m } from 'framer-motion';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { Link } from 'react-router-dom';
-import { formatTokenAmount, sanitizeDecimalInput } from '../../lib/formatting';
+import { formatTokenAmount, formatTokenAmountGrouped, sanitizeDecimalInput } from '../../lib/formatting';
 import { AnimatedCounter } from '../AnimatedCounter';
 import { CONNECT_ETHEREUM_WALLET, PENALTY_COPY } from '../../lib/copy';
 import type { useFarmActions } from '../../hooks/useFarmActions';
@@ -236,8 +236,15 @@ export function StakingCard({
                   {parseFloat(pos.pendingFormatted) || 0} TOWELI claimable
                 </span>
                 {/* Only rendered when a real on-chain rate exists. Labelled "est."
-                    because it is an interpolation between refreshes, not a fresh read. */}
-                {pos.accrualPerSec > 0 && (
+                    because it is an interpolation between refreshes, not a fresh read.
+                    Not on an empty reserve: the counter above is pinned there
+                    (§2.7) and a "+x/s" beside it was the same phantom accrual. */}
+                {pool?.isDry && (
+                  <p className="text-white/70 text-[11px] mt-0.5" data-testid="claimable-reserve-empty">
+                    Reserve empty: nothing accrues, and a claim pays 0 until it is refilled.
+                  </p>
+                )}
+                {pos.accrualPerSec > 0 && !pool?.isDry && (
                   <p
                     className="text-white/45 text-[11px] mt-0.5 font-mono"
                     title="Estimated between the 30-second on-chain refreshes, using this position's live reward rate. Snaps back to the exact value on each refresh.">
@@ -407,7 +414,7 @@ export function StakingCard({
                       </p>
                     ) : lostNum > 0 ? (
                       <p className="text-danger text-[11px] font-semibold mb-2" data-testid="early-exit-reward-loss">
-                        You also lose up to {formatTokenAmount(String(lostNum), 4)} TOWELI of unpaid rewards for good:
+                        You also lose up to {formatTokenAmountGrouped(lostNum, 4)} TOWELI of unpaid rewards for good:
                         the reward reserve can't pay them, and this closes your position.
                       </p>
                     ) : null}
