@@ -15,6 +15,32 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-27: a zeroed address constant is not "never deployed", and six files hold a contract besides its tests
+
+**Believed:** a contract whose `*_ADDRESS` is zeroed in `frontend/src/lib/constants.ts` was never
+deployed, and deleting it is its source plus its tests and deploy scripts.
+
+**Measured** (the dead-EVM-contract removal: 21 contracts, 92 files): five of the zeroed ones are on
+mainnet, verified 2026-07-16 and gated off: GaugeController
+`0x6c79522D47Cf6d1051Cb474E81d9b6f3996c1054`, VoteIncentives
+`0x6e1dCB7EBD16E09edb574F414aDc664B2A5E21AF` and its admin
+`0xf87Ec231BA7FA3975619309bc16C698B2ea3B300`, CommunityGrants
+`0xeBC3aaf48297b8ccFa8272D9E68c1545eb9CD471` and MemeBountyBoard
+`0x6D2C6EC29D97fe8b6D1471091DEEE36baf69d890`. `eth_getBalance` and TOWELI `balanceOf` read 0 on
+all five. The zero constant means "the site does not show it"; `addresses.json`'s `status` field
+and `docs/CONTRACTS.md` are where "deployed" lives.
+
+Deleting a contract pulled on, in order found: `scripts/check-interface-selectors.mjs` (every
+`*_ABI` export in `contracts.ts` must resolve to an artifact, so a retired ABI needs its own named
+list), `.github/contracts-test-slices.json` (a brace alternative matching zero files fails the slice
+guard), `NOTICE.md`'s SPDX count and GPL list, `frontend/src/lib/whetstonePetitionTruth.test.ts` (a
+Doc-guards test that reads three `contracts/src/v4` files at import, which is why the four V4
+graduation-stack contracts stayed), and two airdrop tests that opened campaigns through the factory.
+`forge build` finds none of these.
+
+**Do:** before deleting a contract, grep its name across `scripts/`, `.github/`, `NOTICE.md` and
+`frontend/src/**/*.test.ts`, and read the registry row's `status`, never the constant.
+
 ## 2026-10-25: the LP door's "one jump" to its form was three scroll moves
 
 **Believed** (island, answer twenty-two, and the 2026-10-16 entry below): the door moves the
