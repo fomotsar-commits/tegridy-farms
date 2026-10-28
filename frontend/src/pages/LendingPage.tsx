@@ -114,7 +114,7 @@ const introCards = () => [
   {
     key: 'nftlending' as Section,
     title: 'NFT Lending',
-    desc: 'Borrow ETH. Your NFT backs the loan.',
+    desc: 'Borrow WETH. Your NFT backs the loan.',
     icon: 'M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4',
     art: pageArt('nft-finance', 2),
   },
@@ -390,7 +390,7 @@ export default function LendingPage() {
                   <ShieldPanel />
                 </div>
               )
-              : <FeatureNotDeployed pageId="nft-finance" idx={2} title="NFT lending isn't live yet" subtitle="Borrow against JBAC, Nakamigos, and GNSS once the NFT-lending contract is deployed for the relaunch." />)}
+              : <FeatureNotDeployed pageId="nft-finance" idx={2} title="NFT lending isn't live yet" subtitle="Borrow against JBAC, Nakamigos, and GNSS once Gondi's loan contracts are deployed for the venue." />)}
             {section === 'pooled' && <PooledLendingSection />}
             {section === 'bnpl' && <BnplSection />}
             {section === 'amm' && <AMMSection />}
