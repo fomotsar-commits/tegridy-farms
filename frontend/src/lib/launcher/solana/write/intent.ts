@@ -396,6 +396,15 @@ function swapAta(
  * account cp-swap accepts for it); both of the signer's accounts are derived here under
  * each mint's program, because swap_base_input.rs checks neither's owner.
  */
+/**
+ * Fee tier 0 is the launch tier: the one pool on it this site swaps in or adds to is the
+ * token's launch pool, at the launch program's address (poolFinder.ts `LAUNCH_TIER_POOL`).
+ */
+function onLaunchTierWithoutLaunch(ammConfig: PublicKey, ctx: SwapIntent | PoolIntent): boolean {
+  const p = ctx.pins;
+  return ammConfig.equals(deriveAmmConfig(ctx.cfg.cpSwapProgram, 0)) && !p.address.equals(poolStatePda(p.tokenMint, ctx.cfg.programId));
+}
+
 function venueSwap(ix: TransactionInstruction, ctx: SwapIntent): IntentStep {
   const d = ix.data;
   if (!startsWith(d, IX_SWAP_BASE_INPUT) || d.length !== 24) refuse('a pool instruction other than a swap');
@@ -419,6 +428,8 @@ function venueSwap(ix: TransactionInstruction, ctx: SwapIntent): IntentStep {
     [12, p.observation, 'the swap names the wrong price record'],
   ];
   for (const [i, want, why] of checks) if (!key(ix, i).equals(want)) refuse(why);
+  // Slot 2 is the pins' fee settings now.
+  if (onLaunchTierWithoutLaunch(key(ix, 2), ctx)) refuse('the swap is against a pool opened on the launch tier (fee tier 0) without a launch, which this site never uses');
   const amountIn = u64(d, 8);
   const minimumAmountOut = u64(d, 16);
   if (amountIn === 0n) refuse('the swap amount is zero');
@@ -624,6 +635,8 @@ function poolDeposit(ix: TransactionInstruction, ctx: PoolIntent): IntentStep {
   expectKeyCount(ix, 13, 'pool deposit');
   const p = ctx.pins;
   pinnedQuote(ctx);
+  // The deposit names no fee settings: the pins carry the pool's own, as prepare read it.
+  if (onLaunchTierWithoutLaunch(p.ammConfig, ctx)) refuse('the deposit goes into a pool opened on the launch tier (fee tier 0) without a launch, which this site never uses');
   const checks = poolSlots(ctx, 'deposit');
   checks.push([3, associatedTokenAddress(p.lpMint, ctx.signer, TOKEN_PROGRAM_ID), 'the pool shares go to an account that is not yours']);
   for (const [i, want, why] of checks) if (!key(ix, i).equals(want)) refuse(why);

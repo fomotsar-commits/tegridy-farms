@@ -34,6 +34,7 @@ import { explorerOf } from './panelKit';
 import type { LpReaders } from './readers';
 import { useLpWrites, type LpWrites } from './useLpWrites';
 import { WholeDates } from './WholeDates';
+import { DoorPortal } from './LpDoorFrame';
 
 const ORIGIN_LABEL: Record<PoolView['origin'], string> = {
   'launch-pool': 'Launch pool: opened by the launch program when the token graduated',
@@ -184,15 +185,16 @@ function PriceRows({ price, quote, unit }: { price: PoolHealth['price']; quote: 
  * so this pool's own reason is what the visitor reads, by eye, keyboard or screen
  * reader. Nothing else opens in its place.
  */
-function useShownOnce(showNow: number, onActed: ((n: number) => void) | undefined, card: RefObject<HTMLLIElement | null>, heading: RefObject<HTMLHeadingElement | null>) {
+function useShownOnce(showNow: number, onActed: ((n: number) => void) | undefined, card: RefObject<HTMLLIElement | null>, heading: RefObject<HTMLHeadingElement | null>, atTop = false) {
   const shown = useRef(0);
   useEffect(() => {
     if (!showNow || shown.current === showNow) return;
     shown.current = showNow;
     heading.current?.focus({ preventScroll: true });
-    card.current?.scrollIntoView?.({ block: 'start' });
+    // The door's reason is drawn in the door, at the top, where the visitor already is.
+    if (!atTop) card.current?.scrollIntoView?.({ block: 'start' });
     onActed?.(showNow);
-  }, [showNow, onActed, card, heading]);
+  }, [showNow, onActed, card, heading, atTop]);
 }
 
 /**
@@ -221,18 +223,18 @@ function notOpenedWhy(offer: DepositOffer, health: PoolHealth): string {
 
 /** The wish number this card was last shown for (`useShownOnce`), kept after the wish is spent. */
 function useShownFor(showNow: number): number {
-  return useShownWish(showNow, false).shownFor;
+  return useShownWish(showNow, false, false).shownFor;
 }
 
 /**
- * The same, with whether that wish came from the LP door, latched with it: the wish is spent
- * once the card acts on it, and its `door` with it, while the line stays on the card. Read
- * from the live wish, a door's line turned back into "your position's pool" a moment later.
+ * The same, with whether that wish came from the LP door, and from its link (`atTop`), latched
+ * with it: the wish is spent once the card acts on it, and its `door` with it, while the line
+ * stays. Read from the live wish, a door's line turned back into "your position's pool" a moment later.
  */
-function useShownWish(showNow: number, fromDoor: boolean): { shownFor: number; door: boolean } {
-  const [shown, setShown] = useState({ shownFor: 0, door: false });
+function useShownWish(showNow: number, fromDoor: boolean, atTop: boolean): { shownFor: number; door: boolean; top: boolean } {
+  const [shown, setShown] = useState({ shownFor: 0, door: false, top: false });
   // Adjusted during render, so the line is on the page before the heading takes focus.
-  if (showNow && showNow !== shown.shownFor) setShown({ shownFor: showNow, door: fromDoor });
+  if (showNow && showNow !== shown.shownFor) setShown({ shownFor: showNow, door: fromDoor, top: atTop });
   return shown;
 }
 
@@ -256,9 +258,12 @@ export function PoolCard({
   showNow = 0,
   onActed,
   fromDoor = false,
+  atTop = false,
 }: {
   /** The wish this card shows a reason for came from the LP door, not a position (LpWish `door`). */
   fromDoor?: boolean;
+  /** The wish came from the door's link (LpWish `top`): its form, or why it did not open, is drawn in the door at the top. */
+  atTop?: boolean;
   view: PoolView;
   health: PoolHealth;
   tokenDecimals: number | null;
@@ -279,8 +284,8 @@ export function PoolCard({
 }) {
   const cardRef = useRef<HTMLLIElement | null>(null);
   const headingRef = useRef<HTMLHeadingElement | null>(null);
-  useShownOnce(showNow, onActed, cardRef, headingRef);
-  const { shownFor, door: shownFromDoor } = useShownWish(showNow, fromDoor);
+  useShownOnce(showNow, onActed, cardRef, headingRef, atTop);
+  const { shownFor, door: shownFromDoor, top: shownAtTop } = useShownWish(showNow, fromDoor, atTop);
   const whyId = useId();
   const writes = useLpWrites();
   const offer: DepositOffer = writes
@@ -366,6 +371,14 @@ export function PoolCard({
     </>
   );
 
+  // The door draws the Add form away from this card (LpDoorFrame): the figures it needs go with it.
+  const doorFacts = (
+    <div data-testid="lp-door-facts" className="space-y-1.5 text-[12px]">
+      <PriceRows price={price} quote={view.quote} unit={unit} />
+      <Row label="Who earns" value={splitText ? `${splitText}.` : 'This pool’s fee settings could not be read.'} mono={false} />
+    </div>
+  );
+
   // In the order a visitor asks, and only that in view (owner, 2026-10-17: "i dont want people
   // to see too much text unless they want to"): which pool, how its fee splits, what it holds and
   // its price against the outside one (owner, 2026-10-21: "super important"), whether it can be
@@ -390,7 +403,11 @@ export function PoolCard({
       <h3 ref={headingRef} tabIndex={-1} aria-describedby={why ? whyId : undefined} className="text-white font-semibold text-[15px] mb-1 outline-none [overflow-wrap:anywhere]" style={SHADOW}>
         {pairLabel(view, safety)}
       </h3>
-      {why && <WishWhy id={whyId} why={why} fromDoor={shownFromDoor} />}
+      {why && (
+        <DoorPortal when={shownAtTop}>
+          <WishWhy id={whyId} why={why} fromDoor={shownFromDoor} />
+        </DoorPortal>
+      )}
       {isCreatedPool(view.address) && (
         <p className="text-emerald-300/90 text-[12px] mt-2" data-testid="lp-opened-here">
           You opened this pool just now. Your share is under &apos;Your positions&apos;.
@@ -437,7 +454,7 @@ export function PoolCard({
             {!writes && health.deposits.verdict === 'allowed' && (
               <Notice>Adding liquidity here is not switched on yet.</Notice>
             )}
-            {writes && <DepositOfferBlock writes={writes} offer={offer} view={view} health={health} safety={safety} tokenDecimals={tokenDecimals} openNow={openNow} openForm={openForm} onActed={onActed} />}
+            {writes && <DepositOfferBlock writes={writes} offer={offer} view={view} health={health} safety={safety} tokenDecimals={tokenDecimals} openNow={openNow} openForm={openForm} onActed={onActed} atTop={atTop} doorFacts={doorFacts} />}
           </div>
         </Part>
 
@@ -473,7 +490,7 @@ const PAST_BUTTON = 'btn-secondary w-full sm:w-auto min-h-[44px] px-4 text-[13px
 
 /**
  * The pool's last transactions, on a press only: one signatures page and at most 20
- * transaction reads a press, behind the budget gate (poolPast.ts). A search can list 103
+ * transaction reads a press, behind the budget gate (poolPast.ts). A search can list 100
  * pools, so nothing here reads by itself. Read 20 more joins the older page's entries and
  * totals them again, up to HISTORY_PAGES_MAX pages. A failed read prints its reason and no
  * count. The first button and the status line stay mounted: focus stays, answers are read out.
@@ -561,6 +578,8 @@ function DepositOfferBlock({
   openNow,
   openForm,
   onActed,
+  atTop,
+  doorFacts,
 }: {
   writes: LpWrites;
   offer: DepositOffer;
@@ -571,6 +590,8 @@ function DepositOfferBlock({
   openNow: number;
   openForm?: 'one';
   onActed?: (n: number) => void;
+  atTop: boolean;
+  doorFacts: ReactNode;
 }) {
   const key = `add:${view.address}`;
   const open = writes.active?.key === key;
@@ -597,8 +618,17 @@ function DepositOfferBlock({
   const oneKey = `one:${view.address}`;
   const oneOpen = writes.active?.key === oneKey;
   const blockedOne = writes.busy && !oneOpen;
+  // The door's wish (`atTop`) opens its form in the door, and this card's forms stay there ("I
+  // have both coins" too) until they close; the next form it opens is on the card. Latched when
+  // the wish arrives, adjusted during render: the wish is spent in the same pass the form opens.
+  const [door, setDoor] = useState<{ n: number; opened: boolean } | null>(null);
+  const panelOpen = open || oneOpen;
+  if (atTop && openNow && openNow !== door?.n) setDoor({ n: openNow, opened: false });
+  else if (door && !door.opened && panelOpen) setDoor({ ...door, opened: true });
+  else if (door && !panelOpen && (door.opened || !openNow)) setDoor(null);
+  const inDoor = door !== null && panelOpen;
   const panel = open ? (
-    <AddLiquidityPanel view={view} health={health} safety={safety} tokenDecimals={tokenDecimals} onClose={writes.close} />
+    <AddLiquidityPanel view={view} health={health} safety={safety} tokenDecimals={tokenDecimals} onClose={writes.close} lead={inDoor ? doorFacts : undefined} />
   ) : oneOpen ? (
     <AddOneCoinPanel
       view={view}
@@ -607,6 +637,7 @@ function DepositOfferBlock({
       tokenDecimals={tokenDecimals}
       onClose={writes.close}
       onPair={() => writes.open('add', key, addButton.current)}
+      poolRows={inDoor ? doorFacts : undefined}
     />
   ) : null;
   return (
@@ -640,7 +671,7 @@ function DepositOfferBlock({
           {/* The checks run again at Review, where they are said; nothing about them here (owner, 2026-10-17). */}
         </>
       )}
-      {panel}
+      {inDoor ? <DoorPortal>{panel}</DoorPortal> : panel}
     </div>
   );
 }

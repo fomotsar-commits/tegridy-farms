@@ -55,7 +55,7 @@ for (const size of SIZES) {
         '/earn': ['Lock'],
         '/launch': ['Launch'],
         '/swap': ['Swap'],
-        '/solana-lp': [],
+        '/pools': [],
         '/trust': [],
       };
       for (const [path, lit] of Object.entries(expectLit)) {
@@ -66,7 +66,7 @@ for (const size of SIZES) {
       }
     });
 
-    test("the menu is the site's index: every section's word with its pages under it, two columns at most; Pools opens the Solana LP tab", async ({ page }) => {
+    test("the menu is the site's index: every section's word with its pages under it, two columns at most; Pools opens the Venue AMM tab", async ({ page }) => {
       await open(page, '/');
       await page.getByRole('button', { name: 'Open navigation menu' }).click();
       const drawer = page.getByRole('dialog', { name: 'Navigation menu' });
@@ -90,8 +90,8 @@ for (const size of SIZES) {
       expect(cut, 'a word in the index is cut short').toEqual([]);
       expect(await index.evaluate((n) => n.scrollWidth <= n.clientWidth + 1), 'the index scrolls sideways').toBe(true);
       await index.getByRole('link', { name: 'Pools', exact: true }).click();
-      await expect.poll(() => new URL(page.url()).pathname).toBe('/solana-lp');
-      await expect(page.getByRole('tab', { name: 'Solana LP', exact: true })).toHaveAttribute('aria-selected', 'true', { timeout: 30_000 });
+      await expect.poll(() => new URL(page.url()).pathname).toBe('/pools');
+      await expect(page.getByRole('tab', { name: 'Venue AMM', exact: true })).toHaveAttribute('aria-selected', 'true', { timeout: 30_000 });
     });
 
     test('nothing lies over the open drawer: every row takes its own tap', async ({ page }) => {
@@ -166,7 +166,7 @@ test('the footer fits the height a real iPhone browser gives a page', async ({ p
 test('no tab strip says Soon, and an off tab is listed only on its own page', async ({ page }) => {
   test.slow();
   await page.setViewportSize({ width: 1280, height: 900 });
-  for (const path of ['/launch', '/eth-curve', '/curve-launch', '/earn', '/trust', '/nft-finance', '/solana-lp']) {
+  for (const path of ['/launch', '/eth-curve', '/curve-launch', '/earn', '/trust', '/nft-finance', '/pools']) {
     await open(page, path);
     const strips = page.getByRole('tablist');
     await expect(strips.first(), `no tab strip on ${path}`).toBeVisible({ timeout: 30_000 });

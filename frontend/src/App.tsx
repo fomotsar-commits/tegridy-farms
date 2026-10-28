@@ -234,6 +234,15 @@ function LegacyFarmRedirect() {
 }
 
 /**
+ * `/solana-lp`, the Solana LP tab until 2026-10-24: it mounted the same LP section as /pools,
+ * so an old link opens /pools with its `?mint=&task=&pool=` kept (SolanaLpSection reads them).
+ */
+function SolanaLpRedirect() {
+  const { search, hash } = useLocation();
+  return <Navigate to={`/pools${search}${hash}`} replace />;
+}
+
+/**
  * `/swap`, with an old `?tab=liquidity` link sent to /liquidity before the swap page
  * loads: TradePage would read the unknown tab as 'swap', and redirecting from inside
  * it cost four serial chunk loads. The URL is known on the first render.
@@ -313,9 +322,9 @@ function AnimatedRoutes() {
         <Route path="solana" element={<Suspense fallback={<SwapSkeleton />}><TradeHostPage /></Suspense>} />
         {/* No route until the Cardano swap is opened (lib/cardano/flags.ts). */}
         {cardanoSwapVisible() && <Route path="cardano" element={<Suspense fallback={<SwapSkeleton />}><TradeHostPage /></Suspense>} />}
-        {/* Pools is its own section: /liquidity, /solana-lp, /pools and /zap. */}
+        {/* Pools is its own section: /liquidity, /pools, /range-pools and /zap. */}
         <Route path="liquidity" element={<Suspense fallback={<SwapSkeleton />}><PoolsHostPage /></Suspense>} />
-        <Route path="solana-lp" element={<Suspense fallback={<SwapSkeleton />}><PoolsHostPage /></Suspense>} />
+        <Route path="solana-lp" element={<SolanaLpRedirect />} />
         {/* The Range tab: no route at all until range pools open (clmm/programId.ts). */}
         {rangePoolsVisible() && <Route path="range-pools" element={<Suspense fallback={<SwapSkeleton />}><PoolsHostPage /></Suspense>} />}
         <Route path="pools" element={<Suspense fallback={<SwapSkeleton />}><PoolsHostPage /></Suspense>} />

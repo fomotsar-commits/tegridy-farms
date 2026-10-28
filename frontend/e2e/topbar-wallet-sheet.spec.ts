@@ -179,7 +179,7 @@ test('on the home, where the cards cannot load, their pages are linked and the s
   await page.goto('/');
   const main = page.locator('#main-content');
   await expect(main.getByRole('link', { name: 'Stake BAYLA' })).toHaveAttribute('href', '/earn/bayla', { timeout: 30_000 });
-  await expect(main.getByRole('link', { name: 'Add liquidity' })).toHaveAttribute('href', '/solana-lp');
+  await expect(main.getByRole('link', { name: 'Add liquidity' })).toHaveAttribute('href', '/pools');
   await topBarConnect(page).click();
   await expect(solanaRow(page)).toContainText('Couldn’t load Solana wallets. Tap to reload the page.');
   await expect(ethereumRow(page)).toBeVisible();

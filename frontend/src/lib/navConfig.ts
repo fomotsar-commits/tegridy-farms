@@ -90,13 +90,13 @@ export function tradeRoute(): string {
  * tradeRoute. `/earn` itself stays the list, so each pool's "Back to Earn" still reaches it.
  */
 /**
- * Where Pools opens: in a Solana room with a coin, the Solana LP tab already on that coin
+ * Where Pools opens: in a Solana room with a coin, the Venue AMM tab already on that coin
  * (owner, 2026-10-17: "the wiring for the pages inside the bayla bungalow is off"); with no
  * room, the tab as it opens for anyone.
  */
 export function poolsRoute(): string {
   const active = getActiveBungalow();
-  return active && active.chain === 'solana' && active.address ? `/solana-lp?mint=${active.address}` : '/solana-lp';
+  return active && active.chain === 'solana' && active.address ? `/pools?mint=${active.address}` : '/pools';
 }
 
 export function lockRoute(): string {
@@ -115,7 +115,7 @@ export interface NavSection {
   /** The section's destinations in tab order, the hub first: its host's tab strip. */
   items: NavItem[];
 
-  /** Where the word goes when not the hub; one of `items`. Swap follows the room, Pools opens Solana LP. */
+  /** Where the word goes when not the hub; one of `items`. Swap follows the room, Pools opens Venue AMM. */
   primaryTo?: string;
 }
 
@@ -136,10 +136,10 @@ export const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
-    // Providing liquidity: add/remove, Solana LP, the venue's own Solana AMM, and zap in.
+    // Providing liquidity: add/remove, the venue's own Solana AMM, range pools, and zap in.
     heading: 'Pools',
     hub: '/liquidity',
-    // Owner, 2026-10-03: "pools land on solana lp". The drawer row opens the Solana LP tab,
+    // Owner, 2026-10-03: "pools land on solana lp". The drawer row opens the Venue AMM tab,
     // on the room's coin inside a Solana room; the strip keeps its order, so the Ethereum
     // form is the tab to its left.
     get primaryTo() {
@@ -147,12 +147,12 @@ export const NAV_SECTIONS: NavSection[] = [
     },
     items: [
       { to: '/liquidity', label: 'Liquidity', tabLabel: 'Add / Remove' },
-      // Ungated, like /pools: the page mounts its LP section only once the venue reads live.
-      { to: '/solana-lp', label: 'Solana LP' },
+      // Ungated: a live probe of the venue's AMM that states when it is undeployed, and its LP
+      // section once it reads live. The Solana LP tab was the same section (owner, 2026-10-24:
+      // "remove solana lp keep venue amm"); /solana-lp now forwards here (App.tsx).
+      { to: '/pools', label: 'Venue AMM' },
       // Hidden, with no route, until range pools open (RANGE_POOLS_OPEN, clmm/programId.ts).
       ...(rangePoolsVisible() ? [{ to: '/range-pools', label: 'Range pools', tabLabel: 'Range' }] : []),
-      // Ungated: a live probe of the venue's AMM that states when it is undeployed.
-      { to: '/pools', label: 'Venue AMM' },
       // On: every leg runs on deployed contracts; a missing vault is named on the page.
       { to: '/zap', label: 'Zap In', tabLabel: 'Zap' },
     ],
@@ -320,7 +320,7 @@ export function litWord(pathname: string, hash = ''): BarWord | null {
   return BAR_NAV.find((w) => w.lit(pathname, hash)) ?? null;
 }
 
-/** The drawer's big rows, one per section, at every width. Pools leads, on the Solana LP tab. */
+/** The drawer's big rows, one per section, at every width. Pools leads, on the Venue AMM tab. */
 export const DRAWER_SECTIONS: readonly NavSection[] = [POOLS_SECTION, CHECK_SECTION];
 
 /** Not on the bar and not in the footer since 2026-10-15: the records and the developer API. */

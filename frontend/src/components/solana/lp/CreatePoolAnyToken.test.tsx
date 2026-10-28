@@ -80,6 +80,7 @@ function noPools(): PoolSearchRead {
       index: { kind: 'ok', pools: [], truncated: false },
       pools: [],
       otherPairs: 0,
+      launchTierPools: [],
       knownState: Object.fromEntries(coins.map((q) => [STANDARD[q.symbol], 'absent' as const])),
       chainNow: 1_000n,
     },

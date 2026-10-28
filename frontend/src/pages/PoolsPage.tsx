@@ -1,8 +1,8 @@
 // Polyfill MUST load before any @solana/* import — same rule as SolanaProviders.
 import '../lib/solanaPolyfill';
-import { lazy, Suspense, useEffect } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { m } from 'framer-motion';
-import { Link, useSearchParams } from 'react-router-dom';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { useVenueStatus } from '../hooks/useVenueStatus';
 import { trackPageView } from '../lib/analytics';
@@ -11,8 +11,9 @@ import { CardArt } from '../components/ui/CardArt';
 import { FinePrint } from '../components/ui/FinePrint';
 import { VenueStatusCard } from '../components/solana/VenueStatusCard';
 import { VenueProgramCard } from '../components/solana/VenueProgramCard';
+import { LpDoorFrame } from '../components/solana/lp/LpDoorFrame';
+import type { LpDoorAnchor } from '../components/solana/lp/lpDoor';
 import { lpWriteMode, type LpWriteMode } from '../lib/launcher/solana/lpWriteFlag';
-import { withMint } from '../lib/solana/lp/mintLink';
 
 // The actions, positions, rates and routes. Lazy: it brings the Solana wallet stack, which
 // only a live venue needs.
@@ -20,8 +21,8 @@ const SolanaLpSection = lazy(() => import('../components/solana/lp/SolanaLpSecti
 
 /**
  * The venue's own Solana liquidity pools: the actions first, then your positions, the
- * rates and where a swap goes (the LP section, the same one /solana-lp mounts), then what
- * holding a share means and the venue's status.
+ * rates and where a swap goes (the LP section), then what holding a share means and the
+ * venue's status. `?mint=` opens the finder on a token; an old /solana-lp link lands here.
  *
  * Every capability claim here hangs off `readVenue`, never a constant, and every rate is
  * the LP section's own chain read: a pending or failed read shows no fee at all. `readVenue` follows a closed program's
@@ -34,7 +35,7 @@ export default function PoolsPage() {
   );
   useEffect(() => { trackPageView('pools'); }, []);
 
-  // The same live read as /solana-lp. The rates are the LP section's own read (its Rates card).
+  // The live read of the venue. The rates are the LP section's own read (its Rates card).
   const { status, refresh, retry } = useVenueStatus();
 
   // A capability is said in the present tense only once the chain returned a config.
@@ -50,8 +51,28 @@ export default function PoolsPage() {
   const tierTakesPools = liveConfig !== null && !liveConfig.disableCreatePool;
   // Fixed for the life of a build: a production build reads only the committed constant.
   const lpMode = lpWriteMode();
-  // The token being looked at (?mint=) follows the reader to the Solana LP tab.
+
+  // The LP door (a room's Add SOL + coin, island answer twenty-two) is drawn above the hero. Its
+  // place is held from the first frame, read from the address once (the section drops the door's
+  // words as it opens the form), until the section claims it or the venue does not read live.
   const [params] = useSearchParams();
+  const [doorMint] = useState(() => (lpMode !== 'off' && params.get('task') === 'add' ? params.get('mint') : null));
+  const [doorAt, setDoorAt] = useState<HTMLDivElement | null>(null);
+  const [doorClaimed, setDoorClaimed] = useState(false);
+  const claimDoor = useCallback(() => setDoorClaimed(true), []);
+  const door = useMemo<LpDoorAnchor>(() => ({ at: doorAt, claim: claimDoor }), [doorAt, claimDoor]);
+  // The token whose door the page holds a place for, while it does.
+  const doorWaiting = !doorClaimed && (status === null || venueIsOpen) ? doorMint : null;
+
+  // A Refresh that stops reading live unmounts the LP section above the status card, so the
+  // card jumps up the page. It is brought back into view: the answer to the press stays on
+  // screen. 'nearest' moves nothing when the card is already in view.
+  const statusCard = useRef<HTMLElement>(null);
+  const wasOpen = useRef(venueIsOpen);
+  useLayoutEffect(() => {
+    if (wasOpen.current && !venueIsOpen) statusCard.current?.scrollIntoView?.({ block: 'nearest' });
+    wasOpen.current = venueIsOpen;
+  }, [venueIsOpen]);
 
   return (
     <div className="relative min-h-screen">
@@ -61,24 +82,22 @@ export default function PoolsPage() {
       </div>
 
       <div className="relative z-10 max-w-[900px] mx-auto px-4 md:px-6 pt-8 pb-16">
+        {doorWaiting !== null && <LpDoorFrame mint={doorWaiting} waiting />}
+        <div ref={setDoorAt} />
         <m.div className="mb-6" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
-          {/* Not on a phone: the tab above already says Venue AMM (the same rule as /solana-lp). */}
+          {/* Not on a phone: the tab above already says Venue AMM, and its line pushed the token buttons under the bottom bar. */}
           <p className="hidden sm:block text-white/70 text-[11px] uppercase tracking-[0.2em] mb-2">Venue AMM · Solana</p>
           <h1 className="heading-luxury text-3xl md:text-5xl text-white tracking-tight mb-3">
             Liquidity pools.
           </h1>
-          <p className="text-white/85 text-[15px] max-w-xl leading-relaxed">
+          {/* Only what a read returned: nothing while reading or after a failed read. The line's
+              height is held, so the page does not jump when the read lands. */}
+          <p className="text-white/85 text-[15px] max-w-xl leading-relaxed min-h-[1lh]">
             {liveConfig
               ? 'Add two coins. Earn from every trade.'
-              : 'Our own Solana AMM. No pool can be opened here yet.'}
-          </p>
-          <p className="text-[13px] mt-2">
-            {/* A finger-sized press area on a 19.5px line: 14px of padding above and below (47.5px).
-                The negative margin takes 6px of each back, so the line keeps the 8px it always had.
-                The keyboard's ring goes round the words (`ring-on-words`, index.css). */}
-            <Link to={withMint('/solana-lp', params)} className="inline-block py-3.5 -my-1.5 underline underline-offset-2 text-white hover:text-white/80 ring-on-words">
-              <span className="ring-words">{venueIsOpen ? SOLANA_LP_LINK[lpMode] : SOLANA_LP_LINK_NOT_OPEN}</span>
-            </Link>
+              : status && status.kind !== 'unreadable'
+                ? 'Our own Solana AMM. No pool can be opened here yet.'
+                : null}
           </p>
           <FinePrint summary="Details" className="max-w-xl">
             <p>
@@ -104,7 +123,7 @@ export default function PoolsPage() {
         {venueIsOpen && (
           <div className="mt-2">
             <Suspense fallback={<p className="text-white/60 text-[13px]">Loading the pool finder…</p>}>
-              <SolanaLpSection />
+              <SolanaLpSection door={door} />
             </Suspense>
           </div>
         )}
@@ -148,6 +167,7 @@ export default function PoolsPage() {
             section is not drawn and the card stands right under the hero. */}
         <div className="mt-6">
           <VenueStatusCard
+            ref={statusCard}
             status={status}
             onRefresh={venueIsOpen ? refresh : retry}
             lpMode={lpMode}
@@ -173,11 +193,3 @@ const HERO_LP_LINE: Record<LpWriteMode, string> = {
   on: 'This site reads pools and shares, and below you can add liquidity to a pool whose checks pass, take yours out, or open a new pool on the public fee tier (the pools section says whether that can be done right now).',
   'withdraw-only': 'This site reads pools and shares. Adding liquidity and opening pools from here are paused; taking yours out still works.',
 };
-// The hero's door to the Solana LP tab says what that tab can do, by the same switch,
-// and only once the venue reads live: until then the door claims nothing.
-const SOLANA_LP_LINK: Record<LpWriteMode, string> = {
-  off: 'Find a pool on the Solana LP tab',
-  on: 'Add or remove liquidity on the Solana LP tab',
-  'withdraw-only': 'Take your liquidity out on the Solana LP tab',
-};
-const SOLANA_LP_LINK_NOT_OPEN = 'Go to the Solana LP tab';

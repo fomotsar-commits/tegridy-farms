@@ -25,7 +25,7 @@ const ANDROID_UA =
 const OFFERED = ['Phantom', 'Trust Wallet', 'Jupiter', 'MetaMask', 'Coinbase Wallet', 'Solflare', 'Backpack'];
 const FLOOR = 44;
 // A Solana pool page. Its wallet section is on the page from the first render;
-// /solana-lp, where the walks were done, shows its own only after a chain read.
+// /pools (the Solana LP tab when the walks were done) shows its own only after a chain read.
 const ROUTE = '/earn/bayla';
 
 test.beforeEach(async ({ page }) => {

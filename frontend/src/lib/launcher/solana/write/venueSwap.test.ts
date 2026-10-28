@@ -6,7 +6,7 @@
 // program would refuse it, whatever the builder believes.
 import { describe, it, expect } from 'vitest';
 import { Keypair, PublicKey, TransactionInstruction, type VersionedTransaction } from '@solana/web3.js';
-import { ASSOCIATED_TOKEN_PROGRAM_ID, SYSTEM_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, WSOL_MINT } from '../curve/program';
+import { ASSOCIATED_TOKEN_PROGRAM_ID, SYSTEM_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, WSOL_MINT, poolStatePda } from '../curve/program';
 import { associatedTokenAddress } from '../curve/ix';
 import {
   IX_SWAP_BASE_INPUT,
@@ -20,7 +20,7 @@ import { BAYLA_QUOTE, SOL_QUOTE, USDC_QUOTE, type QuoteCoin } from '../../../sol
 import { BAYLA_MINT } from '../../../solana/lp/tokenSafety';
 import { decodeIntent } from './intent';
 import { LP_COPY } from './liquidity';
-import { CPSWAP, EXT, FakeChain, addPool, cfgLocal, openAccount, rent, setClock, skewTestRun, type PoolFixture, type SimHandler } from './testkit.fixture';
+import { CPSWAP, EXT, FakeChain, LAUNCH, addPool, cfgLocal, openAccount, rent, setClock, skewTestRun, type PoolFixture, type SimHandler } from './testkit.fixture';
 import type { AggregatorSeen, PreparedTx, SwapIntent, SwapOpenGate, VenueSwapSummary, WriteRpc } from './types';
 import { VENUE_SWAP_COPY, prepareVenueSwap, swapStepsProblem, type VenueSwapArgs } from './venueSwap';
 
@@ -166,7 +166,7 @@ function world(o: {
     tokens: TOKEN_RESERVE,
     tokenProgram,
     quote: coin,
-    ammConfig: o.tier === 0 ? undefined : TIER1,
+    ammConfig: o.tier === 0 ? deriveAmmConfig(CPSWAP, 0) : TIER1,
     address: o.address,
     status: o.status,
     openTime: o.openTime ?? NOW - 100n,
@@ -373,11 +373,21 @@ describe('a pool that charges its creator a fee is priced with it', () => {
 });
 
 describe('each pool is priced and traded with its own fee settings', () => {
-  it('a pool on tier 0 pays tier 0’s price and names tier 0’s settings', async () => {
-    const w = world({ tier: 0 });
+  it('the launch pool on tier 0 pays tier 0’s price and names tier 0’s settings', async () => {
+    const mint = Keypair.generate().publicKey;
+    const w = world({ tier: 0, mint, address: poolStatePda(mint, LAUNCH) });
     const p = ok(await prepareVenueSwap(W(w.chain), OPEN, buy(w)));
+    expect(summaryOf(p).origin).toBe('launch-pool');
     expect(summaryOf(p).quoted.outAmount).toBe(expectedOut(SOL, COIN_RESERVE, TOKEN_RESERVE, 2_500n));
     expect(swapIx(p).keys[2]!.pubkey.equals(deriveAmmConfig(CPSWAP, 0))).toBe(true);
+  });
+
+  it('a pool opened on tier 0 without a launch builds nothing, at the standard address or its own', async () => {
+    for (const address of [undefined, Keypair.generate().publicKey]) {
+      const w = world({ tier: 0, address });
+      expect((await refusal(w, buy(w))).message).toBe(VENUE_SWAP_COPY.launchTier);
+      expect((await refusal(w, sell(w))).message).toBe(VENUE_SWAP_COPY.launchTier);
+    }
   });
 
   it('a pool at its own address is traded at that address', async () => {
@@ -604,6 +614,21 @@ describe('the checker: a venue swap read back out of its bytes', () => {
       const r = decodeIntent(replacing(ixs, sw, withKey(sw, slot, STRANGER)), intent);
       expect(reasonOf(r), `slot ${slot}`).toMatch(why[slot]!);
     }
+  });
+
+  it('refuses a swap in a pool on the launch tier that is not the launch pool, even when the review names that tier', async () => {
+    const { ixs, intent, p } = await built();
+    const sw = swapIx(p);
+    const tier0 = deriveAmmConfig(CPSWAP, 0);
+    const onTier0: SwapIntent = { ...intent, pins: { ...intent.pins, ammConfig: tier0 } };
+    expect(reasonOf(decodeIntent(replacing(ixs, sw, withKey(sw, 2, tier0)), onTier0))).toMatch(/launch tier \(fee tier 0\) without a launch/);
+  });
+
+  it('accepts a swap in the launch pool on the launch tier', async () => {
+    const mint = Keypair.generate().publicKey;
+    const { ixs, intent } = await built({ heldTokens: null, tier: 0, mint, address: poolStatePda(mint, LAUNCH) });
+    expect(intent.pins.ammConfig.equals(deriveAmmConfig(CPSWAP, 0))).toBe(true);
+    expect(decodeIntent(ixs, intent).ok).toBe(true);
   });
 
   it('refuses the launch tier’s fee settings on a tier 1 pool', async () => {

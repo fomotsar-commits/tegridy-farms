@@ -163,7 +163,7 @@ export async function readSolanaPoolShares(owner: string): Promise<Leg<PositionR
     }
     const rows = read.positions.map((p): PositionRow => {
       if (p.pool?.kind !== 'pool') {
-        return { key: `lp:${p.lpAccount}`, roomId: null, chain: 'solana', title: 'Pool share', facts: ['its pool could not be read just now'], to: '/solana-lp' };
+        return { key: `lp:${p.lpAccount}`, roomId: null, chain: 'solana', title: 'Pool share', facts: ['its pool could not be read just now'], to: '/pools' };
       }
       const view = p.pool.view;
       const room = bungalowByAddress('solana', view.tokenMint);
@@ -177,7 +177,7 @@ export async function readSolanaPoolShares(owner: string): Promise<Leg<PositionR
         facts.push(`${p.value.sharePct < 0.01 ? '<0.01' : p.value.sharePct.toFixed(2)}% of the pool`);
         facts.push(`${fmtAmount(tokenSide, tokenDec)} ${symbol} + ${fmtAmount(quoteSide, view.quote.decimals)} ${view.quote.symbol}`);
       } else facts.push('its value could not be read just now');
-      return { key: `lp:${p.lpAccount}`, roomId: room?.id ?? null, chain: 'solana', title: `${symbol} / ${view.quote.symbol} pool`, facts, to: '/solana-lp' };
+      return { key: `lp:${p.lpAccount}`, roomId: room?.id ?? null, chain: 'solana', title: `${symbol} / ${view.quote.symbol} pool`, facts, to: '/pools' };
     });
     return { status: 'ok', rows };
   } catch (e) {
