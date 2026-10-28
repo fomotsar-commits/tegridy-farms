@@ -277,14 +277,18 @@ function range(sLow, sHigh) {
 }
 const startSqrt = baylaIs0 ? sqrtPriceX64(BigInt(man.venuePrice.lamports), BigInt(man.venuePrice.baylaBase)) : sqrtPriceX64(BigInt(man.venuePrice.baylaBase), BigInt(man.venuePrice.lamports));
 
-const createPoolIx = (creator, cfg, m0, m1, pool, sqrt) => ix('create_pool', {
+// Owner, 2026-10-25: opening a range pool costs 0.5 SOL, paid to the vault, whichever instruction opens it.
+const OPEN_FEE = 500_000_000n;
+const createPoolIx = (creator, cfg, m0, m1, pool, sqrt, fee = VAULT) => ix('create_pool', {
   pool_creator: creator, amm_config: cfg, pool_state: pool, token_mint_0: m0, token_mint_1: m1,
   token_vault_0: PDA.vault(pool, m0), token_vault_1: PDA.vault(pool, m1), observation_state: PDA.observation(pool),
-  tick_array_bitmap: PDA.bitmap(pool), token_program_0: prog(m0), token_program_1: prog(m1),
+  tick_array_bitmap: PDA.bitmap(pool), token_program_0: prog(m0), token_program_1: prog(m1), create_pool_fee: fee,
 }, { sqrt_price_x64: sqrt, open_time: 0n });
 {
   const b0 = [await tok(ata(alice.publicKey, M0)), await tok(ata(alice.publicKey, M1)), await sol(alice.publicKey)];
-  const extra = mut('P2') ? [spl.createTransferCheckedInstruction(ata(alice.publicKey, BAYLA), BAYLA, ata(bob.publicKey, BAYLA), alice.publicKey, 1n, 6, [], ADDR.token2022)] : [];
+  const v0 = await sol(VAULT);
+  const extra = mut('P2') ? [spl.createTransferCheckedInstruction(ata(alice.publicKey, BAYLA), BAYLA, ata(bob.publicKey, BAYLA), alice.publicKey, 1n, 6, [], ADDR.token2022)]
+    : mut('P4') ? [SystemProgram.transfer({ fromPubkey: alice.publicKey, toPubkey: VAULT, lamports: 1 })] : [];
   const r = await must('alice opens pool A (BAYLA/SOL, 1%) at the venue pool price', [createPoolIx(alice.publicKey, cfg0, M0, M1, poolA, mut('P1') ? startSqrt * 2n : startSqrt), ...extra], [alice]);
   const p = await account('PoolState', poolA);
   const rents = [];
@@ -294,8 +298,10 @@ const createPoolIx = (creator, cfg, m0, m1, pool, sqrt) => ix('create_pool', {
     `1 BAYLA = ${human(Number(p.sqrt_price_x64) ** 2 / 2 ** 128).toExponential(4)} SOL, tick ${p.tick_current}`);
   const b1 = [await tok(ata(alice.publicKey, M0)), await tok(ata(alice.publicKey, M1)), await sol(alice.publicKey)];
   const rentSum = rents.reduce((s, x) => s + BigInt(x), 0n);
-  check('P2', 'create_pool', 'opening takes no coins from the opener: only the rent of its five accounts and the fee',
-    b1[0] === b0[0] && b1[1] === b0[1] && b0[2] - b1[2] === rentSum + BigInt(r.meta.fee), `${fmt(rentSum, 9)} SOL rent locally`);
+  check('P2', 'create_pool', 'opening takes no coins from the opener: only the rent of its five accounts, the network fee and the 0.5 SOL opening fee',
+    b1[0] === b0[0] && b1[1] === b0[1] && b0[2] - b1[2] === rentSum + BigInt(r.meta.fee) + OPEN_FEE, `${fmt(rentSum, 9)} SOL rent locally`);
+  const gained = (await sol(VAULT)) - v0;
+  check('P4', 'create_pool', 'opening a pool pays exactly 0.5 SOL to the vault', gained === OPEN_FEE, `vault +${fmt(gained, 9)} SOL`);
 }
 const [N0, N1] = order(WSOL, USD);
 const poolB = reg(PDA.pool(cfg1, N0, N1), 'pool B (SOL/USD, 0.25%)');
@@ -304,6 +310,23 @@ reg(PDA.observation(poolB), 'pool B price history'); reg(PDA.bitmap(poolB), 'poo
 {
   const usdPerSol = 180;
   const sqrtB = N0.equals(WSOL) ? sqrtPriceX64(usdPerSol * 1e6, 1e9) : sqrtPriceX64(1e9, usdPerSol * 1e6);
+  // Three ways round the opening fee, each tried on pool B before it opens, each refused.
+  {
+    const r = await send('alice opens pool B paying the opening fee to mallory', [createPoolIx(alice.publicKey, cfg1, N0, N1, poolB, sqrtB, mut('P5') ? VAULT : mallory.publicKey)], [alice], { expectFail: true });
+    check('P5', 'create_pool', 'the opening fee can be paid to no wallet but the vault', failedWith(r, 'ConstraintAddress') && !(await conn.getAccountInfo(poolB)), `refused: ${errName(r)}`);
+  }
+  {
+    const poor = Keypair.generate(); reg(poor.publicKey, 'poor (0.3 SOL)');
+    await airdrop(poor.publicKey, mut('P6') ? LAMPORTS_PER_SOL : 0.3 * LAMPORTS_PER_SOL);
+    const r = await send('a wallet with 0.3 SOL opens pool B', [createPoolIx(poor.publicKey, cfg1, N0, N1, poolB, sqrtB)], [poor], { expectFail: true });
+    check('P6', 'create_pool', 'a wallet that cannot pay the 0.5 SOL cannot open a pool, though it can pay the rent', !r.ok && r.logs.some((l) => /Transfer: insufficient lamports/.test(l)) && !(await conn.getAccountInfo(poolB)), `refused: ${errName(r)}`);
+  }
+  {
+    const old = createPoolIx(alice.publicKey, cfg1, N0, N1, poolB, sqrtB);
+    if (!mut('P7')) old.keys.pop();
+    const r = await send('alice opens pool B with the account list of the program before the fee', [old], [alice], { expectFail: true });
+    check('P7', 'create_pool', 'a transaction built without the fee account, as before the fee, is refused', failedWith(r, 'AccountNotEnoughKeys') && !(await conn.getAccountInfo(poolB)), `refused: ${errName(r)}`);
+  }
   const r = await send('alice opens pool B (SOL/USD, 0.25%)', [createPoolIx(alice.publicKey, mut('P3') ? cfg0 : cfg1, N0, N1, poolB, sqrtB)], [alice]);
   const p = r.ok ? await account('PoolState', poolB) : null;
   check('P3', 'create_pool', 'a pool opens on the 0.25% tier with spacing 60', p && p.tick_spacing === 60 && p.amm_config.equals(cfg1) && p.sqrt_price_x64 === sqrtB, p ? `tick ${p.tick_current}` : errName(r));
@@ -442,7 +465,7 @@ const liqIx = (name, key, args, remaining = []) => {
 }
 phaseDone('phase3');
 
-const ctx = { WORKSHOP, checks, sizes, known, positions, arrays, K, members, VAULT, BAYLA, WSOL, REWARD, USD, M0, M1, baylaIs0, poolA, poolB, vA0, vA1, obsA, bitmapA, cfg0, cfg1, cfg9, TIER9, S, raw, human, sqrtOf, range, SPACING, BAYLA_UNIT, man, vaultStartLamports };
+const ctx = { WORKSHOP, checks, sizes, known, positions, arrays, K, members, VAULT, BAYLA, WSOL, REWARD, USD, M0, M1, baylaIs0, poolA, poolB, vA0, vA1, obsA, bitmapA, cfg0, cfg1, cfg9, TIER9, S, raw, human, sqrtOf, range, SPACING, BAYLA_UNIT, man, vaultStartLamports, OPEN_FEE };
 const { phases } = await import('./suite-phases.mjs');
 await phases(ctx, { check, phaseDone, must, mustVault, vaultRun, measure, tok, sol, errName, failedWith, fmt, reg, ata, ataIx, prog, setProg, mut, pool, liqIx, finish, names });
 finish('complete');
