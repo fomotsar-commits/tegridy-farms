@@ -27,6 +27,7 @@ moved from the person opening the pool to the fee receiver when the pool is made
 |---|---|---|
 | The opener pays | 0.006 ETH, on top of their deposit | nothing extra |
 | The treasury gets | the 0.006 ETH, straight away | 1/6 of the 0.3% pool fee (0.05% of the trade), as LP tokens |
+| The venue gets | | 0.5% of each trade made on the site, through the new pools' own SwapFeeRouter, paid out the same way as today's |
 | The liquidity providers get | their whole deposit goes in the pool; the fee is never part of it | 5/6 of the 0.3% pool fee (0.25% of the trade) |
 
 The pool contract is the same `TegridyPair` as today, so the trading fee and the treasury's share
@@ -38,14 +39,19 @@ deposit, and it goes to the treasury straight away. The deposit is still the ope
 0.05 ETH, or at least one NFT) and can be withdrawn; the 0.006 ETH cannot. The 0.25% venue fee per
 swap from #875 is unchanged.
 
-🔴 **Swaps on the new coin pools: decide before the site points at them.** The site's swap runs
+**How the new pools are swapped (your word 2026-10-27: "do whats best").** The site's swap runs
 through the SwapFeeRouter `0x6d5791A660e79175F74C6D639584C98422d5956E`, which takes the venue's
-0.5% (50 bps, read 2026-10-25) and is bound for good to the OLD router. So a pool opened on the new
-factory cannot be swapped through the site's swap today, and a trade sent through the new router
-directly skips that 0.5%. The site PR that fills in the new addresses must also do one of:
-(a) swap new-factory pools through the new router directly (the venue then earns the 0.006 ETH and
-the pool's 0.05% on those pools, not the extra 0.5%); or (b) deploy a new SwapFeeRouter bound to
-the new router, so the 0.5% applies to them too. Until then, leave the site's addresses at zero.
+0.5% (50 bps, read 2026-10-25) and is bound for good to the OLD router, so it cannot reach a pool on
+the new factory. The same script therefore deploys a second SwapFeeRouter: the same contract with
+the same 0.5%, treasury, RevenueDistributor and ReferralSplitter, bound to the new router. On the
+site, the swap prices our pool on both factories (each net of its own 0.5%), takes the better one,
+and signs through that pool's SwapFeeRouter; Uniswap still wins whenever it pays more. The pool
+list shows both factories' pools. Nothing about today's pool changes.
+
+Referrers: the referral splitter `0x6B3442dAcB62d40BA39fCe9b3CDa350FEa6f7e4c` pays a referrer 20%
+of the venue fee, and only through a SwapFeeRouter it has approved. Until its owner (the deployer
+key `0x1489…456E`) approves the new one (step 5), that 20% stays with the venue instead; nothing is
+lost either way.
 
 ## What does not change
 
@@ -60,15 +66,15 @@ the new router, so the 0.5% applies to them too. Until then, leave the site's ad
 - **Base and Robinhood Chain** run the same free factory code. Charging there needs the same
   redeploy on each chain; the site already has a slot for each chain's new addresses.
 
-## Two calls for you
+## One call for you
 
-1. **Who holds the new factory's two roles.** `FEE_TO_SETTER` changes where fees go (behind a
-   48-hour lock); `GUARDIAN` can switch off a pair instantly in an emergency. The live factory has
-   the hot deployer key `0x1489…456E` in both (`SAFE_REHOME_RUNBOOK.md`). The script refuses any
-   address with no code, so this factory starts on Safes. The commands below use the Safe
+**Who holds the new contracts' roles.** `FEE_TO_SETTER` changes where the factory's fees go
+   (behind a 48-hour lock) and becomes the owner of the new SwapFeeRouter and its admin contract;
+   `GUARDIAN` can switch off a pair instantly in an emergency. The live factory and SwapFeeRouter
+   have the hot deployer key `0x1489…456E` there (`SAFE_REHOME_RUNBOOK.md`). The script refuses any
+   address with no code, so these start on Safes. The commands below use the Safe
    `0xA36053477568Fb5382492F3A5970D35Fe896b7F8` for both, the owner of the NFT pool factory. If you
    have built the new Admin and Guardian Safes, use those instead.
-2. **The swap decision above**, before the site PR.
 
 ## Steps
 
@@ -78,31 +84,46 @@ Run these from `contracts/` in a checkout of `mvp-launch` that includes this run
 **Step 1. Dry run, no key.** Nothing is sent.
 
 ```bash
-FEE_TO_SETTER=0xA36053477568Fb5382492F3A5970D35Fe896b7F8 GUARDIAN=0xA36053477568Fb5382492F3A5970D35Fe896b7F8 TREASURY=0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d WETH=0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2 forge script script/DeployPoolOpeningFeeAMM.s.sol:DeployPoolOpeningFeeAMMScript --rpc-url "$ETH_RPC_URL" --sender 0x14898258122C0740106391E6e8E4F17F3b6d456E
+FEE_TO_SETTER=0xA36053477568Fb5382492F3A5970D35Fe896b7F8 GUARDIAN=0xA36053477568Fb5382492F3A5970D35Fe896b7F8 TREASURY=0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d WETH=0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2 REVENUE_DISTRIBUTOR=0xF993316E2fC079de4358c489A935E01e03E23E17 REFERRAL_SPLITTER=0x6B3442dAcB62d40BA39fCe9b3CDa350FEa6f7e4c PAUSE_GUARDIAN=0xCDCA0F0621ce34012AD61bBD140f327EB778F354 forge script script/DeployPoolOpeningFeeAMM.s.sol:DeployPoolOpeningFeeAMMScript --rpc-url "$ETH_RPC_URL" --sender 0x14898258122C0740106391E6e8E4F17F3b6d456E
 ```
 
-You should see `Script ran successfully` and `Opening fee (wei): 6000000000000000`.
+You should see `Script ran successfully`, `Opening fee (wei): 6000000000000000` and
+`Swap fee (bps): 50`. The distributor, splitter and pause guardian are the live SwapFeeRouter's
+own (read 2026-10-27).
 
-**Step 2. Deploy (your key).** Two transactions: the factory, then the router bound to it.
+**Step 2. Deploy (your key).** Eight transactions: the factory, the router, the SwapFeeRouter, its
+admin contract, wiring the admin, setting the pause guardian, and offering each of the last two to
+the Safe.
 
 ```bash
-FEE_TO_SETTER=0xA36053477568Fb5382492F3A5970D35Fe896b7F8 GUARDIAN=0xA36053477568Fb5382492F3A5970D35Fe896b7F8 TREASURY=0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d WETH=0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2 forge script script/DeployPoolOpeningFeeAMM.s.sol:DeployPoolOpeningFeeAMMScript --rpc-url "$ETH_RPC_URL" --account deployer --broadcast
+FEE_TO_SETTER=0xA36053477568Fb5382492F3A5970D35Fe896b7F8 GUARDIAN=0xA36053477568Fb5382492F3A5970D35Fe896b7F8 TREASURY=0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d WETH=0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2 REVENUE_DISTRIBUTOR=0xF993316E2fC079de4358c489A935E01e03E23E17 REFERRAL_SPLITTER=0x6B3442dAcB62d40BA39fCe9b3CDa350FEa6f7e4c PAUSE_GUARDIAN=0xCDCA0F0621ce34012AD61bBD140f327EB778F354 forge script script/DeployPoolOpeningFeeAMM.s.sol:DeployPoolOpeningFeeAMMScript --rpc-url "$ETH_RPC_URL" --account deployer --broadcast
 ```
 
-Use `--ledger` instead of `--account deployer` if the key is on a Ledger. Write down the two
+Use `--ledger` instead of `--account deployer` if the key is on a Ledger. Write down the four
 addresses it prints.
 
-**Step 3. Check them** (put in the two addresses):
+**Step 3. The Safe accepts ownership (2 of 3).** In the Safe app for `0xA360…b7F8`, one batch:
+`acceptOwnership()` on the new SwapFeeRouter, and `acceptOwnership()` on its admin contract,
+within 14 days of step 2.
+
+**Step 4. Check them, then rehearse on a fork** (put in the addresses):
 
 ```bash
 cast call <factory> "POOL_OPENING_FEE()(uint256)" --rpc-url "$ETH_RPC_URL"
-cast call <factory> "feeTo()(address)" --rpc-url "$ETH_RPC_URL"
 cast call <router> "factory()(address)" --rpc-url "$ETH_RPC_URL"
+cast call <swapFeeRouter> "router()(address)" --rpc-url "$ETH_RPC_URL"
+cast call <swapFeeRouter> "owner()(address)" --rpc-url "$ETH_RPC_URL"
+NEW_FACTORY=<factory> NEW_ROUTER=<router> NEW_SWAP_FEE_ROUTER=<swapFeeRouter> forge test --match-path "test/fork/PoolOpeningFeeForkRehearsal.t.sol" -vv
 ```
 
-You should see `6000000000000000`, the treasury `0x7D26…Bd7d`, and the factory's address.
+You should see `6000000000000000`, the factory's address, the router's address, the Safe, and
+`3 passed`.
 
-**Step 4. Hand both addresses to a session.** It opens the site PR (below). Merging it is a
+**Step 5 (optional). Let referrers earn on the new pools.** The referral splitter's owner (the
+deployer key) approves the new SwapFeeRouter as a caller, through the splitter's timelock. Until
+then the referrer share goes to the venue.
+
+**Step 6. Hand the four addresses to a session.** It opens the site PR (below). Merging it is a
 production deploy, so it waits for your word.
 
 **NFT pools** ride the NFT pool factory redeploy in [`NFT_POOL_FACTORY_REDEPLOY.md`](NFT_POOL_FACTORY_REDEPLOY.md):
@@ -110,13 +131,13 @@ same steps, same script. That script now also refuses a factory without the 0.00
 
 ## The site PR (the follow-up)
 
-- `frontend/src/lib/constants.ts`: `TEGRIDY_OPENING_FACTORY_ADDRESS` and
-  `TEGRIDY_OPENING_ROUTER_ADDRESS` to the two new addresses. While they are zero the site behaves
-  exactly as today. Once set, the liquidity tab opens new pools on the new factory, shows "Opening
-  this pool costs 0.006 ETH", and asks the wallet for the deposit plus 0.006 ETH (it reads the fee
-  from the factory). Pairs already on the old factory keep using the old router.
-- The swap decision above, and listing the new factory's pools in the pool table
-  (`hooks/useVenuePairs.ts` reads one factory).
+- `frontend/src/lib/constants.ts`: `TEGRIDY_OPENING_FACTORY_ADDRESS`,
+  `TEGRIDY_OPENING_ROUTER_ADDRESS` and `TEGRIDY_OPENING_SWAP_FEE_ROUTER_ADDRESS` to the new
+  addresses. While any is zero the site behaves exactly as today. Once all three are set: the
+  liquidity tab opens new pools on the new factory, shows "Opening this pool costs 0.006 ETH", and
+  asks the wallet for the deposit plus 0.006 ETH (read from the factory); the pool list shows both
+  factories' pools; the swap prices both and signs through the matching SwapFeeRouter. Pairs
+  already on the old factory keep using the old router and the live SwapFeeRouter.
 - `frontend/scripts/addresses.json`, `docs/CONTRACTS.md`, `contracts/broadcast/…/1/` run file, and
   one `CHANGELOG.md` line.
 
@@ -132,4 +153,9 @@ same steps, same script. That script now also refuses a factory without the 0.00
   much reverts; adding to an existing pool pays nothing; the fee is never pooled liquidity or an
   NFT deposit. Each test fails against the free build it replaces (mutation check in the PR).
 - `contracts/test/PoolOpeningFeeAMM_Deploy.t.sol`: the script's factory charges 0.006 ETH, its
-  router is bound to it, and it refuses a non-mainnet chain and roles held by a plain key.
+  router is bound to it, its SwapFeeRouter is bound to that router at 50 bps with the admin wired
+  and both offered to the Safe, a swap on a new pool through it keeps exactly 0.5% of the input,
+  and it refuses a non-mainnet chain, roles held by a plain key and any swap fee but the live 50.
+- 2026-10-27, mainnet fork (`test/fork/PoolOpeningFeeForkRehearsal.t.sol`, 3/3): with the live
+  distributor, referral splitter and pause guardian wired in, opening TOWELI/ETH pays the treasury
+  Safe 0.006 ETH, and a 0.1 ETH swap on that pool through the new SwapFeeRouter keeps 0.0005 ETH.

@@ -97,12 +97,14 @@ export interface ChainContracts {
   readonly factory: Address;
   readonly router: Address;
   /**
-   * The factory + router that charge to open a pool (0.006 ETH, owner ruling 2026-10-25), or
-   * null until deployed here. Null keeps today's behaviour: pools open on `factory`. Set, only
-   * NEW pools open here; a pool already on `factory` stays on `factory`/`router`.
+   * The factory + router that charge to open a pool (0.006 ETH, owner ruling 2026-10-25), and
+   * the SwapFeeRouter bound to that router (the venue's swap fee on their pools), or null until
+   * deployed here. Any null keeps today's behaviour: pools open on `factory`. All three set,
+   * only NEW pools open here; a pool already on `factory` stays on `factory`/`router`.
    */
   readonly openingFactory: Address | null;
   readonly openingRouter: Address | null;
+  readonly openingSwapFeeRouter: Address | null;
   readonly twap: Address;
   readonly swapFeeRouter: Address;
   readonly swapFeeRouterAdmin: Address;

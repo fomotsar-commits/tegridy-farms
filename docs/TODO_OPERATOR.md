@@ -34,9 +34,10 @@ stop and say so — a surprise is information.
 Your ruling: "0.006 eth on all evm", with a new factory and router for coin pools. Every command
 and what you should see: [`POOL_OPENING_FEE_EVM.md`](POOL_OPENING_FEE_EVM.md).
 
-- ⬜ **Decide how the site swaps the new coin pools** before their addresses go on the site: the
-  SwapFeeRouter (0.5% a swap to the venue) only reaches the old router.
-- ⬜ **Deploy the new coin-pool factory + router** (two transactions). Pools opened there pay
+- ✅ **How the site swaps the new coin pools** (your word 2026-10-27, "do whats best"): through a
+  second SwapFeeRouter bound to the new router, with the same 0.5% to the venue.
+- ⬜ **Deploy the new coin-pool factory, router and SwapFeeRouter** (one script, your key), then
+  the Safe accepts ownership of the SwapFeeRouter and its admin (one batch). Pools opened there pay
   0.006 ETH to the treasury; today's pool and the old factory stay as they are.
 - ⬜ **NFT pools:** the NFT pool factory redeploy below now charges 0.006 ETH to open a pool too.
   Nothing extra to run.

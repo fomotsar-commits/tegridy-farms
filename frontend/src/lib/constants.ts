@@ -35,13 +35,15 @@ export const STAKING_MONITOR_VIEW_ADDRESS = '0xbE1E75124C7F07d5B681839C42d8e751f
 // Native DEX — RELAUNCH 2026-06-06 (DeployMVP); LP = our factory's TOWELI/WETH pair
 export const TEGRIDY_FACTORY_ADDRESS = '0xa24C7287eC56A7DEFDc70033803451240e267a52' as const;
 export const TEGRIDY_ROUTER_ADDRESS = '0xE9F83A07b071748E795d2489651d5310fA098Db8' as const;
-// The factory + router that charge 0.006 ETH to open a pool (owner ruling 2026-10-25), from
+// The factory + router that charge 0.006 ETH to open a pool (owner ruling 2026-10-25), and the
+// SwapFeeRouter that takes the venue's swap fee on their pools, all from
 // contracts/script/DeployPoolOpeningFeeAMM.s.sol. Zeroed until the owner deploys them; while
-// zero, the liquidity tab opens pools on the free factory above, as before. Once set, NEW
-// pools open here and pools already on the old factory stay there. Runbook:
-// docs/POOL_OPENING_FEE_EVM.md (fill these only with its swap/pool-list follow-up).
+// any is zero, the site opens pools on the free factory above, as before. Once all three are
+// set, NEW pools open here, are listed and swapped here, and pools already on the old factory
+// stay there. Runbook: docs/POOL_OPENING_FEE_EVM.md.
 export const TEGRIDY_OPENING_FACTORY_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
 export const TEGRIDY_OPENING_ROUTER_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
+export const TEGRIDY_OPENING_SWAP_FEE_ROUTER_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
 // TegridyCurveLauncher — the own zero-toll launch curve (contracts/src/curve).
 // LIVE on mainnet 2026-08-24 (deploy tx 0x5f5dd7c1…, owner = Treasury Safe,
 // 4 ETH graduation / 40-25-35 split / 3.69% reserve). The chains registry maps

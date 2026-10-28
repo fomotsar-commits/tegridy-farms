@@ -7,7 +7,7 @@ import { toast } from 'sonner';
 import { ERC20_ABI, SWAP_FEE_ROUTER_ABI, UNISWAP_V2_ROUTER_ABI } from '../lib/contracts';
 import { CHAIN_ID } from '../lib/constants';
 import { type TokenInfo, defaultTokensFor, headlineTokenFor } from '../lib/tokenList';
-import { swapVenueOn } from '../lib/chains/swapVenue';
+import { swapVenueOn, openingSwapVenue } from '../lib/chains/swapVenue';
 import { decodeRevertReason } from '../lib/revertDecoder';
 import { trackSwap } from '../lib/analytics';
 import { getTxUrl } from '../lib/explorer';
@@ -229,13 +229,18 @@ export function useSwap(opts?: { chainId?: number }) {
   }, [inputAmount, fromDecimals]);
 
   // ---- Quote & Routing (delegated to useSwapQuote) ----
-  const quote = useSwapQuote(fromToken, toToken, parsedAmount, slippage, address, opts?.chainId);
+  // Our pools on both factories: the old one, and the one that charges 0.006 ETH to open a
+  // pool. `quote.ownPools` names the winner, and every approval and write below follows it.
+  const quote = useSwapQuote(fromToken, toToken, parsedAmount, slippage, address, opts?.chainId, { includeOpeningPools: true });
+  // The venue that executes: the same as `venue` except, when the winning own pool is on the
+  // new factory, its router and SwapFeeRouter (same venue fee). Uniswap V2 is the same in both.
+  const execVenue = quote.ownPools === 'opening' ? (openingSwapVenue(venue) ?? venue) : venue;
 
   // ---- Transaction writing ----
   const { writeContract, data: hash, isPending, reset, error: writeError } = useWriteContract();
 
   // ---- Allowance (delegated to useSwapAllowance) ----
-  const allowance = useSwapAllowance(fromToken, parsedAmount, quote.selectedRoute, quote.selectedOnChainRoute.source, address, writeContract, venue);
+  const allowance = useSwapAllowance(fromToken, parsedAmount, quote.selectedRoute, quote.selectedOnChainRoute.source, address, writeContract, execVenue);
 
   const lastActionRef = useRef<'approve' | 'swap' | null>(null);
   // F465: guard the receipt-success effect so it handles each confirmed hash
@@ -533,6 +538,8 @@ export function useSwap(opts?: { chainId?: number }) {
     }
     const deadlineTs = BigInt(Math.floor(Date.now() / 1000) + deadline * 60);
     const { path, selectedRoute, minimumReceived } = quote;
+    // The SwapFeeRouter bound to the router whose pool the quote picked (see execVenue).
+    const ownSwapFeeRouter = (execVenue ?? venue).swapFeeRouter;
     // R033 H-01 (amended 2026-06-09): the floor must come from the venue that
     // EXECUTES. Aggregator-selected quotes still execute on the on-chain
     // fallback (SFR / Uniswap), and holding that leg to the aggregator-priced
@@ -553,11 +560,11 @@ export function useSwap(opts?: { chainId?: number }) {
         // through SwapFeeRouter so the protocol earns its fee on native execution.
         const maxFeeBps = 100n;
         if (swapType === 'ethForTokens') {
-          writeContract({ chainId: swapChain, address: venue.swapFeeRouter, abi: SWAP_FEE_ROUTER_ABI, functionName: 'swapExactETHForTokens', args: [onChainMin, path, address, deadlineTs, maxFeeBps], value: parsedAmount });
+          writeContract({ chainId: swapChain, address: ownSwapFeeRouter, abi: SWAP_FEE_ROUTER_ABI, functionName: 'swapExactETHForTokens', args: [onChainMin, path, address, deadlineTs, maxFeeBps], value: parsedAmount });
         } else if (swapType === 'tokensForEth') {
-          writeContract({ chainId: swapChain, address: venue.swapFeeRouter, abi: SWAP_FEE_ROUTER_ABI, functionName: 'swapExactTokensForETH', args: [parsedAmount, onChainMin, path, address, deadlineTs, maxFeeBps] });
+          writeContract({ chainId: swapChain, address: ownSwapFeeRouter, abi: SWAP_FEE_ROUTER_ABI, functionName: 'swapExactTokensForETH', args: [parsedAmount, onChainMin, path, address, deadlineTs, maxFeeBps] });
         } else {
-          writeContract({ chainId: swapChain, address: venue.swapFeeRouter, abi: SWAP_FEE_ROUTER_ABI, functionName: 'swapExactTokensForTokens', args: [parsedAmount, onChainMin, path, address, deadlineTs, maxFeeBps] });
+          writeContract({ chainId: swapChain, address: ownSwapFeeRouter, abi: SWAP_FEE_ROUTER_ABI, functionName: 'swapExactTokensForTokens', args: [parsedAmount, onChainMin, path, address, deadlineTs, maxFeeBps] });
         }
       } else {
         // AUDIT FIX (deep-pool routing): the on-chain fallback for an aggregator
@@ -583,19 +590,19 @@ export function useSwap(opts?: { chainId?: number }) {
       if (swapType === 'ethForTokens') {
         writeContract({
           chainId: swapChain,
-          address: venue.swapFeeRouter, abi: SWAP_FEE_ROUTER_ABI, functionName: 'swapExactETHForTokens',
+          address: ownSwapFeeRouter, abi: SWAP_FEE_ROUTER_ABI, functionName: 'swapExactETHForTokens',
           args: [minReceivedRaw, path, address, deadlineTs, maxFeeBps], value: parsedAmount,
         });
       } else if (swapType === 'tokensForEth') {
         writeContract({
           chainId: swapChain,
-          address: venue.swapFeeRouter, abi: SWAP_FEE_ROUTER_ABI, functionName: 'swapExactTokensForETH',
+          address: ownSwapFeeRouter, abi: SWAP_FEE_ROUTER_ABI, functionName: 'swapExactTokensForETH',
           args: [parsedAmount, minReceivedRaw, path, address, deadlineTs, maxFeeBps],
         });
       } else {
         writeContract({
           chainId: swapChain,
-          address: venue.swapFeeRouter, abi: SWAP_FEE_ROUTER_ABI, functionName: 'swapExactTokensForTokens',
+          address: ownSwapFeeRouter, abi: SWAP_FEE_ROUTER_ABI, functionName: 'swapExactTokensForTokens',
           args: [parsedAmount, minReceivedRaw, path, address, deadlineTs, maxFeeBps],
         });
       }
@@ -650,7 +657,7 @@ export function useSwap(opts?: { chainId?: number }) {
         });
       }
     }
-  }, [address, chainId, fromToken, toToken, parsedAmount, insufficientBalance, swapType, deadline, quote, writeContract, supportsFeeOnTransfer, allowance.needsApproval, inputAmount, venue, swapChain, switchMessage, slippage]);
+  }, [address, chainId, fromToken, toToken, parsedAmount, insufficientBalance, swapType, deadline, quote, writeContract, supportsFeeOnTransfer, allowance.needsApproval, inputAmount, venue, execVenue, swapChain, switchMessage, slippage]);
 
   const flipDirection = useCallback(() => {
     const prev = fromToken;

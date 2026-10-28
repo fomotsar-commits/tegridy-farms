@@ -26,6 +26,7 @@ import {
   TEGRIDY_ROUTER_ADDRESS,
   TEGRIDY_OPENING_FACTORY_ADDRESS,
   TEGRIDY_OPENING_ROUTER_ADDRESS,
+  TEGRIDY_OPENING_SWAP_FEE_ROUTER_ADDRESS,
   TEGRIDY_TWAP_ADDRESS,
   SWAP_FEE_ROUTER_ADDRESS,
   SWAP_FEE_ROUTER_ADMIN_ADDRESS,
@@ -79,6 +80,7 @@ const MAINNET: ChainConfig = {
     router: TEGRIDY_ROUTER_ADDRESS,
     openingFactory: orNull(TEGRIDY_OPENING_FACTORY_ADDRESS),
     openingRouter: orNull(TEGRIDY_OPENING_ROUTER_ADDRESS),
+    openingSwapFeeRouter: orNull(TEGRIDY_OPENING_SWAP_FEE_ROUTER_ADDRESS),
     twap: TEGRIDY_TWAP_ADDRESS,
     swapFeeRouter: SWAP_FEE_ROUTER_ADDRESS,
     swapFeeRouterAdmin: SWAP_FEE_ROUTER_ADMIN_ADDRESS,
@@ -135,6 +137,7 @@ const BASE: ChainConfig = {
     // Same free factory code as Ethereum's old one; charging here needs the same redeploy.
     openingFactory: null,
     openingRouter: null,
+    openingSwapFeeRouter: null,
     twap: '0xB021651dACaD5dabf83ef587297E093DfA0c95Ec',
     swapFeeRouter: '0xa24C7287eC56A7DEFDc70033803451240e267a52',
     swapFeeRouterAdmin: '0xcb03207ae13076F520b8c81Ea4FE6F08F8bC63b2',
@@ -189,6 +192,7 @@ const ROBINHOOD: ChainConfig = {
     // Same free factory code as Ethereum's old one; charging here needs the same redeploy.
     openingFactory: null,
     openingRouter: null,
+    openingSwapFeeRouter: null,
     twap: '0xa24C7287eC56A7DEFDc70033803451240e267a52',
     swapFeeRouter: '0xE9F83A07b071748E795d2489651d5310fA098Db8',
     swapFeeRouterAdmin: '0xdFdd6D72539A425dC917F49FB834901105cA98c9',

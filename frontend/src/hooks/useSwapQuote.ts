@@ -3,7 +3,7 @@ import { useReadContract, useChainId } from 'wagmi';
 import { formatUnits } from 'viem';
 import { UNISWAP_V2_ROUTER_ABI, UNISWAP_V2_FACTORY_ABI, UNISWAP_V2_PAIR_ABI, TEGRIDY_ROUTER_ABI, TEGRIDY_FACTORY_ABI, SWAP_FEE_ROUTER_ABI } from '../lib/contracts';
 import { WETH_ADDRESS, CHAIN_ID, SWAP_FEE_BPS } from '../lib/constants';
-import { swapVenueOn } from '../lib/chains/swapVenue';
+import { swapVenueOn, openingSwapVenue } from '../lib/chains/swapVenue';
 import { type TokenInfo } from '../lib/tokenList';
 import { getAggregatorPrice, calculateAggregatorSpread, AGGREGATOR_NAMES, type AggregatorQuote, type AggregatorSource } from '../lib/aggregator';
 
@@ -61,6 +61,13 @@ export interface SwapQuoteResult {
   isQuoteLoading: boolean;
   selectedRoute: RouteSource;
   selectedOnChainRoute: { source: 'tegridy' | 'uniswap'; output: bigint };
+  /**
+   * Which of our two factories' pools the 'tegridy' route uses: 'base' (the old factory,
+   * swapped through `venue.swapFeeRouter`) or 'opening' (the factory that charges 0.006 ETH
+   * to open a pool, swapped through `openingSwapVenue(venue).swapFeeRouter`). Always 'base'
+   * unless the caller asked for opening pools and one quotes strictly better.
+   */
+  ownPools: 'base' | 'opening';
   hasTegridyPair: boolean;
   tegridyOutputFormatted: string | null;
   uniOutputFormatted: string | null;
@@ -92,6 +99,12 @@ export function useSwapQuote(
    * the zap plan relies on that, because its contracts exist on Ethereum only.
    */
   venueChainId?: number,
+  /**
+   * includeOpeningPools: also quote our pools on the factory that charges 0.006 ETH to open
+   * a pool. Only for a caller that signs and approves against `ownPools`' venue (useSwap).
+   * The zap signs against the old SwapFeeRouter only, so it leaves this off.
+   */
+  options?: { includeOpeningPools?: boolean },
 ): SwapQuoteResult {
   const fromDecimals = fromToken?.decimals ?? 18;
   const toDecimals = toToken?.decimals ?? 18;
@@ -186,6 +199,41 @@ export function useSwapQuote(
     chainId: quoteChainId,
     query: { enabled: hasTegridyPair && parsedAmount > 0n && path.length >= 2 },
   });
+
+  // ---- Venue DEX, second factory: pools opened since the 0.006 ETH opening fee ----
+  // Same reads as above, against that factory, its router and its SwapFeeRouter.
+  const includeOpeningPools = options?.includeOpeningPools === true;
+  const openingVenue = useMemo(
+    () => (includeOpeningPools ? openingSwapVenue(venue) : null),
+    [includeOpeningPools, venue],
+  );
+  const { data: openingPairAddr } = useReadContract({
+    address: at(openingVenue?.factory),
+    abi: TEGRIDY_FACTORY_ABI,
+    functionName: 'getPair',
+    args: [fromAddrForPair as `0x${string}`, toAddrForPair as `0x${string}`],
+    chainId: quoteChainId,
+    query: { enabled: pairsEnabled && !!openingVenue },
+  });
+  const hasOpeningPair = !!openingVenue && !!openingPairAddr && openingPairAddr !== ZERO_ADDR;
+  const { data: openingAmountsOut, isLoading: isOpeningQuoteLoading, refetch: refetchOpening } = useReadContract({
+    address: at(openingVenue?.router),
+    abi: TEGRIDY_ROUTER_ABI,
+    functionName: 'getAmountsOut',
+    args: [parsedAmount, path],
+    chainId: quoteChainId,
+    query: { enabled: hasOpeningPair && parsedAmount > 0n && path.length >= 2 },
+  });
+  const { data: openingLiveFeeBps } = useReadContract({
+    address: at(openingVenue?.swapFeeRouter),
+    abi: SWAP_FEE_ROUTER_ABI,
+    functionName: 'feeBps',
+    chainId: quoteChainId,
+    query: { enabled: !!openingVenue, staleTime: 5 * 60_000 },
+  });
+  const openingFeeBpsBi = (typeof openingLiveFeeBps === 'bigint' && openingLiveFeeBps >= 0n && openingLiveFeeBps <= 1000n)
+    ? openingLiveFeeBps
+    : SWAP_FEE_BPS_BI;
 
   // Also check Uniswap factory for direct pair (for routing info display)
   const { data: directPair } = useReadContract({
@@ -324,10 +372,10 @@ export function useSwapQuote(
 
   // Stamp on every wagmi on-chain leg arrival.
   useEffect(() => {
-    if (uniAmountsOut !== undefined || tegridyAmountsOut !== undefined) {
+    if (uniAmountsOut !== undefined || tegridyAmountsOut !== undefined || openingAmountsOut !== undefined) {
       setQuoteFetchedAt(Date.now());
     }
-  }, [uniAmountsOut, tegridyAmountsOut]);
+  }, [uniAmountsOut, tegridyAmountsOut, openingAmountsOut]);
 
   // 1s ticker — only runs once a quote has landed, idle pre-input.
   useEffect(() => {
@@ -343,9 +391,20 @@ export function useSwapQuote(
   // output to the user is reduced by SWAP_FEE_BPS. Quote and compare on this net figure.
   // (Linear haircut is conservative: the true output of swapping `in*(1-fee)` is slightly
   // higher than `out*(1-fee)` by AMM concavity, so the derived minOut never reverts.)
-  const tegridyOutputAfterFee = tegridyOutputAmount > 0n
+  const baseOutputAfterFee = tegridyOutputAmount > 0n
     ? (tegridyOutputAmount * (10000n - feeBpsBi)) / 10000n
     : 0n;
+  const openingOutputAmount = openingAmountsOut ? (openingAmountsOut[openingAmountsOut.length - 1] ?? 0n) : 0n;
+  const openingOutputAfterFee = openingOutputAmount > 0n
+    ? (openingOutputAmount * (10000n - openingFeeBpsBi)) / 10000n
+    : 0n;
+  // The better of our two factories' pools, each net of its own SwapFeeRouter's fee. A tie
+  // stays on the old one. From here on 'tegridy' means this pool, and useSwap signs through
+  // the SwapFeeRouter `ownPools` names.
+  const ownPools: 'base' | 'opening' = openingOutputAfterFee > baseOutputAfterFee ? 'opening' : 'base';
+  const tegridyOutputAfterFee = ownPools === 'opening' ? openingOutputAfterFee : baseOutputAfterFee;
+  const ownAmountsOut = ownPools === 'opening' ? openingAmountsOut : tegridyAmountsOut;
+  const ownFeeBpsNum = ownPools === 'opening' ? Number(openingFeeBpsBi) : feeBpsNum;
 
   let aggOutputAmount = 0n;
   try {
@@ -401,12 +460,13 @@ export function useSwapQuote(
   );
 
   // Use the correct amountsOut for the selected route (for price impact / intermediate display)
-  const activeAmountsOut = selectedRoute === 'tegridy' ? tegridyAmountsOut : uniAmountsOut;
+  const activeAmountsOut = selectedRoute === 'tegridy' ? ownAmountsOut : uniAmountsOut;
 
   // Intermediate amount (for multi-hop route display)
   const intermediateAmount = activeAmountsOut && activeAmountsOut.length === 3 ? activeAmountsOut[1] : undefined;
 
-  const isQuoteLoading = isUniQuoteLoading || (hasTegridyPair && isTegridyQuoteLoading);
+  const isQuoteLoading = isUniQuoteLoading || (hasTegridyPair && isTegridyQuoteLoading)
+    || (hasOpeningPair && isOpeningQuoteLoading);
 
   // Price impact calculation.
   //
@@ -555,10 +615,10 @@ export function useSwapQuote(
     }
     const dex = selectedRoute === 'tegridy' ? 'Venue DEX' : 'Uniswap V2';
     // Native route carries the protocol fee; disclose it (the shown output already nets it).
-    const feeNote = selectedRoute === 'tegridy' ? ` (incl. ${feeBpsNum / 100}% fee)` : '';
+    const feeNote = selectedRoute === 'tegridy' ? ` (incl. ${ownFeeBpsNum / 100}% fee)` : '';
     if (path.length <= 2) return `Direct swap via ${dex}${feeNote}`;
     return `Routed through WETH via ${dex}${feeNote}`;
-  }, [path, selectedRoute, bestAggregatorName, feeBpsNum, selectedOnChainRoute.source]);
+  }, [path, selectedRoute, bestAggregatorName, ownFeeBpsNum, selectedOnChainRoute.source]);
 
   // R033 H-02: stale flag flips reactively when (now - quoteFetchedAt) > MAX.
   const isQuoteStale = useMemo(
@@ -569,6 +629,7 @@ export function useSwapQuote(
   const refreshQuote = useCallback(() => {
     refetchUni();
     if (hasTegridyPair) refetchTegridy();
+    if (hasOpeningPair) refetchOpening();
     // F467: the aggregator leg is a fetch effect keyed on aggRequestId — bump
     // the state counter so the effect actually re-runs (the old ref bump didn't
     // change any dep, so the aggregator leg was lost until the user re-typed).
@@ -578,7 +639,7 @@ export function useSwapQuote(
     // refetched amounts are structurally identical, which would otherwise leave
     // quoteFetchedAt stuck at 0. A fresh stamp also resets the staleness window.
     setQuoteFetchedAt(Date.now());
-  }, [refetchUni, refetchTegridy, hasTegridyPair]);
+  }, [refetchUni, refetchTegridy, hasTegridyPair, refetchOpening, hasOpeningPair]);
 
   // Net of the protocol fee — this is what the user actually receives on the native
   // route, so the route-comparison panel shows an honest (not pre-fee) number.
@@ -608,7 +669,8 @@ export function useSwapQuote(
     isQuoteLoading,
     selectedRoute,
     selectedOnChainRoute,
-    hasTegridyPair,
+    ownPools,
+    hasTegridyPair: hasTegridyPair || hasOpeningPair,
     tegridyOutputFormatted,
     uniOutputFormatted,
     aggBetter,
@@ -626,7 +688,7 @@ export function useSwapQuote(
     refreshQuote,
   }), [
     outputAmount, outputFormatted, priceImpact, priceImpactUnread, minimumReceived, minimumReceivedFormatted,
-    isQuoteLoading, selectedRoute, selectedOnChainRoute, hasTegridyPair,
+    isQuoteLoading, selectedRoute, selectedOnChainRoute, ownPools, hasTegridyPair, hasOpeningPair,
     tegridyOutputFormatted, uniOutputFormatted, aggBetter, aggOutputFormatted, bestAggregatorName,
     allAggQuotes, routeDescription, routeLabel, hasDirectPair, intermediateAmount,
     path, activeAmountsOut, quoteFetchedAt, isQuoteStale, refreshQuote,
