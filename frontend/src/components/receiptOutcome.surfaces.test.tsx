@@ -121,10 +121,12 @@ const SURFACES: Surface[] = [
     repeat: /trades a second time/i,
   },
   {
-    name: 'NFTLendingSection lend tab',
+    // Gondi offers are signatures; the lend tab's transactions are wrapping ETH and
+    // approving WETH.
+    name: 'NFTLendingSection lend tab (wrap + approve legs)',
     mount: ui(<NFTLendingSection />),
-    reverted: /Offer creation reverted on-chain/i,
-    repeat: /principal into a second offer/i,
+    reverted: /Wrapping reverted on-chain/i,
+    repeat: /turns more of your ETH into WETH/i,
   },
   {
     name: 'LendingSection lend tab',

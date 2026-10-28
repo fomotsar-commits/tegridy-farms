@@ -87,36 +87,40 @@ function client() {
   return _client;
 }
 
-/** The chain reads this book needs. Injected in tests. */
-export const defaultChain = {
-  verifyOffer({ offer, signature, loanAddress }) {
-    return checkOfferSignature(offer, signature, loanAddress, {
-      getCode: (address) => client().getCode({ address }),
-      isValidSignature: (address, digest, sig) =>
-        client().readContract({ address, abi: ERC1271, functionName: "isValidSignature", args: [digest, sig] }),
-    });
-  },
-  async readOfferState({ lender, offerId, loanAddress }) {
-    const [cancelled, used, balance, allowance] = await client().multicall({
-      allowFailure: false,
-      contracts: [
-        { address: loanAddress, abi: GONDI_LOAN_ABI, functionName: "isOfferCancelled", args: [lender, BigInt(offerId)] },
-        { address: loanAddress, abi: GONDI_LOAN_ABI, functionName: "getUsedCapacity", args: [lender, BigInt(offerId)] },
-        { address: WETH_ADDRESS, abi: ERC20_READS, functionName: "balanceOf", args: [lender] },
-        { address: WETH_ADDRESS, abi: ERC20_READS, functionName: "allowance", args: [lender, loanAddress] },
-      ],
-    });
-    return { cancelled, used, balance, allowance };
-  },
-  async getReceipt(hash) {
-    try {
-      return await client().getTransactionReceipt({ hash });
-    } catch (err) {
-      if (err?.name === "TransactionReceiptNotFoundError") return null;
-      throw err;
-    }
-  },
-};
+/** The chain reads this book needs, on a viem public client. The e2e walk passes a fork's. */
+export function makeChain(getClient) {
+  return {
+    verifyOffer({ offer, signature, loanAddress }) {
+      return checkOfferSignature(offer, signature, loanAddress, {
+        getCode: (address) => getClient().getCode({ address }),
+        isValidSignature: (address, digest, sig) =>
+          getClient().readContract({ address, abi: ERC1271, functionName: "isValidSignature", args: [digest, sig] }),
+      });
+    },
+    async readOfferState({ lender, offerId, loanAddress }) {
+      const [cancelled, used, balance, allowance] = await getClient().multicall({
+        allowFailure: false,
+        contracts: [
+          { address: loanAddress, abi: GONDI_LOAN_ABI, functionName: "isOfferCancelled", args: [lender, BigInt(offerId)] },
+          { address: loanAddress, abi: GONDI_LOAN_ABI, functionName: "getUsedCapacity", args: [lender, BigInt(offerId)] },
+          { address: WETH_ADDRESS, abi: ERC20_READS, functionName: "balanceOf", args: [lender] },
+          { address: WETH_ADDRESS, abi: ERC20_READS, functionName: "allowance", args: [lender, loanAddress] },
+        ],
+      });
+      return { cancelled, used, balance, allowance };
+    },
+    async getReceipt(hash) {
+      try {
+        return await getClient().getTransactionReceipt({ hash });
+      } catch (err) {
+        if (err?.name === "TransactionReceiptNotFoundError") return null;
+        throw err;
+      }
+    },
+  };
+}
+
+export const defaultChain = makeChain(client);
 
 /**
  * BaseLoan._checkSignature, off chain: a lender with code (a Safe, or a wallet with EIP-7702

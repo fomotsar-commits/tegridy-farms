@@ -38,11 +38,12 @@ import { PageSkeleton } from '../components/PageSkeleton';
 import { ShieldPanel } from '../components/shield/ShieldPanel';
 import {
   TEGRIDY_LENDING_ADDRESS,
-  TEGRIDY_NFT_LENDING_ADDRESS,
   TEGRIDY_NFT_POOL_FACTORY_ADDRESS,
   TEGRIDY_LAUNCHPAD_V2_ADDRESS,
   isDeployed,
 } from '../lib/constants';
+// NFT lending runs on Gondi's v3.2 loan contract (lib/gondi), not TEGRIDY_NFT_LENDING_ADDRESS.
+import { GONDI_LOAN_ADDRESS } from '../lib/gondi/loanOffer.js';
 import { useTabListKeys } from '../hooks/useTabListKeys';
 import { STRIP_ARROW_PX, useTabStripArrows } from '../components/layout/tabStripScroll';
 import { isPooledLendingLive, isBnplLive } from '../hooks/usePooledLendingConfig';
@@ -167,7 +168,7 @@ const DEFAULT_SECTION: Section = 'nftlending';
 // flips on by itself when a real address lands in constants.ts.
 const SECTION_DEPLOYED: Record<Section, boolean> = {
   lending: isDeployed(TEGRIDY_LENDING_ADDRESS),
-  nftlending: isDeployed(TEGRIDY_NFT_LENDING_ADDRESS),
+  nftlending: isDeployed(GONDI_LOAN_ADDRESS),
   amm: isDeployed(TEGRIDY_NFT_POOL_FACTORY_ADDRESS),
   launchpad: isDeployed(TEGRIDY_LAUNCHPAD_V2_ADDRESS),
   // Both read from hooks/usePooledLendingConfig.ts, where every address is
@@ -380,7 +381,7 @@ export default function LendingPage() {
               revisits render synchronously. */}
           <Suspense fallback={<PageSkeleton />}>
             {section === 'lending' && <LendingSection address={address} />}
-            {section === 'nftlending' && (isDeployed(TEGRIDY_NFT_LENDING_ADDRESS)
+            {section === 'nftlending' && (isDeployed(GONDI_LOAN_ADDRESS)
               ? (
                 <div className="space-y-6">
                   <NFTLendingSection />

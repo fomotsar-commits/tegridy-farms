@@ -32,6 +32,16 @@
  */
 
 import { test as base, expect, type Locator, type Page } from '@playwright/test';
+import { keccak256, toBytes } from 'viem';
+import {
+  GONDI_LOAN_ADDRESS,
+  LOAN_OFFER_TYPES,
+  ZERO_ADDRESS,
+  gondiDomain,
+  offerToMessage,
+  wholeCollectionValidators,
+  type LoanOfferJson,
+} from '../../src/lib/gondi/loanOffer.js';
 
 const DEFAULT_ACCOUNT = '0x71be63f3384f5fb98995898a86b02fb2426c5788'; // Hardhat account #9
 const DEFAULT_CHAIN_ID = 1; // Ethereum mainnet
@@ -47,17 +57,24 @@ const ANVIL_RPC_URL = process.env.ANVIL_RPC_URL;
 const TOWELI = '0x420698CFdEDdEa6bc78D59bC17798113ad278F9D';
 
 // ─── NFT-lending fixture constants ───────────────────────────────────────
-// The deployed NFT lending market (constants.ts TEGRIDY_NFT_LENDING_ADDRESS) and
-// Nakamigos, one of the three collections NFTLendingSection accepts as collateral
-// (NFTLendingSection.tsx:33-37). Measured on a live fork: offerCount() is 0 on
-// mainnet, so the borrow tab has nothing to show until this fixture plants one.
-const NFT_LENDING = '0x89BeB6cc0255B7465c01aA38a6f937efd345f14F';
+// NFT lending runs on Gondi's v3.2 loan contract (src/lib/gondi/loanOffer.js
+// GONDI_LOAN_ADDRESS), whose offers are signatures kept in the offer book, not
+// on-chain deposits. Nakamigos is one of the three collections it allows.
 const NAKAMIGOS = '0xd774557b647330C91Bf44cfEAB205095f7E6c367';
-/** Anvil/hardhat account #1 — plays the lender. No key: the node signs by impersonation. */
-const LENDER_ACCOUNT = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8';
-const OFFER_PRINCIPAL_WEI = 10n ** 17n; // 0.1 ETH
+const WETH = '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2';
+// The lender signs with a KEY, because a Gondi offer is an EIP-712 signature. NOT an
+// anvil or other well-known key: those carry EIP-7702 code on real mainnet, so on a fork
+// Gondi checks their signature as a smart wallet's (EIP-1271) and refuses it.
+const LENDER_KEY = keccak256(toBytes('tegridy e2e gondi lender'));
+const OFFER_PRINCIPAL_WEI = 10n ** 17n; // 0.1 WETH
 const OFFER_APR_BPS = 1000n;            // 10%
 const OFFER_DURATION_S = 7n * 24n * 60n * 60n;
+
+/** The signed offer seeded for each isolated account, for the spec to post to its book. */
+const seededGondiOffers = new Map<string, { offer: LoanOfferJson; signature: `0x${string}`; tokenId: bigint }>();
+export function seededGondiOffer(account: string) {
+  return seededGondiOffers.get(account.toLowerCase());
+}
 
 // EVERY SEEDED LOAN GETS ITS OWN TOKEN, and that is not tidiness — it is the only thing
 // stopping this fixture from wrecking a loan another test is mid-way through. All the
@@ -392,40 +409,40 @@ export async function advanceForkTime(seconds: number): Promise<void> {
 }
 
 /**
- * Plant the ONE precondition the NFT-lending borrow leg needs and mainnet does not have.
+ * Plant what the NFT-lending borrow leg needs and mainnet does not have: a Nakamigos in
+ * the borrower's hands, and a lender with WETH approved to Gondi's loan contract who has
+ * signed a whole-collection offer for Nakamigos.
  *
- * Measured, not assumed: `offerCount()` at the deployed market is 0 on mainnet at head,
- * and the test account owns no NFT from any accepted collection. Neither can be conjured
- * with `anvil_setBalance` — the borrow tab renders offers straight out of the contract,
- * and the accept reverts unless the borrower owns the exact tokenId the lender pinned.
+ * NOTHING PRIVILEGED HAPPENS HERE. The only cheatcodes are `anvil_impersonateAccount`
+ * (to move one Nakamigos out of its holder's wallet, and to send the lender's own wrap
+ * and approve) and `anvil_setBalance` for gas. The offer is signed with the lender's key,
+ * as a real lender's wallet signs it, and Gondi's contract checks that signature itself
+ * when the borrower takes the offer. Nothing is written to the loan contract.
  *
- * NOTHING PRIVILEGED HAPPENS HERE. `createOffer` is payable and permissionless, so the
- * lender leg is a transaction any address could send; the only cheatcode is
- * `anvil_impersonateAccount`, used to move one Nakamigos out of its current holder's
- * wallet and to sign for the lender without a key. No storage is hand-written, no
- * owner-only function is called, and no protocol invariant is forged — the offer this
- * creates is one the real contract created, through its own code path.
- *
- * Self-verifying, in the same spirit as seedErc20Balance: both halves are read back
- * through the contracts' own getters and a failure throws with the reason, because a
- * silent no-op here hands the spec a "no borrowable offer" timeout that blames the
- * product for a fixture that did nothing.
+ * Self-verifying: the NFT transfer and the lender's WETH and allowance are read back, and
+ * a miss throws with the reason, because a silent no-op hands the spec a "no offer"
+ * timeout that blames the product for a fixture that did nothing.
  */
-async function seedNftLendingOffer(rpc: Rpc, borrower: string): Promise<void> {
+async function seedGondiOffer(rpc: Rpc, borrower: string): Promise<void> {
   const { encodeFunctionData, parseAbi, decodeAbiParameters, parseAbiParameters } = await import('viem');
+  const { privateKeyToAccount } = await import('viem/accounts');
   const tokenId = BigInt(COLLATERAL_ID_BASE + collateralIdSeq++);
+  const lender = privateKeyToAccount(LENDER_KEY);
 
   const erc721 = parseAbi([
     'function ownerOf(uint256) view returns (address)',
     'function transferFrom(address,address,uint256)',
   ]);
-  const market = parseAbi([
-    'function offerCount() view returns (uint256)',
-    'function createOffer(uint256,uint256,uint256,address,uint256,uint64) payable returns (uint256)',
+  const weth = parseAbi([
+    'function deposit() payable',
+    'function approve(address,uint256) returns (bool)',
+    'function balanceOf(address) view returns (uint256)',
+    'function allowance(address,address) view returns (uint256)',
   ]);
 
   const call = async (to: string, data: string): Promise<`0x${string}`> =>
     (await rpc('eth_call', [{ to, data }, 'latest'])) as `0x${string}`;
+  const readUint = async (to: string, data: string): Promise<bigint> => BigInt(await call(to, data));
 
   const sendFrom = async (from: string, to: string, data: string, value?: bigint): Promise<void> => {
     await rpc('anvil_impersonateAccount', [from]);
@@ -438,14 +455,14 @@ async function seedNftLendingOffer(rpc: Rpc, borrower: string): Promise<void> {
       const receipt = (await rpc('eth_getTransactionReceipt', [hash])) as { status?: string } | null;
       if (receipt) {
         if (receipt.status !== '0x1') {
-          throw new Error(`seedNftLendingOffer: tx to ${to} REVERTED on the fork (${hash}).`);
+          throw new Error(`seedGondiOffer: tx to ${to} REVERTED on the fork (${hash}).`);
         }
         await rpc('anvil_stopImpersonatingAccount', [from]);
         return;
       }
-      await new Promise((r) => setTimeout(r, 100));
+      await new Promise((r) => setTimeout(r, 250));
     }
-    throw new Error(`seedNftLendingOffer: tx to ${to} never produced a receipt (${hash}).`);
+    throw new Error(`seedGondiOffer: tx to ${to} never produced a receipt (${hash}).`);
   };
 
   const ownerOfToken = async (): Promise<string> => {
@@ -453,14 +470,12 @@ async function seedNftLendingOffer(rpc: Rpc, borrower: string): Promise<void> {
     return (decodeAbiParameters(parseAbiParameters('address'), raw)[0] as string).toLowerCase();
   };
 
-  // 1. Put the collateral in the test account's hands.
+  // 1. Put the collateral in the test account's hands. NEVER PULL COLLATERAL OUT OF A
+  // LIVE LOAN: stop with the reason instead; the id scheme above should prevent it.
   const holder = await ownerOfToken();
-  // NEVER PULL COLLATERAL OUT OF A LIVE LOAN. Impersonating the market would let this
-  // transfer succeed and silently break whichever test is holding that loan open, so
-  // stop with the reason instead — the id scheme above is what should prevent it.
-  if (holder === NFT_LENDING.toLowerCase()) {
+  if (holder === GONDI_LOAN_ADDRESS.toLowerCase()) {
     throw new Error(
-      `seedNftLendingOffer: Nakamigos #${tokenId} is locked in the lending market as live collateral. ` +
+      `seedGondiOffer: Nakamigos #${tokenId} is locked in the loan contract as live collateral. ` +
         `Two seeds collided on one token; do NOT reclaim it — widen COLLATERAL_ID_BASE instead.`,
     );
   }
@@ -477,39 +492,60 @@ async function seedNftLendingOffer(rpc: Rpc, borrower: string): Promise<void> {
     );
   }
 
-  // 2. Post a lender offer against that exact token.
-  //
-  // The expiry is read off the FORK's clock, not the runner's. The contract rejects an
-  // out-of-window validity with `InvalidOfferValidity` (measured: a year-2100 expiry
-  // reverts), and a fork pinned to an old block would drift out of that window if this
-  // used Date.now().
-  const block = (await rpc('eth_getBlockByNumber', ['latest', false])) as { timestamp: string };
-  const expiry = BigInt(block.timestamp) + 30n * 24n * 60n * 60n;
-  await rpc('anvil_setBalance', [LENDER_ACCOUNT, '0x21e19e0c9bab2400000']); // 10,000 ETH
+  // 2. The lender holds WETH and has approved the loan contract: the offer moves no
+  // money until a borrower takes it, and then the contract pulls it from this wallet.
+  const code = (await rpc('eth_getCode', [lender.address, 'latest'])) as string;
+  if (code !== '0x') {
+    throw new Error(`seedGondiOffer: the lender key's address has code on this fork (${code.slice(0, 12)}...).`);
+  }
+  await rpc('anvil_setBalance', [lender.address, '0x21e19e0c9bab2400000']); // 10,000 ETH
+  await sendFrom(lender.address, WETH, encodeFunctionData({ abi: weth, functionName: 'deposit' }), 10n ** 18n);
   await sendFrom(
-    LENDER_ACCOUNT,
-    NFT_LENDING,
-    encodeFunctionData({
-      abi: market,
-      functionName: 'createOffer',
-      args: [OFFER_PRINCIPAL_WEI, OFFER_APR_BPS, OFFER_DURATION_S, NAKAMIGOS as `0x${string}`, tokenId, expiry],
-    }),
-    OFFER_PRINCIPAL_WEI,
+    lender.address,
+    WETH,
+    encodeFunctionData({ abi: weth, functionName: 'approve', args: [GONDI_LOAN_ADDRESS, 2n ** 255n] }),
   );
 
-  // 3. Read both halves back through the contracts' own getters.
+  // 3. Sign the offer. Its expiry is read off the FORK's clock, not the runner's.
+  const block = (await rpc('eth_getBlockByNumber', ['latest', false])) as { timestamp: string };
+  const chainId = Number(await rpc('eth_chainId', []));
+  const offer: LoanOfferJson = {
+    offerId: (BigInt(Date.now()) * 1000n + tokenId).toString(),
+    lender: lender.address,
+    fee: '0',
+    capacity: '0',
+    nftCollateralAddress: NAKAMIGOS,
+    nftCollateralTokenId: '0',
+    principalAddress: WETH,
+    principalAmount: OFFER_PRINCIPAL_WEI.toString(),
+    aprBps: OFFER_APR_BPS.toString(),
+    expirationTime: (BigInt(block.timestamp) + 86_400n).toString(),
+    duration: OFFER_DURATION_S.toString(),
+    maxSeniorRepayment: '0',
+    validators: wholeCollectionValidators(),
+    lenderRefinanceDisabled: false,
+    borrower: ZERO_ADDRESS,
+  };
+  const signature = await lender.signTypedData({
+    domain: gondiDomain(GONDI_LOAN_ADDRESS, chainId),
+    types: LOAN_OFFER_TYPES as unknown as Record<string, { name: string; type: string }[]>,
+    primaryType: 'LoanOffer',
+    message: offerToMessage(offer) as unknown as Record<string, unknown>,
+  });
+  seededGondiOffers.set(borrower.toLowerCase(), { offer, signature, tokenId });
+
+  // 4. Read the halves back through the contracts' own getters.
   const finalHolder = await ownerOfToken();
   if (finalHolder !== borrower.toLowerCase()) {
-    throw new Error(
-      `seedNftLendingOffer: the collateral transfer did not take — Nakamigos #${tokenId} is still held by ${finalHolder}.`,
-    );
+    throw new Error(`seedGondiOffer: the collateral transfer did not take — Nakamigos #${tokenId} is still held by ${finalHolder}.`);
   }
-  const countRaw = await call(NFT_LENDING, encodeFunctionData({ abi: market, functionName: 'offerCount' }));
-  const count = BigInt(countRaw);
-  if (count === 0n) {
-    throw new Error(
-      'seedNftLendingOffer: createOffer confirmed but offerCount() is still 0 — the market did not record the offer.',
-    );
+  const balance = await readUint(WETH, encodeFunctionData({ abi: weth, functionName: 'balanceOf', args: [lender.address] }));
+  const allowance = await readUint(
+    WETH,
+    encodeFunctionData({ abi: weth, functionName: 'allowance', args: [lender.address, GONDI_LOAN_ADDRESS] }),
+  );
+  if (balance < OFFER_PRINCIPAL_WEI || allowance < OFFER_PRINCIPAL_WEI) {
+    throw new Error(`seedGondiOffer: the lender's WETH did not take (balance ${balance}, allowance ${allowance}).`);
   }
 }
 
@@ -539,8 +575,9 @@ export interface WalletMock {
    * block above `export const test` for the measurement and for why evm_revert is
    * not the answer.
    *
-   * Pass `nftCollateral` to also place a Nakamigos in the account and post a lender
-   * offer against it, which is the borrow leg's precondition.
+   * Pass `nftCollateral` to also place a Nakamigos in the account and have a lender sign
+   * a whole-collection Gondi offer for it (`seededGondiOffer(account)` returns it, for the
+   * spec to post to its offer book), which is the borrow leg's precondition.
    */
   useIsolatedForkAccount: (opts?: { nftCollateral?: boolean }) => Promise<string>;
 }
@@ -661,7 +698,7 @@ export const test = base.extend<Fixtures>({
         const rpc: Rpc = (method, params) => anvilRpc(method, params);
         await rpc('anvil_setBalance', [account, '0x21e19e0c9bab2400000']); // 10,000 ETH
         await seedErc20Balance(rpc, TOWELI, account, 1_000_000n * 10n ** 18n);
-        if (opts?.nftCollateral) await seedNftLendingOffer(rpc, account);
+        if (opts?.nftCollateral) await seedGondiOffer(rpc, account);
         return account;
       },
     };

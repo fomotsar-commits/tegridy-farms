@@ -1,21 +1,28 @@
 /**
- * AUDIT R081 — NFT lending borrow / repay happy path (zero coverage before).
+ * AUDIT R081 — NFT lending borrow / repay happy path.
  *
- * Cross-references: TF-CRIT-NFT-LENDING-DEADLINE (audit_findings.md, agent
- * 4) — the deadline boundary race is a Solidity bug; this UI spec verifies
- * the countdown timer drift the user sees, not the on-chain race itself.
+ * Since 2026-10-27 NFT lending runs on Gondi's own v3.2 loan contract
+ * (contracts/vendor/gondi-v3.2; src/lib/gondi). A lender's offer is a signature kept in
+ * the offer book, not an on-chain deposit, and the tab stays gated ("isn't live yet")
+ * until GONDI_LOAN_ADDRESS holds the deployed address. So:
  *
- * /nft-finance hosts NFTLendingSection. Borrow flow:
- *   connect → choose collection → pick collateral NFT → set principal/term →
- *   create offer (lender) OR accept offer (borrower) → repay before deadline.
+ *   - before the deploy, these specs assert the gated tab, honestly;
+ *   - after it, they drive the real flow, and the Anvil leg runs a whole borrow → repay
+ *     cycle on the fork against the deployed contract, with the REAL offer-book handler
+ *     served through page.route (fixtures/loanBook.ts).
  *
  * Mock-mode: confirms the surface mounts and its tabs wire correctly.
- * Anvil-mode: drives a borrow → repay cycle against the fork. See
- * swap.spec.ts for why the anvil gate lives INSIDE the test that needs it.
+ * Anvil-mode: drives a borrow → repay cycle against the fork. See swap.spec.ts for why
+ * the anvil gate lives INSIDE the test that needs it.
  */
-import { test, expect } from './fixtures/wallet';
+import { test, expect, seededGondiOffer, anvilRpc } from './fixtures/wallet';
+import { installLoanBook } from './fixtures/loanBook';
+import { GONDI_LOAN_ADDRESS, ZERO_ADDRESS } from '../src/lib/gondi/loanOffer.js';
 
 const onAnvil = !!process.env.ANVIL_RPC_URL;
+const lendingLive = GONDI_LOAN_ADDRESS.toLowerCase() !== ZERO_ADDRESS;
+const NOT_LIVE = 'GONDI_LOAN_ADDRESS is still zero: NFT lending is gated until the Gondi deploy (src/lib/gondi/loanOffer.js).';
+const NAKAMIGOS = '0xd774557b647330C91Bf44cfEAB205095f7E6c367';
 
 test.describe('NFT lending surface', () => {
   test('/nft-finance loads with NFT Lending and Token Lending tabs', async ({ page, walletMock: _w }) => {
@@ -31,16 +38,18 @@ test.describe('NFT lending surface', () => {
     await walletMock.connect();
     await page.goto('/nft-finance');
     await expect(page.locator('h1')).toContainText(/NFT Finance/i);
-    await expect(page.getByRole('heading', { name: /^NFT Lending$/i })).toBeVisible();
+    if (lendingLive) {
+      await expect(page.getByRole('heading', { name: /^NFT Lending$/i })).toBeVisible();
+    } else {
+      // Before the deploy the tab must say so, not render a lending form that cannot send.
+      await page.getByRole('tab', { name: /NFT Lending/i }).first().click();
+      await expect(page.getByText(/NFT lending isn.t live yet/i)).toBeVisible();
+    }
     expect(pageErrors).toEqual([]);
   });
 
   test('lend / borrow / my-loans sub-tabs switch', async ({ page, walletMock }) => {
-    // The old test here sampled a countdown for 2s and required it to change,
-    // then `test.skip(true, …)`d itself when no loan existed — which is every
-    // run, from a cold account. It asserted nothing it could not skip out of.
-    // Tab wiring is the part of this surface that is actually observable
-    // without a position, so assert that instead of pretending.
+    test.skip(!lendingLive, NOT_LIVE);
     await walletMock.connect();
     await page.goto('/nft-finance');
 
@@ -56,101 +65,90 @@ test.describe('NFT lending surface', () => {
   });
 
   /**
-   * ⚠ THIS LEG ASSERTS ON-CHAIN STATE, NOT A RECEIPT LINK — deliberately.
+   * ⚠ THIS LEG ASSERTS ON-CHAIN STATE, NOT A RECEIPT LINK — deliberately. The surface
+   * confirms with toasts; what it draws straight from the chain is the loan itself, and
+   * the NFT's owner. Both are strictly harder to fake than a link.
    *
-   * It used to end each half with `expectTxReceipt`, and that could never pass:
-   * NFTLendingSection renders no explorer link anywhere (grep it for `getTxUrl` — zero
-   * hits; it confirms with toasts). So even a borrow that landed perfectly would have
-   * failed on a link the surface does not draw. What it DOES draw, straight out of the
-   * contract, is the loan itself — so that is what this checks, and a loan appearing
-   * under My Loans is strictly harder to fake than a link matching a href pattern.
-   *
-   * The fixture now plants the precondition the old message asked for (a collateral
-   * NFT in the account plus a live lender offer — see seedNftLendingOffer in
-   * fixtures/wallet.ts), because mainnet at head has offerCount() == 0.
+   * The fixture plants the precondition mainnet does not have (a Nakamigos in this
+   * account, and a lender with approved WETH who has signed a whole-collection offer),
+   * and the spec posts that offer through the book's own create action, which checks
+   * the signature and the lender's WETH against the fork.
    */
   test('borrow → repay full cycle (Anvil only)', async ({ page, walletMock }) => {
     test.skip(!onAnvil, 'ANVIL_RPC_URL unset — needs the fork job (npm run e2e)');
-    // Three on-chain transactions on a live fork: approve the NFT, accept the offer,
-    // repay the loan. Each assertion below keeps its own tight, named budget.
-    test.setTimeout(180_000);
+    test.skip(!lendingLive, NOT_LIVE);
+    // Five on-chain transactions on a live fork: approve the NFT, take the loan, wrap the
+    // interest, approve the WETH, repay. Each assertion keeps its own named budget.
+    test.setTimeout(240_000);
 
-    // ISOLATED WALLET — see the note in stake.spec.ts. `nftCollateral` also plants this
-    // account's own Nakamigos and posts a lender offer pinned to that exact token, so
-    // two runs of this leg can never contend for one piece of collateral.
+    // ISOLATED WALLET — see the note in stake.spec.ts.
     const account = await walletMock.useIsolatedForkAccount({ nftCollateral: true });
+    const seed = seededGondiOffer(account);
+    if (!seed) throw new Error('the fixture planted no Gondi offer for this account');
+    const book = await installLoanBook(page, process.env.ANVIL_RPC_URL!);
+    const created = await book.create(seed.offer, seed.signature);
+    expect(created.status, `the offer book refused the seeded offer: ${JSON.stringify(created.json)}`).toBe(201);
+
     await walletMock.connect(account);
     await page.goto('/nft-finance');
-
     await page.getByRole('tab', { name: /NFT Lending/i }).first().click();
     await page.getByRole('tab', { name: /^Borrow$/i }).click();
 
-    // The offer card is a div, not a button, and its accept UI is collapsed until the
-    // card is clicked (NFTLendingSection.tsx:739 `onClick={onToggle}`). The old spec
-    // went straight for an "accept offer" button and would have missed it even with an
-    // offer present.
-    const offerCard = page.getByText(/^Offer #\d+$/).first();
-    await expect(
-      offerCard,
-      'no offer rendered in the Borrow tab — the fixture seeds one via seedNftLendingOffer; if this is empty that seeding silently no-opped.',
-    ).toBeVisible({ timeout: 20_000 });
+    // A whole-collection offer: the card names the collection, and the borrower picks
+    // which of their NFTs to lock.
+    const offerCard = page.getByText('NAKA · any NFT').first();
+    await expect(offerCard, 'the seeded offer did not render as a live offer in the Borrow tab.').toBeVisible({ timeout: 30_000 });
     await offerCard.click();
+    await page.getByRole('spinbutton', { name: /Your NAKA to lock/ }).fill(seed.tokenId.toString());
+    await expect(page.getByText(`You own NAKA #${seed.tokenId}.`)).toBeVisible({ timeout: 20_000 });
 
-    // Step 1 of the contract's own two-step flow: approve the collateral, then accept.
-    const approveNft = page.getByRole('button', { name: /^Approve NFT$/ });
-    await expect(approveNft, 'the offer card did not expand its accept UI.').toBeEnabled({ timeout: 20_000 });
-    await approveNft.click();
-    // The button latches to "Approved" only on a confirmed receipt
-    // (NFTLendingSection.tsx:840, driven by useWaitForTransactionReceipt), so this is
-    // the approval genuinely landing on the fork — not just a click.
+    await page.getByRole('button', { name: /^Approve NFT$/ }).click();
+    // Latches to "Approved" only on a confirmed receipt.
     await expect(
       page.getByRole('button', { name: /^Approved$/ }),
-      'the collateral approval never confirmed on the fork, so the accept below could only revert.',
+      'the NFT approval never confirmed on the fork, so the borrow below could only revert.',
     ).toBeVisible({ timeout: 60_000 });
+    await page.getByRole('button', { name: /^Take Loan$/ }).click();
 
-    await page.getByRole('button', { name: /^Accept Offer$/ }).click();
-
-    // THE BORROW LANDED. The offer leaves the market the moment it is accepted (it
-    // flips inactive on-chain and the list refetches, NFTLendingSection.tsx:711-713),
-    // and the loan shows up under My Loans with a repayment quote read from
-    // getRepaymentAmount. Both are contract state; neither survives a reverted accept.
+    // THE BORROW LANDED: the NFT is in the loan contract (read from the fork), and the
+    // loan shows under My Loans, recorded from the borrow's own receipt and matched
+    // against getLoanHash before it shows a repay button.
+    await expect
+      .poll(
+        async () => {
+          const owner = (await anvilRpc('eth_call', [
+            { to: NAKAMIGOS, data: `0x6352211e${seed.tokenId.toString(16).padStart(64, '0')}` },
+            'latest',
+          ])) as string;
+          return `0x${owner.slice(-40)}`.toLowerCase();
+        },
+        { message: 'the borrow did not lock the NFT in the loan contract', timeout: 60_000 },
+      )
+      .toBe(GONDI_LOAN_ADDRESS.toLowerCase());
     await page.getByRole('tab', { name: /^My Loans$/i }).click();
-    await expect(
-      page.getByText('Repayment Amount'),
-      'the accept confirmed but no loan appeared under My Loans — the borrow did not land on the fork.',
-    ).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByText('To repay now'), 'the loan never appeared under My Loans.').toBeVisible({ timeout: 60_000 });
 
-    // ── REPAY ────────────────────────────────────────────────────────────────────
-    const repay = page.getByRole('button', { name: /^Repay Loan$/ });
-    await expect(repay, 'the loan is there but offers no repay CTA.').toBeEnabled({ timeout: 20_000 });
-    await repay.click();
+    // ── REPAY: wrap the interest, approve, repay ─────────────────────────────────
+    const step = page.getByRole('button', { name: /^(Wrap .* ETH to WETH|Approve WETH to repay|Repay Loan)$/ });
+    for (let i = 0; i < 3; i++) {
+      await expect(step).toBeEnabled({ timeout: 60_000 });
+      const label = (await step.textContent()) ?? '';
+      await step.click();
+      if (label === 'Repay Loan') break;
+      await expect(step, `the "${label}" step never confirmed`).not.toHaveText(label, { timeout: 60_000 });
+    }
 
-    // ⚠ DO NOT ASSERT THE REPAY CTA'S DISAPPEARANCE BY ITS NAME. This block used to be
-    //     await expect(repay).toHaveCount(0)
-    // where `repay` is scoped by the accessible name /^Repay Loan$/. That assertion
-    // CANNOT FAIL for the reason it names. NFTLendingSection.tsx:1138 renders
-    //     {repaying ? 'Confirm in Wallet...' : repayConfirming ? 'Repaying...' : 'Repay Loan'}
-    // so the accessible name changes the INSTANT the click sets `repaying`, and the
-    // count reaches 0 whether or not the repayment ever confirmed. It was a false green
-    // in the fix for a false green, caught in adversarial review 2026-08-22.
-    //
-    // Assert on-chain state instead. `getLoanStatus` (NFTLendingSection.tsx:81-82)
-    // returns 'repaid' from `loan.repaid` — the contract's own flag, read back through
-    // the card — and the badge at :1067 renders it capitalised. Nothing but a confirmed
-    // repayment can produce that word.
+    // Not the button's disappearance (its name changes the instant it is clicked): the
+    // chain. The badge reads "Repaid" only from the repay's own LoanRepaid event, and the
+    // NFT is back in the borrower's wallet.
     await expect(
       page.getByText('Repaid', { exact: true }),
-      'the repay was submitted but the loan never read back as repaid — the repayment did not confirm on chain.',
+      'the repay was submitted but the loan never read back as repaid.',
     ).toBeVisible({ timeout: 60_000 });
-
-    // Belt and braces, and this one is safe to scope by role because it matches ALL
-    // THREE labels the button can carry: the whole block is gated on
-    // `status === 'active' || status === 'overdue'` (:1128), so it can only unmount
-    // once the status has actually left those states. A pending repay still matches
-    // 'Confirm in Wallet...' and therefore still fails this assertion.
-    await expect(
-      page.getByRole('button', { name: /^(Repay Loan|Confirm in Wallet\.\.\.|Repaying\.\.\.)$/ }),
-      'the loan reads repaid but its action block is still mounted — the card and the chain disagree.',
-    ).toHaveCount(0, { timeout: 30_000 });
+    const back = (await anvilRpc('eth_call', [
+      { to: NAKAMIGOS, data: `0x6352211e${seed.tokenId.toString(16).padStart(64, '0')}` },
+      'latest',
+    ])) as string;
+    expect(`0x${back.slice(-40)}`.toLowerCase(), 'the repay confirmed but the NFT did not come back').toBe(account.toLowerCase());
   });
 });
