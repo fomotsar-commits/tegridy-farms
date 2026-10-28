@@ -29,8 +29,8 @@ import { QUOTE_COINS, quotesFor, readPair, type QuoteCoin } from './quotes';
  *
  *   1. the launch pool, `["launchpool", mint]` under the launch program: only that
  *      program can create it, at graduation;
- *   2. the standard address on fee tier 1 (the public tier) and on fee tier 0, for each
- *      coin the token can be paired with (quotes.ts: SOL, USDC, BAYLA);
+ *   2. the standard address on fee tier 1 (the public tier), for each coin the token can
+ *      be paired with (quotes.ts: SOL, USDC, BAYLA);
  *   3. the server index (`/api/pools`): filtered scans of the pool program for this
  *      token's pools with each of those coins, deepest first, which is the only way to
  *      see pools at other addresses.
@@ -42,7 +42,18 @@ import { QUOTE_COINS, quotesFor, readPair, type QuoteCoin } from './quotes';
  * its own config account; its own price record is read too (every pool's: it says when
  * the pool last traded, poolPast.ts). Reads cost two RPC rounds in all, however many
  * pools there are (100 accounts a call: 25 pools a call in the second round).
+ *
+ * THE LAUNCH TIER. Fee tier 0 is for graduations, which open the launch pool. Some builds of
+ * the pool program (88b98aa9, on mainnet since 2026-10-24) also let anyone open a pool on it
+ * directly, for free. Such a pool is read and marked (`launchTierWithoutLaunch`), then never
+ * listed, quoted or added to (owner, 2026-10-24); its holders can still take their liquidity out.
  */
+
+/** Fee tier 0, the launch tier. */
+export const LAUNCH_TIER_INDEX = 0;
+
+/** What this site says of a pool on the launch tier that is not the launch pool, wherever it says it. */
+export const LAUNCH_TIER_POOL = 'This pool was opened on the launch fee tier without a launch, so this site does not swap in it or add to it.';
 
 export type PoolOrigin = 'launch-pool' | 'standard' | 'other';
 
@@ -73,6 +84,8 @@ export interface PoolView {
   vaultsFrozen: boolean;
   /** The pool's own price record, read for every pool (ownPrice.ts decodes it; poolPast.ts reads its last trade). */
   history: PoolHistory;
+  /** On the launch tier and not the launch pool: never listed, quoted or added to. Removing stays open. */
+  launchTierWithoutLaunch: boolean;
 }
 
 export type PoolEntry =
@@ -196,6 +209,7 @@ function secondLook(
       tokenReserve: quoteIsToken0 ? reserve1 : reserve0,
       vaultsFrozen: t0.frozen || t1.frozen,
       history,
+      launchTierWithoutLaunch: !launchPool && pool.ammConfig === deriveAmmConfig(a.opts.programId, LAUNCH_TIER_INDEX).toBase58(),
     },
   };
 }
@@ -268,8 +282,11 @@ export async function readPools(rpc: SolanaRpc, addresses: string[], opts: ReadP
   return { kind: 'ok', entries, chainNow };
 }
 
-/** The fee tiers the finder checks standard addresses on, public tier first. */
-export const STANDARD_CONFIG_INDICES = [1, 0] as const;
+/**
+ * The fee tiers the finder checks standard addresses on: the public tier. The launch
+ * tier's standard address can only hold a pool opened without a launch.
+ */
+export const STANDARD_CONFIG_INDICES = [1] as const;
 
 export interface KnownAddresses {
   launchPool: string;
@@ -306,6 +323,8 @@ export interface PoolSearch {
   pools: Extract<PoolEntry, { kind: 'pool' | 'unread' }>[];
   /** Pools holding this token against something that is not a pairing coin. */
   otherPairs: number;
+  /** This token's pools on the launch tier that are not its launch pool: read, and left out of `pools`. */
+  launchTierPools: string[];
   /** What each known address held. */
   knownState: Record<string, PoolEntry['kind']>;
   chainNow: bigint | null;
@@ -371,6 +390,7 @@ export async function findPools(
   const knownSet = new Set([known.launchPool, ...known.standard.map((s) => s.address)]);
   const knownState: Record<string, PoolEntry['kind']> = {};
   const pools: PoolSearch['pools'] = [];
+  const launchTierPools: string[] = [];
   let otherPairs = 0;
   for (const e of read.entries) {
     const address = e.kind === 'pool' ? e.view.address : e.address;
@@ -379,7 +399,8 @@ export async function findPools(
       // A pool that is ANOTHER token's (the index is not trusted to have filtered). A pool
       // where this token is the quote coin (X/BAYLA in a search for BAYLA) is X's pool.
       if (e.view.tokenMint !== m) continue;
-      pools.push(e);
+      if (e.view.launchTierWithoutLaunch) launchTierPools.push(address);
+      else pools.push(e);
     } else if (e.kind === 'unread') {
       pools.push(e);
     } else if (e.kind === 'other-pair' && (e.token0Mint === m || e.token1Mint === m)) {
@@ -397,7 +418,7 @@ export async function findPools(
     }
     return 0;
   });
-  return { kind: 'ok', search: { mint: m, known, index, pools, otherPairs, knownState, chainNow: read.chainNow } };
+  return { kind: 'ok', search: { mint: m, known, index, pools, otherPairs, launchTierPools, knownState, chainNow: read.chainNow } };
 }
 
 /**

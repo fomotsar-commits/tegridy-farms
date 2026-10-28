@@ -15,6 +15,39 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-25: the LP door's "one jump" to its form was three scroll moves
+
+**Believed** (island, answer twenty-two, and the 2026-10-16 entry below): the door moves the
+page once, when the Add panel mounts and scrolls its heading into view, about 1,650px.
+
+**Measured** (e2e/door-lands.spec.ts on a trunk `1ca85025` production build, 390x844, Bayla room
+to Add SOL + BAYLA, `scrollY` read every animation frame): 0, then 796 (the finder scrolls to its
+answer when the lookup starts), back to 0, then 1,654 (the panel). With no wallet connected it
+went on to 5,642 and settled at 5,245; I did not trace those two.
+
+**Do:** a check of one `scrollIntoView` call misses the others. Read `scrollY` on every frame
+from the landing on a production build, and assert the whole list. A form opened by code goes
+where the visitor already is (the door draws it at the top through a portal) instead of
+scrolling the page to it.
+
+## 2026-10-24: a pool on fee tier 0 read as a cheaper public pool, but only a graduation may open one there
+
+**Believed:** the pool finder, the swap route and the builders may treat every pool of ours
+alike, whatever its fee tier: tier 0 (0.25%) is just the cheaper tier.
+
+**Measured** (vitest, 2026-10-24, on trunk 2ae979945 before the fix): with a free pool on
+tier 0 beside a tier-1 pool, the swap route quoted both, and the router picks the free one
+when reserves match (a lower fee pays more); the venue-swap and deposit builders built
+transactions into it. A test, "prices each pool with the fee of the tier it is on", pinned the
+router choosing it as correct. The write testkit's default pool sat on tier 0 at the standard
+address: every builder test's "ordinary pool" was the case the owner now refuses. 14 new
+tests failed on trunk; 16 of 16 mutants of the guards were killed.
+
+**Do:** judge a pool's tier with its address. Tier 0 is the launch tier: the one pool on it
+the site uses is `["launchpool", mint]` under the launch program (`PoolView.launchTierWithoutLaunch`,
+poolFinder.ts). The write testkit's default pool is on tier 1 now. In jsdom a fixture cannot
+derive program addresses, so a flag a fixture works out reads the config's own bytes.
+
 ## 2026-10-24: a test pool's round share count looked neutral, but no pool program ever makes one
 
 **Believed:** the LP testkits' default `lp_supply` (1,000,000 in `buildPool`, 1,000,000,000 in

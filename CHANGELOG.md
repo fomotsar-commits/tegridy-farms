@@ -7,13 +7,20 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-10-28
+
+- Range pools: the range program's source now charges 0.5 SOL to open a range pool, paid to the team's vault, by each of the three ways it opens one. It reaches mainnet only when the vault executes an upgrade, which is not proposed yet. Until then the program on mainnet charges nothing to open one: the fee tiers exist since 2026-10-27, so anyone can open a range pool for free until that upgrade executes.
+
 ### 2026-10-25
 
-- Range pools: the range program's source now charges 0.5 SOL to open a range pool, paid to the team's vault, by each of the three ways it opens one. It reaches mainnet only when the vault executes an upgrade, which is not proposed yet. Until then the program on mainnet charges nothing to open one, and nobody can open one yet: no range fee tier exists.
+- Pools: a room's Add SOL + coin now opens Add with one coin at the top of the Venue AMM page, above everything else, with the pool's price, the outside price, the gap between them and how each trade's fee splits as rows inside it. The page no longer jumps down to the form, and nothing loading above it moves it. The pool finder, every pool and the rest of the page sit below.
+- Solana pools: a pool opened on the launch fee tier without a launch (free to open on the pool program running now) is never listed, swapped in or added to from this site, and a link or a position that names one says so in one bold line. Holders of one can still remove their liquidity. Graduated launch pools are unchanged.
 - Pools: the Range tab is on, right of Venue AMM on the Solana network. Range pools have one fee tier, 1%. It is not on the chain yet, so until the team's vault makes it the tab says there is no pool to put liquidity in, and Solana swaps find no range pool to route through.
 - Pools: the Solana LP tab is gone. Its pool finder, Add liquidity, Remove liquidity and Open a pool were already on the Venue AMM tab, which now sits left of Range. The Pools menu opens Venue AMM, and an old /solana-lp link opens /pools on the same token.
+- Pools: while the page is still reading the chain, or if the read fails, the top of the Venue AMM page no longer says "No pool can be opened here yet". It says nothing until the read lands.
 - The dashboard on phones and iPads: its big picture now shows there too. On a phone it is a wide strip that stays under the top bar while your coins and positions scroll beneath it; on an iPad held upright it stands beside them and stops where your list does. With no mouse to follow, it shows the row you scroll to, and that row lights up; SOL and ETH show their chain's mark. With no wallet connected it sits under the connect buttons, and on a phone held sideways it does not stay on screen. On a computer the picture now stays in view while you scroll a long list.
 - Cardano swap: Swap's network menu now lists Cardano. /cardano swaps ADA for a coin, or a coin for ADA, through that pair's Minswap V2 pool, signed in a Cardano wallet (Eternl, Lace, VESPR, Begin, Typhon, GeroWallet or NuFi). The page names each coin by its ticker and whole id, shows every fee and who gets it before you sign, and follows your order until Minswap's batcher fills it or sends it back. The venue charges no fee on Cardano yet.
+- Moving between pages: on a phone, pages now just open, with no one-second glitch between them. On a computer or tablet the glitch no longer runs into or out of a room with an Add door or the Pools pages; everywhere else it stays, art and all.
 
 ### 2026-10-24
 
