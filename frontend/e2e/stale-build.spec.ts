@@ -135,13 +135,19 @@ test('a lazy load that fails while the host still serves this build is not calle
   expect(seen.loads).toBe(1);
 });
 
-test('a part outside the page area that fails to load gets the same notice', async ({ page }) => {
-  // The route-change effect loads on the first tab press, outside AppLayout's boundary,
-  // so App.tsx's own boundary catches it and replaces the whole app area.
+test('a part outside the page area that fails to load gets the same notice', async ({ page, viewport }) => {
+  // The route-change glitch loads on the first press between two pages off the LP road,
+  // outside AppLayout's boundary, so App.tsx's own boundary catches it and replaces the
+  // whole app area. A phone never loads it (owner, 2026-10-25), so nothing fails there.
+  test.skip((viewport?.width ?? 1280) < 768, 'no route glitch on a phone');
   await page.route('**/assets/GlitchTransition-*.js', (route: Route) => route.fulfill(MISSING_ASSET));
   await page.route(HOST_PAGE, (route: Route) => route.fulfill(NEXT_BUILD_PAGE));
   const seen = countLoads(page);
-  const tab = await openLiquidity(page);
+  await page.goto('/island');
+  // The bar's Lock word, /island to /earn: neither is on the LP road.
+  const lock = page.locator('nav[aria-label="Main navigation"]:visible a', { hasText: /^Lock$/ }).first();
+  await expect(lock).toHaveAttribute('href', '/earn', { timeout: 30_000 });
+  const tab = { click: () => lock.click() };
   // This tab has already reloaded itself away from this build once.
   await page.evaluate(() => {
     const running = document.querySelector('script[type="module"][src^="/assets/"]')?.getAttribute('src');

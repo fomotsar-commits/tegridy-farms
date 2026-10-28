@@ -284,7 +284,7 @@ describe('createOffer', () => {
   type Entry = PoolSearch['pools'][number];
   const searchOf = (pools: Entry[], index: PoolSearch['index'] = { kind: 'ok', pools: [], truncated: false }): PoolSearchRead => ({
     kind: 'ok',
-    search: { mint: mint.toBase58(), known: { launchPool: key().toBase58(), standard: [] }, index, pools, otherPairs: 0, knownState: {}, chainNow: NOW },
+    search: { mint: mint.toBase58(), known: { launchPool: key().toBase58(), standard: [] }, index, pools, otherPairs: 0, launchTierPools: [], knownState: {}, chainNow: NOW },
   });
   type In = Parameters<typeof createOffer>[0];
   const base = (): In => ({
@@ -711,7 +711,7 @@ describe('createOffer', () => {
         };
         const withState = (knownState: PoolSearch['knownState']): PoolSearchRead => ({
           kind: 'ok',
-          search: { mint: mint.toBase58(), known, index: { kind: 'ok', pools: [], truncated: false }, pools: [], otherPairs: 0, knownState, chainNow: NOW },
+          search: { mint: mint.toBase58(), known, index: { kind: 'ok', pools: [], truncated: false }, pools: [], otherPairs: 0, launchTierPools: [], knownState, chainNow: NOW },
         });
         const states = (s: PoolSearchRead) => [SOL_QUOTE, USDC_QUOTE, BAYLA_QUOTE].map((q) => standardState(s, q));
 
