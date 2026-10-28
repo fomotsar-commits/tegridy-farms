@@ -1036,6 +1036,62 @@ describe("bayla-ladder", () => {
       );
     });
 
+    it("raise_wallet_cap: authority-only, raise-only, bounded by the pool cap, and stake obeys it", async () => {
+      const ctx3 = await makePool({ nonce: 62 });
+      const whale = await newWallet();
+      const whaleAta = await distribute(ctx3.mint, ctx3.userAta, whale, tok(800_000));
+      const stakeOver = (nonce: number) =>
+        program.methods
+          .stake(MAX_WALLET.add(tok(100)), new BN(MIN_LOCK))
+          .accounts({
+            owner: whale.publicKey,
+            pool: ctx3.pool,
+            mint: ctx3.mint,
+            userStats: userPda(ctx3.pool, whale.publicKey),
+            position: positionPda(ctx3.pool, whale.publicKey, nonce),
+            ownerAta: whaleAta,
+            stakeVault: vaultPda(STAKE_VAULT_SEED, ctx3.pool),
+            tokenProgram: ctx3.programId,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([whale])
+          .rpc();
+      const raise = (amount: BN) =>
+        program.methods
+          .raiseWalletCap(amount)
+          .accounts({ authority: payer.publicKey, pool: ctx3.pool })
+          .rpc();
+
+      // Before: 500,100 is over the 500,000 limit.
+      await rejectsWith(stakeOver(0), "WalletCapExceeded", "the old limit must still bind before the raise");
+
+      await rejectsWith(
+        program.methods
+          .raiseWalletCap(tok(800_000))
+          .accounts({ authority: whale.publicKey, pool: ctx3.pool })
+          .signers([whale])
+          .rpc(),
+        "Unauthorized",
+        "only the pool authority may raise the limit"
+      );
+      await rejectsWith(raise(MAX_WALLET), "CapCanOnlyRaise", "an equal limit is not a raise");
+      await rejectsWith(raise(MAX_WALLET.sub(new BN(1))), "CapCanOnlyRaise", "the limit must never be lowered");
+      await rejectsWith(
+        raise(DEPOSIT_CAP.add(new BN(1))),
+        "InvalidParameter",
+        "the per-wallet limit may never exceed the pool cap (audit M-4)"
+      );
+
+      // POSITIVE CONTROL: exactly the pool cap is allowed, and the stake path reads it.
+      await raise(DEPOSIT_CAP);
+      const after = await program.account.pool.fetch(ctx3.pool);
+      assert.equal(after.maxWalletPrincipal.toString(), DEPOSIT_CAP.toString());
+      assert.equal(after.depositCap.toString(), DEPOSIT_CAP.toString(), "the pool cap is untouched");
+      await stakeOver(0);
+      const stats = await program.account.userStats.fetch(userPda(ctx3.pool, whale.publicKey));
+      assert.equal(stats.principal.toString(), MAX_WALLET.add(tok(100)).toString());
+    });
+
     it("declare_degraded is ONE-WAY and closes the pool to new stakes (audit M-3)", async () => {
       const ctx2 = await makePool({ nonce: 61 });
       const dave = await newWallet();

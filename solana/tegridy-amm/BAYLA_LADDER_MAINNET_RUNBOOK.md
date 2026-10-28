@@ -20,8 +20,8 @@ Written 2026-09-11. This is the mainnet half that
 checked against the tool it calls (Solana CLI 4.1.1 on the operator box, the ops CLI
 on trunk), and every figure says where it came from.
 
-The steps are numbered because the order is load-bearing: two pool parameters are
-permanent, the early-exit penalty schedule is compiled in with no setter, and the
+The steps are numbered because the order is load-bearing: `min_stake` is permanent (and
+`max_wallet_principal` was, until the 2026-10-27 build, §6), the early-exit penalty schedule is compiled in with no setter, and the
 program's deployer is compiled into the binary.
 
 > ⚠️ **2026-09-17 — the program is being rebuilt, and this runbook was updated for it.**
@@ -491,16 +491,21 @@ must now show the vault as the authority. For option B instead:
 
 ---
 
-## 6. Pool parameters — TWO OF THE THREE ARE PERMANENT
+## 6. Pool parameters — ONE OF THE THREE IS PERMANENT
 
-`min_stake` and `max_wallet_principal` are written once, in `initialize_pool`
-and **no instruction ever changes them**. Only `deposit_cap` moves:
-upward only, 48 hours after it is proposed.
+`min_stake` is written once, in `initialize_pool`, and **no instruction ever changes it**.
+`deposit_cap` moves upward only, 48 hours after it is proposed. `max_wallet_principal`
+was just as permanent until the build of 2026-10-27 (branch
+`feat/bayla-ladder-raise-wallet-cap`) added `raise_wallet_cap`: upward only, never above
+`deposit_cap`, signed by the pool authority (the Squads vault, so its own 48 h time lock
+applies). Owner decision 2026-10-27: raise the live pool's 2,000,000 to **10,000,000 BAYLA**.
+Until that build is live on chain and the vault has executed the raise, the live limit
+stays 2,000,000.
 
 | parameter | what the program enforces | changeable later? | **decided 2026-09-12** |
 | --- | --- | --- | --- |
 | `min_stake` | at least **100 whole tokens** | **no** | **100 BAYLA** |
-| `max_wallet_principal` | between `min_stake` and the **initial** `deposit_cap` | **no** — later cap raises do not lift it | **2,000,000 BAYLA** |
+| `max_wallet_principal` | between `min_stake` and `deposit_cap` | up only, via `raise_wallet_cap` (from the 2026-10-27 build); a cap raise does not lift it by itself | **2,000,000 BAYLA** (10,000,000 decided 2026-10-27) |
 | `deposit_cap` | at least `min_stake` | up only, 48h after `propose-cap-raise` | **5,000,000 BAYLA** |
 
 **Not a pool parameter, and just as fixed: the early-exit penalty.** It is Yearn's veYFI
