@@ -89,7 +89,8 @@ function keysOf(p) {
 }
 walkRs(join(REPO, 'solana/tegridy-clmm/programs/amm/src'));
 const mainnetKeys = srcKeys.filter((k) => !k.devnet);
-if (mainnetKeys.length !== 7 || mainnetKeys.some((k) => k.key !== row('squads-vault'))) fail(`the program's mainnet keys are not the seven vault keys: ${JSON.stringify(mainnetKeys)}`);
+// Eight since #1019: the pool-opening fee's receiver (lib.rs `create_pool_fee_reveiver`) is the vault too.
+if (mainnetKeys.length !== 8 || mainnetKeys.some((k) => k.key !== row('squads-vault'))) fail(`the program's mainnet keys are not the eight vault keys: ${JSON.stringify(mainnetKeys)}`);
 
 // The owner's decisions, 2026-10-20 (docs/RANGE_POOLS_PLAN.md): two tiers, the island split.
 const TIERS = [
