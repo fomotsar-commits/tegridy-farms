@@ -479,6 +479,8 @@ contract TegridyRouter is ReentrancyGuard {
         if (pair == address(0)) {
             openingFee = ITegridyFactoryRouter(factory).POOL_OPENING_FEE();
             require(msg.value >= openingFee, "OPENING_FEE");
+            // `factory` is immutable (constructor-bound), not arbitrary: the opener's fee goes to it.
+            // slither-disable-next-line arbitrary-send-eth
             pair = ITegridyFactoryRouter(factory).createPair{value: openingFee}(tokenA, tokenB);
         }
     }
