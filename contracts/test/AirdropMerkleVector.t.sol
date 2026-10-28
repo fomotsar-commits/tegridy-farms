@@ -3,13 +3,66 @@ pragma solidity ^0.8.26;
 
 import "forge-std/Test.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import {AirdropFactory} from "../src/AirdropFactory.sol";
 import {TegridyAirdropDistributor} from "../src/TegridyAirdropDistributor.sol";
-import {MerkleHelper} from "./AirdropFactory.t.sol";
 
 contract VectorToken is ERC20 {
     constructor() ERC20("Vector", "VEC") {
         _mint(msg.sender, 1_000_000 ether);
+    }
+}
+
+/// @dev Sorted-pair merkle tree, odd nodes promoted. Leaf encoding matches the vendored
+///      distributor exactly: `keccak256(abi.encodePacked(index, account, amount))`.
+abstract contract MerkleHelper is Test {
+    function _leaf(uint256 index, address account, uint256 amount) internal pure returns (bytes32) {
+        return keccak256(abi.encodePacked(index, account, amount));
+    }
+
+    function _hashPair(bytes32 a, bytes32 b) internal pure returns (bytes32) {
+        return a < b ? keccak256(abi.encode(a, b)) : keccak256(abi.encode(b, a));
+    }
+
+    function _levels(bytes32[] memory leaves) internal pure returns (bytes32[][] memory lv) {
+        uint256 depth = 1;
+        uint256 c = leaves.length;
+        while (c > 1) {
+            c = (c + 1) / 2;
+            ++depth;
+        }
+        lv = new bytes32[][](depth);
+        lv[0] = leaves;
+        for (uint256 d = 1; d < depth; ++d) {
+            bytes32[] memory prev = lv[d - 1];
+            uint256 m = (prev.length + 1) / 2;
+            bytes32[] memory cur = new bytes32[](m);
+            for (uint256 i = 0; i < m; ++i) {
+                cur[i] = (2 * i + 1 < prev.length) ? _hashPair(prev[2 * i], prev[2 * i + 1]) : prev[2 * i];
+            }
+            lv[d] = cur;
+        }
+    }
+
+    function _root(bytes32[] memory leaves) internal pure returns (bytes32) {
+        bytes32[][] memory lv = _levels(leaves);
+        return lv[lv.length - 1][0];
+    }
+
+    function _proof(bytes32[] memory leaves, uint256 index) internal pure returns (bytes32[] memory proof) {
+        bytes32[][] memory lv = _levels(leaves);
+        bytes32[] memory tmp = new bytes32[](lv.length);
+        uint256 count;
+        uint256 idx = index;
+        for (uint256 d = 0; d + 1 < lv.length; ++d) {
+            uint256 sib = idx ^ 1;
+            if (sib < lv[d].length) {
+                tmp[count++] = lv[d][sib];
+            }
+            idx /= 2;
+        }
+        proof = new bytes32[](count);
+        for (uint256 i = 0; i < count; ++i) {
+            proof[i] = tmp[i];
+        }
     }
 }
 
@@ -63,10 +116,8 @@ contract AirdropMerkleVectorTest is MerkleHelper {
 
     uint64 constant WINDOW = 30 days;
 
-    AirdropFactory factory;
     VectorToken token;
     address creator = makeAddr("vectorCreator");
-    address owner = makeAddr("vectorOwner");
 
     bytes32[] leaves;
 
@@ -77,7 +128,6 @@ contract AirdropMerkleVectorTest is MerkleHelper {
         leaves.push(_leaf(3, A4, M4));
         leaves.push(_leaf(4, A5, M5));
 
-        factory = new AirdropFactory(owner);
         token = new VectorToken();
         token.transfer(creator, TOTAL);
     }
@@ -103,10 +153,13 @@ contract AirdropMerkleVectorTest is MerkleHelper {
     /// @notice The half that makes the pinned hex mean something: a campaign funded
     ///         against PINNED_ROOT accepts the pinned proofs and pays the leaf accounts.
     function test_PinnedRootIsClaimableOnARealCampaign() public {
+        // What the retired AirdropFactory.createCampaign did: construct the campaign as
+        // the creator, then fund it to the leaf total.
         vm.startPrank(creator);
-        token.approve(address(factory), TOTAL);
-        TegridyAirdropDistributor d =
-            TegridyAirdropDistributor(factory.createCampaign(address(token), PINNED_ROOT, TOTAL, WINDOW));
+        TegridyAirdropDistributor d = new TegridyAirdropDistributor(
+            address(token), PINNED_ROOT, creator, uint64(block.timestamp) + WINDOW, 0, address(0)
+        );
+        token.transfer(address(d), TOTAL);
         vm.stopPrank();
 
         assertEq(d.merkleRoot(), PINNED_ROOT);

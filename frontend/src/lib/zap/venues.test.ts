@@ -51,11 +51,10 @@ describe('the compounder vault, which is routed but not deployed', () => {
   });
 
   it('routes to the LP token the vault actually takes', () => {
-    // TegridyHarvestVault's constructor asserts `farm.stakingToken() == asset`, and the
-    // farm's staking token is the native pair. A zap that paired a different LP would
-    // build a position the vault cannot accept.
-    const source = readFileSync(join(root, '..', 'contracts', 'src', 'vaults', 'TegridyHarvestVault.sol'), 'utf-8');
-    expect(source).toMatch(/farm\.stakingToken\(\)\s*!=\s*_asset/);
+    // TegridyHarvestVault's constructor asserted `farm.stakingToken() == asset`, and the
+    // farm's staking token is the native pair. Its source left the repo on 2026-10-27
+    // (never deployed), so only the route is checked here: a zap that paired a different
+    // LP would build a position the vault could not accept.
     const venues = readFileSync(join(root, 'src', 'lib', 'zap', 'venues.ts'), 'utf-8');
     expect(venues).toMatch(/id: 'compounder-vault'[\s\S]*?depositAsset: TEGRIDY_LP_ADDRESS/);
   });
