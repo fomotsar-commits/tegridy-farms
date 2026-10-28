@@ -50,7 +50,9 @@ jobs:
         run: bash scripts/git-hosting/mirror-to-gitlab.sh
 
   # The dead-man switch for the standby. Late: no full run finished (GitHub's schedules stopped,
-  # or a newer run cancelled it). /fail: the full run failed or was cancelled.
+  # or a newer run cancelled it). /fail: the full run failed or was cancelled. Only an answer of
+  # exactly "OK" counts: a URL that names no check gets 200 "OK (not found)", so anything else
+  # fails this job.
   ping:
     name: Ping healthchecks.io
     needs: mirror
@@ -73,4 +75,14 @@ jobs:
             *) echo "::error::HC_PING_URL_GITLAB_STANDBY must be a plain https URL"; exit 1 ;;
           esac
           if [ "$MIRROR_RESULT" = success ]; then suffix=''; else suffix=/fail; fi
-          printf 'url = "%s%s"\n' "$HC_PING_URL" "$suffix" | curl -fsS -m 10 --retry 3 -o /dev/null --config -
+          answer="$RUNNER_TEMP/hc-answer.txt"
+          : > "$answer"
+          printf 'url = "%s%s"\n' "$HC_PING_URL" "$suffix" | curl -fsS -m 10 --retry 3 -o "$answer" --config -
+          # The answer on one line, trimmed, without the URL.
+          said="$(head -c 200 "$answer" | tr -c '[:print:]' ' ')"
+          said="${said#"${said%%[![:space:]]*}"}"
+          said="${said%"${said##*[![:space:]]}"}"
+          if [ "$said" != OK ]; then
+            echo "::error::healthchecks.io answered \"${said//"$HC_PING_URL"/<HC_PING_URL_GITLAB_STANDBY>}\", not \"OK\", so no check counted this ping. \"OK (not found)\" means the secret names no check (docs/GIT_HOSTING.md, 2E)"
+            exit 1
+          fi
