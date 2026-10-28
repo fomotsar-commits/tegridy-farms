@@ -19,18 +19,15 @@ Tegridy Farms is licensed under the MIT License (see [LICENSE](LICENSE)), with *
 
 ### SPDX coverage
 
-Every Solidity file under `contracts/src/` (which includes `contracts/src/base/`) declares an SPDX header — 77 files, 77 headers, re-counted 2026-09-09.
+Every Solidity file under `contracts/src/` (which includes `contracts/src/base/`) declares an SPDX header — 56 files, 56 headers, re-counted 2026-10-27.
 
-**But MIT is the default, not the rule.** The previous wording of this section said every one of them declares MIT; that was wrong. Ten files across `contracts/` declare `GPL-3.0-or-later`, and a counterparty who reads MIT across the tree will be wrong about the airdrop rail and the TWAP oracle library. The complete list, as declared in the files themselves:
+**But MIT is the default, not the rule.** The previous wording of this section said every one of them declares MIT; that was wrong. Seven files across `contracts/` declare `GPL-3.0-or-later`, and a counterparty who reads MIT across the tree will be wrong about the airdrop rail and the TWAP oracle library. The complete list, as declared in the files themselves:
 
 | File | Why it is GPL-3.0-or-later |
 |---|---|
 | `contracts/src/vendor/uniswap-merkle-distributor/MerkleDistributor.sol` | Verbatim vendor of GPL-3.0-or-later upstream |
 | `contracts/src/vendor/uniswap-merkle-distributor/interfaces/IMerkleDistributor.sol` | Verbatim vendor of GPL-3.0-or-later upstream |
 | `contracts/src/TegridyAirdropDistributor.sol` | Derives from `MerkleDistributor` |
-| `contracts/src/AirdropFactory.sol` | Deploys/derives from the above |
-| `contracts/script/DeployAirdropFactory.s.sol` | Deploy script for the above |
-| `contracts/test/AirdropFactory.t.sol` | Test of the above |
 | `contracts/test/AirdropMerkleVector.t.sol` | Test of the above |
 | `contracts/test/invariants/AirdropDistributorInvariants.t.sol` | Test of the above |
 | `contracts/test/TegridyNativeBuyRouter.t.sol` | ⚠️ Unexplained — the contract it tests (`contracts/src/TegridyNativeBuyRouter.sol:1`) declares MIT, and this test imports nothing GPL. Recorded as declared, not endorsed; likely a copied header, and a candidate to correct to MIT |
