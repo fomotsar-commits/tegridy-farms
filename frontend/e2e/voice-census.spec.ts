@@ -261,17 +261,13 @@ test.describe('row Q: the route census', () => {
 
   // ANSWER EIGHT, RULING 3: VOICE BY SECTION FOR THE TABBED HOSTS.
   //
-  // Four pages choose their panel from the URL's QUERY rather than its path, so
+  // Two hosts choose their panel from the URL's QUERY rather than its path, so
   // the per-path walk above reads exactly ONE panel each - whichever the bare
-  // URL lands on - and the other fifteen have never been judged by anything.
+  // URL lands on - and the other panels would never be judged by anything.
   //
-  // /community is why the island named this. All four of its tabs are TOWELI's
-  // own contracts, and their copy is veTOWELI voting power, TOWELI emissions and
-  // a TOWELI bond. None of it renders today (all four addresses are still zero
-  // in constants.ts, so every tab shows the deployed-not-wired note), which is
-  // exactly why a per-URL row matters: the day they are wired, the difference
-  // between "exempt by structure" and "fifteen new violations" is whether
-  // anything was ever walking these URLs.
+  // /community was why the island named this: four TOWELI tabs whose copy was
+  // veTOWELI voting power, TOWELI emissions and a TOWELI bond. They left with the
+  // retired contracts (#1043); the rows below keep the hosts that still have panels.
   //
   // THE ROWS ARE URLS, NOT ROUTES - the ruling's own words, "no new routes".
   // e2e/fixtures/routes.ts is re-derived from App.tsx by
