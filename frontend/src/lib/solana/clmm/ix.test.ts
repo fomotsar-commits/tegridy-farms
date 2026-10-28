@@ -128,6 +128,16 @@ describe('createPoolIx', () => {
     expect(dv(ix.data).getBigUint64(16, true)).toBe(1n);
     expect(dv(ix.data).getBigUint64(24, true)).toBe(0n);
   });
+  it('pays the opening fee the program charges to the wallet it fixes, its release arm (lib.rs), and nowhere else', () => {
+    const lib = readFileSync(resolve(SRC, '..', 'lib.rs'), 'utf8');
+    const mod = /pub mod create_pool_fee_reveiver \{([\s\S]*?)\n\}/.exec(lib)?.[1] ?? '';
+    const release = /#\[cfg\(not\(feature = "devnet"\)\)\]\s*pub const ID: Pubkey = pubkey!\("([1-9A-HJ-NP-Za-km-z]+)"\);/.exec(mod)?.[1];
+    expect(release).toBe(IX.CREATE_POOL_FEE_RECEIVER.toBase58());
+    expect(/^pub const CREATE_POOL_FEE: u64 = ([0-9_]+);$/m.exec(lib)?.[1]?.replace(/_/g, '')).toBe(String(IX.CREATE_POOL_FEE_LAMPORTS));
+    const k = ix.keys[IX.CREATE_POOL_ACCOUNTS.findIndex((a) => a.name === 'create_pool_fee')]!;
+    expect(k).toEqual({ pubkey: IX.CREATE_POOL_FEE_RECEIVER, isSigner: false, isWritable: true });
+    expect(ix.keys).toHaveLength(IX.CREATE_POOL_ACCOUNTS.length);
+  });
   it('refuses unsorted mints before anyone pays for a revert', () => {
     expect(() => IX.createPoolIx({ programId: pid, poolCreator: payer, ammConfig: key(12), mint0: mintB, mint1: mintA, tokenProgram0: TOKEN_PROGRAM_ID, tokenProgram1: TOKEN_PROGRAM_ID, sqrtPriceX64: 1n << 64n })).toThrow(/byte-sorted/);
   });
