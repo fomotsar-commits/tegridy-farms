@@ -724,8 +724,11 @@ export const ROUTES: readonly RouteSpec[] = [
     owner: 'pages/LendingPage.tsx',
     gate: null,
     // heading-order left with the fewer-words pass (2026-10-14): no heading skips a level now.
-    knownViolations: ['aria-valid-attr-value', 'form-field-label'],
-    connectedViolations: ['aria-valid-attr-value', 'form-field-label'],
+    // form-field-label left with the Gondi lending form (2026-10-28): every field is labelled.
+    // This is the LIVE NFT Lending tab. While GONDI_LOAN_ADDRESS is zero the tab draws its
+    // "isn't live yet" notice instead, and this check reads heading-order there.
+    knownViolations: ['aria-valid-attr-value'],
+    connectedViolations: ['aria-valid-attr-value'],
   },
   {
     path: '/lending',

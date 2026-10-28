@@ -89,6 +89,9 @@ interface WagmiMockState {
   chainId: number;
   answerDisabledReads: boolean;
   publicClient: unknown;
+  /** What useBalance() reports as the native balance (wei), or undefined (unread). */
+  nativeBalance: bigint | undefined;
+  signTypedDataMock: ReturnType<typeof vi.fn>;
 }
 
 function defaultWriteStatus(): WriteStatus {
@@ -104,6 +107,8 @@ function defaultState(): WagmiMockState {
     chainId: 1,
     answerDisabledReads: false,
     publicClient: undefined,
+    nativeBalance: undefined,
+    signTypedDataMock: vi.fn(),
   };
 }
 
@@ -119,6 +124,8 @@ export const wagmiMock = {
     state.chainId = next.chainId;
     state.answerDisabledReads = next.answerDisabledReads;
     state.publicClient = next.publicClient;
+    state.nativeBalance = next.nativeBalance;
+    state.signTypedDataMock.mockReset();
   },
   setAccount(partial: Partial<AccountState>) {
     state.account = { ...state.account, ...partial };
@@ -161,6 +168,12 @@ export const wagmiMock = {
   setWriteStatus(partial: Partial<WriteStatus>) {
     state.writeStatus = { ...state.writeStatus, ...partial };
   },
+  /** What useBalance() reports (wei); undefined reads as not loaded. */
+  setNativeBalance(wei: bigint | undefined) {
+    state.nativeBalance = wei;
+  },
+  /** The Vitest mock behind useSignTypedData().signTypedDataAsync. */
+  signTypedData: () => state.signTypedDataMock,
   /** Get the Vitest mock for the `writeContract` callback — assert args against it. */
   writeContract: () => state.writeContractMock,
 };
@@ -270,6 +283,14 @@ vi.mock('wagmi', () => {
 
   const usePublicClient = (_opts?: unknown) => state.publicClient;
 
+  const useBalance = (_opts?: unknown) => ({
+    data: state.nativeBalance === undefined ? undefined : { value: state.nativeBalance, decimals: 18, symbol: 'ETH' },
+    isLoading: false,
+    refetch: vi.fn(),
+  });
+
+  const useSignTypedData = () => ({ signTypedDataAsync: state.signTypedDataMock, isPending: false });
+
   return {
     useAccount,
     useChainId,
@@ -279,6 +300,8 @@ vi.mock('wagmi', () => {
     useWriteContract,
     useWaitForTransactionReceipt,
     useWatchContractEvent,
+    useBalance,
+    useSignTypedData,
   };
 });
 

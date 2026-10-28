@@ -437,6 +437,23 @@ jobs:
           fi
           echo "✅ abi-supplement.ts matches the compiled contract artifacts."
 
+      - name: Gondi vendor build matches its source
+        # contracts/vendor/gondi-v3.2 holds Gondi's verified source and the bytecode
+        # script/DeployGondiLending.s.sol ships (each pinned there by hash). This
+        # recompiles the source with Gondi's exact compilers and settings and fails if
+        # the committed build differs. `build.mjs --mainnet <rpc>` also proves it
+        # against Gondi's own mainnet deploys (needs an RPC; run it before a deploy).
+        run: |
+          set -e
+          tmp="$(mktemp -d)"
+          mkdir -p "$tmp/src"
+          printf '// SPDX-License-Identifier: MIT\npragma solidity >=0.8.19;\ncontract A {}\n' > "$tmp/src/A.sol"
+          for v in 0.8.19 0.8.21 0.8.25; do
+            forge build --root "$tmp" --use "$v" --quiet
+            rm -rf "$tmp/out" "$tmp/cache"
+          done
+          node vendor/gondi-v3.2/build.mjs
+
   # ─────────────────────────────────────────────────────────────────────
   # Test-slice manifest + coverage guard.
   #

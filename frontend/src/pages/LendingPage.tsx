@@ -38,11 +38,12 @@ import { PageSkeleton } from '../components/PageSkeleton';
 import { ShieldPanel } from '../components/shield/ShieldPanel';
 import {
   TEGRIDY_LENDING_ADDRESS,
-  TEGRIDY_NFT_LENDING_ADDRESS,
   TEGRIDY_NFT_POOL_FACTORY_ADDRESS,
   TEGRIDY_LAUNCHPAD_V2_ADDRESS,
   isDeployed,
 } from '../lib/constants';
+// NFT lending runs on Gondi's v3.2 loan contract (lib/gondi), not TEGRIDY_NFT_LENDING_ADDRESS.
+import { GONDI_LOAN_ADDRESS } from '../lib/gondi/loanOffer.js';
 import { useTabListKeys } from '../hooks/useTabListKeys';
 import { STRIP_ARROW_PX, useTabStripArrows } from '../components/layout/tabStripScroll';
 import { isPooledLendingLive, isBnplLive } from '../hooks/usePooledLendingConfig';
@@ -113,7 +114,7 @@ const introCards = () => [
   {
     key: 'nftlending' as Section,
     title: 'NFT Lending',
-    desc: 'Borrow ETH. Your NFT backs the loan.',
+    desc: 'Borrow WETH. Your NFT backs the loan.',
     icon: 'M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4',
     art: pageArt('nft-finance', 2),
   },
@@ -167,7 +168,7 @@ const DEFAULT_SECTION: Section = 'nftlending';
 // flips on by itself when a real address lands in constants.ts.
 const SECTION_DEPLOYED: Record<Section, boolean> = {
   lending: isDeployed(TEGRIDY_LENDING_ADDRESS),
-  nftlending: isDeployed(TEGRIDY_NFT_LENDING_ADDRESS),
+  nftlending: isDeployed(GONDI_LOAN_ADDRESS),
   amm: isDeployed(TEGRIDY_NFT_POOL_FACTORY_ADDRESS),
   launchpad: isDeployed(TEGRIDY_LAUNCHPAD_V2_ADDRESS),
   // Both read from hooks/usePooledLendingConfig.ts, where every address is
@@ -380,7 +381,7 @@ export default function LendingPage() {
               revisits render synchronously. */}
           <Suspense fallback={<PageSkeleton />}>
             {section === 'lending' && <LendingSection address={address} />}
-            {section === 'nftlending' && (isDeployed(TEGRIDY_NFT_LENDING_ADDRESS)
+            {section === 'nftlending' && (isDeployed(GONDI_LOAN_ADDRESS)
               ? (
                 <div className="space-y-6">
                   <NFTLendingSection />
@@ -389,7 +390,7 @@ export default function LendingPage() {
                   <ShieldPanel />
                 </div>
               )
-              : <FeatureNotDeployed pageId="nft-finance" idx={2} title="NFT lending isn't live yet" subtitle="Borrow against JBAC, Nakamigos, and GNSS once the NFT-lending contract is deployed for the relaunch." />)}
+              : <FeatureNotDeployed pageId="nft-finance" idx={2} title="NFT lending isn't live yet" subtitle="Borrow against JBAC, Nakamigos, and GNSS once Gondi's loan contracts are deployed for the venue." />)}
             {section === 'pooled' && <PooledLendingSection />}
             {section === 'bnpl' && <BnplSection />}
             {section === 'amm' && <AMMSection />}
