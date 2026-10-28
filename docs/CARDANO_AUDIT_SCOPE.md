@@ -166,9 +166,20 @@ with it pays its ADA staking rewards to Minswap.
 | Authen seed | a UTxO the deploy spends; fixes our authen policy and every hash after it | ours, chosen at deploy |
 | NFT names `MSF`, `MSP`, `MSGS` | constants in Minswap's code, not parameters | unchanged |
 | Pool stake credential | where each new pool's ADA is staked, and so who earns its staking rewards (and, since Plomin, which DRep it delegates to) | the venue's |
-| Role timelock `Params` | `seed` (a second UTxO), `owner_a`, `owner_b`, `treasury`, `authen_policy_id` (ours) | treasury: a Lace shared wallet, a 2-of-2 native script the owner is creating; keys: owner's decision |
+| Role timelock `Params` | `seed` (a second UTxO), `owner_a`, `owner_b`, `treasury`, `authen_policy_id` (ours) | treasury: a two-key multi-signature wallet, not made yet (below); keys: owner's decision |
 | First GlobalSetting | `batchers` = the batcher's key(s); the five roles = `PAMSpendScript(role timelock hash)` | |
 | Pools the site opens | base fee 30 / 10000 on both sides (0.3%); fee share switched on at 1333 / 10000 by a `SetPool` announcement | owner's ruling, 2026-10-24 |
+
+**The treasury** is a multi-signature wallet of two keys. The owner's plan (2026-10-24) is
+Eternl's multi-sig wallet, which needs Eternl Pro. Not a Lace shared wallet: Lace's own source
+calls those "a beta feature (testnet-only)", and Lace 2.x does not migrate them
+(input-output-hk/lace @ `d0df8d7e07`,
+`packages/module/migrate-v1-data/src/store/v1-data/prepare-preloaded-state.ts`). Both parts of
+its address must be scripts that need both keys: the payment part, and the stake part too, since
+a one-key stake part lets that key alone withdraw the treasury's staking rewards to any address.
+The lock's `treasury` and the batcher's `sweep` setting (draft PR #1008,
+`cardano/batcher/README.md` step 8) must hold the same address string: the lock compares whole
+addresses.
 
 Order: pick both seeds, compute the authen policy, compute the lock's hash with it, mint the lock
 token (both keys sign), then `DexInitialization` with the first GlobalSetting naming the lock.
@@ -202,7 +213,7 @@ collateral, and keeps the batcher fee. It cannot move any role: those are in the
 ## Decisions that are the owner's
 
 Decided 2026-10-24: the 0.3% fee and the 1333 share (which needed the patch in section 2), the
-quarterly split from the treasury, and a two-key treasury (a Lace shared wallet, being set up).
+quarterly split from the treasury, and a two-key treasury (a multi-signature wallet, not made yet: section 4).
 Still open:
 
 1. Who holds the role timelock's two owner keys.
