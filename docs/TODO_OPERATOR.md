@@ -120,8 +120,11 @@ behind each item: [`CARDANO_AUDIT_SCOPE.md`](CARDANO_AUDIT_SCOPE.md).
   (about 0.04% of the trade), LPs the rest. It needed Minswap's floor lowered, one line of their code.
 - ✅ **Split** (you: "Quarterly, like EVM"): the whole share goes to the treasury, and the
   30/35/35 (later 10/45/45) is paid from there each quarter.
-- ⬜ **The treasury** (you: "Two keys, like the vault"): a Lace shared wallet, two of two, being
-  set up with you now.
+- ⬜ **The treasury** (you: "Two keys, like the vault"): a two-key multi-signature wallet, not
+  made yet. Your plan (2026-10-24) is Eternl's multi-sig wallet, which needs Eternl Pro; not
+  Lace, whose shared wallets are a testnet-only beta that Lace 2.x drops. Its payment and stake
+  parts must both need both keys, and the same address goes in the lock's `treasury` and the
+  batcher's `sweep`.
 - ⬜ **The licence.** Minswap's files say GPL-3.0 in one place and Apache-2.0 in another. A
   lawyer's read is owed before any deploy.
 - ⬜ **Who holds the lock's two owner keys.**
