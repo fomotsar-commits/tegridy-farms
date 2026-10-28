@@ -119,14 +119,12 @@ const FRONTEND_ABI_TARGET_OVERRIDES = {
   // belongs here; the export name carries the island vocabulary, not the
   // contract's.
   LIGHTHOUSE_STAKING_ABI: 'StakingRewards',
-  // Same shape — the airdrop/vesting surface landed with the prefix dropped, so
-  // `normalize(stem)` finds no candidate and the guard fails the whole job. These
-  // ARE in-repo contracts (contracts/src/TegridyAirdropDistributor.sol,
-  // contracts/src/TegridyVestingWallet.sol), so they belong here and NOT in
-  // EXTERNAL_FRONTEND_ABIS — that list is for ABIs we do not build, and the guard
-  // rejects an entry there that has an in-repo `*_ADDRESS`.
+  // Same shape — the airdrop surface landed with the prefix dropped, so
+  // `normalize(stem)` finds no candidate and the guard fails the whole job. It IS
+  // an in-repo contract (contracts/src/TegridyAirdropDistributor.sol), so it
+  // belongs here and NOT in EXTERNAL_FRONTEND_ABIS — that list is for ABIs we do
+  // not build, and the guard rejects an entry there that has an in-repo `*_ADDRESS`.
   AIRDROP_DISTRIBUTOR_ABI: 'TegridyAirdropDistributor',
-  VESTING_WALLET_ABI: 'TegridyVestingWallet',
 };
 
 // Selectors a frontend ABI declares that are deliberately served by a DIFFERENT
@@ -154,19 +152,7 @@ const FRONTEND_SELECTOR_HOSTS = {
 // Remove an entry by re-pointing its call site at the host's address. Any entry
 // still here when its feature is deployed becomes a live empty-returndata
 // revert — check this list before flipping either contract on.
-const KNOWN_LATENT_FRONTEND_SELECTORS = {
-  TEGRIDY_RESTAKING_ABI: {
-    // useRestaking.ts reads it at TEGRIDY_RESTAKING_ADDRESS (0x0).
-    'pendingTotal(address)': { host: 'RestakingMonitorView', reason: 'restaking not deployed' },
-  },
-  VOTE_INCENTIVES_ABI: {
-    // useBribes.ts reads both at VOTE_INCENTIVES_ADDRESS (0x0). Moved out by
-    // the pass-8 EIP170-03 split, alongside the propose/execute/cancel calls
-    // whose readiness they exposed.
-    'pendingFeeBps()': { host: 'VoteIncentivesAdmin', reason: 'vote incentives not deployed' },
-    'feeChangeTime()': { host: 'VoteIncentivesAdmin', reason: 'vote incentives not deployed' },
-  },
-};
+const KNOWN_LATENT_FRONTEND_SELECTORS = {};
 
 // Selectors a frontend ABI keeps for a build that is RETIRED IN SOURCE but still
 // LIVE ON CHAIN, and read at the live address on purpose: the card reads it to

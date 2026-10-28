@@ -290,8 +290,7 @@ test.describe('row Q: the route census', () => {
   }
 
   const PANEL_HOSTS: PanelHost[] = [
-    { path: '/community', param: 'section', prefix: 'community-tab-', landing: 'grants', others: ['bounties', 'bribes', 'gauges'] },
-    { path: '/nft-finance', param: 'section', prefix: 'nft-finance-tab-', landing: 'lending', others: ['nftlending', 'pooled', 'bnpl', 'amm', 'launchpad'] },
+    { path: '/nft-finance', param: 'section', prefix: 'nft-finance-tab-', landing: 'nftlending', others: ['amm', 'launchpad'] },
     { path: '/swap', param: 'tab', prefix: 'trade-tab-', landing: 'swap', others: ['dca', 'limit', 'twap', 'trigger'] },
     // /dashboard IS a ?tab= host and is deliberately NOT here. Its tab strip
     // renders only for a connected wallet (DashboardPage returns the connect

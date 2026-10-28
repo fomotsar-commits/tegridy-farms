@@ -1,10 +1,8 @@
 /**
  * AUDIT R081 — Claim-rewards surfaces (zero coverage before).
  *
- * Tegridy distributes claimable yield from three surfaces:
+ * Tegridy distributes claimable yield from one surface:
  *   1. LP farming — `/farm` (LPFarmingSection)
- *   2. Restaking — `/farm` (RestakingPanel; "Claim N TOWELI" CTA)
- *   3. Bribes / gauge incentives — `/community` (gauge tab)
  *
  * ⚠ A CLAIM CTA IS POSITION-DEPENDENT. The original first test asserted a
  * /claim/i button is visible on /farm "when connected" — it is not, from a
@@ -79,33 +77,10 @@ test.describe('Claim rewards surfaces', () => {
     // ⚠ THIS ASSERTION USED TO BE VACUOUS. It read `/^claim\s+\d/i` — "claim", space,
     // DIGIT — and no claim CTA on /farm is named that way in any state. StakingCard
     // renders "Claim Rewards" (StakingCard.tsx:228) and LPFarmingSection renders
-    // "Claim Rewards" (LPFarmingSection.tsx:210); the one "Claim <number> TOWELI" on
-    // this page is the restaking panel's (FarmPage.tsx:518), and that whole block is
-    // gated on `restaking.isDeployed` (FarmPage.tsx:452) against
-    // TEGRIDY_RESTAKING_ADDRESS, which is the zero address. So the old count-0 held for
-    // a cold account, a rich account, and a broken build alike — it could not fail.
+    // "Claim Rewards" (LPFarmingSection.tsx:210), so the old count-0 held for a cold
+    // account, a rich account, and a broken build alike: it could not fail.
     // Matching the copy the app actually ships is what makes it a gate.
     await expect(page.getByRole('button', { name: /^claim/i })).toHaveCount(0);
-  });
-
-  test('/community renders the gauge / governance surfaces under mock wallet', async ({ page, walletMock }) => {
-    const pageErrors: string[] = [];
-    page.on('pageerror', (err) => pageErrors.push(err.message));
-    await walletMock.connect();
-    await page.goto('/community');
-    await expect(page.locator('h1')).toContainText(/community/i);
-    for (const label of [/governance/i, /bounties/i, /vote incentives/i, /gauge voting/i]) {
-      await expect(page.getByRole('tab', { name: label })).toBeVisible();
-    }
-    expect(pageErrors).toEqual([]);
-  });
-
-  test('gauge voting tab (bribe claims live here) opens without crash', async ({ page, walletMock }) => {
-    await walletMock.connect();
-    await page.goto('/community');
-    const gauge = page.getByRole('tab', { name: /gauge voting/i });
-    await gauge.click();
-    await expect(gauge).toHaveAttribute('aria-selected', 'true');
   });
 
   /**
@@ -132,11 +107,8 @@ test.describe('Claim rewards surfaces', () => {
    * accrual below comes from the contract's own math after the fork clock moves — not
    * from storage we wrote.
    *
-   * [op] TWO CLAIM SURFACES REMAIN UNCOVERABLE UNTIL AN OPERATOR ACTS, and neither is
+   * [op] ONE CLAIM SURFACE REMAINS UNCOVERABLE UNTIL AN OPERATOR ACTS, and it is not
    * a test defect:
-   *   • Restaking claims — TEGRIDY_RESTAKING_ADDRESS is 0x000…0 ("DEFERRED to Phase 7",
-   *     constants.ts:23). The panel is gated off at FarmPage.tsx:452. Deploy it and set
-   *     the constant, then a "Claim <n> TOWELI" leg becomes writable.
    *   • LP farming claims — refund the farm (notifyRewardAmount from the owner Safe) so
    *     periodFinish moves ahead of now. Until then there is nothing to claim there.
    */
