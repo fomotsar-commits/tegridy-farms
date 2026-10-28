@@ -520,20 +520,20 @@
       "id": "range-clmm-amm-config-0",
       "address": "9makve2QUjz3FpwqHzqioY2DLmiQ73VVtcuYYHnm9kvR",
       "role": "tegridy-clmm AmmConfig index 0 under range-clmm-program, seeds [\"amm_config\", 0u16 big-endian], bump 255, derived and matched: the 1% tier as range-clmm-tiers-transaction-19 makes it, create_amm_config(0, tick spacing 120, trade fee 10,000 per million of each swap, protocol fee 104,000 and fund fee 56,000 per million of that fee), then its fund owner set to island-workshop-wallet. So of each fee, 84% stays with the liquidity providers in range, 10.4% to squads-vault and 5.6% to the island's Workshop (the CHANGELOG notice of 2026-10-21).",
-      "custody": "program-derived, no key. Once created it is owned by range-clmm-program; its owner field is squads-vault and its fund owner island-workshop-wallet.",
-      "status": "NOT YET CREATED: value:null at finalized slot 459,710,510 (2026-10-21). `expect.type: absent` is a tripwire: the day the fee-tier proposal executes, the chain read goes red here, and this row must become program-owned, with its fee fields asserted in solanaFields.",
+      "custody": "program-derived, no key. Owned by range-clmm-program; its owner field (the tier's admin and protocol fee owner) is squads-vault and its fund owner island-workshop-wallet. solanaFields asserts both, and every rate, on each chain read.",
+      "status": "CREATED 2026-10-27T03:52:39Z by the execute of range-clmm-tiers-proposal-19 (slot 461,924,979, transaction 5t4B2D81y5Gvj8uLkEKVZ8L8T3CUW4Akf68X2PWZqi2C4Hy8USUYwtz21hhaNZ2rR4c67aUE8xTfoGYRyXFvFa3v, signed by squads member 5QHzAqbGk3W8qGRBHCMyWjhLXf8YJcs3yPEh14Ymcwgz). Read at finalized slot 462,122,645: owned by range-clmm-program, 117 bytes, 1,244,600 lamports, every field as the role says; the deploy pack's 6-verify-tiers.mjs passed the same day. The tier the site reads (FEE_TIER_INDEXES = 1, index 0 only). A tier cannot be removed. Until range-clmm-program runs a build that charges an opening fee (#1019), anyone may open a pool on it without paying one.",
       "expect": {
-        "type": "absent"
+        "type": "program-owned"
       }
     },
     {
       "id": "range-clmm-amm-config-1",
       "address": "CYfA3WyMS9Ygx2Z988d5Uk4KsuBRsDZqkqXy9hhroW6Q",
       "role": "tegridy-clmm AmmConfig index 1 under range-clmm-program, seeds [\"amm_config\", 1u16 big-endian], bump 255, derived and matched: the 0.25% tier as range-clmm-tiers-transaction-19 makes it, create_amm_config(1, tick spacing 60, trade fee 2,500 per million of each swap, protocol fee 104,000 and fund fee 56,000 per million of that fee), then its fund owner set to island-workshop-wallet. The same split as range-clmm-amm-config-0.",
-      "custody": "program-derived, no key. Once created it is owned by range-clmm-program; its owner field is squads-vault and its fund owner island-workshop-wallet.",
-      "status": "NOT YET CREATED: value:null at finalized slot 459,710,510 (2026-10-21). `expect.type: absent` is a tripwire: the day the fee-tier proposal executes, the chain read goes red here, and this row must become program-owned, with its fee fields asserted in solanaFields.",
+      "custody": "program-derived, no key. Owned by range-clmm-program; its owner field (the tier's admin and protocol fee owner) is squads-vault and its fund owner island-workshop-wallet. solanaFields asserts both, and every rate, on each chain read.",
+      "status": "CREATED 2026-10-27T03:52:39Z in the same transaction as range-clmm-amm-config-0 (slot 461,924,979, transaction 5t4B2D81y5Gvj8uLkEKVZ8L8T3CUW4Akf68X2PWZqi2C4Hy8USUYwtz21hhaNZ2rR4c67aUE8xTfoGYRyXFvFa3v). Read at finalized slot 462,122,645: owned by range-clmm-program, 117 bytes, 1,244,600 lamports, every field as the role says; 6-verify-tiers.mjs passed the same day. The owner had ruled on 2026-10-25 for one 1% tier only, and the site follows that: it reads index 0 alone (FEE_TIER_INDEXES = 1), so it never lists a pool on this tier or routes a swap into one. A tier cannot be removed, so other tools can still open pools here, and until range-clmm-program charges an opening fee (#1019) they pay none. The venue's 10.4% and the Workshop's 5.6% of each fee hold here too.",
       "expect": {
-        "type": "absent"
+        "type": "program-owned"
       }
     },
     {
@@ -541,7 +541,7 @@
       "address": "CL6cZ2zDsmA72f6ncLYz1UcSLcQ41kL4WRTtFGy5BmNM",
       "role": "Squads v4 vault transaction 19 of squads-multisig, seeds [\"multisig\", multisig, \"transaction\", 19u64 little-endian] under SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf, derived and matched: the fee-tier proposal. Its stored message is byte for byte the one solana/clmm-deploy/scripts/lib/tiers.mjs compiles (the page's `isOurs`, read 2026-10-21T17:22:43Z): both tiers above, then each tier's fund owner set to island-workshop-wallet.",
       "custody": "program-derived, owned by the Squads v4 program; only a member of squads-multisig can execute it.",
-      "status": "LIVE, created 2026-10-21T13:42:48Z (slot 459,649,865, transaction 5XZuPgxthnJZyBCtcaPw5p1xnqyetb9phudUSurr1uCkNXtsuXRB69xg3LkcV71AJqNHJvUvPFw6ECWiqZo2uzzk, signed by squads member 6VHowW4pnD4WTGsXhqBp6yxGgC3EExVmYgebSrRNu2tY). 416 bytes. Not executed: see range-clmm-tiers-proposal-19.",
+      "status": "LIVE, created 2026-10-21T13:42:48Z (slot 459,649,865, transaction 5XZuPgxthnJZyBCtcaPw5p1xnqyetb9phudUSurr1uCkNXtsuXRB69xg3LkcV71AJqNHJvUvPFw6ECWiqZo2uzzk, signed by squads member 6VHowW4pnD4WTGsXhqBp6yxGgC3EExVmYgebSrRNu2tY). 416 bytes. EXECUTED 2026-10-27T03:52:39Z: see range-clmm-tiers-proposal-19. Read at finalized slot 462,122,645: still open (416 bytes), as Squads leaves an executed transaction until its rent is reclaimed.",
       "expect": {
         "type": "program-owned"
       }
@@ -551,7 +551,7 @@
       "address": "DvGQ2Hhdqn8i9TJMTkMC7adxiWujxeSJEm77ctZkWBfg",
       "role": "Squads v4 proposal for vault transaction 19, seeds [\"multisig\", multisig, \"transaction\", 19u64 little-endian, \"proposal\"] under SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf, derived and matched.",
       "custody": "program-derived, owned by the Squads v4 program.",
-      "status": "APPROVED 2 of 2, NOT EXECUTED. Member 6VHowW4pnD4WTGsXhqBp6yxGgC3EExVmYgebSrRNu2tY created and approved it at 2026-10-21T13:42:48Z; member 5QHzAqbGk3W8qGRBHCMyWjhLXf8YJcs3yPEh14Ymcwgz approved at 13:45:21Z (slot 459,650,577, transaction 2CXCRAHzRGhTniquvdecQugMSfoZw56BdndVcuQs2sRGmzR6FhvWVMvZxeYYKonqjfZVNfFCkhDK8gU312XqHCc8). Read at finalized slot 459,710,510: status Approved at 13:45:21Z. So the chain's 48-hour lock is over at 2026-10-23T13:45:21Z, five days before the seven days the first notice (#929) promised. The owner then moved the promise (2026-10-22, 'update the promise date'; #938): the notice now says no sooner than 2026-10-23 14:00 UTC, and it executes from the deploy pack's page no sooner than 2026-10-23T14:00:00Z (tiers.mjs `decide`, gated at the later of the lock's end and that time). The Squads app does not read the notice: from the lock's end it would execute it at once.",
+      "status": "EXECUTED 2026-10-27T03:52:39Z by squads member 5QHzAqbGk3W8qGRBHCMyWjhLXf8YJcs3yPEh14Ymcwgz (slot 461,924,979, transaction 5t4B2D81y5Gvj8uLkEKVZ8L8T3CUW4Akf68X2PWZqi2C4Hy8USUYwtz21hhaNZ2rR4c67aUE8xTfoGYRyXFvFa3v; the owner confirmed it was theirs). Read at finalized slot 462,122,645: status Executed at 03:52:39Z. It made both tiers (range-clmm-amm-config-0 and -1). Before that: approved 2 of 2. Member 6VHowW4pnD4WTGsXhqBp6yxGgC3EExVmYgebSrRNu2tY created and approved it at 2026-10-21T13:42:48Z; member 5QHzAqbGk3W8qGRBHCMyWjhLXf8YJcs3yPEh14Ymcwgz approved at 13:45:21Z (slot 459,650,577, transaction 2CXCRAHzRGhTniquvdecQugMSfoZw56BdndVcuQs2sRGmzR6FhvWVMvZxeYYKonqjfZVNfFCkhDK8gU312XqHCc8). Read at finalized slot 459,710,510: status Approved at 13:45:21Z. So the chain's 48-hour lock is over at 2026-10-23T13:45:21Z, five days before the seven days the first notice (#929) promised. The owner then moved the promise (2026-10-22, 'update the promise date'; #938): the notice now says no sooner than 2026-10-23 14:00 UTC, and it executes from the deploy pack's page no sooner than 2026-10-23T14:00:00Z (tiers.mjs `decide`, gated at the later of the lock's end and that time). The Squads app does not read the notice: from the lock's end it would execute it at once.",
       "expect": {
         "type": "program-owned"
       }
@@ -2142,7 +2142,7 @@
     }
   ],
   "solanaFields": {
-    "$comment": "Who holds each authority of our Solana programs, and what each fee tier charges, as decoded from the account data by `verify-addresses.mjs --onchain` (check 3d). Values that name a key are solana row ids. Every admin, fee owner and fee receiver must be `onlyHolder`: the offline check fails on anything else, with ONE exception: `fundOwner` may be `fundOwnerUnderTheSplit`, the island's Workshop, under the split the island accepted on 2026-10-18 (its answer, §7: fund_owner on fee settings 1, 0 and the 0.25% tier). A fund owner can collect only the fund fee (cp-swap admin/collect_fund_fee.rs); the protocol owner, the admin and every other authority stay `onlyHolder`. All values read 2026-10-13 at finalized slot 456,675,628, except the protocolFeeRate, fundFeeRate and fundOwner of fee settings 0 and 1, which are the values the split's day-one Squads proposal sets. Not covered here: cp-swap's admin, which is compiled into the program (src/lib.rs `admin::ID`, the Squads vault), not stored in an account.",
+    "$comment": "Who holds each authority of our Solana programs, and what each fee tier charges, as decoded from the account data by `verify-addresses.mjs --onchain` (check 3d). Values that name a key are solana row ids. Every admin, fee owner and fee receiver must be `onlyHolder`: the offline check fails on anything else, with ONE exception: `fundOwner` may be `fundOwnerUnderTheSplit`, the island's Workshop, under the split the island accepted on 2026-10-18 (its answer, §7: fund_owner on fee settings 1, 0 and the 0.25% tier). A fund owner can collect only the fund fee (cp-swap admin/collect_fund_fee.rs); the protocol owner, the admin and every other authority stay `onlyHolder`. All values read 2026-10-13 at finalized slot 456,675,628, except the protocolFeeRate, fundFeeRate and fundOwner of fee settings 0 and 1, which are the values the split's day-one Squads proposal sets. The two range tiers (range-clmm-amm-config-0 and -1, tegridy-clmm's own AmmConfig layout, whose `owner` field is read as protocolOwner) were read 2026-10-27 at finalized slot 462,122,645. Not covered here: cp-swap's admin, which is compiled into the program (src/lib.rs `admin::ID`, the Squads vault), not stored in an account.",
     "onlyHolder": "squads-vault",
     "fundOwnerUnderTheSplit": "island-workshop-wallet",
     "accounts": {
@@ -2177,6 +2177,28 @@
         "protocolOwner": "squads-vault",
         "fundOwner": "island-workshop-wallet",
         "creatorFeeRate": 0
+      },
+      "range-clmm-amm-config-0": {
+        "layout": "clmm-amm-config",
+        "owner": "range-clmm-program",
+        "index": 0,
+        "protocolOwner": "squads-vault",
+        "protocolFeeRate": 104000,
+        "tradeFeeRate": 10000,
+        "tickSpacing": 120,
+        "fundFeeRate": 56000,
+        "fundOwner": "island-workshop-wallet"
+      },
+      "range-clmm-amm-config-1": {
+        "layout": "clmm-amm-config",
+        "owner": "range-clmm-program",
+        "index": 1,
+        "protocolOwner": "squads-vault",
+        "protocolFeeRate": 104000,
+        "tradeFeeRate": 2500,
+        "tickSpacing": 60,
+        "fundFeeRate": 56000,
+        "fundOwner": "island-workshop-wallet"
       },
       "tegridy-launch-global-restart": {
         "layout": "tegridy-launch-global",
