@@ -23,10 +23,7 @@ import { TransactionReceiptProvider } from '../TransactionReceipt';
 const ParticleBackground = lazy(() =>
   import('../ParticleBackground').then(m => ({ default: m.ParticleBackground })),
 );
-const GlitchTransition = lazy(() =>
-  import('../GlitchTransition').then(m => ({ default: m.GlitchTransition })),
-);
-import type { GlitchConfig } from '../GlitchTransition';
+import { RouteGlitch } from './RouteGlitch';
 import { LiveActivity } from '../LiveActivity';
 // PERF-15 (2026-09-03): the floating assistant (20,823 B) and its answer corpus
 // (lib/towelieKnowledge, 28,495 B) rode the always-loaded layout chunk — ~49 KB
@@ -47,51 +44,6 @@ import { WalletConnectWatchdog } from '../ui/WalletConnectWatchdog';
 import { isToweliVoice, OPEN_VENUE_WELCOME_EVENT } from '../../lib/arrival';
 import { useActiveBungalowId } from '../../hooks/useActiveBungalowId';
 import { useReferralAttribution } from '../../hooks/useReferralAttribution';
-
-const NAV_ORDER = [
-  '/', '/dashboard', '/earn', '/swap', '/nft-finance', '/gallery', '/tokenomics',
-  '/lore', '/community', '/premium', '/history', '/admin',
-];
-
-function getGlitchConfig(from: string, to: string): GlitchConfig {
-  // By first segment, so one pool (/earn/bayla) sits where Earn does.
-  const section = (path: string) => '/' + (path.split('/')[1] ?? '');
-  const fromIdx = NAV_ORDER.indexOf(section(from));
-  const toIdx = NAV_ORDER.indexOf(section(to));
-  const direction: GlitchConfig['direction'] = toIdx > fromIdx ? 'forward' : 'backward';
-  const mobile = typeof window !== 'undefined' && window.innerWidth < 768;
-  if (from === '/' || to === '/') {
-    return { intensity: 'heavy', direction, sliceCount: mobile ? 6 : 16, duration: 1000 };
-  }
-  if (Math.abs(fromIdx - toIdx) <= 1) {
-    return { intensity: 'light', direction, sliceCount: mobile ? 4 : 12, duration: 1000 };
-  }
-  return { intensity: 'medium', direction, sliceCount: mobile ? 5 : 14, duration: 1000 };
-}
-
-function RouteGlitch() {
-  const location = useLocation();
-  const [glitchConfig, setGlitchConfig] = useState<GlitchConfig | null>(null);
-  const prevPath = useRef(location.pathname);
-  const isFirst = useRef(true);
-
-  useEffect(() => {
-    if (isFirst.current) { isFirst.current = false; prevPath.current = location.pathname; return; }
-    if (location.pathname !== prevPath.current) {
-      const cfg = getGlitchConfig(prevPath.current, location.pathname);
-      prevPath.current = location.pathname;
-      setGlitchConfig(cfg);
-      const t = setTimeout(() => setGlitchConfig(null), cfg.duration);
-      return () => clearTimeout(t);
-    }
-  }, [location.pathname]);
-
-  return glitchConfig ? (
-    <Suspense fallback={null}>
-      <GlitchTransition config={glitchConfig} />
-    </Suspense>
-  ) : null;
-}
 
 export function AppLayout() {
   const location = useLocation();
