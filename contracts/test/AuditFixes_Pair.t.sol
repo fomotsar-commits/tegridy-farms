@@ -75,7 +75,7 @@ contract AuditFixes_PairTest is Test {
         router = new TegridyRouter(address(factory), address(weth));
 
         // Create pair via factory
-        address pairAddr = factory.createPair(address(tokenA), address(tokenB));
+        address pairAddr = factory.createPair{value: 0.006 ether}(address(tokenA), address(tokenB));
         pair = TegridyPair(pairAddr);
 
         // Fund alice
@@ -196,7 +196,7 @@ contract AuditFixes_PairTest is Test {
     // â”€â”€â”€ #63: Reinitialize reverts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     function test_revert_reinitialize() public {
-        // Pair is already initialized by factory.createPair()
+        // Pair is already initialized by factory.createPair{value: 0.006 ether}()
         // Calling initialize() again should revert
         vm.prank(address(factory)); // Must be factory to pass FORBIDDEN check
         vm.expectRevert("ALREADY_INITIALIZED");

@@ -77,7 +77,7 @@ contract TegridyNFTPool_SandwichTest is Test {
     ) internal returns (address pool) {
         vm.startPrank(alice);
         nft.setApprovalForAll(address(factory), true);
-        pool = factory.createPool(
+        pool = factory.createPool{value: 0.006 ether}(
             address(nft),
             TegridyNFTPool.PoolType.SELL,
             _spotPrice,
@@ -97,7 +97,7 @@ contract TegridyNFTPool_SandwichTest is Test {
     ) internal returns (address pool) {
         vm.startPrank(alice);
         nft.setApprovalForAll(address(factory), true);
-        pool = factory.createPool{value: ethAmount}(
+        pool = factory.createPool{value: ethAmount + 0.006 ether}(
             address(nft),
             TegridyNFTPool.PoolType.TRADE,
             _spotPrice,
@@ -361,7 +361,7 @@ contract TegridyNFTPool_SandwichTest is Test {
 
         vm.prank(alice);
         vm.expectRevert(TegridyNFTPool.DeltaTooHigh.selector);
-        factory.createPool{value: 1 ether}(
+        factory.createPool{value: 1 ether + 0.006 ether}(
             address(nft),
             TegridyNFTPool.PoolType.SELL,
             SPOT_PRICE,

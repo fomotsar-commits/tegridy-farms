@@ -33,9 +33,14 @@ contract MockWETH {
 // factory hitting MAX_PAIRS so the graduation-deferral path can be exercised
 // without deploying 10,000 pairs. When unblocked, forwards to the real factory
 // so createPair yields a genuine, mintable TegridyPair.
+//
+// It also pays the real factory's 0.006 ETH opening fee (owner ruling 2026-10-25) out of
+// its own balance. The live launcher is bound to the old factory 0xa24C…2a52, which opens
+// pools for free; this tree's factory charges, and the launcher does not pay. So the
+// launcher is tested against the free factory it actually has.
 interface IMinimalFactory {
     function getPair(address a, address b) external view returns (address);
-    function createPair(address a, address b) external returns (address);
+    function createPair(address a, address b) external payable returns (address);
 }
 
 contract BlockableFactory {
@@ -56,7 +61,7 @@ contract BlockableFactory {
 
     function createPair(address a, address b) external returns (address) {
         require(!blocked, "FACTORY_FULL");
-        return real.createPair(a, b);
+        return real.createPair{value: 0.006 ether}(a, b);
     }
 }
 
@@ -151,8 +156,10 @@ contract TegridyCurveLauncherTest is Test {
     function setUp() public {
         weth = new MockWETH();
         factory = new TegridyFactory(MULTISIG, TREASURY, GUARDIAN);
+        BlockableFactory freeFactory = new BlockableFactory(address(factory));
+        vm.deal(address(freeFactory), 1 ether);
         launcher = new TegridyCurveLauncher(
-            address(factory), address(weth), MULTISIG, GUARDIAN, JUNGLE_TREASURY, _config()
+            address(freeFactory), address(weth), MULTISIG, GUARDIAN, JUNGLE_TREASURY, _config()
         );
         vm.deal(CREATOR, 100 ether);
         vm.deal(BUYER, 100 ether);
@@ -641,7 +648,7 @@ contract TegridyCurveLauncherTest is Test {
         address token = _create();
         // Squatter creates the EMPTY pair the moment the token exists.
         vm.prank(BUYER2);
-        factory.createPair(token, address(weth));
+        factory.createPair{value: 0.006 ether}(token, address(weth));
         address pair = factory.getPair(token, address(weth));
         assertTrue(pair != address(0));
 
@@ -684,7 +691,7 @@ contract TegridyCurveLauncherTest is Test {
         // token-heavy ratio — the token transfer INTO the pair reverts, so the
         // pool can never be pre-seeded (the CRITICAL's precondition is gone).
         vm.prank(BUYER2);
-        address pair = factory.createPair(token, address(weth));
+        address pair = factory.createPair{value: 0.006 ether}(token, address(weth));
         vm.prank(BUYER);
         vm.expectRevert(TegridyCurveToken.TransferLockedUntilGraduation.selector);
         IERC20(token).transfer(pair, 1e18);
@@ -709,6 +716,7 @@ contract TegridyCurveLauncherTest is Test {
     function test_GraduationDefersWhenFactoryFull_ThenFinalizes() public {
         // Launcher wired to a factory we can force to "full".
         BlockableFactory bf = new BlockableFactory(address(factory));
+        vm.deal(address(bf), 1 ether);
         TegridyCurveLauncher l2 = new TegridyCurveLauncher(
             address(bf), address(weth), MULTISIG, GUARDIAN, JUNGLE_TREASURY, _config()
         );
@@ -779,7 +787,7 @@ contract TegridyCurveLauncherTest is Test {
         // reserves — so this must still finalize, not defer forever.
         address token = _create();
         vm.startPrank(BUYER2);
-        address pair = factory.createPair(token, address(weth));
+        address pair = factory.createPair{value: 0.006 ether}(token, address(weth));
         weth.deposit{value: 1}();
         weth.transfer(pair, 1);
         TegridyPair(pair).sync();

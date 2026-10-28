@@ -208,7 +208,7 @@ contract DeployMVPScript is Script {
         console.log(" 3. TegridyRouter:         ", d.router);
 
         // 4. TOWELI/WETH Pair
-        d.pair = factory.createPair(TOWELI, WETH);
+        d.pair = factory.createPair{value: factory.POOL_OPENING_FEE()}(TOWELI, WETH);
         console.log(" 4. TOWELI/WETH Pair:      ", d.pair);
 
         // 5. TegridyTWAP

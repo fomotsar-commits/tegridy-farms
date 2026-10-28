@@ -135,7 +135,7 @@ contract Audit195Factory is Test {
             ? (address(tokenA), address(tokenB))
             : (address(tokenB), address(tokenA));
 
-        address pair = factory.createPair(address(tokenA), address(tokenB));
+        address pair = factory.createPair{value: 0.006 ether}(address(tokenA), address(tokenB));
 
         // BATCH-L4 M2: salt now includes chainid + factory address to prevent
         // cross-chain CREATE2 collisions. Mirror that here.
@@ -152,10 +152,10 @@ contract Audit195Factory is Test {
     }
 
     function test_F02_reversed_tokens_same_pair() public {
-        address pair1 = factory.createPair(address(tokenA), address(tokenB));
+        address pair1 = factory.createPair{value: 0.006 ether}(address(tokenA), address(tokenB));
 
         vm.expectRevert("PAIR_EXISTS");
-        factory.createPair(address(tokenB), address(tokenA));
+        factory.createPair{value: 0.006 ether}(address(tokenB), address(tokenA));
 
         assertEq(factory.getPair(address(tokenA), address(tokenB)), pair1);
         assertEq(factory.getPair(address(tokenB), address(tokenA)), pair1);
@@ -177,22 +177,22 @@ contract Audit195Factory is Test {
 
     function test_F04_rejects_identical() public {
         vm.expectRevert("IDENTICAL_ADDRESSES");
-        factory.createPair(address(tokenA), address(tokenA));
+        factory.createPair{value: 0.006 ether}(address(tokenA), address(tokenA));
     }
 
     function test_F04_rejects_zero_address_left() public {
         vm.expectRevert("ZERO_ADDRESS");
-        factory.createPair(address(0), address(tokenA));
+        factory.createPair{value: 0.006 ether}(address(0), address(tokenA));
     }
 
     function test_F04_rejects_zero_address_right() public {
         vm.expectRevert("ZERO_ADDRESS");
-        factory.createPair(address(tokenA), address(0));
+        factory.createPair{value: 0.006 ether}(address(tokenA), address(0));
     }
 
     function test_F04_rejects_both_zero() public {
         vm.expectRevert("IDENTICAL_ADDRESSES");
-        factory.createPair(address(0), address(0));
+        factory.createPair{value: 0.006 ether}(address(0), address(0));
     }
 
     // ============================================================
@@ -202,7 +202,7 @@ contract Audit195Factory is Test {
     function test_F05_rejects_eoa_token() public {
         address eoa = makeAddr("eoaToken");
         vm.expectRevert("NOT_CONTRACT");
-        factory.createPair(eoa, address(tokenB));
+        factory.createPair{value: 0.006 ether}(eoa, address(tokenB));
     }
 
     // ============================================================
@@ -215,33 +215,33 @@ contract Audit195Factory is Test {
     function test_F06_erc777_detected_via_erc165() public {
         FlaggedERC777 flagged = new FlaggedERC777();
         vm.expectRevert("ERC777_NOT_SUPPORTED");
-        factory.createPair(address(flagged), address(tokenB));
+        factory.createPair{value: 0.006 ether}(address(flagged), address(tokenB));
     }
 
     function test_F06_erc777_detected_via_granularity() public {
         GranularityToken gran = new GranularityToken();
         vm.expectRevert("ERC777_NOT_SUPPORTED");
-        factory.createPair(address(gran), address(tokenB));
+        factory.createPair{value: 0.006 ether}(address(gran), address(tokenB));
     }
 
     function test_F06_stealth_erc777_bypasses_detection() public {
         // POC: A stealth ERC-777 token bypasses all three checks
         // because ERC-1820 is not deployed on the test chain
         StealthERC777 stealth = new StealthERC777();
-        address pair = factory.createPair(address(stealth), address(tokenB));
+        address pair = factory.createPair{value: 0.006 ether}(address(stealth), address(tokenB));
         assertTrue(pair != address(0), "Stealth ERC-777 bypassed detection");
     }
 
     function test_F06_reverting_erc165_passes() public {
         RevertingERC165Token rev = new RevertingERC165Token();
-        address pair = factory.createPair(address(rev), address(tokenB));
+        address pair = factory.createPair{value: 0.006 ether}(address(rev), address(tokenB));
         assertTrue(pair != address(0));
     }
 
     function test_F06_overly_compliant_blocked() public {
         OverlyCompliantToken ovc = new OverlyCompliantToken();
         vm.expectRevert("ERC777_NOT_SUPPORTED");
-        factory.createPair(address(ovc), address(tokenB));
+        factory.createPair{value: 0.006 ether}(address(ovc), address(tokenB));
     }
 
     // ============================================================
@@ -251,7 +251,7 @@ contract Audit195Factory is Test {
     // ============================================================
 
     function test_F07_blocklist_does_not_affect_existing_pairs() public {
-        address pair = factory.createPair(address(tokenA), address(tokenB));
+        address pair = factory.createPair{value: 0.006 ether}(address(tokenA), address(tokenB));
 
         vm.startPrank(admin);
         factory.proposeTokenBlocked(address(tokenA), true);
@@ -264,7 +264,7 @@ contract Audit195Factory is Test {
 
         // New pairs with tokenA are blocked
         vm.expectRevert("TOKEN_BLOCKED");
-        factory.createPair(address(tokenA), address(tokenC));
+        factory.createPair{value: 0.006 ether}(address(tokenA), address(tokenC));
     }
 
     function test_F07_setTokenBlocked_no_zero_check() public {
@@ -299,7 +299,7 @@ contract Audit195Factory is Test {
     // ============================================================
 
     function test_F08_pair_disable_has_expiration() public {
-        address pair = factory.createPair(address(tokenA), address(tokenB));
+        address pair = factory.createPair{value: 0.006 ether}(address(tokenA), address(tokenB));
 
         vm.prank(admin);
         factory.proposePairDisabled(pair, true);
@@ -314,7 +314,7 @@ contract Audit195Factory is Test {
     }
 
     function test_F08_pair_disable_timelock_enforced() public {
-        address pair = factory.createPair(address(tokenA), address(tokenB));
+        address pair = factory.createPair{value: 0.006 ether}(address(tokenA), address(tokenB));
 
         vm.prank(admin);
         factory.proposePairDisabled(pair, true);
@@ -337,7 +337,7 @@ contract Audit195Factory is Test {
     // ============================================================
 
     function test_F09_pair_disable_no_overwrite() public {
-        address pair = factory.createPair(address(tokenA), address(tokenB));
+        address pair = factory.createPair{value: 0.006 ether}(address(tokenA), address(tokenB));
 
         vm.startPrank(admin);
         factory.proposePairDisabled(pair, true);
@@ -355,7 +355,7 @@ contract Audit195Factory is Test {
     // ============================================================
 
     function test_F10_cancelPairDisabled() public {
-        address pair = factory.createPair(address(tokenA), address(tokenB));
+        address pair = factory.createPair{value: 0.006 ether}(address(tokenA), address(tokenB));
 
         vm.prank(admin);
         factory.proposePairDisabled(pair, true);
@@ -368,7 +368,7 @@ contract Audit195Factory is Test {
     }
 
     function test_F10_cancelPairDisabled_access_control() public {
-        address pair = factory.createPair(address(tokenA), address(tokenB));
+        address pair = factory.createPair{value: 0.006 ether}(address(tokenA), address(tokenB));
 
         vm.prank(admin);
         factory.proposePairDisabled(pair, true);
@@ -379,7 +379,7 @@ contract Audit195Factory is Test {
     }
 
     function test_F10_cancelPairDisabled_no_pending() public {
-        address pair = factory.createPair(address(tokenA), address(tokenB));
+        address pair = factory.createPair{value: 0.006 ether}(address(tokenA), address(tokenB));
 
         bytes32 pairKey = keccak256(abi.encodePacked(factory.PAIR_DISABLE_CHANGE(), pair));
         vm.prank(admin);
@@ -394,7 +394,7 @@ contract Audit195Factory is Test {
     // ============================================================
 
     function test_F11_stale_pending_value_after_execution() public {
-        address pair = factory.createPair(address(tokenA), address(tokenB));
+        address pair = factory.createPair{value: 0.006 ether}(address(tokenA), address(tokenB));
 
         vm.prank(admin);
         factory.proposePairDisabled(pair, true);
@@ -665,8 +665,8 @@ contract Audit195Factory is Test {
     ///      proposals. New setter drains them with flushStaleProposals().
     function test_M1_acceptFeeToSetter_succeeds_with_pending_proposals() public {
         // Admin queues 3 token blocks and 2 pair disables
-        address pair1 = factory.createPair(address(tokenA), address(tokenB));
-        address pair2 = factory.createPair(address(tokenA), address(tokenC));
+        address pair1 = factory.createPair{value: 0.006 ether}(address(tokenA), address(tokenB));
+        address pair2 = factory.createPair{value: 0.006 ether}(address(tokenA), address(tokenC));
 
         vm.startPrank(admin);
         factory.proposeTokenBlocked(address(tokenA), true);
@@ -695,7 +695,7 @@ contract Audit195Factory is Test {
 
     /// @dev [M1 FIX] New setter drains stale proposals page-by-page.
     function test_M1_flushStaleProposals_paginates() public {
-        address pair1 = factory.createPair(address(tokenA), address(tokenB));
+        address pair1 = factory.createPair{value: 0.006 ether}(address(tokenA), address(tokenB));
 
         vm.startPrank(admin);
         factory.proposeTokenBlocked(address(tokenA), true);
@@ -749,7 +749,7 @@ contract Audit195Factory is Test {
         // Check indexed params. We cannot predict exact pair address.
         vm.expectEmit(true, true, false, false);
         emit PairCreated(t0, t1, address(0), 0);
-        factory.createPair(address(tokenA), address(tokenB));
+        factory.createPair{value: 0.006 ether}(address(tokenA), address(tokenB));
     }
 
     // ============================================================
@@ -759,8 +759,9 @@ contract Audit195Factory is Test {
     // ============================================================
 
     function test_F19_anyone_can_create_pair() public {
+        vm.deal(attacker, 1 ether); // anyone can, for the 0.006 ETH opening fee
         vm.prank(attacker);
-        address pair = factory.createPair(address(tokenA), address(tokenB));
+        address pair = factory.createPair{value: 0.006 ether}(address(tokenA), address(tokenB));
         assertTrue(pair != address(0));
     }
 
@@ -783,7 +784,7 @@ contract Audit195Factory is Test {
     }
 
     function test_F20_proposePairDisabled_access_control() public {
-        address pair = factory.createPair(address(tokenA), address(tokenB));
+        address pair = factory.createPair{value: 0.006 ether}(address(tokenA), address(tokenB));
         vm.prank(attacker);
         vm.expectRevert("FORBIDDEN");
         factory.proposePairDisabled(pair, true);
@@ -794,7 +795,7 @@ contract Audit195Factory is Test {
     // ============================================================
 
     function test_F21_executePairDisabled_access_control() public {
-        address pair = factory.createPair(address(tokenA), address(tokenB));
+        address pair = factory.createPair{value: 0.006 ether}(address(tokenA), address(tokenB));
 
         vm.prank(admin);
         factory.proposePairDisabled(pair, true);
@@ -807,7 +808,7 @@ contract Audit195Factory is Test {
     }
 
     function test_F21_executePairDisabled_emits_events() public {
-        address pair = factory.createPair(address(tokenA), address(tokenB));
+        address pair = factory.createPair{value: 0.006 ether}(address(tokenA), address(tokenB));
 
         vm.prank(admin);
         vm.expectEmit(true, false, false, true);
@@ -845,10 +846,10 @@ contract Audit195Factory is Test {
         vm.stopPrank();
 
         vm.expectRevert("TOKEN_BLOCKED");
-        factory.createPair(address(tokenA), address(tokenB));
+        factory.createPair{value: 0.006 ether}(address(tokenA), address(tokenB));
 
         vm.expectRevert("TOKEN_BLOCKED");
-        factory.createPair(address(tokenB), address(tokenA));
+        factory.createPair{value: 0.006 ether}(address(tokenB), address(tokenA));
     }
 
     // ============================================================
@@ -856,7 +857,7 @@ contract Audit195Factory is Test {
     // ============================================================
 
     function test_F24_pair_initialized_correctly() public {
-        address pair = factory.createPair(address(tokenA), address(tokenB));
+        address pair = factory.createPair{value: 0.006 ether}(address(tokenA), address(tokenB));
 
         (address t0, address t1) = address(tokenA) < address(tokenB)
             ? (address(tokenA), address(tokenB))
@@ -874,11 +875,11 @@ contract Audit195Factory is Test {
     function test_F25_allPairs_tracking() public {
         assertEq(factory.allPairsLength(), 0);
 
-        address pair1 = factory.createPair(address(tokenA), address(tokenB));
+        address pair1 = factory.createPair{value: 0.006 ether}(address(tokenA), address(tokenB));
         assertEq(factory.allPairsLength(), 1);
         assertEq(factory.allPairs(0), pair1);
 
-        address pair2 = factory.createPair(address(tokenA), address(tokenC));
+        address pair2 = factory.createPair{value: 0.006 ether}(address(tokenA), address(tokenC));
         assertEq(factory.allPairsLength(), 2);
         assertEq(factory.allPairs(1), pair2);
     }

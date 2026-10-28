@@ -62,6 +62,12 @@ contract NFTPoolRoyaltyForkRehearsal is NFTPoolRoundTrip {
             vm.skip(true);
             return;
         }
+        // The owner paused the live factory (runbook step 1); on the fork, unpause it to show
+        // the drain that pause guards against.
+        if (live.paused()) {
+            vm.prank(live.owner());
+            live.unpause();
+        }
         uint256 loss = _roundTripLoss(LIVE_FACTORY);
         emit log_named_decimal_uint("live template: pool ETH lost over the round trips", loss, 18);
         assertGt(loss, 1 ether, "live template no longer drains");
@@ -78,6 +84,7 @@ contract NFTPoolRoyaltyForkRehearsal is NFTPoolRoundTrip {
         assertEq(fresh.protocolFeeBps(), NEW_FEE_BPS, "protocol fee is not 25 bps");
         assertEq(fresh.protocolFeeRecipient(), live.protocolFeeRecipient(), "fee recipient changed");
         assertEq(fresh.weth(), live.weth(), "weth changed");
+        assertEq(fresh.POOL_OPENING_FEE(), 0.006 ether, "opening a pool does not cost 0.006 ETH");
         assertTrue(_dispatches(template, GET_BUY_QUOTE_WITH_ROYALTY), "new template lacks the fix");
         assertEq(keccak256(template.code), keccak256(type(TegridyNFTPool).runtimeCode), "template != this tree's build");
         assertEq(_roundTripLoss(address(fresh)), 0, "the pool paid the buy-side royalty");

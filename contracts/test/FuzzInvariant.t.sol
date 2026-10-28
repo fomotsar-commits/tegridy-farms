@@ -109,7 +109,7 @@ contract TegridyPairFuzzTest is Test {
             (tokenA, tokenB) = (tokenB, tokenA);
         }
 
-        address pairAddr = factory.createPair(address(tokenA), address(tokenB));
+        address pairAddr = factory.createPair{value: 0.006 ether}(address(tokenA), address(tokenB));
         pair = TegridyPair(pairAddr);
 
         // Seed initial liquidity (must exceed MINIMUM_LIQUIDITY * 1000)
@@ -207,7 +207,7 @@ contract TegridyPairFuzzTest is Test {
         if (address(freshA) > address(freshB)) {
             (freshA, freshB) = (freshB, freshA);
         }
-        address freshPairAddr = factory.createPair(address(freshA), address(freshB));
+        address freshPairAddr = factory.createPair{value: 0.006 ether}(address(freshA), address(freshB));
         TegridyPair freshPair = TegridyPair(freshPairAddr);
 
         // Small amounts that produce sqrt(a*b) <= MINIMUM_LIQUIDITY * 1000
@@ -309,7 +309,7 @@ contract TegridyPairInvariantTest is Test {
             (tokenA, tokenB) = (tokenB, tokenA);
         }
 
-        address pairAddr = factory.createPair(address(tokenA), address(tokenB));
+        address pairAddr = factory.createPair{value: 0.006 ether}(address(tokenA), address(tokenB));
         pair = TegridyPair(pairAddr);
 
         // Seed initial liquidity

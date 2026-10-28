@@ -97,6 +97,7 @@ interface QuoteShape {
   isQuoteLoading: boolean;
   selectedRoute: RouteSource;
   selectedOnChainRoute: { source: 'tegridy' | 'uniswap'; output: bigint };
+  ownPools?: 'base' | 'opening';
   hasTegridyPair: boolean;
   tegridyOutputFormatted: string | null;
   uniOutputFormatted: string | null;
@@ -135,9 +136,10 @@ const defaultQuote = (): QuoteShape => ({
   path: ['0x1111111111111111111111111111111111111111', '0x2222222222222222222222222222222222222222'],
 });
 
-const quoteState: { current: QuoteShape } = { current: defaultQuote() };
+const quoteState: { current: QuoteShape; lastArgs: unknown[] } = { current: defaultQuote(), lastArgs: [] };
 
 const allowanceState = {
+  lastVenue: undefined as unknown,
   needsApproval: false,
   approveMock: vi.fn(),
   unlimitedApproval: false,
@@ -149,18 +151,33 @@ const allowanceState = {
 // `QUOTE_MAX_AGE_MS` was added as a named export on useSwapQuote after this
 // mock was first written; without it the test fails at module load.
 vi.mock('./useSwapQuote', () => ({
-  useSwapQuote: () => quoteState.current,
+  useSwapQuote: (...args: unknown[]) => { quoteState.lastArgs = args; return quoteState.current; },
   QUOTE_MAX_AGE_MS: 30_000,
 }));
 
+// The factory that charges 0.006 ETH to open a pool has its own router and SwapFeeRouter. Off
+// by default (as on mainnet today, where its addresses are zero); the opening tests switch it on.
+const OPENING_FACTORY = '0x0fac000000000000000000000000000000000001' as const;
+const OPENING_ROUTER = '0x0be0000000000000000000000000000000000002' as const;
+const OPENING_SFR = '0x05f0000000000000000000000000000000000003' as const;
+const openingState = vi.hoisted(() => ({ on: false }));
+vi.mock('../lib/chains/swapVenue', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../lib/chains/swapVenue')>();
+  return {
+    ...real,
+    openingSwapVenue: (v: ReturnType<typeof real.swapVenueOn>) =>
+      openingState.on && v ? { ...v, factory: OPENING_FACTORY, router: OPENING_ROUTER, swapFeeRouter: OPENING_SFR } : null,
+  };
+});
+
 vi.mock('./useSwapAllowance', () => ({
-  useSwapAllowance: () => ({
+  useSwapAllowance: (...args: unknown[]) => { allowanceState.lastVenue = args[6]; return ({
     needsApproval: allowanceState.needsApproval,
     approve: allowanceState.approveMock,
     unlimitedApproval: allowanceState.unlimitedApproval,
     toggleUnlimitedApproval: allowanceState.toggleMock,
     refetchAllowance: allowanceState.refetchMock,
-  }),
+  }); },
 }));
 
 // ── Import hook + constants AFTER mocks ─────────────────────────────────
@@ -191,6 +208,8 @@ describe('useSwap', () => {
   beforeEach(() => {
     resetWagmi();
     quoteState.current = defaultQuote();
+    openingState.on = false;
+    allowanceState.lastVenue = undefined;
     allowanceState.needsApproval = false;
     allowanceState.unlimitedApproval = false;
     allowanceState.approveMock.mockReset();
@@ -499,6 +518,8 @@ describe('useSwap on Base and Robinhood Chain (2026-10-17)', () => {
   beforeEach(() => {
     resetWagmi();
     quoteState.current = defaultQuote();
+    openingState.on = false;
+    allowanceState.lastVenue = undefined;
     allowanceState.needsApproval = false;
     try { window.localStorage.clear(); } catch { /* jsdom only */ }
   });
@@ -576,5 +597,68 @@ describe('useSwap on Base and Robinhood Chain (2026-10-17)', () => {
     act(() => result.current.executeSwap());
     expect(wagmiState.writeContractMock).not.toHaveBeenCalled();
     expect(result.current.swapChainId).toBe(CHAIN_ID);
+  });
+});
+
+// Pools opened on the factory that charges 0.006 ETH to open (owner ruling 2026-10-25) are
+// swapped through the SwapFeeRouter bound to that factory's router, which takes the same
+// venue fee. The quote names the winning pool (`ownPools`); writes and approvals follow it.
+describe('useSwap: our pools on the opening factory', () => {
+  beforeEach(() => {
+    resetWagmi();
+    quoteState.current = defaultQuote();
+    openingState.on = true;
+    allowanceState.lastVenue = undefined;
+    allowanceState.needsApproval = false;
+  });
+
+  it('asks the quote for opening pools', () => {
+    renderHook(() => useSwap());
+    expect(quoteState.lastArgs[6]).toEqual({ includeOpeningPools: true });
+  });
+
+  it('a winning pool on the opening factory signs through its SwapFeeRouter, and approvals target it', () => {
+    quoteState.current = {
+      ...defaultQuote(),
+      selectedRoute: 'tegridy',
+      selectedOnChainRoute: { source: 'tegridy', output: 1000n * 10n ** 18n },
+      ownPools: 'opening',
+    };
+    const { result } = renderHook(() => useSwap());
+    act(() => result.current.setInputAmount('1'));
+    act(() => result.current.executeSwap());
+    const call = wagmiState.writeContractMock.mock.calls[0][0];
+    expect(call.address).toBe(OPENING_SFR);
+    expect(call.functionName).toBe('swapExactETHForTokens');
+    expect(call.args[4]).toBe(100n);
+    expect((allowanceState.lastVenue as { swapFeeRouter: string }).swapFeeRouter).toBe(OPENING_SFR);
+  });
+
+  it('the aggregator path falls back through the opening SwapFeeRouter too', () => {
+    quoteState.current = {
+      ...defaultQuote(),
+      selectedRoute: 'aggregator',
+      aggBetter: true,
+      selectedOnChainRoute: { source: 'tegridy', output: 1000n * 10n ** 18n },
+      ownPools: 'opening',
+    };
+    const { result } = renderHook(() => useSwap());
+    act(() => result.current.setInputAmount('1'));
+    act(() => result.current.executeSwap());
+    expect(wagmiState.writeContractMock.mock.calls[0][0].address).toBe(OPENING_SFR);
+  });
+
+  it('a winning pool on the old factory still signs through the live SwapFeeRouter', () => {
+    quoteState.current = {
+      ...defaultQuote(),
+      selectedRoute: 'tegridy',
+      selectedOnChainRoute: { source: 'tegridy', output: 1000n * 10n ** 18n },
+      ownPools: 'base',
+    };
+    const { result } = renderHook(() => useSwap());
+    act(() => result.current.setInputAmount('1'));
+    act(() => result.current.executeSwap());
+    expect(wagmiState.writeContractMock.mock.calls[0][0].address).toBe(SWAP_FEE_ROUTER_ADDRESS);
+    expect((allowanceState.lastVenue as { swapFeeRouter: string }).swapFeeRouter).toBe(SWAP_FEE_ROUTER_ADDRESS);
   });
 });

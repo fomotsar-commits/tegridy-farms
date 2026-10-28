@@ -29,6 +29,21 @@ stop and say so — a surprise is information.
 
 ---
 
+## 2026-10-25: opening a pool on Ethereum costs 0.006 ETH (two deploys, your key)
+
+Your ruling: "0.006 eth on all evm", with a new factory and router for coin pools. Every command
+and what you should see: [`POOL_OPENING_FEE_EVM.md`](POOL_OPENING_FEE_EVM.md).
+
+- ✅ **How the site swaps the new coin pools** (your word 2026-10-27, "do whats best"): through a
+  second SwapFeeRouter bound to the new router, with the same 0.5% to the venue.
+- ⬜ **Deploy the new coin-pool factory, router and SwapFeeRouter** (one script, your key), then
+  the Safe accepts ownership of the SwapFeeRouter and its admin (one batch). Pools opened there pay
+  0.006 ETH to the treasury; today's pool and the old factory stay as they are.
+- ⬜ **NFT pools:** the NFT pool factory redeploy below now charges 0.006 ETH to open a pool too.
+  Nothing extra to run.
+
+---
+
 ## 🔴 2026-10-24, 17:03 UTC: the pool program was rolled back by mistake; re-upgrade postponed
 
 Read on chain on 2026-10-24 at 17:07 UTC. Newer than the section below.
