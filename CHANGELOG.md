@@ -7,6 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-10-27
+
+- Notice: range pools' second fee tier, 0.25% of each swap, becomes 1% once the team's vault approves and executes it, which is no sooner than 48 hours after its second approval. Then every range pool charges 1%. No range pool exists on that tier, and the site has never shown it. Of each fee, 84% stays with the liquidity providers whose range is in use, 10.4% goes to memetics.finance and 5.6% to Jungle Bay Island.
+
 ### 2026-10-25
 
 - Pools: a room's Add SOL + coin now opens Add with one coin at the top of the Venue AMM page, above everything else, with the pool's price, the outside price, the gap between them and how each trade's fee splits as rows inside it. The page no longer jumps down to the form, and nothing loading above it moves it. The pool finder, every pool and the rest of the page sit below.
