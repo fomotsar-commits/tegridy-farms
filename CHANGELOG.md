@@ -9,6 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-10-25
 
+- Pools: a room's Add SOL + coin now opens Add with one coin at the top of the Venue AMM page, above everything else, with the pool's price, the outside price, the gap between them and how each trade's fee splits as rows inside it. The page no longer jumps down to the form, and nothing loading above it moves it. The pool finder, every pool and the rest of the page sit below.
 - Solana pools: a pool opened on the launch fee tier without a launch (free to open on the pool program running now) is never listed, swapped in or added to from this site, and a link or a position that names one says so in one bold line. Holders of one can still remove their liquidity. Graduated launch pools are unchanged.
 - Pools: the Range tab is on, right of Venue AMM on the Solana network. Range pools have one fee tier, 1%. It is not on the chain yet, so until the team's vault makes it the tab says there is no pool to put liquidity in, and Solana swaps find no range pool to route through.
 - Pools: the Solana LP tab is gone. Its pool finder, Add liquidity, Remove liquidity and Open a pool were already on the Venue AMM tab, which now sits left of Range. The Pools menu opens Venue AMM, and an old /solana-lp link opens /pools on the same token.
