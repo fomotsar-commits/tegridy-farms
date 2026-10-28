@@ -7,9 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
-### 2026-10-27
+### 2026-10-28
 
 - Notice: range pools' second fee tier, 0.25% of each swap, becomes 1% once the team's vault approves and executes it, which is no sooner than 48 hours after its second approval. Then every range pool charges 1%. No range pool exists on that tier, and the site has never shown it. Of each fee, 84% stays with the liquidity providers whose range is in use, 10.4% goes to memetics.finance and 5.6% to Jungle Bay Island.
+- TOWELI staking: when the reward reserve can't pay, the site now says so. A claim that pays nothing (on the farm page or the dashboard) says nothing was paid and your rewards stay owed, instead of showing a receipt for TOWELI that was never sent. Claimable stops ticking up and says the reserve is empty. The early-withdraw confirm says how much unpaid reward that exit would lose for good. The exit offered during a pause no longer promises to pay rewards the reserve can't cover.
 
 ### 2026-10-25
 
