@@ -1,7 +1,8 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, afterEach, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { RECORDING, recordedTier } from '../lib/solana/cpswap/mainnetVenueReplay.fixture';
+import { BUNGALOWS } from '../lib/bungalows';
 
 /**
  * `/pools` answers "can this venue host liquidity pools?" from a LIVE CHAIN PROBE, never
@@ -15,9 +16,15 @@ vi.mock('../lib/launcher/solana/curve/rpc', () => ({ browserCurveRpc: () => ({})
 vi.mock('../lib/analytics', () => ({ trackPageView: vi.fn() }));
 // The LP section has its own tests (components/solana/lp), its Rates and Swap routes cards
 // included; here only WHEN and WHERE it mounts matters.
-vi.mock('../components/solana/lp/SolanaLpSection', () => ({
-  default: () => <div data-testid="lp-section" />,
-}));
+vi.mock('../components/solana/lp/SolanaLpSection', async () => {
+  const { useLayoutEffect } = await import('react');
+  // The real section claims the door's place when it mounts and draws its own door there.
+  function Section({ door }: { door?: { claim(): void } }) {
+    useLayoutEffect(() => door?.claim(), [door]);
+    return <div data-testid="lp-section" />;
+  }
+  return { default: Section };
+});
 // LP's own switch, steerable per test (spec addendum D24): the page's words about what this
 // site can do with the pools follow it. Every other test sees 'off' (the reads-only page),
 // whatever is committed; the committed value is pinned in lpWriteFlag.test.ts.
@@ -476,5 +483,47 @@ describe('Refresh on a live venue', () => {
     expect(scrolled).toHaveBeenCalledTimes(1);
     expect(scrolled.mock.contexts[0]).toBe(screen.getByRole('region', { name: 'Venue status' }));
     expect(scrolled).toHaveBeenCalledWith({ block: 'nearest' });
+  });
+});
+
+// Island, answer twenty-two ("where the door lands"): a room's Add SOL + coin opens its form at
+// the top of the page. Its place is held from the first frame, before the venue read and the
+// LP section's chunk, so nothing the page draws later lands above it.
+describe('the LP door', () => {
+  const bayla = BUNGALOWS.find((b) => b.id === 'bayla')!;
+  const DOOR = `/pools?mint=${bayla.address}&task=add&pool=${bayla.venueSolPool}`;
+  beforeEach(() => { lp.mode = 'on'; });
+  afterEach(() => { lp.mode = 'off'; });
+
+  it('holds the top of the page from the first frame, named for the room, while the venue is read', async () => {
+    readVenue.mockReturnValue(new Promise(() => {}));
+    await mount(DOOR);
+    const door = screen.getByTestId('lp-door');
+    expect(within(door).getByRole('heading', { name: bayla.name })).toBeInTheDocument();
+    expect(within(door).getByRole('status')).toHaveTextContent('Reading this pool from the chain…');
+    expect(door.compareDocumentPosition(screen.getByRole('heading', { level: 1 })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('hands its place to the LP section once that mounts', async () => {
+    readVenue.mockResolvedValue(LIVE);
+    await mount(DOOR);
+    await screen.findByTestId('lp-section');
+    expect(screen.queryByTestId('lp-door')).toBeNull();
+  });
+
+  it('a venue that does not read live takes it away', async () => {
+    readVenue.mockResolvedValue({ kind: 'unreadable', detail: 'proxy timed out' });
+    await mount(DOOR);
+    await settled();
+    expect(screen.queryByTestId('lp-door')).toBeNull();
+  });
+
+  it('is not drawn without task=add, or with adding switched off', async () => {
+    readVenue.mockReturnValue(new Promise(() => {}));
+    await mount(`/pools?mint=${bayla.address}`);
+    expect(screen.queryByTestId('lp-door')).toBeNull();
+    lp.mode = 'off';
+    await mount(DOOR);
+    expect(screen.queryByTestId('lp-door')).toBeNull();
   });
 });
