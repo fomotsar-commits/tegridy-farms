@@ -7,6 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-10-28
+
+- TOWELI staking: when the reward reserve can't pay, the site now says so. A claim that pays nothing (on the farm page or the dashboard) says nothing was paid and your rewards stay owed, instead of showing a receipt for TOWELI that was never sent. The early-withdraw confirm says how much unpaid reward that exit would lose for good. The exit offered during a pause no longer promises to pay rewards the reserve can't cover.
+
 ### 2026-10-25
 
 - Solana pools: a pool opened on the launch fee tier without a launch (free to open on the pool program running now) is never listed, swapped in or added to from this site, and a link or a position that names one says so in one bold line. Holders of one can still remove their liquidity. Graduated launch pools are unchanged.

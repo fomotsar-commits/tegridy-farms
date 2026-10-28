@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { TOWELI_ADDRESS, REVENUE_DISTRIBUTOR_ADDRESS, POL_ACCUMULATOR_ADDRESS, SWAP_FEE_ROUTER_ADDRESS, CHAIN_ID, isDeployed, TEGRIDY_RESTAKING_ADDRESS } from '../lib/constants';
 import { ERC20_ABI, REVENUE_DISTRIBUTOR_ABI } from '../lib/contracts';
 import { getAddressUrl } from '../lib/explorer';
+import { stakingClaimPaid, NOTHING_PAID_COPY } from '../lib/stakingClaimPaid';
 import { useUserPosition } from '../hooks/useUserPosition';
 import { useLpPosition } from '../hooks/useLpPosition';
 import { usePoolData } from '../hooks/usePoolData';
@@ -242,7 +243,10 @@ function ToweliDashboard() {
     const key = farmActions.hash ?? '__no_hash__';
     if (claimToastFiredRef.current.has(key)) return;
     claimToastFiredRef.current.add(key);
-    toast.success('Rewards claimed successfully!');
+    // Claim and Claim Unsettled both land here, and on an empty reserve both
+    // confirm while paying nothing. Say which happened, from the receipt.
+    if (stakingClaimPaid(farmActions.receipt) === 0n) toast.warning(NOTHING_PAID_COPY);
+    else toast.success('Rewards claimed successfully!');
     // F137 (T5): refetch the position immediately so the Claimable card and the
     // Claim button drop to ~0 within a block instead of staying re-clickable for
     // up to 30s. Gated once-per-hash by claimToastFiredRef above.
