@@ -143,10 +143,11 @@ export type LpKind = 'lp-deposit' | 'lp-withdraw' | 'lp-create';
 /**
  * The venue's range program (solana/tegridy-clmm): opening a position with its Token-2022
  * NFT, taking some or all of its liquidity out (or none: that is how its fees are
- * collected), taking everything out and closing it, and `range-swap`: the swap page's swap
- * in one of its pools.
+ * collected), taking everything out and closing it, `range-create`: opening a new pool and
+ * its first position in one transaction, and `range-swap`: the swap page's swap in one of
+ * its pools.
  */
-export type RangeKind = 'range-open' | 'range-remove' | 'range-close' | 'range-swap';
+export type RangeKind = 'range-open' | 'range-remove' | 'range-close' | 'range-create' | 'range-swap';
 
 /**
  * `pool-buy` / `pool-sell`: a graduated launch's own pool, from its launch page.
@@ -235,6 +236,8 @@ export type IntentStep =
    * program refuses the opening when either coin would pass its maximum.
    */
   | { kind: 'range-open'; pool: PublicKey; nftMint: PublicKey; tickLower: number; tickUpper: number; liquidity: bigint; max0: bigint; max1: bigint }
+  /** Range program `create_pool`: `pool` opened on fee tier `ammConfig` at `sqrtPriceX64`, its 0.5 SOL fee paid to the vault. Open time is always 0. */
+  | { kind: 'range-create-pool'; pool: PublicKey; ammConfig: PublicKey; sqrtPriceX64: bigint }
   /** Range program `decrease_liquidity_v2`: `liquidity` out of `position` (0 = fees only), at least `min0` / `min1` back, plus its fees. */
   | { kind: 'range-decrease'; pool: PublicKey; position: PublicKey; liquidity: bigint; min0: bigint; min1: bigint }
   /** Range program `close_position`: the NFT burned, the record closed, their deposits back to the owner. */
@@ -331,6 +334,7 @@ export type TxSummary =
   | LpWithdrawSummary
   | LpCreateSummary
   | RangeSummary
+  | RangeCreateSummary
   | RangeSwapSummary;
 
 /** A range pool and its fee tier, as the review names them. From the builder's own fresh read. */
@@ -395,6 +399,29 @@ export type RangeSummary =
       unwrapsWsol: boolean;
       notices: string[];
     } & { poolLine: RangePoolLine; range: RangeLine });
+
+/** A new range pool and its first position, opened in one transaction. */
+export type RangeCreateSummary = {
+  kind: 'range-create';
+  nftMint: PublicKey;
+  /** Decoded from the bytes: the pool opens at this price, so the first position takes exactly these. */
+  max: { token: bigint; quote: bigint };
+  /** The opening price, coin per whole token, from the sqrt price in the bytes. */
+  startPrice: number;
+  /** The program's fee to open a pool, and the wallet it pays. */
+  createFee: bigint;
+  feeReceiver: PublicKey;
+  /** Deposits that never come back: the pool, its two vaults, price record and far-band map, and its new price bands. */
+  neverBack: bigint;
+  /** Deposits that come back when the position is closed: its record, its NFT and the NFT's account. */
+  backOnClose: bigint;
+  unwrapsWsol: boolean;
+  notices: string[];
+  /** A freezable coin's lines. A price off the market, no market and a read that failed are refused, never warned. */
+  warnings: string[];
+  /** The opening price against the outside one, read fresh: built only when it agrees. */
+  price: RangePriceCheck;
+} & { poolLine: RangePoolLine; range: RangeLine };
 
 /**
  * A swap in one of our range pools, as the review shows it. The amounts are decoded from
@@ -762,6 +789,8 @@ export interface RangeIntent {
   swap?: { inputMint: PublicKey; bands: PublicKey[]; extension: PublicKey | null };
   /** An opening's liquidity, planned from the fresh read: the only liquidity it may name. */
   openLiquidity?: bigint;
+  /** A new pool only: the opening price it is created at, the only one it may name. */
+  create?: { sqrtPriceX64: bigint };
 }
 
 /** A launch, a curve trade, a graduation or a launch pool's swap. Every field it had before liquidity stays required. */

@@ -1,6 +1,6 @@
 // Range positions in the venue's own range program (solana/tegridy-clmm): opening one with
-// its Token-2022 NFT, taking some or all of its liquidity out (none collects its fees), and
-// closing it. Each builder makes ONE fresh read of everything it touches, pins the pool and
+// its Token-2022 NFT (in a pool, or in a new pool opened in the same transaction), taking
+// some or all of its liquidity out (none collects its fees), and closing it. Each builder makes ONE fresh read of everything it touches, pins the pool and
 // position from that read (`rangePins`), builds with the site's own builders
 // (solana/clmm/ix.ts), and goes through `buildAndSimulate`: decoded back and checked
 // against the shapes this site builds (intent.ts rebuilds every range instruction from the
@@ -8,7 +8,7 @@
 // Nothing here signs or sends.
 
 import { createAssociatedTokenAccountIdempotentInstruction } from '@solana/spl-token';
-import { Keypair, PublicKey, type TransactionInstruction } from '@solana/web3.js';
+import { Keypair, PublicKey, SystemProgram, type TransactionInstruction } from '@solana/web3.js';
 import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, WSOL_MINT } from '../curve/program';
 import { associatedTokenAddress } from '../curve/ix';
 import { formatTokenAmount } from '../curve/format';
@@ -18,30 +18,71 @@ import type { RawAccount } from '../../../solana/lp/accounts';
 import type { OutsidePrice } from '../../../solana/lp/outsidePrice';
 import { tokenVault } from '../../../solana/lp/poolFinder';
 import { tokenAccountSize } from '../../../solana/lp/tokenAccountSize';
-import { rangePriceCheck } from '../../../solana/clmm/priceCheck';
-import { closePositionIx, decreaseLiquidityV2Ix, openPositionWithToken22NftIx, positionNftAccount } from '../../../solana/clmm/ix';
-import { calculateLatestTokenFees, getDeltaAmountsSigned, getFeeGrowthInside, usableTickBounds, ClmmMathError } from '../../../solana/clmm/math';
+import { marketGap, rangePriceCheck, type RangePriceCheck } from '../../../solana/clmm/priceCheck';
 import {
+  CREATE_POOL_FEE_LAMPORTS,
+  CREATE_POOL_FEE_RECEIVER,
+  closePositionIx,
+  createPoolIx,
+  decreaseLiquidityV2Ix,
+  openPositionWithToken22NftIx,
+  positionNftAccount,
+} from '../../../solana/clmm/ix';
+import {
+  MAX_SQRT_PRICE_X64,
+  MIN_SQRT_PRICE_X64,
+  calculateLatestTokenFees,
+  getDeltaAmountsSigned,
+  getFeeGrowthInside,
+  getTickAtSqrtPrice,
+  usableTickBounds,
+  ClmmMathError,
+} from '../../../solana/clmm/math';
+import {
+  BITMAP_EXTENSION_LEN,
+  FEE_ON_FROM_INPUT,
+  OBSERVATION_STATE_LEN,
+  POOL_STATE_LEN,
   POOL_STATUS_BIT,
   decodeAmmConfig,
   decodePersonalPosition,
   decodePoolState,
   decodeTickArray,
+  deriveAmmConfig,
+  deriveBitmapExtension,
   deriveObservation,
   derivePersonalPosition,
+  derivePool,
   deriveTickArray,
   deriveVault,
   poolAllows,
+  sortMints,
   type AmmConfigView,
   type PersonalPositionView,
   type PoolStateView,
 } from '../../../solana/clmm/program';
 import { getArrayStartIndex } from '../../../solana/clmm/bitmap';
-import { depositFrom, holdsNow, lessTolerance, pairOf, planFromCeiling, priceNumber, rangePrices, withTolerance, type Pair, type TickRange } from '../../../solana/clmm/rangeMath';
+import {
+  depositFrom,
+  holdsNow,
+  lessTolerance,
+  pairOf,
+  planFromCeiling,
+  priceAtSqrt,
+  priceNumber,
+  rangePrices,
+  sqrtAtPrice,
+  withTolerance,
+  type DepositPlan,
+  type Pair,
+  type Price,
+  type TickRange,
+} from '../../../solana/clmm/rangeMath';
+import { formatSolPrice } from '../../../solana/lp/format';
 import { poolFeeCeiling } from '../../../solana/clmm/feeText';
 import { MAX_OWN_PRIORITY_LAMPORTS } from './budget';
 import { LP_COPY, accountCheck, coinAccount, rentOf, toRaw, type AccountWant } from './liquidity';
-import { bodySteps, buildAndSimulate, notSent } from './prepare';
+import { bodySteps, buildAndSimulate, notRead, notSent } from './prepare';
 import type {
   CurveWriteConfig,
   Expectation,
@@ -90,6 +131,16 @@ export const RANGE_COPY = {
   nothingToTake: 'There is nothing in this position to take out, and no fees to collect.',
   badPercent: 'Choose how much to take out: from 0% (fees only) to 100%.',
   badTolerance: 'The price tolerance must be from 0% to 50%.',
+  poolTaken: (at: string | null) =>
+    `Someone has opened this pool already${at ? `, at ${at}` : ''}, so nothing was built. Read the pools again to put coins into it instead.`,
+  poolAccountsTaken: 'Something already sits at one of this pool’s own addresses, so it cannot be opened. Nothing was built.',
+  noTier: 'The range fee tier is not on this network yet, so no pool can be opened. Nothing was built.',
+  startOutside: 'That opening price is outside what a range pool can hold.',
+  createNoMarket: 'This token has no market price, so a pool for it would be its launch. The venue does not open launches this way. Nothing was built.',
+  createPriceUnread: (why: string) =>
+    `The market price could not be read just now (${why}), so your opening price could not be checked against it. Nothing was built. Try again in a moment.`,
+  createPriceOff: (pct: string, side: 'above' | 'below') =>
+    `Your opening price is ${pct} ${side} the market price (Jupiter’s). The first trader could buy from your deposit at it, so nothing was built. Use the market price.`,
 } as const;
 
 /** The largest a position's Token-2022 NFT mint gets: its name, symbol and link included (469 bytes for ours). */
@@ -299,27 +350,41 @@ export interface RangeOpenReads {
   outsidePrice(mint: string, decimals: number, opts?: { fresh?: boolean }): Promise<OutsidePrice>;
 }
 
+/** The token's and (unless it is SOL) the coin's outside price, asked fresh; a reader that throws reads as unread. */
+async function askOutside(reads: RangeOpenReads, pair: Pair): Promise<[OutsidePrice, OutsidePrice | null]> {
+  const ask = async (mint: string, decimals: number): Promise<OutsidePrice> => {
+    try {
+      return await reads.outsidePrice(mint, decimals, { fresh: true });
+    } catch (e) {
+      return { kind: 'unread', detail: e instanceof Error ? e.message : String(e) };
+    }
+  };
+  return Promise.all([ask(pair.tokenMint, pair.tokenDecimals), pair.quote.native ? null : ask(pair.quote.mint, pair.quote.decimals)]);
+}
+
+/** Two usable ticks of this spacing, lower first, or false. */
+const usableRange = (spacing: number, lower: number, upper: number) => {
+  const b = usableTickBounds(spacing);
+  return lower < upper && lower >= b.min && upper <= b.max && lower % spacing === 0 && upper % spacing === 0;
+};
+
 export async function prepareRangeOpen(rpc: WriteRpc, cfg: CurveWriteConfig, programId: PublicKey, reads: RangeOpenReads, a: RangeOpenArgs): Promise<Prepared> {
   const bad = toleranceProblem(a.toleranceBps);
   if (bad) return notSent('build', bad);
   if (a.amount <= 0n) return notSent('build', 'Enter an amount above zero.');
 
-  // 1. One read of the pool, its tier and mints, the signer's accounts and the two bands.
+  // 1. One read of the pool, its tier and mints, the two bands and the pool's vaults.
   const first = await readFresh(rpc, programId, a.pool, null, null, []);
   if (!first) return notSent('build', RANGE_COPY.readFailed);
   if (!deployed(first.program)) return notSent('build', RANGE_COPY.notDeployed);
   const peek = decodePool(programId, a.pool, first.pool);
   if (typeof peek === 'string') return notSent('build', peek);
-  const bounds = usableTickBounds(peek.tickSpacing);
-  if (!(a.tickLower < a.tickUpper) || a.tickLower < bounds.min || a.tickUpper > bounds.max || a.tickLower % peek.tickSpacing !== 0 || a.tickUpper % peek.tickSpacing !== 0) {
-    return notSent('build', RANGE_COPY.badRange);
-  }
+  if (!usableRange(peek.tickSpacing, a.tickLower, a.tickUpper)) return notSent('build', RANGE_COPY.badRange);
   const pairPeek = pairOf(peek);
   if (!pairPeek) return notSent('build', RANGE_COPY.notOurPair);
   const startLower = getArrayStartIndex(a.tickLower, peek.tickSpacing);
   const startUpper = getArrayStartIndex(a.tickUpper, peek.tickSpacing);
   const bands = [...new Set([startLower, startUpper])].map((s) => deriveTickArray(programId, a.pool, s));
-  const quote = pairPeek.quote;
   // The bands, then the pool's two vaults: a frozen vault takes nothing in or out.
   const extraKeys = [...bands, new PublicKey(peek.tokenVault0), new PublicKey(peek.tokenVault1)];
   const fresh = await readFresh(rpc, programId, a.pool, new PublicKey(peek.ammConfig), [new PublicKey(peek.tokenMint0), new PublicKey(peek.tokenMint1)], extraKeys);
@@ -340,12 +405,204 @@ export async function prepareRangeOpen(rpc: WriteRpc, cfg: CurveWriteConfig, pro
   if (!v0 || !v1) return notSent('build', RANGE_COPY.poolChanged('its vaults'));
   if (v0.frozen || v1.frozen) return notSent('build', RANGE_COPY.vaultFrozen);
 
+  const range: TickRange = { tickLower: a.tickLower, tickUpper: a.tickUpper };
+  return openingTx(rpc, cfg, programId, a, {
+    kind: 'range-open',
+    pins,
+    pair,
+    tier,
+    pool,
+    mint0: fresh.mint0,
+    mint1: fresh.mint1,
+    newBands: fresh.extra.slice(0, bands.length).filter((b) => b === null || b.owner !== programId.toBase58()).length,
+    toleranceBps: a.toleranceBps,
+    // 2b. The pool's price against the outside market, asked fresh: anyone can open a range
+    // pool at any price, and a deposit at a price off the market is arbitraged back.
+    price: async (plan) => {
+      const [outside, coinOutside] = await askOutside(reads, pair);
+      const check = rangePriceCheck({ pair, sqrtPriceX64: pool.sqrtPriceX64, range, liquidity: plan.liquidity, amount0: plan.amount0, amount1: plan.amount1, outside, coinOutside });
+      const warnings: string[] = [];
+      if (check.state === 'disagrees') {
+        const pct = `${Number((Math.abs(check.diff) * 100).toFixed(1))}%`;
+        const loss = check.lossQuote === null ? null : `${formatTokenAmount(check.lossQuote, pair.quote.decimals, 6).text} ${pair.quote.symbol}`;
+        warnings.push(RANGE_COPY.priceOff(pct, check.diff > 0 ? 'above' : 'below', loss));
+      } else if (check.state === 'no-market') warnings.push(RANGE_COPY.noMarket);
+      else if (check.state === 'unread') warnings.push(RANGE_COPY.priceUnread(check.detail));
+      return { check, warnings };
+    },
+    create: null,
+  });
+}
+
+export interface RangeCreateArgs {
+  owner: PublicKey;
+  tokenMint: PublicKey;
+  /** One of the site's own pairing coins (quotes.ts). */
+  coinMint: PublicKey;
+  /** The price the pool opens at: whole coin per whole token. */
+  startPrice: Price;
+  tickLower: number;
+  tickUpper: number;
+  side: 'token' | 'coin';
+  /**
+   * Exactly what the first position takes of that coin. The pool opens at the start price in
+   * the same transaction, so nothing can move it in between and no tolerance is needed.
+   */
+  amount: bigint;
+}
+
+/** Nothing was ever made at this address: the chain's own "none", as `read.ts` reads it. */
+const absent = (a: RawAccount | null) => a === null || (a.owner === SystemProgram.programId.toBase58() && a.data.length === 0);
+
+/**
+ * A new pool on the 1% tier (fee tier 0, the only one this site offers) and its first
+ * position, in ONE transaction: an empty pool's price can be moved by anyone for free, so it
+ * never exists here without coins in it. The opening price must agree with the market's,
+ * asked fresh; a price off it, a token with no market price (a launch by another name) and a
+ * price that could not be read are refused, never warned. The program charges the 0.5 SOL fee
+ * to the vault inside `create_pool`; the checker rebuilds that step and refuses any other.
+ */
+export async function prepareRangeCreate(rpc: WriteRpc, cfg: CurveWriteConfig, programId: PublicKey, reads: RangeOpenReads, a: RangeCreateArgs): Promise<Prepared> {
+  if (a.amount <= 0n) return notSent('build', 'Enter an amount above zero.');
+  const coin = quoteCoin(a.coinMint.toBase58());
+  if (!coin || a.tokenMint.equals(a.coinMint)) return notSent('build', RANGE_COPY.notOurPair);
+  const ammConfig = deriveAmmConfig(programId, 0);
+  const { token0, token1 } = sortMints(a.tokenMint, a.coinMint);
+  const poolKey = derivePool(programId, ammConfig, token0, token1);
+  const poolOwn = [deriveVault(programId, poolKey, token0), deriveVault(programId, poolKey, token1), deriveObservation(programId, poolKey), deriveBitmapExtension(programId, poolKey)];
+
+  // 1. One read: the program, the pool's address and its own accounts' (all empty), tier 0 and both mints.
+  const fresh = await readFresh(rpc, programId, poolKey, ammConfig, [token0, token1], poolOwn);
+  if (!fresh) return notSent('build', RANGE_COPY.readFailed);
+  if (!deployed(fresh.program)) return notSent('build', RANGE_COPY.notDeployed);
+  if (!absent(fresh.pool)) {
+    const there = decodePool(programId, poolKey, fresh.pool);
+    const pr = typeof there === 'string' ? null : pairOf(there);
+    const at = pr && typeof there !== 'string' ? `${formatSolPrice(priceNumber(priceAtSqrt(pr, there.sqrtPriceX64)))} ${pr.quote.symbol} per token` : null;
+    return notSent('build', RANGE_COPY.poolTaken(at));
+  }
+  if (!fresh.extra.every(absent)) return notSent('build', RANGE_COPY.poolAccountsTaken);
+  const tierPeek = fresh.config && fresh.config.owner === programId.toBase58() ? decodeAmmConfig(ammConfig.toBase58(), fresh.config.data) : null;
+  if (!tierPeek || tierPeek.index !== 0) return notSent('build', RANGE_COPY.noTier);
+  const decimals: number[] = [];
+  for (const m of [fresh.mint0, fresh.mint1]) {
+    const d = m ? decodeMintAccount(m.owner, m.data) : null;
+    if (!d || !d.ok) return notSent('build', RANGE_COPY.tokenNot(d ? d.reason : 'its mint was not read'));
+    decimals.push(d.value.decimals);
+  }
+  const shape = { tokenMint0: token0.toBase58(), tokenMint1: token1.toBase58(), mintDecimals0: decimals[0]!, mintDecimals1: decimals[1]!, tickSpacing: tierPeek.tickSpacing };
+  const pairPeek = pairOf(shape);
+  if (!pairPeek || pairPeek.quote.mint !== coin.mint || pairPeek.tokenMint !== a.tokenMint.toBase58()) return notSent('build', RANGE_COPY.notOurPair);
+  const sqrtPriceX64 = a.startPrice.num > 0n && a.startPrice.den > 0n ? sqrtAtPrice(pairPeek, a.startPrice) : 0n;
+  if (sqrtPriceX64 < MIN_SQRT_PRICE_X64 || sqrtPriceX64 >= MAX_SQRT_PRICE_X64) return notSent('build', RANGE_COPY.startOutside);
+  if (!usableRange(tierPeek.tickSpacing, a.tickLower, a.tickUpper)) return notSent('build', RANGE_COPY.badRange);
+
+  // The pool as `create_pool` will make it, the first step of this transaction.
+  const pool: PoolStateView = {
+    ...shape,
+    address: poolKey.toBase58(),
+    ammConfig: ammConfig.toBase58(),
+    owner: a.owner.toBase58(),
+    tokenVault0: poolOwn[0]!.toBase58(),
+    tokenVault1: poolOwn[1]!.toBase58(),
+    observationKey: poolOwn[2]!.toBase58(),
+    liquidity: 0n,
+    sqrtPriceX64,
+    tickCurrent: getTickAtSqrtPrice(sqrtPriceX64),
+    feeGrowthGlobal0X64: 0n,
+    feeGrowthGlobal1X64: 0n,
+    protocolFeesToken0: 0n,
+    protocolFeesToken1: 0n,
+    fundFeesToken0: 0n,
+    fundFeesToken1: 0n,
+    status: 0,
+    feeOn: FEE_ON_FROM_INPUT,
+    seedIndex: 0,
+    rewardInfos: [],
+    tickArrayBitmap: [],
+    openTime: 0n,
+    recentEpoch: 0n,
+    dynamicFeeInfo: null,
+  };
+  const pinned = rangePins(programId, pool, fresh.config, fresh.mint0, fresh.mint1, [], false);
+  if (typeof pinned === 'string') return notSent('build', pinned);
+  const { pins, pair, tier } = pinned;
+
+  // 2. The opening price against the market's, asked fresh.
+  const [outside, coinOutside] = await askOutside(reads, pair);
+  const gap = marketGap(pair, sqrtPriceX64, outside, coinOutside);
+  if (gap.state === 'no-market') return notSent('build', RANGE_COPY.createNoMarket);
+  if (gap.state === 'unread') return notRead('build', RANGE_COPY.createPriceUnread(gap.detail));
+  if (gap.state === 'disagrees') return notSent('build', RANGE_COPY.createPriceOff(`${Number((Math.abs(gap.diff) * 100).toFixed(1))}%`, gap.diff > 0 ? 'above' : 'below'));
+  const check: RangePriceCheck = { state: 'agrees', pool: gap.pool, reference: gap.reference, diff: gap.diff };
+
+  // 3. What the pool's own accounts keep for good: the pool, its price record, its far-band
+  // map (the program's `space`, Anchor's 8 bytes in), and its two vaults, each sized by its mint.
+  const vaultSizes = [fresh.mint0, fresh.mint1].map((m) => (m ? tokenAccountSize(m) : 'its mint was not read'));
+  const unsized = vaultSizes.find((s): s is string => typeof s === 'string');
+  if (unsized !== undefined) return notSent('build', RANGE_COPY.cannotSize(unsized));
+  let poolRent = 0n;
+  try {
+    for (const n of [POOL_STATE_LEN, OBSERVATION_STATE_LEN, BITMAP_EXTENSION_LEN, ...(vaultSizes as number[])]) poolRent += rentOf(await rpc.getMinimumBalanceForRentExemption(n));
+  } catch {
+    return notSent('build', RANGE_COPY.readFailed);
+  }
+
+  return openingTx(rpc, cfg, programId, a, {
+    kind: 'range-create',
+    pins,
+    pair,
+    tier,
+    pool,
+    mint0: fresh.mint0,
+    mint1: fresh.mint1,
+    // A new pool has no bands yet: each end's band is made by this opening.
+    newBands: new Set([getArrayStartIndex(a.tickLower, pool.tickSpacing), getArrayStartIndex(a.tickUpper, pool.tickSpacing)]).size,
+    toleranceBps: 0,
+    price: async () => ({ check, warnings: [] }),
+    create: {
+      ix: createPoolIx({ programId, poolCreator: a.owner, ammConfig, mint0: token0, mint1: token1, tokenProgram0: pins.token0Program, tokenProgram1: pins.token1Program, sqrtPriceX64 }),
+      sqrtPriceX64,
+      fee: CREATE_POOL_FEE_LAMPORTS,
+      rent: poolRent,
+    },
+  });
+}
+
+/** What an opening in a pool, or in a new pool, is built from once the pool is pinned. */
+interface Opening {
+  kind: 'range-open' | 'range-create';
+  pins: RangePins;
+  pair: Pair;
+  tier: AmmConfigView;
+  /** The pool as read, or as its first step will create it. */
+  pool: PoolStateView;
+  mint0: RawAccount | null;
+  mint1: RawAccount | null;
+  /** The opening's price bands nobody has used yet: each keeps a deposit that never comes back. */
+  newBands: number;
+  toleranceBps: number;
+  /** The price check and the words it puts on the review, from the plan. */
+  price: (plan: DepositPlan) => Promise<{ check: RangePriceCheck; warnings: string[] }>;
+  /** A new pool only: the step that opens it, its price, the program's fee and what its accounts keep. */
+  create: { ix: TransactionInstruction; sqrtPriceX64: bigint; fee: bigint; rent: bigint } | null;
+}
+
+async function openingTx(
+  rpc: WriteRpc,
+  cfg: CurveWriteConfig,
+  programId: PublicKey,
+  a: Pick<RangeOpenArgs, 'owner' | 'tickLower' | 'tickUpper' | 'side' | 'amount'>,
+  o: Opening,
+): Promise<Prepared> {
+  const { pins, pair, tier, pool } = o;
+  const quote = pair.quote;
   // The signer's two accounts, read now that the token's program is known. An account this
   // opens is sized by its own mint: 170 bytes for a Token-2022 coin such as BAYLA, not 165.
   const tokenSide = sideAccount(a.owner, pins, 'token', 'source');
   const coinSide = sideAccount(a.owner, pins, 'quote', 'source');
-  const tokenMintRaw = pair.tokenIsToken0 ? fresh.mint0 : fresh.mint1;
-  const coinMintRaw = pair.tokenIsToken0 ? fresh.mint1 : fresh.mint0;
+  const tokenMintRaw = pair.tokenIsToken0 ? o.mint0 : o.mint1;
+  const coinMintRaw = pair.tokenIsToken0 ? o.mint1 : o.mint0;
   const tokenSize = tokenMintRaw ? tokenAccountSize(tokenMintRaw) : 'its mint was not read';
   const coinSize = quote.native ? 165 : coinMintRaw ? tokenAccountSize(coinMintRaw) : 'its mint was not read';
   if (typeof tokenSize === 'string') return notSent('build', RANGE_COPY.cannotSize(tokenSize));
@@ -368,12 +625,12 @@ export async function prepareRangeOpen(rpc: WriteRpc, cfg: CurveWriteConfig, pro
   // only that coin, so a sandwich passed.) The plan is made from the typed amount less the
   // tolerance, so the typed amount stays the most it takes of that coin.
   const range: TickRange = { tickLower: a.tickLower, tickUpper: a.tickUpper };
-  const planAmount = planFromCeiling(a.amount, a.toleranceBps);
+  const planAmount = planFromCeiling(a.amount, o.toleranceBps);
   const plan = depositFrom(pair, pool, range, a.side, planAmount);
   if (!plan) return notSent('build', RANGE_COPY.buysNothing);
   const typed0 = (a.side === 'token') === pair.tokenIsToken0;
   const ceil = (amount: bigint, typed: boolean) => {
-    const m = withTolerance(amount, a.toleranceBps);
+    const m = withTolerance(amount, o.toleranceBps);
     return typed && m > a.amount ? a.amount : m;
   };
   const max0 = ceil(plan.amount0, typed0);
@@ -381,24 +638,7 @@ export async function prepareRangeOpen(rpc: WriteRpc, cfg: CurveWriteConfig, pro
   const max = sides(pair, max0, max1);
   const quoted = sides(pair, plan.amount0, plan.amount1);
 
-  // 2b. The pool's price against the outside market, asked fresh: anyone can open a range
-  // pool at any price, and a deposit at a price off the market is arbitraged back.
-  const warnings: string[] = [];
-  const ask = async (mint: string, decimals: number): Promise<OutsidePrice> => {
-    try {
-      return await reads.outsidePrice(mint, decimals, { fresh: true });
-    } catch (e) {
-      return { kind: 'unread', detail: e instanceof Error ? e.message : String(e) };
-    }
-  };
-  const [outside, coinOutside] = await Promise.all([ask(pins.tokenMint.toBase58(), pair.tokenDecimals), quote.native ? null : ask(quote.mint, quote.decimals)]);
-  const check = rangePriceCheck({ pair, sqrtPriceX64: pool.sqrtPriceX64, range, liquidity: plan.liquidity, amount0: plan.amount0, amount1: plan.amount1, outside, coinOutside });
-  if (check.state === 'disagrees') {
-    const pct = `${Number((Math.abs(check.diff) * 100).toFixed(1))}%`;
-    const loss = check.lossQuote === null ? null : `${formatTokenAmount(check.lossQuote, quote.decimals, 6).text} ${quote.symbol}`;
-    warnings.push(RANGE_COPY.priceOff(pct, check.diff > 0 ? 'above' : 'below', loss));
-  } else if (check.state === 'no-market') warnings.push(RANGE_COPY.noMarket);
-  else if (check.state === 'unread') warnings.push(RANGE_COPY.priceUnread(check.detail));
+  const { check, warnings } = await o.price(plan);
   const freezes = freezeLines(pair, tokenMintRaw ?? null, coinMintRaw ?? null);
   if (!Array.isArray(freezes)) return notSent('build', freezes.refuse);
   warnings.push(...freezes);
@@ -437,7 +677,8 @@ export async function prepareRangeOpen(rpc: WriteRpc, cfg: CurveWriteConfig, pro
   }
 
   // 4. The body. Both coin accounts must exist for the program, so a missing one with
-  // nothing to give is opened (the wrapped-SOL account is closed again at the end).
+  // nothing to give is opened (the wrapped-SOL account is closed again at the end). A new
+  // pool is created just before its first position goes in.
   const nft = Keypair.generate();
   const opens: PublicKey[] = [];
   const body: TransactionInstruction[] = [];
@@ -453,6 +694,7 @@ export async function prepareRangeOpen(rpc: WriteRpc, cfg: CurveWriteConfig, pro
     body.push(openAta(a.owner, coinSide.address, new PublicKey(quote.mint), new PublicKey(quote.program)));
     opens.push(coinSide.address);
   }
+  if (o.create) body.push(o.create.ix);
   const own0 = associatedTokenAddress(pins.token0Mint, a.owner, pins.token0Program);
   const own1 = associatedTokenAddress(pins.token1Mint, a.owner, pins.token1Program);
   body.push(
@@ -474,8 +716,10 @@ export async function prepareRangeOpen(rpc: WriteRpc, cfg: CurveWriteConfig, pro
   );
   if (plan2) body.push(...closeWsolIxs(plan2, a.owner));
 
-  const bandRent = BigInt(fresh.extra.slice(0, bands.length).filter((b) => b === null || b.owner !== programId.toBase58()).length) * rents.band;
+  const bandRent = BigInt(o.newBands) * rents.band;
   const positionRent = rents.position + rents.nftMint + rents.nftAccount;
+  const poolRent = o.create?.rent ?? 0n;
+  const createFee = o.create?.fee ?? 0n;
   // What the accounts this opens keep as deposits, each sized by its own mint.
   const openedRent = (pre: { tokens: Map<string, { exists: boolean }> }) =>
     opens
@@ -487,7 +731,7 @@ export async function prepareRangeOpen(rpc: WriteRpc, cfg: CurveWriteConfig, pro
   else tokenAccounts.push({ account: coinSide.address, mint: new PublicKey(quote.mint), role: 'quote', decimals: quote.decimals });
 
   const intent: RangeIntent = {
-    kind: 'range-open',
+    kind: o.kind,
     signer: a.owner,
     cfg,
     maxPriorityLamports: MAX_OWN_PRIORITY_LAMPORTS,
@@ -495,30 +739,32 @@ export async function prepareRangeOpen(rpc: WriteRpc, cfg: CurveWriteConfig, pro
     position: null,
     nftMint: nft.publicKey,
     openLiquidity: plan.liquidity,
+    ...(o.create ? { create: { sqrtPriceX64: o.create.sqrtPriceX64 } } : {}),
   };
   return buildAndSimulate(rpc, {
-    kind: 'range-open',
+    kind: o.kind,
     body,
     extraSigners: [nft],
     intent,
     watch: { signer: a.owner, tokenAccounts },
     expect: (pre, r): Expectation => {
-      const accountRents = openedRent(pre);
+      // A new pool's fee and its accounts' deposits leave the wallet too, and nothing more.
+      const fixed = positionRent + bandRent + openedRent(pre) + poolRent + createFee;
       const tokenRow = { account: tokenSide.address, mint: pins.tokenMint, minDelta: -max.token, maxDelta: 2n ** 64n };
       if (!plan2) {
         return {
-          maxSolOut: positionRent + bandRent + accountRents,
+          maxSolOut: fixed,
           tokens: [tokenRow, { account: coinSide.address, mint: new PublicKey(quote.mint), minDelta: -max.quote, maxDelta: 2n ** 64n }],
         };
       }
       // SOL wrapped in and not used: closed, it comes back as SOL; kept, it stays wrapped.
       const kept = plan2.closeAfter ? 0n : syncCredit(pre.tokens.get(plan2.ata.toBase58()), r.tokenAccount);
       return {
-        maxSolOut: max.quote + positionRent + bandRent + accountRents,
+        maxSolOut: max.quote + fixed,
         tokens: [tokenRow, { account: plan2.ata, mint: WSOL_MINT, minDelta: kept, maxDelta: plan2.closeAfter ? 0n : kept + max.quote }],
       };
     },
-    newAccountRent: (pre) => positionRent + bandRent + openedRent(pre),
+    newAccountRent: (pre) => positionRent + bandRent + poolRent + openedRent(pre),
     summarize: (steps): TxSummary | string => {
       const problem = stepsProblem(steps, {
         own: (s) => s.kind === 'range-open' && s.tickLower === a.tickLower && s.tickUpper === a.tickUpper && s.max0 === max0 && s.max1 === max1 && s.liquidity === plan.liquidity,
@@ -527,18 +773,21 @@ export async function prepareRangeOpen(rpc: WriteRpc, cfg: CurveWriteConfig, pro
         closes: plan2?.closeAfter ?? false,
       });
       if (problem) return problem;
+      const common = { nftMint: nft.publicKey, max, unwrapsWsol: plan2?.closeAfter ?? false, notices, warnings, price: check, poolLine: poolLine(pins, pair, tier, pool), range: rangeLine(pair, pool, range) };
+      if (!o.create) return { kind: 'range-open', ...common, quoted, rentLamports: positionRent + bandRent };
+      const made = bodySteps(steps).filter((s) => s.kind === 'range-create-pool');
+      const step = made[0];
+      if (made.length !== 1 || step?.kind !== 'range-create-pool' || step.sqrtPriceX64 !== o.create.sqrtPriceX64 || !step.pool.equals(pins.address)) {
+        return 'The pool opening in the transaction does not match what was worked out.';
+      }
       return {
-        kind: 'range-open',
-        nftMint: nft.publicKey,
-        max,
-        quoted,
-        rentLamports: positionRent + bandRent,
-        unwrapsWsol: plan2?.closeAfter ?? false,
-        notices,
-        warnings,
-        price: check,
-        poolLine: poolLine(pins, pair, tier, pool),
-        range: rangeLine(pair, pool, range),
+        kind: 'range-create',
+        ...common,
+        startPrice: priceNumber(priceAtSqrt(pair, step.sqrtPriceX64)),
+        createFee,
+        feeReceiver: CREATE_POOL_FEE_RECEIVER,
+        neverBack: poolRent + bandRent,
+        backOnClose: positionRent,
       };
     },
   });

@@ -1,22 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { PublicKey } from '@solana/web3.js';
-import { parseDecimalToBaseUnits } from '../../../lib/launcher/solana/curve';
-import {
-  depositFrom,
-  holdsNow,
-  parsePrice,
-  planFromCeiling,
-  presetRange,
-  priceAtSqrt,
-  rangeFromPrices,
-  rangePrices,
-  type Pair,
-  type Preset,
-  type TickRange,
-} from '../../../lib/solana/clmm/rangeMath';
+import { depositFrom, planFromCeiling, priceAtSqrt, type Pair, type TickRange } from '../../../lib/solana/clmm/rangeMath';
 import type { RangePool } from '../../../lib/solana/clmm/read';
-import { formatSolPrice } from '../../../lib/solana/lp/format';
-import { priceNumber } from '../../../lib/solana/clmm/rangeMath';
 import { CardArt } from '../../ui/CardArt';
 import { Card, Notice, Row, SlippagePicker } from '../curve/ui';
 import { DEFAULT_SLIPPAGE_BPS } from '../curve/uiFormat';
@@ -30,7 +15,8 @@ import type { RangeOpenReads } from '../../../lib/launcher/solana/write/range';
 import { marketGap, type MarketGap } from '../../../lib/solana/clmm/priceCheck';
 import type { OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
 import { RangeReviewDisclosure, RangeRisks } from './RangeRisks';
-import { bothAmounts, coinAmount, priceNumberText, priceText, tokenAmount, tokenName, tokenWord } from './rangeText';
+import { RangePickFields, pickProblem, useRangePick } from './RangePickFields';
+import { bothAmounts, coinAmount, priceNumberText, priceText, tokenAmount } from './rangeText';
 import { useFlowReports } from './useRangeData';
 
 const TOLERANCE_HINT =
@@ -59,11 +45,7 @@ export function RangeOpenCard(p: {
 }) {
   const { pool, pair } = p;
   const v = pool.pool;
-  const [preset, setPreset] = useState<Preset | null>(null);
-  const [minText, setMinText] = useState('');
-  const [maxText, setMaxText] = useState('');
-  const [chosenSide, setChosenSide] = useState<'token' | 'coin'>('token');
-  const [amountText, setAmountText] = useState('');
+  const pick = useRangePick(pair, v);
   const [tolerance, setTolerance] = useState<bigint | null>(DEFAULT_SLIPPAGE_BPS);
   // While a deposit is under review or on its way, the range and the amount it was built from stay put.
   const [busy, setBusy] = useState(false);
@@ -99,59 +81,10 @@ export function RangeOpenCard(p: {
         : gap.state === 'unread'
           ? `could not be read just now (${gap.detail})`
           : priceNumberText(pair, gap.reference);
-  const range = useMemo(() => {
-    if (preset) return presetRange(pair, v, preset);
-    const min = parsePrice(minText);
-    const max = parsePrice(maxText);
-    if (!minText && !maxText) return null;
-    if (!min || !max) return 'unreadable-price' as const;
-    return rangeFromPrices(pair, min, max);
-  }, [preset, minText, maxText, pair, v]);
-  const r: TickRange | null = range && typeof range === 'object' ? range : null;
-  const holds = r ? holdsNow(pair, v, r) : null;
-  const side = holds === 'token-only' ? 'token' : holds === 'coin-only' ? 'coin' : chosenSide;
-  const decimals = side === 'token' ? pair.tokenDecimals : pair.quoteDecimals;
-  const amount = amountText ? parseDecimalToBaseUnits(amountText, decimals) : null;
+  const { r, side, amount } = pick;
   // Planned as the builder plans it, so the card and the review show one figure.
   const plan = r && amount !== null && amount > 0n ? depositFrom(pair, v, r, side, planFromCeiling(amount, Number(tolerance ?? 0n))) : null;
-
-  const pick = (to: Preset) => {
-    const pr = presetRange(pair, v, to);
-    setPreset(to);
-    if (typeof pr === 'object') {
-      const prices = rangePrices(pair, pr);
-      setMinText(formatSolPrice(priceNumber(prices.min)));
-      setMaxText(formatSolPrice(priceNumber(prices.max)));
-    }
-  };
-  const PRESETS: { id: Preset; label: string }[] = [
-    { id: 'close', label: 'Close to this pool’s price' },
-    { id: 'wide', label: 'Wide' },
-    { id: 'token-above', label: `${tokenName(pair)} only, above this pool’s price` },
-    { id: 'coin-below', label: `${pair.quote.symbol} only, below` },
-  ];
-
-  const problemText =
-    range === 'min-not-below-max'
-      ? 'The lowest price must be below the highest.'
-      : range === 'unreadable-price'
-        ? 'Type each price as a plain number, like 0.0003.'
-        : range === 'outside-the-pool'
-          ? 'That range reaches past the prices this pool can hold.'
-          : amountText && amount === null
-            ? `Type an amount of ${side === 'token' ? tokenWord(pair) : pair.quote.symbol} as a plain number.`
-            : r && amount !== null && amount > 0n && !plan
-              ? 'That amount buys nothing in this range. Try a larger amount.'
-              : '';
-
-  const holdsLine =
-    holds === 'token-only'
-      ? `This range is above this pool’s price, so it holds ${tokenWord(pair)} only. It sells ${tokenWord(pair)} for ${pair.quote.symbol} as the price rises through it, and earns nothing until the price reaches it.`
-      : holds === 'coin-only'
-        ? `This range is below this pool’s price, so it holds ${pair.quote.symbol} only. It buys ${tokenWord(pair)} as the price falls through it, and earns nothing until the price reaches it.`
-        : holds === 'both'
-          ? 'This pool’s price is inside this range, so it holds both coins and earns from the first swap.'
-          : null;
+  const problemText = pickProblem(pair, pick, plan);
 
   return (
     <Card title="Pick your range" testId="range-open" art={<CardArt pageId="range-pools" idx={2} />}>
@@ -165,85 +98,7 @@ export function RangeOpenCard(p: {
       {gap?.state === 'no-market' && (
         <Notice tone="warn">Jupiter has no route for this pair, so this pool’s price cannot be checked against a market price. Anyone can open a range pool at any price.</Notice>
       )}
-      <fieldset disabled={busy} className="space-y-2 min-w-0 disabled:opacity-70">
-      <div className="flex flex-wrap gap-2" role="group" aria-label="Range presets">
-        {PRESETS.map((x) => (
-          <button
-            key={x.id}
-            type="button"
-            aria-pressed={preset === x.id}
-            className={`min-h-[44px] px-3 rounded-lg border text-[12px] ${preset === x.id ? 'border-emerald-300/70 bg-emerald-400/15 text-white' : 'border-white/15 bg-white/5 text-white/80 hover:text-white'}`}
-            onClick={() => pick(x.id)}
-          >
-            {x.label}
-          </button>
-        ))}
-      </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-        <label className="block">
-          <span className="block text-white/70 text-[11px] mb-1">Lowest price ({pair.quote.symbol} per {tokenWord(pair) === 'tokens' ? 'token' : tokenWord(pair)})</span>
-          <input
-            inputMode="decimal"
-            autoComplete="off"
-            className="w-full min-h-[44px] rounded-lg bg-black/40 border border-white/15 px-3 text-white text-[14px]"
-            value={minText}
-            onChange={(e) => {
-              setPreset(null);
-              setMinText(e.target.value);
-            }}
-          />
-        </label>
-        <label className="block">
-          <span className="block text-white/70 text-[11px] mb-1">Highest price ({pair.quote.symbol} per {tokenWord(pair) === 'tokens' ? 'token' : tokenWord(pair)})</span>
-          <input
-            inputMode="decimal"
-            autoComplete="off"
-            className="w-full min-h-[44px] rounded-lg bg-black/40 border border-white/15 px-3 text-white text-[14px]"
-            value={maxText}
-            onChange={(e) => {
-              setPreset(null);
-              setMaxText(e.target.value);
-            }}
-          />
-        </label>
-      </div>
-      {r && (
-        <div className="space-y-1.5" data-testid="range-chosen">
-          <Row label="Your range" value={`${priceText(pair, rangePrices(pair, r).min)} to ${formatSolPrice(priceNumber(rangePrices(pair, r).max))}`} mono={false} />
-          <p className="text-white/45 text-[10px]">Moved to the nearest prices a position in this pool can use.</p>
-          {holdsLine && <Notice tone={holds === 'both' ? 'info' : 'warn'}>{holdsLine}</Notice>}
-        </div>
-      )}
-      {r && (
-        <>
-          {holds === 'both' && (
-            <div className="flex flex-wrap gap-2" role="group" aria-label="Which coin you type an amount of">
-              {(['token', 'coin'] as const).map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  aria-pressed={side === s}
-                  className={`min-h-[44px] px-3 rounded-lg border text-[12px] ${side === s ? 'border-emerald-300/70 bg-emerald-400/15 text-white' : 'border-white/15 bg-white/5 text-white/80'}`}
-                  onClick={() => setChosenSide(s)}
-                >
-                  {s === 'token' ? `Amount in ${tokenWord(pair)}` : `Amount in ${pair.quote.symbol}`}
-                </button>
-              ))}
-            </div>
-          )}
-          <label className="block">
-            <span className="block text-white/70 text-[11px] mb-1">How much {side === 'token' ? tokenWord(pair) : pair.quote.symbol} to put in</span>
-            <input
-              inputMode="decimal"
-              autoComplete="off"
-              className="w-full min-h-[44px] rounded-lg bg-black/40 border border-white/15 px-3 text-white text-[14px]"
-              value={amountText}
-              onChange={(e) => setAmountText(e.target.value)}
-            />
-          </label>
-        </>
-      )}
-      </fieldset>
+      <RangePickFields pair={pair} p={pick} busy={busy} at="this pool’s price" />
       {plan && (
         <div className="space-y-1.5" data-testid="range-plan">
           <Row label="You put in about" value={bothAmounts(pair, plan.amount0, plan.amount1)} mono={false} />

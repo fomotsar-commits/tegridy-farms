@@ -71,6 +71,7 @@ const KNOWN: Record<TradeKind, true> = {
   'range-open': true,
   'range-remove': true,
   'range-close': true,
+  'range-create': true,
   'range-swap': true,
 };
 const TRADE_KINDS: ReadonlySet<string> = new Set(Object.keys(KNOWN));

@@ -8,7 +8,7 @@ import { edgePercent } from '../../../lib/solana/route';
 import { perMillionPercent } from '../../../lib/solana/clmm/feeText';
 import type { FeeSplitView, NotSent, PreparedTx, SolanaCluster, TokenRole, TxKind, TxOutcome, TxSigner, TxSummary, TxViewApi } from './ports';
 import { reviewLines } from './reviewLines';
-import { RangeRows } from './RangeRows';
+import { RangeCreateRows, RangeRows } from './RangeRows';
 import { rangeVenueEarns, type RangeVenueEarns } from '../../../lib/solana/clmm/venueEarns';
 import type { ReviewState, TxFlow } from './useTxFlow';
 import { quoteCoin, type QuoteCoin } from '../../../lib/solana/lp/quotes';
@@ -205,6 +205,8 @@ export function SummaryRows({
     case 'range-remove':
     case 'range-close':
       return <RangeRows summary={summary} />;
+    case 'range-create':
+      return <RangeCreateRows summary={summary} />;
     case 'range-swap':
       return <RangeSwapRows summary={summary} />;
     default:
@@ -372,7 +374,7 @@ const gapCostText = (g: PriceGap, q: QuoteCoin) =>
  * not a warning: any change to it, numbers included, shows the review again before signing.
  */
 function rangeVenueFirst(s: TxSummary): RangeVenueEarns | null {
-  if (s.kind !== 'range-open' && s.kind !== 'range-remove' && s.kind !== 'range-close' && s.kind !== 'range-swap') return null;
+  if (s.kind !== 'range-open' && s.kind !== 'range-remove' && s.kind !== 'range-close' && s.kind !== 'range-create' && s.kind !== 'range-swap') return null;
   const venue = rangeVenueEarns(s.poolLine, s.poolLine.feeCeiling);
   return venue.elsewhere ? venue : null;
 }
@@ -404,7 +406,7 @@ function VenueFirst({ id, venue }: { id: string; venue: RangeVenueEarns }) {
  * said once: the rows below do not repeat it.
  */
 function reviewWarnings(s: TxSummary): string[] {
-  if (s.kind === 'range-open') return s.poolLine.quote.risk ? [...s.warnings, s.poolLine.quote.risk] : s.warnings;
+  if (s.kind === 'range-open' || s.kind === 'range-create') return s.poolLine.quote.risk ? [...s.warnings, s.poolLine.quote.risk] : s.warnings;
   if (s.kind !== 'lp-deposit' && s.kind !== 'lp-create') return [];
   return s.quote.risk ? [...s.warnings, s.quote.risk] : s.warnings;
 }
@@ -871,6 +873,8 @@ const RENT_ROW_LABEL: Record<TxKind, string> = {
   'range-open': 'One-time deposits: your position and its NFT (back when you close it), and any new price band of the pool (never returned)',
   'range-remove': 'One-time deposit for a new token account of yours (it stays in that account)',
   'range-close': 'One-time deposit for a new token account of yours (it stays in that account)',
+  'range-create':
+    'One-time deposits: the new pool’s own accounts and its price bands (never returned), and your position and its NFT (back when you close it)',
   'range-swap': 'One-time deposit for your new token account (it stays in that account)',
 };
 
@@ -943,6 +947,7 @@ const TITLES: Record<PreparedTx['kind'], string> = {
   'range-open': 'Review: open a range position',
   'range-remove': 'Review: take out of your range position',
   'range-close': 'Review: close your range position',
+  'range-create': 'Review: open the pool and your position',
   'range-swap': 'Review your swap',
 };
 
