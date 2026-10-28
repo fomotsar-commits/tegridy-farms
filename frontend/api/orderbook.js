@@ -8,6 +8,13 @@
 //   GET  /api/orderbook?action=query&tokenId=123&contract= → orders for token
 //   POST /api/orderbook  body: { action: "create", order } → submit signed order
 //   POST /api/orderbook  body: { action: "cancel", hash }  → cancel order
+//
+// NFT loan offers (signed Gondi v3.2 offers; api/_lib/loanOffers.js):
+//   GET  ?action=loan-offers[&collection=0x..][&lender=0x..]  → open offers
+//   GET  ?action=loans&wallet=0x..                            → a wallet's loans
+//   POST { action: "loan-offer-create", offer, signature }    → store a signed offer
+//   POST { action: "loan-offer-sync", lender, offerId }       → re-read it on chain
+//   POST { action: "loan-record", txHash }                    → record a tx's loans
 
 import { createClient } from "@supabase/supabase-js";
 import { createHash, randomUUID } from "crypto";
@@ -23,6 +30,8 @@ import { computeSeaportOrderHash, isValidSeaportOrderHash } from "./_lib/seaport
 import { readBoundedText, MAX_RESPONSE_BYTES } from "./_lib/bodycap.js";
 import { fetchAlchemyWithFailover, alchemyKeyChain } from "./_lib/alchemy-failover.js";
 import { sendPushToWallet } from "./_lib/push.js";
+// The NFT loan offer book (signed Gondi offers) shares this route's perimeter.
+import { LOAN_GET_ACTIONS, LOAN_POST_ACTIONS, handleLoanAction } from "./_lib/loanOffers.js";
 
 // The venue's collections (lowercase): the only contracts the book stores,
 // serves or trades.
@@ -407,6 +416,11 @@ export default async function handler(req, res) {
   if (req.method === "GET") {
     const { action, contract, maker, tokenId, status = "active", limit = "50", sort = "price_eth" } = req.query;
 
+    if (LOAN_GET_ACTIONS.has(action)) {
+      await handleLoanAction(req, res, { supabase });
+      return;
+    }
+
     // ── P2P trades inbox/outbox ──
     // Trades are signed Seaport swap offers on public NFTs (same privacy
     // class as listings), so reads are open; writes are verified below.
@@ -613,6 +627,11 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: "Missing or malformed JSON body" });
     }
     const { action } = req.body;
+
+    if (LOAN_POST_ACTIONS.has(action)) {
+      await handleLoanAction(req, res, { supabase });
+      return;
+    }
 
     if (action === "create") {
       const { order } = req.body;
