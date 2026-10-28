@@ -128,13 +128,16 @@ const createSim: SimHandler = (vtx: VersionedTransaction, config, chain) => {
   if (tokenBefore + dToken < 0n || wsolBefore + wrapped + dSol < 0n) return fail(1);
   if (!config?.accounts) return { err: null, logs: [], unitsConsumed: 160_000 };
   const wsolAfter = wsolBefore + wrapped + dSol;
-  const signerDelta = -Number(wrapped) - paidToOpen - FEE - poolRent - bands - position + (closesWsol ? wsolLamports + Number(wsolAfter) : 0);
+  // Today's mainnet build takes the vault as a spare account and charges nothing.
+  const chargesFee = !(chain as FakeChain & { noFee?: boolean }).noFee;
+  const signerDelta = -Number(wrapped) - paidToOpen - (chargesFee ? FEE : 0) - poolRent - bands - position + (closesWsol ? wsolLamports + Number(wsolAfter) : 0);
   return {
     err: null,
     logs: [],
     unitsConsumed: 160_000,
     accounts: chain.post(config.accounts.addresses, {
       [ME.toBase58()]: { lamportsDelta: signerDelta },
+      ...(chargesFee ? { [VAULT.toBase58()]: { lamportsDelta: FEE } } : {}),
       [tokenAta.toBase58()]: { tokenAmount: tokenBefore + dToken, mint: TOKEN, owner: ME },
       [WSOL_ATA.toBase58()]: closesWsol ? { closed: true } : { tokenAmount: wsolAfter, mint: WSOL_MINT, owner: ME },
     }),
@@ -183,6 +186,14 @@ describe('opening a range pool with its first position', () => {
     expect([s.poolLine.tradeFeeRate, s.poolLine.protocolFeeRate, s.poolLine.fundFeeRate]).toEqual([10_000, 104_000, 56_000]);
     // The test run: the fee and every deposit leave the wallet, with the SOL that went in.
     expect(-p.simulated.signerLamportsDelta).toBeGreaterThan(FEE + neverBack);
+  });
+
+  it('the test run must show the vault receive the 0.5 SOL: a program that does not charge it (today’s mainnet build) builds nothing', async () => {
+    const p = ok(await prepareRangeCreate(W(chainWith()), cfgLocal, PROG, MARKET, ARGS));
+    expect(p.simulated.solDeltas?.map((d) => [d.account.toBase58(), d.delta])).toEqual([[VAULT.toBase58(), 500_000_000n]]);
+    const free = Object.assign(chainWith(), { noFee: true });
+    const r = await prepareRangeCreate(W(free), cfgLocal, PROG, MARKET, ARGS);
+    expect(r.ok ? null : r.outcome.message).toBe(`Blocked: ${RANGE_COPY.feeNotCharged}.`);
   });
 
   it('a Token-2022 token: its vault is 170 bytes, said in the deposits that never come back', async () => {

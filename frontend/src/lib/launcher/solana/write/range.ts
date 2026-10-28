@@ -139,6 +139,8 @@ export const RANGE_COPY = {
   createNoMarket: 'This token has no market price, so a pool for it would be its launch. The venue does not open launches this way. Nothing was built.',
   createPriceUnread: (why: string) =>
     `The market price could not be read just now (${why}), so your opening price could not be checked against it. Nothing was built. Try again in a moment.`,
+  feeNotCharged:
+    'the test run does not show the venue’s vault receiving exactly the 0.5 SOL opening fee, so the range program on this network may not charge it yet',
   createPriceOff: (pct: string, side: 'above' | 'below') =>
     `Your opening price is ${pct} ${side} the market price (Jupiter’s). The first trader could buy from your deposit at it, so nothing was built. Use the market price.`,
 } as const;
@@ -746,15 +748,18 @@ async function openingTx(
     body,
     extraSigners: [nft],
     intent,
-    watch: { signer: a.owner, tokenAccounts },
+    // A new pool's fee goes to the vault inside the program: the test run must show it arrive.
+    watch: { signer: a.owner, tokenAccounts, ...(o.create ? { solAccounts: [CREATE_POOL_FEE_RECEIVER] } : {}) },
     expect: (pre, r): Expectation => {
       // A new pool's fee and its accounts' deposits leave the wallet too, and nothing more.
       const fixed = positionRent + bandRent + openedRent(pre) + poolRent + createFee;
+      const solIn = o.create ? { solIn: [{ account: CREATE_POOL_FEE_RECEIVER, min: createFee, max: createFee, refuse: RANGE_COPY.feeNotCharged }] } : {};
       const tokenRow = { account: tokenSide.address, mint: pins.tokenMint, minDelta: -max.token, maxDelta: 2n ** 64n };
       if (!plan2) {
         return {
           maxSolOut: fixed,
           tokens: [tokenRow, { account: coinSide.address, mint: new PublicKey(quote.mint), minDelta: -max.quote, maxDelta: 2n ** 64n }],
+          ...solIn,
         };
       }
       // SOL wrapped in and not used: closed, it comes back as SOL; kept, it stays wrapped.
@@ -762,6 +767,7 @@ async function openingTx(
       return {
         maxSolOut: max.quote + fixed,
         tokens: [tokenRow, { account: plan2.ata, mint: WSOL_MINT, minDelta: kept, maxDelta: plan2.closeAfter ? 0n : kept + max.quote }],
+        ...solIn,
       };
     },
     newAccountRent: (pre) => positionRent + bandRent + poolRent + openedRent(pre),

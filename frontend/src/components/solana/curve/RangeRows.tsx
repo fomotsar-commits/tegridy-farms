@@ -1,6 +1,6 @@
 import { formatSol, formatTokenAmount } from '../../../lib/launcher/solana/curve';
 import { formatSolPrice } from '../../../lib/solana/lp/format';
-import { tokenTicker } from '../../../lib/solana/lp/identity';
+import { tickerAndAddress, tokenTicker } from '../../../lib/solana/lp/identity';
 import { feeSplit } from '../../../lib/solana/clmm/feeText';
 import { rangeVenueEarns } from '../../../lib/solana/clmm/venueEarns';
 import { Notice, Row } from './ui';
@@ -14,9 +14,6 @@ import type { RangeCreateSummary, RangeSummary } from './ports';
 
 const coinText = (v: bigint, decimals: number, symbol: string, native: boolean) =>
   native ? `${formatSol(v, 9)} SOL` : `${formatTokenAmount(v, decimals, decimals).text} ${symbol}`;
-
-/** A coin by its ticker and its whole address (owner, 2026-10-22): a ticker alone can be copied. */
-export const coinNamed = (mint: string) => `${tokenTicker(mint) ?? 'Unknown token'} · ${mint}`;
 
 export function RangeRows({ summary: s }: { summary: RangeSummary }) {
   const l = s.poolLine;
@@ -103,8 +100,8 @@ export function RangeCreateRows({ summary: s }: { summary: RangeCreateSummary })
   return (
     <>
       <Row label="New range pool" value={l.pool.toBase58()} />
-      <Row label="Token" value={coinNamed(l.tokenMint.toBase58())} />
-      <Row label="Paired with" value={coinNamed(q.mint)} />
+      <Row label="Token" value={tickerAndAddress(l.tokenMint.toBase58())} />
+      <Row label="Paired with" value={tickerAndAddress(q.mint)} />
       <Row label="Opening price" value={`${formatSolPrice(s.startPrice)} ${per}`} mono={false} />
       {(s.price.state === 'agrees' || s.price.state === 'disagrees') && (
         <Row label="Market price (Jupiter), read just now" value={`${formatSolPrice(s.price.reference)} ${per}`} mono={false} />

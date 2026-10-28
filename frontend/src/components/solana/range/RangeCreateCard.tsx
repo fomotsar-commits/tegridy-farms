@@ -10,10 +10,10 @@ import { depositFrom, pairOf, parsePrice, sqrtAtPrice, type Pair, type Price, ty
 import { feeSplit } from '../../../lib/solana/clmm/feeText';
 import { rangeVenueEarns } from '../../../lib/solana/clmm/venueEarns';
 import { formatSolPrice } from '../../../lib/solana/lp/format';
+import { tickerAndAddress } from '../../../lib/solana/lp/identity';
 import type { OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
 import type { QuoteCoin } from '../../../lib/solana/lp/quotes';
 import { CardArt } from '../../ui/CardArt';
-import { coinNamed } from '../curve/RangeRows';
 import { Card, Notice, Row } from '../curve/ui';
 import { TxFlowView } from '../curve/TxFlowView';
 import { WalletNeeded } from '../curve/WalletNeeded';
@@ -22,7 +22,8 @@ import type { CurveSignerState } from '../curve/useCurveSigner';
 import type { PendingTradesState } from '../curve/usePendingTrades';
 import type { CurveWriteConfig, RangeWriteApi, WriteRpc } from '../curve/ports';
 import { RangeReviewDisclosure, RangeRisks } from './RangeRisks';
-import { RangePickFields, pickProblem, useRangePick } from './RangePickFields';
+import { RangePickFields } from './RangePickFields';
+import { pickProblem, useRangePick } from './rangePick';
 import { bothAmounts, coinAmount, priceNumberText, tokenAmount, tokenWord } from './rangeText';
 import { useFlowReports } from './useRangeData';
 
@@ -63,8 +64,8 @@ export function RangeCreateCard(p: RangeCreateProps) {
   return (
     <Card title="Open this pool" testId="range-create" art={<CardArt pageId="range-pools" idx={7} />}>
       <p className="text-white/85">Set its opening price and put the first coins in, in one transaction.</p>
-      <Row label="Token" value={coinNamed(p.tokenMint)} />
-      <Row label="Paired with" value={coinNamed(p.coin.mint)} />
+      <Row label="Token" value={tickerAndAddress(p.tokenMint)} />
+      <Row label="Paired with" value={tickerAndAddress(p.coin.mint)} />
       <Row label="Fee tier" value={`${split.fee} of each swap`} mono={false} />
       {/* What opening costs and how a position earns: said before Review, never folded away. */}
       <Notice tone="warn">

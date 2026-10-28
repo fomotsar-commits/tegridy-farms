@@ -172,6 +172,12 @@ describe('the review of a new range pool and its first position', () => {
     expect(screen.getByText(/the pool and your position land together, or neither does/)).toBeInTheDocument();
   });
 
+  it('the test run’s line for the vault: the 0.5 SOL it gains, as the network ran it', () => {
+    const p = prepared(creating({ owner: PLATFORM_TREASURY_VAULT.toBase58(), fundOwner: WORKSHOP_WALLET.toBase58() }));
+    render(<TxReview prepared={{ ...p, simulated: { ...p.simulated, solDeltas: [{ account: PLATFORM_TREASURY_VAULT, delta: 500_000_000n }] } }} decimals={6} display={(x) => x} />);
+    expect(screen.getByText('Test run: the venue’s vault gains').nextElementSibling?.textContent ?? screen.getByText('Test run: the venue’s vault gains').parentElement?.textContent).toContain('+0.5 SOL');
+  });
+
   it('a tier off the agreed split is said in bold, first, as on every range review', () => {
     render(<TxReview prepared={prepared(creating({ owner: PLATFORM_TREASURY_VAULT.toBase58(), fundOwner: STRANGER }))} decimals={6} display={(x) => x} />);
     const first = screen.getByTestId('tx-review-venue-elsewhere');

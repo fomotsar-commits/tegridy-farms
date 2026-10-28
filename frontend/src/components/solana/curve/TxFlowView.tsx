@@ -10,6 +10,7 @@ import type { FeeSplitView, NotSent, PreparedTx, SolanaCluster, TokenRole, TxKin
 import { reviewLines } from './reviewLines';
 import { RangeCreateRows, RangeRows } from './RangeRows';
 import { rangeVenueEarns, type RangeVenueEarns } from '../../../lib/solana/clmm/venueEarns';
+import { PLATFORM_TREASURY_VAULT } from '../../../lib/launcher/solana/curve/program';
 import type { ReviewState, TxFlow } from './useTxFlow';
 import { quoteCoin, type QuoteCoin } from '../../../lib/solana/lp/quotes';
 import { NOTHING_WHY, type PriceReference } from '../../../lib/solana/lp/poolHealth';
@@ -929,6 +930,14 @@ export function FeeRows({ prepared, decimals }: { prepared: PreparedTx; decimals
         .map((t) => (
           <Row key={t.account.toBase58()} {...deltaRow(t, prepared, decimals)} />
         ))}
+      {(prepared.simulated.solDeltas ?? []).map((t) => (
+        <Row
+          key={t.account.toBase58()}
+          label={t.account.equals(PLATFORM_TREASURY_VAULT) ? 'Test run: the venue’s vault gains' : `Test run: ${t.account.toBase58()} gains`}
+          value={signedSol(t.delta)}
+          line="fee"
+        />
+      ))}
     </>
   );
 }

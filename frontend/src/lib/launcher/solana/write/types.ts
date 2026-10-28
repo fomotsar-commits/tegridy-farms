@@ -668,6 +668,8 @@ export interface SimulatedEffect {
    * `role: 'workshop'` the island Workshop's $BAYLA account (create: the plant's half).
    */
   tokenDeltas: Array<{ mint: PublicKey; account: PublicKey; delta: bigint; role?: TokenRole; decimals?: number }>;
+  /** Change in each watched wallet's SOL (`WatchList.solAccounts`), in lamports. */
+  solDeltas?: Array<{ account: PublicKey; delta: bigint }>;
 }
 
 export interface PreparedTx {
@@ -717,6 +719,8 @@ export interface PreparedCheck {
 export interface PreState {
   signerLamports: bigint;
   tokens: Map<string, PreToken>;
+  /** Each watched wallet's SOL before (`WatchList.solAccounts`). */
+  sol?: Map<string, bigint>;
 }
 
 /**
@@ -883,6 +887,8 @@ export interface Expectation {
   /** For sells: the least SOL the signer must gain, before network fees. */
   minSolIn?: bigint;
   tokens: Array<{ account: PublicKey; mint: PublicKey; minDelta: bigint; maxDelta: bigint }>;
+  /** What a watched wallet (`WatchList.solAccounts`) must gain, in lamports, and the refusal's words when it does not. */
+  solIn?: Array<{ account: PublicKey; min: bigint; max: bigint; refuse: string }>;
 }
 
 export interface WatchList {
@@ -893,6 +899,8 @@ export interface WatchList {
    * it; the review falls back to the page's token decimals without it.
    */
   tokenAccounts: Array<{ account: PublicKey; mint: PublicKey; role?: TokenRole; decimals?: number }>;
+  /** Plain wallets whose SOL alone is watched (a fee a program pays straight to the vault), never read as token accounts. */
+  solAccounts?: PublicKey[];
 }
 
 export type NotSent = {

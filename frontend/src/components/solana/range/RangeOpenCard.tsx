@@ -15,7 +15,8 @@ import type { RangeOpenReads } from '../../../lib/launcher/solana/write/range';
 import { marketGap, type MarketGap } from '../../../lib/solana/clmm/priceCheck';
 import type { OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
 import { RangeReviewDisclosure, RangeRisks } from './RangeRisks';
-import { RangePickFields, pickProblem, useRangePick } from './RangePickFields';
+import { RangePickFields } from './RangePickFields';
+import { pickProblem, useRangePick } from './rangePick';
 import { bothAmounts, coinAmount, priceNumberText, priceText, tokenAmount } from './rangeText';
 import { useFlowReports } from './useRangeData';
 
