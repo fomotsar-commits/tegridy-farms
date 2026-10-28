@@ -1,5 +1,7 @@
 # V4 Deploy Runbook + V2↔V4 Dual-AMM Migration Plan
 
+> **Retired 2026-10-28:** the EVM V4 graduation stack this document covers (`TegridyLiquidityMigrator`, `TegridyFeeLocker`, `TegridyBoostedLPStaker`, `TegridyV4SwapRouter`) was deleted from `contracts/`; the live `TegridyV4Hook` stays. Kept as a record, not a to-do list. The one to-do list is [docs/TODO_OPERATOR.md](../TODO_OPERATOR.md).
+
 > For the **V4-live-at-relaunch** strategy (2026-05-31). Slots into the existing
 > `RELAUNCH_RUNBOOK.md` as the V4 section. **Prep only — do NOT execute before the
 > hard prerequisites below are met.** Contracts: `mvp-launch` (V4 work merged in).

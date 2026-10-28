@@ -1,5 +1,7 @@
 # V4 Frontend Integration Spec
 
+> **Retired 2026-10-28:** the EVM V4 graduation stack this document covers (`TegridyLiquidityMigrator`, `TegridyFeeLocker`, `TegridyBoostedLPStaker`, `TegridyV4SwapRouter`) was deleted from `contracts/`; the live `TegridyV4Hook` stays. Kept as a record, not a to-do list. The one to-do list is [docs/TODO_OPERATOR.md](../TODO_OPERATOR.md).
+
 > For the V4-live-at-relaunch dual-AMM. Expands §4 of `V4_DEPLOY_AND_MIGRATION_RUNBOOK.md`.
 > Frontend stack: Vite + React + wagmi/viem + RainbowKit; ABIs generated via
 > `frontend/wagmi.config.ts` → `src/generated.ts`. **Spec only — wiring happens

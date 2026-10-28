@@ -3225,7 +3225,7 @@ construction: its credential can bind a chat and can *never* attach a wallet).
 
 | # | Action | Note |
 |---|---|---|
-| 3.1 | **Send the Whetstone petition** | Written, fact-checked, ready. It asks them to whitelist the graduation migrator on deploy. Without it, venue graduation reverts at pool initialization. The BUSL grant question travels with it. |
+| 3.1 | ~~Send the Whetstone petition~~ Closed by retirement, 2026-10-28 | The EVM V4 graduation stack (`TegridyLiquidityMigrator`, `TegridyFeeLocker`, `TegridyBoostedLPStaker`, `TegridyV4SwapRouter`) was deleted from `contracts/`, so there is no migrator to whitelist and nothing to send. The petition, its 4663 rider and the decision record are in `docs/archive/`. The BUSL grant question concerned the migrator code and went with it. |
 | 3.2 | **Send the Solana audit RFQ** | Written, never sent. Audit *calendars* are the schedule constraint, not engineering — send before you think you need it. |
 | 3.3 | **Send the seacasa wave-three packet** | Written, never handed over. Add the fifth question: **when does the island publish its attestation signing key, and at what route?** Without it the Heat gate stays advisory — anyone reading the Airlock ABI can launch around it. |
 | 3.4 | Book the EVM firm audit | Sequenced after any admin-model change so the report is not invalidated. |

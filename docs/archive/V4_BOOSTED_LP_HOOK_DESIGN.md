@@ -1,5 +1,7 @@
 # Design Doc — Boosted LP-Incentive Hook (#3)
 
+> **Retired 2026-10-28:** the EVM V4 graduation stack this document covers (`TegridyLiquidityMigrator`, `TegridyFeeLocker`, `TegridyBoostedLPStaker`, `TegridyV4SwapRouter`) was deleted from `contracts/`; the live `TegridyV4Hook` stays. Kept as a record, not a to-do list. The one to-do list is [docs/TODO_OPERATOR.md](../TODO_OPERATOR.md).
+
 > **SOLE PATH UPDATE (2026-05-31):** the production model is the NFT-staker
 > `contracts/src/v4/TegridyBoostedLPStaker.sol` (escrow the V4 position NFT, attribute
 > to the depositor) — it reaches PM-routed LPs, which the hook-callback model below
