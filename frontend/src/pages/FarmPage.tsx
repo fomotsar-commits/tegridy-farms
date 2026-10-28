@@ -4,8 +4,8 @@ import { useAccount } from 'wagmi';
 import { Link, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { CURRENT_SEASON, LOCK_OPTIONS } from '../lib/constants';
-import { parseEventLogs, formatEther } from 'viem';
-import { TEGRIDY_STAKING_ABI } from '../lib/contracts';
+import { formatEther } from 'viem';
+import { stakingClaimPaid, NOTHING_PAID_COPY } from '../lib/stakingClaimPaid';
 import { WrongChainBanner } from '../components/ui/WrongChainGuard';
 import { calculateBoost } from '../lib/boostCalculations';
 import { useFarmStats } from '../hooks/useFarmStats';
@@ -318,26 +318,21 @@ function ToweliFarm() {
       } else if (actionType === 'claim') {
         // §2.5 (STAKING_LOOK): report what was PAID, from the tx's own
         // RewardPaid log — under a pool shortfall the contract transfers
-        // min(pending, pool) (possibly 0, remainder booked as an IOU), so the
-        // submit-time snapshot can overstate the payout exactly when the
-        // reserve matters. The snapshot remains only as a last-resort
-        // fallback if log parsing fails.
-        let paidFromLogs: string | null = null;
-        try {
-          const paidEvents = parseEventLogs({
-            abi: TEGRIDY_STAKING_ABI,
-            logs: actions.receipt?.logs ?? [],
-            eventName: 'RewardPaid',
-          });
-          if (paidEvents.length > 0) {
-            const total = paidEvents.reduce((s, e) => s + ((e.args as { reward?: bigint }).reward ?? 0n), 0n);
-            paidFromLogs = formatEther(total);
-          }
-        } catch { /* fall back to the snapshot below */ }
+        // min(pending, pool), so the submit-time snapshot can overstate the
+        // payout exactly when the reserve matters. On an EMPTY reserve it pays
+        // 0 and logs no RewardPaid at all; that used to fall through to the
+        // snapshot and print a receipt for TOWELI nobody sent. The snapshot is
+        // now only for a receipt that could not be read.
+        const paid = stakingClaimPaid(actions.receipt);
+        if (paid === 0n) {
+          toast.warning(NOTHING_PAID_COPY);
+          submittedAmountRef.current = null;
+          return; // no receipt, no confetti
+        }
         showReceipt({
           type: 'claim',
           data: {
-            rewardAmount: paidFromLogs ?? submittedAmountRef.current ?? pos.pendingFormatted,
+            rewardAmount: paid !== null ? formatEther(paid) : submittedAmountRef.current ?? pos.pendingFormatted,
             token: 'TOWELI',
             txHash: actions.hash,
           },
@@ -495,7 +490,7 @@ function ToweliFarm() {
             pos={pos}
             actions={actions}
             nft={nft}
-            pool={{ apr: pool.apr, aprNum: pool.aprNum, isDeployed: pool.isDeployed, isDry: pool.isDry, secondsRemaining: pool.secondsRemaining }}
+            pool={{ apr: pool.apr, aprNum: pool.aprNum, isDeployed: pool.isDeployed, isDry: pool.isDry, secondsRemaining: pool.secondsRemaining, rewardsRemaining: pool.rewardsRemaining, rewardsRemainingUnread: pool.rewardsRemainingUnread }}
             input={{
               amount: stakeAmount,
               setAmount: setStakeAmount,

@@ -29,44 +29,6 @@ stop and say so — a surprise is information.
 
 ---
 
-## 🔴 2026-10-25: range pools will cost 0.5 SOL to open, once you upgrade the range program
-
-**Urgent: range pools open for free until this upgrade executes.** Vault proposal #19 ran on
-2026-10-27 and made both range fee tiers (1% and 0.25%), so on today's range program anyone can
-open a range pool without paying. No one had opened one on 2026-10-28. Pools opened before the
-upgrade stay open; the upgrade charges only new openings. (#1015, the 1% tier alone, is closed.)
-
-You ruled on 2026-10-25 that opening a range pool costs 0.5 SOL, paid to the venue. The range
-program's source now charges it (pull request #1019): whoever opens a range pool pays 0.5 SOL to
-the team's vault, whichever of the program's three ways to open one they use. On mainnet it starts
-only when the vault upgrades the program. You put the SOL step off the same day ("the 11 sol or
-whatever we will do another day"). This is that step.
-
-**What to send, to which wallet, and how long it is held** (read on mainnet 2026-10-28, 5,080
-lamports a byte; the pack's first check reads it all again on the day):
-
-| Send | To | For | Held for |
-|---|---|---|---|
-| about **7.85 SOL** | the paying wallet `CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg`, the range program's deployer (it holds 0 SOL) | 7.758 SOL for the upload, 0.052 SOL to enlarge the program, about 0.008 SOL in network fees | **The 7.758 SOL comes back** to that wallet the moment the upgrade executes: at least 48 hours after the second approval. The 0.052 SOL stays in the program for good. The fees are spent. |
-| **0.02 SOL** | member A `5QHzAqbGk3W8qGRBHCMyWjhLXf8YJcs3yPEh14Ymcwgz` (it holds 0.001 SOL, not enough for one proposal) | the upgrade proposal, about 0.0046 SOL | spent |
-
-Member B (0.009 SOL) and the vault need nothing. Send a small test amount first. (The 10.6 SOL
-said earlier assumed an older rent rate.)
-
-**Two sittings.** Day 0, about an hour: fund, check, enlarge, upload, hand the upload to the vault;
-member A proposes the upgrade on the pack's page, member B approves it there. Day 2, 48 hours after
-the second approval (the page names the minute): execute on the page, then run the check after the
-upgrade. Every command is in
-`C:\Users\jimbo\solana-launch-release-2026-09-26\range-pools-open-fee-upgrade-2026-10\START-HERE.md`.
-Never approve or execute this upgrade in the Squads app: only the pack's page reads the uploaded
-bytes back and refuses a wrong build.
-
-**Then:** the check after the upgrade (step 16) also proves that opening a pool on the 1% tier
-pays the vault 0.5 SOL, since the tier exists; then the site's line saying so merges (this pull
-request).
-
----
-
 ## 🔴 2026-10-24, 17:03 UTC: the pool program was rolled back by mistake; re-upgrade postponed
 
 Read on chain on 2026-10-24 at 17:07 UTC. Newer than the section below.
@@ -133,9 +95,15 @@ Read on chain and on GitHub on 2026-10-24, about 03:30 UTC.
 
 **Left, in this order:**
 
-1. ⬜ **Execute the range fee tiers (#19). It can run now.** The public notice said no sooner than
-   2026-10-23 14:00 UTC. Read on 2026-10-24: not executed (the range program owns no accounts).
-   The folder's START-HERE, steps 4 and 5:
+1. ✅ **Done 2026-10-27 03:52:39 UTC: the owner executed #19** (transaction
+   `5t4B2D81y5Gvj8uLkEKVZ8L8T3CUW4Akf68X2PWZqi2C4Hy8USUYwtz21hhaNZ2rR4c67aUE8xTfoGYRyXFvFa3v`).
+   Both tiers are live, 1% and 0.25%, each with the island split; `6-verify-tiers.mjs` passed the
+   same day. The site reads only the 1% tier (`RANGE_POOLS_OPEN` went on with #1011 on 10-25).
+   **Until the range program charges the 0.5 SOL opening fee (#1019), anyone may open a range
+   pool on either tier for free.** The steps it took, kept for the record:
+
+   ~~**Execute the range fee tiers (#19).**~~ The public notice said no sooner than
+   2026-10-23 14:00 UTC. The folder's START-HERE, steps 4 and 5:
 
    ```bash
    node "C:\Users\jimbo\solana-launch-release-2026-09-26\range-pools-tiers-2026-10\scripts\5-record-notice.mjs"
@@ -154,7 +122,11 @@ Read on chain and on GitHub on 2026-10-24, about 03:30 UTC.
    After that a session opens the one-line pull request that turns `RANGE_POOLS_OPEN` on. Until it
    merges, the Range tab and the range pools in the swap route stay hidden.
 
-2. ⬜ **Day 4, Sunday 2026-10-25, from 09:07 UTC: the pool pack's step 22.** Start the page, open
+2. ✅ **Done 2026-10-27 03:52 UTC: the owner executed #20** (transaction
+   `M2KuWgiLRPSCyYbRFCCa63gVsMmSZG1BbLYNGBxfGtZhtNqU9XSNyBDVUh3wXqbnTJA5XNEuQGFJLEHBPLmNzxY`);
+   `6-read-names.mjs --expect renamed` passed the same day. A try at #18 a minute later failed
+   on chain, as expected (its buffer was closed on 10-24); it cost only the network fee.
+   The steps, kept for the record: ~~**Day 4, Sunday 2026-10-25, from 09:07 UTC: the pool pack's step 22.**~~ Start the page, open
    **http://127.0.0.1:5299/**, connect a member and execute **#20** (the rename to "Bayla LP SOL"
    and "Bayla LP USDC"):
 
@@ -696,8 +668,7 @@ made under "the rest", now settled and being built:
   while the program exists, and about 15.48 SOL in hand during the deploy (half of it comes back
   at the end), plus about 0.01 SOL of fees. Figures from `docs/RANGE_POOLS_PLAN.md` on #800's
   branch, at the rent rate read 2026-10-14.
-- ⬜ **Proposed and approved by both members 2026-10-21** (Squads #19, 13:45:21 UTC). It may
-  execute from 2026-10-23 14:00 UTC, the date the public notice gives. Each tier's 16% is now
+- ✅ **Executed 2026-10-27 03:52:39 UTC** (Squads #19, approved by both members 2026-10-21). Each tier's 16% is now
   10.4% to the vault and 5.6% to the island's Workshop (registry rows `range-clmm-amm-config-0`
   and `-1`). **The range fee tiers** proposed in `docs/RANGE_POOLS_PLAN.md` (#800): 1% and 0.25%, liquidity
   providers keep 84% of each fee and the venue 16%. They need the vault's signature, about
