@@ -4,8 +4,8 @@ import { loaderIdentity, isToweliVoice } from '../lib/arrival';
 
 /* ─────────────────────────────────────────────────────────────────────────────
    GLITCH TRANSITION v4
-   Desktop: full DOM-based effect with noise canvas, art slices, RGB splits
-   Mobile:  single-canvas approach (like the splash screen) for 60fps Safari
+   Full DOM-based effect with noise canvas, art slices, RGB splits. Computers
+   and tablets only: RouteGlitch never mounts it on a phone.
    ────────────────────────────────────────────────────────────────────────── */
 
 // Read per transition: the skin changes in place, so a module-scope list would
@@ -68,10 +68,6 @@ export interface GlitchConfig {
   duration: number;
 }
 
-function isMobile(): boolean {
-  return typeof window !== 'undefined' && window.innerWidth < 768;
-}
-
 function seededRandom(seed: number): () => number {
   let s = seed;
   return () => {
@@ -81,263 +77,7 @@ function seededRandom(seed: number): () => number {
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
-   MOBILE: Single-canvas glitch (like splash screen — fast on Safari)
-   ══════════════════════════════════════════════════════════════════════════ */
-
-function MobileGlitchTransition({ config }: { config: GlitchConfig }) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const rafRef = useRef<number>(0);
-  const startRef = useRef<number>(0);
-  const imagesRef = useRef<HTMLImageElement[]>([]);
-  const [done, setDone] = useState(() => {
-    if (typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return true;
-    return false;
-  });
-  const skippedRef = useRef(false);
-  // Stable random seed + subliminal-phrase pick. useState's lazy initializer
-  // runs once at mount (not during every render), keeping React Compiler happy
-  // about Math.random() being called outside the render path.
-  const [seed] = useState(() => Math.floor(Math.random() * 99999));
-  const [subliminal] = useState(() => {
-    const phrases = subliminalPhrases();
-    return phrases[Math.floor(Math.random() * phrases.length)] ?? 'MEMETICS';
-  });
-  const seedRef = useRef(seed);
-  const subliminalWord = useRef(subliminal);
-
-  // Preload 3 random art images
-  useEffect(() => {
-    let cancelled = false;
-    const shuffled = transitionArt().sort(() => Math.random() - 0.5);
-    const toLoad = shuffled.slice(0, 3);
-    const images: HTMLImageElement[] = [];
-    toLoad.forEach((src) => {
-      const img = new Image();
-      images.push(img);
-      img.crossOrigin = 'anonymous';
-      img.onload = () => {
-        if (!cancelled) imagesRef.current.push(img);
-      };
-      img.onerror = () => { /* no-op */ };
-      img.src = src;
-    });
-    return () => {
-      cancelled = true;
-      // Abort any in-flight loads and release references
-      images.forEach((img) => { img.onload = null; img.onerror = null; img.src = ''; });
-      imagesRef.current = [];
-    };
-  }, []);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const W = window.innerWidth;
-    const H = window.innerHeight;
-    // Use 1x resolution for performance — no retina needed for glitch
-    canvas.width = W;
-    canvas.height = H;
-    // F31: this path does per-frame getImageData/putImageData block displacement
-    // — willReadFrequently keeps Chrome on the fast (CPU-readback) path and
-    // silences its "willReadFrequently" warning.
-    const ctx = canvas.getContext('2d', { willReadFrequently: true });
-    if (!ctx) return;
-
-    startRef.current = performance.now();
-    const dur = config.duration;
-    const dirSign = config.direction === 'forward' ? 1 : -1;
-    let seed = seedRef.current;
-
-    // Simple deterministic random per frame
-    const srand = () => {
-      seed = (seed * 16807 + 0) % 2147483647;
-      return (seed - 1) / 2147483646;
-    };
-
-    const loop = () => {
-      const now = performance.now();
-      const elapsed = now - startRef.current;
-      const progress = Math.min(elapsed / dur, 1);
-
-      if (progress >= 1) {
-        setDone(true);
-        return;
-      }
-
-      ctx.clearRect(0, 0, W, H);
-
-      // ── Black base with varying opacity (flash in/out) ──
-      const baseAlpha = progress < 0.1
-        ? progress / 0.1
-        : progress > 0.85
-          ? 1 - (progress - 0.85) / 0.15
-          : 1;
-      ctx.fillStyle = `rgba(0,0,0,${0.7 * baseAlpha})`;
-      ctx.fillRect(0, 0, W, H);
-
-      // ── Art slices (draw directly on canvas — no DOM layers) ──
-      const images = imagesRef.current;
-      if (images.length > 0 && progress > 0.05 && progress < 0.85) {
-        const sliceCount = 3 + Math.floor(progress * 2);
-        const sliceAlpha = progress < 0.15
-          ? (progress - 0.05) / 0.1
-          : progress > 0.7
-            ? (0.85 - progress) / 0.15
-            : 1;
-
-        seed = seedRef.current + Math.floor(elapsed / 80) * 7; // Change slices every ~80ms
-
-        for (let i = 0; i < sliceCount; i++) {
-          const img = images[Math.floor(srand() * images.length)]!;
-          if (!img) continue;
-          const sliceY = Math.floor(srand() * H);
-          const sliceH = Math.max(20, Math.floor(30 + srand() * (H * 0.15)));
-          const offsetX = dirSign * (srand() - 0.3) * 40;
-
-          ctx.save();
-          ctx.globalAlpha = sliceAlpha * (0.6 + srand() * 0.4);
-          ctx.drawImage(
-            img,
-            0, (sliceY / H) * img.naturalHeight, img.naturalWidth, (sliceH / H) * img.naturalHeight,
-            offsetX, sliceY, W, sliceH,
-          );
-
-          // Chromatic aberration: offset red/blue draws
-          const shift = 3 + srand() * 5;
-          ctx.globalCompositeOperation = 'lighter';
-          ctx.globalAlpha = 0.15 * sliceAlpha;
-          // Red
-          ctx.drawImage(
-            img,
-            0, (sliceY / H) * img.naturalHeight, img.naturalWidth, (sliceH / H) * img.naturalHeight,
-            offsetX + shift, sliceY, W, sliceH,
-          );
-          // Blue
-          ctx.drawImage(
-            img,
-            0, (sliceY / H) * img.naturalHeight, img.naturalWidth, (sliceH / H) * img.naturalHeight,
-            offsetX - shift, sliceY, W, sliceH,
-          );
-          ctx.globalCompositeOperation = 'source-over';
-          ctx.restore();
-        }
-      }
-
-      // ── Horizontal color lines ──
-      if (progress > 0.05 && progress < 0.9) {
-        const lineCount = 3 + Math.floor(srand() * 4);
-        for (let i = 0; i < lineCount; i++) {
-          const ly = Math.floor(srand() * H);
-          ctx.fillStyle = srand() > 0.5
-            ? `rgba(139,92,246,${0.5 * baseAlpha})`
-            : `rgba(212,160,23,${0.5 * baseAlpha})`;
-          ctx.fillRect(0, ly, W, 2);
-        }
-      }
-
-      // ── Block displacement ──
-      if (progress > 0.1 && progress < 0.8) {
-        try {
-          const blockCount = 2 + Math.floor(srand() * 3);
-          for (let i = 0; i < blockCount; i++) {
-            const by = Math.floor(srand() * H);
-            const bh = Math.max(4, Math.floor(8 + srand() * 25));
-            const bOffset = (srand() - 0.5) * 30;
-            const blockData = ctx.getImageData(0, by, W, Math.min(bh, H - by));
-            ctx.putImageData(blockData, bOffset, by);
-          }
-        } catch { /* skip on tainted canvas */ }
-      }
-
-      // ── Noise grain (sparse, fast) ──
-      const noiseCount = 80 + Math.floor(progress * 120);
-      ctx.save();
-      for (let i = 0; i < noiseCount; i++) {
-        ctx.fillStyle = `rgba(255,255,255,${0.1 + srand() * 0.15})`;
-        ctx.fillRect(srand() * W, srand() * H, 2 + srand() * 3, 2 + srand() * 3);
-      }
-      ctx.restore();
-
-      // ── Scanlines ──
-      ctx.save();
-      ctx.fillStyle = 'rgba(0,0,0,0.08)';
-      for (let y = 0; y < H; y += 4) {
-        ctx.fillRect(0, y, W, 1.5);
-      }
-      ctx.restore();
-
-      // ── Subliminal text flash (brief window) ──
-      if (progress > 0.3 && progress < 0.45) {
-        const subAlpha = progress < 0.35
-          ? (progress - 0.3) / 0.05
-          : (0.45 - progress) / 0.1;
-        const word: string = subliminalWord.current;
-        const fontSize = Math.min(32, W * 0.09);
-        ctx.save();
-        ctx.translate(W / 2, H / 2);
-        ctx.rotate((srand() - 0.5) * 0.08);
-        ctx.font = `900 ${fontSize}px "JetBrains Mono", "Courier New", monospace`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        // RGB split via offset text
-        ctx.fillStyle = `rgba(255,0,0,${0.5 * subAlpha})`;
-        ctx.fillText(word, 3, 0);
-        ctx.fillStyle = `rgba(0,100,255,${0.5 * subAlpha})`;
-        ctx.fillText(word, -3, 0);
-        ctx.fillStyle = `rgba(255,255,255,${0.8 * subAlpha})`;
-        ctx.fillText(word, 0, 0);
-        ctx.restore();
-      }
-
-      // ── White flash at peak ──
-      if (progress > 0.55 && progress < 0.62) {
-        const flashAlpha = progress < 0.58
-          ? (progress - 0.55) / 0.03
-          : (0.62 - progress) / 0.04;
-        ctx.fillStyle = `rgba(255,255,255,${0.25 * flashAlpha})`;
-        ctx.fillRect(0, 0, W, H);
-      }
-
-      // ── VHS tracking band ──
-      const bandY = ((elapsed * 0.4) % (H + 40)) - 20;
-      ctx.fillStyle = `rgba(255,255,255,${0.04 * baseAlpha})`;
-      ctx.fillRect(0, bandY, W, 15 + Math.sin(elapsed * 0.01) * 8);
-
-      rafRef.current = requestAnimationFrame(loop);
-    };
-
-    rafRef.current = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(rafRef.current);
-  }, [config]);
-
-  // #88 audit: skip transition on click
-  const handleSkip = useCallback(() => {
-    if (!skippedRef.current) {
-      skippedRef.current = true;
-      cancelAnimationFrame(rafRef.current);
-      setDone(true);
-    }
-  }, []);
-
-  if (done) return null;
-
-  return (
-    <canvas
-      ref={canvasRef}
-      className="fixed inset-0 cursor-pointer"
-      onClick={handleSkip}
-      style={{
-        zIndex: 10000,
-        width: '100vw',
-        height: '100vh',
-      }}
-    />
-  );
-}
-
-
-/* ══════════════════════════════════════════════════════════════════════════════
-   DESKTOP: Full canvas-based effect — premium quality matching mobile
+   DESKTOP: Full canvas-based effect
    Restored from DOM-only approach back to per-frame canvas rendering for
    dynamic noise, VHS tracking, block displacement, and richer visuals.
    ══════════════════════════════════════════════════════════════════════════ */
@@ -768,14 +508,6 @@ function DesktopGlitchTransition({ config }: { config: GlitchConfig }) {
   );
 }
 
-
-/* ══════════════════════════════════════════════════════════════════════════════
-   EXPORT: Routes to mobile or desktop version
-   ══════════════════════════════════════════════════════════════════════════ */
-
 export function GlitchTransition({ config }: { config: GlitchConfig }) {
-  const [mobile] = useState(() => isMobile());
-  return mobile
-    ? <MobileGlitchTransition config={config} />
-    : <DesktopGlitchTransition config={config} />;
+  return <DesktopGlitchTransition config={config} />;
 }

@@ -7,10 +7,28 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-10-29
+
+- Solana swap and the Range tab: a coin whose ticker copies SOL, USDC, BAYLA or an island coin at another address now reads "fake SOY" (for example), as on the pool screens. In the swap page's token list, a coin the site does not name itself shows its whole address, not just its first and last characters. The Range tab names every coin by its own ticker, with its whole address, instead of "tokens".
+
+### 2026-10-28
+
+- Contracts page: Gauge Controller, Vote Incentives, Community Grants and Meme Bounty Board no longer link to a source file. Their source left this repository on 2026-10-27; each row says so, and their verified source is on Etherscan. The Tegridy Restaking and Tegridy Lending rows are gone: neither contract was ever deployed, and their source left with them.
+- Notice: range pools' second fee tier, 0.25% of each swap, becomes 1% once the team's vault approves and executes it, which is no sooner than 48 hours after its second approval. Then every range pool charges 1%. No range pool exists on that tier, and the site has never shown it. Of each fee, 84% stays with the liquidity providers whose range is in use, 10.4% goes to memetics.finance and 5.6% to Jungle Bay Island.
+- Range pools: the range program's source now charges 0.5 SOL to open a range pool, paid to the team's vault, by each of the three ways it opens one. It reaches mainnet only when the vault executes an upgrade, which is not proposed yet. Until then the program on mainnet charges nothing to open one: the fee tiers exist since 2026-10-27, so anyone can open a range pool for free until that upgrade executes.
+- TOWELI staking: when the reward reserve can't pay, the site now says so. A claim that pays nothing (on the farm page or the dashboard) says nothing was paid and your rewards stay owed, instead of showing a receipt for TOWELI that was never sent. Claimable stops ticking up and says the reserve is empty. The early-withdraw confirm says how much unpaid reward that exit would lose for good. The exit offered during a pause no longer promises to pay rewards the reserve can't cover.
+- Connect: Coinbase Wallet is on the Ethereum, Base and Robinhood Chain list by name, with Coinbase's mark, third on a phone. It was there as "Base", fifth on a phone, past the four a phone shows without a swipe. On a phone, tapping it opens this page in the Coinbase Wallet app, where every kind of Coinbase wallet connects; before, it opened Coinbase's sign-in, which takes only an email or a passkey. On a computer it still opens Coinbase's sign-in, and a computer with the Coinbase extension shows the extension's row instead. The connect menu now names Coinbase for Solana too, where it has been listed since September.
+
 ### 2026-10-25
 
+- Pools: a room's Add SOL + coin now opens Add with one coin at the top of the Venue AMM page, above everything else, with the pool's price, the outside price, the gap between them and how each trade's fee splits as rows inside it. The page no longer jumps down to the form, and nothing loading above it moves it. The pool finder, every pool and the rest of the page sit below.
+- Solana pools: a pool opened on the launch fee tier without a launch (free to open on the pool program running now) is never listed, swapped in or added to from this site, and a link or a position that names one says so in one bold line. Holders of one can still remove their liquidity. Graduated launch pools are unchanged.
+- Pools: the Range tab is on, right of Venue AMM on the Solana network. Range pools have one fee tier, 1%. It is not on the chain yet, so until the team's vault makes it the tab says there is no pool to put liquidity in, and Solana swaps find no range pool to route through.
+- Pools: the Solana LP tab is gone. Its pool finder, Add liquidity, Remove liquidity and Open a pool were already on the Venue AMM tab, which now sits left of Range. The Pools menu opens Venue AMM, and an old /solana-lp link opens /pools on the same token.
+- Pools: while the page is still reading the chain, or if the read fails, the top of the Venue AMM page no longer says "No pool can be opened here yet". It says nothing until the read lands.
+- The dashboard on phones and iPads: its big picture now shows there too. On a phone it is a wide strip that stays under the top bar while your coins and positions scroll beneath it; on an iPad held upright it stands beside them and stops where your list does. With no mouse to follow, it shows the row you scroll to, and that row lights up; SOL and ETH show their chain's mark. With no wallet connected it sits under the connect buttons, and on a phone held sideways it does not stay on screen. On a computer the picture now stays in view while you scroll a long list.
 - Cardano swap: Swap's network menu now lists Cardano. /cardano swaps ADA for a coin, or a coin for ADA, through that pair's Minswap V2 pool, signed in a Cardano wallet (Eternl, Lace, VESPR, Begin, Typhon, GeroWallet or NuFi). The page names each coin by its ticker and whole id, shows every fee and who gets it before you sign, and follows your order until Minswap's batcher fills it or sends it back. The venue charges no fee on Cardano yet.
-- Solana swap and the Range tab: a coin whose ticker copies SOL, USDC, BAYLA or an island coin at another address now reads "fake SOY" (for example), as on the pool screens. In the swap page's token list, a coin the site does not name itself shows its whole address, not just its first and last characters. The Range tab names every coin by its own ticker, with its whole address, instead of "tokens".
+- Moving between pages: on a phone, pages now just open, with no one-second glitch between them. On a computer or tablet the glitch no longer runs into or out of a room with an Add door or the Pools pages; everywhere else it stays, art and all.
 
 ### 2026-10-24
 

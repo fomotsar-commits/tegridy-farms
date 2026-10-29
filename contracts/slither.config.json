@@ -5,7 +5,7 @@
   "compile_force_framework": "foundry",
   "filter_paths": "^lib/|^node_modules/|^test/|^script/|^out/|^cache/|^broadcast/|^.audit_2026_freshlook/|^.audit_101/|^.spartan_unpacked/",
 
-  "_scope": "mvp-launch includes only these 15 contracts under src/: Toweli, TegridyFactory, TegridyPair, TegridyRouter, TegridyTWAP, TegridyStaking, TegridyStakingJbacVault, TegridyStakingAdmin, TegridyRestaking, RevenueDistributor, ReferralSplitter, SwapFeeRouter, SwapFeeRouterAdmin, POLAccumulator, TegridyTokenURIReader. Plus base/PauseGuardian, OwnableNoRenounce, TimelockAdmin. Plus lib/SequencerCheck, lib/WETHFallbackLib, lib/VotePowerOracle. Lending, NFTLending, NFTPool, Gauges, VoteIncentives, Drop, Launchpad, FeeHook, LPFarming, CommunityGrants, MemeBountyBoard, PremiumAccess have been moved off this branch and are NOT in scope.",
+  "_scope": "mvp-launch includes only these 15 contracts under src/: Toweli, TegridyFactory, TegridyPair, TegridyRouter, TegridyTWAP, TegridyStaking, TegridyStakingJbacVault, TegridyStakingAdmin, RevenueDistributor, ReferralSplitter, SwapFeeRouter, SwapFeeRouterAdmin, POLAccumulator, TegridyTokenURIReader. Plus base/PauseGuardian, OwnableNoRenounce, TimelockAdmin. Plus lib/SequencerCheck, lib/WETHFallbackLib, lib/VotePowerOracle. Lending, NFTLending, NFTPool, Gauges, VoteIncentives, Drop, Launchpad, FeeHook, LPFarming, CommunityGrants, MemeBountyBoard, PremiumAccess have been moved off this branch and are NOT in scope.",
 
   "exclude_dependencies": true,
   "exclude_informational": false,

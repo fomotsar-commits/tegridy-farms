@@ -72,6 +72,7 @@ function view(o: { tier1?: boolean; openTime?: bigint; address?: PublicKey; sol?
     quoteReserve: s,
     tokenReserve: t,
     vaultsFrozen: false,
+    launchTierWithoutLaunch: false,
     history: { kind: 'not-read' },
   };
 }
@@ -91,6 +92,7 @@ function search(views: PoolView[], extra: Partial<Extract<PoolSearchRead, { kind
       index: { kind: 'ok', pools: views.map((v) => v.address), truncated: false },
       pools: views.map((v) => ({ kind: 'pool' as const, view: v })),
       otherPairs: 0,
+      launchTierPools: [],
       knownState: { [STANDARD_1]: 'absent' },
       chainNow: 1_000n,
       ...extra,

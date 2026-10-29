@@ -333,7 +333,7 @@ function TokenFreezeNotice({ mint, read }: { mint: string; read: Read<MintFreeze
 /**
  * How a range position pays, said where the deposit is (never folded away): what LPs earn
  * and what the venue keeps, both read from the chosen pool's fee tier, and that a position
- * out of range earns nothing. Where the venue's cut goes is said as the /solana-lp Rates
+ * out of range earns nothing. Where the venue's cut goes is said as the /pools Rates
  * card says it: the agreed split in the fine print, any other wallet in bold in plain sight.
  */
 function HowItPays({ pool, pair }: { pool: RangePool | null; pair: NamedPair | null }) {
