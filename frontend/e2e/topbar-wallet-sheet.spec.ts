@@ -237,7 +237,7 @@ test('a Solana wallet connected from the Earn list follows the visitor into a So
   const sheet = page.getByRole('dialog', { name: 'Your wallets', exact: true });
   await expect(sheet.getByRole('listitem')).toHaveText([
     new RegExp(`^SolanaSwitch wallet or disconnect${SHORT.slice(0, 4)}`),
-    /^Ethereum, Base, Robinhood ChainMetaMask, Trust, Rainbow and more/,
+    /^Ethereum, Base, Robinhood ChainMetaMask, Coinbase, Trust and more/,
   ]);
   await sheet.getByRole('button', { name: 'Close dialog' }).click();
 

@@ -11,7 +11,6 @@ import {
   TOWELI_ADDRESS,
   TEGRIDY_STAKING_ADDRESS,
   LEGACY_STAKING_ADDRESSES,
-  TEGRIDY_RESTAKING_ADDRESS,
   TEGRIDY_FACTORY_ADDRESS,
   TEGRIDY_ROUTER_ADDRESS,
   TEGRIDY_LP_ADDRESS,
@@ -25,7 +24,6 @@ import {
   REFERRAL_SPLITTER_ADDRESS,
   PREMIUM_ACCESS_ADDRESS,
   VOTE_INCENTIVES_ADDRESS,
-  TEGRIDY_LENDING_ADDRESS,
   TEGRIDY_LAUNCHPAD_V2_ADDRESS,
   TEGRIDY_NFT_POOL_FACTORY_ADDRESS,
   TEGRIDY_TOKEN_URI_READER_ADDRESS,
@@ -101,7 +99,6 @@ const GROUPS: ContractGroup[] = [
       // The live token came from a token-generator template; the repo's Toweli.sol is not it.
       { label: 'TOWELI Token', address: TOWELI_ADDRESS, source: 'not in this repo (token-generator template)' },
       { label: 'Tegridy Staking', address: TEGRIDY_STAKING_ADDRESS, source: 'contracts/src/TegridyStaking.sol' },
-      { label: 'Tegridy Restaking', address: TEGRIDY_RESTAKING_ADDRESS, source: 'contracts/src/TegridyRestaking.sol' },
       { label: 'Treasury', address: TREASURY_ADDRESS, source: 'external (Safe multisig)' },
       // Retired pre-relaunch staking deployments that still hold positions.
       // Withdraw-only: the Farm page shows an exit card to affected wallets,
@@ -198,22 +195,22 @@ const GROUPS: ContractGroup[] = [
       // exist. Full checksummed addresses live here and in CommunityPage's
       // DEPLOYED_NOT_WIRED; keep the two in step.
       {
-        label: 'Gauge Controller', address: GAUGE_CONTROLLER_ADDRESS, source: 'contracts/src/GaugeController.sol',
+        label: 'Gauge Controller', address: GAUGE_CONTROLLER_ADDRESS, source: 'not in this repo (source retired 2026-10-27; verified on Etherscan)',
         status: 'unwired', onChainAddress: '0x6c79522d47cf6d1051cb474e81d9b6f3996c1054',
         note: 'Deployed and unpaused on mainnet; not yet wired into this app.',
       },
       {
-        label: 'Vote Incentives', address: VOTE_INCENTIVES_ADDRESS, source: 'contracts/src/VoteIncentives.sol',
+        label: 'Vote Incentives', address: VOTE_INCENTIVES_ADDRESS, source: 'not in this repo (source retired 2026-10-27; verified on Etherscan)',
         status: 'unwired', onChainAddress: '0x6e1dcb7ebd16e09edb574f414adc664b2a5e21af',
         note: 'Deployed and unpaused on mainnet; not yet wired into this app. Its gauge controller is unset, so bribes are not accepted yet.',
       },
       {
-        label: 'Community Grants', address: COMMUNITY_GRANTS_ADDRESS, source: 'contracts/src/CommunityGrants.sol',
+        label: 'Community Grants', address: COMMUNITY_GRANTS_ADDRESS, source: 'not in this repo (source retired 2026-10-27; verified on Etherscan)',
         status: 'unwired', onChainAddress: '0xebc3aaf48297b8ccfa8272d9e68c1545eb9cd471',
         note: 'Deployed and unpaused on mainnet; not yet wired into this app.',
       },
       {
-        label: 'Meme Bounty Board', address: MEME_BOUNTY_BOARD_ADDRESS, source: 'contracts/src/MemeBountyBoard.sol',
+        label: 'Meme Bounty Board', address: MEME_BOUNTY_BOARD_ADDRESS, source: 'not in this repo (source retired 2026-10-27; verified on Etherscan)',
         status: 'unwired', onChainAddress: '0x6d2c6ec29d97fe8b6d1471091deee36baf69d890',
         note: 'Deployed and unpaused on mainnet; not yet wired into this app.',
       },
@@ -225,7 +222,6 @@ const GROUPS: ContractGroup[] = [
     title: 'NFT Finance',
     description: 'NFT-collateralized lending, bonding-curve pools, and launchpad.',
     entries: [
-      { label: 'Tegridy Lending', address: TEGRIDY_LENDING_ADDRESS, source: 'contracts/src/TegridyLending.sol' },
       {
         label: 'Tegridy Launchpad',
         address: TEGRIDY_LAUNCHPAD_V2_ADDRESS,
