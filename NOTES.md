@@ -120,6 +120,23 @@ npm audit called the fix "semver-major" and named `@base-org/account` 2.5.5, whi
 depends on the same cdp-sdk and its zod 3. The fix for the copy our code imports was a minor
 bump, 4.4.3 to 4.6.6. Read which copy each `nodes` path is before trusting the fix column.
 
+## 2026-10-24: `git reset --soft origin/mvp-launch` to squash a branch reverts whatever trunk gained since the branch was cut
+
+**Believed:** squashing an unpushed branch with `git reset --soft origin/mvp-launch` and one
+commit leaves the commit holding the branch's own changes.
+
+**Measured** (2026-10-24, worktree `dev\wt\range-open`): the branch was cut at `9c6441ec0`.
+Another session's `git fetch` moved `origin/mvp-launch` to `36fcc7e7d` (#962): every
+worktree shares the remote refs. The soft reset kept the branch's files but took the newer
+trunk as the parent, so the one commit held 20 files: the branch's 9, and the undoing of 11
+that trunk had just changed (`EvmMakerPlates.tsx`, `tokenDossier.ts`, `LaunchTokenPage.tsx`,
+three `e2e-solana` specs among them). `git diff --stat origin/mvp-launch` showed it before
+anything was pushed.
+
+**Do:** squash onto the branch's own base, `git reset --soft $(git merge-base HEAD origin/mvp-launch)`,
+which a fetch does not move; then rebase onto trunk. Before the first push, read
+`git diff --stat origin/mvp-launch`: a file you never touched in that list is a revert.
+
 ## 2026-10-23: a trunk failure that the next run passed was two green PRs red together, not a flake
 
 **Believed:** five tests that failed once on trunk (merge `08596661`, run 38501066916) and

@@ -7,6 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-10-29
+
+- Pools: a Range tab on Solana. Put liquidity in the venue's own range pools between two prices you pick; it earns while the price is between them: 84% of each swap's fee (the fee is 1% or 0.25% of the swap, by the pool's tier), shared by the liquidity in range, and the venue keeps 16% (10.4% to the team's shared wallet, 5.6% to the island's Workshop). Solana swaps can route through these pools too.
+
 ### 2026-10-28
 
 - Contracts page: Gauge Controller, Vote Incentives, Community Grants and Meme Bounty Board no longer link to a source file. Their source left this repository on 2026-10-27; each row says so, and their verified source is on Etherscan. The Tegridy Restaking and Tegridy Lending rows are gone: neither contract was ever deployed, and their source left with them.

@@ -24,7 +24,7 @@ const LINES = [
 /** Beside the deposit: the risks, one press away. */
 export function RangeRisks() {
   return (
-    <details className="rounded-lg" style={{ border: '1px solid rgba(255,255,255,0.08)' }} data-testid="range-risks">
+    <details style={{ border: '1px solid rgba(245,228,184,0.16)' }} data-testid="range-risks">
       <summary className="min-h-[44px] flex items-center px-3 cursor-pointer text-white/75">Risks</summary>
       <ul className="list-disc pl-7 pr-3 pb-3 space-y-1 text-white/65">
         <li>{RANGE_RISK_SHORT}</li>
