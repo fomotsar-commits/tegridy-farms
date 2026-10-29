@@ -987,8 +987,8 @@ closes are done.
   rows in `frontend/scripts/addresses.json` (both controls are the Squads vault now). Start the
   vault upgrade pack for the ladder's 4-year change. Renew or update the advisory waivers before
   2026-11-16. Built 2026-10-10: the "Back to top" flake is PR #788 and the ladder rows are
-  PR #785, both merged with train #796 on 2026-10-14. The upgrade pack and the waivers are
-  still open.
+  PR #785, both merged with train #796 on 2026-10-14. The upgrade pack is still open. The
+  waivers were re-triaged on 2026-10-29 and now run to 2027-01-27; renew them by about 2027-01-13.
 - ⬜ **C-1009-8: housekeeping that needs a quiet moment.** Move the shared main folder onto trunk
   (it sits on a September branch and has no CLAUDE.md), after its only-copy files are saved. One
   dedicated worktree cleanup (230 exist): unlink every linked folder and prove it gone first.
@@ -1298,8 +1298,8 @@ six jobs GitHub ran onto this PC (`register-tasks.ps1 -Failover`) and takes the 
 **Done 2026-10-07:** the six blocking advisories the failover `npm-advisories` job found on
 2026-09-30 (`undici` and `brace-expansion`) are gone from both audits, and GitHub's
 `npm advisories` workflow is green on the trunk for all three projects (`9e1b7b5e`). The next
-date is 2026-11-16: the baseline and both accepted entries expire together (GIT_HOSTING.md,
-section 8).
+date is 2027-01-27: every accepted entry expires together, and the baseline is empty since the
+2026-10-29 re-triage (GIT_HOSTING.md, section 8).
 
 ---
 
