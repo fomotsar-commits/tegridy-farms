@@ -15,6 +15,32 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-29: a pushed tag holds a PR's merge, a failed vault execute still reads "Approved", and funding a wallet can turn the registry red
+
+**Believed:** tagging a PR's head on origin is free bookkeeping.
+**Measured:** pushing `wip/todo-batch-numbers-1` started a full `solana-ci` run with event `push`
+on that tag (run 40821977089, created 05:11 UTC; at 05:31 two of its jobs were still queued). It
+attaches to the PR's head commit, so the PR showed four pending checks after its own
+`pull_request` run of the same workflow had passed. A "merge once its checks finish" word then
+waited on a run nobody needed. **Do:** keep rescue tags local (`git tag`), or push them only for
+commits that are not a PR's head.
+
+**Believed:** a vault proposal whose execute failed is closed.
+**Measured:** Squads proposal #18 (multisig `EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK`) failed
+its execute on 2026-10-27 because its buffer was gone, and on 2026-10-29 its account still reads
+`Approved`. A failed execute changes nothing in the proposal, so every signing page keeps offering
+it as ready, and pressing it again only burns a fee. **Do:** in any list of proposals to press,
+name the dead ones by number.
+
+**Believed:** a registry row that says a wallet is gone is a record of the past.
+**Measured:** `bayla-ladder-deployer` (`Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6`) has
+`expect: { type: "absent" }`, which `verify-addresses.mjs --onchain` enforces unconditionally. The
+ladder upgrade plan funds that wallet with 2.70 SOL, and its PR does not touch the registry. With
+the row flipped to `{ type: "wallet", funded: true }` and the wallet still empty, the live read
+fails on exactly that row (`registry expects this account to exist and it DOES NOT`), so the
+original row would fail the morning after the send. **Do:** a plan that funds or empties a
+registered wallet carries the registry change, merged the same day.
+
 ## 2026-10-27: a zeroed address constant is not "never deployed", and six files hold a contract besides its tests
 
 **Believed:** a contract whose `*_ADDRESS` is zeroed in `frontend/src/lib/constants.ts` was never
