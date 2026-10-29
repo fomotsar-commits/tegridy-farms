@@ -61,8 +61,8 @@ and read it back before every press.
 - The range and pool uploads come back to the deploy wallet when each upgrade executes. The
   roll-back's 3.51 SOL comes back only through a later return proposal, 48 hours after its
   approval. About 0.1 SOL is spent for good.
-- **The day you send the 2.70 SOL, merge the registry PR that marks the ladder deploy wallet as
-  funded.** The registry expects that wallet to be empty, so the daily chain check goes red
+- **The day you send the 2.70 SOL, merge #1047**, the registry PR that marks the ladder deploy
+  wallet as funded. The registry expects that wallet to be empty, so the daily chain check goes red
   otherwise.
 
 **Day 2, execute in this order:** #21 if it hasn't run yet, then the range upgrade, the pool
