@@ -4,6 +4,7 @@
 // Three chains run side by side, each with its own ports, ledger and work folder; a sweep uses a
 // 3 s lock (CLMM_TIME_LOCK) unless the mutant sets its own. The restore run uses the default lock.
 // usage: node run-mutants.mjs [id ...]      writes mutants-<start time>.json into CLMM_WORK
+// env CLMM_SO (the program, as validator.mjs), CLMM_LEDGER_BASE and CLMM_PORT_BASE: another session's chains may hold the defaults.
 import { spawn, execFileSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
@@ -12,7 +13,10 @@ import { WORK, REPO } from './lib/config.mjs';
 
 const WORKERS = Number(process.env.CLMM_WORKERS || 3);
 const ids = process.argv.slice(2).length ? process.argv.slice(2) : Object.keys(MUTANTS);
-const programSha = () => execFileSync('wsl', ['-e', 'bash', '-lc', 'sha256sum /root/clmm-p1/tegridy-clmm/target/deploy/raydium_clmm.so']).toString().split(' ')[0];
+const SO = process.env.CLMM_SO || '/root/clmm-p1/tegridy-clmm/target/deploy/raydium_clmm.so';
+const LEDGERS = process.env.CLMM_LEDGER_BASE || '/root/clmm-p1/ledger';
+const PORT_BASE = Number(process.env.CLMM_PORT_BASE || 20899);
+const programSha = () => execFileSync('wsl', ['-e', 'bash', '-lc', `sha256sum ${SO}`]).toString().split(' ')[0];
 const sourceTree = () => execFileSync('git', ['-C', REPO, 'rev-parse', 'HEAD:solana/tegridy-clmm']).toString().trim();
 const dirty = () => execFileSync('git', ['-C', REPO, 'status', '--porcelain', '--', 'solana/tegridy-clmm']).toString().trim();
 const shaBefore = programSha();
@@ -38,7 +42,7 @@ async function worker(i) {
     const f = join(work, `results-mutant-${id}.json`);
     if (existsSync(f)) rmSync(f);
     const t0 = Date.now();
-    const env = { ...process.env, CLMM_WORK: work, CLMM_PORT: String(20899 + 2000 * i), CLMM_LEDGER: `/root/clmm-p1/ledger-w${i}`, CLMM_TIME_LOCK: '3', ...(MUTANTS[id].env || {}) };
+    const env = { ...process.env, CLMM_WORK: work, CLMM_PORT: String(PORT_BASE + 2000 * i), CLMM_LEDGER: `${LEDGERS}-w${i}`, CLMM_TIME_LOCK: '3', ...(MUTANTS[id].env || {}) };
     // A run whose target was never judged (a validator that did not start, under load) gets one more try.
     let r = await run(['--mutant', id], env);
     if (!existsSync(f)) r = await run(['--mutant', id], env);

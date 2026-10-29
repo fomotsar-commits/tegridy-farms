@@ -111,6 +111,8 @@ const h = vi.hoisted(() => ({
   pairAverage: vi.fn(),
 }));
 
+// The constant-product pools' route only: range pools in the route are SolanaSwapPage.rangePool.test.tsx's.
+vi.mock('../lib/solana/clmm/programId', async (orig) => ({ ...(await orig<typeof import('../lib/solana/clmm/programId')>()), rangePoolsVisible: () => false }));
 vi.mock('sonner', () => ({ toast: h.toast }));
 vi.mock('../lib/solana/swap/pairAverage', async (orig) => ({
   ...(await orig<typeof import('../lib/solana/swap/pairAverage')>()),

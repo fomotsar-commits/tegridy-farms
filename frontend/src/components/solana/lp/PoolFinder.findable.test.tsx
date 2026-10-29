@@ -60,6 +60,7 @@ const noPools = (mint: string): PoolSearchRead => ({
     index: { kind: 'ok', pools: [], truncated: false },
     pools: [],
     otherPairs: 0,
+    launchTierPools: [],
     knownState: {},
     chainNow: 1_000n,
   },
@@ -85,6 +86,7 @@ function poolView(tier1 = false): PoolView {
     quoteReserve: sol,
     tokenReserve: tok,
     vaultsFrozen: false,
+    launchTierWithoutLaunch: false,
     history: { kind: 'not-read' },
   };
 }

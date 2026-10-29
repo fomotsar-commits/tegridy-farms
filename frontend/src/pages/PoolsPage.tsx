@@ -1,6 +1,7 @@
 // Polyfill MUST load before any @solana/* import — same rule as SolanaProviders.
 import '../lib/solanaPolyfill';
-import { lazy, Suspense, useEffect, useLayoutEffect, useRef } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { m } from 'framer-motion';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { useVenueStatus } from '../hooks/useVenueStatus';
@@ -10,6 +11,8 @@ import { CardArt } from '../components/ui/CardArt';
 import { FinePrint } from '../components/ui/FinePrint';
 import { VenueStatusCard } from '../components/solana/VenueStatusCard';
 import { VenueProgramCard } from '../components/solana/VenueProgramCard';
+import { LpDoorFrame } from '../components/solana/lp/LpDoorFrame';
+import type { LpDoorAnchor } from '../components/solana/lp/lpDoor';
 import { lpWriteMode, type LpWriteMode } from '../lib/launcher/solana/lpWriteFlag';
 
 // The actions, positions, rates and routes. Lazy: it brings the Solana wallet stack, which
@@ -49,6 +52,18 @@ export default function PoolsPage() {
   // Fixed for the life of a build: a production build reads only the committed constant.
   const lpMode = lpWriteMode();
 
+  // The LP door (a room's Add SOL + coin, island answer twenty-two) is drawn above the hero. Its
+  // place is held from the first frame, read from the address once (the section drops the door's
+  // words as it opens the form), until the section claims it or the venue does not read live.
+  const [params] = useSearchParams();
+  const [doorMint] = useState(() => (lpMode !== 'off' && params.get('task') === 'add' ? params.get('mint') : null));
+  const [doorAt, setDoorAt] = useState<HTMLDivElement | null>(null);
+  const [doorClaimed, setDoorClaimed] = useState(false);
+  const claimDoor = useCallback(() => setDoorClaimed(true), []);
+  const door = useMemo<LpDoorAnchor>(() => ({ at: doorAt, claim: claimDoor }), [doorAt, claimDoor]);
+  // The token whose door the page holds a place for, while it does.
+  const doorWaiting = !doorClaimed && (status === null || venueIsOpen) ? doorMint : null;
+
   // A Refresh that stops reading live unmounts the LP section above the status card, so the
   // card jumps up the page. It is brought back into view: the answer to the press stays on
   // screen. 'nearest' moves nothing when the card is already in view.
@@ -67,16 +82,22 @@ export default function PoolsPage() {
       </div>
 
       <div className="relative z-10 max-w-[900px] mx-auto px-4 md:px-6 pt-8 pb-16">
+        {doorWaiting !== null && <LpDoorFrame mint={doorWaiting} waiting />}
+        <div ref={setDoorAt} />
         <m.div className="mb-6" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
           {/* Not on a phone: the tab above already says Venue AMM, and its line pushed the token buttons under the bottom bar. */}
           <p className="hidden sm:block text-white/70 text-[11px] uppercase tracking-[0.2em] mb-2">Venue AMM · Solana</p>
           <h1 className="heading-luxury text-3xl md:text-5xl text-white tracking-tight mb-3">
             Liquidity pools.
           </h1>
-          <p className="text-white/85 text-[15px] max-w-xl leading-relaxed">
+          {/* Only what a read returned: nothing while reading or after a failed read. The line's
+              height is held, so the page does not jump when the read lands. */}
+          <p className="text-white/85 text-[15px] max-w-xl leading-relaxed min-h-[1lh]">
             {liveConfig
               ? 'Add two coins. Earn from every trade.'
-              : 'Our own Solana AMM. No pool can be opened here yet.'}
+              : status && status.kind !== 'unreadable'
+                ? 'Our own Solana AMM. No pool can be opened here yet.'
+                : null}
           </p>
           <FinePrint summary="Details" className="max-w-xl">
             <p>
@@ -102,7 +123,7 @@ export default function PoolsPage() {
         {venueIsOpen && (
           <div className="mt-2">
             <Suspense fallback={<p className="text-white/60 text-[13px]">Loading the pool finder…</p>}>
-              <SolanaLpSection />
+              <SolanaLpSection door={door} />
             </Suspense>
           </div>
         )}

@@ -15,6 +15,65 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-27: a zeroed address constant is not "never deployed", and six files hold a contract besides its tests
+
+**Believed:** a contract whose `*_ADDRESS` is zeroed in `frontend/src/lib/constants.ts` was never
+deployed, and deleting it is its source plus its tests and deploy scripts.
+
+**Measured** (the dead-EVM-contract removal: 21 contracts, 92 files): five of the zeroed ones are on
+mainnet, verified 2026-07-16 and gated off: GaugeController
+`0x6c79522D47Cf6d1051Cb474E81d9b6f3996c1054`, VoteIncentives
+`0x6e1dCB7EBD16E09edb574F414aDc664B2A5E21AF` and its admin
+`0xf87Ec231BA7FA3975619309bc16C698B2ea3B300`, CommunityGrants
+`0xeBC3aaf48297b8ccFa8272D9E68c1545eb9CD471` and MemeBountyBoard
+`0x6D2C6EC29D97fe8b6D1471091DEEE36baf69d890`. `eth_getBalance` and TOWELI `balanceOf` read 0 on
+all five. The zero constant means "the site does not show it"; `addresses.json`'s `status` field
+and `docs/CONTRACTS.md` are where "deployed" lives.
+
+Deleting a contract pulled on, in order found: `scripts/check-interface-selectors.mjs` (every
+`*_ABI` export in `contracts.ts` must resolve to an artifact, so a retired ABI needs its own named
+list), `.github/contracts-test-slices.json` (a brace alternative matching zero files fails the slice
+guard), `NOTICE.md`'s SPDX count and GPL list, `frontend/src/lib/whetstonePetitionTruth.test.ts` (a
+Doc-guards test that reads three `contracts/src/v4` files at import, which is why the four V4
+graduation-stack contracts stayed), and two airdrop tests that opened campaigns through the factory.
+`forge build` finds none of these.
+
+**Do:** before deleting a contract, grep its name across `scripts/`, `.github/`, `NOTICE.md` and
+`frontend/src/**/*.test.ts`, and read the registry row's `status`, never the constant.
+
+## 2026-10-25: the LP door's "one jump" to its form was three scroll moves
+
+**Believed** (island, answer twenty-two, and the 2026-10-16 entry below): the door moves the
+page once, when the Add panel mounts and scrolls its heading into view, about 1,650px.
+
+**Measured** (e2e/door-lands.spec.ts on a trunk `1ca85025` production build, 390x844, Bayla room
+to Add SOL + BAYLA, `scrollY` read every animation frame): 0, then 796 (the finder scrolls to its
+answer when the lookup starts), back to 0, then 1,654 (the panel). With no wallet connected it
+went on to 5,642 and settled at 5,245; I did not trace those two.
+
+**Do:** a check of one `scrollIntoView` call misses the others. Read `scrollY` on every frame
+from the landing on a production build, and assert the whole list. A form opened by code goes
+where the visitor already is (the door draws it at the top through a portal) instead of
+scrolling the page to it.
+
+## 2026-10-24: a pool on fee tier 0 read as a cheaper public pool, but only a graduation may open one there
+
+**Believed:** the pool finder, the swap route and the builders may treat every pool of ours
+alike, whatever its fee tier: tier 0 (0.25%) is just the cheaper tier.
+
+**Measured** (vitest, 2026-10-24, on trunk 2ae979945 before the fix): with a free pool on
+tier 0 beside a tier-1 pool, the swap route quoted both, and the router picks the free one
+when reserves match (a lower fee pays more); the venue-swap and deposit builders built
+transactions into it. A test, "prices each pool with the fee of the tier it is on", pinned the
+router choosing it as correct. The write testkit's default pool sat on tier 0 at the standard
+address: every builder test's "ordinary pool" was the case the owner now refuses. 14 new
+tests failed on trunk; 16 of 16 mutants of the guards were killed.
+
+**Do:** judge a pool's tier with its address. Tier 0 is the launch tier: the one pool on it
+the site uses is `["launchpool", mint]` under the launch program (`PoolView.launchTierWithoutLaunch`,
+poolFinder.ts). The write testkit's default pool is on tier 1 now. In jsdom a fixture cannot
+derive program addresses, so a flag a fixture works out reads the config's own bytes.
+
 ## 2026-10-24: a Tailwind `min-[720px]:` lost to `sm:` on a wider screen, because v4 sorts breakpoints by unit before width
 
 **Believed:** the wider breakpoint wins, so `min-[720px]:aspect-[3/4]` overrides

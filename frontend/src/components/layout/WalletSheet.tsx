@@ -198,8 +198,8 @@ export function WalletSheet({ open, onClose, evm }: WalletSheetProps) {
         ? 'Loading Solana wallets…'
         : surface?.connecting
           ? 'Connecting…'
-          : 'Phantom, Trust, Jupiter, Solflare and more';
-  const ethereumDetail = evm.label ? 'Account and disconnect' : 'MetaMask, Trust, Rainbow and more';
+          : 'Phantom, Coinbase, Trust, Jupiter, Solflare and more';
+  const ethereumDetail = evm.label ? 'Account and disconnect' : 'MetaMask, Coinbase, Trust and more';
   // Said once, outside the row: a status inside a button is not read out.
   const solanaStatus = ownFailed ? 'Couldn’t load Solana wallets.' : loading ? 'Loading Solana wallets…' : '';
 
