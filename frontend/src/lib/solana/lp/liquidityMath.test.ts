@@ -28,6 +28,8 @@ import {
 // The write layer's own constants, in the test only: liquidityMath stays web3-free.
 import { LAMPORTS_PER_SIGNATURE, MAX_OWN_PRIORITY_LAMPORTS } from '../../launcher/solana/write/budget';
 import { LP_FEE_RESERVE } from '../../launcher/solana/write/liquidity';
+import { poolFeesOf, type PoolFees } from './liquidityMath';
+import { feeOf, poolInverseFee, type TransferFee } from './transferFee';
 
 /** A snapshot with only what the maths reads: `lpSupply` and the two reserves. */
 function snap(S: bigint, R0: bigint, R1: bigint): PoolSnapshot {
@@ -454,6 +456,8 @@ describe('planCreate: an opening of exactly what was typed', () => {
     expect(p).toEqual({
       init0: 1_000_000_000n,
       init1: 5_000_000n,
+      vault: { quote: 1_000_000_000n, token: 5_000_000n },
+      fee: { quote: 0n, token: 0n },
       supply,
       lp: supply - 100n,
       locked: { quote: 1_415n, token: 8n },
@@ -530,5 +534,177 @@ describe('feeReserveFor', () => {
     expect(feeReserveFor(1)).toBe(LP_FEE_RESERVE);
     expect(feeReserveFor(1)).toBe(LAMPORTS_PER_SIGNATURE + MAX_OWN_PRIORITY_LAMPORTS);
     expect(feeReserveFor(2)).toBe(2n * LAMPORTS_PER_SIGNATURE + MAX_OWN_PRIORITY_LAMPORTS);
+  });
+});
+
+// ── a token with a transfer fee ───────────────────────────────────────────────
+//
+// Each plan is run through the pool program's own steps, written out here from
+// deposit.rs, withdraw.rs and initialize.rs with the token program's fee (transferFee.ts,
+// held to spl-token in its own test): what the program would refuse, and what each
+// account would see. A plan made WITHOUT the fee is run through the same steps, to show
+// the program refusing it, so each test is one the fee-free maths fails.
+
+const fee = (basisPoints: number, maximumFee: bigint = U64_MAX): TransferFee => ({ epoch: 0n, maximumFee, basisPoints });
+const FEES = [fee(1), fee(100), fee(500), fee(500, 1_000n), fee(2_500), fee(9_000)];
+
+/** deposit.rs: the program's ceiling cost, its fee on top, the maxima held, and what each vault receives. */
+function programDeposit(s: PoolSnapshot, lp: bigint, max0: bigint, max1: bigint, fees: PoolFees) {
+  const cost = lpTokensToTradingTokens(lp, s.pool.lpSupply, s.reserve0, s.reserve1, 'ceiling');
+  if (!cost || cost.token0Amount === 0n || cost.token1Amount === 0n) return 'ZeroTradingTokens' as const;
+  const inv0 = poolInverseFee(fees[0], cost.token0Amount);
+  const inv1 = poolInverseFee(fees[1], cost.token1Amount);
+  if (inv0 === null || inv1 === null) return 'TransferFeeCalculateNotMatch' as const;
+  const sent0 = cost.token0Amount + inv0;
+  const sent1 = cost.token1Amount + inv1;
+  if (sent0 > max0 || sent1 > max1) return 'ExceededSlippage' as const;
+  const kept = (f: TransferFee | null, v: bigint) => (f ? feeOf(f, v) : 0n);
+  return { sent0, sent1, vault0: sent0 - kept(fees[0], sent0), vault1: sent1 - kept(fees[1], sent1), cost };
+}
+
+/** withdraw.rs: the floor payout, less the fee, held to the minima. */
+function programWithdraw(s: PoolSnapshot, lp: bigint, min0: bigint, min1: bigint, fees: PoolFees) {
+  const out = lpTokensToTradingTokens(lp, s.pool.lpSupply, s.reserve0, s.reserve1, 'floor');
+  if (!out || out.token0Amount === 0n || out.token1Amount === 0n) return 'ZeroTradingTokens' as const;
+  const get0 = out.token0Amount - (fees[0] ? feeOf(fees[0], out.token0Amount) : 0n);
+  const get1 = out.token1Amount - (fees[1] ? feeOf(fees[1], out.token1Amount) : 0n);
+  if (get0 < min0 || get1 < min1) return 'ExceededSlippage' as const;
+  return { get0, get1 };
+}
+
+describe('planDeposit with a transfer fee: what the program takes, and nothing more leaves', () => {
+  it('random pools, fees, sides and tolerances: the program accepts the plan, exactly its cost leaves, and the vaults get exactly the pool’s cost', () => {
+    const r = rng(20261029);
+    let checked = 0;
+    for (let i = 0; i < 6_000; i++) {
+      const s = snap(r.big(15), r.big(15), r.big(15));
+      const f = FEES[i % FEES.length]!;
+      const quoteIsToken0 = r.next() < 0.5;
+      const fees = poolFeesOf(quoteIsToken0, f);
+      const driving = r.next() < 0.5 ? 'quote' : 'token';
+      const maxIn = r.big(14);
+      const bps = BigInt(Math.floor(r.next() * 500));
+      const p = planDeposit(s, { quoteIsToken0, driving, maxIn, bps, availableQuote: null, availableToken: null, fees });
+      if (isPlanProblem(p)) continue;
+      checked++;
+      const ran = programDeposit(s, p.lp, p.max0, p.max1, fees);
+      if (typeof ran === 'string') throw new Error(`case ${i}: the program refuses the plan (${ran})`);
+      expect([ran.sent0, ran.sent1], `case ${i}`).toEqual([p.cost0, p.cost1]);
+      expect([ran.vault0, ran.vault1], `case ${i}`).toEqual([ran.cost.token0Amount, ran.cost.token1Amount]);
+      expect([p.fee0, p.fee1], `case ${i}`).toEqual([p.cost0 - ran.vault0, p.cost1 - ran.vault1]);
+      // The typed number is still the most that leaves on its side.
+      const drivingIs0 = (driving === 'quote') === quoteIsToken0;
+      expect(drivingIs0 ? p.cost0 : p.cost1, `case ${i}`).toBeLessThanOrEqual(maxIn);
+      // The coin's side never pays a fee.
+      expect(quoteIsToken0 ? p.fee0 : p.fee1).toBe(0n);
+    }
+    expect(checked).toBeGreaterThan(3_000);
+  });
+
+  it('the plan made without the fee is one the program refuses, on the token’s side', () => {
+    const s = snap(1_000_000_000n, 2_000_000_000n, 5_000_000_000n);
+    const fees = poolFeesOf(true, fee(500));
+    const a = { quoteIsToken0: true, driving: 'token' as const, maxIn: 100_000_000n, bps: 100n, availableQuote: null, availableToken: null };
+    const blind = ok(planDeposit(s, a));
+    expect(programDeposit(s, blind.lp, blind.max0, blind.max1, fees)).toBe('ExceededSlippage');
+    const seen = ok(planDeposit(s, { ...a, fees }));
+    expect(typeof programDeposit(s, seen.lp, seen.max0, seen.max1, fees)).toBe('object');
+    // 5% kept: the pool takes about 95 of the 100 typed, so fewer shares than without a fee.
+    expect(seen.lp).toBeLessThan(blind.lp);
+    expect(seen.fee1).toBeGreaterThan(0n);
+  });
+
+  it('the leave rule: shares bought where a fee is taken can always be taken back out, at least one unit reaching the wallet', () => {
+    const r = rng(1029);
+    let checked = 0;
+    for (let i = 0; i < 4_000; i++) {
+      const s = snap(r.big(8), r.big(9), r.big(9));
+      const fees = poolFeesOf(false, FEES[i % FEES.length]!);
+      const p = planDeposit(s, { quoteIsToken0: false, driving: 'token', maxIn: r.big(6), bps: 0n, availableQuote: null, availableToken: null, fees });
+      if (isPlanProblem(p)) continue;
+      checked++;
+      const after = snap(s.pool.lpSupply + p.lp, s.reserve0 + (p.cost0 - p.fee0), s.reserve1 + (p.cost1 - p.fee1));
+      const back = programWithdraw(after, p.lp, 1n, 1n, fees);
+      expect(typeof back, `case ${i}`).toBe('object');
+    }
+    expect(checked).toBeGreaterThan(200);
+  });
+});
+
+describe('planWithdraw with a transfer fee: what reaches the wallet', () => {
+  it('random pools and fees: the program pays at least the minima, and what reaches the wallet is exactly what the plan says', () => {
+    const r = rng(29);
+    let checked = 0;
+    for (let i = 0; i < 6_000; i++) {
+      const S = r.big(15);
+      const s = snap(S, r.big(15), r.big(15));
+      const fees = poolFeesOf(r.next() < 0.5, FEES[i % FEES.length]!);
+      const held = 1n + (r.big(15) % S);
+      const p = planWithdraw(s, { held, pctBps: BigInt(1 + Math.floor(r.next() * 10_000)), bps: BigInt(Math.floor(r.next() * 500)), fees });
+      if (isPlanProblem(p)) continue;
+      checked++;
+      const ran = programWithdraw(s, p.lp, p.min0, p.min1, fees);
+      if (typeof ran === 'string') throw new Error(`case ${i}: the program refuses the plan (${ran})`);
+      expect([ran.get0, ran.get1], `case ${i}`).toEqual([p.out0, p.out1]);
+    }
+    expect(checked).toBeGreaterThan(1_000);
+  });
+
+  it('the minima are set on what reaches the wallet: the fee-free minimum on the token’s side is one the program refuses', () => {
+    const s = snap(1_000_000n, 3_000_000n, 9_000_000n);
+    const fees = poolFeesOf(true, fee(500));
+    const blind = ok(planWithdraw(s, { held: 500_000n, pctBps: 10_000n, bps: 100n })) as WithdrawPlan;
+    expect(programWithdraw(s, blind.lp, blind.min0, blind.min1, fees)).toBe('ExceededSlippage');
+    const seen = ok(planWithdraw(s, { held: 500_000n, pctBps: 10_000n, bps: 100n, fees })) as WithdrawPlan;
+    expect(seen.out1).toBe(4_500_000n - 225_000n);
+    expect(seen.fee1).toBe(225_000n);
+    expect(seen.fee0).toBe(0n);
+  });
+
+  it('a payout the fee would take whole is too small, never a withdrawal that pays nothing', () => {
+    // One unit of the token out, and any fee takes at least one unit.
+    const s = snap(1_000n, 1_000_000n, 1_000n);
+    const fees = poolFeesOf(true, fee(1));
+    expect(planWithdraw(s, { held: 1n, pctBps: 10_000n, bps: 0n })).toMatchObject({ out1: 1n });
+    expect(planWithdraw(s, { held: 1n, pctBps: 10_000n, bps: 0n, fees })).toMatchObject({ problem: 'too-small' });
+    // And the fewest shares that can leave count the fee: two units out, one reaching the wallet.
+    expect(minLpForBothSides(s)).toBe(1n);
+    expect(minLpForBothSides(s, fees)).toBe(2n);
+  });
+});
+
+describe('planCreate with a transfer fee: the pool counts what reaches its vaults', () => {
+  it('the shares are isqrt of the vault amounts, the fee is what the token keeps, and the opener can always leave', () => {
+    const r = rng(102);
+    let checked = 0;
+    for (let i = 0; i < 4_000; i++) {
+      const f = FEES[i % FEES.length]!;
+      const quote = r.big(12);
+      const token = r.big(12);
+      const quoteIsToken0 = r.next() < 0.5;
+      const p = planCreate({ quoteIsToken0, quote, token, availableQuote: null, availableToken: null, tokenFee: f });
+      if ('problem' in p) continue;
+      checked++;
+      const vaultToken = token - feeOf(f, token);
+      expect(p.vault).toEqual({ quote, token: vaultToken });
+      expect(p.fee).toEqual({ quote: 0n, token: feeOf(f, token) });
+      expect(p.supply).toBe(isqrt(quote * vaultToken));
+      expect(p.lp).toBe(p.supply - LOCKED_LP);
+      // The leave rule: the opener's whole share, taken out of the pool as opened, brings at least one unit of each back.
+      const opened = snap(p.supply, quoteIsToken0 ? quote : vaultToken, quoteIsToken0 ? vaultToken : quote);
+      const back = programWithdraw(opened, p.lp, 1n, 1n, poolFeesOf(quoteIsToken0, f));
+      expect(typeof back, `case ${i}`).toBe('object');
+    }
+    expect(checked).toBeGreaterThan(1_000);
+  });
+
+  it('a fee that leaves the vault too little is too small, though the amounts typed were enough', () => {
+    // isqrt(10,000,000 x 1,000) = 100,000 shares: the locked 100 are exactly 0.1%, the most allowed.
+    const a = { quoteIsToken0: true, quote: 10_000_000n, token: 1_000n, availableQuote: null, availableToken: null };
+    expect('problem' in planCreate(a)).toBe(false);
+    // 90% kept: 100 of the 1,000 reach the vault, 31,622 shares, and the locked 100 are then more than 0.1% of the pool.
+    expect(planCreate({ ...a, tokenFee: fee(9_000) })).toMatchObject({ problem: 'lock-too-large' });
+    // One unit sent, one unit kept: nothing reaches the vault.
+    expect(planCreate({ ...a, token: 1n, tokenFee: fee(1) })).toMatchObject({ problem: 'too-small' });
   });
 });

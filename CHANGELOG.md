@@ -7,6 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-10-29
+
+- Solana pools: a token with a transfer fee can now have a pool. Opening one, adding to it, taking out of it and swapping in it work, with the fee taken the pool program's way. The review says how many tokens the token itself keeps, for whoever collects its fee (never the pool or memetics.finance), and every amount shown is after it. The token's card warns that the fee is taken going in, coming out and on every trade, and, when someone can still change the fee, that it can be raised to all of every transfer. Range pools and Add with one coin still turn such a token away.
+
 ### 2026-10-28
 
 - Contracts page: Gauge Controller, Vote Incentives, Community Grants and Meme Bounty Board no longer link to a source file. Their source left this repository on 2026-10-27; each row says so, and their verified source is on Etherscan. The Tegridy Restaking and Tegridy Lending rows are gone: neither contract was ever deployed, and their source left with them.
