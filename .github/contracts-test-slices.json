@@ -85,7 +85,7 @@
     },
     {
       "slice": "misc",
-      "pattern": "test/{C01_,C1_,CommunityGrants,Gauge,GovernanceGates,KickForfeitDoS,LockerClaimer,M19_,Meme,MVPLaunch_,POLAccumulator,PremiumAccess,RedTeam,Referral,Restaking,RevenueDistributor,Staking,SwapFeeRouter,Toweli,TransferOwnershipToMultisig,VoteIncentives}*.t.sol"
+      "pattern": "test/{C01_,C1_,KickForfeitDoS,LockerClaimer,MVPLaunch_,POLAccumulator,PremiumAccess,RedTeam,Referral,RevenueDistributor,Staking,SwapFeeRouter,Toweli,TransferOwnershipToMultisig}*.t.sol"
     },
     {
       "slice": "v4",
@@ -102,11 +102,11 @@
     },
     {
       "slice": "l2-markets-vaults-nftfi",
-      "pattern": "test/{base,curve,markets,nftfi,robinhood,v2,vaults,vendor}/*.t.sol"
+      "pattern": "test/{base,curve,robinhood,vendor}/*.t.sol"
     },
     {
       "slice": "airdrop-launch-vesting",
-      "pattern": "test/{AirdropFactory,AirdropMerkleVector,AttestedSequencerUptimeFeed,LaunchLockView,LaunchRugEscrow,VestingFactory}*.t.sol"
+      "pattern": "test/{AirdropMerkleVector,AttestedSequencerUptimeFeed,LaunchRugEscrow}*.t.sol"
     }
   ],
   "excluded": [

@@ -119,15 +119,31 @@ const FRONTEND_ABI_TARGET_OVERRIDES = {
   // belongs here; the export name carries the island vocabulary, not the
   // contract's.
   LIGHTHOUSE_STAKING_ABI: 'StakingRewards',
-  // Same shape — the airdrop/vesting surface landed with the prefix dropped, so
-  // `normalize(stem)` finds no candidate and the guard fails the whole job. These
-  // ARE in-repo contracts (contracts/src/TegridyAirdropDistributor.sol,
-  // contracts/src/TegridyVestingWallet.sol), so they belong here and NOT in
-  // EXTERNAL_FRONTEND_ABIS — that list is for ABIs we do not build, and the guard
-  // rejects an entry there that has an in-repo `*_ADDRESS`.
+  // Same shape — the airdrop surface landed with the prefix dropped, so
+  // `normalize(stem)` finds no candidate and the guard fails the whole job. It IS
+  // an in-repo contract (contracts/src/TegridyAirdropDistributor.sol), so it
+  // belongs here and NOT in EXTERNAL_FRONTEND_ABIS — that list is for ABIs we do
+  // not build, and the guard rejects an entry there that has an in-repo `*_ADDRESS`.
   AIRDROP_DISTRIBUTOR_ABI: 'TegridyAirdropDistributor',
-  VESTING_WALLET_ABI: 'TegridyVestingWallet',
 };
+
+// Frontend ABIs whose contract left the repo (the dead-EVM-contract removal of
+// 2026-10-27). The site keeps each ABI for the panel that says "not deployed";
+// no artifact is built for them any more, so the resolver has nothing to check.
+// An entry here may NOT have a live `*_ADDRESS` constant: the cross-check below
+// reads the constant's VALUE, so a redeploy cannot hide behind a retired ABI.
+const RETIRED_FRONTEND_ABIS = new Set([
+  'AIRDROP_FACTORY_ABI',
+  'COMMUNITY_GRANTS_ABI',
+  'GAUGE_CONTROLLER_ABI',
+  'LAUNCH_LOCK_VIEW_ABI',
+  'MEME_BOUNTY_BOARD_ABI',
+  'TEGRIDY_LENDING_ABI',
+  'TEGRIDY_RESTAKING_ABI',
+  'VESTING_FACTORY_ABI',
+  'VESTING_WALLET_ABI', // per-wallet clones; never had an address constant
+  'VOTE_INCENTIVES_ABI',
+]);
 
 // Selectors a frontend ABI declares that are deliberately served by a DIFFERENT
 // contract than the ABI's own target, AND that the frontend already calls at
@@ -286,6 +302,11 @@ const constantsSource = readFileSync(FRONTEND_CONSTANTS_FILE, 'utf8');
 const addressConstants = new Set(
   [...constantsSource.matchAll(/^export const ([A-Z0-9_]+_ADDRESS(?:ES)?)\b/gm)].map((m) => m[1]),
 );
+const addressConstantValues = new Map(
+  [...constantsSource.matchAll(/^export const ([A-Z0-9_]+_ADDRESS)\s*=\s*['"](0x[0-9a-fA-F]{40})['"]/gm)]
+    .map((m) => [m[1], m[2]]),
+);
+const ZERO_ADDRESS = `0x${'0'.repeat(40)}`;
 
 /**
  * Return the source text of the array literal starting at `open` (the index of
@@ -357,6 +378,16 @@ for (const match of abiSource.matchAll(/^export const ([A-Z0-9_]+_ABI)\s*=\s*(?=
   scannedAbiExports.add(match[1]);
   const exportName = match[1];
   const stem = exportName.slice(0, -'_ABI'.length);
+
+  if (RETIRED_FRONTEND_ABIS.has(exportName)) {
+    const live = addressConstantValues.get(`${stem}_ADDRESS`);
+    if (live && live.toLowerCase() !== ZERO_ADDRESS) {
+      unresolved.push(`${exportName} is in RETIRED_FRONTEND_ABIS but ${stem}_ADDRESS is ${live} in ` +
+                      'constants.ts — a retired contract cannot have a live address. Restore the ' +
+                      'source or zero the constant.');
+    }
+    continue;
+  }
 
   if (EXTERNAL_FRONTEND_ABIS.has(exportName)) {
     // Keep the allowlist honest: an ABI with an in-repo address constant is
