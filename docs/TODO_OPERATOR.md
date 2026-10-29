@@ -1909,7 +1909,10 @@ compare `accountedAmount` against `CLASSIC_ACCOUNTED_CEILING`, and count how man
 42.4% program-wide, expect some. Then decide what the holders are told — that decision is yours, not
 a code change.
 
-### ⬜ O-0906-4 — THIS document still prints a paste-ready command for the withdrawn 365-day rung
+### ✅ O-0906-4 — THIS document still prints a paste-ready command for the withdrawn 365-day rung
+
+Done 2026-10-29: the one paste-ready command left (in "What broadcasting needs from YOU") now
+reads `--max-days <at most 90>`. The line numbers below are from 2026-09-06.
 
 `docs/TODO_OPERATOR.md:554` gives a copy-paste ceremony invocation ending `--max-days 365`, and
 `:790` describes the ladder ramping to that maximum. The venue stopped offering that rung when
@@ -2335,8 +2338,10 @@ No Token-2022, no extensions, no transfer hooks — the BAYLA ceremony flow work
 unmodified. **What broadcasting needs from YOU (per resident, ~10 min each):** pick the rate
 (economics are your call — `--rate` is refused with a default on mainnet), then run the printed
 dry-run command with `--keypair … --broadcast`, paste the pool address into the registry
-`stakePool` slot, and FUND LAST in public. The BAYLA-parity shape used in the dry-runs:
-`node scripts/bayla-lighthouse-ceremony.mjs --rate <yours> --mint <mint> --max-days 365
+`stakePool` slot, and FUND LAST in public. The shape used in the dry-runs, with the longest lock
+cut to what the site offers (`OFFERED_LOCK_CEILING_DAYS = 90`; a pool's longest lock is fixed when
+it is created, so never create one at 365, see O-0906-4):
+`node scripts/bayla-lighthouse-ceremony.mjs --rate <yours> --mint <mint> --max-days <at most 90>
 --max-weight 5 --accept-long-lock`. ⚠️ Do NOT broadcast a pool for a resident whose community
 has not asked for one — a stake pool is a promise (locks with NO early exit), not a growth hack.
 
