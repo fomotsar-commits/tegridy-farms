@@ -7,6 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-10-29
+
+- Bungalow staking: when the reward program can never pay a position's rewards, the message now says your stake is safe, instead of calling it BAYLA on every bungalow.
+
 ### 2026-10-28
 
 - Contracts page: Gauge Controller, Vote Incentives, Community Grants and Meme Bounty Board no longer link to a source file. Their source left this repository on 2026-10-27; each row says so, and their verified source is on Etherscan. The Tegridy Restaking and Tegridy Lending rows are gone: neither contract was ever deployed, and their source left with them.
