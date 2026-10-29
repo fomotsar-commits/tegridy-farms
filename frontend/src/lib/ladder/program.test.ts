@@ -20,7 +20,7 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { PublicKey } from '@solana/web3.js';
 import {
   IX_DISCRIMINATOR, ACCOUNT_DISCRIMINATOR,
@@ -32,6 +32,7 @@ import {
   MAX_EARLY_EXIT_PENALTY_BPS, PENALTY_SCALE, MAX_PENALTY_RATIO, penaltyPct,
   PRECISION, minWeightFloor, lastTimeApplicable, rewardPerWeightNow, earnedNow,
   REWARDS_DURATION_SECS,
+  MAINNET_LADDER_PROGRAM_ID, resolveLadderProgramId,
 } from './program';
 
 const MATH_RS = resolve(
@@ -626,5 +627,69 @@ describe('the accumulator is monotonic, whatever the clock says', () => {
     };
     expect(rewardPerWeightNow(behind, 1_000)).toBe(500n);
     expect(rewardPerWeightNow(behind, 1_000)).toBeGreaterThanOrEqual(behind.rewardPerWeightStored);
+  });
+});
+
+// SECURITY REGRESSION — the program every stake is signed to.
+//
+// Each stake signs with the staker's BAYLA account writable, so the program id IS
+// who can move that BAYLA. It used to come from VITE_BAYLA_LADDER_PROGRAM alone: one
+// wrong value on the hosting dashboard pointed every stake at another program. A
+// production build now accepts only the committed id; the env var stays the switch.
+describe('the program id a build will use', () => {
+  const OTHER = 'HzxzfSQzJ9WQKe6xBoP5AgHFP8a84CgLB8dovdtDrtMK'; // a real program, just not ours on mainnet
+
+  it('a production build switched on with the committed id uses it', () => {
+    expect(resolveLadderProgramId(MAINNET_LADDER_PROGRAM_ID, false)).toBe(MAINNET_LADDER_PROGRAM_ID);
+    expect(resolveLadderProgramId(`  ${MAINNET_LADDER_PROGRAM_ID}
+`, false)).toBe(MAINNET_LADDER_PROGRAM_ID);
+  });
+
+  it('a production build given any other id leaves the ladder OFF, never pointed elsewhere', () => {
+    expect(resolveLadderProgramId(OTHER, false)).toBe('');
+    expect(resolveLadderProgramId('not-a-key', false)).toBe('');
+  });
+
+  it('an unset switch is off in every build', () => {
+    expect(resolveLadderProgramId(undefined, false)).toBe('');
+    expect(resolveLadderProgramId('', true)).toBe('');
+  });
+
+  it('a dev server or the e2e build may point at a devnet deployment', () => {
+    expect(resolveLadderProgramId(OTHER, true)).toBe(OTHER);
+  });
+
+  it('the committed id is the registered mainnet deployment', () => {
+    const registry = JSON.parse(readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../../scripts/addresses.json'), 'utf8'));
+    const text = JSON.stringify(registry);
+    expect(text).toContain(MAINNET_LADDER_PROGRAM_ID);
+    expect(new PublicKey(MAINNET_LADDER_PROGRAM_ID).toBase58()).toBe(MAINNET_LADDER_PROGRAM_ID);
+  });
+});
+
+// WIRING — the id the app actually uses goes through that rule. A production build is
+// imitated the way the launcher's own tests do it: DEV off, so env overrides are not
+// honoured (launcher/solana/curveWriteFlag.ts curveWriteEnvOverridesAllowed).
+describe('LADDER_PROGRAM_ID in a production build', () => {
+  afterEach(() => { vi.unstubAllEnvs(); vi.resetModules(); });
+  const load = async (raw: string) => {
+    vi.resetModules();
+    vi.stubEnv('DEV', false);
+    vi.stubEnv('MODE', 'production');
+    vi.stubEnv('VITE_BAYLA_LADDER_PROGRAM', raw);
+    return import('./program');
+  };
+
+  it('is the committed id when the switch names it', async () => {
+    const m = await load(MAINNET_LADDER_PROGRAM_ID);
+    expect(m.LADDER_PROGRAM_ID).toBe(MAINNET_LADDER_PROGRAM_ID);
+    expect(m.isLadderConfigured()).toBe(true);
+  });
+
+  it('is off, not pointed elsewhere, when the switch names any other program', async () => {
+    const m = await load('HzxzfSQzJ9WQKe6xBoP5AgHFP8a84CgLB8dovdtDrtMK');
+    expect(m.LADDER_PROGRAM_ID).toBe('');
+    expect(m.isLadderConfigured()).toBe(false);
+    expect(() => m.ladderProgramId()).toThrow(/not configured/);
   });
 });
