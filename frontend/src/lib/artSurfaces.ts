@@ -134,6 +134,8 @@ export const PAGE_ROUTES: Record<string, string> = {
   'heat-card': '/exposure',
   'clock-line': '/swap',
   'solana-swap': '/solana',
+  // Listed and routed only while the Cardano swap shows (lib/cardano/flags.ts).
+  'cardano-swap': '/cardano',
   'il-calculator': '/liquidity',
   liquidity: '/liquidity',
   'pending-trade': '/solana-lp',
@@ -642,9 +644,10 @@ export const SURFACES: Surface[] = [
   { group: 'Home', pageId: 'island-strip', idx: 0, label: 'The island today strip (venue home, under the doors, when the island is read)' },
   { group: 'Home', pageId: 'room-torches', idx: 0, label: "The island's torches card (every room's door, when the island is read)" },
   { group: 'Home', pageId: 'home', idx: 18, label: 'Your held time card (room with a token)' },
-  { group: 'Home', pageId: 'three-paths', idx: 0, label: 'Three paths card 1 (NFT Finance)' },
-  { group: 'Home', pageId: 'three-paths', idx: 1, label: 'Three paths card 2 (Marketplace)' },
-  { group: 'Home', pageId: 'three-paths', idx: 2, label: 'Three paths card 3 (Launch)' },
+  // 'three-paths' is the id the studios saved under; the row holds two cards since the
+  // marketplace left the home (2026-10-24). idx 1 was its card. Launch keeps idx 2.
+  { group: 'Home', pageId: 'three-paths', idx: 0, label: 'Paths card 1 (NFT Finance)' },
+  { group: 'Home', pageId: 'three-paths', idx: 2, label: 'Paths card 2 (Launch)' },
   { group: 'Home', pageId: 'venue-doors', idx: 0, label: 'Hall of doors panel (venue home)' },
   { group: 'Home', pageId: 'island-dashboard', idx: 0, label: 'Dashboard panel (venue home, above the three cards; also /dashboard)' },
   { group: 'Home', pageId: 'yield-calculator', idx: 0, label: 'Yield calculator (TOWELI room, not connected)' },
@@ -699,7 +702,6 @@ export const SURFACES: Surface[] = [
   { group: 'Island', pageId: 'bungalow-door', idx: 2, label: 'Live today card (settled door) (flag off)' },
   { group: 'Island', pageId: 'island', idx: 0, label: 'Page background' },
   { group: 'Island', pageId: 'island', idx: 1, label: 'Door card: Gallery' },
-  { group: 'Island', pageId: 'island', idx: 2, label: 'Door card: Marketplace' },
   { group: 'Island', pageId: 'island', idx: 3, label: 'Door card: Community' },
   { group: 'Island', pageId: 'island', idx: 5, label: 'Door card: Treasury & numbers' },
 
@@ -763,6 +765,11 @@ export const SURFACES: Surface[] = [
   { group: 'Swap · Solana', pageId: 'solana-swap', idx: 0, label: 'Page background' },
   { group: 'Swap · Solana', pageId: 'solana-swap', idx: 1, label: 'Price chart card (swap mode, buy token is not a stablecoin)' },
 
+  // Swap · Cardano (hidden until the Cardano swap opens)
+  { group: 'Swap · Cardano', pageId: 'cardano-swap', idx: 0, label: 'Page background' },
+  { group: 'Swap · Cardano', pageId: 'cardano-swap', idx: 1, label: 'Swap card' },
+  { group: 'Swap · Cardano', pageId: 'cardano-swap', idx: 2, label: 'Your order card (after an order is placed)' },
+
   // Pools · Add / Remove
   { group: 'Pools · Add / Remove', pageId: 'il-calculator', idx: 0, label: 'Impermanent loss calculator card (calculator opened)' },
   { group: 'Pools · Add / Remove', pageId: 'liquidity', idx: 0, label: 'Page background' },
@@ -771,11 +778,11 @@ export const SURFACES: Surface[] = [
   { group: 'Pools · Add / Remove', pageId: 'liquidity-tab', idx: 0, label: 'Add or remove liquidity card' },
 
   // Pools · Solana LP
-  // 'swap' idx 0 is the backdrop of both Solana LP and Venue AMM (SolanaLpPage, PoolsPage).
-  { group: 'Pools · Solana LP', pageId: 'swap', idx: 0, label: 'Page background (Solana LP and Venue AMM tabs)' },
+  // 'swap' idx 0 is the backdrop of the Venue AMM tab (PoolsPage).
+  { group: 'Pools · Solana LP', pageId: 'swap', idx: 0, label: 'Page background (Venue AMM tab)' },
   { group: 'Pools · Solana LP', pageId: 'pending-trade', idx: 0, label: 'Transaction may still be landing (a sent transaction is not confirmed yet)' },
   { group: 'Pools · Solana LP', pageId: 'solana-lp', idx: 0, label: 'Before you provide liquidity (venue live)' },
-  { group: 'Pools · Solana LP', pageId: 'solana-lp', idx: 1, label: 'Rates card (venue live, both Pools tabs)' },
+  { group: 'Pools · Solana LP', pageId: 'solana-lp', idx: 1, label: 'Rates card (venue live)' },
   { group: 'Pools · Solana LP', pageId: 'solana-lp', idx: 2, label: 'Create, add or remove liquidity (venue live)' },
   { group: 'Pools · Solana LP', pageId: 'solana-lp', idx: 3, label: 'Your positions card (venue live)' },
   { group: 'Pools · Solana LP', pageId: 'solana-lp', idx: 4, label: 'Adding and removing liquidity notice (liquidity writes blocked or not loaded)' },
@@ -785,6 +792,7 @@ export const SURFACES: Surface[] = [
   { group: 'Pools · Solana LP', pageId: 'solana-lp', idx: 8, label: 'Pool not read card (after a lookup, a pool that could not be r…)' },
   { group: 'Pools · Solana LP', pageId: 'solana-lp', idx: 9, label: 'Open a pool card (after a lookup, liquidity writes on)' },
   { group: 'Pools · Solana LP', pageId: 'solana-lp', idx: 13, label: 'All pools card (every pool on the venue, before a lookup)' },
+  { group: 'Pools · Solana LP', pageId: 'solana-lp', idx: 14, label: 'Every position card (every holder of every pool)' },
   { group: 'Pools · Solana LP', pageId: 'venue-amm', idx: 0, label: 'Venue status card' },
   { group: 'Pools · Solana LP', pageId: 'venue-amm', idx: 1, label: 'The program card' },
 

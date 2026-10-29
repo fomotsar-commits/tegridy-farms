@@ -45,7 +45,7 @@ import { VenueCards } from '../components/VenueCards';
 import { IslandDashboard } from '../components/IslandDashboard';
 import { HeatCard } from '../components/HeatCard';
 import { VenueDoors } from '../components/VenueDoors';
-import { ThreePaths } from '../components/ThreePaths';
+import { VenuePaths } from '../components/VenuePaths';
 import { FlamesBoard } from '../components/FlamesBoard';
 import { IslandStrip } from '../components/IslandStrip';
 import { RoomTorches } from '../components/RoomTorches';
@@ -812,13 +812,14 @@ export default function HomePage() {
         )}
         </div>
 
-        {/* WAVE SEVEN, element C: THE THREE PATHS, on the same gate. This is where
-            the hero's three CTAs went. Since answer twenty they stand on the second
+        {/* WAVE SEVEN, element C: THE PATHS, on the same gate. This is where the
+            hero's CTAs went (two since 2026-10-24: the marketplace left the home).
+            Since answer twenty they stand on the second
             screen, directly under the hero's number and ABOVE the hall: providing
             liquidity was tucked away on the fourth screen. Each card states its own
             requirement at the point of intent, and the launch floor is read from the
             same config the gate enforces with, never typed. */}
-        {!bungalowIdentity && !isToweliArrival && <ThreePaths />}
+        {!bungalowIdentity && !isToweliArrival && <VenuePaths />}
 
         {/* ARRIVAL IDENTITY 2026-08-31: THE HALL OF DOORS. The venue arrival
             opens onto the island itself — every bungalow door in one hall,

@@ -111,9 +111,24 @@
 <     pub const ID: Pubkey = pubkey!("DRayDktajVnqaNPyuYATWmZXyiJkdXpmUPdBYEapgaLY");
 ---
 >     pub const ID: Pubkey = pubkey!("GgE6AfEH2AVSrKGckyKMzC6mhtXWiAn39EzAikAsWq5a");
-73c87
+73c87,102
 <     pub const ID: Pubkey = pubkey!("projjosVCPQH49d5em7VYS7fJZzaqKixqKtus7yk416");
 ---
+>     pub const ID: Pubkey = pubkey!("GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd");
+> }
+> 
+> // memetics.finance: cp-swap's pool-opening fee (its initialize.rs), in every instruction that
+> // opens a pool. The receiver is the vault itself, a wallet: cp-swap's wrapped-SOL account would
+> // need the SPL Token program to sync, and a pool's two coins may both be Token-2022. The amount is
+> // a constant, not an AmmConfig field, so a fee tier made before this rule charges it too.
+> /// memetics.finance: what opening a pool costs, in lamports: 0.5 SOL.
+> pub const CREATE_POOL_FEE: u64 = 500_000_000;
+> 
+> pub mod create_pool_fee_reveiver {
+>     use super::{pubkey, Pubkey};
+>     #[cfg(feature = "devnet")]
+>     pub const ID: Pubkey = pubkey!("GgE6AfEH2AVSrKGckyKMzC6mhtXWiAn39EzAikAsWq5a");
+>     #[cfg(not(feature = "devnet"))]
 >     pub const ID: Pubkey = pubkey!("GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd");
 === programs/amm/src/instructions/admin/collect_fund_fee.rs ===
 9,10c9,10
@@ -177,6 +192,51 @@
 ---
 > // Changed by memetics.finance (tegridy-clmm): the venue's name in the memo.
 > pub const COLLECT_REMAINING_MEMO_MSG: &'static [u8] = b"memetics_collect_remaining";
+=== programs/amm/src/instructions/create_customizable_pool.rs ===
+102a103,109
+> 
+>     /// memetics.finance: the vault, which the pool-opening fee pays (lib.rs).
+>     #[account(
+>         mut,
+>         address = crate::create_pool_fee_reveiver::ID,
+>     )]
+>     pub create_pool_fee: SystemAccount<'info>,
+148a156,160
+>     util::charge_create_pool_fee(
+>         ctx.accounts.pool_creator.to_account_info(),
+>         ctx.accounts.create_pool_fee.to_account_info(),
+>         ctx.accounts.system_program.to_account_info(),
+>     )?;
+=== programs/amm/src/instructions/create_permissioned_pool.rs ===
+119a120,126
+> 
+>     /// memetics.finance: the vault, which the pool-opening fee pays (lib.rs).
+>     #[account(
+>         mut,
+>         address = crate::create_pool_fee_reveiver::ID,
+>     )]
+>     pub create_pool_fee: SystemAccount<'info>,
+161a169,173
+>     util::charge_create_pool_fee(
+>         ctx.accounts.payer.to_account_info(),
+>         ctx.accounts.create_pool_fee.to_account_info(),
+>         ctx.accounts.system_program.to_account_info(),
+>     )?;
+=== programs/amm/src/instructions/create_pool.rs ===
+102a103,109
+> 
+>     /// memetics.finance: the vault, which the pool-opening fee pays (lib.rs).
+>     #[account(
+>         mut,
+>         address = crate::create_pool_fee_reveiver::ID,
+>     )]
+>     pub create_pool_fee: SystemAccount<'info>,
+138a146,150
+>     util::charge_create_pool_fee(
+>         ctx.accounts.pool_creator.to_account_info(),
+>         ctx.accounts.create_pool_fee.to_account_info(),
+>         ctx.accounts.system_program.to_account_info(),
+>     )?;
 === programs/amm/src/instructions/decrease_liquidity.rs ===
 13c13,14
 < pub const DECREASE_MEMO_MSG: &'static [u8] = b"raydium_decrease";
@@ -220,6 +280,23 @@
 <             Pubkey::from_str("CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK").unwrap(),
 ---
 >             Pubkey::from_str("7ghzbbmq59QEbdweSzM1ggpeBH1Q2CyxZg4Tr2x8Aso").unwrap(), // Changed by memetics.finance: this copy's program id
+=== programs/amm/src/util/system.rs ===
+58a59,73
+> /// memetics.finance: the pool-opening fee, crate::CREATE_POOL_FEE lamports from `payer` to the
+> /// vault (lib.rs). Every instruction that opens a pool calls it.
+> pub fn charge_create_pool_fee<'a>(
+>     payer: AccountInfo<'a>,
+>     create_pool_fee: AccountInfo<'a>,
+>     system_program: AccountInfo<'a>,
+> ) -> Result<()> {
+>     let cpi_accounts = system_program::Transfer {
+>         from: payer,
+>         to: create_pool_fee,
+>     };
+>     let cpi_context = CpiContext::new(system_program.key(), cpi_accounts);
+>     system_program::transfer(cpi_context, crate::CREATE_POOL_FEE)
+> }
+> 
 === programs/amm/src/util/token.rs ===
 25a26,27
 > // Changed by memetics.finance (tegridy-clmm): upstream lists an outside issuer here; this copy lists

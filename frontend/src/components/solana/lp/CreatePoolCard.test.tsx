@@ -17,6 +17,7 @@ import { decodeAmmConfig, decodePoolState } from '../../../lib/solana/cpswap/pro
 import type { WalletFacts } from '../../../lib/solana/lp/walletFacts';
 import { buildPool, key, observationBytes } from '../../../lib/solana/lp/testkit.fixture';
 import { decodeObservationState } from '../../../lib/solana/lp/ownPrice';
+import { isqrt } from '../../../lib/solana/lp/liquidityMath';
 import { LP_PENDING_SCOPE, readPendingTrades, savePendingTrade } from '../curve/pendingTrade';
 import { GATE_RETRY_MS } from '../curve/useWriteGate';
 import type { CreateFacts, LpWriteApi } from '../curve/ports';
@@ -53,7 +54,8 @@ const SIG = '4'.repeat(88);
 function view(o: { tier1?: boolean; openTime?: bigint; address?: PublicKey; sol?: bigint } = {}): PoolView {
   const s = o.sol ?? 10n * 10n ** 9n;
   const t = 1_000n * 10n ** 6n;
-  const b = buildPool({ plain: true, mint: MINT, address: o.address, configIndex: 1, quoteReserve: s, tokenReserve: t, openTime: o.openTime ?? 1n });
+  // The shares the pool program opens these reserves with, so a launch pool nobody traded reads as one.
+  const b = buildPool({ plain: true, mint: MINT, address: o.address, configIndex: 1, quoteReserve: s, tokenReserve: t, openTime: o.openTime ?? 1n, lpSupply: isqrt(s * t) });
   const raw = decodePoolState(b.address.toBase58(), b.accounts[b.address.toBase58()]!.data)!;
   const pool = { ...raw, ammConfig: o.tier1 ? TIER1_ADDRESS.toBase58() : raw.ammConfig };
   const decoded = decodeAmmConfig(b.config.toBase58(), b.accounts[b.config.toBase58()]!.data)!;
@@ -70,6 +72,7 @@ function view(o: { tier1?: boolean; openTime?: bigint; address?: PublicKey; sol?
     quoteReserve: s,
     tokenReserve: t,
     vaultsFrozen: false,
+    launchTierWithoutLaunch: false,
     history: { kind: 'not-read' },
   };
 }
@@ -89,6 +92,7 @@ function search(views: PoolView[], extra: Partial<Extract<PoolSearchRead, { kind
       index: { kind: 'ok', pools: views.map((v) => v.address), truncated: false },
       pools: views.map((v) => ({ kind: 'pool' as const, view: v })),
       otherPairs: 0,
+      launchTierPools: [],
       knownState: { [STANDARD_1]: 'absent' },
       chainNow: 1_000n,
       ...extra,
@@ -584,11 +588,11 @@ describe('each answer has its own line, and only `offer` has the button', () => 
     }, 20_000);
   });
 
-  // Owner ruling 2026-10-07: a launch pool Jupiter has no route for, with under 10 minutes
+  // Owner ruling 2026-10-07: a launch pool Jupiter has no route for, with under 24 minutes
   // of trading, takes deposits with a warning. A card that points to such a pool says what
   // its price was not checked against, in that pool's own words, never "passes the checks"
   // or "we suggest", and keeps its Add button, as for a token with no market price.
-  it('what the card says of the pool it points to, when that pool is a launch pool that has traded for under 10 minutes (price check: too-new)', async () => {
+  it('what the card says of the pool it points to, when that pool is a launch pool that has traded for under 24 minutes (price check: too-new)', async () => {
     const base = view({ tier1: true });
     // A price record whose first trade was 100 seconds before the search's clock (1,000).
     const obs = decodeObservationState(observationBytes({ pool: new PublicKey(base.address), index: 1, lastUpdate: 990n, obs: [[0, 900n, 0n, 0n], [1, 990n, 1n, 1n]] }))!;
@@ -599,10 +603,28 @@ describe('each answer has its own line, and only `offer` has the button', () => 
     await waitFor(() => expect(pool).toHaveAttribute('data-add', 'offer'));
     expect(pool).toHaveAttribute('data-price', 'too-new');
     expect(said(within(c).getByTestId('lp-create-refer'))).toBe(
-      `This token already has a pool on the public fee tier ${WARNED}. The biggest is ${young.address}, holding 10 SOL. That pool has traded for under 10 minutes and Jupiter has no price for this token, so its price was checked against nothing. Adding to it keeps liquidity in one place; a pool of your own starts at the price you set.`,
+      `This token already has a pool on the public fee tier ${WARNED}. The biggest is ${young.address}, holding 10 SOL. That pool has traded for under 24 minutes and Jupiter has no price for this token, so its price was checked against nothing. Adding to it keeps liquidity in one place; a pool of your own starts at the price you set.`,
     );
     expect(c).not.toHaveTextContent(/passes the checks|We suggest adding to it/);
     expect(within(c).getByRole('button', { name: 'Go to that pool' })).toBeEnabled();
+  }, 20_000);
+
+  // M-1009-6: the same for a launch pool whose price may have moved without a trade. Nobody
+  // has traded it, yet it holds more than its shares account for. It read as passing the checks.
+  it('what the card says of the pool it points to, when that pool is a launch pool topped up by a transfer before anyone traded (price check: reserves-moved)', async () => {
+    const base = view({ tier1: true });
+    const neverTraded = decodeObservationState(observationBytes({ pool: new PublicKey(base.address), initialized: false }))!;
+    // Opened at 10 SOL and 500 tokens; 500 more tokens were then sent straight into its vault.
+    const toppedUp: PoolView = { ...base, origin: 'launch-pool', history: { kind: 'ok', obs: neverTraded }, snapshot: { ...base.snapshot, pool: { ...base.snapshot.pool, lpSupply: 2_236_067_977n } } };
+    mount(readers({ findPools: vi.fn(async () => search([toppedUp])), outsidePrice: vi.fn(async () => NO_ROUTE) }));
+    const c = await settled('offer');
+    const pool = screen.getByTestId('lp-pool');
+    await waitFor(() => expect(pool).toHaveAttribute('data-add', 'offer'));
+    expect(pool).toHaveAttribute('data-price', 'reserves-moved');
+    expect(said(within(c).getByTestId('lp-create-refer'))).toBe(
+      `This token already has a pool on the public fee tier ${WARNED}. The biggest is ${toppedUp.address}, holding 10 SOL. Nobody has traded in that pool, yet it holds more than its shares account for, and Jupiter has no price for this token, so its price was checked against nothing. Adding to it keeps liquidity in one place; a pool of your own starts at the price you set.`,
+    );
+    expect(c).not.toHaveTextContent(/passes the checks|We suggest adding to it/);
   }, 20_000);
 
   // Whole-change review 2026-10-04 (W3). "Passes the checks" was decided by the PRICE

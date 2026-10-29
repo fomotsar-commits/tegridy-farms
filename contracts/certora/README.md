@@ -79,7 +79,7 @@ from scratch. Pre-written specs cut engagement scoping from
 
 - A Certora license / cloud subscription — that's the
   engagement decision Phase 1.4 itself is gating on.
-- Additional contracts (TegridyRestaking, RevenueDistributor, etc.) —
+- Additional contracts (RevenueDistributor, etc.) —
   this PR covers only the staking-cap + pause-authority surface,
   which is the highest-stakes invariant set per the Phase 1.3
   prioritisation. Other contracts can land in follow-up PRs once the

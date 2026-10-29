@@ -39,7 +39,8 @@
    - `LAUNCHER_INTEGRATOR_ADDRESS = <re-homed Safe>`
    - confirm `DEFAULT_FEE_CONSTITUTION` final numbers.
 2. **Outcomes data source** (Strategy §2.5) — extend the **existing** aggregator catchall
-   (`frontend/api/`, do NOT add a serverless fn — Vercel Hobby 12-fn cap, main=9):
+   (`frontend/api/`; written under Vercel Hobby's 12-function cap, gone since the move to
+   Pro on 2026-09-04, see `frontend/api/SERVERLESS_BUDGET.md`):
    - add a `resource=launcher-outcomes` branch that builds a `LauncherDataFetcher`
      (`fetchMarket` via GeckoTerminal `networks/eth/pools/{pool}` — use
      `base_token_price_native_currency` to stay ETH-denominated; `fetchChainStats`

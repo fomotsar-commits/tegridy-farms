@@ -142,6 +142,8 @@ export interface Provenance {
   label: string;
   /** Full factual sentence. Only `ours` may claim this launch came through us. */
   detail: string;
+  /** What failed, in a developer's words, when the record could not be read: for Details, never the sentence. */
+  failure?: string;
   /** The integrator the Airlock names, when we read one. */
   integrator: Address | null;
 }
@@ -162,7 +164,8 @@ export function classifyProvenance(
     return {
       kind: 'unreadable',
       label: 'Provenance unverified',
-      detail: `We could not read this token's Doppler Airlock record, so we cannot say whether it launched through this rail. ${clipMessage(read.message)}`,
+      detail: "We could not read this token's Doppler Airlock record, so we cannot say whether it launched through this rail.",
+      failure: clipMessage(read.message),
       integrator: null,
     };
   }
@@ -190,14 +193,14 @@ export function classifyProvenance(
       kind: 'no-integrator',
       label: 'Not launched here',
       detail:
-        'This is a Doppler launch, but its Airlock record names no integrator — it did not come through this rail.',
+        'This is a Doppler launch, but its Airlock record names no integrator, so it did not come through this rail.',
       integrator: ZERO,
     };
   }
   return {
     kind: 'other-integrator',
     label: 'Not launched here',
-    detail: `This is a Doppler launch, but its Airlock record names a different integrator (${found}) — it did not come through this rail.`,
+    detail: `This is a Doppler launch, but its Airlock record names a different integrator (${found}), so it did not come through this rail.`,
     integrator: found,
   };
 }

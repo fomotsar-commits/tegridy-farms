@@ -59,6 +59,11 @@ fallback for pairs we don't host well.
 > (`88b98aa9…`, 691,640 bytes). The day, the slot and the transaction are recorded in one
 > place: `MAINNET_RUNBOOK.md`, section 4b. It was the program's first upgrade, and neither
 > build has been audited.
+>
+> **2026-10-24: rolled back.** The vault's pre-staged roll-back, proposal #16, executed at
+> 17:03:00 UTC (slot 460,927,956). Mainnet runs the 2026-09-29 build `88b98aa9…` again, so none
+> of the three is on chain: a public `initialize` on fee tier 0 is not refused, and
+> `create_lp_metadata` answers 101. A re-upgrade to `1e55bcdc…` is planned.
 
 ---
 
@@ -110,7 +115,7 @@ upgrade. **Never put a git-host URL in this macro.** The email is the `Contact:`
 `frontend/public/.well-known/security.txt`. If that changes, the macro must follow, and that
 is a new binary.
 
-**The program on mainnet has carried this text since its upgrade** (`MAINNET_RUNBOOK.md`,
+**The upgraded program carried this text on mainnet from 2026-10-23 until the roll-back of 2026-10-24** (`MAINNET_RUNBOOK.md`,
 section 4b). Until then the binary deployed on 2026-09-29 carried `https://memetic.fun` as
 its project (now another project's site), a contact link that is a 404 there, and two links
 to GitHub's `main` branch, which no longer exists. Read on 2026-10-06: the text, from the
@@ -353,7 +358,7 @@ production. We do not modify it.
 - **`admin::ID`** — `create_config` / `update_config` / `update_pool_status` AND a fallback collector on `collect_protocol_fee` / `collect_fund_fee` (can sweep accrued protocol+fund fees to any recipient) — a **fund-touching** key, not config-only. Compromise ⇒ hostile configs, paused pools, swept fees. It also reaches **graduated launches**: it can freeze any pool's swaps (`update_pool_status`), burned-LP pools included; close the migration `Permission` account (`close_permission_pda`), which blocks every graduation; turn pool creation off (`update_config` param 6, `disable_create_pool`), which also blocks every graduation until it is set back; raise `create_pool_fee` (`update_config` param 5, unbounded) above `migration_reserve − 42,156,720`, which bricks every pending curve's graduation at once; and change the trade and creator fee rates (`update_config` params 0 and 7) of every pool on the config, graduated burned-LP pools included, since swaps read them live. **Mitigation:** an explicit owner decision on who holds it (MAINNET_RUNBOOK §5, "OWNER DECISION") — ruled 2026-09-25: the Squads vault PDA `GRMtSx…` (2-of-2), so every admin action is a two-signer proposal. It must be an account that can sign AND pay, so never the multisig account. Moving it is a program upgrade.
 - **Program upgrade authority** — whoever holds it can replace the program bytecode (drain-class). **Mitigation:** the Squads vault PDA (not the multisig account) or a burned upgrade authority; verifiable build so the deployed bytes are provably this source.
 - **Config misconfiguration** — wrong rates at `create_config`. The enforced bound is `protocol_fee_rate + fund_fee_rate ≤ 1_000_000` (NOT ≤ trade_fee_rate); the `create_pool_fee` receiver MUST be a WSOL token account or every pool creation reverts. **Mitigation:** the create_config step is scripted + reviewed in Phase 2.
-- **`create_lp_metadata`** (added 2026-10-06; in the binary on mainnet since the upgrade of `MAINNET_RUNBOOK.md` section 4b). Anyone may call it, and it signs a Metaplex call as `AUTH_SEED`, the address that owns every pool vault. The caller picks the record slot and the program does not check it. Why the vaults are still out of reach, and what is left exposed, is in "The one thing a reviewer must hold it to" above. Its editor role outlives `admin::ID`, and any pool anyone opens can take the house name: both are in that section too.
+- **`create_lp_metadata`** (added 2026-10-06; in the binary on mainnet from the upgrade of `MAINNET_RUNBOOK.md` section 4b until its roll-back on 2026-10-24). Anyone may call it, and it signs a Metaplex call as `AUTH_SEED`, the address that owns every pool vault. The caller picks the record slot and the program does not check it. Why the vaults are still out of reach, and what is left exposed, is in "The one thing a reviewer must hold it to" above. Its editor role outlives `admin::ID`, and any pool anyone opens can take the house name: both are in that section too.
 - **`create_pool_fee_reveiver`** — only receives the flat creation fee; low impact.
 - **`create_support_mint_associated_owner`** — alt authority for the niche Token-2022
   support-mint allowlist. Now the same Squads vault PDA as `admin::ID` (upstream it was a

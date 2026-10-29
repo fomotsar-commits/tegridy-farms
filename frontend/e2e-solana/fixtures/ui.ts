@@ -294,3 +294,26 @@ export function tokensToInput(raw: bigint, decimals = 6): string {
   const frac = s.slice(-decimals).replace(/0+$/, '');
   return frac ? `${whole}.${frac}` : whole;
 }
+
+/**
+ * The text a word guard reads: textContent, with every whole-word base58 run as long as an
+ * address (32-44) or a signature (87-88) taken out. They are random per run, and a
+ * case-insensitive guard finds words spelled inside them: "aPy" in
+ * 9UaPybzGR1pu5SgwZGwGPZur6vfVdUqRAwtn9ErHULYP failed E19 once, and "faiL" fits in a
+ * signature. Taken out text node by text node, because textContent glues neighbours: from
+ * "…HULYP" + "APY 12%" one pass over the whole text would take the APY out with the address.
+ */
+export async function guardText(loc: Locator): Promise<string> {
+  const nodes = await loc.evaluate((el) => {
+    const out: string[] = [];
+    const walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    for (let n = walk.nextNode(); n; n = walk.nextNode()) out.push(n.nodeValue ?? '');
+    return out;
+  });
+  return nodes.map((t) => t.replace(/\b[1-9A-HJ-NP-Za-km-z]{32,}\b/g, ' ')).join('').replace(/\s+/g, ' ');
+}
+
+/** `expect(loc).not.toContainText(word)`, on guardText. As there, a missing element fails it. */
+export async function expectNoWord(loc: Locator, word: RegExp): Promise<void> {
+  await expect.poll(() => guardText(loc), { message: `no ${word} in the text` }).not.toMatch(word);
+}

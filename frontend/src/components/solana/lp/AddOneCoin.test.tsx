@@ -133,6 +133,7 @@ function view(): PoolView {
     quoteReserve: q,
     tokenReserve: t,
     vaultsFrozen: false,
+    launchTierWithoutLaunch: false,
     history: { kind: 'not-read' },
   };
 }
@@ -151,6 +152,7 @@ function search(v: PoolView): PoolSearchRead {
       index: { kind: 'ok', pools: [v.address], truncated: false },
       pools: [{ kind: 'pool' as const, view: v }],
       otherPairs: 0,
+      launchTierPools: [],
       knownState: {},
       chainNow: 1_000n,
     },

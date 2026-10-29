@@ -44,6 +44,9 @@
 //      process.env), for the default 'production' mode `npm run build` uses.
 //      If the Solana WalletConnect row is ever removed, remove D with it.
 //      Fixtures for every branch: scripts/check-dist-graph.test.mjs.
+// And one for the Cardano swap (2026-10-24):
+//   E. EMURGO's serialization library (vendor-cardano, plus its .wasm) stays LAZY: the chunk
+//      exists, is outside the entry's static closure, and is never preloaded.
 //
 // Silent-gate discipline: this script FAILS on a missing/empty dist, on an
 // unreadable entry, and on a suspiciously tiny closure — "checked nothing"
@@ -210,8 +213,36 @@ if (!WALLETCONNECT_PROJECT_ID) {
   signClientVerdict = `sign-client lazy (${signClientChunks.join(', ')})`;
 }
 
+// ── E: the Cardano serialization library stays lazy (2026-10-24) ──────────
+// EMURGO's CSL is 940 KB of JS glue and a 2.8 MB .wasm. Only the Cardano swap page loads it,
+// through src/lib/cardano/csl.ts's import(); vite.config.ts pins it into vendor-cardano. The
+// chunk must exist (an E that found nothing checked nothing), must be outside the entry's
+// static closure, and neither it nor any .wasm may be modulepreloaded.
+const cardanoChunks = chunkFiles.filter((f) => f.startsWith('vendor-cardano'));
+if (!cardanoChunks.length) {
+  die(
+    `no vendor-cardano chunk, so invariant E checked nothing. Either the manualChunks rule for ` +
+      `node_modules/@emurgo/ in vite.config.ts is gone, or nothing loads the Cardano library any more — ` +
+      `then the Cardano swap is gone, and E goes with it.`,
+  );
+}
+const eagerCardano = cardanoChunks.filter((f) => closure.has(f));
+if (eagerCardano.length) {
+  die(
+    `${eagerCardano.join(', ')} is STATICALLY reachable from the entry chunk — the Cardano library would ` +
+      `load on every first paint. src/lib/cardano/csl.ts must load it with import(); find the new static ` +
+      `import chain (ANALYZE=true vite build).`,
+  );
+}
+const htmlPreloads = [...html.matchAll(/<link[^>]*rel="(?:modulepreload|preload|prefetch)"[^>]*href="\/?assets\/([^"]+)"/g)].map((m) => m[1]);
+const preloadedCardano = htmlPreloads.filter((f) => f.startsWith('vendor-cardano') || f.endsWith('.wasm'));
+if (preloadedCardano.length) {
+  die(`index.html preloads ${preloadedCardano.join(', ')} — the Cardano library must stay lazy`);
+}
+
 console.log(
   `✔ dist-graph gate: entry=${entryRel}, static closure ${closure.size} chunk(s), ` +
     `polyfill markers present, vendor-solana lazy (${preloads.length} preloads checked), ` +
-    `${signClientVerdict}; adapter in ${adapterChunks.join(', ')}.`,
+    `${signClientVerdict}; adapter in ${adapterChunks.join(', ')}; ` +
+    `Cardano library lazy (${cardanoChunks.join(', ')}).`,
 );

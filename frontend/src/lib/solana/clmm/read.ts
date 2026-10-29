@@ -38,8 +38,12 @@ import {
 
 export type Read<T> = { kind: 'ok'; value: T } | { kind: 'unread'; detail: string };
 
-/** Fee tiers are looked for at indexes 0 to 15: the vault makes them one at a time, from 0. */
-export const FEE_TIER_INDEXES = 16;
+/**
+ * Fee tiers are looked for at index 0 alone: one tier, 1% (owner, 2026-10-25: "there should only
+ * be one fee tier that is 1%"), which the deploy pack makes at index 0. A tier the vault makes at
+ * any other index is never listed here and never in a swap's route.
+ */
+export const FEE_TIER_INDEXES = 1;
 
 /** The bands read on each side of a pool's price, for its liquidity and a swap's walk. */
 export const BANDS_EACH_SIDE = 4;
