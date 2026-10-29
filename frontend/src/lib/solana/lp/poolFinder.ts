@@ -97,7 +97,7 @@ export type PoolEntry =
   | { kind: 'not-a-pool'; address: string; detail: string };
 
 export type PoolsRead =
-  | { kind: 'ok'; entries: PoolEntry[]; chainNow: bigint | null }
+  | { kind: 'ok'; entries: PoolEntry[]; chainNow: bigint | null; chainEpoch?: bigint | null }
   | { kind: 'unread'; detail: string };
 
 export const CLOCK_SYSVAR = 'SysvarC1ock11111111111111111111111111111111';
@@ -107,6 +107,12 @@ const SYSVAR_OWNER = 'Sysvar1111111111111111111111111111111111111';
 export function chainTimeOf(a: RawAccount | null): bigint | null {
   if (!a || a.owner !== SYSVAR_OWNER || a.data.length < 40) return null;
   return new DataView(a.data.buffer, a.data.byteOffset, a.data.byteLength).getBigInt64(32, true);
+}
+
+/** The network's epoch from the Clock sysvar (`epoch`, u64 at 16): which transfer fee a token charges now. */
+export function chainEpochOf(a: RawAccount | null): bigint | null {
+  if (!a || a.owner !== SYSVAR_OWNER || a.data.length < 40) return null;
+  return new DataView(a.data.buffer, a.data.byteOffset, a.data.byteLength).getBigUint64(16, true);
 }
 
 /** SPL token account `state` byte: mint 32 + owner 32 + amount 8 + delegate option 36. */
@@ -247,6 +253,7 @@ export async function readPools(rpc: SolanaRpc, addresses: string[], opts: ReadP
     return { kind: 'unread', detail: clipDetail(e) };
   }
   const chainNow = chainTimeOf(first[addresses.length] ?? null);
+  const chainEpoch = chainEpochOf(first[addresses.length] ?? null);
 
   const entries: PoolEntry[] = [];
   const candidates: { i: number; pool: DecodedPool; launchPool: boolean }[] = [];
@@ -256,7 +263,7 @@ export async function readPools(rpc: SolanaRpc, addresses: string[], opts: ReadP
     entries.push({ kind: 'unread', address, detail: 'not read yet' });
     candidates.push({ i, pool: look.pool, launchPool: look.launchPool });
   });
-  if (!candidates.length) return { kind: 'ok', entries, chainNow };
+  if (!candidates.length) return { kind: 'ok', entries, chainNow, chainEpoch };
 
   // Four accounts a pool: both vaults, its config and its price record (the record says
   // when the pool last traded, so every pool's is read, not only the launch pool's).
@@ -267,7 +274,7 @@ export async function readPools(rpc: SolanaRpc, addresses: string[], opts: ReadP
   } catch (e) {
     const detail = clipDetail(e);
     for (const { i } of candidates) entries[i] = { kind: 'unread', address: addresses[i]!, detail };
-    return { kind: 'ok', entries, chainNow };
+    return { kind: 'ok', entries, chainNow, chainEpoch };
   }
 
   candidates.forEach(({ i, pool, launchPool }, k) => {
@@ -279,7 +286,7 @@ export async function readPools(rpc: SolanaRpc, addresses: string[], opts: ReadP
       opts,
     });
   });
-  return { kind: 'ok', entries, chainNow };
+  return { kind: 'ok', entries, chainNow, chainEpoch };
 }
 
 /**
@@ -328,6 +335,8 @@ export interface PoolSearch {
   /** What each known address held. */
   knownState: Record<string, PoolEntry['kind']>;
   chainNow: bigint | null;
+  /** The network's epoch from the same Clock read: which transfer fee a token charges now. Absent = not read. */
+  chainEpoch?: bigint | null;
 }
 
 export type PoolSearchRead = { kind: 'ok'; search: PoolSearch } | { kind: 'unread'; detail: string; index: PoolIndexRead };
@@ -418,7 +427,7 @@ export async function findPools(
     }
     return 0;
   });
-  return { kind: 'ok', search: { mint: m, known, index, pools, otherPairs, launchTierPools, knownState, chainNow: read.chainNow } };
+  return { kind: 'ok', search: { mint: m, known, index, pools, otherPairs, launchTierPools, knownState, chainNow: read.chainNow, chainEpoch: read.chainEpoch ?? null } };
 }
 
 /**

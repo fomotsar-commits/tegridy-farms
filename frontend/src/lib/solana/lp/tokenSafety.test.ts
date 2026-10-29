@@ -10,12 +10,15 @@ import {
   unpackMint,
   getExtensionTypes,
   getMetadataPointerState,
+  getTransferFeeConfig,
   ExtensionType,
+  TransferFeeConfigLayout,
   TOKEN_2022_PROGRAM_ID as SPL_T22,
 } from '@solana/spl-token';
 import { pack as packTokenMetadata } from '@solana/spl-token-metadata';
 import {
   BUILDABLE_EXTENSIONS,
+  EXACT_EXTENSIONS,
   EXTENSION,
   classifyToken,
   decodeMintAccount,
@@ -69,6 +72,28 @@ function t22Mint(base: Uint8Array, entries: Uint8Array[]): Uint8Array {
   return out;
 }
 
+/** A transfer fee, in spl-token's OWN layout. `null` authorities are "none" (all zeroes). */
+function feeExt(o: {
+  configAuthority?: PublicKey | null;
+  withdrawAuthority?: PublicKey | null;
+  older?: [bigint, bigint, number];
+  newer?: [bigint, bigint, number];
+} = {}): Uint8Array {
+  const b = Buffer.alloc(TransferFeeConfigLayout.span);
+  const f = ([epoch, maximumFee, transferFeeBasisPoints]: [bigint, bigint, number]) => ({ epoch, maximumFee, transferFeeBasisPoints });
+  TransferFeeConfigLayout.encode(
+    {
+      transferFeeConfigAuthority: o.configAuthority ?? PublicKey.default,
+      withdrawWithheldAuthority: o.withdrawAuthority ?? PublicKey.default,
+      withheldAmount: 0n,
+      olderTransferFee: f(o.older ?? [0n, 1_000_000n, 500]),
+      newerTransferFee: f(o.newer ?? [0n, 1_000_000n, 500]),
+    },
+    b,
+  );
+  return tlv(ExtensionType.TransferFeeConfig, new Uint8Array(b));
+}
+
 const pointer = (authority: PublicKey | null, metadata: PublicKey) =>
   tlv(ExtensionType.MetadataPointer, Uint8Array.from([...(authority ?? PublicKey.default).toBytes(), ...metadata.toBytes()]));
 const metadataExt = (mint: PublicKey, updateAuthority: PublicKey | null, name = 'Corn', symbol = 'CORN') =>
@@ -114,6 +139,34 @@ describe('decodeMintAccount agrees with @solana/spl-token', () => {
     const mp = getMetadataPointerState(lib)!;
     expect(d.value.metadataPointer).toEqual({ authority: mp.authority!.toBase58(), metadataAddress: mp.metadataAddress!.toBase58() });
     expect(d.value.tokenMetadata).toMatchObject({ updateAuthority: upd.toBase58(), mint: mint.toBase58(), name: 'Hooked', symbol: 'HOOK' });
+  });
+
+  it('a Token-2022 mint with a transfer fee: both authorities, the withheld amount and both settings, as spl-token reads them', () => {
+    const mint = key();
+    const cfgAuth = key();
+    const wAuth = key();
+    const data = t22Mint(classicMint(), [feeExt({ configAuthority: cfgAuth, withdrawAuthority: wAuth, older: [3n, 900n, 25], newer: [812n, 5_000n, 300] }), pointer(null, mint), metadataExt(mint, null)]);
+    const d = decodeMintAccount(TOKEN_2022_PROGRAM, data);
+    const lib = getTransferFeeConfig(unpackMint(mint, { data: Buffer.from(data), owner: SPL_T22, lamports: 1, executable: false }, SPL_T22))!;
+    expect(d.ok).toBe(true);
+    if (!d.ok) return;
+    expect(d.value.transferFee).toEqual({
+      configAuthority: lib.transferFeeConfigAuthority.toBase58(),
+      withdrawAuthority: lib.withdrawWithheldAuthority.toBase58(),
+      withheldAmount: lib.withheldAmount,
+      older: { epoch: lib.olderTransferFee.epoch, maximumFee: lib.olderTransferFee.maximumFee, basisPoints: lib.olderTransferFee.transferFeeBasisPoints },
+      newer: { epoch: lib.newerTransferFee.epoch, maximumFee: lib.newerTransferFee.maximumFee, basisPoints: lib.newerTransferFee.transferFeeBasisPoints },
+    });
+    // No authority is null, never the all-zero address; a mint without the extension has none.
+    const none = decodeMintAccount(TOKEN_2022_PROGRAM, t22Mint(classicMint(), [feeExt()]));
+    expect(none.ok && [none.value.transferFee?.configAuthority, none.value.transferFee?.withdrawAuthority]).toEqual([null, null]);
+    const plain = decodeMintAccount(TOKEN_2022_PROGRAM, t22Mint(classicMint(), [pointer(null, mint)]));
+    expect(plain.ok && plain.value.transferFee).toBeNull();
+  });
+
+  it('refuses a transfer fee extension of the wrong size, or with a rate above 100%', () => {
+    expect(decodeMintAccount(TOKEN_2022_PROGRAM, t22Mint(classicMint(), [tlv(ExtensionType.TransferFeeConfig, new Uint8Array(8))]))).toEqual({ ok: false, reason: 'the transfer fee extension is malformed' });
+    expect(decodeMintAccount(TOKEN_2022_PROGRAM, t22Mint(classicMint(), [feeExt({ newer: [0n, 1n, 10_001] })])).ok).toBe(false);
   });
 
   it('refuses bytes that are not a mint, and an extension that runs off the end', () => {
@@ -171,8 +224,11 @@ describe('classifyToken', () => {
     }
   });
 
+  // A transfer fee is given its real 108 bytes (a 5% fee nobody can change); every other
+  // extension 8 bytes, which the verdict never decodes.
   const withExtension = (type: number) => {
-    const data = t22Mint(classicMint(), [pointer(null, mint), tlv(type, new Uint8Array(8)), metadataExt(mint, null)]);
+    const ext = type === ExtensionType.TransferFeeConfig ? feeExt() : tlv(type, new Uint8Array(8));
+    const data = t22Mint(classicMint(), [pointer(null, mint), ext, metadataExt(mint, null)]);
     return classifyToken(mint.toBase58(), acct(mint, TOKEN_2022_PROGRAM, data), null);
   };
 
@@ -207,17 +263,55 @@ describe('classifyToken', () => {
     }
   });
 
-  // The pool program takes a transfer fee. This site cannot build an exact withdrawal for
-  // one, so nobody is let in (the leave rule), and the block says whose limit it is.
-  it('blocks a transfer fee under its own code, in words that say it is this site’s limit', () => {
+  // Owner, 2026-10-29: a token with a transfer fee may have a pool. Every builder subtracts
+  // the fee (transferFee.ts), so it is a warning that says what is kept, for whom, and who
+  // can raise it.
+  it('warns on a transfer fee, never blocks it, and says what it keeps, for whom, and that the site takes it off', () => {
     const s = withExtension(ExtensionType.TransferFeeConfig);
-    expect(reasons(s)).toEqual({ blocks: ['transfer-fee'], warnings: [], verdict: 'blocked' });
-    const text = s.kind === 'read' ? s.blocks[0]!.text : '';
-    // Nothing is said about the fee itself: neither its size nor who can change it was read.
-    expect(text).toMatch(/^It uses a transfer-fee setting, which lets the token take a fee out of every transfer\./);
-    expect(text).not.toMatch(/100%|its owner/);
-    expect(text).toContain('This site cannot build exact deposits and withdrawals for a token with one, so it does not open or add to pools for it.');
-    expect(text).not.toMatch(/pool program does not accept/);
+    expect(reasons(s)).toEqual({ blocks: [], warnings: ['transfer-fee'], verdict: 'warn' });
+    const text = s.kind === 'read' ? s.warnings[0]!.text : '';
+    expect(text).toMatch(/^It keeps back 5% of every transfer of it, at most 1 token a transfer, and nobody can ever collect what it keeps\./);
+    expect(text).toContain('That is taken on the way into a pool, on the way out, and on every trade, so you get back less than you put in even if the price never moves.');
+    expect(text).toContain('The amounts on this site already take it off.');
+    expect(text).not.toMatch(/does not open|does not accept/);
+  });
+
+  it('names the fee collector, a pending change with its epoch, and who can raise the fee', () => {
+    const wAuth = key();
+    const cfgAuth = key();
+    const data = t22Mint(classicMint({ decimals: 6 }), [feeExt({ configAuthority: cfgAuth, withdrawAuthority: wAuth, older: [3n, (1n << 64n) - 1n, 100], newer: [812n, (1n << 64n) - 1n, 900] })]);
+    const s = classifyToken(mint.toBase58(), acct(mint, TOKEN_2022_PROGRAM, data), null);
+    expect(reasons(s)).toMatchObject({ blocks: [], verdict: 'warn' });
+    if (s.kind !== 'read') throw new Error('not read');
+    const codes = s.warnings.map((w) => w.code);
+    expect(codes).toEqual(expect.arrayContaining(['transfer-fee', 'transfer-fee-mutable']));
+    const fee = s.warnings.find((w) => w.code === 'transfer-fee')!.text;
+    // No cap is said when there is none (u64::MAX).
+    expect(fee.startsWith(`It keeps back 9% of every transfer of it from network epoch 812 on (1% before that), for its fee collector (${wAuth.toBase58()}).`)).toBe(true);
+    const mutable = s.warnings.find((w) => w.code === 'transfer-fee-mutable')!.text;
+    expect(mutable).toBe(
+      `Its transfer fee can be raised by ${cfgAuth.toBase58()}, up to all of every transfer, from the second network epoch after they change it. At that rate nothing could be taken out of a pool.`,
+    );
+  });
+
+  it('a fee of 0% says nothing of a fee; one that can still be raised says who can raise it', () => {
+    const zero = (configAuthority: PublicKey | null) =>
+      classifyToken(mint.toBase58(), acct(mint, TOKEN_2022_PROGRAM, t22Mint(classicMint(), [pointer(null, mint), feeExt({ configAuthority, older: [0n, 0n, 0], newer: [0n, 0n, 0] }), metadataExt(mint, null)])), null);
+    expect(reasons(zero(null))).toEqual({ blocks: [], warnings: [], verdict: 'ok' });
+    expect(reasons(zero(key()))).toEqual({ blocks: [], warnings: ['transfer-fee-mutable'], verdict: 'warn' });
+  });
+
+  it('a transfer fee is a pool risk: the pool’s own reasons say it, and that it can be raised', () => {
+    const cfgAuth = key();
+    const s = classifyToken(mint.toBase58(), acct(mint, TOKEN_2022_PROGRAM, t22Mint(classicMint(), [feeExt({ configAuthority: cfgAuth })])), null);
+    const r = tokenReasons(s, 'deposits');
+    expect(r.refused).toEqual([]);
+    expect(r.warned).toEqual(
+      expect.arrayContaining([
+        'It keeps back part of every transfer of it: into this pool, out of it, and on every trade. Taken out at the same price, you get back less of it than you put in.',
+        'Whoever controls its transfer fee can raise it, up to all of every transfer. At that rate nobody could take anything out of this pool, you included.',
+      ]),
+    );
   });
 
   it('warns on interest-bearing and scaled amounts, never blocks them, and says this site moves raw units', () => {
@@ -234,9 +328,9 @@ describe('classifyToken', () => {
   });
 
   // The leave rule as code, on the verdict's side: the one set this site builds for is
-  // exactly these four, and every one is on cp-swap's own list (utils/token.rs
-  // `is_supported_mint`), written out here from the program's source.
-  it('the one set of buildable extensions is the four whose raw amounts are exact, all of them accepted by the pool program', () => {
+  // exactly cp-swap's own list (utils/token.rs `is_supported_mint`), written out here from
+  // the program's source; the exact set is that less a transfer fee.
+  it('the one set of buildable extensions is the pool program’s own list; the exact set is the four whose transfers move what is sent', () => {
     const CP_SWAP_ACCEPTED = [
       EXTENSION.TransferFeeConfig,
       EXTENSION.MetadataPointer,
@@ -244,10 +338,11 @@ describe('classifyToken', () => {
       EXTENSION.InterestBearingConfig,
       EXTENSION.ScaledUiAmountConfig,
     ];
-    expect([...BUILDABLE_EXTENSIONS].sort((a, b) => a - b)).toEqual([18, 19, 10, 25].sort((a, b) => a - b));
-    for (const e of BUILDABLE_EXTENSIONS) expect(CP_SWAP_ACCEPTED, String(e)).toContain(e);
-    // A transfer fee is on the pool program's list and NOT in the set: no exact withdrawal.
-    expect(BUILDABLE_EXTENSIONS.has(EXTENSION.TransferFeeConfig)).toBe(false);
+    expect([...BUILDABLE_EXTENSIONS].sort((a, b) => a - b)).toEqual([...CP_SWAP_ACCEPTED].sort((a, b) => a - b));
+    expect([...EXACT_EXTENSIONS].sort((a, b) => a - b)).toEqual([18, 19, 10, 25].sort((a, b) => a - b));
+    // A transfer fee is in the one set, and NOT in the exact one: every cp-swap builder subtracts it.
+    expect(BUILDABLE_EXTENSIONS.has(EXTENSION.TransferFeeConfig)).toBe(true);
+    expect(EXACT_EXTENSIONS.has(EXTENSION.TransferFeeConfig)).toBe(false);
     // The numbers are the token program's own.
     expect([EXTENSION.InterestBearingConfig, EXTENSION.ScaledUiAmountConfig, EXTENSION.TransferFeeConfig]).toEqual([
       ExtensionType.InterestBearingConfig,
