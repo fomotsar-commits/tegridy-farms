@@ -82,8 +82,8 @@ vi.mock('../lib/jupiter', async (orig) => ({
   getShield: vi.fn(async () => ({})),
 }));
 // The real wait (the one shared poller, lib/solana/confirm.ts), on a clock the
-// test owns: each 2 s beat moves it and nothing really sleeps, so a wait that
-// never confirms is exactly 46 reads however loaded the machine is. The page's
+// test owns: each beat moves it and nothing really sleeps, so a wait that
+// never confirms is exactly 51 reads however loaded the machine is. The page's
 // own time limit is passed through untouched: that count is what pins it.
 vi.mock('../lib/solana/confirm', async (orig) => {
   const real = await orig<typeof import('../lib/solana/confirm')>();
@@ -442,8 +442,9 @@ describe('SolanaSwapPage: a swap that was SENT is never called "failed" for want
     // Never "failed", never "bought".
     expect(h.toast.error).not.toHaveBeenCalled();
     expect(h.toast.success).not.toHaveBeenCalledWith('Bought USDC', expect.anything());
-    // It was asked every 2 s for the whole 90 s (0 s to 90 s inclusive) before giving up.
-    expect(h.getSignatureStatuses).toHaveBeenCalledTimes(46);
+    // It was asked for the whole 90 s before giving up: every second to 10 s, then every
+    // 2 s to 90 s inclusive (11 + 40 reads).
+    expect(h.getSignatureStatuses).toHaveBeenCalledTimes(51);
     // The activity list keeps the signature, marked as not confirmed, with the waiver.
     const rows = getActivity(USER.toBase58());
     expect(rows).toHaveLength(1);

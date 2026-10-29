@@ -69,8 +69,10 @@ same 4%. Two exceptions: a fee is rounded up to the coin's smallest unit, so a v
 pay more than 4% (and a Token-2022 coin's own transfer fee comes on top); and when a swap fills a
 limit order where no LP's range is in use, the LPs' share of that fee goes to the venue's share.
 The ceilings bind every tier this build makes; a later upgrade must check any tier made before it.
-This program has no pool-opening fee. Spare SOL goes to the vault. None of these paths can reach a
-Raydium address, because none is in the code. Each path was run on a local chain (below).
+Opening a pool costs 0.5 SOL, paid to the vault, by whichever of the three instructions opens it
+(owner, 2026-10-25; "Decided 2026-10-25", below). Until the vault upgrades the program on mainnet,
+the program there charges nothing to open a pool. Spare SOL goes to the vault. None of these paths
+can reach a Raydium address, because none is in the code. Each path was run on a local chain (below).
 
 **How the vault can still move the island's share**, each by a proposal (two signatures, then 48
 hours):
@@ -243,6 +245,7 @@ bytes carry over; the costs are at mainnet's rate).
 | One fee tier | 117 bytes | 0.0012 SOL rent | the vault |
 | The operation account, needed once before any pool can carry a reward | 3,529 bytes | 0.0186 SOL rent | the vault |
 | One pool for BAYLA/SOL (record 1,544, price history 4,483, range map 1,832, a SOL vault of 165, a BAYLA vault of 170 because BAYLA is Token-2022) | 8,194 bytes | 0.0449 SOL rent | whoever opens it |
+| Opening a pool, once the upgrade of 2026-10-25 is on mainnet | | 0.5 SOL, a fee, not a deposit: it goes to the vault and never comes back | whoever opens it |
 | One tick array (a band of 60 prices) | 10,240 bytes | 0.0527 SOL rent | the first LP whose range needs it; up to 2 per position |
 | One position, Token-2022 NFT (record 281, NFT mint 469 with its name and link inside, NFT account 170) | 920 bytes | 0.0066 SOL rent | the LP |
 | One reward stream's vault | 165 (SPL Token) or 170 (Token-2022) bytes | 0.0015 SOL rent | whoever funds the reward |
@@ -291,6 +294,37 @@ left the rest to the builder. Decided on that basis:
    only the Workshop collects the island's share; fees at most 4% of a swap and 16% of each fee to the
    venue and the island together; a reward's unpaid rest stays with whoever started it. Kept and
    disclosed ("What else the vault can still do", above): the pause, and the 48 hours.
+
+## Decided 2026-10-25
+
+1. **Opening a pool costs 0.5 SOL, paid to the vault** (owner: "we should be charging a fee to
+   open pools everywhere"; 0.5 SOL for range pools, above the 0.15 SOL our cp-swap's public tier
+   charges). The program charges it, not the site: `create_pool`, `create_customizable_pool` and
+   `create_permissioned_pool` each name the vault as the account `create_pool_fee` and move
+   `CREATE_POOL_FEE` (500,000,000 lamports) to it from the opener, the way cp-swap's
+   `initialize.rs` charges its `create_pool_fee`. A wrong receiver is refused (Anchor's address
+   check), a transaction built without the account is refused, and an opener short of the 0.5 SOL
+   cannot open a pool (checks P2, P4 to P7, X18, X19 in `solana/clmm-localnet`).
+2. **A constant, not a fee-tier field.** cp-swap keeps the amount on each fee tier. Here it is one
+   number in the program, so every tier charges it, a tier made before the upgrade too, and no
+   proposal can set it to zero for one tier. Changing it takes a program upgrade, which waits the
+   same 48 hours as a tier change would. Nothing about a tier changes: its layout, the
+   `create_amm_config` and `update_amm_config` instructions, and vault proposal #19's bytes.
+3. **Paid to the vault itself**, a wallet, not cp-swap's wrapped-SOL account
+   (`2sa31zceMSTAAbSu5wfSnNA6sBYzS7r97nvZYaQouEXa`): putting SOL into a wrapped-SOL account needs
+   the SPL Token program to sync it, and a range pool's two coins may both be Token-2022, so the
+   instruction may hold no SPL Token program. The vault already receives this program's spare SOL.
+4. **The order.** The fee is only in the program once the vault executes the upgrade. Vault
+   proposal **#19**, which makes the range fee tiers, was approved 2/2 on 2026-10-21 and may be
+   executed at any time. **Executed before the upgrade, #19 opens range pools to anyone for free**
+   until the upgrade lands. It also makes the 0.25% tier the owner no longer wants (one 1% tier
+   only), so it is to be cancelled and replaced by a proposal for the 1% tier alone (pull request
+   #1015). **That proposal too must not execute before the upgrade has executed**, for the same
+   reason. The upgrade waits 48 hours after its second approval. Its SOL: the upload holds about
+   7.76 SOL (1,527,109 bytes at 5,080 lamports a byte, read 2026-10-25) until the upgrade
+   executes, then returns it to the wallet that paid; the program's data account must first grow
+   by 10,240 bytes (4,336 are missing; the loader's smallest step is 10,240), about 0.052 SOL
+   locked for good. The owner deferred the upload: `docs/TODO_OPERATOR.md`.
 
 ## Still the owner's
 

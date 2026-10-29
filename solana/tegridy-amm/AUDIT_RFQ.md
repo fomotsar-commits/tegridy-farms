@@ -42,7 +42,7 @@ changed, one instruction added (`create_lp_metadata`, above) and one refusal add
 upstream's code, unchanged.
 
 - **Upstream:** https://github.com/raydium-io/raydium-cp-swap @ commit `78f254e1023751e706df7dc15c453fc3e046697c` (Apache-2.0)
-- **Anchor** 0.32.1 · **Solana** 2.3.0 · program size (SBF): 725,176 bytes for the binary live on mainnet since its upgrade, a mainnet build of this source (2026-10-19, with the launch-tier refusal; sha256 `1e55bcdc…`); 691,640 bytes for the binary it replaced, which was built before `create_lp_metadata`
+- **Anchor** 0.32.1 · **Solana** 2.3.0 · program size (SBF): 725,176 bytes for the upgraded build of this source (2026-10-19, with the launch-tier refusal; sha256 `1e55bcdc…`), live on mainnet from 2026-10-23 until a roll-back on 2026-10-24; 691,640 bytes for the binary on mainnet now (`88b98aa9…`), which was built before `create_lp_metadata`
 - **Repo path:** `solana/tegridy-amm/` (see `TEGRIDY_FORK.md` for full detail)
 
 ## Exact scope: the whole code delta
@@ -83,8 +83,8 @@ let you find them and wonder what else we did not mention:
   on-chain claim. Please confirm we removed it correctly and that nothing else in that
   block still asserts a Raydium property. Since 2026-10-06 the source's block has an email
   as its first contact and every link on `memetics.finance` (`TEGRIDY_FORK.md`, "The
-  on-chain security text"). The binary on mainnet has carried that text since the upgrade.
-  The binary it replaced carried the older text, whose links had gone dead.
+  on-chain security text"). The upgraded binary carried that text on mainnet from 2026-10-23 until
+  the roll-back of 2026-10-24. The binary on mainnet now carries the older text, whose links have gone dead.
 - **`instructions/initialize.rs`, the launch-tier refusal** (added 2026-10-19, pull request
   #899): five lines beside upstream's `disable_create_pool` check. A public `initialize` on
   the fee config with `index == 0` returns upstream's own `NotApproved` (6000). Index 0 is
@@ -163,7 +163,10 @@ moved to `memetics.finance`.
 **Corrected again with the pool program's upgrade:** the Squads vault has since upgraded
 cp-swap to a build of this source (sha256 `1e55bcdc…`, 725,176 bytes), so the live program
 has the instruction, the new security text and the launch-tier refusal, and the source and
-the live program no longer differ in any of them. It was the program's first upgrade, and it went in unaudited. The day and
+the live program no longer differ in any of them. It was the program's first upgrade, and it went in unaudited.
+**Rolled back on 2026-10-24** (proposal #16, 17:03:00 UTC): mainnet runs the 2026-09-29 build
+`88b98aa9…` again, so the live program and the source differ in all three once more; a
+re-upgrade is planned. The day and
 the transaction are in `MAINNET_RUNBOOK.md`, section 4b.
 
 ---
