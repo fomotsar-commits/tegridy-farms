@@ -7,6 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-10-29
+
+- BAYLA lock ladder: each of your positions now shows how much BAYLA it earns a day and that as an APR on its stake, and "You in this pool" shows your wallet's total a day and its APR. Both come from your weight (stake × lock boost), so a longer lock shows more, and both are at today's rate: they fall when others lock, rise when they leave, and stop when the reward window ends unless it is refilled. The pool's own figures still carry no percentage.
+
 ### 2026-10-28
 
 - Contracts page: Gauge Controller, Vote Incentives, Community Grants and Meme Bounty Board no longer link to a source file. Their source left this repository on 2026-10-27; each row says so, and their verified source is on Etherscan. The Tegridy Restaking and Tegridy Lending rows are gone: neither contract was ever deployed, and their source left with them.
