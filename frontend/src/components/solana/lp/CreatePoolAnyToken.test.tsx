@@ -97,7 +97,7 @@ function walletFor(quote: QuoteCoin | undefined): WalletFacts {
     wsol: { exists: false, amount: 0n },
     coin,
     lpAccountExists: false,
-    rents: { walletFloor: 890_880n, tokenAccount165: 2_039_280n, neverRefunded: 40_000_000n, ...(coin ? { coinAccount: 2_039_280n } : {}) },
+    rents: { walletFloor: 890_880n, tokenAccount165: 2_039_280n, neverRefunded: 40_000_000n, nameRecord: 13_733_800n, ...(coin ? { coinAccount: 2_039_280n } : {}) },
   };
 }
 

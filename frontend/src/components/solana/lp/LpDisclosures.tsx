@@ -144,12 +144,15 @@ export function CoinRiskNotice({ coin, id }: { coin: QuoteCoin; id?: string }) {
 export function LpBeforeYouOpen({
   fee,
   neverRefunded,
+  nameRecord = null,
   walletConnected = true,
   coin = SOL_QUOTE,
   reviewing = false,
 }: {
   fee: bigint;
   neverRefunded: bigint | null;
+  /** What the new share token's name record costs (its deposit plus Metaplex's fee), read with the deposits. */
+  nameRecord?: bigint | null;
   /** The deposits are read with the wallet. With none connected they are not "unread": the page's fee tiers list has them. */
   walletConnected?: boolean;
   /** The coin the new pool is paired with. Left out, it is SOL. */
@@ -171,8 +174,8 @@ export function LpBeforeYouOpen({
         {!reviewing && <li>{CREATE_VAULT_LINE}</li>}
         <li>{MONEY_LINE}</li>
         <li>
-          Opening costs {solExact(fee)}, paid to the team&apos;s vault, and {deposits}.{' '}
-          {!coin.native && `Both are paid in SOL, whatever the pool is paired with: none of it comes out of your ${coin.symbol}. `}
+          Opening costs {solExact(fee)}, paid to the team&apos;s vault, and {deposits}{nameRecord !== null ? `, plus ${solExact(nameRecord)} for the pool share's name record (Metaplex's fee and the record's deposit)` : ''}.{' '}
+          {!coin.native && `${nameRecord !== null ? 'All of it is' : 'Both are'} paid in SOL, whatever the pool is paired with: none of it comes out of your ${coin.symbol}. `}
           {LOCKED_SHARES_TEXT} stay locked in the pool forever; that is the pool program&apos;s rule for every new pool.
         </li>
         <li>{NOT_THE_POOL_LINE}</li>

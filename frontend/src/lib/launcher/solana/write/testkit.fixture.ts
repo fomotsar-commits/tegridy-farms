@@ -28,7 +28,10 @@ import {
   AMM_CONFIG_OFFSETS,
   CREATOR_FEE_ON_TOKEN_0,
   CREATOR_FEE_ON_TOKEN_1,
+  IX_CREATE_LP_METADATA,
   IX_INITIALIZE,
+  LP_NAME_RECORD_LEN,
+  METAPLEX_CREATE_FEE_LAMPORTS,
   POOL_STATE_LEN,
   POOL_STATE_OFFSETS,
   decodeAmmConfig,
@@ -847,7 +850,7 @@ export function createSimulator(o: CreateSimOptions = {}): SimHandler {
     if (supply < 100n) return cpFail(6009);
     const signer = at(0);
     if (!at(4).equals(WSOL_MINT) && !at(5).equals(WSOL_MINT)) {
-      return coinInitialize(o, vtx, config, chain, { index: ixs.indexOf(open), accounts: open.accounts, init0, init1, supply, fee: tier.createPoolFee });
+      return coinInitialize(o, vtx, config, chain, { index: ixs.indexOf(open), accounts: open.accounts, init0, init1, supply, fee: tier.createPoolFee, ixs });
     }
     const wsolAta = associatedTokenAddress(WSOL_MINT, signer);
     const solIs0 = at(4).equals(WSOL_MINT);
@@ -874,7 +877,7 @@ export function createSimulator(o: CreateSimOptions = {}): SimHandler {
     // fallen, and the site refuses a rise rather than modelling it).
     const synced = (k: PublicKey, lamportsIn: bigint, lamportsOut: bigint): bigint | null => syncedBalance(chain, o, k, lamportsIn, lamportsOut);
     const wsolAfter = (closes ? null : synced(wsolAta, wrapped, sol)) ?? wsolBefore + wrapped - sol;
-    const poolRents = rent(POOL_STATE_LEN) + rent(4075) + rent(82) + rent(165) + rent(165) + openAccount(chain, at(9)).paid;
+    const poolRents = rent(POOL_STATE_LEN) + rent(4075) + rent(82) + rent(165) + rent(165) + openAccount(chain, at(9)).paid + namePaid(ixs, chain);
     // The close hands back every lamport in the account: what it held, plus what was wrapped and not used.
     const refund = closes ? wsolOpen.lamports + Number(wrapped - sol) : 0;
     const signerDelta = -Number(wrapped) - wsolOpen.paid - Number(charged) - poolRents + refund - (o.networkFee ? networkFeeOf(vtx) : 0);
@@ -889,6 +892,17 @@ export function createSimulator(o: CreateSimOptions = {}): SimHandler {
     };
     return { err: null, logs: [], unitsConsumed: 120_000, accounts: chain.post(config.accounts.addresses, changes) };
   };
+}
+
+/**
+ * What cp-swap's `create_lp_metadata` takes from its payer when the transaction holds it:
+ * the record's deposit (607 bytes) and Metaplex's fee for making a record, which stays in it.
+ * Metaplex refuses a second record for the same mint, so a record already there is an error.
+ */
+function namePaid(ixs: Array<{ program: PublicKey; accounts: PublicKey[]; data: Uint8Array }>, chain: FakeChain): number {
+  const names = ixs.filter((i) => i.program.equals(CPSWAP) && IX_CREATE_LP_METADATA.every((b, j) => i.data[j] === b));
+  for (const n of names) if (chain.accounts.has(n.accounts[4]!.toBase58())) throw new Error('a name record is already there');
+  return names.length * (rent(LP_NAME_RECORD_LEN) + Number(METAPLEX_CREATE_FEE_LAMPORTS));
 }
 
 /** A native account's balance after a sync, once `lamportsIn` arrived and `lamportsOut` left; null when it is not native. */
@@ -916,7 +930,7 @@ function coinInitialize(
   vtx: VersionedTransaction,
   config: { accounts?: { addresses: string[] } } | undefined,
   chain: FakeChain,
-  open: { index: number; accounts: PublicKey[]; init0: bigint; init1: bigint; supply: bigint; fee: bigint },
+  open: { index: number; accounts: PublicKey[]; init0: bigint; init1: bigint; supply: bigint; fee: bigint; ixs: Array<{ program: PublicKey; accounts: PublicKey[]; data: Uint8Array }> },
 ): ReturnType<SimHandler> {
   const at = (i: number) => open.accounts[i]!;
   const signer = at(0);
@@ -931,7 +945,7 @@ function coinInitialize(
     }
   }
   const charged = o.feeCharged ? o.feeCharged(open.fee) : open.fee;
-  const poolRents = rent(POOL_STATE_LEN) + rent(4075) + rent(82) + rent(165) + rent(165) + openAccount(chain, at(9)).paid;
+  const poolRents = rent(POOL_STATE_LEN) + rent(4075) + rent(82) + rent(165) + rent(165) + openAccount(chain, at(9)).paid + namePaid(open.ixs, chain);
   const paid = Number(charged) + poolRents + (o.networkFee ? networkFeeOf(vtx) : 0);
   const left = (chain.accounts.get(signer.toBase58())?.lamports ?? 0) - paid;
   if (left < 0) {

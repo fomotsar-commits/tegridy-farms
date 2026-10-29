@@ -26,7 +26,8 @@ import {
   publicTierConfig,
   sortMints,
 } from '../../../solana/cpswap/program';
-import { depositIx, initializeIx, withdrawIx } from '../../../solana/cpswap/ix';
+import { createLpMetadataIx, depositIx, initializeIx, withdrawIx } from '../../../solana/cpswap/ix';
+import { METAPLEX_TOKEN_METADATA_ID, metadataPda } from './metaplex';
 import { PROGRAMS_BY_KIND, decodeIntent, isPoolIntent } from './intent';
 import { createPins } from './createPool';
 import { CP_CREATE_POOL_FEE_RECEIVER } from './config';
@@ -86,16 +87,21 @@ function opening(p: PoolPins, o: Partial<{ init0: bigint; init1: bigint; openTim
   });
 }
 
+/** The site's own call that names the new pool share, right after the opening. */
+const naming = (p: PoolPins) =>
+  createLpMetadataIx({ programId: CPSWAP, payer: ME, pool: p.address, record: metadataPda(deriveLpMint(CPSWAP, p.address)), metadataProgram: METAPLEX_TOKEN_METADATA_ID });
+
 const createAta = (mint: PublicKey, program: PublicKey) =>
   createAssociatedTokenAccountIdempotentInstruction(ME, associatedTokenAddress(mint, ME, program), ME, mint, program);
 
-/** The whole transaction the site builds: open the wrapped-SOL account, wrap, open the pool, close. */
-const siteOpening = (p: PoolPins, ix: TransactionInstruction = opening(p)) => [
+/** The whole transaction the site builds: open the wrapped-SOL account, wrap, open the pool, name its share, close. */
+const siteOpening = (p: PoolPins, ix: TransactionInstruction = opening(p), name: TransactionInstruction | null = naming(p)) => [
   ComputeBudgetProgram.setComputeUnitLimit({ units: 300_000 }),
   createAta(WSOL_MINT, TOKEN_PROGRAM_ID),
   SystemProgram.transfer({ fromPubkey: ME, toPubkey: wsolAta(), lamports: 1_000_000_000 }),
   createSyncNativeInstruction(wsolAta()),
   ix,
+  ...(name ? [name] : []),
   createCloseAccountInstruction(wsolAta(), ME, ME),
 ];
 
@@ -122,13 +128,14 @@ describe('the public fee tier is derived, never read', () => {
   });
 });
 
-describe("the site's own opening decodes into one pool-create", () => {
-  it('at the standard address: wrap, open the pool, close the wrapped SOL', () => {
+describe("the site's own opening decodes into one pool-create and the share's name", () => {
+  it('at the standard address: wrap, open the pool, name its share, close the wrapped SOL', () => {
     const p = pinsFor();
     expect(p.origin).toBe('standard');
     const steps = ok(siteOpening(p), ctxFor(p));
-    expect(steps.map((s) => s.kind)).toEqual(['compute-limit', 'create-token-account', 'wrap-sol', 'sync-wsol', 'pool-create', 'close-wsol']);
+    expect(steps.map((s) => s.kind)).toEqual(['compute-limit', 'create-token-account', 'wrap-sol', 'sync-wsol', 'pool-create', 'pool-name', 'close-wsol']);
     expect(steps[4]).toEqual({ kind: 'pool-create', pool: p.address, ammConfig: TIER1, init0: 1_000_000_000n, init1: 5_000_000_000n });
+    expect(steps[5]).toEqual({ kind: 'pool-name', pool: p.address, lpMint: deriveLpMint(CPSWAP, p.address) });
   });
 
   it('at a one-off address of its own (the standard one was taken)', () => {
@@ -355,5 +362,70 @@ describe('refused: the whole transaction', () => {
 describe('the programs an opening may call', () => {
   it('compute, System, Token, the associated-token program and the pool program, and nothing else', () => {
     expect([...PROGRAMS_BY_KIND['lp-create']].sort()).toEqual(['ata', 'compute', 'pool', 'system', 'token']);
+  });
+});
+
+// The new pool share's name record (cp-swap `create_lp_metadata`, sent right after the
+// opening). It takes no arguments, so the words are the program's; every account is pinned.
+// Each case changes ONE thing.
+describe("naming the new pool share is pinned slot by slot", () => {
+  const p = pinsFor();
+  const c = ctxFor(p);
+  const lpMint = deriveLpMint(CPSWAP, p.address);
+
+  it('the site’s own call: payer, authority, pool, share token, its record, the vault as editor, Metaplex, System, rent', () => {
+    expect(naming(p).keys.map((k) => [k.pubkey.toBase58(), k.isSigner, k.isWritable])).toEqual([
+      [ME.toBase58(), true, true],
+      [deriveAuthority(CPSWAP).toBase58(), false, false],
+      [p.address.toBase58(), false, false],
+      [lpMint.toBase58(), false, false],
+      [metadataPda(lpMint).toBase58(), false, true],
+      ['GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd', false, false],
+      [METAPLEX_TOKEN_METADATA_ID.toBase58(), false, false],
+      [SYSTEM_PROGRAM_ID.toBase58(), false, false],
+      [SYSVAR_RENT_PUBKEY.toBase58(), false, false],
+    ]);
+    expect(Array.from(naming(p).data)).toEqual([148, 193, 160, 116, 87, 25, 123, 103]);
+    // It names the share of a one-off pool just the same.
+    const q = pinsFor({ oneOff: true });
+    expect(ok(siteOpening(q, opening(q), naming(q)), ctxFor(q)).find((s) => s.kind === 'pool-name')).toEqual({ kind: 'pool-name', pool: q.address, lpMint: deriveLpMint(CPSWAP, q.address) });
+  });
+
+  it.each([
+    [0, 'paid by someone else', /named and paid for by someone else/],
+    [1, 'another authority', /names the wrong pool authority/],
+    [2, 'another pool', /share of a different pool than the one opened/],
+    [3, 'another token', /names a different token than the new pool share/],
+    [4, 'another record address', /written somewhere other than the pool share's own record address/],
+    [5, 'another editor', /editable by someone other than the team's vault/],
+    [6, 'another metadata program', /calls the wrong program/],
+    [7, 'another system program', /names the wrong system program/],
+    [8, 'another rent sysvar', /names the wrong system program/],
+  ])('slot %i: %s is refused', (slot, _what, why) => {
+    refused(siteOpening(p, opening(p), withKey(naming(p), slot, STRANGER)), why, c);
+  });
+
+  it('the share of ANOTHER pool, with every account consistent for that pool, is refused', () => {
+    const other = pinsFor();
+    refused(siteOpening(p, opening(p), naming(other)), /share of a different pool than the one opened/, c);
+  });
+
+  it('carrying any data past its discriminator, or a tenth account', () => {
+    const ix = naming(p);
+    refused(siteOpening(p, opening(p), new TransactionInstruction({ programId: ix.programId, keys: ix.keys, data: Buffer.concat([ix.data, Buffer.from([0])]) })), /carries data it never takes/, c);
+    refused(siteOpening(p, opening(p), new TransactionInstruction({ programId: ix.programId, keys: [...ix.keys, { pubkey: STRANGER, isSigner: false, isWritable: true }], data: ix.data })), /naming the pool share/, c);
+  });
+
+  it('missing, twice, or before the pool exists: an opening names its share exactly once, right after opening it', () => {
+    refused(siteOpening(p, opening(p), null), /does not name the new pool share exactly once/, c);
+    refused([...siteOpening(p), naming(p)], /does not name the new pool share exactly once/, c);
+    const body = siteOpening(p, opening(p), null);
+    const at = body.indexOf(body.find((i) => i.programId.equals(CPSWAP))!);
+    refused([...body.slice(0, at), naming(p), ...body.slice(at)], /does not name the new pool share exactly once, right after opening the pool/, c);
+  });
+
+  it('a deposit or a withdrawal never names a share', () => {
+    refused([naming(p)], /other than a deposit/, ctxFor(p, 'lp-deposit'));
+    refused([naming(p)], /other than a withdrawal/, ctxFor(p, 'lp-withdraw'));
   });
 });

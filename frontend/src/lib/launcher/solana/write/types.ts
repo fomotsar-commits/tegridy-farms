@@ -229,6 +229,8 @@ export type IntentStep =
    * not carried.
    */
   | { kind: 'pool-create'; pool: PublicKey; ammConfig: PublicKey; init0: bigint; init1: bigint }
+  /** cp-swap `create_lp_metadata` after an opening: `lpMint`, the share token of `pool`, gets its name record. */
+  | { kind: 'pool-name'; pool: PublicKey; lpMint: PublicKey }
   /**
    * Range program `open_position_with_token22_nft`, decoded: `liquidity` in `pool` between
    * the two ticks, its NFT `nftMint`, at most `max0` / `max1` taken. No base side: the
@@ -592,6 +594,12 @@ export interface LpCreateSummary {
   feeReceiver: PublicKey;
   /** Read while preparing: the pool's own accounts (never returned), the opener's pool-share account (refundable). */
   rents: { neverRefunded: bigint; lpAccount: bigint };
+  /**
+   * The new share token's name record, made in the same transaction: its deposit (read
+   * while preparing) stays in the record for good, and Metaplex keeps its fee for making
+   * a record. Both are paid by the opener; the team gets neither.
+   */
+  nameRecord: { rent: bigint; metaplexFee: bigint };
   /**
    * The fresh opening check, against 'outside'. An opening is built when it agrees, and
    * also when it disagrees or has nothing to be compared with (`no-market`): those two

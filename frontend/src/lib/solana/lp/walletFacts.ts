@@ -5,6 +5,7 @@ import { associatedTokenAddress } from '../../launcher/solana/curve/ix';
 import { opened } from '../../launcher/solana/write/wsol';
 import { getMultipleAccounts, type RawAccount } from './accounts';
 import { NEVER_REFUNDED_ACCOUNT_SIZES } from './poolFinder';
+import { LP_NAME_RECORD_LEN, METAPLEX_CREATE_FEE_LAMPORTS } from '../cpswap/program';
 import { SOL_QUOTE, type QuoteCoin } from './quotes';
 import { tokenAccountSize } from './tokenAccountSize';
 import { TOKEN_PROGRAM, WSOL_MINT } from './tokenSafety';
@@ -20,8 +21,9 @@ import { TOKEN_PROGRAM, WSOL_MINT } from './tokenSafety';
  *
  * Opening a pool (`opening: true`) also needs what the new pool's own accounts keep in
  * deposits for good (the pool, its price record, its share token and its two vaults):
- * `rents.neverRefunded`, from the same per-size rent reads. Without `opening` the answer
- * is exactly what it always was.
+ * `rents.neverRefunded`, from the same per-size rent reads, and what the share token's
+ * name record costs the opener (`rents.nameRecord`: its deposit plus Metaplex's fee).
+ * Without `opening` the answer is exactly what it always was.
  *
  * THE PAIRING COIN (`quote`, default SOL: quotes.ts). SOL goes through the wrapped-SOL
  * account, so a SOL pool reads the keys it always read and `coin` is null. USDC and
@@ -48,10 +50,10 @@ export type WalletFacts =
       coin: { address: string; exists: boolean; amount: bigint } | null;
       lpAccountExists: boolean;
       /**
-       * `neverRefunded` only when asked with `opening`. `coinAccount` only for a coin that
-       * is not SOL: the deposit an account for that coin holds, at its real size.
+       * `neverRefunded` and `nameRecord` only when asked with `opening`. `coinAccount` only
+       * for a coin that is not SOL: the deposit an account for that coin holds, at its real size.
        */
-      rents: { walletFloor: bigint; tokenAccount165: bigint; neverRefunded?: bigint; coinAccount?: bigint };
+      rents: { walletFloor: bigint; tokenAccount165: bigint; neverRefunded?: bigint; nameRecord?: bigint; coinAccount?: bigint };
     }
   | { kind: 'unread'; detail: string };
 
@@ -113,11 +115,12 @@ export async function readWalletFacts(
     const lpAddress = a.lpMint ? associatedTokenAddress(new PublicKey(a.lpMint), owner).toBase58() : null;
     // The coin's own mint goes last, so the keys before it are the ones a SOL pool reads.
     const keys = [a.owner, tokenAddress, quoteAddress, ...(lpAddress ? [lpAddress] : []), ...(quote.native ? [] : [quote.mint])];
-    const [accounts, walletFloor, tokenAccount165, neverRefunded] = await Promise.all([
+    const [accounts, walletFloor, tokenAccount165, neverRefunded, nameRecordRent] = await Promise.all([
       getMultipleAccounts(rpc, keys),
       rent(rpc, 0),
       rent(rpc, 165),
       a.opening ? Promise.all(NEVER_REFUNDED_ACCOUNT_SIZES.map((n) => rent(rpc, n))).then((r) => r.reduce((sum, v) => sum + v, 0n)) : null,
+      a.opening ? rent(rpc, LP_NAME_RECORD_LEN) : null,
     ]);
     const wallet = accounts[0];
     // An address that only holds SOL someone sent it is no account yet (`opened`).
@@ -150,6 +153,7 @@ export async function readWalletFacts(
         walletFloor,
         tokenAccount165,
         ...(neverRefunded === null ? {} : { neverRefunded }),
+        ...(nameRecordRent === null ? {} : { nameRecord: nameRecordRent + METAPLEX_CREATE_FEE_LAMPORTS }),
         ...(coinAccount === null ? {} : { coinAccount }),
       },
     };

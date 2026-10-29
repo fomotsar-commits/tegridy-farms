@@ -62,6 +62,8 @@ const FEE = TIER1_VALUES.createPoolFee;
 const R = (n: number) => BigInt(rent(n));
 /** What `initialize` pays for and never returns, for a 165-byte token vault: pool, price record, share token, two vaults. */
 const NEVER_REFUNDED = R(637) + R(4075) + R(82) + R(165) + R(165);
+/** The new share's name record: its deposit (607 bytes) and Metaplex's fee for making it. */
+const NAME = R(607) + 10_000_000n;
 
 const TERMS: TierTerms = {
   createPoolFee: TIER1_VALUES.createPoolFee,
@@ -267,6 +269,12 @@ describe('prepareLpCreate: a clean opening at the standard address', () => {
     expect(s.unwrapsWsol).toBe(true);
     expect(s.notices).toEqual([]);
     expect(p.steps.filter((x) => x.kind === 'pool-create')).toHaveLength(1);
+    // The new share is named in the same transaction, right after the opening, and the
+    // review says what that costs: the record's deposit and Metaplex's fee, both the opener's.
+    expect(p.steps.map((x) => x.kind).filter((k) => k.startsWith('pool-'))).toEqual(['pool-create', 'pool-name']);
+    expect(p.steps.find((x) => x.kind === 'pool-name')).toEqual({ kind: 'pool-name', pool: w.standard, lpMint: deriveLpMint(CPSWAP, w.standard) });
+    expect(s.nameRecord).toEqual({ rent: R(607), metaplexFee: 10_000_000n });
+    expect(p.simulated.signerLamportsDelta).toBe(-(SOL + FEE + NEVER_REFUNDED + NAME + R(165)));
   });
 
   // The panel's market price may be the edge's 30-second copy of Jupiter's answer
@@ -296,7 +304,7 @@ describe('prepareLpCreate: a clean opening at the standard address', () => {
     const w = world({ tokenProgram: TOKEN_2022_PROGRAM_ID });
     const p = ok(await create(w));
     expect(summaryOf(p).rents.neverRefunded).toBe(NEVER_REFUNDED);
-    expect(p.fees.newAccountRentLamports).toBe(NEVER_REFUNDED + R(165));
+    expect(p.fees.newAccountRentLamports).toBe(NEVER_REFUNDED + R(607) + R(165));
   });
 });
 
@@ -450,7 +458,7 @@ describe('prepareLpCreate: what refuses it, each in its own words', () => {
     expect(s.tokenWarnings.map((x) => x.code)).toContain(code);
     // The pool program adds no account extension for these, so the vault is a plain 165.
     expect(s.rents.neverRefunded).toBe(NEVER_REFUNDED);
-    expect(p.fees.newAccountRentLamports).toBe(NEVER_REFUNDED + R(165));
+    expect(p.fees.newAccountRentLamports).toBe(NEVER_REFUNDED + R(607) + R(165));
   });
 
   // The leave rule, with the real verdict: this site opens a pool for exactly the
@@ -582,8 +590,8 @@ describe('prepareLpCreate: what refuses it, each in its own words', () => {
   it('the rent band: exactly what this wallet can put in prepares; one lamport more is refused, naming that number', async () => {
     // A wallet with no wrapped-SOL account: it pays that account's rent during the transaction.
     const most = SOL;
-    const wallet = most + feeReserveFor(2) + R(165) + FEE + NEVER_REFUNDED + R(165);
-    expect(spendableSol({ lamports: wallet, walletFloor: R(0), feeReserve: feeReserveFor(2), lpAccountRent: R(165), wsolCreateRent: R(165), alsoPaid: FEE + NEVER_REFUNDED })).toBe(most);
+    const wallet = most + feeReserveFor(2) + R(165) + FEE + NEVER_REFUNDED + NAME + R(165);
+    expect(spendableSol({ lamports: wallet, walletFloor: R(0), feeReserve: feeReserveFor(2), lpAccountRent: R(165), wsolCreateRent: R(165), alsoPaid: FEE + NEVER_REFUNDED + NAME })).toBe(most);
     const w = world({ wallet });
     ok(await create(w, { quote: most }));
     expect(refused(await create(w, { quote: most + 1n }))).toBe(CREATE_COPY.rentBand('1 SOL'));
@@ -610,7 +618,7 @@ describe('the balance check: nothing more may leave the wallet than the review s
     expect(row(p, w.tokenAta)).toEqual([-TOKENS, NO_CEILING]);
     expect(row(p, w.wsolAta)).toEqual([0n, 0n]);
     expect(row(p, CP_CREATE_POOL_FEE_RECEIVER)).toEqual([FEE, NO_CEILING]);
-    expect(p.check.expect.maxSolOut).toBe(SOL + FEE + NEVER_REFUNDED + R(165));
+    expect(p.check.expect.maxSolOut).toBe(SOL + FEE + NEVER_REFUNDED + NAME + R(165));
     expect(p.check.expect.minSolIn).toBeUndefined();
     expect(p.check.watch.tokenAccounts.find((t) => t.account.equals(CP_CREATE_POOL_FEE_RECEIVER))?.role).toBe('treasury');
   });
@@ -733,7 +741,7 @@ describe('SOL sent to one of the wallet’s addresses before its account exists 
       expect(s.unwrapsWsol, String(sent)).toBe(true);
       expect(s.wsolHeldBefore, String(sent)).toBe(0n);
       expect(row(p, w.wsolAta), String(sent)).toEqual([0n, 0n]);
-      const paid = SOL + FEE + NEVER_REFUNDED + R(165) - BigInt(sent);
+      const paid = SOL + FEE + NEVER_REFUNDED + NAME + R(165) - BigInt(sent);
       expect(p.simulated.signerLamportsDelta, String(sent)).toBe(-paid);
       expect(p.check.expect.maxSolOut, String(sent)).toBe(paid);
     }
@@ -748,7 +756,7 @@ describe('SOL sent to one of the wallet’s addresses before its account exists 
       const s = summaryOf(p);
       expect(s.origin, String(sent)).toBe('standard');
       expect(moved(p, lpAta), String(sent)).toBe(s.lpAmount);
-      const paid = SOL + FEE + NEVER_REFUNDED + BigInt(Math.max(0, rent(165) - sent));
+      const paid = SOL + FEE + NEVER_REFUNDED + NAME + BigInt(Math.max(0, rent(165) - sent));
       expect(p.simulated.signerLamportsDelta, String(sent)).toBe(-paid);
       expect(p.check.expect.maxSolOut, String(sent)).toBe(paid);
       // The review still states the whole deposit.
@@ -766,7 +774,7 @@ describe('SOL sent to one of the wallet’s addresses before its account exists 
 
   it('the most this wallet can put in still sets aside a full deposit for the wrapped-SOL address', async () => {
     const most = SOL;
-    const wallet = most + feeReserveFor(2) + R(165) + FEE + NEVER_REFUNDED + R(165);
+    const wallet = most + feeReserveFor(2) + R(165) + FEE + NEVER_REFUNDED + NAME + R(165);
     const w = world({ wallet });
     w.chain.fund(w.wsolAta, rent(0));
     ok(await create(w, { quote: most }));
@@ -870,12 +878,13 @@ describe('a sync credits what a wrapped-SOL account already held, and the check 
 describe('createStepsProblem', () => {
   const pool = Keypair.generate().publicKey;
   const wsolAta = associatedTokenAddress(WSOL_MINT, ME);
-  const steps = (over: Partial<Extract<IntentStep, { kind: 'pool-create' }>> = {}, o: { close?: boolean; extraCreate?: boolean; wrap?: bigint } = {}): IntentStep[] => [
+  const steps = (over: Partial<Extract<IntentStep, { kind: 'pool-create' }>> = {}, o: { close?: boolean; extraCreate?: boolean; wrap?: bigint; name?: boolean } = {}): IntentStep[] => [
     { kind: 'create-token-account', owner: ME, mint: WSOL_MINT, address: wsolAta },
     ...(o.extraCreate ? [{ kind: 'create-token-account', owner: ME, mint: WSOL_MINT, address: Keypair.generate().publicKey } as IntentStep] : []),
     { kind: 'wrap-sol', lamports: o.wrap ?? 100n },
     { kind: 'sync-wsol' },
     { kind: 'pool-create', pool, ammConfig: TIER1, init0: 100n, init1: 7n, ...over },
+    ...(o.name === false ? [] : [{ kind: 'pool-name', pool, lpMint: deriveLpMint(CPSWAP, pool) } as IntentStep]),
     ...(o.close === false ? [] : [{ kind: 'close-wsol' } as IntentStep]),
   ];
   const want = { pool, ammConfig: TIER1, init0: 100n, init1: 7n, sol: 100n, closeAfter: true, wsolAta };
@@ -888,6 +897,7 @@ describe('createStepsProblem', () => {
     expect(createStepsProblem(steps({ init1: 6n }), want)).toMatch(/does not match/);
     expect(createStepsProblem(steps({}, { wrap: 99n }), want)).toMatch(/wrapped/);
     expect(createStepsProblem(steps({}, { extraCreate: true }), want)).toMatch(/does not open exactly your wrapped-SOL account/);
+    expect(createStepsProblem(steps({}, { name: false }), want)).toMatch(/does not name the new pool share exactly once/);
     expect(createStepsProblem(steps({}, { close: false }), want)).toMatch(/closes your wrapped-SOL/);
     expect(createStepsProblem(steps().filter((s) => s.kind !== 'pool-create'), want)).toMatch(/missing/);
   });
