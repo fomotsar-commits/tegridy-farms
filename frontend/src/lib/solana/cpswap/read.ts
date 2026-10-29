@@ -27,6 +27,7 @@ import {
   lpTokensToTradingTokens,
   type SwapResult,
 } from './math';
+import { poolFee, type TransferFee } from '../lp/transferFee';
 
 /**
  * Reads for the venue's own AMM, and the quote built on top of them.
@@ -255,8 +256,17 @@ export function poolVaultAddresses(programId: PublicKey, pool: PublicKey, token0
 export interface OwnPoolQuote {
   /** The pool this quote is against. */
   poolAddress: string;
-  /** Raw output the trader receives, before any Token-2022 output transfer fee. */
+  /**
+   * Raw output that reaches the trader: the pool's payout less the output side's transfer
+   * fee, when `fees` named one. With no fees given, the pool's payout as it is.
+   */
   outAmount: bigint;
+  /**
+   * What each side's transfer fee keeps back: of what the trader sends (`input`, before the
+   * pool sees it) and of what the pool pays out (`output`). Both 0 with no fee; absent
+   * only on a hand-built quote, which then has none.
+   */
+  transferFees?: { input: bigint; output: bigint };
   /** The full fee breakdown, so the surface can show where each part went. */
   result: SwapResult;
   /** Reserves used, for a price-impact read the caller can compute honestly. */
@@ -274,6 +284,11 @@ export interface OwnPoolQuote {
  * Returns null — never a fabricated number — when the program would refuse:
  * a swap-disabled pool, a pool not yet open, an unpriceable creator-fee mode,
  * or arithmetic the program aborts on.
+ *
+ * `fees` is each side's transfer fee, token0 first (lp/transferFee.ts). swap_base_input.rs
+ * prices only what REACHES the input vault (the amount less its fee, which must be above
+ * 0), and holds the minimum to what reaches the trader (the payout less its fee, which
+ * must be above 0). Leaving it out quotes a pool with no fee on either side.
  */
 export function quoteOwnPool(
   snapshot: PoolSnapshot,
@@ -281,6 +296,7 @@ export function quoteOwnPool(
   inputMint: string,
   amountIn: bigint,
   nowSecs: number = Math.floor(Date.now() / 1000),
+  fees: readonly [TransferFee | null, TransferFee | null] = [null, null],
 ): OwnPoolQuote | null {
   const { pool } = snapshot;
   if (!swapEnabled(pool)) return null;
@@ -294,9 +310,17 @@ export function quoteOwnPool(
 
   const reserveIn = inputIsToken0 ? snapshot.reserve0 : snapshot.reserve1;
   const reserveOut = inputIsToken0 ? snapshot.reserve1 : snapshot.reserve0;
+  const feeIn = inputIsToken0 ? fees[0] : fees[1];
+  const feeOut = inputIsToken0 ? fees[1] : fees[0];
+
+  // What reaches the input vault (swap_base_input.rs `actual_amount_in`). The program
+  // refuses 0 here, and 0 reaching the trader below: a quote of 0 out is what every
+  // caller already refuses, so a fee is no new case.
+  const inputFee = poolFee(feeIn, amountIn);
+  const actualIn = amountIn - inputFee;
 
   const result = swapBaseInput({
-    inputAmount: amountIn,
+    inputAmount: actualIn,
     inputVaultAmount: reserveIn,
     outputVaultAmount: reserveOut,
     tradeFeeRate: config.tradeFeeRate,
@@ -308,16 +332,21 @@ export function quoteOwnPool(
     isCreatorFeeOnInput: feeOnInput,
   });
   if (!result) return null;
+  // What reaches the trader (`amount_received`).
+  const outputFee = poolFee(feeOut, result.outputAmount);
+  const received = result.outputAmount - outputFee;
 
-  // Impact against the mid price the pool was at BEFORE the trade. Computed in
-  // floating point deliberately — it is a display number, and every number that
+  // Impact against the mid price the pool was at BEFORE the trade, on what the pool
+  // itself takes in and pays out (a transfer fee is no part of the pool's price). Computed
+  // in floating point deliberately — it is a display number, and every number that
   // rides the transaction stayed BigInt above.
-  const spotOut = Number(reserveOut) / Number(reserveIn) * Number(amountIn);
+  const spotOut = Number(reserveOut) / Number(reserveIn) * Number(actualIn);
   const priceImpact = spotOut > 0 ? Math.max(0, (spotOut - Number(result.outputAmount)) / spotOut) : 0;
 
   return {
     poolAddress: pool.address,
-    outAmount: result.outputAmount,
+    outAmount: received,
+    transferFees: { input: inputFee, output: outputFee },
     result,
     reserveIn,
     reserveOut,

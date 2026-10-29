@@ -4,14 +4,16 @@
 // browser reads and checks each one, and an index that did not answer is never "no pools".
 import { describe, it, expect } from 'vitest';
 import { Keypair, PublicKey } from '@solana/web3.js';
-import { LITTLE_MONEY_TEXT, PRICE_IDS_MAX, QUIET_SECS, arbitrage, listPools, marketGap, readMarketPrices, poolTags } from './poolList';
+import { LITTLE_MONEY_TEXT, PRICE_IDS_MAX, QUIET_SECS, arbitrage, listPools, marketGap, readMarketPrices, poolTags, rowTokenFee } from './poolList';
+import { poolFeesOf } from './liquidityMath';
+import type { TransferFee } from './transferFee';
 import { quoteOwnPool } from '../cpswap/read';
 import { readPoolIndex } from './poolIndex';
 import { CLOCK, LAUNCH, PROGRAM, buildPool, clockAccount, fakeRpc, key, observationBytes, viewOf, type FakeAccount } from './testkit.fixture';
 import { BAYLA_QUOTE, USDC_QUOTE, type QuoteCoin } from './quotes';
 import { decodeObservationState } from './ownPrice';
 import type { PoolView } from './poolFinder';
-import { BAYLA_MINT, USDC_MINT, WSOL_MINT } from './tokenSafety';
+import { BAYLA_MINT, TOKEN_2022_PROGRAM, USDC_MINT, WSOL_MINT, type MintFacts, type TokenSafety } from './tokenSafety';
 import { metadataPda } from '../../launcher/solana/write/metaplex';
 
 /** A fetch for `/api/pools?all=1` answering `pools`; `calls` collects each URL asked. */
@@ -280,6 +282,34 @@ describe('arbitrage: what one trade could take from a rowâ€™s gap, by the poolâ€
       expect(a.lpFeeUsd + a.venueFeeUsd).toBeCloseTo(a.tradeUsd * 0.01, 4);
       expect(a.venueFeeUsd).toBeCloseTo(a.tradeUsd * 0.0016, 4);
       expect(a.creatorFeeUsd).toBe(0);
+      expect(a.transferFeeUsd).toBe(0);
+    });
+  }
+
+  // 2% of every transfer of the token, with no cap: out of the pool buying, of what the trader sends selling.
+  const TAX: TransferFee = { epoch: 0n, maximumFee: (1n << 64n) - 1n, basisPoints: 200 };
+  for (const [side, tokenUsd] of [['buy', 10 / 0.9], ['sell', 10 / 1.1]] as const) {
+    it(`a token with a transfer fee (${side}): the fee is counted, said, and the size still makes the most`, () => {
+      const v = row();
+      const plain = arbitrage(v, usd(v, tokenUsd), NOW)!;
+      const a = arbitrage(v, usd(v, tokenUsd), NOW, TAX)!;
+      expect(a.side).toBe(side);
+      const inputMint = side === 'buy' ? WSOL_MINT : v.tokenMint;
+      const tokUnit = tokenUsd / 1e6;
+      const [inUnit, outUnit] = side === 'buy' ? [SOL_UNIT, tokUnit] : [tokUnit, SOL_UNIT];
+      const taxed = (n: bigint) => {
+        const q = quoteOwnPool(v.snapshot, v.config!, inputMint, n, Number(NOW), poolFeesOf(v.quoteIsToken0, TAX))!;
+        return { usd: Number(q.outAmount) * outUnit - Number(n) * inUnit, q };
+      };
+      const amountIn = BigInt(Math.round(a.tradeUsd / inUnit));
+      const best = taxed(amountIn);
+      expect(a.profitUsd).toBeCloseTo(best.usd, 9);
+      expect(taxed((amountIn * 8n) / 10n).usd).toBeLessThan(a.profitUsd);
+      expect(taxed((amountIn * 12n) / 10n).usd).toBeLessThan(a.profitUsd);
+      // 2% of the token side: what leaves the pool buying, what the trader sends selling.
+      const kept = side === 'buy' ? best.q.result.outputAmount : amountIn;
+      expect(a.transferFeeUsd).toBeCloseTo(Number(kept) * 0.02 * tokUnit, 4);
+      expect(a.profitUsd).toBeLessThan(plain.profitUsd);
     });
   }
 
@@ -295,6 +325,30 @@ describe('arbitrage: what one trade could take from a rowâ€™s gap, by the poolâ€
     expect(arbitrage({ ...v, config: null }, usd(v, 20), NOW)).toBeNull();
     expect(arbitrage(v, new Map([[v.tokenMint, 20]]), NOW)).toBeNull();
     expect(arbitrage(v, new Map([[WSOL_MINT, 200]]), NOW)).toBeNull();
+    // A 3% transfer fee on top of the 1% pool fee: a 2% gap no longer pays.
+    expect(arbitrage(v, usd(v, 10 / 0.98), NOW)).not.toBeNull();
+    expect(arbitrage(v, usd(v, 10 / 0.98), NOW, { ...TAX, basisPoints: 300 })).toBeNull();
+  });
+
+  it('rowTokenFee: none on a classic token; on a Token-2022 token, the fee its read found, or unread', () => {
+    const v = row();
+    const pool = v.quoteIsToken0 ? { ...v.snapshot.pool, token1Program: TOKEN_2022_PROGRAM } : { ...v.snapshot.pool, token0Program: TOKEN_2022_PROGRAM };
+    const t: PoolView = { ...v, snapshot: { ...v.snapshot, pool } };
+    const facts = (transferFee: MintFacts['transferFee']): MintFacts => ({
+      program: 'token-2022', mintAuthority: null, freezeAuthority: null, supply: 1n, decimals: 6, isInitialized: true,
+      extensions: [], metadataPointer: null, tokenMetadata: null, transferFee,
+    });
+    const read = (f: MintFacts | null): TokenSafety => ({ kind: 'read', mint: t.tokenMint, verdict: 'ok', blocks: [], warnings: [], facts: f, name: null, symbol: null, metadataSource: 'none' });
+    // A classic token cannot carry a fee: no read is needed.
+    expect(rowTokenFee(v, null)).toBeNull();
+    expect(rowTokenFee(t, null)).toBe('unread');
+    expect(rowTokenFee(t, { kind: 'unread', mint: t.tokenMint, detail: 'HTTP 429' })).toBe('unread');
+    expect(rowTokenFee(t, read(null))).toBe('unread');
+    expect(rowTokenFee(t, read(facts(null)))).toBeNull();
+    // A change pending, the page reading no epoch: the larger of the two settings.
+    const older = { epoch: 0n, maximumFee: 10n ** 6n, basisPoints: 100 };
+    const newer = { epoch: 900n, maximumFee: 10n ** 6n, basisPoints: 300 };
+    expect(rowTokenFee(t, read(facts({ configAuthority: null, withdrawAuthority: null, withheldAmount: 0n, older, newer })))).toEqual(newer);
   });
 });
 

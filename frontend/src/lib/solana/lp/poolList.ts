@@ -8,9 +8,11 @@ import { readPoolIndex } from './poolIndex';
 import { readPools, type PoolView, type ReadPoolsOptions } from './poolFinder';
 import { PRICE_TOLERANCE, comparePrice, poolPricePerToken } from './poolHealth';
 import { siteNamed } from './identity';
+import { poolFeesOf } from './liquidityMath';
 import { lastTrade } from './poolPast';
 import { QUOTE_COINS, SOL_QUOTE, USDC_QUOTE, orList, type QuoteCoin } from './quotes';
-import { readTokenSafety, type TokenSafety } from './tokenSafety';
+import { TOKEN_PROGRAM, readTokenSafety, type TokenSafety } from './tokenSafety';
+import { MAX_FEE_BASIS_POINTS, feeNow, preFeeAmountOf, type TransferFee } from './transferFee';
 
 /**
  * Every pool on the venue, for the list a visitor sees before picking a token.
@@ -174,11 +176,17 @@ export function marketGap(view: PoolView, usd: ReadonlyMap<string, number>): num
  * √(k·m·(1−fee)); selling, the token side reaches √(k·(1−fee)/m)), and is then priced by the
  * pool program's own maths (quoteOwnPool), so its output and its fee are the chain's.
  *
+ * A token with a transfer fee (`tokenFee`, from rowTokenFee) keeps back its rate of the token
+ * side too: of what leaves the pool buying, of what the trader sends selling. Its rate joins
+ * the pool's fee in the sizing (a fee's cap only lowers it on a big trade), and quoteOwnPool
+ * then takes it exactly, the pool program's way.
+ *
  * The profit comes out of the pool's LPs: the pool sells below the market or buys above it.
  * The trade's fee splits as on chain: the LPs' part, the venue's (protocol + fund), and the
- * pool creator's when the pool charges one. Before the trader's own costs anywhere else, so
- * at most. Null when the gap is inside the fee, the pool cannot be traded now, or a price,
- * the fee settings or the chain's clock was not read.
+ * pool creator's when the pool charges one; a transfer fee goes to whoever collects the
+ * token's fee. Before the trader's own costs anywhere else, so at most. Null when the gap is
+ * inside the fees, the pool cannot be traded now, or a price, the fee settings or the chain's
+ * clock was not read.
  */
 export interface Arbitrage {
   side: 'buy' | 'sell';
@@ -188,9 +196,24 @@ export interface Arbitrage {
   lpFeeUsd: number;
   venueFeeUsd: number;
   creatorFeeUsd: number;
+  /** What the token's own transfer fee keeps back of the trade; 0 for a token with none. */
+  transferFeeUsd: number;
 }
 
-export function arbitrage(view: PoolView, usd: ReadonlyMap<string, number>, chainNow: bigint | null): Arbitrage | null {
+/**
+ * The token's transfer fee as a row's arbitrage counts it. None for a classic token, which
+ * cannot carry one. For a Token-2022 token, the one its safety read found (`feeNow` with no
+ * epoch: the larger setting while a change is pending, as every page estimate takes it).
+ * 'unread' when there is no such read, so no figure leaves a fee out.
+ */
+export function rowTokenFee(view: PoolView, safety: TokenSafety | null): TransferFee | null | 'unread' {
+  const { pool } = view.snapshot;
+  if ((view.quoteIsToken0 ? pool.token1Program : pool.token0Program) === TOKEN_PROGRAM) return null;
+  if (safety?.kind !== 'read' || !safety.facts) return 'unread';
+  return feeNow(safety.facts.transferFee, null);
+}
+
+export function arbitrage(view: PoolView, usd: ReadonlyMap<string, number>, chainNow: bigint | null, tokenFee: TransferFee | null = null): Arbitrage | null {
   const { pool } = view.snapshot;
   const coinUsd = usd.get(view.quote.mint);
   const tokenUsd = usd.get(view.tokenMint);
@@ -203,14 +226,18 @@ export function arbitrage(view: PoolView, usd: ReadonlyMap<string, number>, chai
   const tokenUnit = tokenUsd / 10 ** (view.quoteIsToken0 ? pool.mint1Decimals : pool.mint0Decimals);
   const m = tokenUnit / coinUnit;
   const fee = Number(view.config.tradeFeeRate + chargedCreatorFeeRate(view.config, pool.enableCreatorFee)) / Number(FEE_RATE_DENOMINATOR);
-  if (!(fee < 1)) return null;
-  const buyTo = Math.sqrt(Q * T * m * (1 - fee));
-  const sellTo = Math.sqrt((Q * T * (1 - fee)) / m);
+  const tax = tokenFee ? tokenFee.basisPoints / MAX_FEE_BASIS_POINTS : 0;
+  if (!(fee < 1 && tax < 1)) return null;
+  const buyTo = Math.sqrt(Q * T * m * (1 - fee) * (1 - tax));
+  const sellTo = Math.sqrt((Q * T * (1 - fee) * (1 - tax)) / m);
   const side = buyTo > Q ? 'buy' : sellTo > T ? 'sell' : null;
   if (side === null) return null;
-  const amountIn = BigInt(Math.floor(side === 'buy' ? (buyTo - Q) / (1 - fee) : (sellTo - T) / (1 - fee)));
-  if (amountIn <= 0n) return null;
-  const q = quoteOwnPool(view.snapshot, view.config, side === 'buy' ? view.quote.mint : view.tokenMint, amountIn, Number(chainNow));
+  const intoPool = BigInt(Math.floor(side === 'buy' ? (buyTo - Q) / (1 - fee) : (sellTo - T) / (1 - fee)));
+  // Selling, that is what reaches the pool: the trader sends it with the token's fee on top.
+  const amountIn = side === 'sell' && tokenFee ? preFeeAmountOf(tokenFee, intoPool) : intoPool;
+  if (amountIn === null || amountIn <= 0n) return null;
+  const inputMint = side === 'buy' ? view.quote.mint : view.tokenMint;
+  const q = quoteOwnPool(view.snapshot, view.config, inputMint, amountIn, Number(chainNow), poolFeesOf(view.quoteIsToken0, tokenFee));
   if (!q) return null;
   const inUnit = side === 'buy' ? coinUnit : tokenUnit;
   const outUnit = side === 'buy' ? tokenUnit : coinUnit;
@@ -225,5 +252,6 @@ export function arbitrage(view: PoolView, usd: ReadonlyMap<string, number>, chai
     lpFeeUsd: Number(r.tradeFee - r.protocolFee - r.fundFee) * inUnit,
     venueFeeUsd: Number(r.protocolFee + r.fundFee) * inUnit,
     creatorFeeUsd: Number(r.creatorFee) * (q.creatorFeeOnInput ? inUnit : outUnit),
+    transferFeeUsd: Number(q.transferFees?.input ?? 0n) * inUnit + Number(q.transferFees?.output ?? 0n) * outUnit,
   };
 }

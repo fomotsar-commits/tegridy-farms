@@ -10,6 +10,7 @@ import { priceInQuote, type OutsidePrice } from '../../../lib/solana/lp/outsideP
 import { noPriceClause } from '../../../lib/solana/lp/poolHealth';
 import { SOL_QUOTE, lowerCoins, quoteCoin, type QuoteCoin } from '../../../lib/solana/lp/quotes';
 import { TOKEN_2022_PROGRAM, TOKEN_PROGRAM, type TokenSafety } from '../../../lib/solana/lp/tokenSafety';
+import { afterFee, feeNow, feeRateText } from '../../../lib/solana/lp/transferFee';
 import { formatSolPrice, tradeCostText } from '../../../lib/solana/lp/format';
 import { Notice, Row } from '../curve/ui';
 import { SHADOW, TOGGLE_CLS, baseUnitsToInput } from '../curve/uiFormat';
@@ -374,12 +375,17 @@ function CreateInner({
   const noCoinMarket = quoted?.kind === 'no-route' && quoted.of === 'coin';
 
   const both = quoteRaw !== null && tokRaw !== null && quoteRaw > 0n && tokRaw > 0n;
-  const free = both ? planCreate({ quoteIsToken0, quote: quoteRaw, token: tokRaw, availableQuote: null, availableToken: null }) : null;
+  // The token's transfer fee: its vault gets what is sent less the fee, and the pool's
+  // shares and price come from that. With a change pending the page uses the larger of
+  // the two settings; the review says exactly (transferFee.ts `feeNow`).
+  const tokenFee = feeNow(safety.kind === 'read' ? safety.facts?.transferFee : null, null);
+  const tokToPool = tokRaw === null ? null : afterFee(tokenFee, tokRaw);
+  const free = both ? planCreate({ quoteIsToken0, quote: quoteRaw, token: tokRaw, availableQuote: null, availableToken: null, tokenFee }) : null;
   const preview: CreatePlan | null = free && !('problem' in free) ? free : null;
-  const planned = both ? planCreate({ quoteIsToken0, quote: quoteRaw, token: tokRaw, availableQuote, availableToken }) : null;
+  const planned = both ? planCreate({ quoteIsToken0, quote: quoteRaw, token: tokRaw, availableQuote, availableToken, tokenFee }) : null;
   const problem: CreateProblem | null = planned && 'problem' in planned ? planned : null;
-  const check = assessOpening({ tokenMint: mint, quote: coin, quoteAmount: quoteRaw ?? 0n, token: tokRaw ?? 0n, tokenDecimals: decimals, outside, coinOutside, safety });
-  const opening = both && decimals !== null ? openingPricePerToken(quoteRaw, tokRaw, decimals, coin) : null;
+  const check = assessOpening({ tokenMint: mint, quote: coin, quoteAmount: quoteRaw ?? 0n, token: tokToPool ?? 0n, tokenDecimals: decimals, outside, coinOutside, safety });
+  const opening = both && decimals !== null && tokToPool !== null && tokToPool > 0n ? openingPricePerToken(quoteRaw, tokToPool, decimals, coin) : null;
 
   const setSide = (side: LpSide, v: bigint) => setBoxes((b) => ({ ...b, [side]: baseUnitsToInput(v, sideDecimals(side)) }));
   const onType = (side: LpSide, text: string) => {
@@ -392,7 +398,7 @@ function CreateInner({
     if (!k || market === null || decimals === null || reading) return;
     const amount = k === 'quote' ? quoteRaw : tokRaw;
     if (!amount) return;
-    const other = matchMarket({ keep: k, amount, pricePerToken: market, tokenDecimals: decimals, quote: coin });
+    const other = matchMarket({ keep: k, amount, pricePerToken: market, tokenDecimals: decimals, quote: coin, tokenFee });
     if (other === null) return;
     setSide(k === 'quote' ? 'token' : 'quote', other);
     setDriving(k);
@@ -405,7 +411,7 @@ function CreateInner({
   const canMatch = keep !== null && market !== null && decimals !== null && !reading;
   const mostBoth =
     availableQuote !== null && availableToken !== null && market !== null && decimals !== null
-      ? mostBothAtMarket({ spendableQuote: availableQuote, tokenBalance: availableToken, pricePerToken: market, tokenDecimals: decimals, quote: coin })
+      ? mostBothAtMarket({ spendableQuote: availableQuote, tokenBalance: availableToken, pricePerToken: market, tokenDecimals: decimals, quote: coin, tokenFee })
       : null;
   const applyMostBoth = () => {
     if (!mostBoth) return;
@@ -474,7 +480,7 @@ function CreateInner({
   const offMarket = check.price.state === 'disagrees';
   const warned = [...check.warnings];
   if (both && decimals !== null && check.price.state === 'disagrees') {
-    const loss = estimatedLoss({ quoteAmount: quoteRaw, token: tokRaw, tokenDecimals: decimals, marketPricePerToken: check.price.reference, quote: coin });
+    const loss = estimatedLoss({ quoteAmount: quoteRaw, token: tokToPool ?? tokRaw, tokenDecimals: decimals, marketPricePerToken: check.price.reference, quote: coin });
     warned.push(lossLine(loss === null ? null : coinExact(loss, coin)));
   }
 
@@ -824,6 +830,13 @@ function CreateInner({
             <div className="space-y-1.5" data-testid="lp-create-preview">
               <p className="text-white/45 text-[10px]">Worked out from what the page read; read and checked again when you press Review.</p>
               <Row label="You put in" value={`${coinExact(quoteRaw ?? 0n, coin)} and ${unitsExact(tokRaw ?? 0n, dec)} tokens, exactly`} mono={false} />
+              {tokenFee && (
+                <Row
+                  label="The token’s own transfer fee"
+                  value={`${unitsExact(preview.fee.token, dec)} of those tokens (${feeRateText(tokenFee)}), kept by the token for its fee collector; the pool starts with ${unitsExact(preview.vault.token, dec)}`}
+                  mono={false}
+                />
+              )}
               <Row label="Fee to open" value={`${formatSol(config.createPoolFee, 9)} SOL, to the team's vault (not refundable)`} mono={false} />
               <Row
                 label="Account deposits"

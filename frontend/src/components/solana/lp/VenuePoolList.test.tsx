@@ -5,7 +5,7 @@ import { PublicKey } from '@solana/web3.js';
 import { LpInner } from './SolanaLpSection';
 import type { LpReaders } from './readers';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
-import { BAYLA_MINT, USDC_MINT, WSOL_MINT } from '../../../lib/solana/lp/tokenSafety';
+import { BAYLA_MINT, TOKEN_2022_PROGRAM, USDC_MINT, WSOL_MINT } from '../../../lib/solana/lp/tokenSafety';
 import { setPriceSide } from './priceSide';
 import type { PoolListRead } from '../../../lib/solana/lp/poolList';
 import type { PoolSearchRead, PoolView } from '../../../lib/solana/lp/poolFinder';
@@ -236,6 +236,31 @@ describe('All pools: every pool on the venue, before a token is picked', () => {
     expect(within(rows[0]!).queryAllByTestId('lp-all-pools-tag')).toHaveLength(0);
     expect(within(rows[0]!).queryByTestId('lp-all-pools-arb')).toBeNull();
     expect(screen.getByTestId('lp-all-pools')).toHaveTextContent('It comes out of the pool’s LPs');
+  });
+
+  it('a token with a transfer fee: the figure counts it and the row says how much; its fee not read, no figure', async () => {
+    // CORN on Token-2022, dear here as above, keeping 1% of every transfer. Worked by hand: the token side goes to
+    // √(10e9·1e9·0.99·0.99/9.5) = 1,015.719 CORN, so 15.877 CORN must reach the pool and the trader sends 16.038
+    // ($15.24), 0.160 CORN of it kept by the token ($0.15). 10 SOL − 10e18/1,015.719e6 = 0.15475 SOL ($15.48)
+    // comes back: $0.24 made. The 1% pool fee is on the 15.877 that arrive: $0.13 to the LPs, $0.02 to the venue.
+    const marketPrices = vi.fn(async () => ({ [WSOL_MINT]: 100, [C]: 0.95 }));
+    const corn = view(CORN);
+    const pool = corn.quoteIsToken0 ? { ...corn.snapshot.pool, token1Program: TOKEN_2022_PROGRAM } : { ...corn.snapshot.pool, token0Program: TOKEN_2022_PROGRAM };
+    const taxed: PoolView = { ...corn, snapshot: { ...corn.snapshot, pool } };
+    const listPools = (safety: TokenSafety) => vi.fn(async () => ok([taxed], { chainNow: 1_000n, safety: [safety] }));
+    // Whether it keeps a fee is unknown: the red tag, and no figure that could leave a fee out.
+    const { unmount } = mount(readers({ marketPrices, listPools: listPools({ kind: 'unread', mint: C, detail: 'HTTP 429' }) }));
+    await within((await screen.findAllByTestId('lp-all-pools-row'))[0]!).findByText('Price over 3% above Jupiter');
+    expect(screen.queryByTestId('lp-all-pools-arb')).toBeNull();
+    unmount();
+    const fee = { epoch: 0n, maximumFee: 10n ** 12n, basisPoints: 100 };
+    const read = okToken(C) as Extract<TokenSafety, { kind: 'read' }>;
+    const withFee: TokenSafety = { ...read, facts: { ...read.facts!, program: 'token-2022', transferFee: { configAuthority: null, withdrawAuthority: null, withheldAmount: 0n, older: fee, newer: fee } } };
+    mount(readers({ marketPrices, listPools: listPools(withFee) }));
+    const arb = await screen.findByTestId('lp-all-pools-arb');
+    expect(arb).toHaveTextContent('Arbitrage: about $0.24, from selling about $15.24 of CORN here');
+    expect(arb).toHaveTextContent('That trade pays the pool’s fee: $0.13 to LPs, $0.02 to the venue; the token keeps back $0.15, for whoever collects its fee');
+    expect(screen.getByTestId('lp-all-pools')).toHaveTextContent('a token whose transfer fee could not be read gets no figure');
   });
 
   it('Jupiter’s prices not read: the list says no row is marked, never that every price agrees', async () => {

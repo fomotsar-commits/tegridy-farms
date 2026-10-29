@@ -1,7 +1,7 @@
 import { useEffect, useState, type Ref } from 'react';
 import type { PoolView } from '../../../lib/solana/lp/poolFinder';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
-import { LITTLE_MONEY_TEXT, arbitrage, marketGap, poolTags, readMarketPrices, type MarketPrices, type PoolListRead } from '../../../lib/solana/lp/poolList';
+import { LITTLE_MONEY_TEXT, arbitrage, marketGap, poolTags, readMarketPrices, rowTokenFee, type MarketPrices, type PoolListRead } from '../../../lib/solana/lp/poolList';
 import { PRICE_TOLERANCE, poolPricePerToken } from '../../../lib/solana/lp/poolHealth';
 import { quoteText, tokenText, turnedDiff, usdText } from '../../../lib/solana/lp/format';
 import { pairLabel, siteNamed, tokenTicker } from '../../../lib/solana/lp/identity';
@@ -82,7 +82,8 @@ export function VenuePoolList({
             take by bringing the pool’s price back to within its fee of Jupiter’s, and how big that trade is, worked out with the pool’s
             own maths at Jupiter’s market price. It is at most: the trader still pays to trade elsewhere. It comes out of the pool’s
             LPs, because the pool sells below the market or buys above it. The trade pays the pool’s fee like any other, split as the
-            row says. Trading not open yet: its trading starts later,
+            row says. A token with a transfer fee keeps back part of that trade too, which the figure counts and the row says; a token
+            whose transfer fee could not be read gets no figure. Trading not open yet: its trading starts later,
             maybe years from now. Little money in pool: it holds {LITTLE_MONEY_TEXT} (a pool priced in BAYLA never gets this tag). No
             trades yet, and No trades in 7 days: from the pool’s own trade record. Anything not read gives no tag, and a row with no tag is
             not a pool that passed: its full price check is on its card, when you View it.
@@ -187,7 +188,9 @@ function PoolRow({
   // The gap is said the way round the row's price is (PriceFlip), as the pool's card says it.
   const gap = usd ? marketGap(view, usd) : null;
   const tags = poolTags(view, chainNow, gap !== null && side === 'coin' ? turnedDiff(gap) : gap);
-  const arb = gap !== null && usd ? arbitrage(view, usd, chainNow) : null;
+  // A token whose transfer fee could not be read gets no figure: it would leave that fee out.
+  const tokenFee = rowTokenFee(view, safety);
+  const arb = gap !== null && usd && tokenFee !== 'unread' ? arbitrage(view, usd, chainNow, tokenFee) : null;
   return (
     <li
       data-testid="lp-all-pools-row"
@@ -228,6 +231,7 @@ function PoolRow({
             <p className="text-white/60">
               That trade pays the pool’s fee: {usdText(arb.lpFeeUsd)} to LPs, {usdText(arb.venueFeeUsd)} to the venue
               {arb.creatorFeeUsd > 0 ? `, ${usdText(arb.creatorFeeUsd)} to the pool’s creator` : ''}
+              {arb.transferFeeUsd > 0 ? `; the token keeps back ${usdText(arb.transferFeeUsd)}, for whoever collects its fee` : ''}
             </p>
           </div>
         )}
