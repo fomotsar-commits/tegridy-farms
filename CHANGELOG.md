@@ -7,6 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-10-29
+
+- Pools: on Venue AMM's All pools list, a Solana pool whose price is more than 3% above or below Jupiter's market price gets a red "Price over 3% above Jupiter" (or "below Jupiter") tag. Under it, one line says about how much a trader could make by trading the pool back to the market price and how big that trade is, and a second says what that trade pays in fees to the pool's liquidity providers and to memetics.finance. That profit comes out of the pool's liquidity providers, and it is a ceiling: it leaves out the trader's costs on the other side. The list reads Jupiter's prices once for every pool; a pool's own card checks again with live quotes, and its figure can differ by a few points. When those prices can't be read, the list says so and marks no pool.
+
 ### 2026-10-28
 
 - Contracts page: Gauge Controller, Vote Incentives, Community Grants and Meme Bounty Board no longer link to a source file. Their source left this repository on 2026-10-27; each row says so, and their verified source is on Etherscan. The Tegridy Restaking and Tegridy Lending rows are gone: neither contract was ever deployed, and their source left with them.

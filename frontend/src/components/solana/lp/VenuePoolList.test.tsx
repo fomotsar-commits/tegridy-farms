@@ -5,7 +5,8 @@ import { PublicKey } from '@solana/web3.js';
 import { LpInner } from './SolanaLpSection';
 import type { LpReaders } from './readers';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
-import { BAYLA_MINT, USDC_MINT } from '../../../lib/solana/lp/tokenSafety';
+import { BAYLA_MINT, USDC_MINT, WSOL_MINT } from '../../../lib/solana/lp/tokenSafety';
+import { setPriceSide } from './priceSide';
 import type { PoolListRead } from '../../../lib/solana/lp/poolList';
 import type { PoolSearchRead, PoolView } from '../../../lib/solana/lp/poolFinder';
 import { buildPool, key, viewOf } from '../../../lib/solana/lp/testkit.fixture';
@@ -70,7 +71,7 @@ function mount(r: LpReaders) {
   return render(<MemoryRouter initialEntries={['/pools']}><LpInner readers={r} writes={{ mode: 'off' }} /></MemoryRouter>);
 }
 
-beforeEach(() => { wallet.publicKey = null; });
+beforeEach(() => { wallet.publicKey = null; setPriceSide('token'); });
 
 describe('All pools: every pool on the venue, before a token is picked', () => {
   it('lists every pool on arrival, with no token picked and no search run', async () => {
@@ -194,6 +195,53 @@ describe('All pools: every pool on the venue, before a token is picked', () => {
     // Said by the price line every row shows: BAYLA / SOL is priced in SOL and can get the tag.
     expect(screen.getByTestId('lp-all-pools')).toHaveTextContent('Little money in pool: it holds under 1 SOL or 100 USDC (a pool priced in BAYLA never gets this tag).');
     expect(screen.getByTestId('lp-all-pools')).toHaveTextContent('a row with no tag is not a pool that passed');
+  });
+
+  it('a pool more than 3% from Jupiter’s price gets a red tag; one within gets none', async () => {
+    // $100 a SOL: BAYLA at 0.03 SOL is $3 (agrees), CORN at 0.01 SOL would be $1, and Jupiter says $0.95.
+    const marketPrices = vi.fn(async () => ({ [WSOL_MINT]: 100, [BAYLA_MINT]: 3, [C]: 0.95 }));
+    mount(readers({ marketPrices }));
+    const rows = await screen.findAllByTestId('lp-all-pools-row');
+    const tag = await within(rows[1]!).findByText('Price over 3% above Jupiter');
+    expect(tag).toHaveClass('text-rose-300');
+    expect(within(rows[0]!).queryAllByTestId('lp-all-pools-tag')).toHaveLength(0);
+    // One read for the whole list.
+    expect(marketPrices).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('lp-all-pools')).toHaveTextContent('Price over 3% above or below Jupiter: the pool’s price is that far from Jupiter’s market price');
+    // Prices turned round ("1 SOL = 100 CORN"): the gap is said that way round too, as the card says it.
+    fireEvent.click(within(rows[1]!).getByTestId('lp-price-flip'));
+    expect(within(rows[1]!).getByText('Price over 3% below Jupiter')).toBeInTheDocument();
+    expect(screen.queryByTestId('lp-all-pools-prices-unread')).toBeNull();
+  });
+
+  it('under a red tag: the arbitrage in dollars, the trade it takes, and who that trade’s fee pays', async () => {
+    // CORN dear here (0.01 SOL against Jupiter's 0.0095). Worked by hand: the token side goes to √(10e9·1e9·0.99/9.5)
+    // = 1,020.836 CORN, so 21.046 CORN goes in ($19.99), and 10 SOL − 10e18/1,020.836e6 = 0.20411 SOL ($20.41)
+    // comes back: $0.42 made. The 1% fee on $19.99: 84% to the LPs ($0.17), 16% to the venue ($0.03).
+    // BAYLA 2% off: past the 1% fee, so a trade would pay, but inside 3%, so its row stays quiet.
+    const marketPrices = vi.fn(async () => ({ [WSOL_MINT]: 100, [BAYLA_MINT]: 3 / 1.02, [C]: 0.95 }));
+    const listPools = (chainNow: bigint | null) => vi.fn(async () => ok([view(BAYLA, 30n * 10n ** 9n), view(CORN)], { chainNow }));
+    // The chain's clock not read: whether the pool trades now is unknown, so no figure (the red tag stays).
+    const { unmount } = mount(readers({ marketPrices, listPools: listPools(null) }));
+    await within((await screen.findAllByTestId('lp-all-pools-row'))[1]!).findByText('Price over 3% above Jupiter');
+    expect(screen.queryByTestId('lp-all-pools-arb')).toBeNull();
+    unmount();
+    mount(readers({ marketPrices, listPools: listPools(1_000n) }));
+    const rows = await screen.findAllByTestId('lp-all-pools-row');
+    const arb = await within(rows[1]!).findByTestId('lp-all-pools-arb');
+    expect(arb).toHaveTextContent('Arbitrage: about $0.42, from selling about $19.99 of the token here');
+    expect(arb).toHaveTextContent('That trade pays the pool’s fee: $0.17 to LPs, $0.03 to the venue');
+    expect(arb).not.toHaveTextContent('creator');
+    // A row within 3% says nothing about arbitrage.
+    expect(within(rows[0]!).queryAllByTestId('lp-all-pools-tag')).toHaveLength(0);
+    expect(within(rows[0]!).queryByTestId('lp-all-pools-arb')).toBeNull();
+    expect(screen.getByTestId('lp-all-pools')).toHaveTextContent('It comes out of the pool’s LPs');
+  });
+
+  it('Jupiter’s prices not read: the list says no row is marked, never that every price agrees', async () => {
+    mount(readers({ marketPrices: vi.fn(async () => { throw new Error('Price fetch failed (502)'); }) }));
+    expect(await screen.findByTestId('lp-all-pools-prices-unread')).toHaveTextContent('Jupiter’s prices could not be read just now, so no row is marked for a price gap.');
+    expect(screen.queryAllByTestId('lp-all-pools-tag')).toHaveLength(0);
   });
 
   it('a reader without listPools shows no list', () => {

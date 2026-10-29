@@ -4,13 +4,14 @@
 // browser reads and checks each one, and an index that did not answer is never "no pools".
 import { describe, it, expect } from 'vitest';
 import { Keypair, PublicKey } from '@solana/web3.js';
-import { LITTLE_MONEY_TEXT, QUIET_SECS, listPools, poolTags } from './poolList';
+import { LITTLE_MONEY_TEXT, PRICE_IDS_MAX, QUIET_SECS, arbitrage, listPools, marketGap, readMarketPrices, poolTags } from './poolList';
+import { quoteOwnPool } from '../cpswap/read';
 import { readPoolIndex } from './poolIndex';
 import { CLOCK, LAUNCH, PROGRAM, buildPool, clockAccount, fakeRpc, key, observationBytes, viewOf, type FakeAccount } from './testkit.fixture';
 import { BAYLA_QUOTE, USDC_QUOTE, type QuoteCoin } from './quotes';
 import { decodeObservationState } from './ownPrice';
 import type { PoolView } from './poolFinder';
-import { BAYLA_MINT } from './tokenSafety';
+import { BAYLA_MINT, USDC_MINT, WSOL_MINT } from './tokenSafety';
 import { metadataPda } from '../../launcher/solana/write/metaplex';
 
 /** A fetch for `/api/pools?all=1` answering `pools`; `calls` collects each URL asked. */
@@ -193,5 +194,154 @@ describe('poolTags: warnings on a row, from what the list already read', () => {
     // A record not read, or not usable, gives no tag, never "traded" and never "quiet".
     expect(texts(row({ history: { kind: 'unread', detail: 'its price record account is missing' } }))).toEqual([]);
     expect(texts(row({ history: { kind: 'not-read' } }))).toEqual([]);
+  });
+
+  it('a price gap is a red tag after the switches and before the quieter warnings, naming no figure', () => {
+    expect(poolTags(row({ status: 4, last: null }), NOW, 0.05)).toEqual([
+      { text: 'Trading off', tone: 'bad' },
+      { text: 'Price over 3% above Jupiter', tone: 'bad' },
+      { text: 'No trades yet', tone: 'warn' },
+    ]);
+    expect(poolTags(row(), NOW, -0.42)).toEqual([{ text: 'Price over 3% below Jupiter', tone: 'bad' }]);
+  });
+});
+
+describe('marketGap: a row’s price against Jupiter’s, by the card’s own 3% rule', () => {
+  // 50 SOL and 1,000 tokens: 0.05 SOL a token. At $200 a SOL that is $10 a token.
+  function row(o: { quote?: QuoteCoin; reserve?: bigint } = {}): PoolView {
+    const reserve = o.reserve ?? 50n * 10n ** 9n;
+    return viewOf(buildPool({ mint: key(), quote: o.quote, address: at(), quoteReserve: reserve, tokenReserve: 10n ** 9n }), { sol: reserve, tok: 10n ** 9n });
+  }
+  const usd = (v: PoolView, token: number, more: Record<string, number> = { [WSOL_MINT]: 200 }) => new Map(Object.entries({ ...more, [v.tokenMint]: token }));
+
+  it('more than 3% apart gives the gap, pool over market less one; 3% or under gives nothing', () => {
+    const v = row();
+    expect(marketGap(v, usd(v, 10))).toBeNull();
+    expect(marketGap(v, usd(v, 10 / 1.029))).toBeNull();
+    expect(marketGap(v, usd(v, 10 / 0.971))).toBeNull();
+    expect(marketGap(v, usd(v, 10 / 1.031))).toBeCloseTo(0.031, 9);
+    expect(marketGap(v, usd(v, 10 / 0.95))).toBeCloseTo(-0.05, 9);
+  });
+
+  it('a pool priced in USDC is held against the token’s price in USDC, not in SOL', () => {
+    const v = row({ quote: USDC_QUOTE, reserve: 50n * 10n ** 6n });
+    // 0.05 USDC a token. In SOL terms ($200) it would look 4,000x off.
+    expect(marketGap(v, usd(v, 0.05, { [WSOL_MINT]: 200, [USDC_MINT]: 1 }))).toBeNull();
+    expect(marketGap(v, usd(v, 0.04, { [WSOL_MINT]: 200, [USDC_MINT]: 1 }))).toBeCloseTo(0.25, 9);
+  });
+
+  it('no price for the token, its pairing coin, or the pool itself: no gap, never a pass', () => {
+    const v = row();
+    expect(marketGap(v, new Map([[WSOL_MINT, 200]]))).toBeNull();
+    expect(marketGap(v, new Map([[v.tokenMint, 1]]))).toBeNull();
+    const empty = row({ reserve: 0n });
+    expect(marketGap(empty, usd(empty, 1))).toBeNull();
+  });
+});
+
+describe('arbitrage: what one trade could take from a row’s gap, by the pool’s own maths', () => {
+  const NOW = 10_000_000n;
+  // 50 SOL and 1,000 tokens (6 decimals), the test tier's 1% fee with 16% of it the venue's. $200 a SOL.
+  function row(o: { status?: number; openTime?: bigint } = {}): PoolView {
+    const b = buildPool({ mint: key(), address: at(), quoteReserve: 50n * 10n ** 9n, tokenReserve: 10n ** 9n, status: o.status, openTime: o.openTime });
+    return viewOf(b, { sol: 50n * 10n ** 9n, tok: 10n ** 9n });
+  }
+  const usd = (v: PoolView, token: number) => new Map([[WSOL_MINT, 200], [v.tokenMint, token]]);
+  const SOL_UNIT = 200 / 1e9;
+  /** The USD made by putting `amountIn` of `inputMint` through the pool, priced at Jupiter's. */
+  function made(v: PoolView, inputMint: string, amountIn: bigint, tokenUsd: number): { usd: number; q: NonNullable<ReturnType<typeof quoteOwnPool>> } {
+    const q = quoteOwnPool(v.snapshot, v.config!, inputMint, amountIn, Number(NOW))!;
+    const tokUnit = tokenUsd / 1e6;
+    const buy = inputMint === WSOL_MINT;
+    return { usd: Number(q.outAmount) * (buy ? tokUnit : SOL_UNIT) - Number(amountIn) * (buy ? SOL_UNIT : tokUnit), q };
+  }
+
+  for (const [side, tokenUsd] of [['buy', 10 / 0.9], ['sell', 10 / 1.1]] as const) {
+    it(`token ${side === 'buy' ? 'cheap' : 'dear'} here: the trade ${side}s it, and is the size that makes the most`, () => {
+      const v = row();
+      const a = arbitrage(v, usd(v, tokenUsd), NOW)!;
+      expect(a.side).toBe(side);
+      const inputMint = side === 'buy' ? WSOL_MINT : v.tokenMint;
+      const inUnit = side === 'buy' ? SOL_UNIT : tokenUsd / 1e6;
+      const amountIn = BigInt(Math.round(a.tradeUsd / inUnit));
+      const best = made(v, inputMint, amountIn, tokenUsd);
+      expect(a.profitUsd).toBeCloseTo(best.usd, 9);
+      expect(a.profitUsd).toBeGreaterThan(0);
+      // Smaller or larger, the same trade makes less.
+      expect(made(v, inputMint, (amountIn * 8n) / 10n, tokenUsd).usd).toBeLessThan(a.profitUsd);
+      expect(made(v, inputMint, (amountIn * 12n) / 10n, tokenUsd).usd).toBeLessThan(a.profitUsd);
+      // Afterwards the pool's price sits the fee away from Jupiter's: the next bit no longer pays.
+      const { newInputVaultAmount: inAfter, newOutputVaultAmount: outAfter } = best.q.result;
+      const sol = side === 'buy' ? inAfter : outAfter;
+      const tok = side === 'buy' ? outAfter : inAfter;
+      const after = (Number(sol) / 1e9) / (Number(tok) / 1e6) / (tokenUsd / 200);
+      expect(after).toBeCloseTo(side === 'buy' ? 0.99 : 1 / 0.99, 3);
+      // The fee: 1% of the trade, 84% of it to the LPs and 16% to the venue; this pool charges no creator fee.
+      expect(a.lpFeeUsd + a.venueFeeUsd).toBeCloseTo(a.tradeUsd * 0.01, 4);
+      expect(a.venueFeeUsd).toBeCloseTo(a.tradeUsd * 0.0016, 4);
+      expect(a.creatorFeeUsd).toBe(0);
+    });
+  }
+
+  it('nothing to take: a gap inside the fee, a pool that cannot trade now, or anything not read', () => {
+    const v = row();
+    expect(arbitrage(v, usd(v, 10 / 0.995), NOW)).toBeNull();
+    expect(arbitrage(v, usd(v, 10 / 1.005), NOW)).toBeNull();
+    const off = row({ status: 4 });
+    expect(arbitrage(off, usd(off, 20), NOW)).toBeNull();
+    const later = row({ openTime: NOW + 1n });
+    expect(arbitrage(later, usd(later, 20), NOW)).toBeNull();
+    expect(arbitrage(v, usd(v, 20), null)).toBeNull();
+    expect(arbitrage({ ...v, config: null }, usd(v, 20), NOW)).toBeNull();
+    expect(arbitrage(v, new Map([[v.tokenMint, 20]]), NOW)).toBeNull();
+    expect(arbitrage(v, new Map([[WSOL_MINT, 200]]), NOW)).toBeNull();
+  });
+});
+
+describe('readMarketPrices: one Jupiter read for the whole list', () => {
+  const pool = (quote?: QuoteCoin) => viewOf(buildPool({ mint: key(), quote, address: at(), quoteReserve: 10n ** 9n, tokenReserve: 10n ** 9n }), { sol: 10n ** 9n, tok: 10n ** 9n });
+
+  it('asks once for every token and pairing coin, sorted, and keeps only usable prices of coins it asked for', async () => {
+    const pools = [pool(), pool(USDC_QUOTE), pool()];
+    const asked: string[][] = [];
+    const r = await readMarketPrices(pools, async (mints) => {
+      asked.push(mints);
+      return { [pools[0]!.tokenMint]: 2, [pools[1]!.tokenMint]: 0, [pools[2]!.tokenMint]: Number.NaN, [WSOL_MINT]: 200, [USDC_MINT]: 1, [BAYLA_MINT]: 5 };
+    });
+    expect(asked).toEqual([[...new Set([...pools.map((v) => v.tokenMint), WSOL_MINT, USDC_MINT])].sort()]);
+    expect(r).toEqual({ kind: 'ok', usd: new Map([[pools[0]!.tokenMint, 2], [WSOL_MINT, 200], [USDC_MINT, 1]]) });
+  });
+
+  it('more coins than one read takes: one read after another, never two at once', async () => {
+    const pools = Array.from({ length: PRICE_IDS_MAX }, () => pool());
+    const sizes: number[] = [];
+    let inFlight = 0;
+    let most = 0;
+    const r = await readMarketPrices(pools, async (mints) => {
+      most = Math.max(most, ++inFlight);
+      await new Promise((done) => setTimeout(done, 1));
+      inFlight--;
+      sizes.push(mints.length);
+      return Object.fromEntries(mints.map((m) => [m, 1]));
+    });
+    expect(sizes).toEqual([PRICE_IDS_MAX, 1]);
+    expect(most).toBe(1);
+    expect(r.kind === 'ok' && r.usd.size).toBe(PRICE_IDS_MAX + 1);
+  });
+
+  it('a read that fails, even the second of two, is unread: never a list where every price agrees', async () => {
+    expect(await readMarketPrices([pool()], async () => { throw new Error('Price fetch failed (502)'); })).toEqual({ kind: 'unread' });
+    const pools = Array.from({ length: PRICE_IDS_MAX }, () => pool());
+    let n = 0;
+    expect(await readMarketPrices(pools, async (mints) => {
+      if (++n === 2) throw new Error('Price fetch failed (429)');
+      return Object.fromEntries(mints.map((m) => [m, 1]));
+    })).toEqual({ kind: 'unread' });
+  });
+
+  it('no pools: nothing asked', async () => {
+    let calls = 0;
+    expect(await readMarketPrices([], async () => { calls++; return {}; })).toEqual({ kind: 'ok', usd: new Map() });
+    expect(calls).toBe(0);
   });
 });
