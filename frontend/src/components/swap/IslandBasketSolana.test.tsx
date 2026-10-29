@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { renderWithProviders } from '../../test-utils/render';
-import { SOL_BASKET, shortAmount, type SolBasketCoin } from '../../lib/islandBasket';
+import { SOL_BASKET, shortAmount } from '../../lib/islandBasket';
 import { SOLANA_PLATFORM_FEE_BPS, isSolanaFeeConfigured } from '../../lib/solana';
 
 const SOL = 'So11111111111111111111111111111111111111112';
@@ -23,20 +23,30 @@ const h = vi.hoisted(() => ({
   /** What the price read answers, and every call it got. */
   prices: {} as Record<string, number>,
   priceCalls: [] as unknown[][],
+  /** The price read fails this many more times. */
+  failPrices: 0,
+  /** The wallet's "sign several at once", or none (a wallet asked once per coin). */
+  signAll: null as null | ((txs: unknown[]) => Promise<unknown[]>),
+  signOne: vi.fn(async (t: unknown) => t),
+  sendSigned: vi.fn(),
+  submitOwn: vi.fn(),
+  prepareOwn: vi.fn(),
 }));
 const hold = () => { h.gate = new Promise<void>((r) => { h.release = r; }); };
 
+const buyer = vi.hoisted(() => ({ toBase58: () => 'Buyer111111111111111111111111111111111111111' }));
 vi.mock('@solana/wallet-adapter-react', () => ({
-  useConnection: () => ({ connection: { getBalance: async () => h.balance, getBlockHeight: async () => 100 } }),
-  useWallet: () => ({ publicKey: { toBase58: () => 'Buyer111111111111111111111111111111111111111' }, sendTransaction: h.send }),
+  useConnection: () => ({ connection: { getBalance: async () => h.balance, getBlockHeight: async () => 100, getLatestBlockhash: async () => ({ blockhash: 'FreshHash1111111111111111111111111111111111', lastValidBlockHeight: 250 }) } }),
+  useWallet: () => ({ publicKey: buyer, sendTransaction: h.send, signTransaction: h.signOne, ...(h.signAll ? { signAllTransactions: h.signAll } : {}) }),
 }));
 vi.mock('@solana/web3.js', async (orig) => {
   const real = await orig<typeof import('@solana/web3.js')>();
-  return { ...real, VersionedTransaction: { deserialize: () => ({}) } };
+  // A Jupiter coin's transaction: paid for by the buyer.
+  return { ...real, VersionedTransaction: { deserialize: () => ({ version: 0, message: { recentBlockhash: 'OldHash', staticAccountKeys: [{ equals: () => true }] }, serialize: () => new Uint8Array([1]) }) } };
 });
 vi.mock('../../lib/jupiter', async (orig) => ({
   ...(await orig<typeof import('../../lib/jupiter')>()),
-  getUsdPrices: async (...a: unknown[]) => { h.priceCalls.push(a); return h.prices; },
+  getUsdPrices: async (...a: unknown[]) => { h.priceCalls.push(a); if (h.failPrices > 0) { h.failPrices--; throw new Error('Price fetch failed (502)'); } return h.prices; },
   buildSwapTransaction: (...a: unknown[]) => h.build(...a),
   // Every coin quoted through the pool the list names; `failQuoteFor` refuses one coin's quote every time.
   getQuote: async (p: { outputMint: string }) => {
@@ -48,7 +58,13 @@ vi.mock('../../lib/jupiter', async (orig) => ({
     };
   },
 }));
-vi.mock('../../lib/solana/swap/islandBasketSol', async (orig) => ({ ...(await orig<typeof import('../../lib/solana/swap/islandBasketSol')>()), prepareSolLeg: h.prepare }));
+const sigs = vi.hoisted(() => ({ n: 0 }));
+vi.mock('../../lib/solana/swap/islandBasketSol', async (orig) => ({
+  ...(await orig<typeof import('../../lib/solana/swap/islandBasketSol')>()),
+  prepareSolLeg: h.prepare,
+  sendSigned: h.sendSigned,
+  signatureOf: () => `signed${++sigs.n}`,
+}));
 vi.mock('./useSolanaRoute', () => ({ readOwnPoolsFor: async () => { if (h.holdOwn) await h.gate; return h.own; } }));
 vi.mock('../../lib/solana/confirm', () => ({ pollConfirm: h.confirm }));
 vi.mock('../../lib/solana/blockhashWindow', () => ({ blockhashSeen: async () => null, recentBlockhashOf: () => null }));
@@ -60,12 +76,18 @@ import { IslandBasketSolana } from './IslandBasketSolana';
 import { JupiterBusyError } from '../../lib/solana/swap/jupiterBusy';
 
 const ready = { kind: 'ready', quote: { outAmount: '5000000' }, swapTransaction: 'AAAA', siteFeeWaived: false };
-const pending = () => ({ hold: vi.fn(), release: vi.fn(), holdsNow: vi.fn(() => false) });
-const mount = (o: { pending?: ReturnType<typeof pending> } = {}) => {
+const SOY = SOL_BASKET.find((c) => c.symbol === 'SOY')!;
+/** Our pool takes SOY: prepareSolLeg's answer, and the swap our pool's builder makes for it. */
+const ownSoy = { kind: 'own', pool: SOY.pool.address, aggregator: { kind: 'quoted', out: 5_000_000n, when: 'now' } };
+const ownTx = { recentBlockhash: 'OldHash', feePayer: buyer };
+const ownPrepared = { kind: 'venue-swap', tx: ownTx, blockhash: 'OldHash', lastValidBlockHeight: 120, summary: { kind: 'venue-swap', quoted: { outAmount: 6_000_000n } } };
+const pending = () => ({ hold: vi.fn(), release: vi.fn(), holdsNow: vi.fn(() => false), sent: vi.fn(), record: vi.fn() });
+const mount = (o: { pending?: ReturnType<typeof pending>; own?: boolean } = {}) => {
   const p = o.pending ?? pending();
-  const onOwnLeg = vi.fn<(coin: SolBasketCoin, lamports: bigint) => void>();
-  renderWithProviders(<IslandBasketSolana slippageBps={50} priority="high" pending={p} onOwnLeg={onOwnLeg} busy={false} quoteGapMs={0} />);
-  return { p, onOwnLeg };
+  const ownSwap = o.own === false ? null : ({ api: { prepareVenueSwap: h.prepareOwn, submitPrepared: h.submitOwn }, gate: { kind: 'open' } } as never);
+  const wantOwnSwap = vi.fn();
+  renderWithProviders(<IslandBasketSolana slippageBps={50} priority="high" pending={p} ownSwap={ownSwap} wantOwnSwap={wantOwnSwap} busy={false} quoteGapMs={0} />);
+  return { p, wantOwnSwap };
 };
 const openAndPrice = async () => {
   fireEvent.click(screen.getByTestId('island-basket-open'));
@@ -84,7 +106,18 @@ beforeEach(() => {
   h.gate = Promise.resolve();
   h.prices = { [SOL]: 100 };
   h.priceCalls = [];
+  h.failPrices = 0;
+  h.signAll = null;
+  sigs.n = 0;
+  ownTx.recentBlockhash = 'OldHash';
   h.prepare.mockResolvedValue(ready);
+  h.prepareOwn.mockResolvedValue({ ok: true, prepared: ownPrepared });
+  h.submitOwn.mockImplementation(async (_c: unknown, signer: { signTransaction: (t: unknown) => Promise<unknown> }, _p: unknown, d: { onSent: (s: string, h: number) => void }) => {
+    await signer.signTransaction(ownTx);
+    d.onSent('ownSig', 250);
+    return { status: 'confirmed', signature: 'ownSig', slot: 1 };
+  });
+  h.sendSigned.mockResolvedValue({ kind: 'sent', outcome: 'confirmed' });
   let n = 0;
   h.send.mockImplementation(async () => `sig${++n}`);
   h.confirm.mockResolvedValue({ outcome: 'confirmed', slot: 1 });
@@ -146,20 +179,119 @@ describe('IslandBasketSolana', () => {
     expect(h.send).not.toHaveBeenCalled();
   });
 
-  it('hands a coin our pool wins to the swap form’s review, with its share', async () => {
-    h.prepare.mockImplementation(async (_d: unknown, a: { coin: { symbol: string } }) => (a.coin.symbol === 'SOY' ? { kind: 'own' } : ready));
-    const { onOwnLeg } = mount();
+  it('buys a coin our pool wins in our pool, in the same order: nothing is handed to the swap form', async () => {
+    h.prepare.mockImplementation(async (_d: unknown, a: { coin: { symbol: string } }) => (a.coin.symbol === 'SOY' ? ownSoy : ready));
+    const { p, wantOwnSwap } = mount();
+    await openAndPrice();
+    // Opening the order asks the page for our pools' swap.
+    expect(wantOwnSwap).toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId('island-basket-buy'));
+    await waitFor(() => expect(screen.getAllByText('Bought')).toHaveLength(5), { timeout: 4000 });
+    expect(h.send).toHaveBeenCalledTimes(4);
+    // SOY's share, in the pool our pool's check chose, held to Jupiter's figure.
+    expect(h.prepareOwn).toHaveBeenCalledTimes(1);
+    const args = h.prepareOwn.mock.calls[0]![2];
+    expect(args.pool.toBase58()).toBe(SOY.pool.address);
+    expect(args.outputMint.toBase58()).toBe(SOY.mint);
+    // $10 at $100 a SOL = 0.1 SOL, split five ways.
+    expect(args.amountIn).toBe(20_000_000n);
+    expect(args.aggregator).toEqual(ownSoy.aggregator);
+    // The wallet signs it; its note is the swap's own, written before it is sent and settled after.
+    expect(h.signOne).toHaveBeenCalledWith(ownTx);
+    expect(p.sent).toHaveBeenCalledWith('ownSig', ownPrepared);
+    expect(p.record).toHaveBeenCalledWith(expect.objectContaining({ status: 'confirmed' }), ownPrepared, 'ownSig');
+    expect(within(status('soy')).getByText(/· Our pool$/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Review .* in our pool/ })).not.toBeInTheDocument();
+  });
+
+  it('a coin our pool wins goes through Jupiter when our pools’ swap cannot be used here', async () => {
+    // With our pools' swap unusable, the check sees no pool of ours at all.
+    h.prepare.mockImplementation(async (d: { ownPools: () => Promise<unknown[] | null> }, a: { coin: { symbol: string }; shownOwn: unknown[] | null }) =>
+      (a.coin.symbol === 'SOY' && (((await d.ownPools()) ?? []).length > 0 || (a.shownOwn ?? []).length > 0) ? ownSoy : ready));
+    h.own = [{ venue: 'own-pool', outAmount: 9_000_000n, label: 'venue pool', poolAddress: 'OwnPool111' }];
+    mount({ own: false });
+    await openAndPrice();
+    fireEvent.click(screen.getByTestId('island-basket-buy'));
+    await waitFor(() => expect(screen.getAllByText('Bought')).toHaveLength(5), { timeout: 4000 });
+    expect(h.send).toHaveBeenCalledTimes(5);
+    expect(h.prepareOwn).not.toHaveBeenCalled();
+    expect(within(status('soy')).getByText(/· PumpSwap via Jupiter$/)).toBeInTheDocument();
+  });
+
+  it('a wallet that signs several at once is asked ONCE for the whole order, every coin on one fresh blockhash', async () => {
+    const asked: unknown[][] = [];
+    h.signAll = async (txs) => { asked.push(txs); return txs; };
+    h.prepare.mockImplementation(async (_d: unknown, a: { coin: { symbol: string } }) => (a.coin.symbol === 'SOY' ? ownSoy : ready));
+    const { p } = mount();
+    await openAndPrice();
+    fireEvent.click(screen.getByTestId('island-basket-buy'));
+    await waitFor(() => expect(screen.getAllByText('Bought')).toHaveLength(5), { timeout: 4000 });
+    // Every coin is already signed once the wallet answers: there is no coin to stop after.
+    expect(screen.queryByText('Stop after this coin')).not.toBeInTheDocument();
+    expect(asked).toHaveLength(1);
+    expect(asked[0]).toHaveLength(5);
+    // Four Jupiter coins and our pool's SOY, in the order's order, all on the blockhash read just before the prompt.
+    expect(asked[0]![2]).toBe(ownTx);
+    expect(ownTx.recentBlockhash).toBe('FreshHash1111111111111111111111111111111111');
+    for (const k of [0, 1, 3, 4]) expect((asked[0]![k] as { message: { recentBlockhash: string } }).message.recentBlockhash).toBe('FreshHash1111111111111111111111111111111111');
+    // Nothing is sent by the wallet: our RPC sends each signed coin, its note written first.
+    expect(h.send).not.toHaveBeenCalled();
+    expect(h.sendSigned).toHaveBeenCalledTimes(4);
+    expect([...new Set(p.hold.mock.calls.map((c) => c[0].signature))].sort()).toEqual(['signed1', 'signed2', 'signed3', 'signed4']);
+    expect(p.release.mock.calls.map((c) => c[0]).sort()).toEqual(['signed1', 'signed2', 'signed3', 'signed4']);
+    // Our pool's coin goes through the write layer's own send, handed what the wallet signed, in the fresh blockhash's window.
+    expect(h.submitOwn).toHaveBeenCalledTimes(1);
+    expect(h.submitOwn.mock.calls[0]![2]).toMatchObject({ blockhash: 'FreshHash1111111111111111111111111111111111', lastValidBlockHeight: 250 });
+    expect(h.signOne).not.toHaveBeenCalled();
+  });
+
+  it('a cancel of the one approval sends nothing, and every coin stays buyable', async () => {
+    h.signAll = async () => { throw Object.assign(new Error('User rejected the request.'), { name: 'WalletSignTransactionError', code: 4001 }); };
+    mount();
+    await openAndPrice();
+    fireEvent.click(screen.getByTestId('island-basket-buy'));
+    await waitFor(() => expect(within(status('bayla')).getByText(/wallet/i)).toBeInTheDocument(), { timeout: 4000 });
+    await waitFor(() => expect(screen.getByTestId('island-basket-buy')).toHaveTextContent('Buy all 5'));
+    expect(h.sendSigned).not.toHaveBeenCalled();
+    expect(h.send).not.toHaveBeenCalled();
+    expect(screen.queryByText('Bought')).not.toBeInTheDocument();
+  });
+
+  it('with one approval, a coin the network turns away at its first send is not bought, and stays buyable; the rest are bought', async () => {
+    h.signAll = async (txs) => txs;
+    h.sendSigned.mockResolvedValueOnce({ kind: 'sent', outcome: 'confirmed' }).mockResolvedValueOnce({ kind: 'not-sent', why: 'It took too long to approve in your wallet, so it ran out of time. Nothing was sent for it.' });
+    const { p } = mount();
     await openAndPrice();
     fireEvent.click(screen.getByTestId('island-basket-buy'));
     await waitFor(() => expect(screen.getAllByText('Bought')).toHaveLength(4), { timeout: 4000 });
-    expect(h.send).toHaveBeenCalledTimes(4);
-    fireEvent.click(screen.getByRole('button', { name: 'Review SOY in our pool' }));
-    expect(onOwnLeg).toHaveBeenCalledTimes(1);
-    const [coin, lamports] = onOwnLeg.mock.calls[0]!;
-    expect(coin.symbol).toBe('SOY');
-    // $10 at $100 a SOL = 0.1 SOL, split five ways.
-    expect(lamports).toBe(20_000_000n);
+    expect(within(status('bobo')).getByText(/took too long to approve/)).toBeInTheDocument();
+    // Its note goes: it never reached the chain.
+    expect(p.release.mock.calls.map((c) => c[0])).toContain('signed2');
+    await waitFor(() => expect(screen.getByTestId('island-basket-buy')).toHaveTextContent('Buy the 1 left'));
   });
+
+  it('with one approval, the wallet is not asked while another swap from it is unconfirmed', async () => {
+    const asked = vi.fn(async (txs: unknown[]) => txs);
+    h.signAll = asked;
+    const p = pending();
+    p.holdsNow.mockReturnValue(true);
+    mount({ pending: p });
+    await openAndPrice();
+    fireEvent.click(screen.getByTestId('island-basket-buy'));
+    await waitFor(() => expect(screen.getByTestId('island-basket-notice')).toHaveTextContent(/not confirmed yet/), { timeout: 4000 });
+    expect(asked).not.toHaveBeenCalled();
+    expect(h.sendSigned).not.toHaveBeenCalled();
+  });
+
+  it('a SOL price that could not be read is asked again within seconds, and the order is sized as soon as it answers', async () => {
+    h.failPrices = 2;
+    mount();
+    fireEvent.click(screen.getByTestId('island-basket-open'));
+    await waitFor(() => expect(screen.getByTestId('island-basket-notice')).toHaveTextContent(/SOL’s price could not be read yet/));
+    // Asked again by itself, within seconds; the read after the failures answers.
+    await waitFor(() => expect(screen.getByTestId('island-basket-buy')).toHaveTextContent('Buy all 5'), { timeout: 9000 });
+    expect(h.priceCalls.length).toBeGreaterThanOrEqual(3);
+  }, 20_000);
 
   it('a build Jupiter refuses once is asked again: every coin is bought', async () => {
     let refused = 0;

@@ -32,11 +32,11 @@ const VENUE_LP_LINE: Record<LpWriteMode, (lpSection: 'above' | 'below') => strin
 };
 
 /**
- * The venue's real state, from the live read (useVenueStatus), on /pools and /solana-lp.
+ * The venue's real state, from the live read (useVenueStatus), on /pools.
  * Each branch names what is missing: "not deployed" and "one instruction has not run"
  * are different facts. `feeSheetBelow`: the live card points at the fee sheet read from
- * its config, which only /pools has, so /solana-lp passes false. `lpSection`: where the
- * pools section is from the live card; /solana-lp puts the card under it.
+ * its config; /pools has none, so it passes false. `lpSection`: where the
+ * pools section is from the live card; /pools puts the card under it.
  */
 export function VenueStatusCard({ status, onRefresh, lpMode, feeSheetBelow = true, lpSection = 'below', ref }: {
   /** The card's own section, whichever state it shows, for a page that scrolls to it. */

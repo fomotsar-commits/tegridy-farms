@@ -15,6 +15,7 @@ import { swapBaseInputIx } from '../../../solana/cpswap/ix';
 import { quoteOwnPool } from '../../../solana/cpswap/read';
 import { OWN_ROUTE_COPY } from '../../../solana/swap/ownPoolRoute';
 import type { RawAccount } from '../../../solana/lp/accounts';
+import { LAUNCH_TIER_POOL } from '../../../solana/lp/poolFinder';
 import { QUOTE_COINS_OR, readPair } from '../../../solana/lp/quotes';
 import { BUILDABLE_EXTENSIONS, decodeMintAccount, extensionPlain } from '../../../solana/lp/tokenSafety';
 import { MAX_OWN_PRIORITY_LAMPORTS } from './budget';
@@ -27,6 +28,7 @@ import { closeWsolIxs, openWsolIx, syncCredit, wrapIxs, wsolPlanFrom, type WsolP
 export const VENUE_SWAP_COPY = {
   notOurPair: `This site swaps in pools that pair a token with ${QUOTE_COINS_OR} only.`,
   poolUnread: 'We could not read the pool just now, so nothing was built. Try again in a moment.',
+  launchTier: `${LAUNCH_TIER_POOL} Nothing was built.`,
   notAToken: (why: string) => `This token cannot be swapped here: ${why}.`,
   tokenExtension: (what: string) =>
     `This token uses ${what}, so this site cannot work out exactly what a swap in this pool pays. Nothing was built.`,
@@ -109,6 +111,7 @@ export async function prepareVenueSwap(rpc: WriteRpc, gate: SwapOpenGate, a: Ven
   if (snap === POOL_READ_FAILED) return notSent('build', VENUE_SWAP_COPY.poolUnread);
   if (typeof snap === 'string') return notSent('build', snap);
   const { view } = snap;
+  if (view.launchTierWithoutLaunch) return notSent('build', VENUE_SWAP_COPY.launchTier);
   const p = view.snapshot.pool;
   const coinIs0 = view.quoteIsToken0;
   const tokenProgram = new PublicKey(coinIs0 ? p.token1Program : p.token0Program);

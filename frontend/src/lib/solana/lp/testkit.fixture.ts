@@ -340,6 +340,25 @@ export function observationBytes(o: { pool: PublicKey; initialized?: boolean; in
   return d;
 }
 
+/**
+ * The price record of a pool that traded steadily at one price: a slot every `step`
+ * seconds (default 60) from `first`, and one at `last`, last written then. `perBaseX32`:
+ * quote base units per token base unit, times 2^32. At most the ring's 100 slots.
+ */
+export function steadyRecord(o: { pool: PublicKey; quoteIsToken0: boolean; perBaseX32: bigint; first: bigint; last: bigint; step?: bigint; initialized?: boolean }): Uint8Array {
+  const Q32 = 1n << 32n;
+  const times: bigint[] = [];
+  for (let t = o.first; t < o.last; t += o.step ?? 60n) times.push(t);
+  times.push(o.last);
+  if (times.length > 100) throw new Error(`steadyRecord: ${times.length} slots, the ring holds 100`);
+  const obs = times.map((t, i): [number, bigint, bigint, bigint] => {
+    const own = o.perBaseX32 * (t - o.first);
+    const other = ((Q32 * Q32) / o.perBaseX32) * (t - o.first);
+    return o.quoteIsToken0 ? [i, t, other, own] : [i, t, own, other];
+  });
+  return observationBytes({ pool: o.pool, initialized: o.initialized, index: obs.length - 1, lastUpdate: o.last, obs });
+}
+
 /** A PoolView over a built pool, with the reserves it was built with. */
 export function viewOf(b: BuiltPool, s: { sol: bigint; tok: bigint; origin?: PoolView['origin']; frozen?: boolean; history?: PoolView['history']; config?: PoolView['config'] | 'decoded' }): PoolView {
   const pool = decodePoolState(b.address.toBase58(), b.accounts[b.address.toBase58()]!.data)!;
@@ -359,5 +378,7 @@ export function viewOf(b: BuiltPool, s: { sol: bigint; tok: bigint; origin?: Poo
     tokenReserve: s.tok,
     vaultsFrozen: s.frozen ?? false,
     history: s.history ?? { kind: 'not-read' },
+    // From the config's own bytes: a `plain` pool's addresses are random, and jsdom cannot derive.
+    launchTierWithoutLaunch: (s.origin ?? 'other') !== 'launch-pool' && decodeAmmConfig(b.config.toBase58(), b.accounts[b.config.toBase58()]!.data)?.index === 0,
   };
 }

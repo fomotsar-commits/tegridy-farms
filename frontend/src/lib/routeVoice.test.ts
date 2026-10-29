@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { routeVoice, isToweliRoomPage, isSolanaPage, hasMixedSolanaSection, TOWELI_ROOM_PATHS } from './routeVoice';
 import { BUNGALOWS } from './bungalows';
+import { NAV_SECTIONS } from './navConfig';
+import { tabChains } from './sectionChains';
 
 describe('routeVoice (wave seven, row Q)', () => {
   it('puts TOWELI protocol pages and TOWELI doors in the TOWELI room', () => {
@@ -33,11 +35,23 @@ describe('routeVoice (wave seven, row Q)', () => {
 
 describe("isSolanaPage: where the top bar's Connect connects Solana", () => {
   it("is true for the venue's Solana pages, with or without a trailing slash", () => {
-    // /solana-lp mounts the same Solana section as /pools: left out, the top bar
-    // mounted its own connection there and the page then took it away mid-approval.
-    for (const p of ['/solana', '/pools', '/pools/', '/solana-lp', '/solana-lp/', '/curve-launch', '/curve-launch/', '/curve-launch/So11111111111111111111111111111111111111112']) {
+    // /solana-lp forwards to /pools, its Solana section: left out, the top bar would mount its own
+    // connection for that one render, the case that once took a connection away mid-approval.
+    // /range-pools mounts its own (RangeSection's SolanaProviders) the same way.
+    for (const p of ['/solana', '/pools', '/pools/', '/solana-lp', '/solana-lp/', '/range-pools', '/range-pools/', '/curve-launch', '/curve-launch/', '/curve-launch/So11111111111111111111111111111111111111112']) {
       expect(isSolanaPage(p), p).toBe(true);
     }
+  });
+
+  // Computed from the nav, so a new Solana tab is covered the day it is listed: /range-pools
+  // was listed with no entry here, and the top bar would have mounted its own connection.
+  it('is true for every tab that runs on Solana alone', () => {
+    const solanaTabs = NAV_SECTIONS.flatMap((s) => s.items).map((i) => i.to).filter((to) => {
+      const c = tabChains(to);
+      return Array.isArray(c) && c.length === 1 && c[0] === 'solana';
+    });
+    expect(solanaTabs).toContain('/range-pools');
+    for (const to of solanaTabs) expect(isSolanaPage(to), to).toBe(true);
   });
 
   // Computed from the registry, so a new Solana pool is covered the day it is added.

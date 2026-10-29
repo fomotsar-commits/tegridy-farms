@@ -1,12 +1,26 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest';
-import { assessPool, assessPools, comparePrice, launchReference, poolPricePerToken, PRICE_TOLERANCE, FAR_FUTURE_SECS, TOO_NEW_WARNING, tokenReasons } from './poolHealth';
+import {
+  assessPool,
+  assessPools,
+  comparePrice,
+  launchReference,
+  poolPricePerToken,
+  PRICE_TOLERANCE,
+  FAR_FUTURE_SECS,
+  MAX_SILENCE_DIVISOR,
+  RESERVES_MOVED_WARNING,
+  TOO_NEW_WARNING,
+  TOO_QUIET_WARNING,
+  UNTRADED_RESERVES_TOLERANCE_BPS,
+  tokenReasons,
+} from './poolHealth';
 import { USDC_QUOTE } from './quotes';
-import { MIN_HISTORY_SECS, decodeObservationState } from './ownPrice';
+import { MIN_HISTORY_SECS, TRUSTED_HISTORY_SECS, decodeObservationState } from './ownPrice';
 import { POOL_STATUS_DISABLE_DEPOSIT, POOL_STATUS_DISABLE_SWAP, POOL_STATUS_DISABLE_WITHDRAW } from '../cpswap/program';
 import type { PoolView } from './poolFinder';
 import { TOKEN_2022_NATIVE_MINT, type SafetyReason, type TokenSafety } from './tokenSafety';
-import { buildPool, key, observationBytes, viewOf } from './testkit.fixture';
+import { buildPool, key, steadyRecord, viewOf } from './testkit.fixture';
 
 const mint = key();
 const OK_TOKEN: TokenSafety = { kind: 'read', mint: mint.toBase58(), verdict: 'ok', blocks: [], warnings: [], facts: null, name: null, symbol: null, metadataSource: 'none' };
@@ -220,20 +234,20 @@ describe('assessPool', () => {
 // F5: a launch pool usually has no outside price, and anyone can trade it after
 // graduation, so its price now is checked against its own half-hour average.
 describe('assessPool: a launch pool is checked against its own recent average', () => {
-  const b = buildPool({ mint, quoteReserve: SOL, tokenReserve: TOK, openTime: 100n });
-  const tokenIs0 = viewOf(b, { sol: SOL, tok: TOK }).quoteIsToken0 === false;
+  // The shares the pool program opens these reserves with: floor(sqrt(10 SOL x 1,000 tokens)).
+  const SHARES = 3_162_277_660n;
+  const b = buildPool({ mint, quoteReserve: SOL, tokenReserve: TOK, openTime: 100n, lpSupply: SHARES });
+  const quoteIsToken0 = viewOf(b, { sol: SOL, tok: TOK }).quoteIsToken0;
   const Q32 = 1n << 32n;
-  /** A record: one slot at t=1000, the latest at t=4600, the price before that `solPerBase` (SOL base units per token base unit). */
-  function history(solPerBaseX32: bigint, o: { firstAt?: bigint; initialized?: boolean } = {}): PoolView['history'] {
-    const first = o.firstAt ?? 1_000n;
-    const span = 4_600n - first;
-    const own = solPerBaseX32 * span;
-    const other = ((Q32 * Q32) / solPerBaseX32) * span;
-    const [c0, c1] = tokenIs0 ? [own, other] : [other, own];
-    const data = observationBytes({ pool: b.address, initialized: o.initialized, index: 1, lastUpdate: 4_600n, obs: [[0, first, 0n, 0n], [1, 4_600n, c0, c1]] });
+  /**
+   * A record at one price `solPerBase` (SOL base units per token base unit), from `firstAt`
+   * (1,000) to `lastAt` (4,600), a slot every `stepSecs` (60: a steadily traded pool).
+   */
+  function history(solPerBaseX32: bigint, o: { firstAt?: bigint; lastAt?: bigint; stepSecs?: bigint; initialized?: boolean } = {}): PoolView['history'] {
+    const data = steadyRecord({ pool: b.address, quoteIsToken0, perBaseX32: solPerBaseX32, first: o.firstAt ?? 1_000n, last: o.lastAt ?? 4_600n, step: o.stepSecs, initialized: o.initialized });
     return { kind: 'ok', obs: decodeObservationState(data)! };
   }
-  const launch = (h: PoolView['history']) => viewOf(b, { sol: SOL, tok: TOK, origin: 'launch-pool', history: h });
+  const launch = (h: PoolView['history'], r: { sol?: bigint; tok?: bigint } = {}) => viewOf(b, { sol: r.sol ?? SOL, tok: r.tok ?? TOK, origin: 'launch-pool', history: h });
   const now = { ...base, chainNow: 4_610n };
   // 10 SOL / 1,000 tokens = 10 SOL base units per token base unit.
 
@@ -253,7 +267,8 @@ describe('assessPool: a launch pool is checked against its own recent average', 
   // A launch pool with no route KEEPS its own-average check. A disagreement with it is a
   // warning now, like a disagreement with the market.
   it('a price pushed moments ago (double its half-hour average) is allowed with a warning that says it may have been pushed', () => {
-    const h = assessPool({ ...now, view: launch(history(5n * Q32)), outside: noOutside });
+    // An hour at 5 in one stretch: a gap is said before the record's silence is looked at.
+    const h = assessPool({ ...now, view: launch(history(5n * Q32, { stepSecs: 3_600n })), outside: noOutside });
     expect(h.price).toMatchObject({ state: 'disagrees', against: 'own-average' });
     expect(h.deposits).toEqual({
       verdict: 'allowed',
@@ -284,28 +299,138 @@ describe('assessPool: a launch pool is checked against its own recent average', 
 
   // Owner ruling 2026-10-07: a brand-new launch pool takes deposits. Its record was READ
   // and is too short for an average to prove anything, so its price was checked against
-  // nothing. That is an answer: a warning, never a refusal. It was `unchecked` before,
-  // which switched Add off on every launch pool for its first ten minutes of trading.
+  // nothing. That is an answer: a warning, never a refusal. Since M-1009-6 "too short" is
+  // under 24 minutes (TRUSTED_HISTORY_SECS), not 10: see the moved-price cases below.
   const TOO_NEW =
-    'This pool has traded for under 10 minutes and Jupiter has no price for this token, so its price was checked against nothing. If someone has just pushed it, a deposit now pays for that.';
+    'This pool has traded for under 24 minutes and Jupiter has no price for this token, so its price was checked against nothing. If someone has just pushed it, a deposit now pays for that.';
   /** A record whose first trade was 110 seconds before `now` (4,610). */
   const brandNew = () => launch(history(10n * Q32, { firstAt: 4_500n }));
 
-  it('no route and under 10 minutes of trading: allowed, as "too new", with the warning and the length of its record', () => {
+  it('no route and under 24 minutes of trading: allowed, as "too new", with the warning and the length of its record', () => {
     const h = assessPool({ ...now, view: brandNew(), outside: noOutside });
     expect(h.price).toEqual({ state: 'too-new', pool: expect.closeTo(0.01, 12), historySecs: 110n });
     expect(h.deposits).toEqual({ verdict: 'allowed', reasons: [], warnings: [TOO_NEW] });
     // The words: the builder's constant, with the minutes taken from the number itself.
     expect(TOO_NEW_WARNING).toBe(TOO_NEW);
-    expect(TOO_NEW).toContain(`under ${(MIN_HISTORY_SECS / 60n).toString()} minutes`);
+    expect(TOO_NEW).toContain(`under ${(TRUSTED_HISTORY_SECS / 60n).toString()} minutes`);
     // It is not said to have passed anything, and not said to be unread.
     expect(TOO_NEW).not.toMatch(/passes|could not/);
   });
 
-  it('one second short of 10 minutes is "too new"; exactly 10 minutes is checked against its own average', () => {
+  it('one second short of 24 minutes of steady trading is "too new"; exactly 24 minutes is checked against its own average', () => {
     const at = (age: bigint) => assessPool({ ...now, view: launch(history(10n * Q32, { firstAt: 4_610n - age })), outside: noOutside }).price;
-    expect(at(MIN_HISTORY_SECS - 1n)).toMatchObject({ state: 'too-new', historySecs: MIN_HISTORY_SECS - 1n });
-    expect(at(MIN_HISTORY_SECS)).toMatchObject({ state: 'agrees', against: 'own-average' });
+    expect(at(TRUSTED_HISTORY_SECS - 1n)).toMatchObject({ state: 'too-new', historySecs: TRUSTED_HISTORY_SECS - 1n });
+    expect(at(TRUSTED_HISTORY_SECS)).toMatchObject({ state: 'agrees', against: 'own-average' });
+    // From 10 minutes on, a price OFF that average still says how far off: the gap and its cost, not "too new".
+    expect(assessPool({ ...now, view: launch(history(5n * Q32, { firstAt: 4_610n - MIN_HISTORY_SECS })), outside: noOutside }).price).toMatchObject({ state: 'disagrees', against: 'own-average' });
+  });
+
+  // M-1009-6: the deposit check of closed #737, rebuilt to warn, never refuse. A launch
+  // pool's reserves are its vaults' live balances and only swaps write its record, so
+  // tokens or SOL sent STRAIGHT into a vault move its price with no mark, and one dust
+  // swap then writes the moved price across the whole quiet stretch. Each case below read
+  // as a clean pass before: allowed, nothing to warn of, and a reference for other pools.
+  describe('a price moved without a trade is warned of, and removing is untouched', () => {
+    const RESERVES_MOVED =
+      'Nobody has traded in this pool, yet it holds more than its shares account for, and Jupiter has no price for this token. Someone may have moved its price by sending tokens or SOL straight into it; if so, a deposit now pays for that.';
+    const TOO_QUIET =
+      'This pool has had long gaps between trades over the last half hour, and Jupiter has no price for this token, so its own average cannot show its price is honest. If someone moved it between trades, a deposit now pays for that.';
+    const never = history(10n * Q32, { initialized: false });
+    const warnedWith = (h: ReturnType<typeof assessPool>, state: string, warning: string) => {
+      expect(h.price.state).toBe(state);
+      expect(h.deposits).toEqual({ verdict: 'allowed', reasons: [], warnings: [warning] });
+      // Withdrawals read none of this, and such a pool is no reference for the token's other pools.
+      expect(h.withdrawals).toBe('open');
+      expect(launchReference(h.price)).toBeNull();
+    };
+
+    it('never traded, but topped up by a plain transfer into its token vault: warned, in its own words', () => {
+      warnedWith(assessPool({ ...now, view: launch(never, { tok: (TOK * 3n) / 2n }), outside: noOutside }), 'reserves-moved', RESERVES_MOVED);
+      expect(RESERVES_MOVED_WARNING).toBe(RESERVES_MOVED);
+    });
+
+    it('never traded, wrapped SOL sent into its SOL vault: warned the same way', () => {
+      warnedWith(assessPool({ ...now, view: launch(never, { sol: SOL * 2n }), outside: noOutside }), 'reserves-moved', RESERVES_MOVED);
+    });
+
+    it('a deposit or a withdrawal before the first trade moves both sides and the shares together: nothing to warn of, and rounding dust passes', () => {
+      const doubled = viewOf(buildPool({ mint, quoteReserve: SOL * 2n, tokenReserve: TOK * 2n, openTime: 100n, lpSupply: SHARES * 2n }), { sol: SOL * 2n, tok: TOK * 2n, origin: 'launch-pool', history: never });
+      expect(assessPool({ ...now, view: doubled, outside: noOutside }).deposits).toEqual({ verdict: 'allowed', reasons: [], warnings: [] });
+      // The tolerance is 10 bps of side0 x side1: one base unit passes, a 0.2% top-up does not.
+      expect(UNTRADED_RESERVES_TOLERANCE_BPS).toBe(10n);
+      expect(assessPool({ ...now, view: launch(never, { tok: TOK + 1n }), outside: noOutside }).price.state).toBe('no-trades-yet');
+      expect(assessPool({ ...now, view: launch(never, { tok: TOK + TOK / 500n }), outside: noOutside }).price.state).toBe('reserves-moved');
+    });
+
+    it('two sides below what its shares account for, a state the pool program never makes: unread and unchecked, never fine', () => {
+      const h = assessPool({ ...now, view: launch(never, { tok: TOK / 2n }), outside: noOutside });
+      expect(h.price.state).toBe('unread');
+      expect(h.deposits.verdict).toBe('unchecked');
+      expect(h.deposits.reasons.join(' ')).toMatch(/below what its shares account for/);
+      expect(h.deposits.warnings).toEqual([]);
+    });
+
+    it('a transfer, then one dust swap: the whole quiet hour is written at the moved price, so its average "agrees": warned', () => {
+      // Two slots an hour apart, both at 5 (the moved price), and the pool at 5.
+      const h = assessPool({ ...now, view: launch(history(5n * Q32, { stepSecs: 3_600n }), { tok: TOK * 2n }), outside: noOutside });
+      warnedWith(h, 'too-quiet', TOO_QUIET);
+      // It really is within 3% of that average: only the silence gives it away.
+      expect(Math.abs((h.price as { diff: number }).diff)).toBeLessThan(PRICE_TOLERANCE);
+      expect(TOO_QUIET_WARNING).toBe(TOO_QUIET);
+    });
+
+    it('a quiet record (steady trading, then an hour with none): its "average" is the price now compared with itself: warned', () => {
+      const later = { ...base, chainNow: 8_200n };
+      // The honest pool and the same pool with tokens sent in during the quiet hour read alike: silence is evidence of nothing.
+      warnedWith(assessPool({ ...later, view: launch(history(10n * Q32)), outside: noOutside }), 'too-quiet', TOO_QUIET);
+      warnedWith(assessPool({ ...later, view: launch(history(10n * Q32), { tok: TOK * 2n }), outside: noOutside }), 'too-quiet', TOO_QUIET);
+    });
+
+    it('the longest stretch with no recorded swap may be a sixth of the window and not a second more; a silence in the middle counts too', () => {
+      expect(MAX_SILENCE_DIVISOR).toBe(6n);
+      // Last swap at 4,600. At 4,900 the window is 1,800 s, of which 300 are silent.
+      expect(assessPool({ ...base, chainNow: 4_900n, view: launch(history(10n * Q32)), outside: noOutside }).price.state).toBe('agrees');
+      expect(assessPool({ ...base, chainNow: 4_901n, view: launch(history(10n * Q32)), outside: noOutside }).price.state).toBe('too-quiet');
+      expect(assessPool({ ...now, view: launch(history(10n * Q32, { stepSecs: 400n })), outside: noOutside }).price.state).toBe('too-quiet');
+    });
+
+    it('a transfer, then a dust swap every 100 s: a record written wholly at the moved price is "too new" until it is 24 minutes long', () => {
+      // The record starts at the first swap, so every second of it is at the moved price (5), with no long silence.
+      const pushed = (last: bigint) => launch(history(5n * Q32, { firstAt: 10_000n, lastAt: last, stepSecs: 100n }), { tok: TOK * 2n });
+      const h = assessPool({ ...base, chainNow: 10_601n, view: pushed(10_600n), outside: noOutside });
+      expect(h.price).toMatchObject({ state: 'too-new', historySecs: 601n });
+      expect(h.deposits).toEqual({ verdict: 'allowed', reasons: [], warnings: [TOO_NEW] });
+      expect(launchReference(h.price)).toBeNull();
+      const at = (t: bigint) => assessPool({ ...base, chainNow: t, view: pushed(t - 1n), outside: noOutside }).price.state;
+      expect(at(10_000n + TRUSTED_HISTORY_SECS - 1n)).toBe('too-new');
+      expect(at(10_000n + TRUSTED_HISTORY_SECS)).toBe('agrees');
+    });
+
+    it('the limit that remains: a moved price held through a full half hour of open trading IS the pool’s price', () => {
+      // Nothing on chain tells this from a pool that simply trades at 5. What the rule buys
+      // is time: the moved price must survive half an hour of anyone trading against it.
+      const held = launch(history(5n * Q32, { firstAt: 10_000n, lastAt: 11_800n, stepSecs: 100n }), { tok: TOK * 2n });
+      expect(assessPool({ ...base, chainNow: 11_801n, view: held, outside: noOutside }).deposits).toEqual({ verdict: 'allowed', reasons: [], warnings: [] });
+    });
+
+    it('a pool trading every block holds under half an hour of record (100 slots, 15 s apart), and passes', () => {
+      expect(TRUSTED_HISTORY_SECS).toBeLessThanOrEqual(99n * 15n);
+      const busy = launch(history(10n * Q32, { firstAt: 10_000n, lastAt: 11_485n, stepSecs: 15n }));
+      expect(assessPool({ ...base, chainNow: 11_486n, view: busy, outside: noOutside }).price).toMatchObject({ state: 'agrees', against: 'own-average' });
+    });
+
+    it('an outside price still decides on its own: none of this applies when Jupiter prices the token', () => {
+      const h = assessPool({ ...now, view: launch(history(10n * Q32, { stepSecs: 3_600n }), { tok: (TOK * 101n) / 100n }), outside: outside(0.0099) });
+      expect(h.price).toMatchObject({ state: 'agrees', against: 'outside' });
+      expect(h.deposits).toEqual({ verdict: 'allowed', reasons: [], warnings: [] });
+    });
+
+    it('a stranger’s pool beside a launch pool whose price moved without a trade has no reference: "no market", as with no launch pool', () => {
+      for (const moved of [launch(never, { tok: TOK * 2n }), launch(history(5n * Q32, { stepSecs: 3_600n }), { tok: TOK * 2n })]) {
+        const launchPrice = assessPool({ ...now, view: moved, outside: noOutside }).price;
+        expect(assessPool({ ...now, view: view(), outside: noOutside, launchPrice }).price.state).toBe('no-market');
+      }
+    });
   });
 
   it('"too new" lifts nothing else: withdrawals off or a frozen vault still refuse it, unread fee settings still leave it unchecked, and the warning is still said', () => {
