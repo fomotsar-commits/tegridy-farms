@@ -1,4 +1,4 @@
-import { useEffect, useState, type Ref } from 'react';
+import type { Ref } from 'react';
 import type { PoolView } from '../../../lib/solana/lp/poolFinder';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { LITTLE_MONEY_TEXT, poolTags, type PoolListRead } from '../../../lib/solana/lp/poolList';
@@ -10,6 +10,7 @@ import { Card, Notice } from '../curve/ui';
 import { CardArt } from '../../ui/CardArt';
 import { FinePrint } from '../../ui/FinePrint';
 import type { LpReaders } from './readers';
+import { usePoolList } from './usePoolList';
 import { PriceFlip } from './PriceFlip';
 import { BUNGALOWS } from '../../../lib/bungalows';
 import { useActiveBungalowId } from '../../../hooks/useActiveBungalowId';
@@ -180,25 +181,4 @@ function PoolRow({
       </div>
     </li>
   );
-}
-
-/**
- * The list, read on mount and again whenever `reloadKey` moves (a liquidity flow
- * finished). A re-read keeps the last answer on screen until the new one arrives; null
- * only before the first answer.
- */
-function usePoolList(readers: LpReaders, reloadKey: number): PoolListRead | null {
-  const [read, setRead] = useState<PoolListRead | null>(null);
-  useEffect(() => {
-    if (!readers.listPools) return;
-    let live = true;
-    readers.listPools().then(
-      (r) => live && setRead(r),
-      (e: unknown) => live && setRead({ kind: 'unread', detail: e instanceof Error ? e.message : String(e) }),
-    );
-    return () => {
-      live = false;
-    };
-  }, [readers, reloadKey]);
-  return read;
 }

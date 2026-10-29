@@ -15,7 +15,6 @@ vi.mock('wagmi', () => ({
   useSwitchChain: () => ({ switchChain: vi.fn() }),
 }));
 vi.mock('./LiquidityPage', () => ({ default: () => <div>add-remove panel</div> }));
-vi.mock('./SolanaLpPage', () => ({ default: () => <div>solana-lp panel</div> }));
 vi.mock('./PoolsPage', () => ({ default: () => <div>venue-amm panel</div> }));
 vi.mock('../components/zap/ZapPage', () => ({ default: () => <div>zap panel</div> }));
 // The real Range page; only its section, which reads the chain, is a stub.
@@ -24,24 +23,31 @@ vi.mock('../components/solana/range/RangeSection', () => ({ default: () => <div>
 const APP = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'App.tsx'), 'utf-8');
 
 describe('PoolsHostPage', () => {
-  it('routes every Pools tab, /solana-lp included, to this host in App.tsx', () => {
+  it('routes every Pools tab to this host in App.tsx', () => {
     const tabs = POOLS_SECTION.items.map((i) => i.to);
-    expect(tabs).toContain('/solana-lp');
+    expect(tabs).not.toContain('/solana-lp');
     for (const to of tabs) {
       const route = new RegExp(`<Route path="${to.slice(1)}" element=\\{<Suspense fallback=\\{<\\w+ />\\}><PoolsHostPage />`);
       expect(APP, `${to} does not render PoolsHostPage`).toMatch(route);
     }
   });
 
-  it('opens /solana-lp?mint= on the Solana LP tab and its panel', async () => {
+  // Owner, 2026-10-24: "remove solana lp keep venue amm". A room door, a bookmark or a wallet
+  // card that still says /solana-lp?mint=&task=&pool= opens the same LP section on /pools.
+  it('forwards an old /solana-lp link to /pools, its query and hash kept', () => {
+    expect(APP).toContain('<Route path="solana-lp" element={<SolanaLpRedirect />} />');
+    expect(APP).toContain('function SolanaLpRedirect() {\n  const { search, hash } = useLocation();\n  return <Navigate to={`/pools${search}${hash}`} replace />;\n}');
+  });
+
+  it('opens /pools?mint= on the Venue AMM tab and its panel', async () => {
     render(
-      <MemoryRouter initialEntries={['/solana-lp?mint=So11111111111111111111111111111111111111112']}>
+      <MemoryRouter initialEntries={['/pools?mint=So11111111111111111111111111111111111111112']}>
         <PoolsHostPage />
       </MemoryRouter>,
     );
-    expect(screen.getByRole('tab', { name: 'Solana LP' })).toHaveAttribute('aria-selected', 'true');
-    expect(await screen.findByText('solana-lp panel')).toBeInTheDocument();
-    expect(screen.queryByText('venue-amm panel')).toBeNull();
+    expect(screen.getByRole('tab', { name: 'Venue AMM' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.queryByRole('tab', { name: 'Solana LP' })).toBeNull();
+    expect(await screen.findByText('venue-amm panel')).toBeInTheDocument();
   });
 
   it('opens /range-pools on the Range tab, with the range pools themselves, never the not-open line', { timeout: 20_000 }, async () => {

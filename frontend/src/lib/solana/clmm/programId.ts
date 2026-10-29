@@ -9,8 +9,10 @@ export const RANGE_PROGRAM_ADDRESS: string = '7ghzbbmq59QEbdweSzM1ggpeBH1Q2CyxZg
 
 /**
  * Whether visitors see range pools: the Range tab, its route, and range pools in the swap
- * route. The owner's switch, on once the fee tiers exist on chain (vault proposal #19, checked
- * by the deploy pack's 6-verify-tiers); programId.test.ts and the route table's row change with it.
+ * route. The owner's switch, on before the fee tier exists (owner, 2026-10-25: "show the Range
+ * tab on the live site now, even before the fee tiers are on chain"): until the vault makes it,
+ * the page says there is no fee tier yet and the swap finds no range pool. programId.test.ts and
+ * the route table's row change with it.
  */
 export const RANGE_POOLS_OPEN: boolean = true;
 

@@ -15,6 +15,111 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-27: a zeroed address constant is not "never deployed", and six files hold a contract besides its tests
+
+**Believed:** a contract whose `*_ADDRESS` is zeroed in `frontend/src/lib/constants.ts` was never
+deployed, and deleting it is its source plus its tests and deploy scripts.
+
+**Measured** (the dead-EVM-contract removal: 21 contracts, 92 files): five of the zeroed ones are on
+mainnet, verified 2026-07-16 and gated off: GaugeController
+`0x6c79522D47Cf6d1051Cb474E81d9b6f3996c1054`, VoteIncentives
+`0x6e1dCB7EBD16E09edb574F414aDc664B2A5E21AF` and its admin
+`0xf87Ec231BA7FA3975619309bc16C698B2ea3B300`, CommunityGrants
+`0xeBC3aaf48297b8ccFa8272D9E68c1545eb9CD471` and MemeBountyBoard
+`0x6D2C6EC29D97fe8b6D1471091DEEE36baf69d890`. `eth_getBalance` and TOWELI `balanceOf` read 0 on
+all five. The zero constant means "the site does not show it"; `addresses.json`'s `status` field
+and `docs/CONTRACTS.md` are where "deployed" lives.
+
+Deleting a contract pulled on, in order found: `scripts/check-interface-selectors.mjs` (every
+`*_ABI` export in `contracts.ts` must resolve to an artifact, so a retired ABI needs its own named
+list), `.github/contracts-test-slices.json` (a brace alternative matching zero files fails the slice
+guard), `NOTICE.md`'s SPDX count and GPL list, `frontend/src/lib/whetstonePetitionTruth.test.ts` (a
+Doc-guards test that reads three `contracts/src/v4` files at import, which is why the four V4
+graduation-stack contracts stayed), and two airdrop tests that opened campaigns through the factory.
+`forge build` finds none of these.
+
+**Do:** before deleting a contract, grep its name across `scripts/`, `.github/`, `NOTICE.md` and
+`frontend/src/**/*.test.ts`, and read the registry row's `status`, never the constant.
+
+## 2026-10-25: the LP door's "one jump" to its form was three scroll moves
+
+**Believed** (island, answer twenty-two, and the 2026-10-16 entry below): the door moves the
+page once, when the Add panel mounts and scrolls its heading into view, about 1,650px.
+
+**Measured** (e2e/door-lands.spec.ts on a trunk `1ca85025` production build, 390x844, Bayla room
+to Add SOL + BAYLA, `scrollY` read every animation frame): 0, then 796 (the finder scrolls to its
+answer when the lookup starts), back to 0, then 1,654 (the panel). With no wallet connected it
+went on to 5,642 and settled at 5,245; I did not trace those two.
+
+**Do:** a check of one `scrollIntoView` call misses the others. Read `scrollY` on every frame
+from the landing on a production build, and assert the whole list. A form opened by code goes
+where the visitor already is (the door draws it at the top through a portal) instead of
+scrolling the page to it.
+
+## 2026-10-24: a pool on fee tier 0 read as a cheaper public pool, but only a graduation may open one there
+
+**Believed:** the pool finder, the swap route and the builders may treat every pool of ours
+alike, whatever its fee tier: tier 0 (0.25%) is just the cheaper tier.
+
+**Measured** (vitest, 2026-10-24, on trunk 2ae979945 before the fix): with a free pool on
+tier 0 beside a tier-1 pool, the swap route quoted both, and the router picks the free one
+when reserves match (a lower fee pays more); the venue-swap and deposit builders built
+transactions into it. A test, "prices each pool with the fee of the tier it is on", pinned the
+router choosing it as correct. The write testkit's default pool sat on tier 0 at the standard
+address: every builder test's "ordinary pool" was the case the owner now refuses. 14 new
+tests failed on trunk; 16 of 16 mutants of the guards were killed.
+
+**Do:** judge a pool's tier with its address. Tier 0 is the launch tier: the one pool on it
+the site uses is `["launchpool", mint]` under the launch program (`PoolView.launchTierWithoutLaunch`,
+poolFinder.ts). The write testkit's default pool is on tier 1 now. In jsdom a fixture cannot
+derive program addresses, so a flag a fixture works out reads the config's own bytes.
+
+## 2026-10-24: a test pool's round share count looked neutral, but no pool program ever makes one
+
+**Believed:** the LP testkits' default `lp_supply` (1,000,000 in `buildPool`, 1,000,000,000 in
+`addPool`) and a "traded" price record of two slots an hour apart are harmless placeholders.
+
+**Measured** (vitest, 2026-10-24, the launch-pool moved-price check of M-1009-6 on trunk's
+fixtures): 44 of 4,845 Solana tests failed. Apart from 11 timeouts in files the change does not
+reach, and pins of the "10 minutes" copy that changed on purpose, they failed on fixtures only:
+- a never-traded launch pool whose `lp_supply` is not `isqrt(side0 x side1)` holds more than
+  its shares account for, which on chain means tokens were sent straight into a vault;
+- two slots an hour apart is one swap, an hour of silence, one swap: the shape of a price
+  moved by a transfer and written over by a dust swap.
+
+**Do:** build a launch pool with the shares the program opens it with (`isqrt(quote x token)`;
+`addPool({ launch: true })` now defaults to that) and a traded pool's record with
+`steadyRecord` (lp `testkit.fixture.ts`). A fixture is a claim about the chain: make it one
+the chain can produce.
+
+### Incidental
+
+The first mutation run left one mutant alive: a guard that re-read the price record could
+never see "not read", because the average had read the same record and clock a line earlier.
+A branch no test can reach is code no one has checked. It was deleted, not tested.
+
+## 2026-10-24: a `.max(200)` on a zod array did not stop a huge body, because zod below 4.6.6 parsed every element first
+
+**Believed:** `z.array(row).max(200)` refuses an oversized batch before it costs anything, so
+the cap in `frontend/api/_lib/proxy-schemas.js` kept a stranger's giant body from running the
+write proxy out of memory.
+
+**Measured** (vitest, 2026-10-24: `validateBody` on 201 rows whose `wallet` is a counting
+getter): zod 4.4.3 read the getter 201 times, then reported the cap. zod 4.6.6 read it 0
+times. Both returned the same error. The change is zod commit a0ebf970, "check array, set and
+map size bounds before parsing elements", the fix for GHSA-mrhx-c7xc-m3w5. Before it, every bad
+element added an issue before the cap was looked at.
+
+**Do:** to prove a size cap protects, count reads of the elements (a getter or a Proxy), not
+only that the call fails. A cap checked after the elements limits what is stored, not what is
+spent.
+
+### Incidental
+
+npm audit called the fix "semver-major" and named `@base-org/account` 2.5.5, which still
+depends on the same cdp-sdk and its zod 3. The fix for the copy our code imports was a minor
+bump, 4.4.3 to 4.6.6. Read which copy each `nodes` path is before trusting the fix column.
+
 ## 2026-10-24: `git reset --soft origin/mvp-launch` to squash a branch reverts whatever trunk gained since the branch was cut
 
 **Believed:** squashing an unpushed branch with `git reset --soft origin/mvp-launch` and one

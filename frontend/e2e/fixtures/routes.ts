@@ -412,13 +412,23 @@ export const ROUTES: readonly RouteSpec[] = [
   },
   {
     path: '/solana-lp',
+    voice: null,
+    owner: 'App.tsx',
+    gate: 'redirect',
+    why:
+      'The Solana LP tab until 2026-10-24 (owner: "remove solana lp keep venue amm"): it mounted the same ' +
+      'LP section as /pools, so a room door, a bookmark or a wallet card that still says /solana-lp lands there, query kept.',
+    redirectsTo: '/pools',
+    knownViolations: [],
+  },
+  {
+    path: '/cardano',
     voice: 'venue',
-    owner: 'pages/SolanaLpPage.tsx',
-    tabOf: 'PoolsHostPage · solana-lp',
+    owner: 'pages/CardanoSwapPage.tsx',
     gate: null,
     why:
-      'The LP section mounts only once the venue read returns live, which in this suite depends on the ' +
-      'preview proxy reaching Solana; with no answer it audits the hero, the status card and the program card alone.',
+      'Opened 2026-10-24 (CARDANO_SWAP_OPEN, lib/cardano/flags.ts). The form audits with no wallet ' +
+      'connected; quotes need the /api/cardano chain reads, so it renders without live prices in this suite.',
     knownViolations: [],
   },
   {
