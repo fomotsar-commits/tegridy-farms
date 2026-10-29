@@ -5,7 +5,8 @@ import { associatedTokenAddress } from '../../../lib/launcher/solana/curve/ix';
 import { formatTokenAmount } from '../../../lib/launcher/solana/curve/format';
 import { displaySafe } from '../../../lib/launchMetadata/validate';
 import { swapEnabled } from '../../../lib/solana/cpswap/program';
-import { feeReserveFor, isPlanProblem, planWithdraw, type PlanProblem, type WithdrawPlan } from '../../../lib/solana/lp/liquidityMath';
+import { feeReserveFor, isPlanProblem, planWithdraw, poolFeesOf, type PlanProblem, type WithdrawPlan } from '../../../lib/solana/lp/liquidityMath';
+import { feeNow, feeRateText } from '../../../lib/solana/lp/transferFee';
 import type { PoolView } from '../../../lib/solana/lp/poolFinder';
 import { formatWhen } from '../../../lib/solana/lp/poolHealth';
 import type { Position } from '../../../lib/solana/lp/positions';
@@ -107,15 +108,22 @@ function RemoveInner({
   useFlowReports(writes, flow.state.step, flow.locked, reread);
 
   const held = position.lpAmount;
+  // The token's transfer fee, taken off its payout. With a change pending the page uses
+  // the larger of the two settings; the review says exactly (transferFee.ts `feeNow`).
+  const tokenFee = feeNow(safety?.kind === 'read' ? safety.facts?.transferFee : null, null);
   const result = useMemo(
-    () => (typeof pct === 'bigint' ? planWithdraw(view.snapshot, { held, pctBps: pct, bps: slippageBps ?? DEFAULT_SLIPPAGE_BPS }) : null),
-    [pct, view, held, slippageBps],
+    () =>
+      typeof pct === 'bigint'
+        ? planWithdraw(view.snapshot, { held, pctBps: pct, bps: slippageBps ?? DEFAULT_SLIPPAGE_BPS, fees: poolFeesOf(view.quoteIsToken0, tokenFee) })
+        : null,
+    [pct, view, held, slippageBps, tokenFee],
   );
   const plan: WithdrawPlan | null = result && !isPlanProblem(result) ? result : null;
   const problem: PlanProblem | null = result && isPlanProblem(result) ? result : null;
   // The coin's side of a plan, in the coin's own base units, and the token's.
   const coinOut = (pl: WithdrawPlan) => ({ out: view.quoteIsToken0 ? pl.out0 : pl.out1, min: view.quoteIsToken0 ? pl.min0 : pl.min1 });
-  const tokOut = (pl: WithdrawPlan) => ({ out: view.quoteIsToken0 ? pl.out1 : pl.out0, min: view.quoteIsToken0 ? pl.min1 : pl.min0 });
+  // `fee`: what the token's transfer fee keeps of its payout; `out` is already after it.
+  const tokOut = (pl: WithdrawPlan) => ({ out: view.quoteIsToken0 ? pl.out1 : pl.out0, min: view.quoteIsToken0 ? pl.min1 : pl.min0, fee: view.quoteIsToken0 ? pl.fee1 : pl.fee0 });
   const shares = (v: bigint) => unitsExact(v, pool.lpMintDecimals);
   const tok = (v: bigint) => tokensAbout(v, decimals);
 
@@ -308,6 +316,13 @@ function RemoveInner({
               <Row label="You give back" value={`${shares(plan.lp)} pool shares (${sharePercent(plan.lp, held) ?? sharePct(plan.lp, held)} of yours)`} mono={false} />
               <Row label="You get about" value={`${coinAbout(coinOut(plan).out, coin)} and ${tok(tokOut(plan).out)}`} mono={false} />
               <Row label="You get at least" value={`${coinExact(coinOut(plan).min, coin)} and ${unitsExact(tokOut(plan).min, decimals)} tokens`} mono={false} />
+              {tokenFee && (
+                <Row
+                  label="The token’s own transfer fee"
+                  value={`about ${tok(tokOut(plan).fee)} more (${feeRateText(tokenFee)}), kept by the token for its fee collector; the amounts above are after it`}
+                  mono={false}
+                />
+              )}
               <Row label="You keep" value={plan.keep > 0n ? `${shares(plan.keep)} pool shares` : 'none in this pool'} mono={false} />
               {coin.native ? (
                 <Row label="The SOL arrives" value={solArrives} mono={false} />
