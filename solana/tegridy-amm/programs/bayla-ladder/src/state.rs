@@ -133,8 +133,10 @@ pub struct Position {
     pub nonce: u32,
     /// Principal, in raw base units — what ARRIVED.
     pub amount: u64,
-    /// `amount x boost / BPS`, frozen at stake time.
+    /// `amount x boost / BPS`, frozen at stake time. `extend_lock` (added 2026-10-29) is
+    /// the one later writer: it re-prices from its own `now` and never lowers it.
     pub weight: u128,
+    /// Only ever moved LATER, and only by `extend_lock` while the lock still runs.
     pub lock_end: i64,
     /// Synthetix `userRewardPerTokenPaid`.
     pub reward_per_weight_paid: u128,
@@ -206,6 +208,18 @@ pub struct Withdrawn {
     pub penalty: u64,
     /// true = the reward-vault-free hatch; false = a normal exit.
     pub emergency: bool,
+}
+
+#[event]
+pub struct LockExtended {
+    pub pool: Pubkey,
+    pub owner: Pubkey,
+    pub nonce: u32,
+    /// The new lock, counted from this instruction's clock.
+    pub lock_secs: i64,
+    pub lock_end: i64,
+    pub previous_weight: u128,
+    pub weight: u128,
 }
 
 #[event]

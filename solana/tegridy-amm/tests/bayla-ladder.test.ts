@@ -25,6 +25,11 @@
  * penalty-free exit — remains unexecuted. It needs a `solana-program-test` harness with
  * a manipulable clock, which is the obvious next piece of work.
  *
+ * The same wall stands in front of two `extend_lock` refusals: `LockExpired` (an ended
+ * lock) and `BoostWouldDrop` (a long position extended late onto a shorter rung) both
+ * need time to pass. Both are proven on the host instead, in `math.rs`'s
+ * `extended_lock` tests, against the one function the instruction calls.
+ *
  * ## Why the IDL is loaded at runtime
  *
  * Same reason as the tegridy-launch suite: `../target/types/...` only exists after
@@ -993,6 +998,145 @@ describe("bayla-ladder", () => {
     });
   });
 
+  // ──────────────────────────────── extend_lock ────────────────────────────────
+
+  describe("extend_lock", () => {
+    const YEAR = 365 * 86_400;
+    const PRECISION = new BN(10).pow(new BN(12));
+    let ctx: Awaited<ReturnType<typeof makePool>>;
+    let erin: Keypair;
+    let erinAta: PublicKey;
+
+    before(async () => {
+      ctx = await makePool({ nonce: 70 });
+      erin = await newWallet();
+      erinAta = await distribute(ctx.mint, ctx.userAta, erin, tok(100_000));
+      await program.methods
+        .stake(tok(10_000), new BN(YEAR))
+        .accounts({
+          owner: erin.publicKey,
+          pool: ctx.pool,
+          mint: ctx.mint,
+          userStats: userPda(ctx.pool, erin.publicKey),
+          position: positionPda(ctx.pool, erin.publicKey, 0),
+          ownerAta: erinAta,
+          stakeVault: vaultPda(STAKE_VAULT_SEED, ctx.pool),
+          tokenProgram: ctx.programId,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([erin])
+        .rpc();
+      // A live window, so "settle at the old weight first" has something to settle.
+      await program.methods
+        .notifyReward(tok(90_000), new BN(0))
+        .accounts({
+          authority: payer.publicKey,
+          pool: ctx.pool,
+          mint: ctx.mint,
+          funderAta: ctx.userAta,
+          rewardVault: vaultPda(REWARD_VAULT_SEED, ctx.pool),
+          tokenProgram: ctx.programId,
+        })
+        .rpc();
+    });
+
+    const extend = (signer: Keypair, lock: number) =>
+      program.methods
+        .extendLock(new BN(lock))
+        .accounts({
+          owner: signer.publicKey,
+          pool: ctx.pool,
+          position: positionPda(ctx.pool, erin.publicKey, 0),
+        })
+        .signers([signer]);
+
+    it("REFUSES a stranger: only the position's owner may lengthen it", async () =>
+      rejectsWith(
+        extend(await newWallet(), MAX_LOCK).rpc(),
+        "ConstraintSeeds",
+        "anyone could otherwise lock someone else's principal for four more years"
+      ));
+
+    it("REFUSES a lock longer than four years", async () =>
+      rejectsWith(extend(erin, MAX_LOCK + 1).rpc(), "LockTooLong", ""));
+
+    it("REFUSES a lock shorter than seven days", async () =>
+      rejectsWith(extend(erin, MIN_LOCK - 1).rpc(), "LockTooShort", ""));
+
+    it("REFUSES a lock that ends no later than the current one", async () =>
+      rejectsWith(extend(erin, 30 * 86_400).rpc(), "LockNotExtended", "a shorter lock is no extension"));
+
+    it("POSITIVE CONTROL: a 1-year position moves to 4 years, settled at its OLD weight first", async () => {
+      const position = positionPda(ctx.pool, erin.publicKey, 0);
+      const before = await program.account.position.fetch(position);
+      const poolBefore = await program.account.pool.fetch(ctx.pool);
+      const svBefore = await bal(vaultPda(STAKE_VAULT_SEED, ctx.pool));
+      const rvBefore = await bal(vaultPda(REWARD_VAULT_SEED, ctx.pool));
+      // At least one chain second inside the window, so there is accrual to settle.
+      const t0 = poolBefore.lastUpdateTime.toNumber();
+      for (let i = 0; i < 40 && (await chainNow(conn)) <= t0; i++) {
+        await new Promise((r) => setTimeout(r, 500));
+      }
+      const lo = await chainNow(conn);
+      assert.isAbove(lo, t0, "the chain clock never advanced");
+
+      await extend(erin, MAX_LOCK).rpc();
+
+      const hi = await chainNow(conn);
+      const after = await program.account.position.fetch(position);
+      const poolAfter = await program.account.pool.fetch(ctx.pool);
+
+      // Priced from now: exactly the weight a fresh four-year stake gets, x4.00.
+      assert.equal(after.weight.toString(), tok(40_000).toString());
+      assert.isAtLeast(after.lockEnd.toNumber(), lo + MAX_LOCK, "the new lock is counted from now");
+      assert.isAtMost(after.lockEnd.toNumber(), hi + MAX_LOCK);
+      assert.equal(
+        poolAfter.totalWeighted.toString(),
+        poolBefore.totalWeighted.sub(before.weight).add(after.weight).toString(),
+        "the divisor moves by exactly the difference"
+      );
+      // Settled at the OLD weight: the time served at x1.29 is banked at x1.29, not x4.00.
+      const owed = before.weight
+        .mul(poolAfter.rewardPerWeightStored.sub(before.rewardPerWeightPaid))
+        .div(PRECISION)
+        .add(before.rewardsOwed);
+      assert.isTrue(owed.gt(new BN(0)), "precondition: there was accrual to settle");
+      assert.equal(after.rewardsOwed.toString(), owed.toString(), "settled at the OLD weight");
+      assert.equal(after.rewardPerWeightPaid.toString(), poolAfter.rewardPerWeightStored.toString());
+      // What it must not touch: principal, and both vaults (it is handed neither).
+      assert.equal(after.amount.toString(), before.amount.toString());
+      assert.equal(poolAfter.totalPrincipal.toString(), poolBefore.totalPrincipal.toString());
+      assert.equal((await bal(vaultPda(STAKE_VAULT_SEED, ctx.pool))).toString(), svBefore.toString());
+      assert.equal((await bal(vaultPda(REWARD_VAULT_SEED, ctx.pool))).toString(), rvBefore.toString());
+    });
+
+    it("REFUSES going back down: one year is no extension of a four-year lock", async () =>
+      rejectsWith(extend(erin, YEAR).rpc(), "LockNotExtended", ""));
+
+    it("the longer lock prices the early exit: leaving now takes the 75% cap", async () => {
+      const before = await bal(erinAta);
+      await program.methods
+        .earlyExit()
+        .accounts({
+          owner: erin.publicKey,
+          pool: ctx.pool,
+          mint: ctx.mint,
+          userStats: userPda(ctx.pool, erin.publicKey),
+          position: positionPda(ctx.pool, erin.publicKey, 0),
+          ownerAta: erinAta,
+          stakeVault: vaultPda(STAKE_VAULT_SEED, ctx.pool),
+          rewardVault: vaultPda(REWARD_VAULT_SEED, ctx.pool),
+          tokenProgram: ctx.programId,
+        })
+        .signers([erin])
+        .rpc();
+      // Principal back = 25% of 10,000; rewards come on top, so the floor is 2,500.
+      const got = (await bal(erinAta)).sub(before);
+      assert.isTrue(got.gte(tok(2_500)), `got ${got.toString()}`);
+      assert.isTrue(got.lt(tok(2_600)), "a four-year lock left at once must not pay the one-year rate");
+    });
+  });
+
   // ──────────────────────────── the admin surface ────────────────────────────
 
   describe("admin", () => {
@@ -1120,10 +1264,28 @@ describe("bayla-ladder", () => {
         .signers([dave])
         .rpc();
 
+      const extendDave = (lock: number) =>
+        program.methods
+          .extendLock(new BN(lock))
+          .accounts({
+            owner: dave.publicKey,
+            pool: ctx2.pool,
+            position: positionPda(ctx2.pool, dave.publicKey, 0),
+          })
+          .signers([dave]);
+      // POSITIVE CONTROL for the extend refusal below: same position, same scaffolding.
+      await extendDave(30 * 86_400).rpc();
+
       await program.methods
         .declareDegraded()
         .accounts({ authority: payer.publicKey, pool: ctx2.pool })
         .rpc();
+
+      await rejectsWith(
+        extendDave(MAX_LOCK).rpc(),
+        "PoolDegraded",
+        "both early doors are free now, so a 4.00x extension would be reward for no commitment"
+      );
 
       await rejectsWith(
         program.methods
