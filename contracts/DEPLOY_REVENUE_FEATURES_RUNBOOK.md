@@ -67,8 +67,9 @@ treasury, now fixed.
   (currently `0x0`): `TEGRIDY_LAUNCHPAD_V2_ADDRESS` (L67), `TEGRIDY_NFT_POOL_FACTORY_ADDRESS`
   (L50), `TEGRIDY_NFT_LENDING_ADDRESS` (L54), `TEGRIDY_LENDING_ADDRESS` (L47),
   `PREMIUM_ACCESS_ADDRESS` (L42). Each auto-un-gates via `isDeployed()`.
-- ⚠️ **Vercel function cap:** un-gating NFT-lending/launchpad may add API routes. Hobby caps
-  at 12; main is at 9 (3 headroom). Watch the function count when wiring frontend endpoints.
+- **Vercel functions:** un-gating NFT-lending/launchpad may add API routes. The Hobby
+  12-function cap is gone (Vercel Pro since 2026-09-04); a new route goes on the list in
+  `frontend/api/SERVERLESS_BUDGET.md` in the same PR.
 
 ## 4. Operator decisions to make BEFORE deploy
 

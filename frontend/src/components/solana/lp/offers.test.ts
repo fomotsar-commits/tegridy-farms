@@ -284,7 +284,7 @@ describe('createOffer', () => {
   type Entry = PoolSearch['pools'][number];
   const searchOf = (pools: Entry[], index: PoolSearch['index'] = { kind: 'ok', pools: [], truncated: false }): PoolSearchRead => ({
     kind: 'ok',
-    search: { mint: mint.toBase58(), known: { launchPool: key().toBase58(), standard: [] }, index, pools, otherPairs: 0, knownState: {}, chainNow: NOW },
+    search: { mint: mint.toBase58(), known: { launchPool: key().toBase58(), standard: [] }, index, pools, otherPairs: 0, launchTierPools: [], knownState: {}, chainNow: NOW },
   });
   type In = Parameters<typeof createOffer>[0];
   const base = (): In => ({
@@ -676,12 +676,15 @@ describe('createOffer', () => {
         expect([depositWarned(health(sol.view)), depositWarned(undefined)]).toEqual([false, false]);
         // Owner rulings 2026-10-07: two more prices that were compared with nothing are price
         // warnings too. A pool priced in a coin Jupiter has no price for (`no-market` of the
-        // coin), and a launch pool with no route and under 10 minutes of trading (`too-new`).
+        // coin), and a launch pool with no route and too short a record (`too-new`). So are
+        // the two of M-1009-6: a launch pool whose price may have moved without a trade.
         // An Add wish that names no pool passes each over while another pool offers adding.
         const withPrice = (price: PoolHealth['price']): PoolHealth => ({ ...health(sol.view), price });
         expect(priceWarned(withPrice({ state: 'no-market', of: 'coin', pool: 2, detail: 'Jupiter has no route for USDC' }))).toBe(true);
         expect(priceWarned(withPrice({ state: 'no-market', of: 'token', pool: 2, detail: 'Jupiter has no route for this token' }))).toBe(true);
         expect(priceWarned(withPrice({ state: 'too-new', pool: 0.01, historySecs: 120n }))).toBe(true);
+        expect(priceWarned(withPrice({ state: 'reserves-moved', pool: 0.01 }))).toBe(true);
+        expect(priceWarned(withPrice({ state: 'too-quiet', pool: 0.01, reference: 0.01, diff: 0 }))).toBe(true);
         // What is not a price warning stays not one: a price that agrees, a launch pool
         // nobody has traded, and a price that could not be read (that pool offers nothing).
         expect(priceWarned(withPrice({ state: 'no-trades-yet', pool: 0.01 }))).toBe(false);
@@ -708,7 +711,7 @@ describe('createOffer', () => {
         };
         const withState = (knownState: PoolSearch['knownState']): PoolSearchRead => ({
           kind: 'ok',
-          search: { mint: mint.toBase58(), known, index: { kind: 'ok', pools: [], truncated: false }, pools: [], otherPairs: 0, knownState, chainNow: NOW },
+          search: { mint: mint.toBase58(), known, index: { kind: 'ok', pools: [], truncated: false }, pools: [], otherPairs: 0, launchTierPools: [], knownState, chainNow: NOW },
         });
         const states = (s: PoolSearchRead) => [SOL_QUOTE, USDC_QUOTE, BAYLA_QUOTE].map((q) => standardState(s, q));
 

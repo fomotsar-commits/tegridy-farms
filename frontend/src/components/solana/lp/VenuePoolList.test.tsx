@@ -36,6 +36,7 @@ function search(mint: string, views: PoolView[]): PoolSearchRead {
       index: { kind: 'ok', pools: views.map((v) => v.address), truncated: false },
       pools: views.map((v) => ({ kind: 'pool' as const, view: v })),
       otherPairs: 0,
+      launchTierPools: [],
       knownState: {},
       chainNow: 1_000n,
     },
@@ -66,7 +67,7 @@ function readers(o: Partial<LpReaders> = {}): LpReaders {
 }
 
 function mount(r: LpReaders) {
-  return render(<MemoryRouter initialEntries={['/solana-lp']}><LpInner readers={r} writes={{ mode: 'off' }} /></MemoryRouter>);
+  return render(<MemoryRouter initialEntries={['/pools']}><LpInner readers={r} writes={{ mode: 'off' }} /></MemoryRouter>);
 }
 
 beforeEach(() => { wallet.publicKey = null; });

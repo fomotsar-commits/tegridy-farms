@@ -29,6 +29,13 @@ import type { Connection } from '@solana/web3.js';
 
 export type ConfirmOutcome = { outcome: 'confirmed' | 'reverted' | 'unknown'; slot: number | null };
 
+// Solana confirms a transaction in about a second, so the first 10 s are read every
+// second and the rest of the wait every 2 s: an answer is seen a second sooner, at
+// about five reads more a transaction than one every 2 s.
+const QUICK_BEAT_MS = 1_000;
+const QUICK_FOR_MS = 10_000;
+const BEAT_MS = 2_000;
+
 /**
  * Poll `signature` until it is confirmed (or finalized), reverted, or the clock runs out.
  *
@@ -59,6 +66,6 @@ export async function pollConfirm(
       return { outcome: 'confirmed', slot };
     }
     if (now() - start >= timeoutMs) return { outcome: 'unknown', slot: null };
-    await sleep(2_000);
+    await sleep(now() - start < QUICK_FOR_MS ? QUICK_BEAT_MS : BEAT_MS);
   }
 }

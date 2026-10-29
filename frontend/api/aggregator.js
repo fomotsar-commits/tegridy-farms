@@ -194,9 +194,17 @@ const CONFIGS = {
     // coins' USD prices, one fixed list) is shared the same way, so the order opens with
     // every coin's figure while all its visitors together spend about one call a half
     // minute of the plan's one request a second (developers.jup.ag, free key, 2026-10-23).
+    // The swap page's price read for its pair carries the marker too, except in USD mode,
+    // where the price sizes the trade and is read fresh.
+    // Two reads are the same for every visitor whoever asks, so they are shared with no
+    // marker: the trending lists (5 minutes) and Shield's warnings for a set of mints
+    // (1 minute: a new warning reaches every visitor within a minute and a half). Opening
+    // the swap page asked Jupiter for both, per visitor, out of that one request a second.
     edgeCache: (segments, query) => {
-      if (query.priceCheck !== "1") return null;
       const path = segments.join("/");
+      if (/^tokens\/v2\/(toptrending|toptraded|toporganicscore)\/(5m|1h|6h|24h)$/.test(path)) return "s-maxage=300, stale-while-revalidate=60";
+      if (path === "ultra/v1/shield") return "s-maxage=60, stale-while-revalidate=30";
+      if (query.priceCheck !== "1") return null;
       const shareable = (path === "swap/v1/quote" && query.platformFeeBps == null) || path === "price/v3";
       return shareable ? "s-maxage=30, stale-while-revalidate=15" : null;
     },

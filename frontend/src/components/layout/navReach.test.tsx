@@ -54,6 +54,9 @@ const URL_ONLY: Record<string, string> = {
   '/art-studio': 'a dev studio',
   '/bayla-studio': 'a studio',
   '/door-studio': 'a studio',
+  // Owner, 2026-10-24: the Nakamigos marketplace left the home, the nav and the venue's
+  // metadata (a drainer-profile surface on the venue's domain); the route stays.
+  '/nakamigos': "the Nakamigos marketplace: off the nav since 2026-10-24; the bungalow rooms' Marketplace door still opens it",
 };
 
 /** Where a visitor can start: the four words, the drawer and the footer's own links. */

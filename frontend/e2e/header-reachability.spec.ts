@@ -58,11 +58,9 @@ import { test, expect } from './fixtures/wallet';
  * band (640-790), the new boundary (799/800), the iPad-gen-7 project width that
  * constrains how high the breakpoint may go (810), and true desktop.
  */
-// 360 leads the list deliberately: it is a very common Android width, it was
-// NOT in the original sweep, and the row was silently 7px over there the whole
-// time - found only when a font change forced a re-measure. A sweep is only as
-// honest as its narrowest entry.
-const WIDTHS = [360, 375, 414, 639, 640, 694, 767, 768, 799, 800, 810, 1024, 1440];
+// 320 leads the list: the narrowest phone width in use (iPhone SE 1st gen, small
+// Androids, a split screen). A sweep is only as honest as its narrowest entry.
+const WIDTHS = [320, 360, 375, 414, 639, 640, 694, 767, 768, 799, 800, 810, 1024, 1440];
 
 test.describe('header stays reachable at every width', () => {
   // PIN THE VENUE'S SETTLED STATE. `/` is wrapped in <BungalowDoor id={VENUE_ID}>,
@@ -132,6 +130,12 @@ test.describe('header stays reachable at every width', () => {
           `${width}px: Connect is off-canvas at x=${Math.round(box.x)}..${Math.round(box.x + box.width)} ` +
           `(viewport is 0..${width}) — and the header is position:fixed, so it cannot be scrolled to`,
         );
+      }
+
+      // The menu button sits last in the row, so it is the first thing an overflow pushes out.
+      const menu = await page.getByRole('banner').getByRole('button', { name: 'Open navigation menu' }).boundingBox();
+      if (!menu || menu.x < 0 || menu.x + menu.width > width) {
+        failures.push(`${width}px: the menu button is off-canvas at ${menu ? `x=${Math.round(menu.x)}..${Math.round(menu.x + menu.width)}` : 'no box'} (viewport is 0..${width})`);
       }
 
       /* getByRole('banner'), NOT locator('header'). YieldCalculator renders a
