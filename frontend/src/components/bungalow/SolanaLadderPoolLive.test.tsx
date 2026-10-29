@@ -97,6 +97,7 @@ const writes = vi.hoisted(() => ({
   exit: vi.fn(async () => ({ ok: true as const, signature: 'SIG' })),
   hatch: vi.fn(async () => ({ ok: true as const, signature: 'SIG' })),
   carried: vi.fn(async () => ({ ok: true as const, signature: 'SIG' })),
+  extend: vi.fn(async () => ({ ok: true as const, signature: 'SIG' })),
 }));
 vi.mock('../../lib/ladder/write', () => ({
   ladderStake: writes.stake,
@@ -104,9 +105,11 @@ vi.mock('../../lib/ladder/write', () => ({
   ladderExit: writes.exit,
   ladderHatch: writes.hatch,
   ladderClaimCarried: writes.carried,
+  ladderExtendLock: writes.extend,
 }));
 
 const { SolanaLadderPoolLive, SolanaLadderPoolCard } = await import('./SolanaLadderPoolLive');
+const { weightForStake } = await import('../../lib/ladder/program');
 
 /* ─────────────────────────── fixtures ─────────────────────────── */
 
@@ -242,6 +245,53 @@ describe('the emergency hatch is priced, never assumed', () => {
     btn.click();
     expect(writes.hatch).not.toHaveBeenCalled();      // armed, not fired
     expect(await screen.findByText('Confirm')).toBeTruthy();
+  });
+});
+
+/* ────────── extending a lock (2026-10-29) ────────── */
+
+describe('extend lock', () => {
+  // A one-year position, 28 days in: the holders who asked for this.
+  const oneYear = () => position({
+    lockEnd: BigInt(NOW + 337 * DAY),
+    weight: weightForStake(500_000_000n, 365 * DAY),
+  });
+
+  it('offers ONLY the rungs that raise the boost: 2y and 4y for a one-year position', async () => {
+    reads.wallet = { ok: true, value: walletView({ open: [oneYear()] }) };
+    draw();
+    const box = await screen.findByTestId('ladder-extend');
+    const offered = within(box).getAllByRole('button').map((b) => b.textContent);
+    expect(offered).toEqual(['2y · 2.19×', '4y · 4.00×']);
+  });
+
+  it('shows the new end, the new boost and the 75% early-exit cost BEFORE it sends', async () => {
+    reads.wallet = { ok: true, value: walletView({ open: [oneYear()] }) };
+    draw();
+    const box = await screen.findByTestId('ladder-extend');
+    fireEvent.click(within(box).getByText('4y · 4.00×'));
+    expect(writes.extend).not.toHaveBeenCalled();     // armed, not fired
+    const note = await within(box).findByRole('note');
+    expect(note.textContent).toMatch(/at 4\.00× \(now 1\.29×\)/);
+    expect(note.textContent).toMatch(/would cost 75% of\s+this BAYLA/);
+    fireEvent.click(within(box).getByText('Confirm'));
+    await waitFor(() => expect(writes.extend).toHaveBeenCalledTimes(1));
+    expect(writes.extend).toHaveBeenCalledWith(expect.anything(), { positionNonce: 0, lockSecs: 4 * 365 * DAY });
+  });
+
+  it('is not offered where the program would refuse it or it gains nothing', async () => {
+    for (const [what, pool, pos] of [
+      ['a four-year position (already at the top)', poolView(), position()],
+      ['a matured position', poolView(), position({ lockEnd: BigInt(NOW - 1), weight: weightForStake(500_000_000n, 365 * DAY) })],
+      ['a degraded pool', poolView({ degraded: true }), oneYear()],
+    ] as const) {
+      reads.pool = { ok: true, value: pool };
+      reads.wallet = { ok: true, value: walletView({ open: [pos] }) };
+      const { unmount } = draw();
+      await screen.findByText(/Emergency withdraw/);
+      expect(screen.queryByTestId('ladder-extend'), what).toBeNull();
+      unmount();
+    }
   });
 });
 

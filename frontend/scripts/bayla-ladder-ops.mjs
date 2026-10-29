@@ -161,6 +161,16 @@ const LADDER_BUILDS = Object.freeze([
     len: 517_920,
     windowSecs: 4 * 365 * 86_400,
   }),
+  // 0f127114 plus extend_lock, built 2026-10-29 with the same toolchain, which rebuilt the
+  // wallet-cap branch (3bd52f2fc) as 0f127114 byte for byte first. 14,424 bytes longer than
+  // 0f127114: the program data account needs a larger enlarge than that pack's 10,240 bytes.
+  // Same window: a reload sizes the same.
+  Object.freeze({
+    name: 'the four-year window with raise_wallet_cap and extend_lock (1b91609c)',
+    sha256: '1b91609c5f565013d1da33cdd639e158e1e497510ef0f6c9d45dbcc4a7e384ef',
+    len: 532_344,
+    windowSecs: 4 * 365 * 86_400,
+  }),
 ]);
 /**
  * math.rs's penalty schedule constants, mirrored exactly (the test reads the first two back
@@ -234,6 +244,7 @@ const LADDER_ERRORS = Object.freeze({
   6022: 'WeightInvariant', 6023: 'NothingToSweep', 6024: 'RewardRateTooSmall',
   6025: 'MintHasMintAuthority', 6026: 'PoolDegraded', 6027: 'WalletCapExceeded',
   6028: 'RewardRateWouldDecrease',
+  6029: 'LockExpired', 6030: 'LockNotExtended', 6031: 'BoostWouldDrop',
 });
 const errName = (code) => `${LADDER_ERRORS[code]} (${code})`;
 

@@ -17,7 +17,7 @@ import {
   associatedTokenAddress, poolPda, positionPda, userStatsPda,
   stakeVaultPda, rewardVaultPda, MIN_LOCK_SECS,
 } from './program';
-import { stakeIx, claimIx, exitIx, emergencyWithdrawIx, claimCarriedIx } from './ix';
+import { stakeIx, claimIx, exitIx, emergencyWithdrawIx, claimCarriedIx, extendLockIx } from './ix';
 
 const PROGRAM = new PublicKey('HzxzfSQzJ9WQKe6xBoP5AgHFP8a84CgLB8dovdtDrtMK');
 const MINT = new PublicKey('8opsYTPSp2AckjmAc2vx49kohs8CFtNcyR2sNURfrfoL');
@@ -89,6 +89,25 @@ describe('claim', () => {
     expect(order(ix)).not.toContain('stakeVault');
   });
   it('takes no args', () => expect(b(ix.data)).toEqual(b(IX_DISCRIMINATOR.claim)));
+});
+
+describe('extend lock', () => {
+  const ix = extendLockIx({ programId: PROGRAM, owner: OWNER, pool: POOL, positionNonce: 0, lockSecs: 4 * 365 * 86_400 });
+  it('names ONLY the owner, the pool and the position, in the IDL order', () => {
+    expect(order(ix)).toEqual(['owner', 'pool', 'position0']);
+  });
+  it('the owner SIGNS but is not writable; it names no vault, mint or token program', () => {
+    expect(shape(ix)).toEqual(['S', 'W', 'W']);
+  });
+  it('encodes the lock as i64 LE after the extend_lock discriminator', () => {
+    expect(b(ix.data.subarray(0, 8))).toEqual(b(IX_DISCRIMINATOR.extendLock));
+    expect(ix.data.length).toBe(8 + 8);
+    expect(ix.data.readBigInt64LE(8)).toBe(BigInt(4 * 365 * 86_400));
+  });
+  it('addresses the position the NONCE names, not always #0', () => {
+    const other = extendLockIx({ programId: PROGRAM, owner: OWNER, pool: POOL, positionNonce: 2, lockSecs: MIN_LOCK_SECS });
+    expect(other.keys[2]!.pubkey.toBase58()).toBe(positionPda(PROGRAM, POOL, OWNER, 2).toBase58());
+  });
 });
 
 describe('the two normal exit doors', () => {

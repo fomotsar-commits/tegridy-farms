@@ -11,7 +11,7 @@ import { useSolanaConnect } from '../solana/useSolanaConnect';
 import { LADDER_FUNDING_LINES, type Bungalow } from '../../lib/bungalows';
 import {
   isLadderConfigured, ladderProgramId,
-  boostBpsForLock, weightForStake, quoteExit, checkDeposit, earnedNow, rewardRunwaySecs,
+  boostBpsForLock, weightForStake, quoteExit, quoteExtend, checkDeposit, earnedNow, rewardRunwaySecs,
   minWeightFloor,
   MAX_LOCK_SECS, MAX_POSITIONS, MAX_EARLY_EXIT_PENALTY_BPS, MIN_BOOST_BPS,
   penaltyFor, penaltyPct, sharePct,
@@ -23,7 +23,7 @@ import {
   type LadderWalletView, type ReadResult,
 } from '../../lib/ladder/read';
 import {
-  ladderStake, ladderClaim, ladderExit, ladderHatch, ladderClaimCarried,
+  ladderStake, ladderClaim, ladderExit, ladderHatch, ladderClaimCarried, ladderExtendLock,
   type WriteResult, type LadderWriteCtx,
 } from '../../lib/ladder/write';
 import { fmtRaw, fmtRawParts, toPlain, toRaw, humanDuration, lockLabel, boostLabel } from '../../lib/ladder/format';
@@ -978,6 +978,7 @@ export function SolanaLadderPoolCard({ bungalow, compact = false }: { bungalow: 
                           onClaim={() => ctx && void run('Claim', () => ladderClaim(ctx, { positionNonce: p.nonce }))}
                           onExit={(early) => ctx && void run(early ? 'Early exit' : 'Withdraw', () => ladderExit(ctx, { positionNonce: p.nonce, early }))}
                           onHatch={() => ctx && void run('Emergency withdraw', () => ladderHatch(ctx, { positionNonce: p.nonce }))}
+                          onExtend={(secs) => ctx && void run('Extend lock', () => ladderExtendLock(ctx, { positionNonce: p.nonce, lockSecs: secs }))}
                         />
                       ))}
                     </ul>
@@ -1242,7 +1243,7 @@ function LiveEarned(
  */
 function PositionRow({
   position, pool, nowSec, decimals, sym, busy, canWrite, confirmFor, setConfirmFor,
-  onClaim, onExit, onHatch,
+  onClaim, onExit, onHatch, onExtend,
 }: {
   position: LadderPositionView;
   pool: LadderPoolView;
@@ -1256,6 +1257,7 @@ function PositionRow({
   onClaim: () => void;
   onExit: (early: boolean) => void;
   onHatch: () => void;
+  onExtend: (lockSecs: number) => void;
 }) {
   const quotes = quoteExit(position, pool, nowSec);
   const matured = BigInt(nowSec) >= position.lockEnd;
@@ -1282,6 +1284,15 @@ function PositionRow({
   const rewardsPaid = 'Your rewards are paid up to what the reward vault holds; any remainder stays owed to you and claimable later.';
 
   const key = (door: string) => `${position.nonce}:${door}`;
+
+  // EXTEND (2026-10-29). Only rungs that RAISE the weight: the program also takes an
+  // equal one, but that lengthens the lock for nothing. `quoteExtend` returns null for
+  // everything the program would refuse — matured, degraded, not later, boost down.
+  const extendOptions = RUNGS.flatMap((secs) => {
+    const q = quoteExtend(position, pool, secs, nowSec);
+    return q?.raises ? [{ secs, ...q }] : [];
+  });
+  const armedExtend = extendOptions.find((o) => confirmFor === key(`extend:${o.secs}`));
 
   return (
     <li className="rounded-[14px] p-4 sm:p-5" style={{ background: 'rgba(7,11,22,0.94)', border: '1px solid rgba(255,255,255,0.08)' }}>
@@ -1347,6 +1358,41 @@ function PositionRow({
           tone="danger"
         />
       </div>
+
+      {/* EXTEND. Heading + one line; the price of it (the dearer early exit) is on screen
+          before Confirm, never in a drop-down. */}
+      {extendOptions.length > 0 && (
+        <div className="mt-4" data-testid="ladder-extend">
+          <p className="text-white text-[13px] font-semibold m-0">Extend lock</p>
+          <p className="text-white/70 text-[12px] m-0 mt-0.5 mb-2">
+            Re-lock from today at a higher boost: a bigger share of the same {sym} rewards, no fee.
+          </p>
+          <div role="group" aria-label="Extend this lock to" className="flex flex-wrap gap-2">
+            {extendOptions.map((o) => (
+              <ExitButton
+                key={o.secs}
+                label={`${lockLabel(o.secs)} · ${boostLabel(o.boostBps)}`}
+                needsConfirm
+                confirmed={confirmFor === key(`extend:${o.secs}`)}
+                onArm={() => setConfirmFor(key(`extend:${o.secs}`))}
+                onCancel={() => setConfirmFor(null)}
+                onGo={() => onExtend(o.secs)}
+                disabled={!canWrite}
+                busy={busy === 'Extend lock'}
+              />
+            ))}
+          </div>
+          {armedExtend && (
+            <p role="note" className="text-[12px] m-0 mt-2" style={{ color: '#f0b26b' }}>
+              Locked until {dateOf(armedExtend.lockEnd)} at {boostLabel(armedExtend.boostBps)} (now {boostLabel(boost)}).
+              Leaving right after would cost{' '}
+              {penaltyPct(penaltyFor(position.amountRaw, armedExtend.lockEnd, BigInt(nowSec)), position.amountRaw)} of
+              this {sym}; the cost falls as the lock runs down.
+            </p>
+          )}
+        </div>
+      )}
+
       {/* What each door pays, one press away (owner, 2026-10-14: fewer words). The
           sentences are the ones that sat under the buttons, word for word; the price
           itself stays on the button. */}

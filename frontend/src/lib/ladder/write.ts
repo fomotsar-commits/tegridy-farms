@@ -19,7 +19,7 @@
 import { Connection, PublicKey, Transaction, type TransactionInstruction } from '@solana/web3.js';
 import type { SignerWalletAdapter } from '@solana/wallet-adapter-base';
 import {
-  claimCarriedIx, claimIx, createAtaIdempotentIx, emergencyWithdrawIx, exitIx, stakeIx,
+  claimCarriedIx, claimIx, createAtaIdempotentIx, emergencyWithdrawIx, exitIx, extendLockIx, stakeIx,
   type PoolAccounts,
 } from './ix';
 import { MAX_EARLY_EXIT_PENALTY_BPS } from './program';
@@ -106,6 +106,10 @@ export const LADDER_ERRORS: Record<number, { name: string; human?: string }> = {
   6027: { name: 'WalletCapExceeded', human: 'This would take you past the per-wallet limit for this pool. Nothing moved.' },
   // Operator-only: `notify_reward` refusing to lower the rate inside a live window.
   6028: { name: 'RewardRateWouldDecrease' },
+  // `extend_lock`, added 2026-10-29.
+  6029: { name: 'LockExpired', human: 'This lock has already ended, so it cannot be extended. Withdraw it (no penalty), then stake again for a new lock. Nothing moved.' },
+  6030: { name: 'LockNotExtended', human: 'The new lock must end later than the one you have. Nothing moved.' },
+  6031: { name: 'BoostWouldDrop', human: 'That lock would lower this position’s boost, so the program refused it. Pick a lock at least as long as the one you opened it with. Nothing moved.' },
 };
 
 /**
@@ -348,6 +352,22 @@ export async function ladderClaim(
   return submitLadder(
     ctx.connection, ctx.invoker,
     withAta(ctx, owner, claimIx({ ...common(ctx, owner), ...args })),
+    ctx.deps,
+  );
+}
+
+/**
+ * Lengthen a still-locked position's lock, counted from now. No ATA create: it pays
+ * nothing out, and moves no tokens at all. Check it with `quoteExtend()` first.
+ */
+export async function ladderExtendLock(
+  ctx: LadderWriteCtx, args: { positionNonce: number; lockSecs: number },
+): Promise<WriteResult> {
+  const owner = ctx.invoker.publicKey;
+  if (!owner) return { ok: false, reason: 'Connect a wallet first.' };
+  return submitLadder(
+    ctx.connection, ctx.invoker,
+    [extendLockIx({ programId: ctx.programId, owner, pool: ctx.pool, ...args })],
     ctx.deps,
   );
 }

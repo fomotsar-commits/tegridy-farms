@@ -798,7 +798,9 @@ describe('the CLI against the COMMITTED IDL', () => {
   // "build it, or write it down" instead of silent non-coverage.
   it('every instruction in the IDL is either driven by the CLI or knowingly not', () => {
     const driven = Object.keys(IX).map(snake);
-    const notDriven = [];
+    // extend_lock (2026-10-29) is a staker's action on their own position, taken from the
+    // site's ladder card. Nothing an operator runs needs it.
+    const notDriven = ['extend_lock'];
     expect([...driven, ...notDriven].sort()).toEqual(need().instructions.map((i) => i.name).sort());
   });
 });
@@ -2078,9 +2080,11 @@ describe('program error codes', () => {
     expect(extra.filter((c) => !(c === '6028' && LADDER_ERRORS[c] === 'RewardRateWouldDecrease'))).toEqual([]);
   });
 
-  it('covers 6000..6028 with no gap, ending in RewardRateWouldDecrease', () => {
-    expect(Object.keys(LADDER_ERRORS).map(Number)).toEqual(Array.from({ length: 29 }, (_, i) => 6000 + i));
+  it('covers 6000..6031 with no gap, ending in extend_lock\'s three', () => {
+    expect(Object.keys(LADDER_ERRORS).map(Number)).toEqual(Array.from({ length: 32 }, (_, i) => 6000 + i));
     expect(LADDER_ERRORS[6028]).toBe('RewardRateWouldDecrease');
+    expect([LADDER_ERRORS[6029], LADDER_ERRORS[6030], LADDER_ERRORS[6031]])
+      .toEqual(['LockExpired', 'LockNotExtended', 'BoostWouldDrop']);
   });
 
   it('a simulated failure is named only when the failing instruction is the ladder\'s', () => {
@@ -2688,6 +2692,12 @@ describe('notify --preview — no keypair, nothing built, and never with --broad
         name: expect.stringMatching(/0f127114/),
         sha256: '0f127114695e405fd90a2bf52174e45874df71a1078a13dc6b39b352a647b1b8',
         len: 517_920,
+        windowSecs: 126_144_000,
+      }, {
+        // ... plus extend_lock (2026-10-29): the same window again.
+        name: expect.stringMatching(/1b91609c/),
+        sha256: '1b91609c5f565013d1da33cdd639e158e1e497510ef0f6c9d45dbcc4a7e384ef',
+        len: 532_344,
         windowSecs: 126_144_000,
       }]);
       expect(LADDER_BUILDS.some((b) => b.sha256 === null)).toBe(false);

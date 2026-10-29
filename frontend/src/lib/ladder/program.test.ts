@@ -27,7 +27,7 @@ import {
   POOL_SIZE, POSITION_SIZE, USER_STATS_SIZE,
   poolPda, stakeVaultPda, rewardVaultPda, userStatsPda, positionPda,
   decodeLadderPool, decodeLadderPosition, decodeLadderUserStats,
-  boostBpsForLock, weightForStake, penaltyFor, quoteExit, checkDeposit,
+  boostBpsForLock, weightForStake, penaltyFor, quoteExit, quoteExtend, checkDeposit,
   MIN_LOCK_SECS, MAX_LOCK_SECS, MIN_BOOST_BPS, MAX_BOOST_BPS, MAX_POSITIONS,
   MAX_EARLY_EXIT_PENALTY_BPS, PENALTY_SCALE, MAX_PENALTY_RATIO, penaltyPct,
   PRECISION, minWeightFloor, lastTimeApplicable, rewardPerWeightNow, earnedNow,
@@ -55,6 +55,7 @@ describe('discriminators — transcribed from the built IDL', () => {
     expect(b(IX_DISCRIMINATOR.emergencyWithdraw)).toEqual([239, 45, 203, 64, 150, 73, 218, 92]);
     expect(b(IX_DISCRIMINATOR.claimCarried)).toEqual([173, 173, 45, 126, 170, 32, 215, 248]);
     expect(b(IX_DISCRIMINATOR.notifyReward)).toEqual([252, 51, 75, 132, 223, 48, 177, 213]);
+    expect(b(IX_DISCRIMINATOR.extendLock)).toEqual([68, 151, 140, 144, 139, 122, 118, 170]);
   });
   it('accounts', () => {
     expect(b(ACCOUNT_DISCRIMINATOR.Pool)).toEqual([241, 154, 109, 4, 17, 177, 109, 188]);
@@ -316,6 +317,70 @@ describe('quoteExit — the doors, and what each ACTUALLY costs', () => {
     expect(door(week, 'hatch').penaltyRaw).toBe(door(week, 'early').penaltyRaw);
     expect(door(week, 'hatch').reason).toMatch(/^0\.47% retained/);
     expect(door(week, 'hatch').reason).toMatch(/time left over four years, capped at 75%/);
+  });
+});
+
+// The same cases as math.rs's `extended_lock` tests, so the card never offers a rung the
+// program refuses, and never hides one it takes.
+describe('quoteExtend — the program’s extend_lock rules, decided before signing', () => {
+  const DAY = 86_400;
+  const YEAR = 365 * DAY;
+  const AMT = 1_000_000_000_000n;
+  const staked = 1_800_000_000;
+  const now = staked + 28 * DAY;
+  // A one-year position, 28 days in: the request that started this.
+  const oneYear = { amountRaw: AMT, lockEnd: BigInt(staked + YEAR), weight: weightForStake(AMT, YEAR) };
+  const healthy = { degraded: false };
+
+  it('a one-year lock moves to four years at the four-year price, counted from now', () => {
+    const q = quoteExtend(oneYear, healthy, MAX_LOCK_SECS, now)!;
+    expect(q.lockEnd).toBe(BigInt(now + MAX_LOCK_SECS));
+    expect(q.weight).toBe(4_000_000_000_000n);
+    expect(q.boostBps).toBe(MAX_BOOST_BPS);
+    expect(q.raises).toBe(true);
+  });
+
+  it('refuses what the program refuses: off the ladder, ended, not later, boost down, degraded', () => {
+    expect(quoteExtend(oneYear, healthy, MAX_LOCK_SECS + 1, now)).toBeNull();
+    expect(quoteExtend(oneYear, healthy, MIN_LOCK_SECS - 1, now)).toBeNull();
+    expect(quoteExtend(oneYear, healthy, MAX_LOCK_SECS, Number(oneYear.lockEnd))).toBeNull();
+    expect(quoteExtend(oneYear, healthy, 30 * DAY, now)).toBeNull();
+    expect(quoteExtend(oneYear, { degraded: true }, MAX_LOCK_SECS, now)).toBeNull();
+    // A four-year position 1,000 days in: 500 days ends later but carries ~1.6x.
+    const fourYear = { amountRaw: AMT, lockEnd: BigInt(MAX_LOCK_SECS), weight: weightForStake(AMT, MAX_LOCK_SECS) };
+    expect(quoteExtend(fourYear, healthy, 500 * DAY, 1_000 * DAY)).toBeNull();
+    // POSITIVE CONTROLS: one second before the end is still extendable; equal weight is
+    // accepted by the program, and only marked as not raising.
+    expect(quoteExtend(oneYear, healthy, MAX_LOCK_SECS, Number(oneYear.lockEnd) - 1)).not.toBeNull();
+    const top = quoteExtend(fourYear, healthy, MAX_LOCK_SECS, 1_000 * DAY)!;
+    expect(top.weight).toBe(fourYear.weight);
+    expect(top.raises).toBe(false);
+  });
+
+  it('a rung that raises the boost always ends later than the lock it replaces', () => {
+    for (const secs of [30 * DAY, 90 * DAY, 180 * DAY, YEAR, 2 * YEAR, MAX_LOCK_SECS]) {
+      for (const at of [staked, now, Number(oneYear.lockEnd) - 1]) {
+        const q = quoteExtend(oneYear, healthy, secs, at);
+        if (q?.raises) expect(q.lockEnd > oneYear.lockEnd).toBe(true);
+      }
+    }
+  });
+
+  it('extending to four years and leaving at once costs the 75% cap', () => {
+    const q = quoteExtend(oneYear, healthy, MAX_LOCK_SECS, now)!;
+    expect(penaltyFor(AMT, q.lockEnd, BigInt(now))).toBe(AMT * 3n / 4n);
+  });
+
+  it('decides the boundaries exactly as math.rs `extended_lock` does', () => {
+    const src = readFileSync(MATH_RS, 'utf8');
+    const start = src.indexOf('pub fn extended_lock');
+    expect(start).toBeGreaterThan(0);
+    const fn = src.slice(start, src.indexOf('\n}\n', start));
+    expect(fn).toContain('if lock_secs < MIN_LOCK_SECS');
+    expect(fn).toContain('if lock_secs > MAX_LOCK_SECS');
+    expect(fn).toContain('if now >= lock_end');
+    expect(fn).toContain('if new_end <= lock_end');
+    expect(fn).toContain('if new_weight < weight');
   });
 });
 
