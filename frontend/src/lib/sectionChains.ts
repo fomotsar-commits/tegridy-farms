@@ -2,6 +2,8 @@ import type { NavItem } from './navConfig';
 import { getChainConfig } from './chains/registry';
 import { liquidityVenueOn } from './chains/liquidityVenue';
 import { curveLauncherOn } from './launcher/curve';
+// Plain text only: whether the Cardano swap is shown, without loading any Cardano code.
+import { cardanoSwapVisible } from './cardano/flags';
 
 /**
  * The four networks the venue runs on, and which tab of Swap, Pools and Launch serves which
@@ -12,7 +14,7 @@ import { curveLauncherOn } from './launcher/curve';
  * Every "serves" below is read from the registry the page itself reads, never typed: a chain
  * whose launcher or router is not deployed drops out of the drop-down with it.
  */
-export type VenueChain = 'ethereum' | 'base' | 'robinhood' | 'solana';
+export type VenueChain = 'ethereum' | 'base' | 'robinhood' | 'solana' | 'cardano';
 
 export interface VenueChainInfo {
   id: VenueChain;
@@ -20,7 +22,7 @@ export interface VenueChainInfo {
   name: string;
   /** On the drop-down's button, where a phone has room for one short word. */
   short: string;
-  /** The EVM chain id; null for Solana, which is not a wagmi chain. */
+  /** The EVM chain id; null for Solana and Cardano, which are not wagmi chains. */
   evmChainId: number | null;
 }
 
@@ -32,6 +34,9 @@ export const VENUE_CHAINS: readonly VenueChainInfo[] = [
   { id: 'base', name: 'Base', short: 'Base', evmChainId: 8453 },
   { id: 'robinhood', name: 'Robinhood Chain', short: 'Robinhood', evmChainId: 4663 },
   { id: 'solana', name: 'Solana', short: 'Solana', evmChainId: null },
+  // Cardano (owner, 2026-10-24: "cardano integrated in every aspect") is listed only once its
+  // swap is shown (lib/cardano/flags.ts), so until then no drop-down carries a greyed row for it.
+  ...(cardanoSwapVisible() ? [{ id: 'cardano' as const, name: 'Cardano', short: 'Cardano', evmChainId: null }] : []),
 ];
 
 export function venueChain(id: VenueChain): VenueChainInfo {
@@ -72,11 +77,13 @@ export function tabChains(to: string): TabChains {
     case '/eth-curve':
       return evmWhere((id) => curveLauncherOn(id).status === 'deployed');
     case '/solana':
-    case '/solana-lp':
     case '/range-pools':
     case '/pools':
     case '/curve-launch':
       return ['solana'];
+    // Minswap V2 pools, with the venue's own fee line (lib/cardano/).
+    case '/cardano':
+      return ['cardano'];
     default:
       return 'any';
   }

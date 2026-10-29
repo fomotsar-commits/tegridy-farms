@@ -30,7 +30,7 @@ import {
   type VersionedTransaction,
 } from '@solana/web3.js';
 import { PhantomWalletAdapter } from '@solana/wallet-adapter-phantom';
-import { BACKPACK_ICON, JUPITER_ICON, METAMASK_ICON, SOLFLARE_ICON, TRUST_ICON } from './walletIcons';
+import { BACKPACK_ICON, COINBASE_ICON, JUPITER_ICON, METAMASK_ICON, SOLFLARE_ICON, TRUST_ICON } from './walletIcons';
 
 /**
  * The Solana sibling of rainbowkitWallets.ts: wallets this venue adds to the
@@ -577,7 +577,7 @@ export class MetaMaskWalletAdapter extends BaseMessageSignerWalletAdapter {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Coinbase Wallet (the Base app on phones) — copied from
+ * Coinbase Wallet (the phone app was "Base" for a while) — copied from
  * @solana/wallet-adapter-coinbase@0.1.24 src/adapter.ts, the Solana
  * Foundation's own adapter, with three additions and one URL change.
  *
@@ -586,8 +586,9 @@ export class MetaMaskWalletAdapter extends BaseMessageSignerWalletAdapter {
  * frontend/.npmrc sets legacy-peer-deps, so npm would install the mismatch
  * without a word. The code itself is small and is kept line for line.
  *
- * NOT the EVM modal's "Base" row. That row is a Base Account passkey smart
- * wallet, which has no Solana address at all. This adapter serves Coinbase
+ * NOT the EVM modal's Coinbase Wallet row. That row is Coinbase's sign-in
+ * window (the Base Account SDK, wagmi.ts), an EVM connection whose passkey
+ * account has no Solana address at all. This adapter serves Coinbase
  * Wallet's recovery-phrase / email wallets, which hold Solana once Solana is
  * switched on in the app.
  *
@@ -643,8 +644,7 @@ function inCoinbaseBrowser(): boolean {
 export class CoinbaseWalletAdapter extends BaseMessageSignerWalletAdapter {
   name = CoinbaseWalletName;
   url = 'https://www.coinbase.com/wallet/downloads';
-  icon =
-    'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAyNCIgaGVpZ2h0PSIxMDI0IiB2aWV3Qm94PSIwIDAgMTAyNCAxMDI0IiBmaWxsPSJub25lIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPgo8Y2lyY2xlIGN4PSI1MTIiIGN5PSI1MTIiIHI9IjUxMiIgZmlsbD0iIzAwNTJGRiIvPgo8cGF0aCBmaWxsLXJ1bGU9ImV2ZW5vZGQiIGNsaXAtcnVsZT0iZXZlbm9kZCIgZD0iTTE1MiA1MTJDMTUyIDcxMC44MjMgMzEzLjE3NyA4NzIgNTEyIDg3MkM3MTAuODIzIDg3MiA4NzIgNzEwLjgyMyA4NzIgNTEyQzg3MiAzMTMuMTc3IDcxMC44MjMgMTUyIDUxMiAxNTJDMzEzLjE3NyAxNTIgMTUyIDMxMy4xNzcgMTUyIDUxMlpNNDIwIDM5NkM0MDYuNzQ1IDM5NiAzOTYgNDA2Ljc0NSAzOTYgNDIwVjYwNEMzOTYgNjE3LjI1NSA0MDYuNzQ1IDYyOCA0MjAgNjI4SDYwNEM2MTcuMjU1IDYyOCA2MjggNjE3LjI1NSA2MjggNjA0VjQyMEM2MjggNDA2Ljc0NSA2MTcuMjU1IDM5NiA2MDQgMzk2SDQyMFoiIGZpbGw9IndoaXRlIi8+Cjwvc3ZnPgo=';
+  icon = COINBASE_ICON;
   readonly supportedTransactionVersions: SupportedTransactionVersions = new Set([
     'legacy' as const,
     0 as const,

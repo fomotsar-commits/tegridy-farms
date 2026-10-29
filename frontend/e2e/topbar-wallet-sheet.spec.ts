@@ -179,7 +179,7 @@ test('on the home, where the cards cannot load, their pages are linked and the s
   await page.goto('/');
   const main = page.locator('#main-content');
   await expect(main.getByRole('link', { name: 'Stake BAYLA' })).toHaveAttribute('href', '/earn/bayla', { timeout: 30_000 });
-  await expect(main.getByRole('link', { name: 'Add liquidity' })).toHaveAttribute('href', '/solana-lp');
+  await expect(main.getByRole('link', { name: 'Add liquidity' })).toHaveAttribute('href', '/pools');
   await topBarConnect(page).click();
   await expect(solanaRow(page)).toContainText('Couldn’t load Solana wallets. Tap to reload the page.');
   await expect(ethereumRow(page)).toBeVisible();
@@ -237,7 +237,7 @@ test('a Solana wallet connected from the Earn list follows the visitor into a So
   const sheet = page.getByRole('dialog', { name: 'Your wallets', exact: true });
   await expect(sheet.getByRole('listitem')).toHaveText([
     new RegExp(`^SolanaSwitch wallet or disconnect${SHORT.slice(0, 4)}`),
-    /^Ethereum, Base, Robinhood ChainMetaMask, Trust, Rainbow and more/,
+    /^Ethereum, Base, Robinhood ChainMetaMask, Coinbase, Trust and more/,
   ]);
   await sheet.getByRole('button', { name: 'Close dialog' }).click();
 

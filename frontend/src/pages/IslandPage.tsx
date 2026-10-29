@@ -49,7 +49,6 @@ const ArrivalFilm = lazy(() =>
 /** One line per door: what is actually behind it. Keyed by route. */
 const BLURB: Record<string, string> = {
   '/gallery': 'Every piece, and the artists behind them.',
-  '/nakamigos': 'Trade four collections, browse five more. Our fee is 0.5%, half of OpenSea’s 1%.',
   '/community': 'Grants, bounties and the votes that direct them.',
   '/tokenomics': 'Supply, the treasury, lifetime fees, and your own tax reports.',
 };
@@ -58,13 +57,14 @@ const BLURB: Record<string, string> = {
  * Each door's own art surface, keyed by route so a door leaving the lobby cannot hand
  * its picture to the next one. island idx 4 was the Venue Score door, deleted
  * 2026-10-15 (island item 4); keyed by position, Treasury & numbers would have
- * inherited its art. A door with no entry reuses a registered surface.
+ * inherited its art. idx 2 was the Marketplace door, which left the nav with the
+ * home and the metadata on 2026-10-24. A door with no entry reuses a registered surface.
  */
-const DOOR_ART: Record<string, number> = { '/gallery': 1, '/nakamigos': 2, '/community': 3, '/tokenomics': 5 };
+const DOOR_ART: Record<string, number> = { '/gallery': 1, '/community': 3, '/tokenomics': 5 };
 const DOOR_ART_SLOTS = Object.values(DOOR_ART);
 
 export default function IslandPage() {
-  usePageTitle('The island', `${VENUE.tagline}. The gallery, the marketplace, the community and the numbers.`);
+  usePageTitle('The island', `${VENUE.tagline}. The gallery, the community and the numbers.`);
 
   // Drop the lobby's own entry — a card linking to the page you are standing on
   // is a dead click. Keyed on the section's OWN hub rather than the literal

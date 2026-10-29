@@ -337,6 +337,42 @@ ${entries}
   });
 }
 
+// Dev only: /api/cardano/<op> answers from the same named-read table as api/cardano.js
+// (api/_lib/cardano-ops.js), so the dev server and production cannot drift. KOIOS_API_KEY
+// from .env stays in this process; the browser sees only the answer.
+function cardanoDevApiPlugin(apiKey: string | undefined): Plugin {
+  return {
+    name: 'cardano-dev-api',
+    apply: 'serve',
+    configureServer(server) {
+      server.middlewares.use('/api/cardano', async (req, res) => {
+        const { buildKoiosRequest } = await import('./api/_lib/cardano-ops.js');
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        if (req.method !== 'GET') {
+          res.statusCode = 405;
+          res.end('{"error":"Method not allowed"}');
+          return;
+        }
+        const url = new URL(req.url ?? '/', 'http://dev.local');
+        const built = buildKoiosRequest(url.pathname.slice(1), Object.fromEntries(url.searchParams), apiKey);
+        if ('error' in built) {
+          res.statusCode = built.error;
+          res.end(JSON.stringify({ error: built.message }));
+          return;
+        }
+        try {
+          const up = await fetch(built.url, built.init);
+          res.statusCode = up.ok ? 200 : up.status === 429 ? 429 : 502;
+          res.end(up.ok ? await up.text() : '{"error":"Upstream error"}');
+        } catch {
+          res.statusCode = 502;
+          res.end('{"error":"Upstream error"}');
+        }
+      });
+    },
+  };
+}
+
 export default defineConfig(({ command, mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   return {
@@ -352,6 +388,7 @@ export default defineConfig(({ command, mode }) => {
       firstFrameStylesheetsPlugin(),
       doorPagesPreviewPlugin(),
       changelogFilesPlugin(),
+      cardanoDevApiPlugin(env.KOIOS_API_KEY),
       ...(process.env.ANALYZE ? [visualizer({ open: true, gzipSize: true, filename: 'dist/bundle-analysis.html' })] : []),
     ],
     resolve: {
@@ -522,6 +559,10 @@ export default defineConfig(({ command, mode }) => {
               id.includes('node_modules/safe-buffer/')
             ) {
               return 'vendor-shared-wallet-plumbing';
+            }
+            // Only the lazy Cardano swap loads the serialization library (lib/cardano/csl.ts).
+            if (id.includes('node_modules/@emurgo/')) {
+              return 'vendor-cardano';
             }
             // Only lazy Solana pages import these: out of the initial bundle.
             if (

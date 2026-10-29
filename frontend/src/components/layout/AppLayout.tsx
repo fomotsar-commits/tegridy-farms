@@ -23,10 +23,7 @@ import { TransactionReceiptProvider } from '../TransactionReceipt';
 const ParticleBackground = lazy(() =>
   import('../ParticleBackground').then(m => ({ default: m.ParticleBackground })),
 );
-const GlitchTransition = lazy(() =>
-  import('../GlitchTransition').then(m => ({ default: m.GlitchTransition })),
-);
-import type { GlitchConfig } from '../GlitchTransition';
+import { RouteGlitch } from './RouteGlitch';
 import { LiveActivity } from '../LiveActivity';
 // PERF-15 (2026-09-03): the floating assistant (20,823 B) and its answer corpus
 // (lib/towelieKnowledge, 28,495 B) rode the always-loaded layout chunk — ~49 KB
@@ -47,51 +44,6 @@ import { WalletConnectWatchdog } from '../ui/WalletConnectWatchdog';
 import { isToweliVoice, OPEN_VENUE_WELCOME_EVENT } from '../../lib/arrival';
 import { useActiveBungalowId } from '../../hooks/useActiveBungalowId';
 import { useReferralAttribution } from '../../hooks/useReferralAttribution';
-
-const NAV_ORDER = [
-  '/', '/dashboard', '/earn', '/swap', '/nft-finance', '/gallery', '/tokenomics',
-  '/lore', '/community', '/premium', '/history', '/admin',
-];
-
-function getGlitchConfig(from: string, to: string): GlitchConfig {
-  // By first segment, so one pool (/earn/bayla) sits where Earn does.
-  const section = (path: string) => '/' + (path.split('/')[1] ?? '');
-  const fromIdx = NAV_ORDER.indexOf(section(from));
-  const toIdx = NAV_ORDER.indexOf(section(to));
-  const direction: GlitchConfig['direction'] = toIdx > fromIdx ? 'forward' : 'backward';
-  const mobile = typeof window !== 'undefined' && window.innerWidth < 768;
-  if (from === '/' || to === '/') {
-    return { intensity: 'heavy', direction, sliceCount: mobile ? 6 : 16, duration: 1000 };
-  }
-  if (Math.abs(fromIdx - toIdx) <= 1) {
-    return { intensity: 'light', direction, sliceCount: mobile ? 4 : 12, duration: 1000 };
-  }
-  return { intensity: 'medium', direction, sliceCount: mobile ? 5 : 14, duration: 1000 };
-}
-
-function RouteGlitch() {
-  const location = useLocation();
-  const [glitchConfig, setGlitchConfig] = useState<GlitchConfig | null>(null);
-  const prevPath = useRef(location.pathname);
-  const isFirst = useRef(true);
-
-  useEffect(() => {
-    if (isFirst.current) { isFirst.current = false; prevPath.current = location.pathname; return; }
-    if (location.pathname !== prevPath.current) {
-      const cfg = getGlitchConfig(prevPath.current, location.pathname);
-      prevPath.current = location.pathname;
-      setGlitchConfig(cfg);
-      const t = setTimeout(() => setGlitchConfig(null), cfg.duration);
-      return () => clearTimeout(t);
-    }
-  }, [location.pathname]);
-
-  return glitchConfig ? (
-    <Suspense fallback={null}>
-      <GlitchTransition config={glitchConfig} />
-    </Suspense>
-  ) : null;
-}
 
 export function AppLayout() {
   const location = useLocation();
@@ -123,6 +75,24 @@ export function AppLayout() {
   // this banner exists to catch — a `chain && !isChainConfigured(chain.id)`
   // guard is structurally unreachable dead code.
   const wrongNetwork = isConnected && walletChainId != null && !isChainConfigured(walletChainId);
+
+  // The banner's height, as `--app-alert-h` on <html>, so anything else pinned under the top bar
+  // (the dashboard's frame, IslandDashboard.tsx) pins under the banner instead of beneath it. Its
+  // copy wraps to three lines on a phone, so it is measured, not assumed.
+  const alertRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = alertRef.current;
+    const root = document.documentElement;
+    if (!el) return;
+    const measure = () => root.style.setProperty('--app-alert-h', `${el.offsetHeight}px`);
+    measure();
+    const resized = typeof ResizeObserver === 'function' ? new ResizeObserver(measure) : null;
+    resized?.observe(el);
+    return () => {
+      resized?.disconnect();
+      root.style.removeProperty('--app-alert-h');
+    };
+  }, [wrongNetwork]);
 
   useEffect(() => {
     if (isConnected && connector?.name) trackWalletConnect(connector.name);
@@ -221,6 +191,7 @@ export function AppLayout() {
             it fixed in the first place: it stays visible as the page scrolls. */}
         {wrongNetwork && (
           <div
+            ref={alertRef}
             className="sticky z-50 bg-red-600/95 backdrop-blur-sm text-white text-center py-2 px-4 text-[12px] md:text-[13px] font-medium shadow-lg"
             style={{
               top: 'calc(56px + env(safe-area-inset-top, 0px))',

@@ -48,7 +48,8 @@ To calibrate effort, these already exist and are described in the RFQ:
 pools. Neither has been audited. So the audit target is a live program as well as its
 source. cp-swap has been upgraded once since, to a build of this source: the live program
 has the one added instruction, `create_lp_metadata`, and the launch-tier refusal, and both
-went in unaudited.
+went in unaudited. It was rolled back on 2026-10-24, so the live program is the 2026-09-29
+build again, without either; a re-upgrade is planned.
 
 Happy to grant repo read access. What would you quote, and what's your earliest start?
 
