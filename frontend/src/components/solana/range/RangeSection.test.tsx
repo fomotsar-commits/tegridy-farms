@@ -132,6 +132,9 @@ describe('how a range position earns', () => {
     await waitFor(() => expect(card.textContent).toContain('pays a 1% fee'));
     expect(card.textContent).toContain('share 84% of it (0.84% of the swap)');
     expect(card.textContent).toContain('The venue keeps 16% (0.16% of the swap)');
+    // The venue's other take, the program's pool-opening fee: in plain sight, not in the fine print.
+    const opening = within(card).getByText('Whoever opens a new range pool also pays the venue 0.5 SOL, to the team’s shared wallet.');
+    expect(opening.closest('details')).toBeNull();
     // Visible, not folded into the fine print.
     const warning = within(card).getByText(/Out of range, a position earns nothing/);
     expect(warning.closest('details')).toBeNull();

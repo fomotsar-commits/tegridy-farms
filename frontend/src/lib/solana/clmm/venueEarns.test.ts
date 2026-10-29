@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { PLATFORM_TREASURY_VAULT } from '../../launcher/solana/curve/program';
 import { WORKSHOP_WALLET } from '../../launcher/solana/write/plant';
-import { rangeVenueEarns } from './venueEarns';
+import { RANGE_OPENING_FEE_TEXT, rangeVenueEarns } from './venueEarns';
+import { CREATE_POOL_FEE_LAMPORTS, CREATE_POOL_FEE_RECEIVER } from './ix';
 import { feeSplit, poolFeeCeiling } from './feeText';
 import { buildPositionMetadata } from '../../../../api/_lib/position.js';
 
@@ -108,5 +109,15 @@ describe('where a range pool’s venue cut goes', () => {
     for (const r of [{ protocolFeeRate: 160_000, fundFeeRate: 0 }, { protocolFeeRate: 104_000, fundFeeRate: 96_000 }, { protocolFeeRate: 100_000, fundFeeRate: 20_000 }]) {
       expect(rangeVenueEarns(tier(r)).elsewhere, JSON.stringify(r)).toBe(true);
     }
+  });
+});
+
+describe('the pool-opening fee, as the range screens say it', () => {
+  // ix.test.ts holds both values to the program's own lib.rs (CREATE_POOL_FEE, create_pool_fee_reveiver).
+  it('says the amount the program charges and the wallet it pays, by the name the cut uses for it', () => {
+    expect(CREATE_POOL_FEE_LAMPORTS).toBe(500_000_000n);
+    expect(CREATE_POOL_FEE_RECEIVER.toBase58()).toBe(VAULT);
+    expect(RANGE_OPENING_FEE_TEXT).toBe('Whoever opens a new range pool also pays the venue 0.5 SOL, to the team’s shared wallet.');
+    expect(rangeVenueEarns(tier()).where).toContain('to the team’s shared wallet');
   });
 });
