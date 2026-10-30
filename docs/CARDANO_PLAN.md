@@ -105,3 +105,16 @@ pays every trader at least their minimum. It is also audit scope.
 `solana/guards/provenance.mjs`, and prove our build matches Minswap's mainnet script bytes before
 changing any parameter; (2) the 48-hour role validator; (3) the batcher; (4) the LP screens,
 behind their own switch; (5) the audit, owner-procured; (6) the deploy, with the owner's keys.
+
+**Step 4, the LP screens (draft, 2026-10-30):** `/cardano-pools`, a Pools tab: your positions, add,
+remove, open a pool. Off (`CARDANO_OWN_POOLS_OPEN = false` in `frontend/src/lib/cardano/flags.ts`);
+walked in a `--mode cardano-preview` build. Every hash, address and fee comes from ONE record,
+`frontend/api/_lib/cardano-own-pools.js`, null until the deploy: while null the screens say the
+pools are not open, build nothing, and the API has no own-pool reads. The record refuses any of
+Minswap's script hashes, its pool stake key and its reference UTxOs. Add and remove are orders at
+our order script for our batcher; opening spends our factory entry and pays the opening fee to the
+treasury, checked against the chain's global setting before anything is built. The deploy owes,
+for these screens: fill the record from the deploy's own output; measure the pool opening's two
+script budgets with the node's evaluator (the record's `openPoolBudget`, with headroom); and keep
+the record's `batcherFeeLovelace` at least the batcher's own `batcherFee`, or the batcher skips
+every order and each waits for its owner to cancel it (no cancel screen exists yet).

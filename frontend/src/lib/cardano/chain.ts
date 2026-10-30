@@ -15,7 +15,8 @@ export type Read<T> = { status: 'ok'; data: T } | { status: 'unread'; reason: st
 
 const unread = (reason: string): { status: 'unread'; reason: string } => ({ status: 'unread', reason });
 
-async function getJson(op: string, params: Record<string, string>, signal?: AbortSignal): Promise<Read<unknown>> {
+/** One named read of /api/cardano, as JSON, or why it could not be read. */
+export async function getJson(op: string, params: Record<string, string>, signal?: AbortSignal): Promise<Read<unknown>> {
   const qs = new URLSearchParams(params).toString();
   let res: Response;
   try {
@@ -31,7 +32,7 @@ async function getJson(op: string, params: Record<string, string>, signal?: Abor
   }
 }
 
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+export const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /** A decimal string as a bigint, or null. Koios sends amounts as strings; a number is refused. */
 function amount(v: unknown): bigint | null {

@@ -9,6 +9,8 @@
 // Shared by api/cardano.js (production) and vite.config.ts (the dev server), so the two cannot
 // drift.
 
+import { OWN_POOLS_DEPLOYMENT } from "./cardano-own-pools.js";
+
 export const KOIOS_BASE = "https://api.koios.rest/api/v1";
 
 // Minswap V2 mainnet (minswap-dex-v2 @ c3293ad43, deployed/mainnet/script.json): the pool
@@ -34,7 +36,7 @@ const NO_STORE = "private, no-store";
  * for every visitor are cached at the edge; anything about one wallet or one transaction is
  * no-store.
  */
-export const CARDANO_OPS = {
+const BASE_OPS = {
   tip: {
     params: [],
     cache: "public, max-age=5, s-maxage=10",
@@ -105,6 +107,45 @@ export const CARDANO_OPS = {
         : null,
   },
 };
+
+// utils.ak: the factory's NFT ("MSF") and the global setting's ("MSGS"), under the authen policy.
+const FACTORY_NFT = "4d5346";
+const SETTING_NFT = "4d534753";
+
+/**
+ * The venue's own pools' reads, pinned to `dep` (cardano-own-pools.js): our pool script, our
+ * factory, our settings, our authen policy; the caller names only an LP token. They exist only
+ * once the record does, so until the deploy no request can reach our pools or anyone's.
+ */
+export function ownPoolOps(dep) {
+  const assetUtxos = (cred, asset, limit) => ({
+    path: `/asset_utxos?payment_cred=eq.${cred}${limit ? `&limit=${limit}` : ""}`,
+    method: "POST",
+    body: { _asset_list: [[dep.authenPolicy, asset]], _extended: true },
+  });
+  return {
+    ownpool: {
+      params: ["lp"],
+      cache: NO_STORE,
+      build: (q) => (HEX64.test(q.lp ?? "") ? assetUtxos(dep.poolScriptHash, q.lp) : null),
+    },
+    // The factory's linked list: one entry per pool, plus one. A new pool takes the entry whose
+    // gap holds its LP name. Read whole or called unread (chainReads.ts KOIOS_PAGE).
+    ownfactory: {
+      params: [],
+      cache: NO_STORE,
+      build: () => assetUtxos(dep.factoryScriptHash, FACTORY_NFT, 1000),
+    },
+    // The global setting sits at the authen policy's own script address.
+    ownsetting: {
+      params: [],
+      cache: "public, max-age=30, s-maxage=60",
+      build: () => assetUtxos(dep.authenPolicy, SETTING_NFT),
+    },
+  };
+}
+
+export const CARDANO_OPS = { ...BASE_OPS, ...(OWN_POOLS_DEPLOYMENT ? ownPoolOps(OWN_POOLS_DEPLOYMENT) : {}) };
 
 /** One string per param, the first if repeated; anything else is dropped. */
 function flatQuery(query) {

@@ -432,6 +432,17 @@ export const ROUTES: readonly RouteSpec[] = [
     knownViolations: [],
   },
   {
+    path: '/cardano-pools',
+    voice: null,
+    owner: 'pages/CardanoPoolsPage.tsx',
+    tabOf: 'PoolsHostPage · cardano-pools',
+    gate: 'not-yet-routed',
+    why:
+      'The venue’s own Cardano pools: routed only once CARDANO_OWN_POOLS_OPEN (lib/cardano/flags.ts), which waits on ' +
+      'the deploy filling api/_lib/cardano-own-pools.js. Walked in a --mode cardano-preview build until then.',
+    knownViolations: [],
+  },
+  {
     path: '/range-pools',
     voice: 'venue',
     owner: 'pages/RangePoolsPage.tsx',
