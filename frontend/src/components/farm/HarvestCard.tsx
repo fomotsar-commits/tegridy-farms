@@ -70,7 +70,12 @@ function useSolanaHarvest(address: string | null, nonce: number): HarvestPlan<So
  * own card already says everything gains no "Reading…" or "Nothing to claim" line. Any page
  * with a Solana connection can hold it: it signs with that page's one connection.
  */
-export function HarvestCard({ quiet = false, headingLevel = 2 }: { quiet?: boolean; headingLevel?: 2 | 3 }) {
+export function HarvestCard({ quiet = false, headingLevel = 2, className = 'mb-6' }: {
+  quiet?: boolean;
+  headingLevel?: 2 | 3;
+  /** The card's own spacing, so a quiet card that draws nothing leaves no gap behind. */
+  className?: string;
+}) {
   const evm = useEvmHarvest();
   const surface = useSolanaSurface().surface;
   const solAddress = surface?.address ?? null;
@@ -150,7 +155,7 @@ export function HarvestCard({ quiet = false, headingLevel = 2 }: { quiet?: boole
   };
 
   return (
-    <section aria-labelledby="harvest-heading" className="mb-6">
+    <section aria-labelledby="harvest-heading" className={className}>
       <div
         className="relative isolate rounded-2xl overflow-hidden px-4 py-4"
         style={{ background: 'rgba(4,9,18,0.72)', border: '1px solid var(--color-purple-25)' }}

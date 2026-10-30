@@ -710,8 +710,7 @@ function Figure({ fig, mode, unpinned, quick, progress, frameRef }: {
   );
 }
 
-/** `harvest`: Harvest under the positions, on /dashboard only (owner, 2026-10-30); the home's copy has none. */
-export function IslandDashboard({ headingLevel = 2, harvest = false }: { headingLevel?: 1 | 2; harvest?: boolean }) {
+export function IslandDashboard({ headingLevel = 2 }: { headingLevel?: 1 | 2 }) {
   const board = useWalletBoard();
   // A harvest, or a claim on a pool card, changes the positions' "earned" figures.
   const [me] = useState(() => ({}));
@@ -857,11 +856,9 @@ export function IslandDashboard({ headingLevel = 2, harvest = false }: { heading
                   const f = positionFig(r, i);
                   return <PositionItem key={r.key} n={i + 1} row={r} onShow={show(f)} figKey={f.key} current={isCurrent(f)} />;
                 }} />
-              {harvest && (
-                <div className="mt-6">
-                  <HarvestCard quiet headingLevel={3} />
-                </div>
-              )}
+              {/* Every position's rewards in one press, on the home's board and /dashboard
+                  alike (owner, 2026-10-30); drawn only while there is something to claim. */}
+              <HarvestCard quiet headingLevel={3} className="mt-6" />
               {(!board.solanaAddress || !board.evmAddress) && (
                 <div className="mt-5 flex flex-wrap items-center gap-3">
                   <span className="text-[13px] text-[#f5e4b8]/70">Hold coins on the other chain too?</span>
