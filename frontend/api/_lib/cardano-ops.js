@@ -23,6 +23,14 @@ const HEX56 = /^[0-9a-f]{56}$/;
 const ASSET_NAME = /^(?:[0-9a-f]{2}){0,32}$/;
 const UTXO_REF = /^([0-9a-f]{64})#(\d{1,5})$/;
 const HEIGHT = /^\d{1,10}$/;
+// A CIP-14 fingerprint: "asset1" and 38 bech32 characters (20 bytes and the checksum).
+const FINGERPRINT = /^asset1[02-9ac-hj-np-z]{38}$/;
+
+/**
+ * How many of one policy's coins a read lists: one more than the page shows, so the page can
+ * tell a whole list from a cut one. src/lib/cardano/chain.ts holds the same number.
+ */
+export const POLICY_COINS_ROWS = 51;
 
 const NO_STORE = "private, no-store";
 
@@ -66,6 +74,25 @@ export const CARDANO_OPS = {
       HEX56.test(q.policy ?? "") && ASSET_NAME.test(q.name ?? "")
         ? { path: "/asset_info", method: "POST", body: { _asset_list: [[q.policy, q.name ?? ""]] } }
         : null,
+  },
+  // Every coin minted under one policy id, with its registry ticker (never the registry's
+  // logo, which is most of the bytes): what a pasted policy id stands for.
+  policy: {
+    params: ["policy"],
+    cache: "public, max-age=600, s-maxage=3600",
+    build: (q) =>
+      HEX56.test(q.policy ?? "")
+        ? {
+            path: `/policy_asset_info?_asset_policy=${q.policy}&select=asset_name,asset_name_ascii,total_supply,token_registry_metadata->ticker&order=asset_name.asc&limit=${POLICY_COINS_ROWS}`,
+            method: "GET",
+          }
+        : null,
+  },
+  // The coin an asset1… fingerprint names.
+  fingerprint: {
+    params: ["fp"],
+    cache: "public, max-age=600, s-maxage=3600",
+    build: (q) => (FINGERPRINT.test(q.fp ?? "") ? { path: `/asset_list?fingerprint=eq.${q.fp}&select=policy_id,asset_name,fingerprint`, method: "GET" } : null),
   },
   txstatus: {
     params: ["tx"],
