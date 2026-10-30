@@ -226,7 +226,7 @@ export function HarvestCard() {
           <p>
             On Solana each claim is test-run first, and one its pool would refuse is not put to your wallet. A claim
             paid stays paid if another one does not go through, unless your wallet bundles the Ethereum or Base
-            claims into one transaction: then they go through or fail together. If you cancel in your wallet,
+            claims into one transaction: then they are paid or refused together. If you cancel in your wallet,
             Harvest stops and sends nothing more. A claim whose outcome could not be read also stops it, so you can
             check before anything is sent twice.
           </p>
