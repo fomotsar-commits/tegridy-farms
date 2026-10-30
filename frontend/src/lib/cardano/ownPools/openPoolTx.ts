@@ -86,7 +86,14 @@ function pairOf(plan: Pick<OpenPoolPlan, 'token'>): [CardanoAsset, CardanoAsset]
   return poolOrder(ADA, plan.token);
 }
 
-export function poolDatumHex(csl: Csl, dep: OwnPools, plan: OpenPoolPlan, totalLiquidity: bigint): string {
+/** `feeNumerator`: the site always opens at 0.3%; the argument lets tests hold this to real pools at other fees. */
+export function poolDatumHex(
+  csl: Csl,
+  dep: Pick<OwnPools, 'poolBatchingScriptHash'>,
+  plan: Pick<OpenPoolPlan, 'token' | 'amountAda' | 'amountToken'>,
+  totalLiquidity: bigint,
+  feeNumerator: bigint = OPEN_POOL_FEE_NUMERATOR,
+): string {
   const [a, b] = pairOf(plan);
   return constr(csl, 0, [
     constr(csl, 0, [constr(csl, 1, [bytes(csl, dep.poolBatchingScriptHash)])]), // Inline(ScriptCredential(batching))
@@ -95,8 +102,8 @@ export function poolDatumHex(csl: Csl, dep: OwnPools, plan: OpenPoolPlan, totalL
     int(csl, totalLiquidity),
     int(csl, plan.amountAda),
     int(csl, plan.amountToken),
-    int(csl, OPEN_POOL_FEE_NUMERATOR),
-    int(csl, OPEN_POOL_FEE_NUMERATOR),
+    int(csl, feeNumerator),
+    int(csl, feeNumerator),
     constr(csl, 1, []), // fee_sharing_numerator_opt: None (the factory requires it)
     constr(csl, 0, []), // allow_dynamic_fee: False (the factory requires it)
   ]).to_hex();
