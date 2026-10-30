@@ -9,6 +9,7 @@
 
 import { readTip, readTxDepth } from '../chain';
 import type { CardanoAsset } from '../minswapV2';
+import { TTL_SLOTS } from '../orderTx';
 import { held, readOrderSpend, EXPIRY_MARGIN_SLOTS, type CoinLabel } from '../orderWatch';
 import { entryIndex } from './lpMath';
 import { ORDER_DEPOSIT } from './lpTx';
@@ -34,6 +35,16 @@ export interface LpOrderNote {
   submitted: boolean;
   placedAt: number;
   settled?: LpSettled;
+  /** The owner's own cancel of this order, once signed (lpFlow.ts signAndSendLpCancel). */
+  cancel?: LpCancelNote;
+}
+
+export interface LpCancelNote {
+  txHash: string;
+  /** Unix ms, from this browser's clock. */
+  sentAt: number;
+  /** The cancel's expiry slot. */
+  ttlSlot: number;
 }
 
 export type LpSettled =
@@ -110,6 +121,26 @@ function isNote(x: unknown): x is LpOrderNote {
   );
 }
 
+function isCancelNote(c: unknown): c is LpCancelNote {
+  if (typeof c !== 'object' || c === null) return false;
+  const o = c as Record<string, unknown>;
+  return typeof o.txHash === 'string' && TX_HASH.test(o.txHash) && Number.isFinite(o.sentAt) && Number.isInteger(o.ttlSlot);
+}
+
+/**
+ * Whether a cancel sent from here may still land: until its 15-minute expiry and the margin
+ * have passed. Until then the order says "cancel sent", not a second Cancel; after, the button
+ * comes back. Two cancels of one order can never both land.
+ */
+export function lpCancelInFlight(note: Pick<LpOrderNote, 'cancel'>, now: number): boolean {
+  return note.cancel !== undefined && now - note.cancel.sentAt < (TTL_SLOTS + EXPIRY_MARGIN_SLOTS) * 1000;
+}
+
+/** When the note last started something on its way: the order, or its cancel (orderWatch.ts pollDelayMs reads `placedAt`). */
+export function lastSentAt(note: Pick<LpOrderNote, 'placedAt' | 'cancel'>): number {
+  return Math.max(note.placedAt, note.cancel?.sentAt ?? 0);
+}
+
 export function settledLpStatus(note: LpOrderNote): LpOrderStatus | null {
   const s = note.settled;
   if (!isSettled(s)) return null;
@@ -123,7 +154,9 @@ export function readLpNotes(now: number = Date.now()): LpOrderNote[] {
     return raw
       .filter(isNote)
       .filter((n) => n.settled === undefined || !isSettled(n.settled) || now - n.placedAt < NOTE_LIFETIME_MS)
-      .map((n) => (n.settled === undefined || isSettled(n.settled) ? n : { ...n, settled: undefined }));
+      .map((n) => (n.settled === undefined || isSettled(n.settled) ? n : { ...n, settled: undefined }))
+      // A malformed cancel is dropped, never the note: the order is then read, and offered, again.
+      .map((n) => (n.cancel === undefined || isCancelNote(n.cancel) ? n : { ...n, cancel: undefined }));
   } catch {
     return [];
   }
@@ -148,6 +181,15 @@ export function markLpSubmitted(txHash: string): void {
     writeNotes(readLpNotes().map((n) => (n.txHash === txHash ? { ...n, submitted: true } : n)));
   } catch {
     /* storage blocked: the page holds it in memory */
+  }
+}
+
+/** The owner signed a cancel of this order: noted before it leaves, so a reload knows it is on its way. */
+export function markLpCancelSent(orderTx: string, cancel: LpCancelNote): void {
+  try {
+    writeNotes(readLpNotes().map((n) => (n.txHash === orderTx ? { ...n, cancel } : n)));
+  } catch {
+    /* storage blocked: the page holds the cancel in memory */
   }
 }
 

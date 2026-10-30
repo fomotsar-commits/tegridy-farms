@@ -385,6 +385,62 @@ export function encodeSwapOrderDatum(csl: Csl, t: SwapOrderTerms): string {
   return encodeOrderDatum(csl, { trader: t.trader, lp: t.pool.lp, step: encodeSwapStep(csl, aToB, t.swapAmount, t.minimumReceive), maxBatcherFee: MINSWAP_V2.maxBatcherFee });
 }
 
+/**
+ * The spend that hands an order back to its owner. types.ak OrderRedeemer is ApplyOrder,
+ * CancelOrderByOwner, CancelExpiredOrderByAnyone, so this is Constr 1 [] (d87a80), as in every
+ * owner cancel read on mainnet. order_validator.ak passes it when the datum's canceller
+ * authorises the transaction (utils.ak authorize_order_license): OAMSignature(h) when h signs.
+ */
+export function cancelRedeemer(csl: Csl): PlutusData {
+  return constr(csl, 1, []);
+}
+
+function credentialOf(d: PlutusData | undefined): Credential | null {
+  if (!d) return null;
+  for (const [alternative, kind] of [[0, 'key'], [1, 'script']] as const) {
+    const f = constrOf(d, alternative, 1);
+    const hash = f ? bytesOf(f[0]) : null;
+    if (hash !== null) return /^[0-9a-f]{56}$/.test(hash) ? { kind, hash } : null;
+  }
+  return null;
+}
+
+/** An Address as Plutus data (addressData's reverse); null for a pointer stake part or anything malformed. */
+function addressOf(d: PlutusData | undefined): { payment: Credential; stake: Credential | null } | null {
+  const f = d ? constrOf(d, 0, 2) : null;
+  const payment = credentialOf(f?.[0]);
+  if (!f || !payment) return null;
+  if (constrOf(f[1]!, 1, 0)) return { payment, stake: null };
+  const some = constrOf(f[1]!, 0, 1);
+  const inline = some ? constrOf(some[0]!, 0, 1) : null;
+  const stake = credentialOf(inline?.[0]);
+  return stake ? { payment, stake } : null;
+}
+
+export interface OrderOwner {
+  /** OAMSignature's key hash; null when another method (a script) may cancel. */
+  cancellerKeyHash: string | null;
+  refundTo: { payment: Credential; stake: Credential | null };
+  /** Whether the refund is paid with a datum of its own (anything but EODNoDatum). */
+  refundHasDatum: boolean;
+}
+
+/** Who may cancel the order and whom its refund pays, read off its datum; null when it is not an order datum. */
+export function readOrderOwner(csl: Csl, datumHex: string): OrderOwner | null {
+  let datum: PlutusData;
+  try {
+    datum = csl.PlutusData.from_hex(datumHex);
+  } catch {
+    return null;
+  }
+  const f = constrOf(datum, 0, 9);
+  const refundTo = f ? addressOf(f[1]) : null;
+  if (!f || !refundTo) return null;
+  const sig = constrOf(f[0]!, 0, 1);
+  const key = sig ? bytesOf(sig[0]) : null;
+  return { cancellerKeyHash: key !== null && /^[0-9a-f]{56}$/.test(key) ? key : null, refundTo, refundHasDatum: constrOf(f[2]!, 0, 0) === null };
+}
+
 /** What the order locks: the swap, the batcher fee, and the deposit that comes back. */
 export function orderValue(t: Pick<SwapOrderTerms, 'assetIn' | 'swapAmount'>): { lovelace: bigint; token: { asset: CardanoAsset; quantity: bigint } | null } {
   const ada = MINSWAP_V2.maxBatcherFee + MINSWAP_V2.orderDeposit;

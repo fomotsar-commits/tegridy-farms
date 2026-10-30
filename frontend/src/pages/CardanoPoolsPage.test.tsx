@@ -1,7 +1,8 @@
 // The venue's own Cardano pools page, pressed through like a visitor would. As shipped (no
 // deployment record) it says plainly that the pools are not open and builds nothing. With the
 // batcher's test world deployed in its place, a deposit is reviewed, signed and sent, and the
-// order it sends sits at OUR order script, never Minswap's.
+// order it sends sits at OUR order script, never Minswap's; an order still open is cancelled
+// from OUR order script's reference copy, never Minswap's.
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
@@ -9,7 +10,7 @@ import { ThemeProvider } from '../contexts/ThemeContext';
 import type { PrivateKey } from '@emurgo/cardano-serialization-lib-browser';
 import type { Csl } from '../lib/cardano/csl';
 import { composeAddress, hexToBytes, type ParsedAddress } from '../lib/cardano/address';
-import { MINSWAP_V2 } from '../lib/cardano/minswapV2';
+import { encodeDepositStep, encodeOrderDatum, MINSWAP_V2, orderAddressFor } from '../lib/cardano/minswapV2';
 import { resetCardanoWalletForTests } from '../lib/cardano/walletStore';
 
 const loads = vi.hoisted(() => ({ count: 0 }));
@@ -46,7 +47,9 @@ vi.mock('../components/ArtImg', () => ({ ArtImg: () => null }));
 vi.mock('../components/PageArtBackdrop', () => ({ PageArtBackdrop: () => null }));
 
 import CardanoPoolsPage from './CardanoPoolsPage';
-import { WORLD } from '../lib/cardano/ownPools/testWorld.fixture';
+import { PLUTUS, TEST_RECORD, WORLD } from '../lib/cardano/ownPools/testWorld.fixture';
+import { readOwnPoolsDeployment } from '../lib/cardano/ownPools/deployment';
+import type { LpOrderNote } from '../lib/cardano/ownPools/lpWatch';
 import { testCsl } from '../lib/cardano/testkit.fixture';
 
 const PARAMS = { txFeePerByte: 44, txFeeFixed: 155381, utxoCostPerByte: 4310, maxTxSize: 16384, maxValueSize: 5000, stakeAddressDeposit: 2000000, stakePoolDeposit: 500000000, minFeeRefScriptCostPerByte: 15 };
@@ -61,6 +64,8 @@ let poolAnswer: () => unknown[] = () => [poolRow()];
 let assetAnswer: () => unknown = () => TOK_INFO;
 /** Extra coins in the stand-in wallet (LP tokens). */
 let extraUtxos: () => string[] = () => [];
+/** What the chain answers for one UTxO (an order's status, or a cancel's fresh read). */
+let utxoAnswer: () => unknown = () => [];
 
 /** The world's pool row, its datum's total LP supply optionally replaced. */
 function poolRow(totalLiquidity?: bigint) {
@@ -122,10 +127,10 @@ function stubChain() {
       const op = u.pathname.replace('/api/cardano/', '');
       const body =
         op === 'ownpool' ? poolAnswer()
-        : op === 'params' ? PARAMS
+        : op === 'params' ? { ...PARAMS, costModels: { PlutusV2: PLUTUS.costModelV2 }, executionUnitPrices: { priceMemory: 0.0577, priceSteps: 7.21e-5 }, collateralPercentage: 150, maxCollateralInputs: 3 }
         : op === 'asset' ? assetAnswer()
         : op === 'tip' ? [{ abs_slot: 201256000, block_height: 14108900, block_time: 1792822300 }]
-        : op === 'utxo' ? []
+        : op === 'utxo' ? utxoAnswer()
         : op === 'txstatus' ? [{ tx_hash: u.searchParams.get('tx'), num_confirmations: null }]
         : undefined;
       if (body === undefined) return new Response('no', { status: 500 });
@@ -157,6 +162,7 @@ afterEach(() => {
   poolAnswer = () => [poolRow()];
   assetAnswer = () => TOK_INFO;
   extraUtxos = () => [];
+  utxoAnswer = () => [];
 });
 
 function renderPage() {
@@ -284,4 +290,108 @@ describe('CardanoPoolsPage, after review', () => {
     expect(banner).toMatch(/record was refused \(it names one of Minswap’s own scripts\)/);
     expect(banner).not.toMatch(/not on chain yet/);
   });
+});
+
+describe('CardanoPoolsPage, an add order of yours still open', () => {
+  const ORDER_TX = 'd1'.repeat(32);
+  const dep = () => {
+    const r = readOwnPoolsDeployment(TEST_RECORD);
+    if (r.kind !== 'deployed') throw new Error('test record refused');
+    return r.pools;
+  };
+  const lp = () => ({ policyId: WORLD.scripts.authen.hash, assetName: WORLD.lpName });
+
+  function note(over: Partial<LpOrderNote> = {}): LpOrderNote {
+    return {
+      kind: 'deposit',
+      txHash: ORDER_TX,
+      orderIndex: 0,
+      traderHex: trader.hex,
+      traderPaymentHash: trader.payment.hash,
+      token: WORLD.token,
+      lp: lp(),
+      tokenLabel: { ticker: 'TOK', decimals: 6 },
+      amountAda: '10000000',
+      amountToken: '500000000',
+      lpAmount: '2000000',
+      ttlSlot: 201256900,
+      submitted: true,
+      placedAt: Date.now(),
+      ...over,
+    };
+  }
+
+  /** The order at OUR order script, unspent, as Koios answers utxo_info extended. */
+  function openOrder() {
+    const datum = encodeOrderDatum(csl, { trader, lp: lp(), step: encodeDepositStep(csl, 10_000_000n, 500_000_000n, 2_000_000n), maxBatcherFee: 2_000_000n });
+    return [
+      {
+        tx_hash: ORDER_TX,
+        tx_index: 0,
+        address: orderAddressFor(trader, dep()).bech32,
+        value: '14000000',
+        asset_list: [{ policy_id: WORLD.token.policyId, asset_name: WORLD.token.assetName, quantity: '500000000' }],
+        inline_datum: { bytes: datum },
+        is_spent: false,
+      },
+    ];
+  }
+
+  async function connect() {
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: 'Connect a Cardano wallet' }));
+    fireEvent.click(await screen.findByRole('button', { name: /Eternl/ }));
+    await screen.findByTitle(trader.bech32);
+  }
+
+  it('offers Cancel order, says what comes back, and sends the owner’s cancel from OUR order script', async () => {
+    deployment.deployed = true;
+    utxoAnswer = openOrder;
+    localStorage.setItem('tegridy.ownpools.orders.v1', JSON.stringify([note()]));
+    await connect();
+    const row = await screen.findByTestId('cardano-pools-order');
+    await within(row).findByText(/Order placed/, {}, { timeout: 4000 });
+    expect(row.textContent).toMatch(/Your 10 ADA and 500 TOK, the batcher fee and the 2 ADA deposit all come back to your wallet, less the network fee/);
+    fireEvent.click(await within(row).findByRole('button', { name: 'Cancel order' }, { timeout: 4000 }));
+    const review = await screen.findByTestId('cardano-pools-cancel-review', {}, { timeout: 8000 });
+    expect(review.textContent).toMatch(/You get back\s*13\.\d+ ADA and 500 TOK/);
+    expect(review.textContent).toContain(`TOK: ${WORLD.token.policyId}.${WORLD.token.assetName}`);
+    expect(review.textContent).toMatch(/Batcher feeNone/);
+    expect(review.textContent).toContain(trader.bech32);
+    fireEvent.click(within(review).getByRole('button', { name: 'Sign the cancel' }));
+    await waitFor(() => expect(submitted.length).toBe(1), { timeout: 4000 });
+    const tx = csl.FixedTransaction.from_hex(submitted[0]!);
+    const body = csl.TransactionBody.from_bytes(tx.raw_body());
+    expect(body.inputs().get(0).transaction_id().to_hex()).toBe(ORDER_TX);
+    const ref = body.reference_inputs()!.get(0);
+    expect(`${ref.transaction_id().to_hex()}#${ref.index()}`).toBe(TEST_RECORD.orderRef.ref);
+    expect(ref.transaction_id().to_hex()).not.toBe('cf4ecddde0d81f9ce8fcc881a85eb1f8ccdaf6807f03fea4cd02da896a621776');
+    expect(tx.witness_set().redeemers()!.get(0).data().to_hex()).toBe('d87a80');
+    expect(Buffer.from(body.outputs().get(0).address().to_bytes()).toString('hex')).toBe(trader.hex);
+    await within(row).findByText(/Cancel sent/, {}, { timeout: 4000 });
+    expect(within(row).queryByRole('button', { name: 'Cancel order' })).toBeNull();
+  }, 30_000);
+
+  it('offers no cancel while a cancel sent from here may still land', async () => {
+    deployment.deployed = true;
+    utxoAnswer = openOrder;
+    localStorage.setItem('tegridy.ownpools.orders.v1', JSON.stringify([note({ cancel: { txHash: 'c1'.repeat(32), sentAt: Date.now(), ttlSlot: 201256900 } })]));
+    await connect();
+    const row = await screen.findByTestId('cardano-pools-order');
+    await within(row).findByText(/Cancel sent/, {}, { timeout: 4000 });
+    expect(within(row).queryByRole('button', { name: 'Cancel order' })).toBeNull();
+  }, 30_000);
+
+  it('offers no cancel on an order the chain has not shown, one already settled, or a pool opening', async () => {
+    deployment.deployed = true;
+    utxoAnswer = () => [];
+    const filled = note({ txHash: 'd2'.repeat(32), settled: { kind: 'filled', fillTx: 'f9'.repeat(32), lp: '2236067', ada: '0', token: '0' } });
+    const opening = note({ txHash: 'd3'.repeat(32), kind: 'open', totalLiquidity: '2236077' });
+    localStorage.setItem('tegridy.ownpools.orders.v1', JSON.stringify([note(), filled, opening]));
+    await connect();
+    await waitFor(() => expect(screen.getAllByTestId('cardano-pools-order').length).toBe(3));
+    await screen.findByText(/Filled:/, {}, { timeout: 4000 });
+    await screen.findAllByText(/Sent. The chain has not shown it yet/, {}, { timeout: 4000 });
+    expect(screen.queryByRole('button', { name: 'Cancel order' })).toBeNull();
+  }, 30_000);
 });

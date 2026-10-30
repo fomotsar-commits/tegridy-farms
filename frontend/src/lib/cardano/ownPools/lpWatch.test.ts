@@ -5,7 +5,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ADA } from '../minswapV2';
 import { entryIndex } from './lpMath';
-import { markLpSettled, readLpEntries, readLpNotes, readLpOrderStatus, settledLpStatus, writeLpNote, type LpOrderNote } from './lpWatch';
+import { lastSentAt, lpCancelInFlight, markLpCancelSent, markLpSettled, readLpEntries, readLpNotes, readLpOrderStatus, settledLpStatus, writeLpNote, type LpOrderNote } from './lpWatch';
 import { WORLD, trader } from './testWorld.fixture';
 
 const T = trader('1');
@@ -119,5 +119,41 @@ describe('notes over time', () => {
     const w = { ...note('withdraw'), txHash: '03'.repeat(32), lpAmount: '1200' };
     markLpSettled(w, { kind: 'filled', fillTx: FILL_TX, lp: 0n, ada: 1n, token: 1n });
     expect(readLpEntries().map((e) => [e.txHash, e.lp])).toEqual([['02'.repeat(32), '300']]);
+  });
+});
+
+describe('a cancel of the order', () => {
+  const CANCEL = { txHash: '0c'.repeat(32), sentAt: 1_000_000, ttlSlot: 201_256_900 };
+
+  it('is noted on the order before it leaves, and read back with it', () => {
+    writeLpNote(note('deposit'));
+    markLpCancelSent(ORDER_TX, CANCEL);
+    expect(readLpNotes()[0]!.cancel).toEqual(CANCEL);
+  });
+
+  it('a malformed cancel is dropped, never the order: it is read, and offered, again', () => {
+    localStorage.setItem('tegridy.ownpools.orders.v1', JSON.stringify([{ ...note('deposit'), cancel: { ...CANCEL, txHash: 'x' } }]));
+    const [n] = readLpNotes();
+    expect(n?.txHash).toBe(ORDER_TX);
+    expect(n?.cancel).toBeUndefined();
+  });
+
+  it('is on its way until its 15-minute expiry and the 20-minute margin have passed, then the button comes back', () => {
+    const n = { ...note('deposit'), cancel: CANCEL };
+    expect(lpCancelInFlight(note('deposit'), CANCEL.sentAt)).toBe(false);
+    expect(lpCancelInFlight(n, CANCEL.sentAt + 34 * 60_000)).toBe(true);
+    expect(lpCancelInFlight(n, CANCEL.sentAt + 35 * 60_000)).toBe(false);
+  });
+
+  it('counts as freshly sent for how often the order is read', () => {
+    expect(lastSentAt({ placedAt: 5, cancel: CANCEL })).toBe(CANCEL.sentAt);
+    expect(lastSentAt({ placedAt: 5 })).toBe(5);
+  });
+
+  it('once it lands, the order reads as returned by the cancel itself', async () => {
+    spentBy({ value: '13750000', asset_list: [{ policy_id: WORLD.token.policyId, asset_name: WORLD.token.assetName, quantity: '500000000' }] });
+    expect(await readLpOrderStatus(note('deposit'))).toEqual({ kind: 'returned', fillTx: FILL_TX });
+    spentBy({ value: '3750000', asset_list: [{ policy_id: LP.policyId, asset_name: LP.assetName, quantity: '2000000' }] });
+    expect(await readLpOrderStatus(note('withdraw'))).toEqual({ kind: 'returned', fillTx: FILL_TX });
   });
 });

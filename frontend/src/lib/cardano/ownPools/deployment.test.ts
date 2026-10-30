@@ -37,6 +37,17 @@ describe('the own-pools deployment record', () => {
     expect(readOwnPoolsDeployment({ ...TEST_RECORD, authenRef: ref })).toEqual({ kind: 'refused', reason: 'a reference script is one of Minswap’s' });
   });
 
+  it('reads the order script’s reference UTxO, and refuses Minswap’s (a cancel would run Minswap’s script) or none', () => {
+    const r = readOwnPoolsDeployment(TEST_RECORD);
+    expect(r.kind === 'deployed' && r.pools.orderRef).toEqual({ txHash: 'f3'.repeat(32), index: 0, scriptSize: 2659 });
+    // Minswap V2 deployed/mainnet/references.json orderTxId.
+    const minswapOrderRef = { ref: 'cf4ecddde0d81f9ce8fcc881a85eb1f8ccdaf6807f03fea4cd02da896a621776#0', scriptSize: 2659 };
+    expect(readOwnPoolsDeployment({ ...TEST_RECORD, orderRef: minswapOrderRef })).toEqual({ kind: 'refused', reason: 'a reference script is one of Minswap’s' });
+    const { orderRef: _dropped, ...withoutOrderRef } = TEST_RECORD;
+    expect(readOwnPoolsDeployment(withoutOrderRef as typeof TEST_RECORD)).toEqual({ kind: 'refused', reason: 'a reference script is not "txhash#index" with its size' });
+    expect(readOwnPoolsDeployment({ ...TEST_RECORD, orderRef: { ref: `${'f3'.repeat(32)}#0`, scriptSize: 0 } }).kind).toBe('refused');
+  });
+
   it('refuses a pool address off the pool script, a testnet treasury, a typo’d fee and an impossible budget', () => {
     const elsewhere = composeAddress({ kind: 'script', hash: TEST_RECORD.orderScriptHash }, null);
     expect(readOwnPoolsDeployment({ ...TEST_RECORD, poolAddress: elsewhere.bech32 }).kind).toBe('refused');

@@ -168,7 +168,7 @@ export function openPoolLayout(csl: Csl, dep: OwnPools, params: ProtocolParams, 
   };
 }
 
-function costModels(csl: Csl, plutus: PlutusParams) {
+export function costModels(csl: Csl, plutus: PlutusParams) {
   const cm = csl.CostModel.new();
   plutus.costModelV2.forEach((v, i) => cm.set(i, v >= 0 ? csl.Int.new(bn(csl, v)) : csl.Int.new_negative(bn(csl, -v))));
   const all = csl.Costmdls.new();
