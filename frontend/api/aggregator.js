@@ -469,25 +469,14 @@ export default async function handler(req, res) {
     return handlePosition(req, res);
   }
 
-  // `?resource=airdrop` is the hosted airdrop manifest store: a claimant fetches THEIR
-  // OWN leaf and proof, and a creator publishes the list before funding. There is
-  // deliberately no branch that returns the recipient list — an airdrop recipient list
-  // is a wallet-targeting database, so the capability does not exist rather than being
-  // permission-checked. Lazy import, same as the branches above; also above
-  // `const provider`. See _lib/airdrop.js.
-  if (req.query.resource === "airdrop") {
-    const { handleAirdrop } = await import("./_lib/airdrop.js");
-    return handleAirdrop(req, res);
-  }
-
   // `?resource=referrals` is the short-code store behind `/?r=code` referral links:
   // one code in, at most one wallet out. It is NOT the referral ledger — earnings,
   // referee counts and claimable balances are ReferralSplitter's state and are read
   // from chain, never mirrored here. It is also not a referrer directory: the single
-  // public read is service-role with a pinned one-row filter, for the same reason
-  // airdrop above has no recipient-list endpoint. The whole store being absent
-  // degrades to a working feature — `/?ref=0x…` links need no server at all. Lazy
-  // import, same as the branches above; also above `const provider`. See
+  // public read is service-role with a pinned one-row filter, because a list of
+  // every referrer's wallet is a wallet-targeting database. The whole store being
+  // absent degrades to a working feature — `/?ref=0x…` links need no server at all.
+  // Lazy import, same as the branches above; also above `const provider`. See
   // _lib/referrals.js.
   if (req.query.resource === "referrals") {
     const { handleReferrals } = await import("./_lib/referrals.js");
