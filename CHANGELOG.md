@@ -102,7 +102,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-10-18
 
-- TOWELI staking moves to a new contract: up to 1,000,000 TOWELI a wallet, and leaving a lock early costs 75%, paid to the treasury. Its reward pot is paid out over four years, with no cap on the whole pool. A position on the first contract keeps its 25% and gets its own card on the Farm page.
+- TOWELI staking moves to a new contract: up to 10,000,000 TOWELI a wallet, and leaving a lock early costs 75%, paid to the treasury. Its reward pot is paid out over four years, with no cap on the whole pool. A position on the first contract keeps its 25% and gets its own card on the Farm page.
 - Base and Robinhood Chain: Pools opens on each network's own coins, not Ethereum's TOWELI; Robinhood's Swap opens on ETH to USDG; a refused switch is said.
 - Heat and Rooms are now Island; the menu gains More.
 - The home: the chain row gains ROBINHOOD, which opens the curve on Robinhood Chain, and BASE now opens the curve on Base (it opened your wallet's chain, or Ethereum with no wallet). The home's Swap and Add SOL + BAYLA cards each have the network drop-down; picking another network opens that network's Swap or Pools page.

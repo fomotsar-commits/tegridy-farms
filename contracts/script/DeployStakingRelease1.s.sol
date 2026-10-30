@@ -34,8 +34,9 @@ import {SwapFeeRouterAdmin} from "../src/SwapFeeRouterAdmin.sol";
 ///         VALUES. Every value is copied from the live contract it replaces, read at run time,
 ///         and compared against what was read on 2026-10-14 (block 26,190,643). If anything has
 ///         moved since, the run aborts before sending: look at why first.
-///         Three values are NOT copied, all owner rulings of 2026-10-18:
-///           - per-wallet stake cap 1,000,000 TOWELI (the old contract's 50,000 is still asserted);
+///         Three values are NOT copied, all owner rulings (2026-10-18; the cap raised 2026-10-30):
+///           - per-wallet stake cap 10,000,000 TOWELI (owner 2026-10-30; it was 1,000,000 from
+///             2026-10-18). The old contract's 50,000 is still asserted;
 ///           - NO whole-pool cap: `maxTotalStaked` is left at its constructor default, uncapped
 ///             (the old contract's 5,000,000 is still asserted);
 ///           - NO reward rate: the contract starts at 0 and sets its own rate from each funding,
@@ -68,7 +69,7 @@ contract DeployStakingRelease1Script is Script {
     address constant PAUSE_GUARDIAN = 0xCDCA0F0621ce34012AD61bBD140f327EB778F354; // Safe
     address constant TEGRIDY_LP = 0x55875887B43C2E23aE424AF0FC8606Fdb058a481; // LP farm's staking token
     uint256 constant OLD_MAX_STAKE_PER_USER = 50_000e18;
-    uint256 constant MAX_STAKE_PER_USER = 1_000_000e18; // owner 2026-10-18: the new contract's cap
+    uint256 constant MAX_STAKE_PER_USER = 10_000_000e18; // owner 2026-10-30: the new contract's cap (was 1,000,000)
     uint256 constant OLD_MAX_TOTAL_STAKED = 5_000_000e18;
     uint256 constant MAX_UNSETTLED_REWARDS = 100_000e18; // constructor default; asserted, not set
     uint256 constant LP_REWARDS_DURATION = 7 days;

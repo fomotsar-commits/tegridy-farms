@@ -86,7 +86,7 @@ to the treasury.
 | Pool | Chain | How it works | Today |
 |---|---|---|---|
 | **BAYLA lock ladder** | Solana, our own program | Lock 7 days to 4 years for a 0.4× to 4.0× reward weight. Leaving early costs the time left on your lock over four years, capped at 75%. That penalty stays in the pool as rewards for everyone else. | 🟢 Paying. 2,000,000 BAYLA of its rewards came from the island's Workshop on 2026-09-24. |
-| **TOWELI** | Ethereum | Lock 7 days to 4 years. The weight rises in a straight line from 0.4× to 4.0× (about 1.3× at one year); a JBAC NFT adds 0.5×. One wallet can stake up to 1,000,000 TOWELI, and the reward pot is paid out over four years. Leaving early costs 75%, sent to the treasury. A position on the first contract keeps its 25% and can only leave. | 🟢 Live |
+| **TOWELI** | Ethereum | Lock 7 days to 4 years. The weight rises in a straight line from 0.4× to 4.0× (about 1.3× at one year); a JBAC NFT adds 0.5×. One wallet can stake up to 10,000,000 TOWELI, and the reward pot is paid out over four years. Leaving early costs 75%, sent to the treasury. A position on the first contract keeps its 25% and can only leave. | 🟢 Live |
 | **BAYLA lighthouse, BOBO, SOY, BRAINLET, RIZZ** | Solana, on Streamflow | Fixed locks with **no early exit at all**. | 🟢 Live |
 | **PEPE, QR, MFER, BNKR, DRB, JBM** | PEPE on Ethereum, the rest on Base | TOWELI's ladder; the 25% early-exit penalty stays in the pool. | ⏸ Deployed but unfunded: all six read a reward rate of 0 on 2026-10-14, so they take no new stakes. Exits still work. |
 

@@ -50,7 +50,7 @@ the live contracts and aborts if any moved since 2026-10-14. After sending, it c
 | 2 | deploy `TegridyStakingJbacVault`; `staking.setJbacVault(vault)` | one-shot, instant |
 | 3 | deploy `TegridyStakingAdmin`; `staking.setStakingAdmin(admin)` | one-shot, instant |
 | 4 | `staking.setPauseGuardian(0xCDCA0F0621ce34012AD61bBD140f327EB778F354)` (the live guardian Safe) | instant |
-| 5 | `staking.setMaxStakePerUser(1,000,000 TOWELI)` (owner 2026-10-18; the old contract's is 50,000). **No whole-pool cap** (owner 2026-10-18): `setMaxTotalStaked` is not called, so it stays uncapped (the old contract's is 5,000,000) | instant |
+| 5 | `staking.setMaxStakePerUser(10,000,000 TOWELI)` (owner 2026-10-30, was 1,000,000 from 2026-10-18; the old contract's is 50,000). **No whole-pool cap** (owner 2026-10-18): `setMaxTotalStaked` is not called, so it stays uncapped (the old contract's is 5,000,000) | instant |
 | 6 | deploy `StakingMonitorView`, `TegridyTokenURIReader`, `TegridyLPFarming` | deploy |
 | 7 | deploy `RevenueDistributor`; `revDist.setPauseGuardian(0xCDCA0F0621ce34012AD61bBD140f327EB778F354)` | instant |
 | 8 | deploy `ReferralSplitter`; `setApprovedCaller(SwapFeeRouter 0x6d5791A660e79175F74C6D639584C98422d5956E, true)`; `completeSetup()` | one-shot, instant |

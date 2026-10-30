@@ -54,7 +54,7 @@ contract StakingEarlyExit75Test is Test {
         vault = new TegridyStakingJbacVault(address(nft), address(staking));
         staking.setJbacVault(address(vault));
 
-        token.transfer(bob, 1_000_000 ether);
+        token.transfer(bob, 10_000_000 ether); // enough for the fuzz's full per-wallet cap
         token.transfer(carol, 1_000_000 ether);
         vm.prank(bob);
         token.approve(address(staking), type(uint256).max);
@@ -196,7 +196,7 @@ contract StakingEarlyExit75Test is Test {
     /// Fuzz: for any stake size and any moment inside the lock, the split is exact.
     function testFuzz_earlyWithdraw_split(uint96 rawAmount, uint32 rawElapsed) public {
         // Up to the release's per-wallet cap (DeployStakingRelease1.MAX_STAKE_PER_USER).
-        uint256 amount = bound(uint256(rawAmount), 100 ether, 1_000_000 ether);
+        uint256 amount = bound(uint256(rawAmount), 100 ether, 10_000_000 ether);
         uint256 lock = 365 days;
         uint256 elapsed = bound(uint256(rawElapsed), 0, lock - 1);
         _stake(carol, 5_000 ether, lock);
