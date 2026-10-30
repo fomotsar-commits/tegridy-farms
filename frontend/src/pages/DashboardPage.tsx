@@ -4,7 +4,7 @@ import { useAccount, useBalance, useChainId, useReadContract, useWriteContract, 
 import { formatEther } from 'viem';
 import { Link, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
-import { TOWELI_ADDRESS, REVENUE_DISTRIBUTOR_ADDRESS, POL_ACCUMULATOR_ADDRESS, SWAP_FEE_ROUTER_ADDRESS, CHAIN_ID, isDeployed, TEGRIDY_RESTAKING_ADDRESS } from '../lib/constants';
+import { TOWELI_ADDRESS, REVENUE_DISTRIBUTOR_ADDRESS, POL_ACCUMULATOR_ADDRESS, SWAP_FEE_ROUTER_ADDRESS, CHAIN_ID, isDeployed } from '../lib/constants';
 import { ERC20_ABI, REVENUE_DISTRIBUTOR_ABI } from '../lib/contracts';
 import { getAddressUrl } from '../lib/explorer';
 import { stakingClaimPaid, NOTHING_PAID_COPY } from '../lib/stakingClaimPaid';
@@ -630,13 +630,6 @@ function ToweliDashboard() {
                     {nft.boostLabel && (
                       <span className="badge badge-primary text-[10px]">{nft.boostLabel}</span>
                     )}
-                    {/* Restaking is DEFERRED to Phase 7 (TEGRIDY_RESTAKING_ADDRESS
-                        zeroed). Same dead-CTA fix as StakingCard.tsx. */}
-                    {isDeployed(TEGRIDY_RESTAKING_ADDRESS) && (
-                      <Link to="/earn/toweli" className="text-[11px] text-white/70 hover:text-white transition-colors ml-auto">
-                        Restake for bonus yield &#8594;
-                      </Link>
-                    )}
                   </div>
                 </div>
               </m.div>
@@ -855,11 +848,10 @@ function ToweliDashboard() {
                 <div className="relative z-10 p-8 py-12 text-center">
                   <p className="text-white text-[15px] mb-2">No outstanding loans</p>
                   <p className="text-white/70 text-[12px] mb-4 max-w-sm mx-auto">
-                    Borrow ETH against staking positions or NFTs, or lend to earn interest.
+                    Borrow ETH against NFTs, or lend to earn interest.
                   </p>
                   <div className="flex items-center justify-center gap-3 flex-wrap">
                     <Link to="/nft-finance?section=nftlending" className="btn-primary px-5 py-2.5 text-[13px]">NFT Lending &#8594;</Link>
-                    <Link to="/nft-finance?section=lending" className="btn-secondary px-5 py-2.5 text-[13px]">Token Lending &#8594;</Link>
                   </div>
                 </div>
               </m.div>
@@ -1285,7 +1277,7 @@ function OutstandingLoans({ loans, unreadCount }: {
           </div>
           <div className="space-y-2">
             {loans.slice(0, 5).map(loan => (
-              <LoanRow key={`${loan.source}-${loan.id}`} loan={loan} />
+              <LoanRow key={loan.id} loan={loan} />
             ))}
             {loans.length > 5 && (
               <Link to="/nft-finance"
@@ -1323,20 +1315,15 @@ function LoanRow({ loan }: { loan: import('../hooks/useMyLoans').MyLoan }) {
   const isUrgent = !isOverdue && remaining < 86400;
   const roleLabel = loan.role === 'borrower' ? 'You owe' : 'You lent';
   const roleColor = loan.role === 'borrower' ? 'text-white' : 'text-success';
-  const sourceBadge = loan.source === 'nft' ? 'NFT' : 'Token';
-  const sourceBadgeClass = loan.source === 'nft'
-    ? 'bg-purple-500/20 text-purple-200 border-purple-500/40'
-    : 'bg-blue-500/20 text-blue-200 border-blue-500/40';
   const roleBadgeClass = loan.role === 'borrower'
     ? 'bg-orange-500/15 text-orange-200 border-orange-500/35'
     : 'bg-emerald-500/15 text-emerald-200 border-emerald-500/35';
-  const linkTo = loan.source === 'nft' ? '/nft-finance?section=nftlending' : '/nft-finance?section=lending';
+  const linkTo = '/nft-finance?section=nftlending';
   return (
     <Link to={linkTo} className="flex items-center justify-between gap-3 p-3 rounded-lg hover:bg-white/5 transition-colors"
       style={{ background: 'rgba(255,255,255,0.02)' }}>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-          <span className={`text-[9px] px-1.5 py-0.5 rounded border font-semibold uppercase tracking-wider ${sourceBadgeClass}`}>{sourceBadge}</span>
           <span className={`text-[9px] px-1.5 py-0.5 rounded border font-semibold uppercase tracking-wider ${roleBadgeClass}`}>{loan.role}</span>
           <span className="text-white text-[13px] font-semibold">#{loan.id}</span>
           <span className="text-white/60 text-[11px]">·</span>

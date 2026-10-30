@@ -1107,7 +1107,7 @@ function writeFailure(err: unknown, fallback: string, walletSigned = false): Fai
       ok: false,
       reason:
         'This position has passed a hard limit inside the reward program, so it can no longer pay out. Nothing moved, and this will not clear by retrying. ' +
-        'Your staked BAYLA is safe and still returns in full when the lock ends; it is the unclaimed rewards on this position that can no longer be collected.',
+        'Your stake is safe and still returns in full when the lock ends; it is the unclaimed rewards on this position that can no longer be collected.',
       permanent: true,
     };
   }

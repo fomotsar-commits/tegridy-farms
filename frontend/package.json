@@ -98,6 +98,9 @@
     "vitest": "^5.0.3"
   },
   "overrides": {
+    "@ethersproject/providers": {
+      "ws": "~8.21.1"
+    },
     "toml": "^5.0.1"
   }
 }

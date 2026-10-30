@@ -507,6 +507,18 @@ describe('stake', () => {
     expect(reasons).toHaveLength(errors.length * writes.length + 1);
     for (const reason of reasons) expect(reason).not.toContain('—');
   });
+
+  // Every bungalow's pool reaches this line, and most of them do not stake BAYLA.
+  it('a claim the reward program refuses for good names no coin', async () => {
+    const lib = await import('./bungalowStaking');
+    claimRewards.mockReset().mockRejectedValue(rewardProgramSays(6000));
+    const r = await lib.claimRewards({ invoker, pool, rewardPool: pool.rewardPools[0]!, entryNonce: 0 });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.permanent).toBe(true);
+    expect(r.reason).toContain('Your stake is safe');
+    expect(r.reason).not.toMatch(/BAYLA/);
+  });
 });
 
 describe('payingNowRate — the stat must never contradict the banner beside it', () => {

@@ -105,6 +105,13 @@ export function turnedDiff(diff: number): number {
   return 1 / (1 + diff) - 1;
 }
 
+/** Dollars: whole from $1,000, cents below, "<$0.01" under a cent (the wallet's rule, lib/wallet/walletRows.ts `fmtUsd`). */
+export function usdText(v: number): string {
+  if (v >= 1000) return `$${v.toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
+  if (v >= 0.01) return `$${v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return '<$0.01';
+}
+
 /** Token amount with its decimals, or raw base units said as such. */
 export function tokenText(raw: bigint, decimals: number | null, unit = 'tokens'): string {
   const t = formatTokenAmount(raw, decimals, 4);

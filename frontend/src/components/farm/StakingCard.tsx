@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { m } from 'framer-motion';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
-import { Link } from 'react-router-dom';
 import { formatTokenAmount, formatTokenAmountGrouped, sanitizeDecimalInput } from '../../lib/formatting';
 import { AnimatedCounter } from '../AnimatedCounter';
 import { CONNECT_ETHEREUM_WALLET, PENALTY_COPY } from '../../lib/copy';
@@ -13,7 +12,7 @@ import { FinePrint } from '../ui/FinePrint';
 import { useReadContract } from 'wagmi';
 import { formatEther, parseEther } from 'viem';
 import { TEGRIDY_STAKING_ABI } from '../../lib/contracts';
-import { TEGRIDY_STAKING_ADDRESS, CHAIN_ID, LOCK_OPTIONS, EARLY_WITHDRAWAL_PENALTY_BPS, MAX_LOCK_DURATION, TEGRIDY_RESTAKING_ADDRESS, isDeployed } from '../../lib/constants';
+import { TEGRIDY_STAKING_ADDRESS, CHAIN_ID, LOCK_OPTIONS, EARLY_WITHDRAWAL_PENALTY_BPS, MAX_LOCK_DURATION } from '../../lib/constants';
 
 import { PositionMark, positionHost } from '../ui/PositionMark';
 // Derive from the canonical constant so the penalty label + math track one source.
@@ -572,19 +571,6 @@ export function StakingCard({
                   </div>
                 )}
               </div>
-              {/* Restaking is DEFERRED to Phase 7 — TEGRIDY_RESTAKING_ADDRESS is
-                  zeroed, so FarmPage's restaking section never renders. Advertising
-                  "bonus yield" with a link back to this same page was a live CTA for
-                  a dead feature; show an honest status label until it deploys. */}
-              {isDeployed(TEGRIDY_RESTAKING_ADDRESS) ? (
-                <Link to="/earn/toweli" className="text-center text-white/60 text-[12px] hover:text-white transition-colors mt-1">
-                  Restake for bonus yield &#8594;
-                </Link>
-              ) : (
-                <span className="text-center text-white/40 text-[12px] mt-1">
-                  Restaking: coming in Phase 7
-                </span>
-              )}
             </div>
           </div>
         ) : !isConnected ? (
