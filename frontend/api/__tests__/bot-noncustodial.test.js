@@ -265,7 +265,7 @@ describe('the endpoint is reachable, and reachable only the way it claims', () =
   it('pins every bot-credentialed read to exactly one chat', () => {
     // The bot's credential is one secret held by one process. If a read under it
     // were unfiltered, that one secret would be a downloadable map of every
-    // linked wallet — the shape referrals.js and airdrop.js both refuse.
+    // linked wallet — the shape referrals.js refuses too.
     for (const path of [...src.matchAll(/path:\s*`\$\{TABLE\}\?select=[^`]*`/g)].map((m) => m[0])) {
       expect(path).toMatch(/(chat_ref=eq\.|wallet=eq\.|wallet=not\.is\.null)/);
     }

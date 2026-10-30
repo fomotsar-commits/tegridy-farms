@@ -73,7 +73,7 @@ describe("isRequestOriginAllowed under prod-like env", () => {
   });
 
   it("rejects memetic.fun on every method — it serves the Island Lab, not this venue", () => {
-    // isOriginAllowed is the credentialed set for airdrop, alerts, botLink, commerce and
+    // isOriginAllowed is the credentialed set for alerts, botLink, commerce and
     // referrals. memetic.fun was the canonical probe origin above until 2026-09-20.
     for (const origin of ["https://memetic.fun", "https://www.memetic.fun"]) {
       expect(isOriginAllowed(origin), origin).toBe(false);
@@ -142,7 +142,6 @@ describe("no api/ file gates requests on the bare Origin-header shape", () => {
       "_lib/alerts.js",
       "_lib/referrals.js",
       "_lib/commerce.js",
-      "_lib/airdrop.js",
       "_lib/botLink.js",
     ];
     for (const rel of MUST_USE) {

@@ -1,7 +1,8 @@
 // The Cardano chain reader (api/cardano.js + _lib/cardano-ops.js): only named reads, strict
 // params, the upstream request built server-side, the key never reflected.
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { buildKoiosRequest, CARDANO_OPS, MINSWAP_V2_AUTHEN_POLICY, MINSWAP_V2_POOL_SCRIPT } from "../_lib/cardano-ops.js";
+import { buildKoiosRequest, CARDANO_OPS, MINSWAP_V2_AUTHEN_POLICY, MINSWAP_V2_POOL_SCRIPT, POLICY_COINS_ROWS } from "../_lib/cardano-ops.js";
+import { POLICY_READ_ROWS } from "../../src/lib/cardano/chain";
 import { MINSWAP_V2 } from "../../src/lib/cardano/minswapV2";
 
 vi.mock("../_lib/ratelimit.js", () => ({ checkRateLimit: vi.fn(async () => true), checkGlobalLimit: vi.fn(async () => true) }));
@@ -41,6 +42,8 @@ function upstream(body, status = 200) {
 
 const LP = "e66195788208dcd363edb600eaf2331019e3599baba645d81d61ef060c82d861";
 const TX = "73a22d3ed91deb5bf614434ef72745b296171d4515baf49bfb33755590b1499f";
+const POLICY = "279c909f348e533da5808898f87f9a14bb2c3dfbbacccd631d927a3f";
+const FP = "asset108xu02ckwrfc8qs9d97mgyh4kn8gdu9w8f5sxk";
 
 describe("cardano-ops", () => {
   it("pins the same Minswap V2 script and policy as the browser library", () => {
@@ -49,7 +52,7 @@ describe("cardano-ops", () => {
   });
 
   it("knows only its named reads", () => {
-    expect(Object.keys(CARDANO_OPS).sort()).toEqual(["asset", "credtxs", "params", "pool", "tip", "tx", "txstatus", "utxo"]);
+    expect(Object.keys(CARDANO_OPS).sort()).toEqual(["asset", "credtxs", "fingerprint", "params", "policy", "pool", "tip", "tx", "txstatus", "utxo"]);
     expect(buildKoiosRequest("submittx", {}, "")).toEqual({ error: 404, message: "Unknown Cardano read" });
     expect(buildKoiosRequest("constructor", {}, "")).toEqual({ error: 404, message: "Unknown Cardano read" });
     expect(buildKoiosRequest("__proto__", {}, "")).toEqual({ error: 404, message: "Unknown Cardano read" });
@@ -59,6 +62,17 @@ describe("cardano-ops", () => {
     const r = buildKoiosRequest("pool", { lp: LP }, "");
     expect(r.url).toBe(`https://api.koios.rest/api/v1/asset_utxos?payment_cred=eq.${MINSWAP_V2_POOL_SCRIPT}`);
     expect(JSON.parse(r.init.body)).toEqual({ _asset_list: [[MINSWAP_V2_AUTHEN_POLICY, LP]], _extended: true });
+  });
+
+  it("builds a pasted policy id's and asset1… id's reads itself, the caller's id the only text in them", () => {
+    const policy = buildKoiosRequest("policy", { policy: POLICY }, "");
+    expect(policy.url).toBe(
+      `https://api.koios.rest/api/v1/policy_asset_info?_asset_policy=${POLICY}&select=asset_name,asset_name_ascii,total_supply,token_registry_metadata->ticker&order=asset_name.asc&limit=51`,
+    );
+    expect(policy.init.method).toBe("GET");
+    expect(buildKoiosRequest("fingerprint", { fp: FP }, "").url).toBe(`https://api.koios.rest/api/v1/asset_list?fingerprint=eq.${FP}&select=policy_id,asset_name,fingerprint`);
+    // The browser knows the cap, to tell a whole list from a cut one.
+    expect(POLICY_COINS_ROWS).toBe(POLICY_READ_ROWS);
   });
 
   it("refuses every malformed param, so no caller text reaches the upstream", () => {
@@ -72,6 +86,11 @@ describe("cardano-ops", () => {
       ["utxo", { ref: TX }],
       ["credtxs", { cred: "ab".repeat(28), after: "1e9" }],
       ["tx", { tx: `${TX}0` }],
+      ["policy", { policy: `${POLICY}&select=*` }],
+      ["policy", { policy: POLICY.toUpperCase() }],
+      ["fingerprint", { fp: `${FP}&policy_id=neq.x` }],
+      ["fingerprint", { fp: "asset1" + "b".repeat(38) }],
+      ["fingerprint", { fp: FP.slice(0, -1) }],
     ]) {
       expect(buildKoiosRequest(op, q, "")).toEqual({ error: 400, message: "Bad parameters" });
     }
@@ -100,6 +119,8 @@ describe("cardano-ops", () => {
   it("caches only what is the same for everyone", () => {
     expect(buildKoiosRequest("params", {}, "").cache).toMatch(/^public/);
     expect(buildKoiosRequest("tip", {}, "").cache).toMatch(/^public/);
+    expect(buildKoiosRequest("policy", { policy: POLICY }, "").cache).toMatch(/^public/);
+    expect(buildKoiosRequest("fingerprint", { fp: FP }, "").cache).toMatch(/^public/);
     for (const [op, q] of [
       ["pool", { lp: LP }],
       ["txstatus", { tx: TX }],

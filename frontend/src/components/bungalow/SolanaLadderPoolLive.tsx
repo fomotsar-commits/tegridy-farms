@@ -29,6 +29,7 @@ import {
 import { fmtRaw, fmtRawParts, fmtDaily, toPlain, toRaw, humanDuration, lockLabel, boostLabel } from '../../lib/ladder/format';
 import { basisBehindWrite, confirmedSlotOf, slotOrNull, type WriteFence } from '../../lib/ladder/writeFence';
 import { useAccrualMeter } from '../../hooks/useAccrualMeter';
+import { noteStakesChanged, useOnStakesChanged } from '../../lib/harvest/stakesChanged';
 import { Fact, HEAD, PANEL_BG, LEDGER_BG, HAIR, DIVIDED_BG } from './ledger';
 import { HeldTimeLine } from './HeldTimeLine';
 import { CardArt } from '../ui/CardArt';
@@ -161,6 +162,10 @@ export function SolanaLadderPoolCard({ bungalow, compact = false }: { bungalow: 
   // positions…" with nothing on screen able to read again. They bump this instead.
   const [readGen, setReadGen] = useState(0);
   const reread = () => setReadGen((n) => n + 1);
+  // Harvest on this page claims the same rewards: read again when it runs, and say so after
+  // every write here (lib/harvest/stakesChanged.ts).
+  const [me] = useState(() => ({}));
+  useOnStakesChanged(me, reread);
   // ⚠️ A READ THAT PREDATES A CONFIRMED WRITE. After someone's first stake, the
   // pre-stake read (complete, and empty) still satisfied `walletEmpty` until the re-read
   // landed, and the card said "No open positions" to a wallet that had just opened one.
@@ -366,6 +371,7 @@ export function SolanaLadderPoolCard({ bungalow, compact = false }: { bungalow: 
     setConfirmFor(null);
     const res = await fn();
     if (res.ok) {
+      noteStakesChanged(me);
       setStaleRead(latestWalletRead.current);
       // One more ask for the confirmed slot if the write had none; if it still has none,
       // the fence fails closed (stale until a later write carries a slot).
