@@ -17,7 +17,7 @@ import {
 } from '../lib/wallet/walletRows';
 import { EDITORIAL_BG, EDITORIAL_EASE, EDITORIAL_GRAIN, EDITORIAL_INK, HEADING_FONT, pad2 } from '../lib/editorial';
 import { useWalletBoard } from '../hooks/useWalletBoard';
-import { useOnStakesChanged } from '../lib/harvest/stakesChanged';
+import { noteStakesChanged, useOnStakesChanged } from '../lib/harvest/stakesChanged';
 import { HarvestCard } from './farm/HarvestCard';
 import { CardArt } from './ui/CardArt';
 import { FinePrint } from './ui/FinePrint';
@@ -817,7 +817,9 @@ export function IslandDashboard({ headingLevel = 2 }: { headingLevel?: 1 | 2 }) 
             <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 font-mono text-[11px] tracking-[0.08em] text-[#f5e4b8]/70">
               {board.solanaAddress && <span><ChainMark chain="solana" /> {shortSolanaAddress(board.solanaAddress)}</span>}
               {board.evmAddress && <span><ChainMark chain="ethereum" /> + Base {shortEvm(board.evmAddress)}</span>}
-              <button type="button" onClick={board.refresh} className="min-h-[32px] underline underline-offset-4 uppercase tracking-[0.14em] hover:text-[#22c55e]">Refresh</button>
+              {/* Refresh is the whole page's: Harvest under the positions, and a pool card beside
+                  the board, read again with it (lib/harvest/stakesChanged.ts). */}
+              <button type="button" onClick={() => { board.refresh(); noteStakesChanged(me); }} className="min-h-[32px] underline underline-offset-4 uppercase tracking-[0.14em] hover:text-[#22c55e]">Refresh</button>
               {/* Some rows are this browser's last read of them, while the chain is read again (boardMemory.ts). */}
               {keptSince !== null && (
                 <span role="status" className="uppercase tracking-[0.14em] text-[#f5e4b8]/55">

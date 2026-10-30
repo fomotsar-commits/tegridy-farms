@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useAccount, useChainId, useReadContracts, useSwitchChain, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { parseUnits } from 'viem';
 import { toast } from 'sonner';
@@ -43,7 +43,7 @@ const CHAIN_LABEL: Record<number, string> = { 1: 'Ethereum', 8453: 'Base' };
 // useAddLiquidity. Placeholder results are simply never shown.
 const PLACEHOLDER_ADDR = '0x0000000000000000000000000000000000000001' as const;
 
-export function EvmLighthousePoolLive({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
+export function EvmLighthousePoolLive({ bungalow, harvest }: { bungalow: Bungalow & { stakePool: string }; harvest?: ReactNode }) {
   const pool = bungalow.stakePool as `0x${string}`;
   const token = (bungalow.address ?? '') as `0x${string}`;
   const poolChainId = CHAIN_IDS[bungalow.chain] ?? 1;
@@ -287,6 +287,9 @@ export function EvmLighthousePoolLive({ bungalow }: { bungalow: Bungalow & { sta
               </p>
             </FinePrint>
 
+            {/* Every pool's rewards in one press, in this card (owner, 2026-10-30), on any network:
+                Harvest switches the wallet itself. Drawn only while there is something to claim. */}
+            {harvest}
             {isConnected && user ? (
               !onPoolChain ? (
                 <button

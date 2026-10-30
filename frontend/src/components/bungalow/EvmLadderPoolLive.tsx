@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useAccount, useChainId, useReadContracts, useSwitchChain, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { parseUnits } from 'viem';
 import { toast } from 'sonner';
@@ -53,7 +53,7 @@ const RUNGS: { length: string; secs: bigint }[] = LOCK_DURATIONS.map((d) => ({
 
 type Pos = { id: bigint; lockEnd: bigint; amount: bigint; boosted: bigint };
 
-export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
+export function EvmLadderPoolLive({ bungalow, harvest }: { bungalow: Bungalow & { stakePool: string }; harvest?: ReactNode }) {
   const pool = bungalow.stakePool as `0x${string}`;
   // C1: this pool is one of the six pre-fix ladders the audit forbids depositing
   // into. Deposits only — claim and withdraw stay live below. Lifts by itself on
@@ -350,6 +350,9 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
               </p>
             </FinePrint>
 
+            {/* Every pool's rewards in one press, in this card (owner, 2026-10-30), on any network:
+                Harvest switches the wallet itself. Drawn only while there is something to claim. */}
+            {harvest}
             {isConnected && user ? !onPoolChain ? (
               <button type="button" onClick={() => switchChain({ chainId: poolChainId })} className="btn-primary px-6 py-2.5 text-[13px]">
                 Switch wallet to {CHAIN_LABEL[poolChainId]}

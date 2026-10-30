@@ -861,7 +861,7 @@
       "expect": {
         "type": "eoa"
       },
-      "evidence": "frontend/src/lib/launcher/config.ts:26-27: 'OPERATOR-CHOSEN 2026-07-22: a fresh single-key EOA (verified on-chain: valid EIP-55 checksum, no code, nonce 0)'; docs/WHETSTONE_MIGRATOR_PETITION.md:101 says the same. CAVEAT, read this before switching the gate off: EIP-7702 can put a delegation designator (code 0xef0100...) at an EOA without any key changing hands, and CONTRACTS.md (Superseded, Treasury row) records exactly that having happened to the ex-treasury EOA 0xE9B7...f53e. So a failure here means 'this wallet grew code, go look', not automatically 'the registry is wrong'. Asserted deliberately anyway: it is the only entry that exercises the eoa branch, and a fee-receiving hot wallet quietly becoming a contract is worth a red build."
+      "evidence": "frontend/src/lib/launcher/config.ts:27-28: 'OPERATOR-CHOSEN 2026-07-22: a fresh single-key EOA (verified on-chain: valid EIP-55 checksum, no code, nonce 0)'; docs/archive/WHETSTONE_MIGRATOR_PETITION.md:103 says the same. CAVEAT, read this before switching the gate off: EIP-7702 can put a delegation designator (code 0xef0100...) at an EOA without any key changing hands, and CONTRACTS.md (Superseded, Treasury row) records exactly that having happened to the ex-treasury EOA 0xE9B7...f53e. So a failure here means 'this wallet grew code, go look', not automatically 'the registry is wrong'. Asserted deliberately anyway: it is the only entry that exercises the eoa branch, and a fee-receiving hot wallet quietly becoming a contract is worth a red build."
     },
     {
       "id": "tegridy-factory",

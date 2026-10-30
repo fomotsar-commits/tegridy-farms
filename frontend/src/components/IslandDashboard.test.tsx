@@ -4,7 +4,8 @@
 // not be read says so, never a zero or "you hold nothing".
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, renderHook, screen, within } from '@testing-library/react';
+import { useOnStakesChanged } from '../lib/harvest/stakesChanged';
 import { MemoryRouter } from 'react-router-dom';
 import type { ReactNode } from 'react';
 import type { WalletBoard } from '../hooks/useWalletBoard';
@@ -179,6 +180,19 @@ describe('IslandDashboard: Harvest (owner, 2026-10-30: "should be a harvest all 
   it('is not drawn for a visitor with no wallet', () => {
     mount();
     expect(screen.queryByTestId('harvest')).toBeNull();
+  });
+
+  it('Refresh reads the whole page again: the board, and Harvest with it', () => {
+    const refresh = vi.fn();
+    board.value = wallet({ solanaAddress: '7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU', refresh });
+    const page = {};
+    const heard = vi.fn();
+    const listener = renderHook(() => useOnStakesChanged(page, heard));
+    mount();
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(heard).toHaveBeenCalledTimes(1);
+    listener.unmount();
   });
 });
 

@@ -28,10 +28,10 @@
 //   NOT A DIRECTORY. There is deliberately no endpoint that lists invoices, and
 //   no endpoint that lists merchants. The one public read is service-role with a
 //   PINNED single-row filter — one id in, one invoice out — for the same reason
-//   referrals.js has no referrer roster and airdrop.js has no recipient list. A
-//   listable invoice table is a downloadable ledger of who sells what to whom
-//   for how much. That query shape is pinned by
-//   api/__tests__/commerce-surface-parity.test.js; do not add a wider one.
+//   referrals.js has no referrer roster. A listable invoice table is a
+//   downloadable ledger of who sells what to whom for how much. That query
+//   shape is pinned by api/__tests__/commerce-surface-parity.test.js; do not
+//   add a wider one.
 //
 // ─── THE WEBHOOK, AND WHY IT PROMISES SO LITTLE ─────────────────────────────
 //
