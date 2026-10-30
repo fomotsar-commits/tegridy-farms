@@ -635,6 +635,7 @@ export const SURFACES: Surface[] = [
   { group: 'Earn · Staking', pageId: 'bungalow-heat-card', idx: 0, label: 'Check your heat card' },
   { group: 'Earn · Staking', pageId: 'earn', idx: 0, label: 'Page background' },
   { group: 'Earn · Staking', pageId: 'earn', idx: 1, label: 'Pool list card' },
+  { group: 'Earn · Staking', pageId: 'earn', idx: 2, label: 'Harvest card' },
   { group: 'Earn · Staking', pageId: 'evm-ladder-pool-live', idx: 0, label: 'EVM lock ladder pool card (EVM room whose pool is a lock ladder)' },
   { group: 'Earn · Staking', pageId: 'evm-lighthouse-pool-live', idx: 0, label: 'EVM lighthouse pool card (flag off)' },
   { group: 'Earn · Staking', pageId: 'farm', idx: 2, label: 'LP boost refresh notice (connected, LP boost out of date)' },
