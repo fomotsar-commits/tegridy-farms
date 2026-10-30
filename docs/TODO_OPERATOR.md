@@ -68,6 +68,26 @@ and read it back before every press.
   wallet as funded. The registry expects that wallet to be empty, so the daily chain check goes red
   otherwise.
 
+**Day 0 with a session driving Chrome** (your ask, 2026-10-30). Send the SOL above, then tell a
+session "SOL is sent" (that is also your word to merge #1047). Then:
+
+1. The session runs every read-only check and tells you what it said.
+2. You run the upload commands it hands you, in this order:
+   - range: add room, upload, hand to the vault;
+   - pool: upload, upload the roll-back, hand both to the vault;
+   - ladder: add room, upload, hand to the vault.
+
+   They sign with your key files; the app does not let a session send on mainnet.
+3. The session opens each signing page in ONE Chrome tab (range 5599, pool 5299, ladder 5499),
+   picks the step, pastes the upload address, runs the checks, and reads every line and the
+   proposal number back to you.
+4. You connect the wallet and press the button: Sign as member A for all five proposals, then
+   Approve as member B for all five. Confirm each one in the wallet.
+5. The session confirms all five on chain and writes down each number and the Day 2 time.
+
+Read on mainnet 2026-10-30 03:50 UTC: the range and pool checks pass every line but the empty
+wallets, the pool program's room is already there, and the next proposal is #22.
+
 **Day 2, execute in this order:** #21 if it hasn't run yet, then the range upgrade, the pool
 re-upgrade, the ladder upgrade, the ladder raise. Never press the pool roll-back. Never press old
 #18: it still shows "Approved" because its failed run didn't change that, and pressing it only
