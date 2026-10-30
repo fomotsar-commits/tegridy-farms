@@ -27,6 +27,11 @@ const OWNER = 'Gut9toQMqtrFL5ERLsAThmtq6e1Hq9BGtWPcjNqziHrj';
 
 /* ─────────────────────────── the rig ─────────────────────────── */
 
+// The room's torches read the island; here only where they stand is under test.
+vi.mock('../RoomTorches', () => ({
+  RoomTorches: ({ roomId }: { roomId: string }) => <div data-testid="room-torches-stub">{roomId}</div>,
+}));
+
 // Counts mounts: the bare card must mount none, so SolanaPoolStack can share one.
 const providerMounts = vi.hoisted(() => ({ n: 0 }));
 vi.mock('../solana/SolanaProviders', async () => {
@@ -1461,12 +1466,30 @@ describe('an ended reward window offers no new lock', () => {
     expect(screen.getByRole('button', { name: /Emergency withdraw/ })).toBeTruthy();
   });
 
+  it("the room's torches stand above the ended notice, and the notice stays (owner, 2026-10-15)", async () => {
+    reads.pool = { ok: true, value: poolView({ rewardRate: 1_000_000n, periodFinish: BigInt(NOW - 2 * DAY) }) };
+    draw();
+    const ended = await screen.findByTestId('ladder-window-ended');
+    const torches = within(ended).getByTestId('room-torches-stub');
+    expect(torches).toHaveTextContent('bayla');
+    const notice = within(ended).getByText(/Rewards ended/);
+    expect(torches.compareDocumentPosition(notice) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("the home's compact card does not repeat the torches its room's door carries", async () => {
+    reads.pool = { ok: true, value: poolView({ rewardRate: 1_000_000n, periodFinish: BigInt(NOW - 2 * DAY) }) };
+    render(<MemoryRouter><SolanaLadderPoolCard bungalow={BUNGALOW} compact /></MemoryRouter>);
+    await screen.findByTestId('ladder-window-ended');
+    expect(screen.queryByTestId('room-torches-stub')).toBeNull();
+  });
+
   it('a live window keeps the form (negative control)', async () => {
     reads.pool = { ok: true, value: poolView({ rewardRate: 1_000_000n }) };
     draw();
     expect(await screen.findByLabelText('Amount')).toBeTruthy();
     expect(screen.getByRole('button', { name: /Lock BAYLA/ })).toBeTruthy();
     expect(screen.queryByTestId('ladder-window-ended')).toBeNull();
+    expect(screen.queryByTestId('room-torches-stub')).toBeNull();
   });
 });
 

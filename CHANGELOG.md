@@ -9,6 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-10-30
 
+- Every room's door shows its torches from Jungle Bay Island: how many of twelve are lit, the next torch's price in $BAYLA, who lit the last one and when, and Torch it, which opens the room's page on the island. A pool that pays nothing shows them above its notice. The home has a strip under the doors: $BAYLA locked in the ladder, $BAYLA fed to the fire, the flames, the days left in the season and the island's last torch. Each is read on load; one that cannot be read is left out, never shown as 0.
 - Solana swap and the Range tab: a coin whose ticker copies SOL, USDC, BAYLA or an island coin at another address now reads "fake SOY" (for example), as on the pool screens. In the swap page's token list, a coin the site does not name itself shows its whole address, not just its first and last characters. The Range tab names every coin by its own ticker, with its whole address, instead of "tokens".
 - Home page: TVL now shows beside the all-time volume. It is what our pools hold on Solana, Ethereum, Base and Robinhood, read from the chains every minute, with each chain's figure under What counts. When a chain cannot be read, it says "TVL at least" and names that chain. The all-time volume is now counted every five minutes instead of every few hours, and both figures refresh on the page every minute.
 - Bungalow staking: when the reward program can never pay a position's rewards, the message now says your stake is safe, instead of calling it BAYLA on every bungalow.
