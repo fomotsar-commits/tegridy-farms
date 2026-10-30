@@ -7,6 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-10-30
+
+- Bungalow staking: when the reward program can never pay a position's rewards, the message now says your stake is safe, instead of calling it BAYLA on every bungalow.
+
 ### 2026-10-29
 
 - Pools: on Venue AMM's All pools list, a Solana pool whose price is more than 3% above or below Jupiter's market price gets a red "Price over 3% above Jupiter" (or "below Jupiter") tag. Under it, one line says about how much a trader could make by trading the pool back to the market price and how big that trade is, and a second says what that trade pays in fees to the pool's liquidity providers and to memetics.finance. That profit comes out of the pool's liquidity providers, and it is a ceiling: it leaves out the trader's costs on the other side. The list reads Jupiter's prices once for every pool; a pool's own card checks again with live quotes, and its figure can differ by a few points. When those prices can't be read, the list says so and marks no pool. For a token with a transfer fee, the figure counts what the token keeps back of that trade, and the fee line says how much; when the list can't tell whether a token has one, it shows the tag without a figure.
