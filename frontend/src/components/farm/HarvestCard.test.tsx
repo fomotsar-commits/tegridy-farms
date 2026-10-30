@@ -143,6 +143,56 @@ describe('Harvest card', () => {
     }
   });
 
+  describe('a Solana read that came back partly unread (owner’s board, 2026-10-30: hidden until a reload)', () => {
+    const unreadPlan = { claims: [], held: [], unread: [{ key: 'sol', chain: 'solana' as const, roomId: '', what: 'your Solana pools', detail: 'the Solana code could not load' }] };
+    const withWallet = async (body: () => Promise<void>) => {
+      vi.useFakeTimers();
+      const owner = {};
+      act(() => setSolanaSurface(owner, { open: () => {}, address: 'SoLAddr', connecting: false, signer: {} }, true));
+      try {
+        await body();
+      } finally {
+        act(() => setSolanaSurface(owner, null));
+        vi.useRealTimers();
+      }
+    };
+    const tick = (ms: number) => act(async () => { await vi.advanceTimersByTimeAsync(ms); });
+
+    it('is asked again after 20 s, and a claim it then finds shows without a reload', () => withWallet(async () => {
+      const send = vi.fn(async (): Promise<ClaimResult> => ({ kind: 'claimed', tx: 'SIG' }));
+      sol.read.mockResolvedValueOnce(unreadPlan).mockResolvedValue({ claims: [solClaim('sf:1', send)], held: [], unread: [] });
+      const { container } = render(<MemoryRouter><HarvestCard quiet /></MemoryRouter>);
+      await tick(0);
+      expect(sol.read).toHaveBeenCalledTimes(1);
+      expect(container.textContent).toBe('');
+      await tick(19_000);
+      expect(sol.read).toHaveBeenCalledTimes(1);
+      await tick(1_000);
+      expect(sol.read).toHaveBeenCalledTimes(2);
+      expect(screen.getByRole('button', { name: 'Harvest all · 1 claim' })).toBeTruthy();
+    }));
+
+    it('is asked again twice at most (20 s, then 60 s), so a dead RPC is not hammered', () => withWallet(async () => {
+      sol.read.mockResolvedValue(unreadPlan);
+      render(<MemoryRouter><HarvestCard quiet /></MemoryRouter>);
+      await tick(0);
+      await tick(20_000);
+      expect(sol.read).toHaveBeenCalledTimes(2);
+      await tick(60_000);
+      expect(sol.read).toHaveBeenCalledTimes(3);
+      await tick(10 * 60_000);
+      expect(sol.read).toHaveBeenCalledTimes(3);
+    }));
+
+    it('a read with nothing unread is not asked again', () => withWallet(async () => {
+      sol.read.mockResolvedValue({ claims: [], held: [], unread: [] });
+      render(<MemoryRouter><HarvestCard quiet /></MemoryRouter>);
+      await tick(0);
+      await tick(5 * 60_000);
+      expect(sol.read).toHaveBeenCalledTimes(1);
+    }));
+  });
+
   it('quiet (a pool page, a dashboard): nothing while reading or with nothing to claim; the card once there is a claim', () => {
     evm.state = { address: '0xabc', chain: 'base', plan: null, batchable: ONE_BY_ONE };
     const reading = render(<MemoryRouter><HarvestCard quiet /></MemoryRouter>);
