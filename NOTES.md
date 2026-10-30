@@ -15,6 +15,23 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-30: CSL's script data hash goes stale when coin selection adds inputs, and "square root" in any string is a formula
+
+**Believed:** with CSL 17, `calc_script_data_hash` is called once, after the scripts' redeemers
+are set. **Measured:** building our pool opening (one factory spend, one mint, both from
+reference scripts) in `ownPools/openPoolTx.ts`. Called before `add_inputs_from_and_change`, the
+hash covered redeemer index 0; the wallet's coins then sorted in ahead of the factory input,
+`build_tx` wrote the redeemer with its real index, and the hash no longer matched (our read-back
+caught it: "its script data does not match its own instructions"). Called only after, CSL's fee
+missed the hash's own bytes ("Fee is less than the minimum fee. Min fee: 534840, Fee: 533476").
+**Do:** call it before the coin selection (so the fee counts it) AND again after (the index is
+final only then); the hash is 32 bytes either way, so the fee holds.
+
+**Believed:** a developer-facing error string is not user-facing copy. **Measured:**
+`src/lib/heat/islandClaims.test.ts` "states no a formula line" reads every string literal in
+shipped source; `throw new Error('square root of a negative number')` in a Cardano maths file
+failed it. **Do:** name the contract function (`calculate_sqrt`) in error strings, never the maths.
+
 ## 2026-10-29: a pushed tag holds a PR's merge, a failed vault execute still reads "Approved", and funding a wallet can turn the registry red
 
 **Believed:** tagging a PR's head on origin is free bookkeeping.
