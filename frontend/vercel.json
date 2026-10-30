@@ -7,10 +7,14 @@
     },
     "api/launch-upload.js": {
       "maxDuration": 60
+    },
+    "api/venue-volume-count.js": {
+      "maxDuration": 120
     }
   },
   "crons": [
-    { "path": "/api/launch-upload?sweep=1", "schedule": "*/15 * * * *" }
+    { "path": "/api/launch-upload?sweep=1", "schedule": "*/15 * * * *" },
+    { "path": "/api/venue-volume-count", "schedule": "*/5 * * * *" }
   ],
   "headers": [
     {

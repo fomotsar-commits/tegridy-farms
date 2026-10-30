@@ -12,5 +12,5 @@ review was refused: it is law 3 already.
 ## Not true yet
 
 - Law 21 on `/dashboard`: it still follows the room opened last, because a room's positions have no address of their own. The farm's lock labels are also still to come.
-- Law 23 past the bars and strips: Soon still marks `/nft-finance`'s overview cards, one row on `/security`, the not-deployed card (`FeatureNotDeployed`, on `/community`, `/vesting` and others), the bungalow picker's open lot and the LP farming panel. `/nft-finance`'s own strip still lists its three undeployed panels, unmarked.
+- Law 23 past the bars and strips: Soon still marks the not-deployed card (`FeatureNotDeployed`, where a rail is off), the bungalow picker's open lot and the LP farming panel.
 - Laws 18, 19 and 20 land with the pull requests that make them true.

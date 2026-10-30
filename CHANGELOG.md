@@ -10,6 +10,10 @@ The site's Changelog tab shows both files.
 ### 2026-10-30
 
 - Pools: on a phone, each row of Venue AMM's All pools list puts its Add and View buttons under the pool's details, so the details, the price tag and the arbitrage lines use the row's whole width instead of half of it.
+- Every room's door shows its torches from Jungle Bay Island: how many of twelve are lit, the next torch's price in $BAYLA, who lit the last one and when, and Torch it, which opens the room's page on the island. A pool that pays nothing shows them above its notice. The home has a strip under the doors: $BAYLA locked in the ladder, $BAYLA fed to the fire, the flames, the days left in the season and the island's last torch. Each is read on load; one that cannot be read is left out, never shown as 0.
+- Solana swap and the Range tab: a coin whose ticker copies SOL, USDC, BAYLA or an island coin at another address now reads "fake SOY" (for example), as on the pool screens. In the swap page's token list, a coin the site does not name itself shows its whole address, not just its first and last characters. The Range tab names every coin by its own ticker, with its whole address, instead of "tokens".
+- Home page: TVL now shows beside the all-time volume. It is what our pools hold on Solana, Ethereum, Base and Robinhood, read from the chains every minute, with each chain's figure under What counts. When a chain cannot be read, it says "TVL at least" and names that chain. The all-time volume is now counted every five minutes instead of every few hours, and both figures refresh on the page every minute.
+- Bungalow staking: when the reward program can never pay a position's rewards, the message now says your stake is safe, instead of calling it BAYLA on every bungalow.
 
 ### 2026-10-29
 
@@ -19,6 +23,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-10-28
 
+- The site no longer shows the retired EVM features: the Community tabs for grants, bounties, vote incentives and gauge voting, the Token Lending, Pooled Lending and Pay in Instalments tabs on NFT Finance, the /airdrop and /vesting pages, the restaking lines on the farm and the dashboard, the auto-compounding vault option in Zap, and their rows on Contracts, Tokenomics, Risks and Security. Their contracts left the source in PR #1041; nothing on chain changed.
 - Contracts page: Gauge Controller, Vote Incentives, Community Grants and Meme Bounty Board no longer link to a source file. Their source left this repository on 2026-10-27; each row says so, and their verified source is on Etherscan. The Tegridy Restaking and Tegridy Lending rows are gone: neither contract was ever deployed, and their source left with them.
 - Notice: range pools' second fee tier, 0.25% of each swap, becomes 1% once the team's vault approves and executes it, which is no sooner than 48 hours after its second approval. Then every range pool charges 1%. No range pool exists on that tier, and the site has never shown it. Of each fee, 84% stays with the liquidity providers whose range is in use, 10.4% goes to memetics.finance and 5.6% to Jungle Bay Island.
 - Range pools: the range program's source now charges 0.5 SOL to open a range pool, paid to the team's vault, by each of the three ways it opens one. It reaches mainnet only when the vault executes an upgrade, which is not proposed yet. Until then the program on mainnet charges nothing to open one: the fee tiers exist since 2026-10-27, so anyone can open a range pool for free until that upgrade executes.
@@ -45,6 +50,7 @@ The site's Changelog tab shows both files.
 - Solana swap: when your limit orders or DCAs cannot be read, the Limit and DCA tabs say so, with Try again. Before, they said "No open orders" or "No active DCAs".
 - Solana swap: Buy asks Jupiter for less, so it waits less. A quote under 10 seconds old is built as shown instead of asked for again, our pools are read at the click instead of after Jupiter's answer, the trending list, the risk warnings and the pair's prices are shared by every visitor for a short time (prices are still read fresh in USD mode), and "Swap confirmed" is checked every second for the first 10 seconds.
 - On a 320px-wide phone the menu button stays on screen: below 360px the top bar's memetics.finance name sits on two lines. The Solana swap page no longer slides sideways at that width.
+- Solana pools: memetics.finance now serves a name and a picture for the pool shares of six more pools on its pool program: RIZZ/SOL LP, SOY/SOL LP, BOBO/SOL LP, BRAINLET/SOL LP (symbol BRAIN-SOL), CRYING/SOL LP and SOL/USDC LP. A bungalow coin's share shows that bungalow's door art in its ring, the others show BAYLA's. Wallets show these names only once each share has its on-chain name record and the vault renames it, which needs the pool program upgraded again first.
 
 ### 2026-10-23
 

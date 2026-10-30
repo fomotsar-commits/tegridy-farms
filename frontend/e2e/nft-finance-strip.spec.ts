@@ -3,7 +3,7 @@
  * the page, and the selected tab is whole in view, clear of the strip's fade, on
  * landing and after a press. With a mouse, an arrow over each end that has tabs
  * past it moves the row; on a touch screen the row is swiped and has none. From
- * 768px up the row is about 1,095px wide, wider than an iPad held upright.
+ * 480px up the three tabs fit (436px with the fade's padding) and nothing fades.
  * Measured from rendered boxes against the width the test asked for: a phone
  * browser widens its own window to fit a page that is too wide, so `innerWidth`
  * cannot be the ruler.
@@ -15,8 +15,8 @@ import { gotoRoute } from './fixtures/routes';
 // A phone, the `md` breakpoint, an iPad upright, an iPad Pro upright, an iPad on its side, a laptop.
 const WIDTHS = [390, 768, 820, 1024, 1180, 1280];
 
-// A phone and an iPad upright: the strip holds tabs out of view at both.
-const SCROLLING_WIDTHS = [390, 820];
+// A phone: the strip holds tabs out of view there and nowhere wider.
+const SCROLLING_WIDTHS = [390];
 
 /** Sub-pixel rounding is not a cut. */
 const TOLERANCE_PX = 1;
@@ -24,8 +24,8 @@ const TOLERANCE_PX = 1;
 /** The least of a tab's box that must be inside the strip for a press to land on it. */
 const PRESSABLE_PX = 12;
 
-/** A narrow desktop window, and the one the owner's brief names: the arrows' widths. */
-const ARROW_WIDTHS = [390, 900];
+/** The one width where tabs sit past an end of the strip: the arrows' width. */
+const ARROW_WIDTHS = [390];
 
 /** The least an arrow measures each way: a 44px press target. */
 const ARROW_MIN_PX = 44;
@@ -40,7 +40,7 @@ const arrowAt = (page: Page, side: Side) => page.locator(`[data-strip-arrow="${s
 const hasMouse = (page: Page) => page.evaluate(() => matchMedia('(hover: hover) and (pointer: fine)').matches);
 
 /** How many of the last sections the slower checks land on: the ones a strip must scroll to show. */
-const FAR_SECTIONS = 3;
+const FAR_SECTIONS = 2;
 
 /**
  * The page settles in at 0.994 scale, and a strip that measured itself then
@@ -574,7 +574,7 @@ for (const width of ARROW_WIDTHS) {
     await expect(tabs.first()).toHaveAttribute('aria-selected', 'true');
     await page.evaluate(() => document.fonts.ready);
     const count = await tabs.count();
-    expect(count, 'too few tabs to cut one at each end').toBeGreaterThan(3);
+    expect(count, 'too few tabs to cut one at each end').toBeGreaterThan(2);
 
     // The tab before the last and the tab after the first, where the strip can scroll past each;
     // else the end tab itself (at 900px, with no Soon chip on any tab, the strip overflows by less

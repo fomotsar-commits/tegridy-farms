@@ -68,6 +68,26 @@ and read it back before every press.
   wallet as funded. The registry expects that wallet to be empty, so the daily chain check goes red
   otherwise.
 
+**Day 0 with a session driving Chrome** (your ask, 2026-10-30). Send the SOL above, then tell a
+session "SOL is sent" (that is also your word to merge #1047). Then:
+
+1. The session runs every read-only check and tells you what it said.
+2. You run the upload commands it hands you, in this order:
+   - range: add room, upload, hand to the vault;
+   - pool: upload, upload the roll-back, hand both to the vault;
+   - ladder: add room, upload, hand to the vault.
+
+   They sign with your key files; the app does not let a session send on mainnet.
+3. The session opens each signing page in ONE Chrome tab (range 5599, pool 5299, ladder 5499),
+   picks the step, pastes the upload address, runs the checks, and reads every line and the
+   proposal number back to you.
+4. You connect the wallet and press the button: Sign as member A for all five proposals, then
+   Approve as member B for all five. Confirm each one in the wallet.
+5. The session confirms all five on chain and writes down each number and the Day 2 time.
+
+Read on mainnet 2026-10-30 03:50 UTC: the range and pool checks pass every line but the empty
+wallets, the pool program's room is already there, and the next proposal is #22.
+
 **Day 2, execute in this order:** #21 if it hasn't run yet, then the range upgrade, the pool
 re-upgrade, the ladder upgrade, the ladder raise. Never press the pool roll-back. Never press old
 #18: it still shows "Approved" because its failed run didn't change that, and pressing it only
@@ -990,8 +1010,8 @@ closes are done.
   rows in `frontend/scripts/addresses.json` (both controls are the Squads vault now). Start the
   vault upgrade pack for the ladder's 4-year change. Renew or update the advisory waivers before
   2026-11-16. Built 2026-10-10: the "Back to top" flake is PR #788 and the ladder rows are
-  PR #785, both merged with train #796 on 2026-10-14. The upgrade pack and the waivers are
-  still open.
+  PR #785, both merged with train #796 on 2026-10-14. The upgrade pack is still open. The
+  waivers were re-triaged on 2026-10-29 and now run to 2027-01-27; renew them by about 2027-01-13.
 - ⬜ **C-1009-8: housekeeping that needs a quiet moment.** Move the shared main folder onto trunk
   (it sits on a September branch and has no CLAUDE.md), after its only-copy files are saved. One
   dedicated worktree cleanup (230 exist): unlink every linked folder and prove it gone first.
@@ -1301,8 +1321,8 @@ six jobs GitHub ran onto this PC (`register-tasks.ps1 -Failover`) and takes the 
 **Done 2026-10-07:** the six blocking advisories the failover `npm-advisories` job found on
 2026-09-30 (`undici` and `brace-expansion`) are gone from both audits, and GitHub's
 `npm advisories` workflow is green on the trunk for all three projects (`9e1b7b5e`). The next
-date is 2026-11-16: the baseline and both accepted entries expire together (GIT_HOSTING.md,
-section 8).
+date is 2027-01-27: every accepted entry expires together, and the baseline is empty since the
+2026-10-29 re-triage (GIT_HOSTING.md, section 8).
 
 ---
 
@@ -1948,7 +1968,10 @@ compare `accountedAmount` against `CLASSIC_ACCOUNTED_CEILING`, and count how man
 42.4% program-wide, expect some. Then decide what the holders are told — that decision is yours, not
 a code change.
 
-### ⬜ O-0906-4 — THIS document still prints a paste-ready command for the withdrawn 365-day rung
+### ✅ O-0906-4 — THIS document still prints a paste-ready command for the withdrawn 365-day rung
+
+Done 2026-10-29: the one paste-ready command left (in "What broadcasting needs from YOU") now
+reads `--max-days <at most 90>`. The line numbers below are from 2026-09-06.
 
 `docs/TODO_OPERATOR.md:554` gives a copy-paste ceremony invocation ending `--max-days 365`, and
 `:790` describes the ladder ramping to that maximum. The venue stopped offering that rung when
@@ -2374,8 +2397,10 @@ No Token-2022, no extensions, no transfer hooks — the BAYLA ceremony flow work
 unmodified. **What broadcasting needs from YOU (per resident, ~10 min each):** pick the rate
 (economics are your call — `--rate` is refused with a default on mainnet), then run the printed
 dry-run command with `--keypair … --broadcast`, paste the pool address into the registry
-`stakePool` slot, and FUND LAST in public. The BAYLA-parity shape used in the dry-runs:
-`node scripts/bayla-lighthouse-ceremony.mjs --rate <yours> --mint <mint> --max-days 365
+`stakePool` slot, and FUND LAST in public. The shape used in the dry-runs, with the longest lock
+cut to what the site offers (`OFFERED_LOCK_CEILING_DAYS = 90`; a pool's longest lock is fixed when
+it is created, so never create one at 365, see O-0906-4):
+`node scripts/bayla-lighthouse-ceremony.mjs --rate <yours> --mint <mint> --max-days <at most 90>
 --max-weight 5 --accept-long-lock`. ⚠️ Do NOT broadcast a pool for a resident whose community
 has not asked for one — a stake pool is a promise (locks with NO early exit), not a growth hack.
 
@@ -3404,7 +3429,7 @@ construction: its credential can bind a chat and can *never* attach a wallet).
 
 | # | Action | Note |
 |---|---|---|
-| 3.1 | **Send the Whetstone petition** | Written, fact-checked, ready. It asks them to whitelist the graduation migrator on deploy. Without it, venue graduation reverts at pool initialization. The BUSL grant question travels with it. |
+| 3.1 | ~~Send the Whetstone petition~~ Closed by retirement, 2026-10-28 | The EVM V4 graduation stack (`TegridyLiquidityMigrator`, `TegridyFeeLocker`, `TegridyBoostedLPStaker`, `TegridyV4SwapRouter`) was deleted from `contracts/`, so there is no migrator to whitelist and nothing to send. The petition, its 4663 rider and the decision record are in `docs/archive/`. The BUSL grant question concerned the migrator code and went with it. |
 | 3.2 | **Send the Solana audit RFQ** | Written, never sent. Audit *calendars* are the schedule constraint, not engineering — send before you think you need it. |
 | 3.3 | **Send the seacasa wave-three packet** | Written, never handed over. Add the fifth question: **when does the island publish its attestation signing key, and at what route?** Without it the Heat gate stays advisory — anyone reading the Airlock ABI can launch around it. |
 | 3.4 | Book the EVM firm audit | Sequenced after any admin-model change so the report is not invalidated. |

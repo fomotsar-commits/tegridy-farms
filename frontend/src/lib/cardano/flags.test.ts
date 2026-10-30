@@ -27,6 +27,8 @@ describe('the Cardano swap switch', () => {
   });
 });
 
+// Each test re-imports navConfig and sectionChains from scratch (resetModules): about 2.5 s
+// alone, past 5 s on a busy machine. 20 s, as the repo's other cold-import tests.
 describe('with the swap shown', () => {
   it('lists Cardano last in the drop-down, and /cardano serves it', async () => {
     vi.resetModules();
@@ -38,7 +40,7 @@ describe('with the swap shown', () => {
     expect(tabChains('/cardano')).toEqual(['cardano']);
     expect(SWAP_SECTION.items.map((i) => i.to)).toContain('/cardano');
     vi.doUnmock('./flags');
-  });
+  }, 20_000);
 
   it('and with it hidden, no drop-down or tab carries Cardano', async () => {
     vi.resetModules();
@@ -48,5 +50,5 @@ describe('with the swap shown', () => {
     expect(VENUE_CHAINS.map((c) => c.id)).not.toContain('cardano');
     expect(SWAP_SECTION.items.map((i) => i.to)).not.toContain('/cardano');
     vi.doUnmock('./flags');
-  });
+  }, 20_000);
 });

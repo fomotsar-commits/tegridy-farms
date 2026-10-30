@@ -38,6 +38,7 @@ import { Reveal } from '../motion/Reveal';
 import { DUR, EASE_OUT, pressTap, staggerContainer, staggerItem } from '../../lib/motion';
 
 import { PositionMark, positionHost } from '../ui/PositionMark';
+import { RoomTorches } from '../RoomTorches';
 /**
  * A `bayla-ladder` pool, LIVE.
  *
@@ -848,6 +849,9 @@ export function SolanaLadderPoolCard({ bungalow, compact = false }: { bungalow: 
                       doors below are untouched. */}
                   {rewardWindow === 'ended' ? (
                     <div className="flex flex-col gap-4" data-testid="ladder-window-ended">
+                      {/* The room's torches above the notice, which stays (owner, 2026-10-15). Not on
+                          the home's compact card: the room's door already carries them. */}
+                      {!compact && <RoomTorches roomId={bungalow.id} compact />}
                       <p className="m-0 text-[12px]" style={{ color: '#f0b26b' }}>{rewardsEndedLine(pool.periodFinish)}</p>
                     </div>
                   ) : !publicKey ? (

@@ -21,6 +21,7 @@ import { FinePrint } from '../ui/FinePrint';
 import { rewardsEndedLine, rewardsHaveEnded, rewardsZeroLine } from '../../lib/rewardsEnded';
 
 import { PositionMark, positionHost } from '../ui/PositionMark';
+import { RoomTorches } from '../RoomTorches';
 /**
  * The island's LOCKED EVM lighthouse card (LighthouseLadder.sol).
  *
@@ -261,6 +262,10 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
               <Stat label="Runway" value={view.everFunded === false ? 'not started' : fmtRunway(view.runwaySecs)} title="Exact seconds to periodFinish, read on-chain." />
             </div>
             {view.coreKnown && <HeldTimeLine chain={bungalow.chain} pool={bungalow.stakePool} className="mb-4" />}
+
+            {/* A pool that pays nothing: the room's torches above its notice, and the notice
+                stays (owner, 2026-10-15). */}
+            {((rewardsEnded && periodFinishRaw !== null) || paysNothing || unfunded) && <RoomTorches roomId={bungalow.id} compact />}
 
             {rewardsEnded && periodFinishRaw !== null ? (
               <p className="text-[12px] mb-4" style={{ color: '#f0b26b' }} data-testid="ladder-rewards-ended">

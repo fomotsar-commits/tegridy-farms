@@ -41,7 +41,7 @@ const ArrivalFilm = lazy(() =>
  *
  * THE LIST IS NOT RE-TYPED HERE. It is `ISLAND_SECTION.items` minus this page
  * itself, so a destination cannot be added to the nav and forgotten on the
- * lobby, and the gating (Community rides COMMUNITY_LIVE) is honoured once. The
+ * lobby, and the gating is honoured once. The
  * blurbs are keyed by route — an entry with no blurb still renders, with its
  * label alone, rather than vanishing.
  */
