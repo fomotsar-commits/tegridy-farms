@@ -387,9 +387,14 @@ describe('the committed allowlist', () => {
 
   it('records the bigint-buffer overflow rather than quietly dropping it', () => {
     // GHSA-3gc7-fjrx-p6mg reaches this app through @solana/spl-token, in a
-    // build that signs transactions. It is the one advisory in the baseline
-    // whose disappearance from this file would most likely be an accident.
-    expect(allowlist().baseline.projects.frontend).toContain('GHSA-3gc7-fjrx-p6mg');
+    // build that signs transactions, and no release fixes it. Its leaving this
+    // file would most likely be an accident, so it stays on record for the
+    // frontend: in the baseline, or accepted with a reason.
+    const { accepted, baseline } = allowlist();
+    const entry = accepted.find(
+      (e: { ghsa: string; projects?: string[] }) => e.ghsa === 'GHSA-3gc7-fjrx-p6mg' && e.projects?.includes('frontend'),
+    );
+    expect(Boolean(entry) || baseline.projects.frontend.includes('GHSA-3gc7-fjrx-p6mg')).toBe(true);
   });
 
   it('has a baseline expiry, so inherited debt comes due', () => {
