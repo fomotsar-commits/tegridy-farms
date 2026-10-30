@@ -48,6 +48,17 @@ export const MINSWAP_V2 = {
   maxTradingFee: 2000n,
 } as const;
 
+/**
+ * The three hashes that say WHOSE Minswap V2 deployment a pool or an order belongs to. Every
+ * reader and writer below takes one; the default is Minswap's own (the swap's). The venue's
+ * own pools pass theirs (ownPools/deployment.ts), so nothing of ours can fall back to Minswap's.
+ */
+export interface DexScripts {
+  orderScriptHash: string;
+  poolScriptHash: string;
+  authenPolicy: string;
+}
+
 export interface CardanoAsset {
   /** 28 bytes hex; '' for ADA. */
   policyId: string;
@@ -96,8 +107,8 @@ export function lpAssetName(a: CardanoAsset, b: CardanoAsset): string {
   return sha3Hex(sha3Hex(assetUnit(x)) + sha3Hex(assetUnit(y)));
 }
 
-export function lpAsset(a: CardanoAsset, b: CardanoAsset): CardanoAsset {
-  return { policyId: MINSWAP_V2.authenPolicy, assetName: lpAssetName(a, b) };
+export function lpAsset(a: CardanoAsset, b: CardanoAsset, dex: Pick<DexScripts, 'authenPolicy'> = MINSWAP_V2): CardanoAsset {
+  return { policyId: dex.authenPolicy, assetName: lpAssetName(a, b) };
 }
 
 /** A UTxO as the chain-data proxy returns it: amounts as decimal strings, never numbers. */
@@ -181,21 +192,21 @@ function quantityOf(u: ChainUtxo, a: CardanoAsset): bigint {
 }
 
 /**
- * Reads a UTxO as the Minswap V2 pool for `pair`, or says why it is not one.
+ * Reads a UTxO as `dex`'s pool for `pair` (Minswap's own unless told), or says why it is not one.
  *
  * What makes it the pool, in the order the validator trusts them: it sits at the pool script,
  * it holds exactly one pool NFT (minted only into a real pool), it holds the pair's LP token,
  * and its datum names the pair. A pool that fails any of these is not a pool, whatever
  * anyone's list says.
  */
-export function readPool(csl: Csl, u: ChainUtxo, pair: [CardanoAsset, CardanoAsset]): PoolRead {
+export function readPool(csl: Csl, u: ChainUtxo, pair: [CardanoAsset, CardanoAsset], dex: Pick<DexScripts, 'poolScriptHash' | 'authenPolicy'> = MINSWAP_V2): PoolRead {
   const no = (reason: string): PoolRead => ({ kind: 'not-a-pool', reason });
   const header = parseInt(u.addressHex.slice(0, 2), 16);
   const paymentIsScript = (header >> 4) % 2 === 1;
-  if (!paymentIsScript || u.addressHex.slice(2, 58) !== MINSWAP_V2.poolScriptHash) return no('not at the Minswap V2 pool script');
-  if (quantityOf(u, { policyId: MINSWAP_V2.authenPolicy, assetName: MINSWAP_V2.poolNftName }) !== 1n) return no('no pool NFT');
+  if (!paymentIsScript || u.addressHex.slice(2, 58) !== dex.poolScriptHash) return no(dex === MINSWAP_V2 ? 'not at the Minswap V2 pool script' : 'not at the pool script');
+  if (quantityOf(u, { policyId: dex.authenPolicy, assetName: MINSWAP_V2.poolNftName }) !== 1n) return no('no pool NFT');
   const [want0, want1] = poolOrder(pair[0], pair[1]);
-  const lp = lpAsset(want0, want1);
+  const lp = lpAsset(want0, want1, dex);
   if (quantityOf(u, lp) <= 0n) return no("does not hold this pair's LP token");
   if (u.inlineDatumHex === null) return no('no datum');
   let datum: PlutusData;
@@ -262,9 +273,9 @@ export function feePercentText(numerator: bigint): string {
   return `${Number(pct.toFixed(3))}%`;
 }
 
-/** The order's address: Minswap's order script, with the trader's own stake part (SDK buildOrderAddress). */
-export function orderAddressFor(trader: ParsedAddress): ParsedAddress {
-  return composeAddress({ kind: 'script', hash: MINSWAP_V2.orderScriptHash }, trader.stake, trader.network);
+/** The order's address: the order script (Minswap's unless told), with the trader's own stake part (SDK buildOrderAddress). */
+export function orderAddressFor(trader: ParsedAddress, dex: Pick<DexScripts, 'orderScriptHash'> = MINSWAP_V2): ParsedAddress {
+  return composeAddress({ kind: 'script', hash: dex.orderScriptHash }, trader.stake, trader.network);
 }
 
 export interface SwapOrderTerms {
@@ -298,41 +309,80 @@ function int(csl: Csl, n: bigint): PlutusData {
   return csl.PlutusData.new_integer(csl.BigInt.from_str(n.toString()));
 }
 
+export interface OrderDatumTerms {
+  /** The trader: canceller, success receiver and refund receiver, all three. */
+  trader: ParsedAddress;
+  /** The pool's LP token: it names the pool, and so the deployment, the order is for. */
+  lp: CardanoAsset;
+  /** The step, as encodeSwapStep / encodeDepositStep / encodeWithdrawStep wrote it. */
+  step: PlutusData;
+  maxBatcherFee: bigint;
+}
+
 /**
- * The order's datum (types.ak OrderDatum), for a SwapExactIn with a specific amount.
+ * The order's datum (types.ak OrderDatum), for any step.
  *
  * - canceller: the trader's payment key (OAMSignature), so only the trader can cancel.
  * - refund and success receiver: the trader's own whole address, with no extra datum.
- * - killable: TRUE. If the pool has moved past the minimum by the time the batcher reaches the
- *   order, the batcher must return the order (less the batcher fee) instead of leaving it open.
- *   Minswap's own front end writes false and leaves such orders open until cancelled; this
- *   rail has no cancel screen yet, so it never leaves one open.
  * - no expiry setting (None), as Minswap's own front end writes.
  */
-export function encodeSwapOrderDatum(csl: Csl, t: SwapOrderTerms): string {
+export function encodeOrderDatum(csl: Csl, t: OrderDatumTerms): string {
   if (t.trader.payment.kind !== 'key') throw new Error('A script wallet cannot sign an order cancel here.');
-  if (t.swapAmount <= 0n || t.minimumReceive <= 0n) throw new Error('An order needs a positive amount and minimum.');
-  const aToB = sameAsset(t.assetIn, t.pool.assetA);
-  if (!aToB && !sameAsset(t.assetIn, t.pool.assetB)) throw new Error('The coin paid in is not in this pool.');
+  if (t.maxBatcherFee <= 0n) throw new Error('An order needs a positive batcher fee.');
   const noDatum = constr(csl, 0, []); // EODNoDatum
-  const step = constr(csl, 0, [
-    constr(csl, aToB ? 1 : 0, []), // a_to_b_direction: Bool
-    constr(csl, 0, [int(csl, t.swapAmount)]), // SAOSpecificAmount
-    int(csl, t.minimumReceive),
-    constr(csl, 1, []), // killable: True
-  ]);
   const datum = constr(csl, 0, [
     constr(csl, 0, [csl.PlutusData.new_bytes(hexToBytes(t.trader.payment.hash))]), // OAMSignature
     addressData(csl, t.trader), // refund_receiver
     noDatum,
     addressData(csl, t.trader), // success_receiver
     noDatum,
-    constr(csl, 0, [csl.PlutusData.new_bytes(hexToBytes(t.pool.lp.policyId)), csl.PlutusData.new_bytes(hexToBytes(t.pool.lp.assetName))]),
-    step,
-    int(csl, MINSWAP_V2.maxBatcherFee),
+    constr(csl, 0, [csl.PlutusData.new_bytes(hexToBytes(t.lp.policyId)), csl.PlutusData.new_bytes(hexToBytes(t.lp.assetName))]),
+    t.step,
+    int(csl, t.maxBatcherFee),
     constr(csl, 1, []), // expiry_setting_opt: None
   ]);
   return datum.to_hex();
+}
+
+/** Bool, as Aiken writes it: False = Constr 0 [], True = Constr 1 []. */
+function bool(csl: Csl, b: boolean): PlutusData {
+  return constr(csl, b ? 1 : 0, []);
+}
+
+/**
+ * Every step this rail writes is killable: TRUE. If the pool has moved past the minimum by the
+ * time the batcher reaches the order, the batcher must return it (less the batcher fee)
+ * instead of leaving it open. Minswap's own front end writes false and leaves such orders open
+ * until cancelled; this rail has no cancel screen yet, so it never leaves one open.
+ */
+const KILLABLE = true;
+
+/** SwapExactIn with a specific amount (OrderStep constructor 0). */
+export function encodeSwapStep(csl: Csl, aToB: boolean, swapAmount: bigint, minimumReceive: bigint): PlutusData {
+  if (swapAmount <= 0n || minimumReceive <= 0n) throw new Error('An order needs a positive amount and minimum.');
+  return constr(csl, 0, [bool(csl, aToB), constr(csl, 0, [int(csl, swapAmount)]), int(csl, minimumReceive), bool(csl, KILLABLE)]);
+}
+
+/** Deposit with specific amounts of A and B (OrderStep constructor 4, DAOSpecificAmount). */
+export function encodeDepositStep(csl: Csl, amountA: bigint, amountB: bigint, minimumLp: bigint): PlutusData {
+  // order_validation.ak: amounts not negative, at least one positive, minimum_lp positive.
+  if (amountA < 0n || amountB < 0n || amountA + amountB <= 0n || minimumLp <= 0n) throw new Error('A deposit needs positive amounts and a positive minimum.');
+  return constr(csl, 4, [constr(csl, 0, [int(csl, amountA), int(csl, amountB)]), int(csl, minimumLp), bool(csl, KILLABLE)]);
+}
+
+/** Withdraw a specific LP amount (OrderStep constructor 5, WAOSpecificAmount). */
+export function encodeWithdrawStep(csl: Csl, lpAmount: bigint, minimumA: bigint, minimumB: bigint): PlutusData {
+  // order_validation.ak: both minimums positive, the LP amount positive.
+  if (lpAmount <= 0n || minimumA <= 0n || minimumB <= 0n) throw new Error('A withdrawal needs a positive LP amount and positive minimums.');
+  return constr(csl, 5, [constr(csl, 0, [int(csl, lpAmount)]), int(csl, minimumA), int(csl, minimumB), bool(csl, KILLABLE)]);
+}
+
+/** The swap order's datum: a SwapExactIn at Minswap's pool, with Minswap's batcher fee. */
+export function encodeSwapOrderDatum(csl: Csl, t: SwapOrderTerms): string {
+  if (t.trader.payment.kind !== 'key') throw new Error('A script wallet cannot sign an order cancel here.');
+  const aToB = sameAsset(t.assetIn, t.pool.assetA);
+  if (!aToB && !sameAsset(t.assetIn, t.pool.assetB)) throw new Error('The coin paid in is not in this pool.');
+  return encodeOrderDatum(csl, { trader: t.trader, lp: t.pool.lp, step: encodeSwapStep(csl, aToB, t.swapAmount, t.minimumReceive), maxBatcherFee: MINSWAP_V2.maxBatcherFee });
 }
 
 /** What the order locks: the swap, the batcher fee, and the deposit that comes back. */

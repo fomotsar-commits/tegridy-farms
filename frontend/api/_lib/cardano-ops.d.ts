@@ -9,3 +9,6 @@ export declare function buildKoiosRequest(
   query: Record<string, unknown> | undefined,
   apiKey: string | undefined,
 ): { url: string; init: RequestInit; cache: string } | { error: number; message: string };
+export declare function ownPoolOps(
+  dep: import('./cardano-own-pools').OwnPoolsDeploymentRecord,
+): Record<string, { params: readonly string[]; cache: string; build: (q: Record<string, string>) => unknown }>;

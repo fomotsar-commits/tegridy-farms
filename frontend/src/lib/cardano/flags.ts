@@ -17,3 +17,16 @@ export const CARDANO_SWAP_OPEN: boolean = true;
 export function cardanoSwapVisible(open: boolean = CARDANO_SWAP_OPEN, mode: string = import.meta.env.MODE): boolean {
   return open || mode === 'cardano-preview';
 }
+
+/**
+ * The owner's switch for the venue's OWN Cardano pools: the LP screens (open a pool, add,
+ * remove, your positions) at /cardano-pools. Off: nothing is on chain yet (api/_lib/
+ * cardano-own-pools.js is null). Even switched on, the screens build nothing until that
+ * record is filled, and say so.
+ */
+export const CARDANO_OWN_POOLS_OPEN: boolean = false;
+
+/** Shown once opened, or in a `--mode cardano-preview` build, as the swap was walked before it opened. */
+export function cardanoOwnPoolsVisible(open: boolean = CARDANO_OWN_POOLS_OPEN, mode: string = import.meta.env.MODE): boolean {
+  return open || mode === 'cardano-preview';
+}

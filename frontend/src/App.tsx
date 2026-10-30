@@ -24,7 +24,7 @@ import { lazyLoadFailed } from './lib/staleBuild';
 import { holdReloadWhileWalletWorks } from './lib/reloadHold';
 import { StaleBuildFallback } from './components/StaleBuildFallback';
 import { rangePoolsVisible } from './lib/solana/clmm/programId';
-import { cardanoSwapVisible } from './lib/cardano/flags';
+import { cardanoOwnPoolsVisible, cardanoSwapVisible } from './lib/cardano/flags';
 
 const HomePage = lazy(() => import('./pages/HomePage'));
 const DashboardPage = lazy(() => import('./pages/DashboardPage'));
@@ -324,6 +324,8 @@ function AnimatedRoutes() {
         {/* The Range tab: no route at all until range pools open (clmm/programId.ts). */}
         {rangePoolsVisible() && <Route path="range-pools" element={<Suspense fallback={<SwapSkeleton />}><PoolsHostPage /></Suspense>} />}
         <Route path="pools" element={<Suspense fallback={<SwapSkeleton />}><PoolsHostPage /></Suspense>} />
+        {/* The venue's own Cardano pools: no route until CARDANO_OWN_POOLS_OPEN (lib/cardano/flags.ts). */}
+        {cardanoOwnPoolsVisible() && <Route path="cardano-pools" element={<Suspense fallback={<SwapSkeleton />}><PoolsHostPage /></Suspense>} />}
         {/* No /solana-launch and no redirect for it: it 404s, because the rail it
             would point at cannot launch either. */}
         <Route path="curve-launch" element={<Suspense fallback={<PageSkeleton />}><LaunchHubPage /></Suspense>} />

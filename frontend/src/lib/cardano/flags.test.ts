@@ -1,6 +1,6 @@
 // The Cardano swap's switch, and everything that hangs off it.
 import { describe, expect, it, vi } from 'vitest';
-import { CARDANO_SWAP_OPEN, cardanoSwapVisible } from './flags';
+import { CARDANO_OWN_POOLS_OPEN, CARDANO_SWAP_OPEN, cardanoOwnPoolsVisible, cardanoSwapVisible } from './flags';
 import { isCardanoPage } from '../routeVoice';
 
 describe('the Cardano swap switch', () => {
@@ -32,7 +32,7 @@ describe('the Cardano swap switch', () => {
 describe('with the swap shown', () => {
   it('lists Cardano last in the drop-down, and /cardano serves it', async () => {
     vi.resetModules();
-    vi.doMock('./flags', () => ({ CARDANO_SWAP_OPEN: true, cardanoSwapVisible: () => true }));
+    vi.doMock('./flags', () => ({ CARDANO_SWAP_OPEN: true, cardanoSwapVisible: () => true, CARDANO_OWN_POOLS_OPEN: false, cardanoOwnPoolsVisible: () => false }));
     const { VENUE_CHAINS, tabChains } = await import('../sectionChains');
     const { SWAP_SECTION } = await import('../navConfig');
     expect(VENUE_CHAINS.map((c) => c.id)).toEqual(['ethereum', 'base', 'robinhood', 'solana', 'cardano']);
@@ -44,11 +44,46 @@ describe('with the swap shown', () => {
 
   it('and with it hidden, no drop-down or tab carries Cardano', async () => {
     vi.resetModules();
-    vi.doMock('./flags', () => ({ CARDANO_SWAP_OPEN: false, cardanoSwapVisible: () => false }));
+    vi.doMock('./flags', () => ({ CARDANO_SWAP_OPEN: false, cardanoSwapVisible: () => false, CARDANO_OWN_POOLS_OPEN: false, cardanoOwnPoolsVisible: () => false }));
     const { VENUE_CHAINS } = await import('../sectionChains');
     const { SWAP_SECTION } = await import('../navConfig');
     expect(VENUE_CHAINS.map((c) => c.id)).not.toContain('cardano');
     expect(SWAP_SECTION.items.map((i) => i.to)).not.toContain('/cardano');
+    vi.doUnmock('./flags');
+  }, 20_000);
+});
+
+describe('the venue’s own Cardano pools switch', () => {
+  it('is off as shipped: nothing is on chain, so a production build has no tab, no route and no drop-down row for it', () => {
+    expect(CARDANO_OWN_POOLS_OPEN).toBe(false);
+    expect(cardanoOwnPoolsVisible(false, 'production')).toBe(false);
+    expect(cardanoOwnPoolsVisible()).toBe(false);
+  });
+
+  it('shows in a cardano-preview build, or once opened', () => {
+    expect(cardanoOwnPoolsVisible(false, 'cardano-preview')).toBe(true);
+    expect(cardanoOwnPoolsVisible(true, 'production')).toBe(true);
+  });
+
+  it('makes /cardano-pools a Cardano page only while the pools are shown', () => {
+    expect(isCardanoPage('/cardano-pools', false, true)).toBe(true);
+    expect(isCardanoPage('/cardano-pools/', false, true)).toBe(true);
+    expect(isCardanoPage('/cardano-pools', true, false)).toBe(false);
+    expect(isCardanoPage('/cardano-pools')).toBe(false);
+  });
+
+  it('shown, the Pools section carries its tab on Cardano; hidden, it carries none', async () => {
+    vi.resetModules();
+    vi.doMock('./flags', () => ({ CARDANO_SWAP_OPEN: false, cardanoSwapVisible: () => false, CARDANO_OWN_POOLS_OPEN: true, cardanoOwnPoolsVisible: () => true }));
+    const shown = await import('../navConfig');
+    const chains = await import('../sectionChains');
+    expect(shown.POOLS_SECTION.items.map((i) => i.to)).toContain('/cardano-pools');
+    expect(chains.tabChains('/cardano-pools')).toEqual(['cardano']);
+    expect(chains.VENUE_CHAINS.map((c) => c.id)).toContain('cardano');
+    vi.resetModules();
+    vi.doMock('./flags', () => ({ CARDANO_SWAP_OPEN: true, cardanoSwapVisible: () => true, CARDANO_OWN_POOLS_OPEN: false, cardanoOwnPoolsVisible: () => false }));
+    const hidden = await import('../navConfig');
+    expect(hidden.POOLS_SECTION.items.map((i) => i.to)).not.toContain('/cardano-pools');
     vi.doUnmock('./flags');
   }, 20_000);
 });

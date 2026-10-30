@@ -2,8 +2,8 @@ import type { NavItem } from './navConfig';
 import { getChainConfig } from './chains/registry';
 import { liquidityVenueOn } from './chains/liquidityVenue';
 import { curveLauncherOn } from './launcher/curve';
-// Plain text only: whether the Cardano swap is shown, without loading any Cardano code.
-import { cardanoSwapVisible } from './cardano/flags';
+// Plain text only: whether the Cardano swap or pools are shown, without loading any Cardano code.
+import { cardanoOwnPoolsVisible, cardanoSwapVisible } from './cardano/flags';
 
 /**
  * The four networks the venue runs on, and which tab of Swap, Pools and Launch serves which
@@ -35,8 +35,8 @@ export const VENUE_CHAINS: readonly VenueChainInfo[] = [
   { id: 'robinhood', name: 'Robinhood Chain', short: 'Robinhood', evmChainId: 4663 },
   { id: 'solana', name: 'Solana', short: 'Solana', evmChainId: null },
   // Cardano (owner, 2026-10-24: "cardano integrated in every aspect") is listed only once its
-  // swap is shown (lib/cardano/flags.ts), so until then no drop-down carries a greyed row for it.
-  ...(cardanoSwapVisible() ? [{ id: 'cardano' as const, name: 'Cardano', short: 'Cardano', evmChainId: null }] : []),
+  // swap or its pools are shown (lib/cardano/flags.ts), so until then no drop-down carries a greyed row for it.
+  ...(cardanoSwapVisible() || cardanoOwnPoolsVisible() ? [{ id: 'cardano' as const, name: 'Cardano', short: 'Cardano', evmChainId: null }] : []),
 ];
 
 export function venueChain(id: VenueChain): VenueChainInfo {
@@ -81,8 +81,10 @@ export function tabChains(to: string): TabChains {
     case '/pools':
     case '/curve-launch':
       return ['solana'];
-    // Minswap V2 pools, with the venue's own fee line (lib/cardano/).
+    // The swap through Minswap V2 pools with the venue's own fee line (lib/cardano/), and the
+    // venue's own Cardano pools (lib/cardano/ownPools/).
     case '/cardano':
+    case '/cardano-pools':
       return ['cardano'];
     default:
       return 'any';

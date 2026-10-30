@@ -10,6 +10,8 @@ const PoolsPage = lazy(() => import('./PoolsPage'));
 const RangePoolsPage = lazy(() => import('./RangePoolsPage'));
 // One token in, LP position out, as one resumable run.
 const ZapPage = lazy(() => import('../components/zap/ZapPage'));
+// The venue's own Cardano pools: positions, add, remove, open (lib/cardano/ownPools/).
+const CardanoPoolsPage = lazy(() => import('./CardanoPoolsPage'));
 
 /**
  * Pools, the section for providing liquidity: one tab per way in, from POOLS_SECTION
@@ -29,6 +31,7 @@ export default function PoolsHostPage() {
         '/pools': PoolsPage,
         '/range-pools': RangePoolsPage,
         '/zap': ZapPage,
+        '/cardano-pools': CardanoPoolsPage,
       }}
     />
   );
