@@ -13,7 +13,6 @@ import {
   TEGRIDY_STAKING_ADDRESS,
   TEGRIDY_FACTORY_ADDRESS,
   TEGRIDY_ROUTER_ADDRESS,
-  TEGRIDY_LENDING_ADDRESS,
   TEGRIDY_NFT_LENDING_ADDRESS,
   TEGRIDY_NFT_POOL_FACTORY_ADDRESS,
   TREASURY_ADDRESS,
@@ -32,7 +31,6 @@ const CONTRACTS = [
   { name: 'TegridyStaking', address: TEGRIDY_STAKING_ADDRESS },
   { name: 'TegridyFactory', address: TEGRIDY_FACTORY_ADDRESS },
   { name: 'TegridyRouter', address: TEGRIDY_ROUTER_ADDRESS },
-  { name: 'TegridyLending', address: TEGRIDY_LENDING_ADDRESS },
   { name: 'TegridyNFTLending', address: TEGRIDY_NFT_LENDING_ADDRESS },
   { name: 'TegridyNFTPoolFactory', address: TEGRIDY_NFT_POOL_FACTORY_ADDRESS },
 ];

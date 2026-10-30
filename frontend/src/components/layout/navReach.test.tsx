@@ -46,8 +46,6 @@ function tabsOf(rel: string, list: string): string[] {
 
 /** URL-only on purpose. Each one is a decision, and listing one deletes it from here. */
 const URL_ONLY: Record<string, string> = {
-  '/airdrop': 'its rails are undeployed (navConfig.test.ts)',
-  '/vesting': 'its rails are undeployed (navConfig.test.ts)',
   '/admin': 'an operator page behind a browser flag',
   '/start': "the home's own door, under the read field",
   '/towelie': 'another name for /toweli, whose door is in the hall',

@@ -83,6 +83,11 @@ const OTHER_RUNNERS: { prefix: string; runner: string }[] = [
   // pull request ever reaches, is the exact hole these entries used to have.
   { prefix: 'contracts/monitoring/', runner: "node --test (ci.yml 'Monitoring rule unit tests')" },
   { prefix: 'scripts/monitoring/', runner: "node --test (ci.yml 'Monitoring rule unit tests')" },
+  // The price keeper. A long-running service outside frontend/ with zero npm
+  // dependencies, so `node --test`, not this project:
+  //   node --test keeper/test/<each file>.test.mjs
+  // ci.yml runs exactly that in the "Price keeper unit tests" step.
+  { prefix: 'keeper/', runner: "node --test (ci.yml 'Price keeper unit tests')" },
   // The endpoint redactors shared by the repo-root ops scripts and the contracts/
   // shell scripts, plus the source guards that keep those scripts calling them.
   // Same reason as the two entries above: operational code that must run on a bare

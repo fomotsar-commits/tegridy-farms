@@ -72,6 +72,7 @@ export function lpDepositSummary(pool: PublicKey, tokenMint: PublicKey, over: Pa
   return {
     kind: 'lp-deposit',
     pool,
+    transferFee: null,
     origin: 'other',
     config: null,
     enableCreatorFee: false,
@@ -111,6 +112,7 @@ export function lpWithdrawSummary(
   return {
     kind: 'lp-withdraw',
     pool,
+    transferFee: null,
     origin: 'other',
     config: null,
     tokenMint,
@@ -171,6 +173,7 @@ export function lpCreateSummary(pool: PublicKey, tokenMint: PublicKey, over: Par
   return {
     kind: 'lp-create',
     pool,
+    transferFee: null,
     origin: 'standard',
     config: tier1Config(),
     tokenMint,
