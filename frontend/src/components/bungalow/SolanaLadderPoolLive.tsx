@@ -14,7 +14,7 @@ import {
   boostBpsForLock, weightForStake, quoteExit, checkDeposit, earnedNow, rewardRunwaySecs,
   minWeightFloor,
   MAX_LOCK_SECS, MAX_POSITIONS, MAX_EARLY_EXIT_PENALTY_BPS, MIN_BOOST_BPS,
-  penaltyFor, penaltyPct, sharePct,
+  penaltyFor, penaltyPct, sharePct, perDayAtTodaysRate, aprLabel,
   type LadderPoolView, type LadderPositionView,
 } from '../../lib/ladder/program';
 import {
@@ -26,7 +26,7 @@ import {
   ladderStake, ladderClaim, ladderExit, ladderHatch, ladderClaimCarried,
   type WriteResult, type LadderWriteCtx,
 } from '../../lib/ladder/write';
-import { fmtRaw, fmtRawParts, toPlain, toRaw, humanDuration, lockLabel, boostLabel } from '../../lib/ladder/format';
+import { fmtRaw, fmtRawParts, fmtDaily, toPlain, toRaw, humanDuration, lockLabel, boostLabel } from '../../lib/ladder/format';
 import { basisBehindWrite, confirmedSlotOf, slotOrNull, type WriteFence } from '../../lib/ladder/writeFence';
 import { useAccrualMeter } from '../../hooks/useAccrualMeter';
 import { Fact, HEAD, PANEL_BG, LEDGER_BG, HAIR, DIVIDED_BG } from './ledger';
@@ -329,18 +329,18 @@ export function SolanaLadderPoolCard({ bungalow, compact = false }: { bungalow: 
     ? checkDeposit(pool, amountRaw, myPrincipal, lockSecs, openCount)
     : null;
 
-  // ⚠️ NO APR, NO PERCENTAGE, ON PURPOSE. A per-token yield depends on who else is in
-  // the pool and at what weight, on the window being refilled, and on the vault — none
-  // of which the chain fixes. What it DOES fix is how many tokens the whole pool is
-  // scheduled to receive per second, and until when. So the card shows exactly that,
-  // and only while the window is open. An earlier "configured rate" annualised this and
-  // divided by total principal rather than total weight, so it was not even the rate
-  // its own note named.
+  // ⚠️ THE POOL'S OWN FIGURES CARRY NO PERCENTAGE. A per-token yield for the pool as a
+  // whole depends on whose lock you would hold, so the ledger shows what the chain fixes:
+  // how many tokens the whole pool receives per day, and until when. An earlier
+  // "configured rate" annualised that and divided by total principal rather than total
+  // weight, so it was not even the rate its own note named.
   //
-  // What IS allowed (2026-09-20): YOUR SHARE OF POOL WEIGHT — Σ your positions' weight
-  // over `totalWeighted`, floored (`sharePct`). It is a present fact the chain fixes, not
-  // a forecast. FORBIDDEN, and not to be added later: share × rewards per day, "your
-  // daily earnings", or any annualisation of either. Those are yield promises.
+  // YOUR OWN FIGURES DO (owner, 2026-10-29: "how much bayla a day each wallet earns …
+  // and a % … based on their position", "position and time locked ofc"). Per position
+  // and for the wallet: `perDayAtTodaysRate` over your weight (stake × lock boost), and
+  // `aprLabel` on the principal that earns it. Both are projections, so they are only
+  // ever printed beside their basis — today's rate and pool weight, and the date the
+  // window is funded to — and only when the share they rest on can be stated.
   //
   // `rewardRunwaySecs` is null only when no rate has ever been set — `notify_reward`
   // refuses a zero rate — so null means NEVER FUNDED, and 0 means the window ENDED.
@@ -423,6 +423,25 @@ export function SolanaLadderPoolCard({ bungalow, compact = false }: { bungalow: 
   // Hidden, not zeroed, when there is nothing to state: no weight of yours, or a pool
   // below its floor (where the accumulator does not move and a share decides nothing).
   const showShare = walletView !== null && !belowFloor && myWeight !== null && myWeight > 0n;
+  // What you earn per day, at today's rate. It divides by the SAME total the share does —
+  // the larger of the two honest readings, so the smaller figure — and exists only when
+  // the share does: a stale, partial or disagreeing read prints no rate either. Each
+  // position's figure is its own weight's; the wallet's is their sum, so the rows add up
+  // to it, and its APR is that sum over the principal behind it.
+  const perDayTotal = share ? share.totalWeighted : null;
+  const perDayOf = (p: LadderPositionView) =>
+    pool && perDayTotal !== null ? perDayAtTodaysRate(p.weight, perDayTotal, pool, nowSec) : null;
+  const myPerDay = (() => {
+    if (perDayTotal === null || positions.length === 0) return null;
+    let sum = 0n;
+    for (const p of positions) {
+      const d = perDayOf(p);
+      if (d === null) return null;
+      sum += d;
+    }
+    return sum;
+  })();
+  const myApr = myPerDay !== null ? aprLabel(myPerDay, positions.reduce((a, p) => a + p.amountRaw, 0n)) : null;
   const youLoaded = Boolean(publicKey) && !walletUnreadable && walletLoaded && walletView !== null;
 
   // The chip EXPLAINS the meter; it never drives it. The meter freezing is the math
@@ -652,9 +671,32 @@ export function SolanaLadderPoolCard({ bungalow, compact = false }: { bungalow: 
                     <p className="m-0 text-[11px] uppercase tracking-[0.14em]" style={{ color: 'rgba(255,255,255,0.7)', fontFamily: HEAD }}>
                       You in this pool
                     </p>
+                    {/* What you earn a day, and that as a yearly rate on your stake. A
+                        projection, so its basis rides on the same line. */}
+                    {showShare && pool && myPerDay !== null && (
+                      <m.div variants={staggerItem}>
+                        <p className="m-0 mb-1.5 text-[11px] uppercase tracking-[0.12em]" style={{ color: 'rgba(76,175,80,0.9)', fontFamily: HEAD }}>
+                          You earn per day
+                        </p>
+                        <p className="m-0 text-white tabular-nums" style={{ fontFamily: MONO, fontWeight: 600, fontSize: 28, lineHeight: 1.1 }}>
+                          {fmtDaily(myPerDay, decimals)}{' '}
+                          <span className="text-[11px] font-medium uppercase tracking-[0.08em]" style={{ color: 'rgba(255,255,255,0.55)', fontFamily: HEAD }}>{sym}</span>
+                        </p>
+                        <p className="m-0 mt-2 text-[12px] tabular-nums" style={{ color: 'rgba(255,255,255,0.72)' }}>
+                          {myApr} APR · at today's rate, funded to {dateOf(pool.periodFinish)}
+                        </p>
+                        <FinePrint summary="How this is worked out">
+                          <p className="m-0">
+                            Your weight (each stake × its lock boost) over all stakers' weight, times the
+                            pool's {fmtRaw(pool.rewardRate * BigInt(DAY), decimals)} {sym} a day. It falls when
+                            others lock, rises when they leave, and stops on {dateOf(pool.periodFinish)} unless
+                            the pool is refilled.
+                          </p>
+                        </FinePrint>
+                      </m.div>
+                    )}
                     {/* ⚠️ A SHARE OF WEIGHT, NOT A YIELD. It is what the chain fixes
-                        about you today. Never multiplied by the rewards rate, never
-                        annualised — see the NO APR note above. */}
+                        about you today; the projection built on it is the block above. */}
                     {showShare && (
                       <m.div variants={staggerItem}>
                         <p className="m-0 mb-1.5 text-[11px] uppercase tracking-[0.12em]" style={{ color: 'rgba(76,175,80,0.9)', fontFamily: HEAD }}>
@@ -969,6 +1011,7 @@ export function SolanaLadderPoolCard({ bungalow, compact = false }: { bungalow: 
                           position={p}
                           pool={pool}
                           nowSec={nowSec}
+                          perDayRaw={perDayOf(p)}
                           decimals={decimals}
                           sym={sym}
                           busy={action?.busy}
@@ -1241,12 +1284,14 @@ function LiveEarned(
  * not written down.
  */
 function PositionRow({
-  position, pool, nowSec, decimals, sym, busy, canWrite, confirmFor, setConfirmFor,
+  position, pool, nowSec, perDayRaw, decimals, sym, busy, canWrite, confirmFor, setConfirmFor,
   onClaim, onExit, onHatch,
 }: {
   position: LadderPositionView;
   pool: LadderPoolView;
   nowSec: number;
+  /** This position's own per day at today's rate; null when it cannot be stated. */
+  perDayRaw: bigint | null;
   decimals: number;
   sym: string;
   busy?: string;
@@ -1294,6 +1339,11 @@ function PositionRow({
         <p className="text-white/70 text-[12px] m-0 tabular-nums">
           <LiveEarned earnedAt={earnedAt} fallback={fmtRaw(earned, decimals)} decimals={decimals} /> {sym} earned
         </p>
+        {perDayRaw !== null && (
+          <p className="text-[12px] m-0 tabular-nums" style={{ color: 'var(--color-kyle-bright)' }}>
+            {fmtDaily(perDayRaw, decimals)} {sym}/day · {aprLabel(perDayRaw, position.amountRaw)} APR
+          </p>
+        )}
       </div>
 
       {/* The lock, as a line. The read carries no lock START, so this does not
