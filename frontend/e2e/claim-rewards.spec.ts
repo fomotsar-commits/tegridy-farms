@@ -14,9 +14,34 @@
  * position is that each claim-bearing surface mounts, so that is what these
  * check; the claim TRANSACTION is the Anvil leg's job.
  */
-import { test, expect, expectTxReceipt, advancePastApproval, advanceForkTime } from './fixtures/wallet';
+import { encodeFunctionData, formatEther, hexToBigInt, parseAbi, type Hex } from 'viem';
+import { test, expect, expectTxReceipt, advancePastApproval, advanceForkTime, anvilRpc } from './fixtures/wallet';
+import { TEGRIDY_STAKING_ADDRESS, TOWELI_ADDRESS } from '../src/lib/constants';
 
 const onAnvil = !!process.env.ANVIL_RPC_URL;
+
+const RESERVE_ABI = parseAbi([
+  'function balanceOf(address) view returns (uint256)',
+  'function totalStaked() view returns (uint256)',
+  'function totalUnsettledRewards() view returns (uint256)',
+]);
+
+/** One uint256 off the fork. An empty `0x` (no code there) throws: unread is not zero. */
+async function readUint(to: string, data: Hex): Promise<bigint> {
+  const result = (await anvilRpc('eth_call', [{ to, data }, 'latest'])) as Hex;
+  if (result === '0x') throw new Error(`eth_call to ${to} returned no data — is the contract on this fork?`);
+  return hexToBigInt(result);
+}
+
+/** The reward pool exactly as StakingRewardLib computes it; may be negative. */
+async function stakingRewardReserve(): Promise<bigint> {
+  const [balance, staked, iou] = await Promise.all([
+    readUint(TOWELI_ADDRESS, encodeFunctionData({ abi: RESERVE_ABI, functionName: 'balanceOf', args: [TEGRIDY_STAKING_ADDRESS] })),
+    readUint(TEGRIDY_STAKING_ADDRESS, encodeFunctionData({ abi: RESERVE_ABI, functionName: 'totalStaked' })),
+    readUint(TEGRIDY_STAKING_ADDRESS, encodeFunctionData({ abi: RESERVE_ABI, functionName: 'totalUnsettledRewards' })),
+  ]);
+  return balance - staked - iou;
+}
 
 test.describe('Claim rewards surfaces', () => {
   test('/farm mounts the reward-bearing sections when connected', async ({ page, walletMock }) => {
@@ -147,6 +172,21 @@ test.describe('Claim rewards surfaces', () => {
     // keeps its own tight, named budget.
     test.setTimeout(180_000);
 
+    // 0. Can anything accrue at all? StakingRewardLib.accumulateRewards caps every tick
+    // to balanceOf(staking) − totalStaked − totalUnsettledRewards, and gives ZERO when
+    // that is not positive: a new position then earns nothing however long we wait.
+    // Ask BEFORE staking and moving the clock, so an empty reserve fails here, by name,
+    // and does not spend the shared fork's clock budget (advanceForkTime) that the swap
+    // legs need. 2026-10-27 it was empty on mainnet: balance == totalStaked to the wei.
+    const reserve = await stakingRewardReserve();
+    if (reserve <= 0n) {
+      throw new Error(
+        `TegridyStaking's reward reserve on this fork is EMPTY (balance − totalStaked − IOUs = ` +
+          `${formatEther(reserve)} TOWELI), so nothing can accrue and there is nothing to claim. This is ` +
+          'chain state, not this PR: it stays red until the reserve is refilled (notifyRewardAmount, owner).',
+      );
+    }
+
     // ISOLATED WALLET — see the note in stake.spec.ts. This leg opens a position too,
     // and it also jumps the fork clock, so it must not be spending from the wallet the
     // render specs read.
@@ -193,7 +233,7 @@ test.describe('Claim rewards surfaces', () => {
     const claim = positionCard.getByRole('button', { name: /^Claim Rewards$/i });
     await expect(
       claim,
-      'the claim CTA never enabled after a week of fork time on a real position — either accrual stopped ' +
+      'the claim CTA never enabled after 120 s of fork time on a real position — either accrual stopped ' +
         'on TegridyStaking or the reward pool is exhausted. Check rewardRate() and the contract TOWELI balance ' +
         'before touching this assertion.',
     ).toBeEnabled({ timeout: 30_000 });
