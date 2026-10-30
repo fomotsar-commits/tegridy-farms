@@ -197,7 +197,8 @@ function PoolRow({
       className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-lg px-3 py-2.5"
       style={{ background: 'rgba(0,0,0,0.35)', border: '1px solid rgba(255,255,255,0.12)' }}
     >
-      <div className="min-w-0 flex-1 space-y-0.5">
+      {/* On a phone the text takes the whole width and the buttons wrap below it; beside them it was squeezed to half. */}
+      <div className="min-w-0 grow basis-full space-y-0.5 sm:basis-0">
         <p className="text-white font-semibold text-[14px]">{label}</p>
         {/* Any other coin's ticker is its own claim, and a short address can be ground to collide: the whole address is said too. */}
         {!siteNamed(view.tokenMint) && <p className="font-mono text-white/55 text-[11px] break-all">{view.tokenMint}</p>}
