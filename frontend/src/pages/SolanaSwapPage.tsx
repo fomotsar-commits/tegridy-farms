@@ -89,6 +89,7 @@ import { OWN_ROUTE_COPY, freshDecision, ownPoolNowWins, prepareOwnPoolSwap, with
 import { whileJupiterBusy } from '../lib/solana/swap/jupiterBusy';
 import { applySlippage } from '../lib/launcher/solana/curve/math';
 import { tradeCostText } from '../lib/solana/lp/format';
+import { siteNamed } from '../lib/solana/lp/identity';
 import { perMillionPercent } from '../lib/solana/clmm/feeText';
 import { isFeeOnInput } from '../lib/solana/clmm/program';
 import { quietEnding } from '../components/swap/quietSwap';
@@ -260,8 +261,12 @@ function sideWords(pay: SolToken, buy: SolToken): { verb: 'Buy' | 'Sell'; done: 
 
 type RowBadge = { label: string; tone: 'amber' | 'red' | 'green' };
 
-/** The head and the tail of a mint. Copies of a name differ at the head: every pump.fun mint ends alike. */
-const shortMint = (mint: string) => `${mint.slice(0, 6)}…${mint.slice(-4)}`;
+/**
+ * The head and the tail of a mint, for a coin the site names itself (ours, the pairing
+ * coins). Any other coin's ticker is its own claim, and a head and a tail can be grinded
+ * to match, so its row shows the whole address, as the pool screens do (identity.ts).
+ */
+const mintLine = (mint: string) => (siteNamed(mint) ? `${mint.slice(0, 6)}…${mint.slice(-4)}` : mint);
 
 function riskBadges(t: SolToken): RowBadge[] {
   const out: RowBadge[] = [];
@@ -379,7 +384,7 @@ function TokenRow({ t, onSelect }: { t: SolToken; onSelect: (t: SolToken) => voi
             {t.verified === true && <span className="text-success text-[10px]" title="Verified on Jupiter" aria-label="Verified">✓</span>}
           </div>
           <div className="text-white/50 text-[11px] truncate">{t.name}</div>
-          <div className="text-white/45 text-[10px] font-mono">{shortMint(t.mint)}</div>
+          <div className="text-white/45 text-[10px] font-mono break-all">{mintLine(t.mint)}</div>
           {badges.length > 0 && (
             <div className="flex gap-1 flex-wrap mt-0.5">
               {badges.map((b) => (
