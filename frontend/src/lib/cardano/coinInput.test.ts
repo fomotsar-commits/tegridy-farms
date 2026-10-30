@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseCoinInput } from './coinInput';
+import { namesCoin, parseCoinInput } from './coinInput';
 
 // SNEK, read from mainnet (Koios policy_asset_list and asset_list, 2026-10-30).
 const POLICY = '279c909f348e533da5808898f87f9a14bb2c3dfbbacccd631d927a3f';
@@ -16,8 +16,15 @@ describe('parseCoinInput', () => {
 
   it('takes the policy id alone, for the coin to be found under it', () => {
     expect(parseCoinInput(POLICY)).toEqual({ kind: 'policy', policyId: POLICY });
-    // A name in letters is never read as hex: only the policy id is kept.
-    expect(parseCoinInput(`${POLICY}.SNEK`)).toEqual({ kind: 'policy', policyId: POLICY });
+    expect(parseCoinInput(`${POLICY}.`)).toEqual({ kind: 'policy', policyId: POLICY });
+    // A name in letters is kept as letters, to pick the coin it names: never read as hex.
+    expect(parseCoinInput(`${POLICY}.SNEK`)).toEqual({ kind: 'policy', policyId: POLICY, name: 'SNEK' });
+  });
+
+  it('reads a hex name written apart from the policy id, as the old box did', () => {
+    expect(parseCoinInput(`${POLICY} . ${NAME}`)).toEqual(COIN);
+    expect(parseCoinInput(`${POLICY}. ${NAME}`)).toEqual(COIN);
+    expect(parseCoinInput(`${POLICY} ${NAME}`)).toEqual(COIN);
   });
 
   it('takes an asset1… id only when its checksum holds', () => {
@@ -32,9 +39,20 @@ describe('parseCoinInput', () => {
     expect(parseCoinInput(`https://cardanoscan.io/token/${FINGERPRINT}?tab=holders`)).toEqual({ kind: 'fingerprint', fingerprint: FINGERPRINT });
     expect(parseCoinInput(`cardanoscan.io/tokenPolicy/${POLICY}`)).toEqual({ kind: 'policy', policyId: POLICY });
     expect(parseCoinInput(`https://cexplorer.io/asset/${FINGERPRINT}`)).toEqual({ kind: 'fingerprint', fingerprint: FINGERPRINT });
-    expect(parseCoinInput(`https://pool.pm/${POLICY}.SNEK`)).toEqual({ kind: 'policy', policyId: POLICY });
-    // pool.pm writes the name in letters: one that happens to look like hex is still not read as hex.
-    expect(parseCoinInput(`https://pool.pm/${POLICY}.BEEF`)).toEqual({ kind: 'policy', policyId: POLICY });
+    expect(parseCoinInput(`https://pool.pm/${POLICY}.SNEK`)).toEqual({ kind: 'policy', policyId: POLICY, name: 'SNEK' });
+    // pool.pm writes the name in letters: one that happens to look like hex is still letters.
+    expect(parseCoinInput(`https://pool.pm/${POLICY}.BEEF`)).toEqual({ kind: 'policy', policyId: POLICY, name: 'BEEF' });
+    // Any other link's name after a dot, in hex, is that coin: never dropped for the policy alone.
+    expect(parseCoinInput(`https://cardanoscan.io/token/${POLICY}.${NAME}`)).toEqual(COIN);
+    expect(parseCoinInput(`https://cardanoscan.io/token/${POLICY}%2E${NAME}`)).toEqual(COIN);
+  });
+
+  it('knows a name in letters behind a CIP-68 prefix as the same name', () => {
+    expect(namesCoin('534e454b', 'SNEK')).toBe(true);
+    expect(namesCoin('0014df10415343454e44', 'ASCEND')).toBe(true);
+    expect(namesCoin('0014df10415343454e44', 'ASCEN')).toBe(false);
+    expect(namesCoin('534e454b', 'snek')).toBe(false);
+    expect(namesCoin('', '')).toBe(false);
   });
 
   it('says a trading pair’s page, or a pool’s share token, is not a coin', () => {

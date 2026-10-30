@@ -234,7 +234,53 @@ describe('CardanoSwapPage', () => {
     fireEvent.change(box, { target: { value: 'SNEK' } });
     expect(screen.getByText(/That isn’t a Cardano coin’s address/)).toBeInTheDocument();
     fireEvent.change(box, { target: { value: ASCEND.policyId } });
-    expect(await screen.findByText(/No coin under this id/)).toBeInTheDocument();
+    expect(await screen.findByText(/The chain lists no coin under this id yet/)).toBeInTheDocument();
+    expect(screen.queryByTestId('cardano-coin-identity')).toBeNull();
+  });
+
+  it('takes the coin a link names in letters, and never carries a pick over to new text', async () => {
+    policyRows = [
+      { asset_name: '69425443', asset_name_ascii: 'iBTC', total_supply: '4991218', ticker: 'iBTC' },
+      { asset_name: ASCEND.assetName, asset_name_ascii: null, total_supply: '1000000000000', ticker: 'ASCEND' },
+    ];
+    renderPage();
+    const box = screen.getByLabelText(/The coin/);
+    fireEvent.change(box, { target: { value: ASCEND.policyId } });
+    const picks = await screen.findByTestId('cardano-coin-picks');
+    fireEvent.click(within(picks).getByRole('button', { name: 'iBTC' }));
+    expect(within(picks).getByRole('button', { name: 'iBTC' })).toHaveAttribute('aria-pressed', 'true');
+    // Other text for the same policy, naming no coin: the earlier pick is not taken for it.
+    fireEvent.change(box, { target: { value: `https://cardanoscan.io/tokenPolicy/${ASCEND.policyId}` } });
+    expect(within(await screen.findByTestId('cardano-coin-picks')).getByRole('button', { name: 'iBTC' })).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.queryByTestId('cardano-coin-identity')).toBeNull();
+    // New text under the same policy, naming ASCEND: ASCEND, not the iBTC picked before.
+    fireEvent.change(box, { target: { value: `https://pool.pm/${ASCEND.policyId}.ASCEND` } });
+    const id = await screen.findByTestId('cardano-coin-identity');
+    await within(id).findByText('ASCEND');
+    expect(id.textContent).toContain(`${ASCEND.policyId}.${ASCEND.assetName}`);
+    // A click under this text still picks another: the visitor's choice outranks the link's.
+    const named = await screen.findByTestId('cardano-coin-picks');
+    fireEvent.click(within(named).getByRole('button', { name: 'iBTC' }));
+    expect(within(named).getByRole('button', { name: 'iBTC' })).toHaveAttribute('aria-pressed', 'true');
+    // A name that is none of them takes nothing, and says so.
+    fireEvent.change(box, { target: { value: `https://pool.pm/${ASCEND.policyId}.NOPE` } });
+    expect(await screen.findByText(/Nothing under this id is called “NOPE”/)).toBeInTheDocument();
+    expect(screen.queryByTestId('cardano-coin-identity')).toBeNull();
+  });
+
+  it('never takes the one coin under a policy when the text named another', async () => {
+    policyRows = [{ asset_name: ASCEND.assetName, asset_name_ascii: null, total_supply: '1000000000000', ticker: 'ASCEND' }];
+    renderPage();
+    fireEvent.change(screen.getByLabelText(/The coin/), { target: { value: `${ASCEND.policyId}.NOPE` } });
+    expect(await screen.findByText(/Nothing under this id is called “NOPE”/)).toBeInTheDocument();
+    expect(screen.queryByTestId('cardano-coin-identity')).toBeNull();
+  });
+
+  it('says an asset1… id of a Minswap pool’s share token names a pair, and takes no coin', async () => {
+    fingerprintRows = [{ policy_id: MINSWAP_V2.authenPolicy, asset_name: 'ab'.repeat(32), fingerprint: ASCEND_FINGERPRINT }];
+    renderPage();
+    fireEvent.change(screen.getByLabelText(/The coin/), { target: { value: ASCEND_FINGERPRINT } });
+    expect(await screen.findByText(/That names a trading pair, not a coin/)).toBeInTheDocument();
     expect(screen.queryByTestId('cardano-coin-identity')).toBeNull();
   });
 

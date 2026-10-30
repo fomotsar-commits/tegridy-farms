@@ -46,6 +46,12 @@ describe('readPolicyCoins', () => {
     });
   });
 
+  it('cuts a long label by characters, never through an emoji', async () => {
+    stubPoolRows([ft('4c4f4e47', '1000', { ticker: `${'a'.repeat(31)}😀tail` })]);
+    const r = await readPolicyCoins('ab'.repeat(28));
+    expect(r.status === 'ok' && r.data.coins[0]?.label).toBe(`${'a'.repeat(31)}😀`);
+  });
+
   it('says the list is cut when the policy holds more than one read lists', async () => {
     stubPoolRows(Array.from({ length: 51 }, (_, i) => ft(i.toString(16).padStart(4, '0'), '1')));
     const r = await readPolicyCoins('ab'.repeat(28));

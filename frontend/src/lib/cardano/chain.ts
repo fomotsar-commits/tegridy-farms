@@ -7,6 +7,7 @@
 // returned it.
 
 import { parseAddressBech32 } from './address';
+import { CIP67_AMOUNT_PREFIXES } from './coinInput';
 import type { ChainUtxo } from './minswapV2';
 
 export const CARDANO_PROXY_PATH = '/api/cardano';
@@ -241,9 +242,6 @@ export interface PolicyCoin {
 /** How many rows one policy read asks for (api/_lib/cardano-ops.js POLICY_COINS_ROWS): one more than the list shows. */
 export const POLICY_READ_ROWS = 51;
 
-// CIP-67 label prefixes of the two CIP-68 tokens that come in amounts: 333 (fungible) and 444 (rich fungible).
-const CIP67_AMOUNT_PREFIXES = ['0014df10', '001bc280'];
-
 /**
  * The coins minted under a policy id: its NFTs (a supply of one, which is also every CIP-68
  * reference token) and coins burned to nothing are left out. `cut`: the policy holds more
@@ -254,7 +252,8 @@ export async function readPolicyCoins(policyId: string, signal?: AbortSignal): P
   if (r.status !== 'ok') return r;
   if (!Array.isArray(r.data)) return unread('the policy read was not a list');
   const coins: PolicyCoin[] = [];
-  const text = (v: unknown) => (typeof v === 'string' && v.trim() !== '' ? v.trim().slice(0, 32) : null);
+  // Cut by characters, not UTF-16 units: an emoji is never split in two.
+  const text = (v: unknown) => (typeof v === 'string' && v.trim() !== '' ? Array.from(v.trim()).slice(0, 32).join('') : null);
   for (const row of r.data) {
     const name = isRecord(row) ? row.asset_name : null;
     const supply = isRecord(row) ? amount(row.total_supply) : null;

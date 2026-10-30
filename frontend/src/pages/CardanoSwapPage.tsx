@@ -11,7 +11,7 @@ import { CardanoWalletModal } from '../components/cardano/CardanoWalletModal';
 import { loadCsl, type Csl } from '../lib/cardano/csl';
 import { ADA, feePercentText, isAda, type CardanoAsset } from '../lib/cardano/minswapV2';
 import { readFingerprint, readPolicyCoins, readTokenInfo, type PolicyCoin, type Read, type TokenInfo } from '../lib/cardano/chain';
-import { parseCoinInput, type CoinInput } from '../lib/cardano/coinInput';
+import { isPoolShare, namesCoin, parseCoinInput, type CoinInput } from '../lib/cardano/coinInput';
 import { prepareSwap, quoteNow, signAndSend, type Prepared } from '../lib/cardano/swapFlow';
 import type { SwapQuote } from '../lib/cardano/quote';
 import { venueFeeAddress, venueFeeText } from '../lib/cardano/venueFee';
@@ -72,18 +72,21 @@ const PICK_LIST_MAX = 50;
 
 /**
  * The coin the box names, once known: the whole id as pasted, a fingerprint's coin, or the coin
- * under a policy id (the only one, or the one picked when there are several).
+ * under a policy id (the one its name in letters names; else the only one, or the one picked).
  */
 function resolvedCoin(input: CoinInput | null, lookup: Read<CoinLookup> | null, pickedName: string | null): { policyId: string; assetName: string } | null {
   if (input?.kind === 'coin') return input;
   if (!lookup || lookup.status !== 'ok') return null;
   const found = lookup.data;
-  if (input?.kind === 'fingerprint' && found.kind === 'fingerprint') return found.coin;
+  if (input?.kind === 'fingerprint' && found.kind === 'fingerprint') return found.coin && !isPoolShare(found.coin.policyId) ? found.coin : null;
   if (input?.kind === 'policy' && found.kind === 'policy') {
-    // The one coin under the policy, when the list is whole, is the coin; among several, the visitor picks.
-    const only = !found.cut && found.coins.length === 1 ? found.coins[0] : undefined;
-    const name = only ? only.assetName : pickedName;
-    return name !== null ? { policyId: input.policyId, assetName: name } : null;
+    const { name } = input;
+    // A name given is the coin it names, or none: never another coin under the same policy.
+    // Without one, the only coin under the policy, when the list is whole, is the coin.
+    const auto = name !== undefined ? found.coins.find((c) => namesCoin(c.assetName, name)) : !found.cut && found.coins.length === 1 ? found.coins[0] : undefined;
+    // A pick made under this very text outranks the name the text gave: the visitor chose.
+    const assetName = pickedName ?? auto?.assetName ?? null;
+    return assetName !== null ? { policyId: input.policyId, assetName } : null;
   }
   return null;
 }
@@ -149,22 +152,30 @@ function CardanoSwapInner({ csl, cslError, retryCsl }: { csl: Csl | null; cslErr
   // A policy id alone, or an asset1… id, is looked up first; the answer is kept with what it answered.
   const lookupKey = input?.kind === 'policy' ? `policy:${input.policyId}` : input?.kind === 'fingerprint' ? `fp:${input.fingerprint}` : null;
   const [lookupRead, setLookupRead] = useState<{ key: string; value: Read<CoinLookup> } | null>(null);
-  const [picked, setPicked] = useState<{ key: string; assetName: string } | null>(null);
+  // A pick holds only for the text it was made under: new text, even under the same policy, picks again.
+  const [picked, setPicked] = useState<{ text: string; assetName: string } | null>(null);
   useEffect(() => {
-    if (!lookupKey || (input?.kind !== 'policy' && input?.kind !== 'fingerprint')) return;
+    if (!lookupKey) return;
     const ac = new AbortController();
-    const read: Promise<Read<CoinLookup>> =
-      input.kind === 'policy'
-        ? readPolicyCoins(input.policyId, ac.signal).then((r) => (r.status === 'ok' ? { status: 'ok', data: { kind: 'policy', ...r.data } } : r))
-        : readFingerprint(input.fingerprint, ac.signal).then((r) => (r.status === 'ok' ? { status: 'ok', data: { kind: 'fingerprint', coin: r.data } } : r));
+    // Keyed on lookupKey alone: text that changes nothing it asks (spaces, a name in letters) reads nothing again.
+    const id = lookupKey.slice(lookupKey.indexOf(':') + 1);
+    const read: Promise<Read<CoinLookup>> = lookupKey.startsWith('policy:')
+      ? readPolicyCoins(id, ac.signal).then((r) => (r.status === 'ok' ? { status: 'ok', data: { kind: 'policy', ...r.data } } : r))
+      : readFingerprint(id, ac.signal).then((r) => (r.status === 'ok' ? { status: 'ok', data: { kind: 'fingerprint', coin: r.data } } : r));
     void read.then((value) => {
       if (!ac.signal.aborted) setLookupRead({ key: lookupKey, value });
     });
     return () => ac.abort();
-  }, [input, lookupKey]);
+  }, [lookupKey]);
   const lookup = lookupKey && lookupRead?.key === lookupKey ? lookupRead.value : null;
   const policyList = lookup?.status === 'ok' && lookup.data.kind === 'policy' ? lookup.data : null;
-  const resolved = resolvedCoin(input, lookup, picked && picked.key === lookupKey ? picked.assetName : null);
+  const fingerprintCoin = lookup?.status === 'ok' && lookup.data.kind === 'fingerprint' ? lookup.data.coin : undefined;
+  const namesPair = input?.kind === 'pair' || (fingerprintCoin != null && isPoolShare(fingerprintCoin.policyId));
+  const resolved = resolvedCoin(input, lookup, picked && picked.text === tokenText ? picked.assetName : null);
+  // A name in letters that names none of the policy's coins: the list is shown, and nothing is taken.
+  const wantedName = input?.kind === 'policy' ? input.name : undefined;
+  const nameMissed = wantedName !== undefined && policyList !== null && !policyList.coins.some((c) => namesCoin(c.assetName, wantedName));
+  const showPicks = policyList !== null && policyList.coins.length > 0 && (policyList.cut || policyList.coins.length > 1 || nameMissed);
   const tokenKey = resolved ? resolved.policyId + resolved.assetName : null;
   const token = useMemo(() => (tokenKey ? { policyId: tokenKey.slice(0, 56), assetName: tokenKey.slice(56) } : null), [tokenKey]);
   // Every read is kept with the inputs it answered, and shown only while they are still the
@@ -336,7 +347,7 @@ function CardanoSwapInner({ csl, cslError, retryCsl }: { csl: Csl | null; cslErr
   let cta: { label: string; disabled: boolean; onClick?: () => void };
   if (wallet.status !== 'connected') cta = { label: 'Connect a Cardano wallet', disabled: false, onClick: () => setWalletOpen(true) };
   else if (!csl) cta = { label: cslError ? 'Reload the page to try again' : 'Loading…', disabled: !cslError, onClick: cslError ? retryCsl : undefined };
-  else if (!token) cta = { label: policyList && policyList.coins.length > 0 ? 'Pick the coin above' : 'Paste a coin’s address', disabled: true };
+  else if (!token) cta = { label: lookupKey && lookup === null ? 'Finding the coin…' : showPicks ? 'Pick the coin above' : 'Paste a coin’s address', disabled: true };
   else if (quote.kind === 'loading') cta = { label: 'Getting a price…', disabled: true };
   else if (quote.kind !== 'quote') cta = { label: 'Enter an amount', disabled: true };
   else cta = { label: flow.kind === 'preparing' ? 'Building and checking…' : 'Review swap', disabled: locked, onClick: () => void onReview() };
@@ -401,10 +412,10 @@ function CardanoSwapInner({ csl, cslError, retryCsl }: { csl: Csl | null; cslErr
               className="w-full rounded-xl p-3 bg-transparent text-white text-[12px] font-mono outline-none disabled:opacity-60"
               style={FIELD}
             />
-            {(input?.kind === 'unknown' || input?.kind === 'pair') && (
+            {(input?.kind === 'unknown' || namesPair) && (
               <>
                 <p className="mt-1 text-[11px] text-danger">
-                  {input.kind === 'pair' ? 'That names a trading pair, not a coin. Copy the coin’s own address instead.' : 'That isn’t a Cardano coin’s address.'}
+                  {namesPair ? 'That names a trading pair, not a coin. Copy the coin’s own address instead.' : 'That isn’t a Cardano coin’s address.'}
                 </p>
                 <FinePrint summary="What counts as its address">
                   <p className="text-[11px] text-white/65">
@@ -415,13 +426,21 @@ function CardanoSwapInner({ csl, cslError, retryCsl }: { csl: Csl | null; cslErr
             )}
             {lookupKey && lookup === null && <p className="mt-1 text-[11px] text-white/65">Finding the coin…</p>}
             {lookup?.status === 'unread' && <p className="mt-1 text-[11px] text-danger">The coin could not be looked up just now ({lookup.reason}).</p>}
-            {lookup?.status === 'ok' && lookup.data.kind === 'fingerprint' && lookup.data.coin === null && <p className="mt-1 text-[11px] text-danger">No coin has that asset1… id.</p>}
+            {fingerprintCoin === null && <p className="mt-1 text-[11px] text-danger">The chain has no record of that asset1… id yet. Check it.</p>}
             {policyList && policyList.coins.length === 0 && (
-              <p className="mt-1 text-[11px] text-danger">{policyList.cut ? 'No coin among the first things listed under this id.' : 'No coin under this id: nothing, or only NFTs, were made with it.'}</p>
+              <p className="mt-1 text-[11px] text-danger">
+                {policyList.cut ? 'No coin among the first things listed under this id. Paste the coin’s whole address.' : 'The chain lists no coin under this id yet (NFTs aren’t listed). Check the id.'}
+              </p>
             )}
-            {policyList && policyList.coins.length > 0 && (policyList.cut || policyList.coins.length > 1) && (
+            {policyList && showPicks && (
               <div className="mt-2 space-y-1.5" role="group" aria-label="Coins under this id" data-testid="cardano-coin-picks">
-                <p className="text-[11px] text-white/75">Several coins share this id. Pick yours:</p>
+                <p className="text-[11px] text-white/75 break-all">
+                  {wantedName !== undefined && nameMissed
+                    ? `Nothing under this id is called “${Array.from(wantedName).slice(0, 32).join('')}”. Pick yours:`
+                    : policyList.cut
+                      ? 'Many things share this id. Pick your coin:'
+                      : 'Several coins share this id. Pick yours:'}
+                </p>
                 <div className="flex flex-wrap gap-1.5">
                   {policyList.coins.slice(0, PICK_LIST_MAX).map((c) => (
                     <button
@@ -430,10 +449,10 @@ function CardanoSwapInner({ csl, cslError, retryCsl }: { csl: Csl | null; cslErr
                       aria-pressed={token?.assetName === c.assetName}
                       disabled={locked}
                       onClick={() => {
-                        if (lookupKey) setPicked({ key: lookupKey, assetName: c.assetName });
+                        setPicked({ text: tokenText, assetName: c.assetName });
                         toForm();
                       }}
-                      className="min-h-[44px] px-3 rounded-md text-[12px] text-white disabled:opacity-60"
+                      className="min-h-[44px] min-w-[44px] max-w-full break-all px-3 rounded-md text-[12px] text-white disabled:opacity-60"
                       style={token?.assetName === c.assetName ? PRIMARY : { background: 'rgba(0,0,0,0.45)', border: '1px solid rgba(255,255,255,0.12)' }}
                     >
                       {c.label ?? (c.assetName.slice(0, 16) || '(no name)')}
