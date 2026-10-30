@@ -18,11 +18,11 @@ import { test, expect } from './fixtures/wallet';
 const onAnvil = !!process.env.ANVIL_RPC_URL;
 
 test.describe('NFT lending surface', () => {
-  test('/nft-finance loads with NFT Lending and Token Lending tabs', async ({ page, walletMock: _w }) => {
+  test('/nft-finance loads with NFT Lending and NFT AMM tabs', async ({ page, walletMock: _w }) => {
     await page.goto('/nft-finance');
     await expect(page.locator('h1')).toContainText(/NFT Finance/i);
     await expect(page.getByRole('tab', { name: /NFT Lending/i }).first()).toBeVisible();
-    await expect(page.getByRole('tab', { name: /Token Lending/i }).first()).toBeVisible();
+    await expect(page.getByRole('tab', { name: /NFT AMM/i }).first()).toBeVisible();
   });
 
   test('connected wallet renders without unhandled errors', async ({ page, walletMock }) => {

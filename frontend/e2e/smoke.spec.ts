@@ -53,16 +53,14 @@ test.describe('Smoke Tests', () => {
     await expect(page.locator('h1')).toBeVisible();
   });
 
-  test('community page loads with tabs', async ({ page }) => {
+  test('community page loads with its link cards', async ({ page }) => {
     await gotoRoute(page, '/community');
     await expect(page.locator('h1')).toContainText(/community/i);
-    // The page renders multiple role="tablist" elements (page-level Community
-    // tabs + the gauge-voting subtabs). Scope to the first one — that's the
-    // top-level navigation we care about for this smoke.
-    const tablist = page.locator('[role="tablist"]').first();
-    await expect(tablist).toBeVisible();
-    const tabs = tablist.locator('[role="tab"]');
-    await expect(tabs).toHaveCount(4);
+    // No tab strip since the governance contracts retired (#1043): the page is its
+    // header and two link cards. Scoped to main, so the nav's own links do not match.
+    const main = page.locator('main#main-content');
+    await expect(main.getByRole('link', { name: /Community chat/ })).toBeVisible();
+    await expect(main.getByRole('link', { name: /Gallery/ })).toBeVisible();
   });
 
   test('lending page loads with tabs', async ({ page }) => {
@@ -105,21 +103,19 @@ test.describe('Responsive', () => {
     await expect(page.locator('h1')).toBeVisible();
   });
 
-  test('community tabs scroll on mobile', async ({ page }) => {
+  test('nft-finance tabs show on mobile', async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 812 });
-    await gotoRoute(page, '/community');
-    const tablist = page.locator('[role="tablist"]');
-    await expect(tablist).toBeVisible();
+    await gotoRoute(page, '/nft-finance');
+    await expect(page.getByRole('tablist', { name: 'NFT Finance sections' })).toBeVisible();
   });
 });
 
 test.describe('Accessibility', () => {
   test('tabs have correct ARIA attributes', async ({ page }) => {
-    await gotoRoute(page, '/community');
-    // Wait for tabs to load
-    const tabs = page.locator('[role="tab"]');
+    await gotoRoute(page, '/nft-finance');
+    const tabs = page.getByRole('tablist', { name: 'NFT Finance sections' }).getByRole('tab');
     await expect(tabs.first()).toBeVisible();
-    // First tab should be selected
+    // The default section is the first tab, so it is the selected one.
     await expect(tabs.first()).toHaveAttribute('aria-selected', 'true');
   });
 

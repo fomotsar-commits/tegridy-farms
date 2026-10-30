@@ -204,7 +204,7 @@ The full build and test recipe CI runs is in [`CLAUDE.md`](CLAUDE.md). Setup and
 frontend/              the site (Vite + React) and its serverless API (frontend/api)
 contracts/             Ethereum, Base and Robinhood contracts (Foundry)
 solana/tegridy-amm/    our Solana programs: the cp-swap fork, the launcher, the BAYLA lock ladder
-solana/tegridy-clmm/   range pools, a fork of Raydium's CLMM: source only, not deployed
+solana/tegridy-clmm/   range pools, a fork of Raydium's CLMM, live on Solana mainnet
 indexer/               Ethereum event indexer (Ponder)
 indexer-solana/        Solana event indexer
 bot/                   Telegram bot, deployed nowhere yet

@@ -31,7 +31,6 @@ import { defineConfig, devices } from '@playwright/test';
 // throwing). Do not remove the WebKit projects.
 // ─────────────────────────────────────────────────────────────────────────
 export const WEBKIT_EXCLUDED_TEST_TITLES = [
-  '/community renders the gauge / governance surfaces under mock wallet',
   'connected wallet renders without unhandled errors',
   'connected wallet renders the LiquidityTab without page errors',
   'connected /farm renders staking + LP farming surfaces',

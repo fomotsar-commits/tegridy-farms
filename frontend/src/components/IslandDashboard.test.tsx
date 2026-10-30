@@ -15,6 +15,10 @@ vi.mock('../hooks/useWalletBoard', () => ({ useWalletBoard: () => board.value })
 vi.mock('@rainbow-me/rainbowkit', () => ({
   ConnectButton: { Custom: ({ children }: { children: (p: { openConnectModal: () => void; mounted: boolean }) => ReactNode }) => children({ openConnectModal: () => {}, mounted: true }) },
 }));
+// Harvest has its own tests (farm/HarvestCard.test.tsx) and needs the app's wagmi root: here, only where it sits.
+vi.mock('./farm/HarvestCard', () => ({
+  HarvestCard: (p: { quiet?: boolean; headingLevel?: number }) => <div data-testid="harvest" data-quiet={String(p.quiet)} data-level={String(p.headingLevel)} />,
+}));
 
 import { IslandDashboard } from './IslandDashboard';
 import { venuePoolRows } from '../lib/venuePools';
@@ -155,6 +159,26 @@ describe('IslandDashboard: the wallet', () => {
     mount();
     expect(screen.getByText('No SOL, ETH or island coins in this wallet.')).toBeInTheDocument();
     expect(screen.getByText(/No locks, stakes or pool shares here yet/)).toBeInTheDocument();
+  });
+});
+
+describe('IslandDashboard: Harvest (owner, 2026-10-30: "should be a harvest all button on the dashboard too")', () => {
+  it.each([1, 2] as const)('sits under the positions on the board, quiet, at heading level 3 (board heading h%i: /dashboard and the home)', (level) => {
+    board.value = wallet({
+      solanaAddress: '7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU',
+      positions: [leg('p', 'your BAYLA locks', { status: 'ok', rows: [position({})] })],
+    });
+    mount(level);
+    const harvest = screen.getByTestId('harvest');
+    expect(harvest.dataset.quiet).toBe('true');
+    expect(harvest.dataset.level).toBe('3');
+    const positions = screen.getByRole('region', { name: 'Positions' });
+    expect(positions.compareDocumentPosition(harvest) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('is not drawn for a visitor with no wallet', () => {
+    mount();
+    expect(screen.queryByTestId('harvest')).toBeNull();
   });
 });
 

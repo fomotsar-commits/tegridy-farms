@@ -15,6 +15,91 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-29: a pushed tag holds a PR's merge, a failed vault execute still reads "Approved", and funding a wallet can turn the registry red
+
+**Believed:** tagging a PR's head on origin is free bookkeeping.
+**Measured:** pushing `wip/todo-batch-numbers-1` started a full `solana-ci` run with event `push`
+on that tag (run 40821977089, created 05:11 UTC; at 05:31 two of its jobs were still queued). It
+attaches to the PR's head commit, so the PR showed four pending checks after its own
+`pull_request` run of the same workflow had passed. A "merge once its checks finish" word then
+waited on a run nobody needed. **Do:** keep rescue tags local (`git tag`), or push them only for
+commits that are not a PR's head.
+
+**Believed:** a vault proposal whose execute failed is closed.
+**Measured:** Squads proposal #18 (multisig `EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK`) failed
+its execute on 2026-10-27 because its buffer was gone, and on 2026-10-29 its account still reads
+`Approved`. A failed execute changes nothing in the proposal, so every signing page keeps offering
+it as ready, and pressing it again only burns a fee. **Do:** in any list of proposals to press,
+name the dead ones by number.
+
+**Believed:** a registry row that says a wallet is gone is a record of the past.
+**Measured:** `bayla-ladder-deployer` (`Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6`) has
+`expect: { type: "absent" }`, which `verify-addresses.mjs --onchain` enforces unconditionally. The
+ladder upgrade plan funds that wallet with 2.70 SOL, and its PR does not touch the registry. With
+the row flipped to `{ type: "wallet", funded: true }` and the wallet still empty, the live read
+fails on exactly that row (`registry expects this account to exist and it DOES NOT`), so the
+original row would fail the morning after the send. **Do:** a plan that funds or empties a
+registered wallet carries the registry change, merged the same day.
+
+## 2026-10-28: WebKit can report art it mounted 1.6 s earlier as just visible, so a clock paused from that moment stops the splash after it has left
+
+**Believed:** `e2e/splash-reduced-motion.spec.ts` stops the Tradermigos splash well inside its
+1.8 s loading beat: it waits for the first art piece to be visible, reads the page's `Date.now()`
+and pauses the page clock 200 ms on. So "share of /splash/frogking.jpg in sight: 0" on
+`ipad-safari` (PR #1043, three attempts) meant the splash buried that picture.
+
+**Measured** (PR #1043 run 40742549494, `ipad-safari`, the first retry's trace): the splash
+mounted, by its first `/splash/` image request, 797 ms after `goto`; WebKit's `waitFor` reported
+the piece visible 1620 ms after that; the pause landed 1840 ms after the mount, 40 ms after the
+loading bar had run out, and the error context read WELCOME, the bar's end word. The passing
+retries of spreads 1 and 17 saw the piece 85 ms after the mount and paused at 314 ms. The
+600 ms the spec then steps carry the exit through glitch (450) and flash (100) into cover: 120
+dark blocks at `z-index: 100` without `pointer-events: none`, so the hit test finds no picture at
+any point and all ten pieces read 0. The one named is the first in the DOM: frogking on spread 2,
+the watercolour on 1 and 17. Trunk's green runs 40707167299 and 40723022656 flaked the same way;
+Chromium sees the piece within a frame and never did. On the WSL rig (Ubuntu 24.04,
+Playwright 1.62.1, the CI build of ee44d33d6, one worker, no retries, both WebKit projects) the
+spec failed 24 of 132 reduced-motion runs while vitest ran on the Windows host, and 0 of 108 with
+the host quiet or six WSL cores spun: the lateness needs the host busy, not the rig. Every one of
+the 15 retained failures read WELCOME, had every piece at 0 and had paused 1.8 to 8.3 s after the
+mount; the art was seen 0.08 to 6.7 s after it, and in three of them a single `page.evaluate`
+round trip took 3 s, so any real-time gap before the pause lets the bar run out, not only
+`waitFor`. Stopped before `goto` and stepped 50 ms at a time, the spec passed 132 of 132 in the
+same windows, and its 44 motion runs.
+
+**Do:** to catch a page before one of its timers fires, stop its clock before `goto` and step it
+with `runFor` until the element exists (`locator.count()` between steps): a `waitFor` on WebKit
+can answer seconds after the DOM did, while the page's timers run on time. A hit test that reads 0
+for every piece is something over all of them: say what `elementFromPoint` returns before blaming
+the layout. PR #996 held this fix from 2026-10-24 and sat unmerged while the flake cost two trunk
+retries and a red PR.
+
+## 2026-10-27: a zeroed address constant is not "never deployed", and six files hold a contract besides its tests
+
+**Believed:** a contract whose `*_ADDRESS` is zeroed in `frontend/src/lib/constants.ts` was never
+deployed, and deleting it is its source plus its tests and deploy scripts.
+
+**Measured** (the dead-EVM-contract removal: 21 contracts, 92 files): five of the zeroed ones are on
+mainnet, verified 2026-07-16 and gated off: GaugeController
+`0x6c79522D47Cf6d1051Cb474E81d9b6f3996c1054`, VoteIncentives
+`0x6e1dCB7EBD16E09edb574F414aDc664B2A5E21AF` and its admin
+`0xf87Ec231BA7FA3975619309bc16C698B2ea3B300`, CommunityGrants
+`0xeBC3aaf48297b8ccFa8272D9E68c1545eb9CD471` and MemeBountyBoard
+`0x6D2C6EC29D97fe8b6D1471091DEEE36baf69d890`. `eth_getBalance` and TOWELI `balanceOf` read 0 on
+all five. The zero constant means "the site does not show it"; `addresses.json`'s `status` field
+and `docs/CONTRACTS.md` are where "deployed" lives.
+
+Deleting a contract pulled on, in order found: `scripts/check-interface-selectors.mjs` (every
+`*_ABI` export in `contracts.ts` must resolve to an artifact, so a retired ABI needs its own named
+list), `.github/contracts-test-slices.json` (a brace alternative matching zero files fails the slice
+guard), `NOTICE.md`'s SPDX count and GPL list, `frontend/src/lib/whetstonePetitionTruth.test.ts` (a
+Doc-guards test that reads three `contracts/src/v4` files at import, which is why the four V4
+graduation-stack contracts stayed), and two airdrop tests that opened campaigns through the factory.
+`forge build` finds none of these.
+
+**Do:** before deleting a contract, grep its name across `scripts/`, `.github/`, `NOTICE.md` and
+`frontend/src/**/*.test.ts`, and read the registry row's `status`, never the constant.
+
 ## 2026-10-25: the LP door's "one jump" to its form was three scroll moves
 
 **Believed** (island, answer twenty-two, and the 2026-10-16 entry below): the door moves the
@@ -47,6 +132,64 @@ tests failed on trunk; 16 of 16 mutants of the guards were killed.
 the site uses is `["launchpool", mint]` under the launch program (`PoolView.launchTierWithoutLaunch`,
 poolFinder.ts). The write testkit's default pool is on tier 1 now. In jsdom a fixture cannot
 derive program addresses, so a flag a fixture works out reads the config's own bytes.
+
+## 2026-10-24: a Tailwind `min-[720px]:` lost to `sm:` on a wider screen, because v4 sorts breakpoints by unit before width
+
+**Believed:** the wider breakpoint wins, so `min-[720px]:aspect-[3/4]` overrides
+`sm:aspect-[5/2]` (640px) from 720px up, as `md:` would.
+
+**Measured** (tailwindcss 4.3.3, the repo's version, 2026-10-24: `compile('@import
+"tailwindcss"')` from `dist/lib.js`, `build()` on px, rem and named breakpoint classes, then
+the order of the `@media` rules read): `640px`, `720px`, `40rem`, `45rem`, `48rem`, `64rem`.
+The sort compares
+units first, as text, and widths only within a unit. The named breakpoints are rem (`sm` is
+40rem), so every px arbitrary rule comes out before every named one, and at equal specificity
+the later rule wins. In PR #1009's branch build the upright iPad's frame took `sm:`'s 5/2 and
+came out 163px tall instead of 372 (the PR's Playwright walk). `min-[45rem]:` sorted between
+`sm` and `md`, where its width puts it.
+
+**Do:** never mix px arbitrary breakpoints with named ones on one property unless every named
+one there is wider than every px one; write an arbitrary breakpoint in rem to sort it among the
+named ones. Check by reading rule order in the built `dist/assets/index-*.css`, not the class
+list. The selector escapes `[ ] / :`, so `min-[720px]:aspect-[3/4]` is
+`.min-\[720px\]\:aspect-\[3\/4\]`.
+
+## 2026-10-24: a sticky grid item pinned past the end of its row, because a grid area does not hold a sticky box
+
+**Believed:** a `position: sticky` frame in grid area `fig` of `'board fig' 'pools pools'`
+pins while row 1 scrolls by and stops where row 1 ends.
+
+**Measured** (PR #1009's branch build, Playwright Chromium and WebKit at an upright iPad's
+820px, 2026-10-24): it pinned on past row 1 and over the full-width pool list in row 2, hiding
+the rows' arrows. In both engines the sticky box was held by the grid container's box, not its
+grid area. With the area moved to a wrapper slot and `sticky` on the slot's child, it stopped
+at the end of row 1: a grid item stretches to its row's height, so the slot is a box exactly
+as tall as the row. `e2e/dashboard-frame.spec.ts` checks that no pool row is under the frame at
+points through the list, and fails on the old structure.
+
+**Do:** never put `sticky` on the grid item itself when it must stop at its row: give the area
+to a slot and pin the slot's child. Where the same markup is block layout (a phone), make the
+slot `display: contents`, so the child pins against the card as before.
+
+### Incidental
+
+- The desktop frame's `lg:sticky` had never stuck: the card was `overflow: hidden`, which makes
+  it a scroll box of its own, so the frame pinned to a box that never scrolls. `overflow: clip`
+  clips the same and is not a scroll box: `overflow-hidden supports-[overflow:clip]:overflow-clip`
+  keeps `hidden` for a browser without `clip`. body's `overflow-x: hidden` did not stop it:
+  with `html` left `visible`, body's overflow goes to the viewport.
+
+## 2026-10-24: a `mouseenter` is not a pointer that moved: WebKit fires one on a row that scrolls under a resting pointer
+
+**Believed:** an enter on a row means a mouse or finger moved onto it, so on a screen where the
+frame follows the scroll, an enter can safely mean "the pointer takes over".
+
+**Measured** (PR #1009's branch build, Playwright WebKit with `hasTouch`, 2026-10-24): with the
+pointer resting where it last was, scrolling fired `mouseenter` on each row that slid under it,
+and each took the frame from the row the scroll had reached.
+
+**Do:** treat an enter that arrives within about 300ms of the last `scroll` event as the
+scroll's, and ignore it. Test the guard in WebKit with `hasTouch`, where this was seen.
 
 ## 2026-10-24: a test pool's round share count looked neutral, but no pool program ever makes one
 
@@ -401,9 +544,9 @@ on seeds 4 to 40, on both devices.
 **Do:** count what a visitor sees with the browser's own hit test: turn `pointer-events` on for the
 pictures, sample `document.elementFromPoint` on a grid, turn it back off. Step a
 `requestAnimationFrame` loop with `page.clock`, which fakes rAF too: `runFor(100)` fires about six
-frames whatever WebKit's starved compositor draws. A `clock.pauseAt` aimed at the page's
-`Date.now()` plus 10 ms landed in the past on chromium, and plus 200 ms did once under two workers:
-catch "Cannot fast-forward to the past" and aim again.
+frames whatever WebKit's starved compositor draws. Stop the clock before `goto` and step it until
+the art is up: a pause aimed at the page's `Date.now()` once the art shows can land after the
+splash has left (the 2026-10-28 entry above).
 
 ## 2026-10-20: a press area made of padding and a matching negative margin loses its lower part to the rows after it
 
@@ -1136,6 +1279,21 @@ that build).
 
 **Do:** a word that shares a pathname with another is a plain `Link` with `aria-current` from
 its own rule; give each drawer row its own block (`<li>`).
+
+## 2026-10-14: a Solana address is not always 44 characters; a random one is 43 about 1 time in 17
+
+**Believed:** a Solana address is 44 base58 characters, so a test may pin `toHaveLength(44)` on
+a key from `Keypair.generate()`.
+
+**Measured:** 32 bytes spell 44 characters only when their number is at least 58^43, about
+14.9 × 2^248: a first byte of 15 or more always gives 44, 13 or less never does. A random key
+falls short 5.8% of the time; 25 of 500 drawn in a test were 43. The pool card test pinned 44
+on two random keys and failed 19 of 200 runs on trunk `6c3119e0` (and real checks on #821 and
+#800). The testkit's `keyStartingWith(6)`, a token that sorts before wrapped SOL, is never 44.
+
+**Do:** pin a length only on a fixed address. The LP testkit's `key()` hands out seeded
+keypairs, skipping any under 44, so its keys are the same on every run. Where a key must be
+random, assert 32 to 44 characters.
 
 ## 2026-10-14: an element fading out with `visibility` still takes presses, and WebKit can call it hidden while it does
 
@@ -4280,6 +4438,29 @@ empty (`recursivelyFlushAsyncActWork`), so a state update from a microtask chain
 queued and committed before act resolves. Where a click acts synchronously, assert right
 after it: a `waitFor` around a call that never happens only turns a wrong state into a
 one-second timeout.
+
+---
+
+## 2026-09-30 — the Vite dev server does not 404 an `/api/x` it has no proxy for: it serves `api/x.js` as a browser module
+
+**Believed:** a same-origin `/api/aggregator?...` read under `npx vite` goes through some dev
+middleware that runs the function, and an import error naming `api/aggregator.js?resource=...`
+means that middleware loaded the module with the query attached.
+
+**Measured** (Vite 8.3.0, trunk `a9efbf05`, curl and Playwright Chromium against
+`npx vite --host 127.0.0.1`): no such middleware existed. Vite's transform middleware takes any
+extensionless URL for a module request and resolves `/api/aggregator` to `api/aggregator.js`
+under the root. With `?resource=heat` it answered 200 `text/javascript`: the server source,
+where the page wanted JSON. With `?resource=gecko-read&path=/simple/...` the query stays in the
+module id, the importer's directory is cut inside that query, `./_lib/*.js` fails to resolve,
+and the request gets a 500 plus the error overlay (stack ends in `viteTransformMiddleware`).
+Plugin middleware added in `configureServer` runs after Vite's host check and CORS, before
+`server.proxy` and the transform middleware.
+
+**Do:** read the overlay's stack before blaming config: `viteTransformMiddleware` means Vite
+served the URL as a module. `/api/<route>` in dev is now `devApiPlugin` in `vite.config.ts`.
+`src/` imports `api/_lib/*.js`, so the browser fetches `/api/_lib/*.js` as modules: a dev
+route for `/api/*` must leave URLs with an extension to Vite.
 
 ---
 

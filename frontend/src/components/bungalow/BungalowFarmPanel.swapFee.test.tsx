@@ -3,6 +3,8 @@
 // chain's follows the registry (`ammSwap`) and SwapFeeRouter, whose fee goes to stakers, POL
 // and treasury, never to a room's pool. Each room is read with the Solana fee off and on.
 import { describe, it, expect, vi } from 'vitest';
+// Harvest (components/farm/HarvestCard.tsx) needs the app's wagmi root; it has its own tests.
+vi.mock('../farm/HarvestCard', () => ({ HarvestCard: () => null }));
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { BUNGALOWS, DEFAULT_BUNGALOW_ID, type Bungalow } from '../../lib/bungalows';

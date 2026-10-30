@@ -17,7 +17,6 @@
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { ReactElement } from 'react';
-import { renderHook } from '@testing-library/react';
 import { CallExecutionError, ExecutionRevertedError, TransactionReceiptNotFoundError, parseEther } from 'viem';
 import { toast } from 'sonner';
 import { wagmiMock } from '../test-utils/wagmi-mocks';
@@ -47,17 +46,11 @@ vi.mock('../contexts/PriceContext', () => ({
   useTOWELIPriceOptional: () => null,
 }));
 
-import { GaugeVoting } from './GaugeVoting';
 import { LegacyStakingExit } from './farm/LegacyStakingExit';
 import { OwnerAdminPanelV2 } from './launchpad/OwnerAdminPanelV2';
 import { PoolAdminPanel, AMMSection } from './nftfinance/AMMSection';
 import { NFTLendingSection } from './nftfinance/NFTLendingSection';
-import { LendingSection } from './nftfinance/LendingSection';
-import { VoteIncentivesSection } from './community/VoteIncentivesSection';
 import { ETHRevenueClaim } from '../pages/DashboardPage';
-import { useAirdropCampaign } from '../hooks/useAirdropCampaign';
-import { useAirdropFactory } from '../hooks/useAirdropFactory';
-import { useVestingStreams } from '../hooks/useVestingStreams';
 
 const WALLET = '0x1111111111111111111111111111111111111111' as const;
 const OTHER = '0x2222222222222222222222222222222222222222' as const;
@@ -75,17 +68,8 @@ type Surface = {
 const ui = (el: ReactElement) => () => {
   renderWithProviders(el);
 };
-const hook = (fn: () => unknown) => () => {
-  renderHook(fn);
-};
 
 const SURFACES: Surface[] = [
-  {
-    name: 'GaugeVoting',
-    mount: ui(<GaugeVoting />),
-    reverted: /your vote was not recorded/i,
-    repeat: /a second commit, vote or reveal reverts on-chain/i,
-  },
   {
     name: 'LegacyStakingExit',
     mount: ui(<LegacyStakingExit />),
@@ -127,40 +111,10 @@ const SURFACES: Surface[] = [
     repeat: /principal into a second offer/i,
   },
   {
-    name: 'LendingSection lend tab',
-    mount: ui(<LendingSection />),
-    reverted: /Offer creation reverted on-chain/i,
-    repeat: /principal into a second offer/i,
-  },
-  {
-    name: 'VoteIncentivesSection withdrawPendingETH',
-    mount: ui(<VoteIncentivesSection />),
-    reverted: /ETH withdrawal reverted on-chain/i,
-    repeat: /more ETH has come due/i,
-  },
-  {
     name: 'Dashboard ETHRevenueClaim',
     mount: ui(<ETHRevenueClaim address={WALLET} isWrongNetwork={false} />),
     reverted: /ETH claim reverted on-chain/i,
     repeat: /claims what has accrued since/i,
-  },
-  {
-    name: 'useAirdropCampaign',
-    mount: hook(() => useAirdropCampaign(OTHER, 0)),
-    reverted: /Claim reverted on-chain/i,
-    repeat: /allocation is already claimed/i,
-  },
-  {
-    name: 'useAirdropFactory',
-    mount: hook(() => useAirdropFactory()),
-    reverted: /nothing was approved or funded/i,
-    repeat: /second create funds another campaign/i,
-  },
-  {
-    name: 'useVestingStreams',
-    mount: hook(() => useVestingStreams()),
-    reverted: /Release reverted on-chain/i,
-    repeat: /only sends what has vested since/i,
   },
 ];
 

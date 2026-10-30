@@ -1,7 +1,7 @@
 /**
  * AUDIT R081 — Stake / claim / unstake happy path (only h1 regex before).
  *
- * /farm hosts: TOWELI staking, LP farming, restaking. This spec drives the
+ * /farm hosts: TOWELI staking and LP farming. This spec drives the
  * single-asset stake flow:
  *   connect → enter amount → approve → stake → wait for receipt → claim →
  *   unstake (cooldown gate may apply on real Anvil — see TF-02 in audit
