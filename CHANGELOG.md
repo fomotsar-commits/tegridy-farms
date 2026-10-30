@@ -9,6 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-10-30
 
+- Home page: TVL now shows beside the all-time volume. It is what our pools hold on Solana, Ethereum, Base and Robinhood, read from the chains every minute, with each chain's figure under What counts. When a chain cannot be read, it says "TVL at least" and names that chain. The all-time volume is now counted every five minutes instead of every few hours, and both figures refresh on the page every minute.
 - Bungalow staking: when the reward program can never pay a position's rewards, the message now says your stake is safe, instead of calling it BAYLA on every bungalow.
 
 ### 2026-10-29

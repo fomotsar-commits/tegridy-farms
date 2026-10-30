@@ -99,7 +99,8 @@ describe("handleVenueVolume", () => {
     await handleVenueVolume(makeReq(), res, { nowMs: NOW, fetchImpl });
     expect(out.status).toBe(200);
     expect(out.body).toMatchObject({ state: "current", usd: 502.5, swaps: 50 });
-    expect(out.headers["Cache-Control"]).toMatch(/s-maxage=300/);
+    // A minute: the count lands every five minutes, and the home page asks every minute.
+    expect(out.headers["Cache-Control"]).toMatch(/s-maxage=60,/);
     const url = String(fetchImpl.mock.calls[0][0]);
     expect(url).toContain("/rest/v1/venue_volume?select=");
     expect(url).not.toMatch(/cursor|last_error,|bot_/);
