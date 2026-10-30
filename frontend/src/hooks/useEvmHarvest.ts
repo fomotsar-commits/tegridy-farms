@@ -1,24 +1,29 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAccount, usePublicClient, useReadContracts, useSwitchChain, useWriteContract } from 'wagmi';
 import { ERC20_ABI, LIGHTHOUSE_LADDER_ABI } from '../lib/contracts';
-import { EVM_CHAIN_IDS, evmHarvestRooms, planEvmPool, type EvmClaim } from '../lib/harvest/evm';
-import type { SwitchResult } from '../lib/harvest/run';
+import { getWalletCapabilities, isBatchSupported, type Eip1193Like } from '../lib/eip5792';
+import { EVM_CHAIN_IDS, evmHarvestRooms, planEvmPool, receiptResult, sendCallsTogether, type EvmClaim } from '../lib/harvest/evm';
+import type { SendTogether, SwitchResult } from '../lib/harvest/run';
 import type { ClaimResult, HarvestChain, HarvestPlan } from '../lib/harvest/types';
 import { extractErrorMessage, isUserRejection, waitForReceiptOutcome } from '../lib/txErrors';
 
+type EvmChain = Exclude<HarvestChain, 'solana'>;
+
 const ZERO = '0x0000000000000000000000000000000000000000' as const;
-const CHAIN_OF: Record<number, Exclude<HarvestChain, 'solana'>> = { 1: 'ethereum', 8453: 'base' };
+const CHAIN_OF: Record<number, EvmChain> = { 1: 'ethereum', 8453: 'base' };
+const ONE_BY_ONE: Record<EvmChain, boolean> = { ethereum: false, base: false };
 
 /**
  * Harvest's Ethereum and Base half: every island pool there, read for the connected
- * account, and the send for one claim.
+ * account, the send for one claim, and one chain's claims on one prompt where the
+ * wallet says it takes `wallet_sendCalls` there.
  *
  * Both pool kinds answer `earned(address)`, `getReward()`, `stakingToken()` and
  * `rewardsToken()` with the same selectors, so one ABI serves both; only a lock ladder
  * has `rewardSurplus()`, and only a ladder is asked for it.
  */
 export function useEvmHarvest() {
-  const { address, chainId } = useAccount();
+  const { address, chainId, connector } = useAccount();
   const rooms = useMemo(() => evmHarvestRooms(), []);
   const user = address ?? ZERO;
 
@@ -64,6 +69,30 @@ export function useEvmHarvest() {
     };
   }, [address, reads.isLoading, reads.data, rooms]);
 
+  // Asked only when a chain has two claims to put together, and kept with the wallet it
+  // was asked of. No `wallet_getCapabilities` is the common case: one prompt per claim.
+  const capsFor = address && connector && plan && hasPair(plan.claims) ? `${connector.uid}:${address}` : null;
+  const [caps, setCaps] = useState<{ of: string; on: Record<EvmChain, boolean> } | null>(null);
+  useEffect(() => {
+    if (!capsFor || !address || !connector) return;
+    let live = true;
+    void (async () => {
+      let on = ONE_BY_ONE;
+      try {
+        const provider = (await connector.getProvider()) as Eip1193Like;
+        const c = await getWalletCapabilities(provider, address);
+        on = { ethereum: isBatchSupported(c, '0x1'), base: isBatchSupported(c, '0x2105') };
+      } catch {
+        /* one prompt per claim */
+      }
+      if (live) setCaps({ of: capsFor, on });
+    })();
+    return () => {
+      live = false;
+    };
+  }, [capsFor, address, connector]);
+  const batchable = caps && caps.of === capsFor ? caps.on : ONE_BY_ONE;
+
   const { writeContractAsync } = useWriteContract();
   const { switchChainAsync } = useSwitchChain();
   const ethClient = usePublicClient({ chainId: EVM_CHAIN_IDS.ethereum });
@@ -90,14 +119,18 @@ export function useEvmHarvest() {
       if (isUserRejection(e)) return { kind: 'declined' };
       return { kind: 'unconfirmed', reason: `Your wallet did not send it (${extractErrorMessage(e, 'no reason given').slice(0, 140)}).`, stop: true };
     }
-    const outcome = await waitForReceiptOutcome(client, hash);
-    if (outcome.kind === 'success') return { kind: 'claimed', tx: outcome.replacement?.hash ?? hash };
-    if (outcome.kind === 'reverted') return { kind: 'reverted', reason: 'Refused on chain: nothing was claimed, and only the network fee was spent.', tx: hash };
-    if (outcome.kind === 'replaced') {
-      return { kind: 'unconfirmed', reason: 'Your wallet replaced this transaction (a cancel, or another call), so this claim did not run.', tx: hash, stop: true };
-    }
-    return { kind: 'unconfirmed', reason: 'Sent, but its receipt could not be read. Check it on the explorer before claiming again.', tx: hash, stop: true };
+    return receiptResult(await waitForReceiptOutcome(client, hash), hash);
   }, [writeContractAsync, ethClient, baseClient]);
+
+  /** One chain's claims on one prompt, or null: this wallet did not say it takes a batch there. */
+  const together = useCallback((chain: EvmChain): SendTogether<EvmClaim> | null => {
+    const client = chain === 'base' ? baseClient : ethClient;
+    if (!batchable[chain] || !address || !connector || !client) return null;
+    return async (claims, settle) => {
+      const provider = (await connector.getProvider()) as Eip1193Like;
+      return sendCallsTogether({ provider, from: address, client }, EVM_CHAIN_IDS[chain])(claims, settle);
+    };
+  }, [batchable, address, connector, ethClient, baseClient]);
 
   return {
     address: address ?? null,
@@ -105,7 +138,15 @@ export function useEvmHarvest() {
     chain: chainId !== undefined ? CHAIN_OF[chainId] ?? null : null,
     plan,
     send,
+    /** Per chain: its claims go on one prompt. */
+    batchable,
+    together,
     switchTo,
     refetch: reads.refetch,
   };
+}
+
+/** Some chain has two or more claims, so a batch could save a prompt. */
+function hasPair(claims: readonly EvmClaim[]): boolean {
+  return claims.filter((c) => c.chain === 'ethereum').length > 1 || claims.filter((c) => c.chain === 'base').length > 1;
 }
