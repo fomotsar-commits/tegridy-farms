@@ -255,6 +255,18 @@ export async function readUtxoSpent(txHash: string, index: number, signal?: Abor
   return { status: 'ok', data: row.is_spent };
 }
 
+/** A UTxO as the chain holds it now (what it holds and its datum), and whether it is spent. null: the chain does not know it (yet). */
+export async function readUtxo(txHash: string, index: number, signal?: AbortSignal): Promise<Read<{ utxo: ChainUtxo; spent: boolean } | null>> {
+  const r = await getJson('utxo', { ref: `${txHash}#${index}` }, signal);
+  if (r.status !== 'ok') return r;
+  if (!Array.isArray(r.data)) return unread('the output read was not a list');
+  const row = r.data.find((x) => isRecord(x) && x.tx_hash === txHash && x.tx_index === index);
+  if (row === undefined) return { status: 'ok', data: null };
+  const utxo = chainUtxoFromKoios(row);
+  if (!utxo || !isRecord(row) || typeof row.is_spent !== 'boolean') return unread('the output read was malformed');
+  return { status: 'ok', data: { utxo, spent: row.is_spent } };
+}
+
 /** Transactions touching a payment credential at or after a block height, newest first. */
 export async function readCredentialTxs(paymentCred: string, afterHeight: number, signal?: AbortSignal): Promise<Read<{ txHash: string; blockHeight: number }[]>> {
   const r = await getJson('credtxs', { cred: paymentCred, after: String(afterHeight) }, signal);

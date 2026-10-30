@@ -74,10 +74,11 @@ const BASE_OPS = {
     cache: NO_STORE,
     build: (q) => (HEX64.test(q.tx ?? "") ? { path: "/tx_status", method: "POST", body: { _tx_hashes: [q.tx] } } : null),
   },
+  // Extended: an order's coins and datum come only with it, and a cancel spends exactly those.
   utxo: {
     params: ["ref"],
     cache: NO_STORE,
-    build: (q) => (UTXO_REF.test(q.ref ?? "") ? { path: "/utxo_info", method: "POST", body: { _utxo_refs: [q.ref], _extended: false } } : null),
+    build: (q) => (UTXO_REF.test(q.ref ?? "") ? { path: "/utxo_info", method: "POST", body: { _utxo_refs: [q.ref], _extended: true } } : null),
   },
   // A wallet's transactions from the order's block on, OLDEST first, capped: how a fill is
   // found. The batcher fills within a few blocks, so the fill is among the first rows however

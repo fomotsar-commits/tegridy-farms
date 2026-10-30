@@ -15,6 +15,17 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-30: CSL's `PlutusScript.from_bytes_v2` gave an Aiken script the wrong hash
+
+**Believed:** an Aiken `plutus.json` `compiledCode` loads into CSL 17 with
+`PlutusScript.from_bytes_v2(bytes)`. **Measured:** the batcher's test-world order script
+(`feat/cardano-batcher` `test/fixtures/test-deployment.json`) hashed to `53ed6f4e…` that way, not its
+real `e9690f33…`, so a reference UTxO made from it would have run nothing of ours.
+`PlutusScript.new_with_version(bytes, Language.new_plutus_v2())` gave `e9690f33…`, as the batcher's
+`test/world.ts` loads it. **Do:** load compiled code with `new_with_version`, and check the hash
+before trusting a simulate run against it (`aiken tx simulate`, Aiken 1.0.24, is in WSL at
+`/root/aiken-1.0.24/aiken`).
+
 ## 2026-10-30: CSL's script data hash goes stale when coin selection adds inputs, and "square root" in any string is a formula
 
 **Believed:** with CSL 17, `calc_script_data_hash` is called once, after the scripts' redeemers

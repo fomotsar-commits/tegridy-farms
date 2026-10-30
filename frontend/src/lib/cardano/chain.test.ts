@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { readPoolCandidates } from './chain';
+import { readPoolCandidates, readUtxo } from './chain';
 import { fixture } from './testkit.fixture';
 
-function stubPoolRows(rows: unknown[]) {
+/** Answers every read with `rows`. */
+function stubPoolRows(rows: unknown) {
   vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(rows), { status: 200, headers: { 'content-type': 'application/json' } })));
 }
 
@@ -25,5 +26,30 @@ describe('readPoolCandidates', () => {
     const broken = { ...real[1], value: 12.5 };
     stubPoolRows([broken]);
     expect((await readPoolCandidates('e66195788208dcd363edb600eaf2331019e3599baba645d81d61ef060c82d861')).status).toBe('unread');
+  });
+});
+
+describe('readUtxo', () => {
+  const real = fixture<Record<string, unknown>[]>('koios-utxo-info-open-order.json');
+  const ref = { tx: '3d80ce685be79888a109400f1f65652039f383c978476f617c8760d8f3d1600c', index: 0 };
+
+  it('reads a real open order whole: its coins, its datum, not spent', async () => {
+    stubPoolRows(real);
+    const r = await readUtxo(ref.tx, ref.index);
+    expect(r.status).toBe('ok');
+    if (r.status !== 'ok' || !r.data) throw new Error('not read');
+    expect(r.data.spent).toBe(false);
+    expect(r.data.utxo.lovelace).toBe(2_700_000n);
+    expect(r.data.utxo.assets).toEqual([{ policyId: '8fe8039d057c71fdfb1095e260f153f18a5834d85d9c868ddf7307bc', assetName: '0014df10414e47454c53', quantity: 6_075_011n }]);
+    expect(r.data.utxo.inlineDatumHex).toBe((real[0]!.inline_datum as { bytes: string }).bytes);
+  });
+
+  it('says the chain does not know it when the answer is empty, and unread when the row is malformed', async () => {
+    stubPoolRows([]);
+    expect(await readUtxo(ref.tx, ref.index)).toEqual({ status: 'ok', data: null });
+    stubPoolRows([{ ...real[0], is_spent: 'no' }]);
+    expect((await readUtxo(ref.tx, ref.index)).status).toBe('unread');
+    stubPoolRows([{ ...real[0], value: 2.7 }]);
+    expect((await readUtxo(ref.tx, ref.index)).status).toBe('unread');
   });
 });

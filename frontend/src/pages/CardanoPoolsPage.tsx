@@ -18,9 +18,20 @@ import { shortCardanoAddress } from '../lib/cardano/address';
 import { OWN_POOLS, type OwnPools } from '../lib/cardano/ownPools/deployment';
 import { findOwnPool } from '../lib/cardano/ownPools/chainReads';
 import { balancedB, MIN_POOL_ADA, quoteDeposit, quoteOpen, quoteWithdraw, type DepositQuote, type WithdrawQuote } from '../lib/cardano/ownPools/lpMath';
-import { prepareDeposit, prepareOpen, prepareWithdraw, signAndSendLp, type LpPrepared } from '../lib/cardano/ownPools/lpFlow';
+import { prepareDeposit, prepareLpCancel, prepareOpen, prepareWithdraw, signAndSendLp, signAndSendLpCancel, type LpPrepared, type LpPreparedCancel } from '../lib/cardano/ownPools/lpFlow';
 import { lpHoldings, poolOfLp, positionView, type PositionView } from '../lib/cardano/ownPools/positions';
-import { dropLpNote, markLpSettled, readLpEntries, readLpNotes, readLpOrderStatus, settledLpStatus, type LpOrderNote, type LpOrderStatus } from '../lib/cardano/ownPools/lpWatch';
+import {
+  dropLpNote,
+  lastSentAt,
+  lpCancelInFlight,
+  markLpSettled,
+  readLpEntries,
+  readLpNotes,
+  readLpOrderStatus,
+  settledLpStatus,
+  type LpOrderNote,
+  type LpOrderStatus,
+} from '../lib/cardano/ownPools/lpWatch';
 import { MAX_OPEN_NETWORK_FEE } from '../lib/cardano/ownPools/openPoolTx';
 import { pollDelayMs } from '../lib/cardano/orderWatch';
 
@@ -33,6 +44,15 @@ import { pollDelayMs } from '../lib/cardano/orderWatch';
  */
 
 type Tab = 'positions' | 'add' | 'remove' | 'open';
+
+/** One order's cancel, from the press of Cancel order to the wallet's answer. One at a time. */
+type CancelFlow = { orderTx: string } & (
+  | { kind: 'preparing' }
+  | { kind: 'review'; prepared: Extract<LpPreparedCancel, { kind: 'review' }> }
+  | { kind: 'signing' }
+  | { kind: 'stopped'; message: string; problems?: string[] }
+  | { kind: 'done'; message: string }
+);
 const TABS: { id: Tab; label: string }[] = [
   { id: 'positions', label: 'Your positions' },
   { id: 'add', label: 'Add' },
@@ -252,8 +272,10 @@ function usePool(csl: Csl | null, dep: OwnPools | null, token: CardanoAsset | nu
   return !key ? null : read?.key === key ? read.value : 'loading';
 }
 
-function statusText(s: LpOrderStatus | undefined, note: LpOrderNote, expiredPolls: number): { text: string; final: boolean } {
+function statusText(s: LpOrderStatus | undefined, note: LpOrderNote, expiredPolls: number, now: number): { text: string; final: boolean } {
   if (!s) return { text: 'Reading…', final: false };
+  if (s.kind === 'placed' && lpCancelInFlight(note, now)) return { text: 'Cancel sent. Your coins come back to your wallet when it lands.', final: false };
+  if (s.kind === 'returned' && note.cancel?.txHash === s.fillTx) return { text: 'Returned: you cancelled it, and all of it came back to your wallet, less the network fee.', final: true };
   switch (s.kind) {
     case 'not-seen':
       return { text: note.submitted ? 'Sent. The chain has not shown it yet.' : 'Not seen on the chain yet; it may not have been sent.', final: false };
@@ -297,6 +319,7 @@ function CardanoPoolsInner({ csl, cslError }: { csl: Csl | null; cslError: strin
   const [positions, setPositions] = useState<{ key: string; value: Read<PositionView[]> } | null>(null);
   // Bumped when a press finds the pool moved or unread, or on "Read again": every chain read re-runs.
   const [readEpoch, readAgain] = useReducer((n: number) => n + 1, 0);
+  const [cancelFlow, setCancelFlow] = useState<CancelFlow | null>(null);
 
   useEffect(() => {
     void restoreCardanoWallet();
@@ -306,6 +329,10 @@ function CardanoPoolsInner({ csl, cslError }: { csl: Csl | null; cslError: strin
   }, []);
 
   const traderHex = wallet.status === 'connected' ? wallet.address.hex : null;
+  const traderHexRef = useRef(traderHex);
+  useEffect(() => {
+    traderHexRef.current = traderHex;
+  }, [traderHex]);
   const locked = flow.kind === 'preparing' || flow.kind === 'signing';
   const toForm = () => setFlow({ kind: 'form' });
   const token = coin.known ? coin.token : null;
@@ -383,6 +410,8 @@ function CardanoPoolsInner({ csl, cslError }: { csl: Csl | null; cslError: strin
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [traderHex, sessionNotes, notesVersion]);
   const finals = useRef(new Set<string>());
+  // What "a cancel is still on its way" is read against: moved on each round of reads, so render stays pure.
+  const [clock, setClock] = useState(() => Date.now());
   useEffect(() => {
     if (notes.length === 0) return;
     let stopped = false;
@@ -415,10 +444,13 @@ function CardanoPoolsInner({ csl, cslError }: { csl: Csl | null; cslError: strin
     const loop = async () => {
       try {
         await tick();
+        if (!stopped) setClock(Date.now());
       } catch {
         /* a round that threw is tried again next round */
       }
-      if (!stopped) timer = setTimeout(() => void loop(), pollDelayMs(notes, (tx) => finals.current.has(tx), Date.now()));
+      // A cancel sent counts as fresh as an order placed: both are read every 10 s for a while.
+      const sent = notes.map((n) => ({ txHash: n.txHash, placedAt: lastSentAt(n) }));
+      if (!stopped) timer = setTimeout(() => void loop(), pollDelayMs(sent, (tx) => finals.current.has(tx), Date.now()));
     };
     void loop();
     return () => {
@@ -465,6 +497,36 @@ function CardanoPoolsInner({ csl, cslError }: { csl: Csl | null; cslError: strin
     else if (r.kind === 'declined') setFlow({ kind: 'done', tone: 'warn', message: 'You declined in the wallet. Nothing was sent.' });
     else setFlow({ kind: 'done', tone: 'warn', message: r.message });
   }, [csl, dep, wallet, flow]);
+
+  const onCancel = useCallback(
+    async (n: LpOrderNote) => {
+      if (!csl || !dep || wallet.status !== 'connected') return;
+      const pressedFor = wallet.address.hex;
+      setCancelFlow({ orderTx: n.txHash, kind: 'preparing' });
+      const p = await prepareLpCancel(csl, dep, wallet.api, wallet.address, n);
+      // The wallet changed while this was built: it answers for an account no longer connected.
+      if (traderHexRef.current !== pressedFor) return setCancelFlow(null);
+      setCancelFlow(p.kind === 'review' ? { orderTx: n.txHash, kind: 'review', prepared: p } : { orderTx: n.txHash, kind: 'stopped', message: p.message, problems: p.problems });
+    },
+    [csl, dep, wallet],
+  );
+
+  const onSignCancel = useCallback(async () => {
+    if (!csl || wallet.status !== 'connected' || cancelFlow?.kind !== 'review') return;
+    const { orderTx, prepared } = cancelFlow;
+    setCancelFlow({ orderTx, kind: 'signing' });
+    const r = await signAndSendLpCancel(csl, wallet.api, orderTx, prepared);
+    if (r.kind === 'sent' || r.kind === 'unsure') {
+      // Held in memory too, for a browser that keeps no notes; the stored note is read again.
+      setSessionNotes((prev) => prev.map((x) => (x.txHash === orderTx ? { ...x, cancel: r.cancel } : x)));
+      notesChanged();
+    }
+    // Sent: the order's own line says so from its note (statusText), here and after a reload.
+    if (r.kind === 'sent') setCancelFlow(null);
+    else if (r.kind === 'unsure') setCancelFlow({ orderTx, kind: 'done', message: r.message });
+    else if (r.kind === 'declined') setCancelFlow({ orderTx, kind: 'done', message: 'You declined in the wallet. Nothing was sent; the order is still open.' });
+    else setCancelFlow({ orderTx, kind: 'done', message: r.message });
+  }, [csl, wallet, cancelFlow]);
 
   const pick = (t: Tab, c?: CardanoAsset) => {
     setTab(t);
@@ -666,7 +728,7 @@ function CardanoPoolsInner({ csl, cslError }: { csl: Csl | null; cslError: strin
               These are the venue’s own pools: a copy of Minswap V2’s audited contracts under the venue’s keys, with a 48-hour wait and two signatures for any change to who runs them. Minswap’s own pools are never used here, and Minswap earns nothing from these.
             </p>
             <p>
-              Adding or removing places an order at the venue’s order contract, saying which pool, how much, the least you accept, and that only you are paid. The venue’s batcher fills it a few blocks later; if the price has moved past your minimum, it must send your coins back instead, keeping its fee. Until then it stays yours: only your own key can cancel it, and this page has no cancel button yet.
+              Adding or removing places an order at the venue’s order contract, saying which pool, how much, the least you accept, and that only you are paid. The venue’s batcher fills it a few blocks later; if the price has moved past your minimum, it must send your coins back instead, keeping its fee. Until then it stays yours, and only your own key can cancel it: Cancel order, under Your pool orders, brings all of it back, less the network fee, and pays no batcher fee. A cancel runs the order contract, so it pledges one plain ADA coin of at least 5 ADA in your wallet, whole; the network keeps it only if the contract fails on chain, which it checks before ever sending the cancel.
             </p>
             <p>
               A new pool starts with the venue’s share off, as the contracts require: its LPs keep the whole 0.3% until the venue switches its share on, which takes the 48-hour wait. Opening runs the pool contracts from your own transaction, so your wallet puts up about 3 ADA of plain ADA as a pledge; the network keeps it only if the contracts fail on chain, which it checks before ever sending the transaction.
@@ -688,17 +750,49 @@ function CardanoPoolsInner({ csl, cslError }: { csl: Csl | null; cslError: strin
           <div className="relative z-10 space-y-3">
             <h2 className="text-white text-[14px] font-semibold">Your pool orders</h2>
             {notes.map((n) => {
-              const s = statusText(statuses[n.txHash], n, expiredPolls[n.txHash] ?? 0);
+              const read = statuses[n.txHash];
+              const s = statusText(read, n, expiredPolls[n.txHash] ?? 0, clock);
               const what =
                 n.kind === 'deposit' ? `Add ${formatAda(BigInt(n.amountAda))} and ${coinText(BigInt(n.amountToken), n.tokenLabel)}`
                 : n.kind === 'withdraw' ? `Take out ${formatAmount(BigInt(n.lpAmount), 0)} LP tokens`
                 : `Open a pool with ${formatAda(BigInt(n.amountAda))} and ${coinText(BigInt(n.amountToken), n.tokenLabel)}`;
+              const cancel = cancelFlow?.orderTx === n.txHash ? cancelFlow : null;
+              const cancelBusy = cancelFlow !== null && (cancelFlow.kind === 'preparing' || cancelFlow.kind === 'review' || cancelFlow.kind === 'signing');
+              // Only on an add or remove of the connected wallet's that the chain reads as open, with no cancel of it on its way.
+              const canCancel =
+                n.kind !== 'open' && dep !== null && csl !== null && traderHex === n.traderHex && read?.kind === 'placed' && !lpCancelInFlight(n, clock) && !(cancel && cancelBusy);
+              const back =
+                n.kind === 'deposit' ? `Your ${formatAda(BigInt(n.amountAda))} and ${coinText(BigInt(n.amountToken), n.tokenLabel)}` : `Your ${formatAmount(BigInt(n.lpAmount), 0)} LP tokens`;
               return (
                 <div key={n.txHash} className="text-[12px] text-white/85 space-y-1" data-testid="cardano-pools-order">
                   <p className="text-white">{what}</p>
                   <CoinId coin={n.token} ticker={n.tokenLabel.ticker} />
                   <LpId lp={n.lp} />
                   <p>{s.text}</p>
+                  {canCancel && (
+                    <div className="space-y-1">
+                      <button type="button" disabled={cancelBusy} onClick={() => void onCancel(n)} className="min-h-[44px] px-3 rounded-lg text-white text-[12px] font-medium disabled:opacity-50" style={QUIET}>
+                        Cancel order
+                      </button>
+                      <p className="text-[11px] text-white/60">{back}, the batcher fee and the 2 ADA deposit all come back to your wallet, less the network fee.</p>
+                    </div>
+                  )}
+                  {cancel?.kind === 'preparing' && <p role="status">Building and checking the cancel…</p>}
+                  {cancel?.kind === 'review' && <CancelReview note={n} prepared={cancel.prepared} onSign={() => void onSignCancel()} onBack={() => setCancelFlow(null)} />}
+                  {cancel?.kind === 'signing' && <p role="status">Waiting for your wallet…</p>}
+                  {cancel?.kind === 'stopped' && (
+                    <div role="alert" className="text-danger space-y-1">
+                      <p>{cancel.message}</p>
+                      {cancel.problems && (
+                        <ul className="list-disc pl-5">
+                          {cancel.problems.map((p) => (
+                            <li key={p}>{p}</li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  )}
+                  {cancel?.kind === 'done' && !s.final && <p role="status">{cancel.message}</p>}
                   <div className="flex flex-wrap gap-x-4">
                     <a href={cardanoscanTx(n.txHash)} target="_blank" rel="noopener noreferrer nofollow" className="min-h-[44px] inline-flex items-center underline">
                       On Cardanoscan <span aria-hidden="true">↗</span>
@@ -807,6 +901,38 @@ function ReviewCard({ prepared, label, coin, lp, onSign, onBack }: { prepared: E
         </button>
         <button type="button" onClick={onSign} className="flex-[2] min-h-[48px] rounded-xl text-white text-[14px] font-semibold" style={PRIMARY}>
           Sign in wallet
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function CancelReview({ note, prepared, onSign, onBack }: { note: LpOrderNote; prepared: Extract<LpPreparedCancel, { kind: 'review' }>; onSign: () => void; onBack: () => void }) {
+  const c = prepared.checked;
+  // An order this page placed holds its coin or its LP tokens; anything else is named by its whole id.
+  const tokens = c.backTokens.map((t) =>
+    t.policyId === note.token.policyId && t.assetName === note.token.assetName ? coinText(t.quantity, note.tokenLabel)
+    : t.policyId === note.lp.policyId && t.assetName === note.lp.assetName ? `${formatAmount(t.quantity, 0)} LP tokens`
+    : `${t.quantity} units of ${t.policyId}.${t.assetName || '(no name)'}`,
+  );
+  return (
+    <div className="rounded-xl p-3 space-y-2" style={FIELD} data-testid="cardano-pools-cancel-review">
+      <p className="text-white text-[13px] font-semibold">Check, then sign the cancel</p>
+      <CoinId coin={note.token} ticker={note.tokenLabel.ticker} />
+      <LpId lp={note.lp} />
+      <Line label="You get back" value={[formatAda(c.backLovelace), ...tokens].join(' and ')} note="everything the order holds, less the network fee" />
+      <Line label="Network fee" value={formatAda(c.networkFee)} note={NETWORK_FEE_NOTE} />
+      <Line label="Batcher fee" value="None" note="a cancel does not go through the venue’s batcher" />
+      <Line label="Pledged, comes back" value={formatAda(c.collateralPledged)} note="one coin of your wallet, kept only if the order contract fails on chain" />
+      <Line label="Paid to" value="your own address" note="staking key included:" />
+      <p className="font-mono text-[10px] text-white/60 break-all">{prepared.plan.trader.bech32}</p>
+      <p className="text-[11px] text-white/60">Checked: it spends only this order, with the order contract’s own cancel, and pays only you. It never changes your stake or your vote.</p>
+      <div className="flex gap-2">
+        <button type="button" onClick={onBack} className="flex-1 min-h-[48px] rounded-xl text-white text-[13px]" style={{ background: 'rgba(0,0,0,0.45)', border: '1px solid rgba(255,255,255,0.18)' }}>
+          Keep the order
+        </button>
+        <button type="button" onClick={onSign} className="flex-[2] min-h-[48px] rounded-xl text-white text-[14px] font-semibold" style={PRIMARY}>
+          Sign the cancel
         </button>
       </div>
     </div>
