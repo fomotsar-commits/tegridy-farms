@@ -419,6 +419,15 @@ export default async function handler(req, res) {
     return handleFlames(req, res);
   }
 
+  // `?resource=torches` reads the island's torches, season, fire and flame count in one
+  // call: each room's door and the home's strip. Same CORS lock as flames, and it
+  // forwards only the fields those surfaces paint. Above `const provider`, like the rest.
+  // See _lib/torches.js header.
+  if (req.query.resource === "torches") {
+    const { handleTorches } = await import("./_lib/torches.js");
+    return handleTorches(req, res);
+  }
+
   // `?resource=births` signs a birth notify with the venue's shared secret and relays it
   // to the island's enrollment socket. Server-side because the SECRET is the whole
   // guarantee — a signature the browser could produce is one anybody could produce.
@@ -460,25 +469,14 @@ export default async function handler(req, res) {
     return handlePosition(req, res);
   }
 
-  // `?resource=airdrop` is the hosted airdrop manifest store: a claimant fetches THEIR
-  // OWN leaf and proof, and a creator publishes the list before funding. There is
-  // deliberately no branch that returns the recipient list — an airdrop recipient list
-  // is a wallet-targeting database, so the capability does not exist rather than being
-  // permission-checked. Lazy import, same as the branches above; also above
-  // `const provider`. See _lib/airdrop.js.
-  if (req.query.resource === "airdrop") {
-    const { handleAirdrop } = await import("./_lib/airdrop.js");
-    return handleAirdrop(req, res);
-  }
-
   // `?resource=referrals` is the short-code store behind `/?r=code` referral links:
   // one code in, at most one wallet out. It is NOT the referral ledger — earnings,
   // referee counts and claimable balances are ReferralSplitter's state and are read
   // from chain, never mirrored here. It is also not a referrer directory: the single
-  // public read is service-role with a pinned one-row filter, for the same reason
-  // airdrop above has no recipient-list endpoint. The whole store being absent
-  // degrades to a working feature — `/?ref=0x…` links need no server at all. Lazy
-  // import, same as the branches above; also above `const provider`. See
+  // public read is service-role with a pinned one-row filter, because a list of
+  // every referrer's wallet is a wallet-targeting database. The whole store being
+  // absent degrades to a working feature — `/?ref=0x…` links need no server at all.
+  // Lazy import, same as the branches above; also above `const provider`. See
   // _lib/referrals.js.
   if (req.query.resource === "referrals") {
     const { handleReferrals } = await import("./_lib/referrals.js");
@@ -526,11 +524,16 @@ export default async function handler(req, res) {
     return handleTape(req, res);
   }
 
-  // `?resource=venue-volume`: the all-time volume the hourly venue-volume.yml counts,
-  // summed from Supabase and cached at the edge. Above `const provider`, like the rest.
+  // `?resource=venue-volume`: the all-time volume api/venue-volume-count.js counts every
+  // five minutes, summed from Supabase and cached at the edge. Above `const provider`, like the rest.
   if (req.query.resource === "venue-volume") {
     const { handleVenueVolume } = await import("./_lib/venueVolume.js");
     return handleVenueVolume(req, res);
+  }
+  // `?resource=venue-tvl`: what our pools hold on every chain, read live, cached a minute.
+  if (req.query.resource === "venue-tvl") {
+    const { handleVenueTvl } = await import("./_lib/venueTvl.js");
+    return handleVenueTvl(req, res);
   }
 
   // FLAT function at /api/aggregator. AUDIT FIX 2026-07-10: Vercel's nested /

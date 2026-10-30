@@ -66,7 +66,6 @@ describe('external money markets are visibly not covered', () => {
 describe('the two liquidation mechanisms are not conflated', () => {
   it('the venue’s own loans default on a deadline, not on a price', () => {
     expect(SHIELD_VENUES['tegridy-nft-lending'].mechanism).toBe('deadline-default');
-    expect(SHIELD_VENUES['tegridy-lending'].mechanism).toBe('deadline-default');
   });
 
   it('external markets are the price-based kind', () => {

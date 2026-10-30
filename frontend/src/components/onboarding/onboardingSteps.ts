@@ -2,9 +2,8 @@
 //
 // THE FAILURE THIS PREVENTS. An onboarding flow is the one surface a newcomer reads
 // literally, and it is also the surface furthest from the code that decides what is live.
-// Several contracts in constants.ts are the zero address on purpose (GaugeController,
-// VoteIncentives, CommunityGrants, MemeBountyBoard, the airdrop/vesting/lock rails,
-// restaking, the Pro Pass), and every surface that touches them renders a placeholder. A
+// Some contracts in constants.ts are the zero address on purpose (the Pro Pass today), and
+// every surface that touches them renders a placeholder. A
 // welcome screen that routes a first-time visitor at one of those sends them to a wall on
 // their first click, having just promised it worked.
 //

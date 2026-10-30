@@ -60,6 +60,20 @@ export function isAtomicBatchSupported(capabilities: unknown, chainIdHex: string
   return status === 'supported' || status === 'ready';
 }
 
+/**
+ * Whether the wallet takes `wallet_sendCalls` on the given chain at all, atomic or not:
+ * it names the `atomic` capability there, in any of its three statuses. 'unsupported'
+ * still runs a batch sent without `atomicRequired`, one call after another. A wallet
+ * that names no `atomic` for the chain is never sent a batch there.
+ */
+export function isBatchSupported(capabilities: unknown, chainIdHex: string): boolean {
+  if (typeof capabilities !== 'object' || capabilities === null) return false;
+  const perChain = lookupChain(capabilities as Record<string, unknown>, chainIdHex);
+  const atomic = typeof perChain === 'object' && perChain !== null ? (perChain as { atomic?: unknown }).atomic : null;
+  const status = typeof atomic === 'object' && atomic !== null ? (atomic as { status?: unknown }).status : null;
+  return status === 'supported' || status === 'ready' || status === 'unsupported';
+}
+
 function lookupChain(caps: Record<string, unknown>, chainIdHex: string): unknown {
   if (chainIdHex in caps) return caps[chainIdHex];
   const wanted = chainIdHex.toLowerCase();

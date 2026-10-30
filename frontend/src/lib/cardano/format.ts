@@ -26,13 +26,6 @@ export function formatAda(lovelace: bigint): string {
   return `${formatAmount(lovelace, LOVELACE_DECIMALS)} ADA`;
 }
 
-/** A token id as typed: "<policy><name>", "<policy>.<name>" or with spaces; null when malformed. */
-export function parseTokenId(text: string): { policyId: string; assetName: string } | null {
-  const t = text.trim().toLowerCase().replace(/[\s.]/g, '');
-  if (!/^[0-9a-f]{56}(?:[0-9a-f]{2}){0,32}$/.test(t)) return null;
-  return { policyId: t.slice(0, 56), assetName: t.slice(56) };
-}
-
 export function cardanoscanTx(txHash: string): string {
   return `https://cardanoscan.io/transaction/${txHash}`;
 }

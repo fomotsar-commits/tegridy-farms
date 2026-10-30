@@ -633,6 +633,126 @@
       }
     },
     {
+      "id": "venue-pool-sol-usdc",
+      "address": "CvAVyjZk1A4hLuNDvEseCYHAn98mU1f4mKpveGvAM2UC",
+      "role": "The venue's SOL/USDC pool: a cp-swap PoolState under cp-swap-program-restart, 637 bytes. Token 0 is wrapped SOL (So11111111111111111111111111111111111111112), token 1 is USDC (EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v), and its fee tier is AmmConfig CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy. Its pool_creator field is 3ptKrPsDiX69hkzzrxEz5gEWAbLku34EpP7KBS2XvqeH, not one of the owner's wallets.",
+      "custody": "program-derived, no key. Only the pool program's own instructions change it.",
+      "status": "live. At confirmed slot 460,928,062 (2026-10-24T17:01Z) it is owned by cp-swap-program-restart and its lp_mint field is venue-lp-mint-sol-usdc.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-lp-mint-sol-usdc",
+      "address": "45SMHUNbwLi91E792o3auPy7v8C4F58v6Yk5Yre7a4pC",
+      "role": "Pool-share (LP) mint of venue-pool-sol-usdc: PDA seeds [\"pool_lp_mint\", pool] under cp-swap-program-restart, bump 254, derived and matched. A classic SPL Token mint, 9 decimals, no freeze authority; its mint authority is cp-swap-authority-restart. The site serves its name and picture at /mint/45SMHUNbwLi91E792o3auPy7v8C4F58v6Yk5Yre7a4pC.json: \"SOL/USDC LP\", symbol SOL-USDC.",
+      "custody": "program-derived, no key. Only the pool program mints it, on a deposit, and burns it, on a withdrawal.",
+      "status": "live, supply 0.316537764 shares at confirmed slot 460,928,062 (2026-10-24T17:01Z). No on-chain name yet: it has no Metaplex record, and only an instruction of the pool program can create one, because the record needs this mint's authority to sign.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-pool-rizz-sol",
+      "address": "3yDDaZtABgj7z4BNtPKpfnK4yrx5bvEphDXYGGTnTmfA",
+      "role": "The venue's RIZZ/SOL pool: a cp-swap PoolState under cp-swap-program-restart, 637 bytes. Token 0 is wrapped SOL (So11111111111111111111111111111111111111112), token 1 is RIZZ (5ad4puH6yDBoeCcrQfwV5s9bxvPnAeWDoYDj3uLyBS8k), and its fee tier is AmmConfig CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy. Its pool_creator field is 61wJUbVugmLZY5AmBY18UM91FuX3kMMjeKAAz7kh2d3o, not one of the owner's wallets.",
+      "custody": "program-derived, no key. Only the pool program's own instructions change it.",
+      "status": "live. At confirmed slot 460,928,062 (2026-10-24T17:01Z) it is owned by cp-swap-program-restart and its lp_mint field is venue-lp-mint-rizz-sol.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-lp-mint-rizz-sol",
+      "address": "8LUVkr5K9PFuLnXeZ2GfgiRXHxrQQQdzjnw1EiCQxcgZ",
+      "role": "Pool-share (LP) mint of venue-pool-rizz-sol: PDA seeds [\"pool_lp_mint\", pool] under cp-swap-program-restart, bump 254, derived and matched. A classic SPL Token mint, 9 decimals, no freeze authority; its mint authority is cp-swap-authority-restart. The site serves its name and picture at /mint/8LUVkr5K9PFuLnXeZ2GfgiRXHxrQQQdzjnw1EiCQxcgZ.json: \"RIZZ/SOL LP\", symbol RIZZ-SOL.",
+      "custody": "program-derived, no key. Only the pool program mints it, on a deposit, and burns it, on a withdrawal.",
+      "status": "live, supply 64.062104644 shares at confirmed slot 460,928,062 (2026-10-24T17:01Z). No on-chain name yet: it has no Metaplex record, and only an instruction of the pool program can create one, because the record needs this mint's authority to sign.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-pool-brainlet-sol",
+      "address": "HaRnur2ETP44bFtjUU4haQcFVYrCDTSaJfjKY3E3bDDD",
+      "role": "The venue's BRAINLET/SOL pool: a cp-swap PoolState under cp-swap-program-restart, 637 bytes. Token 0 is wrapped SOL (So11111111111111111111111111111111111111112), token 1 is BRAINLET (4XKGjKaKowFvL5sYwh2AKx72vj9iwC8MNvpL44E9pump), and its fee tier is AmmConfig CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy. Its pool_creator field is 6JMP6scYgNEmjUv3tXbSmBXrvR93JxdXB1EMdHYYWgkc, not one of the owner's wallets.",
+      "custody": "program-derived, no key. Only the pool program's own instructions change it.",
+      "status": "live. At confirmed slot 460,928,062 (2026-10-24T17:01Z) it is owned by cp-swap-program-restart and its lp_mint field is venue-lp-mint-brainlet-sol.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-lp-mint-brainlet-sol",
+      "address": "AgSTcTMvo2U3hhRMxq6UVbaSNuiaBJSQRZ5b78A5ymc4",
+      "role": "Pool-share (LP) mint of venue-pool-brainlet-sol: PDA seeds [\"pool_lp_mint\", pool] under cp-swap-program-restart, bump 255, derived and matched. A classic SPL Token mint, 9 decimals, no freeze authority; its mint authority is cp-swap-authority-restart. The site serves its name and picture at /mint/AgSTcTMvo2U3hhRMxq6UVbaSNuiaBJSQRZ5b78A5ymc4.json: \"BRAINLET/SOL LP\", symbol BRAIN-SOL.",
+      "custody": "program-derived, no key. Only the pool program mints it, on a deposit, and burns it, on a withdrawal.",
+      "status": "live, supply 7.684790640 shares at confirmed slot 460,928,062 (2026-10-24T17:01Z). No on-chain name yet: it has no Metaplex record, and only an instruction of the pool program can create one, because the record needs this mint's authority to sign.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-pool-bobo-sol",
+      "address": "9mHGFULXNFjcdkZ9fLy24A3pp4iYVk6y889NNcUvSgRV",
+      "role": "The venue's BOBO/SOL pool: a cp-swap PoolState under cp-swap-program-restart, 637 bytes. Token 0 is wrapped SOL (So11111111111111111111111111111111111111112), token 1 is BOBO (4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump), and its fee tier is AmmConfig CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy. Its pool_creator field is 6JMP6scYgNEmjUv3tXbSmBXrvR93JxdXB1EMdHYYWgkc, not one of the owner's wallets.",
+      "custody": "program-derived, no key. Only the pool program's own instructions change it.",
+      "status": "live. At confirmed slot 460,928,062 (2026-10-24T17:01Z) it is owned by cp-swap-program-restart and its lp_mint field is venue-lp-mint-bobo-sol.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-lp-mint-bobo-sol",
+      "address": "CcLsQeUD1dWhrR3aNW3sjcKHeLbMdPvzFRyBniUTCtNJ",
+      "role": "Pool-share (LP) mint of venue-pool-bobo-sol: PDA seeds [\"pool_lp_mint\", pool] under cp-swap-program-restart, bump 254, derived and matched. A classic SPL Token mint, 9 decimals, no freeze authority; its mint authority is cp-swap-authority-restart. The site serves its name and picture at /mint/CcLsQeUD1dWhrR3aNW3sjcKHeLbMdPvzFRyBniUTCtNJ.json: \"BOBO/SOL LP\", symbol BOBO-SOL.",
+      "custody": "program-derived, no key. Only the pool program mints it, on a deposit, and burns it, on a withdrawal.",
+      "status": "live, supply 9.647500384 shares at confirmed slot 460,928,062 (2026-10-24T17:01Z). No on-chain name yet: it has no Metaplex record, and only an instruction of the pool program can create one, because the record needs this mint's authority to sign.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-pool-soy-sol",
+      "address": "5M4SZy9Ytu1LGWWjBUwiDZ98bGdpQL4fD3PHETEXPAN8",
+      "role": "The venue's SOY/SOL pool: a cp-swap PoolState under cp-swap-program-restart, 637 bytes. Token 0 is wrapped SOL (So11111111111111111111111111111111111111112), token 1 is SOY (8zsZESzrGoYVi1dVH4QNWXJ2EfW4v287aEGNiDvQpump), and its fee tier is AmmConfig CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy. Its pool_creator field is 6JMP6scYgNEmjUv3tXbSmBXrvR93JxdXB1EMdHYYWgkc, not one of the owner's wallets.",
+      "custody": "program-derived, no key. Only the pool program's own instructions change it.",
+      "status": "live. At confirmed slot 460,928,062 (2026-10-24T17:01Z) it is owned by cp-swap-program-restart and its lp_mint field is venue-lp-mint-soy-sol.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-lp-mint-soy-sol",
+      "address": "3YMYSG627S1gFMtG8GMWpzqVYd3DThRPMbxrgyqtpzUj",
+      "role": "Pool-share (LP) mint of venue-pool-soy-sol: PDA seeds [\"pool_lp_mint\", pool] under cp-swap-program-restart, bump 251, derived and matched. A classic SPL Token mint, 9 decimals, no freeze authority; its mint authority is cp-swap-authority-restart. The site serves its name and picture at /mint/3YMYSG627S1gFMtG8GMWpzqVYd3DThRPMbxrgyqtpzUj.json: \"SOY/SOL LP\", symbol SOY-SOL.",
+      "custody": "program-derived, no key. Only the pool program mints it, on a deposit, and burns it, on a withdrawal.",
+      "status": "live, supply 25.404215974 shares at confirmed slot 460,928,062 (2026-10-24T17:01Z). No on-chain name yet: it has no Metaplex record, and only an instruction of the pool program can create one, because the record needs this mint's authority to sign.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-pool-crying-sol",
+      "address": "8T2ErLrntFdGMZaVHXNqX6z96Ay1qh5xGMm67mVeGrgB",
+      "role": "The venue's CRYING/SOL pool: a cp-swap PoolState under cp-swap-program-restart, 637 bytes. Token 0 is wrapped SOL (So11111111111111111111111111111111111111112), token 1 is CRYING (Ep5tnKTSkLDeQ12ctS3RhQNcbcApkcyJcGPgHh4dpump), and its fee tier is AmmConfig CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy. Its pool_creator field is 2jDh1Nuzy8Zvc1NjfzmGhJRdRKCRV9XkDcP26DHW1wuF, a wallet in no row of this registry; whose it is was not known on 2026-10-24.",
+      "custody": "program-derived, no key. Only the pool program's own instructions change it.",
+      "status": "live. At confirmed slot 460,928,062 (2026-10-24T17:01Z) it is owned by cp-swap-program-restart and its lp_mint field is venue-lp-mint-crying-sol.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-lp-mint-crying-sol",
+      "address": "4HPgmQyPSEXMGcCQHUDeo1EhJWKpjrnugPBSNLkyrrzh",
+      "role": "Pool-share (LP) mint of venue-pool-crying-sol: PDA seeds [\"pool_lp_mint\", pool] under cp-swap-program-restart, bump 255, derived and matched. A classic SPL Token mint, 9 decimals, no freeze authority; its mint authority is cp-swap-authority-restart. The site serves its name and picture at /mint/4HPgmQyPSEXMGcCQHUDeo1EhJWKpjrnugPBSNLkyrrzh.json: \"CRYING/SOL LP\", symbol CRYING-SOL.",
+      "custody": "program-derived, no key. Only the pool program mints it, on a deposit, and burns it, on a withdrawal.",
+      "status": "live, supply 13.924244201 shares at confirmed slot 460,928,062 (2026-10-24T17:01Z). No on-chain name yet: it has no Metaplex record, and only an instruction of the pool program can create one, because the record needs this mint's authority to sign.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
       "id": "cp-swap-authority-restart",
       "address": "Bkr8XPZySJmcUAxKSDNCcH5KE2WDs2Y3GeZLRbeATSfB",
       "role": "The pool program's one signer for every pool: PDA seeds [\"vault_and_lp_mint_auth_seed\"] under cp-swap-program-restart, bump 254, derived and matched. It is the mint authority of every pool-share mint AND the owner of every pool vault, so an instruction that signs as it deserves the care of one that can move pool funds.",
@@ -741,7 +861,7 @@
       "expect": {
         "type": "eoa"
       },
-      "evidence": "frontend/src/lib/launcher/config.ts:26-27: 'OPERATOR-CHOSEN 2026-07-22: a fresh single-key EOA (verified on-chain: valid EIP-55 checksum, no code, nonce 0)'; docs/WHETSTONE_MIGRATOR_PETITION.md:101 says the same. CAVEAT, read this before switching the gate off: EIP-7702 can put a delegation designator (code 0xef0100...) at an EOA without any key changing hands, and CONTRACTS.md (Superseded, Treasury row) records exactly that having happened to the ex-treasury EOA 0xE9B7...f53e. So a failure here means 'this wallet grew code, go look', not automatically 'the registry is wrong'. Asserted deliberately anyway: it is the only entry that exercises the eoa branch, and a fee-receiving hot wallet quietly becoming a contract is worth a red build."
+      "evidence": "frontend/src/lib/launcher/config.ts:27-28: 'OPERATOR-CHOSEN 2026-07-22: a fresh single-key EOA (verified on-chain: valid EIP-55 checksum, no code, nonce 0)'; docs/archive/WHETSTONE_MIGRATOR_PETITION.md:103 says the same. CAVEAT, read this before switching the gate off: EIP-7702 can put a delegation designator (code 0xef0100...) at an EOA without any key changing hands, and CONTRACTS.md (Superseded, Treasury row) records exactly that having happened to the ex-treasury EOA 0xE9B7...f53e. So a failure here means 'this wallet grew code, go look', not automatically 'the registry is wrong'. Asserted deliberately anyway: it is the only entry that exercises the eoa branch, and a fee-receiving hot wallet quietly becoming a contract is worth a red build."
     },
     {
       "id": "tegridy-factory",

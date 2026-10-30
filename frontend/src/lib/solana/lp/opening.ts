@@ -2,6 +2,7 @@ import { comparePrice, tokenReasons, type PriceCheck } from './poolHealth';
 import { priceInQuote, type OutsidePrice } from './outsidePrice';
 import { QUOTE_COINS_OR, SOL_QUOTE, canPair, type QuoteCoin } from './quotes';
 import { TOKEN_2022_NATIVE_MINT, type TokenSafety } from './tokenSafety';
+import { afterFee, preFeeAmountOf, type TransferFee } from './transferFee';
 
 /**
  * May a new pool open at this price, and what must its opener be told first? Pure: every
@@ -133,18 +134,32 @@ function gapText(diff: number): string {
  * side typed in last, set the other. `pricePerToken` is whole pairing coins per whole
  * token (`priceInQuote`), and `quote` says how many decimals that coin has. Null when the
  * answer is below one unit, or when the inputs cannot price anything.
+ *
+ * With the token's transfer fee (`tokenFee`), the price is what REACHES the pool: a token
+ * amount kept is matched by what it delivers, and a token amount set is what must be sent
+ * to deliver the match.
  */
-export function matchMarket(a: { keep: 'quote' | 'token'; amount: bigint; pricePerToken: number; tokenDecimals: number; quote: QuoteCoin }): bigint | null {
+export function matchMarket(a: {
+  keep: 'quote' | 'token';
+  amount: bigint;
+  pricePerToken: number;
+  tokenDecimals: number;
+  quote: QuoteCoin;
+  tokenFee?: TransferFee | null;
+}): bigint | null {
   if (a.amount < 1n || !(a.pricePerToken > 0) || !Number.isFinite(a.pricePerToken)) return null;
+  const fee = a.tokenFee ?? null;
   const scale = 10 ** a.tokenDecimals;
   const quoteScale = 10 ** a.quote.decimals;
   const other =
     a.keep === 'quote'
       ? (Number(a.amount) / quoteScale / a.pricePerToken) * scale
-      : (Number(a.amount) / scale) * a.pricePerToken * quoteScale;
+      : (Number(afterFee(fee, a.amount)) / scale) * a.pricePerToken * quoteScale;
   if (!Number.isFinite(other)) return null;
   const rounded = BigInt(Math.round(other));
-  return rounded < 1n ? null : rounded;
+  if (rounded < 1n) return null;
+  if (a.keep === 'token' || !fee) return rounded;
+  return preFeeAmountOf(fee, rounded);
 }
 
 /**
@@ -158,13 +173,16 @@ export function mostBothAtMarket(a: {
   pricePerToken: number;
   tokenDecimals: number;
   quote: QuoteCoin;
+  /** The token's transfer fee: `matchMarket`'s. */
+  tokenFee?: TransferFee | null;
 }): { quote: bigint; token: bigint } | null {
   if (a.spendableQuote < 1n || a.tokenBalance < 1n) return null;
-  const tokenForAll = matchMarket({ keep: 'quote', amount: a.spendableQuote, pricePerToken: a.pricePerToken, tokenDecimals: a.tokenDecimals, quote: a.quote });
+  const at = { pricePerToken: a.pricePerToken, tokenDecimals: a.tokenDecimals, quote: a.quote, tokenFee: a.tokenFee };
+  const tokenForAll = matchMarket({ keep: 'quote', amount: a.spendableQuote, ...at });
   // All the coin that can go in does not buy one token unit: nothing fits at this price.
   if (tokenForAll === null) return null;
   if (tokenForAll <= a.tokenBalance) return { quote: a.spendableQuote, token: tokenForAll };
-  const quoteForAllTokens = matchMarket({ keep: 'token', amount: a.tokenBalance, pricePerToken: a.pricePerToken, tokenDecimals: a.tokenDecimals, quote: a.quote });
+  const quoteForAllTokens = matchMarket({ keep: 'token', amount: a.tokenBalance, ...at });
   if (quoteForAllTokens === null) return null;
   // Rounding to the nearest unit may land one over the coin that can go in.
   return { quote: quoteForAllTokens > a.spendableQuote ? a.spendableQuote : quoteForAllTokens, token: a.tokenBalance };

@@ -67,16 +67,16 @@ abstract contract MerkleHelper is Test {
 }
 
 /// @title  Cross-language merkle vector
-/// @notice Campaign trees are built in TypeScript by the claim frontend
-///         (`frontend/src/lib/merkle/`), and verified in Solidity by the distributor.
-///         Neither language can prove on its own that the two agree, and the cost of
-///         them disagreeing is a funded campaign whose every claim reverts with
-///         `InvalidProof`.
+/// @notice Campaign trees are built off-chain by whatever claim frontend a campaign
+///         uses, and verified in Solidity by the distributor. Neither side can prove
+///         on its own that the two agree, and the cost of them disagreeing is a funded
+///         campaign whose every claim reverts with `InvalidProof`.
 ///
 ///         This file is the shared fact: one fixed leaf set, one root, one proof per
 ///         leaf — asserted here against Solidity's own hashing AND accepted by a real
-///         funded campaign, and asserted against the TypeScript builder in
-///         `frontend/src/lib/merkle/vector.test.ts`, which pins the identical hex.
+///         funded campaign. The site's TypeScript builder (`frontend/src/lib/merkle/`)
+///         pinned the identical hex until it was removed on 2026-10-30 with the
+///         `/airdrop` page; any new builder must reproduce these constants exactly.
 ///
 /// @dev    The pinned hashes are OUTPUTS of this fixture, not parameters of it. If this
 ///         test fails, one implementation's leaf encoding, pair ordering, odd-node

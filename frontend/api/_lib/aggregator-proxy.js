@@ -54,7 +54,7 @@ function isProdLikeEnv() {
 // in one place so security policy doesn't drift between proxies.
 //
 // This is also the credentialed set for every `?resource=` handler that
-// imports isOriginAllowed (airdrop, alerts, botLink, commerce, referrals).
+// imports isOriginAllowed (alerts, botLink, commerce, referrals).
 // 2026-09-23: `memetic.fun` + `www.memetic.fun` removed — they serve the Island
 // Lab, not this venue. See auth/siwe.js.
 function buildAllowedOrigins() {

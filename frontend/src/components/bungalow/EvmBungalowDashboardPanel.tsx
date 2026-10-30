@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useAccount, useChainId, useReadContracts } from 'wagmi';
 import { Link } from 'react-router-dom';
 import type { Bungalow } from '../../lib/bungalows';
@@ -12,6 +13,8 @@ import { BungalowMarket } from './BungalowMarket';
 import { BungalowHolders } from './BungalowHolders';
 import { BungalowBurn } from './BungalowBurn';
 import { LIGHTHOUSE_LADDER_ABI } from '../../lib/contracts';
+import { HarvestCard } from '../farm/HarvestCard';
+import { useOnStakesChanged } from '../../lib/harvest/stakesChanged';
 
 /**
  * The EVM sibling of BungalowDashboardPanel — the seam that panel's header
@@ -34,7 +37,7 @@ export function EvmBungalowDashboardPanel({ bungalow }: { bungalow: Bungalow }) 
   const { address: user, isConnected } = useAccount();
   const walletChainId = useChainId();
 
-  const { data: reads } = useReadContracts({
+  const { data: reads, refetch } = useReadContracts({
     contracts: [
       { address: token, abi: ERC20_ABI, chainId: poolChainId, functionName: 'balanceOf', args: [user ?? PLACEHOLDER_ADDR] },
       { address: token, abi: ERC20_ABI, chainId: poolChainId, functionName: 'decimals' },
@@ -44,6 +47,9 @@ export function EvmBungalowDashboardPanel({ bungalow }: { bungalow: Bungalow }) 
     ],
     query: { enabled: Boolean(bungalow.address), refetchInterval: 60_000 },
   });
+  // A harvest on this page changes the earned figure below (lib/harvest/stakesChanged.ts).
+  const [me] = useState(() => ({}));
+  useOnStakesChanged(me, () => void refetch());
   const balRaw = user && reads?.[0]?.status === 'success' ? (reads[0].result as bigint) : null;
   const stakedRaw = user && reads?.[2]?.status === 'success' ? (reads[2].result as bigint) : null;
   const earnedRaw = user && reads?.[3]?.status === 'success' ? (reads[3].result as bigint) : null;
@@ -115,6 +121,10 @@ export function EvmBungalowDashboardPanel({ bungalow }: { bungalow: Bungalow }) 
           )}
         </div>
       </section>
+
+      {/* Every pool's rewards in one press (owner, 2026-10-30); drawn only while there is
+          something to claim. */}
+      <HarvestCard quiet />
 
       {/* Live market — self-hides when the registry has no indexed pool. */}
       <BungalowMarket bungalow={bungalow} />

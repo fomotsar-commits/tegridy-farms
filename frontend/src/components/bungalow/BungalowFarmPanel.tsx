@@ -35,6 +35,7 @@ const SolanaPoolStack = lazy(() =>
   import('./SolanaPoolStack').then((m) => ({ default: m.SolanaPoolStack })),
 );
 import { BackToEarn } from '../farm/BackToEarn';
+import { HarvestCard } from '../farm/HarvestCard';
 import { CopyButton } from '../ui/CopyButton';
 import { shortenAddress } from '../../lib/formatting';
 import { ArtImg } from '../ArtImg';
@@ -116,6 +117,10 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
           </p>
         </FinePrint>
       </div>
+
+      {/* Every pool's rewards in one press, here too (owner, 2026-10-30); drawn only while
+          there is something to claim. */}
+      <HarvestCard quiet />
 
       {/* THE LIVE POOL LEADS (2026-09-20): the ladder comes first in the DOM and spans
           the row. An open lighthouse pool shares row 2 with the funding card; a
