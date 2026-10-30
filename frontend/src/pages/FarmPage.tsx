@@ -43,6 +43,8 @@ import { LPFarmingSection } from '../components/farm/LPFarmingSection';
 import { StakingCard } from '../components/farm/StakingCard';
 import type { ConfirmState } from '../components/farm/StakingCard';
 import { LegacyStakingExit } from '../components/farm/LegacyStakingExit';
+import { OldStakingCard } from '../components/farm/OldStakingCard';
+import { OldLpFarmExit } from '../components/farm/OldLpFarmExit';
 import { BoostScheduleTable } from '../components/farm/BoostScheduleTable';
 import { UPCOMING_POOLS } from '../components/farm/poolConfig';
 import { LivePoolCard } from '../components/farm/LivePoolCard';
@@ -483,6 +485,12 @@ function ToweliFarm() {
         {/* Exit-only surface for retired pre-relaunch staking contracts; renders
             nothing unless the connected wallet holds a legacy position. */}
         <LegacyStakingExit />
+
+        {/* STAKING RELEASE 1: a position on the first relaunch contract (25% early exit)
+            claims and leaves there; the card below takes new stakes on the new one. Each
+            renders nothing for a wallet with nothing on its contract. */}
+        <OldStakingCard />
+        <OldLpFarmExit />
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-10">
           {/* Staking Card */}

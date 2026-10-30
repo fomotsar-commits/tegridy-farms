@@ -65,7 +65,7 @@ contract Audit195StakingGov is Test {
     function setUp() public {
         token = new MockToken195();
         nft = new MockNFT195();
-        staking = new TegridyStaking(address(token), address(nft), treasury, 1 ether);
+        staking = new TegridyStaking(address(token), address(nft), treasury);
         monitor = new StakingMonitorView(address(staking));
         admin = new TegridyStakingAdmin(address(staking));
         staking.setStakingAdmin(address(admin));
@@ -282,91 +282,6 @@ contract Audit195StakingGov is Test {
     //  TIMELOCK ENFORCEMENT - REWARD RATE
     // ============================================================
 
-    function test_proposeRewardRate_onlyOwner() public {
-        vm.prank(attacker);
-        vm.expectRevert();
-        admin.proposeRewardRate(0.5 ether); // FRESH-2026 TEST REALIGN: MAX_REWARD_RATE tightened to 1 ether
-    }
-
-    function test_proposeRewardRate_rateTooHigh() public {
-        // FRESH-2026 TEST REALIGN: MAX_REWARD_RATE was tightened from 100e18 to 1e18.
-        vm.expectRevert(TegridyStaking.RateTooHigh.selector);
-        admin.proposeRewardRate(1.5 ether); // MAX_REWARD_RATE = 1 ether
-    }
-
-    function test_proposeRewardRate_canProposeZero() public {
-        // Rate 0 is valid - effectively halts rewards
-        admin.proposeRewardRate(0);
-        assertEq(admin.pendingRewardRate(), 0);
-        assertGt(admin.rewardRateChangeTime(), 0);
-    }
-
-    function test_executeRewardRate_beforeTimelock() public {
-        admin.proposeRewardRate(0.5 ether); // FRESH-2026 TEST REALIGN: MAX_REWARD_RATE tightened to 1 ether
-
-        // Try to execute immediately - should fail
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalNotReady.selector, admin.REWARD_RATE_CHANGE()));
-        admin.executeRewardRateChange();
-
-        // 47h59m - still too early
-        vm.warp(block.timestamp + 48 hours - 1);
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalNotReady.selector, admin.REWARD_RATE_CHANGE()));
-        admin.executeRewardRateChange();
-    }
-
-    function test_executeRewardRate_atExactTimelock() public {
-        admin.proposeRewardRate(0.5 ether); // FRESH-2026 TEST REALIGN: MAX_REWARD_RATE tightened to 1 ether
-        uint256 executeAt = admin.rewardRateChangeTime();
-
-        vm.warp(executeAt);
-        admin.executeRewardRateChange();
-        assertEq(staking.rewardRate(), 0.5 ether);
-    }
-
-    function test_executeRewardRate_afterExpiry() public {
-        admin.proposeRewardRate(0.5 ether); // FRESH-2026 TEST REALIGN: MAX_REWARD_RATE tightened to 1 ether
-        uint256 executeAt = admin.rewardRateChangeTime();
-
-        // Warp past MAX_PROPOSAL_VALIDITY (7 days after executeAt)
-        vm.warp(executeAt + 7 days + 1);
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalExpired.selector, admin.REWARD_RATE_CHANGE()));
-        admin.executeRewardRateChange();
-    }
-
-    function test_executeRewardRate_atExactExpiry() public {
-        admin.proposeRewardRate(0.5 ether); // FRESH-2026 TEST REALIGN: MAX_REWARD_RATE tightened to 1 ether
-        uint256 executeAt = admin.rewardRateChangeTime();
-
-        // At exact expiry boundary
-        vm.warp(executeAt + 7 days);
-        // This should still work (> not >=)
-        admin.executeRewardRateChange();
-        assertEq(staking.rewardRate(), 0.5 ether);
-    }
-
-    function test_proposeRewardRate_cannotDoublePropose() public {
-        admin.proposeRewardRate(0.5 ether); // FRESH-2026 TEST REALIGN: MAX_REWARD_RATE tightened to 1 ether
-
-        // Second proposal without canceling first should revert
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ExistingProposalPending.selector, admin.REWARD_RATE_CHANGE()));
-        admin.proposeRewardRate(0.8 ether); // FRESH-2026 TEST REALIGN: MAX_REWARD_RATE tightened to 1 ether
-    }
-
-    function test_executeRewardRate_clearsState() public {
-        admin.proposeRewardRate(0.5 ether); // FRESH-2026 TEST REALIGN: MAX_REWARD_RATE tightened to 1 ether
-        vm.warp(block.timestamp + 48 hours);
-        admin.executeRewardRateChange();
-
-        // State should be cleared
-        assertEq(admin.pendingRewardRate(), 0);
-        assertEq(admin.rewardRateChangeTime(), 0);
-    }
-
-    function test_executeRewardRate_noPendingReverts() public {
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.NoPendingProposal.selector, admin.REWARD_RATE_CHANGE()));
-        admin.executeRewardRateChange();
-    }
-
     // ============================================================
     //  TIMELOCK ENFORCEMENT - TREASURY CHANGE
     // ============================================================
@@ -402,6 +317,17 @@ contract Audit195StakingGov is Test {
         vm.warp(executeAt + 7 days + 1);
         vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalExpired.selector, admin.TREASURY_CHANGE()));
         admin.executeTreasuryChange();
+    }
+
+    /// Moved here 2026-10-18 from the reward-rate key, which no longer exists (the rate follows
+    /// the funds): the validity window is inclusive at its last second (`>`, not `>=`).
+    function test_executeTreasury_atExactExpiry() public {
+        address t = makeAddr("newTreasury");
+        admin.proposeTreasuryChange(t);
+        uint256 executeAt = admin.treasuryChangeTime();
+        vm.warp(executeAt + 7 days);
+        admin.executeTreasuryChange();
+        assertEq(staking.treasury(), t);
     }
 
     function test_proposeTreasury_cannotDoublePropose() public {
@@ -473,36 +399,6 @@ contract Audit195StakingGov is Test {
     //  STATE CLEANUP ON CANCEL
     // ============================================================
 
-    function test_cancelRewardRate_clearsState() public {
-        admin.proposeRewardRate(0.5 ether); // FRESH-2026 TEST REALIGN: MAX_REWARD_RATE tightened to 1 ether
-        assertGt(admin.rewardRateChangeTime(), 0);
-
-        admin.cancelRewardRateProposal();
-        assertEq(admin.pendingRewardRate(), 0);
-        assertEq(admin.rewardRateChangeTime(), 0);
-    }
-
-    function test_cancelRewardRate_noPendingReverts() public {
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.NoPendingProposal.selector, admin.REWARD_RATE_CHANGE()));
-        admin.cancelRewardRateProposal();
-    }
-
-    function test_cancelRewardRate_onlyOwner() public {
-        admin.proposeRewardRate(0.5 ether); // FRESH-2026 TEST REALIGN: MAX_REWARD_RATE tightened to 1 ether
-        vm.prank(attacker);
-        vm.expectRevert();
-        admin.cancelRewardRateProposal();
-    }
-
-    function test_cancelRewardRate_thenReproposeWorks() public {
-        admin.proposeRewardRate(0.5 ether); // FRESH-2026 TEST REALIGN: MAX_REWARD_RATE tightened to 1 ether
-        admin.cancelRewardRateProposal();
-
-        // Can now propose a new rate
-        admin.proposeRewardRate(0.8 ether); // FRESH-2026 TEST REALIGN: MAX_REWARD_RATE tightened to 1 ether
-        assertEq(admin.pendingRewardRate(), 0.8 ether);
-    }
-
     function test_cancelTreasury_clearsState() public {
         admin.proposeTreasuryChange(makeAddr("t"));
         admin.cancelTreasuryProposal();
@@ -520,6 +416,15 @@ contract Audit195StakingGov is Test {
         vm.prank(attacker);
         vm.expectRevert();
         admin.cancelTreasuryProposal();
+    }
+
+    /// Moved here 2026-10-18 from the reward-rate key: a cancelled proposal frees the key.
+    function test_cancelTreasury_thenReproposeWorks() public {
+        admin.proposeTreasuryChange(makeAddr("t1"));
+        admin.cancelTreasuryProposal();
+        address t2 = makeAddr("t2");
+        admin.proposeTreasuryChange(t2);
+        assertEq(admin.pendingTreasury(), t2);
     }
 
     function test_cancelRestaking_clearsState() public {
@@ -875,12 +780,12 @@ contract Audit195StakingGov is Test {
         uint256 balAfter = token.balanceOf(bob);
         uint256 treasuryAfter = token.balanceOf(treasury);
 
-        // Lock was still active, so 25% penalty applies
+        // Lock was still active, so the 75% penalty applies
         // Emergency exit now calls _getReward() so user receives principal - penalty + accrued rewards
-        uint256 expectedPenalty = (STAKE_AMT * 2500) / 10000;
+        uint256 expectedPenalty = (STAKE_AMT * 7500) / 10000;
         uint256 expectedUser = STAKE_AMT - expectedPenalty;
-        assertGe(balAfter - balBefore, expectedUser, "User should receive at least 75%");
-        assertEq(treasuryAfter - treasuryBefore, expectedPenalty, "Treasury should receive 25%");
+        assertGe(balAfter - balBefore, expectedUser, "User should receive at least 25%");
+        assertEq(treasuryAfter - treasuryBefore, expectedPenalty, "Treasury should receive 75%");
     }
 
     function test_executeEmergencyExit_noPenaltyIfLockExpired() public {
@@ -1006,43 +911,6 @@ contract Audit195StakingGov is Test {
     //  PROPOSAL LIFECYCLE END-TO-END
     // ============================================================
 
-    function test_rewardRate_fullLifecycle_proposeExecute() public {
-        uint256 oldRate = staking.rewardRate();
-
-        // Propose — FRESH-2026 TEST REALIGN: MAX_REWARD_RATE tightened to 1 ether.
-        admin.proposeRewardRate(0.5 ether);
-        assertEq(admin.pendingRewardRate(), 0.5 ether);
-
-        // Wait timelock
-        vm.warp(block.timestamp + 48 hours);
-
-        // Execute
-        admin.executeRewardRateChange();
-        assertEq(staking.rewardRate(), 0.5 ether);
-        assertTrue(staking.rewardRate() != oldRate || oldRate == 0.5 ether);
-
-        // State cleared
-        assertEq(admin.pendingRewardRate(), 0);
-        assertEq(admin.rewardRateChangeTime(), 0);
-    }
-
-    function test_rewardRate_fullLifecycle_proposeCancel() public {
-        uint256 oldRate = staking.rewardRate();
-
-        // FRESH-2026 TEST REALIGN: MAX_REWARD_RATE tightened to 1 ether.
-        admin.proposeRewardRate(0.5 ether);
-        admin.cancelRewardRateProposal();
-
-        // Rate unchanged
-        assertEq(staking.rewardRate(), oldRate);
-
-        // Can propose again
-        admin.proposeRewardRate(0.25 ether);
-        vm.warp(block.timestamp + 48 hours);
-        admin.executeRewardRateChange();
-        assertEq(staking.rewardRate(), 0.25 ether);
-    }
-
     function test_treasury_fullLifecycle_proposeExecute() public {
         address newTreasury = makeAddr("newTreasury");
         admin.proposeTreasuryChange(newTreasury);
@@ -1088,23 +956,6 @@ contract Audit195StakingGov is Test {
     //  EDGE CASE: Propose rate 0 halts rewards
     // ============================================================
 
-    function test_proposeRateZero_haltsRewards() public {
-        vm.prank(bob);
-        staking.stake(STAKE_AMT, LOCK_1Y);
-        uint256 tokenId = staking.userTokenId(bob);
-
-        // Set rate to 0
-        admin.proposeRewardRate(0);
-        vm.warp(block.timestamp + 48 hours);
-        admin.executeRewardRateChange();
-        assertEq(staking.rewardRate(), 0);
-
-        // Advance time - should earn 0 new rewards (only pre-change rewards remain)
-        vm.warp(block.timestamp + 365 days);
-        // pendingReward should not grow since rate is 0
-        assertEq(staking.rewardRate(), 0, "Rate should be 0");
-    }
-
     // ============================================================
     //  EDGE CASE: Emergency exit clears on transfer to new owner
     // ============================================================
@@ -1144,20 +995,6 @@ contract Audit195StakingGov is Test {
     // ============================================================
     //  EDGE CASE: Cancel after timelock but before execution
     // ============================================================
-
-    function test_cancelRewardRate_afterTimelockStillWorks() public {
-        // FRESH-2026 TEST REALIGN: MAX_REWARD_RATE tightened to 1 ether.
-        admin.proposeRewardRate(0.5 ether);
-        vm.warp(block.timestamp + 48 hours + 1 days);
-
-        // Cancel even after timelock has passed
-        admin.cancelRewardRateProposal();
-        assertEq(admin.pendingRewardRate(), 0);
-        assertEq(admin.rewardRateChangeTime(), 0);
-
-        // Rate unchanged
-        assertEq(staking.rewardRate(), 1 ether);
-    }
 
     function test_cancelTreasury_afterTimelockStillWorks() public {
         admin.proposeTreasuryChange(makeAddr("t"));

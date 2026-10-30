@@ -238,7 +238,9 @@ jobs:
           #
           # FLOOR_EXCEPTIONS — between BUDGET and EIP170. Deployable today; over the
           #   conservative floor only. Warning.
-          #   TegridyStaking — 24,489 B (re-measured 2026-10-14): 87 B under EIP-170.
+          #   TegridyStaking — 24,356 B (re-measured 2026-10-18): 220 B under EIP-170.
+          #     2026-10-18: four-year rewards (+204 B inline, so the funding body moved to
+          #     StakingRewardLib and applyRewardRate was deleted: net -133 B).
           #     2026-10-14: M-S6 (+16 B) and onlyAdmin folded into _onlyAdmin (-48 B).
           #     This entry read "24,337 B ... 239 B under EIP-170 (measured 2026-07-24)"
           #     until 2026-08-19, then "24,554 B ... 22 B" until 2026-09-05. The first was

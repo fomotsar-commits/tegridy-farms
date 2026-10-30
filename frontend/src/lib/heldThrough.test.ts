@@ -25,6 +25,8 @@ import { BUNGALOWS, RETIRED_STAKE_POOLS, poolReadByIsland, type Bungalow } from 
 import {
   TEGRIDY_STAKING_ADDRESS,
   LEGACY_STAKING_ADDRESSES,
+  OLD_TEGRIDY_STAKING_ADDRESS,
+  OLD_LP_FARMING_ADDRESS,
   TEGRIDY_LP_ADDRESS,
   LP_FARMING_ADDRESS,
   TOWELI_ADDRESS,
@@ -82,15 +84,16 @@ describe('held-through.json lists every contract that holds user positions', () 
       expect(hit!.offered).toBe('retired');
     }
     const eth = doc.chains.ethereum.map((c) => c.address);
-    for (const a of [TEGRIDY_STAKING_ADDRESS, ...LEGACY_STAKING_ADDRESSES, TEGRIDY_LP_ADDRESS, LP_FARMING_ADDRESS]) {
+    for (const a of [TEGRIDY_STAKING_ADDRESS, OLD_TEGRIDY_STAKING_ADDRESS, ...LEGACY_STAKING_ADDRESSES, TEGRIDY_LP_ADDRESS, LP_FARMING_ADDRESS, OLD_LP_FARMING_ADDRESS]) {
       expect(eth, `${a} is missing`).toContain(a);
     }
   });
 
-  it('counts 18 contracts with the ladder: Solana 7, Ethereum 6, Base 5', () => {
+  // Staking release 1 added the first relaunch staking contract and LP farm (Ethereum 6 -> 8).
+  it('counts 20 contracts with the ladder: Solana 7, Ethereum 8, Base 5', () => {
     const doc = withLadder();
-    expect([doc.chains.solana.length, doc.chains.ethereum.length, doc.chains.base.length]).toEqual([7, 6, 5]);
-    expect(new Set(all(doc).map((c) => c.id)).size, 'ids are unique').toBe(18);
+    expect([doc.chains.solana.length, doc.chains.ethereum.length, doc.chains.base.length]).toEqual([7, 8, 5]);
+    expect(new Set(all(doc).map((c) => c.id)).size, 'ids are unique').toBe(20);
   });
 
   it('shows a pool added to the registry with no edit here', () => {
@@ -499,7 +502,7 @@ describe('each EVM read names a real function with its selector', () => {
   });
 
   it('every function exists in the contract source the venue deployed', () => {
-    expect(evm.length).toBe(11);
+    expect(evm.length).toBe(13);
     for (const c of evm) {
       const file = SOLIDITY[c.kind === 'tegridy-staking-legacy' ? 'tegridy-staking' : c.kind];
       expect(file, `${c.kind} has no source pin`).toBeTruthy();
@@ -533,7 +536,9 @@ describe('each EVM read names a real function with its selector', () => {
 
   it('reproduces a recorded TegridyStaking position and the TegridyLP redemption from the spec alone', () => {
     const eth = JSON.parse(read(resolve(FIXTURES, 'ethereum.json')));
-    const staking = byId(doc, 'tegridy-staking');
+    // Recorded 2026-09-22 against the FIRST relaunch contract, which staking release 1 keeps
+    // live for its positions; its entry promises only `amount`, the first word.
+    const staking = byId(doc, 'tegridy-staking-first');
     const sr = staking.read as Extract<HeldContract['read'], { calls: unknown }>;
     const call = (r: typeof sr, sig: string) => r.calls.find((x) => x.signature === sig)!;
     const pad = (n: bigint | string) => BigInt(n).toString(16).padStart(64, '0');
@@ -563,7 +568,7 @@ describe('each EVM read names a real function with its selector', () => {
     expect((lp * r0) / supply).toBe(70_664_848_749_588_392_345_307n);
     expect((lp * r1) / supply).toBe(1_827_478_461_867_831n);
 
-    const farm = byId(doc, 'lp-farming');
+    const farm = byId(doc, 'lp-farming-first');
     const fr = farm.read as Extract<HeldContract['read'], { calls: unknown }>;
     const raw = call(fr, 'rawBalanceOf(address)');
     expect(`${raw.selector}${'E9B7aB8e367bE5AC0e0c865136f1907bd73df53e'.toLowerCase().padStart(64, '0')}`)
@@ -613,7 +618,7 @@ describe('the rendered file', () => {
   });
 
   it('every listed token has integer decimals', () => {
-    expect(all(withLadder()).length).toBe(18);
+    expect(all(withLadder()).length).toBe(20);
     for (const c of all(withLadder())) {
       expect(c.tokens.length, c.id).toBeGreaterThan(0);
       for (const t of c.tokens) expect(Number.isInteger(t.decimals), `${c.id} ${t.symbol}`).toBe(true);

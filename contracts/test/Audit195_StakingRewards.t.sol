@@ -53,7 +53,7 @@ contract Audit195StakingRewards is Test {
     function setUp() public {
         token = new MockTOWELI();
         nft = new MockJBAC();
-        staking = new TegridyStaking(address(token), address(nft), treasury, REWARD_RATE);
+        staking = new TegridyStaking(address(token), address(nft), treasury);
         monitor = new StakingMonitorView(address(staking));
 
         // Mint JBAC NFT to alice
@@ -73,7 +73,7 @@ contract Audit195StakingRewards is Test {
 
         // Fund with rewards
         token.approve(address(staking), type(uint256).max);
-        staking.notifyRewardAmount(500_000_000 ether);
+        staking.notifyRewardAmount(100_000_000 ether);
     }
 
     // =========================================================================
@@ -93,9 +93,10 @@ contract Audit195StakingRewards is Test {
         // Advance 100 seconds
         vm.warp(block.timestamp + 100);
 
-        // pendingReward should be ~100 tokens (100s * 1 TOWELI/s)
+        // pendingReward should be ~100 seconds of emission. 2026-10-18: the rate is the pot over
+        // four years (100M / 1,460 days), no longer a fixed 1 TOWELI/s.
         uint256 pending = monitor.earned(tokenId);
-        assertApproxEqAbs(pending, 100 ether, 1e15, "Pending should be ~100 TOWELI");
+        assertApproxEqAbs(pending, 100 * staking.rewardRate(), 1e15, "Pending should be ~100 seconds of emission");
     }
 
     /// @notice Verify precision doesn't lose significant value with very small stakes
@@ -111,7 +112,7 @@ contract Audit195StakingRewards is Test {
 
         // Even small stake should capture all rewards when sole staker
         uint256 pending = monitor.earned(tokenId);
-        assertApproxEqAbs(pending, 1000 ether, 1e15, "Small staker should get all rewards");
+        assertApproxEqAbs(pending, 1000 * staking.rewardRate(), 1e15, "Small staker should get all rewards");
     }
 
     /// @notice Verify no overflow with large stakes and long durations
@@ -192,7 +193,7 @@ contract Audit195StakingRewards is Test {
     /// @notice When reward pool is depleted, pending rewards should cap to available balance
     function test_rewardPool_depletion_capsPending() public {
         // Deploy a staking with very small fund
-        TegridyStaking s2 = new TegridyStaking(address(token), address(nft), treasury, REWARD_RATE);
+        TegridyStaking s2 = new TegridyStaking(address(token), address(nft), treasury);
         token.approve(address(s2), type(uint256).max);
         s2.notifyRewardAmount(1100 ether); // Only 1100 token rewards available (1000 funded minus what's reserved)
 
@@ -220,7 +221,7 @@ contract Audit195StakingRewards is Test {
 
     /// @notice Claim should not revert when pool is depleted
     function test_rewardPool_depletion_claimNoRevert() public {
-        TegridyStaking s2 = new TegridyStaking(address(token), address(nft), treasury, REWARD_RATE);
+        TegridyStaking s2 = new TegridyStaking(address(token), address(nft), treasury);
         token.approve(address(s2), type(uint256).max);
         s2.notifyRewardAmount(1100 ether);
 
@@ -239,7 +240,7 @@ contract Audit195StakingRewards is Test {
 
     /// @notice Multiple stakers competing for depleted pool should each get fair share capped
     function test_rewardPool_depletion_multipleStakers() public {
-        TegridyStaking s2 = new TegridyStaking(address(token), address(nft), treasury, REWARD_RATE);
+        TegridyStaking s2 = new TegridyStaking(address(token), address(nft), treasury);
         token.approve(address(s2), type(uint256).max);
         s2.notifyRewardAmount(2000 ether);
 
@@ -274,7 +275,7 @@ contract Audit195StakingRewards is Test {
 
     /// @notice _settleRewardsOnTransfer should cap unsettled to available reward pool
     function test_unsettled_cappedToAvailableBalance() public {
-        TegridyStaking s2 = new TegridyStaking(address(token), address(nft), treasury, REWARD_RATE);
+        TegridyStaking s2 = new TegridyStaking(address(token), address(nft), treasury);
         token.approve(address(s2), type(uint256).max);
         s2.notifyRewardAmount(1500 ether);
 
@@ -591,7 +592,7 @@ contract Audit195StakingRewards is Test {
         // Use 1 ether/sec rate; pool sized at 1100 ether (above MIN_NOTIFY_AMOUNT)
         // — accrual at 1/s × 100s × 1.x boost still vastly outstrips the pool, so
         // the cap-to-balance path remains exercised.
-        TegridyStaking s2 = new TegridyStaking(address(token), address(nft), treasury, 1 ether);
+        TegridyStaking s2 = new TegridyStaking(address(token), address(nft), treasury);
         token.approve(address(s2), type(uint256).max);
         s2.notifyRewardAmount(1100 ether);
 
@@ -752,7 +753,7 @@ contract Audit195StakingRewards is Test {
 
     /// @notice claimUnsettled with partial pool should leave remainder
     function test_claimUnsettled_partialPayout_leavesRemainder() public {
-        TegridyStaking s2 = new TegridyStaking(address(token), address(nft), treasury, REWARD_RATE);
+        TegridyStaking s2 = new TegridyStaking(address(token), address(nft), treasury);
         token.approve(address(s2), type(uint256).max);
         s2.notifyRewardAmount(1100 ether);
 

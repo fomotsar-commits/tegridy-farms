@@ -11,6 +11,7 @@
  * and other non-viem errors (e.g. providers that surface a raw string).
  */
 import { BaseError, ContractFunctionRevertedError } from 'viem';
+import { EARLY_WITHDRAWAL_PENALTY_BPS, OLD_EARLY_WITHDRAWAL_PENALTY_BPS } from './constants';
 
 /**
  * Known contract revert reasons (string + custom-error name) mapped to
@@ -30,7 +31,7 @@ const KNOWN_ERRORS: Record<string, string> = {
   'ALREADY_STAKED': 'You already have an active staking position.',
   'NO_REWARDS': 'No rewards available to claim.',
   'INVALID_LOCK_DURATION': 'Lock duration is outside the allowed range.',
-  'EARLY_WITHDRAWAL': 'Early withdrawal will incur a 25% penalty.',
+  'EARLY_WITHDRAWAL': `Leaving a lock early costs a share of your stake: ${EARLY_WITHDRAWAL_PENALTY_BPS / 100}% on the current staking contract, ${OLD_EARLY_WITHDRAWAL_PENALTY_BPS / 100}% on the old one.`,
   'execution reverted': 'Transaction reverted — the on-chain conditions changed. Try again.',
   'user rejected': 'Transaction was rejected in your wallet.',
   'User denied': 'Transaction was rejected in your wallet.',

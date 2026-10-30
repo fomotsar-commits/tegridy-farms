@@ -66,7 +66,7 @@ contract MVPLaunch_HalmosSpecsTest is Test {
     function setUp() public {
         toweli = new MockTowel();
         jbac = new MockJBAC();
-        staking = new TegridyStaking(address(toweli), address(jbac), treasury, 1e18);
+        staking = new TegridyStaking(address(toweli), address(jbac), treasury);
         vault = new TegridyStakingJbacVault(address(jbac), address(staking));
         staking.setJbacVault(address(vault));
 

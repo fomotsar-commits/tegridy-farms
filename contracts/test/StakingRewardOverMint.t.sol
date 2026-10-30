@@ -73,7 +73,7 @@ contract StakingRewardOverMintTest is Test {
     function setUp() public {
         toweli = new MockTOWELI();
         jbac = new MockJBAC();
-        staking = new TegridyStaking(address(toweli), address(jbac), treasury, REWARD_RATE);
+        staking = new TegridyStaking(address(toweli), address(jbac), treasury);
         admin = new TegridyStakingAdmin(address(staking));
         staking.setStakingAdmin(address(admin));
         vault = new TegridyStakingJbacVault(address(jbac), address(staking));
@@ -112,7 +112,13 @@ contract StakingRewardOverMintTest is Test {
         staking.getReward(pokerToken);
     }
 
-    function test_baseRewardOverMintsBeyondFunding_KNOWN_DEFECT() public {
+    /// @notice FIXED 2026-10-18 by the remediation this file names: the new contract pays its
+    ///         pot out on the Synthetix funded-period model (rate = funded / four years, nothing
+    ///         after periodFinish). The same rig as the old PoC (two big stakers, a 1,000-TOWELI
+    ///         pot, a poker settling between windows) now never owes more than it was funded,
+    ///         claims split fairly, and the cash invariant holds. This was the KNOWN_DEFECT test;
+    ///         on the first contract (0xcaDc93E96De58EA554c71ca609974625615E046D) the defect stays.
+    function test_baseReward_neverOverMints_fundedPeriodModel_FIXED() public {
         uint256 at = _stake(alice, STAKE);
         uint256 bt = _stake(bob, STAKE);
         uint256 pt = _stake(poker, MIN_STAKE());
@@ -122,46 +128,27 @@ contract StakingRewardOverMintTest is Test {
         staking.notifyRewardAmount(R);
         assertEq(staking.totalRewardsFunded(), R, "funded R");
 
-        uint256 W = 2_000; // elapsed*rate = 2000e18 > R each window -> the cap binds
-
+        // Settle repeatedly, then run past the end of the schedule.
         for (uint256 i = 1; i <= 2; i++) {
-            vm.warp(vm.getBlockTimestamp() + W);
+            vm.warp(vm.getBlockTimestamp() + 2_000);
             _poke(pt);
-            console2.log("--- after window", i);
-            console2.log("    rewardPerTokenStored:", staking.rewardPerTokenStored());
-            console2.log("    earned(alice):", monitor.earned(at));
-            console2.log("    earned(bob)  :", monitor.earned(bt));
         }
+        vm.warp(vm.getBlockTimestamp() + 4 * 365 days + 1);
+        _poke(pt);
+        vm.warp(vm.getBlockTimestamp() + 365 days);
+        _poke(pt);
 
         uint256 owed = monitor.earned(at) + monitor.earned(bt);
-        console2.log("owed to alice+bob:", owed);
-        console2.log("totalRewardsFunded:", staking.totalRewardsFunded());
-        console2.log("totalUnsettledRewards:", staking.totalUnsettledRewards());
+        assertLe(owed, R, "never owes more than was funded");
 
-        // OVER-MINT: the contract's accounting owes the two big stakers MORE than the
-        // entire reward pool it was ever funded.
-        assertGt(owed, staking.totalRewardsFunded(), "over-mint: owed exceeds funded");
-
-        // Distribution harm: first claimer drains the pool for more than their fair
-        // share (~R/2); the stayer is left with ~0 + a phantom shortfall IOU.
         uint256 aliceGot = staking.getReward(_asAlice(at));
         uint256 bobGot = staking.getReward(_asBob(bt));
-        console2.log("alice received:", aliceGot);
-        console2.log("bob received  :", bobGot);
-        console2.log("totalUnsettledRewards after:", staking.totalUnsettledRewards());
+        assertApproxEqAbs(aliceGot, bobGot, 1e6, "equal stakes, equal shares: no first-claimer grab");
+        assertEq(staking.totalUnsettledRewards(), 0, "no shortfall IOU booked");
 
-        assertGt(aliceGot, R / 2, "first claimer took more than a fair half of the funded pool");
-        assertLt(bobGot, aliceGot, "the stayer got materially less");
-
-        // The over-mint books UNBACKED debt: the contract now holds LESS than
-        // (principal + booked unsettled). The cash invariant the red-team suite
-        // asserts (RedTeam_Staking.t.sol:452-465) is VIOLATED here — that test only
-        // holds it in the funded regime and never exercises this depletion path.
         uint256 bal = toweli.balanceOf(address(staking));
         uint256 obligations = staking.totalStaked() + staking.totalUnsettledRewards();
-        console2.log("balance:", bal);
-        console2.log("totalStaked + totalUnsettled:", obligations);
-        assertLt(bal, obligations, "KNOWN DEFECT: over-mint books unbacked unsettled debt");
+        assertGe(bal, obligations, "cash invariant holds: balance >= principal + unsettled");
     }
 
     function _asAlice(uint256 t) internal returns (uint256) {

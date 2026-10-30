@@ -9,6 +9,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
+import { OLD_EARLY_WITHDRAWAL_PENALTY_BPS } from './constants';
 
 const repoRoot = join(process.cwd(), '..');
 const doc = (...p: string[]) => readFileSync(join(repoRoot, ...p), 'utf8');
@@ -25,9 +26,14 @@ const bungalowsSrc = readFileSync(join(process.cwd(), 'src', 'lib', 'bungalows.t
 const swapFeeRouterSrc = doc('contracts', 'src', 'SwapFeeRouter.sol');
 const stakingSrc = doc('contracts', 'src', 'TegridyStaking.sol');
 
-/** Reads `export const NAME = '0x…'` out of constants.ts. */
+/**
+ * Reads `export const NAME = '0x…'` out of constants.ts. A redeploy placeholder
+ * (`0x` and an upper-case name, filled from the deploy receipt by a scripts/fill-*.mjs helper)
+ * is read as itself, so the docs are still held to carry the SAME token as constants.ts
+ * while the deploy is pending. Shipping one is the fill helper's guard test's job.
+ */
 function constant(name: string): string {
-  const m = constantsSrc.match(new RegExp(`export const ${name} = '(0x[0-9a-fA-F]{40})'`));
+  const m = constantsSrc.match(new RegExp(`export const ${name} = '(0x(?:[0-9a-fA-F]{40}|[A-Z][A-Z_]+))'`));
   if (!m) throw new Error(`constants.ts has no ${name}`);
   return m[1].toLowerCase();
 }
@@ -62,6 +68,18 @@ const SUPERSEDED: Record<string, string> = {
   // Staking / farming.
   '0x626644523d34b84818df602c991b4a06789c4819': 'legacy staking — WITHDRAW-ONLY (constants.ts LEGACY_STAKING_ADDRESSES)',
   '0xa5ab522c99f86ded9f429766872101c75517d77c': 'pre-C-01 TegridyLPFarming',
+  // Staking release 1 — the first relaunch stack. The staking contract is still live for
+  // its own positions (exits only), and the distributor still pays them, but none of these
+  // is where anything NEW belongs: wiring a new launch's fee or a new stake to one of them
+  // pays only the 16 old positions. (The first TegridyStakingAdmin, 0x4B134C08aAF86B6e2A8E097D1039C4e7638806f3,
+  // is left out: the same address is the live Base router and Robinhood factory.)
+  '0xcadc93e96de58ea554c71ca609974625615e046d': 'first relaunch TegridyStaking — exits only since staking release 1',
+  '0x28317bf362d43b40fcecebf2390c43db558c3f14': 'first relaunch TegridyStakingJbacVault',
+  '0xbe1e75124c7f07d5b681839c42d8e751f0d0fcfc': 'first relaunch StakingMonitorView',
+  '0x1171268ae5b69791c47fd589b7825932c957e149': 'first relaunch TegridyLPFarming — withdraw only',
+  '0xf993316e2fc079de4358c489a935e01e03e23e17': 'first relaunch RevenueDistributor — pays the first staking contract only',
+  '0x6b3442dacb62d40ba39fce9b3cda350fea6f7e4c': 'first relaunch ReferralSplitter',
+  '0x5cfee751eaf274f68b05267012b85a867dfcd326': 'first relaunch TegridyTokenURIReader',
   '0xa7ef711be3662b9557634502032f98944ec69ec1': 'Wave-0 TegridyLPFarming',
   // Bungalow ladders: the pre-fix (C1) build, retired 2026-09-05.
   '0xdc0b34ce782029f30382f42097f6b33f0544329c': 'retired PEPE ladder (pre-fix C1 build)',
@@ -151,6 +169,11 @@ describe('CONTRACTS.md names the addresses that are actually deployed', () => {
   // These come from constants.ts, so the doc can never drift from the app's own wiring.
   const FROM_CONSTANTS: Array<[string, string]> = [
     ['TegridyStaking', 'TEGRIDY_STAKING_ADDRESS'],
+    // Staking release 1: the first relaunch contracts stay live for their own positions,
+    // so the index still has to name them (as superseded), not drop them.
+    ['first TegridyStaking', 'OLD_TEGRIDY_STAKING_ADDRESS'],
+    ['first RevenueDistributor', 'OLD_REVENUE_DISTRIBUTOR_ADDRESS'],
+    ['first TegridyLPFarming', 'OLD_LP_FARMING_ADDRESS'],
     ['TegridyFactory', 'TEGRIDY_FACTORY_ADDRESS'],
     ['TegridyRouter', 'TEGRIDY_ROUTER_ADDRESS'],
     ['TegridyLP', 'TEGRIDY_LP_ADDRESS'],
@@ -249,6 +272,13 @@ describe('early-exit penalty is described the way the contract behaves', () => {
 
     it(`${name} does not claim the penalty decays toward maturity`, () => {
       expect(section).not.toMatch(/linear penalty|decreases? as|scales? down|prorata|pro-rata/i);
+    });
+
+    // Staking release 1: the fee is per contract. The first relaunch contract keeps 25% for
+    // its own positions (read on chain 2026-10-14; a deployed constant cannot change), and a
+    // holder there must not read the new contract's 75% as theirs.
+    it(`${name} gives the first relaunch contract its own ${OLD_EARLY_WITHDRAWAL_PENALTY_BPS / 100}% fee`, () => {
+      expect(section).toMatch(new RegExp(`first relaunch[\\s\\S]{0,160}?${OLD_EARLY_WITHDRAWAL_PENALTY_BPS / 100}%`));
     });
   }
 });

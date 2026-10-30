@@ -17,6 +17,8 @@ import { usePoolData } from './usePoolData';
 import { TEGRIDY_STAKING_ADDRESS } from '../lib/constants';
 
 const USER = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' as `0x${string}`;
+// Staking release 1 pays out over a four-year schedule: a pool is only paying before its end.
+const SCHEDULE_RUNNING = BigInt(Math.floor(Date.now() / 1000) + 4 * 365 * 86400);
 
 describe('usePoolData', () => {
   beforeEach(() => {
@@ -112,6 +114,7 @@ describe('usePoolData', () => {
   });
 
   it('computes apr correctly for a realistic reward/stake ratio', () => {
+    wagmiMock.setReadResult({ functionName: 'periodFinish', result: SCHEDULE_RUNNING });
     // rewardRate = 1 wei/sec vs boosted stake of 31_536_000 wei.
     // APR = rewardRate * secs_per_year / totalBoostedStake = 1.0 (i.e. 100%).
     // Formatted with 2 decimals: "100.00".
@@ -124,6 +127,7 @@ describe('usePoolData', () => {
   });
 
   it('computes a small apr with preserved precision (scaling by 1e18)', () => {
+    wagmiMock.setReadResult({ functionName: 'periodFinish', result: SCHEDULE_RUNNING });
     // rewardRate = 1 wei/sec, totalBoostedStake = 31_536_000 * 100 = 3_153_600_000
     // APR = 1%  → "1.00"
     wagmiMock.setReadResult({ functionName: 'rewardRate', result: 1n });
@@ -135,6 +139,7 @@ describe('usePoolData', () => {
   });
 
   it('renders a very large apr as a comma integer with no cap (operator decision 2026-06-07)', () => {
+    wagmiMock.setReadResult({ functionName: 'periodFinish', result: SCHEDULE_RUNNING });
     // rewardRate=100 wei/s, boostedStake=31_536_000 wei → APR = exactly 10,000%.
     // Post-2026-06-07 the hook shows the REAL APR (comma integer), not a ">9999" cap,
     // and exposes the numeric aprNum so consumers never parseFloat the comma string.
@@ -222,6 +227,7 @@ describe('usePoolData', () => {
   });
 
   it('a live pool paying a real zero rate is NOT reported as unread', () => {
+    wagmiMock.setReadResult({ functionName: 'periodFinish', result: SCHEDULE_RUNNING });
     // The mirror image of the test above — pins that the signal tracks read
     // STATUS, not the value, so it cannot be satisfied by a `> 0n` proxy.
     wagmiMock.setReadResult({ functionName: 'balanceOf', result: parseEther('10') });
@@ -245,5 +251,53 @@ describe('usePoolData', () => {
     const { result } = renderHook(() => usePoolData());
     expect(result.current.totalStaked).toBe(formatEther(raw));
     expect(result.current.totalStakedRaw).toBe(raw);
+  });
+
+  // ── 2026-10-18: the four-year schedule ─────────────────────────────────
+  function stubPayingPool() {
+    wagmiMock.setReadResult({ functionName: 'balanceOf', result: parseEther('2000000') });
+    wagmiMock.setReadResult({ functionName: 'totalStaked', result: parseEther('100000') });
+    wagmiMock.setReadResult({ functionName: 'totalUnsettledRewards', result: 0n });
+    wagmiMock.setReadResult({ functionName: 'rewardRate', result: parseEther('0.01') });
+    wagmiMock.setReadResult({ functionName: 'totalBoostedStake', result: parseEther('100000') });
+    wagmiMock.setReadResult({ functionName: 'totalRewardsFunded', result: parseEther('1460000') });
+  }
+
+  it('reads the end of payouts from the contract, not pot / rate', () => {
+    stubPayingPool();
+    wagmiMock.setReadResult({ functionName: 'periodFinish', result: SCHEDULE_RUNNING });
+    const { result } = renderHook(() => usePoolData());
+    expect(result.current.periodFinish).toBe(Number(SCHEDULE_RUNNING));
+    expect(result.current.scheduleEnded).toBe(false);
+    expect(result.current.aprNum).toBeGreaterThan(0);
+  });
+
+  it('a rate past periodFinish pays nothing: APR 0 and the schedule reads as ended', () => {
+    stubPayingPool();
+    wagmiMock.setReadResult({ functionName: 'periodFinish', result: BigInt(Math.floor(Date.now() / 1000) - 60) });
+    const { result } = renderHook(() => usePoolData());
+    expect(result.current.scheduleEnded).toBe(true);
+    expect(result.current.apr).toBe('0');
+    expect(result.current.aprNum).toBe(0);
+    expect(result.current.secondsRemaining).toBe(0);
+    expect(result.current.aprUnread).toBe(false);
+  });
+
+  it('an unfunded pool (periodFinish 0) is not paying', () => {
+    stubPayingPool();
+    wagmiMock.setReadResult({ functionName: 'periodFinish', result: 0n });
+    const { result } = renderHook(() => usePoolData());
+    expect(result.current.scheduleEnded).toBe(true);
+    expect(result.current.aprNum).toBe(0);
+  });
+
+  it('an unread periodFinish is unknown, not "paying" and not "ended"', () => {
+    stubPayingPool();
+    // periodFinish not stubbed: the mock fails it.
+    const { result } = renderHook(() => usePoolData());
+    expect(result.current.scheduleUnread).toBe(true);
+    expect(result.current.scheduleEnded).toBe(false);
+    expect(result.current.aprUnread).toBe(true);
+    expect(result.current.aprNum).toBe(0);
   });
 });

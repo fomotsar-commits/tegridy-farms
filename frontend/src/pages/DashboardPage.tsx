@@ -13,6 +13,7 @@ import { useLpPosition } from '../hooks/useLpPosition';
 import { usePoolData } from '../hooks/usePoolData';
 import { useTOWELIPrice } from '../contexts/PriceContext';
 import { useFarmActions } from '../hooks/useFarmActions';
+import { OldStakingNotice } from '../components/farm/OldStakingCard';
 import { useReceiptOutcome } from '../hooks/useReceiptOutcome';
 import { useNFTBoost } from '../hooks/useNFTBoost';
 import { useAutoRefreshBoost } from '../hooks/useAutoRefreshBoost';
@@ -593,6 +594,8 @@ function ToweliDashboard() {
 
             {/* Position */}
             <h2 className="heading-luxury text-[16px] text-white mb-4">Your Position</h2>
+            {/* A stake on the first relaunch contract is not "no position": point at its door. */}
+            <OldStakingNotice />
             {pos.hasPosition ? (
               <m.div className={positionHost('relative overflow-hidden rounded-xl glass-card-animated mb-10 card-hover', pos.hasPosition)} style={{ border: '1px solid var(--color-purple-75)' }}
                 initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>

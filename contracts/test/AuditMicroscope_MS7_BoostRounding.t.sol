@@ -60,7 +60,7 @@ contract AuditMicroscope_MS7_BoostRoundingTest is Test {
     function setUp() public {
         token = new MS7Token();
         lp = new MS7LP();
-        staking = new TegridyStaking(address(token), address(new MS7JBAC()), treasury, 1 ether);
+        staking = new TegridyStaking(address(token), address(new MS7JBAC()), treasury);
         farm = new TegridyLPFarming(address(token), address(lp), address(staking), treasury, 7 days);
         holder = new MS7MultiHolder();
 

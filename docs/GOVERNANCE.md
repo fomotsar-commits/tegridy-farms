@@ -58,7 +58,7 @@ These are hard-coded at the contract level and **cannot be changed by admin acti
 - Confiscate NFT collateral in lending (only on default after `deadline + grace`)
 - Exceed the 4.5× boost ceiling on staking rewards (defence-in-depth constant)
 - Set the launchpad protocol fee above 100% (cap in source)
-- Bypass the 25% early-withdrawal penalty redistribution
+- Bypass the early-withdrawal penalty (75% on the current staking contract, 25% on the first one)
 - Renounce ownership (prevented by `OwnableNoRenounce`)
 
 ## What a compromised admin could do (threat model)

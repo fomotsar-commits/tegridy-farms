@@ -833,10 +833,10 @@
       "evidence": "contracts/broadcast/DeployMVP.s.sol/1/run-latest.json CREATE SwapFeeRouter; CONTRACTS.md (Native DEX) records a live read-back feeBps()==50, stakerShareBps()==10000, polShareBps()==0; 2026-08-25 eth_call re-read: totalETHFees=3e12 wei, ReferralSplitter.callerCredit(router)=2.4e12 wei, recoverCallerCredit never called."
     },
     {
-      "id": "revenue-distributor",
+      "id": "revenue-distributor-first",
       "address": "0xF993316E2fC079de4358c489A935E01e03E23E17",
-      "role": "Pays ETH fee-share to veTOWELI stakers. MIN_DISTRIBUTE_AMOUNT is 1 full ETH.",
-      "status": "live, holds 0",
+      "role": "Pays ETH fee-share to the positions of tegridy-staking-first only (its votingEscrow()). MIN_DISTRIBUTE_AMOUNT is 1 full ETH. locker-claimer forwards launch fees here, immutably. The swap router stops sending here at the staking release 1 re-point (48 hours after the deploy).",
+      "status": "live, holds 0, pays the first staking contract",
       "expect": {
         "type": "contract"
       },
@@ -968,19 +968,121 @@
     },
     {
       "id": "tegridy-staking",
-      "address": "0xcaDc93E96De58EA554c71ca609974625615E046D",
-      "role": "veTOWELI staking. Positions are ERC-721.",
+      "address": "0xPENDING_REDEPLOY_STAKING",
+      "role": "TOWELI staking, staking release 1 (deployed PENDING_REDEPLOY_DATE): early exit costs 75% of principal (EARLY_WITHDRAWAL_PENALTY_BPS() == 7500, read back), sent to the treasury Safe 0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d; rewards paid first, only from what is funded. Positions are ERC-721. All new stakes on the site go here.",
       "status": "live",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "contracts/broadcast/DeployStakingRelease1.s.sol/1/PENDING_REDEPLOY_RECEIPT CREATE TegridyStaking from 0x14898258122C0740106391E6e8E4F17F3b6d456E, receipt status 0x1. Read back by frontend/scripts/fill-staking-release.mjs before this address was written (docs/STAKING_RELEASE_1_WIRING.md lists every link it checks)."
+    },
+    {
+      "id": "tegridy-staking-admin",
+      "address": "0xPENDING_REDEPLOY_STAKING_ADMIN",
+      "role": "Staking admin of tegridy-staking (48-hour proposals, including any reward-rate change).",
+      "status": "live",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "contracts/broadcast/DeployStakingRelease1.s.sol/1/PENDING_REDEPLOY_RECEIPT CREATE TegridyStakingAdmin from 0x14898258122C0740106391E6e8E4F17F3b6d456E, receipt status 0x1. Read back by frontend/scripts/fill-staking-release.mjs before this address was written (docs/STAKING_RELEASE_1_WIRING.md lists every link it checks)."
+    },
+    {
+      "id": "staking-monitor-view",
+      "address": "0xPENDING_REDEPLOY_MONITOR_VIEW",
+      "role": "Read-only monitor view of tegridy-staking.",
+      "status": "live",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "contracts/broadcast/DeployStakingRelease1.s.sol/1/PENDING_REDEPLOY_RECEIPT CREATE StakingMonitorView from 0x14898258122C0740106391E6e8E4F17F3b6d456E, receipt status 0x1. Read back by frontend/scripts/fill-staking-release.mjs before this address was written (docs/STAKING_RELEASE_1_WIRING.md lists every link it checks)."
+    },
+    {
+      "id": "token-uri-reader",
+      "address": "0xPENDING_REDEPLOY_TOKEN_URI_READER",
+      "role": "Tolerant tokenURI reader of tegridy-staking.",
+      "status": "live",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "contracts/broadcast/DeployStakingRelease1.s.sol/1/PENDING_REDEPLOY_RECEIPT CREATE TegridyTokenURIReader from 0x14898258122C0740106391E6e8E4F17F3b6d456E, receipt status 0x1. Read back by frontend/scripts/fill-staking-release.mjs before this address was written (docs/STAKING_RELEASE_1_WIRING.md lists every link it checks)."
+    },
+    {
+      "id": "staking-jbac-vault",
+      "address": "0xPENDING_REDEPLOY_JBAC_VAULT",
+      "role": "TegridyStakingJbacVault of tegridy-staking. Holds the JBAC NFTs escrowed for the +0.5x boost.",
+      "status": "live",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "contracts/broadcast/DeployStakingRelease1.s.sol/1/PENDING_REDEPLOY_RECEIPT CREATE TegridyStakingJbacVault from 0x14898258122C0740106391E6e8E4F17F3b6d456E, receipt status 0x1. Read back by frontend/scripts/fill-staking-release.mjs before this address was written (docs/STAKING_RELEASE_1_WIRING.md lists every link it checks)."
+    },
+    {
+      "id": "lp-farming",
+      "address": "0xPENDING_REDEPLOY_LP_FARMING",
+      "role": "LP farming of staking release 1 (its boost reads tegridy-staking). Pays nothing until the owner funds it.",
+      "status": "live",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "contracts/broadcast/DeployStakingRelease1.s.sol/1/PENDING_REDEPLOY_RECEIPT CREATE TegridyLPFarming from 0x14898258122C0740106391E6e8E4F17F3b6d456E, receipt status 0x1. Read back by frontend/scripts/fill-staking-release.mjs before this address was written (docs/STAKING_RELEASE_1_WIRING.md lists every link it checks)."
+    },
+    {
+      "id": "revenue-distributor",
+      "address": "0xPENDING_REDEPLOY_REVENUE_DISTRIBUTOR",
+      "role": "Pays ETH fee-share to the positions of tegridy-staking. The swap router sends it ETH only after the staking release 1 re-point (48 hours after the deploy).",
+      "status": "live",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "contracts/broadcast/DeployStakingRelease1.s.sol/1/PENDING_REDEPLOY_RECEIPT CREATE RevenueDistributor from 0x14898258122C0740106391E6e8E4F17F3b6d456E, receipt status 0x1. Read back by frontend/scripts/fill-staking-release.mjs before this address was written (docs/STAKING_RELEASE_1_WIRING.md lists every link it checks)."
+    },
+    {
+      "id": "referral-splitter",
+      "address": "0xPENDING_REDEPLOY_REFERRAL_SPLITTER",
+      "role": "Referral reward splitter of staking release 1 (stakingContract() is tegridy-staking). The swap router records here only after the re-point.",
+      "status": "live",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "contracts/broadcast/DeployStakingRelease1.s.sol/1/PENDING_REDEPLOY_RECEIPT CREATE ReferralSplitter from 0x14898258122C0740106391E6e8E4F17F3b6d456E, receipt status 0x1. Read back by frontend/scripts/fill-staking-release.mjs before this address was written (docs/STAKING_RELEASE_1_WIRING.md lists every link it checks)."
+    },
+    {
+      "id": "staking-reward-lib",
+      "address": "0xPENDING_REDEPLOY_REWARD_LIB",
+      "role": "StakingRewardLib of staking release 1, DELEGATECALLed by tegridy-staking. A new one, because the first (staking-reward-lib-first) lacks getReward, kick, settleRewardsOnTransfer and claimUnsettledForTokenId.",
+      "custody": "none — stateless library, no owner",
+      "status": "live, CREATE2 by DeployStakingRelease1",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "contracts/broadcast/DeployStakingRelease1.s.sol/1/PENDING_REDEPLOY_RECEIPT CREATE2 StakingRewardLib (forge deploys the library itself), receipt status 0x1."
+    },
+    {
+      "id": "staking-view-lib",
+      "address": "0xPENDING_REDEPLOY_VIEW_LIB",
+      "role": "StakingViewLib of staking release 1, DELEGATECALLed by tegridy-staking and staking-monitor-view.",
+      "custody": "none — stateless library, no owner",
+      "status": "live, CREATE2 by DeployStakingRelease1",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "contracts/broadcast/DeployStakingRelease1.s.sol/1/PENDING_REDEPLOY_RECEIPT CREATE2 StakingViewLib (forge deploys the library itself), receipt status 0x1."
+    },
+    {
+      "id": "tegridy-staking-first",
+      "address": "0xcaDc93E96De58EA554c71ca609974625615E046D",
+      "role": "The FIRST relaunch veTOWELI staking (DeployMVP 2026-06-06). Positions are ERC-721. Since staking release 1 (deployed PENDING_REDEPLOY_DATE) it takes no new stakes on the site; its own positions keep their terms there, including its 25% early-exit fee (EARLY_WITHDRAWAL_PENALTY_BPS() == 2500, a constant). Do not pause it: that blocks its positions from claiming or leaving.",
+      "status": "live, exits only since staking release 1 (PENDING_REDEPLOY_DATE)",
       "expect": {
         "type": "contract"
       },
       "evidence": "contracts/broadcast/DeployMVP.s.sol/1/run-latest.json CREATE TegridyStaking, receipt status 0x1, block 0x1817ce3; CONTRACTS.md read-back paused()==false, treasury()==0x7D26...Bd7d."
     },
     {
-      "id": "tegridy-staking-admin",
+      "id": "tegridy-staking-admin-first",
       "address": "0x4B134C08aAF86B6e2A8E097D1039C4e7638806f3",
-      "role": "Staking admin.",
-      "status": "live",
+      "role": "Staking admin of tegridy-staking-first (its staking() is 0xcaDc93E96De58EA554c71ca609974625615E046D).",
+      "status": "live, admin of the first staking contract",
       "expect": {
         "type": "contract"
       },
@@ -997,10 +1099,10 @@
       "evidence": "contracts/broadcast/DeployMVP.s.sol/1/run-latest.json CREATE SwapFeeRouterAdmin; WORKORDER_V2.md:39 records the live timelocked proposeFeeSplit/executeFeeSplit path on it."
     },
     {
-      "id": "staking-monitor-view",
+      "id": "staking-monitor-view-first",
       "address": "0xbE1E75124C7F07d5B681839C42d8e751f0d0fcfC",
-      "role": "Read-only staking monitor view.",
-      "status": "live",
+      "role": "Read-only monitor view of tegridy-staking-first: getPosition / earned for its positions. The site reads the old positions through it.",
+      "status": "live, reads the first staking contract",
       "expect": {
         "type": "contract"
       },
@@ -1017,20 +1119,20 @@
       "evidence": "contracts/broadcast/DeployMVP.s.sol/1/run-latest.json CREATE POLAccumulator; docs/SAFE_REHOME_RUNBOOK.md:85 lists it as a live OwnableNoRenounce contract awaiting re-home, and contracts/script/VerifyMVP.s.sol:70,95 calls owner() and pauseGuardian() on it - calls that cannot succeed against an address with no code."
     },
     {
-      "id": "lp-farming",
+      "id": "lp-farming-first",
       "address": "0x1171268AE5B69791c47Fd589b7825932c957e149",
-      "role": "LP farming. Emissions ended 2026-06-15; 528.2 LP staked by one wallet (read 2026-10-14), earning no TOWELI since the period ended.",
-      "status": "live, idle",
+      "role": "LP farming, the first relaunch farm (its tegridyStaking() is tegridy-staking-first). Emissions ended 2026-06-15; 528.2 LP staked by one wallet (read 2026-10-14), earning no TOWELI since the period ended. The site offers its exit only.",
+      "status": "live, idle, withdraw only on the site",
       "expect": {
         "type": "contract"
       },
       "evidence": "CONTRACTS.md (Native DEX, TegridyLPFarming) and docs/MIGRATION_HISTORY.md:134 record a live read-back: stakingToken()=0x5587...a481, rewardToken()=TOWELI, MAX_BOOST_BPS_CEILING()==45000. frontend/src/lib/lpEmissions.ts:9 cites a mainnet verification against it on 2026-07-31. Read 2026-10-14 at block 26,188,902: totalRawSupply()=528199806982326905120 (528.2 LP), periodFinish()=1781493095 (2026-06-15T03:11:35Z); its Staked and Withdrawn events since deployment net to that total for one wallet, which staked 528.2 LP between 2026-08-08 and 2026-09-07."
     },
     {
-      "id": "referral-splitter",
+      "id": "referral-splitter-first",
       "address": "0x6B3442dAcB62d40BA39fCe9b3CDa350FEa6f7e4c",
-      "role": "Referral reward splitter.",
-      "status": "live",
+      "role": "Referral reward splitter of the first relaunch (its stakingContract() is tegridy-staking-first). 0 referrals ever paid (read 2026-10-14). Replaced as the router's splitter at the staking release 1 re-point.",
+      "status": "live, replaced at the staking release 1 re-point",
       "expect": {
         "type": "contract"
       },
@@ -1068,10 +1170,10 @@
       "evidence": "contracts/broadcast/DeployNFTPoolFactory.s.sol/1/run-1784177105276.json tx 0 additionalContracts: CREATE TegridyNFTPool inside the TegridyNFTPoolFactory constructor, which is getContractAddress(nft-pool-factory, nonce 1). Read 2026-09-18 at block 26003300 on eth.drpc.org and ethereum-rpc.publicnode.com (both agreed): 13,145 bytes of code; nft-pool-factory.poolImplementation() returns this address; nft-pool-factory.getPoolCount() = 0; the OpenZeppelin Initializable slot holds type(uint64).max; owner() is the zero address."
     },
     {
-      "id": "token-uri-reader",
+      "id": "token-uri-reader-first",
       "address": "0x5cfEe751eAf274F68b05267012b85a867dfCd326",
-      "role": "Tolerant tokenURI reader.",
-      "status": "live",
+      "role": "Tolerant tokenURI reader of tegridy-staking-first.",
+      "status": "live, reads the first staking contract",
       "expect": {
         "type": "contract"
       },
@@ -1194,7 +1296,7 @@
       "$comment": "── The seven live mainnet contracts the one-directional drift guard could never see. Four are DELEGATECALL libraries: they hold no state and no funds, but the linked contracts EXECUTE their code, so a wrong address here is a wrong protocol. None of them appears in constants.ts — the frontend never names a library — which is why registry rule 5 walks the broadcast receipts instead of the source."
     },
     {
-      "id": "staking-reward-lib",
+      "id": "staking-reward-lib-first",
       "address": "0xb86A763a92A24e0951658E52d54CE50A5D52C1Ea",
       "role": "StakingRewardLib. EIP-170 split: reward math DELEGATECALLed by tegridy-staking. Linked at compile time, so it cannot be re-pointed without redeploying TegridyStaking.",
       "custody": "none — stateless library, no owner",
@@ -1227,7 +1329,7 @@
       "evidence": "contracts/broadcast/DeployMVP.s.sol/1/run-latest.json CREATE2 SwapFeeRouterConvertLib, receipt status 0x1, block 0x1817ce1."
     },
     {
-      "id": "staking-view-lib",
+      "id": "staking-view-lib-first",
       "address": "0x7c9d52CF71a1dff1D5D302E95e68Bce80191ab0E",
       "role": "StakingViewLib. Read-only staking projections DELEGATECALLed by tegridy-staking and staking-monitor-view.",
       "custody": "none — stateless library, no owner",
@@ -1238,11 +1340,11 @@
       "evidence": "contracts/broadcast/DeployMVP.s.sol/1/run-latest.json CREATE2 StakingViewLib, receipt status 0x1, block 0x1817ce3."
     },
     {
-      "id": "staking-jbac-vault",
+      "id": "staking-jbac-vault-first",
       "address": "0x28317bf362d43b40fceCEbf2390c43Db558c3f14",
-      "role": "TegridyStakingJbacVault. Holds the JBAC NFTs escrowed for the +0.5x staking boost — it custodies third-party user NFTs, and it was unregistered.",
+      "role": "TegridyStakingJbacVault of tegridy-staking-first. Holds the JBAC NFTs escrowed for the +0.5x boost of its positions.",
       "custody": "owned by tegridy-staking",
-      "status": "live, deployed by DeployMVP 2026-06-06",
+      "status": "live, deployed by DeployMVP 2026-06-06, serves the first staking contract",
       "expect": {
         "type": "contract"
       },

@@ -45,7 +45,7 @@ contract Audit195StakingCoreTest is Test {
     function setUp() public {
         token = new MockTOWELI();
         nft = new MockJBAC();
-        staking = new TegridyStaking(address(token), address(nft), treasury, 1 ether);
+        staking = new TegridyStaking(address(token), address(nft), treasury);
         monitor = new StakingMonitorView(address(staking));
         // AUDIT FIX (pass-8 batch-14): JBAC vault sister.
         TegridyStakingJbacVault vault = new TegridyStakingJbacVault(address(nft), address(staking));
@@ -237,14 +237,14 @@ contract Audit195StakingCoreTest is Test {
     // 3. EARLY WITHDRAW FUNCTION
     // ═══════════════════════════════════════════════════════════════════════════
 
-    /// @dev 25% penalty math precision: penalty = amount * 2500 / 10000
+    /// @dev 75% penalty math precision (owner ruling 2026-10-14): penalty = amount * 7500 / 10000
     function test_earlyWithdraw_penaltyMathPrecision() public {
         uint256 stakeAmt = 333_333 ether; // odd number to test rounding
         vm.prank(bob);
         staking.stake(stakeAmt, 365 days);
         uint256 tokenId = staking.userTokenId(bob);
 
-        uint256 expectedPenalty = (stakeAmt * 2500) / 10000; // 25%
+        uint256 expectedPenalty = (stakeAmt * 7500) / 10000; // 75%
         uint256 expectedUserReceives = stakeAmt - expectedPenalty;
 
         uint256 bobBefore = token.balanceOf(bob);
@@ -553,7 +553,7 @@ contract Audit195StakingCoreTest is Test {
     // 7. EXECUTE EMERGENCY EXIT
     // ═══════════════════════════════════════════════════════════════════════════
 
-    /// @dev Execute emergency exit after delay with active lock: 25% penalty
+    /// @dev Execute emergency exit after delay with active lock: 75% penalty
     function test_executeEmergencyExit_penaltyIfLockActive() public {
         vm.prank(bob);
         staking.stake(STAKE_AMT, 365 days);
@@ -571,7 +571,7 @@ contract Audit195StakingCoreTest is Test {
         vm.prank(bob);
         staking.executeEmergencyExit(tokenId);
 
-        uint256 penalty = (STAKE_AMT * 2500) / 10000;
+        uint256 penalty = (STAKE_AMT * 7500) / 10000;
         uint256 expectedUser = STAKE_AMT - penalty;
 
         // Emergency exit now calls _getReward() so user receives principal - penalty + accrued rewards
@@ -668,7 +668,7 @@ contract Audit195StakingCoreTest is Test {
         vm.prank(bob);
         staking.executeEmergencyExit(tokenId);
 
-        uint256 penalty = (STAKE_AMT * 2500) / 10000;
+        uint256 penalty = (STAKE_AMT * 7500) / 10000;
         assertEq(staking.totalPenaltiesCollected() - penaltiesCollectedBefore, penalty, "collected incremented");
         // V2: totalPenaltiesRedistributed removed
         // Note: penalty went to treasury, not redistributed via accRewardPerShare

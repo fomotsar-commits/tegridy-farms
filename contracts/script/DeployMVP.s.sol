@@ -160,7 +160,9 @@ contract DeployMVPScript is Script {
         address sequencerFeed
     ) internal returns (Deployed memory) {
         // 1. TegridyStaking
-        TegridyStaking staking = new TegridyStaking(TOWELI, JBAC_NFT, treasury, REWARD_PER_SECOND);
+        // Since 2026-10-18 the staking contract takes no rate: its first notifyRewardAmount
+        // sets one (funds / REWARDS_DURATION). REWARD_PER_SECOND is kept as the 2026 record.
+        TegridyStaking staking = new TegridyStaking(TOWELI, JBAC_NFT, treasury);
         d.staking = address(staking);
         console.log(" 1. TegridyStaking:        ", d.staking);
 

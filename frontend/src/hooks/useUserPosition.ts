@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { useAccount, useReadContracts } from 'wagmi';
+import { useAccount, useReadContract, useReadContracts } from 'wagmi';
 import { formatEther } from 'viem';
 import { TEGRIDY_STAKING_ABI, ERC20_ABI } from '../lib/contracts';
-import { TEGRIDY_STAKING_ADDRESS, STAKING_MONITOR_VIEW_ADDRESS, TOWELI_ADDRESS, CHAIN_ID, isDeployed as checkDeployed } from '../lib/constants';
+import { STAKING_CONTRACT, TOWELI_ADDRESS, CHAIN_ID, isDeployed as checkDeployed, type StakingContractSet } from '../lib/constants';
 
 // Dummy address for disabled queries (wagmi needs valid args shape)
 const ZERO_ADDR = '0x0000000000000000000000000000000000000001' as const;
@@ -14,9 +14,15 @@ const ZERO_ADDR = '0x0000000000000000000000000000000000000001' as const;
 // inventing unbounded rewards.
 const MAX_ACCRUAL_DRIFT_SEC = 45;
 
-export function useUserPosition() {
+/**
+ * The connected wallet's position on ONE staking contract. Defaults to the contract that
+ * takes new stakes; `<OldStakingCard />` passes OLD_STAKING_CONTRACT so a position there
+ * is read from its own contract and its own monitor view.
+ */
+export function useUserPosition(contract: StakingContractSet = STAKING_CONTRACT) {
   const { address } = useAccount();
-  const stakingAddr = TEGRIDY_STAKING_ADDRESS;
+  const stakingAddr = contract.staking;
+  const monitorAddr = contract.monitor;
   const isDeployed = checkDeployed(stakingAddr);
   const enabled = isDeployed && !!address;
   const userAddr = address ?? ZERO_ADDR;
@@ -45,6 +51,13 @@ export function useUserPosition() {
     ],
     query: { enabled, refetchInterval: 30_000, refetchOnWindowFocus: true },
   });
+  // The end of the reward schedule (release 1 only; the first contract has no
+  // periodFinish, so it is never asked): nothing accrues after it, whatever
+  // rewardRate still reads.
+  const { data: periodFinishRaw, isLoading: periodFinishLoading } = useReadContract({
+    address: stakingAddr, abi: TEGRIDY_STAKING_ABI, functionName: 'periodFinish', chainId: CHAIN_ID,
+    query: { enabled: enabled && contract.hasRewardSchedule, refetchInterval: 30_000, refetchOnWindowFocus: true },
+  });
 
   const tokenId = (data?.[0]?.status === 'success' ? data[0].result as bigint : 0n);
   const walletBalance = (data?.[1]?.status === 'success' ? data[1].result as bigint : 0n);
@@ -63,14 +76,19 @@ export function useUserPosition() {
   // rather than ticking from a made-up rate.
   const rewardRate = (data?.[5]?.status === 'success' ? data[5].result as bigint : 0n);
   const totalBoostedStake = (data?.[6]?.status === 'success' ? data[6].result as bigint : 0n);
+  // No schedule: emission has no end date. A schedule whose end did not read: treat as
+  // ended, so the ticker parks on the exact on-chain value rather than inventing accrual.
+  const periodFinish: bigint | null = !contract.hasRewardSchedule
+    ? null
+    : (typeof periodFinishRaw === 'bigint' ? periodFinishRaw : 0n);
 
   // Get position details + earned if user has a staking NFT
   const hasTokenId = tokenId > 0n;
   // EIP-170 split: getPosition + earned live on StakingMonitorView, not the host staking contract.
   const { data: posData, refetch: refetchPos, isLoading: isPosLoading } = useReadContracts({
     contracts: [
-      { address: STAKING_MONITOR_VIEW_ADDRESS, abi: TEGRIDY_STAKING_ABI, functionName: 'getPosition', args: [hasTokenId ? tokenId : 1n], chainId: CHAIN_ID },
-      { address: STAKING_MONITOR_VIEW_ADDRESS, abi: TEGRIDY_STAKING_ABI, functionName: 'earned', args: [hasTokenId ? tokenId : 1n], chainId: CHAIN_ID },
+      { address: monitorAddr, abi: TEGRIDY_STAKING_ABI, functionName: 'getPosition', args: [hasTokenId ? tokenId : 1n], chainId: CHAIN_ID },
+      { address: monitorAddr, abi: TEGRIDY_STAKING_ABI, functionName: 'earned', args: [hasTokenId ? tokenId : 1n], chainId: CHAIN_ID },
     ],
     query: { enabled: enabled && hasTokenId, refetchInterval: 30_000, refetchOnWindowFocus: true },
   });
@@ -110,7 +128,8 @@ export function useUserPosition() {
   // position. Sharing one flag would fire the position banner for a global rate
   // hiccup, and let a consumer conclude "no position" from "no rate".
   const accrualInputsUnread = enabled && !isLoading
-    && (data?.[5]?.status !== 'success' || data?.[6]?.status !== 'success');
+    && (data?.[5]?.status !== 'success' || data?.[6]?.status !== 'success'
+      || (contract.hasRewardSchedule && !periodFinishLoading && typeof periodFinishRaw !== 'bigint'));
 
   const stakedAmount = position ? position[0] : 0n;
   const boostBps = position ? Number(position[1]) : 0;
@@ -138,7 +157,8 @@ export function useUserPosition() {
   // exact on-chain value. Only a READ `false` may tick: a paused contract
   // accrues nothing, so ticking on an unknown pause invents rewards.
   const boostedAmount = (stakedAmount * BigInt(boostBps)) / 10000n;
-  const accrualPerSec = (isPaused === false && rewardRate > 0n && totalBoostedStake > 0n && boostedAmount > 0n)
+  const scheduleRunning = periodFinish === null || periodFinish > BigInt(Math.floor(Date.now() / 1000));
+  const accrualPerSec = (isPaused === false && scheduleRunning && rewardRate > 0n && totalBoostedStake > 0n && boostedAmount > 0n)
     ? Number(formatEther(rewardRate)) * (Number(boostedAmount) / Number(totalBoostedStake))
     : 0;
 

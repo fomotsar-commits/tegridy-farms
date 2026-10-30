@@ -61,8 +61,7 @@ contract FinalAuditStaking is Test {
         staking = new TegridyStaking(
             address(toweli),
             address(jbac),
-            treasury,
-            REWARD_RATE
+            treasury
         );
         monitor = new StakingMonitorView(address(staking));
         // AUDIT FIX (pass-8 batch-14): wire the JBAC vault sister so stakeWithBoost works.
@@ -622,7 +621,7 @@ contract FinalAuditStaking is Test {
         assertGt(staking.emergencyExitRequests(bobTokenId), 0, "Request exists");
 
         // There is no cancelEmergencyExit function - bob cannot cancel
-        // He can only: earlyWithdraw (25% penalty) or wait for lock expiry + withdraw
+        // He can only: earlyWithdraw (75% penalty) or wait for lock expiry + withdraw
         // Or wait 7 days and execute the emergency exit
 
         // Verify early withdraw still works (clears the request via position deletion)
@@ -731,8 +730,8 @@ contract FinalAuditStaking is Test {
     // ═══════════════════════════════════════════════════════════════════
     // FINDING 20 - LOW: Early withdrawal penalty rounding for small amounts
     // Location: TegridyStaking.sol:531
-    // penalty = (amount * 2500) / 10000 = amount / 4
-    // For amounts not divisible by 4, there's a 1-3 wei rounding loss.
+    // penalty = (amount * 7500) / 10000 = amount * 3 / 4 (was 2500 = amount / 4 before the
+    // owner's 2026-10-14 ruling). For amounts not divisible by 4, there's a 1-3 wei rounding loss.
     // User receives slightly more than expected, penalty is slightly less.
     // With MIN_STAKE = 100e18, the rounding is negligible (at most 3 wei).
     // ═══════════════════════════════════════════════════════════════════
@@ -742,7 +741,7 @@ contract FinalAuditStaking is Test {
         uint256 oddAmount = 100_001 ether + 1; // Not divisible by 4 in wei
         uint256 bobTokenId = _stakeAs(bob, oddAmount, 365 days);
 
-        uint256 expectedPenalty = (oddAmount * 2500) / 10000;
+        uint256 expectedPenalty = (oddAmount * 7500) / 10000;
         uint256 expectedReceived = oddAmount - expectedPenalty;
 
         uint256 bobBefore = toweli.balanceOf(bob);

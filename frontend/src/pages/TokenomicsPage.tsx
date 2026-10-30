@@ -78,7 +78,8 @@ export default function TokenomicsPage() {
   const priceHistory = usePriceHistory();
   const { history: priceData, error: priceError } = priceHistory;
 
-  const rewardPerDay = Number.isFinite(parseFloat(pool.rewardRate)) ? parseFloat(pool.rewardRate) * 86400 : 0;
+  // A rate past the four-year schedule's end (or before the first funding) pays nothing.
+  const rewardPerDay = !pool.scheduleEnded && Number.isFinite(parseFloat(pool.rewardRate)) ? parseFloat(pool.rewardRate) * 86400 : 0;
   const totalFunded = Number.isFinite(parseFloat(pool.totalRewardsFunded)) ? parseFloat(pool.totalRewardsFunded) : 0;
   // HONESTY PASS 2026-06-11: totalRewardsFunded is cumulative (never goes down),
   // so the old "funded ÷ rate" runway never counted down. The honest figures come
@@ -182,8 +183,8 @@ export default function TokenomicsPage() {
                 // T18: `isDeployed` says the ADDRESS is real, not that the read
                 // landed. Every row below used to print a confident "0 TOWELI"
                 // for an RPC outage. Gate each on its own unread signal.
-                { l: 'Rewards / Day', v: pool.isDeployed && !pool.rewardRateUnread ? `${formatNumber(rewardPerDay, 0)} TOWELI` : '–' },
-                { l: 'Rewards / Second', v: pool.isDeployed && !pool.rewardRateUnread ? `${(parseFloat(pool.rewardRate) || 0).toFixed(4)} TOWELI` : '–' },
+                { l: 'Rewards / Day', v: pool.isDeployed && !pool.rewardRateUnread && !pool.scheduleUnread ? `${formatNumber(rewardPerDay, 0)} TOWELI` : '–' },
+                { l: 'Rewards / Second', v: pool.isDeployed && !pool.rewardRateUnread && !pool.scheduleUnread ? `${(rewardPerDay / 86400).toFixed(4)} TOWELI` : '–' },
                 { l: 'Funded (lifetime)', v: pool.isDeployed && !pool.rewardsFundedUnread ? `${formatNumber(totalFunded, 1)} TOWELI` : '–' },
                 // "Period ended" is a CLAIM. It may only be made off a reserve
                 // that was actually read and found empty (isDry), never off a
@@ -239,7 +240,7 @@ export default function TokenomicsPage() {
                 <p className="text-[10px] uppercase tracking-wider label-pill mb-0.5" style={{ color: '#22c55e', textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>Emission Rate</p>
                 {/* §2.2: the configured rate emits NOTHING while the reserve is empty.
                     T18: and an unread rate is not "0.00 / day" — it is unknown. */}
-                <p className="stat-value text-[13px]" style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{pool.isDry ? '0.00 / day — reserve empty' : pool.rewardRateUnread ? '–' : `${((parseFloat(pool.rewardRate) || 0) * 86400).toFixed(2)} / day`}</p>
+                <p className="stat-value text-[13px]" style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{pool.isDry ? '0.00 / day — reserve empty' : pool.rewardRateUnread || pool.scheduleUnread ? '–' : pool.scheduleEnded ? '0.00 / day, not paying' : `${((parseFloat(pool.rewardRate) || 0) * 86400).toFixed(2)} / day`}</p>
               </div>
               <div className="rounded-lg p-3" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
                 <p className="text-[10px] uppercase tracking-wider label-pill mb-0.5" style={{ color: '#22c55e', textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>Ends In</p>

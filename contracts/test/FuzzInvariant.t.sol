@@ -367,7 +367,7 @@ contract TegridyStakingFuzzTest is Test {
     function setUp() public {
         token = new MockERC20Fuzz("Towelie", "TOWELI");
         nft = new MockNFTFuzz();
-        staking = new TegridyStaking(address(token), address(nft), treasury, 1 ether);
+        staking = new TegridyStaking(address(token), address(nft), treasury);
         monitor = new StakingMonitorView(address(staking));
 
         // Fund staking contract with rewards
@@ -437,7 +437,7 @@ contract TegridyStakingFuzzTest is Test {
         }
     }
 
-    // â”€â”€â”€ Fuzz: early withdrawal penalty is exactly 25% â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // â”€â”€â”€ Fuzz: early withdrawal penalty is exactly 75% â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     function testFuzz_earlyWithdrawPenalty(uint256 amount) public {
         amount = bound(amount, 100 ether, 10_000_000 ether);
@@ -456,9 +456,11 @@ contract TegridyStakingFuzzTest is Test {
         uint256 balAfter = token.balanceOf(bob);
         uint256 received = balAfter - balBefore;
 
-        // Should receive 75% of principal (plus any tiny rewards)
-        uint256 expectedMinimum = (amount * 7500) / 10000;
-        assertGe(received, expectedMinimum, "Received less than 75% on early withdraw");
+        // Should receive 25% of principal (plus any tiny rewards): the fee is 75% since the
+        // owner's 2026-10-14 ruling. The assertEq below pins it: the treasury takes exactly 75%.
+        uint256 expectedMinimum = (amount * 2500) / 10000;
+        assertGe(received, expectedMinimum, "Received less than 25% on early withdraw");
+        assertEq(staking.totalPenaltiesCollected(), (amount * 7500) / 10000, "fee is not exactly 75%");
     }
 
     // â”€â”€â”€ Fuzz: boost calculation within bounds â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

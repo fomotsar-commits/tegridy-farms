@@ -66,6 +66,8 @@ function stubStaker({ expired, paused, rate = 0n }: { expired: boolean; paused: 
   wagmiMock.setReadResult({ functionName: 'allowance', result: 0n });
   wagmiMock.setReadResult({ functionName: 'unsettledRewards', result: 0n });
   wagmiMock.setReadResult({ functionName: 'rewardRate', result: rate });
+  // Staking release 1: a rate only pays while the four-year schedule runs.
+  wagmiMock.setReadResult({ functionName: 'periodFinish', result: BigInt(now + 4 * 365 * 86_400) });
   wagmiMock.setReadResult({ functionName: 'totalBoostedStake', result: 10n ** 24n });
   wagmiMock.setReadResult({
     functionName: 'getPosition',

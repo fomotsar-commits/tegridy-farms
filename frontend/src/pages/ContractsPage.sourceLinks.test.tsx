@@ -11,7 +11,7 @@ import { render } from '@testing-library/react';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { SOURCE_URL, TOWELI_ADDRESS, TEGRIDY_FEE_HOOK_ADDRESS } from '../lib/constants';
+import { SOURCE_URL, TOWELI_ADDRESS, TEGRIDY_FEE_HOOK_ADDRESS, OLD_TEGRIDY_STAKING_ADDRESS } from '../lib/constants';
 
 const queried: string[][] = [];
 vi.mock('../hooks/useSourceVerification', () => ({
@@ -39,6 +39,9 @@ const UNLINKED = /^(external|not in this repo) \(.+\)$/;
 const NOT_IN_REPO: Array<[string, string]> = [
   ['TOWELI Token', TOWELI_ADDRESS],
   ['Tegridy Fee Hook (V4)', TEGRIDY_FEE_HOOK_ADDRESS],
+  // Staking release 1: the first relaunch staking contract, still live for its own
+  // positions; the working tree's TegridyStaking.sol is the 75% build, not its source.
+  ['Tegridy Staking (first contract, exits only)', OLD_TEGRIDY_STAKING_ADDRESS],
 ];
 
 /** On mainnet, never wired into this app; source retired 2026-10-27, so each row says so instead of linking. */

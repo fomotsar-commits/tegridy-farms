@@ -1,5 +1,6 @@
 import { BUNGALOW_COUNT } from './bungalows';
 import { VENUE } from './arrival';
+import { EARLY_WITHDRAWAL_PENALTY_BPS, OLD_EARLY_WITHDRAWAL_PENALTY_BPS } from './constants';
 
 export interface FAQItem {
   q: string;
@@ -85,7 +86,7 @@ export const TOWELI_FAQ_DATA: FAQSection[] = [
     items: [
       { q: 'How does staking work?', a: 'Deposit TOWELI tokens into the staking contract to earn rewards. Choose a lock duration to receive a boost multiplier: longer locks earn higher yields. Rewards are paid in TOWELI emissions today. An ETH share of swap fees is wired on chain, and a payout round needs 1 ETH of fees first; the Premium page shows what has been paid.' },
       { q: 'What is the lock duration?', a: 'You can lock your TOWELI from 7 days up to 4 years. Contract bounds are MIN_LOCK_DURATION = 7 days and MAX_LOCK_DURATION = 4 years. Longer lock durations give you a higher boost multiplier, which means more rewards.' },
-      { q: 'Can I withdraw early?', a: 'Yes, but with a 25% early withdrawal penalty. The penalty is sent to the protocol treasury — it is not redistributed to other stakers.' },
+      { q: 'Can I withdraw early?', a: `Yes, but it costs ${EARLY_WITHDRAWAL_PENALTY_BPS / 100}% of the TOWELI you staked, sent to the protocol treasury, not to other stakers. Your rewards are paid first, but only what the reward pool holds: if it is short, you can lose the rest and still pay the ${EARLY_WITHDRAWAL_PENALTY_BPS / 100}%. A position on the old staking contract keeps its own ${OLD_EARLY_WITHDRAWAL_PENALTY_BPS / 100}% fee.` },
       { q: 'What is a boost multiplier?', a: 'Your lock duration determines your yield boost on a linear scale: 0.4x at 7 days up to 4.0x at the full 4-year lock. With the JBAC NFT bonus stacked on top, the contract enforces a 4.5x ceiling (MAX_BOOST_BPS_CEILING = 45000). Higher multipliers mean a larger share of the reward pool.' },
       { q: 'Do I get an NFT for staking?', a: 'Yes. Your staking position is represented as an ERC-721 NFT. This NFT tracks your deposit amount, lock duration, and boost. It can also be used as collateral for peer-to-peer lending.' },
       { q: 'What are NFT boosts?', a: 'Holders of a JBAC NFT receive a flat +0.5x bonus on top of their lock multiplier (capped at 4.5x by MAX_BOOST_BPS_CEILING). Simply hold the NFT in your connected wallet to activate the bonus.' },
@@ -94,7 +95,7 @@ export const TOWELI_FAQ_DATA: FAQSection[] = [
   {
     category: 'Rewards',
     items: [
-      { q: 'Where do rewards come from?', a: "Right now, from a one-time 6.4M TOWELI emissions seed funded at launch. No new tokens are ever minted; supply is fixed. The ETH side is on chain. A swap through the venue's own router pays a venue fee. On 10 October 2026 that fee was 0.5%: 20% of it was the referral share, which goes to the trader's referrer if they stake enough TOWELI and to the treasury otherwise, and the other 80% was routed toward stakers. The owner wallet can change those figures through a timelock, and the contract caps the fee at 1%. Stakers are paid in rounds by the RevenueDistributor, and a round can open only after 1 ETH has arrived. By that date the router had taken 0.000003 ETH in fees in all, and stakers had been paid none. The Premium page shows the live total, and both contracts are verifiable on Etherscan." },
+      { q: 'Where do rewards come from?', a: "Right now, from a one-time 6.4M TOWELI emissions seed funded at launch. The new staking contract pays out whatever is put in its reward pot over four years: the pot divided by 1,460 each day, and a top-up spreads what is left plus the new TOWELI over a fresh four years. No new tokens are ever minted; supply is fixed. The ETH side is on chain. A swap through the venue's own router pays a venue fee. On 10 October 2026 that fee was 0.5%: 20% of it was the referral share, which goes to the trader's referrer if they stake enough TOWELI and to the treasury otherwise, and the other 80% was routed toward stakers. The owner wallet can change those figures through a timelock, and the contract caps the fee at 1%. Stakers are paid in rounds by the RevenueDistributor, and a round can open only after 1 ETH has arrived. By that date the router had taken 0.000003 ETH in fees in all, and stakers had been paid none. The Premium page shows the live total, and both contracts are verifiable on Etherscan." },
       { q: 'How often can I claim rewards?', a: 'Anytime. Rewards accrue continuously in real-time and can be claimed whenever you want with no minimum threshold.' },
     ],
   },
