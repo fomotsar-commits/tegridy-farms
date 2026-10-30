@@ -21,7 +21,7 @@ Tegridy Farms is licensed under the MIT License (see [LICENSE](LICENSE)), with *
 
 ### SPDX coverage
 
-Every Solidity file under `contracts/src/` (which includes `contracts/src/base/`) declares an SPDX header — 56 files, 56 headers, re-counted 2026-10-27.
+Every Solidity file under `contracts/src/` (which includes `contracts/src/base/`) declares an SPDX header — 52 files, 52 headers, re-counted 2026-10-28.
 
 **But MIT is the default, not the rule.** The previous wording of this section said every one of them declares MIT; that was wrong. Seven files across `contracts/` declare `GPL-3.0-or-later`, and a counterparty who reads MIT across the tree will be wrong about the airdrop rail and the TWAP oracle library. The complete list, as declared in the files themselves:
 

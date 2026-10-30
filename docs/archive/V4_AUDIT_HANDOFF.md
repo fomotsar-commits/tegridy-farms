@@ -1,5 +1,7 @@
 # V4 Migration — Auditor Handoff Package
 
+> **Retired 2026-10-28:** the EVM V4 graduation stack this document covers (`TegridyLiquidityMigrator`, `TegridyFeeLocker`, `TegridyBoostedLPStaker`, `TegridyV4SwapRouter`) was deleted from `contracts/`; the live `TegridyV4Hook` stays. Kept as a record, not a to-do list. The one to-do list is [docs/TODO_OPERATOR.md](../TODO_OPERATOR.md).
+
 > Project: Tegriddy Farms (token: TOWELI). Scope last re-measured against the working tree
 > **2026-08-19** (§2, §8). Hand an auditor an immutable ref — a tag or an archive — and
 > state it here; a bare branch name has already sent a third party at a tree missing the fix

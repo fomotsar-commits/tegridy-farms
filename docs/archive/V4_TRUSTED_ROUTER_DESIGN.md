@@ -1,5 +1,7 @@
 # Design Doc — Trusted Tegridy Router (the user-identity piece for #2 / #3)
 
+> **Retired 2026-10-28:** the EVM V4 graduation stack this document covers (`TegridyLiquidityMigrator`, `TegridyFeeLocker`, `TegridyBoostedLPStaker`, `TegridyV4SwapRouter`) was deleted from `contracts/`; the live `TegridyV4Hook` stays. Kept as a record, not a to-do list. The one to-do list is [docs/TODO_OPERATOR.md](../TODO_OPERATOR.md).
+
 > Status: **Part A IMPLEMENTED (2026-05-31, UNAUDITED); Part B = design rec.** The
 > missing piece that lets the premium fee discount (#2) and boosted-LP rewards (#3)
 > actually reach end users. Sits on `next-wave/v4-migration`.

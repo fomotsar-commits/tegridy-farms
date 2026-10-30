@@ -1,5 +1,7 @@
 # V4 Upgrade — Adversarial Security Findings (2026-05-31)
 
+> **Retired 2026-10-28:** the EVM V4 graduation stack this document covers (`TegridyLiquidityMigrator`, `TegridyFeeLocker`, `TegridyBoostedLPStaker`, `TegridyV4SwapRouter`) was deleted from `contracts/`; the live `TegridyV4Hook` stays. Kept as a record, not a to-do list. The one to-do list is [docs/TODO_OPERATOR.md](../TODO_OPERATOR.md).
+
 > Fresh, no-mercy exploit hunt on the V4 code introduced this cycle (`src/v4/*`),
 > ignoring all prior audit claims. Method: independent adversarial re-read + 2
 > independent audit agents, **every finding verified against file:line** (per the
