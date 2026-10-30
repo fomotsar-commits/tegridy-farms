@@ -1,16 +1,13 @@
 /**
  * A11Y-R07 — the section tab strips are actually 44px on a phone.
  *
- * /community and /nft-finance both shipped `px-3 py-2 text-xs` with no `min-h`
+ * /nft-finance shipped `px-3 py-2 text-xs` with no `min-h`
  * — about 32px of tap target for the primary way to move between the sections
  * of each page — while the structurally identical tablist on /swap already
  * carried the repo's 44px floor.
  *
  * Measured, not asserted from a class name: target size is a rendered box, and
- * `min-h-[44px]` only pays off if nothing else collapses the row. The
- * /community half also has a class-level pin in
- * src/pages/CommunityPage.tabTargets.test.tsx; /nft-finance is pinned only here
- * (see that file's header for why it cannot be rendered in vitest).
+ * `min-h-[44px]` only pays off if nothing else collapses the row.
  */
 import type { Locator, Page } from '@playwright/test';
 import { test, expect } from './fixtures/wallet';
@@ -64,7 +61,7 @@ const TOUCH_WIDTHS = [
 // at all (navConfig.ts explains why that section alone is not a SectionHost), so
 // the `toBeGreaterThan(1)` guard below would fail on a count of 0 — reporting a
 // page that is correct by design as a page that changed shape.
-for (const path of ['/community', '/nft-finance', '/trust', '/launch', '/lore', '/contracts', '/history', '/liquidity', '/earn']) {
+for (const path of ['/nft-finance', '/trust', '/launch', '/lore', '/contracts', '/history', '/liquidity', '/earn']) {
   for (const vp of TOUCH_WIDTHS) {
     test(`${path} section tabs clear the ${FLOOR}px touch floor at ${vp.name}`, async ({
       page,

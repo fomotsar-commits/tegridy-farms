@@ -5,6 +5,7 @@ import { displaySafe } from '../../../lib/launchMetadata/validate';
 import { MAX_POSITIONS, type PositionsRead, type Position } from '../../../lib/solana/lp/positions';
 import { LAUNCH_TIER_POOL, type PoolView } from '../../../lib/solana/lp/poolFinder';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
+import { feeNow } from '../../../lib/solana/lp/transferFee';
 import { formatWhen, vaultFreezer, withdrawalsState } from '../../../lib/solana/lp/poolHealth';
 import { swapEnabled } from '../../../lib/solana/cpswap/program';
 import { tokenText } from '../../../lib/solana/lp/format';
@@ -374,6 +375,8 @@ function PositionRow({
     gate: writes?.gate ?? null,
     position: p,
     held: writes !== null && poolAddress !== null && lpHeld(writes.pending.notes, poolAddress, 'remove'),
+    // A share the token's transfer fee would leave nothing of is too small to take out.
+    tokenFee: feeNow(safety?.kind === 'read' ? safety.facts?.transferFee : null, null),
   });
   const units = view ? ledgerUnits(view, safety) : null;
   // What the opener's 100 locked share units are worth, once the ledger has read the opening: shown in the fold.

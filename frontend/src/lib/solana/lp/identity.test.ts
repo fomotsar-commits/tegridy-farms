@@ -3,7 +3,7 @@
 // address; every other coin by the ticker it gives itself, and a copy of a well-known
 // ticker as "fake X".
 import { describe, it, expect } from 'vitest';
-import { pairLabel, registryToken, siteNamed, tierLabel, tokenSymbol, tokenTicker } from './identity';
+import { claimedTicker, pairLabel, registryToken, siteNamed, tierLabel, tokenSymbol, tokenTicker } from './identity';
 import { BAYLA_MINT, USDC_MINT, USDT_MINT, WSOL_MINT, type TokenSafety } from './tokenSafety';
 import { SOL_QUOTE, USDC_QUOTE } from './quotes';
 import type { PoolView } from './poolFinder';
@@ -165,5 +165,28 @@ describe('pairLabel: our coins from the registry, every other coin by its own ti
     for (const s of [pairLabel({ tokenMint: FAKE_BAYLA, quote: SOL_QUOTE, config: null }), tierLabel(null), tierLabel(tier1())]) {
       expect(s).not.toMatch(/—/);
     }
+  });
+});
+
+describe('claimedTicker: the same name from a ticker read anywhere else (the swap page’s Jupiter list)', () => {
+  const SOY_MINT = '8zsZESzrGoYVi1dVH4QNWXJ2EfW4v287aEGNiDvQpump';
+  const COPY = `${SOY_MINT.slice(0, 20)}k${SOY_MINT.slice(21)}`;
+
+  it('a copy of an island coin’s ticker at another mint reads "fake SOY"; the real SOY reads SOY', () => {
+    expect(claimedTicker(COPY, 'SOY')).toBe('fake SOY');
+    expect(claimedTicker(SOY_MINT, 'SOY')).toBe('SOY');
+  });
+
+  it('our coins and the pairing coins keep the site’s name, whatever ticker the list gives them', () => {
+    expect(claimedTicker(BAYLA_MINT, 'NOT BAYLA')).toBe('BAYLA');
+    expect(claimedTicker(WSOL_MINT, 'Wrapped SOL')).toBe('SOL');
+  });
+
+  it('any other coin keeps its own ticker, cleaned and cut as on a pool card; none to show is null', () => {
+    expect(claimedTicker(USDT_MINT, 'USDT')).toBe('USDT');
+    expect(claimedTicker(COPY, 'CRYING')).toBe('CRYING');
+    expect(claimedTicker(COPY, 'ABCDEFGHIJKLMNOP')).toBe(tokenTicker(COPY, { ...CLAIMS_BAYLA, mint: COPY, symbol: 'ABCDEFGHIJKLMNOP' }));
+    expect(claimedTicker(COPY, '')).toBeNull();
+    expect(claimedTicker(COPY, null)).toBeNull();
   });
 });

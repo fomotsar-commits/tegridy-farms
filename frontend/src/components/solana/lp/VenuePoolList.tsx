@@ -1,9 +1,9 @@
-import type { Ref } from 'react';
+import { useEffect, useState, type Ref } from 'react';
 import type { PoolView } from '../../../lib/solana/lp/poolFinder';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
-import { LITTLE_MONEY_TEXT, poolTags, type PoolListRead } from '../../../lib/solana/lp/poolList';
-import { poolPricePerToken } from '../../../lib/solana/lp/poolHealth';
-import { quoteText, tokenText } from '../../../lib/solana/lp/format';
+import { LITTLE_MONEY_TEXT, arbitrage, marketGap, poolTags, readMarketPrices, rowTokenFee, type MarketPrices, type PoolListRead } from '../../../lib/solana/lp/poolList';
+import { PRICE_TOLERANCE, poolPricePerToken } from '../../../lib/solana/lp/poolHealth';
+import { quoteText, tokenText, turnedDiff, usdText } from '../../../lib/solana/lp/format';
 import { pairLabel, siteNamed, tokenTicker } from '../../../lib/solana/lp/identity';
 import { QUOTE_COINS_OR } from '../../../lib/solana/lp/quotes';
 import { Card, Notice } from '../curve/ui';
@@ -12,6 +12,7 @@ import { FinePrint } from '../../ui/FinePrint';
 import type { LpReaders } from './readers';
 import { usePoolList } from './usePoolList';
 import { PriceFlip } from './PriceFlip';
+import { usePriceSide } from './priceSide';
 import { BUNGALOWS } from '../../../lib/bungalows';
 import { useActiveBungalowId } from '../../../hooks/useActiveBungalowId';
 
@@ -19,7 +20,8 @@ import { useActiveBungalowId } from '../../../hooks/useActiveBungalowId';
  * Every pool on the venue, listed before a token is picked, so nobody has to search one
  * token at a time to see what is here. Each row's View looks its token up in the finder,
  * where the pool's checks and its Add and Remove buttons are. A row's tags are warnings
- * from what the list already read (poolList.ts `poolTags`): nothing is read per row.
+ * from what the list already read (poolList.ts `poolTags`), and one Jupiter price read
+ * for the whole list (`readMarketPrices`): nothing is read per row.
  * When there are more pools than the index returns, the list says so and the finder's
  * search finds the rest.
  *
@@ -42,6 +44,7 @@ export function VenuePoolList({
   sectionRef?: Ref<HTMLElement>;
 }) {
   const read = usePoolList(readers, reloadKey);
+  const prices = useMarketPrices(readers, read?.kind === 'ok' ? read.list.pools : null);
   if (!readers.listPools) return null;
   return (
     <section ref={sectionRef} tabIndex={sectionRef ? -1 : undefined} className="outline-none" data-testid="lp-all-pools" aria-label="All pools">
@@ -56,7 +59,7 @@ export function VenuePoolList({
             </FinePrint>
           </>
         ) : (
-          <PoolRows list={read.list} onView={onView} onAdd={onAdd} />
+          <PoolRows list={read.list} prices={prices} onView={onView} onAdd={onAdd} />
         )}
         <FinePrint summary="How this list works">
           <p>
@@ -72,10 +75,18 @@ export function VenuePoolList({
         </p>
         <p>
           The tags on a row come from what the list read. Trading off, Adding off and Removing off: the pool has that switched off. Frozen:
-            a coin’s issuer froze one of the pool’s accounts, so nothing moves in or out. Trading not open yet: its trading starts later,
+            a coin’s issuer froze one of the pool’s accounts, so nothing moves in or out. Price over {PRICE_TOLERANCE * 100}% above or
+            below Jupiter: the pool’s price is that far from Jupiter’s market price, read once for the whole list. Adding at that price
+            loses part of the deposit to the first trade that closes the gap. The pool’s card checks again with live quotes and gives
+            the exact gap, which can differ by a few points on a thinly traded coin. Under such a row, Arbitrage: what one trade could
+            take by bringing the pool’s price back to within its fee of Jupiter’s, and how big that trade is, worked out with the pool’s
+            own maths at Jupiter’s market price. It is at most: the trader still pays to trade elsewhere. It comes out of the pool’s
+            LPs, because the pool sells below the market or buys above it. The trade pays the pool’s fee like any other, split as the
+            row says. A token with a transfer fee keeps back part of that trade too, which the figure counts and the row says; a token
+            whose transfer fee could not be read gets no figure. Trading not open yet: its trading starts later,
             maybe years from now. Little money in pool: it holds {LITTLE_MONEY_TEXT} (a pool priced in BAYLA never gets this tag). No
             trades yet, and No trades in 7 days: from the pool’s own trade record. Anything not read gives no tag, and a row with no tag is
-            not a pool that passed: its price is checked only when you View it.
+            not a pool that passed: its full price check is on its card, when you View it.
           </p>
         </FinePrint>
       </Card>
@@ -83,12 +94,32 @@ export function VenuePoolList({
   );
 }
 
+/**
+ * Jupiter's prices for the listed coins, read once per list read (poolList.ts
+ * `readMarketPrices`). A re-read keeps the last prices until the new ones arrive; null
+ * before the first, and always for a reader without `marketPrices`.
+ */
+function useMarketPrices(readers: LpReaders, pools: readonly PoolView[] | null): MarketPrices | null {
+  const [prices, setPrices] = useState<MarketPrices | null>(null);
+  useEffect(() => {
+    if (!readers.marketPrices || !pools) return;
+    let live = true;
+    void readMarketPrices(pools, readers.marketPrices).then((p) => live && setPrices(p));
+    return () => {
+      live = false;
+    };
+  }, [readers, pools]);
+  return prices;
+}
+
 function PoolRows({
   list,
+  prices,
   onView,
   onAdd,
 }: {
   list: Extract<PoolListRead, { kind: 'ok' }>['list'];
+  prices: MarketPrices | null;
   onView: (tokenMint: string) => void;
   onAdd?: (tokenMint: string, pool: string, quoteMint: string) => void;
 }) {
@@ -103,9 +134,23 @@ function PoolRows({
       {pools.length > 0 && (
         <ul className="space-y-2" aria-label="All pools: SOL pools first, then USDC, then BAYLA, the deepest of each first">
           {pools.map((view) => (
-            <PoolRow key={view.address} view={view} safety={safety.get(view.tokenMint) ?? null} chainNow={chainNow} onView={onView} onAdd={onAdd} />
+            <PoolRow
+              key={view.address}
+              view={view}
+              safety={safety.get(view.tokenMint) ?? null}
+              chainNow={chainNow}
+              usd={prices?.kind === 'ok' ? prices.usd : null}
+              onView={onView}
+              onAdd={onAdd}
+            />
           ))}
         </ul>
+      )}
+      {/* No price tag on any row would otherwise read as every price agreeing. */}
+      {pools.length > 0 && prices?.kind === 'unread' && (
+        <p data-testid="lp-all-pools-prices-unread" className="text-amber-300/90 text-[12.5px]">
+          Jupiter’s prices could not be read just now, so no row is marked for a price gap.
+        </p>
       )}
       {unread > 0 && <Notice tone="warn">{unread === 1 ? 'One more pool' : `${unread} more pools`} could not be read just now.</Notice>}
       {truncated && (
@@ -121,22 +166,31 @@ function PoolRow({
   view,
   safety,
   chainNow,
+  usd,
   onView,
   onAdd,
 }: {
   view: PoolView;
   safety: TokenSafety | null;
   chainNow: bigint | null;
+  /** Jupiter's prices for the list, or null while unread. */
+  usd: ReadonlyMap<string, number> | null;
   onView: (tokenMint: string) => void;
   onAdd?: (tokenMint: string, pool: string, quoteMint: string) => void;
 }) {
+  const side = usePriceSide();
   const { pool } = view.snapshot;
   const tokenDecimals = view.quoteIsToken0 ? pool.mint1Decimals : pool.mint0Decimals;
   // Our coins and the pairing coins by the site's own name; any other coin by its own ticker (identity.ts).
   const symbol = tokenTicker(view.tokenMint, safety);
   const price = poolPricePerToken(view.snapshot, view.tokenMint, tokenDecimals);
   const label = pairLabel(view, safety);
-  const tags = poolTags(view, chainNow);
+  // The gap is said the way round the row's price is (PriceFlip), as the pool's card says it.
+  const gap = usd ? marketGap(view, usd) : null;
+  const tags = poolTags(view, chainNow, gap !== null && side === 'coin' ? turnedDiff(gap) : gap);
+  // A token whose transfer fee could not be read gets no figure: it would leave that fee out.
+  const tokenFee = rowTokenFee(view, safety);
+  const arb = gap !== null && usd && tokenFee !== 'unread' ? arbitrage(view, usd, chainNow, tokenFee) : null;
   return (
     <li
       data-testid="lp-all-pools-row"
@@ -167,6 +221,19 @@ function PoolRow({
               </li>
             ))}
           </ul>
+        )}
+        {arb && (
+          <div data-testid="lp-all-pools-arb" className="pt-1 text-[12.5px] [overflow-wrap:anywhere]">
+            <p className="text-rose-200/90">
+              Arbitrage: about {usdText(arb.profitUsd)}, from {arb.side === 'buy' ? 'buying' : 'selling'} about {usdText(arb.tradeUsd)} of{' '}
+              {symbol ?? 'the token'} here
+            </p>
+            <p className="text-white/60">
+              That trade pays the pool’s fee: {usdText(arb.lpFeeUsd)} to LPs, {usdText(arb.venueFeeUsd)} to the venue
+              {arb.creatorFeeUsd > 0 ? `, ${usdText(arb.creatorFeeUsd)} to the pool’s creator` : ''}
+              {arb.transferFeeUsd > 0 ? `; the token keeps back ${usdText(arb.transferFeeUsd)}, for whoever collects its fee` : ''}
+            </p>
+          </div>
         )}
       </div>
       <div className="flex gap-2">

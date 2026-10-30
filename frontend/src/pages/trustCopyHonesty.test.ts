@@ -251,15 +251,11 @@ describe('the Trade page limit-order tab', () => {
 // ── No fabricated order book survives behind an unused export ───────────────
 describe('the NFT-finance placeholders', () => {
   it('are gone, not merely unreferenced', () => {
-    // Both were exported, imported by nothing, and described features live since
-    // 2026-07-21 as unlaunched. One rendered four INVENTED lender offers with
-    // real-looking principals, APRs and lender addresses. Re-importing either
-    // would have shipped a false gate — and, in one case, a fabricated order
-    // book — in a single line.
-    const lending = read('src', 'components', 'nftfinance', 'LendingSection.tsx');
+    // It was exported, imported by nothing, and described a feature live since
+    // 2026-07-21 as unlaunched. Re-importing it would have shipped a false gate in
+    // a single line. LendingSection, which once carried four INVENTED lender offers,
+    // left with the Token Lending tab.
     const amm = read('src', 'components', 'nftfinance', 'AMMSection.tsx');
-    expect(lending).not.toMatch(/export function ComingSoonState/);
-    expect(lending).not.toMatch(/mockOffers/);
     expect(amm).not.toMatch(/export function ComingSoon\b/);
   });
 });

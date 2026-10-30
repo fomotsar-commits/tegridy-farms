@@ -589,9 +589,10 @@ describe('pool-level reward figures', () => {
     };
     draw();
     const grid = await statGrid();
-    // Never annualised, never a per-token percentage.
+    // The POOL's figures are never annualised, never a per-token percentage. (Your own
+    // positions are: see "what you earn per day" below.)
     expect(grid.textContent).not.toMatch(/%/);
-    expect(document.body.textContent).not.toMatch(/\bAPR\b|\bAPY\b|per year|annual/i);
+    expect(grid.textContent).not.toMatch(/\bAPR\b|\bAPY\b|per year|annual/i);
     await waitFor(() => expect(screen.getByText('Rewards per day')).toBeTruthy());
     const perDay = stat('Rewards per day');
     expect(perDay.getByText(fmtRaw(86_400_000_000n, 6))).toBeTruthy();
@@ -921,11 +922,91 @@ describe('your share of pool weight — a fact, never a yield', () => {
     expect(document.body.textContent).not.toMatch(/\b(0|100)%/);
   });
 
-  it('is never multiplied into a daily or annual figure', async () => {
-    reads.pool = { ok: true, value: poolView({ rewardRate: 1_000_000n, totalWeighted: 2_825_000_000n }) };
+});
+
+/* ────────── 12b. what you earn per day: your weight, at today's rate ────────── */
+
+// Owner, 2026-10-29: "how much bayla a day each wallet earns … and a % as well …
+// based on their position", "position and time locked ofc". So the figure is per
+// WEIGHT (stake × lock boost), per position and summed for the wallet, and always
+// printed beside its basis, because it is a projection.
+describe('what you earn per day — your weight, at today’s rate', () => {
+  // 0.001 BAYLA a second = 86.4 a day to the whole pool, split over 4,400 weight.
+  // Two 500-BAYLA positions: one locked four years (4.00×, weight 2,000), one seven
+  // days (0.40×, weight 200). Same stake, ten times the weight.
+  const LONG = position({ nonce: 0, weight: 2_000_000_000n });
+  const SHORT = position({ address: 'POS1', nonce: 1, weight: 200_000_000n, lockEnd: BigInt(NOW + 7 * DAY) });
+  const twoLocks = (o: Record<string, unknown> = {}) => {
+    reads.pool = { ok: true, value: poolView({ rewardRate: 1_000n, totalWeighted: 4_400_000_000n }) };
+    reads.wallet = {
+      ok: true,
+      value: walletView({
+        open: [LONG, SHORT],
+        stats: { address: 'US', nextNonce: 2, openPositions: 2, rewardsCarriedRaw: 0n, principalRaw: 1_000_000_000n },
+        ...o,
+      }),
+    };
+  };
+  const rowOf = (boost: string) => screen.getAllByRole('listitem')
+    .find((li) => li.textContent?.includes('Claim rewards') && li.textContent.includes(`${boost} weight`))!;
+  const yours = () => screen.getByText('You earn per day').parentElement!;
+
+  it('each position shows its OWN day and APR, from its weight — a longer lock earns more', async () => {
+    twoLocks();
+    draw();
+    await screen.findByText('You earn per day');
+    // 86.4 × 2,000/4,400 = 39.2727… → 39.27; × 365 / 500 = 2,866.9% → 2,866%.
+    expect(rowOf('4.00×').textContent).toContain(`${fmtRaw(39_272_727n, 6)} BAYLA/day · ${(2_866).toLocaleString()}% APR`);
+    // 86.4 × 200/4,400 = 3.9272… → 3.92; × 365 / 500 = 286.69% → 286%.
+    expect(rowOf('0.40×').textContent).toContain(`${fmtRaw(3_927_272n, 6)} BAYLA/day · 286% APR`);
+  });
+
+  it('the wallet figure is the rows summed, its APR that sum over the whole stake, with its basis', async () => {
+    twoLocks();
+    draw();
+    await screen.findByText('You earn per day');
+    // 39,272,727 + 3,927,272 = 43,199,999 raw → 43.19 a day; × 365 / 1,000 = 1,576.7% → 1,576%.
+    expect(yours().textContent).toContain(fmtRaw(43_199_999n, 6));
+    expect(yours().textContent).toContain(
+      `${(1_576).toLocaleString()}% APR · at today's rate, funded to ${dateOf(NOW + 30 * DAY)}`,
+    );
+  });
+
+  it('divides by the LARGER of the two pool totals, so it never reads high', async () => {
+    // The one-slot basis says 8,800 weight; the separate pool read says 4,400. Someone
+    // staked in between: the larger total wins and the day halves.
+    twoLocks({ shareBasis: { mineWeight: 2_200_000_000n, totalWeighted: 8_800_000_000n, slot: null } });
+    draw();
+    await screen.findByText('You earn per day');
+    expect(rowOf('4.00×').textContent).toContain(`${fmtRaw(19_636_363n, 6)} BAYLA/day`);
+  });
+
+  it('⚠️ a PARTIAL position list prints no day and no APR at all', async () => {
+    twoLocks({ truncated: true });
     draw();
     await screen.findByText('Your share of pool weight');
-    expect(document.body.textContent).not.toMatch(/your daily|per year|annual|\bAPR\b|\bAPY\b/i);
+    expect(screen.queryByText('You earn per day')).toBeNull();
+    expect(document.body.textContent).not.toMatch(/\/day|\bAPR\b/);
+  });
+
+  it.each([
+    ['an ENDED window', { rewardRate: 1_000n, periodFinish: BigInt(NOW - 2 * DAY) }],
+    ['a window NEVER scheduled', {}],
+  ])('%s projects nothing: no day, no APR', async (_, o) => {
+    twoLocks();
+    reads.pool = { ok: true, value: poolView({ totalWeighted: 4_400_000_000n, ...o }) };
+    draw();
+    await screen.findByText('Your share of pool weight');
+    expect(screen.queryByText('You earn per day')).toBeNull();
+    expect(document.body.textContent).not.toMatch(/\/day|\bAPR\b/);
+  });
+
+  it('with no wallet, nothing on the card is a percentage yield', async () => {
+    walletState.publicKey = null;
+    reads.pool = { ok: true, value: poolView({ rewardRate: 1_000n, totalWeighted: 4_400_000_000n }) };
+    draw();
+    await statGrid();
+    expect(document.body.textContent).not.toMatch(/\bAPR\b|\bAPY\b|per year|annual/i);
   });
 });
 

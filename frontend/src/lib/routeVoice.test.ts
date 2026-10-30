@@ -20,7 +20,7 @@ describe('routeVoice (wave seven, row Q)', () => {
   });
 
   it('leaves every other route with the venue, the venue tools included', () => {
-    for (const p of ['/', '/faq', '/security', '/earn', '/farm', '/vesting', '/airdrop', '/history', '/launch/0xabc']) {
+    for (const p of ['/', '/faq', '/security', '/earn', '/farm', '/history', '/launch/0xabc']) {
       expect(routeVoice(p), p).toBe('venue');
     }
   });
