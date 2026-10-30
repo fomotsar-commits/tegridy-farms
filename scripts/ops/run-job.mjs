@@ -64,7 +64,7 @@ export async function runJob(job, {
     const p = await sendPing({ url: ping.url, kind: result.ok ? 'success' : 'fail', body: clampBody(text), fetchImpl, sleep });
     delivered = p.ok;
     if (!p.ok) {
-      warn(banner(`The ${result.ok ? 'success' : 'fail'} ping (${ping.name}) was NOT delivered: ${p.error}. healthchecks will raise it as a missed ping.`));
+      warn(banner(`The ${result.ok ? 'success' : 'fail'} ping (${ping.name}) was NOT delivered: ${p.error}. If its check exists, healthchecks raises the missed ping; "not found" means no check has this URL, so nobody is told.`));
       alarmBroken = true;
     }
   }
