@@ -40,7 +40,7 @@ const NO_STORE = "private, no-store";
  * cannot each miss the edge cache and spend the shared key's quota. build returns the upstream
  * request, or null when a param is missing or malformed. Cache: only reads that are the same
  * for every visitor are cached at the edge; anything about one wallet or one transaction is
- * no-store.
+ * no-store. `retry`: asked once more when Koios is too slow or its gateway fails (api/cardano.js).
  */
 export const CARDANO_OPS = {
   tip: {
@@ -55,9 +55,13 @@ export const CARDANO_OPS = {
   },
   // Every UTxO at Minswap V2's pool script holding this LP token: the pool, and any pool that
   // holds the LP token as its coin. The browser decides which is the pool (minswapV2.readPool).
+  // Never cached: a price a few blocks old makes orders the batcher returns, keeping its fee.
+  // Retried: Koios answers it in 1-15 s, now and then not in 60 (measured 2026-10-30), and a
+  // second ask usually lands on a quick one. Without a pool there is no price at all.
   pool: {
     params: ["lp"],
     cache: NO_STORE,
+    retry: true,
     build: (q) =>
       HEX64.test(q.lp ?? "")
         ? {
@@ -162,5 +166,5 @@ export function buildKoiosRequest(op, query, apiKey) {
     headers["Content-Type"] = "application/json";
     init.body = JSON.stringify(built.body);
   }
-  return { url: `${KOIOS_BASE}${built.path}`, init, cache: def.cache };
+  return { url: `${KOIOS_BASE}${built.path}`, init, cache: def.cache, retry: def.retry === true };
 }
