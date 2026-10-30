@@ -46,8 +46,6 @@ const BUDGET: Record<string, { desktop: number; phone: number }> = {
   '/': { desktop: 410, phone: 410 },
   '/earn': { desktop: 140, phone: 125 },
   '/liquidity': { desktop: 140, phone: 140 },
-  // Raised 2026-10-15 for the All pools card the owner kept (220 / 215 before it).
-  '/solana-lp': { desktop: 260, phone: 255 },
   // One Rates card and one Swap routes card since 2026-10-14 (four fee cards before);
   // raised 2026-10-15 for the All pools card (290 / 285 before it).
   '/pools': { desktop: 340, phone: 335 },
@@ -55,7 +53,10 @@ const BUDGET: Record<string, { desktop: number; phone: number }> = {
   '/nft-finance': { desktop: 275, phone: 260 },
   // Its landing counts live collection data (listings, floors): 227 and 265 on two runs.
   '/nakamigos': { desktop: 300, phone: 300 },
-  '/bayla': { desktop: 320, phone: 320 },
+  // Raised 2026-10-21 for the home's three cards on BAYLA's door (owner: "A: raise the limit to
+  // 500"), with the lore and the pool on record folded into FinePrint: 345 / 345 measured, 481 / 359
+  // before the folds. The cards are 52 to 181 of it, by what the chain reads answer. 320 / 320 before.
+  '/bayla': { desktop: 500, phone: 500 },
   '/dashboard': { desktop: 225, phone: 225 },
 };
 

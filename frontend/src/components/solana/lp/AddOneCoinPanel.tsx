@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { PublicKey } from '@solana/web3.js';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import {
@@ -12,17 +12,17 @@ import {
   type PriorityLevel,
 } from '../../../lib/jupiter';
 import { decimalCommaToPoint, formatTokenAmount, parseDecimalToBaseUnits } from '../../../lib/launcher/solana/curve/format';
-import { displaySafe } from '../../../lib/launchMetadata/validate';
 import { holdReload } from '../../../lib/reloadHold';
 import { quoteOwnPool } from '../../../lib/solana/cpswap/read';
 import { feeReserveFor, isPlanProblem, solSetAside } from '../../../lib/solana/lp/liquidityMath';
 import { outsideShare, ownPoolShare, stepTwo, type Side, type StepTwo } from '../../../lib/solana/lp/oneCoin';
 import type { PoolView } from '../../../lib/solana/lp/poolFinder';
 import type { PoolHealth } from '../../../lib/solana/lp/poolHealth';
-import { quoteCoin } from '../../../lib/solana/lp/quotes';
+import { tokenTicker } from '../../../lib/solana/lp/identity';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { NO_SITE_FEE_ROUTE_COPY, prepareJupiterSwap, type PreparedJupiterSwap } from '../../../lib/solana/swap/jupiterFeeRetry';
 import { OWN_ROUTE_COPY, freshDecision, ownPoolNowWins, prepareOwnPoolSwap, within } from '../../../lib/solana/swap/ownPoolRoute';
+import { whileJupiterBusy } from '../../../lib/solana/swap/jupiterBusy';
 import type { VenuePoolCandidate } from '../../../lib/solana/swap/venuePools';
 import { CHECK_KEEPS_FAILING, LOST_ANSWER_TITLE, LOST_NO_SIGNATURE, OWN_POOL_REVIEW_OFFER } from '../../../lib/solana/swap/walletCopy';
 import type { AggregatorSeen } from '../../../lib/launcher/solana/write/types';
@@ -42,6 +42,7 @@ import { PercentPicker } from './PercentPicker';
 import { tick } from '../../../lib/tick';
 import { clearStepTwo, priceChangeOf, readStepTwo, receivedBy, saveStepTwo, sendJupiterLeg, stepOneLanded, type StepTwoNote } from './oneCoinSwap';
 import { PanelFrame } from './PanelFrame';
+import { useInDoor } from './lpDoor';
 import { coinAbout, coinExact, solExact, unitsExact, useWalletFacts } from './panelKit';
 import { useLpWrites, type LpWrites } from './useLpWrites';
 
@@ -52,7 +53,10 @@ export const SWAP_SOL_RESERVE = 10_000_000n;
 /** How long the press waits for our pool to be read again before Jupiter's transaction goes to the wallet. */
 const OWN_CHECK_MS = 4_000;
 
-const JUPITER = { getQuote, buildSwapTransaction, simulateSwap, swapCarriesPlatformFee };
+// The press's quote and build, each asked again while Jupiter refuses the call (jupiterBusy.ts).
+const pressQuote = whileJupiterBusy((p: Parameters<typeof getQuote>[0]) => getQuote(p));
+const pressBuild = whileJupiterBusy((p: Parameters<typeof buildSwapTransaction>[0]) => buildSwapTransaction(p));
+const JUPITER = { getQuote: pressQuote, buildSwapTransaction: pressBuild, simulateSwap, swapCarriesPlatformFee };
 const notBuilt = (message: string): Prepared => ({ ok: false, outcome: { status: 'not-sent', stage: 'build', message } });
 const shortSig = (sig: string) => `${sig.slice(0, 6)}…${sig.slice(-4)}`;
 const floorOf = (q: JupiterQuote): bigint => {
@@ -112,7 +116,7 @@ type Said = { title: string; text: string; tone: 'warn' | 'bad' | 'info' };
  * A swap this wallet sent and the chain has not answered for holds step 1 (useVenueSwap's
  * notes, the swap page's, by the wallet that signed); once step 1 lands, only step 2 is offered.
  */
-export function AddOneCoinPanel(p: { view: PoolView; health: PoolHealth; safety: TokenSafety | null; tokenDecimals: number | null; onClose: () => void; onPair?: () => void }) {
+export function AddOneCoinPanel(p: { view: PoolView; health: PoolHealth; safety: TokenSafety | null; tokenDecimals: number | null; onClose: () => void; onPair?: () => void; poolRows?: ReactNode }) {
   const writes = useLpWrites();
   if (!writes || !writes.api || writes.gate?.kind !== 'open') return null;
   return <OneCoinInner {...p} writes={writes} />;
@@ -126,6 +130,7 @@ function OneCoinInner({
   onClose,
   writes,
   onPair,
+  poolRows,
 }: {
   view: PoolView;
   health: PoolHealth;
@@ -135,15 +140,20 @@ function OneCoinInner({
   writes: LpWrites;
   /** "I have both coins": this pool's Add liquidity form, in one press. */
   onPair?: () => void;
+  /** In the LP door, away from the pool's card: the card's figures, as rows under the amount. */
+  poolRows?: ReactNode;
 }) {
   const { connection } = useConnection();
   const { sendTransaction } = useWallet();
+  // In the LP door this panel is the page's first screen (island, answer twenty-two): the
+  // green button comes right after the amount and the pool's figures, the line and the setting after it.
+  const inDoor = useInDoor();
   const pool = view.snapshot.pool;
   const coin = view.quote;
   const decimals = tokenDecimals ?? (view.quoteIsToken0 ? pool.mint1Decimals : pool.mint0Decimals);
   const tokenProgram = view.quoteIsToken0 ? pool.token1Program : pool.token0Program;
-  const tokenName =
-    quoteCoin(view.tokenMint)?.symbol ?? (safety?.kind === 'read' && safety.verdict !== 'blocked' && safety.symbol ? displaySafe(safety.symbol, 12) : 'tokens');
+  // Its ticker as the pool's heading says it (identity.ts): a copy of a well-known one reads "fake USDC", never "USDC".
+  const tokenName = (safety?.kind !== 'read' || safety.verdict !== 'blocked' ? tokenTicker(view.tokenMint, safety) : null) ?? 'tokens';
   const signer = writes.signerState.kind === 'ready' ? writes.signerState.signer : null;
   const owner = signer?.publicKey ?? null;
   const ownerKey = owner?.toBase58() ?? null;
@@ -396,7 +406,7 @@ function OneCoinInner({
         aggregatorOut: async () => {
           let fresh: JupiterQuote;
           try {
-            fresh = await getQuote({ inputMint: p.inputMint, outputMint: p.outputMint, amount, slippageBps: Number(bps) });
+            fresh = await pressQuote({ inputMint: p.inputMint, outputMint: p.outputMint, amount, slippageBps: Number(bps) });
           } catch (e) {
             if (e instanceof NoRouteError) return null;
             throw e;
@@ -454,7 +464,7 @@ function OneCoinInner({
     const [rIn, rOut] = in0 ? [v.snapshot.reserve0, v.snapshot.reserve1] : [v.snapshot.reserve1, v.snapshot.reserve0];
     const own = venueSwap.ready && v.config && !v.vaultsFrozen ? ownPoolShare(v.snapshot, v.config, inputMint, total, read.now) : null;
     const noFee = noFeePairs.current.has(`${inputMint}|${outputMint}`) ? { noPlatformFee: true } : {};
-    const ask = (amount: bigint) => getQuote({ inputMint, outputMint, amount: amount.toString(), slippageBps: Number(slippageBps), ...noFee });
+    const ask = (amount: bigint) => pressQuote({ inputMint, outputMint, amount: amount.toString(), slippageBps: Number(slippageBps), ...noFee });
     const base = { view: v, paid, inputMint, outputMint, total, bps: slippageBps };
 
     if (force) {
@@ -643,6 +653,14 @@ function OneCoinInner({
   }
 
   const plan_ = phase.kind === 'review' || phase.kind === 'sending' || phase.kind === 'waiting' || phase.kind === 'own' ? phase.plan : null;
+  const slippage = (
+    <SlippagePicker valueBps={slippageBps} onChange={setSlippageBps} hint="Used by both steps. If a price moves more than this first, that step is refused and only its network fee is spent." />
+  );
+  const line = (
+    <p className="text-white/60" data-testid="lp-one-line">
+      {ONE_COIN_LINE}
+    </p>
+  );
   const loadingOwn = venueSwap.loading;
   const canReview = !!signer && total !== null && total >= 2n && !bad && !over && !shortOfSol && slippageBps !== null && !held && !loadingOwn && phase.kind === 'form';
   const hint = !signer
@@ -757,7 +775,7 @@ function OneCoinInner({
       {(phase.kind === 'form' || phase.kind === 'planning') && (
         <>
           <p data-testid="lp-one-what" className="text-white text-[14px] leading-relaxed">
-            A share of the {tokenName}/{coin.symbol} pool and its fee on every trade. Withdraw any time. No lock.
+            A share of the {tokenName}/{coin.symbol} pool and its fee on every trade. No lock, but the team&apos;s vault can pause removing.
           </p>
           <div role="group" aria-label="Pay with" className="flex gap-2">
             {(['quote', 'token'] as const).map((side) => (
@@ -843,7 +861,8 @@ function OneCoinInner({
               <p className="text-white/70 text-[12px] mt-1">About {shareText(sharePct)} of the pool, at its price now.</p>
             </div>
           )}
-          <SlippagePicker valueBps={slippageBps} onChange={setSlippageBps} hint="Used by both steps. If a price moves more than this first, that step is refused and only its network fee is spent." />
+          {poolRows}
+          {!inDoor && slippage}
           {over && available !== null && <Notice tone="warn">That is more than you can use. The most is {exact(paid, available)}.</Notice>}
           {shortOfSol && setAside !== null && <Notice tone="warn">Your wallet needs {solExact(setAside)} for both steps’ fees and deposits.</Notice>}
           {health.deposits.warnings.map((w) => (
@@ -852,9 +871,7 @@ function OneCoinInner({
             </Notice>
           ))}
           {coin.risk && <Notice tone="warn">{coin.risk}</Notice>}
-          <p className="text-white/60" data-testid="lp-one-line">
-            {ONE_COIN_LINE}
-          </p>
+          {!inDoor && line}
           <div className="flex flex-col sm:flex-row gap-2">
             <button
               ref={reviewRef}
@@ -872,6 +889,8 @@ function OneCoinInner({
               Close
             </button>
           </div>
+          {inDoor && line}
+          {inDoor && slippage}
           {/* Off the page (owner, 2026-10-17: "remove this warning from everywhere"), one press away. */}
           <FinePrint summary="Risks" testId="lp-one-risk">
             <p>{RISK_SHORT}</p>

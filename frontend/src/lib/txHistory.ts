@@ -8,9 +8,9 @@
 import { z } from 'zod';
 import {
   SWAP_FEE_ROUTER_ADDRESS, UNISWAP_V2_ROUTER, TEGRIDY_STAKING_ADDRESS,
-  TEGRIDY_RESTAKING_ADDRESS, REVENUE_DISTRIBUTOR_ADDRESS, REFERRAL_SPLITTER_ADDRESS,
-  COMMUNITY_GRANTS_ADDRESS, MEME_BOUNTY_BOARD_ADDRESS, PREMIUM_ACCESS_ADDRESS,
-  VOTE_INCENTIVES_ADDRESS, LP_FARMING_ADDRESS, TEGRIDY_ROUTER_ADDRESS,
+  REVENUE_DISTRIBUTOR_ADDRESS, REFERRAL_SPLITTER_ADDRESS,
+  PREMIUM_ACCESS_ADDRESS,
+  LP_FARMING_ADDRESS, TEGRIDY_ROUTER_ADDRESS,
   TEGRIDY_LP_ADDRESS, TOWELI_ADDRESS, isDeployed,
   TEGRIDY_NFT_LENDING_ADDRESS, TEGRIDY_NFT_POOL_FACTORY_ADDRESS, TEGRIDY_LAUNCHPAD_V2_ADDRESS,
   OLD_TEGRIDY_STAKING_ADDRESS, OLD_REVENUE_DISTRIBUTOR_ADDRESS, OLD_LP_FARMING_ADDRESS,
@@ -22,9 +22,9 @@ import {
 // + the footer's "all protocol contracts" claim.
 export const HISTORY_CONTRACTS: string[] = [
   SWAP_FEE_ROUTER_ADDRESS, UNISWAP_V2_ROUTER, TEGRIDY_STAKING_ADDRESS,
-  TEGRIDY_RESTAKING_ADDRESS, REVENUE_DISTRIBUTOR_ADDRESS, REFERRAL_SPLITTER_ADDRESS,
-  COMMUNITY_GRANTS_ADDRESS, MEME_BOUNTY_BOARD_ADDRESS, PREMIUM_ACCESS_ADDRESS,
-  VOTE_INCENTIVES_ADDRESS, LP_FARMING_ADDRESS, TEGRIDY_ROUTER_ADDRESS, TEGRIDY_LP_ADDRESS,
+  REVENUE_DISTRIBUTOR_ADDRESS, REFERRAL_SPLITTER_ADDRESS,
+  PREMIUM_ACCESS_ADDRESS,
+  LP_FARMING_ADDRESS, TEGRIDY_ROUTER_ADDRESS, TEGRIDY_LP_ADDRESS,
   TOWELI_ADDRESS,
   // Un-gated 2026-07-21 — must be in the feed for the "all protocol contracts"
   // claim to hold (they were omitted while dark). .filter(isDeployed) keeps this
@@ -196,16 +196,6 @@ export function categorizeTx(tx: TxRecord): { type: string; color: string } {
     if (fn === 'toggleAutoMaxLock') return { type: 'Auto-Lock', color: 'text-white' };
     return { type: 'Farm', color: 'text-white' };
   }
-  // Restaking
-  // F478: guard every zeroed-contract compare with isDeployed() so a tx to the
-  // zero address (ETH burn / zero-send) doesn't collide with an undeployed
-  // contract's 0x000…0 and get mislabelled (e.g. 'Restake').
-  if (isDeployed(TEGRIDY_RESTAKING_ADDRESS) && to === TEGRIDY_RESTAKING_ADDRESS.toLowerCase()) {
-    if (fn === 'restake') return { type: 'Restake', color: 'text-success' };
-    if (fn === 'unrestake') return { type: 'Unrestake', color: 'text-warning' };
-    if (fn === 'claimAll') return { type: 'Claim', color: 'text-white' };
-    return { type: 'Restake', color: 'text-white' };
-  }
   // Revenue & Referrals
   if (to === REVENUE_DISTRIBUTOR_ADDRESS.toLowerCase() || to === OLD_REVENUE_DISTRIBUTOR_ADDRESS.toLowerCase()) {
     if (fn === 'register') return { type: 'Register', color: 'text-success' };
@@ -217,32 +207,11 @@ export function categorizeTx(tx: TxRecord): { type: string; color: string } {
     if (fn === 'setReferrer') return { type: 'Referral', color: 'text-success' };
     return { type: 'Referral', color: 'text-white' };
   }
-  // Governance
-  if (isDeployed(COMMUNITY_GRANTS_ADDRESS) && to === COMMUNITY_GRANTS_ADDRESS.toLowerCase()) {
-    if (fn === 'createProposal') return { type: 'Proposal', color: 'text-white' };
-    if (fn === 'voteOnProposal') return { type: 'Vote', color: 'text-success' };
-    if (fn === 'finalizeProposal') return { type: 'Finalize', color: 'text-warning' };
-    return { type: 'Grants', color: 'text-white' };
-  }
-  // Bounties
-  if (isDeployed(MEME_BOUNTY_BOARD_ADDRESS) && to === MEME_BOUNTY_BOARD_ADDRESS.toLowerCase()) {
-    if (fn === 'createBounty') return { type: 'Bounty', color: 'text-white' };
-    if (fn === 'submitWork') return { type: 'Submit', color: 'text-success' };
-    if (fn === 'voteForSubmission') return { type: 'Vote', color: 'text-success' };
-    return { type: 'Bounty', color: 'text-white' };
-  }
   // Premium
   if (isDeployed(PREMIUM_ACCESS_ADDRESS) && to === PREMIUM_ACCESS_ADDRESS.toLowerCase()) {
     if (fn === 'subscribe') return { type: 'Subscribe', color: 'text-white' };
     if (fn === 'claimNFTAccess') return { type: 'NFT Claim', color: 'text-success' };
     return { type: 'Premium', color: 'text-white' };
-  }
-  // Vote Incentives (Bribes)
-  if (isDeployed(VOTE_INCENTIVES_ADDRESS) && to === VOTE_INCENTIVES_ADDRESS.toLowerCase()) {
-    if (fn === 'depositBribe' || fn === 'depositBribeETH') return { type: 'Bribe', color: 'text-white' };
-    if (fn === 'claimBribes' || fn === 'claimBribesBatch') return { type: 'Claim Bribe', color: 'text-success' };
-    if (fn === 'advanceEpoch') return { type: 'Epoch', color: 'text-white' };
-    return { type: 'Bribes', color: 'text-white' };
   }
   // Token approvals
   if (fn === 'approve') {

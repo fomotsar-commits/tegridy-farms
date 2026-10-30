@@ -45,7 +45,12 @@ export type RouteGate =
    * plugin declared `apply: 'serve'`, so no write endpoint is served at all.
    * Unlike `dev-only` there is no redirect to assert, so no `redirectsTo`.
    */
-  | 'unlisted';
+  | 'unlisted'
+  /**
+   * Routed only once what it needs is on the chain. Until then App.tsx declares no route for
+   * it in any build the suite runs, the nav lists nothing, and the path is the not-found page.
+   */
+  | 'not-yet-routed';
 
 export interface RouteSpec {
   /** Path as written in App.tsx. */
@@ -100,11 +105,8 @@ export interface RouteSpec {
 export const ROUTE_MOUNT_TIMEOUT = 20_000;
 
 /**
- * The Tradermigos splash gets its own, larger budget. It is not a lazy chunk
- * behind Suspense — it is a full-viewport animated intro that runs a loading
- * sequence before it reaches `ready`, and on WebKit with nine workers sharing
- * one preview server it has been measured past 20s. This is the one surface in
- * the app whose mount time is a product decision rather than a network cost.
+ * The Tradermigos splash and the landing after it get a larger budget: on WebKit
+ * with nine workers sharing one preview server they have been measured past 20s.
  */
 export const SPLASH_MOUNT_TIMEOUT = 60_000;
 
@@ -178,20 +180,13 @@ export async function waitForQuiescence(
 }
 
 /**
- * `/nakamigos` opens on the Tradermigos splash, a full-viewport gate with no
- * `main` behind it until dismissed. Splash persistence is per-mount by product
- * decision (no sessionStorage flag — see nakamigos/App.jsx), so there is
- * nothing to pre-seed and the gate has to be driven the way a user drives it.
+ * `/nakamigos` as a first visit: the splash plays, leaves by itself within 3.2 s,
+ * and the landing's `main` follows. Never tap it: a tap only skips ahead, and on a
+ * WebKit worker drawing few frames a click's "stable" check outlasts the splash,
+ * then waits on a button that is gone (e2e/nakamigos-splash.spec.ts).
  */
 export async function gotoNakamigos(page: Page): Promise<void> {
   await page.goto('/nakamigos');
-  // The splash root is itself the control (role="button", tabIndex 0,
-  // self-focusing). Click it rather than pressing Enter: the "OR PRESS ENTER
-  // TO SKIP" affordance is desktop-only (`!isMobile` in SplashScreen.jsx), so
-  // a keypress path passes on chromium and times out on iPhone and iPad.
-  const splash = page.getByRole('button', { name: /tradermigos/i }).first();
-  await splash.waitFor({ timeout: SPLASH_MOUNT_TIMEOUT });
-  await splash.click();
   await page.locator('main').first().waitFor({ state: 'attached', timeout: SPLASH_MOUNT_TIMEOUT });
   await page.locator('main').first().getByRole('heading', { level: 1 }).waitFor({ timeout: SPLASH_MOUNT_TIMEOUT });
 }
@@ -417,13 +412,34 @@ export const ROUTES: readonly RouteSpec[] = [
   },
   {
     path: '/solana-lp',
+    voice: null,
+    owner: 'App.tsx',
+    gate: 'redirect',
+    why:
+      'The Solana LP tab until 2026-10-24 (owner: "remove solana lp keep venue amm"): it mounted the same ' +
+      'LP section as /pools, so a room door, a bookmark or a wallet card that still says /solana-lp lands there, query kept.',
+    redirectsTo: '/pools',
+    knownViolations: [],
+  },
+  {
+    path: '/cardano',
     voice: 'venue',
-    owner: 'pages/SolanaLpPage.tsx',
-    tabOf: 'PoolsHostPage · solana-lp',
+    owner: 'pages/CardanoSwapPage.tsx',
     gate: null,
     why:
-      'The LP section mounts only once the venue read returns live, which in this suite depends on the ' +
-      'preview proxy reaching Solana; with no answer it audits the hero, the status card and the program card alone.',
+      'Opened 2026-10-24 (CARDANO_SWAP_OPEN, lib/cardano/flags.ts). The form audits with no wallet ' +
+      'connected; quotes need the /api/cardano chain reads, so it renders without live prices in this suite.',
+    knownViolations: [],
+  },
+  {
+    path: '/range-pools',
+    voice: 'venue',
+    owner: 'pages/RangePoolsPage.tsx',
+    tabOf: 'PoolsHostPage · range-pools',
+    gate: null,
+    why:
+      'Its fee tiers and pools are read live through the preview proxy to Solana, so it audits whichever ' +
+      'answer comes: the pools, "none yet", or the "could not be read just now" notice. The em dash sweep seals it.',
     knownViolations: [],
   },
   { path: '/curve-launch', voice: 'venue', owner: 'pages/CurveLaunchPage.tsx',
@@ -449,29 +465,6 @@ export const ROUTES: readonly RouteSpec[] = [
   },
   { path: '/launch-simulator', voice: 'venue', owner: 'pages/LaunchSimulatorPage.tsx',
     tabOf: 'LaunchHubPage · launch-simulator', gate: null, knownViolations: [] },
-  {
-    path: '/airdrop',
-    voice: 'venue',
-    owner: 'pages/AirdropPage.tsx',
-    gate: null,
-    why:
-      'Audited on the Claim tab with no wallet, no campaign address and no manifest — the ' +
-      'no-data branch. The Create tab and every verdict other than "wallet not connected" ' +
-      'need input this sweep does not supply; the eligibility verdicts are covered by unit ' +
-      'tests instead.',
-    knownViolations: [],
-  },
-  {
-    path: '/vesting',
-    voice: 'venue',
-    owner: 'pages/VestingPage.tsx',
-    gate: null,
-    why:
-      'Audited on the Streams tab with no wallet, which is the "connect a wallet" branch. ' +
-      'The stream cards and the lock snapshot table need a deployed rail to render at all, ' +
-      'and both rails are undeployed on this build.',
-    knownViolations: [],
-  },
   {
     path: '/start',
     voice: 'venue',
@@ -630,7 +623,7 @@ export const ROUTES: readonly RouteSpec[] = [
     redirectsTo: '/history',
     knownViolations: [],
   },
-  { path: '/community', voice: 'venue', owner: 'pages/CommunityPage.tsx', gate: null, knownViolations: ['aria-valid-attr-value'] },
+  { path: '/community', voice: 'venue', owner: 'pages/CommunityPage.tsx', gate: null, knownViolations: [] },
   {
     path: '/grants',
     voice: null,
@@ -645,7 +638,7 @@ export const ROUTES: readonly RouteSpec[] = [
     voice: null,
     owner: 'App.tsx',
     gate: 'redirect',
-    why: 'BountyPage was merged into CommunityPage as a section anchor.',
+    why: 'The bounty board is retired; old links land on Community.',
     redirectsTo: '/community',
     knownViolations: [],
   },
@@ -697,7 +690,7 @@ export const ROUTES: readonly RouteSpec[] = [
     voice: null,
     owner: 'App.tsx',
     gate: 'redirect',
-    why: 'BribesPage was merged into CommunityPage as a section anchor.',
+    why: 'Vote incentives are retired; old links land on Community.',
     redirectsTo: '/community',
     knownViolations: [],
   },

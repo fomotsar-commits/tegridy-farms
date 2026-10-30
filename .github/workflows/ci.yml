@@ -131,10 +131,10 @@ jobs:
           src/lib/docsReconciliation.test.ts
           src/lib/launcher/solana/curve/reserveDocs.test.ts
           src/lib/launcher/solana/spentProgramIds.test.ts
-          src/lib/whetstonePetitionTruth.test.ts
           src/test/botOrigins.test.ts
           src/test/frontDoor.test.ts
           src/test/mirrorToGitlab.test.ts
+          src/test/poolProgramUpgradeRecord.test.ts
 
   lint-typecheck-test:
     name: Lint, Type Check & Test
@@ -397,6 +397,17 @@ jobs:
         working-directory: .
         run: node --test contracts/monitoring/lib/arbLinkage.test.mjs scripts/monitoring/lib/pausePlan.test.mjs
 
+      # The price keeper (keeper/). Week 1 is WATCH-ONLY, and watchOnly.test.mjs is
+      # what keeps it so: no signing construct, no send, no npm dependency. Plain
+      # `node --test` like the monitoring rules above: it ships zero packages and
+      # imports the venue's own pool maths (frontend/src/lib/solana/cpswap/math.ts)
+      # directly, so its quotes and the swap page's cannot drift. Pure: recorded
+      # mainnet answers and stand-in fetches, no network.
+      - name: Price keeper unit tests
+        if: ${{ !cancelled() }}
+        working-directory: .
+        run: node --test keeper/test/addresses.test.mjs keeper/test/jupiter.test.mjs keeper/test/opportunity.test.mjs keeper/test/pool.test.mjs keeper/test/report.test.mjs keeper/test/rpc.test.mjs keeper/test/sizecheck.test.mjs keeper/test/txsize.test.mjs keeper/test/watch.test.mjs keeper/test/watchOnly.test.mjs
+
       # The two endpoint redactors and the guards that keep the ops scripts using
       # them. Separate from the step above because it is not a monitoring rule, and a
       # step name that stops describing what it runs is how coverage goes unnoticed.
@@ -408,6 +419,13 @@ jobs:
         if: ${{ !cancelled() }}
         working-directory: .
         run: node --test scripts/lib/redact-url.test.mjs
+
+      # contracts-coverage.yml joins its per-slice lcov files with scripts/lib/lcov-merge.mjs;
+      # a merge that drops or double counts a line moves the coverage ratchet. Bare node.
+      - name: lcov merge unit tests
+        if: ${{ !cancelled() }}
+        working-directory: .
+        run: node --test scripts/lib/lcov-merge.test.mjs
 
       # scripts/ops/: the weekly pull of GitHub's backups, the heartbeat step in
       # synthetic-monitor.yml, and the failover runner for this repo's crons. Bare node

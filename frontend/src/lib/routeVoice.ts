@@ -1,4 +1,6 @@
-import { BUNGALOWS, type Bungalow } from './bungalows';
+import { BUNGALOWS, CARDS_ROOM_ID, type Bungalow } from './bungalows';
+// Plain text only: whether the Cardano swap is shown (lib/cardano/flags.ts).
+import { cardanoSwapVisible } from './cardano/flags';
 
 /**
  * WAVE SEVEN, ruling 2 (row Q): EVERY ROUTE SPEAKS AS THE VENUE OR LIVES BEHIND
@@ -87,16 +89,24 @@ export function isToweliRoomPage(pathname: string): boolean {
 
 /**
  * The Solana pages whose path alone says so. /earn/<id> and /dashboard are judged below.
- *
- * EVERY PAGE THAT MOUNTS ITS OWN SolanaProviders BELONGS HERE (or below).
- * /solana-lp was added to the router without being added here. Until its
- * Solana section had mounted, the top bar treated it as a page with none and
- * mounted its own connection; the section then mounted and took that one
- * away. A wallet approval still open at that moment landed nowhere, and a
- * hand-off into a wallet's app (lib/solanaSurface.ts) was used up by the
- * connection that was about to be unmounted (review, 2026-10-03).
+ * EVERY PAGE THAT MOUNTS ITS OWN SolanaProviders BELONGS HERE (or below): left out, the top
+ * bar mounts a connection of its own until the page's section loads and takes it away, and
+ * a wallet approval or app hand-off open at that moment lands nowhere (lib/solanaSurface.ts).
+ * routeVoice.test.ts holds every Solana-only tab to this.
  */
-const SOLANA_PATHS: ReadonlySet<string> = new Set(['/solana', '/pools', '/solana-lp', '/curve-launch']);
+const SOLANA_PATHS: ReadonlySet<string> = new Set(['/solana', '/pools', '/solana-lp', '/range-pools', '/curve-launch']);
+
+/**
+ * The Cardano pages. The top bar's wallet slot there is the page's Cardano wallet
+ * (lib/cardano/walletStore.ts), never the Ethereum list: no EVM connect can reach Cardano.
+ * Exact, as the router matches these tabs.
+ */
+const CARDANO_PATHS: ReadonlySet<string> = new Set(['/cardano']);
+
+/** Only while the Cardano swap is shown: with it off, /cardano is the 404 page, with no Cardano wallet to connect. */
+export function isCardanoPage(pathname: string, shown: boolean = cardanoSwapVisible()): boolean {
+  return shown && CARDANO_PATHS.has(normalize(pathname));
+}
 
 /**
  * Pages whose wallet action is on Solana, read from the path alone, before
@@ -109,13 +119,22 @@ const SOLANA_PATHS: ReadonlySet<string> = new Set(['/solana', '/pools', '/solana
  * getBungalowIdentity(), and a Solana room gets the Solana panel.
  */
 /**
- * Pages that connect Ethereum AND carry a Solana section of their own: the venue home, whose
- * cards stake BAYLA and add SOL + BAYLA (owner, 2026-10-16; components/HomeModules.tsx). The
- * top bar keeps its wallet sheet there, and does not mount a Solana connection of its own: the
- * cards' is on its way, and two on one page would disagree (lib/solanaSurface.ts).
+ * Pages that connect Ethereum AND carry a Solana section of their own: the venue home, the
+ * island lobby and BAYLA's door, whose cards swap to BAYLA, lock it and add SOL + BAYLA (owner,
+ * 2026-10-16 and 2026-10-19; components/VenueCards.tsx). The top bar keeps its wallet sheet
+ * there, and does not mount a Solana connection of its own: the cards' is on its way, and two on
+ * one page would disagree (lib/solanaSurface.ts). Matched as the router matches them, whatever
+ * their case.
  */
 export function hasMixedSolanaSection(pathname: string): boolean {
-  return normalize(pathname) === '/';
+  let path = normalize(pathname);
+  try {
+    path = decodeURI(path);
+  } catch {
+    /* a malformed escape: judged as written */
+  }
+  const lower = path.toLowerCase();
+  return path === '/' || lower === '/island' || lower === `/${CARDS_ROOM_ID}`;
 }
 
 export function isSolanaPage(pathname: string, room: Pick<Bungalow, 'chain'> | null = null): boolean {

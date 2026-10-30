@@ -1,9 +1,9 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, onTestFinished } from 'vitest';
 import { render, screen, fireEvent, waitFor, cleanup, configure, within, act } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { PublicKey } from '@solana/web3.js';
 import type { ReactNode } from 'react';
-import { NoRouteError, type JupiterQuote } from '../lib/jupiter';
+import { NoRouteError, getUsdPrices, type JupiterQuote } from '../lib/jupiter';
 import type { PreparedTx, SubmitDeps, VenueSwapArgs } from '../components/solana/curve/ports';
 import { SOL_QUOTE } from '../lib/solana/lp/quotes';
 
@@ -111,6 +111,8 @@ const h = vi.hoisted(() => ({
   pairAverage: vi.fn(),
 }));
 
+// The constant-product pools' route only: range pools in the route are SolanaSwapPage.rangePool.test.tsx's.
+vi.mock('../lib/solana/clmm/programId', async (orig) => ({ ...(await orig<typeof import('../lib/solana/clmm/programId')>()), rangePoolsVisible: () => false }));
 vi.mock('sonner', () => ({ toast: h.toast }));
 vi.mock('../lib/solana/swap/pairAverage', async (orig) => ({
   ...(await orig<typeof import('../lib/solana/swap/pairAverage')>()),
@@ -277,6 +279,15 @@ const backOnTheForm = () => {
 const signOnReview = async () => {
   fireEvent.click(await screen.findByRole('button', { name: 'Sign in wallet' }, { timeout: 20_000 }));
 };
+/**
+ * The quote on screen is a minute old when Buy is pressed, so the press asks Jupiter
+ * again (a seconds-old one is built as shown): for a test about what happens while it does.
+ */
+function shownQuoteIsOld() {
+  const realNow = Date.now.bind(Date);
+  const spy = vi.spyOn(Date, 'now').mockImplementation(() => realNow() + 60_000);
+  onTestFinished(() => spy.mockRestore());
+}
 
 describe('our own pool pays more: the trade goes there', () => {
   it('Buy ALWAYS stops on the review (owner, 2026-10-13): the wallet is asked only from "Sign in wallet"', async () => {
@@ -1041,6 +1052,7 @@ describe('while Jupiter’s transaction is at the wallet, the page describes Jup
     h.buildSwapTransaction.mockImplementation(() => new Promise((r) => setTimeout(() => r(JUPITER_TX), 150)));
     const seen: ReturnType<typeof atWallet>[] = [];
     h.sendTransaction.mockImplementation(() => { seen.push(atWallet()); return new Promise(() => {}); });
+    shownQuoteIsOld();
     fireEvent.click(buy);
     await waitFor(() => expect(h.sendTransaction).toHaveBeenCalledTimes(1), { timeout: 30_000 });
     expect(h.prepareVenueSwap).not.toHaveBeenCalled();
@@ -1066,6 +1078,95 @@ describe('while Jupiter’s transaction is at the wallet, the page describes Jup
     await new Promise((r) => setTimeout(r, 300));
     jupiters(atWallet(), '1');
     expect(h.prepareVenueSwap).not.toHaveBeenCalled();
+  });
+});
+
+describe('a press asks Jupiter only what it must: the site’s key is one request a second for every visitor', () => {
+  const defer = <T,>() => { let release: (v: T) => void = () => {}; const p = new Promise<T>((r) => { release = r; }); return { p, release }; };
+  /** Jupiter on screen, and the quote the form shows: the last one Jupiter answered. */
+  async function jupiterOnScreen() {
+    h.ownOut.value = 990_000n;
+    const buy = await readyToBuy();
+    await waitFor(() => expect(routeLine()).toMatch(/Jupiter pays/));
+    const shown = (await h.getQuote.mock.results.at(-1)!.value) as JupiterQuote;
+    return { buy, shown, asked: h.getQuote.mock.calls.length };
+  }
+  /** How many quotes Jupiter had been asked for each time the wallet was asked to sign. */
+  function quotesAtWallet(...answers: Array<() => Promise<string>>) {
+    const at: number[] = [];
+    for (const answer of answers) h.sendTransaction.mockImplementationOnce(() => { at.push(h.getQuote.mock.calls.length); return answer(); });
+    return at;
+  }
+  const builtFrom = (i: number) => (h.buildSwapTransaction.mock.calls[i]![0] as { quote: JupiterQuote }).quote;
+
+  it('a quote seconds old is built as shown: Jupiter is not asked for another', async () => {
+    const { buy, shown, asked } = await jupiterOnScreen();
+    const at = quotesAtWallet(async () => SIG);
+    fireEvent.click(buy);
+    await waitFor(() => expect(h.sendTransaction).toHaveBeenCalledTimes(1));
+    expect(at).toEqual([asked]);
+    expect(builtFrom(0)).toBe(shown);
+  });
+
+  it('a quote a minute old is asked for again before it is built', async () => {
+    const { buy, shown, asked } = await jupiterOnScreen();
+    const at = quotesAtWallet(async () => SIG);
+    shownQuoteIsOld();
+    fireEvent.click(buy);
+    await waitFor(() => expect(h.sendTransaction).toHaveBeenCalledTimes(1));
+    expect(at).toEqual([asked + 1]);
+    expect(builtFrom(0)).not.toBe(shown);
+  });
+
+  it('one press per quote: after a decline in the wallet, the next press asks Jupiter again', async () => {
+    const { buy, shown, asked } = await jupiterOnScreen();
+    const at = quotesAtWallet(async () => { throw new Error('User rejected the request.'); }, async () => SIG);
+    fireEvent.click(buy);
+    await waitFor(() => expect(h.toast.info).toHaveBeenCalledWith('Not sent', { description: DECLINED_IN_WALLET }));
+    const again = screen.getByRole('button', { name: 'Buy BAYLA' });
+    await waitFor(() => expect(again).toBeEnabled());
+    fireEvent.click(again);
+    await waitFor(() => expect(h.sendTransaction).toHaveBeenCalledTimes(2));
+    expect(at).toEqual([asked, asked + 1]);
+    expect(builtFrom(0)).toBe(shown);
+    expect(builtFrom(1)).not.toBe(shown);
+  });
+
+  it.each([
+    ['a pair with no site fee', false],
+    ['a pair that carries the site fee', true],
+  ])('%s: our pools are read again at the click, while Jupiter is still being asked', async (_name, fee) => {
+    h.carriesFee.value = fee;
+    const { buy, asked } = await jupiterOnScreen();
+    shownQuoteIsOld();
+    const fresh = defer<JupiterQuote>();
+    h.getQuote.mockImplementationOnce(() => fresh.p);
+    const reads = h.readVenuePools.mock.calls.length;
+    const readsAtWallet: number[] = [];
+    h.sendTransaction.mockImplementationOnce(async () => { readsAtWallet.push(h.readVenuePools.mock.calls.length); return SIG; });
+    fireEvent.click(buy);
+    await waitFor(() => expect(h.getQuote).toHaveBeenCalledTimes(asked + 1));
+    // Jupiter has not answered the press, and our pools are being read already.
+    await waitFor(() => expect(h.readVenuePools).toHaveBeenCalledTimes(reads + 1));
+    fresh.release(jupiterQuote('1000000'));
+    await waitFor(() => expect(h.sendTransaction).toHaveBeenCalledTimes(1));
+    // That one read is the one the route was held on: none more before the wallet.
+    expect(readsAtWallet).toEqual([reads + 1]);
+  });
+
+  it('the pair’s USD prices are the read every visitor shares, except in USD mode, where they size the trade', async () => {
+    const pairReads = () => vi.mocked(getUsdPrices).mock.calls.filter(([ids]) => ids.join() === `${SOL_MINT},${BAYLA_MINT}`);
+    // USD mode is offered once SOL's price is in hand.
+    h.prices.value = { [SOL_MINT]: 150 };
+    render(<MemoryRouter><SolanaSwapPage /></MemoryRouter>);
+    await waitFor(() => expect(pairReads().length).toBeGreaterThan(0));
+    expect(pairReads().map((c) => c[2])).toEqual(pairReads().map(() => ({ shared: true })));
+    const usd = await screen.findByRole('button', { name: '$ USD' });
+    await waitFor(() => expect(usd).toBeEnabled());
+    const before = pairReads().length;
+    fireEvent.click(usd);
+    await waitFor(() => expect(pairReads().length).toBeGreaterThan(before));
+    expect(pairReads().at(-1)![2]).toEqual({ shared: false });
   });
 });
 
@@ -1799,6 +1900,14 @@ describe('what a press writes lands only on the trade it was pressed for', () =>
       expect(label).toBe('Buy BAYLA');
     }
   };
+  const buyPick = () => screen.getByTestId('solana-receive').parentElement!.querySelector('button')!.textContent;
+  /**
+   * A link's token still being looked up: $BAYLA stands on the form meanwhile, the page's
+   * opening coin (SolanaSwapPage.openingPair.test.tsx owns that rule). Said at once, so a
+   * moved opening coin fails here by name, not as a Buy button that never shows (#791
+   * met #790's move from USDC that way, and it read as a slow machine).
+   */
+  const baylaStands = () => expect(buyPick(), 'the coin on the form while the link’s token is looked up').toBe('BAYLA▾');
   beforeEach(() => {
     h.getQuote.mockImplementation(async (p: { outputMint: string; amount: string; noPlatformFee?: boolean }) => {
       const out = p.outputMint === JITO ? per(p.amount, 95_000_000n) : per(p.amount, h.carriesFee.value ? (p.noPlatformFee ? 1_012_000n : 1_005_000n) : 1_000_000n);
@@ -1819,8 +1928,8 @@ describe('what a press writes lands only on the trade it was pressed for', () =>
     window.history.replaceState(null, '', `/solana?out=${OTHER}`);
     h.ownOut.value = 990_000n;
     render(<MemoryRouter><SolanaSwapPage /></MemoryRouter>);
+    baylaStands();
     fireEvent.change(amountBox(), { target: { value: '0.1' } });
-    // $BAYLA stands on the form while the link's token is looked up.
     const buy = await screen.findByRole('button', { name: 'Buy BAYLA' }, { timeout: 20_000 });
     await waitFor(() => expect(buy).toBeEnabled());
     await waitFor(() => expect(routeLine()).toMatch(/Jupiter pays/));
@@ -1830,7 +1939,7 @@ describe('what a press writes lands only on the trade it was pressed for', () =>
     fireEvent.click(buy);
     await waitFor(() => expect(h.readVenuePools.mock.calls.length).toBeGreaterThan(reads));
     looked.release({ mint: OTHER, symbol: 'DOGGO', name: 'Doggo', decimals: 6, verified: false });
-    await waitFor(() => expect(screen.getByTestId('solana-receive').parentElement!.querySelector('button')!.textContent).toBe('DOGGO▾'));
+    await waitFor(() => expect(buyPick()).toBe('DOGGO▾'));
     held.release({ kind: 'ok', pair: [SOL_MINT, OTHER] });
     await waitFor(() => expect(h.toast.info).toHaveBeenCalledWith('Not sent', { description: OWN_ROUTE_COPY.formChanged }));
     expect(h.sendTransaction).not.toHaveBeenCalled();
@@ -1839,13 +1948,13 @@ describe('what a press writes lands only on the trade it was pressed for', () =>
 
   describe('whatever our pools hold, the wallet is never asked for a pair the form no longer shows', () => {
     const OTHER = 'Dog1111111111111111111111111111111111111111';
-    const buyPick = () => screen.getByTestId('solana-receive').parentElement!.querySelector('button')!.textContent;
     /** Arrive by a link whose token is still being looked up ($BAYLA stands meanwhile), type 0.1 SOL, and have Buy BAYLA live on `line`. */
     async function arrivedByLink(line: RegExp) {
       const looked = defer<unknown>();
       h.resolveMint.mockImplementation((mint: string) => (mint === OTHER ? looked.p : Promise.resolve(null)));
       window.history.replaceState(null, '', `/solana?out=${OTHER}`);
       render(<MemoryRouter><SolanaSwapPage /></MemoryRouter>);
+      baylaStands();
       fireEvent.change(amountBox(), { target: { value: '0.1' } });
       const buy = await screen.findByRole('button', { name: 'Buy BAYLA' }, { timeout: 20_000 });
       await waitFor(() => expect(buy).toBeEnabled());
@@ -1896,6 +2005,7 @@ describe('what a press writes lands only on the trade it was pressed for', () =>
       const fresh = defer<JupiterQuote>();
       h.getQuote.mockImplementationOnce(() => fresh.p);
       const asked = h.getQuote.mock.calls.length;
+      shownQuoteIsOld();
       fireEvent.click(buy);
       await waitFor(() => expect(h.getQuote.mock.calls.length).toBeGreaterThan(asked));
       await land();
@@ -1959,6 +2069,7 @@ describe('what a press writes lands only on the trade it was pressed for', () =>
     // The read our pool gets at the press is held.
     const held = defer<unknown>();
     h.readVenuePools.mockImplementationOnce(() => held.p);
+    shownQuoteIsOld();
     fireEvent.click(buy);
     await waitFor(() => expect(h.getQuote.mock.calls.length).toBeGreaterThan(1));
     // The rails are held while the press is on its way (the form changing under a press
@@ -2550,7 +2661,7 @@ describe('the token picker tells the venue’s BAYLA from its copies', () => {
     expect(first.textContent).not.toContain('Unverified');
   });
 
-  it('a search full of copies still shows ours first, and every row shows part of its address', async () => {
+  it('a search full of copies still shows ours first; ours shows the head and tail of its address, a copy its whole address', async () => {
     h.searchTokens.mockImplementation(async () => [copy(1), copy(2), copy(3)]);
     const dialog = await openPicker();
     fireEvent.change(screen.getByLabelText('Search tokens'), { target: { value: 'BAYLA' } });
@@ -2559,9 +2670,10 @@ describe('the token picker tells the venue’s BAYLA from its copies', () => {
     expect(first!.getAttribute('data-token-row')).toBe(BAYLA_MINT);
     expect(first!.textContent).toContain('This venue’s BAYLA');
     expect(first!.textContent).toContain('7hmVkP…pump');
-    // A copy says what it is: not verified, and its own address.
+    // A copy says what it is: not verified, and its own address in full (a head and a tail can be grinded to match).
     expect(second!.textContent).toContain('Unverified');
-    expect(second!.textContent).toContain('Copy11…pump');
+    expect(second!.textContent).toContain(copy(1).mint);
+    expect(second!.textContent).not.toContain('Copy11…pump');
     expect(second!.textContent).not.toContain('This venue’s BAYLA');
   });
 

@@ -30,7 +30,7 @@ project's first name, **Tegridy Farms**. Same project.
 | What | Where | Today |
 |---|---|---|
 | **Swap on Solana** | [/solana](https://memetics.finance/solana) | 🟢 Live. Each trade goes to our own pool when it pays at least as much as Jupiter, and through Jupiter otherwise. Limit orders and DCA run through Jupiter. |
-| **Provide liquidity on Solana** | [/solana-lp](https://memetics.finance/solana-lp) | 🟢 Live, on our own pool program. 3 pools: BAYLA/SOL, BAYLA/USDC and SOL/USDC. Anyone can open a new one. |
+| **Provide liquidity on Solana** | [/pools](https://memetics.finance/pools) | 🟢 Live, on our own pool program. 3 pools: BAYLA/SOL, BAYLA/USDC and SOL/USDC. Anyone can open a new one. |
 | **Stake in a room** | [/earn](https://memetics.finance/earn) and each room's door | 🟢 Live. Which pools pay right now: see [Staking](#staking). |
 | **Visit the rooms** | [memetics.finance](https://memetics.finance) → Rooms | 🟢 Thirteen bungalows: twelve resident communities, each with its own door, market and staking pool, and one still empty. |
 | **Check a token or wallet** | [/trust](https://memetics.finance/trust) | 🟢 Token scanner, deployer history, wallet exposure, Pro Terminal, alerts. A check that could not run says so; it never shows as "safe". |
@@ -49,13 +49,14 @@ Our pool program is a fork of Raydium's constant-product AMM
 code is Raydium's; the admin keys and names are ours.
 
 - **A pool opened from the site uses the 1% fee tier.** Every swap pays 1%: **0.84% stays in
-  the pool** for its liquidity providers and **0.16% goes to the venue's vault**.
+  the pool** for its liquidity providers and **0.16% is the venue's take**: 0.104% to the venue's
+  vault and 0.056% to the island's Workshop (Jungle Bay Island's share, agreed 2026-10-18).
 - **How liquidity providers earn:** there is no claim button. The 0.84% stays in the pool, so
   each pool share redeems for more over time. You collect it when you remove liquidity.
 - **How the venue earns:** the 0.16% cut, plus **0.15 SOL** paid to the vault by whoever opens
   a new pool.
 - **Launch pools** (where a launched token graduates) use a separate 0.25% tier, of which
-  0.05% of each swap goes to the venue. None exist yet, because nothing has launched.
+  0.05% of each swap is the venue's take, shared the same way. None exist yet, because nothing has launched.
 
 The site reads the live rates from the chain on the **Venue AMM** tab
 ([/pools](https://memetics.finance/pools)). Detail: [`TEGRIDY_FORK.md`](solana/tegridy-amm/TEGRIDY_FORK.md).
@@ -131,8 +132,9 @@ our fee Safe. There is no TOWELI staking on either chain.
   [`SAFE_REHOME_RUNBOOK.md`](docs/SAFE_REHOME_RUNBOOK.md) and not done. The treasury is a
   two-signature Safe, and the EVM curve launchers are owned by two-signature Safes.
 - **Reviews:** many internal adversarial reviews ([`AUDITS.md`](docs/AUDITS.md)), no paid
-  firm. The pool program's admin-key changes have had no independent review, and the site says
-  so. Report a security issue privately: [`SECURITY.md`](SECURITY.md).
+  firm. The pool program's changes from Raydium's (its admin keys; the source also adds one
+  instruction that names pool share tokens and one check that keeps the launch fee tier for
+  launches, which mainnet ran from 2026-10-23 until a roll-back on 2026-10-24) have had no independent review, and the site says so. Report a security issue privately: [`SECURITY.md`](SECURITY.md).
 
 ---
 
@@ -204,7 +206,7 @@ The full build and test recipe CI runs is in [`CLAUDE.md`](CLAUDE.md). Setup and
 frontend/              the site (Vite + React) and its serverless API (frontend/api)
 contracts/             Ethereum, Base and Robinhood contracts (Foundry)
 solana/tegridy-amm/    our Solana programs: the cp-swap fork, the launcher, the BAYLA lock ladder
-solana/tegridy-clmm/   range pools, a fork of Raydium's CLMM: source only, not deployed
+solana/tegridy-clmm/   range pools, a fork of Raydium's CLMM, live on Solana mainnet
 indexer/               Ethereum event indexer (Ponder)
 indexer-solana/        Solana event indexer
 bot/                   Telegram bot, deployed nowhere yet

@@ -4,14 +4,11 @@ import { m, AnimatePresence } from 'framer-motion';
 import { useAccount } from 'wagmi';
 import { pageArt, artStyle } from '../lib/artConfig';
 import { usePageTitle } from '../hooks/usePageTitle';
-// Each NFT-Finance section is a large (50–120KB source) tab-gated surface and only ONE
-// mounts at a time (see the tabpanel below). Lazy-loading them splits what was a single
-// ~1.27MB page chunk into per-tab chunks: opening /nft-finance now pulls only the active
-// tab (default: Token Lending); AMM / NFT-lending / Launchpad load on first tab-switch.
-// The named exports are remapped to `default` so React.lazy can consume them.
-const LendingSection = lazy(() =>
-  import('../components/nftfinance/LendingSection').then((mod) => ({ default: mod.LendingSection })),
-);
+// Each NFT-Finance section is a large tab-gated surface and only ONE mounts at a
+// time (see the tabpanel below). Lazy-loading them splits the page into per-tab
+// chunks: opening /nft-finance pulls only the active tab (default: NFT Lending);
+// the others load on first tab-switch. The named exports are remapped to
+// `default` so React.lazy can consume them.
 const AMMSection = lazy(() =>
   import('../components/nftfinance/AMMSection').then((mod) => ({ default: mod.AMMSection })),
 );
@@ -21,15 +18,6 @@ const NFTLendingSection = lazy(() =>
 const LaunchpadSection = lazy(() =>
   import('../components/nftfinance/LaunchpadSection').then((mod) => ({ default: mod.LaunchpadSection })),
 );
-// #61 / #62. Lazy for the same reason as the four above — these two surfaces
-// are gated off (no contract is deployed) and must not cost the default tab a
-// byte to say so.
-const PooledLendingSection = lazy(() =>
-  import('../components/nftfinance/PooledLendingSection').then((mod) => ({ default: mod.PooledLendingSection })),
-);
-const BnplSection = lazy(() =>
-  import('../components/nftfinance/BnplSection').then((mod) => ({ default: mod.BnplSection })),
-);
 import { ArtImg } from '../components/ArtImg';
 import { CardArt } from '../components/ui/CardArt';
 import { FinePrint } from '../components/ui/FinePrint';
@@ -37,7 +25,6 @@ import { FeatureNotDeployed } from '../components/ui/FeatureNotDeployed';
 import { PageSkeleton } from '../components/PageSkeleton';
 import { ShieldPanel } from '../components/shield/ShieldPanel';
 import {
-  TEGRIDY_LENDING_ADDRESS,
   TEGRIDY_NFT_LENDING_ADDRESS,
   TEGRIDY_NFT_POOL_FACTORY_ADDRESS,
   TEGRIDY_LAUNCHPAD_V2_ADDRESS,
@@ -45,16 +32,12 @@ import {
 } from '../lib/constants';
 import { useTabListKeys } from '../hooks/useTabListKeys';
 import { STRIP_ARROW_PX, useTabStripArrows } from '../components/layout/tabStripScroll';
-import { isPooledLendingLive, isBnplLive } from '../hooks/usePooledLendingConfig';
 import { artImgProps } from '../lib/artSrcSet';
 
-type Section = 'lending' | 'nftlending' | 'pooled' | 'bnpl' | 'amm' | 'launchpad';
+type Section = 'nftlending' | 'amm' | 'launchpad';
 
 const SECTIONS: { key: Section; label: string; subtitle?: string }[] = [
-  { key: 'lending', label: 'Token Lending', subtitle: 'ETH loans + restake' },
   { key: 'nftlending', label: 'NFT Lending', subtitle: 'Generic NFTs' },
-  { key: 'pooled', label: 'Pooled Lending', subtitle: 'Per-collection pools' },
-  { key: 'bnpl', label: 'Pay in Instalments', subtitle: 'Deposit + 3 payments' },
   { key: 'amm', label: 'NFT AMM', subtitle: 'Pool trading' },
   { key: 'launchpad', label: 'Launchpad' },
 ];
@@ -65,12 +48,6 @@ const SECTIONS: { key: Section; label: string; subtitle?: string }[] = [
 // `description` is the one short visible line; `more` (when set) is the longer
 // original, one press away in a FinePrint.
 const SECTION_PROMPTS: Record<Section, { title: string; description: string; more?: string }> = {
-  lending: {
-    title: 'Connect to lend or borrow ETH',
-    description: 'Your staking NFT backs the loan. Miss the deadline and lose it.',
-    more:
-      'Lend ETH against staked-TOWELI position NFTs, borrow against your own staking NFT, or restake for bonus rewards. 1-hour grace period, no liquidation auctions — peer-to-peer.',
-  },
   nftlending: {
     title: 'Connect to borrow against your NFT',
     description: 'You and the other side set the terms. No price feeds.',
@@ -82,18 +59,6 @@ const SECTION_PROMPTS: Record<Section, { title: string; description: string; mor
     more:
       'Buy and sell NFTs instantly against AMM pools, or provide liquidity to a collection and earn trading fees.',
   },
-  pooled: {
-    title: 'Pooled lending, one collection per pool',
-    description: 'A loss in one pool stays in that pool. Not deployed yet.',
-    more:
-      'Deposit WETH into a single collection’s pool and borrowers draw against it instantly. Isolated per collection, so a loss on one reaches only the depositors who chose it. No pool is deployed yet.',
-  },
-  bnpl: {
-    title: 'Buy an NFT in instalments',
-    description: 'Missing a payment costs you the token. Not deployed yet.',
-    more:
-      'A deposit now, three payments after, and the token in escrow until the plan clears. Missing a payment costs you the token. The desk is not deployed yet.',
-  },
   launchpad: {
     title: 'Connect to the NFT launchpad',
     description: 'Launch your own NFT collection, then open a pool for it.',
@@ -103,13 +68,6 @@ const SECTION_PROMPTS: Record<Section, { title: string; description: string; mor
 };
 
 const introCards = () => [
-  {
-    key: 'lending' as Section,
-    title: 'Token Lending',
-    desc: 'ETH loans backed by staking NFTs.',
-    icon: 'M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z',
-    art: pageArt('nft-finance', 1),
-  },
   {
     key: 'nftlending' as Section,
     title: 'NFT Lending',
@@ -135,45 +93,21 @@ const introCards = () => [
 
 const INTRO_DISMISSED_KEY = 'tegridy-nft-finance-intro-dismissed';
 
-const VALID_SECTIONS: Section[] = ['lending', 'nftlending', 'pooled', 'bnpl', 'amm', 'launchpad'];
+const VALID_SECTIONS: Section[] = ['nftlending', 'amm', 'launchpad'];
 
 /**
- * The tab a bare /nft-finance lands on.
- *
- * NOT 'lending': Token Lending has no deployed contract (it renders a "will be
- * deployed soon" wall gated on a TWAP oracle that reverts). /nft-finance is a
- * primary nav destination, so defaulting to it meant the headline NFT-finance
- * surface opened on something you cannot use, while NFT Lending, NFT AMM and
- * Launchpad — all live — sat one click away. Pooled Lending and Pay in
- * Instalments are also undeployed and are also not candidates for the default
- * for the same reason.
- *
- * `handleSectionChange` clears ?section= for this value, so the two MUST agree;
- * changing one alone makes the tab for the other unreachable.
+ * The tab a bare /nft-finance lands on. `handleSectionChange` clears ?section= for
+ * this value, so the two MUST agree; changing one alone makes the tab for the
+ * other unreachable.
  */
 const DEFAULT_SECTION: Section = 'nftlending';
 
-// Per-section contract-deploy state, derived from constants.ts — never asserted.
-//
-// ⚠ This comment used to say "Every NFT-Finance contract is currently the zero
-// address (ZEROED 2026-05-31)". That has been false since 2026-07-21: the NFT pool
-// factory, NFT lending and LaunchpadV2 all carry real addresses and are un-gated.
-// Three entries are 0x0 today and each is genuinely undeployed: Token Lending
-// (TEGRIDY_LENDING_ADDRESS) waits on the TWAP oracle, whose reserve floor the
-// drained native pool does not clear; Pooled Lending and Pay in Instalments
-// (#61/#62) have had no deploy ceremony at all.
-//
-// This map drives the Live chips on the tab row and the intro cards' chips; each
-// flips on by itself when a real address lands in constants.ts.
+// Per-section contract-deploy state, derived from constants.ts, never asserted.
+// This map drives the Live chips on the tab row and the intro cards' chips.
 const SECTION_DEPLOYED: Record<Section, boolean> = {
-  lending: isDeployed(TEGRIDY_LENDING_ADDRESS),
   nftlending: isDeployed(TEGRIDY_NFT_LENDING_ADDRESS),
   amm: isDeployed(TEGRIDY_NFT_POOL_FACTORY_ADDRESS),
   launchpad: isDeployed(TEGRIDY_LAUNCHPAD_V2_ADDRESS),
-  // Both read from hooks/usePooledLendingConfig.ts, where every address is
-  // still zero. The chip flips on its own when one stops being zero.
-  pooled: isPooledLendingLive(),
-  bnpl: isBnplLive(),
 };
 
 function sectionFromQuery(v: string | null): Section | null {
@@ -213,7 +147,7 @@ function StripArrow({ dir, onPress }: { dir: 'prev' | 'next'; onPress: () => voi
 
 export default function LendingPage() {
   usePageTitle('NFT Finance', 'NFT-backed lending, fractional AMM, and launchpad.');
-  const { isConnected, address } = useAccount();
+  const { isConnected } = useAccount();
   const [searchParams, setSearchParams] = useSearchParams();
   // R007 Pattern A — derive `section` directly from ?section=. URL is the
   // source of truth, so deep-links resolve to the right tab without an effect.
@@ -246,7 +180,7 @@ export default function LendingPage() {
         <ArtImg pageId="nft-finance" idx={0} alt="" loading="lazy" className="w-full h-full object-cover" />
       </div>
 
-      <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6 pt-24 pb-16">
+      <div className="relative z-10 page-column mx-auto px-4 md:px-6 pt-24 pb-16">
         {/* Header */}
         <m.div
           className="text-center mb-6"
@@ -264,11 +198,12 @@ export default function LendingPage() {
         </m.div>
 
         {/* Section tabs, above the overview: below it a phone's bottom bar covered part of the
-            row at 390x844 (e2e/phone-layout.spec.ts). Below a 1,143px window the row is held to
-            the page and scrolls inside itself, scrollbar hidden, no scroll snap. A fade at the
-            right edge (`--strip-fade`, also the end padding) shows there is more; with a mouse,
-            an arrow over each end with tabs past it moves the row. `tabListRef` keeps the
-            selected tab clear of the fade and the arrows. e2e/nft-finance-strip.spec.ts. */}
+            row at 390x844 (e2e/phone-layout.spec.ts). Below a 480px window the row is held to
+            the page and scrolls inside itself, scrollbar hidden, no scroll snap (the three tabs
+            measure 436px with the fade's padding). A fade at the right edge (`--strip-fade`, also
+            the end padding) shows there is more; with a mouse, an arrow over each end with tabs
+            past it moves the row. `tabListRef` keeps the selected tab clear of the fade and the
+            arrows. e2e/nft-finance-strip.spec.ts. */}
         <m.div
           className="relative mb-6 mx-auto w-full md:w-fit max-w-full"
           initial={{ opacity: 0, y: 8 }}
@@ -277,7 +212,7 @@ export default function LendingPage() {
         >
           <div
             ref={tabListRef}
-            className="flex overflow-x-auto gap-1.5 p-1 [--strip-fade:2rem] pr-[var(--strip-fade)] min-[1143px]:pr-1 rounded-2xl no-scrollbar [mask-image:linear-gradient(to_right,#000_calc(100%_-_var(--strip-fade)),transparent)] min-[1143px]:[mask-image:none]"
+            className="flex overflow-x-auto gap-1.5 p-1 [--strip-fade:2rem] pr-[var(--strip-fade)] min-[480px]:pr-1 rounded-2xl no-scrollbar [mask-image:linear-gradient(to_right,#000_calc(100%_-_var(--strip-fade)),transparent)] min-[480px]:[mask-image:none]"
             style={{ background: 'rgba(13,21,48,0.85)', border: '1px solid rgba(255,255,255,0.20)' }}
             role="tablist"
             aria-label="NFT Finance sections"
@@ -307,8 +242,6 @@ export default function LendingPage() {
                     transition={{ type: 'spring', stiffness: 400, damping: 30 }}
                   />
                 )}
-                {/* F309: surface the section subtitle on desktop — "Staking + Restake"
-                    under Token Lending is the only hint restaking lives here. */}
                 <span className="relative z-10 flex flex-col items-center leading-tight">
                   <span className="inline-flex items-center gap-1.5">
                     {label}
@@ -379,7 +312,6 @@ export default function LendingPage() {
               resolved module, so only the FIRST visit to a tab shows the spinner —
               revisits render synchronously. */}
           <Suspense fallback={<PageSkeleton />}>
-            {section === 'lending' && <LendingSection address={address} />}
             {section === 'nftlending' && (isDeployed(TEGRIDY_NFT_LENDING_ADDRESS)
               ? (
                 <div className="space-y-6">
@@ -390,8 +322,6 @@ export default function LendingPage() {
                 </div>
               )
               : <FeatureNotDeployed pageId="nft-finance" idx={2} title="NFT lending isn't live yet" subtitle="Borrow against JBAC, Nakamigos, and GNSS once the NFT-lending contract is deployed for the relaunch." />)}
-            {section === 'pooled' && <PooledLendingSection />}
-            {section === 'bnpl' && <BnplSection />}
             {section === 'amm' && <AMMSection />}
             {section === 'launchpad' && <LaunchpadSection />}
           </Suspense>

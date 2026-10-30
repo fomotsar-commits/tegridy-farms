@@ -97,10 +97,15 @@
  * Ethereum a JSON-RPC array batch), which is what keeps the skip path rare: sixty
  * sequential calls to a free endpoint will eventually draw a limit; two will not.
  *
+ * One more read, only for a row that says WHICH program a data account holds
+ * (`expect.holdsProgram`, check 3c): the program's bytes are fetched once and hashed.
+ * The registry can then be wrong about the chain in a way no typing can put right. A row
+ * that names a build mainnet does not run is red until mainnet runs it.
+ *
  * Run:  node scripts/verify-addresses.mjs             (offline; fast; CI-safe)
  *       node scripts/verify-addresses.mjs --onchain   (also reads live chain state)
  *       node scripts/verify-addresses.mjs --markdown  (emit the registry as a table)
- *       node scripts/verify-addresses.mjs --self-test (prove 0-3b, 5, 5b, 6 and 7 can still fail)
+ *       node scripts/verify-addresses.mjs --self-test (prove 0-3c, 5, 5b, 6 and 7 can still fail)
  *
  * Exits non-zero on any failure so CI fails loudly.
  *
@@ -108,6 +113,7 @@
  * repository is public. `custody` says WHO controls a key, never WHERE it is stored.
  */
 
+import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync, existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -376,7 +382,7 @@ function checkRoles(entries) {
 // deployed" from "EOA": both answer 0x. An EVM address that must not exist belongs in
 // `denylist`, which is enforced.
 const EXPECT_TYPES = {
-  solana: new Set(['wallet', 'program-owned', 'token-account', 'executable', 'absent']),
+  solana: new Set(['wallet', 'program-owned', 'token-account', 'executable', 'absent', 'squads-multisig']),
   evm: new Set(['contract', 'eoa']),
 };
 function checkExpectTypes(entries) {
@@ -394,10 +400,115 @@ function checkExpectTypes(entries) {
   }
 }
 
+// ── 3c. WHICH program a data account holds ───────────────────────────────────────
+//
+// `executable` on a program and `program-owned` on its data account say that A program
+// is there. Neither says which one. Until 2026-10-09 the pool program's rows named a
+// build in their `status` prose ("expected bytecode sha256 …") that mainnet did not
+// run yet, and the chain read was green all the same: prose is not read.
+//
+// `expect.holdsProgram: { bytes, sha256 }` on a data account's row is that claim in a
+// form the chain read checks. The upgradeable loader keeps a 45-byte header in front of
+// the program (a 4-byte tag, the slot of the last deploy, the upgrade authority). The
+// first `bytes` bytes after it must hash to `sha256`.
+//
+// Why a hash and not "last deployed after slot N": making a program account larger
+// re-deploys the program in that slot, any wallet may do it, and the old program is
+// still what runs afterwards. A slot check would go green on a stranger's enlarge. The
+// same goes for the account's size. Only the bytes say which build is there.
+//
+// The offline half lives here because, like 3b, it is a spelling check on this file. A
+// misspelled key matches no branch of the chain read and asserts nothing, so the keys an
+// `expect` block may carry are a closed set, and a `holdsProgram` that could not be
+// checked (wrong kind of row, no hash, a size that is not a number) is a hard failure.
+const UPGRADEABLE_LOADER = 'BPFLoaderUpgradeab1e11111111111111111111111';
+/** The loader's header in front of a program: tag (4), last deployed slot (8), authority (1 + 32). */
+const PROGRAMDATA_HEADER = 45;
+const PROGRAMDATA_TAG = 3;
+/** The loader takes no program account larger than 10 MiB. */
+const LARGEST_PROGRAM = 10 * 1024 * 1024;
+
+// ── 3e. The multisig's settings, which the site repeats to LPs ──────────────────
+//
+// A `squads-multisig` row names threshold, members, timeLock and configAuthority, and the
+// chain read decodes all four. configAuthority can only be "none": a config authority is
+// one key that can rewrite the other three alone (src/lib/launcher/solana/squads.ts).
+// The keys an `expect` block may carry are a closed set: a misspelled one asserts nothing.
+const SQUADS_V4_PROGRAM = 'SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf';
+const MULTISIG_SETTINGS = ['threshold', 'members', 'timeLock', 'configAuthority'];
+/** Where the site says these settings. A mismatch names both; --self-test proves they exist. */
+const MULTISIG_COPY = {
+  RISK_SHORT: join(HERE, '..', 'src', 'components', 'solana', 'lp', 'LpDisclosures.tsx'),
+  LpDisclosure: join(HERE, '..', 'src', 'components', 'solana', 'lp', 'SolanaLpSection.tsx'),
+};
+const MULTISIG_COPY_NOTE =
+  'The site tells LPs these settings: change RISK_SHORT (src/components/solana/lp/LpDisclosures.tsx) and ' +
+  "LpDisclosure's small print (src/components/solana/lp/SolanaLpSection.tsx) in the same PR as this row's expect.";
+const EXPECT_KEYS = {
+  solana: new Set(['type', 'funded', 'holdsProgram', ...MULTISIG_SETTINGS]),
+  evm: new Set(['type']),
+};
+function checkExpectKeys(entries) {
+  for (const e of entries) {
+    if (e.expect === undefined) continue;
+    const label = `${e.section}/${e.id}`;
+    if (e.expect === null || typeof e.expect !== 'object' || Array.isArray(e.expect)) {
+      fail(`${label}: expect must be an object; as written the chain read asserts NOTHING for this row`);
+      continue;
+    }
+    const allowed = EXPECT_KEYS[e.kind];
+    for (const k of Object.keys(e.expect)) {
+      if (!allowed.has(k)) {
+        fail(
+          `${label}: expect.${k} is not one of ${[...allowed].join(', ')}. The chain read has no branch for it, ` +
+            `so it would assert NOTHING while the row still reads as asserted. Fix the key or remove it.`,
+        );
+      }
+    }
+    const hp = e.expect.holdsProgram;
+    if (hp === undefined) continue;
+    if (e.kind !== 'solana') continue; // already failed above: not a key an EVM row may carry
+    if (hp === null || typeof hp !== 'object' || Array.isArray(hp)) {
+      fail(`${label}: expect.holdsProgram must be { bytes, sha256 }`);
+      continue;
+    }
+    if (e.expect.type !== 'program-owned') {
+      fail(`${label}: expect.holdsProgram belongs on a program's DATA account, which is expect.type "program-owned"; this row is "${e.expect.type}"`);
+    }
+    const extra = Object.keys(hp).filter((k) => k !== 'bytes' && k !== 'sha256');
+    if (extra.length) fail(`${label}: expect.holdsProgram carries ${extra.join(', ')}, which nothing reads; it takes bytes and sha256 only`);
+    if (!Number.isInteger(hp.bytes) || hp.bytes < 1 || hp.bytes > LARGEST_PROGRAM) {
+      fail(`${label}: expect.holdsProgram.bytes is ${JSON.stringify(hp.bytes)}; it must be the program's size, a whole number of bytes from 1 to ${LARGEST_PROGRAM}`);
+    }
+    if (typeof hp.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(hp.sha256)) {
+      fail(`${label}: expect.holdsProgram.sha256 must be the program's full sha256, 64 lowercase hex characters (never a shortened one)`);
+    }
+  }
+}
+function checkMultisigSettings(entries) {
+  for (const e of entries) {
+    if (e.kind !== 'solana' || !e.expect || typeof e.expect !== 'object') continue;
+    const label = `${e.section}/${e.id}`;
+    const named = MULTISIG_SETTINGS.filter((k) => Object.hasOwn(e.expect, k));
+    if (e.expect.type !== 'squads-multisig') {
+      if (named.length) fail(`${label}: expect.${named.join(', expect.')} belongs on expect.type "squads-multisig"; on "${e.expect.type}" no read decodes it`);
+      continue;
+    }
+    const { threshold, members, timeLock, configAuthority } = e.expect;
+    const whole = (v, max) => Number.isSafeInteger(v) && v >= 0 && v <= max;
+    if (!whole(threshold, 0xffff) || threshold < 2) fail(`${label}: expect.threshold must be a whole number of at least 2 (one signature is a single-key drain); it is ${JSON.stringify(threshold)}`);
+    if (!whole(members, 0xffffffff) || !(members >= threshold)) fail(`${label}: expect.members must be a whole number no smaller than the threshold; it is ${JSON.stringify(members)}`);
+    if (!whole(timeLock, 0xffffffff)) fail(`${label}: expect.timeLock must be whole seconds, as the chain stores it (u32); it is ${JSON.stringify(timeLock)}`);
+    if (configAuthority !== 'none') fail(`${label}: expect.configAuthority must be "none", not ${JSON.stringify(configAuthority)}: a config authority is one key that can rewrite the threshold and members alone`);
+  }
+}
+
 checkTopLevelKeys(reg);
 const allEntries = checkRows(reg);
 checkRoles(allEntries);
 checkExpectTypes(allEntries);
+checkExpectKeys(allEntries);
+checkMultisigSettings(allEntries);
 for (const [chain, toks] of Object.entries(reg.heatRegistry ?? {})) {
   if (!Array.isArray(toks)) continue;
   for (const t of toks) checkEvm(getAddress(t.address), `heatRegistry/${chain}/${t.symbol}`);
@@ -444,6 +555,17 @@ const SOLANA_FIELD_LAYOUTS = {
       creatorFeeRate: { at: 108, kind: 'u64' },
     },
   },
+  // solana/tegridy-clmm/programs/amm/src/states/config.rs, AmmConfig::LEN 117. Its `owner`
+  // field is the tier's admin and protocol fee owner, read here as protocolOwner because
+  // `owner` in a spec names the program that owns the account.
+  'clmm-amm-config': {
+    size: 117,
+    fields: {
+      index: { at: 9, kind: 'u16' }, protocolOwner: { at: 11, kind: 'holder' },
+      protocolFeeRate: { at: 43, kind: 'u32' }, tradeFeeRate: { at: 47, kind: 'u32' }, tickSpacing: { at: 51, kind: 'u16' },
+      fundFeeRate: { at: 53, kind: 'u32' }, fundOwner: { at: 61, kind: 'holder' },
+    },
+  },
   // solana/tegridy-amm/programs/tegridy-launch/src/state.rs, GlobalConfig (202 bytes).
   'tegridy-launch-global': {
     size: 202,
@@ -457,7 +579,7 @@ const SOLANA_FIELD_LAYOUTS = {
 };
 /** Rows that must be listed in solanaFields.accounts (or in notAsserted, with a reason). */
 const FIELD_COVERAGE = /amm-config|programdata|global/;
-const SOLANA_FIELDS_KEYS = new Set(['$comment', 'onlyHolder', 'accounts', 'notAsserted']);
+const SOLANA_FIELDS_KEYS = new Set(['$comment', 'onlyHolder', 'fundOwnerUnderTheSplit', 'accounts', 'notAsserted']);
 
 function checkSolanaFields(registry, entries) {
   const block = registry.solanaFields;
@@ -466,6 +588,11 @@ function checkSolanaFields(registry, entries) {
   for (const k of Object.keys(block)) if (!SOLANA_FIELDS_KEYS.has(k)) fail(`solanaFields.${k} is not a key anything reads`);
   const sol = new Map(entries.filter((e) => e.kind === 'solana').map((e) => [e.id, e]));
   if (!sol.has(block.onlyHolder)) fail(`solanaFields.onlyHolder "${block.onlyHolder}" is not a solana row id`);
+  // The one exception to onlyHolder: under the split the island agreed on 2026-10-18, the
+  // island's Workshop is cp-swap's fund_owner. It can collect ONLY the fund fee (admin/
+  // collect_fund_fee.rs); protocol owner, admin and every other authority stay the vault.
+  const splitFundOwner = block.fundOwnerUnderTheSplit;
+  if (splitFundOwner !== undefined && !sol.has(splitFundOwner)) fail(`solanaFields.fundOwnerUnderTheSplit "${splitFundOwner}" is not a solana row id`);
   const accounts = block.accounts && typeof block.accounts === 'object' && !Array.isArray(block.accounts) ? block.accounts : {};
   const skipped = block.notAsserted && typeof block.notAsserted === 'object' && !Array.isArray(block.notAsserted) ? block.notAsserted : {};
   if (!Object.keys(accounts).length) fail('solanaFields.accounts is empty: it asserts NOTHING');
@@ -485,8 +612,8 @@ function checkSolanaFields(registry, entries) {
     for (const [name, f] of Object.entries(layout.fields)) {
       const v = spec[name];
       if (v === undefined) { fail(`${label}: ${name} is missing; every field of ${spec.layout} is asserted or none is`); continue; }
-      if (f.kind === 'holder' && v !== block.onlyHolder) {
-        fail(`${label}: ${name} names "${v}", not "${block.onlyHolder}". Only the venue's Squads vault may hold a fee owner, fee receiver or admin key of ours`);
+      if (f.kind === 'holder' && v !== block.onlyHolder && !(name === 'fundOwner' && splitFundOwner !== undefined && v === splitFundOwner)) {
+        fail(`${label}: ${name} names "${v}", not "${block.onlyHolder}". Only the venue's Squads vault may hold a fee owner, fee receiver or admin key of ours (the one exception: fundOwner may be solanaFields.fundOwnerUnderTheSplit, the island's Workshop under the 2026-10-18 split)`);
       } else if ((f.kind === 'holder' || f.kind === 'pubkey') && !sol.has(v)) {
         fail(`${label}: ${name} "${v}" is not a solana row id`);
       } else if (f.kind !== 'holder' && f.kind !== 'pubkey' && !(Number.isSafeInteger(v) && v >= 0)) {
@@ -517,7 +644,7 @@ export function solanaFieldProblems(spec, v, ids) {
   if (v === null) return { answered: true, problems: ['the account DOES NOT EXIST'] };
   if (!v || typeof v !== 'object' || !Array.isArray(v.data) || v.data[1] !== 'base64') return unanswered('the account came back without base64 data');
   const b = Buffer.from(v.data[0], 'base64');
-  const need = Math.max(...Object.values(layout.fields).map((f) => f.at + ({ holder: 32, pubkey: 32, u64: 8, u16: 2, u8: 1 })[f.kind]));
+  const need = Math.max(...Object.values(layout.fields).map((f) => f.at + ({ holder: 32, pubkey: 32, u64: 8, u32: 4, u16: 2, u8: 1 })[f.kind]));
   if (b.length < need) return unanswered(`asked for ${need} bytes of data, the response carried ${b.length}`);
   const problems = [];
   const owner = layout.ownerAddress ?? ids.get(spec.owner);
@@ -532,11 +659,53 @@ export function solanaFieldProblems(spec, v, ids) {
       const got = key(f.at);
       if (got !== ids.get(want)) problems.push(`${name} is ${got}, registry says ${want} (${ids.get(want)})`);
     } else {
-      const got = f.kind === 'u64' ? b.readBigUInt64LE(f.at) : f.kind === 'u16' ? BigInt(b.readUInt16LE(f.at)) : BigInt(b[f.at]);
+      const got = f.kind === 'u64' ? b.readBigUInt64LE(f.at)
+        : f.kind === 'u32' ? BigInt(b.readUInt32LE(f.at))
+          : f.kind === 'u16' ? BigInt(b.readUInt16LE(f.at)) : BigInt(b[f.at]);
       if (got !== BigInt(want)) problems.push(`${name} is ${got}, registry says ${want}`);
     }
   }
   return { answered: true, problems };
+}
+
+// Squads v4 Multisig after the 8-byte Anchor discriminator: create_key 32 @8,
+// config_authority 32 @40, threshold u16 @72, time_lock u32 @74, transaction_index u64 @78,
+// stale_transaction_index u64 @86, rent_collector Option<Pubkey> @94 (1 or 33 bytes),
+// bump u8, then members Vec<{key 32, permissions u8}>: a u32 count, 33 bytes each.
+const MULTISIG_DISCRIMINATOR = createHash('sha256').update('account:Multisig').digest().subarray(0, 8);
+
+/** The settings a Squads v4 Multisig's data holds, or null when the data is not one. Pure. */
+export function decodeSquadsMultisig(b) {
+  if (b.length < 96 || !b.subarray(0, 8).equals(MULTISIG_DISCRIMINATOR) || b[94] > 1) return null;
+  const at = b[94] === 1 ? 128 : 96;
+  if (b.length < at + 4) return null;
+  const members = b.readUInt32LE(at);
+  if (b.length < at + 4 + members * 33) return null;
+  const authority = b.subarray(40, 72);
+  return {
+    threshold: b.readUInt16LE(72),
+    members,
+    timeLock: b.readUInt32LE(74),
+    configAuthority: authority.every((x) => x === 0) ? 'none' : base58Encode(authority),
+    transactionIndex: b.readBigUInt64LE(78),
+  };
+}
+
+/**
+ * Compare a multisig account the RPC returned against its row's `expect`. Pure. Only a
+ * body that is not the whole account is unanswered; anything else that is not a Squads v4
+ * Multisig with exactly these settings is a definite failure.
+ */
+export function squadsMultisigProblems(want, v) {
+  if (v === null) return { answered: true, problems: ['the account DOES NOT EXIST'] };
+  if (!v || typeof v !== 'object' || !Array.isArray(v.data) || v.data[1] !== 'base64') return unanswered('the account came back without base64 data');
+  const b = Buffer.from(v.data[0], 'base64');
+  if (!Number.isInteger(v.space) || b.length !== v.space) return unanswered(`the response carried ${b.length} bytes of a ${v.space ?? 'unstated'}-byte account`);
+  if (v.owner !== SQUADS_V4_PROGRAM) return { answered: true, problems: [`owner is ${v.owner}, not the Squads v4 program ${SQUADS_V4_PROGRAM}`] };
+  const got = decodeSquadsMultisig(b);
+  if (!got) return { answered: true, problems: ['is not a Squads v4 Multisig account: its discriminator or members list does not decode'] };
+  const problems = MULTISIG_SETTINGS.filter((k) => got[k] !== want[k]).map((k) => `${k} is ${got[k]}, registry says ${want[k]}`);
+  return { answered: true, problems, got };
 }
 
 checkSolanaFields(reg, allEntries);
@@ -922,6 +1091,67 @@ export function classifySolanaBatch(json, expectedCount) {
 }
 
 /**
+ * The cheap half of `expect.holdsProgram`, from the batched read: every account in it
+ * comes back with its size (`space`), and a data account smaller than header + program
+ * cannot hold that program. Null when the size is enough, or was not stated.
+ */
+export function holdsProgramSpaceProblem(v, want) {
+  if (!v || !Number.isInteger(v.space)) return null;
+  const need = PROGRAMDATA_HEADER + want.bytes;
+  if (v.space >= need) return null;
+  return (
+    `registry says it holds the ${want.bytes}-byte program ${want.sha256}; the account is ${v.space} bytes, ` +
+    `too small for it (${need} needed): mainnet does NOT run that build`
+  );
+}
+
+/**
+ * The other half: a `getAccountInfo` of the data account, asked for its header and the
+ * first `want.bytes` bytes of program. Same three outcomes as the batch: the RPC answered
+ * and the bytes are that build (problem null), answered and they are not (a problem), or
+ * no usable answer (not answered, so skipped and counted, never a pass).
+ */
+export function classifyProgramData(json, want) {
+  if (json === null || typeof json !== 'object' || Array.isArray(json)) return unanswered('response was not a JSON-RPC object');
+  if (json.error) return unanswered(`RPC error ${json.error.code ?? '?'}: ${json.error.message ?? 'unknown'}`);
+  if (json.result === null || typeof json.result !== 'object' || !('value' in json.result)) return unanswered('response carried no result.value');
+  const v = json.result.value;
+  if (v === null) return { answered: true, problem: 'registry expects a program data account here and it DOES NOT EXIST' };
+  if (typeof v !== 'object' || Array.isArray(v)) return unanswered('the account was neither null nor an account object');
+  if (v.owner !== UPGRADEABLE_LOADER) return { answered: true, problem: `expected a program data account of the upgradeable loader; owner is ${v.owner}` };
+  if (!Array.isArray(v.data) || v.data[1] !== 'base64' || typeof v.data[0] !== 'string') return unanswered('the account came back without base64 data');
+  const bytes = Buffer.from(v.data[0], 'base64');
+  // A short body must never read as "the program is too small". When the RPC states the
+  // account's size, the slice on the wire has to be all of what was asked for.
+  const asked = PROGRAMDATA_HEADER + want.bytes;
+  if (Number.isInteger(v.space) && bytes.length !== Math.min(v.space, asked)) {
+    return unanswered(`asked for ${Math.min(v.space, asked)} bytes of the account, the response carried ${bytes.length}`);
+  }
+  if (bytes.length < PROGRAMDATA_HEADER || bytes.readUInt32LE(0) !== PROGRAMDATA_TAG) {
+    return { answered: true, problem: 'the account is not a program data account (its loader tag is not ProgramData)' };
+  }
+  const slot = bytes.readBigUInt64LE(4);
+  const room = bytes.length - PROGRAMDATA_HEADER;
+  if (room < want.bytes) {
+    return {
+      answered: true,
+      slot,
+      problem: `it holds ${room} bytes of program, too few for the ${want.bytes}-byte program ${want.sha256}: mainnet does NOT run that build (last deployed in slot ${slot})`,
+    };
+  }
+  const sha256 = createHash('sha256').update(bytes.subarray(PROGRAMDATA_HEADER, asked)).digest('hex');
+  if (sha256 !== want.sha256) {
+    return {
+      answered: true,
+      slot,
+      sha256,
+      problem: `the first ${want.bytes} bytes of the program hash to ${sha256}, not ${want.sha256}: mainnet does NOT run that build (last deployed in slot ${slot})`,
+    };
+  }
+  return { answered: true, slot, sha256, problem: null };
+}
+
+/**
  * Classify a JSON-RPC array batch of `eth_getCode`.
  *
  * Per-id, because a batch can legitimately answer some ids and error on others. An id
@@ -985,25 +1215,27 @@ async function onchain() {
   // should "I could not check" and "this address is wrong". Three outcomes, not two.
   // Every unknown is counted and named at the end of the run.
   const RPC_TIMEOUT_MS = 12_000;
-  const postOnce = async (url, body) => {
+  // A whole program is about a megabyte of base64. It gets longer to arrive, not more tries.
+  const PROGRAM_READ_TIMEOUT_MS = 45_000;
+  const postOnce = async (url, body, timeoutMs) => {
     try {
       const r = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
-        signal: AbortSignal.timeout(RPC_TIMEOUT_MS),
+        signal: AbortSignal.timeout(timeoutMs),
       });
       if (!r.ok) return { ok: false, reason: `HTTP ${r.status}` };
       return { ok: true, json: await r.json() };
     } catch (err) {
-      return { ok: false, reason: err?.name === 'TimeoutError' ? `timed out after ${RPC_TIMEOUT_MS}ms` : err?.message || 'request failed' };
+      return { ok: false, reason: err?.name === 'TimeoutError' ? `timed out after ${timeoutMs}ms` : err?.message || 'request failed' };
     }
   };
-  const post = async (url, body) => {
-    const first = await postOnce(url, body);
+  const post = async (url, body, timeoutMs = RPC_TIMEOUT_MS) => {
+    const first = await postOnce(url, body, timeoutMs);
     if (first.ok) return first;
     await new Promise((res) => setTimeout(res, 900));
-    const second = await postOnce(url, body);
+    const second = await postOnce(url, body, timeoutMs);
     return second.ok ? second : { ok: false, reason: `${first.reason}; retry: ${second.reason}` };
   };
 
@@ -1040,7 +1272,10 @@ async function onchain() {
     if (want === 'wallet' && v.owner !== SYSTEM_PROGRAM) return `expected a system-owned wallet; owner is ${v.owner}`;
     if (want === 'program-owned' && v.owner === SYSTEM_PROGRAM) return 'expected a program-owned account; it is system-owned';
     if (want === 'token-account' && !TOKEN_PROGRAMS.has(v.owner)) return `expected an SPL token account; owner is ${v.owner}`;
+    if (want === 'squads-multisig' && v.owner !== SQUADS_V4_PROGRAM) return `expected a Squads v4 multisig; owner is ${v.owner}`;
     if (e.expect?.funded === true && !(v.lamports > 0)) return 'registry says FUNDED; the balance is 0';
+    // Check 3c, the cheap half: an account too small for the program it is said to hold.
+    if (e.expect?.holdsProgram) return holdsProgramSpaceProblem(v, e.expect.holdsProgram);
     return null;
   };
 
@@ -1048,6 +1283,9 @@ async function onchain() {
   const skipped = [];
   const solEntries = (reg.solana ?? []).filter((x) => !isNote(x));
   const evmEntries = allEntries.filter((e) => e.kind === 'evm');
+  // Rows whose program bytes are still to be hashed: they exist, they passed every check
+  // above, and they say which program they hold.
+  const programReads = [];
 
   // Batched: one request per chain, not one per address. That is not only cheaper —
   // it is what makes the skip path rare. Sixty sequential calls to a free endpoint
@@ -1074,7 +1312,40 @@ async function onchain() {
       const problem = solanaProblem(e, v);
       console.log(`  ${e.id.padEnd(30)} ${state}${problem ? `  <-- ${problem}` : ''}`);
       if (problem) fail(`solana/${e.id}: ${problem}`);
+      else if (v && e.expect?.holdsProgram && !(e.id?.startsWith('devnet-') || e.onchain === false)) programReads.push(e);
     });
+  }
+
+  // Check 3c, the other half: WHICH program each such data account holds. One read per
+  // row (there is one today), of the header and the program's own length and no more.
+  // An answer that is not that build FAILS. No usable answer is NOT CHECKED: counted and
+  // named below like every other skip, and never a pass.
+  for (const e of programReads) {
+    const want = e.expect.holdsProgram;
+    const res = await post(
+      SOL_RPC,
+      {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'getAccountInfo',
+        params: [safeAddress(e.address), { encoding: 'base64', dataSlice: { offset: 0, length: PROGRAMDATA_HEADER + want.bytes } }],
+      },
+      PROGRAM_READ_TIMEOUT_MS,
+    );
+    const cls = res.ok ? classifyProgramData(res.json, want) : unanswered(res.reason);
+    const label = `${e.id} (program bytes)`;
+    if (!cls.answered) {
+      warn(`Solana program read SKIPPED for ${e.id}: ${cls.reason}. Whether it holds the registered build is NOT KNOWN from this run.`);
+      console.log(`  ${label.padEnd(30)} (NOT CHECKED)`);
+      skipped.push(`solana/${label}`);
+      continue;
+    }
+    if (cls.problem) {
+      console.log(`  ${label.padEnd(30)} <-- ${cls.problem}`);
+      fail(`solana/${e.id}: ${cls.problem}`);
+    } else {
+      console.log(`  ${label.padEnd(30)} ${want.bytes} bytes, sha256 ${cls.sha256}, the registered build (last deployed in slot ${cls.slot})`);
+    }
   }
 
   // EVM entries are per-CHAIN, and the chain comes from `rowChains`: the section for
@@ -1151,7 +1422,7 @@ async function onchain() {
   // Never let "not checked" read as "checked and fine". Printed unconditionally, so a
   // zero is stated rather than inferred from the absence of a warning. The EVM count
   // is (entry, chain) PAIRS — a two-chain Safe is two reads and counts as two.
-  console.log(`\n  chain read: ${solEntries.length + evmPairs.length} considered, ${skipped.length} NOT CHECKED (the RPC did not answer)`);
+  console.log(`\n  chain read: ${solEntries.length + programReads.length + evmPairs.length} considered, ${skipped.length} NOT CHECKED (the RPC did not answer)`);
   if (skipped.length) console.log(`    ${skipped.join(', ')}`);
 
   // Same principle applied to coverage rather than availability: an entry with no
@@ -1196,6 +1467,35 @@ async function onchain() {
     });
   }
   console.log(`\n  field read: ${fieldRows.length} accounts considered, ${fieldSkips} NOT CHECKED (the RPC did not answer)`);
+
+  // Check 3e on the chain: each squads-multisig row's settings, from the whole account.
+  const multisigRows = solEntries.filter((e) => e.expect?.type === 'squads-multisig');
+  let multisigSkips = 0;
+  if (multisigRows.length) {
+    console.log('\n── the multisig: threshold, members, time lock, config authority ──');
+    const res = await post(SOL_RPC, {
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'getMultipleAccounts',
+      params: [multisigRows.map((e) => safeAddress(e.address)), { encoding: 'base64', commitment: 'finalized' }],
+    });
+    const cls = res.ok ? classifySolanaBatch(res.json, multisigRows.length) : unanswered(res.reason);
+    const slot = cls.answered ? res.json.result?.context?.slot : undefined;
+    multisigRows.forEach((e, i) => {
+      const r = cls.answered ? squadsMultisigProblems(e.expect, cls.values[i]) : cls;
+      if (!r.answered) {
+        warn(`Squads multisig read SKIPPED for ${e.id}: ${r.reason}. Its settings are NOT KNOWN from this run.`);
+        console.log(`  ${e.id.padEnd(36)} (NOT CHECKED)`);
+        multisigSkips++;
+        return;
+      }
+      const g = r.got;
+      const read = g ? `threshold ${g.threshold} of ${g.members} members, time lock ${g.timeLock} s, config authority ${g.configAuthority}, transaction index ${g.transactionIndex}` : '';
+      console.log(`  ${e.id.padEnd(36)} ${r.problems.length ? `<-- ${r.problems.join('; ')}` : `${read}: as registered`} (finalized slot ${slot ?? 'not stated'})`);
+      if (r.problems.length) fail(`solana/${e.id}: ${r.problems.join('; ')}. ${MULTISIG_COPY_NOTE}`);
+    });
+  }
+  console.log(`\n  multisig read: ${multisigRows.length} considered, ${multisigSkips} NOT CHECKED (the RPC did not answer)`);
 }
 
 function markdown() {
@@ -1370,7 +1670,7 @@ function selfTest() {
   t('check 3b passes both implemented evm types', !badType('evm', 'contract') && !badType('evm', 'eoa'));
   t(
     'check 3b passes every implemented solana type',
-    ['wallet', 'program-owned', 'token-account', 'executable', 'absent'].every((v) => !badType('solana', v)),
+    ['wallet', 'program-owned', 'token-account', 'executable', 'absent', 'squads-multisig'].every((v) => !badType('solana', v)),
   );
 
   // 10. EVERY SECTION IS READ, and duplicates are per CHAIN. Until 2026-09-17 checks
@@ -1479,6 +1779,29 @@ function selfTest() {
     'check 3d fails a fee receiver that is not the Squads vault',
     fieldFailsWith((r) => { r.solanaFields.accounts['tegridy-launch-global-restart'].feeRecipient = 'bayla-ladder-deployer'; }, 'feeRecipient', 'Only the venue'),
   );
+  // 11c. The one exception, as narrow as the agreement: the split's fund owner may hold
+  //      fundOwner and nothing else; anyone else as fundOwner is still red.
+  const splitOwner = reg.solanaFields.fundOwnerUnderTheSplit;
+  t('CONTROL: the split names a fund owner that is a solana row', typeof splitOwner === 'string' && splitOwner !== reg.solanaFields.onlyHolder);
+  t('check 3d lets the split’s fund owner hold fundOwner on any tier', fieldFailures((r) => { r.solanaFields.accounts[cfg0].fundOwner = splitOwner; }).length === 0);
+  t(
+    'check 3d still fails a fundOwner that is neither the vault nor the split’s fund owner',
+    fieldFailsWith((r) => { r.solanaFields.accounts[cfg0].fundOwner = 'operator-payer'; }, 'fundOwner', 'Only the venue'),
+  );
+  t(
+    'check 3d never lets the split’s fund owner hold the protocol owner',
+    fieldFailsWith((r) => { r.solanaFields.accounts[cfg0].protocolOwner = splitOwner; }, 'protocolOwner', 'Only the venue'),
+  );
+  t(
+    'check 3d never lets the split’s fund owner hold a fee receiver or an upgrade authority',
+    fieldFailsWith((r) => { r.solanaFields.accounts['tegridy-launch-global-restart'].feeRecipient = splitOwner; }, 'feeRecipient', 'Only the venue')
+      && fieldFailsWith((r) => { r.solanaFields.accounts['cp-swap-programdata-restart'].upgradeAuthority = splitOwner; }, 'upgradeAuthority', 'Only the venue'),
+  );
+  t('check 3d refuses a fundOwnerUnderTheSplit that is not a solana row', fieldFailsWith((r) => { r.solanaFields.fundOwnerUnderTheSplit = 'nobody'; }, 'fundOwnerUnderTheSplit'));
+  t(
+    'check 3d with no fundOwnerUnderTheSplit at all is the old rule: only the vault',
+    fieldFailsWith((r) => { delete r.solanaFields.fundOwnerUnderTheSplit; r.solanaFields.accounts[cfg0].fundOwner = splitOwner; }, 'fundOwner', 'Only the venue'),
+  );
   t(
     'check 3d fails an upgrade authority that is not the Squads vault',
     fieldFailsWith((r) => { r.solanaFields.accounts['bayla-ladder-programdata'].upgradeAuthority = 'bayla-ladder-deployer'; }, 'upgradeAuthority', 'Only the venue'),
@@ -1517,10 +1840,120 @@ function selfTest() {
     'check 3d (chain) fails a tier whose protocol fee owner on chain is someone else',
     onChain(acct(cfgBytes({ protocolOwner: 'operator-payer' }))).problems.some((p) => p.startsWith('protocolOwner is 5hNA2MXk')),
   );
+  t(
+    'check 3d (chain) reads the fund owner back by address: the split’s fund owner on chain is red against a vault row, green against a split row',
+    // Both rows written out, so it holds whichever owner the registry names for tier 0 today.
+    solanaFieldProblems({ ...spec0, fundOwner: reg.solanaFields.onlyHolder }, acct(cfgBytes({ fundOwner: splitOwner })), fid).problems.some((p) => p.startsWith('fundOwner is G2EHPseT'))
+      && solanaFieldProblems({ ...spec0, fundOwner: splitOwner }, acct(cfgBytes({ fundOwner: splitOwner })), fid).problems.length === 0,
+  );
   t('check 3d (chain) fails a tier whose rate moved', onChain(acct(cfgBytes({ tradeFeeRate: 3000 }))).problems.some((p) => p.includes('tradeFeeRate is 3000')));
   t('check 3d (chain) fails an account another program owns', onChain(acct(cfgBytes(), { owner: '11111111111111111111111111111111' })).problems.some((p) => p.startsWith('owner is')));
   t('check 3d (chain): a missing account is a definite failure', onChain(null).problems.some((p) => p.includes('DOES NOT EXIST')));
   t('check 3d (chain): a SHORT body is NOT an answer', onChain(acct(cfgBytes().subarray(0, 60))).answered === false);
+
+  // 11c'. The same read on the range program's tiers (tegridy-clmm's 117-byte AmmConfig),
+  //       whose rates are u32: read as u64, each would swallow the field after it.
+  const rid = 'range-clmm-amm-config-0';
+  const rspec = reg.solanaFields.accounts[rid];
+  const rangeBytes = (over = {}) => {
+    const s = { ...rspec, ...over };
+    const b = Buffer.alloc(117);
+    b.writeUInt16LE(s.index, 9);
+    Buffer.from(base58Decode(fid.get(s.protocolOwner))).copy(b, 11);
+    b.writeUInt32LE(s.protocolFeeRate, 43);
+    b.writeUInt32LE(s.tradeFeeRate, 47);
+    b.writeUInt16LE(s.tickSpacing, 51);
+    b.writeUInt32LE(s.fundFeeRate, 53);
+    Buffer.from(base58Decode(fid.get(s.fundOwner))).copy(b, 61);
+    return b;
+  };
+  const rangeAcct = (b) => ({ owner: fid.get(rspec.owner), space: 117, lamports: 1, data: [b.toString('base64'), 'base64'] });
+  const onRange = (v) => solanaFieldProblems(rspec, v, fid);
+  t('CONTROL: check 3d (chain) passes a range tier exactly as registered', onRange(rangeAcct(rangeBytes())).answered && onRange(rangeAcct(rangeBytes())).problems.length === 0);
+  t('check 3d (chain) fails a range tier whose trade fee moved', onRange(rangeAcct(rangeBytes({ tradeFeeRate: 2500 }))).problems.some((p) => p.includes('tradeFeeRate is 2500')));
+  t('check 3d (chain) fails a range tier whose tick spacing moved', onRange(rangeAcct(rangeBytes({ tickSpacing: 60 }))).problems.some((p) => p.includes('tickSpacing is 60')));
+  t(
+    'check 3d (chain) fails a range tier whose fund fee goes to someone else',
+    onRange(rangeAcct(rangeBytes({ fundOwner: 'operator-payer' }))).problems.some((p) => p.startsWith('fundOwner is 5hNA2MXk')),
+  );
+  t(
+    'check 3d fails a range tier whose protocol owner is not the Squads vault',
+    fieldFailsWith((r) => { r.solanaFields.accounts[rid].protocolOwner = 'operator-payer'; }, `solanaFields/${rid}`, 'protocolOwner', 'Only the venue'),
+  );
+  t(
+    'check 3d fails a live range tier it neither asserts nor explains',
+    fieldFailsWith((r) => { delete r.solanaFields.accounts['range-clmm-amm-config-1']; }, 'solana/range-clmm-amm-config-1', 'neither asserts'),
+  );
+
+  // 11d. Check 3e offline: the multisig row names all four settings, spelled as the read
+  //      spells them, and none of them anywhere a read would ignore.
+  const msId = 'squads-multisig';
+  const msOffline = (r) => collect(() => { const es = checkRows(r); checkExpectKeys(es); checkMultisigSettings(es); }).failed;
+  const msFailsWith = (mutate, ...parts) => {
+    const r = structuredClone(reg);
+    mutate(r.solana.find((e) => e.id === msId).expect, r);
+    return msOffline(r).some((m) => parts.every((p) => m.includes(p)));
+  };
+  const ms = reg.solana.find((e) => e.id === msId)?.expect ?? {};
+  t('CONTROL: check 3e passes the real addresses.json, whose multisig row is a squads-multisig', ms.type === 'squads-multisig' && msOffline(reg).length === 0);
+  t('check 3e fails a multisig row with its time lock left out', msFailsWith((x) => { delete x.timeLock; }, `solana/${msId}`, 'timeLock'));
+  t('check 3e fails a misspelled setting: "timelock" asserts nothing', msFailsWith((x) => { x.timelock = x.timeLock; }, 'expect.timelock'));
+  t('check 3e fails a threshold of 1', msFailsWith((x) => { x.threshold = 1; }, 'expect.threshold', 'at least 2'));
+  t('check 3e fails a config authority other than none', msFailsWith((x) => { x.configAuthority = 'squads-vault'; }, 'expect.configAuthority'));
+  t(
+    'check 3e fails multisig settings on a row of another type, where no read decodes them',
+    msFailsWith((_, r) => { r.solana.find((e) => e.id === 'squads-vault').expect.timeLock = 0; }, 'solana/squads-vault', 'expect.timeLock'),
+  );
+
+  // 11e. Check 3e on the chain, a pure function of the RPC's answer, on made-up bytes laid
+  //      out as a Squads v4 Multisig. Settings default to the registry row's.
+  const msBytes = (over = {}) => {
+    const s = { ...ms, rentCollector: null, discriminator: MULTISIG_DISCRIMINATOR, ...over };
+    const at = s.rentCollector ? 128 : 96;
+    const b = Buffer.alloc(at + 4 + s.members * 33 + 16); // trailing slack, as a resized account has
+    Buffer.from(s.discriminator).copy(b, 0);
+    if (s.configAuthority !== 'none') Buffer.from(base58Decode(s.configAuthority)).copy(b, 40);
+    b.writeUInt16LE(s.threshold, 72);
+    b.writeUInt32LE(s.timeLock, 74);
+    b.writeBigUInt64LE(14n, 78);
+    if (s.rentCollector) { b[94] = 1; Buffer.from(base58Decode(s.rentCollector)).copy(b, 95); }
+    b.writeUInt32LE(s.members, at);
+    for (let i = 0; i < s.members; i++) b.fill(i + 1, at + 4 + i * 33, at + 36 + i * 33);
+    return b;
+  };
+  const msAcct = (b, extra = {}) => ({ owner: SQUADS_V4_PROGRAM, space: b.length, lamports: 1, data: [b.toString('base64'), 'base64'], ...extra });
+  const msRead = (v) => squadsMultisigProblems(ms, v);
+  const msChainFails = (v, part) => msRead(v).answered === true && msRead(v).problems.some((p) => p.includes(part));
+  t('CONTROL: check 3e (chain) passes a Multisig exactly as registered', msRead(msAcct(msBytes())).answered && msRead(msAcct(msBytes())).problems.length === 0);
+  t(
+    'CONTROL: check 3e (chain) finds the members past a rent collector, 32 bytes further on',
+    msRead(msAcct(msBytes({ rentCollector: fid.get('squads-vault') }))).problems.length === 0,
+  );
+  t('check 3e (chain) fails a WRONG LOCK: 0 on chain, as before Squads #14', msChainFails(msAcct(msBytes({ timeLock: 0 })), 'timeLock is 0'));
+  t('check 3e (chain) fails a WRONG THRESHOLD', msChainFails(msAcct(msBytes({ threshold: 1 })), 'threshold is 1'));
+  t('check 3e (chain) fails a wrong member count', msChainFails(msAcct(msBytes({ members: 3 })), 'members is 3'));
+  t('check 3e (chain) fails a config authority that is set', msChainFails(msAcct(msBytes({ configAuthority: fid.get('squads-vault') })), 'configAuthority is GRMtSxgs'));
+  t(
+    'check 3e (chain) fails a NON-MULTISIG account: Squads-owned, another discriminator',
+    msChainFails(msAcct(msBytes({ discriminator: Buffer.alloc(8, 7) })), 'not a Squads v4 Multisig'),
+  );
+  t(
+    'check 3e (chain) fails a NON-MULTISIG account: another program owns it',
+    msChainFails(msAcct(msBytes(), { owner: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA' }), 'owner is Tokenkeg'),
+  );
+  t('check 3e (chain): a missing account is a definite failure', msChainFails(null, 'DOES NOT EXIST'));
+  t('check 3e (chain): a body shorter than the account is NOT an answer, never a pass', msRead(msAcct(msBytes().subarray(0, 80), { space: msBytes().length })).answered === false);
+  t('check 3e (chain): an account with no data is NOT an answer, never a pass', msRead({ owner: SQUADS_V4_PROGRAM, space: 200, lamports: 1 }).answered === false);
+  t(
+    'check 3e (chain) reads the discriminator squads.ts pins: sha256("account:Multisig")[0..8]',
+    Buffer.from([224, 116, 121, 186, 68, 161, 79, 236]).equals(MULTISIG_DISCRIMINATOR),
+  );
+  t(
+    'a multisig mismatch names the copy that repeats it, and that copy exists',
+    Object.entries(MULTISIG_COPY).every(
+      ([name, file]) => MULTISIG_COPY_NOTE.includes(name) && existsSync(file) && new RegExp(`export (const|function) ${name}\\b`).test(readFileSync(file, 'utf-8')),
+    ),
+  );
 
   // 12. Check 6 per chain. A CREATE is classified only by a row on ITS chain; a mainnet
   //     row (or a retired mainnet deploy) at the same address says nothing about Base.
@@ -1637,6 +2070,116 @@ function selfTest() {
   } finally {
     rmSync(nestedTmp, { recursive: true, force: true });
   }
+
+  // 13. Check 3c: WHICH program a data account holds. The chain half is a pure function
+  //     of the RPC's answer, so every outcome is made here with made-up bytes. The case
+  //     that matters most is the fourth: after an enlarge alone the account is large
+  //     enough and its "last deployed" slot is new, and it must STILL be refused, because
+  //     the old program is what runs.
+  const newBuild = Buffer.from(Array.from({ length: 4096 }, (_, i) => (i * 31 + 7) % 251));
+  const oldBuild = newBuild.subarray(0, 3000);
+  const want = { bytes: newBuild.length, sha256: createHash('sha256').update(newBuild).digest('hex') };
+  const header = (slot, tag = PROGRAMDATA_TAG) => {
+    const h = Buffer.alloc(PROGRAMDATA_HEADER);
+    h.writeUInt32LE(tag, 0);
+    h.writeBigUInt64LE(BigInt(slot), 4);
+    h[12] = 1;
+    return h;
+  };
+  // `wire` is the slice the RPC sends back; `space` is the size it states for the whole account.
+  const info = (wire, space = wire.length, extra = {}) => ({
+    jsonrpc: '2.0',
+    result: { context: { slot: 1 }, value: { owner: UPGRADEABLE_LOADER, lamports: 1, executable: false, space, data: [wire.toString('base64'), 'base64'], ...extra } },
+  });
+  const held = (json) => classifyProgramData(json, want);
+  const refuses = (json, ...parts) => {
+    const r = held(json);
+    return r.answered === true && typeof r.problem === 'string' && parts.every((p) => r.problem.includes(p));
+  };
+  const upgraded = held(info(Buffer.concat([header(700), newBuild])));
+  t('check 3c accepts a data account that holds the registered build', upgraded.answered === true && upgraded.problem === null && upgraded.sha256 === want.sha256 && upgraded.slot === 700n);
+  t(
+    'check 3c accepts the registered build with spare room after it (someone enlarged further)',
+    held(info(Buffer.concat([header(700), newBuild]), PROGRAMDATA_HEADER + newBuild.length + 10_240)).problem === null,
+  );
+  t(
+    'check 3c REFUSES an account too small for the build: the program before the upgrade, never enlarged',
+    refuses(info(Buffer.concat([header(100), oldBuild])), 'too few', 'does NOT run that build', 'slot 100'),
+  );
+  t(
+    'check 3c REFUSES after an enlarge alone: large enough, a NEW last-deployed slot, and still the old program',
+    refuses(info(Buffer.concat([header(650), oldBuild, Buffer.alloc(newBuild.length - oldBuild.length)])), 'hash to', 'does NOT run that build', 'slot 650'),
+  );
+  const oneByteOff = Buffer.from(newBuild);
+  oneByteOff[2000] ^= 1;
+  t('check 3c REFUSES the build with one byte changed', refuses(info(Buffer.concat([header(700), oneByteOff])), 'hash to'));
+  t(
+    'check 3c REFUSES an account the upgradeable loader does not own',
+    refuses(info(Buffer.concat([header(700), newBuild]), undefined, { owner: '11111111111111111111111111111111' }), 'owner is 11111111111111111111111111111111'),
+  );
+  t('check 3c REFUSES a loader account that is not ProgramData (an upload buffer)', refuses(info(Buffer.concat([header(700, 1), newBuild])), 'not a program data account'));
+  t('check 3c: a missing account is a definite refusal', refuses({ result: { value: null } }, 'DOES NOT EXIST'));
+  t('check 3c: an RPC error is NOT an answer', held({ error: { code: 429, message: 'Too many requests' } }).answered === false);
+  t('check 3c: a body with no result.value is NOT an answer', held({ jsonrpc: '2.0', id: 1 }).answered === false);
+  t(
+    'check 3c: a SHORT body is NOT an answer, and never "the program is too small"',
+    held(info(Buffer.concat([header(700), newBuild]).subarray(0, 2000), PROGRAMDATA_HEADER + newBuild.length)).answered === false,
+  );
+  t(
+    'check 3c: data in another encoding is NOT an answer',
+    held({ result: { value: { owner: UPGRADEABLE_LOADER, space: 10, data: ['3Mc6vR', 'base58'] } } }).answered === false,
+  );
+  t('check 3c (batched read): an account smaller than header + program fails without the big read', (holdsProgramSpaceProblem({ space: PROGRAMDATA_HEADER + oldBuild.length }, want) ?? '').includes('too small'));
+  t(
+    'CONTROL: check 3c (batched read) passes an account of exactly header + program, a larger one, and one whose size was not stated',
+    [{ space: PROGRAMDATA_HEADER + want.bytes }, { space: PROGRAMDATA_HEADER + want.bytes + 10_240 }, { lamports: 1 }].every((v) => holdsProgramSpaceProblem(v, want) === null),
+  );
+
+  // 13b. The offline half of 3c, on a synthetic registry through the REAL checkRows and
+  //      checkExpectKeys: a claim about a program that the chain read could not check.
+  const PD = 'F475omgJMd5mnDXJFyjHTkg9zs7WSb6ek9dFoUmUvi5V';
+  const WALLET = 'Upmhw8i6RSLXoj4yGzq9ZYLXb4UzZMRm7BSX8BxCdEd';
+  const solFixture = () => ({
+    solana: [
+      row('pool-program-data', PD, { expect: { type: 'program-owned', holdsProgram: { ...want } } }),
+      row('some-wallet', WALLET, { expect: { type: 'wallet', funded: true } }),
+    ],
+    ethereum: [row('staking-admin', A, { expect: { type: 'contract' } })],
+  });
+  const keyFailures = (mutate) => {
+    const r = solFixture();
+    mutate(r);
+    return collect(() => checkExpectKeys(checkRows(r))).failed;
+  };
+  const keyFailsWith = (mutate, ...parts) => keyFailures(mutate).some((m) => parts.every((p) => m.includes(p)));
+  t('CONTROL: check 3c passes type, funded and a well-formed holdsProgram', keyFailures(() => {}).length === 0);
+  t(
+    'check 3c rejects a MISSPELLED expect key, which the chain read would never look at',
+    keyFailsWith((r) => { r.solana[0].expect = { type: 'program-owned', holdsProgam: { ...want } }; }, 'solana/pool-program-data', 'expect.holdsProgam'),
+  );
+  t('check 3c rejects holdsProgram on a row that is not a data account', keyFailsWith((r) => { r.solana[0].expect.type = 'executable'; }, 'solana/pool-program-data', 'DATA account'));
+  t('check 3c rejects a SHORTENED sha256', keyFailsWith((r) => { r.solana[0].expect.holdsProgram.sha256 = '1e55bcdc…'; }, 'solana/pool-program-data', '64 lowercase hex'));
+  t('check 3c rejects a size written as text', keyFailsWith((r) => { r.solana[0].expect.holdsProgram.bytes = '725,176'; }, 'solana/pool-program-data', 'whole number of bytes'));
+  t('check 3c rejects a holdsProgram with no hash at all', keyFailsWith((r) => { delete r.solana[0].expect.holdsProgram.sha256; }, 'solana/pool-program-data', '64 lowercase hex'));
+  t(
+    'check 3c rejects an inner key nothing reads (a slot is not evidence of which build runs)',
+    keyFailsWith((r) => { r.solana[0].expect.holdsProgram.deployedAfterSlot = 451_687_458; }, 'solana/pool-program-data', 'deployedAfterSlot'),
+  );
+  t('check 3c rejects holdsProgram on an EVM row', keyFailsWith((r) => { r.ethereum[0].expect.holdsProgram = { ...want }; }, 'ethereum/staking-admin', 'expect.holdsProgram'));
+  t('check 3c rejects an expect that is not an object', keyFailsWith((r) => { r.solana[1].expect = 'wallet'; }, 'solana/some-wallet', 'must be an object'));
+  t('CONTROL: check 3c passes every expect block of the real addresses.json', collect(() => checkExpectKeys(allEntries)).failed.length === 0);
+  // 13c. The check is ARMED on the real registry: the pool program's data account says
+  //      which build it holds, and it is the build the program's own row names in prose.
+  //      Taking the expectation off that row would turn the chain read back into the
+  //      type-only check that was green before the program had been upgraded at all.
+  const poolData = allEntries.find((e) => e.section === 'solana' && e.id === 'cp-swap-programdata-restart');
+  const poolProgram = allEntries.find((e) => e.section === 'solana' && e.id === 'cp-swap-program-restart');
+  const armed = poolData?.expect?.holdsProgram;
+  t('the real registry says WHICH build the pool program data account holds', /^[0-9a-f]{64}$/.test(armed?.sha256 ?? '') && Number.isInteger(armed?.bytes));
+  t(
+    'and that is the build the pool program row names in its status, hash and size',
+    !!armed && (poolProgram?.status ?? '').includes(`expected bytecode sha256 ${armed.sha256}, ${armed.bytes.toLocaleString('en-US')} bytes`),
+  );
 
   for (const r of rows) console.log(`  ${r.ok ? 'ok  ' : 'FAIL'} ${r.name}`);
   const bad = rows.filter((r) => !r.ok);

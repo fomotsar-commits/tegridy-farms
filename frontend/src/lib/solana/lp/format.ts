@@ -85,6 +85,33 @@ export function priceText(perToken: number, quote: QuoteCoin, unit = 'token'): s
   return `1 ${unit} = ${formatSolPrice(perToken)} ${quote.symbol}`;
 }
 
+/**
+ * The same price the other way round: "1 SOL = 157,381 BAYLA", what one pairing coin buys
+ * at it. `null` for a price that cannot be turned round (zero or unreadable): say it as
+ * `priceText` does then.
+ */
+export function perCoinText(perToken: number, quote: QuoteCoin, units = 'tokens'): string | null {
+  if (!Number.isFinite(perToken) || perToken <= 0) return null;
+  // Thousands grouped from 1,000 up ("1,661"), so a list of them reads alike; below, as formatSolPrice.
+  const amount = 1 / perToken >= 999.5 ? Math.round(1 / perToken).toLocaleString('en-US') : formatSolPrice(1 / perToken);
+  return `1 ${quote.symbol} = ${amount} ${units}`;
+}
+
+/**
+ * A price difference (`pool / reference - 1`) for the prices said the other way round
+ * (`reference / pool - 1`): a token 1.3% below its reference buys 1.3% more of it per coin.
+ */
+export function turnedDiff(diff: number): number {
+  return 1 / (1 + diff) - 1;
+}
+
+/** Dollars: whole from $1,000, cents below, "<$0.01" under a cent (the wallet's rule, lib/wallet/walletRows.ts `fmtUsd`). */
+export function usdText(v: number): string {
+  if (v >= 1000) return `$${v.toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
+  if (v >= 0.01) return `$${v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return '<$0.01';
+}
+
 /** Token amount with its decimals, or raw base units said as such. */
 export function tokenText(raw: bigint, decimals: number | null, unit = 'tokens'): string {
   const t = formatTokenAmount(raw, decimals, 4);

@@ -8,6 +8,7 @@ import { isAddress } from 'viem';
 import { GALLERY_ORDER, UNIQUE_GALLERY_COUNT, pageArt, artStyle } from '../lib/artConfig';
 import { isLauncherEnabled } from '../lib/launcher/config';
 import { isSolanaSwapLive } from '../lib/solana';
+import { chainHref, tabServes } from '../lib/sectionChains';
 import { useFarmStats } from '../hooks/useFarmStats';
 import { useLpEmissionsPhase } from '../hooks/useLpEmissionsPhase';
 import { farmCardStat, farmCardDesc } from '../lib/lpEmissions';
@@ -37,17 +38,32 @@ import { CopyButton } from '../components/ui/CopyButton';
 import { TOWELI_ADDRESS, SITE_URL, ETHERSCAN_TOKEN, GECKOTERMINAL_URL, CURVE_LAUNCHER_ADDRESS, isDeployed } from '../lib/constants';
 import { shortenAddress } from '../lib/formatting';
 import { safeGetItem, safeSetItem } from '../lib/storage';
-import { bungalowTradeBlurb, getBungalowIdentity, stakePoolMembersOnly, TOWELI_HERO } from '../lib/bungalows';
+import { bungalowTradeBlurb, CARDS_ROOM_ID, getBungalowIdentity, stakePoolMembersOnly, TOWELI_HERO } from '../lib/bungalows';
 import { arrivalVoice, VENUE, OPEN_VENUE_WELCOME_EVENT } from '../lib/arrival';
-import { VenueCards, VenueHero, VenueHeroFooter } from '../components/VenueHero';
+import { VenueHero, VenueHeroFooter } from '../components/VenueHero';
+import { VenueCards } from '../components/VenueCards';
+import { IslandDashboard } from '../components/IslandDashboard';
 import { HeatCard } from '../components/HeatCard';
 import { VenueDoors } from '../components/VenueDoors';
-import { ThreePaths } from '../components/ThreePaths';
+import { VenuePaths } from '../components/VenuePaths';
 import { FlamesBoard } from '../components/FlamesBoard';
+import { IslandStrip } from '../components/IslandStrip';
+import { RoomTorches } from '../components/RoomTorches';
 import { BungalowHero } from '../components/bungalow/BungalowHero';
 import { BungalowMarket } from '../components/bungalow/BungalowMarket';
 import { BungalowHolders } from '../components/bungalow/BungalowHolders';
 import { BungalowBurn } from '../components/bungalow/BungalowBurn';
+import { RoomRail, type RoomStop } from '../components/bungalow/RoomRail';
+
+/** A resident's page, section by section, as its rail names them (RoomRail.tsx). Each id is on its slot below. */
+const ROOM_STOPS = {
+  doors: { id: 'room-doors', label: 'Doors' },
+  market: { id: 'room-market', label: 'Market' },
+  burn: { id: 'room-burn', label: 'Burn' },
+  heldTime: { id: 'room-held-time', label: 'Held time' },
+  holders: { id: 'room-holders', label: 'Holders' },
+  lore: { id: 'room-lore', label: 'Lore' },
+} as const satisfies Record<string, RoomStop>;
 import { homeBurnRoom } from '../lib/bungalowBurn';
 
 // F92: persist a valid ?ref= address so attribution survives navigation and
@@ -263,8 +279,23 @@ export default function HomePage() {
         />
       </div>
 
-      <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6">
-        <div className="pt-28 pb-20">
+      <div className="relative z-10 page-column mx-auto px-4 md:px-6">
+        {/* The room's index (owner, 2026-10-19): its sections, numbered, lit as you scroll, the same
+            gates as the slots they name. A line under the top bar that stays while the cards scroll;
+            from 1440px a rail at the left edge. Keyed by the room, so a door resets it. The venue
+            home has its own sections and no rail. */}
+        {bungalowIdentity && (
+          <RoomRail key={bungalowIdentity.id} stops={[
+            ROOM_STOPS.doors,
+            ...(bungalowIdentity.market ? [ROOM_STOPS.market] : []),
+            ...(burnRoom ? [ROOM_STOPS.burn] : []),
+            ...(bungalowIdentity.address ? [ROOM_STOPS.heldTime, ROOM_STOPS.holders] : []),
+            ...(bungalowIdentity.identity.lore ? [ROOM_STOPS.lore] : []),
+          ]} />
+        )}
+        {/* In a room the rail's 72px box takes the first 72 of the hero's 112px of air (pt-28), so
+            the heading stays where the first frame drew it; docked (1440px up) it takes none. */}
+        <div className={bungalowIdentity ? 'pt-10 min-[1440px]:pt-28 pb-20' : 'pt-28 pb-20'}>
           <m.div className="max-w-xl relative" initial={heroAlreadyOnScreen ? false : { opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
             {/* Readability scrim — softly darkens the art behind the hero copy so the white
                 text stays legible over light patches of the art (e.g. the pale ape on the
@@ -307,13 +338,25 @@ export default function HomePage() {
               >
                 ETHEREUM
               </Link>
+              {/* Base and Robinhood Chain open the curve ON their chain (`?c=`): a bare /eth-curve
+                  shows the wallet's chain, or mainnet with no wallet. Robinhood's pill is drawn
+                  only while its launcher is in the registry, as the Launch drop-down reads it. */}
               <Link
-                to="/eth-curve"
+                to={chainHref('/eth-curve', 'base')}
                 aria-label="Live on Base: launch and trade on the curve"
                 className="badge badge-chain-base relative before:absolute before:content-[''] before:inset-x-0 before:-inset-y-[11px] text-[10px] no-underline hover:brightness-110 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#2151f5]"
               >
                 BASE
               </Link>
+              {tabServes('/eth-curve', 'robinhood') && (
+                <Link
+                  to={chainHref('/eth-curve', 'robinhood')}
+                  aria-label="Live on Robinhood Chain: launch and trade on the curve"
+                  className="badge badge-chain-robinhood relative before:absolute before:content-[''] before:inset-x-0 before:-inset-y-[11px] text-[10px] no-underline hover:brightness-110 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#CCFF00]"
+                >
+                  ROBINHOOD
+                </Link>
+              )}
             </div>
 
             {/* Jungle Bay bungalows: when the active bungalow speaks for itself
@@ -326,7 +369,10 @@ export default function HomePage() {
                 moved it to the Check overview; see the note where it used to
                 render, below. */}
             {bungalowIdentity ? (
-              <BungalowHero bungalow={bungalowIdentity} />
+              /* The room's first section, for its rail (RoomRail.tsx): the hero and its doors. */
+              <div id={ROOM_STOPS.doors.id}>
+                <BungalowHero bungalow={bungalowIdentity} />
+              </div>
             ) : !isToweliArrival ? (
               /* ARRIVAL IDENTITY 2026-08-27: the venue's own hero is the
                  default first impression. The classic Tegridy cluster below
@@ -451,6 +497,11 @@ export default function HomePage() {
             </>
             )}
 
+            {/* THE ROOM IS THE ISLAND'S ROOM (the island's venue review, item 6): every room's door,
+                TOWELI's included, carries its torches under the hero, read from the island, with
+                Torch it to the room's own page there. Draws nothing until read, or on a miss. */}
+            {(bungalowIdentity || isToweliArrival) && <RoomTorches roomId={bungalowIdentity?.id ?? 'toweli'} />}
+
             {/* WAVE SEVEN, element C: THE SECURITY BADGE MOVED TO THE CHECK
                 OVERVIEW. It is C's fifth and last item.
 
@@ -473,13 +524,21 @@ export default function HomePage() {
           </m.div>
 
           {/* The venue's cards, swap, stake and add liquidity (owner, 2026-10-16), in a row of
-              their own under the hero, then the hero's tour and island line. */}
+              their own under the hero, then the hero's tour and island line. The island's dashboard
+              sits on top of them (owner, 2026-10-21: "put the dashboard on top of it"). */}
           {!bungalowIdentity && !isToweliArrival && (
             <>
+              <div className="mt-8">
+                <IslandDashboard />
+              </div>
               <VenueCards />
               <VenueHeroFooter />
             </>
           )}
+          {/* The same cards on BAYLA's own door, under her hero (owner, 2026-10-19, on /bayla: "on
+              here"): the Island word opens this page inside her room. They are her coin's, so no
+              other room draws them (lib/bungalows.ts CARDS_ROOM_ID). */}
+          {bungalowIdentity?.id === CARDS_ROOM_ID && <VenueCards />}
 
           {/* Wallet-less yield calculator for first-time visitors.
               Only shown when disconnected — once they connect, the live stats
@@ -620,20 +679,29 @@ export default function HomePage() {
           )}
         </div>
 
+        {/* THE ROOM'S CARDS ON A WIDE SCREEN (owner, 2026-10-19). From 1536px the page column
+            steps up (page-column, index.css) and a room with a market lays its cards on a
+            grid: the market and its chart across two thirds, the burn, held time and holders
+            stacked beside it, the lore across the whole. Under 1536px neither wrapper has a
+            box (the stack is display: contents), so a phone, an iPad and a 1280px laptop read
+            as before. Page order is kept, so the rail's numbers and its scroll-spy hold. */}
+        <div className={bungalowIdentity?.market ? '2xl:grid 2xl:grid-cols-12 2xl:gap-x-8' : undefined}>
         {/* The bungalow's market — her own pool's chart + numbers, in the slot
             where the default venue puts its TOWELI stat pills. Renders only
             when the bungalow declares a `market` pool; self-hides otherwise. */}
         {bungalowIdentity?.market && (
-          <div className="pb-8">
-            <BungalowMarket bungalow={bungalowIdentity} />
+          <div className="pb-8 2xl:col-span-8" id={ROOM_STOPS.market.id}>
+            <BungalowMarket bungalow={bungalowIdentity} wideGrid />
           </div>
         )}
 
+        {/* Beside the market from 1536px: the three short readings, stacked. */}
+        <div className={bungalowIdentity?.market ? 'contents 2xl:block 2xl:col-span-4' : 'contents'}>
         {/* The burn: how much of this token's supply is gone, read from its chain. Every
             token bungalow shows it once, TOWELI included, which has no identity and so
             reaches this slot through its own arrival. */}
         {burnRoom && (
-          <div className={bungalowIdentity ? 'pb-8' : 'pb-16'}>
+          <div className={bungalowIdentity ? 'pb-8' : 'pb-16'} id={ROOM_STOPS.burn.id}>
             <BungalowBurn bungalow={burnRoom} />
           </div>
         )}
@@ -644,7 +712,7 @@ export default function HomePage() {
             second. Same reading as the venue's, presented to the narrower
             question a room asks. */}
         {bungalowIdentity?.address && (
-          <div className="pb-8">
+          <div className="pb-8" id={ROOM_STOPS.heldTime.id}>
             {/* THE ROOM SUPPLIES THE PANEL. `variant="embedded"` drops the card's
                 own chrome, which is right where a host has already introduced it
                 (the launch gate) and wrong here: on a room's full-bleed art the
@@ -666,26 +734,31 @@ export default function HomePage() {
                   address proves a record, not a deployment, so the live question
                   goes to Earn. A members-only pool is tested FIRST and never named:
                   this page reads no wallet, and that pool still carries a stakePool.
-                  The no-pool sentence is BungalowFarmPanel's own. */}
-              <p className="text-white/55 text-[12px] mt-4 pt-4" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                  The no-pool sentence is BungalowFarmPanel's own. The pool on record is small
+                  print, folded (owner, 2026-10-21); the no-pool sentence stays on the page. */}
+              <div className="text-white/55 text-[12px] mt-4 pt-4" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
                 {stakePoolMembersOnly(bungalowIdentity) ? (
-                  <>
-                    A {bungalowIdentity.symbol} lock-ladder pool is on record at{' '}
-                    <span className="font-mono text-white/70">{shortenAddress(bungalowIdentity.ladderPool)}</span>.
-                    Whether it is funded, and what it pays, is read live on{' '}
-                    <Link to={`/earn/${bungalowIdentity.id}`} className="text-emerald-400/80 hover:text-emerald-300 underline transition-colors">Earn</Link>.
-                  </>
+                  <FinePrint summary={`${bungalowIdentity.symbol} staking`}>
+                    <p>
+                      A {bungalowIdentity.symbol} lock-ladder pool is on record at{' '}
+                      <span className="font-mono text-white/70">{shortenAddress(bungalowIdentity.ladderPool)}</span>.
+                      Whether it is funded, and what it pays, is read live on{' '}
+                      <Link to={`/earn/${bungalowIdentity.id}`} className="text-emerald-400/80 hover:text-emerald-300 underline transition-colors">Earn</Link>.
+                    </p>
+                  </FinePrint>
                 ) : bungalowIdentity.stakePool ? (
-                  <>
-                    A {bungalowIdentity.symbol} pool is on record at{' '}
-                    <span className="font-mono text-white/70">{shortenAddress(bungalowIdentity.stakePool)}</span>.
-                    Whether it is funded, and what it pays, is read live on{' '}
-                    <Link to={`/earn/${bungalowIdentity.id}`} className="text-emerald-400/80 hover:text-emerald-300 underline transition-colors">Earn</Link>.
-                  </>
+                  <FinePrint summary={`${bungalowIdentity.symbol} staking`}>
+                    <p>
+                      A {bungalowIdentity.symbol} pool is on record at{' '}
+                      <span className="font-mono text-white/70">{shortenAddress(bungalowIdentity.stakePool)}</span>.
+                      Whether it is funded, and what it pays, is read live on{' '}
+                      <Link to={`/earn/${bungalowIdentity.id}`} className="text-emerald-400/80 hover:text-emerald-300 underline transition-colors">Earn</Link>.
+                    </p>
+                  </FinePrint>
                 ) : (
-                  <>No {bungalowIdentity.symbol} staking program exists on-chain today.</>
+                  <p>No {bungalowIdentity.symbol} staking program exists on-chain today.</p>
                 )}
-              </p>
+              </div>
             </div>
           </div>
         )}
@@ -693,10 +766,12 @@ export default function HomePage() {
         {/* Who holds her — the venue's own scanner, run on this bungalow's
             token, with its coverage limits stated rather than smoothed over. */}
         {bungalowIdentity?.address && (
-          <div className="pb-16">
-            <BungalowHolders bungalow={bungalowIdentity} />
+          <div className="pb-16 2xl:pb-8" id={ROOM_STOPS.holders.id}>
+            {/* In the stack beside the market, where the card is a third of the column. */}
+            <BungalowHolders bungalow={bungalowIdentity} wideGrid={Boolean(bungalowIdentity.market)} />
           </div>
         )}
+        </div>
 
         {/* Jungle Bay bungalow lore — the resident's story card, rendered
             only in its own skin, in the slot where the TOWELI fee-economy
@@ -704,7 +779,7 @@ export default function HomePage() {
             canon copy only): a resident without lore gets NO card rather
             than another resident's story. */}
         {bungalowIdentity?.identity.lore && (
-          <div className="pb-16">
+          <div className="pb-16 2xl:col-span-12" id={ROOM_STOPS.lore.id}>
             <div className="relative rounded-2xl overflow-hidden glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>
               <div className="absolute inset-0" aria-hidden="true">
                 <ArtImg pageId="bungalow-lore" idx={0} alt="" loading="lazy" className="w-full h-full object-cover" />
@@ -712,12 +787,15 @@ export default function HomePage() {
               <div className="absolute inset-0" style={{ background: 'rgba(4,9,18,0.72)' }} />
               <div className="relative z-10 p-6 md:p-10 max-w-2xl">
                 <p className="text-[11px] uppercase tracking-[0.2em] mb-2" style={{ color: 'var(--color-kyle)' }}>The lore</p>
-                <h2 className="heading-luxury text-2xl md:text-3xl text-white mb-4">{bungalowIdentity.identity.lore.title}</h2>
-                {bungalowIdentity.identity.lore.paragraphs.map((para, i, all) => (
-                  <p key={i} className={`text-white/90 text-[14px] leading-relaxed ${i === all.length - 1 ? 'mb-5' : 'mb-3'}`}>
-                    {para}
-                  </p>
-                ))}
+                <h2 className="heading-luxury text-2xl md:text-3xl text-white mb-2">{bungalowIdentity.identity.lore.title}</h2>
+                {/* The story is one press away (owner, 2026-10-21: "keep every movable line folded"). */}
+                <FinePrint summary="Read the story" className="mb-3">
+                  {bungalowIdentity.identity.lore.paragraphs.map((para, i) => (
+                    <p key={i} className="text-white/90 text-[14px] leading-relaxed">
+                      {para}
+                    </p>
+                  ))}
+                </FinePrint>
                 <div className="flex flex-wrap gap-2">
                   {bungalowIdentity.identity.lore.links.map((l) => (
                     <a key={l.href} href={l.href} target="_blank" rel="noopener noreferrer"
@@ -732,14 +810,16 @@ export default function HomePage() {
             </div>
           </div>
         )}
+        </div>
 
-        {/* WAVE SEVEN, element C: THE THREE PATHS, on the same gate. This is where
-            the hero's three CTAs went. Since answer twenty they stand on the second
+        {/* WAVE SEVEN, element C: THE PATHS, on the same gate. This is where the
+            hero's CTAs went (two since 2026-10-24: the marketplace left the home).
+            Since answer twenty they stand on the second
             screen, directly under the hero's number and ABOVE the hall: providing
             liquidity was tucked away on the fourth screen. Each card states its own
             requirement at the point of intent, and the launch floor is read from the
             same config the gate enforces with, never typed. */}
-        {!bungalowIdentity && !isToweliArrival && <ThreePaths />}
+        {!bungalowIdentity && !isToweliArrival && <VenuePaths />}
 
         {/* ARRIVAL IDENTITY 2026-08-31: THE HALL OF DOORS. The venue arrival
             opens onto the island itself — every bungalow door in one hall,
@@ -747,6 +827,11 @@ export default function HomePage() {
             move in. Venue voice only: toweli keeps the classic home whole,
             an identity bungalow keeps its token-first home. */}
         {!bungalowIdentity && !isToweliArrival && <VenueDoors />}
+
+        {/* THE ISLAND TODAY, under the doors (the island's venue review, item 9): BAYLA locked
+            in the ladder, BAYLA fed to the fire, the flames, then the season and the last torch.
+            Each part is read on load and drawn only if read; with nothing read, no strip. */}
+        {!bungalowIdentity && !isToweliArrival && <IslandStrip />}
 
         {/* WAVE SEVEN, element G: THE ISLAND'S BOARD, on the venue. Five named flames,
             so a stranger sees held time attached to people before they are asked to

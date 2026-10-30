@@ -52,8 +52,6 @@ export const RECEIPT_COPY = {
   stake:            { label: 'LOCKED DOWN, HELD TIME ON', verb: 'locked down' },
   unstake:          { label: 'HARVEST WITHDRAWN',         verb: 'pulled off the farm' },
   claim:            { label: 'HARVEST COMPLETE',          verb: 'harvested' },
-  vote:             { label: 'VOTE REGISTERED',           verb: 'voted on-chain' },
-  bounty:           { label: 'BOUNTY ON THE BOARD',       verb: 'put up a bounty' },
   lock:             { label: 'LOCKED DOWN, HELD TIME ON', verb: 'locked it down' },
   approve:          { label: 'PERMISSION GRANTED',        verb: 'granted the farm permission' },
   liquidity_add:    { label: 'CROP EXPANDED',             verb: 'grew the crop' },
@@ -100,40 +98,6 @@ export const PENALTY_COPY = {
   slippageLabel: 'Crop windstorm tolerance',
   slippageTooltip:
     'Max price movement tolerated before the trade is cancelled. Higher = more slippage OK. Randy recommends 0.5% for calm weather, 1% when the market is blowing around.',
-} as const;
-
-// ═══════════════════════════════════════════════════════════════
-// Vote incentives / governance flavor — "Cartman's Market".
-// ═══════════════════════════════════════════════════════════════
-
-export const GOVERNANCE_COPY = {
-  bribesSectionTitle: "Cartman's Market",
-  bribesSectionTag: 'Totally Not Bribes. Just Donations.',
-  bribesSubheading:
-    "Incentivize voters to back your pool. Is it bribery? Cartman says no — call it community-funded campaign contributions. Either way, it works.",
-  voteCtaLabel: 'Register Your Vote',
-  revealLabel: 'Reveal Your Hand',
-  commitLabel: 'Commit in Secret',
-} as const;
-
-// ═══════════════════════════════════════════════════════════════
-// F357: one-sentence per-tab intro so the Community tabs read
-// distinctly when rendered logged-out (each says what it is + what
-// connecting unlocks), instead of one generic "connect to participate".
-// ═══════════════════════════════════════════════════════════════
-
-// ⚠ These four render logged-out, DIRECTLY ABOVE the "deployed — not yet enabled
-// here" notice on /community. "Connect to vote" told a visitor that connecting was
-// the missing step; it is not — all four contracts are live and unpaused on
-// mainnet, but their constants.ts addresses are still 0x0, so no wallet can reach
-// them from this app. Promising an action a connected wallet still cannot perform
-// is the same defect class as the "isn't live yet" claim two lines below it.
-// Say what connecting will do WHEN the address is wired, not what it does today.
-export const COMMUNITY_TAB_INTRO = {
-  grants: 'On-chain governance: propose and vote on how the community treasury funds builders. Connecting will not unlock it yet — voting and proposals open here once the contract is wired into this app.',
-  bounties: 'Meme bounties: fund a task, builders ship, the best work gets paid on-chain. Connecting will not unlock it yet — posting and claiming open here once the contract is wired into this app.',
-  bribes: "Cartman's Market: incentivize voters to back your pool with token rewards. Connecting will not unlock it yet — deposits and claims open here once the contract is wired into this app.",
-  gauges: 'Gauge voting: direct TOWELI emissions toward the pools you want deepened. Connecting will not unlock it yet — gauge weights open here once the contract is wired into this app.',
 } as const;
 
 // ═══════════════════════════════════════════════════════════════

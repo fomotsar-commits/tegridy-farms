@@ -14,7 +14,7 @@ import { IslandSoundLinks } from '../IslandSound';
 /**
  * Eight links on one screen (the island's venue review, item 1; owner 2026-10-03): the page
  * links below, the AI file and the two community links. Every page the footer used to list
- * opens from the bar or the drawer (navReach.test.tsx). Rooms is a word on the bar.
+ * opens from the bar or the drawer (navReach.test.tsx). The bar's Island word opens the hall.
  */
 const PAGE_LINKS: { to: string; label: string }[] = [
   { to: '/faq', label: 'FAQ' },
@@ -55,7 +55,7 @@ export function Footer() {
         borderTop: '1px solid var(--color-purple-20)',
       }}
     >
-      <div className="max-w-[1200px] mx-auto px-4 md:px-6">
+      <div className="page-column mx-auto px-4 md:px-6">
         <div className="accent-divider" />
 
         <div className="pt-8 pb-3 grid gap-5 md:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)] md:gap-10 md:items-start">
@@ -149,6 +149,10 @@ export function Footer() {
             © 2026 memetics.finance · built by the jungle bay artists collective · <IslandSoundLinks />
           </span>
         </div>
+        {/* The public line agreed with Jungle Bay Island (2026-10-18), verbatim, on every page. */}
+        <p className="pb-4 -mt-2 text-white/60 text-[11px] text-center md:text-right" style={SHADOW}>
+          {VENUE.venueLine}
+        </p>
       </div>
     </footer>
   );

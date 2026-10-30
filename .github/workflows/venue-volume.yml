@@ -1,0 +1,40 @@
+name: Venue Volume
+
+# Every hour, adds the swaps that are new since the last run to the venue's all-time volume
+# in the venue_volume table (migration 028), which the home page reads through
+# /api/aggregator?resource=venue-volume. Free: the repo is public, so its minutes cost
+# nothing, and the chain reads are keyless. RED means a source was not counted this hour;
+# the site then says the figure is not up to date. No npm install: no third-party code
+# runs next to the service key.
+
+on:
+  schedule:
+    - cron: "23 * * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: venue-volume
+  cancel-in-progress: false
+
+jobs:
+  count:
+    runs-on: ubuntu-latest
+    # The first run reads all of history; later ones read an hour.
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      - name: Count new swaps
+        shell: bash
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: node frontend/scripts/venue-volume.mjs

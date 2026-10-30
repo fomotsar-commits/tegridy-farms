@@ -60,6 +60,8 @@ export interface DoorFact {
 export interface LlmsFacts {
   siteUrl: string;
   description: string;
+  /** The public line agreed with Jungle Bay Island, verbatim (VENUE.venueLine). */
+  venueLine: string;
   heroLine: string;
   heatPlain: string;
   heatOnePerson: string;
@@ -161,6 +163,7 @@ export function collectFacts(ledger: AddressLedger, deployConfig?: RedirectConfi
   return {
     siteUrl: SITE_URL,
     description: VENUE.description,
+    venueLine: VENUE.venueLine,
     heroLine: VENUE.heroLine,
     heatPlain: VENUE.heatPlain,
     heatOnePerson: VENUE.heatOnePerson,
@@ -178,7 +181,10 @@ export function collectFacts(ledger: AddressLedger, deployConfig?: RedirectConfi
     ladderStaking: {
       minLockSeconds: Number(ladder.MIN_LOCK_SECS),
       maxLockSeconds: Number(ladder.MAX_LOCK_SECS),
-      earlyExitBps: Number(ladder.PENALTY_BPS),
+      // The pools live today, not the build: a flat 25% until the owner's redeploy lands,
+      // then the ladder's law (the time left over four years, capped at 75%).
+      earlyExitBps: Number(ladder.LIVE_LADDER_EXIT_BPS),
+      earlyExitSchedule: ladder.LIVE_LADDER_EXIT_SCHEDULE,
       minBoostBps: Number(ladder.MIN_BOOST_BPS),
       maxBoostBps: Number(ladder.MAX_BOOST_BPS),
     },
@@ -241,7 +247,7 @@ const CHAIN_NAME: Record<string, string> = { ethereum: 'Ethereum', base: 'Base',
 
 export function renderLlmsTxt(f: LlmsFacts, meta: { date: string; commit?: string | null }): string {
   const out: string[] = [];
-  out.push('# memetics.finance', '', `> ${f.description}`, '');
+  out.push('# memetics.finance', '', `> ${f.description}`, '', f.venueLine, '');
 
   out.push('## Held time', '');
   out.push(f.heroLine, '', f.heatPlain, '', f.heatOnePerson, '');

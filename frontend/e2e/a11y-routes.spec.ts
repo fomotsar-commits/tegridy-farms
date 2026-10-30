@@ -174,11 +174,11 @@ test.describe('a11y — shared chrome', () => {
     // second time and reporting a pass.
     await hamburger.or(bar).first().waitFor({ state: 'visible', timeout: ROUTE_MOUNT_TIMEOUT });
 
-    // The bar carries the five words at every width (Heat · Rooms · Lock · Launch · Swap),
+    // The bar carries the four words at every width (Island · Lock · Launch · Swap),
     // and the drawer carries the rest at every width, so both are asserted everywhere.
     const visibleBar = page.locator('nav[aria-label="Main navigation"]:visible');
     await expect(visibleBar.getByRole('link').first()).toBeVisible({ timeout: ROUTE_MOUNT_TIMEOUT });
-    expect(await visibleBar.getByRole('link').count(), 'the bar rendered other than its five words').toBe(5);
+    expect(await visibleBar.getByRole('link').count(), 'the bar rendered other than its four words').toBe(4);
     await expect(hamburger, 'the drawer has no button at this width').toBeVisible();
 
     await hamburger.click();
@@ -228,6 +228,11 @@ test.describe('routes that are not audited', () => {
         await expect(page).toHaveURL(new RegExp(`${route.redirectsTo!.replace('/', '\\/')}$`), {
           timeout: ROUTE_MOUNT_TIMEOUT,
         });
+      }
+      if (route.gate === 'not-yet-routed') {
+        // Still assert the production behaviour: no route, so the not-found page and not the surface.
+        await page.goto(route.path);
+        await expect(page.getByRole('heading', { level: 2, name: 'Page Not Found' })).toBeVisible({ timeout: ROUTE_MOUNT_TIMEOUT });
       }
       test.skip(true, `${route.path}: ${route.why}`);
     });

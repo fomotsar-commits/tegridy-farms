@@ -3,8 +3,11 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { visualizer } from 'rollup-plugin-visualizer';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import type { IncomingMessage } from 'node:http';
 import { resolve } from 'node:path';
+import { parse as parseQuery } from 'node:querystring';
 import { parseOverrideModule, mergeScoped, type OverrideEntry } from './src/lib/dev/overrideFileMerge';
+import { changelogFilesPlugin } from './changelogFilesPlugin.ts';
 
 // R002: only a same-origin localhost dev server may POST to the save handler
 // (DNS rebinding, LAN CSRF, or any hostile tab could fetch() it otherwise).
@@ -209,6 +212,87 @@ function firstFrameStylesheetsPlugin(): Plugin {
   };
 }
 
+const DEV_API_MAX_BODY_BYTES = 4.5 * 1024 * 1024; // Vercel's request body limit
+
+// Vercel's body parsing: JSON when declared, the text otherwise, nothing when empty.
+async function readDevApiBody(req: IncomingMessage): Promise<unknown> {
+  const chunks: Buffer[] = [];
+  let bytes = 0;
+  for await (const chunk of req as AsyncIterable<Buffer>) {
+    bytes += chunk.length;
+    if (bytes > DEV_API_MAX_BODY_BYTES) throw Object.assign(new Error('Payload too large'), { status: 413 });
+    chunks.push(chunk);
+  }
+  if (bytes === 0) return undefined;
+  const text = Buffer.concat(chunks).toString('utf8');
+  if (!/^application\/json/i.test(req.headers['content-type'] ?? '')) return text;
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw Object.assign(new Error('Invalid JSON'), { status: 400 });
+  }
+}
+
+// Dev runs api/<route>.js as Vercel does. Left to Vite, an extensionless /api/x is the
+// module api/x.js: the server source ships as browser JS, and a query holding a slash
+// breaks its relative imports. So the module loads by file path and the query reaches the
+// handler as req.query. Proxied prefixes and module URLs (src/ imports api/_lib/*.js)
+// pass through; any other extensionless /api path is a JSON 404.
+function devApiPlugin(): Plugin {
+  return {
+    name: 'dev-api',
+    apply: 'serve',
+    configureServer(server) {
+      const proxied = Object.keys(server.config.server.proxy ?? {});
+      server.middlewares.use(async (req, res, next) => {
+        const url = req.url ?? '';
+        const [pathname = '', search = ''] = url.split(/\?(.*)/s);
+        if (!pathname.startsWith('/api/') || /\.[^/]*$/.test(pathname) || proxied.some((p) => url.startsWith(p))) {
+          return next();
+        }
+        const reply = (status: number, error: string) => {
+          res.statusCode = status;
+          res.setHeader('Content-Type', 'application/json; charset=utf-8');
+          res.end(JSON.stringify({ error }));
+        };
+        const route = /^\/api\/((?:[a-z0-9][a-z0-9-]*\/)*[a-z0-9][a-z0-9-]*)\/?$/.exec(pathname)?.[1];
+        const file = route && [`${route}.js`, `${route}/index.js`]
+          .map((f) => resolve(server.config.root, 'api', f))
+          .find((f) => existsSync(f));
+        if (!file) return reply(404, 'No api/ function at this path');
+        let body: unknown;
+        try {
+          body = await readDevApiBody(req);
+        } catch (err) {
+          return reply((err as { status?: number }).status ?? 400, (err as Error).message);
+        }
+        try {
+          const { default: handler } = await server.ssrLoadModule(file);
+          const request = Object.assign(req, { query: parseQuery(search), body });
+          const response = Object.assign(res, {
+            status: (code: number) => ((res.statusCode = code), response),
+            json: (body: unknown) => {
+              if (!res.getHeader('content-type')) res.setHeader('Content-Type', 'application/json; charset=utf-8');
+              res.end(JSON.stringify(body));
+              return response;
+            },
+            send: (body: unknown) =>
+              body !== null && typeof body === 'object' && !Buffer.isBuffer(body)
+                ? response.json(body)
+                : (res.end(body), response),
+          });
+          await handler(request, response);
+        } catch (err) {
+          server.ssrFixStacktrace(err as Error);
+          server.config.logger.error(`[dev-api] ${pathname}: ${(err as Error).stack ?? String(err)}`);
+          if (res.headersSent) res.end();
+          else reply(500, 'The handler threw; see the dev server log');
+        }
+      });
+    },
+  };
+}
+
 // Vercel serves dist/<door>/index.html at /<door> before the SPA rewrite; vite preview
 // would serve the stock shell there (only /<door>/ reaches the file). Preview only.
 function doorPagesPreviewPlugin(): Plugin {
@@ -336,6 +420,42 @@ ${entries}
   });
 }
 
+// Dev only: /api/cardano/<op> answers from the same named-read table as api/cardano.js
+// (api/_lib/cardano-ops.js), so the dev server and production cannot drift. KOIOS_API_KEY
+// from .env stays in this process; the browser sees only the answer.
+function cardanoDevApiPlugin(apiKey: string | undefined): Plugin {
+  return {
+    name: 'cardano-dev-api',
+    apply: 'serve',
+    configureServer(server) {
+      server.middlewares.use('/api/cardano', async (req, res) => {
+        const { buildKoiosRequest } = await import('./api/_lib/cardano-ops.js');
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        if (req.method !== 'GET') {
+          res.statusCode = 405;
+          res.end('{"error":"Method not allowed"}');
+          return;
+        }
+        const url = new URL(req.url ?? '/', 'http://dev.local');
+        const built = buildKoiosRequest(url.pathname.slice(1), Object.fromEntries(url.searchParams), apiKey);
+        if ('error' in built) {
+          res.statusCode = built.error;
+          res.end(JSON.stringify({ error: built.message }));
+          return;
+        }
+        try {
+          const up = await fetch(built.url, built.init);
+          res.statusCode = up.ok ? 200 : up.status === 429 ? 429 : 502;
+          res.end(up.ok ? await up.text() : '{"error":"Upstream error"}');
+        } catch {
+          res.statusCode = 502;
+          res.end('{"error":"Upstream error"}');
+        }
+      });
+    },
+  };
+}
+
 export default defineConfig(({ command, mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   return {
@@ -350,6 +470,11 @@ export default defineConfig(({ command, mode }) => {
       doorStudioPlugin(),
       firstFrameStylesheetsPlugin(),
       doorPagesPreviewPlugin(),
+      changelogFilesPlugin(),
+      // Before devApiPlugin: /api/cardano/<op> is a vercel.json rewrite, not an api/ file, so
+      // devApiPlugin would answer it 404. This one answers it and never calls next().
+      cardanoDevApiPlugin(env.KOIOS_API_KEY),
+      devApiPlugin(),
       ...(process.env.ANALYZE ? [visualizer({ open: true, gzipSize: true, filename: 'dist/bundle-analysis.html' })] : []),
     ],
     resolve: {
@@ -520,6 +645,10 @@ export default defineConfig(({ command, mode }) => {
               id.includes('node_modules/safe-buffer/')
             ) {
               return 'vendor-shared-wallet-plumbing';
+            }
+            // Only the lazy Cardano swap loads the serialization library (lib/cardano/csl.ts).
+            if (id.includes('node_modules/@emurgo/')) {
+              return 'vendor-cardano';
             }
             // Only lazy Solana pages import these: out of the initial bundle.
             if (

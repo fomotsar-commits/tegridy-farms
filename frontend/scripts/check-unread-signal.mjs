@@ -62,16 +62,10 @@ const KNOWN_BLIND_SPOTS = [
 const BASELINE_TRIAGE = {
   'src/hooks/useAutoRefreshBoost.ts':
     'LIVE (LPFarming). Fail-CLOSED by luck: needsRefresh requires BOTH balances > 0n, so any collapse disarms the refreshBoost prompt rather than firing it. But raw/effective are RETURNED bare, so a partial read hands a caller a real raw balance beside a fabricated 0 effective one.',
-  'src/hooks/useBribes.ts':
-    'DORMANT (VOTE_INCENTIVES_ADDRESS == 0x0). Worst shape in the list once it ships: bribeFeeBps collapses to a hardcoded 300, i.e. an outage renders as a specific 3% fee nobody read.',
-  'src/hooks/useGaugeList.ts':
-    'DORMANT (GAUGE_CONTROLLER_ADDRESS == 0x0). Per-gauge weight/emission collapse to 0n inside a map, so one failed entry in a batch of many silently zeroes a single row while its neighbours look fine.',
   'src/hooks/usePremiumAccess.ts':
     'LIVE (PremiumAccess). hasPremium collapses to false (fail-closed, correct), but monthlyFeeToweli collapses to 0n -- a price of zero on the surface that sizes an approval.',
   'src/hooks/useProtocolStats.ts':
     'LIVE (SwapFeeRouter + TegridyStaking). Contained at its ONE consumer: ProtocolStats.tsx gates every card on > 0, so an outage hides the cards instead of publishing $0 lifetime volume. The trap is that the hook exports bare zeros with no signal, so consumer number two inherits it.',
-  'src/hooks/useRestaking.ts':
-    'DORMANT (TEGRIDY_RESTAKING_ADDRESS == 0x0; see reference_restaking_not_deployed). Also carries the value-proxy shape usePoolData was fixed for: `restakerData ? ... : 0n`.',
   'src/hooks/useRevenueStats.ts':
     'LIVE (RevenueDistributor + ReferralSplitter). pendingETH collapsing to 0n is the exact shape PR #406 fixed elsewhere -- a claim button reading "nothing to claim" on an outage.',
   'src/hooks/useSwapAllowance.ts':

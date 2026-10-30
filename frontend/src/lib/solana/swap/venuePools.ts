@@ -4,8 +4,10 @@ import { clipDetail } from '../../launcher/solana/curve/read';
 import { quoteOwnPool, type OwnPoolQuote } from '../cpswap/read';
 import { getMultipleAccounts, type RawAccount } from '../lp/accounts';
 import { findPools, type PoolView, type ReadPoolsOptions } from '../lp/poolFinder';
+import { poolFeesOf } from '../lp/liquidityMath';
 import { readPair, type QuoteCoin } from '../lp/quotes';
 import { BUILDABLE_EXTENSIONS, decodeMintAccount, extensionPlain } from '../lp/tokenSafety';
+import { feeNow, type TransferFeeConfig } from '../lp/transferFee';
 import type { RouteCandidate } from '../route';
 
 /**
@@ -30,16 +32,31 @@ export type VenuePoolsRead =
       complete: boolean;
       /** Why no pool of this token can be priced exactly, or null. */
       tokenProblem: string | null;
+      /** The token's transfer fee, subtracted from every quote; null when it has none. */
+      tokenFee?: TransferFeeConfig | null;
       chainNow: bigint | null;
+      /** The network's epoch, from the same Clock read: which of the token's fees applies. */
+      chainEpoch?: bigint | null;
     };
 
-/** Why a quote of this token would not be what a swap pays, or null. The builder's own rule. */
-function tokenProblemOf(mint: RawAccount | null): string | null {
+/**
+ * Why a quote of this token would not be what a swap pays, or null: the builder's own
+ * rule. `set` is the extensions the builder works out exactly: for our own pools the one
+ * set (`BUILDABLE_EXTENSIONS`, a transfer fee included); the range pools pass theirs.
+ */
+export function tokenProblemOf(mint: RawAccount | null, set: ReadonlySet<number> = BUILDABLE_EXTENSIONS): string | null {
   if (!mint) return 'the token’s mint was not found';
   const d = decodeMintAccount(mint.owner, mint.data);
   if (!d.ok) return d.reason;
-  const outside = d.value.extensions.find((e) => !BUILDABLE_EXTENSIONS.has(e));
+  const outside = d.value.extensions.find((e) => !set.has(e));
   return outside === undefined ? null : `the token uses ${extensionPlain(outside)}`;
+}
+
+/** The token's transfer fee as its mint carries it; null with none, or a mint that does not decode. */
+function tokenFeeOf(mint: RawAccount | null): TransferFeeConfig | null {
+  if (!mint) return null;
+  const d = decodeMintAccount(mint.owner, mint.data);
+  return d.ok ? (d.value.transferFee ?? null) : null;
 }
 
 export async function readVenuePools(
@@ -56,7 +73,7 @@ export async function readVenuePools(
       getMultipleAccounts(rpc, [pair.tokenMint]),
     ]);
     if (found.kind === 'unread') return { kind: 'unread', detail: found.detail };
-    const { pools: entries, index, chainNow } = found.search;
+    const { pools: entries, index, chainNow, chainEpoch } = found.search;
     return {
       kind: 'ok',
       tokenMint: pair.tokenMint,
@@ -65,7 +82,9 @@ export async function readVenuePools(
       pools: entries.flatMap((e) => (e.kind === 'pool' && e.view.quote.mint === pair.quote.mint ? [e.view] : [])),
       complete: index.kind === 'ok' && !index.truncated && entries.every((e) => e.kind === 'pool'),
       tokenProblem: tokenProblemOf(mint ?? null),
+      tokenFee: tokenFeeOf(mint ?? null),
       chainNow,
+      chainEpoch: chainEpoch ?? null,
     };
   } catch (e) {
     return { kind: 'unread', detail: clipDetail(e) };
@@ -129,6 +148,9 @@ export function quoteVenuePools(
   // The pool opens by the chain's clock. The viewer's stands in only for this estimate:
   // the builder reads the chain's again and refuses without it.
   const now = read.chainNow !== null ? Number(read.chainNow) : viewerNowSecs;
+  // The token's transfer fee, at the chain's epoch when it was read (the builder reads it
+  // again, and refuses without it when the fee's two settings differ).
+  const tokenFee = feeNow(read.tokenFee ?? null, read.chainEpoch ?? null);
   const candidates: VenuePoolCandidate[] = [];
   let unread = 0;
   for (const view of read.pools) {
@@ -137,7 +159,7 @@ export function quoteVenuePools(
       continue;
     }
     if (read.tokenProblem !== null || amountIn <= 0n || view.vaultsFrozen) continue;
-    const quote = quoteOwnPool(view.snapshot, view.config, inputMint, amountIn, now);
+    const quote = quoteOwnPool(view.snapshot, view.config, inputMint, amountIn, now, poolFeesOf(view.quoteIsToken0, tokenFee));
     if (!quote || quote.outAmount <= 0n) continue;
     candidates.push({ venue: 'own-pool', outAmount: quote.outAmount, label: 'venue pool', poolAddress: view.address, priceImpact: quote.priceImpact, view, quote });
   }

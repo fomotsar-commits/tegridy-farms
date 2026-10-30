@@ -85,7 +85,11 @@ jobs:
           # is already known to be in scope.
           [ -n "${PR:-}" ] || { echo "not a pull_request — in scope by trigger"; say true; }
 
-          files=$(gh api --paginate "repos/$REPO/pulls/$PR/files" --jq '.[].filename')
+          files=$(gh api --paginate "repos/$REPO/pulls/$PR/files" \
+            --jq '.[] | .filename, (.previous_filename // empty)') || {
+            echo "::warning::gh could not list every changed file, running the real job"
+            say true
+          }
           if [ -z "$files" ]; then
             echo "::warning::could not list this PR's changed files — running the real job"
             say true
@@ -253,30 +257,18 @@ jobs:
           #     Two fixes shipped and 33 B RETURNED.
           #     NOTE this allowlist only WARNS below the hard 24,576 limit, so it cannot
           #     protect the 55 B. contracts/test/Audit_StakingEIP170Size.t.sol ratchets the
-          #     measured size in the test matrix, where an allowlist entry cannot soften it
-          #     — same rationale as Audit_RestakingEIP170Size.t.sol. THAT is the real gate;
+          #     measured size in the test matrix, where an allowlist entry cannot soften it.
+          #     THAT is the real gate;
           #     this comment is documentation and must be updated alongside the ratchet.
-          #   VoteIncentives — 24,477 B (re-measured 2026-08-19): 99 B under EIP-170.
-          #     Also stale here until 2026-08-19, which read "24,274 B ... 302 B under";
-          #     it had drifted 203 B. VoteIncentivesAdmin ALREADY EXISTS (10,762 B) and
-          #     is deployed, so the "eventual fix" is not a new contract — it is moving
-          #     the next admin selector onto the sister that is already there.
-          #     Second-tightest in the repo after TegridyStaking.
           #
           # OVER_EIP170_DEFERRED — genuinely OVER EIP-170 and therefore undeployable
           #   by construction. Every entry MUST also be absent from every deploy path
           #   (DeployMVP / VerifyMVP). Adding a name here defers a contract nobody can
           #   ship — it is NOT a way to silence a launch blocker on a deploy-path one.
-          #   EMPTY since 2026-08-19, and it should stay that way. TegridyRestaking
-          #     was the only entry (26,784 B measured pre-split — 2,208 B OVER the
-          #     limit; the 26,760 B figure this line used to carry was never
-          #     reproducible). Its admin split landed — the timelocked
-          #     surface moved to src/TegridyRestakingAdmin.sol — taking the host to
-          #     22,114 B, so it is now gated by the hard branch above like everything
-          #     else: a regression past 24,576 B FAILS this job instead of warning.
+          #   EMPTY since 2026-08-19, and it should stay that way.
           #
           # The VerifyMVP.s.sol deploy-gate is the real pre-launch EIP-170 enforcement.
-          FLOOR_EXCEPTIONS="TegridyStaking VoteIncentives"
+          FLOOR_EXCEPTIONS="TegridyStaking"
           OVER_EIP170_DEFERRED=""
           # MEASURE ONLY OUR OWN CONTRACTS (2026-08-21).
           #

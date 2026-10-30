@@ -7,6 +7,7 @@ import { FlamesBoard } from '../components/FlamesBoard';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
 import { CardArt } from '../components/ui/CardArt';
 import { IslandSoundLinks } from '../components/IslandSound';
+import { VenueCards } from '../components/VenueCards';
 
 /**
  * The four-piece arrival film, on demand.
@@ -40,7 +41,7 @@ const ArrivalFilm = lazy(() =>
  *
  * THE LIST IS NOT RE-TYPED HERE. It is `ISLAND_SECTION.items` minus this page
  * itself, so a destination cannot be added to the nav and forgotten on the
- * lobby, and the gating (Community rides COMMUNITY_LIVE) is honoured once. The
+ * lobby, and the gating is honoured once. The
  * blurbs are keyed by route — an entry with no blurb still renders, with its
  * label alone, rather than vanishing.
  */
@@ -48,7 +49,6 @@ const ArrivalFilm = lazy(() =>
 /** One line per door: what is actually behind it. Keyed by route. */
 const BLURB: Record<string, string> = {
   '/gallery': 'Every piece, and the artists behind them.',
-  '/nakamigos': 'Trade four collections, browse five more. Our fee is 1%, the same as OpenSea.',
   '/community': 'Grants, bounties and the votes that direct them.',
   '/tokenomics': 'Supply, the treasury, lifetime fees, and your own tax reports.',
 };
@@ -57,13 +57,14 @@ const BLURB: Record<string, string> = {
  * Each door's own art surface, keyed by route so a door leaving the lobby cannot hand
  * its picture to the next one. island idx 4 was the Venue Score door, deleted
  * 2026-10-15 (island item 4); keyed by position, Treasury & numbers would have
- * inherited its art. A door with no entry reuses a registered surface.
+ * inherited its art. idx 2 was the Marketplace door, which left the nav with the
+ * home and the metadata on 2026-10-24. A door with no entry reuses a registered surface.
  */
-const DOOR_ART: Record<string, number> = { '/gallery': 1, '/nakamigos': 2, '/community': 3, '/tokenomics': 5 };
+const DOOR_ART: Record<string, number> = { '/gallery': 1, '/community': 3, '/tokenomics': 5 };
 const DOOR_ART_SLOTS = Object.values(DOOR_ART);
 
 export default function IslandPage() {
-  usePageTitle('The island', `${VENUE.tagline}. The gallery, the marketplace, the community and the numbers.`);
+  usePageTitle('The island', `${VENUE.tagline}. The gallery, the community and the numbers.`);
 
   // Drop the lobby's own entry — a card linking to the page you are standing on
   // is a dead click. Keyed on the section's OWN hub rather than the literal
@@ -79,7 +80,9 @@ export default function IslandPage() {
   return (
     <>
     <PageArtBackdrop pageId="island" />
-    <div className="relative z-10 mx-auto w-full max-w-[900px] px-4 py-8 sm:py-10">
+    {/* The home's column (page-column), not 900px: the three cards below sit side by side as
+        they do on the home, and a third of 900px is narrower than a phone. */}
+    <div className="relative z-10 mx-auto w-full page-column px-4 md:px-6 py-8 sm:py-10">
       <header className="mb-7">
         <p className="text-[11px] uppercase tracking-wider label-pill mb-2" style={{ color: 'var(--color-kyle)' }}>
           Jungle Bay Island
@@ -91,6 +94,13 @@ export default function IslandPage() {
           The place itself: its art, its people and its money.
         </p>
       </header>
+
+      {/* The home's three cards, swap, lock BAYLA and add SOL + BAYLA (owner, 2026-10-19: "we had
+          put the three modules on the homepage ... lets put them there again"). The same row
+          as the home's, with its one Solana connection (lib/routeVoice.ts hasMixedSolanaSection). */}
+      <div className="mb-6">
+        <VenueCards />
+      </div>
 
       {/* WAVE SEVEN, element G: the lobby OPENS with the board. Twenty-five rows here
           rather than the home's five, because someone who walked to /island came

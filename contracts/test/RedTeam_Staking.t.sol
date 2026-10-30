@@ -7,10 +7,8 @@ import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 import "../src/TegridyStaking.sol";
 import {StakingMonitorView} from "../src/StakingMonitorView.sol";
-import {RestakingMonitorView} from "../src/RestakingMonitorView.sol";
 import "../src/TegridyStakingAdmin.sol";
 import "../src/TegridyStakingJbacVault.sol"; // AUDIT FIX (pass-8 batch-14)
-import "../src/TegridyRestaking.sol";
 
 // ─── Mock Tokens ──────────────────────────────────────────────────────
 
@@ -34,15 +32,6 @@ contract RT_MockJBAC is ERC721 {
     function burnFrom(address owner, uint256 tokenId) external {
         require(ownerOf(tokenId) == owner);
         _burn(tokenId);
-    }
-}
-
-contract RT_MockWETH is ERC20 {
-    constructor() ERC20("WETH", "WETH") {
-        _mint(msg.sender, 10_000_000 ether);
-    }
-    function mint(address to, uint256 amount) external {
-        _mint(to, amount);
     }
 }
 
@@ -84,12 +73,9 @@ contract ReentrancyAttacker is IERC721Receiver {
 contract RedTeamStaking is Test {
     RT_MockTOWELI toweli;
     RT_MockJBAC jbac;
-    RT_MockWETH weth;
     TegridyStaking staking;
     StakingMonitorView monitor;
     TegridyStakingAdmin stakingAdmin;
-    TegridyRestaking restaking;
-    RestakingMonitorView rMonitorView; // EIP-170 sister: pendingBonus/pendingBase/etc.
 
     address alice = makeAddr("alice");
     address bob = makeAddr("bob");
@@ -98,13 +84,11 @@ contract RedTeamStaking is Test {
     address treasury = makeAddr("treasury");
 
     uint256 constant REWARD_RATE = 1 ether;
-    uint256 constant BONUS_RATE = 0.1 ether;
     uint256 constant STAKE_AMOUNT = 100_000 ether;
 
     function setUp() public {
         toweli = new RT_MockTOWELI();
         jbac = new RT_MockJBAC();
-        weth = new RT_MockWETH();
 
         staking = new TegridyStaking(
             address(toweli),
@@ -118,26 +102,13 @@ contract RedTeamStaking is Test {
         TegridyStakingJbacVault vault = new TegridyStakingJbacVault(address(jbac), address(staking));
         staking.setJbacVault(address(vault));
 
-        restaking = new TegridyRestaking(
-            address(staking),
-            address(monitor),
-            address(toweli),
-            address(weth),
-            BONUS_RATE
-        );
-        rMonitorView = new RestakingMonitorView(address(restaking));
-
-        // Register restaking contract via timelock
-        stakingAdmin.proposeRestakingContract(address(restaking));
+        // The restaking registration that used to sit here warped 48h. Kept, so every
+        // test below starts from the clock it always did.
         vm.warp(block.timestamp + 48 hours + 1);
-        stakingAdmin.executeRestakingContract();
 
         // Fund staking with rewards
         toweli.approve(address(staking), type(uint256).max);
         staking.notifyRewardAmount(5_000_000 ether);
-
-        // Fund restaking with bonus rewards
-        weth.transfer(address(restaking), 1_000_000 ether);
 
         // Distribute tokens
         toweli.transfer(alice, 1_000_000 ether);
@@ -162,21 +133,6 @@ contract RedTeamStaking is Test {
         vm.prank(user);
         staking.stake(amount, lockDuration);
         tokenId = staking.userTokenId(user);
-    }
-
-    function _stakeAndRestake(address user, uint256 amount, uint256 lockDuration) internal returns (uint256 tokenId) {
-        vm.startPrank(user);
-        staking.stake(amount, lockDuration);
-        tokenId = staking.userTokenId(user);
-        staking.approve(address(restaking), tokenId);
-        vm.stopPrank();
-
-        // Warp past 24h transfer cooldown
-        vm.warp(block.timestamp + 25 hours);
-
-        vm.startPrank(user);
-        restaking.restake(tokenId);
-        vm.stopPrank();
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -539,68 +495,6 @@ contract RedTeamStaking is Test {
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // 7. EXPLOIT THE RESTAKING CLAIM FLOW (POST H-01 FIX)
-    // ═══════════════════════════════════════════════════════════════════
-
-    /// @notice DEFENDED: First restaker after gap does not get windfall rewards (H-01 fix)
-    function test_DEFENDED_firstRestakerNoWindfall() public {
-        // Nobody restakes for a while — bonus rewards accumulate in the contract
-        vm.warp(block.timestamp + 30 days);
-
-        // Alice stakes and restakes
-        _stakeAndRestake(alice, STAKE_AMOUNT, 30 days);
-
-        // Check alice's pending bonus — should be zero since she just restaked
-        uint256 alicePending = rMonitorView.pendingBonus(alice);
-        assertEq(alicePending, 0, "First restaker should not get windfall bonus from gap period");
-    }
-
-    /// @notice DEFENDED: claimAll uses return value from staking.getReward(), not balance deltas.
-    ///         This prevents MEV sandwich inflating base rewards.
-    function test_DEFENDED_claimAllUsesReturnValueNotBalanceDelta() public {
-        _stakeAndRestake(alice, STAKE_AMOUNT, 30 days);
-        vm.warp(block.timestamp + 7 days);
-
-        uint256 aliceBefore = toweli.balanceOf(alice);
-
-        // Attacker donates tokens to restaking contract to try to inflate balance delta
-        vm.prank(attacker);
-        toweli.transfer(address(restaking), 100_000 ether);
-
-        // Alice claims — should only get legitimate rewards, not the donation
-        vm.prank(alice);
-        restaking.claimAll();
-
-        uint256 aliceAfter = toweli.balanceOf(alice);
-        uint256 aliceGain = aliceAfter - aliceBefore;
-
-        // The gain should be approximately 7 days * 1 ether/sec of base rewards
-        // NOT inflated by the 100k donation
-        uint256 maxExpected = 7 days * REWARD_RATE + 1 ether; // small buffer
-        assertLe(aliceGain, maxExpected, "claimAll should not be inflated by direct donation");
-    }
-
-    /// @notice INVESTIGATE: Auto-refresh in claimAll when position changes.
-    ///         If the staking position was partially withdrawn via early-withdraw before restaking claims,
-    ///         the restaking contract should refresh and not pay bonus on phantom capital.
-    function test_DEFENDED_autoRefreshPreventsPhantomCapital() public {
-        uint256 aliceTokenId = _stakeAndRestake(alice, STAKE_AMOUNT, 30 days);
-        vm.warp(block.timestamp + 7 days);
-
-        // Verify position is accurate via the restakers mapping
-        (, uint256 cachedAmount,,,,) = restaking.restakers(alice);
-        assertEq(cachedAmount, STAKE_AMOUNT, "Cached amount should match initial stake");
-
-        // claimAll auto-refreshes if staking position changed
-        vm.prank(alice);
-        restaking.claimAll();
-
-        // After claimAll, cached amount should still match (no change to underlying position)
-        (, uint256 cachedAmountAfter,,,,) = restaking.restakers(alice);
-        assertEq(cachedAmountAfter, STAKE_AMOUNT, "Cached amount should still match after claimAll");
-    }
-
-    // ═══════════════════════════════════════════════════════════════════
     // 8. EXPLOIT THE UNSETTLED REWARDS MECHANISM (POST X-03 FIX)
     // ═══════════════════════════════════════════════════════════════════
 
@@ -831,33 +725,6 @@ contract RedTeamStaking is Test {
         assertGe(bobAfter - bobBefore, STAKE_AMOUNT, "Emergency exit returns at least full principal after lock expires");
     }
 
-    /// @notice INVESTIGATE: Restaking unsettled rewards race condition.
-    ///         When unrestaking, the contract does claimUnsettled for the restaking contract address.
-    ///         If multiple users unrestake, they share the same claimUnsettled pool.
-    ///         The pendingUnsettledRewards mechanism should protect against this.
-    function test_DEFENDED_restakingUnsettledRaceProtected() public {
-        _stakeAndRestake(alice, STAKE_AMOUNT, 30 days);
-
-        // Give bob tokens to stake and restake
-        toweli.transfer(bob, STAKE_AMOUNT);
-        _stakeAndRestake(bob, STAKE_AMOUNT, 30 days);
-
-        vm.warp(block.timestamp + 7 days);
-
-        // Both unrestake — unsettled rewards should be tracked per-user
-        vm.prank(alice);
-        restaking.unrestake();
-
-        vm.prank(bob);
-        restaking.unrestake();
-
-        // Both should have received their base rewards
-        uint256 aliceBal = toweli.balanceOf(alice);
-        uint256 bobBal = toweli.balanceOf(bob);
-        assertGt(aliceBal, STAKE_AMOUNT - 1000 ether, "Alice should have base rewards");
-        assertGt(bobBal, STAKE_AMOUNT - 1000 ether, "Bob should have base rewards");
-    }
-
     /// @notice DEFENDED: AlreadyStaked prevents opening multiple positions from one EOA
     function test_DEFENDED_cannotOpenMultiplePositions() public {
         _stakeAs(bob, STAKE_AMOUNT, 30 days);
@@ -891,27 +758,4 @@ contract RedTeamStaking is Test {
         assertLe(pendingAfter, 1e15, "Pending should be near zero after extend");
     }
 
-    /// @notice INVESTIGATE (AUDIT H-1, 2026-04-20): revalidateBoostForRestaked on a non-deposit
-    ///         position is a no-op (H-1 fix: no upgrades via revalidate). On a deposit-based
-    ///         position it reverts with JbacDeposited. Either way, it cannot be griefed.
-    function test_DEFENDED_revalidateBoostForRestakedPermissionless() public {
-        // Alice stakes via stake() and restakes — no JBAC boost cached.
-        jbac.mint(alice);
-        uint256 aliceTokenId = _stakeAndRestake(alice, STAKE_AMOUNT, 365 days);
-
-        // AUDIT NEW-S2 (HIGH): the wrapper used to be permissionless on the assumption
-        // that revalidate could only DOWNGRADE. But a legacy-JBAC holder whose token is
-        // temporarily in a different wallet would have their boost permanently stripped
-        // by any griefer watching the JBAC market. Wrapper is now auth-gated: only the
-        // restaker themselves or the restaking-contract owner may trigger revalidation.
-        vm.prank(alice);
-        restaking.revalidateBoostForRestaked(aliceTokenId);
-        (,,,,,,,bool hasJbacBefore,,,) = staking.positions(aliceTokenId);
-        assertFalse(hasJbacBefore, "H-1: revalidate cannot upgrade");
-
-        // Attacker call — now reverts with Unauthorized() instead of being a no-op.
-        vm.prank(attacker);
-        vm.expectRevert(TegridyRestaking.Unauthorized.selector);
-        restaking.revalidateBoostForRestaked(aliceTokenId);
-    }
 }

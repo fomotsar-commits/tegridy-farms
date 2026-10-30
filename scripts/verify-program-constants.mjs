@@ -228,7 +228,7 @@ const ROSTERS = {
         id: 'devnet admin',
         address: 'GgE6AfEH2AVSrKGckyKMzC6mhtXWiAn39EzAikAsWq5a',
         expect: 'forbidden',
-        why: 'The devnet arm of admin::ID and of the support-mint owner. A single operator-held devnet throwaway. Present in a mainnet binary => AMM admin is a throwaway key.',
+        why: 'The devnet arm of admin::ID and of the support-mint owner. A single operator-held devnet key, which has also signed on mainnet. Present in a mainnet binary => AMM admin is one person\'s key, not the vault.',
       },
       {
         id: 'devnet fee receiver',

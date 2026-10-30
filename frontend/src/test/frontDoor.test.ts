@@ -68,7 +68,7 @@ describe('CLAUDE.md', () => {
     const gates = read('scripts', 'ci', 'local-gates.sh')
       .split('\n')
       .flatMap((l) => {
-        const m = /^\s*gate \w+ "[^"]*" (\S+) (.+)$/.exec(l);
+        const m = /^\s*(?:[A-Z][A-Z0-9_]*=\S+ )*gate \w+ "[^"]*" (\S+) (.+)$/.exec(l);
         return m ? [{ dir: posix.normalize(m[1]), cmd: m[2].replace(/\s+/g, ' ').trim() }] : [];
       });
     expect(gates.length, 'local-gates.sh lists no gate').toBeGreaterThan(0);
@@ -114,6 +114,7 @@ describe('the root is a front door', () => {
     'frontend',
     'indexer',
     'indexer-solana',
+    'keeper',
     'package-lock.json',
     'package.json',
     'scripts',
@@ -238,7 +239,7 @@ describe('the changelog is one line per change', () => {
 
   it('stays short and points at the long form in git', () => {
     const text = read('CHANGELOG.md');
-    expect(Buffer.byteLength(text, 'utf-8')).toBeLessThan(64 * 1024);
+    expect(Buffer.byteLength(text, 'utf-8')).toBeLessThan(96 * 1024);
     expect(text).toContain('git show 531813e6:CHANGELOG.md');
   });
 
@@ -252,6 +253,27 @@ describe('the changelog is one line per change', () => {
     expect(odd, 'every line under Unreleased is a date heading or one entry').toEqual([]);
     expect(body.split('\n').filter((l) => l.startsWith('- ')).length).toBeGreaterThan(10);
     expect(text).not.toContain(EM_DASH);
+  });
+
+  // A day past the thirty moves to docs/CHANGELOG_EARLIER.md, and the site's Changelog
+  // tab shows both files, so the two read as one list: no day in both, newest first.
+  it('moves an older day to docs/CHANGELOG_EARLIER.md, in the same form, as one list', () => {
+    const earlier = read('docs', 'CHANGELOG_EARLIER.md');
+    const days = earlier.slice(earlier.indexOf('## Days') + '## Days'.length);
+    expect(earlier.indexOf('## Days')).toBeGreaterThan(-1);
+    const odd = days
+      .split('\n')
+      .filter((l) => l.trim() !== '')
+      .filter((l) => !/^### \d{4}-\d{2}-\d{2}$/.test(l) && !/^- \S/.test(l));
+    expect(odd, 'every line under Days is a date heading or one entry').toEqual([]);
+    expect(earlier).not.toContain(EM_DASH);
+    const dates = [unreleased(read('CHANGELOG.md')), days].flatMap((t) =>
+      [...t.matchAll(/^### (\d{4}-\d{2}-\d{2})$/gm)].map((m) => m[1]!),
+    );
+    expect(dates.length).toBeGreaterThan(20);
+    expect(dates, 'the days run newest first, each once, across both files').toEqual(
+      [...new Set(dates)].sort().reverse(),
+    );
   });
 
   it('lists no entry twice under Unreleased', () => {

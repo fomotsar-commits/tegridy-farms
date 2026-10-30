@@ -66,6 +66,7 @@ function view(): PoolView {
     quoteReserve: s,
     tokenReserve: t,
     vaultsFrozen: false,
+    launchTierWithoutLaunch: false,
     history: { kind: 'not-read' },
   };
 }
@@ -85,6 +86,7 @@ function search(views: PoolView[]): PoolSearchRead {
       index: { kind: 'ok', pools: views.map((v) => v.address), truncated: false },
       pools: views.map((v) => ({ kind: 'pool' as const, view: v })),
       otherPairs: 0,
+      launchTierPools: [],
       knownState: { [standard]: 'absent' },
       chainNow: 1_000n,
     },
@@ -154,7 +156,7 @@ describe('the panel', () => {
     expect(panel).toHaveAccessibleName('Open a pool for this token');
     const before = within(panel).getByTestId('lp-before-you-open');
     expect(before).toHaveTextContent(/Our pool program is Raydium's, with only its admin keys changed\. Those changes have not had their own independent review yet\./);
-    expect(before).toHaveTextContent(/change the public fee tier's rates and its fee to open a pool at once/);
+    expect(before).toHaveTextContent(/change the public fee tier's rates and its fee to open a pool, and upgrade the program. Each change waits 48 hours after both have signed./);
     expect(before).toHaveTextContent("Jupiter does not send trades to our pools. This site's own swap sends a trade to your pool only when your pool pays the trader at least as much as Jupiter does.");
     expect(before).not.toHaveTextContent(/not built yet/);
     expect(before).toHaveTextContent('Any other trade has to come from someone using our pool program directly.');
@@ -757,11 +759,11 @@ describe('the review and a confirmed opening', () => {
     const disclosure = within(panel).getByTestId('lp-review-disclosure');
     expect(disclosure).toHaveAttribute('data-kind', 'create');
     expect(disclosure).toHaveTextContent(/have not had their own independent review yet/);
-    expect(disclosure).toHaveTextContent(/change the public fee tier's rates and its fee to open a pool at once/);
+    expect(disclosure).toHaveTextContent(/change the public fee tier's rates and its fee to open a pool, and upgrade the program. Each change waits 48 hours after both have signed./);
     expect(disclosure).toHaveTextContent("Jupiter does not send trades to our pools. This site's own swap sends a trade to a pool only when that pool pays the trader at least as much as Jupiter does.");
     // The two risk notices stand once, above the rows (island, answer eighteen).
     expect(within(panel).getAllByText(/have not had their own independent review yet/)).toHaveLength(1);
-    expect(within(panel).getAllByText(/change the public fee tier's rates and its fee to open a pool at once/)).toHaveLength(1);
+    expect(within(panel).getAllByText(/change the public fee tier's rates and its fee to open a pool, and upgrade the program. Each change waits 48 hours after both have signed./)).toHaveLength(1);
     expect(within(panel).getAllByText(RISK_SHORT)).toHaveLength(1);
     expect(isCreatedPool(pool.toBase58())).toBe(false);
     await act(async () => {

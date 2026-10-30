@@ -149,24 +149,24 @@ test.describe('a section link to another page', () => {
 test.describe('a section link on its own page', () => {
   test('pressed again after scrolling away, it lands again', async ({ page }) => {
     await prepare(page);
-    await page.goto('/');
-    // The bar's Rooms word opens /#hall (navConfig BAR_NAV), and the bar stays on screen.
-    const hold = page.locator('nav[aria-label="Main navigation"]:visible').getByRole('link', { name: 'Rooms' });
-    await expect(hold).toBeVisible({ timeout: 20_000 });
-    // The bar draws before the home page's own code does.
-    await expect(page.locator('#hall')).toBeAttached({ timeout: 20_000 });
+    // No bar word opens the hall since Heat and Rooms became Island (2026-10-18), so the press
+    // is the island lobby's "The bungalows", made again after scrolling away and going Back.
+    // useSectionLink.test.tsx holds a second press made on the page itself.
+    await page.goto('/island');
     for (const press of [1, 2, 3]) {
-      // Past the hall.
+      await expect(bungalowsLink(page)).toBeVisible({ timeout: 20_000 });
+      await bungalowsLink(page).click();
+      await expect.poll(() => placement(page, 'hall'), { message: `press ${press} lands on the hall`, timeout: 20_000 })
+        .toBe('landed');
+      // The scroll below is the test's, not a visitor's: let the landing settle first.
+      await page.waitForTimeout(SETTLED_MS);
+      // Past the hall, then Back to the lobby.
       await page.evaluate(() => {
         const hall = document.getElementById('hall');
         if (hall) window.scrollTo(0, window.scrollY + hall.getBoundingClientRect().bottom + 10);
       });
-      expect(await placement(page, 'hall'), `before press ${press}, the hall is above the screen`).toMatch(/^#hall top at -/);
-      await hold.click();
-      await expect.poll(() => placement(page, 'hall'), { message: `press ${press} lands on the hall`, timeout: 10_000 })
-        .toBe('landed');
-      // The scroll above is the test's, not a visitor's: let the landing settle first.
-      await page.waitForTimeout(SETTLED_MS);
+      expect(await placement(page, 'hall'), `after press ${press}, the hall is above the screen`).toMatch(/^#hall top at -/);
+      await page.goBack();
     }
   });
 
@@ -202,7 +202,7 @@ test.describe('a section address opened directly', () => {
   test('Back to it is the browser\'s to place: the venue makes no jump', async ({ page }) => {
     await prepare(page);
     await page.goto('/#hall');
-    const toNftFinance = page.locator('section[aria-label="Three paths"] a[href="/nft-finance"]');
+    const toNftFinance = page.locator('section[aria-label="Paths"] a[href="/nft-finance"]');
     await expect(toNftFinance).toBeVisible({ timeout: 20_000 });
     await toNftFinance.click();
     await expect(page.getByRole('heading', { name: 'NFT Finance', level: 1 })).toBeVisible({ timeout: 20_000 });

@@ -147,8 +147,8 @@ itself: it lets `git clone https://memetics.finance/source` work, and `held-thro
 publishes that address as the repo. So when the code moves hosts, the site and
 `held-through.json` keep working after **one edit: four lines of `frontend/vercel.json`**. No
 page changes. A program's on-chain security.txt gets the same protection once it uses these
-links. cp-swap's source has used them since 2026-10-06. The program on mainnet does not yet:
-it gets them at its next upgrade (TODO_OPERATOR O-0929-10).
+links. cp-swap's source has used them since 2026-10-06, and the program on mainnet had them from
+its first upgrade (2026-10-23) until its roll-back on 2026-10-24 (TODO_OPERATOR O-0929-10).
 
 **Today the links go to GitHub, the primary.** These are the four lines in
 `frontend/vercel.json`, one rule per line:
@@ -230,9 +230,10 @@ against `origin/mvp-launch` before writing a fix — otherwise you re-fix shippe
 
 ---
 
-## Function count ceiling
+## Function count
 
-The Vercel Hobby plan caps serverless functions at **12**. `frontend/api/` currently
-resolves to 10 real functions (the rest of the `.js` files are `__tests__`). When
-adding an endpoint, add a `?resource=` branch to an existing catchall rather than a new
-file, or the deploy fails on the cap.
+The project has been on Vercel Pro since 2026-09-04, so the Hobby plan's 12-function cap
+no longer binds. `frontend/api/SERVERLESS_BUDGET.md` lists every function: a new
+`api/*.js` route goes on that list in the same PR, or `commerce-surface-parity` and
+`alerts-surface-parity` fail. An endpoint that shares an existing catchall's gate is
+still a `?resource=` branch on it.

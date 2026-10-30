@@ -4,13 +4,15 @@ import { ExplorerLink, ImpactRows, Notice, Row } from './ui';
 import { DIVIDER, bpsPercent, fractionToBps, sharePercent } from './uiFormat';
 import { CREATOR_FEE_SWITCH, feeSplit } from '../../../lib/solana/cpswap/venue';
 import { feeRateText, formatSolPrice, tradeCostText } from '../../../lib/solana/lp/format';
-import { TOO_NEW_WHY } from '../../../lib/solana/lp/ownPrice';
 import { edgePercent } from '../../../lib/solana/route';
+import { perMillionPercent } from '../../../lib/solana/clmm/feeText';
 import type { FeeSplitView, NotSent, PreparedTx, SolanaCluster, TokenRole, TxKind, TxOutcome, TxSigner, TxSummary, TxViewApi } from './ports';
 import { reviewLines } from './reviewLines';
+import { RangeRows } from './RangeRows';
+import { rangeVenueEarns, type RangeVenueEarns } from '../../../lib/solana/clmm/venueEarns';
 import type { ReviewState, TxFlow } from './useTxFlow';
 import { quoteCoin, type QuoteCoin } from '../../../lib/solana/lp/quotes';
-import type { PriceReference } from '../../../lib/solana/lp/poolHealth';
+import { NOTHING_WHY, type PriceReference } from '../../../lib/solana/lp/poolHealth';
 
 // What the user sees between pressing a Review button and the chain's answer.
 // Every word here is about THIS transaction, and the numbers come from the
@@ -46,6 +48,8 @@ function tradeLamports(s: TxSummary): bigint | null {
       return s.quote.outAmount;
     case 'venue-swap':
       return !s.coin.native ? null : s.paysCoin ? s.amountIn : s.quoted.outAmount;
+    case 'range-swap':
+      return !s.poolLine.quote.native ? null : s.paysCoin ? s.amountIn : s.quotedOut;
     case 'create':
       return s.openingBuy ? s.openingBuy.quote.lamportsIn : null;
     // A pool paired with USDC or BAYLA moves none of the trade in SOL, so a fee has
@@ -197,6 +201,12 @@ export function SummaryRows({
       return <LpWithdrawRows summary={summary} />;
     case 'lp-create':
       return <LpCreateRows summary={summary} />;
+    case 'range-open':
+    case 'range-remove':
+    case 'range-close':
+      return <RangeRows summary={summary} />;
+    case 'range-swap':
+      return <RangeSwapRows summary={summary} />;
     default:
       // A new kind of transaction is a compile error here until it has rows.
       return noRowsFor(summary);
@@ -317,8 +327,10 @@ function priceText(p: Extract<TxSummary, { kind: 'lp-deposit' }>['price']): stri
     case 'no-trades-yet':
       return 'nobody has traded since the launch program opened it';
     case 'too-new':
-      // A launch pool with no route and too short a record: built for, with a warning.
-      return `not checked against anything: ${TOO_NEW_WHY}`;
+    case 'reserves-moved':
+    case 'too-quiet':
+      // A launch pool with no route whose own record proves nothing: built for, with a warning.
+      return `not checked against anything: ${NOTHING_WHY[p.state]}`;
     case 'empty-pool':
       return 'not checked: the pool is empty';
     case 'no-market':
@@ -355,8 +367,32 @@ const gapCostText = (g: PriceGap, q: QuoteCoin) =>
   g.lossQuote === null ? 'could not be worked out' : `up to about ${coinExact(g.lossQuote, q)} of what you put in`;
 
 /**
+ * A range review whose fee tier is not the agreed split: where the venue's cut goes, said
+ * first, in bold, above every row (owner, 2026-10-10). It is one of the review's OWN lines,
+ * not a warning: any change to it, numbers included, shows the review again before signing.
+ */
+function rangeVenueFirst(s: TxSummary): RangeVenueEarns | null {
+  if (s.kind !== 'range-open' && s.kind !== 'range-remove' && s.kind !== 'range-close' && s.kind !== 'range-swap') return null;
+  const venue = rangeVenueEarns(s.poolLine, s.poolLine.feeCeiling);
+  return venue.elsewhere ? venue : null;
+}
+
+function VenueFirst({ id, venue }: { id: string; venue: RangeVenueEarns }) {
+  const wallets = venue.wallets.map((w) => `${w.label}: ${w.address}`).join('. ');
+  return (
+    <div id={id} data-testid="tx-review-venue-elsewhere">
+      <Notice tone="bad">
+        <strong>{venue.where}</strong>
+        {wallets && ` ${wallets}.`}
+      </Notice>
+    </div>
+  );
+}
+
+/**
  * What the builder says must be read before this is signed (`summary.warnings`: a price
- * that is off and what it may cost, no market price, a copied name, a freezable token).
+ * that is off and what it may cost, no market price, a copied name, a freezable token;
+ * a range opening's `warnings`: its own price check).
  * Only adding and opening carry any. A removal never does: nothing here may give someone
  * a reason to wait before taking their money out.
  *
@@ -368,6 +404,7 @@ const gapCostText = (g: PriceGap, q: QuoteCoin) =>
  * said once: the rows below do not repeat it.
  */
 function reviewWarnings(s: TxSummary): string[] {
+  if (s.kind === 'range-open') return s.poolLine.quote.risk ? [...s.warnings, s.poolLine.quote.risk] : s.warnings;
   if (s.kind !== 'lp-deposit' && s.kind !== 'lp-create') return [];
   return s.quote.risk ? [...s.warnings, s.quote.risk] : s.warnings;
 }
@@ -389,6 +426,10 @@ function ReviewWarnings({ id, warnings }: { id: string; warnings: string[] }) {
     </div>
   );
 }
+
+/** A token's own transfer fee (lp/transferFee.ts): the token keeps it, never the pool or the venue. */
+const TRANSFER_FEE_LABEL = 'The token’s own transfer fee';
+const KEPT_BY_TOKEN = 'kept by the token for its fee collector, not by the pool or this site';
 
 function LpPoolRows({ summary }: { summary: LpSummary }) {
   return (
@@ -417,6 +458,13 @@ function LpDepositRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp
       <Row label="Paired with" value={q.symbol} mono={false} />
       <Row label="You put in about" value={`${coinAbout(s.quoted.quote, q)} and ${tok(s.quoted.token)} tokens`} mono={false} />
       <Row label="At most" value={`${coinExact(s.max.quote, q)} and ${unitsExact(s.max.token, s.tokenDecimals)} tokens${limited}`} mono={false} />
+      {s.transferFee && (
+        <Row
+          label={TRANSFER_FEE_LABEL}
+          value={`about ${tok(s.transferFee.kept)} tokens of what you put in (${s.transferFee.rate}), ${KEPT_BY_TOKEN}; the pool gets the rest`}
+          mono={false}
+        />
+      )}
       <Row label="You get" value={`${unitsExact(s.lpAmount, s.lpDecimals)} pool shares, exactly`} mono={false} />
       <Row label="Your share of the pool" value={`${shareText(s.sharePct.before)} → ${shareText(s.sharePct.after)}`} />
       <Row label="Price check" value={pricedText(s.price, q)} mono={false} line="market" />
@@ -461,6 +509,13 @@ function LpWithdrawRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'l
       {s.all && <Notice>This is all of your share in this pool.</Notice>}
       <Row label="You get about" value={`${coinAbout(s.quoted.quote, q)} and ${tok(s.quoted.token)} tokens`} mono={false} />
       <Row label="You get at least" value={`${coinExact(s.min.quote, q)} and ${unitsExact(s.min.token, s.tokenDecimals)} tokens`} mono={false} />
+      {s.transferFee && (
+        <Row
+          label={TRANSFER_FEE_LABEL}
+          value={`about ${tok(s.transferFee.kept)} tokens more of what the pool pays out (${s.transferFee.rate}), ${KEPT_BY_TOKEN}; the amounts above are after it`}
+          mono={false}
+        />
+      )}
       <Row label="You keep" value={s.keep > 0n ? `${shares(s.keep)} pool shares` : 'none in this pool'} mono={false} />
       <Row
         words
@@ -544,6 +599,13 @@ function LpCreateRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp-
       <Row label="Fee tier" value={feeTierText(s.config, CREATOR_FEE_SWITCH.publicOpen)} mono={false} />
       {/* Sentences break only between words (mono={false}); only an address row breaks anywhere. */}
       <Row label="You put in" value={`${coinExact(s.put.quote, q)} and ${unitsExact(s.put.token, s.tokenDecimals)} tokens, exactly`} mono={false} />
+      {s.transferFee && (
+        <Row
+          label={TRANSFER_FEE_LABEL}
+          value={`${unitsExact(s.transferFee.kept, s.tokenDecimals)} of those tokens (${s.transferFee.rate}), ${KEPT_BY_TOKEN}; the pool starts with ${unitsExact(s.put.token - s.transferFee.kept, s.tokenDecimals)}`}
+          mono={false}
+        />
+      )}
       <Row label="Opening price" value={openingPriceText(s.price, q)} mono={false} line="market" />
       {s.priceGap && <Row label="Estimated cost of that gap" value={gapCostText(s.priceGap, q)} mono={false} line="market" />}
       <Row label="Opens for trading" value="At once (one second after it lands)" mono={false} />
@@ -604,27 +666,33 @@ function LpCreateRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp-
  * asked is said as that, never as having no route.
  */
 function venueRouteText(s: Extract<TxSummary, { kind: 'venue-swap' }>): string {
-  const a = s.aggregator;
+  return routeText(s.aggregator, s.quoted.outAmount);
+}
+
+type AggregatorSeen = Extract<TxSummary, { kind: 'venue-swap' }>['aggregator'];
+
+/** The same comparison for any of our pools: `out` is what that pool's swap was quoted to pay. */
+function routeText(a: AggregatorSeen, out: bigint): string {
   if (a.kind === 'no-route') return 'Jupiter has no route for this trade, so this pool is the only route';
   if (a.kind === 'unreachable') return 'Jupiter could not be asked just now, so this trade was not compared with it';
   if (a.kind === 'refused') {
     const failed = `its transaction for this trade failed its test run${a.earlier ? ' at your last press' : ''}, so it could not be sent`;
     // By how much, against what THIS swap pays. A pool that has caught up since is not "more".
-    const quotedMore = a.out <= s.quoted.outAmount
+    const quotedMore = a.out <= out
       ? `Jupiter quoted no more than this pool pays, and ${failed}`
-      : `Jupiter quoted ${edgePercent(Number(a.out - s.quoted.outAmount) / Number(s.quoted.outAmount))} more, but ${failed}`;
+      : `Jupiter quoted ${edgePercent(Number(a.out - out) / Number(out))} more, but ${failed}`;
     // A refusal this press could not test again is said as that, and its cause is said when it gave one.
     return [quotedMore, ...(a.earlier ? ['It could not be checked again just now'] : []), ...(a.why ? [a.why] : [])].join('. ');
   }
   if (a.kind === 'unchecked') {
     const why = 'its transaction for this trade could not be test-run on our side, so it was not sent';
-    return a.out <= s.quoted.outAmount
+    return a.out <= out
       ? `Jupiter quoted no more than this pool pays, and ${why}`
-      : `Jupiter quoted ${edgePercent(Number(a.out - s.quoted.outAmount) / Number(s.quoted.outAmount))} more, but ${why}`;
+      : `Jupiter quoted ${edgePercent(Number(a.out - out) / Number(out))} more, but ${why}`;
   }
   const beside = a.when === 'now' ? 'Jupiter quoted just now' : 'the last quote Jupiter gave (it could not be asked again just now)';
-  if (s.quoted.outAmount === a.out) return `the same as ${beside}, so the trade stays here`;
-  return `${edgePercent(Number(s.quoted.outAmount - a.out) / Number(a.out))} more than ${beside}`;
+  if (out === a.out) return `the same as ${beside}, so the trade stays here`;
+  return `${edgePercent(Number(out - a.out) / Number(a.out))} more than ${beside}`;
 }
 
 /**
@@ -648,11 +716,73 @@ function VenueSwapRows({ summary: s }: { summary: Extract<TxSummary, { kind: 've
       <Row label="You pay" value={pay(s.amountIn, true)} />
       <Row label="You receive (quoted)" value={get(s.quoted.outAmount)} />
       <Row label="You receive at least" value={get(s.minimumAmountOut, true)} />
+      {s.transferFee && (
+        <Row
+          label={TRANSFER_FEE_LABEL}
+          value={
+            s.paysCoin
+              ? `${tok(s.transferFee.kept)} of what the pool pays out (${s.transferFee.rate}), ${KEPT_BY_TOKEN}; what you receive is after it`
+              : `${tok(s.transferFee.kept)} of what you pay (${s.transferFee.rate}), ${KEPT_BY_TOKEN}; the pool trades the rest`
+          }
+          mono={false}
+        />
+      )}
       <Row label="Pool fee (inside what you pay)" value={`${pay(s.quoted.result.tradeFee)} (${feeRateText(s.config.tradeFeeRate)})`} />
       <PoolCreatorFeeRow quote={s.quoted} buying={s.paysCoin} sol={(v) => coin(v)} tok={(v) => tok(v)} />
       {/* Measured against the pool's price before the trade, so the pool fee is inside it. */}
       <ImpactRows bps={fractionToBps(s.quoted.priceImpact)} label="Price impact (pool fee included)" />
       <Row label="Compared with Jupiter" value={venueRouteText(s)} mono={false} line="market" />
+      {s.notices.map((n) => (
+        <Notice key={n} tone="warn">
+          {n}
+        </Notice>
+      ))}
+      <Notice>
+        {!q.native
+          ? s.paysCoin
+            ? `Your ${q.symbol} is spent straight from your own ${q.symbol} account. Nothing is wrapped.`
+            : `The ${q.symbol} is paid straight into your own ${q.symbol} account. Nothing is wrapped.`
+          : `${s.paysCoin ? 'Your SOL is wrapped into a token account for the swap' : 'The pool pays out wrapped SOL'}${
+              s.unwrapsWsol
+                ? ', and that account is closed at the end, so you get plain SOL back.'
+                : '. You already had a wrapped SOL account, so it is left open with its balance.'
+            }`}
+      </Notice>
+    </>
+  );
+}
+
+/**
+ * A swap in one of our range pools from the swap page. The amounts are decoded from the
+ * transaction; the pool and its fee tier are from the read it was built on. The fee and
+ * the venue's share of it are the tier's, said with their basis.
+ */
+function RangeSwapRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'range-swap' }> }) {
+  const l = s.poolLine;
+  const q = l.quote;
+  const venue = rangeVenueEarns(l);
+  const tokenName = quoteCoin(l.tokenMint.toBase58())?.symbol ?? 'tokens';
+  const tok = (v: bigint, exact = false) => `${exact ? unitsExact(v, l.tokenDecimals) : tokenText(v, l.tokenDecimals)} ${tokenName}`;
+  const coin = (v: bigint, exact = false) => (exact ? coinExact(v, q) : coinAbout(v, q));
+  const [pay, get] = s.paysCoin ? [coin, tok] : [tok, coin];
+  return (
+    <>
+      <Row label="Range pool" value={l.pool.toBase58()} />
+      <Row label="Token (mint)" value={l.tokenMint.toBase58()} />
+      <Row label="Paired with" value={q.symbol} mono={false} />
+      <Row label="You pay" value={pay(s.amountIn, true)} />
+      <Row label="You receive (quoted)" value={get(s.quotedOut)} />
+      <Row label="You receive at least" value={get(s.minimumAmountOut, true)} />
+      {/* The pool's fee_on says which side the fee comes out of for this direction. */}
+      <Row
+        label={s.feeOnInput ? 'Pool fee (inside what you pay)' : 'Pool fee (taken before it reaches you)'}
+        value={`${perMillionPercent(l.tradeFeeRate)} of ${s.feeOnInput ? 'what you pay' : 'what the pool pays out, taken before it reaches you'}. The positions your trade passes through share what the venue does not keep: it keeps ${venue.cut}, read from the pool's fee tier.`}
+        mono={false}
+      />
+      {/* Anything but the agreed split is said once, in bold, at the top of the review. */}
+      {!venue.elsewhere && <Notice>{venue.where}</Notice>}
+      <Row label="Price bands it may cross" value={String(s.bandsCrossed)} mono={false} />
+      <Row label="Compared with Jupiter" value={routeText(s.aggregator, s.quotedOut)} mono={false} line="market" />
       {s.notices.map((n) => (
         <Notice key={n} tone="warn">
           {n}
@@ -708,7 +838,7 @@ function deltaRow(t: PreparedTx['simulated']['tokenDeltas'][number], prepared: P
   // both its name and its decimals come from the summary's coin. So a wrong or missing tag
   // cannot call it wrapped SOL, and a token with 9 decimals cannot make 250 USDC read as 0.25.
   // A swap from the swap page names its pool's coin the same way.
-  const poolCoin = isLpSummary(summary) ? summary.quote : summary.kind === 'venue-swap' ? summary.coin : null;
+  const poolCoin = isLpSummary(summary) ? summary.quote : summary.kind === 'venue-swap' ? summary.coin : 'poolLine' in summary ? summary.poolLine.quote : null;
   const coin = poolCoin && !poolCoin.native && t.mint.toBase58() === poolCoin.mint ? poolCoin : null;
   if (coin) return { label: `Test run: your ${coin.symbol} changes by`, value: `${sign}${tokenText(amount, coin.decimals)}` };
   return { label: testRunLabel(prepared.kind, t.role ?? 'token'), value: `${sign}${tokenText(amount, t.decimals ?? decimals)}` };
@@ -774,6 +904,10 @@ const RENT_ROW_LABEL: Record<TxKind, string> = {
   'lp-withdraw': 'One-time deposit for your new token account (it stays in that account)',
   'lp-create':
     "One-time account deposits: the new pool's own accounts (never returned) and your pool-share account (yours to close later)",
+  'range-open': 'One-time deposits: your position and its NFT (back when you close it), and any new price band of the pool (never returned)',
+  'range-remove': 'One-time deposit for a new token account of yours (it stays in that account)',
+  'range-close': 'One-time deposit for a new token account of yours (it stays in that account)',
+  'range-swap': 'One-time deposit for your new token account (it stays in that account)',
 };
 
 /**
@@ -842,6 +976,10 @@ const TITLES: Record<PreparedTx['kind'], string> = {
   'lp-deposit': 'Review: add liquidity',
   'lp-withdraw': 'Review: remove liquidity',
   'lp-create': 'Review: open a pool',
+  'range-open': 'Review: open a range position',
+  'range-remove': 'Review: take out of your range position',
+  'range-close': 'Review: close your range position',
+  'range-swap': 'Review your swap',
 };
 
 export function TxReview({
@@ -861,11 +999,15 @@ export function TxReview({
 }) {
   const warnings = reviewWarnings(prepared.summary);
   const warningsId = useId();
+  const venue = rangeVenueFirst(prepared.summary);
+  const venueId = useId();
+  const describedBy = [venue ? venueId : null, warnings.length > 0 ? warningsId : null].filter(Boolean).join(' ') || undefined;
   return (
     <div className="space-y-2" data-testid="tx-review">
-      <h3 ref={headingRef} tabIndex={-1} aria-describedby={warnings.length > 0 ? warningsId : undefined} className="text-white font-semibold text-[12px] outline-none">
+      <h3 ref={headingRef} tabIndex={-1} aria-describedby={describedBy} className="text-white font-semibold text-[12px] outline-none">
         {TITLES[prepared.kind]}
       </h3>
+      {venue && <VenueFirst id={venueId} venue={venue} />}
       {warnings.length > 0 && <ReviewWarnings id={warningsId} warnings={warnings} />}
       {extra}
       <SummaryRows summary={prepared.summary} decimals={decimals} display={display} />

@@ -32,17 +32,11 @@ test('/changelog at 360px: every line wraps inside its card, none runs past it',
   expect(read.past, 'lines cut off at the right edge of their card').toEqual([]);
 });
 
-test('/nft-finance?section=pooled at 360px: the "Not deployed" badges stay on screen and the page does not slide', async ({ page, walletMock: _w }) => {
-  await settle(page, '/nft-finance?section=pooled', { width: 360, height: 800 });
-  await expect(page.getByText('Not deployed', { exact: true }).first()).toBeVisible({ timeout: 15_000 });
-  await expectNoSidewaysScroll(page);
-});
-
 test('in the TOWELI room at 390px, the corner steps aside from a section tab instead of covering it', async ({ page, walletMock: _w }) => {
-  // Token Lending's own tabs ("My Loans") pass under the corner as the page scrolls. The
+  // NFT Lending's own tabs ("My Loans") pass under the corner as the page scrolls. The
   // section row no longer does: it sits under the heading (2026-10-14). Nor do the NFT
   // AMM's: the fewer-words pass lifted them above the corner's line on a first screen.
-  await settle(page, '/nft-finance?section=lending&bungalow=toweli', { width: 390, height: 844 });
+  await settle(page, '/nft-finance?section=nftlending&bungalow=toweli', { width: 390, height: 844 });
   // By CSS: a corner that has stepped aside is hidden, so no role query finds it.
   await expect(page.locator('button[aria-label="Towelie says hi"]')).toHaveCount(1, { timeout: 15_000 });
   const scan = await page.evaluate(async () => {
@@ -81,10 +75,10 @@ test('in the TOWELI room at 390px, the corner steps aside from a section tab ins
 test('in the TOWELI room at 390px with motion on, a press on a tab sliding under the corner lands on the tab while the corner fades', async ({ page, walletMock: _w }) => {
   // The corner takes 200ms to fade aside, and a fading element still takes presses: the
   // first step that brought a tab ("My Pools", then) under it pressed Towelie (2026-10-14).
-  // Token Lending's "My Loans" is the tab that passes under it now. The other tests run
+  // NFT Lending's "My Loans" is the tab that passes under it now. The other tests run
   // with motion reduced, where only WebKit's fade lasts long enough to see.
   await page.emulateMedia({ reducedMotion: 'no-preference' });
-  await settle(page, '/nft-finance?section=lending&bungalow=toweli', { width: 390, height: 844 });
+  await settle(page, '/nft-finance?section=nftlending&bungalow=toweli', { width: 390, height: 844 });
   await expect(page.locator('button[aria-label="Towelie says hi"]')).toHaveCount(1, { timeout: 15_000 });
   const scan = await page.evaluate(async () => {
     const frame = () => new Promise((r) => requestAnimationFrame(() => r(null)));
@@ -143,7 +137,7 @@ for (const path of ['/', '/toweli']) {
         };
       }),
     );
-    expect(pills.map((p) => p.text)).toEqual(['SOLANA', 'ETHEREUM', 'BASE']);
+    expect(pills.map((p) => p.text)).toEqual(['SOLANA', 'ETHEREUM', 'BASE', 'ROBINHOOD']);
     for (const p of pills) {
       expect(p.painted, `${p.text}: the pill grew`).toBeLessThan(30);
       expect(p.tall, `${p.text}: a press 22px above or below its middle misses it`).toEqual([true, true]);
@@ -201,52 +195,6 @@ test('the heat card at 390px: "Post my number" and "How heat is earned" do not t
   expect(Math.max(sideways, upDown), `the two are ${Math.round(sideways)}px apart sideways and ${Math.round(upDown)}px up and down`).toBeGreaterThanOrEqual(8);
 });
 
-test.describe('/airdrop, a page with no tab strip, at 390x664', () => {
-  /** The distributor field put 20px down the screen, under the 56px top bar. */
-  async function underTheBar(page: Page) {
-    await settle(page, '/airdrop', { width: 390, height: 664 });
-    const field = page.locator('main#main-content input[placeholder^="0x"]').first();
-    await expect(field).toBeVisible();
-    const bar = await page.locator('header').first().evaluate((h) => h.getBoundingClientRect().bottom);
-    await field.evaluate((f) => window.scrollBy(0, f.getBoundingClientRect().top - 20));
-    await expect.poll(() => field.evaluate((f) => f.getBoundingClientRect().top), { message: 'the field could not be put under the bar' }).toBeLessThan(30);
-    return { field, bar };
-  }
-
-  // Safari lands a focused field up to 15px above the page's scroll padding, so the room
-  // under the bar must hold that. A scroll lands exactly on it, in every engine.
-  test('the room kept under the top bar holds Safari\'s 15px', async ({ page, walletMock: _w }) => {
-    const { field, bar } = await underTheBar(page);
-    await field.evaluate((f) => f.scrollIntoView({ block: 'start' }));
-    await expect.poll(() => field.evaluate((f) => Math.round(f.getBoundingClientRect().top - (document.querySelector('header')!.getBoundingClientRect().bottom)))).toBeGreaterThanOrEqual(15);
-    expect(bar).toBe(56);
-  });
-
-  test('a focused text field lands below the top bar', async ({ page, browserName, walletMock: _w }) => {
-    test.skip(browserName !== 'webkit', 'Chromium centres a focused field; only WebKit lands it at the scroll padding');
-    const { field, bar } = await underTheBar(page);
-    await field.focus();
-    await expect.poll(() => field.evaluate((f) => f.getBoundingClientRect().top), { message: `the field sits under the top bar (it ends at ${bar}px)` }).toBeGreaterThanOrEqual(bar);
-  });
-
-  // "Campaign address" sat under the bar while its field was clear of it (2026-10-13).
-  const labelTop = (page: Page) => page.locator('label[for="claim-distributor"]').evaluate((l) => l.getBoundingClientRect().top);
-
-  test("a focused text field's label lands below the top bar too", async ({ page, browserName, walletMock: _w }) => {
-    test.skip(browserName !== 'webkit', 'Chromium centres a focused field; the next test reads the same room in every engine');
-    const { field, bar } = await underTheBar(page);
-    await field.focus();
-    await expect.poll(() => labelTop(page), { message: `the label sits under the top bar (it ends at ${bar}px)` }).toBeGreaterThanOrEqual(bar);
-  });
-
-  test('while a field has focus, a scroll to it leaves its label below the top bar', async ({ page, walletMock: _w }) => {
-    const { field, bar } = await underTheBar(page);
-    await field.focus();
-    await field.evaluate((f) => f.scrollIntoView({ block: 'start' }));
-    await expect.poll(() => labelTop(page), { message: `the label sits under the top bar (it ends at ${bar}px)` }).toBeGreaterThanOrEqual(bar);
-  });
-});
-
 test('/nft-finance at 390x844: the section tab row is whole on screen, clear of the bottom bar', async ({ page, walletMock: _w }) => {
   await settle(page, '/nft-finance', { width: 390, height: 844 });
   const row = page.getByRole('tablist', { name: 'NFT Finance sections' });
@@ -262,4 +210,17 @@ test('/nft-finance at 390x844: the section tab row is whole on screen, clear of 
   expect(read.bar, 'no bottom bar on a phone: the page changed shape').not.toBeNull();
   expect(read.top, 'the row starts under the top bar').toBeGreaterThanOrEqual(read.header);
   expect(read.bottom, `the row (${Math.round(read.top)} to ${Math.round(read.bottom)}px) runs under the bottom bar at ${read.bar}px`).toBeLessThanOrEqual(read.bar!);
+});
+
+test('/solana at 320px: the trending row wraps under its heading, and the page does not slide', async ({ page, walletMock: _w }) => {
+  // "Trending on Solana" and its three choices once needed 333px in a 320px window. The list
+  // hides when Jupiter answers with nothing, so the test answers it.
+  const trending = [
+    { id: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', symbol: 'USDC', name: 'USD Coin', decimals: 6 },
+    { id: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', symbol: 'USDT', name: 'Tether USD', decimals: 6 },
+  ];
+  await page.route('**/api/jupiter/tokens/v2/**', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(trending) }));
+  await settle(page, '/solana', { width: 320, height: 640 });
+  await expect(page.getByRole('heading', { name: 'Trending on Solana' })).toBeVisible({ timeout: 15_000 });
+  await expectNoSidewaysScroll(page);
 });

@@ -1,4 +1,4 @@
-// The phone bar reads Heat · Rooms · Lock · Launch · Swap (owner, 2026-10-03). Five tabs is the
+// The phone bar reads Island · Lock · Launch · Swap (owner, 2026-10-03 and 2026-10-18). Five tabs is the
 // ceiling at 390px, so Dashboard is a drawer row. A word is lit on every page it owns, as the top
 // bar's is: lit only on its own URL, a word went dark one press away from it.
 
@@ -40,36 +40,35 @@ afterEach(() => {
   window.localStorage.clear();
 });
 
-describe('BottomNav: the five words', () => {
-  it('reads Heat · Rooms · Lock · Launch · Swap, each with its icon', () => {
+describe('BottomNav: the four words', () => {
+  it('reads Island · Lock · Launch · Swap, each with its icon', () => {
     const links = tabs();
-    expect(links.map((a) => a.getAttribute('aria-label'))).toEqual(['Heat', 'Rooms', 'Lock', 'Launch', 'Swap']);
+    expect(links.map((a) => a.getAttribute('aria-label'))).toEqual(['Island', 'Lock', 'Launch', 'Swap']);
     for (const a of links) expect(a.querySelector('svg'), a.getAttribute('aria-label')!).not.toBeNull();
   });
 
-  it('stays five when a wallet connects: Dashboard is in the drawer', () => {
+  it('stays four when a wallet connects: Dashboard is in the drawer', () => {
     account.isConnected = true;
-    expect(tabs().map((a) => a.getAttribute('aria-label'))).toEqual(['Heat', 'Rooms', 'Lock', 'Launch', 'Swap']);
+    expect(tabs().map((a) => a.getAttribute('aria-label'))).toEqual(['Island', 'Lock', 'Launch', 'Swap']);
   });
 
-  it('opens Heat on the home, Rooms on the hall and Lock on the list of pools', () => {
+  it('opens Island on the home and Lock on the list of pools', () => {
     const href = (name: string) => screen.getByRole('link', { name }).getAttribute('href');
     tabs();
-    expect(href('Heat')).toBe('/');
-    expect(href('Rooms')).toBe('/#hall');
+    expect(href('Island')).toBe('/');
     expect(href('Lock')).toBe('/earn');
     expect(href('Launch')).toBe('/launch');
   });
 });
 
 describe('BottomNav: a word is lit on every page it owns', () => {
-  it('Heat on the home, and Rooms once the hall is asked for', () => {
-    expect(lit('/')).toEqual(['Heat']);
-    expect(lit('/', '#hall')).toEqual(['Rooms']);
+  it('Island on the home, its hall asked for or not', () => {
+    expect(lit('/')).toEqual(['Island']);
+    expect(lit('/', '#hall')).toEqual(['Island']);
   });
 
-  it.each(['/bayla', '/pepe', '/towelie', '/nb1'])('Rooms on the door %s', (path) => {
-    expect(lit(path)).toEqual(['Rooms']);
+  it.each(['/bayla', '/pepe', '/towelie', '/nb1', '/island', '/gallery'])('Island on %s, a door or an island page', (path) => {
+    expect(lit(path)).toEqual(['Island']);
   });
 
   it('Lock under a pool, on the pool its door opens', () => {
@@ -84,7 +83,7 @@ describe('BottomNav: a word is lit on every page it owns', () => {
     for (const item of section.items) expect(lit(item.to), item.to).toEqual([label]);
   });
 
-  it.each(['/solana-lp', '/liquidity', '/trust', '/changelog', '/dashboard'])('nothing on %s', (path) => {
+  it.each(['/pools', '/liquidity', '/trust', '/changelog', '/dashboard'])('nothing on %s', (path) => {
     account.isConnected = true;
     expect(lit(path)).toEqual([]);
   });
@@ -92,17 +91,17 @@ describe('BottomNav: a word is lit on every page it owns', () => {
   it('says which word is the page you are on', () => {
     tabs('/earn');
     expect(screen.getByRole('link', { name: 'Lock' })).toHaveAttribute('aria-current', 'page');
-    expect(screen.getByRole('link', { name: 'Heat' })).not.toHaveAttribute('aria-current');
+    expect(screen.getByRole('link', { name: 'Island' })).not.toHaveAttribute('aria-current');
   });
 });
 
-// Owner, 2026-10-17: inside a room, Heat on the phone bar opens that room's own page and owns it.
-describe('BottomNav: Heat stays in the room', () => {
-  it("inside BAYLA's room, Heat opens /bayla and is the word lit there", () => {
+// Owner, 2026-10-17, of the word Island replaced: inside a room it opens that room's own page and owns it.
+describe('BottomNav: Island stays in the room', () => {
+  it("inside BAYLA's room, Island opens /bayla and is the word lit there", () => {
     window.localStorage.setItem('tegridy-bungalow', 'bayla');
     tabs('/bayla');
-    expect(screen.getByRole('link', { name: 'Heat' }).getAttribute('href')).toBe('/bayla');
+    expect(screen.getByRole('link', { name: 'Island' }).getAttribute('href')).toBe('/bayla');
     cleanup();
-    expect(lit('/bayla')).toEqual(['Heat']);
+    expect(lit('/bayla')).toEqual(['Island']);
   });
 });

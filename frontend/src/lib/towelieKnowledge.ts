@@ -44,7 +44,7 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
   },
   {
     // HONESTY PASS 2026-06-11: treasury Safe is freshly rebuilt post-relaunch and
-    // still being funded; grants/governance spend-votes are not deployed yet.
+    // still being funded.
     keywords: ['treasury', 'dao', 'fund'],
     answer: "Community treasury is a Safe multisig — rebuilt fresh at the relaunch, so it's still filling up. Protocol fee flows route to it on-chain as revenue ramps. Watch it at /treasury; every wei's on Etherscan.",
   },
@@ -88,7 +88,7 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
   },
   {
     keywords: ['compound', 'reinvest', 'restake'],
-    answer: "Claim, then re-stake. No auto-compound vault yet — but it's on the radar. Watch /changelog.",
+    answer: "Claim, then re-stake. There is no auto-compound vault.",
   },
   {
     keywords: ['math', 'calculation', 'formula'],
@@ -206,35 +206,6 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
     answer: "Launchpad V2 is live: project owners create gated NFT collections with a wizard under NFT Finance → Launchpad. Internally reviewed, no third-party audit yet.",
   },
 
-  // ── Governance ──────────────────────────────────────────────
-  // The four governance contracts are deployed on mainnet (the 2026-07-16 batch,
-  // unpaused), but this app still has their addresses zeroed, so the pages stay gated.
-  // Answers say deployed but not wired, as /risks does.
-  {
-    keywords: ['vote', 'voting', 'governance', 'gauge'],
-    answer: "Gauge voting's deployed on mainnet but not wired into this app yet — the addresses here are still zeroed, so /community stays gated while the wiring and checks finish. The design: your locked TOWELI × boost directs emissions to pools. Meanwhile, stake and watch /changelog.",
-  },
-  {
-    keywords: ['weight', 'power', 'vote'],
-    answer: "When gauge voting is wired up here, vote weight = locked TOWELI × current boost. Lock more or longer → more weight. Locking now still builds your future weight.",
-  },
-  {
-    keywords: ['epoch', 'cycle', 'period'],
-    answer: "Voting epochs run 7 days once gauge voting is wired into the app — votes cast one epoch direct emissions the next. The contract's on mainnet; this app hasn't connected to it yet, so no clock's ticking here.",
-  },
-  {
-    keywords: ['bribes', 'bribe', 'incentive', 'cartman'],
-    answer: "Cartman's Market — deposit tokens to bribe voters into directing emissions your way. Kinda shady. Deployed on mainnet, not wired into this app yet — it lands on /community alongside gauge voting.",
-  },
-  {
-    keywords: ['bounty', 'bounties', 'task'],
-    answer: "MemeBountyBoard is deployed on mainnet but not wired into this app yet. When it connects: post a task with a reward, contributors complete it for the bounty. Both sides win.",
-  },
-  {
-    keywords: ['grants', 'proposal', 'fund'],
-    answer: "Community Grants is deployed on mainnet, not wired into this app yet. When it connects: propose a project, locked-TOWELI voters fund it. Tegridy preserved by votes.",
-  },
-
   // ── Wallet / network ────────────────────────────────────────
   {
     keywords: ['wallet', 'connect'],
@@ -249,7 +220,7 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
   // coins are priced in SOL: never call them island coins or "born in $BAYLA".
   {
     keywords: ['network', 'chain', 'switch', 'mainnet', 'chains'],
-    answer: "Four chains. TOWELI staking, farming and the launchers run on Ethereum mainnet; the Memetics Curve also launches on Base and Robinhood Chain — wrong chain and your wallet shows a 'Switch' button, hit it. On Solana, /solana sends an SPL trade to one of our own pools when it pays you at least as much as Jupiter, and through Jupiter otherwise. If Jupiter's transaction would fail its test run, the page offers the trade in our pool and says how much less it pays. /curve-launch is our own Solana curve: anyone can trade there, and a maker at Resident or better can launch through the memetics.finance gate. The token scanner reads EVM and Solana both.",
+    answer: "Five chains. TOWELI staking, farming and the launchers run on Ethereum mainnet; the Memetics Curve also launches on Base and Robinhood Chain — wrong chain and your wallet shows a 'Switch' button, hit it. On Solana, /solana sends an SPL trade to one of our own pools when it pays you at least as much as Jupiter, and through Jupiter otherwise. If Jupiter's transaction would fail its test run, the page offers the trade in our pool and says how much less it pays. /curve-launch is our own Solana curve: anyone can trade there, and a maker at Resident or better can launch through the memetics.finance gate. On Cardano, /cardano swaps ADA for a coin, or a coin for ADA, through that pair's Minswap V2 pool; your Cardano wallet (Eternl, Lace, VESPR) signs, and the venue takes no fee there yet. The token scanner reads EVM and Solana both.",
   },
   {
     // The bump wins "launch a token on solana" from the EVM launch entry; the phrases win
@@ -260,7 +231,7 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
   },
   {
     keywords: ['jupiter', 'jup', 'swap solana', 'solana swap'],
-    answer: "Jupiter is one of the two routes behind /solana: it shops your trade across Solana's DEXes. When one of our own pools pays you at least as much, the trade goes to that pool instead. A Jupiter trade's platform fee is shown before you sign, every time. A swap in one of our pools pays that pool's own fee inside the quote: 1% of the trade on a public pool, with 0.16% of the trade going to the venue. No platform fee is added on top.",
+    answer: "Jupiter is one of the two routes behind /solana: it shops your trade across Solana's DEXes. When one of our own pools pays you at least as much, the trade goes to that pool instead. A Jupiter trade's platform fee is shown before you sign, every time. A swap in one of our pools pays that pool's own fee inside the quote: 1% of the trade on a public pool, with 0.16% of the trade as the venue's take (0.104% to its vault, 0.056% to the island's Workshop). No platform fee is added on top.",
   },
   {
     // The Meteora rail was retired 2026-08-23; anyone asking about it gets that answer.

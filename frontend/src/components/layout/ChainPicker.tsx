@@ -18,6 +18,8 @@ export interface ChainPickerProps {
   onPick: (chain: VenueChain) => void;
   /** Stretch the button to its row's height (beside a tab strip). */
   stretch?: boolean;
+  /** 'end': the list opens from the button's right edge, for a picker near the screen's right side. */
+  align?: 'start' | 'end';
 }
 
 const PANEL_BG = 'rgba(13,21,48,0.97)';
@@ -35,7 +37,7 @@ const BOX = {
  * stays listed, greyed, with its reason; nothing here says Soon (docs/FACE_LAWS.md, law 23).
  * Presentational: the section's hook (useSectionChain) owns where a pick goes.
  */
-export function ChainPicker({ label, active, options, onPick, stretch = false }: ChainPickerProps) {
+export function ChainPicker({ label, active, options, onPick, stretch = false, align = 'start' }: ChainPickerProps) {
   const [open, setOpen] = useState(false);
   const [focusIdx, setFocusIdx] = useState(0);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -124,7 +126,7 @@ export function ChainPicker({ label, active, options, onPick, stretch = false }:
           role="listbox"
           aria-label={label}
           onKeyDown={onListKey}
-          className="absolute left-0 top-full mt-2 z-50 w-[min(17rem,calc(100vw-2rem))] rounded-2xl p-1.5"
+          className={`absolute ${align === 'end' ? 'right-0' : 'left-0'} top-full mt-2 z-50 w-[min(17rem,calc(100vw-2rem))] rounded-2xl p-1.5`}
           style={{ ...BOX, background: PANEL_BG }}
         >
           <p className="px-2.5 pt-1.5 pb-1 text-[11px] uppercase tracking-wider text-white/55">Select a network</p>

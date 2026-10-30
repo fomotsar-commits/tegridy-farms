@@ -1,10 +1,12 @@
 import { PublicKey } from '@solana/web3.js';
 import type { SolanaRpc } from '../../launcher/solana/curve/rpc';
+import { formatTokenAmount } from '../../launcher/solana/curve/format';
 import { clipDetail } from '../../launcher/solana/curve/read';
 import { decodeTokenMetadata } from '../../launcher/solana/discover/metadata';
 import { METAPLEX_TOKEN_METADATA_ID, metadataPda } from '../../launcher/solana/write/metaplex';
 import { foldForCompare, foldedForms, impersonatesAll } from '../../launchMetadata/validate';
 import { getMultipleAccounts, type RawAccount } from './accounts';
+import { MAX_FEE_BASIS_POINTS, feeRateText, type TransferFee, type TransferFeeConfig } from './transferFee';
 
 /**
  * May this token go in a pool here, and what must its holder be told first? Read from the
@@ -22,14 +24,19 @@ import { getMultipleAccounts, type RawAccount } from './accounts';
  *     scaled amounts. Any other (a transfer hook, a default frozen state, a permanent
  *     delegate, a close authority, a pause switch, one nobody has listed yet) makes the
  *     opening fail on chain, so nothing is built for it;
- *   - what this site cannot let back OUT. The pool program also takes a transfer fee, and
- *     four stablecoins by name that carry a permanent delegate. This site cannot build an
- *     exact deposit or withdrawal for those, and nobody is let in who cannot be let out
- *     (the leave rule), so it opens and adds to no pool for them. That is this site's
- *     limit, not a judgement of the token, and the block says so.
+ *   - what this site cannot let back OUT. The pool program also takes four stablecoins by
+ *     name that carry a permanent delegate. This site cannot build an exact deposit or
+ *     withdrawal for those, and nobody is let in who cannot be let out (the leave rule),
+ *     so it opens and adds to no pool for them. That is this site's limit, not a
+ *     judgement of the token, and the block says so.
  *
  * WARNED, and allowed:
  *
+ *   - a TRANSFER FEE (owner, 2026-10-29): the token keeps back part of every transfer of
+ *     it, into a pool and out of one, a trade's included, for whoever collects its fee.
+ *     Opening, adding, removing and swapping here subtract it exactly (transferFee.ts),
+ *     the pool program's way. Whoever can change the fee can raise it, up to all of every
+ *     transfer, two epochs after they set it; at that height nothing could be taken out;
  *   - a live FREEZE authority can freeze any account that holds the token, a pool's own
  *     vault and the holder's own account included, and while a pool's vault is frozen
  *     nobody can take liquidity out of that pool (USDC and USDT keep one by design, which
@@ -166,20 +173,27 @@ const EXTENSION_PLAIN: Record<number, string> = {
 };
 
 /**
- * The Token-2022 extensions this site builds for: the two that carry the token's name, and
- * the two whose raw amounts stay exact (interest-bearing and scaled amounts only change
- * what a wallet DISPLAYS). ONE set on purpose. The verdict below, the size of a pool's
- * vault, and all three builders (open a pool, add, remove) read this same set, so the
- * site lets in exactly what it can let out. Every one is on the pool program's own list;
- * a transfer fee is on that list too, and is left out here because this site cannot
- * build an exact withdrawal for it.
+ * The Token-2022 extensions whose transfers move EXACTLY the amount sent: the two that
+ * carry the token's name, and the two whose raw amounts stay exact (interest-bearing and
+ * scaled amounts only change what a wallet DISPLAYS). What a builder with no transfer-fee
+ * maths reads: the range pools (write/range.ts, rangeSwap.ts), "Add with one coin", and
+ * every pairing coin, whose maths is fee-free everywhere.
  */
-export const BUILDABLE_EXTENSIONS: ReadonlySet<number> = new Set([
+export const EXACT_EXTENSIONS: ReadonlySet<number> = new Set([
   EXTENSION.MetadataPointer,
   EXTENSION.TokenMetadata,
   EXTENSION.InterestBearingConfig,
   EXTENSION.ScaledUiAmountConfig,
 ]);
+
+/**
+ * The Token-2022 extensions this site builds cp-swap pools for: the exact ones, and a
+ * transfer fee, which every cp-swap builder subtracts (transferFee.ts). ONE set on
+ * purpose. The verdict below, the size of a pool's vault, and all four builders (open a
+ * pool, add, remove, swap) read this same set, so the site lets in exactly what it can
+ * let out. It is the pool program's own list (utils/token.rs `is_supported_mint`).
+ */
+export const BUILDABLE_EXTENSIONS: ReadonlySet<number> = new Set([...EXACT_EXTENSIONS, EXTENSION.TransferFeeConfig]);
 
 export function extensionPlain(type: number): string {
   return EXTENSION_PLAIN[type] ?? `an extension this site does not know (type ${type})`;
@@ -206,11 +220,18 @@ export interface MintFacts {
   extensions: number[];
   metadataPointer: { authority: string | null; metadataAddress: string | null } | null;
   tokenMetadata: Token2022Metadata | null;
+  /**
+   * The transfer fee, when the mint has one. The decoder always sets it (null without the
+   * extension); left out only by hand-written facts, which then carry no fee.
+   */
+  transferFee?: TransferFeeConfig | null;
 }
 
 export type MintDecode = { ok: true; value: MintFacts } | { ok: false; reason: string };
 
 const BASE_MINT_LEN = 82;
+/** spl-token-2022 `TransferFeeConfig`: two authorities (32 + 32), the withheld amount (8), two fees (18 + 18). */
+const TRANSFER_FEE_CONFIG_LEN = 108;
 /** Token-2022: the base Mint, zero padding up to the Account length, then one AccountType byte. */
 const ACCOUNT_TYPE_OFFSET = 165;
 const ACCOUNT_TYPE_MINT = 1;
@@ -256,6 +277,7 @@ export function decodeMintAccount(owner: string, data: Uint8Array): MintDecode {
     extensions: [],
     metadataPointer: null,
     tokenMetadata: null,
+    transferFee: null,
   };
 
   if (program === 'spl-token') {
@@ -280,7 +302,24 @@ export function decodeMintAccount(owner: string, data: Uint8Array): MintDecode {
     const end = start + len;
     if (end > data.length) return { ok: false, reason: 'a Token-2022 extension runs past the end of the account' };
     facts.extensions.push(type);
-    if (type === EXTENSION.MetadataPointer) {
+    if (type === EXTENSION.TransferFeeConfig) {
+      if (len !== TRANSFER_FEE_CONFIG_LEN) return { ok: false, reason: 'the transfer fee extension is malformed' };
+      const u64 = (at: number) => view.getBigUint64(start + at, true);
+      const fee = (at: number): TransferFee => ({ epoch: u64(at), maximumFee: u64(at + 8), basisPoints: view.getUint16(start + at + 16, true) });
+      const older = fee(72);
+      const newer = fee(90);
+      // The token program never stores a rate above 100%; one that does is not a mint it made.
+      if (older.basisPoints > MAX_FEE_BASIS_POINTS || newer.basisPoints > MAX_FEE_BASIS_POINTS) {
+        return { ok: false, reason: 'the transfer fee extension is malformed' };
+      }
+      facts.transferFee = {
+        configAuthority: optionalNonZero(data.subarray(start, start + 32)),
+        withdrawAuthority: optionalNonZero(data.subarray(start + 32, start + 64)),
+        withheldAmount: u64(64),
+        older,
+        newer,
+      };
+    } else if (type === EXTENSION.MetadataPointer) {
       if (len !== 64) return { ok: false, reason: 'the metadata pointer extension is malformed' };
       facts.metadataPointer = {
         authority: optionalNonZero(data.subarray(start, start + 32)),
@@ -312,6 +351,7 @@ export interface SafetyReason {
     | 'freeze-authority-accepted'
     | 'permanent-delegate-whitelist'
     | 'transfer-fee'
+    | 'transfer-fee-mutable'
     | 'extension'
     | 'interest-bearing'
     | 'scaled-amount'
@@ -346,6 +386,61 @@ export type TokenSafety =
     };
 
 /**
+ * What a live freeze authority means, in the words every deposit says it (an LP deposit, a
+ * range opening): its holder can freeze any account of the token, a pool's vault included,
+ * and a frozen vault lets nobody take liquidity out.
+ */
+export function freezeWarning(mint: string, freezeAuthority: string): { code: 'freeze-authority' | 'freeze-authority-accepted'; text: string } {
+  if (FREEZE_AUTHORITY_ACCEPTED.has(mint)) {
+    return {
+      code: 'freeze-authority-accepted',
+      text: `Its issuer can freeze any account that holds it (freeze authority ${freezeAuthority}), a pool’s own vault and your own account included. While a pool’s vault is frozen, nobody can take liquidity out of that pool. That is how ${mint === USDC_MINT ? 'USDC' : 'USDT'} is built.`,
+    };
+  }
+  return {
+    code: 'freeze-authority',
+    text: `Its creator can freeze any account that holds it (freeze authority ${freezeAuthority}), a pool’s own vault and your own account included. While a pool’s vault is frozen, nobody can take liquidity out of that pool.`,
+  };
+}
+
+/**
+ * What a transfer fee means, in the words every place a pool is opened or added to says
+ * it: what it keeps back and for whom, and who can raise it. Read from the mint, with no
+ * epoch: a pending change is said with the epoch it starts.
+ */
+export function transferFeeWarnings(c: TransferFeeConfig, decimals: number): SafetyReason[] {
+  const units = (raw: bigint) => {
+    const t = formatTokenAmount(raw, decimals, decimals).text;
+    return `${t} ${t === '1' ? 'token' : 'tokens'}`;
+  };
+  const capped = (fee: TransferFee) => (fee.maximumFee < U64_CAP ? `, at most ${units(fee.maximumFee)} a transfer` : '');
+  const taken = (fee: TransferFee) => fee.basisPoints > 0 && fee.maximumFee > 0n;
+  const out: SafetyReason[] = [];
+  // A fee of 0% (or capped at 0) takes nothing today; only who can raise it is said.
+  if (taken(c.older) || taken(c.newer)) {
+    const same = c.older.basisPoints === c.newer.basisPoints && c.older.maximumFee === c.newer.maximumFee;
+    const rate = same
+      ? `${feeRateText(c.newer)} of every transfer of it${capped(c.newer)}`
+      : `${feeRateText(c.newer)} of every transfer of it${capped(c.newer)} from network epoch ${c.newer.epoch} on (${feeRateText(c.older)}${capped(c.older)} before that)`;
+    const who = c.withdrawAuthority ? `for its fee collector (${c.withdrawAuthority})` : 'and nobody can ever collect what it keeps';
+    out.push({
+      code: 'transfer-fee',
+      text: `It keeps back ${rate}, ${who}. That is taken on the way into a pool, on the way out, and on every trade, so you get back less than you put in even if the price never moves. The amounts on this site already take it off.`,
+    });
+  }
+  if (c.configAuthority) {
+    out.push({
+      code: 'transfer-fee-mutable',
+      text: `Its transfer fee can be raised by ${c.configAuthority}, up to all of every transfer, from the second network epoch after they change it. At that rate nothing could be taken out of a pool.`,
+    });
+  }
+  return out;
+}
+
+/** u64::MAX: a maximum fee at it is no cap at all. */
+const U64_CAP = (1n << 64n) - 1n;
+
+/**
  * The verdict for one mint from its account and its Metaplex metadata account (either
  * may be null = absent). Pure.
  */
@@ -377,19 +472,7 @@ export function classifyToken(mint: string, mintAccount: RawAccount | null, meta
   const f = decoded.value;
   if (!f.isInitialized) blocks.push({ code: 'not-initialized', text: 'This token mint was never set up.' });
 
-  if (f.freezeAuthority) {
-    if (FREEZE_AUTHORITY_ACCEPTED.has(mint)) {
-      warnings.push({
-        code: 'freeze-authority-accepted',
-        text: `Its issuer can freeze any account that holds it (freeze authority ${f.freezeAuthority}), a pool’s own vault and your own account included. While a pool’s vault is frozen, nobody can take liquidity out of that pool. That is how ${mint === USDC_MINT ? 'USDC' : 'USDT'} is built.`,
-      });
-    } else {
-      warnings.push({
-        code: 'freeze-authority',
-        text: `Its creator can freeze any account that holds it (freeze authority ${f.freezeAuthority}), a pool’s own vault and your own account included. While a pool’s vault is frozen, nobody can take liquidity out of that pool.`,
-      });
-    }
-  }
+  if (f.freezeAuthority) warnings.push(freezeWarning(mint, f.freezeAuthority));
 
   // The four stablecoins the pool program takes by name, whatever their extensions.
   const takenByName = RAYDIUM_WHITELISTED_MINTS.has(mint);
@@ -401,8 +484,8 @@ export function classifyToken(mint: string, mintAccount: RawAccount | null, meta
   }
 
   for (const e of f.extensions) {
-    // The one set decides what may go in. Inside it, only the two that change what a
-    // wallet displays need saying; a name and a picture need nothing.
+    // The one set decides what may go in. Inside it, the two that change what a wallet
+    // displays and a transfer fee need saying; a name and a picture need nothing.
     if (BUILDABLE_EXTENSIONS.has(e)) {
       if (e === EXTENSION.InterestBearingConfig || e === EXTENSION.ScaledUiAmountConfig) {
         warnings.push({
@@ -410,12 +493,7 @@ export function classifyToken(mint: string, mintAccount: RawAccount | null, meta
           text: `It uses ${extensionPlain(e)}. This site shows and moves raw token units, so an amount here can differ from the one your wallet shows.`,
         });
       }
-    } else if (e === EXTENSION.TransferFeeConfig) {
-      // The pool program takes a transfer fee. The limit is this site's, and the words say so.
-      blocks.push({
-        code: 'transfer-fee',
-        text: `It uses ${extensionPlain(e)}. This site cannot build exact deposits and withdrawals for a token with one, so it does not open or add to pools for it.`,
-      });
+      if (e === EXTENSION.TransferFeeConfig && f.transferFee) warnings.push(...transferFeeWarnings(f.transferFee, f.decimals));
     } else if (!takenByName) {
       // Never said of the four stablecoins: the pool program takes those by name.
       blocks.push({ code: 'extension', text: `It uses ${extensionPlain(e)}. The pool program does not accept tokens with it.` });

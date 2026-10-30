@@ -16,8 +16,9 @@
  *
  * That program is a fork of raydium-cp-swap @ 78f254e1; CI's `diff-guard`
  * hashes the delta (four authority constants, the program's own name and
- * contact text, and one added instruction that names lp tokens) and it contains
- * no curve or fee code, so these are Raydium's numbers, not ours.
+ * contact text, one added instruction that names lp tokens, and one refusal of
+ * a public initialize on fee tier 0) and it contains no curve or fee code, so
+ * these are Raydium's numbers, not ours.
  *
  * ROUNDING IS THE WHOLE JOB. Rust uses `ceil_div` for the fees a user PAYS and
  * `floor_div` for the splits taken out of them; u128 truncating division is

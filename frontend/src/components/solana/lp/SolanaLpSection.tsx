@@ -1,6 +1,6 @@
 // Polyfill MUST load before any @solana/* import, the same rule as SolanaProviders.
 import '../../../lib/solanaPolyfill';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { SolanaProviders } from '../SolanaProviders';
@@ -17,14 +17,16 @@ import { parseMintInput } from '../../../lib/solana/lp/mintInput';
 import { SOL_MINT } from '../../../lib/solana';
 import { YourPositions } from './YourPositions';
 import { VenuePoolList } from './VenuePoolList';
+import { EveryPosition } from './EveryPosition';
 import { Rates, Routes } from './RatesAndRoutes';
 import { LpGateBanner } from './LpGateBanner';
 import { RISK_SHORT } from './LpDisclosures';
 import { LpWritesProvider, useLpWrites } from './useLpWrites';
 import { browserLpReaders, type LpReaders } from './readers';
+import type { LpDoorAnchor } from './lpDoor';
 
 /**
- * The Solana LP section on /pools and /solana-lp, in one order on both (owner, 2026-10-14:
+ * The Solana LP section on /pools (owner, 2026-10-14:
  * "the actions people need to take spotlighted and their positions and the rates and
  * routes getting the attention"): the earn line, the three actions
  * (the finder), every pool, the wallet's positions, the rates read from the chain, where a swap goes,
@@ -32,14 +34,14 @@ import { browserLpReaders, type LpReaders } from './readers';
  * with it 'off' no write code is fetched and nothing here can sign; otherwise
  * LpWritesProvider loads it and offers.ts decides each button. `?mint=<address>` opens the
  * finder on a token; nothing else is ever read from the URL (no amount, side, percent,
- * slippage or open panel).
+ * slippage or open panel). `door`: where the LP door is drawn, above the page's hero (lpDoor.ts).
  */
-export default function SolanaLpSection({ readers: given }: { readers?: LpReaders }) {
+export default function SolanaLpSection({ readers: given, door }: { readers?: LpReaders; door?: LpDoorAnchor }) {
   const readers = useMemo(() => given ?? browserLpReaders(), [given]);
   if (!readers) return null;
   return (
     <SolanaProviders>
-      <LpInner readers={readers} />
+      <LpInner readers={readers} door={door} />
     </SolanaProviders>
   );
 }
@@ -64,14 +66,14 @@ export interface LpHome {
   pool: string;
 }
 
-export function LpInner({ readers, writes, home }: { readers: LpReaders; writes?: LpWritesOverrides; home?: LpHome }) {
+export function LpInner({ readers, writes, home, door }: { readers: LpReaders; writes?: LpWritesOverrides; home?: LpHome; door?: LpDoorAnchor }) {
   // Fixed for the life of a build: a production build reads only the committed constant.
   const mode = writes?.mode ?? lpWriteMode();
   // Bumped when a liquidity flow goes back to idle after an outcome: the finder and the
   // positions read again, keeping what they show until the new answer arrives.
   const [reloadKey, setReloadKey] = useState(0);
   const finished = useCallback(() => setReloadKey((k) => k + 1), []);
-  const body = <LpBody readers={readers} mode={mode} reloadKey={reloadKey} home={home} />;
+  const body = <LpBody readers={readers} mode={mode} reloadKey={reloadKey} home={home} door={door} />;
   if (mode === 'off') return body;
   return (
     <LpWritesProvider readers={readers} mode={mode} load={writes?.load} gateRpc={writes?.gateRpc} onFinished={finished}>
@@ -80,7 +82,7 @@ export function LpInner({ readers, writes, home }: { readers: LpReaders; writes?
   );
 }
 
-function LpBody({ readers, mode, reloadKey, home }: { readers: LpReaders; mode: LpWriteMode; reloadKey: number; home?: LpHome }) {
+function LpBody({ readers, mode, reloadKey, home, door }: { readers: LpReaders; mode: LpWriteMode; reloadKey: number; home?: LpHome; door?: LpDoorAnchor }) {
   const [params, setParams] = useSearchParams();
   const homeMint = home?.mint ?? null;
   const homePool = home?.pool ?? null;
@@ -135,13 +137,16 @@ function LpBody({ readers, mode, reloadKey, home }: { readers: LpReaders; mode: 
     [],
   );
   // The LP door (island, answer twenty): ?mint=<token>&task=add[&pool=<address>] ends in Add with
-  // one coin, of the pool named or of the token's deepest SOL pool. Asked once, then dropped from the
-  // address, so a reload or Back does not open the form again over what the visitor did since.
+  // one coin, of the pool named or of the token's deepest SOL pool, drawn at the top of the page
+  // (answer twenty-two). Asked once, then dropped from the address, so a reload or Back does not
+  // open the form again over what the visitor did since.
   const doorTask = homeMint ? null : params.get('task');
   const doorPool = params.get('pool');
+  // The page holds the door's place until this section takes it, whether or not it draws one.
+  useLayoutEffect(() => door?.claim(), [door]);
   useEffect(() => {
     if (doorTask !== 'add' || !mint || !finderRef.current) return;
-    finderRef.current.openAdd(mint, { form: 'one', ...(doorPool ? { pool: doorPool } : { quote: SOL_MINT }) });
+    finderRef.current.openAdd(mint, { form: 'one', top: true, ...(doorPool ? { pool: doorPool } : { quote: SOL_MINT }) });
     setParams(
       (prev) => {
         const next = new URLSearchParams(prev);
@@ -175,6 +180,8 @@ function LpBody({ readers, mode, reloadKey, home }: { readers: LpReaders; mode: 
       feeTiers={tierRead}
       onRemove={toPositions}
       only={homePool ?? undefined}
+      doorAt={door?.at}
+      doorAsked={doorTask === 'add' && mint !== null}
     />
   );
   const positions = (
@@ -195,14 +202,14 @@ function LpBody({ readers, mode, reloadKey, home }: { readers: LpReaders; mode: 
         {writesTop}
         {finder}
         {/* No Your positions card: each Add form carries its own Connect, and a wallet's
-            shares are on the Solana LP tab. The full notice is one drop-down. */}
+            shares are on the Venue AMM tab. The full notice is one drop-down. */}
         {disclosure}
       </div>
     );
   }
 
   // Actions first, under the one line on earning; then every pool;
-  // then what you hold; then the rates and the routes; the long notice last.
+  // then what you hold, and everyone's positions; then the rates and the routes; the long notice last.
   return (
     <div className="flex flex-col gap-4" data-testid="lp-section" data-lp-mode={mode}>
       <LpEarnLine />
@@ -210,6 +217,7 @@ function LpBody({ readers, mode, reloadKey, home }: { readers: LpReaders; mode: 
       {finder}
       {allPools}
       {positions}
+      <EveryPosition readers={readers} owner={publicKey ?? null} reloadKey={reloadKey} />
       <Rates read={tierRead} />
       <Routes />
       {disclosure}
@@ -301,22 +309,24 @@ export function LpDisclosure({ programId, mode = 'off', programBelow = true, bar
               (src/test/poolProgramCopy.test.ts fails that release until you do, and holds the wording). */}
           <p>
             Our pool program is Raydium’s constant-product pool; we changed only its admin keys (see “The program”{' '}
-            {programBelow ? 'below' : 'on the Solana LP tab'}).{' '}
+            {programBelow ? 'below' : 'on the Venue AMM tab'}).{' '}
             <strong>Those changes have not had their own independent review yet.</strong> Put in only what you can afford to lose.
           </p>
-          {/* Read on chain 2026-10-16. The vault's powers are the pool program's admin instructions (update_pool_status,
+          {/* Multisig read 2026-10-20, finalized slot 459,251,370: threshold 2 of 2 members, time_lock 172,800 (Squads #14),
+              no config authority. The vault's powers are the pool program's admin instructions (update_pool_status,
               update_amm_config, create_amm_config, collect_protocol_fee, collect_fund_fee) and its upgrade authority. */}
           <p>
-            Read on chain 2026-10-16: one key is both the admin of pool program{' '}
+            Read on chain 2026-10-20: one key is both the admin of pool program{' '}
             <span className="font-mono break-all">EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT</span> and the only key that can replace it.
             That key is the team’s vault <span className="font-mono break-all">GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd</span>, vault 0
             of the Squads multisig <span className="font-mono break-all">EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK</span>. The multisig
-            needs 2 of its 2 keys to sign, has no waiting period (a time lock of 0 seconds), and only those 2 keys, together, can change
-            its rules.
+            needs 2 of its 2 keys to approve anything the vault does. Since 2026-10-19 each approved action then waits 48 hours (a time
+            lock of 172,800 seconds) before it can run. Only those 2 keys, together, can change its rules, and such a change waits 48
+            hours too.
           </p>
           <p>
-            The vault can switch off adding, removing or trading on any pool. It can change any fee tier’s fees, and who collects the
-            venue’s share, at once, and that applies to pools already open. It can add fee tiers, collect the venue’s share of trading
+            The vault can switch off adding, removing or trading on any pool. It can change any fee tier’s fees and who collects the
+            venue’s share, and that applies to pools already open. It can add fee tiers, collect the venue’s share of trading
             fees, and replace the program. Every pool’s coins sit in accounts that program controls, so a replacement could move
             them. If it switched off removing on a pool, you could not take your money out of that pool until it switched removing
             back on.

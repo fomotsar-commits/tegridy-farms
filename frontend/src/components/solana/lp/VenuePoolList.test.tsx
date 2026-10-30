@@ -5,7 +5,8 @@ import { PublicKey } from '@solana/web3.js';
 import { LpInner } from './SolanaLpSection';
 import type { LpReaders } from './readers';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
-import { BAYLA_MINT, USDC_MINT } from '../../../lib/solana/lp/tokenSafety';
+import { BAYLA_MINT, TOKEN_2022_PROGRAM, USDC_MINT, WSOL_MINT } from '../../../lib/solana/lp/tokenSafety';
+import { setPriceSide } from './priceSide';
 import type { PoolListRead } from '../../../lib/solana/lp/poolList';
 import type { PoolSearchRead, PoolView } from '../../../lib/solana/lp/poolFinder';
 import { buildPool, key, viewOf } from '../../../lib/solana/lp/testkit.fixture';
@@ -36,16 +37,19 @@ function search(mint: string, views: PoolView[]): PoolSearchRead {
       index: { kind: 'ok', pools: views.map((v) => v.address), truncated: false },
       pools: views.map((v) => ({ kind: 'pool' as const, view: v })),
       otherPairs: 0,
+      launchTierPools: [],
       knownState: {},
       chainNow: 1_000n,
     },
   };
 }
 
-const ok = (pools: PoolView[], o: { unread?: number; truncated?: boolean; chainNow?: bigint | null } = {}): PoolListRead => ({
+const ok = (pools: PoolView[], o: { unread?: number; truncated?: boolean; chainNow?: bigint | null; safety?: TokenSafety[] } = {}): PoolListRead => ({
   kind: 'ok',
-  list: { pools, unread: o.unread ?? 0, truncated: o.truncated ?? false, chainNow: o.chainNow ?? null },
+  list: { pools, unread: o.unread ?? 0, truncated: o.truncated ?? false, chainNow: o.chainNow ?? null, safety: new Map((o.safety ?? []).map((s) => [s.mint, s])) },
 });
+/** The check read for `mint`: it calls itself `symbol`. */
+const calls = (mint: string, symbol: string): TokenSafety => ({ ...okToken(mint), symbol } as TokenSafety);
 
 function readers(o: Partial<LpReaders> = {}): LpReaders {
   const corn = view(CORN);
@@ -64,10 +68,10 @@ function readers(o: Partial<LpReaders> = {}): LpReaders {
 }
 
 function mount(r: LpReaders) {
-  return render(<MemoryRouter initialEntries={['/solana-lp']}><LpInner readers={r} writes={{ mode: 'off' }} /></MemoryRouter>);
+  return render(<MemoryRouter initialEntries={['/pools']}><LpInner readers={r} writes={{ mode: 'off' }} /></MemoryRouter>);
 }
 
-beforeEach(() => { wallet.publicKey = null; });
+beforeEach(() => { wallet.publicKey = null; setPriceSide('token'); });
 
 describe('All pools: every pool on the venue, before a token is picked', () => {
   it('lists every pool on arrival, with no token picked and no search run', async () => {
@@ -88,6 +92,36 @@ describe('All pools: every pool on the venue, before a token is picked', () => {
     const rows = await screen.findAllByTestId('lp-all-pools-row');
     expect(within(rows[1]!).getByText(C)).toBeInTheDocument();
     expect(within(rows[0]!).queryByText(BAYLA_MINT)).toBeNull();
+  });
+
+  it('a coin that is not ours shows its own ticker in the heading, the holdings and the price, with its whole address', async () => {
+    mount(readers({ listPools: vi.fn(async () => ok([view(CORN)], { safety: [calls(C, 'CRYING')] })) }));
+    const [row] = await screen.findAllByTestId('lp-all-pools-row');
+    expect(row).toHaveTextContent('CRYING / SOL · 1% tier');
+    expect(row).toHaveTextContent(/Holds 10 SOL and 1,000 CRYING/);
+    expect(row).toHaveTextContent('1 CRYING = 0.01 SOL');
+    expect(within(row!).getByText(C)).toBeInTheDocument();
+    expect(within(row!).getByRole('button', { name: 'View CRYING / SOL · 1% tier' })).toBeInTheDocument();
+  });
+
+  it('a coin copying one of our tickers reads "fake" everywhere on its row, and never heads a row as the real one', async () => {
+    const soy = view(new PublicKey('8zsZESzrGoYVi1dVH4QNWXJ2EfW4v287aEGNiDvQpump'), 20n * 10n ** 9n);
+    mount(readers({ listPools: vi.fn(async () => ok([soy, view(CORN)], { safety: [calls(C, 'SOY')] })) }));
+    const [real, copy] = await screen.findAllByTestId('lp-all-pools-row');
+    expect(real).toHaveTextContent('SOY / SOL · 1% tier');
+    expect(copy).toHaveTextContent('fake SOY / SOL · 1% tier');
+    expect(copy).toHaveTextContent(/Holds 10 SOL and 1,000 fake SOY/);
+    expect(copy).toHaveTextContent('1 fake SOY = 0.01 SOL');
+    expect(within(copy!).getByText(C)).toBeInTheDocument();
+    expect(screen.getByTestId('lp-all-pools')).toHaveTextContent('one that copies the ticker of one of ours, or of SOL, USDC or USDT, reads “fake”');
+  });
+
+  it('a coin whose check was not read is headed by its short address and counted in tokens', async () => {
+    mount(readers({ listPools: vi.fn(async () => ok([view(CORN)], { safety: [{ kind: 'unread', mint: C, detail: 'HTTP 429' }] })) }));
+    const [row] = await screen.findAllByTestId('lp-all-pools-row');
+    expect(row).toHaveTextContent(`${C.slice(0, 4)}…${C.slice(-4)} / SOL · 1% tier`);
+    expect(row).toHaveTextContent('1 token = 0.01 SOL');
+    expect(within(row!).getByText(C)).toBeInTheDocument();
   });
 
   it('a pairing coin on the token side (USDC in USDC / SOL) is named as the coin, by its address', async () => {
@@ -161,6 +195,78 @@ describe('All pools: every pool on the venue, before a token is picked', () => {
     // Said by the price line every row shows: BAYLA / SOL is priced in SOL and can get the tag.
     expect(screen.getByTestId('lp-all-pools')).toHaveTextContent('Little money in pool: it holds under 1 SOL or 100 USDC (a pool priced in BAYLA never gets this tag).');
     expect(screen.getByTestId('lp-all-pools')).toHaveTextContent('a row with no tag is not a pool that passed');
+  });
+
+  it('a pool more than 3% from Jupiter’s price gets a red tag; one within gets none', async () => {
+    // $100 a SOL: BAYLA at 0.03 SOL is $3 (agrees), CORN at 0.01 SOL would be $1, and Jupiter says $0.95.
+    const marketPrices = vi.fn(async () => ({ [WSOL_MINT]: 100, [BAYLA_MINT]: 3, [C]: 0.95 }));
+    mount(readers({ marketPrices }));
+    const rows = await screen.findAllByTestId('lp-all-pools-row');
+    const tag = await within(rows[1]!).findByText('Price over 3% above Jupiter');
+    expect(tag).toHaveClass('text-rose-300');
+    expect(within(rows[0]!).queryAllByTestId('lp-all-pools-tag')).toHaveLength(0);
+    // One read for the whole list.
+    expect(marketPrices).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('lp-all-pools')).toHaveTextContent('Price over 3% above or below Jupiter: the pool’s price is that far from Jupiter’s market price');
+    // Prices turned round ("1 SOL = 100 CORN"): the gap is said that way round too, as the card says it.
+    fireEvent.click(within(rows[1]!).getByTestId('lp-price-flip'));
+    expect(within(rows[1]!).getByText('Price over 3% below Jupiter')).toBeInTheDocument();
+    expect(screen.queryByTestId('lp-all-pools-prices-unread')).toBeNull();
+  });
+
+  it('under a red tag: the arbitrage in dollars, the trade it takes, and who that trade’s fee pays', async () => {
+    // CORN dear here (0.01 SOL against Jupiter's 0.0095). Worked by hand: the token side goes to √(10e9·1e9·0.99/9.5)
+    // = 1,020.836 CORN, so 21.046 CORN goes in ($19.99), and 10 SOL − 10e18/1,020.836e6 = 0.20411 SOL ($20.41)
+    // comes back: $0.42 made. The 1% fee on $19.99: 84% to the LPs ($0.17), 16% to the venue ($0.03).
+    // BAYLA 2% off: past the 1% fee, so a trade would pay, but inside 3%, so its row stays quiet.
+    const marketPrices = vi.fn(async () => ({ [WSOL_MINT]: 100, [BAYLA_MINT]: 3 / 1.02, [C]: 0.95 }));
+    const listPools = (chainNow: bigint | null) => vi.fn(async () => ok([view(BAYLA, 30n * 10n ** 9n), view(CORN)], { chainNow }));
+    // The chain's clock not read: whether the pool trades now is unknown, so no figure (the red tag stays).
+    const { unmount } = mount(readers({ marketPrices, listPools: listPools(null) }));
+    await within((await screen.findAllByTestId('lp-all-pools-row'))[1]!).findByText('Price over 3% above Jupiter');
+    expect(screen.queryByTestId('lp-all-pools-arb')).toBeNull();
+    unmount();
+    mount(readers({ marketPrices, listPools: listPools(1_000n) }));
+    const rows = await screen.findAllByTestId('lp-all-pools-row');
+    const arb = await within(rows[1]!).findByTestId('lp-all-pools-arb');
+    expect(arb).toHaveTextContent('Arbitrage: about $0.42, from selling about $19.99 of the token here');
+    expect(arb).toHaveTextContent('That trade pays the pool’s fee: $0.17 to LPs, $0.03 to the venue');
+    expect(arb).not.toHaveTextContent('creator');
+    // A row within 3% says nothing about arbitrage.
+    expect(within(rows[0]!).queryAllByTestId('lp-all-pools-tag')).toHaveLength(0);
+    expect(within(rows[0]!).queryByTestId('lp-all-pools-arb')).toBeNull();
+    expect(screen.getByTestId('lp-all-pools')).toHaveTextContent('It comes out of the pool’s LPs');
+  });
+
+  it('a token with a transfer fee: the figure counts it and the row says how much; its fee not read, no figure', async () => {
+    // CORN on Token-2022, dear here as above, keeping 1% of every transfer. Worked by hand: the token side goes to
+    // √(10e9·1e9·0.99·0.99/9.5) = 1,015.719 CORN, so 15.877 CORN must reach the pool and the trader sends 16.038
+    // ($15.24), 0.160 CORN of it kept by the token ($0.15). 10 SOL − 10e18/1,015.719e6 = 0.15475 SOL ($15.48)
+    // comes back: $0.24 made. The 1% pool fee is on the 15.877 that arrive: $0.13 to the LPs, $0.02 to the venue.
+    const marketPrices = vi.fn(async () => ({ [WSOL_MINT]: 100, [C]: 0.95 }));
+    const corn = view(CORN);
+    const pool = corn.quoteIsToken0 ? { ...corn.snapshot.pool, token1Program: TOKEN_2022_PROGRAM } : { ...corn.snapshot.pool, token0Program: TOKEN_2022_PROGRAM };
+    const taxed: PoolView = { ...corn, snapshot: { ...corn.snapshot, pool } };
+    const listPools = (safety: TokenSafety) => vi.fn(async () => ok([taxed], { chainNow: 1_000n, safety: [safety] }));
+    // Whether it keeps a fee is unknown: the red tag, and no figure that could leave a fee out.
+    const { unmount } = mount(readers({ marketPrices, listPools: listPools({ kind: 'unread', mint: C, detail: 'HTTP 429' }) }));
+    await within((await screen.findAllByTestId('lp-all-pools-row'))[0]!).findByText('Price over 3% above Jupiter');
+    expect(screen.queryByTestId('lp-all-pools-arb')).toBeNull();
+    unmount();
+    const fee = { epoch: 0n, maximumFee: 10n ** 12n, basisPoints: 100 };
+    const read = okToken(C) as Extract<TokenSafety, { kind: 'read' }>;
+    const withFee: TokenSafety = { ...read, facts: { ...read.facts!, program: 'token-2022', transferFee: { configAuthority: null, withdrawAuthority: null, withheldAmount: 0n, older: fee, newer: fee } } };
+    mount(readers({ marketPrices, listPools: listPools(withFee) }));
+    const arb = await screen.findByTestId('lp-all-pools-arb');
+    expect(arb).toHaveTextContent('Arbitrage: about $0.24, from selling about $15.24 of CORN here');
+    expect(arb).toHaveTextContent('That trade pays the pool’s fee: $0.13 to LPs, $0.02 to the venue; the token keeps back $0.15, for whoever collects its fee');
+    expect(screen.getByTestId('lp-all-pools')).toHaveTextContent('a token whose transfer fee could not be read gets no figure');
+  });
+
+  it('Jupiter’s prices not read: the list says no row is marked, never that every price agrees', async () => {
+    mount(readers({ marketPrices: vi.fn(async () => { throw new Error('Price fetch failed (502)'); }) }));
+    expect(await screen.findByTestId('lp-all-pools-prices-unread')).toHaveTextContent('Jupiter’s prices could not be read just now, so no row is marked for a price gap.');
+    expect(screen.queryAllByTestId('lp-all-pools-tag')).toHaveLength(0);
   });
 
   it('a reader without listPools shows no list', () => {

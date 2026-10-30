@@ -4,8 +4,8 @@ import { useAccount } from 'wagmi';
 import { Link, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { CURRENT_SEASON, LOCK_OPTIONS } from '../lib/constants';
-import { parseEventLogs, formatEther } from 'viem';
-import { TEGRIDY_STAKING_ABI } from '../lib/contracts';
+import { formatEther } from 'viem';
+import { stakingClaimPaid, NOTHING_PAID_COPY } from '../lib/stakingClaimPaid';
 import { WrongChainBanner } from '../components/ui/WrongChainGuard';
 import { calculateBoost } from '../lib/boostCalculations';
 import { useFarmStats } from '../hooks/useFarmStats';
@@ -24,7 +24,6 @@ import { useAutoRefreshBoost } from '../hooks/useAutoRefreshBoost';
 import { useOneClickStake } from '../hooks/useOneClickStake';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { useAutoReset } from '../hooks/useAutoReset';
-import { useRestaking } from '../hooks/useRestaking';
 import { safeParseEther } from '../lib/safeParseEther';
 import { surfaceTxError, isUserRejection } from '../lib/txErrors';
 import { seasonStatus } from '../lib/season';
@@ -35,6 +34,7 @@ import { BUNGALOWS, DEFAULT_BUNGALOW_ID } from '../lib/bungalows';
 import { useActiveBungalowId } from '../hooks/useActiveBungalowId';
 import { BungalowFarmPanel } from '../components/bungalow/BungalowFarmPanel';
 import { VenuePoolIndex } from '../components/farm/VenuePoolIndex';
+import { HarvestCard } from '../components/farm/HarvestCard';
 import { BackToEarn } from '../components/farm/BackToEarn';
 import { FarmStatsRow } from '../components/farm/FarmStatsRow';
 import { IncentivesStrip } from '../components/farm/IncentivesStrip';
@@ -119,6 +119,8 @@ function VenueEarn() {
             </p>
           </FinePrint>
         </header>
+        {/* One press claims every pool's rewards (owner, 2026-10-24). */}
+        <HarvestCard />
         <VenuePoolIndex />
       </div>
     </div>
@@ -129,7 +131,7 @@ function ToweliFarm() {
   usePageTitle('Farm', 'Stake TOWELI and provide liquidity to earn boosted yield on memetics.finance.');
   const { isConnected } = useAccount();
   // Wrong-chain display delegated to <WrongChainBanner/>; button-level chain
-  // checks still happen inside useFarmActions / useRestaking before any write.
+  // checks still happen inside useFarmActions before any write.
   const stats = useFarmStats();
   const pool = usePoolData();
   const pos = useUserPosition();
@@ -168,7 +170,6 @@ function ToweliFarm() {
 
   const poolTVL = usePoolTVL();
   const lpFarm = useLPFarming();
-  const restaking = useRestaking();
 
   // AUDIT F-7: the LP farm only recomputes the boost inside stake/withdraw/exit,
   // so a wallet that stakes first and buys a JBAC second keeps earning at the
@@ -320,26 +321,21 @@ function ToweliFarm() {
       } else if (actionType === 'claim') {
         // §2.5 (STAKING_LOOK): report what was PAID, from the tx's own
         // RewardPaid log — under a pool shortfall the contract transfers
-        // min(pending, pool) (possibly 0, remainder booked as an IOU), so the
-        // submit-time snapshot can overstate the payout exactly when the
-        // reserve matters. The snapshot remains only as a last-resort
-        // fallback if log parsing fails.
-        let paidFromLogs: string | null = null;
-        try {
-          const paidEvents = parseEventLogs({
-            abi: TEGRIDY_STAKING_ABI,
-            logs: actions.receipt?.logs ?? [],
-            eventName: 'RewardPaid',
-          });
-          if (paidEvents.length > 0) {
-            const total = paidEvents.reduce((s, e) => s + ((e.args as { reward?: bigint }).reward ?? 0n), 0n);
-            paidFromLogs = formatEther(total);
-          }
-        } catch { /* fall back to the snapshot below */ }
+        // min(pending, pool), so the submit-time snapshot can overstate the
+        // payout exactly when the reserve matters. On an EMPTY reserve it pays
+        // 0 and logs no RewardPaid at all; that used to fall through to the
+        // snapshot and print a receipt for TOWELI nobody sent. The snapshot is
+        // now only for a receipt that could not be read.
+        const paid = stakingClaimPaid(actions.receipt);
+        if (paid === 0n) {
+          toast.warning(NOTHING_PAID_COPY);
+          submittedAmountRef.current = null;
+          return; // no receipt, no confetti
+        }
         showReceipt({
           type: 'claim',
           data: {
-            rewardAmount: paidFromLogs ?? submittedAmountRef.current ?? pos.pendingFormatted,
+            rewardAmount: paid !== null ? formatEther(paid) : submittedAmountRef.current ?? pos.pendingFormatted,
             token: 'TOWELI',
             txHash: actions.hash,
           },
@@ -387,7 +383,7 @@ function ToweliFarm() {
               (LPFarmingSection renders its own "Connect to stake" CTA, and the
               ConnectPrompt below remains the action-card slot). Additive — the
               jungle art hero and ConnectPrompt are untouched. */}
-          <div className="max-w-[1200px] mx-auto px-4 md:px-6 pb-4">
+          <div className="page-column mx-auto px-4 md:px-6 pb-4">
             <BackToEarn />
             {/* The thing a logged-out visitor came to press is Connect, so the
                 action card is the FIRST card, not the last: on a 390px phone it
@@ -465,7 +461,7 @@ function ToweliFarm() {
       </div>
 
       <ErrorBoundary>
-      <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6 pt-20 pb-28 md:pb-12">
+      <div className="relative z-10 page-column mx-auto px-4 md:px-6 pt-20 pb-28 md:pb-12">
         <BackToEarn />
         {/* Wrong-chain banner via shared primitive. Replaces the inlined
             switch-CTA block added in Phase 4.3 — behavior identical, just
@@ -503,7 +499,7 @@ function ToweliFarm() {
             pos={pos}
             actions={actions}
             nft={nft}
-            pool={{ apr: pool.apr, aprNum: pool.aprNum, isDeployed: pool.isDeployed, isDry: pool.isDry, secondsRemaining: pool.secondsRemaining }}
+            pool={{ apr: pool.apr, aprNum: pool.aprNum, isDeployed: pool.isDeployed, isDry: pool.isDry, secondsRemaining: pool.secondsRemaining, rewardsRemaining: pool.rewardsRemaining, rewardsRemainingUnread: pool.rewardsRemainingUnread }}
             input={{
               amount: stakeAmount,
               setAmount: setStakeAmount,
@@ -630,90 +626,6 @@ function ToweliFarm() {
 
         {/* ── LP Farming ── */}
         <LPFarmingSection lpFarm={lpFarm} isConnected={isConnected} />
-
-        {/* ── Restaking (Bonus Yield Layer) ── */}
-        {isConnected && pos.hasPosition && restaking.isDeployed && (
-          <m.div className="mb-10" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h2 className="heading-luxury text-white text-[22px] tracking-tight">Restaking</h2>
-                <p className="text-white text-[13px] mt-0.5">Earn bonus TOWELI rewards on top of your staking position</p>
-              </div>
-              {restaking.bonusAPR > 0 && (
-                <span className="stat-value text-[15px] text-green-400">+{restaking.bonusAPR.toFixed(1)}% Bonus APR</span>
-              )}
-            </div>
-            <div className="relative isolate glass-card p-5 rounded-xl" style={{ border: '1px solid var(--color-purple-12)' }}>
-              <CardArt pageId="farm" idx={3} />
-              {/* F112 (R075): when an RPC quotes impossible reward numbers the hook
-                  zeroes the values — without this notice users just see 0.0000 with
-                  no explanation. Prompt them to verify on-chain instead. */}
-              {restaking.rewardSanityBreach && (
-                <div className="mb-4 px-3 py-2 rounded-lg flex items-start gap-2" style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)' }}>
-                  <span className="text-amber-300 text-[13px] leading-none" aria-hidden="true">⚠</span>
-                  <p className="text-amber-200 text-[11px] leading-snug">
-                    Reward data failed an on-chain sanity check and is being hidden. Verify your pending rewards directly on Etherscan before claiming.
-                  </p>
-                </div>
-              )}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
-                <div>
-                  <p className="text-white/90 text-[10px] uppercase tracking-wider mb-0.5" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Status</p>
-                  <p className="stat-value text-[14px]" style={{ color: restaking.isRestaked ? '#22c55e' : 'var(--color-purple-75)' }}>
-                    {restaking.isRestaked ? 'Active' : 'Not Restaked'}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-white/90 text-[10px] uppercase tracking-wider mb-0.5" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Restaked</p>
-                  <p className="stat-value text-[14px] text-white">{restaking.restakedFormatted.toLocaleString()} TOWELI</p>
-                </div>
-                <div>
-                  <p className="text-white/90 text-[10px] uppercase tracking-wider mb-0.5" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Pending Rewards</p>
-                  <p className="stat-value text-[14px] text-green-400">{restaking.pendingTotalFormatted.toFixed(4)} TOWELI</p>
-                </div>
-                <div>
-                  <p className="text-white/90 text-[10px] uppercase tracking-wider mb-0.5" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Total Restaked (Protocol)</p>
-                  <p className="stat-value text-[14px] text-white">{restaking.totalRestakedFormatted.toLocaleString()}</p>
-                </div>
-              </div>
-              {restaking.pendingTotalFormatted > 0 && (
-                <div className="flex items-center gap-3 mb-4 px-3 py-2 rounded-lg" style={{ background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.2)' }}>
-                  <span className="text-white/60 text-[11px]">Base: {restaking.pendingBaseFormatted.toFixed(4)}</span>
-                  <span className="text-white/30">+</span>
-                  <span className="text-green-400 text-[11px]">Bonus: {restaking.pendingBonusFormatted.toFixed(4)}</span>
-                </div>
-              )}
-              <div className="flex gap-3">
-                {!restaking.isRestaked ? (
-                  <button
-                    onClick={restaking.restake}
-                    disabled={restaking.isPending || restaking.isConfirming}
-                    className="btn-primary px-6 py-2.5 min-h-[44px] text-[13px] flex-1"
-                  >
-                    {restaking.isPending ? 'Confirm in wallet...' : restaking.isConfirming ? 'Confirming...' : 'Restake Position'}
-                  </button>
-                ) : (
-                  <>
-                    <button
-                      onClick={restaking.claimAll}
-                      disabled={restaking.isPending || restaking.isConfirming || restaking.pendingTotal === 0n}
-                      className="btn-primary px-6 py-2.5 min-h-[44px] text-[13px] flex-1"
-                    >
-                      {restaking.isPending ? 'Confirm...' : restaking.isConfirming ? 'Confirming...' : `Claim ${restaking.pendingTotalFormatted.toFixed(4)} TOWELI`}
-                    </button>
-                    <button
-                      onClick={restaking.unrestake}
-                      disabled={restaking.isPending || restaking.isConfirming}
-                      className="btn-outline px-4 py-2.5 min-h-[44px] text-[13px]"
-                    >
-                      Unrestake
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
-          </m.div>
-        )}
 
       </div>
       </ErrorBoundary>

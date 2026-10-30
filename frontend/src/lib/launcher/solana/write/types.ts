@@ -26,6 +26,7 @@ import type { OwnPoolQuote } from '../../../solana/cpswap/read';
 import type { PriceCheck } from '../../../solana/lp/poolHealth';
 import type { QuoteCoin } from '../../../solana/lp/quotes';
 import type { SafetyReason } from '../../../solana/lp/tokenSafety';
+import type { RangePriceCheck } from '../../../solana/clmm/priceCheck';
 
 export type SolanaCluster = 'mainnet' | 'devnet' | 'localnet';
 
@@ -140,10 +141,18 @@ export interface ActionAvailability {
 export type LpKind = 'lp-deposit' | 'lp-withdraw' | 'lp-create';
 
 /**
+ * The venue's range program (solana/tegridy-clmm): opening a position with its Token-2022
+ * NFT, taking some or all of its liquidity out (or none: that is how its fees are
+ * collected), taking everything out and closing it, and `range-swap`: the swap page's swap
+ * in one of its pools.
+ */
+export type RangeKind = 'range-open' | 'range-remove' | 'range-close' | 'range-swap';
+
+/**
  * `pool-buy` / `pool-sell`: a graduated launch's own pool, from its launch page.
  * `venue-swap`: any pool of ours for the pair, found by address, from the swap page.
  */
-export type TxKind = 'create' | 'buy' | 'sell' | 'migrate' | 'pool-buy' | 'pool-sell' | 'venue-swap' | LpKind;
+export type TxKind = 'create' | 'buy' | 'sell' | 'migrate' | 'pool-buy' | 'pool-sell' | 'venue-swap' | LpKind | RangeKind;
 
 /**
  * What a watched token account is, so the review can name it and print it in its
@@ -219,7 +228,19 @@ export type IntentStep =
    * `init0` / `init1`. Its open time is always 0 (the decoder refuses any other), so it is
    * not carried.
    */
-  | { kind: 'pool-create'; pool: PublicKey; ammConfig: PublicKey; init0: bigint; init1: bigint };
+  | { kind: 'pool-create'; pool: PublicKey; ammConfig: PublicKey; init0: bigint; init1: bigint }
+  /**
+   * Range program `open_position_with_token22_nft`, decoded: `liquidity` in `pool` between
+   * the two ticks, its NFT `nftMint`, at most `max0` / `max1` taken. No base side: the
+   * program refuses the opening when either coin would pass its maximum.
+   */
+  | { kind: 'range-open'; pool: PublicKey; nftMint: PublicKey; tickLower: number; tickUpper: number; liquidity: bigint; max0: bigint; max1: bigint }
+  /** Range program `decrease_liquidity_v2`: `liquidity` out of `position` (0 = fees only), at least `min0` / `min1` back, plus its fees. */
+  | { kind: 'range-decrease'; pool: PublicKey; position: PublicKey; liquidity: bigint; min0: bigint; min1: bigint }
+  /** Range program `close_position`: the NFT burned, the record closed, their deposits back to the owner. */
+  | { kind: 'range-close'; position: PublicKey; nftMint: PublicKey }
+  /** A swap in a range pool: exact in, no price limit, the floor on what comes out. */
+  | { kind: 'range-swap'; pool: PublicKey; inputMint: PublicKey; outputMint: PublicKey; amountIn: bigint; minimumAmountOut: bigint };
 
 export type TxSummary =
   | {
@@ -308,7 +329,95 @@ export type TxSummary =
   | VenueSwapSummary
   | LpDepositSummary
   | LpWithdrawSummary
-  | LpCreateSummary;
+  | LpCreateSummary
+  | RangeSummary
+  | RangeSwapSummary;
+
+/** A range pool and its fee tier, as the review names them. From the builder's own fresh read. */
+export interface RangePoolLine {
+  pool: PublicKey;
+  /** The pool's highest fee per million (a dynamic fee's top), or null when its fee is the tier's alone. */
+  feeCeiling: number | null;
+  tokenMint: PublicKey;
+  tokenDecimals: number;
+  quote: QuoteCoin;
+  tokenIsToken0: boolean;
+  /** Per million of each swap, and per million OF THAT FEE to the venue's accounts (protocol plus fund). */
+  tradeFeeRate: number;
+  venueShareRate: number;
+  /** The tier's two parts of that share, per million of the fee, and the wallets that collect them. */
+  protocolFeeRate: number;
+  fundFeeRate: number;
+  owner: string;
+  fundOwner: string;
+}
+
+/** The range, in the pool's ticks and as prices (whole coin per whole token), lowest first. */
+export interface RangeLine {
+  tickLower: number;
+  tickUpper: number;
+  minPrice: number;
+  maxPrice: number;
+  /** What the range holds at the price now: it earns only while it holds both. */
+  holds: 'both' | 'token-only' | 'coin-only';
+}
+
+export type RangeSummary =
+  | ({
+      kind: 'range-open';
+      nftMint: PublicKey;
+      /** Decoded from the bytes, in token and coin base units. */
+      max: { token: bigint; quote: bigint };
+      /** What the fresh read says the program will take now. */
+      quoted: { token: bigint; quote: bigint };
+      /** The deposits this opening pays (the position, its NFT, any new price band); shown, never a fee. */
+      rentLamports: bigint;
+      unwrapsWsol: boolean;
+      /** About the signer's own accounts: the review's own lines. */
+      notices: string[];
+      /** The price check's words, said first on the review (a price off the market, no market, a read that failed). */
+      warnings: string[];
+      /** The pool's price against the outside one, read fresh (clmm/priceCheck.ts): a run past 3% shows the review again. */
+      price: RangePriceCheck;
+    } & { poolLine: RangePoolLine; range: RangeLine })
+  | ({
+      kind: 'range-remove' | 'range-close';
+      position: PublicKey;
+      /** The share of the position's liquidity taken out: 0 collects fees only. */
+      percent: number;
+      liquidity: bigint;
+      /** Decoded from the bytes. */
+      min: { token: bigint; quote: bigint };
+      /** What the fresh read says comes back now, before fees. */
+      quoted: { token: bigint; quote: bigint };
+      /** Fees owed now, from the fresh read; null when they could not be worked out. */
+      fees: { token: bigint; quote: bigint } | null;
+      unwrapsWsol: boolean;
+      notices: string[];
+    } & { poolLine: RangePoolLine; range: RangeLine });
+
+/**
+ * A swap in one of our range pools, as the review shows it. The amounts are decoded from
+ * the prepared transaction's bytes; `quotedOut` is from the fresh read it was built on.
+ */
+export interface RangeSwapSummary {
+  kind: 'range-swap';
+  poolLine: RangePoolLine;
+  /** True when the coin is paid in and the token comes out; false the other way round. */
+  paysCoin: boolean;
+  amountIn: bigint;
+  minimumAmountOut: bigint;
+  quotedOut: bigint;
+  /** The price bands the swap may walk through, from the fresh quote. */
+  bandsCrossed: number;
+  /** The pool's `fee_on` for this direction: the fee comes out of what is paid in, or out of what comes out. */
+  feeOnInput: boolean;
+  /** What the aggregator was seen to pay for the same trade: the swap was held to it. */
+  aggregator: AggregatorSeen;
+  unwrapsWsol: boolean;
+  wsolHeldBefore: bigint;
+  notices: string[];
+}
 
 /**
  * What the aggregator answered for the trade a swap in our own pool was compared with.
@@ -348,10 +457,23 @@ export interface VenueSwapSummary {
   quoted: OwnPoolQuote;
   /** What the aggregator was seen to pay for the same trade: the swap was held to it. */
   aggregator: AggregatorSeen;
+  /** The token's own transfer fee on this swap (`quoted.transferFees`, on the token's side); null or absent when it takes none. */
+  transferFee?: TokenTransferFee | null;
   /** True when the wrapped-SOL account is closed at the end. Always false when the coin is not SOL. */
   unwrapsWsol: boolean;
   wsolHeldBefore: bigint;
   notices: string[];
+}
+
+/**
+ * A token's own transfer fee on one transaction (lp/transferFee.ts), from the builder's
+ * fresh read: its rate at the network's epoch, and what it keeps back of the token's side
+ * here, at the amounts the review shows. The token keeps it for its fee collector; neither
+ * the pool nor the venue sees it.
+ */
+export interface TokenTransferFee {
+  rate: string;
+  kept: bigint;
 }
 
 /**
@@ -389,10 +511,12 @@ export interface LpDepositSummary {
   quoteIsToken0: boolean;
   lpAmount: bigint;
   lpDecimals: number;
-  /** The ceiling cost from the fresh snapshot. */
+  /** What leaves the wallet at the fresh snapshot: the ceiling cost, plus the token's transfer fee on top. */
   quoted: { quote: bigint; token: bigint };
   /** Decoded from the bytes. */
   max: { quote: bigint; token: bigint };
+  /** The token's transfer fee inside `quoted.token`; null or absent when it takes none. */
+  transferFee?: TokenTransferFee | null;
   /** The other side's maximum was lowered to what the wallet holds. */
   limitedByBalance: 'none' | 'quote' | 'token';
   /** Display only. */
@@ -438,9 +562,11 @@ export interface LpWithdrawSummary {
   /** Every pool share the account held. */
   all: boolean;
   keep: bigint;
-  /** The floor payout from the fresh snapshot. */
+  /** What reaches the wallet at the fresh snapshot: the floor payout, less the token's transfer fee. */
   quoted: { quote: bigint; token: bigint };
   min: { quote: bigint; token: bigint };
+  /** What the token's transfer fee keeps back of its payout; null or absent when it takes none. */
+  transferFee?: TokenTransferFee | null;
   tokenAccount: PublicKey;
   /** What opening the token account costs; `0n` when it exists. */
   tokenAccountRent: bigint;
@@ -471,9 +597,11 @@ export interface LpCreateSummary {
   /** The coin the token is paired with. Every `quote` amount below is in ITS base units. */
   quote: QuoteCoin;
   quoteIsToken0: boolean;
-  /** Decoded from the bytes: exactly what goes in. */
+  /** Decoded from the bytes: exactly what leaves the wallet. */
   put: { quote: bigint; token: bigint };
-  /** isqrt(quote·token), the pool's whole share count; `lpAmount` = supply − 100. */
+  /** What the token's transfer fee keeps back of `put.token`, so the pool holds the rest; null or absent when it takes none. */
+  transferFee?: TokenTransferFee | null;
+  /** isqrt of what reaches the two vaults, the pool's whole share count; `lpAmount` = supply − 100. */
   supply: bigint;
   lpAmount: bigint;
   lpDecimals: 9;
@@ -603,7 +731,57 @@ export interface PreToken {
  * What `intent.ts` needs to judge a transaction for one signer: a launch-program
  * transaction (`CurveIntent`), or adding or removing liquidity (`PoolIntent`).
  */
-export type IntentContext = CurveIntent | PoolIntent | SwapIntent;
+export type IntentContext = CurveIntent | PoolIntent | SwapIntent | RangeIntent;
+
+/**
+ * A range pool, as checked while preparing (write/range.ts `rangePins`): the pool, its
+ * tier, vaults, mints and their programs read in one fresh read, every one also derived or
+ * cross-checked, and the pairing coin looked up in the site's own list.
+ */
+export interface RangePins {
+  program: PublicKey;
+  address: PublicKey;
+  ammConfig: PublicKey;
+  observation: PublicKey;
+  tickSpacing: number;
+  token0Mint: PublicKey;
+  token1Mint: PublicKey;
+  token0Program: PublicKey;
+  token1Program: PublicKey;
+  vault0: PublicKey;
+  vault1: PublicKey;
+  tokenMint: PublicKey;
+  tokenProgram: PublicKey;
+  quote: QuoteCoin;
+  quoteIsToken0: boolean;
+  /** The pool's rewards, in its order, when they can be collected; each collected into the signer's own account. */
+  rewards: Array<{ vault: PublicKey; mint: PublicKey; program: PublicKey }>;
+  status: number;
+}
+
+/** A range position, as read and checked while preparing. */
+export interface RangePositionPins {
+  address: PublicKey;
+  nftMint: PublicKey;
+  tickLower: number;
+  tickUpper: number;
+  liquidity: bigint;
+}
+
+export interface RangeIntent {
+  kind: RangeKind;
+  signer: PublicKey;
+  cfg: CurveWriteConfig;
+  maxPriorityLamports: bigint;
+  pins: RangePins;
+  /** The position changed (remove, close), or the new one's NFT mint (open): a fresh key that signs. */
+  position: RangePositionPins | null;
+  nftMint: PublicKey | null;
+  /** A swap only: the mint paid in, and the bands (and far-band map) its quote walks, in order. */
+  swap?: { inputMint: PublicKey; bands: PublicKey[]; extension: PublicKey | null };
+  /** An opening's liquidity, planned from the fresh read: the only liquidity it may name. */
+  openLiquidity?: bigint;
+}
 
 /** A launch, a curve trade, a graduation or a launch pool's swap. Every field it had before liquidity stays required. */
 export interface CurveIntent {

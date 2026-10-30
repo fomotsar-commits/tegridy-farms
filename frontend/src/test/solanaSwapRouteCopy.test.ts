@@ -97,10 +97,17 @@ describe('the site says where a Solana swap goes', () => {
   // "Our pools add none on top" is true of a platform fee and reads as "our pools charge
   // nothing". A swap in our pool pays the pool's own fee, and the venue keeps part of it.
   it('where our pools are said to add no platform fee, the pool’s own fee is said too, and what the venue keeps of it', () => {
-    // The public fee tier as mainnet holds it (the tier every pool of ours is on today).
-    const tier = feeSplit({ tradeFeeRate: 10_000n, protocolFeeRate: 160_000n, fundFeeRate: 0n });
+    // The public fee tier (every pool of ours is on it) under the revenue split agreed with
+    // Jungle Bay Island on 2026-10-18: the take stays 16% of the fee, 104,000 per million of
+    // it the vault's protocol fee and 56,000 the fund fee the island's Workshop collects.
+    const tier = feeSplit({ tradeFeeRate: 10_000n, protocolFeeRate: 104_000n, fundFeeRate: 56_000n });
+    const toVault = feeSplit({ tradeFeeRate: 10_000n, protocolFeeRate: 104_000n, fundFeeRate: 0n }).venueTakesPct;
+    const toWorkshop = feeSplit({ tradeFeeRate: 10_000n, protocolFeeRate: 0n, fundFeeRate: 56_000n }).venueTakesPct;
     const a = answerQuestion('jupiter');
-    expect(a).toContain(`pays that pool's own fee inside the quote: ${pctText(tier.tradeFeePct)} of the trade on a public pool, with ${pctText(tier.venueTakesPct)} of the trade going to the venue.`);
+    expect(a).toContain(
+      `pays that pool's own fee inside the quote: ${pctText(tier.tradeFeePct)} of the trade on a public pool, with ${pctText(tier.venueTakesPct)} of the trade as the venue's take (${pctText(toVault)} to its vault, ${pctText(toWorkshop)} to the island's Workshop).`,
+    );
+    expect(a).not.toMatch(/going to the venue\./);
     expect(a).toContain('No platform fee is added on top.');
     const page = shown('src/pages/SolanaSwapPage.tsx');
     const rail = page.slice(page.indexOf('function EarnRail('), page.indexOf('function ActivityRail('));

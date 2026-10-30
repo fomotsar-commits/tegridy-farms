@@ -126,6 +126,28 @@ describe('LaunchTokenPage — honest unknown states', () => {
     expect(screen.queryByText('Not launched here')).not.toBeInTheDocument();
   });
 
+  it('keeps what failed reading the Airlock record inside Details, out of the visible line', async () => {
+    clientRef.current = makeClient({ code: DOPPLER_CLONE_CODE, asset: new Error('HTTP request failed. URL: https://eth.drpc.org') });
+    renderAt(TOKEN);
+    expect(await screen.findByText('Provenance unverified')).toBeInTheDocument();
+    const card = screen.getByText('Provenance').closest('section')!;
+    const details = card.querySelector('details')!;
+    expect(details.textContent).toMatch(/What failed: HTTP request failed\. URL: https:\/\/eth\.drpc\.org/);
+    const outside = card.cloneNode(true) as HTMLElement;
+    outside.querySelectorAll('details').forEach((d) => d.remove());
+    expect(outside.textContent).not.toMatch(/HTTP request failed|eth\.drpc\.org/);
+  });
+
+  // Live 2026-10-23 on 0x10422e41…e790: "…names a different integrator (0x21E2…) — it did not
+  // come through this rail.", and the Source small print carried one more.
+  it('the Provenance card carries no em dash, Source included', async () => {
+    clientRef.current = makeClient({ code: DOPPLER_CLONE_CODE, asset: assetTuple(FOREIGN) });
+    renderAt(TOKEN);
+    const card = (await screen.findByText(/names a different integrator/)).closest('section')!;
+    expect(card.textContent).toMatch(/Airlock record for this asset/);
+    expect(card.textContent).not.toContain('—');
+  });
+
   it('reports a failed attestation lookup as "Cannot verify", never as "No attestation"', async () => {
     clientRef.current = makeClient({ code: DOPPLER_CLONE_CODE });
     easReply.current = async () => json({ error: 'Attestations could not be looked up right now' }, 502);

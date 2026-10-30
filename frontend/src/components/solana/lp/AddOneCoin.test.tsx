@@ -30,6 +30,7 @@ import type { WalletFacts } from '../../../lib/solana/lp/walletFacts';
 import { buildPool, key } from '../../../lib/solana/lp/testkit.fixture';
 import type { JupiterQuote, SwapSimulation } from '../../../lib/jupiter';
 import { NO_SITE_FEE_ROUTE_COPY } from '../../../lib/solana/swap/jupiterFeeRetry';
+import { JupiterBusyError } from '../../../lib/solana/swap/jupiterBusy';
 import type { PendingTrade } from '../curve/pendingTrade';
 import { fakeLpApi, LP_PROGRAM, unusedGateRpc } from './fakeLpWriteApi.fixture';
 import { readStepTwo, saveStepTwo, type StepTwoNote } from './oneCoinSwap';
@@ -132,6 +133,7 @@ function view(): PoolView {
     quoteReserve: q,
     tokenReserve: t,
     vaultsFrozen: false,
+    launchTierWithoutLaunch: false,
     history: { kind: 'not-read' },
   };
 }
@@ -150,6 +152,7 @@ function search(v: PoolView): PoolSearchRead {
       index: { kind: 'ok', pools: [v.address], truncated: false },
       pools: [{ kind: 'pool' as const, view: v }],
       otherPairs: 0,
+      launchTierPools: [],
       knownState: {},
       chainNow: 1_000n,
     },
@@ -166,10 +169,10 @@ const facts: WalletFacts = {
   rents: { walletFloor: 890_880n, tokenAccount165: 2_039_280n },
 };
 
-function readers(v: PoolView): LpReaders {
+function readers(v: PoolView, safety: TokenSafety = okToken): LpReaders {
   return {
     programId: LP_PROGRAM,
-    safety: vi.fn(async () => new Map([[M, okToken]])),
+    safety: vi.fn(async () => new Map([[M, safety]])),
     findPools: vi.fn(async () => search(v)),
     outsidePrice: vi.fn(async (mint: string) => ({ kind: 'ok' as const, solPerToken: mint === M ? 0.01 : 1, source: 'Jupiter' as const })),
     positions: vi.fn(async () => ({ kind: 'ok' as const, positions: [], chainNow: 1n, totalShares: 0 })),
@@ -180,11 +183,11 @@ function readers(v: PoolView): LpReaders {
 }
 
 /** The pool's card, its "Add with one coin" pressed. */
-async function openOneCoin(v: PoolView = view()) {
+async function openOneCoin(v: PoolView = view(), safety: TokenSafety = okToken) {
   const writes: LpWritesOverrides = { mode: 'on', load: vi.fn(async () => fakeLpApi()), gateRpc: unusedGateRpc };
   render(
     <MemoryRouter initialEntries={[`/pools?mint=${M}`]}>
-      <LpInner readers={readers(v)} writes={writes} />
+      <LpInner readers={readers(v, safety)} writes={writes} />
     </MemoryRouter>,
   );
   const card = await screen.findByTestId('lp-pool');
@@ -244,6 +247,18 @@ describe('Add with one coin', () => {
     expect(within(review).getByRole('button', { name: 'Sign in wallet' })).toBeEnabled();
     expect(wallet.sendTransaction).not.toHaveBeenCalled();
     expect(wallet.signTransaction).not.toHaveBeenCalled();
+  });
+
+  it('a coin whose ticker copies USDC is said as "fake USDC" on the form, never as USDC', async () => {
+    const copy = { ...okToken, name: 'USD Coin', symbol: 'USDC', verdict: 'warn', warnings: [{ code: 'copies-known-name', text: 'It calls itself USDC, but it is not USDC.' }] } as TokenSafety;
+    await openOneCoin(view(), copy);
+    const panel = await screen.findByTestId('lp-one-coin-panel');
+    await within(panel).findByText(/after both steps/);
+    fireEvent.change(within(panel).getByLabelText('SOL to put in'), { target: { value: '1' } });
+    fireEvent.click(within(panel).getByRole('button', { name: 'Review: add with one coin' }));
+    const review = await within(panel).findByTestId('lp-one-review');
+    expect(review).toHaveTextContent(/This pool would pay[\d.,]+ fake USDC/);
+    expect(review).not.toHaveTextContent(/\d USDC/);
   });
 
   it('a step 2 this wallet owes on this pool opens as step 2: step 1 is not offered', async () => {
@@ -477,6 +492,21 @@ describe('Add with one coin: step 1’s review says what is sent', () => {
       expect(within(again).getByRole('button', { name: 'Sign in wallet' })).toBeEnabled();
     });
 
+    it('a build Jupiter refuses once at Sign is asked again: the press goes on to the no-fee review', async () => {
+      const built = jup.build!;
+      let refused = 0;
+      jup.build = vi.fn(async (p: { noPlatformFee?: boolean }) => {
+        if (refused++ === 0) throw new JupiterBusyError('Could not build swap (502)', 502);
+        return built(p);
+      });
+      const { sign } = await toReview();
+      sign();
+      const panel = screen.getByTestId('lp-one-coin-panel');
+      await within(panel).findByTestId('lp-one-no-fee', {}, { timeout: 8_000 });
+      expect(jup.build).toHaveBeenCalledTimes(3);
+      expect(wallet.sendTransaction).not.toHaveBeenCalled();
+    }, 20_000);
+
     it('the next Sign sends what that review said: the no-fee transaction, to the wallet once', async () => {
       const real = await vi.importActual<Leg>('./oneCoinSwap');
       // The real send path; only the chain reads after the wallet are stood in for.
@@ -497,6 +527,23 @@ describe('Add with one coin: step 1’s review says what is sent', () => {
       expect(leg.send).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ shown: expect.objectContaining({ platformFee: null }) }));
     });
   });
+
+  it('a quote Jupiter refuses once while the review is made is asked again: the review comes', async () => {
+    await openOneCoin();
+    const panel = await screen.findByTestId('lp-one-coin-panel');
+    await within(panel).findByText(/after both steps/);
+    fireEvent.change(within(panel).getByLabelText('SOL to put in'), { target: { value: '1' } });
+    const priced = jup.getQuote;
+    let refused = 0;
+    jup.getQuote = vi.fn(async (p: QuoteAsk) => {
+      if (refused++ === 0) throw new JupiterBusyError('Quote unavailable (502)', 502);
+      return priced(p);
+    });
+    fireEvent.click(within(panel).getByRole('button', { name: 'Review: add with one coin' }));
+    const review = await within(panel).findByTestId('lp-one-review', {}, { timeout: 8_000 });
+    expect(review).toHaveTextContent('You pay0.505050505 SOL');
+    expect(jup.getQuote).toHaveBeenNthCalledWith(2, expect.objectContaining({ amount: '500000000' }));
+  }, 20_000);
 
   it('a pair that carries no site fee says "none on this pair", with no no-fee line', async () => {
     await toReview();

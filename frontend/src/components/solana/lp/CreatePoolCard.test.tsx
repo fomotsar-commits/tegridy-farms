@@ -17,6 +17,7 @@ import { decodeAmmConfig, decodePoolState } from '../../../lib/solana/cpswap/pro
 import type { WalletFacts } from '../../../lib/solana/lp/walletFacts';
 import { buildPool, key, observationBytes } from '../../../lib/solana/lp/testkit.fixture';
 import { decodeObservationState } from '../../../lib/solana/lp/ownPrice';
+import { isqrt } from '../../../lib/solana/lp/liquidityMath';
 import { LP_PENDING_SCOPE, readPendingTrades, savePendingTrade } from '../curve/pendingTrade';
 import { GATE_RETRY_MS } from '../curve/useWriteGate';
 import type { CreateFacts, LpWriteApi } from '../curve/ports';
@@ -53,7 +54,8 @@ const SIG = '4'.repeat(88);
 function view(o: { tier1?: boolean; openTime?: bigint; address?: PublicKey; sol?: bigint } = {}): PoolView {
   const s = o.sol ?? 10n * 10n ** 9n;
   const t = 1_000n * 10n ** 6n;
-  const b = buildPool({ plain: true, mint: MINT, address: o.address, configIndex: 1, quoteReserve: s, tokenReserve: t, openTime: o.openTime ?? 1n });
+  // The shares the pool program opens these reserves with, so a launch pool nobody traded reads as one.
+  const b = buildPool({ plain: true, mint: MINT, address: o.address, configIndex: 1, quoteReserve: s, tokenReserve: t, openTime: o.openTime ?? 1n, lpSupply: isqrt(s * t) });
   const raw = decodePoolState(b.address.toBase58(), b.accounts[b.address.toBase58()]!.data)!;
   const pool = { ...raw, ammConfig: o.tier1 ? TIER1_ADDRESS.toBase58() : raw.ammConfig };
   const decoded = decodeAmmConfig(b.config.toBase58(), b.accounts[b.config.toBase58()]!.data)!;
@@ -70,6 +72,7 @@ function view(o: { tier1?: boolean; openTime?: bigint; address?: PublicKey; sol?
     quoteReserve: s,
     tokenReserve: t,
     vaultsFrozen: false,
+    launchTierWithoutLaunch: false,
     history: { kind: 'not-read' },
   };
 }
@@ -89,6 +92,7 @@ function search(views: PoolView[], extra: Partial<Extract<PoolSearchRead, { kind
       index: { kind: 'ok', pools: views.map((v) => v.address), truncated: false },
       pools: views.map((v) => ({ kind: 'pool' as const, view: v })),
       otherPairs: 0,
+      launchTierPools: [],
       knownState: { [STANDARD_1]: 'absent' },
       chainNow: 1_000n,
       ...extra,
@@ -551,8 +555,8 @@ describe('each answer has its own line, and only `offer` has the button', () => 
       expect(within(card).getByTestId('lp-pool-warnings')).toHaveTextContent(
         'Its price is 900.0% above the launch pool’s price. If you add now, whoever trades it back takes up to about 42.5% of what you add (about $42.50 per $100).',
       );
-      expect(row(card, 'Price here')).toBe('1 token = 0.1 SOL');
-      expect(row(card, 'The launch pool’s price')).toBe('1 token = 0.01 SOL');
+      expect(row(card, 'Price here')).toBe('1 CORN = 0.1 SOL');
+      expect(row(card, 'The launch pool’s price')).toBe('1 CORN = 0.01 SOL');
       expect(row(card, 'Difference')).toBe('900.0% above the launch pool’s price');
       // Nothing on it says its price was compared with nothing.
       expect(card).not.toHaveTextContent('Jupiter has no market price');
@@ -576,7 +580,7 @@ describe('each answer has its own line, and only `offer` has the button', () => 
       const card = poolCard(theirs.address);
       expect(card).toHaveAttribute('data-price', 'agrees');
       expect(within(card).getByText('Deposits: the checks pass')).toBeInTheDocument();
-      expect(row(card, 'The launch pool’s price')).toBe('1 token = 0.01 SOL');
+      expect(row(card, 'The launch pool’s price')).toBe('1 CORN = 0.01 SOL');
       expect(within(c).getByTestId('lp-create-refer')).toHaveTextContent('We suggest adding to it: liquidity in one place gives traders a better price.');
       const add = await within(c).findByRole('button', { name: 'Go to that pool' });
       fireEvent.click(add);
@@ -584,11 +588,11 @@ describe('each answer has its own line, and only `offer` has the button', () => 
     }, 20_000);
   });
 
-  // Owner ruling 2026-10-07: a launch pool Jupiter has no route for, with under 10 minutes
+  // Owner ruling 2026-10-07: a launch pool Jupiter has no route for, with under 24 minutes
   // of trading, takes deposits with a warning. A card that points to such a pool says what
   // its price was not checked against, in that pool's own words, never "passes the checks"
   // or "we suggest", and keeps its Add button, as for a token with no market price.
-  it('what the card says of the pool it points to, when that pool is a launch pool that has traded for under 10 minutes (price check: too-new)', async () => {
+  it('what the card says of the pool it points to, when that pool is a launch pool that has traded for under 24 minutes (price check: too-new)', async () => {
     const base = view({ tier1: true });
     // A price record whose first trade was 100 seconds before the search's clock (1,000).
     const obs = decodeObservationState(observationBytes({ pool: new PublicKey(base.address), index: 1, lastUpdate: 990n, obs: [[0, 900n, 0n, 0n], [1, 990n, 1n, 1n]] }))!;
@@ -599,10 +603,28 @@ describe('each answer has its own line, and only `offer` has the button', () => 
     await waitFor(() => expect(pool).toHaveAttribute('data-add', 'offer'));
     expect(pool).toHaveAttribute('data-price', 'too-new');
     expect(said(within(c).getByTestId('lp-create-refer'))).toBe(
-      `This token already has a pool on the public fee tier ${WARNED}. The biggest is ${young.address}, holding 10 SOL. That pool has traded for under 10 minutes and Jupiter has no price for this token, so its price was checked against nothing. Adding to it keeps liquidity in one place; a pool of your own starts at the price you set.`,
+      `This token already has a pool on the public fee tier ${WARNED}. The biggest is ${young.address}, holding 10 SOL. That pool has traded for under 24 minutes and Jupiter has no price for this token, so its price was checked against nothing. Adding to it keeps liquidity in one place; a pool of your own starts at the price you set.`,
     );
     expect(c).not.toHaveTextContent(/passes the checks|We suggest adding to it/);
     expect(within(c).getByRole('button', { name: 'Go to that pool' })).toBeEnabled();
+  }, 20_000);
+
+  // M-1009-6: the same for a launch pool whose price may have moved without a trade. Nobody
+  // has traded it, yet it holds more than its shares account for. It read as passing the checks.
+  it('what the card says of the pool it points to, when that pool is a launch pool topped up by a transfer before anyone traded (price check: reserves-moved)', async () => {
+    const base = view({ tier1: true });
+    const neverTraded = decodeObservationState(observationBytes({ pool: new PublicKey(base.address), initialized: false }))!;
+    // Opened at 10 SOL and 500 tokens; 500 more tokens were then sent straight into its vault.
+    const toppedUp: PoolView = { ...base, origin: 'launch-pool', history: { kind: 'ok', obs: neverTraded }, snapshot: { ...base.snapshot, pool: { ...base.snapshot.pool, lpSupply: 2_236_067_977n } } };
+    mount(readers({ findPools: vi.fn(async () => search([toppedUp])), outsidePrice: vi.fn(async () => NO_ROUTE) }));
+    const c = await settled('offer');
+    const pool = screen.getByTestId('lp-pool');
+    await waitFor(() => expect(pool).toHaveAttribute('data-add', 'offer'));
+    expect(pool).toHaveAttribute('data-price', 'reserves-moved');
+    expect(said(within(c).getByTestId('lp-create-refer'))).toBe(
+      `This token already has a pool on the public fee tier ${WARNED}. The biggest is ${toppedUp.address}, holding 10 SOL. Nobody has traded in that pool, yet it holds more than its shares account for, and Jupiter has no price for this token, so its price was checked against nothing. Adding to it keeps liquidity in one place; a pool of your own starts at the price you set.`,
+    );
+    expect(c).not.toHaveTextContent(/passes the checks|We suggest adding to it/);
   }, 20_000);
 
   // Whole-change review 2026-10-04 (W3). "Passes the checks" was decided by the PRICE
@@ -746,41 +768,39 @@ describe('each answer has its own line, and only `offer` has the button', () => 
     expect(within(c).getByRole('button', { name: 'Open a pool' })).toBeEnabled();
   });
 
-  // What stays refused is refused in the check's own words. A transfer fee: the pool
-  // program would take it, the limit is this site's, and the block says so.
-  it('token-refused: a token that charges a transfer fee, in the words of the check that blocked it', async () => {
-    const feeToken = realToken(MINT, { transferFee: true });
-    const block = reasonText(feeToken, 'transfer-fee');
-    expect(block).toContain('This site cannot build exact deposits and withdrawals for a token with one, so it does not open or add to pools for it.');
-    mount(readers({ safety: vi.fn(async () => new Map([[M, feeToken]])) }));
+  // What stays refused is refused in the check's own words. A transfer hook: the pool
+  // program itself rejects it, and the block says so.
+  it('token-refused: a token whose transfers run a hook, in the words of the check that blocked it', async () => {
+    const hookToken = realToken(MINT, { transferHook: true });
+    const block = reasonText(hookToken, 'extension');
+    expect(block).toContain('The pool program does not accept tokens with it.');
+    mount(readers({ safety: vi.fn(async () => new Map([[M, hookToken]])) }));
     const c = await settled('token-refused');
     expect(c).toHaveTextContent(`This site does not open pools for this token: ${block}`);
     expect(within(c).queryByRole('button', { name: 'Open a pool' })).toBeNull();
     expect(within(c).queryByTestId('lp-create-cautions')).toBeNull();
   });
 
-  it('token-refused: a freezable copy that ALSO charges a transfer fee is refused for the fee; the warnings lift nothing', async () => {
-    const feeToken = realToken(MINT, { transferFee: true, freeze: key(), name: 'BOBO', symbol: 'BOBO' });
-    mount(readers({ safety: vi.fn(async () => new Map([[M, feeToken]])) }));
+  it('token-refused: a freezable copy that ALSO runs a hook is refused for the hook; the warnings lift nothing', async () => {
+    const hookToken = realToken(MINT, { transferHook: true, freeze: key(), name: 'BOBO', symbol: 'BOBO' });
+    mount(readers({ safety: vi.fn(async () => new Map([[M, hookToken]])) }));
     const c = await settled('token-refused');
-    expect(c).toHaveTextContent(`This site does not open pools for this token: ${reasonText(feeToken, 'transfer-fee')}`);
+    expect(c).toHaveTextContent(`This site does not open pools for this token: ${reasonText(hookToken, 'extension')}`);
     expect(within(c).queryByRole('button', { name: 'Open a pool' })).toBeNull();
     // A refusal has no button to warn before: its warnings stay on the token's own card.
-    expect(reasonText(feeToken, 'copies-known-name')).toContain('NOT the real BOBO');
+    expect(reasonText(hookToken, 'copies-known-name')).toContain('NOT the real BOBO');
     expect(within(c).queryByTestId('lp-create-cautions')).toBeNull();
     expect(c).not.toHaveTextContent('NOT the real BOBO');
   });
 
-  // Two blocks of two kinds: one is this site's limit, the other is the pool program's.
-  // Both are said, so nobody fixes one and comes back to be told about the next.
-  it('token-refused: a token blocked twice over is told both reasons, each in its own words', async () => {
-    const twice = realToken(MINT, { transferFee: true, transferHook: true });
-    const fee = reasonText(twice, 'transfer-fee');
-    const hook = reasonText(twice, 'extension');
+  // A fee AND a hook: the hook refuses it, and the fee, a warning, adds no second block.
+  it('token-refused: a token with a transfer fee and a hook is refused for the hook alone', async () => {
+    const both = realToken(MINT, { transferFee: true, transferHook: true });
+    const hook = reasonText(both, 'extension');
     expect(hook).toContain('a transfer hook');
-    expect(hook).toContain('The pool program does not accept tokens with it.');
-    mount(readers({ safety: vi.fn(async () => new Map([[M, twice]])) }));
-    expect(await settled('token-refused')).toHaveTextContent(`This site does not open pools for this token: ${fee} ${hook}`);
+    expect(both.kind === 'read' && both.blocks.map((b) => b.code)).toEqual(['extension']);
+    mount(readers({ safety: vi.fn(async () => new Map([[M, both]])) }));
+    expect(await settled('token-refused')).toHaveTextContent(`This site does not open pools for this token: ${hook}`);
   });
 
   it('token-refused: an address with no account behind it', async () => {

@@ -36,6 +36,13 @@ export interface SolanaSurface {
   /** base58, never a PublicKey: this file carries no Solana code. */
   readonly address: string | null;
   readonly connecting: boolean;
+  /**
+   * That connection's connected wallet adapter, to sign with; null while none is
+   * connected. Opaque for the same reason as `address`. Harvest signs its claims with
+   * it (components/farm/HarvestCard.tsx), so the Earn list keeps ONE connection, the
+   * top bar's, and needs none of its own.
+   */
+  readonly signer?: object | null;
 }
 
 export interface SolanaSurfaceState {

@@ -46,7 +46,6 @@ so an old reference can be traced, never mixed into the live set.
 | **TegridyStakingAdmin** — EIP-170 admin sister of the staking vault. | [`0xPENDING_REDEPLOY_STAKING_ADMIN`](https://etherscan.io/address/0xPENDING_REDEPLOY_STAKING_ADMIN) | `contracts/src/TegridyStakingAdmin.sol` | Live (staking release 1, PENDING_REDEPLOY_DATE) |
 | **TegridyStakingJbacVault** — JBAC custody sister for the staking boost. | [`0xPENDING_REDEPLOY_JBAC_VAULT`](https://etherscan.io/address/0xPENDING_REDEPLOY_JBAC_VAULT) | `contracts/src/TegridyStakingJbacVault.sol` | Live (staking release 1, PENDING_REDEPLOY_DATE) |
 | **StakingMonitorView** — Read-only view sister (EIP-170 split). | [`0xPENDING_REDEPLOY_MONITOR_VIEW`](https://etherscan.io/address/0xPENDING_REDEPLOY_MONITOR_VIEW) | `contracts/src/StakingMonitorView.sol` | Live (staking release 1, PENDING_REDEPLOY_DATE) |
-| **TegridyRestaking** — Auto-compounding restake wrapper. | _not deployed_ | `contracts/src/TegridyRestaking.sol` | Deferred — `TEGRIDY_RESTAKING_ADDRESS` is `0x0…0`; the pre-relaunch instance is retired (see below). |
 
 > 🔴 **The live TOWELI is not this repo's `Toweli.sol`.** Selector scan of `cast code` plus live
 > `cast call`, 2026-08-12. The deployed contract names itself **`Towelie`** (symbol `Toweli`) and is a
@@ -105,11 +104,11 @@ code, so it is not a Safe).
 
 | Contract | Address | Source | Status |
 |---|---|---|---|
-| **GaugeController** — veTOWELI-weighted gauge voting for emissions allocation. | [`0x6c79522D47Cf6d1051Cb474E81d9b6f3996c1054`](https://etherscan.io/address/0x6c79522D47Cf6d1051Cb474E81d9b6f3996c1054) | `contracts/src/GaugeController.sol` | Live — `gaugeCount() == 0` (no gauge registered yet); `pairToGauge(address)` answers normally |
-| **VoteIncentives** — Bribes market for gauge voters. | [`0x6e1dCB7EBD16E09edb574F414aDc664B2A5E21AF`](https://etherscan.io/address/0x6e1dCB7EBD16E09edb574F414aDc664B2A5E21AF) | `contracts/src/VoteIncentives.sol` | Live — `gaugeController()` is still `0x0…0`. **`setGaugeController` is one-shot: the only correct argument is `0x6c79522D…1054`.** |
-| **VoteIncentivesAdmin** — EIP-170 admin sister of VoteIncentives. | [`0xf87Ec231BA7FA3975619309bc16C698B2ea3B300`](https://etherscan.io/address/0xf87Ec231BA7FA3975619309bc16C698B2ea3B300) | `contracts/src/VoteIncentivesAdmin.sol` | Live — wired via `setVoteIncentivesAdmin` in the same broadcast |
-| **CommunityGrants** — Grant disbursement with milestone gating. | [`0xeBC3aaf48297b8ccFa8272D9E68c1545eb9CD471`](https://etherscan.io/address/0xeBC3aaf48297b8ccFa8272D9E68c1545eb9CD471) | `contracts/src/CommunityGrants.sol` | Live |
-| **MemeBountyBoard** — On-chain bounties for meme submissions, voted by veTOWELI. | [`0x6D2C6EC29D97fe8b6D1471091DEEE36baf69d890`](https://etherscan.io/address/0x6D2C6EC29D97fe8b6D1471091DEEE36baf69d890) | `contracts/src/MemeBountyBoard.sol` | Live — `bountyCount() == 0` |
+| **GaugeController** — veTOWELI-weighted gauge voting for emissions allocation. | [`0x6c79522D47Cf6d1051Cb474E81d9b6f3996c1054`](https://etherscan.io/address/0x6c79522D47Cf6d1051Cb474E81d9b6f3996c1054) | _source left the repo 2026-10-27; read the verified source on Etherscan_ | Live — `gaugeCount() == 0` (no gauge registered yet); `pairToGauge(address)` answers normally |
+| **VoteIncentives** — Bribes market for gauge voters. | [`0x6e1dCB7EBD16E09edb574F414aDc664B2A5E21AF`](https://etherscan.io/address/0x6e1dCB7EBD16E09edb574F414aDc664B2A5E21AF) | _source left the repo 2026-10-27; read the verified source on Etherscan_ | Live — `gaugeController()` is still `0x0…0`. **`setGaugeController` is one-shot: the only correct argument is `0x6c79522D…1054`.** |
+| **VoteIncentivesAdmin** — EIP-170 admin sister of VoteIncentives. | [`0xf87Ec231BA7FA3975619309bc16C698B2ea3B300`](https://etherscan.io/address/0xf87Ec231BA7FA3975619309bc16C698B2ea3B300) | _source left the repo 2026-10-27; read the verified source on Etherscan_ | Live — wired via `setVoteIncentivesAdmin` in the same broadcast |
+| **CommunityGrants** — Grant disbursement with milestone gating. | [`0xeBC3aaf48297b8ccFa8272D9E68c1545eb9CD471`](https://etherscan.io/address/0xeBC3aaf48297b8ccFa8272D9E68c1545eb9CD471) | _source left the repo 2026-10-27; read the verified source on Etherscan_ | Live |
+| **MemeBountyBoard** — On-chain bounties for meme submissions, voted by veTOWELI. | [`0x6D2C6EC29D97fe8b6D1471091DEEE36baf69d890`](https://etherscan.io/address/0x6D2C6EC29D97fe8b6D1471091DEEE36baf69d890) | _source left the repo 2026-10-27; read the verified source on Etherscan_ | Live — `bountyCount() == 0` |
 
 ---
 
@@ -117,7 +116,6 @@ code, so it is not a Safe).
 
 | Contract | Address | Source | Status |
 |---|---|---|---|
-| **TegridyLending** — ERC20 money market collateralized by TOWELI and LP tokens. | _not deployed_ | `contracts/src/TegridyLending.sol` | Deferred — `TEGRIDY_LENDING_ADDRESS` is `0x0…0`; the pre-relaunch instance is retired (see below). |
 | **TegridyNFTLending** — NFT-backed peer-to-pool loans against JBAC/Gold and approved collections. | [`0x89BeB6cc0255B7465c01aA38a6f937efd345f14F`](https://etherscan.io/address/0x89BeB6cc0255B7465c01aA38a6f937efd345f14F) | `contracts/src/TegridyNFTLending.sol` | Live (2026-07-16) — `paused() == false` |
 | **TegridyNFTLendingAdmin** — EIP-170 admin sister. | [`0x693787831e9C36A98afeDaD39F8728491f580a9C`](https://etherscan.io/address/0x693787831e9C36A98afeDaD39F8728491f580a9C) | `contracts/src/TegridyNFTLendingAdmin.sol` | Live (2026-07-16) |
 | **TegridyNFTPoolFactory** — Deploys isolated NFT lending pools per collection. | [`0xbB8E49Ba4e3A85E2B8B70e00208770F429B56F5B`](https://etherscan.io/address/0xbB8E49Ba4e3A85E2B8B70e00208770F429B56F5B) | `contracts/src/TegridyNFTPoolFactory.sol` | Live (2026-07-16) — `owner()` = `0xA360…b7F8` (differs from the rest of the batch) |
@@ -248,7 +246,10 @@ structurally refuse to ship the contracts without one.
 | DRB | Base | `0x0aCB93fcFD5b1950D94064998017a2601b36D7bB` |
 | JBM | Base | `0x3C339692ec7B3b96ad6F8fbEb5F5202164b44465` |
 
-These are the pools the app uses (`frontend/src/lib/bungalows.ts`, and the `ladder-*` entries
+These six charge a flat 25% early exit. Owner, 2026-10-18: the room ladders keep the ladder's law
+(an early exit costs the time left on the lock over four years, capped at 75%, as the BAYLA ladder
+charges it), so they are replaced by that build when the owner deploys it
+(`docs/LADDER_EXIT_75_REDEPLOY.md`); this table is repinned when that lands. These are the pools the app uses (`frontend/src/lib/bungalows.ts`, and the `ladder-*` entries
 in `frontend/scripts/addresses.json`). They replaced the first six ladders, deployed
 2026-08-30, whose build let a reward payout spend other stakers' principal (C1 in
 `docs/LIGHTHOUSE_AUDIT_2026_09_01.md`). Those six were **retired 2026-09-05 (PR #433), before

@@ -8,8 +8,10 @@ import { CREATOR, KEY, PLANT_SUMMARY, SIG, buySummary, fakeApi, prepared } from 
 import { lpCreateSummary, lpDepositSummary, lpWithdrawSummary } from '../lp/fakeLpWriteApi.fixture';
 import type { Prepared, PreparedTx, TxOutcome, TxSigner, TxSummary, WriteApi, WriteRpc } from './ports';
 import { SOL_QUOTE } from '../../../lib/solana/lp/quotes';
-import { PRICE_TOLERANCE, TOO_NEW_WARNING, gapCostFraction, noPriceClause } from '../../../lib/solana/lp/poolHealth';
+import { PRICE_TOLERANCE, RESERVES_MOVED_WARNING, TOO_NEW_WARNING, TOO_QUIET_WARNING, gapCostFraction, noPriceClause } from '../../../lib/solana/lp/poolHealth';
 import { TOO_NEW_WHY } from '../../../lib/solana/lp/ownPrice';
+import { PLATFORM_TREASURY_VAULT } from '../../../lib/launcher/solana/curve/program';
+import { RANGE_COPY } from '../../../lib/launcher/solana/write/range';
 
 const SOL_1 = 1_000_000_000n;
 const MINT_X = KEY(15);
@@ -1291,6 +1293,65 @@ describe('built again at the press: what shuts the wallet and what only moved', 
     });
   });
 
+  // A range opening: its split line is one of the review's own; its price check runs like a deposit's.
+  type RangeOpen = Extract<TxSummary, { kind: 'range-open' }>;
+  const STRANGER = KEY(77).toBase58();
+  const rangeOpen = (o: { protocol?: number; fund?: number; diff?: number; cost?: string } = {}): RangeOpen => ({
+    kind: 'range-open', nftMint: KEY(50), max: { token: 5_000_000n, quote: 1_000_000n }, quoted: { token: 4_950_000n, quote: 990_000n },
+    rentLamports: 7_000_000n, unwrapsWsol: true,
+    notices: [],
+    warnings: o.diff === undefined ? [] : [RANGE_COPY.priceOff(`${Number((Math.abs(o.diff) * 100).toFixed(1))}%`, 'below', o.cost ?? '0.002 SOL')],
+    price: o.diff === undefined ? { state: 'agrees', pool: 0.0003, reference: 0.0003, diff: 0 } : { state: 'disagrees', pool: 0.0003, reference: 0.0003 / (1 + o.diff), diff: o.diff, lossQuote: 2_000_000n },
+    poolLine: {
+      feeCeiling: null,
+      pool: KEY(51), tokenMint: KEY(52), tokenDecimals: 6, quote: SOL_QUOTE, tokenIsToken0: true, tradeFeeRate: 10_000, venueShareRate: 160_000,
+      protocolFeeRate: o.protocol ?? 104_000, fundFeeRate: o.fund ?? 56_000, owner: PLATFORM_TREASURY_VAULT.toBase58(), fundOwner: STRANGER,
+    },
+    range: { tickLower: 0, tickUpper: 1200, minPrice: 0.0002, maxPrice: 0.0005, holds: 'both' },
+  });
+
+  it('a range tier whose split moved between its wallets (the same 16% in all): shut, and the new split is listed', async () => {
+    const fresh = again(rangeOpen({ protocol: 56_000, fund: 104_000 }), CAP);
+    const { api, state } = await pressPastItsClock(prepared(rangeOpen(), CAP), fresh);
+    expect(api.submitPrepared).not.toHaveBeenCalled();
+    expect(state).toMatchObject({ step: 'review', prepared: fresh, replaced: { n: 1 } });
+    const now = state.step === 'review' ? (state.replaced?.now ?? []) : [];
+    expect(now.some((l) => /5\.6% of each fee .* to the team’s shared wallet/.test(l))).toBe(true);
+  });
+
+  it('a range swap whose tier’s split moved between its wallets (the same 16%): shut, never signed unread', async () => {
+    const swap = (protocol: number, fund: number): TxSummary => ({
+      kind: 'range-swap', poolLine: { ...rangeOpen({ protocol, fund }).poolLine }, paysCoin: true, amountIn: 100_000_000n, minimumAmountOut: 1_000_000n,
+      quotedOut: 1_010_000n, bandsCrossed: 1, feeOnInput: true, aggregator: { kind: 'unreachable' }, unwrapsWsol: true, wsolHeldBefore: 0n, notices: [],
+    });
+    const fresh = again(swap(56_000, 104_000), CAP);
+    const { api, state } = await pressPastItsClock(prepared(swap(104_000, 56_000), CAP), fresh);
+    expect(api.submitPrepared).not.toHaveBeenCalled();
+    expect(state).toMatchObject({ step: 'review', prepared: fresh });
+  });
+
+  // Only the price gap differs here, over the same bytes: what the gap check alone decides.
+  // A real rebuild of an opening always signs a fresh NFT key, so it is always shown again (next test).
+  it('the price-gap check alone does not shut a range opening for a small move in the same words', async () => {
+    const fresh = again(rangeOpen({ diff: -0.046, cost: '0.0023 SOL' }), CAP);
+    const { api } = await pressPastItsClock(prepared(rangeOpen({ diff: -0.04 }), CAP), fresh);
+    expect(signed(api)).toEqual([fresh]);
+  });
+
+  it('a range opening built again signs a fresh NFT key: never the same bytes, so the review is always shown again', async () => {
+    const fresh = again(rangeOpen({ diff: -0.046, cost: '0.0023 SOL' }), { ...CAP, tx: txOf(CREATOR, ix([9])) });
+    const { api, state } = await pressPastItsClock(prepared(rangeOpen({ diff: -0.04 }), CAP), fresh);
+    expect(api.submitPrepared).not.toHaveBeenCalled();
+    expect(state).toMatchObject({ step: 'review', prepared: fresh });
+  });
+
+  it(`a range opening whose price ran more than ${PRICE_RUN * 100}% further off: shut`, async () => {
+    const fresh = again(rangeOpen({ diff: -0.08, cost: '0.004 SOL' }), CAP);
+    const { api, state } = await pressPastItsClock(prepared(rangeOpen({ diff: -0.04 }), CAP), fresh);
+    expect(api.submitPrepared).not.toHaveBeenCalled();
+    expect(state).toMatchObject({ step: 'review', prepared: fresh });
+  });
+
   it('a market move over different instructions: shut, and the page says it cannot call it the same', async () => {
     const fresh = again(deposit({ price: priced('agrees', 0.009) }), { ...CAP, tx: txOf(CREATOR, ix([9])) });
     const { api, state } = await pressPastItsClock(prepared(deposit({ price: priced('agrees', 0.004) }), CAP), fresh);
@@ -1597,19 +1658,41 @@ describe('liquidity reviews', () => {
     expect(value('Price check')).toBe('nobody has traded since the launch program opened it');
   });
 
-  // Owner ruling 2026-10-07: a brand-new launch pool (no route, under 10 minutes of trading)
+  // Owner ruling 2026-10-07: a brand-new launch pool (no route, under 24 minutes of trading)
   // takes a deposit, with a warning. The review says the warning first, and its price row
   // says the price was checked against nothing and why. It never reads as a check that passed.
-  it('adding to a launch pool that has traded for under 10 minutes: the warning first, and the row says it was checked against nothing', async () => {
+  it('adding to a launch pool that has traded for under 24 minutes: the warning first, and the row says it was checked against nothing', async () => {
     await review(deposit({ origin: 'launch-pool', price: { state: 'too-new', pool: 1, historySecs: 120n }, warnings: [TOO_NEW_WARNING] }));
-    expect(value('Price check')).toBe('not checked against anything: this pool has traded for under 10 minutes and Jupiter has no price for this token');
+    expect(value('Price check')).toBe('not checked against anything: this pool has traded for under 24 minutes and Jupiter has no price for this token');
     expect(value('Price check')).toBe(`not checked against anything: ${TOO_NEW_WHY}`);
     const box = screen.getByTestId('tx-review-warnings');
     expect(Array.from(box.querySelectorAll('li')).map((li) => li.textContent)).toEqual([
-      'This pool has traded for under 10 minutes and Jupiter has no price for this token, so its price was checked against nothing. If someone has just pushed it, a deposit now pays for that.',
+      'This pool has traded for under 24 minutes and Jupiter has no price for this token, so its price was checked against nothing. If someone has just pushed it, a deposit now pays for that.',
     ]);
     expect(screen.getByRole('heading', { name: 'Review: add liquidity' })).toHaveAttribute('aria-describedby', box.id);
     // Nothing to compare with, so no gap and no cost row. A warning is not a stop: Sign is on.
+    expect(screen.queryByText('Estimated cost of that gap')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Sign in wallet' })).toBeEnabled();
+  });
+
+  // M-1009-6: a launch pool whose price may have moved without a trade takes a deposit, with
+  // a warning; the price row says what it was not checked against, never a check that passed.
+  it.each([
+    [
+      { state: 'reserves-moved' as const, pool: 1 },
+      'not checked against anything: nobody has traded in this pool, yet it holds more than its shares account for, and Jupiter has no price for this token',
+      RESERVES_MOVED_WARNING,
+    ],
+    [
+      { state: 'too-quiet' as const, pool: 1, reference: 1.01, diff: -0.0099 },
+      'not checked against anything: this pool has had long gaps between trades over the last half hour, and Jupiter has no price for this token',
+      TOO_QUIET_WARNING,
+    ],
+  ])('adding to a launch pool whose price may have moved without a trade (%o): the warning, and the row says it was checked against nothing', async (price, row, warning) => {
+    await review(deposit({ origin: 'launch-pool', price, warnings: [warning] }));
+    expect(value('Price check')).toBe(row);
+    const box = screen.getByTestId('tx-review-warnings');
+    expect(Array.from(box.querySelectorAll('li')).map((li) => li.textContent)).toEqual([warning]);
     expect(screen.queryByText('Estimated cost of that gap')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Sign in wallet' })).toBeEnabled();
   });

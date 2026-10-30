@@ -3,8 +3,9 @@ import { m } from 'framer-motion';
 import type { PublicKey } from '@solana/web3.js';
 import { displaySafe } from '../../../lib/launchMetadata/validate';
 import { MAX_POSITIONS, type PositionsRead, type Position } from '../../../lib/solana/lp/positions';
-import type { PoolView } from '../../../lib/solana/lp/poolFinder';
+import { LAUNCH_TIER_POOL, type PoolView } from '../../../lib/solana/lp/poolFinder';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
+import { feeNow } from '../../../lib/solana/lp/transferFee';
 import { formatWhen, vaultFreezer, withdrawalsState } from '../../../lib/solana/lp/poolHealth';
 import { swapEnabled } from '../../../lib/solana/cpswap/program';
 import { tokenText } from '../../../lib/solana/lp/format';
@@ -374,8 +375,10 @@ function PositionRow({
     gate: writes?.gate ?? null,
     position: p,
     held: writes !== null && poolAddress !== null && lpHeld(writes.pending.notes, poolAddress, 'remove'),
+    // A share the token's transfer fee would leave nothing of is too small to take out.
+    tokenFee: feeNow(safety?.kind === 'read' ? safety.facts?.transferFee : null, null),
   });
-  const units = view ? ledgerUnits(view) : null;
+  const units = view ? ledgerUnits(view, safety) : null;
   // What the opener's 100 locked share units are worth, once the ledger has read the opening: shown in the fold.
   const [locked, setLocked] = useState<string | null>(null);
   // Needs no history: the share of the pool's two reserves, to the unit, under the token's registry name.
@@ -425,7 +428,7 @@ function PositionRow({
       data-pool-kind={pool?.kind ?? 'none'}
       data-remove={offer}
     >
-      {view ? <h3 className={HEAD}>{pairLabel(view)}</h3> : shareRows}
+      {view ? <h3 className={HEAD}>{pairLabel(view, safety)}</h3> : shareRows}
       {setAside && <Notice tone="warn">Set aside: {setAside}.</Notice>}
       {p.placement === 'index-unread' && (
         <Notice tone="warn">
@@ -460,7 +463,7 @@ function PositionRow({
           {!checkedClean && tokenCheck}
           <p data-testid="lp-fees-in-shares">{LEDGER_COPY.feesInShares}</p>
           {!setAside && readers.ledger ? (
-            <LedgerBlock p={p} owner={owner} view={view} readers={readers} auto={autoLedger} chainNow={chainNow} worth={worth} onLocked={setLocked} />
+            <LedgerBlock p={p} owner={owner} view={view} safety={safety} readers={readers} auto={autoLedger} chainNow={chainNow} worth={worth} onLocked={setLocked} />
           ) : (
             worth
           )}
@@ -558,6 +561,7 @@ function LedgerBlock({
   p,
   owner,
   view,
+  safety,
   readers,
   auto,
   chainNow,
@@ -567,6 +571,8 @@ function LedgerBlock({
   p: Position;
   owner: PublicKey;
   view: PoolView;
+  /** The token's check, for its ticker in the amounts. */
+  safety: TokenSafety | null;
   readers: LpReaders;
   auto: boolean;
   chainNow: bigint | null;
@@ -639,7 +645,7 @@ function LedgerBlock({
     if (shown.forView === view || (kept.kind !== 'ok' && kept.kind !== 'worth-only')) return kept;
     return ledgerFigures(shown.entries, view, p.lpAmount, kept.window.more);
   }, [shown, view, p.lpAmount]);
-  const u = ledgerUnits(view);
+  const u = ledgerUnits(view, safety);
   const locked = r?.kind === 'ok' ? ledgerText.locked(r.figures, u) : null;
   useEffect(() => {
     onLocked(locked);
@@ -768,9 +774,11 @@ function RemoveBlock({
   // card, after its checks. Nor does it wait on Remove: a share too small to take out is
   // one a holder may well want to add to. The one thing the row does know: a pool whose
   // withdrawals are off or whose vault is frozen takes no deposit from this site (nobody
-  // is let in who cannot be let out), so the row that says so does not offer to add.
+  // is let in who cannot be let out), so the row that says so does not offer to add. Nor
+  // does a pool on the launch tier that is not the launch pool: the row says that instead.
+  const launchTier = view?.launchTierWithoutLaunch === true;
   const addMore =
-    onAddMore && !setAside && view && view.snapshot.pool.lpMint === p.lpMint && withdrawalsState(view) === 'open' && addingOpen(writes) ? (
+    onAddMore && !setAside && view && !launchTier && view.snapshot.pool.lpMint === p.lpMint && withdrawalsState(view) === 'open' && addingOpen(writes) ? (
       <button
         type="button"
         className="btn-secondary w-full sm:w-auto min-h-[44px] px-4 text-[13px] disabled:opacity-60"
@@ -902,9 +910,15 @@ function RemoveBlock({
         ) : null;
       break;
   }
-  if (!line && !buttons && !leaving && !panel) return null;
+  const tierLine = launchTier ? (
+    <p className="text-amber-300/90 [overflow-wrap:anywhere]">
+      <strong>{LAUNCH_TIER_POOL}</strong>
+    </p>
+  ) : null;
+  if (!tierLine && !line && !buttons && !leaving && !panel) return null;
   return (
     <div className="space-y-2 pt-1">
+      {tierLine}
       {line}
       {buttons}
       {wait}

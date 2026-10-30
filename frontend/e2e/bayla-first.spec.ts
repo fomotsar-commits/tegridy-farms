@@ -18,13 +18,13 @@ async function seedOverlays(page: Page) {
   });
 }
 
-const chainPills = (page: Page) => page.locator('main a.badge').filter({ hasText: /^(SOLANA|ETHEREUM|BASE)$/ });
+const chainPills = (page: Page) => page.locator('main a.badge').filter({ hasText: /^(SOLANA|ETHEREUM|BASE|ROBINHOOD)$/ });
 const aboutBuy = (page: Page) => page.getByRole('button', { name: /^About .+: age, holders, authorities$/ });
 
 test('the home page’s chain pills lead with Solana, on one row at 390', async ({ page }) => {
   await seedOverlays(page);
   await gotoRoute(page, '/');
-  await expect(chainPills(page)).toHaveText(['SOLANA', 'ETHEREUM', 'BASE']);
+  await expect(chainPills(page)).toHaveText(['SOLANA', 'ETHEREUM', 'BASE', 'ROBINHOOD']);
   const boxes = await chainPills(page).evaluateAll((els) =>
     els.map((el) => {
       const r = el.getBoundingClientRect();
@@ -33,7 +33,8 @@ test('the home page’s chain pills lead with Solana, on one row at 390', async 
   );
   expect(boxes[0]!.x).toBeLessThan(boxes[1]!.x);
   expect(boxes[1]!.x).toBeLessThan(boxes[2]!.x);
-  expect(new Set(boxes.map((b) => b.y)).size, 'the three pills share one row').toBe(1);
+  expect(boxes[2]!.x).toBeLessThan(boxes[3]!.x);
+  expect(new Set(boxes.map((b) => b.y)).size, 'the four pills share one row').toBe(1);
 });
 
 test('the Solana pill opens the swap on SOL to $BAYLA', async ({ page }) => {

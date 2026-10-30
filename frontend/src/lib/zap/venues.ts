@@ -22,23 +22,8 @@ import {
 } from '../constants';
 import type { LpFarmDeposit } from '../lpEmissions';
 
-/**
- * The ERC-4626 auto-compounder, zero-address-gated until an operator deploys it.
- *
- * `contracts/src/vaults/TegridyHarvestVault.sol` exists and is tested; nothing has been
- * deployed and `src/lib/constants.ts` carries no address for it. This constant is the gate,
- * and it lives here rather than in constants.ts only because that file is not this slice's
- * to edit — `venues.test.ts` fails the moment constants.ts gains the canonical constant, so
- * the duplicate is caught and deleted rather than left to drift.
- *
- * The vault takes the SAME asset the farm does (its constructor asserts
- * `farm.stakingToken() == asset`), so a zap into it is the LP-farm plan with a different
- * final destination. Filling in a deployed address is the entire activation step.
- */
-export const HARVEST_VAULT_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
-
 /** Venues this build knows how to compose. */
-export type ZapVenueId = 'staking-lock' | 'lp-farm' | 'compounder-vault';
+export type ZapVenueId = 'staking-lock' | 'lp-farm';
 
 export interface ZapVenue {
   id: ZapVenueId;
@@ -71,23 +56,15 @@ const LP_FARM: ZapVenue = {
   depositAsset: TEGRIDY_LP_ADDRESS,
 };
 
-const COMPOUNDER_VAULT: ZapVenue = {
-  id: 'compounder-vault',
-  label: 'Auto-compounding LP vault',
-  positionLabel: 'shares in the auto-compounding LP vault',
-  target: HARVEST_VAULT_ADDRESS,
-  depositAsset: TEGRIDY_LP_ADDRESS,
-};
-
 /**
  * Every venue with its live availability, in menu order.
  *
- * The LP-shaped venues need three contracts, not one: the router that mints the LP, the LP
- * token itself, and the destination that takes it. Reporting one available on the strength
- * of its destination alone would offer a zap whose middle leg has nowhere to go.
+ * The LP farm needs three contracts, not one: the router that mints the LP, the LP token
+ * itself, and the farm that takes it. Reporting it available on the strength of the farm
+ * alone would offer a zap whose middle leg has nowhere to go.
  */
 export function zapVenues(lpFarm?: LpFarmDeposit): ZapVenueAvailability[] {
-  return [venueAvailability('staking-lock'), venueAvailability('lp-farm', lpFarm), venueAvailability('compounder-vault')];
+  return [venueAvailability('staking-lock'), venueAvailability('lp-farm', lpFarm)];
 }
 
 /**
@@ -116,13 +93,11 @@ export function venueAvailability(id: ZapVenueId, lpFarm?: LpFarmDeposit): ZapVe
     return { available: true, venue: STAKING_LOCK };
   }
 
-  const venue = id === 'lp-farm' ? LP_FARM : COMPOUNDER_VAULT;
+  const venue = LP_FARM;
   const missing: string[] = [];
   if (!isDeployed(TEGRIDY_ROUTER_ADDRESS)) missing.push('the Tegridy router that mints the LP');
   if (!isDeployed(TEGRIDY_LP_ADDRESS)) missing.push('the TOWELI/ETH LP token');
-  if (!isDeployed(venue.target)) {
-    missing.push(id === 'lp-farm' ? 'the LP farm' : 'the auto-compounding vault (not deployed yet)');
-  }
+  if (!isDeployed(venue.target)) missing.push('the LP farm');
   if (missing.length > 0) {
     return {
       available: false,

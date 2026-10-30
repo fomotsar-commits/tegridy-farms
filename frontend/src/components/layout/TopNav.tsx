@@ -11,7 +11,10 @@ import { safeGetItem } from '../../lib/storage';
 import { pageArt } from '../../lib/artConfig';
 import { getActiveBungalow, getBungalowIdentity, OPEN_BUNGALOWS_EVENT } from '../../lib/bungalows';
 import { useActiveBungalowId } from '../../hooks/useActiveBungalowId';
-import { hasMixedSolanaSection, isSolanaPage, isToweliRoomPage } from '../../lib/routeVoice';
+import { hasMixedSolanaSection, isCardanoPage, isSolanaPage, isToweliRoomPage } from '../../lib/routeVoice';
+// No Cardano library: the connection's store and the address's bech32 only (lib/cardano/walletStore.ts).
+import { requestCardanoWalletList, useCardanoWallet } from '../../lib/cardano/walletStore';
+import { shortCardanoAddress } from '../../lib/cardano/address';
 import {
   cancelSolanaOpenRequest,
   requestSolanaOpen,
@@ -82,6 +85,33 @@ function SolanaWalletSlot({ surface, pending }: { surface: SolanaSurface | null;
   );
 }
 
+/**
+ * On a Cardano page the slot is that page's Cardano wallet: a press opens the page's own list
+ * (CardanoWalletModal), and one made before the page has loaded waits for it.
+ */
+function CardanoWalletSlot() {
+  const wallet = useCardanoWallet();
+  if (wallet.status === 'connected') {
+    const short = shortCardanoAddress(wallet.address.bech32);
+    return (
+      <div className="min-w-0">
+        <button type="button" onClick={requestCardanoWalletList} aria-label={`Cardano wallet ${short}, copy or disconnect`} title="Cardano wallet" className={ACCOUNT_CHIP_CLASS} style={ACCOUNT_CHIP_STYLE}>
+          <span className={ACCOUNT_DOT_CLASS} />
+          <span className="truncate">{short}</span>
+        </button>
+      </div>
+    );
+  }
+  const busy = wallet.status === 'connecting';
+  return (
+    <div className="min-w-0">
+      <button type="button" onClick={requestCardanoWalletList} aria-label="Connect a Cardano wallet" aria-busy={busy || undefined} className={`${CONNECT_BUTTON_CLASS}${busy ? ' opacity-60' : ''}`} style={CONNECT_BUTTON_STYLE}>
+        Connect
+      </button>
+    </div>
+  );
+}
+
 export const TopNav = React.memo(function TopNav() {
   const [open, setOpen] = useState(false);
   const [kebabOpen, setKebabOpen] = useState(false);
@@ -90,11 +120,25 @@ export const TopNav = React.memo(function TopNav() {
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   // The menu opens as a circle from the centre of its button.
   const [menuFrom, setMenuFrom] = useState<{ x: number; y: number } | null>(null);
-  const openMenu = useCallback(() => {
+  // Opened from the keyboard, the cursor starts in the menu's "Jump to" (NavDrawer.tsx).
+  const [focusSearch, setFocusSearch] = useState(false);
+  const openMenu = useCallback((search = false) => {
     const r = menuButtonRef.current?.getBoundingClientRect();
     setMenuFrom(r ? { x: r.left + r.width / 2, y: r.top + r.height / 2 } : null);
+    setFocusSearch(search);
     setOpen(true);
   }, []);
+  // Ctrl+K / ⌘K opens the index from any page, and closes it again.
+  useEffect(() => {
+    function handleShortcut(e: KeyboardEvent) {
+      if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey || e.key.toLowerCase() !== 'k') return;
+      e.preventDefault();
+      if (open) setOpen(false);
+      else openMenu(true);
+    }
+    window.addEventListener('keydown', handleShortcut);
+    return () => window.removeEventListener('keydown', handleShortcut);
+  }, [open, openMenu]);
   const location = useLocation();
   // The chip names the room and Swap follows it; both re-read on a skin switch.
   useActiveBungalowId();
@@ -223,9 +267,9 @@ export const TopNav = React.memo(function TopNav() {
           background: 'linear-gradient(90deg, transparent 0%, var(--color-purple-75) 30%, var(--color-purple-50) 50%, var(--color-purple-75) 70%, transparent 100%)',
         }} />
         {/* px-2 below 400px, px-3 to 480, then px-4: the narrowest phones need every pixel. */}
-        <div className="max-w-[1200px] mx-auto h-14 px-2 min-[400px]:px-3 min-[480px]:px-4 md:px-6 flex items-center justify-between">
-          {/* THE 360px ROW. The wordmark stays whole at every width (owner, 2026-08-31), so the
-              row fits on its gaps and padding: its intrinsic width is 350px. CI rasterises
+        <div className="page-column mx-auto h-14 px-2 min-[400px]:px-3 min-[480px]:px-4 md:px-6 flex items-center justify-between">
+          {/* THE 320px ROW. The wordmark stays whole at every width (owner, 2026-08-31), so the
+              row fits on its gaps, padding and the wordmark's stack below 360px. CI rasterises
               Archivo a shade wider than a local run, so re-run e2e/header-reachability.spec.ts
               (it sweeps real widths) after any change here, never a local 360px look. */}
           <div className="flex items-center gap-0.5 min-[400px]:gap-1 min-[480px]:gap-2">
@@ -251,9 +295,12 @@ export const TopNav = React.memo(function TopNav() {
                 />
               </span>
               {/* The venue's name is the only one the app speaks, in every room, and it is never
-                  abbreviated: below 480px it is sized down instead, so the row fits at 375px. */}
-              <span className="heading-luxury text-[12px] min-[480px]:text-[16px] tracking-wide text-white">{VENUE.markMain}</span>
-              <span className="text-[11px] min-[480px]:text-[15px] font-semibold tracking-tight" style={{ color: 'var(--color-kyle)' }}>{VENUE.markSub}</span>
+                  abbreviated: below 480px it is sized down, and below 360px its two parts stack,
+                  so the row fits at 320px with the menu button on screen. */}
+              <span className="flex flex-col max-[359px]:leading-none min-[360px]:flex-row min-[360px]:items-center min-[360px]:gap-1.5 min-[480px]:gap-2">
+                <span className="heading-luxury text-[12px] min-[480px]:text-[16px] tracking-wide text-white">{VENUE.markMain}</span>
+                <span className="text-[11px] min-[480px]:text-[15px] font-semibold tracking-tight" style={{ color: 'var(--color-kyle)' }}>{VENUE.markSub}</span>
+              </span>
             </Link>
             {/* The bungalow chooser, from any page (AppLayout listens for the event). It names
                 where you are; icon-only below lg to spare the crowded bar. */}
@@ -280,8 +327,8 @@ export const TopNav = React.memo(function TopNav() {
               this nav, BottomNav.tsx, AppLayout.tsx's content pb and index.css's two max-width:799px
               blocks; a split opens a band with no bar. e2e/header-reachability.spec.ts sweeps it. */}
           <nav aria-label="Main navigation" className="hidden min-[800px]:flex items-center gap-0.5">
-            {/* Five words (navConfig BAR_NAV), each lit on every page it owns, never by its own
-                URL alone: Heat and Rooms both open the home. */}
+            {/* Four words (navConfig BAR_NAV), each lit on every page it owns, never by its own
+                URL alone: Island owns the home, each room's door and the island's pages. */}
             {BAR_NAV.map((word) => {
               const lit = word.lit(location.pathname, location.hash);
               return (
@@ -298,7 +345,9 @@ export const TopNav = React.memo(function TopNav() {
 
             {/* The wallet, then the menu button at the far right. Padding, font size and the name's
                 width shrink on a phone so a long ENS name never pushes the menu button off-screen. */}
-            {solanaPage ? (
+            {isCardanoPage(location.pathname) ? (
+              <CardanoWalletSlot />
+            ) : solanaPage ? (
               <SolanaWalletSlot surface={solana} pending={solanaOpenPending} />
             ) : (
             <ConnectButton.Custom>
@@ -401,7 +450,12 @@ export const TopNav = React.memo(function TopNav() {
               </div>
             )}
 
-            <button ref={menuButtonRef} onClick={openMenu} aria-label="Open navigation menu" aria-expanded={open} className="p-2 -mr-1 flex-shrink-0 text-text-muted min-w-[44px] min-h-[44px] flex items-center justify-center">
+            {/* The index behind one button, at every width. From 1100px the button says so: a bare
+                icon after the wallet read, on a desktop, as a phone's leftover (owner, 2026-10-19).
+                The row needs about 790px at 800px, so the word waits for room. */}
+            <button ref={menuButtonRef} onClick={() => openMenu()} aria-label="Open navigation menu" aria-expanded={open}
+              className="p-2 -mr-1 flex-shrink-0 text-text-muted min-w-[44px] min-h-[44px] flex items-center justify-center gap-2 transition-colors hover:text-white">
+              <span aria-hidden="true" className="hidden min-[1100px]:inline font-mono text-[11px] tracking-[0.14em] uppercase">Menu</span>
               <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
                 <path d="M3 5h14M3 10h14M3 15h14" />
               </svg>
@@ -413,7 +467,7 @@ export const TopNav = React.memo(function TopNav() {
       {/* The menu, full screen at every width (NavDrawer.tsx). z-[70]: over the phone's bottom bar
           (z-50) and Towelie (z-[60]), which hid its last rows when it shared their z. */}
       <NavDrawer ref={drawerRef} open={open} onClose={() => setOpen(false)} from={menuFrom}
-        pathname={location.pathname} isConnected={isConnected} showAdmin={showAdmin} />
+        pathname={location.pathname} isConnected={isConnected} showAdmin={showAdmin} focusSearch={focusSearch} />
     </>
   );
 });

@@ -81,7 +81,7 @@ export function Row({
   tone,
 }: {
   label: string;
-  value: string;
+  value: ReactNode;
   mono?: boolean;
   words?: boolean;
   line?: 'market' | 'fee';

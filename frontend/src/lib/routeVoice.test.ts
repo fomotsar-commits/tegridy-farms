@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { routeVoice, isToweliRoomPage, isSolanaPage, TOWELI_ROOM_PATHS } from './routeVoice';
+import { routeVoice, isToweliRoomPage, isSolanaPage, hasMixedSolanaSection, TOWELI_ROOM_PATHS } from './routeVoice';
 import { BUNGALOWS } from './bungalows';
+import { NAV_SECTIONS } from './navConfig';
+import { tabChains } from './sectionChains';
 
 describe('routeVoice (wave seven, row Q)', () => {
   it('puts TOWELI protocol pages and TOWELI doors in the TOWELI room', () => {
@@ -18,7 +20,7 @@ describe('routeVoice (wave seven, row Q)', () => {
   });
 
   it('leaves every other route with the venue, the venue tools included', () => {
-    for (const p of ['/', '/faq', '/security', '/earn', '/farm', '/vesting', '/airdrop', '/history', '/launch/0xabc']) {
+    for (const p of ['/', '/faq', '/security', '/earn', '/farm', '/history', '/launch/0xabc']) {
       expect(routeVoice(p), p).toBe('venue');
     }
   });
@@ -33,11 +35,23 @@ describe('routeVoice (wave seven, row Q)', () => {
 
 describe("isSolanaPage: where the top bar's Connect connects Solana", () => {
   it("is true for the venue's Solana pages, with or without a trailing slash", () => {
-    // /solana-lp mounts the same Solana section as /pools: left out, the top bar
-    // mounted its own connection there and the page then took it away mid-approval.
-    for (const p of ['/solana', '/pools', '/pools/', '/solana-lp', '/solana-lp/', '/curve-launch', '/curve-launch/', '/curve-launch/So11111111111111111111111111111111111111112']) {
+    // /solana-lp forwards to /pools, its Solana section: left out, the top bar would mount its own
+    // connection for that one render, the case that once took a connection away mid-approval.
+    // /range-pools mounts its own (RangeSection's SolanaProviders) the same way.
+    for (const p of ['/solana', '/pools', '/pools/', '/solana-lp', '/solana-lp/', '/range-pools', '/range-pools/', '/curve-launch', '/curve-launch/', '/curve-launch/So11111111111111111111111111111111111111112']) {
       expect(isSolanaPage(p), p).toBe(true);
     }
+  });
+
+  // Computed from the nav, so a new Solana tab is covered the day it is listed: /range-pools
+  // was listed with no entry here, and the top bar would have mounted its own connection.
+  it('is true for every tab that runs on Solana alone', () => {
+    const solanaTabs = NAV_SECTIONS.flatMap((s) => s.items).map((i) => i.to).filter((to) => {
+      const c = tabChains(to);
+      return Array.isArray(c) && c.length === 1 && c[0] === 'solana';
+    });
+    expect(solanaTabs).toContain('/range-pools');
+    for (const to of solanaTabs) expect(isSolanaPage(to), to).toBe(true);
   });
 
   // Computed from the registry, so a new Solana pool is covered the day it is added.
@@ -86,5 +100,24 @@ describe("isSolanaPage: where the top bar's Connect connects Solana", () => {
     expect(isSolanaPage('/dashboard', { chain: 'base' })).toBe(false);
     expect(isSolanaPage('/dashboard', null)).toBe(false);
     expect(isSolanaPage('/dashboard')).toBe(false);
+  });
+});
+
+// The home, the island lobby and BAYLA's door carry the same three cards (components/VenueCards.tsx),
+// whose Solana connection is the top bar's there. Missed on a page that has them, the top bar
+// mounts a second connection beside the cards', and the two disagree (owner, 2026-10-19: the
+// cards on the island page, then on /bayla: "on here").
+describe('hasMixedSolanaSection: the pages whose cards are the Solana connection', () => {
+  it("is the home, the island lobby and BAYLA's door, as the router matches them", () => {
+    for (const p of ['/', '', '/island', '/island/', '/Island', '/ISLAND', '/%69sland', '/bayla', '/bayla/', '/BAYLA']) {
+      expect(hasMixedSolanaSection(p), p).toBe(true);
+    }
+  });
+
+  // Another room's door: the cards are BAYLA's coin's (lib/bungalows.ts CARDS_ROOM_ID).
+  it('is no other page, and no other room', () => {
+    for (const p of ['/gallery', '/bobo', '/pepe', '/toweli', '/baylax', '/islands', '/island/x', '/solana', '/earn/bayla', '/%E0%A4%A']) {
+      expect(hasMixedSolanaSection(p), p).toBe(false);
+    }
   });
 });

@@ -75,6 +75,10 @@ import {
   metadataPda,
 } from './metaplex';
 import { isLpKind } from './lpKinds';
+import { isRangeKind } from './rangeKinds';
+import { closePositionIx, decreaseLiquidityV2Ix, openPositionWithToken22NftIx, swapV2Ix, type PoolRef } from '../../../solana/clmm/ix';
+import { IX_CLOSE_POSITION, IX_DECREASE_LIQUIDITY_V2, IX_OPEN_POSITION_WITH_TOKEN22_NFT, IX_SWAP_V2, type RewardInfoView } from '../../../solana/clmm/program';
+import { usableTickBounds } from '../../../solana/clmm/math';
 import {
   BAYLA_DECIMALS,
   BAYLA_MINT,
@@ -85,7 +89,7 @@ import {
   WORKSHOP_BAYLA_ACCOUNT,
   baylaAccountOf,
 } from './plant';
-import type { CurveIntent, IntentContext, IntentStep, LpKind, PoolIntent, PoolPins, SwapIntent, TxKind } from './types';
+import type { CurveIntent, IntentContext, IntentStep, LpKind, PoolIntent, PoolPins, RangeIntent, SwapIntent, TxKind } from './types';
 import { canPair, quoteCoin, type QuoteCoin } from '../../../solana/lp/quotes';
 
 /** Phantom's Lighthouse guard program: assertion-only instructions a wallet may append. */
@@ -112,6 +116,14 @@ export function isSwapIntent(c: IntentContext): c is SwapIntent {
   return c.kind === 'venue-swap';
 }
 
+/** Opening, changing or closing a range position. */
+export function isRangeIntent(c: IntentContext): c is RangeIntent {
+  return isRangeKind(c.kind);
+}
+
+/** Any pool kind, as opposed to a launch-program transaction. */
+const isPoolLike = (c: IntentContext): c is PoolIntent | SwapIntent | RangeIntent => isPoolIntent(c) || isSwapIntent(c) || isRangeIntent(c);
+
 /**
  * The launch-program families take a `CurveIntent` only. `PROGRAMS_BY_KIND` already
  * keeps them out of a liquidity transaction and a swap; this makes it a type, too.
@@ -119,7 +131,14 @@ export function isSwapIntent(c: IntentContext): c is SwapIntent {
 function asCurve(c: IntentContext): CurveIntent {
   if (isPoolIntent(c)) return refuse('a liquidity transaction reaches a program it never uses');
   if (isSwapIntent(c)) return refuse('a pool swap reaches a program it never uses');
+  if (isRangeIntent(c)) return refuse('a range-position transaction reaches a program it never uses');
   return c;
+}
+
+/** A range opening in a SOL pool, or a range swap paying in SOL: the only range transactions that wrap SOL. */
+function rangePutsSolIn(ctx: RangeIntent): boolean {
+  if (!pinnedQuote(ctx).native) return false;
+  return ctx.kind === 'range-open' || (ctx.kind === 'range-swap' && !!ctx.swap && ctx.swap.inputMint.equals(WSOL_MINT));
 }
 
 /** Does this swap pay in SOL? Only then may it move SOL into the signer's wrapped-SOL account. */
@@ -135,6 +154,15 @@ function u32(d: Uint8Array, o: number): number {
 function u64(d: Uint8Array, o: number): bigint {
   if (o + 8 > d.length) refuse('an instruction is shorter than its own format');
   return new DataView(d.buffer, d.byteOffset, d.byteLength).getBigUint64(o, true);
+}
+
+function i32(d: Uint8Array, o: number): number {
+  if (o + 4 > d.length) refuse('an instruction is shorter than its own format');
+  return new DataView(d.buffer, d.byteOffset, d.byteLength).getInt32(o, true);
+}
+
+function u128(d: Uint8Array, o: number): bigint {
+  return u64(d, o) | (u64(d, o + 8) << 64n);
 }
 
 function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
@@ -182,7 +210,7 @@ function system(ix: TransactionInstruction, ctx: IntentContext): IntentStep {
   const d = ix.data;
   const tag = u32(d, 0);
   if (tag === 0) {
-    if (isPoolIntent(ctx) || isSwapIntent(ctx)) return refuse('this kind of transaction never creates an account');
+    if (isPoolLike(ctx)) return refuse('this kind of transaction never creates an account');
     // CreateAccount { lamports u64, space u64, owner Pubkey }
     if (d.length !== 4 + 8 + 8 + 32) refuse('a create-account instruction of the wrong size');
     expectKeyCount(ix, 2, 'create-account');
@@ -199,6 +227,7 @@ function system(ix: TransactionInstruction, ctx: IntentContext): IntentStep {
     // A pool paired with USDC or BAYLA takes no SOL, so its transactions wrap none.
     if (isPoolIntent(ctx) && !pinnedQuote(ctx).native) refuse('it wraps SOL, and this pool is not paired with SOL');
     if (isSwapIntent(ctx) && !swapPaysSol(ctx)) refuse('it wraps SOL, and this swap does not pay in SOL');
+    if (isRangeIntent(ctx) && !rangePutsSolIn(ctx)) refuse('it wraps SOL, and only an opening in a SOL pool or a swap paying in SOL puts SOL in');
     if (d.length !== 12) refuse('a SOL transfer of the wrong size');
     expectKeyCount(ix, 2, 'SOL transfer');
     if (!key(ix, 0).equals(ctx.signer)) refuse('a SOL transfer from someone other than you');
@@ -215,7 +244,7 @@ function token(ix: TransactionInstruction, ctx: IntentContext): IntentStep {
   const wsolAta = associatedTokenAddress(WSOL_MINT, ctx.signer);
   switch (d[0]) {
     case 20: {
-      if (isPoolIntent(ctx) || isSwapIntent(ctx)) return refuse('this kind of transaction never creates a token');
+      if (isPoolLike(ctx)) return refuse('this kind of transaction never creates a token');
       // InitializeMint2 { decimals u8, mint_authority Pubkey, freeze_authority COption<Pubkey> }
       expectKeyCount(ix, 1, 'initialize-mint');
       if (!key(ix, 0).equals(ctx.mint)) refuse('a different token is initialized');
@@ -229,13 +258,14 @@ function token(ix: TransactionInstruction, ctx: IntentContext): IntentStep {
       // SyncNative
       if (isPoolIntent(ctx) && !pinnedQuote(ctx).native) refuse('it wraps SOL, and this pool is not paired with SOL');
       if (isSwapIntent(ctx) && !swapPaysSol(ctx)) refuse('it wraps SOL, and this swap does not pay in SOL');
+      if (isRangeIntent(ctx) && !rangePutsSolIn(ctx)) refuse('it wraps SOL, and only an opening in a SOL pool or a swap paying in SOL puts SOL in');
       expectKeyCount(ix, 1, 'sync wrapped SOL');
       if (d.length !== 1) refuse('sync wrapped SOL of the wrong size');
       if (!key(ix, 0).equals(wsolAta)) refuse('syncs an account that is not your wrapped-SOL account');
       return { kind: 'sync-wsol' };
     case 9:
       // CloseAccount: only the signer's own WSOL account, paid back to the signer.
-      if ((isPoolIntent(ctx) || isSwapIntent(ctx)) && !pinnedQuote(ctx).native) refuse('it unwraps SOL, and this pool is not paired with SOL');
+      if (isPoolLike(ctx) && !pinnedQuote(ctx).native) refuse('it unwraps SOL, and this pool is not paired with SOL');
       expectKeyCount(ix, 3, 'close account');
       if (d.length !== 1) refuse('close-account of the wrong size');
       if (!key(ix, 0).equals(wsolAta)) refuse('closes an account that is not your wrapped-SOL account');
@@ -260,6 +290,7 @@ function ata(ix: TransactionInstruction, ctx: IntentContext): IntentStep {
     return poolAta(ctx, { address, owner, mint, sys, tok });
   }
   if (isSwapIntent(ctx)) return swapAta(ctx, { address, owner, mint, sys, tok });
+  if (isRangeIntent(ctx)) return rangeAta(ctx, { address, owner, mint, sys, tok });
   if (!(mint.equals(ctx.mint) || mint.equals(WSOL_MINT))) refuse('creates a token account for an unrelated token');
   if (!sys.equals(SYSTEM_PROGRAM_ID) || !tok.equals(TOKEN_PROGRAM_ID)) refuse('creates a token account under the wrong programs');
   if (!address.equals(associatedTokenAddress(mint, owner))) refuse('creates a token account at the wrong address');
@@ -272,7 +303,7 @@ function ata(ix: TransactionInstruction, ctx: IntentContext): IntentStep {
  * must sit on the side the pins say, under the program the pins say. So a pin can never
  * name a coin of its own, and nothing below trusts `pins.quote` for a program or a flag.
  */
-function pinnedQuote(ctx: { pins: PoolPins }): QuoteCoin {
+function pinnedQuote(ctx: { pins: Pick<PoolPins, 'quote' | 'quoteIsToken0' | 'token0Mint' | 'token1Mint' | 'token0Program' | 'token1Program' | 'tokenMint' | 'tokenProgram'> }): QuoteCoin {
   const p = ctx.pins;
   const q = quoteCoin(p.quote.mint);
   if (!q || q.program !== p.quote.program || q.native !== p.quote.native || q.decimals !== p.quote.decimals) {
@@ -365,6 +396,15 @@ function swapAta(
  * account cp-swap accepts for it); both of the signer's accounts are derived here under
  * each mint's program, because swap_base_input.rs checks neither's owner.
  */
+/**
+ * Fee tier 0 is the launch tier: the one pool on it this site swaps in or adds to is the
+ * token's launch pool, at the launch program's address (poolFinder.ts `LAUNCH_TIER_POOL`).
+ */
+function onLaunchTierWithoutLaunch(ammConfig: PublicKey, ctx: SwapIntent | PoolIntent): boolean {
+  const p = ctx.pins;
+  return ammConfig.equals(deriveAmmConfig(ctx.cfg.cpSwapProgram, 0)) && !p.address.equals(poolStatePda(p.tokenMint, ctx.cfg.programId));
+}
+
 function venueSwap(ix: TransactionInstruction, ctx: SwapIntent): IntentStep {
   const d = ix.data;
   if (!startsWith(d, IX_SWAP_BASE_INPUT) || d.length !== 24) refuse('a pool instruction other than a swap');
@@ -388,6 +428,8 @@ function venueSwap(ix: TransactionInstruction, ctx: SwapIntent): IntentStep {
     [12, p.observation, 'the swap names the wrong price record'],
   ];
   for (const [i, want, why] of checks) if (!key(ix, i).equals(want)) refuse(why);
+  // Slot 2 is the pins' fee settings now.
+  if (onLaunchTierWithoutLaunch(key(ix, 2), ctx)) refuse('the swap is against a pool opened on the launch tier (fee tier 0) without a launch, which this site never uses');
   const amountIn = u64(d, 8);
   const minimumAmountOut = u64(d, 16);
   if (amountIn === 0n) refuse('the swap amount is zero');
@@ -526,6 +568,7 @@ function cpswap(ix: TransactionInstruction, ctx: IntentContext): IntentStep {
     }
   }
   if (isSwapIntent(ctx)) return venueSwap(ix, ctx);
+  if (isRangeIntent(ctx)) return refuse('a range-position transaction never calls the constant-product pool program');
   const d = ix.data;
   if (!startsWith(d, IX_SWAP_BASE_INPUT) || d.length !== 24) refuse('a pool instruction other than a swap');
   expectKeyCount(ix, 13, 'pool swap');
@@ -592,6 +635,8 @@ function poolDeposit(ix: TransactionInstruction, ctx: PoolIntent): IntentStep {
   expectKeyCount(ix, 13, 'pool deposit');
   const p = ctx.pins;
   pinnedQuote(ctx);
+  // The deposit names no fee settings: the pins carry the pool's own, as prepare read it.
+  if (onLaunchTierWithoutLaunch(p.ammConfig, ctx)) refuse('the deposit goes into a pool opened on the launch tier (fee tier 0) without a launch, which this site never uses');
   const checks = poolSlots(ctx, 'deposit');
   checks.push([3, associatedTokenAddress(p.lpMint, ctx.signer, TOKEN_PROGRAM_ID), 'the pool shares go to an account that is not yours']);
   for (const [i, want, why] of checks) if (!key(ix, i).equals(want)) refuse(why);
@@ -699,9 +744,175 @@ function poolInitialize(ix: TransactionInstruction, ctx: PoolIntent): IntentStep
   return { kind: 'pool-create', pool: p.address, ammConfig: tier1, init0, init1 };
 }
 
+// ── range positions ──────────────────────────────────────────────────────────
+
+/**
+ * A range transaction opens the signer's own accounts for the pool's two coins (the
+ * wrapped-SOL account for SOL) and, when taking out, for a reward the pool pays, each under
+ * that mint's own program, and nothing else. The position's NFT account is opened by the
+ * range program itself, inside the opening.
+ */
+function rangeAta(
+  ctx: RangeIntent,
+  a: { address: PublicKey; owner: PublicKey; mint: PublicKey; sys: PublicKey; tok: PublicKey },
+): IntentStep {
+  const p = ctx.pins;
+  pinnedQuote(ctx);
+  const reward = ctx.kind === 'range-remove' || ctx.kind === 'range-close' ? p.rewards.find((r) => r.mint.equals(a.mint)) : undefined;
+  const program = a.mint.equals(p.token0Mint)
+    ? p.token0Program
+    : a.mint.equals(p.token1Mint)
+      ? p.token1Program
+      : reward
+        ? reward.program
+        : refuse('creates a token account for a token this position does not hold');
+  if (!a.sys.equals(SYSTEM_PROGRAM_ID) || !a.tok.equals(program)) refuse('creates a token account under the wrong programs');
+  if (!a.address.equals(associatedTokenAddress(a.mint, a.owner, program))) refuse('creates a token account at the wrong address');
+  return { kind: 'create-token-account', owner: a.owner, mint: a.mint, address: a.address };
+}
+
+/** The pool as the range builders take it, from the pins only. */
+function rangePoolRef(ctx: RangeIntent): PoolRef & { status: number; rewardInfos: RewardInfoView[] } {
+  const p = ctx.pins;
+  return {
+    address: p.address.toBase58(),
+    tokenMint0: p.token0Mint.toBase58(),
+    tokenMint1: p.token1Mint.toBase58(),
+    tokenVault0: p.vault0.toBase58(),
+    tokenVault1: p.vault1.toBase58(),
+    tickSpacing: p.tickSpacing,
+    // The rewards pinned are exactly the ones collected, so the count the builder asks for is theirs.
+    status: 0,
+    rewardInfos: p.rewards.map((r) => ({ initialized: true, tokenMint: r.mint.toBase58(), tokenVault: r.vault.toBase58() }) as RewardInfoView),
+  };
+}
+
+/**
+ * The range program, from a range transaction only: the one opening, withdrawal or closing
+ * this site builds, each REBUILT here from the pins and the decoded arguments with the
+ * site's own builder (solana/clmm/ix.ts) and refused unless every account and every byte is
+ * the same. So coins move only from and to the signer's own accounts, in the pool and the
+ * position that were read and checked.
+ */
+function range(ix: TransactionInstruction, c: IntentContext): IntentStep {
+  if (!isRangeIntent(c)) return refuse('it calls the range program, and this kind of transaction never does');
+  const ctx = c;
+  const p = ctx.pins;
+  pinnedQuote(ctx);
+  const d = ix.data;
+  const pool = rangePoolRef(ctx);
+  const own0 = associatedTokenAddress(p.token0Mint, ctx.signer, p.token0Program);
+  const own1 = associatedTokenAddress(p.token1Mint, ctx.signer, p.token1Program);
+  const same = (ref: TransactionInstruction, what: string) => {
+    if (!sameKeys(ix, ref) || !sameBytes(d, ref.data)) refuse(`${what} names accounts or amounts this site did not check (such as someone else’s account)`);
+  };
+  if (startsWith(d, IX_OPEN_POSITION_WITH_TOKEN22_NFT)) {
+    if (ctx.kind !== 'range-open' || !ctx.nftMint) return refuse('it opens a position, and this transaction is not an opening');
+    // A fixed liquidity and no base side (its option byte None: 58 bytes). With a base side the
+    // program works the liquidity out at the price the opening lands at, a sandwich's price.
+    if (d.length !== 8 + 16 + 16 + 16 + 1 + 1) refuse('an opening of the wrong size');
+    const tickLower = i32(d, 8);
+    const tickUpper = i32(d, 12);
+    const liquidity = u128(d, 24);
+    if (ctx.openLiquidity === undefined || liquidity !== ctx.openLiquidity) refuse('the opening names a liquidity this site did not plan');
+    if (liquidity === 0n) refuse('the opening puts nothing in');
+    const max0 = u64(d, 40);
+    const max1 = u64(d, 48);
+    if (d[56] !== 1) refuse('the position’s NFT would carry no name or link');
+    const { min, max } = usableTickBounds(p.tickSpacing);
+    if (!(tickLower < tickUpper) || tickLower < min || tickUpper > max || tickLower % p.tickSpacing !== 0 || tickUpper % p.tickSpacing !== 0) {
+      refuse('the range is not one a position may use');
+    }
+    same(
+      openPositionWithToken22NftIx({
+        programId: p.program,
+        payer: ctx.signer,
+        owner: ctx.signer,
+        positionNftMint: ctx.nftMint,
+        pool,
+        tokenAccount0: own0,
+        tokenAccount1: own1,
+        tickLower,
+        tickUpper,
+        liquidity,
+        amount0Max: max0,
+        amount1Max: max1,
+        baseFlag: null,
+      }),
+      'the opening',
+    );
+    return { kind: 'range-open', pool: p.address, nftMint: ctx.nftMint, tickLower, tickUpper, liquidity, max0, max1 };
+  }
+  if (startsWith(d, IX_DECREASE_LIQUIDITY_V2)) {
+    if (ctx.kind === 'range-open' || !ctx.position) return refuse('it takes liquidity out, and this transaction is an opening');
+    if (d.length !== 8 + 16 + 8 + 8) refuse('a withdrawal of the wrong size');
+    const liquidity = u128(d, 8);
+    const min0 = u64(d, 24);
+    const min1 = u64(d, 32);
+    if (liquidity > ctx.position.liquidity) refuse('it takes out more liquidity than the position holds');
+    const position = { nftMint: ctx.position.nftMint.toBase58(), tickLowerIndex: ctx.position.tickLower, tickUpperIndex: ctx.position.tickUpper };
+    same(
+      decreaseLiquidityV2Ix({
+        programId: p.program,
+        nftOwner: ctx.signer,
+        position,
+        pool,
+        recipientTokenAccount0: own0,
+        recipientTokenAccount1: own1,
+        liquidity,
+        amount0Min: min0,
+        amount1Min: min1,
+        rewards: p.rewards.map((r) => ({ vault: r.vault, recipient: associatedTokenAddress(r.mint, ctx.signer, r.program), mint: r.mint })),
+      }),
+      'the withdrawal',
+    );
+    return { kind: 'range-decrease', pool: p.address, position: ctx.position.address, liquidity, min0, min1 };
+  }
+  if (startsWith(d, IX_SWAP_V2)) {
+    const sw = ctx.swap;
+    if (ctx.kind !== 'range-swap' || !sw) return refuse('it swaps in a range pool, and this transaction is not a swap');
+    if (d.length !== 8 + 8 + 8 + 16 + 1) refuse('a swap of the wrong size');
+    const amountIn = u64(d, 8);
+    const minimumAmountOut = u64(d, 16);
+    if (u128(d, 24) !== 0n) refuse('the swap carries a price limit this site never sets');
+    if (d[40] !== 1) refuse('the swap does not name the amount you pay in');
+    if (amountIn === 0n) refuse('the swap pays in nothing');
+    if (minimumAmountOut === 0n) refuse('the swap accepts any price: its floor on what comes out is zero');
+    const zeroForOne = sw.inputMint.equals(p.token0Mint);
+    if (!zeroForOne && !sw.inputMint.equals(p.token1Mint)) refuse('the swap pays in a coin this pool does not hold');
+    const [inMint, inProgram, outMint, outProgram] = zeroForOne
+      ? [p.token0Mint, p.token0Program, p.token1Mint, p.token1Program]
+      : [p.token1Mint, p.token1Program, p.token0Mint, p.token0Program];
+    same(
+      swapV2Ix({
+        programId: p.program,
+        payer: ctx.signer,
+        pool: { ...pool, ammConfig: p.ammConfig.toBase58(), observationKey: p.observation.toBase58() },
+        zeroForOne,
+        inputTokenAccount: associatedTokenAddress(inMint, ctx.signer, inProgram),
+        outputTokenAccount: associatedTokenAddress(outMint, ctx.signer, outProgram),
+        tickArrays: sw.bands,
+        bitmapExtension: sw.extension,
+        amount: amountIn,
+        otherAmountThreshold: minimumAmountOut,
+        sqrtPriceLimitX64: 0n,
+        isBaseInput: true,
+      }),
+      'the swap',
+    );
+    return { kind: 'range-swap', pool: p.address, inputMint: inMint, outputMint: outMint, amountIn, minimumAmountOut };
+  }
+  if (startsWith(d, IX_CLOSE_POSITION)) {
+    if (ctx.kind !== 'range-close' || !ctx.position) return refuse('it closes a position, and this transaction is not a closing');
+    same(closePositionIx({ programId: p.program, nftOwner: ctx.signer, nftMint: ctx.position.nftMint }), 'the closing');
+    return { kind: 'range-close', position: ctx.position.address, nftMint: ctx.position.nftMint };
+  }
+  return refuse('a range-program instruction this page never builds (such as a swap or an admin action)');
+}
+
 // ── the whole transaction ────────────────────────────────────────────────────
 
-type ProgramFamily = 'compute' | 'system' | 'token' | 't22' | 'ata' | 'metadata' | 'launch' | 'pool';
+type ProgramFamily = 'compute' | 'system' | 'token' | 't22' | 'ata' | 'metadata' | 'launch' | 'pool' | 'range';
 
 /**
  * The programs each kind of transaction may call at the top level, and nothing else.
@@ -725,6 +936,13 @@ export const PROGRAMS_BY_KIND: Readonly<Record<TxKind, ReadonlySet<ProgramFamily
   // Opening a pool wraps SOL exactly like adding liquidity, and nothing more: the pool
   // program creates the pool's own accounts and the pool-share account itself.
   'lp-create': new Set<ProgramFamily>(['compute', 'system', 'token', 'ata', 'pool']),
+  // A range opening wraps SOL for a SOL pool; taking out and closing only unwrap. The
+  // position's NFT is made by the range program itself, so Token-2022 is never called here.
+  'range-open': new Set<ProgramFamily>(['compute', 'system', 'token', 'ata', 'range']),
+  'range-remove': new Set<ProgramFamily>(['compute', 'token', 'ata', 'range']),
+  'range-close': new Set<ProgramFamily>(['compute', 'token', 'ata', 'range']),
+  // The swap page's swap in a range pool: as a swap in our other pools, in the range program.
+  'range-swap': new Set<ProgramFamily>(['compute', 'system', 'token', 'ata', 'range']),
 };
 
 /**
@@ -744,11 +962,12 @@ function familyOf(p: PublicKey, ctx: IntentContext): ProgramFamily | null {
   // Token-2022 is a family only for the launch-program kinds (it is the create's plant,
   // and PROGRAMS_BY_KIND refuses it in every other curve kind). A liquidity transaction
   // and a swap never call it at the top level, so to them it is a program this page never uses.
-  if (p.equals(TOKEN_2022_PROGRAM_ID)) return isPoolIntent(ctx) || isSwapIntent(ctx) ? null : 't22';
+  if (p.equals(TOKEN_2022_PROGRAM_ID)) return isPoolLike(ctx) ? null : 't22';
   if (p.equals(ASSOCIATED_TOKEN_PROGRAM_ID)) return 'ata';
   if (p.equals(METAPLEX_TOKEN_METADATA_ID)) return 'metadata';
   if (p.equals(ctx.cfg.programId)) return 'launch';
   if (p.equals(ctx.cfg.cpSwapProgram)) return 'pool';
+  if (isRangeIntent(ctx) && p.equals(ctx.pins.program)) return 'range';
   return null;
 }
 
@@ -789,6 +1008,7 @@ export function decodeIntent(
       else if (family === 'ata') steps.push(ata(ix, ctx));
       else if (family === 'metadata') steps.push(metaplex(ix, asCurve(ctx)));
       else if (family === 'launch') steps.push(launch(ix, asCurve(ctx)));
+      else if (family === 'range') steps.push(range(ix, ctx));
       else steps.push(cpswap(ix, ctx));
     }
     if (isPoolIntent(ctx)) {
@@ -799,6 +1019,18 @@ export function decodeIntent(
     }
     // One swap per transaction, for the same reasons.
     if (isSwapIntent(ctx) && steps.filter((s) => s.kind === 'pool-swap').length !== 1) refuse('it does not hold exactly one swap in the pool');
+    // A range transaction holds its own steps once each, and nothing of the others'.
+    if (isRangeIntent(ctx)) {
+      const count = (k: IntentStep['kind']) => steps.filter((s) => s.kind === k).length;
+      const want = { 'range-open': [1, 0, 0, 0], 'range-remove': [0, 1, 0, 0], 'range-close': [0, 1, 1, 0], 'range-swap': [0, 0, 0, 1] }[ctx.kind];
+      if (count('range-open') !== want[0] || count('range-decrease') !== want[1] || count('range-close') !== want[2] || count('range-swap') !== want[3]) {
+        refuse('it does not hold exactly the range-position steps it is for');
+      }
+      const dec = steps.find((s) => s.kind === 'range-decrease');
+      if (ctx.kind === 'range-close' && dec?.kind === 'range-decrease' && dec.liquidity !== ctx.position?.liquidity) {
+        refuse('it closes a position without taking all of its liquidity out first');
+      }
+    }
     const limits = steps.filter((s) => s.kind === 'compute-limit');
     const prices = steps.filter((s) => s.kind === 'compute-price');
     if (limits.length > 1 || prices.length > 1) refuse('it sets the network fee more than once');

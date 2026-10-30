@@ -4,9 +4,10 @@ import { useAccount, useBalance, useChainId, useReadContract, useWriteContract, 
 import { formatEther } from 'viem';
 import { Link, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
-import { TOWELI_ADDRESS, REVENUE_DISTRIBUTOR_ADDRESS, POL_ACCUMULATOR_ADDRESS, SWAP_FEE_ROUTER_ADDRESS, CHAIN_ID, isDeployed, TEGRIDY_RESTAKING_ADDRESS } from '../lib/constants';
+import { TOWELI_ADDRESS, REVENUE_DISTRIBUTOR_ADDRESS, POL_ACCUMULATOR_ADDRESS, SWAP_FEE_ROUTER_ADDRESS, CHAIN_ID, isDeployed } from '../lib/constants';
 import { ERC20_ABI, REVENUE_DISTRIBUTOR_ABI } from '../lib/contracts';
 import { getAddressUrl } from '../lib/explorer';
+import { stakingClaimPaid, NOTHING_PAID_COPY } from '../lib/stakingClaimPaid';
 import { useUserPosition } from '../hooks/useUserPosition';
 import { useLpPosition } from '../hooks/useLpPosition';
 import { usePoolData } from '../hooks/usePoolData';
@@ -52,7 +53,7 @@ import { usePortfolio } from '../hooks/usePortfolio';
 import { UnifiedPortfolio } from '../components/portfolio/UnifiedPortfolio';
 import { getBungalowIdentity } from '../lib/bungalows';
 import { isToweliVoice } from '../lib/arrival';
-import { VenuePoolIndex } from '../components/farm/VenuePoolIndex';
+import { IslandDashboard } from '../components/IslandDashboard';
 import { PageSkeleton } from '../components/PageSkeleton';
 
 // Jungle Bay bungalows: lazy so the @solana/* wallet stack rides ONLY the
@@ -137,30 +138,12 @@ export default function DashboardPage() {
  */
 function VenueDashboard() {
   usePageTitle(
-    'Your positions',
-    'Positions on Jungle Bay Island live in the room they were opened in — each resident pool is its own token, on its own chain.',
+    'Dashboard',
+    'Every pool on Jungle Bay Island. Positions live in the room they were opened in — each resident pool is its own token, on its own chain.',
   );
   return (
-    <div className="mx-auto w-full max-w-[900px] px-4 py-8 sm:py-10">
-      <header className="mb-6">
-        <p className="text-[11px] uppercase tracking-wider label-pill mb-2" style={{ color: 'var(--color-kyle)' }}>
-          Jungle Bay Island
-        </p>
-        <h1 className="heading-luxury text-3xl md:text-4xl text-white leading-tight mb-3">
-          Your positions
-        </h1>
-        <p className="text-white/75 text-[14px] md:text-[15px] leading-relaxed max-w-[62ch]">
-          Open a room to see what you hold there.
-        </p>
-        <FinePrint className="mt-1">
-          <p>
-            Positions live in the room they were opened in. Each resident&apos;s pool is its own
-            token, on its own chain, read by its own panel. The venue itself holds nothing on your
-            behalf.
-          </p>
-        </FinePrint>
-      </header>
-      <VenuePoolIndex />
+    <div className="page-column mx-auto w-full px-4 md:px-6 py-8 sm:py-10">
+      <IslandDashboard headingLevel={1} />
     </div>
   );
 }
@@ -261,7 +244,10 @@ function ToweliDashboard() {
     const key = farmActions.hash ?? '__no_hash__';
     if (claimToastFiredRef.current.has(key)) return;
     claimToastFiredRef.current.add(key);
-    toast.success('Rewards claimed successfully!');
+    // Claim and Claim Unsettled both land here, and on an empty reserve both
+    // confirm while paying nothing. Say which happened, from the receipt.
+    if (stakingClaimPaid(farmActions.receipt) === 0n) toast.warning(NOTHING_PAID_COPY);
+    else toast.success('Rewards claimed successfully!');
     // F137 (T5): refetch the position immediately so the Claimable card and the
     // Claim button drop to ~0 within a block instead of staying re-clickable for
     // up to 30s. Gated once-per-hash by claimToastFiredRef above.
@@ -389,7 +375,7 @@ function ToweliDashboard() {
       </div>
 
       <ErrorBoundary>
-      <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6 pt-20 pb-28 md:pb-12">
+      <div className="relative z-10 page-column mx-auto px-4 md:px-6 pt-20 pb-28 md:pb-12">
         {isWrongNetwork && (
           <div role="alert" aria-live="assertive" className="relative isolate mb-4 px-4 py-3 rounded-xl bg-warning/10 border border-warning/30 text-warning text-[13px] text-center">
             <CardArt pageId="dashboard" idx={17} />
@@ -439,7 +425,9 @@ function ToweliDashboard() {
             // `earned` value on each refetch. Falls back to the static figure when no
             // rate is derivable. The USD sub-line and Portfolio Value deliberately stay
             // on the settled `pendingTotal` so the dollar figure doesn't jitter.
-            { l: 'Claimable', numVal: pos.accrualPerSec > 0 ? pos.pendingLive : pendingTotal, decimals: pos.accrualPerSec > 0 ? 4 : 2, sub: price.isLoaded ? formatCurrency(pendingTotal * price.priceInUsd) : '–', accent: true, art: pageArt('dashboard', 4), loading: pos.isLoading },
+            // Not on an empty reserve: the contract accrues nothing there, so a
+            // ticking figure would be phantom accrual (StakingCard §2.7 pins too).
+            { l: 'Claimable', numVal: pos.accrualPerSec > 0 && !pool.isDry ? pos.pendingLive : pendingTotal, decimals: pos.accrualPerSec > 0 && !pool.isDry ? 4 : 2, sub: price.isLoaded ? formatCurrency(pendingTotal * price.priceInUsd) : '–', accent: true, art: pageArt('dashboard', 4), loading: pos.isLoading },
             // A price that could not be read is neither still loading nor zero: once every
             // leg has answered or failed (priceSettled) with nothing to show, the card says so.
             { l: 'TOWELI Price', numVal: price.priceInUsd, decimals: price.priceInUsd < 0.01 ? 8 : 6, prefix: '$', sub: priceUnread ? 'Could not load' : priceChangeStr || (price.priceInUsd > 0 ? 'Live' : (price.oracleStale ? 'Stale' : '–')), priceUp: price.priceChange > 0, priceDown: price.priceChange < 0, stale: !priceUnread && price.oracleStale, art: pageArt('dashboard', 5), showSparkline: true, isPrice: true, loading: price.priceInUsd <= 0 && !price.priceSettled, error: priceUnread, unread: priceUnread },
@@ -644,13 +632,6 @@ function ToweliDashboard() {
                     )}
                     {nft.boostLabel && (
                       <span className="badge badge-primary text-[10px]">{nft.boostLabel}</span>
-                    )}
-                    {/* Restaking is DEFERRED to Phase 7 (TEGRIDY_RESTAKING_ADDRESS
-                        zeroed). Same dead-CTA fix as StakingCard.tsx. */}
-                    {isDeployed(TEGRIDY_RESTAKING_ADDRESS) && (
-                      <Link to="/earn/toweli" className="text-[11px] text-white/70 hover:text-white transition-colors ml-auto">
-                        Restake for bonus yield &#8594;
-                      </Link>
                     )}
                   </div>
                 </div>
@@ -870,11 +851,10 @@ function ToweliDashboard() {
                 <div className="relative z-10 p-8 py-12 text-center">
                   <p className="text-white text-[15px] mb-2">No outstanding loans</p>
                   <p className="text-white/70 text-[12px] mb-4 max-w-sm mx-auto">
-                    Borrow ETH against staking positions or NFTs, or lend to earn interest.
+                    Borrow ETH against NFTs, or lend to earn interest.
                   </p>
                   <div className="flex items-center justify-center gap-3 flex-wrap">
                     <Link to="/nft-finance?section=nftlending" className="btn-primary px-5 py-2.5 text-[13px]">NFT Lending &#8594;</Link>
-                    <Link to="/nft-finance?section=lending" className="btn-secondary px-5 py-2.5 text-[13px]">Token Lending &#8594;</Link>
                   </div>
                 </div>
               </m.div>
@@ -1300,7 +1280,7 @@ function OutstandingLoans({ loans, unreadCount }: {
           </div>
           <div className="space-y-2">
             {loans.slice(0, 5).map(loan => (
-              <LoanRow key={`${loan.source}-${loan.id}`} loan={loan} />
+              <LoanRow key={loan.id} loan={loan} />
             ))}
             {loans.length > 5 && (
               <Link to="/nft-finance"
@@ -1338,20 +1318,15 @@ function LoanRow({ loan }: { loan: import('../hooks/useMyLoans').MyLoan }) {
   const isUrgent = !isOverdue && remaining < 86400;
   const roleLabel = loan.role === 'borrower' ? 'You owe' : 'You lent';
   const roleColor = loan.role === 'borrower' ? 'text-white' : 'text-success';
-  const sourceBadge = loan.source === 'nft' ? 'NFT' : 'Token';
-  const sourceBadgeClass = loan.source === 'nft'
-    ? 'bg-purple-500/20 text-purple-200 border-purple-500/40'
-    : 'bg-blue-500/20 text-blue-200 border-blue-500/40';
   const roleBadgeClass = loan.role === 'borrower'
     ? 'bg-orange-500/15 text-orange-200 border-orange-500/35'
     : 'bg-emerald-500/15 text-emerald-200 border-emerald-500/35';
-  const linkTo = loan.source === 'nft' ? '/nft-finance?section=nftlending' : '/nft-finance?section=lending';
+  const linkTo = '/nft-finance?section=nftlending';
   return (
     <Link to={linkTo} className="flex items-center justify-between gap-3 p-3 rounded-lg hover:bg-white/5 transition-colors"
       style={{ background: 'rgba(255,255,255,0.02)' }}>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-          <span className={`text-[9px] px-1.5 py-0.5 rounded border font-semibold uppercase tracking-wider ${sourceBadgeClass}`}>{sourceBadge}</span>
           <span className={`text-[9px] px-1.5 py-0.5 rounded border font-semibold uppercase tracking-wider ${roleBadgeClass}`}>{loan.role}</span>
           <span className="text-white text-[13px] font-semibold">#{loan.id}</span>
           <span className="text-white/60 text-[11px]">·</span>

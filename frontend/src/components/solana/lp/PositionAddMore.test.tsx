@@ -32,7 +32,7 @@ import { LpInner, type LpWritesOverrides } from './SolanaLpSection';
 import type { LpReaders } from './readers';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { BAYLA_QUOTE, SOL_QUOTE, USDC_QUOTE, type QuoteCoin } from '../../../lib/solana/lp/quotes';
-import type { PoolSearchRead, PoolView } from '../../../lib/solana/lp/poolFinder';
+import { LAUNCH_TIER_POOL, type PoolSearchRead, type PoolView } from '../../../lib/solana/lp/poolFinder';
 import { pairLabel } from '../../../lib/solana/lp/identity';
 import { decodeAmmConfig, decodePoolState } from '../../../lib/solana/cpswap/program';
 import type { Position } from '../../../lib/solana/lp/positions';
@@ -87,6 +87,7 @@ function view(o: { sol?: bigint; tok?: bigint; openTime?: bigint; noConfig?: boo
     quoteReserve: s,
     tokenReserve: t,
     vaultsFrozen: false,
+    launchTierWithoutLaunch: false,
     history: { kind: 'not-read' },
   };
 }
@@ -110,6 +111,7 @@ function search(entries: (PoolView | Entry)[]): PoolSearchRead {
       index: { kind: 'ok', pools: pools.map((p) => (p.kind === 'pool' ? p.view.address : p.address)), truncated: false },
       pools,
       otherPairs: 0,
+      launchTierPools: [],
       knownState: {},
       chainNow: 1_000n,
     },
@@ -431,7 +433,7 @@ describe('it goes to that pool or to nowhere', () => {
     // alone is only the pool's pair and tier, which the card beside it can carry too.
     const heading = within(its).getByRole('heading', { level: 3 });
     expect(heading).toHaveFocus();
-    expect(heading.textContent).toBe(pairLabel(mine));
+    expect(heading.textContent).toBe(pairLabel(mine, okToken));
     const why = within(its).getByTestId('lp-wish-why');
     expect(why).toHaveTextContent('This is your position’s pool. Its Add form was not opened:');
     expect(why).toHaveTextContent(c.why);
@@ -864,5 +866,44 @@ describe('Remove liquidity is as it was', () => {
     fireEvent.click(within(panel).getByRole('button', { name: 'Close' }));
     await waitFor(() => expect(screen.queryByTestId('lp-remove-panel')).toBeNull());
     expect(remove).toHaveFocus();
+  });
+});
+
+describe('a pool opened on the launch fee tier without a launch', () => {
+  const withStrays = (found: PoolSearchRead, launchTierPools: string[]): PoolSearchRead => {
+    if (found.kind !== 'ok') throw new Error('unreachable');
+    return { kind: 'ok', search: { ...found.search, launchTierPools } };
+  };
+
+  it('its row offers no Add more liquidity, says why in bold, and keeps Remove liquidity', async () => {
+    const mine: PoolView = { ...view(), launchTierWithoutLaunch: true };
+    const open = view();
+    mount(readers({ positions: held(position(mine), position(open)) }));
+    // The other row has its button, so the section can add: this is about the pool.
+    await addMore(open.address);
+    const r = await row(mine.address);
+    await waitFor(() => expect(r).toHaveAttribute('data-remove', 'offer'));
+    expect(within(r).queryByRole('button', { name: ADD_MORE })).toBeNull();
+    expect(within(r).getByRole('button', { name: 'Remove liquidity' })).toBeInTheDocument();
+    expect(within(r).getByText(LAUNCH_TIER_POOL).tagName).toBe('STRONG');
+  });
+
+  it('a link that names one opens no form and says why in bold, never that it did not read', async () => {
+    const stray = key().toBase58();
+    const r = readers({ findPools: vi.fn(async () => withStrays(search([]), [stray])) });
+    mount(r, { path: `/solana-lp?mint=${M}&task=add&pool=${stray}` });
+    const lines = await screen.findAllByText(LAUNCH_TIER_POOL);
+    expect(lines.every((l) => l.tagName === 'STRONG')).toBe(true);
+    noFormOpen();
+    expect(screen.queryByText(/did not read as a pool/)).toBeNull();
+  });
+
+  it('a lookup of a token that has some says how many, in one bold line, and lists only the others', async () => {
+    const fair = view();
+    const r = readers({ findPools: vi.fn(async () => withStrays(search([fair]), [key().toBase58(), key().toBase58()])) });
+    mount(r, { path: `/pools?mint=${M}` });
+    const line = await screen.findByText(/^2 pools of this token were opened on the launch fee tier without a launch/);
+    expect(line.tagName).toBe('STRONG');
+    expect(screen.getAllByTestId('lp-pool').map((c) => c.getAttribute('data-pool'))).toEqual([fair.address]);
   });
 });

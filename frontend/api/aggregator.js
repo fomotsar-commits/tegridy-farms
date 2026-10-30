@@ -190,10 +190,24 @@ const CONFIGS = {
     // which never reaches Jupiter (it is not in allowedQuery). A quote with a platform
     // fee is a trade being built and is never shared. runProxy asks this for a 200 GET
     // only, so an error or a "no route" answer stays private, no-store.
-    edgeCache: (segments, query) =>
-      segments.join("/") === "swap/v1/quote" && query.priceCheck === "1" && query.platformFeeBps == null
-        ? "s-maxage=30, stale-while-revalidate=15"
-        : null,
+    // The island order's price read (price/v3 with the same marker: SOL's and the island
+    // coins' USD prices, one fixed list) is shared the same way, so the order opens with
+    // every coin's figure while all its visitors together spend about one call a half
+    // minute of the plan's one request a second (developers.jup.ag, free key, 2026-10-23).
+    // The swap page's price read for its pair carries the marker too, except in USD mode,
+    // where the price sizes the trade and is read fresh.
+    // Two reads are the same for every visitor whoever asks, so they are shared with no
+    // marker: the trending lists (5 minutes) and Shield's warnings for a set of mints
+    // (1 minute: a new warning reaches every visitor within a minute and a half). Opening
+    // the swap page asked Jupiter for both, per visitor, out of that one request a second.
+    edgeCache: (segments, query) => {
+      const path = segments.join("/");
+      if (/^tokens\/v2\/(toptrending|toptraded|toporganicscore)\/(5m|1h|6h|24h)$/.test(path)) return "s-maxage=300, stale-while-revalidate=60";
+      if (path === "ultra/v1/shield") return "s-maxage=60, stale-while-revalidate=30";
+      if (query.priceCheck !== "1") return null;
+      const shareable = (path === "swap/v1/quote" && query.platformFeeBps == null) || path === "price/v3";
+      return shareable ? "s-maxage=30, stale-while-revalidate=15" : null;
+    },
     // swap/v1/{quote,swap} (trade) + tokens/v2/search (any-pair token search +
     // paste-a-mint resolve). Exact segment matches only — keep the surface narrow.
     matchPath: (segments) => {
@@ -270,6 +284,8 @@ const CONFIGS = {
       "slippageBps",
       "swapMode",
       "platformFeeBps",
+      // V2 lets the venue's fee be taken in SOL when the coin bought is Token-2022 (V1: 6014).
+      "instructionVersion",
       "restrictIntermediateTokens",
       "onlyDirectRoutes",
       "asLegacyTransaction",
@@ -403,6 +419,15 @@ export default async function handler(req, res) {
     return handleFlames(req, res);
   }
 
+  // `?resource=torches` reads the island's torches, season, fire and flame count in one
+  // call: each room's door and the home's strip. Same CORS lock as flames, and it
+  // forwards only the fields those surfaces paint. Above `const provider`, like the rest.
+  // See _lib/torches.js header.
+  if (req.query.resource === "torches") {
+    const { handleTorches } = await import("./_lib/torches.js");
+    return handleTorches(req, res);
+  }
+
   // `?resource=births` signs a birth notify with the venue's shared secret and relays it
   // to the island's enrollment socket. Server-side because the SECRET is the whole
   // guarantee — a signature the browser could produce is one anybody could produce.
@@ -433,6 +458,15 @@ export default async function handler(req, res) {
   if (req.query.resource === "record") {
     const { handleRecord } = await import("./_lib/record.js");
     return handleRecord(req, res);
+  }
+
+  // `?resource=position` answers a range position NFT's link, `/position/:id.json` (a
+  // vercel.json rewrite), with its metadata read from chain. Every position NFT keeps that
+  // link forever, so like the record route it must never fall to the SPA's HTML. Public by
+  // design: wallets fetch it with no Origin. See _lib/position.js.
+  if (req.query.resource === "position") {
+    const { handlePosition } = await import("./_lib/position.js");
+    return handlePosition(req, res);
   }
 
   // `?resource=airdrop` is the hosted airdrop manifest store: a claimant fetches THEIR
@@ -499,6 +533,18 @@ export default async function handler(req, res) {
   if (req.query.resource === "tape") {
     const { handleTape } = await import("./_lib/tape.js");
     return handleTape(req, res);
+  }
+
+  // `?resource=venue-volume`: the all-time volume api/venue-volume-count.js counts every
+  // five minutes, summed from Supabase and cached at the edge. Above `const provider`, like the rest.
+  if (req.query.resource === "venue-volume") {
+    const { handleVenueVolume } = await import("./_lib/venueVolume.js");
+    return handleVenueVolume(req, res);
+  }
+  // `?resource=venue-tvl`: what our pools hold on every chain, read live, cached a minute.
+  if (req.query.resource === "venue-tvl") {
+    const { handleVenueTvl } = await import("./_lib/venueTvl.js");
+    return handleVenueTvl(req, res);
   }
 
   // FLAT function at /api/aggregator. AUDIT FIX 2026-07-10: Vercel's nested /

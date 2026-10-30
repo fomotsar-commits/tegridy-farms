@@ -12,7 +12,8 @@
 // Owner ruling 2026-10-04 (any token may have a pool): a pool price more than 3% off, a
 // pool with no market price and a token its creator can freeze were refusals, and are
 // warnings now. E7, E9 and E18 hold the page to the new rule, each to a deposit that lands
-// with its warning said first; E20 holds it to a refusal that stays (a transfer fee).
+// with its warning said first. Owner, 2026-10-29: a token with a transfer fee may have a
+// pool too; E20 lands a deposit and a withdrawal of one, the fee counted to the unit.
 //
 // Group A runs on chromium AND mobile-chrome against one chain, so each project makes its
 // own token and pools in its own beforeAll, and every expectation is computed from the
@@ -26,7 +27,7 @@ import {
   reassignAtaOwner, sol, swapDirect, tokenAmount, wrapSol, CP_SWAP_PROGRAM, LAUNCH_PROGRAM, type PoolFacts,
 } from './fixtures/chain';
 import {
-  closeTokenAccount, createClassicToken, createSolPool, createToken2022MetadataOnly, createTransferFeeToken, freezeVault,
+  closeTokenAccount, createClassicToken, createLaunchTierPool, createSolPool, createToken2022MetadataOnly, createTransferFeeToken, freezeVault,
   squatStandard, transferLp, transferTokens, type CreatedPool,
 } from './fixtures/lp';
 import { SOL_COIN } from './fixtures/coins';
@@ -36,8 +37,21 @@ import {
 } from './fixtures/lpPage';
 // The market sums, worked out by hand (never the page's own): see fixtures/market.ts.
 import { gapCostOf, gapOf, lossAtMarketUp, priceOf, stubMid } from './fixtures/market';
-import { ui, expectPressableAtSizes } from './fixtures/ui';
+import { ui, expectNoWord, expectPressableAtSizes, guardText } from './fixtures/ui';
 import { formatSol, parseDecimalToBaseUnits } from '../src/lib/launcher/solana/curve/format';
+import { poolFeesOf } from '../src/lib/solana/lp/liquidityMath';
+import { classifyToken, decodeMintAccount } from '../src/lib/solana/lp/tokenSafety';
+import { epochFee, type TransferFee } from '../src/lib/solana/lp/transferFee';
+
+/** The transfer fee the token program charges on `mint` now: its setting at the chain's own epoch. */
+async function tokenFeeNow(mint: PublicKey): Promise<TransferFee | null> {
+  const acc = await chain().getAccountInfo(mint, 'confirmed');
+  if (!acc) throw new Error(`no mint at ${mint.toBase58()}`);
+  const d = decodeMintAccount(acc.owner.toBase58(), new Uint8Array(acc.data));
+  if (!d.ok) throw new Error(d.reason);
+  const { epoch } = await chain().getEpochInfo('confirmed');
+  return d.value.transferFee ? epochFee(d.value.transferFee, BigInt(epoch)) : null;
+}
 import { poolStatePda } from '../src/lib/launcher/solana/curve/program';
 import { withdrawIx } from '../src/lib/solana/cpswap/ix';
 import { deriveAmmConfig, derivePool, sortMints } from '../src/lib/solana/cpswap/program';
@@ -69,7 +83,8 @@ async function books(owner: PublicKey, f: PoolFacts): Promise<Books> {
 
 // ════════════════════════════════════════════════════════════════════════════
 // GROUP A: chromium AND mobile-chrome. One clean classic token, its pools on tier 1
-// ("pool A") and tier 0 ("pool B") at the stub price, opened by the creator; wallet B.
+// ("pool A") and tier 0 ("pool B", opened the permissioned way) at the stub price, both
+// funded by the creator, who holds every share; wallet B.
 // ════════════════════════════════════════════════════════════════════════════
 
 const A = {} as { creator: Keypair; walletB: Keypair; mint: PublicKey; poolA: CreatedPool; poolB: CreatedPool; prices: Prices };
@@ -81,7 +96,7 @@ test.describe('group A (chromium and mobile-chrome)', () => {
     A.walletB = await fundedKeypair(10);
     A.mint = await createClassicToken(A.creator, { supply: 10_000_000n * UNIT, name: { name: 'E2E Write A', symbol: 'EWRA' } });
     A.poolA = await createSolPool(A.creator, A.mint, { configIndex: 1, sol: sol(2), tokens: 2_000_000n * UNIT, at: 'standard' });
-    A.poolB = await createSolPool(A.creator, A.mint, { configIndex: 0, sol: sol(1), tokens: 1_000_000n * UNIT, at: 'standard' });
+    A.poolB = await createLaunchTierPool(A.creator, A.mint, { sol: sol(1), tokens: 1_000_000n * UNIT });
     await transferTokens(A.creator, A.walletB.publicKey, A.mint, 2_000_000n * UNIT);
     A.prices = priced(A.mint);
   });
@@ -209,7 +224,7 @@ test.describe('group A (chromium and mobile-chrome)', () => {
     const signature = a.wallet.lastSigned().signature!;
     await expect(out).toContainText(signature);
     await expect(out).toContainText('Sent, not confirmed yet');
-    await expect(out).not.toContainText(/fail/i);
+    await expectNoWord(out, /fail/i);
     expect(a.rpc.failedCount('getSignatureStatuses')).toBeGreaterThan(0);
     // It did land: the chain holds the shares. Asked of the share account, not of the
     // signature. By now the deposit is over a minute old, and under a full run's load the
@@ -222,7 +237,7 @@ test.describe('group A (chromium and mobile-chrome)', () => {
     await expect(pending).toBeVisible({ timeout: 60_000 });
     await expect(pending).toContainText(signature);
     await expect(pending).toContainText('adding liquidity');
-    await expect(pending).not.toContainText(/fail/i);
+    await expectNoWord(pending, /fail/i);
     // At the top of the section: above the pool finder.
     const top = (l: Locator) => l.evaluate((el) => el.getBoundingClientRect().top + window.scrollY);
     expect(await top(pending)).toBeLessThan(await top(ui.lp.finder(p)));
@@ -308,7 +323,7 @@ test.describe('group B (chromium only)', () => {
     const name = (n: string, s: string) => ({ name: n, symbol: s });
     const classic = (owner: Keypair, n: string, s: string, supply = 10_000_000n * UNIT, o: { freezable?: boolean } = {}) =>
       createClassicToken(owner, { supply, name: name(n, s), freezable: o.freezable });
-    const pool = (c: Keypair, m: PublicKey, configIndex: 0 | 1, s: number, t: bigint, at: 'standard' | 'fresh' = 'standard', tokenProgram?: PublicKey) =>
+    const pool = (c: Keypair, m: PublicKey, configIndex: 1, s: number, t: bigint, at: 'standard' | 'fresh' = 'standard', tokenProgram?: PublicKey) =>
       createSolPool(c, m, { configIndex, sol: sol(s), tokens: t * UNIT, at, tokenProgram });
 
     B.pusher = await fundedKeypair(20);
@@ -319,7 +334,7 @@ test.describe('group B (chromium only)', () => {
         B.creator1 = await fundedKeypair(20);
         B.t1 = await classic(B.creator1, 'E2E Write B1', 'EWB1');
         B.a1 = await pool(B.creator1, B.t1, 1, 2, 2_000_000n);
-        B.b1 = await pool(B.creator1, B.t1, 0, 1, 1_000_000n);
+        B.b1 = await createLaunchTierPool(B.creator1, B.t1, { sol: sol(1), tokens: 1_000_000n * UNIT });
         B.w6 = await fundedKeypair(3);
         B.w13 = await fundedKeypair(2);
         await transferTokens(B.creator1, B.w6.publicKey, B.t1, 1_000_000n * UNIT);
@@ -336,7 +351,7 @@ test.describe('group B (chromium only)', () => {
       (async () => {
         B.creator3 = await fundedKeypair(5);
         B.t3 = await createToken2022MetadataOnly(B.creator3, { name: 'E2E Meta Only 2022', symbol: 'EMETA22', supply: 10_000_000n * UNIT });
-        B.p3 = await pool(B.creator3, B.t3, 0, 1, 1_000_000n, 'standard', TOKEN_2022_PROGRAM_ID);
+        B.p3 = await pool(B.creator3, B.t3, 1, 1, 1_000_000n, 'standard', TOKEN_2022_PROGRAM_ID);
         B.w3 = await fundedKeypair(3);
         await transferTokens(B.creator3, B.w3.publicKey, B.t3, 100_000n * UNIT);
       })(),
@@ -370,9 +385,9 @@ test.describe('group B (chromium only)', () => {
         B.ts = await classic(B.stranger, 'E2E Write Squat', 'EWSQ');
         B.squat = await squatStandard(B.stranger, B.ts, { priceX: 100, openTimeFromNow: TEN_YEARS });
         B.tf = await classic(B.stranger, 'E2E Write Freeze', 'EWFZ', 10_000_000n * UNIT, { freezable: true });
-        B.pf = await pool(B.stranger, B.tf, 0, 1, 1_000_000n);
+        B.pf = await pool(B.stranger, B.tf, 1, 1, 1_000_000n);
         B.tf2 = await classic(B.stranger, 'E2E Write Freeze 2', 'EWFZ2', 10_000_000n * UNIT, { freezable: true });
-        B.pf2 = await pool(B.stranger, B.tf2, 0, 0.5, 500_000n);
+        B.pf2 = await pool(B.stranger, B.tf2, 1, 0.5, 500_000n);
       })(),
       (async () => {
         B.creator11 = await fundedKeypair(5);
@@ -382,7 +397,7 @@ test.describe('group B (chromium only)', () => {
         B.creator15 = await fundedKeypair(3);
         B.t15 = await classic(B.creator15, 'E2E Write Dust', 'EWDUST', 2_000_000n * UNIT);
         // 0.0001 SOL against 10^12 token units: the fewest shares that pay both sides is about 3,163.
-        B.p15 = await createSolPool(B.creator15, B.t15, { configIndex: 0, sol: 100_000n, tokens: 1_000_000_000_000n, at: 'standard' });
+        B.p15 = await createSolPool(B.creator15, B.t15, { configIndex: 1, sol: 100_000n, tokens: 1_000_000_000_000n, at: 'standard' });
         B.b15 = await fundedKeypair(1);
       })(),
       (async () => {
@@ -394,8 +409,8 @@ test.describe('group B (chromium only)', () => {
       })(),
       (async () => {
         B.creator20 = await fundedKeypair(5);
-        // 1% of every transfer. The pool program takes this extension, so the pool opens (from
-        // Node, straight against the program); the site blocks the token all the same.
+        // 1% of every transfer, opened from Node straight against the program: E20 adds to
+        // it and takes out of it from the page.
         B.tfee = await createTransferFeeToken(B.creator20, { supply: 10_000_000n * UNIT, feeBps: 100 });
         B.pfee = await pool(B.creator20, B.tfee, 1, 1, 1_000_000n, 'standard', TOKEN_2022_PROGRAM_ID);
       })(),
@@ -946,7 +961,7 @@ test.describe('group B (chromium only)', () => {
     await expect(routed).toHaveAttribute('data-price', 'unread');
     await expect(routed).toHaveAttribute('data-add', 'checks');
     await expect(routed).toContainText('came through our own pools');
-    await expect(routed).toContainText('We offer adding liquidity only when every check above could be run, and one of them could not be run just now.');
+    await expect(routed).toContainText('Adding is off: a check above could not be run just now.');
     await expect(ui.lp.poolWarnings(routed)).toHaveCount(0);
     await expect(ui.lp.addButton(routed)).toHaveCount(0);
 
@@ -979,77 +994,91 @@ test.describe('group B (chromium only)', () => {
     const tierText = (f: PoolFacts) =>
       // The pool's own creator-fee switch decides whether the tier's creator fee is in the cost.
       `${f.ammConfig.index}: traders pay ${tradeCostText(f.ammConfig, f.pool.enableCreatorFee)}; LPs keep ${feeSplit(f.ammConfig).lpKeepsPct.toFixed(3)}% of each trade`;
+    // Whole words, small print included, read without the addresses (guardText): a random
+    // base58 address in the section can spell "apr" or "apy" (DYbyM8apn7KA5g1ApYWR… failed it once).
+    const NO_YIELD = /\bAPR\b|\bAPY\b|yield of/i;
     const seen: string[] = [];
     for (const pool of [B.a1, B.b1]) {
       const { panel } = await addAndReview(a, pool.address, '0.05');
       const { rows, f } = await reviewDeposit(a, panel, pool.address, 'sol', sol(0.05));
       expect(rows['Fee tier']).toBe(tierText(f));
       seen.push(rows['Fee tier']!);
-      expect((await ui.lp.section(p).innerText())).not.toMatch(/APR|APY|yield of/i);
+      expect(await guardText(ui.lp.section(p))).not.toMatch(NO_YIELD);
       await press(p.getByRole('button', { name: 'Cancel', exact: true }), 'Cancel');
       await press(panel.getByRole('button', { name: 'Close', exact: true }), 'close the panel');
     }
     expect(seen[0]).not.toBe(seen[1]);
-    expect(await ui.lp.section(p).innerText()).not.toMatch(/APR|APY|yield of/i);
+    expect(await guardText(ui.lp.section(p))).not.toMatch(NO_YIELD);
     expect(a.wallet.records).toEqual([]);
     expect(a.rpc.violations).toEqual([]);
     await a.ctx.close();
   });
 
-  // What STAYS refused. The owner's ruling of 2026-10-04 lifted four refusals; a transfer fee
-  // is not one of them. The pool program accepts such a token, so a pool for it can exist,
-  // but this site cannot build an exact deposit or withdrawal for it, and nobody is let in
-  // who cannot be let out. Since a freezable token is no longer blocked (E9), this is the
-  // token whose share is still set aside.
-  test('E20: a token with a transfer fee stays blocked: no Add, no Open a pool, never priced, its share set aside, and the site says it cannot build its withdrawal', async ({ browser }) => {
-    test.setTimeout(5 * 60_000);
+  // Owner, 2026-10-29: a token with a transfer fee may have a pool. The pool program charges
+  // the fee on every move: deposit.rs sends it ON TOP of what the pool takes, withdraw.rs
+  // takes it OFF the payout. The page builds both that way, and every amount here is read
+  // back from the chain, to the base unit.
+  test('E20: a token with a 1% transfer fee: allowed with its warning; a deposit lands with the fee on top and the vault gets exactly the pool’s cost; a withdrawal pays the payout less the fee', async ({ browser }) => {
+    test.setTimeout(8 * 60_000);
     const a = await actor(browser, B.creator20, { prices: B.prices });
     const p = a.page;
-    const block =
-      'It uses a transfer-fee setting, which lets the token take a fee out of every transfer. This site cannot build exact deposits and withdrawals for a token with one, so it does not open or add to pools for it.';
-    // The pool is real: the chain holds it, with the token under the newer token program.
-    const f = await poolFacts(B.pfee.address);
-    expect(sidesOf(f).tokenMint.equals(B.tfee) && sidesOf(f).tokenProgram.equals(TOKEN_2022_PROGRAM_ID)).toBe(true);
-    await openPools(p, B.tfee);
-    await expect(ui.lp.safety(p)).toHaveAttribute('data-verdict', 'blocked');
-    await expect(ui.lp.safety(p)).toContainText(block);
-    const card = poolCard(p, B.pfee.address);
-    await expect(card).toHaveAttribute('data-deposits', 'refused', { timeout: 60_000 });
-    await expect(card).toHaveAttribute('data-add', 'checks');
-    // Owner ruling 2026-10-07: the words say what this site does not do. The token is never called "blocked".
-    await expect(ui.lp.safety(p)).toContainText('This site does not open or add to pools for this token');
-    await expect(card).toContainText('This site does not add to pools for this token (see why above).');
-    await expect(ui.lp.addButton(card)).toHaveCount(0);
-    const create = ui.lp.create.card(p);
-    await expect(create).toHaveAttribute('data-create', 'token-refused', { timeout: 60_000 });
-    await expect(create).toContainText(`This site does not open pools for this token: ${block}`);
-    await expect(ui.lp.create.openButton(p)).toHaveCount(0);
-    await expect(ui.lp.create.cautions(p)).toHaveCount(0);
-    // A blocked token is never priced: there is no deposit to check a price for.
-    expect(a.jup.asked).not.toContain(B.tfee.toBase58());
+    const owner = B.creator20.publicKey;
+    // The pool is real, with the token under the newer token program and its fee at 1% now.
+    const f0 = await poolFacts(B.pfee.address);
+    const s0 = sidesOf(f0);
+    expect(s0.tokenMint.equals(B.tfee) && s0.tokenProgram.equals(TOKEN_2022_PROGRAM_ID)).toBe(true);
+    const fee = await tokenFeeNow(B.tfee);
+    expect(fee?.basisPoints).toBe(100);
+    const fees = poolFeesOf(s0.coinIs0, fee);
+    // The warning, in the checker's own words for this very mint.
+    const mintAcc = (await chain().getAccountInfo(B.tfee, 'confirmed'))!;
+    const safety = classifyToken(B.tfee.toBase58(), { address: B.tfee.toBase58(), owner: mintAcc.owner.toBase58(), data: new Uint8Array(mintAcc.data), lamports: mintAcc.lamports }, null);
+    expect(safety.kind === 'read' && safety.verdict).toBe('warn');
+    const warning = safety.kind === 'read' ? safety.warnings.find((w) => w.code === 'transfer-fee')!.text : '';
+    expect(warning).toMatch(/^It keeps back 1% of every transfer of it/);
 
-    // Its share is set aside, without the token's name, and offers no way to add.
+    await openPools(p, B.tfee);
+    await expect(ui.lp.safety(p)).toHaveAttribute('data-verdict', 'warn');
+    await expect(ui.lp.safety(p)).toContainText(warning);
+    const card = poolCard(p, B.pfee.address);
+    await expect(card).toHaveAttribute('data-deposits', 'allowed', { timeout: 60_000 });
+    await expect(card).toHaveAttribute('data-add', 'offer');
+    // "Add with one coin" has no fee maths: not offered for this token.
+    await expect(card.getByRole('button', { name: 'Add with one coin' })).toHaveCount(0);
+    await p.screenshot({ path: test.info().outputPath('e20-token-and-card.png'), fullPage: true });
     await connect(p);
-    const aside = p.getByTestId('lp-positions-set-aside');
-    await expect(aside).toBeVisible({ timeout: 60_000 });
-    if (!(await aside.evaluate((el) => (el as HTMLDetailsElement).open))) await press(aside.locator('summary'), 'set-aside list');
+
+    // A deposit: the review against Node's plan WITH the fee, then the chain against both.
+    const tokAcc = ata(B.tfee, owner, TOKEN_2022_PROGRAM_ID);
+    const lpAcc = ata(s0.lpMint, owner);
+    const { panel } = await addAndReview(a, B.pfee.address, '0.01');
+    const { rows, plan } = await reviewDeposit(a, panel, B.pfee.address, 'sol', sol(0.01), 100n, fees);
+    expect(plan.feeTok).toBeGreaterThan(0n);
+    expect(rows['The token’s own transfer fee']).toMatch(/\(1%\), kept by the token for its fee collector, not by the pool or this site; the pool gets the rest$/);
+    await p.screenshot({ path: test.info().outputPath('e20-deposit-review.png'), fullPage: true });
+    const before = { tok: (await tokenAmount(tokAcc))!, vault: (await tokenAmount(s0.tokenVault))!, lp: (await tokenAmount(lpAcc)) ?? 0n };
+    await signConfirmed(a);
+    const after = { tok: (await tokenAmount(tokAcc))!, vault: (await tokenAmount(s0.tokenVault))!, lp: (await tokenAmount(lpAcc))! };
+    expect(before.tok - after.tok, 'what left the wallet: the pool’s cost and the fee on top').toBe(plan.costTok);
+    expect(after.vault - before.vault, 'what the vault got: exactly the pool’s cost').toBe(plan.costTok - plan.feeTok);
+    expect(after.lp - before.lp, 'the shares, exactly').toBe(plan.lp);
+    await closeAll(p, panel);
+
+    // Half of the share out: the payout less the fee arrives, and the minimum held to that.
     const row = positionRow(p, B.pfee.address);
-    await expect(row).toContainText('Set aside: this site does not open or add to pools for its token.');
-    // The row's "Token check" value.
-    await expect(row).toContainText('this site does not open or add to pools for it');
-    await expect(row).not.toContainText('blocked on this site');
-    await expect(ui.lp.addMore(row)).toHaveCount(0);
-    // Taking it out: the site says it cannot build this withdrawal, before the wallet is asked.
+    await expect(row).not.toContainText('Set aside', { timeout: 60_000 });
+    const held = (await tokenAmount(lpAcc))!;
     const rpanel = await openRemove(row);
     await press(ui.lp.percent(rpanel, '50%'), '50%');
     await press(ui.lp.reviewRemove(rpanel), 'Review: remove liquidity');
-    const out = ui.outcome(p);
-    await expect(out).toHaveAttribute('data-status', 'not-sent', { timeout: 60_000 });
-    await expect(out).toContainText('Not sent. We could not build this transaction.');
-    await expect(out).toContainText(
-      'This site cannot build a withdrawal for this token yet (it uses a transfer-fee setting, which lets the token take a fee out of every transfer). The pool program still lets you withdraw with any other tool that can build its withdrawals. Your pool shares stay in your wallet.',
-    );
-    expect(a.wallet.records).toEqual([]);
+    const wrows = await reviewRows(p);
+    const wplan = withdrawPlan(await poolFacts(B.pfee.address), held, 5_000n, 100n, fees);
+    expect(wrows['The token’s own transfer fee']).toMatch(/\(1%\), kept by the token for its fee collector, not by the pool or this site; the amounts above are after it$/);
+    const tokBefore = (await tokenAmount(tokAcc))!;
+    await signConfirmed(a);
+    expect((await tokenAmount(tokAcc))! - tokBefore, 'what reached the wallet: the payout less the fee').toBe(wplan.outTok);
+    expect(await tokenAmount(lpAcc)).toBe(held - wplan.lp);
+    await closeAll(p, rpanel);
     expect(a.rpc.violations).toEqual([]);
     await a.ctx.close();
   });

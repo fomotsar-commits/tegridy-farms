@@ -29,14 +29,28 @@ export const PROGRAM = new PublicKey('EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2B
 export const LAUNCH = new PublicKey('64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2');
 export const WSOL = new PublicKey(WSOL_MINT);
 export const CLOCK = 'SysvarC1ock11111111111111111111111111111111';
-export const key = () => Keypair.generate().publicKey;
+let keysDrawn = 0;
+/**
+ * A fresh key, the same one on every run of a file: keypairs seeded by a count, so a failure
+ * replays. Each is a whole 44-character address (a random key is 43 about 1 time in 17), so a
+ * test may pin an address's length. Seeded keypairs, not raw bytes: a key is on the curve, as
+ * a wallet's is.
+ */
+export function key(): PublicKey {
+  for (;;) {
+    const seed = new Uint8Array(32);
+    new DataView(seed.buffer).setUint32(0, ++keysDrawn, true);
+    const k = Keypair.fromSeed(seed).publicKey;
+    if (k.toBase58().length === 44) return k;
+  }
+}
 /**
  * A fresh key whose first byte is `first`. A pool stores its two mints in byte order, so a
  * test that needs a token on a chosen side of a coin's mint asks for it here instead of
  * hoping a random key lands there (USDC's mint starts with byte 198, wrapped SOL's with 6).
  */
 export function keyStartingWith(first: number): PublicKey {
-  const bytes = Keypair.generate().publicKey.toBytes();
+  const bytes = key().toBytes();
   bytes[0] = first;
   return new PublicKey(bytes);
 }
@@ -326,6 +340,25 @@ export function observationBytes(o: { pool: PublicKey; initialized?: boolean; in
   return d;
 }
 
+/**
+ * The price record of a pool that traded steadily at one price: a slot every `step`
+ * seconds (default 60) from `first`, and one at `last`, last written then. `perBaseX32`:
+ * quote base units per token base unit, times 2^32. At most the ring's 100 slots.
+ */
+export function steadyRecord(o: { pool: PublicKey; quoteIsToken0: boolean; perBaseX32: bigint; first: bigint; last: bigint; step?: bigint; initialized?: boolean }): Uint8Array {
+  const Q32 = 1n << 32n;
+  const times: bigint[] = [];
+  for (let t = o.first; t < o.last; t += o.step ?? 60n) times.push(t);
+  times.push(o.last);
+  if (times.length > 100) throw new Error(`steadyRecord: ${times.length} slots, the ring holds 100`);
+  const obs = times.map((t, i): [number, bigint, bigint, bigint] => {
+    const own = o.perBaseX32 * (t - o.first);
+    const other = ((Q32 * Q32) / o.perBaseX32) * (t - o.first);
+    return o.quoteIsToken0 ? [i, t, other, own] : [i, t, own, other];
+  });
+  return observationBytes({ pool: o.pool, initialized: o.initialized, index: obs.length - 1, lastUpdate: o.last, obs });
+}
+
 /** A PoolView over a built pool, with the reserves it was built with. */
 export function viewOf(b: BuiltPool, s: { sol: bigint; tok: bigint; origin?: PoolView['origin']; frozen?: boolean; history?: PoolView['history']; config?: PoolView['config'] | 'decoded' }): PoolView {
   const pool = decodePoolState(b.address.toBase58(), b.accounts[b.address.toBase58()]!.data)!;
@@ -345,5 +378,7 @@ export function viewOf(b: BuiltPool, s: { sol: bigint; tok: bigint; origin?: Poo
     tokenReserve: s.tok,
     vaultsFrozen: s.frozen ?? false,
     history: s.history ?? { kind: 'not-read' },
+    // From the config's own bytes: a `plain` pool's addresses are random, and jsdom cannot derive.
+    launchTierWithoutLaunch: (s.origin ?? 'other') !== 'launch-pool' && decodeAmmConfig(b.config.toBase58(), b.accounts[b.config.toBase58()]!.data)?.index === 0,
   };
 }

@@ -37,22 +37,33 @@ export const COPIES = {
     take: (p) => p.startsWith('programs/amm/') || ['Anchor.toml', 'Cargo.toml', 'Cargo.lock', 'LICENSE'].includes(p),
     map: (p) => p,
     delta: 'tegridy-clmm.diff',
-    deltaSha256: '44bc989f6c5d84457a97b687c95a1ee9e6ba8e2f2af10ea22df11e96974b2155',
+    deltaSha256: '3e37bb35eb72bcacf576309c42d3c587a2d97c41541e228a0094c8d53a4b5df5',
     patched: [
       'Anchor.toml',
       'Cargo.toml',
       'programs/amm/Cargo.toml',
       'programs/amm/src/lib.rs',
+      'programs/amm/src/instructions/admin/collect_fund_fee.rs',
+      'programs/amm/src/instructions/admin/create_amm_config.rs',
       'programs/amm/src/instructions/admin/create_permission_pda.rs',
       'programs/amm/src/instructions/admin/create_support_mint_associated.rs',
+      'programs/amm/src/instructions/admin/transfer_reward_owner.rs',
+      'programs/amm/src/instructions/admin/update_amm_config.rs',
       'programs/amm/src/instructions/collect_remaining_rewards.rs',
+      'programs/amm/src/instructions/create_customizable_pool.rs',
+      'programs/amm/src/instructions/create_permissioned_pool.rs',
+      'programs/amm/src/instructions/create_pool.rs',
       'programs/amm/src/instructions/decrease_liquidity.rs',
       'programs/amm/src/instructions/open_position.rs',
       'programs/amm/src/instructions/swap_v2.rs',
+      'programs/amm/src/states/config.rs',
+      'programs/amm/src/states/pool_fee.rs',
       'programs/amm/src/states/tickarray_bitmap_extension.rs',
+      'programs/amm/src/util/system.rs',
       'programs/amm/src/util/token.rs',
     ],
-    oursOnly: ['README.md'],
+    // The test in place of upstream's compute_swap_step_test, which solana-ci.yml skips.
+    oursOnly: ['README.md', 'programs/amm/tests/swap_math_fee_rule.rs'],
     nested: ['vendor/uint'],
     // Raydium's lock pruned to the program's own crates, with uint read from vendor/uint.
     // Any change, even to a version upstream's lock also lists, needs a re-pin here.
@@ -79,8 +90,8 @@ export const COPIES = {
     take: (p) => p.startsWith('programs/cp-swap/'),
     map: (p) => p.replace(/^programs\/cp-swap\//, ''),
     delta: 'cp-swap.diff',
-    deltaSha256: '5d7baf2682af807a7b1c330a1ca6a10d65b0393f20a33e26555f86323354f2f1',
-    patched: ['src/lib.rs', 'src/instructions/admin/create_support_mint_associated.rs', 'Cargo.toml'],
+    deltaSha256: '42f378caa75f89b554596067e20898ce9dbc6a02af9d51d2086bc0c5ffc4251e',
+    patched: ['src/lib.rs', 'src/instructions/admin/create_support_mint_associated.rs', 'src/instructions/initialize.rs', 'Cargo.toml'],
     oursOnly: [],
     // The workspace cargo builds cp-swap in. Its manifest (patch tables, the release profile,
     // members) is pinned whole; its lock, for the crates cp-swap compiles; programs/ holds only
@@ -102,10 +113,20 @@ export const REPIN_MAY_TOUCH = [
   'solana/tegridy-amm/Cargo.toml',
   'solana/tegridy-amm/Cargo.lock',
   'solana/tegridy-amm/TEGRIDY_FORK.md',
+  // A patch that changes behaviour carries its validator test (solana-ci.yml runs them).
+  'solana/tegridy-amm/tests/',
+  // tegridy-clmm's, run on a local chain from the owner's computer (its README); no CI job runs it.
+  'solana/clmm-localnet/',
   'docs/RANGE_POOLS_PLAN.md',
   'CHANGELOG.md',
   'frontend/src/test/solanaGuardTampers.test.ts',
   'frontend/src/test/solanaKeyGuard.test.ts',
+  // The site's range client where its tests read the program's source: ix.test.ts holds each
+  // account list equal to the program's Accounts struct, and quote.test.ts holds the vectors'
+  // stamp to the source. A patch that changes either moves them in the same pull request.
+  'frontend/src/lib/solana/clmm/ix.ts',
+  'frontend/src/lib/solana/clmm/ix.test.ts',
+  'frontend/src/lib/solana/clmm/__fixtures__/program-vectors.json',
   '.github/workflows/solana-ci.yml',
 ];
 
