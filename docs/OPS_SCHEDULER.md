@@ -30,7 +30,7 @@ owner's steps live in [TODO_OPERATOR.md](TODO_OPERATOR.md).
 | `synthetic-monitor.yml` | GitHub | every 30 minutes | a `prod-incident` GitHub issue |
 | its last step, the heartbeat | GitHub | every 30 minutes | the `github-crons` check, when the pings stop |
 | the other scheduled workflows: arb linkage, revenue watch, registry, npm advisories, Supabase backup, error retention, venue volume, CodeQL, contract coverage | GitHub | as each workflow says | GitHub's own notices |
-| `mirror-to-gitlab.yml`, the daily full copy to the standby | GitHub | daily, 06:41 UTC | the `gitlab-standby` check (`docs/GIT_HOSTING.md` 2E) |
+| `mirror-to-gitlab.yml`, the daily full copy to the standby | GitHub | daily, 06:41 UTC; **paused** since 2026-10-29, runs only by hand (`docs/GIT_HOSTING.md`, top) | the `gitlab-standby` check (`docs/GIT_HOSTING.md` 2E) |
 | `backup-pull` | this PC (Task Scheduler) | weekly, Wednesday 12:53 local | the `backup-pull` check |
 | `git-vault-backup`, the daily git bundles | this PC (Task Scheduler) | daily, 03:30 local | the `git-vault-backup` check (`docs/GIT_HOSTING.md` 2G) |
 

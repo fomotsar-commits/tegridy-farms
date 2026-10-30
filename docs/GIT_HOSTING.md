@@ -4,6 +4,13 @@
 never the only copy again.** If GitHub disappears, GitLab takes over in about 15 minutes
 (section 5A). If GitLab disappears, nothing changes day to day (5B).
 
+**Paused since 2026-10-29: the mirror runs only by hand.** The GitHub secret
+`GITLAB_MIRROR_SSH_KEY` (2C step 3) was never set, so every push to `mvp-launch` made a red
+Mirror to GitLab run. The owner paused the workflow: it no longer runs on a push or daily. A run
+by hand still fails until the secret exists, and says why. Until then the workflow sends the
+standby nothing, so the standby falls behind GitHub and no alarm says so. To resume: 2C steps 3,
+5 and 6.
+
 Read this page before any remote operation: a push, a merge, a mirror change, a deploy. The
 owner's setup list is section 2. The failover drill is section 5A.
 
@@ -73,8 +80,9 @@ failover drill (5A step 6) and the fail-back (5A.2) move them.
 1. Every clone's `origin` pushes to GitHub, then GitLab (`set-remotes.sh`, 2D). Fetch stays GitHub.
    A pre-push hook lets the GitLab half send only what GitHub took. So a push GitHub refuses, for
    example one its secret scanning blocks, never lands on the public standby.
-2. `.github/workflows/mirror-to-gitlab.yml` pushes every branch and tag pushed to GitHub, over SSH,
-   with a GitLab deploy key. It carries what no clone pushed: merges made on GitHub, cloud sessions.
+2. **Paused (top of this page).** `.github/workflows/mirror-to-gitlab.yml` pushes every branch
+   and tag pushed to GitHub, over SSH, with a GitLab deploy key. It carries what no clone pushed:
+   merges made on GitHub, cloud sessions.
    - It never forces and never deletes. A branch deleted on GitHub stays on GitLab.
    - A feature branch force-pushed on GitHub keeps its old version on GitLab: the run warns.
    - `mvp-launch` on GitLab takes only fast-forwards, and only from that key. A trunk push GitLab
@@ -119,8 +127,9 @@ host settings without your go.
 
 The steps below run scripts from `scripts/git-hosting/`, so this work must be on `mvp-launch` in
 your clone. GitHub also shows the mirror's **Run workflow** button, and runs its daily schedule,
-only for a workflow on the default branch. Until 2C is done, each push to `mvp-launch` shows a red
-Mirror to GitLab run, on purpose: it says the mirror's key is missing. Other branches only warn.
+only for a workflow on the default branch. While the mirror is paused (top of this page), only a
+run by hand starts it; until 2C step 3 is done, that run is red and says the mirror's key is
+missing.
 
 ### 2A. GitLab: the account, the group and two projects (20 minutes)
 
@@ -220,9 +229,19 @@ Mirror to GitLab run, on purpose: it says the mirror's key is missing. Other bra
      always a commit GitHub's trunk had.
 5. Test it: GitHub > **Actions > Mirror to GitLab > Run workflow**, branch `mvp-launch`. It must
    end green with `OK: the standby already holds every branch and tag GitHub has.` (or, if GitHub
-   moved since 2B, `OK: the standby took every ref it was sent...`). From now on each push to
-   GitHub reaches GitLab in about a minute. The first merge after this is the real test of step 4:
-   its Mirror to GitLab run must be green.
+   moved since 2B, `OK: the standby took every ref it was sent...`). The first merge after step 6
+   is the real test of step 4: its Mirror to GitLab run must be green.
+6. Un-pause the mirror (paused since 2026-10-29, top of this page). One pull request, whose merge
+   is a production deploy, so your go:
+   - `.github/workflows/mirror-to-gitlab.yml`: under `on:`, delete the `# ` in front of each
+     `push:` and `schedule:` line, and delete the PAUSED note above `on:`.
+   - `frontend/src/test/mirrorToGitlab.test.ts`: turn the "is paused" test back into "runs on
+     every branch and tag push, daily and by hand, never for a pull request", and delete the
+     "keeps its triggers commented out" test.
+   - Delete the paused notes: the top of this page, section 1 item 2, 2.1, 2E step 4,
+     `docs/OPS_SCHEDULER.md` section 1 and `docs/TODO_OPERATOR.md`.
+
+   From then on each push to GitHub reaches GitLab in about a minute.
 
 ### 2D. Point every clone at both hosts (5 minutes)
 
@@ -256,8 +275,8 @@ A mirror that stops is silent: a schedule that does not fire makes no run, so no
    When the run ends, the check must show **UP**. A new check stays grey and sends nothing until
    its first ping, so without this step it never alarms. Not UP: the secret is wrong; the run's
    ping job says why.
-4. From then on the daily run (06:41 UTC) and every run by hand ping it: the URL when the mirror
-   job passed, `<url>/fail` when it failed or was cancelled.
+4. From then on the daily run (06:41 UTC; paused until 2C step 6) and every run by hand ping it:
+   the URL when the mirror job passed, `<url>/fail` when it failed or was cancelled.
    - **DOWN with no ping for 36 hours:** no daily run happened. Usually GitHub's schedules stopped
      firing, as they did from 2026-09-24. GitHub also turns off a public repo's schedules after 60
      days with no activity. Or the ping itself failed: that run is red.
