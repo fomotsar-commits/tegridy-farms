@@ -398,6 +398,17 @@ jobs:
         working-directory: .
         run: node --test contracts/monitoring/lib/arbLinkage.test.mjs scripts/monitoring/lib/pausePlan.test.mjs
 
+      # The price keeper (keeper/). Week 1 is WATCH-ONLY, and watchOnly.test.mjs is
+      # what keeps it so: no signing construct, no send, no npm dependency. Plain
+      # `node --test` like the monitoring rules above: it ships zero packages and
+      # imports the venue's own pool maths (frontend/src/lib/solana/cpswap/math.ts)
+      # directly, so its quotes and the swap page's cannot drift. Pure: recorded
+      # mainnet answers and stand-in fetches, no network.
+      - name: Price keeper unit tests
+        if: ${{ !cancelled() }}
+        working-directory: .
+        run: node --test keeper/test/addresses.test.mjs keeper/test/jupiter.test.mjs keeper/test/opportunity.test.mjs keeper/test/pool.test.mjs keeper/test/report.test.mjs keeper/test/rpc.test.mjs keeper/test/sizecheck.test.mjs keeper/test/txsize.test.mjs keeper/test/watch.test.mjs keeper/test/watchOnly.test.mjs
+
       # The two endpoint redactors and the guards that keep the ops scripts using
       # them. Separate from the step above because it is not a monitoring rule, and a
       # step name that stops describing what it runs is how coverage goes unnoticed.

@@ -27,6 +27,10 @@ import { buildPool, key, keyStartingWith } from '../../../lib/solana/lp/testkit.
 import { LP_COPY } from '../../../lib/launcher/solana/write/liquidity';
 import type { LpWriteApi } from '../curve/ports';
 import { fakeLpApi, LP_PROGRAM, unusedGateRpc } from './fakeLpWriteApi.fixture';
+import { realToken } from './anyToken.fixture';
+import { isPlanProblem, planDeposit, poolFeesOf } from '../../../lib/solana/lp/liquidityMath';
+import type { TransferFee } from '../../../lib/solana/lp/transferFee';
+import { baseUnitsToInput } from '../curve/uiFormat';
 
 const OWNER = key();
 const wallet = vi.hoisted(() => ({
@@ -865,4 +869,50 @@ describe('a SOL pool’s Remove form says what it always said', () => {
     expect(within(panel).queryByTestId('lp-remove-may-lack-sol')).toBeNull();
     expect(review()).toBeEnabled();
   });
+});
+
+// Owner, 2026-10-29: a token with a transfer fee is added to and taken out of. The forms
+// count the fee the pool program's way (liquidityMath.ts with the token's fee), so what
+// they show, and the maximum the Add form hands the builder, already take it off; and
+// "Add with one coin", which has no fee maths, is not offered for it.
+describe('a SOL pool whose token keeps back 5% of every transfer', () => {
+  const feeToken = realToken(LOW, { transferFee: true });
+  const FIVE: TransferFee = { epoch: 0n, maximumFee: (1n << 64n) - 1n, basisPoints: 500 };
+  const withFee = { safety: vi.fn(async () => new Map([[LOW.toBase58(), feeToken]])) };
+
+  it('Add: the token box is what leaves with the fee on top, the preview says it, the builder gets that maximum, and one coin is not offered', async () => {
+    const v = view(SOL_QUOTE, LOW);
+    const { api, panel, type, review, box } = await openAdd(v, { api: fakeLpApi({ prepareLpDeposit: notSent() }), readers: withFee });
+    const card = screen.getByTestId('lp-pool');
+    expect(within(card).queryByRole('button', { name: 'Add with one coin' })).toBeNull();
+    expect(card).toHaveTextContent('Add with one coin is not offered for a token with a transfer fee: add both sides.');
+    await within(panel).findByRole('button', { name: 'Max SOL' });
+    type('SOL to add', '1');
+    const fees = poolFeesOf(v.quoteIsToken0, FIVE);
+    const want = planDeposit(v.snapshot, { quoteIsToken0: v.quoteIsToken0, driving: 'quote', maxIn: 10n ** 9n, bps: 100n, availableQuote: null, availableToken: null, fees });
+    const blind = planDeposit(v.snapshot, { quoteIsToken0: v.quoteIsToken0, driving: 'quote', maxIn: 10n ** 9n, bps: 100n, availableQuote: null, availableToken: null });
+    if (isPlanProblem(want) || isPlanProblem(blind)) throw new Error('no plan');
+    const tok = (pl: typeof want) => (v.quoteIsToken0 ? { cost: pl.cost1, max: pl.max1, fee: pl.fee1 } : { cost: pl.cost0, max: pl.max0, fee: pl.fee0 });
+    expect(tok(want).fee).toBeGreaterThan(0n);
+    expect(box('Tokens to add').value).toBe(baseUnitsToInput(tok(want).cost, 6));
+    expect(within(panel).getByTestId('lp-add-preview')).toHaveTextContent(/The token’s own transfer fee.*\(5%\), kept by the token for its fee collector; the pool gets the rest/);
+    await act(async () => {
+      fireEvent.click(review());
+    });
+    expect(api.prepareLpDeposit).toHaveBeenCalledTimes(1);
+    const args = vi.mocked(api.prepareLpDeposit).mock.calls[0]![3];
+    expect(args.shownOtherMax).toBe(tok(want).max);
+    // The fee-free maximum would be below what the program takes: the builder would refuse it as "moved".
+    expect(tok(blind).max).toBeLessThan(tok(want).max);
+  }, 20_000);
+
+  it('Remove: what comes back is the payout less 5%, the minimum is set on that, and the preview says what the token keeps', async () => {
+    const v = view(SOL_QUOTE, LOW);
+    const { panel, row } = await openRemove(v, { api: fakeLpApi({ prepareLpWithdraw: notSent() }), readers: withFee });
+    fireEvent.click(within(panel).getByRole('button', { name: '50%' }));
+    // Half of a quarter of 10 SOL and 1,000 tokens: 1.25 SOL and 125 tokens, of which the token keeps 6.25.
+    expect(row('You get about')).toHaveTextContent('1.25 SOL and 118.75 tokens');
+    expect(row('You get at least')).toHaveTextContent(/and 117\.5625 tokens/);
+    expect(row('The token’s own transfer fee')).toHaveTextContent('about 6.25 tokens more (5%), kept by the token for its fee collector; the amounts above are after it');
+  }, 20_000);
 });

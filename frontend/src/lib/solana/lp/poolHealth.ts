@@ -361,6 +361,12 @@ export function tokenReasons(safety: TokenSafety | null, action: 'deposits' | 'p
         'The amount a wallet displays for this token changes over time. This site shows and moves raw token units, so check the amounts against your wallet before you sign.',
       );
     }
+    if (has('transfer-fee')) {
+      warned.push(`It keeps back part of every transfer of it: into ${pool}, out of it, and on every trade. Taken out at the same price, you get back less of it than you put in.`);
+    }
+    if (has('transfer-fee-mutable')) {
+      warned.push(`Whoever controls its transfer fee can raise it, up to all of every transfer. At that rate nobody could take anything out of ${pool}, you included.`);
+    }
   }
   return { refused, unchecked, warned };
 }

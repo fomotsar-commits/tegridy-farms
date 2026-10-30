@@ -17,7 +17,6 @@
  *   - useZapPlan (logged out too): the venue fee unread -- not visible today,
  *     since the fee row renders only under a plan, and useSwapQuote's own
  *     chain gate keeps a plan from composing off mainnet;
- *   - useRestaking: every figure 0 -- dormant, as its address is zeroed.
  *
  * No gate here protected a write -- each write keeps its own chain guard -- so
  * they are gone. Per hook, this pins that on Base and on Robinhood Chain it
@@ -39,13 +38,6 @@ import { parseEther } from 'viem';
 import { wagmiMock } from '../test-utils/wagmi-mocks';
 
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
-// Restaking is not deployed: TEGRIDY_RESTAKING_ADDRESS is zeroed, so its reads
-// never run in production. Pin the gate for the day it ships with a stand-in
-// address and every other constant real, as useRestaking.test.ts does.
-vi.mock('../lib/constants', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../lib/constants')>()),
-  TEGRIDY_RESTAKING_ADDRESS: '0x1111111111111111111111111111111111111111' as const,
-}));
 // useZapPlan's quote legs. Its fee read is the subject here; the quotes carry
 // their own chain gate (useSwapQuote.ts) and are not.
 vi.mock('./useSwapQuote', () => ({
@@ -63,11 +55,10 @@ import { useNFTDropV2 } from './useNFTDropV2';
 import { useZapPlan } from './useZapPlan';
 import { useMyLoans } from './useMyLoans';
 import { useUserPosition } from './useUserPosition';
-import { useRestaking } from './useRestaking';
 import { useNFTBoost } from './useNFTBoost';
 import {
   CHAIN_ID, REFERRAL_SPLITTER_ADDRESS, STAKING_MONITOR_VIEW_ADDRESS, SWAP_FEE_ROUTER_ADDRESS,
-  TEGRIDY_LP_ADDRESS, TEGRIDY_NFT_LENDING_ADDRESS, TEGRIDY_RESTAKING_ADDRESS, TEGRIDY_STAKING_ADDRESS,
+  TEGRIDY_LP_ADDRESS, TEGRIDY_NFT_LENDING_ADDRESS, TEGRIDY_STAKING_ADDRESS,
   TOWELI_ADDRESS,
 } from '../lib/constants';
 
@@ -105,9 +96,8 @@ function stubMainnet() {
   const monitor = at(STAKING_MONITOR_VIEW_ADDRESS);
   const toweli = at(TOWELI_ADDRESS);
   const drop = at(DROP);
-  const restaking = at(TEGRIDY_RESTAKING_ADDRESS);
 
-  // useUserPosition, usePoints, useRestaking: 1,000 TOWELI at 2x, locked 60 more days
+  // useUserPosition, usePoints: 1,000 TOWELI at 2x, locked 60 more days
   staking('userTokenId', 7n);
   staking('paused', false);
   staking('unsettledRewards', 0n);
@@ -137,15 +127,8 @@ function stubMainnet() {
   drop('creator', OTHER);
   // useZapPlan
   at(SWAP_FEE_ROUTER_ADDRESS)('feeBps', 25n);
-  // useMyLoans. TegridyLending is zeroed, so only the NFT book exists.
+  // useMyLoans
   at(TEGRIDY_NFT_LENDING_ADDRESS)('loanCount', 1n);
-  // useRestaking
-  restaking('restakers', [7n, 1_000n * E18, 2_000n * E18, 0n, NOW_SEC - DAY, 0n]);
-  restaking('pendingTotal', [3n * E18, E18]);
-  restaking('totalRestaked', 50_000n * E18);
-  restaking('totalBonusFunded', 100_000n * E18);
-  restaking('totalBonusDistributed', 10_000n * E18);
-  restaking('bonusRewardPerSecond', E18 / 10n);
 }
 
 /** What `useHook` reports to a wallet whose chain is `chainId`. */
@@ -226,17 +209,10 @@ describe('mainnet reads do not depend on the wallet chain', () => {
       expect(figures(off)).toEqual(figures(reportOn(useNFTBoost, CHAIN_ID)));
     });
 
-    it('useRestaking reports the mainnet restaking position', () => {
-      const off = reportOn(useRestaking, chainId);
-      expect(off.isRestaked).toBe(true);
-      expect(off.totalRestaked).toBe(50_000n * E18);
-      expect(figures(off)).toEqual(figures(reportOn(useRestaking, CHAIN_ID)));
-    });
-
     it('useMyLoans finds the mainnet loan rather than an empty list', async () => {
       wagmiMock.setPublicClient(mainnetClient);
       const found = (report: ReturnType<typeof useMyLoans>) =>
-        expect(report.loans.map((l) => [l.source, l.id, l.role])).toEqual([['nft', 0, 'borrower']]);
+        expect(report.loans.map((l) => [l.id, l.role])).toEqual([[0, 'borrower']]);
       const off = await settledReportOn(useMyLoans, chainId, found);
       expect(off.loansUnread).toBe(false);
       expect(figures(off)).toEqual(figures(await settledReportOn(useMyLoans, CHAIN_ID, found)));

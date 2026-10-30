@@ -49,6 +49,15 @@ export function fmtRawParts(
   return { whole: neg ? `-${wholeFmt}` : wholeFmt, frac: f };
 }
 
+/**
+ * A per-day figure. Two decimals from one whole token up; four below it, where two
+ * would print a small stake's real 0.0042 a day as "0.00".
+ */
+export function fmtDaily(raw: bigint | null | undefined, decimals: number): string {
+  if (raw === null || raw === undefined) return '–';
+  return fmtRaw(raw, decimals, raw < 10n ** BigInt(decimals) ? 4 : 2);
+}
+
 /** `fmtRawParts` joined: "0.095138". An unread figure is a dash, never a zero. */
 export function fmtRawFixed(raw: bigint | null | undefined, decimals: number, frac: number): string {
   const p = fmtRawParts(raw, decimals, frac);

@@ -2,7 +2,7 @@ import { createContext, useContext, useState, useCallback } from 'react';
 import { useWaitForTransactionReceipt } from 'wagmi';
 import { isRevertedReceiptError, noteReplacement, receiptOutcome } from '../lib/txErrors';
 
-export type ReceiptType = 'swap' | 'stake' | 'unstake' | 'claim' | 'vote' | 'bounty' | 'lock' | 'approve' | 'liquidity_add' | 'liquidity_remove' | 'subscribe' | 'claim_revenue';
+export type ReceiptType = 'swap' | 'stake' | 'unstake' | 'claim' | 'lock' | 'approve' | 'liquidity_add' | 'liquidity_remove' | 'subscribe' | 'claim_revenue';
 
 export interface ReceiptData {
   type: ReceiptType;
@@ -23,15 +23,10 @@ export interface ReceiptData {
     estimatedAPR?: string;
     // For claims
     rewardAmount?: string;
-    // For votes
-    poolName?: string;
-    voteWeight?: string;
-    // For bounties
-    bountyTitle?: string;
-    bountyReward?: string;
     // For approvals
     spender?: string;
     // For liquidity
+    poolName?: string;
     tokenA?: string;
     amountA?: string;
     tokenB?: string;

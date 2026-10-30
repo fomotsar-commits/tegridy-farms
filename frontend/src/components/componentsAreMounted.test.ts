@@ -57,14 +57,6 @@ const COMPONENTS = join(SRC, 'components');
  */
 const UNMOUNTED_BY_DESIGN: Array<{ pattern: RegExp; because: string }> = [
   {
-    pattern: /^positionMarket\//,
-    because:
-      'The staking-position market is deploy-gated: src/lib/constants.ts documents that ' +
-      'components/positionMarket gates on isDeployed(), and POSITION_MARKET_ADDRESS is the ' +
-      'zero address on every network today. Mounting the panel would render an ' +
-      'unconditional not-deployed state. Delete this entry the moment an address lands.',
-  },
-  {
     pattern: /^solana\/curve\/fakeWriteApi\.fixture\.ts$/,
     because:
       'Test-only by construction: it imports `vi` from vitest, so it cannot ship. It is the ' +

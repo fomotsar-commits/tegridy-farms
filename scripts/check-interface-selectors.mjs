@@ -128,21 +128,11 @@ const FRONTEND_ABI_TARGET_OVERRIDES = {
 };
 
 // Frontend ABIs whose contract left the repo (the dead-EVM-contract removal of
-// 2026-10-27). The site keeps each ABI for the panel that says "not deployed";
-// no artifact is built for them any more, so the resolver has nothing to check.
+// 2026-10-27). Empty since 2026-10-28, when #1043 removed the ten exports the site had
+// kept for its "not deployed" panels; an entry here has no artifact to resolve against.
 // An entry here may NOT have a live `*_ADDRESS` constant: the cross-check below
 // reads the constant's VALUE, so a redeploy cannot hide behind a retired ABI.
 const RETIRED_FRONTEND_ABIS = new Set([
-  'AIRDROP_FACTORY_ABI',
-  'COMMUNITY_GRANTS_ABI',
-  'GAUGE_CONTROLLER_ABI',
-  'LAUNCH_LOCK_VIEW_ABI',
-  'MEME_BOUNTY_BOARD_ABI',
-  'TEGRIDY_LENDING_ABI',
-  'TEGRIDY_RESTAKING_ABI',
-  'VESTING_FACTORY_ABI',
-  'VESTING_WALLET_ABI', // per-wallet clones; never had an address constant
-  'VOTE_INCENTIVES_ABI',
 ]);
 
 // Selectors a frontend ABI declares that are deliberately served by a DIFFERENT
@@ -170,19 +160,7 @@ const FRONTEND_SELECTOR_HOSTS = {
 // Remove an entry by re-pointing its call site at the host's address. Any entry
 // still here when its feature is deployed becomes a live empty-returndata
 // revert — check this list before flipping either contract on.
-const KNOWN_LATENT_FRONTEND_SELECTORS = {
-  TEGRIDY_RESTAKING_ABI: {
-    // useRestaking.ts reads it at TEGRIDY_RESTAKING_ADDRESS (0x0).
-    'pendingTotal(address)': { host: 'RestakingMonitorView', reason: 'restaking not deployed' },
-  },
-  VOTE_INCENTIVES_ABI: {
-    // useBribes.ts reads both at VOTE_INCENTIVES_ADDRESS (0x0). Moved out by
-    // the pass-8 EIP170-03 split, alongside the propose/execute/cancel calls
-    // whose readiness they exposed.
-    'pendingFeeBps()': { host: 'VoteIncentivesAdmin', reason: 'vote incentives not deployed' },
-    'feeChangeTime()': { host: 'VoteIncentivesAdmin', reason: 'vote incentives not deployed' },
-  },
-};
+const KNOWN_LATENT_FRONTEND_SELECTORS = {};
 
 // Selectors a frontend ABI keeps for a build that is RETIRED IN SOURCE but still
 // LIVE ON CHAIN, and read at the live address on purpose: the card reads it to
