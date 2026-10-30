@@ -15,6 +15,24 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-30: a web3.js signature fails inside a jsdom test, and a stand-in wallet counted transactions, not prompts
+
+**Believed:** a vitest file can build and sign a real `VersionedTransaction` with a `Keypair`.
+**Measured:** under the default jsdom environment, `tx.sign([keypair])` and the code after it threw
+`Blob.encode[data] requires (length 1) Uint8Array as src` (8 of 32 tests in
+`lib/harvest/solana.test.ts`): jsdom's `Uint8Array` is another realm's, and the layout encoder
+checks `instanceof`. With `// @vitest-environment node` as the file's first line, all 32 passed.
+`islandBasketSol.test.ts` already starts that way. **Do:** any test that signs or serializes a
+real Solana transaction runs in the node environment.
+
+**Believed:** "1 signing request" from a stand-in wallet that refuses proves one prompt.
+**Measured:** a wallet-standard wallet's `signAllTransactions` reaches the wallet as ONE call of
+the `solana:signTransaction` feature, every transaction a separate input. Harvest's walk wallet
+(`harvest-walk.mjs`) recorded per input and threw on the first, so it read 1 for a batch of 3, and
+also 1 for the old one-claim-per-prompt run, whose first refusal stops it: the count could not
+tell the two apart. Recording each call with all its inputs showed `prompts: 1`, carrying 3
+transactions on one blockhash. **Do:** record per call and keep every input, then count both.
+
 ## 2026-10-29: a pushed tag holds a PR's merge, a failed vault execute still reads "Approved", and funding a wallet can turn the registry red
 
 **Believed:** tagging a PR's head on origin is free bookkeeping.
