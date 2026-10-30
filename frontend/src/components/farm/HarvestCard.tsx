@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import type { SignerWalletAdapter } from '@solana/wallet-adapter-base';
@@ -32,6 +32,9 @@ const txUrl = (claim: HarvestClaim, tx: string) =>
 function useSolanaHarvest(address: string | null, nonce: number): HarvestPlan<SolanaClaim> | null {
   // Kept with the wallet it was read for, so a switched wallet never shows the last one's rewards.
   const [read, setRead] = useState<{ owner: string; plan: HarvestPlan<SolanaClaim> } | null>(null);
+  // Bumped by the retry timer below; a read runs again on it.
+  const [retry, setRetry] = useState(0);
+  const tried = useRef({ key: '', n: 0 });
   useEffect(() => {
     if (!address) return;
     let live = true;
@@ -48,9 +51,30 @@ function useSolanaHarvest(address: string | null, nonce: number): HarvestPlan<So
     return () => {
       live = false;
     };
-  }, [address, nonce]);
-  return address && read?.owner === address ? read.plan : null;
+  }, [address, nonce, retry]);
+  const plan = address && read?.owner === address ? read.plan : null;
+
+  // A read that came back partly unread is asked again, twice, a little later. Quiet (a pool
+  // page, a dashboard) hides a card with nothing to claim, so an RPC that turned a burst away,
+  // or a page caught mid-deploy, left Harvest hidden until a reload (owner's board, 2026-10-30).
+  const unreadNow = Boolean(plan && plan.unread.length > 0);
+  useEffect(() => {
+    if (!address || !unreadNow) return;
+    const key = `${address}:${nonce}`;
+    if (tried.current.key !== key) tried.current = { key, n: 0 };
+    const wait = HARVEST_RETRY_MS[tried.current.n];
+    if (wait === undefined) return;
+    const t = setTimeout(() => {
+      tried.current.n += 1;
+      setRetry((r) => r + 1);
+    }, wait);
+    return () => clearTimeout(t);
+  }, [address, nonce, unreadNow, read]);
+  return plan;
 }
+
+/** When a partly unread Solana read is asked again: twice, never more, so a dead RPC is not hammered. */
+const HARVEST_RETRY_MS: readonly number[] = [20_000, 60_000];
 
 /** The Solana wallet signs several transactions on one prompt (the Buy-all order's test, lib/harvest/solana.ts signsAll). */
 const signsAll = (signer: object | null | undefined) =>
