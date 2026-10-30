@@ -44,6 +44,8 @@ approved by both members on 2026-10-28 at 16:06:32 UTC.
 
 **Your batch (your call, 2026-10-28) is five more proposals:** the range upgrade, the pool
 re-upgrade, the pool roll-back (pre-staged), the ladder upgrade and the ladder wallet limit raise.
+The ladder upgrade also lets stakers extend a running lock (`extend_lock`, folded in on your word
+2026-10-30): its pack now carries build `1b91609c` and asks for 2.81 SOL, not 2.70.
 They get **#22 to #26**, in the order you propose them. Every pack's paper, and the steps below,
 were written expecting "#21". **Use the number the page shows**, write it down next to its name,
 and read it back before every press.
@@ -53,15 +55,16 @@ and read it back before every press.
 | Send | To | Holds now | What it pays for |
 |---|---|---|---|
 | **15.1 SOL** | the deploy wallet `CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg` | 0 | range upload 7.818, pool upload 3.688, pool roll-back upload 3.518 |
-| **2.70 SOL** | the ladder deploy wallet `Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6` | 0 | ladder upload and enlarge |
+| **2.81 SOL** | the ladder deploy wallet `Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6` | 0 | ladder upload 2.705 and enlarge 0.086 |
 | **0.05 SOL** | member A `5QHzAqbGk3W8qGRBHCMyWjhLXf8YJcs3yPEh14Ymcwgz` | 0.001 | five proposals, about 0.0046 each |
 
 - Member B `6VHowW4pnD4WTGsXhqBp6yxGgC3EExVmYgebSrRNu2tY` holds 0.0053 SOL: enough to approve and
   execute, not to propose.
 - The range and pool uploads come back to the deploy wallet when each upgrade executes. The
   roll-back's 3.51 SOL comes back only through a later return proposal, 48 hours after its
-  approval. About 0.1 SOL is spent for good.
-- **The day you send the 2.70 SOL, merge #1047**, the registry PR that marks the ladder deploy
+  approval. About 0.1 SOL is spent for good, plus 0.034 SOL more for the ladder's larger enlarge
+  (16,992 bytes, not 10,240).
+- **The day you send the 2.81 SOL, merge #1047**, the registry PR that marks the ladder deploy
   wallet as funded. The registry expects that wallet to be empty, so the daily chain check goes red
   otherwise.
 
