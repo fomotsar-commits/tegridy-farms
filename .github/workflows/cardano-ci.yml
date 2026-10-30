@@ -126,3 +126,193 @@ jobs:
           echo "refused: $(grep -c '::error::' /tmp/tampered.log) mismatches"
       - name: Our copy builds into Minswap's mainnet scripts; the role timelock passes its tests
         run: AIKEN=/tmp/aiken/aiken node cardano/guards/prove-build.mjs
+
+  # The batcher (cardano/batcher), two gates more:
+  #   batcher - its tests, every one but the live ones and at least MIN_PASS of them, on the Node
+  #     its image runs, with the Aiken above as its offline script runner; its scripts typechecked.
+  #   batcher-image - the image Railway builds: it holds only the batcher and its one runtime
+  #     dependency, refuses a key anywhere but the top of a mounted volume, makes it there as `node`
+  #     alone with every privilege dropped, shows only the key's hash, finds the same key at every
+  #     later boot and never makes a second, refuses settings that name another key and a live
+  #     batcher with no alarm, and, running, stops cleanly on SIGTERM.
+  batcher:
+    needs: scope
+    if: >-
+      !cancelled() &&
+      (needs.scope.result != 'success' || needs.scope.outputs.run == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # Fewer passing tests than this means tests were lost, even with none failing. Raise it with the suite.
+      MIN_PASS: 226
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: The Node the image runs, from the Dockerfile's pinned base
+        id: node
+        run: |
+          set -euo pipefail
+          v=$(sed -n 's/^FROM node:\([0-9]*\.[0-9]*\.[0-9]*\)-bookworm-slim@sha256:[0-9a-f]\{64\}$/\1/p' cardano/batcher/Dockerfile)
+          [ -n "$v" ] || { echo "::error::the Dockerfile's FROM names no exact Node version pinned by digest"; exit 1; }
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ steps.node.outputs.version }}
+      - name: Install Aiken ${{ env.AIKEN_VERSION }} from its pinned release tarball
+        run: |
+          set -euo pipefail
+          curl -sSfL -o /tmp/aiken.tar.gz \
+            "https://github.com/aiken-lang/aiken/releases/download/${AIKEN_VERSION}/aiken_${AIKEN_VERSION}_linux_amd64.tar.gz"
+          echo "${AIKEN_SHA256}  /tmp/aiken.tar.gz" | sha256sum -c -
+          mkdir -p /tmp/aiken && tar -xzf /tmp/aiken.tar.gz -C /tmp/aiken
+          /tmp/aiken/aiken --version
+      - name: Install the batcher's pinned dependencies
+        working-directory: cardano/batcher
+        run: npm ci --ignore-scripts
+      - name: Typecheck (the batcher, its tests and its scripts)
+        working-directory: cardano/batcher
+        run: npm run typecheck
+      - name: Every test runs; only the live ones (they need a node) may skip
+        working-directory: cardano/batcher
+        env:
+          AIKEN: /tmp/aiken/aiken
+        run: |
+          # GitHub runs steps with bash -e: off here, so each failure gets its own message.
+          set +e
+          set -uo pipefail
+          node --version
+          npm test 2>&1 | tee /tmp/batcher-tests.log
+          status=${PIPESTATUS[0]}
+          [ "$status" -eq 0 ] || { echo "::error::the batcher's tests failed"; exit 1; }
+          # A skip that is not a live test means AIKEN was not found: a green that ran nothing.
+          bad=$(grep -E '^﹣ ' /tmp/batcher-tests.log | grep -v '^﹣ live:' || true)
+          [ -z "$bad" ] || { echo "::error::tests skipped that must run:"; echo "$bad"; exit 1; }
+          pass=$(sed -n 's/^ℹ pass \([0-9][0-9]*\)$/\1/p' /tmp/batcher-tests.log)
+          [ -n "$pass" ] || { echo "::error::no test count in the output"; exit 1; }
+          [ "$pass" -ge "$MIN_PASS" ] || { echo "::error::$pass tests passed, fewer than the suite's $MIN_PASS: tests were lost"; exit 1; }
+          grep -qE '^ℹ fail 0$' /tmp/batcher-tests.log || { echo "::error::a test failed"; exit 1; }
+
+  batcher-image:
+    needs: scope
+    if: >-
+      !cancelled() &&
+      (needs.scope.result != 'success' || needs.scope.outputs.run == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Build the image Railway builds
+        run: docker build -t batcher cardano/batcher
+      - name: Only the batcher and its one runtime dependency are in it, on the Node the Dockerfile names
+        run: |
+          set -euo pipefail
+          v=$(sed -n 's/^FROM node:\([0-9]*\.[0-9]*\.[0-9]*\)-bookworm-slim@.*/\1/p' cardano/batcher/Dockerfile)
+          docker run --rm --entrypoint sh -e WANT="v$v" batcher -c '
+            test -d /app/node_modules/@emurgo/cardano-serialization-lib-nodejs &&
+            test ! -e /app/node_modules/typescript && test ! -e /app/test && test ! -e /app/scripts &&
+            [ "$(node --version)" = "$WANT" ]'
+      - name: A key anywhere but the top of a mounted volume is refused, and nothing is made
+        run: |
+          # GitHub runs steps with bash -e: off here, as every boot below is expected to exit 1.
+          set +e
+          set -uo pipefail
+          refused() {
+            want=$1
+            shift
+            out=$(docker run --rm "$@" -e BATCHER_MAKE_KEY=1 batcher 2>&1); code=$?
+            echo "$out"
+            [ "$code" -eq 1 ] || { echo "::error::exit $code, not 1"; exit 1; }
+            echo "$out" | grep -qF "$want" || { echo "::error::not refused for: $want"; exit 1; }
+            if echo "$out" | grep -q '"kind":"key-made"'; then echo "::error::a key was made"; exit 1; fi
+          }
+          docker volume create probe-data > /dev/null
+          refused 'is not a mounted volume' -e BATCHER_KEY_FILE=/data/batcher.skey
+          refused 'must be an absolute path' -e BATCHER_KEY_FILE=batcher.skey
+          refused 'not in /data/keys' -v probe-data:/data -e BATCHER_KEY_FILE=/data/keys/batcher.skey
+          refused 'not in /:' -e BATCHER_KEY_FILE=/batcher.skey
+          # A mounted folder that is not the volume (Docker mounts a tmpfs here): wiped all the same.
+          refused 'not in /dev/shm' -e BATCHER_KEY_FILE=/dev/shm/batcher.skey
+          refused 'top of the volume (/vol)' -v probe-data:/vol -e RAILWAY_VOLUME_MOUNT_PATH=/vol -e BATCHER_KEY_FILE=/data/batcher.skey
+          left=$(docker run --rm -v probe-data:/data --entrypoint ls batcher -A /data)
+          [ -z "$left" ] || { echo "::error::something was written to the volume: $left"; exit 1; }
+      - name: First boot makes the key on a root-owned volume, says only its hash, leaves it to node alone, with no privileges left
+        run: |
+          set -euo pipefail
+          docker volume create batcher-data > /dev/null
+          owner=$(docker run --rm -v batcher-data:/data --entrypoint stat batcher -c '%U' /data)
+          [ "$owner" = root ] || { echo "::error::the volume starts as $owner's, not root's as on Railway"; exit 1; }
+          out=$(docker run --rm -v batcher-data:/data -e BATCHER_KEY_FILE=/data/batcher.skey -e BATCHER_MAKE_KEY=1 batcher 2>&1)
+          echo "$out"
+          echo "$out" | grep -q '"kind":"key-made"' || { echo "::error::no key-made line"; exit 1; }
+          echo "$out" | grep -q '"kind":"boot","uid":1000' || { echo "::error::the batcher did not run as node (uid 1000)"; exit 1; }
+          echo "$out" | grep -qF '"privileges":{"capEff":"0000000000000000","capBnd":"0000000000000000","noNewPrivs":"1"}' || { echo "::error::the batcher kept a capability, or may gain one"; exit 1; }
+          hash=$(echo "$out" | sed -n 's/.*"keyHash":"\([0-9a-f]\{56\}\)".*/\1/p')
+          address=$(echo "$out" | sed -n 's/.*"address":"\(addr1[0-9a-z]*\)".*/\1/p')
+          [ -n "$hash" ] && [ -n "$address" ] || { echo "::error::no key hash or address"; exit 1; }
+          key=$(docker run --rm -v batcher-data:/data --entrypoint cat batcher /data/batcher.skey | sed -n 's/.*"cborHex": "5820\([0-9a-f]\{64\}\)".*/\1/p')
+          [ ${#key} -eq 64 ] || { echo "::error::no key in the key file"; exit 1; }
+          # Neither the key's hex (either case) nor its base64 is in anything it wrote, stdout or stderr.
+          b64=$(echo "$key" | xxd -r -p | base64 -w0)
+          if echo "$out" | grep -qiF "$key" || echo "$out" | grep -qF "$b64"; then echo "::error::the key itself was printed"; exit 1; fi
+          perms=$(docker run --rm -v batcher-data:/data --entrypoint stat batcher -c '%U %a' /data/batcher.skey /data)
+          [ "$perms" = "$(printf 'node 600\nnode 700')" ] || { echo "::error::the key is not node's alone: $perms"; exit 1; }
+          left=$(docker run --rm -v batcher-data:/data --entrypoint ls batcher -A /data)
+          [ "$left" = batcher.skey ] || { echo "::error::the volume holds more than the key: $left"; exit 1; }
+          echo "HASH=$hash" >> "$GITHUB_ENV"
+          echo "ADDRESS=$address" >> "$GITHUB_ENV"
+      - name: Later boots find the same key, never make another, and refuse what would sign wrongly
+        run: |
+          # GitHub runs steps with bash -e: off here, as most boots below are expected to exit 1.
+          set +e
+          set -uo pipefail
+          settings() {
+            printf '{"network":1,"deployment":{"authenPolicy":"%s","poolScriptHash":"%s","orderScriptHash":"%s","poolBatchingScriptHash":"%s","scriptRefs":{"pool":"%s#0","order":"%s#1","poolBatching":"%s#2"}},"batcherKeyHash":"%s","batcherAddress":"%s","batcherFee":"2000000","floatCap":"100000000","maxOrdersPerBatch":25,"slotsBefore":60,"slotsAfter":240,"quarantineSlots":3600,"maxRefusalsInARow":5,"idleRoundMs":60000}' \
+              "$(printf '11%.0s' $(seq 28))" "$(printf '22%.0s' $(seq 28))" "$(printf '33%.0s' $(seq 28))" "$(printf '44%.0s' $(seq 28))" \
+              "$(printf 'aa%.0s' $(seq 32))" "$(printf 'aa%.0s' $(seq 32))" "$(printf 'aa%.0s' $(seq 32))" "$1" "$2"
+          }
+          boot() { docker run --rm -v "$1":/data -e BATCHER_KEY_FILE=/data/batcher.skey "${@:2}" batcher 2>&1; }
+          expect() {
+            [ "$code" -eq "$1" ] || { echo "::error::exit $code, not $1"; exit 1; }
+            echo "$out" | grep -qF "$2" || { echo "::error::missing: $2"; exit 1; }
+            if echo "$out" | grep -q '"kind":"key-made"'; then echo "::error::another key was made"; exit 1; fi
+          }
+          mine=$(settings "$HASH" "$ADDRESS")
+          # Still asked to make a key, with no settings yet: the same key found, none made, it waits.
+          out=$(boot batcher-data -e BATCHER_MAKE_KEY=1); code=$?; echo "$out"
+          expect 0 "\"kind\":\"key-found\",\"keyHash\":\"$HASH\",\"address\":\"$ADDRESS\""
+          echo "$out" | grep -q '"kind":"waiting"' || { echo "::error::it did not wait for its settings"; exit 1; }
+          # Asked to make a key with settings given: refused (left on, it would make a fresh key whenever the old one is missing).
+          out=$(boot batcher-data -e BATCHER_MAKE_KEY=1 -e BATCHER_SETTINGS="$mine"); code=$?; echo "$out"
+          expect 1 'BATCHER_MAKE_KEY=1 is for the first boot only'
+          # Settings naming this key, and no source: past the key, it stops at "no source".
+          out=$(boot batcher-data -e BATCHER_SETTINGS="$mine"); code=$?; echo "$out"
+          expect 1 '"error":"no source'
+          # Another key's settings: refused, naming both hashes (hashes are public).
+          docker volume create other-data > /dev/null
+          other=$(docker run --rm -v other-data:/data -e BATCHER_KEY_FILE=/data/batcher.skey -e BATCHER_MAKE_KEY=1 batcher)
+          h2=$(echo "$other" | sed -n 's/.*"keyHash":"\([0-9a-f]\{56\}\)".*/\1/p')
+          a2=$(echo "$other" | sed -n 's/.*"address":"\(addr1[0-9a-z]*\)".*/\1/p')
+          out=$(boot batcher-data -e BATCHER_SETTINGS="$(settings "$h2" "$a2")"); code=$?; echo "$out"
+          expect 1 "the key at BATCHER_KEY_FILE is $HASH; the settings name $h2"
+          # Live, with no alarm: refused before any source is asked.
+          out=$(boot batcher-data -e BATCHER_LIVE=1 -e KOIOS_URL=https://koios.invalid/api/v1 -e BATCHER_SETTINGS="$mine"); code=$?; echo "$out"
+          expect 1 'a live batcher needs its alarm: HC_PING_URL_CARDANO_BATCHER is unset'
+          echo "SETTINGS=$mine" >> "$GITHUB_ENV"
+      - name: Running, it stops cleanly on Railway's SIGTERM (exit 0, its exit line written)
+        run: |
+          set -euo pipefail
+          docker run -d --name batcher-run -v batcher-data:/data -e BATCHER_KEY_FILE=/data/batcher.skey \
+            -e KOIOS_URL=https://koios.invalid/api/v1 -e KOIOS_TIMEOUT_MS=5000 -e BATCHER_SETTINGS="$SETTINGS" batcher > /dev/null
+          for _ in $(seq 60); do
+            if docker logs batcher-run 2>&1 | grep -q '"kind":"source-down"'; then break; fi
+            sleep 1
+          done
+          # Still running when the signal goes: an exit 0 by itself would pass what follows.
+          [ "$(docker inspect -f '{{.State.Running}}' batcher-run)" = true ] || { docker logs batcher-run; echo "::error::it had already stopped by itself"; exit 1; }
+          docker stop -t 30 batcher-run > /dev/null
+          code=$(docker inspect -f '{{.State.ExitCode}}' batcher-run)
+          logs=$(docker logs batcher-run 2>&1)
+          docker rm batcher-run > /dev/null
+          echo "$logs"
+          echo "$logs" | grep -q '"kind":"source-down"' || { echo "::error::no round ran: it never reached its loop"; exit 1; }
+          [ "$code" -eq 0 ] || { echo "::error::exit $code on SIGTERM, not 0 (137: the signal was ignored, and Railway kills it)"; exit 1; }
+          echo "$logs" | grep -q '"kind":"exit","code":0' || { echo "::error::no exit line"; exit 1; }
