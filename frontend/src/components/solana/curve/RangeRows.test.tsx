@@ -4,10 +4,11 @@ import { PublicKey } from '@solana/web3.js';
 import { PLATFORM_TREASURY_VAULT } from '../../../lib/launcher/solana/curve/program';
 import { WORKSHOP_WALLET } from '../../../lib/launcher/solana/write/plant';
 import { SOL_QUOTE, USDC_QUOTE } from '../../../lib/solana/lp/quotes';
+import { BAYLA_MINT } from '../../../lib/solana/lp/tokenSafety';
 import { RangeRows } from './RangeRows';
 import { TxReview } from './TxFlowView';
 import { prepared } from './fakeWriteApi.fixture';
-import type { RangeSummary } from './ports';
+import type { RangeCreateSummary, RangeSummary } from './ports';
 
 /** A range position's review says the fee, the venue's cut and where that cut goes, from the pool's tier. */
 
@@ -127,5 +128,60 @@ describe('the range review’s fee lines', () => {
     review({ owner: PLATFORM_TREASURY_VAULT.toBase58(), fundOwner: WORKSHOP_WALLET.toBase58() });
     expect(screen.queryByTestId('tx-review-venue-elsewhere')).toBeNull();
     expect(screen.getByText(/The venue’s cut is split: 10\.4% of each fee/)).toBeInTheDocument();
+  });
+});
+
+describe('the review of a new range pool and its first position', () => {
+  const creating = (owners: { owner: string; fundOwner: string }): RangeCreateSummary => {
+    const base = opening(owners) as Extract<RangeSummary, { kind: 'range-open' }>;
+    return {
+      kind: 'range-create',
+      nftMint: base.nftMint,
+      max: { token: 2_500_000n, quote: 750_000n },
+      startPrice: 0.0003,
+      createFee: 500_000_000n,
+      feeReceiver: PLATFORM_TREASURY_VAULT,
+      neverBack: 200_000_000n,
+      backOnClose: 6_000_000n,
+      unwrapsWsol: true,
+      notices: [],
+      warnings: [],
+      price: { state: 'agrees', pool: 0.0003, reference: 0.0003, diff: 0 },
+      poolLine: { ...base.poolLine, tokenMint: new PublicKey(BAYLA_MINT) },
+      range: base.range,
+    };
+  };
+  const before = (a: Element, b: Element) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+
+  it('says the 0.5 SOL to the vault and the deposits first, then how a position earns, each coin by ticker and whole address', () => {
+    render(<TxReview prepared={prepared(creating({ owner: PLATFORM_TREASURY_VAULT.toBase58(), fundOwner: WORKSHOP_WALLET.toBase58() }))} decimals={6} display={(x) => x} />);
+    expect(screen.getByRole('heading').textContent).toBe('Review: open the pool and your position');
+    const fee = screen.getByText(`0.5 SOL, to the venue’s vault (${PLATFORM_TREASURY_VAULT.toBase58()}). Not refunded.`);
+    expect(screen.getByText('0.2 SOL: the pool, its two vaults, its price record, its far-band map and its new price bands. A pool cannot be closed.')).toBeInTheDocument();
+    expect(screen.getByText('0.006 SOL: its record, its NFT and the NFT’s account.')).toBeInTheDocument();
+    const earns = screen.getByText(/^Positions whose range the price is in share 84% of each 1% swap fee \(0\.84% of the swap\)/);
+    expect(earns.textContent).toContain('The venue keeps 16% of each swap’s fee (0.16% of the swap).');
+    expect(screen.getByText(/10\.4% of each fee \(0\.104% of the swap\) to the team’s shared wallet, .* 5\.6% of each fee \(0\.056% of the swap\) to the island’s Workshop/)).toBeInTheDocument();
+    expect(before(fee, earns)).toBe(true);
+    expect(before(earns, screen.getByText('You put in'))).toBe(true);
+    expect(screen.getByText(`BAYLA · ${BAYLA_MINT}`)).toBeInTheDocument();
+    expect(screen.getByText(`SOL · ${SOL_QUOTE.mint}`)).toBeInTheDocument();
+    // The opening price, and the market's read just now.
+    expect(screen.getAllByText('0.0003 SOL per BAYLA')).toHaveLength(2);
+    expect(screen.getByText(/2\.5 BAYLA and 0\.00075 SOL, exactly/)).toBeInTheDocument();
+    expect(screen.getByText(/the pool and your position land together, or neither does/)).toBeInTheDocument();
+  });
+
+  it('the test run’s line for the vault: the 0.5 SOL it gains, as the network ran it', () => {
+    const p = prepared(creating({ owner: PLATFORM_TREASURY_VAULT.toBase58(), fundOwner: WORKSHOP_WALLET.toBase58() }));
+    render(<TxReview prepared={{ ...p, simulated: { ...p.simulated, solDeltas: [{ account: PLATFORM_TREASURY_VAULT, delta: 500_000_000n }] } }} decimals={6} display={(x) => x} />);
+    expect(screen.getByText('Test run: the venue’s vault gains').nextElementSibling?.textContent ?? screen.getByText('Test run: the venue’s vault gains').parentElement?.textContent).toContain('+0.5 SOL');
+  });
+
+  it('a tier off the agreed split is said in bold, first, as on every range review', () => {
+    render(<TxReview prepared={prepared(creating({ owner: PLATFORM_TREASURY_VAULT.toBase58(), fundOwner: STRANGER }))} decimals={6} display={(x) => x} />);
+    const first = screen.getByTestId('tx-review-venue-elsewhere');
+    expect(first.querySelector('strong')?.textContent).toMatch(/does not follow the agreed split/);
+    expect(before(first, screen.getByText('Fee to open the pool'))).toBe(true);
   });
 });

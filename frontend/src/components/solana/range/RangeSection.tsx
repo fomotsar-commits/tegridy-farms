@@ -31,6 +31,7 @@ import { Card, Notice, Row } from '../curve/ui';
 import { useCurveSigner } from '../curve/useCurveSigner';
 import { usePendingTrades, type CheckSignature } from '../curve/usePendingTrades';
 import type { RangeWriteApi, WriteRpc } from '../curve/ports';
+import { RangeCreateCard } from './RangeCreateCard';
 import { RangeOpenCard } from './RangeOpenCard';
 import { RangePositionsCard } from './RangePositionsCard';
 import { loadRangeWriteApi } from './rangeWriteApi';
@@ -113,6 +114,10 @@ export function RangeInner({ readers, load, mode }: { readers: RangeReaders; loa
   const pool: RangePool | null = poolList?.find((x) => x.pool.address === chosen) ?? poolList?.[0] ?? null;
   // One object per pool read, so the opening card asks the market price once per pool, not per render.
   const pair: Pair | null = useMemo(() => (pool ? pairOf(pool.pool) : null), [pool]);
+  // No pool for the pair yet: it can be opened on fee tier 0, the 1% tier, and only there.
+  const openTier = tierList && poolList?.length === 0 ? (tierList.find((t) => t.index === 0) ?? null) : null;
+  const tokenDecimals =
+    quoteCoin(tokenMint)?.decimals ?? (freeze.read?.kind === 'ok' ? (freeze.read.value.kind === 'mint' ? freeze.read.value.decimals : 'not-a-mint') : freeze.read ? 'unread' : null);
 
   const owner = signerState.kind === 'disconnected' ? null : signerState.address;
   const positions = useChainRead(owner ? `positions:${owner}` : null, nonce, () => readers.walletPositions(owner!));
@@ -250,6 +255,29 @@ export function RangeInner({ readers, load, mode }: { readers: RangeReaders; loa
         />
       )}
 
+      {openTier && tokenDecimals !== 'not-a-mint' && (
+        <RangeCreateCard
+          key={`${tokenMint}:${coin.mint}`}
+          tier={openTier}
+          tokenMint={tokenMint}
+          tokenDecimals={tokenDecimals === 'unread' ? null : tokenDecimals}
+          tokenUnread={tokenDecimals === 'unread'}
+          onReadAgain={finished}
+          coin={coin}
+          canOpen={canOpen}
+          why={why}
+          write={write}
+          rpc={writeRpc}
+          programId={programId}
+          reads={readers}
+          signerState={signerState}
+          pending={pending}
+          held={held || busyBy.positions}
+          onBusy={openBusy}
+          onFinished={finished}
+        />
+      )}
+
       <RangePositionsCard
         read={positions.read}
         reading={positions.reading}
@@ -273,6 +301,7 @@ const NOTE_WHAT = {
   'range-open': 'opening a range position',
   'range-remove': 'taking liquidity or fees out of a range position',
   'range-close': 'closing a range position',
+  'range-create': 'opening a range pool and its first position',
 } as const;
 
 /**

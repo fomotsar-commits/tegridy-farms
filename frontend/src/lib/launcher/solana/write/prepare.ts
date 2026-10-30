@@ -109,7 +109,8 @@ function b64ToBytes(s: string): Uint8Array {
 }
 
 async function readPreState(rpc: WriteRpc, watch: WatchList): Promise<PreState> {
-  const keys = [watch.signer, ...watch.tokenAccounts.map((t) => t.account)];
+  const sols = watch.solAccounts ?? [];
+  const keys = [watch.signer, ...watch.tokenAccounts.map((t) => t.account), ...sols];
   const infos = await rpc.getMultipleAccountsInfo(keys, 'confirmed');
   if (!Array.isArray(infos) || infos.length !== keys.length) {
     throw new Error('the balance read returned the wrong number of accounts');
@@ -127,7 +128,8 @@ async function readPreState(rpc: WriteRpc, watch: WatchList): Promise<PreState> 
     if (amt === null) throw new Error(`${t.account.toBase58()} is not a token account`);
     tokens.set(t.account.toBase58(), { exists: true, amount: amt, lamports: BigInt(info.lamports), nativeReserve: nativeReserve(info.data) });
   });
-  return { signerLamports: BigInt(infos[0]?.lamports ?? 0), tokens };
+  const sol = new Map(sols.map((k, i) => [k.toBase58(), BigInt(infos[1 + watch.tokenAccounts.length + i]?.lamports ?? 0)]));
+  return { signerLamports: BigInt(infos[0]?.lamports ?? 0), tokens, ...(sols.length ? { sol } : {}) };
 }
 
 interface SimOutcome {
@@ -141,7 +143,7 @@ interface SimOutcome {
 /** Simulate with signature checks off and the blockhash as given. Returns post-state for `watch`. */
 export async function simulate(rpc: WriteRpc, tx: Transaction, watch: WatchList | null): Promise<SimOutcome> {
   const vtx = new VersionedTransaction(tx.compileMessage());
-  const addresses = watch ? [watch.signer, ...watch.tokenAccounts.map((t) => t.account)].map((k) => k.toBase58()) : [];
+  const addresses = watch ? [watch.signer, ...watch.tokenAccounts.map((t) => t.account), ...(watch.solAccounts ?? [])].map((k) => k.toBase58()) : [];
   const r = await rpc.simulateTransaction(vtx, {
     sigVerify: false,
     replaceRecentBlockhash: false,
@@ -162,7 +164,8 @@ export async function simulate(rpc: WriteRpc, tx: Transaction, watch: WatchList 
 
 /** The signer's balance changes, from pre-state and simulated post-state. */
 export function simulatedEffect(watch: WatchList, pre: PreState, post: SimOutcome['accounts']): SimulatedEffect | string {
-  if (!post || post.length !== 1 + watch.tokenAccounts.length) {
+  const sols = watch.solAccounts ?? [];
+  if (!post || post.length !== 1 + watch.tokenAccounts.length + sols.length) {
     return 'the simulation did not report the balances it was asked for';
   }
   const signerPost = post[0];
@@ -188,7 +191,12 @@ export function simulatedEffect(watch: WatchList, pre: PreState, post: SimOutcom
       ...(t.decimals !== undefined ? { decimals: t.decimals } : {}),
     });
   }
-  return { signerLamportsDelta, tokenDeltas };
+  // A watched wallet is read for its SOL only: an account the run left empty or closed has none.
+  const solDeltas = sols.map((account, i) => ({
+    account,
+    delta: BigInt(post[1 + watch.tokenAccounts.length + i]?.lamports ?? 0) - (pre.sol?.get(account.toBase58()) ?? 0n),
+  }));
+  return { signerLamportsDelta, tokenDeltas, ...(sols.length ? { solDeltas } : {}) };
 }
 
 /** Does the simulated effect fall inside the expectation? `null` = yes, else the reason. */
@@ -209,6 +217,11 @@ export function checkEffect(effect: SimulatedEffect, expect: Expectation, networ
     if (delta < t.minDelta || delta > t.maxDelta) {
       return 'the simulation shows a different token amount than this screen says';
     }
+  }
+  for (const t of expect.solIn ?? []) {
+    const got = effect.solDeltas?.find((d) => d.account.equals(t.account));
+    if (!got) return 'the check was asked about an account it did not watch';
+    if (got.delta < t.min || got.delta > t.max) return t.refuse;
   }
   return null;
 }

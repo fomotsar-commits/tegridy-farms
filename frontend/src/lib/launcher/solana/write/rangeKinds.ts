@@ -9,6 +9,7 @@ export const RANGE_KINDS: Readonly<Record<RangeKind, true>> = {
   'range-open': true,
   'range-remove': true,
   'range-close': true,
+  'range-create': true,
   'range-swap': true,
 };
 
