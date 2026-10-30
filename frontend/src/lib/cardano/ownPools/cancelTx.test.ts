@@ -1,7 +1,8 @@
 // An owner's cancel of an add or remove order at the venue's own order script (the batcher's
-// test world): built with the real library, then every way it could pay someone else, reach
-// Minswap, spend more than the order or cost the owner more is tried against the check, one test
-// each, so a check that stops catching one fails by name.
+// test world). First held against a REAL Minswap V2 owner cancel on mainnet: given that cancel's
+// order, coin and budget with Minswap's hash and reference UTxO, the builder returns its bytes,
+// its hash included. Then every way ours could pay someone else, reach Minswap, spend more than
+// the order or cost the owner more is tried against the check, one test each.
 //
 // Run through our compiled order script with Aiken 1.0.24 `tx simulate` (2026-10-30), these
 // cancels pass: the world's deposit order 157,654 memory / 56,371,974 steps, its withdraw order
@@ -9,13 +10,14 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import type { PrivateKey, TransactionBody, TransactionInput, TransactionOutput, TransactionWitnessSet } from '@emurgo/cardano-serialization-lib-browser';
 import type { Csl } from '../csl';
-import { bytesToHex, composeAddress, hexToBytes, type ParsedAddress } from '../address';
-import { cancelRedeemer, encodeDepositStep, encodeOrderDatum, encodeWithdrawStep, orderAddressFor, type ChainUtxo } from '../minswapV2';
+import { bytesToHex, composeAddress, hexToBytes, parseAddressBech32, type ParsedAddress } from '../address';
+import { chainUtxoFromKoios } from '../chain';
+import { cancelRedeemer, encodeDepositStep, encodeOrderDatum, encodeWithdrawStep, MINSWAP_V2, orderAddressFor, type ChainUtxo } from '../minswapV2';
 import { TTL_SLOTS, type WalletUtxo } from '../orderTx';
-import { testCsl } from '../testkit.fixture';
+import { fixture, testCsl } from '../testkit.fixture';
 import { readOwnPoolsDeployment, type OwnPools } from './deployment';
 import { costModels } from './openPoolTx';
-import { assembleSignedLpCancel, buildLpCancelTx, cancelPledge, checkLpCancelTx, LP_CANCEL_EX_UNITS, LpCancelBuildError, type LpCancelPlan } from './cancelTx';
+import { assembleSignedLpCancel, buildLpCancelTx, checkLpCancelTx, LP_CANCEL_EX_UNITS, LpCancelBuildError, type LpCancelPlan, type OrderScript } from './cancelTx';
 import { PARAMS, PLUTUS, TEST_RECORD, WORLD, trader, walletUtxo } from './testWorld.fixture';
 
 const TIP = 201_255_884;
@@ -72,12 +74,77 @@ beforeAll(async () => {
   key = csl.PrivateKey.from_normal_bytes(new Uint8Array(32).fill(0x41));
   owner = composeAddress({ kind: 'key', hash: key.to_public().hash().to_hex() }, { kind: 'key', hash: '73'.repeat(28) });
   stranger = composeAddress({ kind: 'key', hash: 'ee'.repeat(28) }, { kind: 'key', hash: 'ef'.repeat(28) });
-  wallet = [walletUtxo(csl, 1, owner, 3n * ADA_1), walletUtxo(csl, 2, owner, 40n * ADA_1, [[WORLD.token.policyId, WORLD.token.assetName, 9n]]), walletUtxo(csl, 3, owner, 6n * ADA_1)];
+  wallet = [
+    walletUtxo(csl, 1, owner, 3n * ADA_1),
+    walletUtxo(csl, 2, owner, 40n * ADA_1, [[WORLD.token.policyId, WORLD.token.assetName, 9n]]),
+    walletUtxo(csl, 3, owner, 6n * ADA_1),
+    walletUtxo(csl, 4, owner, 300_000n),
+  ];
 });
 
 function bodyOf(txHex: string): TransactionBody {
   return csl.TransactionBody.from_bytes(csl.FixedTransaction.from_hex(txHex).raw_body());
 }
+
+describe('a real Minswap V2 owner cancel on mainnet', () => {
+  // 53be1d9e…: an owner cancel of a Minswap V2 order (4 ADA and 370.011353 iUSD), read from Koios
+  // with its spent order and its pledged coin (utxo_info, extended). fe9ca43a…: Minswap's own
+  // aggregator cancel, the same shape but for its message metadata and its evaluated budget.
+  const CANCELS = fixture<{ tx_hash: string; cbor: string }[]>('koios-tx-cbor-owner-cancels.json');
+  const INPUTS = fixture<Record<string, unknown>[]>('koios-utxo-info-owner-cancel-inputs.json');
+  const REFERENCES = fixture<{ orderTxId: string; orderRef: string }>('minswap-v2-references-order.json');
+  const real = CANCELS.find((c) => c.tx_hash === '53be1d9e33a3c87dc76b993059581fab3f864fe039eef89c1aedc4795b651550')!;
+
+  /** Minswap's order script: its hash, and its published reference UTxO (references.json). */
+  function minswapOrderScript(): OrderScript {
+    const u = csl.TransactionUnspentOutput.from_hex(REFERENCES.orderRef);
+    const script = u.output().script_ref()!.plutus_script()!;
+    return { orderScriptHash: script.hash().to_hex(), orderRef: { txHash: u.input().transaction_id().to_hex(), index: u.input().index(), scriptSize: script.bytes().length } };
+  }
+
+  it('reads Minswap’s order script from its published reference, at the hash and size the SDK names', () => {
+    const m = minswapOrderScript();
+    expect(m.orderScriptHash).toBe(MINSWAP_V2.orderScriptHash);
+    expect(`${m.orderRef.txHash}#${m.orderRef.index}`).toBe(REFERENCES.orderTxId);
+    expect(m.orderRef.scriptSize).toBe(2659);
+  });
+
+  it('is built byte for byte, its transaction hash included, from its own order, coin and budget with Minswap’s hashes swapped in', () => {
+    const tx = csl.FixedTransaction.from_hex(real.cbor);
+    const body = bodyOf(real.cbor);
+    const order = chainUtxoFromKoios(INPUTS.find((r) => r.payment_cred === MINSWAP_V2.orderScriptHash))!;
+    const coinRow = INPUTS.find((r) => r.payment_cred !== MINSWAP_V2.orderScriptHash)!;
+    const t = parseAddressBech32(coinRow.address as string)!;
+    const coin = csl.TransactionUnspentOutput.new(
+      csl.TransactionInput.new(csl.TransactionHash.from_hex(coinRow.tx_hash as string), coinRow.tx_index as number),
+      csl.TransactionOutput.new(addrOf(t), lovelace(BigInt(coinRow.value as string))),
+    );
+    const w = [{ txHash: coinRow.tx_hash as string, index: coinRow.tx_index as number, hex: coin.to_hex() }];
+    const r = tx.witness_set().redeemers()!.get(0).ex_units();
+    const budget = { mem: BigInt(r.mem().to_str()), steps: BigInt(r.steps().to_str()) };
+    const p: LpCancelPlan = { trader: t, order, tipSlot: Number(body.ttl_bignum()!.to_str()) - TTL_SLOTS };
+    const built = buildLpCancelTx(csl, minswapOrderScript(), PARAMS, PLUTUS, w, p, budget);
+    expect(built.txHash).toBe(real.tx_hash);
+    expect(bytesToHex(csl.FixedTransaction.from_hex(built.txHex).raw_body())).toBe(bytesToHex(tx.raw_body()));
+    // The witness set is the real one before the owner signed it: its redeemer, byte for byte.
+    const signed = csl.TransactionWitnessSet.from_bytes(tx.raw_witness_set());
+    expect(bytesToHex(csl.FixedTransaction.from_hex(built.txHex).raw_witness_set())).toBe(`a105${signed.redeemers()!.to_hex()}`);
+  });
+
+  it('both real cancels have the shape the check holds ours to', () => {
+    for (const { cbor } of CANCELS) {
+      const tx = csl.FixedTransaction.from_hex(cbor);
+      const body = bodyOf(cbor);
+      const rs = tx.witness_set().redeemers()!;
+      expect([body.inputs().len(), body.outputs().len(), body.required_signers()!.len(), body.collateral()!.len(), rs.len()]).toEqual([1, 1, 1, 1, 1]);
+      expect(rs.get(0).data().to_hex()).toBe('d87a80');
+      expect(`${body.reference_inputs()!.get(0).transaction_id().to_hex()}#${body.reference_inputs()!.get(0).index()}`).toBe(REFERENCES.orderTxId);
+      expect(body.collateral_return()).toBeUndefined();
+      expect(body.total_collateral()).toBeUndefined();
+      expect(csl.hash_script_data(rs, costModels(csl, PLUTUS)).to_hex()).toBe(body.script_data_hash()!.to_hex());
+    }
+  });
+});
 
 describe('buildLpCancelTx + checkLpCancelTx: the untampered build', () => {
   it('cancels the test world’s own add and remove orders (the datums the batcher fills, byte for byte)', () => {
@@ -107,12 +174,15 @@ describe('buildLpCancelTx + checkLpCancelTx: the untampered build', () => {
     expect(r.cancel.backTokens).toEqual(p.order.assets);
     expect(r.cancel.networkFee).toBeGreaterThan(200_000n);
     expect(r.cancel.networkFee).toBeLessThan(300_000n);
-    expect(r.cancel.collateralPledged).toBe(cancelPledge(PLUTUS));
+    expect(r.cancel.collateralPledged).toBe(6n * ADA_1);
     const body = bodyOf(built.txHex);
-    // No coin of the wallet is spent: the smallest plain-ADA coin of at least 5 ADA is only pledged.
+    // No coin of the wallet is spent: the smallest plain-ADA coin of at least 5 ADA is pledged
+    // whole, with no return, as on the real cancel.
     expect(body.inputs().len()).toBe(1);
     expect(body.inputs().get(0).transaction_id().to_hex()).toBe(p.order.txHash);
     expect(body.collateral()!.get(0).index()).toBe(3);
+    expect(body.collateral_return()).toBeUndefined();
+    expect(body.total_collateral()).toBeUndefined();
     // OUR order script, from the record's reference UTxO.
     expect(`${body.reference_inputs()!.get(0).transaction_id().to_hex()}#${body.reference_inputs()!.get(0).index()}`).toBe(TEST_RECORD.orderRef.ref);
     expect(bytesToHex(body.outputs().get(0).address().to_bytes())).toBe(owner.hex);
@@ -168,8 +238,6 @@ function rebuild(
   body.set_ttl(edit.ttl === undefined ? old.ttl_bignum()! : csl.BigNum.from_str(edit.ttl.toString()));
   body.set_reference_inputs(old.reference_inputs()!);
   body.set_collateral(old.collateral()!);
-  body.set_collateral_return(old.collateral_return()!);
-  body.set_total_collateral(old.total_collateral()!);
   body.set_required_signers(old.required_signers()!);
   body.set_script_data_hash(old.script_data_hash()!);
   edit.also?.(body);
@@ -320,36 +388,18 @@ describe('checkLpCancelTx refuses every tamper', () => {
     expectRefused(rebuild(txHex, { also: (b) => b.set_collateral(inputs(wallet[0]!, wallet[2]!)) }), /pledge is not one coin/);
   });
 
-  it('the pledge returned to a stranger', () => {
-    const old = bodyOf(txHex).collateral_return()!;
-    expectRefused(rebuild(txHex, { also: (b) => b.set_collateral_return(csl.TransactionOutput.new(addrOf(stranger), old.amount())) }), /pledge does not come back to you/);
+  it('a pledge coin smaller than the network’s share of the fee', () => {
+    expectRefused(rebuild(txHex, { also: (b) => b.set_collateral(inputs(wallet[3]!)) }), /pledges less than the network asks/);
   });
 
-  it('more of the pledge put at risk', () => {
-    const old = bodyOf(txHex);
-    const total = BigInt(old.total_collateral()!.to_str()) + ADA_1;
+  it('a pledge with a return, which the real cancel does not carry, even one paid to a stranger', () => {
     const bad = rebuild(txHex, {
       also: (b) => {
-        b.set_total_collateral(csl.BigNum.from_str(total.toString()));
-        b.set_collateral_return(withCoin(old.collateral_return()!, -ADA_1));
+        b.set_total_collateral(csl.BigNum.from_str('500000'));
+        b.set_collateral_return(csl.TransactionOutput.new(addrOf(stranger), lovelace(5_500_000n)));
       },
     });
-    expectRefused(bad, /pledges more than the network asks/);
-  });
-
-  it('less pledged than the network asks', () => {
-    const old = bodyOf(txHex);
-    const bad = rebuild(txHex, {
-      also: (b) => {
-        b.set_total_collateral(csl.BigNum.from_str('100000'));
-        b.set_collateral_return(withCoin(old.collateral_return()!, BigInt(old.total_collateral()!.to_str()) - 100_000n));
-      },
-    });
-    expectRefused(bad, /pledges less than the network asks/);
-  });
-
-  it('a pledge that does not add up', () => {
-    expectRefused(rebuild(txHex, { also: (b) => b.set_collateral_return(withCoin(bodyOf(txHex).collateral_return()!, -1n)) }), /pledge does not add up/);
+    expectRefused(bad, /carries a return the real cancel does not/);
   });
 
   it('a stake delegation certificate', () => {

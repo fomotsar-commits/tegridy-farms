@@ -1,9 +1,8 @@
-// Taking back an unfilled add or remove order at the venue's OWN order script: its owner spends
-// it with CancelOrderByOwner, and everything it holds comes back less the network fee. Built
-// with CSL, then read back out of its own bytes before the wallet signs (openPoolTx.ts).
-// order_validator.ak lets the owner cancel when the datum's canceller key signs, and puts no
-// limit on where the coins go: the check below is what holds them to the owner. Every hash and
-// the script's reference UTxO come from the deployment record, never from Minswap.
+// Taking back an unfilled add or remove order at the venue's OWN order script, built exactly as
+// a real Minswap V2 owner cancel on mainnet is: given that cancel's order, coin and budget with
+// Minswap's hashes, buildLpCancelTx returns its bytes (cancelTx.test.ts). Ours differ only in the
+// record's script hash and reference UTxO, and in the budget our larger order datums need. The
+// validator does not limit where the coins go: the check below holds them to the owner.
 
 import type { FixedTransaction, Transaction } from '@emurgo/cardano-serialization-lib-browser';
 import type { Csl } from '../csl';
@@ -29,12 +28,15 @@ import type { PlutusParams } from './chainReads';
 import { assembleSignedOpen, costModels, pickCollateral, type AssembleOpenResult } from './openPoolTx';
 
 /**
- * The owner-cancel's script budget, pinned, so nothing the wallet sees can raise it: our order
- * script's own run of this cancel (Aiken 1.0.24 `tx simulate`, the batcher's evaluator; at most
- * 159,156 memory and 57,006,463 steps, cancelTx.test.ts) with headroom. Re-measure if the order
- * script's code changes: a budget too small is refused by the node before it is relayed.
+ * The owner-cancel's script budget, pinned, so nothing the wallet sees can raise it. Not the real
+ * cancel's 50,000,000 steps: our add and remove datums cost more to read. Our order script's run
+ * of this cancel (Aiken 1.0.24 `tx simulate`, the batcher's evaluator) took at most 159,156
+ * memory and 57,006,463 steps, plus headroom. Re-measure if the order script's code changes.
  */
 export const LP_CANCEL_EX_UNITS = { mem: 260_000n, steps: 80_000_000n } as const;
+
+/** Where the order script is read from: the record's, or (in the tests) Minswap's own. */
+export type OrderScript = Pick<OwnPools, 'orderScriptHash' | 'orderRef'>;
 
 export interface LpCancelPlan {
   /** The order's owner, connected now: its key cancels, and everything comes back to this whole address. */
@@ -57,15 +59,22 @@ export class LpCancelBuildError extends Error {
   }
 }
 
-/** The pledge: the share of the largest fee allowed that the network asks, rounded up. */
-export function cancelPledge(plutus: Pick<PlutusParams, 'collateralPercentage'>): bigint {
-  return (MAX_NETWORK_FEE * BigInt(plutus.collateralPercentage) + 99n) / 100n;
-}
-
 const inputOf = (csl: Csl, r: { txHash: string; index: number }) => csl.TransactionInput.new(csl.TransactionHash.from_hex(r.txHash), r.index);
 
-/** The network fee comes out of the order itself: the wallet's coins are not spent, one is only pledged. */
-export function buildLpCancelTx(csl: Csl, dep: OwnPools, params: ProtocolParams, plutus: PlutusParams, utxos: WalletUtxo[], plan: LpCancelPlan): BuiltLpCancel {
+/**
+ * The network fee comes out of the order itself: the wallet's coins are not spent. One plain-ADA
+ * coin is pledged whole with no return, as on the real cancel; the network keeps it only if the
+ * order script fails on chain, which a node checks before it relays anything.
+ */
+export function buildLpCancelTx(
+  csl: Csl,
+  dep: OrderScript,
+  params: ProtocolParams,
+  plutus: PlutusParams,
+  utxos: WalletUtxo[],
+  plan: LpCancelPlan,
+  exUnits: { mem: bigint; steps: bigint } = LP_CANCEL_EX_UNITS,
+): BuiltLpCancel {
   if (plan.trader.payment.kind !== 'key') throw new LpCancelBuildError('A script wallet cannot sign a cancel here.');
   const collateral = pickCollateral(csl, plan.trader, utxos);
   if (!collateral) {
@@ -76,7 +85,7 @@ export function buildLpCancelTx(csl: Csl, dep: OwnPools, params: ProtocolParams,
   const owner = cslAddress(csl, plan.trader);
 
   const source = csl.PlutusScriptSource.new_ref_input(csl.ScriptHash.from_hex(dep.orderScriptHash), inputOf(csl, dep.orderRef), csl.Language.new_plutus_v2(), dep.orderRef.scriptSize);
-  const budget = csl.ExUnits.new(bn(csl, LP_CANCEL_EX_UNITS.mem), bn(csl, LP_CANCEL_EX_UNITS.steps));
+  const budget = csl.ExUnits.new(bn(csl, exUnits.mem), bn(csl, exUnits.steps));
   const redeemer = csl.Redeemer.new(csl.RedeemerTag.new_spend(), bn(csl, 0), cancelRedeemer(csl), budget);
   const order = plan.order;
   const inputs = csl.TxInputsBuilder.new();
@@ -91,7 +100,6 @@ export function buildLpCancelTx(csl: Csl, dep: OwnPools, params: ProtocolParams,
   const colInputs = csl.TxInputsBuilder.new();
   colInputs.add_regular_input(col.output().address(), col.input(), col.output().amount());
   tb.set_collateral(colInputs);
-  tb.set_total_collateral_and_return(bn(csl, cancelPledge(plutus)), owner);
   tb.add_required_signer(csl.Ed25519KeyHash.from_hex(plan.trader.payment.hash));
   tb.set_ttl_bignum(bn(csl, plan.tipSlot + TTL_SLOTS));
 
@@ -115,7 +123,7 @@ export interface CheckedLpCancel {
   backLovelace: bigint;
   backTokens: { policyId: string; assetName: string; quantity: bigint }[];
   networkFee: bigint;
-  /** Pledged, and kept by the network only if the order contract fails on chain. */
+  /** The pledged coin, whole: kept by the network only if the order contract fails on chain. */
   collateralPledged: bigint;
 }
 
@@ -127,14 +135,14 @@ const FEE_SLACK = 20_000n;
 const refKey = (i: { transaction_id(): { to_hex(): string }; index(): number }) => `${i.transaction_id().to_hex()}#${i.index()}`;
 
 /**
- * Refused unless it is exactly this: the one order in, spent with the owner cancel at the pinned
- * budget, our order script read from the record's reference UTxO and nothing else, the owner's
- * key the only required signer, one output paying the owner all of the order less the fee, and
- * one plain-ADA coin of the owner's pledged with its return. Independent of how it was built.
+ * Refused unless it is exactly the real cancel's shape: the one order in, spent with the owner
+ * cancel at the pinned budget, our order script read from the record's reference UTxO and nothing
+ * else, the owner's key the only required signer, one output paying the owner all of the order
+ * less the fee, one plain-ADA coin of the owner's pledged whole. Independent of how it was built.
  */
 export function checkLpCancelTx(
   csl: Csl,
-  dep: OwnPools,
+  dep: OrderScript,
   txHex: string,
   plan: LpCancelPlan,
   walletUtxos: WalletUtxo[],
@@ -213,25 +221,20 @@ export function checkLpCancelTx(
     if (BigInt(out.amount().coin().to_str()) !== backLovelace || !sameTokens(tokenEntries(out.amount()), want)) problems.push('it does not give back everything the order holds, less the network fee');
   }
 
-  // The pledge: one plain-ADA coin of this wallet at the owner's own address, all but the network's share coming back.
+  // The pledge: one plain-ADA coin of this wallet at the owner's own address, whole, with no
+  // return, as the real cancel pledges it; at least the network's share of the fee.
   const own = new Map(walletUtxos.map((u) => [`${u.txHash}#${u.index}`, u]));
   const col = body.collateral();
-  const colTotal = body.total_collateral();
-  const colReturn = body.collateral_return();
   let pledged = 0n;
-  if (!col || col.len() !== 1 || !colTotal || !colReturn) problems.push('its pledge is not one coin with its return');
+  if (!col || col.len() !== 1) problems.push('its pledge is not one coin');
   else {
     const u = own.get(refKey(col.get(0)));
     const o = u ? csl.TransactionUnspentOutput.from_hex(u.hex).output() : null;
     if (!o || outputAddressHex(o) !== trader.hex || o.amount().multiasset()) problems.push('its pledge is not a plain ADA coin of this wallet at your address');
-    pledged = BigInt(colTotal.to_str());
-    if (pledged > cancelPledge(plutus)) problems.push('it pledges more than the network asks');
-    if (pledged * 100n < networkFee * BigInt(plutus.collateralPercentage)) problems.push('it pledges less than the network asks');
-    if (outputAddressHex(colReturn) !== trader.hex || colReturn.amount().multiasset() || colReturn.has_plutus_data() || colReturn.has_data_hash() || colReturn.has_script_ref()) {
-      problems.push('its pledge does not come back to you');
-    }
-    if (o && BigInt(o.amount().coin().to_str()) !== pledged + BigInt(colReturn.amount().coin().to_str())) problems.push('its pledge does not add up');
+    else pledged = BigInt(o.amount().coin().to_str());
+    if (o && pledged * 100n < networkFee * BigInt(plutus.collateralPercentage)) problems.push('it pledges less than the network asks');
   }
+  if (body.total_collateral() || body.collateral_return()) problems.push('its pledge carries a return the real cancel does not');
 
   // The fee comes out of what comes back: above what the network asks is the owner's loss.
   if (networkFee > MAX_NETWORK_FEE) problems.push('the network fee is above 1 ADA');

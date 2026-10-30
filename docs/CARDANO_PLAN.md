@@ -116,7 +116,9 @@ our order script for our batcher; opening spends our factory entry and pays the 
 treasury, checked against the chain's global setting before anything is built. An add or remove
 order still open can be taken back by its owner (Cancel order, under Your pool orders): it spends
 the order with `CancelOrderByOwner`, reads our order script from the record's `orderRef`, and
-pays all of it back less the network fee. The deploy owes, for these screens: fill the record
+pays all of it back less the network fee. It is built exactly as a real Minswap V2 owner cancel
+on mainnet: given that cancel's order, coin and budget with Minswap's hashes, the builder returns
+its bytes, transaction hash included (`ownPools/cancelTx.test.ts`). The deploy owes, for these screens: fill the record
 from the deploy's own output, `orderRef` included; measure the pool opening's two script budgets
 with the node's evaluator (the record's `openPoolBudget`, with headroom); re-measure the cancel's
 pinned budget (`LP_CANCEL_EX_UNITS` in `ownPools/cancelTx.ts`, measured on the test world's order

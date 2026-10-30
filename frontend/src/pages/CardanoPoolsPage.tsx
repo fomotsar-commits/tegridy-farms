@@ -728,7 +728,7 @@ function CardanoPoolsInner({ csl, cslError }: { csl: Csl | null; cslError: strin
               These are the venue’s own pools: a copy of Minswap V2’s audited contracts under the venue’s keys, with a 48-hour wait and two signatures for any change to who runs them. Minswap’s own pools are never used here, and Minswap earns nothing from these.
             </p>
             <p>
-              Adding or removing places an order at the venue’s order contract, saying which pool, how much, the least you accept, and that only you are paid. The venue’s batcher fills it a few blocks later; if the price has moved past your minimum, it must send your coins back instead, keeping its fee. Until then it stays yours, and only your own key can cancel it: Cancel order, under Your pool orders, brings all of it back, less the network fee, and pays no batcher fee. A cancel runs the order contract, so it pledges part of one plain ADA coin of at least 5 ADA in your wallet; the network keeps that part only if the contract fails on chain.
+              Adding or removing places an order at the venue’s order contract, saying which pool, how much, the least you accept, and that only you are paid. The venue’s batcher fills it a few blocks later; if the price has moved past your minimum, it must send your coins back instead, keeping its fee. Until then it stays yours, and only your own key can cancel it: Cancel order, under Your pool orders, brings all of it back, less the network fee, and pays no batcher fee. A cancel runs the order contract, so it pledges one plain ADA coin of at least 5 ADA in your wallet, whole; the network keeps it only if the contract fails on chain, which it checks before ever sending the cancel.
             </p>
             <p>
               A new pool starts with the venue’s share off, as the contracts require: its LPs keep the whole 0.3% until the venue switches its share on, which takes the 48-hour wait. Opening runs the pool contracts from your own transaction, so your wallet puts up about 3 ADA of plain ADA as a pledge; the network keeps it only if the contracts fail on chain, which it checks before ever sending the transaction.
@@ -923,7 +923,7 @@ function CancelReview({ note, prepared, onSign, onBack }: { note: LpOrderNote; p
       <Line label="You get back" value={[formatAda(c.backLovelace), ...tokens].join(' and ')} note="everything the order holds, less the network fee" />
       <Line label="Network fee" value={formatAda(c.networkFee)} note={NETWORK_FEE_NOTE} />
       <Line label="Batcher fee" value="None" note="a cancel does not go through the venue’s batcher" />
-      <Line label="Pledged, comes back" value={formatAda(c.collateralPledged)} note="kept only if the order contract fails on chain" />
+      <Line label="Pledged, comes back" value={formatAda(c.collateralPledged)} note="one coin of your wallet, kept only if the order contract fails on chain" />
       <Line label="Paid to" value="your own address" note="staking key included:" />
       <p className="font-mono text-[10px] text-white/60 break-all">{prepared.plan.trader.bech32}</p>
       <p className="text-[11px] text-white/60">Checked: it spends only this order, with the order contract’s own cancel, and pays only you. It never changes your stake or your vote.</p>
