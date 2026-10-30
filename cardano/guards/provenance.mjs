@@ -25,13 +25,19 @@ export const REPO = 'https://github.com/minswap/minswap-dex-v2';
 export const COMMIT = 'c3293ad435792ba502f5a2b1691c6736e5f167e6';
 export const MANIFEST = 'minswap-dex-v2.sha256';
 
-// The owner's ruling of 2026-10-24 ("0.3% fee, venue under 1/6"): the venue's fee share is
-// 1333 / 10000 of the trade fee, below Minswap's floor of 1666. The patch lowers that one
-// constant and nothing else; its comment above still reads 16.66%, as upstream wrote it.
+// Two owner rulings, nothing else:
+// - 2026-10-24 ("0.3% fee, venue under 1/6"): the venue's fee share is 1333 / 10000 of the
+//   trade fee, below Minswap's floor of 1666. utils.ak: that one constant; its comment above
+//   still reads 16.66%, as upstream wrote it.
+// - 2026-10-25 ("$15 worth of ADA", fixed ADA re-set by hand): opening a pool pays a fee in
+//   lovelace to an address, both named by the GlobalSetting, which the 48-hour lock changes.
+//   types.ak: the two fields, after Minswap's six; authen_minting_policy.ak: `..` where it
+//   reads the six; factory_validator.ak: the GlobalSetting read from the reference inputs and
+//   the payment checked.
 export const DELTA = {
   file: 'minswap-dex-v2.diff',
-  sha256: '3bf1db9cdde4afa8c12738f7aeb382f5570c1279a96b38fdf02853d4cf03b6eb',
-  patched: ['lib/amm_dex_v2/utils.ak'],
+  sha256: '9326b528bfd33fe59d4aa715e2fe2a84c71dc9bc3102bd39566bf3d068c2e9f9',
+  patched: ['lib/amm_dex_v2/types.ak', 'lib/amm_dex_v2/utils.ak', 'validators/authen_minting_policy.ak', 'validators/factory_validator.ak'],
 };
 
 // What --regenerate wrote from a fresh clone at the pin. A reviewer reproduces it the same way.
@@ -217,6 +223,9 @@ function selfTest(root = process.cwd()) {
     ['the patch undone in one copy', (d) => edit(d, 'cardano/role-timelock/lib/amm_dex_v2/utils.ak', 'min_fee_sharing_numerator = 1333', 'min_fee_sharing_numerator = 1666')],
     ['a lower floor than reviewed', (d) => edit(d, 'cardano/minswap-dex-v2/lib/amm_dex_v2/utils.ak', 'min_fee_sharing_numerator = 1333', 'min_fee_sharing_numerator = 1')],
     ['an edited patch', (d) => edit(d, `cardano/guards/upstream/${DELTA.file}`, '= 1333', '= 1')],
+    ['the opening fee check removed', (d) => edit(d, 'cardano/minswap-dex-v2/validators/factory_validator.ak', '      pool_creation_fee_paid >= global_setting.pool_creation_fee,\n', '')],
+    ['the opening fee counted at any address', (d) => edit(d, 'cardano/minswap-dex-v2/validators/factory_validator.ak', 'if out_addr == global_setting.pool_creation_fee_receiver {', 'if True {')],
+    ['the opening fee fields out of step in one copy', (d) => edit(d, 'cardano/role-timelock/lib/amm_dex_v2/types.ak', 'pool_creation_fee: Int,', 'pool_creation_fee: Data,')],
     ['an added file beside the library copy', (d) => writeFileSync(join(d, 'cardano/role-timelock/lib/amm_dex_v2/extra.ak'), '')],
     ['an edited manifest', (d) => edit(d, `cardano/guards/upstream/${MANIFEST}`, '\n8', '\n0')],
   ];

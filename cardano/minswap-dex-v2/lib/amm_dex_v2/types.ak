@@ -340,4 +340,8 @@ pub type GlobalSetting {
   // The actor who can update the addresses mentioned above.
   // This admin can be transferred to another wallet and should be stored in the most secure location.
   admin: PoolAuthorizationMethod,
+  // The lovelace a Pool Creation Transaction must pay to open a pool, changed by the admin.
+  pool_creation_fee: Int,
+  // The address the pool creation fee is paid to.
+  pool_creation_fee_receiver: Address,
 }

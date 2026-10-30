@@ -2,8 +2,9 @@
 // Built with the compiler Minswap used, our copy with the reviewed patch undone is Minswap's
 // mainnet code: it reproduces upstream's plutus.json, and Minswap's own mainnet parameters turn it
 // into the six deployed scripts byte for byte. Our copy as it stands changes exactly the
-// validators PATCH_CHANGES names, and every other one keeps Minswap's bytes. The role timelock
-// builds with the same compiler, passes its tests, and reproduces its committed plutus.json.
+// validators PATCH_CHANGES names and the type PATCH_TYPES names, every other one keeps Minswap's
+// bytes, and our tests of its Pool Creation pass. The role timelock builds with the same
+// compiler, passes its tests, and reproduces its committed plutus.json.
 //   node cardano/guards/prove-build.mjs [--chain] [--root <dir>]   (AIKEN=<path>, else aiken on PATH)
 //   --chain also reads each script from its mainnet reference UTxO (Koios) and compares.
 //   --root checks the cardano/ folder of another tree (the CI self-test hands it a tampered copy).
@@ -38,11 +39,32 @@ export const MAINNET = {
   factory: { title: 'factory_validator.validate_factory', hash: '7bc5fbd41a95f561be84369631e0e35895efb0b73e0a7480bb9ed730', scriptKey: 'factoryScript', refKey: 'factoryTxId', ref: '59c7fa5c30cbab4e6d38f65e15d1adef71495321365588506ad089d237b602e0#0' },
 };
 
-// The fee-share floor the patch lowers is read only by pool_validation's pool-fee update, which
-// only the pool validator calls. With Minswap's own mainnet parameters the pool's hash changes,
-// and so do the three scripts whose parameters name it.
-export const PATCH_CHANGES = ['pool_validator.validate_pool'];
-export const PATCH_CHANGES_APPLIED = ['pool', 'poolBatching', 'order', 'factory'];
+// The fee-share floor the patch lowers is read only by the pool validator. The two fields the
+// GlobalSetting gains change every validator that reads it (the authen policy, which also guards
+// it; the pool validator, both purposes), and the factory now reads it to check the pool
+// creation fee. The order validators keep Minswap's bytes. With Minswap's own mainnet
+// parameters the authen policy's hash changes, and so does every script whose parameters name
+// it or a script that does; the expired-order script takes none.
+export const PATCH_CHANGES = [
+  'authen_minting_policy.validate_authen',
+  'authen_minting_policy.validate_spend_global_setting',
+  'factory_validator.validate_factory',
+  'pool_validator.validate_pool',
+  'pool_validator.validate_pool_batching',
+];
+export const PATCH_CHANGES_APPLIED = ['authen', 'pool', 'poolBatching', 'order', 'factory'];
+
+// The one type the patch changes: the GlobalSetting, Minswap's six fields and then these two.
+export const PATCH_TYPES = {
+  'amm_dex_v2/types/GlobalSetting': [
+    { title: 'pool_creation_fee', $ref: '#/definitions/Int' },
+    { title: 'pool_creation_fee_receiver', $ref: '#/definitions/aiken~1transaction~1credential~1Address' },
+  ],
+};
+
+// Our tests of the patched Pool Creation. Aiken v1.0.24 tests reach a validator only from its
+// own module, so they run appended to a staged copy of the factory validator.
+export const FACTORY_TESTS = { file: 'cardano/minswap-tests/factory_validator.ak', into: 'validators/factory_validator.ak', module: 'factory_validator', min: 14 };
 
 // Plutus Data as CBOR hex, encoded as Plutus itself does: a constructor's non-empty field list
 // is indefinite-length.
@@ -105,6 +127,40 @@ function build(dir) {
 
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
+/** Upstream's definitions with PATCH_TYPES' fields appended. */
+function patchedTypes(definitions) {
+  const d = structuredClone(definitions);
+  for (const [k, added] of Object.entries(PATCH_TYPES)) d[k].anyOf[0].fields.push(...added);
+  return d;
+}
+
+/** Per module, from `aiken check`'s report. */
+const testCounts = (out) => [...out.matchAll(/━ (\S+) ━[\s\S]*?(\d+) tests \| (\d+) passed \| (\d+) failed/g)].map((m) => ({ module: m[1], tests: +m[2], failed: +m[4] }));
+
+/** FACTORY_TESTS appended to a staged copy of our Minswap code: formatted, all there, passing. */
+function factoryTests(work, stdlib) {
+  const { file, into, module, min } = FACTORY_TESTS;
+  const dir = stage(join(ROOT, 'cardano/minswap-dex-v2'), join(work, 'minswap-tests'), stdlib);
+  writeFileSync(join(dir, into), `${readFileSync(join(dir, into), 'utf-8')}\n${readFileSync(join(ROOT, file), 'utf-8').replace(/\r$/gm, '')}`);
+  const problems = [];
+  try {
+    const out = run(['check'], dir);
+    const counts = testCounts(out);
+    const mine = counts.find((c) => c.module === module);
+    if (!mine || mine.tests < min || counts.some((c) => c.failed)) problems.push(`factory tests: ${file} ran ${mine?.tests ?? 0} of at least ${min}, or one failed:\n${out}`);
+    else console.log(`factory tests: ${file}: aiken check: ${counts.map((c) => `${c.module} ${c.tests}`).join(', ')}, none failed`);
+  } catch (e) {
+    problems.push(`factory tests: ${file} did not pass: ${e.message}`);
+  }
+  try {
+    run(['fmt', '--check', into], dir);
+    console.log(`factory tests: ${into} with them appended is as aiken fmt writes it`);
+  } catch (e) {
+    problems.push(`factory tests: ${into} with ${file} appended is not as aiken fmt writes it: ${e.message}`);
+  }
+  return problems;
+}
+
 function fetchStdlib(work) {
   const dir = join(work, 'stdlib');
   const git = (args) => execFileSync('git', ['-c', 'core.autocrlf=false', ...args], { cwd: dir, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
@@ -154,9 +210,11 @@ async function chainScripts() {
   return res.json();
 }
 
+// Kept outside main: a later step that throws still reports what earlier steps found.
+const problems = [];
+
 async function main() {
   const chain = process.argv.includes('--chain');
-  const problems = [];
   const version = run(['--version'], ROOT).trim();
   if (version !== COMPILER) throw new Error(`${AIKEN} is ${version}, not ${COMPILER}`);
   console.log(`compiler: ${version}`);
@@ -164,6 +222,9 @@ async function main() {
   try {
     const stdlib = fetchStdlib(work);
     console.log(`stdlib: ${STDLIB.repo} @ ${STDLIB.commit} (${STDLIB.version})`);
+
+    // First, so a copy whose patch no longer undoes still has its tests run.
+    problems.push(...factoryTests(work, stdlib));
 
     // Minswap's code: our copy with the reviewed patch undone.
     const patch = readPatch(join(ROOT, 'cardano/guards/upstream'));
@@ -201,7 +262,8 @@ async function main() {
     const mine = stage(join(ROOT, 'cardano/minswap-dex-v2'), join(work, 'minswap-ours'), stdlib);
     const ours = build(mine);
     const changed = upstream.validators.filter((u) => ours.validators.find((v) => v.title === u.title)?.compiledCode !== u.compiledCode).map((u) => u.title);
-    if (!same(ours.definitions, upstream.definitions) || ours.validators.length !== upstream.validators.length) problems.push('ours: the patch changed a type or the set of validators');
+    if (!same(ours.definitions, patchedTypes(upstream.definitions)) || ours.validators.length !== upstream.validators.length) problems.push('ours: the patch changed a type PATCH_TYPES does not name, or the set of validators');
+    else console.log(`ours: every type is upstream's, but ${Object.keys(PATCH_TYPES).join(', ')}: ${Object.values(PATCH_TYPES).map((f) => f.map((x) => x.title).join(' and ')).join('; ')} appended`);
     if (changed.join('|') !== PATCH_CHANGES.join('|')) problems.push(`ours: the patch changes ${changed.join(', ') || 'no validator'}, not exactly ${PATCH_CHANGES.join(', ')}`);
     for (const u of upstream.validators) {
       const v = ours.validators.find((x) => x.title === u.title);
@@ -219,9 +281,9 @@ async function main() {
     const committed = JSON.parse(readFileSync(join(rt, 'plutus.json'), 'utf-8'));
     run(['fmt', '--check'], rt);
     const tests = run(['check'], rt);
-    const counts = [...tests.matchAll(/━ (\S+) ━[\s\S]*?(\d+) tests \| (\d+) passed \| (\d+) failed/g)].map((m) => ({ module: m[1], tests: +m[2], failed: +m[4] }));
+    const counts = testCounts(tests);
     const lockTests = counts.find((c) => c.module === 'role_timelock/lock_test');
-    if (!lockTests || lockTests.tests < 80 || counts.some((c) => c.failed)) problems.push(`role-timelock: aiken check did not pass the lock's tests:\n${tests}`);
+    if (!lockTests || lockTests.tests < 96 || counts.some((c) => c.failed)) problems.push(`role-timelock: aiken check did not pass the lock's tests:\n${tests}`);
     else console.log(`role-timelock: aiken fmt --check clean; aiken check: ${counts.map((c) => `${c.module} ${c.tests}`).join(', ')}, none failed`);
     const blueprint = build(rt);
     if (!same(blueprint, committed)) problems.push('role-timelock: the build is not the committed plutus.json; rebuild and commit it');
@@ -235,6 +297,7 @@ async function main() {
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
   main().catch((e) => {
+    for (const p of problems) console.log(`::error::${p}`);
     console.log(`::error::${e.message}`);
     process.exit(1);
   });
