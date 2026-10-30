@@ -15,6 +15,39 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-28: WebKit can report art it mounted 1.6 s earlier as just visible, so a clock paused from that moment stops the splash after it has left
+
+**Believed:** `e2e/splash-reduced-motion.spec.ts` stops the Tradermigos splash well inside its
+1.8 s loading beat: it waits for the first art piece to be visible, reads the page's `Date.now()`
+and pauses the page clock 200 ms on. So "share of /splash/frogking.jpg in sight: 0" on
+`ipad-safari` (PR #1043, three attempts) meant the splash buried that picture.
+
+**Measured** (PR #1043 run 40742549494, `ipad-safari`, the first retry's trace): the splash
+mounted, by its first `/splash/` image request, 797 ms after `goto`; WebKit's `waitFor` reported
+the piece visible 1620 ms after that; the pause landed 1840 ms after the mount, 40 ms after the
+loading bar had run out, and the error context read WELCOME, the bar's end word. The passing
+retries of spreads 1 and 17 saw the piece 85 ms after the mount and paused at 314 ms. The
+600 ms the spec then steps carry the exit through glitch (450) and flash (100) into cover: 120
+dark blocks at `z-index: 100` without `pointer-events: none`, so the hit test finds no picture at
+any point and all ten pieces read 0. The one named is the first in the DOM: frogking on spread 2,
+the watercolour on 1 and 17. Trunk's green runs 40707167299 and 40723022656 flaked the same way;
+Chromium sees the piece within a frame and never did. On the WSL rig (Ubuntu 24.04,
+Playwright 1.62.1, the CI build of ee44d33d6, one worker, no retries, both WebKit projects) the
+spec failed 24 of 132 reduced-motion runs while vitest ran on the Windows host, and 0 of 108 with
+the host quiet or six WSL cores spun: the lateness needs the host busy, not the rig. Every one of
+the 15 retained failures read WELCOME, had every piece at 0 and had paused 1.8 to 8.3 s after the
+mount; the art was seen 0.08 to 6.7 s after it, and in three of them a single `page.evaluate`
+round trip took 3 s, so any real-time gap before the pause lets the bar run out, not only
+`waitFor`. Stopped before `goto` and stepped 50 ms at a time, the spec passed 132 of 132 in the
+same windows, and its 44 motion runs.
+
+**Do:** to catch a page before one of its timers fires, stop its clock before `goto` and step it
+with `runFor` until the element exists (`locator.count()` between steps): a `waitFor` on WebKit
+can answer seconds after the DOM did, while the page's timers run on time. A hit test that reads 0
+for every piece is something over all of them: say what `elementFromPoint` returns before blaming
+the layout. PR #996 held this fix from 2026-10-24 and sat unmerged while the flake cost two trunk
+retries and a red PR.
+
 ## 2026-10-27: a zeroed address constant is not "never deployed", and six files hold a contract besides its tests
 
 **Believed:** a contract whose `*_ADDRESS` is zeroed in `frontend/src/lib/constants.ts` was never
@@ -427,9 +460,9 @@ on seeds 4 to 40, on both devices.
 **Do:** count what a visitor sees with the browser's own hit test: turn `pointer-events` on for the
 pictures, sample `document.elementFromPoint` on a grid, turn it back off. Step a
 `requestAnimationFrame` loop with `page.clock`, which fakes rAF too: `runFor(100)` fires about six
-frames whatever WebKit's starved compositor draws. A `clock.pauseAt` aimed at the page's
-`Date.now()` plus 10 ms landed in the past on chromium, and plus 200 ms did once under two workers:
-catch "Cannot fast-forward to the past" and aim again.
+frames whatever WebKit's starved compositor draws. Stop the clock before `goto` and step it until
+the art is up: a pause aimed at the page's `Date.now()` once the art shows can land after the
+splash has left (the 2026-10-28 entry above).
 
 ## 2026-10-20: a press area made of padding and a matching negative margin loses its lower part to the rows after it
 
