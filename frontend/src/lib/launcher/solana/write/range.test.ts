@@ -34,7 +34,7 @@ import { decodeIntent } from './intent';
 import { RANGE_COPY, freezeLines, prepareRangeClose, prepareRangeOpen, prepareRangeRemove, stepsProblem, type RangeOpenReads } from './range';
 import { encodeMint } from './testkit.fixture';
 import { BAYLA_QUOTE, SOL_QUOTE, USDC_QUOTE } from '../../../solana/lp/quotes';
-import { FakeChain, cfgLocal, openAccount, rent, type SimHandler } from './testkit.fixture';
+import { FakeChain, cfgLocal, openAccount, rent, setTransferFee, type SimHandler } from './testkit.fixture';
 import type { IntentStep, PreparedTx, RangeIntent, RangeSummary, WriteRpc } from './types';
 
 const W = (c: FakeChain) => c as unknown as WriteRpc;
@@ -587,6 +587,20 @@ describe('the review holds the decoded steps to the plan', () => {
 });
 
 describe('the pins are held to the chain', () => {
+  // Owner, 2026-10-29: our cp-swap pools take a token with a transfer fee (they subtract
+  // it); the range builders' maths moves exact amounts only, so each still refuses one.
+  it('a token with a transfer fee is refused by the range builders, opening and taking out alike', async () => {
+    const c = ready(chainWith({ token2022: true }));
+    c.mint2022(TOKEN, [[1, 108]], { decimals: 6 });
+    setTransferFee(c, TOKEN, { basisPoints: 500 });
+    const why = RANGE_COPY.tokenNot('it uses a transfer-fee setting, which lets the token take a fee out of every transfer');
+    const open = await prepareRangeOpen(W(c), cfgLocal, PROG, READS, { owner: ME, pool: POOL, ...inRange, side: 'token', amount: 5_000_000n, toleranceBps: 100 });
+    expect(open.ok ? null : open.outcome.message).toBe(why);
+    const { position } = withPosition(c);
+    const out = await prepareRangeRemove(W(c), cfgLocal, PROG, { owner: ME, position, percent: 50, toleranceBps: 100 });
+    expect(out.ok ? null : out.outcome.message).toBe(why);
+  });
+
   it('a pool whose vault is not the one its address derives is refused', async () => {
     const c = ready(chainWith());
     const pool = c.accounts.get(POOL.toBase58())!;

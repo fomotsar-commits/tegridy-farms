@@ -29,6 +29,181 @@ stop and say so — a surprise is information.
 
 ---
 
+## 🔴 2026-10-29: the vault batch, read this before Day 0
+
+Read on mainnet 2026-10-29 at 04:40 UTC. It corrects the proposal number and the amounts in the
+sections below, which were written before #21 was used.
+
+**#21 is already used.** It is the range tier 1 fee change (0.25% to 1%), proposed by member B and
+approved by both members on 2026-10-28 at 16:06:32 UTC.
+- It can execute from **2026-10-30 16:06:32 UTC**, on the tier 1 pack's page.
+- Execute it **before** the range upgrade executes: its page stops for good once the range
+  program's bytes change.
+- Then run `8-verify-tier-fee.mjs` and merge #1044 (the registry row) the same day, or the next
+  morning's chain check goes red.
+
+**Your batch (your call, 2026-10-28) is five more proposals:** the range upgrade, the pool
+re-upgrade, the pool roll-back (pre-staged), the ladder upgrade and the ladder wallet limit raise.
+They get **#22 to #26**, in the order you propose them. Every pack's paper, and the steps below,
+were written expecting "#21". **Use the number the page shows**, write it down next to its name,
+and read it back before every press.
+
+**What to send** (send a tiny test amount first, see it arrive, then the rest):
+
+| Send | To | Holds now | What it pays for |
+|---|---|---|---|
+| **15.1 SOL** | the deploy wallet `CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg` | 0 | range upload 7.818, pool upload 3.688, pool roll-back upload 3.518 |
+| **2.70 SOL** | the ladder deploy wallet `Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6` | 0 | ladder upload and enlarge |
+| **0.05 SOL** | member A `5QHzAqbGk3W8qGRBHCMyWjhLXf8YJcs3yPEh14Ymcwgz` | 0.001 | five proposals, about 0.0046 each |
+
+- Member B `6VHowW4pnD4WTGsXhqBp6yxGgC3EExVmYgebSrRNu2tY` holds 0.0053 SOL: enough to approve and
+  execute, not to propose.
+- The range and pool uploads come back to the deploy wallet when each upgrade executes. The
+  roll-back's 3.51 SOL comes back only through a later return proposal, 48 hours after its
+  approval. About 0.1 SOL is spent for good.
+- **The day you send the 2.70 SOL, merge #1047**, the registry PR that marks the ladder deploy
+  wallet as funded. The registry expects that wallet to be empty, so the daily chain check goes red
+  otherwise.
+
+**Day 2, execute in this order:** #21 if it hasn't run yet, then the range upgrade, the pool
+re-upgrade, the ladder upgrade, the ladder raise. Never press the pool roll-back. Never press old
+#18: it still shows "Approved" because its failed run didn't change that, and pressing it only
+burns a fee. After the pool re-upgrade executes, a session undoes #991.
+
+## 🔴 2026-10-28: range pools open for free until you upgrade the range program (do this first)
+
+**Why it is urgent.** #19 ran on 2026-10-27 and made both range fee tiers, so on the range program
+running now anyone can open a range pool without paying. None was open on 2026-10-28. You ruled on
+2026-10-25 that opening one costs 0.5 SOL, paid to the venue; the program change is pull request
+#1019 (merging it changes nothing on chain). It reaches mainnet only through a vault upgrade, which
+waits 48 hours. Pools opened before it stay open; the upgrade charges only new openings.
+
+**How the money moves.**
+
+- Whoever opens a range pool after the upgrade pays 0.5 SOL to the vault
+  `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd`. It is never refunded; the opener earns nothing
+  from it.
+- On every swap the pool takes 1% of the swap: positions in range share 84% of that fee, the
+  vault 10.4%, the island's Workshop 5.6%.
+- The upgrade itself: the deploy wallet parks 7.758 SOL in the upload for the 48 hours and gets it
+  back when the upgrade runs. About 0.06 SOL is spent for good (0.052 SOL to make the program
+  account larger, plus network fees). Member A spends about 0.0046 SOL on the proposal.
+
+**What to send:** the batch table in the 2026-10-29 section above replaces this one. For the range
+upgrade alone it would be 7.85 SOL to the deploy wallet and 0.02 SOL to member A.
+
+**Never approve or execute this upgrade in the Squads app.** Only the pack's page reads the
+uploaded program back from the chain and refuses a wrong build. On the page, read back the
+proposal number it shows (#22 or later, called #N below) before every press. The pack is
+`C:\Users\jimbo\solana-launch-release-2026-09-26\range-pools-open-fee-upgrade-2026-10`; its
+`START-HERE.md` has the same steps with every "if this goes wrong". Two things in that paper are
+out of date since #19 ran: its warnings about #19, and its "after Day 2: the fee tiers" section.
+Skip both. Skip its optional roll-back steps (11a to 11e, 13b, 14b) too.
+
+### Day 0 (about 40 minutes)
+
+1. **Send the SOL** in the batch table at the top of this file.
+2. **Check the key file is the deploy wallet's.** You should see
+   `CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg`; anything else, stop.
+
+   ```powershell
+   & "C:\Users\jimbo\.local\share\solana\install\releases\stable-6a8c724a9ed8f093127ef6066e0bcfb074193cc3\solana-release\bin\solana.exe" address -k "C:\Users\jimbo\solana-keys\mainnet\tegridy-launch-deployer.json"
+   ```
+
+3. **Run the check before anything is spent** (reads only). It must end
+   `RESULT: every line passed`. An `ALARM` that a range fee tier already exists is expected now.
+
+   ```powershell
+   node "C:\Users\jimbo\solana-launch-release-2026-09-26\range-pools-open-fee-upgrade-2026-10\scripts\1-preflight.mjs"
+   ```
+
+4. **Ask how much room the program needs** (reads only). You should see
+   `RESULT: the enlarge will be exactly 10,240 bytes.`
+
+   ```powershell
+   node "C:\Users\jimbo\solana-launch-release-2026-09-26\range-pools-open-fee-upgrade-2026-10\scripts\2-check-before-enlarge.mjs"
+   ```
+
+5. **Add the room** (the deploy wallet signs; 0.052 SOL for good). One window only; wait for it to
+   end with `RESULT: the room is there.` Never type `solana program extend` yourself.
+
+   ```powershell
+   node "C:\Users\jimbo\solana-launch-release-2026-09-26\range-pools-open-fee-upgrade-2026-10\scripts\2b-enlarge.mjs" --send --keypair "C:\Users\jimbo\solana-keys\mainnet\tegridy-launch-deployer.json"
+   ```
+
+6. **Run step 4 again.** It should now say `REFUSED` with `ALREADY 1,533,021 bytes`: the right answer.
+7. **Make the one-time upload key.** The address after `pubkey:` is your BUFFER ADDRESS: copy it.
+
+   ```powershell
+   & "C:\Users\jimbo\.local\share\solana\install\releases\stable-6a8c724a9ed8f093127ef6066e0bcfb074193cc3\solana-release\bin\solana-keygen.exe" new --no-bip39-passphrase --outfile "C:\Users\jimbo\solana-launch-release-2026-09-26\range-pools-open-fee-upgrade-2026-10\owner-run\upgrade-buffer-keypair.json"
+   ```
+
+8. **Upload** (the deploy wallet signs; parks 7.758 SOL). Several minutes, about 1,500 small
+   transactions. If it stops, run the same line again: it carries on and does not pay twice.
+
+   ```powershell
+   & "C:\Users\jimbo\.local\share\solana\install\releases\stable-6a8c724a9ed8f093127ef6066e0bcfb074193cc3\solana-release\bin\solana.exe" program write-buffer "C:\Users\jimbo\solana-launch-release-2026-09-26\range-pools-open-fee-upgrade-2026-10\binary-to-deploy\raydium_clmm.open-fee-1e896e1e.mainnet.so" --buffer "C:\Users\jimbo\solana-launch-release-2026-09-26\range-pools-open-fee-upgrade-2026-10\owner-run\upgrade-buffer-keypair.json" --buffer-authority "C:\Users\jimbo\solana-keys\mainnet\tegridy-launch-deployer.json" --keypair "C:\Users\jimbo\solana-keys\mainnet\tegridy-launch-deployer.json" --with-compute-unit-price 10000 --url https://api.mainnet-beta.solana.com
+   ```
+
+9. **Check the upload before handing it over** (reads only). You should see sha256
+   `1e896e1ec8ebd2b7a8d55c56fdd0ee4e4815a908bde42bc31e965a317ff8d95e` and
+   `RESULT: every line passed. This buffer may now be handed to the vault.`
+
+   ```powershell
+   node "C:\Users\jimbo\solana-launch-release-2026-09-26\range-pools-open-fee-upgrade-2026-10\scripts\3-verify-buffer.mjs" --buffer <BUFFER ADDRESS> --stage uploaded
+   ```
+
+10. **Hand the upload to the vault** (the deploy wallet signs). You should see
+    `Authority: GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd`.
+
+    ```powershell
+    & "C:\Users\jimbo\.local\share\solana\install\releases\stable-6a8c724a9ed8f093127ef6066e0bcfb074193cc3\solana-release\bin\solana.exe" program set-buffer-authority <BUFFER ADDRESS> --buffer-authority "C:\Users\jimbo\solana-keys\mainnet\tegridy-launch-deployer.json" --new-buffer-authority GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd --keypair "C:\Users\jimbo\solana-keys\mainnet\tegridy-launch-deployer.json" --url https://api.mainnet-beta.solana.com
+    ```
+
+11. **Check it again** (reads only). You should see `RESULT: every line passed. This buffer may be proposed.`
+
+    ```powershell
+    node "C:\Users\jimbo\solana-launch-release-2026-09-26\range-pools-open-fee-upgrade-2026-10\scripts\3-verify-buffer.mjs" --buffer <BUFFER ADDRESS>
+    ```
+
+12. **Start the signing page**, and open **http://127.0.0.1:5599/** in ONE tab of the browser with
+    your wallet. It shows a yellow bar, **MAINNET: real money**.
+
+    ```powershell
+    node "C:\Users\jimbo\solana-launch-release-2026-09-26\range-pools-open-fee-upgrade-2026-10\proposer\serve.mjs"
+    ```
+
+13. **Member A proposes.** Connect member A, pick **Upgrade the range program: opening a range pool
+    costs 0.5 SOL**, paste the BUFFER ADDRESS in the first box (leave the second as filled in), click
+    **Check these addresses**. Every line green, among them sha256 `1e896e1e…`. Read back the
+    number on the button (#N, not #21), then press **Sign proposal #N**. You should see
+    `Done: proposal #N is created and you approved it.` **Write down #N.**
+14. **Member B approves; this starts the 48 hours.** **Disconnect / switch wallet**, connect member
+    B, pick the same item. Read back "#N", press **Approve proposal #N**, then **Check again**.
+    **Write down the time it says #N is held until.** Then press Ctrl+C in the page's window.
+
+### Day 2 (at or after the time you wrote down)
+
+15. **Execute.** Start the page again (step 12), connect either member, pick the same item. When it
+    says **Ready to execute.**, read back "#N" and press **EXECUTE proposal #N**. You should see
+    `Done: proposal #N is EXECUTED.` The 7.758 SOL is back in the deploy wallet. If the page says
+    `UNKNOWN`, do not sign again: go to step 16.
+16. **Check the result** (reads only). It should end
+    `RESULT: the upgrade is live: opening a range pool now costs 0.5 SOL, paid to the vault.` and,
+    since the 1% tier exists, show a stranger opening a pool on it paying the vault exactly 0.5 SOL.
+
+    ```powershell
+    node "C:\Users\jimbo\solana-launch-release-2026-09-26\range-pools-open-fee-upgrade-2026-10\scripts\4-verify-after-upgrade.mjs" --buffer <BUFFER ADDRESS>
+    ```
+
+### After Day 2
+
+- **Merge #1021** (your word): the Range card then says opening a pool costs 0.5 SOL.
+- **Open the first pool, BAYLA/SOL on the 1% tier.** Nothing on the site opens a range pool yet;
+  a session is building that screen. You decide who opens it, at what starting price (the opener
+  sets it), and how much BAYLA and SOL go in.
+- **Mark this section done.**
+
 ## 🔴 2026-10-24, 17:03 UTC: the pool program was rolled back by mistake; re-upgrade postponed
 
 Read on chain on 2026-10-24 at 17:07 UTC. Newer than the section below.
@@ -60,7 +235,8 @@ pre-stages a roll-back (your choice on 2026-10-24); decide that again when you d
   calls the missing instruction. On re-upgrade day a session undoes #991 again; the plan's step
   R15b says how.
 
-**Before you do the re-upgrade:**
+**Before you do the re-upgrade:** in the 2026-10-29 batch, the table at the top of this file
+replaces the two amounts below.
 - ⬜ Send the paying wallet `CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg` **3.69 SOL**, or **7.21
   SOL** if you pre-stage a roll-back again. You are moving its 7.281902 SOL to
   `Upmhw8i6RSLXoj4yGzq9ZYLXb4UzZMRm7BSX8BxCdEd` now, so it will be empty. The upload's 3.68 SOL
@@ -95,9 +271,15 @@ Read on chain and on GitHub on 2026-10-24, about 03:30 UTC.
 
 **Left, in this order:**
 
-1. ⬜ **Execute the range fee tiers (#19). It can run now.** The public notice said no sooner than
-   2026-10-23 14:00 UTC. Read on 2026-10-24: not executed (the range program owns no accounts).
-   The folder's START-HERE, steps 4 and 5:
+1. ✅ **Done 2026-10-27 03:52:39 UTC: the owner executed #19** (transaction
+   `5t4B2D81y5Gvj8uLkEKVZ8L8T3CUW4Akf68X2PWZqi2C4Hy8USUYwtz21hhaNZ2rR4c67aUE8xTfoGYRyXFvFa3v`).
+   Both tiers are live, 1% and 0.25%, each with the island split; `6-verify-tiers.mjs` passed the
+   same day. The site reads only the 1% tier (`RANGE_POOLS_OPEN` went on with #1011 on 10-25).
+   **Until the range program charges the 0.5 SOL opening fee (#1019), anyone may open a range
+   pool on either tier for free.** The steps it took, kept for the record:
+
+   ~~**Execute the range fee tiers (#19).**~~ The public notice said no sooner than
+   2026-10-23 14:00 UTC. The folder's START-HERE, steps 4 and 5:
 
    ```bash
    node "C:\Users\jimbo\solana-launch-release-2026-09-26\range-pools-tiers-2026-10\scripts\5-record-notice.mjs"
@@ -116,7 +298,11 @@ Read on chain and on GitHub on 2026-10-24, about 03:30 UTC.
    After that a session opens the one-line pull request that turns `RANGE_POOLS_OPEN` on. Until it
    merges, the Range tab and the range pools in the swap route stay hidden.
 
-2. ⬜ **Day 4, Sunday 2026-10-25, from 09:07 UTC: the pool pack's step 22.** Start the page, open
+2. ✅ **Done 2026-10-27 03:52 UTC: the owner executed #20** (transaction
+   `M2KuWgiLRPSCyYbRFCCa63gVsMmSZG1BbLYNGBxfGtZhtNqU9XSNyBDVUh3wXqbnTJA5XNEuQGFJLEHBPLmNzxY`);
+   `6-read-names.mjs --expect renamed` passed the same day. A try at #18 a minute later failed
+   on chain, as expected (its buffer was closed on 10-24); it cost only the network fee.
+   The steps, kept for the record: ~~**Day 4, Sunday 2026-10-25, from 09:07 UTC: the pool pack's step 22.**~~ Start the page, open
    **http://127.0.0.1:5299/**, connect a member and execute **#20** (the rename to "Bayla LP SOL"
    and "Bayla LP USDC"):
 
@@ -658,8 +844,7 @@ made under "the rest", now settled and being built:
   while the program exists, and about 15.48 SOL in hand during the deploy (half of it comes back
   at the end), plus about 0.01 SOL of fees. Figures from `docs/RANGE_POOLS_PLAN.md` on #800's
   branch, at the rent rate read 2026-10-14.
-- ⬜ **Proposed and approved by both members 2026-10-21** (Squads #19, 13:45:21 UTC). It may
-  execute from 2026-10-23 14:00 UTC, the date the public notice gives. Each tier's 16% is now
+- ✅ **Executed 2026-10-27 03:52:39 UTC** (Squads #19, approved by both members 2026-10-21). Each tier's 16% is now
   10.4% to the vault and 5.6% to the island's Workshop (registry rows `range-clmm-amm-config-0`
   and `-1`). **The range fee tiers** proposed in `docs/RANGE_POOLS_PLAN.md` (#800): 1% and 0.25%, liquidity
   providers keep 84% of each fee and the venue 16%. They need the vault's signature, about
