@@ -16,6 +16,8 @@ import {
 } from '../lib/wallet/walletRows';
 import { EDITORIAL_BG, EDITORIAL_EASE, EDITORIAL_GRAIN, EDITORIAL_INK, HEADING_FONT, pad2 } from '../lib/editorial';
 import { useWalletBoard } from '../hooks/useWalletBoard';
+import { useOnStakesChanged } from '../lib/harvest/stakesChanged';
+import { HarvestCard } from './farm/HarvestCard';
 import { CardArt } from './ui/CardArt';
 import { FinePrint } from './ui/FinePrint';
 
@@ -710,6 +712,9 @@ function Figure({ fig, mode, unpinned, quick, progress, frameRef }: {
 
 export function IslandDashboard({ headingLevel = 2 }: { headingLevel?: 1 | 2 }) {
   const board = useWalletBoard();
+  // A harvest, or a claim on a pool card, changes the positions' "earned" figures.
+  const [me] = useState(() => ({}));
+  useOnStakesChanged(me, board.refresh);
   const pools = venuePoolRows();
   const chains = new Set(pools.map((r) => r.chain).filter((c) => c !== 'tbd')).size;
   const Heading = headingLevel === 1 ? 'h1' : 'h2';
@@ -851,6 +856,9 @@ export function IslandDashboard({ headingLevel = 2 }: { headingLevel?: 1 | 2 }) 
                   const f = positionFig(r, i);
                   return <PositionItem key={r.key} n={i + 1} row={r} onShow={show(f)} figKey={f.key} current={isCurrent(f)} />;
                 }} />
+              {/* Every position's rewards in one press, on the home's board and /dashboard
+                  alike (owner, 2026-10-30); drawn only while there is something to claim. */}
+              <HarvestCard quiet headingLevel={3} className="mt-6" />
               {(!board.solanaAddress || !board.evmAddress) && (
                 <div className="mt-5 flex flex-wrap items-center gap-3">
                   <span className="text-[13px] text-[#f5e4b8]/70">Hold coins on the other chain too?</span>

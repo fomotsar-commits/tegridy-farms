@@ -1,7 +1,8 @@
 // The Harvest card on /earn: what it says before, during and after a run. The planning and
 // the run order have their own tests (lib/harvest/*.test.ts); this is the screen.
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { act, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { act, render, renderHook, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { noteStakesChanged, useOnStakesChanged } from '../../lib/harvest/stakesChanged';
 import { MemoryRouter } from 'react-router-dom';
 import type { EvmClaim } from '../../lib/harvest/evm';
 import type { SolanaClaim } from '../../lib/harvest/solana';
@@ -84,11 +85,13 @@ describe('Harvest card', () => {
       plan: {
         claims: [claim('pepe', 'ethereum', 3n * 10n ** 18n), claim('qr', 'base', 1500n * 10n ** 18n)],
         held: [],
-        unread: [{ key: 'evm:jbm', chain: 'base', roomId: 'jbm', what: 'your JBM rewards', detail: 'the JBM pool did not answer' }],
+        unread: [{ key: 'evm:jbm', chain: 'base', roomId: 'jbm', what: 'your JBM rewards', detail: 'The JBM pool did not answer.' }],
       },
       batchable: ONE_BY_ONE,
     };
     show();
+    // A reason that ends its own sentence is not given a second full stop inside the brackets.
+    expect(screen.getByText(/Could not read your JBM rewards/).textContent).toContain('(The JBM pool did not answer). Not a zero.');
     const list = screen.getByRole('list', { name: 'Ready to claim' });
     // Base first: the wallet is on Base, so it switches network once.
     expect(within(list).getAllByRole('listitem').map((li) => li.textContent?.split('lighthouse')[0]?.trim())).toEqual(['1,500 QR', '3 PEPE']);
@@ -96,8 +99,10 @@ describe('Harvest card', () => {
     expect(screen.getByRole('button', { name: 'Harvest all · 2 claims' })).toBeTruthy();
     // The Base claim, a switch to Ethereum, the Ethereum claim.
     expect(screen.getByText('Your wallet asks 3 times.')).toBeTruthy();
-    // The venue speaks for every pool, not as one resident (e2e/voice-census.spec.ts).
+    // The venue speaks for every pool, not as one resident (e2e/voice-census.spec.ts), and a pool
+    // page carries no prose em dash (BungalowFarmPanel.prose.test.tsx stubs this card).
     expect(document.body.textContent).not.toMatch(/TOWELI/);
+    expect(document.body.textContent).not.toMatch(/—/);
   });
 
   it('a run marks each claim as it lands, links the transaction, and offers to check again', async () => {
@@ -136,6 +141,40 @@ describe('Harvest card', () => {
     } finally {
       act(() => setSolanaSurface(owner, null));
     }
+  });
+
+  it('quiet (a pool page, a dashboard): nothing while reading or with nothing to claim; the card once there is a claim', () => {
+    evm.state = { address: '0xabc', chain: 'base', plan: null, batchable: ONE_BY_ONE };
+    const reading = render(<MemoryRouter><HarvestCard quiet /></MemoryRouter>);
+    expect(reading.container.textContent).toBe('');
+    reading.unmount();
+
+    evm.state = { address: '0xabc', chain: 'base', plan: { claims: [], held: [], unread: [{ key: 'evm:jbm', chain: 'base', roomId: 'jbm', what: 'your JBM rewards', detail: 'x' }] }, batchable: ONE_BY_ONE };
+    const nothing = render(<MemoryRouter><HarvestCard quiet /></MemoryRouter>);
+    expect(nothing.container.textContent).toBe('');
+    nothing.unmount();
+
+    evm.state = { address: '0xabc', chain: 'base', plan: { claims: [claim('qr', 'base', 10n ** 18n)], held: [], unread: [] }, batchable: ONE_BY_ONE };
+    render(<MemoryRouter><HarvestCard quiet headingLevel={3} /></MemoryRouter>);
+    expect(screen.getByRole('heading', { level: 3, name: 'Harvest' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Harvest all · 1 claim' })).toBeTruthy();
+  });
+
+  it('a harvest tells the page, and a write elsewhere on the page makes it read again', async () => {
+    evm.state = { address: '0xabc', chain: 'base', plan: { claims: [claim('qr', 'base', 10n ** 18n)], held: [], unread: [] }, batchable: ONE_BY_ONE };
+    evm.send.mockResolvedValue({ kind: 'claimed', tx: '0xfeed' });
+    const page = {};
+    const heard = vi.fn();
+    const listener = renderHook(() => useOnStakesChanged(page, heard));
+    show();
+    fireEvent.click(screen.getByRole('button', { name: 'Harvest all · 1 claim' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Check again' })).toBeTruthy());
+    expect(heard).toHaveBeenCalledTimes(1);
+
+    evm.refetch.mockClear();
+    act(() => noteStakesChanged(page));
+    expect(evm.refetch).toHaveBeenCalledTimes(1);
+    listener.unmount();
   });
 
   it('a pool it leaves alone says why, and points to that pool’s page', () => {

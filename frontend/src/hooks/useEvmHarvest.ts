@@ -41,7 +41,9 @@ export function useEvmHarvest() {
         { address: b.address as `0x${string}`, abi: ERC20_ABI, chainId: EVM_CHAIN_IDS[b.chain], functionName: 'decimals' } as const,
       ];
     }),
-    query: { enabled: Boolean(address) },
+    // Every 30 s, as the EVM pool cards read themselves (EvmLadderPoolLive): a claim made on one
+    // of those cards shows here within that, with no word passed between them.
+    query: { enabled: Boolean(address), refetchInterval: 30_000 },
   });
 
   const plan: HarvestPlan<EvmClaim> | null = useMemo(() => {
