@@ -8,11 +8,11 @@ import { getTxUrl } from '../../lib/explorer';
 import { fmtAmount } from '../../lib/wallet/walletRows';
 import { EVM_CHAIN_IDS, type EvmClaim } from '../../lib/harvest/evm';
 import type { SolanaClaim } from '../../lib/harvest/solana';
-import { runHarvest, runSummary } from '../../lib/harvest/run';
+import { promptCount, runHarvest, runSummary, type SendTogether } from '../../lib/harvest/run';
 import { noteStakesChanged, useOnStakesChanged } from '../../lib/harvest/stakesChanged';
 import {
   HARVEST_CHAIN_LABEL, orderClaims,
-  type ClaimResult, type ClaimState, type HarvestClaim, type HarvestHeld, type HarvestPlan, type HarvestUnread,
+  type ClaimResult, type ClaimState, type HarvestChain, type HarvestClaim, type HarvestHeld, type HarvestPlan, type HarvestUnread,
 } from '../../lib/harvest/types';
 import { CardArt } from '../ui/CardArt';
 import { FinePrint } from '../ui/FinePrint';
@@ -52,15 +52,20 @@ function useSolanaHarvest(address: string | null, nonce: number): HarvestPlan<So
   return address && read?.owner === address ? read.plan : null;
 }
 
+/** The Solana wallet signs several transactions on one prompt (the Buy-all order's test, lib/harvest/solana.ts signsAll). */
+const signsAll = (signer: object | null | undefined) =>
+  typeof (signer as { signAllTransactions?: unknown } | null | undefined)?.signAllTransactions === 'function';
+
 /**
  * Harvest (owner, 2026-10-24): one press claims the connected wallets' staking rewards
  * from every island pool, instead of opening each pool and claiming there.
  *
  * It reads every pool for the wallets connected (Solana: each lighthouse pool and the
  * lock ladder; Ethereum and Base: each lighthouse pool), lists what each can claim in its
- * own coin, and sends one claim per pool position: the pool's own claim, one wallet
- * approval each. A pool that could not be read is listed as not read, never as nothing
- * to claim; rewards a pool cannot pay yet are listed and left alone.
+ * own coin, and sends one claim per pool position, each its own transaction. A wallet
+ * that can sign a chain's claims together is asked once for them (owner, 2026-10-29);
+ * any other once per claim. A pool that could not be read is listed as not read, never
+ * as nothing to claim; rewards a pool cannot pay yet are listed and left alone.
  *
  * With no wallet connected it draws nothing: there is nothing of the visitor's to show,
  * and the top bar's Connect is the way in (the list's word budget, e2e/word-budget.spec.ts).
@@ -97,6 +102,8 @@ export function HarvestCard({ quiet = false, headingLevel = 2, className = 'mb-6
   const held: HarvestHeld[] = [...(solPlan?.held ?? []), ...(evmPlan?.held ?? [])];
   const unread: HarvestUnread[] = [...(solPlan?.unread ?? []), ...(evmPlan?.unread ?? [])];
   const running = run !== null && !run.done;
+  const canTogether = (chain: HarvestChain) => (chain === 'solana' ? signsAll(surface?.signer) : evm.batchable[chain]);
+  const asks = promptCount(claims, evm.chain, canTogether);
   const Heading = headingLevel === 3 ? 'h3' : 'h2';
 
   if (!solAddress && !evm.address) return null;
@@ -110,7 +117,17 @@ export function HarvestCard({ quiet = false, headingLevel = 2, className = 'mb-6
     setRun({ rows, done: false });
     const onState = (key: string, state: ClaimState) =>
       setRun((r) => (r ? { ...r, rows: r.rows.map((x) => (x.claim.key === key ? { ...x, state } : x)) } : r));
+    const together = (chain: HarvestChain): SendTogether<HarvestClaim> | null => {
+      if (chain !== 'solana') return evm.together(chain) as SendTogether<HarvestClaim> | null;
+      if (!signer || !signsAll(signer)) return null;
+      return async (cs, settle) => {
+        const m = await import('../../lib/harvest/solana');
+        const wallet = m.signsAll(signer);
+        return wallet ? m.sendClaimsTogether(cs as SolanaClaim[], wallet, settle) : 'one-by-one';
+      };
+    };
     const states = await runHarvest(claims, evm.chain, {
+      together,
       send: (c): Promise<ClaimResult> => {
         if (c.chain === 'solana') {
           return signer
@@ -207,7 +224,7 @@ export function HarvestCard({ quiet = false, headingLevel = 2, className = 'mb-6
           {run?.done ? (
             <span className="text-white/75 text-[12px]" role="status">Done: {runSummary(run.rows.map((r) => r.state))}.</span>
           ) : claims.length > 1 && !running ? (
-            <span className="text-white/60 text-[12px]">Your wallet asks once per claim.</span>
+            <span className="text-white/60 text-[12px]">{asks === 1 ? 'Your wallet asks once.' : `Your wallet asks ${asks} times.`}</span>
           ) : null}
         </div>
 
@@ -215,8 +232,9 @@ export function HarvestCard({ quiet = false, headingLevel = 2, className = 'mb-6
           <p>
             Harvest reads every island pool for the wallets you have connected: each lighthouse pool and the lock
             ladder on Solana, and each lighthouse pool on Ethereum and Base. It claims every reward it read above
-            zero, one transaction per pool position, so your wallet asks once per claim: Solana first, then Ethereum
-            and Base, switching network once between them. Claiming moves no stake and changes no lock.
+            zero, one transaction per pool position: Solana first, then Ethereum and Base, switching network once
+            between them. A wallet that can sign several at once is asked once per network; any other, once per
+            claim. Claiming moves no stake and changes no lock.
           </p>
           <p>
             A pool it could not read is listed as not read, never as nothing to claim. It leaves alone a reward the
@@ -224,8 +242,11 @@ export function HarvestCard({ quiet = false, headingLevel = 2, className = 'mb-6
             another coin, and the classic farm, whose claim can also extend a lock. Claim those on their own page.
           </p>
           <p>
-            If you cancel in your wallet, Harvest stops and sends nothing more. A claim whose outcome could not be
-            read also stops it, so you can check before anything is sent twice.
+            On Solana each claim is test-run first, and one its pool would refuse is not put to your wallet. A claim
+            paid stays paid if another one does not go through, unless your wallet bundles the Ethereum or Base
+            claims into one transaction: then they are paid or refused together. If you cancel in your wallet,
+            Harvest stops and sends nothing more. A claim whose outcome could not be read also stops it, so you can
+            check before anything is sent twice.
           </p>
         </FinePrint>
       </div>

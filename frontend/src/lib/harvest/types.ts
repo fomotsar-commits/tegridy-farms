@@ -15,7 +15,7 @@ export const HARVEST_CHAIN_LABEL: Record<HarvestChain, string> = { solana: 'Sola
 /** The order a harvest runs in: Solana first, then each EVM chain, so the wallet switches network once per chain. */
 export const HARVEST_CHAIN_ORDER: readonly HarvestChain[] = ['solana', 'ethereum', 'base'];
 
-/** One claim the button will send: one wallet approval. */
+/** One claim the button will send: its own transaction, so one claim refused never takes another with it. */
 export interface HarvestClaim {
   key: string;
   chain: HarvestChain;
