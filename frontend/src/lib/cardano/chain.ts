@@ -231,6 +231,57 @@ export async function readTokenInfo(policyId: string, assetName: string, signal?
   };
 }
 
+/** One coin under a policy id, as the pick-list names it. */
+export interface PolicyCoin {
+  assetName: string;
+  /** The registry's ticker, else the coin's own name; null when it has neither. */
+  label: string | null;
+}
+
+/** How many rows one policy read asks for (api/_lib/cardano-ops.js POLICY_COINS_ROWS): one more than the list shows. */
+export const POLICY_READ_ROWS = 51;
+
+// CIP-67 label prefixes of the two CIP-68 tokens that come in amounts: 333 (fungible) and 444 (rich fungible).
+const CIP67_AMOUNT_PREFIXES = ['0014df10', '001bc280'];
+
+/**
+ * The coins minted under a policy id: its NFTs (a supply of one, which is also every CIP-68
+ * reference token) and coins burned to nothing are left out. `cut`: the policy holds more
+ * than one read lists, so the list may not be all of them.
+ */
+export async function readPolicyCoins(policyId: string, signal?: AbortSignal): Promise<Read<{ coins: PolicyCoin[]; cut: boolean }>> {
+  const r = await getJson('policy', { policy: policyId }, signal);
+  if (r.status !== 'ok') return r;
+  if (!Array.isArray(r.data)) return unread('the policy read was not a list');
+  const coins: PolicyCoin[] = [];
+  const text = (v: unknown) => (typeof v === 'string' && v.trim() !== '' ? v.trim().slice(0, 32) : null);
+  for (const row of r.data) {
+    const name = isRecord(row) ? row.asset_name : null;
+    const supply = isRecord(row) ? amount(row.total_supply) : null;
+    if (!isRecord(row) || typeof name !== 'string' || !/^(?:[0-9a-f]{2}){0,32}$/.test(name) || supply === null) return unread('a coin under this policy could not be read');
+    if (supply <= 1n) continue;
+    const prefix = CIP67_AMOUNT_PREFIXES.find((p) => name.startsWith(p));
+    const ownName = prefix ? utf8FromHex(name.slice(prefix.length)) : row.asset_name_ascii;
+    coins.push({ assetName: name, label: text(row.ticker) ?? text(ownName) });
+  }
+  return { status: 'ok', data: { coins, cut: r.data.length >= POLICY_READ_ROWS } };
+}
+
+/** The coin an asset1… fingerprint names; null when no coin has it. */
+export async function readFingerprint(fingerprint: string, signal?: AbortSignal): Promise<Read<{ policyId: string; assetName: string } | null>> {
+  const r = await getJson('fingerprint', { fp: fingerprint }, signal);
+  if (r.status !== 'ok') return r;
+  if (!Array.isArray(r.data)) return unread('the coin read was not a list');
+  if (r.data.length === 0) return { status: 'ok', data: null };
+  const row = r.data[0];
+  if (r.data.length !== 1 || !isRecord(row) || row.fingerprint !== fingerprint) return unread('the coin read was malformed');
+  const { policy_id, asset_name } = row;
+  if (typeof policy_id !== 'string' || !/^[0-9a-f]{56}$/.test(policy_id) || typeof asset_name !== 'string' || !/^(?:[0-9a-f]{2}){0,32}$/.test(asset_name)) {
+    return unread('the coin read was malformed');
+  }
+  return { status: 'ok', data: { policyId: policy_id, assetName: asset_name } };
+}
+
 /** How deep a transaction is. null confirmations: the chain has not seen it (yet). */
 export async function readTxDepth(txHash: string, signal?: AbortSignal): Promise<Read<number | null>> {
   const r = await getJson('txstatus', { tx: txHash }, signal);
