@@ -1,0 +1,53 @@
+{
+  "contract": "src/lib/AddressManager.sol:AddressManager",
+  "compiler": "0.8.19+commit.7dd6d404",
+  "language": "Solidity",
+  "sourceTree": "sources-address-manager",
+  "files": [
+    "src/lib/AddressManager.sol",
+    "lib/solmate/src/auth/Owned.sol",
+    "lib/solmate/src/utils/ReentrancyGuard.sol"
+  ],
+  "settings": {
+    "viaIR": true,
+    "metadata": {
+      "bytecodeHash": "ipfs"
+    },
+    "libraries": {},
+    "optimizer": {
+      "runs": 2000,
+      "enabled": true
+    },
+    "evmVersion": "paris",
+    "remappings": [
+      ":@chainlink/=lib/chainlink/contracts/src/v0.8/",
+      ":@forge-std/=lib/forge-std/src/",
+      ":@manifoldxyz/=lib/v3/node_modules/@manifoldxyz/",
+      ":@openzeppelin/=lib/openzeppelin-contracts/contracts/",
+      ":@rari-capital/=lib/v3/node_modules/@rari-capital/",
+      ":@solmate/=lib/solmate/src/",
+      ":@zora/=lib/v3/contracts/",
+      ":chainlink/=lib/chainlink/",
+      ":ds-test/=lib/forge-std/lib/ds-test/src/",
+      ":erc4626-tests/=lib/openzeppelin-contracts/lib/erc4626-tests/",
+      ":forge-std/=lib/forge-std/src/",
+      ":openzeppelin-contracts/=lib/openzeppelin-contracts/",
+      ":openzeppelin/=lib/openzeppelin-contracts/contracts/",
+      ":solmate/=lib/solmate/src/",
+      ":test/=test/",
+      ":v3/=lib/v3/contracts/"
+    ]
+  },
+  "gondiMainnet": [
+    {
+      "address": "0x4150deD32A6D3bfecAE76e7558Af480190344927",
+      "deployTx": "0xec7bab9f97fac0bd78ba79b80b6552bf7070de7192bd3d4b9cdadb953009b8a5",
+      "block": 17665338
+    },
+    {
+      "address": "0x52Ac424eF7B283aA5bADB8c6254832E3280d7398",
+      "deployTx": "0xbddd19d19ce7c7683be873ab2a3e9152c97c14be03986b5b78d30c82d5efd73a",
+      "block": 17665505
+    }
+  ]
+}
