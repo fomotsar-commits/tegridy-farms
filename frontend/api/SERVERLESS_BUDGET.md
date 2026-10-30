@@ -97,36 +97,36 @@ into the 404.
 | `births` | `_lib/births.js` | HMAC-signed birth notify to the island's enrollment socket |
 | `record` | `_lib/record.js` | A token's birth certificate as JSON, derived from chain on read |
 | `alerts` | `_lib/alerts.js` | Per-wallet alert-rule CRUD under RLS (the user's own SIWE JWT is forwarded to PostgREST) |
-| `airdrop` | `_lib/airdrop.js` | Airdrop manifest store: one claimant's own leaf + a server-generated proof; creator publish |
 | `referrals` | `_lib/referrals.js` | Short-code store for `/?r=code` referral links: one code in, at most one wallet out |
 | `commerce` | `_lib/commerce.js` | Merchant invoice store + settlement record behind `/checkout`: one id in, one invoice out. OPTIONAL short-link enrichment only — the signed `#i=` payment link is verified in the buyer's browser and needs none of it, so this resource is not on the path that moves money |
 | `pools` | `_lib/pool-index.js` | The Solana pool index behind `/api/pools` (a rewrite): filtered `getProgramAccounts` scans of the cp-swap program, one per pairing coin (SOL, USDC, BAYLA) for a token and one for an LP mint, cached 30 s, ADDRESSES ONLY. The browser reads and checks every address itself, so this can at worst leave a pool out; it exists so `/api/solrpc` never has to allow a program scan |
 | `bot-link` | `_lib/botLink.js` | Telegram chat ↔ wallet binding: the bot's only server surface, and the reason it never holds a key |
 | `venue-volume` | `_lib/venueVolume.js` | The home page's all-time volume: the `venue_volume` rows (migration 028) that `.github/workflows/venue-volume.yml` adds to every hour, summed. Exists for its `s-maxage`: the edge answers, so a visitor costs nothing. Says "unread" for a source never counted and "behind" for a late or failing one, never a partial sum as current |
 
-`airdrop` is the one resource here whose absent branch is the security property. It has no
-endpoint that returns a campaign's recipient list, because a recipient list is a
-wallet-targeting database and there is no caller for whom the whole thing is the right
-answer. The two queries it makes against the entry table are shape-pinned by
-`api/_lib/__tests__/airdrop.test.js`: the tree rebuild selects no address column, and the
-claimant lookup is filtered to one address. Do not add a third.
+> **`airdrop` REMOVED 2026-10-30.** The hosted airdrop claim-list store (`_lib/airdrop.js`)
+> served only the `/airdrop` page, which #1043 removed after #1041 deleted `AirdropFactory`.
+> Its branch, its module and the browser's tree builder (`src/lib/merkle/`) are gone; git
+> keeps them. Its two Supabase tables, `airdrop_manifests` and `airdrop_manifest_entries`
+> (migration 018), are now read and written by nothing. They were not dropped. Its rule
+> still stands for any store that comes back: a recipient list is a wallet-targeting
+> database, so no endpoint returns one.
 
 `alerts` is CRUD only and cannot ever be the evaluator: a serverless function runs only
 when something calls it, so nothing here can watch a rule while the user's tab is shut.
 Rules are evaluated in the browser, and the response's `delivery` block says so — do not
 "fix" this by adding a cron that pretends to be the F9 worker.
 
-`referrals` is the second resource here whose ABSENT capability is the point. It has no
+`referrals` is the first resource here whose ABSENT capability is the point. It has no
 endpoint that returns more than one row: the single public read is service-role with a
 pinned `code=eq.<one code>&limit=1` filter, shape-pinned by
 `api/__tests__/referrals-surface-parity.test.js`. A wider read would be a downloadable
-list of every referrer's wallet — the same shape `airdrop` refuses. It is also NOT the
+list of every referrer's wallet, a wallet-targeting database. It is also NOT the
 referral ledger: earnings, referee counts and claimable balances are ReferralSplitter's
 on-chain state and are never mirrored into the table. Note that this resource being
 entirely absent degrades to a WORKING feature rather than a broken one — `/?ref=0x…`
 links resolve in the browser with no server, and the share surface mints those by default.
 
-`bot-link` is the third resource here whose ABSENT capability is the design. It has no
+`bot-link` is the second resource here whose ABSENT capability is the design. It has no
 endpoint that binds a chat to a wallet on the bot's say-so: the bot's HMAC credential can
 mint a pending code, read ONE chat's state, and destroy a binding, and the only path that
 attaches a wallet is a browser call carrying that wallet's own SIWE cookie. It also has no
@@ -145,7 +145,7 @@ request body, because nothing in that file reads a receipt and nothing that has 
 may write a word that means it did. It is **not a directory**: the single public read is
 service-role with a pinned `id=eq.<one id>&limit=1` filter and an explicit column list (which
 excludes `webhook_url`), shape-pinned by `api/__tests__/commerce-surface-parity.test.js`, for
-the same reason `airdrop` has no recipient list and `referrals` has no referrer roster — a
+the same reason `referrals` has no referrer roster — a
 listable invoice table is a downloadable ledger of who sells what to whom for how much.
 
 Its webhook is ONE inline POST inside the settle request, HMAC-signed, `redirect: "manual"`,

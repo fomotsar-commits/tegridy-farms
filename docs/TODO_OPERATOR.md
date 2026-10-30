@@ -709,8 +709,9 @@ nothing is lost.
   say who holds the key of the old fee wallet `DVGiHe98CzEf7VuCS6YpVDFnp38ubJmKNLt6aMJwAyER`.
   [was O-1009-12, O-1009-21]
 - ⏸️ **GitLab's mirror secret** `GITLAB_MIRROR_SSH_KEY` stays parked, as you asked on 2026-10-02.
-  Until it is set, the "Mirror to GitLab" job fails on every push to `mvp-launch`; that red is
-  expected.
+  On 2026-10-29 you paused the "Mirror to GitLab" job until it is set: it runs only by hand, so
+  pushes to `mvp-launch` no longer go red, and the GitLab standby falls behind. To resume: set the
+  secret, then `docs/GIT_HOSTING.md` 2C steps 5 and 6.
 
 ### Your list: items that cost money
 
@@ -1338,8 +1339,8 @@ The accounts, keys and settings need you.
 
 **First (15 minutes):** 2.0. Add an email login plus 2FA wherever Supabase, Railway or Vercel is
 GitHub-only. Confirm the offline copy of `BACKUP_PASSPHRASE` exists; it is the only one. Then
-2.1: merge this work (a production deploy, your go). Every step after it runs its scripts, and
-until 2C is done each push to `mvp-launch` shows a red Mirror to GitLab run, on purpose.
+2.1: merge this work (a production deploy, your go). Every step after it runs its scripts. The
+Mirror to GitLab job is paused until 2C is done (2C step 6 un-pauses it).
 
 **Done on 2026-09-30 (by an agent, with the owner's go):** 2A except the password and 2FA: the
 group is `memetics-finance` (`memetics` was taken), public, with GitLab's runners and Auto DevOps
