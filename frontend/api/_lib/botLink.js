@@ -47,8 +47,7 @@
 //   `telegram_links` is a list of wallets beside opaque digests rather than a
 //   wallet-to-person map. Every read below is pinned to ONE chat_ref or to the
 //   caller's own rows: there is no endpoint that returns a second row, for the
-//   same reason referrals.js has no referrer directory and airdrop.js has no
-//   recipient list.
+//   same reason referrals.js has no referrer directory.
 //
 // ─── THE FAILURE THAT MATTERS ───────────────────────────────────────────────
 //
