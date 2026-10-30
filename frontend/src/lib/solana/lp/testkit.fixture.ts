@@ -29,14 +29,28 @@ export const PROGRAM = new PublicKey('EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2B
 export const LAUNCH = new PublicKey('64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2');
 export const WSOL = new PublicKey(WSOL_MINT);
 export const CLOCK = 'SysvarC1ock11111111111111111111111111111111';
-export const key = () => Keypair.generate().publicKey;
+let keysDrawn = 0;
+/**
+ * A fresh key, the same one on every run of a file: keypairs seeded by a count, so a failure
+ * replays. Each is a whole 44-character address (a random key is 43 about 1 time in 17), so a
+ * test may pin an address's length. Seeded keypairs, not raw bytes: a key is on the curve, as
+ * a wallet's is.
+ */
+export function key(): PublicKey {
+  for (;;) {
+    const seed = new Uint8Array(32);
+    new DataView(seed.buffer).setUint32(0, ++keysDrawn, true);
+    const k = Keypair.fromSeed(seed).publicKey;
+    if (k.toBase58().length === 44) return k;
+  }
+}
 /**
  * A fresh key whose first byte is `first`. A pool stores its two mints in byte order, so a
  * test that needs a token on a chosen side of a coin's mint asks for it here instead of
  * hoping a random key lands there (USDC's mint starts with byte 198, wrapped SOL's with 6).
  */
 export function keyStartingWith(first: number): PublicKey {
-  const bytes = Keypair.generate().publicKey.toBytes();
+  const bytes = key().toBytes();
   bytes[0] = first;
   return new PublicKey(bytes);
 }
@@ -364,5 +378,7 @@ export function viewOf(b: BuiltPool, s: { sol: bigint; tok: bigint; origin?: Poo
     tokenReserve: s.tok,
     vaultsFrozen: s.frozen ?? false,
     history: s.history ?? { kind: 'not-read' },
+    // From the config's own bytes: a `plain` pool's addresses are random, and jsdom cannot derive.
+    launchTierWithoutLaunch: (s.origin ?? 'other') !== 'launch-pool' && decodeAmmConfig(b.config.toBase58(), b.accounts[b.config.toBase58()]!.data)?.index === 0,
   };
 }

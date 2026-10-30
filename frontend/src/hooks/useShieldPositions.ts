@@ -51,7 +51,7 @@ export function useShieldPositions(): ShieldPositionsSnapshot {
   // showing those rows here would put positions under a "shield" heading that
   // the shield has nothing to say about.
   const myBorrows = useMemo(
-    () => loans.filter((l) => l.role === 'borrower' && l.source === 'nft'),
+    () => loans.filter((l) => l.role === 'borrower'),
     [loans],
   );
   const borrowKey = myBorrows.map((l) => l.id).join(',');

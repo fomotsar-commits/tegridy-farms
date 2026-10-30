@@ -21,7 +21,7 @@ const NEXT_BUILD_PAGE = {
   body: '<!doctype html><html><head><script type="module" crossorigin src="/assets/index-NEXTBUILD.js"></script></head><body><div id="root"></div></body></html>',
 };
 
-const SOLANA_LP_CHUNK = '**/assets/SolanaLpPage-*.js';
+const POOLS_CHUNK = '**/assets/PoolsPage-*.js';
 const HOST_PAGE = '**/index.html';
 
 test.beforeEach(async ({ page }) => {
@@ -43,9 +43,9 @@ function countLoads(page: Page) {
 }
 
 /**
- * The Ethereum form, and the press that opens the Solana LP page from it: since 2026-10-15
+ * The Ethereum form, and the press that opens the Venue AMM page from it: since 2026-10-15
  * that is the Pools network drop-down, then Solana (the strip lists one network's tabs). Either
- * way it is an in-app route change that lazy-loads SolanaLpPage.
+ * way it is an in-app route change that lazy-loads PoolsPage.
  */
 async function openLiquidity(page: Page) {
   await page.goto('/liquidity');
@@ -78,7 +78,7 @@ test('the tab reloads once to the address it was going to, and the page is there
   });
   await page.route(`**${OLD_BUILD}**`, async (route: Route) => {
     const url = route.request().url();
-    if (/\/SolanaLpPage-[^/]*\.js$/.test(url)) return route.fulfill(MISSING_ASSET);
+    if (/\/PoolsPage-[^/]*\.js$/.test(url)) return route.fulfill(MISSING_ASSET);
     return route.fulfill({ response: await route.fetch({ url: url.replace(OLD_BUILD, '/assets/') }) });
   });
   const seen = countLoads(page);
@@ -88,15 +88,15 @@ test('the tab reloads once to the address it was going to, and the page is there
 
   await tab.click();
 
-  await expect(page.getByRole('heading', { level: 1, name: 'Solana liquidity.' })).toBeVisible({ timeout: 30_000 });
-  await expect(page).toHaveURL(/\/solana-lp$/);
+  await expect(page.getByRole('heading', { level: 1, name: 'Liquidity pools.' })).toBeVisible({ timeout: 30_000 });
+  await expect(page).toHaveURL(/\/pools$/);
   expect(seen.loads).toBe(2);
   expect(await runningEntry(page)).toMatch(/^\/assets\/index-/);
   await expect(page.getByText('Something went wrong')).toHaveCount(0);
 });
 
 test('a reload that lands on the same build is not tried again: a notice and a Refresh button', async ({ page }) => {
-  await page.route(SOLANA_LP_CHUNK, (route: Route) => route.fulfill(MISSING_ASSET));
+  await page.route(POOLS_CHUNK, (route: Route) => route.fulfill(MISSING_ASSET));
   await page.route(HOST_PAGE, (route: Route) => route.fulfill(NEXT_BUILD_PAGE));
   const seen = countLoads(page);
   const tab = await openLiquidity(page);
@@ -106,7 +106,7 @@ test('a reload that lands on the same build is not tried again: a notice and a R
   const notice = page.getByRole('alert').filter({ hasText: 'The site was updated' });
   await expect(notice).toBeVisible({ timeout: 30_000 });
   await expect(notice).toContainText('Refresh the page to load the new version.');
-  await expect(page).toHaveURL(/\/solana-lp$/);
+  await expect(page).toHaveURL(/\/pools$/);
   await expect(page.getByText('Something went wrong')).toHaveCount(0);
   // One reload by itself, and no more however long the tab sits there.
   expect(seen.loads).toBe(2);
@@ -123,7 +123,7 @@ test('a reload that lands on the same build is not tried again: a notice and a R
 
 test('a lazy load that fails while the host still serves this build is not called an update', async ({ page }) => {
   // Only the file fails. /index.html is the real one and names the entry this tab runs.
-  await page.route(SOLANA_LP_CHUNK, (route: Route) => route.fulfill(MISSING_ASSET));
+  await page.route(POOLS_CHUNK, (route: Route) => route.fulfill(MISSING_ASSET));
   const seen = countLoads(page);
   const tab = await openLiquidity(page);
 
@@ -135,13 +135,19 @@ test('a lazy load that fails while the host still serves this build is not calle
   expect(seen.loads).toBe(1);
 });
 
-test('a part outside the page area that fails to load gets the same notice', async ({ page }) => {
-  // The route-change effect loads on the first tab press, outside AppLayout's boundary,
-  // so App.tsx's own boundary catches it and replaces the whole app area.
+test('a part outside the page area that fails to load gets the same notice', async ({ page, viewport }) => {
+  // The route-change glitch loads on the first press between two pages off the LP road,
+  // outside AppLayout's boundary, so App.tsx's own boundary catches it and replaces the
+  // whole app area. A phone never loads it (owner, 2026-10-25), so nothing fails there.
+  test.skip((viewport?.width ?? 1280) < 768, 'no route glitch on a phone');
   await page.route('**/assets/GlitchTransition-*.js', (route: Route) => route.fulfill(MISSING_ASSET));
   await page.route(HOST_PAGE, (route: Route) => route.fulfill(NEXT_BUILD_PAGE));
   const seen = countLoads(page);
-  const tab = await openLiquidity(page);
+  await page.goto('/island');
+  // The bar's Lock word, /island to /earn: neither is on the LP road.
+  const lock = page.locator('nav[aria-label="Main navigation"]:visible a', { hasText: /^Lock$/ }).first();
+  await expect(lock).toHaveAttribute('href', '/earn', { timeout: 30_000 });
+  const tab = { click: () => lock.click() };
   // This tab has already reloaded itself away from this build once.
   await page.evaluate(() => {
     const running = document.querySelector('script[type="module"][src^="/assets/"]')?.getAttribute('src');

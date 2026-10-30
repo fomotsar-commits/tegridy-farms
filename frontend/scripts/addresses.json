@@ -520,20 +520,20 @@
       "id": "range-clmm-amm-config-0",
       "address": "9makve2QUjz3FpwqHzqioY2DLmiQ73VVtcuYYHnm9kvR",
       "role": "tegridy-clmm AmmConfig index 0 under range-clmm-program, seeds [\"amm_config\", 0u16 big-endian], bump 255, derived and matched: the 1% tier as range-clmm-tiers-transaction-19 makes it, create_amm_config(0, tick spacing 120, trade fee 10,000 per million of each swap, protocol fee 104,000 and fund fee 56,000 per million of that fee), then its fund owner set to island-workshop-wallet. So of each fee, 84% stays with the liquidity providers in range, 10.4% to squads-vault and 5.6% to the island's Workshop (the CHANGELOG notice of 2026-10-21).",
-      "custody": "program-derived, no key. Once created it is owned by range-clmm-program; its owner field is squads-vault and its fund owner island-workshop-wallet.",
-      "status": "NOT YET CREATED: value:null at finalized slot 459,710,510 (2026-10-21). `expect.type: absent` is a tripwire: the day the fee-tier proposal executes, the chain read goes red here, and this row must become program-owned, with its fee fields asserted in solanaFields.",
+      "custody": "program-derived, no key. Owned by range-clmm-program; its owner field (the tier's admin and protocol fee owner) is squads-vault and its fund owner island-workshop-wallet. solanaFields asserts both, and every rate, on each chain read.",
+      "status": "CREATED 2026-10-27T03:52:39Z by the execute of range-clmm-tiers-proposal-19 (slot 461,924,979, transaction 5t4B2D81y5Gvj8uLkEKVZ8L8T3CUW4Akf68X2PWZqi2C4Hy8USUYwtz21hhaNZ2rR4c67aUE8xTfoGYRyXFvFa3v, signed by squads member 5QHzAqbGk3W8qGRBHCMyWjhLXf8YJcs3yPEh14Ymcwgz). Read at finalized slot 462,122,645: owned by range-clmm-program, 117 bytes, 1,244,600 lamports, every field as the role says; the deploy pack's 6-verify-tiers.mjs passed the same day. The tier the site reads (FEE_TIER_INDEXES = 1, index 0 only). A tier cannot be removed. Until range-clmm-program runs a build that charges an opening fee (#1019), anyone may open a pool on it without paying one.",
       "expect": {
-        "type": "absent"
+        "type": "program-owned"
       }
     },
     {
       "id": "range-clmm-amm-config-1",
       "address": "CYfA3WyMS9Ygx2Z988d5Uk4KsuBRsDZqkqXy9hhroW6Q",
       "role": "tegridy-clmm AmmConfig index 1 under range-clmm-program, seeds [\"amm_config\", 1u16 big-endian], bump 255, derived and matched: the 0.25% tier as range-clmm-tiers-transaction-19 makes it, create_amm_config(1, tick spacing 60, trade fee 2,500 per million of each swap, protocol fee 104,000 and fund fee 56,000 per million of that fee), then its fund owner set to island-workshop-wallet. The same split as range-clmm-amm-config-0.",
-      "custody": "program-derived, no key. Once created it is owned by range-clmm-program; its owner field is squads-vault and its fund owner island-workshop-wallet.",
-      "status": "NOT YET CREATED: value:null at finalized slot 459,710,510 (2026-10-21). `expect.type: absent` is a tripwire: the day the fee-tier proposal executes, the chain read goes red here, and this row must become program-owned, with its fee fields asserted in solanaFields.",
+      "custody": "program-derived, no key. Owned by range-clmm-program; its owner field (the tier's admin and protocol fee owner) is squads-vault and its fund owner island-workshop-wallet. solanaFields asserts both, and every rate, on each chain read.",
+      "status": "CREATED 2026-10-27T03:52:39Z in the same transaction as range-clmm-amm-config-0 (slot 461,924,979, transaction 5t4B2D81y5Gvj8uLkEKVZ8L8T3CUW4Akf68X2PWZqi2C4Hy8USUYwtz21hhaNZ2rR4c67aUE8xTfoGYRyXFvFa3v). Read at finalized slot 462,122,645: owned by range-clmm-program, 117 bytes, 1,244,600 lamports, every field as the role says; 6-verify-tiers.mjs passed the same day. The owner had ruled on 2026-10-25 for one 1% tier only, and the site follows that: it reads index 0 alone (FEE_TIER_INDEXES = 1), so it never lists a pool on this tier or routes a swap into one. A tier cannot be removed, so other tools can still open pools here, and until range-clmm-program charges an opening fee (#1019) they pay none. The venue's 10.4% and the Workshop's 5.6% of each fee hold here too.",
       "expect": {
-        "type": "absent"
+        "type": "program-owned"
       }
     },
     {
@@ -541,7 +541,7 @@
       "address": "CL6cZ2zDsmA72f6ncLYz1UcSLcQ41kL4WRTtFGy5BmNM",
       "role": "Squads v4 vault transaction 19 of squads-multisig, seeds [\"multisig\", multisig, \"transaction\", 19u64 little-endian] under SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf, derived and matched: the fee-tier proposal. Its stored message is byte for byte the one solana/clmm-deploy/scripts/lib/tiers.mjs compiles (the page's `isOurs`, read 2026-10-21T17:22:43Z): both tiers above, then each tier's fund owner set to island-workshop-wallet.",
       "custody": "program-derived, owned by the Squads v4 program; only a member of squads-multisig can execute it.",
-      "status": "LIVE, created 2026-10-21T13:42:48Z (slot 459,649,865, transaction 5XZuPgxthnJZyBCtcaPw5p1xnqyetb9phudUSurr1uCkNXtsuXRB69xg3LkcV71AJqNHJvUvPFw6ECWiqZo2uzzk, signed by squads member 6VHowW4pnD4WTGsXhqBp6yxGgC3EExVmYgebSrRNu2tY). 416 bytes. Not executed: see range-clmm-tiers-proposal-19.",
+      "status": "LIVE, created 2026-10-21T13:42:48Z (slot 459,649,865, transaction 5XZuPgxthnJZyBCtcaPw5p1xnqyetb9phudUSurr1uCkNXtsuXRB69xg3LkcV71AJqNHJvUvPFw6ECWiqZo2uzzk, signed by squads member 6VHowW4pnD4WTGsXhqBp6yxGgC3EExVmYgebSrRNu2tY). 416 bytes. EXECUTED 2026-10-27T03:52:39Z: see range-clmm-tiers-proposal-19. Read at finalized slot 462,122,645: still open (416 bytes), as Squads leaves an executed transaction until its rent is reclaimed.",
       "expect": {
         "type": "program-owned"
       }
@@ -551,7 +551,7 @@
       "address": "DvGQ2Hhdqn8i9TJMTkMC7adxiWujxeSJEm77ctZkWBfg",
       "role": "Squads v4 proposal for vault transaction 19, seeds [\"multisig\", multisig, \"transaction\", 19u64 little-endian, \"proposal\"] under SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf, derived and matched.",
       "custody": "program-derived, owned by the Squads v4 program.",
-      "status": "APPROVED 2 of 2, NOT EXECUTED. Member 6VHowW4pnD4WTGsXhqBp6yxGgC3EExVmYgebSrRNu2tY created and approved it at 2026-10-21T13:42:48Z; member 5QHzAqbGk3W8qGRBHCMyWjhLXf8YJcs3yPEh14Ymcwgz approved at 13:45:21Z (slot 459,650,577, transaction 2CXCRAHzRGhTniquvdecQugMSfoZw56BdndVcuQs2sRGmzR6FhvWVMvZxeYYKonqjfZVNfFCkhDK8gU312XqHCc8). Read at finalized slot 459,710,510: status Approved at 13:45:21Z. So the chain's 48-hour lock is over at 2026-10-23T13:45:21Z, five days before the seven days the first notice (#929) promised. The owner then moved the promise (2026-10-22, 'update the promise date'; #938): the notice now says no sooner than 2026-10-23 14:00 UTC, and it executes from the deploy pack's page no sooner than 2026-10-23T14:00:00Z (tiers.mjs `decide`, gated at the later of the lock's end and that time). The Squads app does not read the notice: from the lock's end it would execute it at once.",
+      "status": "EXECUTED 2026-10-27T03:52:39Z by squads member 5QHzAqbGk3W8qGRBHCMyWjhLXf8YJcs3yPEh14Ymcwgz (slot 461,924,979, transaction 5t4B2D81y5Gvj8uLkEKVZ8L8T3CUW4Akf68X2PWZqi2C4Hy8USUYwtz21hhaNZ2rR4c67aUE8xTfoGYRyXFvFa3v; the owner confirmed it was theirs). Read at finalized slot 462,122,645: status Executed at 03:52:39Z. It made both tiers (range-clmm-amm-config-0 and -1). Before that: approved 2 of 2. Member 6VHowW4pnD4WTGsXhqBp6yxGgC3EExVmYgebSrRNu2tY created and approved it at 2026-10-21T13:42:48Z; member 5QHzAqbGk3W8qGRBHCMyWjhLXf8YJcs3yPEh14Ymcwgz approved at 13:45:21Z (slot 459,650,577, transaction 2CXCRAHzRGhTniquvdecQugMSfoZw56BdndVcuQs2sRGmzR6FhvWVMvZxeYYKonqjfZVNfFCkhDK8gU312XqHCc8). Read at finalized slot 459,710,510: status Approved at 13:45:21Z. So the chain's 48-hour lock is over at 2026-10-23T13:45:21Z, five days before the seven days the first notice (#929) promised. The owner then moved the promise (2026-10-22, 'update the promise date'; #938): the notice now says no sooner than 2026-10-23 14:00 UTC, and it executes from the deploy pack's page no sooner than 2026-10-23T14:00:00Z (tiers.mjs `decide`, gated at the later of the lock's end and that time). The Squads app does not read the notice: from the lock's end it would execute it at once.",
       "expect": {
         "type": "program-owned"
       }
@@ -628,6 +628,126 @@
       "role": "Pool-share (LP) mint of venue-pool-bayla-usdc: PDA seeds [\"pool_lp_mint\", pool] under cp-swap-program-restart, bump 254, derived and matched. A classic SPL Token mint, 9 decimals, no freeze authority; its mint authority is cp-swap-authority-restart. The site serves its name and picture at /mint/3D3EKJxfePDQ1N8YtNwg8W6eSL4mjVpbYf57pnqgcAQx.json: \"BAYLA/USDC Pool Share\", symbol BAYLA-USDC.",
       "custody": "program-derived, no key. Only the pool program mints it, on a deposit, and burns it, on a withdrawal.",
       "status": "live, supply 5.006253412 shares at finalized slot 454,077,498 (2026-10-07T01:38Z). No on-chain name yet: it has no Metaplex record, and only an instruction of the pool program can create one, because the record needs this mint's authority to sign.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-pool-sol-usdc",
+      "address": "CvAVyjZk1A4hLuNDvEseCYHAn98mU1f4mKpveGvAM2UC",
+      "role": "The venue's SOL/USDC pool: a cp-swap PoolState under cp-swap-program-restart, 637 bytes. Token 0 is wrapped SOL (So11111111111111111111111111111111111111112), token 1 is USDC (EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v), and its fee tier is AmmConfig CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy. Its pool_creator field is 3ptKrPsDiX69hkzzrxEz5gEWAbLku34EpP7KBS2XvqeH, not one of the owner's wallets.",
+      "custody": "program-derived, no key. Only the pool program's own instructions change it.",
+      "status": "live. At confirmed slot 460,928,062 (2026-10-24T17:01Z) it is owned by cp-swap-program-restart and its lp_mint field is venue-lp-mint-sol-usdc.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-lp-mint-sol-usdc",
+      "address": "45SMHUNbwLi91E792o3auPy7v8C4F58v6Yk5Yre7a4pC",
+      "role": "Pool-share (LP) mint of venue-pool-sol-usdc: PDA seeds [\"pool_lp_mint\", pool] under cp-swap-program-restart, bump 254, derived and matched. A classic SPL Token mint, 9 decimals, no freeze authority; its mint authority is cp-swap-authority-restart. The site serves its name and picture at /mint/45SMHUNbwLi91E792o3auPy7v8C4F58v6Yk5Yre7a4pC.json: \"SOL/USDC LP\", symbol SOL-USDC.",
+      "custody": "program-derived, no key. Only the pool program mints it, on a deposit, and burns it, on a withdrawal.",
+      "status": "live, supply 0.316537764 shares at confirmed slot 460,928,062 (2026-10-24T17:01Z). No on-chain name yet: it has no Metaplex record, and only an instruction of the pool program can create one, because the record needs this mint's authority to sign.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-pool-rizz-sol",
+      "address": "3yDDaZtABgj7z4BNtPKpfnK4yrx5bvEphDXYGGTnTmfA",
+      "role": "The venue's RIZZ/SOL pool: a cp-swap PoolState under cp-swap-program-restart, 637 bytes. Token 0 is wrapped SOL (So11111111111111111111111111111111111111112), token 1 is RIZZ (5ad4puH6yDBoeCcrQfwV5s9bxvPnAeWDoYDj3uLyBS8k), and its fee tier is AmmConfig CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy. Its pool_creator field is 61wJUbVugmLZY5AmBY18UM91FuX3kMMjeKAAz7kh2d3o, not one of the owner's wallets.",
+      "custody": "program-derived, no key. Only the pool program's own instructions change it.",
+      "status": "live. At confirmed slot 460,928,062 (2026-10-24T17:01Z) it is owned by cp-swap-program-restart and its lp_mint field is venue-lp-mint-rizz-sol.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-lp-mint-rizz-sol",
+      "address": "8LUVkr5K9PFuLnXeZ2GfgiRXHxrQQQdzjnw1EiCQxcgZ",
+      "role": "Pool-share (LP) mint of venue-pool-rizz-sol: PDA seeds [\"pool_lp_mint\", pool] under cp-swap-program-restart, bump 254, derived and matched. A classic SPL Token mint, 9 decimals, no freeze authority; its mint authority is cp-swap-authority-restart. The site serves its name and picture at /mint/8LUVkr5K9PFuLnXeZ2GfgiRXHxrQQQdzjnw1EiCQxcgZ.json: \"RIZZ/SOL LP\", symbol RIZZ-SOL.",
+      "custody": "program-derived, no key. Only the pool program mints it, on a deposit, and burns it, on a withdrawal.",
+      "status": "live, supply 64.062104644 shares at confirmed slot 460,928,062 (2026-10-24T17:01Z). No on-chain name yet: it has no Metaplex record, and only an instruction of the pool program can create one, because the record needs this mint's authority to sign.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-pool-brainlet-sol",
+      "address": "HaRnur2ETP44bFtjUU4haQcFVYrCDTSaJfjKY3E3bDDD",
+      "role": "The venue's BRAINLET/SOL pool: a cp-swap PoolState under cp-swap-program-restart, 637 bytes. Token 0 is wrapped SOL (So11111111111111111111111111111111111111112), token 1 is BRAINLET (4XKGjKaKowFvL5sYwh2AKx72vj9iwC8MNvpL44E9pump), and its fee tier is AmmConfig CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy. Its pool_creator field is 6JMP6scYgNEmjUv3tXbSmBXrvR93JxdXB1EMdHYYWgkc, not one of the owner's wallets.",
+      "custody": "program-derived, no key. Only the pool program's own instructions change it.",
+      "status": "live. At confirmed slot 460,928,062 (2026-10-24T17:01Z) it is owned by cp-swap-program-restart and its lp_mint field is venue-lp-mint-brainlet-sol.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-lp-mint-brainlet-sol",
+      "address": "AgSTcTMvo2U3hhRMxq6UVbaSNuiaBJSQRZ5b78A5ymc4",
+      "role": "Pool-share (LP) mint of venue-pool-brainlet-sol: PDA seeds [\"pool_lp_mint\", pool] under cp-swap-program-restart, bump 255, derived and matched. A classic SPL Token mint, 9 decimals, no freeze authority; its mint authority is cp-swap-authority-restart. The site serves its name and picture at /mint/AgSTcTMvo2U3hhRMxq6UVbaSNuiaBJSQRZ5b78A5ymc4.json: \"BRAINLET/SOL LP\", symbol BRAIN-SOL.",
+      "custody": "program-derived, no key. Only the pool program mints it, on a deposit, and burns it, on a withdrawal.",
+      "status": "live, supply 7.684790640 shares at confirmed slot 460,928,062 (2026-10-24T17:01Z). No on-chain name yet: it has no Metaplex record, and only an instruction of the pool program can create one, because the record needs this mint's authority to sign.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-pool-bobo-sol",
+      "address": "9mHGFULXNFjcdkZ9fLy24A3pp4iYVk6y889NNcUvSgRV",
+      "role": "The venue's BOBO/SOL pool: a cp-swap PoolState under cp-swap-program-restart, 637 bytes. Token 0 is wrapped SOL (So11111111111111111111111111111111111111112), token 1 is BOBO (4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump), and its fee tier is AmmConfig CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy. Its pool_creator field is 6JMP6scYgNEmjUv3tXbSmBXrvR93JxdXB1EMdHYYWgkc, not one of the owner's wallets.",
+      "custody": "program-derived, no key. Only the pool program's own instructions change it.",
+      "status": "live. At confirmed slot 460,928,062 (2026-10-24T17:01Z) it is owned by cp-swap-program-restart and its lp_mint field is venue-lp-mint-bobo-sol.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-lp-mint-bobo-sol",
+      "address": "CcLsQeUD1dWhrR3aNW3sjcKHeLbMdPvzFRyBniUTCtNJ",
+      "role": "Pool-share (LP) mint of venue-pool-bobo-sol: PDA seeds [\"pool_lp_mint\", pool] under cp-swap-program-restart, bump 254, derived and matched. A classic SPL Token mint, 9 decimals, no freeze authority; its mint authority is cp-swap-authority-restart. The site serves its name and picture at /mint/CcLsQeUD1dWhrR3aNW3sjcKHeLbMdPvzFRyBniUTCtNJ.json: \"BOBO/SOL LP\", symbol BOBO-SOL.",
+      "custody": "program-derived, no key. Only the pool program mints it, on a deposit, and burns it, on a withdrawal.",
+      "status": "live, supply 9.647500384 shares at confirmed slot 460,928,062 (2026-10-24T17:01Z). No on-chain name yet: it has no Metaplex record, and only an instruction of the pool program can create one, because the record needs this mint's authority to sign.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-pool-soy-sol",
+      "address": "5M4SZy9Ytu1LGWWjBUwiDZ98bGdpQL4fD3PHETEXPAN8",
+      "role": "The venue's SOY/SOL pool: a cp-swap PoolState under cp-swap-program-restart, 637 bytes. Token 0 is wrapped SOL (So11111111111111111111111111111111111111112), token 1 is SOY (8zsZESzrGoYVi1dVH4QNWXJ2EfW4v287aEGNiDvQpump), and its fee tier is AmmConfig CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy. Its pool_creator field is 6JMP6scYgNEmjUv3tXbSmBXrvR93JxdXB1EMdHYYWgkc, not one of the owner's wallets.",
+      "custody": "program-derived, no key. Only the pool program's own instructions change it.",
+      "status": "live. At confirmed slot 460,928,062 (2026-10-24T17:01Z) it is owned by cp-swap-program-restart and its lp_mint field is venue-lp-mint-soy-sol.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-lp-mint-soy-sol",
+      "address": "3YMYSG627S1gFMtG8GMWpzqVYd3DThRPMbxrgyqtpzUj",
+      "role": "Pool-share (LP) mint of venue-pool-soy-sol: PDA seeds [\"pool_lp_mint\", pool] under cp-swap-program-restart, bump 251, derived and matched. A classic SPL Token mint, 9 decimals, no freeze authority; its mint authority is cp-swap-authority-restart. The site serves its name and picture at /mint/3YMYSG627S1gFMtG8GMWpzqVYd3DThRPMbxrgyqtpzUj.json: \"SOY/SOL LP\", symbol SOY-SOL.",
+      "custody": "program-derived, no key. Only the pool program mints it, on a deposit, and burns it, on a withdrawal.",
+      "status": "live, supply 25.404215974 shares at confirmed slot 460,928,062 (2026-10-24T17:01Z). No on-chain name yet: it has no Metaplex record, and only an instruction of the pool program can create one, because the record needs this mint's authority to sign.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-pool-crying-sol",
+      "address": "8T2ErLrntFdGMZaVHXNqX6z96Ay1qh5xGMm67mVeGrgB",
+      "role": "The venue's CRYING/SOL pool: a cp-swap PoolState under cp-swap-program-restart, 637 bytes. Token 0 is wrapped SOL (So11111111111111111111111111111111111111112), token 1 is CRYING (Ep5tnKTSkLDeQ12ctS3RhQNcbcApkcyJcGPgHh4dpump), and its fee tier is AmmConfig CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy. Its pool_creator field is 2jDh1Nuzy8Zvc1NjfzmGhJRdRKCRV9XkDcP26DHW1wuF, a wallet in no row of this registry; whose it is was not known on 2026-10-24.",
+      "custody": "program-derived, no key. Only the pool program's own instructions change it.",
+      "status": "live. At confirmed slot 460,928,062 (2026-10-24T17:01Z) it is owned by cp-swap-program-restart and its lp_mint field is venue-lp-mint-crying-sol.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-lp-mint-crying-sol",
+      "address": "4HPgmQyPSEXMGcCQHUDeo1EhJWKpjrnugPBSNLkyrrzh",
+      "role": "Pool-share (LP) mint of venue-pool-crying-sol: PDA seeds [\"pool_lp_mint\", pool] under cp-swap-program-restart, bump 255, derived and matched. A classic SPL Token mint, 9 decimals, no freeze authority; its mint authority is cp-swap-authority-restart. The site serves its name and picture at /mint/4HPgmQyPSEXMGcCQHUDeo1EhJWKpjrnugPBSNLkyrrzh.json: \"CRYING/SOL LP\", symbol CRYING-SOL.",
+      "custody": "program-derived, no key. Only the pool program mints it, on a deposit, and burns it, on a withdrawal.",
+      "status": "live, supply 13.924244201 shares at confirmed slot 460,928,062 (2026-10-24T17:01Z). No on-chain name yet: it has no Metaplex record, and only an instruction of the pool program can create one, because the record needs this mint's authority to sign.",
       "expect": {
         "type": "program-owned"
       }
@@ -2142,7 +2262,7 @@
     }
   ],
   "solanaFields": {
-    "$comment": "Who holds each authority of our Solana programs, and what each fee tier charges, as decoded from the account data by `verify-addresses.mjs --onchain` (check 3d). Values that name a key are solana row ids. Every admin, fee owner and fee receiver must be `onlyHolder`: the offline check fails on anything else, with ONE exception: `fundOwner` may be `fundOwnerUnderTheSplit`, the island's Workshop, under the split the island accepted on 2026-10-18 (its answer, §7: fund_owner on fee settings 1, 0 and the 0.25% tier). A fund owner can collect only the fund fee (cp-swap admin/collect_fund_fee.rs); the protocol owner, the admin and every other authority stay `onlyHolder`. All values read 2026-10-13 at finalized slot 456,675,628, except the protocolFeeRate, fundFeeRate and fundOwner of fee settings 0 and 1, which are the values the split's day-one Squads proposal sets. Not covered here: cp-swap's admin, which is compiled into the program (src/lib.rs `admin::ID`, the Squads vault), not stored in an account.",
+    "$comment": "Who holds each authority of our Solana programs, and what each fee tier charges, as decoded from the account data by `verify-addresses.mjs --onchain` (check 3d). Values that name a key are solana row ids. Every admin, fee owner and fee receiver must be `onlyHolder`: the offline check fails on anything else, with ONE exception: `fundOwner` may be `fundOwnerUnderTheSplit`, the island's Workshop, under the split the island accepted on 2026-10-18 (its answer, §7: fund_owner on fee settings 1, 0 and the 0.25% tier). A fund owner can collect only the fund fee (cp-swap admin/collect_fund_fee.rs); the protocol owner, the admin and every other authority stay `onlyHolder`. All values read 2026-10-13 at finalized slot 456,675,628, except the protocolFeeRate, fundFeeRate and fundOwner of fee settings 0 and 1, which are the values the split's day-one Squads proposal sets. The two range tiers (range-clmm-amm-config-0 and -1, tegridy-clmm's own AmmConfig layout, whose `owner` field is read as protocolOwner) were read 2026-10-27 at finalized slot 462,122,645. Not covered here: cp-swap's admin, which is compiled into the program (src/lib.rs `admin::ID`, the Squads vault), not stored in an account.",
     "onlyHolder": "squads-vault",
     "fundOwnerUnderTheSplit": "island-workshop-wallet",
     "accounts": {
@@ -2177,6 +2297,28 @@
         "protocolOwner": "squads-vault",
         "fundOwner": "island-workshop-wallet",
         "creatorFeeRate": 0
+      },
+      "range-clmm-amm-config-0": {
+        "layout": "clmm-amm-config",
+        "owner": "range-clmm-program",
+        "index": 0,
+        "protocolOwner": "squads-vault",
+        "protocolFeeRate": 104000,
+        "tradeFeeRate": 10000,
+        "tickSpacing": 120,
+        "fundFeeRate": 56000,
+        "fundOwner": "island-workshop-wallet"
+      },
+      "range-clmm-amm-config-1": {
+        "layout": "clmm-amm-config",
+        "owner": "range-clmm-program",
+        "index": 1,
+        "protocolOwner": "squads-vault",
+        "protocolFeeRate": 104000,
+        "tradeFeeRate": 2500,
+        "tickSpacing": 60,
+        "fundFeeRate": 56000,
+        "fundOwner": "island-workshop-wallet"
       },
       "tegridy-launch-global-restart": {
         "layout": "tegridy-launch-global",

@@ -1,13 +1,8 @@
 import {
   isDeployed,
-  TEGRIDY_LENDING_ADDRESS,
   TEGRIDY_NFT_LENDING_ADDRESS,
   TEGRIDY_NFT_POOL_FACTORY_ADDRESS,
   TEGRIDY_LAUNCHPAD_V2_ADDRESS,
-  COMMUNITY_GRANTS_ADDRESS,
-  MEME_BOUNTY_BOARD_ADDRESS,
-  VOTE_INCENTIVES_ADDRESS,
-  GAUGE_CONTROLLER_ADDRESS,
   PREMIUM_ACCESS_ADDRESS,
 } from './constants';
 import { isSolanaSwapLive } from './solana';
@@ -41,33 +36,12 @@ export interface NavItem {
   live?: boolean;
 }
 
-/**
- * Keeps NFT finance and governance in the nav ahead of their constants.ts wiring.
- * Governance contracts are deployed but their constants are still 0x0, so this
- * alone carries /community. The address halves are exported so a test can tell
- * which input carries each entry.
- */
-const PROMOTE_PENDING: boolean = true;
-
-/** Address-derived half of the NFT-finance gate (no PROMOTE_PENDING override). */
-export const NFT_FINANCE_ADDRESSES_LIVE = [
-  TEGRIDY_LENDING_ADDRESS,
+/** The NFT-finance entry lists on the strength of its own addresses. */
+export const NFT_FINANCE_LIVE = [
   TEGRIDY_NFT_LENDING_ADDRESS,
   TEGRIDY_NFT_POOL_FACTORY_ADDRESS,
   TEGRIDY_LAUNCHPAD_V2_ADDRESS,
 ].some(isDeployed);
-
-export const NFT_FINANCE_LIVE = PROMOTE_PENDING || NFT_FINANCE_ADDRESSES_LIVE;
-
-/** Address-derived half of the governance gate (no PROMOTE_PENDING override). */
-export const COMMUNITY_ADDRESSES_LIVE = [
-  COMMUNITY_GRANTS_ADDRESS,
-  MEME_BOUNTY_BOARD_ADDRESS,
-  VOTE_INCENTIVES_ADDRESS,
-  GAUGE_CONTROLLER_ADDRESS,
-].some(isDeployed);
-
-export const COMMUNITY_LIVE = PROMOTE_PENDING || COMMUNITY_ADDRESSES_LIVE;
 
 export const PREMIUM_LIVE = isDeployed(PREMIUM_ACCESS_ADDRESS);
 
@@ -90,13 +64,13 @@ export function tradeRoute(): string {
  * tradeRoute. `/earn` itself stays the list, so each pool's "Back to Earn" still reaches it.
  */
 /**
- * Where Pools opens: in a Solana room with a coin, the Solana LP tab already on that coin
+ * Where Pools opens: in a Solana room with a coin, the Venue AMM tab already on that coin
  * (owner, 2026-10-17: "the wiring for the pages inside the bayla bungalow is off"); with no
  * room, the tab as it opens for anyone.
  */
 export function poolsRoute(): string {
   const active = getActiveBungalow();
-  return active && active.chain === 'solana' && active.address ? `/solana-lp?mint=${active.address}` : '/solana-lp';
+  return active && active.chain === 'solana' && active.address ? `/pools?mint=${active.address}` : '/pools';
 }
 
 export function lockRoute(): string {
@@ -115,7 +89,7 @@ export interface NavSection {
   /** The section's destinations in tab order, the hub first: its host's tab strip. */
   items: NavItem[];
 
-  /** Where the word goes when not the hub; one of `items`. Swap follows the room, Pools opens Solana LP. */
+  /** Where the word goes when not the hub; one of `items`. Swap follows the room, Pools opens Venue AMM. */
   primaryTo?: string;
 }
 
@@ -136,10 +110,10 @@ export const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
-    // Providing liquidity: add/remove, Solana LP, the venue's own Solana AMM, and zap in.
+    // Providing liquidity: add/remove, the venue's own Solana AMM, range pools, and zap in.
     heading: 'Pools',
     hub: '/liquidity',
-    // Owner, 2026-10-03: "pools land on solana lp". The drawer row opens the Solana LP tab,
+    // Owner, 2026-10-03: "pools land on solana lp". The drawer row opens the Venue AMM tab,
     // on the room's coin inside a Solana room; the strip keeps its order, so the Ethereum
     // form is the tab to its left.
     get primaryTo() {
@@ -147,12 +121,12 @@ export const NAV_SECTIONS: NavSection[] = [
     },
     items: [
       { to: '/liquidity', label: 'Liquidity', tabLabel: 'Add / Remove' },
-      // Ungated, like /pools: the page mounts its LP section only once the venue reads live.
-      { to: '/solana-lp', label: 'Solana LP' },
+      // Ungated: a live probe of the venue's AMM that states when it is undeployed, and its LP
+      // section once it reads live. The Solana LP tab was the same section (owner, 2026-10-24:
+      // "remove solana lp keep venue amm"); /solana-lp now forwards here (App.tsx).
+      { to: '/pools', label: 'Venue AMM' },
       // Hidden, with no route, until range pools open (RANGE_POOLS_OPEN, clmm/programId.ts).
       ...(rangePoolsVisible() ? [{ to: '/range-pools', label: 'Range pools', tabLabel: 'Range' }] : []),
-      // Ungated: a live probe of the venue's AMM that states when it is undeployed.
-      { to: '/pools', label: 'Venue AMM' },
       // On: every leg runs on deployed contracts; a missing vault is named on the page.
       { to: '/zap', label: 'Zap In', tabLabel: 'Zap' },
     ],
@@ -167,7 +141,7 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { to: '/island',      label: 'The island',  tabLabel: 'Island' },
       { to: '/gallery',     label: 'Gallery' },
-      ...(COMMUNITY_LIVE ? [{ to: '/community', label: 'Community' }] : []),
+      { to: '/community', label: 'Community' },
       // NUMBERS_TABS[0]; StatsPage hosts /tokenomics, /treasury and /tax. The test keeps the two equal.
       { to: '/tokenomics',  label: 'Treasury & numbers', tabLabel: 'Numbers' },
     ],
@@ -320,7 +294,7 @@ export function litWord(pathname: string, hash = ''): BarWord | null {
   return BAR_NAV.find((w) => w.lit(pathname, hash)) ?? null;
 }
 
-/** The drawer's big rows, one per section, at every width. Pools leads, on the Solana LP tab. */
+/** The drawer's big rows, one per section, at every width. Pools leads, on the Venue AMM tab. */
 export const DRAWER_SECTIONS: readonly NavSection[] = [POOLS_SECTION, CHECK_SECTION];
 
 /** Not on the bar and not in the footer since 2026-10-15: the records and the developer API. */

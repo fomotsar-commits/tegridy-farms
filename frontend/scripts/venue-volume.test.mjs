@@ -518,7 +518,9 @@ describe("main: totals and cursor are written together, or not at all", () => {
     expect(db.rows.get("jupiter")).toMatchObject({ swaps: 2, usd: 6, version: 5, cursor: { k: "sig2" } });
   });
 
-  it("refuses to write when another run moved the version first, and goes red", async () => {
+  // Two counters run (Vercel every five minutes, GitHub hourly), so losing this race is
+  // ordinary: the winner read the same swaps from the same cursor and counted them.
+  it("writes nothing when another run moved the version first, and stays green with no error recorded", async () => {
     const db = fakeDb([{ source: "jupiter", swaps: 1, usd: 3, cursor: {}, version: 4 }]);
     const readers = {
       jupiter: async () => {
@@ -526,8 +528,32 @@ describe("main: totals and cursor are written together, or not at all", () => {
         return reader(oneUsdcSwap, { k: "x" })();
       },
     };
-    expect(await main({ env, fetchImpl: db.fetchImpl, deps: {}, sources: ["jupiter"], readers, ...quiet })).toBe(1);
+    expect(await main({ env, fetchImpl: db.fetchImpl, deps: {}, sources: ["jupiter"], readers, ...quiet })).toBe(0);
+    expect(db.rows.get("jupiter")).toMatchObject({ swaps: 1, usd: 3, version: 5 });
+    expect(db.rows.get("jupiter").last_error_at).toBeUndefined();
+    expect(db.writes).toHaveLength(1);
+  });
+
+  it("a write the database refuses for any other reason still goes red", async () => {
+    const db = fakeDb([{ source: "jupiter", swaps: 1, usd: 3, cursor: {}, version: 4 }]);
+    const inner = db.fetchImpl;
+    const fetchImpl = vi.fn(async (url, init = {}) =>
+      init.method === "PATCH" && String(url).includes("version=eq.") ? new Response("{}", { status: 401 }) : inner(url, init),
+    );
+    const readers = { jupiter: reader(oneUsdcSwap, { k: "x" }) };
+    expect(await main({ env, fetchImpl, deps: {}, sources: ["jupiter"], readers, ...quiet })).toBe(1);
     expect(db.rows.get("jupiter")).toMatchObject({ swaps: 1, usd: 3 });
+    expect(db.rows.get("jupiter").last_error_at).toBeTruthy();
+  });
+
+  it("gives each source the run's budget: a short one for the five-minute Vercel run", async () => {
+    const db = fakeDb([]);
+    let deadline;
+    const readers = { jupiter: async (_c, d) => ((deadline = d.deadline), reader([], { k: "s" })()) };
+    const before = Date.now();
+    await main({ env, fetchImpl: db.fetchImpl, deps: {}, sources: ["jupiter"], readers, budgetMs: 20_000, ...quiet });
+    expect(deadline - before).toBeGreaterThanOrEqual(20_000);
+    expect(deadline - before).toBeLessThan(25_000);
   });
 
   it("a source that fails keeps its totals and cursor, records the error, and the rest still count", async () => {

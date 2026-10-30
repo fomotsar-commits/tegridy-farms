@@ -111,6 +111,8 @@ const h = vi.hoisted(() => ({
   pairAverage: vi.fn(),
 }));
 
+// The constant-product pools' route only: range pools in the route are SolanaSwapPage.rangePool.test.tsx's.
+vi.mock('../lib/solana/clmm/programId', async (orig) => ({ ...(await orig<typeof import('../lib/solana/clmm/programId')>()), rangePoolsVisible: () => false }));
 vi.mock('sonner', () => ({ toast: h.toast }));
 vi.mock('../lib/solana/swap/pairAverage', async (orig) => ({
   ...(await orig<typeof import('../lib/solana/swap/pairAverage')>()),
@@ -2659,7 +2661,7 @@ describe('the token picker tells the venue’s BAYLA from its copies', () => {
     expect(first.textContent).not.toContain('Unverified');
   });
 
-  it('a search full of copies still shows ours first, and every row shows part of its address', async () => {
+  it('a search full of copies still shows ours first; ours shows the head and tail of its address, a copy its whole address', async () => {
     h.searchTokens.mockImplementation(async () => [copy(1), copy(2), copy(3)]);
     const dialog = await openPicker();
     fireEvent.change(screen.getByLabelText('Search tokens'), { target: { value: 'BAYLA' } });
@@ -2668,9 +2670,10 @@ describe('the token picker tells the venue’s BAYLA from its copies', () => {
     expect(first!.getAttribute('data-token-row')).toBe(BAYLA_MINT);
     expect(first!.textContent).toContain('This venue’s BAYLA');
     expect(first!.textContent).toContain('7hmVkP…pump');
-    // A copy says what it is: not verified, and its own address.
+    // A copy says what it is: not verified, and its own address in full (a head and a tail can be grinded to match).
     expect(second!.textContent).toContain('Unverified');
-    expect(second!.textContent).toContain('Copy11…pump');
+    expect(second!.textContent).toContain(copy(1).mint);
+    expect(second!.textContent).not.toContain('Copy11…pump');
     expect(second!.textContent).not.toContain('This venue’s BAYLA');
   });
 

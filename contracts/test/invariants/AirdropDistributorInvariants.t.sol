@@ -3,7 +3,6 @@ pragma solidity ^0.8.26;
 
 import "forge-std/Test.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import {AirdropFactory} from "../../src/AirdropFactory.sol";
 import {TegridyAirdropDistributor} from "../../src/TegridyAirdropDistributor.sol";
 
 /// @title  Airdrop distributor invariant suite — build plan item #65
@@ -125,12 +124,10 @@ contract AirdropInvHandler is Test {
 }
 
 contract AirdropDistributorInvariantsTest is Test {
-    AirdropFactory factory;
     AirdropInvToken token;
     TegridyAirdropDistributor dist;
     AirdropInvHandler handler;
 
-    address owner = makeAddr("owner");
     address creator = makeAddr("creator");
 
     uint256 constant LEAVES = 6;
@@ -179,7 +176,6 @@ contract AirdropDistributorInvariantsTest is Test {
     }
 
     function setUp() public {
-        factory = new AirdropFactory(owner);
         token = new AirdropInvToken();
         token.transfer(creator, 500_000 ether);
 
@@ -200,9 +196,12 @@ contract AirdropDistributorInvariantsTest is Test {
         bytes32[][] memory lv = _levels(leaves);
         bytes32 root = lv[lv.length - 1][0];
 
+        // What the retired AirdropFactory.createCampaign did: construct as the creator, then fund.
         vm.startPrank(creator);
-        token.approve(address(factory), funded);
-        dist = TegridyAirdropDistributor(factory.createCampaign(address(token), root, funded, 30 days));
+        dist = new TegridyAirdropDistributor(
+            address(token), root, creator, uint64(block.timestamp) + 30 days, 0, address(0)
+        );
+        token.transfer(address(dist), funded);
         vm.stopPrank();
 
         handler = new AirdropInvHandler(dist, ERC20(address(token)), creator, accounts, amounts, proofs);

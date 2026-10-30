@@ -16,7 +16,7 @@ function ModulesUnloaded() {
     <p className="mt-2 mb-2 flex flex-wrap gap-x-4 text-[13px]">
       <Link to="/solana" className="underline underline-offset-4" style={{ color: 'var(--color-kyle)' }}>Swap</Link>
       <Link to="/earn/bayla" className="underline underline-offset-4" style={{ color: 'var(--color-kyle)' }}>Stake BAYLA</Link>
-      <Link to="/solana-lp" className="underline underline-offset-4" style={{ color: 'var(--color-kyle)' }}>Add liquidity</Link>
+      <Link to="/pools" className="underline underline-offset-4" style={{ color: 'var(--color-kyle)' }}>Add liquidity</Link>
     </p>
   );
 }

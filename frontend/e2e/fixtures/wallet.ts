@@ -376,17 +376,43 @@ export async function anvilRpc(method: string, params: unknown[] = []): Promise<
 }
 
 /**
+ * The tightest deadline any later router call on this node is signed with: a swap's
+ * default five minutes, stamped from the BROWSER's clock (useSwap.ts:152, :534). An add
+ * gets thirty (useAddLiquidity.ts:258), so the swap is the budget, not the add.
+ */
+const SWAP_DEADLINE_S = 300;
+/** Clock skew the fork may carry and still leave every later swap a minute to land. */
+const MAX_FORK_SKEW_S = SWAP_DEADLINE_S - 60;
+
+/**
  * Move the fork's clock forward and mine, so time-based accrual actually advances.
  *
- * ⚠ KEEP THE JUMP SMALL — WELL UNDER 1800 SECONDS. The skew is PERMANENT: anvil has no
- * way back, and every later spec on this node inherits it. The routers stamp their
- * deadline from the BROWSER's clock (`Date.now()/1000 + 1800`, useAddLiquidity.ts:258),
- * so once the chain runs more than 30 minutes ahead of the runner, every add, remove and
- * swap reverts EXPIRED. Measured: a seven-day jump in claim-rewards.spec took out the
- * liquidity and swap anvil legs downstream while passing itself — a spec silently
- * breaking two others through the clock. Prefer staking more over waiting longer.
+ * ⚠ THE SKEW IS PERMANENT AND IT ADDS UP. anvil has no way back (evm_revert wedges this
+ * node, see FORK ISOLATION below), and every later spec inherits the skew. Once the
+ * chain runs more than SWAP_DEADLINE_S ahead of the runner, every swap reverts
+ * `UniswapV2Router: EXPIRED` at its first line (~25,000 gas). Measured twice:
+ *   - a seven-day jump in claim-rewards.spec took out the liquidity and swap legs
+ *     downstream while passing itself;
+ *   - 2026-10-27, a 120 s jump that was safe once ran three times, because Playwright
+ *     RETRIED the failing claim leg: 360 s, and both swap legs went red on every PR
+ *     while the code under test was fine.
+ * So this refuses any jump that would take the total past MAX_FORK_SKEW_S, and the
+ * leg that asked for it fails with the reason instead of a swap three files later.
+ * Prefer staking more over waiting longer.
  */
 export async function advanceForkTime(seconds: number): Promise<void> {
+  // Mine first: the newest block can be minutes old, and its stamp would understate
+  // how far ahead the fork's clock runs NOW.
+  await anvilRpc('evm_mine', []);
+  const head = (await anvilRpc('eth_getBlockByNumber', ['latest', false])) as { timestamp: string };
+  const skew = Number(BigInt(head.timestamp)) - Math.floor(Date.now() / 1000);
+  if (skew + seconds > MAX_FORK_SKEW_S) {
+    throw new Error(
+      `advanceForkTime(${seconds}) refused: the fork clock already runs ${skew}s ahead of this runner, and ` +
+        `${skew + seconds}s would make every later swap revert EXPIRED (deadline = browser clock + ` +
+        `${SWAP_DEADLINE_S}s). If this is a retry, the first attempt's error is the real one.`,
+    );
+  }
   await anvilRpc('evm_increaseTime', [seconds]);
   await anvilRpc('evm_mine', []);
 }

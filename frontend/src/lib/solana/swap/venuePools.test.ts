@@ -22,9 +22,13 @@ import {
   mintBytes,
   type FakeAccount,
 } from '../lp/testkit.fixture';
-import { EXT, encodeMint2022 } from '../../launcher/solana/write/testkit.fixture';
+import { EXT, encodeMint2022, writeTransferFee } from '../../launcher/solana/write/testkit.fixture';
+
+/** spl-token-2022 `ExtensionType::TransferHook`: a token no pool of ours can price. */
+const TRANSFER_HOOK = 14;
 import { chooseRoute, type RouteCandidate } from '../route';
 import { quoteVenuePools, readVenuePools, rememberingFetch } from './venuePools';
+import { poolStatePda } from '../../launcher/solana/curve/program';
 
 const NOW = 2_000_000_000n;
 const OPTS = { programId: PROGRAM, launchProgramId: LAUNCH };
@@ -72,7 +76,8 @@ describe('a pool on the public fee tier (tier 1) is found and priced with its ow
   it('prices each pool with the fee of the tier it is on, not one tier for all', async () => {
     const mint = key();
     const t1 = buildPool({ mint, configIndex: 1, quoteReserve: 10n * SOL, tokenReserve: 1_000_000n * TOK });
-    const t0 = buildPool({ mint, configIndex: 0, quoteReserve: 10n * SOL, tokenReserve: 1_000_000n * TOK });
+    // The one pool on tier 0 a swap may use: the token's launch pool.
+    const t0 = buildPool({ mint, configIndex: 0, address: poolStatePda(mint, LAUNCH), quoteReserve: 10n * SOL, tokenReserve: 1_000_000n * TOK });
     // Tier 0 as it is on mainnet: 0.25%.
     t0.accounts[t0.config.toBase58()] = { owner: PROGRAM.toBase58(), data: configBytes(0, 2_500n, 120_000n) };
     const r = await read(base(mint, { ...t1.accounts, ...t0.accounts }), mint);
@@ -148,6 +153,37 @@ describe('the rule the quotes feed: our pool unless somewhere else pays more', (
   it('wins by one raw unit', async () => {
     const { ours, out, pool } = await ourQuote();
     expect(chooseRoute([...ours, agg(out - 1n)]).chosen?.poolAddress).toBe(pool);
+  });
+});
+
+// Owner, 2026-10-29: a token with a transfer fee is quoted in our pools, with the fee taken
+// off what reaches the trader (swap_base_input.rs), so it stands beside Jupiter's honestly.
+describe('a token with a transfer fee is quoted with the fee taken off', () => {
+  it('buying it: the pool’s payout less 5%, the rest of the quote as without a fee', async () => {
+    const mint = key();
+    const pool = buildPool({ mint, configIndex: 1, quoteReserve: 10n * SOL, tokenReserve: 1_000_000n * TOK });
+    const plain = quoteVenuePools(await read(base(mint, pool.accounts), mint), WSOL_MINT, SOL);
+    const accounts = base(mint, pool.accounts);
+    accounts[mint.toBase58()] = { owner: TOKEN_2022_PROGRAM, data: writeTransferFee(encodeMint2022([[EXT.TransferFeeConfig, 108]]), { basisPoints: 500 }) };
+    const q = quoteVenuePools(await read(accounts, mint), WSOL_MINT, SOL);
+    expect(q.state).toBe('quoted');
+    const paid = plain.candidates[0]!.outAmount;
+    expect(q.candidates[0]!.outAmount).toBe(paid - (paid * 500n + 9_999n) / 10_000n);
+    expect(q.candidates[0]!.quote.transferFees).toEqual({ input: 0n, output: (paid * 500n + 9_999n) / 10_000n });
+  });
+
+  it('a fee change pending: with the chain’s epoch, the setting in force; the quote is what the builder will charge', async () => {
+    const mint = key();
+    const pool = buildPool({ mint, configIndex: 1, quoteReserve: 10n * SOL, tokenReserve: 1_000_000n * TOK });
+    const plain = quoteVenuePools(await read(base(mint, pool.accounts), mint), WSOL_MINT, SOL).candidates[0]!.outAmount;
+    const accounts = base(mint, pool.accounts);
+    // Epoch 0 on this chain's clock: the newer 9% from epoch 5 is not in force yet.
+    accounts[mint.toBase58()] = {
+      owner: TOKEN_2022_PROGRAM,
+      data: writeTransferFee(encodeMint2022([[EXT.TransferFeeConfig, 108]]), { basisPoints: 100, newer: { epoch: 5n, basisPoints: 900 } }),
+    };
+    const q = quoteVenuePools(await read(accounts, mint), WSOL_MINT, SOL);
+    expect(q.candidates[0]!.outAmount).toBe(plain - (plain * 100n + 9_999n) / 10_000n);
   });
 });
 
@@ -238,7 +274,7 @@ describe('a search that did not finish, with nothing that trades, is "could not 
     const mint = key();
     const pool = buildPool({ mint, quoteReserve: 10n * SOL, tokenReserve: 1_000_000n * TOK });
     const accounts = base(mint, pool.accounts);
-    accounts[mint.toBase58()] = { owner: TOKEN_2022_PROGRAM, data: encodeMint2022([[EXT.TransferFeeConfig, 108]]) };
+    accounts[mint.toBase58()] = { owner: TOKEN_2022_PROGRAM, data: encodeMint2022([[TRANSFER_HOOK, 8]]) };
     expect(quoteVenuePools(await read(accounts, mint, { indexStatus: 502 }), WSOL_MINT, SOL).state).toBe('unquotable');
   });
 });
@@ -326,9 +362,9 @@ describe('a pool that cannot be traded or cannot be read gives no candidate, and
     return quoteVenuePools(await read(accounts, mint), WSOL_MINT, SOL);
   }
 
-  it('a token that takes a fee on every transfer', async () => {
+  it('a token whose transfers run a hook', async () => {
     const q = await stateOf((_b, mint, accounts) => {
-      accounts[mint.toBase58()] = { owner: TOKEN_2022_PROGRAM, data: encodeMint2022([[EXT.TransferFeeConfig, 108]]) };
+      accounts[mint.toBase58()] = { owner: TOKEN_2022_PROGRAM, data: encodeMint2022([[TRANSFER_HOOK, 8]]) };
     });
     expect(q).toEqual({ state: 'unquotable', candidates: [] });
   });
@@ -356,9 +392,10 @@ describe('a pool that cannot be traded or cannot be read gives no candidate, and
 
   it('a pool beside a second one that trades: the one that trades is the candidate', async () => {
     const mint = key();
-    const frozen = buildPool({ mint, configIndex: 0, quoteReserve: 10n * SOL, tokenReserve: 1_000_000n * TOK, frozenVault: true });
+    const frozen = buildPool({ mint, configIndex: 1, address: key(), quoteReserve: 10n * SOL, tokenReserve: 1_000_000n * TOK, frozenVault: true });
     const good = buildPool({ mint, configIndex: 1, quoteReserve: 10n * SOL, tokenReserve: 1_000_000n * TOK });
-    const q = quoteVenuePools(await read(base(mint, { ...frozen.accounts, ...good.accounts }), mint), WSOL_MINT, SOL);
+    const index = { [`mint:${mint.toBase58()}`]: [frozen.address.toBase58()] };
+    const q = quoteVenuePools(await read(base(mint, { ...frozen.accounts, ...good.accounts }), mint, { index }), WSOL_MINT, SOL);
     expect(q.state).toBe('quoted');
     expect(q.candidates.map((c) => c.poolAddress)).toEqual([good.address.toBase58()]);
   });
@@ -435,7 +472,7 @@ describe('a search that did not finish is never "cannot be traded"', () => {
 
   it('a token no pool of which can be priced stays "cannot be traded" even when the index went unread', async () => {
     const { mint, accounts, index } = squatted({ frozenVault: true });
-    accounts[mint.toBase58()] = { owner: TOKEN_2022_PROGRAM, data: encodeMint2022([[EXT.TransferFeeConfig, 108]]) };
+    accounts[mint.toBase58()] = { owner: TOKEN_2022_PROGRAM, data: encodeMint2022([[TRANSFER_HOOK, 8]]) };
     const r = await read(accounts, mint, { index, indexStatus: 502 });
     if (r.kind !== 'ok') throw new Error(r.kind);
     expect(r.complete).toBe(false);

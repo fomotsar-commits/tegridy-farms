@@ -15,10 +15,12 @@ import { swapBaseInputIx } from '../../../solana/cpswap/ix';
 import { quoteOwnPool } from '../../../solana/cpswap/read';
 import { OWN_ROUTE_COPY } from '../../../solana/swap/ownPoolRoute';
 import type { RawAccount } from '../../../solana/lp/accounts';
+import { LAUNCH_TIER_POOL } from '../../../solana/lp/poolFinder';
+import { poolFeesOf } from '../../../solana/lp/liquidityMath';
 import { QUOTE_COINS_OR, readPair } from '../../../solana/lp/quotes';
-import { BUILDABLE_EXTENSIONS, decodeMintAccount, extensionPlain } from '../../../solana/lp/tokenSafety';
+import { BUILDABLE_EXTENSIONS, EXACT_EXTENSIONS, decodeMintAccount, extensionPlain } from '../../../solana/lp/tokenSafety';
 import { MAX_OWN_PRIORITY_LAMPORTS } from './budget';
-import { LP_COPY, POOL_READ_FAILED, accountCheck, coinAccount, poolPins, readPoolForWrite, type AccountWant } from './liquidity';
+import { LP_COPY, POOL_READ_FAILED, accountCheck, coinAccount, feeLine, poolPins, readPoolForWrite, tokenFeeAt, type AccountWant } from './liquidity';
 import { bodySteps, buildAndSimulate, notSent } from './prepare';
 import { slippageProblem } from './trade';
 import type { AggregatorSeen, IntentStep, Prepared, SwapOpenGate, TxSummary, WatchList, WriteRpc } from './types';
@@ -27,6 +29,7 @@ import { closeWsolIxs, openWsolIx, syncCredit, wrapIxs, wsolPlanFrom, type WsolP
 export const VENUE_SWAP_COPY = {
   notOurPair: `This site swaps in pools that pair a token with ${QUOTE_COINS_OR} only.`,
   poolUnread: 'We could not read the pool just now, so nothing was built. Try again in a moment.',
+  launchTier: `${LAUNCH_TIER_POOL} Nothing was built.`,
   notAToken: (why: string) => `This token cannot be swapped here: ${why}.`,
   tokenExtension: (what: string) =>
     `This token uses ${what}, so this site cannot work out exactly what a swap in this pool pays. Nothing was built.`,
@@ -109,26 +112,31 @@ export async function prepareVenueSwap(rpc: WriteRpc, gate: SwapOpenGate, a: Ven
   if (snap === POOL_READ_FAILED) return notSent('build', VENUE_SWAP_COPY.poolUnread);
   if (typeof snap === 'string') return notSent('build', snap);
   const { view } = snap;
+  if (view.launchTierWithoutLaunch) return notSent('build', VENUE_SWAP_COPY.launchTier);
   const p = view.snapshot.pool;
   const coinIs0 = view.quoteIsToken0;
   const tokenProgram = new PublicKey(coinIs0 ? p.token1Program : p.token0Program);
   const tokenDecimals = coinIs0 ? p.mint1Decimals : p.mint0Decimals;
 
   // 3. The token: the mint the pool names, and nothing that changes what a transfer
-  // moves (the one set the liquidity builders use). A transfer fee would make the pool's
-  // sum, and so the comparison with the aggregator, wrong.
+  // moves beyond what this site works out (the one set the liquidity builders use). A
+  // transfer fee is subtracted the pool program's way, at the network's epoch now, so
+  // the sum, and the comparison with the aggregator, is what reaches the wallet.
   const mint = decodeMintAccount(snap.mint.owner, snap.mint.data);
   if (!mint.ok) return notSent('build', VENUE_SWAP_COPY.notAToken(mint.reason));
   if (snap.mint.owner !== tokenProgram.toBase58()) return notSent('build', LP_COPY.poolChanged("the token's program"));
   if (mint.value.decimals !== tokenDecimals) return notSent('build', LP_COPY.poolChanged("the token's decimals"));
   const outside = mint.value.extensions.find((e) => !BUILDABLE_EXTENSIONS.has(e));
   if (outside !== undefined) return notSent('build', VENUE_SWAP_COPY.tokenExtension(extensionPlain(outside)));
-  // The pairing coin's own mint, when it sits under Token-2022 (BAYLA): the same rule, as
-  // the withdrawal builder holds it. `readPoolForWrite` read it in the same slot.
+  const tokenFee = tokenFeeAt(mint.value, snap.chainEpoch);
+  if (typeof tokenFee === 'string') return notSent('build', tokenFee);
+  // The pairing coin's own mint, when it sits under Token-2022 (BAYLA): every transfer of
+  // it must move exactly what is sent, as the withdrawal builder holds it. `readPoolForWrite`
+  // read it in the same slot.
   if (snap.quoteMint && coin.program === TOKEN_2022_PROGRAM_ID.toBase58()) {
     const coinMint = decodeMintAccount(snap.quoteMint.owner, snap.quoteMint.data);
     if (!coinMint.ok) return notSent('build', LP_COPY.coinChanged(coin.symbol, coinMint.reason));
-    const coinOutside = coinMint.value.extensions.find((e) => !BUILDABLE_EXTENSIONS.has(e));
+    const coinOutside = coinMint.value.extensions.find((e) => !EXACT_EXTENSIONS.has(e));
     if (coinOutside !== undefined) return notSent('build', LP_COPY.coinChanged(coin.symbol, `it uses ${extensionPlain(coinOutside)}`));
   }
   if (view.vaultsFrozen) return notSent('build', LP_COPY.vaultFrozen(coin.risk === null ? undefined : `The token's issuer, or ${coin.symbol}'s,`));
@@ -137,7 +145,14 @@ export async function prepareVenueSwap(rpc: WriteRpc, gate: SwapOpenGate, a: Ven
 
   // 4. The quote, by the CHAIN's clock, and the routing rule held on it.
   if (snap.chainNow === null && p.openTime > 0n) return notSent('build', VENUE_SWAP_COPY.noClock);
-  const quoted = quoteOwnPool(view.snapshot, config, a.inputMint.toBase58(), a.amountIn, snap.chainNow === null ? 0 : Number(snap.chainNow));
+  const quoted = quoteOwnPool(
+    view.snapshot,
+    config,
+    a.inputMint.toBase58(),
+    a.amountIn,
+    snap.chainNow === null ? 0 : Number(snap.chainNow),
+    poolFeesOf(coinIs0, tokenFee),
+  );
   if (!quoted) return notSent('build', VENUE_SWAP_COPY.cannotPrice);
   if (a.aggregator.kind === 'quoted' && quoted.outAmount < a.aggregator.out) {
     return notSent('build', a.aggregator.when === 'now' ? VENUE_SWAP_COPY.routeMoved : VENUE_SWAP_COPY.underLastQuote);
@@ -285,6 +300,8 @@ export async function prepareVenueSwap(rpc: WriteRpc, gate: SwapOpenGate, a: Ven
         minimumAmountOut: s.minimumAmountOut,
         quoted,
         aggregator: a.aggregator,
+        // Only the token has a fee: it is kept of what is paid in (selling it) or of what comes out (buying it).
+        transferFee: feeLine(tokenFee, (paysCoin ? quoted.transferFees?.output : quoted.transferFees?.input) ?? 0n),
         unwrapsWsol: bodySteps(steps).some((x) => x.kind === 'close-wsol'),
         wsolHeldBefore: plan ? plan.heldBefore : 0n,
         notices,

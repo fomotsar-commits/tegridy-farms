@@ -419,6 +419,15 @@ export default async function handler(req, res) {
     return handleFlames(req, res);
   }
 
+  // `?resource=torches` reads the island's torches, season, fire and flame count in one
+  // call: each room's door and the home's strip. Same CORS lock as flames, and it
+  // forwards only the fields those surfaces paint. Above `const provider`, like the rest.
+  // See _lib/torches.js header.
+  if (req.query.resource === "torches") {
+    const { handleTorches } = await import("./_lib/torches.js");
+    return handleTorches(req, res);
+  }
+
   // `?resource=births` signs a birth notify with the venue's shared secret and relays it
   // to the island's enrollment socket. Server-side because the SECRET is the whole
   // guarantee — a signature the browser could produce is one anybody could produce.
@@ -526,11 +535,16 @@ export default async function handler(req, res) {
     return handleTape(req, res);
   }
 
-  // `?resource=venue-volume`: the all-time volume the hourly venue-volume.yml counts,
-  // summed from Supabase and cached at the edge. Above `const provider`, like the rest.
+  // `?resource=venue-volume`: the all-time volume api/venue-volume-count.js counts every
+  // five minutes, summed from Supabase and cached at the edge. Above `const provider`, like the rest.
   if (req.query.resource === "venue-volume") {
     const { handleVenueVolume } = await import("./_lib/venueVolume.js");
     return handleVenueVolume(req, res);
+  }
+  // `?resource=venue-tvl`: what our pools hold on every chain, read live, cached a minute.
+  if (req.query.resource === "venue-tvl") {
+    const { handleVenueTvl } = await import("./_lib/venueTvl.js");
+    return handleVenueTvl(req, res);
   }
 
   // FLAT function at /api/aggregator. AUDIT FIX 2026-07-10: Vercel's nested /

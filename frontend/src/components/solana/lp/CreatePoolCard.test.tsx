@@ -72,6 +72,7 @@ function view(o: { tier1?: boolean; openTime?: bigint; address?: PublicKey; sol?
     quoteReserve: s,
     tokenReserve: t,
     vaultsFrozen: false,
+    launchTierWithoutLaunch: false,
     history: { kind: 'not-read' },
   };
 }
@@ -91,6 +92,7 @@ function search(views: PoolView[], extra: Partial<Extract<PoolSearchRead, { kind
       index: { kind: 'ok', pools: views.map((v) => v.address), truncated: false },
       pools: views.map((v) => ({ kind: 'pool' as const, view: v })),
       otherPairs: 0,
+      launchTierPools: [],
       knownState: { [STANDARD_1]: 'absent' },
       chainNow: 1_000n,
       ...extra,
@@ -766,41 +768,39 @@ describe('each answer has its own line, and only `offer` has the button', () => 
     expect(within(c).getByRole('button', { name: 'Open a pool' })).toBeEnabled();
   });
 
-  // What stays refused is refused in the check's own words. A transfer fee: the pool
-  // program would take it, the limit is this site's, and the block says so.
-  it('token-refused: a token that charges a transfer fee, in the words of the check that blocked it', async () => {
-    const feeToken = realToken(MINT, { transferFee: true });
-    const block = reasonText(feeToken, 'transfer-fee');
-    expect(block).toContain('This site cannot build exact deposits and withdrawals for a token with one, so it does not open or add to pools for it.');
-    mount(readers({ safety: vi.fn(async () => new Map([[M, feeToken]])) }));
+  // What stays refused is refused in the check's own words. A transfer hook: the pool
+  // program itself rejects it, and the block says so.
+  it('token-refused: a token whose transfers run a hook, in the words of the check that blocked it', async () => {
+    const hookToken = realToken(MINT, { transferHook: true });
+    const block = reasonText(hookToken, 'extension');
+    expect(block).toContain('The pool program does not accept tokens with it.');
+    mount(readers({ safety: vi.fn(async () => new Map([[M, hookToken]])) }));
     const c = await settled('token-refused');
     expect(c).toHaveTextContent(`This site does not open pools for this token: ${block}`);
     expect(within(c).queryByRole('button', { name: 'Open a pool' })).toBeNull();
     expect(within(c).queryByTestId('lp-create-cautions')).toBeNull();
   });
 
-  it('token-refused: a freezable copy that ALSO charges a transfer fee is refused for the fee; the warnings lift nothing', async () => {
-    const feeToken = realToken(MINT, { transferFee: true, freeze: key(), name: 'BOBO', symbol: 'BOBO' });
-    mount(readers({ safety: vi.fn(async () => new Map([[M, feeToken]])) }));
+  it('token-refused: a freezable copy that ALSO runs a hook is refused for the hook; the warnings lift nothing', async () => {
+    const hookToken = realToken(MINT, { transferHook: true, freeze: key(), name: 'BOBO', symbol: 'BOBO' });
+    mount(readers({ safety: vi.fn(async () => new Map([[M, hookToken]])) }));
     const c = await settled('token-refused');
-    expect(c).toHaveTextContent(`This site does not open pools for this token: ${reasonText(feeToken, 'transfer-fee')}`);
+    expect(c).toHaveTextContent(`This site does not open pools for this token: ${reasonText(hookToken, 'extension')}`);
     expect(within(c).queryByRole('button', { name: 'Open a pool' })).toBeNull();
     // A refusal has no button to warn before: its warnings stay on the token's own card.
-    expect(reasonText(feeToken, 'copies-known-name')).toContain('NOT the real BOBO');
+    expect(reasonText(hookToken, 'copies-known-name')).toContain('NOT the real BOBO');
     expect(within(c).queryByTestId('lp-create-cautions')).toBeNull();
     expect(c).not.toHaveTextContent('NOT the real BOBO');
   });
 
-  // Two blocks of two kinds: one is this site's limit, the other is the pool program's.
-  // Both are said, so nobody fixes one and comes back to be told about the next.
-  it('token-refused: a token blocked twice over is told both reasons, each in its own words', async () => {
-    const twice = realToken(MINT, { transferFee: true, transferHook: true });
-    const fee = reasonText(twice, 'transfer-fee');
-    const hook = reasonText(twice, 'extension');
+  // A fee AND a hook: the hook refuses it, and the fee, a warning, adds no second block.
+  it('token-refused: a token with a transfer fee and a hook is refused for the hook alone', async () => {
+    const both = realToken(MINT, { transferFee: true, transferHook: true });
+    const hook = reasonText(both, 'extension');
     expect(hook).toContain('a transfer hook');
-    expect(hook).toContain('The pool program does not accept tokens with it.');
-    mount(readers({ safety: vi.fn(async () => new Map([[M, twice]])) }));
-    expect(await settled('token-refused')).toHaveTextContent(`This site does not open pools for this token: ${fee} ${hook}`);
+    expect(both.kind === 'read' && both.blocks.map((b) => b.code)).toEqual(['extension']);
+    mount(readers({ safety: vi.fn(async () => new Map([[M, both]])) }));
+    expect(await settled('token-refused')).toHaveTextContent(`This site does not open pools for this token: ${hook}`);
   });
 
   it('token-refused: an address with no account behind it', async () => {

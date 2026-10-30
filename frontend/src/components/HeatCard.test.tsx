@@ -1485,7 +1485,7 @@ describe('the LP door line after a read', () => {
     const doors = await screen.findByTestId('heat-lp-doors');
     // USDC is no room's coin: no line for it, only BAYLA's.
     expect(doors.textContent).toBe('You hold BAYLA. Earn from every BAYLA trade: Add SOL + BAYLA');
-    expect(screen.getByRole('link', { name: 'Add SOL + BAYLA' }).getAttribute('href')).toContain(`/solana-lp?mint=${BAYLA}&task=add`);
+    expect(screen.getByRole('link', { name: 'Add SOL + BAYLA' }).getAttribute('href')).toContain(`/pools?mint=${BAYLA}&task=add`);
   });
 
   it('the wallet’s deepest rooms first, three at most', async () => {
@@ -1497,7 +1497,7 @@ describe('the LP door line after a read', () => {
     expect([...doors.querySelectorAll('a')].map((a) => a.textContent)).toEqual([
       'Add SOL + BOBO', 'Add SOL + SOY', 'Add SOL + RIZZ',
     ]);
-    expect(screen.getByRole('link', { name: 'Add SOL + RIZZ' }).getAttribute('href')).toContain(`/solana-lp?mint=${RIZZ}&task=add&pool=`);
+    expect(screen.getByRole('link', { name: 'Add SOL + RIZZ' }).getAttribute('href')).toContain(`/pools?mint=${RIZZ}&task=add&pool=`);
   });
 
   it('a retired row, a coin with no pool, or a card without the door shows no line', async () => {

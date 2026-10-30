@@ -1,10 +1,8 @@
 /**
  * AUDIT R081 — Claim-rewards surfaces (zero coverage before).
  *
- * Tegridy distributes claimable yield from three surfaces:
+ * Tegridy distributes claimable yield from one surface:
  *   1. LP farming — `/farm` (LPFarmingSection)
- *   2. Restaking — `/farm` (RestakingPanel; "Claim N TOWELI" CTA)
- *   3. Bribes / gauge incentives — `/community` (gauge tab)
  *
  * ⚠ A CLAIM CTA IS POSITION-DEPENDENT. The original first test asserted a
  * /claim/i button is visible on /farm "when connected" — it is not, from a
@@ -14,9 +12,34 @@
  * position is that each claim-bearing surface mounts, so that is what these
  * check; the claim TRANSACTION is the Anvil leg's job.
  */
-import { test, expect, expectTxReceipt, advancePastApproval, advanceForkTime } from './fixtures/wallet';
+import { encodeFunctionData, formatEther, hexToBigInt, parseAbi, type Hex } from 'viem';
+import { test, expect, expectTxReceipt, advancePastApproval, advanceForkTime, anvilRpc } from './fixtures/wallet';
+import { TEGRIDY_STAKING_ADDRESS, TOWELI_ADDRESS } from '../src/lib/constants';
 
 const onAnvil = !!process.env.ANVIL_RPC_URL;
+
+const RESERVE_ABI = parseAbi([
+  'function balanceOf(address) view returns (uint256)',
+  'function totalStaked() view returns (uint256)',
+  'function totalUnsettledRewards() view returns (uint256)',
+]);
+
+/** One uint256 off the fork. An empty `0x` (no code there) throws: unread is not zero. */
+async function readUint(to: string, data: Hex): Promise<bigint> {
+  const result = (await anvilRpc('eth_call', [{ to, data }, 'latest'])) as Hex;
+  if (result === '0x') throw new Error(`eth_call to ${to} returned no data — is the contract on this fork?`);
+  return hexToBigInt(result);
+}
+
+/** The reward pool exactly as StakingRewardLib computes it; may be negative. */
+async function stakingRewardReserve(): Promise<bigint> {
+  const [balance, staked, iou] = await Promise.all([
+    readUint(TOWELI_ADDRESS, encodeFunctionData({ abi: RESERVE_ABI, functionName: 'balanceOf', args: [TEGRIDY_STAKING_ADDRESS] })),
+    readUint(TEGRIDY_STAKING_ADDRESS, encodeFunctionData({ abi: RESERVE_ABI, functionName: 'totalStaked' })),
+    readUint(TEGRIDY_STAKING_ADDRESS, encodeFunctionData({ abi: RESERVE_ABI, functionName: 'totalUnsettledRewards' })),
+  ]);
+  return balance - staked - iou;
+}
 
 test.describe('Claim rewards surfaces', () => {
   test('/farm mounts the reward-bearing sections when connected', async ({ page, walletMock }) => {
@@ -79,33 +102,10 @@ test.describe('Claim rewards surfaces', () => {
     // ⚠ THIS ASSERTION USED TO BE VACUOUS. It read `/^claim\s+\d/i` — "claim", space,
     // DIGIT — and no claim CTA on /farm is named that way in any state. StakingCard
     // renders "Claim Rewards" (StakingCard.tsx:228) and LPFarmingSection renders
-    // "Claim Rewards" (LPFarmingSection.tsx:210); the one "Claim <number> TOWELI" on
-    // this page is the restaking panel's (FarmPage.tsx:518), and that whole block is
-    // gated on `restaking.isDeployed` (FarmPage.tsx:452) against
-    // TEGRIDY_RESTAKING_ADDRESS, which is the zero address. So the old count-0 held for
-    // a cold account, a rich account, and a broken build alike — it could not fail.
+    // "Claim Rewards" (LPFarmingSection.tsx:210), so the old count-0 held for a cold
+    // account, a rich account, and a broken build alike: it could not fail.
     // Matching the copy the app actually ships is what makes it a gate.
     await expect(page.getByRole('button', { name: /^claim/i })).toHaveCount(0);
-  });
-
-  test('/community renders the gauge / governance surfaces under mock wallet', async ({ page, walletMock }) => {
-    const pageErrors: string[] = [];
-    page.on('pageerror', (err) => pageErrors.push(err.message));
-    await walletMock.connect();
-    await page.goto('/community');
-    await expect(page.locator('h1')).toContainText(/community/i);
-    for (const label of [/governance/i, /bounties/i, /vote incentives/i, /gauge voting/i]) {
-      await expect(page.getByRole('tab', { name: label })).toBeVisible();
-    }
-    expect(pageErrors).toEqual([]);
-  });
-
-  test('gauge voting tab (bribe claims live here) opens without crash', async ({ page, walletMock }) => {
-    await walletMock.connect();
-    await page.goto('/community');
-    const gauge = page.getByRole('tab', { name: /gauge voting/i });
-    await gauge.click();
-    await expect(gauge).toHaveAttribute('aria-selected', 'true');
   });
 
   /**
@@ -132,11 +132,8 @@ test.describe('Claim rewards surfaces', () => {
    * accrual below comes from the contract's own math after the fork clock moves — not
    * from storage we wrote.
    *
-   * [op] TWO CLAIM SURFACES REMAIN UNCOVERABLE UNTIL AN OPERATOR ACTS, and neither is
+   * [op] ONE CLAIM SURFACE REMAINS UNCOVERABLE UNTIL AN OPERATOR ACTS, and it is not
    * a test defect:
-   *   • Restaking claims — TEGRIDY_RESTAKING_ADDRESS is 0x000…0 ("DEFERRED to Phase 7",
-   *     constants.ts:23). The panel is gated off at FarmPage.tsx:452. Deploy it and set
-   *     the constant, then a "Claim <n> TOWELI" leg becomes writable.
    *   • LP farming claims — refund the farm (notifyRewardAmount from the owner Safe) so
    *     periodFinish moves ahead of now. Until then there is nothing to claim there.
    */
@@ -146,6 +143,21 @@ test.describe('Claim rewards surfaces', () => {
     // clock advance and a reload between the stake and the claim. Each assertion below
     // keeps its own tight, named budget.
     test.setTimeout(180_000);
+
+    // 0. Can anything accrue at all? StakingRewardLib.accumulateRewards caps every tick
+    // to balanceOf(staking) − totalStaked − totalUnsettledRewards, and gives ZERO when
+    // that is not positive: a new position then earns nothing however long we wait.
+    // Ask BEFORE staking and moving the clock, so an empty reserve fails here, by name,
+    // and does not spend the shared fork's clock budget (advanceForkTime) that the swap
+    // legs need. 2026-10-27 it was empty on mainnet: balance == totalStaked to the wei.
+    const reserve = await stakingRewardReserve();
+    if (reserve <= 0n) {
+      throw new Error(
+        `TegridyStaking's reward reserve on this fork is EMPTY (balance − totalStaked − IOUs = ` +
+          `${formatEther(reserve)} TOWELI), so nothing can accrue and there is nothing to claim. This is ` +
+          'chain state, not this PR: it stays red until the reserve is refilled (notifyRewardAmount, owner).',
+      );
+    }
 
     // ISOLATED WALLET — see the note in stake.spec.ts. This leg opens a position too,
     // and it also jumps the fork clock, so it must not be spending from the wallet the
@@ -193,7 +205,7 @@ test.describe('Claim rewards surfaces', () => {
     const claim = positionCard.getByRole('button', { name: /^Claim Rewards$/i });
     await expect(
       claim,
-      'the claim CTA never enabled after a week of fork time on a real position — either accrual stopped ' +
+      'the claim CTA never enabled after 120 s of fork time on a real position — either accrual stopped ' +
         'on TegridyStaking or the reward pool is exhausted. Check rewardRate() and the contract TOWELI balance ' +
         'before touching this assertion.',
     ).toBeEnabled({ timeout: 30_000 });
