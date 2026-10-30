@@ -9,6 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-10-29
 
+- BAYLA lock ladder: each of your positions now shows how much BAYLA it earns a day and that as an APR on its stake, and "You in this pool" shows your wallet's total a day and its APR. Both come from your weight (stake × lock boost), so a longer lock shows more, and both are at today's rate: they fall when others lock, rise when they leave, and stop when the reward window ends unless it is refilled. The pool's own figures still carry no percentage.
 - Solana pools: a token with a transfer fee can now have a pool. Opening one, adding to it, taking out of it and swapping in it work, with the fee taken the pool program's way. The review says how many tokens the token itself keeps, for whoever collects its fee (never the pool or memetics.finance), and every amount shown is after it. The token's card warns that the fee is taken going in, coming out and on every trade, and, when someone can still change the fee, that it can be raised to all of every transfer. Range pools and Add with one coin still turn such a token away.
 
 ### 2026-10-28
