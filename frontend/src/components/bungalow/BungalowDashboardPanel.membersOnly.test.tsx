@@ -4,6 +4,8 @@
 // other pool keeps its full card. Failed reads on ANY pool are outage lines.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+// Harvest (components/farm/HarvestCard.tsx) needs the app's wagmi root; it has its own tests.
+vi.mock('../farm/HarvestCard', () => ({ HarvestCard: () => null }));
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import type { Bungalow, BungalowIdentity } from '../../lib/bungalows';

@@ -31,6 +31,8 @@ import { HeatCard } from './HeatCard';
 import { BungalowMarket } from './BungalowMarket';
 import { BungalowHolders } from './BungalowHolders';
 import { BungalowBurn } from './BungalowBurn';
+import { HarvestCard } from '../farm/HarvestCard';
+import { useOnStakesChanged } from '../../lib/harvest/stakesChanged';
 
 /**
  * The bungalow dashboard (Bayla) — "your standing on the island".
@@ -116,6 +118,9 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
     setPoolResult((p) => (p?.ok ? p : null));
     setReadGen((n) => n + 1);
   };
+  // A harvest above changes the staked figures below (lib/harvest/stakesChanged.ts).
+  const [me] = useState(() => ({}));
+  useOnStakesChanged(me, () => setReadGen((n) => n + 1));
 
   const mint = bungalow.address!;
   const poolRead = poolResult?.ok ? poolResult.pool : null;
@@ -325,6 +330,10 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
             Your {bungalow.symbol}: held, staked, and for how long.
           </p>
         </div>
+
+        {/* Every pool's rewards in one press (owner, 2026-10-30); drawn only while there is
+            something to claim. It signs with this page's Solana connection. */}
+        <HarvestCard quiet />
 
         {/* ── Your standing: three cards, one row ───────────────────────── */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
