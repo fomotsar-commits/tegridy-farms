@@ -163,7 +163,11 @@ token→WETH side selection.
 **GPL-3.0**, not MIT (verified from the LICENSE files at the pinned commits). The vendored copies
 under `upstream/` are unmodified reference sources with full attribution here and in
 `upstream.lock.json`; the derived port file carries `SPDX-License-Identifier: GPL-3.0-or-later`
-rather than the repo-default MIT.
+rather than the repo-default MIT. Since 2026-10-29 so do the three forks, `TegridyPair.sol`,
+`TegridyFactory.sol` and `TegridyRouter.sol` (`GPL-3.0-or-later` is what both upstream
+`package.json` files declare). The SPDX line is a comment, which the normalizer folds, so no
+snapshot moved. MIT files that import the forks are an open owner question (`NOTICE.md`, SPDX
+coverage).
 
 ### D8. StakingRewards family — verbatim 0.8 port of the Synthetix staker (WO-2 EVM lighthouse, 2026-08-30)
 
