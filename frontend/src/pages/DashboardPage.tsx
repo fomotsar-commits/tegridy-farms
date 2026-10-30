@@ -142,7 +142,7 @@ function VenueDashboard() {
   );
   return (
     <div className="page-column mx-auto w-full px-4 md:px-6 py-8 sm:py-10">
-      <IslandDashboard headingLevel={1} />
+      <IslandDashboard headingLevel={1} harvest />
     </div>
   );
 }

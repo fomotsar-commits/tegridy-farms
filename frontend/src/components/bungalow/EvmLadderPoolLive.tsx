@@ -17,6 +17,7 @@ import { CopyButton } from '../ui/CopyButton';
 import { shortenAddress } from '../../lib/formatting';
 import { HeldTimeLine } from './HeldTimeLine';
 import { CardArt } from '../ui/CardArt';
+import { useOnStakesChanged } from '../../lib/harvest/stakesChanged';
 import { FinePrint } from '../ui/FinePrint';
 import { rewardsEndedLine, rewardsHaveEnded, rewardsZeroLine } from '../../lib/rewardsEnded';
 
@@ -108,6 +109,9 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
     ],
     query: { refetchInterval: 30_000 },
   });
+  // Harvest on this page claims the same rewards: read again when it runs (lib/harvest/stakesChanged.ts).
+  const [me] = useState(() => ({}));
+  useOnStakesChanged(me, () => void refetch());
 
   const big = (i: number): bigint | null => {
     const r = reads?.[i];
