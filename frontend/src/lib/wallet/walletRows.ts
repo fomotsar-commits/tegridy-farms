@@ -36,6 +36,12 @@ export interface PositionRow {
   title: string;
   /** The read facts, each short: "10,000 BAYLA", "unlocks 20 Nov 2026", "earned 12.3 BAYLA". */
   facts: string[];
+  /**
+   * What the position holds, in USD at a read price: a lock's or a stake's coins, or both sides of
+   * a pool share. Rewards not yet claimed are left out (they are in "earned"). Null when no price
+   * was read for every coin in it.
+   */
+  usd: number | null;
   to: string;
 }
 
@@ -117,9 +123,9 @@ export function usdOf(raw: bigint, decimals: number, price: number | null | unde
 /**
  * The holdings' total, and only when it is whole: every holdings leg read, and every coin held
  * priced. A total that silently leaves a coin out understates the wallet, so a partial total is
- * reported as such and never printed as the figure.
+ * reported as such and never printed as the figure. The positions' total is kept the same way.
  */
-export function holdingsTotal(legs: readonly Leg<HoldingRow>[]): { kind: 'total'; usd: number } | { kind: 'partial' } | { kind: 'none' } {
+export function holdingsTotal(legs: readonly Leg<{ usd: number | null }>[]): { kind: 'total'; usd: number } | { kind: 'partial' } | { kind: 'none' } {
   if (legs.some((l) => l.status !== 'ok')) return { kind: 'partial' };
   const rows = legs.flatMap((l) => (l.status === 'ok' ? l.rows : []));
   if (rows.length === 0) return { kind: 'none' };
