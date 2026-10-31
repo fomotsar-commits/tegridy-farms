@@ -13,6 +13,7 @@ import { LiquidityPrimer } from '../components/liquidity/LiquidityPrimer';
 import { VenuePoolTable } from '../components/liquidity/VenuePoolTable';
 import { ChainPoolTable } from '../components/liquidity/ChainPoolTable';
 import { FinePrint } from '../components/ui/FinePrint';
+import { WrongChainBanner } from '../components/ui/WrongChainGuard';
 import { lpWriteMode, type LpWriteMode } from '../lib/launcher/solana/lpWriteFlag';
 
 /** What the Venue AMM tab can do follows LP's own switch, so the pointer never promises more. */
@@ -63,7 +64,7 @@ export default function LiquidityPage() {
     'Provide liquidity on memetics.finance native pools and earn a share of every swap that routes through them.',
   );
   const poolData = usePoolTVL();
-  // The network drop-down's pick (`?c=`) while no wallet is connected; the wallet's chain once one is.
+  // The network drop-down's pick (`?c=`), else the wallet's chain.
   const liquidityChainId = useLiquidityChainId();
   // The header speaks for a chain we run a venue on. A wallet on any other chain keeps
   // Ethereum's header and table, as before; the form below refuses that chain itself.
@@ -155,6 +156,12 @@ export default function LiquidityPage() {
         <FinePrint summary="Details" className="mb-2">
           <p>Both sides, priced off the pool&apos;s current reserves.</p>
         </FinePrint>
+        {/* The page follows the network picked; a wallet left on another one is told here. */}
+        <WrongChainBanner
+          requiredChainId={liquidityChainId}
+          message="Your wallet is on another network. Switch it to add or remove here."
+          className="mb-3"
+        />
         <LiquidityTab key={`${liquidityChainId}:${pick?.n ?? 0}`} chainId={liquidityChainId} pick={pick?.pool} />
       </section>
 

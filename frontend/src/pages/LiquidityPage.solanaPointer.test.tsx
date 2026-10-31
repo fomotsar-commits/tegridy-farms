@@ -18,6 +18,7 @@ vi.mock('wagmi', () => ({
   useAccount: () => ({ isConnected: false }),
   useChainId: () => 1,
   useSwitchChain: () => ({ switchChain: vi.fn() }),
+  useChains: () => [],
 }));
 vi.mock('../hooks/usePageTitle', () => ({ usePageTitle: () => {} }));
 vi.mock('../hooks/usePoolTVL', () => ({ usePoolTVL: () => ({}) }));
