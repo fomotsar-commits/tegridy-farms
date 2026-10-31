@@ -7,6 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-10-31
+
+- Home page: the TVL now counts what is staked with us, not only what our pools hold: the BAYLA lock ladder and the lighthouse pools on Solana, TOWELI staking, and the ladders on Ethereum and Base, retired ones included while they still hold stakes. Each counts what people staked in it, never the rewards it holds, with the coin at its market price (Jupiter's on Solana, DefiLlama's on Ethereum and Base). What counts shows pools and staking chain by chain. When a staking pool cannot be read, or a staked coin has no market price, it says "TVL at least".
+
 ### 2026-10-30
 
 - Pools, Venue AMM: a new Arbitrage card under Start here lists every pool whose price is far enough from Jupiter’s listed price for a trade to pay, most profitable first, and for each says what to pay, what comes back, the profit after the pool’s fee (and the token’s transfer fee, when it has one), where that fee goes (liquidity providers, memetics.finance, a pool’s creator), and the pool’s price after; its Swap opens the swap page on that trade with the amount filled in. The card says when its figures were read, reads again every 30 seconds while the tab is in view, keeps the last figures and says their age when a read fails, and has Read again. Every pool row and every pool’s card now have Swap beside Add, opening the swap page on that pair, and each row shows what the pool holds in dollars at Jupiter’s prices beside its name. The arbitrage lines under a row and the page’s Details drop-down are gone (the Rates and status cards say the same). A swap link to a coin Jupiter does not list now opens on that coin, read from the chain, instead of sliding to SOL and BAYLA; while a link’s coin is being looked up the swap form waits (no quote, no Buy), and a coin that could not be looked up at all is said, with the pair the form opened on instead.
