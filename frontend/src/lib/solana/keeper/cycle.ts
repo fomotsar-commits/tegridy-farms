@@ -140,10 +140,15 @@ async function readVenue(io: Pick<KeeperIo, 'rpc' | 'indexFetch'>): Promise<Venu
   return { pools: listed.list.pools, chainNow: listed.list.chainNow, safety };
 }
 
+/** The token's own claim of a ticker, untrusted, or null when it makes none. */
+function symbolOf(view: PoolView, safety: ReadonlyMap<string, TokenSafety>): string | null {
+  const checked = safety.get(view.tokenMint);
+  return checked?.kind === 'read' && checked.symbol ? checked.symbol : null;
+}
+
 /** The token's own claim, untrusted: the whole address is always beside it. */
 function nameOf(view: PoolView, safety: ReadonlyMap<string, TokenSafety>): string {
-  const checked = safety.get(view.tokenMint);
-  return `${checked?.kind === 'read' && checked.symbol ? checked.symbol : '?'} (${view.tokenMint}) / ${view.quote.symbol}`;
+  return `${symbolOf(view, safety) ?? '?'} (${view.tokenMint}) / ${view.quote.symbol}`;
 }
 
 const problemOf = (view: PoolView, safety: ReadonlyMap<string, TokenSafety>) => poolProblem(view, rowTokenFee(view, safety.get(view.tokenMint) ?? null));
@@ -151,6 +156,11 @@ const problemOf = (view: PoolView, safety: ReadonlyMap<string, TokenSafety>) => 
 export interface Coverage {
   name: string;
   pool: string;
+  tokenMint: string;
+  /** The token's own claim of a ticker (untrusted), or null. */
+  symbol: string | null;
+  /** The coin the pool prices the token in. */
+  quote: QuoteCoin;
   /** Why the keeper cannot trade it, or null when it can. */
   problem: string | null;
   /** How many other pools of ours trade the same pair: the keeper trades between them. */
@@ -164,6 +174,9 @@ export async function poolCoverage(io: Pick<KeeperIo, 'rpc' | 'indexFetch'>): Pr
   return venue.pools.map((v) => ({
     name: nameOf(v, venue.safety),
     pool: v.address,
+    tokenMint: v.tokenMint,
+    symbol: symbolOf(v, venue.safety),
+    quote: v.quote,
     problem: problemOf(v, venue.safety),
     siblings: venue.pools.filter((o) => o !== v && o.tokenMint === v.tokenMint && o.quote.mint === v.quote.mint).length,
   }));

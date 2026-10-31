@@ -50,17 +50,22 @@
  *                           allowed it for the keeper 2026-10-31, for coins only Raydium trades)
  *   KEEPER_PAY_SETUP        yes = open a coin's account on its first trip even when that trip
  *                           does not earn the ~0.0015 SOL rent back (default no)
+ *   KEEPER_DASHBOARD_PORT   the dashboard's port on this computer (default 8790)
  *
  * ─── COMMANDS ───────────────────────────────────────────────────────────────────
  *   status                     the keeper's address and what it holds
  *   pools                      every pool on the venue, and whether the keeper can trade it
  *   run [--once] [--live]      one pass, or keep watching (Ctrl+C stops)
  *   report                     what the keeper earned and spent, day by day, from its log
+ *   dashboard                  a page on this computer (http://127.0.0.1:8790) showing what the
+ *                              keeper holds and what it made, read from the chain; read-only
  *   wrap <SOL> [--send]        move SOL into the keeper's wrapped-SOL account
  *   withdraw <address> [--send]  unwrap, then send all USDC and all SOL but 0.01 to <address>
  */
 
 import fs from 'node:fs';
+import http from 'node:http';
+import crypto from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { register } from 'node:module';
@@ -98,6 +103,10 @@ const lib = (rel) => import(pathToFileURL(path.join(HERE, '..', 'src', 'lib', ..
 const { Connection, Keypair, PublicKey, SystemProgram, TransactionMessage, VersionedTransaction } = await import('@solana/web3.js');
 const spl = await import('@solana/spl-token');
 const { runCycle, poolCoverage, fingerprint, sellDust, DEFAULT_SETTINGS } = await lib('solana/keeper/cycle.ts');
+const { readActivity, results, byDay, madeSol, expectedHoldings } = await lib('solana/keeper/history.ts');
+const { REGISTERED_PROGRAM_ID } = await lib('solana/cpswap/program.ts');
+const { QUOTE_COINS } = await lib('solana/lp/quotes.ts');
+const { PRICE_IDS_MAX } = await lib('solana/lp/poolList.ts');
 const { jupiterApi } = await lib('solana/keeper/jupiterApi.ts');
 const { DEFAULT_LIMITS } = await lib('solana/keeper/plan.ts');
 const { pollConfirm } = await lib('solana/confirm.ts');
@@ -244,7 +253,287 @@ const stopped = () => {
   }
 };
 
+// ─── The dashboard: a read-only page on this computer only. What the keeper holds and what
+// it made, read from the chain, set beside the robot's own status file. ───
+const STATUS = path.join(LOG_DIR, 'price-keeper-status.json');
+const HISTORY = path.join(LOG_DIR, 'price-keeper-history.json');
+const HISTORY_VERSION = 1;
+const TOKEN_PROGRAMS = ['TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb'];
+/** Coin accounts whose history is read, at most: anyone can open coin accounts in the keeper's name. */
+const MAX_TRACKED = 40;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const said = (e) => (e instanceof Error ? e.message : String(e));
+
+/** A read the public RPC turned away for speed is tried again, slower. */
+async function rpcPatient(method, params) {
+  for (let i = 0; ; i++) {
+    try {
+      return await rpc(method, params);
+    } catch (e) {
+      if (i >= 5 || !/429|too many/i.test(said(e))) throw e;
+      await sleep(2000 * (i + 1));
+    }
+  }
+}
+
+/** The history read so far, kept beside the log so a restart reads only what is new. */
+function loadHistory(owner) {
+  try {
+    const j = JSON.parse(fs.readFileSync(HISTORY, 'utf8'));
+    if (j.version === HISTORY_VERSION && j.owner === owner) {
+      const big = (a) => ({ ...a, fee: BigInt(a.fee), sol: BigInt(a.sol), deposits: BigInt(a.deposits), tokens: a.tokens.map((t) => ({ ...t, change: BigInt(t.change) })) });
+      return { newest: j.newest ?? {}, skipped: new Set(j.skipped ?? []), acts: new Map(j.activities.map((a) => [a.signature, big(a)])) };
+    }
+  } catch {
+    // none yet, or unreadable: read from the chain again
+  }
+  return { newest: {}, skipped: new Set(), acts: new Map() };
+}
+
+function saveHistory(owner, h) {
+  try {
+    const text = JSON.stringify({ version: HISTORY_VERSION, owner, newest: h.newest, skipped: [...h.skipped], activities: [...h.acts.values()] }, (_, v) => (typeof v === 'bigint' ? v.toString() : v));
+    fs.writeFileSync(`${HISTORY}.tmp`, text);
+    fs.renameSync(`${HISTORY}.tmp`, HISTORY);
+  } catch {
+    // a copy only: the chain is read again next time
+  }
+}
+
+/** Every transaction of `address` since the last one read, oldest first, into `h`. False when a transaction is not served yet. */
+async function readNew(address, h, readOne) {
+  const sigs = [];
+  for (let before; ; ) {
+    const page = await rpcPatient('getSignaturesForAddress', [address, { limit: 1000, until: h.newest[address], before, commitment: 'confirmed' }]);
+    sigs.push(...page);
+    if (page.length < 1000) break;
+    before = page[page.length - 1].signature;
+  }
+  for (const { signature } of sigs.reverse()) {
+    if (!h.acts.has(signature) && !h.skipped.has(signature)) {
+      const tx = await rpcPatient('getTransaction', [signature, { encoding: 'json', maxSupportedTransactionVersion: 0, commitment: 'confirmed' }]);
+      if (!tx) return false;
+      const a = readOne(tx);
+      if (a) h.acts.set(signature, a);
+      else h.skipped.add(signature);
+      await sleep(400);
+    }
+    h.newest[address] = signature;
+  }
+  return true;
+}
+
+/** The keeper's wallet and every coin account it has, and the latest slot they were read at. */
+async function walletNow(owner) {
+  const bal = await rpcPatient('getBalance', [owner, { commitment: 'confirmed' }]);
+  let slot = bal.context.slot;
+  const accounts = [];
+  for (const programId of TOKEN_PROGRAMS) {
+    const r = await rpcPatient('getTokenAccountsByOwner', [owner, { programId }, { encoding: 'jsonParsed', commitment: 'confirmed' }]);
+    slot = Math.max(slot, r.context.slot);
+    for (const a of r.value) {
+      const info = a.account.data.parsed.info;
+      accounts.push({ address: a.pubkey, mint: info.mint, amount: BigInt(info.tokenAmount.amount), decimals: info.tokenAmount.decimals, lamports: BigInt(a.account.lamports) });
+    }
+  }
+  return { lamports: BigInt(bal.value), accounts, slot };
+}
+
+async function dashboard() {
+  const owner = keeperAddress().toBase58();
+  const port = num('KEEPER_DASHBOARD_PORT', 8790);
+  const page = fs.readFileSync(path.join(HERE, 'price-keeper-dashboard.html'), 'utf8');
+  const script = page.match(/<script>([\s\S]*?)<\/script>/)?.[1];
+  if (!script) throw new Error('the dashboard page has no script');
+  const csp = [
+    "default-src 'none'",
+    `script-src 'sha256-${crypto.createHash('sha256').update(script).digest('base64')}'`,
+    "style-src 'unsafe-inline'",
+    "connect-src 'self'",
+    "img-src 'self' data:",
+    "base-uri 'none'",
+    "form-action 'none'",
+    "frame-ancestors 'none'",
+  ].join('; ');
+  const jupiter = jupiterApi({ key: env.JUPITER_API_KEY });
+  const indexFetch = (input, init) => fetch(new URL(String(input), SITE), init);
+  const venueProgram = REGISTERED_PROGRAM_ID.toBase58();
+  const fixed = new Map(QUOTE_COINS.map((q) => [q.mint, q.symbol]));
+  const history = loadHistory(owner);
+  let venue = { rows: [], at: 0, note: 'not read yet' };
+  let prices = { usd: {}, at: 0, note: 'not read yet' };
+
+  const symbolOf = (mint) => fixed.get(mint) ?? venue.rows.find((r) => r.tokenMint === mint)?.symbol ?? null;
+  const onVenue = (mint) => fixed.has(mint) || venue.rows.some((r) => r.tokenMint === mint);
+  const ui = (raw, decimals) => Number(raw) / 10 ** decimals;
+  const coin = (mint, raw, decimals) => {
+    const amount = ui(raw, decimals);
+    const price = onVenue(mint) ? prices.usd[mint] : undefined;
+    return { mint, symbol: symbolOf(mint), onVenue: onVenue(mint), amount, usd: price === undefined ? null : amount * price };
+  };
+  const coins = (list) => list.map((t) => coin(t.mint, t.change, t.decimals));
+  const solUsd = () => prices.usd[WSOL.toBase58()] ?? null;
+  const netUsd = (r) => {
+    const sol = solUsd();
+    if (sol === null) return null;
+    const left = coins(r.madeTokens).reduce((sum, c) => sum + (c.usd ?? 0), 0);
+    return ui(r.madeSol - r.fees - r.deposits, 9) * sol + left;
+  };
+  const resultsOut = (r) => ({
+    trades: r.trades,
+    refused: r.refused,
+    sales: r.sales,
+    madeSol: ui(r.madeSol, 9),
+    leftovers: coins(r.madeTokens),
+    fees: ui(r.fees, 9),
+    deposits: ui(r.deposits, 9),
+    netUsd: netUsd(r),
+    unpriced: coins(r.madeTokens).filter((c) => c.usd === null).length,
+  });
+
+  async function build() {
+    if (Date.now() - venue.at > 10 * 60_000) {
+      const rows = await poolCoverage({ rpc, indexFetch }).catch((e) => said(e));
+      venue = typeof rows === 'string' ? { ...venue, at: Date.now(), note: `pools not read: ${rows}` } : { rows, at: Date.now(), note: null };
+    }
+    const pools = new Set(venue.rows.map((r) => r.pool));
+    const readOne = (tx) => readActivity(tx, owner, venueProgram, pools);
+    // Twice at most: a trade landing between the wallet read and the history read shows as a
+    // difference that the second read explains.
+    let wallet;
+    let historyNote = null;
+    let check;
+    for (let round = 0; round < 2; round++) {
+      wallet = await walletNow(owner);
+      const known = (a) => onVenue(a.mint) ? 0 : 1;
+      const tracked = [...wallet.accounts].sort((a, b) => known(a) - known(b)).slice(0, MAX_TRACKED);
+      historyNote = null;
+      for (const address of [owner, ...tracked.map((a) => a.address)]) {
+        if (!(await readNew(address, history, readOne))) historyNote = 'the newest transactions are not served yet: read again in a moment';
+      }
+      saveHistory(owner, history);
+      if (wallet.accounts.length > MAX_TRACKED) historyNote = `only ${MAX_TRACKED} of ${wallet.accounts.length} coin accounts are followed (strangers can open them)`;
+      const expected = expectedHoldings([...history.acts.values()], wallet.slot);
+      const lines = [];
+      const heldSol = wallet.lamports + wallet.accounts.reduce((sum, a) => sum + a.lamports, 0n);
+      if (expected.sol !== heldSol) lines.push(`SOL: the history explains ${fmt(expected.sol, 9)}, the wallet holds ${fmt(heldSol, 9)}`);
+      for (const a of tracked) {
+        if (a.mint === WSOL.toBase58()) continue;
+        const want = expected.tokens.get(a.mint) ?? 0n;
+        if (want !== a.amount) lines.push(`${symbolOf(a.mint) ?? '?'} (${a.mint}): the history explains ${fmt(want, a.decimals)}, the wallet holds ${fmt(a.amount, a.decimals)}`);
+      }
+      check = { ok: lines.length === 0, lines, slot: wallet.slot };
+      if (check.ok) break;
+    }
+    if (Date.now() - prices.at > 60_000) {
+      const mints = [...new Set([WSOL.toBase58(), USDC.toBase58(), ...wallet.accounts.map((a) => a.mint), ...[...history.acts.values()].flatMap((a) => a.tokens.map((t) => t.mint))])].filter(onVenue);
+      try {
+        const usd = {};
+        for (let i = 0; i < mints.length; i += PRICE_IDS_MAX) Object.assign(usd, await jupiter.prices(mints.slice(i, i + PRICE_IDS_MAX)));
+        prices = { usd, at: Date.now(), note: null };
+      } catch (e) {
+        prices = { ...prices, at: Date.now(), note: `Jupiter prices not read: ${said(e)}` };
+      }
+    }
+
+    let robot = null;
+    let robotNote = null;
+    try {
+      robot = JSON.parse(fs.readFileSync(STATUS, 'utf8'));
+    } catch (e) {
+      robotNote = fs.existsSync(STATUS) ? `status not read: ${said(e)}` : 'no status yet';
+    }
+    const acts = [...history.acts.values()].sort((a, b) => b.slot - a.slot);
+    const wsol = wallet.accounts.find((a) => a.mint === WSOL.toBase58());
+    const held = wallet.accounts.filter((a) => a.mint !== WSOL.toBase58() && a.amount > 0n).map((a) => coin(a.mint, a.amount, a.decimals));
+    const solPlain = ui(wallet.lamports, 9);
+    const solWrapped = ui(wsol?.amount ?? 0n, 9);
+    const rent = wallet.accounts.reduce((sum, a) => sum + a.lamports, 0n) - (wsol?.amount ?? 0n);
+    const sol = solUsd();
+    const r = results(acts);
+    const nameOfPool = (pool) => venue.rows.find((v) => v.pool === pool);
+    return {
+      builtAt: Date.now(),
+      wallet: owner,
+      rpc: redactRpcUrl(RPC),
+      solUsd: sol,
+      notes: [venue.note, prices.note, historyNote].filter(Boolean),
+      robot,
+      robotNote,
+      stopped: stopped(),
+      stopFile: STOP_FILE,
+      holdings: {
+        solPlain,
+        solWrapped,
+        rentSol: ui(rent, 9),
+        rentAccounts: wallet.accounts.length,
+        coins: held,
+        worthUsd: sol === null ? null : (solPlain + solWrapped + ui(rent, 9)) * sol + held.reduce((sum, c) => sum + (c.usd ?? 0), 0),
+        unvalued: held.filter((c) => c.usd === null).length,
+      },
+      results: {
+        ...resultsOut(r),
+        putIn: { sol: ui(r.putInSol, 9), coins: coins(r.putInTokens) },
+        takenOut: { sol: ui(r.takenOutSol, 9), coins: coins(r.takenOutTokens) },
+      },
+      days: byDay(acts).map((d) => ({ day: d.day, ...resultsOut(d.results) })),
+      recent: acts.slice(0, 50).map((a) => ({
+        signature: a.signature,
+        at: a.at,
+        kind: a.kind,
+        ok: a.ok,
+        sol: ui(a.kind === 'trade' || a.kind === 'sale' ? madeSol(a) : a.sol, 9),
+        fee: ui(a.fee, 9),
+        deposits: ui(a.deposits, 9),
+        coins: coins(a.tokens),
+        pools: a.pools.map((pool) => ({ pool, symbol: nameOfPool(pool)?.symbol ?? null, token: nameOfPool(pool)?.tokenMint ?? null, quote: nameOfPool(pool)?.quote.symbol ?? null })),
+        from: a.from,
+      })),
+      check,
+    };
+  }
+
+  let state = null;
+  let building = null;
+  const current = async () => {
+    if (!building && (!state || Date.now() - state.builtAt > 30_000)) {
+      building = build()
+        .then((s) => (state = s))
+        .catch((e) => (state = { ...(state ?? {}), builtAt: Date.now(), error: said(e) }))
+        .finally(() => (building = null));
+    }
+    if (!state) await building;
+    return state;
+  };
+
+  const common = { 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer', 'x-frame-options': 'DENY' };
+  const server = http.createServer(async (req, res) => {
+    // Only this computer, by its own names: a web page elsewhere that points a name of its
+    // own at 127.0.0.1 is turned away.
+    if (req.headers.host !== `127.0.0.1:${port}` && req.headers.host !== `localhost:${port}`) return res.writeHead(421, common).end();
+    if (req.method !== 'GET') return res.writeHead(405, common).end();
+    if (req.url === '/') return res.writeHead(200, { ...common, 'content-type': 'text/html; charset=utf-8', 'content-security-policy': csp }).end(page);
+    if (req.url === '/state.json') {
+      const body = JSON.stringify(await current());
+      return res.writeHead(200, { ...common, 'content-type': 'application/json' }).end(body);
+    }
+    return res.writeHead(404, common).end();
+  });
+  server.on('error', (e) => {
+    log(e.code === 'EADDRINUSE' ? `A dashboard already runs at http://127.0.0.1:${port}: open that one (or set KEEPER_DASHBOARD_PORT)` : `Dashboard stopped: ${said(e)}`);
+    process.exit(1);
+  });
+  server.listen(port, '127.0.0.1', () => {
+    log(`Dashboard for ${owner}: http://127.0.0.1:${port}`);
+    log('  read-only, on this computer only; Ctrl+C stops it (the robot keeps running)');
+  });
+  current();
+  await new Promise(() => {});
+}
+
 async function main() {
+  if (cmd === 'dashboard') return dashboard();
+
   if (cmd === 'status') {
     const owner = keeperAddress();
     const h = await holdings(owner);
@@ -346,11 +635,23 @@ async function main() {
     let lastPass = 0;
     let lastDust = 0;
     let held = null;
+    // What the dashboard shows of a live robot: a file it rewrites every round. One that cannot
+    // be written only leaves the dashboard saying the robot has not been seen.
+    let passSeen = null;
+    const beat = () => {
+      if (!live) return;
+      try {
+        fs.writeFileSync(STATUS, JSON.stringify({ at: new Date().toISOString(), pid: process.pid, hold: held, pass: passSeen, spentTodaySol: spentToday(), maxDailySol, checkSec: checkMs / 1000, intervalSec: intervalMs / 1000 }));
+      } catch {
+        // never the robot's business
+      }
+    };
     for (;;) {
       // Said once each time it changes.
       const hold = live ? holdReason() : null;
       if (hold !== held) log(hold ?? 'Sending again');
       held = hold;
+      beat();
       io.send = live && !hold ? send : undefined;
       // The quick check's reading is taken BEFORE a pass: a move during the pass shows as a
       // change at the next check, never as the starting point.
@@ -368,10 +669,13 @@ async function main() {
           const r = await runCycle(io, settings);
           watch = r.watch;
           log(`Pass done: ${r.pools} pools, ${r.gaps} gaps, ${r.sent} sent`);
+          passSeen = { at: new Date().toISOString(), pools: r.pools, gaps: r.gaps, sent: r.sent };
         } catch (e) {
           log(`Pass stopped: ${e instanceof Error ? e.message : String(e)}`);
+          passSeen = { at: new Date().toISOString(), error: e instanceof Error ? e.message : String(e) };
         }
         lastPass = Date.now();
+        beat();
       }
       if (Date.now() - lastDust >= dustMs) {
         lastDust = Date.now();
@@ -419,7 +723,7 @@ async function main() {
     return once(owner, ixs, key);
   }
 
-  console.log('Commands: status | pools | run [--once] [--live] | report | wrap <SOL> [--send] | withdraw <address> [--send]. Settings: the top of scripts/price-keeper.mjs.');
+  console.log('Commands: status | pools | run [--once] [--live] | report | dashboard | wrap <SOL> [--send] | withdraw <address> [--send]. Settings: the top of scripts/price-keeper.mjs.');
 }
 
 main().catch((e) => {
