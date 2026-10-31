@@ -27,6 +27,8 @@ import {
   LADDER_FUNDING_LINES,
   RETIRED_STAKE_POOLS,
   stakePoolMembersOnly,
+  LADDER_MAINNET_PROGRAM,
+  ROOM_LADDER_POOLS,
   subscribeActiveBungalow,
   announceActiveBungalow,
 } from './bungalows';
@@ -629,13 +631,13 @@ describe('stakePoolMembersOnly', () => {
     expect(stakePoolMembersOnly(b)).toBe(false);
   });
 
-  it('flips BAYLA alone, and only once the ladder env is set', () => {
+  it('flips BAYLA once its ladder env is set, and the four rooms once the build is on the mainnet program', () => {
     // vitest loads a developer's .env, so the expectation follows the env as read.
-    const bayla = BUNGALOWS.find((b) => b.id === 'bayla')!;
+    const has = (id: string) => Boolean(BUNGALOWS.find((b) => b.id === id)!.ladderPool);
     const asRead = BUNGALOWS.filter((b) => stakePoolMembersOnly(b)).map((b) => b.id);
-    expect(asRead).toEqual(bayla.ladderPool ? ['bayla'] : []);
+    expect(asRead).toEqual(['bayla', ...Object.keys(ROOM_LADDER_POOLS)].filter(has));
     const flipped = BUNGALOWS.filter((b) => stakePoolMembersOnly({ ...b, ladderPool: 'LADDER' })).map((b) => b.id);
-    expect(flipped).toEqual(['bayla']);
+    expect(flipped).toEqual(['bayla', ...Object.keys(ROOM_LADDER_POOLS).filter(has)]);
   });
 
   it('leaves the machine surfaces alone: the pool is not moved to the retired list', () => {
@@ -644,6 +646,45 @@ describe('stakePoolMembersOnly', () => {
     expect(RETIRED_STAKE_POOLS.map((r) => r.pool)).not.toContain(bayla.stakePool);
     expect(ISLAND_READ_POOLS.map((r) => r.pool)).toContain(bayla.stakePool);
   });
+});
+
+// Owner, 2026-10-31: "the sol staking pools we have for other bungalows on sol ... should be
+// exactly like what we are proposing for bayla". Each room gets a pool on the same program.
+describe('the Solana rooms on the ladder program', () => {
+  const FOUR = ['bobo', 'soy', 'brainlet', 'rizz'] as const;
+  const load = async (program: string) => {
+    vi.resetModules();
+    vi.stubEnv('VITE_BAYLA_LADDER_PROGRAM', program);
+    return import('./bungalows');
+  };
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('mounts all four on the mainnet program, each Streamflow pool closed and shown only to its members', async () => {
+    const m = await load(LADDER_MAINNET_PROGRAM);
+    for (const id of FOUR) {
+      const b = m.BUNGALOWS.find((x) => x.id === id)!;
+      expect(b.ladderPool, id).toBe(ROOM_LADDER_POOLS[id]);
+      expect(b.depositsClosed, id).toBe(true);
+      expect(b.stakePool, `${id} keeps its Streamflow pool for the stakers in it`).toBeTruthy();
+      expect(m.stakePoolMembersOnly(b), id).toBe(true);
+    }
+    expect(m.ladderRooms().map((b) => b.id).filter((id) => id !== 'bayla')).toEqual([...FOUR]);
+  }, 30_000);
+
+  it.each([
+    ['no program', ''],
+    ['another program (devnet, a test build)', 'LadrProg1111111111111111111111111111111111'],
+  ])('mounts none of the four with %s, and keeps every stake form open', async (_label, program) => {
+    const m = await load(program);
+    for (const id of FOUR) {
+      const b = m.BUNGALOWS.find((x) => x.id === id)!;
+      expect(b.ladderPool, id).toBeUndefined();
+      expect(b.depositsClosed, id).toBeUndefined();
+    }
+    expect(m.ladderRooms().map((b) => b.id).filter((id) => FOUR.includes(id as (typeof FOUR)[number]))).toEqual([]);
+  }, 30_000);
 });
 
 // The skin is state: a write is render-safe and silent, and the announce is
