@@ -7,6 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-10-31
+
+- Pools: picking Ethereum, Base or Robinhood Chain in the network menu now shows that network's pools even when your wallet stays on another network. Before, a wallet that did not switch kept the page on its own network, so a pick of Base still listed Ethereum's pool. When your wallet is on a different network from the one picked, a line above the form says so, with a button to switch; adding or removing waits until the wallet is there.
+
 ### 2026-10-30
 
 - Pools, Venue AMM: a new Arbitrage card under Start here lists every pool whose price is far enough from Jupiter’s listed price for a trade to pay, most profitable first, and for each says what to pay, what comes back, the profit after the pool’s fee (and the token’s transfer fee, when it has one), where that fee goes (liquidity providers, memetics.finance, a pool’s creator), and the pool’s price after; its Swap opens the swap page on that trade with the amount filled in. The card says when its figures were read, reads again every 30 seconds while the tab is in view, keeps the last figures and says their age when a read fails, and has Read again. Every pool row and every pool’s card now have Swap beside Add, opening the swap page on that pair, and each row shows what the pool holds in dollars at Jupiter’s prices beside its name. The arbitrage lines under a row and the page’s Details drop-down are gone (the Rates and status cards say the same). A swap link to a coin Jupiter does not list now opens on that coin, read from the chain, instead of sliding to SOL and BAYLA; while a link’s coin is being looked up the swap form waits (no quote, no Buy), and a coin that could not be looked up at all is said, with the pair the form opened on instead.
