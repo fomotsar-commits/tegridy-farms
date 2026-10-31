@@ -28,7 +28,7 @@ import { getSolanaSurfaceState, resetSolanaSurfaceForTests } from '../lib/solana
 
 const leg = <T,>(key: string, what: string, l: Leg<T>, retry = vi.fn()): NamedLeg<T> => ({ key, what, leg: l, retry });
 const holding = (o: Partial<HoldingRow>): HoldingRow => ({ key: o.symbol ?? 'x', symbol: 'BAYLA', chain: 'solana', amount: '52,000', usd: 12.5, roomId: 'bayla', to: '/bayla', ...o });
-const position = (o: Partial<PositionRow>): PositionRow => ({ key: o.title ?? 'p', roomId: 'bayla', chain: 'solana', title: 'BAYLA lock', facts: ['10,000 BAYLA', 'unlocks 15 Jan 2030', '4.00×', 'earned 1.23 BAYLA'], to: '/earn/bayla', ...o });
+const position = (o: Partial<PositionRow>): PositionRow => ({ key: o.title ?? 'p', roomId: 'bayla', chain: 'solana', title: 'BAYLA lock', facts: ['10,000 BAYLA', 'unlocks 15 Jan 2030', '4.00×', 'earned 1.23 BAYLA'], usd: null, to: '/earn/bayla', ...o });
 
 function wallet(o: Partial<WalletBoard>): WalletBoard {
   return { solanaAddress: null, evmAddress: null, holdings: [], positions: [], refresh: vi.fn(), ...o };
@@ -160,6 +160,63 @@ describe('IslandDashboard: the wallet', () => {
     mount();
     expect(screen.getByText('No SOL, ETH or island coins in this wallet.')).toBeInTheDocument();
     expect(screen.getByText(/No locks, stakes or pool shares here yet/)).toBeInTheDocument();
+    // Nothing to add up: no Positions figure, and never a $0 that reads as a read worth.
+    expect(screen.queryByTestId('positions-worth')).toBeNull();
+  });
+});
+
+// Owner, 2026-10-30: "the dashboard doesnt show the dollar value of lp or staking value".
+describe('IslandDashboard: what the positions are worth', () => {
+  const SOL_WALLET = '7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU';
+
+  it('prints each lock’s, stake’s and pool share’s worth on its row, and their total beside the holdings', () => {
+    board.value = wallet({
+      solanaAddress: SOL_WALLET,
+      holdings: [leg('h', 'your Solana coins', { status: 'ok', rows: [holding({})] })],
+      positions: [
+        leg('l', 'your BAYLA locks', { status: 'ok', rows: [position({ usd: 68.13 })] }),
+        leg('s', 'your pool shares on Solana', { status: 'ok', rows: [position({ key: 'lp', title: 'BAYLA / SOL pool', facts: ['2.31% of the pool'], usd: 1234.4, to: '/pools' })] }),
+      ],
+    });
+    mount();
+    const positions = screen.getByRole('region', { name: 'Positions' });
+    expect(within(positions).getByRole('link', { name: /^BAYLA lock: \$68\.13,/ })).toHaveTextContent('$68.13');
+    expect(within(positions).getByRole('link', { name: /^BAYLA \/ SOL pool: \$1,234,/ })).toHaveTextContent('$1,234');
+    expect(screen.getByTestId('positions-worth')).toHaveTextContent('Positions$1,303');
+  });
+
+  it('prints no total while a position has no price read, and its row says so', () => {
+    board.value = wallet({
+      solanaAddress: SOL_WALLET,
+      positions: [leg('l', 'your BAYLA locks', { status: 'ok', rows: [position({ usd: 10 }), position({ key: 'b', title: 'BOBO stake', roomId: 'bobo', usd: null })] })],
+    });
+    mount();
+    expect(within(screen.getByRole('region', { name: 'Positions' })).getByRole('link', { name: /^BOBO stake: worth not read,/ })).toBeInTheDocument();
+    expect(screen.getByTestId('positions-worth')).toHaveTextContent('Positions—not every position priced');
+  });
+
+  it('prints no total over a part that could not be read, and says it was not read', () => {
+    board.value = wallet({
+      solanaAddress: SOL_WALLET,
+      positions: [
+        leg('l', 'your BAYLA locks', { status: 'ok', rows: [position({ usd: 10 })] }),
+        leg('s', 'your pool shares on Solana', { status: 'unread', detail: '429' }),
+      ],
+    });
+    mount();
+    expect(screen.getByTestId('positions-worth')).toHaveTextContent('Positions—not every position read');
+  });
+
+  it('says it is reading while a part is in flight', () => {
+    board.value = wallet({
+      solanaAddress: SOL_WALLET,
+      positions: [
+        leg('l', 'your BAYLA locks', { status: 'ok', rows: [position({ usd: 10 })] }),
+        leg('s', 'your pool shares on Solana', { status: 'loading' }),
+      ],
+    });
+    mount();
+    expect(screen.getByTestId('positions-worth')).toHaveTextContent('Positions—reading');
   });
 });
 

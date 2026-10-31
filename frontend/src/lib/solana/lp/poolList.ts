@@ -10,9 +10,10 @@ import { PRICE_TOLERANCE, comparePrice, poolPricePerToken } from './poolHealth';
 import { siteNamed } from './identity';
 import { poolFeesOf } from './liquidityMath';
 import { lastTrade } from './poolPast';
-import { QUOTE_COINS, SOL_QUOTE, USDC_QUOTE, orList, type QuoteCoin } from './quotes';
+import { QUOTE_COINS, SOL_QUOTE, USDC_QUOTE, orList, quoteCoin, type QuoteCoin } from './quotes';
 import { TOKEN_PROGRAM, readTokenSafety, type TokenSafety } from './tokenSafety';
 import { MAX_FEE_BASIS_POINTS, feeNow, preFeeAmountOf, type TransferFee } from './transferFee';
+import { fromBaseUnits } from '../../jupiter';
 
 /**
  * Every pool on the venue, for the list a visitor sees before picking a token.
@@ -153,19 +154,47 @@ export async function readMarketPrices(pools: readonly PoolView[], priceOf: (min
   return { kind: 'ok', usd };
 }
 
-/**
- * How far a row's price is from Jupiter's, `pool / market - 1`, when it is further than the
- * card's own check allows (`comparePrice`: more than PRICE_TOLERANCE, and exactly 3% is
- * within). Null when it is within, or when the pool, the token or its pairing coin has no price.
- */
-export function marketGap(view: PoolView, usd: ReadonlyMap<string, number>): number | null {
+/** The token side's decimals, from the pool state: every token amount on a row is in them. */
+export function tokenDecimalsOf(view: Pick<PoolView, 'snapshot' | 'quoteIsToken0'>): number {
   const { pool } = view.snapshot;
-  const here = poolPricePerToken(view.snapshot, view.tokenMint, view.quoteIsToken0 ? pool.mint1Decimals : pool.mint0Decimals);
+  return view.quoteIsToken0 ? pool.mint1Decimals : pool.mint0Decimals;
+}
+
+/**
+ * How far a row's price is from Jupiter's, `pool / market - 1`, the token priced in the
+ * pool's coin: below zero the token is cheaper here, above it dearer. No tolerance: the
+ * arbitrage board sizes a trade on any gap past the pool's fee. Null when the pool, the
+ * token or its pairing coin has no price.
+ */
+export function priceGap(view: PoolView, usd: ReadonlyMap<string, number>): number | null {
+  const here = poolPricePerToken(view.snapshot, view.tokenMint, tokenDecimalsOf(view));
   const token = usd.get(view.tokenMint);
   const coin = usd.get(view.quote.mint);
   if (here === null || token === undefined || coin === undefined) return null;
   const check = comparePrice(here, token / coin, 'outside');
-  return check.state === 'disagrees' ? check.diff : null;
+  return check.state === 'agrees' || check.state === 'disagrees' ? check.diff : null;
+}
+
+/**
+ * The gap (`priceGap`) when it is further than the card's own check allows (`comparePrice`:
+ * more than PRICE_TOLERANCE, and exactly 3% is within): the row's red tag. Null when it is
+ * within, or when there is no gap to measure.
+ */
+export function marketGap(view: PoolView, usd: ReadonlyMap<string, number>): number | null {
+  const gap = priceGap(view, usd);
+  return gap !== null && Math.abs(gap) > PRICE_TOLERANCE ? gap : null;
+}
+
+/**
+ * What a pool holds, in dollars at Jupiter's listed prices: both sides, each at its coin's
+ * USD price. Null when either side has no price: a pool is never shown as worth $0, and a
+ * token Jupiter does not price gets no dollar figure.
+ */
+export function poolWorthUsd(view: PoolView, usd: ReadonlyMap<string, number>): number | null {
+  const coin = usd.get(view.quote.mint);
+  const token = usd.get(view.tokenMint);
+  if (coin === undefined || token === undefined) return null;
+  return (Number(view.quoteReserve) * coin) / 10 ** view.quote.decimals + (Number(view.tokenReserve) * token) / 10 ** tokenDecimalsOf(view);
 }
 
 /**
@@ -185,20 +214,38 @@ export function marketGap(view: PoolView, usd: ReadonlyMap<string, number>): num
  * The trade's fee splits as on chain: the LPs' part, the venue's (protocol + fund), and the
  * pool creator's when the pool charges one; a transfer fee goes to whoever collects the
  * token's fee. Before the trader's own costs anywhere else, so at most. Null when the gap is
- * inside the fees, the pool cannot be traded now, or a price, the fee settings or the chain's
- * clock was not read.
+ * inside the fees, under ARB_FLOOR_USD, the pool cannot be traded now (trading off, not open
+ * yet, a vault frozen), or a price, the fee settings or the chain's clock was not read.
  */
 export interface Arbitrage {
   side: 'buy' | 'sell';
+  /** `priceGap`: pool over Jupiter less one, the token priced in the pool's coin; below zero it is cheaper here. */
+  gap: number;
+  /** The coin the trader pays with and the one they get: the pool's coin and its token, by `side`. */
+  inputMint: string;
+  outputMint: string;
+  /** What the trader sends, in the input coin's base units (a token's transfer fee on top when selling it). */
+  amountIn: bigint;
+  /** What reaches the trader, in the output coin's base units, after the pool's fee and the token's. */
+  outAmount: bigint;
   /** The trade's size: what goes in, at Jupiter's price. */
   tradeUsd: number;
+  /** What comes out, at Jupiter's price. */
+  outUsd: number;
   profitUsd: number;
   lpFeeUsd: number;
   venueFeeUsd: number;
   creatorFeeUsd: number;
   /** What the token's own transfer fee keeps back of the trade; 0 for a token with none. */
   transferFeeUsd: number;
+  /** The pool's price after the trade, whole coins per whole token, from the reserves the program's maths leaves. */
+  afterPerToken: number;
+  /** The trade's price impact in the pool, as the program's maths gives it (a fraction). */
+  priceImpact: number;
 }
+
+/** Under this much profit nothing is listed: a figure that prints as "<$0.01" is noise, not a trade. */
+export const ARB_FLOOR_USD = 0.01;
 
 /**
  * The token's transfer fee as a row's arbitrage counts it. None for a classic token, which
@@ -209,23 +256,32 @@ export interface Arbitrage {
 export function rowTokenFee(view: PoolView, safety: TokenSafety | null): TransferFee | null | 'unread' {
   const { pool } = view.snapshot;
   if ((view.quoteIsToken0 ? pool.token1Program : pool.token0Program) === TOKEN_PROGRAM) return null;
+  // A pairing coin on the token side (BAYLA in BAYLA / SOL, a Token-2022 mint) carries no transfer
+  // fee: its maths is fee-free everywhere on the site (tokenSafety.ts, quotes.ts), and the list
+  // reads no check for a coin the site names itself, so without this the venue's own pool
+  // would read as 'unread' and never be sized.
+  if (quoteCoin(view.tokenMint)) return null;
   if (safety?.kind !== 'read' || !safety.facts) return 'unread';
   return feeNow(safety.facts.transferFee, null);
 }
 
 export function arbitrage(view: PoolView, usd: ReadonlyMap<string, number>, chainNow: bigint | null, tokenFee: TransferFee | null = null): Arbitrage | null {
-  const { pool } = view.snapshot;
   const coinUsd = usd.get(view.quote.mint);
   const tokenUsd = usd.get(view.tokenMint);
   if (!view.config || chainNow === null || coinUsd === undefined || tokenUsd === undefined) return null;
+  // A frozen vault takes nothing in and pays nothing out: the swap page quotes no such pool.
+  if (view.vaultsFrozen) return null;
   const Q = Number(view.quoteReserve);
   const T = Number(view.tokenReserve);
   if (!(Q > 0 && T > 0)) return null;
+  const gap = priceGap(view, usd);
+  if (gap === null) return null;
+  const tokenDecimals = tokenDecimalsOf(view);
   // Each side's base unit in USD, and the market price in coin units per token unit.
   const coinUnit = coinUsd / 10 ** view.quote.decimals;
-  const tokenUnit = tokenUsd / 10 ** (view.quoteIsToken0 ? pool.mint1Decimals : pool.mint0Decimals);
+  const tokenUnit = tokenUsd / 10 ** tokenDecimals;
   const m = tokenUnit / coinUnit;
-  const fee = Number(view.config.tradeFeeRate + chargedCreatorFeeRate(view.config, pool.enableCreatorFee)) / Number(FEE_RATE_DENOMINATOR);
+  const fee = Number(view.config.tradeFeeRate + chargedCreatorFeeRate(view.config, view.snapshot.pool.enableCreatorFee)) / Number(FEE_RATE_DENOMINATOR);
   const tax = tokenFee ? tokenFee.basisPoints / MAX_FEE_BASIS_POINTS : 0;
   if (!(fee < 1 && tax < 1)) return null;
   const buyTo = Math.sqrt(Q * T * m * (1 - fee) * (1 - tax));
@@ -236,22 +292,93 @@ export function arbitrage(view: PoolView, usd: ReadonlyMap<string, number>, chai
   // Selling, that is what reaches the pool: the trader sends it with the token's fee on top.
   const amountIn = side === 'sell' && tokenFee ? preFeeAmountOf(tokenFee, intoPool) : intoPool;
   if (amountIn === null || amountIn <= 0n) return null;
-  const inputMint = side === 'buy' ? view.quote.mint : view.tokenMint;
+  const [inputMint, outputMint] = side === 'buy' ? [view.quote.mint, view.tokenMint] : [view.tokenMint, view.quote.mint];
   const q = quoteOwnPool(view.snapshot, view.config, inputMint, amountIn, Number(chainNow), poolFeesOf(view.quoteIsToken0, tokenFee));
   if (!q) return null;
   const inUnit = side === 'buy' ? coinUnit : tokenUnit;
   const outUnit = side === 'buy' ? tokenUnit : coinUnit;
   const tradeUsd = Number(amountIn) * inUnit;
-  const profitUsd = Number(q.outAmount) * outUnit - tradeUsd;
-  if (!(profitUsd > 0)) return null;
+  const outUsd = Number(q.outAmount) * outUnit;
+  const profitUsd = outUsd - tradeUsd;
+  if (!(profitUsd >= ARB_FLOOR_USD)) return null;
   const r = q.result;
+  // The reserves after the trade: the program's maths takes the whole trade fee off the input
+  // side, but the LPs' part of it stays in the pool's tradable reserve (only the venue's and the
+  // creator's parts are kept apart), so it goes back on before the price is read.
+  const lpKept = r.tradeFee - r.protocolFee - r.fundFee;
+  const [quoteAfter, tokenAfter] = side === 'buy' ? [r.newInputVaultAmount + lpKept, r.newOutputVaultAmount] : [r.newOutputVaultAmount, r.newInputVaultAmount + lpKept];
   return {
     side,
+    gap,
+    inputMint,
+    outputMint,
+    amountIn,
+    outAmount: q.outAmount,
     tradeUsd,
+    outUsd,
     profitUsd,
     lpFeeUsd: Number(r.tradeFee - r.protocolFee - r.fundFee) * inUnit,
     venueFeeUsd: Number(r.protocolFee + r.fundFee) * inUnit,
     creatorFeeUsd: Number(r.creatorFee) * (q.creatorFeeOnInput ? inUnit : outUnit),
     transferFeeUsd: Number(q.transferFees?.input ?? 0n) * inUnit + Number(q.transferFees?.output ?? 0n) * outUnit,
+    afterPerToken: Number(quoteAfter) / 10 ** view.quote.decimals / (Number(tokenAfter) / 10 ** tokenDecimals),
+    priceImpact: q.priceImpact,
   };
+}
+
+/** One pool's arbitrage as the board lists it: the pool, its token's check (for its name) and the trade. */
+export interface Opportunity {
+  view: PoolView;
+  safety: TokenSafety | null;
+  arb: Arbitrage;
+}
+
+/**
+ * Every paying gap on the list, most profitable first (ties by address, so the order is the
+ * same on every read). From the one list read and the one price read, nothing more. A token
+ * this site's check blocks is left out (this site does not open, add to or trade pools of
+ * it); a token whose transfer fee could not be read gets no figure (`rowTokenFee`), so it is
+ * left out too; `arbitrage` itself leaves out a pool that cannot be traded now.
+ */
+export function rankArbitrage(list: PoolList, usd: ReadonlyMap<string, number>): Opportunity[] {
+  const out: Opportunity[] = [];
+  for (const view of list.pools) {
+    const safety = list.safety.get(view.tokenMint) ?? null;
+    if (safety?.kind === 'read' && safety.verdict === 'blocked') continue;
+    const tokenFee = rowTokenFee(view, safety);
+    if (tokenFee === 'unread') continue;
+    const arb = arbitrage(view, usd, list.chainNow, tokenFee);
+    if (arb) out.push({ view, safety, arb });
+  }
+  return out.sort((a, b) => b.arb.profitUsd - a.arb.profitUsd || (a.view.address < b.view.address ? -1 : 1));
+}
+
+/**
+ * What the board could not size, so "None right now" is never said over an unread gap: the
+ * chain's clock not read (nothing can be sized), pools the index named that were not read,
+ * and listed pools whose token's transfer fee was not read (`rowTokenFee` 'unread').
+ */
+export function unsizedPools(list: PoolList): { clock: boolean; unreadPools: number; unreadChecks: number } {
+  let unreadChecks = 0;
+  for (const view of list.pools) {
+    const safety = list.safety.get(view.tokenMint) ?? null;
+    if (safety?.kind === 'read' && safety.verdict === 'blocked') continue;
+    if (rowTokenFee(view, safety) === 'unread') unreadChecks++;
+  }
+  return { clock: list.chainNow === null, unreadPools: list.unread, unreadChecks };
+}
+
+/**
+ * The swap page's link for this trade: pay `amountIn` of the input coin for the output coin,
+ * sent to our pool when it pays more than Jupiter (the page's own rule). `inDecimals` is the
+ * input coin's: the amount is written as the form takes it (`?amt=`, a plain decimal), and
+ * the page turns it back into exactly `amountIn`.
+ */
+export function swapLink(a: Pick<Arbitrage, 'inputMint' | 'outputMint' | 'amountIn'>, inDecimals: number): string {
+  return `/solana?in=${a.inputMint}&out=${a.outputMint}&amt=${fromBaseUnits(a.amountIn.toString(), inDecimals)}`;
+}
+
+/** The swap page opened on this pool's pair, paying with the pool's coin to buy its token: a row's and a card's Swap. */
+export function pairSwapLink(view: Pick<PoolView, 'tokenMint' | 'quote'>): string {
+  return `/solana?in=${view.quote.mint}&out=${view.tokenMint}`;
 }

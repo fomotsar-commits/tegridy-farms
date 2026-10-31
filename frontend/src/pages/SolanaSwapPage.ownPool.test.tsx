@@ -1920,99 +1920,39 @@ describe('what a press writes lands only on the trade it was pressed for', () =>
     );
   });
 
-  it('a token from the link that resolves while Jupiter’s press reads our pools: nothing is sent for the trade pressed, and the trader is told', async () => {
-    // The one change to the form the press does not hold: a ?out= token looked up on arrival.
+  // A link's token still being looked up: $BAYLA stands on the form meanwhile (the page's opening coin,
+  // SolanaSwapPage.openingPair.test.tsx owns that rule), and the form is HELD: no quote, no route, no
+  // Buy, until the lookup lands. So no press can ever be for a pair the form will not keep, whatever our
+  // pools hold, and a sized link (the Arbitrage card's Swap, ?amt=) is never quoted on the pair that stands.
+  it('a token from the link still being looked up: the form is held, and the link’s pair is the first one quoted once it lands', async () => {
     const OTHER = 'Dog1111111111111111111111111111111111111111';
     const looked = defer<unknown>();
     h.resolveMint.mockImplementation((mint: string) => (mint === OTHER ? looked.p : Promise.resolve(null)));
-    window.history.replaceState(null, '', `/solana?out=${OTHER}`);
+    window.history.replaceState(null, '', `/solana?out=${OTHER}&amt=0.1`);
     h.ownOut.value = 990_000n;
     render(<MemoryRouter><SolanaSwapPage /></MemoryRouter>);
     baylaStands();
-    fireEvent.change(amountBox(), { target: { value: '0.1' } });
-    const buy = await screen.findByRole('button', { name: 'Buy BAYLA' }, { timeout: 20_000 });
-    await waitFor(() => expect(buy).toBeEnabled());
-    await waitFor(() => expect(routeLine()).toMatch(/Jupiter pays/));
-    const held = defer<unknown>();
-    h.readVenuePools.mockImplementationOnce(() => held.p);
-    const reads = h.readVenuePools.mock.calls.length;
+    expect(amountBox()).toHaveValue('0.1');
+    expect(screen.getByTestId('solana-link-pending')).toHaveTextContent('Looking up the coin in this link…');
+    const buy = await screen.findByRole('button', { name: 'Looking up the coin…' }, { timeout: 20_000 });
+    await new Promise((r) => setTimeout(r, 900));
+    expect(buy).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Buy BAYLA' })).toBeNull();
+    expect(h.getQuote).not.toHaveBeenCalled();
+    expect(h.readVenuePools).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('solana-route-line')).toBeNull();
     fireEvent.click(buy);
-    await waitFor(() => expect(h.readVenuePools.mock.calls.length).toBeGreaterThan(reads));
+    await new Promise((r) => setTimeout(r, 300));
+    expect(h.buildSwapTransaction).not.toHaveBeenCalled();
+    expect(h.sendTransaction).not.toHaveBeenCalled();
     looked.release({ mint: OTHER, symbol: 'DOGGO', name: 'Doggo', decimals: 6, verified: false });
     await waitFor(() => expect(buyPick()).toBe('DOGGO▾'));
-    held.release({ kind: 'ok', pair: [SOL_MINT, OTHER] });
-    await waitFor(() => expect(h.toast.info).toHaveBeenCalledWith('Not sent', { description: OWN_ROUTE_COPY.formChanged }));
-    expect(h.sendTransaction).not.toHaveBeenCalled();
-    expect(h.buildSwapTransaction).not.toHaveBeenCalled();
-  });
-
-  describe('whatever our pools hold, the wallet is never asked for a pair the form no longer shows', () => {
-    const OTHER = 'Dog1111111111111111111111111111111111111111';
-    /** Arrive by a link whose token is still being looked up ($BAYLA stands meanwhile), type 0.1 SOL, and have Buy BAYLA live on `line`. */
-    async function arrivedByLink(line: RegExp) {
-      const looked = defer<unknown>();
-      h.resolveMint.mockImplementation((mint: string) => (mint === OTHER ? looked.p : Promise.resolve(null)));
-      window.history.replaceState(null, '', `/solana?out=${OTHER}`);
-      render(<MemoryRouter><SolanaSwapPage /></MemoryRouter>);
-      baylaStands();
-      fireEvent.change(amountBox(), { target: { value: '0.1' } });
-      const buy = await screen.findByRole('button', { name: 'Buy BAYLA' }, { timeout: 20_000 });
-      await waitFor(() => expect(buy).toBeEnabled());
-      await waitFor(() => expect(routeLine()).toMatch(line));
-      /** The lookup answers, and the form shows the link's token. */
-      const land = async () => {
-        looked.release({ mint: OTHER, symbol: 'DOGGO', name: 'Doggo', decimals: 6, verified: false });
-        await waitFor(() => expect(buyPick()).toBe('DOGGO▾'));
-      };
-      return { buy, land };
-    }
-    const nothingWasSent = async () => {
-      await waitFor(() => expect(h.toast.info).toHaveBeenCalledWith('Not sent', { description: OWN_ROUTE_COPY.formChanged }), { timeout: 20_000 });
-      await waitFor(() => expect(screen.queryByRole('button', { name: 'Swapping…' })).toBeNull());
-      expect(h.sendTransaction).not.toHaveBeenCalled();
-      expect(h.toast.info).toHaveBeenCalledTimes(1);
-    };
-
-    const NO_POOL = [() => h.quoteVenuePools.mockImplementation(() => ({ state: 'absent', candidates: [] })), /Jupiter\. We have no pool for this pair\./] as const;
-    const POOL_QUOTES = [() => { h.ownOut.value = 990_000n; }, /Jupiter pays/] as const;
-
-    it.each([
-      ['would pass its test run', { ok: true, reason: null, jupiterIncorrectTokenProgram: false }],
-      ['is refused by its test run', { ok: false, reason: 'custom program error: 0x1771', jupiterIncorrectTokenProgram: false }],
-    ])('a pair we have no pool for: the link’s token lands while Jupiter’s transaction is built, and that transaction %s', async (_name, testRun) => {
-      NO_POOL[0]();
-      h.simulateSwap.mockResolvedValue(testRun);
-      const { buy, land } = await arrivedByLink(NO_POOL[1]);
-      const built = defer<string>();
-      h.buildSwapTransaction.mockImplementationOnce(() => built.p);
-      fireEvent.click(buy);
-      await waitFor(() => expect(h.buildSwapTransaction).toHaveBeenCalledTimes(1));
-      await land();
-      // The press is for SOL to BAYLA, whatever the form shows by now: its line never names the new token.
-      expect(screen.getByTestId('jupiter-swap-status').textContent).toBe('Through Jupiter: 0.1 SOL for about 1 BAYLA.');
-      built.release(TX_FEE);
-      await nothingWasSent();
-      // And nothing is said of the old pair's transaction under the new token: not even that it would fail.
-      expect(h.toast.error).not.toHaveBeenCalled();
-    });
-
-    it.each([
-      ['we have no pool for', NO_POOL],
-      ['one of our pools quotes', POOL_QUOTES],
-    ])('a pair %s: the link’s token lands while the press asks Jupiter again, and nothing of the old pair is built', async (_name, [pools, line]) => {
-      pools();
-      const { buy, land } = await arrivedByLink(line);
-      const fresh = defer<JupiterQuote>();
-      h.getQuote.mockImplementationOnce(() => fresh.p);
-      const asked = h.getQuote.mock.calls.length;
-      shownQuoteIsOld();
-      fireEvent.click(buy);
-      await waitFor(() => expect(h.getQuote.mock.calls.length).toBeGreaterThan(asked));
-      await land();
-      fresh.release({ ...jupiterQuote('1000000'), outputMint: BAYLA_MINT });
-      await nothingWasSent();
-      expect(h.buildSwapTransaction).not.toHaveBeenCalled();
-    });
+    expect(screen.queryByTestId('solana-link-pending')).toBeNull();
+    // Now the quote and our pools are asked, for the link's pair and never for the one that stood meanwhile.
+    await waitFor(() => expect(h.getQuote).toHaveBeenCalled(), { timeout: 20_000 });
+    expect(h.getQuote.mock.calls.every(([p]) => (p as { outputMint: string }).outputMint === OTHER)).toBe(true);
+    await waitFor(() => expect(h.readVenuePools).toHaveBeenCalled(), { timeout: 20_000 });
+    expect(h.readVenuePools.mock.calls.every((c) => c[2] === OTHER)).toBe(true);
   });
 
   it('a rail pick under a review, then a rebuild that finds Jupiter’s no-fee route: the new pair keeps its own quote', async () => {

@@ -608,11 +608,14 @@ describe('a launch pool whose price is off its own average', () => {
     };
     const r = readers(v);
     render(
+      // A router: the card links Swap to the swap page.
+      <MemoryRouter>
       <LpWritesProvider readers={r} mode="on" load={vi.fn(async () => fakeLpApi({ prepareLpDeposit: notSent() }))} gateRpc={unusedGateRpc}>
         <ul>
           <PoolCard view={v} health={health} tokenDecimals={6} safety={okToken} />
         </ul>
-      </LpWritesProvider>,
+      </LpWritesProvider>
+      </MemoryRouter>,
     );
     const c = await cardWith('offer');
     expect(within(c).getByText('Deposits: the checks pass, with warnings')).toBeInTheDocument();
@@ -648,6 +651,8 @@ describe('a pool anyone could open whose price is off the launch pool’s', () =
       priceGap: { diff: 0.25, lossQuote: 11_035_165n },
     });
     render(
+      // A router: the card links Swap to the swap page.
+      <MemoryRouter>
       <LpWritesProvider
         readers={readers(v, { token: NO_ROUTE })}
         mode="on"
@@ -657,7 +662,8 @@ describe('a pool anyone could open whose price is off the launch pool’s', () =
         <ul>
           <PoolCard view={v} health={health} tokenDecimals={6} safety={okToken} />
         </ul>
-      </LpWritesProvider>,
+      </LpWritesProvider>
+      </MemoryRouter>,
     );
     const c = await cardWith('offer');
     expect(within(c).getByText('Deposits: the checks pass, with warnings')).toBeInTheDocument();
@@ -685,6 +691,8 @@ describe('a pool anyone could open whose price is off the launch pool’s', () =
     expect(health.deposits).toEqual({ verdict: 'allowed', reasons: [], warnings: [] });
     const summary = lpDepositSummary(new PublicKey(v.address), MINT, { price: health.price });
     render(
+      // A router: the card links Swap to the swap page.
+      <MemoryRouter>
       <LpWritesProvider
         readers={readers(v, { token: NO_ROUTE })}
         mode="on"
@@ -694,7 +702,8 @@ describe('a pool anyone could open whose price is off the launch pool’s', () =
         <ul>
           <PoolCard view={v} health={health} tokenDecimals={6} safety={okToken} />
         </ul>
-      </LpWritesProvider>,
+      </LpWritesProvider>
+      </MemoryRouter>,
     );
     const c = await cardWith('offer');
     expect(within(c).getByText('Deposits: the checks pass')).toBeInTheDocument();
