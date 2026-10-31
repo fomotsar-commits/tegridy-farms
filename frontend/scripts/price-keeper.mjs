@@ -34,7 +34,17 @@
  *   KEEPER_SITE             where the pool list is read (default https://memetics.finance)
  *   KEEPER_MAX_TRADE_USD    largest round trip (default 25)
  *   KEEPER_MIN_PROFIT_USD   least gain a round trip must make (default 0.01)
- *   KEEPER_INTERVAL_SEC     seconds between passes (default 60)
+ *   KEEPER_INTERVAL_SEC     seconds between full passes when nothing moves (default 60)
+ *   KEEPER_CHECK_SEC        seconds between quick checks of every pool and price (default 10);
+ *                           a change starts a full pass at once
+ *   KEEPER_DUST_MIN_USD     leftover tokens worth this much are sold for SOL (default 1)
+ *   KEEPER_DUST_EVERY_MIN   minutes between leftover sales (default 60)
+ *   KEEPER_MAX_DAILY_SOL    most SOL the keeper may spend on fees and new accounts in a UTC
+ *                           day; past it, it only test-runs until the next day (default 0.05)
+ *   KEEPER_LOG_DIR          where the earnings log and the stop file live (default: the key
+ *                           file's folder)
+ *   KEEPER_STOP_FILE        while this file (or the same name with .txt) exists, nothing is
+ *                           sent, checked at every send (default <KEEPER_LOG_DIR>/price-keeper-STOP)
  *   KEEPER_PRIORITY_MICROLAMPORTS  priority fee per compute unit (default 10000)
  *   KEEPER_ALLOW_RAYDIUM    yes = Jupiter's leg may go through Raydium (default no; the owner
  *                           allowed it for the keeper 2026-10-31, for coins only Raydium trades)
@@ -43,7 +53,9 @@
  *
  * ─── COMMANDS ───────────────────────────────────────────────────────────────────
  *   status                     the keeper's address and what it holds
- *   run [--once] [--live]      one pass, or a pass every KEEPER_INTERVAL_SEC (Ctrl+C stops)
+ *   pools                      every pool on the venue, and whether the keeper can trade it
+ *   run [--once] [--live]      one pass, or keep watching (Ctrl+C stops)
+ *   report                     what the keeper earned and spent, day by day, from its log
  *   wrap <SOL> [--send]        move SOL into the keeper's wrapped-SOL account
  *   withdraw <address> [--send]  unwrap, then send all USDC and all SOL but 0.01 to <address>
  */
@@ -85,7 +97,7 @@ const lib = (rel) => import(pathToFileURL(path.join(HERE, '..', 'src', 'lib', ..
 
 const { Connection, Keypair, PublicKey, SystemProgram, TransactionMessage, VersionedTransaction } = await import('@solana/web3.js');
 const spl = await import('@solana/spl-token');
-const { runCycle, DEFAULT_SETTINGS } = await lib('solana/keeper/cycle.ts');
+const { runCycle, poolCoverage, fingerprint, sellDust, DEFAULT_SETTINGS } = await lib('solana/keeper/cycle.ts');
 const { jupiterApi } = await lib('solana/keeper/jupiterApi.ts');
 const { DEFAULT_LIMITS } = await lib('solana/keeper/plan.ts');
 const { pollConfirm } = await lib('solana/confirm.ts');
@@ -194,12 +206,75 @@ async function withdrawTarget(to) {
 
 const fmt = (raw, decimals) => (Number(raw) / 10 ** decimals).toFixed(Math.min(decimals, 6));
 
+// ─── The earnings log: one line per sent trip. Only addresses, coin names the keeper sets
+// itself, numbers and words: nothing a token chose (its claimed name) is written, so the file
+// opens safely anywhere, a spreadsheet included. ───
+const LOG_DIR = env.KEEPER_LOG_DIR?.trim() || (env.KEEPER_KEYPAIR?.trim() ? path.dirname(env.KEEPER_KEYPAIR.trim()) : process.cwd());
+const TRADES = path.join(LOG_DIR, 'price-keeper-trades.csv');
+const STOP_FILE = env.KEEPER_STOP_FILE?.trim() || path.join(LOG_DIR, 'price-keeper-STOP');
+const HEADER = 'time,kind,coin,coin_in,gained,sol_spent,outcome,signature,pool';
+
+function writeTrip(r) {
+  const n = (v, d) => (v === null ? '' : fmt(v, d));
+  const pool = r.pool.replace(/[^1-9A-HJ-NP-Za-km-z >-]/g, '');
+  const line = [r.at, r.kind, r.coin.symbol, fmt(r.coinIn, r.coin.decimals), n(r.gained, r.coin.decimals), n(r.lamportsSpent, 9), r.outcome, r.signature, pool].join(',');
+  if (!fs.existsSync(TRADES)) fs.writeFileSync(TRADES, HEADER + '\n');
+  fs.appendFileSync(TRADES, line + '\n');
+}
+
+/** The log's trips. A figure that does not read as a number (a hand edit) reads as none. */
+function readTrips() {
+  if (!fs.existsSync(TRADES)) return [];
+  const [, ...rows] = fs.readFileSync(TRADES, 'utf8').trim().split(/\r?\n/);
+  const figure = (v) => (v === undefined || v === '' || !Number.isFinite(Number(v)) ? null : Number(v));
+  return rows.filter(Boolean).map((row) => {
+    const [time, kind, coin, coinIn, gained, solSpent, outcome] = row.split(',');
+    return { day: String(time).slice(0, 10), kind, coin, coinIn: figure(coinIn), gained: figure(gained), solSpent: figure(solSpent), outcome };
+  });
+}
+
+const today = () => new Date().toISOString().slice(0, 10);
+
+/** The stop file, under its own name or the name Windows Explorer gives a new text file. */
+const stopped = () => {
+  try {
+    return fs.existsSync(STOP_FILE) || fs.existsSync(`${STOP_FILE}.txt`);
+  } catch {
+    return true; // a folder that cannot be read is no proof the owner did not ask to stop
+  }
+};
+
 async function main() {
   if (cmd === 'status') {
     const owner = keeperAddress();
     const h = await holdings(owner);
     log(`Keeper ${owner.toBase58()} on ${redactRpcUrl(RPC)}`);
     log(`  SOL ${fmt(h.sol, 9)} (fees and rent) · wrapped SOL ${fmt(h.wsol, 9)} · USDC ${fmt(h.usdc, 6)}`);
+    return;
+  }
+
+  if (cmd === 'pools') {
+    const rows = await poolCoverage({ rpc, indexFetch: (input, init) => fetch(new URL(String(input), SITE), init) });
+    if (typeof rows === 'string') throw new Error(`pools not read: ${rows}`);
+    const can = rows.filter((r) => r.problem === null);
+    log(`${rows.length} pools on the venue; the keeper can trade ${can.length}`);
+    for (const r of rows) {
+      const also = r.problem === null && r.siblings ? ` (also traded against our ${r.siblings} other pool${r.siblings > 1 ? 's' : ''} of this pair)` : '';
+      log(`  ${r.problem === null ? 'yes' : 'NO '}  ${r.name}  ${r.pool}${r.problem ? `: ${r.problem}` : ''}${also}`);
+    }
+    return;
+  }
+
+  if (cmd === 'report') {
+    const trips = readTrips();
+    if (!trips.length) return log(`No trips logged yet (${TRADES})`);
+    for (const day of [...new Set(trips.map((t) => t.day))].sort()) {
+      const of = trips.filter((t) => t.day === day);
+      const done = of.filter((t) => t.outcome === 'confirmed');
+      const gained = (coin) => done.filter((t) => t.coin === coin).reduce((sum, t) => sum + (t.gained ?? 0), 0);
+      const spent = of.reduce((sum, t) => sum + (t.solSpent ?? 0), 0);
+      log(`${day}: ${done.length} of ${of.length} sent trips confirmed · gained ${gained('SOL').toFixed(6)} SOL and ${gained('USDC').toFixed(6)} USDC · spent ${spent.toFixed(6)} SOL on fees and new accounts`);
+    }
     return;
   }
 
@@ -216,27 +291,94 @@ async function main() {
       allowRaydium: yes('KEEPER_ALLOW_RAYDIUM'),
       payNewAccountRent: yes('KEEPER_PAY_SETUP'),
     };
+    settings.dustMinUsd = num('KEEPER_DUST_MIN_USD', DEFAULT_SETTINGS.dustMinUsd);
     const intervalMs = num('KEEPER_INTERVAL_SEC', 60) * 1000;
+    const checkMs = num('KEEPER_CHECK_SEC', 10) * 1000;
+    const dustMs = num('KEEPER_DUST_EVERY_MIN', 60) * 60_000;
+    const maxDailySol = num('KEEPER_MAX_DAILY_SOL', 0.05);
+    // The day's SOL spent on fees and new accounts, kept here: a log that cannot be written or
+    // read (open in a spreadsheet, a missing folder) never switches the cap off. Seeded from the
+    // log when it can be read.
+    const spent = { day: today(), sol: 0 };
+    try {
+      fs.mkdirSync(LOG_DIR, { recursive: true });
+      spent.sol = readTrips().filter((t) => t.day === spent.day).reduce((sum, t) => sum + (t.solSpent ?? 0), 0);
+    } catch (e) {
+      log(`Earnings log not read (${e instanceof Error ? e.message : String(e)}): today's spending starts at 0`);
+    }
+    const spentToday = () => {
+      if (spent.day !== today()) Object.assign(spent, { day: today(), sol: 0 });
+      return spent.sol;
+    };
+    /** Why nothing may be sent right now, or null. */
+    const holdReason = () => (stopped() ? `paused: ${STOP_FILE} exists` : spentToday() >= maxDailySol ? `paused until tomorrow (UTC): ${maxDailySol} SOL spent today` : null);
+    // Asked again at every send, not only between passes: a stop or the cap holds at once.
+    const send = async (tx) => {
+      const hold = holdReason();
+      if (hold) throw new Error(hold);
+      return sendSigned(tx, key);
+    };
+    const record = (r) => {
+      spentToday();
+      spent.sol += r.lamportsSpent === null ? 0 : Number(r.lamportsSpent) / 1e9;
+      try {
+        writeTrip(r);
+      } catch (e) {
+        log(`Earnings log not written (${e instanceof Error ? e.message : String(e)}): the trip still counts towards today's cap`);
+      }
+    };
     const io = {
       rpc,
       jupiter: jupiterApi({ key: env.JUPITER_API_KEY }),
       owner,
       indexFetch: (input, init) => fetch(new URL(String(input), SITE), init),
-      send: live ? (tx) => sendSigned(tx, key) : undefined,
+      send: undefined,
+      record,
       log,
     };
     log(`Keeper ${owner.toBase58()}, ${live ? 'LIVE: round trips that pass their test run are SENT' : 'dry run: nothing is sent'}`);
     log(`  RPC ${redactRpcUrl(RPC)} · Jupiter ${env.JUPITER_API_KEY?.trim() ? 'own key' : 'keyless'} · up to $${settings.maxTradeUsd} a trip · floor $${settings.minProfitUsd}`);
     log(`  Raydium ${settings.allowRaydium ? 'ALLOWED' : 'refused'} · new coin accounts ${settings.payNewAccountRent ? 'opened on any paying trip' : 'opened only when the trip earns the rent back'}`);
+    log(`  quick check every ${checkMs / 1000} s · full pass at least every ${intervalMs / 1000} s · at most ${maxDailySol} SOL a day on fees and new accounts`);
+    log(`  earnings log ${TRADES} · to pause sending, create ${STOP_FILE}`);
+    let watch = null;
+    let seen = null;
+    let lastPass = 0;
+    let lastDust = 0;
+    let held = null;
     for (;;) {
-      try {
-        const r = await runCycle(io, settings);
-        log(`Pass done: ${r.pools} pools, ${r.gaps} gaps, ${r.sent} sent`);
-      } catch (e) {
-        log(`Pass stopped: ${e instanceof Error ? e.message : String(e)}`);
+      // Said once each time it changes.
+      const hold = live ? holdReason() : null;
+      if (hold !== held) log(hold ?? 'Sending again');
+      held = hold;
+      io.send = live && !hold ? send : undefined;
+      // The quick check's reading is taken BEFORE a pass: a move during the pass shows as a
+      // change at the next check, never as the starting point.
+      let now = null;
+      if (watch) {
+        try {
+          now = await fingerprint(io, watch);
+        } catch (e) {
+          log(`Quick check not read: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+      if (!watch || Date.now() - lastPass >= intervalMs || (now !== null && now !== seen)) {
+        seen = now;
+        try {
+          const r = await runCycle(io, settings);
+          watch = r.watch;
+          log(`Pass done: ${r.pools} pools, ${r.gaps} gaps, ${r.sent} sent`);
+        } catch (e) {
+          log(`Pass stopped: ${e instanceof Error ? e.message : String(e)}`);
+        }
+        lastPass = Date.now();
+      }
+      if (Date.now() - lastDust >= dustMs) {
+        lastDust = Date.now();
+        await sellDust(io, settings).catch((e) => log(`Leftover sale stopped: ${e instanceof Error ? e.message : String(e)}`));
       }
       if (flag('--once')) return;
-      await new Promise((r) => setTimeout(r, intervalMs));
+      await new Promise((r) => setTimeout(r, checkMs));
     }
   }
 
@@ -277,7 +419,7 @@ async function main() {
     return once(owner, ixs, key);
   }
 
-  console.log('Commands: status | run [--once] [--live] | wrap <SOL> [--send] | withdraw <address> [--send]. Settings: the top of scripts/price-keeper.mjs.');
+  console.log('Commands: status | pools | run [--once] [--live] | report | wrap <SOL> [--send] | withdraw <address> [--send]. Settings: the top of scripts/price-keeper.mjs.');
 }
 
 main().catch((e) => {

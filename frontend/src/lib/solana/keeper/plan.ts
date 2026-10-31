@@ -1,8 +1,11 @@
 import { PublicKey, type TransactionInstruction } from '@solana/web3.js';
 import { getAssociatedTokenAddressSync } from '@solana/spl-token';
+import { swapEnabled } from '../cpswap/program';
+import { quoteOwnPool } from '../cpswap/read';
 import type { PoolView } from '../lp/poolFinder';
 import type { Arbitrage } from '../lp/poolList';
 import { SOL_QUOTE, USDC_QUOTE } from '../lp/quotes';
+import type { TransferFee } from '../lp/transferFee';
 
 /**
  * The price keeper's pure half: which gaps to close, how big a round trip to make, and the
@@ -240,6 +243,9 @@ export interface SimulatedChange {
 /** The most SOL a round trip may cost the keeper: network fees, plus rent for a new token account. */
 export const MAX_LAMPORTS_SPENT = 3_000_000n;
 
+/** The most SOL a sale of leftovers may cost: network fees only, it opens no account. */
+export const MAX_FEE_LAMPORTS = 100_000n;
+
 /**
  * Why a simulated round trip must not be sent, or null. Checked on what the simulation says
  * the accounts hold afterwards, not on any quote: the coin must have grown by the floor, the
@@ -247,10 +253,105 @@ export const MAX_LAMPORTS_SPENT = 3_000_000n;
  * `before` must be read at the same commitment the test run uses, or an earlier trip's gain
  * would count towards this one.
  */
-export function simulationProblem(c: SimulatedChange, plan: Plan): string | null {
+export function simulationProblem(c: SimulatedChange, plan: Pick<Plan, 'minProfit'>): string | null {
   if (c.coinAfter - c.coinBefore < plan.minProfit) return `the coin grew by ${c.coinAfter - c.coinBefore}, under the floor ${plan.minProfit}`;
   if (c.tokenAfter < c.tokenBefore) return 'the token account shrank';
   if (c.otherCoinAfter < c.otherCoinBefore) return 'the keeper’s other coin shrank';
   if (c.lamportsBefore - c.lamportsAfter > MAX_LAMPORTS_SPENT) return 'it costs more SOL than fees and rent';
   return null;
+}
+
+/**
+ * Why the keeper cannot trade a pool at all, or null when it can: the `pools` command's answer
+ * and the first gate of every pass. `fee` is the list's own read of the token's transfer fee
+ * (lp/poolList.ts `rowTokenFee`).
+ */
+export function poolProblem(view: PoolView, fee: TransferFee | null | 'unread'): string | null {
+  if (!KEEPER_COINS.some((c) => c.mint === view.quote.mint)) return `priced in ${view.quote.symbol}; the keeper trades SOL and USDC pools`;
+  if (view.vaultsFrozen) return 'a pool vault is frozen';
+  if (!swapEnabled(view.snapshot.pool)) return 'trading is switched off in this pool';
+  if (!view.config) return 'the pool’s fee settings were not read';
+  if (fee === 'unread') return 'the coin’s transfer fee was not read';
+  if (fee !== null) return 'the coin keeps a transfer fee';
+  return null;
+}
+
+/**
+ * A round trip between two of OUR pools of the same pair: buy the token where it is cheap,
+ * sell it where it is dear. Both legs pay our pools' fee, so the venue earns twice, and no
+ * outside venue sees the trip. Both legs are priced by the pool program's own maths.
+ */
+export interface OwnPairPlan {
+  cheap: PoolView;
+  dear: PoolView;
+  coinMint: string;
+  tokenMint: string;
+  coinIn: bigint;
+  /** What the cheap pool pays out, exactly: the first leg's minimum, and the second leg's input. */
+  tokens: bigint;
+  /** What the dear pool pays for them, by its maths now. */
+  coinOut: bigint;
+  minProfit: bigint;
+}
+
+/**
+ * The best round trip between two pools of the same token and coin, or null when none clears
+ * the floor. On two x·y = k pools the profit of a trip of size x rises, peaks and falls, so the
+ * peak is found by narrowing the range (a ternary search on whole base units), never larger
+ * than `limits.maxTradeUsd` or than `holds`, what the keeper has of the coin.
+ */
+export function ownPairPlan(a: PoolView, b: PoolView, nowSecs: number, usd: ReadonlyMap<string, number>, limits: KeeperLimits, holds: bigint): OwnPairPlan | null {
+  if (a.tokenMint !== b.tokenMint || a.quote.mint !== b.quote.mint || a.address === b.address) return null;
+  if (!a.config || !b.config) return null;
+  const coinUsd = usd.get(a.quote.mint);
+  if (coinUsd === undefined || !(coinUsd > 0)) return null;
+  const coinUnit = coinUsd / 10 ** a.quote.decimals;
+  const minProfit = BigInt(Math.ceil(limits.minProfitUsd / coinUnit));
+  const cap = BigInt(Math.floor(limits.maxTradeUsd / coinUnit));
+  const most = holds < cap ? holds : cap;
+  let best: OwnPairPlan | null = null;
+  for (const [cheap, dear] of [[a, b], [b, a]] as const) {
+    const trip = (x: bigint) => {
+      const first = quoteOwnPool(cheap.snapshot, cheap.config!, cheap.quote.mint, x, nowSecs);
+      if (!first || first.outAmount <= 0n) return null;
+      const second = quoteOwnPool(dear.snapshot, dear.config!, dear.tokenMint, first.outAmount, nowSecs);
+      if (!second) return null;
+      return { tokens: first.outAmount, coinOut: second.outAmount, profit: second.outAmount - x };
+    };
+    const gain = (x: bigint) => trip(x)?.profit ?? -(10n ** 30n);
+    let lo = 1n;
+    let hi = most;
+    while (hi - lo > 2n) {
+      const m1 = lo + (hi - lo) / 3n;
+      const m2 = hi - (hi - lo) / 3n;
+      if (gain(m1) < gain(m2)) lo = m1;
+      else hi = m2;
+    }
+    for (let x = lo; x <= hi; x++) {
+      const t = trip(x);
+      if (!t || t.profit < minProfit) continue;
+      if (!best || t.profit > best.coinOut - best.coinIn) {
+        best = { cheap, dear, coinMint: a.quote.mint, tokenMint: a.tokenMint, coinIn: x, tokens: t.tokens, coinOut: t.coinOut, minProfit };
+      }
+    }
+  }
+  return best;
+}
+
+/**
+ * Why a test-run sale of leftover tokens must not be sent, or null: the coin must have grown
+ * by at least the sale's minimum, no more of the token may have left than was sold, the other
+ * coin must not have shrunk, and SOL may drop by fees only.
+ */
+export function dustSaleProblem(c: SimulatedChange, minOut: bigint, sold: bigint): string | null {
+  if (c.coinAfter - c.coinBefore < minOut) return `the coin grew by ${c.coinAfter - c.coinBefore}, under the sale’s minimum ${minOut}`;
+  if (c.tokenBefore - c.tokenAfter > sold) return 'more of the token left than was sold';
+  if (c.otherCoinAfter < c.otherCoinBefore) return 'the keeper’s other coin shrank';
+  if (c.lamportsBefore - c.lamportsAfter > MAX_FEE_LAMPORTS) return 'it costs more SOL than fees';
+  return null;
+}
+
+/** A price in steps of 0.25%: two reads in the same step are the same price for the quick check. */
+export function priceStep(usdPrice: number): number {
+  return Math.round(Math.log(usdPrice) / Math.log1p(0.0025));
 }
