@@ -79,8 +79,8 @@ export function useSectionChain(items: readonly NavItem[], activeTo: string, cop
     navigate(chainHref(to, chain));
     const evm = venueChain(chain).evmChainId;
     if (evm !== null && tabChains(to) !== 'any' && isConnected && walletChainId !== evm) {
-      // Swap follows the wallet, so a switch the wallet refuses leaves it on the wallet's
-      // network; Pools stays on the pick, but its form cannot write there. Say so either way.
+      // Swap and Pools stay on the pick, but cannot sign there until the wallet switches.
+      // Say so when it refuses.
       const name = venueChain(chain).name;
       switchChain({ chainId: evm }, {
         onError: () => toast.error(`Your wallet did not switch to ${name}. Switch it in your wallet to use ${name} here.`),

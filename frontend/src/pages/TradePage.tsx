@@ -25,6 +25,7 @@ import { MevProtectionPanel } from '../components/swap/MevProtectionPanel';
 import { TokenSelectModal } from '../components/swap/TokenSelectModal';
 import { ChainSwitch } from '../components/swap/ChainSwitch';
 import { ChainSwapAvailability } from '../components/swap/ChainSwapAvailability';
+import { WrongChainBanner } from '../components/ui/WrongChainGuard';
 import { IslandBasketEvm } from '../components/swap/IslandBasketEvm';
 import { evmBasketFor } from '../lib/islandBasket';
 import { ArtImg } from '../components/ArtImg';
@@ -262,13 +263,24 @@ export default function TradePage() {
             an ETH swap that could not touch its token. */}
         <ChainSwitch />
 
-        {/* Why this form is empty, when the wallet is on a chain we serve but
-            cannot swap on. Renders nothing on Ethereum and nothing on an
+        {/* Why this form is empty, when the network picked (else the wallet's) is
+            one we serve but cannot swap on. Renders nothing on Ethereum and nothing on an
             unconfigured chain — the app-wide wrong-network banner owns that one.
             Placed ABOVE the tab strip on purpose: every tab under it (Liquidity,
             DCA, Limit, TWAP, Trigger) is pinned to mainnet by the same gate, so
             the explanation belongs to the surface, not to the swap tab. */}
         <ChainSwapAvailability chainId={swapChainId} swapTab={tab === 'swap'} />
+
+        {/* The page follows the network picked; a wallet left on another one is told here.
+            Swap signs on the page's network, and the other tabs on Ethereum only, so off
+            Ethereum those tabs are ChainSwapAvailability's to explain, not this banner's. */}
+        {(tab === 'swap' || swapChainId === CHAIN_ID) && (
+          <WrongChainBanner
+            requiredChainId={swapChainId}
+            message="Your wallet is on another network. Switch it to trade here."
+            className="mb-4"
+          />
+        )}
 
         {/* Tab Toggle */}
         <div

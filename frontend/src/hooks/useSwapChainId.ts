@@ -1,19 +1,18 @@
-import { useAccount, useChainId } from 'wagmi';
+import { useChainId } from 'wagmi';
 import { useSearchParams } from 'react-router-dom';
 import { swapVenueOn } from '../lib/chains/swapVenue';
 
 /**
- * The chain the swap form quotes and signs on: a connected wallet's chain, always,
- * because every write is signed there and nothing in the URL may point a write at
- * another chain (Pools follows the pick instead: useLiquidityChainId). With no wallet,
- * `?c=<chainId>` (the network drop-down's pick) chooses which chain's pools are quoted,
- * where the swap runs; anything else falls back to wagmi's default chain.
+ * The chain the swap form quotes and signs on: `?c=<chainId>` (the network drop-down's
+ * pick) wherever it names a chain the swap runs on, else the wallet's chain, as on Pools
+ * (useLiquidityChainId) and the curve (useCurveChainId). A wallet left on another network
+ * does not move the form: every write useSwap sends names this chain (`chainId`), so wagmi
+ * refuses one until the wallet is there, useSwap refuses before asking, and the page shows
+ * a switch banner meanwhile.
  */
 export function useSwapChainId(): number {
-  const { isConnected } = useAccount();
   const walletChainId = useChainId();
   const [params] = useSearchParams();
-  if (isConnected) return walletChainId;
   const asked = Number(params.get('c'));
   return Number.isInteger(asked) && swapVenueOn(asked) !== null ? asked : walletChainId;
 }

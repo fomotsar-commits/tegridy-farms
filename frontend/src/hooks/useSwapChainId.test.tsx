@@ -16,7 +16,7 @@ const at = (url: string) =>
     wrapper: ({ children }: { children: ReactNode }) => <MemoryRouter initialEntries={[url]}>{children}</MemoryRouter>,
   }).result.current;
 
-/** The wallet's chain signs; only a visitor with no wallet follows `?c=` (Pools follows it always). */
+/** The network picked (`?c=`) wins, wallet or not; with no pick, the wallet's chain. */
 describe('useSwapChainId', () => {
   beforeEach(() => {
     wallet.isConnected = false;
@@ -33,9 +33,17 @@ describe('useSwapChainId', () => {
     expect(at('/swap?c=base')).toBe(1);
   });
 
-  it('takes a connected wallet\'s chain over anything in the URL', () => {
+  it('follows ?c= over a connected wallet on another network', () => {
     wallet.isConnected = true;
     wallet.chainId = 4663;
-    expect(at('/swap?c=8453')).toBe(4663);
+    expect(at('/swap?c=8453')).toBe(8453);
+    expect(at('/swap?c=1')).toBe(1);
+  });
+
+  it('takes a connected wallet\'s chain when nothing was picked', () => {
+    wallet.isConnected = true;
+    wallet.chainId = 8453;
+    expect(at('/swap')).toBe(8453);
+    expect(at('/swap?c=42161')).toBe(8453);
   });
 });

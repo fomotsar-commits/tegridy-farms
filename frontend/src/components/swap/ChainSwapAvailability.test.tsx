@@ -98,14 +98,15 @@ describe('ChainSwapAvailability', () => {
     expect(container.textContent ?? '').toBe('');
   });
 
-  // The swap follows a connected wallet's chain, so a link to /swap left the visitor on the
-  // same L2 tab with the same notice. Only the wallet can move a connected visitor.
-  it('asks a connected wallet to switch to Ethereum, and says so if it refuses', () => {
+  // `?c=` picks the swap's chain over a connected wallet, so the link moves the page; the
+  // wallet is asked to switch as well, as a pick from the drop-down does.
+  it('opens the tab on Ethereum for a connected wallet too, asks it to switch, and says so if it refuses', () => {
     wallet.isConnected = true;
     for (const id of L2_SWAPS) {
       const { unmount } = mount(id, false, `/swap?c=${id}&tab=dca`);
-      expect(screen.queryByRole('link', { name: /Ethereum/ })).toBeNull();
-      fireEvent.click(screen.getByRole('button', { name: 'Switch your wallet to Ethereum for these tabs' }));
+      const link = screen.getByRole('link', { name: 'Open these tabs on Ethereum' });
+      expect(link).toHaveAttribute('href', `/swap?c=${CHAIN_ID}&tab=dca`);
+      fireEvent.click(link);
       expect(wallet.switchChain).toHaveBeenLastCalledWith({ chainId: CHAIN_ID }, expect.anything());
       const [, handlers] = wallet.switchChain.mock.lastCall as [unknown, { onError: (e: Error) => void }];
       handlers.onError(new Error('User rejected the request.'));
@@ -117,8 +118,9 @@ describe('ChainSwapAvailability', () => {
   it('with no wallet, opens the same tab on Ethereum by its URL', () => {
     for (const id of L2_SWAPS) {
       const { unmount } = mount(id, false, `/swap?c=${id}&tab=dca`);
-      expect(screen.getByRole('link', { name: 'Open these tabs on Ethereum' }))
-        .toHaveAttribute('href', `/swap?c=${CHAIN_ID}&tab=dca`);
+      const link = screen.getByRole('link', { name: 'Open these tabs on Ethereum' });
+      expect(link).toHaveAttribute('href', `/swap?c=${CHAIN_ID}&tab=dca`);
+      fireEvent.click(link);
       expect(wallet.switchChain).not.toHaveBeenCalled();
       unmount();
     }
