@@ -133,8 +133,8 @@ const LADDER_PROGRAM_IS_MAINNET =
   (import.meta.env?.VITE_BAYLA_LADDER_PROGRAM as string | undefined)?.trim() === LADDER_MAINNET_PROGRAM;
 
 /** Owner, 2026-10-31: the other Solana rooms stake exactly like BAYLA. Each pool is PDA
- *  ['pool', the room's mint, nonce 0] off LADDER_MAINNET_PROGRAM (bungalows.test.ts derives
- *  them), created by the deployer with BAYLA's terms and a 10,000,000 per-wallet limit, then
+ *  ['pool', the room's mint, nonce 0] off LADDER_MAINNET_PROGRAM (lib/ladder/program.test.ts
+ *  derives them), created by the deployer with BAYLA's terms and a 10,000,000 per-wallet limit, then
  *  accepted by the Squads vault. */
 export const ROOM_LADDER_POOLS = {
   bobo: 'CX24Ti8vamGXAVF2T9bgJj3EfX627Na4tcXbfkaDz1pT',
