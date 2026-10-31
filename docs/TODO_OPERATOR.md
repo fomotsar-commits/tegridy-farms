@@ -29,6 +29,50 @@ stop and say so — a surprise is information.
 
 ---
 
+## ✅ 2026-10-31: the Venue AMM page is live (handoff; nothing for you to do)
+
+Your ask (2026-10-30): bring the Venue AMM page "to cutting edge avantegarde level", make the arbitrage top tier, and put
+a Swap beside Add so people can go straight to a pair and swap. Live on memetics.finance/pools since 2026-10-31 18:32 UTC,
+walked in Chrome from the home page after the deploy.
+
+**What a visitor gets**
+- **An Arbitrage card** under Start here. It lists every pool whose price is far enough from Jupiter's listed price for
+  one trade to pay, most profitable first. Each row says what to pay, what comes back, the profit after the pool's fee,
+  where the fee goes in dollars, and the price after. Its **Swap** opens the swap page on that exact trade with the
+  amount filled in; the swap page quotes it again, against Jupiter and our pool, before anything is sent.
+- The card says how old its figures are, reads again every 30 seconds while the tab is in view, keeps the last figures
+  and says their age when a read fails, and has Read again. What it could not check is said, never shown as "none".
+- **Swap beside Add** on every All pools row and in every pool card, opening the swap page on that pair.
+- **Dollars in each pool**, at Jupiter's prices, only when both coins have one.
+- The swap page opens a link's coin from the chain when Jupiter does not list it, and waits while it looks the coin up.
+
+**How the money moves (unchanged).** An arbitrage trade pays the pool's fee like any other trade: the LPs' part stays
+in the pool, the venue's part goes where the Rates card says, and a creator's fee to the wallet that opened the pool. The
+trader's profit comes out of the pool's LPs, because the pool was selling below the market or buying above it. No venue
+money goes anywhere new. The one caveat is already on record from #1053: on a token with a transfer fee, the "to the
+venue" figure is before the token's own cut.
+
+**Merged:** #1077 (the page, merge `54c435b05`), #1059 (phone row stacking; its line came in with #1077), #1076 and
+#1080 (NOTES.md entries). Nothing from this work waits on you.
+
+**Not merged, because each belongs to another session or waits on your ruling:** #1079 (a price keeper that closes
+pool gaps against Jupiter; it is the other half of the Arbitrage card), #1078, #1075, #1073, #1060 (a dependabot bump),
+#1023 (you said no merge), #1002 and #877 read mergeable. Every merge is a production deploy, so each needs your word.
+
+**For the next session that touches this page**
+- The code: `frontend/src/components/solana/lp/ArbitrageBoard.tsx`, `useLivePoolList` in `usePoolList.ts`,
+  `useMarketPrices.ts`, and `arbitrage`, `rankArbitrage`, `swapLink` in `frontend/src/lib/solana/lp/poolList.ts`.
+- The card prices against Jupiter's listed price (one price read per list, shared for 30 seconds). On a thin coin that
+  can differ from the two live quotes a pool card asks for by several points, which the card's small print says.
+- The gaps are small because the pools are thin: on 2026-10-31 the best paid about $0.68 on a $70 trade (BAYLA/SOL,
+  2.9% cheaper here), and most paid under $0.30.
+- The /pools word ceiling is 325 (`frontend/e2e/word-budget.spec.ts`). The count swings about 40 words on whether the
+  Rates table loaded before it was taken: set a ceiling from a run where it loaded.
+- Type-check as CI does: `npx tsc -b --noEmit --force` from `frontend/`, with no project list. Naming the app and node
+  projects skips the test files, and that cost #1077 one red CI run.
+- The Anvil fork CI job stays red on every pull request until the TOWELI staking reward reserve is refilled (step 3 of
+  the section below). Its error names the empty reserve: that is chain state, not the pull request.
+
 ## 🔴 2026-10-31: close TOWELI staking v1 and pay everyone what they earned
 
 Your plan (2026-10-30): beta testing is over. Stop the rewards, pay exactly what is owed, give
