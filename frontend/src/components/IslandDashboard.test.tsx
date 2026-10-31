@@ -72,8 +72,10 @@ describe('IslandDashboard: the wallet', () => {
     const lock = within(positions).getByRole('link', { name: /BAYLA lock/ });
     expect(lock).toHaveAttribute('href', '/earn/bayla');
     expect(lock).toHaveTextContent('earned 1.23 BAYLA');
-    // Every coin held was read and priced, so the total is printed.
-    expect(screen.getByText('$312.50')).toBeInTheDocument();
+    // Every coin held was read and priced, so the holdings' total is printed; the lock has no
+    // price, so the whole is not.
+    expect(screen.getByTestId('holdings-worth')).toHaveTextContent('Holdings $312.50');
+    expect(screen.getByTestId('wallet-worth')).toHaveTextContent('—');
     // The chain whose wallet is missing can still be connected.
     expect(screen.getByRole('button', { name: /Connect Ethereum wallet/ })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Connect Solana wallet/ })).toBeNull();
@@ -182,7 +184,48 @@ describe('IslandDashboard: what the positions are worth', () => {
     const positions = screen.getByRole('region', { name: 'Positions' });
     expect(within(positions).getByRole('link', { name: /^BAYLA lock: \$68\.13,/ })).toHaveTextContent('$68.13');
     expect(within(positions).getByRole('link', { name: /^BAYLA \/ SOL pool: \$1,234,/ })).toHaveTextContent('$1,234');
-    expect(screen.getByTestId('positions-worth')).toHaveTextContent('Positions$1,303');
+    expect(screen.getByTestId('positions-worth')).toHaveTextContent('Positions $1,303');
+  });
+
+  // Owner, 2026-10-31: "also include it in the total value in the dashboard".
+  it('makes the big figure the whole, holdings and positions together, with each part under it', () => {
+    board.value = wallet({
+      solanaAddress: SOL_WALLET,
+      holdings: [leg('h', 'your Solana coins', { status: 'ok', rows: [holding({})] })],
+      positions: [
+        leg('l', 'your BAYLA locks', { status: 'ok', rows: [position({ usd: 68.13 })] }),
+        leg('s', 'your pool shares on Solana', { status: 'ok', rows: [position({ key: 'lp', title: 'BAYLA / SOL pool', usd: 1234.4, to: '/pools' })] }),
+      ],
+    });
+    mount();
+    expect(screen.getByText('Total')).toBeInTheDocument();
+    expect(screen.getByTestId('wallet-worth')).toHaveTextContent('$1,315'); // 12.50 + 68.13 + 1,234.40
+    expect(screen.getByTestId('holdings-worth')).toHaveTextContent('Holdings $12.50');
+    expect(screen.getByTestId('positions-worth')).toHaveTextContent('Positions $1,303');
+  });
+
+  it('keeps the big figure the holdings alone, under that name, while there is no position', () => {
+    board.value = wallet({
+      solanaAddress: SOL_WALLET,
+      holdings: [leg('h', 'your Solana coins', { status: 'ok', rows: [holding({})] })],
+      positions: [leg('l', 'your BAYLA locks', { status: 'ok', rows: [] })],
+    });
+    mount();
+    expect(screen.queryByText('Total')).toBeNull();
+    expect(screen.getByTestId('wallet-worth')).toHaveTextContent('$12.50');
+    expect(screen.queryByTestId('holdings-worth')).toBeNull();
+  });
+
+  it('prints no whole while the holdings are still reading, and says which part is missing', () => {
+    board.value = wallet({
+      solanaAddress: SOL_WALLET,
+      holdings: [leg('h', 'your Solana coins', { status: 'loading' })],
+      positions: [leg('l', 'your BAYLA locks', { status: 'ok', rows: [position({ usd: 10 })] })],
+    });
+    mount();
+    expect(screen.getByTestId('wallet-worth')).toHaveTextContent('—');
+    expect(screen.getByTestId('holdings-worth')).toHaveTextContent('Holdings — reading');
+    expect(screen.getByTestId('positions-worth')).toHaveTextContent('Positions $10.00');
   });
 
   it('prints no total while a position has no price read, and its row says so', () => {
@@ -192,7 +235,8 @@ describe('IslandDashboard: what the positions are worth', () => {
     });
     mount();
     expect(within(screen.getByRole('region', { name: 'Positions' })).getByRole('link', { name: /^BOBO stake: worth not read,/ })).toBeInTheDocument();
-    expect(screen.getByTestId('positions-worth')).toHaveTextContent('Positions—not every position priced');
+    expect(screen.getByTestId('positions-worth')).toHaveTextContent('Positions — not every position priced');
+    expect(screen.getByTestId('wallet-worth')).toHaveTextContent('—');
   });
 
   it('prints no total over a part that could not be read, and says it was not read', () => {
@@ -204,7 +248,8 @@ describe('IslandDashboard: what the positions are worth', () => {
       ],
     });
     mount();
-    expect(screen.getByTestId('positions-worth')).toHaveTextContent('Positions—not every position read');
+    expect(screen.getByTestId('positions-worth')).toHaveTextContent('Positions — not every position read');
+    expect(screen.getByTestId('wallet-worth')).toHaveTextContent('—');
   });
 
   it('says it is reading while a part is in flight', () => {
@@ -216,7 +261,8 @@ describe('IslandDashboard: what the positions are worth', () => {
       ],
     });
     mount();
-    expect(screen.getByTestId('positions-worth')).toHaveTextContent('Positions—reading');
+    expect(screen.getByTestId('positions-worth')).toHaveTextContent('Positions — reading');
+    expect(screen.getByTestId('wallet-worth')).toHaveTextContent('—');
   });
 });
 
