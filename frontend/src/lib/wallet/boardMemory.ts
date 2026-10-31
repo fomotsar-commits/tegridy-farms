@@ -61,18 +61,19 @@ export function rememberLegs(owner: string, legs: Record<string, unknown[]>, now
 const str = (v: unknown) => typeof v === 'string';
 const strOrNull = (v: unknown) => v === null || typeof v === 'string';
 const chainOk = (v: unknown) => v === 'solana' || v === 'ethereum' || v === 'base';
+// A worth is read or plainly not: a row kept before rows had one (undefined) is not drawn as $0.
+const usdOk = (v: unknown) => v === null || (typeof v === 'number' && Number.isFinite(v));
 // Rows open rooms on this site only.
 const pathOk = (v: unknown) => typeof v === 'string' && v.startsWith('/') && !v.startsWith('//');
 
 export function isHoldingRow(r: unknown): r is HoldingRow {
   const o = r as Partial<HoldingRow> | null;
-  return !!o && str(o.key) && str(o.symbol) && chainOk(o.chain) && str(o.amount)
-    && (o.usd === null || (typeof o.usd === 'number' && Number.isFinite(o.usd)))
+  return !!o && str(o.key) && str(o.symbol) && chainOk(o.chain) && str(o.amount) && usdOk(o.usd)
     && strOrNull(o.roomId) && (o.to === null || pathOk(o.to));
 }
 
 export function isPositionRow(r: unknown): r is PositionRow {
   const o = r as Partial<PositionRow> | null;
   return !!o && str(o.key) && strOrNull(o.roomId) && chainOk(o.chain) && str(o.title)
-    && Array.isArray(o.facts) && o.facts.every(str) && pathOk(o.to);
+    && Array.isArray(o.facts) && o.facts.every(str) && usdOk(o.usd) && pathOk(o.to);
 }

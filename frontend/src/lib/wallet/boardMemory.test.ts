@@ -10,7 +10,7 @@ const A = '7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU';
 const B = '0x1111111111111111111111111111111111111111';
 const NOW = Date.UTC(2026, 9, 24, 12);
 const sol: HoldingRow = { key: 'sol', symbol: 'SOL', chain: 'solana', amount: '0.0124', usd: 1.27, roomId: null, to: null };
-const lock: PositionRow = { key: 'ladder:x', roomId: 'bayla', chain: 'solana', title: 'BAYLA lock', facts: ['3,000 BAYLA', 'unlocks 31 Aug 2027'], to: '/earn/bayla' };
+const lock: PositionRow = { key: 'ladder:x', roomId: 'bayla', chain: 'solana', title: 'BAYLA lock', facts: ['3,000 BAYLA', 'unlocks 31 Aug 2027'], usd: 6.42, to: '/earn/bayla' };
 
 beforeEach(() => localStorage.clear());
 
@@ -63,5 +63,14 @@ describe('boardMemory', () => {
     expect(isPositionRow({ ...lock, facts: '3,000 BAYLA' })).toBe(false);
     expect(isPositionRow({ ...lock, chain: 'bitcoin' })).toBe(false);
     expect(isPositionRow({ ...lock, to: 'javascript:alert(1)' })).toBe(false);
+  });
+
+  it('draws a kept position only with its worth read or plainly unread: never one saved before rows had one', () => {
+    expect(isPositionRow({ ...lock, usd: null })).toBe(true);
+    const { usd: _, ...before } = lock;
+    expect(isPositionRow(before)).toBe(false);
+    expect(isPositionRow({ ...lock, usd: Infinity })).toBe(false);
+    expect(isPositionRow({ ...lock, usd: NaN })).toBe(false);
+    expect(isPositionRow({ ...lock, usd: '6.42' })).toBe(false);
   });
 });
