@@ -92,10 +92,11 @@ Then tell a session "step 2 is done" for step 3.
 
 ---
 
-## 🔴 2026-10-29: the vault batch, read this before Day 0
+## 🔴 2026-11-02 from 19:53 UTC: Day 2 of the vault batch (Day 0 is done)
 
-Read on mainnet 2026-10-29 at 04:40 UTC. It corrects the proposal number and the amounts in the
-sections below, which were written before #21 was used.
+Day 0 ran on 2026-10-31 and every proposal below was read back from mainnet at 19:55 UTC that day.
+It replaces the batch plan of 2026-10-29 and the proposal numbers in the sections below, which were
+written expecting "#21".
 
 **#21 is already used.** It is the range tier 1 fee change (0.25% to 1%), proposed by member B and
 approved by both members on 2026-10-28 at 16:06:32 UTC.
@@ -104,58 +105,106 @@ approved by both members on 2026-10-28 at 16:06:32 UTC.
   `8-verify-tier-fee.mjs` passed: tier 1 charges 1%, tier 0 is unchanged. #1044 (the registry
   row) merged the same day.
 
-**Your batch (your call, 2026-10-28) is five more proposals:** the range upgrade, the pool
-re-upgrade, the pool roll-back (pre-staged), the ladder upgrade and the ladder wallet limit raise.
-The ladder upgrade also lets stakers extend a running lock (`extend_lock`, folded in on your word
-2026-10-30): its pack now carries build `1b91609c` and asks for 2.81 SOL, not 2.70.
-They get **#22 to #26**, in the order you propose them. Every pack's paper, and the steps below,
-were written expecting "#21". **Use the number the page shows**, write it down next to its name,
-and read it back before every press.
+**Day 0, done 2026-10-31.** You sent 15.1 SOL to the deploy wallet
+`CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg`, 2.81 SOL to the ladder deploy wallet
+`Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6` and 0.05 SOL to member A
+`5QHzAqbGk3W8qGRBHCMyWjhLXf8YJcs3yPEh14Ymcwgz`; #1047 merged the same hour. You ran the uploads,
+a session checked every buffer byte for byte before and after you handed it to the vault, and both
+members approved all five proposals. Every spend matched the recount of that day to within 2
+lamports.
 
-**What to send** (send a tiny test amount first, see it arrive, then the rest):
+| # | What it does | Upload buffer (build) | Its SOL goes back | Can execute from (UTC) | On Day 2 |
+|---|---|---|---|---|---|
+| **#22** | Range upgrade: opening a range pool costs 0.5 SOL, paid to the vault | `6b6JXnMjBsr4zbhMKb4sF3k4fbq91EVoszaGLfHFU2S3` (`1e896e1e`) | 7.758 SOL to the deploy wallet, at the execute | 2026-11-02 19:52:54 | execute, 1st |
+| **#23** | Pool re-upgrade | `Dh3uiriV6E7NToAoY8VorXXWVFNEfop9eLkYtphFFCTV` (`1e55bcdc`) | 3.685 SOL to the deploy wallet, at the execute | 2026-11-02 19:50:49 | execute, 2nd |
+| **#24** | Pool roll-back, pre-staged | `zFSHSqF5fUBpj2jh28FiW7UxjnbFGUAH73j9nqaPySW` (`88b98aa9`, the build running now) | 3.514 SOL to the deploy wallet, only through the return below | 2026-11-02 19:51:46 | **never**, unless a session says the pool upgrade is broken |
+| **#25** | Ladder upgrade: stakers can extend a running lock, and the vault can raise the per-wallet limit | `G2Ss3jvX9HFSDR1BYecYq4pvXZWSwF2RM79XsfTHj53J` (`1b91609c`) | 2.705 SOL to the ladder deploy wallet, at the execute | 2026-11-02 19:47:33 | execute, 3rd |
+| **#26** | Ladder per-wallet limit, 2,000,000 to 10,000,000 BAYLA (it can only ever go up) | none | none | 2026-11-02 19:49:35, and only after #25 | execute, 4th |
 
-| Send | To | Holds now | What it pays for |
-|---|---|---|---|
-| **15.1 SOL** | the deploy wallet `CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg` | 0 | range upload 7.818, pool upload 3.688, pool roll-back upload 3.518 |
-| **2.81 SOL** | the ladder deploy wallet `Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6` | 0 | ladder upload 2.705 and enlarge 0.086 |
-| **0.05 SOL** | member A `5QHzAqbGk3W8qGRBHCMyWjhLXf8YJcs3yPEh14Ymcwgz` | 0.001 | five proposals, about 0.0046 each |
+**How the money moved.** About 0.18 SOL is spent for good: 0.138 for room in the range and ladder
+programs, about 0.019 in upload and network fees, and about 0.022 for the five proposal records,
+which stay locked (this multisig has no rent collector set, so none of it comes back). Everything
+else is parked in the four buffers and comes back only to the two deploy wallets: the vault pays
+nothing and nothing goes anywhere else. After Day 0 the deploy wallet held 0.075 SOL and the ladder
+deploy wallet 0.0157. **Leave both there**: each page refuses to execute when the wallet its
+buffer's SOL returns to is empty (range and pool for the deploy wallet, #22, #23 and the return
+below; ladder for the ladder deploy wallet, #25), and the ladder deploy wallet still signs for the
+five Streamflow pools. Member A holds 0.0286 (enough for the return below and the December reload),
+member B 0.0049. Range pools are still free to open, and none exists, until #22 executes.
 
-- Member B `6VHowW4pnD4WTGsXhqBp6yxGgC3EExVmYgebSrRNu2tY` holds 0.0053 SOL: enough to approve and
-  execute, not to propose.
-- The range and pool uploads come back to the deploy wallet when each upgrade executes. The
-  roll-back's 3.51 SOL comes back only through a later return proposal, 48 hours after its
-  approval. About 0.1 SOL is spent for good, plus 0.034 SOL more for the ladder's larger enlarge
-  (16,992 bytes, not 10,240).
-- **The day you send the 2.81 SOL, merge #1047**, the registry PR that marks the ladder deploy
-  wallet as funded. The registry expects that wallet to be empty, so the daily chain check goes red
-  otherwise.
+**Day 2, in this order.** A session starts the three pages (`serve.mjs` in each pack's
+`proposer` folder: range 5599, pool 5299, ladder 5499), opens each in ONE Chrome tab and reads the
+proposal number back to you. **Press only after that read-back.** Either member can execute.
+If a page says `UNKNOWN` after you press, do not press again: run that step's check. Each check must
+end with the `RESULT` line written under it; if it says `REFUSED`, stop and ask a session before the
+next step (in particular, **do not execute #26** unless the check after #25 passed).
 
-**Day 0 with a session driving Chrome** (your ask, 2026-10-30). Send the SOL above, then tell a
-session "SOL is sent" (that is also your word to merge #1047). Then:
+1. **#22, range.** Pick "Upgrade the range program", **EXECUTE proposal #22**. Then (nobody signs):
 
-1. The session runs every read-only check and tells you what it said.
-2. You run the upload commands it hands you, in this order:
-   - range: add room, upload, hand to the vault;
-   - pool: upload, upload the roll-back, hand both to the vault;
-   - ladder: add room, upload, hand to the vault.
+   ```powershell
+   node "C:\Users\jimbo\solana-launch-release-2026-09-26\range-pools-open-fee-upgrade-2026-10\scripts\4-verify-after-upgrade.mjs" --buffer 6b6JXnMjBsr4zbhMKb4sF3k4fbq91EVoszaGLfHFU2S3
+   ```
 
-   They sign with your key files; the app does not let a session send on mainnet.
-3. The session opens each signing page in ONE Chrome tab (range 5599, pool 5299, ladder 5499),
-   picks the step, pastes the upload address, runs the checks, and reads every line and the
-   proposal number back to you.
-4. You connect the wallet and press the button: Sign as member A for all five proposals, then
-   Approve as member B for all five. Confirm each one in the wallet.
-5. The session confirms all five on chain and writes down each number and the Day 2 time.
+   It must end `RESULT: the upgrade is live: opening a range pool now costs 0.5 SOL, paid to the vault.`
+   Both fee tiers exist, so its last section simulates a stranger opening a pool, sending nothing:
+   the stranger must pay the vault exactly 0.5 SOL. From this moment no range pool opens for free.
+2. **#23, pool.** Pick "Upgrade the pool program" only, **EXECUTE proposal #23**. Then:
 
-Read on mainnet 2026-10-30 03:50 UTC: the range and pool checks pass every line but the empty
-wallets, the pool program's room is already there, and the next proposal is #22.
+   ```powershell
+   node "C:\Users\jimbo\solana-launch-release-2026-09-26\pool-program-upgrade-2026-10\scripts\4-verify-after-upgrade.mjs" --before "C:\Users\jimbo\solana-launch-release-2026-09-26\pool-program-upgrade-2026-10\owner-run\round-2-2026-10-24\pools-before-upgrade.mainnet.json"
+   ```
 
-**Day 2, execute in this order** (#21 already ran): the range upgrade, the pool
-re-upgrade, the ladder upgrade, the ladder raise. Never press the pool roll-back. Never press old
-#18: it still shows "Approved" because its failed run didn't change that, and pressing it only
-burns a fee. After the pool re-upgrade executes, a session undoes #991.
+   It must say `RESULT: the upgrade is live and both pools are untouched.` (the words after it, "Go
+   on to the name records", are left from the first round: both name records exist, so there is
+   nothing to do there). From then on #24 also shows "Ready to execute". **Leave it.** The same hour a session opens the pull request that
+   undoes #991 (the pack's step R15b): the registry's pool data row still pins the old build
+   `88b98aa9`, so the daily chain check is red until you merge it.
+3. **#25, ladder.** Pick "Upgrade the ladder program", **EXECUTE proposal #25**. Then:
+
+   ```powershell
+   node "C:\Users\jimbo\solana-launch-release-2026-09-26\ladder-wallet-cap-upgrade-2026-10\scripts\4-verify-after-upgrade.mjs"
+   ```
+
+   It must end `RESULT: the wallet-cap build is live, the pool and the window that runs now are untouched, and a claim works.`
+
+4. **#26, the limit.** Pick "Raise the per-wallet limit to 10,000,000 BAYLA", **EXECUTE proposal
+   #26**. Then:
+
+   ```powershell
+   node "C:\Users\jimbo\solana-launch-release-2026-09-26\ladder-wallet-cap-upgrade-2026-10\scripts\5-verify-wallet-cap.mjs"
+   ```
+
+   It must end `RESULT: the per-wallet limit is 10,000,000 BAYLA, nothing else in the pool moved, and the program keeps the limit raise-only.`
+5. **The site, on your word:** #1056 (the "Extend lock" button; it contains #1031, which then
+   closes), #1021 (the range card says opening costs 0.5 SOL) and #994 (a pool opened on the site
+   names its share at once). All three conflict with trunk today, so a session refreshes each
+   first; #1056 and #994 are drafts until then.
+
+Never press old #18: it still shows "Approved" because its failed run didn't change that, and
+pressing it only burns a fee. #3 is stale and can never execute.
+
+**After Day 2.**
+
+- **The roll-back buffer's 3.514 SOL.** Once the pool upgrade has proved good (a few days), member
+  A proposes "Return a buffer's SOL" on the pool page with `zFSHSqF5fUBpj2jh28FiW7UxjnbFGUAH73j9nqaPySW`
+  (**not** "The roll-back"), member B approves, and 48 hours later either member executes it
+  (the pack's steps R16 and R17). It costs member A about 0.004 SOL. After that #24 can never
+  execute.
+- **The SOL back to you.** About 11.5 SOL sits in the deploy wallet and 2.72 in the ladder deploy
+  wallet after Day 2, and 3.5 more reaches the deploy wallet after the return. A session reads the
+  balances and hands you one transfer command per wallet, signed with that wallet's key file, each
+  leaving about 0.01 SOL behind. **Never empty the deploy wallet before the return has executed:**
+  the pool page refuses the return while that wallet is empty.
+- **The December reload moves to this batch's ladder page.** From the moment #25 executes, the
+  reload (approved by 2026-12-21 15:32:16 UTC) is proposed on the wallet-cap pack's page, port
+  5499, "Reload the rewards: the next four-year window (December)". The four-year pack's page (port
+  5399, "the refill page" of the 2026-10-20 section below) then refuses it: each page reloads only
+  on the build it knows.
 
 ## 🔴 2026-10-28: range pools open for free until you upgrade the range program (do this first)
+
+**2026-10-31: the upgrade is proposal #22, approved by both members. It executes on Day 2, the
+section above.**
 
 **Why it is urgent.** #19 ran on 2026-10-27 and made both range fee tiers, so on the range program
 running now anyone can open a range pool without paying. None was open on 2026-10-28. You ruled on
