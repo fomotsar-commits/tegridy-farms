@@ -15,8 +15,8 @@ const PLACEHOLDER_ADDR = '0x0000000000000000000000000000000000000001' as const;
 export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | null, chainIdOverride?: number) {
   const { address } = useAccount();
   const walletChainId = useChainId();
-  // The page's chain (useLiquidityChainId): the wallet's whenever one is connected, so a write
-  // is always addressed to the chain that signs it; only a disconnected read can follow `?c=`.
+  // The page's chain (useLiquidityChainId): the network picked, else the wallet's. Every write
+  // below names it (`chainId`), so wagmi refuses one while the wallet is on another network.
   const chainId = chainIdOverride ?? walletChainId;
   /**
    * Router + factory + WETH for the CONNECTED chain, resolved together so an
