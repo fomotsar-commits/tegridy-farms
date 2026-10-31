@@ -132,9 +132,11 @@ export function toInstruction(w: WireIx): TransactionInstruction {
  * Every venue whose name says Raydium: the owner's ruling is no money to Raydium, ever. The
  * names go to Jupiter (`excludeDexes`); the programs, with Raydium's known ones always among
  * them, are refused in the instruction Jupiter builds. A list naming no Raydium venue at all
- * cannot exclude it, and the caller does not trade on it.
+ * cannot exclude it, and the caller does not trade on it. `allowRaydium` (the owner's word for
+ * the keeper, 2026-10-31) refuses nothing.
  */
-export function refusedVenues(labels: Record<string, string>): { names: string[]; programs: Set<string> } {
+export function refusedVenues(labels: Record<string, string>, allowRaydium = false): { names: string[]; programs: Set<string> } {
+  if (allowRaydium) return { names: [], programs: new Set() };
   const hits = Object.entries(labels).filter(([, name]) => /raydium/i.test(name));
   return { names: [...new Set(hits.map(([, n]) => n))].sort(), programs: new Set([...RAYDIUM_PROGRAMS, ...hits.map(([id]) => id)]) };
 }

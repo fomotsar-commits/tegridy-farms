@@ -12,8 +12,8 @@
  *
  * Who earns: the keeper takes the gap, which comes out of that pool's LPs (whoever trades
  * first takes it); the venue takes its usual share of our pool's fee on the keeper's swap.
- * Jupiter's leg pays the fee of whichever pool Jupiter routes through, never Raydium's: every
- * venue Jupiter names Raydium is excluded, and a route that touches one is refused.
+ * Jupiter's leg pays the fee of whichever pool Jupiter routes through. Raydium's is excluded,
+ * and a route that touches one refused, unless KEEPER_ALLOW_RAYDIUM says yes.
  *
  * ─── SAFETY ─────────────────────────────────────────────────────────────────────
  *   • DRY RUN BY DEFAULT. `run` test-runs and logs; it sends only with `--live`.
@@ -36,6 +36,10 @@
  *   KEEPER_MIN_PROFIT_USD   least gain a round trip must make (default 0.01)
  *   KEEPER_INTERVAL_SEC     seconds between passes (default 60)
  *   KEEPER_PRIORITY_MICROLAMPORTS  priority fee per compute unit (default 10000)
+ *   KEEPER_ALLOW_RAYDIUM    yes = Jupiter's leg may go through Raydium (default no; the owner
+ *                           allowed it for the keeper 2026-10-31, for coins only Raydium trades)
+ *   KEEPER_PAY_SETUP        yes = open a coin's account on its first trip even when that trip
+ *                           does not earn the ~0.0015 SOL rent back (default no)
  *
  * ─── COMMANDS ───────────────────────────────────────────────────────────────────
  *   status                     the keeper's address and what it holds
@@ -99,6 +103,12 @@ const num = (name, fallback) => {
   const n = Number(raw);
   if (!Number.isFinite(n) || n <= 0) throw new Error(`${name} must be a positive number, not "${raw}"`);
   return n;
+};
+const yes = (name) => {
+  const raw = env[name]?.trim().toLowerCase() ?? '';
+  if (raw === '' || raw === 'no' || raw === 'false' || raw === '0') return false;
+  if (raw === 'yes' || raw === 'true' || raw === '1') return true;
+  throw new Error(`${name} must be yes or no, not "${raw}"`);
 };
 
 const [cmd = 'help', ...rest] = process.argv.slice(2);
@@ -203,6 +213,8 @@ async function main() {
       maxTradeUsd: num('KEEPER_MAX_TRADE_USD', DEFAULT_LIMITS.maxTradeUsd),
       minProfitUsd: num('KEEPER_MIN_PROFIT_USD', DEFAULT_LIMITS.minProfitUsd),
       microLamports: num('KEEPER_PRIORITY_MICROLAMPORTS', DEFAULT_SETTINGS.microLamports),
+      allowRaydium: yes('KEEPER_ALLOW_RAYDIUM'),
+      payNewAccountRent: yes('KEEPER_PAY_SETUP'),
     };
     const intervalMs = num('KEEPER_INTERVAL_SEC', 60) * 1000;
     const io = {
@@ -215,6 +227,7 @@ async function main() {
     };
     log(`Keeper ${owner.toBase58()}, ${live ? 'LIVE: round trips that pass their test run are SENT' : 'dry run: nothing is sent'}`);
     log(`  RPC ${redactRpcUrl(RPC)} · Jupiter ${env.JUPITER_API_KEY?.trim() ? 'own key' : 'keyless'} · up to $${settings.maxTradeUsd} a trip · floor $${settings.minProfitUsd}`);
+    log(`  Raydium ${settings.allowRaydium ? 'ALLOWED' : 'refused'} · new coin accounts ${settings.payNewAccountRent ? 'opened on any paying trip' : 'opened only when the trip earns the rent back'}`);
     for (;;) {
       try {
         const r = await runCycle(io, settings);

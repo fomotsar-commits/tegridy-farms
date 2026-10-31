@@ -55,11 +55,24 @@ export interface KeeperSettings extends KeeperLimits {
   maxAccounts: number;
   /** Priority fee, in micro-lamports per compute unit. */
   microLamports: number;
+  /**
+   * Let Jupiter's leg go through Raydium. Off by default (owner ruling 2026-10-13: no money to
+   * Raydium); the owner allowed it for the keeper on 2026-10-31, for coins Raydium alone trades.
+   */
+  allowRaydium: boolean;
+  /** Open a token account on a coin's first trip even when that trip does not earn its rent back (owner, 2026-10-31). */
+  payNewAccountRent: boolean;
 }
 
-export const DEFAULT_SETTINGS: Omit<KeeperSettings, keyof KeeperLimits> = { maxAccounts: 30, microLamports: 10_000 };
+export const DEFAULT_SETTINGS: Omit<KeeperSettings, keyof KeeperLimits> = { maxAccounts: 30, microLamports: 10_000, allowRaydium: false, payNewAccountRent: false };
 
 const SIM_UNITS = 1_400_000;
+/**
+ * The route size asked for again when Jupiter finds none within `maxAccounts`: a coin traded on
+ * Pump.fun's pools needs more (BAYLA, GRR, walked 2026-10-31). A route too big to sit beside our
+ * pool's swap in one transaction is then refused when the transaction is built.
+ */
+const ROOMY_ACCOUNTS = 64;
 const ALT_PROGRAM = 'AddressLookupTab1e1111111111111111111111111';
 
 export interface CycleResult {
@@ -82,8 +95,8 @@ export async function runCycle(io: KeeperIo, s: KeeperSettings): Promise<CycleRe
   }
   // The list skips the coins the site names itself; the keeper reads every token's fee.
   const safety = await readTokenSafety(io.rpc, pools.map((v) => v.tokenMint));
-  const refused = refusedVenues(await io.jupiter.labels());
-  if (!refused.names.length) {
+  const refused = s.allowRaydium ? refusedVenues({}, true) : refusedVenues(await io.jupiter.labels());
+  if (!s.allowRaydium && !refused.names.length) {
     io.log('Jupiter’s venue list names no Raydium venue, so Raydium cannot be left out: nothing is traded this pass');
     return { pools: pools.length, gaps: 0, sent: 0 };
   }
@@ -172,7 +185,7 @@ async function roundTrip(
     io.log(`${name}: skipped, the keeper holds ${amt(before.coin)} and the trade needs ${amt(plan.coinIn)}`);
     return 'none';
   }
-  if (!before.tokenExists) {
+  if (!before.tokenExists && !s.payNewAccountRent) {
     // The first trip in a token opens the keeper's account for it: that rent is this trip's cost.
     const rent = lamportsInCoin(NEW_ACCOUNT_RENT, view.quote, usd);
     if (rent === null) {
@@ -182,13 +195,21 @@ async function roundTrip(
     plan = { ...plan, minProfit: plan.minProfit + rent };
   }
   const need = plan.coinIn + plan.minProfit;
+  const quote = async (p: Omit<Parameters<JupiterApi['quote']>[0], 'maxAccounts'>) => {
+    try {
+      return await io.jupiter.quote({ ...p, maxAccounts: s.maxAccounts });
+    } catch (e) {
+      if (!(e instanceof Error && /NO_ROUTES_FOUND/.test(e.message)) || s.maxAccounts >= ROOMY_ACCOUNTS) throw e;
+      return io.jupiter.quote({ ...p, maxAccounts: ROOMY_ACCOUNTS });
+    }
+  };
   const legExpect = { owner, refused: refused.programs, untouchable: other ? [otherAta] : [] };
   let legs: TransactionInstruction[];
   let lookupTables: string[];
   if (plan.side === 'buy') {
     const own = quoteOwnPool(view.snapshot, view.config, plan.coinMint, plan.coinIn, Number(chainNow));
     if (!own || own.outAmount <= 0n) throw new Error('our pool would not quote the buy');
-    const q = await io.jupiter.quote({ inputMint: plan.tokenMint, outputMint: plan.coinMint, amount: own.outAmount, slippageBps: s.slippageBps, excludeDexes: refused.names, maxAccounts: s.maxAccounts });
+    const q = await quote({ inputMint: plan.tokenMint, outputMint: plan.coinMint, amount: own.outAmount, slippageBps: s.slippageBps, excludeDexes: refused.names });
     const bps = lastJupiterSlippage(BigInt(q.outAmount), need, s.slippageBps);
     if (bps === null) {
       io.log(`${name}: skipped, Jupiter pays back ${amt(BigInt(q.outAmount))} for ${amt(plan.coinIn)}: under the profit floor`);
@@ -202,7 +223,7 @@ async function roundTrip(
     legs = [ownSwap('coin', plan.coinIn, own.outAmount), si.swap];
     lookupTables = si.lookupTables;
   } else {
-    const q = await io.jupiter.quote({ inputMint: plan.coinMint, outputMint: plan.tokenMint, amount: plan.coinIn, slippageBps: s.slippageBps, excludeDexes: refused.names, maxAccounts: s.maxAccounts });
+    const q = await quote({ inputMint: plan.coinMint, outputMint: plan.tokenMint, amount: plan.coinIn, slippageBps: s.slippageBps, excludeDexes: refused.names });
     const si = await io.jupiter.swapInstructions(q, owner);
     if (si.extra) throw new Error('Jupiter added instructions the keeper does not sign');
     const route = decodeJupiterRoute(si.swap.data);
@@ -301,7 +322,13 @@ interface Simulated {
 }
 
 async function simulate(rpc: SolanaRpc, tx: VersionedTransaction, keys: PublicKey[]): Promise<Simulated> {
-  const b64 = Buffer.from(tx.serialize()).toString('base64');
+  let bytes: Uint8Array;
+  try {
+    bytes = tx.serialize();
+  } catch {
+    throw new Error('Jupiter’s route and our pool’s swap do not fit in one transaction');
+  }
+  const b64 = Buffer.from(bytes).toString('base64');
   const r = (await rpc('simulateTransaction', [
     b64,
     {

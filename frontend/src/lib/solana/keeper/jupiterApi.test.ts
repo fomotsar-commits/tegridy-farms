@@ -87,6 +87,12 @@ describe('refusedVenues', () => {
     expect([...r.programs].sort()).toEqual([...RAYDIUM_PROGRAMS, 'P1', 'P2', 'P4'].sort());
   });
 
+  it('refuses nothing when the owner allows Raydium for the keeper', () => {
+    const r = refusedVenues({ P1: 'Raydium' }, true);
+    expect(r.names).toEqual([]);
+    expect(r.programs.size).toBe(0);
+  });
+
   it('refuses Raydium’s known programs even when Jupiter’s list names none', () => {
     const r = refusedVenues({});
     expect(r.names).toEqual([]);
