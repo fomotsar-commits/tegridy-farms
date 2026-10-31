@@ -8,7 +8,8 @@ import { artSrcSet } from '../lib/artSrcSet';
 import { MIN_BOOST_BPS, MAX_BOOST_BPS } from '../lib/constants';
 import { CONNECT_ETHEREUM_WALLET } from '../lib/copy';
 import { hasMixedSolanaSection } from '../lib/routeVoice';
-import { getSolanaSurfaceState, requestSolanaOpen, shortSolanaAddress, wantOwnSolana } from '../lib/solanaSurface';
+import { getSolanaSurfaceState, requestSolanaOpen, shortSolanaAddress, solanaToRestore, wantOwnSolana } from '../lib/solanaSurface';
+import { timeAgo } from '../lib/solanaActivity';
 import { CHAIN_LABEL, hasLadder, rowTerms, venuePoolRows, type VenuePoolRow } from '../lib/venuePools';
 import {
   WALLET_CHAIN_LABEL, boostOf, fmtUsd, holdingShares, holdingsTotal, pctText,
@@ -30,7 +31,9 @@ import { FinePrint } from './ui/FinePrint';
  * First the connected wallets: what they hold (SOL, ETH and every island coin, with USD where a
  * price was read) and their positions on this site (locks, stakes, pool shares), each read from
  * the chain by the reader its own page uses (hooks/useWalletBoard.ts). A part that could not be
- * read says so, by name, with Try again; it is never a zero or an empty list.
+ * read says so, by name, with Try again; it is never a zero or an empty list. A wallet seen before
+ * draws at once from its last read in this browser, said "As of 3h ago · updating" until the new
+ * read lands (lib/wallet/boardMemory.ts).
  *
  * What is drawn is only what was read: the holdings' worth split by coin (a bar, and each coin's
  * share on its row) only when every coin held was read and priced; a tape of the coins held only
@@ -725,6 +728,13 @@ function Figure({ fig, mode, unpinned, quick, progress, frameRef }: {
 
 export function IslandDashboard({ headingLevel = 2 }: { headingLevel?: 1 | 2 }) {
   const board = useWalletBoard();
+  const { pathname } = useLocation();
+  // The wallet is this board's content, so a Solana wallet connected here before is restored as
+  // the board mounts, not 1.5 s after the page settles (TopBarSolana.tsx). Not where the page has
+  // its own Solana section (the home's cards): that one restores itself as it mounts.
+  useEffect(() => {
+    if (!hasMixedSolanaSection(pathname) && solanaToRestore()) wantOwnSolana();
+  }, [pathname]);
   // A harvest, or a claim on a pool card, changes the positions' "earned" figures.
   const [me] = useState(() => ({}));
   useOnStakesChanged(me, board.refresh);
@@ -781,6 +791,8 @@ export function IslandDashboard({ headingLevel = 2 }: { headingLevel?: 1 | 2 }) 
   const shares = total.kind === 'total' ? holdingShares(heldRows) : [];
   const shareOf = new Map(shares.map((s) => [s.key, s.pct]));
   const everyLegRead = board.holdings.length > 0 && board.holdings.every((l) => l.leg.status === 'ok');
+  const kept = [...board.holdings, ...board.positions].flatMap((l) => (l.readAt === undefined ? [] : [l.readAt]));
+  const keptSince = kept.length ? Math.min(...kept) : null;
   // The positions' worth, kept as the holdings' is; drawn once the wallet has a position to add up.
   const posTotal = holdingsTotal(board.positions.map((l) => l.leg));
   const posNote = board.positions.some((l) => l.leg.status === 'loading') ? 'reading'
@@ -827,6 +839,12 @@ export function IslandDashboard({ headingLevel = 2 }: { headingLevel?: 1 | 2 }) 
               {/* Refresh is the whole page's: Harvest under the positions, and a pool card beside
                   the board, read again with it (lib/harvest/stakesChanged.ts). */}
               <button type="button" onClick={() => { board.refresh(); noteStakesChanged(me); }} className="min-h-[32px] underline underline-offset-4 uppercase tracking-[0.14em] hover:text-[#22c55e]">Refresh</button>
+              {/* Some rows are this browser's last read of them, while the chain is read again (boardMemory.ts). */}
+              {keptSince !== null && (
+                <span role="status" className="uppercase tracking-[0.14em] text-[#f5e4b8]/55">
+                  As of {timeAgo(keptSince)} · updating
+                </span>
+              )}
             </div>
           )}
         </div>

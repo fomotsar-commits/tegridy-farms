@@ -58,6 +58,11 @@ export interface NamedLeg<T> {
   what: string;
   leg: Leg<T>;
   retry: () => void;
+  /**
+   * Set while the rows are this part's last read in this browser (boardMemory.ts), not yet the
+   * new one: when they were read, epoch ms.
+   */
+  readAt?: number;
 }
 
 /** Live rooms whose coin is on this chain and has an address. */

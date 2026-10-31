@@ -1,10 +1,9 @@
 import { useEffect, useState, type ComponentType } from 'react';
 import { ErrorBoundary } from '../ui/ErrorBoundary';
-import { safeGetItem } from '../../lib/storage';
 import {
   noteOwnSolanaFailed,
   solanaHandoffPending,
-  solanaWasConnectedHere,
+  solanaToRestore,
   useSolanaSurface,
   wantOwnSolana,
 } from '../../lib/solanaSurface';
@@ -43,9 +42,10 @@ import {
  * a page's (or back) is lost with it, and needs one more pick.
  */
 
-/** The wallet adapter's own key (WalletProvider `localStorageKey`): set while a Solana wallet is chosen. */
-const SAVED_WALLET_KEY = 'walletName';
-/** A returning visitor's connection is restored once the page has settled, never in its first paint. */
+/**
+ * A returning visitor's connection is restored once the page has settled, never in its first paint;
+ * the dashboard, whose whole content is the wallet, restores it as it mounts (IslandDashboard.tsx).
+ */
 const RESTORE_DELAY_MS = 1500;
 
 function ReportFailed() {
@@ -90,8 +90,7 @@ export function TopBarSolana({ solanaPage }: { solanaPage: boolean }) {
       wantOwnSolana();
       return;
     }
-    const saved = safeGetItem(SAVED_WALLET_KEY);
-    if (!solanaWasConnectedHere() || !saved || saved === 'null') return;
+    if (!solanaToRestore()) return;
     const timer = setTimeout(wantOwnSolana, RESTORE_DELAY_MS);
     return () => clearTimeout(timer);
   }, []);

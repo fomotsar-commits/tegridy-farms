@@ -24,6 +24,7 @@ vi.mock('./farm/HarvestCard', () => ({
 import { IslandDashboard } from './IslandDashboard';
 import { venuePoolRows } from '../lib/venuePools';
 import { MIN_BOOST_BPS, MAX_BOOST_BPS } from '../lib/constants';
+import { getSolanaSurfaceState, resetSolanaSurfaceForTests } from '../lib/solanaSurface';
 
 const leg = <T,>(key: string, what: string, l: Leg<T>, retry = vi.fn()): NamedLeg<T> => ({ key, what, leg: l, retry });
 const holding = (o: Partial<HoldingRow>): HoldingRow => ({ key: o.symbol ?? 'x', symbol: 'BAYLA', chain: 'solana', amount: '52,000', usd: 12.5, roomId: 'bayla', to: '/bayla', ...o });
@@ -33,9 +34,9 @@ function wallet(o: Partial<WalletBoard>): WalletBoard {
   return { solanaAddress: null, evmAddress: null, holdings: [], positions: [], refresh: vi.fn(), ...o };
 }
 
-function mount(headingLevel?: 1 | 2) {
+function mount(headingLevel?: 1 | 2, path = '/') {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[path]}>
       <IslandDashboard headingLevel={headingLevel} />
     </MemoryRouter>,
   );
@@ -43,6 +44,8 @@ function mount(headingLevel?: 1 | 2) {
 
 beforeEach(() => {
   board.value = wallet({});
+  localStorage.clear();
+  resetSolanaSurfaceForTests();
 });
 
 describe('IslandDashboard: the wallet', () => {
@@ -110,6 +113,42 @@ describe('IslandDashboard: the wallet', () => {
     board.value = wallet({ solanaAddress: '7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU', holdings: [leg('h', 'your Solana coins', { status: 'loading' })] });
     mount();
     expect(within(screen.getByRole('region', { name: 'Holdings' })).getByRole('status')).toHaveTextContent('Reading the chain');
+  });
+
+  it('draws a part from its last read at once, saying when that was and that it is updating', () => {
+    board.value = wallet({
+      solanaAddress: '7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU',
+      holdings: [{ ...leg('h', 'your Solana coins', { status: 'ok', rows: [holding({})] }), readAt: Date.now() - 3 * 3600_000 }],
+      positions: [leg('p', 'your BAYLA locks', { status: 'ok', rows: [position({})] })],
+    });
+    mount();
+    expect(within(screen.getByRole('region', { name: 'Holdings' })).getByText('52,000')).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('As of 3h ago · updating');
+  });
+
+  it('restores a Solana wallet connected here before as the dashboard opens, not after the page settles', () => {
+    localStorage.setItem('tegridy-solana-restore', '1');
+    localStorage.setItem('walletName', JSON.stringify('Phantom'));
+    mount(1, '/dashboard');
+    expect(getSolanaSurfaceState().ownWanted).toBe(true);
+  });
+
+  it('loads no Solana for a visitor who never connected it here, nor where the page restores its own', () => {
+    localStorage.setItem('walletName', JSON.stringify('Phantom'));
+    mount(1, '/dashboard');
+    expect(getSolanaSurfaceState().ownWanted, 'a saved name alone (an "Open app" tap) restores nothing').toBe(false);
+    localStorage.setItem('tegridy-solana-restore', '1');
+    mount(2, '/');
+    expect(getSolanaSurfaceState().ownWanted, 'the home: its cards restore their own connection').toBe(false);
+  });
+
+  it('says nothing of updating once every part is the new read', () => {
+    board.value = wallet({
+      solanaAddress: '7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU',
+      holdings: [leg('h', 'your Solana coins', { status: 'ok', rows: [holding({})] })],
+    });
+    mount();
+    expect(screen.queryByText(/updating/)).toBeNull();
   });
 
   it('says plainly when the wallet holds nothing, once that was read', () => {
