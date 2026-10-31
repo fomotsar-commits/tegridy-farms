@@ -188,10 +188,30 @@ describe('a link to a coin Jupiter does not list', () => {
     await waitFor(() => expect(buying()).toBe('CORN'));
   });
 
-  it('stays on the default pair when neither Jupiter nor the chain names the coin', async () => {
+  it('stays on the default pair when neither Jupiter nor the chain names the coin, and says so', async () => {
     open(`/solana?out=${CORN_MINT}`);
     await waitFor(() => expect(h.tokenFromChain).toHaveBeenCalled());
     expect(buying()).toBe('BAYLA');
+    const miss = await screen.findByTestId('solana-link-miss');
+    expect(miss).toHaveTextContent(`The coin in this link (${CORN_MINT}) could not be looked up on Jupiter or on the chain, so this form opened on SOL / BAYLA.`);
+    expect(miss).toHaveAttribute('role', 'status');
+  });
+
+  it('says nothing of the kind when the link’s coin was found', async () => {
+    h.tokenFromChain.mockResolvedValue(CORN);
+    open(`/solana?out=${CORN_MINT}`);
+    await waitFor(() => expect(buying()).toBe('CORN'));
+    expect(screen.queryByTestId('solana-link-miss')).toBeNull();
+  });
+
+  // The Arbitrage card's Swap (components/solana/lp/ArbitrageBoard.tsx): the pair and the sized amount, as
+  // poolList.ts `swapLink` writes them. A pin of the contract the link rests on; the link itself is tested there.
+  it('opens a link from the Arbitrage card on its pair with the amount in the pay field', async () => {
+    h.tokenFromChain.mockResolvedValue(CORN);
+    open(`/solana?in=${CORN_MINT}&out=So11111111111111111111111111111111111111112&amt=21.046009`);
+    await waitFor(() => expect(paying()).toBe('CORN'));
+    expect(buying()).toBe('SOL');
+    expect(screen.getByLabelText(/^Amount of CORN to pay$/)).toHaveValue('21.046009');
   });
 });
 

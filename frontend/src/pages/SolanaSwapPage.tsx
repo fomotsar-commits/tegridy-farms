@@ -1501,6 +1501,8 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
   // that pool's coin. Mount-once; a lookup that fails both ways leaves the honest default
   // in place — a bad deep link must never break the page. The curated cases were already
   // handled in the state initializers.
+  // A coin neither could name is said (`linkMissed`): the form opened on another pair than the link asked for.
+  const [linkMissed, setLinkMissed] = useState<string | null>(null);
   useEffect(() => {
     const search = new URLSearchParams(linkSearch);
     const ctrl = new AbortController();
@@ -1510,7 +1512,11 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
       resolveMint(mint, ctrl.signal)
         .catch(() => null)
         .then((t) => t ?? tokenFromChain(withReadCommitment(browserRpc(), 'confirmed'), mint))
-        .then((t) => { if (t && live) set(t); })
+        .then((t) => {
+          if (!live) return;
+          if (t) set(t);
+          else setLinkMissed(mint);
+        })
         .catch(() => { /* honest default stands */ });
     }
     return () => {
@@ -2408,6 +2414,12 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
               </Heading>
               {home && <ChainSwitch at="/solana" />}
               {!home && <p className="text-white/60 text-[11px]">Buy Solana tokens through our own pools or Jupiter, whichever pays more.</p>}
+              {/* A link's coin that neither Jupiter nor the chain could name: the form is on another pair, and says so. */}
+              {!home && linkMissed && (
+                <p role="status" data-testid="solana-link-miss" className="text-amber-300/90 text-[11px] [overflow-wrap:anywhere]">
+                  The coin in this link ({linkMissed}) could not be looked up on Jupiter or on the chain, so this form opened on {payToken.symbol} / {buyToken.symbol}.
+                </p>
+              )}
             </div>
             {publicKey ? (
               <span className="text-white/70 text-[11px] font-mono px-2 py-1 rounded-md" style={{ background: 'var(--color-purple-15)' }}>

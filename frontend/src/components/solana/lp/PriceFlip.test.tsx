@@ -7,6 +7,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { PublicKey } from '@solana/web3.js';
+import { MemoryRouter } from 'react-router-dom';
 import { PoolCard } from './PoolCard';
 import { setPriceSide } from './priceSide';
 import { VenuePoolList } from './VenuePoolList';
@@ -74,14 +75,15 @@ describe('a press on any pool price turns every pool price round', () => {
     const bayla = view(BAYLA_MINT);
     const other = view(UNLISTED);
     const listPools = vi.fn(async () => ({ kind: 'ok' as const, list: { pools: [bayla, other], unread: 0, truncated: false, chainNow: null, safety: new Map() } }));
+    // A router: every row and the Arbitrage card link Swap to the swap page.
     render(
-      <>
+      <MemoryRouter>
         <ul>
           {card(bayla, 0.000006)}
           {card(other, 0.000006)}
         </ul>
         <VenuePoolList readers={{ listPools } as unknown as LpReaders} onView={() => {}} />
-      </>,
+      </MemoryRouter>,
     );
     const rows = await screen.findAllByTestId('lp-all-pools-row');
     const [first, second] = screen.getAllByTestId('lp-pool');
@@ -117,7 +119,7 @@ describe('a press on any pool price turns every pool price round', () => {
 
   it('is a button named by the price it shows, that says what a press does', () => {
     const bayla = view(BAYLA_MINT);
-    render(<ul>{card(bayla, 0.0000047)}</ul>);
+    render(<MemoryRouter><ul>{card(bayla, 0.0000047)}</ul></MemoryRouter>);
     const flip = screen.getByRole('button', { name: `1 BAYLA = ${formatSolPrice(POOL_PRICE)} SOL` });
     expect(flip).toHaveAttribute('title', 'Show every pool’s price per 1 SOL');
     fireEvent.click(flip);
@@ -127,7 +129,7 @@ describe('a press on any pool price turns every pool price round', () => {
   // Owner, 2026-10-20: the press area grows to 44px and the price looks the same. The LP
   // section's 44px rule is checked in a browser only by e2e-solana, which no CI job runs.
   it('is pressed over 44px of height on any line of 16px or more, and moves nothing round it', () => {
-    render(<ul>{card(view(BAYLA_MINT), 0.0000047)}</ul>);
+    render(<MemoryRouter><ul>{card(view(BAYLA_MINT), 0.0000047)}</ul></MemoryRouter>);
     const [flip] = screen.getAllByTestId('lp-price-flip');
     // 14px of padding above and below, taken back by the same negative margin, painted
     // above the rows after it (in a browser they took a press on its lower 6 to 7px otherwise).
