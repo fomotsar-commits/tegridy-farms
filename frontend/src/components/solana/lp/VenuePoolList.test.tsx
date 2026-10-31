@@ -396,7 +396,7 @@ describe('Arbitrage: every paying gap, ranked, with the trade and one press to t
   });
 
   it('says each state in a line: reading, not read, prices not read', async () => {
-    const { unmount } = mount(readers({ listPools: vi.fn(() => new Promise(() => {})) }));
+    const { unmount } = mount(readers({ listPools: vi.fn(() => new Promise<PoolListRead>(() => {})) }));
     expect(screen.getByTestId('lp-arb-reading')).toHaveTextContent('Reading the pools from the chain…');
     expect(screen.queryByTestId('lp-arb-stamp')).toBeNull();
     unmount();

@@ -31,7 +31,7 @@ import { CLOCK, LAUNCH, PROGRAM, buildPool, clockAccount, fakeRpc, key, observat
 import { BAYLA_QUOTE, USDC_QUOTE, type QuoteCoin } from './quotes';
 import { decodeObservationState } from './ownPrice';
 import type { PoolView } from './poolFinder';
-import { BAYLA_MINT, TOKEN_2022_PROGRAM, USDC_MINT, WSOL_MINT, type MintFacts, type TokenSafety } from './tokenSafety';
+import { BAYLA_MINT, TOKEN_2022_PROGRAM, USDC_MINT, WSOL_MINT, type MintFacts, type SafetyVerdict, type TokenSafety } from './tokenSafety';
 import { metadataPda } from '../../launcher/solana/write/metaplex';
 
 /** A fetch for `/api/pools?all=1` answering `pools`; `calls` collects each URL asked. */
@@ -454,7 +454,7 @@ describe('arbitrage: what one trade could take from a rowâ€™s gap, by the poolâ€
       const unreadFee = row();
       const pool = unreadFee.quoteIsToken0 ? { ...unreadFee.snapshot.pool, token1Program: TOKEN_2022_PROGRAM } : { ...unreadFee.snapshot.pool, token0Program: TOKEN_2022_PROGRAM };
       const t2022: PoolView = { ...unreadFee, snapshot: { ...unreadFee.snapshot, pool } };
-      const check = (mint: string, verdict: TokenSafety extends { verdict: infer V } ? V : never): TokenSafety =>
+      const check = (mint: string, verdict: SafetyVerdict): TokenSafety =>
         ({ kind: 'read', mint, verdict, blocks: [], warnings: [], facts: null, name: 'Corn', symbol: 'CORN', metadataSource: 'metaplex' }) as TokenSafety;
       const p = prices([[ok, 10 / 0.9], [blocked, 10 / 0.9], [frozen, 10 / 0.9], [t2022, 10 / 0.9]]);
       const ranked = rankArbitrage(list([ok, blocked, frozen, t2022], [check(ok.tokenMint, 'warn'), check(blocked.tokenMint, 'blocked'), { kind: 'unread', mint: t2022.tokenMint, detail: 'HTTP 429' }]), p);

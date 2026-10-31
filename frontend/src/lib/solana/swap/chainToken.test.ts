@@ -10,7 +10,8 @@ vi.mock('../lp/tokenSafety', async (orig) => ({
 
 const CORN = 'CornMintAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA1';
 
-const read = (o: Partial<Extract<TokenSafety, { kind: 'read' }>> = {}): TokenSafety => ({
+type Read = Extract<TokenSafety, { kind: 'read' }>;
+const read = (o: Partial<Read> = {}): Read => ({
   kind: 'read',
   mint: CORN,
   verdict: 'ok',
