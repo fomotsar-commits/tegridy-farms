@@ -7,6 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-10-31
+
+- Home page: the TVL now counts what is staked with us, not only what our pools hold: the BAYLA lock ladder and the lighthouse pools on Solana, TOWELI staking, and the ladders on Ethereum and Base, retired ones included while they still hold stakes. Each counts what people staked in it, never the rewards it holds, with the coin at its market price (Jupiter's on Solana, DefiLlama's on Ethereum and Base). What counts shows pools and staking chain by chain. When a staking pool cannot be read, or a staked coin has no market price, it says "TVL at least".
+
 ### 2026-10-30
 
 - TOWELI staking: the farm page and the dashboard say "Beta is over", because staking v1 is closing. One line under it says where v1 stands, read from the chain: rewards still running, rewards stopped (with whether the reward reserve can pay what you've earned), or paused, when your stake comes out with no 25% penalty; on a lock that has not ended, that exit gives up rewards you have not claimed. When the chain can't be read, it says so. The site no longer takes new stakes, lock extensions or Auto-Max Lock into v1, and Zap no longer offers the staking lock; Claim and every way out stay, and Claim is switched off on the dashboard during a pause. A withdrawal's receipt now shows what came back (an early exit's net of its penalty), and the exit during a pause gets one too. A new staking contract replaces v1; its date is not set.
