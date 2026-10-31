@@ -1,8 +1,8 @@
-import { useEffect, useState, type Ref } from 'react';
+import type { Ref } from 'react';
 import { Link } from 'react-router-dom';
 import type { PoolView } from '../../../lib/solana/lp/poolFinder';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
-import { LITTLE_MONEY_TEXT, marketGap, pairSwapLink, poolTags, poolWorthUsd, readMarketPrices, tokenDecimalsOf, type MarketPrices, type PoolListRead } from '../../../lib/solana/lp/poolList';
+import { LITTLE_MONEY_TEXT, marketGap, pairSwapLink, poolTags, poolWorthUsd, tokenDecimalsOf, type MarketPrices, type PoolListRead } from '../../../lib/solana/lp/poolList';
 import { PRICE_TOLERANCE, poolPricePerToken } from '../../../lib/solana/lp/poolHealth';
 import { quoteText, tokenText, turnedDiff, usdText } from '../../../lib/solana/lp/format';
 import { pairLabel, siteNamed, tokenTicker } from '../../../lib/solana/lp/identity';
@@ -12,6 +12,7 @@ import { CardArt } from '../../ui/CardArt';
 import { FinePrint } from '../../ui/FinePrint';
 import type { LpReaders } from './readers';
 import { useLivePoolList } from './usePoolList';
+import { useMarketPrices } from './useMarketPrices';
 import { ArbitrageBoard } from './ArbitrageBoard';
 import { PriceFlip } from './PriceFlip';
 import { usePriceSide } from './priceSide';
@@ -51,11 +52,11 @@ export function VenuePoolList({
 }) {
   const live = useLivePoolList(readers, reloadKey);
   const read = live.read;
-  const prices = useMarketPrices(readers, read?.kind === 'ok' ? read.list.pools : null);
+  const market = useMarketPrices(readers, read?.kind === 'ok' ? read.list.pools : null);
   if (!readers.listPools) return null;
   return (
     <>
-      <ArbitrageBoard live={live} prices={prices} />
+      <ArbitrageBoard live={live} prices={market} />
       <section ref={sectionRef} tabIndex={sectionRef ? -1 : undefined} className="outline-none" data-testid="lp-all-pools" aria-label="All pools">
         <Card title="All pools" art={<CardArt pageId="solana-lp" idx={13} />}>
           {read === null ? (
@@ -68,7 +69,7 @@ export function VenuePoolList({
               </FinePrint>
             </>
           ) : (
-            <PoolRows list={read.list} prices={prices} onView={onView} onAdd={onAdd} />
+            <PoolRows list={read.list} prices={market.prices} onView={onView} onAdd={onAdd} />
           )}
           <FinePrint summary="How this list works">
             <p>
@@ -99,24 +100,6 @@ export function VenuePoolList({
       </section>
     </>
   );
-}
-
-/**
- * Jupiter's prices for the listed coins, read once per list read (poolList.ts
- * `readMarketPrices`). A re-read keeps the last prices until the new ones arrive; null
- * before the first, and always for a reader without `marketPrices`.
- */
-function useMarketPrices(readers: LpReaders, pools: readonly PoolView[] | null): MarketPrices | null {
-  const [prices, setPrices] = useState<MarketPrices | null>(null);
-  useEffect(() => {
-    if (!readers.marketPrices || !pools) return;
-    let live = true;
-    void readMarketPrices(pools, readers.marketPrices).then((p) => live && setPrices(p));
-    return () => {
-      live = false;
-    };
-  }, [readers, pools]);
-  return prices;
 }
 
 function PoolRows({
@@ -207,7 +190,7 @@ function PoolRow({
         <div className="flex flex-wrap items-baseline justify-between gap-x-3">
           <p className="text-white font-semibold text-[14px]">{label}</p>
           {worth !== null && (
-            <span data-testid="lp-all-pools-worth" className="text-white/85 text-[13px] font-semibold tabular-nums" title="In the pool, at Jupiter’s listed prices">
+            <span data-testid="lp-all-pools-worth" className="ml-auto text-white/85 text-[13px] font-semibold tabular-nums" title="In the pool, at Jupiter’s listed prices">
               {usdText(worth)}
             </span>
           )}
@@ -236,7 +219,8 @@ function PoolRow({
           </ul>
         )}
       </div>
-      <div className="flex gap-2">
+      {/* `relative`: painted above the price flip's press area, which reaches 14px below its line. */}
+      <div className="relative flex gap-2">
         {onAdd && (
           <button type="button" className="btn-primary min-h-[44px] px-4 text-[13px]" aria-label={`Add to ${label}`} onClick={() => onAdd(view.tokenMint, view.address, view.quote.mint)}>
             Add

@@ -66,7 +66,10 @@ export function useLivePoolList(readers: LpReaders, reloadKey: number): LivePool
   const question = useRef(0);
   const readAt = useRef<number | null>(null);
 
-  const run = useCallback(() => {
+  // Whether a list is on screen: a failed read replaces an unread one, and only keeps a list.
+  const hasList = useRef(false);
+
+  const run = useCallback((fresh: boolean) => {
     if (!readers.listPools || inFlight.current) return;
     const asked = ++question.current;
     inFlight.current = true;
@@ -75,7 +78,8 @@ export function useLivePoolList(readers: LpReaders, reloadKey: number): LivePool
       if (asked !== question.current) return;
       inFlight.current = false;
       setReading(false);
-      if (r.kind === 'ok' || readAt.current === null) {
+      if (r.kind === 'ok' || !hasList.current) {
+        hasList.current = r.kind === 'ok';
         readAt.current = Date.now();
         setState({ read: r, readAt: readAt.current, failed: null });
         setPaused(false);
@@ -83,13 +87,18 @@ export function useLivePoolList(readers: LpReaders, reloadKey: number): LivePool
         setState((s) => ({ ...s, failed: r.detail }));
       }
     };
-    readers.listPools().then(land, (e: unknown) => land({ kind: 'unread', detail: e instanceof Error ? e.message : String(e) }));
+    // A fresh read never takes the answer of one already in flight (readers.ts): a finished
+    // liquidity flow and a press must see the chain as it is now, not as it was being read.
+    readers.listPools(fresh ? { fresh: true } : undefined).then(land, (e: unknown) => land({ kind: 'unread', detail: e instanceof Error ? e.message : String(e) }));
   }, [readers]);
 
-  // The first read, and one for every finished liquidity flow: whatever was in flight is dropped.
+  // The first read shares one already in flight (Every position asks too); one for every finished
+  // liquidity flow is fresh, and whatever was in flight is dropped.
+  const first = useRef(true);
   useEffect(() => {
     inFlight.current = false;
-    run();
+    run(!first.current);
+    first.current = false;
     return () => {
       // Unmounted, or asked again: the answer on its way is no longer wanted. The ref is a
       // counter, not a node: reading it here is the point, so the lint's node rule does not apply.
@@ -102,11 +111,11 @@ export function useLivePoolList(readers: LpReaders, reloadKey: number): LivePool
   useEffect(() => {
     const inView = () => document.visibilityState !== 'hidden';
     const tick = setInterval(() => {
-      if (inView() && !inFlight.current && optionalReadAllowed()) run();
+      if (inView() && !inFlight.current && optionalReadAllowed()) run(false);
     }, LIST_REFRESH_MS);
     // Back in view with stale figures: read now rather than at the next tick.
     const woke = () => {
-      if (inView() && !inFlight.current && optionalReadAllowed() && (readAt.current === null || Date.now() - readAt.current >= LIST_REFRESH_MS)) run();
+      if (inView() && !inFlight.current && optionalReadAllowed() && (readAt.current === null || Date.now() - readAt.current >= LIST_REFRESH_MS)) run(false);
     };
     document.addEventListener('visibilitychange', woke);
     return () => {
@@ -122,7 +131,7 @@ export function useLivePoolList(readers: LpReaders, reloadKey: number): LivePool
       return;
     }
     setPaused(false);
-    run();
+    run(true);
   }, [run]);
 
   return { read: state.read, readAt: state.readAt, failed: state.failed, reading, again, paused };

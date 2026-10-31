@@ -20,6 +20,7 @@ import {
   poolTags,
   rowTokenFee,
   swapLink,
+  unsizedPools,
   type PoolList,
 } from './poolList';
 import { poolFeesOf } from './liquidityMath';
@@ -333,8 +334,15 @@ describe('arbitrage: what one trade could take from a rowâ€™s gap, by the poolâ€
       const tok = side === 'buy' ? outAfter : inAfter;
       const after = (Number(sol) / 1e9) / (Number(tok) / 1e6) / (tokenUsd / 200);
       expect(after).toBeCloseTo(side === 'buy' ? 0.99 : 1 / 0.99, 3);
-      // The price after, as the board prints it: the same reserves, whole coins per whole token.
-      expect(a.afterPerToken).toBeCloseTo((Number(sol) / 1e9) / (Number(tok) / 1e6), 12);
+      // The price after, as the board prints it: the LPs' part of the fee stays in the input side's
+      // reserve (the maths takes the whole fee off; only the venue's parts are kept apart), so the
+      // board's price is a hair off the fee-stripped one, on the side the trade paid into.
+      const { tradeFee, protocolFee, fundFee } = best.q.result;
+      const lpKept = tradeFee - protocolFee - fundFee;
+      expect(lpKept).toBeGreaterThan(0n);
+      const [solKept, tokKept] = side === 'buy' ? [sol + lpKept, tok] : [sol, tok + lpKept];
+      expect(a.afterPerToken).toBeCloseTo((Number(solKept) / 1e9) / (Number(tokKept) / 1e6), 12);
+      expect(a.afterPerToken).not.toBeCloseTo((Number(sol) / 1e9) / (Number(tok) / 1e6), 9);
       // The fee: 1% of the trade, 84% of it to the LPs and 16% to the venue; this pool charges no creator fee.
       expect(a.lpFeeUsd + a.venueFeeUsd).toBeCloseTo(a.tradeUsd * 0.01, 4);
       expect(a.venueFeeUsd).toBeCloseTo(a.tradeUsd * 0.0016, 4);
@@ -493,6 +501,32 @@ describe('arbitrage: what one trade could take from a rowâ€™s gap, by the poolâ€
     const older = { epoch: 0n, maximumFee: 10n ** 6n, basisPoints: 100 };
     const newer = { epoch: 900n, maximumFee: 10n ** 6n, basisPoints: 300 };
     expect(rowTokenFee(t, read(facts({ configAuthority: null, withdrawAuthority: null, withheldAmount: 0n, older, newer })))).toEqual(newer);
+  });
+
+  it('rowTokenFee: a pairing coin on the token side (BAYLA, a Token-2022 mint the list reads no check for) carries no fee, never unread', () => {
+    // BAYLA / SOL as mainnet holds it: BAYLA on the token side, under Token-2022, and no check read for a coin the site names.
+    const b = buildPool({ mint: new PublicKey(BAYLA_MINT), address: at(), quoteReserve: 50n * 10n ** 9n, tokenReserve: 10n ** 9n });
+    const v = viewOf(b, { sol: 50n * 10n ** 9n, tok: 10n ** 9n });
+    const pool = v.quoteIsToken0 ? { ...v.snapshot.pool, token1Program: TOKEN_2022_PROGRAM } : { ...v.snapshot.pool, token0Program: TOKEN_2022_PROGRAM };
+    const bayla: PoolView = { ...v, snapshot: { ...v.snapshot, pool } };
+    expect(bayla.tokenMint).toBe(BAYLA_MINT);
+    expect(rowTokenFee(bayla, null)).toBeNull();
+    // And so the venue's own pool is sized like any other.
+    expect(arbitrage(bayla, new Map([[WSOL_MINT, 200], [BAYLA_MINT, 10 / 1.1]]), NOW)).not.toBeNull();
+    expect(rankArbitrage({ pools: [bayla], unread: 0, truncated: false, chainNow: NOW, safety: new Map() }, new Map([[WSOL_MINT, 200], [BAYLA_MINT, 10 / 1.1]]))).toHaveLength(1);
+  });
+
+  it('unsizedPools: the clock not read, pools not read, and token checks not read, each counted, a blocked token not', () => {
+    const ok = row();
+    const t2022 = row();
+    const pool = t2022.quoteIsToken0 ? { ...t2022.snapshot.pool, token1Program: TOKEN_2022_PROGRAM } : { ...t2022.snapshot.pool, token0Program: TOKEN_2022_PROGRAM };
+    const unreadCheck: PoolView = { ...t2022, snapshot: { ...t2022.snapshot, pool } };
+    const blockedPool = row();
+    const blocked: TokenSafety = { kind: 'read', mint: blockedPool.tokenMint, verdict: 'blocked', blocks: [], warnings: [], facts: null, name: null, symbol: null, metadataSource: 'none' };
+    const list = (chainNow: bigint | null, unread: number): PoolList => ({ pools: [ok, unreadCheck, blockedPool], unread, truncated: false, chainNow, safety: new Map([[blockedPool.tokenMint, blocked]]) });
+    expect(unsizedPools(list(NOW, 0))).toEqual({ clock: false, unreadPools: 0, unreadChecks: 1 });
+    expect(unsizedPools(list(null, 2))).toEqual({ clock: true, unreadPools: 2, unreadChecks: 1 });
+    expect(unsizedPools({ pools: [ok], unread: 0, truncated: false, chainNow: NOW, safety: new Map() })).toEqual({ clock: false, unreadPools: 0, unreadChecks: 0 });
   });
 });
 

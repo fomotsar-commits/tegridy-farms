@@ -60,6 +60,10 @@ vi.mock('@solana/wallet-adapter-react', () => ({
 
 import SolanaSwapPage from './SolanaSwapPage';
 import { SolanaSwapInner } from './SolanaSwapPage';
+import { getQuote } from '../lib/jupiter';
+
+/** The form's action button, whatever it says (Buy, Sell, Connect…): the one full-width primary press under the form. */
+const buyButton = () => screen.getAllByRole('button').find((b) => b.className.includes('btn-primary') && b.className.includes('w-full'))!;
 
 /** The coin on the buy side, read from the button that names it. */
 const buying = () =>
@@ -195,6 +199,30 @@ describe('a link to a coin Jupiter does not list', () => {
     const miss = await screen.findByTestId('solana-link-miss');
     expect(miss).toHaveTextContent(`The coin in this link (${CORN_MINT}) could not be looked up on Jupiter or on the chain, so this form opened on SOL / BAYLA.`);
     expect(miss).toHaveAttribute('role', 'status');
+  });
+
+  it('names the room, not a link, when it was the room’s coin that could not be looked up', async () => {
+    open('/solana', 'bobo');
+    await waitFor(() => expect(h.tokenFromChain).toHaveBeenCalled());
+    const miss = await screen.findByTestId('solana-link-miss');
+    expect(miss).toHaveTextContent(`This room’s coin (${BOBO_MINT}) could not be looked up on Jupiter or on the chain, so this form opened on SOL / BAYLA.`);
+    expect(miss).not.toHaveTextContent('this link');
+  });
+
+  it('holds the form while the link’s coin is looked up: no quote is asked and the buy button is off, so a sized link is never quoted on the default pair', async () => {
+    let settle: (t: SolToken) => void = () => {};
+    h.tokenFromChain.mockReturnValue(new Promise<SolToken>((resolve) => { settle = resolve; }));
+    open(`/solana?in=${CORN_MINT}&out=So11111111111111111111111111111111111111112&amt=21.046009`);
+    await waitFor(() => expect(h.tokenFromChain).toHaveBeenCalled());
+    expect(screen.getByTestId('solana-link-pending')).toHaveTextContent('Looking up the coin in this link…');
+    // The amount is in the field, but the form shows SOL as the pay coin until the lookup lands: nothing is quoted on it.
+    expect(screen.getByLabelText(/^Amount of SOL to pay$/)).toHaveValue('21.046009');
+    expect(getQuote).not.toHaveBeenCalled();
+    expect(buyButton()).toBeDisabled();
+    settle(CORN);
+    await waitFor(() => expect(paying()).toBe('CORN'));
+    expect(screen.queryByTestId('solana-link-pending')).toBeNull();
+    await waitFor(() => expect(getQuote).toHaveBeenCalled());
   });
 
   it('says nothing of the kind when the link’s coin was found', async () => {

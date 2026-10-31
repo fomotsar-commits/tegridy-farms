@@ -264,6 +264,12 @@ describe('All pools: every pool on the venue, before a token is picked', () => {
   });
 });
 
+/** The same pool with its token side under Token-2022, as BAYLA's mint is on mainnet. */
+function token2022(v: PoolView): PoolView {
+  const pool = v.quoteIsToken0 ? { ...v.snapshot.pool, token1Program: TOKEN_2022_PROGRAM } : { ...v.snapshot.pool, token0Program: TOKEN_2022_PROGRAM };
+  return { ...v, snapshot: { ...v.snapshot, pool } };
+}
+
 /** The same coin's pool priced in USDC, ten times deeper: 10,000 USDC and 10,000 CORN, 1 USDC a CORN. */
 function usdcPool(corn: PoolView): PoolView {
   return viewOf(buildPool({ plain: true, mint: new PublicKey(corn.tokenMint), quote: USDC_QUOTE, configIndex: 1, quoteReserve: 10_000n * 10n ** 6n, tokenReserve: 10_000n * 10n ** 6n }), { sol: 10_000n * 10n ** 6n, tok: 10_000n * 10n ** 6n });
@@ -300,8 +306,9 @@ describe('Arbitrage: every paying gap, ranked, with the trade and one press to t
     expect(value('Get')).toBe('≈ 0.2041 SOL ($20.41)');
     expect(value('Profit')).toBe('up to $0.42, after the pool’s fee');
     expect(value('Fee')).toBe('$0.17 to LPs · $0.03 to the venue');
-    // After the trade the pool's price sits the fee away from Jupiter's 0.0095: 0.0095 / 0.99.
-    expect(value('After')).toMatch(/^1 CORN = 0\.009596 SOL/);
+    // After the trade the pool's price sits the fee away from Jupiter's 0.0095 (0.0095 / 0.99 = 0.009596), less a
+    // hair: the LPs' part of the fee stays in the token side's reserve, as the pool's own row will then show it.
+    expect(value('After')).toMatch(/^1 CORN = 0\.009594 SOL/);
     const swap = within(row).getByRole('link', { name: 'Swap: sell 21.046 CORN for SOL' });
     // The link carries the exact sized amount, to the base unit; the row prints it to four places.
     expect(swap).toHaveAttribute('href', expect.stringMatching(new RegExp(`^/solana\\?in=${C}&out=${WSOL_MINT}&amt=21\\.046\\d*$`)));
@@ -327,6 +334,7 @@ describe('Arbitrage: every paying gap, ranked, with the trade and one press to t
     const { unmount } = mount(readers({ marketPrices, listPools: listPools({ kind: 'unread', mint: C, detail: 'HTTP 429' }) }));
     await within((await screen.findAllByTestId('lp-all-pools-row'))[0]!).findByText('Price over 3% above Jupiter');
     expect(await screen.findByTestId('lp-arb-none')).toHaveTextContent('None right now.');
+    expect(screen.getByTestId('lp-arb-partial')).toHaveTextContent('one pool’s token check could not be read, so it is not checked.');
     unmount();
     const fee = { epoch: 0n, maximumFee: 10n ** 12n, basisPoints: 100 };
     const read = okToken(C) as Extract<TokenSafety, { kind: 'read' }>;
@@ -346,7 +354,8 @@ describe('Arbitrage: every paying gap, ranked, with the trade and one press to t
     // which is ten times deeper, so that trade makes the most. BAYLA at $3 in the pool against $2.94 on Jupiter is
     // 2% dear here: past the 1% fee, so a trade pays and is listed, but inside 3%, so its row has no tag.
     const prices = { [WSOL_MINT]: 100, [BAYLA_MINT]: 3 / 1.02, [USDC_MINT]: 1, [C]: 0.95 };
-    const bayla = view(BAYLA, 30n * 10n ** 9n);
+    // BAYLA as mainnet holds it: a Token-2022 mint on the token side, and no check read for a coin the site names.
+    const bayla = token2022(view(BAYLA, 30n * 10n ** 9n));
     const corn = view(CORN);
     const inUsdc = usdcPool(corn);
     mount(readers({ marketPrices: vi.fn(async () => prices), listPools: vi.fn(async () => ok([bayla, corn, inUsdc], { chainNow: 1_000n, safety: [calls(C, 'CORN')] })) }));
@@ -393,7 +402,7 @@ describe('Arbitrage: every paying gap, ranked, with the trade and one press to t
     unmount();
     const u = mount(readers({ listPools: vi.fn(async () => ({ kind: 'unread' as const, detail: 'the pool index answered HTTP 502' })) }));
     expect(await screen.findByTestId('lp-arb-unread')).toHaveTextContent('Not read.');
-    expect(screen.getByRole('button', { name: 'Read again' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Read again' })).not.toHaveAttribute('aria-disabled');
     u.unmount();
     mount(readers({ marketPrices: vi.fn(async () => { throw new Error('Price fetch failed (502)'); }) }));
     expect(await screen.findByTestId('lp-arb-prices-unread')).toHaveTextContent('Jupiter’s prices not read.');
@@ -422,11 +431,11 @@ describe('Arbitrage: every paying gap, ranked, with the trade and one press to t
       await act(async () => { pending[answers++]!.resolve(first); pending[answers++]!.resolve(first); });
       await screen.findByTestId('lp-arb-row');
       const again = screen.getByRole('button', { name: 'Read again' });
-      // Held for ten seconds after an answer: the caches are thirty.
-      expect(again).toBeDisabled();
+      // Held for ten seconds after an answer (the caches are thirty): said, never `disabled`, so focus stays.
+      expect(again).toHaveAttribute('aria-disabled', 'true');
       await act(async () => { vi.advanceTimersByTime(15_000); });
       expect(screen.getByTestId('lp-arb-stamp')).toHaveTextContent(/read 1\d s ago\./);
-      expect(again).toBeEnabled();
+      expect(again).not.toHaveAttribute('aria-disabled');
       fireEvent.click(again);
       expect(listPools).toHaveBeenCalledTimes(3);
       expect(again).toHaveAttribute('aria-busy', 'true');
@@ -436,6 +445,7 @@ describe('Arbitrage: every paying gap, ranked, with the trade and one press to t
       await act(async () => { pending[answers++]!.reject(new Error('the chain did not answer in 20 seconds')); });
       const stamp = await screen.findByTestId('lp-arb-stamp');
       await waitFor(() => expect(stamp).toHaveTextContent('Could not read again (the chain did not answer in 20 seconds). Showing the read from 1'));
+      expect(stamp).toHaveTextContent(', against Jupiter’s listed prices.');
       expect(stamp).toHaveClass('text-amber-300/90');
       expect(screen.getAllByTestId('lp-arb-row')).toHaveLength(1);
       expect(screen.getAllByTestId('lp-all-pools-row')).toHaveLength(2);
@@ -458,5 +468,103 @@ describe('Arbitrage: every paying gap, ranked, with the trade and one press to t
     delete r.listPools;
     mount(r);
     expect(screen.queryByTestId('lp-all-pools')).toBeNull();
+  });
+
+  it('the venue’s own BAYLA pool, a Token-2022 mint the list reads no check for, is on the board like any other', async () => {
+    // BAYLA at $3 here against $2.70 on Jupiter: 11% dear.
+    mount(readers({ marketPrices: vi.fn(async () => ({ [WSOL_MINT]: 100, [BAYLA_MINT]: 2.7 })), listPools: vi.fn(async () => ok([token2022(view(BAYLA, 30n * 10n ** 9n))], { chainNow: 1_000n })) }));
+    const row = await screen.findByTestId('lp-arb-row');
+    expect(row).toHaveTextContent('BAYLA / SOL · 1% tier');
+    expect(within(row).getByRole('link', { name: /^Swap: sell .* BAYLA for SOL$/ })).toBeInTheDocument();
+    expect(screen.queryByTestId('lp-arb-partial')).toBeNull();
+  });
+
+  it('the chain’s clock not read: nothing can be sized, and the board says so instead of None', async () => {
+    mount(readers({ marketPrices: vi.fn(async () => cornDear), listPools: vi.fn(async () => ok([view(BAYLA, 30n * 10n ** 9n), view(CORN)], { chainNow: null, safety: [calls(C, 'CORN')] })) }));
+    expect(await screen.findByTestId('lp-arb-unsized')).toHaveTextContent('The chain’s clock was not read, so no trade can be sized.');
+    expect(screen.queryByTestId('lp-arb-none')).toBeNull();
+    expect(screen.queryAllByTestId('lp-arb-row')).toHaveLength(0);
+  });
+
+  it('pools the index named but could not be read are said as not checked, beside the rows and under None alike', async () => {
+    const { unmount } = mount(readers({ marketPrices: vi.fn(async () => cornDear), listPools: vi.fn(async () => ok([view(CORN)], { chainNow: 1_000n, unread: 2, safety: [calls(C, 'CORN')] })) }));
+    await screen.findByTestId('lp-arb-row');
+    expect(screen.getByTestId('lp-arb-partial')).toHaveTextContent('2 pools could not be read, so they are not checked.');
+    unmount();
+    mount(readers({ marketPrices: vi.fn(async () => cornDear), listPools: vi.fn(async () => ok([view(BAYLA, 30n * 10n ** 9n)], { chainNow: 1_000n, unread: 1 })) }));
+    expect(await screen.findByTestId('lp-arb-none')).toHaveTextContent('None right now.');
+    expect(screen.getByTestId('lp-arb-partial')).toHaveTextContent('One pool could not be read, so it is not checked.');
+  });
+
+  it('Jupiter’s prices that could not be read again stand, said as old, and the rows and dollars stay', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const marketPrices = vi.fn<(mints: string[]) => Promise<Record<string, number>>>().mockResolvedValueOnce(cornDear).mockRejectedValue(new Error('Price fetch failed (502)'));
+      const listPools = vi.fn(async () => ok([view(BAYLA, 30n * 10n ** 9n), view(CORN)], { chainNow: 1_000n, safety: [calls(C, 'CORN')] }));
+      mount(readers({ marketPrices, listPools }));
+      await screen.findByTestId('lp-arb-row');
+      await act(async () => { vi.advanceTimersByTime(15_000); });
+      fireEvent.click(screen.getByRole('button', { name: 'Read again' }));
+      await waitFor(() => expect(marketPrices).toHaveBeenCalledTimes(2));
+      const stale = await screen.findByTestId('lp-arb-prices-stale');
+      expect(stale).toHaveTextContent('Jupiter’s prices could not be read again. Showing the prices read');
+      expect(screen.getAllByTestId('lp-arb-row')).toHaveLength(1);
+      expect(screen.queryByTestId('lp-arb-prices-unread')).toBeNull();
+      expect(screen.queryByTestId('lp-all-pools-prices-unread')).toBeNull();
+      expect(screen.getAllByTestId('lp-all-pools-worth')).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a read again keeps a focused Swap focused: the rows keep their place', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      // The same pools on every read, as on chain (a fixture built per call would mint new addresses, and so new rows).
+      const pools = [view(BAYLA, 30n * 10n ** 9n), view(CORN)];
+      mount(readers({ marketPrices: vi.fn(async () => cornDear), listPools: vi.fn(async () => ok(pools, { chainNow: 1_000n, safety: [calls(C, 'CORN')] })) }));
+      const swap = await screen.findByTestId('lp-arb-swap');
+      swap.focus();
+      expect(document.activeElement).toBe(swap);
+      await act(async () => { vi.advanceTimersByTime(15_000); });
+      fireEvent.click(screen.getByRole('button', { name: 'Read again' }));
+      await waitFor(() => expect(screen.getByTestId('lp-arb-stamp')).toHaveTextContent('read just now.'));
+      expect(screen.getByTestId('lp-arb-swap')).toBe(swap);
+      expect(document.activeElement).toBe(swap);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('two failed reads in a row: Not read, and never "showing the read from" over nothing', async () => {
+    const listPools = vi.fn(async () => { throw new Error('boom'); });
+    mount(readers({ listPools }));
+    expect(await screen.findByTestId('lp-arb-unread')).toHaveTextContent('Not read.');
+    const again = screen.getByRole('button', { name: 'Read again' });
+    expect(again).not.toHaveAttribute('aria-disabled');
+    fireEvent.click(again);
+    // Two reads at mount (this list's, Every position's), the press the third.
+    await waitFor(() => expect(listPools).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Read again' })).not.toHaveAttribute('aria-busy'));
+    expect(screen.getByTestId('lp-arb-unread')).toHaveTextContent('Not read.');
+    expect(screen.queryByTestId('lp-arb-stamp')).toBeNull();
+  });
+
+  it('past a minute without a fresh read the stamp turns amber, while the figures stay', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      let answered = 0;
+      // The first two asks (this list's, Every position's) answer; a later tick's read never lands.
+      const listPools = vi.fn(() => (answered++ < 2 ? Promise.resolve(ok([view(BAYLA, 30n * 10n ** 9n), view(CORN)], { chainNow: 1_000n, safety: [calls(C, 'CORN')] })) : new Promise<PoolListRead>(() => {})));
+      mount(readers({ marketPrices: vi.fn(async () => cornDear), listPools }));
+      const stamp = await screen.findByTestId('lp-arb-stamp');
+      expect(stamp).not.toHaveAttribute('data-stale');
+      await act(async () => { vi.advanceTimersByTime(65_000); });
+      expect(screen.getByTestId('lp-arb-stamp')).toHaveAttribute('data-stale', '');
+      expect(screen.getByTestId('lp-arb-stamp')).toHaveTextContent('read 1 min ago.');
+      expect(screen.getAllByTestId('lp-arb-row')).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

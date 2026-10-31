@@ -10,7 +10,7 @@ import { PRICE_TOLERANCE, comparePrice, poolPricePerToken } from './poolHealth';
 import { siteNamed } from './identity';
 import { poolFeesOf } from './liquidityMath';
 import { lastTrade } from './poolPast';
-import { QUOTE_COINS, SOL_QUOTE, USDC_QUOTE, orList, type QuoteCoin } from './quotes';
+import { QUOTE_COINS, SOL_QUOTE, USDC_QUOTE, orList, quoteCoin, type QuoteCoin } from './quotes';
 import { TOKEN_PROGRAM, readTokenSafety, type TokenSafety } from './tokenSafety';
 import { MAX_FEE_BASIS_POINTS, feeNow, preFeeAmountOf, type TransferFee } from './transferFee';
 import { fromBaseUnits } from '../../jupiter';
@@ -256,6 +256,11 @@ export const ARB_FLOOR_USD = 0.01;
 export function rowTokenFee(view: PoolView, safety: TokenSafety | null): TransferFee | null | 'unread' {
   const { pool } = view.snapshot;
   if ((view.quoteIsToken0 ? pool.token1Program : pool.token0Program) === TOKEN_PROGRAM) return null;
+  // A pairing coin on the token side (BAYLA in BAYLA / SOL, a Token-2022 mint) carries no transfer
+  // fee: its maths is fee-free everywhere on the site (tokenSafety.ts, quotes.ts), and the list
+  // reads no check for a coin the site names itself, so without this the venue's own pool
+  // would read as 'unread' and never be sized.
+  if (quoteCoin(view.tokenMint)) return null;
   if (safety?.kind !== 'read' || !safety.facts) return 'unread';
   return feeNow(safety.facts.transferFee, null);
 }
@@ -297,8 +302,11 @@ export function arbitrage(view: PoolView, usd: ReadonlyMap<string, number>, chai
   const profitUsd = outUsd - tradeUsd;
   if (!(profitUsd >= ARB_FLOOR_USD)) return null;
   const r = q.result;
-  // The reserves the program's maths leaves (its new vault amounts are the reserves it was given plus what stays).
-  const [quoteAfter, tokenAfter] = side === 'buy' ? [r.newInputVaultAmount, r.newOutputVaultAmount] : [r.newOutputVaultAmount, r.newInputVaultAmount];
+  // The reserves after the trade: the program's maths takes the whole trade fee off the input
+  // side, but the LPs' part of it stays in the pool's tradable reserve (only the venue's and the
+  // creator's parts are kept apart), so it goes back on before the price is read.
+  const lpKept = r.tradeFee - r.protocolFee - r.fundFee;
+  const [quoteAfter, tokenAfter] = side === 'buy' ? [r.newInputVaultAmount + lpKept, r.newOutputVaultAmount] : [r.newOutputVaultAmount, r.newInputVaultAmount + lpKept];
   return {
     side,
     gap,
@@ -343,6 +351,21 @@ export function rankArbitrage(list: PoolList, usd: ReadonlyMap<string, number>):
     if (arb) out.push({ view, safety, arb });
   }
   return out.sort((a, b) => b.arb.profitUsd - a.arb.profitUsd || (a.view.address < b.view.address ? -1 : 1));
+}
+
+/**
+ * What the board could not size, so "None right now" is never said over an unread gap: the
+ * chain's clock not read (nothing can be sized), pools the index named that were not read,
+ * and listed pools whose token's transfer fee was not read (`rowTokenFee` 'unread').
+ */
+export function unsizedPools(list: PoolList): { clock: boolean; unreadPools: number; unreadChecks: number } {
+  let unreadChecks = 0;
+  for (const view of list.pools) {
+    const safety = list.safety.get(view.tokenMint) ?? null;
+    if (safety?.kind === 'read' && safety.verdict === 'blocked') continue;
+    if (rowTokenFee(view, safety) === 'unread') unreadChecks++;
+  }
+  return { clock: list.chainNow === null, unreadPools: list.unread, unreadChecks };
 }
 
 /**

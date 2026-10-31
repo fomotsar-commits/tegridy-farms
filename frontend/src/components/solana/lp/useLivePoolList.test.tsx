@@ -17,7 +17,7 @@ const ok = (n: number): PoolListRead => ({ kind: 'ok', list: { pools: [], unread
 /** A reader whose list reads answer when the test says: each call is a deferred promise. */
 function reader() {
   const pending: { resolve: (r: PoolListRead) => void; reject: (e: Error) => void }[] = [];
-  const listPools = vi.fn(() => new Promise<PoolListRead>((resolve, reject) => pending.push({ resolve, reject })));
+  const listPools = vi.fn((_o?: { fresh?: boolean }) => new Promise<PoolListRead>((resolve, reject) => pending.push({ resolve, reject })));
   const readers = { programId: 'p', listPools } as unknown as LpReaders;
   return { readers, listPools, answer: (i: number, r: PoolListRead) => pending[i]!.resolve(r), fail: (i: number, why: string) => pending[i]!.reject(new Error(why)) };
 }
@@ -87,7 +87,7 @@ describe('useLivePoolList', () => {
     expect(result.current.failed).toBeNull();
   });
 
-  it('the first read failing is the list’s state (unread), stamped like any answer', async () => {
+  it('the first read failing is the list’s state (unread), stamped like any answer; a second failure replaces it, there being no list to keep', async () => {
     const r = reader();
     const { result } = renderHook(() => useLivePoolList(r.readers, 0));
     await act(async () => { r.fail(0, 'boom'); });
@@ -95,6 +95,21 @@ describe('useLivePoolList', () => {
     expect(result.current.read).toEqual({ kind: 'unread', detail: 'boom' });
     expect(result.current.readAt).toBe(T0);
     expect(result.current.failed).toBeNull();
+    await act(async () => { vi.advanceTimersByTime(LIST_REFRESH_MS); });
+    await act(async () => { r.fail(1, 'bang'); });
+    await flush();
+    // Never "could not read again, showing the read from …" over nothing: the newer failure is the state.
+    expect(result.current.read).toEqual({ kind: 'unread', detail: 'bang' });
+    expect(result.current.readAt).toBe(T0 + LIST_REFRESH_MS);
+    expect(result.current.failed).toBeNull();
+    await act(async () => { vi.advanceTimersByTime(LIST_REFRESH_MS); });
+    await act(async () => { r.answer(2, ok(1)); });
+    expect(result.current.read).toEqual(ok(1));
+    await act(async () => { vi.advanceTimersByTime(LIST_REFRESH_MS); });
+    await act(async () => { r.fail(3, 'later'); });
+    await flush();
+    expect(result.current.read).toEqual(ok(1));
+    expect(result.current.failed).toBe('later');
   });
 
   it('no read while the tab is hidden; back in view with stale figures it reads at once', async () => {
@@ -130,6 +145,8 @@ describe('useLivePoolList', () => {
     act(() => result.current.again());
     expect(result.current.paused).toBe(false);
     expect(r.listPools).toHaveBeenCalledTimes(2);
+    // A press is a fresh read, never the answer to one already in flight.
+    expect(r.listPools.mock.calls[1]![0]).toEqual({ fresh: true });
     // A second press while that read is on its way asks nothing more.
     act(() => result.current.again());
     expect(r.listPools).toHaveBeenCalledTimes(2);
@@ -145,6 +162,8 @@ describe('useLivePoolList', () => {
     expect(r.listPools).toHaveBeenCalledTimes(2);
     rerender({ key: 1 });
     expect(r.listPools).toHaveBeenCalledTimes(3);
+    // The mount and the tick share a read in flight; a finished flow asks for a fresh one.
+    expect(r.listPools.mock.calls.map((c) => c[0])).toEqual([undefined, undefined, { fresh: true }]);
     // The tick's read (question 2) answers late: dropped. The flow's read (question 3) lands.
     await act(async () => { r.answer(1, ok(9)); });
     expect(result.current.read).toEqual(ok(1));

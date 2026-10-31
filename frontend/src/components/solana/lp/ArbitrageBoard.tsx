@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { m } from 'framer-motion';
-import { rankArbitrage, swapLink, tokenDecimalsOf, type MarketPrices, type Opportunity } from '../../../lib/solana/lp/poolList';
+import { rankArbitrage, swapLink, tokenDecimalsOf, unsizedPools, type Opportunity } from '../../../lib/solana/lp/poolList';
 import { agoText, quoteText, tokenText, usdText } from '../../../lib/solana/lp/format';
 import { pairLabel, siteNamed, tokenTicker } from '../../../lib/solana/lp/identity';
 import { pausedText } from '../../../lib/solana/lp/rpcBudget';
@@ -11,6 +10,7 @@ import { CardArt } from '../../ui/CardArt';
 import { FinePrint } from '../../ui/FinePrint';
 import { PriceFlip } from './PriceFlip';
 import { READ_AGAIN_AFTER_MS, STALE_MS, type LivePoolList } from './usePoolList';
+import type { MarketPricesState } from './useMarketPrices';
 
 /**
  * Every paying gap on the venue, ranked by what one trade makes, from the one list read
@@ -19,21 +19,27 @@ import { READ_AGAIN_AFTER_MS, STALE_MS, type LivePoolList } from './usePoolList'
  * profit after the pool's fee (and the token's), where the fee goes, the pool's price
  * after, and one press that opens the swap page on that trade with the amount filled in.
  * The figures say when they were read; they are read again every half minute while the
- * tab is in view, and a read that fails keeps them and says their age (usePoolList.ts).
+ * tab is in view, and a read that fails keeps them and says their age (usePoolList.ts,
+ * useMarketPrices.ts). What could not be sized is said, never folded into "None".
  *
  * A gap is said as a figure here, with its basis on the stamp line: Jupiter's LISTED price
  * (its price feed, read once for the list), not the two live quotes a pool's card asks for,
  * which can differ by points on a thin coin. The row tag in All pools keeps naming no
  * figure for that reason; the swap page quotes the trade again before anything is sent.
  */
-export function ArbitrageBoard({ live, prices }: { live: LivePoolList; prices: MarketPrices | null }) {
+export function ArbitrageBoard({ live, prices }: { live: LivePoolList; prices: MarketPricesState }) {
   const now = useNow(5_000);
   const { read, readAt, failed, reading, again, paused } = live;
   const age = readAt === null ? null : Math.max(0, now - readAt);
   const list = read?.kind === 'ok' ? read.list : null;
-  const usd = prices?.kind === 'ok' ? prices.usd : null;
+  const usd = prices.prices?.kind === 'ok' ? prices.prices.usd : null;
   const ranked = list && usd ? rankArbitrage(list, usd) : null;
+  const unsized = list ? unsizedPools(list) : null;
   const stale = age !== null && age >= STALE_MS;
+  // Read again is held after an answer (the caches are 30 s) and while a read is on its way. It is
+  // said, not `disabled`: a button that disables itself under the finger drops keyboard focus.
+  const held = reading || (list !== null && age !== null && age < READ_AGAIN_AFTER_MS);
+  const pricesAge = prices.at === null ? null : Math.max(0, now - prices.at);
   return (
     <section data-testid="lp-arb" aria-label="Arbitrage" data-read-at={readAt ?? undefined}>
       <Card title="Arbitrage" art={<CardArt pageId="solana-lp" idx={15} />}>
@@ -43,9 +49,9 @@ export function ArbitrageBoard({ live, prices }: { live: LivePoolList; prices: M
           <div className="space-y-2">
             <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[12.5px]">
               {/* The basis of every figure below, once: Jupiter's listed price, and how old the read is. */}
-              {failed !== null && age !== null ? (
+              {failed !== null && list && age !== null ? (
                 <p data-testid="lp-arb-stamp" data-stale="" className="text-amber-300/90 [overflow-wrap:anywhere]">
-                  Could not read again ({failed}). Showing the read from {agoText(age)}.
+                  Could not read again ({failed}). Showing the read from {agoText(age)}, against Jupiter’s listed prices.
                 </p>
               ) : list && age !== null ? (
                 <p data-testid="lp-arb-stamp" data-stale={stale ? '' : undefined} className={stale ? 'text-amber-300/90' : 'text-white/70'}>
@@ -57,9 +63,11 @@ export function ArbitrageBoard({ live, prices }: { live: LivePoolList; prices: M
               <button
                 type="button"
                 data-testid="lp-arb-again"
-                className={`${TEXT_PRESS} disabled:opacity-50 disabled:cursor-default`}
-                onClick={again}
-                disabled={reading || (list !== null && age !== null && age < READ_AGAIN_AFTER_MS)}
+                className={`${TEXT_PRESS}${held ? ' opacity-50 cursor-default' : ''}`}
+                onClick={() => {
+                  if (!held) again();
+                }}
+                aria-disabled={held || undefined}
                 aria-busy={reading || undefined}
               >
                 <span className="ring-words">Read again</span>
@@ -70,16 +78,37 @@ export function ArbitrageBoard({ live, prices }: { live: LivePoolList; prices: M
                 <Notice tone="warn">{pausedText('List reads')}</Notice>
               </div>
             )}
-            {list && prices === null && <p data-testid="lp-arb-reading" className="text-white/70 text-[13px]">Reading Jupiter’s prices…</p>}
-            {list && prices?.kind === 'unread' && <p data-testid="lp-arb-prices-unread" className="text-amber-300/90 text-[13px]">Jupiter’s prices not read.</p>}
-            {ranked && ranked.length === 0 && <p data-testid="lp-arb-none" className="text-white/70 text-[13px]">None right now.</p>}
+            {list && prices.prices === null && <p data-testid="lp-arb-reading" className="text-white/70 text-[13px]">Reading Jupiter’s prices…</p>}
+            {list && prices.prices?.kind === 'unread' && <p data-testid="lp-arb-prices-unread" className="text-amber-300/90 text-[13px]">Jupiter’s prices not read.</p>}
+            {/* Prices that could not be read again stand, said as old: the figures below rest on them. */}
+            {list && usd && prices.failed && pricesAge !== null && (
+              <p data-testid="lp-arb-prices-stale" className="text-amber-300/90 text-[12.5px]">
+                Jupiter’s prices could not be read again. Showing the prices read {agoText(pricesAge)}.
+              </p>
+            )}
+            {ranked && unsized?.clock && (
+              <p data-testid="lp-arb-unsized" className="text-amber-300/90 text-[13px]">The chain’s clock was not read, so no trade can be sized.</p>
+            )}
+            {ranked && ranked.length === 0 && !unsized?.clock && <p data-testid="lp-arb-none" className="text-white/70 text-[13px]">None right now.</p>}
             {ranked && ranked.length > 0 && (
-              // A fresh read fades its rows in: the eye sees that the figures moved.
-              <m.ul key={readAt ?? 0} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.25 }} className="space-y-2" aria-label="Arbitrage: ranked by profit, most first">
+              // Rows keep their place across a read (keyed by pool), so a focused Swap stays focused.
+              <ul className="space-y-2" aria-label="Arbitrage: ranked by profit, most first">
                 {ranked.map((o) => (
                   <OpportunityRow key={o.view.address} o={o} />
                 ))}
-              </m.ul>
+              </ul>
+            )}
+            {/* Pools that were not read, or whose token's fee was not read, are not checked: said, never folded into "None". */}
+            {ranked && unsized && !unsized.clock && (unsized.unreadPools > 0 || unsized.unreadChecks > 0) && (
+              <p data-testid="lp-arb-partial" className="text-amber-300/90 text-[12.5px]">
+                {[
+                  unsized.unreadPools > 0 ? `${unsized.unreadPools === 1 ? 'One pool' : `${unsized.unreadPools} pools`} could not be read` : null,
+                  unsized.unreadChecks > 0 ? `${unsized.unreadChecks === 1 ? 'one pool’s token check' : `${unsized.unreadChecks} pools’ token checks`} could not be read` : null,
+                ]
+                  .filter(Boolean)
+                  .join(', and ')}
+                , so {unsized.unreadPools + unsized.unreadChecks === 1 ? 'it is' : 'they are'} not checked.
+              </p>
             )}
           </div>
         )}
@@ -89,6 +118,7 @@ export function ArbitrageBoard({ live, prices }: { live: LivePoolList; prices: M
             asks Jupiter for two live trade quotes instead, and on a thinly traded coin the two can differ by several points; a trade
             pays the live one. So a figure here can be off by that much: the swap page quotes the trade again, against Jupiter and
             against our pool, before anything is sent, and sends it where it pays more. A coin Jupiter does not price is not listed here.
+            The gap is the token’s price here against Jupiter’s, whichever way round the prices are shown.
           </p>
           <p>
             Each trade is sized to where the next bit no longer pays after the pool’s fee (and the token’s transfer fee, when it has
@@ -97,9 +127,9 @@ export function ArbitrageBoard({ live, prices }: { live: LivePoolList; prices: M
           </p>
           <p>
             It comes out of the pool’s LPs: the pool sells below the market or buys above it. The trade pays the pool’s fee like any
-            other: the LPs’ part stays in the pool, the venue’s part goes to the team’s shared wallet and the island’s Workshop (Rates,
-            below, names them), and a pool creator’s fee to the wallet that opened the pool. A token with a transfer fee keeps back part
-            of the trade for whoever collects its fee; a token whose transfer fee could not be read gets no figure.
+            other: the LPs’ part stays in the pool, the venue’s part goes where the Rates card below says, and a pool creator’s fee to
+            the wallet that opened the pool. A token with a transfer fee keeps back part of the trade for whoever collects its fee; a
+            token whose transfer fee could not be read gets no figure.
           </p>
           <p>
             A pool that is frozen, has trading switched off, is not open yet, or holds a token this site does not trade is not listed
@@ -133,7 +163,7 @@ function OpportunityRow({ o }: { o: Opportunity }) {
     <li data-testid="lp-arb-row" data-pool={view.address} data-side={arb.side} className="rounded-lg px-3 py-2.5 space-y-1" style={{ background: 'rgba(0,0,0,0.35)', border: '1px solid rgba(255,255,255,0.12)' }}>
       <div className="flex flex-wrap items-baseline justify-between gap-x-3">
         <p className="text-white font-semibold text-[14px] [overflow-wrap:anywhere]">{label}</p>
-        <p data-testid="lp-arb-gap" className="text-rose-200/90 font-semibold text-[12.5px]">{gap}</p>
+        <p data-testid="lp-arb-gap" className="text-rose-200/90 font-semibold text-[12.5px] ml-auto">{gap}</p>
       </div>
       {/* Any other coin's ticker is its own claim: the whole address is said too, as the rows say it. */}
       {!siteNamed(view.tokenMint) && <p className="font-mono text-white/55 text-[11px] break-all">{view.tokenMint}</p>}
@@ -144,7 +174,8 @@ function OpportunityRow({ o }: { o: Opportunity }) {
         <Row label="Fee" value={fee} mono={false} />
         <Row label="After" value={<PriceFlip perToken={arb.afterPerToken} quote={view.quote} unit={unit} />} mono={false} />
       </div>
-      <div className="flex justify-end pt-1">
+      {/* `relative`: painted above the price flip's press area, which reaches 14px below its line. */}
+      <div className="relative flex justify-end pt-1">
         <Link to={swapLink(arb, buy ? view.quote.decimals : tokenDecimals)} className="btn-primary min-h-[44px] px-5 text-[13px] inline-flex items-center" data-testid="lp-arb-swap" aria-label={press}>
           Swap
         </Link>

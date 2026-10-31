@@ -1492,7 +1492,18 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
   }, [usdMode, amount, payPrice, payToken.decimals]);
   const baseAmount = useMemo(() => toBaseUnits(tokenAmount, payToken.decimals), [tokenAmount, payToken.decimals]);
   const sameToken = payToken.mint === buyToken.mint;
-  const canQuote = baseAmount !== null && !sameToken;
+  // The coins the address names that are still being looked up. Until they are, the form holds:
+  // no quote is asked and the buy button is off, so a sized link (the Arbitrage card's Swap, with
+  // ?amt=) is never quoted or sent on the default pair with that amount in it.
+  const [linkPending, setLinkPending] = useState(() => {
+    try {
+      const search = new URLSearchParams(linkSearch);
+      return [openingBuy, search.get('in')?.trim()].filter((m) => m && looksLikeMint(m) && !findSolToken(m)).length;
+    } catch {
+      return 0;
+    }
+  });
+  const canQuote = baseAmount !== null && !sameToken && linkPending === 0;
 
   // The opening pair, continued: a NON-curated mint (a link's, or a room's coin) needs
   // the Jupiter lookup for authoritative decimals (never invent them). A coin Jupiter
@@ -1501,13 +1512,15 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
   // that pool's coin. Mount-once; a lookup that fails both ways leaves the honest default
   // in place — a bad deep link must never break the page. The curated cases were already
   // handled in the state initializers.
-  // A coin neither could name is said (`linkMissed`): the form opened on another pair than the link asked for.
-  const [linkMissed, setLinkMissed] = useState<string | null>(null);
+  // A coin neither could name is said (`linkMissed`): the form opened on another pair than was asked
+  // for, by the link or by the room the visitor is in.
+  const [linkMissed, setLinkMissed] = useState<{ mint: string; from: 'link' | 'room' } | null>(null);
   useEffect(() => {
     const search = new URLSearchParams(linkSearch);
     const ctrl = new AbortController();
     let live = true;
-    for (const [mint, set] of [[openingBuy, setBuyToken], [search.get('in')?.trim(), setPayToken]] as const) {
+    const linkedOut = search.get('out')?.trim();
+    for (const [mint, set, from] of [[openingBuy, setBuyToken, linkedOut === openingBuy ? 'link' : 'room'], [search.get('in')?.trim(), setPayToken, 'link']] as const) {
       if (!mint || !looksLikeMint(mint) || findSolToken(mint)) continue;
       resolveMint(mint, ctrl.signal)
         .catch(() => null)
@@ -1515,7 +1528,8 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
         .then((t) => {
           if (!live) return;
           if (t) set(t);
-          else setLinkMissed(mint);
+          else setLinkMissed({ mint, from });
+          setLinkPending((n) => Math.max(0, n - 1));
         })
         .catch(() => { /* honest default stands */ });
     }
@@ -2360,7 +2374,7 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
   }
 
   const words = sideWords(payToken, buyToken);
-  const actionDisabled = (!quote && !ownBest) || quoteLoading || swapping || sameToken || (needsAck && !ack) || insufficient || ownPreparing || pendingNote || ownBusy !== null;
+  const actionDisabled = (!quote && !ownBest) || quoteLoading || swapping || sameToken || (needsAck && !ack) || insufficient || ownPreparing || pendingNote || ownBusy !== null || linkPending > 0;
   // Jupiter's test run could not run press after press on this trade, and one of our pools
   // quotes it: its review is offered. The review runs its own test run before Sign.
   const offerOwn = ownOffer !== null && ownOffer.key === refusalKey && !ownBest && venueSwap.ready !== null
@@ -2414,10 +2428,17 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
               </Heading>
               {home && <ChainSwitch at="/solana" />}
               {!home && <p className="text-white/60 text-[11px]">Buy Solana tokens through our own pools or Jupiter, whichever pays more.</p>}
-              {/* A link's coin that neither Jupiter nor the chain could name: the form is on another pair, and says so. */}
+              {/* The address's coin is still being looked up: the form holds until it is. */}
+              {!home && linkPending > 0 && (
+                <p role="status" data-testid="solana-link-pending" className="text-white/60 text-[11px]">
+                  Looking up the coin in this link…
+                </p>
+              )}
+              {/* A coin that neither Jupiter nor the chain could name: the form is on another pair, and says so. */}
               {!home && linkMissed && (
                 <p role="status" data-testid="solana-link-miss" className="text-amber-300/90 text-[11px] [overflow-wrap:anywhere]">
-                  The coin in this link ({linkMissed}) could not be looked up on Jupiter or on the chain, so this form opened on {payToken.symbol} / {buyToken.symbol}.
+                  {linkMissed.from === 'link' ? 'The coin in this link' : 'This room’s coin'} ({linkMissed.mint}) could not be looked up on Jupiter or on the chain, so this form
+                  opened on {payToken.symbol} / {buyToken.symbol}.
                 </p>
               )}
             </div>
