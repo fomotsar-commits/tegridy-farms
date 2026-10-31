@@ -322,8 +322,8 @@ jobs:
       # told nobody. healthchecks.io emails when these pings stop (docs/OPS_SCHEDULER.md,
       # section 2). Every run pings the base URL, pass or fail: a /fail would hold the check
       # DOWN through a probe outage and mute it. The prod-incident issue reports the probe.
-      # curl reads the URL on stdin, never argv. No secret, or a ping that did not land, is
-      # a warning, never a red run: the missing ping is itself the alarm.
+      # curl reads the URL on stdin, never argv. Delivered means the answer is exactly "OK":
+      # a URL that names no check gets 200 "OK (not found)". Anything else is a warning.
       - name: Heartbeat to healthchecks.io
         if: ${{ !cancelled() }}
         timeout-minutes: 2
@@ -350,9 +350,19 @@ jobs:
           fi
           target="${HC_PING_URL%/}"
           body="$RUNNER_TEMP/heartbeat-body.txt"
+          answer="$RUNNER_TEMP/heartbeat-answer.txt"
           printf 'synthetic-monitor: %s\n%s\n\n%s\n' "$PROBE_OUTCOME" "$RUN_URL" "${REPORT:-}" > "$body"
-          if printf 'url = "%s"\n' "$target" | curl --config - -fsS -o /dev/null --max-time 10 --retry 3 --retry-all-errors --retry-delay 2 --data-binary "@$body"; then
+          : > "$answer"
+          if ! printf 'url = "%s"\n' "$target" | curl --config - -fsS -o "$answer" --max-time 10 --retry 3 --retry-all-errors --retry-delay 2 --data-binary "@$body"; then
+            echo "::warning title=Heartbeat not delivered::curl could not reach healthchecks.io. The check raises the missed ping itself."
+            exit 0
+          fi
+          # The answer on one line, trimmed, without the URL.
+          said="$(head -c 200 "$answer" | tr -c '[:print:]' ' ')"
+          said="${said#"${said%%[![:space:]]*}"}"
+          said="${said%"${said##*[![:space:]]}"}"
+          if [ "$said" = OK ]; then
             echo "Heartbeat sent (probe: $PROBE_OUTCOME)."
           else
-            echo "::warning title=Heartbeat not delivered::curl could not reach healthchecks.io. The check raises the missed ping itself."
+            echo "::warning title=Heartbeat not delivered::healthchecks.io answered \"${said//"$target"/<HC_PING_URL_GITHUB_CRONS>}\", not \"OK\", so no check counted this ping. \"OK (not found)\" means the secret names no check and nothing watches these schedules: see docs/OPS_SCHEDULER.md section 2."
           fi
