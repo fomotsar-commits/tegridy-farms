@@ -17,6 +17,17 @@
 // PRICES: SOL and ETH from Coinbase, then CoinGecko (the volume counter's spotPrice). USDC is
 // a dollar. BAYLA is valued at its price in our deepest BAYLA/SOL pool, else BAYLA/USDC; with
 // neither, the pools it would value are left out and the answer says so.
+//
+// WHAT IS STAKED, AND AT WHAT VALUE (owner 2026-10-30: the total left out the staking pools)
+//   - Every staking pool we run, live or retired (a retired pool keeps what people staked until
+//     they take it out), at the pool's own count of what was staked. Never its token balance:
+//     a ladder or lighthouse pays its rewards out of the coin it holds.
+//   - Each staked coin at its market price: Jupiter's on Solana, DefiLlama's on Ethereum and
+//     Base. Not at a price in our own pools, staked BAYLA included: far more BAYLA is staked than
+//     any of our pools holds, so a pool price one depositor can lean on would move the total by
+//     far more than that deposit. A coin with no market price is left out and the answer says so.
+//   - Not counted: the LP farm (its LP tokens are shares of one of our pairs, counted above) and
+//     the JBAC vault (NFTs, which have no price here).
 import { base58 } from "@scure/base";
 import { checkRateLimit, checkGlobalLimit } from "./ratelimit.js";
 import { isOriginAllowed, isRequestOriginAllowed } from "./aggregator-proxy.js";
@@ -54,6 +65,69 @@ export const SOLANA_PROGRAMS = Object.freeze([
 ]);
 export const EVM_TVL_CHAINS = Object.freeze(["ethereum", "base", "robinhood"]);
 
+/** The two Solana staking programs: where each pool account keeps its count of what is staked
+ *  (a u64, after the 8-byte discriminator). Both keep the staked coin's mint at byte 10. */
+export const STAKE_PROGRAMS = Object.freeze({
+  // bayla-ladder's Pool.total_principal (src/lib/ladder/program.ts; a test pins it).
+  ladder: Object.freeze({ program: "EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ", discriminator: Object.freeze([241, 154, 109, 4, 17, 177, 109, 188]), staked: 243 }),
+  // Streamflow's StakePool.total_stake (the SDK's own IDL; a test pins it).
+  streamflow: Object.freeze({ program: "STAKEvGqQTtzJZH6BWDcbpzXXn2BBerPAgQ3EGLN2GH", discriminator: Object.freeze([121, 34, 206, 21, 79, 127, 255, 28]), staked: 203 }),
+});
+export const STAKE_MINT_OFFSET = 10;
+
+const BAYLA_MINT = "7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump";
+/** Every Solana staking pool, with the coin it takes (src/lib/bungalows.ts; a test pins the list). */
+export const SOLANA_STAKE_POOLS = Object.freeze(
+  [
+    ["Bq6jovnQhayMjr5RqsezGMxgmF5851mqFAhX6LrsXTXV", "ladder", BAYLA_MINT], // BAYLA lock ladder
+    ["EFWpSpH9rU6jGqpMPpo9VavMdBd64CdodakaJtCXEZ9f", "streamflow", BAYLA_MINT], // BAYLA lighthouse
+    ["4WCpdeQ2pKLNECNDTXepwsdeePZPoNCp9AQqfACNGXPp", "streamflow", BAYLA_MINT], // BAYLA, retired
+    ["PkwDYVNxyesAukE9STqRQL9H1pBpXbt1tVbiYVMX96w", "streamflow", "4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump"], // BOBO
+    ["5hgUVCWW4fwM7oq3SQyaj5ucVQFa2dQ4YqQc4JqrGXHj", "streamflow", "8zsZESzrGoYVi1dVH4QNWXJ2EfW4v287aEGNiDvQpump"], // SOY
+    ["2qSZBzjpxKzhJWmyaoN5kP3XQxUikH3SQR5suXuQjkZR", "streamflow", "4XKGjKaKowFvL5sYwh2AKx72vj9iwC8MNvpL44E9pump"], // BRAINLET
+    ["BZ1rGCD8G5kXyKkXxmNh2Xf92QLz4PUZitzauMEdxd5c", "streamflow", "5ad4puH6yDBoeCcrQfwV5s9bxvPnAeWDoYDj3uLyBS8k"], // RIZZ
+  ].map(([pool, kind, mint]) => Object.freeze({ pool, kind, mint })),
+);
+
+const TOTAL_STAKED = "0x817b1cd2"; // TegridyStaking's totalStaked()
+const TOTAL_SUPPLY = "0x18160ddd"; // a ladder's or lighthouse's totalSupply(): staked, never boosted
+const TOWELI = "0x420698cfdeddea6bc78d59bc17798113ad278f9d";
+/** Every EVM staking contract, with the coin it takes and how it counts what is staked
+ *  (scripts/addresses.json; a test pins the list). */
+export const EVM_STAKE_POOLS = Object.freeze(
+  Object.fromEntries(
+    Object.entries({
+      ethereum: [
+        ["0xcadc93e96de58ea554c71ca609974625615e046d", TOWELI, TOTAL_STAKED], // tegridy-staking
+        ["0x044a925839ac3cec0bccc93d00230f39ffbeee44", TOWELI, TOTAL_STAKED], // legacy-staking-v1, withdraw-only
+        ["0x626644523d34b84818df602c991b4a06789c4819", TOWELI, TOTAL_STAKED], // legacy-staking-v2, withdraw-only
+        ["0xbe1905de5fcde60e13a9f1afa44befde1c5aaa1d", "0x6982508145454ce325ddbe47a25d4ec3d2311933", TOTAL_SUPPLY], // ladder-pepe
+        ["0xdc0b34ce782029f30382f42097f6b33f0544329c", "0x6982508145454ce325ddbe47a25d4ec3d2311933", TOTAL_SUPPLY], // ladder-pepe-retired
+        ["0xa43f3f1c4171a8c9a1be4dc6eaa9a16ab94f6c32", "0x6982508145454ce325ddbe47a25d4ec3d2311933", TOTAL_SUPPLY], // lighthouse-pepe, retired
+      ],
+      base: [
+        ["0x55b72f09d31f43834bf7eba42f53a419a716f554", "0x2b5050f01d64fbb3e4ac44dc07f0732bfb5ecadf", TOTAL_SUPPLY], // ladder-qr
+        ["0xdcc3a95a0921b83326157132b17770f02094c8e3", "0x2b5050f01d64fbb3e4ac44dc07f0732bfb5ecadf", TOTAL_SUPPLY], // ladder-qr-retired
+        ["0x820246a4eb6e1ad7e571e8581bdb127020adb469", "0x2b5050f01d64fbb3e4ac44dc07f0732bfb5ecadf", TOTAL_SUPPLY], // lighthouse-qr, retired
+        ["0xecb3c54488a2a0df764444f67b2df6b8ad4eadd6", "0xe3086852a4b125803c815a158249ae468a3254ca", TOTAL_SUPPLY], // ladder-mfer
+        ["0x7288dbf43d3bdbfc439b6e8a47aef225d4816273", "0xe3086852a4b125803c815a158249ae468a3254ca", TOTAL_SUPPLY], // ladder-mfer-retired
+        ["0x79ff1bdf7ed6b09c24d4766fb4a82aa28398b548", "0xe3086852a4b125803c815a158249ae468a3254ca", TOTAL_SUPPLY], // lighthouse-mfer, retired
+        ["0xe6abc8aca0415afac426ec1242bb17afabe8dbcf", "0x22af33fe49fd1fa80c7149773dde5890d3c76f3b", TOTAL_SUPPLY], // ladder-bnkr
+        ["0xe0a152ebc21891fd47a7dcd6018cfe3a64363178", "0x22af33fe49fd1fa80c7149773dde5890d3c76f3b", TOTAL_SUPPLY], // ladder-bnkr-retired
+        ["0x2a5f65f4c74b1e49e77ae9a57e20fbdb0ced11d2", "0x22af33fe49fd1fa80c7149773dde5890d3c76f3b", TOTAL_SUPPLY], // lighthouse-bnkr, retired
+        ["0x0acb93fcfd5b1950d94064998017a2601b36d7bb", "0x3ec2156d4c0a9cbdab4a016633b7bcf6a8d68ea2", TOTAL_SUPPLY], // ladder-drb
+        ["0xb62bad165997e95c503044787b2dcc85dc6d83f1", "0x3ec2156d4c0a9cbdab4a016633b7bcf6a8d68ea2", TOTAL_SUPPLY], // ladder-drb-retired
+        ["0xa2e7e7fae91846e4c92af7f4b43b24cdd9abf4f5", "0x3ec2156d4c0a9cbdab4a016633b7bcf6a8d68ea2", TOTAL_SUPPLY], // lighthouse-drb, retired
+        ["0x3c339692ec7b3b96ad6f8fbeb5f5202164b44465", "0x3313338fe4bb2a166b81483bfcb2d4a6a1ebba8d", TOTAL_SUPPLY], // ladder-jbm
+        ["0xa0d43ef39c4940e68b2f81d51e6316a45c136d93", "0x3313338fe4bb2a166b81483bfcb2d4a6a1ebba8d", TOTAL_SUPPLY], // ladder-jbm-retired
+        ["0xf261940cdc04d8f2422345ff6091d6fa601541fa", "0x3313338fe4bb2a166b81483bfcb2d4a6a1ebba8d", TOTAL_SUPPLY], // lighthouse-jbm, retired
+      ],
+    }).map(([chain, rows]) => [chain, Object.freeze(rows.map(([address, token, staked]) => Object.freeze({ address, token, staked })))]),
+  ),
+);
+/** The chains with staking, in the order the answer lists them. */
+export const STAKE_CHAINS = Object.freeze(["solana", ...Object.keys(EVM_STAKE_POOLS)]);
+
 /** More pools than this on one program, or pairs on one factory, reads as "could not read". */
 export const MAX_POOLS = 5000;
 export const MAX_PAIRS = 1000;
@@ -71,14 +145,16 @@ const [SOL, USDC, BAYLA] = QUOTE_COINS;
 let cached = null; // { at, body }
 let inflight = null;
 const pairCache = new Map(); // chain -> [{ address, wethSide }], pairs never change once made
-const priceCache = new Map(); // symbol -> { at, usd }
+const priceCache = new Map(); // symbol, or chain:coin for a market price -> { at, usd }
+const decimalsCache = new Map(); // chain:coin -> decimals, which never change
 
-/** Tests only: forget every cached answer, pair and price. */
+/** Tests only: forget every cached answer, pair, price and decimals. */
 export function __resetVenueTvl() {
   cached = null;
   inflight = null;
   pairCache.clear();
   priceCache.clear();
+  decimalsCache.clear();
 }
 
 function solanaUrl() {
@@ -258,6 +334,105 @@ export async function readEvm(name, { fetchImpl, priceOf, chains = EVM_CHAINS })
   return { usd: 2 * wethHeld * ethUsd, pools: priced.length, unvalued: 0 };
 }
 
+const TOKEN_PROGRAMS = new Set(["TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"]);
+
+/** Each staked amount in dollars: `{ usd, vaults, unvalued }`, where `unvalued` counts pools left out for want of a price. */
+function valueStakes(stakes, prices) {
+  let usd = 0;
+  let unvalued = 0;
+  for (const s of stakes) {
+    const price = prices.get(s.coin);
+    if (!(price > 0)) unvalued++;
+    else usd += (Number(s.raw) / 10 ** s.decimals) * price;
+  }
+  return { usd, vaults: stakes.length - unvalued, unvalued };
+}
+
+/** Solana's staking pools, each at its own count of what is staked. Throws when any read failed. */
+export async function readSolanaStaking({ fetchImpl, marketPrices }) {
+  const pools = SOLANA_STAKE_POOLS;
+  const r = await solanaRpc("getMultipleAccounts", [pools.map((p) => p.pool), { encoding: "base64", commitment: "confirmed" }], fetchImpl);
+  if (!Array.isArray(r?.value) || r.value.length !== pools.length) throw new Error("solana stake pool answer has the wrong shape");
+  const stakes = pools
+    .map((p, i) => {
+      const { program, discriminator, staked } = STAKE_PROGRAMS[p.kind];
+      const acc = r.value[i];
+      const d = typeof acc?.data?.[0] === "string" ? Buffer.from(acc.data[0], "base64") : null;
+      const mint = d && d.length >= staked + 8 ? base58.encode(Uint8Array.from(d.subarray(STAKE_MINT_OFFSET, STAKE_MINT_OFFSET + 32))) : null;
+      if (acc?.owner !== program || mint !== p.mint || !discriminator.every((b, j) => d[j] === b)) {
+        throw new Error(`stake pool ${p.pool} does not read as a ${p.kind} pool of its coin`);
+      }
+      return { coin: p.mint, raw: d.readBigUInt64LE(staked) };
+    })
+    .filter((s) => s.raw > 0n);
+  const coins = [...new Set(stakes.map((s) => s.coin))];
+  const unknown = coins.filter((m) => !decimalsCache.has(`solana:${m}`));
+  if (unknown.length) {
+    const m = await solanaRpc("getMultipleAccounts", [unknown, { encoding: "jsonParsed", commitment: "confirmed" }], fetchImpl);
+    unknown.forEach((mint, j) => {
+      const acc = m?.value?.[j];
+      const decimals = acc?.data?.parsed?.info?.decimals;
+      if (!TOKEN_PROGRAMS.has(acc?.owner) || acc?.data?.parsed?.type !== "mint" || !Number.isInteger(decimals)) throw new Error(`mint ${mint} does not read as a mint`);
+      decimalsCache.set(`solana:${mint}`, decimals);
+    });
+  }
+  for (const s of stakes) s.decimals = decimalsCache.get(`solana:${s.coin}`);
+  return valueStakes(stakes, coins.length ? await marketPrices("solana", coins) : new Map());
+}
+
+/** One EVM chain's staking contracts, each at its own count of what is staked. Throws when any read failed. */
+export async function readEvmStaking(name, { fetchImpl, marketPrices, chains = EVM_CHAINS }) {
+  const call = evmCall(chains[name].rpcs, fetchImpl);
+  const pools = EVM_STAKE_POOLS[name];
+  const raws = await Promise.all(pools.map((p) => call(p.address, p.staked)));
+  const stakes = pools.map((p, i) => ({ coin: p.token, raw: word(raws[i], 0) })).filter((s) => s.raw > 0n);
+  const coins = [...new Set(stakes.map((s) => s.coin))];
+  await Promise.all(
+    coins
+      .filter((t) => !decimalsCache.has(`${name}:${t}`))
+      .map(async (t) => decimalsCache.set(`${name}:${t}`, Number(word(await call(t, "0x313ce567"), 0)))),
+  );
+  for (const s of stakes) s.decimals = decimalsCache.get(`${name}:${s.coin}`);
+  return valueStakes(stakes, coins.length ? await marketPrices(name, coins) : new Map());
+}
+
+async function fetchJson(url, fetchImpl, headers = {}) {
+  const res = await fetchImpl(url, { headers: { Accept: "application/json", ...headers }, signal: AbortSignal.timeout(RPC_TIMEOUT_MS) });
+  if (!res.ok) throw new Error(`HTTP ${res.status} from ${new URL(url).host}`);
+  const { text, truncated } = await readBoundedText(res, 256 * 1024);
+  if (truncated) throw new Error(`answer from ${new URL(url).host} over cap`);
+  return JSON.parse(text);
+}
+
+/**
+ * Market prices in dollars for coins on one chain: Jupiter's on Solana (the keyed host when its
+ * server-only key is set, as the swap proxy does), DefiLlama's elsewhere. A coin with no price is
+ * missing from the map. Throws when the source cannot be read.
+ */
+export async function readMarketPrices(chain, coins, fetchImpl) {
+  const out = new Map();
+  if (chain === "solana") {
+    const key = (process.env.JUPITER_API_KEY || "").trim();
+    const hosts = key ? [["https://api.jup.ag", { "x-api-key": key }], ["https://lite-api.jup.ag", {}]] : [["https://lite-api.jup.ag", {}]];
+    let j = null;
+    let last = null;
+    for (const [host, headers] of hosts) {
+      try {
+        j = await fetchJson(`${host}/price/v3?ids=${coins.join(",")}`, fetchImpl, headers);
+        break;
+      } catch (e) {
+        last = e;
+      }
+    }
+    if (!j) throw last;
+    for (const c of coins) if (Number.isFinite(j?.[c]?.usdPrice)) out.set(c, j[c].usdPrice);
+    return out;
+  }
+  const j = await fetchJson(`https://coins.llama.fi/prices/current/${coins.map((c) => `${chain}:${c}`).join(",")}`, fetchImpl);
+  for (const c of coins) if (Number.isFinite(j?.coins?.[`${chain}:${c}`]?.price)) out.set(c, j.coins[`${chain}:${c}`].price);
+  return out;
+}
+
 /** Every chain, read at once. Never throws: a chain that failed is `{ chain, read: false }`. */
 export async function readVenueTvl({ fetchImpl = globalThis.fetch, now = Date.now() } = {}) {
   const priceOf = async (symbol) => {
@@ -267,22 +442,40 @@ export async function readVenueTvl({ fetchImpl = globalThis.fetch, now = Date.no
     priceCache.set(symbol, { at: now, usd });
     return usd;
   };
-  const readers = [["solana", () => readSolana({ fetchImpl, priceOf })], ...EVM_TVL_CHAINS.map((name) => [name, () => readEvm(name, { fetchImpl, priceOf })])];
-  const results = await Promise.all(
-    readers.map(async ([chain, read]) => {
-      try {
-        const r = await read();
-        return { chain, read: true, usd: Math.round(r.usd * 100) / 100, pools: r.pools, unvalued: r.unvalued };
-      } catch (err) {
-        console.error(`[venue-tvl] ${chain} not read:`, logSafe(err));
-        return { chain, read: false };
-      }
-    }),
-  );
-  if (!results.some((r) => r.read)) return { state: "unread" };
-  const whole = results.every((r) => r.read && r.unvalued === 0);
-  const usd = results.reduce((sum, r) => sum + (r.read ? r.usd : 0), 0);
-  return { state: whole ? "current" : "partial", usd: Math.round(usd * 100) / 100, chains: results, readAt: new Date(now).toISOString() };
+  // One read per chain for the coins not priced in the last minute.
+  const marketPrices = async (chain, coins) => {
+    const fresh = (c) => {
+      const hit = priceCache.get(`${chain}:${c}`);
+      return hit && now - hit.at < CACHE_MS;
+    };
+    const missing = coins.filter((c) => !fresh(c));
+    if (missing.length) {
+      const read = await readMarketPrices(chain, missing, fetchImpl);
+      for (const c of missing) priceCache.set(`${chain}:${c}`, { at: now, usd: read.get(c) ?? null });
+    }
+    return new Map(coins.map((c) => [c, priceCache.get(`${chain}:${c}`).usd]));
+  };
+  const settle = (what, readers, count) =>
+    Promise.all(
+      readers.map(async ([chain, read]) => {
+        try {
+          const r = await read();
+          return { chain, read: true, usd: Math.round(r.usd * 100) / 100, [count]: r[count], unvalued: r.unvalued };
+        } catch (err) {
+          console.error(`[venue-tvl] ${chain} ${what} not read:`, logSafe(err));
+          return { chain, read: false };
+        }
+      }),
+    );
+  const [results, staking] = await Promise.all([
+    settle("pools", [["solana", () => readSolana({ fetchImpl, priceOf })], ...EVM_TVL_CHAINS.map((name) => [name, () => readEvm(name, { fetchImpl, priceOf })])], "pools"),
+    settle("staking", [["solana", () => readSolanaStaking({ fetchImpl, marketPrices })], ...STAKE_CHAINS.slice(1).map((name) => [name, () => readEvmStaking(name, { fetchImpl, marketPrices })])], "vaults"),
+  ]);
+  const parts = [...results, ...staking];
+  if (!parts.some((r) => r.read)) return { state: "unread" };
+  const whole = parts.every((r) => r.read && r.unvalued === 0);
+  const usd = parts.reduce((sum, r) => sum + (r.read ? r.usd : 0), 0);
+  return { state: whole ? "current" : "partial", usd: Math.round(usd * 100) / 100, chains: results, staking, readAt: new Date(now).toISOString() };
 }
 
 function setCors(req, res) {
