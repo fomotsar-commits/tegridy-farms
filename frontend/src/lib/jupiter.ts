@@ -14,10 +14,12 @@ import {
   JUPITER_TOKENS_BASE,
   SOLANA_RPC_PROXY_PATH,
   SOLANA_FEE_ACCOUNT,
+  SOLANA_MAJOR_PAIR_FEE_BPS,
   SOLANA_PLATFORM_FEE_BPS,
   SOL_MINT,
   USDC_MINT,
 } from './solana';
+import { LST_TOKENS, SOL, USDC, USDT } from './solanaTokenList';
 import { JupiterBusyError, jupiterBusy } from './solana/swap/jupiterBusy';
 
 // We only read a few fields; the whole object is passed back to /swap verbatim,
@@ -54,6 +56,16 @@ export function pickFeeMint(
   if (candidates.includes(USDC_MINT)) return USDC_MINT;
   if (candidates.includes(SOL_MINT)) return SOL_MINT;
   return null;
+}
+
+/** The majors: SOL, the two big stablecoins and the staked-SOL tokens the site lists. */
+export const MAJOR_MINTS: ReadonlySet<string> = new Set([SOL.mint, USDC.mint, USDT.mint, ...LST_TOKENS.map((t) => t.mint)]);
+
+/** The site's fee on a pair: the lower major rate when both sides are majors, else the standard rate. */
+export function platformFeeBpsFor(inputMint: string, outputMint: string): number {
+  return inputMint !== outputMint && MAJOR_MINTS.has(inputMint) && MAJOR_MINTS.has(outputMint)
+    ? SOLANA_MAJOR_PAIR_FEE_BPS
+    : SOLANA_PLATFORM_FEE_BPS;
 }
 
 /** A platform fee can be collected only when a fee account is configured + bps > 0. */
@@ -164,7 +176,7 @@ export async function getQuote(params: {
   // SAME decision drives /swap, so platformFeeBps is never sent without a
   // matching feeAccount (which Jupiter rejects) and the fee account always exists.
   if (!params.noPlatformFee && feeEnabled() && pickFeeMint(params.inputMint, params.outputMint)) {
-    qs.set('platformFeeBps', String(SOLANA_PLATFORM_FEE_BPS));
+    qs.set('platformFeeBps', String(platformFeeBpsFor(params.inputMint, params.outputMint)));
   }
   const res = await fetch(`${JUPITER_PROXY_BASE}/quote?${qs.toString()}`, {
     headers: { Accept: 'application/json' },
