@@ -43,7 +43,7 @@ function osListing(tokenId, wei) {
   return {
     order_hash: `0x${"a".repeat(63)}${tokenId}`,
     protocol_address: SEAPORT,
-    price: { current: { value: wei } },
+    price: { current: { currency: "ETH", decimals: 18, value: wei } },
     protocol_data: {
       parameters: {
         offerer: "0x1111111111111111111111111111111111111111",

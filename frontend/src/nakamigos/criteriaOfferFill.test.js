@@ -129,7 +129,10 @@ beforeEach(async () => {
   h.signerAddress = SELLER;
   h.chainId = 1n;
   h.openseaGet = vi.fn(async () => bestCriteriaOfferResponse());
-  h.openseaPost = vi.fn(async () => FULFILLMENT_OK);
+  // OpenSea builds the fill for the token it is asked about, as the live API does;
+  // the accept path now refuses a fill that hands over any other token.
+  h.openseaPost = vi.fn(async (_path, body) =>
+    body?.consideration?.token_id ? acceptFulfillment(NFT, { to: SEAPORT_16, tokenId: body.consideration.token_id }) : FULFILLMENT_OK);
   h.sendTransaction = vi.fn(async () => ({ hash: "0xfilled", wait: async () => ({ status: 1 }) }));
   h.isApprovedForAll = vi.fn(async () => true);
   apiOffers = await import("./api-offers");

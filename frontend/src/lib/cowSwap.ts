@@ -204,6 +204,8 @@ export interface BuildCowSwapOrderParams {
   buyToken: Address;
   receiver: Address;
   quote: ParsedCowSwapQuote;
+  /** The amount the user entered — the quote's `sellAmountBeforeFee`. */
+  typedSellAmount: bigint;
   slippageBps: bigint;
   /** Unix seconds the order stays valid; defaults to now + 20 min. */
   validTo?: number;
@@ -226,6 +228,11 @@ export interface BuiltCowSwapOrder {
 export function buildCowSwapOrder(params: BuildCowSwapOrderParams): BuiltCowSwapOrder {
   const nowSec = Math.floor((params.now ?? Date.now()) / 1000);
   const validTo = params.validTo ?? nowSec + COW_SWAP_DEFAULT_TTL_SECONDS;
+  // The signed sellAmount comes from CoW's answer. It is only the user's input if
+  // CoW echoed it back, so a quote that sells anything else is never signed.
+  if (!quoteSellsTypedAmount(params.quote, params.typedSellAmount)) {
+    throw new Error('CoW quote sells a different amount than the one entered');
+  }
   const { sellAmount, buyAmountMin } = cowSwapAmounts(params.quote, params.slippageBps);
   const order: CowOrder = {
     sellToken: params.sellToken,
@@ -250,4 +257,13 @@ export function buildCowSwapOrder(params: BuildCowSwapOrderParams): BuiltCowSwap
  */
 export function requiredSellBalance(quote: ParsedCowSwapQuote): bigint {
   return quote.sellAmount + quote.feeAmount;
+}
+
+/**
+ * A SELL quote for `sellAmountBeforeFee = typed` comes back as sellAmount + feeAmount
+ * = typed (CoW takes the network cost out of the input). Anything else is a quote
+ * for a different trade than the one on screen.
+ */
+export function quoteSellsTypedAmount(quote: ParsedCowSwapQuote, typed: bigint): boolean {
+  return typed > 0n && quote.sellAmount + quote.feeAmount === typed;
 }

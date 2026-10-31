@@ -188,7 +188,7 @@ describe("api.js buys", () => {
   for (const [label, contract] of Object.entries(NON_VENUE)) {
     it(`fulfillSeaportOrder refuses a listing of ${label} (token read from the listing)`, async () => {
       const api = await import("./api");
-      const res = await api.fulfillSeaportOrder({ orderHash: "0xabc", protocolAddress: SEAPORT_16, contract }, { buyerAddress: WALLET });
+      const res = await api.fulfillSeaportOrder({ tokenId: "7", priceWei: "100000000000000000", orderHash: "0xabc", protocolAddress: SEAPORT_16, contract }, { buyerAddress: WALLET });
       expectRefused(res);
       expectNothingHappened();
     });
@@ -197,7 +197,7 @@ describe("api.js buys", () => {
   it("reads the token from the signed order when the listing carries one", async () => {
     const api = await import("./api");
     const res = await api.fulfillSeaportOrder({
-      orderHash: "0xabc",
+      tokenId: "7", priceWei: "100000000000000000", orderHash: "0xabc",
       protocolAddress: SEAPORT_16,
       orderData: { parameters: { offer: [{ itemType: 2, token: ADDR.bojungles, identifierOrCriteria: "0" }] } },
     }, { buyerAddress: WALLET });
@@ -207,7 +207,7 @@ describe("api.js buys", () => {
 
   it("refuses a listing that names no token at all, rather than assuming Nakamigos", async () => {
     const api = await import("./api");
-    const res = await api.fulfillSeaportOrder({ orderHash: "0xabc", protocolAddress: SEAPORT_16 }, { buyerAddress: WALLET });
+    const res = await api.fulfillSeaportOrder({ tokenId: "7", priceWei: "100000000000000000", orderHash: "0xabc", protocolAddress: SEAPORT_16 }, { buyerAddress: WALLET });
     expectRefused(res);
     expectNothingHappened();
   });
@@ -226,7 +226,7 @@ describe("api.js buys", () => {
     it("refuses when OpenSea's calldata moves a foreign NFT, even though the listing named a venue token", async () => {
       h.openseaPost = vi.fn(async () => buyFulfillment(ADDR.bojungles));
       const api = await import("./api");
-      const res = await api.fulfillSeaportOrder({ orderHash: "0xabc", protocolAddress: SEAPORT_16, contract: VENUE }, { buyerAddress: WALLET });
+      const res = await api.fulfillSeaportOrder({ tokenId: "7", priceWei: "100000000000000000", orderHash: "0xabc", protocolAddress: SEAPORT_16, contract: VENUE }, { buyerAddress: WALLET });
       expectRefused(res);
       expect(h.sendTransaction).not.toHaveBeenCalled();
     });
@@ -235,7 +235,7 @@ describe("api.js buys", () => {
       // `orders` claims a venue token; the calldata that would be SIGNED moves Seeds.
       h.openseaPost = vi.fn(async () => buyFulfillment(ADDR.memeticseeds, { ordersToken: VENUE }));
       const api = await import("./api");
-      const res = await api.fulfillSeaportOrder({ orderHash: "0xabc", protocolAddress: SEAPORT_16, contract: VENUE }, { buyerAddress: WALLET });
+      const res = await api.fulfillSeaportOrder({ tokenId: "7", priceWei: "100000000000000000", orderHash: "0xabc", protocolAddress: SEAPORT_16, contract: VENUE }, { buyerAddress: WALLET });
       expectRefused(res);
       expect(h.sendTransaction).not.toHaveBeenCalled();
     });
@@ -243,7 +243,7 @@ describe("api.js buys", () => {
     it("reads the offer items of a full fulfillOrder, not only the basic-order fields", async () => {
       h.openseaPost = vi.fn(async () => fulfillOrderFulfillment(ADDR.raretowelie));
       const api = await import("./api");
-      const res = await api.fulfillSeaportOrder({ orderHash: "0xabc", protocolAddress: SEAPORT_16, contract: VENUE }, { buyerAddress: WALLET });
+      const res = await api.fulfillSeaportOrder({ tokenId: "7", priceWei: "100000000000000000", orderHash: "0xabc", protocolAddress: SEAPORT_16, contract: VENUE }, { buyerAddress: WALLET });
       expectRefused(res);
       expect(h.sendTransaction).not.toHaveBeenCalled();
     });
@@ -251,7 +251,7 @@ describe("api.js buys", () => {
     it("names calldata with no decodable NFT as its own failure, and sends nothing", async () => {
       h.openseaPost = vi.fn(async () => opaqueFulfillment());
       const api = await import("./api");
-      const res = await api.fulfillSeaportOrder({ orderHash: "0xabc", protocolAddress: SEAPORT_16, contract: VENUE }, { buyerAddress: WALLET });
+      const res = await api.fulfillSeaportOrder({ tokenId: "7", priceWei: "100000000000000000", orderHash: "0xabc", protocolAddress: SEAPORT_16, contract: VENUE }, { buyerAddress: WALLET });
       expect(res.error).toBe("no-nft-token");
       expect(h.sendTransaction).not.toHaveBeenCalled();
     });
@@ -259,7 +259,7 @@ describe("api.js buys", () => {
     it("positive control: a venue listing whose calldata moves that venue token is bought", async () => {
       h.openseaPost = vi.fn(async () => buyFulfillment(VENUE));
       const api = await import("./api");
-      const res = await api.fulfillSeaportOrder({ orderHash: "0xabc", protocolAddress: SEAPORT_16, contract: VENUE }, { buyerAddress: WALLET });
+      const res = await api.fulfillSeaportOrder({ tokenId: "7", priceWei: "100000000000000000", orderHash: "0xabc", protocolAddress: SEAPORT_16, contract: VENUE }, { buyerAddress: WALLET });
       expect(res.success).toBe(true);
       expect(h.sendTransaction).toHaveBeenCalledTimes(1);
     });
@@ -267,7 +267,7 @@ describe("api.js buys", () => {
     it("positive control: Gold Cards buys the same way", async () => {
       h.openseaPost = vi.fn(async () => fulfillOrderFulfillment(GOLD));
       const api = await import("./api");
-      const res = await api.fulfillSeaportOrder({ orderHash: "0xabc", protocolAddress: SEAPORT_16, contract: GOLD }, { buyerAddress: WALLET });
+      const res = await api.fulfillSeaportOrder({ tokenId: "7", priceWei: "100000000000000000", orderHash: "0xabc", protocolAddress: SEAPORT_16, contract: GOLD }, { buyerAddress: WALLET });
       expect(res.success).toBe(true);
     });
   });
@@ -275,7 +275,7 @@ describe("api.js buys", () => {
   it("positive control: a venue listing with no wallet reaches the no-wallet answer", async () => {
     disconnectWallet();
     const api = await import("./api");
-    const res = await api.fulfillSeaportOrder({ orderHash: "0xabc", protocolAddress: SEAPORT_16, contract: VENUE });
+    const res = await api.fulfillSeaportOrder({ tokenId: "7", priceWei: "100000000000000000", orderHash: "0xabc", protocolAddress: SEAPORT_16, contract: VENUE });
     expect(res.error).toBe("no-metamask");
   });
 });
@@ -737,3 +737,106 @@ describe("CartContext", () => {
   });
 });
 
+
+// ═══ The fill is held to the trade on screen (lib/seaportTrade.js) ═══
+//
+// The checks above pin WHICH NFT contract a fill moves. These pin the rest of
+// what OpenSea's answer could commit the user to, end to end through the real
+// buy, accept and bid functions: each tampered answer is refused before any
+// approval, signature or transaction, and a sound one still goes through.
+describe("a fill is held to the trade on screen", () => {
+  const ATTACKER = "0x00000000000000000000000000000000deadbeef";
+  const USDC = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
+  const listing = (over = {}) => ({ tokenId: "7", priceWei: "100000000000000000", orderHash: "0xabc", protocolAddress: SEAPORT_16, contract: VENUE, ...over });
+
+  it("a buy whose fill moves a different token than the card is refused, unsent", async () => {
+    const api = await import("./api");
+    const res = await api.fulfillSeaportOrder(listing({ tokenId: "8" }), { buyerAddress: WALLET });
+    expect(res.error).toBe("nft-mismatch");
+    expect(h.sendTransaction).not.toHaveBeenCalled();
+  });
+
+  it("a buy whose fill asks more ETH than the price shown is refused, unsent", async () => {
+    const api = await import("./api");
+    const res = await api.fulfillSeaportOrder(listing({ priceWei: "50000000000000000" }), { buyerAddress: WALLET });
+    expect(res.error).toBe("over-price");
+    expect(h.sendTransaction).not.toHaveBeenCalled();
+  });
+
+  it("a buy whose fill is paid in USDC is refused, unsent", async () => {
+    const usdcFill = buyFulfillment(VENUE);
+    Object.assign(usdcFill.fulfillment_data.transaction.input_data.parameters, { basicOrderType: 8, considerationToken: USDC });
+    usdcFill.fulfillment_data.transaction.value = "0";
+    h.openseaPost = vi.fn(async () => usdcFill);
+    const api = await import("./api");
+    const res = await api.fulfillSeaportOrder(listing(), { buyerAddress: WALLET });
+    expect(res.error).toBe("not-eth");
+    expect(h.sendTransaction).not.toHaveBeenCalled();
+  });
+
+  it("the cart refuses the same tampered fill before the wallet is asked to batch", async () => {
+    const api = await import("./api");
+    const res = await api.fulfillSeaportOrdersBatch([listing({ tokenId: "8" })], { buyerAddress: WALLET });
+    expect(res.error).toBe("build-failed");
+    expect(h.providerRequest.mock.calls.map(([a]) => a?.method)).not.toContain("wallet_sendCalls");
+  });
+
+  it("an accept whose fill asks the seller for ETH is refused before the approval", async () => {
+    const fill = acceptFulfillment(VENUE);
+    fill.fulfillment_data.transaction.value = "1";
+    h.openseaPost = vi.fn(async () => fill);
+    const offers = await import("./api-offers");
+    const res = await offers.acceptOffer({ orderHash: "0xoffer", protocolAddress: SEAPORT_16, tokenContract: VENUE, tokenId: "7" });
+    expect(res.error).toBe("sends-eth");
+    expect(h.contractCalls.map((c) => c.method)).not.toContain("setApprovalForAll");
+    expect(h.sendTransaction).not.toHaveBeenCalled();
+  });
+
+  it("an accept whose fill hands over a different token is refused before the approval", async () => {
+    h.openseaPost = vi.fn(async () => acceptFulfillment(VENUE, { tokenId: "7" }));
+    const offers = await import("./api-offers");
+    const res = await offers.acceptOffer({ orderHash: "0xoffer", protocolAddress: SEAPORT_16, tokenContract: VENUE, tokenId: "8" });
+    expect(res.error).toBe("nft-mismatch");
+    expect(h.contractCalls.map((c) => c.method)).not.toContain("setApprovalForAll");
+    expect(h.sendTransaction).not.toHaveBeenCalled();
+  });
+
+  describe("a bid build", () => {
+    const nftLeg = (over = {}) => ({ itemType: 4, token: GOLD, identifierOrCriteria: "0", startAmount: "1", endAmount: "1", recipient: WALLET, ...over });
+    const answer = (partial) => {
+      h.openseaPost = vi.fn(async (path) => (path === "offers/build"
+        ? { partialParameters: { zone: "0x" + "0".repeat(40), zoneHash: "0x" + "0".repeat(64), ...partial } }
+        : { ok: true }));
+    };
+    const bid = async () => (await import("./api-offers")).createCollectionOffer({ priceEth: 0.01, slug: "junglebaygoldcards", openseaSlug: "junglebaygoldcards" });
+    const expectUnfunded = () => {
+      expect(h.wrapEth, "ETH was wrapped").not.toHaveBeenCalled();
+      expect(h.approveWeth, "WETH was approved").not.toHaveBeenCalled();
+      expect(h.signTypedData, "an order was signed").not.toHaveBeenCalled();
+    };
+
+    it("delivering the NFT to another wallet is refused before anything is funded or signed", async () => {
+      answer({ consideration: [nftLeg({ recipient: ATTACKER })] });
+      expect((await bid()).error).toBe("wrong-recipient");
+      expectUnfunded();
+    });
+
+    it("a foreign conduit is refused before anything is funded or signed", async () => {
+      answer({ consideration: [nftLeg()], conduitKey: "0x" + "1".repeat(64) });
+      expect((await bid()).error).toBe("build-mismatch");
+      expectUnfunded();
+    });
+
+    it("a contract-order type is refused before anything is funded or signed", async () => {
+      answer({ consideration: [nftLeg()], orderType: 4 });
+      expect((await bid()).error).toBe("build-mismatch");
+      expectUnfunded();
+    });
+
+    it("positive control: the standard build delivering to the bidder is signed", async () => {
+      answer({ consideration: [nftLeg()], conduitKey: "0x0000007b02230091a7ed01230072f7006a004d60a8d4e71d599b8104250f0000", orderType: 2 });
+      expect((await bid()).success).toBe(true);
+      expect(h.signTypedData).toHaveBeenCalledTimes(1);
+    });
+  });
+});
