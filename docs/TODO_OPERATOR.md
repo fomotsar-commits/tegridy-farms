@@ -29,6 +29,113 @@ stop and say so — a surprise is information.
 
 ---
 
+## ✅ 2026-10-31: the Venue AMM page is live (handoff; nothing for you to do)
+
+Your ask (2026-10-30): bring the Venue AMM page "to cutting edge avantegarde level", make the arbitrage top tier, and put
+a Swap beside Add so people can go straight to a pair and swap. Live on memetics.finance/pools since 2026-10-31 18:32 UTC,
+walked in Chrome from the home page after the deploy.
+
+**What a visitor gets**
+- **An Arbitrage card** under Start here. It lists every pool whose price is far enough from Jupiter's listed price for
+  one trade to pay, most profitable first. Each row says what to pay, what comes back, the profit after the pool's fee,
+  where the fee goes in dollars, and the price after. Its **Swap** opens the swap page on that exact trade with the
+  amount filled in; the swap page quotes it again, against Jupiter and our pool, before anything is sent.
+- The card says how old its figures are, reads again every 30 seconds while the tab is in view, keeps the last figures
+  and says their age when a read fails, and has Read again. What it could not check is said, never shown as "none".
+- **Swap beside Add** on every All pools row and in every pool card, opening the swap page on that pair.
+- **Dollars in each pool**, at Jupiter's prices, only when both coins have one.
+- The swap page opens a link's coin from the chain when Jupiter does not list it, and waits while it looks the coin up.
+
+**How the money moves (unchanged).** An arbitrage trade pays the pool's fee like any other trade: the LPs' part stays
+in the pool, the venue's part goes where the Rates card says, and a creator's fee to the wallet that opened the pool. The
+trader's profit comes out of the pool's LPs, because the pool was selling below the market or buying above it. No venue
+money goes anywhere new. The one caveat is already on record from #1053: on a token with a transfer fee, the "to the
+venue" figure is before the token's own cut.
+
+**Merged:** #1077 (the page, merge `54c435b05`), #1059 (phone row stacking; its line came in with #1077), #1076 and
+#1080 (NOTES.md entries). Nothing from this work waits on you.
+
+**Not merged, because each belongs to another session or waits on your ruling:** #1079 (a price keeper that closes
+pool gaps against Jupiter; it is the other half of the Arbitrage card), #1078, #1075, #1073, #1060 (a dependabot bump),
+#1023 (you said no merge), #1002 and #877 read mergeable. Every merge is a production deploy, so each needs your word.
+
+**For the next session that touches this page**
+- The code: `frontend/src/components/solana/lp/ArbitrageBoard.tsx`, `useLivePoolList` in `usePoolList.ts`,
+  `useMarketPrices.ts`, and `arbitrage`, `rankArbitrage`, `swapLink` in `frontend/src/lib/solana/lp/poolList.ts`.
+- The card prices against Jupiter's listed price (one price read per list, shared for 30 seconds). On a thin coin that
+  can differ from the two live quotes a pool card asks for by several points, which the card's small print says.
+- The gaps are small because the pools are thin: on 2026-10-31 the best paid about $0.68 on a $70 trade (BAYLA/SOL,
+  2.9% cheaper here), and most paid under $0.30.
+- The /pools word ceiling is 325 (`frontend/e2e/word-budget.spec.ts`). The count swings about 40 words on whether the
+  Rates table loaded before it was taken: set a ceiling from a run where it loaded.
+- Type-check as CI does: `npx tsc -b --noEmit --force` from `frontend/`, with no project list. Naming the app and node
+  projects skips the test files, and that cost #1077 one red CI run.
+- The Anvil fork CI job stays red on every pull request until the TOWELI staking reward reserve is refilled (step 3 of
+  the section below). Its error names the empty reserve: that is chain state, not the pull request.
+
+## 🔴 2026-10-31: close TOWELI staking v1 and pay everyone what they earned
+
+Your plan (2026-10-30): beta testing is over. Stop the rewards, pay exactly what is owed, give
+stakers time to claim, then pause so everyone can take their stake out with no 25% penalty. A new
+staking contract follows: no limit on the whole pool, 10,000,000 TOWELI per wallet (#824, a draft).
+The site already says "Beta is over" and takes no new stakes (#1066, merged 2026-10-30).
+
+**How the money moves.** Stakers get the TOWELI they earned up to step 2, paid from what you send
+in step 3. The venue earns only the 25% early-exit fee, paid to the treasury; after the pause an
+exit pays no fee, so the venue takes nothing. **TOWELI sent into the contract can never be taken
+back out: send only what is owed.**
+
+Every command signs with your keystore `deployer`, which must be
+`0x14898258122C0740106391E6e8E4F17F3b6d456E`, the owner of both contracts. Check it with
+`cast wallet address --account deployer`. That wallet held 0.00132 ETH on 2026-10-31: enough for
+every step at that day's gas.
+
+| Step | When (UTC) | What | Who |
+|---|---|---|---|
+| ✅ 1 | done 2026-10-30 16:31:11 | Asked for a reward rate of 0: `proposeRewardRate(0)` on the admin `0x4B134C08aAF86B6e2A8E097D1039C4e7638806f3`, transaction `0x60bc95261660777031dfbaa16d9a026d8e315ab560e77c72f32f88d5c739ca2d`. | you |
+| ⬜ 2 | **from Sun 11-01 16:31:11 to Sun 11-08 16:31:11** | Stop the rewards: `executeRewardRateChange()`, commands below. Before the window it fails with `ProposalNotReady` and sends nothing. After it, the request expires: redo step 1 and wait 48 hours again. | you |
+| ⬜ 3 | right after step 2 | Pay what is owed. A session re-reads the exact amount and hands you two commands, both tested first: an approve, then `notifyRewardAmount` on the staking contract `0xcaDc93E96De58EA554c71ca609974625615E046D`. On 2026-10-29 it was about 3,679,491 TOWELI: 3,579,491 earned by 22 positions plus 100,000 owed as IOUs. Your wallet holds 905,872 TOWELI, so send it the rest first (about 2,773,620), a tiny test amount first. | you, then a session |
+| 4 | about 14 days | Stakers claim. Nothing to do: the site tells them to claim now. | nobody |
+| ⬜ 5 | after the claim time | Pause: `pause()` on the staking contract. Claims stop. Every locked stake can then come out in full with no penalty (`emergencyWithdrawPosition`), but rewards not yet claimed are given up, which is why step 4 comes first. An ended lock keeps its normal exit, which also pays its rewards. | you |
+
+**Step 2 in PowerShell.** First, check the window (read-only, any time):
+
+```powershell
+$t = & "C:\Users\jimbo\.foundry\bin\cast.exe" call 0x4B134C08aAF86B6e2A8E097D1039C4e7638806f3 "rewardRateChangeTime()(uint256)" --rpc-url https://ethereum-rpc.publicnode.com; $open = [DateTimeOffset]::FromUnixTimeSeconds([int64](($t -split ' ')[0])); "Opens:   " + $open.UtcDateTime.ToString('u'); "Expires: " + $open.AddDays(7).UtcDateTime.ToString('u'); "Now:     " + [DateTime]::UtcNow.ToString('u')
+```
+
+Once "Now" is past "Opens", test it. This sends nothing, and it should print a gas number:
+
+```powershell
+& "C:\Users\jimbo\.foundry\bin\cast.exe" estimate 0x4B134C08aAF86B6e2A8E097D1039C4e7638806f3 "executeRewardRateChange()" --from 0x14898258122C0740106391E6e8E4F17F3b6d456E --rpc-url https://ethereum-rpc.publicnode.com
+```
+
+Then send it. It asks for your keystore password; look for `status 1 (success)`:
+
+```powershell
+& "C:\Users\jimbo\.foundry\bin\cast.exe" send 0x4B134C08aAF86B6e2A8E097D1039C4e7638806f3 "executeRewardRateChange()" --account deployer --rpc-url https://ethereum-rpc.publicnode.com
+```
+
+Check that rewards stopped. It must print `0`:
+
+```powershell
+& "C:\Users\jimbo\.foundry\bin\cast.exe" call 0xcaDc93E96De58EA554c71ca609974625615E046D "rewardRate()(uint256)" --rpc-url https://ethereum-rpc.publicnode.com
+```
+
+Then tell a session "step 2 is done" for step 3.
+
+**Step 5 in PowerShell**, only after the claim time. Test, then send:
+
+```powershell
+& "C:\Users\jimbo\.foundry\bin\cast.exe" estimate 0xcaDc93E96De58EA554c71ca609974625615E046D "pause()" --from 0x14898258122C0740106391E6e8E4F17F3b6d456E --rpc-url https://ethereum-rpc.publicnode.com
+```
+
+```powershell
+& "C:\Users\jimbo\.foundry\bin\cast.exe" send 0xcaDc93E96De58EA554c71ca609974625615E046D "pause()" --account deployer --rpc-url https://ethereum-rpc.publicnode.com
+```
+
+---
+
 ## 🔴 2026-10-29: the vault batch, read this before Day 0
 
 Read on mainnet 2026-10-29 at 04:40 UTC. It corrects the proposal number and the amounts in the
@@ -36,11 +143,10 @@ sections below, which were written before #21 was used.
 
 **#21 is already used.** It is the range tier 1 fee change (0.25% to 1%), proposed by member B and
 approved by both members on 2026-10-28 at 16:06:32 UTC.
-- It can execute from **2026-10-30 16:06:32 UTC**, on the tier 1 pack's page.
-- Execute it **before** the range upgrade executes: its page stops for good once the range
-  program's bytes change.
-- Then run `8-verify-tier-fee.mjs` and merge #1044 (the registry row) the same day, or the next
-  morning's chain check goes red.
+- ✅ **Executed 2026-10-30 at 16:32:37 UTC** by member A (slot 463,353,748, transaction
+  `5vJVrJGtqQcZn5og7UZnNKVwjnHR93usn3QZnKkTJr2hWdCUd1kKcj6TGXAafKfQ2CG9UJkCTQUqLYUb8EipGY5U`).
+  `8-verify-tier-fee.mjs` passed: tier 1 charges 1%, tier 0 is unchanged. #1044 (the registry
+  row) merged the same day.
 
 **Your batch (your call, 2026-10-28) is five more proposals:** the range upgrade, the pool
 re-upgrade, the pool roll-back (pre-staged), the ladder upgrade and the ladder wallet limit raise.
@@ -88,7 +194,7 @@ session "SOL is sent" (that is also your word to merge #1047). Then:
 Read on mainnet 2026-10-30 03:50 UTC: the range and pool checks pass every line but the empty
 wallets, the pool program's room is already there, and the next proposal is #22.
 
-**Day 2, execute in this order:** #21 if it hasn't run yet, then the range upgrade, the pool
+**Day 2, execute in this order** (#21 already ran): the range upgrade, the pool
 re-upgrade, the ladder upgrade, the ladder raise. Never press the pool roll-back. Never press old
 #18: it still shows "Approved" because its failed run didn't change that, and pressing it only
 burns a fee. After the pool re-upgrade executes, a session undoes #991.
@@ -456,7 +562,23 @@ weight, so about 8.8% of any refill comes back to you.
 
 ### Your decisions, by Sun 2026-11-15
 
-- ⬜ **The refill amount.** Read on 2026-10-20 (weight 45,272,392; 50 stakes; 23 wallets). The
+**Decided 2026-10-30: keep today's rate, 22,678.62 BAYLA a day, for the full four years, paid by
+the island's Workshop.**
+- **Refill exactly 33,110,782 BAYLA.** That is today's rate (262,484 raw a second) times the
+  ladder's fixed window of 1,460 days (126,144,000 seconds), rounded up to a whole BAYLA; 0.304 of
+  it stays unpaid in the pot. The 33,133,461 said on 2026-10-30 counted 1,461 days: it is 22,679.304
+  too much, and would raise the rate slightly to 22,694.08 a day.
+- **Ask the Workshop for it in writing**: the ask is drafted at
+  `C:\Users\jimbo\OneDrive\Desktop\island-handoff\refill-ask-2026-10-30.txt` (corrected to
+  33,110,782 on 2026-10-31); you send it. The Workshop held 58,300,000.81 BAYLA on 2026-10-29.
+- **This rate is above the 27.64% cap** in the table below: "lock 4 years and leave early" pays
+  more than an honest shorter lock. Your call stands; this line is only a reminder.
+- Stakers then keep earning at today's rate until about 2030-12-22, if the refill executes on
+  12-23. Tell them so, with that date.
+
+The options as they were laid out on 2026-10-20:
+
+- ✅ **The refill amount** (decided above). Read on 2026-10-20 (weight 45,272,392; 50 stakes; 23 wallets). The
   rates are a year's rewards over the amount staked:
 
   | Refill, exact (BAYLA) | Per day | 4-year lock | 1.00x lock | 7-day lock | Value on 10-20 | Under the 27.64% cap? |
@@ -476,14 +598,14 @@ weight, so about 8.8% of any refill comes back to you.
   BAYLA unpaid in the pot. The smallest refill that pays anything is 5,802.624 BAYLA, not the
   "about 5,700" the pack's R1 says. Values use about $0.0006 a BAYLA; buying that much on the
   market would move the price.
-- ⬜ **Who pays for it.** The team's wallets hold about 44,706 BAYLA free (about $27). The
+- ✅ **Who pays for it** (decided above: the Workshop). The team's wallets hold about 44,706 BAYLA free (about $27). The
   2,000,000 of 2026-09-24 came from the island's Workshop,
   `G2EHPseTXetHbBvvRDs27XQyXfQikXXyxP9uMbsKrbu`, which held 58,300,000 on 2026-10-20 (135,491,275
   on 2026-09-24). Ask the island in writing, early, for the amount and for its OK that the BAYLA
   passes through the vault's BAYLA account: the split agreement says neither side holds the
   other's coin.
-- ⬜ **Tell the stakers, with dates.** Every amount above is a cut from today's 22,678.62 a day
-  (the recommended one is 77% lower). Early-exit fees after 12-23 sit in the pot until a big
+- ⬜ **Tell the stakers, with dates.** At today's rate there is no cut. (Every other amount above
+  is a cut from today's 22,678.62 a day; the recommended one is 77% lower.) Early-exit fees after 12-23 sit in the pot until a big
   top-up or the window's end in 2030: say so too.
 
 ### The steps, in order (UTC)

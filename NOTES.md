@@ -15,6 +15,40 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-31: a merged pull request reads `mergeable: UNKNOWN`, and REST still calls it clean
+
+**Believed:** `gh pr view N --json mergeable,mergeStateStatus` reading `UNKNOWN` after a push is
+GitHub still computing; and `gh api repos/.../pulls/N` reading
+`mergeable: true, mergeable_state: clean` confirms the pull request can be merged.
+
+**Measured** (#1059, 2026-10-31): the pull request was merged at 18:34:46Z. From 18:34Z to 18:48Z,
+ten GraphQL reads returned `UNKNOWN` for both fields and three REST reads returned `true` and
+`clean`. Neither said merged. The report at 18:46Z called the pull request open and waiting for the
+owner's word; the owner's "merge it" then found nothing to merge. The tell was in a read I had:
+`updatedAt` had jumped to 18:34:49Z.
+
+**Do:** read `state` and `mergedAt` in the same call as `mergeable`, and read them first. An
+`UNKNOWN` that survives one re-read is a reason to look at `state`, not to wait. REST's
+`mergeable_state` is stale on a merged pull request and proves nothing on its own. Before any
+`gh pr merge`, read `state` once more: the merge word can arrive after the merge.
+
+## 2026-10-30: one build, two word counts: a ceiling comes from the run where everything landed; a Git Bash `mklink /J` makes no junction
+
+**Believed:** `e2e/word-budget.spec.ts` measures a route once and the figure is the route's.
+**Measured:** three runs of the spec on ONE production build of `/pools` counted 252, 292 and 252
+visible words (desktop and phone alike). The 40 words are the Rates card: on the 292 run its
+two-tier table had landed from the chain before the 600 ms quiet window; on the other two the
+card still said "Reading the rates from the chain…" (6 words). A ceiling set from a 252 run
+(280) failed the very next run. **Do:** when lowering a ceiling, run the spec until the
+`[word-budget]` line shows the fuller figure (the 2026-10-16 entry's longest-blocks print shows
+which cards drew), and set the ceiling from that run: `/pools` got 325 from 292, not 280 from 252.
+
+**Believed:** `cmd /c mklink /J <link> <target>` from Git Bash makes the junction.
+**Measured:** it printed cmd's banner and nothing else, and `ls` of the link found nothing: Git
+Bash had path-converted the `/J` flag. `MSYS_NO_PATHCONV=1 cmd /c mklink /J ...` printed
+"Junction created" at once. **Do:** prefix a `cmd /c` whose flags start with `/` with
+`MSYS_NO_PATHCONV=1` (the general path-conversion rule is further down; this is the flag case).
+
 ## 2026-10-30: a web3.js signature fails inside a jsdom test, and a stand-in wallet counted transactions, not prompts
 
 **Believed:** a vitest file can build and sign a real `VersionedTransaction` with a `Keypair`.

@@ -7,13 +7,13 @@ import { FinePrint } from '../ui/FinePrint';
 import type { VenueStatus } from '../../lib/solana/cpswap/read';
 import { SPENT_PROGRAM_ID, hasProgramId } from '../../lib/solana/cpswap/program';
 import type { LpWriteMode } from '../../lib/launcher/solana/lpWriteFlag';
+import { TEXT_PRESS } from './curve/uiFormat';
 
 const CARD = { background: 'rgba(4,9,18,0.90)', border: '1px solid var(--color-purple-25)' } as const;
 
-// A finger-sized press area that leaves the card the height it was: padding round the small
-// text, taken back by the same negative margin. Refresh is one 16.5px line, so 14px above
-// and below makes 44.5px. The keyboard's ring goes round the words (`ring-on-words`, index.css).
-const REFRESH = 'px-2 -mx-2 py-3.5 -my-3.5 text-white/50 hover:text-white text-[11px] underline underline-offset-2 ring-on-words';
+// Refresh is a finger-sized press on one small line that leaves the card the height it was
+// (TEXT_PRESS, curve/uiFormat.ts): on this 16.5px line, 14px above and below makes 44.5px.
+const REFRESH = TEXT_PRESS;
 // A copy button is one 18px line in a chip that adds 7px each side, so 14px reaches 7px out
 // of it: 46px. The live card's two chips wrap on a phone onto rows 12px apart, so there the
 // first reaches 8px up (to the heading) and 5px down, the second 6px up and 7px down (short

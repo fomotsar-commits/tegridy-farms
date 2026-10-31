@@ -29,7 +29,6 @@ export function EveryPosition({ readers, owner, reloadKey = 0 }: { readers: LpRe
   return (
     <section data-testid="lp-every-position" aria-label="Every position">
       <Card title="Every position" art={<CardArt pageId="solana-lp" idx={14} />}>
-        <p className="text-white/80 text-[13px] mb-3">Who holds a share of each pool, and what it pays out now.</p>
         {list === null ? (
           <p className="text-white/70 text-[13px]">Reading the pools from the chain…</p>
         ) : list.kind === 'unread' ? (
@@ -45,7 +44,7 @@ export function EveryPosition({ readers, owner, reloadKey = 0 }: { readers: LpRe
         )}
         <FinePrint summary="How this list works">
           <p>
-            Each pool’s holders are read from the chain: the largest accounts holding that pool’s share coin, then each account, to see whose
+            Who holds a share of each pool, and what it pays out now. Each pool’s holders are read from the chain: the largest accounts holding that pool’s share coin, then each account, to see whose
             it is. A wallet with more than one such account is one row. The chain names at most {LARGEST_ACCOUNTS} accounts per pool, so past
             them smaller holders are not listed.
           </p>
