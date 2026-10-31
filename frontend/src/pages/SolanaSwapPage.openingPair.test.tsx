@@ -22,7 +22,8 @@ const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 const BAYLA_MINT = '7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump';
 const BOBO_MINT = '4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump';
 
-const h = vi.hoisted(() => ({ resolveMint: vi.fn() }));
+const h = vi.hoisted(() => ({ resolveMint: vi.fn(), tokenFromChain: vi.fn() }));
+vi.mock('../lib/solana/swap/chainToken', () => ({ tokenFromChain: h.tokenFromChain }));
 
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() } }));
 vi.mock('../lib/analytics', () => ({ trackPageView: vi.fn() }));
@@ -76,6 +77,8 @@ beforeEach(() => {
   localStorage.clear();
   h.resolveMint.mockReset();
   h.resolveMint.mockResolvedValue(null);
+  h.tokenFromChain.mockReset();
+  h.tokenFromChain.mockResolvedValue(null);
 });
 afterEach(() => {
   cleanup();
@@ -152,6 +155,43 @@ describe('/solana in a room', () => {
     open(`/solana?out=${USDC_MINT}`, 'bobo');
     await waitFor(() => expect(buying()).toBe('USDC'));
     expect(h.resolveMint).not.toHaveBeenCalled();
+  });
+});
+
+// A coin Jupiter has never listed can still have a pool on our venue, and the pool's Swap link
+// names it. Jupiter's lookup gives nothing (or cannot be asked), so the coin is read from the
+// chain instead (lib/solana/swap/chainToken.ts); only when neither answers does the default stand.
+describe('a link to a coin Jupiter does not list', () => {
+  const CORN_MINT = 'CornMintAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA1';
+  const CORN: SolToken = { mint: CORN_MINT, symbol: 'CORN', name: 'Corn Coin', decimals: 6, verified: false };
+
+  it('opens buying the coin as the chain names it, after Jupiter answered that it knows none', async () => {
+    h.tokenFromChain.mockResolvedValue(CORN);
+    open(`/solana?out=${CORN_MINT}`);
+    await waitFor(() => expect(buying()).toBe('CORN'));
+    expect(h.resolveMint.mock.calls.map((c) => c[0])).toEqual([CORN_MINT]);
+    expect(h.tokenFromChain.mock.calls.map((c) => c[1])).toEqual([CORN_MINT]);
+    expect(paying()).toBe('SOL');
+  });
+
+  it('opens paying with the coin, read from the chain, when the link pays with it', async () => {
+    h.tokenFromChain.mockResolvedValue(CORN);
+    open(`/solana?in=${CORN_MINT}&out=${USDC_MINT}`);
+    await waitFor(() => expect(paying()).toBe('CORN'));
+    expect(buying()).toBe('USDC');
+  });
+
+  it('asks the chain when Jupiter could not be asked at all', async () => {
+    h.resolveMint.mockRejectedValue(new Error('offline'));
+    h.tokenFromChain.mockResolvedValue(CORN);
+    open(`/solana?out=${CORN_MINT}`);
+    await waitFor(() => expect(buying()).toBe('CORN'));
+  });
+
+  it('stays on the default pair when neither Jupiter nor the chain names the coin', async () => {
+    open(`/solana?out=${CORN_MINT}`);
+    await waitFor(() => expect(h.tokenFromChain).toHaveBeenCalled());
+    expect(buying()).toBe('BAYLA');
   });
 });
 

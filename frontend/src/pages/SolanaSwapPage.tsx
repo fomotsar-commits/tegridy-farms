@@ -87,6 +87,9 @@ import {
 import { prepareJupiterSwap, refusalWhy, refusedSaid, NO_SITE_FEE_ROUTE_COPY, NOT_TEST_RUN_COPY, type PreparedJupiterSwap } from '../lib/solana/swap/jupiterFeeRetry';
 import { OWN_ROUTE_COPY, freshDecision, ownPoolNowWins, prepareOwnPoolSwap, within } from '../lib/solana/swap/ownPoolRoute';
 import { whileJupiterBusy } from '../lib/solana/swap/jupiterBusy';
+import { tokenFromChain } from '../lib/solana/swap/chainToken';
+import { browserRpc } from '../lib/launcher/solana/curve/rpc';
+import { withReadCommitment } from '../components/solana/curve/confirmedRpc';
 import { applySlippage } from '../lib/launcher/solana/curve/math';
 import { tradeCostText } from '../lib/solana/lp/format';
 import { siteNamed } from '../lib/solana/lp/identity';
@@ -1492,19 +1495,28 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
   const canQuote = baseAmount !== null && !sameToken;
 
   // The opening pair, continued: a NON-curated mint (a link's, or a room's coin) needs
-  // the Jupiter lookup for authoritative decimals (never invent them). Mount-once; a
-  // failed lookup leaves the honest default in place — a bad deep link must never break
-  // the page. The curated cases were already handled in the state initializers.
+  // the Jupiter lookup for authoritative decimals (never invent them). A coin Jupiter
+  // does not list, or could not be asked about, is read from the chain instead (its mint
+  // gives the decimals; swap/chainToken.ts): a link from one of our pools must open on
+  // that pool's coin. Mount-once; a lookup that fails both ways leaves the honest default
+  // in place — a bad deep link must never break the page. The curated cases were already
+  // handled in the state initializers.
   useEffect(() => {
     const search = new URLSearchParams(linkSearch);
     const ctrl = new AbortController();
+    let live = true;
     for (const [mint, set] of [[openingBuy, setBuyToken], [search.get('in')?.trim(), setPayToken]] as const) {
       if (!mint || !looksLikeMint(mint) || findSolToken(mint)) continue;
       resolveMint(mint, ctrl.signal)
-        .then((t) => { if (t) set(t); })
+        .catch(() => null)
+        .then((t) => t ?? tokenFromChain(withReadCommitment(browserRpc(), 'confirmed'), mint))
+        .then((t) => { if (t && live) set(t); })
         .catch(() => { /* honest default stands */ });
     }
-    return () => ctrl.abort();
+    return () => {
+      live = false;
+      ctrl.abort();
+    };
   }, [openingBuy, linkSearch]);
 
   // Tokens ticked while this pair is on screen: their box stays, so the tick can be taken back.
