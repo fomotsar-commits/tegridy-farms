@@ -29,14 +29,19 @@ vi.mock('../bungalowStaking', async (orig) => ({
 vi.mock('../../components/solana/lp/readers', () => ({
   browserLpReaders: () => (lp.readers ? { positions: async () => lp.read } : null),
 }));
+vi.mock('../jupiter', async (orig) => ({
+  ...(await orig<typeof import('../jupiter')>()),
+  getUsdPrices: vi.fn(),
+}));
 vi.mock('../bungalows', async (orig) => {
   const m = await orig<typeof import('../bungalows')>();
   return { ...m, BUNGALOWS: m.BUNGALOWS.map((b) => (b.id === 'bayla' ? { ...b, ladderPool: LADDER_POOL } : b)) };
 });
 
-import { readSolanaHoldings, readSolanaLadder, readSolanaPoolShares, readSolanaStakes } from './readSolanaWallet';
+import { __resetBoardPricesForTests, boardPrices, readSolanaHoldings, readSolanaLadder, readSolanaPoolShares, readSolanaStakes } from './readSolanaWallet';
 import { BUNGALOWS } from '../bungalows';
-import { TOKEN_2022_PROGRAM, TOKEN_PROGRAM, WSOL_MINT } from '../solana/lp/tokenSafety';
+import { getUsdPrices } from '../jupiter';
+import { TOKEN_2022_PROGRAM, TOKEN_PROGRAM, USDC_MINT, WSOL_MINT } from '../solana/lp/tokenSafety';
 
 const key = (n: number) => new PublicKey(new Uint8Array(32).fill(n));
 const OWNER = key(9).toBase58();
@@ -180,12 +185,23 @@ describe('readSolanaLadder', () => {
         open: [{ address: key(50).toBase58(), amountRaw: 10_000_000_000n, weight: 40_000_000_000n, lockEnd, rewardPerWeightPaid: 0n, rewardsOwed: 1_230_000n }],
       },
     };
-    const leg = await readSolanaLadder(OWNER, room());
+    const bayla = BUNGALOWS.find((b) => b.id === 'bayla')!;
+    const leg = await readSolanaLadder(OWNER, room(), { prices: async () => ({ [bayla.address!]: 0.002 }) });
     expect(leg.status).toBe('ok');
     if (leg.status !== 'ok') return;
-    const bayla = BUNGALOWS.find((b) => b.id === 'bayla')!;
     expect(leg.rows[0]).toMatchObject({ title: `${bayla.symbol} lock`, to: '/earn/bayla', roomId: 'bayla' });
     expect(leg.rows[0]!.facts).toEqual([`10,000 ${bayla.symbol}`, 'unlocks 15 Jan 2030', '4.00×', `earned 1.23 ${bayla.symbol}`]);
+    // Its worth is the locked coins at the read price; what it has earned is not in it.
+    expect(leg.rows[0]!.usd).toBeCloseTo(20, 9);
+  });
+
+  it('keeps the lock and leaves its worth out when the price does not come back', async () => {
+    ladder.wallet = {
+      ok: true,
+      value: { stats: {}, slots: [], truncated: false, open: [{ address: 'x', amountRaw: 1_000_000n, weight: 1_000_000n, lockEnd: 0n, rewardPerWeightPaid: 0n, rewardsOwed: 0n }] },
+    };
+    const leg = await readSolanaLadder(OWNER, room(), { prices: async () => { throw new Error('price/v3 429'); } });
+    expect(leg.status === 'ok' && leg.rows.map((r) => [r.facts[0], r.usd])).toEqual([['1 BAYLA', null]]);
   });
 
   it("names the room it was asked for: another room's locks carry that room's coin and page", async () => {
@@ -198,7 +214,7 @@ describe('readSolanaLadder', () => {
         open: [{ address: key(51).toBase58(), amountRaw: 5_000_000n, weight: 2_000_000n, lockEnd: 0n, rewardPerWeightPaid: 0n, rewardsOwed: 0n }],
       },
     };
-    const leg = await readSolanaLadder(OWNER, room('bobo'));
+    const leg = await readSolanaLadder(OWNER, room('bobo'), { prices: async () => ({}) });
     expect(leg.status === 'ok' && leg.rows.map((r) => [r.title, r.roomId, r.to, r.facts[0]])).toEqual([['BOBO lock', 'bobo', '/earn/bobo', '5 BOBO']]);
   });
 
@@ -226,8 +242,8 @@ describe('readSolanaStakes', () => {
       ],
     };
     stakes.pool = { ok: true, pool: { decimals: 6 } };
-    const leg = await readSolanaStakes(OWNER, target);
-    expect(leg.status === 'ok' && leg.rows.map((r) => [r.title, ...r.facts])).toEqual([['BOBO stake', '5,000 BOBO', 'unlocks 31 Jan 2029']]);
+    const leg = await readSolanaStakes(OWNER, target, { prices: async () => ({ [target.room.address!]: 0.01 }) });
+    expect(leg.status === 'ok' && leg.rows.map((r) => [r.title, ...r.facts, r.usd])).toEqual([['BOBO stake', '5,000 BOBO', 'unlocks 31 Jan 2029', 50]]);
   });
 
   it('is not read when the wallet has stakes but the pool’s decimals could not be read', async () => {
@@ -252,22 +268,95 @@ describe('readSolanaPoolShares', () => {
     expect((await readSolanaPoolShares(OWNER)).status).toBe('unread');
   });
 
-  it('lists a share: the pair, its share of the pool, and what it pays out now', async () => {
-    const bayla = BUNGALOWS.find((b) => b.id === 'bayla')!;
-    lp.read = {
-      kind: 'ok',
-      chainNow: null,
-      totalShares: 1,
-      positions: [{
-        lpAccount: 'acc1',
-        tooSmall: false,
-        value: { token0: 1_200_000_000n, token1: 40_000_000_000n, sharePct: 2.3149 },
-        pool: { kind: 'pool', view: { address: 'P1', tokenMint: bayla.address, quoteIsToken0: true, quote: { symbol: 'SOL', decimals: 9 }, snapshot: { pool: { mint0Decimals: 9, mint1Decimals: 6 } } } },
-      }],
-    };
-    const leg = await readSolanaPoolShares(OWNER);
+  const bayla = BUNGALOWS.find((b) => b.id === 'bayla')!;
+  const share = (lpAccount: string) => ({
+    lpAccount,
+    tooSmall: false,
+    value: { token0: 1_200_000_000n, token1: 40_000_000_000n, sharePct: 2.3149 },
+    pool: { kind: 'pool', view: { address: 'P1', tokenMint: bayla.address, quoteIsToken0: true, quote: { mint: WSOL_MINT, symbol: 'SOL', decimals: 9 }, snapshot: { pool: { mint0Decimals: 9, mint1Decimals: 6 } } } },
+  });
+
+  it('lists a share: the pair, its share of the pool, what it pays out now, and both sides’ worth', async () => {
+    lp.read = { kind: 'ok', chainNow: null, totalShares: 1, positions: [share('acc1')] };
+    const prices = vi.fn(async () => ({ [bayla.address!]: 0.002, [WSOL_MINT]: 200 }));
+    const leg = await readSolanaPoolShares(OWNER, { prices });
     expect(leg.status === 'ok' && leg.rows.map((r) => [r.title, r.roomId, ...r.facts])).toEqual([
       [`${bayla.symbol} / SOL pool`, 'bayla', '2.31% of the pool', `40,000 ${bayla.symbol} + 1.2 SOL`],
     ]);
+    // 40,000 BAYLA at $0.002 plus 1.2 SOL at $200.
+    expect(leg.status === 'ok' && leg.rows[0]!.usd).toBeCloseTo(80 + 240, 9);
+    expect(prices).toHaveBeenCalledOnce();
+  });
+
+  it('a share in a coin the island does not list, quoted in one it does, belongs to the quote coin’s room', async () => {
+    const stranger = key(60).toBase58();
+    const quoted = share('acc2');
+    quoted.pool.view = { ...quoted.pool.view, tokenMint: stranger, quoteIsToken0: false, quote: { mint: bayla.address!, symbol: 'BAYLA', decimals: 6 } };
+    lp.read = { kind: 'ok', chainNow: null, totalShares: 1, positions: [quoted] };
+    const leg = await readSolanaPoolShares(OWNER, { prices: async () => ({}) });
+    expect(leg.status === 'ok' && leg.rows.map((r) => [r.title, r.roomId])).toEqual([[`${stranger.slice(0, 4)}… / BAYLA pool`, 'bayla']]);
+  });
+
+  it('prints no worth for a share with one side unpriced: half of it would read as all of it', async () => {
+    lp.read = { kind: 'ok', chainNow: null, totalShares: 1, positions: [share('acc1')] };
+    const leg = await readSolanaPoolShares(OWNER, { prices: async () => ({ [WSOL_MINT]: 200 }) });
+    expect(leg.status === 'ok' && leg.rows.map((r) => [r.facts[1], r.usd])).toEqual([[`40,000 ${bayla.symbol} + 1.2 SOL`, null]]);
+  });
+
+  it('a share too small to withdraw, or whose pool could not be read, has no worth and asks for no price', async () => {
+    lp.read = {
+      kind: 'ok',
+      chainNow: null,
+      totalShares: 2,
+      positions: [{ ...share('small'), tooSmall: true, value: null }, { lpAccount: 'gone', tooSmall: false, value: null, pool: { kind: 'unread' } }],
+    };
+    const prices = vi.fn(async () => ({}));
+    const leg = await readSolanaPoolShares(OWNER, { prices });
+    expect(leg.status === 'ok' && leg.rows.map((r) => r.usd)).toEqual([null, null]);
+    expect(prices).not.toHaveBeenCalled();
+  });
+});
+
+describe('boardPrices', () => {
+  const price = vi.mocked(getUsdPrices);
+  const BAYLA_MINT = BUNGALOWS.find((b) => b.id === 'bayla')!.address!;
+  beforeEach(() => {
+    __resetBoardPricesForTests();
+    price.mockReset();
+  });
+
+  it('every leg of a board read shares one call: SOL, USDC and the island coins, at the proxy’s shared read', async () => {
+    price.mockResolvedValue({ [WSOL_MINT]: 200 });
+    await Promise.all([boardPrices([WSOL_MINT]), boardPrices([USDC_MINT]), boardPrices([BAYLA_MINT])]);
+    expect(price).toHaveBeenCalledOnce();
+    const [ids, , opts] = price.mock.calls[0]!;
+    expect(ids).toEqual(expect.arrayContaining([WSOL_MINT, USDC_MINT, BAYLA_MINT]));
+    expect(opts).toEqual({ shared: true });
+  });
+
+  it('asks for a coin off the list on its own, never at the shared read', async () => {
+    price.mockResolvedValueOnce({ [WSOL_MINT]: 200 }).mockResolvedValueOnce({ Stranger: 3 });
+    expect(await boardPrices([WSOL_MINT, 'Stranger'])).toEqual({ [WSOL_MINT]: 200, Stranger: 3 });
+    expect(price.mock.calls[1]).toEqual([['Stranger']]);
+  });
+
+  it('does not hold a failed read: the next leg asks again', async () => {
+    price.mockRejectedValueOnce(new Error('price/v3 503')).mockResolvedValueOnce({ [WSOL_MINT]: 200 });
+    await expect(boardPrices([WSOL_MINT])).rejects.toThrow('503');
+    expect(await boardPrices([WSOL_MINT])).toEqual({ [WSOL_MINT]: 200 });
+    expect(price).toHaveBeenCalledTimes(2);
+  });
+
+  it('reads again once its 30 s are up', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    try {
+      price.mockResolvedValue({});
+      await boardPrices([WSOL_MINT]);
+      now.mockReturnValue(1_000_000 + 30_001);
+      await boardPrices([WSOL_MINT]);
+      expect(price).toHaveBeenCalledTimes(2);
+    } finally {
+      now.mockRestore();
+    }
   });
 });

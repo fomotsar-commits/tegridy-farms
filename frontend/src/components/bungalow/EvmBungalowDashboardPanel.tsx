@@ -15,6 +15,8 @@ import { BungalowBurn } from './BungalowBurn';
 import { LIGHTHOUSE_LADDER_ABI } from '../../lib/contracts';
 import { HarvestCard } from '../farm/HarvestCard';
 import { useOnStakesChanged } from '../../lib/harvest/stakesChanged';
+import { usePoolMarket } from '../../hooks/usePoolMarket';
+import { fmtUsd, usdOf } from '../../lib/wallet/walletRows';
 
 /**
  * The EVM sibling of BungalowDashboardPanel — the seam that panel's header
@@ -54,6 +56,10 @@ export function EvmBungalowDashboardPanel({ bungalow }: { bungalow: Bungalow }) 
   const stakedRaw = user && reads?.[2]?.status === 'success' ? (reads[2].result as bigint) : null;
   const earnedRaw = user && reads?.[3]?.status === 'success' ? (reads[3].result as bigint) : null;
   const decimals = reads?.[1]?.status === 'success' ? Number(reads[1].result) : bungalow.decimals ?? 18;
+  // The principal's worth at the price the market card below reads: the same pool, which the
+  // edge keeps a copy of (api/_lib/pool-market.js), so the second read is a cheap one.
+  const { market } = usePoolMarket(bungalow.market?.network ?? null, bungalow.market?.pool ?? null);
+  const stakedUsd = stakedRaw !== null && stakedRaw > 0n ? usdOf(stakedRaw, decimals, market?.priceUsd) : null;
 
   const explorer = bungalowExplorerUrl(bungalow);
   const trade = bungalowTradeRoute(bungalow, isSolanaSwapLive());
@@ -162,6 +168,7 @@ export function EvmBungalowDashboardPanel({ bungalow }: { bungalow: Bungalow }) 
               <p className="text-white text-[15px] tabular-nums">
                 {isConnected ? `${fmtRaw(stakedRaw, decimals)} ${bungalow.symbol}` : 'connect a wallet'}
               </p>
+              {stakedUsd !== null && <p className="text-white/60 text-[12px] tabular-nums mt-0.5">≈ {fmtUsd(stakedUsd)}</p>}
             </div>
             <div className="rounded-xl px-3 py-2.5" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}>
               <p className="text-[10px] uppercase tracking-wider text-white/50 mb-1">Claimable</p>

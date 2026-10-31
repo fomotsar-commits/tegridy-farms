@@ -223,7 +223,8 @@ function useEvmLegs(user: `0x${string}` | undefined, nonce: number) {
     if (toweli.lockEnd > 0) facts.push(unlockWords(toweli.lockEnd, nowSecs()));
     if (toweli.boostBps > 0) facts.push(`${(toweli.boostBps / 10_000).toFixed(2)}×`);
     if (!toweli.accrualInputsUnread) facts.push(`earned ${fmtAmount(toweli.pendingReward, 18)} TOWELI`);
-    return { status: 'ok', rows: [{ key: 'toweli-stake', roomId: 'toweli', chain: 'ethereum', title: 'TOWELI stake', facts, to: '/earn/toweli' }] };
+    const usd = usdOf(toweli.stakedAmount, 18, priceCtx?.priceInUsd);
+    return { status: 'ok', rows: [{ key: 'toweli-stake', roomId: 'toweli', chain: 'ethereum', title: 'TOWELI stake', facts, usd, to: '/earn/toweli' }] };
   };
 
   const laddersLeg = (): Leg<PositionRow> => {
@@ -247,7 +248,10 @@ function useEvmLegs(user: `0x${string}` | undefined, nonce: number) {
         const boosted = tuple[3];
         const facts = [`${fmtAmount(amount, dec)} ${b.symbol}`, unlockWords(lockEnd, now)];
         if (amount > 0n) facts.push(`${(Number((boosted * 10_000n) / amount) / 10_000).toFixed(2)}×`);
-        rows.push({ key: `evm-ladder:${b.id}:${t.id}`, roomId: b.id, chain: b.chain as 'ethereum' | 'base', title: `${b.symbol} lock`, facts, to: `/earn/${b.id}` });
+        rows.push({
+          key: `evm-ladder:${b.id}:${t.id}`, roomId: b.id, chain: b.chain as 'ethereum' | 'base', title: `${b.symbol} lock`, facts,
+          usd: usdOf(amount, dec, prices.get(b.address.toLowerCase())), to: `/earn/${b.id}`,
+        });
       }
       // What the pool owes this wallet across all its locks there, as the pool's own earned()
       // reads it: one figure per pool, so it goes on that pool's first lock.

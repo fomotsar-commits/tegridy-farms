@@ -611,6 +611,7 @@ export const SURFACES: Surface[] = [
   { group: 'Dashboard', pageId: 'bungalow-dashboard', idx: 5, label: 'Live surfaces card' },
   { group: 'Dashboard', pageId: 'bungalow-dashboard', idx: 6, label: 'EVM dashboard header card (EVM room)' },
   { group: 'Dashboard', pageId: 'bungalow-dashboard', idx: 7, label: 'EVM lighthouse position card (EVM room with a stake pool)' },
+  { group: 'Dashboard', pageId: 'bungalow-dashboard', idx: 8, label: 'Your positions card (Solana room: lock-ladder locks and pool shares)' },
   { group: 'Dashboard', pageId: 'dashboard', idx: 15, label: 'Reconnecting wallet card (TOWELI room, wallet reconnecting)' },
   { group: 'Dashboard', pageId: 'dashboard', idx: 16, label: 'Price chart card (not connected) (TOWELI room, not connected)' },
   { group: 'Dashboard', pageId: 'dashboard', idx: 17, label: 'Wrong network banner (TOWELI room, connected on the wrong network)' },
