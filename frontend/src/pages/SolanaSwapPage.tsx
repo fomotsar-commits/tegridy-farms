@@ -17,6 +17,7 @@ import { SolanaProviders } from '../components/solana/SolanaProviders';
 import { SolanaConnectButton } from '../components/solana/SolanaConnectButton';
 import { ChainSwitch } from '../components/swap/ChainSwitch';
 import { SolanaRouteLine } from '../components/swap/SolanaRouteLine';
+import { FillScoreLine } from '../components/swap/FillScoreLine';
 import { IslandBasketSolana } from '../components/swap/IslandBasketSolana';
 import { isRangeCandidate, useSolanaRoute } from '../components/swap/useSolanaRoute';
 import type { TxSummary } from '../components/solana/curve/ports';
@@ -84,7 +85,7 @@ import {
   type ShieldWarning,
   type TriggerOrder,
 } from '../lib/jupiter';
-import { prepareJupiterSwap, refusalWhy, refusedSaid, NO_SITE_FEE_ROUTE_COPY, NOT_TEST_RUN_COPY, type PreparedJupiterSwap } from '../lib/solana/swap/jupiterFeeRetry';
+import { prepareJupiterSwap, refusalWhy, refusedSaid, asTested, testedShort, NO_SITE_FEE_ROUTE_COPY, NOT_TEST_RUN_COPY, TESTED_SHORT_COPY, type PreparedJupiterSwap } from '../lib/solana/swap/jupiterFeeRetry';
 import { OWN_ROUTE_COPY, freshDecision, ownPoolNowWins, prepareOwnPoolSwap, within } from '../lib/solana/swap/ownPoolRoute';
 import { whileJupiterBusy } from '../lib/solana/swap/jupiterBusy';
 import { applySlippage } from '../lib/launcher/solana/curve/math';
@@ -1947,7 +1948,7 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
                 // Kept for the pair pressed, whatever the form shows by now: its next quote is the no-fee one.
                 if (j.status === 'moved' || j.siteFeeWaived) noFeePairs.current.add(`${inputMint}|${outputMint}`);
                 else noFeePairs.current.delete(`${inputMint}|${outputMint}`);
-                return BigInt(j.quote.outAmount);
+                return BigInt((j.status === 'ready' ? asTested(j.quote, j.tested) : j.quote).outAmount);
               } catch {
                 seen.sends = wouldSend(null);
                 return quotedOut;
@@ -2199,9 +2200,21 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
         toast.error('Price moved', { description: `The quote dropped beyond your ${(slippageBps / 100).toFixed(2)}% slippage. Review the new rate and swap again.` });
         return;
       }
-      const sent = prepared.quote;
+      // The quote as this transaction pays it: its test run's figure when that is lower.
+      const sent = asTested(prepared.quote, prepared.tested);
       const feeWaivedOnSend = prepared.siteFeeWaived;
-      if (carriesFee && (await ownPoolTakesIt(sent, feeWaivedOnSend, pressedFor, ownRead))) return;
+      // With no site fee our pools were held to `fresh` before the build: again only if the test run paid less.
+      if ((carriesFee || sent !== prepared.quote) && (await ownPoolTakesIt(sent, feeWaivedOnSend, pressedFor, ownRead))) return;
+      if (!shownWaived && sent !== prepared.quote) {
+        try {
+          const shownOut = BigInt(shown.outAmount);
+          if (BigInt(sent.outAmount) < shownOut - (shownOut * BigInt(slippageBps)) / 10000n) {
+            setQuote(sent);
+            toast.error('Price moved', { description: `The test run paid beyond your ${(slippageBps / 100).toFixed(2)}% slippage. Review the new rate and swap again.` });
+            return;
+          }
+        } catch { /* unparseable amount: the transaction's own minimum still guards */ }
+      }
       // A swap this wallet sent in another tab while this press was on its way holds it too.
       // From this read to the wallet's prompt nothing is awaited.
       if (holdsNow(noteScope)) {
@@ -2226,6 +2239,15 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
           say(sent);
         });
         toast.info(NO_SITE_FEE_ROUTE_COPY, {
+          description: `You receive about ${prettyAmount(fromBaseUnits(sent.outAmount, buyToken.decimals))} ${buyToken.symbol}.`,
+        });
+      } else if (testedShort(prepared.quote, sent)) {
+        // Painted before the wallet opens: the amount on the page is the test run's.
+        flushSync(() => {
+          setQuote(sent);
+          say(sent);
+        });
+        toast.info(TESTED_SHORT_COPY, {
           description: `You receive about ${prettyAmount(fromBaseUnits(sent.outAmount, buyToken.decimals))} ${buyToken.symbol}.`,
         });
       }
@@ -2841,6 +2863,7 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
               </>
             )}
           </p>
+          <FillScoreLine />
             </fieldset>
             </>
           ) : mode === 'limit' ? (
