@@ -1621,7 +1621,9 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
   // WHERE THIS TRADE GOES: our own pools quoted beside Jupiter, and whichever pays the
   // trader more; a tie stays here (lib/solana/route.ts). One decision, said by the route
   // line and executed by handleSwap.
-  const amountInRaw = useMemo(() => (baseAmount === null || sameToken ? null : BigInt(baseAmount)), [baseAmount, sameToken]);
+  // No route either while the address's coin is still being looked up: our pools would be read, and a
+  // line drawn, for the pair that stands meanwhile, not the one asked for.
+  const amountInRaw = useMemo(() => (baseAmount === null || sameToken || linkPending > 0 ? null : BigInt(baseAmount)), [baseAmount, sameToken, linkPending]);
   const aggregatorQuote = useMemo(
     () => (quote ? { outAmount: quote.outAmount, priceImpactPct: quote.priceImpactPct } : null),
     [quote],
@@ -2386,6 +2388,7 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
   const ownNone = route.own === 'absent' || route.own === 'not-searched' || route.own === 'unquotable';
   const ctaLabel = swapping ? 'Swapping…'
     : ownBusy !== null ? ownBusy
+    : linkPending > 0 ? 'Looking up the coin…'
     : quoteLoading ? 'Fetching quote…'
     : !baseAmount ? 'Enter an amount'
     : sameToken ? 'Pick two different tokens'
