@@ -9,6 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-10-31
 
+- Dashboard: once you have a lock, stake or pool share, the big figure is Total, what your wallet holds and your positions together, with Holdings and Positions under it. No total is printed while a part is still being read, could not be read or has no price, and that part says which.
 - Home page: the TVL now counts what is staked with us, not only what our pools hold: the BAYLA lock ladder and the lighthouse pools on Solana, TOWELI staking, and the ladders on Ethereum and Base, retired ones included while they still hold stakes. Each counts what people staked in it, never the rewards it holds, with the coin at its market price (Jupiter's on Solana, DefiLlama's on Ethereum and Base). What counts shows pools and staking chain by chain. When a staking pool cannot be read, or a staked coin has no market price, it says "TVL at least".
 
 ### 2026-10-30
