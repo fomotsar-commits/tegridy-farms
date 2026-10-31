@@ -55,6 +55,8 @@ pub struct Pool {
     /// no per-wallet limit sets this equal to `deposit_cap`, which is explicit and
     /// cannot be reached by forgetting to configure it. Carved from `_reserved`, so
     /// `8 + Pool::INIT_SPACE` stays 508.
+    ///
+    /// Raise-only via `raise_wallet_cap` (added 2026-10-27), never above `deposit_cap`.
     pub max_wallet_principal: u64,
 
     /// REAL principal, exactly as Synthetix means `_totalSupply`. Authoritative.
@@ -265,6 +267,13 @@ pub struct CapRaiseProposed {
 
 #[event]
 pub struct CapRaised {
+    pub pool: Pubkey,
+    pub previous_cap: u64,
+    pub new_cap: u64,
+}
+
+#[event]
+pub struct WalletCapRaised {
     pub pool: Pubkey,
     pub previous_cap: u64,
     pub new_cap: u64,

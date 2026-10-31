@@ -37,8 +37,8 @@ import {
   ixInitializePool, ixStake, ixClaim, ixExit, ixEmergencyWithdraw, ixNotifyReward,
   ixClaimCarried, ixSweep,
   ixProposeAuthority, ixAcceptAuthority, ixProposeCapRaise, ixCancelCapRaise,
-  ixExecuteCapRaise, ixDeclareDegraded, CAP_TIMELOCK_SECS,
-  authorityProblem, capRaiseProblem, cancelCapRaiseProblem, executeCapRaiseProblem,
+  ixExecuteCapRaise, ixRaiseWalletCap, ixDeclareDegraded, CAP_TIMELOCK_SECS,
+  authorityProblem, capRaiseProblem, walletCapRaiseProblem, cancelCapRaiseProblem, executeCapRaiseProblem,
   acceptAuthorityProblem, declareDegradedProblem, confirmPermanentProblem,
   toRaw, fmt, intArg, parseArgs, MAX_EARLY_EXIT_PENALTY_BPS, BPS,
   STAKE_VAULT_SEED, REWARD_VAULT_SEED,
@@ -779,6 +779,10 @@ describe('the CLI against the COMMITTED IDL', () => {
       programId: PROGRAM, pool,
     })));
 
+    it('raise_wallet_cap', () => matches('raise_wallet_cap', ixRaiseWalletCap({
+      programId: PROGRAM, authority: OWNER, pool, newMaxRaw: 9n,
+    })));
+
     it('declare_degraded', () => matches('declare_degraded', ixDeclareDegraded({
       programId: PROGRAM, authority: OWNER, pool,
     })));
@@ -813,6 +817,14 @@ describe('admin instruction args carry the value, not just the width', () => {
   it('propose_cap_raise encodes the cap as u64 little-endian', () => {
     const ix = ixProposeCapRaise({ programId: PROGRAM, authority: OWNER, pool, newCapRaw: 5_000_000_000_000n });
     expect(ix.data.readBigUInt64LE(8)).toBe(5_000_000_000_000n);
+  });
+
+  it('raise_wallet_cap encodes the limit as u64 little-endian, signed by the authority', () => {
+    const ix = ixRaiseWalletCap({ programId: PROGRAM, authority: OWNER, pool, newMaxRaw: 10_000_000_000_000n });
+    expect(ix.data.length).toBe(16);
+    expect(ix.data.readBigUInt64LE(8)).toBe(10_000_000_000_000n);
+    expect(ix.keys.map((k) => [k.pubkey.toBase58(), k.isSigner, k.isWritable]))
+      .toEqual([[OWNER.toBase58(), true, false], [pool.toBase58(), false, true]]);
   });
 
   it('execute_cap_raise names NO signer - anyone may run it once the timelock is over', () => {
@@ -855,6 +867,16 @@ describe('the admin pre-checks refuse exactly what the program refuses', () => {
     expect(capRaiseProblem(base, 1_000_001n)).toBeNull();
     expect(capRaiseProblem(base, 1_000_000n)).toMatch(/CapCanOnlyRaise/);
     expect(capRaiseProblem(base, 999_999n)).toMatch(/CapCanOnlyRaise/);
+  });
+
+  it('the per-wallet limit can only rise, and never past the pool cap', () => {
+    const w = { ...base, maxWalletPrincipal: 400_000n };
+    expect(walletCapRaiseProblem(w, 400_001n)).toBeNull();
+    expect(walletCapRaiseProblem(w, 400_000n)).toMatch(/CapCanOnlyRaise/);
+    expect(walletCapRaiseProblem(w, 399_999n)).toMatch(/CapCanOnlyRaise/);
+    // lib.rs: `new_max <= pool.deposit_cap` - the pool cap itself is allowed, one above it is not.
+    expect(walletCapRaiseProblem(w, 1_000_000n)).toBeNull();
+    expect(walletCapRaiseProblem(w, 1_000_001n)).toMatch(/InvalidParameter/);
   });
 
   it('there must be something to cancel', () => {
@@ -2660,6 +2682,12 @@ describe('notify --preview — no keypair, nothing built, and never with --broad
         name: expect.stringMatching(/e0fd775d/),
         sha256: 'e0fd775d59b2eed1d356fc341b1c0acdcf6254d3928e24cc46308fbc5654a6bd',
         len: 515_352,
+        windowSecs: 126_144_000,
+      }, {
+        // The same window plus raise_wallet_cap (2026-10-27): a reload on it sizes exactly as on e0fd775d.
+        name: expect.stringMatching(/0f127114/),
+        sha256: '0f127114695e405fd90a2bf52174e45874df71a1078a13dc6b39b352a647b1b8',
+        len: 517_920,
         windowSecs: 126_144_000,
       }]);
       expect(LADDER_BUILDS.some((b) => b.sha256 === null)).toBe(false);
