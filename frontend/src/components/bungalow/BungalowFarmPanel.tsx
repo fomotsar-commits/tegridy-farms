@@ -81,6 +81,9 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
   // Row 2 holds the lighthouse pool and the funding card side by side. With a ladder and
   // no lighthouse card (none, or members-only in the ladder's row), funding spans it.
   const fundingAlone = bungalow.chain === 'solana' && Boolean(bungalow.ladderPool) && (!bungalow.stakePool || membersOnly);
+  // Every pool's rewards in one press, placed inside the leading pool card below. Quiet: drawn
+  // only while there is something to claim. Level 3: it sits under that card's own heading.
+  const harvest = <HarvestCard quiet headingLevel={3} className="mt-4" />;
 
   return (
     <div className="relative min-h-screen">
@@ -118,10 +121,6 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
         </FinePrint>
       </div>
 
-      {/* Every pool's rewards in one press, here too (owner, 2026-10-30); drawn only while
-          there is something to claim. */}
-      <HarvestCard quiet />
-
       {/* THE LIVE POOL LEADS (2026-09-20): the ladder comes first in the DOM and spans
           the row. An open lighthouse pool shares row 2 with the funding card; a
           members-only one stacks under the ladder in its cell. DOM order IS visual
@@ -136,11 +135,14 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
               <div className="relative z-10 p-6"><p className="text-white/70 text-[13px]">{namesLadder ? 'Loading the lock ladder…' : 'Loading the lighthouse…'}</p></div>
             </div>
           }>
+            {/* Harvest goes INSIDE the room's first pool card, beside what that card says you
+                earned (owner, 2026-10-30, on the ladder card: "harvest all needs to be here
+                too"): one Harvest per page, in whichever card leads. */}
             {membersOnly ? (
               // The ladder, with the closed pool's members-only claim strip under it,
               // in ONE full-row cell.
               <div className="lg:col-span-2 min-w-0">
-                <SolanaPoolStack bungalow={bungalow} />
+                <SolanaPoolStack bungalow={bungalow} harvest={harvest} />
               </div>
             ) : bungalow.chain === 'solana' ? (
               // BOTH full cards while the Streamflow pool is open, or its full card alone
@@ -148,19 +150,19 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
               <>
                 {bungalow.ladderPool && (
                   <div className="lg:col-span-2 min-w-0">
-                    <SolanaLadderPoolLive bungalow={bungalow as Bungalow & { ladderPool: string }} />
+                    <SolanaLadderPoolLive bungalow={bungalow as Bungalow & { ladderPool: string }} harvest={harvest} />
                   </div>
                 )}
                 {bungalow.stakePool && (
                   <div className="min-w-0">
-                    <LighthousePoolLive bungalow={bungalow as Bungalow & { stakePool: string }} />
+                    <LighthousePoolLive bungalow={bungalow as Bungalow & { stakePool: string }} harvest={bungalow.ladderPool ? undefined : harvest} />
                   </div>
                 )}
               </>
             ) : bungalow.poolKind === 'ladder' ? (
-              <EvmLadderPoolLive bungalow={bungalow as Bungalow & { stakePool: string }} />
+              <EvmLadderPoolLive bungalow={bungalow as Bungalow & { stakePool: string }} harvest={harvest} />
             ) : (
-              <EvmLighthousePoolLive bungalow={bungalow as Bungalow & { stakePool: string }} />
+              <EvmLighthousePoolLive bungalow={bungalow as Bungalow & { stakePool: string }} harvest={harvest} />
             )}
           </Suspense>
         ) : (

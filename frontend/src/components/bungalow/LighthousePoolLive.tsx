@@ -80,10 +80,10 @@ import { RoomTorches } from '../RoomTorches';
  * through the connected wallet; every action reports its tx signature or
  * its honest failure inline.
  */
-export function LighthousePoolLive({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
+export function LighthousePoolLive({ bungalow, harvest }: { bungalow: Bungalow & { stakePool: string }; harvest?: ReactNode }) {
   return (
     <SolanaProviders>
-      <Inner bungalow={bungalow} />
+      <Inner bungalow={bungalow} harvest={harvest} />
     </SolanaProviders>
   );
 }
@@ -189,7 +189,7 @@ function refineFence(sig: string, set: (f: (prev: SigFence | null) => SigFence |
   });
 }
 
-function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
+function Inner({ bungalow, harvest }: { bungalow: Bungalow & { stakePool: string }; harvest?: ReactNode }) {
   const { publicKey, wallet } = useWallet();
   const openConnect = useSolanaConnect();
   const fid = useId();
@@ -1119,6 +1119,10 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
             </div>
             </>
             )}
+
+            {/* Every pool's rewards in one press, in this card (owner, 2026-10-30); drawn only
+                while there is something to claim, whether or not this pool holds a stake. */}
+            {harvest}
 
             {/* ── Your position ──────────────────────────────────────────── */}
             {publicKey && openEntries.length > 0 && (

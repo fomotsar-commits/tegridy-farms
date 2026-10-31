@@ -30,6 +30,13 @@ const CARDANO_GLOBAL_RPM_DEFAULT = 300;
 const CARDANO_DAILY_LIMIT = { limit: 6000, windowSec: 86_400, identifier: "cardano-day" };
 const CARDANO_GLOBAL_DAILY_DEFAULT = 45_000;
 
+// How long each ask of Koios may take. A read marked `retry` (the pool: no pool, no price) that
+// times out, cannot connect or meets a gateway error is asked once more. That second ask is a
+// read like any: the caller's daily cap and the site's both count it, so the key's quota still
+// holds and one caller cannot spend it twice as fast. A 429 is never asked again: Koios said
+// slow down. vercel.json gives this function room for both asks.
+export const ATTEMPT_TIMEOUTS_MS = [10_000, 15_000];
+
 export default async function handler(req, res) {
   if (req.method !== "GET") {
     res.setHeader("Allow", "GET");
@@ -58,12 +65,30 @@ export default async function handler(req, res) {
   if ("error" in built) return res.status(built.error).json({ error: built.message });
 
   let upstream;
-  try {
-    upstream = await fetch(built.url, { ...built.init, signal: AbortSignal.timeout(10_000) });
-  } catch (err) {
-    console.error("[cardano] fetch error:", logSafe(err));
-    return res.status(502).json({ error: "Upstream error" });
+  const attempts = built.retry ? ATTEMPT_TIMEOUTS_MS.length : 1;
+  for (let i = 0; i < attempts; i++) {
+    if (i > 0) {
+      if (!(await checkRateLimit(req, res, CARDANO_DAILY_LIMIT))) return;
+      const underDailyCapAgain = await checkGlobalLimit(res, {
+        limit: Number(process.env.CARDANO_GLOBAL_DAILY) || CARDANO_GLOBAL_DAILY_DEFAULT,
+        windowSec: 86_400,
+        identifier: "cardano-day",
+      });
+      if (!underDailyCapAgain) return;
+    }
+    try {
+      upstream = await fetch(built.url, { ...built.init, signal: AbortSignal.timeout(ATTEMPT_TIMEOUTS_MS[i]) });
+    } catch (err) {
+      console.error(`[cardano] fetch error (ask ${i + 1} of ${attempts}):`, logSafe(err));
+      upstream = undefined;
+      continue;
+    }
+    // Any answer below 500 is Koios's own (a 429 included); a 5xx is its gateway failing.
+    if (upstream.status < 500 || i === attempts - 1) break;
+    console.error(`[cardano] upstream HTTP ${upstream.status} (ask ${i + 1} of ${attempts})`);
+    await upstream.body?.cancel().catch(() => {});
   }
+  if (!upstream) return res.status(502).json({ error: "Upstream error" });
   let text;
   try {
     const read = await readBoundedText(upstream, MAX_RESPONSE_BYTES);

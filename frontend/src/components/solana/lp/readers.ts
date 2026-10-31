@@ -35,8 +35,10 @@ export interface LpReaders {
   /**
    * Every pool on the venue, for the list shown before a token is picked (poolList.ts).
    * Optional: a reader without it shows no list, and every existing fake still fits.
+   * `fresh`: a read of its own, never the answer to a read already in flight (a finished
+   * liquidity flow and a Read again press must see the chain as it is now).
    */
-  listPools?(): Promise<PoolListRead>;
+  listPools?(opts?: { fresh?: boolean }): Promise<PoolListRead>;
   /**
    * Jupiter's USD prices for a set of coins, in the one read the edge shares for 30
    * seconds (lib/jupiter.ts `getUsdPrices`): All pools' price tags (poolList.ts
@@ -107,7 +109,17 @@ export function browserLpReaders(): LpReaders | null {
     programId: programId.toBase58(),
     safety: (mints) => readTokenSafety(rpc, mints),
     findPools: (mint, also) => findPools(rpc, mint, also?.length ? { ...indexOpts, also } : indexOpts),
-    listPools: () => (listing ??= listPools(rpc, indexOpts).finally(() => { listing = null; })),
+    listPools: (o) => {
+      // A fresh read becomes the one in flight, so a card asking meanwhile shares it too; a read
+      // it replaced clears nothing when it settles.
+      if (o?.fresh || !listing) {
+        const mine: Promise<PoolListRead> = listPools(rpc, indexOpts).finally(() => {
+          if (listing === mine) listing = null;
+        });
+        listing = mine;
+      }
+      return listing;
+    },
     // Ends like every LP read (readFetch.ts): a read that never answers is "not read", not a list with no price tags.
     marketPrices: (mints) => getUsdPrices(mints, AbortSignal.timeout(READ_TIMEOUT_MS), { shared: true }),
     outsidePrice: (mint, decimals, o) => readOutsidePrice(mint, decimals, { rpc, programId: ownPoolPrograms([programId.toBase58()]) }, jupiter, undefined, o),

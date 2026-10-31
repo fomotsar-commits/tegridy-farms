@@ -1,6 +1,6 @@
 // Polyfill MUST load before any @solana/* import — same rule as SolanaProviders.
 import '../../lib/solanaPolyfill';
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { m } from 'framer-motion';
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
@@ -76,10 +76,10 @@ import { RoomTorches } from '../RoomTorches';
  *    runs them here first so a refusal explains itself instead of arriving as a
  *    constraint failure after a fee has been paid.
  */
-export function SolanaLadderPoolLive({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
+export function SolanaLadderPoolLive({ bungalow, harvest }: { bungalow: Bungalow & { ladderPool: string }; harvest?: ReactNode }) {
   return (
     <SolanaProviders>
-      <SolanaLadderPoolCard bungalow={bungalow} />
+      <SolanaLadderPoolCard bungalow={bungalow} harvest={harvest} />
     </SolanaProviders>
   );
 }
@@ -126,7 +126,12 @@ function resolveConfig(poolAddress: string): Config {
  * wallet with positions gets one line and a link to this room's full card on Earn, where its
  * positions, the pool's figures and the notes are; nothing here can claim or exit.
  */
-export function SolanaLadderPoolCard({ bungalow, compact = false }: { bungalow: Bungalow & { ladderPool: string }; compact?: boolean }) {
+export function SolanaLadderPoolCard({ bungalow, compact = false, harvest }: {
+  bungalow: Bungalow & { ladderPool: string };
+  compact?: boolean;
+  /** Harvest, placed in the earned panel by the pool page (BungalowFarmPanel). */
+  harvest?: ReactNode;
+}) {
   const { publicKey, wallet } = useWallet();
   const { connection } = useConnection();
   const openConnect = useSolanaConnect();
@@ -664,6 +669,9 @@ export function SolanaLadderPoolCard({ bungalow, compact = false }: { bungalow: 
                       )}
                     </>
                   )}
+                  {/* Every pool's rewards in one press, in this panel (owner, 2026-10-30, on this card:
+                      "harvest all needs to be here too"). Drawn only while there is something to claim. */}
+                  {harvest}
                 </div>
 
                 {youLoaded && (
