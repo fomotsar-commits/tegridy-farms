@@ -33,6 +33,7 @@ import {
   PRECISION, minWeightFloor, lastTimeApplicable, rewardPerWeightNow, earnedNow,
   REWARDS_DURATION_SECS, perDayAtTodaysRate, aprLabel,
 } from './program';
+import { BUNGALOWS, LADDER_MAINNET_PROGRAM, ROOM_LADDER_POOLS } from '../bungalows';
 
 const MATH_RS = resolve(
   dirname(fileURLToPath(import.meta.url)),
@@ -100,6 +101,28 @@ describe('PDAs — checked against the addresses the live pool actually has', ()
   it('user stats are per (pool, owner)', () => {
     const pool = new PublicKey(POOL);
     expect(userStatsPda(PROGRAM, pool, OWNER).toBase58()).toHaveLength(44);
+  });
+
+  // Owner, 2026-10-31: the other Solana rooms stake exactly like BAYLA, each on a pool of the
+  // mainnet program. Their pools are hardcoded in bungalows.ts; the seeds are proven on BAYLA's.
+  it("each room's ladder pool is its own mint's nonce-0 pool, the seeds that give BAYLA its live pool", () => {
+    const registry = JSON.parse(readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../../scripts/addresses.json'), 'utf-8')) as {
+      solana: { id: string; address: string }[];
+    };
+    const at = (id: string) => registry.solana.find((e) => e.id === id)!.address;
+    const mainnet = new PublicKey(LADDER_MAINNET_PROGRAM);
+    const poolOf = (mint: string) => poolPda(mainnet, new PublicKey(mint), 0).toBase58();
+    expect(LADDER_MAINNET_PROGRAM).toBe(at('bayla-ladder-program'));
+    expect(poolOf(BUNGALOWS.find((r) => r.id === 'bayla')!.address!), 'the seeds, proven on the live pool').toBe(at('bayla-ladder-pool'));
+    expect(Object.keys(ROOM_LADDER_POOLS)).toEqual(['bobo', 'soy', 'brainlet', 'rizz']);
+    for (const [id, pool] of Object.entries(ROOM_LADDER_POOLS)) {
+      const room = BUNGALOWS.find((r) => r.id === id)!;
+      expect(room.chain, id).toBe('solana');
+      expect(pool, id).toBe(poolOf(room.address!));
+      expect(pool, `${id} in the registry`).toBe(at(`ladder-pool-${id}`));
+      expect(stakeVaultPda(mainnet, new PublicKey(pool)).toBase58(), `${id} stake vault`).toBe(at(`ladder-stake-vault-${id}`));
+      expect(rewardVaultPda(mainnet, new PublicKey(pool)).toBase58(), `${id} reward vault`).toBe(at(`ladder-reward-vault-${id}`));
+    }
   });
 });
 

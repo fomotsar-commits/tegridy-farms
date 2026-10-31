@@ -8,12 +8,12 @@ import { isLadderConfigured, ladderProgramId } from './program';
 import { readLadderPool } from './read';
 
 /**
- * The ladder pool's total principal, as the pool account holds it, or null when the ladder
- * is not configured for this deployment or could not be read. The same room lookup as the
- * dashboard's ladder read (wallet/readSolanaWallet.ts).
+ * BAYLA's ladder pool's total principal, as the pool account holds it, or null when the ladder
+ * is not configured for this deployment or could not be read. BAYLA's by name: the strip counts
+ * the island's coin, and since 2026-10-31 other rooms have ladders too.
  */
 export async function readLadderLocked(): Promise<{ symbol: string; raw: bigint; decimals: number } | null> {
-  const room = BUNGALOWS.find((b) => b.live && b.chain === 'solana' && b.ladderPool);
+  const room = BUNGALOWS.find((b) => b.id === 'bayla' && b.live && b.ladderPool);
   if (!room?.ladderPool || !isLadderConfigured()) return null;
   try {
     const conn = new Connection(solanaRpcEndpoint(), 'confirmed');

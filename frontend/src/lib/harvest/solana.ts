@@ -28,7 +28,7 @@ import { holdReload } from '../reloadHold';
 import { sendSigned, signatureOf, stampBlockhash } from '../solana/swap/islandBasketSol';
 import { DECLINED_IN_WALLET } from '../solana/swap/walletCopy';
 import { signThrowCopy } from '../solana/walletThrow';
-import { BUNGALOWS, type Bungalow } from '../bungalows';
+import { ladderRooms, type Bungalow } from '../bungalows';
 import { clipReason, fmtAmount, solanaStakePools, type StakeTarget } from '../wallet/walletRows';
 import type { ClaimResult, HarvestClaim, HarvestPlan, HarvestUnread } from './types';
 
@@ -229,9 +229,8 @@ async function readStreamflowHarvest(owner: string, target: StakeTarget): Promis
   }
 }
 
-async function readLadderHarvest(owner: string, nowSecs: number): Promise<Plan> {
-  const room = BUNGALOWS.find((b) => b.live && b.chain === 'solana' && b.ladderPool);
-  if (!room?.ladderPool || !isLadderConfigured()) return empty();
+async function readLadderHarvest(owner: string, room: Bungalow & { ladderPool: string }, nowSecs: number): Promise<Plan> {
+  if (!isLadderConfigured()) return empty();
   const unread = (detail: string) => unreadPlan({ key: `ladder:${room.ladderPool}`, chain: 'solana', roomId: room.id, what: `your ${room.symbol} locks`, detail });
   try {
     const conn = connection();
@@ -258,13 +257,18 @@ async function readLadderHarvest(owner: string, nowSecs: number): Promise<Plan> 
  * The Streamflow pools go ONE AT A TIME. Each is several program-account searches, and all
  * of them at once was a burst the RPC throttled: walked on 2026-10-24 against the keyless
  * public endpoint, 43 of 83 calls came back 429 and a wallet's two lighthouse stakes read
- * as not read. The ladder is a handful of plain account reads and runs alongside.
+ * as not read. A ladder is a handful of plain account reads, so the ladders run alongside,
+ * one room after another.
  */
 export async function readSolanaHarvest(owner: string, nowSecs = Math.floor(Date.now() / 1000)): Promise<Plan> {
-  const ladder = readLadderHarvest(owner, nowSecs);
+  const ladders = (async () => {
+    const plans: Plan[] = [];
+    for (const room of ladderRooms()) plans.push(await readLadderHarvest(owner, room, nowSecs));
+    return plans;
+  })();
   const stakes: Plan[] = [];
   for (const t of solanaStakePools()) stakes.push(await readStreamflowHarvest(owner, t));
-  return merge([...stakes, await ladder]);
+  return merge([...stakes, ...(await ladders)]);
 }
 
 /** A wallet that signs several transactions on one prompt. Null: one prompt per claim. */

@@ -147,6 +147,10 @@ describe('readSolanaHoldings', () => {
 });
 
 describe('readSolanaLadder', () => {
+  const room = (id = 'bayla') => {
+    const b = BUNGALOWS.find((x) => x.id === id)!;
+    return { ...b, ladderPool: b.ladderPool ?? LADDER_POOL };
+  };
   const pool = { ok: true, value: { decimals: 6, totalWeighted: 10n ** 18n, rewardRate: 0n, periodFinish: 0n, lastUpdateTime: 0n, rewardPerWeightStored: 0n, rpwResidueRaw: 0n, minStakeRaw: 0n } };
   beforeEach(() => {
     ladder.pool = pool;
@@ -154,19 +158,19 @@ describe('readSolanaLadder', () => {
 
   it('passes a failed wallet read on as not read', async () => {
     ladder.wallet = { ok: false, unreadable: true, reason: 'your position could not be read: 429' };
-    expect(await readSolanaLadder(OWNER)).toEqual({ status: 'unread', detail: 'your position could not be read: 429' });
+    expect(await readSolanaLadder(OWNER, room())).toEqual({ status: 'unread', detail: 'your position could not be read: 429' });
   });
 
   it('is not read when the scan was cut short or a slot did not answer: a partial list is never the list', async () => {
     ladder.wallet = { ok: true, value: { stats: {}, slots: [], open: [], truncated: true } };
-    expect((await readSolanaLadder(OWNER)).status).toBe('unread');
+    expect((await readSolanaLadder(OWNER, room())).status).toBe('unread');
     ladder.wallet = { ok: true, value: { stats: {}, slots: [{ nonce: 0, state: 'unreadable', reason: 'x' }], open: [], truncated: false } };
-    expect((await readSolanaLadder(OWNER)).status).toBe('unread');
+    expect((await readSolanaLadder(OWNER, room())).status).toBe('unread');
   });
 
   it('a wallet that never staked has no lock rows, and that is a read', async () => {
     ladder.wallet = { ok: true, value: { stats: null, slots: [], open: [], truncated: false } };
-    expect(await readSolanaLadder(OWNER)).toEqual({ status: 'ok', rows: [] });
+    expect(await readSolanaLadder(OWNER, room())).toEqual({ status: 'ok', rows: [] });
   });
 
   it('lists an open lock: amount, unlock, its multiplier and what it has earned', async () => {
@@ -182,7 +186,7 @@ describe('readSolanaLadder', () => {
       },
     };
     const bayla = BUNGALOWS.find((b) => b.id === 'bayla')!;
-    const leg = await readSolanaLadder(OWNER, { prices: async () => ({ [bayla.address!]: 0.002 }) });
+    const leg = await readSolanaLadder(OWNER, room(), { prices: async () => ({ [bayla.address!]: 0.002 }) });
     expect(leg.status).toBe('ok');
     if (leg.status !== 'ok') return;
     expect(leg.rows[0]).toMatchObject({ title: `${bayla.symbol} lock`, to: '/earn/bayla', roomId: 'bayla' });
@@ -196,14 +200,28 @@ describe('readSolanaLadder', () => {
       ok: true,
       value: { stats: {}, slots: [], truncated: false, open: [{ address: 'x', amountRaw: 1_000_000n, weight: 1_000_000n, lockEnd: 0n, rewardPerWeightPaid: 0n, rewardsOwed: 0n }] },
     };
-    const leg = await readSolanaLadder(OWNER, { prices: async () => { throw new Error('price/v3 429'); } });
+    const leg = await readSolanaLadder(OWNER, room(), { prices: async () => { throw new Error('price/v3 429'); } });
     expect(leg.status === 'ok' && leg.rows.map((r) => [r.facts[0], r.usd])).toEqual([['1 BAYLA', null]]);
+  });
+
+  it("names the room it was asked for: another room's locks carry that room's coin and page", async () => {
+    ladder.wallet = {
+      ok: true,
+      value: {
+        stats: {},
+        slots: [{ nonce: 0, state: 'open' }],
+        truncated: false,
+        open: [{ address: key(51).toBase58(), amountRaw: 5_000_000n, weight: 2_000_000n, lockEnd: 0n, rewardPerWeightPaid: 0n, rewardsOwed: 0n }],
+      },
+    };
+    const leg = await readSolanaLadder(OWNER, room('bobo'), { prices: async () => ({}) });
+    expect(leg.status === 'ok' && leg.rows.map((r) => [r.title, r.roomId, r.to, r.facts[0]])).toEqual([['BOBO lock', 'bobo', '/earn/bobo', '5 BOBO']]);
   });
 
   it('is not read when the wallet has locks but the pool could not be read: earned needs the pool', async () => {
     ladder.pool = { ok: false, unreadable: true, reason: 'the pool could not be read' };
     ladder.wallet = { ok: true, value: { stats: {}, slots: [], truncated: false, open: [{ address: 'x', amountRaw: 1n, weight: 1n, lockEnd: 0n, rewardPerWeightPaid: 0n, rewardsOwed: 0n }] } };
-    expect((await readSolanaLadder(OWNER)).status).toBe('unread');
+    expect((await readSolanaLadder(OWNER, room())).status).toBe('unread');
   });
 });
 

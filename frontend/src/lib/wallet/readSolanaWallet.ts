@@ -23,7 +23,7 @@ import { readLadderPool, readLadderWallet } from '../ladder/read';
 import { earnedNow, isLadderConfigured, ladderProgramId } from '../ladder/program';
 import { boostLabel } from '../ladder/format';
 import { readEntries, readPool, unlockTs } from '../bungalowStaking';
-import { BUNGALOWS, bungalowByAddress, type Bungalow } from '../bungalows';
+import { bungalowByAddress, type Bungalow } from '../bungalows';
 import { clipReason, fmtAmount, islandCoinsOn, unlockWords, usdOf, type HoldingRow, type Leg, type PositionRow, type StakeTarget } from './walletRows';
 
 const SOL_DECIMALS = 9;
@@ -124,10 +124,9 @@ export async function readSolanaHoldings(
   }
 }
 
-/** The wallet's open BAYLA lock-ladder positions: amount, unlock, multiplier, earned and worth. */
-export async function readSolanaLadder(owner: string, opts: { prices?: PriceRead } = {}): Promise<Leg<PositionRow>> {
-  const room = BUNGALOWS.find((b) => b.live && b.chain === 'solana' && b.ladderPool);
-  if (!room?.ladderPool || !isLadderConfigured()) return { status: 'ok', rows: [] };
+/** The wallet's open positions in one room's lock ladder: amount, unlock, multiplier, earned and worth. */
+export async function readSolanaLadder(owner: string, room: Bungalow & { ladderPool: string }, opts: { prices?: PriceRead } = {}): Promise<Leg<PositionRow>> {
+  if (!isLadderConfigured()) return { status: 'ok', rows: [] };
   try {
     const conn = new Connection(solanaRpcEndpoint(), 'confirmed');
     const programId = ladderProgramId();

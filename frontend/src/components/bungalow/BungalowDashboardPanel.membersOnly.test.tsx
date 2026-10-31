@@ -410,7 +410,16 @@ describe('your positions: what the locks and pool shares hold, in USD', () => {
     expect(c.textContent).toContain('≈ $320.00');
     expect(c.textContent).not.toMatch(/BOBO|999/);
     expect(within(c).getByRole('link', { name: 'BAYLA lock' }).getAttribute('href')).toBe('/earn/bayla');
-    expect(walletReads.readSolanaLadder).toHaveBeenCalledWith(WALLET_A);
+    expect(walletReads.readSolanaLadder).toHaveBeenCalledWith(WALLET_A, expect.objectContaining({ id: 'bayla', ladderPool: MEMBERS_ONLY.ladderPool }));
+  });
+
+  it("a room with its own ladder reads that room's ladder, not BAYLA's (owner, 2026-10-31)", async () => {
+    const BOBO_LADDER = { ...MEMBERS_ONLY, id: 'bobo', symbol: 'BOBO', ladderPool: 'CX24Ti8vamGXAVF2T9bgJj3EfX627Na4tcXbfkaDz1pT' } as unknown as Dashboarded;
+    fixtures.ladder = { status: 'ok', rows: [row({ key: 'l1', roomId: 'bobo', title: 'BOBO lock', to: '/earn/bobo' })] };
+    mount(BOBO_LADDER);
+    const c = await waitFor(() => { const el = card(); expect(el).toBeTruthy(); return el!; });
+    expect(walletReads.readSolanaLadder).toHaveBeenCalledWith(WALLET_A, expect.objectContaining({ id: 'bobo', ladderPool: BOBO_LADDER.ladderPool }));
+    expect(within(c).getByRole('link', { name: 'BOBO lock' }).getAttribute('href')).toBe('/earn/bobo');
   });
 
   it('prints no total while a position has no price, and says which one', async () => {

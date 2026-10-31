@@ -6,7 +6,7 @@ import { useUserPosition } from './useUserPosition';
 import { useMarketFeed } from './useMarketFeed';
 import { islandPoolsOn } from '../lib/terminal/islandPools';
 import { useTOWELIPriceOptional } from '../contexts/PriceContext';
-import { BUNGALOWS } from '../lib/bungalows';
+import { ladderRooms } from '../lib/bungalows';
 import {
   evmLadderRooms,
   fmtAmount,
@@ -44,14 +44,16 @@ const nowSecs = () => Math.floor(Date.now() / 1000);
 
 type SolanaJob = { key: string; what: string; kind: 'holdings' | 'positions'; run: (owner: string) => Promise<Leg<HoldingRow> | Leg<PositionRow>> };
 
-function solanaJobs(): SolanaJob[] {
-  const load = () => import('../lib/wallet/readSolanaWallet');
-  const ladderRoom = BUNGALOWS.find((b) => b.live && b.chain === 'solana' && b.ladderPool);
+/** Exported for its test, which passes its own reader module as `load`. */
+export function solanaJobs(load: () => Promise<typeof import('../lib/wallet/readSolanaWallet')> = () => import('../lib/wallet/readSolanaWallet')): SolanaJob[] {
   return [
     { key: 'sol-holdings', what: 'your Solana coins', kind: 'holdings', run: async (o) => (await load()).readSolanaHoldings(o) },
-    ...(ladderRoom
-      ? [{ key: 'sol-ladder', what: `your ${ladderRoom.symbol} locks`, kind: 'positions' as const, run: async (o: string) => (await load()).readSolanaLadder(o) }]
-      : []),
+    ...ladderRooms().map((room) => ({
+      key: `sol-ladder:${room.ladderPool}`,
+      what: `your ${room.symbol} locks`,
+      kind: 'positions' as const,
+      run: async (o: string) => (await load()).readSolanaLadder(o, room),
+    })),
     { key: 'sol-lp', what: 'your pool shares on Solana', kind: 'positions', run: async (o) => (await load()).readSolanaPoolShares(o) },
     ...solanaStakePools().map((t) => ({
       key: `sol-stake:${t.pool}`,

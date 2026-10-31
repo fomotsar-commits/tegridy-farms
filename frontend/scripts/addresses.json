@@ -484,6 +484,126 @@
       }
     },
     {
+      "id": "ladder-pool-bobo",
+      "address": "CX24Ti8vamGXAVF2T9bgJj3EfX627Na4tcXbfkaDz1pT",
+      "role": "The BOBO ladder pool (owner, 2026-10-31: the Solana rooms stake exactly like BAYLA) — PDA seeds ['pool', BOBO mint 4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump, nonce 0] off bayla-ladder-program, the same program as bayla-ladder-pool. Legacy SPL token, 6 decimals. Created with BAYLA's terms: min stake 100, deposit cap 999,984,503 (the whole supply, floored), 10,000,000 per wallet.",
+      "custody": "program-derived, no key. Its `authority` FIELD is to be squads-vault GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd with `pendingAuthority` unset: the deployer Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6 creates it and proposes the vault in one transaction, and one vault transaction accepts all four rooms' pools. solanaFields asserts both on every chain read.",
+      "status": "PENDING: no account at this address at slot 463,834,158 (2026-10-31). The owner's pack ladder-four-rooms-2026-11 creates it; this row merges only once the vault has accepted the pool, and the chain read fails until then.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "ladder-stake-vault-bobo",
+      "address": "AsfbCpuXx7kmTXhrqQAR1EC3rDcyuSjsfHzyvarNRyiZ",
+      "role": "Stake vault for ladder-pool-bobo — PDA seeds ['svault', pool]. Legacy SPL token account holding every BOBO staker's PRINCIPAL. Its token-account `owner` field is the pool PDA, so only the program can move it.",
+      "custody": "program-derived, authority is the pool PDA — no key exists. No instruction lets the pool authority withdraw principal.",
+      "status": "PENDING: no account at this address at slot 463,834,158 (2026-10-31). The owner's pack ladder-four-rooms-2026-11 creates it; this row merges only once the vault has accepted the pool, and the chain read fails until then.",
+      "expect": {
+        "type": "token-account"
+      }
+    },
+    {
+      "id": "ladder-reward-vault-bobo",
+      "address": "9v2LmXDVxiYV4YeEaUdHg1gVZHpZ1v7KoCF2CCnUMUMM",
+      "role": "Reward vault for ladder-pool-bobo — PDA seeds ['rvault', pool]. Legacy SPL token account holding the BOBO emission budget. REWARDS ARE ONE-WAY: no instruction returns BOBO from here to the authority, so anything funded in is spent.",
+      "custody": "program-derived, authority is the pool PDA — no key exists, and no recovery path exists either.",
+      "status": "PENDING: no account at this address at slot 463,834,158 (2026-10-31). The owner's pack ladder-four-rooms-2026-11 creates it; this row merges only once the vault has accepted the pool, and the chain read fails until then.",
+      "expect": {
+        "type": "token-account"
+      }
+    },
+    {
+      "id": "ladder-pool-soy",
+      "address": "3woT5BZgznYQGvemUQmaKesbUmXJRWxaGUxAYkudSYBn",
+      "role": "The SOY ladder pool (owner, 2026-10-31: the Solana rooms stake exactly like BAYLA) — PDA seeds ['pool', SOY mint 8zsZESzrGoYVi1dVH4QNWXJ2EfW4v287aEGNiDvQpump, nonce 0] off bayla-ladder-program, the same program as bayla-ladder-pool. Legacy SPL token, 6 decimals. Created with BAYLA's terms: min stake 100, deposit cap 991,676,368 (the whole supply, floored), 10,000,000 per wallet.",
+      "custody": "program-derived, no key. Its `authority` FIELD is to be squads-vault GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd with `pendingAuthority` unset: the deployer Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6 creates it and proposes the vault in one transaction, and one vault transaction accepts all four rooms' pools. solanaFields asserts both on every chain read.",
+      "status": "PENDING: no account at this address at slot 463,834,158 (2026-10-31). The owner's pack ladder-four-rooms-2026-11 creates it; this row merges only once the vault has accepted the pool, and the chain read fails until then.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "ladder-stake-vault-soy",
+      "address": "Yv8EAb8Wa9GGsHa9rdPnBSqT1ggi2TNBShnTQ3WTRqU",
+      "role": "Stake vault for ladder-pool-soy — PDA seeds ['svault', pool]. Legacy SPL token account holding every SOY staker's PRINCIPAL. Its token-account `owner` field is the pool PDA, so only the program can move it.",
+      "custody": "program-derived, authority is the pool PDA — no key exists. No instruction lets the pool authority withdraw principal.",
+      "status": "PENDING: no account at this address at slot 463,834,158 (2026-10-31). The owner's pack ladder-four-rooms-2026-11 creates it; this row merges only once the vault has accepted the pool, and the chain read fails until then.",
+      "expect": {
+        "type": "token-account"
+      }
+    },
+    {
+      "id": "ladder-reward-vault-soy",
+      "address": "Hi6cYu7LmJKiyh4Z5agx8tGVtHoyCkHdbLZrLamhTbs7",
+      "role": "Reward vault for ladder-pool-soy — PDA seeds ['rvault', pool]. Legacy SPL token account holding the SOY emission budget. REWARDS ARE ONE-WAY: no instruction returns SOY from here to the authority, so anything funded in is spent.",
+      "custody": "program-derived, authority is the pool PDA — no key exists, and no recovery path exists either.",
+      "status": "PENDING: no account at this address at slot 463,834,158 (2026-10-31). The owner's pack ladder-four-rooms-2026-11 creates it; this row merges only once the vault has accepted the pool, and the chain read fails until then.",
+      "expect": {
+        "type": "token-account"
+      }
+    },
+    {
+      "id": "ladder-pool-brainlet",
+      "address": "9LunTnw1r4Xtjb86Cf9UeMTQMREmx3yc61CqzVLyBdGG",
+      "role": "The BRAINLET ladder pool (owner, 2026-10-31: the Solana rooms stake exactly like BAYLA) — PDA seeds ['pool', BRAINLET mint 4XKGjKaKowFvL5sYwh2AKx72vj9iwC8MNvpL44E9pump, nonce 0] off bayla-ladder-program, the same program as bayla-ladder-pool. Legacy SPL token, 6 decimals. Created with BAYLA's terms: min stake 100, deposit cap 999,998,668 (the whole supply, floored), 10,000,000 per wallet.",
+      "custody": "program-derived, no key. Its `authority` FIELD is to be squads-vault GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd with `pendingAuthority` unset: the deployer Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6 creates it and proposes the vault in one transaction, and one vault transaction accepts all four rooms' pools. solanaFields asserts both on every chain read.",
+      "status": "PENDING: no account at this address at slot 463,834,158 (2026-10-31). The owner's pack ladder-four-rooms-2026-11 creates it; this row merges only once the vault has accepted the pool, and the chain read fails until then.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "ladder-stake-vault-brainlet",
+      "address": "CpZf3MdwDbKQtSkSMdpGrHtaN21ebuayJJwYgwj2ZVX7",
+      "role": "Stake vault for ladder-pool-brainlet — PDA seeds ['svault', pool]. Legacy SPL token account holding every BRAINLET staker's PRINCIPAL. Its token-account `owner` field is the pool PDA, so only the program can move it.",
+      "custody": "program-derived, authority is the pool PDA — no key exists. No instruction lets the pool authority withdraw principal.",
+      "status": "PENDING: no account at this address at slot 463,834,158 (2026-10-31). The owner's pack ladder-four-rooms-2026-11 creates it; this row merges only once the vault has accepted the pool, and the chain read fails until then.",
+      "expect": {
+        "type": "token-account"
+      }
+    },
+    {
+      "id": "ladder-reward-vault-brainlet",
+      "address": "GZgCXvMXTcMWPXExYhLp9nj1SYcbSvo2MF91ZZuhFMue",
+      "role": "Reward vault for ladder-pool-brainlet — PDA seeds ['rvault', pool]. Legacy SPL token account holding the BRAINLET emission budget. REWARDS ARE ONE-WAY: no instruction returns BRAINLET from here to the authority, so anything funded in is spent.",
+      "custody": "program-derived, authority is the pool PDA — no key exists, and no recovery path exists either.",
+      "status": "PENDING: no account at this address at slot 463,834,158 (2026-10-31). The owner's pack ladder-four-rooms-2026-11 creates it; this row merges only once the vault has accepted the pool, and the chain read fails until then.",
+      "expect": {
+        "type": "token-account"
+      }
+    },
+    {
+      "id": "ladder-pool-rizz",
+      "address": "AenisnJhCvL7cPz49T7UHhePvBi1bjhJAfY4bV2t1Hgw",
+      "role": "The RIZZ ladder pool (owner, 2026-10-31: the Solana rooms stake exactly like BAYLA) — PDA seeds ['pool', RIZZ mint 5ad4puH6yDBoeCcrQfwV5s9bxvPnAeWDoYDj3uLyBS8k, nonce 0] off bayla-ladder-program, the same program as bayla-ladder-pool. Legacy SPL token, 6 decimals. Created with BAYLA's terms: min stake 100, deposit cap 773,739,825 (the whole supply, floored), 10,000,000 per wallet.",
+      "custody": "program-derived, no key. Its `authority` FIELD is to be squads-vault GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd with `pendingAuthority` unset: the deployer Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6 creates it and proposes the vault in one transaction, and one vault transaction accepts all four rooms' pools. solanaFields asserts both on every chain read.",
+      "status": "PENDING: no account at this address at slot 463,834,158 (2026-10-31). The owner's pack ladder-four-rooms-2026-11 creates it; this row merges only once the vault has accepted the pool, and the chain read fails until then.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "ladder-stake-vault-rizz",
+      "address": "2iGPpkXS4fS6pWidbZNFemaAQBUswJ2N8bHVyB3yBU6o",
+      "role": "Stake vault for ladder-pool-rizz — PDA seeds ['svault', pool]. Legacy SPL token account holding every RIZZ staker's PRINCIPAL. Its token-account `owner` field is the pool PDA, so only the program can move it.",
+      "custody": "program-derived, authority is the pool PDA — no key exists. No instruction lets the pool authority withdraw principal.",
+      "status": "PENDING: no account at this address at slot 463,834,158 (2026-10-31). The owner's pack ladder-four-rooms-2026-11 creates it; this row merges only once the vault has accepted the pool, and the chain read fails until then.",
+      "expect": {
+        "type": "token-account"
+      }
+    },
+    {
+      "id": "ladder-reward-vault-rizz",
+      "address": "Ebfm8jM6LGaxxUUPKXwN8m5YxGxkUmbC9Yn2b3Wab4eo",
+      "role": "Reward vault for ladder-pool-rizz — PDA seeds ['rvault', pool]. Legacy SPL token account holding the RIZZ emission budget. REWARDS ARE ONE-WAY: no instruction returns RIZZ from here to the authority, so anything funded in is spent.",
+      "custody": "program-derived, authority is the pool PDA — no key exists, and no recovery path exists either.",
+      "status": "PENDING: no account at this address at slot 463,834,158 (2026-10-31). The owner's pack ladder-four-rooms-2026-11 creates it; this row merges only once the vault has accepted the pool, and the chain read fails until then.",
+      "expect": {
+        "type": "token-account"
+      }
+    },
+    {
       "id": "bayla-ladder-deployer",
       "address": "Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6",
       "role": "Deployer of bayla-ladder. It holds NEITHER of the ladder's authorities now. From the deploy on 2026-09-20 until 2026-09-30 it held both: the ProgramData upgrade authority AND the pool's `authority` field (set_deposit_cap, notify_reward, set_degraded, the authority handover itself); both are squads-vault today, and so is the IDL authority. WHAT IT STILL HOLDS, read at finalized slot 455,316,026 (2026-10-10): the `authority` field of the five Streamflow stake pools registered here (lighthouse-bobo, lighthouse-soy, lighthouse-brainlet, lighthouse-rizz, lighthouse-bayla), which it took over from GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9 on 2026-09-21T09:21:46Z (slot 449,013,404). Compiled into the build as the only key that could call initialize_pool. Rotated 2026-09-20 away from GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9, which was also a devnet faucet hot key in a cloud-synced folder.",
@@ -2273,6 +2393,10 @@
       "range-clmm-programdata": { "layout": "programdata", "upgradeAuthority": "squads-vault" },
       "bayla-ladder-idl": { "layout": "anchor-idl", "owner": "bayla-ladder-program", "authority": "squads-vault" },
       "bayla-ladder-pool": { "layout": "bayla-ladder-pool", "owner": "bayla-ladder-program", "authority": "squads-vault", "pendingAuthority": "system-program" },
+      "ladder-pool-bobo": { "layout": "bayla-ladder-pool", "owner": "bayla-ladder-program", "authority": "squads-vault", "pendingAuthority": "system-program" },
+      "ladder-pool-soy": { "layout": "bayla-ladder-pool", "owner": "bayla-ladder-program", "authority": "squads-vault", "pendingAuthority": "system-program" },
+      "ladder-pool-brainlet": { "layout": "bayla-ladder-pool", "owner": "bayla-ladder-program", "authority": "squads-vault", "pendingAuthority": "system-program" },
+      "ladder-pool-rizz": { "layout": "bayla-ladder-pool", "owner": "bayla-ladder-program", "authority": "squads-vault", "pendingAuthority": "system-program" },
       "cp-swap-amm-config-restart": {
         "layout": "cp-swap-amm-config",
         "owner": "cp-swap-program-restart",
