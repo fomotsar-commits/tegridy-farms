@@ -13,6 +13,7 @@ import { BROWSER_RPC_TIMEOUT_MS, browserRpc, type SolanaRpc } from '../../../lib
 import { findPools } from '../../../lib/solana/lp/poolFinder';
 import { readOutsidePrice } from '../../../lib/solana/lp/outsidePrice';
 import { readPositions } from '../../../lib/solana/lp/positions';
+import { listPools } from '../../../lib/solana/lp/poolList';
 import { BAYLA_QUOTE, USDC_QUOTE } from '../../../lib/solana/lp/quotes';
 import { READ_TIMEOUT_MS } from '../../../lib/solana/lp/readFetch';
 import { remaining } from '../../../lib/solana/lp/rpcBudget';
@@ -35,6 +36,10 @@ vi.mock('../../../lib/solana/lp/outsidePrice', async (importOriginal) => {
 vi.mock('../../../lib/solana/lp/positions', async (importOriginal) => {
   const mod = await importOriginal<typeof import('../../../lib/solana/lp/positions')>();
   return { ...mod, readPositions: vi.fn(async () => ({ kind: 'unread', detail: 'stub' })) };
+});
+vi.mock('../../../lib/solana/lp/poolList', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('../../../lib/solana/lp/poolList')>();
+  return { ...mod, listPools: vi.fn(() => new Promise<never>(() => {})) };
 });
 vi.mock('../../../lib/launcher/solana/curve/rpc', async (importOriginal) => {
   const mod = await importOriginal<typeof import('../../../lib/launcher/solana/curve/rpc')>();
@@ -169,5 +174,23 @@ describe('walletArgs: what the browser’s wallet reader hands to the read', () 
     };
     const f = await readWalletFacts(fakeRpc(accounts), walletArgs(owner, mint, TOKEN_PROGRAM, null, { quote: USDC_QUOTE }));
     expect(f).toMatchObject({ kind: 'ok', coin: { exists: true, amount: 250_000_000n }, wsol: { exists: false, amount: 0n } });
+  });
+});
+
+// The list read is shared while it is in flight (All pools and Every position ask together), and a
+// fresh ask (a finished liquidity flow, a Read again press) is its own read, which later asks then share.
+describe('listPools: one read in flight is shared; a fresh ask starts another', () => {
+  it('two asks share one read; a fresh ask starts another, and later asks share that one', () => {
+    vi.mocked(listPools).mockClear();
+    const r = browserLpReaders();
+    expect(r?.listPools).toBeDefined();
+    const first = r!.listPools!();
+    expect(r!.listPools!()).toBe(first);
+    expect(listPools).toHaveBeenCalledTimes(1);
+    const fresh = r!.listPools!({ fresh: true });
+    expect(fresh).not.toBe(first);
+    expect(listPools).toHaveBeenCalledTimes(2);
+    expect(r!.listPools!()).toBe(fresh);
+    expect(listPools).toHaveBeenCalledTimes(2);
   });
 });
