@@ -15,6 +15,39 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-31: a local validator charges more rent than mainnet, a vault simulation needs the vault's account, and a PDA fails to derive under jsdom
+
+Found building and rehearsing the four-rooms ladder pack (`ladder-four-rooms-2026-11`, PR #1083).
+
+**Believed:** a rehearsal can check what a send spent against mainnet's rent.
+**Measured:** `solana-test-validator` 3.1.11 asked 4,426,560 lamports for a 508-byte ladder pool
+and 2,039,280 for a 165-byte token account (6,960 lamports a byte, the 128-byte header included);
+mainnet's `getMinimumBalanceForRentExemption` the same day answered 3,230,880 and 1,488,440 (5,080
+a byte). Four pools spent 0.034045280 SOL on the local chain against 0.02485584 quoted for mainnet,
+and a check written with mainnet's figure failed a send that was right.
+**Do:** read the rent from the chain under test, never a constant.
+
+**Believed:** a snapshot can leave out the Squads vault's own account, because the vault pays
+nothing in the step being rehearsed.
+**Measured:** the signing page simulates each proposal as the vault, and the vault is that
+simulation's fee payer: with no account at its address the page said `AccountNotFound` and offered
+no Sign button, while every other check was green.
+**Do:** load the vault account in every snapshot whose page simulates as the vault.
+
+**Believed:** `PublicKey.findProgramAddressSync` works in any vitest environment.
+**Measured:** under the default `jsdom` environment it threw `Unable to find a viable program address
+nonce` for seeds that derive BAYLA's live pool under `node` (`src/lib/bungalows.test.ts`, the same
+call moved to `src/lib/ladder/program.test.ts`, which is `@vitest-environment node`, passed).
+This is the PDA half of the 2026-10-30 entry on signatures.
+**Do:** put any PDA derivation in a test that declares `// @vitest-environment node`.
+
+### Incidental
+
+`vi.mock('../lib/wallet/readSolanaWallet', factory)` in a test of `src/hooks/useWalletBoard.ts` ran
+its factory but the hook's `import('../lib/wallet/readSolanaWallet')` got the real module: a leg
+read `fetch failed` instead of the mocked rows. The cause was not found. Passing the loader in
+(`solanaJobs(load)`) made the test independent of it.
+
 ## 2026-10-31: a merged pull request reads `mergeable: UNKNOWN`, and REST still calls it clean
 
 **Believed:** `gh pr view N --json mergeable,mergeStateStatus` reading `UNKNOWN` after a push is
