@@ -415,3 +415,37 @@ describe('useSwapQuote: ETH into WETH is one coin, not a route', () => {
     expect(q.routeLabel).toMatch(/^Direct swap via/);
   });
 });
+
+describe('useSwapQuote: a dust pool reads as the impact it is (2026-11-01)', () => {
+  beforeEach(() => wagmiMock.reset());
+
+  it("Base's live BNKR/WETH V2 pool: 1.75M in drains it, and the impact says ~100%", () => {
+    // Read on Base 2026-11-01, pair 0x7760…7b96: token0 = BNKR, reserves 7.19 BNKR /
+    // 0.0000011 ETH, and the router's getAmountsOut for 1.75M BNKR.
+    const IN = 1_750_000n * 10n ** 18n;
+    stubDirectPair();
+    stubPairReads([7_189_201_342_686_852_655n, 1_072_070_123_355n, 0], TKN.address);
+    stubUniQuote(IN, 1_072_065_705_933n);
+
+    const { result } = render(TKN, ETH, IN);
+
+    expect(result.current.priceImpact).not.toBeNull();
+    expect(result.current.priceImpact!).toBeGreaterThan(99);
+  });
+
+  it('multi-hop with a leg reading zero reserves -> null, never a made-up 0.5%', () => {
+    stubDirectPair();
+    wagmiMock.setReadResult({
+      functionName: 'getAmountsOut',
+      address: UNISWAP_V2_ROUTER,
+      result: [DUST_IN, parseEther('0.5'), parseEther('900')],
+    });
+    stubPairReads([0n, 0n, 0], WETH_ADDRESS);
+
+    const { result } = render(TKN, TKB, DUST_IN);
+
+    expect(result.current.path).toHaveLength(3);
+    // OLD: `return 0.5` - a small, signable figure under useSwap's 15% block.
+    expect(result.current.priceImpact).toBeNull();
+  });
+});
