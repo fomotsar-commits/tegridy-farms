@@ -42,7 +42,7 @@ contract R018StakingTest is Test {
     function setUp() public {
         token = new R018MockToken();
         nft = new R018MockNFT();
-        staking = new TegridyStaking(address(token), address(nft), treasury, START_RATE);
+        staking = new TegridyStaking(address(token), address(nft), treasury);
         monitor = new StakingMonitorView(address(staking));
         admin = new TegridyStakingAdmin(address(staking));
         staking.setStakingAdmin(address(admin));
@@ -257,30 +257,12 @@ contract R018StakingTest is Test {
 
     // ===== M-005-01: Synthetix streaming ==================================
 
-    /// @notice Streaming activates when rewardsDuration > 0; a fund-then-claim
-    /// self-deal cannot drain a single-block windfall because the same reward
-    /// is paid out gradually over `rewardsDuration` seconds.
-    /// @dev DISABLED: M-005-01 streaming (`proposeRewardsDuration`,
-    ///      `executeRewardsDurationChange`, `rewardsDuration`, `periodFinish`)
-    ///      was deferred — the current `TegridyStaking` exposes
-    ///      `proposeRewardRate` instead. Body retained as documentation of the
-    ///      intended invariant; will be re-enabled when streaming lands.
-    function test_R018_streaming_neutralizesFundThenClaim() public pure {
-        // Body removed to keep the test suite compiling. See R018.md (M-005-01).
-        return;
-    }
-
-    /// @notice After periodFinish, no new accrual happens until next notify.
-    /// @dev DISABLED: see `test_R018_streaming_neutralizesFundThenClaim` above.
-    function test_R018_streaming_haltsAtPeriodFinish() public pure {
-        return;
-    }
-
-    /// @notice executeRewardsDurationChange must REVERT while a stream is active.
-    /// @dev DISABLED: see `test_R018_streaming_neutralizesFundThenClaim` above.
-    function test_R018_streaming_durationLockedDuringActiveStream() public pure {
-        return;
-    }
+    // M-005-01 landed 2026-10-18 (owner ruling: the pot is paid out over four years). The three
+    // placeholders that stood here are now real tests in StakingFourYearStream_2026_10_18.t.sol:
+    //   fund-then-claim cannot drain a windfall  -> test_R018_fundThenClaim_paysOneSecondNotThePot
+    //   no accrual after periodFinish            -> test_R018_haltsAtPeriodFinish_andNeverPaysMoreThanFunded
+    //   duration cannot move during a stream     -> REWARDS_DURATION is a constant: no setter at all
+    //                                               (test_noRateOrDurationSetter_onStakingOrAdmin)
 
     // ===== Helpers (read-only) ============================================
 

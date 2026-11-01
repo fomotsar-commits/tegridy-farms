@@ -41,10 +41,11 @@ so an old reference can be traced, never mixed into the live set.
 | Contract | Address | Source | Status |
 |---|---|---|---|
 | **TOWELI** — ERC20 governance/reward token, 1B minted once, no mint path. | [`0x420698CFdEDdEa6bc78D59bC17798113ad278F9D`](https://etherscan.io/address/0x420698CFdEDdEa6bc78D59bC17798113ad278F9D) | ⚠️ **not this repo's source** — see the note below | Live |
-| **TegridyStaking** — veTOWELI lockup (7d–4y), 0.4x–4.0x boost, flat 25% early-exit penalty paid to the treasury, +0.5x JBAC bonus. | [`0xcaDc93E96De58EA554c71ca609974625615E046D`](https://etherscan.io/address/0xcaDc93E96De58EA554c71ca609974625615E046D) | `contracts/src/TegridyStaking.sol` | Live (relaunch 2026-06-06, `DeployMVP`) — `paused() == false`, `treasury() == 0x7D26…Bd7d` |
-| **TegridyStakingAdmin** — EIP-170 admin sister of the staking vault. | [`0x4B134C08aAF86B6e2A8E097D1039C4e7638806f3`](https://etherscan.io/address/0x4B134C08aAF86B6e2A8E097D1039C4e7638806f3) | `contracts/src/TegridyStakingAdmin.sol` | Live (relaunch 2026-06-06) |
-| **TegridyStakingJbacVault** — JBAC custody sister for the staking boost. | [`0x28317bF362d43B40fcECebF2390C43dB558c3F14`](https://etherscan.io/address/0x28317bF362d43B40fcECebF2390C43dB558c3F14) | `contracts/src/TegridyStakingJbacVault.sol` | Live (relaunch 2026-06-06) |
-| **StakingMonitorView** — Read-only view sister (EIP-170 split). | [`0xbE1E75124C7F07d5B681839C42d8e751f0d0fcfC`](https://etherscan.io/address/0xbE1E75124C7F07d5B681839C42d8e751f0d0fcfC) | `contracts/src/StakingMonitorView.sol` | Live (relaunch 2026-06-06). ⚠️ Deployed before the 2026-09-17 pause fix: while staking is paused, its `earned` keeps adding emission that `getReward` never pays. Redeploy pending ([TODO_OPERATOR O-0917-1](TODO_OPERATOR.md)) |
+| **TegridyStaking** — veTOWELI lockup (7d–4y), 0.4x–4.0x boost, flat 75% early-exit penalty paid to the treasury, +0.5x JBAC bonus. All new stakes go here. | [`0xPENDING_REDEPLOY_STAKING`](https://etherscan.io/address/0xPENDING_REDEPLOY_STAKING) | `contracts/src/TegridyStaking.sol` | Live (staking release 1, PENDING_REDEPLOY_DATE, `DeployStakingRelease1`) — `EARLY_WITHDRAWAL_PENALTY_BPS() == 7500` |
+| **TegridyStaking, first relaunch contract**: superseded for new stakes by staking release 1. Its own positions keep their terms there: flat 25% early-exit penalty to the treasury. Claim, exit early, withdraw; no new stakes. Closing (docs/TODO_OPERATOR.md): paused last, when every position takes its whole stake out with no fee. | [`0xcaDc93E96De58EA554c71ca609974625615E046D`](https://etherscan.io/address/0xcaDc93E96De58EA554c71ca609974625615E046D) | not in this repo (an earlier build of the staking source; the working tree holds the 75% one) | Live, exits only (relaunch 2026-06-06, `DeployMVP`) |
+| **TegridyStakingAdmin** — EIP-170 admin sister of the staking vault. | [`0xPENDING_REDEPLOY_STAKING_ADMIN`](https://etherscan.io/address/0xPENDING_REDEPLOY_STAKING_ADMIN) | `contracts/src/TegridyStakingAdmin.sol` | Live (staking release 1, PENDING_REDEPLOY_DATE) |
+| **TegridyStakingJbacVault** — JBAC custody sister for the staking boost. | [`0xPENDING_REDEPLOY_JBAC_VAULT`](https://etherscan.io/address/0xPENDING_REDEPLOY_JBAC_VAULT) | `contracts/src/TegridyStakingJbacVault.sol` | Live (staking release 1, PENDING_REDEPLOY_DATE) |
+| **StakingMonitorView** — Read-only view sister (EIP-170 split). | [`0xPENDING_REDEPLOY_MONITOR_VIEW`](https://etherscan.io/address/0xPENDING_REDEPLOY_MONITOR_VIEW) | `contracts/src/StakingMonitorView.sol` | Live (staking release 1, PENDING_REDEPLOY_DATE) |
 
 > 🔴 **The live TOWELI is not this repo's `Toweli.sol`.** Selector scan of `cast code` plus live
 > `cast call`, 2026-08-12. The deployed contract names itself **`Towelie`** (symbol `Toweli`) and is a
@@ -81,7 +82,7 @@ surfaces them through `<LegacyStakingExit />` for affected wallets only.
 | **POLAccumulator** — Protocol-owned-liquidity sink; buys TOWELI and LPs it. | [`0x2A5f65f4C74b1e49e77aE9A57e20fBDb0cED11D2`](https://etherscan.io/address/0x2A5f65f4C74b1e49e77aE9A57e20fBDb0cED11D2) | `contracts/src/POLAccumulator.sol` | Deployed 2026-06-06 but **not wired** — `SwapFeeRouter.polAccumulator()` reads `0x0…0`, so no fee value can reach it today. |
 | **TegridyTWAP** — Time-weighted average price oracle over native pairs. | [`0xdFdd6D72539A425dC917F49FB834901105cA98c9`](https://etherscan.io/address/0xdFdd6D72539A425dC917F49FB834901105cA98c9) | `contracts/src/TegridyTWAP.sol` | Live (relaunch 2026-06-06) — needs 4× `update()` bootstrap after LP seed (audit H-18) |
 | **TegridyFeeHook** — Per-pair dynamic fee hook; address ends `0x0044` encoding `AFTER_SWAP`+`AFTER_SWAP_RETURNS_DELTA` V4 permissions. | [`0xB6cfeaCf243E218B0ef32B26E1dA1e13a2670044`](https://etherscan.io/address/0xB6cfeaCf243E218B0ef32B26E1dA1e13a2670044) | not in this repo (source removed after deploy, in 10e1dcc0) | On chain since 2026-04-18 — **owner stranded**: `owner()` reads `0x4e59b448…` (the Arachnid CREATE2 proxy), so every admin function is unreachable. |
-| **TegridyLPFarming** — Boosted LP farming rewards vault. | [`0x1171268AE5B69791c47Fd589b7825932c957e149`](https://etherscan.io/address/0x1171268AE5B69791c47Fd589b7825932c957e149) | `contracts/src/TegridyLPFarming.sol` | Live (2026-06-08, `DeployTegridyLPFarming`) — `stakingToken()` = `0x5587…a481`, `rewardToken()` = TOWELI, `MAX_BOOST_BPS_CEILING() == 45000` |
+| **TegridyLPFarming** — Boosted LP farming rewards vault; its boost reads the staking release 1 TegridyStaking. | [`0xPENDING_REDEPLOY_LP_FARMING`](https://etherscan.io/address/0xPENDING_REDEPLOY_LP_FARMING) | `contracts/src/TegridyLPFarming.sol` | Live (staking release 1, PENDING_REDEPLOY_DATE) — pays nothing until it is funded |
 
 ---
 
@@ -89,9 +90,9 @@ surfaces them through `<LegacyStakingExit />` for affected wallets only.
 
 | Contract | Address | Source | Status |
 |---|---|---|---|
-| **RevenueDistributor** — Streams protocol revenue pro-rata to veTOWELI stakers. | [`0xF993316E2fC079de4358c489A935E01e03E23E17`](https://etherscan.io/address/0xF993316E2fC079de4358c489A935E01e03E23E17) | `contracts/src/RevenueDistributor.sol` | Live (relaunch 2026-06-06) |
-| **ReferralSplitter** — Sits between `SwapFeeRouter` and the staker rail: takes the referral share off the top, credits the remainder back. | [`0x6B3442dAcB62d40BA39fCe9b3CDa350FEa6f7e4c`](https://etherscan.io/address/0x6B3442dAcB62d40BA39fCe9b3CDa350FEa6f7e4c) | `contracts/src/ReferralSplitter.sol` | Live (relaunch 2026-06-06) — `referralFeeBps() == 2000`, `MAX_REFERRAL_FEE() == 3000`. **Holds the protocol's entire swap-fee take.** |
-| **LockerClaimer** — Permissionless `claim(tokenId)` puller for the Doppler fee locker; forwards the ETH leg to RevenueDistributor, ERC20 leg to Treasury. | [`0xD2Ac3dC13c6fd09855F0e4a077826983Aa66E6C7`](https://etherscan.io/address/0xD2Ac3dC13c6fd09855F0e4a077826983Aa66E6C7) | `contracts/src/LockerClaimer.sol` | Live (2026-08-01) — no admin surface; destinations immutable |
+| **RevenueDistributor** — Streams protocol revenue pro-rata to the staking release 1 TegridyStaking's positions. | [`0xPENDING_REDEPLOY_REVENUE_DISTRIBUTOR`](https://etherscan.io/address/0xPENDING_REDEPLOY_REVENUE_DISTRIBUTOR) | `contracts/src/RevenueDistributor.sol` | Live (staking release 1, PENDING_REDEPLOY_DATE) — the swap router pays it after the 48-hour re-point |
+| **ReferralSplitter** — Sits between `SwapFeeRouter` and the staker rail: takes the referral share off the top, credits the remainder back. | [`0xPENDING_REDEPLOY_REFERRAL_SPLITTER`](https://etherscan.io/address/0xPENDING_REDEPLOY_REFERRAL_SPLITTER) | `contracts/src/ReferralSplitter.sol` | Live (staking release 1, PENDING_REDEPLOY_DATE) — `referralFeeBps() == 2000`; the swap router records here after the 48-hour re-point |
+| **LockerClaimer** — Permissionless `claim(tokenId)` puller for the Doppler fee locker; forwards the ETH leg to RevenueDistributor, ERC20 leg to Treasury. | [`0xD2Ac3dC13c6fd09855F0e4a077826983Aa66E6C7`](https://etherscan.io/address/0xD2Ac3dC13c6fd09855F0e4a077826983Aa66E6C7) | `contracts/src/LockerClaimer.sol` | Live (2026-08-01) — no admin surface; destinations immutable. ⚠️ Its `revenueDistributor()` is the first relaunch one, `0xF993316E2fC079de4358c489A935E01e03E23E17` (superseded for new stakers by staking release 1), for ever: its ETH pays only the first staking contract's positions. New launches need a new LockerClaimer; staking release 1 does not deploy one. |
 
 ---
 
@@ -118,7 +119,7 @@ code, so it is not a Safe).
 | **TegridyNFTLending** — NFT-backed peer-to-pool loans against JBAC/Gold and approved collections. | [`0x89BeB6cc0255B7465c01aA38a6f937efd345f14F`](https://etherscan.io/address/0x89BeB6cc0255B7465c01aA38a6f937efd345f14F) | `contracts/src/TegridyNFTLending.sol` | Live (2026-07-16) — `paused() == false` |
 | **TegridyNFTLendingAdmin** — EIP-170 admin sister. | [`0x693787831e9C36A98afeDaD39F8728491f580a9C`](https://etherscan.io/address/0x693787831e9C36A98afeDaD39F8728491f580a9C) | `contracts/src/TegridyNFTLendingAdmin.sol` | Live (2026-07-16) |
 | **TegridyNFTPoolFactory** — Deploys isolated NFT lending pools per collection. | [`0xbB8E49Ba4e3A85E2B8B70e00208770F429B56F5B`](https://etherscan.io/address/0xbB8E49Ba4e3A85E2B8B70e00208770F429B56F5B) | `contracts/src/TegridyNFTPoolFactory.sol` | Live (2026-07-16) — `owner()` = `0xA360…b7F8` (differs from the rest of the batch) |
-| **TegridyTokenURIReader** — Fallback tokenURI resolver for non-standard ERC721s. | [`0x5cfEe751eAf274F68b05267012b85a867dfCd326`](https://etherscan.io/address/0x5cfEe751eAf274F68b05267012b85a867dfCd326) | `contracts/src/TegridyTokenURIReader.sol` | Live (relaunch 2026-06-06) |
+| **TegridyTokenURIReader** — Fallback tokenURI resolver for non-standard ERC721s. | [`0xPENDING_REDEPLOY_TOKEN_URI_READER`](https://etherscan.io/address/0xPENDING_REDEPLOY_TOKEN_URI_READER) | `contracts/src/TegridyTokenURIReader.sol` | Live (staking release 1, PENDING_REDEPLOY_DATE) |
 | **TegridyLaunchpadV2** — Click-deploy factory for V2 drops. | [`0xa6149B4d05138A4073902A0Ca0345c2d0E470dF7`](https://etherscan.io/address/0xa6149B4d05138A4073902A0Ca0345c2d0E470dF7) | `contracts/src/TegridyLaunchpadV2.sol` | Live (2026-07-16) — `paused() == false` |
 | **TegridyDropV2** — Per-drop ERC721 template with `contractURI` (ERC-7572). | _per-drop clones_ | `contracts/src/TegridyDropV2.sol` | Template deployed with the V2 factory; clones minted per collection |
 
@@ -160,18 +161,26 @@ mainnet** — presence of code proves nothing about whether an address is curren
 | CommunityGrants | `0x8f1Ba1eC97a932EE1332BA0f366BC6aDf60B3032` — deprecated | `0xeBC3aaf48297b8ccFa8272D9E68c1545eb9CD471` |
 | MemeBountyBoard | `0x3457C2210be35bA7AF6F382a76247Ecd782BF0C9` — deprecated | `0x6D2C6EC29D97fe8b6D1471091DEEE36baf69d890` |
 | PremiumAccess (V1) | `0xaA16dF3dC66c7A6aD7db153711329955519422Ad` — deprecated | `0x9DC2675B2017687dD9768C63D15f0aD5194Fa3f5` |
-| TegridyStaking | `0x626644523d34B84818df602c991B4a06789C4819` — legacy, withdraw-only (unpaused) | `0xcaDc93E96De58EA554c71ca609974625615E046D` |
+| TegridyStaking | `0x626644523d34B84818df602c991B4a06789C4819` — legacy, withdraw-only (unpaused) | `0xPENDING_REDEPLOY_STAKING` |
+| TegridyStaking | `0xcaDc93E96De58EA554c71ca609974625615E046D`: first relaunch contract, superseded for new stakes by staking release 1 (PENDING_REDEPLOY_DATE); still live, exits only, 25% early exit | `0xPENDING_REDEPLOY_STAKING` |
+| TegridyStakingAdmin | `0x4B134C08aAF86B6e2A8E097D1039C4e7638806f3`: superseded by staking release 1; admin of the first staking contract | `0xPENDING_REDEPLOY_STAKING_ADMIN` |
+| TegridyStakingJbacVault | `0x28317bF362d43B40fcECebF2390C43dB558c3F14`: superseded by staking release 1; serves the first staking contract | `0xPENDING_REDEPLOY_JBAC_VAULT` |
+| StakingMonitorView | `0xbE1E75124C7F07d5B681839C42d8e751f0d0fcfC`: superseded by staking release 1; reads the first staking contract (built before the 2026-09-17 pause fix) | `0xPENDING_REDEPLOY_MONITOR_VIEW` |
 | TegridyRestaking | `0xfba4D340759Ae4c36DfFC6C773D171bf7BDCaEe4` — retired with the relaunch | _not redeployed_ |
 | TegridyFactory | `0x8B786163aA3beb97822d480a0c306DfD6dEbdCB6` — deprecated | `0xa24C7287eC56A7DEFDc70033803451240e267a52` |
 | TegridyRouter | `0xCBCF6AcC4697cA3a7D7658Cd2051606a09c9863F` — deprecated | `0xE9F83A07b071748E795d2489651d5310fA098Db8` |
 | TegridyLP pair | `0xeD01d5f52EBE97360133bdeF77305ee24d5f26f6` — deprecated | `0x55875887B43C2E23aE424AF0FC8606Fdb058a481` |
 | SwapFeeRouter | `0xea13Cd47a37cC5B59675bfd52BFc8ff8691937A0` — deprecated | `0x6d5791A660e79175F74C6D639584C98422d5956E` |
-| RevenueDistributor | `0x332aaE555b1164eA45c2291fD7eDfa97aAA264D8` — deprecated | `0xF993316E2fC079de4358c489A935E01e03E23E17` |
+| RevenueDistributor | `0x332aaE555b1164eA45c2291fD7eDfa97aAA264D8` — deprecated | `0xPENDING_REDEPLOY_REVENUE_DISTRIBUTOR` |
+| RevenueDistributor | `0xF993316E2fC079de4358c489A935E01e03E23E17`: superseded by staking release 1; still pays the first staking contract's positions, and the LockerClaimer still forwards to it | `0xPENDING_REDEPLOY_REVENUE_DISTRIBUTOR` |
 | POLAccumulator | `0x17215f0dfA5E97c33c025E0560eeddffaD87B7Ca` — deprecated | `0x2A5f65f4C74b1e49e77aE9A57e20fBDb0cED11D2` |
-| ReferralSplitter | `0xd3d46C0d25Ef1F4EAdb58b9218AA23Ed4c2f2c16` — deprecated | `0x6B3442dAcB62d40BA39fCe9b3CDa350FEa6f7e4c` |
+| ReferralSplitter | `0xd3d46C0d25Ef1F4EAdb58b9218AA23Ed4c2f2c16` — deprecated | `0xPENDING_REDEPLOY_REFERRAL_SPLITTER` |
+| ReferralSplitter | `0x6B3442dAcB62d40BA39fCe9b3CDa350FEa6f7e4c`: superseded by staking release 1 at the router re-point | `0xPENDING_REDEPLOY_REFERRAL_SPLITTER` |
 | TegridyTWAP | `0xddbe4cd58faf4b0b93e4e03a2493327ee3bb4995` — deprecated | `0xdFdd6D72539A425dC917F49FB834901105cA98c9` |
-| TegridyTokenURIReader | `0xfec9aea42ea966c9382eeb03f63a784579841eb2` — deprecated | `0x5cfEe751eAf274F68b05267012b85a867dfCd326` |
-| TegridyLPFarming | `0xa5AB522C99F86dEd9F429766872101c75517D77c` (pre-C-01) and `0xa7EF711Be3662B9557634502032F98944eC69ec1` (Wave 0) — both deprecated | `0x1171268AE5B69791c47Fd589b7825932c957e149` |
+| TegridyTokenURIReader | `0xfec9aea42ea966c9382eeb03f63a784579841eb2` — deprecated | `0xPENDING_REDEPLOY_TOKEN_URI_READER` |
+| TegridyTokenURIReader | `0x5cfEe751eAf274F68b05267012b85a867dfCd326`: superseded by staking release 1 | `0xPENDING_REDEPLOY_TOKEN_URI_READER` |
+| TegridyLPFarming | `0xa5AB522C99F86dEd9F429766872101c75517D77c` (pre-C-01) and `0xa7EF711Be3662B9557634502032F98944eC69ec1` (Wave 0) — both deprecated | `0xPENDING_REDEPLOY_LP_FARMING` |
+| TegridyLPFarming | `0x1171268AE5B69791c47Fd589b7825932c957e149`: superseded by staking release 1; rewards ended 2026-06-15, withdraw only on the site | `0xPENDING_REDEPLOY_LP_FARMING` |
 | TegridyNFTLending | `0x05409880aDFEa888F2c93568B8D88c7b4aAdB139` — deprecated | `0x89BeB6cc0255B7465c01aA38a6f937efd345f14F` |
 | TegridyNFTPoolFactory | `0x1C0e1771943fbB299f4E19daD0fAA4Fa4e6c04f0` — deprecated | `0xbB8E49Ba4e3A85E2B8B70e00208770F429B56F5B` |
 | TegridyLending | `0xd471e5675EaDbD8C192A5dA2fF44372D5713367f` — retired with the relaunch | _not redeployed_ |

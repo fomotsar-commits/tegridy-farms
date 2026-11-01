@@ -1,32 +1,26 @@
 /**
  * AUDIT R081 — Stake / claim / unstake happy path (only h1 regex before).
  *
- * /farm hosts: TOWELI staking and LP farming. TOWELI staking v1 is closing (owner,
- * 2026-10-30): the site takes no new stakes into it, so the Anvil legs open their
- * position on the fork (openToweliStakeOnFork) and drive what the site still does
- * with one: show it, claim, and exit (an early exit here, the lock still running).
+ * /farm hosts: TOWELI staking and LP farming. This spec drives the
+ * single-asset stake flow:
+ *   connect → enter amount → approve → stake → wait for receipt → claim →
+ *   unstake (cooldown gate may apply on real Anvil — see TF-02 in audit
+ *   findings; that race is asserted by Solidity tests, not here).
  *
  * Mock-mode covers UI structure (gate, inputs, CTAs). Anvil-mode covers the
  * full state-changing flow. See swap.spec.ts for why the anvil gate lives
  * INSIDE the test rather than in describe scope.
+ *
+ * TOWELI staking v1 (the OLD contract since staking release 1) is closing and takes no
+ * new stakes, so its leg opens a position on the fork and checks the old contract's card.
  */
 import {
-  test, expect, expectTxReceipt, anvilRpc, openToweliStakeOnFork,
+  test, expect, expectTxReceipt, advancePastApproval, anvilRpc, openToweliStakeOnFork,
   blindReceiptReads, expectMinedSuccessfully, expectUnconfirmedToast, forkTxCount, recordToasts,
 } from './fixtures/wallet';
 import { PENALTY_COPY } from '../src/lib/copy';
 
 const onAnvil = !!process.env.ANVIL_RPC_URL;
-
-/** 100 TOWELI for 90 days: a running lock, so the exit the card offers is the early one. */
-const STAKE_WEI = 100n * 10n ** 18n;
-const LOCK_90D = 90 * 86_400;
-
-/** The early exit, opened and confirmed. Its confirm auto-dismisses after 5 s. */
-async function earlyExit(page: import('@playwright/test').Page): Promise<void> {
-  await page.getByRole('button', { name: new RegExp(`^${PENALTY_COPY.earlyExitLabel} \\(25%\\)$`, 'i') }).click();
-  await page.getByRole('button', { name: new RegExp(`^pay the ${PENALTY_COPY.earlyExitLabel}$`, 'i') }).click();
-}
 
 test.describe('Stake surface', () => {
   test('disconnected /farm shows the connect prompt', async ({ page, walletMock: _w }) => {
@@ -45,70 +39,129 @@ test.describe('Stake surface', () => {
     await walletMock.connect();
     await page.goto('/earn/toweli');
     await expect(page.locator('h1')).toContainText(/farm/i);
-    await expect(page.getByRole('heading', { name: /toweli staking v1/i })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /stake toweli/i })).toBeVisible();
     await expect(page.getByRole('heading', { name: /lp farming/i })).toBeVisible();
     // The connect gate must be GONE — see the handshake note in swap.spec.ts.
     await expect(page.getByRole('region', { name: /wallet connection required/i })).toBeHidden();
     expect(pageErrors).toEqual([]);
   });
 
-  test('v1 takes no new stakes: the card says why and has no amount field', async ({ page, walletMock }) => {
+  test('stake input is typeable when wallet is connected', async ({ page, walletMock }) => {
     await walletMock.connect();
     await page.goto('/earn/toweli');
 
-    await expect(page.getByRole('heading', { name: /^beta is over$/i })).toBeVisible();
-    await expect(page.getByTestId('staking-v1-closed')).toContainText(/takes no new stakes/i);
-    await expect(page.getByRole('textbox', { name: /amount of toweli to stake/i })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: /^(stake & lock|approve toweli)/i })).toHaveCount(0);
+    const stakeInput = page.getByRole('textbox', { name: /amount of toweli to stake/i });
+    await expect(stakeInput).toBeVisible();
+    await stakeInput.fill('100');
+    await expect(stakeInput).toHaveValue('100');
+
+    const cta = page.locator('button', {
+      hasText: /(stake|approve|claim|unstake|enter amount|insufficient)/i,
+    }).first();
+    await expect(cta).toBeVisible();
   });
 
-  test('a v1 position shows Claim and its exit, and no way to add to it (Anvil only)', async ({ page, walletMock }) => {
+  test('stake → claim → unstake (Anvil only)', async ({ page, walletMock }) => {
     test.skip(!onAnvil, 'ANVIL_RPC_URL unset — needs the fork job (npm run e2e)');
+    // Two on-chain transactions on a live fork (approve TOWELI, then the stake), with
+    // an allowance refetch between them. Every assertion below keeps its own tight,
+    // named budget — this only stops the TEST budget from cutting the pair short.
     test.setTimeout(120_000);
 
-    // ISOLATED WALLET. A position is exactly what breaks the /farm render specs (the
-    // card swaps its closed line for "Your Position"), so this spends from an account
-    // only this test uses.
+    // ISOLATED WALLET. This leg opens a real staking position on the shared fork, and
+    // a position is exactly what breaks the /farm render specs: StakingCard swaps its
+    // amount input for a "Your Position" panel, so a later `fill()` has nothing to type
+    // into. Measured — batching the money specs, this spend turned three previously
+    // green tests red. Spending from an account only this test uses ends that.
     const account = await walletMock.useIsolatedForkAccount();
-    await openToweliStakeOnFork(account, STAKE_WEI, LOCK_90D);
     await walletMock.connect(account);
     await page.goto('/earn/toweli');
 
-    // The card's heading flips to "Your Position" on `pos.hasPosition`, read from the chain.
+    // 1. Stake
+    const amount = page.getByRole('textbox', { name: /amount of toweli to stake/i });
+    await amount.fill('100');
+
+    // Approve first if the allowance path demands it; the CTA carries the verb.
+    //
+    // SCOPED TO THE CARD WE JUST FILLED, and that is load-bearing. /farm renders more
+    // than one staking surface, and a bare `getByRole('button', {name: /^stake/i})
+    // .first()` matched a DISABLED "Stake" on a different card while this card's real
+    // CTA — "Stake & Lock for 90 Days" — sat enabled right next to the input. The test
+    // then failed claiming the account held no TOWELI, when the card was showing
+    // "Balance: 1000000" at the time.
+    //
+    // Deliberately NOT "pick whichever button is enabled": that would go green on any
+    // future page where the right CTA is disabled and some other one is not. Walk up to
+    // the card that owns this input and take its submit CTA — the last matching verb
+    // inside it, after the lock-duration buttons.
+    //
+    // The fork precondition this used to fail on is now handled: the fixture seeds a
+    // TOWELI balance via anvil_setStorageAt on the discovered balanceOf slot.
+    const stakeCard = amount.locator('xpath=ancestor::div[contains(@class,"glass-card")][1]');
+    const cta = stakeCard.getByRole('button', { name: /^(approve|stake)/i }).last();
+
+    // ⚠ THIS TEST NEVER STAKED ON A COLD FORK, and the missing fixture was never the
+    // reason — the card shows "Balance: 1000000", so seedErc20Balance works. What it
+    // did was click ONCE. This is a single self-relabelling button (StakingCard.tsx:
+    // 469-477): "Approve TOWELI" while the allowance is short, "Stake & Lock for …"
+    // after. Cold, that one click was the APPROVAL — and FarmPage deliberately shows
+    // no receipt for an approve (the F95 tag at FarmPage.tsx:183, so a stake receipt is
+    // never fabricated). So `expectTxReceipt` waited out its full budget for a stake
+    // that was never sent: the 30.0s in CI run 32598383834. Retry #1 then passed in
+    // 3.6s because attempt 0's allowance survived on the fork and the CTA already read
+    // "Stake & Lock" — the green retry was the accident, not the red first attempt.
+    //
+    // Walking the cascade is what makes the click below the STAKE, every time, cold or
+    // warm. Do not collapse it back to one click.
+    await advancePastApproval(cta, /^Stake & Lock for /, 'stake');
+    await cta.click();
+    await expectTxReceipt(page, 'stake');
+
+    // AND THE STAKE LANDED. A receipt proves a transaction confirmed, not which one;
+    // the position row is the on-chain state only a real stake can produce.
+    // The card's own heading flips from "Stake TOWELI" to "Your Position" on
+    // `pos.hasPosition` (StakingCard.tsx:103-104), which is read from the chain.
     await expect(
       page.getByRole('heading', { name: /^Your Position$/i }),
-      'a position was opened on the fork but the staking card does not show it.',
+      'the stake confirmed but the staking card still offers to open a position — whatever was sent, it was not a stake.',
     ).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByRole('heading', { name: /^beta is over$/i })).toBeVisible();
 
-    // Claim and the exit stay; nothing that adds to a v1 position does.
-    await expect(page.getByRole('button', { name: /^claim rewards$/i })).toBeVisible();
-    await expect(page.getByRole('button', { name: new RegExp(PENALTY_COPY.earlyExitLabel, 'i') })).toBeVisible();
-    await expect(page.getByRole('button', { name: /extend lock/i })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: /enable auto-max lock/i })).toHaveCount(0);
+    // 2. Claim — needs accrued rewards; on a fresh fork rewards may be 0,
+    // so we just assert the button is wired (not necessarily enabled).
+    await expect(page.getByRole('button', { name: /claim/i }).first()).toBeVisible();
+
+    // 3. Unstake — cooldown gate may block (see TF-02). Confirm the CTA wires
+    // a tx (or surfaces the cooldown copy).
+    await expect(page.getByRole('button', { name: /unstake|withdraw|exit/i }).first()).toBeVisible();
   });
 
-  test('an exit whose receipt cannot be read is not reported as a failure (Anvil only)', async ({ page, walletMock }) => {
+  test('a stake whose receipt cannot be read is not reported as a failure (Anvil only)', async ({ page, walletMock }) => {
     test.skip(!onAnvil, 'ANVIL_RPC_URL unset — needs the fork job (npm run e2e)');
-    // `useFarmActions` once said "Transaction failed" with no description for an
-    // unreadable receipt. Telling someone their exit failed when it landed invites a
-    // second one. This was the stake leg; the site takes no v1 stakes now, so it rides
-    // the exit, which shares the same receipt path.
+    // Same defect as the liquidity leg, same shape: `useFarmActions` said "Transaction
+    // failed" with no description for an unreadable receipt. Telling someone their stake
+    // failed when it landed invites a second stake.
     test.setTimeout(180_000);
 
     const account = await walletMock.useIsolatedForkAccount();
-    await openToweliStakeOnFork(account, STAKE_WEI, LOCK_90D);
     await walletMock.connect(account);
     await page.goto('/earn/toweli');
-    await expect(page.getByRole('heading', { name: /^Your Position$/i })).toBeVisible({ timeout: 30_000 });
+
+    const amount = page.getByRole('textbox', { name: /amount of toweli to stake/i });
+    await amount.fill('100');
+    const stakeCard = amount.locator('xpath=ancestor::div[contains(@class,"glass-card")][1]');
+    const cta = stakeCard.getByRole('button', { name: /^(approve|stake)/i }).last();
+
+    // Let the approval cascade finish while receipts still work — this leg is about
+    // the STAKE's receipt. See the happy-path leg above for why one click is not enough.
+    await advancePastApproval(cta, /^Stake & Lock for /, 'stake');
 
     const blind = await blindReceiptReads(page);
     const toasts = await recordToasts(page);
     const sent = forkTxCount(page);
-    await earlyExit(page);
+    await cta.click();
 
-    // FIRST, WHAT HAPPENED ON CHAIN: the exit succeeded. Read off the node, not the DOM.
-    const hash = await expectMinedSuccessfully(page, 'early exit', sent);
+    // FIRST, WHAT HAPPENED ON CHAIN: the stake succeeded. Read off the node, not the DOM.
+    const hash = await expectMinedSuccessfully(page, 'stake', sent);
     await expect
       .poll(() => blind.receiptsAskedFor().map((h) => h.toLowerCase()).includes(hash), {
         timeout: 30_000,
@@ -116,18 +169,18 @@ test.describe('Stake surface', () => {
       })
       .toBe(true);
 
-    await expectUnconfirmedToast(page, toasts, 'early exit with an unreadable receipt');
+    await expectUnconfirmedToast(page, toasts, 'stake with an unreadable receipt');
 
-    // And the exit really did land: the position is gone, read through reads that were
-    // never blinded, and the card is back to the closed line.
+    // And the stake really did land — the same on-chain state assertion the happy
+    // path makes, reached through reads that were never blinded.
     await expect(
-      page.getByRole('heading', { name: /toweli staking v1/i }),
-      'the exit was mined successfully but the card still shows a position — ' +
-        'then the transaction under test was not the exit.',
+      page.getByRole('heading', { name: /^Your Position$/i }),
+      'the stake was mined successfully but the card still offers to open a position — ' +
+        'then the transaction under test was not a stake.',
     ).toBeVisible({ timeout: 60_000 });
   });
 
-  test('an exit receipt shares as the receipt, with its card image on the clipboard (Anvil only)', async ({ page, walletMock, context }) => {
+  test('a stake receipt shares as the receipt, with its card image on the clipboard (Anvil only)', async ({ page, walletMock, context }) => {
     test.skip(!onAnvil, 'ANVIL_RPC_URL unset — needs the fork job (npm run e2e)');
     // The card image is drawn by html2canvas in a REAL browser, which no unit test can
     // run: jsdom has no canvas and computes no Tailwind CSS. html2canvas 1.4 threw on
@@ -144,14 +197,17 @@ test.describe('Stake surface', () => {
       return route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>x</title>' });
     });
 
-    // This was the stake receipt; the site takes no v1 stakes now, so it is the exit's.
     const account = await walletMock.useIsolatedForkAccount();
-    await openToweliStakeOnFork(account, STAKE_WEI, LOCK_90D);
     await walletMock.connect(account);
     await page.goto('/earn/toweli');
-    await expect(page.getByRole('heading', { name: /^Your Position$/i })).toBeVisible({ timeout: 30_000 });
-    await earlyExit(page);
-    await expectTxReceipt(page, 'early exit');
+    const amount = page.getByRole('textbox', { name: /amount of toweli to stake/i });
+    await amount.fill('100');
+    const stakeCard = amount.locator('xpath=ancestor::div[contains(@class,"glass-card")][1]');
+    const cta = stakeCard.getByRole('button', { name: /^(approve|stake)/i }).last();
+    // See the happy-path leg above for why one click is not enough.
+    await advancePastApproval(cta, /^Stake & Lock for /, 'stake');
+    await cta.click();
+    await expectTxReceipt(page, 'stake');
 
     // The receipt waits for two confirmations; the fork mines only on a transaction.
     const receipt = page.getByRole('dialog').filter({ has: page.getByRole('button', { name: /share to x/i }) });
@@ -163,8 +219,7 @@ test.describe('Stake surface', () => {
     await expect.poll(() => intents.length, { timeout: 15_000, message: 'Share to X opened no X window' }).toBeGreaterThan(0);
     const text = new URL(intents[0] ?? '').searchParams.get('text') ?? '';
     expect(text).toContain('MEMETICS.FINANCE');
-    // What came BACK, read off the EarlyWithdrawn log: 100 staked, 25 to the treasury.
-    expect(text).toMatch(/^Withdrawn: 75\.0000 TOWELI$/m);
+    expect(text).toMatch(/^Amount: 100\.0000 TOWELI$/m);
     expect(text).toMatch(/^Tx: https?:\/\/\S+\/tx\/0x[0-9a-f]{64}$/m);
     // The mention and the room's tag close the post; /earn/toweli is the TOWELI room.
     expect(text.split('\n').at(-1)).toBe('@JungleBayAC #TOWELI');
@@ -175,5 +230,30 @@ test.describe('Stake surface', () => {
     ).toContainText(/Receipt image copied/i, { timeout: 15_000 });
     const types = await page.evaluate(async () => (await navigator.clipboard.read()).flatMap((i) => i.types));
     expect(types).toContain('image/png');
+  });
+
+  test("a v1 position shows on the old contract's card: Beta is over, Claim and its 25% exit, nothing to add (Anvil only)", async ({ page, walletMock }) => {
+    test.skip(!onAnvil, 'ANVIL_RPC_URL unset — needs the fork job (npm run e2e)');
+    test.setTimeout(120_000);
+
+    // ISOLATED WALLET: a position is exactly what changes the /farm render specs. 100
+    // TOWELI for 90 days, a running lock, so the exit the card offers is the early one.
+    const account = await walletMock.useIsolatedForkAccount();
+    await openToweliStakeOnFork(account, 100n * 10n ** 18n, 90 * 86_400);
+    await walletMock.connect(account);
+    await page.goto('/earn/toweli');
+
+    const oldCard = page.getByTestId('old-staking-card');
+    await expect(
+      oldCard.getByRole('heading', { name: /^Your position on the old contract$/i }),
+      "a v1 position was opened on the fork but the old contract's card does not show it.",
+    ).toBeVisible({ timeout: 30_000 });
+    await expect(oldCard.getByRole('heading', { name: /^beta is over$/i })).toBeVisible();
+
+    // Claim and v1's own exit stay; nothing that adds to a v1 position does.
+    await expect(oldCard.getByRole('button', { name: /^claim rewards$/i })).toBeVisible();
+    await expect(oldCard.getByRole('button', { name: new RegExp(`^${PENALTY_COPY.earlyExitLabel} \\(25%\\)$`, 'i') })).toBeVisible();
+    await expect(oldCard.getByRole('button', { name: /extend lock/i })).toHaveCount(0);
+    await expect(oldCard.getByRole('button', { name: /enable auto-max lock/i })).toHaveCount(0);
   });
 });

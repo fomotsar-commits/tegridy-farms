@@ -1,9 +1,10 @@
 import type { ReactNode } from 'react';
 import { FinePrint } from '../ui/FinePrint';
 import { BETA_OVER_HEADING, BETA_OVER_LINE, type StakingBetaPhase } from '../../lib/stakingBetaOver';
-import { EARLY_WITHDRAWAL_PENALTY_BPS } from '../../lib/constants';
+import { OLD_STAKING_CONTRACT } from '../../lib/constants';
 
-const PENALTY_PCT = EARLY_WITHDRAWAL_PENALTY_BPS / 100;
+// v1's own early-exit fee, never the new contract's: this notice is about v1 only.
+const PENALTY_PCT = OLD_STAKING_CONTRACT.penaltyBps / 100;
 
 /**
  * "Beta is over" for TOWELI staking v1: heading, one line for the phase the chain
@@ -56,8 +57,8 @@ export function StakingBetaOverNotice({
           lock extensions into v1.
         </p>
         <p>
-          A new staking contract replaces it: no pool cap, up to 10,000,000 TOWELI per wallet,
-          rewards spread over four years. Its date is not set.
+          A new staking contract takes new stakes instead: no pool cap, up to 10,000,000 TOWELI
+          per wallet, rewards spread over four years. Its own card shows its terms.
         </p>
       </FinePrint>
     </div>

@@ -98,7 +98,9 @@ export const EVM_STAKE_POOLS = Object.freeze(
   Object.fromEntries(
     Object.entries({
       ethereum: [
-        ["0xcadc93e96de58ea554c71ca609974625615e046d", TOWELI, TOTAL_STAKED], // tegridy-staking
+        // Staking release 1's tegridy-staking joins here once fill-staking-release.mjs writes its
+        // address (the registry test goes red until it does).
+        ["0xcadc93e96de58ea554c71ca609974625615e046d", TOWELI, TOTAL_STAKED], // tegridy-staking-first (v1)
         ["0x044a925839ac3cec0bccc93d00230f39ffbeee44", TOWELI, TOTAL_STAKED], // legacy-staking-v1, withdraw-only
         ["0x626644523d34b84818df602c991b4a06789c4819", TOWELI, TOTAL_STAKED], // legacy-staking-v2, withdraw-only
         ["0xbe1905de5fcde60e13a9f1afa44befde1c5aaa1d", "0x6982508145454ce325ddbe47a25d4ec3d2311933", TOTAL_SUPPLY], // ladder-pepe

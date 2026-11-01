@@ -17,6 +17,8 @@ import {
   MAX_BOOST_BPS,
   JBAC_BONUS_BPS,
   EARLY_WITHDRAWAL_PENALTY_BPS,
+  OLD_TEGRIDY_STAKING_ADDRESS,
+  OLD_EARLY_WITHDRAWAL_PENALTY_BPS,
 } from './constants';
 import * as ladder from './lighthouseLadder';
 import * as baylaLadder from './ladder/program';
@@ -66,6 +68,11 @@ export interface LlmsFacts {
   launchFloorLine: string;
   doors: DoorFact[];
   toweliStaking: StakingTerms;
+  /**
+   * The FIRST relaunch staking contract, which keeps its own positions on its own terms
+   * after staking release 1 (no new stakes). Its fee is its own constant, not the current one.
+   */
+  oldToweliStaking: { address: string; earlyExitBps: number };
   ladderStaking: StakingTerms;
   /**
    * Present only when the venue actually offers the pool: a bungalow carries a
@@ -147,6 +154,7 @@ export function collectFacts(ledger: AddressLedger, deployConfig?: RedirectConfi
   };
   add('ethereum', 'TOWELI token', TOWELI_ADDRESS);
   add('ethereum', 'TOWELI staking (TegridyStaking)', TEGRIDY_STAKING_ADDRESS);
+  add('ethereum', 'TOWELI staking, first contract (exits only)', OLD_TEGRIDY_STAKING_ADDRESS);
   add('ethereum', 'Swap fee router', SWAP_FEE_ROUTER_ADDRESS);
   for (const b of BUNGALOWS) {
     if (b.stakePool && b.chain !== 'tbd') add(b.chain, `${b.name} stake pool`, b.stakePool);
@@ -169,6 +177,7 @@ export function collectFacts(ledger: AddressLedger, deployConfig?: RedirectConfi
       maxBoostBps: MAX_BOOST_BPS,
       bonusBps: JBAC_BONUS_BPS,
     },
+    oldToweliStaking: { address: OLD_TEGRIDY_STAKING_ADDRESS, earlyExitBps: OLD_EARLY_WITHDRAWAL_PENALTY_BPS },
     ladderStaking: {
       minLockSeconds: Number(ladder.MIN_LOCK_SECS),
       maxLockSeconds: Number(ladder.MAX_LOCK_SECS),
@@ -260,6 +269,10 @@ export function renderLlmsTxt(f: LlmsFacts, meta: { date: string; commit?: strin
 
   out.push('## Staking terms', '');
   out.push(`- TOWELI staking on Ethereum: ${terms(f.toweliStaking)}.`);
+  out.push(
+    `- TOWELI positions on the first staking contract (${f.oldToweliStaking.address}) stay there on its own terms ` +
+      `and it takes no new stakes: leaving a lock early there costs ${percent(f.oldToweliStaking.earlyExitBps)} of the amount staked.`,
+  );
   const ladderDoors = f.doors.filter((d) => d.stakeRail === 'ladder').map((d) => d.name);
   if (ladderDoors.length > 0) {
     out.push(`- Ladder pools (${ladderDoors.join(', ')}): ${terms(f.ladderStaking)}.`);

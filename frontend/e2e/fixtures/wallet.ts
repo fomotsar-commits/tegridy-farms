@@ -45,7 +45,7 @@ const ANVIL_RPC_URL = process.env.ANVIL_RPC_URL;
 
 /** Live TOWELI. Mirrors src/lib/constants.ts; the specs gate CTAs on this balance. */
 const TOWELI = '0x420698CFdEDdEa6bc78D59bC17798113ad278F9D';
-/** TOWELI staking v1 (TegridyStaking). Mirrors src/lib/constants.ts TEGRIDY_STAKING_ADDRESS. */
+/** TOWELI staking v1 (TegridyStaking). Mirrors src/lib/constants.ts OLD_TEGRIDY_STAKING_ADDRESS (staking release 1). */
 const TEGRIDY_STAKING = '0xcaDc93E96De58EA554c71ca609974625615E046D';
 
 // ─── NFT-lending fixture constants ───────────────────────────────────────

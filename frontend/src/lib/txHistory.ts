@@ -13,6 +13,7 @@ import {
   LP_FARMING_ADDRESS, TEGRIDY_ROUTER_ADDRESS,
   TEGRIDY_LP_ADDRESS, TOWELI_ADDRESS, isDeployed,
   TEGRIDY_NFT_LENDING_ADDRESS, TEGRIDY_NFT_POOL_FACTORY_ADDRESS, TEGRIDY_LAUNCHPAD_V2_ADDRESS,
+  OLD_TEGRIDY_STAKING_ADDRESS, OLD_REVENUE_DISTRIBUTOR_ADDRESS, OLD_LP_FARMING_ADDRESS,
 } from './constants';
 
 // F382: the set of protocol contracts the history feed tracks. Live contracts
@@ -29,6 +30,9 @@ export const HISTORY_CONTRACTS: string[] = [
   // claim to hold (they were omitted while dark). .filter(isDeployed) keeps this
   // safe if any is ever re-zeroed.
   TEGRIDY_NFT_LENDING_ADDRESS, TEGRIDY_NFT_POOL_FACTORY_ADDRESS, TEGRIDY_LAUNCHPAD_V2_ADDRESS,
+  // STAKING RELEASE 1: the first contracts stay live for their own positions, so a
+  // wallet's history keeps every stake, claim and exit it made there.
+  OLD_TEGRIDY_STAKING_ADDRESS, OLD_REVENUE_DISTRIBUTOR_ADDRESS, OLD_LP_FARMING_ADDRESS,
 ].filter(isDeployed).map((a) => a.toLowerCase());
 
 const HEX_HASH = /^0x[a-fA-F0-9]{64}$/;
@@ -169,7 +173,10 @@ export function categorizeTx(tx: TxRecord): { type: string; color: string } {
     return { type: 'Router', color: 'text-white' };
   }
   // LP Farming (Synthetix-style boosted LP staking)
-  if (isDeployed(LP_FARMING_ADDRESS) && to === LP_FARMING_ADDRESS.toLowerCase()) {
+  if (
+    (isDeployed(LP_FARMING_ADDRESS) && to === LP_FARMING_ADDRESS.toLowerCase()) ||
+    to === OLD_LP_FARMING_ADDRESS.toLowerCase()
+  ) {
     if (fn === 'stake') return { type: 'Stake LP', color: 'text-success' };
     if (fn === 'withdraw') return { type: 'Unstake LP', color: 'text-warning' };
     if (fn === 'getReward' || fn === 'claimReward') return { type: 'Claim', color: 'text-white' };
@@ -180,8 +187,8 @@ export function categorizeTx(tx: TxRecord): { type: string; color: string } {
     if (fn === 'approve') return { type: 'Approve', color: 'text-white' };
     return { type: 'LP', color: 'text-white' };
   }
-  // Staking
-  if (to === TEGRIDY_STAKING_ADDRESS.toLowerCase()) {
+  // Staking (the current contract and the first one, which keeps its own positions)
+  if (to === TEGRIDY_STAKING_ADDRESS.toLowerCase() || to === OLD_TEGRIDY_STAKING_ADDRESS.toLowerCase()) {
     if (fn === 'stake') return { type: 'Stake', color: 'text-success' };
     if (fn === 'withdraw') return { type: 'Unstake', color: 'text-warning' };
     if (fn === 'getReward') return { type: 'Claim', color: 'text-white' };
@@ -190,7 +197,7 @@ export function categorizeTx(tx: TxRecord): { type: string; color: string } {
     return { type: 'Farm', color: 'text-white' };
   }
   // Revenue & Referrals
-  if (to === REVENUE_DISTRIBUTOR_ADDRESS.toLowerCase()) {
+  if (to === REVENUE_DISTRIBUTOR_ADDRESS.toLowerCase() || to === OLD_REVENUE_DISTRIBUTOR_ADDRESS.toLowerCase()) {
     if (fn === 'register') return { type: 'Register', color: 'text-success' };
     if (fn === 'claim') return { type: 'Revenue', color: 'text-white' };
     return { type: 'Revenue', color: 'text-white' };

@@ -28,7 +28,7 @@
 // {@link feeLineStatement} produces it so the wording cannot drift per surface.
 
 import type { Address } from 'viem';
-import { LOCKER_CLAIMER_ADDRESS, REVENUE_DISTRIBUTOR_ADDRESS, TREASURY_ADDRESS, isDeployed } from '../../constants';
+import { LOCKER_CLAIMER_ADDRESS, OLD_REVENUE_DISTRIBUTOR_ADDRESS, TREASURY_ADDRESS, isDeployed } from '../../constants';
 import { DOPPLER_MAINNET } from '../doppler.constants';
 import { LOCKER_V1_ABI, readBeneficiaryClaim, type LockerReadClient } from '../lockerStream';
 
@@ -203,10 +203,15 @@ export function feeLineStatement(read: FeeLineRead): string {
   return `${read.credits.length} credited ${read.credits.length === 1 ? 'balance' : 'balances'} on the locker, awaiting release.${partial}`;
 }
 
-/** The repo's expectation for the sink's destinations, for a read-back comparison. */
+/**
+ * The repo's expectation for the sink's destinations, for a read-back comparison.
+ * `revenueDistributor` is the FIRST relaunch distributor: LockerClaimer's is immutable, and
+ * after STAKING RELEASE 1 it pays only the OLD staking contract's positions (constants.ts,
+ * LOCKER_CLAIMER_ADDRESS). It is not REVENUE_DISTRIBUTOR_ADDRESS any more.
+ */
 export const EXPECTED_SINK_DESTINATIONS = {
   locker: DOPPLER_MAINNET.support.streamableFeesLocker as Address,
-  revenueDistributor: REVENUE_DISTRIBUTOR_ADDRESS as Address,
+  revenueDistributor: OLD_REVENUE_DISTRIBUTOR_ADDRESS as Address,
   treasury: TREASURY_ADDRESS as Address,
 } as const;
 

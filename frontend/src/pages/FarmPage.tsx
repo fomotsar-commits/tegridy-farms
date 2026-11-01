@@ -6,8 +6,6 @@ import { toast } from 'sonner';
 import { CURRENT_SEASON, LOCK_OPTIONS } from '../lib/constants';
 import { formatEther } from 'viem';
 import { stakingClaimPaid, stakingStakeReturned, NOTHING_PAID_COPY } from '../lib/stakingClaimPaid';
-import { stakingBetaPhase, betaReadsFromHooks, NEW_STAKES_CLOSED_LINE } from '../lib/stakingBetaOver';
-import { StakingBetaOverNotice } from '../components/farm/StakingBetaOverNotice';
 import { WrongChainBanner } from '../components/ui/WrongChainGuard';
 import { calculateBoost } from '../lib/boostCalculations';
 import { useFarmStats } from '../hooks/useFarmStats';
@@ -45,6 +43,8 @@ import { LPFarmingSection } from '../components/farm/LPFarmingSection';
 import { StakingCard } from '../components/farm/StakingCard';
 import type { ConfirmState } from '../components/farm/StakingCard';
 import { LegacyStakingExit } from '../components/farm/LegacyStakingExit';
+import { OldStakingCard, OldStakingBetaNotice } from '../components/farm/OldStakingCard';
+import { OldLpFarmExit } from '../components/farm/OldLpFarmExit';
 import { BoostScheduleTable } from '../components/farm/BoostScheduleTable';
 import { UPCOMING_POOLS } from '../components/farm/poolConfig';
 import { LivePoolCard } from '../components/farm/LivePoolCard';
@@ -229,10 +229,6 @@ function ToweliFarm() {
     ? `${Math.round(rewardsRemainingNum).toLocaleString()} TOWELI`
     : '–';
 
-  // TOWELI staking v1 is closing: where it stands, from the chain (lib/stakingBetaOver).
-  const betaPhase = stakingBetaPhase(betaReadsFromHooks(pool, isConnected ? pos : undefined));
-  const betaRetry = () => { void pool.refetch(); if (isConnected) void pos.refetchAll(); };
-
   // F98 (R034 H4): never let raw parseEther throw in the render path — a dust
   // balance routed through Max yields exponent notation that parseEther rejects,
   // which would blank the whole page via ErrorBoundary. safeParseEther returns
@@ -396,13 +392,9 @@ function ToweliFarm() {
                 action card is the FIRST card, not the last: on a 390px phone it
                 sat 6,400px down, under five sections of figures (the lead's
                 walk, 2026-10-14). The read-only figures follow it unchanged. */}
-            {pool.isDeployed && (
-              <StakingBetaOverNotice phase={betaPhase} onRetry={betaRetry} art={<CardArt pageId="farm" idx={3} />} />
-            )}
-            <ConnectPrompt
-              surface="farm"
-              description={`Connect to claim or withdraw. ${NEW_STAKES_CLOSED_LINE}`}
-            />
+            {/* TOWELI staking v1 (the old contract) is closing: said to every visitor. */}
+            <OldStakingBetaNotice art={<CardArt pageId="farm" idx={3} />} />
+            <ConnectPrompt surface="farm" />
             <IncentivesStrip apr={pool.apr} aprNum={pool.aprNum} rewardPool={stats.rewardPool} dailyEmissions={stats.dailyEmissions} rewardsRemaining={rewardsRemainingDisplay} secondsRemaining={pool.secondsRemaining} stakerSharePct={poolTVL.stakerSharePct} referralFeeBps={poolTVL.referralFeeBps} reserveEmpty={pool.isDry} />
 
             <FarmStatsRow
@@ -499,6 +491,12 @@ function ToweliFarm() {
             nothing unless the connected wallet holds a legacy position. */}
         <LegacyStakingExit />
 
+        {/* STAKING RELEASE 1: a position on the first relaunch contract (25% early exit)
+            claims and leaves there; the card below takes new stakes on the new one. Each
+            renders nothing for a wallet with nothing on its contract. */}
+        <OldStakingCard />
+        <OldLpFarmExit />
+
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-10">
           {/* Staking Card */}
           <StakingCard
@@ -530,7 +528,6 @@ function ToweliFarm() {
             handleStake={handleStake}
             lastActionRef={lastActionRef}
             submittedAmountRef={submittedAmountRef}
-            betaOver={pool.isDeployed ? { phase: betaPhase, onRetry: betaRetry } : undefined}
           />
 
           {/* Boost Table */}

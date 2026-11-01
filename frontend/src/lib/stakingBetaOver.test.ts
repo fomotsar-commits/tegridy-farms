@@ -3,11 +3,11 @@ import {
   BETA_OVER_HEADING,
   BETA_OVER_LINE,
   NEW_STAKES_CLOSED_LINE,
-  STAKING_V1_TAKES_NEW_STAKES,
   betaReadsFromHooks,
   stakingBetaPhase,
   type StakingBetaReads,
 } from './stakingBetaOver';
+import { OLD_STAKING_CONTRACT } from './constants';
 
 const E18 = 10n ** 18n;
 /** Every read landed: the rate still runs, the reserve holds 1,000 TOWELI, no wallet. */
@@ -119,7 +119,8 @@ describe('the copy', () => {
     expect(BETA_OVER_LINE.unread).toMatch(/could not read/);
   });
 
-  it('the site takes no new stakes into v1', () => {
-    expect(STAKING_V1_TAKES_NEW_STAKES).toBe(false);
+  it('v1 is the old contract: it takes no new stakes, and its fee is 25%, not the new 75%', () => {
+    expect(OLD_STAKING_CONTRACT.acceptsStakes).toBe(false);
+    expect(OLD_STAKING_CONTRACT.penaltyBps).toBe(2500);
   });
 });

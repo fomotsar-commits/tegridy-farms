@@ -45,7 +45,7 @@ contract AuditR014_StakingAdminTest is Test {
     function setUp() public {
         token = new MockTOWELI();
         nft = new MockJBAC();
-        staking = new TegridyStaking(address(token), address(nft), treasury, 1 ether);
+        staking = new TegridyStaking(address(token), address(nft), treasury);
         admin = new TegridyStakingAdmin(address(staking));
         staking.setStakingAdmin(address(admin));
 
@@ -84,7 +84,7 @@ contract AuditR014_StakingAdminTest is Test {
 
     function test_h2_setStakingAdmin_revertsOnZero() public {
         // Fresh staking instance to test zero-on-first-install.
-        TegridyStaking fresh = new TegridyStaking(address(token), address(nft), treasury, 1 ether);
+        TegridyStaking fresh = new TegridyStaking(address(token), address(nft), treasury);
         vm.expectRevert(TegridyStaking.ZeroAddress.selector);
         fresh.setStakingAdmin(address(0));
     }
@@ -108,7 +108,7 @@ contract AuditR014_StakingAdminTest is Test {
 
     function test_h2_proposeAdminReplacement_revertsIfNoAdminInstalled() public {
         // Fresh staking with no admin wired — propose path explicitly forbidden.
-        TegridyStaking fresh = new TegridyStaking(address(token), address(nft), treasury, 1 ether);
+        TegridyStaking fresh = new TegridyStaking(address(token), address(nft), treasury);
         TegridyStakingAdmin replacement = new TegridyStakingAdmin(address(fresh));
         vm.expectRevert(TegridyStaking.Unauthorized.selector);
         fresh.proposeAdminReplacement(address(replacement));
@@ -166,25 +166,27 @@ contract AuditR014_StakingAdminTest is Test {
         vm.warp(block.timestamp + uint256(48 hours) /* ADMIN_REPLACEMENT_TIMELOCK; internal in batch-14 */);
         staking.executeAdminReplacement();
 
-        // ── New admin contract: end-to-end timelocked rewardRate change works.
-        // FRESH-2026 TEST REALIGN: MAX_REWARD_RATE tightened from 100e18 to 1e18.
-        replacement.proposeRewardRate(0.6 ether);
-        vm.warp(block.timestamp + replacement.REWARD_RATE_TIMELOCK());
-        replacement.executeRewardRateChange();
-        assertEq(staking.rewardRate(), 0.6 ether, "new admin path applies");
+        // ── New admin contract: end-to-end timelocked treasury change works.
+        // (2026-10-18: the reward-rate flow this test used is gone; the rate follows the
+        // funds. Treasury is the same propose/execute/apply path.)
+        address t1 = makeAddr("treasury-1");
+        address t2 = makeAddr("treasury-2");
+        replacement.proposeTreasuryChange(t1);
+        vm.warp(block.timestamp + replacement.TREASURY_CHANGE_TIMELOCK());
+        replacement.executeTreasuryChange();
+        assertEq(staking.treasury(), t1, "new admin path applies");
 
         // ── Old admin contract is no longer wired: its execute*Change cannot
         //    apply because TegridyStaking's onlyAdmin gate now rejects it.
-        // FRESH-2026 TEST REALIGN: MAX_REWARD_RATE tightened to 1 ether.
-        oldAdmin.proposeRewardRate(0.7 ether);
-        vm.warp(block.timestamp + oldAdmin.REWARD_RATE_TIMELOCK());
+        oldAdmin.proposeTreasuryChange(t2);
+        vm.warp(block.timestamp + oldAdmin.TREASURY_CHANGE_TIMELOCK());
         vm.expectRevert(TegridyStaking.Unauthorized.selector);
-        oldAdmin.executeRewardRateChange();
+        oldAdmin.executeTreasuryChange();
 
-        // ── Direct callers of applyRewardRate (anyone else) revert too.
+        // ── Direct callers of applyTreasury (anyone else) revert too.
         vm.prank(address(oldAdmin));
         vm.expectRevert(TegridyStaking.Unauthorized.selector);
-        staking.applyRewardRate(4 ether);
+        staking.applyTreasury(t2);
     }
 
     function test_h2_cancelAdminReplacement_clearsState() public {

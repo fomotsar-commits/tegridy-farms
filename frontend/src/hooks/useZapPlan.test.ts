@@ -8,14 +8,6 @@
 // compose and no clue why. These tests hold the two halves equal.
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-
-// The zap machinery is tested on the staking-lock venue. TOWELI staking v1 takes no
-// new stakes (lib/stakingBetaOver), and venues.test pins that closure; this file
-// reopens it so the machinery under test still has a single-leg venue to plan.
-vi.mock('../lib/stakingBetaOver', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../lib/stakingBetaOver')>()),
-  STAKING_V1_TAKES_NEW_STAKES: true,
-}));
 import { renderHook } from '@testing-library/react';
 import { CHAIN_ID, SWAP_FEE_ROUTER_ADDRESS, TOWELI_ADDRESS, WETH_ADDRESS } from '../lib/constants';
 import { DEFAULT_TOKENS } from '../lib/tokenList';

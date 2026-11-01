@@ -36,6 +36,7 @@ vi.mock('framer-motion', () => ({
 }));
 
 import { StakingCard, type ConfirmState } from './StakingCard';
+import { EARLY_WITHDRAWAL_PENALTY_BPS } from '../../lib/constants';
 
 const toggleAutoMaxLock = vi.fn();
 
@@ -110,7 +111,9 @@ describe('Auto-Max Lock confirm gate', () => {
       ),
     ).toBeInTheDocument();
     // The cost of changing your mind, framed as what you keep.
-    expect(screen.getByText(/you keep 75%/i)).toBeInTheDocument();
+    // Staking release 1: this card's contract charges 75%, so the holder keeps 25%.
+    expect(screen.getByText(new RegExp(`you keep ${100 - EARLY_WITHDRAWAL_PENALTY_BPS / 100}%`, 'i'))).toBeInTheDocument();
+    expect(EARLY_WITHDRAWAL_PENALTY_BPS).toBe(7500);
   });
 
   it('fires only after the explicit second confirmation', () => {

@@ -5,7 +5,7 @@
 import { describe, it, expect } from 'vitest';
 import type { Address } from 'viem';
 import { readFeeLine, feeLineStatement, claimAuthorityStatement, EXPECTED_SINK_DESTINATIONS } from './feeLine';
-import { LOCKER_CLAIMER_ADDRESS, REVENUE_DISTRIBUTOR_ADDRESS, TREASURY_ADDRESS } from '../../constants';
+import { LOCKER_CLAIMER_ADDRESS, OLD_REVENUE_DISTRIBUTOR_ADDRESS, TREASURY_ADDRESS } from '../../constants';
 import { DOPPLER_MAINNET } from '../doppler.constants';
 
 const NATIVE = '0x0000000000000000000000000000000000000000' as Address;
@@ -27,7 +27,7 @@ function client(opts: {
       if (fn === 'locker' || fn === 'revenueDistributor' || fn === 'treasury') {
         if (opts.destinationsThrow) throw new Error('rpc down');
         if (fn === 'locker') return opts.locker ?? DOPPLER_MAINNET.support.streamableFeesLocker;
-        if (fn === 'revenueDistributor') return opts.distributor ?? REVENUE_DISTRIBUTOR_ADDRESS;
+        if (fn === 'revenueDistributor') return opts.distributor ?? OLD_REVENUE_DISTRIBUTOR_ADDRESS;
         return opts.treasury ?? TREASURY_ADDRESS;
       }
       if (fn === 'beneficiariesClaims') {
@@ -48,7 +48,7 @@ describe('destinations are read back from the deployed contract, not assumed', (
     expect(r.sinkConfigured).toBe(true);
     expect(r.destinations).toEqual({
       locker: DOPPLER_MAINNET.support.streamableFeesLocker,
-      revenueDistributor: REVENUE_DISTRIBUTOR_ADDRESS,
+      revenueDistributor: OLD_REVENUE_DISTRIBUTOR_ADDRESS,
       treasury: TREASURY_ADDRESS,
     });
     expect(r.pointsAtOurLocker).toBe(true);
@@ -60,7 +60,7 @@ describe('destinations are read back from the deployed contract, not assumed', (
     expect(EXPECTED_SINK_DESTINATIONS.locker.toLowerCase()).toBe(
       DOPPLER_MAINNET.support.streamableFeesLocker.toLowerCase(),
     );
-    expect(EXPECTED_SINK_DESTINATIONS.revenueDistributor).toBe(REVENUE_DISTRIBUTOR_ADDRESS);
+    expect(EXPECTED_SINK_DESTINATIONS.revenueDistributor).toBe(OLD_REVENUE_DISTRIBUTOR_ADDRESS);
     expect(EXPECTED_SINK_DESTINATIONS.treasury).toBe(TREASURY_ADDRESS);
   });
 

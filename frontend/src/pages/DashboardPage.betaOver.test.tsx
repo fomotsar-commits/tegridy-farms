@@ -1,7 +1,8 @@
 /**
- * TOWELI staking v1 is closing (owner, 2026-10-30). The dashboard's half: the
- * "Beta is over" notice for a wallet with something staked, no invitation to stake,
- * and no Claim button armed during a pause (getReward is whenNotPaused).
+ * TOWELI staking v1 is closing (owner, 2026-10-30); since staking release 1 it is the
+ * OLD contract. The dashboard's half: the "Beta is over" notice, from v1's own reads,
+ * for a wallet with something there; the new contract's position, its invitation to
+ * stake, and no Claim button armed during ITS pause (getReward is whenNotPaused).
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -12,7 +13,11 @@ const state = vi.hoisted(() => ({
   needsRefresh: false,
   pos: {} as Record<string, unknown>,
   pool: {} as Record<string, unknown>,
+  oldPos: {} as Record<string, unknown>,
+  oldPool: {} as Record<string, unknown>,
 }));
+// Each contract its own reads: v1 (the old contract) is the one that takes no stakes.
+const isOld = (c?: { acceptsStakes: boolean }) => c?.acceptsStakes === false;
 
 vi.mock('wagmi', () => ({
   useAccount: () => ({
@@ -73,9 +78,13 @@ vi.mock('../contexts/PriceContext', () => ({
   }),
 }));
 
-vi.mock('../hooks/useUserPosition', () => ({ useUserPosition: () => state.pos }));
+vi.mock('../hooks/useUserPosition', () => ({
+  useUserPosition: (c?: { acceptsStakes: boolean }) => (isOld(c) ? state.oldPos : state.pos),
+}));
 
-vi.mock('../hooks/usePoolData', () => ({ usePoolData: () => state.pool }));
+vi.mock('../hooks/usePoolData', () => ({
+  usePoolData: (c?: { acceptsStakes: boolean }) => (isOld(c) ? state.oldPool : state.pool),
+}));
 vi.mock('../hooks/useFarmActions', () => ({
   useFarmActions: () => ({ claim: vi.fn(), isPending: false, isConfirming: false, isSuccess: false, hash: undefined, pendingEth: 0n }),
 }));
@@ -113,7 +122,7 @@ import DashboardPage from './DashboardPage';
 import { BUNGALOW_STORAGE_KEY } from '../lib/bungalows';
 
 
-import { BETA_OVER_LINE, NEW_STAKES_CLOSED_LINE } from '../lib/stakingBetaOver';
+import { BETA_OVER_LINE } from '../lib/stakingBetaOver';
 
 const E18 = 10n ** 18n;
 
@@ -131,7 +140,7 @@ beforeEach(() => {
   window.localStorage.setItem(BUNGALOW_STORAGE_KEY, 'toweli');
   window.history.replaceState({}, '', '/dashboard');
   state.needsRefresh = false;
-  // 1,000 TOWELI staked, 42.5 earned. Rate 0, the reserve holds 5,000: claim now.
+  // On the new contract: 1,000 TOWELI staked, 42.5 earned.
   state.pos = {
     hasPosition: true, positionUnread: false, isPaused: false, isLoading: false, tokenId: 7n,
     stakedFormatted: '1000', pendingFormatted: '42.5', pendingReward: 425n * E18 / 10n, pendingLive: 42.5,
@@ -143,6 +152,9 @@ beforeEach(() => {
     totalStaked: '0', rewardRateRaw: 0n, rewardRateUnread: false,
     rewardsRemainingRaw: 5000n * E18, rewardsRemainingUnread: false, paused: false, isLoading: false, refetch: vi.fn(),
   };
+  // On v1: the same stake, 42.5 earned. Rate 0, the reserve holds 5,000: claim now.
+  state.oldPos = { ...state.pos, refetchAll: vi.fn() };
+  state.oldPool = { ...state.pool, refetch: vi.fn() };
 });
 afterEach(() => {
   window.localStorage.removeItem(BUNGALOW_STORAGE_KEY);
@@ -150,16 +162,22 @@ afterEach(() => {
 });
 
 describe('Dashboard, beta over', () => {
-  it('tells a wallet with a stake where v1 stands', () => {
+  it('tells a wallet with a v1 stake where v1 stands', () => {
     renderTab(/positions/i);
     expect(screen.getByTestId('staking-beta-over')).toHaveTextContent(BETA_OVER_LINE['claim-now']);
     expect(screen.getByRole('button', { name: /claim rewards \(42\.50 TOWELI\)/i })).toBeEnabled();
   });
 
-  it('during a read pause it says so, and no Claim button is armed', () => {
-    state.pos = { ...state.pos, isPaused: true };
+  it("a v1 pause is said in the notice, and does not disarm the new contract's Claim", () => {
+    state.oldPos = { ...state.oldPos, isPaused: true };
     renderTab(/positions/i);
     expect(screen.getByTestId('staking-beta-over')).toHaveTextContent(BETA_OVER_LINE.paused);
+    expect(screen.getByRole('button', { name: /claim rewards \(42\.50 TOWELI\)/i })).toBeEnabled();
+  });
+
+  it('a read pause on the new contract disarms its Claim', () => {
+    state.pos = { ...state.pos, isPaused: true };
+    renderTab(/positions/i);
     expect(screen.getByRole('button', { name: /claim rewards \(42\.50 TOWELI\)/i })).toBeDisabled();
   });
 
@@ -169,12 +187,22 @@ describe('Dashboard, beta over', () => {
     expect(screen.getByRole('button', { name: /claim staking rewards/i })).toBeDisabled();
   });
 
-  it('a wallet with no position is told v1 takes no new stakes, not invited to start', () => {
-    state.pos = { ...state.pos, hasPosition: false, stakedFormatted: '0', pendingFormatted: '0', pendingReward: 0n };
+  it('a wallet with nothing anywhere is invited to stake on the new contract, with no v1 notice', () => {
+    const none = { hasPosition: false, stakedFormatted: '0', pendingFormatted: '0', pendingReward: 0n };
+    state.pos = { ...state.pos, ...none };
+    state.oldPos = { ...state.oldPos, ...none };
     renderTab(/positions/i);
-    expect(screen.getByTestId('dashboard-staking-v1-closed')).toHaveTextContent(NEW_STAKES_CLOSED_LINE);
-    expect(screen.queryByRole('link', { name: /start staking/i })).toBeNull();
-    // Nothing staked, nothing owed: no notice for it.
+    expect(screen.getByRole('link', { name: /start staking/i })).toHaveAttribute('href', '/earn/toweli');
     expect(screen.queryByTestId('staking-beta-over')).toBeNull();
+  });
+
+  it('an IOU left on v1, with no position there, still gets the notice', () => {
+    state.oldPos = {
+      ...state.oldPos, hasPosition: false, stakedFormatted: '0', pendingFormatted: '0', pendingReward: 0n,
+      unsettledRewards: 12n * E18, unsettledFormatted: '12',
+    };
+    renderTab(/positions/i);
+    expect(screen.getByTestId('staking-beta-over')).toHaveTextContent(BETA_OVER_LINE['claim-now']);
+    expect(screen.getByTestId('old-staking-notice')).toHaveTextContent(/12 TOWELI of unsettled rewards on the old contract/i);
   });
 });

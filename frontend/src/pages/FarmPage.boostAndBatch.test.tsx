@@ -104,6 +104,8 @@ vi.mock('../components/farm/IncentivesStrip', () => ({ IncentivesStrip: () => nu
 vi.mock('../components/RealYieldProof', () => ({ RealYieldProof: () => null }));
 vi.mock('../components/farm/LPFarmingSection', () => ({ LPFarmingSection: () => <div>lp farming</div> }));
 vi.mock('../components/farm/LegacyStakingExit', () => ({ LegacyStakingExit: () => null }));
+vi.mock('../components/farm/OldStakingCard', () => ({ OldStakingCard: () => null, OldStakingNotice: () => null }));
+vi.mock('../components/farm/OldLpFarmExit', () => ({ OldLpFarmExit: () => null }));
 vi.mock('../components/farm/BoostScheduleTable', () => ({ BoostScheduleTable: () => null }));
 vi.mock('../components/farm/LivePoolCard', () => ({ LivePoolCard: () => null }));
 vi.mock('../components/farm/UpcomingPoolCard', () => ({ UpcomingPoolCard: () => null }));

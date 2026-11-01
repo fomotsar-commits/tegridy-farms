@@ -1,6 +1,6 @@
 /**
  * TOWELI staking v1 is closing (owner, 2026-10-30). What the card says and offers
- * once FarmPage hands it `betaOver`: the "Beta is over" notice, no new stake, no
+ * once OldStakingCard hands it `betaOver`: the "Beta is over" notice, no new stake, no
  * lock extension, claim and every withdraw kept, and the paused exit tagged for a
  * withdrawal receipt.
  *
@@ -13,7 +13,7 @@ import { wagmiMock } from '../../test-utils/wagmi-mocks';
 import { renderWithProviders } from '../../test-utils/render';
 import { StakingCard, type ConfirmState } from './StakingCard';
 import { useUserPosition } from '../../hooks/useUserPosition';
-import { LOCK_OPTIONS, CHAIN_ID } from '../../lib/constants';
+import { LOCK_OPTIONS, CHAIN_ID, OLD_STAKING_CONTRACT, type StakingContractSet } from '../../lib/constants';
 import { PENALTY_COPY } from '../../lib/copy';
 import { BETA_OVER_LINE, NEW_STAKES_CLOSED_LINE, type StakingBetaPhase } from '../../lib/stakingBetaOver';
 
@@ -34,8 +34,8 @@ const CLOSED: ConfirmState = {
 const lastActionRef: CardProps['lastActionRef'] = { current: null };
 const submittedAmountRef: CardProps['submittedAmountRef'] = { current: null };
 
-function Harness({ phase }: { phase?: StakingBetaPhase }) {
-  const pos = useUserPosition();
+function Harness({ phase, contract }: { phase?: StakingBetaPhase; contract?: StakingContractSet }) {
+  const pos = useUserPosition(contract);
   const [confirms, setConfirms] = useState<ConfirmState>(CLOSED);
   return (
     <StakingCard
@@ -51,6 +51,7 @@ function Harness({ phase }: { phase?: StakingBetaPhase }) {
       computed={{ boostDisplay: '2.00', totalBoostBps: 20_000, amtNum: 0, effectiveStake: 0, stakeNeedsApproval: false }}
       handleStake={noop} lastActionRef={lastActionRef} submittedAmountRef={submittedAmountRef}
       betaOver={phase ? { phase } : undefined}
+      contract={contract}
     />
   );
 }
@@ -115,12 +116,13 @@ describe('StakingCard, beta over: no new stakes into v1', () => {
 
   it('the early-exit confirm says the pause will give the stake back free, and snapshots what comes back', () => {
     stubStaker({ lock: 'locked', paused: false });
-    renderWithProviders(<Harness phase="closing" />);
+    renderWithProviders(<Harness phase="closing" contract={OLD_STAKING_CONTRACT} />);
     fireEvent.click(screen.getByRole('button', { name: new RegExp(PENALTY_COPY.earlyExitLabel, 'i') }));
     expect(screen.getByTestId('early-exit-wait-for-pause')).toHaveTextContent(/once v1 pauses.*no penalty/i);
     fireEvent.click(screen.getByRole('button', { name: new RegExp(`pay the ${PENALTY_COPY.earlyExitLabel}`, 'i') }));
     expect(actions.earlyWithdraw).toHaveBeenCalledWith(TOKEN_ID);
-    // 1,000 staked, 25% to the treasury: the fallback receipt figure is the 750 returned.
+    // 1,000 staked, v1's own 25% to the treasury (never the new contract's 75%): the
+    // fallback receipt figure is the 750 returned.
     expect(submittedAmountRef.current).toBe('750');
   });
 });

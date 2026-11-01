@@ -69,7 +69,7 @@ contract StakingAttributionPerTokenIdLedgerTest is Test {
     function setUp() public {
         token = new LedgerMockToken();
         nft = new LedgerMockNFT();
-        staking = new TegridyStaking(address(token), address(nft), treasury, 1 ether);
+        staking = new TegridyStaking(address(token), address(nft), treasury);
         admin = new TegridyStakingAdmin(address(staking));
         staking.setStakingAdmin(address(admin));
 
@@ -180,7 +180,7 @@ contract StakingAttributionPerTokenIdLedgerTest is Test {
         internal
         returns (uint256 credit)
     {
-        _fund(50_000_000 ether);
+        _fund(20_000_000 ether);
         vm.warp(vm.getBlockTimestamp() + 100_000);
         _bakeAccrual();
         _drainPoolTo(0);
@@ -207,7 +207,7 @@ contract StakingAttributionPerTokenIdLedgerTest is Test {
     ///         silent no-op before the zombie branch is reachable, and escrowA
     ///         recovers in full.
     function test_emptyBucketForeignHolder_cannotDestroyAttribution() public {
-        _fund(50_000_000 ether);
+        _fund(20_000_000 ether);
         uint256 idA = _seed(alice, escrowA, 100_000 ether);
 
         vm.warp(vm.getBlockTimestamp() + 100_000);
@@ -235,7 +235,7 @@ contract StakingAttributionPerTokenIdLedgerTest is Test {
         );
 
         // ...and escrowA still recovers the FULL credit once the pool is topped up.
-        _fund(50_000_000 ether);
+        _fund(20_000_000 ether);
         address payee = makeAddr("lg_payee");
         assertEq(escrowA.callClaim(idA, payee), credit, "escrowA must recover its full credit");
         assertEq(token.balanceOf(payee), credit, "recovered credit must land at the recipient");
@@ -253,7 +253,7 @@ contract StakingAttributionPerTokenIdLedgerTest is Test {
     ///
     ///         POST-FIX: escrowB's own entry on idA is 0 => silent no-op, nothing moves.
     function test_fundedForeignHolder_cannotDivertAnotherHoldersSlice() public {
-        _fund(50_000_000 ether);
+        _fund(20_000_000 ether);
         uint256 idA = _seed(alice, escrowA, 100_000 ether);
         uint256 idB = _seed(bob, escrowB, 100_000 ether);
 
@@ -264,7 +264,7 @@ contract StakingAttributionPerTokenIdLedgerTest is Test {
         assertGt(staking.unsettledRewards(address(escrowB)), 0, "escrowB must hold its own bucket");
 
         // Refund the pool so a drain would actually move tokens.
-        _fund(50_000_000 ether);
+        _fund(20_000_000 ether);
 
         uint256 bucketBBefore = staking.unsettledRewards(address(escrowB));
         uint256 thiefBefore = token.balanceOf(thief);
@@ -312,7 +312,7 @@ contract StakingAttributionPerTokenIdLedgerTest is Test {
     ///         its own entry, escrowB drains it in full, its bucket empties, and the
     ///         operator can retire it. No stranding, no admin lockout.
     function test_secondHolderCredit_drainsFully_andDeWhitelistSucceeds() public {
-        _fund(50_000_000 ether);
+        _fund(20_000_000 ether);
         uint256 idA = _seed(alice, escrowA, 100_000 ether);
 
         vm.warp(vm.getBlockTimestamp() + 100_000);
@@ -334,7 +334,7 @@ contract StakingAttributionPerTokenIdLedgerTest is Test {
         assertEq(staking.balanceOf(address(escrowB)), 0, "escrowB must escrow no positions");
 
         // Fund generously so no drain can be pool-limited.
-        _fund(50_000_000 ether);
+        _fund(20_000_000 ether);
 
         // escrowB drains its OWN bucket to zero through its only legal route.
         escrowB.callClaim(idA, address(escrowB));
@@ -362,7 +362,7 @@ contract StakingAttributionPerTokenIdLedgerTest is Test {
     ///         un-drained residue live for the whole test and escrowB is still credited
     ///         and still drains in full.
     function test_undrainedResidue_doesNotDenyTheNextHolder() public {
-        _fund(50_000_000 ether);
+        _fund(20_000_000 ether);
         uint256 idA = _seed(alice, escrowA, 100_000 ether);
 
         vm.warp(vm.getBlockTimestamp() + 100_000);
@@ -378,7 +378,7 @@ contract StakingAttributionPerTokenIdLedgerTest is Test {
         staking.transferFrom(alice, address(escrowB), idA);
 
         uint256 creditB = _bookShortfallBucket(escrowB, idA);
-        _fund(50_000_000 ether);
+        _fund(20_000_000 ether);
 
         // escrowA's residue is STILL live and undrained at this point — under the
         // rejected "re-point only when unset or stale" rule that alone denied escrowB
@@ -408,7 +408,7 @@ contract StakingAttributionPerTokenIdLedgerTest is Test {
     ///         holder can actually drain, and every drain moves aggregate,
     ///         totalUnsettledRewards and the holder bucket by the same amount.
     function test_aggregateEqualsSumOfWhatHoldersCanDrain() public {
-        _fund(50_000_000 ether);
+        _fund(20_000_000 ether);
         uint256 idA = _seed(alice, escrowA, 100_000 ether);
 
         vm.warp(vm.getBlockTimestamp() + 100_000);
@@ -425,7 +425,7 @@ contract StakingAttributionPerTokenIdLedgerTest is Test {
         _bookShortfallBucket(escrowB, idA);
         escrowB.callTransfer(alice, idA);
 
-        _fund(50_000_000 ether);
+        _fund(20_000_000 ether);
 
         uint256 aggBefore = staking.unsettledRewardsByTokenId(idA);
         uint256 entryB = aggBefore - entryA; // by the sum invariant
@@ -464,7 +464,7 @@ contract StakingAttributionPerTokenIdLedgerTest is Test {
     ///         back — and the transfer-out itself credits the OUTGOING tracked holder
     ///         via `_settleRewardsOnTransfer(tokenId, from)`.
     function test_pin_postTransferResiduePull_stillWorks() public {
-        _fund(50_000_000 ether);
+        _fund(20_000_000 ether);
         uint256 idA = _seed(alice, escrowA, 100_000 ether);
 
         vm.warp(vm.getBlockTimestamp() + 100_000);
@@ -477,7 +477,7 @@ contract StakingAttributionPerTokenIdLedgerTest is Test {
         uint256 owed = staking.unsettledRewardsByTokenId(idA);
         assertGt(owed, 0, "pin setup: residue must survive the hand-back");
 
-        _fund(50_000_000 ether);
+        _fund(20_000_000 ether);
 
         assertEq(
             escrowA.callClaim(idA, alice),
@@ -490,7 +490,7 @@ contract StakingAttributionPerTokenIdLedgerTest is Test {
     /// @notice REQUIREMENT 1 (burn leg) — `withdraw` burns the NFT, so `ownerOf` reverts.
     ///         An attributed residue must still be drainable by its holder.
     function test_pin_residueSurvivesBurn_attributedHolderStillDrains() public {
-        _fund(50_000_000 ether);
+        _fund(20_000_000 ether);
         uint256 idA = _seed(alice, escrowA, 100_000 ether);
 
         vm.warp(vm.getBlockTimestamp() + 100_000);
@@ -498,7 +498,7 @@ contract StakingAttributionPerTokenIdLedgerTest is Test {
 
         escrowA.callTransfer(alice, idA);
         vm.warp(vm.getBlockTimestamp() + 400 days);
-        _fund(50_000_000 ether);
+        _fund(20_000_000 ether);
         vm.prank(alice);
         staking.withdraw(idA);
 
@@ -517,7 +517,7 @@ contract StakingAttributionPerTokenIdLedgerTest is Test {
     ///         call is documented best-effort; turning "nothing of yours here" into a
     ///         revert would convert a benign no-op into a swallowed error.
     function test_pin_unattributedTokenId_isNoOpNotRevert() public {
-        _fund(50_000_000 ether);
+        _fund(20_000_000 ether);
         uint256 idA = _seed(alice, escrowA, 100_000 ether);
 
         assertEq(staking.unsettledRewardsByTokenId(idA), 0, "pin setup: nothing credited yet");
@@ -527,7 +527,7 @@ contract StakingAttributionPerTokenIdLedgerTest is Test {
 
     /// @notice The two host-side guards are untouched by this change.
     function test_pin_hostGuardsUnchanged() public {
-        _fund(50_000_000 ether);
+        _fund(20_000_000 ether);
         uint256 idA = _seed(alice, escrowA, 100_000 ether);
 
         // Untracked caller still reverts Unauthorized.
@@ -558,7 +558,7 @@ contract StakingAttributionPerTokenIdLedgerTest is Test {
     ///         aggregate when two holders share a tokenId. This view is what every
     ///         "MY residue" consumer in TegridyLending / TegridyRestaking now reads.
     function test_observability_perHolderView_isPerHolderNotAggregate() public {
-        _fund(50_000_000 ether);
+        _fund(20_000_000 ether);
         uint256 idA = _seed(alice, escrowA, 100_000 ether);
 
         vm.warp(vm.getBlockTimestamp() + 100_000); // accrue, so there is something to bake
@@ -593,11 +593,11 @@ contract StakingAttributionPerTokenIdLedgerTest is Test {
     /// @dev    The OLD event must still fire, unchanged, in the same call — deployed
     ///         indexers depend on it. Both are asserted.
     function test_observability_debitEventCarriesHolder() public {
-        _fund(50_000_000 ether);
+        _fund(20_000_000 ether);
         uint256 idA = _seed(alice, escrowA, 100_000 ether);
         vm.warp(vm.getBlockTimestamp() + 100_000); // accrue, so there is something to bake
         uint256 credit = _bookShortfall(escrowA, idA, 0);
-        _fund(50_000_000 ether); // refill so the claim actually pays
+        _fund(20_000_000 ether); // refill so the claim actually pays
 
         // The pre-existing event, byte-identical (topic0 + args) to pre-fix.
         vm.expectEmit(true, true, false, true, address(staking));
@@ -613,7 +613,7 @@ contract StakingAttributionPerTokenIdLedgerTest is Test {
     ///         down by that entry) while paying nothing. Pre-fix it emitted NOTHING at
     ///         all, so an off-chain reconstruction would stay permanently over-stated.
     function test_observability_zombieCleanupIsObservable() public {
-        _fund(50_000_000 ether);
+        _fund(20_000_000 ether);
         uint256 idA = _seed(alice, escrowA, 100_000 ether);
         vm.warp(vm.getBlockTimestamp() + 100_000); // accrue, so there is something to bake
         uint256 credit = _bookShortfall(escrowA, idA, 0);

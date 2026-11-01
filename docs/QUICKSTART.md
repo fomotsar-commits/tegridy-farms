@@ -56,8 +56,10 @@ Between **7 days and 4 years**, for a **0.4×–4.0×** boost, plus **+0.5×** w
 
 ### 5. Track it
 Your position appears under **My Positions**. Principal unlocks at the end of the lock.
-**Early exit costs a flat 25% of the principal you withdraw**, paid to the treasury — it does
-not taper as you approach maturity, and it is not recycled to the stakers who stayed.
+**Early exit costs a flat 75% of the principal you withdraw**, paid to the treasury — it does
+not taper as you approach maturity, and it is not recycled to the stakers who stayed. Rewards are
+paid first, but only what the reward pool holds. (A position on the first relaunch staking
+contract keeps its 25%.)
 
 ---
 
