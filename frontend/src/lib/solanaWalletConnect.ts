@@ -21,6 +21,7 @@ import {
 import { PublicKey, VersionedTransaction, type Transaction } from '@solana/web3.js';
 import { ed25519 } from '@noble/curves/ed25519';
 import { base58, base64 } from '@scure/base';
+import { TANGEM_ICON } from './walletIcons';
 // TYPE-ONLY. The package itself, and the storage it opens, are loaded with a
 // dynamic import() inside loadWalletConnect(), so the Solana page pays nothing
 // for them until someone connects — and a build without a project id carries
@@ -78,7 +79,9 @@ import type SignClientClass from '@walletconnect/sign-client';
  *     +93 KB on every page of every no-id build (CI, fork PRs, clones).
  *  2. Not offered on a phone: a QR cannot be scanned by the screen showing it,
  *     and phones already get in-app-browser rows (Phantom, Trust, MetaMask,
- *     Coinbase) and the Mobile Wallet Adapter.
+ *     Coinbase) and the Mobile Wallet Adapter. The one exception is a wallet
+ *     with its own link into its app on the same phone, which pairs without a
+ *     QR: TangemWalletAdapter, at the end of this file.
  *  3. autoConnect RESTORES ONLY: a live Solana session connects silently; no
  *     session means nothing happens. It never shows a QR. "Live" means inside
  *     its expiry: the engine prunes expired sessions only when it starts, so a
@@ -245,7 +248,8 @@ const IDLE: WalletConnectPairing = { phase: 'idle' };
 export const PAIRING_REASONS = {
   declined: 'Your wallet declined the connection. Nothing was shared.',
   unsupported: "That wallet can't connect to Solana this way. Pick another wallet.",
-  expired: 'The QR code expired. Tap WalletConnect for a new one.',
+  // Not "QR code": a phone's Tangem row pairs with no QR at all.
+  expired: 'The connection request expired. Tap the wallet again for a new one.',
   noSolana:
     "That wallet didn't share a Solana address. An account imported from an Ethereum private key has none. Pick a wallet with a Solana address.",
   startFailed: "WalletConnect didn't start. Check your connection, or pick another wallet.",
@@ -460,8 +464,16 @@ function signatureFrom(result: { signature?: unknown; transaction?: unknown }, s
 /** Every adapter instance that holds a session right now (rule 9). */
 const adopted = new Set<WalletConnectWalletAdapter>();
 
+/**
+ * Into a wallet's app on this device. Assigned, not window.open(): a custom
+ * scheme opened in a new tab leaves a blank tab behind.
+ */
+function openApp(link: string): void {
+  window.location.href = link;
+}
+
 export class WalletConnectWalletAdapter extends BaseSignerWalletAdapter {
-  name = WalletConnectWalletName;
+  name: WalletName = WalletConnectWalletName;
   url = 'https://walletconnect.network';
   /** @walletconnect/solana-adapter@0.0.9 adapter.ts icon, verbatim. */
   icon =
@@ -477,7 +489,7 @@ export class WalletConnectWalletAdapter extends BaseSignerWalletAdapter {
   readonly supportedTransactionVersions: SupportedTransactionVersions = new Set(['legacy' as const, 0 as const]);
 
   private readonly _projectId: string;
-  private readonly _readyState: WalletReadyState;
+  protected _readyState: WalletReadyState;
   private _connecting = false;
   private _client: SignClient | null = null;
   /** The session's TOPIC only. The record itself is read when it is used (rule 8). */
@@ -513,6 +525,16 @@ export class WalletConnectWalletAdapter extends BaseSignerWalletAdapter {
 
   get readyState(): WalletReadyState {
     return this._readyState;
+  }
+
+  /**
+   * The link into the wallet's own app on THIS device: with a pairing URI, to
+   * connect; without one, to bring the app forward for a request just sent.
+   * Null here: the QR's wallet is on another device, so the URI is drawn as a
+   * QR and a request waits for that device. TangemWalletAdapter answers.
+   */
+  appLink(_uri?: string): string | null {
+    return null;
   }
 
   // ── pairing state, read by the connect modal (useSyncExternalStore) ──
@@ -612,6 +634,8 @@ export class WalletConnectWalletAdapter extends BaseSignerWalletAdapter {
       });
       if (!uri || !pairingTopicOf(uri)) throw new WalletConnectionError('WalletConnect returned no pairing link');
       this._setPairing({ phase: 'scan', uri });
+      const link = this.appLink(uri);
+      if (link) openApp(link);
 
       // ONE approval promise. A second approval() call would replace the
       // resolver sign-client caches for it (utils createDelayedPromise), and
@@ -754,15 +778,21 @@ export class WalletConnectWalletAdapter extends BaseSignerWalletAdapter {
         const message = isVersionedTransaction(transaction)
           ? transaction.message.serialize()
           : (transaction as Transaction).serializeMessage();
+        const request = client.request<{ signature?: string; transaction?: string }>({
+          chainId: this._chainId,
+          topic,
+          request: {
+            method: SIGN_TRANSACTION,
+            params: signTransactionParams(transaction),
+          },
+        });
+        // A wallet on this device is brought forward to answer, as sign-client
+        // does for its own deep links (engine request(): the redirect runs
+        // alongside the send, in one Promise.all).
+        const link = this.appLink();
+        if (link) openApp(link);
         const result = await within(
-          client.request<{ signature?: string; transaction?: string }>({
-            chainId: this._chainId,
-            topic,
-            request: {
-              method: SIGN_TRANSACTION,
-              params: signTransactionParams(transaction),
-            },
-          }),
+          request,
           SIGN_TIMEOUT_MS,
           () => new Error('No answer from the wallet in time. Nothing was sent'),
         );
@@ -843,6 +873,59 @@ export class WalletConnectWalletAdapter extends BaseSignerWalletAdapter {
   private static readonly _walletUpdated = ({ topic }: { topic: string }): void => {
     WalletConnectWalletAdapter._recheck(topic);
   };
+}
+
+export const TangemWalletName = 'Tangem' as WalletName<'Tangem'>;
+
+/** The Tangem app's own WalletConnect link (TangemWalletAdapter says where it comes from). */
+const TANGEM_APP = 'tangem://wc';
+
+/**
+ * Tangem: a card wallet whose phone app reaches sites ONLY over WalletConnect
+ * (no extension, no in-app browser), Solana included (Tangem's own guide,
+ * tangem.com/en/blog/post/solana-walletconnect). It is the adapter above
+ * under Tangem's name, differing only in where its row exists:
+ *
+ *  - On a computer or an iPad its row is NotDetected, and a click shows the
+ *    WalletConnect row's QR, named for Tangem (solanaWalletOrder.ts
+ *    SCANNABLE_WALLETS); the connection is that row's, saved under its name.
+ *    An iPad counts as a computer here too: it has no NFC for the card.
+ *  - On a phone, where that row does not exist (rule 2), this row is Loadable
+ *    and pairs by itself. The pairing link opens the Tangem app on the same
+ *    phone, `tangem://wc?uri=<encoded uri>`: the form Tangem's iOS app's URL
+ *    tests accept (tangem-app-ios IncomingURLValidatorTests), which its
+ *    Android app registers (tangem-app-android AndroidManifest.xml,
+ *    `tangem://wc`). The modal offers the same link as a button, for a
+ *    browser that will not leave without a tap. Every signature request opens
+ *    the app again with the bare `tangem://wc` (also in those tests), because
+ *    the card is tapped there. WalletConnect carries the request either way.
+ *
+ * Every rule above holds for it unchanged: one SignClient, the 'solana'
+ * prefix, the session read at sign time, the signature checked before sending.
+ * On a phone it is the only WalletConnect adapter, so the store's sessions
+ * are its own.
+ */
+export class TangemWalletAdapter extends WalletConnectWalletAdapter {
+  override name: WalletName = TangemWalletName;
+  override url = 'https://tangem.com';
+  override icon = TANGEM_ICON;
+
+  constructor(config: { projectId: string }) {
+    super(config);
+    // super() reads a phone as Unsupported (rule 2): the very place this row
+    // is the way in. Without a project id it is inert, like the QR row.
+    const usable = typeof window !== 'undefined' && typeof document !== 'undefined' && Boolean(config.projectId);
+    this._readyState = !usable
+      ? WalletReadyState.Unsupported
+      : isPhone()
+        ? WalletReadyState.Loadable
+        : WalletReadyState.NotDetected;
+  }
+
+  override appLink(uri?: string): string | null {
+    if (this.readyState !== WalletReadyState.Loadable) return null;
+    return uri === undefined ? TANGEM_APP : `${TANGEM_APP}?uri=${encodeURIComponent(uri)}`;
+  }
 }
 
 function failureFor(error: unknown): WalletConnectPairing {
