@@ -449,3 +449,112 @@ describe('useSwapQuote: a dust pool reads as the impact it is (2026-11-01)', () 
     expect(result.current.priceImpact).toBeNull();
   });
 });
+
+describe("useSwapQuote on Base: an island coin's own V3 pool, net of the venue fee (2026-11-01)", () => {
+  const BASE = 8453;
+  const BNKR: TokenInfo = { address: '0x22aF33FE49fD1Fa80c7149773dDe5890D3c76F3b', symbol: 'BNKR', name: 'BNKR', decimals: 18, logoURI: '' };
+  const BASE_UNI_ROUTER = '0x4752ba5DBc23f44D87826276BF6Fd6b1C372aD24';
+  const BASE_UNI_FACTORY = '0x8909Dc15e40173Ff4699343b6eB8132c65e18eC6';
+  const BASE_OUR_FACTORY = '0x12a249A027AA7DdF184E824b4bb63ba031A39fEC';
+  const BASE_OUR_ROUTER = '0x4B134C08aAF86B6e2A8E097D1039C4e7638806f3';
+  const BASE_SFR = '0xa24C7287eC56A7DEFDc70033803451240e267a52';
+  const QUOTER = '0x3d4e44Eb1374240CE5F1B871ab261CD16335B76a';
+  const POOL = '0xAEC085E5A5CE8d96A7bDd3eB3A62445d4f6CE703';
+  const SAFE = '0xfc5D5018E557941A3BB7Ff057d1B0c2eCC09fbf1';
+  // Read on Base at block 53,364,275: the V2 pair's dust quote, the V3 pool's quote and its price.
+  const IN = 1_750_000n * 10n ** 18n;
+  const V2_OUT = 1_072_065_705_933n;
+  const V3_OUT = 221_929_058_837_612_529n;
+  const SQRT_PRICE = 28_362_346_456_993_016_360_770_419n;
+
+  beforeEach(() => {
+    wagmiMock.reset();
+    wagmiMock.setChainId(BASE);
+    wagmiMock.setReadResult({ functionName: 'getPair', address: BASE_OUR_FACTORY, result: ZERO_ADDR });
+    wagmiMock.setReadResult({ functionName: 'getPair', address: BASE_UNI_FACTORY, result: PAIR });
+    wagmiMock.setReadResult({ functionName: 'getReserves', address: PAIR, result: [7_189_201_342_686_852_655n, 1_072_070_123_355n, 0] });
+    wagmiMock.setReadResult({ functionName: 'token0', address: PAIR, result: BNKR.address });
+    wagmiMock.setReadResult({ functionName: 'getAmountsOut', address: BASE_UNI_ROUTER, result: [IN, V2_OUT] });
+    wagmiMock.setReadResult({ functionName: 'feeBps', address: BASE_SFR, result: 50n });
+    wagmiMock.setReadResult({ functionName: 'revenueDistributor', address: BASE_SFR, result: SAFE });
+    wagmiMock.setReadResult({ functionName: 'quoteExactInputSingle', address: QUOTER, result: [V3_OUT, 0n, 0, 0n] });
+    wagmiMock.setReadResult({ functionName: 'slot0', address: POOL, result: [SQRT_PRICE, 0, 0, 0, 0, 0, true] });
+  });
+
+  const sell = () => renderHook(() => useSwapQuote(BNKR, ETH, IN, 1, undefined, BASE)).result.current;
+
+  it('sells 1.75M BNKR through its V3 pool: 0.2219 ETH less the 0.5% venue fee, not the V2 dust', () => {
+    const q = sell();
+    expect(q.selectedRoute).toBe('uniswap-v3');
+    expect(q.outputAmount).toBe(V3_OUT - (V3_OUT * 50n) / 10000n);
+    expect(q.v3).toEqual({
+      leg: expect.objectContaining({ side: 'sell', coin: BNKR.address, pool: POOL, poolFee: 10000, router: '0x6fF5693b99212Da76ad316178A184AB56D299b43' }),
+      feeBips: 50n,
+      feeRecipient: SAFE,
+    });
+    expect(q.routeLabel).toBe('Direct swap via Uniswap V3 (incl. 0.5% fee)');
+    expect(q.minimumReceived).toBe(q.outputAmount - (q.outputAmount * 100n) / 10000n);
+  });
+
+  it("measures the impact against the pool's own price: ~1%, the pool's fee, not the V2 pair's 99.99%", () => {
+    const q = sell();
+    expect(q.priceImpact).not.toBeNull();
+    expect(q.priceImpact!).toBeGreaterThan(1);
+    expect(q.priceImpact!).toBeLessThan(1.2);
+    expect(q.priceImpactUnread).toBe(false);
+  });
+
+  it("an unread pool price is an unread impact, not a 0%", () => {
+    wagmiMock.setReadResult({ functionName: 'slot0', address: POOL, result: undefined, status: 'failure' });
+    const q = sell();
+    expect(q.selectedRoute).toBe('uniswap-v3');
+    expect(q.priceImpact).toBeNull();
+    expect(q.priceImpactUnread).toBe(true);
+  });
+
+  it('no V3 route when the fee Safe cannot be read: a fee is never sent to an address nobody read', () => {
+    wagmiMock.setReadResult({ functionName: 'revenueDistributor', address: BASE_SFR, result: undefined, status: 'failure' });
+    const q = sell();
+    expect(q.selectedRoute).toBe('uniswap');
+    expect(q.v3).toBeNull();
+    expect(q.outputAmount).toBe(V2_OUT);
+  });
+
+  it('our own pool keeps the trade on a tie with the V3 route, both net of the venue fee', () => {
+    wagmiMock.setReadResult({ functionName: 'getPair', address: BASE_OUR_FACTORY, result: '0x8888888888888888888888888888888888888888' });
+    // The smallest output whose fee-netted figure equals the V3 route's to the wei.
+    const v3Net = V3_OUT - (V3_OUT * 50n) / 10000n;
+    const ours = (v3Net * 10000n + 9949n) / 9950n;
+    wagmiMock.setReadResult({ functionName: 'getAmountsOut', address: BASE_OUR_ROUTER, result: [IN, ours] });
+    const q = sell();
+    expect(q.outputAmount).toBe(v3Net);
+    expect(q.selectedRoute).toBe('tegridy');
+    expect(q.v3).toBeNull();
+  });
+
+  it('a coin the island does not list gets no V3 route, whatever the quoter says', () => {
+    const q = renderHook(() => useSwapQuote(TKN, ETH, IN, 1, undefined, BASE)).result.current;
+    expect(q.v3).toBeNull();
+    expect(q.selectedRoute).not.toBe('uniswap-v3');
+  });
+
+  it('a buy is quoted on the ETH left after the fee, and its output is not cut again', () => {
+    // Only a quote for 0.1 ETH less 0.5% answers 769,165 BNKR (the fork's figure); any other amount gets V3_OUT.
+    const BUY_OUT = 769_165_381_987_158_972_545_628n;
+    wagmiMock.addReadPredicate({
+      match: (s) => s.functionName === 'quoteExactInputSingle'
+        && (s.args?.[0] as { amountIn?: bigint } | undefined)?.amountIn === parseEther('0.1') - parseEther('0.0005'),
+      result: [BUY_OUT, 0n, 0, 0n],
+    });
+    const q = renderHook(() => useSwapQuote(ETH, BNKR, parseEther('0.1'), 1, undefined, BASE)).result.current;
+    expect(q.selectedRoute).toBe('uniswap-v3');
+    expect(q.v3?.leg.side).toBe('buy');
+    expect(q.outputAmount).toBe(BUY_OUT);
+  });
+
+  it('on Ethereum there is no V3 route at all (no Universal Router wired there)', () => {
+    wagmiMock.setChainId(1);
+    const q = renderHook(() => useSwapQuote(BNKR, ETH, IN, 1, undefined, 1)).result.current;
+    expect(q.v3).toBeNull();
+  });
+});

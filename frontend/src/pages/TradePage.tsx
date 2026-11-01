@@ -12,7 +12,7 @@ import { trackPageView } from '../lib/analytics';
 import { useSwap } from '../hooks/useSwap';
 import { useSwapChainId } from '../hooks/useSwapChainId';
 import { CHAIN_ID } from '../lib/constants';
-import { defaultTokensFor } from '../lib/tokenList';
+import { swapTokensFor } from '../lib/tokenList';
 import { useTOWELIPriceOptional } from '../contexts/PriceContext';
 import { formatTokenAmountGrouped, formatBalance } from '../lib/formatting';
 import { computeRouteSavings, aggOutUnits } from '../lib/routeSavings';
@@ -27,6 +27,7 @@ import { ChainSwitch } from '../components/swap/ChainSwitch';
 import { ChainSwapAvailability } from '../components/swap/ChainSwapAvailability';
 import { IslandBasketEvm } from '../components/swap/IslandBasketEvm';
 import { evmBasketFor } from '../lib/islandBasket';
+import { universalRouterOn } from '../lib/evm/universalRouter';
 import { ArtImg } from '../components/ArtImg';
 import { CardArt } from '../components/ui/CardArt';
 import { FinePrint } from '../components/ui/FinePrint';
@@ -752,7 +753,7 @@ export default function TradePage() {
                 every trade — a checkable on-chain number, not a superlative
                 (the honesty-vocabulary bar). Both claims link to their
                 checkable surfaces. */}
-            {onEthereum ? <RealYieldProof /> : <L2FeeLine name={swap.venue?.name ?? 'this chain'} />}
+            {onEthereum ? <RealYieldProof /> : <L2FeeLine name={swap.venue?.name ?? 'this chain'} islandV3={universalRouterOn(swap.swapChainId) !== null} />}
             <div className="relative isolate glass-card rounded-2xl p-4 mt-4" style={{ border: '1px solid var(--color-purple-12)' }}>
               <CardArt pageId="trade" idx={4} />
               <p className="text-[13px] text-text-secondary leading-relaxed">
@@ -834,7 +835,7 @@ export default function TradePage() {
           onClose={() => setShowTokenSelect(null)}
           disabledAddress={showTokenSelect === 'from' ? swap.toToken?.address : swap.fromToken?.address}
           customTokens={swap.customTokens}
-          tokens={defaultTokensFor(swap.swapChainId)}
+          tokens={swapTokensFor(swap.swapChainId)}
           chainId={swap.swapChainId}
           onAddCustomToken={swap.addCustomToken}
         />
@@ -846,16 +847,17 @@ export default function TradePage() {
 /**
  * The Swap tab's money line off Ethereum, where RealYieldProof (fees paid to stakers)
  * would not be true: on Base and Robinhood Chain the venue fee lands in the fee Safe on
- * that chain (registry feeSink 'remittance'), and a swap routed to Uniswap pays the venue
- * nothing (useSwap.ts sends it straight to Uniswap's router).
+ * that chain (registry feeSink 'remittance'). Where Uniswap's Universal Router carries an
+ * island coin's own V3 pool (Base), that route pays the same fee to the same Safe; a swap
+ * routed to Uniswap V2 pays the venue nothing (useSwap.ts sends it straight to V2's router).
  */
-function L2FeeLine({ name }: { name: string }) {
+function L2FeeLine({ name, islandV3 }: { name: string; islandV3: boolean }) {
   return (
     <div className="relative isolate glass-card rounded-2xl p-4 mt-4" style={{ border: '1px solid var(--color-purple-12)' }}>
       <CardArt pageId="trade" idx={6} />
       <p className="text-[13px] text-text-secondary leading-relaxed">
         <span className="text-text-primary font-medium">Where the fee goes on {name}.</span>{' '}
-        A swap through our pools pays the venue its fee, kept in the venue&apos;s fee Safe on {name}. It does not reach TOWELI stakers. A swap routed to Uniswap pays the venue nothing.
+        A swap through our pools{islandV3 ? <>, or through an island coin&apos;s own Uniswap V3 pool,</> : null} pays the venue its fee, kept in the venue&apos;s fee Safe on {name}. It does not reach TOWELI stakers. A swap routed to Uniswap{islandV3 ? ' V2' : ''} pays the venue nothing.
       </p>
     </div>
   );

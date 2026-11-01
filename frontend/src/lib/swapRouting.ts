@@ -1,5 +1,6 @@
 import { SWAP_FEE_ROUTER_ADDRESS, UNISWAP_V2_ROUTER } from './constants';
-import type { RouteSource } from '../hooks/useSwapQuote';
+import type { OnChainSource, RouteSource } from '../hooks/useSwapQuote';
+import { PERMIT2 } from './evm/universalRouter';
 import type { SwapVenue } from './chains/swapVenue';
 
 /** The two executors a swap can approve, on Ethereum unless a venue is passed. */
@@ -20,6 +21,8 @@ const MAINNET_EXECUTORS: Pick<SwapVenue, 'swapFeeRouter' | 'uniswapV2Router'> = 
  *   tegridy    → SwapFeeRouter (SFR forwards to the native TegridyRouter,
  *                pulling the input via transferFrom(msg.sender))
  *   uniswap    → UniswapV2Router (pulls the input directly)
+ *   uniswap-v3 → Permit2 (Uniswap's Universal Router pulls the coin through it,
+ *                on the allowance the seller signs at swap time)
  *   aggregator → its on-chain fallback venue, i.e. selectedOnChainRoute.source
  *
  * Keep `swapRouting.test.ts` in lockstep with the useSwap executor addresses.
@@ -29,9 +32,10 @@ const MAINNET_EXECUTORS: Pick<SwapVenue, 'swapFeeRouter' | 'uniswapV2Router'> = 
  */
 export function swapSpenderFor(
   selectedRoute: RouteSource,
-  onChainSource: 'tegridy' | 'uniswap',
+  onChainSource: OnChainSource,
   executors: Pick<SwapVenue, 'swapFeeRouter' | 'uniswapV2Router'> = MAINNET_EXECUTORS,
 ): `0x${string}` {
   const route = selectedRoute === 'aggregator' ? onChainSource : selectedRoute;
+  if (route === 'uniswap-v3') return PERMIT2;
   return route === 'tegridy' ? executors.swapFeeRouter : executors.uniswapV2Router;
 }
