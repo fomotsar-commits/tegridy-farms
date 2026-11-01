@@ -7,6 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-11-01
+
+- Solana reads no longer run out on phones and iPads. The home page re-read the BAYLA lock ladder every few seconds instead of every 45, so an open tab used about 100 of the site's 300 Solana reads a minute, which a whole house (or a phone network) shares, and the dashboard said "Couldn't read your Solana coins" when they ran out. It now re-reads every 45 seconds as meant, and a read the site's limit turns away waits the time the limit names and asks again (twice at most), instead of saying it could not read.
+
 ### 2026-10-31
 
 - Dashboard: once you have a lock, stake or pool share, the big figure is Total, what your wallet holds and your positions together, with Holdings and Positions under it. No total is printed while a part is still being read, could not be read or has no price, and that part says which.
