@@ -447,13 +447,6 @@ async function dashboard() {
       }
     }
 
-    let robot = null;
-    let robotNote = null;
-    try {
-      robot = JSON.parse(fs.readFileSync(STATUS, 'utf8'));
-    } catch (e) {
-      robotNote = fs.existsSync(STATUS) ? `status not read: ${said(e)}` : 'no status yet';
-    }
     const acts = [...history.acts.values()].sort((a, b) => b.slot - a.slot);
     const wsol = wallet.accounts.find((a) => a.mint === WSOL.toBase58());
     const held = wallet.accounts.filter((a) => a.mint !== WSOL.toBase58() && a.amount > 0n).map((a) => coin(a.mint, a.amount, a.decimals));
@@ -469,9 +462,6 @@ async function dashboard() {
       rpc: redactRpcUrl(RPC),
       solUsd: sol,
       notes: [venue.note, prices.note, historyNote].filter(Boolean),
-      robot,
-      robotNote,
-      stopped: stopped(),
       stopFile: STOP_FILE,
       holdings: {
         solPlain,
@@ -504,17 +494,33 @@ async function dashboard() {
     };
   }
 
+  // The chain figures are read again at most every 30 s, and only when asked for: after a
+  // quiet spell (a minimized window stops the page asking) the first answer is the old read,
+  // with the time it was made, while a new one is under way.
   let state = null;
   let building = null;
+  let tried = 0;
   const current = async () => {
-    if (!building && (!state || Date.now() - state.builtAt > 30_000)) {
+    if (!building && Date.now() - tried > 30_000) {
+      tried = Date.now();
       building = build()
         .then((s) => (state = s))
-        .catch((e) => (state = { ...(state ?? {}), builtAt: Date.now(), error: said(e) }))
+        // The read before it stays, with its own time: the page says how old it is.
+        .catch((e) => (state = { ...(state ?? {}), error: said(e) }))
         .finally(() => (building = null));
     }
     if (!state) await building;
     return state;
+  };
+  // The robot's own report is read at every answer, never from an old read of the chain: an
+  // old read must not make a running robot look gone.
+  const live = () => {
+    const now = { reading: building !== null, stopped: stopped() };
+    try {
+      return { ...now, robot: JSON.parse(fs.readFileSync(STATUS, 'utf8')), robotNote: null };
+    } catch (e) {
+      return { ...now, robot: null, robotNote: fs.existsSync(STATUS) ? `status not read: ${said(e)}` : 'no status yet' };
+    }
   };
 
   const common = { 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer', 'x-frame-options': 'DENY' };
@@ -526,7 +532,7 @@ async function dashboard() {
     if (req.url === '/') return res.writeHead(200, { ...common, 'content-type': 'text/html; charset=utf-8', 'content-security-policy': csp }).end(page);
     if (req.url === '/app.js') return res.writeHead(200, { ...common, 'content-type': 'text/javascript; charset=utf-8' }).end(app);
     if (req.url === '/state.json') {
-      const body = JSON.stringify(await current());
+      const body = JSON.stringify({ ...(await current()), ...live() });
       return res.writeHead(200, { ...common, 'content-type': 'application/json' }).end(body);
     }
     return res.writeHead(404, common).end();

@@ -56,8 +56,11 @@
   function render(s) {
     $('error').hidden = !s.error;
     if (s.error) $('error').textContent = `Last read failed: ${s.error}. Showing the read before it.`;
-    $('notes').hidden = !(s.notes && s.notes.length);
-    if (s.notes) $('notes').textContent = s.notes.join(' · ');
+    const notes = [...(s.notes || [])];
+    const age = s.builtAt ? Date.now() - s.builtAt : 0;
+    if (age > 3 * 60_000) notes.unshift(`The figures below were read at ${new Date(s.builtAt).toLocaleTimeString()}, ${ago(age)}${s.reading ? ': a new read is under way' : ''}. The robot's state is current.`);
+    $('notes').hidden = !notes.length;
+    $('notes').textContent = notes.join(' · ');
     if (!s.wallet) return;
     $('wallet').textContent = s.wallet;
     const link = $('walletLink');
@@ -126,16 +129,26 @@
       : el('div', {}, status('crit', 'The history does not explain the wallet yet, so the figures above may be short:'), ...c.lines.map((l) => el('div', { class: 'addr', text: l }))));
   }
 
+  // Asked every 30 s; every 5 s while a new read is under way; and at once when the tab is shown
+  // again, since a hidden or minimized window can stop the page's timers for hours.
+  let timer = null;
   async function tick() {
+    let soon = false;
     try {
       const r = await fetch('/state.json', { cache: 'no-store' });
       if (!r.ok) throw new Error(`the dashboard answered ${r.status}`);
-      render(await r.json());
+      const s = await r.json();
+      render(s);
+      soon = s.reading === true;
     } catch (e) {
       $('error').hidden = false;
       $('error').textContent = `The dashboard is not answering (${e instanceof Error ? e.message : e}): is its window still open?`;
     }
+    clearTimeout(timer);
+    timer = setTimeout(tick, soon ? 5_000 : 30_000);
   }
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') tick();
+  });
   tick();
-  setInterval(tick, 30_000);
 })();
