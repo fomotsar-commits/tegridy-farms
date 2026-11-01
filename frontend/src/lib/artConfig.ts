@@ -26,7 +26,7 @@ export const ART = {
   // ISLAND MARK 2026-08-31 (owner): the venue's own emblem, and the piece
   // pinned to nav-logo in every skin — the island reads at 28px where a
   // character crop does not.
-  islandMark: { id: 'island-mark', src: '/art/island-mark.png', title: 'Jungle Bay Island', description: 'The island in a sea of rugs' },
+  islandMark: { id: 'island-mark', src: '/art/island-mark.png', title: 'Jungle Bay Island', description: 'The island, where held time counts' },
   jungleBus: { id: 'jungle-bus', src: '/art/jungle-bus.jpg', title: 'Jungle Bay Island', description: 'Get on the bus' },
   // The venue arrival's backdrop (owner pick, 2026-09-09). Deliberately NOT in
   // ART_POOL_ALL: that array's LENGTH feeds the deterministic hash rotation, so

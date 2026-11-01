@@ -110,6 +110,7 @@ import { PairChart } from '../components/solana/PairChart';
 import { PairAverageLine, type PairAverageTrade } from '../components/solana/PairAverageLine';
 import { ClockLine } from '../components/ClockLine';
 import { bungalowByAddress, getActiveBungalow } from '../lib/bungalows';
+import { markLanded } from '../lib/landed';
 import { openingBuyMint } from '../lib/solanaOpeningPair';
 import { setLastBuy } from '../lib/heat/lastBuy';
 import { recordActivity, getActivity, timeAgo } from '../lib/solanaActivity';
@@ -1657,6 +1658,8 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
         const words = `≈${got} ${t.buy} with ${t.amount} ${t.pay}, in our own pool`;
         // Kept in "Your recent activity", as a Jupiter swap is, so the signature outlives the page.
         recordActivity(wallet, { sig: outcome.signature, ts: Date.now(), kind: 'swap', summary: outcome.status === 'confirmed' ? `Bought ${words}` : `Sent, not confirmed: ${words}` });
+        // Bayla's line says "Done." for a minute (answer twenty-four, build 4).
+        if (outcome.status === 'confirmed') markLanded('trade');
         const room = outcome.status === 'confirmed' ? bungalowByAddress('solana', t.buyMint) : null;
         if (room) setLastBuy({ hash: outcome.signature, symbol: room.symbol, tokenAddress: t.buyMint, chain: room.chain, buyer: wallet, atUnix: Math.floor(Date.now() / 1000) });
         // The form is cleared so the same buy is not one click away.

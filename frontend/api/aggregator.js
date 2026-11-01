@@ -419,6 +419,13 @@ export default async function handler(req, res) {
     return handleFlames(req, res);
   }
 
+  // `?resource=fire`: the island's fire this week, for Bayla's intel line (answer twenty-four,
+  // build 4). Same CORS lock as heat and flames; the totals only. See _lib/fire.js.
+  if (req.query.resource === "fire") {
+    const { handleFire } = await import("./_lib/fire.js");
+    return handleFire(req, res);
+  }
+
   // `?resource=torches` reads the island's torches, season, fire and flame count in one
   // call: each room's door and the home's strip. Same CORS lock as flames, and it
   // forwards only the fields those surfaces paint. Above `const provider`, like the rest.

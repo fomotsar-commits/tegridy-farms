@@ -13,6 +13,7 @@ import {
 } from '../../../lib/jupiter';
 import { decimalCommaToPoint, formatTokenAmount, parseDecimalToBaseUnits } from '../../../lib/launcher/solana/curve/format';
 import { holdReload } from '../../../lib/reloadHold';
+import { markLanded } from '../../../lib/landed';
 import { quoteOwnPool } from '../../../lib/solana/cpswap/read';
 import { feeReserveFor, isPlanProblem, solSetAside } from '../../../lib/solana/lp/liquidityMath';
 import { outsideShare, ownPoolShare, stepTwo, type Side, type StepTwo } from '../../../lib/solana/lp/oneCoin';
@@ -259,6 +260,8 @@ function OneCoinInner({
    */
   const landed = async (p: Plan, signature: string, least: bigint) => {
     if (!ownerKey) return;
+    // Bayla's line says "Done." for a minute (answer twenty-four, build 4).
+    markLanded('add');
     const floor: StepTwoNote = { pool: view.address, paid: p.paid, kept: p.total - p.swapIn, got: least, gotExact: false, bps: p.bps, signature, at: Date.now() };
     saveStepTwo(ownerKey, floor);
     const outIsSol = p.paid === 'token' && coin.native;

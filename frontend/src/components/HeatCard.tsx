@@ -10,6 +10,8 @@ import { Link } from 'react-router-dom';
 import { m, AnimatePresence } from 'framer-motion';
 import { useAccount } from 'wagmi';
 import { fetchHeat, isSupportedHeatAddress, HeatUnavailableError } from '../lib/heat/heatClient';
+import { setLastReading } from '../lib/heat/heatStore';
+import { HeatSince, RollingDegrees } from './heat/RollingDegrees';
 import {
   isStale,
   nextTier,
@@ -263,7 +265,11 @@ export function HeatCard({
     setState({ kind: 'loading' });
     try {
       const reading = await fetchHeat(addr, { signal: ac.signal });
-      if (!ac.signal.aborted) setState({ kind: 'ready', reading });
+      if (!ac.signal.aborted) {
+        setState({ kind: 'ready', reading });
+        // Bayla's line under the nav speaks from the reading this card made (answer twenty-four, build 4).
+        setLastReading(reading);
+      }
     } catch (e) {
       if (ac.signal.aborted) return;
       setState({
@@ -599,10 +605,11 @@ function Reading({
         )}
 
         <div className="flex items-baseline gap-1 mt-2">
-          <span className="stat-value text-[20px] leading-none" style={{ color }}>
-            {reading.degrees.toFixed(2)}
-          </span>
+          {/* The roll from 0 over 600 ms, once a session (answer twenty-four, §2b). */}
+          <RollingDegrees degrees={reading.degrees} address={reading.address} className="stat-value text-[20px] leading-none" style={{ color }} />
           <span className="text-[13px]" style={{ color }}>°</span>
+          {/* The change since the last visit, from this browser's memory alone. */}
+          <HeatSince degrees={reading.degrees} address={reading.address} className="ml-2 text-[12px] text-white/70" />
         </div>
 
         {nextTierLine(reading) && (

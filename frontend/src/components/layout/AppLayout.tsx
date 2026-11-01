@@ -44,6 +44,7 @@ import { WalletConnectWatchdog } from '../ui/WalletConnectWatchdog';
 import { isToweliVoice, OPEN_VENUE_WELCOME_EVENT } from '../../lib/arrival';
 import { useActiveBungalowId } from '../../hooks/useActiveBungalowId';
 import { useReferralAttribution } from '../../hooks/useReferralAttribution';
+import { BaylaLine } from '../BaylaLine';
 
 export function AppLayout() {
   const location = useLocation();
@@ -211,6 +212,10 @@ export function AppLayout() {
             )}
           </div>
         )}
+        {/* Bayla at the door (island answer twenty-four, build 4): one line in her voice under the
+            nav on every venue route, in flow and sticky under the header; the farm's pages and a
+            settled doorstep keep their own voice (the component says so). */}
+        <BaylaLine />
         {/* F29: tabIndex={-1} so the skip-link target reliably receives focus —
             without it some browsers scroll but leave focus in the nav, sending
             the next Tab back to the header instead of into the content. */}
