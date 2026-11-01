@@ -1,28 +1,32 @@
 /**
- * AUDIT R081 — Claim-rewards surfaces (zero coverage before).
- *
- * Tegridy distributes claimable yield from one surface:
- *   1. LP farming — `/farm` (LPFarmingSection)
- *
- * ⚠ A CLAIM CTA IS POSITION-DEPENDENT. The original first test asserted a
- * /claim/i button is visible on /farm "when connected" — it is not, from a
- * cold account, and never was: the claim CTAs mount only once there is a
- * stake or accrued rewards to claim. That assertion could only ever have gone
- * green while the whole file was being skipped. What IS assertable without a
- * position is that each claim-bearing surface mounts, so that is what these
- * check; the claim TRANSACTION is the Anvil leg's job.
+ * Claim-rewards surfaces. Without a position only each section's MOUNT is
+ * assertable: the claim CTAs render only once there is a stake or rewards to
+ * claim. The claim TRANSACTION is the Anvil leg's job.
  */
-import { encodeFunctionData, formatEther, hexToBigInt, parseAbi, type Hex } from 'viem';
-import { test, expect, expectTxReceipt, advanceForkTime, anvilRpc, openToweliStakeOnFork } from './fixtures/wallet';
-import { TEGRIDY_STAKING_ADDRESS, TOWELI_ADDRESS } from '../src/lib/constants';
+import {
+  encodeFunctionData, formatEther, getAddress, hexToBigInt, isAddressEqual, parseAbi, parseEventLogs,
+  type Address, type Hex, type Log,
+} from 'viem';
+import { test, expect, expectMinedSuccessfully, expectTxReceipt, forkTxCount, anvilRpc } from './fixtures/wallet';
+import { STAKING_MONITOR_VIEW_ADDRESS, TEGRIDY_STAKING_ADDRESS, TOWELI_ADDRESS } from '../src/lib/constants';
+import { formatTokenAmount } from '../src/lib/formatting';
 
 const onAnvil = !!process.env.ANVIL_RPC_URL;
 
-const RESERVE_ABI = parseAbi([
+const ABI = parseAbi([
   'function balanceOf(address) view returns (uint256)',
   'function totalStaked() view returns (uint256)',
   'function totalUnsettledRewards() view returns (uint256)',
+  'function rewardRate() view returns (uint256)',
+  'function paused() view returns (bool)',
+  'function ownerOf(uint256) view returns (address)',
+  'function userTokenId(address) view returns (uint256)',
+  'function earned(uint256) view returns (uint256)',
+  'event Transfer(address indexed from, address indexed to, uint256 value)',
 ]);
+
+/** The claim CTA's own floor (StakingCard.tsx): below 0.01 TOWELI it stays disabled. */
+const CLAIM_FLOOR_WEI = 10n ** 16n;
 
 /** One uint256 off the fork. An empty `0x` (no code there) throws: unread is not zero. */
 async function readUint(to: string, data: Hex): Promise<bigint> {
@@ -31,46 +35,69 @@ async function readUint(to: string, data: Hex): Promise<bigint> {
   return hexToBigInt(result);
 }
 
+const toweliBalance = (who: Address) =>
+  readUint(TOWELI_ADDRESS, encodeFunctionData({ abi: ABI, functionName: 'balanceOf', args: [who] }));
+const earnedOf = (tokenId: bigint) =>
+  readUint(STAKING_MONITOR_VIEW_ADDRESS, encodeFunctionData({ abi: ABI, functionName: 'earned', args: [tokenId] }));
+
 /** The reward pool exactly as StakingRewardLib computes it; may be negative. */
 async function stakingRewardReserve(): Promise<bigint> {
   const [balance, staked, iou] = await Promise.all([
-    readUint(TOWELI_ADDRESS, encodeFunctionData({ abi: RESERVE_ABI, functionName: 'balanceOf', args: [TEGRIDY_STAKING_ADDRESS] })),
-    readUint(TEGRIDY_STAKING_ADDRESS, encodeFunctionData({ abi: RESERVE_ABI, functionName: 'totalStaked' })),
-    readUint(TEGRIDY_STAKING_ADDRESS, encodeFunctionData({ abi: RESERVE_ABI, functionName: 'totalUnsettledRewards' })),
+    toweliBalance(TEGRIDY_STAKING_ADDRESS),
+    readUint(TEGRIDY_STAKING_ADDRESS, encodeFunctionData({ abi: ABI, functionName: 'totalStaked' })),
+    readUint(TEGRIDY_STAKING_ADDRESS, encodeFunctionData({ abi: ABI, functionName: 'totalUnsettledRewards' })),
   ]);
   return balance - staked - iou;
+}
+
+/** Who holds position `id`, or null when ownerOf reverts (never minted, or burned). */
+async function positionHolder(id: bigint): Promise<Address | null> {
+  const data = encodeFunctionData({ abi: ABI, functionName: 'ownerOf', args: [id] });
+  try {
+    const word = (await anvilRpc('eth_call', [{ to: TEGRIDY_STAKING_ADDRESS, data }, 'latest'])) as Hex;
+    return getAddress(`0x${word.slice(26)}`);
+  } catch (e) {
+    if (/revert/i.test(String(e))) return null;
+    throw e; // a fork that did not answer is not "no position"
+  }
+}
+
+/**
+ * The lowest-id v1 position its holder can claim on the site: the id userTokenId shows
+ * them, held by an account that can send (no code, or an EIP-7702 delegation), owed at
+ * least the CTA's floor. Read off the fork, so a holder who already claimed (on mainnet
+ * or an earlier attempt) is passed over. v1 has no public id counter: ids run from 1
+ * with burned gaps, so the scan ends after 32 missing ids in a row.
+ */
+async function claimablePosition(): Promise<{ tokenId: bigint; holder: Address; earned: bigint }> {
+  for (let id = 1n, missing = 0; missing < 32; id++) {
+    const holder = await positionHolder(id);
+    if (!holder) { missing++; continue; }
+    missing = 0;
+    const code = (await anvilRpc('eth_getCode', [holder, 'latest'])) as Hex;
+    if (code !== '0x' && !code.startsWith('0xef0100')) continue;
+    const shown = await readUint(
+      TEGRIDY_STAKING_ADDRESS,
+      encodeFunctionData({ abi: ABI, functionName: 'userTokenId', args: [holder] }),
+    );
+    if (shown !== id) continue;
+    const earned = await earnedOf(id);
+    if (earned >= CLAIM_FLOOR_WEI) return { tokenId: id, holder, earned };
+  }
+  throw new Error(
+    'No TOWELI staking v1 position on this fork is owed 0.01 TOWELI or more by a wallet the site shows it to: ' +
+      'every holder has claimed, so the claim window is spent. Retire this leg or point it at the next staking contract.',
+  );
 }
 
 test.describe('Claim rewards surfaces', () => {
   test('/farm mounts the reward-bearing sections when connected', async ({ page, walletMock }) => {
     await walletMock.connect();
     await page.goto('/earn/toweli');
-    // TWO SEPARATE FACTS, and collapsing them into one assertion is what made this
-    // the flakiest test in the Anvil job.
-    //
-    // It used to be this line alone, on the default 5s budget. It could not
-    // distinguish "the section is not there" from "the section is there and still
-    // reading", because LPFarmingSection's loading skeleton rendered no heading at
-    // all — two grey `animate-pulse` bars stood where its name goes. So a heading
-    // that depends on nothing was gated behind an 11-call batch read, and on a COLD
-    // Anvil fork that read is a coin flip against 5s. Measured on trunk across six
-    // CI runs: clean passes at 2.5s / 3.8s / 3.9s, failures at 6.4s / 6.4s / 6.7s,
-    // each of which then passed on retry #1 in 2.6-3.3s against a now-warm fork.
-    // `retries: 2` therefore converted a real UI defect into `flaky`, which this
-    // job reports as a WARNING and not a failure (ci.yml only fails on skips), so
-    // it sat on trunk half-green for as long as the spec existed.
-    //
-    // The skeleton now carries the section's real heading — it is a compile-time
-    // constant and never needed a read — so:
-    //
-    //   1. the heading proves the section MOUNTED, and resolves on first paint;
-    //   2. a read-derived stat proves the batch LANDED, on its own named budget.
-    //
-    // Do not merge these back together. Asserting only (1) would pass over a
-    // section wedged in its skeleton forever, which is precisely the user-facing
-    // failure this surface must not have; asserting only (2) would stop covering
-    // the mount. LPFarmingSection.loading.test.tsx pins the split from the other
-    // side — it fails if the skeleton ever starts rendering the stats.
+    // Two facts, kept apart. The heading is static, so it proves the section MOUNTED on
+    // first paint; a read-derived stat proves its batch LANDED. One assertion for both
+    // could not tell a missing section from a slow cold-fork read, and flaked.
+    // LPFarmingSection.loading.test.tsx pins the split from the component side.
     await expect(
       page.getByRole('heading', { name: /lp farming/i }),
       'the LP farming section did not mount on /farm at all — its heading is a static ' +
@@ -78,79 +105,31 @@ test.describe('Claim rewards surfaces', () => {
     ).toBeVisible();
     // TOWELI staking v1 is closing: with no position the card is its closed line.
     await expect(page.getByRole('heading', { name: /toweli staking v1/i })).toBeVisible();
-
-    // 30s, matching this file's other chain-dependent budgets.
-    //
-    // BE PRECISE ABOUT WHAT WAS MEASURED: the 6.4-6.7s figures above are whole-TEST
-    // durations, of which 5s was the old assertion waiting and giving up. So the
-    // cold read is known to exceed 5s and its true ceiling was never observed —
-    // the old budget abandoned before it landed. 30s is therefore headroom over an
-    // unmeasured bound, not a tight fit to a known one, which is the right shape
-    // here: the job runs on a fork whose first read of every storage slot is a
-    // round trip to a public upstream, and the failure this guards is a section
-    // that NEVER resolves, not one that resolves slowly. If this starts timing
-    // out, read useLPFarming's batch (gated `isDeployed && onMainnet`, and note
-    // that a disabled query would render the panel, not this skeleton — TanStack's
-    // isLoading is `isPending && isFetching`) before touching the number.
+    // 30s is headroom over a cold fork's first read, whose ceiling was never measured.
+    // If this times out, read useLPFarming's batch gate before touching the number.
     await expect(
       page.getByText(/total lp staked/i),
       'the LP farming section mounted but never left its loading skeleton — the ' +
         'useLPFarming batch read never resolved. For a user on a slow RPC that is a ' +
         'reward-bearing surface stuck as a shimmer. Check the multicall, not this timeout.',
     ).toBeVisible({ timeout: 30_000 });
-    // No position ⇒ no claim CTA.
-    //
-    // ⚠ THIS ASSERTION USED TO BE VACUOUS. It read `/^claim\s+\d/i` — "claim", space,
-    // DIGIT — and no claim CTA on /farm is named that way in any state. StakingCard
-    // renders "Claim Rewards" (StakingCard.tsx:228) and LPFarmingSection renders
-    // "Claim Rewards" (LPFarmingSection.tsx:210), so the old count-0 held for a cold
-    // account, a rich account, and a broken build alike: it could not fail.
-    // Matching the copy the app actually ships is what makes it a gate.
+    // No position, no claim CTA. Both claim CTAs on /farm read "Claim Rewards".
     await expect(page.getByRole('button', { name: /^claim/i })).toHaveCount(0);
   });
 
   /**
-   * ⚠ WHY THIS LEG MOVED OFF THE LP FARMING SURFACE — measured, on a live fork.
-   *
-   * It used to be "claim from LP farming surface" and it could not run, for two reasons
-   * that no fixture can seed away:
-   *
-   *   1. THE LOCATOR MATCHED NOTHING. It waited on `/^claim\s+\d/i`. The LP farming
-   *      claim CTA is named "Claim Rewards" (LPFarmingSection.tsx:210) — no digit — so
-   *      the wait could only ever time out, accrued rewards or not. Both prior
-   *      diagnoses proposed "pre-fund reward storage"; that would not have turned this
-   *      green, because the button it was waiting for is not the button the app draws.
-   *   2. LP FARMING CANNOT ACCRUE ON A FORK OF MAINNET AT HEAD. Read from the chain:
-   *      LP_FARMING.periodFinish() == 1781493095 (2026-06-15) and it is unfunded.
-   *      Synthetix accrual clamps at `min(now, periodFinish)`, so a staker joining now
-   *      earns exactly zero forever. Restarting it needs `notifyRewardAmount`, which is
-   *      owner-only — forging a reward epoch the protocol is not in would make this
-   *      test assert a fiction.
-   *
-   * So this now drives the claim path that IS live: TOWELI staking. Read from the
-   * chain, TegridyStaking has rewardRate() == 0.8243 TOWELI/s and holds 4.51M TOWELI
-   * against 600k staked, so rewards accrue for real and the contract can pay them. The
-   * accrual below comes from the contract's own math after the fork clock moves — not
-   * from storage we wrote.
-   *
-   * [op] ONE CLAIM SURFACE REMAINS UNCOVERABLE UNTIL AN OPERATOR ACTS, and it is not
-   * a test defect:
-   *   • LP farming claims — refund the farm (notifyRewardAmount from the owner Safe) so
-   *     periodFinish moves ahead of now. Until then there is nothing to claim there.
+   * TOWELI staking v1 is in its wind-down claim window: rewardRate() is 0 and the reserve
+   * holds what each position is owed, so nothing new accrues and `earned` holds still.
+   * The leg claims an EXISTING position as its holder, through the page, and checks the
+   * chain paid exactly `earned`. LP farming claims stay uncovered: that farm's period
+   * ended 2026-06-15 unfunded, so nothing accrues there until the owner refunds it.
    */
-  test('claim accrued TOWELI staking rewards (Anvil only)', async ({ page, walletMock }) => {
+  test('claim owed TOWELI staking v1 rewards (Anvil only)', async ({ page, walletMock }) => {
     test.skip(!onAnvil, 'ANVIL_RPC_URL unset — needs the fork job (npm run e2e)');
-    // Three on-chain transactions on a live fork — approve, stake, claim — with a
-    // clock advance and a reload between the stake and the claim. Each assertion below
-    // keeps its own tight, named budget.
-    test.setTimeout(180_000);
+    test.setTimeout(120_000);
 
-    // 0. Can anything accrue at all? StakingRewardLib.accumulateRewards caps every tick
-    // to balanceOf(staking) − totalStaked − totalUnsettledRewards, and gives ZERO when
-    // that is not positive: a new position then earns nothing however long we wait.
-    // Ask BEFORE staking and moving the clock, so an empty reserve fails here, by name,
-    // and does not spend the shared fork's clock budget (advanceForkTime) that the swap
-    // legs need. 2026-10-27 it was empty on mainnet: balance == totalStaked to the wei.
+    // 0. Can the contract pay at all? A claim pays min(earned, reserve), where the reserve
+    // is balance − totalStaked − IOUs; a dry one pays 0. Ask first, and fail by name.
     const reserve = await stakingRewardReserve();
     if (reserve <= 0n) {
       throw new Error(
@@ -160,56 +139,72 @@ test.describe('Claim rewards surfaces', () => {
       );
     }
 
-    // ISOLATED WALLET — see the note in stake.spec.ts. This leg opens a position too,
-    // and it also jumps the fork clock, so it must not be spending from the wallet the
-    // render specs read.
-    const account = await walletMock.useIsolatedForkAccount();
+    // 1. The claim window itself. getReward is whenNotPaused, and only at rate 0 does
+    // `earned` hold still between this read and the claim, which is what makes it exact.
+    const [paused, rate] = await Promise.all([
+      readUint(TEGRIDY_STAKING_ADDRESS, encodeFunctionData({ abi: ABI, functionName: 'paused' })),
+      readUint(TEGRIDY_STAKING_ADDRESS, encodeFunctionData({ abi: ABI, functionName: 'rewardRate' })),
+    ]);
+    if (paused !== 0n) {
+      throw new Error(
+        'TegridyStaking v1 is paused (wind-down step 5): getReward is closed, so there is no claim to drive. ' +
+          'Retire this leg or point it at the next staking contract.',
+      );
+    }
+    if (rate !== 0n) {
+      throw new Error(
+        `TegridyStaking v1 rewardRate() is ${rate}, not 0: earned moves between the read and the claim, so ` +
+          'this leg cannot pin the payout. It was written for the wind-down claim window (rate 0).',
+      );
+    }
 
-    // 1. Open a position, so there is something for rewards to accrue against.
-    // 40,000 TOWELI, not a token amount, and the size is doing real work. Rewards accrue
-    // pro-rata against ~1.73M boosted stake already on the contract, so a 100-TOWELI
-    // position needs minutes of fork time to clear the 0.01 TOWELI floor the claim CTA
-    // gates on — and fork time is the one thing that must stay cheap here (see
-    // advanceForkTime). A large position buys the same rewards in seconds. 40,000 sits
-    // under the contract's own maxStakePerUser of 50,000, read from chain.
-    //
-    // Opened on the fork, not through the site: TOWELI staking v1 is closing and the
-    // site takes no new stakes into it (owner, 2026-10-30). What is under test is the
-    // claim, which the site still offers on a v1 position.
-    await openToweliStakeOnFork(account, 40_000n * 10n ** 18n, 90 * 86_400);
-    await walletMock.connect(account);
+    // 2. A real holder, found on the fork. The bridge signs as them by impersonation.
+    const { tokenId, holder, earned } = await claimablePosition();
+    if (reserve < earned) {
+      throw new Error(
+        `The reserve (${formatEther(reserve)} TOWELI) is short of position #${tokenId}'s earned ` +
+          `(${formatEther(earned)}), so its claim would pay short. Chain state: refill the reserve (owner).`,
+      );
+    }
+    await anvilRpc('anvil_setBalance', [holder, '0x8ac7230489e80000']); // 10 ETH for gas
+    await walletMock.connect(holder);
     await page.goto('/earn/toweli');
-    await expect(
-      page.getByRole('heading', { name: /^Your Position$/i }),
-      'the precondition stake confirmed but no position surfaced — there is nothing for rewards to accrue against.',
-    ).toBeVisible({ timeout: 30_000 });
 
-    // 2. Let the contract accrue — 120 seconds of fork time, NOT more.
-    //
-    // The arithmetic, from values read off the chain: rewardRate() is 0.8243 TOWELI/s
-    // shared across ~1.73M boosted stake, so a 40,000 position takes roughly a 2.2%
-    // share and earns ~2.2 TOWELI in two minutes — some 200x the 0.01 floor the claim
-    // CTA gates on (StakingCard.tsx:226). This deliberately buys the margin with stake
-    // size rather than with clock: the skew this leaves on the shared fork is permanent,
-    // and past ~1800s it starts reverting other specs' router calls as EXPIRED. An
-    // earlier draft jumped seven days and did exactly that.
-    await advanceForkTime(120);
-    await page.reload();
-
-    // 3. Claim. Scoped to the position card so LP farming's identically-named CTA on
-    // this same page cannot stand in for it.
-    const positionCard = page
-      .getByRole('heading', { name: /^Your Position$/i })
-      .locator('xpath=ancestor::div[contains(@class,"glass-card")][1]');
-    const claim = positionCard.getByRole('button', { name: /^Claim Rewards$/i });
+    // 3. Claim, scoped to the position card: LP farming's CTA on this page has the same name.
+    const heading = page.getByRole('heading', { name: /^Your Position$/i });
+    await expect(heading, `position #${tokenId} (${holder}) did not surface on /earn/toweli.`)
+      .toBeVisible({ timeout: 30_000 });
+    const claim = heading
+      .locator('xpath=ancestor::div[contains(@class,"glass-card")][1]')
+      .getByRole('button', { name: /^Claim Rewards$/i });
     await expect(
       claim,
-      'the claim CTA never enabled after 120 s of fork time on a real position — either accrual stopped ' +
-        'on TegridyStaking or the reward pool is exhausted. Check rewardRate() and the contract TOWELI balance ' +
-        'before touching this assertion.',
+      `the claim CTA stayed disabled on position #${tokenId}, which the fork says is owed ` +
+        `${formatEther(earned)} TOWELI, over the 0.01 floor. The page is misreading the position.`,
     ).toBeEnabled({ timeout: 30_000 });
+    const balanceBefore = await toweliBalance(holder);
+    const sent = forkTxCount(page);
     await claim.click();
-    // The stake was sent off the page, so the only receipt that can appear is the claim's.
-    await expectTxReceipt(page, 'claim');
+    const hash = await expectMinedSuccessfully(page, 'claim', sent);
+
+    // 4. The chain paid exactly `earned`, from the staking contract, and the debt cleared.
+    const { logs } = (await anvilRpc('eth_getTransactionReceipt', [hash])) as { logs: Log[] };
+    const paid = parseEventLogs({
+      abi: ABI,
+      eventName: 'Transfer',
+      logs: logs.filter((l) => isAddressEqual(l.address, TOWELI_ADDRESS)),
+    })
+      .filter((e) => isAddressEqual(e.args.from, TEGRIDY_STAKING_ADDRESS) && isAddressEqual(e.args.to, holder))
+      .reduce((sum, e) => sum + e.args.value, 0n);
+    expect(paid, `claim ${hash}: TOWELI sent from staking to the holder`).toBe(earned);
+    expect((await toweliBalance(holder)) - balanceBefore, `claim ${hash}: the holder's TOWELI gain`).toBe(earned);
+    expect(await earnedOf(tokenId), `claim ${hash}: position #${tokenId} still owed after paying`).toBe(0n);
+
+    // 5. The page's receipt names this transaction and the amount the chain paid.
+    await expectTxReceipt(page, 'claim', { hash });
+    await expect(
+      page.getByRole('dialog').getByText(`${formatTokenAmount(formatEther(earned), 6)} TOWELI`, { exact: true }),
+      `claim ${hash}: the receipt does not show the ${formatEther(earned)} TOWELI the chain paid.`,
+    ).toBeVisible();
   });
 });

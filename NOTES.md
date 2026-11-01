@@ -15,6 +15,22 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-11-01: a claim test that makes its own rewards tests the reward rate, not the claim
+
+**Believed:** opening a fresh position on a fork and moving the clock is the honest way to get
+something to claim, because the contract's own math makes the rewards.
+
+**Measured** (TegridyStaking v1, anvil 1.5.1 fork of mainnet block ~26,321,738, `rewardRate()` 0
+since the wind-down): the fresh 40,000 TOWELI position earned 0 in 120 s, Claim stayed disabled,
+and the leg blamed an exhausted reserve that had just been refilled with exactly what was owed.
+The 22 existing positions were owed 3,579,490.94 TOWELI; claiming four of them through the page
+paid each exactly `earned`, to the wei, and an expectation one wei off failed.
+
+**Do:** when a protocol can stop accruing on purpose, drive the claim as a holder who is already
+owed. Find them on the fork every run (owner of the id, the id the site shows them, owed above
+the CTA's floor), impersonate them, and assert the payout to the wei. Never hardcode the holder:
+real holders claim on mainnet, and a retry must pass over the one an earlier attempt paid.
+
 ## 2026-10-31: a merged pull request reads `mergeable: UNKNOWN`, and REST still calls it clean
 
 **Believed:** `gh pr view N --json mergeable,mergeStateStatus` reading `UNKNOWN` after a push is
