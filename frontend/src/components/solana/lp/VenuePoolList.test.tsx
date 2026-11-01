@@ -9,6 +9,7 @@ import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { BAYLA_MINT, TOKEN_2022_PROGRAM, USDC_MINT, WSOL_MINT } from '../../../lib/solana/lp/tokenSafety';
 import { setPriceSide } from './priceSide';
 import type { PoolListRead } from '../../../lib/solana/lp/poolList';
+import type { LegQuote } from '../../../lib/solana/lp/outsidePrice';
 import type { PoolSearchRead, PoolView } from '../../../lib/solana/lp/poolFinder';
 import { buildPool, key, viewOf } from '../../../lib/solana/lp/testkit.fixture';
 
@@ -293,7 +294,7 @@ describe('Arbitrage: every paying gap, ranked, with the trade and one press to t
     expect(within(board).getByRole('button', { name: 'Read again' })).toBeInTheDocument();
   });
 
-  it('one row per paying gap: the pair, the gap, Pay, Get, Profit after the pool’s fee, where the fee goes, the price after, and Swap on that trade', async () => {
+  it('one row per paying gap: the pair, the gap, Pay, Get, the figure at the listed price when Jupiter is not asked, where the fee goes, the price after, and Swap on that trade', async () => {
     mount(readers({ marketPrices: vi.fn(async () => cornDear), listPools: vi.fn(async () => ok([view(BAYLA, 30n * 10n ** 9n), view(CORN)], { chainNow: 1_000n, safety: [calls(C, 'CORN')] })) }));
     const row = await screen.findByTestId('lp-arb-row');
     expect(screen.getAllByTestId('lp-arb-row')).toHaveLength(1);
@@ -304,7 +305,10 @@ describe('Arbitrage: every paying gap, ranked, with the trade and one press to t
     const value = (label: string) => within(row).getByText(label, { exact: true }).nextElementSibling?.textContent;
     expect(value('Pay')).toBe('21.046 CORN ($19.99)');
     expect(value('Get')).toBe('≈ 0.2041 SOL ($20.41)');
-    expect(value('Profit')).toBe('up to $0.42, after the pool’s fee');
+    // No quote reader here, so nothing is checked: never the word Profit over a listed-price figure.
+    expect(value('At listed price')).toBe('up to $0.42 after the pool’s fee, before Jupiter’s own costs');
+    expect(within(row).queryByText('Profit', { exact: true })).toBeNull();
+    expect(row).toHaveAttribute('data-check', 'unchecked');
     expect(value('Fee')).toBe('$0.17 to LPs · $0.03 to the venue');
     // After the trade the pool's price sits the fee away from Jupiter's 0.0095 (0.0095 / 0.99 = 0.009596), less a
     // hair: the LPs' part of the fee stays in the token side's reserve, as the pool's own row will then show it.
@@ -343,7 +347,7 @@ describe('Arbitrage: every paying gap, ranked, with the trade and one press to t
     const row = await screen.findByTestId('lp-arb-row');
     const value = (label: string) => within(row).getByText(label, { exact: true }).nextElementSibling?.textContent;
     expect(value('Pay')).toBe('16.0377 CORN ($15.24)');
-    expect(value('Profit')).toBe('up to $0.24, after the pool’s fee and the token’s');
+    expect(value('At listed price')).toBe('up to $0.24 after the pool’s fee and the token’s, before Jupiter’s own costs');
     expect(value('Fee')).toBe('$0.13 to LPs · $0.02 to the venue · the token keeps back $0.15');
     expect(within(row).getByRole('link', { name: 'Swap: sell 16.0377 CORN for SOL' })).toHaveAttribute('href', expect.stringMatching(new RegExp(`^/solana\\?in=${C}&out=${WSOL_MINT}&amt=16\\.0377\\d*$`)));
     expect(screen.getByTestId('lp-arb')).toHaveTextContent('a token whose transfer fee could not be read gets no figure');
@@ -566,5 +570,124 @@ describe('Arbitrage: every paying gap, ranked, with the trade and one press to t
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('Arbitrage: a row’s profit is the round trip at Jupiter’s live quote, not its listed price', () => {
+  // GRR on 2026-11-01: 9.0% cheaper here against Jupiter's listed price, while Jupiter's real sale paid ~6% under it.
+  // Here CORN is 0.01 SOL ($1) in the pool against a listed $1/0.91.
+  const grr = { [WSOL_MINT]: 100, [C]: 1 / 0.91 };
+  const cornDear = { [WSOL_MINT]: 100, [BAYLA_MINT]: 3, [C]: 0.95 };
+  const DECIMALS: Record<string, number> = { [WSOL_MINT]: 9 };
+  /** Jupiter quoting at `haircut` of its listed prices (`prices`), through a pool that is not ours. */
+  function jupiterAt(prices: Record<string, number>, haircut: (inputMint: string) => number = () => 1) {
+    return vi.fn(async (inputMint: string, outputMint: string, amount: bigint): Promise<LegQuote> => {
+      const usd = (Number(amount) / 10 ** (DECIMALS[inputMint] ?? 6)) * prices[inputMint]!;
+      const out = BigInt(Math.floor((usd / prices[outputMint]!) * 10 ** (DECIMALS[outputMint] ?? 6) * haircut(inputMint)));
+      return { kind: 'ok', out, pools: [key().toBase58()] };
+    });
+  }
+  const listed = (pools: PoolView[]) => vi.fn(async () => ok(pools, { chainNow: 1_000n, safety: [calls(C, 'CORN')] }));
+  const valueOf = (row: HTMLElement, label: string) => within(row).getByText(label, { exact: true }).nextElementSibling as HTMLElement;
+
+  it('GRR: 9% cheaper here, but Jupiter pays 6% under its listed price, so the round trip loses and the row says so, in amber', async () => {
+    const legQuote = jupiterAt(grr, () => 0.94);
+    mount(readers({ marketPrices: vi.fn(async () => grr), listPools: listed([view(CORN)]), legQuote }));
+    const row = await screen.findByTestId('lp-arb-row');
+    expect(within(row).getByTestId('lp-arb-gap')).toHaveTextContent('9.0% cheaper here');
+    await waitFor(() => expect(row).toHaveAttribute('data-check', 'loss'));
+    expect(valueOf(row, 'Profit')).toHaveTextContent(/^none after Jupiter’s own costs: the round trip loses \$0\.85$/);
+    expect(valueOf(row, 'Profit')).toHaveClass('text-amber-300/90');
+    expect(row).not.toHaveTextContent('round trip, at Jupiter');
+    expect(within(row).queryByText('At listed price', { exact: true })).toBeNull();
+    // One quote: sell on Jupiter what the pool's trade gives, CORN for SOL.
+    expect(legQuote).toHaveBeenCalledTimes(1);
+    expect(legQuote.mock.calls[0]!.slice(0, 2)).toEqual([C, WSOL_MINT]);
+    // Swap stays: the trade on our pool is still there to take.
+    expect(within(row).getByRole('link', { name: /^Swap: buy CORN with 0\.\d{4} SOL$/ })).toBeInTheDocument();
+  });
+
+  it('a real gap: Jupiter pays near its listed price, and the row shows the round trip’s profit', async () => {
+    mount(readers({ marketPrices: vi.fn(async () => grr), listPools: listed([view(CORN)]), legQuote: jupiterAt(grr, () => 0.995) }));
+    const row = await screen.findByTestId('lp-arb-row');
+    await waitFor(() => expect(row).toHaveAttribute('data-check', 'profit'));
+    expect(valueOf(row, 'Profit')).toHaveTextContent(/^up to \$1\.64 round trip, at Jupiter’s live quote$/);
+    expect(valueOf(row, 'Profit')).not.toHaveClass('text-amber-300/90');
+  });
+
+  it('dear here: Jupiter is asked to buy the tokens with the SOL they are worth at its listed price, and what it delivers is sold here', async () => {
+    const legQuote = jupiterAt(cornDear, () => 0.995);
+    mount(readers({ marketPrices: vi.fn(async () => cornDear), listPools: listed([view(CORN)]), legQuote }));
+    const row = await screen.findByTestId('lp-arb-row');
+    await waitFor(() => expect(row).toHaveAttribute('data-check', 'profit'));
+    const [inputMint, outputMint, amount] = legQuote.mock.calls[0]!;
+    expect([inputMint, outputMint]).toEqual([WSOL_MINT, C]);
+    // 21.046 CORN at the listed $0.95 is $19.99: 0.1999 SOL.
+    expect(Number(amount) / 1e9).toBeCloseTo(0.1999, 4);
+    expect(valueOf(row, 'Profit')).toHaveTextContent(/^up to \$0\.\d\d round trip, at Jupiter’s live quote$/);
+  });
+
+  it('a trip that does not pay sinks below one that does, whatever the listed figure said', async () => {
+    // Listed, the USDC pool makes the most (Arbitrage above). Jupiter's USDC route pays 20% under: it goes last.
+    const prices = { [WSOL_MINT]: 100, [BAYLA_MINT]: 3 / 1.02, [USDC_MINT]: 1, [C]: 0.95 };
+    const corn = view(CORN);
+    const inUsdc = usdcPool(corn);
+    const bayla = token2022(view(BAYLA, 30n * 10n ** 9n));
+    const legQuote = jupiterAt(prices, (inputMint) => (inputMint === USDC_MINT ? 0.8 : 0.999));
+    mount(readers({ marketPrices: vi.fn(async () => prices), listPools: listed([bayla, corn, inUsdc]), legQuote }));
+    await waitFor(() => expect(screen.getAllByTestId('lp-arb-row').map((r) => r.getAttribute('data-check'))).toEqual(['profit', 'profit', 'loss']));
+    const rows = screen.getAllByTestId('lp-arb-row');
+    expect(rows[2]).toHaveAttribute('data-pool', inUsdc.address);
+    expect(rows[2]).toHaveTextContent('CORN / USDC · 1% tier');
+  });
+
+  it('asks for the top 5 rows only, one quote after another, never two together; the rest say their figure is at the listed price', async () => {
+    const mints = Array.from({ length: 7 }, () => key());
+    const prices = { [WSOL_MINT]: 100, ...Object.fromEntries(mints.map((m) => [m.toBase58(), 0.95])) };
+    const answer = jupiterAt(prices, () => 0.999);
+    const pending: (() => void)[] = [];
+    const legQuote = vi.fn((i: string, o: string, a: bigint) => new Promise<LegQuote>((resolve) => pending.push(() => resolve(answer(i, o, a)))));
+    mount(readers({ marketPrices: vi.fn(async () => prices), listPools: vi.fn(async () => ok(mints.map((m) => view(m)), { chainNow: 1_000n })), legQuote }));
+    await waitFor(() => expect(screen.getAllByTestId('lp-arb-row')).toHaveLength(7));
+    const checks = () => screen.getAllByTestId('lp-arb-row').map((r) => r.getAttribute('data-check'));
+    expect(checks().filter((c) => c === 'checking')).toHaveLength(5);
+    expect(screen.getAllByText('checking Jupiter’s quote…')).toHaveLength(5);
+    for (let i = 0; i < 5; i++) {
+      await waitFor(() => expect(legQuote).toHaveBeenCalledTimes(i + 1));
+      await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
+      expect(legQuote).toHaveBeenCalledTimes(i + 1);
+      await act(async () => { pending[i]!(); });
+    }
+    await waitFor(() => expect(checks().filter((c) => c === 'profit')).toHaveLength(5));
+    expect(legQuote).toHaveBeenCalledTimes(5);
+    const rest = screen.getAllByTestId('lp-arb-row').filter((r) => r.getAttribute('data-check') === 'unchecked');
+    expect(rest).toHaveLength(2);
+    for (const row of rest) expect(valueOf(row, 'At listed price')).toHaveTextContent(/^up to \$0\.42 after the pool’s fee, before Jupiter’s own costs$/);
+    expect(screen.getByTestId('lp-arb')).toHaveTextContent('the top 5 rows ask Jupiter for a live quote of the other half of the round trip');
+  });
+
+  it('a quote Jupiter did not answer ends the pass: no more are asked, and each row says its figure is at the listed price', async () => {
+    const mints = Array.from({ length: 3 }, () => key());
+    const prices = { [WSOL_MINT]: 100, ...Object.fromEntries(mints.map((m) => [m.toBase58(), 0.95])) };
+    const legQuote = vi.fn(async (): Promise<LegQuote> => ({ kind: 'unread', detail: 'Jupiter did not give a price (HTTP 429)' }));
+    mount(readers({ marketPrices: vi.fn(async () => prices), listPools: vi.fn(async () => ok(mints.map((m) => view(m)), { chainNow: 1_000n })), legQuote }));
+    await waitFor(() => expect(screen.getAllByTestId('lp-arb-row').map((r) => r.getAttribute('data-check'))).toEqual(['unchecked', 'unchecked', 'unchecked']));
+    await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
+    expect(legQuote).toHaveBeenCalledTimes(1);
+    expect(screen.getAllByText('At listed price', { exact: true })).toHaveLength(3);
+  });
+
+  it('a quote through one of our own pools is not an outside price; Jupiter’s "no route" is no profit', async () => {
+    const corn = view(CORN);
+    const { unmount } = mount(readers({ marketPrices: vi.fn(async () => grr), listPools: listed([corn]), legQuote: vi.fn(async (): Promise<LegQuote> => ({ kind: 'ok', out: 10n ** 12n, pools: [corn.address] })) }));
+    const row = await screen.findByTestId('lp-arb-row');
+    await waitFor(() => expect(row).toHaveAttribute('data-check', 'unchecked'));
+    expect(valueOf(row, 'At listed price')).toHaveTextContent(/before Jupiter’s own costs$/);
+    unmount();
+    mount(readers({ marketPrices: vi.fn(async () => grr), listPools: listed([view(CORN)]), legQuote: vi.fn(async (): Promise<LegQuote> => ({ kind: 'no-route' })) }));
+    const again = await screen.findByTestId('lp-arb-row');
+    await waitFor(() => expect(again).toHaveAttribute('data-check', 'no-route'));
+    expect(valueOf(again, 'Profit')).toHaveTextContent('none: Jupiter has no route for the other half');
+    expect(valueOf(again, 'Profit')).toHaveClass('text-amber-300/90');
   });
 });

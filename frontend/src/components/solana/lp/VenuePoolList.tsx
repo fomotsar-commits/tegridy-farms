@@ -56,7 +56,7 @@ export function VenuePoolList({
   if (!readers.listPools) return null;
   return (
     <>
-      <ArbitrageBoard live={live} prices={market} />
+      <ArbitrageBoard live={live} prices={market} legQuote={readers.legQuote} />
       <section ref={sectionRef} tabIndex={sectionRef ? -1 : undefined} className="outline-none" data-testid="lp-all-pools" aria-label="All pools">
         <Card title="All pools" art={<CardArt pageId="solana-lp" idx={13} />}>
           {read === null ? (
