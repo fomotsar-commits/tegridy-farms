@@ -201,8 +201,16 @@ describe('the dead-man switch', () => {
   it('sends success only for a mirror job that succeeded, and keeps the URL off the command line', () => {
     const body = runBodies(job('ping'))[0];
     expect(body).toContain('if [ "$MIRROR_RESULT" = success ]; then suffix=\'\'; else suffix=/fail; fi');
-    expect(body).toMatch(/\| curl [^\n]*--config -\n?$/);
+    expect(body).toMatch(/\| curl [^\n]*--config -$/m);
     expect(body).not.toMatch(/curl[^\n]*\$HC_PING_URL/);
+  });
+
+  it('counts the ping only when healthchecks.io answers exactly "OK", and fails the job otherwise', () => {
+    // It answers 200 "OK (not found)" to a URL that names no check. test-mirror.sh runs each answer.
+    const body = runBodies(job('ping'))[0];
+    expect(body).toMatch(/\| curl [^\n]* -o "\$answer" [^\n]*--config -$/m);
+    expect(body).not.toContain('/dev/null');
+    expect(body).toMatch(/\n\s*if \[ "\$said" != OK \]; then\n\s*echo "::error::[^\n]*"\n\s*exit 1\n\s*fi\s*$/);
   });
 });
 

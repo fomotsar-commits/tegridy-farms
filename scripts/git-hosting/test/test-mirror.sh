@@ -187,16 +187,30 @@ PING_BODY=$(awk '/- name: Ping the gitlab-standby check/ { f = 1 } f && /run: \|
   r && $0 != "" && substr($0, 1, 10) != "          " { exit } r { print substr($0, 11) }' "$WF")
 check "ping: the step's script was found" grep -q 'curl' <<< "$PING_BODY"
 mkdir -p fakecurl
-printf '%s\n' '#!/usr/bin/env bash' 'printf "%s\n" "$*" > "$FAKE_CURL_DIR/curl.argv"; cat > "$FAKE_CURL_DIR/curl.config"' > fakecurl/curl
+# The fake answers what FAKE_ANSWER says (healthchecks.io's "OK" when unset) into curl's -o file.
+printf '%s\n' '#!/usr/bin/env bash' 'printf "%s\n" "$*" > "$FAKE_CURL_DIR/curl.argv"; cat > "$FAKE_CURL_DIR/curl.config"' \
+  'prev=; for a in "$@"; do [[ $prev != -o ]] || printf %s "${FAKE_ANSWER-OK}" > "$a"; prev=$a; done' > fakecurl/curl
 chmod +x fakecurl/curl
 ping_run() { # ping_run <needs.mirror.result> [url]: sets out, rc; the fake curl leaves curl.config
   rm -f curl.argv curl.config
-  out=$(PATH="$SB/fakecurl:$PATH" FAKE_CURL_DIR="$SB" HC_PING_URL=${2-https://hc-ping.invalid/check-id} \
+  out=$(PATH="$SB/fakecurl:$PATH" FAKE_CURL_DIR="$SB" RUNNER_TEMP="$SB" HC_PING_URL=${2-https://hc-ping.invalid/check-id} \
         MIRROR_RESULT=$1 bash -e -c "$PING_BODY" 2>&1); rc=$?
 }
 ping_run success
 check "ping: a passed run pings the check" test "$(cat curl.config 2>/dev/null)" = 'url = "https://hc-ping.invalid/check-id"'
+check "ping: an answer of OK passes the job" test "$rc" -eq 0
 check "ping: the URL never reaches curl's command line" bash -c '[[ -s $0 ]] && ! grep -q hc-ping "$0"' curl.argv
+# healthchecks.io answers 200 "OK (not found)" to a URL that names no check, and 200 "OK (rate limited)".
+for answer in 'OK (not found)' 'OK (rate limited)' '' 'ok'; do
+  FAKE_ANSWER=$answer ping_run success
+  check "ping: an answer of '$answer' fails the job and says what it was" \
+    bash -c '[[ $0 -eq 1 ]] && grep -qF "::error::healthchecks.io answered \"$2\", not \"OK\"" <<< "$1"' "$rc" "$out" "$answer"
+done
+FAKE_ANSWER=$' OK\r\n' ping_run failure
+check "ping: OK with spaces and a line break around it passes" test "$rc" -eq 0
+FAKE_ANSWER=$'<p>\n::warning::https://hc-ping.invalid/check-id/fail\n</p>' ping_run failure
+check "ping: an answer that echoes the URL is printed on one line, without it" \
+  bash -c '[[ $0 -eq 1 ]] && ! grep -q -e hc-ping -e "^::warning::" <<< "$1" && grep -qF "answered \"<p> ::warning::<HC_PING_URL_GITLAB_STANDBY>/fail </p>\"" <<< "$1"' "$rc" "$out"
 for result in failure cancelled skipped ''; do
   ping_run "$result"
   check "ping: a run that is '$result' pings /fail" test "$(cat curl.config 2>/dev/null)" = 'url = "https://hc-ping.invalid/check-id/fail"'
