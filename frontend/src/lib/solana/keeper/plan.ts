@@ -179,6 +179,9 @@ export interface JupiterLegExpect {
   untouchable: readonly PublicKey[];
 }
 
+/** `jupiterLegProblem`'s answer for a route that names one of `untouchable`. */
+export const NAMES_OTHER_ACCOUNT = 'the swap names another of the keeper’s accounts';
+
 /**
  * Why Jupiter's swap instruction must not be signed, or null. It must be a `route_v2` (or the
  * shared-accounts one) into Jupiter, spending exactly `inAmount` from the keeper's own account
@@ -198,7 +201,7 @@ export function jupiterLegProblem(ix: TransactionInstruction, e: JupiterLegExpec
   const k = ix.keys.map((m) => m.pubkey);
   if (ix.keys.some((m) => m.isSigner && !m.pubkey.equals(e.owner))) return 'the swap asks another signer';
   if (k.some((p) => e.refused.has(p.toBase58()))) return 'the route passes through a refused venue';
-  if (k.some((p) => e.untouchable.some((u) => u.equals(p)))) return 'the swap names another of the keeper’s accounts';
+  if (k.some((p) => e.untouchable.some((u) => u.equals(p)))) return NAMES_OTHER_ACCOUNT;
   const sourceAta = getAssociatedTokenAddressSync(e.inputMint, e.owner, true, e.inputProgram);
   const destAta = getAssociatedTokenAddressSync(e.outputMint, e.owner, true, e.outputProgram);
   const at = (i: number) => k[i] ?? PublicKey.default;

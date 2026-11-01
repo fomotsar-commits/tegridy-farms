@@ -37,7 +37,8 @@ export interface SwapInstructions {
 
 export interface JupiterApi {
   quote(p: { inputMint: string; outputMint: string; amount: bigint; slippageBps: number; excludeDexes: readonly string[]; maxAccounts: number }): Promise<JupiterQuote>;
-  swapInstructions(quote: JupiterQuote, user: PublicKey): Promise<SwapInstructions>;
+  /** Through the user's own accounts; `shared` asks for Jupiter's shared accounts for the route's middle steps instead. */
+  swapInstructions(quote: JupiterQuote, user: PublicKey, opts?: { shared?: boolean }): Promise<SwapInstructions>;
   /** Program id → venue name, for the venues the keeper refuses. */
   labels(): Promise<Record<string, string>>;
   prices(mints: string[]): Promise<Record<string, number>>;
@@ -85,13 +86,13 @@ export function jupiterApi(opts: { key?: string; fetchImpl?: typeof fetch; gapMs
       if (p.excludeDexes.length) qs.set('excludeDexes', p.excludeDexes.join(','));
       return call<JupiterQuote>(`/swap/v1/quote?${qs.toString()}`);
     },
-    swapInstructions: async (quote, user) => {
+    swapInstructions: async (quote, user, opts) => {
       const body = {
         quoteResponse: quote,
         userPublicKey: user.toBase58(),
         // The keeper holds its SOL wrapped, in its own account: nothing to wrap or unwrap.
         wrapAndUnwrapSol: false,
-        useSharedAccounts: false,
+        useSharedAccounts: opts?.shared === true,
         dynamicComputeUnitLimit: false,
       };
       const r = await call<{

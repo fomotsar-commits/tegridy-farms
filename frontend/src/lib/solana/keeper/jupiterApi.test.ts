@@ -72,6 +72,17 @@ describe('jupiterApi', () => {
     expect(body.useSharedAccounts).toBe(false);
   });
 
+  it('asks for Jupiter’s shared accounts only when told to', async () => {
+    const user = Keypair.generate().publicKey;
+    const wire = { programId: 'JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4', accounts: [], data: '' };
+    const r = recorder(() => ({ body: { swapInstruction: wire } }));
+    const api = jupiterApi({ fetchImpl: r.fetchImpl, gapMs: 0 });
+    await api.swapInstructions({ inputMint: 'A' } as never, user, { shared: true });
+    await api.swapInstructions({ inputMint: 'A' } as never, user, { shared: false });
+    const shared = r.calls.map((c) => (JSON.parse(String(c.init.body)) as { useSharedAccounts: unknown }).useSharedAccounts);
+    expect(shared).toEqual([true, false]);
+  });
+
   it('reads USD prices, skipping coins without one', async () => {
     const r = recorder(() => ({ body: { A: { usdPrice: 2 }, B: null, C: { usdPrice: 'x' } } }));
     expect(await jupiterApi({ fetchImpl: r.fetchImpl, gapMs: 0 }).prices(['A', 'B', 'C', 'A'])).toEqual({ A: 2 });

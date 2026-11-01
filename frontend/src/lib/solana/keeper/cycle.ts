@@ -17,10 +17,11 @@ import type { PoolView } from '../lp/poolFinder';
 import { PRICE_IDS_MAX, arbitrage, listPools, marketPriceIds, readMarketPrices, rowTokenFee } from '../lp/poolList';
 import { SOL_QUOTE, type QuoteCoin } from '../lp/quotes';
 import { readTokenSafety, type TokenSafety } from '../lp/tokenSafety';
-import { refusedVenues, type JupiterApi, type JupiterQuote } from './jupiterApi';
+import { refusedVenues, type JupiterApi, type JupiterQuote, type SwapInstructions } from './jupiterApi';
 import {
   KEEPER_COINS,
   MAX_LAMPORTS_SPENT,
+  NAMES_OTHER_ACCOUNT,
   NEW_ACCOUNT_RENT,
   decodeJupiterRoute,
   dustSaleProblem,
@@ -412,23 +413,19 @@ async function jupiterTrip(
       return 'none';
     }
     const minOut = jupiterFloor(BigInt(q.outAmount), bps);
-    const si = await io.jupiter.swapInstructions({ ...q, slippageBps: bps, otherAmountThreshold: minOut.toString() }, owner);
-    if (si.extra) throw new Error('Jupiter added instructions the keeper does not sign');
-    const problem = jupiterLegProblem(si.swap, { ...legExpect, inputMint: acc.tokenMint, inputProgram: acc.tokenProgram, outputMint: acc.coinMint, outputProgram: TOKEN_PROGRAM_ID, inAmount: own.outAmount, minOut });
-    if (problem) throw new Error(problem);
+    const si = await jupiterLeg(io.jupiter, owner, { ...q, slippageBps: bps, otherAmountThreshold: minOut.toString() }, (x) =>
+      jupiterLegProblem(x.swap, { ...legExpect, inputMint: acc.tokenMint, inputProgram: acc.tokenProgram, outputMint: acc.coinMint, outputProgram: TOKEN_PROGRAM_ID, inAmount: own.outAmount, minOut }),
+    );
     legs = [ownSwap(owner, view, 'coin', plan.coinIn, own.outAmount), si.swap];
     lookupTables = si.lookupTables;
   } else {
     const q = await quoteWithRoom(io, s, { inputMint: plan.coinMint, outputMint: plan.tokenMint, amount: plan.coinIn, slippageBps: s.slippageBps, excludeDexes: refused.names });
-    const si = await io.jupiter.swapInstructions(q, owner);
-    if (si.extra) throw new Error('Jupiter added instructions the keeper does not sign');
-    const route = decodeJupiterRoute(si.swap.data);
-    if (!route) throw new Error('the swap is not a route_v2 Jupiter swap');
     // What Jupiter must deliver, as the chain will hold it to: the most our pool can be sold.
     // Anything Jupiter pays over that stays with the keeper as a little of the token.
-    const tokensIn = jupiterFloor(route.quotedOutAmount, route.slippageBps);
-    const problem = jupiterLegProblem(si.swap, { ...legExpect, inputMint: acc.coinMint, inputProgram: TOKEN_PROGRAM_ID, outputMint: acc.tokenMint, outputProgram: acc.tokenProgram, inAmount: plan.coinIn, minOut: tokensIn });
-    if (problem) throw new Error(problem);
+    const si = await jupiterLeg(io.jupiter, owner, q, (x) =>
+      jupiterLegProblem(x.swap, { ...legExpect, inputMint: acc.coinMint, inputProgram: TOKEN_PROGRAM_ID, outputMint: acc.tokenMint, outputProgram: acc.tokenProgram, inAmount: plan.coinIn, minOut: routeFloor(x) }),
+    );
+    const tokensIn = routeFloor(si);
     const own = quoteOwnPool(view.snapshot, view.config, plan.tokenMint, tokensIn, Number(chainNow));
     const ownMin = own ? lastPoolMinimum(own.outAmount, need, s.slippageBps) : null;
     if (ownMin === null) {
@@ -453,6 +450,31 @@ async function jupiterTrip(
     says: (gained) =>
       `${done.side === 'buy' ? 'buy here, sell on Jupiter' : 'buy on Jupiter, sell here'}, ${amt(done.coinIn)} in, test run gains ${amt(gained)} (floor ${amt(done.minProfit)})`,
   });
+}
+
+/**
+ * Jupiter's swap for `quote`, once `check` finds no problem with it. Asked first through the
+ * keeper's own accounts. When that route names the keeper's other coin's account, it is asked
+ * again through Jupiter's shared accounts, and checked the same way: a USDC trip whose only
+ * route runs through SOL has its middle step in the keeper's wrapped SOL, which a route must
+ * never touch (BAYLA against USDC, 2026-11-01). Anything Jupiter adds refuses it either way.
+ */
+export async function jupiterLeg(jupiter: JupiterApi, owner: PublicKey, quote: JupiterQuote, check: (si: SwapInstructions) => string | null): Promise<SwapInstructions> {
+  const ask = async (shared: boolean) => {
+    const si = await jupiter.swapInstructions(quote, owner, { shared });
+    if (si.extra) throw new Error('Jupiter added instructions the keeper does not sign');
+    return { si, problem: check(si) };
+  };
+  let leg = await ask(false);
+  if (leg.problem === NAMES_OTHER_ACCOUNT) leg = await ask(true);
+  if (leg.problem) throw new Error(leg.problem);
+  return leg.si;
+}
+
+/** The least a Jupiter route pays, as the chain holds it to; 0 for one that is not a route (`jupiterLegProblem` refuses it). */
+function routeFloor(si: SwapInstructions): bigint {
+  const route = decodeJupiterRoute(si.swap.data);
+  return route ? jupiterFloor(route.quotedOutAmount, route.slippageBps) : 0n;
 }
 
 /** A Jupiter quote within `maxAccounts`, or, when Jupiter finds none there, within ROOMY_ACCOUNTS. */
@@ -581,19 +603,18 @@ export async function sellDust(io: KeeperIo, s: KeeperSettings): Promise<number>
     try {
       const before = await balances(io.rpc, [coinAta, tokenAta, otherAta, owner]);
       const q = await quoteWithRoom(io, s, { inputMint: t.mint, outputMint: SOL_QUOTE.mint, amount: before.token, slippageBps: s.slippageBps, excludeDexes: refused.names });
-      const si = await io.jupiter.swapInstructions(q, owner);
-      if (si.extra) throw new Error('Jupiter added instructions the keeper does not sign');
-      const route = decodeJupiterRoute(si.swap.data);
-      if (!route) throw new Error('the swap is not a route_v2 Jupiter swap');
-      const minOut = jupiterFloor(route.quotedOutAmount, route.slippageBps);
+      const si = await jupiterLeg(io.jupiter, owner, q, (x) =>
+        jupiterLegProblem(x.swap, {
+          owner, refused: refused.programs, untouchable: [otherAta],
+          inputMint: tokenMint, inputProgram: t.program, outputMint: coinMint, outputProgram: TOKEN_PROGRAM_ID, inAmount: before.token, minOut: routeFloor(x),
+        }),
+      );
+      // A route `jupiterLeg` took always decodes.
+      const route = decodeJupiterRoute(si.swap.data)!;
+      const minOut = routeFloor(si);
       if (route.slippageBps > s.slippageBps) throw new Error('the sale’s slippage is wider than the keeper allows');
       // Jupiter's listed price and its route differ by a few points on a thin coin; more is no sale.
       if ((Number(minOut) / 1e9) * solUsd < worth * DUST_FLOOR_OF_WORTH) throw new Error(`the sale pays under ${DUST_FLOOR_OF_WORTH * 100}% of the listed worth`);
-      const problem = jupiterLegProblem(si.swap, {
-        owner, refused: refused.programs, untouchable: [otherAta],
-        inputMint: tokenMint, inputProgram: t.program, outputMint: coinMint, outputProgram: TOKEN_PROGRAM_ID, inAmount: before.token, minOut,
-      });
-      if (problem) throw new Error(problem);
       const amt = amountText(SOL_QUOTE);
       const o = await sendChecked(io, s, {
         name,
