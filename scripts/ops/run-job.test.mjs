@@ -113,7 +113,7 @@ describe('the runner and its alarm', () => {
 
   test('a start ping that fails makes a passing run exit 3, even when the result ping gets through', async () => {
     const calls = [];
-    const impl = async (url) => { calls.push(String(url)); return new Response('', { status: String(url).endsWith('/start') ? 503 : 200 }); };
+    const impl = async (url) => { calls.push(String(url)); return new Response('OK', { status: String(url).endsWith('/start') ? 503 : 200 }); };
     const code = await runJob('synthetic-monitor', {
       env: { HC_PING_URL_SYNTHETIC_MONITOR: HC }, fetchImpl: impl, stateDir: tmp('st'), log: () => {}, warn: () => {}, sleep: noSleep,
       jobs: fakeJob({ ok: true, summary: 'ok', report: '' }),
@@ -196,6 +196,43 @@ describe('the runner and its alarm', () => {
     const r = await sendPing({ url: HC, kind: 'fail', fetchImpl: async () => { n++; throw new TypeError('fetch failed'); }, sleep: noSleep });
     assert.equal(r.ok, false);
     assert.equal(n, 3);
+  });
+
+  test('a 200 is not enough: only an answer of exactly "OK" is delivered, anything else is retried', async () => {
+    const answering = (text) => { const c = { n: 0 }; c.impl = async () => { c.n++; return new Response(text, { status: 200 }); }; return c; };
+    for (const text of ['OK (not found)', 'OK (rate limited)', '']) {
+      const c = answering(text);
+      const r = await sendPing({ url: HC, kind: 'success', fetchImpl: c.impl, sleep: noSleep });
+      assert.deepEqual(r, { ok: false, status: 200, error: `answered "${text}"` }, text);
+      assert.equal(c.n, 3, `${JSON.stringify(text)} was not retried`);
+    }
+    const c = answering('OK\n');
+    assert.deepEqual(await sendPing({ url: HC, kind: 'success', fetchImpl: c.impl, sleep: noSleep }), { ok: true, status: 200 });
+    assert.equal(c.n, 1);
+    const echo = await sendPing({ url: HC, kind: 'start', fetchImpl: async (u) => new Response(`<html>login, then ${u} ${'x'.repeat(200)}`), sleep: noSleep });
+    assert.ok(!echo.error.includes(HC_ID), `the ping URL reached the error: ${echo.error}`);
+    assert.ok(echo.error.length <= 'answered ""'.length + 100, echo.error);
+  });
+
+  test('a ping URL that names no check is an undelivered ping in the report, and a change is not recorded as told', async () => {
+    const calls = [];
+    const impl = async (url) => { calls.push(String(url)); return new Response('OK (not found)'); };
+    const err = quiet();
+    const pass = await runJob('synthetic-monitor', {
+      env: { HC_PING_URL_SYNTHETIC_MONITOR: HC }, fetchImpl: impl, stateDir: tmp('st'), log: () => {}, warn: err.log, sleep: noSleep,
+      jobs: fakeJob({ ok: true, summary: 'ok', report: '' }),
+    });
+    assert.equal(pass, 3);
+    assert.equal(calls.length, 6);
+    assert.match(err.lines.join('\n'), /start ping \(HC_PING_URL_SYNTHETIC_MONITOR\) failed: answered "OK \(not found\)"/);
+    assert.match(err.lines.join('\n'), /success ping \(HC_PING_URL_SYNTHETIC_MONITOR\) was NOT delivered: answered "OK \(not found\)"/);
+    assert.ok(!err.lines.join('\n').includes(HC_ID), 'the ping URL was printed');
+    let committed = false;
+    const change = await runJob('revenue-watch', {
+      env: { HC_PING_URL_REVENUE_WATCH: HC }, fetchImpl: impl, stateDir: tmp('st'), log: () => {}, warn: () => {}, sleep: noSleep,
+      jobs: { 'revenue-watch': async () => ({ ok: false, summary: 'CHANGED', report: 'r', commit: () => { committed = true; } }) },
+    });
+    assert.deepEqual({ change, committed }, { change: 1, committed: false });
   });
 });
 
