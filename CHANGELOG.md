@@ -9,6 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-11-01
 
+- Swap: a trade that would move the price 15% or more can no longer be sent. The Swap button reads "Price impact too high" and the page says the pool is too thin, the line Uniswap's own app uses. Before, only a red warning showed: on Base, 1.75 million BNKR quoted 0.0000011 ETH (about $0.002) from a nearly empty Uniswap V2 pool, against about 0.22 ETH at market, and the Swap button still worked.
 - Solana reads no longer run out on phones and iPads. The home page re-read the BAYLA lock ladder every few seconds instead of every 45, so an open tab used about 100 of the site's 300 Solana reads a minute, which a whole house (or a phone network) shares, and the dashboard said "Couldn't read your Solana coins" when they ran out. It now re-reads every 45 seconds as meant, and a read the site's limit turns away waits the time the limit names and asks again (twice at most), instead of saying it could not read.
 
 ### 2026-10-31
