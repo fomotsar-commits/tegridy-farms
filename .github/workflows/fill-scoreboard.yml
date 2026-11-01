@@ -1,0 +1,41 @@
+name: Fill Scoreboard
+
+# Every hour, scores the site's Jupiter swaps that are new since the last run: the quote
+# Jupiter wrote into each swap against what reached the trader. Rows go into fill_scoreboard
+# (migration 029), which the Solana swap page reads through
+# /api/aggregator?resource=fill-scoreboard. Free: the repo is public, so its minutes cost
+# nothing, and the chain reads are keyless. RED means the hour was not scored; the page then
+# says its figures are not up to date. No npm install: no third-party code runs next to the
+# service key.
+
+on:
+  schedule:
+    - cron: "41 * * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fill-scoreboard
+  cancel-in-progress: false
+
+jobs:
+  score:
+    runs-on: ubuntu-latest
+    # The first run reads all of history; later ones read an hour.
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      - name: Score new swaps
+        shell: bash
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: node frontend/scripts/fill-scoreboard.mjs

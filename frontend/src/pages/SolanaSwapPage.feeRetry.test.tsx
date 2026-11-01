@@ -109,7 +109,7 @@ vi.mock('@solana/wallet-adapter-react', () => ({
 
 import SolanaSwapPage from './SolanaSwapPage';
 import { getActivity } from '../lib/solanaActivity';
-import { NOT_TEST_RUN_COPY, REFUSED_COPY } from '../lib/solana/swap/jupiterFeeRetry';
+import { NOT_TEST_RUN_COPY, REFUSED_COPY, TESTED_SHORT_COPY } from '../lib/solana/swap/jupiterFeeRetry';
 import { JupiterBusyError } from '../lib/solana/swap/jupiterBusy';
 
 const WOULD_FAIL = 'Swap would fail';
@@ -230,6 +230,40 @@ describe('SolanaSwapPage: Jupiter 6014 on the fee build -> one no-fee rebuild, s
     expect(h.sendTransaction).not.toHaveBeenCalled();
     expect(h.simulateSwap).toHaveBeenCalledTimes(2);
     expect(h.toast.info).not.toHaveBeenCalled();
+  });
+});
+
+describe('SolanaSwapPage: the test run says what Jupiter’s transaction pays', () => {
+  const paying = (amount: bigint, mint = USDC_MINT): SwapSimulation => ({ ...OK, delivered: { mint, amount } });
+
+  it('under the quote by 0.10% or more: the page and a notice show the test run’s amount before the wallet opens', async () => {
+    h.simulateSwap.mockResolvedValue(paying(14_910_000n)); // 10 bps under 14.925
+    await typeAmountAndBuy();
+    await waitFor(() => expect(h.sendTransaction).toHaveBeenCalledTimes(1));
+    expect(signedMarker()).toBe(1);
+    expect(atSign!.receive).toBe('14.91');
+    expect(atSign!.infoToasts).toHaveLength(1);
+    expect(atSign!.infoToasts[0]![0]).toBe(TESTED_SHORT_COPY);
+    expect(JSON.stringify(atSign!.infoToasts[0]![1])).toContain('14.91 USDC');
+  });
+
+  it('beyond the slippage from the quote the trader pressed: not sent, said like a moved price', async () => {
+    h.simulateSwap.mockResolvedValue(paying(14_800_000n)); // the 0.5% floor of 14.925 is 14.850375
+    await typeAmountAndBuy();
+    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith('Price moved', expect.objectContaining({ description: expect.stringMatching(/^The test run paid beyond your 0\.50% slippage/) })));
+    expect(h.sendTransaction).not.toHaveBeenCalled();
+  });
+
+  it('a hair under, at, or over the quote, or for another mint: signed as built, nothing said', async () => {
+    for (const sim of [paying(14_923_600n), paying(14_925_000n), paying(14_930_000n), paying(1n, SOL_MINT)]) {
+      h.simulateSwap.mockResolvedValue(sim);
+      await typeAmountAndBuy();
+      await waitFor(() => expect(h.sendTransaction).toHaveBeenCalledTimes(1));
+      expect(atSign!.receive).toBe('14.925');
+      expect(h.toast.info).not.toHaveBeenCalled();
+      cleanup();
+      vi.clearAllMocks();
+    }
   });
 });
 

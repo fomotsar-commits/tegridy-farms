@@ -85,8 +85,11 @@ export interface FeeRetryDeps {
  * failed). It is no verdict on that transaction, so no caller may treat it as one.
  */
 export type PreparedJupiterSwap =
-  /** Hand `swapTransaction` to the wallet: it passed its test run. `quote` is the one it was built from: show ITS amounts. */
-  | { status: 'ready'; quote: JupiterQuote; swapTransaction: string; siteFeeWaived: boolean }
+  /**
+   * Hand `swapTransaction` to the wallet: it passed its test run. `quote` is the one it was built
+   * from. `tested`: what the test run delivered of the output, when its events said (asTested).
+   */
+  | { status: 'ready'; quote: JupiterQuote; swapTransaction: string; siteFeeWaived: boolean; tested?: bigint }
   /** Nothing may be signed. `reason` is the simulation's own words when it has any; `cause`, what the runtime gave. */
   | { status: 'blocked'; reason: string | null; retried: boolean; unchecked?: true; cause?: SwapRefusalCause }
   /** The no-fee re-quote pays less than the fee-bearing one beyond the slippage: not silently sent. */
@@ -96,6 +99,10 @@ function parseAmount(raw: unknown): bigint | null {
   if (typeof raw !== 'string' || !/^\d+$/.test(raw)) return null;
   return BigInt(raw);
 }
+
+/** What a passing test run delivered of `outputMint`, as a field only when its events said. */
+const testedOf = (sim: SwapSimulation, outputMint: string): { tested?: bigint } =>
+  sim.delivered?.mint === outputMint ? { tested: sim.delivered.amount } : {};
 
 /** The cause a refused test run gave, as a field only when it gave one. */
 const caused = (sim: SwapSimulation): { cause?: SwapRefusalCause } => (sim.cause ? { cause: sim.cause } : {});
@@ -125,7 +132,7 @@ export async function prepareJupiterSwap(
     // Not checked is not "would run": nothing goes to the wallet, and a press checks again.
     return { status: 'blocked', reason: null, retried: false, unchecked: true };
   }
-  if (sim.ok) return { status: 'ready', quote: a.fresh, swapTransaction: first, siteFeeWaived: false };
+  if (sim.ok) return { status: 'ready', quote: a.fresh, swapTransaction: first, siteFeeWaived: false, ...testedOf(sim, a.outputMint) };
 
   // The one door. Both halves are facts about the transaction this code built
   // and the error the chain returned for it.
@@ -193,5 +200,26 @@ export async function prepareJupiterSwap(
     return { status: 'blocked', reason: 'The no-fee rebuild could not be simulated.', retried: true, unchecked: true };
   }
   if (!sim2.ok) return { status: 'blocked', reason: sim2.reason ?? sim.reason, retried: true, ...caused(sim2) };
-  return { status: 'ready', quote: retried, swapTransaction: second, siteFeeWaived: true };
+  return { status: 'ready', quote: retried, swapTransaction: second, siteFeeWaived: true, ...testedOf(sim2, a.outputMint) };
+}
+
+/** A test run this far under its quote is said to the trader before the wallet opens. */
+export const TESTED_SHORT_BPS = 10n;
+export const TESTED_SHORT_COPY = "Jupiter's transaction pays a little under its quote in a test run just now.";
+
+/**
+ * The quote as the transaction pays it: `quote` itself, or a copy carrying the test run's
+ * figure when that is lower. Every comparison and every amount shown before the wallet uses it.
+ */
+export function asTested(quote: JupiterQuote, tested: bigint | undefined): JupiterQuote {
+  const quoted = parseAmount(quote.outAmount);
+  if (tested === undefined || quoted === null || tested >= quoted) return quote;
+  return { ...quote, outAmount: tested.toString() };
+}
+
+/** Is `paid` under `quote` by TESTED_SHORT_BPS or more? */
+export function testedShort(quote: JupiterQuote, paid: JupiterQuote): boolean {
+  const q = parseAmount(quote.outAmount);
+  const p = parseAmount(paid.outAmount);
+  return q !== null && p !== null && q > 0n && (q - p) * 10_000n >= q * TESTED_SHORT_BPS;
 }
