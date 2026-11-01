@@ -2,7 +2,7 @@
 import { describe, it, expect } from 'vitest';
 import { quoteOwnPool } from '../cpswap/read';
 import { ARB_FLOOR_USD, arbitrage, type Opportunity } from './poolList';
-import { checkedOrder, legKey, otherLeg, rowCheck, type RowCheck } from './arbCheck';
+import { legKey, otherLeg, paying, rowCheck, type RowCheck } from './arbCheck';
 import type { LegQuote } from './outsidePrice';
 import { buildPool, key, viewOf } from './testkit.fixture';
 import { WSOL_MINT } from './tokenSafety';
@@ -109,20 +109,28 @@ describe('rowCheck: a row’s profit held to Jupiter’s live quote', () => {
   });
 });
 
-describe('checkedOrder: real profit first, then rows not checked, then trips that do not pay', () => {
-  it('orders by the checked figure where there is one, and by the listed figure otherwise', () => {
-    const rows = [0.95, 0.9, 0.85, 0.8, 0.75].map((d) => opportunity(10 / d).o);
-    const [a, b, c, d, e] = rows as [Opportunity, Opportunity, Opportunity, Opportunity, Opportunity];
+describe('paying: only the round trips that pay are listed; the rest are counted', () => {
+  it('lists real profit, most first, whatever the listed figure said, and counts checking, within costs and not checked', () => {
+    const rows = [0.95, 0.9, 0.85, 0.8, 0.75, 0.7].map((d) => opportunity(10 / d).o);
+    const [a, b, c, d, e, f] = rows as [Opportunity, Opportunity, Opportunity, Opportunity, Opportunity, Opportunity];
     const at = (o: Opportunity, check: RowCheck) => ({ o, check });
-    const ordered = checkedOrder([
-      at(a, { kind: 'loss', usd: -1 }),
+    // f lists the most at the listed price, yet its trip loses: it is counted, not listed.
+    expect(f.arb.profitUsd).toBeGreaterThan(b.arb.profitUsd);
+    const board = paying([
+      at(a, { kind: 'checking' }),
       at(b, { kind: 'profit', usd: 0.5 }),
       at(c, { kind: 'unchecked' }),
       at(d, { kind: 'profit', usd: 2 }),
       at(e, { kind: 'no-route' }),
+      at(f, { kind: 'loss', usd: -0.05 }),
     ]);
-    // e lists the most and a the least: listed figures order the groups' insides where nothing was checked.
-    expect(e.arb.profitUsd).toBeGreaterThan(a.arb.profitUsd);
-    expect(ordered.map((r) => r.o)).toEqual([d, b, c, e, a]);
+    expect(board.rows.map((r) => r.o)).toEqual([d, b]);
+    expect(board).toMatchObject({ checking: 1, within: 2, unchecked: 1 });
+  });
+
+  it('nothing pays: no rows, and break-even counts as within costs', () => {
+    const { o } = opportunity(10 / 0.95);
+    expect(paying([{ o, check: { kind: 'loss', usd: 0.004 } }])).toEqual({ rows: [], checking: 0, within: 1, unchecked: 0 });
+    expect(paying([])).toEqual({ rows: [], checking: 0, within: 0, unchecked: 0 });
   });
 });

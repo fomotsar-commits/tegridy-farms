@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ARB_CHECK_MAX, checkedOrder, legKey, otherLeg, rowCheck, type RowCheck } from '../../../lib/solana/lp/arbCheck';
+import { ARB_CHECK_MAX, legKey, otherLeg, paying, rowCheck, type RowCheck } from '../../../lib/solana/lp/arbCheck';
 import { rankArbitrage, swapLink, tokenDecimalsOf, unsizedPools, type Opportunity } from '../../../lib/solana/lp/poolList';
 import { SOLANA_PLATFORM_FEE_BPS, isSolanaFeeConfigured } from '../../../lib/solana';
 import { agoText, quoteText, tokenText, usdText } from '../../../lib/solana/lp/format';
@@ -20,10 +20,10 @@ import { useArbChecks } from './useArbChecks';
 const JUPITER_FEE_PCT = isSolanaFeeConfigured() && SOLANA_PLATFORM_FEE_BPS > 0 ? SOLANA_PLATFORM_FEE_BPS / 100 : null;
 
 /**
- * Every gap on the venue, sized at Jupiter's LISTED price from the list's two reads
- * (poolList.ts `rankArbitrage`), with the top rows' profit held to Jupiter's live quote for
- * the other half of the round trip (arbCheck.ts): a thin coin's listed price can promise a
- * profit its real quote does not pay. What could not be sized or checked is said.
+ * The round trips on the venue that pay: each gap is sized at Jupiter's LISTED price from the
+ * list's two reads (poolList.ts `rankArbitrage`), then held to Jupiter's live quote for the
+ * other half of the trip (arbCheck.ts), since a thin coin's listed price can promise a profit
+ * its real quote does not pay. Only a trip that pays is listed; the rest are counted.
  */
 export function ArbitrageBoard({ live, prices, legQuote }: { live: LivePoolList; prices: MarketPricesState; legQuote?: LpReaders['legQuote'] }) {
   const now = useNow(5_000);
@@ -32,25 +32,32 @@ export function ArbitrageBoard({ live, prices, legQuote }: { live: LivePoolList;
   const list = read?.kind === 'ok' ? read.list : null;
   const usd = prices.prices?.kind === 'ok' ? prices.prices.usd : null;
   const ranked = useMemo(() => (list && usd ? rankArbitrage(list, usd) : null), [list, usd]);
-  const legs = useMemo(() => (ranked && usd ? ranked.map((o) => otherLeg(o, usd)) : []), [ranked, usd]);
   const wanted = useMemo(
-    () => (legQuote && ranked ? ranked.slice(0, ARB_CHECK_MAX).flatMap((o, i) => (legs[i] ? [{ key: legKey(o.view.address, legs[i]), leg: legs[i] }] : [])) : []),
-    [legQuote, ranked, legs],
+    () =>
+      legQuote && ranked && usd
+        ? ranked.slice(0, ARB_CHECK_MAX).flatMap((o) => {
+            const leg = otherLeg(o, usd);
+            return leg ? [{ pool: o.view.address, key: legKey(o.view.address, leg), leg, o }] : [];
+          })
+        : [],
+    [legQuote, ranked, usd],
   );
   const answers = useArbChecks(legQuote, wanted);
   const ours = useMemo(() => new Set(list?.pools.map((v) => v.address)), [list]);
-  const asked = new Set(wanted.map((w) => w.key));
-  const rows =
+  const asked = new Set(wanted.map((w) => w.pool));
+  const board =
     ranked && usd
-      ? checkedOrder(
-          ranked.map((o, i) => {
-            const leg = legs[i] ?? null;
-            const key = leg && legKey(o.view.address, leg);
-            const answer = key && asked.has(key) ? (answers.get(key) ?? 'checking') : null;
-            return { o, check: rowCheck(o, leg, answer, usd, list?.chainNow ?? null, ours) };
+      ? paying(
+          ranked.map((o) => {
+            // A pool's last answer stands while its next quote is on the way, so a row does not blink out on each read.
+            const got = asked.has(o.view.address) ? answers.get(o.view.address) : undefined;
+            const check: RowCheck = !asked.has(o.view.address) ? { kind: 'unchecked' } : got ? rowCheck(got.o, got.leg, got.read, usd, list?.chainNow ?? null, ours) : { kind: 'checking' };
+            return { o, check };
           }),
         )
       : null;
+  // "None" only when every gap was checked and none pays: a check that did not run is said, never "None".
+  const none = ranked !== null && (ranked.length === 0 || (board !== null && board.rows.length === 0 && board.checking === 0 && board.unchecked === 0));
   const unsized = list ? unsizedPools(list) : null;
   const stale = age !== null && age >= STALE_MS;
   // Read again is held after an answer (the caches are 30 s) and while a read is on its way. It is
@@ -106,14 +113,30 @@ export function ArbitrageBoard({ live, prices, legQuote }: { live: LivePoolList;
             {ranked && unsized?.clock && (
               <p data-testid="lp-arb-unsized" className="text-amber-300/90 text-[13px]">The chain’s clock was not read, so no trade can be sized.</p>
             )}
-            {ranked && ranked.length === 0 && !unsized?.clock && <p data-testid="lp-arb-none" className="text-white/70 text-[13px]">None right now.</p>}
-            {rows && rows.length > 0 && (
+            {none && !unsized?.clock && <p data-testid="lp-arb-none" className="text-white/70 text-[13px]">None right now.</p>}
+            {board && board.rows.length > 0 && (
               // Keyed by pool, so a focused Swap stays focused when its row moves.
               <ul className="space-y-2" aria-label="Arbitrage: ranked by profit, most first">
-                {rows.map(({ o, check }) => (
-                  <OpportunityRow key={o.view.address} o={o} check={check} />
+                {board.rows.map(({ o, check }) => (
+                  <OpportunityRow key={o.view.address} o={o} profitUsd={check.kind === 'profit' ? check.usd : 0} />
                 ))}
               </ul>
+            )}
+            {board && board.checking > 0 && (
+              <p data-testid="lp-arb-checking" className="text-white/70 text-[12.5px]">
+                Checking {board.checking === 1 ? 'one pool against Jupiter’s live quote' : `${board.checking} pools against Jupiter’s live quotes`}…
+              </p>
+            )}
+            {board && board.within > 0 && (
+              <p data-testid="lp-arb-within" className="text-white/70 text-[12.5px]">
+                {board.within === 1 ? 'One pool is' : `${board.within} pools are`} within trading costs of the market.
+              </p>
+            )}
+            {board && board.unchecked > 0 && (
+              <p data-testid="lp-arb-unchecked" className="text-amber-300/90 text-[12.5px]">
+                {board.unchecked === 1 ? 'One pool was' : `${board.unchecked} pools were`} not checked against Jupiter’s live quote, so{' '}
+                {board.unchecked === 1 ? 'it is' : 'they are'} not listed.
+              </p>
             )}
             {/* Pools that were not read, or whose token's fee was not read, are not checked: said, never folded into "None". */}
             {ranked && unsized && !unsized.clock && (unsized.unreadPools > 0 || unsized.unreadChecks > 0) && (
@@ -132,11 +155,12 @@ export function ArbitrageBoard({ live, prices, legQuote }: { live: LivePoolList;
         <FinePrint summary="How this is worked out">
           <p>
             Jupiter’s listed price is its price feed: one read for the whole list, shared by every visitor for 30 seconds. On a thinly
-            traded coin a real trade on Jupiter can pay several points less, so the top {ARB_CHECK_MAX} rows ask Jupiter for a live
+            traded coin a real trade on Jupiter can pay several points less, so the top {ARB_CHECK_MAX} gaps each ask Jupiter for a live
             quote of the other half of the round trip: selling what our pool gives, or buying the tokens to sell here with what they
-            are worth at the listed price. Profit is that round trip, and one that does not pay says so. A row not checked says its
-            figure is at the listed price, before Jupiter’s own costs. A coin Jupiter does not price is not listed here. The gap is the
-            token’s price here against Jupiter’s, whichever way round the prices are shown.
+            are worth at the listed price. Only a round trip that pays is listed, with that trip’s profit. The rest are counted, not
+            listed: within trading costs (the trip loses, or Jupiter has no route for the other half), or not checked. A coin Jupiter
+            does not price is not listed here. The gap is the token’s price here against Jupiter’s, whichever way round the prices
+            are shown.
           </p>
           <p>
             Each trade is sized to where the next bit no longer pays after the pool’s fee (and the token’s transfer fee, when it has
@@ -163,8 +187,8 @@ export function ArbitrageBoard({ live, prices, legQuote }: { live: LivePoolList;
   );
 }
 
-/** One opportunity: the pair, the gap, the trade in rows, and Swap. */
-function OpportunityRow({ o, check }: { o: Opportunity; check: RowCheck }) {
+/** One round trip that pays: the pair, the gap, the trade in rows, its profit at Jupiter's live quote, and Swap. */
+function OpportunityRow({ o, profitUsd }: { o: Opportunity; profitUsd: number }) {
   const { view, safety, arb } = o;
   const symbol = tokenTicker(view.tokenMint, safety);
   const unit = symbol ? { one: symbol, many: symbol } : { one: 'token', many: 'tokens' };
@@ -181,7 +205,7 @@ function OpportunityRow({ o, check }: { o: Opportunity; check: RowCheck }) {
     (arb.transferFeeUsd > 0 ? ` · the token keeps back ${usdText(arb.transferFeeUsd)}` : '');
   const press = buy ? `Swap: buy ${symbol ?? 'the token'} with ${pay}` : `Swap: sell ${pay} for ${view.quote.symbol}`;
   return (
-    <li data-testid="lp-arb-row" data-pool={view.address} data-side={arb.side} data-check={check.kind} className="rounded-lg px-3 py-2.5 space-y-1" style={{ background: 'rgba(0,0,0,0.35)', border: '1px solid rgba(255,255,255,0.12)' }}>
+    <li data-testid="lp-arb-row" data-pool={view.address} data-side={arb.side} className="rounded-lg px-3 py-2.5 space-y-1" style={{ background: 'rgba(0,0,0,0.35)', border: '1px solid rgba(255,255,255,0.12)' }}>
       <div className="flex flex-wrap items-baseline justify-between gap-x-3">
         <p className="text-white font-semibold text-[14px] [overflow-wrap:anywhere]">{label}</p>
         <p data-testid="lp-arb-gap" className="text-rose-200/90 font-semibold text-[12.5px] ml-auto">{gap}</p>
@@ -191,11 +215,7 @@ function OpportunityRow({ o, check }: { o: Opportunity; check: RowCheck }) {
       <div className="text-[12.5px] space-y-0.5">
         <Row label="Pay" value={`${pay} (${usdText(arb.tradeUsd)})`} mono={false} />
         <Row label="Get" value={`≈ ${get} (${usdText(arb.outUsd)})`} mono={false} />
-        {check.kind === 'unchecked' ? (
-          <Row label="At listed price" value={`up to ${usdText(arb.profitUsd)} after the pool’s fee${arb.transferFeeUsd > 0 ? ' and the token’s' : ''}, before Jupiter’s own costs`} mono={false} />
-        ) : (
-          <Row label="Profit" value={profitText(check)} mono={false} tone={check.kind === 'loss' || check.kind === 'no-route' ? 'warn' : undefined} />
-        )}
+        <Row label="Profit" value={`up to ${usdText(profitUsd)} round trip, at Jupiter’s live quote`} mono={false} />
         <Row label="Fee" value={fee} mono={false} />
         <Row label="After" value={<PriceFlip perToken={arb.afterPerToken} quote={view.quote} unit={unit} />} mono={false} />
       </div>
@@ -207,14 +227,6 @@ function OpportunityRow({ o, check }: { o: Opportunity; check: RowCheck }) {
       </div>
     </li>
   );
-}
-
-/** A checked row's Profit line: the round trip at Jupiter's live quote. */
-function profitText(check: Exclude<RowCheck, { kind: 'unchecked' }>): string {
-  if (check.kind === 'checking') return 'checking Jupiter’s quote…';
-  if (check.kind === 'no-route') return 'none: Jupiter has no route for the other half';
-  if (check.kind === 'profit') return `up to ${usdText(check.usd)} round trip, at Jupiter’s live quote`;
-  return `none after Jupiter’s own costs${check.usd <= -0.01 ? `: the round trip loses ${usdText(-check.usd)}` : ''}`;
 }
 
 /** The clock, every `everyMs`, for the stamp: "read 12 s ago" moves without a read. */

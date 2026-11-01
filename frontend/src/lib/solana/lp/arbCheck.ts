@@ -70,9 +70,18 @@ export function rowCheck(
   return made >= ARB_FLOOR_USD ? { kind: 'profit', usd: made } : { kind: 'loss', usd: made };
 }
 
-/** Checked profit first (most first), then rows not checked (by the listed figure), then trips that do not pay. Ties by address. */
-export function checkedOrder<T extends { o: Opportunity; check: RowCheck }>(rows: readonly T[]): T[] {
-  const group = (c: RowCheck) => (c.kind === 'profit' ? 0 : c.kind === 'loss' || c.kind === 'no-route' ? 2 : 1);
-  const worth = (r: T) => (r.check.kind === 'profit' ? r.check.usd : r.o.arb.profitUsd);
-  return [...rows].sort((a, b) => group(a.check) - group(b.check) || worth(b) - worth(a) || (a.o.view.address < b.o.view.address ? -1 : 1));
+/**
+ * What the card shows (owner, 2026-11-01: "only show actual profitable arbs not distractions"):
+ * the round trips that pay, most first (ties by address), and only counts for the rest: still
+ * being checked, within Jupiter's costs (a loss, or no route back), and not checked at all.
+ */
+export function paying<T extends { o: Opportunity; check: RowCheck }>(rows: readonly T[]): { rows: T[]; checking: number; within: number; unchecked: number } {
+  const usd = (r: T) => (r.check.kind === 'profit' ? r.check.usd : 0);
+  const count = (...kinds: RowCheck['kind'][]) => rows.filter((r) => kinds.includes(r.check.kind)).length;
+  return {
+    rows: rows.filter((r) => r.check.kind === 'profit').sort((a, b) => usd(b) - usd(a) || (a.o.view.address < b.o.view.address ? -1 : 1)),
+    checking: count('checking'),
+    within: count('loss', 'no-route'),
+    unchecked: count('unchecked'),
+  };
 }
