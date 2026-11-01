@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Price robot</title>
+<!--
+  The price keeper's dashboard, served by `node scripts/price-keeper.mjs dashboard` on this
+  computer only. Its script is price-keeper-dashboard.js (served as /app.js); an edit to
+  either file is picked up on the dashboard's next start. The page may load nothing from
+  elsewhere (its content security policy), so its fonts are the computer's own.
+-->
+<style>
+  :root {
+    --bg: oklch(14.5% 0.012 265);
+    --bg-2: oklch(17.5% 0.014 265);
+    --panel: oklch(18.5% 0.014 265 / 0.78);
+    --ink: oklch(96% 0.006 110);
+    --ink-2: oklch(80% 0.01 260);
+    --muted: oklch(63% 0.014 260);
+    --faint: oklch(45% 0.014 260);
+    --line: oklch(32% 0.014 265);
+    --line-2: oklch(42% 0.016 265);
+    --acid: oklch(91% 0.21 128);
+    --acid-dim: oklch(91% 0.21 128 / 0.16);
+    --acid-glow: oklch(91% 0.21 128 / 0.35);
+    --warn: oklch(82% 0.16 78);
+    --crit: oklch(66% 0.22 25);
+    --link: oklch(82% 0.11 230);
+    --display: "Bahnschrift", "DIN Alternate", "DIN Condensed", "Barlow Condensed", "Arial Narrow", system-ui, sans-serif;
+    --mono: "Cascadia Code", "Cascadia Mono", "JetBrains Mono", "SF Mono", ui-monospace, Consolas, monospace;
+    --text: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html { background: var(--bg); }
+  body {
+    margin: 0; min-height: 100vh; color: var(--ink); font: 14px/1.5 var(--text);
+    background:
+      radial-gradient(1100px 620px at 8% -8%, oklch(91% 0.21 128 / 0.10), transparent 62%),
+      radial-gradient(900px 600px at 105% 20%, oklch(70% 0.14 250 / 0.10), transparent 60%),
+      linear-gradient(var(--bg), var(--bg-2));
+    background-attachment: fixed;
+  }
+  /* The blueprint grid, and a little film grain over everything. */
+  body::before, body::after { content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0; }
+  body::before {
+    background-image:
+      linear-gradient(oklch(100% 0 0 / 0.035) 1px, transparent 1px),
+      linear-gradient(90deg, oklch(100% 0 0 / 0.035) 1px, transparent 1px);
+    background-size: 48px 48px;
+    mask-image: radial-gradient(circle at 30% 10%, #000 0%, transparent 85%);
+  }
+  body::after {
+    opacity: 0.07; mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  main { position: relative; z-index: 1; max-width: 1320px; margin: 0 auto; padding: 22px 20px 64px; }
+  a { color: var(--link); text-decoration: none; border-bottom: 1px solid oklch(82% 0.11 230 / 0.35); }
+  a:hover { border-bottom-color: var(--link); }
+  ::selection { background: var(--acid); color: var(--bg); }
+
+  .addr { font: 11.5px/1.4 var(--mono); color: var(--muted); word-break: break-all; letter-spacing: 0.01em; }
+  .muted { color: var(--muted); }
+  .empty { color: var(--faint); font-family: var(--mono); font-size: 12px; }
+  .fine { color: var(--muted); font-size: 12.5px; margin: 14px 0 0; max-width: 62ch; }
+  .k { font: 600 10.5px/1 var(--mono); letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted); }
+
+  /* ── Masthead ── */
+  header.mast {
+    display: grid; grid-template-columns: auto 1fr auto; align-items: end; gap: 10px 28px;
+    padding-bottom: 16px; margin-bottom: 18px; border-bottom: 1px solid var(--line);
+  }
+  .brand { display: flex; align-items: baseline; gap: 14px; }
+  h1 {
+    margin: 0; font: 700 40px/0.85 var(--display); font-stretch: 75%; letter-spacing: -0.01em;
+    text-transform: uppercase;
+  }
+  h1 span { color: var(--acid); text-shadow: 0 0 22px var(--acid-glow); }
+  .ident { min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
+  .ident .addr { color: var(--ink-2); }
+  #walletLink { font: 11px var(--mono); letter-spacing: 0.08em; text-transform: uppercase; }
+  #updated { font: 11.5px/1.4 var(--mono); color: var(--muted); text-align: right; }
+
+  /* ── Banners ── */
+  .banner {
+    position: relative; padding: 10px 14px 10px 40px; margin-bottom: 12px; font-size: 13px;
+    border: 1px solid oklch(82% 0.16 78 / 0.35); background: oklch(82% 0.16 78 / 0.07); color: var(--ink);
+  }
+  .banner::before { content: "!"; position: absolute; left: 14px; top: 9px; font: 700 14px var(--mono); color: var(--warn); }
+  .banner.crit { border-color: oklch(66% 0.22 25 / 0.5); background: oklch(66% 0.22 25 / 0.09); }
+  .banner.crit::before { color: var(--crit); }
+
+  /* ── Hero: what it made, and the robot's pulse ── */
+  .hero { display: grid; grid-template-columns: minmax(0, 1.75fr) minmax(300px, 1fr); gap: 14px; margin-bottom: 14px; }
+  .panel {
+    position: relative; min-width: 0; padding: 18px 20px 20px;
+    background: var(--panel); border: 1px solid var(--line);
+    backdrop-filter: blur(6px);
+    clip-path: polygon(0 0, calc(100% - 16px) 0, 100% 16px, 100% 100%, 0 100%);
+    transition: border-color 0.25s ease;
+  }
+  .panel:hover { border-color: var(--line-2); }
+  .panel::after { /* the cut corner's own hairline */
+    content: ""; position: absolute; top: 0; right: 0; width: 22.6px; height: 1px; background: var(--line-2);
+    transform-origin: 0 0; transform: translate(-16px, 0) rotate(45deg);
+  }
+  .head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin: 0 0 14px; }
+  h2 { margin: 0; font: 700 12px/1 var(--mono); letter-spacing: 0.2em; text-transform: uppercase; color: var(--ink); }
+  h2 .n { color: var(--acid); margin-right: 10px; }
+
+  .made { display: grid; grid-template-rows: auto auto 1fr; }
+  .giant {
+    font: 700 clamp(72px, 10.5vw, 156px)/0.82 var(--display); font-stretch: 75%;
+    letter-spacing: -0.035em; font-variant-numeric: tabular-nums; margin: 10px 0 6px;
+    color: var(--acid); text-shadow: 0 0 40px var(--acid-glow);
+  }
+  .giant.neg { color: var(--crit); text-shadow: 0 0 40px oklch(66% 0.22 25 / 0.35); }
+  .giant.flat { color: var(--ink); text-shadow: none; }
+  .made .sub { color: var(--muted); font-size: 13px; }
+  .curve { margin-top: 16px; min-height: 170px; display: grid; grid-template-rows: 1fr auto; }
+  #curve { width: 100%; height: 170px; display: block; overflow: visible; }
+  #curve .axis { stroke: var(--line); stroke-width: 1; }
+  #curve .area { fill: url(#curveFill); }
+  #curve .line { fill: none; stroke: var(--acid); stroke-width: 2; stroke-linejoin: round; filter: drop-shadow(0 0 6px oklch(91% 0.21 128 / 0.55)); }
+  #curve .dot { fill: var(--bg); stroke: var(--acid); stroke-width: 1.5; }
+  #curve .dot:hover { fill: var(--acid); }
+  #curve .tick { fill: var(--muted); font: 10.5px var(--mono); }
+  #curve .now { fill: var(--acid); }
+  .curve .caption { display: flex; justify-content: space-between; gap: 12px; margin-top: 8px; font: 11px/1.4 var(--mono); color: var(--muted); }
+
+  .pulse { display: grid; grid-template-rows: auto 1fr; gap: 16px; }
+  .radarRow { display: grid; grid-template-columns: 132px 1fr; gap: 18px; align-items: center; }
+  .radar {
+    --c: var(--faint); --sweep: 10s;
+    position: relative; width: 132px; aspect-ratio: 1; border-radius: 50%;
+    border: 1px solid var(--line-2);
+    background:
+      radial-gradient(circle, transparent 0 31%, oklch(100% 0 0 / 0.06) 31.5% 32%, transparent 32.5% 63%, oklch(100% 0 0 / 0.06) 63.5% 64%, transparent 64.5%),
+      linear-gradient(90deg, transparent 49.6%, oklch(100% 0 0 / 0.06) 49.6% 50.4%, transparent 50.4%),
+      linear-gradient(0deg, transparent 49.6%, oklch(100% 0 0 / 0.06) 49.6% 50.4%, transparent 50.4%),
+      oklch(12% 0.012 265);
+    overflow: hidden;
+  }
+  .radar::before {
+    content: ""; position: absolute; inset: 0; border-radius: 50%;
+    background: conic-gradient(from 0deg, transparent 0 70%, color-mix(in oklch, var(--c) 10%, transparent) 80%, color-mix(in oklch, var(--c) 55%, transparent) 99.4%, var(--c) 99.6% 100%);
+    animation: sweep var(--sweep) linear infinite;
+  }
+  .radar::after {
+    content: ""; position: absolute; left: 50%; top: 50%; width: 10px; height: 10px; margin: -5px 0 0 -5px;
+    border-radius: 50%; background: var(--c); box-shadow: 0 0 0 0 var(--c); animation: ping 2s ease-out infinite;
+  }
+  .radar.good { --c: var(--acid); }
+  .radar.warn { --c: var(--warn); }
+  .radar.crit { --c: var(--crit); }
+  .radar.warn::before, .radar.crit::before, .radar.idle::before { animation-play-state: paused; opacity: 0.35; }
+  .radar.crit::after { animation-duration: 0.9s; }
+  @keyframes sweep { to { transform: rotate(1turn); } }
+  @keyframes ping { 0% { box-shadow: 0 0 0 0 color-mix(in oklch, var(--c) 70%, transparent); } 100% { box-shadow: 0 0 0 26px transparent; } }
+  .radarRow .k { margin-bottom: 8px; }
+  .state { font: 700 44px/0.9 var(--display); font-stretch: 75%; text-transform: uppercase; letter-spacing: 0.01em; }
+  .state.good { color: var(--acid); } .state.warn { color: var(--warn); } .state.crit { color: var(--crit); }
+  #tRobotSub { margin-top: 6px; font: 11.5px/1.4 var(--mono); color: var(--muted); }
+
+  .stats { display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid var(--line); }
+  .stat { padding: 14px 0 0; min-width: 0; }
+  .stat + .stat { padding-left: 16px; border-left: 1px solid var(--line); }
+  .stat .v { font: 700 40px/1 var(--display); font-stretch: 75%; font-variant-numeric: tabular-nums; margin: 8px 0 4px; }
+  .stat .s { color: var(--muted); font-size: 12px; }
+  .budget { grid-column: 1 / -1; padding-top: 14px; margin-top: 14px; border-top: 1px solid var(--line); }
+  .bar { position: relative; height: 6px; margin: 10px 0 6px; background: oklch(100% 0 0 / 0.07); overflow: hidden; }
+  .bar > i { position: absolute; inset: 0 auto 0 0; width: 0; background: var(--acid); box-shadow: 0 0 12px var(--acid-glow); transition: width 0.6s cubic-bezier(.2,.8,.2,1); }
+  .bar.hot > i { background: var(--warn); box-shadow: none; }
+  #budgetText { font: 11.5px/1.4 var(--mono); color: var(--muted); }
+
+  /* ── The rest, as a bento ── */
+  .bento { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 14px; }
+  .c4 { grid-column: span 4; } .c5 { grid-column: span 5; } .c7 { grid-column: span 7; } .c8 { grid-column: span 8; } .c12 { grid-column: 1 / -1; }
+  .stack { display: grid; grid-template-rows: auto 1fr; gap: 14px; min-width: 0; }
+
+  .mix { display: flex; height: 26px; margin: 2px 0 16px; gap: 2px; }
+  .mix > i { display: block; min-width: 3px; height: 100%; position: relative; }
+  .mix > i:hover { outline: 1px solid var(--ink); outline-offset: 1px; }
+
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 9px 10px 9px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font: 600 10px/1.2 var(--mono); letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted); }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; font-family: var(--mono); font-size: 12.5px; }
+  tbody tr { transition: background 0.15s; }
+  tbody tr:hover { background: oklch(100% 0 0 / 0.025); }
+  td.when { font: 12px/1.5 var(--mono); color: var(--ink-2); white-space: nowrap; }
+  tr:last-child td { border-bottom: 0; }
+  tfoot td { font-weight: 700; border-top: 1px solid var(--line-2); }
+  .scroll { overflow-x: auto; }
+  .swatch { display: inline-block; width: 8px; height: 8px; margin-right: 8px; vertical-align: 1px; }
+
+  dl { display: grid; grid-template-columns: max-content 1fr; gap: 0; margin: 0; }
+  dt, dd { padding: 9px 0; border-bottom: 1px dashed var(--line); }
+  dt { color: var(--ink-2); padding-right: 18px; font-size: 13px; }
+  dd { margin: 0; min-width: 0; font-family: var(--mono); font-size: 12.5px; }
+  dl > :nth-last-child(-n + 2) { border-bottom: 0; }
+  dd .netfig { font: 700 22px/1 var(--display); font-stretch: 75%; color: var(--acid); }
+  dd .netfig.loss { color: var(--crit); }
+
+  .coin b { font-weight: 700; font-family: var(--text); }
+  .gain { color: var(--acid); } .loss { color: var(--crit); }
+  .chip {
+    display: inline-block; padding: 2px 7px; font: 600 10px/1.4 var(--mono); letter-spacing: 0.12em; text-transform: uppercase;
+    border: 1px solid var(--line-2); color: var(--ink-2);
+  }
+  .chip.trade { border-color: oklch(91% 0.21 128 / 0.45); color: var(--acid); }
+  .chip.bad { border-color: oklch(66% 0.22 25 / 0.5); color: var(--crit); }
+
+  .board { display: grid; gap: 12px; }
+  .row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 12px; align-items: baseline; }
+  .row .bar { grid-column: 1 / -1; margin: 2px 0 0; height: 4px; }
+  .row .amt { font: 12.5px var(--mono); color: var(--acid); white-space: nowrap; }
+
+  .netbar { display: inline-block; width: 64px; height: 4px; margin-left: 8px; vertical-align: 2px; background: oklch(100% 0 0 / 0.07); position: relative; }
+  .netbar > i { position: absolute; inset: 0 auto 0 0; background: var(--acid); }
+
+  .dot { display: inline-block; width: 9px; height: 9px; margin-right: 9px; vertical-align: 1px; }
+  .dot.good { background: var(--acid); box-shadow: 0 0 10px var(--acid-glow); } .dot.warn { background: var(--warn); } .dot.crit { background: var(--crit); }
+  #check { font-size: 13px; }
+
+  /* A figure arriving, once. */
+  .in { animation: rise 0.6s cubic-bezier(.2,.8,.2,1) both; }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); filter: blur(4px); } }
+  .loading { background: linear-gradient(90deg, oklch(100% 0 0 / 0.04), oklch(100% 0 0 / 0.10), oklch(100% 0 0 / 0.04)); background-size: 200% 100%; animation: shimmer 1.4s linear infinite; color: transparent !important; text-shadow: none !important; }
+  @keyframes shimmer { to { background-position: -200% 0; } }
+
+  ::-webkit-scrollbar { height: 8px; width: 10px; }
+  ::-webkit-scrollbar-thumb { background: var(--line-2); }
+  ::-webkit-scrollbar-track { background: transparent; }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+  }
+  @media (max-width: 1080px) {
+    .hero { grid-template-columns: 1fr; }
+    .c4, .c5, .c7, .c8 { grid-column: 1 / -1; }
+  }
+  @media (max-width: 620px) {
+    main { padding: 16px 16px 48px; }
+    header.mast { grid-template-columns: 1fr; }
+    #updated { text-align: left; }
+    h1 { font-size: 34px; }
+    .radarRow { grid-template-columns: 96px 1fr; }
+    .radar { width: 96px; }
+    .state { font-size: 34px; }
+    dl { grid-template-columns: 1fr; }
+    dt { padding-bottom: 0; border-bottom: 0; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header class="mast">
+    <div class="brand"><h1>Price <span>robot</span></h1></div>
+    <div class="ident">
+      <span class="addr" id="wallet"></span>
+      <a id="walletLink" target="_blank" rel="noopener noreferrer" hidden>Solscan ↗</a>
+    </div>
+    <span id="updated">Reading the chain… the first read takes about a minute.</span>
+  </header>
+  <div class="banner crit" id="error" hidden></div>
+  <div class="banner" id="notes" hidden></div>
+
+  <section class="hero">
+    <div class="panel made">
+      <div class="head"><h2><span class="n">01</span>Made by trading</h2><span class="k">after fees · today's prices</span></div>
+      <div class="giant loading" id="tMade">$0.00</div>
+      <div class="curve">
+        <svg id="curve" role="img" aria-label="SOL made, trade by trade"></svg>
+        <div class="caption"><span id="curveNote"></span><span id="curveEnd"></span></div>
+      </div>
+    </div>
+
+    <div class="panel pulse">
+      <div class="radarRow">
+        <div class="radar idle" id="radar" aria-hidden="true"></div>
+        <div>
+          <div class="k">Robot</div>
+          <div class="state" id="tRobot">…</div>
+          <div id="tRobotSub"></div>
+        </div>
+      </div>
+      <div class="stats">
+        <div class="stat"><div class="k">Worth now</div><div class="v" id="tWorth">…</div><div class="s">everything in its wallet</div></div>
+        <div class="stat"><div class="k">Trades</div><div class="v" id="tTrades">…</div><div class="s" id="tTradesSub"></div></div>
+        <div class="budget">
+          <div class="k">Fees spent today</div>
+          <div class="bar" id="budget"><i></i></div>
+          <div id="budgetText">not reported</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="bento">
+    <section class="panel c7">
+      <div class="head"><h2><span class="n">02</span>What it holds</h2><span class="k">by worth</span></div>
+      <div class="mix" id="mix"></div>
+      <div class="scroll"><table>
+        <thead><tr><th>Coin</th><th class="num">Amount</th><th class="num">Worth</th></tr></thead>
+        <tbody id="holdings"></tbody>
+        <tfoot><tr><td>Total</td><td></td><td class="num" id="holdingsTotal"></td></tr></tfoot>
+      </table></div>
+      <p class="fine" id="rentLine"></p>
+    </section>
+
+    <section class="panel c5">
+      <div class="head"><h2><span class="n">03</span>What it made</h2></div>
+      <dl id="made"></dl>
+      <p class="fine">How money moves: the robot earns the price gap it closes, paid by the pool it trades against. Our venue earns its usual share of the pool fee on every swap the robot makes in our pools.</p>
+    </section>
+
+    <section class="panel c5">
+      <div class="head"><h2><span class="n">04</span>Pools it paid in</h2><span class="k">gaps closed</span></div>
+      <div class="board" id="pools"></div>
+      <p class="fine" id="poolsNote"></p>
+    </section>
+
+    <div class="c7 stack">
+      <section class="panel">
+        <div class="head"><h2><span class="n">05</span>Robot</h2></div>
+        <dl id="robot"></dl>
+      </section>
+
+      <section class="panel">
+        <div class="head"><h2><span class="n">06</span>Self-check</h2></div>
+        <div id="check"></div>
+      </section>
+    </div>
+
+    <section class="panel c12">
+      <div class="head"><h2><span class="n">07</span>By day</h2><span class="k">UTC</span></div>
+      <div class="scroll"><table>
+        <thead><tr><th>Day (UTC)</th><th class="num">Trades</th><th class="num">Gaps closed</th><th>Leftover coins</th><th class="num">Fees</th><th class="num">Net</th></tr></thead>
+        <tbody id="days"></tbody>
+      </table></div>
+    </section>
+
+    <section class="panel c12">
+      <div class="head"><h2><span class="n">08</span>Recent activity</h2></div>
+      <div class="scroll"><table>
+        <thead><tr><th>When</th><th>What</th><th>Pool or sender</th><th class="num">SOL</th><th>Coins</th><th></th></tr></thead>
+        <tbody id="recent"></tbody>
+      </table></div>
+    </section>
+  </div>
+</main>
+<script src="/app.js"></script>
+</body>
+</html>

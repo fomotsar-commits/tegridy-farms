@@ -37,3 +37,13 @@ c7f8f33b2a3fe593de41317f8a80548be07dfdbf:solana/guards/provenance.mjs:generic-ap
 143fced7e65d06c3191cdb64fff86496d6c882c1:.gitleaksignore:generic-api-key:30
 a0bafd057be3908533ba7c63a792b14d59740396:.gitleaksignore:generic-api-key:30
 ddf8b25d41c5286459d5726ceb153a25061bd1b6:.gitleaksignore:generic-api-key:30
+#
+# 2026-11-01, PR #1079. The price keeper's dashboard tests name real token accounts from the
+# keeper's own transactions in a field called `key`: the same `generic-api-key` rule. They
+# are public chain addresses, no credential. The field is renamed `address` in the commit
+# that adds these lines.
+7a8e16ea2765ab4e1b5e4355a8af8267dd1b514f:frontend/src/lib/solana/keeper/history.test.ts:generic-api-key:61
+7a8e16ea2765ab4e1b5e4355a8af8267dd1b514f:frontend/src/lib/solana/keeper/history.test.ts:generic-api-key:62
+7a8e16ea2765ab4e1b5e4355a8af8267dd1b514f:frontend/src/lib/solana/keeper/history.test.ts:generic-api-key:63
+7a8e16ea2765ab4e1b5e4355a8af8267dd1b514f:frontend/src/lib/solana/keeper/history.test.ts:generic-api-key:64
+7a8e16ea2765ab4e1b5e4355a8af8267dd1b514f:frontend/src/lib/solana/keeper/history.test.ts:generic-api-key:75
