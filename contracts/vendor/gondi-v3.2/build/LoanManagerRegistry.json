@@ -1,0 +1,130 @@
+{
+  "contract": "src/lib/loans/LoanManagerRegistry.sol:LoanManagerRegistry",
+  "compiler": "0.8.21+commit.d9974bed",
+  "abi": [
+    {
+      "inputs": [],
+      "stateMutability": "nonpayable",
+      "type": "constructor"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "address",
+          "name": "loanManagerAdded",
+          "type": "address"
+        }
+      ],
+      "name": "LoanManagerAdded",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "address",
+          "name": "loanManagerRemoved",
+          "type": "address"
+        }
+      ],
+      "name": "LoanManagerRemoved",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "user",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "newOwner",
+          "type": "address"
+        }
+      ],
+      "name": "OwnershipTransferred",
+      "type": "event"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "_loanManager",
+          "type": "address"
+        }
+      ],
+      "name": "addLoanManager",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "_loanManager",
+          "type": "address"
+        }
+      ],
+      "name": "isLoanManager",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "owner",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "_loanManager",
+          "type": "address"
+        }
+      ],
+      "name": "removeLoanManager",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "newOwner",
+          "type": "address"
+        }
+      ],
+      "name": "transferOwnership",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    }
+  ],
+  "bytecode": "0x6080806040523461004f57600080546001600160a01b031916329081178255907f8be0079c531659141344cd1fd0a4f28419497f9722a3daafe3b4186f6b6457e08180a361029590816100558239f35b600080fdfe604060808152600436101561001357600080fd5b600090813560e01c806310ff8c9c146101b05780633b35e804146101355780638da5cb5b1461010e578063f2fde38b1461009d5763f4070e2d1461005657600080fd5b34610099576020366003190112610099576004356001600160a01b0381169081900361009557818360ff92602095526001855220541690519015158152f35b8280fd5b5080fd5b823461010b57602036600319011261010b576004356001600160a01b03818116918290036100955781906100d684549182163314610224565b6001600160a01b031916178255337f8be0079c531659141344cd1fd0a4f28419497f9722a3daafe3b4186f6b6457e08380a380f35b80fd5b5034610099578160031936011261009957905490516001600160a01b039091168152602090f35b5034610099576020366003190112610099576001600160a01b03600435818116908190036101ac577f870b352f9e61b22ce039fe5f1976fa831c1e76b68d0f7b86965abb7fad3d81129261018f6020938654163314610224565b81855260018352808520600160ff1982541617905551908152a180f35b8380fd5b5034610099576020366003190112610099576001600160a01b03600435818116908190036101ac577f43c42c9a0996e99f76eabe7862ddc17094b3ef136d4341c071865cad0b5ad2729261020a6020938654163314610224565b81855260018352808520805460ff1916905551908152a180f35b1561022b57565b60405162461bcd60e51b815260206004820152600c60248201526b15539055551213d49256915160a21b6044820152606490fdfea26469706673582212207bf8252d2fdc57cdeea771e7492b080a4a173566d988706130b5dc6cd712566f64736f6c63430008150033",
+  "deployedBytecode": "0x604060808152600436101561001357600080fd5b600090813560e01c806310ff8c9c146101b05780633b35e804146101355780638da5cb5b1461010e578063f2fde38b1461009d5763f4070e2d1461005657600080fd5b34610099576020366003190112610099576004356001600160a01b0381169081900361009557818360ff92602095526001855220541690519015158152f35b8280fd5b5080fd5b823461010b57602036600319011261010b576004356001600160a01b03818116918290036100955781906100d684549182163314610224565b6001600160a01b031916178255337f8be0079c531659141344cd1fd0a4f28419497f9722a3daafe3b4186f6b6457e08380a380f35b80fd5b5034610099578160031936011261009957905490516001600160a01b039091168152602090f35b5034610099576020366003190112610099576001600160a01b03600435818116908190036101ac577f870b352f9e61b22ce039fe5f1976fa831c1e76b68d0f7b86965abb7fad3d81129261018f6020938654163314610224565b81855260018352808520600160ff1982541617905551908152a180f35b8380fd5b5034610099576020366003190112610099576001600160a01b03600435818116908190036101ac577f43c42c9a0996e99f76eabe7862ddc17094b3ef136d4341c071865cad0b5ad2729261020a6020938654163314610224565b81855260018352808520805460ff1916905551908152a180f35b1561022b57565b60405162461bcd60e51b815260206004820152600c60248201526b15539055551213d49256915160a21b6044820152606490fdfea26469706673582212207bf8252d2fdc57cdeea771e7492b080a4a173566d988706130b5dc6cd712566f64736f6c63430008150033",
+  "immutableReferences": {}
+}

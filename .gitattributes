@@ -55,3 +55,9 @@ solana/tegridy-amm/idl/*.json     linguist-generated
 contracts/out/**                  linguist-generated
 contracts/cache/**                linguist-generated
 contracts/broadcast/**            linguist-generated
+# Gondi's verified source (contracts/vendor/gondi-v3.2/README.md). Its bytes are
+# load-bearing: two of the contracts embed a metadata hash of their source, so no
+# line-ending conversion, ever.
+contracts/vendor/gondi-v3.2/sources/**                 -text linguist-vendored
+contracts/vendor/gondi-v3.2/sources-address-manager/** -text linguist-vendored
+contracts/vendor/gondi-v3.2/build/**                   linguist-generated

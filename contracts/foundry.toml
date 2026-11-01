@@ -99,6 +99,10 @@ evm_version = "cancun"
 # gate, it does not read this value, and it is green on this branch.
 code_size_limit = 16777216
 
+# Read-only, one folder: script/DeployGondiLending.s.sol deploys Gondi's verified
+# bytecode from these build files (each pinned by hash in the script).
+fs_permissions = [{ access = "read", path = "./vendor/gondi-v3.2/build" }]
+
 remappings = [
     "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
     "@openzeppelin/uniswap-hooks/=lib/uniswap-hooks/",
