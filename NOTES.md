@@ -15,6 +15,37 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-31: an inline `config={{ ... }}` on `ConnectionProvider` made a new Solana connection on every render, and phones ran out of reads
+
+**Believed:** `<ConnectionProvider endpoint={endpoint} config={{ commitment: 'confirmed' }}>` makes
+one Connection per endpoint, and leaving `config` out is just as safe.
+
+**Measured:** `@solana/wallet-adapter-react` 0.15.39 builds it with
+`useMemo(() => new Connection(endpoint, config), [endpoint, config])`. An inline object is new on
+every render, and so is the default when `config` is left out (a default parameter is built on
+each call). So every re-render of the provider made a new Connection, and every card whose effect
+depends on `connection` from `useConnection()` read again. `SolanaProviders.tsx` passed it inline.
+The home's BAYLA ladder card (`SolanaLadderPoolLive`, built to re-read every 45 s) read its pool
+and both vaults about every 5 s: about 100 `/api/solrpc` calls a minute per open home tab, against
+the proxy's 300 a minute per IP (`SOL_RATE_LIMIT` in `frontend/api/solrpc.js`), which a
+household's devices or a mobile carrier's NAT share. The owner's phone and iPad got 429s and the
+dashboard said "Couldn't read your Solana coins just now" (2026-10-31). PR #1087
+(`fix/solana-connection-stable`) passes one module-level `CONNECTION_CONFIG`, and makes `lpFetch`
+(`frontend/src/lib/solana/lp/readFetch.ts`) wait out a 429's `Retry-After` (at most twice, at most
+60 s each), as web3.js already does for its own reads.
+
+**Technique** (finding who spends a rate limit): first the 429s themselves, from Vercel's request
+logs: `vercel logs --environment production --since 1h --limit 1000 --json --non-interactive
+--status-code 429`. It returns at most 50 rows per query (the 2026-10-23 entry below), so slice
+the window with `--since`/`--until`. Then a Playwright script that wraps `window.fetch` in
+`addInitScript`, so the wrapper is in place BEFORE the app loads: web3.js keeps its own reference
+to `fetch`, and a wrapper installed later misses its calls. For each call, record the JSON-RPC
+method, its first param, and the chunk file that made it, from `new Error().stack`.
+
+**Do:** an object or array passed as a prop to a provider that memoizes on it is module-level or
+`useMemo`'d. When a card reads more often than its timer says, check whether `connection` is
+changing under it.
+
 ## 2026-10-31: a merged pull request reads `mergeable: UNKNOWN`, and REST still calls it clean
 
 **Believed:** `gh pr view N --json mergeable,mergeStateStatus` reading `UNKNOWN` after a push is
