@@ -29,71 +29,226 @@ stop and say so — a surprise is information.
 
 ---
 
-## 🔴 2026-10-29: the vault batch, read this before Day 0
+## ✅ 2026-10-31: the Venue AMM page is live (handoff; nothing for you to do)
 
-Read on mainnet 2026-10-29 at 04:40 UTC. It corrects the proposal number and the amounts in the
-sections below, which were written before #21 was used.
+Your ask (2026-10-30): bring the Venue AMM page "to cutting edge avantegarde level", make the arbitrage top tier, and put
+a Swap beside Add so people can go straight to a pair and swap. Live on memetics.finance/pools since 2026-10-31 18:32 UTC,
+walked in Chrome from the home page after the deploy.
+
+**What a visitor gets**
+- **An Arbitrage card** under Start here. It lists every pool whose price is far enough from Jupiter's listed price for
+  one trade to pay, most profitable first. Each row says what to pay, what comes back, the profit after the pool's fee,
+  where the fee goes in dollars, and the price after. Its **Swap** opens the swap page on that exact trade with the
+  amount filled in; the swap page quotes it again, against Jupiter and our pool, before anything is sent.
+- The card says how old its figures are, reads again every 30 seconds while the tab is in view, keeps the last figures
+  and says their age when a read fails, and has Read again. What it could not check is said, never shown as "none".
+- **Swap beside Add** on every All pools row and in every pool card, opening the swap page on that pair.
+- **Dollars in each pool**, at Jupiter's prices, only when both coins have one.
+- The swap page opens a link's coin from the chain when Jupiter does not list it, and waits while it looks the coin up.
+
+**How the money moves (unchanged).** An arbitrage trade pays the pool's fee like any other trade: the LPs' part stays
+in the pool, the venue's part goes where the Rates card says, and a creator's fee to the wallet that opened the pool. The
+trader's profit comes out of the pool's LPs, because the pool was selling below the market or buying above it. No venue
+money goes anywhere new. The one caveat is already on record from #1053: on a token with a transfer fee, the "to the
+venue" figure is before the token's own cut.
+
+**Merged:** #1077 (the page, merge `54c435b05`), #1059 (phone row stacking; its line came in with #1077), #1076 and
+#1080 (NOTES.md entries). Nothing from this work waits on you.
+
+**Not merged, because each belongs to another session or waits on your ruling:** #1079 (a price keeper that closes
+pool gaps against Jupiter; it is the other half of the Arbitrage card), #1078, #1075, #1073, #1060 (a dependabot bump),
+#1023 (you said no merge), #1002 and #877 read mergeable. Every merge is a production deploy, so each needs your word.
+
+**For the next session that touches this page**
+- The code: `frontend/src/components/solana/lp/ArbitrageBoard.tsx`, `useLivePoolList` in `usePoolList.ts`,
+  `useMarketPrices.ts`, and `arbitrage`, `rankArbitrage`, `swapLink` in `frontend/src/lib/solana/lp/poolList.ts`.
+- The card prices against Jupiter's listed price (one price read per list, shared for 30 seconds). On a thin coin that
+  can differ from the two live quotes a pool card asks for by several points, which the card's small print says.
+- The gaps are small because the pools are thin: on 2026-10-31 the best paid about $0.68 on a $70 trade (BAYLA/SOL,
+  2.9% cheaper here), and most paid under $0.30.
+- The /pools word ceiling is 325 (`frontend/e2e/word-budget.spec.ts`). The count swings about 40 words on whether the
+  Rates table loaded before it was taken: set a ceiling from a run where it loaded.
+- Type-check as CI does: `npx tsc -b --noEmit --force` from `frontend/`, with no project list. Naming the app and node
+  projects skips the test files, and that cost #1077 one red CI run.
+- The Anvil fork CI job stays red on every pull request until the TOWELI staking reward reserve is refilled (step 3 of
+  the section below). Its error names the empty reserve: that is chain state, not the pull request.
+
+## 🔴 2026-10-31: close TOWELI staking v1 and pay everyone what they earned
+
+Your plan (2026-10-30): beta testing is over. Stop the rewards, pay exactly what is owed, give
+stakers time to claim, then pause so everyone can take their stake out with no 25% penalty. A new
+staking contract follows: no limit on the whole pool, 10,000,000 TOWELI per wallet (#824, a draft).
+The site already says "Beta is over" and takes no new stakes (#1066, merged 2026-10-30).
+
+**How the money moves.** Stakers get the TOWELI they earned up to step 2, paid from what you send
+in step 3. The venue earns only the 25% early-exit fee, paid to the treasury; after the pause an
+exit pays no fee, so the venue takes nothing. **TOWELI sent into the contract can never be taken
+back out: send only what is owed.**
+
+Every command signs with your keystore `deployer`, which must be
+`0x14898258122C0740106391E6e8E4F17F3b6d456E`, the owner of both contracts. Check it with
+`cast wallet address --account deployer`. That wallet held 0.00132 ETH on 2026-10-31: enough for
+every step at that day's gas.
+
+| Step | When (UTC) | What | Who |
+|---|---|---|---|
+| ✅ 1 | done 2026-10-30 16:31:11 | Asked for a reward rate of 0: `proposeRewardRate(0)` on the admin `0x4B134C08aAF86B6e2A8E097D1039C4e7638806f3`, transaction `0x60bc95261660777031dfbaa16d9a026d8e315ab560e77c72f32f88d5c739ca2d`. | you |
+| ⬜ 2 | **from Sun 11-01 16:31:11 to Sun 11-08 16:31:11** | Stop the rewards: `executeRewardRateChange()`, commands below. Before the window it fails with `ProposalNotReady` and sends nothing. After it, the request expires: redo step 1 and wait 48 hours again. | you |
+| ⬜ 3 | right after step 2 | Pay what is owed. A session re-reads the exact amount and hands you two commands, both tested first: an approve, then `notifyRewardAmount` on the staking contract `0xcaDc93E96De58EA554c71ca609974625615E046D`. On 2026-10-29 it was about 3,679,491 TOWELI: 3,579,491 earned by 22 positions plus 100,000 owed as IOUs. Your wallet holds 905,872 TOWELI, so send it the rest first (about 2,773,620), a tiny test amount first. | you, then a session |
+| 4 | about 14 days | Stakers claim. Nothing to do: the site tells them to claim now. | nobody |
+| ⬜ 5 | after the claim time | Pause: `pause()` on the staking contract. Claims stop. Every locked stake can then come out in full with no penalty (`emergencyWithdrawPosition`), but rewards not yet claimed are given up, which is why step 4 comes first. An ended lock keeps its normal exit, which also pays its rewards. | you |
+
+**Step 2 in PowerShell.** First, check the window (read-only, any time):
+
+```powershell
+$t = & "C:\Users\jimbo\.foundry\bin\cast.exe" call 0x4B134C08aAF86B6e2A8E097D1039C4e7638806f3 "rewardRateChangeTime()(uint256)" --rpc-url https://ethereum-rpc.publicnode.com; $open = [DateTimeOffset]::FromUnixTimeSeconds([int64](($t -split ' ')[0])); "Opens:   " + $open.UtcDateTime.ToString('u'); "Expires: " + $open.AddDays(7).UtcDateTime.ToString('u'); "Now:     " + [DateTime]::UtcNow.ToString('u')
+```
+
+Once "Now" is past "Opens", test it. This sends nothing, and it should print a gas number:
+
+```powershell
+& "C:\Users\jimbo\.foundry\bin\cast.exe" estimate 0x4B134C08aAF86B6e2A8E097D1039C4e7638806f3 "executeRewardRateChange()" --from 0x14898258122C0740106391E6e8E4F17F3b6d456E --rpc-url https://ethereum-rpc.publicnode.com
+```
+
+Then send it. It asks for your keystore password; look for `status 1 (success)`:
+
+```powershell
+& "C:\Users\jimbo\.foundry\bin\cast.exe" send 0x4B134C08aAF86B6e2A8E097D1039C4e7638806f3 "executeRewardRateChange()" --account deployer --rpc-url https://ethereum-rpc.publicnode.com
+```
+
+Check that rewards stopped. It must print `0`:
+
+```powershell
+& "C:\Users\jimbo\.foundry\bin\cast.exe" call 0xcaDc93E96De58EA554c71ca609974625615E046D "rewardRate()(uint256)" --rpc-url https://ethereum-rpc.publicnode.com
+```
+
+Then tell a session "step 2 is done" for step 3.
+
+**Step 5 in PowerShell**, only after the claim time. Test, then send:
+
+```powershell
+& "C:\Users\jimbo\.foundry\bin\cast.exe" estimate 0xcaDc93E96De58EA554c71ca609974625615E046D "pause()" --from 0x14898258122C0740106391E6e8E4F17F3b6d456E --rpc-url https://ethereum-rpc.publicnode.com
+```
+
+```powershell
+& "C:\Users\jimbo\.foundry\bin\cast.exe" send 0xcaDc93E96De58EA554c71ca609974625615E046D "pause()" --account deployer --rpc-url https://ethereum-rpc.publicnode.com
+```
+
+---
+
+## 🔴 2026-11-02 from 19:53 UTC: Day 2 of the vault batch (Day 0 is done)
+
+Day 0 ran on 2026-10-31 and every proposal below was read back from mainnet at 19:55 UTC that day.
+It replaces the batch plan of 2026-10-29 and the proposal numbers in the sections below, which were
+written expecting "#21".
 
 **#21 is already used.** It is the range tier 1 fee change (0.25% to 1%), proposed by member B and
 approved by both members on 2026-10-28 at 16:06:32 UTC.
-- It can execute from **2026-10-30 16:06:32 UTC**, on the tier 1 pack's page.
-- Execute it **before** the range upgrade executes: its page stops for good once the range
-  program's bytes change.
-- Then run `8-verify-tier-fee.mjs` and merge #1044 (the registry row) the same day, or the next
-  morning's chain check goes red.
+- ✅ **Executed 2026-10-30 at 16:32:37 UTC** by member A (slot 463,353,748, transaction
+  `5vJVrJGtqQcZn5og7UZnNKVwjnHR93usn3QZnKkTJr2hWdCUd1kKcj6TGXAafKfQ2CG9UJkCTQUqLYUb8EipGY5U`).
+  `8-verify-tier-fee.mjs` passed: tier 1 charges 1%, tier 0 is unchanged. #1044 (the registry
+  row) merged the same day.
 
-**Your batch (your call, 2026-10-28) is five more proposals:** the range upgrade, the pool
-re-upgrade, the pool roll-back (pre-staged), the ladder upgrade and the ladder wallet limit raise.
-The ladder upgrade also lets stakers extend a running lock (`extend_lock`, folded in on your word
-2026-10-30): its pack now carries build `1b91609c` and asks for 2.81 SOL, not 2.70.
-They get **#22 to #26**, in the order you propose them. Every pack's paper, and the steps below,
-were written expecting "#21". **Use the number the page shows**, write it down next to its name,
-and read it back before every press.
+**Day 0, done 2026-10-31.** You sent 15.1 SOL to the deploy wallet
+`CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg`, 2.81 SOL to the ladder deploy wallet
+`Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6` and 0.05 SOL to member A
+`5QHzAqbGk3W8qGRBHCMyWjhLXf8YJcs3yPEh14Ymcwgz`; #1047 merged the same hour. You ran the uploads,
+a session checked every buffer byte for byte before and after you handed it to the vault, and both
+members approved all five proposals. Every spend matched the recount of that day to within 2
+lamports.
 
-**What to send** (send a tiny test amount first, see it arrive, then the rest):
+| # | What it does | Upload buffer (build) | Its SOL goes back | Can execute from (UTC) | On Day 2 |
+|---|---|---|---|---|---|
+| **#22** | Range upgrade: opening a range pool costs 0.5 SOL, paid to the vault | `6b6JXnMjBsr4zbhMKb4sF3k4fbq91EVoszaGLfHFU2S3` (`1e896e1e`) | 7.758 SOL to the deploy wallet, at the execute | 2026-11-02 19:52:54 | execute, 1st |
+| **#23** | Pool re-upgrade | `Dh3uiriV6E7NToAoY8VorXXWVFNEfop9eLkYtphFFCTV` (`1e55bcdc`) | 3.685 SOL to the deploy wallet, at the execute | 2026-11-02 19:50:49 | execute, 2nd |
+| **#24** | Pool roll-back, pre-staged | `zFSHSqF5fUBpj2jh28FiW7UxjnbFGUAH73j9nqaPySW` (`88b98aa9`, the build running now) | 3.514 SOL to the deploy wallet, only through the return below | 2026-11-02 19:51:46 | **never**, unless a session says the pool upgrade is broken |
+| **#25** | Ladder upgrade: stakers can extend a running lock, and the vault can raise the per-wallet limit | `G2Ss3jvX9HFSDR1BYecYq4pvXZWSwF2RM79XsfTHj53J` (`1b91609c`) | 2.705 SOL to the ladder deploy wallet, at the execute | 2026-11-02 19:47:33 | execute, 3rd |
+| **#26** | Ladder per-wallet limit, 2,000,000 to 10,000,000 BAYLA (it can only ever go up) | none | none | 2026-11-02 19:49:35, and only after #25 | execute, 4th |
 
-| Send | To | Holds now | What it pays for |
-|---|---|---|---|
-| **15.1 SOL** | the deploy wallet `CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg` | 0 | range upload 7.818, pool upload 3.688, pool roll-back upload 3.518 |
-| **2.81 SOL** | the ladder deploy wallet `Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6` | 0 | ladder upload 2.705 and enlarge 0.086 |
-| **0.05 SOL** | member A `5QHzAqbGk3W8qGRBHCMyWjhLXf8YJcs3yPEh14Ymcwgz` | 0.001 | five proposals, about 0.0046 each |
+**How the money moved.** About 0.18 SOL is spent for good: 0.138 for room in the range and ladder
+programs, about 0.019 in upload and network fees, and about 0.022 for the five proposal records,
+which stay locked (this multisig has no rent collector set, so none of it comes back). Everything
+else is parked in the four buffers and comes back only to the two deploy wallets: the vault pays
+nothing and nothing goes anywhere else. After Day 0 the deploy wallet held 0.075 SOL and the ladder
+deploy wallet 0.0157. **Leave both there**: each page refuses to execute when the wallet its
+buffer's SOL returns to is empty (range and pool for the deploy wallet, #22, #23 and the return
+below; ladder for the ladder deploy wallet, #25), and the ladder deploy wallet still signs for the
+five Streamflow pools. Member A holds 0.0286 (enough for the return below and the December reload),
+member B 0.0049. Range pools are still free to open, and none exists, until #22 executes.
 
-- Member B `6VHowW4pnD4WTGsXhqBp6yxGgC3EExVmYgebSrRNu2tY` holds 0.0053 SOL: enough to approve and
-  execute, not to propose.
-- The range and pool uploads come back to the deploy wallet when each upgrade executes. The
-  roll-back's 3.51 SOL comes back only through a later return proposal, 48 hours after its
-  approval. About 0.1 SOL is spent for good, plus 0.034 SOL more for the ladder's larger enlarge
-  (16,992 bytes, not 10,240).
-- **The day you send the 2.81 SOL, merge #1047**, the registry PR that marks the ladder deploy
-  wallet as funded. The registry expects that wallet to be empty, so the daily chain check goes red
-  otherwise.
+**Day 2, in this order.** A session starts the three pages (`serve.mjs` in each pack's
+`proposer` folder: range 5599, pool 5299, ladder 5499), opens each in ONE Chrome tab and reads the
+proposal number back to you. **Press only after that read-back.** Either member can execute.
+If a page says `UNKNOWN` after you press, do not press again: run that step's check. Each check must
+end with the `RESULT` line written under it; if it says `REFUSED`, stop and ask a session before the
+next step (in particular, **do not execute #26** unless the check after #25 passed).
 
-**Day 0 with a session driving Chrome** (your ask, 2026-10-30). Send the SOL above, then tell a
-session "SOL is sent" (that is also your word to merge #1047). Then:
+1. **#22, range.** Pick "Upgrade the range program", **EXECUTE proposal #22**. Then (nobody signs):
 
-1. The session runs every read-only check and tells you what it said.
-2. You run the upload commands it hands you, in this order:
-   - range: add room, upload, hand to the vault;
-   - pool: upload, upload the roll-back, hand both to the vault;
-   - ladder: add room, upload, hand to the vault.
+   ```powershell
+   node "C:\Users\jimbo\solana-launch-release-2026-09-26\range-pools-open-fee-upgrade-2026-10\scripts\4-verify-after-upgrade.mjs" --buffer 6b6JXnMjBsr4zbhMKb4sF3k4fbq91EVoszaGLfHFU2S3
+   ```
 
-   They sign with your key files; the app does not let a session send on mainnet.
-3. The session opens each signing page in ONE Chrome tab (range 5599, pool 5299, ladder 5499),
-   picks the step, pastes the upload address, runs the checks, and reads every line and the
-   proposal number back to you.
-4. You connect the wallet and press the button: Sign as member A for all five proposals, then
-   Approve as member B for all five. Confirm each one in the wallet.
-5. The session confirms all five on chain and writes down each number and the Day 2 time.
+   It must end `RESULT: the upgrade is live: opening a range pool now costs 0.5 SOL, paid to the vault.`
+   Both fee tiers exist, so its last section simulates a stranger opening a pool, sending nothing:
+   the stranger must pay the vault exactly 0.5 SOL. From this moment no range pool opens for free.
+2. **#23, pool.** Pick "Upgrade the pool program" only, **EXECUTE proposal #23**. Then:
 
-Read on mainnet 2026-10-30 03:50 UTC: the range and pool checks pass every line but the empty
-wallets, the pool program's room is already there, and the next proposal is #22.
+   ```powershell
+   node "C:\Users\jimbo\solana-launch-release-2026-09-26\pool-program-upgrade-2026-10\scripts\4-verify-after-upgrade.mjs" --before "C:\Users\jimbo\solana-launch-release-2026-09-26\pool-program-upgrade-2026-10\owner-run\round-2-2026-10-24\pools-before-upgrade.mainnet.json"
+   ```
 
-**Day 2, execute in this order:** #21 if it hasn't run yet, then the range upgrade, the pool
-re-upgrade, the ladder upgrade, the ladder raise. Never press the pool roll-back. Never press old
-#18: it still shows "Approved" because its failed run didn't change that, and pressing it only
-burns a fee. After the pool re-upgrade executes, a session undoes #991.
+   It must say `RESULT: the upgrade is live and both pools are untouched.` (the words after it, "Go
+   on to the name records", are left from the first round: both name records exist, so there is
+   nothing to do there). From then on #24 also shows "Ready to execute". **Leave it.** The same hour a session opens the pull request that
+   undoes #991 (the pack's step R15b): the registry's pool data row still pins the old build
+   `88b98aa9`, so the daily chain check is red until you merge it.
+3. **#25, ladder.** Pick "Upgrade the ladder program", **EXECUTE proposal #25**. Then:
+
+   ```powershell
+   node "C:\Users\jimbo\solana-launch-release-2026-09-26\ladder-wallet-cap-upgrade-2026-10\scripts\4-verify-after-upgrade.mjs"
+   ```
+
+   It must end `RESULT: the wallet-cap build is live, the pool and the window that runs now are untouched, and a claim works.`
+
+4. **#26, the limit.** Pick "Raise the per-wallet limit to 10,000,000 BAYLA", **EXECUTE proposal
+   #26**. Then:
+
+   ```powershell
+   node "C:\Users\jimbo\solana-launch-release-2026-09-26\ladder-wallet-cap-upgrade-2026-10\scripts\5-verify-wallet-cap.mjs"
+   ```
+
+   It must end `RESULT: the per-wallet limit is 10,000,000 BAYLA, nothing else in the pool moved, and the program keeps the limit raise-only.`
+5. **The site, on your word:** #1056 (the "Extend lock" button; it contains #1031, which then
+   closes), #1021 (the range card says opening costs 0.5 SOL) and #994 (a pool opened on the site
+   names its share at once). All three conflict with trunk today, so a session refreshes each
+   first; #1056 and #994 are drafts until then.
+
+Never press old #18: it still shows "Approved" because its failed run didn't change that, and
+pressing it only burns a fee. #3 is stale and can never execute.
+
+**After Day 2.**
+
+- **The roll-back buffer's 3.514 SOL.** Once the pool upgrade has proved good (a few days), member
+  A proposes "Return a buffer's SOL" on the pool page with `zFSHSqF5fUBpj2jh28FiW7UxjnbFGUAH73j9nqaPySW`
+  (**not** "The roll-back"), member B approves, and 48 hours later either member executes it
+  (the pack's steps R16 and R17). It costs member A about 0.004 SOL. After that #24 can never
+  execute.
+- **The SOL back to you.** About 11.5 SOL sits in the deploy wallet and 2.72 in the ladder deploy
+  wallet after Day 2, and 3.5 more reaches the deploy wallet after the return. A session reads the
+  balances and hands you one transfer command per wallet, signed with that wallet's key file, each
+  leaving about 0.01 SOL behind. **Never empty the deploy wallet before the return has executed:**
+  the pool page refuses the return while that wallet is empty.
+- **The December reload moves to this batch's ladder page.** From the moment #25 executes, the
+  reload (approved by 2026-12-21 15:32:16 UTC) is proposed on the wallet-cap pack's page, port
+  5499, "Reload the rewards: the next four-year window (December)". The four-year pack's page (port
+  5399, "the refill page" of the 2026-10-20 section below) then refuses it: each page reloads only
+  on the build it knows.
 
 ## 🔴 2026-10-28: range pools open for free until you upgrade the range program (do this first)
+
+**2026-10-31: the upgrade is proposal #22, approved by both members. It executes on Day 2, the
+section above.**
 
 **Why it is urgent.** #19 ran on 2026-10-27 and made both range fee tiers, so on the range program
 running now anyone can open a range pool without paying. None was open on 2026-10-28. You ruled on
@@ -456,7 +611,23 @@ weight, so about 8.8% of any refill comes back to you.
 
 ### Your decisions, by Sun 2026-11-15
 
-- ⬜ **The refill amount.** Read on 2026-10-20 (weight 45,272,392; 50 stakes; 23 wallets). The
+**Decided 2026-10-30: keep today's rate, 22,678.62 BAYLA a day, for the full four years, paid by
+the island's Workshop.**
+- **Refill exactly 33,110,782 BAYLA.** That is today's rate (262,484 raw a second) times the
+  ladder's fixed window of 1,460 days (126,144,000 seconds), rounded up to a whole BAYLA; 0.304 of
+  it stays unpaid in the pot. The 33,133,461 said on 2026-10-30 counted 1,461 days: it is 22,679.304
+  too much, and would raise the rate slightly to 22,694.08 a day.
+- **Ask the Workshop for it in writing**: the ask is drafted at
+  `C:\Users\jimbo\OneDrive\Desktop\island-handoff\refill-ask-2026-10-30.txt` (corrected to
+  33,110,782 on 2026-10-31); you send it. The Workshop held 58,300,000.81 BAYLA on 2026-10-29.
+- **This rate is above the 27.64% cap** in the table below: "lock 4 years and leave early" pays
+  more than an honest shorter lock. Your call stands; this line is only a reminder.
+- Stakers then keep earning at today's rate until about 2030-12-22, if the refill executes on
+  12-23. Tell them so, with that date.
+
+The options as they were laid out on 2026-10-20:
+
+- ✅ **The refill amount** (decided above). Read on 2026-10-20 (weight 45,272,392; 50 stakes; 23 wallets). The
   rates are a year's rewards over the amount staked:
 
   | Refill, exact (BAYLA) | Per day | 4-year lock | 1.00x lock | 7-day lock | Value on 10-20 | Under the 27.64% cap? |
@@ -476,14 +647,14 @@ weight, so about 8.8% of any refill comes back to you.
   BAYLA unpaid in the pot. The smallest refill that pays anything is 5,802.624 BAYLA, not the
   "about 5,700" the pack's R1 says. Values use about $0.0006 a BAYLA; buying that much on the
   market would move the price.
-- ⬜ **Who pays for it.** The team's wallets hold about 44,706 BAYLA free (about $27). The
+- ✅ **Who pays for it** (decided above: the Workshop). The team's wallets hold about 44,706 BAYLA free (about $27). The
   2,000,000 of 2026-09-24 came from the island's Workshop,
   `G2EHPseTXetHbBvvRDs27XQyXfQikXXyxP9uMbsKrbu`, which held 58,300,000 on 2026-10-20 (135,491,275
   on 2026-09-24). Ask the island in writing, early, for the amount and for its OK that the BAYLA
   passes through the vault's BAYLA account: the split agreement says neither side holds the
   other's coin.
-- ⬜ **Tell the stakers, with dates.** Every amount above is a cut from today's 22,678.62 a day
-  (the recommended one is 77% lower). Early-exit fees after 12-23 sit in the pot until a big
+- ⬜ **Tell the stakers, with dates.** At today's rate there is no cut. (Every other amount above
+  is a cut from today's 22,678.62 a day; the recommended one is 77% lower.) Early-exit fees after 12-23 sit in the pot until a big
   top-up or the window's end in 2030: say so too.
 
 ### The steps, in order (UTC)
@@ -709,8 +880,9 @@ nothing is lost.
   say who holds the key of the old fee wallet `DVGiHe98CzEf7VuCS6YpVDFnp38ubJmKNLt6aMJwAyER`.
   [was O-1009-12, O-1009-21]
 - ⏸️ **GitLab's mirror secret** `GITLAB_MIRROR_SSH_KEY` stays parked, as you asked on 2026-10-02.
-  Until it is set, the "Mirror to GitLab" job fails on every push to `mvp-launch`; that red is
-  expected.
+  On 2026-10-29 you paused the "Mirror to GitLab" job until it is set: it runs only by hand, so
+  pushes to `mvp-launch` no longer go red, and the GitLab standby falls behind. To resume: set the
+  secret, then `docs/GIT_HOSTING.md` 2C steps 5 and 6.
 
 ### Your list: items that cost money
 
@@ -1338,8 +1510,8 @@ The accounts, keys and settings need you.
 
 **First (15 minutes):** 2.0. Add an email login plus 2FA wherever Supabase, Railway or Vercel is
 GitHub-only. Confirm the offline copy of `BACKUP_PASSPHRASE` exists; it is the only one. Then
-2.1: merge this work (a production deploy, your go). Every step after it runs its scripts, and
-until 2C is done each push to `mvp-launch` shows a red Mirror to GitLab run, on purpose.
+2.1: merge this work (a production deploy, your go). Every step after it runs its scripts. The
+Mirror to GitLab job is paused until 2C is done (2C step 6 un-pauses it).
 
 **Done on 2026-09-30 (by an agent, with the owner's go):** 2A except the password and 2FA: the
 group is `memetics-finance` (`memetics` was taken), public, with GitLab's runners and Auto DevOps

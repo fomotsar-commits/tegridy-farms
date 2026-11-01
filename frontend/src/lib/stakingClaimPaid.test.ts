@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { encodeAbiParameters, encodeEventTopics, parseAbi, type Hex, type Log } from 'viem';
-import { stakingClaimPaid } from './stakingClaimPaid';
+import { stakingClaimPaid, stakingStakeReturned } from './stakingClaimPaid';
 import { TEGRIDY_STAKING_ADDRESS } from './constants';
 
 const ABI = parseAbi([
@@ -43,5 +43,58 @@ describe('stakingClaimPaid', () => {
   it('no receipt is unknown, never zero', () => {
     expect(stakingClaimPaid(undefined)).toBeNull();
     expect(stakingClaimPaid(null)).toBeNull();
+  });
+});
+
+const EXIT_ABI = parseAbi([
+  'event Withdrawn(address indexed user, uint256 indexed tokenId, uint256 amount)',
+  'event EarlyWithdrawn(address indexed user, uint256 indexed tokenId, uint256 amount, uint256 penalty)',
+  'event EmergencyWithdraw(address indexed user, uint256 indexed tokenId, uint256 amount)',
+  'event EmergencyExitPosition(address indexed user, uint256 indexed tokenId, uint256 amount)',
+]);
+
+function exitLog(
+  eventName: 'Withdrawn' | 'EarlyWithdrawn' | 'EmergencyWithdraw' | 'EmergencyExitPosition',
+  amount: bigint,
+  address: string = TEGRIDY_STAKING_ADDRESS,
+): Log {
+  const topics = encodeEventTopics({ abi: EXIT_ABI, eventName, args: { user: USER, tokenId: 12n } });
+  const data = eventName === 'EarlyWithdrawn'
+    ? encodeAbiParameters([{ type: 'uint256' }, { type: 'uint256' }], [amount, amount / 3n])
+    : encodeAbiParameters([{ type: 'uint256' }], [amount]);
+  return {
+    address: address as Hex, topics: topics as [Hex, ...Hex[]], data,
+    blockHash: null, blockNumber: null, logIndex: null, transactionHash: null, transactionIndex: null, removed: false,
+  };
+}
+
+describe('stakingStakeReturned', () => {
+  it('reads the paused exit (emergencyWithdrawPosition): the whole stake', () => {
+    expect(stakingStakeReturned({ logs: [exitLog('EmergencyWithdraw', 1000n * 10n ** 18n)] })).toBe(1000n * 10n ** 18n);
+  });
+
+  it('reads the expired-lock exit, and ignores the reward it pays beside the stake', () => {
+    expect(stakingStakeReturned({
+      logs: [log('RewardPaid', 5n * 10n ** 18n), exitLog('EmergencyExitPosition', 300n * 10n ** 18n)],
+    })).toBe(300n * 10n ** 18n);
+  });
+
+  it('reads withdraw, and an early exit NET of its penalty (what came back)', () => {
+    expect(stakingStakeReturned({ logs: [exitLog('Withdrawn', 7n)] })).toBe(7n);
+    expect(stakingStakeReturned({ logs: [exitLog('EarlyWithdrawn', 750n)] })).toBe(750n);
+  });
+
+  it('a receipt with no exit log is unknown, never zero', () => {
+    expect(stakingStakeReturned({ logs: [] })).toBeNull();
+    expect(stakingStakeReturned({ logs: [log('RewardPaid', 9n)] })).toBeNull();
+  });
+
+  it('ignores a look-alike exit from another contract', () => {
+    expect(stakingStakeReturned({ logs: [exitLog('EmergencyWithdraw', 9n, '0x0000000000000000000000000000000000000001')] })).toBeNull();
+  });
+
+  it('no receipt is unknown', () => {
+    expect(stakingStakeReturned(undefined)).toBeNull();
+    expect(stakingStakeReturned(null)).toBeNull();
   });
 });

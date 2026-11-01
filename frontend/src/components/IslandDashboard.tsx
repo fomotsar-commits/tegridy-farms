@@ -8,7 +8,8 @@ import { artSrcSet } from '../lib/artSrcSet';
 import { MIN_BOOST_BPS, MAX_BOOST_BPS } from '../lib/constants';
 import { CONNECT_ETHEREUM_WALLET } from '../lib/copy';
 import { hasMixedSolanaSection } from '../lib/routeVoice';
-import { getSolanaSurfaceState, requestSolanaOpen, shortSolanaAddress, wantOwnSolana } from '../lib/solanaSurface';
+import { getSolanaSurfaceState, requestSolanaOpen, shortSolanaAddress, solanaToRestore, wantOwnSolana } from '../lib/solanaSurface';
+import { timeAgo } from '../lib/solanaActivity';
 import { CHAIN_LABEL, hasLadder, rowTerms, venuePoolRows, type VenuePoolRow } from '../lib/venuePools';
 import {
   WALLET_CHAIN_LABEL, boostOf, fmtUsd, holdingShares, holdingsTotal, pctText,
@@ -16,6 +17,8 @@ import {
 } from '../lib/wallet/walletRows';
 import { EDITORIAL_BG, EDITORIAL_EASE, EDITORIAL_GRAIN, EDITORIAL_INK, HEADING_FONT, pad2 } from '../lib/editorial';
 import { useWalletBoard } from '../hooks/useWalletBoard';
+import { noteStakesChanged, useOnStakesChanged } from '../lib/harvest/stakesChanged';
+import { HarvestCard } from './farm/HarvestCard';
 import { CardArt } from './ui/CardArt';
 import { FinePrint } from './ui/FinePrint';
 
@@ -28,7 +31,9 @@ import { FinePrint } from './ui/FinePrint';
  * First the connected wallets: what they hold (SOL, ETH and every island coin, with USD where a
  * price was read) and their positions on this site (locks, stakes, pool shares), each read from
  * the chain by the reader its own page uses (hooks/useWalletBoard.ts). A part that could not be
- * read says so, by name, with Try again; it is never a zero or an empty list.
+ * read says so, by name, with Try again; it is never a zero or an empty list. A wallet seen before
+ * draws at once from its last read in this browser, said "As of 3h ago · updating" until the new
+ * read lands (lib/wallet/boardMemory.ts).
  *
  * What is drawn is only what was read: the holdings' worth split by coin (a bar, and each coin's
  * share on its row) only when every coin held was read and priced; a tape of the coins held only
@@ -432,16 +437,17 @@ function HoldingItem({ n, row, share, onShow, figKey, current }: { n: number; ro
   );
 }
 
-/** One position on this site: what it is, its read facts, its place on the ladder, and the door to it. */
+/** One position on this site: what it is, its read facts, its place on the ladder, its worth, and the door to it. */
 function PositionItem({ n, row, onShow, figKey, current }: { n: number; row: PositionRow; onShow: () => void; figKey: string; current: boolean }) {
   const boost = boostOf(row.facts);
+  const worth = row.usd !== null ? fmtUsd(row.usd) : 'worth not read';
   return (
     <m.li {...rise(n - 1)}>
       {/* The facts sit beside the title from 1024px; below that (a phone, and an upright iPad, whose
           board shares its width with the frame) they sit under it. */}
-      <Link to={row.to} aria-label={`${row.title}: ${row.facts.join(', ')}. Open it`} onMouseEnter={onShow} onFocus={onShow}
+      <Link to={row.to} aria-label={`${row.title}: ${worth}, ${row.facts.join(', ')}. Open it`} onMouseEnter={onShow} onFocus={onShow}
         data-fig-key={figKey} data-current={current ? '' : undefined}
-        className={`${ROW_CLASS} grid-cols-[2.75rem_minmax(0,1fr)_2.5rem] md:grid-cols-[2rem_2.75rem_minmax(0,1fr)_2.5rem] lg:grid-cols-[2rem_2.75rem_minmax(0,14rem)_minmax(0,1fr)_2.5rem]`} style={{ color: EDITORIAL_INK }}>
+        className={`${ROW_CLASS} grid-cols-[2.75rem_minmax(0,1fr)_2.5rem] md:grid-cols-[2rem_2.75rem_minmax(0,1fr)_auto_2.5rem] lg:grid-cols-[2rem_2.75rem_minmax(0,14rem)_minmax(0,1fr)_auto_2.5rem]`} style={{ color: EDITORIAL_INK }}>
         <RowRules accent={accentOf(row.roomId)} />
         <Index n={n} />
         <Thumb roomId={row.roomId} chain={row.chain} />
@@ -453,6 +459,8 @@ function PositionItem({ n, row, onShow, figKey, current }: { n: number; row: Pos
             {boost !== null && <LockMark boost={boost} />}
           </span>
           <span className="mt-1 block font-mono text-[10px] uppercase tracking-[0.12em] text-[#f5e4b8]/60"><ChainMark chain={row.chain} /></span>
+          {/* A phone has no width for a column of its own: the worth sits under the title. */}
+          <span className="md:hidden mt-1.5 block"><Worth usd={row.usd} text={worth} /></span>
           <span className="lg:hidden mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-[11px] text-[#f5e4b8]/80">
             {row.facts.map((f) => <span key={f}>{f}</span>)}
           </span>
@@ -460,9 +468,19 @@ function PositionItem({ n, row, onShow, figKey, current }: { n: number; row: Pos
         <span className="hidden lg:flex flex-wrap gap-x-4 gap-y-1 font-mono text-[12px] tracking-[0.02em] text-[#f5e4b8]/85">
           {row.facts.map((f) => <span key={f} className="whitespace-nowrap">{f}</span>)}
         </span>
+        {/* Its worth at today's price, the holdings' figure for a position (walletRows.ts). */}
+        <span className="hidden md:block text-right"><Worth usd={row.usd} text={worth} /></span>
         <Arrow />
       </Link>
     </m.li>
+  );
+}
+
+function Worth({ usd, text }: { usd: number | null; text: string }) {
+  return usd !== null ? (
+    <span className="block font-black leading-none tracking-[-0.03em] text-[18px] md:text-[20px] lg:text-[22px] tabular-nums" style={HEADING_FONT}>{text}</span>
+  ) : (
+    <span className="block font-mono text-[11px] tracking-[0.04em] text-[#f5e4b8]/65">{text}</span>
   );
 }
 
@@ -710,6 +728,16 @@ function Figure({ fig, mode, unpinned, quick, progress, frameRef }: {
 
 export function IslandDashboard({ headingLevel = 2 }: { headingLevel?: 1 | 2 }) {
   const board = useWalletBoard();
+  const { pathname } = useLocation();
+  // The wallet is this board's content, so a Solana wallet connected here before is restored as
+  // the board mounts, not 1.5 s after the page settles (TopBarSolana.tsx). Not where the page has
+  // its own Solana section (the home's cards): that one restores itself as it mounts.
+  useEffect(() => {
+    if (!hasMixedSolanaSection(pathname) && solanaToRestore()) wantOwnSolana();
+  }, [pathname]);
+  // A harvest, or a claim on a pool card, changes the positions' "earned" figures.
+  const [me] = useState(() => ({}));
+  useOnStakesChanged(me, board.refresh);
   const pools = venuePoolRows();
   const chains = new Set(pools.map((r) => r.chain).filter((c) => c !== 'tbd')).size;
   const Heading = headingLevel === 1 ? 'h1' : 'h2';
@@ -763,6 +791,12 @@ export function IslandDashboard({ headingLevel = 2 }: { headingLevel?: 1 | 2 }) 
   const shares = total.kind === 'total' ? holdingShares(heldRows) : [];
   const shareOf = new Map(shares.map((s) => [s.key, s.pct]));
   const everyLegRead = board.holdings.length > 0 && board.holdings.every((l) => l.leg.status === 'ok');
+  const kept = [...board.holdings, ...board.positions].flatMap((l) => (l.readAt === undefined ? [] : [l.readAt]));
+  const keptSince = kept.length ? Math.min(...kept) : null;
+  // The positions' worth, kept as the holdings' is; drawn once the wallet has a position to add up.
+  const posTotal = holdingsTotal(board.positions.map((l) => l.leg));
+  const posNote = board.positions.some((l) => l.leg.status === 'loading') ? 'reading'
+    : board.positions.some((l) => l.leg.status === 'unread') ? 'not every position read' : 'not every position priced';
 
   return (
     <section
@@ -776,14 +810,16 @@ export function IslandDashboard({ headingLevel = 2 }: { headingLevel?: 1 | 2 }) 
       <div aria-hidden="true" className="absolute inset-0 pointer-events-none opacity-[0.08] mix-blend-screen" style={{ backgroundImage: EDITORIAL_GRAIN }} />
 
       <header className="relative grid gap-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end pb-5 border-b border-white/25">
-        <div className="min-w-0">
+        <div className="min-w-0 @container">
           <p className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.16em] text-[#f5e4b8]/60">
             <span aria-hidden="true" className="w-1.5 h-1.5 bg-[#22c55e]" />
             Your wallet
           </p>
-          {/* The word rises from under a mask, as the menu's do. */}
+          {/* The word rises from under a mask, as the menu's do. From 1024px it shares the row with
+              the wallet's figures, so it is sized to its own column (the word is 5.4 of its size
+              wide), not to the screen: sized to the screen, the mask cut its last letters. */}
           <Heading id="island-dashboard-heading"
-            className="mt-2 font-black leading-[0.86] tracking-[-0.055em] text-[clamp(3rem,14.5vw,9.5rem)]"
+            className="mt-2 font-black leading-[0.86] tracking-[-0.055em] text-[clamp(3rem,14.5vw,9.5rem)] lg:text-[clamp(3rem,18cqw,9.5rem)]"
             style={{ ...HEADING_FONT, textShadow: 'none' }}>
             <span className="block overflow-hidden pb-[0.05em] pr-[0.04em]">
               <m.span className="block whitespace-nowrap"
@@ -800,22 +836,46 @@ export function IslandDashboard({ headingLevel = 2 }: { headingLevel?: 1 | 2 }) 
             <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 font-mono text-[11px] tracking-[0.08em] text-[#f5e4b8]/70">
               {board.solanaAddress && <span><ChainMark chain="solana" /> {shortSolanaAddress(board.solanaAddress)}</span>}
               {board.evmAddress && <span><ChainMark chain="ethereum" /> + Base {shortEvm(board.evmAddress)}</span>}
-              <button type="button" onClick={board.refresh} className="min-h-[32px] underline underline-offset-4 uppercase tracking-[0.14em] hover:text-[#22c55e]">Refresh</button>
+              {/* Refresh is the whole page's: Harvest under the positions, and a pool card beside
+                  the board, read again with it (lib/harvest/stakesChanged.ts). */}
+              <button type="button" onClick={() => { board.refresh(); noteStakesChanged(me); }} className="min-h-[32px] underline underline-offset-4 uppercase tracking-[0.14em] hover:text-[#22c55e]">Refresh</button>
+              {/* Some rows are this browser's last read of them, while the chain is read again (boardMemory.ts). */}
+              {keptSince !== null && (
+                <span role="status" className="uppercase tracking-[0.14em] text-[#f5e4b8]/55">
+                  As of {timeAgo(keptSince)} · updating
+                </span>
+              )}
             </div>
           )}
         </div>
 
-        {/* The holdings' worth, only when every coin held was read and priced (holdingsTotal). */}
+        {/* The holdings' worth, and the positions', each only when every part of it was read and
+            priced (holdingsTotal). */}
         {connected && (
-          <div className="flex flex-col items-start lg:items-end">
-            <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-[#f5e4b8]/55">Holdings</span>
-            <span className="font-black leading-none tracking-[-0.05em] text-[52px] lg:text-[72px] tabular-nums" style={HEADING_FONT}>
-              {total.kind === 'total' ? fmtUsd(total.usd) : total.kind === 'none' ? '$0' : '—'}
-            </span>
-            {total.kind === 'partial' && (
-              <span className="mt-1 font-mono text-[10px] uppercase tracking-[0.12em] text-[#f5e4b8]/55">
-                {board.holdings.some((l) => l.leg.status === 'loading') ? 'reading' : 'not every coin priced'}
+          // Side by side under the heading; stacked beside it from 1024px, where a second figure
+          // in a row would take the heading's width and cut the word.
+          <div className="flex flex-wrap items-start gap-x-8 gap-y-4 lg:flex-col lg:items-end">
+            <div className="flex flex-col items-start lg:items-end">
+              <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-[#f5e4b8]/55">Holdings</span>
+              <span className="font-black leading-none tracking-[-0.05em] text-[52px] lg:text-[72px] tabular-nums" style={HEADING_FONT}>
+                {total.kind === 'total' ? fmtUsd(total.usd) : total.kind === 'none' ? '$0' : '—'}
               </span>
+              {total.kind === 'partial' && (
+                <span className="mt-1 font-mono text-[10px] uppercase tracking-[0.12em] text-[#f5e4b8]/55">
+                  {board.holdings.some((l) => l.leg.status === 'loading') ? 'reading' : 'not every coin priced'}
+                </span>
+              )}
+            </div>
+            {positionRows.length > 0 && (
+              <div data-testid="positions-worth" className="flex flex-col items-start lg:items-end">
+                <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-[#f5e4b8]/55">Positions</span>
+                <span className="font-black leading-none tracking-[-0.05em] text-[52px] lg:text-[72px] tabular-nums" style={HEADING_FONT}>
+                  {posTotal.kind === 'total' ? fmtUsd(posTotal.usd) : '—'}
+                </span>
+                {posTotal.kind === 'partial' && (
+                  <span className="mt-1 font-mono text-[10px] uppercase tracking-[0.12em] text-[#f5e4b8]/55">{posNote}</span>
+                )}
+              </div>
             )}
           </div>
         )}
@@ -851,6 +911,9 @@ export function IslandDashboard({ headingLevel = 2 }: { headingLevel?: 1 | 2 }) 
                   const f = positionFig(r, i);
                   return <PositionItem key={r.key} n={i + 1} row={r} onShow={show(f)} figKey={f.key} current={isCurrent(f)} />;
                 }} />
+              {/* Every position's rewards in one press, on the home's board and /dashboard
+                  alike (owner, 2026-10-30); drawn only while there is something to claim. */}
+              <HarvestCard quiet headingLevel={3} className="mt-6" />
               {(!board.solanaAddress || !board.evmAddress) && (
                 <div className="mt-5 flex flex-wrap items-center gap-3">
                   <span className="text-[13px] text-[#f5e4b8]/70">Hold coins on the other chain too?</span>

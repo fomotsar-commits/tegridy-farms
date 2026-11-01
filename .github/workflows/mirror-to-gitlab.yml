@@ -4,12 +4,17 @@ name: Mirror to GitLab
 # costs a 15-minute failover, not the code (docs/GIT_HOSTING.md). It never forces or deletes.
 # The daily run sends everything again (GitHub starts no run for a push of more than three tags).
 # It and a run by hand ping healthchecks.io, so a standby that stops being current raises an alarm.
+#
+# PAUSED by the owner on 2026-10-29. The secret GITLAB_MIRROR_SSH_KEY was never set, so every push
+# to mvp-launch made a red run. It now runs only by hand, and sends the standby nothing until then.
+# To resume: set the secret (docs/GIT_HOSTING.md 2C), then delete the '# ' in front of each
+# trigger line below (2C step 6 lists the rest).
 on:
-  push:
-    branches: ['**']
-    tags: ['**']
-  schedule:
-    - cron: '41 6 * * *'
+  # push:
+  #   branches: ['**']
+  #   tags: ['**']
+  # schedule:
+  #   - cron: '41 6 * * *'
   workflow_dispatch: {}
 
 permissions:

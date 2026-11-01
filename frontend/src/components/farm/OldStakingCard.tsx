@@ -1,12 +1,15 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { useAccount } from 'wagmi';
 import { formatEther } from 'viem';
 import { LOCK_OPTIONS, OLD_STAKING_CONTRACT } from '../../lib/constants';
 import { useUserPosition } from '../../hooks/useUserPosition';
+import { usePoolData } from '../../hooks/usePoolData';
 import { useFarmActions } from '../../hooks/useFarmActions';
 import { useAutoReset } from '../../hooks/useAutoReset';
+import { stakingBetaPhase, betaReadsFromHooks } from '../../lib/stakingBetaOver';
 import { StakingCard, type ConfirmState } from './StakingCard';
+import { StakingBetaOverNotice } from './StakingBetaOverNotice';
 
 const NO_OP = () => {};
 // The stake form is never drawn for this contract (StakingCard's `exitOnly`), so its
@@ -20,6 +23,22 @@ const INERT_INPUT = {
   setExtendLockDuration: NO_OP,
 };
 const INERT_COMPUTED = { boostDisplay: '0', totalBoostBps: 0, amtNum: 0, effectiveStake: 0, stakeNeedsApproval: false };
+
+type OldPosition = ReturnType<typeof useUserPosition>;
+
+/** A position, an IOU (it outlives its position), or a read that did not land. */
+const hasSomethingThere = (pos: OldPosition) => pos.hasPosition || pos.positionUnread || pos.unsettledRewards > 0n;
+
+/**
+ * Where TOWELI staking v1 (this contract) stands, from ITS reads (lib/stakingBetaOver):
+ * the pool's, and the wallet's position when one is given.
+ */
+function useOldStakingBeta(wallet?: OldPosition) {
+  const pool = usePoolData(OLD_STAKING_CONTRACT);
+  const phase = stakingBetaPhase(betaReadsFromHooks(pool, wallet));
+  const retry = () => { void pool.refetch(); if (wallet) void wallet.refetchAll(); };
+  return { pool, phase, retry };
+}
 
 /**
  * The door for a position on the FIRST relaunch staking contract
@@ -38,6 +57,7 @@ export function OldStakingCard() {
   const { isConnected } = useAccount();
   const pos = useUserPosition(OLD_STAKING_CONTRACT);
   const actions = useFarmActions(OLD_STAKING_CONTRACT);
+  const beta = useOldStakingBeta(pos);
   const lastActionRef = useRef<string | null>(null);
   const submittedAmountRef = useRef<string | null>(null);
   const [confirms, setConfirms] = useState<ConfirmState>({
@@ -62,9 +82,13 @@ export function OldStakingCard() {
     void pos.refetchAll();
   }, [actions.isSuccess, actions.hash, pos]);
 
-  if (!isConnected || !(pos.hasPosition || pos.positionUnread)) return null;
+  if (!isConnected || !hasSomethingThere(pos)) return null;
 
   const busy = actions.isPending || actions.isConfirming;
+  const { pool } = beta;
+  // The card offers Claim Unsettled only beside a position; an IOU left after one closed
+  // is claimed here. claimUnsettled is whenNotPaused.
+  const iouOnly = !pos.hasPosition && !pos.positionUnread;
   return (
     <div className="mb-6" data-testid="old-staking-card">
       <StakingCard
@@ -79,7 +103,28 @@ export function OldStakingCard() {
         lastActionRef={lastActionRef}
         submittedAmountRef={submittedAmountRef}
         contract={OLD_STAKING_CONTRACT}
+        pool={{ apr: pool.apr, aprNum: pool.aprNum, isDeployed: pool.isDeployed, isDry: pool.isDry, rewardsRemaining: pool.rewardsRemaining, rewardsRemainingUnread: pool.rewardsRemainingUnread }}
+        betaOver={{ phase: beta.phase, onRetry: beta.retry }}
       />
+      {iouOnly && (
+        <div
+          className="mt-2 rounded-lg p-3 flex items-center justify-between gap-3"
+          style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.15)' }}
+          data-testid="old-staking-iou-claim"
+        >
+          <p className="text-white text-[12px]">
+            Unsettled rewards on the old contract:{' '}
+            <span className="font-mono font-semibold">{pos.unsettledFormatted} TOWELI</span>
+          </p>
+          <button
+            onClick={() => actions.claimUnsettled()}
+            disabled={busy || pos.isPaused === true}
+            className="btn-secondary px-4 py-2 min-h-[44px] text-[12px] whitespace-nowrap disabled:opacity-70"
+          >
+            {busy ? 'Processing...' : 'Claim Unsettled'}
+          </button>
+        </div>
+      )}
       {/* This contract's ETH fee share lives in ITS distributor, and the exit guard
           refuses while any is unclaimed, so the claim has to be here too. Shown only
           on a READ non-zero: null is unknown and the guard already says so. */}
@@ -107,6 +152,19 @@ export function OldStakingCard() {
 }
 
 /**
+ * TOWELI staking v1's "Beta is over" notice on its own, from this contract's reads.
+ * Connected, it shows only to a wallet with something there; a visitor with no wallet
+ * always sees it. `art` is a <CardArt/> written at the call site.
+ */
+export function OldStakingBetaNotice({ art }: { art?: ReactNode }) {
+  const { isConnected } = useAccount();
+  const pos = useUserPosition(OLD_STAKING_CONTRACT);
+  const beta = useOldStakingBeta(isConnected ? pos : undefined);
+  if (isConnected && !hasSomethingThere(pos)) return null;
+  return <StakingBetaOverNotice phase={beta.phase} onRetry={beta.retry} art={art} />;
+}
+
+/**
  * A pointer, not a second copy of the controls: on a page that shows the CURRENT
  * contract's position (the Dashboard), a wallet whose stake is on the old contract would
  * otherwise read "no staking position". The Farm page owns the writes.
@@ -114,7 +172,7 @@ export function OldStakingCard() {
 export function OldStakingNotice() {
   const { isConnected } = useAccount();
   const pos = useUserPosition(OLD_STAKING_CONTRACT);
-  if (!isConnected || !(pos.hasPosition || pos.positionUnread)) return null;
+  if (!isConnected || !hasSomethingThere(pos)) return null;
   return (
     <div
       className="mb-4 rounded-lg p-3 text-[13px] text-white"
@@ -123,7 +181,9 @@ export function OldStakingNotice() {
     >
       {pos.hasPosition
         ? <>You have {Number(pos.stakedFormatted).toLocaleString(undefined, { maximumFractionDigits: 2 })} TOWELI staked on the old contract (early exit there costs {OLD_STAKING_CONTRACT.penaltyBps / 100}%).{' '}</>
-        : <>We could not check the old staking contract. Anything staked there is still yours.{' '}</>}
+        : pos.positionUnread
+        ? <>We could not check the old staking contract. Anything staked there is still yours.{' '}</>
+        : <>You have {pos.unsettledFormatted} TOWELI of unsettled rewards on the old contract.{' '}</>}
       <Link to="/earn/toweli" className="underline hover:text-amber-100">Manage it on the Farm page</Link>.
     </div>
   );

@@ -45,6 +45,8 @@ const ANVIL_RPC_URL = process.env.ANVIL_RPC_URL;
 
 /** Live TOWELI. Mirrors src/lib/constants.ts; the specs gate CTAs on this balance. */
 const TOWELI = '0x420698CFdEDdEa6bc78D59bC17798113ad278F9D';
+/** TOWELI staking v1 (TegridyStaking). Mirrors src/lib/constants.ts OLD_TEGRIDY_STAKING_ADDRESS (staking release 1). */
+const TEGRIDY_STAKING = '0xcaDc93E96De58EA554c71ca609974625615E046D';
 
 // ─── NFT-lending fixture constants ───────────────────────────────────────
 // The deployed NFT lending market (constants.ts TEGRIDY_NFT_LENDING_ADDRESS) and
@@ -415,6 +417,41 @@ export async function advanceForkTime(seconds: number): Promise<void> {
   }
   await anvilRpc('evm_increaseTime', [seconds]);
   await anvilRpc('evm_mine', []);
+}
+
+/**
+ * Open a TOWELI staking v1 position for `account` straight on the fork: approve, then
+ * stake, each sent by the node under `anvil_impersonateAccount`, each receipt checked.
+ *
+ * WHY NOT THROUGH THE SITE: v1 is closing (owner, 2026-10-30) and the site takes no new
+ * stakes into it, so the specs that claim from or exit a v1 position open it here. Both
+ * calls are ones any holder can make; nothing is written into storage.
+ */
+export async function openToweliStakeOnFork(account: string, amountWei: bigint, lockSeconds: number): Promise<void> {
+  const { encodeFunctionData, parseAbi } = await import('viem');
+  const abi = parseAbi([
+    'function approve(address,uint256) returns (bool)',
+    'function stake(uint256,uint256)',
+  ]);
+  const send = async (to: string, data: string, what: string): Promise<void> => {
+    const hash = (await anvilRpc('eth_sendTransaction', [{ from: account, to, data }])) as string;
+    for (let i = 0; i < 40; i++) {
+      const receipt = (await anvilRpc('eth_getTransactionReceipt', [hash])) as { status?: string } | null;
+      if (receipt) {
+        if (receipt.status !== '0x1') throw new Error(`openToweliStakeOnFork: ${what} REVERTED on the fork (${hash}).`);
+        return;
+      }
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    throw new Error(`openToweliStakeOnFork: ${what} never produced a receipt (${hash}).`);
+  };
+  await anvilRpc('anvil_impersonateAccount', [account]);
+  try {
+    await send(TOWELI, encodeFunctionData({ abi, functionName: 'approve', args: [TEGRIDY_STAKING as `0x${string}`, amountWei] }), 'approve');
+    await send(TEGRIDY_STAKING, encodeFunctionData({ abi, functionName: 'stake', args: [amountWei, BigInt(lockSeconds)] }), 'stake');
+  } finally {
+    await anvilRpc('anvil_stopImpersonatingAccount', [account]);
+  }
 }
 
 /**

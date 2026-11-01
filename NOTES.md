@@ -15,6 +15,84 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-31: a merged pull request reads `mergeable: UNKNOWN`, and REST still calls it clean
+
+**Believed:** `gh pr view N --json mergeable,mergeStateStatus` reading `UNKNOWN` after a push is
+GitHub still computing; and `gh api repos/.../pulls/N` reading
+`mergeable: true, mergeable_state: clean` confirms the pull request can be merged.
+
+**Measured** (#1059, 2026-10-31): the pull request was merged at 18:34:46Z. From 18:34Z to 18:48Z,
+ten GraphQL reads returned `UNKNOWN` for both fields and three REST reads returned `true` and
+`clean`. Neither said merged. The report at 18:46Z called the pull request open and waiting for the
+owner's word; the owner's "merge it" then found nothing to merge. The tell was in a read I had:
+`updatedAt` had jumped to 18:34:49Z.
+
+**Do:** read `state` and `mergedAt` in the same call as `mergeable`, and read them first. An
+`UNKNOWN` that survives one re-read is a reason to look at `state`, not to wait. REST's
+`mergeable_state` is stale on a merged pull request and proves nothing on its own. Before any
+`gh pr merge`, read `state` once more: the merge word can arrive after the merge.
+
+## 2026-10-30: one build, two word counts: a ceiling comes from the run where everything landed; a Git Bash `mklink /J` makes no junction
+
+**Believed:** `e2e/word-budget.spec.ts` measures a route once and the figure is the route's.
+**Measured:** three runs of the spec on ONE production build of `/pools` counted 252, 292 and 252
+visible words (desktop and phone alike). The 40 words are the Rates card: on the 292 run its
+two-tier table had landed from the chain before the 600 ms quiet window; on the other two the
+card still said "Reading the rates from the chain…" (6 words). A ceiling set from a 252 run
+(280) failed the very next run. **Do:** when lowering a ceiling, run the spec until the
+`[word-budget]` line shows the fuller figure (the 2026-10-16 entry's longest-blocks print shows
+which cards drew), and set the ceiling from that run: `/pools` got 325 from 292, not 280 from 252.
+
+**Believed:** `cmd /c mklink /J <link> <target>` from Git Bash makes the junction.
+**Measured:** it printed cmd's banner and nothing else, and `ls` of the link found nothing: Git
+Bash had path-converted the `/J` flag. `MSYS_NO_PATHCONV=1 cmd /c mklink /J ...` printed
+"Junction created" at once. **Do:** prefix a `cmd /c` whose flags start with `/` with
+`MSYS_NO_PATHCONV=1` (the general path-conversion rule is further down; this is the flag case).
+
+## 2026-10-30: a web3.js signature fails inside a jsdom test, and a stand-in wallet counted transactions, not prompts
+
+**Believed:** a vitest file can build and sign a real `VersionedTransaction` with a `Keypair`.
+**Measured:** under the default jsdom environment, `tx.sign([keypair])` and the code after it threw
+`Blob.encode[data] requires (length 1) Uint8Array as src` (8 of 32 tests in
+`lib/harvest/solana.test.ts`): jsdom's `Uint8Array` is another realm's, and the layout encoder
+checks `instanceof`. With `// @vitest-environment node` as the file's first line, all 32 passed.
+`islandBasketSol.test.ts` already starts that way. **Do:** any test that signs or serializes a
+real Solana transaction runs in the node environment.
+
+**Believed:** "1 signing request" from a stand-in wallet that refuses proves one prompt.
+**Measured:** a wallet-standard wallet's `signAllTransactions` reaches the wallet as ONE call of
+the `solana:signTransaction` feature, every transaction a separate input. Harvest's walk wallet
+(`harvest-walk.mjs`) recorded per input and threw on the first, so it read 1 for a batch of 3, and
+also 1 for the old one-claim-per-prompt run, whose first refusal stops it: the count could not
+tell the two apart. Recording each call with all its inputs showed `prompts: 1`, carrying 3
+transactions on one blockhash. **Do:** record per call and keep every input, then count both.
+
+## 2026-10-29: a pushed tag holds a PR's merge, a failed vault execute still reads "Approved", and funding a wallet can turn the registry red
+
+**Believed:** tagging a PR's head on origin is free bookkeeping.
+**Measured:** pushing `wip/todo-batch-numbers-1` started a full `solana-ci` run with event `push`
+on that tag (run 40821977089, created 05:11 UTC; at 05:31 two of its jobs were still queued). It
+attaches to the PR's head commit, so the PR showed four pending checks after its own
+`pull_request` run of the same workflow had passed. A "merge once its checks finish" word then
+waited on a run nobody needed. **Do:** keep rescue tags local (`git tag`), or push them only for
+commits that are not a PR's head.
+
+**Believed:** a vault proposal whose execute failed is closed.
+**Measured:** Squads proposal #18 (multisig `EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK`) failed
+its execute on 2026-10-27 because its buffer was gone, and on 2026-10-29 its account still reads
+`Approved`. A failed execute changes nothing in the proposal, so every signing page keeps offering
+it as ready, and pressing it again only burns a fee. **Do:** in any list of proposals to press,
+name the dead ones by number.
+
+**Believed:** a registry row that says a wallet is gone is a record of the past.
+**Measured:** `bayla-ladder-deployer` (`Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6`) has
+`expect: { type: "absent" }`, which `verify-addresses.mjs --onchain` enforces unconditionally. The
+ladder upgrade plan funds that wallet with 2.70 SOL, and its PR does not touch the registry. With
+the row flipped to `{ type: "wallet", funded: true }` and the wallet still empty, the live read
+fails on exactly that row (`registry expects this account to exist and it DOES NOT`), so the
+original row would fail the morning after the send. **Do:** a plan that funds or empties a
+registered wallet carries the registry change, merged the same day.
+
 ## 2026-10-28: WebKit can report art it mounted 1.6 s earlier as just visible, so a clock paused from that moment stops the splash after it has left
 
 **Believed:** `e2e/splash-reduced-motion.spec.ts` stops the Tradermigos splash well inside its

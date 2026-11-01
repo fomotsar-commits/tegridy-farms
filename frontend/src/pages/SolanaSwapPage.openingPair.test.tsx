@@ -22,7 +22,8 @@ const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 const BAYLA_MINT = '7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump';
 const BOBO_MINT = '4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump';
 
-const h = vi.hoisted(() => ({ resolveMint: vi.fn() }));
+const h = vi.hoisted(() => ({ resolveMint: vi.fn(), tokenFromChain: vi.fn() }));
+vi.mock('../lib/solana/swap/chainToken', () => ({ tokenFromChain: h.tokenFromChain }));
 
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() } }));
 vi.mock('../lib/analytics', () => ({ trackPageView: vi.fn() }));
@@ -59,6 +60,10 @@ vi.mock('@solana/wallet-adapter-react', () => ({
 
 import SolanaSwapPage from './SolanaSwapPage';
 import { SolanaSwapInner } from './SolanaSwapPage';
+import { getQuote } from '../lib/jupiter';
+
+/** The form's action button, whatever it says (Buy, Sell, Connect…): the one full-width primary press under the form. */
+const buyButton = () => screen.getAllByRole('button').find((b) => b.className.includes('btn-primary') && b.className.includes('w-full'))!;
 
 /** The coin on the buy side, read from the button that names it. */
 const buying = () =>
@@ -76,6 +81,8 @@ beforeEach(() => {
   localStorage.clear();
   h.resolveMint.mockReset();
   h.resolveMint.mockResolvedValue(null);
+  h.tokenFromChain.mockReset();
+  h.tokenFromChain.mockResolvedValue(null);
 });
 afterEach(() => {
   cleanup();
@@ -152,6 +159,87 @@ describe('/solana in a room', () => {
     open(`/solana?out=${USDC_MINT}`, 'bobo');
     await waitFor(() => expect(buying()).toBe('USDC'));
     expect(h.resolveMint).not.toHaveBeenCalled();
+  });
+});
+
+// A coin Jupiter has never listed can still have a pool on our venue, and the pool's Swap link
+// names it. Jupiter's lookup gives nothing (or cannot be asked), so the coin is read from the
+// chain instead (lib/solana/swap/chainToken.ts); only when neither answers does the default stand.
+describe('a link to a coin Jupiter does not list', () => {
+  const CORN_MINT = 'CornMintAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA1';
+  const CORN: SolToken = { mint: CORN_MINT, symbol: 'CORN', name: 'Corn Coin', decimals: 6, verified: false };
+
+  it('opens buying the coin as the chain names it, after Jupiter answered that it knows none', async () => {
+    h.tokenFromChain.mockResolvedValue(CORN);
+    open(`/solana?out=${CORN_MINT}`);
+    await waitFor(() => expect(buying()).toBe('CORN'));
+    expect(h.resolveMint.mock.calls.map((c) => c[0])).toEqual([CORN_MINT]);
+    expect(h.tokenFromChain.mock.calls.map((c) => c[1])).toEqual([CORN_MINT]);
+    expect(paying()).toBe('SOL');
+  });
+
+  it('opens paying with the coin, read from the chain, when the link pays with it', async () => {
+    h.tokenFromChain.mockResolvedValue(CORN);
+    open(`/solana?in=${CORN_MINT}&out=${USDC_MINT}`);
+    await waitFor(() => expect(paying()).toBe('CORN'));
+    expect(buying()).toBe('USDC');
+  });
+
+  it('asks the chain when Jupiter could not be asked at all', async () => {
+    h.resolveMint.mockRejectedValue(new Error('offline'));
+    h.tokenFromChain.mockResolvedValue(CORN);
+    open(`/solana?out=${CORN_MINT}`);
+    await waitFor(() => expect(buying()).toBe('CORN'));
+  });
+
+  it('stays on the default pair when neither Jupiter nor the chain names the coin, and says so', async () => {
+    open(`/solana?out=${CORN_MINT}`);
+    await waitFor(() => expect(h.tokenFromChain).toHaveBeenCalled());
+    expect(buying()).toBe('BAYLA');
+    const miss = await screen.findByTestId('solana-link-miss');
+    expect(miss).toHaveTextContent(`The coin in this link (${CORN_MINT}) could not be looked up on Jupiter or on the chain, so this form opened on SOL / BAYLA.`);
+    expect(miss).toHaveAttribute('role', 'status');
+  });
+
+  it('names the room, not a link, when it was the room’s coin that could not be looked up', async () => {
+    open('/solana', 'bobo');
+    await waitFor(() => expect(h.tokenFromChain).toHaveBeenCalled());
+    const miss = await screen.findByTestId('solana-link-miss');
+    expect(miss).toHaveTextContent(`This room’s coin (${BOBO_MINT}) could not be looked up on Jupiter or on the chain, so this form opened on SOL / BAYLA.`);
+    expect(miss).not.toHaveTextContent('this link');
+  });
+
+  it('holds the form while the link’s coin is looked up: no quote is asked and the buy button is off, so a sized link is never quoted on the default pair', async () => {
+    let settle: (t: SolToken) => void = () => {};
+    h.tokenFromChain.mockReturnValue(new Promise<SolToken>((resolve) => { settle = resolve; }));
+    open(`/solana?in=${CORN_MINT}&out=So11111111111111111111111111111111111111112&amt=21.046009`);
+    await waitFor(() => expect(h.tokenFromChain).toHaveBeenCalled());
+    expect(screen.getByTestId('solana-link-pending')).toHaveTextContent('Looking up the coin in this link…');
+    // The amount is in the field, but the form shows SOL as the pay coin until the lookup lands: nothing is quoted on it.
+    expect(screen.getByLabelText(/^Amount of SOL to pay$/)).toHaveValue('21.046009');
+    expect(getQuote).not.toHaveBeenCalled();
+    expect(buyButton()).toBeDisabled();
+    settle(CORN);
+    await waitFor(() => expect(paying()).toBe('CORN'));
+    expect(screen.queryByTestId('solana-link-pending')).toBeNull();
+    await waitFor(() => expect(getQuote).toHaveBeenCalled());
+  });
+
+  it('says nothing of the kind when the link’s coin was found', async () => {
+    h.tokenFromChain.mockResolvedValue(CORN);
+    open(`/solana?out=${CORN_MINT}`);
+    await waitFor(() => expect(buying()).toBe('CORN'));
+    expect(screen.queryByTestId('solana-link-miss')).toBeNull();
+  });
+
+  // The Arbitrage card's Swap (components/solana/lp/ArbitrageBoard.tsx): the pair and the sized amount, as
+  // poolList.ts `swapLink` writes them. A pin of the contract the link rests on; the link itself is tested there.
+  it('opens a link from the Arbitrage card on its pair with the amount in the pay field', async () => {
+    h.tokenFromChain.mockResolvedValue(CORN);
+    open(`/solana?in=${CORN_MINT}&out=So11111111111111111111111111111111111111112&amt=21.046009`);
+    await waitFor(() => expect(paying()).toBe('CORN'));
+    expect(buying()).toBe('SOL');
+    expect(screen.getByLabelText(/^Amount of CORN to pay$/)).toHaveValue('21.046009');
   });
 });
 

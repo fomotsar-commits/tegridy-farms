@@ -14,7 +14,7 @@ vi.mock('sonner', () => ({
 }));
 
 import { usePoolData } from './usePoolData';
-import { TEGRIDY_STAKING_ADDRESS } from '../lib/constants';
+import { TEGRIDY_STAKING_ADDRESS, OLD_STAKING_CONTRACT } from '../lib/constants';
 
 const USER = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' as `0x${string}`;
 // Staking release 1 pays out over a four-year schedule: a pool is only paying before its end.
@@ -299,5 +299,16 @@ describe('usePoolData', () => {
     expect(result.current.scheduleEnded).toBe(false);
     expect(result.current.aprUnread).toBe(true);
     expect(result.current.aprNum).toBe(0);
+  });
+  it('the first contract has no schedule: periodFinish is never asked, and nothing reads as ended', () => {
+    // An ended periodFinish answers if asked: a hook that asked would clamp the APR to 0.
+    wagmiMock.setReadResult({ functionName: 'periodFinish', result: 1n });
+    wagmiMock.setReadResult({ functionName: 'rewardRate', result: 1n });
+    wagmiMock.setReadResult({ functionName: 'totalBoostedStake', result: 31_536_000n });
+    const { result } = renderHook(() => usePoolData(OLD_STAKING_CONTRACT));
+    expect(result.current.scheduleUnread).toBe(false);
+    expect(result.current.scheduleEnded).toBe(false);
+    expect(result.current.periodFinish).toBe(0);
+    expect(result.current.apr).toBe('100.00');
   });
 });

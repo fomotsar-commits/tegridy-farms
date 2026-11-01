@@ -15,6 +15,8 @@ import { TEGRIDY_STAKING_ABI } from '../../lib/contracts';
 import { STAKING_CONTRACT, CHAIN_ID, LOCK_OPTIONS, MAX_LOCK_DURATION, type StakingContractSet } from '../../lib/constants';
 
 import { PositionMark, positionHost } from '../ui/PositionMark';
+import { StakingBetaOverNotice } from './StakingBetaOverNotice';
+import { NEW_STAKES_CLOSED_LINE, type StakingBetaPhase } from '../../lib/stakingBetaOver';
 
 export interface ConfirmState {
   withdraw: boolean;
@@ -67,12 +69,18 @@ interface StakingCardProps {
    * figure. Defaults to the contract that takes new stakes.
    */
   contract?: StakingContractSet;
+  /**
+   * TOWELI staking v1 is closing (lib/stakingBetaOver). Set: the "Beta is over"
+   * notice shows for `phase`, and the card offers no new stake, lock extension or
+   * Auto-Max Lock. Claim and every withdraw stay. Unset, the card is unchanged.
+   */
+  betaOver?: { phase: StakingBetaPhase; onRetry?: () => void };
 }
 
 export function StakingCard({
   isConnected, pos, actions, nft,
   input, confirms, setConfirm, pool, computed,
-  handleStake, lastActionRef, submittedAmountRef,
+  handleStake, lastActionRef, submittedAmountRef, betaOver,
   contract = STAKING_CONTRACT,
 }: StakingCardProps) {
   const { amount: stakeAmount, setAmount: setStakeAmount, lock: selectedLock, setLock: setSelectedLock, extendLockDuration, setExtendLockDuration } = input;
@@ -158,9 +166,10 @@ export function StakingCard({
         </div>
         <div className="relative z-10 p-6">
         <h2 className={`heading-luxury text-white text-[20px] ${exitOnly ? 'mb-1' : 'mb-5'}`}>
-          {exitOnly ? 'Your position on the old contract' : pos.hasPosition || pos.positionUnread ? 'Your Position' : 'Stake TOWELI'}
+          {exitOnly ? 'Your position on the old contract' : pos.hasPosition || pos.positionUnread ? 'Your Position' : betaOver ? 'TOWELI Staking v1' : 'Stake TOWELI'}
         </h2>
-        {exitOnly && (
+        {/* Paused, this fee is not what leaving costs: the pause exit is free. */}
+        {exitOnly && !pausedOnChain && (
           /* How this position earns and what the venue takes, in one visible line
              (feedback_say_how_money_moves). The fee is THIS contract's. */
           <p className="text-white/80 text-[12px] mb-4" data-testid="old-staking-money-line">
@@ -168,13 +177,14 @@ export function StakingCard({
             costs {EARLY_WITHDRAWAL_PENALTY_PCT}% of your stake, sent to the treasury.
           </p>
         )}
+        {betaOver && <StakingBetaOverNotice phase={betaOver.phase} onRetry={betaOver.onRetry} />}
 
         {pos.hasPosition ? (
           /* Existing position display */
           <div>
             {/* PAUSE, as the chain REPORTED it. The unread case is the notice
                 below, never this banner: an unknown pause switches nothing off. */}
-            {pausedOnChain && (
+            {pausedOnChain && !betaOver && (
               <div
                 role="status"
                 className="rounded-lg border border-red-500/40 bg-red-500/10 p-3 mb-4 text-[12px] text-red-100"
@@ -302,7 +312,10 @@ export function StakingCard({
                     </p>
                   );
                 })()}
-                {!exitOnly && pos.hasPosition && pos.isLocked && !confirms.extendLock && (
+                {betaOver && pos.isLocked && (
+                  <p className="text-white/60 text-[10px] mt-1.5" data-testid="extend-lock-closed">Extensions closed: v1 is closing.</p>
+                )}
+                {!exitOnly && !betaOver && pos.hasPosition && pos.isLocked && !confirms.extendLock && (
                   <button
                     onClick={() => setConfirm('extendLock', true)}
                     disabled={controlDisabled}
@@ -310,7 +323,7 @@ export function StakingCard({
                     Extend Lock
                   </button>
                 )}
-                {!exitOnly && pos.hasPosition && pos.isLocked && confirms.extendLock && (
+                {!exitOnly && !betaOver && pos.hasPosition && pos.isLocked && confirms.extendLock && (
                   <div className="mt-2">
                     {/* A11Y-R02: this picker chooses from the same LOCK_OPTIONS as
                         the STAKE form's, so it carries the same contract that one
@@ -442,6 +455,11 @@ export function StakingCard({
                           : `Rewards are paid first, but only what the reward pot holds. If it is short, you can lose the rest, and you still pay the ${EARLY_WITHDRAWAL_PENALTY_PCT}%.`}
                       </p>
                     </div>
+                    {betaOver && !pausedOnChain && (
+                      <p className="text-white/80 text-[11px] mb-2" data-testid="early-exit-wait-for-pause">
+                        No rush: once v1 pauses, your stake comes out with no penalty.
+                      </p>
+                    )}
                     {lostNum === null ? (
                       <p className="text-danger text-[11px] mb-2" data-testid="early-exit-reward-loss">
                         Unpaid rewards the reward reserve can't cover are lost for good.
@@ -458,7 +476,9 @@ export function StakingCard({
                         style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.20)' }}>
                         Cancel
                       </button>
-                      <button onClick={() => { setConfirm('earlyWithdraw', false); lastActionRef.current = 'unstake'; submittedAmountRef.current = pos.stakedFormatted; actions.earlyWithdraw(pos.tokenId); }}
+                      {/* The snapshot is what comes BACK, net of the penalty: the receipt
+                          falls back to it only when the EarlyWithdrawn log can't be read. */}
+                      <button onClick={() => { setConfirm('earlyWithdraw', false); lastActionRef.current = 'unstake'; submittedAmountRef.current = formatEther(pos.stakedAmount - (pos.stakedAmount * BigInt(contract.penaltyBps)) / 10000n); actions.earlyWithdraw(pos.tokenId); }}
                         disabled={controlDisabled}
                         className="flex-1 py-2 rounded-lg text-[12px] font-semibold text-danger cursor-pointer disabled:opacity-70"
                         style={{ background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.25)' }}>
@@ -492,14 +512,14 @@ export function StakingCard({
                     Disable Auto-Lock
                   </button>
                 )}
-                {!exitOnly && !pos.autoMaxLock && !confirms.autoMaxLock && (
+                {!exitOnly && !betaOver && !pos.autoMaxLock && !confirms.autoMaxLock && (
                   <button onClick={() => setConfirm('autoMaxLock', true)}
                     disabled={controlDisabled}
                     className="btn-secondary w-full py-2.5 text-[13px] disabled:opacity-70">
                     Enable Auto-Max Lock
                   </button>
                 )}
-                {!exitOnly && !pos.autoMaxLock && confirms.autoMaxLock && (
+                {!exitOnly && !betaOver && !pos.autoMaxLock && confirms.autoMaxLock && (
                   <div className="col-span-2 rounded-lg p-3" style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.15)' }}>
                     <p className="text-danger text-[12px] font-semibold mb-2">
                       This locks your {pos.stakedFormatted} TOWELI until{' '}
@@ -593,7 +613,10 @@ export function StakingCard({
                       <button
                         onClick={() => {
                           setConfirm('emergencyExit', false);
-                          lastActionRef.current = null;
+                          // A withdrawal receipt like Withdraw's: FarmPage reads the amount
+                          // off the exit's own log, this snapshot only if that can't be read.
+                          lastActionRef.current = 'unstake';
+                          submittedAmountRef.current = pos.stakedFormatted;
                           if (pos.canWithdraw) actions.emergencyExit(pos.tokenId);
                           else actions.emergencyWithdraw(pos.tokenId);
                         }}
@@ -646,6 +669,8 @@ export function StakingCard({
           /* A contract that takes no new stakes never shows the stake form, even if a
              parent mounts this card for a wallet with nothing there. */
           null
+        ) : betaOver ? (
+          <p className="text-white text-[13px]" data-testid="staking-v1-closed">{NEW_STAKES_CLOSED_LINE}</p>
         ) : (
           /* New stake form */
           <div>

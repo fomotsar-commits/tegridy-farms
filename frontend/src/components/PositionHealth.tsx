@@ -75,8 +75,8 @@ export function PositionHealth() {
     });
   }
 
-  // Rewards sitting unclaimed.
-  if (claimable > 0.0001) {
+  // Rewards sitting unclaimed. Not during a READ pause: getReward is whenNotPaused.
+  if (claimable > 0.0001 && pos.isPaused !== true) {
     alerts.push({
       id: 'claim',
       sev: 'info',

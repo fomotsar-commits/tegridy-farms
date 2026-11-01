@@ -24,6 +24,7 @@ import { OldStakingCard, OldStakingNotice } from './OldStakingCard';
 import { StakingCard, type ConfirmState } from './StakingCard';
 import { useUserPosition } from '../../hooks/useUserPosition';
 import { useFarmActions } from '../../hooks/useFarmActions';
+import { BETA_OVER_LINE } from '../../lib/stakingBetaOver';
 import {
   CHAIN_ID,
   LOCK_OPTIONS,
@@ -222,5 +223,44 @@ describe('<OldStakingNotice /> — the Dashboard must not call an old stake "no 
     stubPosition(OLD_TEGRIDY_STAKING_ADDRESS, OLD_STAKING_MONITOR_VIEW_ADDRESS, { tokenId: 0n });
     renderWithProviders(<OldStakingNotice />);
     expect(screen.queryByTestId('old-staking-notice')).toBeNull();
+  });
+});
+
+describe('<OldStakingCard /> — TOWELI staking v1 is closing (lib/stakingBetaOver)', () => {
+  /** v1's pool, answered ONLY at the old contract: 1,000 staked, 2,000 held, so 1,000 left for rewards. */
+  function stubOldPool() {
+    const at = (address: string, functionName: string, result: unknown) =>
+      wagmiMock.setReadResult({ address, functionName, result });
+    at(OLD_TEGRIDY_STAKING_ADDRESS, 'totalStaked', STAKED_WEI);
+    at(OLD_TEGRIDY_STAKING_ADDRESS, 'totalUnsettledRewards', 0n);
+    at(TOWELI_ADDRESS, 'balanceOf', 2n * STAKED_WEI);
+  }
+
+  it("says where v1 stands from the OLD contract's own pool reads", () => {
+    stubPosition(OLD_TEGRIDY_STAKING_ADDRESS, OLD_STAKING_MONITOR_VIEW_ADDRESS);
+    stubOldPool();
+    renderWithProviders(<OldStakingCard />);
+    // Rate 0 and 1,000 left against 5 owed: a card reading the new contract's pool would say "could not read".
+    expect(screen.getByTestId('staking-beta-over')).toHaveTextContent(BETA_OVER_LINE['claim-now']);
+  });
+
+  it('an IOU left after the position closed is claimed here, from the OLD contract, and not during a pause', () => {
+    stubPosition(OLD_TEGRIDY_STAKING_ADDRESS, OLD_STAKING_MONITOR_VIEW_ADDRESS, { tokenId: 0n });
+    stubOldPool();
+    wagmiMock.setReadResult({ address: OLD_TEGRIDY_STAKING_ADDRESS, functionName: 'unsettledRewards', result: 12n * 10n ** 18n });
+    const { unmount } = renderWithProviders(<OldStakingCard />);
+    const iou = screen.getByTestId('old-staking-iou-claim');
+    expect(iou).toHaveTextContent(/12 TOWELI/);
+    fireEvent.click(within(iou).getByRole('button', { name: /claim unsettled/i }));
+    expect(wagmiMock.writeContract()).toHaveBeenCalledWith(expect.objectContaining({
+      address: OLD_TEGRIDY_STAKING_ADDRESS, functionName: 'claimUnsettled',
+    }));
+    unmount();
+
+    wagmiMock.setReadResult({ address: OLD_TEGRIDY_STAKING_ADDRESS, functionName: 'paused', result: true });
+    renderWithProviders(<OldStakingCard />);
+    expect(within(screen.getByTestId('old-staking-iou-claim')).getByRole('button', { name: /claim unsettled/i })).toBeDisabled();
+    // Paused, the 25% is not what leaving costs (the pause exit is free), so it is not quoted up top.
+    expect(screen.queryByTestId('old-staking-money-line')).toBeNull();
   });
 });

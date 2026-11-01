@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest';
 import * as earnCopy from './earnCopy';
-import { FORECAST_WORDS, RATE_WORDS, feeRateText, formatSolPrice, minuteText, pctText, priceText } from './format';
+import { FORECAST_WORDS, RATE_WORDS, agoText, feeRateText, formatSolPrice, minuteText, pctText, priceText } from './format';
 import * as ledger from './ledger';
 import * as poolGrowth from './poolGrowth';
 import * as poolPast from './poolPast';
@@ -113,5 +113,25 @@ describe('priceText: the price with the pool’s own coin', () => {
     expect(priceText(0.025, SOL_QUOTE)).toBe('1 token = 0.025 SOL');
     expect(priceText(104_000, USDC_QUOTE)).toBe('1 token = 104,000 USDC');
     expect(priceText(123_456_789, BAYLA_QUOTE)).toBe('1 token = 123,456,789 BAYLA');
+  });
+});
+
+describe('agoText: how old a read is, cut and never rounded up', () => {
+  it('says just now under five seconds, then seconds, minutes, hours and days, each cut', () => {
+    expect(agoText(0)).toBe('just now');
+    expect(agoText(4_999)).toBe('just now');
+    expect(agoText(5_000)).toBe('5 s ago');
+    expect(agoText(59_999)).toBe('59 s ago');
+    expect(agoText(60_000)).toBe('1 min ago');
+    expect(agoText(3_599_999)).toBe('59 min ago');
+    expect(agoText(3_600_000)).toBe('1 h ago');
+    expect(agoText(86_399_999)).toBe('23 h ago');
+    expect(agoText(86_400_000)).toBe('1 day ago');
+    expect(agoText(172_800_000)).toBe('2 days ago');
+  });
+
+  it('a clock that went backwards reads as just now, and no stamp carries a rate word', () => {
+    expect(agoText(-5_000)).toBe('just now');
+    for (const ms of [0, 12_000, 180_000, 7_200_000, 86_400_000]) expect(agoText(ms)).not.toMatch(FORECAST_WORDS);
   });
 });

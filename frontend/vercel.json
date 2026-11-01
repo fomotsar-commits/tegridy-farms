@@ -5,6 +5,9 @@
     "api/orderbook.js": {
       "maxDuration": 30
     },
+    "api/cardano.js": {
+      "maxDuration": 30
+    },
     "api/launch-upload.js": {
       "maxDuration": 60
     },

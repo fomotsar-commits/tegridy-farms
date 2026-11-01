@@ -5,7 +5,7 @@ import { Link, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { CURRENT_SEASON, LOCK_OPTIONS } from '../lib/constants';
 import { formatEther } from 'viem';
-import { stakingClaimPaid, NOTHING_PAID_COPY } from '../lib/stakingClaimPaid';
+import { stakingClaimPaid, stakingStakeReturned, NOTHING_PAID_COPY } from '../lib/stakingClaimPaid';
 import { WrongChainBanner } from '../components/ui/WrongChainGuard';
 import { calculateBoost } from '../lib/boostCalculations';
 import { useFarmStats } from '../hooks/useFarmStats';
@@ -43,7 +43,7 @@ import { LPFarmingSection } from '../components/farm/LPFarmingSection';
 import { StakingCard } from '../components/farm/StakingCard';
 import type { ConfirmState } from '../components/farm/StakingCard';
 import { LegacyStakingExit } from '../components/farm/LegacyStakingExit';
-import { OldStakingCard } from '../components/farm/OldStakingCard';
+import { OldStakingCard, OldStakingBetaNotice } from '../components/farm/OldStakingCard';
 import { OldLpFarmExit } from '../components/farm/OldLpFarmExit';
 import { BoostScheduleTable } from '../components/farm/BoostScheduleTable';
 import { UPCOMING_POOLS } from '../components/farm/poolConfig';
@@ -342,10 +342,13 @@ function ToweliFarm() {
         });
         submittedAmountRef.current = null;
       } else if (actionType === 'unstake') {
+        // What came BACK, from the tx's own exit log (an early exit is net of its
+        // penalty); the submit-time snapshot only when that log can't be read.
+        const returned = stakingStakeReturned(actions.receipt);
         showReceipt({
           type: 'unstake',
           data: {
-            amount: submittedAmountRef.current ?? pos.stakedFormatted,
+            amount: returned !== null ? formatEther(returned) : submittedAmountRef.current ?? pos.stakedFormatted,
             token: 'TOWELI',
             txHash: actions.hash,
           },
@@ -389,6 +392,8 @@ function ToweliFarm() {
                 action card is the FIRST card, not the last: on a 390px phone it
                 sat 6,400px down, under five sections of figures (the lead's
                 walk, 2026-10-14). The read-only figures follow it unchanged. */}
+            {/* TOWELI staking v1 (the old contract) is closing: said to every visitor. */}
+            <OldStakingBetaNotice art={<CardArt pageId="farm" idx={3} />} />
             <ConnectPrompt surface="farm" />
             <IncentivesStrip apr={pool.apr} aprNum={pool.aprNum} rewardPool={stats.rewardPool} dailyEmissions={stats.dailyEmissions} rewardsRemaining={rewardsRemainingDisplay} secondsRemaining={pool.secondsRemaining} stakerSharePct={poolTVL.stakerSharePct} referralFeeBps={poolTVL.referralFeeBps} reserveEmpty={pool.isDry} />
 

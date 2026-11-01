@@ -196,6 +196,21 @@ describe('when the venue is live', () => {
     await waitFor(() => expect(screen.getByText(/Pools are open/i)).toBeInTheDocument());
     expect(document.body.textContent).not.toContain('—');
   });
+
+  // Owner, 2026-10-13: as few words as possible. The hero's eyebrow and its Details drop-down said what the
+  // tab strip, the Rates card and the status card say; "Nothing to claim." is the section's own first line.
+  it('says each thing once: no eyebrow, no hero Details, and the share card leaves "Nothing to claim" to the earn line', async () => {
+    await mount();
+    await waitFor(() => expect(screen.getByText(/Pools are open/i)).toBeInTheDocument());
+    const hero = screen.getByRole('heading', { level: 1 }).parentElement!;
+    expect(hero).not.toHaveTextContent('Venue AMM · Solana');
+    expect(hero.querySelector('details')).toBeNull();
+    expect(within(hero).queryByText('Details')).toBeNull();
+    const share = screen.getByRole('heading', { level: 2, name: 'Deposit a pair, hold your share' }).parentElement!;
+    expect(share).toHaveTextContent("No lock, but the team's vault can pause removing.");
+    expect(within(share).queryByText(/^Nothing to claim\./)).toBeNull();
+    // The section's own first line says it (SolanaLpSection.test.tsx pins "Fees grow your pool shares. Nothing to claim.").
+  });
 });
 
 // Tier 0 exactly as mainnet returned it (scripts/record-pools-venue-fixture.mjs): 0.25% trade
@@ -406,7 +421,7 @@ describe("what this site can do with the pools follows LP's own switch", () => {
   it("'off': reads only, and says adding and removing are not switched on", async () => {
     await mount();
     await waitFor(() => expect(screen.getByText(/Pools are open/i)).toBeInTheDocument());
-    expect(screen.getByText(/adding and removing\s+liquidity from here is not switched on yet/i)).toBeInTheDocument();
+    // The status card's line is the one place this page says it (the hero's Details went on 2026-10-30).
     expect(screen.getByText(/This site only reads pools so far\./)).toBeInTheDocument();
   });
 
@@ -416,9 +431,6 @@ describe("what this site can do with the pools follows LP's own switch", () => {
     await waitFor(() => expect(screen.getByText(/Pools are open/i)).toBeInTheDocument());
     // SPEC_S2_CREATE 2.6 (K4): opening a pool joins the 'on' copy. Whether the public tier
     // exists is said only by the create card's live read, never by this fixed copy (B review parity-3).
-    expect(
-      screen.getByText(/below you can add liquidity to a pool whose checks pass, take yours out, or open a new pool on the public fee tier \(the pools section says whether that can be done right now\)\./i),
-    ).toBeInTheDocument();
     expect(
       screen.getByText(/This site can add and remove liquidity, and open new pools on the public fee tier \(the pools section above says whether it can right now\)\./),
     ).toBeInTheDocument();
@@ -433,7 +445,6 @@ describe("what this site can do with the pools follows LP's own switch", () => {
     lp.mode = 'withdraw-only';
     await mount();
     await waitFor(() => expect(screen.getByText(/Pools are open/i)).toBeInTheDocument());
-    expect(screen.getByText(/Adding liquidity and opening pools from here are paused; taking yours out still works\./)).toBeInTheDocument();
     expect(screen.getByText(/This site can take liquidity out; adding liquidity and opening pools are paused\./)).toBeInTheDocument();
     expect(screen.queryByText(/adding and removing\s+liquidity from here is not switched on yet/i)).toBeNull();
   });

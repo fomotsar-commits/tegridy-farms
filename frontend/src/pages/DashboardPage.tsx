@@ -13,7 +13,7 @@ import { useLpPosition } from '../hooks/useLpPosition';
 import { usePoolData } from '../hooks/usePoolData';
 import { useTOWELIPrice } from '../contexts/PriceContext';
 import { useFarmActions } from '../hooks/useFarmActions';
-import { OldStakingNotice } from '../components/farm/OldStakingCard';
+import { OldStakingNotice, OldStakingBetaNotice } from '../components/farm/OldStakingCard';
 import { useReceiptOutcome } from '../hooks/useReceiptOutcome';
 import { useNFTBoost } from '../hooks/useNFTBoost';
 import { useAutoRefreshBoost } from '../hooks/useAutoRefreshBoost';
@@ -229,9 +229,12 @@ function ToweliDashboard() {
     }
   };
 
+  // getReward and claimUnsettled are whenNotPaused: during a READ pause they only revert.
+  const claimsPaused = pos.isPaused === true;
+
   // Claim handler
   const handleClaim = () => {
-    if (isWrongNetwork || pendingTotal < 0.01 || !pos.hasPosition) return;
+    if (isWrongNetwork || claimsPaused || pendingTotal < 0.01 || !pos.hasPosition) return;
     farmActions.claim(pos.tokenId);
   };
 
@@ -263,12 +266,12 @@ function ToweliDashboard() {
   const { say } = useTowelie();
   const nudgeKey = Math.round(pendingTotal * 100);
   useEffect(() => {
-    if (!isConnected || isWrongNetwork) return;
+    if (!isConnected || isWrongNetwork || claimsPaused) return;
     if (!pos.hasPosition || nudgeKey < 1) return;
     const amount = (nudgeKey / 100).toFixed(2);
     say(`You've got ${amount} TOWELI waiting. Claim it.`, { key: 'unclaimed-yield' });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- say is stable; nudgeKey is the de-floated dep
-  }, [isConnected, isWrongNetwork, pos.hasPosition, nudgeKey]);
+  }, [isConnected, isWrongNetwork, claimsPaused, pos.hasPosition, nudgeKey]);
 
   // Price change indicator
   const priceChangeStr = price.priceChange !== 0
@@ -475,6 +478,9 @@ function ToweliDashboard() {
           ))}
         </m.div>
 
+        {/* TOWELI staking v1 (the old contract) is closing: said to every wallet with something in it. */}
+        <OldStakingBetaNotice art={<CardArt pageId="dashboard" idx={30} />} />
+
         {/* Position Health (#7) — proactive warnings (lock expiring, boost at
             risk, rewards to claim). Self-gates to null when there's no position. */}
         <div className="mb-6">
@@ -580,7 +586,7 @@ function ToweliDashboard() {
             {pendingTotal >= 0.01 && pos.hasPosition && (
               <m.div className="mb-6" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
                 <button onClick={handleClaim}
-                  disabled={farmActions.isPending || farmActions.isConfirming}
+                  disabled={farmActions.isPending || farmActions.isConfirming || claimsPaused}
                   className="btn-primary px-6 py-2.5 text-[13px] disabled:opacity-70 disabled:cursor-not-allowed">
                   {farmActions.isPending || farmActions.isConfirming
                     ? 'Claiming...'
@@ -870,7 +876,7 @@ function ToweliDashboard() {
             {pendingTotal >= 0.01 && pos.hasPosition && (
               <m.div className="mb-6" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
                 <button onClick={handleClaim}
-                  disabled={farmActions.isPending || farmActions.isConfirming}
+                  disabled={farmActions.isPending || farmActions.isConfirming || claimsPaused}
                   className="btn-primary px-6 py-2.5 text-[13px] disabled:opacity-70 disabled:cursor-not-allowed">
                   {farmActions.isPending || farmActions.isConfirming
                     ? 'Claiming...'
@@ -892,7 +898,7 @@ function ToweliDashboard() {
                     <span className="stat-value text-[16px] text-white">{formatTokenAmount(pos.unsettledFormatted)} TOWELI</span>
                   </div>
                   <button onClick={() => farmActions.claimUnsettled()}
-                    disabled={farmActions.isPending || farmActions.isConfirming || isWrongNetwork}
+                    disabled={farmActions.isPending || farmActions.isConfirming || isWrongNetwork || claimsPaused}
                     className="btn-secondary px-5 py-2.5 text-[13px] disabled:opacity-70">
                     {farmActions.isPending || farmActions.isConfirming ? 'Claiming...' : 'Claim Unsettled'}
                   </button>

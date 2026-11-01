@@ -10,11 +10,15 @@
  * Mock-mode covers UI structure (gate, inputs, CTAs). Anvil-mode covers the
  * full state-changing flow. See swap.spec.ts for why the anvil gate lives
  * INSIDE the test rather than in describe scope.
+ *
+ * TOWELI staking v1 (the OLD contract since staking release 1) is closing and takes no
+ * new stakes, so its leg opens a position on the fork and checks the old contract's card.
  */
 import {
-  test, expect, expectTxReceipt, advancePastApproval, anvilRpc,
+  test, expect, expectTxReceipt, advancePastApproval, anvilRpc, openToweliStakeOnFork,
   blindReceiptReads, expectMinedSuccessfully, expectUnconfirmedToast, forkTxCount, recordToasts,
 } from './fixtures/wallet';
+import { PENALTY_COPY } from '../src/lib/copy';
 
 const onAnvil = !!process.env.ANVIL_RPC_URL;
 
@@ -226,5 +230,30 @@ test.describe('Stake surface', () => {
     ).toContainText(/Receipt image copied/i, { timeout: 15_000 });
     const types = await page.evaluate(async () => (await navigator.clipboard.read()).flatMap((i) => i.types));
     expect(types).toContain('image/png');
+  });
+
+  test("a v1 position shows on the old contract's card: Beta is over, Claim and its 25% exit, nothing to add (Anvil only)", async ({ page, walletMock }) => {
+    test.skip(!onAnvil, 'ANVIL_RPC_URL unset — needs the fork job (npm run e2e)');
+    test.setTimeout(120_000);
+
+    // ISOLATED WALLET: a position is exactly what changes the /farm render specs. 100
+    // TOWELI for 90 days, a running lock, so the exit the card offers is the early one.
+    const account = await walletMock.useIsolatedForkAccount();
+    await openToweliStakeOnFork(account, 100n * 10n ** 18n, 90 * 86_400);
+    await walletMock.connect(account);
+    await page.goto('/earn/toweli');
+
+    const oldCard = page.getByTestId('old-staking-card');
+    await expect(
+      oldCard.getByRole('heading', { name: /^Your position on the old contract$/i }),
+      "a v1 position was opened on the fork but the old contract's card does not show it.",
+    ).toBeVisible({ timeout: 30_000 });
+    await expect(oldCard.getByRole('heading', { name: /^beta is over$/i })).toBeVisible();
+
+    // Claim and v1's own exit stay; nothing that adds to a v1 position does.
+    await expect(oldCard.getByRole('button', { name: /^claim rewards$/i })).toBeVisible();
+    await expect(oldCard.getByRole('button', { name: new RegExp(`^${PENALTY_COPY.earlyExitLabel} \\(25%\\)$`, 'i') })).toBeVisible();
+    await expect(oldCard.getByRole('button', { name: /extend lock/i })).toHaveCount(0);
+    await expect(oldCard.getByRole('button', { name: /enable auto-max lock/i })).toHaveCount(0);
   });
 });

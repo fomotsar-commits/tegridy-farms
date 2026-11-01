@@ -116,9 +116,10 @@ it belongs to (`STAKING_CONTRACT` / `OLD_STAKING_CONTRACT` in `constants.ts`).
   (528.2 LP) withdraws from the old farm and stakes again.
 - **GaugeController / VoteIncentives** keep reading the OLD staking (switched off on the site).
   Replace them only if they are switched back on.
-- **Do not pause the old staking.** Its 16 positions (750,084.49 TOWELI) can only stay or leave
-  there; pausing blocks `withdraw`, `earlyWithdraw` and `getReward`. Its reward pool is short of
-  what it owes (owner decision, separate).
+- **Closing the old staking** is its own list (docs/TODO_OPERATOR.md, owner 2026-10-30): rate to
+  0, pay in what it owes, about 14 days to claim, then pause. Paused, `getReward` and
+  `claimUnsettled` stop and `emergencyWithdrawPosition` returns a whole stake with no fee (a lock
+  still running gives up its unclaimed rewards, so claim first).
 - **Base / Robinhood**: `script/base/*` and `script/robinhood/*` deploy the same
   `TegridyStaking` source, so any future L2 staking deploy from this source charges 75%.
 - **LighthouseLadder** (`ladder-pepe` on mainnet, and the source) keeps its own 25%

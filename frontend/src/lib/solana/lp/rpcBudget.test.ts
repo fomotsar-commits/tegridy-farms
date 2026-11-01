@@ -89,6 +89,8 @@ describe('rpcBudget', () => {
 
   it('the paused sentence, verbatim, with no em dash and no forecast word', () => {
     expect(b.pausedText()).toBe('History reads are paused so this page’s live reads keep working. Try again in about a minute.');
+    // The pool list's own re-reads refuse under the floor too, and say what they are.
+    expect(b.pausedText('List reads')).toBe('List reads are paused so this page’s live reads keep working. Try again in about a minute.');
     expect(b.pausedText()).not.toMatch(/—/);
     expect(b.pausedText()).not.toMatch(/\bAPR\b|\bAPY\b|yield of|a year|annual|per day|per week|rate of return|earn fees on every trade/i);
   });
