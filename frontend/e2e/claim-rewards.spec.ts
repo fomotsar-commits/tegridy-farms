@@ -149,13 +149,15 @@ test.describe('Claim rewards surfaces', () => {
     // 0. Is v1 still accruing? The owner's closing plan sets rewardRate() to 0, then refills only
     // what is already owed: from then a fresh position earns nothing, the reserve check below
     // passes, and Claim never enables. Asked first, because a refill does not change this answer.
+    // A failure, not a skip: the Anvil job fails any skip under a generic message (owner, 2026-11-01).
     const rate = await readUint(TEGRIDY_STAKING_ADDRESS, encodeFunctionData({ abi: RESERVE_ABI, functionName: 'rewardRate' }));
-    test.skip(
-      rate === 0n,
-      'TOWELI staking v1 has stopped accruing: rewardRate() is 0 on this fork, so a new position earns ' +
-        'nothing and there is no claim to drive. That is the owner\'s plan of 2026-10-30 (docs/TODO_OPERATOR.md, ' +
-        '"close TOWELI staking v1"), not a defect in this PR.',
-    );
+    if (rate === 0n) {
+      throw new Error(
+        'TOWELI staking v1 has stopped accruing: rewardRate() is 0 on this fork, so a new position earns ' +
+          'nothing and there is no claim to drive. That is the owner\'s plan of 2026-10-30 (docs/TODO_OPERATOR.md, ' +
+          '"close TOWELI staking v1"), not this PR, and refilling the reserve does not change it.',
+      );
+    }
 
     // Can anything accrue at all? StakingRewardLib.accumulateRewards caps every tick
     // to balanceOf(staking) − totalStaked − totalUnsettledRewards, and gives ZERO when
