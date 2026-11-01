@@ -511,6 +511,28 @@ Next after that: our own Cardano pools (plan Part 2), which ends in an audit you
 
 ---
 
+## 2026-10-24: Cardano pools, your decisions before the audit
+
+Our copy of Minswap V2 changes one constant (your fee share, below) and is proven to build into
+Minswap's mainnet scripts byte for byte everywhere else; the 48-hour, two-key lock that fixes
+CertiK's MIN-01 is written and tested. Nothing is deployed. Brief for the auditor, and the detail
+behind each item: [`CARDANO_AUDIT_SCOPE.md`](CARDANO_AUDIT_SCOPE.md).
+
+- ✅ **Fees** (you: "0.3% fee, venue under 1/6"): 0.3% per trade; the venue takes 13.33% of it
+  (about 0.04% of the trade), LPs the rest. It needed Minswap's floor lowered, one line of their code.
+- ✅ **Split** (you: "Quarterly, like EVM"): the whole share goes to the treasury, and the
+  30/35/35 (later 10/45/45) is paid from there each quarter.
+- ⬜ **The treasury** (you: "Two keys, like the vault"): a Lace shared wallet, two of two, being
+  set up with you now.
+- ⬜ **The licence.** Minswap's files say GPL-3.0 in one place and Apache-2.0 in another. A
+  lawyer's read is owed before any deploy.
+- ⬜ **Who holds the lock's two owner keys.**
+- ⬜ **Where the batcher runs** and who holds its hot key (it is not written yet).
+- ⬜ **Which auditor.** The scope is the one-line patch and the pool validator it changes, the
+  lock, the deploy parameters and the batcher.
+
+---
+
 ## ✅ 2026-10-22: two merges only you can press (both done)
 
 A session's merge was refused on 2026-10-22 as a production deploy, after a general "merge". A
