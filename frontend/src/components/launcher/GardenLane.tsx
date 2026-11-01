@@ -51,10 +51,10 @@ export function GardenLane({ community }: GardenLaneProps) {
       className={`rounded-xl p-4 border ${open ? 'border-emerald-500/70 bg-emerald-500/10' : 'border-white/12'}`}
       // Not a button. The lane is not selectable while dark, and making it look
       // clickable would imply the venue can grant what only the island can.
-      aria-label="Garden lane — certified soil"
+      aria-label="Garden lane: certified soil"
     >
       <div className="flex items-center justify-between gap-3">
-        <span className="text-white font-semibold text-sm">Garden — certified soil</span>
+        <span className="text-white font-semibold text-sm">Garden: certified soil</span>
         <span
           className={`text-[10px] uppercase tracking-[0.14em] px-2 py-0.5 rounded-full ${
             open ? 'text-emerald-200 bg-emerald-500/20' : 'text-white/45 bg-white/5'

@@ -168,7 +168,7 @@ export function LaunchBuyPanel({
     if (now() - phase.quotedAt > QUOTE_TTL_SECONDS) {
       setPhase({
         k: 'refused',
-        reason: `That quote is more than ${QUOTE_TTL_SECONDS}s old and the auction has repriced since. Nothing was sent — get a fresh quote.`,
+        reason: `That quote is more than ${QUOTE_TTL_SECONDS}s old and the auction has repriced since. Nothing was sent. Get a fresh quote.`,
       });
       return;
     }
@@ -193,7 +193,7 @@ export function LaunchBuyPanel({
     <div className="mt-3 pt-3 border-t border-emerald-500/20" data-testid="launch-buy-panel">
       <div className="font-semibold text-emerald-100 mb-1">Buy your launch in one signature</div>
       <p className="text-emerald-200/60 text-xs leading-relaxed mb-3">
-        One wallet, one confirmation, one address — the whole buy is visible in a single
+        One wallet, one confirmation, one address: the whole buy is visible in a single
         transaction from the address you launched with. This is disclosure, not concealment:
         it is the opposite of splitting a buy across fresh wallets to hide concentration.
       </p>
@@ -203,7 +203,7 @@ export function LaunchBuyPanel({
       {pool.k === 'unavailable' && (
         <Note tone="amber">
           We couldn’t read this launch’s pool just now, so we can’t build a buy for it. This is a
-          problem on our side — it does <span className="font-semibold">not</span> mean the pool is
+          problem on our side. It does <span className="font-semibold">not</span> mean the pool is
           missing. Your launch is unaffected; buy from the token’s page once the read recovers.
         </Note>
       )}
@@ -211,7 +211,7 @@ export function LaunchBuyPanel({
       {pool.k === 'ok' && !canBatch && (
         <Note tone="amber">
           Your wallet doesn’t advertise atomic batching (EIP-5792), so this buy can’t be made
-          all-or-nothing in one signature. We won’t offer a partial version of it — buy from the
+          all-or-nothing in one signature. We won’t offer a partial version of it. Buy from the
           token’s page instead, or reconnect with a wallet that supports batched calls.
         </Note>
       )}
@@ -299,8 +299,8 @@ export function LaunchBuyPanel({
               </p>
               {phase.plan.tokenOut.toLowerCase() !== tokenAddress.toLowerCase() && (
                 <Note tone="amber">
-                  This pool pays out a different token than the one just launched. Refusing to buy —
-                  re-read the pool before continuing.
+                  This pool pays out a different token than the one just launched. Refusing to buy.
+                  Re-read the pool before continuing.
                 </Note>
               )}
             </div>

@@ -6,12 +6,12 @@ const TIMELINE = [
   {
     phase: '01',
     title: 'The Rug',
-    description: 'It started with LBAC — a project that promised the world and delivered nothing. The team vanished. The community was left holding the bag. Most would have walked away.',
+    description: 'It started with LBAC, a project that promised the world and delivered nothing. The team vanished. The community was left holding the bag. Most would have walked away.',
   },
   {
     phase: '02',
     title: 'Lord of the Flies',
-    description: 'But this community was different. Like survivors on a deserted island, they organized. No leaders, no roadmap — just a group of degens who refused to quit. They called it the Lord of the Flies moment.',
+    description: 'But this community was different. Like survivors on a deserted island, they organized. No leaders, no roadmap, just a group of degens who refused to quit. They called it the Lord of the Flies moment.',
   },
   {
     phase: '03',
@@ -26,7 +26,7 @@ const TIMELINE = [
   {
     phase: '05',
     title: 'Memetic Finance',
-    description: 'DM+T = Memetic Finance. Dank Memes plus Time equals real value. The community discovered that memes aren\'t just content — they\'re a form of currency, culture, and coordination.',
+    description: 'DM+T = Memetic Finance. Dank Memes plus Time equals real value. The community discovered that memes aren\'t just content. They\'re a form of currency, culture, and coordination.',
   },
   {
     phase: '06',
