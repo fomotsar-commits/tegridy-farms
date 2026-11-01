@@ -15,6 +15,27 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-11-01: every test passed and the run failed: a Solana wallet adapter keeps polling after unmount
+
+**Believed:** unmounting the real Solana providers stops what they started, and a vitest run
+whose tests all pass exits 0.
+
+**Measured** (CI run 41286345934 on #1095, then locally): the Phantom adapter, and our Trust and
+Coinbase ones, poll for their extension with a 1-second `setInterval` that ends only when the
+extension appears (wallet-adapter-base `scopePollingDetectionStrategy`). In jsdom it never does,
+and unmounting does not stop it: `TopNav.ownSolana.test.tsx` ended with 15 running (5 mounts, 3
+each). One that fires after vitest has removed jsdom's globals runs Phantom's check, which throws
+`ReferenceError: window is not defined`; vitest calls that an unhandled error and exits 1 with
+18,579 passing tests. It lands in that gap only sometimes, so trunk passed. A jsdom environment
+kept alive 1.5 s past teardown made it certain: 5 errors, one per mount.
+
+**Do:** a test file that mounts the real Solana providers calls `stopLeftoverIntervals()`
+(`frontend/src/test/`). To find the next one, wrap `setInterval` in an extra setup file and list
+what each file leaves running. On 2026-11-01 four files left wallet polls; the others on that list
+were jsdom's animation-frame timer, which jsdom stops itself, and WalletConnect's 5-second
+heartbeat. A custom environment for that kind of check imports `builtinEnvironments` from
+`vitest/runtime` in vitest 5: `vitest/environments` is not exported.
+
 ## 2026-10-31: a merged pull request reads `mergeable: UNKNOWN`, and REST still calls it clean
 
 **Believed:** `gh pr view N --json mergeable,mergeStateStatus` reading `UNKNOWN` after a push is

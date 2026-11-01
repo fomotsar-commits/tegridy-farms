@@ -27,6 +27,9 @@ import {
   solanaHandoffPending,
   subscribeSolanaSurface,
 } from '../../lib/solanaSurface';
+import { stopLeftoverIntervals } from '../../test/stopLeftoverIntervals';
+
+stopLeftoverIntervals();
 
 const WSOL = 'So11111111111111111111111111111111111111112';
 
