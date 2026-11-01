@@ -70,8 +70,9 @@ pool gaps against Jupiter; it is the other half of the Arbitrage card), #1078, #
   Rates table loaded before it was taken: set a ceiling from a run where it loaded.
 - Type-check as CI does: `npx tsc -b --noEmit --force` from `frontend/`, with no project list. Naming the app and node
   projects skips the test files, and that cost #1077 one red CI run.
-- The Anvil fork CI job stays red on every pull request until the TOWELI staking reward reserve is refilled (step 3 of
-  the section below). Its error names the empty reserve: that is chain state, not the pull request.
+- The Anvil fork CI job's claim leg is red on every pull request: that is chain state, not the pull request. The
+  reserve was refilled on 2026-11-01 (step 3 below), but the reward rate is now 0, so the fresh position the leg opens
+  never earns anything to claim. A fix to `frontend/e2e/claim-rewards.spec.ts` is being written.
 
 ## 🔴 2026-10-31: close TOWELI staking v1 and pay everyone what they earned
 
@@ -87,42 +88,16 @@ back out: send only what is owed.**
 
 Every command signs with your keystore `deployer`, which must be
 `0x14898258122C0740106391E6e8E4F17F3b6d456E`, the owner of both contracts. Check it with
-`cast wallet address --account deployer`. That wallet held 0.00132 ETH on 2026-10-31: enough for
-every step at that day's gas.
+`cast wallet address --account deployer`. That wallet held 0.00131 ETH after step 3 (2026-11-01):
+enough for step 5 (about 63,000 gas) at that day's gas.
 
 | Step | When (UTC) | What | Who |
 |---|---|---|---|
 | ✅ 1 | done 2026-10-30 16:31:11 | Asked for a reward rate of 0: `proposeRewardRate(0)` on the admin `0x4B134C08aAF86B6e2A8E097D1039C4e7638806f3`, transaction `0x60bc95261660777031dfbaa16d9a026d8e315ab560e77c72f32f88d5c739ca2d`. | you |
-| ⬜ 2 | **from Sun 11-01 16:31:11 to Sun 11-08 16:31:11** | Stop the rewards: `executeRewardRateChange()`, commands below. Before the window it fails with `ProposalNotReady` and sends nothing. After it, the request expires: redo step 1 and wait 48 hours again. | you |
-| ⬜ 3 | right after step 2 | Pay what is owed. A session re-reads the exact amount and hands you two commands, both tested first: an approve, then `notifyRewardAmount` on the staking contract `0xcaDc93E96De58EA554c71ca609974625615E046D`. On 2026-10-29 it was about 3,679,491 TOWELI: 3,579,491 earned by 22 positions plus 100,000 owed as IOUs. Your wallet holds 905,872 TOWELI, so send it the rest first (about 2,773,620), a tiny test amount first. | you, then a session |
-| 4 | about 14 days | Stakers claim. Nothing to do: the site tells them to claim now. | nobody |
-| ⬜ 5 | after the claim time | Pause: `pause()` on the staking contract. Claims stop. Every locked stake can then come out in full with no penalty (`emergencyWithdrawPosition`), but rewards not yet claimed are given up, which is why step 4 comes first. An ended lock keeps its normal exit, which also pays its rewards. | you |
-
-**Step 2 in PowerShell.** First, check the window (read-only, any time):
-
-```powershell
-$t = & "C:\Users\jimbo\.foundry\bin\cast.exe" call 0x4B134C08aAF86B6e2A8E097D1039C4e7638806f3 "rewardRateChangeTime()(uint256)" --rpc-url https://ethereum-rpc.publicnode.com; $open = [DateTimeOffset]::FromUnixTimeSeconds([int64](($t -split ' ')[0])); "Opens:   " + $open.UtcDateTime.ToString('u'); "Expires: " + $open.AddDays(7).UtcDateTime.ToString('u'); "Now:     " + [DateTime]::UtcNow.ToString('u')
-```
-
-Once "Now" is past "Opens", test it. This sends nothing, and it should print a gas number:
-
-```powershell
-& "C:\Users\jimbo\.foundry\bin\cast.exe" estimate 0x4B134C08aAF86B6e2A8E097D1039C4e7638806f3 "executeRewardRateChange()" --from 0x14898258122C0740106391E6e8E4F17F3b6d456E --rpc-url https://ethereum-rpc.publicnode.com
-```
-
-Then send it. It asks for your keystore password; look for `status 1 (success)`:
-
-```powershell
-& "C:\Users\jimbo\.foundry\bin\cast.exe" send 0x4B134C08aAF86B6e2A8E097D1039C4e7638806f3 "executeRewardRateChange()" --account deployer --rpc-url https://ethereum-rpc.publicnode.com
-```
-
-Check that rewards stopped. It must print `0`:
-
-```powershell
-& "C:\Users\jimbo\.foundry\bin\cast.exe" call 0xcaDc93E96De58EA554c71ca609974625615E046D "rewardRate()(uint256)" --rpc-url https://ethereum-rpc.publicnode.com
-```
-
-Then tell a session "step 2 is done" for step 3.
+| ✅ 2 | done 2026-11-01 18:10:35 | Stopped the rewards: `executeRewardRateChange()` on the admin, transaction `0x10abe091182eaa97ce45e2ec768d4c85c591e6cc2fea05b2f3928374ba702cc5`. The reward rate reads 0, and what each position had earned did not change. | you |
+| ✅ 3 | done 2026-11-01 18:20:23 | Paid exactly what was owed, 3,679,490.941999999791415906 TOWELI (3,579,490.94 earned by 22 positions plus 100,000 owed as IOUs): an approve, then `notifyRewardAmount` on the staking contract `0xcaDc93E96De58EA554c71ca609974625615E046D`, transaction `0xf9a443d83cd8aff8593ab5200cfb0799a067a4bc43043cefa16131a793b5c571`. The contract then held the stakes plus exactly that. Checked on chain right after: every position's claim pays its full amount, and so does the IOU claim (all 100,000 belong to `0xe44ec097a922778a05aeadb8067a28560c3496ea`). | you |
+| 4 | from 2026-11-01, about 14 days | Stakers claim. Nothing to do: the site tells them to claim now. | nobody |
+| ⬜ 5 | after the claim time, about 2026-11-15 | Pause: `pause()` on the staking contract. Claims stop. Every locked stake can then come out in full with no penalty (`emergencyWithdrawPosition`), but rewards not yet claimed are given up, which is why step 4 comes first. An ended lock keeps its normal exit, which also pays its rewards. | you |
 
 **Step 5 in PowerShell**, only after the claim time. Test, then send:
 
