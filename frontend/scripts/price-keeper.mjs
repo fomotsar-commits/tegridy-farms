@@ -65,11 +65,11 @@
 
 import fs from 'node:fs';
 import http from 'node:http';
-import crypto from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { register } from 'node:module';
 import { redactRpcUrl } from '../../scripts/lib/redact-url.mjs';
+import { RAYDIUM_PROGRAMS } from './lib/raydium-programs.mjs';
 
 // ─── Make the bundler-targeted TS modules run under Node (tegridy-launch-operator.mjs's
 // loader, plus an empty `import.meta.env` for the modules that read Vite's settings) ───
@@ -227,14 +227,25 @@ function writeTrip(r) {
   const n = (v, d) => (v === null ? '' : fmt(v, d));
   const pool = r.pool.replace(/[^1-9A-HJ-NP-Za-km-z >-]/g, '');
   const line = [r.at, r.kind, r.coin.symbol, fmt(r.coinIn, r.coin.decimals), n(r.gained, r.coin.decimals), n(r.lamportsSpent, 9), r.outcome, r.signature, pool].join(',');
-  if (!fs.existsSync(TRADES)) fs.writeFileSync(TRADES, HEADER + '\n');
-  fs.appendFileSync(TRADES, line + '\n');
+  // One open, in append mode: the header goes in only when that same open finds the file empty.
+  const fd = fs.openSync(TRADES, 'a');
+  try {
+    fs.writeSync(fd, `${fs.fstatSync(fd).size === 0 ? `${HEADER}\n` : ''}${line}\n`);
+  } finally {
+    fs.closeSync(fd);
+  }
 }
 
 /** The log's trips. A figure that does not read as a number (a hand edit) reads as none. */
 function readTrips() {
-  if (!fs.existsSync(TRADES)) return [];
-  const [, ...rows] = fs.readFileSync(TRADES, 'utf8').trim().split(/\r?\n/);
+  let text;
+  try {
+    text = fs.readFileSync(TRADES, 'utf8');
+  } catch (e) {
+    if (e?.code === 'ENOENT') return [];
+    throw e;
+  }
+  const [, ...rows] = text.trim().split(/\r?\n/);
   const figure = (v) => (v === undefined || v === '' || !Number.isFinite(Number(v)) ? null : Number(v));
   return rows.filter(Boolean).map((row) => {
     const [time, kind, coin, coinIn, gained, solSpent, outcome] = row.split(',');
@@ -343,11 +354,11 @@ async function dashboard() {
   const owner = keeperAddress().toBase58();
   const port = num('KEEPER_DASHBOARD_PORT', 8790);
   const page = fs.readFileSync(path.join(HERE, 'price-keeper-dashboard.html'), 'utf8');
-  const script = page.match(/<script>([\s\S]*?)<\/script>/)?.[1];
-  if (!script) throw new Error('the dashboard page has no script');
+  const app = fs.readFileSync(path.join(HERE, 'price-keeper-dashboard.js'), 'utf8');
+  // The page's one script is /app.js, served from here; no other script may run.
   const csp = [
     "default-src 'none'",
-    `script-src 'sha256-${crypto.createHash('sha256').update(script).digest('base64')}'`,
+    "script-src 'self'",
     "style-src 'unsafe-inline'",
     "connect-src 'self'",
     "img-src 'self' data:",
@@ -513,6 +524,7 @@ async function dashboard() {
     if (req.headers.host !== `127.0.0.1:${port}` && req.headers.host !== `localhost:${port}`) return res.writeHead(421, common).end();
     if (req.method !== 'GET') return res.writeHead(405, common).end();
     if (req.url === '/') return res.writeHead(200, { ...common, 'content-type': 'text/html; charset=utf-8', 'content-security-policy': csp }).end(page);
+    if (req.url === '/app.js') return res.writeHead(200, { ...common, 'content-type': 'text/javascript; charset=utf-8' }).end(app);
     if (req.url === '/state.json') {
       const body = JSON.stringify(await current());
       return res.writeHead(200, { ...common, 'content-type': 'application/json' }).end(body);
@@ -578,6 +590,7 @@ async function main() {
       minProfitUsd: num('KEEPER_MIN_PROFIT_USD', DEFAULT_LIMITS.minProfitUsd),
       microLamports: num('KEEPER_PRIORITY_MICROLAMPORTS', DEFAULT_SETTINGS.microLamports),
       allowRaydium: yes('KEEPER_ALLOW_RAYDIUM'),
+      raydiumPrograms: RAYDIUM_PROGRAMS,
       payNewAccountRent: yes('KEEPER_PAY_SETUP'),
     };
     settings.dustMinUsd = num('KEEPER_DUST_MIN_USD', DEFAULT_SETTINGS.dustMinUsd);

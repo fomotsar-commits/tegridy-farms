@@ -18,7 +18,6 @@ import {
   SHARED_ACCOUNTS_ROUTE_V2,
   decodeJupiterRoute,
   NEW_ACCOUNT_RENT,
-  RAYDIUM_PROGRAMS,
   floorSlippageBps,
   jupiterFloor,
   jupiterLegProblem,
@@ -235,9 +234,3 @@ describe('lamportsInCoin: a new account’s rent, as a cost in the trip’s coin
   });
 });
 
-describe('RAYDIUM_PROGRAMS', () => {
-  it('names Raydium’s four programs, whatever Jupiter’s list says', () => {
-    expect(RAYDIUM_PROGRAMS).toHaveLength(4);
-    for (const id of RAYDIUM_PROGRAMS) expect(new PublicKey(id).toBase58()).toBe(id);
-  });
-});

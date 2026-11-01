@@ -70,13 +70,19 @@ export interface KeeperSettings extends KeeperLimits {
    * Raydium); the owner allowed it for the keeper on 2026-10-31, for coins Raydium alone trades.
    */
   allowRaydium: boolean;
+  /**
+   * Raydium's programs, refused in Jupiter's leg whatever Jupiter's venue list says. Handed in
+   * by scripts/price-keeper.mjs (scripts/lib/raydium-programs.mjs): nothing the site ships
+   * may name a Raydium key.
+   */
+  raydiumPrograms: readonly string[];
   /** Open a token account on a coin's first trip even when that trip does not earn its rent back (owner, 2026-10-31). */
   payNewAccountRent: boolean;
   /** Leftover tokens worth at least this, in USD at Jupiter's listed price, are sold for SOL. */
   dustMinUsd: number;
 }
 
-export const DEFAULT_SETTINGS: Omit<KeeperSettings, keyof KeeperLimits> = {
+export const DEFAULT_SETTINGS: Omit<KeeperSettings, keyof KeeperLimits | 'raydiumPrograms'> = {
   maxAccounts: 30,
   microLamports: 10_000,
   allowRaydium: false,
@@ -195,7 +201,7 @@ export async function runCycle(io: KeeperIo, s: KeeperSettings): Promise<CycleRe
     io.log('Jupiter prices not read: nothing is traded this pass');
     return empty(pools);
   }
-  const refused = s.allowRaydium ? refusedVenues({}, true) : refusedVenues(await io.jupiter.labels());
+  const refused = s.allowRaydium ? refusedVenues({}, [], true) : refusedVenues(await io.jupiter.labels(), s.raydiumPrograms);
   if (!s.allowRaydium && !refused.names.length) {
     io.log('Jupiter’s venue list names no Raydium venue, so Raydium cannot be left out: nothing is traded this pass');
     return empty(pools);
@@ -552,7 +558,7 @@ export async function sellDust(io: KeeperIo, s: KeeperSettings): Promise<number>
   const prices = await pricesOf(io, [SOL_QUOTE.mint, ...held.map((t) => t.mint)]);
   const solUsd = prices[SOL_QUOTE.mint];
   if (!solUsd) return 0;
-  const refused = s.allowRaydium ? refusedVenues({}, true) : refusedVenues(await io.jupiter.labels());
+  const refused = s.allowRaydium ? refusedVenues({}, [], true) : refusedVenues(await io.jupiter.labels(), s.raydiumPrograms);
   if (!s.allowRaydium && !refused.names.length) return 0;
   const coinMint = new PublicKey(SOL_QUOTE.mint);
   const coinAta = getAssociatedTokenAddressSync(coinMint, owner, true, TOKEN_PROGRAM_ID);

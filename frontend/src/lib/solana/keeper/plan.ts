@@ -51,18 +51,6 @@ export interface KeeperLimits {
 export const DEFAULT_LIMITS: KeeperLimits = { maxTradeUsd: 25, minProfitUsd: 0.01, slippageBps: 50 };
 
 /**
- * Raydium's programs as Jupiter named them on 2026-10-31 (AMM v4, CLMM, CP-Swap, LaunchLab).
- * Refused even when Jupiter's venue list does not answer or renames them: owner ruling
- * 2026-10-13, no money to Raydium, ever.
- */
-export const RAYDIUM_PROGRAMS: readonly string[] = [
-  '675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8',
-  'CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK',
-  'CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C',
-  'LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj',
-];
-
-/**
  * Rent for a token account the keeper opens on its first trade of a token (a Token-2022
  * account with its one extension, the larger of the two kinds). It is a cost of that trade:
  * the round trip must earn it back on top of the floor.

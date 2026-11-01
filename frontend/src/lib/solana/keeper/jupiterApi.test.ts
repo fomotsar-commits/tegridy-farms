@@ -5,7 +5,6 @@
 import { describe, it, expect } from 'vitest';
 import { Keypair } from '@solana/web3.js';
 import { JUPITER_KEYED_BASE, JUPITER_KEYLESS_BASE, jupiterApi, refusedVenues } from './jupiterApi';
-import { RAYDIUM_PROGRAMS } from './plan';
 
 function recorder(answer: (url: string) => { status?: number; body: unknown }) {
   const calls: { url: string; init: RequestInit }[] = [];
@@ -81,21 +80,23 @@ describe('jupiterApi', () => {
 });
 
 describe('refusedVenues', () => {
+  const KNOWN = ['KnownRaydiumProgramA', 'KnownRaydiumProgramB'];
+
   it('is every venue whose name says Raydium, by name and by program', () => {
-    const r = refusedVenues({ P1: 'Raydium', P2: 'Raydium CLMM', P3: 'Orca V2', P4: 'raydium cp', P5: 'Meteora DLMM' });
+    const r = refusedVenues({ P1: 'Raydium', P2: 'Raydium CLMM', P3: 'Orca V2', P4: 'raydium cp', P5: 'Meteora DLMM' }, KNOWN);
     expect(r.names).toEqual(['Raydium', 'Raydium CLMM', 'raydium cp']);
-    expect([...r.programs].sort()).toEqual([...RAYDIUM_PROGRAMS, 'P1', 'P2', 'P4'].sort());
+    expect([...r.programs].sort()).toEqual([...KNOWN, 'P1', 'P2', 'P4'].sort());
   });
 
   it('refuses nothing when the owner allows Raydium for the keeper', () => {
-    const r = refusedVenues({ P1: 'Raydium' }, true);
+    const r = refusedVenues({ P1: 'Raydium' }, KNOWN, true);
     expect(r.names).toEqual([]);
     expect(r.programs.size).toBe(0);
   });
 
   it('refuses Raydium’s known programs even when Jupiter’s list names none', () => {
-    const r = refusedVenues({});
+    const r = refusedVenues({}, KNOWN);
     expect(r.names).toEqual([]);
-    expect([...r.programs].sort()).toEqual([...RAYDIUM_PROGRAMS].sort());
+    expect([...r.programs].sort()).toEqual([...KNOWN].sort());
   });
 });

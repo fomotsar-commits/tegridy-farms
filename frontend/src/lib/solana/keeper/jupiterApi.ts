@@ -1,6 +1,5 @@
 import { PublicKey, TransactionInstruction } from '@solana/web3.js';
 import { base64ToBytes } from '../lp/accounts';
-import { RAYDIUM_PROGRAMS } from './plan';
 
 /**
  * The price keeper's own Jupiter client. Not the site's (lib/jupiter.ts): that one goes
@@ -130,13 +129,14 @@ export function toInstruction(w: WireIx): TransactionInstruction {
 
 /**
  * Every venue whose name says Raydium: the owner's ruling is no money to Raydium, ever. The
- * names go to Jupiter (`excludeDexes`); the programs, with Raydium's known ones always among
- * them, are refused in the instruction Jupiter builds. A list naming no Raydium venue at all
- * cannot exclude it, and the caller does not trade on it. `allowRaydium` (the owner's word for
- * the keeper, 2026-10-31) refuses nothing.
+ * names go to Jupiter (`excludeDexes`); the programs, with `known` (the keeper's own list of
+ * Raydium's programs, scripts/lib/raydium-programs.mjs) always among them, are refused in the
+ * instruction Jupiter builds. A list naming no Raydium venue at all cannot exclude it, and the
+ * caller does not trade on it. `allowRaydium` (the owner's word for the keeper, 2026-10-31)
+ * refuses nothing.
  */
-export function refusedVenues(labels: Record<string, string>, allowRaydium = false): { names: string[]; programs: Set<string> } {
+export function refusedVenues(labels: Record<string, string>, known: readonly string[], allowRaydium = false): { names: string[]; programs: Set<string> } {
   if (allowRaydium) return { names: [], programs: new Set() };
   const hits = Object.entries(labels).filter(([, name]) => /raydium/i.test(name));
-  return { names: [...new Set(hits.map(([, n]) => n))].sort(), programs: new Set([...RAYDIUM_PROGRAMS, ...hits.map(([id]) => id)]) };
+  return { names: [...new Set(hits.map(([, n]) => n))].sort(), programs: new Set([...known, ...hits.map(([id]) => id)]) };
 }

@@ -20,7 +20,7 @@ const SYSTEM = '11111111111111111111111111111111';
 const POOLS = new Set([POOL]);
 
 interface Acct {
-  key: string;
+  address: string;
   pre: number;
   post: number;
   token?: { mint: string; owner: string; pre: number | null; post: number | null; decimals?: number };
@@ -29,7 +29,7 @@ interface Acct {
 /** A transaction: the first account pays; `programs` are the top-level instructions' programs. */
 function tx(o: { sig: string; slot?: number; at?: number; accounts: Acct[]; programs: string[]; loaded?: Acct[]; fee?: number; err?: unknown }): RpcTx {
   const all = [...o.accounts, ...(o.loaded ?? [])];
-  const keys = [...o.accounts.map((a) => a.key), ...o.programs];
+  const keys = [...o.accounts.map((a) => a.address), ...o.programs];
   const index = (a: Acct) => all.indexOf(a) < o.accounts.length ? all.indexOf(a) : keys.length + all.indexOf(a) - o.accounts.length;
   const balance = (a: Acct, side: 'pre' | 'post') => ({ accountIndex: index(a), mint: a.token!.mint, owner: a.token!.owner, uiTokenAmount: { amount: String(a.token![side]), decimals: a.token!.decimals ?? 6 } });
   const lamports = (side: 'pre' | 'post') => [...o.accounts.map((a) => a[side]), ...o.programs.map(() => 1), ...(o.loaded ?? []).map((a) => a[side])];
@@ -44,7 +44,7 @@ function tx(o: { sig: string; slot?: number; at?: number; accounts: Acct[]; prog
       postBalances: lamports('post'),
       preTokenBalances: all.filter((a) => a.token && a.token.pre !== null).map((a) => balance(a, 'pre')),
       postTokenBalances: all.filter((a) => a.token && a.token.post !== null).map((a) => balance(a, 'post')),
-      loadedAddresses: { writable: (o.loaded ?? []).map((a) => a.key), readonly: [] },
+      loadedAddresses: { writable: (o.loaded ?? []).map((a) => a.address), readonly: [] },
     },
   };
 }
@@ -57,12 +57,12 @@ const trip = tx({
   sig: 'trip',
   fee: 6294,
   accounts: [
-    { key: KEEPER, pre: 97_006_405, post: 94_165_471 },
-    { key: 'DhPyHxCizgkhgYzkrGvF5vFushKRMqdmYvULkn4GGbHC', pre: 0, post: 1_488_440, token: { mint: BRAINLET, owner: KEEPER, pre: null, post: 48_298_714 } },
-    { key: '2GK38o149SdbNrzKhNdEuQfWf4EWdrhd2ZZ7UYhPB5y2', pre: 403_926_365, post: 404_408_174, token: { mint: WSOL, owner: KEEPER, pre: 402_437_925, post: 402_919_734, decimals: 9 } },
-    { key: '75eYSo91WgFbK3NYYgcbjywReXVtffDoh3QZuu5iXKCN', pre: 0, post: 1_346_200 },
-    { key: 'E3rz9nA3rnYShuHFK5kjbzwJSyhJEi7kQJkNNd4gncMM', pre: 344_737_109, post: 331_838_692, token: { mint: WSOL, owner: 'Bkr8XPZySJmcUAxKSDNCcH5KE2WDs2Y3GeZLRbeATSfB', pre: 343_000_000, post: 330_101_583, decimals: 9 } },
-    { key: POOL, pre: 5_000_000, post: 5_000_000 },
+    { address: KEEPER, pre: 97_006_405, post: 94_165_471 },
+    { address: 'DhPyHxCizgkhgYzkrGvF5vFushKRMqdmYvULkn4GGbHC', pre: 0, post: 1_488_440, token: { mint: BRAINLET, owner: KEEPER, pre: null, post: 48_298_714 } },
+    { address: '2GK38o149SdbNrzKhNdEuQfWf4EWdrhd2ZZ7UYhPB5y2', pre: 403_926_365, post: 404_408_174, token: { mint: WSOL, owner: KEEPER, pre: 402_437_925, post: 402_919_734, decimals: 9 } },
+    { address: '75eYSo91WgFbK3NYYgcbjywReXVtffDoh3QZuu5iXKCN', pre: 0, post: 1_346_200 },
+    { address: 'E3rz9nA3rnYShuHFK5kjbzwJSyhJEi7kQJkNNd4gncMM', pre: 344_737_109, post: 331_838_692, token: { mint: WSOL, owner: 'Bkr8XPZySJmcUAxKSDNCcH5KE2WDs2Y3GeZLRbeATSfB', pre: 343_000_000, post: 330_101_583, decimals: 9 } },
+    { address: POOL, pre: 5_000_000, post: 5_000_000 },
   ],
   programs: [JUP, VENUE],
 });
@@ -71,11 +71,11 @@ const trip = tx({
 const deposit = tx({
   sig: 'deposit',
   accounts: [
-    { key: OWNER_WALLET, pre: 66_001_465, post: 64_407_627 },
-    { key: 'C71vx3isFdj3AyjyRA3HjJLb1nnZ1yptwkzu4TvnXyXA', pre: 0, post: 1_513_840, token: { mint: BAYLA, owner: KEEPER, pre: null, post: 4_455_000_000 } },
-    { key: KEEPER, pre: 94_165_471, post: 94_165_471 },
+    { address: OWNER_WALLET, pre: 66_001_465, post: 64_407_627 },
+    { address: 'C71vx3isFdj3AyjyRA3HjJLb1nnZ1yptwkzu4TvnXyXA', pre: 0, post: 1_513_840, token: { mint: BAYLA, owner: KEEPER, pre: null, post: 4_455_000_000 } },
+    { address: KEEPER, pre: 94_165_471, post: 94_165_471 },
     // An account the sender opened for itself: its rent is no deposit of the keeper's.
-    { key: 'SendersOwnNewAccount111111111111111111111111', pre: 0, post: 2_039_280 },
+    { address: 'SendersOwnNewAccount111111111111111111111111', pre: 0, post: 2_039_280 },
   ],
   programs: [SYSTEM],
 });
@@ -105,8 +105,8 @@ describe('readActivity: one transaction, as what the keeper gained or spent', ()
     const t = tx({
       sig: 'usdc-in',
       accounts: [
-        { key: OWNER_WALLET, pre: 9_000_000, post: 8_995_000 },
-        { key: 'UsdcAtaOfTheKeeper1111111111111111111111111', pre: 2_039_280, post: 2_039_280, token: { mint: USDC, owner: KEEPER, pre: 1_919_627, post: 6_672_846 } },
+        { address: OWNER_WALLET, pre: 9_000_000, post: 8_995_000 },
+        { address: 'UsdcAtaOfTheKeeper1111111111111111111111111', pre: 2_039_280, post: 2_039_280, token: { mint: USDC, owner: KEEPER, pre: 1_919_627, post: 6_672_846 } },
       ],
       programs: [SYSTEM],
     });
@@ -116,11 +116,11 @@ describe('readActivity: one transaction, as what the keeper gained or spent', ()
   it('reads the accounts a transaction reaches through a lookup table: the keeper’s, a new one, our pool', () => {
     const t = tx({
       sig: 'loaded',
-      accounts: [{ key: KEEPER, pre: 10_000_000, post: 8_648_800 }],
+      accounts: [{ address: KEEPER, pre: 10_000_000, post: 8_648_800 }],
       loaded: [
-        { key: 'LoadedWsolOfTheKeeper1111111111111111111111', pre: 100_000_000, post: 100_700_000, token: { mint: WSOL, owner: KEEPER, pre: 97_960_720, post: 98_660_720, decimals: 9 } },
-        { key: 'LoadedNewAccount111111111111111111111111111', pre: 0, post: 1_346_200 },
-        { key: POOL, pre: 5_000_000, post: 5_000_000 },
+        { address: 'LoadedWsolOfTheKeeper1111111111111111111111', pre: 100_000_000, post: 100_700_000, token: { mint: WSOL, owner: KEEPER, pre: 97_960_720, post: 98_660_720, decimals: 9 } },
+        { address: 'LoadedNewAccount111111111111111111111111111', pre: 0, post: 1_346_200 },
+        { address: POOL, pre: 5_000_000, post: 5_000_000 },
       ],
       programs: [VENUE],
     });
@@ -134,8 +134,8 @@ describe('readActivity: one transaction, as what the keeper gained or spent', ()
     const wrap = tx({
       sig: 'wrap',
       accounts: [
-        { key: KEEPER, pre: 500_000_000, post: 98_501_560 },
-        { key: 'WsolAta1111111111111111111111111111111111111', pre: 0, post: 401_493_440, token: { mint: WSOL, owner: KEEPER, pre: null, post: 400_000_000, decimals: 9 } },
+        { address: KEEPER, pre: 500_000_000, post: 98_501_560 },
+        { address: 'WsolAta1111111111111111111111111111111111111', pre: 0, post: 401_493_440, token: { mint: WSOL, owner: KEEPER, pre: null, post: 400_000_000, decimals: 9 } },
       ],
       programs: [SYSTEM],
     });
@@ -144,17 +144,17 @@ describe('readActivity: one transaction, as what the keeper gained or spent', ()
     const withdraw = tx({
       sig: 'withdraw',
       accounts: [
-        { key: KEEPER, pre: 98_000_000, post: 10_000_000 },
-        { key: OWNER_WALLET, pre: 1, post: 87_995_001 },
+        { address: KEEPER, pre: 98_000_000, post: 10_000_000 },
+        { address: OWNER_WALLET, pre: 1, post: 87_995_001 },
       ],
       programs: [SYSTEM],
     });
     expect(read(withdraw)).toMatchObject({ kind: 'out', sol: -88_000_000n });
 
-    const sale = tx({ sig: 'sale', accounts: [{ key: KEEPER, pre: 10_000_000, post: 11_000_000 }], programs: [JUP] });
+    const sale = tx({ sig: 'sale', accounts: [{ address: KEEPER, pre: 10_000_000, post: 11_000_000 }], programs: [JUP] });
     expect(read(sale)?.kind).toBe('sale');
 
-    const refused = tx({ sig: 'refused', err: { InstructionError: [3, { Custom: 6022 }] }, accounts: [{ key: KEEPER, pre: 10_000_000, post: 9_995_000 }], programs: [JUP, VENUE] });
+    const refused = tx({ sig: 'refused', err: { InstructionError: [3, { Custom: 6022 }] }, accounts: [{ address: KEEPER, pre: 10_000_000, post: 9_995_000 }], programs: [JUP, VENUE] });
     expect(read(refused)).toMatchObject({ kind: 'trade', ok: false, sol: -5000n });
     expect(madeSol(read(refused)!)).toBe(0n);
   });
@@ -166,8 +166,8 @@ describe('readActivity: one transaction, as what the keeper gained or spent', ()
 });
 
 describe('results: the totals', () => {
-  const withdraw = read(tx({ sig: 'w', accounts: [{ key: KEEPER, pre: 98_000_000, post: 10_000_000 }, { key: OWNER_WALLET, pre: 1, post: 87_995_001 }], programs: [SYSTEM] }))!;
-  const refused = read(tx({ sig: 'r', err: { Custom: 1 }, accounts: [{ key: KEEPER, pre: 10_000_000, post: 9_995_000 }], programs: [VENUE] }))!;
+  const withdraw = read(tx({ sig: 'w', accounts: [{ address: KEEPER, pre: 98_000_000, post: 10_000_000 }, { address: OWNER_WALLET, pre: 1, post: 87_995_001 }], programs: [SYSTEM] }))!;
+  const refused = read(tx({ sig: 'r', err: { Custom: 1 }, accounts: [{ address: KEEPER, pre: 10_000_000, post: 9_995_000 }], programs: [VENUE] }))!;
   const all = [read(trip)!, read(deposit)!, withdraw, refused];
 
   it('adds what the trips made, every fee and deposit, and money in and out apart', () => {
