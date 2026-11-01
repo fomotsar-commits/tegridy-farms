@@ -213,7 +213,7 @@ export function AppLayout() {
           </div>
         )}
         {/* Bayla at the door (island answer twenty-four, build 4): one line in her voice under the
-            nav on every venue route, in flow and sticky under the header; the farm's pages and a
+            nav on every venue route, in flow at the top of the page; the farm's pages and a
             settled doorstep keep their own voice (the component says so). */}
         <BaylaLine />
         {/* F29: tabIndex={-1} so the skip-link target reliably receives focus —

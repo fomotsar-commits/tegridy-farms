@@ -35,7 +35,8 @@ function useFire(): FireWeek | null {
  * nav on every venue route, always in the same place, reading the state and saying the one
  * next move with its number, and the button beside it that does the move. Under it, one
  * live fact. Never a modal, never a tour. Not on the farm's own pages (law 21: the farm
- * speaks only in its room) and not on a settled resident's doorstep.
+ * speaks only in its room) and not on a settled resident's doorstep. In flow at the top of
+ * the page, never pinned (safe-area law: nothing lands behind chrome).
  */
 export function BaylaLine() {
   const location = useLocation();
@@ -82,11 +83,13 @@ export function BaylaLine() {
   const intel = intelLine(fireWeek);
 
   return (
+    // In flow, not pinned: a pinned band under the header would cover whatever scrolls up to it
+    // (e2e/safe-area-insets.spec.ts: no control lands behind chrome). The same place on every
+    // screen is the top of it, under the nav, on arrival.
     <div
       data-testid="bayla-line"
-      className="sticky z-40 px-3 min-[480px]:px-4"
+      className="relative z-10 px-3 min-[480px]:px-4"
       style={{
-        top: 'calc(3.5rem + env(safe-area-inset-top, 0px))',
         background: 'rgba(6,12,26,0.92)',
         backdropFilter: 'blur(12px)',
         WebkitBackdropFilter: 'blur(12px)',

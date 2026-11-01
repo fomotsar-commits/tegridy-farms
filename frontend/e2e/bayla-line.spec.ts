@@ -45,7 +45,7 @@ test('the line is under the nav on the home, the room, the swap, the pools page 
     expect(lines, `${path}: the line wraps to ${lines} rows`).toBeLessThanOrEqual(2);
     tops[path] = Math.round(box!.y);
   }
-  // The same place on every screen: under the 56px header.
+  // The same place on every screen: under the 56px header, on arrival (in flow, never pinned).
   const distinct = new Set(Object.values(tops));
   expect(distinct.size, `the line sits at different heights: ${JSON.stringify(tops)}`).toBe(1);
   expect([...distinct][0]).toBe(56);
