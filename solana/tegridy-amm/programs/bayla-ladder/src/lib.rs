@@ -962,6 +962,36 @@ pub mod bayla_ladder {
         Ok(())
     }
 
+    /// Raise-only. Lifts the per-wallet limit (`max_wallet_principal`), which
+    /// `initialize_pool` writes and nothing else could change until this instruction
+    /// (owner decision 2026-10-27: 2,000,000 → 10,000,000 BAYLA on the live pool).
+    ///
+    /// Never lowers: a wallet already above a lowered limit could no longer add a
+    /// position, and the limit would stop meaning "your share" for the wallets inside it.
+    /// Never above `deposit_cap`: `initialize_pool` holds `max_wallet_principal <=
+    /// deposit_cap` (audit M-4) and `execute_cap_raise` only ever raises the right side.
+    ///
+    /// No program timelock, unlike `propose_cap_raise`: the authority is the Squads vault,
+    /// whose own 48 h time lock gates every call, and a higher limit moves no tokens. It
+    /// lets one wallet hold a larger share of the same reward stream; the rate, the
+    /// window and every open position are untouched. Adds no Pool fields.
+    pub fn raise_wallet_cap(ctx: Context<AuthorityOnly>, new_max: u64) -> Result<()> {
+        let pool = &mut ctx.accounts.pool;
+        require!(
+            new_max > pool.max_wallet_principal,
+            LadderError::CapCanOnlyRaise
+        );
+        require!(new_max <= pool.deposit_cap, LadderError::InvalidParameter);
+        let previous = pool.max_wallet_principal;
+        pool.max_wallet_principal = new_max;
+        emit!(WalletCapRaised {
+            pool: pool.key(),
+            previous_cap: previous,
+            new_cap: new_max,
+        });
+        Ok(())
+    }
+
     /// ONE-WAY. After this, the emergency hatch charges no penalty while locked.
     pub fn declare_degraded(ctx: Context<AuthorityOnly>) -> Result<()> {
         let pool = &mut ctx.accounts.pool;

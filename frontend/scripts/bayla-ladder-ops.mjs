@@ -152,6 +152,15 @@ const LADDER_BUILDS = Object.freeze([
     len: 515_352,
     windowSecs: 4 * 365 * 86_400,
   }),
+  // The four-year window plus raise_wallet_cap, built 2026-10-27 with the same toolchain, which
+  // rebuilt trunk 630efe647 as e0fd775d byte for byte first. 2,568 bytes longer than e0fd775d, so
+  // the program data account is enlarged before the upgrade. Same window: a reload sizes the same.
+  Object.freeze({
+    name: 'the four-year window with raise_wallet_cap (0f127114)',
+    sha256: '0f127114695e405fd90a2bf52174e45874df71a1078a13dc6b39b352a647b1b8',
+    len: 517_920,
+    windowSecs: 4 * 365 * 86_400,
+  }),
 ]);
 /**
  * math.rs's penalty schedule constants, mirrored exactly (the test reads the first two back
@@ -194,6 +203,7 @@ const IX = {
   proposeCapRaise: disc('global', 'propose_cap_raise'),
   cancelCapRaise: disc('global', 'cancel_cap_raise'),
   executeCapRaise: disc('global', 'execute_cap_raise'),
+  raiseWalletCap: disc('global', 'raise_wallet_cap'),
   declareDegraded: disc('global', 'declare_degraded'),
 };
 // math.rs:102 - the delay between propose_cap_raise and execute_cap_raise.
@@ -1167,6 +1177,12 @@ function ixCancelCapRaise({ programId, authority, pool }) {
   return ixAuthorityOnly(programId, authority, pool, Buffer.from(IX.cancelCapRaise));
 }
 
+/** Raise-only, no timelock in the program: on mainnet the authority is the vault, whose own 48h lock applies. */
+function ixRaiseWalletCap({ programId, authority, pool, newMaxRaw }) {
+  return ixAuthorityOnly(programId, authority, pool,
+    Buffer.concat([IX.raiseWalletCap, u64le(newMaxRaw)]));
+}
+
 /** PERMISSIONLESS once the timelock has run: `ExecuteCapRaise` declares no Signer. */
 function ixExecuteCapRaise({ programId, pool }) {
   return new TransactionInstruction({
@@ -1197,6 +1213,16 @@ function capRaiseProblem(p, newCapRaw) {
   return newCapRaw > p.depositCap
     ? null
     : `the cap can only rise: ${fmt(newCapRaw, p.decimals)} is not above the current ${fmt(p.depositCap, p.decimals)} (CapCanOnlyRaise)`;
+}
+
+/** raise_wallet_cap: strictly above the current limit, and never above the pool cap. */
+function walletCapRaiseProblem(p, newMaxRaw) {
+  if (newMaxRaw <= p.maxWalletPrincipal) {
+    return `the per-wallet limit can only rise: ${fmt(newMaxRaw, p.decimals)} is not above the current ${fmt(p.maxWalletPrincipal, p.decimals)} (CapCanOnlyRaise)`;
+  }
+  return newMaxRaw <= p.depositCap
+    ? null
+    : `the per-wallet limit may not exceed the pool cap ${fmt(p.depositCap, p.decimals)} (InvalidParameter)`;
 }
 
 function cancelCapRaiseProblem(p) {
@@ -1644,6 +1670,7 @@ const USAGE = `bayla-ladder ops
   propose-cap-raise --pool <addr> --cap <t>     # authority; raise-only, runs after 48h
   cancel-cap-raise  --pool <addr>               # authority
   execute-cap-raise --pool <addr>               # PERMISSIONLESS once 48h have run
+  raise-wallet-cap  --pool <addr> --max <t>     # authority; per-wallet limit, raise-only, <= the pool cap
   propose-authority --pool <addr> --new-authority <addr>   # authority; step 1 of 2
   accept-authority  --pool <addr>               # signed by the PROPOSED key; step 2
   declare-degraded  --pool <addr> --confirm-permanent      # authority; ONE-WAY
@@ -1926,7 +1953,7 @@ async function main() {
       console.log(`  current cap    ${fmt(p.depositCap, p.decimals)}`);
       console.log(`  proposed cap   ${fmt(newCap, p.decimals)}`);
       console.log(`  takes effect   48 hours after this lands, via 'execute-cap-raise' (anyone may run it)`);
-      console.log(`  max / wallet   ${fmt(p.maxWalletPrincipal, p.decimals)} - unchanged; it has NO setter`);
+      console.log(`  max / wallet   ${fmt(p.maxWalletPrincipal, p.decimals)} - unchanged; 'raise-wallet-cap' raises it`);
       if (p.pendingCap > 0n) {
         console.log(`  WARNING: this REPLACES the pending ${fmt(p.pendingCap, p.decimals)} proposal and restarts the 48h clock`);
       }
@@ -1946,6 +1973,23 @@ async function main() {
       console.log(`  abandoning     ${fmt(p.pendingCap, p.decimals)}  (the cap stays ${fmt(p.depositCap, p.decimals)})`);
       await submit(conn, [ixCancelCapRaise({ programId, authority: authority.publicKey, pool: poolKey })],
         authority, { broadcast, label: 'cancel-cap-raise' });
+      return;
+    }
+
+    case 'raise-wallet-cap': {
+      const authority = signer();
+      const poolKey = new PublicKey(need(args, 'pool'));
+      const p = await loadPool(conn, programId, poolKey);
+      const newMax = toRaw(need(args, 'max'), p.decimals);
+      const bad = authorityProblem(p, authority.publicKey) ?? walletCapRaiseProblem(p, newMax);
+      if (bad) throw new Error(bad);
+      console.log(`\nraise-wallet-cap`);
+      console.log(`  max / wallet   ${fmt(p.maxWalletPrincipal, p.decimals)}  ->  ${fmt(newMax, p.decimals)}`);
+      console.log(`  pool cap       ${fmt(p.depositCap, p.decimals)} - unchanged`);
+      console.log(`  takes effect   when this lands (a vault authority adds its own time lock)`);
+      await submit(conn, [ixRaiseWalletCap({
+        programId, authority: authority.publicKey, pool: poolKey, newMaxRaw: newMax,
+      })], authority, { broadcast, label: 'raise-wallet-cap' });
       return;
     }
 
@@ -2047,8 +2091,8 @@ export {
   ixInitializePool, ixStake, ixClaim, ixExit, ixEmergencyWithdraw, ixNotifyReward,
   ixClaimCarried, ixSweep,
   ixProposeAuthority, ixAcceptAuthority, ixProposeCapRaise, ixCancelCapRaise,
-  ixExecuteCapRaise, ixDeclareDegraded, CAP_TIMELOCK_SECS,
-  authorityProblem, capRaiseProblem, cancelCapRaiseProblem, executeCapRaiseProblem,
+  ixExecuteCapRaise, ixRaiseWalletCap, ixDeclareDegraded, CAP_TIMELOCK_SECS,
+  authorityProblem, capRaiseProblem, walletCapRaiseProblem, cancelCapRaiseProblem, executeCapRaiseProblem,
   acceptAuthorityProblem, declareDegradedProblem, confirmPermanentProblem,
   toRaw, fmt, parseArgs, intArg, MAX_EARLY_EXIT_PENALTY_BPS, BPS,
   POOL_SEED, POSITION_SEED, USER_SEED, STAKE_VAULT_SEED, REWARD_VAULT_SEED,

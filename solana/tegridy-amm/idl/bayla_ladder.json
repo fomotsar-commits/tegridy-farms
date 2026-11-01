@@ -734,6 +734,50 @@
       ]
     },
     {
+      "name": "raise_wallet_cap",
+      "docs": [
+        "Raise-only. Lifts the per-wallet limit (`max_wallet_principal`), which",
+        "`initialize_pool` writes and nothing else could change until this instruction",
+        "(owner decision 2026-10-27: 2,000,000 → 10,000,000 BAYLA on the live pool).",
+        "",
+        "Never lowers: a wallet already above a lowered limit could no longer add a",
+        "position, and the limit would stop meaning \"your share\" for the wallets inside it.",
+        "Never above `deposit_cap`: `initialize_pool` holds `max_wallet_principal <=",
+        "deposit_cap` (audit M-4) and `execute_cap_raise` only ever raises the right side.",
+        "",
+        "No program timelock, unlike `propose_cap_raise`: the authority is the Squads vault,",
+        "whose own 48 h time lock gates every call, and a higher limit moves no tokens. It",
+        "lets one wallet hold a larger share of the same reward stream; the rate, the",
+        "window and every open position are untouched. Adds no Pool fields."
+      ],
+      "discriminator": [
+        179,
+        219,
+        246,
+        62,
+        25,
+        149,
+        169,
+        26
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true
+        },
+        {
+          "name": "pool",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "new_max",
+          "type": "u64"
+        }
+      ]
+    },
+    {
       "name": "stake",
       "docs": [
         "Open a position. Every stake is its OWN position: no top-up, so no boost",
@@ -1177,6 +1221,19 @@
       ]
     },
     {
+      "name": "WalletCapRaised",
+      "discriminator": [
+        8,
+        168,
+        20,
+        242,
+        161,
+        119,
+        210,
+        136
+      ]
+    },
+    {
       "name": "Withdrawn",
       "discriminator": [
         20,
@@ -1574,7 +1631,9 @@
               "Deliberately NOT a sentinel: there is no \"0 means unlimited\". A pool that wants",
               "no per-wallet limit sets this equal to `deposit_cap`, which is explicit and",
               "cannot be reached by forgetting to configure it. Carved from `_reserved`, so",
-              "`8 + Pool::INIT_SPACE` stays 508."
+              "`8 + Pool::INIT_SPACE` stays 508.",
+              "",
+              "Raise-only via `raise_wallet_cap` (added 2026-10-27), never above `deposit_cap`."
             ],
             "type": "u64"
           },
@@ -1946,6 +2005,26 @@
                 24
               ]
             }
+          }
+        ]
+      }
+    },
+    {
+      "name": "WalletCapRaised",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "previous_cap",
+            "type": "u64"
+          },
+          {
+            "name": "new_cap",
+            "type": "u64"
           }
         ]
       }
