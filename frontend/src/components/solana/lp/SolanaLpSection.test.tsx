@@ -698,7 +698,7 @@ describe('swap routes', () => {
     const rules = within(within(routes).getByTestId('lp-route-rules')).getAllByRole('listitem').map((li) => li.textContent);
     expect(rules).toEqual(['Our poolswhen they pay you at least as much', 'Jupiterwhen it pays you more']);
     expect(within(routes).getByRole('link', { name: 'Swap' })).toHaveAttribute('href', '/solana');
-    expect(within(routes).getByTestId('lp-route-fee').textContent).toMatch(/^Venue fee through Jupiter: (none|\d+(\.\d+)?%)$/);
+    expect(within(routes).getByTestId('lp-route-fee').textContent).toMatch(/^Venue fee through Jupiter: (none|\d+(\.\d+)?%( \(\d+(\.\d+)?% between SOL, USDC, USDT and staked SOL\))?)$/);
     const sentence = within(routes).getByText(/to\s+our pool when ours pays at least as much as Jupiter, and through Jupiter\s+when it does not\./);
     expect(sentence.closest('details')).not.toBeNull();
     for (const bad of [/takes (whichever|the one)/i, /whichever is better/i, /still goes through\s+Jupiter/i]) expect(routes.textContent).not.toMatch(bad);
