@@ -126,6 +126,17 @@ function loadCustomTokens(chain: number): TokenInfo[] {
 }
 
 /**
+ * At or above this price impact the swap refuses to sign. Uniswap's interface
+ * blocks at the same line (BLOCKED_PRICE_IMPACT_NON_EXPERT, 15%); its 3% and 5%
+ * tiers are the red figure and the banner TradePage already shows.
+ *
+ * Read live 2026-11-01: Base's Uniswap V2 BNKR/WETH pair held 7 BNKR and
+ * 0.0000011 ETH, so 1.75M BNKR (~0.22 ETH at market) quoted 0.0000011 ETH and the
+ * Swap button stayed live - a 99.99% impact behind one red line of text.
+ */
+export const BLOCKED_PRICE_IMPACT_PCT = 15;
+
+/**
  * `opts.chainId` is the chain the form trades on (TradePage passes useSwapChainId()).
  * Omitted, the swap is Ethereum's, as it always was; the terminal's quick-buy panel
  * relies on that.
@@ -499,6 +510,8 @@ export function useSwap(opts?: { chainId?: number }) {
     return parsedAmount > (fromTokenBalance ?? 0n);
   }, [parsedAmount, fromToken, ethBalance, fromTokenBalance]);
 
+  const impactBlocked = quote.priceImpact !== null && quote.priceImpact >= BLOCKED_PRICE_IMPACT_PCT;
+
   // ---- Actions ----
   const executeSwap = useCallback(() => {
     if (isPendingRef.current) return; // R033 H-04
@@ -506,6 +519,7 @@ export function useSwap(opts?: { chainId?: number }) {
     if (!venue) { toast.error('Swaps are not available on this network'); return; }
     if (chainId !== swapChain) { toast.error(switchMessage); return; }
     if (allowance.needsApproval) { toast.error('Please approve the token first'); return; }
+    if (impactBlocked) { toast.error(`Price impact is ${quote.priceImpact!.toFixed(2)}%: this pool is too thin for this trade`); return; }
     // R033 H-02: if the displayed quote is stale, force a refresh and bail.
     if (quote.isQuoteStale) {
       toast.error('Quote is stale — refreshing now');
@@ -650,7 +664,7 @@ export function useSwap(opts?: { chainId?: number }) {
         });
       }
     }
-  }, [address, chainId, fromToken, toToken, parsedAmount, insufficientBalance, swapType, deadline, quote, writeContract, supportsFeeOnTransfer, allowance.needsApproval, inputAmount, venue, swapChain, switchMessage, slippage]);
+  }, [address, chainId, fromToken, toToken, parsedAmount, insufficientBalance, impactBlocked, swapType, deadline, quote, writeContract, supportsFeeOnTransfer, allowance.needsApproval, inputAmount, venue, swapChain, switchMessage, slippage]);
 
   const flipDirection = useCallback(() => {
     const prev = fromToken;
@@ -712,6 +726,7 @@ export function useSwap(opts?: { chainId?: number }) {
     // Travels WITH the number it qualifies: a consumer branching on a null impact
     // still needs to know whether it is unpriceable or simply unread.
     priceImpactUnread: quote.priceImpactUnread,
+    impactBlocked,
     minimumReceived: quote.minimumReceivedFormatted,
     needsApproval: allowance.needsApproval,
     insufficientBalance,

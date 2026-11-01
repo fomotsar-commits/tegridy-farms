@@ -641,6 +641,10 @@ export default function TradePage() {
                         Price impact could not be read. This is not a statement that impact
                         is low. Refresh the quote before you sign.
                       </div>
+                    ) : swap.impactBlocked ? (
+                      <div className="mt-2 px-2 py-1.5 rounded text-[10px] text-red-200 font-semibold" style={{ background: 'rgba(239,68,68,0.25)', border: '1px solid rgba(239,68,68,0.45)' }} data-testid="swap-impact-blocked">
+                        Blocked: this pool is too thin. You would get far less than {swap.fromToken?.symbol ?? 'this coin'} is worth.
+                      </div>
                     ) : swap.priceImpact !== null && swap.priceImpact > 5 ? (
                       <div className="mt-2 px-2 py-1.5 rounded text-[10px] text-red-200 font-semibold" style={{ background: 'rgba(239,68,68,0.25)', border: '1px solid rgba(239,68,68,0.45)' }}>
                         High price impact! Consider reducing your trade size.
@@ -720,10 +724,10 @@ export default function TradePage() {
                   </button>
                 ) : (
                   <button onClick={swap.executeSwap}
-                    disabled={swap.isPending || swap.isConfirming || swap.insufficientBalance || !swap.inputAmount || swap.outputAmount === 0n}
+                    disabled={swap.isPending || swap.isConfirming || swap.insufficientBalance || swap.impactBlocked || !swap.inputAmount || swap.outputAmount === 0n}
                     className="w-full btn-primary py-3 min-h-[48px] text-[15px] font-semibold rounded-xl disabled:opacity-40"
                   >
-                    {swap.isPending ? 'Confirm in wallet...' : swap.isConfirming ? 'Confirming...' : swap.insufficientBalance ? 'Insufficient balance' : 'Swap'}
+                    {swap.isPending ? 'Confirm in wallet...' : swap.isConfirming ? 'Confirming...' : swap.insufficientBalance ? 'Insufficient balance' : swap.impactBlocked ? 'Price impact too high' : 'Swap'}
                   </button>
                 )}
 
