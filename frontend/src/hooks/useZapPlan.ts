@@ -20,7 +20,7 @@ import { zapFeeDisclosure, type ZapFeeDisclosure } from '../lib/zap/fee';
 import { planZap, type ZapDescriptor, type ZapPlanResult, type ZapSwapRoute, type ZapRoutes } from '../lib/zap/planner';
 import { venueAvailability, type ZapVenueId } from '../lib/zap/venues';
 import { swapSpenderFor } from '../lib/swapRouting';
-import { useSwapQuote } from './useSwapQuote';
+import { useSwapQuote, type OnChainSource, type RouteSource } from './useSwapQuote';
 import { useLpFarmDeposit } from './useLpEmissionsPhase';
 
 const TOWELIE_TOKEN: TokenInfo =
@@ -63,13 +63,15 @@ export interface UseZapPlan {
 
 /** A quote is usable only when it produced BOTH an output and a floor to submit. */
 function toRoute(
-  quote: { minimumReceived: bigint; outputAmount: bigint; selectedRoute: string; selectedOnChainRoute: { source: 'tegridy' | 'uniswap' }; path: readonly `0x${string}`[] },
+  quote: { minimumReceived: bigint; outputAmount: bigint; selectedRoute: string; selectedOnChainRoute: { source: OnChainSource }; path: readonly `0x${string}`[] },
   amountIn: bigint,
   slippageBps: number,
 ): ZapSwapRoute | null {
   if (amountIn <= 0n || quote.outputAmount <= 0n || quote.minimumReceived <= 0n) return null;
   if (quote.path.length < 2) return null;
-  const executor = swapSpenderFor(quote.selectedRoute as 'tegridy' | 'uniswap' | 'aggregator', quote.selectedOnChainRoute.source);
+  // The zap signs path-style router calls on Ethereum; the V3 route is Base's and signs otherwise.
+  if (quote.selectedOnChainRoute.source === 'uniswap-v3') return null;
+  const executor = swapSpenderFor(quote.selectedRoute as RouteSource, quote.selectedOnChainRoute.source);
   return {
     executor,
     executorTakesMaxFee: executor.toLowerCase() === SWAP_FEE_ROUTER_ADDRESS.toLowerCase(),

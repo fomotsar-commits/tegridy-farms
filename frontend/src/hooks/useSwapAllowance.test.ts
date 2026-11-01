@@ -22,6 +22,7 @@ vi.mock('sonner', () => ({
 import { useSwapAllowance } from './useSwapAllowance';
 import { DEFAULT_TOKENS } from '../lib/tokenList';
 import { SWAP_FEE_ROUTER_ADDRESS, CHAIN_ID } from '../lib/constants';
+import { swapVenueOn } from '../lib/chains/swapVenue';
 
 const USER = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee' as `0x${string}`;
 const USDT = DEFAULT_TOKENS.find((t) => t.symbol === 'USDT')!;
@@ -103,5 +104,34 @@ describe('useSwapAllowance — an unread allowance takes the safe path', () => {
     const write = makeWrite();
     const { result } = setup(write);
     expect(result.current.needsApproval).toBe(true);
+  });
+});
+
+// 2026-11-01: an island coin sold through its own V3 pool goes through Uniswap's Universal
+// Router, which pulls it via Permit2. The approval must name Permit2, or the sale reverts.
+describe('useSwapAllowance: the V3 route approves Permit2', () => {
+  const PERMIT2 = '0x000000000022D473030F116dDEE9F6B43aC78BA3';
+  const BNKR = { address: '0x22aF33FE49fD1Fa80c7149773dDe5890D3c76F3b' as `0x${string}`, symbol: 'BNKR', name: 'BNKR', decimals: 18, logoURI: '' };
+
+  beforeEach(() => {
+    wagmiMock.reset();
+    wagmiMock.setChainId(8453);
+    wagmiMock.setAccount({ address: USER, isConnected: true });
+  });
+
+  it('asks for, and writes, an approval of exactly the amount to Permit2 on Base', () => {
+    wagmiMock.setReadResult({ functionName: 'allowance', result: 0n });
+    const write = makeWrite();
+    const { result } = renderHook(() => useSwapAllowance(BNKR, AMOUNT, 'uniswap-v3', 'uniswap-v3', USER, write, swapVenueOn(8453)));
+    expect(result.current.needsApproval).toBe(true);
+    act(() => { result.current.approve(); });
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(write.mock.calls[0][0]).toMatchObject({ chainId: 8453, address: BNKR.address, functionName: 'approve', args: [PERMIT2, AMOUNT] });
+  });
+
+  it('needs nothing once Permit2 already holds enough', () => {
+    wagmiMock.setReadResult({ functionName: 'allowance', result: AMOUNT });
+    const { result } = renderHook(() => useSwapAllowance(BNKR, AMOUNT, 'uniswap-v3', 'uniswap-v3', USER, makeWrite(), swapVenueOn(8453)));
+    expect(result.current.needsApproval).toBe(false);
   });
 });

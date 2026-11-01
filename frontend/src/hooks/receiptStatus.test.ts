@@ -82,6 +82,8 @@ vi.mock('wagmi', async () => {
       readContract: vitest.fn().mockResolvedValue(0n),
       multicall: vitest.fn().mockResolvedValue([]),
     }),
+    // useSwap signs a Permit2 allowance on Base's V3 route; nothing here reaches it.
+    useSignTypedData: () => ({ signTypedDataAsync: vitest.fn() }),
     useWriteContract: () => ({
       writeContract: wagmiState.writeContractMock,
       data: wagmiState.hash,
