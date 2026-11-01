@@ -9,6 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-10-31
 
+- Dashboard: once you have a lock, stake or pool share, the big figure is Total, what your wallet holds and your positions together, with Holdings and Positions under it. No total is printed while a part is still being read, could not be read or has no price, and that part says which.
 - Pools: picking Ethereum, Base or Robinhood Chain in the network menu now shows that network's pools even when your wallet stays on another network. Before, a wallet that did not switch kept the page on its own network, so a pick of Base still listed Ethereum's pool. When your wallet is on a different network from the one picked, a line above the form says so, with a button to switch; adding or removing waits until the wallet is there.
 - Home page: the TVL now counts what is staked with us, not only what our pools hold: the BAYLA lock ladder and the lighthouse pools on Solana, TOWELI staking, and the ladders on Ethereum and Base, retired ones included while they still hold stakes. Each counts what people staked in it, never the rewards it holds, with the coin at its market price (Jupiter's on Solana, DefiLlama's on Ethereum and Base). What counts shows pools and staking chain by chain. When a staking pool cannot be read, or a staked coin has no market price, it says "TVL at least".
 

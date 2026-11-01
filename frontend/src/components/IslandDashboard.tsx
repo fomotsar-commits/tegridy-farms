@@ -563,6 +563,11 @@ function WalletTape({ rows }: { rows: HoldingRow[] }) {
   );
 }
 
+/** A whole worth, $0 for a read that found nothing, and a dash for one that is not whole (holdingsTotal). */
+function worthText(t: ReturnType<typeof holdingsTotal>): string {
+  return t.kind === 'total' ? fmtUsd(t.usd) : t.kind === 'none' ? '$0' : '—';
+}
+
 function shortEvm(a: string): string {
   return `${a.slice(0, 6)}…${a.slice(-4)}`;
 }
@@ -797,6 +802,10 @@ export function IslandDashboard({ headingLevel = 2 }: { headingLevel?: 1 | 2 }) 
   const posTotal = holdingsTotal(board.positions.map((l) => l.leg));
   const posNote = board.positions.some((l) => l.leg.status === 'loading') ? 'reading'
     : board.positions.some((l) => l.leg.status === 'unread') ? 'not every position read' : 'not every position priced';
+  const heldNote = board.holdings.some((l) => l.leg.status === 'loading') ? 'reading' : 'not every coin priced';
+  // With a position to add up, the big figure is the whole: holdings and positions together (owner,
+  // 2026-10-31: "also include it in the total value"), whole only when both parts are.
+  const whole = holdingsTotal([...board.holdings, ...board.positions].map((l) => l.leg));
 
   return (
     <section
@@ -849,33 +858,21 @@ export function IslandDashboard({ headingLevel = 2 }: { headingLevel?: 1 | 2 }) 
           )}
         </div>
 
-        {/* The holdings' worth, and the positions', each only when every part of it was read and
-            priced (holdingsTotal). */}
+        {/* The wallet's worth, only when every part of it was read and priced (holdingsTotal). With a
+            position to add up it is the whole, and each part is printed under it. */}
         {connected && (
-          // Side by side under the heading; stacked beside it from 1024px, where a second figure
-          // in a row would take the heading's width and cut the word.
-          <div className="flex flex-wrap items-start gap-x-8 gap-y-4 lg:flex-col lg:items-end">
-            <div className="flex flex-col items-start lg:items-end">
-              <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-[#f5e4b8]/55">Holdings</span>
-              <span className="font-black leading-none tracking-[-0.05em] text-[52px] lg:text-[72px] tabular-nums" style={HEADING_FONT}>
-                {total.kind === 'total' ? fmtUsd(total.usd) : total.kind === 'none' ? '$0' : '—'}
+          <div className="flex flex-col items-start lg:items-end">
+            <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-[#f5e4b8]/55">{positionRows.length > 0 ? 'Total' : 'Holdings'}</span>
+            <span data-testid="wallet-worth" className="font-black leading-none tracking-[-0.05em] text-[52px] lg:text-[72px] tabular-nums" style={HEADING_FONT}>
+              {worthText(positionRows.length > 0 ? whole : total)}
+            </span>
+            {positionRows.length > 0 ? (
+              <span className="mt-1.5 flex flex-wrap gap-x-4 gap-y-0.5 lg:justify-end font-mono text-[11px] uppercase tracking-[0.12em] text-[#f5e4b8]/70 tabular-nums">
+                <span data-testid="holdings-worth">Holdings {total.kind === 'partial' ? `— ${heldNote}` : worthText(total)}</span>
+                <span data-testid="positions-worth">Positions {posTotal.kind === 'partial' ? `— ${posNote}` : worthText(posTotal)}</span>
               </span>
-              {total.kind === 'partial' && (
-                <span className="mt-1 font-mono text-[10px] uppercase tracking-[0.12em] text-[#f5e4b8]/55">
-                  {board.holdings.some((l) => l.leg.status === 'loading') ? 'reading' : 'not every coin priced'}
-                </span>
-              )}
-            </div>
-            {positionRows.length > 0 && (
-              <div data-testid="positions-worth" className="flex flex-col items-start lg:items-end">
-                <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-[#f5e4b8]/55">Positions</span>
-                <span className="font-black leading-none tracking-[-0.05em] text-[52px] lg:text-[72px] tabular-nums" style={HEADING_FONT}>
-                  {posTotal.kind === 'total' ? fmtUsd(posTotal.usd) : '—'}
-                </span>
-                {posTotal.kind === 'partial' && (
-                  <span className="mt-1 font-mono text-[10px] uppercase tracking-[0.12em] text-[#f5e4b8]/55">{posNote}</span>
-                )}
-              </div>
+            ) : total.kind === 'partial' && (
+              <span className="mt-1 font-mono text-[10px] uppercase tracking-[0.12em] text-[#f5e4b8]/55">{heldNote}</span>
             )}
           </div>
         )}
