@@ -51,10 +51,101 @@ const LAMPORTS_PER_SOL = 1e9;
 const MAX_ROUTE_POOLS = 40;
 
 export type OutsidePrice =
-  | { kind: 'ok'; solPerToken: number; source: 'Jupiter' }
+  /** `readAtMs`: when the shared list read it (below); a direct read carries none. */
+  | { kind: 'ok'; solPerToken: number; source: 'Jupiter'; readAtMs?: number }
   /** Jupiter answered that it has no route for this token: no outside market it can reach. */
   | { kind: 'no-route'; detail: string }
-  | { kind: 'unread'; detail: string };
+  /** `hold`: the shared list's own one-row words for a token with no price in ten minutes ("Outside price not read for 12 min; adding waits"). */
+  | { kind: 'unread'; detail: string; hold?: true };
+
+/**
+ * ONE READ FOR EVERYONE (island answer twenty-four, build 1b). api/outside-prices.js prices
+ * every listed pool's token once, paced to the key's plan, and Vercel's edge keeps the
+ * answer for ten minutes past its age; a page reads that list and never asks Jupiter for a
+ * listed token itself (`readListedOrOutsidePrice`). A price up to ten minutes old passes
+ * the deposit check; only a token with no price in the last ten minutes holds the Add form,
+ * in one row. A token the list does not carry (a coin with no pool here yet), a list that
+ * did not answer, and every `fresh` read (the check run again at Review) use the two
+ * quotes below, as before.
+ */
+export const SHARED_PRICES_PATH = '/api/outside-prices';
+export const FRESH_FOR_MS = 10 * 60_000;
+/** A page re-asks the list this often at most; the edge answers the repeats. */
+export const SHARED_FOR_MS = 20_000;
+export type SharedEntry =
+  | { state: 'ok'; sol_per_token: number; read_at: number }
+  | { state: 'no-route'; read_at: number }
+  | { state: 'unread'; detail: string; last: { sol_per_token: number; read_at: number } | null };
+export interface SharedPrices {
+  read_at: number;
+  prices: Record<string, SharedEntry>;
+}
+
+let shared: { at: number; answer: Promise<SharedPrices | null> } | null = null;
+/** This tab's last good read per token: the list's `last` is one server instance's memory; this is ours. */
+const remembered = new Map<string, { solPerToken: number; readAtMs: number }>();
+/** Tests only. */
+export function __resetSharedPrices(): void {
+  shared = null;
+  remembered.clear();
+}
+
+/** The list, once per SHARED_FOR_MS per tab, every caller sharing the read in flight. Null when it did not answer; never throws. */
+export function readSharedPrices(fetchImpl: typeof fetch = fetch, nowMs = Date.now()): Promise<SharedPrices | null> {
+  if (shared && nowMs - shared.at < SHARED_FOR_MS) return shared.answer;
+  const answer = (async (): Promise<SharedPrices | null> => {
+    try {
+      const res = await fetchImpl(SHARED_PRICES_PATH, { headers: { Accept: 'application/json' } });
+      if (!res.ok) return null;
+      const body = (await res.json()) as Partial<SharedPrices> | null;
+      if (!body || typeof body.read_at !== 'number' || !body.prices || typeof body.prices !== 'object') return null;
+      return { read_at: body.read_at, prices: body.prices };
+    } catch {
+      return null;
+    }
+  })();
+  const mine = { at: nowMs, answer };
+  shared = mine;
+  // A list that answered nothing is not kept: the next ask tries again.
+  void answer.then((a) => {
+    if (a === null && shared === mine) shared = null;
+  });
+  return answer;
+}
+
+/** How long ago a price was read, as a row says it: "read 40 s ago", "read 3 min ago". */
+export function readAgo(readAtMs: number, nowMs = Date.now()): string {
+  const s = Math.max(0, Math.round((nowMs - readAtMs) / 1000));
+  return s < 60 ? `read ${s} s ago` : `read ${Math.round(s / 60)} min ago`;
+}
+
+/**
+ * The list's entry for one token as a price. Ok when a read is at most ten minutes old (the
+ * list's, the list's last good, or this tab's own); no-route is Jupiter's answer; anything
+ * older is the one-row hold. Null for a token the list does not carry.
+ */
+export function fromShared(entry: SharedEntry | undefined, mint: string, nowMs = Date.now()): OutsidePrice | null {
+  if (!entry) return null;
+  if (entry.state === 'no-route') return { kind: 'no-route', detail: 'Jupiter has no route for this token' };
+  type Read = { solPerToken: number; readAtMs: number };
+  const listed: Read | null =
+    entry.state === 'ok'
+      ? { solPerToken: entry.sol_per_token, readAtMs: entry.read_at }
+      : entry.last
+        ? { solPerToken: entry.last.sol_per_token, readAtMs: entry.last.read_at }
+        : null;
+  const usable = (c: Read | null): c is Read => c !== null && Number.isFinite(c.solPerToken) && c.solPerToken > 0 && Number.isFinite(c.readAtMs);
+  const mine = remembered.get(mint) ?? null;
+  const best = [listed, mine].filter(usable).sort((a, b) => b.readAtMs - a.readAtMs)[0] ?? null;
+  if (best && nowMs - best.readAtMs <= FRESH_FOR_MS) {
+    remembered.set(mint, best);
+    return { kind: 'ok', solPerToken: best.solPerToken, source: 'Jupiter', readAtMs: best.readAtMs };
+  }
+  const detail = best
+    ? `Outside price not read for ${Math.max(1, Math.round((nowMs - best.readAtMs) / 60_000))} min; adding waits`
+    : `Outside price not read (${entry.state === 'unread' ? entry.detail : 'no usable price'}); adding waits`;
+  return { kind: 'unread', detail, hold: true };
+}
 
 class NoRoute extends Error {}
 
@@ -202,11 +293,35 @@ export async function readOutsidePrice(
 }
 
 /**
+ * What a page reads: the shared list for a listed token, the two quotes for the rest and
+ * for every fresh read. The one entry for the pool cards, the Add panel's check, the
+ * Arbitrage card's price basis, the home's pool card and the range section (readers.ts).
+ */
+export async function readListedOrOutsidePrice(
+  mint: string,
+  tokenDecimals: number,
+  guard: OwnPoolGuard,
+  fetchImpl: typeof fetch = fetch,
+  signal?: AbortSignal,
+  opts: { fresh?: boolean } = {},
+): Promise<OutsidePrice> {
+  const listed = opts.fresh === true ? null : await listedOutsidePrice(mint, fetchImpl);
+  return listed ?? readOutsidePrice(mint, tokenDecimals, guard, fetchImpl, signal, opts);
+}
+
+/** The shared list's price for one token, or null when the list does not carry it or did not answer. Never throws. */
+export async function listedOutsidePrice(mint: string, fetchImpl: typeof fetch = fetch): Promise<OutsidePrice | null> {
+  if (mint === SOL_MINT) return null;
+  const list = await readSharedPrices(fetchImpl);
+  return list ? fromShared(list.prices[mint], mint) : null;
+}
+
+/**
  * A token's outside price in a POOL'S OWN pairing coin: what a pool paired with USDC or
  * BAYLA is checked against. `perToken` is whole coins per whole token.
  */
 export type QuotePrice =
-  | { kind: 'ok'; perToken: number; source: 'Jupiter' }
+  | { kind: 'ok'; perToken: number; source: 'Jupiter'; readAtMs?: number }
   /**
    * Jupiter ANSWERED that it has no route, and `of` says for what. `token`: the token has
    * no outside market. `coin`: the token has a price, but the pool's pairing coin has
@@ -214,7 +329,8 @@ export type QuotePrice =
    * warning; it switches nothing off). Never a failed read: that is `unread`.
    */
   | { kind: 'no-route'; of: 'token' | 'coin'; detail: string }
-  | { kind: 'unread'; detail: string };
+  /** `hold`: the token's price is the shared list's one-row hold, passed through as it is. */
+  | { kind: 'unread'; detail: string; hold?: true };
 
 /**
  * Why a pairing coin's OWN price is missing, in words about the coin. The coin is priced
@@ -249,7 +365,7 @@ export function priceInQuote(token: OutsidePrice, quote: QuoteCoin, coin: Outsid
   if (token.kind === 'no-route') return { kind: 'no-route', of: 'token', detail: token.detail };
   if (token.kind !== 'ok') return token;
   const priced = solPriceIn(quote, token.solPerToken, coin);
-  return priced.kind === 'ok' ? { ...priced, source: 'Jupiter' } : priced;
+  return priced.kind === 'ok' ? { ...priced, source: 'Jupiter', ...(token.readAtMs !== undefined ? { readAtMs: token.readAtMs } : {}) } : priced;
 }
 
 /**
