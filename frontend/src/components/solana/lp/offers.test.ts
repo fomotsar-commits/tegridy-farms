@@ -652,6 +652,32 @@ describe('createOffer', () => {
         ]);
       });
 
+      // Owner ruling 2026-11-01: one pool per pair and fee tier.
+      it('a pair is taken by its passing pool on the public tier, and by nothing else', () => {
+        const sol = poolOn(1);
+        const failingUsdc = pairedOn(USDC_QUOTE, USDC_UNIT);
+        const otherTierBayla = pairedOn(BAYLA_QUOTE, USDC_UNIT, 0);
+        let a = withPool(withPool(base(), sol, 'allowed'), failingUsdc, 'refused');
+        a = withPool(a, otherTierBayla, 'allowed');
+        expect(facts(a).map((x) => [x.coin.symbol, x.taken?.pool.address ?? null])).toEqual([
+          ['SOL', sol.view.address],
+          // A pool that takes no deposits leaves its pair free: never nothing to add to and nothing to open.
+          ['USDC', null],
+          // A pool on another fee tier takes nothing on the public one.
+          ['BAYLA', null],
+        ]);
+        expect(facts(a)[0]!.taken?.warned).toBe(false);
+      });
+
+      it('a pool this tab opened takes its pair once it passes, and a card that offers no opening takes none', () => {
+        const mine = poolOn(1);
+        const a = withPool(base(), mine, 'allowed');
+        const opened = (p: string) => p === mine.view.address;
+        expect(facts(a, { openedHere: opened })[0]).toMatchObject({ advice: { kind: 'opened-here' }, taken: { pool: mine.view } });
+        expect(facts(withPool(base(), poolOn(1), 'refused'), { openedHere: () => true })[0]!.taken).toBeNull();
+        expect(facts(a, { advise: false }).map((x) => x.taken)).toEqual([null, null, null]);
+      });
+
       it('a card that offers no opening names no pool for any coin', () => {
         const a = withPool(base(), poolOn(1), 'allowed');
         expect(facts(a, { advise: false }).map((x) => x.advice)).toEqual([{ kind: 'none' }, { kind: 'none' }, { kind: 'none' }]);
