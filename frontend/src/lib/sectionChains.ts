@@ -66,7 +66,7 @@ export function tabChains(to: string): TabChains {
     // The swap runs wherever a swap venue resolves (registry `ammSwap`; lib/chains/swapVenue.ts).
     case '/swap':
       return evmWhere((id) => getChainConfig(id)?.capabilities.ammSwap === true);
-    // Add / remove follows the wallet's chain wherever our router, factory and WETH are deployed.
+    // Add / remove runs wherever our router, factory and WETH are deployed.
     case '/liquidity':
       return evmWhere((id) => liquidityVenueOn(id) !== null);
     // The zap plan compiles at CHAIN_ID, and the Doppler launchpad refuses every other chain.

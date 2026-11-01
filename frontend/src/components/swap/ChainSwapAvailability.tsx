@@ -81,24 +81,20 @@ export function ChainSwapAvailability({ chainId, swapTab = false }: {
         <Link to={curveHref} className="text-emerald-300 hover:text-emerald-200 underline">
           Trade on the {config.name} curve &rarr;
         </Link>
-        {/* The swap follows a connected wallet's chain, so only the wallet can move it: a
-            link to /swap left the visitor on this same chain. With no wallet, `?c=` picks
-            the chain, so the same tab opens on Ethereum. */}
-        {isConnected ? (
-          <button
-            type="button"
-            onClick={() => switchChain({ chainId: CHAIN_ID }, {
+        {/* `?c=` picks the swap's chain, wallet or not, so the same tab opens on Ethereum.
+            A connected wallet is asked to switch too, as a pick from the drop-down does. */}
+        <Link
+          to={`/swap?${ethereumParams(params)}`}
+          onClick={() => {
+            if (!isConnected) return;
+            switchChain({ chainId: CHAIN_ID }, {
               onError: () => toast.error('Your wallet did not switch to Ethereum. Switch it in your wallet to use these tabs.'),
-            })}
-            className="text-white/60 hover:text-white/80 underline"
-          >
-            Switch your wallet to Ethereum for {swaps ? 'these tabs' : 'swaps'}
-          </button>
-        ) : (
-          <Link to={`/swap?${ethereumParams(params)}`} className="text-white/60 hover:text-white/80 underline">
-            Open {swaps ? 'these tabs' : 'swaps'} on Ethereum
-          </Link>
-        )}
+            });
+          }}
+          className="text-white/60 hover:text-white/80 underline"
+        >
+          Open {swaps ? 'these tabs' : 'swaps'} on Ethereum
+        </Link>
       </div>
       {!swaps && (
         <FinePrint summary="Why">
