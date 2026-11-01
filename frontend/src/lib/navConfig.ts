@@ -49,13 +49,14 @@ export const PREMIUM_LIVE = isDeployed(PREMIUM_ACCESS_ADDRESS);
 export const SOLANA_LIVE = isSolanaSwapLive();
 
 /**
- * Where "Swap" goes: the Solana swap inside a Solana room, else the Ethereum
- * swap. Read at render, because a door switches the room in place; ChainSwitch
- * keeps the other chain one click away.
+ * Where "Swap" goes: the Solana swap, with no room and in a Solana room (build 2, 2026-11-01:
+ * the island's traffic is Solana); the EVM swap in an EVM room (TOWELI, PEPE, the Base rooms).
+ * Read at render, because a door switches the room in place; ChainSwitch keeps the other chain
+ * one click away.
  */
 export function tradeRoute(): string {
   const active = getActiveBungalow();
-  return active?.chain === 'solana' && isSolanaSwapLive() ? '/solana' : '/swap';
+  return isSolanaSwapLive() && (!active || active.chain === 'solana') ? '/solana' : '/swap';
 }
 
 /**
@@ -80,7 +81,7 @@ export function lockRoute(): string {
 
 
 export interface NavSection {
-  /** The section's word, on the bar or as its drawer row: one string, so they cannot drift. */
+  /** The section's word in the menu's index, and on the bar or as its drawer row (on the bar, Pools is Add). */
   heading: string;
 
   /** The host's landing tab. MUST equal `items[0].to` (navConfig.test.ts). */
@@ -89,11 +90,14 @@ export interface NavSection {
   /** The section's destinations in tab order, the hub first: its host's tab strip. */
   items: NavItem[];
 
-  /** Where the word goes when not the hub; one of `items`. Swap follows the room, Pools opens Venue AMM. */
+  /**
+   * Where the word goes when not the hub; one of `items`. Swap follows the room, Pools opens
+   * Venue AMM, Launch its first tab that is on.
+   */
   primaryTo?: string;
 }
 
-/** Every tabbed section. Four are bar words (BAR_NAV) and two are drawer rows (DRAWER_SECTIONS). */
+/** Every tabbed section. Five are bar words (BAR_NAV) and one, Check, is the drawer's row (DRAWER_SECTIONS). */
 export const NAV_SECTIONS: NavSection[] = [
   {
     heading: 'Swap',
@@ -113,7 +117,7 @@ export const NAV_SECTIONS: NavSection[] = [
     // Providing liquidity: add/remove, the venue's own Solana AMM, range pools, and zap in.
     heading: 'Pools',
     hub: '/liquidity',
-    // Owner, 2026-10-03: "pools land on solana lp". The drawer row opens the Venue AMM tab,
+    // Owner, 2026-10-03: "pools land on solana lp". The bar's Add opens the Venue AMM tab,
     // on the room's coin inside a Solana room; the strip keeps its order, so the Ethereum
     // form is the tab to its left.
     get primaryTo() {
@@ -148,13 +152,19 @@ export const NAV_SECTIONS: NavSection[] = [
   },
   {
     heading: 'Launch',
-    hub: '/launch',
+    // The Solana curve leads (build 2, 2026-11-01). The word opens the first tab that is on: the
+    // curve once launching on Solana is on, else the launchpad, as an off page is listed nowhere
+    // (law 23). From the curve, the launchpad is one network pick away.
+    hub: '/curve-launch',
+    get primaryTo() {
+      return this.items.find((i) => !i.soon)?.to ?? this.hub;
+    },
     items: [
-      { to: '/launch',      label: 'Launch', tabLabel: 'Launchpad', soon: !isLauncherEnabled() },
       // The venue's own Solana curve. Off whenever launching and trading cannot load:
       // in a production build that is ONLY the committed CURVE_WRITES_ENABLED, which
       // website release 2 turns on together with the program ids (curveWriteFlag.ts).
       { to: '/curve-launch', label: 'Memetics Curve (Solana)', tabLabel: 'Solana Curve', soon: !isCurveWriteEnabled() },
+      { to: '/launch',      label: 'Launch', tabLabel: 'Launchpad', soon: !isLauncherEnabled() },
       // The EVM curve on every chain it is deployed to: the label names them and the Live mark reads them all.
       {
         to: '/eth-curve',
@@ -176,7 +186,7 @@ export const NAV_SECTIONS: NavSection[] = [
       return lockRoute();
     },
     items: [
-      // "Staking", not "Pools": Pools is the drawer row for providing liquidity.
+      // "Staking", not "Pools": Pools (the bar's Add) is for providing liquidity.
       { to: '/earn', label: 'Staking' },
       ...(NFT_FINANCE_LIVE ? [{ to: '/nft-finance', label: 'Borrow on NFTs', tabLabel: 'NFT Loans' }] : []),
       // Off only while no venue carries an on-chain-verified deposit target.
@@ -258,9 +268,9 @@ export function islandRoute(): string {
   return door && isRoomDoor(door) ? door : '/';
 }
 
-function sectionWord(section: NavSection): BarWord {
+function sectionWord(section: NavSection, label = section.heading): BarWord {
   return {
-    label: section.heading,
+    label,
     get to() {
       return section.primaryTo ?? section.hub;
     },
@@ -269,10 +279,11 @@ function sectionWord(section: NavSection): BarWord {
 }
 
 /**
- * The bar, phone and wide screen alike. Island is the home, with its read field and its hall of
- * doors, or inside a room that room's own page (owner, 2026-10-18: Heat and Rooms "are the same";
- * one word stays, named Island, and the drawer's Island row moves up into it). Five is the
- * ceiling: a 44px tab and a 10px label at 390px.
+ * The bar, phone and wide screen alike: Island · Swap · Add · Lock · Launch (build 2,
+ * 2026-11-01). Island is the home, with its read field and its hall of doors, or inside a room
+ * that room's own page (owner, 2026-10-18: Heat and Rooms "are the same"; one word stays, named
+ * Island, and the drawer's Island row moves up into it). Add is the Pools section, named for what
+ * is done there. Five is the ceiling: a 44px tab and a 10px label at 390px.
  */
 export const BAR_NAV: readonly BarWord[] = [
   // Owns the home with or without its hall, every room's door, and the island's own pages
@@ -284,9 +295,10 @@ export const BAR_NAV: readonly BarWord[] = [
     },
     lit: (pathname) => pathname === '/' || isRoomDoor(pathname) || sectionIsActive(ISLAND_SECTION, pathname),
   },
+  sectionWord(SWAP_SECTION),
+  sectionWord(POOLS_SECTION, 'Add'),
   sectionWord(LOCK_SECTION),
   sectionWord(LAUNCH_SECTION),
-  sectionWord(SWAP_SECTION),
 ];
 
 /** The word that owns this page, if any. */
@@ -294,8 +306,8 @@ export function litWord(pathname: string, hash = ''): BarWord | null {
   return BAR_NAV.find((w) => w.lit(pathname, hash)) ?? null;
 }
 
-/** The drawer's big rows, one per section, at every width. Pools leads, on the Venue AMM tab. */
-export const DRAWER_SECTIONS: readonly NavSection[] = [POOLS_SECTION, CHECK_SECTION];
+/** The drawer's big row, at every width: Check. Pools is on the bar, as Add. */
+export const DRAWER_SECTIONS: readonly NavSection[] = [CHECK_SECTION];
 
 /** Not on the bar and not in the footer since 2026-10-15: the records and the developer API. */
 export const DRAWER_LINKS: readonly NavItem[] = [

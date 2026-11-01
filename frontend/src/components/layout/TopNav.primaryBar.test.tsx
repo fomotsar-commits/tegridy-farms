@@ -1,6 +1,6 @@
-// The top bar reads Island · Lock · Launch · Swap (owner, 2026-10-03 and 2026-10-18), and everything
-// else is one drawer that opens at every width. navReach.test.tsx proves no page is stranded;
-// SectionHost.test.tsx that every section item survives as a tab on its host.
+// The top bar reads Island · Swap · Add · Lock · Launch (owner, 2026-10-03 and 2026-10-18; build 2,
+// 2026-11-01), and everything else is one drawer that opens at every width. navReach.test.tsx
+// proves no page is stranded; SectionHost.test.tsx that every section item survives as a tab on its host.
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, within, fireEvent } from '@testing-library/react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
@@ -34,7 +34,7 @@ import { TopNav } from './TopNav';
 import { ThemeProvider } from '../../contexts/ThemeContext';
 import { BAR_NAV, INDEX_GROUPS, indexName } from '../../lib/navConfig';
 
-const WORDS = ['Island', 'Lock', 'Launch', 'Swap'];
+const WORDS = ['Island', 'Swap', 'Add', 'Lock', 'Launch'];
 
 /** Where the router is: what "Jump to" opened. */
 function Where() {
@@ -66,7 +66,7 @@ function openDrawer(path = '/', connected = false) {
 }
 
 describe('TopNav: the bar', () => {
-  it('reads Island · Lock · Launch · Swap, and nothing else', () => {
+  it('reads Island · Swap · Add · Lock · Launch, and nothing else', () => {
     mount();
     expect(within(bar()).getAllByRole('link').map((l) => l.textContent)).toEqual(WORDS);
   });
@@ -99,6 +99,8 @@ describe('TopNav: the bar', () => {
     ['/nft-finance', 'Lock'],
     ['/eth-curve', 'Launch'],
     ['/solana', 'Swap'],
+    ['/pools', 'Add'],
+    ['/liquidity', 'Add'],
   ])('lights exactly one word on %s: %s', (path, word) => {
     mount(path);
     const lit = within(bar())
@@ -108,7 +110,7 @@ describe('TopNav: the bar', () => {
     expect(lit[0]).toHaveAttribute('aria-current', 'page');
   });
 
-  it.each(['/pools', '/trust', '/history'])('lights no word on %s, a drawer page', (path) => {
+  it.each(['/trust', '/history'])('lights no word on %s, a drawer page', (path) => {
     mount(path);
     const lit = within(bar())
       .getAllByRole('link')
