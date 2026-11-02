@@ -741,3 +741,27 @@ describe('Arbitrage: only round trips that pay at Jupiter’s live quote are lis
     }
   });
 });
+
+// Island answer twenty-four, §4: a row's coins are presses that copy their whole addresses.
+describe('All pools: every coin in a row copies its whole address', () => {
+  const writeText = vi.fn(async () => {});
+  beforeEach(() => {
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+  });
+
+  it('names the token and its pairing coin as presses, and keeps the heading and a stranger’s whole address', async () => {
+    mount(readers({ listPools: vi.fn(async () => ok([view(BAYLA, 30n * 10n ** 9n), view(CORN)], { safety: [calls(C, 'CRYING')] })) }));
+    const [bayla, crying] = await screen.findAllByTestId('lp-all-pools-row');
+    const names = (row: HTMLElement) => within(row).getAllByTestId('coin-name').map((n) => n.getAttribute('aria-label'));
+    expect(names(bayla!)).toEqual([`BAYLA: copy its address ${BAYLA_MINT}`, `SOL: copy its address ${WSOL_MINT}`]);
+    expect(names(crying!)).toEqual([`CRYING: copy its address ${C}`, `SOL: copy its address ${WSOL_MINT}`]);
+    expect(within(bayla!).getByText('BAYLA / SOL · 1% tier')).toBeInTheDocument();
+    expect(within(crying!).getByText(C)).toBeInTheDocument();
+    for (const n of within(crying!).getAllByTestId('coin-name')) expect(n.className).toContain('min-h-[44px]');
+    await act(async () => {
+      fireEvent.click(within(crying!).getAllByTestId('coin-name')[0]!);
+    });
+    expect(writeText).toHaveBeenCalledWith(C);
+    expect(within(crying!).getByText('Copied')).toBeInTheDocument();
+  });
+});

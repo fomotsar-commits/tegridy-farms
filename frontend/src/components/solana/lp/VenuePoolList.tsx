@@ -9,6 +9,7 @@ import { pairLabel, siteNamed, tokenTicker } from '../../../lib/solana/lp/identi
 import { QUOTE_COINS_OR } from '../../../lib/solana/lp/quotes';
 import { Card, Notice } from '../curve/ui';
 import { CardArt } from '../../ui/CardArt';
+import { CoinName } from '../../ui/CoinName';
 import { FinePrint } from '../../ui/FinePrint';
 import type { LpReaders } from './readers';
 import { useLivePoolList } from './usePoolList';
@@ -194,6 +195,11 @@ function PoolRow({
               {usdText(worth)}
             </span>
           )}
+        </div>
+        {/* Each coin's name copies its whole address (island answer twenty-four). */}
+        <div className="flex flex-wrap gap-x-4">
+          <CoinName name={symbol ?? 'Token'} address={view.tokenMint} />
+          <CoinName name={view.quote.symbol} address={view.quote.mint} />
         </div>
         {/* Any other coin's ticker is its own claim, and a short address can be ground to collide: the whole address is said too. */}
         {!siteNamed(view.tokenMint) && <p className="font-mono text-white/55 text-[11px] break-all">{view.tokenMint}</p>}

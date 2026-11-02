@@ -27,6 +27,7 @@ import { HISTORY_PAGES_MAX } from '../../../lib/solana/lp/txHistory';
 import { Notice, Row } from '../curve/ui';
 import { CARD, CARD_STYLE, DIVIDER, SHADOW } from '../curve/uiFormat';
 import { CardArt } from '../../ui/CardArt';
+import { CoinName } from '../../ui/CoinName';
 import { AddLiquidityPanel } from './AddLiquidityPanel';
 import { AddOneCoinPanel } from './AddOneCoinPanel';
 import { AddressRow } from './AddressRow';
@@ -433,6 +434,11 @@ export function PoolCard({
       <h3 ref={headingRef} tabIndex={-1} aria-describedby={why ? whyId : undefined} className="text-white font-semibold text-[15px] mb-1 outline-none [overflow-wrap:anywhere]" style={SHADOW}>
         {pairLabel(view, safety)}
       </h3>
+      {/* Each coin's name copies its whole address (island answer twenty-four), under the heading's words. */}
+      <div data-testid="lp-pool-coins" className="flex flex-wrap gap-x-4 mb-1">
+        <CoinName name={tokenTicker(view.tokenMint, safety) ?? 'Token'} address={view.tokenMint} />
+        <CoinName name={view.quote.symbol} address={view.quote.mint} />
+      </div>
       {why && (
         <DoorPortal when={shownAtTop}>
           <WishWhy id={whyId} why={why} fromDoor={shownFromDoor} />

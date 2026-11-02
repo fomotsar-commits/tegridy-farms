@@ -2,8 +2,7 @@ import { Link } from 'react-router-dom';
 import type { Bungalow, BungalowIdentity } from '../../lib/bungalows';
 import { bungalowExplorerUrl, bungalowLpDoor, bungalowScanRoute, bungalowTradeRoute, OPEN_BUNGALOW_ABOUT_EVENT } from '../../lib/bungalows';
 import { isSolanaSwapLive } from '../../lib/solana';
-import { CopyButton } from '../ui/CopyButton';
-import { shortenAddress } from '../../lib/formatting';
+import { CoinName } from '../ui/CoinName';
 import { FinePrint } from '../ui/FinePrint';
 
 /**
@@ -123,13 +122,13 @@ export function BungalowHero({ bungalow }: { bungalow: Bungalow & { identity: Bu
         About this bungalow
       </button>
 
-      {/* Contract chip — copyable mint + explorer link, mirroring the footer card. */}
+      {/* Contract chip: the coin's name copies its whole address (CoinName, island answer twenty-four), then the explorer link. */}
       {bungalow.address && (
         <div className="mt-4 rounded-lg p-3 inline-flex items-center gap-3 flex-wrap" style={{ background: 'rgba(0,0,0,0.72)', border: '1px solid var(--color-kyle-40)' }}>
           <span className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--color-kyle)' }}>
             {bungalow.symbol} · {bungalow.chain}
           </span>
-          <CopyButton text={bungalow.address} display={shortenAddress(bungalow.address, 6)} className="font-mono text-[12px]" style={{ color: 'var(--color-kyle)' }} />
+          <CoinName name={bungalow.symbol} address={bungalow.address} className="text-[12px]" />
           {explorer && (
             <a href={explorer} target="_blank" rel="noopener noreferrer" aria-label="View token on block explorer (opens in new tab)" className="text-[11px] underline underline-offset-2 text-white/70 hover:text-white">
               explorer ↗
