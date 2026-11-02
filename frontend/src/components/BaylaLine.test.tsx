@@ -88,11 +88,15 @@ describe('BaylaLine', () => {
     expect(screen.queryByTestId('bayla-intel')).toBeNull();
   });
 
-  it('a door landing keeps its first screen: nothing on /pools with a task, the line on /pools itself', () => {
+  it('a room’s door keeps its first screen: nothing on /pools with a coin in the URL, the line on /pools itself', () => {
     mount('/pools?mint=7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump&task=add');
     expect(screen.queryByTestId('bayla-line')).toBeNull();
     cleanup();
+    // The wish taken, the coin stays: still the door.
     mount('/pools?mint=7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump');
+    expect(screen.queryByTestId('bayla-line')).toBeNull();
+    cleanup();
+    mount('/pools');
     expect(screen.getByTestId('bayla-line')).toBeInTheDocument();
   });
 

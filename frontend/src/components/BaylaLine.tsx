@@ -64,10 +64,11 @@ export function BaylaLine() {
 
   if (voiceAt(location.pathname, location.search) === 'toweli') return null;
   if (BUNGALOWS.some((b) => !b.live && location.pathname === `/${b.id}`)) return null;
-  // A door landing (a room's Add wish, /pools?task=...) keeps its green button on the first
-  // screen at 390x844 (e2e/door-lands.spec.ts, the owner's pin): the line stands down there until
-  // build 3's sheet carries it inside. The pools page itself keeps the line.
-  if (location.pathname === '/pools' && new URLSearchParams(location.search).has('task')) return null;
+  // A room's door (/pools with a coin in the URL; the finder drops the wish's task once it is
+  // taken, the coin stays) keeps its green button on the first screen at 390x844
+  // (e2e/door-lands.spec.ts, the owner's pin): the line stands down there until build 3's sheet
+  // carries it inside. The pools page itself keeps the line.
+  if (location.pathname === '/pools' && new URLSearchParams(location.search).has('mint')) return null;
 
   const line = baylaLine({
     reading,
