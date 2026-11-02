@@ -37,8 +37,9 @@ const SETTLED_LINE = 'Settled on Jungle Bay Island.';
 // a production build; LotFrame in DoorFrame.tsx carries the same four.
 // The venue's .ff-wrap pads 177px: the nav's 3.5rem, Bayla's 65px line (components/BaylaLine.tsx
 // BAYLA_LINE_HEIGHT) and the hero's 56px of air. The farm's door shows no line (law 21), so its
-// frame pads for the bar alone, as every frame did before the line.
-export const FARM_FRAME = { wrap: 'padding-top:112px' };
+// wrap carries the ff-farm class (index.html: the bar alone, 112px); a class, not a style, so
+// every door's frame keeps the hero's place as DoorFrame.test.tsx pins.
+export const FARM_DOORS = new Set(['toweli']);
 export const LOT_FRAME = {
   wrap: 'padding-top:6rem',
   col: 'max-width:none',
@@ -215,7 +216,6 @@ export const DOORS = [
     heroLine: 'Check our work.',
     heroArt: '/art/iphone/IMG_0148.jpg',
     heroPosition: '4% 85%',
-    frame: FARM_FRAME,
   },
   // The island's open lot (answer sixteen, ruling 9: every door means every door). Its
   // first frame is its landing's heading (OPEN_LOT_HERO in lib/bungalows.ts) over the
@@ -290,7 +290,7 @@ function doorFrame(door, manifest) {
   const styled = (style) => (style ? ` style="${esc(style)}"` : '');
   return (
     `<!-- first-frame --><div id="first-frame"><div class="ff-bg"><img ${img}>${f?.veil ? `<div${styled(f.veil)}></div>` : ''}</div>` +
-    `<div class="ff-wrap"${styled(f?.wrap)}><div class="ff-col"${styled(f?.col)}><div aria-hidden="true" style="${esc(f?.spacer ?? PILL_ROW_STYLE)}"></div>` +
+    `<div class="ff-wrap${FARM_DOORS.has(door.path) ? ' ff-farm' : ''}"${styled(f?.wrap)}><div class="ff-col"${styled(f?.col)}><div aria-hidden="true" style="${esc(f?.spacer ?? PILL_ROW_STYLE)}"></div>` +
     `<h1 class="ff-h1" elementtiming="first-frame-h1" style="${HEADING_STYLE}">${headingHtml(door)}</h1></div></div></div><!-- /first-frame -->`
   );
 }
