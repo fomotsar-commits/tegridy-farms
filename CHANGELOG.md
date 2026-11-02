@@ -7,6 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-11-02
+
+- A Solana swap paid in USDT now carries the venue's fee, as one paid in SOL or USDC does. The swap page's fee line reads "SOL, USDC or USDT".
+
 ### 2026-11-01
 
 - Pools, Venue AMM: the All pools list now puts the pools with the most money in first, whatever coin each is paired with, in every room alike. Before, every SOL pool came first (after the room's own coin), so BAYLA / USDC, holding $1,482, sat under SOL pools holding $47. A pool priced far below Jupiter is ranked by its SOL, USDC or BAYLA side, so a pool stuffed with a coin someone printed cannot take the top spot.
