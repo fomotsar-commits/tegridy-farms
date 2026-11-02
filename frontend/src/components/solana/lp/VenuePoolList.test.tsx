@@ -12,6 +12,7 @@ import type { PoolListRead } from '../../../lib/solana/lp/poolList';
 import type { LegQuote } from '../../../lib/solana/lp/outsidePrice';
 import type { PoolSearchRead, PoolView } from '../../../lib/solana/lp/poolFinder';
 import { buildPool, key, viewOf } from '../../../lib/solana/lp/testkit.fixture';
+import { BUNGALOWS, BUNGALOW_STORAGE_KEY } from '../../../lib/bungalows';
 
 const wallet = vi.hoisted(() => ({ publicKey: null as null | { toBase58(): string } }));
 vi.mock('@solana/wallet-adapter-react', () => ({ useWallet: () => wallet, useConnection: () => ({ connection: { rpcEndpoint: 'fake' } }) }));
@@ -293,6 +294,19 @@ describe('All pools: every pool on the venue, before a token is picked', () => {
     rows = screen.getAllByTestId('lp-all-pools-row');
     expect(rows.map((r) => r.querySelector('p')?.textContent)).toEqual(['BAYLA / SOL · 1% tier', 'CORN / SOL · 1% tier', 'CORN / USDC · 1% tier']);
     expect(screen.getByRole('list', { name: 'All pools: SOL pools first, then USDC, then BAYLA, the deepest of each first' })).toBeInTheDocument();
+  });
+
+  it('a visitor in a room sees the same order: the room’s own coin is not pinned on top (owner, 2026-11-01: "Pure TVL order")', async () => {
+    const room = BUNGALOWS.find((b) => b.chain === 'solana' && b.address === BAYLA_MINT)!;
+    window.localStorage.setItem(BUNGALOW_STORAGE_KEY, room.id);
+    try {
+      const pools = [view(BAYLA, 30n * 10n ** 9n), view(CORN), usdcPool(view(CORN))];
+      mount(readers({ marketPrices: vi.fn(async () => ({ [WSOL_MINT]: 100, [BAYLA_MINT]: 3, [USDC_MINT]: 1, [C]: 0.95 })), listPools: vi.fn(async () => ok(pools, { safety: [calls(C, 'CORN')] })) }));
+      await waitFor(() => expect(screen.getAllByTestId('lp-all-pools-worth')).toHaveLength(3));
+      expect(screen.getAllByTestId('lp-all-pools-worth').map((w) => w.textContent)).toEqual(['$19,500', '$6,000', '$1,950']);
+    } finally {
+      window.localStorage.removeItem(BUNGALOW_STORAGE_KEY);
+    }
   });
 });
 

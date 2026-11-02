@@ -16,8 +16,6 @@ import { useMarketPrices } from './useMarketPrices';
 import { ArbitrageBoard } from './ArbitrageBoard';
 import { PriceFlip } from './PriceFlip';
 import { usePriceSide } from './priceSide';
-import { BUNGALOWS } from '../../../lib/bungalows';
-import { useActiveBungalowId } from '../../../hooks/useActiveBungalowId';
 
 /**
  * Every pool on the venue, listed before a token is picked, so nobody has to search one
@@ -119,12 +117,9 @@ function PoolRows({
 }) {
   const { pools: read, unread, truncated, chainNow, safety } = list;
   const usd = prices?.kind === 'ok' ? prices.usd : null;
-  // Most money in first once Jupiter's prices are read (poolList.ts `byWorth`); until then, the order read.
-  const listed = usd ? byWorth(read, usd) : read;
-  // A reader in a Solana room sees that coin's pools first (the LP door, island answer twenty); the rest keep the list's order.
-  const roomId = useActiveBungalowId();
-  const roomMint = BUNGALOWS.find((b) => b.id === roomId && b.chain === 'solana')?.address ?? null;
-  const pools = roomMint ? [...listed.filter((v) => v.tokenMint === roomMint), ...listed.filter((v) => v.tokenMint !== roomMint)] : listed;
+  // Most money in first once Jupiter's prices are read (poolList.ts `byWorth`); until then, the order read. In every room
+  // alike: the room's own coin is no longer pinned on top (owner, 2026-11-01: "Pure TVL order", over island answer twenty).
+  const pools = usd ? byWorth(read, usd) : read;
   return (
     <div className="space-y-3">
       {pools.length === 0 && unread === 0 && !truncated && <p data-testid="lp-all-pools-none">No pools yet.</p>}
