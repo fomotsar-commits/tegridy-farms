@@ -38,6 +38,11 @@ import {
   isVenueCoin,
   needsRiskAck,
   withVenueCoinsFirst,
+  venueMark,
+  isIslandCoin,
+  listedTokens,
+  resolveMints,
+  ISLAND_TOKENS,
   isRiskAcked,
   rememberRiskAck,
   forgetRiskAck,
@@ -55,6 +60,7 @@ import {
   type TrendingCategory,
   type TrendingInterval,
 } from '../lib/solanaTokenList';
+import { loadPoolCoins, poolCoinMints, usePoolCoins } from '../lib/solana/poolCoins';
 import {
   getQuote,
   NoRouteError,
@@ -271,12 +277,19 @@ type RowBadge = { label: string; tone: 'amber' | 'red' | 'green' };
  */
 const mintLine = (mint: string) => (siteNamed(mint) ? `${mint.slice(0, 6)}…${mint.slice(-4)}` : mint);
 
+/** A pool's worth, short: $640, $1.2K, $35K. */
+const shortUsd = (usd: number) => (usd >= 1000 ? `$${(usd / 1000).toFixed(usd >= 10_000 ? 0 : 1)}K` : `$${Math.round(usd)}`);
+
 function riskBadges(t: SolToken): RowBadge[] {
   const out: RowBadge[] = [];
-  // The venue's own coin is known by its mint, so it says that and not "Unverified".
+  // A coin the venue vouches for is known by its mint (venueMark), so it says why and not
+  // "Unverified": its own coin, an island room's, or one with a $200 pool here.
   // Only a coin Jupiter verifies gets no mark at all: SOL and USDC need none.
-  if (isVenueCoin(t.mint) && isUnverified(t)) out.push({ label: `This venue’s ${t.symbol}`, tone: 'green' });
-  else if (isUnverified(t)) out.push({ label: 'Unverified', tone: 'amber' });
+  const mark = venueMark(t);
+  if (mark && isUnverified(t)) {
+    const label = mark.kind === 'venue' ? `This venue’s ${t.symbol}` : mark.kind === 'island' ? 'Island coin' : `Verified · ${shortUsd(mark.usd)} pool here`;
+    out.push({ label, tone: 'green' });
+  } else if (isUnverified(t)) out.push({ label: 'Unverified', tone: 'amber' });
   if (t.tokenProgram && t.tokenProgram !== LEGACY_TOKEN_PROGRAM) out.push({ label: 'Token-2022', tone: 'amber' });
   // Amber rather than red on a curated mint: USDC really can freeze, and saying
   // so is right — but it is a known property of the asset, not a warning sign.
@@ -494,22 +507,46 @@ function TokenPicker({ title, featured, onSelect, onClose }: TokenPickerProps) {
     return () => { clearTimeout(t); ctrl.abort(); };
   }, [query]);
 
+  // The venue's own list (listedTokens): the coins with a $200 pool here, read as the picker
+  // opens, then Jupiter's rows for them and the island's coins (pictures, names), in one call.
+  // Each answer draws again; one that fails leaves the list's own rows.
+  usePoolCoins();
+  const [, setNamed] = useState(0);
+  useEffect(() => {
+    const ctrl = new AbortController();
+    void (async () => {
+      await resolveMints(ISLAND_TOKENS.map((t) => t.mint), ctrl.signal);
+      if (!ctrl.signal.aborted) setNamed((n) => n + 1);
+      await loadPoolCoins();
+      await resolveMints(poolCoinMints(), ctrl.signal);
+      if (!ctrl.signal.aborted) setNamed((n) => n + 1);
+    })();
+    return () => ctrl.abort();
+  }, []);
+
   const list = results ?? featured;
-  // Empty state renders three labeled groups instead of a flat "Popular"
-  // list: Favorites, then Recent, then Popular — deduped by mint in that
-  // priority order. localStorage reads are cheap and the empty state only
-  // re-renders on open/query-clear, so no memo. Remembered/favorited tokens
-  // re-run through riskBadges like any other row — an unverified token stays
-  // visibly unverified no matter where it renders from.
+  // Empty state renders labeled groups instead of a flat "Popular" list: the island's coins
+  // first, always (owner, 2026-11-01: "these are the tokens we want to be always showcasing
+  // for swaps"), then the coins with a $200 pool here, Favorites, Recent and Popular — deduped
+  // by mint in that priority order. localStorage reads are cheap and the empty state only
+  // re-renders on open/query-clear, so no memo. Remembered/favorited tokens re-run through
+  // riskBadges like any other row — an unverified token stays visibly unverified no matter
+  // where it renders from.
   const groups = results
     ? null
     : (() => {
-        const favs = getFavoriteTokens();
-        const seen = new Set(favs.map((t) => t.mint));
+        const listed = listedTokens();
+        const island = listed.filter((t) => isIslandCoin(t.mint));
+        const pools = listed.filter((t) => venueMark(t)?.kind === 'pool');
+        const seen = new Set([...island, ...pools].map((t) => t.mint));
+        const favs = getFavoriteTokens().filter((t) => !seen.has(t.mint));
+        for (const t of favs) seen.add(t.mint);
         const recents = getRecentTokens().filter((t) => !seen.has(t.mint));
         for (const t of recents) seen.add(t.mint);
         const popular = featured.filter((t) => !seen.has(t.mint));
         return [
+          { label: 'Island coins', tokens: island },
+          { label: 'On our pools', tokens: pools },
           { label: 'Favorites', tokens: favs },
           { label: 'Recent', tokens: recents },
           { label: 'Popular', tokens: popular },
