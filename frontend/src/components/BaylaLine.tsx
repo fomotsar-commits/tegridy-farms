@@ -30,13 +30,17 @@ function useFire(): FireWeek | null {
   return value;
 }
 
+/** The line's height in CSS pixels: the header's second row, and what the static first frames pad for. */
+export const BAYLA_LINE_HEIGHT = 65;
+
 /**
  * Bayla at the door (island answer twenty-four, build 4): one line in her voice under the
  * nav on every venue route, always in the same place, reading the state and saying the one
  * next move with its number, and the button beside it that does the move. Under it, one
  * live fact. Never a modal, never a tour. Not on the farm's own pages (law 21: the farm
- * speaks only in its room) and not on a settled resident's doorstep. In flow at the top of
- * the page, never pinned (safe-area law: nothing lands behind chrome).
+ * speaks only in its room) and not on a settled resident's doorstep. The header's second row
+ * (TopNav), so the page under it keeps every law it had: nothing lands behind chrome, a tab
+ * row hangs from the header, and the first frame's heading does not move.
  */
 export function BaylaLine() {
   const location = useLocation();
@@ -88,21 +92,21 @@ export function BaylaLine() {
   const intel = intelLine(fireWeek);
 
   return (
-    // In flow, not pinned: a pinned band under the header would cover whatever scrolls up to it
-    // (e2e/safe-area-insets.spec.ts: no control lands behind chrome). The same place on every
-    // screen is the top of it, under the nav, on arrival.
+    // The header's second row, exactly BAYLA_LINE_HEIGHT tall on every screen: the sentence and
+    // its button, then the one fact. A fixed height is what lets the static first frame pad for
+    // it before React arrives (index.html .ff-wrap, scripts/render-bungalow-doors.mjs), so the
+    // hero's heading never moves (e2e/door-first-frame.spec.ts).
     <div
       data-testid="bayla-line"
-      className="relative z-10 px-3 min-[480px]:px-4"
+      className="relative px-3 min-[480px]:px-4 overflow-hidden"
       style={{
-        background: 'rgba(6,12,26,0.92)',
-        backdropFilter: 'blur(12px)',
-        WebkitBackdropFilter: 'blur(12px)',
-        borderBottom: '1px solid rgba(255,255,255,0.08)',
+        height: `${BAYLA_LINE_HEIGHT}px`,
+        background: 'rgba(6,12,26,0.55)',
+        borderTop: '1px solid rgba(255,255,255,0.08)',
       }}
     >
-      <div className="page-column mx-auto flex items-center gap-3 min-h-[48px] py-1">
-        <p className="flex-1 min-w-0 text-[13px] leading-snug text-white/90" data-testid="bayla-line-text">
+      <div className="page-column mx-auto flex items-center gap-3 h-[46px]">
+        <p className="flex-1 min-w-0 text-[12.5px] leading-[15px] max-h-[45px] overflow-hidden text-white/90" data-testid="bayla-line-text">
           {line.text}
         </p>
         <Link
@@ -116,7 +120,7 @@ export function BaylaLine() {
         </Link>
       </div>
       {intel && (
-        <p className="page-column mx-auto pb-1.5 text-[11px] text-white/55" data-testid="bayla-intel">
+        <p className="page-column mx-auto h-[16px] leading-[16px] truncate text-[11px] text-white/55" data-testid="bayla-intel">
           {intel}
         </p>
       )}
