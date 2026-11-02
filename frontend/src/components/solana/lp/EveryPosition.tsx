@@ -16,7 +16,7 @@ import { usePoolList } from './usePoolList';
  * Every position in every one of our pools, whoever holds it (owner, 2026-10-23: "I want all
  * the LP positions to show"). "Your positions" lists only the connected wallet's shares;
  * this lists every holder of each pool's shares, read from the chain (holders.ts), with the
- * connected wallet's own rows marked. The pools are the All pools list's, in its order. A
+ * connected wallet's own rows marked. The pools are the All pools list's, in the order read. A
  * pool whose holders could not be read says that, never "nobody". A reader without
  * `holders` or `listPools` (every older test fake) renders nothing.
  */

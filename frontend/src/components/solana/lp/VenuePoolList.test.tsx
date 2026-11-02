@@ -274,6 +274,26 @@ describe('All pools: every pool on the venue, before a token is picked', () => {
     expect(screen.queryAllByTestId('lp-all-pools-worth')).toHaveLength(0);
     expect(screen.getByTestId('lp-all-pools')).toHaveTextContent('The dollars beside a pair are what the pool holds at Jupiter’s listed prices');
   });
+
+  it('the pools with the most money in come first, whatever coin they are priced in; until Jupiter’s prices are read, the order read', async () => {
+    // As read: SOL's pools, deepest first, then USDC's. In dollars: BAYLA $3,000 + $3,000, CORN $1,000 + $950, and
+    // CORN's USDC pool $10,000 + $9,500.
+    const pools = [view(BAYLA, 30n * 10n ** 9n), view(CORN), usdcPool(view(CORN))];
+    const listPools = vi.fn(async () => ok(pools, { safety: [calls(C, 'CORN')] }));
+    const { unmount } = mount(readers({ marketPrices: vi.fn(async () => ({ [WSOL_MINT]: 100, [BAYLA_MINT]: 3, [USDC_MINT]: 1, [C]: 0.95 })), listPools }));
+    await waitFor(() => expect(screen.getAllByTestId('lp-all-pools-worth')).toHaveLength(3));
+    let rows = screen.getAllByTestId('lp-all-pools-row');
+    expect(rows.map((r) => within(r).getByTestId('lp-all-pools-worth').textContent)).toEqual(['$19,500', '$6,000', '$1,950']);
+    expect(rows[0]).toHaveTextContent('CORN / USDC · 1% tier');
+    expect(screen.getByRole('list', { name: 'All pools: the most money in first' })).toBeInTheDocument();
+    expect(screen.getByTestId('lp-all-pools')).toHaveTextContent('The pools with the most money in come first.');
+    unmount();
+    mount(readers({ marketPrices: vi.fn(async () => { throw new Error('Price fetch failed (502)'); }), listPools }));
+    await screen.findByTestId('lp-all-pools-prices-unread');
+    rows = screen.getAllByTestId('lp-all-pools-row');
+    expect(rows.map((r) => r.querySelector('p')?.textContent)).toEqual(['BAYLA / SOL · 1% tier', 'CORN / SOL · 1% tier', 'CORN / USDC · 1% tier']);
+    expect(screen.getByRole('list', { name: 'All pools: SOL pools first, then USDC, then BAYLA, the deepest of each first' })).toBeInTheDocument();
+  });
 });
 
 /** The same pool with its token side under Token-2022, as BAYLA's mint is on mainnet. */
@@ -382,8 +402,8 @@ describe('Arbitrage: every paying gap, ranked, with the trade and one press to t
     expect(arbRows[2]).toHaveTextContent('BAYLA / SOL · 1% tier');
     expect(within(arbRows[2]!).getByTestId('lp-arb-gap')).toHaveTextContent('2.0% dearer here');
     expect(within(arbRows[2]!).getByRole('link', { name: /^Swap: sell .* BAYLA for SOL$/ })).toHaveAttribute('href', expect.stringMatching(new RegExp(`^/solana\\?in=${BAYLA_MINT}&out=${WSOL_MINT}&amt=`)));
-    const rows = screen.getAllByTestId('lp-all-pools-row');
-    expect(within(rows[0]!).queryAllByTestId('lp-all-pools-tag')).toHaveLength(0);
+    const baylaRow = screen.getAllByTestId('lp-all-pools-row').find((r) => r.textContent?.includes('BAYLA / SOL'))!;
+    expect(within(baylaRow).queryAllByTestId('lp-all-pools-tag')).toHaveLength(0);
     expect(within(board).getByRole('list', { name: 'Arbitrage: ranked by profit, most first' })).toBeInTheDocument();
   });
 
