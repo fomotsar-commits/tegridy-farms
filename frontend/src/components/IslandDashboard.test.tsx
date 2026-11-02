@@ -10,6 +10,7 @@ import { MemoryRouter } from 'react-router-dom';
 import type { ReactNode } from 'react';
 import type { WalletBoard } from '../hooks/useWalletBoard';
 import type { HoldingRow, Leg, NamedLeg, PositionRow } from '../lib/wallet/walletRows';
+import { OFF_ISLAND_COINS } from '../lib/wallet/offIslandCoins';
 
 const board = vi.hoisted(() => ({ value: null as unknown as WalletBoard }));
 vi.mock('../hooks/useWalletBoard', () => ({ useWalletBoard: () => board.value }));
@@ -79,6 +80,22 @@ describe('IslandDashboard: the wallet', () => {
     // The chain whose wallet is missing can still be connected.
     expect(screen.getByRole('button', { name: /Connect Ethereum wallet/ })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Connect Solana wallet/ })).toBeNull();
+  });
+
+  // Owner, 2026-11-01: the BIG BRAIN pool sat on a bare green square ("use this image for the art").
+  it('pictures a coin with no room from offIslandCoins.ts, on its rows and in the frame, worded by its whole ticker', () => {
+    const coin = OFF_ISLAND_COINS[0]!;
+    board.value = wallet({
+      solanaAddress: '7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU',
+      holdings: [leg('h', 'your Solana coins', { status: 'ok', rows: [holding({ key: 'bb', symbol: 'BIG BRAIN', roomId: null, mint: coin.address, to: null })] })],
+      positions: [leg('p', 'your Solana pool shares', { status: 'ok', rows: [position({ title: 'BIG BRAIN / SOL pool', roomId: null, mint: coin.address, facts: ['3.03% of the pool', coin.address], to: '/pools' })] })],
+    });
+    const { container } = mount();
+    expect(container.querySelectorAll(`img[src="${coin.art.src}"]`).length).toBeGreaterThanOrEqual(2);
+    fireEvent.mouseEnter(within(screen.getByRole('region', { name: 'Positions' })).getByRole('link', { name: /BIG BRAIN \/ SOL pool/ }));
+    expect(screen.getByTestId('dashboard-figure').querySelector(`img[src="${coin.art.src}"]`)).not.toBeNull();
+    expect(screen.getByTestId('dashboard-figure')).toHaveTextContent('BIG BRAIN');
+    expect(screen.queryByTestId('chain-plate')).toBeNull();
   });
 
   it('says which part could not be read, with Try again, and never reads it as holding nothing', () => {
