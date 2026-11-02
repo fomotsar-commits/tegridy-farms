@@ -78,7 +78,7 @@ contract FRESH2026_F4_StakingIncreaseAutoMaxLockOrderTest is Test {
         toweli = new F4_Toweli();
         jbac = new F4_JBAC();
 
-        staking = new TegridyStaking(address(toweli), address(jbac), treasury, 1e18);
+        staking = new TegridyStaking(address(toweli), address(jbac), treasury);
         admin = new TegridyStakingAdmin(address(staking));
         staking.setStakingAdmin(address(admin));
 

@@ -40,6 +40,10 @@ library StakingRewardLib {
 
     // Mirror of TegridyStaking's reward-math constant (must equal the contract's value).
     uint256 internal constant ACC_PRECISION = 1e18;
+    // Mirrors of TegridyStaking's constants for the funding body (2026-10-18).
+    uint256 internal constant MIN_NOTIFY_AMOUNT = 1000e18;
+    uint256 internal constant MAX_REWARD_RATE = 1e18;
+    uint256 internal constant REWARDS_DURATION = 4 * 365 days;
     // Mirror of TegridyStaking.MAX_POSITIONS_PER_HOLDER (must equal the contract's value).
     uint256 internal constant MAX_POSITIONS_PER_HOLDER = 50;
 
@@ -49,6 +53,8 @@ library StakingRewardLib {
     error KickWouldForfeit();
     error TooManyPositions();
     error AlreadyHasPosition();
+    error FundAmountTooSmall();
+    error RateTooHigh();
 
     // ─── Events (topics identical to TegridyStaking's) ──────────────────
     event UnsettledClaimed(address indexed user, uint256 amount);
@@ -74,6 +80,8 @@ library StakingRewardLib {
     ///         would leave any off-chain reconstruction permanently over-stated.
     event UnsettledZombieEntryCleared(uint256 indexed tokenId, address indexed holder, uint256 amount);
     event RewardPaid(address indexed user, uint256 indexed tokenId, uint256 reward);
+    event RewardAdded(uint256 amount);
+    event RewardRateUpdated(uint256 newRate);
     event RewardsForfeited(address indexed user, uint256 amount);
     event TransferRewardPoolShortfall(address indexed holder, uint256 expected, uint256 available);
     event RewardSettledToUnsettled(address indexed holder, uint256 indexed tokenId, uint256 amount);
@@ -91,6 +99,9 @@ library StakingRewardLib {
         uint256 lastUpdateTime;
         uint256 totalBoostedStake;
         uint256 totalUnsettledRewards;
+        /// @dev End of the reward schedule (TegridyStaking.REWARDS_DURATION). Mutable
+        ///      here because a stretch that pays nobody moves it back.
+        uint256 periodFinish;
     }
 
     /// @notice Read-only inputs the library needs: scalars it never mutates, the
@@ -373,6 +384,36 @@ library StakingRewardLib {
     //  Reward accumulation + per-position claim (Increment B)
     // ════════════════════════════════════════════════════════════════════
 
+    /// @notice Body of `TegridyStaking.notifyRewardAmount` (EIP-170 split, 2026-10-18).
+    ///         Owner ruling 2026-10-18 = Synthetix StakingRewards.notifyRewardAmount with a fixed
+    ///         four-year duration: what is still scheduled plus what just arrived, spread over a
+    ///         fresh REWARDS_DURATION. Every schedule is backed by funds actually received, so
+    ///         the contract never promises more than it was given.
+    /// @dev    AUDIT M-AUDIT-2026-2: settles under the pre-funding pool FIRST (the host's old
+    ///         `updateReward` modifier). AUDIT FIX #61 + DEEP-DS-08: 1,000 TOWELI floor on the
+    ///         amount and on the measured delta. The caller (host) checks the notifier set and
+    ///         holds the reentrancy lock; `msg.sender` here is the host's caller (delegatecall).
+    function notifyRewardAmount(RewardState memory rs, Cfg memory cfg, uint256 amount)
+        public
+        returns (RewardState memory, uint256 received, uint256 rate)
+    {
+        rs = accumulateRewards(rs, cfg);
+        if (amount < MIN_NOTIFY_AMOUNT) revert FundAmountTooSmall();
+        uint256 balBefore = cfg.rewardToken.balanceOf(address(this));
+        cfg.rewardToken.safeTransferFrom(msg.sender, address(this), amount);
+        received = cfg.rewardToken.balanceOf(address(this)) - balBefore;
+        if (received < MIN_NOTIFY_AMOUNT) revert FundAmountTooSmall();
+        // `accumulateRewards` above credited everything up to now, so `leftover` is exactly
+        // the scheduled part not yet emitted.
+        uint256 leftover = block.timestamp < rs.periodFinish ? (rs.periodFinish - block.timestamp) * cfg.rewardRate : 0;
+        rate = (received + leftover) / REWARDS_DURATION;
+        if (rate > MAX_REWARD_RATE) revert RateTooHigh();
+        rs.periodFinish = block.timestamp + REWARDS_DURATION;
+        emit RewardRateUpdated(rate);
+        emit RewardAdded(received);
+        return (rs, received, rate);
+    }
+
     /// @notice Body of `TegridyStaking._accumulateRewards` (AUDIT FIX DS2-04
     ///         pause-aware accumulator). Bakes elapsed emission into
     ///         `rewardPerTokenStored` (capped to the unreserved pool) and advances
@@ -384,8 +425,15 @@ library StakingRewardLib {
         returns (RewardState memory)
     {
         uint256 totalBoosted = rs.totalBoostedStake;
-        if (block.timestamp > rs.lastUpdateTime && totalBoosted > 0 && !cfg.isPaused) {
-            uint256 elapsed = block.timestamp - rs.lastUpdateTime;
+        // Synthetix lastTimeRewardApplicable(): nothing is scheduled after periodFinish.
+        uint256 end = block.timestamp < rs.periodFinish ? block.timestamp : rs.periodFinish;
+        if (totalBoosted == 0 || cfg.isPaused) {
+            // A stretch that pays nobody (nothing staked, or paused) moves the schedule's
+            // end back by that stretch, so its emission is paid later instead of being
+            // stranded in the contract. Upstream Synthetix strands it.
+            if (rs.periodFinish > rs.lastUpdateTime) rs.periodFinish += block.timestamp - rs.lastUpdateTime;
+        } else if (end > rs.lastUpdateTime) {
+            uint256 elapsed = end - rs.lastUpdateTime;
             uint256 reward = elapsed * cfg.rewardRate;
             uint256 available = cfg.rewardToken.balanceOf(address(this));
             uint256 reserved = cfg.totalStaked + rs.totalUnsettledRewards;

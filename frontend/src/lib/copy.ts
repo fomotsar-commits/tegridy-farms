@@ -89,10 +89,10 @@ export function lockLabelForSeconds(seconds: number): { label: string; sublabel:
 
 export const PENALTY_COPY = {
   earlyExitLabel: 'DEA Raid Tax',
-  earlyExitPct: '25%',
+  // No percentage here, on purpose: each staking contract has its own fee (75% on the
+  // current one, 25% on the first), so the figure always comes from the contract's
+  // StakingContractSet. `earlyExitPct: '25%'` and a tooltip quoting it were unused.
   earlyExitTagline: "For the kids' college fund.",
-  earlyExitTooltip:
-    "Randy always said the farm needs to stay pure. Pull out early and the cops show up — 25% of your crop goes to the treasury, funding the protocol that keeps the rest of the farm running.",
   liquidationLabel: 'The cops showed up',
   liquidationDescription: 'Your loan position crossed the liquidation threshold and was closed out by the protocol.',
   slippageLabel: 'Crop windstorm tolerance',

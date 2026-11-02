@@ -89,14 +89,15 @@ interface ITegridyStakingJbacVault {
 ///         2. JBAC NFT holders get +0.5x bonus boost
 ///         3. Each staking position is an ERC721 NFT — tradeable on secondary markets
 ///         4. Auto-max-lock: opt in to keep max boost perpetually
-///         5. Early withdrawal: 25% penalty (always available), sent to treasury
+///         5. Early withdrawal: 75% penalty on principal (always available), sent to
+///            treasury; the holder keeps 25% of principal plus the rewards paid first
 ///         6. Voting power = amount × boost (for governance)
 ///
 ///         NFT Positions:
 ///         - Each stake mints an NFT to the staker
 ///         - Transferring the NFT transfers the entire staking position
 ///         - Buyer of an NFT inherits the lock, boost, and rewards
-///         - This means users can sell their locked position instead of paying the 25% penalty
+///         - This means users can sell their locked position instead of paying the 75% penalty
 // SLITHER 2026-09-04: `locked-ether`. Surfaced for the first time by anchoring
 // `filter_paths` (it was masked while `src/lib/` was silently excluded). The payable
 // functions are Solady's ERC721 `approve` / `transferFrom` / `safeTransferFrom`, which
@@ -124,7 +125,14 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     ///      claw back ~30B of auto-getter bytecode. Equal to BPS; no external
     ///      reader exists.
     uint256 internal constant BOOST_PRECISION = 10000;
-    uint256 public constant EARLY_WITHDRAWAL_PENALTY_BPS = 2500; // 25%
+    /// @notice Share of PRINCIPAL taken on an exit before `lockEnd`, sent whole to `treasury`.
+    ///         75% since the owner's ruling of 2026-10-14 (was 2500 = 25% on the first mainnet
+    ///         deployment, 0xcaDc93E96De58EA554c71ca609974625615E046D, which keeps 25% for its
+    ///         own positions: a deployed constant cannot change). Rewards are paid first and
+    ///         the penalty never touches them, but only what the reward pool can cover is
+    ///         paid: an early exit while the pool is short forfeits the uncovered part
+    ///         (test/StakingBoostResidual_2026_08_12.t.sol). Keep the pool funded.
+    uint256 public constant EARLY_WITHDRAWAL_PENALTY_BPS = 7500; // 75%
     uint256 public constant JBAC_BONUS_BPS = 5000; // +0.5x
     /// @dev AUDIT FIX (pass-8 batch-14): visibility lowered to `internal`. The
     ///      one external reader (TegridyStakingAdmin's BPS check) now hardcodes
@@ -193,6 +201,8 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     address public jbacVault;
     address public treasury;
 
+    /// @notice TOWELI-wei per second, set only by `notifyRewardAmount`: everything still
+    ///         to be paid, spread over REWARDS_DURATION (owner ruling 2026-10-18).
     uint256 public rewardRate;
     uint256 public lastUpdateTime;
     uint256 public rewardPerTokenStored;
@@ -359,6 +369,12 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     // captured-owner runway-burn ceiling. Routine rate adjustments remain gated by
     // the 48h timelock.
     uint256 public constant MAX_REWARD_RATE = 1e18; // Cap maximum reward rate
+
+    /// @notice Owner ruling 2026-10-18: the reward pot is paid out over four years.
+    ///         Each funding re-spreads (new funds + what is still scheduled) over a
+    ///         fresh four years: Synthetix StakingRewards.notifyRewardAmount, the same
+    ///         rule as TegridyLPFarming and LighthouseLadder. 4 x 365 days, exactly.
+    uint256 public constant REWARDS_DURATION = 4 * 365 days;
 
     // AUDIT FIX H8: Restaking contract reference for restaking-aware view functions
     address public restakingContract;
@@ -575,18 +591,17 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     constructor(
         address _rewardToken,
         address _jbacNFT,
-        address _treasury,
-        uint256 _rewardRate
+        address _treasury
     ) OwnableNoRenounce(msg.sender) {
         // AUDIT FIX (pass-8 batch-14): Solady ERC721 has no constructor-args
         // surface for name/symbol; overridden as constant `name()` / `symbol()`
         // returns below.
         if (_rewardToken == address(0) || _jbacNFT == address(0) || _treasury == address(0)) revert ZeroAddress();
-        if (_rewardRate > MAX_REWARD_RATE) revert RateTooHigh();
         rewardToken = IERC20(_rewardToken);
         jbacNFT = IERC721(_jbacNFT);
         treasury = _treasury;
-        rewardRate = _rewardRate;
+        // No reward rate here: it starts at 0 and only `notifyRewardAmount` sets it, from
+        // the funds it receives (REWARDS_DURATION). An unfunded pool pays nothing.
         lastUpdateTime = block.timestamp;
 
         // mvp-launch Phase 0.7: caps default uncapped at construction. The
@@ -947,14 +962,15 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     // ─── C1 EIP-170 split: reward-state marshalling choke-points ─────────
     // Standalone scalar state vars cannot be passed to a delegatecall library by
     // storage reference, so the reward cluster is marshalled through these two
-    // helpers: load the four mutable scalars into a memory struct, let the library
-    // mutate them, then write ALL FOUR back in one place. Routing every cluster
+    // helpers: load the five mutable scalars into a memory struct, let the library
+    // mutate them, then write ALL FIVE back in one place. Routing every cluster
     // wrapper through the SAME store helper makes a dropped write-back impossible.
     function _loadRewardState() private view returns (StakingRewardLib.RewardState memory rs) {
         rs.rewardPerTokenStored = rewardPerTokenStored;
         rs.lastUpdateTime = lastUpdateTime;
         rs.totalBoostedStake = totalBoostedStake;
         rs.totalUnsettledRewards = totalUnsettledRewards;
+        rs.periodFinish = periodFinish;
     }
 
     function _storeRewardState(StakingRewardLib.RewardState memory rs) private {
@@ -962,6 +978,7 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         lastUpdateTime = rs.lastUpdateTime;
         totalBoostedStake = rs.totalBoostedStake;
         totalUnsettledRewards = rs.totalUnsettledRewards;
+        periodFinish = rs.periodFinish;
     }
 
     function _rewardCfg() private view returns (StakingRewardLib.Cfg memory cfg) {
@@ -1012,7 +1029,10 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         // `_unpause()` and the assignment, that logic would observe the
         // unpaused state with the stale `lastUpdateTime`. With the assignment
         // first, any post-unpause callback already sees the correct anchor.
-        lastUpdateTime = block.timestamp;
+        // Settling while still paused sets that anchor (`lastUpdateTime = now`) AND moves
+        // periodFinish back by the last paused stretch (StakingRewardLib.accumulateRewards),
+        // so the emission the pause skipped is still paid, later.
+        _accumulateRewards();
         _unpause();
     }
 
@@ -1203,7 +1223,7 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     ///         disable, the position still cannot be withdrawn until four years
     ///         after the moment you enabled.
     ///
-    ///         Every exit before then costs the 25% penalty. Verified path by path
+    ///         Every exit before then costs the 75% penalty. Verified path by path
     ///         2026-08-12: `withdraw` reverts `LockNotExpired`;
     ///         `emergencyExitPosition` reverts `LockStillActive`;
     ///         `executeEmergencyExit` DOES complete but charges
@@ -1222,7 +1242,7 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     ///         chain is the fact and the copy is the lie. Suggested replacement:
     ///         "Enabling extends your lock to the full 4 years immediately.
     ///         Disabling stops the auto-renew but does NOT shorten the lock —
-    ///         withdrawing before it ends costs the 25% early-exit penalty."
+    ///         withdrawing before it ends costs the 75% early-exit penalty."
     ///
     /// @dev    NOTE: the extend-lock fee (AUDIT C5) that previously applied on enable
     ///         was removed for EIP-170 size. Its bps defaulted to 0 (no fee at
@@ -1536,12 +1556,13 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         emit Withdrawn(msg.sender, tokenId, amount);
     }
 
-    /// @notice Early withdrawal — 25% penalty sent to treasury.
+    /// @notice Early withdrawal — 75% penalty on principal sent to treasury; the caller gets
+    ///         the position's rewards first, then the other 25% of principal.
     /// @dev AUDIT FIX L-23: Corrected comment — penalty goes to treasury, not redistributed to stakers.
     /// @param tokenId The NFT token ID of the staking position to early-withdraw
     function earlyWithdraw(uint256 tokenId) external nonReentrant whenNotPaused updateReward {
         Position storage p = _ownedPosition(tokenId, msg.sender);
-        // SECURITY FIX H-3: Prevent accidental 25% penalty on already-unlockable positions.
+        // SECURITY FIX H-3: Prevent accidental 75% penalty on already-unlockable positions.
         // Users with expired locks should use withdraw() (no penalty) instead.
         if (block.timestamp >= p.lockEnd) revert MustUseWithdraw();
 
@@ -1572,7 +1593,7 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     ///      `boostedAmount` (and decrements `totalBoostedStake`). Pre-fix, the
     ///      autoMaxLock branch then advanced `lockEnd` to MAX without restoring
     ///      `boostedAmount`, leaving the position locked forward but earning zero
-    ///      forever — exit-able only via the 25% earlyWithdraw penalty. The fix
+    ///      forever — exit-able only via the earlyWithdraw penalty. The fix
     ///      re-applies the max boost when autoMaxLock fires on a freshly-decayed
     ///      position, preserving the documented "set and forget — keep max boost
     ///      perpetually" semantic. `_applyNewBoost` handles the (now-zero)
@@ -2356,18 +2377,17 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     ///      MIN_NOTIFY_AMOUNT floor. Defends totalRewardsFunded accounting against any
     ///      future migration to a FoT/rebasing reward token; harmless ~3k gas tax.
     /// @param _amount Amount of reward tokens to deposit (must be >= MIN_NOTIFY_AMOUNT)
-    function notifyRewardAmount(uint256 _amount) external nonReentrant whenNotPaused updateReward {
+    function notifyRewardAmount(uint256 _amount) external nonReentrant whenNotPaused {
         if (msg.sender != owner() && !rewardNotifiers[msg.sender]) {
             revert NotRewardNotifier();
         }
-        if (_amount < MIN_NOTIFY_AMOUNT) revert FundAmountTooSmall(); // AUDIT FIX #61
-        // AUDIT FIX: DEEP-DS-08 — delta-measure pattern.
-        uint256 balBefore = rewardToken.balanceOf(address(this));
-        address(rewardToken).safeTransferFrom(msg.sender, address(this), _amount);
-        uint256 received = rewardToken.balanceOf(address(this)) - balBefore;
-        if (received < MIN_NOTIFY_AMOUNT) revert FundAmountTooSmall();
+        // EIP-170: the body (settle under the pre-funding pool, pull and measure the funds,
+        // set the four-year schedule) lives in StakingRewardLib.notifyRewardAmount.
+        StakingRewardLib.RewardState memory rs = _loadRewardState();
+        uint256 received;
+        (rs, received, rewardRate) = StakingRewardLib.notifyRewardAmount(rs, _rewardCfg(), _amount);
+        _storeRewardState(rs);
         totalRewardsFunded += received;
-        emit RewardAdded(received);
     }
 
     /// @notice First-time setter for the sister TegridyStakingAdmin contract (where the
@@ -2418,6 +2438,13 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     /// @notice block.timestamp after which `executeAdminReplacement` is callable.
     ///         Zero when no proposal is pending.
     uint256 public adminReplacementReadyAt;
+
+    /// @notice When the current reward schedule ends (see REWARDS_DURATION). Nothing
+    ///         accrues after it. A stretch that pays nobody (paused, or nothing staked)
+    ///         moves it back by that stretch, so no scheduled reward is stranded.
+    ///         Declared at the END of storage (see the note below): the hardcoded test
+    ///         slots stay put.
+    uint256 public periodFinish;
 
     /// @notice Address of the deployed `TegridyTokenURIReader`. Zero until wired.
     /// @dev    AUDIT FIX 2026-08-12 [TOKENURI-UNWIRED].
@@ -2508,7 +2535,7 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         emit StakingAdminReplacementCancelled(proposed);
     }
 
-    /// @dev One private body for the six `apply*` setters (M-S6 added the sixth), the
+    /// @dev One private body for the five `apply*` setters (M-S6 added one; the rate one left 2026-10-18), the
     ///      same EIP-170 fold as `_requireContract`: an inlined modifier pays per call site.
     modifier onlyAdmin() {
         _onlyAdmin();
@@ -2519,12 +2546,9 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         if (msg.sender != stakingAdmin) revert Unauthorized();
     }
 
-    /// @notice Apply a new reward rate. Caller must be the wired admin contract.
-    function applyRewardRate(uint256 _rate) external onlyAdmin updateReward {
-        if (_rate > MAX_REWARD_RATE) revert RateTooHigh();
-        rewardRate = _rate;
-        emit RewardRateUpdated(_rate);
-    }
+    // `applyRewardRate` is gone (owner ruling 2026-10-18): the rate follows the funds,
+    // set only by `notifyRewardAmount`, so no hand-set rate can promise more than the
+    // pot holds. Synthetix StakingRewards has no rate setter either.
 
     /// @notice Apply a treasury change. Caller must be the wired admin contract.
     function applyTreasury(address _newTreasury) external onlyAdmin {

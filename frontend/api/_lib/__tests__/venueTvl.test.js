@@ -289,10 +289,13 @@ describe("the staking pools, as their programs and the site name them", () => {
   it("lists every EVM staking contract in the registry, each with its room's coin", () => {
     const coinOf = (id) => {
       const room = id.replace(/^(ladder|lighthouse)-/, "").replace(/-retired$/, "");
-      return (/^(tegridy-staking|legacy-staking-v\d)$/.test(id) ? BUNGALOWS.find((b) => b.id === "toweli") : BUNGALOWS.find((b) => b.id === room)).address.toLowerCase();
+      return (/^(tegridy-staking(-first)?|legacy-staking-v\d)$/.test(id) ? BUNGALOWS.find((b) => b.id === "toweli") : BUNGALOWS.find((b) => b.id === room)).address.toLowerCase();
     };
     for (const name of ["ethereum", "base", "robinhood"]) {
-      const rows = REGISTRY[name].filter((r) => /^(tegridy-staking|legacy-staking-v\d|(ladder|lighthouse)-[a-z]+(-retired)?)$/.test(r.id));
+      // A contract with no address yet (staking release 1's, until fill-staking-release.mjs
+      // writes it) holds nothing; once it has one, it must be counted here too.
+      const rows = REGISTRY[name].filter((r) => /^(tegridy-staking(-first)?|legacy-staking-v\d|(ladder|lighthouse)-[a-z]+(-retired)?)$/.test(r.id)
+        && /^0x[0-9a-fA-F]{40}$/.test(r.address));
       const listed = (EVM_STAKE_POOLS[name] ?? []).map((p) => [p.address, p.token]);
       expect(listed.sort()).toEqual(rows.map((r) => [r.address.toLowerCase(), coinOf(r.id)]).sort());
     }

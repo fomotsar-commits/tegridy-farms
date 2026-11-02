@@ -229,6 +229,8 @@ describe('useUserPosition', () => {
         result: [1000n * 10n ** 18n, 20_000n, BigInt(Math.floor(Date.now() / 1000) + 40 * 86400), BigInt(90 * 86400), false, false],
       });
       wagmiMock.setReadResult({ functionName: 'earned', result: 5n * 10n ** 18n });
+      // Staking release 1: the four-year schedule is running.
+      wagmiMock.setReadResult({ functionName: 'periodFinish', result: BigInt(Math.floor(Date.now() / 1000) + 4 * 365 * 86400) });
     }
 
     it('an unread paused() is null, never a definite false', () => {
@@ -276,6 +278,24 @@ describe('useUserPosition', () => {
       wagmiMock.setReadResult({ functionName: 'paused', result: false });
       const { result } = renderHook(() => useUserPosition());
       expect(result.current.accrualPerSec).toBeGreaterThan(0);
+    });
+
+    it('past the schedule end the counter stops: nothing accrues, whatever rewardRate reads', () => {
+      stubLiveStaker();
+      wagmiMock.setReadResult({ functionName: 'paused', result: false });
+      wagmiMock.setReadResult({ functionName: 'periodFinish', result: BigInt(Math.floor(Date.now() / 1000) - 60) });
+      const { result } = renderHook(() => useUserPosition());
+      expect(result.current.accrualPerSec).toBe(0);
+      expect(result.current.accrualInputsUnread).toBe(false);
+    });
+
+    it('an unread schedule end is an accrual-input outage, and the counter does not tick', () => {
+      stubLiveStaker();
+      wagmiMock.setReadResult({ functionName: 'paused', result: false });
+      wagmiMock.setReadResult({ functionName: 'periodFinish', result: undefined, status: 'failure' });
+      const { result } = renderHook(() => useUserPosition());
+      expect(result.current.accrualPerSec).toBe(0);
+      expect(result.current.accrualInputsUnread).toBe(true);
     });
   });
 });

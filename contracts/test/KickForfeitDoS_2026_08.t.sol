@@ -86,7 +86,7 @@ contract KickForfeitDoSTest is Test {
     function setUp() public {
         token = new KDoSToken();
         nft = new KDoSNFT();
-        staking = new TegridyStaking(address(token), address(nft), treasury, RATE);
+        staking = new TegridyStaking(address(token), address(nft), treasury);
         monitor = new StakingMonitorView(address(staking));
         admin = new TegridyStakingAdmin(address(staking));
         staking.setStakingAdmin(address(admin));

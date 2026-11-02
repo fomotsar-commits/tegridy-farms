@@ -26,6 +26,8 @@ import { OPEN_DOOR_IDS } from '../components/VenueDoors';
 import {
   SITE_URL,
   EARLY_WITHDRAWAL_PENALTY_BPS,
+  OLD_EARLY_WITHDRAWAL_PENALTY_BPS,
+  OLD_TEGRIDY_STAKING_ADDRESS,
   MIN_BOOST_BPS,
   MAX_BOOST_BPS,
   JBAC_BONUS_BPS,
@@ -233,6 +235,19 @@ describe('every generated number equals its source', () => {
         `boost from ${multiplier(MIN_BOOST_BPS)} to ${multiplier(MAX_BOOST_BPS)}; plus ${multiplier(JBAC_BONUS_BPS)} with a JBAC NFT; ` +
         `leaving a lock early costs ${percent(EARLY_WITHDRAWAL_PENALTY_BPS)} of the amount staked.`,
     );
+  });
+
+  it('the first staking contract: its own fee and address, never the current contract\'s', () => {
+    // Staking release 1 moved new stakes to a 75% contract; the first one keeps 25% for its
+    // positions (EARLY_WITHDRAWAL_PENALTY_BPS() read 2500 on chain 2026-10-14, a constant).
+    expect(OLD_EARLY_WITHDRAWAL_PENALTY_BPS).toBe(2500);
+    expect(facts.oldToweliStaking).toEqual({ address: OLD_TEGRIDY_STAKING_ADDRESS, earlyExitBps: OLD_EARLY_WITHDRAWAL_PENALTY_BPS });
+    const line = text.split('\n').find((l) => l.startsWith('- TOWELI positions on the first staking contract'));
+    expect(line, 'the first contract line is missing').toBeDefined();
+    expect(line).toContain(OLD_TEGRIDY_STAKING_ADDRESS);
+    expect(line).toContain(`leaving a lock early there costs ${percent(OLD_EARLY_WITHDRAWAL_PENALTY_BPS)} of the amount staked`);
+    expect(line).not.toContain(percent(EARLY_WITHDRAWAL_PENALTY_BPS));
+    expect(facts.contracts.some((c) => c.address === OLD_TEGRIDY_STAKING_ADDRESS)).toBe(true);
   });
 
   it('the ladder pools: every term is the constant, and the Solidity it mirrors', () => {

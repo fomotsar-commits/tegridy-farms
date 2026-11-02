@@ -92,11 +92,13 @@ describe('PENALTY_COPY', () => {
   it('exposes the in-voice "DEA Raid Tax" framing', () => {
     expect(PENALTY_COPY.earlyExitLabel).toMatch(/DEA/);
     expect(PENALTY_COPY.earlyExitTagline).toMatch(/kids/i);
-    expect(PENALTY_COPY.earlyExitPct).toBe('25%');
   });
 
-  it('provides tooltip text long enough to explain the mechanic', () => {
-    expect(PENALTY_COPY.earlyExitTooltip.length).toBeGreaterThan(80);
+  it('carries no fee figure: the fee is per contract, never one global number', () => {
+    // A typed "25%" here outlived the contract it described (staking release 1, 75%).
+    const earlyExit = Object.entries(PENALTY_COPY).filter(([k]) => k.startsWith('earlyExit'));
+    expect(earlyExit.length).toBeGreaterThan(0);
+    for (const [k, v] of earlyExit) expect(v, k).not.toMatch(/\d+\s*%/);
   });
 });
 

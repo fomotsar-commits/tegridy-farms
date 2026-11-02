@@ -11,8 +11,8 @@
 // Two `useReadContracts` batches. viem folds each into ONE `eth_call` against
 // Multicall3, so a connected wallet on mainnet costs:
 //
-//   batch A  12 contract reads  → 1 eth_call        every 60s
-//   batch B   2 contract reads  → 1 eth_call        every 60s, ONLY when the wallet
+//   batch A  17 contract reads  → 1 eth_call        every 60s
+//   batch B   4 contract reads  → 1 eth_call        every 60s, ONLY when the wallet
 //                                                   owns a staking NFT
 //   native ETH balance          → 1 eth_getBalance  every 60s, shared query key with
 //                                                   the dashboard's existing useBalance,
@@ -35,6 +35,10 @@ import {
   CHAIN_ID,
   JBAC_NFT_ADDRESS,
   LP_FARMING_ADDRESS,
+  OLD_LP_FARMING_ADDRESS,
+  OLD_REVENUE_DISTRIBUTOR_ADDRESS,
+  OLD_STAKING_MONITOR_VIEW_ADDRESS,
+  OLD_TEGRIDY_STAKING_ADDRESS,
   REFERRAL_SPLITTER_ADDRESS,
   REVENUE_DISTRIBUTOR_ADDRESS,
   STAKING_MONITOR_VIEW_ADDRESS,
@@ -67,6 +71,16 @@ function readAsOf(dataUpdatedAt: number | undefined): number | null {
 /** A multicall entry's result, or null when that entry reverted / was never fetched. */
 function ok<T>(entry: { status: 'success' | 'failure'; result?: unknown } | undefined): T | null {
   return entry?.status === 'success' ? (entry.result as T) : null;
+}
+
+/** The sum of legs, or null when any one was not read: a partial sum is not a total. */
+function sumKnown(...legs: (bigint | null)[]): bigint | null {
+  let total = 0n;
+  for (const v of legs) {
+    if (v === null) return null;
+    total += v;
+  }
+  return total;
 }
 
 /** Wei → whole units, preserving `null` so an unread leg never becomes a zero. */
@@ -113,6 +127,13 @@ export function usePortfolioSources(): UsePortfolioSourcesResult {
       { address: REVENUE_DISTRIBUTOR_ADDRESS, abi: REVENUE_DISTRIBUTOR_ABI, functionName: 'pendingETH', args: [user], chainId: CHAIN_ID },
       { address: REFERRAL_SPLITTER_ADDRESS, abi: REFERRAL_SPLITTER_ABI, functionName: 'pendingETH', args: [user], chainId: CHAIN_ID },
       { address: JBAC_NFT_ADDRESS, abi: ERC20_ABI, functionName: 'balanceOf', args: [user], chainId: CHAIN_ID },
+      // STAKING RELEASE 1: the first relaunch contracts keep their own positions, LP and
+      // ETH share. A wallet's worth includes them; leaving them out would read as "less".
+      { address: OLD_TEGRIDY_STAKING_ADDRESS, abi: TEGRIDY_STAKING_ABI, functionName: 'userTokenId', args: [user], chainId: CHAIN_ID },
+      { address: OLD_TEGRIDY_STAKING_ADDRESS, abi: TEGRIDY_STAKING_ABI, functionName: 'unsettledRewards', args: [user], chainId: CHAIN_ID },
+      { address: OLD_REVENUE_DISTRIBUTOR_ADDRESS, abi: REVENUE_DISTRIBUTOR_ABI, functionName: 'pendingETH', args: [user], chainId: CHAIN_ID },
+      { address: OLD_LP_FARMING_ADDRESS, abi: LP_FARMING_ABI, functionName: 'rawBalanceOf', args: [user], chainId: CHAIN_ID },
+      { address: OLD_LP_FARMING_ADDRESS, abi: LP_FARMING_ABI, functionName: 'earned', args: [user], chainId: CHAIN_ID },
     ],
     query: { enabled, refetchInterval: POLL_MS, staleTime: STALE_MS, refetchOnWindowFocus: true },
   });
@@ -120,33 +141,47 @@ export function usePortfolioSources(): UsePortfolioSourcesResult {
   const b = baseQuery.data;
   const toweliWei = ok<bigint>(b?.[0]);
   const tokenId = ok<bigint>(b?.[1]);
-  const unsettledWei = ok<bigint>(b?.[2]);
+  const oldTokenId = ok<bigint>(b?.[12]);
+  const unsettledWei = sumKnown(ok<bigint>(b?.[2]), ok<bigint>(b?.[13]));
   const walletLp = ok<bigint>(b?.[3]);
   const lpTotalSupply = ok<bigint>(b?.[4]);
   const reserves = ok<readonly [bigint, bigint, number]>(b?.[5]);
   const token0 = ok<string>(b?.[6]);
-  const stakedLp = ok<bigint>(b?.[7]);
-  const lpEarnedWei = ok<bigint>(b?.[8]);
-  const revenueWei = ok<bigint>(b?.[9]);
+  const stakedLp = sumKnown(ok<bigint>(b?.[7]), ok<bigint>(b?.[15]));
+  const lpEarnedWei = sumKnown(ok<bigint>(b?.[8]), ok<bigint>(b?.[16]));
+  const revenueWei = sumKnown(ok<bigint>(b?.[9]), ok<bigint>(b?.[14]));
   const referralWei = ok<bigint>(b?.[10]);
   const jbacBal = ok<bigint>(b?.[11]);
 
-  const hasStakingNft = tokenId !== null && tokenId > 0n;
+  const hasNewNft = tokenId !== null && tokenId > 0n;
+  const hasOldNft = oldTokenId !== null && oldTokenId > 0n;
+  const hasStakingNft = hasNewNft || hasOldNft;
 
   // ── Batch B ───────────────────────────────────────────────────────────────────────
-  // getPosition / earned live on StakingMonitorView (EIP-170 split), keyed by token id.
+  // getPosition / earned live on StakingMonitorView (EIP-170 split), keyed by token id,
+  // one monitor per staking contract. A contract where the wallet holds no NFT is read
+  // with a dummy id and counted as zero below, never as its dummy position.
   const positionQuery = useReadContracts({
     contracts: [
-      { address: STAKING_MONITOR_VIEW_ADDRESS, abi: TEGRIDY_STAKING_ABI, functionName: 'getPosition', args: [hasStakingNft ? (tokenId as bigint) : 1n], chainId: CHAIN_ID },
-      { address: STAKING_MONITOR_VIEW_ADDRESS, abi: TEGRIDY_STAKING_ABI, functionName: 'earned', args: [hasStakingNft ? (tokenId as bigint) : 1n], chainId: CHAIN_ID },
+      { address: STAKING_MONITOR_VIEW_ADDRESS, abi: TEGRIDY_STAKING_ABI, functionName: 'getPosition', args: [hasNewNft ? (tokenId as bigint) : 1n], chainId: CHAIN_ID },
+      { address: STAKING_MONITOR_VIEW_ADDRESS, abi: TEGRIDY_STAKING_ABI, functionName: 'earned', args: [hasNewNft ? (tokenId as bigint) : 1n], chainId: CHAIN_ID },
+      { address: OLD_STAKING_MONITOR_VIEW_ADDRESS, abi: TEGRIDY_STAKING_ABI, functionName: 'getPosition', args: [hasOldNft ? (oldTokenId as bigint) : 1n], chainId: CHAIN_ID },
+      { address: OLD_STAKING_MONITOR_VIEW_ADDRESS, abi: TEGRIDY_STAKING_ABI, functionName: 'earned', args: [hasOldNft ? (oldTokenId as bigint) : 1n], chainId: CHAIN_ID },
     ],
     query: { enabled: enabled && hasStakingNft, refetchInterval: POLL_MS, staleTime: STALE_MS, refetchOnWindowFocus: true },
   });
 
   const p = positionQuery.data;
-  const posTuple = ok<readonly [bigint, bigint, bigint, bigint, boolean, boolean]>(p?.[0]);
-  const stakedWei = posTuple === null ? null : posTuple[0];
-  const pendingWei = ok<bigint>(p?.[1]);
+  // One contract's leg: unknown when its token id was not read, a real zero only when the
+  // id READ as 0 (no NFT there), otherwise the position read itself.
+  const leg = (id: bigint | null, value: bigint | null): bigint | null =>
+    id === null ? null : id === 0n ? 0n : value;
+  const amountAt = (i: number): bigint | null => {
+    const t = ok<readonly [bigint, bigint, bigint, bigint, boolean, boolean]>(p?.[i]);
+    return t === null ? null : t[0];
+  };
+  const stakedWei = sumKnown(leg(tokenId, amountAt(0)), leg(oldTokenId, amountAt(2)));
+  const pendingWei = sumKnown(leg(tokenId, ok<bigint>(p?.[1])), leg(oldTokenId, ok<bigint>(p?.[3])));
 
   // ── LP redeemable underlying ──────────────────────────────────────────────────────
   // Derived, not read: the share of reserves this wallet's LP (held + staked) redeems.

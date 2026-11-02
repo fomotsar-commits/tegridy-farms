@@ -86,7 +86,7 @@ to the treasury.
 | Pool | Chain | How it works | Today |
 |---|---|---|---|
 | **BAYLA lock ladder** | Solana, our own program | Lock 7 days to 4 years for a 0.4× to 4.0× reward weight. Leaving early costs the time left on your lock over four years, capped at 75%. That penalty stays in the pool as rewards for everyone else. | 🟢 Paying. 2,000,000 BAYLA of its rewards came from the island's Workshop on 2026-09-24. |
-| **TOWELI** | Ethereum | Lock 7 days to 4 years. The weight rises in a straight line from 0.4× to 4.0× (about 1.3× at one year); a JBAC NFT adds 0.5×. Leaving early costs 25%, sent to the treasury. | 🟢 Live |
+| **TOWELI** | Ethereum | Lock 7 days to 4 years. The weight rises in a straight line from 0.4× to 4.0× (about 1.3× at one year); a JBAC NFT adds 0.5×. One wallet can stake up to 10,000,000 TOWELI, and the reward pot is paid out over four years. Leaving early costs 75%, sent to the treasury. A position on the first contract keeps its 25% and can only leave. | 🟢 Live |
 | **BAYLA lighthouse, BOBO, SOY, BRAINLET, RIZZ** | Solana, on Streamflow | Fixed locks with **no early exit at all**. | 🟢 Live |
 | **PEPE, QR, MFER, BNKR, DRB, JBM** | PEPE on Ethereum, the rest on Base | TOWELI's ladder; the 25% early-exit penalty stays in the pool. | ⏸ Deployed but unfunded: all six read a reward rate of 0 on 2026-10-14, so they take no new stakes. Exits still work. |
 
@@ -160,10 +160,12 @@ the chain. In the app: [memetics.finance/contracts](https://memetics.finance/con
 | What | Address |
 |---|---|
 | TOWELI | [`0x420698CFdEDdEa6bc78D59bC17798113ad278F9D`](https://etherscan.io/token/0x420698CFdEDdEa6bc78D59bC17798113ad278F9D) |
-| TOWELI staking | [`0xcaDc93E96De58EA554c71ca609974625615E046D`](https://etherscan.io/address/0xcaDc93E96De58EA554c71ca609974625615E046D) |
+| TOWELI staking | [`0xPENDING_REDEPLOY_STAKING`](https://etherscan.io/address/0xPENDING_REDEPLOY_STAKING) |
+| TOWELI staking, first contract (exits only, 25%) | [`0xcaDc93E96De58EA554c71ca609974625615E046D`](https://etherscan.io/address/0xcaDc93E96De58EA554c71ca609974625615E046D) |
 | Our TOWELI/WETH pair | [`0x55875887B43C2E23aE424AF0FC8606Fdb058a481`](https://etherscan.io/address/0x55875887B43C2E23aE424AF0FC8606Fdb058a481) |
 | Fee router | [`0x6d5791A660e79175F74C6D639584C98422d5956E`](https://etherscan.io/address/0x6d5791A660e79175F74C6D639584C98422d5956E) |
-| RevenueDistributor | [`0xF993316E2fC079de4358c489A935E01e03E23E17`](https://etherscan.io/address/0xF993316E2fC079de4358c489A935E01e03E23E17) |
+| RevenueDistributor | [`0xPENDING_REDEPLOY_REVENUE_DISTRIBUTOR`](https://etherscan.io/address/0xPENDING_REDEPLOY_REVENUE_DISTRIBUTOR) |
+| RevenueDistributor, first (pays the first staking contract; LockerClaimer forwards here) | [`0xF993316E2fC079de4358c489A935E01e03E23E17`](https://etherscan.io/address/0xF993316E2fC079de4358c489A935E01e03E23E17) |
 | Treasury Safe (2 of 2) | [`0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d`](https://etherscan.io/address/0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d) |
 | EVM bonding curve | [`0xF4Dfa741aD63B3D95dC3Fc10D311caE507CE34dE`](https://etherscan.io/address/0xF4Dfa741aD63B3D95dC3Fc10D311caE507CE34dE) |
 

@@ -11,6 +11,10 @@ import {
   TOWELI_ADDRESS,
   TEGRIDY_STAKING_ADDRESS,
   LEGACY_STAKING_ADDRESSES,
+  OLD_TEGRIDY_STAKING_ADDRESS,
+  OLD_EARLY_WITHDRAWAL_PENALTY_BPS,
+  OLD_REVENUE_DISTRIBUTOR_ADDRESS,
+  OLD_LP_FARMING_ADDRESS,
   TEGRIDY_FACTORY_ADDRESS,
   TEGRIDY_ROUTER_ADDRESS,
   TEGRIDY_LP_ADDRESS,
@@ -81,6 +85,15 @@ const GROUPS: ContractGroup[] = [
       // The live token came from a token-generator template; the repo's Toweli.sol is not it.
       { label: 'TOWELI Token', address: TOWELI_ADDRESS, source: 'not in this repo (token-generator template)' },
       { label: 'Tegridy Staking', address: TEGRIDY_STAKING_ADDRESS, source: 'contracts/src/TegridyStaking.sol' },
+      // STAKING RELEASE 1: the first relaunch contract keeps its own positions on its own
+      // terms. Its source is an earlier build: contracts/src/TegridyStaking.sol now holds
+      // the 75% one.
+      {
+        label: 'Tegridy Staking (first contract, exits only)',
+        address: OLD_TEGRIDY_STAKING_ADDRESS,
+        source: 'not in this repo (the first relaunch build; the working tree holds the current one)',
+        note: `Its positions claim and leave here. Early exit costs ${OLD_EARLY_WITHDRAWAL_PENALTY_BPS / 100}%. No new stakes.`,
+      },
       { label: 'Treasury', address: TREASURY_ADDRESS, source: 'external (Safe multisig)' },
       // Retired pre-relaunch staking deployments that still hold positions.
       // Withdraw-only: the Farm page shows an exit card to affected wallets,
@@ -107,6 +120,12 @@ const GROUPS: ContractGroup[] = [
       { label: 'Tegridy Router', address: TEGRIDY_ROUTER_ADDRESS, source: 'contracts/src/TegridyRouter.sol' },
       { label: 'Tegridy LP (TOWELI/WETH)', address: TEGRIDY_LP_ADDRESS, source: 'contracts/src/TegridyPair.sol' },
       { label: 'LP Farming', address: LP_FARMING_ADDRESS, source: 'contracts/src/TegridyLPFarming.sol' },
+      {
+        label: 'LP Farming (first farm, withdraw only)',
+        address: OLD_LP_FARMING_ADDRESS,
+        source: 'contracts/src/TegridyLPFarming.sol',
+        note: 'Rewards ended 2026-06-15. LP still in it leaves from the Farm page.',
+      },
       { label: 'Tegridy TWAP Oracle', address: TEGRIDY_TWAP_ADDRESS, source: 'contracts/src/TegridyTWAP.sol' },
       {
         label: 'Tegridy Fee Hook (V4)',
@@ -163,6 +182,12 @@ const GROUPS: ContractGroup[] = [
     description: 'Protocol swap fees route to stakers, POL, and treasury per the on-chain split. After the 20% referral carve, every remaining basis point is earmarked for stakers — none has been distributed yet.',
     entries: [
       { label: 'Revenue Distributor', address: REVENUE_DISTRIBUTOR_ADDRESS, source: 'contracts/src/RevenueDistributor.sol' },
+      {
+        label: 'Revenue Distributor (first, for the first staking contract)',
+        address: OLD_REVENUE_DISTRIBUTOR_ADDRESS,
+        source: 'contracts/src/RevenueDistributor.sol',
+        note: 'Pays ETH only to positions on the first staking contract. The LockerClaimer forwards launch fees here, permanently.',
+      },
       { label: 'Swap Fee Router', address: SWAP_FEE_ROUTER_ADDRESS, source: 'contracts/src/SwapFeeRouter.sol' },
       { label: 'POL Accumulator', address: POL_ACCUMULATOR_ADDRESS, source: 'contracts/src/POLAccumulator.sol' },
     ],

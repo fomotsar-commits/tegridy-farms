@@ -9,7 +9,18 @@ export const TOWELI_ADDRESS = '0x420698CFdEDdEa6bc78D59bC17798113ad278F9D' as co
 // RPCs reject, silently zeroing swap count + loyalty score). Rounded down a hair
 // for safety; no relaunch event can predate the contract's own deploy.
 export const RELAUNCH_DEPLOY_BLOCK = 25263000n;
-export const TEGRIDY_STAKING_ADDRESS = '0xcaDc93E96De58EA554c71ca609974625615E046D' as const;
+// STAKING RELEASE 1 (docs/STAKING_RELEASE_1_WIRING.md): a new TegridyStaking whose early
+// exit costs 75%. Every placeholder address in this file is written by
+// scripts/fill-staking-release.mjs from the deploy receipt and an on-chain read-back;
+// scripts/fill-staking-release.test.mjs fails while one is left, so this cannot ship
+// pointing at nothing. New stakes go here. The first contract stays live for its own
+// positions: OLD_TEGRIDY_STAKING_ADDRESS below.
+export const TEGRIDY_STAKING_ADDRESS = '0xPENDING_REDEPLOY_STAKING' as const;
+// The FIRST relaunch TegridyStaking (2026-06-06, DeployMVP). Still live and NOT paused:
+// its positions keep their own terms (25% early exit, it cannot change) and can claim,
+// leave early or withdraw there. Never route a new stake or approval here.
+// <OldStakingCard /> on the Farm page is its door.
+export const OLD_TEGRIDY_STAKING_ADDRESS = '0xcaDc93E96De58EA554c71ca609974625615E046D' as const;
 // Retired pre-relaunch TegridyStaking deployments that STILL HOLD user positions.
 // WITHDRAW-ONLY: never route stake/approve traffic here. Verified on-chain
 // 2026-07-22: 0x044A… holds a 1,000 TOWELI position (tokenId 2, owner 0xC530…d4b9,
@@ -21,11 +32,15 @@ export const LEGACY_STAKING_ADDRESSES = [
   '0x626644523d34B84818df602c991B4a06789C4819',
 ] as const;
 
-// EIP-170 admin sister contracts — RELAUNCH 2026-06-06 (deployed + wired by DeployMVP).
-export const TEGRIDY_STAKING_ADMIN_ADDRESS = '0x4B134C08aAF86B6e2A8E097D1039C4e7638806f3' as const;
+// EIP-170 admin sister contracts. The staking admin is the STAKING RELEASE 1 one (its
+// staking() is TEGRIDY_STAKING_ADDRESS). Prev (first staking contract's): 0x4B134C08aAF86B6e2A8E097D1039C4e7638806f3
+export const TEGRIDY_STAKING_ADMIN_ADDRESS = '0xPENDING_REDEPLOY_STAKING_ADMIN' as const;
 export const SWAP_FEE_ROUTER_ADMIN_ADDRESS = '0xa517A1cEfd961c0DDE8155a0Fa870aEE5bb0D060' as const;
-// Read-only staking view sister (EIP-170 split) — RELAUNCH 2026-06-06.
-export const STAKING_MONITOR_VIEW_ADDRESS = '0xbE1E75124C7F07d5B681839C42d8e751f0d0fcfC' as const;
+// Read-only staking view sister (EIP-170 split) — STAKING RELEASE 1; its staking() is
+// TEGRIDY_STAKING_ADDRESS. getPosition/earned for the OLD contract's positions come from
+// OLD_STAKING_MONITOR_VIEW_ADDRESS, whose staking() is OLD_TEGRIDY_STAKING_ADDRESS.
+export const STAKING_MONITOR_VIEW_ADDRESS = '0xPENDING_REDEPLOY_MONITOR_VIEW' as const;
+export const OLD_STAKING_MONITOR_VIEW_ADDRESS = '0xbE1E75124C7F07d5B681839C42d8e751f0d0fcfC' as const;
 
 // Native DEX — RELAUNCH 2026-06-06 (DeployMVP); LP = our factory's TOWELI/WETH pair
 export const TEGRIDY_FACTORY_ADDRESS = '0xa24C7287eC56A7DEFDc70033803451240e267a52' as const;
@@ -42,17 +57,27 @@ export const TEGRIDY_LP_ADDRESS = '0x55875887B43C2E23aE424AF0FC8606Fdb058a481' a
 // with the pair's actual first-mint block timestamp once known.
 export const TEGRIDY_LP_CREATED_AT = Math.floor(new Date('2026-06-08T00:00:00Z').getTime() / 1000);
 
-// Revenue & Fees — RELAUNCH 2026-06-06 (DeployMVP)
-export const REVENUE_DISTRIBUTOR_ADDRESS = '0xF993316E2fC079de4358c489A935E01e03E23E17' as const;
+// Revenue & Fees. The distributor is the STAKING RELEASE 1 one: it pays ETH to the NEW
+// staking contract's positions. The swap router only sends it ETH after the 48-hour
+// re-point (ExecuteStakingRelease1Repoint.s.sol); until then fees still reach the old one.
+export const REVENUE_DISTRIBUTOR_ADDRESS = '0xPENDING_REDEPLOY_REVENUE_DISTRIBUTOR' as const;
+// The FIRST relaunch RevenueDistributor (DeployMVP). It pays the OLD staking contract's
+// positions only. LOCKER_CLAIMER_ADDRESS below is wired to it FOREVER (immutable), so any
+// launch fee it forwards lands here. Its holders claim here, from <OldStakingCard />.
+export const OLD_REVENUE_DISTRIBUTOR_ADDRESS = '0xF993316E2fC079de4358c489A935E01e03E23E17' as const;
 export const SWAP_FEE_ROUTER_ADDRESS = '0x6d5791A660e79175F74C6D639584C98422d5956E' as const;
 export const POL_ACCUMULATOR_ADDRESS = '0x2A5f65f4C74b1e49e77aE9A57e20fBDb0cED11D2' as const;
 
-// LP Farming — RELAUNCH 2026-06-08 (DeployTegridyLPFarming): boosted Synthetix
-// LP staking; owner pending the 0xA360 Safe. (Live — the earlier Wave 0
-// 0xa7EF711… and the 2026-05-31 ZEROED interim are both superseded.)
-export const LP_FARMING_ADDRESS = '0x1171268AE5B69791c47Fd589b7825932c957e149' as const;
+// LP Farming — STAKING RELEASE 1 (its boost reads TEGRIDY_STAKING_ADDRESS). It pays
+// nothing until the owner funds it (notifyRewardAmount).
+export const LP_FARMING_ADDRESS = '0xPENDING_REDEPLOY_LP_FARMING' as const;
+// The 2026-06-08 farm (DeployTegridyLPFarming). Its rewards ended 2026-06-15; LP still
+// staked there leaves through <OldLpFarmExit />. Never route a new LP stake here.
+export const OLD_LP_FARMING_ADDRESS = '0x1171268AE5B69791c47Fd589b7825932c957e149' as const;
 
-export const REFERRAL_SPLITTER_ADDRESS = '0x6B3442dAcB62d40BA39fCe9b3CDa350FEa6f7e4c' as const; // RELAUNCH 2026-06-06 (DeployMVP)
+// STAKING RELEASE 1. The swap router records referral fees here only after the 48-hour
+// re-point. Prev (first relaunch, 0 referrals ever paid, read 2026-10-14): 0x6B3442dAcB62d40BA39fCe9b3CDa350FEa6f7e4c
+export const REFERRAL_SPLITTER_ADDRESS = '0xPENDING_REDEPLOY_REFERRAL_SPLITTER' as const;
 // RELAUNCH 2026-07-16 gated batch (DeployPremiumAccess; Etherscan-verified; fee 10,000 TOWELI/mo). Prev V1: 0xaA16dF3dC66c7A6aD7db153711329955519422Ad
 export const PREMIUM_ACCESS_ADDRESS = '0x9DC2675B2017687dD9768C63D15f0aD5194Fa3f5' as const;
 // Tegridy Pro Pass — an ETH-priced access-pass NFT (deploy a TegridyDropV2 clone
@@ -65,8 +90,8 @@ export const TEGRIDY_PRO_PASS_ADDRESS = '0x0000000000000000000000000000000000000
 // V1 TegridyLaunchpad (0x5d5976...FF3C2) deleted from source 2026-04-19; existing
 // V1 clones remain browseable on Etherscan. Use TEGRIDY_LAUNCHPAD_V2_ADDRESS.
 export const TEGRIDY_NFT_POOL_FACTORY_ADDRESS = '0xbB8E49Ba4e3A85E2B8B70e00208770F429B56F5B' as const; // RELAUNCH 2026-07-16 gated batch (fee 50bps → treasury; pool template 0x98553C2a…ff481A). Prev V1: 0x1C0e1771943fbB299f4E19daD0fAA4Fa4e6c04f0
-// RELAUNCH 2026-06-06 (DeployMVP)
-export const TEGRIDY_TOKEN_URI_READER_ADDRESS = '0x5cfEe751eAf274F68b05267012b85a867dfCd326' as const;
+// STAKING RELEASE 1 (its staking() is TEGRIDY_STAKING_ADDRESS). Prev: 0x5cfEe751eAf274F68b05267012b85a867dfCd326
+export const TEGRIDY_TOKEN_URI_READER_ADDRESS = '0xPENDING_REDEPLOY_TOKEN_URI_READER' as const;
 // RELAUNCH 2026-07-16 gated batch (DeployNFTLending; Admin sister 0x69378783…580a9C; fee 500bps)
 export const TEGRIDY_NFT_LENDING_ADDRESS = '0x89BeB6cc0255B7465c01aA38a6f937efd345f14F' as const; // Prev V1: 0x05409880aDFEa888F2c93568B8D88c7b4aAdB139
 // RELAUNCH 2026-06-06 (DeployMVP) — needs 4x update() bootstrap after LP seed (audit H-18)
@@ -115,6 +140,12 @@ export const TREASURY_ADDRESS = '0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d' as 
  * artifact); locker() = 0xe24f…1ec6, revenueDistributor() = 0xf993…3e17, treasury() =
  * 0x7d26…bd7d; and owner()/transferOwnership/setLocker/upgradeTo are all ABSENT — there is
  * no admin surface and the three destinations are immutable.
+ *
+ * 🔴 STAKING RELEASE 1: its revenueDistributor() is OLD_REVENUE_DISTRIBUTOR_ADDRESS, for
+ * ever. After the release that ETH pays only the OLD staking contract's positions, not
+ * new stakers. launchService.protocolFeeSink() still names this contract for every new
+ * launch. A new launch needs a new LockerClaimer (script/DeployLockerClaimer.s.sol with
+ * the new distributor); the release does not deploy one. Owner decision, not made here.
  */
 export const LOCKER_CLAIMER_ADDRESS = '0xD2Ac3dC13c6fd09855F0e4a077826983Aa66E6C7' as const;
 
@@ -151,7 +182,57 @@ export const LOCK_OPTIONS: LockOption[] = [
 export const MIN_BOOST_BPS = 4000; // 0.4x
 export const MAX_BOOST_BPS = 40000; // 4.0x
 export const JBAC_BONUS_BPS = 5000; // +0.5x
-export const EARLY_WITHDRAWAL_PENALTY_BPS = 2500; // 25%
+// The early-exit fee is a `constant` in each DEPLOYED contract, so it is per contract,
+// never one global figure. TEGRIDY_STAKING_ADDRESS (STAKING RELEASE 1): 75%, the owner's
+// ruling of 2026-10-14, pinned to contracts/src/TegridyStaking.sol by llmsTxt.test.ts and
+// read back on chain by scripts/fill-staking-release.mjs before the address is written.
+export const EARLY_WITHDRAWAL_PENALTY_BPS = 7500; // 75%
+// OLD_TEGRIDY_STAKING_ADDRESS: 25%. Read on chain 2026-10-14 at block 26,190,577
+// (EARLY_WITHDRAWAL_PENALTY_BPS() == 2500); a deployed constant cannot change.
+export const OLD_EARLY_WITHDRAWAL_PENALTY_BPS = 2500; // 25%
+
+/**
+ * One TegridyStaking deployment and the contracts that belong to it. Every staking
+ * surface takes one of these, so a position is always shown, exited and fee-quoted
+ * against its OWN contract.
+ */
+export interface StakingContractSet {
+  /** TegridyStaking: positions, stake, claim, exits. */
+  staking: `0x${string}`;
+  /** StakingMonitorView whose staking() is `staking`: getPosition / earned. */
+  monitor: `0x${string}`;
+  /** RevenueDistributor whose votingEscrow() is `staking`: this contract's ETH share. */
+  revenueDistributor: `0x${string}`;
+  /** That contract's EARLY_WITHDRAWAL_PENALTY_BPS. */
+  penaltyBps: number;
+  /** Takes new stakes. False for a contract that only lets its positions leave. */
+  acceptsStakes: boolean;
+  /**
+   * Pays its pot out over a schedule that ends at `periodFinish()` (staking release 1:
+   * each funding spreads the pot over four years, owner ruling 2026-10-18). After that
+   * time nothing accrues, whatever `rewardRate()` still says. The first contract has no
+   * schedule (it emits at its rate until the pot is empty) and no `periodFinish()`.
+   */
+  hasRewardSchedule: boolean;
+}
+
+export const STAKING_CONTRACT: StakingContractSet = {
+  staking: TEGRIDY_STAKING_ADDRESS,
+  monitor: STAKING_MONITOR_VIEW_ADDRESS,
+  revenueDistributor: REVENUE_DISTRIBUTOR_ADDRESS,
+  penaltyBps: EARLY_WITHDRAWAL_PENALTY_BPS,
+  acceptsStakes: true,
+  hasRewardSchedule: true,
+};
+
+export const OLD_STAKING_CONTRACT: StakingContractSet = {
+  staking: OLD_TEGRIDY_STAKING_ADDRESS,
+  monitor: OLD_STAKING_MONITOR_VIEW_ADDRESS,
+  revenueDistributor: OLD_REVENUE_DISTRIBUTOR_ADDRESS,
+  penaltyBps: OLD_EARLY_WITHDRAWAL_PENALTY_BPS,
+  acceptsStakes: false,
+  hasRewardSchedule: false,
+};
 
 // Protocol swap fee (mirrors the deployed SwapFeeRouter feeBps). The native
 // ('tegridy') route executes through SwapFeeRouter, which deducts this from the

@@ -53,24 +53,25 @@ export function PositionHealth() {
 
   const alerts: Health[] = [];
 
-  // TOWELI staking v1 is closing (lib/stakingBetaOver) and takes no lock extension
-  // or re-stake, so a lock's end is no longer a boost at risk: it is the way out.
+  // Lock ending soon (skip if auto-relock keeps it locked).
   if (pos.isLocked && !pos.autoMaxLock && secsLeft > 0 && secsLeft < 7 * 86400) {
     alerts.push({
       id: 'expiring',
-      sev: 'info',
+      sev: 'warn',
       title: `Your lock ends in ${daysLeft === 0 ? 'under a day' : `${daysLeft}d`}`,
-      detail: 'Then your whole stake can come out with no penalty.',
+      detail: `Extend it to keep your ${boostX.toFixed(1)}× boost — once it unlocks you drop to the base rate.`,
+      cta: { label: 'Extend lock', to: '/earn/toweli' },
     });
   }
 
+  // Lock already ended — boost at risk.
   if (!pos.isLocked) {
     alerts.push({
       id: 'ended',
-      sev: 'info',
+      sev: 'warn',
       title: 'Your lock has ended',
-      detail: 'Your whole stake can come out with no penalty.',
-      cta: { label: 'Withdraw', to: '/earn/toweli' },
+      detail: 'Re-lock to restore your boosted rewards — an unlocked position earns the base rate.',
+      cta: { label: 'Re-lock', to: '/earn/toweli' },
     });
   }
 
@@ -80,7 +81,7 @@ export function PositionHealth() {
       id: 'claim',
       sev: 'info',
       title: `${compact(claimable)} TOWELI ready to claim`,
-      detail: 'Claim your TOWELI rewards on the Farm page.',
+      detail: 'Claim your TOWELI rewards — re-stake on the Farm page to compound.',
       cta: { label: 'Claim rewards', to: '/earn/toweli' },
     });
   }

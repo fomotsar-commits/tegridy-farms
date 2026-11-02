@@ -1,12 +1,11 @@
-import { EARLY_WITHDRAWAL_PENALTY_BPS } from './constants';
+import { OLD_STAKING_CONTRACT } from './constants';
 
 /**
- * TOWELI staking v1 (TegridyStaking) is closing, owner's plan of 2026-10-30: the
- * reward rate goes to 0, the reserve is refilled with what is owed, about 14 days
- * to claim, then a pause, under which emergencyWithdrawPosition returns a whole
- * stake with no penalty. The site takes no new stakes into it meanwhile.
+ * TOWELI staking v1 (OLD_STAKING_CONTRACT since staking release 1) is closing, owner's
+ * plan of 2026-10-30: the reward rate goes to 0, the reserve is refilled with what is
+ * owed, about 14 days to claim, then a pause, under which emergencyWithdrawPosition
+ * returns a whole stake with no penalty. It takes no new stakes (`acceptsStakes`).
  */
-export const STAKING_V1_TAKES_NEW_STAKES = false as boolean;
 
 export type StakingBetaPhase =
   | 'checking'
@@ -93,7 +92,8 @@ export function betaReadsFromHooks(pool: BetaPoolFields, wallet?: BetaWalletFiel
   };
 }
 
-const PENALTY_PCT = EARLY_WITHDRAWAL_PENALTY_BPS / 100;
+// v1's own fee, never the new contract's (a deployed constant per contract).
+const PENALTY_PCT = OLD_STAKING_CONTRACT.penaltyBps / 100;
 
 export const BETA_OVER_HEADING = 'Beta is over';
 

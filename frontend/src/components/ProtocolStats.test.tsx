@@ -64,14 +64,28 @@ describe('ProtocolStats', () => {
     wagmiMock.setReadResult({ functionName: 'totalStaked', result: 5_000_000n * 10n ** 18n });
     wagmiMock.setReadResult({ functionName: 'totalRewardsFunded', result: 6_400_000n * 10n ** 18n });
     wagmiMock.setReadResult({ functionName: 'rewardRate', result: 10n ** 18n });
+    // Staking release 1: the rate pays only while its four-year schedule runs.
+    wagmiMock.setReadResult({ functionName: 'periodFinish', result: BigInt(Math.floor(Date.now() / 1000) + 4 * 365 * 86400) });
     wagmiMock.setReadResult({ functionName: 'totalETHFees', result: 0n });
     wagmiMock.setReadResult({ functionName: 'feeBps', result: 50n });
     render(<ProtocolStats />);
     expect(screen.getByText(/Reward Pool/i)).toBeTruthy();
     expect(screen.getByText(/Total Staked/i)).toBeTruthy();
+    expect(screen.getByText(/Daily Emissions/i)).toBeTruthy();
     // Volume is derived from fees ÷ feeRate; zero fees must stay off the wall
     // rather than render "$0 all-time volume".
     expect(screen.queryByText(/Total Volume/i)).toBeNull();
+  });
+
+  it('a rate past the end of its four-year schedule is not a daily emission', () => {
+    wagmiMock.setReadResult({ functionName: 'totalStaked', result: 5_000_000n * 10n ** 18n });
+    wagmiMock.setReadResult({ functionName: 'totalRewardsFunded', result: 6_400_000n * 10n ** 18n });
+    wagmiMock.setReadResult({ functionName: 'rewardRate', result: 10n ** 18n });
+    wagmiMock.setReadResult({ functionName: 'periodFinish', result: BigInt(Math.floor(Date.now() / 1000) - 60) });
+    wagmiMock.setReadResult({ functionName: 'totalETHFees', result: 0n });
+    wagmiMock.setReadResult({ functionName: 'feeBps', result: 50n });
+    render(<ProtocolStats />);
+    expect(screen.queryByText(/Daily Emissions/i)).toBeNull();
   });
 
   // HONESTY GUARD on the evergreen half.

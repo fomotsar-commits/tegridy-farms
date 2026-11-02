@@ -1,8 +1,9 @@
 /**
- * TOWELI staking v1 is closing (owner, 2026-10-30). FarmPage's half: the phase it
- * reads off the chain and hands the staking card, the notice a visitor with no
- * wallet sees, and the receipt a confirmed withdrawal gets (the paused exit had
- * none). The card itself is StakingCard.betaOver.test's.
+ * TOWELI staking v1 is closing (owner, 2026-10-30); since staking release 1 it is the
+ * OLD contract. FarmPage's half: the phase read off v1's chain and handed to v1's card
+ * (OldStakingCard) and never to the new contract's, the notice a visitor with no
+ * wallet sees, and the receipt a confirmed withdrawal gets (the paused exit had none).
+ * The card itself is StakingCard.betaOver.test's.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
@@ -17,16 +18,23 @@ const hooks = vi.hoisted(() => ({
   isConnected: true,
   pool: {} as Record<string, unknown>,
   pos: {} as Record<string, unknown>,
+  oldPool: {} as Record<string, unknown>,
+  oldPos: {} as Record<string, unknown>,
   actions: {} as Record<string, unknown>,
   showReceipt: vi.fn(),
   poolRefetch: vi.fn(),
-  /** Captured from the last StakingCard render. */
-  card: null as null | {
-    betaOver?: { phase: string; onRetry?: () => void };
-    lastActionRef: { current: string | null };
-    submittedAmountRef: { current: string | null };
-  },
+  /** Captured from the last StakingCard render of the new contract, and of the old one. */
+  card: null as null | CardProps,
+  oldCard: null as null | CardProps,
 }));
+type CardProps = {
+  contract?: { acceptsStakes: boolean };
+  betaOver?: { phase: string; onRetry?: () => void };
+  lastActionRef: { current: string | null };
+  submittedAmountRef: { current: string | null };
+};
+// Each contract its own reads: v1 (the old contract) is the one that takes no stakes.
+const isOld = (c?: { acceptsStakes: boolean }) => c?.acceptsStakes === false;
 
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() } }));
 vi.mock('framer-motion', () => {
@@ -46,8 +54,12 @@ vi.mock('../hooks/useLPFarming', () => ({
   useLPFarming: () => ({ refreshBoost: vi.fn(), isPending: false, isConfirming: false, periodFinish: undefined, periodFinishUnread: false }),
 }));
 vi.mock('../hooks/useFarmActions', () => ({ useFarmActions: () => hooks.actions }));
-vi.mock('../hooks/useUserPosition', () => ({ useUserPosition: () => hooks.pos }));
-vi.mock('../hooks/usePoolData', () => ({ usePoolData: () => hooks.pool }));
+vi.mock('../hooks/useUserPosition', () => ({
+  useUserPosition: (c?: { acceptsStakes: boolean }) => (isOld(c) ? hooks.oldPos : hooks.pos),
+}));
+vi.mock('../hooks/usePoolData', () => ({
+  usePoolData: (c?: { acceptsStakes: boolean }) => (isOld(c) ? hooks.oldPool : hooks.pool),
+}));
 vi.mock('../hooks/useFarmStats', () => ({ useFarmStats: () => ({ rewardPool: '0', dailyEmissions: '0' }) }));
 vi.mock('../hooks/useNFTBoost', () => ({ useNFTBoost: () => ({ holdsJBAC: false, boostLabel: null }) }));
 vi.mock('../contexts/PriceContext', () => ({ useTOWELIPrice: () => ({ priceInUsd: 0, ethUsd: 0, isLoaded: false }) }));
@@ -63,6 +75,7 @@ vi.mock('../components/farm/IncentivesStrip', () => ({ IncentivesStrip: () => nu
 vi.mock('../components/RealYieldProof', () => ({ RealYieldProof: () => null }));
 vi.mock('../components/farm/LPFarmingSection', () => ({ LPFarmingSection: () => null }));
 vi.mock('../components/farm/LegacyStakingExit', () => ({ LegacyStakingExit: () => null }));
+vi.mock('../components/farm/OldLpFarmExit', () => ({ OldLpFarmExit: () => null }));
 vi.mock('../components/farm/BoostScheduleTable', () => ({ BoostScheduleTable: () => null }));
 vi.mock('../components/farm/LivePoolCard', () => ({ LivePoolCard: () => null }));
 vi.mock('../components/farm/UpcomingPoolCard', () => ({ UpcomingPoolCard: () => null }));
@@ -77,8 +90,9 @@ vi.mock('../components/ui/ErrorBoundary', () => ({
   ErrorBoundary: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
 }));
 vi.mock('../components/farm/StakingCard', () => ({
-  StakingCard: (props: NonNullable<typeof hooks.card>) => {
-    hooks.card = props;
+  StakingCard: (props: CardProps) => {
+    if (isOld(props.contract)) hooks.oldCard = props;
+    else hooks.card = props;
     return null;
   },
 }));
@@ -110,6 +124,7 @@ beforeEach(() => {
   window.localStorage.setItem(BUNGALOW_STORAGE_KEY, 'toweli');
   hooks.isConnected = true;
   hooks.card = null;
+  hooks.oldCard = null;
   hooks.showReceipt.mockReset();
   hooks.poolRefetch.mockReset();
   // Every read landed: the rate still runs, the reserve holds 5,000 TOWELI, not paused.
@@ -122,51 +137,61 @@ beforeEach(() => {
     allowance: 0n, refetchAll: vi.fn(), pendingFormatted: '42.5', pendingReward: 425n * E18 / 10n,
     stakedFormatted: '1000', hasPosition: true, positionUnread: false, isPaused: false, isLoading: false,
   };
-  hooks.actions = { approve: vi.fn(), stake: vi.fn(), isSuccess: false, hash: undefined, receipt: undefined };
+  hooks.actions = { approve: vi.fn(), stake: vi.fn(), isSuccess: false, hash: undefined, receipt: undefined, pendingEth: 0n };
+  // The same wallet on v1: 1,000 staked there too, its own reads.
+  hooks.oldPool = { ...hooks.pool };
+  hooks.oldPos = { ...hooks.pos, unsettledRewards: 0n };
 });
 afterEach(() => {
   window.localStorage.removeItem(BUNGALOW_STORAGE_KEY);
 });
 
-describe('FarmPage hands the staking card the phase the chain reports', () => {
+describe("FarmPage hands v1's card the phase v1's chain reports, and the new contract's card none", () => {
   it('rate still running: closing', () => {
     render(page());
-    expect(hooks.card?.betaOver?.phase).toBe('closing');
+    expect(hooks.oldCard?.betaOver?.phase).toBe('closing');
+    expect(hooks.card).not.toBeNull();
+    expect(hooks.card?.betaOver).toBeUndefined();
   });
 
   it('rate 0, reserve above what this wallet is owed: claim now', () => {
-    hooks.pool = { ...hooks.pool, rewardRateRaw: 0n };
+    hooks.oldPool = { ...hooks.oldPool, rewardRateRaw: 0n };
     render(page());
-    expect(hooks.card?.betaOver?.phase).toBe('claim-now');
+    expect(hooks.oldCard?.betaOver?.phase).toBe('claim-now');
   });
 
-  it("the wallet's pause read makes it paused", () => {
+  it("the wallet's pause read on v1 makes it paused; the new contract's reads do not", () => {
     hooks.pos = { ...hooks.pos, isPaused: true };
+    const { unmount } = render(page());
+    expect(hooks.oldCard?.betaOver?.phase).toBe('closing');
+    unmount();
+    hooks.pos = { ...hooks.pos, isPaused: false };
+    hooks.oldPos = { ...hooks.oldPos, isPaused: true };
     render(page());
-    expect(hooks.card?.betaOver?.phase).toBe('paused');
+    expect(hooks.oldCard?.betaOver?.phase).toBe('paused');
   });
 
   it('an unread rate is unread, and its retry re-reads the pool', () => {
-    hooks.pool = { ...hooks.pool, rewardRateUnread: true };
+    hooks.oldPool = { ...hooks.oldPool, rewardRateUnread: true };
     render(page());
-    expect(hooks.card?.betaOver?.phase).toBe('unread');
-    hooks.card?.betaOver?.onRetry?.();
+    expect(hooks.oldCard?.betaOver?.phase).toBe('unread');
+    hooks.oldCard?.betaOver?.onRetry?.();
     expect(hooks.poolRefetch).toHaveBeenCalled();
   });
 });
 
-describe('FarmPage, no wallet: the notice and the connect card say v1 is closing', () => {
-  it('shows the phase line from the pool reads, including the pause', () => {
+describe("FarmPage, no wallet: the notice says v1 is closing, the connect card is the new pool's", () => {
+  it("shows the phase line from v1's pool reads, including the pause", () => {
     hooks.isConnected = false;
-    hooks.pool = { ...hooks.pool, paused: true };
+    hooks.oldPool = { ...hooks.oldPool, paused: true };
     render(page());
     expect(screen.getByTestId('staking-beta-over')).toHaveTextContent(BETA_OVER_LINE.paused);
-    expect(screen.getByTestId('connect-prompt')).toHaveTextContent(/takes no new stakes/i);
+    expect(screen.getByTestId('connect-prompt')).not.toHaveTextContent(/takes no new stakes/i);
   });
 
   it('an unread pool says so and offers a retry', () => {
     hooks.isConnected = false;
-    hooks.pool = { ...hooks.pool, paused: null };
+    hooks.oldPool = { ...hooks.oldPool, paused: null };
     render(page());
     expect(screen.getByTestId('staking-beta-over')).toHaveTextContent(BETA_OVER_LINE.unread);
     fireEvent.click(screen.getByRole('button', { name: /retry/i }));

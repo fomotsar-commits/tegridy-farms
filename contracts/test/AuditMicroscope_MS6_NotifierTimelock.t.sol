@@ -28,7 +28,7 @@ contract AuditMicroscope_MS6_NotifierTimelockTest is Test {
 
     function setUp() public {
         token = new MS6Token();
-        staking = new TegridyStaking(address(token), address(new MS6JBAC()), makeAddr("treasury"), 1 ether);
+        staking = new TegridyStaking(address(token), address(new MS6JBAC()), makeAddr("treasury"));
         admin = new TegridyStakingAdmin(address(staking));
         staking.setStakingAdmin(address(admin));
         token.transfer(notifier, 10 * FUND);

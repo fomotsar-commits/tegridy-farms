@@ -43,7 +43,7 @@ contract TegridyLPFarmingTest is Test {
         lp = new MockLP();
         jbac = new MockJBAC();
 
-        staking = new TegridyStaking(address(toweli), address(jbac), treasury, 1 ether);
+        staking = new TegridyStaking(address(toweli), address(jbac), treasury);
         farm = new TegridyLPFarming(address(toweli), address(lp), address(staking), treasury, DURATION);
 
         lp.transfer(alice, 10_000_000 ether);

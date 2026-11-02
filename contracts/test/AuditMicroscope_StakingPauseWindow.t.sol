@@ -46,7 +46,7 @@ contract AuditMicroscope_StakingPauseWindowTest is Test {
     function setUp() public {
         token = new MockToweli_StakingMicroscope();
         MockJBAC_StakingMicroscope nft = new MockJBAC_StakingMicroscope();
-        staking = new TegridyStaking(address(token), address(nft), treasury, 1 ether);
+        staking = new TegridyStaking(address(token), address(nft), treasury);
         staking.setStakingAdmin(address(new TegridyStakingAdmin(address(staking))));
         staking.setJbacVault(address(new TegridyStakingJbacVault(address(nft), address(staking))));
         staking.setPauseGuardian(guardian);

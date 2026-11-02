@@ -3,20 +3,26 @@ import { useAccount, useReadContract, useWriteContract, useWaitForTransactionRec
 import { formatEther } from 'viem';
 import { toast } from 'sonner';
 import { TEGRIDY_STAKING_ABI, ERC20_ABI, REVENUE_DISTRIBUTOR_ABI } from '../lib/contracts';
-import { TEGRIDY_STAKING_ADDRESS, TOWELI_ADDRESS, REVENUE_DISTRIBUTOR_ADDRESS, CHAIN_ID } from '../lib/constants';
+import { STAKING_CONTRACT, TOWELI_ADDRESS, CHAIN_ID, type StakingContractSet } from '../lib/constants';
 import { trackStake } from '../lib/analytics';
 import { getTxUrl } from '../lib/explorer';
 import { safeParseEtherPositive } from '../lib/safeParseEther';
 import { surfaceTxError, surfaceUnconfirmedTx, receiptOutcome, noteReplacement } from '../lib/txErrors';
 import { useReplacedTxNotice } from './useReceiptOutcome';
 
-export function useFarmActions() {
+/**
+ * Writes to ONE staking contract. Defaults to the contract that takes new stakes;
+ * `<OldStakingCard />` passes OLD_STAKING_CONTRACT, so its exits, claims and the
+ * unclaimed-ETH guard all hit that contract and ITS revenue distributor.
+ */
+export function useFarmActions(contract: StakingContractSet = STAKING_CONTRACT) {
+  const stakingAddr = contract.staking;
   const chainId = useChainId();
   const { address } = useAccount();
   const onRightChain = chainId === CHAIN_ID;
 
   const { data: pendingEthRaw } = useReadContract({
-    address: REVENUE_DISTRIBUTOR_ADDRESS,
+    address: contract.revenueDistributor,
     abi: REVENUE_DISTRIBUTOR_ABI,
     functionName: 'pendingETH',
     args: address ? [address] : undefined,
@@ -168,8 +174,17 @@ export function useFarmActions() {
     }
   }, [writeError]);
 
+  // A contract that only lets its positions leave (the OLD staking contract) never gets a
+  // new stake or an approval, whatever a caller asks: refused here, before any signature.
+  const refuseNewStake = (): boolean => {
+    if (contract.acceptsStakes) return false;
+    toast.error('This staking contract takes no new stakes. Stake on the current one.');
+    return true;
+  };
+
   const approve = (amount: string) => {
     if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
+    if (refuseNewStake()) return;
     // R034 H4: safeParseEtherPositive — silent fail instead of ErrorBoundary nuke.
     const approveAmount = safeParseEtherPositive(amount);
     if (approveAmount === null) return;
@@ -180,12 +195,13 @@ export function useFarmActions() {
       address: TOWELI_ADDRESS,
       abi: ERC20_ABI,
       functionName: 'approve',
-      args: [TEGRIDY_STAKING_ADDRESS, approveAmount],
+      args: [stakingAddr, approveAmount],
     });
   };
 
   const stake = (amount: string, lockDurationSeconds: bigint) => {
     if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
+    if (refuseNewStake()) return;
     const wei = safeParseEtherPositive(amount);
     // F484: match approve()'s soft-fail — a thrown error on an onClick path
     // nukes the ErrorBoundary instead of just telling the user to fix the input.
@@ -194,7 +210,7 @@ export function useFarmActions() {
     txAddressRef.current = address;
     writeContract({
       chainId: CHAIN_ID,
-      address: TEGRIDY_STAKING_ADDRESS,
+      address: stakingAddr,
       abi: TEGRIDY_STAKING_ABI,
       functionName: 'stake',
       args: [wei, lockDurationSeconds],
@@ -238,7 +254,7 @@ export function useFarmActions() {
     txAddressRef.current = address;
     writeContract({
       chainId: CHAIN_ID,
-      address: TEGRIDY_STAKING_ADDRESS,
+      address: stakingAddr,
       abi: TEGRIDY_STAKING_ABI,
       functionName: 'withdraw',
       args: [tokenId],
@@ -251,7 +267,7 @@ export function useFarmActions() {
     txAddressRef.current = address;
     writeContract({
       chainId: CHAIN_ID,
-      address: TEGRIDY_STAKING_ADDRESS,
+      address: stakingAddr,
       abi: TEGRIDY_STAKING_ABI,
       functionName: 'earlyWithdraw',
       args: [tokenId],
@@ -263,7 +279,7 @@ export function useFarmActions() {
     txAddressRef.current = address;
     writeContract({
       chainId: CHAIN_ID,
-      address: TEGRIDY_STAKING_ADDRESS,
+      address: stakingAddr,
       abi: TEGRIDY_STAKING_ABI,
       functionName: 'getReward',
       args: [tokenId],
@@ -275,7 +291,7 @@ export function useFarmActions() {
     txAddressRef.current = address;
     writeContract({
       chainId: CHAIN_ID,
-      address: TEGRIDY_STAKING_ADDRESS,
+      address: stakingAddr,
       abi: TEGRIDY_STAKING_ABI,
       functionName: 'toggleAutoMaxLock',
       args: [tokenId],
@@ -287,7 +303,7 @@ export function useFarmActions() {
     txAddressRef.current = address;
     writeContract({
       chainId: CHAIN_ID,
-      address: TEGRIDY_STAKING_ADDRESS,
+      address: stakingAddr,
       abi: TEGRIDY_STAKING_ABI,
       functionName: 'extendLock',
       args: [tokenId, newDuration],
@@ -307,7 +323,7 @@ export function useFarmActions() {
     txAddressRef.current = address;
     writeContract({
       chainId: CHAIN_ID,
-      address: TEGRIDY_STAKING_ADDRESS,
+      address: stakingAddr,
       abi: TEGRIDY_STAKING_ABI,
       functionName: 'emergencyWithdrawPosition',
       args: [tokenId],
@@ -326,7 +342,7 @@ export function useFarmActions() {
     txAddressRef.current = address;
     writeContract({
       chainId: CHAIN_ID,
-      address: TEGRIDY_STAKING_ADDRESS,
+      address: stakingAddr,
       abi: TEGRIDY_STAKING_ABI,
       functionName: 'emergencyExitPosition',
       args: [tokenId],
@@ -338,9 +354,21 @@ export function useFarmActions() {
     txAddressRef.current = address;
     writeContract({
       chainId: CHAIN_ID,
-      address: TEGRIDY_STAKING_ADDRESS,
+      address: stakingAddr,
       abi: TEGRIDY_STAKING_ABI,
       functionName: 'claimUnsettled',
+    });
+  };
+
+  /** Claim this contract's ETH fee share from ITS RevenueDistributor (`pendingEth`). */
+  const claimEth = () => {
+    if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
+    txAddressRef.current = address;
+    writeContract({
+      chainId: CHAIN_ID,
+      address: contract.revenueDistributor,
+      abi: REVENUE_DISTRIBUTOR_ABI,
+      functionName: 'claim',
     });
   };
 
@@ -349,7 +377,7 @@ export function useFarmActions() {
     txAddressRef.current = address;
     writeContract({
       chainId: CHAIN_ID,
-      address: TEGRIDY_STAKING_ADDRESS,
+      address: stakingAddr,
       abi: TEGRIDY_STAKING_ABI,
       functionName: 'revalidateBoost',
       args: [tokenId],
@@ -367,6 +395,7 @@ export function useFarmActions() {
     emergencyWithdraw,
     emergencyExit,
     claimUnsettled,
+    claimEth,
     revalidateBoost,
     /** Unclaimed ETH revenue in wei, or `null` when the read did not land.
         `null` is NOT zero - it is the state pendingEthGuard refuses to exit on.

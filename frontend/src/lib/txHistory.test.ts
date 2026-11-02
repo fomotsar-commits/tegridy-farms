@@ -6,6 +6,7 @@ import {
 import {
   LP_FARMING_ADDRESS, TEGRIDY_ROUTER_ADDRESS, TEGRIDY_STAKING_ADDRESS,
   SWAP_FEE_ROUTER_ADDRESS, isDeployed,
+  OLD_TEGRIDY_STAKING_ADDRESS, OLD_REVENUE_DISTRIBUTOR_ADDRESS, OLD_LP_FARMING_ADDRESS,
 } from './constants';
 
 // Minimal valid TxRecord factory for categorize tests.
@@ -29,6 +30,16 @@ describe('categorizeTx', () => {
     expect(categorizeTx(tx(TEGRIDY_STAKING_ADDRESS, 'stake()')).type).toBe('Stake');
     expect(categorizeTx(tx(TEGRIDY_STAKING_ADDRESS, 'withdraw()')).type).toBe('Unstake');
     expect(categorizeTx(tx(TEGRIDY_STAKING_ADDRESS, 'getReward()')).type).toBe('Claim');
+  });
+
+  it('staking release 1: the first contracts keep their history (staking, distributor, LP farm)', () => {
+    expect(categorizeTx(tx(OLD_TEGRIDY_STAKING_ADDRESS, 'earlyWithdraw(uint256)')).type).toBe('Early Exit');
+    expect(categorizeTx(tx(OLD_TEGRIDY_STAKING_ADDRESS, 'getReward(uint256)')).type).toBe('Claim');
+    expect(categorizeTx(tx(OLD_REVENUE_DISTRIBUTOR_ADDRESS, 'claim()')).type).toBe('Revenue');
+    expect(categorizeTx(tx(OLD_LP_FARMING_ADDRESS, 'withdraw(uint256)')).type).toBe('Unstake LP');
+    for (const a of [OLD_TEGRIDY_STAKING_ADDRESS, OLD_REVENUE_DISTRIBUTOR_ADDRESS, OLD_LP_FARMING_ADDRESS]) {
+      expect(HISTORY_CONTRACTS, a).toContain(a.toLowerCase());
+    }
   });
 
   it('F382: labels live LP Farming stakes/claims', () => {

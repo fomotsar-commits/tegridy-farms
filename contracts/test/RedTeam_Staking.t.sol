@@ -93,8 +93,7 @@ contract RedTeamStaking is Test {
         staking = new TegridyStaking(
             address(toweli),
             address(jbac),
-            treasury,
-            REWARD_RATE
+            treasury
         );
         monitor = new StakingMonitorView(address(staking));
         stakingAdmin = new TegridyStakingAdmin(address(staking));
@@ -240,7 +239,7 @@ contract RedTeamStaking is Test {
     }
 
     /// @notice ATTACK: Transfer NFT after cooldown to a fresh address that can early-withdraw.
-    ///         This does NOT bypass the penalty — early withdrawal always costs 25%.
+    ///         This does NOT bypass the penalty — early withdrawal always costs 75%.
     ///         DEFENDED: Penalty is inherent to the position, not the owner.
     function test_DEFENDED_transferDoesNotBypassPenalty() public {
         uint256 bobTokenId = _stakeAs(bob, STAKE_AMOUNT, 365 days);
@@ -252,14 +251,14 @@ contract RedTeamStaking is Test {
         vm.prank(bob);
         staking.transferFrom(bob, attacker, bobTokenId);
 
-        // Attacker tries early withdraw — still pays 25% penalty
+        // Attacker tries early withdraw — still pays 75% penalty
         uint256 attackerBefore = toweli.balanceOf(attacker);
         vm.prank(attacker);
         staking.earlyWithdraw(bobTokenId);
         uint256 attackerAfter = toweli.balanceOf(attacker);
 
         uint256 received = attackerAfter - attackerBefore;
-        uint256 expectedMax = (STAKE_AMOUNT * 7500) / 10000; // 75% after 25% penalty
+        uint256 expectedMax = (STAKE_AMOUNT * 2500) / 10000; // 25% left after the 75% penalty
         assertLe(received, expectedMax, "Should still pay penalty after transfer");
     }
 
@@ -676,14 +675,14 @@ contract RedTeamStaking is Test {
 
         uint256 treasuryBefore = toweli.balanceOf(treasury);
 
-        // Attacker early-withdraws — 25% penalty
+        // Attacker early-withdraws — 75% penalty
         uint256 attackerTokenId = staking.userTokenId(attacker);
         vm.prank(attacker);
         staking.earlyWithdraw(attackerTokenId);
 
         uint256 treasuryAfter = toweli.balanceOf(treasury);
         uint256 penalty = treasuryAfter - treasuryBefore;
-        assertEq(penalty, STAKE_AMOUNT * 2500 / 10000, "Penalty should be 25% of staked amount");
+        assertEq(penalty, STAKE_AMOUNT * 7500 / 10000, "Penalty should be 75% of staked amount");
 
         // Penalty goes to treasury, not redistributed to stakers via accRewardPerShare
         // So bob doesn't get an unfair windfall
@@ -705,8 +704,8 @@ contract RedTeamStaking is Test {
         uint256 bobAfter = toweli.balanceOf(bob);
 
         // Emergency exit now calls _getReward() (audit M-05/M-06) so user receives principal - penalty + accrued rewards
-        uint256 expectedWithPenalty = STAKE_AMOUNT * 7500 / 10000;
-        assertGe(bobAfter - bobBefore, expectedWithPenalty, "Emergency exit applies 25% penalty when lock active, plus rewards");
+        uint256 expectedWithPenalty = STAKE_AMOUNT * 2500 / 10000;
+        assertGe(bobAfter - bobBefore, expectedWithPenalty, "Emergency exit applies 75% penalty when lock active, plus rewards");
     }
 
     function test_DEFENDED_emergencyExitNoPenaltyAfterLockExpiry() public {

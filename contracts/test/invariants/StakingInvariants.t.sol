@@ -368,7 +368,7 @@ contract StakingInvariantsTest is Test {
     function setUp() public {
         token = new StakingR061Token();
         nft = new StakingR061NFT();
-        staking = new TegridyStaking(address(token), address(nft), treasury, 1 ether);
+        staking = new TegridyStaking(address(token), address(nft), treasury);
         monitor = new StakingMonitorView(address(staking));
         admin = new TegridyStakingAdmin(address(staking));
         staking.setStakingAdmin(address(admin));

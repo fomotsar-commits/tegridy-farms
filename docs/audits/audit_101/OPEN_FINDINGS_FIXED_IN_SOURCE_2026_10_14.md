@@ -52,8 +52,15 @@ seven deployed contracts the site uses store the staking address permanently (`i
 in source; read back on chain for the last two), so nine are replaced together:
 `StakingViewLib`, `TegridyStaking`, then `TegridyStakingAdmin`, `StakingMonitorView`,
 `TegridyStakingJbacVault`, `TegridyTokenURIReader`, `TegridyLPFarming`, `RevenueDistributor`
-and `ReferralSplitter` (which also carries M-G3). `StakingRewardLib` is unchanged and can be
-reused. `GaugeController` and `VoteIncentives` also store the staking address; they are
+and `ReferralSplitter` (which also carries M-G3). ~~`StakingRewardLib` is unchanged and can be
+reused.~~ **Corrected 2026-10-14 (staking release PR):** it cannot be reused. Five fixes landed in
+it after the 2026-06-06 deploy, and the live copy
+(`0xb86A763a92A24e0951658E52d54CE50A5D52C1Ea`) lacks 4 of the 7 functions the current
+`TegridyStaking` calls (`getReward`, `kick`, `settleRewardsOnTransfer`,
+`claimUnsettledForTokenId`; their selectors are absent from its bytecode). Linked to it, every
+claim, exit and NFT transfer would revert. A new `StakingRewardLib` is deployed with the rest, so
+release 1 is ten contracts. The release script and wiring list are
+[`docs/STAKING_RELEASE_1_WIRING.md`](../../STAKING_RELEASE_1_WIRING.md). `GaugeController` and `VoteIncentives` also store the staking address; they are
 deployed but switched off on the site, so they need replacing only if they are kept.
 
 Positions cannot be moved. The old staking contract keeps running for its 16 positions

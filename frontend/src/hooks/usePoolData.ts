@@ -1,10 +1,11 @@
-import { useReadContracts } from 'wagmi';
+import { useReadContract, useReadContracts } from 'wagmi';
 import { formatEther } from 'viem';
 import { TEGRIDY_STAKING_ABI, ERC20_ABI } from '../lib/contracts';
-import { TEGRIDY_STAKING_ADDRESS, TOWELI_ADDRESS, CHAIN_ID, isDeployed as checkDeployed } from '../lib/constants';
+import { STAKING_CONTRACT, TOWELI_ADDRESS, CHAIN_ID, isDeployed as checkDeployed, type StakingContractSet } from '../lib/constants';
 
-export function usePoolData() {
-  const addr = TEGRIDY_STAKING_ADDRESS;
+/** One staking contract's pool-wide figures. Defaults to the contract that takes new stakes. */
+export function usePoolData(contract: StakingContractSet = STAKING_CONTRACT) {
+  const addr = contract.staking;
   const isDeployed = checkDeployed(addr);
 
   // R043 H-062-02: chainId pin on every entry — a wrong-chain wallet must not
@@ -26,6 +27,13 @@ export function usePoolData() {
     ],
     query: { enabled: isDeployed, refetchInterval: 60_000, refetchOnWindowFocus: true },
   });
+  // Staking release 1 pays its pot out over a four-year schedule that ends at
+  // periodFinish; nothing accrues after it, whatever rewardRate still reads. The first
+  // contract has no schedule and no periodFinish(), so it is never asked.
+  const { data: periodFinishRaw, isLoading: scheduleLoading, refetch: refetchSchedule } = useReadContract({
+    address: addr, abi: TEGRIDY_STAKING_ABI, functionName: 'periodFinish', chainId: CHAIN_ID,
+    query: { enabled: isDeployed && contract.hasRewardSchedule, refetchInterval: 60_000, refetchOnWindowFocus: true },
+  });
 
   // OUTAGE-AS-ZERO (scripts/check-unread-signal.mjs): the 0n collapse below is
   // the house display default and stays. What was missing is the second,
@@ -44,6 +52,7 @@ export function usePoolData() {
   const totalPenalties = readAt(4);
   const totalUnsettled = readAt(5);
   const stakingBalance = readAt(6);
+  const scheduleEnd = typeof periodFinishRaw === 'bigint' ? periodFinishRaw : 0n;
 
   const totalStakedUnread = !readOk(0);
   const boostedStakeUnread = !readOk(1);
@@ -53,14 +62,16 @@ export function usePoolData() {
   const unsettledUnread = !readOk(5);
   const stakingBalanceUnread = !readOk(6);
   const paused: boolean | null = data?.[7]?.status === 'success' ? (data[7].result as boolean) : null;
+  const scheduleUnread = contract.hasRewardSchedule && typeof periodFinishRaw !== 'bigint';
 
   // HONESTY PASS 2026-06-11: totalRewardsFunded is CUMULATIVE (never
   // decreases), so it must not be displayed as "rewards remaining".
-  // TegridyStaking is NOT Synthetix-style — there is no periodFinish on the
-  // contract; emission runs continuously at rewardRate against whatever is
-  // actually funded. The true remaining pool is the StakingRewardLib formula:
+  // The TOWELI left in the contract beyond stakes is the StakingRewardLib formula:
   //   balanceOf(staking) − totalStaked − totalUnsettledRewards
-  // and the runway is that pool divided by rewardRate.
+  // (it still includes rewards earned and not yet claimed).
+  // 2026-10-18: staking release 1 IS Synthetix-style. Each funding spreads the pot over
+  // four years and periodFinish is read from the contract: that, not pot ÷ rate, is when
+  // payouts end.
   //
   // T18 2026-09-10: that formula is a DIFFERENCE, so a failed read does not
   // make the answer smaller or vaguer — it makes it BIGGER and entirely
@@ -73,14 +84,17 @@ export function usePoolData() {
   const rewardsRemainingUnread = stakingBalanceUnread || totalStakedUnread || unsettledUnread;
   const rawRemaining = stakingBalance - totalStaked - totalUnsettled;
   const rewardsRemaining = !rewardsRemainingUnread && rawRemaining > 0n ? rawRemaining : 0n;
-  const secondsRemaining =
-    !rewardsRemainingUnread && !rewardRateUnread && rewardRate > 0n ? rewardsRemaining / rewardRate : 0n;
   const nowSec = BigInt(Math.floor(Date.now() / 1000));
-  const periodFinish = secondsRemaining > 0n ? nowSec + secondsRemaining : 0n;
+  const periodFinish = !scheduleUnread ? scheduleEnd : 0n;
+  const secondsRemaining = periodFinish > nowSec ? periodFinish - nowSec : 0n;
+  // Read and over (or never funded: periodFinish 0): the contract pays nothing more.
+  // A contract with no schedule has no end to pass.
+  const scheduleEnded = contract.hasRewardSchedule && !scheduleUnread && periodFinish <= nowSec;
 
   // An APR of '0' had two causes that printed identically: a pool paying
-  // nothing, and a pool nobody could read. Both legs of the ratio are needed.
-  const aprUnread = rewardRateUnread || boostedStakeUnread;
+  // nothing, and a pool nobody could read. Every leg of the ratio is needed,
+  // and the schedule's end too: a rate past it is not paying.
+  const aprUnread = rewardRateUnread || boostedStakeUnread || scheduleUnread;
 
   // STAKING_LOOK §2.2: once the reserve is EMPTY, on-chain accrual is clamped
   // to zero (StakingRewardLib caps every tick to the pool), so a nominal
@@ -101,7 +115,7 @@ export function usePoolData() {
   // would silently truncate it to 28, breaking every projection ~1000x low.
   let aprNum = 0;
   const aprCapped = false;
-  if (rewardRate > 0n && totalBoostedStake > 0n && !isDry) {
+  if (rewardRate > 0n && totalBoostedStake > 0n && !isDry && !scheduleUnread && !scheduleEnded) {
     // Scale up before dividing to preserve precision for low APRs
     const aprScaled = rewardRate * 31536000n * 10000n * 10n ** 18n;
     const aprBps = aprScaled / totalBoostedStake;
@@ -122,10 +136,14 @@ export function usePoolData() {
     rewardRateRaw: rewardRate,
     totalRewardsFunded: formatEther(totalRewardsFunded),
     totalPenalties: formatEther(totalPenalties),
-    /** Unix seconds when the reward pool runs dry at the current rate (derived; 0 if unread). */
+    /** Unix seconds when the four-year reward schedule ends, read from the contract (0 if unread, never funded, or no schedule). */
     periodFinish: Number(periodFinish),
-    /** Seconds of emission runway left at the current rate (0 once dry/unread). */
+    /** Seconds until the schedule ends (0 once it has, or if unread). */
     secondsRemaining: Number(secondsRemaining),
+    /** True once periodFinish was read and has passed (or the pool was never funded): nothing more is paid. Never for a contract with no schedule. */
+    scheduleEnded,
+    /** periodFinish did not land: neither "running" nor "ended" is known. */
+    scheduleUnread,
     /** TOWELI actually left in the reward pool — the honest "remaining" figure. */
     rewardsRemaining: formatEther(rewardsRemaining),
     /** rewardsRemaining in wei: a forced 0n when unread, so gate on rewardsRemainingUnread. */
@@ -161,7 +179,7 @@ export function usePoolData() {
     /** paused(): `null` when the read did not land, never read as "running". */
     paused,
     isDeployed,
-    isLoading,
-    refetch,
+    isLoading: isLoading || (contract.hasRewardSchedule && scheduleLoading),
+    refetch: () => Promise.all([refetch(), ...(contract.hasRewardSchedule ? [refetchSchedule()] : [])]),
   };
 }

@@ -21,7 +21,6 @@ import {
   isDeployed,
 } from '../constants';
 import type { LpFarmDeposit } from '../lpEmissions';
-import { STAKING_V1_TAKES_NEW_STAKES, NEW_STAKES_CLOSED_LINE } from '../stakingBetaOver';
 
 /** Venues this build knows how to compose. */
 export type ZapVenueId = 'staking-lock' | 'lp-farm';
@@ -90,10 +89,6 @@ export function venueAvailability(id: ZapVenueId, lpFarm?: LpFarmDeposit): ZapVe
         label: STAKING_LOCK.label,
         reason: 'TOWELI has no address in this build, so the swap leg has no destination token.',
       };
-    }
-    // TegridyStaking is v1, and it is closing: a zap must not open a stake in it.
-    if (!STAKING_V1_TAKES_NEW_STAKES) {
-      return { available: false, id, label: STAKING_LOCK.label, reason: NEW_STAKES_CLOSED_LINE };
     }
     return { available: true, venue: STAKING_LOCK };
   }

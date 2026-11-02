@@ -40,7 +40,7 @@ contract MVPLaunch_StakeCapsAndGuardianTest is Test {
     function setUp() public {
         token = new MockTOWELI();
         jbac = new MockJBAC();
-        staking = new TegridyStaking(address(token), address(jbac), treasury, 1e18);
+        staking = new TegridyStaking(address(token), address(jbac), treasury);
         vault = new TegridyStakingJbacVault(address(jbac), address(staking));
         staking.setJbacVault(address(vault));
         monitor = new StakingMonitorView(address(staking));

@@ -8,13 +8,12 @@ import { TOWELI_ADDRESS, REVENUE_DISTRIBUTOR_ADDRESS, POL_ACCUMULATOR_ADDRESS, S
 import { ERC20_ABI, REVENUE_DISTRIBUTOR_ABI } from '../lib/contracts';
 import { getAddressUrl } from '../lib/explorer';
 import { stakingClaimPaid, NOTHING_PAID_COPY } from '../lib/stakingClaimPaid';
-import { stakingBetaPhase, betaReadsFromHooks, NEW_STAKES_CLOSED_LINE } from '../lib/stakingBetaOver';
-import { StakingBetaOverNotice } from '../components/farm/StakingBetaOverNotice';
 import { useUserPosition } from '../hooks/useUserPosition';
 import { useLpPosition } from '../hooks/useLpPosition';
 import { usePoolData } from '../hooks/usePoolData';
 import { useTOWELIPrice } from '../contexts/PriceContext';
 import { useFarmActions } from '../hooks/useFarmActions';
+import { OldStakingNotice, OldStakingBetaNotice } from '../components/farm/OldStakingCard';
 import { useReceiptOutcome } from '../hooks/useReceiptOutcome';
 import { useNFTBoost } from '../hooks/useNFTBoost';
 import { useAutoRefreshBoost } from '../hooks/useAutoRefreshBoost';
@@ -230,8 +229,6 @@ function ToweliDashboard() {
     }
   };
 
-  // TOWELI staking v1 is closing: where it stands, from the chain (lib/stakingBetaOver).
-  const betaPhase = stakingBetaPhase(betaReadsFromHooks(pool, pos));
   // getReward and claimUnsettled are whenNotPaused: during a READ pause they only revert.
   const claimsPaused = pos.isPaused === true;
 
@@ -481,14 +478,8 @@ function ToweliDashboard() {
           ))}
         </m.div>
 
-        {/* TOWELI staking v1 is closing: said to every wallet with something in it. */}
-        {pool.isDeployed && (pos.hasPosition || pos.unsettledRewards > 0n || pos.positionUnread) && (
-          <StakingBetaOverNotice
-            phase={betaPhase}
-            onRetry={() => { void pool.refetch(); void pos.refetchAll(); }}
-            art={<CardArt pageId="dashboard" idx={30} />}
-          />
-        )}
+        {/* TOWELI staking v1 (the old contract) is closing: said to every wallet with something in it. */}
+        <OldStakingBetaNotice art={<CardArt pageId="dashboard" idx={30} />} />
 
         {/* Position Health (#7) — proactive warnings (lock expiring, boost at
             risk, rewards to claim). Self-gates to null when there's no position. */}
@@ -609,6 +600,8 @@ function ToweliDashboard() {
 
             {/* Position */}
             <h2 className="heading-luxury text-[16px] text-white mb-4">Your Position</h2>
+            {/* A stake on the first relaunch contract is not "no position": point at its door. */}
+            <OldStakingNotice />
             {pos.hasPosition ? (
               <m.div className={positionHost('relative overflow-hidden rounded-xl glass-card-animated mb-10 card-hover', pos.hasPosition)} style={{ border: '1px solid var(--color-purple-75)' }}
                 initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
@@ -683,8 +676,8 @@ function ToweliDashboard() {
                   <ArtImg pageId="dashboard" idx={13} fallbackPosition="center 20%" alt="" loading="lazy" className="w-full h-full object-cover" />
                 </div>
                 <div className="relative z-10 p-8 py-12 text-center">
-                  <p className="text-white text-[15px] mb-2">No staking position</p>
-                  <p className="text-white/70 text-[12px]" data-testid="dashboard-staking-v1-closed">{NEW_STAKES_CLOSED_LINE}</p>
+                  <p className="text-white text-[15px] mb-4">No staking position yet</p>
+                  <Link to="/earn/toweli" className="btn-primary px-8 py-3 text-[14px]">Start Staking &#8594;</Link>
                 </div>
               </m.div>
             )}
@@ -932,12 +925,9 @@ function ToweliDashboard() {
                 <div className="relative z-10 p-6 text-center">
                   <p className="text-white text-[14px] mb-1">All caught up — nothing to claim right now</p>
                   <p className="text-white/60 text-[12px]">
-                    {/* "Keeps accruing" only while the rate runs and the reserve is not empty. */}
                     {pos.hasPosition
-                      ? (betaPhase === 'closing' && !pool.isDry
-                        ? 'Your staking rewards keep accruing. Check back as they build up.'
-                        : 'Nothing new accrues on TOWELI staking v1 now.')
-                      : NEW_STAKES_CLOSED_LINE}
+                      ? 'Your staking rewards keep accruing. Check back as they build up.'
+                      : <>Stake TOWELI on the <Link to="/earn/toweli" className="underline hover:text-white">Farm</Link> to start earning claimable rewards.</>}
                   </p>
                 </div>
               </m.div>

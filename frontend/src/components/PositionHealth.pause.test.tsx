@@ -1,7 +1,7 @@
 /**
- * TOWELI staking v1 is closing and takes no lock extension or re-stake (owner,
- * 2026-10-30), so Position Health no longer sends a staker to do either: a lock's
- * end is the way out with no penalty, and Claim is not advised during a pause.
+ * Position Health reads the contract that takes new stakes (staking release 1). Its
+ * claims, like every TegridyStaking's, are whenNotPaused, so a READ pause is no time to
+ * advise one. TOWELI staking v1's own position has its own card (OldStakingCard).
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
@@ -32,30 +32,20 @@ beforeEach(() => {
 
 const show = () => render(<MemoryRouter><PositionHealth /></MemoryRouter>);
 
-describe('PositionHealth, beta over', () => {
-  it('a lock ending soon is not told to extend', () => {
-    show();
-    expect(screen.getByText(/your lock ends in 3d/i)).toBeInTheDocument();
-    expect(screen.getByText(/whole stake can come out with no penalty/i)).toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: /extend lock/i })).toBeNull();
-    expect(screen.queryByText(/extend it/i)).toBeNull();
-  });
-
-  it('an ended lock is pointed at Withdraw, never Re-lock', () => {
-    state.pos = { ...state.pos, isLocked: false, lockEnd: now() - 86_400 };
-    show();
-    expect(screen.getByRole('link', { name: /withdraw/i })).toHaveAttribute('href', '/earn/toweli');
-    expect(screen.queryByRole('link', { name: /re-lock/i })).toBeNull();
-  });
-
-  it('says claim, without re-staking, and not during a read pause', () => {
+describe('PositionHealth, paused', () => {
+  it('advises Claim, and not during a read pause', () => {
     state.pos = { ...state.pos, pendingFormatted: '42.5' };
     const { unmount } = show();
-    expect(screen.getByText(/claim your TOWELI rewards on the farm page/i)).toBeInTheDocument();
-    expect(screen.queryByText(/re-stake/i)).toBeNull();
+    expect(screen.getByText(/ready to claim/i)).toBeInTheDocument();
     unmount();
     state.pos = { ...state.pos, isPaused: true };
     show();
     expect(screen.queryByText(/ready to claim/i)).toBeNull();
+  });
+
+  it('still tells a lock ending soon to extend: the new contract takes extensions', () => {
+    show();
+    expect(screen.getByText(/your lock ends in 3d/i)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /extend lock/i })).toHaveAttribute('href', '/earn/toweli');
   });
 });

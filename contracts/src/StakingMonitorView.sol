@@ -25,6 +25,7 @@ interface ITegridyStakingMonitorRead {
     function rewardPerTokenStored() external view returns (uint256);
     function lastUpdateTime() external view returns (uint256);
     function rewardRate() external view returns (uint256);
+    function periodFinish() external view returns (uint256);
     function totalBoostedStake() external view returns (uint256);
     function totalStaked() external view returns (uint256);
     function totalUnsettledRewards() external view returns (uint256);
@@ -79,10 +80,15 @@ contract StakingMonitorView {
         Position memory p = _loadPosition(tokenId);
         ITegridyStakingMonitorRead s = staking;
         uint256 available = IMonitorERC20Balance(s.rewardToken()).balanceOf(address(s));
+        uint256 last = s.paused() ? block.timestamp : s.lastUpdateTime();
+        // Nothing is scheduled after periodFinish (2026-10-18), so project only up to it:
+        // shift the anchor so that `now - last` is the scheduled part of the elapsed time.
+        uint256 finish = s.periodFinish();
+        if (block.timestamp > finish) last = last >= finish ? block.timestamp : last + (block.timestamp - finish);
         return StakingViewLib.earnedFromMem(
             p,
             s.rewardPerTokenStored(),
-            s.paused() ? block.timestamp : s.lastUpdateTime(),
+            last,
             s.rewardRate(),
             s.totalBoostedStake(),
             available,

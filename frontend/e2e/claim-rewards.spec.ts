@@ -13,7 +13,7 @@
  * check; the claim TRANSACTION is the Anvil leg's job.
  */
 import { encodeFunctionData, formatEther, hexToBigInt, parseAbi, type Hex } from 'viem';
-import { test, expect, expectTxReceipt, advanceForkTime, anvilRpc, openToweliStakeOnFork } from './fixtures/wallet';
+import { test, expect, expectTxReceipt, advancePastApproval, advanceForkTime, anvilRpc } from './fixtures/wallet';
 import { TEGRIDY_STAKING_ADDRESS, TOWELI_ADDRESS } from '../src/lib/constants';
 
 const onAnvil = !!process.env.ANVIL_RPC_URL;
@@ -76,8 +76,7 @@ test.describe('Claim rewards surfaces', () => {
       'the LP farming section did not mount on /farm at all — its heading is a static ' +
         'string that needs no chain read, so this is a render failure, not RPC latency.',
     ).toBeVisible();
-    // TOWELI staking v1 is closing: with no position the card is its closed line.
-    await expect(page.getByRole('heading', { name: /toweli staking v1/i })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /stake toweli/i })).toBeVisible();
 
     // 30s, matching this file's other chain-dependent budgets.
     //
@@ -164,6 +163,8 @@ test.describe('Claim rewards surfaces', () => {
     // and it also jumps the fork clock, so it must not be spending from the wallet the
     // render specs read.
     const account = await walletMock.useIsolatedForkAccount();
+    await walletMock.connect(account);
+    await page.goto('/earn/toweli');
 
     // 1. Open a position, so there is something for rewards to accrue against.
     // 40,000 TOWELI, not a token amount, and the size is doing real work. Rewards accrue
@@ -172,13 +173,13 @@ test.describe('Claim rewards surfaces', () => {
     // gates on — and fork time is the one thing that must stay cheap here (see
     // advanceForkTime). A large position buys the same rewards in seconds. 40,000 sits
     // under the contract's own maxStakePerUser of 50,000, read from chain.
-    //
-    // Opened on the fork, not through the site: TOWELI staking v1 is closing and the
-    // site takes no new stakes into it (owner, 2026-10-30). What is under test is the
-    // claim, which the site still offers on a v1 position.
-    await openToweliStakeOnFork(account, 40_000n * 10n ** 18n, 90 * 86_400);
-    await walletMock.connect(account);
-    await page.goto('/earn/toweli');
+    const amount = page.getByRole('textbox', { name: /amount of toweli to stake/i });
+    await amount.fill('40000');
+    const stakeCard = amount.locator('xpath=ancestor::div[contains(@class,"glass-card")][1]');
+    const stakeCta = stakeCard.getByRole('button', { name: /^(approve|stake)/i }).last();
+    await advancePastApproval(stakeCta, /^Stake & Lock for /, 'stake (claim precondition)');
+    await stakeCta.click();
+    const stakeHash = await expectTxReceipt(page, 'stake (claim precondition)');
     await expect(
       page.getByRole('heading', { name: /^Your Position$/i }),
       'the precondition stake confirmed but no position surfaced — there is nothing for rewards to accrue against.',
@@ -209,7 +210,7 @@ test.describe('Claim rewards surfaces', () => {
         'before touching this assertion.',
     ).toBeEnabled({ timeout: 30_000 });
     await claim.click();
-    // The stake was sent off the page, so the only receipt that can appear is the claim's.
-    await expectTxReceipt(page, 'claim');
+    // `stakeHash` bars the stake's own receipt from satisfying the claim.
+    await expectTxReceipt(page, 'claim', stakeHash);
   });
 });

@@ -1,12 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
-
-// The zap machinery is tested on the staking-lock venue. TOWELI staking v1 takes no
-// new stakes (lib/stakingBetaOver), and venues.test pins that closure; this file
-// reopens it so the machinery under test still has a single-leg venue to plan.
-vi.mock('../stakingBetaOver', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../stakingBetaOver')>()),
-  STAKING_V1_TAKES_NEW_STAKES: true,
-}));
+import { describe, it, expect } from 'vitest';
 import { decodeFunctionData } from 'viem';
 import { bindZapStep, type ZapBalances } from './calls';
 import { planZap, type ZapDescriptor, type ZapRoutes } from './planner';

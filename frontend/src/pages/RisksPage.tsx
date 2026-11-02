@@ -4,6 +4,8 @@ import { ArtImg } from '../components/ArtImg';
 import { CardArt } from '../components/ui/CardArt';
 import {
   SWAP_FEE_BPS,
+  EARLY_WITHDRAWAL_PENALTY_BPS,
+  OLD_EARLY_WITHDRAWAL_PENALTY_BPS,
   isDeployed,
   TEGRIDY_NFT_LENDING_ADDRESS,
   TEGRIDY_LAUNCHPAD_V2_ADDRESS,
@@ -119,7 +121,7 @@ const PROTOCOL_LIMITS: Array<{
       { label: 'Protocol-wide cap', value: '5,000,000 TOWELI', why: 'Testing-phase safety ceiling' },
       { label: 'Lock duration', value: '7 days – 4 years', why: 'Longer lock = higher boost' },
       { label: 'Boost range', value: '0.4× – 4.0× (4.5× with JBAC NFT)', why: 'Rewards long-term locking' },
-      { label: 'Early-exit penalty', value: '25%', why: 'Sent to the protocol treasury' },
+      { label: 'Early-exit penalty', value: `${EARLY_WITHDRAWAL_PENALTY_BPS / 100}%`, why: `Sent to the protocol treasury. Positions on the old staking contract pay its ${OLD_EARLY_WITHDRAWAL_PENALTY_BPS / 100}%` },
     ],
   },
   {
@@ -173,7 +175,7 @@ const RISKS = [
   },
   {
     title: '4. Staking Lock Risk',
-    body: 'Staked TOWELI tokens are subject to lock periods chosen by the user. During the lock period, your tokens cannot be withdrawn without incurring a 25% early withdrawal penalty. If market conditions change unfavorably during your lock period, you will be unable to access your full staked amount without accepting this penalty. Locked funds are governed entirely by the smart contract and cannot be released early by any party, including the Protocol developers.',
+    body: `Staked TOWELI tokens are subject to lock periods chosen by the user. During the lock period, your tokens cannot be withdrawn without incurring the early withdrawal penalty: ${EARLY_WITHDRAWAL_PENALTY_BPS / 100}% of the stake on the current staking contract, ${OLD_EARLY_WITHDRAWAL_PENALTY_BPS / 100}% on the old one. Rewards are paid first, but only from what the reward pool holds; if it is short, an early exit can lose the rewards it cannot pay and still pays the penalty. If market conditions change unfavorably during your lock period, you will be unable to access your full staked amount without accepting this penalty. Locked funds are governed entirely by the smart contract and cannot be released early by any party, including the Protocol developers.`,
   },
   {
     title: '5. Liquidation Risk (NFT Lending)',

@@ -103,13 +103,14 @@ contract C1RewardClusterRegressionTest is Test {
     // BATCH-N1 M1 bump). Used to recompute the accrual math independently.
     uint256 internal constant ACC = 1e18;
     uint256 internal constant BOOST_PRECISION = 10000;
-    uint256 internal constant RATE = 1 ether; // 1 TOWELI / second
+    // 2026-10-18: there is no fixed rate any more. Each funding sets it (pot / four years),
+    // so the closed forms below read `staking.rewardRate()` right after funding.
     uint256 internal constant MIN_LOCK = 7 days;
 
     function setUp() public {
         token = new C1RCMockToken();
         nft = new C1RCMockNFT();
-        staking = new TegridyStaking(address(token), address(nft), treasury, RATE);
+        staking = new TegridyStaking(address(token), address(nft), treasury);
         monitor = new StakingMonitorView(address(staking));
         admin = new TegridyStakingAdmin(address(staking));
         staking.setStakingAdmin(address(admin));
@@ -217,6 +218,7 @@ contract C1RewardClusterRegressionTest is Test {
     ///         and a fully-funded getReward pays EXACTLY earned.
     function test_accrual_singleStaker_rptAndEarnedAndPayExact() public {
         _fund(10_000_000 ether); // healthy pool, fully funds all accrual below
+        uint256 rate = staking.rewardRate();
 
         uint256 id = _stake(bob, 1_000_000 ether, 365 days);
         (, uint256 boosted, ) = _pos(id);
@@ -229,7 +231,7 @@ contract C1RewardClusterRegressionTest is Test {
 
         // earned() recomputed independently from the closed-form (fully funded
         // means the view's uncapped dt*rate equals what would actually accrue).
-        uint256 expectedAccDelta = (dt * RATE * ACC) / staking.totalBoostedStake();
+        uint256 expectedAccDelta = (dt * rate * ACC) / staking.totalBoostedStake();
         uint256 expectedEarned = (boosted * (rptBefore + expectedAccDelta)) / ACC
             - uint256(_debt(id));
         assertEq(monitor.earned(id), expectedEarned, "earned() must match closed-form exactly");
@@ -262,6 +264,7 @@ contract C1RewardClusterRegressionTest is Test {
     ///         boostedAmount, exact to ±1 wei (ACC_PRECISION integer rounding).
     function test_accrual_twoStakers_proRataSplitExact() public {
         _fund(50_000_000 ether); // generously funded so nothing caps
+        uint256 rate = staking.rewardRate();
 
         // Bob: 1yr lock. Carol: 4yr lock (max boost). Different boostedAmounts.
         uint256 bobId   = _stake(bob,   1_000_000 ether, 365 days);
@@ -277,7 +280,7 @@ contract C1RewardClusterRegressionTest is Test {
         uint256 dt = 100_000;
         vm.warp(block.timestamp + dt);
 
-        uint256 emitted = dt * RATE; // total emission over the window (fully funded)
+        uint256 emitted = dt * rate; // total emission over the window (fully funded)
         // Pro-rata expectation by boosted share (same integer path the contract uses:
         // accDelta = emitted*ACC/total; earned_i = boosted_i*accDelta/ACC).
         uint256 accDelta = (emitted * ACC) / total;
@@ -322,19 +325,26 @@ contract C1RewardClusterRegressionTest is Test {
 
         uint256 rpt0 = staking.rewardPerTokenStored();
 
+        uint256 rate = staking.rewardRate();
+
+        // Materialise with pause() + unpause(): both settle, neither changes the rate.
+        // (2026-10-18: a funding would re-spread the pot and change the rate mid-test.)
         // Window A: 600s, materialise.
         vm.warp(block.timestamp + 600);
-        _fund(1_000 ether);
+        staking.pause();
+        staking.unpause();
         uint256 rptA = staking.rewardPerTokenStored();
 
         // Window B: 400s, materialise.
         vm.warp(block.timestamp + 400);
-        _fund(1_000 ether);
+        staking.pause();
+        staking.unpause();
         uint256 rptB = staking.rewardPerTokenStored();
 
-        // Sum of the two deltas must equal the closed-form over 1000s exactly.
-        uint256 expectedTotalDelta = (1000 * RATE * ACC) / total;
-        assertEq(rptB - rpt0, expectedTotalDelta, "two-window accrual == one-window accrual");
+        // Sum of the two deltas equals the closed form over 1000s, to the 1 wei the second
+        // floor can drop now that the rate is not a round number.
+        uint256 expectedTotalDelta = (1000 * rate * ACC) / total;
+        assertApproxEqAbs(rptB - rpt0, expectedTotalDelta, 1, "two-window accrual == one-window accrual");
         // Sanity: each leg is non-trivial.
         assertGt(rptA - rpt0, 0, "window A accrued");
         assertGt(rptB - rptA, 0, "window B accrued");
@@ -447,7 +457,7 @@ contract C1RewardClusterRegressionTest is Test {
         // Simplest: accrue a huge pending for bob, drain pool, then claim — the
         // shortfall (well over the 100k cap) can only partly book; the rest
         // forfeits.
-        vm.warp(block.timestamp + 200_000); // ~ huge pending given 5M @ 4x boost
+        vm.warp(block.timestamp + 600_000); // huge pending: 50M over four years is ~0.4 TOWELI/s
         _fund(1_000 ether); // bake accrual at healthy pool
         uint256 pending = monitor.earned(id);
 
