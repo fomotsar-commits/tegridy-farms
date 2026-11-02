@@ -271,7 +271,7 @@ export function attestationRefusal(sheet: LaunchFactSheet): string | null {
   if (sheet.tierDeterminate === false) {
     return (
       'This launch cannot be attested yet: the tier is not settled. At least one gate check ' +
-      'rests on something that could not be read, so the tier on the record would be a guess — ' +
+      'rests on something that could not be read, so the tier on the record would be a guess, ' +
       'and an attestation is permanent. Attest once the launch has graduated and its liquidity ' +
       'lock is readable on-chain. Your launch is unaffected.'
     );

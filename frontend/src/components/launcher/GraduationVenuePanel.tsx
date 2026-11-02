@@ -159,7 +159,7 @@ export function GraduationVenuePanel() {
       <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] font-mono">
         {checkSkipped ? (
           <span className="px-2 py-1 rounded-md bg-white/5 text-white/60 border border-white/10">
-            MODULE STATE NOT CHECKED — no RPC
+            MODULE STATE NOT CHECKED: no RPC
           </span>
         ) : isChecking || moduleCheck === null ? (
           <span className="px-2 py-1 rounded-md bg-white/5 text-white/60 border border-white/10">
@@ -169,7 +169,7 @@ export function GraduationVenuePanel() {
           // Not "not whitelisted": we failed to look. A red badge here would be a finding
           // about a module nobody queried.
           <span className="px-2 py-1 rounded-md bg-amber-500/15 text-amber-300 border border-amber-500/30">
-            MODULE STATE UNREADABLE — not a negative result
+            MODULE STATE UNREADABLE: not a negative result
           </span>
         ) : moduleCheck.whitelisted ? (
           <span className="px-2 py-1 rounded-md bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
@@ -177,7 +177,7 @@ export function GraduationVenuePanel() {
           </span>
         ) : (
           <span className="px-2 py-1 rounded-md bg-red-500/15 text-red-300 border border-red-500/30">
-            NOT WHITELISTED (state {moduleCheck.state}) — launches would fail at create
+            NOT WHITELISTED (state {moduleCheck.state}): launches would fail at create
           </span>
         )}
       </div>
@@ -200,7 +200,7 @@ export function GraduationVenuePanel() {
       {plan.pool.feeHundredthsBips === null ? (
         <p className="text-xs text-white/60 mt-2 leading-relaxed">
           Shares are of the graduated pool&rsquo;s trade fee, not of volume. That fee is{' '}
-          <strong>not yet determined</strong> — it lives on an AMM config that has not been created —
+          <strong>not yet determined</strong>: it lives on an AMM config that has not been created,
           so the protocol&rsquo;s {(plan.protocolShareBps / 100).toFixed(2)}% of it cannot be expressed as a
           share of traded value yet.
         </p>
@@ -209,7 +209,7 @@ export function GraduationVenuePanel() {
           Shares are of the graduated pool&rsquo;s {feePercent(plan.pool.feeHundredthsBips)}% trade fee, not of
           volume. The protocol&rsquo;s {(plan.protocolShareBps / 100).toFixed(2)}% of that fee works out to{' '}
           {((plan.protocolShareBps / 10_000) * (plan.pool.feeHundredthsBips / 10_000)).toFixed(4)}% of traded
-          value{venueOwned ? '.' : ', and it is a share of an external venue’s pool fee — not the pool fee itself.'}
+          value{venueOwned ? '.' : ', and it is a share of an external venue’s pool fee, not the pool fee itself.'}
         </p>
       )}
 
@@ -255,7 +255,7 @@ export function GraduationVenuePanel() {
           )}
           {feeLine.assetsUnavailable && (
             <p className="text-xs text-amber-300/80 mt-2">
-              Launch-asset discovery was unavailable — only base pairs were checked, so
+              Launch-asset discovery was unavailable: only base pairs were checked, so
               asset-denominated credits may be missing.
             </p>
           )}

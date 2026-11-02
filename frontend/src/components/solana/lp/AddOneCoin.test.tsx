@@ -552,3 +552,61 @@ describe('Add with one coin: step 1’s review says what is sent', () => {
     expect(within(review).queryByTestId('lp-one-no-fee')).toBeNull();
   });
 });
+
+// Island answer twenty-four: the amount's chips, and the coin's name as a press that copies its address.
+describe('Add with one coin: the amount’s chips and the coin’s name', () => {
+  const writeText = vi.fn(async () => {});
+  const vibrate = vi.fn(() => true);
+  beforeEach(() => {
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    Object.defineProperty(navigator, 'vibrate', { value: vibrate, configurable: true });
+  });
+
+  it('paying SOL: 0.05 SOL, 0.5 SOL and Max, each 44px and a tick; Max keeps both steps’ fees back', async () => {
+    await openOneCoin();
+    const panel = await screen.findByTestId('lp-one-coin-panel');
+    const hint = await within(panel).findByText(/after both steps/);
+    const most = hint.textContent!.match(/Up to ([\d.,]+) SOL/)![1]!.replace(/,/g, '');
+    const box = within(panel).getByLabelText('SOL to put in') as HTMLInputElement;
+    const chips = ['0.05 SOL', '0.5 SOL', 'Max SOL'].map((name) => within(panel).getByRole('button', { name }));
+    for (const c of chips) expect(c.className).toContain('min-h-[44px]');
+    // In the box's own row, after it: the door's first screen gets no new line (e2e/door-lands.spec.ts),
+    // and the field's label still names the box.
+    for (const c of chips) expect(c.parentElement).toBe(box.parentElement);
+    expect(box.compareDocumentPosition(chips[0]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.click(chips[0]!);
+    expect(box.value).toBe('0.05');
+    fireEvent.click(chips[1]!);
+    expect(box.value).toBe('0.5');
+    fireEvent.click(chips[2]!);
+    expect(Number(box.value)).toBe(Number(most));
+    expect(vibrate).toHaveBeenCalledTimes(3);
+  });
+
+  it('paying the token: Max alone, the whole balance, and no SOL amounts', async () => {
+    await openOneCoin();
+    const panel = await screen.findByTestId('lp-one-coin-panel');
+    await within(panel).findByText(/after both steps/);
+    fireEvent.click(within(within(panel).getByRole('group', { name: 'Pay with' })).getByRole('button', { name: 'CORN' }));
+    expect(within(panel).queryByRole('button', { name: '0.05 SOL' })).toBeNull();
+    expect(within(panel).queryByRole('button', { name: '0.5 SOL' })).toBeNull();
+    fireEvent.click(await within(panel).findByRole('button', { name: 'Max CORN' }));
+    expect(Number((within(panel).getByLabelText('CORN to put in') as HTMLInputElement).value)).toBe(500);
+  });
+
+  it('names the token as a 44px press that copies its whole address', async () => {
+    await openOneCoin();
+    const panel = await screen.findByTestId('lp-one-coin-panel');
+    const name = within(panel).getByTestId('coin-name');
+    expect(name).toHaveAccessibleName(`CORN: copy its address ${M}`);
+    expect(name.className).toContain('min-h-[44px]');
+    // On the heading's line, its reach taken back, so the door's first screen gets no new line.
+    expect(name.parentElement).toBe(within(panel).getByRole('heading', { name: 'Add with one coin' }).parentElement);
+    expect(name.className).toContain('-my-3');
+    await act(async () => {
+      fireEvent.click(name);
+    });
+    expect(writeText).toHaveBeenCalledWith(M);
+    expect(vibrate).toHaveBeenCalledTimes(1);
+  });
+});

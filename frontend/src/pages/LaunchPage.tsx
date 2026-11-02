@@ -379,7 +379,7 @@ export default function LaunchPage() {
     let numerairePriceUsd: number;
     if (w.numeraire === 'toweli') {
       if (!price || price.priceUnavailable || !price.priceSafeForSwaps || !(price.priceInUsd > 0)) {
-        setLaunch({ phase: 'error', message: 'TOWELI price is unavailable or stale right now. A TOWELI-pegged launch needs a fresh price to set the auction curve — try again shortly.' });
+        setLaunch({ phase: 'error', message: 'TOWELI price is unavailable or stale right now. A TOWELI-pegged launch needs a fresh price to set the auction curve. Try again shortly.' });
         return;
       }
       numerairePriceUsd = price.priceInUsd;
@@ -389,7 +389,7 @@ export default function LaunchPage() {
       // of launch attempts against a perfectly healthy oracle. See useToweliPrice.ts.
       numerairePriceUsd = price?.ethUsdForLaunch ?? 0;
       if (!(numerairePriceUsd > 0)) {
-        setLaunch({ phase: 'error', message: 'ETH price unavailable right now — try again shortly.' });
+        setLaunch({ phase: 'error', message: 'ETH price unavailable right now. Try again shortly.' });
         return;
       }
     }
@@ -462,7 +462,7 @@ export default function LaunchPage() {
     if (!isLauncherEnabled() || !isConnected || !walletClient || !publicClient) return;
     // Belt-and-suspenders: never send an attestation the schema can't accept.
     if (schemaReady === false) {
-      setAttest({ phase: 'error', message: 'Fact Sheet attestation isn’t live yet — the disclosure schema has not been registered on-chain. Your launch is unaffected.' });
+      setAttest({ phase: 'error', message: 'Fact Sheet attestation isn’t live yet: the disclosure schema has not been registered on-chain. Your launch is unaffected.' });
       return;
     }
     setAttest({ phase: 'pending' });
@@ -505,7 +505,7 @@ export default function LaunchPage() {
           pageId="community"
           idx={5}
           title="The launch rail isn't live yet"
-          subtitle="Launching opens once the core loop is live, treasury ownership is re-homed, and TOWELI has an active market. The engine (Doppler V4 on mainnet) is integrated and verified — this is a sequencing gate, not a build gate."
+          subtitle="Launching opens once the core loop is live, treasury ownership is re-homed, and TOWELI has an active market. The engine (Doppler V4 on mainnet) is integrated and verified. This is a sequencing gate, not a build gate."
         />
         {/* Pre-launch explainer. Rendered only in the gated state, BENEATH the SOON
             wall (which stays exactly as-is), so /launch teaches the rail instead of
@@ -669,7 +669,7 @@ export default function LaunchPage() {
           <div className="relative isolate rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
             <CardArt pageId="launch" idx={60} />
             We couldn&rsquo;t read the launch history just now, so the cohort below may be incomplete.
-            This is a problem on our side — it does <span className="font-semibold">not</span> mean no
+            This is a problem on our side. It does <span className="font-semibold">not</span> mean no
             tokens have launched.
           </div>
         )}
@@ -694,7 +694,7 @@ function LaunchStatusBanner({ status, attest, onAttest, schemaReady, onResetLaun
     return (
       <div className="relative isolate mt-4 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
         <CardArt pageId="launch" idx={61} />
-        Submitting the Doppler <code className="text-emerald-100">create()</code> transaction — confirm in your wallet…
+        Submitting the Doppler <code className="text-emerald-100">create()</code> transaction. Confirm in your wallet…
       </div>
     );
   }
@@ -710,7 +710,7 @@ function LaunchStatusBanner({ status, attest, onAttest, schemaReady, onResetLaun
           <div className="font-semibold mb-1">Your launch may already be on-chain.</div>
           <p className="text-amber-200/90 leading-relaxed">
             The transaction was broadcast but its result didn’t come back (often an RPC timeout). It may still be
-            confirming — or may already have created your token. <strong>Check your wallet or Etherscan before trying
+            confirming, or may already have created your token. <strong>Check your wallet or Etherscan before trying
             again</strong>: launching twice would mint a duplicate token and split your liquidity.
           </p>
           {txUrl && (
@@ -723,7 +723,7 @@ function LaunchStatusBanner({ status, attest, onAttest, schemaReady, onResetLaun
               onClick={onResetLaunch}
               className="px-3 py-1.5 rounded-lg text-xs font-semibold border border-amber-400/40 text-amber-100 hover:bg-amber-500/10 transition"
             >
-              It didn’t go through — let me retry
+              It didn’t go through, let me retry
             </button>
           </div>
         </div>
@@ -756,7 +756,7 @@ function LaunchStatusBanner({ status, attest, onAttest, schemaReady, onResetLaun
         View your token’s page →
       </Link>
       <p className="text-emerald-200/60 text-xs mb-3 -mt-1">
-        Permanent, shareable, and generated from on-chain reads — not from what you typed here.
+        Permanent, shareable, and generated from on-chain reads, not from what you typed here.
       </p>
 
       <div className="text-emerald-200/90 space-y-0.5 break-all">
@@ -810,7 +810,7 @@ function LaunchStatusBanner({ status, attest, onAttest, schemaReady, onResetLaun
               {attest.phase === 'pending' ? 'Attesting…' : 'Attest disclosures on-chain'}
             </button>
             {schemaReady === false && attest.phase !== 'error' && (
-              <span className="text-white/50 text-xs break-words">Attestation isn’t live yet — the disclosure schema hasn’t been registered on-chain. Your launch is unaffected.</span>
+              <span className="text-white/50 text-xs break-words">Attestation isn’t live yet: the disclosure schema hasn’t been registered on-chain. Your launch is unaffected.</span>
             )}
             {attest.phase === 'error' && <span className="text-rose-300 text-xs break-words">{attest.message}</span>}
           </div>
@@ -825,7 +825,7 @@ function LaunchStatusBanner({ status, attest, onAttest, schemaReady, onResetLaun
       <FinePrint summary="After graduation" className="mt-2">
         <p>
           After the auction graduates into a V4 pool, this token can plug into the venue's day-2
-          economy — {dayTwoEconomyPhrase(lpPhase)}. Few launchers give a launch any day-2
+          economy: {dayTwoEconomyPhrase(lpPhase)}. Few launchers give a launch any day-2
           economy at all.
         </p>
       </FinePrint>
@@ -878,7 +878,7 @@ function PostGraduationReattest({ prefillToken }: { prefillToken?: string }) {
   // there is no state-syncing effect here — the initial value above is the whole story.
 
   const onCheck = async () => {
-    if (!publicClient) return setState({ phase: 'error', message: 'No RPC client available right now — try again shortly.' });
+    if (!publicClient) return setState({ phase: 'error', message: 'No RPC client available right now. Try again shortly.' });
     const token = tokenInput.trim();
     if (!isAddress(token)) return setState({ phase: 'error', message: 'Enter a valid token address (0x…).' });
     if (!isConnected || !address) return setState({ phase: 'error', message: 'Connect the creator wallet to re-attest.' });
@@ -903,7 +903,7 @@ function PostGraduationReattest({ prefillToken }: { prefillToken?: string }) {
       if (verdict.kind !== 'graduated') return setState({ phase: verdict.kind });
       const stream = verdict.stream;
       if (stream.beneficiaries.length === 0) {
-        return setState({ phase: 'error', message: 'The migration stream exists but exposes no fee beneficiaries — nothing to attest.' });
+        return setState({ phase: 'error', message: 'The migration stream exists but exposes no fee beneficiaries, so there is nothing to attest.' });
       }
       // Label the protocol beneficiary by the pair this token ACTUALLY graduated against:
       // an ETH pool streamed to RevenueDistributor ("venue stakers"), a TOWELI pool to
@@ -936,7 +936,7 @@ function PostGraduationReattest({ prefillToken }: { prefillToken?: string }) {
     if (state.phase !== 'ready') return;
     if (!walletClient || !publicClient) return setState({ phase: 'error', message: 'Connect a wallet to attest.' });
     if (schemaReady === false) {
-      return setState({ phase: 'error', message: 'The disclosure schema isn’t registered on-chain yet — the on-chain attestation can’t be written. The read above is still accurate.' });
+      return setState({ phase: 'error', message: 'The disclosure schema isn’t registered on-chain yet: the on-chain attestation can’t be written. The read above is still accurate.' });
     }
     const { sheet, lines, poolId, locker, pair } = state;
     setState({ phase: 'attesting', sheet, lines, poolId, locker, pair });
@@ -1018,7 +1018,7 @@ function PostGraduationReattest({ prefillToken }: { prefillToken?: string }) {
               {state.phase === 'attesting' ? 'Attesting…' : 'Attest on-chain fees'}
             </button>
             {schemaReady === false && (
-              <span className="text-white/50 text-xs break-words">Schema not registered on-chain yet — the read above is accurate, but it can&rsquo;t be attested until then.</span>
+              <span className="text-white/50 text-xs break-words">Schema not registered on-chain yet: the read above is accurate, but it can&rsquo;t be attested until then.</span>
             )}
           </div>
         </div>
@@ -1037,7 +1037,7 @@ function PostGraduationReattest({ prefillToken }: { prefillToken?: string }) {
         <p>
           Once a launch graduates into its Uniswap V4 pool, its fee split becomes a live on-chain
           stream. This reads the actual beneficiaries from Doppler&rsquo;s StreamableFeesLocker and
-          attests them — the fully-verifiable version of the launch-time disclosure.
+          attests them. This is the fully-verifiable version of the launch-time disclosure.
         </p>
         <p>
           A token with no fee stream may still be in price discovery. Re-attestation reads the real split once the
@@ -1046,7 +1046,7 @@ function PostGraduationReattest({ prefillToken }: { prefillToken?: string }) {
         {state.phase === 'unsupported' && (
           <p>
             The locker holding graduated-pool fees indexes positions by their Uniswap V4 position id, and we
-            can&rsquo;t yet map a token to that id on-chain — so we can&rsquo;t read this token&rsquo;s split from here.
+            can&rsquo;t yet map a token to that id on-chain, so we can&rsquo;t read this token&rsquo;s split from here.
             It may well have graduated. If it launched through this rail, the fee split it committed at launch is
             unaffected and still on-chain.
           </p>
@@ -1095,7 +1095,7 @@ function LauncherExplainer() {
         <ol className="list-decimal pl-4 space-y-1.5 marker:text-white/30">
           <li>
             <span className="text-white/80">Configure.</span> Name, supply, tier and curve range, LP lock, and any
-            team allocation — in a four-step wizard.
+            team allocation, in a four-step wizard.
           </li>
           <li>
             <span className="text-white/80">Launch.</span> One Doppler <code className="text-white/70">create()</code>{' '}
@@ -1107,7 +1107,7 @@ function LauncherExplainer() {
           </li>
           <li>
             <span className="text-white/80">Graduate.</span> When price discovery completes, liquidity migrates into a
-            canonical Uniswap V4 pool — LP locked, trading fees streaming to the split published at launch.
+            canonical Uniswap V4 pool, with LP locked and trading fees streaming to the split published at launch.
           </li>
         </ol>
       </ExplainerCard>
@@ -1115,7 +1115,7 @@ function LauncherExplainer() {
       <ExplainerCard title="Why an audited template matters" art={<CardArt pageId="launch" idx={52} />}>
         <p>
           Neither you nor the venue writes the token contract. Every launch is pinned to Doppler's{' '}
-          <code className="text-white/70">DopplerERC20V1</code> factory — the template already whitelisted on Doppler's
+          <code className="text-white/70">DopplerERC20V1</code> factory, the template already whitelisted on Doppler's
           mainnet Airlock, with no mint, no fee-on-transfer, no blacklist, and no upgrade path.
         </p>
         <p>
@@ -1127,12 +1127,12 @@ function LauncherExplainer() {
 
       <ExplainerCard title="What a Fact Sheet is" art={<CardArt pageId="launch" idx={53} />}>
         <p>
-          A machine-generated disclosure — not a certificate, not a safety rating, and not an endorsement. Nothing is
+          A machine-generated disclosure. It is not a certificate, not a safety rating, and not an endorsement. Nothing is
           scored and no human vouches for anything. It records:
         </p>
         <ul className="list-disc pl-4 space-y-1">
           <li>the originating factory and template codehash;</li>
-          <li>every residual power — mint, pause, blacklist, fee-on-transfer, upgrade, wallet cap — in plain language,
+          <li>every residual power (mint, pause, blacklist, fee-on-transfer, upgrade, wallet cap) in plain language,
             and who holds it;</li>
           <li>whether liquidity is locked, by which locker, and until when;</li>
           <li>the team allocation and how much of it is under on-chain vesting;</li>
@@ -1156,16 +1156,16 @@ function LauncherExplainer() {
         </ul>
         <p className="text-white/40">
           A tier describes structural configuration at a point in time, not the quality of a project. Off-template
-          outcomes — post-cliff selling, abandonment — are disclosed and tracked, never claimed to be prevented.
+          outcomes (post-cliff selling, abandonment) are disclosed and tracked, never claimed to be prevented.
         </p>
       </ExplainerCard>
 
       <ExplainerCard title="The fee split is fixed at launch" art={<CardArt pageId="launch" idx={54} />}>
         <p>
-          These shares divide the <strong>graduated pool&apos;s {GRADUATED_FEE_PCT}% trade fee</strong> — published in the
+          These shares divide the <strong>graduated pool&apos;s {GRADUATED_FEE_PCT}% trade fee</strong>, published in the
           Fact Sheet and never a marketing dial. They do <strong>not</strong> split the {AUCTION_FEE_PCT}% auction fee:
           during the auction the protocol takes a third-party integrator fee, and no share of it is enforced on-chain or
-          promised to you (Terms §7). These are the shares the rail launches with — the creator directs their pool
+          promised to you (Terms §7). These are the shares the rail launches with. The creator directs their pool
           (optionally carving a share to attention beneficiaries):
         </p>
         <div className="rounded-xl border border-white/12 overflow-hidden mt-1">
@@ -1181,7 +1181,7 @@ function LauncherExplainer() {
         </div>
         <p className="text-white/40">
           Creator and attention shares are both creator-directed. Doppler's share is theirs to define within their cap,
-          and “constitutional” binds us — not the market.
+          and “constitutional” binds us, not the market.
         </p>
       </ExplainerCard>
 
@@ -1249,13 +1249,13 @@ function LauncherExplainer() {
         <p>
           The engine is integrated rather than sketched: Doppler's mainnet modules are address-verified on-chain, the
           gate and Fact Sheet are pure, unit-tested code, and a full auction creation has been run green against a fork
-          of Ethereum mainnet. The rail is open — this page submits a real{' '}
+          of Ethereum mainnet. The rail is open: this page submits a real{' '}
           <code className="text-white/70">create()</code> on Ethereum mainnet.
         </p>
         <p>
           What is still open is the protocol around it, and we would rather you heard it here than found out after
-          launching: the sequencing gates this rail was originally meant to wait on — a deep native pool, treasury
-          ownership fully re-homed, an active TOWELI market — were waived, not passed. The day-2 economy above is
+          launching: the sequencing gates this rail was originally meant to wait on (a deep native pool, treasury
+          ownership fully re-homed, an active TOWELI market) were waived, not passed. The day-2 economy above is
           infrastructure that exists, not a program currently paying anyone. Judge the launch rail on the Fact Sheet it
           produces, not on the protocol's own traction.
         </p>
@@ -1273,7 +1273,7 @@ function LauncherExplainer() {
           a rail that no longer exists. */}
       <p className="text-white/40 text-xs leading-relaxed">
         The old Solana leg over Meteora&rsquo;s Dynamic Bonding Curve was retired on 2026-08-23. The Solana story now runs
-        through our own curve program — no TOWELI on Solana, fee capture only.{' '}
+        through our own curve program: no TOWELI on Solana, fee capture only.{' '}
         <Link to="/curve-launch" className="text-white/60 hover:text-white underline transition-colors">
           See the Memetics Curve
         </Link>
@@ -1403,7 +1403,7 @@ function StepDetails({ w, set }: { w: WizardState; set: <K extends keyof WizardS
       <Field label="Metadata URI" hint="IPFS/Arweave link to the token's image + description JSON.">
         <input className={inputCls} value={w.tokenURI} onChange={(e) => set('tokenURI', e.target.value)} placeholder="ipfs://…" />
       </Field>
-      <Field label="Total supply" hint="Whole tokens. Fixed at launch — the template cannot mint more.">
+      <Field label="Total supply" hint="Whole tokens. Fixed at launch: the template cannot mint more.">
         <input className={inputCls} inputMode="numeric" value={w.totalSupply} onChange={(e) => set('totalSupply', e.target.value.replace(/\D/g, ''))} />
       </Field>
     </div>
@@ -1424,8 +1424,8 @@ function StepTier({ w, set }: { w: WizardState; set: <K extends keyof WizardStat
             Settle the auction in ETH (standard) or TOWELI (exotic). The graduated pool and its fee stream are denominated in the base pair.
           </div>
           <div className="grid grid-cols-2 gap-3">
-            {([['eth', 'token / ETH', 'Standard base pair — deepest liquidity, no extra price risk.'],
-               ['toweli', 'token / TOWELI', 'Exotic — pegged to TOWELI, inheriting its price and liquidity.']] as const).map(
+            {([['eth', 'token / ETH', 'Standard base pair: deepest liquidity, no extra price risk.'],
+               ['toweli', 'token / TOWELI', 'Exotic: pegged to TOWELI, inheriting its price and liquidity.']] as const).map(
               ([id, label, blurb]) => (
                 <button
                   key={id}
@@ -1583,12 +1583,12 @@ function StepReview({ w, sheet }: { w: WizardState; sheet: LaunchFactSheet }) {
     ['Market cap (Dutch)', `$${w.mcapStartK}k → $${w.mcapFloorK}k (descends)`],
     // The descending Dutch price IS the anti-snipe: a block-0 sniper buys at the top of
     // the curve and pays the most, so front-running the open is structurally unprofitable.
-    ['Anti-sniper', 'Descending Dutch price — block-0 buys pay the most'],
+    ['Anti-sniper', 'Descending Dutch price: block-0 buys pay the most'],
     ['LP lock', `${w.lpLockMonths} months`],
     [
       'Team allocation',
       w.premineBps > 0
-        ? `${(w.premineBps / 100).toFixed(1)}% — vested ${w.vestMonths}mo${w.cliffMonths ? `, ${w.cliffMonths}mo cliff` : ''}`
+        ? `${(w.premineBps / 100).toFixed(1)}%, vested ${w.vestMonths}mo${w.cliffMonths ? `, ${w.cliffMonths}mo cliff` : ''}`
         : '0% (fair launch)',
     ],
     ['Graduation', 'Uniswap V4 pool (fees stream to the constitution)'],

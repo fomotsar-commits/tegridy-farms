@@ -8,7 +8,7 @@ import { SolanaProviders } from '../SolanaProviders';
 import { browserRpc, type SolanaRpc } from '../../../lib/launcher/solana/curve/rpc';
 import { lpWriteMode, type LpWriteMode } from '../../../lib/launcher/solana/lpWriteFlag';
 import { lpFetch } from '../../../lib/solana/lp/readFetch';
-import { readOutsidePrice, type OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
+import { listedOutsidePrice, readOutsidePrice, type OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
 import { noteResponse } from '../../../lib/solana/lp/rpcBudget';
 import { parseMintInput } from '../../../lib/solana/lp/mintInput';
 import { QUOTE_COINS, quoteCoin } from '../../../lib/solana/lp/quotes';
@@ -77,7 +77,11 @@ export function browserRangeReaders(rpc: SolanaRpc, programId: PublicKey): Range
     pairPools: (a, b, tiers) => readPairPools(rpc, programId, a, b, tiers),
     walletPositions: (owner) => readWalletPositions(rpc, programId, new PublicKey(owner)),
     freezeAuthority: (mint) => readFreezeAuthority(rpc, mint),
-    outsidePrice: (mint, decimals, o) => readOutsidePrice(mint, decimals, { rpc, programId: ownPoolPrograms([programId.toBase58()]) }, lpFetch({ what: 'Jupiter' }), undefined, o),
+    // The shared list first (one read for everyone, api/outside-prices.js); the two quotes for a coin it does not carry and for a fresh read.
+    outsidePrice: async (mint, decimals, o) => {
+      const jupiter = lpFetch({ what: 'Jupiter' });
+      return (o?.fresh ? null : await listedOutsidePrice(mint, jupiter)) ?? readOutsidePrice(mint, decimals, { rpc, programId: ownPoolPrograms([programId.toBase58()]) }, jupiter, undefined, o);
+    },
     tokenSafety: (mints) => readTokenSafety(rpc, mints),
   };
 }

@@ -1,6 +1,6 @@
-// The phone bar reads Island · Lock · Launch · Swap (owner, 2026-10-03 and 2026-10-18). Five tabs is the
-// ceiling at 390px, so Dashboard is a drawer row. A word is lit on every page it owns, as the top
-// bar's is: lit only on its own URL, a word went dark one press away from it.
+// The phone bar reads Island · Swap · Add · Lock · Launch (owner, 2026-10-03 and 2026-10-18; build 2,
+// 2026-11-01). Five tabs is the ceiling at 390px, so Dashboard is a drawer row. A word is lit on every
+// page it owns, as the top bar's is: lit only on its own URL, a word went dark one press away from it.
 
 import { afterEach, describe, it, expect, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
@@ -10,7 +10,7 @@ const account = vi.hoisted(() => ({ isConnected: false }));
 vi.mock('wagmi', () => ({ useAccount: () => account }));
 
 import { BottomNav } from './BottomNav';
-import { LAUNCH_SECTION, LOCK_SECTION, SWAP_SECTION } from '../../lib/navConfig';
+import { LAUNCH_SECTION, LOCK_SECTION, POOLS_SECTION, SWAP_SECTION } from '../../lib/navConfig';
 
 function mount(path = '/', hash = '') {
   return render(
@@ -40,23 +40,26 @@ afterEach(() => {
   window.localStorage.clear();
 });
 
-describe('BottomNav: the four words', () => {
-  it('reads Island · Lock · Launch · Swap, each with its icon', () => {
+describe('BottomNav: the five words', () => {
+  it('reads Island · Swap · Add · Lock · Launch, each with its icon', () => {
     const links = tabs();
-    expect(links.map((a) => a.getAttribute('aria-label'))).toEqual(['Island', 'Lock', 'Launch', 'Swap']);
+    expect(links.map((a) => a.getAttribute('aria-label'))).toEqual(['Island', 'Swap', 'Add', 'Lock', 'Launch']);
     for (const a of links) expect(a.querySelector('svg'), a.getAttribute('aria-label')!).not.toBeNull();
   });
 
-  it('stays four when a wallet connects: Dashboard is in the drawer', () => {
+  it('stays five when a wallet connects: Dashboard is in the drawer', () => {
     account.isConnected = true;
-    expect(tabs().map((a) => a.getAttribute('aria-label'))).toEqual(['Island', 'Lock', 'Launch', 'Swap']);
+    expect(tabs().map((a) => a.getAttribute('aria-label'))).toEqual(['Island', 'Swap', 'Add', 'Lock', 'Launch']);
   });
 
-  it('opens Island on the home and Lock on the list of pools', () => {
+  it('with no room, opens Island on the home, Swap on the Solana swap, Add on the Venue AMM tab and Lock on the list of pools', () => {
     const href = (name: string) => screen.getByRole('link', { name }).getAttribute('href');
     tabs();
     expect(href('Island')).toBe('/');
+    expect(href('Swap')).toBe('/solana');
+    expect(href('Add')).toBe('/pools');
     expect(href('Lock')).toBe('/earn');
+    // Launching on Solana is off in a test build (curveWriteFlag.ts), so Launch opens the launchpad.
     expect(href('Launch')).toBe('/launch');
   });
 });
@@ -76,14 +79,16 @@ describe('BottomNav: a word is lit on every page it owns', () => {
   });
 
   it.each([
+    ['Swap', SWAP_SECTION],
+    // The Pools section's word on the bar: /pools, /liquidity, the range pools and the zap.
+    ['Add', POOLS_SECTION],
     ['Lock', LOCK_SECTION],
     ['Launch', LAUNCH_SECTION],
-    ['Swap', SWAP_SECTION],
   ] as const)('%s on each of its own pages', (label, section) => {
     for (const item of section.items) expect(lit(item.to), item.to).toEqual([label]);
   });
 
-  it.each(['/pools', '/liquidity', '/trust', '/changelog', '/dashboard'])('nothing on %s', (path) => {
+  it.each(['/trust', '/changelog', '/dashboard'])('nothing on %s', (path) => {
     account.isConnected = true;
     expect(lit(path)).toEqual([]);
   });

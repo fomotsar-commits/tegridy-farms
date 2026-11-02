@@ -1,13 +1,14 @@
 // The island's venue review, item 1, as the owner took it on 2026-10-03: the bar reads
-// Island · Lock · Launch · Swap at every width (Heat and Rooms became Island on 2026-10-18),
-// one menu opens at every width and is the site's index, every section's word with its pages
-// under it (owner, 2026-10-19), the footer is eight links on one screen, and no bar or tab
-// strip says Soon. Walked on the production build at a phone, an iPad held upright and a laptop.
+// Island · Swap · Add · Lock · Launch at every width (Heat and Rooms became Island on 2026-10-18;
+// build 2 of the outside review brought Pools up from the menu as Add, 2026-11-01), one menu
+// opens at every width and is the site's index, every section's word with its pages under it
+// (owner, 2026-10-19), the footer is eight links on one screen, and no bar or tab strip says
+// Soon. Walked on the production build at a phone, an iPad held upright and a laptop.
 import { test, expect, type Page } from '@playwright/test';
 
 test.use({ serviceWorkers: 'block' });
 
-const WORDS = ['Island', 'Lock', 'Launch', 'Swap'];
+const WORDS = ['Island', 'Swap', 'Add', 'Lock', 'Launch'];
 
 const SIZES = [
   { name: 'phone', width: 390, height: 844 },
@@ -45,7 +46,7 @@ for (const size of SIZES) {
       await page.setViewportSize({ width: size.width, height: size.height });
     });
 
-    test('the bar reads Island · Lock · Launch · Swap on every route, one word lit where it owns the page', async ({ page }) => {
+    test('the bar reads Island · Swap · Add · Lock · Launch on every route, one word lit where it owns the page', async ({ page }) => {
       test.slow();
       const expectLit: Record<string, string[]> = {
         '/': ['Island'],
@@ -55,7 +56,7 @@ for (const size of SIZES) {
         '/earn': ['Lock'],
         '/launch': ['Launch'],
         '/swap': ['Swap'],
-        '/pools': [],
+        '/pools': ['Add'],
         '/trust': [],
       };
       for (const [path, lit] of Object.entries(expectLit)) {

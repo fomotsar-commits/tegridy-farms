@@ -13,6 +13,9 @@
     },
     "api/venue-volume-count.js": {
       "maxDuration": 120
+    },
+    "api/outside-prices.js": {
+      "maxDuration": 60
     }
   },
   "crons": [

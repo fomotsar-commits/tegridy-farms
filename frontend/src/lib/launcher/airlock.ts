@@ -293,7 +293,7 @@ export function buildTegridyLaunchParams(sdk: DopplerEvmSdkLike, cfg: TegridyLau
     // inside create() with a decoder error instead of a sentence.
     if (!isDeployed(reserve.recipient)) {
       throw new Error(
-        'Ecosystem reserve recipient is unset (zero address). The reserve ships dark until its custody is deployed and ECOSYSTEM_RESERVE_RECIPIENT is filled — refusing to burn 5% of a launch.',
+        'Ecosystem reserve recipient is unset (zero address). The reserve ships dark until its custody is deployed and ECOSYSTEM_RESERVE_RECIPIENT is filled. Refusing to burn 5% of a launch.',
       );
     }
     const creatorPremine = cfg.vesting && cfg.vesting.amount > 0n ? cfg.vesting.amount : 0n;
@@ -457,7 +457,7 @@ function assertMarketCapBandRoundTrips(params: unknown, cfg: TegridyLaunchConfig
         `${fmt(cfg.marketCap.start)} -> ${fmt(cfg.marketCap.min)}, but these settings would go ` +
         `on-chain as ${fmt(actualStart)} -> ${fmt(actualMin)}. This is a known conversion defect ` +
         `that hits certain supply / numeraire-price combinations. Adjust the total supply or the ` +
-        `market-cap range — or launch against ETH instead of TOWELI — and try again.`,
+        `market-cap range, or launch against ETH instead of TOWELI, and try again.`,
     );
   }
 }

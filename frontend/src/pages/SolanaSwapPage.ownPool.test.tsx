@@ -2609,7 +2609,8 @@ describe('the token picker tells the venue’s BAYLA from its copies', () => {
     const [first, second] = rows(dialog);
     expect(first!.getAttribute('data-token-row')).toBe(BAYLA_MINT);
     expect(first!.textContent).toContain('This venue’s BAYLA');
-    expect(first!.textContent).toContain('7hmVkP…pump');
+    // Beside its name, as every coin's name wears it (CoinName, island answer twenty-four).
+    expect(first!.textContent).toContain('7hmV … pump');
     // A copy says what it is: not verified, and its own address in full (a head and a tail can be grinded to match).
     expect(second!.textContent).toContain('Unverified');
     expect(second!.textContent).toContain(copy(1).mint);

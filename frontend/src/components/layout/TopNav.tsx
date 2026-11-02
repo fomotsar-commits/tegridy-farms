@@ -327,7 +327,7 @@ export const TopNav = React.memo(function TopNav() {
               this nav, BottomNav.tsx, AppLayout.tsx's content pb and index.css's two max-width:799px
               blocks; a split opens a band with no bar. e2e/header-reachability.spec.ts sweeps it. */}
           <nav aria-label="Main navigation" className="hidden min-[800px]:flex items-center gap-0.5">
-            {/* Four words (navConfig BAR_NAV), each lit on every page it owns, never by its own
+            {/* Five words (navConfig BAR_NAV), each lit on every page it owns, never by its own
                 URL alone: Island owns the home, each room's door and the island's pages. */}
             {BAR_NAV.map((word) => {
               const lit = word.lit(location.pathname, location.hash);

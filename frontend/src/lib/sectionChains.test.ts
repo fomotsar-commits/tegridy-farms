@@ -17,8 +17,9 @@ import {
 } from './sectionChains';
 
 describe('the five networks', () => {
-  it('are Ethereum, Base, Robinhood Chain, Solana and Cardano, named as the registry names them', () => {
-    expect(VENUE_CHAINS.map((c) => c.name)).toEqual(['Ethereum', 'Base', 'Robinhood Chain', 'Solana', 'Cardano']);
+  // Build 2 (2026-11-01): Solana first, because the island's traffic is Solana.
+  it('are Solana, Base, Robinhood Chain, Ethereum and Cardano, named as the registry names them', () => {
+    expect(VENUE_CHAINS.map((c) => c.name)).toEqual(['Solana', 'Base', 'Robinhood Chain', 'Ethereum', 'Cardano']);
     for (const c of VENUE_CHAINS) {
       if (c.evmChainId !== null) expect(getChainConfig(c.evmChainId)?.name).toBe(c.name);
     }
@@ -35,18 +36,18 @@ describe('the five networks', () => {
 
 describe('which tab serves which network', () => {
   it('swaps on every EVM chain with a swap venue, and on Solana', () => {
-    expect(tabChains('/swap')).toEqual(['ethereum', 'base', 'robinhood']);
+    expect(tabChains('/swap')).toEqual(['base', 'robinhood', 'ethereum']);
     expect(tabChains('/solana')).toEqual(['solana']);
   });
 
   it('adds liquidity wherever our router, factory and WETH are deployed', () => {
-    expect(tabChains('/liquidity')).toEqual(['ethereum', 'base', 'robinhood']);
+    expect(tabChains('/liquidity')).toEqual(['base', 'robinhood', 'ethereum']);
     expect(tabChains('/zap')).toEqual(['ethereum']);
     expect(tabChains('/pools')).toEqual(['solana']);
   });
 
   it('launches on the EVM curve wherever its launcher is deployed, and the simulator names none', () => {
-    expect(tabChains('/eth-curve')).toEqual(['ethereum', 'base', 'robinhood']);
+    expect(tabChains('/eth-curve')).toEqual(['base', 'robinhood', 'ethereum']);
     expect(tabChains('/launch')).toEqual(['ethereum']);
     expect(tabChains('/curve-launch')).toEqual(['solana']);
     expect(tabChains('/launch-simulator')).toBe('any');

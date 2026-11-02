@@ -32,7 +32,8 @@ export interface SectionChainCopy {
  * One section's network: which one the visitor is on, the four rows of its drop-down, and
  * where a pick goes. The network is read from the page, never stored: the route for a
  * one-network tab, the page's own chain for the add / remove form and the curve, and `?chain=`
- * (else the room's network) for a tab that names none.
+ * (else the room's network) for a tab that names none. With nothing to read, it is the first
+ * network the page serves in the drop-down's order (lib/sectionChains.ts): Solana where served.
  *
  * A pick goes to that network's tab, and when an EVM wallet is connected on another chain it
  * asks the wallet to switch, as Uniswap's does. With no wallet nothing is switched: the URL
@@ -49,6 +50,7 @@ export function useSectionChain(items: readonly NavItem[], activeTo: string, cop
   const curveChainId = useCurveChainId();
   const roomId = useActiveBungalowId();
 
+  const first = VENUE_CHAINS[0]?.id ?? 'solana';
   const chains = tabChains(activeTo);
   let active: VenueChain;
   if (chains === 'any') {
@@ -56,16 +58,16 @@ export function useSectionChain(items: readonly NavItem[], activeTo: string, cop
     const roomChain = BUNGALOWS.find((b) => b.id === roomId)?.chain;
     const room = roomChain === 'tbd' ? null : (roomChain ?? null);
     const served = (c: VenueChain | null): c is VenueChain => c !== null && sectionHasChain(items, activeTo, c);
-    active = served(asked) ? asked : served(room) ? room : 'ethereum';
+    active = served(asked) ? asked : served(room) ? room : (VENUE_CHAINS.find((c) => served(c.id))?.id ?? first);
   } else if (chains.length === 1) {
-    active = chains[0] ?? 'ethereum';
+    active = chains[0] ?? first;
   } else {
     const evm = activeTo === '/liquidity' ? liquidityChainId
       : activeTo === '/eth-curve' ? curveChainId
       : activeTo === '/swap' ? swapChainId
       : null;
     const read = venueChainOfEvm(evm);
-    active = read && chains.includes(read) ? read : (chains[0] ?? 'ethereum');
+    active = read && chains.includes(read) ? read : (chains[0] ?? first);
   }
 
   const options: ChainPickerOption[] = VENUE_CHAINS.map((c) => {

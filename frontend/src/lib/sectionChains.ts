@@ -28,12 +28,12 @@ export interface VenueChainInfo {
 
 const ETHEREUM: VenueChainInfo = { id: 'ethereum', name: 'Ethereum', short: 'Ethereum', evmChainId: 1 };
 
-/** Order of the drop-down: Ethereum first, Solana last, as Uniswap lists them. */
+/** The drop-down's order: Solana first, because the island's traffic is Solana. */
 export const VENUE_CHAINS: readonly VenueChainInfo[] = [
-  ETHEREUM,
+  { id: 'solana', name: 'Solana', short: 'Solana', evmChainId: null },
   { id: 'base', name: 'Base', short: 'Base', evmChainId: 8453 },
   { id: 'robinhood', name: 'Robinhood Chain', short: 'Robinhood', evmChainId: 4663 },
-  { id: 'solana', name: 'Solana', short: 'Solana', evmChainId: null },
+  ETHEREUM,
   // Cardano (owner, 2026-10-24: "cardano integrated in every aspect") is listed only once its
   // swap is shown (lib/cardano/flags.ts), so until then no drop-down carries a greyed row for it.
   ...(cardanoSwapVisible() ? [{ id: 'cardano' as const, name: 'Cardano', short: 'Cardano', evmChainId: null }] : []),

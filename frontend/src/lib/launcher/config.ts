@@ -175,7 +175,7 @@ export const LAUNCH_TIERS = [
     id: 'flagship' as const,
     label: 'Flagship',
     curve: 'Dynamic Dutch auction (Doppler V4)',
-    blurb: 'Full price discovery. Requires the strictest structural config — renounced or timelock admin, 12-month LP lock, capped insider float. Eligible for the Launch Afterlife fast-track.',
+    blurb: 'Full price discovery. Requires the strictest structural config: renounced or timelock admin, 12-month LP lock, capped insider float. Eligible for the Launch Afterlife fast-track.',
   },
   {
     id: 'listable' as const,
@@ -191,7 +191,7 @@ export const LAUNCH_TIERS = [
     // static curve is ever wanted here, the SDK exposes buildStaticAuction() — change
     // the BUILDER, and only then this string.
     curve: 'Dynamic Dutch auction (Doppler V4)',
-    blurb: 'Same auction as Flagship; the difference is governance — no governance contract is deployed for this tier. Automated hygiene bar (audited template, no mint/tax/blacklist/upgrade, LP locked, vesting on-chain). Still gated, still Fact-Sheeted.',
+    blurb: 'Same auction as Flagship; the difference is governance: no governance contract is deployed for this tier. Automated hygiene bar (audited template, no mint/tax/blacklist/upgrade, LP locked, vesting on-chain). Still gated, still Fact-Sheeted.',
   },
 ] as const;
 

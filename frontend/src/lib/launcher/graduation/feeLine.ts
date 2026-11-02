@@ -177,7 +177,7 @@ function isAddressLike(v: unknown): v is Address {
  */
 export function claimAuthorityStatement(): string {
   return (
-    'Releasing is permissionless — LockerClaimer.claim(tokenId) can be called by anyone, and the proceeds go only to the addresses fixed in its constructor. ' +
+    'Releasing is permissionless: LockerClaimer.claim(tokenId) can be called by anyone, and the proceeds go only to the addresses fixed in its constructor. ' +
     'No claim is offered here: releasing requires the locker position id, and no token-to-position index exists in this app, so this surface is read-only.'
   );
 }
@@ -194,7 +194,7 @@ export function feeLineStatement(read: FeeLineRead): string {
     return `Could not read ${read.unreadable.length === read.checkedCount ? 'any' : `${read.unreadable.length} of ${read.checkedCount}`} credited balance${read.unreadable.length === 1 ? '' : 's'}. This is an unknown, not a zero.`;
   }
   if (read.credits.length === 0) {
-    return `Checked ${read.checkedCount} ${read.checkedCount === 1 ? 'currency' : 'currencies'}; every one read back zero. Credits appear only after a graduated position’s fees are distributed, so zero here means nothing has been distributed to this sink yet — not that no fee is owed.`;
+    return `Checked ${read.checkedCount} ${read.checkedCount === 1 ? 'currency' : 'currencies'}; every one read back zero. Credits appear only after a graduated position’s fees are distributed, so zero here means nothing has been distributed to this sink yet, not that no fee is owed.`;
   }
   const partial =
     read.unreadable.length > 0

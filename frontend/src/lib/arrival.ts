@@ -94,7 +94,8 @@ export const VENUE = {
   heatSize:
     'A real position earns a full day. The largest holders earn up to two. Dust earns ' +
     'nothing. An Ape counts by the piece: one is a full day, ten are two.',
-  museLine: 'An island in a sea of rugs.',
+  // Island answer twenty-four, §4: no rugs in any framing; the venue speaks in time.
+  museLine: 'Nobody can buy last year.',
   museBy: 'Jungle Bay Island',
   /** Meta description, mirrored by index.html and usePageTitle. Names only what is live,
    *  and claims no certification: the venue is a candidate under the island's standard. */
@@ -107,6 +108,31 @@ export const VENUE = {
   venueLine:
     "memetics.finance is the island's venue: built and run by greencifer, its take shared " +
     "across the island after the venue's costs, every month, read on chain.",
+} as const;
+
+/**
+ * Bayla's line at the door (island answer twenty-four, build 4): the island's words, one
+ * sentence per state, not reworded. lib/baylaLine.ts picks the line; every surface quotes
+ * this one source.
+ */
+export const BAYLA_LINES = {
+  noWallet: 'Your held time already has a number. Paste any wallet.',
+  cold: '0\u00b0 today. Hold any island coin and your clock starts tonight.',
+  warmInRoom: (degrees: string, tier: string) => `${degrees}\u00b0 ${tier}. Every day in this pool counts double.`,
+  warmDays: (degrees: string, tier: string, days: number) => `${degrees}\u00b0 ${tier}. Resident in ${days} days.`,
+  warmPick: (degrees: string, tier: string) => `${degrees}\u00b0 ${tier}. Pick a bungalow and add to its pool.`,
+  open: (degrees: string, tier: string) => `${degrees}\u00b0 ${tier}. The launch door is open to you.`,
+  slow: (price: string, age: string) => `Jupiter is slow. The pool's own price is ${price}, read ${age} ago. Adding stays open.`,
+  done: 'Done. Your fee went to the island. Read it.',
+  intelFire: (bayla: string) => `The fire took ${bayla} $BAYLA this week.`,
+  buttons: {
+    read: 'Read heat',
+    start: 'Start the clock',
+    add: (coin: string) => `Add ${coin}`,
+    pick: 'Pick',
+    launch: 'Launch',
+    receipt: 'Receipt',
+  },
 } as const;
 
 // Loader identity: which words the particles form, which the glitch flashes, which art shows.
