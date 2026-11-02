@@ -243,21 +243,35 @@ async function quote(up, inputMint, outputMint, amount, fetchImpl) {
   return { kind: "ok", out, pools };
 }
 
-/** A quote on the keyed host, then once on the keyless one when the keyed gateway refuses it (as api/aggregator.js falls back). */
+/** After a 429 the key is shared with the site's other calls: one more try, after at least this long. */
+export const RETRY_AFTER_429_MS = 2000;
+
+/**
+ * A quote on the keyed host, then once on the keyless one when the keyed gateway refuses it
+ * (as api/aggregator.js falls back); a 429 from either host is tried once more after a pause.
+ */
 async function quoteWithFallback(up, inputMint, outputMint, amount, fetchImpl, pace) {
   await pace();
-  const first = await quote(up, inputMint, outputMint, amount, fetchImpl);
-  if (first.kind === "refused" && up.fallback && [401, 403, 404, 429].includes(first.status)) {
+  let answer = await quote(up, inputMint, outputMint, amount, fetchImpl);
+  if (answer.kind === "refused" && up.fallback && [401, 403, 404, 429].includes(answer.status)) {
     await pace();
+    answer = await quote(up.fallback, inputMint, outputMint, amount, fetchImpl);
+    if (answer.kind !== "refused" || answer.status !== 429) return answer;
+    await pace(RETRY_AFTER_429_MS);
     return quote(up.fallback, inputMint, outputMint, amount, fetchImpl);
   }
-  return first;
+  if (answer.kind === "refused" && answer.status === 429) {
+    await pace(RETRY_AFTER_429_MS);
+    return quote(up, inputMint, outputMint, amount, fetchImpl);
+  }
+  return answer;
 }
 
+/** Waits so that calls are at least `spacing` apart; `atLeast` asks for that long a pause before this one, from now. */
 function pacer(spacing, sleep) {
   let last = 0;
-  return async () => {
-    const wait = last + spacing - Date.now();
+  return async (atLeast = 0) => {
+    const wait = Math.max(last + spacing - Date.now(), atLeast);
     if (wait > 0) await sleep(wait);
     last = Date.now();
   };

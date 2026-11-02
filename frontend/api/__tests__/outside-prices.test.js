@@ -185,6 +185,18 @@ describe("GET /api/outside-prices", () => {
     expect(Math.abs(b.last.sol_per_token / 7.5e-6 - 1)).toBeLessThan(0.011);
   });
 
+  it("a 429 is tried once more after a pause of at least two seconds, and prices when the second answer does", async () => {
+    let asked = 0;
+    const w = world({ pools: [[WSOL_MINT, BAYLA]], price: (mint, leg) => (leg === "buy" && asked++ === 0 ? 429 : 7.5e-6) });
+    const { res, out } = makeRes();
+    await handler(makeReq(), res, { fetchImpl: w.fetchImpl, sleep });
+    expect(out.status).toBe(200);
+    expect(out.body.prices[BAYLA].state).toBe("ok");
+    // Three calls: the refused buy, the buy again after the pause, the sale.
+    expect(w.jupiterCalls).toHaveLength(3);
+    expect(sleep.mock.calls.some(([ms]) => ms >= 2000)).toBe(true);
+  });
+
   it("Jupiter's own no-route answer is no-route, never unread", async () => {
     const w = world({ pools: [[WSOL_MINT, BAYLA]], price: { [BAYLA]: "no-route" } });
     const { res, out } = makeRes();
