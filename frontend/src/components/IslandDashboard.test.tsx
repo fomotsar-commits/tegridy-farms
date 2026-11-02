@@ -145,6 +145,35 @@ describe('IslandDashboard: the wallet', () => {
     expect(screen.getByRole('status')).toHaveTextContent('As of 3h ago · updating');
   });
 
+  // Owner, 2026-11-01: "so it never does that". A part whose new read failed keeps its last read.
+  it('keeps a part’s last read when the new read failed, says when it was read, and reads it again on a press', () => {
+    const retry = vi.fn();
+    board.value = wallet({
+      solanaAddress: '7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU',
+      holdings: [{ ...leg('h', 'your Solana coins', { status: 'ok', rows: [holding({})] }, retry), readAt: Date.now() - 2 * 60_000, failed: '429' }],
+      positions: [leg('p', 'your BAYLA locks', { status: 'ok', rows: [] })],
+    });
+    mount();
+    const holdings = screen.getByRole('region', { name: 'Holdings' });
+    expect(within(holdings).getByText('52,000')).toBeInTheDocument();
+    expect(within(holdings).getByTestId('leg-stale')).toHaveTextContent('Your Solana coins as read 2m ago. Reading again…');
+    expect(within(holdings).queryByText(/Couldn’t read/)).toBeNull();
+    fireEvent.click(within(holdings).getByRole('button', { name: 'Now' }));
+    expect(retry).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows a coin with no room by its own ticker and its whole address', () => {
+    const MINT = 'J9zjM2nn4DBYpFy3qrReaUzY66g4EFMwLa61YSGCpump';
+    board.value = wallet({
+      solanaAddress: '7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU',
+      holdings: [leg('o', 'your other Solana coins', { status: 'ok', rows: [holding({ key: 'sol:x', symbol: 'WIF', roomId: null, mint: MINT, to: null, usd: 3 })] })],
+    });
+    mount();
+    const holdings = screen.getByRole('region', { name: 'Holdings' });
+    expect(within(holdings).getByText('WIF')).toBeInTheDocument();
+    expect(within(holdings).getByTestId('holding-address')).toHaveTextContent(MINT);
+  });
+
   it('restores a Solana wallet connected here before as the dashboard opens, not after the page settles', () => {
     localStorage.setItem('tegridy-solana-restore', '1');
     localStorage.setItem('walletName', JSON.stringify('Phantom'));
