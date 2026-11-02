@@ -7,6 +7,7 @@
 // ExactIn the fee mint may be the input OR output side — so that one set covers
 // both directions of any pair touching SOL/USDC. For any other pair the swap
 // runs fee-free, so an arbitrary pair can never break. No own program.
+import { listedUsdPrices } from './solana/lp/sharedPrices';
 import { PublicKey, VersionedTransaction } from '@solana/web3.js';
 import { getAssociatedTokenAddressSync } from '@solana/spl-token';
 import {
@@ -301,15 +302,26 @@ export function fromBaseUnits(raw: string, decimals: number): string {
  * asking for the same list shares one Jupiter call; never where the price sizes a trade.
  */
 export async function getUsdPrices(mints: string[], signal?: AbortSignal, opts: { shared?: boolean } = {}): Promise<Record<string, number>> {
-  const ids = [...new Set(mints.filter(Boolean))];
+  let ids = [...new Set(mints.filter(Boolean))];
   if (ids.length === 0) return {};
+  // A shared read takes the venue's list first (one price/v3 call for everyone, api/outside-prices.js;
+  // island answer twenty-four): price/v3 is asked only about mints the loop never asked about.
+  let listed: Record<string, number> = {};
+  if (opts.shared) {
+    const l = await listedUsdPrices(ids);
+    if (l) {
+      listed = l.prices;
+      ids = l.unknown;
+      if (ids.length === 0) return listed;
+    }
+  }
   const res = await fetch(`${JUPITER_TOKENS_BASE}/price/v3?ids=${ids.join(',')}${opts.shared ? '&priceCheck=1' : ''}`, {
     headers: { Accept: 'application/json' },
     signal,
   });
   if (!res.ok) throw new Error(`Price fetch failed (${res.status})`);
   const json = (await res.json()) as Record<string, { usdPrice?: number } | null>;
-  const out: Record<string, number> = {};
+  const out: Record<string, number> = { ...listed };
   for (const [mint, v] of Object.entries(json)) {
     if (v && typeof v.usdPrice === 'number') out[mint] = v.usdPrice;
   }

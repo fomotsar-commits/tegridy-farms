@@ -102,17 +102,20 @@ describe('fromShared: the list’s entry as a price', () => {
 describe('listedUsdPrices: the list\'s dollar prices for the $ figures', () => {
   const now = Date.now();
   const list = (usd: Record<string, number> | null, usdAt: number | null = now): SharedPrices => ({ read_at: now, prices: {}, usd, usd_read_at: usdAt });
-  it('every mint asked for, under ten minutes old: the prices; else null, and the caller reads price/v3', async () => {
-    const w = world(list({ [BAYLA]: 0.001, [SOL]: 180 }));
-    expect(await listedUsdPrices([BAYLA, SOL], w.f)).toEqual({ [BAYLA]: 0.001, [SOL]: 180 });
-    expect(await listedUsdPrices([BAYLA, UNLISTED], w.f)).toBeNull();
+  it('the prices the loop read; a mint it asked about with no price is left out; a mint it never asked about is unknown; a stale or absent read is null', async () => {
+    const w = world({ ...list({ [BAYLA]: 0.001, [SOL]: 180 }), usd_asked: [BAYLA, SOL, UNLISTED] });
+    expect(await listedUsdPrices([BAYLA, SOL], w.f)).toEqual({ prices: { [BAYLA]: 0.001, [SOL]: 180 }, unknown: [] });
+    // UNLISTED was asked about and Jupiter had no price: an answer, not a question for price/v3.
+    expect(await listedUsdPrices([BAYLA, UNLISTED], w.f)).toEqual({ prices: { [BAYLA]: 0.001 }, unknown: [] });
+    __resetSharedPrices();
+    const narrow = world({ ...list({ [BAYLA]: 0.001 }), usd_asked: [BAYLA] });
+    expect(await listedUsdPrices([BAYLA, UNLISTED], narrow.f)).toEqual({ prices: { [BAYLA]: 0.001 }, unknown: [UNLISTED] });
     __resetSharedPrices();
     expect(await listedUsdPrices([BAYLA], world(list({ [BAYLA]: 0.001 }, now - 11 * MIN)).f)).toBeNull();
     __resetSharedPrices();
     expect(await listedUsdPrices([BAYLA], world(list(null)).f)).toBeNull();
     __resetSharedPrices();
-    expect(await listedUsdPrices([BAYLA], world(list({ [BAYLA]: 0 })).f)).toBeNull();
-    expect(await listedUsdPrices([], w.f)).toEqual({});
+    expect(await listedUsdPrices([], w.f)).toEqual({ prices: {}, unknown: [] });
   });
 });
 

@@ -57,6 +57,7 @@ test('a /pools tab left for a minute asks /api/jupiter for nothing: every listed
         prices: Object.fromEntries(MINTS.map((m) => [m, { state: 'no-route', read_at: Date.now() }])),
         usd: Object.fromEntries([...MINTS, 'So11111111111111111111111111111111111111112'].map((m) => [m, 1])),
         usd_read_at: Date.now(),
+        usd_asked: [...MINTS, 'So11111111111111111111111111111111111111112'],
       },
     }),
   );

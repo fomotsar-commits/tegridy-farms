@@ -329,8 +329,9 @@ export async function readOutsidePrices({ fetchImpl, env = process.env, nowMs = 
   };
   // The dollar prices first: one call for every token and SOL, the cheapest read and the list's $ figures; the last good read stands when it fails.
   if (mints.length > 0) {
-    const usd = await readUsd(up, [...mints, WSOL_MINT], fetchImpl, pace);
-    if (usd && Object.keys(usd).length > 0) lastUsd = { usd, read_at: nowMs() };
+    const asked = [...mints, WSOL_MINT];
+    const usd = await readUsd(up, asked, fetchImpl, pace);
+    if (usd && Object.keys(usd).length > 0) lastUsd = { usd, read_at: nowMs(), asked };
   }
   const fresh = [];
   for (const mint of all.slice(MAX_MINTS)) unread(mint, `beyond the ${MAX_MINTS} tokens one loop prices`);
@@ -398,7 +399,7 @@ export async function readOutsidePrices({ fetchImpl, env = process.env, nowMs = 
     }
   }
   const okCount = Object.values(prices).filter((p) => p.state === "ok" || p.state === "no-route").length;
-  return { read_at: nowMs(), mints: all.length, okCount, prices, usd: lastUsd?.usd ?? null, usd_read_at: lastUsd?.read_at ?? null };
+  return { read_at: nowMs(), mints: all.length, okCount, prices, usd: lastUsd?.usd ?? null, usd_read_at: lastUsd?.read_at ?? null, usd_asked: lastUsd?.asked ?? null };
 }
 
 function setCors(req, res) {
@@ -424,7 +425,7 @@ export async function handleOutsidePrices(req, res, { fetchImpl = globalThis.fet
       return res.status(502).json({ state: "unread", detail: "Jupiter priced none of the venue's tokens this time", read_at: read.read_at, prices: read.prices });
     }
     res.setHeader("Cache-Control", `s-maxage=${maxAgeSec(env)}, stale-while-revalidate=${SWR_SECS}`);
-    return res.status(200).json({ state: "ok", read_at: read.read_at, fresh_for_ms: FRESH_FOR_MS, probe_lamports: PROBE_LAMPORTS.toString(), prices: read.prices, usd: read.usd, usd_read_at: read.usd_read_at });
+    return res.status(200).json({ state: "ok", read_at: read.read_at, fresh_for_ms: FRESH_FOR_MS, probe_lamports: PROBE_LAMPORTS.toString(), prices: read.prices, usd: read.usd, usd_read_at: read.usd_read_at, usd_asked: read.usd_asked });
   } catch (e) {
     res.setHeader("Cache-Control", "private, no-store");
     return res.status(502).json({ state: "unread", detail: logSafe(e?.message ?? String(e)) });
