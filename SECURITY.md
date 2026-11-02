@@ -45,7 +45,7 @@ Please do **not** open public issues for vulnerabilities, on any git host.
 - TegridyDropV2 (V2 template; V1 `TegridyDrop` source deleted 2026-04-19, live V1 clones remain in scope)
 - TegridyLaunchpadV2, TegridyCurveLauncher
 - SwapFeeRouter, ReferralSplitter, RevenueDistributor, POLAccumulator, TegridyTWAP
-- GaugeController and the governance / voting contracts (deployed, frontend-gated)
+- GaugeController, VoteIncentives, CommunityGrants and MemeBountyBoard (deployed 2026-07-16, frontend-gated; their source left this repo on 2026-10-27, so read the verified source on Etherscan)
 - **`LighthouseLadder`** — the six EVM bungalow staking pools (Ethereum + Base), live since 2026-08-30
 - **The Base 8453 and Robinhood 4663 legs**, live since 2026-08-25, including `AttestedSequencerUptimeFeed`
 - **The two Solana programs**, live since 2026-09-29: cp-swap, the pool program, at `EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT`, and tegridy-launch, the bonding curve, at `64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2`. Neither is audited; [`solana/tegridy-amm/SECURITY.md`](./solana/tegridy-amm/SECURITY.md) says what has and has not been reviewed

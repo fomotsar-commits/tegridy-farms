@@ -55,8 +55,7 @@
 //   exactly one code, one column out — rather than behind a public SELECT
 //   policy, because a `USING (true)` policy on this table is readable straight
 //   from the browser with the published anon key and turns it into a
-//   downloadable list of every referrer's wallet. That is the same shape
-//   airdrop.js refuses to expose a recipient list for. That single query string
+//   downloadable list of every referrer's wallet. That single query string
 //   is shape-pinned by api/__tests__/referrals-surface-parity.test.js; do not add
 //   a second, wider one.
 

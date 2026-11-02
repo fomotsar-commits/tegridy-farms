@@ -26,8 +26,8 @@ export const POOL_INDEX_PATH = '/api/pools';
  * The server returns at most this many (its `MAX_POOLS`, pinned to this by a test); more
  * means `truncated`. The list is shared between the coins: each is promised an equal
  * part, so junk pools paired with one coin cannot crowd out another coin's real pools.
- * With the launch pool and two standard addresses per pairing coin, a search reads up to
- * 103 addresses.
+ * With the launch pool and one standard address per pairing coin, a search reads up to
+ * 100 addresses.
  */
 export const POOL_INDEX_MAX = 96;
 

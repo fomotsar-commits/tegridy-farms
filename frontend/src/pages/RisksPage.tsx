@@ -5,7 +5,6 @@ import { CardArt } from '../components/ui/CardArt';
 import {
   SWAP_FEE_BPS,
   isDeployed,
-  TEGRIDY_LENDING_ADDRESS,
   TEGRIDY_NFT_LENDING_ADDRESS,
   TEGRIDY_LAUNCHPAD_V2_ADDRESS,
   SOURCE_URL,
@@ -138,13 +137,6 @@ const PROTOCOL_LIMITS: Array<{
       { label: 'Protocol fee', value: `${SWAP_FEE_BPS / 100}% (1% hard cap)`, why: 'The venue fee. A referral share comes off first; the rest is routed toward stakers' },
       { label: 'Pool trading fee', value: '0.3%', why: 'Stays in the pool. The venue can switch on a one-sixth cut for itself, pool by pool; until it does, liquidity providers keep all of it. On TOWELI/ETH it has been on since 16 October 2026' },
       { label: 'Slippage', value: 'You choose', why: 'Caps adverse price movement / MEV' },
-    ],
-  },
-  {
-    feature: 'Lending (ETH)',
-    status: deployStatus(TEGRIDY_LENDING_ADDRESS),
-    items: [
-      { label: 'Loan principal', value: '0.001 – 1,000 ETH', why: 'Dust floor + whale cap' },
     ],
   },
   {

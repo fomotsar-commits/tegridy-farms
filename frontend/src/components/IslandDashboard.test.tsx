@@ -4,33 +4,40 @@
 // not be read says so, never a zero or "you hold nothing".
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, renderHook, screen, within } from '@testing-library/react';
+import { useOnStakesChanged } from '../lib/harvest/stakesChanged';
 import { MemoryRouter } from 'react-router-dom';
 import type { ReactNode } from 'react';
 import type { WalletBoard } from '../hooks/useWalletBoard';
 import type { HoldingRow, Leg, NamedLeg, PositionRow } from '../lib/wallet/walletRows';
+import { OFF_ISLAND_COINS } from '../lib/wallet/offIslandCoins';
 
 const board = vi.hoisted(() => ({ value: null as unknown as WalletBoard }));
 vi.mock('../hooks/useWalletBoard', () => ({ useWalletBoard: () => board.value }));
 vi.mock('@rainbow-me/rainbowkit', () => ({
   ConnectButton: { Custom: ({ children }: { children: (p: { openConnectModal: () => void; mounted: boolean }) => ReactNode }) => children({ openConnectModal: () => {}, mounted: true }) },
 }));
+// Harvest has its own tests (farm/HarvestCard.test.tsx) and needs the app's wagmi root: here, only where it sits.
+vi.mock('./farm/HarvestCard', () => ({
+  HarvestCard: (p: { quiet?: boolean; headingLevel?: number }) => <div data-testid="harvest" data-quiet={String(p.quiet)} data-level={String(p.headingLevel)} />,
+}));
 
 import { IslandDashboard } from './IslandDashboard';
 import { venuePoolRows } from '../lib/venuePools';
 import { MIN_BOOST_BPS, MAX_BOOST_BPS } from '../lib/constants';
+import { getSolanaSurfaceState, resetSolanaSurfaceForTests } from '../lib/solanaSurface';
 
 const leg = <T,>(key: string, what: string, l: Leg<T>, retry = vi.fn()): NamedLeg<T> => ({ key, what, leg: l, retry });
 const holding = (o: Partial<HoldingRow>): HoldingRow => ({ key: o.symbol ?? 'x', symbol: 'BAYLA', chain: 'solana', amount: '52,000', usd: 12.5, roomId: 'bayla', to: '/bayla', ...o });
-const position = (o: Partial<PositionRow>): PositionRow => ({ key: o.title ?? 'p', roomId: 'bayla', chain: 'solana', title: 'BAYLA lock', facts: ['10,000 BAYLA', 'unlocks 15 Jan 2030', '4.00×', 'earned 1.23 BAYLA'], to: '/earn/bayla', ...o });
+const position = (o: Partial<PositionRow>): PositionRow => ({ key: o.title ?? 'p', roomId: 'bayla', chain: 'solana', title: 'BAYLA lock', facts: ['10,000 BAYLA', 'unlocks 15 Jan 2030', '4.00×', 'earned 1.23 BAYLA'], usd: null, to: '/earn/bayla', ...o });
 
 function wallet(o: Partial<WalletBoard>): WalletBoard {
   return { solanaAddress: null, evmAddress: null, holdings: [], positions: [], refresh: vi.fn(), ...o };
 }
 
-function mount(headingLevel?: 1 | 2) {
+function mount(headingLevel?: 1 | 2, path = '/') {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[path]}>
       <IslandDashboard headingLevel={headingLevel} />
     </MemoryRouter>,
   );
@@ -38,6 +45,8 @@ function mount(headingLevel?: 1 | 2) {
 
 beforeEach(() => {
   board.value = wallet({});
+  localStorage.clear();
+  resetSolanaSurfaceForTests();
 });
 
 describe('IslandDashboard: the wallet', () => {
@@ -64,11 +73,29 @@ describe('IslandDashboard: the wallet', () => {
     const lock = within(positions).getByRole('link', { name: /BAYLA lock/ });
     expect(lock).toHaveAttribute('href', '/earn/bayla');
     expect(lock).toHaveTextContent('earned 1.23 BAYLA');
-    // Every coin held was read and priced, so the total is printed.
-    expect(screen.getByText('$312.50')).toBeInTheDocument();
+    // Every coin held was read and priced, so the holdings' total is printed; the lock has no
+    // price, so the whole is not.
+    expect(screen.getByTestId('holdings-worth')).toHaveTextContent('Holdings $312.50');
+    expect(screen.getByTestId('wallet-worth')).toHaveTextContent('—');
     // The chain whose wallet is missing can still be connected.
     expect(screen.getByRole('button', { name: /Connect Ethereum wallet/ })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Connect Solana wallet/ })).toBeNull();
+  });
+
+  // Owner, 2026-11-01: the BIG BRAIN pool sat on a bare green square ("use this image for the art").
+  it('pictures a coin with no room from offIslandCoins.ts, on its rows and in the frame, worded by its whole ticker', () => {
+    const coin = OFF_ISLAND_COINS[0]!;
+    board.value = wallet({
+      solanaAddress: '7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU',
+      holdings: [leg('h', 'your Solana coins', { status: 'ok', rows: [holding({ key: 'bb', symbol: 'BIG BRAIN', roomId: null, mint: coin.address, to: null })] })],
+      positions: [leg('p', 'your Solana pool shares', { status: 'ok', rows: [position({ title: 'BIG BRAIN / SOL pool', roomId: null, mint: coin.address, facts: ['3.03% of the pool', coin.address], to: '/pools' })] })],
+    });
+    const { container } = mount();
+    expect(container.querySelectorAll(`img[src="${coin.art.src}"]`).length).toBeGreaterThanOrEqual(2);
+    fireEvent.mouseEnter(within(screen.getByRole('region', { name: 'Positions' })).getByRole('link', { name: /BIG BRAIN \/ SOL pool/ }));
+    expect(screen.getByTestId('dashboard-figure').querySelector(`img[src="${coin.art.src}"]`)).not.toBeNull();
+    expect(screen.getByTestId('dashboard-figure')).toHaveTextContent('BIG BRAIN');
+    expect(screen.queryByTestId('chain-plate')).toBeNull();
   });
 
   it('says which part could not be read, with Try again, and never reads it as holding nothing', () => {
@@ -107,6 +134,42 @@ describe('IslandDashboard: the wallet', () => {
     expect(within(screen.getByRole('region', { name: 'Holdings' })).getByRole('status')).toHaveTextContent('Reading the chain');
   });
 
+  it('draws a part from its last read at once, saying when that was and that it is updating', () => {
+    board.value = wallet({
+      solanaAddress: '7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU',
+      holdings: [{ ...leg('h', 'your Solana coins', { status: 'ok', rows: [holding({})] }), readAt: Date.now() - 3 * 3600_000 }],
+      positions: [leg('p', 'your BAYLA locks', { status: 'ok', rows: [position({})] })],
+    });
+    mount();
+    expect(within(screen.getByRole('region', { name: 'Holdings' })).getByText('52,000')).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('As of 3h ago · updating');
+  });
+
+  it('restores a Solana wallet connected here before as the dashboard opens, not after the page settles', () => {
+    localStorage.setItem('tegridy-solana-restore', '1');
+    localStorage.setItem('walletName', JSON.stringify('Phantom'));
+    mount(1, '/dashboard');
+    expect(getSolanaSurfaceState().ownWanted).toBe(true);
+  });
+
+  it('loads no Solana for a visitor who never connected it here, nor where the page restores its own', () => {
+    localStorage.setItem('walletName', JSON.stringify('Phantom'));
+    mount(1, '/dashboard');
+    expect(getSolanaSurfaceState().ownWanted, 'a saved name alone (an "Open app" tap) restores nothing').toBe(false);
+    localStorage.setItem('tegridy-solana-restore', '1');
+    mount(2, '/');
+    expect(getSolanaSurfaceState().ownWanted, 'the home: its cards restore their own connection').toBe(false);
+  });
+
+  it('says nothing of updating once every part is the new read', () => {
+    board.value = wallet({
+      solanaAddress: '7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU',
+      holdings: [leg('h', 'your Solana coins', { status: 'ok', rows: [holding({})] })],
+    });
+    mount();
+    expect(screen.queryByText(/updating/)).toBeNull();
+  });
+
   it('says plainly when the wallet holds nothing, once that was read', () => {
     board.value = wallet({
       solanaAddress: '7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU',
@@ -116,6 +179,140 @@ describe('IslandDashboard: the wallet', () => {
     mount();
     expect(screen.getByText('No SOL, ETH or island coins in this wallet.')).toBeInTheDocument();
     expect(screen.getByText(/No locks, stakes or pool shares here yet/)).toBeInTheDocument();
+    // Nothing to add up: no Positions figure, and never a $0 that reads as a read worth.
+    expect(screen.queryByTestId('positions-worth')).toBeNull();
+  });
+});
+
+// Owner, 2026-10-30: "the dashboard doesnt show the dollar value of lp or staking value".
+describe('IslandDashboard: what the positions are worth', () => {
+  const SOL_WALLET = '7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU';
+
+  it('prints each lock’s, stake’s and pool share’s worth on its row, and their total beside the holdings', () => {
+    board.value = wallet({
+      solanaAddress: SOL_WALLET,
+      holdings: [leg('h', 'your Solana coins', { status: 'ok', rows: [holding({})] })],
+      positions: [
+        leg('l', 'your BAYLA locks', { status: 'ok', rows: [position({ usd: 68.13 })] }),
+        leg('s', 'your pool shares on Solana', { status: 'ok', rows: [position({ key: 'lp', title: 'BAYLA / SOL pool', facts: ['2.31% of the pool'], usd: 1234.4, to: '/pools' })] }),
+      ],
+    });
+    mount();
+    const positions = screen.getByRole('region', { name: 'Positions' });
+    expect(within(positions).getByRole('link', { name: /^BAYLA lock: \$68\.13,/ })).toHaveTextContent('$68.13');
+    expect(within(positions).getByRole('link', { name: /^BAYLA \/ SOL pool: \$1,234,/ })).toHaveTextContent('$1,234');
+    expect(screen.getByTestId('positions-worth')).toHaveTextContent('Positions $1,303');
+  });
+
+  // Owner, 2026-10-31: "also include it in the total value in the dashboard".
+  it('makes the big figure the whole, holdings and positions together, with each part under it', () => {
+    board.value = wallet({
+      solanaAddress: SOL_WALLET,
+      holdings: [leg('h', 'your Solana coins', { status: 'ok', rows: [holding({})] })],
+      positions: [
+        leg('l', 'your BAYLA locks', { status: 'ok', rows: [position({ usd: 68.13 })] }),
+        leg('s', 'your pool shares on Solana', { status: 'ok', rows: [position({ key: 'lp', title: 'BAYLA / SOL pool', usd: 1234.4, to: '/pools' })] }),
+      ],
+    });
+    mount();
+    expect(screen.getByText('Total')).toBeInTheDocument();
+    expect(screen.getByTestId('wallet-worth')).toHaveTextContent('$1,315'); // 12.50 + 68.13 + 1,234.40
+    expect(screen.getByTestId('holdings-worth')).toHaveTextContent('Holdings $12.50');
+    expect(screen.getByTestId('positions-worth')).toHaveTextContent('Positions $1,303');
+  });
+
+  it('keeps the big figure the holdings alone, under that name, while there is no position', () => {
+    board.value = wallet({
+      solanaAddress: SOL_WALLET,
+      holdings: [leg('h', 'your Solana coins', { status: 'ok', rows: [holding({})] })],
+      positions: [leg('l', 'your BAYLA locks', { status: 'ok', rows: [] })],
+    });
+    mount();
+    expect(screen.queryByText('Total')).toBeNull();
+    expect(screen.getByTestId('wallet-worth')).toHaveTextContent('$12.50');
+    expect(screen.queryByTestId('holdings-worth')).toBeNull();
+  });
+
+  it('prints no whole while the holdings are still reading, and says which part is missing', () => {
+    board.value = wallet({
+      solanaAddress: SOL_WALLET,
+      holdings: [leg('h', 'your Solana coins', { status: 'loading' })],
+      positions: [leg('l', 'your BAYLA locks', { status: 'ok', rows: [position({ usd: 10 })] })],
+    });
+    mount();
+    expect(screen.getByTestId('wallet-worth')).toHaveTextContent('—');
+    expect(screen.getByTestId('holdings-worth')).toHaveTextContent('Holdings — reading');
+    expect(screen.getByTestId('positions-worth')).toHaveTextContent('Positions $10.00');
+  });
+
+  it('prints no total while a position has no price read, and its row says so', () => {
+    board.value = wallet({
+      solanaAddress: SOL_WALLET,
+      positions: [leg('l', 'your BAYLA locks', { status: 'ok', rows: [position({ usd: 10 }), position({ key: 'b', title: 'BOBO stake', roomId: 'bobo', usd: null })] })],
+    });
+    mount();
+    expect(within(screen.getByRole('region', { name: 'Positions' })).getByRole('link', { name: /^BOBO stake: worth not read,/ })).toBeInTheDocument();
+    expect(screen.getByTestId('positions-worth')).toHaveTextContent('Positions — not every position priced');
+    expect(screen.getByTestId('wallet-worth')).toHaveTextContent('—');
+  });
+
+  it('prints no total over a part that could not be read, and says it was not read', () => {
+    board.value = wallet({
+      solanaAddress: SOL_WALLET,
+      positions: [
+        leg('l', 'your BAYLA locks', { status: 'ok', rows: [position({ usd: 10 })] }),
+        leg('s', 'your pool shares on Solana', { status: 'unread', detail: '429' }),
+      ],
+    });
+    mount();
+    expect(screen.getByTestId('positions-worth')).toHaveTextContent('Positions — not every position read');
+    expect(screen.getByTestId('wallet-worth')).toHaveTextContent('—');
+  });
+
+  it('says it is reading while a part is in flight', () => {
+    board.value = wallet({
+      solanaAddress: SOL_WALLET,
+      positions: [
+        leg('l', 'your BAYLA locks', { status: 'ok', rows: [position({ usd: 10 })] }),
+        leg('s', 'your pool shares on Solana', { status: 'loading' }),
+      ],
+    });
+    mount();
+    expect(screen.getByTestId('positions-worth')).toHaveTextContent('Positions — reading');
+    expect(screen.getByTestId('wallet-worth')).toHaveTextContent('—');
+  });
+});
+
+describe('IslandDashboard: Harvest (owner, 2026-10-30: "should be a harvest all button on the dashboard too")', () => {
+  it.each([1, 2] as const)('sits under the positions on the board, quiet, at heading level 3 (board heading h%i: /dashboard and the home)', (level) => {
+    board.value = wallet({
+      solanaAddress: '7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU',
+      positions: [leg('p', 'your BAYLA locks', { status: 'ok', rows: [position({})] })],
+    });
+    mount(level);
+    const harvest = screen.getByTestId('harvest');
+    expect(harvest.dataset.quiet).toBe('true');
+    expect(harvest.dataset.level).toBe('3');
+    const positions = screen.getByRole('region', { name: 'Positions' });
+    expect(positions.compareDocumentPosition(harvest) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('is not drawn for a visitor with no wallet', () => {
+    mount();
+    expect(screen.queryByTestId('harvest')).toBeNull();
+  });
+
+  it('Refresh reads the whole page again: the board, and Harvest with it', () => {
+    const refresh = vi.fn();
+    board.value = wallet({ solanaAddress: '7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU', refresh });
+    const page = {};
+    const heard = vi.fn();
+    const listener = renderHook(() => useOnStakesChanged(page, heard));
+    mount();
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(heard).toHaveBeenCalledTimes(1);
+    listener.unmount();
   });
 });
 
@@ -167,7 +364,7 @@ describe('IslandDashboard: what is drawn, from what was read', () => {
   it('marks a lock’s place on the ladder from the share its pool reported, and nothing for a lock without one', () => {
     board.value = wallet({
       solanaAddress: sol,
-      positions: [leg('p', 'your BAYLA locks', { status: 'ok', rows: [position({}), position({ title: 'BAYLA / SOL pool', facts: ['0.12% of the pool'], to: '/solana-lp' })] })],
+      positions: [leg('p', 'your BAYLA locks', { status: 'ok', rows: [position({}), position({ title: 'BAYLA / SOL pool', facts: ['0.12% of the pool'], to: '/pools' })] })],
     });
     mount();
     expect(screen.getByRole('img', { name: `4.00× on the ladder, from ${(MIN_BOOST_BPS / 10_000).toFixed(2)}× to ${(MAX_BOOST_BPS / 10_000).toFixed(2)}×` })).toBeInTheDocument();
@@ -183,6 +380,224 @@ describe('IslandDashboard: what is drawn, from what was read', () => {
     const items = within(screen.getByRole('region', { name: 'Holdings' })).getAllByRole('listitem');
     expect(items[0]).toHaveTextContent('01');
     expect(items[1]).toHaveTextContent('02');
+  });
+});
+
+// The big frame on a phone and an iPad (owner, 2026-10-24: "the mobile and ipad versions to have
+// the dashboard too"). jsdom lays nothing out, so the screen is drawn here: the frame pinned under
+// the top bar (top 56, bottom 244) above rows 80px tall from `rowsTop` down, as on a phone; or,
+// with `beside`, the frame in a column of its own to the right of the rows, as on an iPad.
+describe('IslandDashboard: the frame on a phone and an iPad', () => {
+  const sol = '7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU';
+  let touch = true;
+  let short = false;
+  let beside = false;
+  let rowsTop = 600;
+  let frames: FrameRequestCallback[] = [];
+  const realRect = Element.prototype.getBoundingClientRect;
+
+  const rect = (top: number, height: number, left = 0, width = 390) =>
+    ({ top, bottom: top + height, left, right: left + width, width, height, x: left, y: top, toJSON: () => ({}) }) as DOMRect;
+
+  beforeEach(() => {
+    touch = true;
+    short = false;
+    beside = false;
+    rowsTop = 600;
+    frames = [];
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] });
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      value: (q: string) => ({
+        matches: (q.includes('pointer: coarse') && touch) || (q.includes('max-height') && short),
+        media: q, addEventListener() {}, removeEventListener() {},
+      }),
+    });
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => frames.push(cb));
+    vi.stubGlobal('cancelAnimationFrame', () => {});
+    // A long page, so the frame's end-of-page rule stays out of the way unless a test asks for it.
+    Object.defineProperty(document.documentElement, 'scrollHeight', { configurable: true, value: 100_000 });
+    Element.prototype.getBoundingClientRect = function (this: Element) {
+      if ((this as HTMLElement).dataset?.testid === 'dashboard-figure') return beside ? rect(80, 339, 600, 224) : rect(56, 188);
+      const key = (this as HTMLElement).dataset?.figKey;
+      if (!key) return rect(0, 0, 0, 0);
+      const rows = Array.from(document.querySelectorAll('[data-fig-key]')).filter((el) => !el.closest('details:not([open])'));
+      return rect(rowsTop + rows.indexOf(this) * 80, 80, 0, beside ? 560 : 390);
+    };
+    return () => {
+      Element.prototype.getBoundingClientRect = realRect;
+      Reflect.deleteProperty(window, 'matchMedia');
+      Reflect.deleteProperty(document.documentElement, 'scrollHeight');
+      vi.unstubAllGlobals();
+      vi.useRealTimers();
+    };
+  });
+
+  const flush = () => act(() => { while (frames.length) frames.shift()!(0); });
+  // A scroll, then the rest that lets the picture settle (it waits 150ms; the lit row does not).
+  const scrollTo = (top: number, rest = true) => {
+    rowsTop = top;
+    act(() => { window.dispatchEvent(new Event('scroll')); });
+    flush();
+    if (rest) act(() => { vi.advanceTimersByTime(200); });
+  };
+  const figure = () => screen.getByTestId('dashboard-figure');
+  const lit = () => Array.from(document.querySelectorAll('[data-current]')).map((el) => el.getAttribute('data-fig-key'));
+
+  function wallet3() {
+    board.value = wallet({
+      solanaAddress: sol,
+      holdings: [leg('h', 'your Solana coins', { status: 'ok', rows: [holding({ key: 'sol', symbol: 'SOL', roomId: null, to: null, amount: '1.5', usd: 300 }), holding({ key: 'bayla' })] })],
+      positions: [leg('p', 'your BAYLA locks', { status: 'ok', rows: [position({ key: 'lock' })] })],
+    });
+  }
+
+  it('with a wallet, draws the frame first in the board, pinned, so a phone can hold it above the rows', () => {
+    wallet3();
+    mount();
+    const fig = figure();
+    expect(fig.className).not.toMatch(/(^|\s)hidden(\s|$)/);
+    expect(fig.className).toMatch(/(^|\s)sticky(\s|$)/);
+    expect(fig.style.position).toBe('');
+    const holdings = screen.getByRole('region', { name: 'Holdings' });
+    expect(fig.compareDocumentPosition(holdings) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // A box with hidden overflow is a scroll box of its own, and nothing inside it can pin to the screen.
+    expect(fig.closest('section')!.className).toContain('supports-[overflow:clip]:overflow-clip');
+    // The frame pins inside a slot that owns its grid area: pinned straight in the grid, it rode on
+    // over the pool list below its row.
+    expect(fig.parentElement!.className).toContain('[grid-area:fig]');
+    expect(fig.className).not.toContain('grid-area');
+  });
+
+  it('without a wallet, follows the connect buttons and is not pinned over them below 1024px', () => {
+    mount();
+    const fig = figure();
+    expect(fig.className).not.toMatch(/(^|\s)sticky(\s|$)/);
+    expect(fig.className).toContain('lg:sticky');
+    const connect = screen.getByRole('button', { name: /Connect Solana wallet/ });
+    expect(connect.compareDocumentPosition(fig) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // And with nothing of the wallet's to follow, a scroll lights nothing.
+    scrollTo(100);
+    expect(lit()).toEqual([]);
+  });
+
+  it('pins nothing on a screen 500px tall or less, a phone held sideways', () => {
+    short = true;
+    wallet3();
+    mount();
+    expect(figure().style.position).toBe('static');
+  });
+
+  it('follows the scroll on a phone: the first row you can read whole under the frame is shown, and it lights', () => {
+    wallet3();
+    mount();
+    scrollTo(600);
+    // Nothing has reached the frame yet: the wallet's first row with a room, and no row lit.
+    expect(figure()).toHaveTextContent('fig. 01.02');
+    expect(figure()).toHaveTextContent('BAYLA · Solana');
+    expect(lit()).toEqual([]);
+
+    scrollTo(245); // SOL at the line, all of it in view: its chain's mark, drawn, on the dark plate.
+    expect(figure()).toHaveTextContent('fig. 01.01');
+    expect(figure()).toHaveTextContent('SOL · Solana');
+    const plate = screen.getByTestId('chain-plate');
+    expect(plate.querySelector('svg')).not.toBeNull();
+    expect(plate.textContent).toBe('');
+    expect(lit()).toEqual(['h:sol']);
+
+    scrollTo(230); // SOL's top has slid under the frame: the next row takes over.
+    expect(figure()).toHaveTextContent('BAYLA · Solana');
+    expect(lit()).toEqual(['h:bayla']);
+
+    scrollTo(100);
+    expect(figure()).toHaveTextContent('fig. 02.01');
+    expect(figure()).toHaveTextContent('BAYLA lock · Solana');
+    expect(lit()).toEqual(['p:lock']);
+    expect(screen.getByTestId('figure-progress').style.transform).toBe('scaleX(1)');
+  });
+
+  it('lights the row at once, and turns the picture only once the scroll rests', () => {
+    wallet3();
+    mount();
+    scrollTo(600);
+    scrollTo(245, false);
+    expect(lit()).toEqual(['h:sol']);
+    expect(figure()).toHaveTextContent('BAYLA · Solana'); // the picture has not turned yet
+    act(() => { vi.advanceTimersByTime(100); });
+    expect(figure()).toHaveTextContent('BAYLA · Solana');
+    act(() => { vi.advanceTimersByTime(100); });
+    expect(figure()).toHaveTextContent('SOL · Solana');
+  });
+
+  it('follows the scroll beside the frame (an iPad): the row at 45% down the screen is shown', () => {
+    beside = true;
+    wallet3();
+    mount();
+    scrollTo(240); // Rows at 240, 320, 400; the line at 45% of 768 is 346: BAYLA spans it.
+    expect(lit()).toEqual(['h:bayla']);
+    expect(figure()).toHaveTextContent('BAYLA · Solana');
+  });
+
+  it('shows the last row at the bottom of the page, where the rows can no longer reach the line', () => {
+    wallet3();
+    Object.defineProperty(document.documentElement, 'scrollHeight', { configurable: true, value: window.innerHeight });
+    mount();
+    scrollTo(600);
+    expect(lit()).toEqual(['p:lock']);
+  });
+
+  it('leaves the rows of a closed pool list out, and follows them once it is opened', () => {
+    wallet3();
+    mount();
+    scrollTo(-110);
+    expect(lit()).toEqual(['p:lock']);
+    // Opening the list is read at once, before any scroll: the third pool is the first you can read.
+    const details = screen.getByRole('list', { name: 'Pools on the island' }).closest('details')!;
+    details.open = true;
+    act(() => { details.dispatchEvent(new Event('toggle')); });
+    flush();
+    act(() => { vi.advanceTimersByTime(200); });
+    const third = venuePoolRows()[2]!;
+    expect(lit()).toEqual([`pool:${third.id}`]);
+    expect(figure()).toHaveTextContent(third.name);
+  });
+
+  it('gives the frame to a row a finger taps or the keyboard reaches, until the next scroll', () => {
+    wallet3();
+    mount();
+    scrollTo(230);
+    expect(lit()).toEqual(['h:bayla']);
+    act(() => { vi.advanceTimersByTime(400); }); // the scroll is over
+    act(() => { document.querySelector<HTMLElement>('[data-fig-key="p:lock"]')!.focus(); });
+    act(() => { vi.advanceTimersByTime(200); });
+    expect(lit()).toEqual([]);
+    expect(figure()).toHaveTextContent('BAYLA lock · Solana');
+    scrollTo(245);
+    expect(lit()).toEqual(['h:sol']);
+    expect(figure()).toHaveTextContent('SOL · Solana');
+  });
+
+  it('keeps the frame on the scroll when a row slides under a resting pointer during it', () => {
+    wallet3();
+    mount();
+    scrollTo(230);
+    fireEvent.mouseEnter(document.querySelector('[data-fig-key="p:lock"]')!);
+    act(() => { vi.advanceTimersByTime(200); });
+    expect(lit()).toEqual(['h:bayla']);
+    expect(figure()).toHaveTextContent('BAYLA · Solana');
+  });
+
+  it('with a mouse, follows the pointer and not the scroll, at any width, and lights nothing', () => {
+    touch = false;
+    wallet3();
+    mount();
+    scrollTo(100);
+    expect(figure()).toHaveTextContent('BAYLA · Solana');
+    expect(lit()).toEqual([]);
+    expect(screen.queryByTestId('figure-progress')).toBeNull();
+    // Pointing at SOL, which has no room, shows its chain rather than nothing.
+    fireEvent.mouseEnter(document.querySelector('[data-fig-key="h:sol"]')!);
+    expect(figure()).toHaveTextContent('SOL · Solana');
   });
 });
 

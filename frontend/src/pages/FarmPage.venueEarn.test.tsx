@@ -6,6 +6,7 @@ import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
 vi.mock('../components/farm/VenuePoolIndex', () => ({ VenuePoolIndex: () => <div data-testid="pool-index" /> }));
+vi.mock('../components/farm/HarvestCard', () => ({ HarvestCard: () => null }));
 vi.mock('../hooks/usePageTitle', () => ({ usePageTitle: () => undefined }));
 
 import FarmPage from './FarmPage';

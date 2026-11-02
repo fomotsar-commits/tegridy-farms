@@ -87,6 +87,21 @@ pub mod protocol_fee_owner {
     pub const ID: Pubkey = pubkey!("GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd");
 }
 
+// memetics.finance: cp-swap's pool-opening fee (its initialize.rs), in every instruction that
+// opens a pool. The receiver is the vault itself, a wallet: cp-swap's wrapped-SOL account would
+// need the SPL Token program to sync, and a pool's two coins may both be Token-2022. The amount is
+// a constant, not an AmmConfig field, so a fee tier made before this rule charges it too.
+/// memetics.finance: what opening a pool costs, in lamports: 0.5 SOL.
+pub const CREATE_POOL_FEE: u64 = 500_000_000;
+
+pub mod create_pool_fee_reveiver {
+    use super::{pubkey, Pubkey};
+    #[cfg(feature = "devnet")]
+    pub const ID: Pubkey = pubkey!("GgE6AfEH2AVSrKGckyKMzC6mhtXWiAn39EzAikAsWq5a");
+    #[cfg(not(feature = "devnet"))]
+    pub const ID: Pubkey = pubkey!("GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd");
+}
+
 #[program]
 pub mod raydium_clmm {
 

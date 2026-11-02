@@ -1,4 +1,4 @@
-// A live venue with no network, for specs that need /solana-lp or /pools past the venue
+// A live venue with no network, for specs that need /pools past the venue
 // read: /api/solrpc answers the pool program and its two fee tiers from made-up accounts
 // in the app's own layout, and aborts every other call, as a proxy that cannot reach
 // Solana does. So the LP section mounts and its fee tiers read on every machine.

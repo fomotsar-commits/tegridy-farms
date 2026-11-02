@@ -457,10 +457,23 @@ export interface VenueSwapSummary {
   quoted: OwnPoolQuote;
   /** What the aggregator was seen to pay for the same trade: the swap was held to it. */
   aggregator: AggregatorSeen;
+  /** The token's own transfer fee on this swap (`quoted.transferFees`, on the token's side); null or absent when it takes none. */
+  transferFee?: TokenTransferFee | null;
   /** True when the wrapped-SOL account is closed at the end. Always false when the coin is not SOL. */
   unwrapsWsol: boolean;
   wsolHeldBefore: bigint;
   notices: string[];
+}
+
+/**
+ * A token's own transfer fee on one transaction (lp/transferFee.ts), from the builder's
+ * fresh read: its rate at the network's epoch, and what it keeps back of the token's side
+ * here, at the amounts the review shows. The token keeps it for its fee collector; neither
+ * the pool nor the venue sees it.
+ */
+export interface TokenTransferFee {
+  rate: string;
+  kept: bigint;
 }
 
 /**
@@ -498,10 +511,12 @@ export interface LpDepositSummary {
   quoteIsToken0: boolean;
   lpAmount: bigint;
   lpDecimals: number;
-  /** The ceiling cost from the fresh snapshot. */
+  /** What leaves the wallet at the fresh snapshot: the ceiling cost, plus the token's transfer fee on top. */
   quoted: { quote: bigint; token: bigint };
   /** Decoded from the bytes. */
   max: { quote: bigint; token: bigint };
+  /** The token's transfer fee inside `quoted.token`; null or absent when it takes none. */
+  transferFee?: TokenTransferFee | null;
   /** The other side's maximum was lowered to what the wallet holds. */
   limitedByBalance: 'none' | 'quote' | 'token';
   /** Display only. */
@@ -547,9 +562,11 @@ export interface LpWithdrawSummary {
   /** Every pool share the account held. */
   all: boolean;
   keep: bigint;
-  /** The floor payout from the fresh snapshot. */
+  /** What reaches the wallet at the fresh snapshot: the floor payout, less the token's transfer fee. */
   quoted: { quote: bigint; token: bigint };
   min: { quote: bigint; token: bigint };
+  /** What the token's transfer fee keeps back of its payout; null or absent when it takes none. */
+  transferFee?: TokenTransferFee | null;
   tokenAccount: PublicKey;
   /** What opening the token account costs; `0n` when it exists. */
   tokenAccountRent: bigint;
@@ -580,9 +597,11 @@ export interface LpCreateSummary {
   /** The coin the token is paired with. Every `quote` amount below is in ITS base units. */
   quote: QuoteCoin;
   quoteIsToken0: boolean;
-  /** Decoded from the bytes: exactly what goes in. */
+  /** Decoded from the bytes: exactly what leaves the wallet. */
   put: { quote: bigint; token: bigint };
-  /** isqrt(quote·token), the pool's whole share count; `lpAmount` = supply − 100. */
+  /** What the token's transfer fee keeps back of `put.token`, so the pool holds the rest; null or absent when it takes none. */
+  transferFee?: TokenTransferFee | null;
+  /** isqrt of what reaches the two vaults, the pool's whole share count; `lpAmount` = supply − 100. */
   supply: bigint;
   lpAmount: bigint;
   lpDecimals: 9;

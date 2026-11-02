@@ -56,6 +56,21 @@ pub fn create_or_allocate_account<'a>(
     Ok(())
 }
 
+/// memetics.finance: the pool-opening fee, crate::CREATE_POOL_FEE lamports from `payer` to the
+/// vault (lib.rs). Every instruction that opens a pool calls it.
+pub fn charge_create_pool_fee<'a>(
+    payer: AccountInfo<'a>,
+    create_pool_fee: AccountInfo<'a>,
+    system_program: AccountInfo<'a>,
+) -> Result<()> {
+    let cpi_accounts = system_program::Transfer {
+        from: payer,
+        to: create_pool_fee,
+    };
+    let cpi_context = CpiContext::new(system_program.key(), cpi_accounts);
+    system_program::transfer(cpi_context, crate::CREATE_POOL_FEE)
+}
+
 #[cfg(not(any(test, feature = "client")))]
 pub fn get_recent_epoch() -> Result<u64> {
     Ok(Clock::get()?.epoch)

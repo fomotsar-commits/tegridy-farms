@@ -20,12 +20,12 @@ const SolanaSwapInner = lazy(() => import('../pages/SolanaSwapPage').then((m) =>
 
 /**
  * The LP card's network drop-down: the Pools tabs' own (PoolsHostPage), lit on Solana because the
- * card is /solana-lp's. A pick leaves for that network's Pools tab (Base: /liquidity?c=8453).
+ * card is /pools'. A pick leaves for that network's Pools tab (Base: /liquidity?c=8453).
  * Its list opens leftward: the card is the row's last, and a list opening right ran 47px off a
  * 1280px screen.
  */
 function PoolsNetwork() {
-  const network = useSectionChain(POOLS_SECTION.items, '/solana-lp', { missing: 'No pools here' });
+  const network = useSectionChain(POOLS_SECTION.items, '/pools', { missing: 'No pools here' });
   return <ChainPicker label="Pools network" active={network.active} options={network.options} onPick={network.pick} align="end" />;
 }
 
@@ -34,7 +34,7 @@ function PoolsNetwork() {
  * (owner, 2026-10-16: "right away", then "move the lp module beside the staking one ... the
  * swap is missing ... make them take way less space ... staking module needs to be shorter").
  * Each is the form its own page mounts (the swap of /solana, the ladder of /earn/bayla, the
- * LP section of /solana-lp), in a short mode, so every check before a signature is theirs.
+ * LP section of /pools), in a short mode, so every check before a signature is theirs.
  * ONE SolanaProviders for all three: a second WalletProvider reads the saved wallet only when
  * it mounts, so a visitor who connected in one card would look disconnected in another until
  * a reload. It is also the top bar's Solana connection on the home, the island lobby and BAYLA's
@@ -47,7 +47,7 @@ export default function HomeModules({ readers: given }: { readers?: LpReaders } 
   // The LP card holds its place in the row whatever the venue read says (owner, 2026-10-21: "idk
   // why you keep taking them out put them back"): it was drawn only once a read said the venue
   // was open, so a slow or failed read took a card off the home. Its form, the only thing that
-  // can start a deposit, still waits for that read, as on /solana-lp.
+  // can start a deposit, still waits for that read, as on /pools.
   const { status, retry } = useVenueStatus();
   const door = room ? bungalowLpDoor(room) : null;
   const lp = readers && door && room?.address && room.venueSolPool
@@ -103,7 +103,7 @@ export default function HomeModules({ readers: given }: { readers?: LpReaders } 
                       Try again
                     </button>
                   )}
-                  <Link to="/solana-lp" className="underline underline-offset-4" style={{ color: 'var(--color-kyle)' }}>
+                  <Link to="/pools" className="underline underline-offset-4" style={{ color: 'var(--color-kyle)' }}>
                     Open the Pools page
                   </Link>
                 </div>

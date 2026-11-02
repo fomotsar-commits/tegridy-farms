@@ -7,7 +7,7 @@ import { conn, send, clockNow } from './lib/chain.mjs';
 import { ix, PDA, account, order, tickAt, alignDown, arrayStart, sqrtPriceX64 } from './lib/clmm.mjs';
 
 export async function more(c, h, s) {
-  const { K, VAULT, BAYLA, WSOL, USD, M0, M1, baylaIs0, poolA, poolB, vA0, vA1, obsA, bitmapA, cfg0, cfg1, arrays, SPACING, BAYLA_UNIT } = c;
+  const { K, VAULT, BAYLA, WSOL, USD, M0, M1, baylaIs0, poolA, poolB, vA0, vA1, obsA, bitmapA, cfg0, cfg1, arrays, SPACING, BAYLA_UNIT, OPEN_FEE } = c;
   const { check, phaseDone, must, mustVault, vaultRun, tok, sol, errName, failedWith, fmt, reg, ata, ataIx, prog, setProg, mut, measure } = h;
   const { alice, dave, erin, mallory, carol } = K;
   const WEEK = 7 * 24 * 3600;
@@ -101,11 +101,15 @@ export async function more(c, h, s) {
   {
     const poolC = regPool(PDA.pool(cfg1, M0, M1), 'pool BAYLA/SOL 0.25% custom', M0, M1);
     const solSide = M0.equals(WSOL) ? 1 : 2; // CollectFeeOn: Token0Only = 1, Token1Only = 2
+    const v0 = await sol(VAULT);
     const r = await send('a visitor opens a custom pool: fee in SOL only, dynamic fee on', [ix('create_customizable_pool', poolIxAccounts(K.bob.publicKey, cfg1, M0, M1, poolC),
-      { customizable_params: { sqrt_price_x64: (await account('PoolState', poolA)).sqrt_price_x64, collect_fee_on: solSide, enable_dynamic_fee: !mut('X11') } }, [{ pubkey: dfc, isWritable: false }])], [K.bob]);
+      { customizable_params: { sqrt_price_x64: (await account('PoolState', poolA)).sqrt_price_x64, collect_fee_on: solSide, enable_dynamic_fee: !mut('X11') } }, [{ pubkey: dfc, isWritable: false }]),
+    ...(mut('X18') ? [SystemProgram.transfer({ fromPubkey: K.bob.publicKey, toPubkey: VAULT, lamports: 1 })] : [])], [K.bob]);
     const p = r.ok ? await account('PoolState', poolC) : null;
     check('X11', 'create_customizable_pool', 'anyone can open a pool that takes its fee in one coin only, with the dynamic fee the vault set', r.ok && p.fee_on === solSide && p.dynamic_fee_info.decay_period === 900,
       r.ok ? `fee_on ${p.fee_on}, decay ${p.dynamic_fee_info.decay_period} s` : errName(r));
+    const gained = (await sol(VAULT)) - v0;
+    check('X18', 'create_customizable_pool', 'opening a custom pool pays exactly 0.5 SOL to the vault too', r.ok && gained === OPEN_FEE, `vault +${fmt(gained, 9)} SOL`);
   }
 
   // ---- the 4% ceiling holds a dynamic fee too ------------------------------------------------
@@ -183,8 +187,11 @@ export async function more(c, h, s) {
   const seeded = (n) => { const b = Buffer.alloc(2); b.writeUInt16LE(n); return PublicKey.findProgramAddressSync([Buffer.from('pool'), cfg0.toBuffer(), M0.toBuffer(), M1.toBuffer(), b], ADDR.program)[0]; };
   const permPoolIx = (n) => { const pool = regPool(seeded(n), `pool BAYLA/SOL #${n}`, M0, M1); return ix('create_permissioned_pool', { payer: erin.publicKey, permission: perm, ...poolIxAccounts(erin.publicKey, cfg0, M0, M1, pool) }, { customizable_params: { sqrt_price_x64: 1n << 64n, collect_fee_on: 0, enable_dynamic_fee: false }, seed_index: n }); };
   {
-    const r = await send('erin opens a second BAYLA/SOL 1% pool', [permPoolIx(1)], [erin]);
+    const v0 = await sol(VAULT);
+    const r = await send('erin opens a second BAYLA/SOL 1% pool', [permPoolIx(1), ...(mut('X19') ? [SystemProgram.transfer({ fromPubkey: erin.publicKey, toPubkey: VAULT, lamports: 1 })] : [])], [erin]);
     check('X13', 'create_permissioned_pool', 'a permission holder can open another pool for a pair that has one', r.ok && !!(await conn.getAccountInfo(seeded(1))), r.ok ? 'pool #1 opened' : errName(r));
+    const gained = (await sol(VAULT)) - v0;
+    check('X19', 'create_permissioned_pool', 'a permission holder pays the 0.5 SOL opening fee to the vault as well', r.ok && gained === OPEN_FEE, `vault +${fmt(gained, 9)} SOL`);
     if (!mut('X14')) await mustVault("vault withdraws erin's permission", [permIx('close_permission_pda', VAULT)]);
     const r2 = await send('erin tries pool #2 without it', [permPoolIx(2)], [erin], { expectFail: true });
     check('X14', 'close_permission_pda', 'once the vault withdraws the permission, no more extra pools', !r2.ok && !(await conn.getAccountInfo(perm)), `refused: ${errName(r2)}`);

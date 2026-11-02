@@ -15,6 +15,7 @@ import {
   POOL_STATUS_DISABLE_SWAP,
   POOL_STATUS_DISABLE_WITHDRAW,
   decodePoolState,
+  deriveAmmConfig,
 } from '../../../solana/cpswap/program';
 import { lpTokensToTradingTokens } from '../../../solana/cpswap/math';
 import { isqrt, spendableSol } from '../../../solana/lp/liquidityMath';
@@ -50,10 +51,14 @@ import {
   openAccount,
   rent,
   setClock,
+  setTransferFee,
   skewTestRun,
+  tokenFeeOnChain,
+  tokenFeeTaken,
   type PoolFixture,
   type SimHandler,
 } from './testkit.fixture';
+import { poolInverseFee } from '../../../solana/lp/transferFee';
 import type { LpOpenGate, PreparedTx, WriteRpc, LpDepositSummary, LpWithdrawSummary, IntentStep } from './types';
 import { SOL_QUOTE } from '../../../solana/lp/quotes';
 
@@ -73,7 +78,11 @@ const answering = (o: OutsidePrice): LpPrepareReads => ({ outsidePrice: async ()
 const NO_ROUTE: OutsidePrice = { kind: 'no-route', detail: 'Jupiter has no route for this token' };
 
 /** The body length each Token-2022 mint extension needs to decode (the two name ones); any other is opaque here. */
-const extensionOf = (type: number): [number, number] => [type, type === EXTENSION.MetadataPointer ? 64 : type === EXTENSION.TokenMetadata ? 76 : 8];
+// A transfer fee needs its real 108 bytes to decode (zeroes: 0%, nobody can change it).
+const extensionOf = (type: number): [number, number] => [
+  type,
+  type === EXTENSION.MetadataPointer ? 64 : type === EXTENSION.TokenMetadata ? 76 : type === EXTENSION.TransferFeeConfig ? 108 : 8,
+];
 /** A Token-2022 mint's extra beyond its name and picture. */
 const withExtra = (type: number): Array<[number, number]> => [extensionOf(type), ...METADATA_ONLY];
 
@@ -139,22 +148,33 @@ const lpSimulator: SimHandler = (vtx: VersionedTransaction, config, chain) => {
   const tokBefore = amountAt(chain, userTok) ?? 0n;
   const lpBefore = amountAt(chain, userLp) ?? 0n;
 
+  // The token's transfer fee, as its mint on this chain sets it: a deposit sends it on top
+  // of what the pool takes (deposit.rs), a withdrawal pays out less it (withdraw.rs).
+  const tokMint = new PublicKey(solIs0 ? state.token1Mint : state.token0Mint);
   let solMoved: bigint;
   let tokMoved: bigint;
   if (isDeposit) {
     const c = lpTokensToTradingTokens(lp, state.lpSupply, R0, R1, 'ceiling');
     if (!c || c.token0Amount === 0n || c.token1Amount === 0n) return fail(6006);
-    if (c.token0Amount > b0 || c.token1Amount > b1) return fail(6005);
-    if (tokBefore < (solIs0 ? c.token1Amount : c.token0Amount)) return { err: { InstructionError: [3, { Custom: 1 }] }, logs: [], unitsConsumed: 1 };
+    const tokCost = solIs0 ? c.token1Amount : c.token0Amount;
+    const inv = poolInverseFee(tokenFeeOnChain(chain, tokMint), tokCost);
+    if (inv === null) return fail(6010);
+    const sent = tokCost + inv;
+    const [s0, s1] = solIs0 ? [c.token0Amount, sent] : [sent, c.token1Amount];
+    if (s0 > b0 || s1 > b1) return fail(6005);
+    if (tokBefore < sent) return { err: { InstructionError: [3, { Custom: 1 }] }, logs: [], unitsConsumed: 1 };
     solMoved = -(solIs0 ? c.token0Amount : c.token1Amount);
-    tokMoved = -(solIs0 ? c.token1Amount : c.token0Amount);
+    tokMoved = -sent;
   } else if (isWithdraw) {
     const o = lpTokensToTradingTokens(lp, state.lpSupply, R0, R1, 'floor');
     if (!o || o.token0Amount === 0n || o.token1Amount === 0n) return fail(6006);
-    if (o.token0Amount < b0 || o.token1Amount < b1) return fail(6005);
+    const tokOut = solIs0 ? o.token1Amount : o.token0Amount;
+    const got = tokOut - tokenFeeTaken(chain, tokMint, tokOut);
+    const [g0, g1] = solIs0 ? [o.token0Amount, got] : [got, o.token1Amount];
+    if (g0 < b0 || g1 < b1) return fail(6005);
     if (lpBefore < lp) return { err: { InstructionError: [3, { Custom: 2506 }] }, logs: [], unitsConsumed: 1 };
     solMoved = solIs0 ? o.token0Amount : o.token1Amount;
-    tokMoved = solIs0 ? o.token1Amount : o.token0Amount;
+    tokMoved = got;
   } else {
     return { err: 'not a liquidity instruction', logs: [], unitsConsumed: 1 };
   }
@@ -204,6 +224,8 @@ function world(o: {
   heldLp?: bigint;
   heldWsol?: bigint;
   record?: Parameters<typeof addPool>[2]['record'];
+  ammConfig?: PublicKey;
+  address?: PublicKey;
 } = {}): World {
   const chain = FakeChain.healthy();
   chain.simulate = lpSimulator;
@@ -224,6 +246,8 @@ function world(o: {
     tokenProgram,
     frozenTokenVault: o.frozenTokenVault,
     record: o.record,
+    ammConfig: o.ammConfig,
+    address: o.address,
     ...(o.poolDecimals === undefined ? {} : { tokenDecimals: o.poolDecimals }),
   });
   setClock(chain, NOW);
@@ -497,19 +521,46 @@ describe('prepareLpDeposit', () => {
     expect(s.priceGap).toBeNull();
   });
 
-  it('what still refuses a deposit, each in its own words: a mint under another program than the pool’s, other decimals, a 0-bps transfer fee, an extension the pool program rejects', async () => {
+  // Owner, 2026-10-29: a token with a transfer fee is added to. deposit.rs sends the pool's
+  // cost PLUS the fee on top, and refuses it above the maximum; this chain's pool program
+  // does the same, so a maximum set without the fee is refused at the test run.
+  it('a token with a transfer fee is added to: its fee rides on top of what the pool takes, inside the maximum, and the review says it', async () => {
+    for (const driving of ['quote', 'token'] as const) {
+      const w = world({ tokenProgram: TOKEN_2022_PROGRAM_ID, mintExtensions: [[EXT.TransferFeeConfig, 108], ...METADATA_ONLY] });
+      setTransferFee(w.chain, w.mint, { basisPoints: 500 });
+      const p = ok(await deposit(w, { driving, maxIn: driving === 'quote' ? 100_000_000n : 1_000_000n }));
+      const s = p.summary as LpDepositSummary;
+      expect(s.transferFee?.rate, driving).toBe('5%');
+      const kept = s.transferFee!.kept;
+      // What leaves is the pool's cost and the fee on top: the pool gets exactly its cost.
+      const poolCost = s.quoted.token - kept;
+      expect(kept, driving).toBe(poolInverseFee({ epoch: 0n, maximumFee: (1n << 64n) - 1n, basisPoints: 500 }, poolCost));
+      expect(s.quoted.token, driving).toBeLessThanOrEqual(s.max.token);
+      const tok = p.simulated.tokenDeltas.find((d) => d.account.equals(w.tokenAta))!;
+      expect(tok.delta, driving).toBe(-s.quoted.token);
+      expect(s.tokenWarnings.map((x) => x.code), driving).toContain('transfer-fee');
+    }
+  });
+
+  it('a fee change pending and the clock unread: nothing is built, a deposit or a withdrawal', async () => {
+    const w = world({ tokenProgram: TOKEN_2022_PROGRAM_ID, mintExtensions: [[EXT.TransferFeeConfig, 108], ...METADATA_ONLY], heldLp: LP_SUPPLY / 10n });
+    setTransferFee(w.chain, w.mint, { basisPoints: 100, newer: { epoch: 9n, basisPoints: 400 } });
+    setClock(w.chain, null);
+    expect(refused(await deposit(w))).toBe(LP_COPY.noEpoch);
+    expect(refused(await withdraw(w))).toBe(LP_COPY.noEpoch);
+    // With the clock, the epoch picks: before 9 the older 1%, from 9 the newer 4%.
+    setClock(w.chain, NOW, 8n);
+    expect((ok(await deposit(w)).summary as LpDepositSummary).transferFee?.rate).toBe('1%');
+    setClock(w.chain, NOW, 9n);
+    expect((ok(await withdraw(w)).summary as LpWithdrawSummary).transferFee?.rate).toBe('4%');
+  });
+
+  it('what still refuses a deposit, each in its own words: a mint under another program than the pool’s, other decimals, an extension the pool program rejects', async () => {
     // The pool says classic; the mint is Token-2022.
     const w = world();
     w.chain.mint2022(w.mint, METADATA_ONLY, { decimals: 6 });
     expect(refused(await deposit(w))).toBe(LP_COPY.poolChanged("the token's program"));
     expect(refused(await deposit(world({ mintDecimals: 9 })))).toBe(LP_COPY.poolChanged("the token's decimals"));
-    // A transfer fee: the leave rule. The words say it is this site's limit.
-    const fee = world({ tokenProgram: TOKEN_2022_PROGRAM_ID, mintExtensions: [[EXT.TransferFeeConfig, 108], ...METADATA_ONLY] });
-    expect(refused(await deposit(fee))).toBe(
-      LP_COPY.tokenBlocked(
-        'It uses a transfer-fee setting, which lets the token take a fee out of every transfer. This site cannot build exact deposits and withdrawals for a token with one, so it does not open or add to pools for it.',
-      ),
-    );
     const hook = world({ tokenProgram: TOKEN_2022_PROGRAM_ID, mintExtensions: withExtra(EXTENSION.TransferHook) });
     expect(refused(await deposit(hook))).toBe(
       LP_COPY.tokenBlocked('It uses a transfer hook, a program that runs on every transfer and can refuse or redirect it. The pool program does not accept tokens with it.'),
@@ -1034,6 +1085,25 @@ describe('prepareLpDeposit', () => {
 
 // ── withdraw ─────────────────────────────────────────────────────────────────
 
+describe('a pool opened on the launch tier (fee tier 0) without a launch', () => {
+  const tier0 = deriveAmmConfig(CPSWAP, 0);
+
+  it('takes no deposit from this site, at the standard address or at its own', async () => {
+    for (const address of [undefined, Keypair.generate().publicKey]) {
+      expect(refused(await deposit(world({ ammConfig: tier0, address })))).toBe(LP_COPY.launchTier);
+    }
+  });
+
+  it('still lets a holder take their liquidity out', async () => {
+    const p = ok(await withdraw(holding({ ammConfig: tier0, address: Keypair.generate().publicKey })));
+    expect(p.steps.map((s) => s.kind)).toContain('pool-withdraw');
+  });
+
+  it('the launch pool on the same tier still takes a deposit', async () => {
+    ok(await deposit(world({ ammConfig: tier0, launch: true })));
+  });
+});
+
 describe('prepareLpWithdraw: the leave rule', () => {
   it('a clean withdrawal: one withdrawal, a minimum of at least 1 on each side, and it all comes to you', async () => {
     const w = holding();
@@ -1125,11 +1195,26 @@ describe('prepareLpWithdraw: what may refuse it', () => {
 
   // The row still offers Remove in this state, so the "Leaving without this site" block
   // is not on screen: the refusal must stand on its own and point at nothing.
-  it('a transfer-fee token: this site cannot build it yet, says the program still allows it, and points at no section that is not shown', async () => {
-    const w = holding({ tokenProgram: TOKEN_2022_PROGRAM_ID, mintExtensions: [[EXT.TransferFeeConfig, 108], ...METADATA_ONLY] });
+  it('a token this site cannot build for: says the program still allows it, and points at no section that is not shown', async () => {
+    const w = holding({ tokenProgram: TOKEN_2022_PROGRAM_ID, mintExtensions: withExtra(EXTENSION.TransferHook) });
     const msg = refused(await withdraw(w));
-    expect(msg).toMatch(/^This site cannot build a withdrawal for this token yet \(it uses a transfer-fee setting[^)]*\)\. The pool program still lets you withdraw/);
+    expect(msg).toMatch(/^This site cannot build a withdrawal for this token yet \(it uses a transfer hook[^)]*\)\. The pool program still lets you withdraw/);
     expect(msg).not.toMatch(/Leaving without this site|\bsee\b/i);
+  });
+
+  // Owner, 2026-10-29: a token with a transfer fee can be taken back out. withdraw.rs pays
+  // the floor share less the fee and holds the minimum to what is left; this chain's pool
+  // program does the same, so a minimum set before the fee is refused at the test run.
+  it('a token with a transfer fee is withdrawn: what reaches the wallet is the payout less the fee, and the minimum is held to that', async () => {
+    const w = holding({ tokenProgram: TOKEN_2022_PROGRAM_ID, mintExtensions: [[EXT.TransferFeeConfig, 108], ...METADATA_ONLY] });
+    setTransferFee(w.chain, w.mint, { basisPoints: 500 });
+    const p = ok(await withdraw(w));
+    const s = p.summary as LpWithdrawSummary;
+    const tokOut = s.quoted.token + s.transferFee!.kept;
+    expect(s.transferFee).toEqual({ rate: '5%', kept: (tokOut * 500n + 9_999n) / 10_000n });
+    expect(s.min.token).toBeLessThanOrEqual(s.quoted.token);
+    const tok = p.simulated.tokenDeltas.find((d) => d.account.equals(s.tokenAccount))!;
+    expect(tok.delta).toBe(s.quoted.token);
   });
 
   it('a payout account a stranger owns is refused, naming the owner; required memos are refused; so is a spender who could take the payout', async () => {

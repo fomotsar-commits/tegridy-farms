@@ -33,6 +33,7 @@ export function optionalReadAllowed(): boolean {
   return r === null || r >= OPTIONAL_READ_FLOOR;
 }
 
-export function pausedText(): string {
-  return 'History reads are paused so this page’s live reads keep working. Try again in about a minute.';
+/** What is paused, in the sentence a refused optional read prints: history by default, the pool list's own re-reads when it says so. */
+export function pausedText(what = 'History reads'): string {
+  return `${what} are paused so this page’s live reads keep working. Try again in about a minute.`;
 }

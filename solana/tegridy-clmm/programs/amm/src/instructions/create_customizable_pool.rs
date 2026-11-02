@@ -100,6 +100,13 @@ pub struct CreateCustomizablePool<'info> {
     pub system_program: Program<'info, System>,
     /// Sysvar for program account
     pub rent: Sysvar<'info, Rent>,
+
+    /// memetics.finance: the vault, which the pool-opening fee pays (lib.rs).
+    #[account(
+        mut,
+        address = crate::create_pool_fee_reveiver::ID,
+    )]
+    pub create_pool_fee: SystemAccount<'info>,
     // remaining account if needed
     // #[account(
     //     seeds = [
@@ -146,6 +153,11 @@ pub fn create_customizable_pool<'info>(
     {
         return err!(ErrorCode::NotSupportMint);
     }
+    util::charge_create_pool_fee(
+        ctx.accounts.pool_creator.to_account_info(),
+        ctx.accounts.create_pool_fee.to_account_info(),
+        ctx.accounts.system_program.to_account_info(),
+    )?;
     let pool_id = ctx.accounts.pool_state.key();
     let mut pool_state = ctx.accounts.pool_state.load_init()?;
 

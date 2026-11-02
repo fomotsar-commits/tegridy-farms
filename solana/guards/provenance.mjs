@@ -37,7 +37,7 @@ export const COPIES = {
     take: (p) => p.startsWith('programs/amm/') || ['Anchor.toml', 'Cargo.toml', 'Cargo.lock', 'LICENSE'].includes(p),
     map: (p) => p,
     delta: 'tegridy-clmm.diff',
-    deltaSha256: '97a0a612ff4781ee3f864476bd1da5e5f9cf996a7c75fd290cdcc0be943ea693',
+    deltaSha256: '3e37bb35eb72bcacf576309c42d3c587a2d97c41541e228a0094c8d53a4b5df5',
     patched: [
       'Anchor.toml',
       'Cargo.toml',
@@ -50,12 +50,16 @@ export const COPIES = {
       'programs/amm/src/instructions/admin/transfer_reward_owner.rs',
       'programs/amm/src/instructions/admin/update_amm_config.rs',
       'programs/amm/src/instructions/collect_remaining_rewards.rs',
+      'programs/amm/src/instructions/create_customizable_pool.rs',
+      'programs/amm/src/instructions/create_permissioned_pool.rs',
+      'programs/amm/src/instructions/create_pool.rs',
       'programs/amm/src/instructions/decrease_liquidity.rs',
       'programs/amm/src/instructions/open_position.rs',
       'programs/amm/src/instructions/swap_v2.rs',
       'programs/amm/src/states/config.rs',
       'programs/amm/src/states/pool_fee.rs',
       'programs/amm/src/states/tickarray_bitmap_extension.rs',
+      'programs/amm/src/util/system.rs',
       'programs/amm/src/util/token.rs',
     ],
     // The test in place of upstream's compute_swap_step_test, which solana-ci.yml skips.
@@ -111,10 +115,18 @@ export const REPIN_MAY_TOUCH = [
   'solana/tegridy-amm/TEGRIDY_FORK.md',
   // A patch that changes behaviour carries its validator test (solana-ci.yml runs them).
   'solana/tegridy-amm/tests/',
+  // tegridy-clmm's, run on a local chain from the owner's computer (its README); no CI job runs it.
+  'solana/clmm-localnet/',
   'docs/RANGE_POOLS_PLAN.md',
   'CHANGELOG.md',
   'frontend/src/test/solanaGuardTampers.test.ts',
   'frontend/src/test/solanaKeyGuard.test.ts',
+  // The site's range client where its tests read the program's source: ix.test.ts holds each
+  // account list equal to the program's Accounts struct, and quote.test.ts holds the vectors'
+  // stamp to the source. A patch that changes either moves them in the same pull request.
+  'frontend/src/lib/solana/clmm/ix.ts',
+  'frontend/src/lib/solana/clmm/ix.test.ts',
+  'frontend/src/lib/solana/clmm/__fixtures__/program-vectors.json',
   '.github/workflows/solana-ci.yml',
 ];
 

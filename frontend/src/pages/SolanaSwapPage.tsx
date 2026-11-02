@@ -18,7 +18,6 @@ import { SolanaConnectButton } from '../components/solana/SolanaConnectButton';
 import { ChainSwitch } from '../components/swap/ChainSwitch';
 import { SolanaRouteLine } from '../components/swap/SolanaRouteLine';
 import { IslandBasketSolana } from '../components/swap/IslandBasketSolana';
-import type { SolBasketCoin } from '../lib/islandBasket';
 import { isRangeCandidate, useSolanaRoute } from '../components/swap/useSolanaRoute';
 import type { TxSummary } from '../components/solana/curve/ports';
 import { useVenueSwap } from '../components/swap/useVenueSwap';
@@ -88,8 +87,12 @@ import {
 import { prepareJupiterSwap, refusalWhy, refusedSaid, NO_SITE_FEE_ROUTE_COPY, NOT_TEST_RUN_COPY, type PreparedJupiterSwap } from '../lib/solana/swap/jupiterFeeRetry';
 import { OWN_ROUTE_COPY, freshDecision, ownPoolNowWins, prepareOwnPoolSwap, within } from '../lib/solana/swap/ownPoolRoute';
 import { whileJupiterBusy } from '../lib/solana/swap/jupiterBusy';
+import { tokenFromChain } from '../lib/solana/swap/chainToken';
+import { browserRpc } from '../lib/launcher/solana/curve/rpc';
+import { withReadCommitment } from '../components/solana/curve/confirmedRpc';
 import { applySlippage } from '../lib/launcher/solana/curve/math';
 import { tradeCostText } from '../lib/solana/lp/format';
+import { siteNamed } from '../lib/solana/lp/identity';
 import { perMillionPercent } from '../lib/solana/clmm/feeText';
 import { isFeeOnInput } from '../lib/solana/clmm/program';
 import { quietEnding } from '../components/swap/quietSwap';
@@ -261,8 +264,12 @@ function sideWords(pay: SolToken, buy: SolToken): { verb: 'Buy' | 'Sell'; done: 
 
 type RowBadge = { label: string; tone: 'amber' | 'red' | 'green' };
 
-/** The head and the tail of a mint. Copies of a name differ at the head: every pump.fun mint ends alike. */
-const shortMint = (mint: string) => `${mint.slice(0, 6)}…${mint.slice(-4)}`;
+/**
+ * The head and the tail of a mint, for a coin the site names itself (ours, the pairing
+ * coins). Any other coin's ticker is its own claim, and a head and a tail can be grinded
+ * to match, so its row shows the whole address, as the pool screens do (identity.ts).
+ */
+const mintLine = (mint: string) => (siteNamed(mint) ? `${mint.slice(0, 6)}…${mint.slice(-4)}` : mint);
 
 function riskBadges(t: SolToken): RowBadge[] {
   const out: RowBadge[] = [];
@@ -380,7 +387,7 @@ function TokenRow({ t, onSelect }: { t: SolToken; onSelect: (t: SolToken) => voi
             {t.verified === true && <span className="text-success text-[10px]" title="Verified on Jupiter" aria-label="Verified">✓</span>}
           </div>
           <div className="text-white/50 text-[11px] truncate">{t.name}</div>
-          <div className="text-white/45 text-[10px] font-mono">{shortMint(t.mint)}</div>
+          <div className="text-white/45 text-[10px] font-mono break-all">{mintLine(t.mint)}</div>
           {badges.length > 0 && (
             <div className="flex gap-1 flex-wrap mt-0.5">
               {badges.map((b) => (
@@ -810,6 +817,16 @@ function ActivityRail() {
   );
 }
 
+/** A wallet's order list whose read did not answer: said as that, with a way to read it again. */
+function OrdersUnread({ what, onRetry }: { what: string; onRetry: () => void }) {
+  return (
+    <p className="text-white/60 text-[11px]">
+      {what} could not be read just now.{' '}
+      <button type="button" onClick={onRetry} className="text-white underline hover:text-white/80 px-1 py-2.5 -my-2">Try again</button>
+    </p>
+  );
+}
+
 // DCA: Jupiter Recurring (time-based). Deposit once, keepers buy the pair on a fixed
 // cadence, fee-off. Its program cannot take a Token-2022 token, so both mints' programs
 // are read before anything is signed (lib/solana/swap/dcaPair.ts). Jupiter asks for at
@@ -826,7 +843,8 @@ function DcaTab({ payToken, buyToken, payUsd, shieldWarnings, needsAck, ack, set
   const [numBuys, setNumBuys] = useState(4);
   const [intervalSecs, setIntervalSecs] = useState(86_400);
   const [placing, setPlacing] = useState(false);
-  const [orders, setOrders] = useState<RecurringOrder[]>([]);
+  // Null: the read did not answer (OrdersUnread), never an empty list.
+  const [orders, setOrders] = useState<RecurringOrder[] | null>([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [cancelling, setCancelling] = useState<string | null>(null);
   const payBalance = useTokenBalance(payToken);
@@ -866,7 +884,7 @@ function DcaTab({ payToken, buyToken, payUsd, shieldWarnings, needsAck, ack, set
     setOrdersLoading(true);
     getRecurringOrders(publicKey.toBase58())
       .then((o) => setOrders(o))
-      .catch(() => setOrders([]))
+      .catch(() => setOrders(null))
       .finally(() => setOrdersLoading(false));
   }, [publicKey]);
 
@@ -1061,6 +1079,8 @@ function DcaTab({ payToken, buyToken, payUsd, shieldWarnings, needsAck, ack, set
           </div>
           {ordersLoading ? (
             <p className="text-white/50 text-[11px]">Loading…</p>
+          ) : orders === null ? (
+            <OrdersUnread what="Your DCAs" onRetry={loadOrders} />
           ) : orders.length === 0 ? (
             <p className="text-white/60 text-[11px]">No active DCAs.</p>
           ) : (
@@ -1111,7 +1131,8 @@ function LimitTab({ payToken, buyToken, shieldWarnings, needsAck, ack, setAck, o
   const [price, setPrice] = useState('');
   const [expiryDays, setExpiryDays] = useState(7);
   const [placing, setPlacing] = useState(false);
-  const [orders, setOrders] = useState<TriggerOrder[]>([]);
+  // Null: the read did not answer (OrdersUnread), never an empty list.
+  const [orders, setOrders] = useState<TriggerOrder[] | null>([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [cancelling, setCancelling] = useState<string | null>(null);
   const payBalance = useTokenBalance(payToken);
@@ -1133,7 +1154,7 @@ function LimitTab({ payToken, buyToken, shieldWarnings, needsAck, ack, setAck, o
     setOrdersLoading(true);
     getTriggerOrders(publicKey.toBase58())
       .then((o) => setOrders(o))
-      .catch(() => setOrders([]))
+      .catch(() => setOrders(null))
       .finally(() => setOrdersLoading(false));
   }, [publicKey]);
 
@@ -1310,6 +1331,8 @@ function LimitTab({ payToken, buyToken, shieldWarnings, needsAck, ack, setAck, o
           </div>
           {ordersLoading ? (
             <p className="text-white/50 text-[11px]">Loading…</p>
+          ) : orders === null ? (
+            <OrdersUnread what="Your open orders" onRetry={loadOrders} />
           ) : orders.length === 0 ? (
             <p className="text-white/60 text-[11px]">No open orders.</p>
           ) : (
@@ -1469,22 +1492,51 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
   }, [usdMode, amount, payPrice, payToken.decimals]);
   const baseAmount = useMemo(() => toBaseUnits(tokenAmount, payToken.decimals), [tokenAmount, payToken.decimals]);
   const sameToken = payToken.mint === buyToken.mint;
-  const canQuote = baseAmount !== null && !sameToken;
+  // The coins the address names that are still being looked up. Until they are, the form holds:
+  // no quote is asked and the buy button is off, so a sized link (the Arbitrage card's Swap, with
+  // ?amt=) is never quoted or sent on the default pair with that amount in it.
+  const [linkPending, setLinkPending] = useState(() => {
+    try {
+      const search = new URLSearchParams(linkSearch);
+      return [openingBuy, search.get('in')?.trim()].filter((m) => m && looksLikeMint(m) && !findSolToken(m)).length;
+    } catch {
+      return 0;
+    }
+  });
+  const canQuote = baseAmount !== null && !sameToken && linkPending === 0;
 
   // The opening pair, continued: a NON-curated mint (a link's, or a room's coin) needs
-  // the Jupiter lookup for authoritative decimals (never invent them). Mount-once; a
-  // failed lookup leaves the honest default in place — a bad deep link must never break
-  // the page. The curated cases were already handled in the state initializers.
+  // the Jupiter lookup for authoritative decimals (never invent them). A coin Jupiter
+  // does not list, or could not be asked about, is read from the chain instead (its mint
+  // gives the decimals; swap/chainToken.ts): a link from one of our pools must open on
+  // that pool's coin. Mount-once; a lookup that fails both ways leaves the honest default
+  // in place — a bad deep link must never break the page. The curated cases were already
+  // handled in the state initializers.
+  // A coin neither could name is said (`linkMissed`): the form opened on another pair than was asked
+  // for, by the link or by the room the visitor is in.
+  const [linkMissed, setLinkMissed] = useState<{ mint: string; from: 'link' | 'room' } | null>(null);
   useEffect(() => {
     const search = new URLSearchParams(linkSearch);
     const ctrl = new AbortController();
-    for (const [mint, set] of [[openingBuy, setBuyToken], [search.get('in')?.trim(), setPayToken]] as const) {
+    let live = true;
+    const linkedOut = search.get('out')?.trim();
+    for (const [mint, set, from] of [[openingBuy, setBuyToken, linkedOut === openingBuy ? 'link' : 'room'], [search.get('in')?.trim(), setPayToken, 'link']] as const) {
       if (!mint || !looksLikeMint(mint) || findSolToken(mint)) continue;
       resolveMint(mint, ctrl.signal)
-        .then((t) => { if (t) set(t); })
+        .catch(() => null)
+        .then((t) => t ?? tokenFromChain(withReadCommitment(browserRpc(), 'confirmed'), mint))
+        .then((t) => {
+          if (!live) return;
+          if (t) set(t);
+          else setLinkMissed({ mint, from });
+          setLinkPending((n) => Math.max(0, n - 1));
+        })
         .catch(() => { /* honest default stands */ });
     }
-    return () => ctrl.abort();
+    return () => {
+      live = false;
+      ctrl.abort();
+    };
   }, [openingBuy, linkSearch]);
 
   // Tokens ticked while this pair is on screen: their box stays, so the tick can be taken back.
@@ -1569,7 +1621,9 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
   // WHERE THIS TRADE GOES: our own pools quoted beside Jupiter, and whichever pays the
   // trader more; a tie stays here (lib/solana/route.ts). One decision, said by the route
   // line and executed by handleSwap.
-  const amountInRaw = useMemo(() => (baseAmount === null || sameToken ? null : BigInt(baseAmount)), [baseAmount, sameToken]);
+  // No route either while the address's coin is still being looked up: our pools would be read, and a
+  // line drawn, for the pair that stands meanwhile, not the one asked for.
+  const amountInRaw = useMemo(() => (baseAmount === null || sameToken || linkPending > 0 ? null : BigInt(baseAmount)), [baseAmount, sameToken, linkPending]);
   const aggregatorQuote = useMemo(
     () => (quote ? { outAmount: quote.outAmount, priceImpactPct: quote.priceImpactPct } : null),
     [quote],
@@ -1619,8 +1673,11 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
     [forgetPools, retryPayBalance],
   );
   const requote = useCallback(() => setQuoteAttempt((n) => n + 1), []);
+  // The island order was opened: it buys a coin our pool wins in our pool, so it needs the swap code too.
+  const [islandWantsOwn, setIslandWantsOwn] = useState(false);
+  const wantOwnForIsland = useCallback(() => setIslandWantsOwn(true), []);
   const venueSwap = useVenueSwap({
-    wanted: route.own === 'quoted',
+    wanted: route.own === 'quoted' || islandWantsOwn,
     programId: route.venue?.kind === 'live' ? route.venue.programId : null,
     onSettled: onOwnSettled,
     onResolved: requote,
@@ -1752,10 +1809,10 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
     />
   ) : null;
   const feePct = (SOLANA_PLATFORM_FEE_BPS / 100).toFixed(2);
-  // The fee can only be collected on a pair touching SOL or USDC (pre-created
+  // The fee can only be collected on a pair touching SOL, USDC or USDT (pre-created
   // fee ATAs). Drive the UI off the SAME decision the quote/swap use.
   const feeMintForPair = isSolanaFeeConfigured() ? pickFeeMint(payToken.mint, buyToken.mint) : null;
-  const feeMintSymbol = feeMintForPair === USDC_MINT ? 'USDC' : feeMintForPair === SOL_MINT ? 'SOL' : null;
+  const feeMintSymbol = feeMintForPair === USDC_MINT ? 'USDC' : feeMintForPair === USDT.mint ? 'USDT' : feeMintForPair === SOL_MINT ? 'SOL' : null;
   // Tagged with its origin mint: flattening the two lists used to discard which
   // token each warning described, which is why the render sites could not apply
   // the same per-mint exemption the ack gate already used.
@@ -1824,29 +1881,6 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
       () => toast.success('Trade link copied', { description: `${payToken.symbol} → ${buyToken.symbol}` }),
       () => toast.error('Could not copy the link'),
     );
-  }
-
-  /**
-   * A coin of the island order that our own pool wins: its share goes on this form, in SOL,
-   * where our pool's review buys it (every swap in our pool shows its review first).
-   */
-  function takeOwnLeg(coin: SolBasketCoin, lamports: bigint) {
-    if (held) return;
-    setMode('swap');
-    setPayToken(SOL);
-    setUsdMode(false);
-    setAmount(fromBaseUnits(lamports.toString(), SOL.decimals));
-    const known = findSolToken(coin.mint);
-    if (known) {
-      setBuyToken(known);
-      return;
-    }
-    resolveMint(coin.mint)
-      .then((t) => {
-        if (t) setBuyToken(t);
-        else toast.error('Not loaded', { description: `${coin.symbol} could not be loaded into the form. Pick it there to buy it.` });
-      })
-      .catch(() => toast.error('Not loaded', { description: `${coin.symbol} could not be loaded into the form. Pick it there to buy it.` }));
   }
 
   /**
@@ -2342,7 +2376,7 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
   }
 
   const words = sideWords(payToken, buyToken);
-  const actionDisabled = (!quote && !ownBest) || quoteLoading || swapping || sameToken || (needsAck && !ack) || insufficient || ownPreparing || pendingNote || ownBusy !== null;
+  const actionDisabled = (!quote && !ownBest) || quoteLoading || swapping || sameToken || (needsAck && !ack) || insufficient || ownPreparing || pendingNote || ownBusy !== null || linkPending > 0;
   // Jupiter's test run could not run press after press on this trade, and one of our pools
   // quotes it: its review is offered. The review runs its own test run before Sign.
   const offerOwn = ownOffer !== null && ownOffer.key === refusalKey && !ownBest && venueSwap.ready !== null
@@ -2354,6 +2388,7 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
   const ownNone = route.own === 'absent' || route.own === 'not-searched' || route.own === 'unquotable';
   const ctaLabel = swapping ? 'Swapping…'
     : ownBusy !== null ? ownBusy
+    : linkPending > 0 ? 'Looking up the coin…'
     : quoteLoading ? 'Fetching quote…'
     : !baseAmount ? 'Enter an amount'
     : sameToken ? 'Pick two different tokens'
@@ -2396,6 +2431,19 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
               </Heading>
               {home && <ChainSwitch at="/solana" />}
               {!home && <p className="text-white/60 text-[11px]">Buy Solana tokens through our own pools or Jupiter, whichever pays more.</p>}
+              {/* The address's coin is still being looked up: the form holds until it is. */}
+              {!home && linkPending > 0 && (
+                <p role="status" data-testid="solana-link-pending" className="text-white/60 text-[11px]">
+                  Looking up the coin in this link…
+                </p>
+              )}
+              {/* A coin that neither Jupiter nor the chain could name: the form is on another pair, and says so. */}
+              {!home && linkMissed && (
+                <p role="status" data-testid="solana-link-miss" className="text-amber-300/90 text-[11px] [overflow-wrap:anywhere]">
+                  {linkMissed.from === 'link' ? 'The coin in this link' : 'This room’s coin'} ({linkMissed.mint}) could not be looked up on Jupiter or on the chain, so this form
+                  opened on {payToken.symbol} / {buyToken.symbol}.
+                </p>
+              )}
             </div>
             {publicKey ? (
               <span className="text-white/70 text-[11px] font-mono px-2 py-1 rounded-md" style={{ background: 'var(--color-purple-15)' }}>
@@ -2441,7 +2489,8 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
                 slippageBps={slippageBps}
                 priority={speed}
                 pending={venueSwap.pending}
-                onOwnLeg={takeOwnLeg}
+                ownSwap={venueSwap.ready}
+                wantOwnSwap={wantOwnForIsland}
                 busy={held || pendingNote}
               />
             </div>
@@ -2836,7 +2885,7 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
               ? 'No platform fee is charged here today.'
               : feeWaived
                 ? 'No platform fee on this route.'
-                : `A ${feePct}% platform fee applies on pairs that include SOL or USDC.`}
+                : `A ${feePct}% platform fee applies on pairs that include SOL, USDC or USDT.`}
               </>
             )}
           </p>

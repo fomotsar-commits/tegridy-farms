@@ -87,3 +87,44 @@ mainnet or devnet: they were only read.
 
 Run it again: `node solana/clmm-deploy/rehearsal/rehearse.mjs --binary <a build for a throwaway id>
 --program-key <that id's key>` (see `../README.md`).
+
+
+## The fee-change folder (tier 1, 0.25% to 1%), rehearsed
+
+**What it means.** `rehearsal/rehearse-tier-fee.mjs` ran the folder `stage.mjs --kind rehearsal --tier-fee` makes, end to end, on 2026-10-28 04:27 UTC: the range program byte for byte as it runs on mainnet (sha256 `fcb88758fdd6280f6035859c00b963c9285a7c5291393043a57051c86c37e8cc`, 1,522,736 bytes) at its own address, the vault its upgrade authority; the real Squads program; a copy of the vault's multisig with local member keys and a 20-second lock for 48 hours. #19's own instructions, replayed through the vault, made both tiers byte for byte as on mainnet; then the folder's page in headless Chromium proposed (member A), approved (member B) and executed the change. 31 steps, none failed.
+
+| | What was tried | |
+|---|---|---|
+| B0 | the rehearsal's program file is byte for byte the program on mainnet | passed |
+| R0 | stage.mjs makes a fee-change rehearsal folder against the running program | passed |
+| R1 | its config sets tier 1 from 2,500 to 10,000 per million, and nothing else | passed |
+| R2 | stage.mjs refuses a fee-change folder for devnet | passed |
+| P1 | #19's own instructions, replayed through the vault, make both tiers | passed |
+| P2 | the local tiers are byte for byte the two tier accounts on mainnet | passed |
+| F0 | the page asks for a member wallet first | passed |
+| F1 | the page offers nothing to a wallet outside the multisig | passed |
+| F2 | with both tiers as #19 made them, member A may propose | passed |
+| F2b | a folder made against another build refuses on the same chain (the program was upgraded since) | passed |
+| F3 | a live proposal made outside the page that touches tier 1 stops the page | passed |
+| F4 | once member B rejects it, member A may propose again | passed |
+| W0 | the page's server answers, and forbids being framed by another page | passed |
+| W0b | the relay refuses a call from another web page | passed |
+| W1 | the page loads on the local chain and says so | passed |
+| W1b | it says what the proposal does: tier 1 from 0.25% to 1%, LPs 0.21% then 0.84%, venue 0.026% then 0.104%, island 0.014% then 0.056% | passed |
+| W2 | a second tab of the page stops itself: one tab at a time | passed |
+| F5 | member A creates and approves the fee proposal on the page | passed |
+| F5b | the stored proposal is byte for byte the folder's, and the folder sized its accounts right | passed |
+| F6 | member A, having approved, has nothing more to sign | passed |
+| F7 | member B approves on the page | passed |
+| F8 | the page then says the time lock holds it, and offers no execute | passed |
+| F9 | an execute sent around the page before the lock ends is refused by Squads itself | passed |
+| F10 | after the lock, the page offers the execute | passed |
+| F11 | the page executes the proposal | passed |
+| F12 | the page then says ALREADY DONE and offers nothing | passed |
+| W3 | no error in the page's console | passed |
+| F13 | the vault paid nothing | passed |
+| V1 | 8-verify-tier-fee: tier 1 at 1% with its split and owners, tier 0 unchanged | passed |
+| V2 | tier 0's account is byte for byte as before; tier 1's differs only in its four fee bytes, now 10,000 | passed |
+| V3 | the decision now says done, for either member | passed |
+
+Rerun it: `node solana/clmm-deploy/rehearsal/rehearse-tier-fee.mjs --binary <the deployed raydium_clmm.so>` (its own work folder, ledger and ports, so another session's local chain is never touched).

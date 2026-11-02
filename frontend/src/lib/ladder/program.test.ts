@@ -31,7 +31,7 @@ import {
   MIN_LOCK_SECS, MAX_LOCK_SECS, MIN_BOOST_BPS, MAX_BOOST_BPS, MAX_POSITIONS,
   MAX_EARLY_EXIT_PENALTY_BPS, PENALTY_SCALE, MAX_PENALTY_RATIO, penaltyPct,
   PRECISION, minWeightFloor, lastTimeApplicable, rewardPerWeightNow, earnedNow,
-  REWARDS_DURATION_SECS,
+  REWARDS_DURATION_SECS, perDayAtTodaysRate, aprLabel,
 } from './program';
 
 const MATH_RS = resolve(
@@ -626,5 +626,79 @@ describe('the accumulator is monotonic, whatever the clock says', () => {
     };
     expect(rewardPerWeightNow(behind, 1_000)).toBe(500n);
     expect(rewardPerWeightNow(behind, 1_000)).toBeGreaterThanOrEqual(behind.rewardPerWeightStored);
+  });
+});
+
+/* ────────── what a weight earns per day, at today's rate ────────── */
+
+describe('perDayAtTodaysRate — your weight’s cut of the pool’s day', () => {
+  // The live BAYLA ladder after the 2026-09-24 reload: 262,484 raw a second, which
+  // the chain read back as 22,678.62 BAYLA a day (6 decimals).
+  const live = { rewardRate: 262_484n, periodFinish: 2_000_000_000n, minStakeRaw: 100_000_000n };
+  const NOW_S = 1_800_000_000;
+
+  it('is rate × a day × weight / total, floored', () => {
+    // A quarter of the weight gets a quarter of the day: 22,678,617,600 / 4.
+    expect(perDayAtTodaysRate(1_000_000_000n, 4_000_000_000n, live, NOW_S)).toBe(5_669_654_400n);
+  });
+
+  it('agrees with the accumulator over one real day', () => {
+    // The independent witness: `earnedNow` is math.rs's `earned` transcribed, so a day
+    // of it is what the program would pay. The projection must not out-run it.
+    const pool = {
+      ...live, rewardPerWeightStored: 0n, rpwResidueRaw: 0n,
+      lastUpdateTime: BigInt(NOW_S), totalWeighted: 14_000_000_000_000n,
+    };
+    const position = { weight: 2_000_000_000_000n, rewardPerWeightPaid: 0n, rewardsOwed: 0n };
+    const aDay = earnedNow(position, pool, NOW_S + 86_400) - earnedNow(position, pool, NOW_S);
+    const projected = perDayAtTodaysRate(position.weight, pool.totalWeighted, pool, NOW_S)!;
+    expect(projected).toBeLessThanOrEqual(aDay + 1n);
+    expect(aDay - projected).toBeLessThanOrEqual(1n);
+  });
+
+  it('a longer lock earns more on the same stake — the boost is the multiplier', () => {
+    // 500 BAYLA at 4.00× vs 500 BAYLA at 0.40×: ten times the weight, ten times the day.
+    const total = 2_200_000_000n;
+    const fourYears = perDayAtTodaysRate(weightForStake(500_000_000n, Number(MAX_LOCK_SECS)), total, live, NOW_S)!;
+    const sevenDays = perDayAtTodaysRate(weightForStake(500_000_000n, Number(MIN_LOCK_SECS)), total, live, NOW_S)!;
+    expect(fourYears / sevenDays).toBe(10n);
+  });
+
+  it('is null where there is no stream to project', () => {
+    const w = 1_000_000_000n;
+    const t = 4_000_000_000n;
+    expect(perDayAtTodaysRate(w, t, { ...live, rewardRate: 0n }, NOW_S)).toBeNull();           // never scheduled
+    expect(perDayAtTodaysRate(w, t, { ...live, periodFinish: BigInt(NOW_S) }, NOW_S)).toBeNull(); // ended
+    expect(perDayAtTodaysRate(w, 0n, live, NOW_S)).toBeNull();                                  // no weight at all
+    expect(perDayAtTodaysRate(1n, 39_999_999n, live, NOW_S)).toBeNull();                        // below the I-11 floor
+  });
+
+  it('is null, never clamped, when your weight exceeds the total', () => {
+    // The reads disagree; a clamp would print the whole pool's day as yours.
+    expect(perDayAtTodaysRate(4_000_000_001n, 4_000_000_000n, live, NOW_S)).toBeNull();
+    expect(perDayAtTodaysRate(4_000_000_000n, 4_000_000_000n, live, NOW_S)).toBe(262_484n * 86_400n);
+  });
+});
+
+describe('aprLabel — a day as a yearly rate on the stake behind it', () => {
+  it('is perDay × 365 / principal, FLOORED', () => {
+    // 1 a day on 365 → exactly 100%; 0.9999 a day → 99.9%, where rounding says 100%.
+    expect(aprLabel(1_000_000n, 365_000_000n)).toBe('100%');
+    expect(aprLabel(999_900n, 365_000_000n)).toBe('99.9%');
+    expect(aprLabel(500_000n, 365_000_000n)).toBe('50%');
+  });
+
+  it('drops the decimal from 100% up, and groups big ones', () => {
+    expect(aprLabel(2_369_999n, 365_000_000n)).toBe('236%');
+    expect(aprLabel(1_000_000_000n, 365_000_000n)).toBe((100_000).toLocaleString() + '%');
+  });
+
+  it('a real yield that floors to nothing reads "<0.1%", never "0%"', () => {
+    expect(aprLabel(1n, 365_000_000n)).toBe('<0.1%');
+    expect(aprLabel(0n, 365_000_000n)).toBe('0%');
+  });
+
+  it('is null with no principal to divide by', () => {
+    expect(aprLabel(1_000n, 0n)).toBeNull();
   });
 });

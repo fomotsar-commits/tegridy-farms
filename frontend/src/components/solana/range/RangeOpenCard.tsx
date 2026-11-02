@@ -30,7 +30,7 @@ import type { RangeOpenReads } from '../../../lib/launcher/solana/write/range';
 import { marketGap, type MarketGap } from '../../../lib/solana/clmm/priceCheck';
 import type { OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
 import { RangeReviewDisclosure, RangeRisks } from './RangeRisks';
-import { bothAmounts, coinAmount, priceNumberText, priceText, tokenAmount, tokenName, tokenWord } from './rangeText';
+import { bothAmounts, coinAmount, priceNumberText, priceText, tokenAmount, tokenName, tokenWord, withTokenLabel } from './rangeText';
 import { useFlowReports } from './useRangeData';
 
 const TOLERANCE_HINT =
@@ -45,6 +45,8 @@ const TOLERANCE_HINT =
 export function RangeOpenCard(p: {
   pool: RangePool;
   pair: Pair;
+  /** The token's ticker as the pool screens give it (identity.ts), once its check was read. */
+  tokenLabel: string | null;
   canOpen: boolean;
   why: string | null;
   write: { api: RangeWriteApi; cfg: CurveWriteConfig } | null;
@@ -57,7 +59,9 @@ export function RangeOpenCard(p: {
   onBusy: (busy: boolean) => void;
   onFinished: () => void;
 }) {
-  const { pool, pair } = p;
+  // The pool's pair for the maths and the market read; `pair` adds the ticker every line names the token by.
+  const { pool, pair: base, tokenLabel } = p;
+  const pair = useMemo(() => withTokenLabel(base, tokenLabel), [base, tokenLabel]);
   const v = pool.pool;
   const [preset, setPreset] = useState<Preset | null>(null);
   const [minText, setMinText] = useState('');
@@ -81,7 +85,7 @@ export function RangeOpenCard(p: {
   const reads = p.reads;
   useEffect(() => {
     let live = true;
-    const pr = pair;
+    const pr = base;
     const ask = (mint: string, decimals: number) =>
       reads.outsidePrice(mint, decimals).catch((e: unknown): OutsidePrice => ({ kind: 'unread', detail: e instanceof Error ? e.message : String(e) }));
     void Promise.all([ask(pr.tokenMint, pr.tokenDecimals), pr.quote.native ? Promise.resolve(null) : ask(pr.quote.mint, pr.quote.decimals)]).then(([token, coin]) => {
@@ -90,7 +94,7 @@ export function RangeOpenCard(p: {
     return () => {
       live = false;
     };
-  }, [reads, pair, v.address, v.sqrtPriceX64]);
+  }, [reads, base, v.address, v.sqrtPriceX64]);
   const marketText =
     gap === null
       ? 'reading…'
@@ -100,13 +104,13 @@ export function RangeOpenCard(p: {
           ? `could not be read just now (${gap.detail})`
           : priceNumberText(pair, gap.reference);
   const range = useMemo(() => {
-    if (preset) return presetRange(pair, v, preset);
+    if (preset) return presetRange(base, v, preset);
     const min = parsePrice(minText);
     const max = parsePrice(maxText);
     if (!minText && !maxText) return null;
     if (!min || !max) return 'unreadable-price' as const;
-    return rangeFromPrices(pair, min, max);
-  }, [preset, minText, maxText, pair, v]);
+    return rangeFromPrices(base, min, max);
+  }, [preset, minText, maxText, base, v]);
   const r: TickRange | null = range && typeof range === 'object' ? range : null;
   const holds = r ? holdsNow(pair, v, r) : null;
   const side = holds === 'token-only' ? 'token' : holds === 'coin-only' ? 'coin' : chosenSide;

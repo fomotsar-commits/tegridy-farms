@@ -5,12 +5,19 @@
     "api/orderbook.js": {
       "maxDuration": 30
     },
+    "api/cardano.js": {
+      "maxDuration": 30
+    },
     "api/launch-upload.js": {
       "maxDuration": 60
+    },
+    "api/venue-volume-count.js": {
+      "maxDuration": 120
     }
   },
   "crons": [
-    { "path": "/api/launch-upload?sweep=1", "schedule": "*/15 * * * *" }
+    { "path": "/api/launch-upload?sweep=1", "schedule": "*/15 * * * *" },
+    { "path": "/api/venue-volume-count", "schedule": "*/5 * * * *" }
   ],
   "headers": [
     {
@@ -188,6 +195,7 @@
     { "source": "/api/swapapi/:path*", "destination": "/api/aggregator?provider=swapapi&p=:path*" },
     { "source": "/api/jupiter/:path*", "destination": "/api/aggregator?provider=jupiter&p=:path*" },
     { "source": "/api/pools", "destination": "/api/aggregator?resource=pools" },
+    { "source": "/api/cardano/:op", "destination": "/api/cardano?op=:op" },
     { "source": "/record/:chain/:ca.json", "destination": "/api/aggregator?resource=record&chain=:chain&ca=:ca" },
     { "source": "/record/:path*", "destination": "/api/aggregator?resource=record&path=:path*" },
     { "source": "/position/:id.json", "destination": "/api/aggregator?resource=position&id=:id" },
