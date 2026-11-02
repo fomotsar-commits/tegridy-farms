@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { fetchVenueTvl, TVL_CHAINS, type VenueTvl } from '../lib/venueTvl';
+import { fetchVenueTvl, TVL_CHAINS, type TvlChain, type TvlStaking, type VenueTvl } from '../lib/venueTvl';
 import { fetchVenueVolume, type VenueVolume } from '../lib/venueVolume';
 import { FinePrint } from './ui/FinePrint';
 
@@ -11,6 +11,10 @@ const timeFmt = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2
 export const POLL_MS = 60_000;
 /** A TVL kept through failed refreshes says how old it is once it is older than this. */
 const TVL_OLD_MS = 3 * 60_000;
+
+/** One part of the TVL, chain by chain: "Solana $X · Base could not be read just now". */
+const byChain = (rows: (TvlChain | TvlStaking)[]) =>
+  rows.map((c) => (c.read ? `${TVL_CHAINS[c.chain]} ${usdFmt.format(c.usd)}` : `${TVL_CHAINS[c.chain]} could not be read just now`)).join(' · ');
 
 /** A failed refresh keeps the last figure that was read; its own time then says how old it is. */
 function keepRead<T extends { state: string }>(prev: T | null, next: T): T {
@@ -94,17 +98,17 @@ export function VenueStats() {
         <FinePrint summary="What counts">
           {tvlRead && (
             <>
-              <p data-testid="venue-tvl-chains">
-                {tvlRead.chains
-                  .map((c) => (c.read ? `${TVL_CHAINS[c.chain]} ${usdFmt.format(c.usd)}` : `${TVL_CHAINS[c.chain]} could not be read just now`))
-                  .join(' · ')}
-              </p>
+              <p data-testid="venue-tvl-chains">Pools: {byChain(tvlRead.chains)}</p>
+              <p data-testid="venue-tvl-staking">Staked: {byChain(tvlRead.staking)}</p>
               {tvlRead.chains.some((c) => c.read && c.unvalued > 0) && (
                 <p>Pools paired with BAYLA are left out while none of our pools gives BAYLA a price.</p>
               )}
+              {tvlRead.staking.some((c) => c.read && c.unvalued > 0) && <p>A staked coin with no market price just now is left out.</p>}
               <p>
-                TVL is what our pools hold, read from each chain every minute. A pool counts at twice its SOL, USDC,
-                BAYLA or ETH; a range pool counts only those coins. Other tokens never add to it.
+                TVL is what our pools hold plus what is staked in our staking pools, read from each chain every minute.
+                A pool counts at twice its SOL, USDC, BAYLA or ETH; a range pool counts only those coins; other tokens in
+                a pool never add to it. A staked coin counts at its market price: Jupiter's on Solana, DefiLlama's on
+                Ethereum and Base.
               </p>
             </>
           )}

@@ -15,6 +15,115 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-11-02: a one-time operator tool names an owner that config has since moved, and it would have run clean while pointing at the wrong wallet
+
+**Believed:** `frontend/create-fee-atas.mjs`, the tool that creates the fee wallet's token accounts,
+names the wallet the site pays into: its header says it uses "the SAME libraries + derivation the
+app uses", and it had created the two accounts that existed.
+
+**Measured** (2026-11-02, #1105): the tool hardcoded `FEE_OWNER =
+DVGiHe98CzEf7VuCS6YpVDFnp38ubJmKNLt6aMJwAyER`, and `frontend/scripts/addresses.json` (row
+`swap-fee-account`) records that the live bundle's fee owner has been the Squads vault
+`GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd` since before 2026-10-10: the old owner's two
+accounts hold 0 with one transaction each (their creation), and the vault's accounts have taken
+every fee. Adding USDT to the tool as it stood and running it would have made a USDT account for a
+wallet nothing pays into; after the merge every USDT-paid swap would still have failed at Jupiter
+(the fee account does not exist), and the tool's own output would have read success. The corrected
+tool's `--dry-run` derived the vault's wSOL and USDC accounts to the registry's two rows exactly.
+
+**Do:** before running a tool that hardcodes an owner, recipient or authority, check that address
+against the registry and the deployed setting, never against the tool's own comment. Its dry run
+prints the owner, so the operator compares it with `VITE_SOLANA_FEE_ACCOUNT` before signing.
+
+**Believed:** a top-level-await Node script may `process.exit(0)` once it has printed its result.
+**Measured:** with a `@solana/web3.js` `Connection` that had just answered
+`getMultipleAccountsInfo`, `process.exit(0)` on Windows (Node 24.13.0) printed `Assertion failed:
+!(handle->flags & UV_HANDLE_CLOSING), file src\win\async.c, line 76` after the correct output and
+exited 127. Returning from `main()` into `process.exitCode` exited 0 with the same output.
+**Do:** in a script that opened an RPC connection, set `process.exitCode` and return; call
+`process.exit` only before the connection exists.
+
+## 2026-11-01: a claim test that makes its own rewards tests the reward rate, not the claim
+
+**Believed:** opening a fresh position on a fork and moving the clock is the honest way to get
+something to claim, because the contract's own math makes the rewards.
+
+**Measured** (TegridyStaking v1, anvil 1.5.1 fork of mainnet block ~26,321,738, `rewardRate()` 0
+since the wind-down): the fresh 40,000 TOWELI position earned 0 in 120 s, Claim stayed disabled,
+and the leg blamed an exhausted reserve that had just been refilled with exactly what was owed.
+The 22 existing positions were owed 3,579,490.94 TOWELI; claiming four of them through the page
+paid each exactly `earned`, to the wei, and an expectation one wei off failed.
+
+**Do:** when a protocol can stop accruing on purpose, drive the claim as a holder who is already
+owed. Find them on the fork every run (owner of the id, the id the site shows them, owed above
+the CTA's floor), impersonate them, and assert the payout to the wei. Never hardcode the holder:
+real holders claim on mainnet, and a retry must pass over the one an earlier attempt paid.
+
+---
+
+## 2026-11-01: the strongest setting is not for the hardest code
+
+**Believed:** the strongest model setting belongs on the hardest code, and a strong builder at
+the helm ships a strong venue.
+
+**Measured** (the island's walk of trunk `0d1761b` at 390 px, 2026-11-01, and this repo's own
+counts): every piece on the trunk was built well and tested, and the sum was 67 routes
+(`App.tsx`), 37 menu entries (`lib/navConfig.ts`), a 12,766 px pools page under the Add door,
+a Swap that opened on Ethereum for Solana traffic (three `'ethereum'` fallbacks in
+`useSectionChain.ts`, "like uniswap" read literally in `sectionChains.ts`), a cold wallet told
+"Cannot launch a token yet" (`HeatCard.tsx`), and an Add door that said "Adding is off" on
+every pool whenever strangers arrived (the free Jupiter key's one call a second, spent by the
+venue's own pages: 12 quotes from one /pools tab in its first minute, 6 of 12 probes refused
+at 0.7 s spacing). None of those is a bug a test catches. They are what a builder model
+produces when it also decides: it adds and never removes, it reads an owner's words literally,
+and it builds the next three things nobody asked for.
+
+**Do:** law 25 (`docs/WORKSHOP_SETTINGS.md`). The strongest setting decides what is on a
+stranger's first screen, the words, anything with money's shape, the order of shipping, and
+reads the result at 390 before it merges; a builder setting builds a specified thing to a
+line that says done; a lower setting counts, lints and moves docs. Every pull request names
+its setting in the first line of its body. The proof does not change with the setting: a
+screenshot at 390 from a production build.
+
+---
+
+## 2026-11-01: a burst from many browsers is not fixed by caching each browser's read
+
+**Believed:** marking a quote as shareable at the edge (`s-maxage=30`) was enough to keep a
+one-request-a-second key under its limit, because every visitor would then share one read.
+
+**Measured** (2026-11-01, `src/lib/solana/lp/outsidePrice.ts` before build 1): the price
+check's sale leg quoted exactly what the buy returned, so its amount changed with every read
+and its edge key never repeated; and even a shared buy leg burst in parallel, seven pools at
+once, from the first visitor of every window. The island's probe: 6 of 12 calls refused at
+0.7 s spacing, 1 of 10 at 3 s. A per-visitor read cannot pace across visitors.
+
+**Do:** read once for everyone, server-side, paced to the key's plan (`api/outside-prices.js`,
+`JUPITER_RATE_PER_SEC`), with a fixed probe amount (the buy's return rounded to two figures)
+so even the loop's own reads share keys; keep the answer at the edge with a long
+`stale-while-revalidate` and answer a failed loop `no-store`, so a refusal never replaces the
+last good answer. The browser's rule then becomes an age: a price under ten minutes old
+passes, older holds, in one row.
+
+---
+
+## 2026-10-31: a merged pull request reads `mergeable: UNKNOWN`, and REST still calls it clean
+
+**Believed:** `gh pr view N --json mergeable,mergeStateStatus` reading `UNKNOWN` after a push is
+GitHub still computing; and `gh api repos/.../pulls/N` reading
+`mergeable: true, mergeable_state: clean` confirms the pull request can be merged.
+
+**Measured** (#1059, 2026-10-31): the pull request was merged at 18:34:46Z. From 18:34Z to 18:48Z,
+ten GraphQL reads returned `UNKNOWN` for both fields and three REST reads returned `true` and
+`clean`. Neither said merged. The report at 18:46Z called the pull request open and waiting for the
+owner's word; the owner's "merge it" then found nothing to merge. The tell was in a read I had:
+`updatedAt` had jumped to 18:34:49Z.
+
+**Do:** read `state` and `mergedAt` in the same call as `mergeable`, and read them first. An
+`UNKNOWN` that survives one re-read is a reason to look at `state`, not to wait. REST's
+`mergeable_state` is stale on a merged pull request and proves nothing on its own. Before any
+`gh pr merge`, read `state` once more: the merge word can arrive after the merge.
+
 ## 2026-10-30: one build, two word counts: a ceiling comes from the run where everything landed; a Git Bash `mklink /J` makes no junction
 
 **Believed:** `e2e/word-budget.spec.ts` measures a route once and the figure is the route's.

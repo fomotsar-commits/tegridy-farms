@@ -16,7 +16,7 @@ const at = (url: string) =>
     wrapper: ({ children }: { children: ReactNode }) => <MemoryRouter initialEntries={[url]}>{children}</MemoryRouter>,
   }).result.current;
 
-/** The same rule as Pools: the wallet's chain signs; only a visitor with no wallet follows `?c=`. */
+/** The wallet's chain signs; only a visitor with no wallet follows `?c=` (Pools follows it always). */
 describe('useSwapChainId', () => {
   beforeEach(() => {
     wallet.isConnected = false;
