@@ -79,6 +79,9 @@ export type SharedEntry =
 export interface SharedPrices {
   read_at: number;
   prices: Record<string, SharedEntry>;
+  /** Every listed token's dollar price and SOL's, from the loop's one price/v3 call; null when it could not be read. */
+  usd?: Record<string, number> | null;
+  usd_read_at?: number | null;
 }
 
 let shared: { at: number; answer: Promise<SharedPrices | null> } | null = null;
@@ -99,7 +102,8 @@ export function readSharedPrices(fetchImpl: typeof fetch = fetch, nowMs = Date.n
       if (!res.ok) return null;
       const body = (await res.json()) as Partial<SharedPrices> | null;
       if (!body || typeof body.read_at !== 'number' || !body.prices || typeof body.prices !== 'object') return null;
-      return { read_at: body.read_at, prices: body.prices };
+      const usd = body.usd && typeof body.usd === 'object' ? body.usd : null;
+      return { read_at: body.read_at, prices: body.prices, usd, usd_read_at: typeof body.usd_read_at === 'number' ? body.usd_read_at : null };
     } catch {
       return null;
     }
@@ -307,6 +311,24 @@ export async function readListedOrOutsidePrice(
 ): Promise<OutsidePrice> {
   const listed = opts.fresh === true ? null : await listedOutsidePrice(mint, fetchImpl);
   return listed ?? readOutsidePrice(mint, tokenDecimals, guard, fetchImpl, signal, opts);
+}
+
+/**
+ * Dollar prices for `mints` from the shared list, for the list's $ figures: every mint asked
+ * for must be there and under ten minutes old, else null and the caller reads price/v3 itself.
+ */
+export async function listedUsdPrices(mints: readonly string[], fetchImpl: typeof fetch = fetch, nowMs = Date.now()): Promise<Record<string, number> | null> {
+  const ids = [...new Set(mints.filter(Boolean))];
+  if (ids.length === 0) return {};
+  const list = await readSharedPrices(fetchImpl);
+  if (!list?.usd || typeof list.usd_read_at !== 'number' || nowMs - list.usd_read_at > FRESH_FOR_MS) return null;
+  const out: Record<string, number> = {};
+  for (const m of ids) {
+    const v = list.usd[m];
+    if (typeof v !== 'number' || !(v > 0)) return null;
+    out[m] = v;
+  }
+  return out;
 }
 
 /** The shared list's price for one token, or null when the list does not carry it or did not answer. Never throws. */

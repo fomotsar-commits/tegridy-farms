@@ -7,6 +7,7 @@ import { Keypair } from '@solana/web3.js';
 import {
   __resetSharedPrices,
   fromShared,
+  listedUsdPrices,
   readAgo,
   readListedOrOutsidePrice,
   readSharedPrices,
@@ -95,6 +96,23 @@ describe('fromShared: the list’s entry as a price', () => {
     expect(readAgo(now - 40_000, now)).toBe('read 40 s ago');
     expect(readAgo(now - 3 * MIN, now)).toBe('read 3 min ago');
     expect(readAgo(now + 5000, now)).toBe('read 0 s ago');
+  });
+});
+
+describe('listedUsdPrices: the list\'s dollar prices for the $ figures', () => {
+  const now = Date.now();
+  const list = (usd: Record<string, number> | null, usdAt: number | null = now): SharedPrices => ({ read_at: now, prices: {}, usd, usd_read_at: usdAt });
+  it('every mint asked for, under ten minutes old: the prices; else null, and the caller reads price/v3', async () => {
+    const w = world(list({ [BAYLA]: 0.001, [SOL]: 180 }));
+    expect(await listedUsdPrices([BAYLA, SOL], w.f)).toEqual({ [BAYLA]: 0.001, [SOL]: 180 });
+    expect(await listedUsdPrices([BAYLA, UNLISTED], w.f)).toBeNull();
+    __resetSharedPrices();
+    expect(await listedUsdPrices([BAYLA], world(list({ [BAYLA]: 0.001 }, now - 11 * MIN)).f)).toBeNull();
+    __resetSharedPrices();
+    expect(await listedUsdPrices([BAYLA], world(list(null)).f)).toBeNull();
+    __resetSharedPrices();
+    expect(await listedUsdPrices([BAYLA], world(list({ [BAYLA]: 0 })).f)).toBeNull();
+    expect(await listedUsdPrices([], w.f)).toEqual({});
   });
 });
 

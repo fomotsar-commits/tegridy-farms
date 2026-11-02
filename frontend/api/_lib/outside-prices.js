@@ -47,9 +47,12 @@ const TOKEN_PROGRAMS = new Set([TOKEN_PROGRAM, TOKEN_2022_PROGRAM]);
 
 /** This instance's last good read per token. Warm instances carry it between loops; a cold one starts empty. */
 const lastGood = new Map();
+/** The last dollar prices this instance read (price/v3, one call for every token and SOL), with when. */
+let lastUsd = null;
 /** Tests only. */
 export function __resetOutsidePrices() {
   lastGood.clear();
+  lastUsd = null;
 }
 
 /** The sale's amount: the buy's return rounded to two significant figures, so the sale's quote repeats. */
@@ -268,6 +271,34 @@ async function quoteWithFallback(up, inputMint, outputMint, amount, fetchImpl, p
 }
 
 /** Waits so that calls are at least `spacing` apart; `atLeast` asks for that long a pause before this one, from now. */
+/** Every token's dollar price and SOL's in ONE price/v3 call, for the list's $ figures (poolList.ts readMarketPrices). Null when it could not be read. */
+async function readUsd(up, ids, fetchImpl, pace) {
+  const ask = async (host) => {
+    await pace();
+    let res;
+    try {
+      res = await fetchImpl(`${host.base}/price/v3?ids=${ids.join(",")}`, { headers: { Accept: "application/json", ...host.headers }, signal: AbortSignal.timeout(JUPITER_TIMEOUT_MS) });
+    } catch {
+      return { kind: "refused", status: 0 };
+    }
+    if (!res.ok) return { kind: "refused", status: res.status };
+    const { text } = await readBoundedText(res, 256 * 1024);
+    try {
+      const body = JSON.parse(text);
+      const out = {};
+      for (const [mint, v] of Object.entries(body ?? {})) {
+        if (v && typeof v.usdPrice === "number" && Number.isFinite(v.usdPrice) && v.usdPrice > 0) out[mint] = v.usdPrice;
+      }
+      return { kind: "ok", usd: out };
+    } catch {
+      return { kind: "refused", status: res.status };
+    }
+  };
+  let a = await ask(up);
+  if (a.kind === "refused" && up.fallback && [401, 403, 404, 429].includes(a.status)) a = await ask(up.fallback);
+  return a.kind === "ok" ? a.usd : null;
+}
+
 function pacer(spacing, sleep) {
   let last = 0;
   return async (atLeast = 0) => {
@@ -360,8 +391,13 @@ export async function readOutsidePrices({ fetchImpl, env = process.env, nowMs = 
       }
     }
   }
+  // The dollar prices, after the quotes: one call for every token and SOL; the last good read stands when it fails.
+  if (mints.length > 0 && nowMs() - t0 <= LOOP_BUDGET_MS) {
+    const usd = await readUsd(up, [...mints, WSOL_MINT], fetchImpl, pace);
+    if (usd && Object.keys(usd).length > 0) lastUsd = { usd, read_at: nowMs() };
+  }
   const okCount = Object.values(prices).filter((p) => p.state === "ok" || p.state === "no-route").length;
-  return { read_at: nowMs(), mints: all.length, okCount, prices };
+  return { read_at: nowMs(), mints: all.length, okCount, prices, usd: lastUsd?.usd ?? null, usd_read_at: lastUsd?.read_at ?? null };
 }
 
 function setCors(req, res) {
@@ -387,7 +423,7 @@ export async function handleOutsidePrices(req, res, { fetchImpl = globalThis.fet
       return res.status(502).json({ state: "unread", detail: "Jupiter priced none of the venue's tokens this time", read_at: read.read_at, prices: read.prices });
     }
     res.setHeader("Cache-Control", `s-maxage=${maxAgeSec(env)}, stale-while-revalidate=${SWR_SECS}`);
-    return res.status(200).json({ state: "ok", read_at: read.read_at, fresh_for_ms: FRESH_FOR_MS, probe_lamports: PROBE_LAMPORTS.toString(), prices: read.prices });
+    return res.status(200).json({ state: "ok", read_at: read.read_at, fresh_for_ms: FRESH_FOR_MS, probe_lamports: PROBE_LAMPORTS.toString(), prices: read.prices, usd: read.usd, usd_read_at: read.usd_read_at });
   } catch (e) {
     res.setHeader("Cache-Control", "private, no-store");
     return res.status(502).json({ state: "unread", detail: logSafe(e?.message ?? String(e)) });

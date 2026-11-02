@@ -6,7 +6,7 @@ import { withReadCommitment } from '../curve/confirmedRpc';
 import { readTokenSafety, type TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { findPools, readFeeTiers, type FeeTierRead, type PoolSearchRead, type PoolView } from '../../../lib/solana/lp/poolFinder';
 import { readLedger, type LedgerRead } from '../../../lib/solana/lp/ledger';
-import { listedOutsidePrice, readLegQuote, readOutsidePrice, type LegQuote, type OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
+import { listedOutsidePrice, listedUsdPrices, readLegQuote, readOutsidePrice, type LegQuote, type OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
 import { ownPoolPrograms } from '../../../lib/solana/lp/ownPools';
 import { readPoolPastPage, type PoolPastPage } from '../../../lib/solana/lp/poolPast';
 import { listPools, type PoolListRead } from '../../../lib/solana/lp/poolList';
@@ -127,7 +127,8 @@ export function browserLpReaders(): LpReaders | null {
       return listing;
     },
     // Ends like every LP read (readFetch.ts): a read that never answers is "not read", not a list with no price tags.
-    marketPrices: (mints) => getUsdPrices(mints, AbortSignal.timeout(READ_TIMEOUT_MS), { shared: true }),
+    // The shared list's dollar prices first (one read for everyone); price/v3 for a mint it does not carry.
+    marketPrices: async (mints) => (await listedUsdPrices(mints, jupiter)) ?? getUsdPrices(mints, AbortSignal.timeout(READ_TIMEOUT_MS), { shared: true }),
     // The shared list first (one read for everyone, api/outside-prices.js); the two quotes for a token it does not carry and for a fresh read.
     outsidePrice: async (mint, decimals, o) =>
       (o?.fresh ? null : await listedOutsidePrice(mint, jupiter)) ?? readOutsidePrice(mint, decimals, { rpc, programId: ownPoolPrograms([programId.toBase58()]) }, jupiter, undefined, o),

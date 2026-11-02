@@ -45,13 +45,18 @@ function poolSlice(mint0, mint1) {
  * The chain and Jupiter behind one loop. `pools` lists the venue; `price` prices a mint in SOL
  * (or 'no-route', or an HTTP status to refuse with); `owners` is who owns each route pool.
  */
-function world({ pools, price, owners = { [ROUTE_POOL]: OTHER_DEX }, decimals = { [BAYLA]: 6, [USDC]: 6 } } = {}) {
+function world({ pools, price, owners = { [ROUTE_POOL]: OTHER_DEX }, decimals = { [BAYLA]: 6, [USDC]: 6 }, usd = {} } = {}) {
   const jupiterCalls = [];
   const chainCalls = [];
   const fetchImpl = vi.fn(async (url, init) => {
     const u = String(url);
     if (u.includes("jup.ag")) {
       jupiterCalls.push({ at: Date.now(), url: u, headers: init?.headers ?? {} });
+      if (u.includes("/price/v3?ids=")) {
+        if (usd === "refused") return new Response("refused", { status: 429 });
+        const ids = new URL(u).searchParams.get("ids").split(",");
+        return new Response(JSON.stringify(Object.fromEntries(ids.map((id) => [id, { usdPrice: usd[id] ?? 1.5 }]))), { status: 200 });
+      }
       const q = new URL(u).searchParams;
       const input = q.get("inputMint");
       const output = q.get("outputMint");
@@ -139,13 +144,20 @@ describe("GET /api/outside-prices", () => {
     expect(Math.abs(bayla.sol_per_token / 7.5e-6 - 1)).toBeLessThan(0.011);
     expect(typeof bayla.read_at).toBe("number");
     expect(bayla.pools).toEqual([ROUTE_POOL]);
+    // The dollar prices ride the same loop: one price/v3 call for every token and SOL.
+    expect(out.body.usd[BAYLA]).toBe(1.5);
+    expect(out.body.usd[WSOL_MINT]).toBe(1.5);
+    expect(typeof out.body.usd_read_at).toBe("number");
+    const v3 = w.jupiterCalls.filter((c) => c.url.includes("/price/v3?ids="));
+    expect(v3).toHaveLength(1);
+    expect(new URL(v3[0].url).searchParams.get("ids").split(",").sort()).toEqual([USDC, BAYLA, WSOL_MINT].sort());
     // Two quotes a token, the sale at the rounded probe, through the keyless host with no key set.
-    expect(w.jupiterCalls).toHaveLength(4);
+    expect(w.jupiterCalls.filter((c) => c.url.includes("/swap/v1/quote?"))).toHaveLength(4);
     const sale = new URL(w.jupiterCalls[1].url).searchParams;
     expect(sale.get("inputMint")).toBe(BAYLA);
     expect(sale.get("amount")).toBe(bayla.probe);
     expect(bayla.probe).toMatch(/^\d\d0+$/);
-    expect(w.jupiterCalls.every((c) => c.url.startsWith("https://lite-api.jup.ag/swap/v1/quote?"))).toBe(true);
+    expect(w.jupiterCalls.every((c) => c.url.startsWith("https://lite-api.jup.ag/"))).toBe(true);
     // The marker that shares a browser quote at our edge never goes to Jupiter.
     expect(w.jupiterCalls.every((c) => !c.url.includes("priceCheck"))).toBe(true);
   });
@@ -154,8 +166,8 @@ describe("GET /api/outside-prices", () => {
     const w = world({ pools: [[WSOL_MINT, BAYLA], [WSOL_MINT, USDC]], price: { [BAYLA]: 7.5e-6, [USDC]: 0.0055 } });
     const { res } = makeRes();
     await handler(makeReq(), res, { fetchImpl: w.fetchImpl, sleep });
-    // Four calls: the first waits for nothing, each of the next three waits the plan's spacing (the stubs answer in 0 ms).
-    expect(sleep).toHaveBeenCalledTimes(3);
+    // Five calls (four quotes and the dollar read): the first waits for nothing, each of the next four waits the plan's spacing (the stubs answer in 0 ms).
+    expect(sleep).toHaveBeenCalledTimes(4);
     for (const [ms] of sleep.mock.calls) expect(ms).toBeGreaterThan(1000);
   });
 
@@ -192,9 +204,25 @@ describe("GET /api/outside-prices", () => {
     await handler(makeReq(), res, { fetchImpl: w.fetchImpl, sleep });
     expect(out.status).toBe(200);
     expect(out.body.prices[BAYLA].state).toBe("ok");
-    // Three calls: the refused buy, the buy again after the pause, the sale.
-    expect(w.jupiterCalls).toHaveLength(3);
+    // Three quotes: the refused buy, the buy again after the pause, the sale (and then the dollar read).
+    expect(w.jupiterCalls.filter((c) => c.url.includes("/swap/v1/quote?"))).toHaveLength(3);
     expect(sleep.mock.calls.some(([ms]) => ms >= 2000)).toBe(true);
+  });
+
+  it("a refused dollar read keeps this instance's last good dollar prices, and a cold instance answers none", async () => {
+    const w = world({ pools: [[WSOL_MINT, BAYLA]], price: { [BAYLA]: 7.5e-6 }, usd: "refused" });
+    const { res, out } = makeRes();
+    await handler(makeReq(), res, { fetchImpl: w.fetchImpl, sleep });
+    expect(out.status).toBe(200);
+    expect(out.body.prices[BAYLA].state).toBe("ok");
+    expect(out.body.usd).toBeNull();
+    expect(out.body.usd_read_at).toBeNull();
+    const good = world({ pools: [[WSOL_MINT, BAYLA]], price: { [BAYLA]: 7.5e-6 }, usd: { [BAYLA]: 0.001 } });
+    await handler(makeReq(), makeRes().res, { fetchImpl: good.fetchImpl, sleep });
+    const again = world({ pools: [[WSOL_MINT, BAYLA]], price: { [BAYLA]: 7.5e-6 }, usd: "refused" });
+    const second = makeRes();
+    await handler(makeReq(), second.res, { fetchImpl: again.fetchImpl, sleep });
+    expect(second.out.body.usd[BAYLA]).toBe(0.001);
   });
 
   it("Jupiter's own no-route answer is no-route, never unread", async () => {
