@@ -8,7 +8,8 @@ import { getTxUrl } from '../../lib/explorer';
 import { coinsInOrder, dollarsEach, evmBasketFor, MIN_USD_PER_COIN, minOrderUsd, minOut, shortAmount, splitOrder, usdText, usdToBaseUnits } from '../../lib/islandBasket';
 import { buildEvmOrder, quoteEvmLegs, routeEvmLeg, type EvmLegQuote, type EvmLegRoute, type QuoteClient } from '../../lib/evm/islandBasketEvm';
 import { extractErrorMessage, isUserRejection, surfaceReceiptNotice, waitForReceiptOutcome } from '../../lib/txErrors';
-import { BasketCta, IslandBasketButton, IslandBasketDialog, useBasketSplit, type BasketRow, type RowTone } from './IslandBasket';
+import { BasketCta, IslandBasketButton, IslandBasketDialog, type BasketRow, type RowTone } from './IslandBasket';
+import { useBasketSplit } from './useBasketSplit';
 
 /** A quote older than this is asked for again while the order is open (the swap's own window). */
 const REQUOTE_MS = 30_000;

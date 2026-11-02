@@ -22,7 +22,8 @@ import { setLastBuy } from '../../lib/heat/lastBuy';
 import { bungalowByAddress } from '../../lib/bungalows';
 import { surfaceUnconfirmedTx } from '../../lib/txErrors';
 import { readOwnPoolsFor } from './useSolanaRoute';
-import { BasketCta, IslandBasketButton, IslandBasketDialog, useBasketSplit, type BasketRow, type RowTone } from './IslandBasket';
+import { BasketCta, IslandBasketButton, IslandBasketDialog, type BasketRow, type RowTone } from './IslandBasket';
+import { useBasketSplit } from './useBasketSplit';
 
 /**
  * The order's figures are asked for again this often while it is open. Longer than the
