@@ -7,11 +7,18 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
-### 2026-11-01
+### 2026-11-02
 
 - Swap on Base: BNKR, DRB, QR, JBM, $mfer, and TOWELI and RIZZ on Base now trade against their own Uniswap V3 pools, the ones holding their real liquidity, through Uniswap's own router. Selling 1.75 million BNKR now gets about 0.22 ETH instead of 0.0000011 ETH. The swap still takes whichever route pays you most, after fees: our pools, Uniswap V2, or the coin's V3 pool. A trade through the V3 pool pays the venue its usual 0.5%, always in ETH, to the venue's fee Safe on Base, in the same transaction; the pool's own 1% fee goes to its liquidity providers. A sale asks you to approve the coin once, then to sign a permit for exactly the amount you are selling, valid for 30 minutes. These coins are now on Base's swap list, so they no longer show as unverified.
+- A Solana swap paid in USDT now carries the venue's fee, as one paid in SOL or USDC does. The swap page's fee line reads "SOL, USDC or USDT".
+
+### 2026-11-01
+
+- Pools, Venue AMM: the All pools list now puts the pools with the most money in first, whatever coin each is paired with, in every room alike. Before, every SOL pool came first (after the room's own coin), so BAYLA / USDC, holding $1,482, sat under SOL pools holding $47. A pool priced far below Jupiter is ranked by its SOL, USDC or BAYLA side, so a pool stuffed with a coin someone printed cannot take the top spot.
+- The Arbitrage card on the Solana pools page now lists only trades that really pay. Each of the top five gaps is checked against Jupiter's real quote for the other half of the round trip (a thin coin's real Jupiter price can sit points under its listed one), and a trip that loses or only breaks even is left out and counted in one line. Pools it could not check are said, never shown as "None".
 - Swap: a trade that would move the price 15% or more can no longer be sent. The Swap button reads "Price impact too high" and the page says the pool is too thin, the line Uniswap's own app uses. Before, only a red warning showed: on Base, 1.75 million BNKR quoted 0.0000011 ETH (about $0.002) from a nearly empty Uniswap V2 pool, against about 0.22 ETH at market, and the Swap button still worked.
 - Solana reads no longer run out on phones and iPads. The home page re-read the BAYLA lock ladder every few seconds instead of every 45, so an open tab used about 100 of the site's 300 Solana reads a minute, which a whole house (or a phone network) shares, and the dashboard said "Couldn't read your Solana coins" when they ran out. It now re-reads every 45 seconds as meant, and a read the site's limit turns away waits the time the limit names and asks again (twice at most), instead of saying it could not read.
+- Dashboard: a pool share in a coin with no room on the island, like BIG BRAIN, is now named by the coin's own ticker ("BIG BRAIN / SOL pool", with its whole address under it) instead of the first four letters of its address, and shows its picture instead of a plain green square. The BIG BRAIN your wallet holds is now listed under Holdings, with its worth.
 
 ### 2026-10-31
 
