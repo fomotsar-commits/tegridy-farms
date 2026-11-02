@@ -198,6 +198,35 @@ export function poolWorthUsd(view: PoolView, usd: ReadonlyMap<string, number>): 
 }
 
 /**
+ * What All pools ranks a pool by, in dollars: what it holds (`poolWorthUsd`), but never more
+ * than its pairing coin's side backs at a fair price. Anyone can print more of their own coin:
+ * a pinch of SOL beside a billion printed tokens Jupiter prices at all would otherwise head the
+ * list. Within PRICE_TOLERANCE of Jupiter the token side is at most 1/(1 − tolerance) of the
+ * coin side, so a row with no price tag ranks by exactly the dollars it shows. A token Jupiter
+ * does not price counts at the pool's own price: the coin side twice. Null when the pairing
+ * coin has no price.
+ */
+export function poolRankUsd(view: PoolView, usd: ReadonlyMap<string, number>): number | null {
+  const coin = usd.get(view.quote.mint);
+  if (coin === undefined) return null;
+  const coinSide = (Number(view.quoteReserve) * coin) / 10 ** view.quote.decimals;
+  const worth = poolWorthUsd(view, usd);
+  return worth === null ? 2 * coinSide : Math.min(worth, coinSide * (1 + 1 / (1 - PRICE_TOLERANCE)));
+}
+
+/**
+ * The pools, most money in first (owner, 2026-11-01: "descending order from highest tvl to
+ * lowest"), by `poolRankUsd`. A pool whose pairing coin has no price goes last; those, and
+ * ties, keep the order they came in.
+ */
+export function byWorth(pools: readonly PoolView[], usd: ReadonlyMap<string, number>): PoolView[] {
+  return pools
+    .map((view, i) => ({ view, i, rank: poolRankUsd(view, usd) ?? -1 }))
+    .sort((a, b) => b.rank - a.rank || a.i - b.i)
+    .map((r) => r.view);
+}
+
+/**
  * What one trade could take from a row's gap, in USD at Jupiter's market prices. `buy`: the
  * token is cheap here, so the trade buys it with the pool's coin; `sell`: it is dear here, so
  * the trade sells it in. The trade is sized to where the next bit no longer pays after the
