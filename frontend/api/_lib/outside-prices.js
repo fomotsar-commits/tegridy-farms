@@ -271,10 +271,10 @@ async function quoteWithFallback(up, inputMint, outputMint, amount, fetchImpl, p
 }
 
 /** Waits so that calls are at least `spacing` apart; `atLeast` asks for that long a pause before this one, from now. */
-/** Every token's dollar price and SOL's in ONE price/v3 call, for the list's $ figures (poolList.ts readMarketPrices). Null when it could not be read. */
-async function readUsd(up, ids, fetchImpl, pace) {
-  const ask = async (host) => {
-    await pace();
+/** Every token's dollar price and SOL's in ONE price/v3 call, for the list's $ figures (poolList.ts readMarketPrices). Null when it could not be read; a 429 is tried once more after a pause. */
+export async function readUsd(up, ids, fetchImpl, pace) {
+  const ask = async (host, atLeast = 0) => {
+    await pace(atLeast);
     let res;
     try {
       res = await fetchImpl(`${host.base}/price/v3?ids=${ids.join(",")}`, { headers: { Accept: "application/json", ...host.headers }, signal: AbortSignal.timeout(JUPITER_TIMEOUT_MS) });
@@ -296,6 +296,7 @@ async function readUsd(up, ids, fetchImpl, pace) {
   };
   let a = await ask(up);
   if (a.kind === "refused" && up.fallback && [401, 403, 404, 429].includes(a.status)) a = await ask(up.fallback);
+  if (a.kind === "refused" && a.status === 429) a = await ask(up.fallback ?? up, RETRY_AFTER_429_MS);
   return a.kind === "ok" ? a.usd : null;
 }
 
