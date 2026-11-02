@@ -20,11 +20,6 @@ export const LEGACY_STAKING_ADDRESSES = [
   '0x044A925839ac3CEC0bccC93d00230f39FFbeEe44',
   '0x626644523d34B84818df602c991B4a06789C4819',
 ] as const;
-// Restaking: the EIP-170 split LANDED 2026-08-19 (admin sister, host 22,114 B —
-// 2,462 B under the limit). Deploy is now gated on the external re-audit and a
-// real Safe for MULTISIG (docs/OPERATOR_NEXT.md §C4/§C5), not on size or a
-// build. Zeroed until deployed; UI gates on isDeployed().
-export const TEGRIDY_RESTAKING_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
 
 // EIP-170 admin sister contracts — RELAUNCH 2026-06-06 (deployed + wired by DeployMVP).
 export const TEGRIDY_STAKING_ADMIN_ADDRESS = '0x4B134C08aAF86B6e2A8E097D1039C4e7638806f3' as const;
@@ -57,33 +52,9 @@ export const POL_ACCUMULATOR_ADDRESS = '0x2A5f65f4C74b1e49e77aE9A57e20fBDb0cED11
 // 0xa7EF711… and the 2026-05-31 ZEROED interim are both superseded.)
 export const LP_FARMING_ADDRESS = '0x1171268AE5B69791c47Fd589b7825932c957e149' as const;
 
-// Gauge Controller — DEPLOYED 2026-07-16 gated batch at
-// 0x6c79522D47Cf6d1051Cb474E81d9b6f3996c1054 (Etherscan-verified; gaugeCount()==0).
-// Kept ZERO here ON PURPOSE: emission/spend-side features stay unsurfaced until a
-// revenue line funds them and gauges exist (see CONTRACTS.md + EVERYTHING_LEFT Tier 3.4-3.6).
-// An earlier revision of this comment said "no src contract, not in DeployMVP" — that
-// was true on 2026-05-31 and stale after the gated batch shipped. Zero = not surfaced,
-// NOT not-deployed. Wave-0 prev (DO NOT wire — pairToGauge reverts): 0xb93264aB0AF377F7C0485E64406bE9a9b1df0Fdb
-export const GAUGE_CONTROLLER_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
-
-// Community — both DEPLOYED 2026-07-16 gated batch (Etherscan-verified), kept ZERO
-// on purpose: they SPEND (grants/bounties), so they wait for a revenue line + the
-// Safe re-home. Zero = not surfaced, NOT not-deployed (CONTRACTS.md is canonical).
-// CommunityGrants live at 0xeBC3aaf48297b8ccFa8272D9E68c1545eb9CD471. Prev: 0x8f1Ba1eC97a932EE1332BA0f366BC6aDf60B3032
-export const COMMUNITY_GRANTS_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
-// MemeBountyBoard live at 0x6D2C6EC29D97fe8b6D1471091DEEE36baf69d890 (bountyCount()==0). Prev: 0x3457C2210be35bA7AF6F382a76247Ecd782BF0C9
-export const MEME_BOUNTY_BOARD_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
 export const REFERRAL_SPLITTER_ADDRESS = '0x6B3442dAcB62d40BA39fCe9b3CDa350FEa6f7e4c' as const; // RELAUNCH 2026-06-06 (DeployMVP)
 // RELAUNCH 2026-07-16 gated batch (DeployPremiumAccess; Etherscan-verified; fee 10,000 TOWELI/mo). Prev V1: 0xaA16dF3dC66c7A6aD7db153711329955519422Ad
 export const PREMIUM_ACCESS_ADDRESS = '0x9DC2675B2017687dD9768C63D15f0aD5194Fa3f5' as const;
-// VoteIncentives — DEPLOYED 2026-07-16 gated batch at
-// 0x6e1dCB7EBD16E09edb574F414aDc664B2A5E21AF (+Admin 0xf87Ec231BA7FA3975619309bc16C698B2ea3B300).
-// Kept ZERO on purpose until after the Safe re-home AND setGaugeController: the setter
-// is ONE-SHOT in the deployed bytecode (no rotation path) and its only correct argument
-// is the gated-batch GaugeController 0x6c79522D…1054 — a hot-key typo bricks the bribe
-// market forever. Un-gate order: re-home → setGaugeController (Safe quorum) → gauges →
-// then surface (EVERYTHING_LEFT Tier 3.5/3.6). Prev: 0x417F44aee21Cc709262e71A7fdF6028cc17eCf1A
-export const VOTE_INCENTIVES_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
 // Tegridy Pro Pass — an ETH-priced access-pass NFT (deploy a TegridyDropV2 clone
 // via LaunchpadV2; the proceeds are real ETH to the treasury and it gates the Pro
 // perks). The frontend ownership gate + membership funnel auto-activate the
@@ -91,7 +62,6 @@ export const VOTE_INCENTIVES_ADDRESS = '0x00000000000000000000000000000000000000
 export const TEGRIDY_PRO_PASS_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
 
 // V3 Features — Deployed 2026-04-14
-export const TEGRIDY_LENDING_ADDRESS = '0x0000000000000000000000000000000000000000' as const; // ZEROED 2026-05-31 (relaunch; no src contract, not in DeployMVP). Prev: 0xd471e5675EaDbD8C192A5dA2fF44372D5713367f
 // V1 TegridyLaunchpad (0x5d5976...FF3C2) deleted from source 2026-04-19; existing
 // V1 clones remain browseable on Etherscan. Use TEGRIDY_LAUNCHPAD_V2_ADDRESS.
 export const TEGRIDY_NFT_POOL_FACTORY_ADDRESS = '0xbB8E49Ba4e3A85E2B8B70e00208770F429B56F5B' as const; // RELAUNCH 2026-07-16 gated batch (fee 50bps → treasury; pool template 0x98553C2a…ff481A). Prev V1: 0x1C0e1771943fbB299f4E19daD0fAA4Fa4e6c04f0
@@ -147,34 +117,6 @@ export const TREASURY_ADDRESS = '0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d' as 
  * no admin surface and the three destinations are immutable.
  */
 export const LOCKER_CLAIMER_ADDRESS = '0xD2Ac3dC13c6fd09855F0e4a077826983Aa66E6C7' as const;
-
-// ─── Airdrop / vesting / lock rails (#65, #28) ───────────────────────
-// UNDEPLOYED. These four are zero because no deploy ceremony has run for them —
-// this is the "not deployed" state, not the deployed-but-unsurfaced state that
-// GaugeController / VoteIncentives / grants / bounties are in above. Every surface
-// that touches them gates on isDeployed() and renders the SOON placeholder, so
-// filling an address in here is the whole activation step.
-//
-// The client-side merkle builder on /airdrop deliberately keeps working while these
-// are zero: computing a root from a CSV needs no chain, and a creator preparing a
-// campaign before the ceremony is a legitimate use. Only the funding + claim
-// transactions are gated.
-export const AIRDROP_FACTORY_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
-export const VESTING_FACTORY_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
-export const TEGRIDY_LOCK_VAULT_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
-// Read-only joiner over the two rails above. Its own availability flags are what the
-// lock viewer renders as NO DATA — a rail it cannot reach is never drawn as a zero.
-export const LAUNCH_LOCK_VIEW_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
-
-// ─── Staking-position secondary market (#60) ─────────────────────────
-// UNDEPLOYED. `contracts/src/markets/TegridyPositionMarket.sol` is written and
-// tested but no ceremony has run, so this stays zero and every surface under
-// components/positionMarket gates on isDeployed(). The market needs no wiring on
-// TegridyStaking to work — and specifically must NEVER be registered there via
-// applyLendingContract: that carve-out would exempt it from the transfer cooldown,
-// the transfer rate limit, and the AlreadyHasPosition receiver guard it is built to
-// respect. See the deploy notice in script/DeployPositionMarket.s.sol.
-export const POSITION_MARKET_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
 
 // Jungle Bay NFTs
 export const JBAC_NFT_ADDRESS = '0xd37264c71e9af940e49795F0d3a8336afAaFDdA9' as const;

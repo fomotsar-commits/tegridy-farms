@@ -133,6 +133,20 @@ async function quote(
   return { out, pools };
 }
 
+/** Jupiter's answer for one ExactIn trade, with the pools it came through. */
+export type LegQuote = { kind: 'ok'; out: bigint; pools: string[] } | { kind: 'no-route' } | { kind: 'unread'; detail: string };
+
+/** One ExactIn quote, shared at the edge like the price check's (`priceCheck=1`): the Arbitrage card's check of a row's other leg (arbCheck.ts). Never throws. */
+export async function readLegQuote(inputMint: string, outputMint: string, amount: bigint, fetchImpl: typeof fetch = fetch): Promise<LegQuote> {
+  try {
+    const q = await quote(inputMint, outputMint, amount, fetchImpl, undefined, false);
+    return { kind: 'ok', out: q.out, pools: q.pools };
+  } catch (e) {
+    if (e instanceof NoRoute) return { kind: 'no-route' };
+    return { kind: 'unread', detail: e instanceof Error ? e.message : String(e) };
+  }
+}
+
 export async function readOutsidePrice(
   mint: string,
   tokenDecimals: number,

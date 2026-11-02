@@ -25,9 +25,9 @@
 // is wired but unreadable is worse than one that is absent, because it looks like
 // coverage.
 
-import { TEGRIDY_LENDING_ADDRESS, TEGRIDY_NFT_LENDING_ADDRESS, isDeployed } from '../constants';
+import { TEGRIDY_NFT_LENDING_ADDRESS, isDeployed } from '../constants';
 
-export type ShieldVenueId = 'tegridy-nft-lending' | 'tegridy-lending' | 'aave-v3' | 'morpho-blue';
+export type ShieldVenueId = 'tegridy-nft-lending' | 'aave-v3' | 'morpho-blue';
 
 export type LiquidationMechanism = 'deadline-default' | 'price-health-factor';
 
@@ -51,15 +51,6 @@ export const SHIELD_VENUES: Record<ShieldVenueId, ShieldVenue> = {
     operatorStep:
       'Deployed. Loans are read directly from the contract; no indexer or backend is involved.',
   },
-  'tegridy-lending': {
-    id: 'tegridy-lending',
-    label: 'Venue token lending',
-    mechanism: 'deadline-default',
-    lossOnTrigger:
-      'The lender claims the staking position posted as collateral. There is no partial liquidation and no penalty percentage.',
-    operatorStep:
-      'Not deployed on this network. TEGRIDY_LENDING_ADDRESS is the zero address, so there is nothing to read and no position of this kind can exist yet.',
-  },
   'aave-v3': {
     id: 'aave-v3',
     label: 'Aave v3',
@@ -82,7 +73,6 @@ export const SHIELD_VENUES: Record<ShieldVenueId, ShieldVenue> = {
 
 export const SHIELD_VENUE_IDS: readonly ShieldVenueId[] = [
   'tegridy-nft-lending',
-  'tegridy-lending',
   'aave-v3',
   'morpho-blue',
 ];
@@ -95,7 +85,6 @@ export const SHIELD_VENUE_IDS: readonly ShieldVenueId[] = [
  */
 export const ADAPTER_BUILT: Record<ShieldVenueId, boolean> = {
   'tegridy-nft-lending': true,
-  'tegridy-lending': false,
   'aave-v3': false,
   'morpho-blue': false,
 };
@@ -108,9 +97,6 @@ export interface ShieldVenueReadiness {
   /** The contract this venue would be read from, or null when there is none. */
   address: string | null;
 }
-
-const TOKEN_LENDING_NO_ADAPTER =
-  'The venue’s token-lending contract is not deployed on this network, so no position of this kind can exist and none is being watched.';
 
 /**
  * Read the live config. A function rather than a module constant so nothing
@@ -127,11 +113,6 @@ export function shieldVenueReadiness(): Record<ShieldVenueId, ShieldVenueReadine
           ? null
           : 'The venue’s NFT lending contract is not deployed on this network, so there are no loans to read.',
       address: nftDeployed ? TEGRIDY_NFT_LENDING_ADDRESS : null,
-    },
-    'tegridy-lending': {
-      readable: false,
-      detail: TOKEN_LENDING_NO_ADAPTER,
-      address: isDeployed(TEGRIDY_LENDING_ADDRESS) ? TEGRIDY_LENDING_ADDRESS : null,
     },
     'aave-v3': {
       readable: false,

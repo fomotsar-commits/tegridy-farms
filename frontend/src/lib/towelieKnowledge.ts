@@ -42,7 +42,7 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
   },
   {
     // HONESTY PASS 2026-06-11: treasury Safe is freshly rebuilt post-relaunch and
-    // still being funded; grants/governance spend-votes are not deployed yet.
+    // still being funded.
     keywords: ['treasury', 'dao', 'fund'],
     answer: "Community treasury is a Safe multisig — rebuilt fresh at the relaunch, so it's still filling up. Protocol fee flows route to it on-chain as revenue ramps. Watch it at /treasury; every wei's on Etherscan.",
   },
@@ -85,7 +85,7 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
   },
   {
     keywords: ['compound', 'reinvest', 'restake'],
-    answer: "Claim, then re-stake. No auto-compound vault yet — but it's on the radar. Watch /changelog.",
+    answer: "Claim, then re-stake. There is no auto-compound vault.",
   },
   {
     keywords: ['math', 'calculation', 'formula'],
@@ -201,35 +201,6 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
   {
     keywords: ['launchpad'],
     answer: "Launchpad V2 is live: project owners create gated NFT collections with a wizard under NFT Finance → Launchpad. Internally reviewed, no third-party audit yet.",
-  },
-
-  // ── Governance ──────────────────────────────────────────────
-  // The four governance contracts are deployed on mainnet (the 2026-07-16 batch,
-  // unpaused), but this app still has their addresses zeroed, so the pages stay gated.
-  // Answers say deployed but not wired, as /risks does.
-  {
-    keywords: ['vote', 'voting', 'governance', 'gauge'],
-    answer: "Gauge voting's deployed on mainnet but not wired into this app yet — the addresses here are still zeroed, so /community stays gated while the wiring and checks finish. The design: your locked TOWELI × boost directs emissions to pools. Meanwhile, stake and watch /changelog.",
-  },
-  {
-    keywords: ['weight', 'power', 'vote'],
-    answer: "When gauge voting is wired up here, vote weight = locked TOWELI × current boost. Lock more or longer → more weight. Locking now still builds your future weight.",
-  },
-  {
-    keywords: ['epoch', 'cycle', 'period'],
-    answer: "Voting epochs run 7 days once gauge voting is wired into the app — votes cast one epoch direct emissions the next. The contract's on mainnet; this app hasn't connected to it yet, so no clock's ticking here.",
-  },
-  {
-    keywords: ['bribes', 'bribe', 'incentive', 'cartman'],
-    answer: "Cartman's Market — deposit tokens to bribe voters into directing emissions your way. Kinda shady. Deployed on mainnet, not wired into this app yet — it lands on /community alongside gauge voting.",
-  },
-  {
-    keywords: ['bounty', 'bounties', 'task'],
-    answer: "MemeBountyBoard is deployed on mainnet but not wired into this app yet. When it connects: post a task with a reward, contributors complete it for the bounty. Both sides win.",
-  },
-  {
-    keywords: ['grants', 'proposal', 'fund'],
-    answer: "Community Grants is deployed on mainnet, not wired into this app yet. When it connects: propose a project, locked-TOWELI voters fund it. Tegridy preserved by votes.",
   },
 
   // ── Wallet / network ────────────────────────────────────────

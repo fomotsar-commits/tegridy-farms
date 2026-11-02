@@ -47,6 +47,8 @@ import { HeatCard } from '../components/HeatCard';
 import { VenueDoors } from '../components/VenueDoors';
 import { VenuePaths } from '../components/VenuePaths';
 import { FlamesBoard } from '../components/FlamesBoard';
+import { IslandStrip } from '../components/IslandStrip';
+import { RoomTorches } from '../components/RoomTorches';
 import { BungalowHero } from '../components/bungalow/BungalowHero';
 import { BungalowMarket } from '../components/bungalow/BungalowMarket';
 import { BungalowHolders } from '../components/bungalow/BungalowHolders';
@@ -495,6 +497,11 @@ export default function HomePage() {
             </>
             )}
 
+            {/* THE ROOM IS THE ISLAND'S ROOM (the island's venue review, item 6): every room's door,
+                TOWELI's included, carries its torches under the hero, read from the island, with
+                Torch it to the room's own page there. Draws nothing until read, or on a miss. */}
+            {(bungalowIdentity || isToweliArrival) && <RoomTorches roomId={bungalowIdentity?.id ?? 'toweli'} />}
+
             {/* WAVE SEVEN, element C: THE SECURITY BADGE MOVED TO THE CHECK
                 OVERVIEW. It is C's fifth and last item.
 
@@ -820,6 +827,11 @@ export default function HomePage() {
             move in. Venue voice only: toweli keeps the classic home whole,
             an identity bungalow keeps its token-first home. */}
         {!bungalowIdentity && !isToweliArrival && <VenueDoors />}
+
+        {/* THE ISLAND TODAY, under the doors (the island's venue review, item 9): BAYLA locked
+            in the ladder, BAYLA fed to the fire, the flames, then the season and the last torch.
+            Each part is read on load and drawn only if read; with nothing read, no strip. */}
+        {!bungalowIdentity && !isToweliArrival && <IslandStrip />}
 
         {/* WAVE SEVEN, element G: THE ISLAND'S BOARD, on the venue. Five named flames,
             so a stranger sees held time attached to people before they are asked to

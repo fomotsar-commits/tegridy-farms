@@ -62,10 +62,14 @@ returns (price moved past the minimum) has still paid it.
 CertiK's re-audit commit `d299bd1`. Aiken v1.0.24-alpha. Licence: `LICENSE.md` is GPL-3.0 but
 `aiken.toml` and `plutus.json` say Apache-2.0: a lawyer's read is owed before deploying.
 
-**What changes without touching Minswap's code:** the deploy parameters only. Our own seed UTxO
-(so new script hashes and our own pool NFT and LP policy), our pool stake credential, and our
-global-settings datum: batchers, fee updater, fee-sharing taker, stake-key updater, dynamic-fee
-updater, admin.
+**What changes:** the deploy parameters: our own seed UTxO (so new script hashes and our own pool
+NFT and LP policy), our pool stake credential, and our global-settings datum: batchers, fee
+updater, fee-sharing taker, stake-key updater, dynamic-fee updater, admin, and the pool opening
+fee with the address it is paid to. And two small patches to Minswap's code that the owner chose
+over its untouched bytes, accepting a wider audit: the venue's fee-share floor, 1666 to 1333
+(2026-10-24, draft PR #988), and the pool opening fee, checked by Minswap's factory (2026-10-25,
+draft PR #1016, stacked on #988). The auditor's brief is `docs/CARDANO_AUDIT_SCOPE.md` on those
+branches.
 
 **The MIN-01 fix, recommended shape: leave Minswap's validators byte-for-byte.** Minswap V2 lets
 each role be a script (`PAMSpendScript`), not only a key. So the admin and every updater role
@@ -80,10 +84,22 @@ service (not Vercel): it watches our order script, builds batch transactions in 
 key with ADA for fees and collateral, and earns the batcher fee. It cannot steal: the order script
 pays every trader at least their minimum. It is also audit scope.
 
-**How the venue earns from its pools:** the fee-sharing share of every trade fee (Minswap's bounds:
-16.66% to 50% of the fee) to the venue, the batcher fee per order, and the staking rewards of the
-pools' ADA (which since the Plomin hard fork need a DRep delegation to withdraw). The trade-fee
-rate and the share are the owner's call; Solana's public tier is 1% with 16% to the venue.
+**How the venue earns from its pools** (owner's rulings, 2026-10-24 and 2026-10-25):
+
+- **Opening a pool: 73 ADA, fixed.** Whoever opens a pool pays it straight to the venue's
+  treasury in the transaction that opens the pool; Minswap's factory refuses the pool otherwise.
+  73 ADA was about $15 at $0.2052 on 2026-10-25, the same ~$15 as 0.15 SOL on Solana and 0.006 ETH
+  on Ethereum. It is set in ADA, not dollars: when ADA's price moves a lot, the owners re-set it
+  through the 48-hour lock (announce, wait 48 hours, both keys), and the lock lets it be paid only
+  to the treasury. The opener's own deposit all goes into the pool.
+- **Trading: 1333 / 10000 of the 0.3% trade fee**, about 0.04% of each trade; LPs keep about
+  0.26%. Minswap takes 0.05% of its own 0.3% pools, so LPs keep a little more here. The share
+  builds up inside each pool, and the lock pays it out only to the treasury.
+- **The batcher fee** on every order our own batcher fills, and **the staking rewards** of the
+  pools' ADA (which since the Plomin hard fork need a DRep delegation to withdraw).
+- **The split** is off chain, quarterly from the treasury, as on EVM (30/35/35, later 10/45/45).
+- **Owed before any of it:** the treasury itself. `CARDANO_VENUE_FEE_ADDRESS` is null until the
+  owner's two-key wallet exists, and the deploy must name it as the opening fee's receiver.
 
 **Order of work:** (1) vendor the contracts at the pinned commit with a provenance check like
 `solana/guards/provenance.mjs`, and prove our build matches Minswap's mainnet script bytes before

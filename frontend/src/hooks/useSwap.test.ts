@@ -164,7 +164,7 @@ vi.mock('./useSwapAllowance', () => ({
 }));
 
 // ── Import hook + constants AFTER mocks ─────────────────────────────────
-import { useSwap } from './useSwap';
+import { useSwap, BLOCKED_PRICE_IMPACT_PCT } from './useSwap';
 import { DEFAULT_TOKENS } from '../lib/tokenList';
 import {
   CHAIN_ID,
@@ -349,6 +349,33 @@ describe('useSwap', () => {
     });
     act(() => result.current.executeSwap());
     expect(wagmiState.writeContractMock).not.toHaveBeenCalled();
+  });
+
+  // 2026-11-01: Base's BNKR V2 pool quoted 1.75M BNKR at 99.99% impact and the
+  // swap still signed. Uniswap's interface refuses at 15%; so does this.
+  it('executeSwap refuses at or above 15% price impact, and says so', () => {
+    quoteState.current = { ...defaultQuote(), priceImpact: 99.99 };
+    const { result } = renderHook(() => useSwap());
+    expect(result.current.impactBlocked).toBe(true);
+    act(() => result.current.setInputAmount('1'));
+    act(() => result.current.executeSwap());
+    expect(wagmiState.writeContractMock).not.toHaveBeenCalled();
+
+    quoteState.current = { ...defaultQuote(), priceImpact: BLOCKED_PRICE_IMPACT_PCT };
+    const edge = renderHook(() => useSwap());
+    expect(edge.result.current.impactBlocked).toBe(true);
+  });
+
+  it('executeSwap still signs just under 15%, and an unread impact is not a block', () => {
+    quoteState.current = { ...defaultQuote(), priceImpact: 14.99 };
+    const { result } = renderHook(() => useSwap());
+    expect(result.current.impactBlocked).toBe(false);
+    act(() => result.current.setInputAmount('1'));
+    act(() => result.current.executeSwap());
+    expect(wagmiState.writeContractMock).toHaveBeenCalledTimes(1);
+
+    quoteState.current = { ...defaultQuote(), priceImpact: null, priceImpactUnread: true };
+    expect(renderHook(() => useSwap()).result.current.impactBlocked).toBe(false);
   });
 
   // ────────────── Action-side: writeContract args ───────────────────────

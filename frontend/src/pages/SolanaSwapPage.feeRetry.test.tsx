@@ -21,6 +21,7 @@ import type { JupiterQuote, SwapSimulation } from '../lib/jupiter';
 const USER = new PublicKey('5tzFkiKscXHK5ZXCGbXZxdw7gTjjD1mBwuoFbhUvuAi9');
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
 const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+const USDT_MINT = 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB';
 const COPY = 'No site fee on this route: the fee cannot be taken on it yet.';
 
 // Two real serialized v0 transactions (payer USER, one instruction into the
@@ -341,7 +342,18 @@ describe('SolanaSwapPage: while the waiver is on screen nothing else on the card
     h.simulateSwap.mockResolvedValue(OK);
     await typeAmountAndBuy();
     await waitFor(() => expect(h.sendTransaction).toHaveBeenCalledTimes(1));
-    expect(atSign!.footer).toMatch(/% platform fee applies on pairs that include SOL or USDC\./);
+    expect(atSign!.footer).toMatch(/% platform fee applies on pairs that include SOL, USDC or USDT\./);
+  });
+});
+
+describe('SolanaSwapPage: a swap paid in USDT carries the fee, in USDT', () => {
+  it('USDT for a coin that is neither SOL nor USDC: the fee line names USDT, never "None on this pair"', async () => {
+    // Pay USDT, buy the page's opening coin (BAYLA). Until 2026-11-02 the fee mint set was
+    // {SOL, USDC}, so this pair read "None on this pair" and the venue earned nothing on it.
+    window.history.replaceState(null, '', `/solana?in=${USDT_MINT}`);
+    render(<SolanaSwapPage />);
+    expect(await screen.findByLabelText('Amount of USDT to pay', {}, { timeout: 3000 })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId('site-fee-value')).toHaveTextContent(/% · in USDT$/));
   });
 });
 

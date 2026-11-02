@@ -35,6 +35,8 @@ import type { LpReaders } from './readers';
 import { useLpWrites, type LpWrites } from './useLpWrites';
 import { WholeDates } from './WholeDates';
 import { DoorPortal } from './LpDoorFrame';
+import { Link } from 'react-router-dom';
+import { pairSwapLink } from '../../../lib/solana/lp/poolList';
 
 const ORIGIN_LABEL: Record<PoolView['origin'], string> = {
   'launch-pool': 'Launch pool: opened by the launch program when the token graduated',
@@ -425,6 +427,12 @@ export function PoolCard({
         <Part title="Price">
           <Row label="In the pool" value={`${quoteText(view.quoteReserve, view.quote)} and ${tokenText(view.tokenReserve, tokenDecimals, unit.many)}`} mono={false} />
           <PriceRows price={price} quote={view.quote} unit={unit} />
+          {/* The pair on the swap page, under the price it would trade at (owner, 2026-10-30: Swap beside Add). */}
+          <div className="pt-1">
+            <Link to={pairSwapLink(view)} className="btn-secondary min-h-[44px] px-4 text-[13px] inline-flex items-center" data-testid="lp-pool-swap" aria-label={`Swap ${pairLabel(view, safety)}`}>
+              Swap
+            </Link>
+          </div>
         </Part>
 
         <Part title="Trading and deposits">

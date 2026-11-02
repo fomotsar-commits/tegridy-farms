@@ -47,7 +47,6 @@ const NOW = Math.floor(Date.now() / 1000);
 function loan(over: Record<string, unknown> = {}) {
   return {
     id: 4,
-    source: 'nft',
     role: 'borrower',
     borrower: wallet.address,
     lender: '0x2222222222222222222222222222222222222222',
