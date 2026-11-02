@@ -1809,10 +1809,10 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
     />
   ) : null;
   const feePct = (SOLANA_PLATFORM_FEE_BPS / 100).toFixed(2);
-  // The fee can only be collected on a pair touching SOL or USDC (pre-created
+  // The fee can only be collected on a pair touching SOL, USDC or USDT (pre-created
   // fee ATAs). Drive the UI off the SAME decision the quote/swap use.
   const feeMintForPair = isSolanaFeeConfigured() ? pickFeeMint(payToken.mint, buyToken.mint) : null;
-  const feeMintSymbol = feeMintForPair === USDC_MINT ? 'USDC' : feeMintForPair === SOL_MINT ? 'SOL' : null;
+  const feeMintSymbol = feeMintForPair === USDC_MINT ? 'USDC' : feeMintForPair === USDT.mint ? 'USDT' : feeMintForPair === SOL_MINT ? 'SOL' : null;
   // Tagged with its origin mint: flattening the two lists used to discard which
   // token each warning described, which is why the render sites could not apply
   // the same per-mint exemption the ack gate already used.
@@ -2885,7 +2885,7 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
               ? 'No platform fee is charged here today.'
               : feeWaived
                 ? 'No platform fee on this route.'
-                : `A ${feePct}% platform fee applies on pairs that include SOL or USDC.`}
+                : `A ${feePct}% platform fee applies on pairs that include SOL, USDC or USDT.`}
               </>
             )}
           </p>
