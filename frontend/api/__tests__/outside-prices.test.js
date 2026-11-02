@@ -150,10 +150,13 @@ describe("GET /api/outside-prices", () => {
     expect(typeof out.body.usd_read_at).toBe("number");
     const v3 = w.jupiterCalls.filter((c) => c.url.includes("/price/v3?ids="));
     expect(v3).toHaveLength(1);
+    // First in the loop: the cheapest read, and the list's $ figures, before any quote.
+    expect(w.jupiterCalls[0].url).toContain("/price/v3?ids=");
     expect(new URL(v3[0].url).searchParams.get("ids").split(",").sort()).toEqual([USDC, BAYLA, WSOL_MINT].sort());
     // Two quotes a token, the sale at the rounded probe, through the keyless host with no key set.
     expect(w.jupiterCalls.filter((c) => c.url.includes("/swap/v1/quote?"))).toHaveLength(4);
-    const sale = new URL(w.jupiterCalls[1].url).searchParams;
+    const quotes = w.jupiterCalls.filter((c) => c.url.includes("/swap/v1/quote?"));
+    const sale = new URL(quotes[1].url).searchParams;
     expect(sale.get("inputMint")).toBe(BAYLA);
     expect(sale.get("amount")).toBe(bayla.probe);
     expect(bayla.probe).toMatch(/^\d\d0+$/);
