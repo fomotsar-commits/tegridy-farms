@@ -2,7 +2,7 @@ import type { Ref } from 'react';
 import { Link } from 'react-router-dom';
 import type { PoolView } from '../../../lib/solana/lp/poolFinder';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
-import { LITTLE_MONEY_TEXT, marketGap, pairSwapLink, poolTags, poolWorthUsd, tokenDecimalsOf, type MarketPrices, type PoolListRead } from '../../../lib/solana/lp/poolList';
+import { LITTLE_MONEY_TEXT, byWorth, marketGap, pairSwapLink, poolTags, poolWorthUsd, tokenDecimalsOf, type MarketPrices, type PoolListRead } from '../../../lib/solana/lp/poolList';
 import { PRICE_TOLERANCE, poolPricePerToken } from '../../../lib/solana/lp/poolHealth';
 import { quoteText, tokenText, turnedDiff, usdText } from '../../../lib/solana/lp/format';
 import { pairLabel, siteNamed, tokenTicker } from '../../../lib/solana/lp/identity';
@@ -16,8 +16,6 @@ import { useMarketPrices } from './useMarketPrices';
 import { ArbitrageBoard } from './ArbitrageBoard';
 import { PriceFlip } from './PriceFlip';
 import { usePriceSide } from './priceSide';
-import { BUNGALOWS } from '../../../lib/bungalows';
-import { useActiveBungalowId } from '../../../hooks/useActiveBungalowId';
 
 /**
  * Every pool on the venue, listed before a token is picked, so nobody has to search one
@@ -73,10 +71,14 @@ export function VenuePoolList({
           )}
           <FinePrint summary="How this list works">
             <p>
-              Our pool index names every pool paired with {QUOTE_COINS_OR}, and each one is then read and checked on chain. SOL pools come
-              first, then USDC, then BAYLA, the deepest of each first. Past what the list can hold it shows the deepest, and a search finds the
-              rest. The dollars beside a pair are what the pool holds at Jupiter’s listed prices, the read the Arbitrage card above is
-              stamped with; a coin Jupiter does not price gets none.
+              Our pool index names every pool paired with {QUOTE_COINS_OR}, and each one is then read and checked on chain. Past what the
+              list can hold it shows the deepest, and a search finds the rest. The dollars beside a pair are what the pool holds at
+              Jupiter’s listed prices, the read the Arbitrage card above is stamped with; a coin Jupiter does not price gets none.
+            </p>
+            <p>
+              The pools with the most money in come first. A pool priced over {PRICE_TOLERANCE * 100}% below Jupiter is ranked by its{' '}
+              {QUOTE_COINS_OR} side, since anyone can print more of their own coin, and a coin Jupiter does not price is counted at the
+              pool’s own price. Until Jupiter’s prices are read, SOL pools come first, then USDC, then BAYLA, the deepest of each first.
             </p>
             <p>Anyone can open a pool, at any price. View one to see its checks before adding to it. Swap opens the swap page on the pair.</p>
             <p>
@@ -113,23 +115,23 @@ function PoolRows({
   onView: (tokenMint: string) => void;
   onAdd?: (tokenMint: string, pool: string, quoteMint: string) => void;
 }) {
-  const { pools: listed, unread, truncated, chainNow, safety } = list;
-  // A reader in a Solana room sees that coin's pools first (the LP door, island answer twenty); the rest keep the list's order.
-  const roomId = useActiveBungalowId();
-  const roomMint = BUNGALOWS.find((b) => b.id === roomId && b.chain === 'solana')?.address ?? null;
-  const pools = roomMint ? [...listed.filter((v) => v.tokenMint === roomMint), ...listed.filter((v) => v.tokenMint !== roomMint)] : listed;
+  const { pools: read, unread, truncated, chainNow, safety } = list;
+  const usd = prices?.kind === 'ok' ? prices.usd : null;
+  // Most money in first once Jupiter's prices are read (poolList.ts `byWorth`); until then, the order read. In every room
+  // alike: the room's own coin is no longer pinned on top (owner, 2026-11-01: "Pure TVL order", over island answer twenty).
+  const pools = usd ? byWorth(read, usd) : read;
   return (
     <div className="space-y-3">
       {pools.length === 0 && unread === 0 && !truncated && <p data-testid="lp-all-pools-none">No pools yet.</p>}
       {pools.length > 0 && (
-        <ul className="space-y-2" aria-label="All pools: SOL pools first, then USDC, then BAYLA, the deepest of each first">
+        <ul className="space-y-2" aria-label={usd ? 'All pools: the most money in first' : 'All pools: SOL pools first, then USDC, then BAYLA, the deepest of each first'}>
           {pools.map((view) => (
             <PoolRow
               key={view.address}
               view={view}
               safety={safety.get(view.tokenMint) ?? null}
               chainNow={chainNow}
-              usd={prices?.kind === 'ok' ? prices.usd : null}
+              usd={usd}
               onView={onView}
               onAdd={onAdd}
             />

@@ -167,7 +167,7 @@ export function ArbitrageBoard({ live, prices, legQuote }: { live: LivePoolList;
             one), and priced with the pool program’s own maths, so what you get and the fee are the chain’s. The profit is at most: it
             is before your network fee, and the swap page quotes the trade again before anything is sent.
             {JUPITER_FEE_PCT !== null &&
-              ` Jupiter’s quote here has no venue fee in it: that half made on our swap page also pays the venue’s ${JUPITER_FEE_PCT}% fee when SOL or USDC is in the trade.`}{' '}
+              ` Jupiter’s quote here has no venue fee in it: that half made on our swap page also pays the venue’s ${JUPITER_FEE_PCT}% fee when SOL, USDC or USDT is in the trade.`}{' '}
             Under a cent, nothing is listed.
           </p>
           <p>
