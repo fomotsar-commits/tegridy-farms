@@ -88,6 +88,14 @@ describe('BaylaLine', () => {
     expect(screen.queryByTestId('bayla-intel')).toBeNull();
   });
 
+  it('a door landing keeps its first screen: nothing on /pools with a task, the line on /pools itself', () => {
+    mount('/pools?mint=7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump&task=add');
+    expect(screen.queryByTestId('bayla-line')).toBeNull();
+    cleanup();
+    mount('/pools?mint=7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump');
+    expect(screen.getByTestId('bayla-line')).toBeInTheDocument();
+  });
+
   it('the farm keeps its own voice: nothing on /toweli', () => {
     mount('/toweli');
     expect(screen.queryByTestId('bayla-line')).toBeNull();
