@@ -35,8 +35,8 @@ export const DEFAULT_MAX_AGE_SEC = 60;
 export const MAX_MINTS = 24;
 export const MAX_POOLS = 200;
 export const MAX_ROUTE_POOLS = 40;
-/** The loop stops asking Jupiter after this long; what is left is said as unread. */
-export const LOOP_BUDGET_MS = 45_000;
+/** The loop stops asking Jupiter after this long (vercel.json gives the function 60 s); what is left is said as unread. */
+export const LOOP_BUDGET_MS = 50_000;
 const RPC_TIMEOUT_MS = 8_000;
 const JUPITER_TIMEOUT_MS = 8_000;
 const SCAN_CAP_BYTES = 2 * 1024 * 1024;
@@ -326,6 +326,11 @@ export async function readOutsidePrices({ fetchImpl, env = process.env, nowMs = 
     const last = lastGood.get(mint) ?? null;
     prices[mint] = { state: "unread", detail, last };
   };
+  // The dollar prices first: one call for every token and SOL, the cheapest read and the list's $ figures; the last good read stands when it fails.
+  if (mints.length > 0) {
+    const usd = await readUsd(up, [...mints, WSOL_MINT], fetchImpl, pace);
+    if (usd && Object.keys(usd).length > 0) lastUsd = { usd, read_at: nowMs() };
+  }
   const fresh = [];
   for (const mint of all.slice(MAX_MINTS)) unread(mint, `beyond the ${MAX_MINTS} tokens one loop prices`);
   for (const mint of mints) {
@@ -390,11 +395,6 @@ export async function readOutsidePrices({ fetchImpl, env = process.env, nowMs = 
         prices[f.mint] = { state: "ok", ...entry };
       }
     }
-  }
-  // The dollar prices, after the quotes: one call for every token and SOL; the last good read stands when it fails.
-  if (mints.length > 0 && nowMs() - t0 <= LOOP_BUDGET_MS) {
-    const usd = await readUsd(up, [...mints, WSOL_MINT], fetchImpl, pace);
-    if (usd && Object.keys(usd).length > 0) lastUsd = { usd, read_at: nowMs() };
   }
   const okCount = Object.values(prices).filter((p) => p.state === "ok" || p.state === "no-route").length;
   return { read_at: nowMs(), mints: all.length, okCount, prices, usd: lastUsd?.usd ?? null, usd_read_at: lastUsd?.read_at ?? null };
