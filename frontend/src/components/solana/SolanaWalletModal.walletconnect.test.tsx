@@ -7,7 +7,12 @@ import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { Keypair, PublicKey } from '@solana/web3.js';
 import { SolanaWalletModalProvider } from './SolanaWalletModal';
 import { SolanaProviders } from './SolanaProviders';
-import { PAIRING_REASONS, WalletConnectWalletAdapter, resetWalletConnectClientForTests } from '../../lib/solanaWalletConnect';
+import {
+  PAIRING_REASONS,
+  TangemWalletAdapter,
+  WalletConnectWalletAdapter,
+  resetWalletConnectClientForTests,
+} from '../../lib/solanaWalletConnect';
 import { orderWallets } from '../../lib/solanaWalletOrder';
 
 /**
@@ -429,6 +434,8 @@ describe('SolanaProviders and the project id', () => {
     );
     const names = screen.getByTestId('names').textContent ?? '';
     expect(names.split(',').includes('WalletConnect')).toBe(present);
+    // Tangem rides on the same WalletConnect code: no project id, no row.
+    expect(names.split(',').includes('Tangem')).toBe(present);
   });
 });
 
@@ -510,6 +517,96 @@ describe('Trust and Jupiter, not in this browser, open the QR their phone app sc
     fireEvent.click(row);
     expect(open).toHaveBeenCalledWith('https://example.test', '_blank', 'noopener,noreferrer');
     expect(screen.queryByRole('img', { name: 'WalletConnect QR code' })).toBeNull();
+  });
+});
+
+/**
+ * CHANGE 11 (owner, 2026-11-01: "tangem compatible on all chains"). Tangem's
+ * phone app connects over WalletConnect only. A computer gets the QR, named
+ * for Tangem, with no extension to offer; a phone gets a link into the app,
+ * and the approval there connects this page.
+ */
+describe('Tangem: the QR on a computer, its app on a phone', () => {
+  const IPHONE =
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1';
+  function mountWith(adapters: unknown[]) {
+    return render(
+      <ConnectionProvider endpoint="http://127.0.0.1:8899">
+        <WalletProvider wallets={adapters as never} autoConnect>
+          <SolanaWalletModalProvider>
+            <Opener />
+          </SolanaWalletModalProvider>
+        </WalletProvider>
+      </ConnectionProvider>,
+    );
+  }
+  function onAPhone() {
+    Object.defineProperty(navigator, 'userAgent', { value: IPHONE, configurable: true });
+  }
+  afterEach(() => {
+    // The own property shadows jsdom's getter; deleting it brings that back.
+    delete (navigator as unknown as Record<string, unknown>).userAgent;
+  });
+
+  it('on a computer: its row scans, the QR is named for it, no extension is offered, and the QR row connects', async () => {
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null);
+    wc = new WalletConnectWalletAdapter({ projectId: 'test-project' });
+    mountWith([new FakeWallet('Phantom', WalletReadyState.Installed), new TangemWalletAdapter({ projectId: 'test-project' }), wc]);
+    const dialog = await openList();
+    const row = within(dialog).getByText('Tangem').closest('button')!;
+    expect(row).toHaveTextContent('TangemScan QR code');
+    fireEvent.click(row);
+    expect(await screen.findByRole('img', { name: 'WalletConnect QR code' })).toBeInTheDocument();
+    expect(screen.getByRole('dialog')).toHaveTextContent('Scan with Tangem on your phone');
+    expect(screen.queryByRole('button', { name: /extension instead/ })).toBeNull();
+    expect(open, 'tangem.com opened instead of the QR').not.toHaveBeenCalled();
+
+    await act(async () => client.approve());
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(screen.getByTestId('pk')).toHaveTextContent(account);
+    expect(JSON.parse(localStorage.getItem('walletName') ?? 'null')).toBe('WalletConnect');
+  });
+
+  it('on a phone: its row stays in the dialog, offers the app in place of a QR, and the approval there connects', async () => {
+    onAPhone();
+    const qr = new WalletConnectWalletAdapter({ projectId: 'test-project' });
+    mountWith([new FakeWallet('Phantom', WalletReadyState.Loadable), new TangemWalletAdapter({ projectId: 'test-project' }), qr]);
+    const dialog = await openList();
+    // No QR row on a phone (rule 2), so Tangem's is the way in.
+    expect(within(dialog).queryByText('WalletConnect')).toBeNull();
+    const row = within(dialog).getByText('Tangem').closest('button')!;
+    expect(row).toHaveTextContent('TangemOpen app');
+    fireEvent.click(row);
+    expect(await screen.findByRole('heading', { name: 'Approve in Tangem' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Open Tangem' })).toBeInTheDocument();
+    expect(screen.queryByRole('img', { name: 'WalletConnect QR code' })).toBeNull();
+
+    await act(async () => client.approve());
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(screen.getByTestId('pk')).toHaveTextContent(account);
+    expect(JSON.parse(localStorage.getItem('walletName') ?? 'null')).toBe('Tangem');
+  });
+
+  it('on a phone, "Back to wallets" ends the attempt and the list returns', async () => {
+    onAPhone();
+    mountWith([new TangemWalletAdapter({ projectId: 'test-project' })]);
+    const dialog = await openList();
+    fireEvent.click(within(dialog).getByText('Tangem'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Back to wallets' }));
+    expect(await screen.findByRole('heading', { name: /on Solana to continue/ })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId('connecting')).toHaveTextContent('false'));
+  });
+
+  it('on a phone, Trust not in this browser still opens its install page: Tangem’s link is no QR for Trust', async () => {
+    onAPhone();
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null);
+    mountWith([new FakeWallet('Trust', WalletReadyState.NotDetected), new TangemWalletAdapter({ projectId: 'test-project' })]);
+    const dialog = await openList();
+    const row = within(dialog).getByText('Trust Wallet').closest('button')!;
+    expect(row).toHaveTextContent('Trust WalletInstall');
+    fireEvent.click(row);
+    expect(open).toHaveBeenCalledWith('https://example.test', '_blank', 'noopener,noreferrer');
+    expect(screen.queryByRole('heading', { name: 'Approve in Tangem' })).toBeNull();
   });
 });
 

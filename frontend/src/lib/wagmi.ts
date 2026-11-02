@@ -1,7 +1,7 @@
 import { getDefaultWallets, connectorsForWallets } from '@rainbow-me/rainbowkit';
 import { createConfig } from 'wagmi';
 import { injected, coinbaseWallet } from 'wagmi/connectors';
-import { coinbaseWalletFromBase, phantomWallet, trustWallet, rabbyWallet } from './rainbowkitWallets';
+import { coinbaseWalletFromBase, phantomWallet, trustWallet, tangemWallet, rabbyWallet } from './rainbowkitWallets';
 import { WAGMI_CHAINS, WAGMI_TRANSPORTS } from './chains/viemChains';
 
 const projectId = import.meta.env.VITE_WALLETCONNECT_PROJECT_ID as string | undefined;
@@ -120,7 +120,12 @@ function buildConfig() {
             // nobody scrolls to. Brave users already get a row via EIP-6963
             // discovery. Coinbase Wallet sits ahead of WalletConnect so a phone
             // shows it without a swipe (it was 5th of 5 as "Base").
-            wallets: [safe, metaMask, phantomWallet, trustWallet, coinbase, walletConnect, rainbow, rabbyWallet].filter(
+            //
+            // Tangem (owner ask, 2026-11-01) is the one WalletConnect-backed row
+            // added since. It goes right after WalletConnect: the four a phone
+            // shows first stay as they were, and it comes ahead of Rainbow,
+            // which nobody asked for by name.
+            wallets: [safe, metaMask, phantomWallet, trustWallet, coinbase, walletConnect, tangemWallet, rainbow, rabbyWallet].filter(
               (w): w is NonNullable<typeof w> => Boolean(w),
             ),
           },
