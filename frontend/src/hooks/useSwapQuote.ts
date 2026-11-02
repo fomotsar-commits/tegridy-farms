@@ -429,7 +429,8 @@ export function useSwapQuote(
         const isLeg1Token0From = leg1Token0.toLowerCase() === fromAddr;
         const r1In = isLeg1Token0From ? (leg1Reserves[0] ?? 0n) : (leg1Reserves[1] ?? 0n);
         const r1Out = isLeg1Token0From ? (leg1Reserves[1] ?? 0n) : (leg1Reserves[0] ?? 0n);
-        if (r1In <= 0n || r1Out <= 0n) return 0.5;
+        // A made-up 0.5% would slip under useSwap's 15% block; unknown is null.
+        if (r1In <= 0n || r1Out <= 0n) return null;
 
         const midPrice1 = (r1Out * 10n ** 18n) / r1In;
         const execPrice1 = ((activeAmountsOut[1] ?? 0n) * 10n ** 18n) / (activeAmountsOut[0] ?? 1n);
@@ -438,7 +439,7 @@ export function useSwapQuote(
         const isLeg2Token0Weth = leg2Token0.toLowerCase() === weth.toLowerCase();
         const r2In = isLeg2Token0Weth ? (leg2Reserves[0] ?? 0n) : (leg2Reserves[1] ?? 0n);
         const r2Out = isLeg2Token0Weth ? (leg2Reserves[1] ?? 0n) : (leg2Reserves[0] ?? 0n);
-        if (r2In <= 0n || r2Out <= 0n) return 0.5;
+        if (r2In <= 0n || r2Out <= 0n) return null;
 
         const midPrice2 = (r2Out * 10n ** 18n) / r2In;
         const execPrice2 = ((activeAmountsOut[2] ?? 0n) * 10n ** 18n) / (activeAmountsOut[1] ?? 1n);
@@ -450,7 +451,7 @@ export function useSwapQuote(
           : 0n;
         return Number(impactBps) / 100;
       } catch {
-        return 0.5;
+        return null;
       }
     }
 

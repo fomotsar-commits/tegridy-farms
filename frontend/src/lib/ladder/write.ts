@@ -124,6 +124,18 @@ export function anchorCode(message: string): number | null {
   return null;
 }
 
+/** The program's own sentence for the Anchor code in `message`, or null when the table has none. */
+function knownRefusal(message: string): string | null {
+  const code = anchorCode(message);
+  const known = code !== null ? LADDER_ERRORS[code] : undefined;
+  return known ? known.human ?? `The program refused this (${known.name}). Nothing moved.` : null;
+}
+
+/** A write its test run refused, from the run's logs: the program's sentence when the table names it. */
+export function refusalReason(logs: readonly string[]): string {
+  return knownRefusal(logs.join('\n')) ?? 'Its test run was refused, so nothing was sent. Nothing moved.';
+}
+
 /** True when the failure provably happened BEFORE anything was broadcast. */
 function isPreBroadcast(message: string): boolean {
   // A simulation failure is the RPC refusing to forward the transaction at all.
@@ -147,17 +159,12 @@ export function classifyWriteError(err: unknown, signature?: string): WriteResul
   const t = signature ? null : readSendThrow(err);
   if (t && t.kind !== 'unsure') return { ok: false, reason: t.message };
 
-  const code = anchorCode(msg);
-  const known = code !== null ? LADDER_ERRORS[code] : undefined;
+  const known = knownRefusal(msg);
   if (known) {
     // A program error means the WHOLE transaction reverted. Whether it reverted in
     // preflight or on chain, no account changed — the only cost is the network fee
     // if it landed.
-    return {
-      ok: false,
-      reason: known.human ?? `The program refused this (${known.name}). Nothing moved.`,
-      ...(signature ? { signature } : {}),
-    };
+    return { ok: false, reason: known, ...(signature ? { signature } : {}) };
   }
 
   // Not enough SOL for rent + fee. A `stake` opens two accounts, so it costs more
@@ -291,6 +298,8 @@ export interface LadderWriteCtx {
   deps?: SubmitDeps;
 }
 
+type LadderAccounts = Pick<LadderWriteCtx, 'programId' | 'pool' | 'poolAccounts'>;
+
 /**
  * Every write prepends an idempotent ATA create — see `createAtaIdempotentIx`.
  *
@@ -299,7 +308,7 @@ export interface LadderWriteCtx {
  * an `AccountNotInitialized` revert, for anyone whose token account was closed
  * while their position was locked.
  */
-function withAta(ctx: LadderWriteCtx, owner: PublicKey, ix: TransactionInstruction): TransactionInstruction[] {
+function withAta(ctx: LadderAccounts, owner: PublicKey, ix: TransactionInstruction): TransactionInstruction[] {
   return [
     createAtaIdempotentIx({
       payer: owner,
@@ -311,7 +320,7 @@ function withAta(ctx: LadderWriteCtx, owner: PublicKey, ix: TransactionInstructi
   ];
 }
 
-const common = (ctx: LadderWriteCtx, owner: PublicKey) => ({
+const common = (ctx: LadderAccounts, owner: PublicKey) => ({
   programId: ctx.programId,
   owner,
   pool: ctx.pool,
@@ -339,17 +348,22 @@ export async function ladderStake(
   );
 }
 
+/**
+ * A claim's instructions, unsent: what `ladderClaim` and `ladderClaimCarried` send. For
+ * Harvest, which signs several claims on one wallet prompt (lib/harvest/solana.ts).
+ */
+export const ladderClaimIxs = (ctx: LadderAccounts, owner: PublicKey, args: { positionNonce: number }) =>
+  withAta(ctx, owner, claimIx({ ...common(ctx, owner), ...args }));
+export const ladderClaimCarriedIxs = (ctx: LadderAccounts, owner: PublicKey) =>
+  withAta(ctx, owner, claimCarriedIx(common(ctx, owner)));
+
 /** Pay accrued rewards on one position. Reward vault only (invariant I-12). */
 export async function ladderClaim(
   ctx: LadderWriteCtx, args: { positionNonce: number },
 ): Promise<WriteResult> {
   const owner = ctx.invoker.publicKey;
   if (!owner) return { ok: false, reason: 'Connect a wallet first.' };
-  return submitLadder(
-    ctx.connection, ctx.invoker,
-    withAta(ctx, owner, claimIx({ ...common(ctx, owner), ...args })),
-    ctx.deps,
-  );
+  return submitLadder(ctx.connection, ctx.invoker, ladderClaimIxs(ctx, owner, args), ctx.deps);
 }
 
 /**
@@ -395,9 +409,5 @@ export async function ladderHatch(
 export async function ladderClaimCarried(ctx: LadderWriteCtx): Promise<WriteResult> {
   const owner = ctx.invoker.publicKey;
   if (!owner) return { ok: false, reason: 'Connect a wallet first.' };
-  return submitLadder(
-    ctx.connection, ctx.invoker,
-    withAta(ctx, owner, claimCarriedIx(common(ctx, owner))),
-    ctx.deps,
-  );
+  return submitLadder(ctx.connection, ctx.invoker, ladderClaimCarriedIxs(ctx, owner), ctx.deps);
 }

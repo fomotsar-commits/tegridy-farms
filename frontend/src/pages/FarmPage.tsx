@@ -5,7 +5,9 @@ import { Link, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { CURRENT_SEASON, LOCK_OPTIONS } from '../lib/constants';
 import { formatEther } from 'viem';
-import { stakingClaimPaid, NOTHING_PAID_COPY } from '../lib/stakingClaimPaid';
+import { stakingClaimPaid, stakingStakeReturned, NOTHING_PAID_COPY } from '../lib/stakingClaimPaid';
+import { stakingBetaPhase, betaReadsFromHooks, NEW_STAKES_CLOSED_LINE } from '../lib/stakingBetaOver';
+import { StakingBetaOverNotice } from '../components/farm/StakingBetaOverNotice';
 import { WrongChainBanner } from '../components/ui/WrongChainGuard';
 import { calculateBoost } from '../lib/boostCalculations';
 import { useFarmStats } from '../hooks/useFarmStats';
@@ -34,6 +36,7 @@ import { BUNGALOWS, DEFAULT_BUNGALOW_ID } from '../lib/bungalows';
 import { useActiveBungalowId } from '../hooks/useActiveBungalowId';
 import { BungalowFarmPanel } from '../components/bungalow/BungalowFarmPanel';
 import { VenuePoolIndex } from '../components/farm/VenuePoolIndex';
+import { HarvestCard } from '../components/farm/HarvestCard';
 import { BackToEarn } from '../components/farm/BackToEarn';
 import { FarmStatsRow } from '../components/farm/FarmStatsRow';
 import { IncentivesStrip } from '../components/farm/IncentivesStrip';
@@ -116,6 +119,8 @@ function VenueEarn() {
             </p>
           </FinePrint>
         </header>
+        {/* One press claims every pool's rewards (owner, 2026-10-24). */}
+        <HarvestCard />
         <VenuePoolIndex />
       </div>
     </div>
@@ -223,6 +228,10 @@ function ToweliFarm() {
   const rewardsRemainingDisplay = pool.isDeployed && (rewardsRemainingNum > 0 || pool.isDry)
     ? `${Math.round(rewardsRemainingNum).toLocaleString()} TOWELI`
     : '–';
+
+  // TOWELI staking v1 is closing: where it stands, from the chain (lib/stakingBetaOver).
+  const betaPhase = stakingBetaPhase(betaReadsFromHooks(pool, isConnected ? pos : undefined));
+  const betaRetry = () => { void pool.refetch(); if (isConnected) void pos.refetchAll(); };
 
   // F98 (R034 H4): never let raw parseEther throw in the render path — a dust
   // balance routed through Max yields exponent notation that parseEther rejects,
@@ -337,10 +346,13 @@ function ToweliFarm() {
         });
         submittedAmountRef.current = null;
       } else if (actionType === 'unstake') {
+        // What came BACK, from the tx's own exit log (an early exit is net of its
+        // penalty); the submit-time snapshot only when that log can't be read.
+        const returned = stakingStakeReturned(actions.receipt);
         showReceipt({
           type: 'unstake',
           data: {
-            amount: submittedAmountRef.current ?? pos.stakedFormatted,
+            amount: returned !== null ? formatEther(returned) : submittedAmountRef.current ?? pos.stakedFormatted,
             token: 'TOWELI',
             txHash: actions.hash,
           },
@@ -384,7 +396,13 @@ function ToweliFarm() {
                 action card is the FIRST card, not the last: on a 390px phone it
                 sat 6,400px down, under five sections of figures (the lead's
                 walk, 2026-10-14). The read-only figures follow it unchanged. */}
-            <ConnectPrompt surface="farm" />
+            {pool.isDeployed && (
+              <StakingBetaOverNotice phase={betaPhase} onRetry={betaRetry} art={<CardArt pageId="farm" idx={3} />} />
+            )}
+            <ConnectPrompt
+              surface="farm"
+              description={`Connect to claim or withdraw. ${NEW_STAKES_CLOSED_LINE}`}
+            />
             <IncentivesStrip apr={pool.apr} aprNum={pool.aprNum} rewardPool={stats.rewardPool} dailyEmissions={stats.dailyEmissions} rewardsRemaining={rewardsRemainingDisplay} secondsRemaining={pool.secondsRemaining} stakerSharePct={poolTVL.stakerSharePct} referralFeeBps={poolTVL.referralFeeBps} reserveEmpty={pool.isDry} />
 
             <FarmStatsRow
@@ -512,6 +530,7 @@ function ToweliFarm() {
             handleStake={handleStake}
             lastActionRef={lastActionRef}
             submittedAmountRef={submittedAmountRef}
+            betaOver={pool.isDeployed ? { phase: betaPhase, onRetry: betaRetry } : undefined}
           />
 
           {/* Boost Table */}
