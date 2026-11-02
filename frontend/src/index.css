@@ -834,6 +834,49 @@ input, textarea, select {
   will-change: transform;
 }
 
+/* The island order's split (IslandBasket.tsx): a hairline in cream, filled green up to the coin's
+   share (--fill), and a hard square to drag. The input itself is 28px tall, so a thumb on a phone
+   has room; the line is drawn in its middle. */
+.basket-split {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 28px;
+  background: transparent;
+  cursor: pointer;
+  touch-action: pan-y;
+}
+.basket-split:disabled { cursor: not-allowed; opacity: 0.5; }
+.basket-split::-webkit-slider-runnable-track {
+  height: 2px;
+  background: linear-gradient(90deg, #22c55e var(--fill, 0%), rgba(245, 228, 184, 0.22) var(--fill, 0%));
+}
+.basket-split::-moz-range-track {
+  height: 2px;
+  background: linear-gradient(90deg, #22c55e var(--fill, 0%), rgba(245, 228, 184, 0.22) var(--fill, 0%));
+}
+.basket-split::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -6px;
+  background: #22c55e;
+  border: 2px solid #05080f;
+  outline: 1px solid #f5e4b8;
+  border-radius: 0;
+}
+.basket-split::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  background: #22c55e;
+  border: 2px solid #05080f;
+  outline: 1px solid #f5e4b8;
+  border-radius: 0;
+}
+.basket-split:focus-visible { outline: none; }
+.basket-split:focus-visible::-webkit-slider-thumb { outline: 2px solid #f5e4b8; outline-offset: 2px; }
+.basket-split:focus-visible::-moz-range-thumb { outline: 2px solid #f5e4b8; outline-offset: 2px; }
+
 /* ─── Print stylesheet ─── */
 @media print {
   body { background: white; color: black; text-shadow: none; }

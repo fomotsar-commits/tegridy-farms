@@ -535,6 +535,11 @@ export default async function handler(req, res) {
     const { handleVenueTvl } = await import("./_lib/venueTvl.js");
     return handleVenueTvl(req, res);
   }
+  // `?resource=wallet-coins`: which ERC-20s a wallet holds on Ethereum or Base, and their prices.
+  if (req.query.resource === "wallet-coins") {
+    const { handleWalletCoins } = await import("./_lib/walletCoins.js");
+    return handleWalletCoins(req, res);
+  }
 
   // FLAT function at /api/aggregator. AUDIT FIX 2026-07-10: Vercel's nested /
   // catch-all dynamic function routing under /api/aggregator (both

@@ -46,6 +46,8 @@ const open = async () => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // A split moved in one test is kept in this browser: every test starts even.
+  localStorage.removeItem('tegridy-island-split-v1');
   h.account = { address: ME, isConnected: true };
   h.balance = 10n ** 18n;
   h.quotes.mockImplementation(quoting(1_000_000n));
@@ -83,6 +85,24 @@ describe('IslandBasketEvm', () => {
     // The test run came first, as this wallet.
     expect(h.client.estimateGas).toHaveBeenCalledTimes(2);
     await waitFor(() => expect(screen.getAllByText('Bought')).toHaveLength(7));
+  });
+
+  it('buys in the split the sliders set: $mfer at 0% is left out, so its V2 transaction is never sent', async () => {
+    const { EVM_BASKET } = await import('../../lib/islandBasket');
+    const mfer = EVM_BASKET.base.find((c) => c.room === 'mfer')!;
+    renderWithProviders(<IslandBasketEvm chainId={8453} slippagePct={1} />);
+    await open();
+    fireEvent.change(screen.getByTestId(`island-basket-split-mfer-${mfer.token}`), { target: { value: '0' } });
+    await waitFor(() => expect(screen.getByTestId('island-basket-buy')).toHaveTextContent('Buy 6 coins'));
+    expect(within(row(`mfer-${mfer.token}`)).getByText(/Not in this order/)).toBeInTheDocument();
+    const legs = h.quotes.mock.calls.at(-1)![2] as { coin: { room: string } }[];
+    expect(legs.map((l) => l.coin.room)).not.toContain('mfer');
+    expect(legs).toHaveLength(6);
+    fireEvent.click(screen.getByTestId('island-basket-buy'));
+    await waitFor(() => expect(screen.getAllByText('Bought')).toHaveLength(6));
+    // One Uniswap batch, and no V2 transaction for the coin left out.
+    expect(h.send).toHaveBeenCalledTimes(1);
+    expect(h.send.mock.calls[0]![0].to).toBe(uniswapOn(8453)!.swapRouter02);
   });
 
   it('sends nothing when prices moved past slippage since they were shown', async () => {
