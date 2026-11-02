@@ -25,7 +25,7 @@ import { earnedNow, isLadderConfigured, ladderProgramId } from '../ladder/progra
 import { boostLabel } from '../ladder/format';
 import { readEntries, readPool, unlockTs } from '../bungalowStaking';
 import { BUNGALOWS, bungalowByAddress, type Bungalow } from '../bungalows';
-import { clipReason, fmtAmount, islandCoinsOn, unlockWords, usdOf, type HoldingRow, type Leg, type PositionRow, type StakeTarget } from './walletRows';
+import { OTHER_COIN_MIN_USD, clipReason, fmtAmount, islandCoinsOn, unlockWords, usdOf, type HoldingRow, type Leg, type PositionRow, type StakeTarget } from './walletRows';
 import { offIslandCoinsOn, type OffIslandCoin } from './offIslandCoins';
 
 const SOL_DECIMALS = 9;
@@ -81,27 +81,50 @@ function lamportsOf(payload: unknown): bigint {
   return BigInt(v);
 }
 
+// The board's own transport, one for every leg, so the coins' read below is shared between them.
+let boardRpc: SolanaRpc | null = null;
+const rpcFor = (rpc: SolanaRpc | undefined) => rpc ?? (boardRpc ??= chainRpc());
+
+/** How long one read of a wallet's coins serves every leg that asks: the holdings and the other coins. */
+const HELD_SHARE_MS = 3_000;
+const heldReads = new WeakMap<SolanaRpc, Map<string, { at: number; read: Promise<Map<string, bigint>> }>>();
+
+/**
+ * Every coin the wallet holds, by mint, under both token programs, amounts above zero summed.
+ * One read serves the legs that ask within a few seconds (a failed read is not kept).
+ */
+function heldMints(rpc: SolanaRpc, owner: string): Promise<Map<string, bigint>> {
+  const byOwner = heldReads.get(rpc) ?? new Map<string, { at: number; read: Promise<Map<string, bigint>> }>();
+  heldReads.set(rpc, byOwner);
+  const hit = byOwner.get(owner);
+  if (hit && Date.now() - hit.at < HELD_SHARE_MS) return hit.read;
+  const read = Promise.all([
+    getTokenAccountsByOwner(rpc, owner, TOKEN_PROGRAM, toBase58),
+    getTokenAccountsByOwner(rpc, owner, TOKEN_2022_PROGRAM, toBase58),
+  ]).then(([classic, t22]) => {
+    const byMint = new Map<string, bigint>();
+    for (const t of [...classic, ...t22]) if (t.amount > 0n) byMint.set(t.mint, (byMint.get(t.mint) ?? 0n) + t.amount);
+    return byMint;
+  });
+  byOwner.set(owner, { at: Date.now(), read });
+  read.catch(() => { if (byOwner.get(owner)?.read === read) byOwner.delete(owner); });
+  return read;
+}
+
 /** SOL, every island coin on Solana and every coin on offIslandCoins.ts the wallet holds, with USD where Jupiter priced it. */
 export async function readSolanaHoldings(
   owner: string,
   opts: { rpc?: SolanaRpc; coins?: readonly Bungalow[]; offIsland?: readonly OffIslandCoin[]; prices?: PriceRead } = {},
 ): Promise<Leg<HoldingRow>> {
-  const rpc = opts.rpc ?? chainRpc();
+  const rpc = rpcFor(opts.rpc);
   const coins = opts.coins ?? islandCoinsOn('solana');
   const others = opts.offIsland ?? offIslandCoinsOn('solana');
   const priceOf = opts.prices ?? boardPrices;
   try {
-    const [balance, classic, t22] = await Promise.all([
-      rpc('getBalance', [owner, { commitment: 'confirmed' }]),
-      getTokenAccountsByOwner(rpc, owner, TOKEN_PROGRAM, toBase58),
-      getTokenAccountsByOwner(rpc, owner, TOKEN_2022_PROGRAM, toBase58),
-    ]);
+    const [balance, all] = await Promise.all([rpc('getBalance', [owner, { commitment: 'confirmed' }]), heldMints(rpc, owner)]);
     const lamports = lamportsOf(balance);
-    const byMint = new Map<string, bigint>();
     const listed = new Set([...coins.map((c) => c.address!), ...others.map((c) => c.address)]);
-    for (const t of [...classic, ...t22]) {
-      if (listed.has(t.mint) && t.amount > 0n) byMint.set(t.mint, (byMint.get(t.mint) ?? 0n) + t.amount);
-    }
+    const byMint = new Map([...all].filter(([mint]) => listed.has(mint)));
     const held = coins.filter((c) => byMint.has(c.address!));
     const heldOthers = others.filter((c) => byMint.has(c.address));
     // A coin with no room is named by its own ticker, read with its decimals in one call.
@@ -134,6 +157,67 @@ export async function readSolanaHoldings(
       const dec = decimals.get(c.address)!;
       rows.push({ key: `sol:${c.address}`, symbol: tokenSymbol(c.address, checks.get(c.address)), chain: 'solana', amount: fmtAmount(raw, dec), usd: usdOf(raw, dec, prices[c.address]), roomId: null, mint: c.address, to: null });
     }
+    return { status: 'ok', rows };
+  } catch (e) {
+    return { status: 'unread', detail: clipReason(e) };
+  }
+}
+
+/** At most this many other coins are priced: a wallet full of airdropped dust is not 20 calls a load. */
+export const MAX_OTHER_COINS = 150;
+/** Jupiter's price read takes at most this many coins at once (price/v3 `ids`). */
+const PRICE_IDS_MAX = 50;
+
+/** Prices for many coins, PRICE_IDS_MAX at a time, one read after another (the key is one call a second, site-wide). */
+async function pricesInTurn(mints: string[]): Promise<Record<string, number>> {
+  const out: Record<string, number> = {};
+  for (let i = 0; i < mints.length; i += PRICE_IDS_MAX) Object.assign(out, await getUsdPrices(mints.slice(i, i + PRICE_IDS_MAX)));
+  return out;
+}
+
+/**
+ * Every other coin the wallet holds (owner, 2026-11-01: "it should show all the tokens in the
+ * persons wallet above 1$ not just island tokens"): each coin readSolanaHoldings does not list,
+ * worth OTHER_COIN_MIN_USD or more at Jupiter's price, largest first. Named by its own ticker
+ * ("fake X" for a copy of one the site knows), with its whole address on the row.
+ *
+ * A coin is listed only on a price that was read: a price read that fails is this leg unread,
+ * never "nothing else". A coin Jupiter gives no price is not listed, nor one whose mint could not
+ * be read; when no mint at all could be read, that is the leg unread too.
+ */
+export async function readSolanaOtherCoins(
+  owner: string,
+  opts: { rpc?: SolanaRpc; coins?: readonly Bungalow[]; offIsland?: readonly OffIslandCoin[]; prices?: PriceRead } = {},
+): Promise<Leg<HoldingRow>> {
+  const rpc = rpcFor(opts.rpc);
+  const listed = new Set([...(opts.coins ?? islandCoinsOn('solana')).map((c) => c.address!), ...(opts.offIsland ?? offIslandCoinsOn('solana')).map((c) => c.address)]);
+  const priceOf = opts.prices ?? pricesInTurn;
+  try {
+    const all = await heldMints(rpc, owner);
+    // In address order, so the same wallet is priced the same coins each time.
+    const mints = [...all.keys()].filter((m) => !listed.has(m)).sort().slice(0, MAX_OTHER_COINS);
+    if (!mints.length) return { status: 'ok', rows: [] };
+    // Each coin's decimals and its own ticker, in one batch (never throws: a mint not read is `unread`).
+    const checks = await readTokenSafety(rpc, mints);
+    const sized = mints.flatMap((m) => {
+      const s = checks.get(m);
+      return s?.kind === 'read' && s.facts ? [{ mint: m, raw: all.get(m)!, decimals: s.facts.decimals, check: s }] : [];
+    });
+    if (!sized.length) throw new Error('none of the coins’ mints could be read');
+    const prices = await priceOf(sized.map((c) => c.mint));
+    const rows = sized
+      .map((c): HoldingRow => ({
+        key: `sol:${c.mint}`,
+        symbol: c.mint === WSOL_MINT ? 'wSOL' : tokenSymbol(c.mint, c.check),
+        chain: 'solana',
+        amount: fmtAmount(c.raw, c.decimals),
+        usd: usdOf(c.raw, c.decimals, prices[c.mint]),
+        roomId: null,
+        mint: c.mint,
+        to: null,
+      }))
+      .filter((r) => r.usd !== null && r.usd >= OTHER_COIN_MIN_USD)
+      .sort((a, b) => b.usd! - a.usd!);
     return { status: 'ok', rows };
   } catch (e) {
     return { status: 'unread', detail: clipReason(e) };

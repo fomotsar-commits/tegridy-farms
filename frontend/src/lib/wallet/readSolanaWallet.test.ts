@@ -50,7 +50,7 @@ vi.mock('../bungalows', async (orig) => {
   return { ...m, BUNGALOWS: m.BUNGALOWS.map((b) => (b.id === 'bayla' ? { ...b, ladderPool: LADDER_POOL } : b)) };
 });
 
-import { __resetBoardPricesForTests, boardPrices, readSolanaHoldings, readSolanaLadder, readSolanaPoolShares, readSolanaStakes } from './readSolanaWallet';
+import { __resetBoardPricesForTests, boardPrices, readSolanaHoldings, readSolanaLadder, readSolanaOtherCoins, readSolanaPoolShares, readSolanaStakes } from './readSolanaWallet';
 import { BUNGALOWS } from '../bungalows';
 import { getUsdPrices } from '../jupiter';
 import { TOKEN_2022_PROGRAM, TOKEN_PROGRAM, USDC_MINT, WSOL_MINT } from '../solana/lp/tokenSafety';
@@ -414,5 +414,56 @@ describe('boardPrices', () => {
     } finally {
       now.mockRestore();
     }
+  });
+});
+
+// Owner, 2026-11-01: "it should show all the tokens in the persons wallet above 1$ not just island tokens".
+describe('readSolanaOtherCoins', () => {
+  const DUST = key(4);
+  const NO_PRICE = key(5);
+  const NO_CHECK = key(6);
+  beforeEach(() => { tickers.of = {}; tickers.fail = false; });
+  const wallet = () => fakeRpc({
+    classic: [
+      tokenAccount(COIN_A, 1_000_000n, TOKEN_PROGRAM), // an island coin: the holdings leg lists it
+      tokenAccount(STRANGER, 3_000_000n, TOKEN_PROGRAM), // 3 at $2: listed
+      tokenAccount(DUST, 1_000_000n, TOKEN_PROGRAM), // 1 at $0.50: under $1
+      tokenAccount(NO_PRICE, 9_000_000n, TOKEN_PROGRAM), // no market price: never listed
+      tokenAccount(NO_CHECK, 9_000_000n, TOKEN_PROGRAM), // its mint not read: cannot be sized
+    ],
+  });
+
+  it('lists every other coin worth $1 or more, named by its own ticker, largest first', async () => {
+    tickers.of = { [STRANGER.toBase58()]: 'WIF', [DUST.toBase58()]: 'DUST', [NO_PRICE.toBase58()]: 'NOPE' };
+    const asked: string[][] = [];
+    const leg = await readSolanaOtherCoins(OWNER, {
+      coins, offIsland: [], rpc: wallet(),
+      prices: async (m) => { asked.push(m); return { [STRANGER.toBase58()]: 2, [DUST.toBase58()]: 0.5 }; },
+    });
+    expect(leg).toEqual({ status: 'ok', rows: [{ key: `sol:${STRANGER.toBase58()}`, symbol: 'WIF', chain: 'solana', amount: '3', usd: 6, roomId: null, mint: STRANGER.toBase58(), to: null }] });
+    // The island coin is not priced again here, nor a coin whose mint was not read.
+    expect(asked.flat().sort()).toEqual([STRANGER, DUST, NO_PRICE].map((k) => k.toBase58()).sort());
+  });
+
+  it('is not read when the prices cannot be read: never "nothing else"', async () => {
+    tickers.of = { [STRANGER.toBase58()]: 'WIF' };
+    const leg = await readSolanaOtherCoins(OWNER, { coins, offIsland: [], rpc: wallet(), prices: async () => { throw new Error('Price fetch failed (429)'); } });
+    expect(leg).toEqual({ status: 'unread', detail: 'Price fetch failed (429)' });
+  });
+
+  it('is not read when no coin’s mint could be read', async () => {
+    tickers.fail = true;
+    const leg = await readSolanaOtherCoins(OWNER, { coins, offIsland: [], rpc: wallet(), prices: async () => ({}) });
+    expect(leg.status).toBe('unread');
+  });
+
+  it('is an empty list, read, for a wallet holding nothing but island coins', async () => {
+    const leg = await readSolanaOtherCoins(OWNER, { coins, offIsland: [], rpc: fakeRpc({ classic: [tokenAccount(COIN_A, 5n, TOKEN_PROGRAM)] }), prices: async () => ({}) });
+    expect(leg).toEqual({ status: 'ok', rows: [] });
+  });
+
+  it('is not read when the wallet’s coins cannot be read', async () => {
+    const leg = await readSolanaOtherCoins(OWNER, { coins, offIsland: [], rpc: fakeRpc({ fail: [`getTokenAccountsByOwner:${TOKEN_PROGRAM}`] }), prices: async () => ({}) });
+    expect(leg.status).toBe('unread');
   });
 });

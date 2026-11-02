@@ -8,6 +8,7 @@ import { islandPoolsOn } from '../lib/terminal/islandPools';
 import { useTOWELIPriceOptional } from '../contexts/PriceContext';
 import { BUNGALOWS } from '../lib/bungalows';
 import {
+  OTHER_COIN_MIN_USD,
   evmLadderRooms,
   fmtAmount,
   islandCoinsOn,
@@ -21,6 +22,7 @@ import {
   type WalletChain,
 } from '../lib/wallet/walletRows';
 import { isHoldingRow, isPositionRow, recallWallet, rememberLegs } from '../lib/wallet/boardMemory';
+import { evmTicker, fetchWalletCoins, type EvmWalletChain, type WalletCoinsRead } from '../lib/wallet/walletCoins';
 
 /**
  * The dashboard's reads for the connected wallets (owner, 2026-10-22: "positions on the website
@@ -42,6 +44,10 @@ export interface WalletBoard {
 
 const CHAIN_IDS: Record<Exclude<WalletChain, 'solana'>, number> = { ethereum: 1, base: 8453 };
 const nowSecs = () => Math.floor(Date.now() / 1000);
+/** A Solana part that failed is asked again after each of these waits before it says so. */
+const RETRY_WAITS_MS = [1_500, 4_000];
+/** A part that could not be read is read again this often while the page is in view. */
+export const HEAL_MS = 20_000;
 
 // ── Solana: one dynamic import, then each leg on its own ──────────────────────────────────────
 
@@ -52,6 +58,7 @@ function solanaJobs(): SolanaJob[] {
   const ladderRoom = BUNGALOWS.find((b) => b.live && b.chain === 'solana' && b.ladderPool);
   return [
     { key: 'sol-holdings', what: 'your Solana coins', kind: 'holdings', run: async (o) => (await load()).readSolanaHoldings(o) },
+    { key: 'sol-other', what: 'your other Solana coins', kind: 'holdings', run: async (o) => (await load()).readSolanaOtherCoins(o) },
     ...(ladderRoom
       ? [{ key: 'sol-ladder', what: `your ${ladderRoom.symbol} locks`, kind: 'positions' as const, run: async (o: string) => (await load()).readSolanaLadder(o) }]
       : []),
@@ -72,14 +79,24 @@ function useSolanaLegs(owner: string | null, nonce: number) {
   const [legs, setLegs] = useState<Record<string, { owner: string; leg: Leg<HoldingRow> | Leg<PositionRow> }>>({});
   const gen = useRef(0);
 
-  // A read lands in state only when its answer arrives, and only if no newer round started.
+  // A read lands in state only when its answer arrives, and only if no newer round started. A
+  // read that fails is asked again, twice, before it lands as unread (owner, 2026-11-01: the
+  // dashboard "sometimes has troubles showing the positions and tokens ... so it never does
+  // that"): most failures are a busy relay or a slow node, gone a few seconds later.
   const launch = useCallback((job: SolanaJob, o: string) => {
     const g = gen.current;
-    job.run(o)
-      .catch((e: unknown): Leg<HoldingRow> => ({ status: 'unread', detail: e instanceof Error ? e.message : 'the Solana code could not load' }))
-      .then((leg) => {
-        if (gen.current === g) setLegs((m) => ({ ...m, [job.key]: { owner: o, leg } }));
-      });
+    const live = () => gen.current === g;
+    const once = () => job.run(o).catch((e: unknown): Leg<HoldingRow> => ({ status: 'unread', detail: e instanceof Error ? e.message : 'the Solana code could not load' }));
+    void (async () => {
+      let leg = await once();
+      for (const ms of RETRY_WAITS_MS) {
+        if (leg.status !== 'unread' || !live()) break;
+        await new Promise((r) => setTimeout(r, ms));
+        if (!live()) return;
+        leg = await once();
+      }
+      if (live()) setLegs((m) => ({ ...m, [job.key]: { owner: o, leg } }));
+    })();
   }, []);
 
   useEffect(() => {
@@ -171,6 +188,32 @@ function useEvmLegs(user: `0x${string}` | undefined, nonce: number) {
     })),
     query: { enabled: enabled && posTargets.length > 0 },
   });
+  // Every other coin the wallet holds on each chain (lib/wallet/walletCoins.ts): which coins and
+  // their prices from the server's list; each balance, decimals and ticker from the coin itself.
+  // A new read keeps the last list on screen until it lands.
+  const [listTick, setListTick] = useState(0);
+  const [lists, setLists] = useState<{ user: string; reads: Record<EvmWalletChain, WalletCoinsRead> } | null>(null);
+  useEffect(() => {
+    if (!user) return;
+    let live = true;
+    void Promise.all([fetchWalletCoins('ethereum', user), fetchWalletCoins('base', user)]).then(([ethereum, base]) => {
+      if (live) setLists({ user, reads: { ethereum, base } });
+    });
+    return () => { live = false; };
+  }, [user, nonce, listTick]);
+  const listOf = (c: EvmWalletChain): WalletCoinsRead => (lists && lists.user === user ? lists.reads[c] : { status: 'loading' });
+  const others = (['ethereum', 'base'] as const).flatMap((c) => {
+    const r = listOf(c);
+    return r.status === 'ok' ? r.coins.map((coin) => ({ chain: c, coin })) : [];
+  });
+  const otherReads = useReadContracts({
+    contracts: others.flatMap(({ chain: c, coin }) => {
+      const t = { address: coin.address, abi: ERC20_ABI, chainId: CHAIN_IDS[c] } as const;
+      return [{ ...t, functionName: 'balanceOf', args: [addr] } as const, { ...t, functionName: 'decimals' } as const, { ...t, functionName: 'symbol' } as const];
+    }),
+    query: { enabled: enabled && others.length > 0 },
+  });
+
   const toweli = useUserPosition();
   const prices = useEvmPrices(enabled);
   const priceCtx = useTOWELIPriceOptional();
@@ -183,6 +226,7 @@ function useEvmLegs(user: `0x${string}` | undefined, nonce: number) {
     void tokens.refetch();
     void ladderReads.refetch();
     void toweli.refetchAll();
+    void otherReads.refetch();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the refetch handles are stable; this fires once per Refresh
   }, [nonce]);
 
@@ -212,6 +256,33 @@ function useEvmLegs(user: `0x${string}` | undefined, nonce: number) {
       rows.push({ key: `${chain}:${c.id}`, symbol: c.symbol, chain, amount: fmtAmount(raw, d), usd: usdOf(raw, d, prices.get(c.address!.toLowerCase())), roomId: c.id, to: `/${c.id}` });
     }
     return { status: 'ok', rows };
+  };
+
+  const otherLeg = (chain: EvmWalletChain): Leg<HoldingRow> => {
+    const list = listOf(chain);
+    if (list.status !== 'ok') return list;
+    if (!list.coins.length) return { status: 'ok', rows: [] };
+    const data = otherReads.data;
+    if (otherReads.isLoading || !data || data.length !== others.length * 3) return { status: 'loading' };
+    const rows: HoldingRow[] = [];
+    for (const [i, o] of others.entries()) {
+      if (o.chain !== chain) continue;
+      const bal = data[i * 3];
+      const dec = data[i * 3 + 1];
+      const sym = data[i * 3 + 2];
+      if (bal?.status !== 'success' || dec?.status !== 'success') return { status: 'unread', detail: 'a coin’s balance did not answer' };
+      const raw = bal.result as bigint;
+      const d = Number(dec.result);
+      if (raw === 0n || !Number.isInteger(d) || d < 0 || d > 36) continue;
+      const usd = usdOf(raw, d, o.coin.priceUsd);
+      if (usd === null || usd < OTHER_COIN_MIN_USD) continue;
+      const a = o.coin.address;
+      rows.push({
+        key: `${chain}:${a}`, chain, amount: fmtAmount(raw, d), usd, roomId: null, mint: a, to: null,
+        symbol: evmTicker(sym?.status === 'success' ? sym.result : null, chain, a) ?? `${a.slice(0, 6)}…${a.slice(-4)}`,
+      });
+    }
+    return { status: 'ok', rows: rows.sort((x, y) => y.usd! - x.usd!) };
   };
 
   const toweliLeg = (): Leg<PositionRow> => {
@@ -264,6 +335,8 @@ function useEvmLegs(user: `0x${string}` | undefined, nonce: number) {
   };
 
   const retry = () => {
+    setListTick((t) => t + 1);
+    void otherReads.refetch();
     void ethNative.refetch();
     void baseNative.refetch();
     void tokens.refetch();
@@ -277,6 +350,8 @@ function useEvmLegs(user: `0x${string}` | undefined, nonce: number) {
     holdings: [
       { key: 'eth-holdings', what: 'your Ethereum coins', leg: holdingsLeg('ethereum'), retry },
       { key: 'base-holdings', what: 'your Base coins', leg: holdingsLeg('base'), retry },
+      { key: 'eth-other', what: 'your other Ethereum coins', leg: otherLeg('ethereum'), retry },
+      { key: 'base-other', what: 'your other Base coins', leg: otherLeg('base'), retry },
     ] as NamedLeg<HoldingRow>[],
     positions: [
       { key: 'toweli-stake', what: 'your TOWELI stake', leg: toweliLeg(), retry },
@@ -290,8 +365,11 @@ function useEvmLegs(user: `0x${string}` | undefined, nonce: number) {
 type Legs = { holdings: NamedLeg<HoldingRow>[]; positions: NamedLeg<PositionRow>[] };
 
 /**
- * Keeps each leg this wallet read, and draws a leg that is loading from its kept rows, with
- * `readAt`. Only a loading leg: a leg that could not be read says so, kept rows or not. Both
+ * Keeps each leg this wallet read, and draws a leg that is loading, or whose new read failed,
+ * from its kept rows, with `readAt` (and `failed`, the reason, for a failed one). The board says
+ * when they were read and that they are being read again, so a kept row is never passed off as
+ * new (owner, 2026-11-01: "so it never does that": a busy relay used to blank a part the wallet
+ * had read a minute before). A part with nothing kept still says it could not be read. Both
  * readers key their answers by the wallet (the Solana legs' owner check, wagmi's query keys), so
  * what is kept under an address was read for that address.
  */
@@ -303,18 +381,45 @@ function useRemembered(owner: string | null, legs: Legs): Legs {
     if (owner && said !== '{}') rememberLegs(owner, JSON.parse(said) as Record<string, unknown[]>);
   }, [owner, said]);
 
-  const loading = [...legs.holdings, ...legs.positions].some((l) => l.leg.status === 'loading');
-  const kept = owner && loading ? recallWallet(owner) : null;
+  const waiting = [...legs.holdings, ...legs.positions].some((l) => l.leg.status !== 'ok');
+  const kept = owner && waiting ? recallWallet(owner) : null;
   const shown = <T,>(l: NamedLeg<T>, isRow: (r: unknown) => r is T): NamedLeg<T> => {
     const k = kept?.[l.key];
-    return l.leg.status === 'loading' && k && k.rows.every(isRow)
-      ? { ...l, leg: { status: 'ok', rows: k.rows }, readAt: k.at }
-      : l;
+    if (l.leg.status === 'ok' || !k || !k.rows.every(isRow)) return l;
+    return { ...l, leg: { status: 'ok', rows: k.rows }, readAt: k.at, ...(l.leg.status === 'unread' ? { failed: l.leg.detail } : {}) };
   };
   return {
     holdings: legs.holdings.map((l) => shown(l, isHoldingRow)),
     positions: legs.positions.map((l) => shown(l, isPositionRow)),
   };
+}
+
+/**
+ * Reads again, on its own, every part whose last read failed: every HEAL_MS while the page is in
+ * view, at once when the page comes back into view, and when the device comes back online. A
+ * part that heals draws its new read; nobody has to press Try again.
+ */
+function useHeal(legs: readonly NamedLeg<unknown>[]) {
+  const failing = legs.filter((l) => l.leg.status === 'unread' || l.failed !== undefined);
+  const latest = useRef(failing);
+  useEffect(() => { latest.current = failing; });
+  const any = failing.length > 0;
+  useEffect(() => {
+    if (!any) return;
+    const heal = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      for (const l of latest.current) l.retry();
+    };
+    const iv = setInterval(heal, HEAL_MS);
+    const onVisible = () => { if (document.visibilityState === 'visible') heal(); };
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('online', heal);
+    return () => {
+      clearInterval(iv);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('online', heal);
+    };
+  }, [any]);
 }
 
 export function useWalletBoard(): WalletBoard {
@@ -323,11 +428,14 @@ export function useWalletBoard(): WalletBoard {
   const [nonce, setNonce] = useState(0);
   const sol = useRemembered(solanaAddress, useSolanaLegs(solanaAddress, nonce));
   const evm = useRemembered(evmAddress ?? null, useEvmLegs(evmAddress, nonce));
+  const holdings = [...sol.holdings, ...evm.holdings];
+  const positions = [...sol.positions, ...evm.positions];
+  useHeal([...holdings, ...positions] as NamedLeg<unknown>[]);
   return {
     solanaAddress,
     evmAddress: evmAddress ?? null,
-    holdings: [...sol.holdings, ...evm.holdings],
-    positions: [...sol.positions, ...evm.positions],
+    holdings,
+    positions,
     refresh: () => setNonce((n) => n + 1),
   };
 }

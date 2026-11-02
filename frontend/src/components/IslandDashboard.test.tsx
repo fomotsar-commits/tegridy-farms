@@ -177,7 +177,7 @@ describe('IslandDashboard: the wallet', () => {
       positions: [leg('p', 'your BAYLA locks', { status: 'ok', rows: [] })],
     });
     mount();
-    expect(screen.getByText('No SOL, ETH or island coins in this wallet.')).toBeInTheDocument();
+    expect(screen.getByText('No SOL, ETH or coins worth $1 or more in this wallet.')).toBeInTheDocument();
     expect(screen.getByText(/No locks, stakes or pool shares here yet/)).toBeInTheDocument();
     // Nothing to add up: no Positions figure, and never a $0 that reads as a read worth.
     expect(screen.queryByTestId('positions-worth')).toBeNull();
