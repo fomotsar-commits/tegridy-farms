@@ -15,7 +15,7 @@
 // The READ SEAM is mocked one module below the card and the math above it stays real,
 // which is what makes those three assertions mean anything.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, within, fireEvent, waitFor, act } from '@testing-library/react';
+import { render, screen, within, fireEvent, waitFor, act, cleanup } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import type { Bungalow } from '../../lib/bungalows';
 
@@ -266,6 +266,31 @@ describe('what a position has earned', () => {
   it('a pool emitting nothing shows a real, labelled zero', async () => {
     draw();
     expect(await screen.findByText(/0 BAYLA earned/)).toBeTruthy();
+  });
+
+  // Owner, 2026-11-02: the four rooms' ladder pools open with no rewards yet. Whoever is about to
+  // lock must read that beside the Lock button, wallet or not, never only in a chip or the details.
+  it('a pool never funded says, beside the lock, that it pays nothing yet: with a wallet and without', async () => {
+    const NO_REWARDS = 'No rewards yet: a lock here counts your held time and earns nothing until the vault funds this pool.';
+    draw();
+    expect(await screen.findByTestId('ladder-no-rewards')).toHaveTextContent(NO_REWARDS);
+    cleanup();
+    walletState.publicKey = null;
+    draw();
+    expect(await screen.findByTestId('ladder-no-rewards')).toHaveTextContent(NO_REWARDS);
+    expect(screen.getByRole('button', { name: /Connect to lock/ })).toBeTruthy();
+  });
+
+  it('a funded pool, or an ended one, carries no such line', async () => {
+    reads.pool = { ok: true, value: poolView({ rewardRate: 1_000_000n }) };
+    draw();
+    await screen.findByText(/BAYLA/);
+    expect(screen.queryByTestId('ladder-no-rewards')).toBeNull();
+    cleanup();
+    reads.pool = { ok: true, value: poolView({ rewardRate: 1_000_000n, periodFinish: BigInt(NOW - 2 * DAY) }) };
+    draw();
+    await screen.findByTestId('ladder-window-ended');
+    expect(screen.queryByTestId('ladder-no-rewards')).toBeNull();
   });
 });
 
