@@ -3,10 +3,10 @@
 // All calls go to our same-origin hardened proxy (/api/jupiter/*), which
 // forwards to lite-api.jup.ag server-side. Supports ANY pair. The platform fee
 // is attached ONLY when a leg of the pair is in our pre-created fee-ATA set
-// {wSOL, USDC}: Jupiter requires the fee account to already exist, and for
+// {wSOL, USDC, USDT}: Jupiter requires the fee account to already exist, and for
 // ExactIn the fee mint may be the input OR output side — so that one set covers
-// both directions of any pair touching SOL/USDC. For any other pair the swap
-// runs fee-free, so an arbitrary pair can never break. No own program.
+// both directions of any pair touching SOL, USDC or USDT. For any other pair the
+// swap runs fee-free, so an arbitrary pair can never break. No own program.
 import { PublicKey, VersionedTransaction } from '@solana/web3.js';
 import { getAssociatedTokenAddressSync } from '@solana/spl-token';
 import {
@@ -17,6 +17,7 @@ import {
   SOLANA_PLATFORM_FEE_BPS,
   SOL_MINT,
   USDC_MINT,
+  USDT_MINT,
 } from './solana';
 import { JupiterBusyError, jupiterBusy } from './solana/swap/jupiterBusy';
 
@@ -39,11 +40,10 @@ export interface JupiterQuote {
 
 /**
  * Pick the fee mint for a pair, or null for no fee. We can only collect a fee in
- * a mint whose ATA the fee wallet has pre-created — that set is {wSOL, USDC}
- * (both legacy SPL). For ExactIn the fee mint may be either leg, so this one set
- * covers both directions of any pair touching SOL or USDC; ExactOut allows the
- * input mint only. Prefer USDC (stable, no wSOL dust). Pure / env-independent so
- * it's unit-testable; the configured-and-enabled gating lives at the call sites.
+ * a mint whose ATA the fee wallet has pre-created (create-fee-atas.mjs): the set is
+ * {wSOL, USDC, USDT}, all legacy SPL. For ExactIn the fee mint may be either leg;
+ * ExactOut allows the input mint only. Stable coins first (USDC, then USDT: no wSOL
+ * dust), SOL last. Pure, so it's unit-testable; the enabled gating is at the call sites.
  */
 export function pickFeeMint(
   inputMint: string,
@@ -52,6 +52,7 @@ export function pickFeeMint(
 ): string | null {
   const candidates = swapMode === 'ExactOut' ? [inputMint] : [inputMint, outputMint];
   if (candidates.includes(USDC_MINT)) return USDC_MINT;
+  if (candidates.includes(USDT_MINT)) return USDT_MINT;
   if (candidates.includes(SOL_MINT)) return SOL_MINT;
   return null;
 }
@@ -63,8 +64,8 @@ function feeEnabled(): boolean {
 
 /**
  * Derive the fee token account (ATA of `feeMint` owned by the fee wallet).
- * `feeMint` is always legacy SPL {wSOL, USDC}, so the default token program is
- * correct. `allowOwnerOffCurve = true` because the owner may be a Squads PDA.
+ * `feeMint` is always legacy SPL {wSOL, USDC, USDT}, so the default token program
+ * is correct. `allowOwnerOffCurve = true` because the owner may be a Squads PDA.
  */
 function feeAccountFor(feeMint: string): string | null {
   if (!SOLANA_FEE_ACCOUNT) return null;

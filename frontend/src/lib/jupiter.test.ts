@@ -55,13 +55,24 @@ describe('base-unit round trips (guards the shared parsing family)', () => {
 describe('pickFeeMint', () => {
   const SOL = 'So11111111111111111111111111111111111111112';
   const USDC = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
-  it('prefers USDC, falls back to SOL, null otherwise', () => {
+  const USDT = 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB';
+  it('prefers USDC, then USDT, then SOL; null when the pair touches none', () => {
     expect(pickFeeMint(SOL, USDC)).toBe(USDC);
+    expect(pickFeeMint(USDT, USDC)).toBe(USDC);
+    expect(pickFeeMint(USDT, SOL)).toBe(USDT);
     expect(pickFeeMint(SOL, 'Other')).toBe(SOL);
     expect(pickFeeMint('A', 'B')).toBeNull();
+  });
+  it('a swap paid in USDT for any other coin carries the fee, in USDT, either way round', () => {
+    // Until 2026-11-02 this pair ran fee-free: USDT was one press away on the Pay list
+    // (the island's answer twenty-four) but not in the fee-mint set.
+    expect(pickFeeMint(USDT, 'Other')).toBe(USDT);
+    expect(pickFeeMint('Other', USDT)).toBe(USDT);
   });
   it('ExactOut may only fee the input side', () => {
     expect(pickFeeMint('A', USDC, 'ExactOut')).toBeNull();
     expect(pickFeeMint(USDC, 'A', 'ExactOut')).toBe(USDC);
+    expect(pickFeeMint('A', USDT, 'ExactOut')).toBeNull();
+    expect(pickFeeMint(USDT, 'A', 'ExactOut')).toBe(USDT);
   });
 });

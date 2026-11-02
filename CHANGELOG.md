@@ -7,6 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-11-02
+
+- A Solana swap paid in USDT now carries the venue's fee, as one paid in SOL or USDC does. The swap page's fee line reads "SOL, USDC or USDT".
+
 ### 2026-11-01
 
 - The Arbitrage card on the Solana pools page now lists only trades that really pay. Each of the top five gaps is checked against Jupiter's real quote for the other half of the round trip (a thin coin's real Jupiter price can sit points under its listed one), and a trip that loses or only breaks even is left out and counted in one line. Pools it could not check are said, never shown as "None".

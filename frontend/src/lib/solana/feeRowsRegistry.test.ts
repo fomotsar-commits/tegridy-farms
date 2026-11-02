@@ -8,7 +8,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { REGISTERED_PROGRAM_ID, deriveAmmConfig, publicTierConfig } from './cpswap/program';
-import { SOL_MINT, USDC_MINT } from '../solana';
+import { SOL_MINT, USDC_MINT, USDT_MINT } from '../solana';
 
 interface Entry { id?: string; address?: string; expect?: { type?: string } }
 
@@ -53,6 +53,8 @@ describe('the swap fee is paid to the registered token accounts of the registere
   it.each([
     ['squads-vault', SOL_MINT, 'cpswap-fee-receiver-wsol-ata'],
     ['squads-vault', USDC_MINT, 'squads-vault-usdc-ata'],
+    // USDT joined the fee-mint set on 2026-11-02; the owner created this account the same day.
+    ['squads-vault', USDT_MINT, 'squads-vault-usdt-ata'],
     // The wallet that used to be the fee owner: its two rows are derived the same way.
     ['swap-fee-account', SOL_MINT, 'swap-fee-ata-wsol'],
     ['swap-fee-account', USDC_MINT, 'swap-fee-ata-usdc'],
@@ -62,7 +64,7 @@ describe('the swap fee is paid to the registered token accounts of the registere
   });
 
   it('the two owners have different accounts, so a row copied from the other owner fails', () => {
-    const rows = ['cpswap-fee-receiver-wsol-ata', 'squads-vault-usdc-ata', 'swap-fee-ata-wsol', 'swap-fee-ata-usdc'];
+    const rows = ['cpswap-fee-receiver-wsol-ata', 'squads-vault-usdc-ata', 'squads-vault-usdt-ata', 'swap-fee-ata-wsol', 'swap-fee-ata-usdc'];
     expect(new Set(rows.map((id) => entry(id).address)).size).toBe(rows.length);
   });
 });
