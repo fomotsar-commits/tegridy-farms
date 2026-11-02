@@ -40,8 +40,6 @@ export const COINS = {
  *
  * Owner rulings 2026-10-24: a pool share is named "<first coin>/<second coin> LP"; only
  * a bungalow's coin gets its own art inside its ring, every other share gets BAYLA's.
- * The two BAYLA shares still carry the names of 2026-10-08 until the pool program is
- * upgraded again: the upgrade's own page compares their live files with its copies.
  */
 export const MINT_TOKENS = [
   {
@@ -49,7 +47,7 @@ export const MINT_TOKENS = [
     kind: 'pool-share',
     pool: 'ErvzV1NMZmcfAqZtGH4AQhYAjn77nJEworKK1mYPz5w4',
     coins: [COINS.BAYLA, COINS.SOL],
-    name: 'Bayla LP SOL',
+    name: 'BAYLA/SOL LP',
     symbol: 'BAYLA-SOL',
     description: share('BAYLA/SOL', 'BAYLA', 'SOL'),
     picture: 'bayla-sol',
@@ -60,7 +58,7 @@ export const MINT_TOKENS = [
     kind: 'pool-share',
     pool: 'J35mQ6UF9PpB6bQMes2TRVUMbJVPwMYjcfapbkdm8mYm',
     coins: [COINS.BAYLA, COINS.USDC],
-    name: 'Bayla LP USDC',
+    name: 'BAYLA/USDC LP',
     symbol: 'BAYLA-USDC',
     description: share('BAYLA/USDC', 'BAYLA', 'USDC'),
     picture: 'bayla-usdc',

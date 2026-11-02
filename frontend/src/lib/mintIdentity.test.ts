@@ -86,11 +86,11 @@ describe('the one list of tokens', () => {
   it('carries the names the owner ruled on, word for word', () => {
     // Written out here on purpose. Every other check compares the files with the list, so
     // a name changed in the list and regenerated would pass them all.
-    // 2026-10-08: the BAYLA shares and the receipt. 2026-10-24: "<first coin>/<second coin> LP",
+    // 2026-10-08: the receipt. 2026-10-24: every pool share "<first coin>/<second coin> LP",
     // and BRAINLET's symbol "use brain instead drop the L".
     expect(MINT_TOKENS.map((t) => [t.mint, t.name, t.symbol])).toEqual([
-      ['BQZth5DhHZT9H1AxZonoLAwGHknWo4LebQBxjKWtzY8e', 'Bayla LP SOL', 'BAYLA-SOL'],
-      ['3D3EKJxfePDQ1N8YtNwg8W6eSL4mjVpbYf57pnqgcAQx', 'Bayla LP USDC', 'BAYLA-USDC'],
+      ['BQZth5DhHZT9H1AxZonoLAwGHknWo4LebQBxjKWtzY8e', 'BAYLA/SOL LP', 'BAYLA-SOL'],
+      ['3D3EKJxfePDQ1N8YtNwg8W6eSL4mjVpbYf57pnqgcAQx', 'BAYLA/USDC LP', 'BAYLA-USDC'],
       ['8LUVkr5K9PFuLnXeZ2GfgiRXHxrQQQdzjnw1EiCQxcgZ', 'RIZZ/SOL LP', 'RIZZ-SOL'],
       ['3YMYSG627S1gFMtG8GMWpzqVYd3DThRPMbxrgyqtpzUj', 'SOY/SOL LP', 'SOY-SOL'],
       ['CcLsQeUD1dWhrR3aNW3sjcKHeLbMdPvzFRyBniUTCtNJ', 'BOBO/SOL LP', 'BOBO-SOL'],
@@ -105,9 +105,6 @@ describe('the one list of tokens', () => {
   });
 
   it('names every pool share "<first coin>/<second coin> LP", its own coin first and the coin it is paired with last', () => {
-    // The two BAYLA shares keep the names of 2026-10-08 until the pool program is upgraded
-    // again: that upgrade's page refuses unless their live files are its reviewed copies.
-    const held = new Set(['BQZth5DhHZT9H1AxZonoLAwGHknWo4LebQBxjKWtzY8e', '3D3EKJxfePDQ1N8YtNwg8W6eSL4mjVpbYf57pnqgcAQx']);
     for (const t of MINT_TOKENS.filter((x) => x.kind === 'pool-share')) {
       const [first, second] = t.coins!;
       expect(TICKER.has(first) && TICKER.has(second), `${t.name}: a coin missing from COINS`).toBe(true);
@@ -116,7 +113,6 @@ describe('the one list of tokens', () => {
       // A pool of the two pairing coins reads SOL first, as the site shows it.
       if (PAIRING_COINS.includes(first)) expect([first, second]).toEqual([COINS.SOL, COINS.USDC]);
       expect(t.description).toContain(`the ${TICKER.get(first)}/${TICKER.get(second)} pool`);
-      if (held.has(t.mint)) continue;
       expect(t.name).toBe(`${TICKER.get(first)}/${TICKER.get(second)} LP`);
     }
   });
