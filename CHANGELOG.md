@@ -7,6 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-11-02
+
+- A Solana swap paid in USDT now carries the venue's fee, as one paid in SOL or USDC does. The swap page's fee line reads "SOL, USDC or USDT".
+
 ### 2026-11-01
 
 - The Add door stays open. The venue now reads every pool's outside price once for everyone (one paced loop on the server, kept at the edge), instead of each visitor's phone asking Jupiter twice per pool at once; a price up to ten minutes old passes the deposit check and the pool card says when it was read ("read 40 s ago"). Only a pool with no price in the last ten minutes holds its Add form, in one row ("Outside price not read for 12 min; adding waits"), never a paragraph. The pool's own reserves stay the one hard stop.
