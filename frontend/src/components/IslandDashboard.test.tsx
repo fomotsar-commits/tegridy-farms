@@ -10,6 +10,7 @@ import { MemoryRouter } from 'react-router-dom';
 import type { ReactNode } from 'react';
 import type { WalletBoard } from '../hooks/useWalletBoard';
 import type { HoldingRow, Leg, NamedLeg, PositionRow } from '../lib/wallet/walletRows';
+import { OFF_ISLAND_COINS } from '../lib/wallet/offIslandCoins';
 
 const board = vi.hoisted(() => ({ value: null as unknown as WalletBoard }));
 vi.mock('../hooks/useWalletBoard', () => ({ useWalletBoard: () => board.value }));
@@ -24,6 +25,7 @@ vi.mock('./farm/HarvestCard', () => ({
 import { IslandDashboard } from './IslandDashboard';
 import { venuePoolRows } from '../lib/venuePools';
 import { MIN_BOOST_BPS, MAX_BOOST_BPS } from '../lib/constants';
+import { getSolanaSurfaceState, resetSolanaSurfaceForTests } from '../lib/solanaSurface';
 
 const leg = <T,>(key: string, what: string, l: Leg<T>, retry = vi.fn()): NamedLeg<T> => ({ key, what, leg: l, retry });
 const holding = (o: Partial<HoldingRow>): HoldingRow => ({ key: o.symbol ?? 'x', symbol: 'BAYLA', chain: 'solana', amount: '52,000', usd: 12.5, roomId: 'bayla', to: '/bayla', ...o });
@@ -33,9 +35,9 @@ function wallet(o: Partial<WalletBoard>): WalletBoard {
   return { solanaAddress: null, evmAddress: null, holdings: [], positions: [], refresh: vi.fn(), ...o };
 }
 
-function mount(headingLevel?: 1 | 2) {
+function mount(headingLevel?: 1 | 2, path = '/') {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[path]}>
       <IslandDashboard headingLevel={headingLevel} />
     </MemoryRouter>,
   );
@@ -43,6 +45,8 @@ function mount(headingLevel?: 1 | 2) {
 
 beforeEach(() => {
   board.value = wallet({});
+  localStorage.clear();
+  resetSolanaSurfaceForTests();
 });
 
 describe('IslandDashboard: the wallet', () => {
@@ -69,11 +73,29 @@ describe('IslandDashboard: the wallet', () => {
     const lock = within(positions).getByRole('link', { name: /BAYLA lock/ });
     expect(lock).toHaveAttribute('href', '/earn/bayla');
     expect(lock).toHaveTextContent('earned 1.23 BAYLA');
-    // Every coin held was read and priced, so the total is printed.
-    expect(screen.getByText('$312.50')).toBeInTheDocument();
+    // Every coin held was read and priced, so the holdings' total is printed; the lock has no
+    // price, so the whole is not.
+    expect(screen.getByTestId('holdings-worth')).toHaveTextContent('Holdings $312.50');
+    expect(screen.getByTestId('wallet-worth')).toHaveTextContent('—');
     // The chain whose wallet is missing can still be connected.
     expect(screen.getByRole('button', { name: /Connect Ethereum wallet/ })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Connect Solana wallet/ })).toBeNull();
+  });
+
+  // Owner, 2026-11-01: the BIG BRAIN pool sat on a bare green square ("use this image for the art").
+  it('pictures a coin with no room from offIslandCoins.ts, on its rows and in the frame, worded by its whole ticker', () => {
+    const coin = OFF_ISLAND_COINS[0]!;
+    board.value = wallet({
+      solanaAddress: '7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU',
+      holdings: [leg('h', 'your Solana coins', { status: 'ok', rows: [holding({ key: 'bb', symbol: 'BIG BRAIN', roomId: null, mint: coin.address, to: null })] })],
+      positions: [leg('p', 'your Solana pool shares', { status: 'ok', rows: [position({ title: 'BIG BRAIN / SOL pool', roomId: null, mint: coin.address, facts: ['3.03% of the pool', coin.address], to: '/pools' })] })],
+    });
+    const { container } = mount();
+    expect(container.querySelectorAll(`img[src="${coin.art.src}"]`).length).toBeGreaterThanOrEqual(2);
+    fireEvent.mouseEnter(within(screen.getByRole('region', { name: 'Positions' })).getByRole('link', { name: /BIG BRAIN \/ SOL pool/ }));
+    expect(screen.getByTestId('dashboard-figure').querySelector(`img[src="${coin.art.src}"]`)).not.toBeNull();
+    expect(screen.getByTestId('dashboard-figure')).toHaveTextContent('BIG BRAIN');
+    expect(screen.queryByTestId('chain-plate')).toBeNull();
   });
 
   it('says which part could not be read, with Try again, and never reads it as holding nothing', () => {
@@ -112,6 +134,42 @@ describe('IslandDashboard: the wallet', () => {
     expect(within(screen.getByRole('region', { name: 'Holdings' })).getByRole('status')).toHaveTextContent('Reading the chain');
   });
 
+  it('draws a part from its last read at once, saying when that was and that it is updating', () => {
+    board.value = wallet({
+      solanaAddress: '7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU',
+      holdings: [{ ...leg('h', 'your Solana coins', { status: 'ok', rows: [holding({})] }), readAt: Date.now() - 3 * 3600_000 }],
+      positions: [leg('p', 'your BAYLA locks', { status: 'ok', rows: [position({})] })],
+    });
+    mount();
+    expect(within(screen.getByRole('region', { name: 'Holdings' })).getByText('52,000')).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('As of 3h ago · updating');
+  });
+
+  it('restores a Solana wallet connected here before as the dashboard opens, not after the page settles', () => {
+    localStorage.setItem('tegridy-solana-restore', '1');
+    localStorage.setItem('walletName', JSON.stringify('Phantom'));
+    mount(1, '/dashboard');
+    expect(getSolanaSurfaceState().ownWanted).toBe(true);
+  });
+
+  it('loads no Solana for a visitor who never connected it here, nor where the page restores its own', () => {
+    localStorage.setItem('walletName', JSON.stringify('Phantom'));
+    mount(1, '/dashboard');
+    expect(getSolanaSurfaceState().ownWanted, 'a saved name alone (an "Open app" tap) restores nothing').toBe(false);
+    localStorage.setItem('tegridy-solana-restore', '1');
+    mount(2, '/');
+    expect(getSolanaSurfaceState().ownWanted, 'the home: its cards restore their own connection').toBe(false);
+  });
+
+  it('says nothing of updating once every part is the new read', () => {
+    board.value = wallet({
+      solanaAddress: '7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU',
+      holdings: [leg('h', 'your Solana coins', { status: 'ok', rows: [holding({})] })],
+    });
+    mount();
+    expect(screen.queryByText(/updating/)).toBeNull();
+  });
+
   it('says plainly when the wallet holds nothing, once that was read', () => {
     board.value = wallet({
       solanaAddress: '7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU',
@@ -143,7 +201,48 @@ describe('IslandDashboard: what the positions are worth', () => {
     const positions = screen.getByRole('region', { name: 'Positions' });
     expect(within(positions).getByRole('link', { name: /^BAYLA lock: \$68\.13,/ })).toHaveTextContent('$68.13');
     expect(within(positions).getByRole('link', { name: /^BAYLA \/ SOL pool: \$1,234,/ })).toHaveTextContent('$1,234');
-    expect(screen.getByTestId('positions-worth')).toHaveTextContent('Positions$1,303');
+    expect(screen.getByTestId('positions-worth')).toHaveTextContent('Positions $1,303');
+  });
+
+  // Owner, 2026-10-31: "also include it in the total value in the dashboard".
+  it('makes the big figure the whole, holdings and positions together, with each part under it', () => {
+    board.value = wallet({
+      solanaAddress: SOL_WALLET,
+      holdings: [leg('h', 'your Solana coins', { status: 'ok', rows: [holding({})] })],
+      positions: [
+        leg('l', 'your BAYLA locks', { status: 'ok', rows: [position({ usd: 68.13 })] }),
+        leg('s', 'your pool shares on Solana', { status: 'ok', rows: [position({ key: 'lp', title: 'BAYLA / SOL pool', usd: 1234.4, to: '/pools' })] }),
+      ],
+    });
+    mount();
+    expect(screen.getByText('Total')).toBeInTheDocument();
+    expect(screen.getByTestId('wallet-worth')).toHaveTextContent('$1,315'); // 12.50 + 68.13 + 1,234.40
+    expect(screen.getByTestId('holdings-worth')).toHaveTextContent('Holdings $12.50');
+    expect(screen.getByTestId('positions-worth')).toHaveTextContent('Positions $1,303');
+  });
+
+  it('keeps the big figure the holdings alone, under that name, while there is no position', () => {
+    board.value = wallet({
+      solanaAddress: SOL_WALLET,
+      holdings: [leg('h', 'your Solana coins', { status: 'ok', rows: [holding({})] })],
+      positions: [leg('l', 'your BAYLA locks', { status: 'ok', rows: [] })],
+    });
+    mount();
+    expect(screen.queryByText('Total')).toBeNull();
+    expect(screen.getByTestId('wallet-worth')).toHaveTextContent('$12.50');
+    expect(screen.queryByTestId('holdings-worth')).toBeNull();
+  });
+
+  it('prints no whole while the holdings are still reading, and says which part is missing', () => {
+    board.value = wallet({
+      solanaAddress: SOL_WALLET,
+      holdings: [leg('h', 'your Solana coins', { status: 'loading' })],
+      positions: [leg('l', 'your BAYLA locks', { status: 'ok', rows: [position({ usd: 10 })] })],
+    });
+    mount();
+    expect(screen.getByTestId('wallet-worth')).toHaveTextContent('—');
+    expect(screen.getByTestId('holdings-worth')).toHaveTextContent('Holdings — reading');
+    expect(screen.getByTestId('positions-worth')).toHaveTextContent('Positions $10.00');
   });
 
   it('prints no total while a position has no price read, and its row says so', () => {
@@ -153,7 +252,8 @@ describe('IslandDashboard: what the positions are worth', () => {
     });
     mount();
     expect(within(screen.getByRole('region', { name: 'Positions' })).getByRole('link', { name: /^BOBO stake: worth not read,/ })).toBeInTheDocument();
-    expect(screen.getByTestId('positions-worth')).toHaveTextContent('Positions—not every position priced');
+    expect(screen.getByTestId('positions-worth')).toHaveTextContent('Positions — not every position priced');
+    expect(screen.getByTestId('wallet-worth')).toHaveTextContent('—');
   });
 
   it('prints no total over a part that could not be read, and says it was not read', () => {
@@ -165,7 +265,8 @@ describe('IslandDashboard: what the positions are worth', () => {
       ],
     });
     mount();
-    expect(screen.getByTestId('positions-worth')).toHaveTextContent('Positions—not every position read');
+    expect(screen.getByTestId('positions-worth')).toHaveTextContent('Positions — not every position read');
+    expect(screen.getByTestId('wallet-worth')).toHaveTextContent('—');
   });
 
   it('says it is reading while a part is in flight', () => {
@@ -177,7 +278,8 @@ describe('IslandDashboard: what the positions are worth', () => {
       ],
     });
     mount();
-    expect(screen.getByTestId('positions-worth')).toHaveTextContent('Positions—reading');
+    expect(screen.getByTestId('positions-worth')).toHaveTextContent('Positions — reading');
+    expect(screen.getByTestId('wallet-worth')).toHaveTextContent('—');
   });
 });
 

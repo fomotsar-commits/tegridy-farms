@@ -3,17 +3,19 @@ import { Link, useLocation } from 'react-router-dom';
 import { AnimatePresence, m } from 'framer-motion';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { BUNGALOWS } from '../lib/bungalows';
-import { doorArt } from '../lib/doorArt';
+import { doorArt, type DoorArt } from '../lib/doorArt';
 import { artSrcSet } from '../lib/artSrcSet';
 import { MIN_BOOST_BPS, MAX_BOOST_BPS } from '../lib/constants';
 import { CONNECT_ETHEREUM_WALLET } from '../lib/copy';
 import { hasMixedSolanaSection } from '../lib/routeVoice';
-import { getSolanaSurfaceState, requestSolanaOpen, shortSolanaAddress, wantOwnSolana } from '../lib/solanaSurface';
+import { getSolanaSurfaceState, requestSolanaOpen, shortSolanaAddress, solanaToRestore, wantOwnSolana } from '../lib/solanaSurface';
+import { timeAgo } from '../lib/solanaActivity';
 import { CHAIN_LABEL, hasLadder, rowTerms, venuePoolRows, type VenuePoolRow } from '../lib/venuePools';
 import {
   WALLET_CHAIN_LABEL, boostOf, fmtUsd, holdingShares, holdingsTotal, pctText,
   type HoldingRow, type HoldingShare, type NamedLeg, type PositionRow, type WalletChain,
 } from '../lib/wallet/walletRows';
+import { offIslandArt } from '../lib/wallet/offIslandCoins';
 import { EDITORIAL_BG, EDITORIAL_EASE, EDITORIAL_GRAIN, EDITORIAL_INK, HEADING_FONT, pad2 } from '../lib/editorial';
 import { useWalletBoard } from '../hooks/useWalletBoard';
 import { noteStakesChanged, useOnStakesChanged } from '../lib/harvest/stakesChanged';
@@ -30,7 +32,9 @@ import { FinePrint } from './ui/FinePrint';
  * First the connected wallets: what they hold (SOL, ETH and every island coin, with USD where a
  * price was read) and their positions on this site (locks, stakes, pool shares), each read from
  * the chain by the reader its own page uses (hooks/useWalletBoard.ts). A part that could not be
- * read says so, by name, with Try again; it is never a zero or an empty list.
+ * read says so, by name, with Try again; it is never a zero or an empty list. A wallet seen before
+ * draws at once from its last read in this browser, said "As of 3h ago · updating" until the new
+ * read lands (lib/wallet/boardMemory.ts).
  *
  * What is drawn is only what was read: the holdings' worth split by coin (a bar, and each coin's
  * share on its row) only when every coin held was read and priced; a tape of the coins held only
@@ -69,11 +73,17 @@ function doorOf(id: string) {
   return b ? doorArt(b) : null;
 }
 
+/** A row's picture: its room's door, else, for a coin with no room, its picture on offIslandCoins.ts. */
+function artOf(roomId: string | null, chain: string, mint?: string): DoorArt | null {
+  return roomId ? doorOf(roomId) : offIslandArt(chain, mint);
+}
+
 /**
- * What the big frame shows: a row's room, or, for a coin with no room (SOL, ETH), its chain. `no`
- * is its plate number: the row's section and place ("01.05", the fifth coin held), or a pool's place.
+ * What the big frame shows: a row's room, or, for a coin with no room, its picture, else its chain
+ * (SOL, ETH). `no` is its plate number: the row's section and place ("01.05", the fifth coin held),
+ * or a pool's place.
  */
-type Fig = { key: string; roomId: string | null; chain: string; word: string; caption: string; no: string };
+type Fig = { key: string; roomId: string | null; mint?: string; chain: string; word: string; caption: string; no: string };
 
 // Touch-first: no hover, or a coarse pointer. Width alone is not it: a mouse in a narrow window
 // points, and an iPad with a trackpad attached reports a fine pointer that hovers.
@@ -187,16 +197,15 @@ function useSettled<T>(value: T, ms: number): T {
 }
 
 /** Fetch a frame's picture ahead, at the size the frame will ask for, so it is there when the frame turns to it. */
-function preloadDoor(roomId: string | null) {
-  const door = roomId ? doorOf(roomId) : null;
-  if (!door || typeof Image === 'undefined') return;
+function preloadArt(src: string) {
+  if (typeof Image === 'undefined') return;
   const img = new Image();
-  const set = artSrcSet(door.src);
+  const set = artSrcSet(src);
   if (set) {
     img.sizes = FIG_SIZES;
     img.srcset = set;
   }
-  img.src = door.src;
+  img.src = src;
 }
 
 const accentOf = (roomId: string | null) => (roomId ? BUNGALOWS.find((b) => b.id === roomId)?.accent : undefined);
@@ -329,9 +338,9 @@ function PoolRow({ n, row, onShow, figKey, current }: { n: number; row: VenuePoo
   );
 }
 
-/** A row's picture: its room's door art, or, for SOL and ETH, a square in the chain's color. */
-function Thumb({ roomId, chain, className = '' }: { roomId: string | null; chain: WalletChain; className?: string }) {
-  const door = roomId ? doorOf(roomId) : null;
+/** A row's picture (artOf), or, for SOL and ETH, a square in the chain's color. */
+function Thumb({ roomId, mint, chain, className = '' }: { roomId: string | null; mint?: string; chain: WalletChain; className?: string }) {
+  const door = artOf(roomId, chain, mint);
   const set = door ? artSrcSet(door.src) : undefined;
   return (
     <span aria-hidden="true" className={`relative w-11 h-11 flex-shrink-0 overflow-hidden border border-white/15 ${className}`}
@@ -400,7 +409,7 @@ function HoldingItem({ n, row, share, onShow, figKey, current }: { n: number; ro
     <>
       <RowRules accent={accentOf(row.roomId)} />
       <Index n={n} />
-      <Thumb roomId={row.roomId} chain={row.chain} />
+      <Thumb roomId={row.roomId} mint={row.mint} chain={row.chain} />
       <span className="min-w-0">
         {/* An upright iPad sets the board beside its frame, so the type steps down a size there. */}
         <span className={`block truncate font-black leading-[0.95] tracking-[-0.045em] text-[24px] md:text-[26px] lg:text-[30px] ${WORD_LIT}`} style={HEADING_FONT}>
@@ -447,7 +456,7 @@ function PositionItem({ n, row, onShow, figKey, current }: { n: number; row: Pos
         className={`${ROW_CLASS} grid-cols-[2.75rem_minmax(0,1fr)_2.5rem] md:grid-cols-[2rem_2.75rem_minmax(0,1fr)_auto_2.5rem] lg:grid-cols-[2rem_2.75rem_minmax(0,14rem)_minmax(0,1fr)_auto_2.5rem]`} style={{ color: EDITORIAL_INK }}>
         <RowRules accent={accentOf(row.roomId)} />
         <Index n={n} />
-        <Thumb roomId={row.roomId} chain={row.chain} />
+        <Thumb roomId={row.roomId} mint={row.mint} chain={row.chain} />
         <span className="min-w-0">
           <span className="flex items-center gap-2.5 min-w-0">
             <span className={`truncate font-black leading-[0.95] tracking-[-0.045em] text-[20px] md:text-[24px] ${WORD_LIT}`} style={HEADING_FONT}>
@@ -458,12 +467,13 @@ function PositionItem({ n, row, onShow, figKey, current }: { n: number; row: Pos
           <span className="mt-1 block font-mono text-[10px] uppercase tracking-[0.12em] text-[#f5e4b8]/60"><ChainMark chain={row.chain} /></span>
           {/* A phone has no width for a column of its own: the worth sits under the title. */}
           <span className="md:hidden mt-1.5 block"><Worth usd={row.usd} text={worth} /></span>
+          {/* A coin's whole address is one 44-letter word: it breaks anywhere rather than run off a phone. */}
           <span className="lg:hidden mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-[11px] text-[#f5e4b8]/80">
-            {row.facts.map((f) => <span key={f}>{f}</span>)}
+            {row.facts.map((f) => <span key={f} className="min-w-0 [overflow-wrap:anywhere]">{f}</span>)}
           </span>
         </span>
         <span className="hidden lg:flex flex-wrap gap-x-4 gap-y-1 font-mono text-[12px] tracking-[0.02em] text-[#f5e4b8]/85">
-          {row.facts.map((f) => <span key={f} className="whitespace-nowrap">{f}</span>)}
+          {row.facts.map((f) => <span key={f} className={f === row.mint ? 'min-w-0 [overflow-wrap:anywhere]' : 'whitespace-nowrap'}>{f}</span>)}
         </span>
         {/* Its worth at today's price, the holdings' figure for a position (walletRows.ts). */}
         <span className="hidden md:block text-right"><Worth usd={row.usd} text={worth} /></span>
@@ -558,6 +568,11 @@ function WalletTape({ rows }: { rows: HoldingRow[] }) {
       </div>
     </div>
   );
+}
+
+/** A whole worth, $0 for a read that found nothing, and a dash for one that is not whole (holdingsTotal). */
+function worthText(t: ReturnType<typeof holdingsTotal>): string {
+  return t.kind === 'total' ? fmtUsd(t.usd) : t.kind === 'none' ? '$0' : '—';
 }
 
 function shortEvm(a: string): string {
@@ -672,10 +687,10 @@ function Figure({ fig, mode, unpinned, quick, progress, frameRef }: {
   fig: Fig; mode: keyof typeof FIG_LAYOUT; unpinned: boolean; quick: boolean; progress: number | null; frameRef: RefObject<HTMLDivElement | null>;
 }) {
   const layout = FIG_LAYOUT[mode];
-  const door = fig.roomId ? doorOf(fig.roomId) : null;
+  const door = artOf(fig.roomId, fig.chain, fig.mint);
   const reduce = prefersReducedMotion();
   const srcSet = door ? artSrcSet(door.src) : undefined;
-  const plate = fig.roomId ?? `chain:${fig.chain}`;
+  const plate = fig.roomId ?? (door ? `coin:${fig.mint}` : `chain:${fig.chain}`);
   return (
     <div className={layout.slot}>
       <div ref={frameRef} aria-hidden="true" data-testid="dashboard-figure" className={layout.frame} style={unpinned ? { position: 'static' } : undefined}>
@@ -725,6 +740,13 @@ function Figure({ fig, mode, unpinned, quick, progress, frameRef }: {
 
 export function IslandDashboard({ headingLevel = 2 }: { headingLevel?: 1 | 2 }) {
   const board = useWalletBoard();
+  const { pathname } = useLocation();
+  // The wallet is this board's content, so a Solana wallet connected here before is restored as
+  // the board mounts, not 1.5 s after the page settles (TopBarSolana.tsx). Not where the page has
+  // its own Solana section (the home's cards): that one restores itself as it mounts.
+  useEffect(() => {
+    if (!hasMixedSolanaSection(pathname) && solanaToRestore()) wantOwnSolana();
+  }, [pathname]);
   // A harvest, or a claim on a pool card, changes the positions' "earned" figures.
   const [me] = useState(() => ({}));
   useOnStakesChanged(me, board.refresh);
@@ -740,9 +762,10 @@ export function IslandDashboard({ headingLevel = 2 }: { headingLevel?: 1 | 2 }) 
   // A plate is numbered by its row: section and place for the wallet's rows (the board's "01" and
   // "02" headings, and each row's own number), the place alone for a pool.
   const holdingFig = (r: HoldingRow, i: number): Fig =>
-    ({ key: `h:${r.key}`, roomId: r.roomId, chain: r.chain, word: symbolOf(r.roomId) ?? r.symbol, caption: `${r.symbol} · ${WALLET_CHAIN_LABEL[r.chain]}`, no: `01.${pad2(i + 1)}` });
+    ({ key: `h:${r.key}`, roomId: r.roomId, mint: r.mint, chain: r.chain, word: symbolOf(r.roomId) ?? r.symbol, caption: `${r.symbol} · ${WALLET_CHAIN_LABEL[r.chain]}`, no: `01.${pad2(i + 1)}` });
+  // A pool share with no room is worded by its coin, the title's first half: a ticker may hold a space ("BIG BRAIN / SOL pool").
   const positionFig = (r: PositionRow, i: number): Fig =>
-    ({ key: `p:${r.key}`, roomId: r.roomId, chain: r.chain, word: symbolOf(r.roomId) ?? r.title.split(' ')[0] ?? '', caption: `${r.title} · ${WALLET_CHAIN_LABEL[r.chain]}`, no: `02.${pad2(i + 1)}` });
+    ({ key: `p:${r.key}`, roomId: r.roomId, mint: r.mint, chain: r.chain, word: symbolOf(r.roomId) ?? (r.mint ? r.title.split(' / ')[0] : r.title.split(' ')[0]) ?? '', caption: `${r.title} · ${WALLET_CHAIN_LABEL[r.chain]}`, no: `02.${pad2(i + 1)}` });
   const poolFig = (row: VenuePoolRow, i: number): Fig =>
     ({ key: `pool:${row.id}`, roomId: row.id, chain: row.chain, word: symbolOf(row.id) ?? row.symbol, caption: `${row.name} · ${CHAIN_LABEL[row.chain] ?? row.chain}`, no: pad2(i + 1) });
   const walletFigs = [...heldRows.map(holdingFig), ...positionRows.map(positionFig)];
@@ -750,7 +773,7 @@ export function IslandDashboard({ headingLevel = 2 }: { headingLevel?: 1 | 2 }) 
 
   // The frame shows the row you are on: under the pointer, or, on a touch screen with a wallet's
   // rows to follow, the row the scroll has brought to the reading line. Else the wallet's first row
-  // with a room, else the first pool. A tap or a focus takes it back until the next scroll.
+  // with a picture, else the first pool. A tap or a focus takes it back until the next scroll.
   const mode = connected ? 'follow' : 'still';
   const touch = useMedia(TOUCH);
   const short = useMedia(SHORT);
@@ -762,10 +785,11 @@ export function IslandDashboard({ headingLevel = 2 }: { headingLevel?: 1 | 2 }) 
   // run of half-finished wipes. The rows either side are fetched ahead.
   const settledKey = useSettled(followed?.key ?? null, 150);
   const settled = settledKey ? figs.get(settledKey) ?? null : null;
-  const nearRooms = (picked?.near ?? []).map((k) => figs.get(k)?.roomId ?? '').filter(Boolean).join('|');
-  useEffect(() => { for (const room of nearRooms.split('|')) if (room) preloadDoor(room); }, [nearRooms]);
+  const figArt = (f: Fig | undefined) => (f ? artOf(f.roomId, f.chain, f.mint) : null);
+  const nearArt = (picked?.near ?? []).map((k) => figArt(figs.get(k))?.src ?? '').filter(Boolean).join('|');
+  useEffect(() => { for (const src of nearArt.split('|')) if (src) preloadArt(src); }, [nearArt]);
   const [hovered, setHovered] = useState<Fig | null>(null);
-  const fallback = walletFigs.find((f) => f.roomId) ?? (pools[0] ? poolFig(pools[0], 0) : null);
+  const fallback = walletFigs.find((f) => figArt(f)) ?? (pools[0] ? poolFig(pools[0], 0) : null);
   const shown = settled ?? hovered ?? fallback;
   const show = (f: Fig) => () => {
     setHovered(f);
@@ -781,10 +805,16 @@ export function IslandDashboard({ headingLevel = 2 }: { headingLevel?: 1 | 2 }) 
   const shares = total.kind === 'total' ? holdingShares(heldRows) : [];
   const shareOf = new Map(shares.map((s) => [s.key, s.pct]));
   const everyLegRead = board.holdings.length > 0 && board.holdings.every((l) => l.leg.status === 'ok');
+  const kept = [...board.holdings, ...board.positions].flatMap((l) => (l.readAt === undefined ? [] : [l.readAt]));
+  const keptSince = kept.length ? Math.min(...kept) : null;
   // The positions' worth, kept as the holdings' is; drawn once the wallet has a position to add up.
   const posTotal = holdingsTotal(board.positions.map((l) => l.leg));
   const posNote = board.positions.some((l) => l.leg.status === 'loading') ? 'reading'
     : board.positions.some((l) => l.leg.status === 'unread') ? 'not every position read' : 'not every position priced';
+  const heldNote = board.holdings.some((l) => l.leg.status === 'loading') ? 'reading' : 'not every coin priced';
+  // With a position to add up, the big figure is the whole: holdings and positions together (owner,
+  // 2026-10-31: "also include it in the total value"), whole only when both parts are.
+  const whole = holdingsTotal([...board.holdings, ...board.positions].map((l) => l.leg));
 
   return (
     <section
@@ -827,37 +857,31 @@ export function IslandDashboard({ headingLevel = 2 }: { headingLevel?: 1 | 2 }) 
               {/* Refresh is the whole page's: Harvest under the positions, and a pool card beside
                   the board, read again with it (lib/harvest/stakesChanged.ts). */}
               <button type="button" onClick={() => { board.refresh(); noteStakesChanged(me); }} className="min-h-[32px] underline underline-offset-4 uppercase tracking-[0.14em] hover:text-[#22c55e]">Refresh</button>
+              {/* Some rows are this browser's last read of them, while the chain is read again (boardMemory.ts). */}
+              {keptSince !== null && (
+                <span role="status" className="uppercase tracking-[0.14em] text-[#f5e4b8]/55">
+                  As of {timeAgo(keptSince)} · updating
+                </span>
+              )}
             </div>
           )}
         </div>
 
-        {/* The holdings' worth, and the positions', each only when every part of it was read and
-            priced (holdingsTotal). */}
+        {/* The wallet's worth, only when every part of it was read and priced (holdingsTotal). With a
+            position to add up it is the whole, and each part is printed under it. */}
         {connected && (
-          // Side by side under the heading; stacked beside it from 1024px, where a second figure
-          // in a row would take the heading's width and cut the word.
-          <div className="flex flex-wrap items-start gap-x-8 gap-y-4 lg:flex-col lg:items-end">
-            <div className="flex flex-col items-start lg:items-end">
-              <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-[#f5e4b8]/55">Holdings</span>
-              <span className="font-black leading-none tracking-[-0.05em] text-[52px] lg:text-[72px] tabular-nums" style={HEADING_FONT}>
-                {total.kind === 'total' ? fmtUsd(total.usd) : total.kind === 'none' ? '$0' : '—'}
+          <div className="flex flex-col items-start lg:items-end">
+            <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-[#f5e4b8]/55">{positionRows.length > 0 ? 'Total' : 'Holdings'}</span>
+            <span data-testid="wallet-worth" className="font-black leading-none tracking-[-0.05em] text-[52px] lg:text-[72px] tabular-nums" style={HEADING_FONT}>
+              {worthText(positionRows.length > 0 ? whole : total)}
+            </span>
+            {positionRows.length > 0 ? (
+              <span className="mt-1.5 flex flex-wrap gap-x-4 gap-y-0.5 lg:justify-end font-mono text-[11px] uppercase tracking-[0.12em] text-[#f5e4b8]/70 tabular-nums">
+                <span data-testid="holdings-worth">Holdings {total.kind === 'partial' ? `— ${heldNote}` : worthText(total)}</span>
+                <span data-testid="positions-worth">Positions {posTotal.kind === 'partial' ? `— ${posNote}` : worthText(posTotal)}</span>
               </span>
-              {total.kind === 'partial' && (
-                <span className="mt-1 font-mono text-[10px] uppercase tracking-[0.12em] text-[#f5e4b8]/55">
-                  {board.holdings.some((l) => l.leg.status === 'loading') ? 'reading' : 'not every coin priced'}
-                </span>
-              )}
-            </div>
-            {positionRows.length > 0 && (
-              <div data-testid="positions-worth" className="flex flex-col items-start lg:items-end">
-                <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-[#f5e4b8]/55">Positions</span>
-                <span className="font-black leading-none tracking-[-0.05em] text-[52px] lg:text-[72px] tabular-nums" style={HEADING_FONT}>
-                  {posTotal.kind === 'total' ? fmtUsd(posTotal.usd) : '—'}
-                </span>
-                {posTotal.kind === 'partial' && (
-                  <span className="mt-1 font-mono text-[10px] uppercase tracking-[0.12em] text-[#f5e4b8]/55">{posNote}</span>
-                )}
-              </div>
+            ) : total.kind === 'partial' && (
+              <span className="mt-1 font-mono text-[10px] uppercase tracking-[0.12em] text-[#f5e4b8]/55">{heldNote}</span>
             )}
           </div>
         )}

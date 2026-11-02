@@ -7,8 +7,21 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-11-02
+
+- A Solana swap paid in USDT now carries the venue's fee, as one paid in SOL or USDC does. The swap page's fee line reads "SOL, USDC or USDT".
+
+### 2026-11-01
+
+- Pools, Venue AMM: the All pools list now puts the pools with the most money in first, whatever coin each is paired with, in every room alike. Before, every SOL pool came first (after the room's own coin), so BAYLA / USDC, holding $1,482, sat under SOL pools holding $47. A pool priced far below Jupiter is ranked by its SOL, USDC or BAYLA side, so a pool stuffed with a coin someone printed cannot take the top spot.
+- The Arbitrage card on the Solana pools page now lists only trades that really pay. Each of the top five gaps is checked against Jupiter's real quote for the other half of the round trip (a thin coin's real Jupiter price can sit points under its listed one), and a trip that loses or only breaks even is left out and counted in one line. Pools it could not check are said, never shown as "None".
+- Swap: a trade that would move the price 15% or more can no longer be sent. The Swap button reads "Price impact too high" and the page says the pool is too thin, the line Uniswap's own app uses. Before, only a red warning showed: on Base, 1.75 million BNKR quoted 0.0000011 ETH (about $0.002) from a nearly empty Uniswap V2 pool, against about 0.22 ETH at market, and the Swap button still worked.
+- Solana reads no longer run out on phones and iPads. The home page re-read the BAYLA lock ladder every few seconds instead of every 45, so an open tab used about 100 of the site's 300 Solana reads a minute, which a whole house (or a phone network) shares, and the dashboard said "Couldn't read your Solana coins" when they ran out. It now re-reads every 45 seconds as meant, and a read the site's limit turns away waits the time the limit names and asks again (twice at most), instead of saying it could not read.
+- Dashboard: a pool share in a coin with no room on the island, like BIG BRAIN, is now named by the coin's own ticker ("BIG BRAIN / SOL pool", with its whole address under it) instead of the first four letters of its address, and shows its picture instead of a plain green square. The BIG BRAIN your wallet holds is now listed under Holdings, with its worth.
+
 ### 2026-10-31
 
+- Dashboard: once you have a lock, stake or pool share, the big figure is Total, what your wallet holds and your positions together, with Holdings and Positions under it. No total is printed while a part is still being read, could not be read or has no price, and that part says which.
 - Pools: picking Ethereum, Base or Robinhood Chain in the network menu now shows that network's pools even when your wallet stays on another network. Before, a wallet that did not switch kept the page on its own network, so a pick of Base still listed Ethereum's pool. When your wallet is on a different network from the one picked, a line above the form says so, with a button to switch; adding or removing waits until the wallet is there.
 - Swap: the same for Ethereum, Base and Robinhood Chain in Swap's network menu. Picking Base now prices Base's pools with Base's coins and balances even when your wallet stays on another network; before, a wallet that did not switch kept the swap on its own network. A line above the tabs says when your wallet is on a different network, with a button to switch, and Swap waits until it is there. On Base or Robinhood Chain, DCA, Limit, TWAP and Trigger still run on Ethereum only, and their notice's "Open these tabs on Ethereum" now opens them there for a connected wallet too, and asks it to switch.
 - Home page: the TVL now counts what is staked with us, not only what our pools hold: the BAYLA lock ladder and the lighthouse pools on Solana, TOWELI staking, and the ladders on Ethereum and Base, retired ones included while they still hold stakes. Each counts what people staked in it, never the rewards it holds, with the coin at its market price (Jupiter's on Solana, DefiLlama's on Ethereum and Base). What counts shows pools and staking chain by chain. When a staking pool cannot be read, or a staked coin has no market price, it says "TVL at least".
@@ -47,6 +60,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-10-25
 
+- The dashboard opens at once for a wallet it has read before in this browser: it shows that wallet's last reading straight away, says "As of 3h ago · updating" beside Refresh, and swaps in the new reading as it arrives. A part the new reading cannot read still says so, never the old figures. On /dashboard a Solana wallet connected here before reconnects as the page opens, not 1.5 seconds later. Measured on a returning visit: rows in about 0.6 seconds, down from about 3.3.
 - Pools: a room's Add SOL + coin now opens Add with one coin at the top of the Venue AMM page, above everything else, with the pool's price, the outside price, the gap between them and how each trade's fee splits as rows inside it. The page no longer jumps down to the form, and nothing loading above it moves it. The pool finder, every pool and the rest of the page sit below.
 - Solana pools: a pool opened on the launch fee tier without a launch (free to open on the pool program running now) is never listed, swapped in or added to from this site, and a link or a position that names one says so in one bold line. Holders of one can still remove their liquidity. Graduated launch pools are unchanged.
 - Pools: the Range tab is on, right of Venue AMM on the Solana network. Range pools have one fee tier, 1%. It is not on the chain yet, so until the team's vault makes it the tab says there is no pool to put liquidity in, and Solana swaps find no range pool to route through.
