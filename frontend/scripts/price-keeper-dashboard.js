@@ -72,13 +72,24 @@
   }
   const span = (t) => (t.all ? `every trade since ${day(t.trips[0].at)}` : `its last ${t.trips.length} trades, in the list below`);
 
-  // What the trades made, trade by trade: SOL from the gaps closed, before fees.
+  // What a trip's gap paid, in the coin its pool is priced in: SOL, or USDC for a USDC pool (a
+  // USDC trip's gain is among its coins, its SOL change only the fee), and that at today's prices.
+  const USDC = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+  function paid(a, solUsd) {
+    if (a.pools.length && a.pools[0].quote === 'USDC') {
+      const c = a.coins.find((x) => x.mint === USDC);
+      return { coin: 'USDC', amount: c ? c.amount : 0, usd: c ? c.usd : 0 };
+    }
+    return { coin: 'SOL', amount: a.sol, usd: solUsd === null ? null : a.sol * solUsd };
+  }
+
+  // What the trades made, trade by trade: the gaps closed, in dollars at today's prices, before fees.
   function drawCurve(s) {
     const box = $('curve');
     const t = tripsOf(s);
-    if (!t.trips.length) {
+    if (!t.trips.length || s.solUsd === null) {
       box.replaceChildren();
-      $('curveNote').textContent = 'The curve starts with its first trade.';
+      $('curveNote').textContent = t.trips.length ? 'No SOL price in this read, so no curve until the next one.' : 'The curve starts with its first trade.';
       $('curveEnd').textContent = '';
       return;
     }
@@ -86,7 +97,10 @@
     const H = 170;
     const pad = { l: 2, r: 10, t: 16, b: 22 };
     let run = 0;
-    const pts = t.trips.map((a) => ({ a, t: a.at, v: (run += a.sol) }));
+    const pts = t.trips.map((a) => {
+      const got = paid(a, s.solUsd);
+      return { a, got, t: a.at, v: (run += got.usd ?? 0) };
+    });
     const t0 = pts[0].t;
     const t1 = Math.max(pts[pts.length - 1].t, Math.floor(Date.now() / 1000));
     const vs = pts.map((p) => p.v);
@@ -107,13 +121,13 @@
       svg('path', { class: 'area', d: `${line} V${y(0)} H${x(t0)} Z` }),
       svg('path', { class: 'line', d: line }),
       ...pts.map((p) => svg('circle', { class: 'dot', cx: x(p.t), cy: y(p.v), r: 3 },
-        svg('title', {}, `${new Date(p.t * 1000).toLocaleString()} · ${sol(p.a.sol, true)} · ${p.a.pools.length ? p.a.pools.map(poolName).join(' ⇄ ') : 'leftover sale'}`))),
+        svg('title', {}, `${new Date(p.t * 1000).toLocaleString()} · ${amount(p.got.amount, true)} ${p.got.coin} (${signedUsd(p.got.usd)}) · ${p.a.pools.length ? p.a.pools.map(poolName).join(' ⇄ ') : 'leftover sale'}`))),
       svg('circle', { class: 'now', cx: x(t1), cy: y(run), r: 3.5 }),
-      svg('text', { class: 'tick', x: W - pad.r, y: y(hi) - 5, 'text-anchor': 'end' }, sol(hi, true)),
+      svg('text', { class: 'tick', x: W - pad.r, y: y(hi) - 5, 'text-anchor': 'end' }, signedUsd(hi)),
       svg('text', { class: 'tick', x: pad.l, y: H - 4 }, day(t0)),
       svg('text', { class: 'tick', x: W - pad.r, y: H - 4, 'text-anchor': 'end' }, 'now'));
-    $('curveNote').textContent = `SOL from the gaps it closed, before fees: ${span(t)}`;
-    $('curveEnd').textContent = sol(run, true);
+    $('curveNote').textContent = `What the gaps it closed paid, in dollars at today's prices, before fees: ${span(t)}`;
+    $('curveEnd').textContent = signedUsd(run);
   }
 
   // What the wallet holds, as one bar by worth: wrapped SOL is what it trades with.
@@ -134,23 +148,24 @@
     return new Map(parts.map((p) => [p.mint || p.name, p.color]));
   }
 
-  // Which pools' gaps paid: SOL from the gaps closed in each, before fees.
+  // Which pools' gaps paid: what the gaps closed in each paid, in its own coin, before fees.
   function drawPools(s) {
     const t = tripsOf(s);
     const by = new Map();
     for (const a of t.trips) {
       const key = a.pools.length ? a.pools.map((p) => p.pool).join(' ') : 'sale';
-      const was = by.get(key) || { pools: a.pools, sol: 0, n: 0 };
-      by.set(key, { ...was, sol: was.sol + a.sol, n: was.n + 1 });
+      const got = paid(a, s.solUsd);
+      const was = by.get(key) || { pools: a.pools, coin: got.coin, amount: 0, usd: 0, n: 0 };
+      by.set(key, { ...was, amount: was.amount + got.amount, usd: was.usd + (got.usd ?? 0), n: was.n + 1 });
     }
-    const rows = [...by.values()].sort((a, b) => b.sol - a.sol);
-    const top = Math.max(...rows.map((r) => Math.abs(r.sol)), 0);
+    const rows = [...by.values()].sort((a, b) => b.usd - a.usd);
+    const top = Math.max(...rows.map((r) => Math.abs(r.usd)), 0);
     fill('pools', ...(rows.length ? rows.map((r) => el('div', { class: 'row' },
       el('div', { class: 'coin' }, el('b', { text: r.pools.length ? r.pools.map(poolName).join(' ⇄ ') : 'Leftover sales' }), el('span', { class: 'muted', text: ` · ${r.n} trade${r.n === 1 ? '' : 's'}` }),
         ...r.pools.map((p) => el('div', { class: 'addr', text: p.pool }))),
-      el('span', { class: `amt ${signClass(r.sol)}`, text: sol(r.sol, true) }),
-      el('div', { class: 'bar' }, el('i', { style: `width:${top > 0 ? (Math.abs(r.sol) / top) * 100 : 0}%` })))) : [el('span', { class: 'empty', text: 'No trades yet' })]));
-    $('poolsNote').textContent = rows.length ? `Over ${span(t)}. Before network fees; leftover coins are not counted here.` : '';
+      el('span', { class: `amt ${signClass(r.amount)}`, text: `${amount(r.amount, true)} ${r.coin}` }),
+      el('div', { class: 'bar' }, el('i', { style: `width:${top > 0 ? (Math.abs(r.usd) / top) * 100 : 0}%` })))) : [el('span', { class: 'empty', text: 'No trades yet' })]));
+    $('poolsNote').textContent = rows.length ? `Over ${span(t)}, each in its pool's own coin, ranked by worth at today's prices. Before network fees; leftover coins are not counted here.` : '';
   }
 
   let last = null;
