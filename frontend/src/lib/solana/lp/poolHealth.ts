@@ -2,7 +2,7 @@ import { depositEnabled, swapEnabled, withdrawEnabled } from '../cpswap/program'
 import type { PoolSnapshot } from '../cpswap/read';
 import { priceInQuote, solPriceIn, type OutsidePrice } from './outsidePrice';
 import { ownAveragePrice, TRUSTED_HISTORY_SECS, type OwnPrice } from './ownPrice';
-import type { PoolView } from './poolFinder';
+import { LAUNCH_TIER_POOL, type PoolView } from './poolFinder';
 import { readPair, type QuoteCoin } from './quotes';
 import { TOKEN_2022_NATIVE_MINT, type SafetyReason, type TokenSafety } from './tokenSafety';
 import { MIN_HISTORY_TEXT, TOO_NEW_WHY } from './ownPrice';
@@ -22,7 +22,8 @@ import { MIN_HISTORY_TEXT, TOO_NEW_WHY } from './ownPrice';
  *     79-80) while deposits still go through (deposit.rs 96), so liquidity added there
  *     can never earn a fee;
  *   - the pool is empty on either side (no price at all);
- *   - the token itself is blocked (tokenSafety.ts).
+ *   - the token itself is blocked (tokenSafety.ts);
+ *   - the pool is on the launch tier and is not the launch pool (`LAUNCH_TIER_POOL`).
  *
  * A deposit is WARNED ABOUT, and allowed (owner ruling 2026-10-04), when:
  *   - its price is more than 3% from the reference price: the trade that moves it back
@@ -360,6 +361,12 @@ export function tokenReasons(safety: TokenSafety | null, action: 'deposits' | 'p
         'The amount a wallet displays for this token changes over time. This site shows and moves raw token units, so check the amounts against your wallet before you sign.',
       );
     }
+    if (has('transfer-fee')) {
+      warned.push(`It keeps back part of every transfer of it: into ${pool}, out of it, and on every trade. Taken out at the same price, you get back less of it than you put in.`);
+    }
+    if (has('transfer-fee-mutable')) {
+      warned.push(`Whoever controls its transfer fee can raise it, up to all of every transfer. At that rate nobody could take anything out of ${pool}, you included.`);
+    }
   }
   return { refused, unchecked, warned };
 }
@@ -410,6 +417,7 @@ export function assessPool(input: {
   // tool, whatever its price check says (review, 2026-10-04).
   if (view.tokenMint === TOKEN_2022_NATIVE_MINT) refused.push('This is SOL under the newer token program. This site does not add to a pool for it.');
   if (view.vaultsFrozen) refused.push(`One of this pool’s vaults is frozen by ${vaultFreezer(view.quote)}, so nothing can move in or out of it.`);
+  if (view.launchTierWithoutLaunch) refused.push(LAUNCH_TIER_POOL);
   if (swaps.state === 'not-open-yet') {
     refused.push(
       swaps.farFuture

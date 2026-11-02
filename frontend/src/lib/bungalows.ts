@@ -439,7 +439,7 @@ export const CARDS_ROOM_ID = 'bayla';
  */
 export function bungalowLpDoor(b: Bungalow): { to: string; label: string } | null {
   if (b.chain !== 'solana' || !b.address || !b.venueSolPool) return null;
-  return { to: `/solana-lp?mint=${b.address}&task=add&pool=${b.venueSolPool}`, label: `Add SOL + ${b.symbol}` };
+  return { to: `/pools?mint=${b.address}&task=add&pool=${b.venueSolPool}`, label: `Add SOL + ${b.symbol}` };
 }
 
 /** In-venue scanner route. Base carries the explicit chain: a 0x address is ambiguous with Ethereum. */

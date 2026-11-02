@@ -13,8 +13,11 @@
 // does not answer reddens that job and never an unrelated merge.
 
 import { base58 } from '@scure/base';
+import { PublicKey } from '@solana/web3.js';
 import type { Bungalow } from '../lib/bungalows';
-import { ACCOUNT_POOL_STATE, POOL_STATE_LEN, POOL_STATE_OFFSETS, REGISTERED_PROGRAM_ID, decodePoolState } from '../lib/solana/cpswap/program';
+import { REGISTERED_PROGRAM_ID as REGISTERED_LAUNCH_PROGRAM, poolStatePda } from '../lib/launcher/solana/curve/program';
+import { ACCOUNT_POOL_STATE, POOL_STATE_LEN, POOL_STATE_OFFSETS, REGISTERED_PROGRAM_ID, decodePoolState, deriveAmmConfig } from '../lib/solana/cpswap/program';
+import { LAUNCH_TIER_INDEX } from '../lib/solana/lp/poolFinder';
 import { solOf } from '../lib/solana/cpswap/venue';
 import { SOL_QUOTE, readPair } from '../lib/solana/lp/quotes';
 
@@ -159,9 +162,11 @@ function wsolAmount(account: unknown): bigint | null {
  * Every pool on the venue's pool program that pairs SOL with another coin, with the SOL
  * each holds. Wrapped SOL can sit in either mint slot (token0 < token1 by bytes), so both
  * are scanned. Throws when any read failed or answered something that is not a SOL pool:
- * a list it could not read is never "no pools".
+ * a list it could not read is never "no pools". A pool on the launch tier that is not the
+ * launch pool is left out: the site never uses one (poolFinder.ts), so it is never a door.
  */
-export async function readVenueSolPools(rpc: Rpc, program = REGISTERED_PROGRAM_ID.toBase58()): Promise<SolPool[]> {
+export async function readVenueSolPools(rpc: Rpc, program = REGISTERED_PROGRAM_ID.toBase58(), launchProgram = REGISTERED_LAUNCH_PROGRAM): Promise<SolPool[]> {
+  const launchTier = deriveAmmConfig(new PublicKey(program), LAUNCH_TIER_INDEX).toBase58();
   const scans = await Promise.all(
     [POOL_STATE_OFFSETS.token0Mint, POOL_STATE_OFFSETS.token1Mint].map((offset) =>
       rpc('getProgramAccounts', [
@@ -183,6 +188,7 @@ export async function readVenueSolPools(rpc: Rpc, program = REGISTERED_PROGRAM_I
       const pool = data && decodePoolState(address, data);
       const pair = pool && readPair(pool.token0Mint, pool.token1Mint);
       if (!pool || !pair || pair.quote.mint !== WSOL) throw new Error(`${address} matched the scan but is not a SOL pool`);
+      if (pool.ammConfig === launchTier && address !== poolStatePda(new PublicKey(pair.tokenMint), launchProgram).toBase58()) continue;
       found.set(address, { tokenMint: pair.tokenMint, vault: pair.quoteIsToken0 ? pool.token0Vault : pool.token1Vault });
     }
   }

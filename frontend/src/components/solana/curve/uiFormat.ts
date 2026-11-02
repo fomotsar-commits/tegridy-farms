@@ -14,6 +14,12 @@ export const inputStyle = { border: '1px solid rgba(255,255,255,0.18)' } as cons
 // Buy/Sell, slippage presets, Recent/Yours: 44px tall, the same touch target the
 // site's .btn-* classes get (index.css). py-1.5 with 12px text is only about 30px.
 export const TOGGLE_CLS = 'flex-1 min-h-[44px] py-1.5 rounded-lg text-[12px] text-white transition-colors';
+/**
+ * A finger-sized press on one small line of text (Refresh, Read again): 14px of padding above
+ * and below, taken back by the same negative margin, so the line keeps its height and the
+ * press area is 44px on an 11px line. The keyboard's ring goes round the words (`ring-on-words`, index.css).
+ */
+export const TEXT_PRESS = 'px-2 -mx-2 py-3.5 -my-3.5 text-white/50 hover:text-white text-[11px] underline underline-offset-2 ring-on-words';
 export const DIVIDER = { borderTop: '1px solid rgba(255,255,255,0.08)' } as const;
 
 /** Basis points as a percentage with two decimals: 369n → "3.69%". */

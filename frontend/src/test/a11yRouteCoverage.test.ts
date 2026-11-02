@@ -109,8 +109,9 @@ describe('every route is accounted for, none silently', () => {
     for (const route of REDIRECT_ROUTES) {
       expect(route.redirectsTo, `${route.path} is a redirect with no destination`).toBeTruthy();
       // `<Navigate to="/community?section=bribes" replace />` — compare on the
-      // path, the query is the section anchor.
-      const targets = [...src.matchAll(/<Navigate\s+to="([^"]+)"/g)].map((m) => m[1].split('?')[0]);
+      // path, the query is the section anchor. A redirect that keeps the old link's
+      // query writes `<Navigate to={`/pools${search}${hash}`} replace />`: its path is the part before `${`.
+      const targets = [...src.matchAll(/<Navigate\s+to=(?:"([^"]+)"|\{`([^`$]+)\$\{)/g)].map((m) => (m[1] ?? m[2]).split('?')[0]);
       expect(
         targets,
         `${route.path} claims it lands on ${route.redirectsTo}, but App.tsx declares no <Navigate> there`,

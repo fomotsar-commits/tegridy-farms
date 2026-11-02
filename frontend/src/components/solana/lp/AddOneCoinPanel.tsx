@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { PublicKey } from '@solana/web3.js';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import {
@@ -42,6 +42,7 @@ import { PercentPicker } from './PercentPicker';
 import { tick } from '../../../lib/tick';
 import { clearStepTwo, priceChangeOf, readStepTwo, receivedBy, saveStepTwo, sendJupiterLeg, stepOneLanded, type StepTwoNote } from './oneCoinSwap';
 import { PanelFrame } from './PanelFrame';
+import { useInDoor } from './lpDoor';
 import { coinAbout, coinExact, solExact, unitsExact, useWalletFacts } from './panelKit';
 import { useLpWrites, type LpWrites } from './useLpWrites';
 
@@ -115,7 +116,7 @@ type Said = { title: string; text: string; tone: 'warn' | 'bad' | 'info' };
  * A swap this wallet sent and the chain has not answered for holds step 1 (useVenueSwap's
  * notes, the swap page's, by the wallet that signed); once step 1 lands, only step 2 is offered.
  */
-export function AddOneCoinPanel(p: { view: PoolView; health: PoolHealth; safety: TokenSafety | null; tokenDecimals: number | null; onClose: () => void; onPair?: () => void }) {
+export function AddOneCoinPanel(p: { view: PoolView; health: PoolHealth; safety: TokenSafety | null; tokenDecimals: number | null; onClose: () => void; onPair?: () => void; poolRows?: ReactNode }) {
   const writes = useLpWrites();
   if (!writes || !writes.api || writes.gate?.kind !== 'open') return null;
   return <OneCoinInner {...p} writes={writes} />;
@@ -129,6 +130,7 @@ function OneCoinInner({
   onClose,
   writes,
   onPair,
+  poolRows,
 }: {
   view: PoolView;
   health: PoolHealth;
@@ -138,9 +140,14 @@ function OneCoinInner({
   writes: LpWrites;
   /** "I have both coins": this pool's Add liquidity form, in one press. */
   onPair?: () => void;
+  /** In the LP door, away from the pool's card: the card's figures, as rows under the amount. */
+  poolRows?: ReactNode;
 }) {
   const { connection } = useConnection();
   const { sendTransaction } = useWallet();
+  // In the LP door this panel is the page's first screen (island, answer twenty-two): the
+  // green button comes right after the amount and the pool's figures, the line and the setting after it.
+  const inDoor = useInDoor();
   const pool = view.snapshot.pool;
   const coin = view.quote;
   const decimals = tokenDecimals ?? (view.quoteIsToken0 ? pool.mint1Decimals : pool.mint0Decimals);
@@ -646,6 +653,14 @@ function OneCoinInner({
   }
 
   const plan_ = phase.kind === 'review' || phase.kind === 'sending' || phase.kind === 'waiting' || phase.kind === 'own' ? phase.plan : null;
+  const slippage = (
+    <SlippagePicker valueBps={slippageBps} onChange={setSlippageBps} hint="Used by both steps. If a price moves more than this first, that step is refused and only its network fee is spent." />
+  );
+  const line = (
+    <p className="text-white/60" data-testid="lp-one-line">
+      {ONE_COIN_LINE}
+    </p>
+  );
   const loadingOwn = venueSwap.loading;
   const canReview = !!signer && total !== null && total >= 2n && !bad && !over && !shortOfSol && slippageBps !== null && !held && !loadingOwn && phase.kind === 'form';
   const hint = !signer
@@ -846,7 +861,8 @@ function OneCoinInner({
               <p className="text-white/70 text-[12px] mt-1">About {shareText(sharePct)} of the pool, at its price now.</p>
             </div>
           )}
-          <SlippagePicker valueBps={slippageBps} onChange={setSlippageBps} hint="Used by both steps. If a price moves more than this first, that step is refused and only its network fee is spent." />
+          {poolRows}
+          {!inDoor && slippage}
           {over && available !== null && <Notice tone="warn">That is more than you can use. The most is {exact(paid, available)}.</Notice>}
           {shortOfSol && setAside !== null && <Notice tone="warn">Your wallet needs {solExact(setAside)} for both steps’ fees and deposits.</Notice>}
           {health.deposits.warnings.map((w) => (
@@ -855,9 +871,7 @@ function OneCoinInner({
             </Notice>
           ))}
           {coin.risk && <Notice tone="warn">{coin.risk}</Notice>}
-          <p className="text-white/60" data-testid="lp-one-line">
-            {ONE_COIN_LINE}
-          </p>
+          {!inDoor && line}
           <div className="flex flex-col sm:flex-row gap-2">
             <button
               ref={reviewRef}
@@ -875,6 +889,8 @@ function OneCoinInner({
               Close
             </button>
           </div>
+          {inDoor && line}
+          {inDoor && slippage}
           {/* Off the page (owner, 2026-10-17: "remove this warning from everywhere"), one press away. */}
           <FinePrint summary="Risks" testId="lp-one-risk">
             <p>{RISK_SHORT}</p>

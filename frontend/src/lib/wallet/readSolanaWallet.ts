@@ -16,7 +16,8 @@ import { browserLpReaders } from '../../components/solana/lp/readers';
 import { lpFetch } from '../solana/lp/readFetch';
 import { noteResponse } from '../solana/lp/rpcBudget';
 import { getMultipleAccounts, getTokenAccountsByOwner } from '../solana/lp/accounts';
-import { TOKEN_2022_PROGRAM, TOKEN_PROGRAM, WSOL_MINT, decodeMintAccount } from '../solana/lp/tokenSafety';
+import { TOKEN_2022_PROGRAM, TOKEN_PROGRAM, USDC_MINT, WSOL_MINT, decodeMintAccount, readTokenSafety, type TokenSafety } from '../solana/lp/tokenSafety';
+import { siteNamed, tokenSymbol } from '../solana/lp/identity';
 import { getUsdPrices } from '../jupiter';
 import { solanaRpcEndpoint } from '../solana';
 import { readLadderPool, readLadderWallet } from '../ladder/read';
@@ -25,6 +26,7 @@ import { boostLabel } from '../ladder/format';
 import { readEntries, readPool, unlockTs } from '../bungalowStaking';
 import { BUNGALOWS, bungalowByAddress, type Bungalow } from '../bungalows';
 import { clipReason, fmtAmount, islandCoinsOn, unlockWords, usdOf, type HoldingRow, type Leg, type PositionRow, type StakeTarget } from './walletRows';
+import { offIslandCoinsOn, type OffIslandCoin } from './offIslandCoins';
 
 const SOL_DECIMALS = 9;
 const toBase58 = (b: Uint8Array) => new PublicKey(b).toBase58();
@@ -34,20 +36,60 @@ function chainRpc(): SolanaRpc {
   return withReadCommitment(browserRpc(lpFetch({ what: 'the chain', onResponse: noteResponse })), 'confirmed');
 }
 
+type PriceRead = (mints: string[]) => Promise<Record<string, number>>;
+
+const PRICE_HOLD_MS = 30_000;
+let heldPrices: { at: number; read: Promise<Record<string, number>> } | null = null;
+
+/**
+ * USD prices for the board's figures. SOL, USDC, every island coin on Solana and the coins with no
+ * room the board lists (offIslandCoins.ts) are one fixed list, read at the proxy's shared 30 s
+ * (getUsdPrices `shared`: display only, it sizes no trade) and held here as long, so every leg of a
+ * board read shares one call: the free Jupiter key is one call a second, site-wide. A coin off that
+ * list (a pool share in a coin the board does not list) is asked for on its own.
+ */
+export async function boardPrices(mints: string[]): Promise<Record<string, number>> {
+  const listed = [WSOL_MINT, USDC_MINT, ...islandCoinsOn('solana').map((c) => c.address!), ...offIslandCoinsOn('solana').map((c) => c.address)];
+  if (!heldPrices || Date.now() - heldPrices.at > PRICE_HOLD_MS) {
+    const read = getUsdPrices(listed, undefined, { shared: true });
+    heldPrices = { at: Date.now(), read };
+    // A failed read is not held: the next leg asks again.
+    read.catch(() => { if (heldPrices?.read === read) heldPrices = null; });
+  }
+  const prices = await heldPrices.read;
+  const others = mints.filter((m) => !listed.includes(m));
+  return others.length ? { ...prices, ...(await getUsdPrices(others)) } : prices;
+}
+
+/** Test seam. A held price that survives between tests is a flake farm. */
+export function __resetBoardPricesForTests(): void {
+  heldPrices = null;
+}
+
+/** Prices for a leg's figures. A price that does not come back leaves that USD out; it never fails the leg. */
+async function pricesOrNone(priceOf: PriceRead, mints: string[]): Promise<Record<string, number>> {
+  try {
+    return await priceOf(mints);
+  } catch {
+    return {};
+  }
+}
+
 function lamportsOf(payload: unknown): bigint {
   const v = (payload as { value?: unknown } | null)?.value;
   if (typeof v !== 'number' || !Number.isSafeInteger(v) || v < 0) throw new Error('getBalance: the response carried no balance');
   return BigInt(v);
 }
 
-/** SOL and every island coin on Solana the wallet holds, with USD where Jupiter priced it. */
+/** SOL, every island coin on Solana and every coin on offIslandCoins.ts the wallet holds, with USD where Jupiter priced it. */
 export async function readSolanaHoldings(
   owner: string,
-  opts: { rpc?: SolanaRpc; coins?: readonly Bungalow[]; prices?: (mints: string[]) => Promise<Record<string, number>> } = {},
+  opts: { rpc?: SolanaRpc; coins?: readonly Bungalow[]; offIsland?: readonly OffIslandCoin[]; prices?: PriceRead } = {},
 ): Promise<Leg<HoldingRow>> {
   const rpc = opts.rpc ?? chainRpc();
   const coins = opts.coins ?? islandCoinsOn('solana');
-  const priceOf = opts.prices ?? ((mints: string[]) => getUsdPrices(mints));
+  const others = opts.offIsland ?? offIslandCoinsOn('solana');
+  const priceOf = opts.prices ?? boardPrices;
   try {
     const [balance, classic, t22] = await Promise.all([
       rpc('getBalance', [owner, { commitment: 'confirmed' }]),
@@ -56,11 +98,14 @@ export async function readSolanaHoldings(
     ]);
     const lamports = lamportsOf(balance);
     const byMint = new Map<string, bigint>();
-    const island = new Set(coins.map((c) => c.address!));
+    const listed = new Set([...coins.map((c) => c.address!), ...others.map((c) => c.address)]);
     for (const t of [...classic, ...t22]) {
-      if (island.has(t.mint) && t.amount > 0n) byMint.set(t.mint, (byMint.get(t.mint) ?? 0n) + t.amount);
+      if (listed.has(t.mint) && t.amount > 0n) byMint.set(t.mint, (byMint.get(t.mint) ?? 0n) + t.amount);
     }
     const held = coins.filter((c) => byMint.has(c.address!));
+    const heldOthers = others.filter((c) => byMint.has(c.address));
+    // A coin with no room is named by its own ticker, read with its decimals in one call.
+    const checks = heldOthers.length ? await readTokenSafety(rpc, heldOthers.map((c) => c.address)) : new Map<string, TokenSafety>();
     // Decimals read off each mint, never assumed: a wrong decimals is a wrong amount.
     const mints = held.length ? await getMultipleAccounts(rpc, held.map((c) => c.address!)) : [];
     const decimals = new Map<string, number>();
@@ -69,13 +114,12 @@ export async function readSolanaHoldings(
       if (!d || !d.ok) throw new Error(`${held[i]!.symbol}'s mint could not be read`);
       decimals.set(held[i]!.address!, d.value.decimals);
     });
-    // A price that does not come back leaves that row without USD; it never fails the holdings.
-    let prices: Record<string, number> = {};
-    try {
-      prices = await priceOf([WSOL_MINT, ...held.map((c) => c.address!)]);
-    } catch {
-      prices = {};
+    for (const c of heldOthers) {
+      const s = checks.get(c.address);
+      if (s?.kind !== 'read' || !s.facts) throw new Error(`the mint ${c.address} could not be read`);
+      decimals.set(c.address, s.facts.decimals);
     }
+    const prices = await pricesOrNone(priceOf, [WSOL_MINT, ...held.map((c) => c.address!), ...heldOthers.map((c) => c.address)]);
     const rows: HoldingRow[] = [];
     if (lamports > 0n) {
       rows.push({ key: 'sol', symbol: 'SOL', chain: 'solana', amount: fmtAmount(lamports, SOL_DECIMALS), usd: usdOf(lamports, SOL_DECIMALS, prices[WSOL_MINT]), roomId: null, to: null });
@@ -85,14 +129,19 @@ export async function readSolanaHoldings(
       const dec = decimals.get(c.address!)!;
       rows.push({ key: `sol:${c.id}`, symbol: c.symbol, chain: 'solana', amount: fmtAmount(raw, dec), usd: usdOf(raw, dec, prices[c.address!]), roomId: c.id, to: `/${c.id}` });
     }
+    for (const c of heldOthers) {
+      const raw = byMint.get(c.address)!;
+      const dec = decimals.get(c.address)!;
+      rows.push({ key: `sol:${c.address}`, symbol: tokenSymbol(c.address, checks.get(c.address)), chain: 'solana', amount: fmtAmount(raw, dec), usd: usdOf(raw, dec, prices[c.address]), roomId: null, mint: c.address, to: null });
+    }
     return { status: 'ok', rows };
   } catch (e) {
     return { status: 'unread', detail: clipReason(e) };
   }
 }
 
-/** The wallet's open BAYLA lock-ladder positions: amount, unlock, multiplier and earned. */
-export async function readSolanaLadder(owner: string): Promise<Leg<PositionRow>> {
+/** The wallet's open BAYLA lock-ladder positions: amount, unlock, multiplier, earned and worth. */
+export async function readSolanaLadder(owner: string, opts: { prices?: PriceRead } = {}): Promise<Leg<PositionRow>> {
   const room = BUNGALOWS.find((b) => b.live && b.chain === 'solana' && b.ladderPool);
   if (!room?.ladderPool || !isLadderConfigured()) return { status: 'ok', rows: [] };
   try {
@@ -110,6 +159,7 @@ export async function readSolanaLadder(owner: string): Promise<Leg<PositionRow>>
     }
     if (!w.value.open.length) return { status: 'ok', rows: [] };
     if (!p.ok) return { status: 'unread', detail: p.reason };
+    const prices = await pricesOrNone(opts.prices ?? boardPrices, [room.address!]);
     const now = nowSecs();
     const rows = w.value.open.map((pos): PositionRow => {
       const facts = [
@@ -118,7 +168,10 @@ export async function readSolanaLadder(owner: string): Promise<Leg<PositionRow>>
       ];
       if (pos.amountRaw > 0n) facts.push(boostLabel(Number((pos.weight * 10_000n) / pos.amountRaw)));
       facts.push(`earned ${fmtAmount(earnedNow(pos, p.value, now), p.value.decimals)} ${room.symbol}`);
-      return { key: `ladder:${pos.address}`, roomId: room.id, chain: 'solana', title: `${room.symbol} lock`, facts, to: `/earn/${room.id}` };
+      return {
+        key: `ladder:${pos.address}`, roomId: room.id, chain: 'solana', title: `${room.symbol} lock`, facts,
+        usd: usdOf(pos.amountRaw, p.value.decimals, prices[room.address!]), to: `/earn/${room.id}`,
+      };
     });
     return { status: 'ok', rows };
   } catch (e) {
@@ -126,8 +179,8 @@ export async function readSolanaLadder(owner: string): Promise<Leg<PositionRow>>
   }
 }
 
-/** The wallet's open stakes in one Streamflow pool: amount and unlock. Rewards are on its page. */
-export async function readSolanaStakes(owner: string, target: StakeTarget): Promise<Leg<PositionRow>> {
+/** The wallet's open stakes in one Streamflow pool: amount, unlock and worth. Rewards are on its page. */
+export async function readSolanaStakes(owner: string, target: StakeTarget, opts: { prices?: PriceRead } = {}): Promise<Leg<PositionRow>> {
   try {
     const entries = await readEntries(target.pool, owner);
     if (!entries.ok) return { status: 'unread', detail: entries.reason };
@@ -136,6 +189,7 @@ export async function readSolanaStakes(owner: string, target: StakeTarget): Prom
     // Decimals as the pool reads them on chain, only for a pool the wallet is in.
     const pool = await readPool(target.pool);
     if (!pool.ok) return { status: 'unread', detail: pool.reason };
+    const prices = await pricesOrNone(opts.prices ?? boardPrices, [target.room.address!]);
     const now = nowSecs();
     const rows = open.map((e): PositionRow => ({
       key: `stake:${target.pool}:${e.address}`,
@@ -143,6 +197,7 @@ export async function readSolanaStakes(owner: string, target: StakeTarget): Prom
       chain: 'solana',
       title: target.retired ? `${target.room.symbol} stake, old pool` : `${target.room.symbol} stake`,
       facts: [`${fmtAmount(e.amountRaw, pool.pool.decimals)} ${target.room.symbol}`, unlockWords(unlockTs(e), now)],
+      usd: usdOf(e.amountRaw, pool.pool.decimals, prices[target.room.address!]),
       to: `/earn/${target.room.id}`,
     }));
     return { status: 'ok', rows };
@@ -151,8 +206,8 @@ export async function readSolanaStakes(owner: string, target: StakeTarget): Prom
   }
 }
 
-/** The wallet's shares in the venue's own Solana pools: its share, and what it pays out now. */
-export async function readSolanaPoolShares(owner: string): Promise<Leg<PositionRow>> {
+/** The wallet's shares in the venue's own Solana pools: its share, what it pays out now, and its worth. */
+export async function readSolanaPoolShares(owner: string, opts: { prices?: PriceRead } = {}): Promise<Leg<PositionRow>> {
   const readers = browserLpReaders();
   if (!readers) return { status: 'ok', rows: [] };
   try {
@@ -161,14 +216,27 @@ export async function readSolanaPoolShares(owner: string): Promise<Leg<PositionR
     if (read.positions.length < read.totalShares) {
       return { status: 'unread', detail: 'some of your pool shares could not be placed yet' };
     }
+    // Both sides of every share that paid out a figure, priced in one read.
+    const valued = read.positions.flatMap((p) => (p.pool?.kind === 'pool' && !p.tooSmall && p.value ? [p.pool.view] : []));
+    const prices = valued.length
+      ? await pricesOrNone(opts.prices ?? boardPrices, [...new Set(valued.flatMap((v) => [v.tokenMint, v.quote.mint]))])
+      : {};
+    // Every coin shows its ticker (identity.ts): a coin the site does not name is named by its own,
+    // read in one call. A check that does not come back leaves its short address, never fails the leg.
+    const unnamed = [...new Set(read.positions.flatMap((p) => (p.pool?.kind === 'pool' && !siteNamed(p.pool.view.tokenMint) ? [p.pool.view.tokenMint] : [])))];
+    const checks = unnamed.length ? await readers.safety(unnamed).catch(() => new Map<string, TokenSafety>()) : new Map<string, TokenSafety>();
     const rows = read.positions.map((p): PositionRow => {
       if (p.pool?.kind !== 'pool') {
-        return { key: `lp:${p.lpAccount}`, roomId: null, chain: 'solana', title: 'Pool share', facts: ['its pool could not be read just now'], to: '/solana-lp' };
+        return { key: `lp:${p.lpAccount}`, roomId: null, chain: 'solana', title: 'Pool share', facts: ['its pool could not be read just now'], usd: null, to: '/pools' };
       }
       const view = p.pool.view;
       const room = bungalowByAddress('solana', view.tokenMint);
-      const symbol = room?.symbol ?? `${view.tokenMint.slice(0, 4)}…`;
+      const symbol = tokenSymbol(view.tokenMint, checks.get(view.tokenMint));
+      // A coin the island does not list, paired with one it does (a pool quoted in BAYLA): the
+      // share belongs to the island coin's room, so that room's dashboard lists it too.
+      const home = room ?? bungalowByAddress('solana', view.quote.mint);
       const facts: string[] = [];
+      let usd: number | null = null;
       if (p.tooSmall) facts.push('too small to withdraw');
       else if (p.value) {
         const tokenDec = view.quoteIsToken0 ? view.snapshot.pool.mint1Decimals : view.snapshot.pool.mint0Decimals;
@@ -176,8 +244,17 @@ export async function readSolanaPoolShares(owner: string): Promise<Leg<PositionR
         const quoteSide = view.quoteIsToken0 ? p.value.token0 : p.value.token1;
         facts.push(`${p.value.sharePct < 0.01 ? '<0.01' : p.value.sharePct.toFixed(2)}% of the pool`);
         facts.push(`${fmtAmount(tokenSide, tokenDec)} ${symbol} + ${fmtAmount(quoteSide, view.quote.decimals)} ${view.quote.symbol}`);
+        // Both sides priced, or no figure: half a share's worth would read as all of it.
+        const tokenUsd = usdOf(tokenSide, tokenDec, prices[view.tokenMint]);
+        const quoteUsd = usdOf(quoteSide, view.quote.decimals, prices[view.quote.mint]);
+        usd = tokenUsd !== null && quoteUsd !== null ? tokenUsd + quoteUsd : null;
       } else facts.push('its value could not be read just now');
-      return { key: `lp:${p.lpAccount}`, roomId: room?.id ?? null, chain: 'solana', title: `${symbol} / ${view.quote.symbol} pool`, facts, to: '/solana-lp' };
+      // A ticker the site does not vouch for is the coin's own claim: its whole address goes with it.
+      if (!siteNamed(view.tokenMint)) facts.push(view.tokenMint);
+      return {
+        key: `lp:${p.lpAccount}`, roomId: home?.id ?? null, ...(room ? {} : { mint: view.tokenMint }), chain: 'solana',
+        title: `${symbol} / ${view.quote.symbol} pool`, facts, usd, to: '/pools',
+      };
     });
     return { status: 'ok', rows };
   } catch (e) {

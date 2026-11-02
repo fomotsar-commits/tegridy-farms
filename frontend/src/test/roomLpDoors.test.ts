@@ -5,7 +5,9 @@
 import { describe, it, expect } from 'vitest';
 import { base58 } from '@scure/base';
 import { BUNGALOWS } from '../lib/bungalows';
-import { ACCOUNT_POOL_STATE, POOL_STATE_LEN, POOL_STATE_OFFSETS } from '../lib/solana/cpswap/program';
+import { PublicKey } from '@solana/web3.js';
+import { ACCOUNT_POOL_STATE, POOL_STATE_LEN, POOL_STATE_OFFSETS, deriveAmmConfig } from '../lib/solana/cpswap/program';
+import { REGISTERED_PROGRAM_ID as REGISTERED_LAUNCH_PROGRAM, poolStatePda } from '../lib/launcher/solana/curve/program';
 import { judgeRoomLpDoors, readVenueSolPools, roomsWithCoins, type Rpc, type SolPool } from './roomLpDoors';
 
 const WSOL = 'So11111111111111111111111111111111111111112';
@@ -119,9 +121,10 @@ describe('readVenueSolPools, on a canned RPC', () => {
   const LOW_POOL = base58.encode(new Uint8Array(32).fill(5));
   const vault = (n: number) => base58.encode(Uint8Array.from({ length: 32 }, (_, i) => (i === 0 ? n : 7)));
 
-  function poolBytes(token0Mint: string, token1Mint: string, token0Vault: string, token1Vault: string): string {
+  function poolBytes(token0Mint: string, token1Mint: string, token0Vault: string, token1Vault: string, ammConfig?: string): string {
     const d = new Uint8Array(POOL_STATE_LEN);
     d.set(ACCOUNT_POOL_STATE, 0);
+    if (ammConfig) d.set(base58.decode(ammConfig), POOL_STATE_OFFSETS.ammConfig);
     d.set(base58.decode(token0Vault), POOL_STATE_OFFSETS.token0Vault);
     d.set(base58.decode(token1Vault), POOL_STATE_OFFSETS.token1Vault);
     d.set(base58.decode(token0Mint), POOL_STATE_OFFSETS.token0Mint);
@@ -173,6 +176,29 @@ describe('readVenueSolPools, on a canned RPC', () => {
     expect(scans.map((c) => (c.params[1] as { filters: unknown }).filters)).toEqual(
       [168, 200].map((offset) => [{ dataSize: 637 }, { memcmp: { offset: 0, bytes: base58.encode(ACCOUNT_POOL_STATE) } }, { memcmp: { offset, bytes: WSOL } }]),
     );
+  });
+
+  // A pool on the launch tier that is not the launch pool is one the site never uses: the
+  // job must never ask for it to be named as a room's door. A graduated launch pool is kept.
+  it('leaves out a pool opened on the launch tier without a launch, and keeps a launch pool on that tier', async () => {
+    const tier0 = deriveAmmConfig(new PublicKey('EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT'), 0).toBase58();
+    const launchPool = poolStatePda(new PublicKey(SOY.mint), REGISTERED_LAUNCH_PROGRAM).toBase58();
+    const asked: string[][] = [];
+    const rpc: Rpc = async (method, params) => {
+      if (method === 'getProgramAccounts') {
+        const offset = (params[1] as { filters: { memcmp?: { offset: number } }[] }).filters[2]?.memcmp?.offset;
+        if (offset !== POOL_STATE_OFFSETS.token0Mint) return [];
+        return [
+          { pubkey: SECOND_RIZZ_POOL, account: { data: [poolBytes(WSOL, RIZZ.mint, vault(5), vault(6), tier0), 'base64'] } },
+          { pubkey: launchPool, account: { data: [poolBytes(WSOL, SOY.mint, vault(7), vault(8), tier0), 'base64'] } },
+        ];
+      }
+      const keys = params[0] as string[];
+      asked.push(keys);
+      return { value: keys.map(() => wsolAccount(SOL)) };
+    };
+    expect(await readVenueSolPools(rpc)).toEqual([{ address: launchPool, tokenMint: SOY.mint, solLamports: SOL }]);
+    expect(asked).toEqual([[vault(7)]]);
   });
 
   it('throws when the RPC did not answer, rather than reading as no pools', async () => {

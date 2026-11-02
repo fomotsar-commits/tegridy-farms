@@ -1,5 +1,5 @@
 /**
- * The network drop-down: all four networks listed, the lit one marked, a network the section
+ * The network drop-down: all five networks listed, the lit one marked, a network the section
  * has nothing on greyed with its reason and never picked, and a keyboard way in and out.
  */
 import { describe, it, expect, vi } from 'vitest';
@@ -11,6 +11,7 @@ const OPTIONS: ChainPickerOption[] = [
   { chain: 'base', enabled: false, note: 'No swap here' },
   { chain: 'robinhood', enabled: false, note: 'No swap here' },
   { chain: 'solana', enabled: true, note: 'Our pools + Jupiter' },
+  { chain: 'cardano', enabled: true, note: 'Minswap pools' },
 ];
 
 const mount = (onPick = vi.fn()) => {
@@ -21,7 +22,7 @@ const mount = (onPick = vi.fn()) => {
 const button = () => screen.getByRole('button', { name: 'Swap network: Ethereum' });
 
 describe('ChainPicker', () => {
-  it('is closed until pressed, then lists all four networks with the lit one selected', () => {
+  it('is closed until pressed, then lists all five networks with the lit one selected', () => {
     mount();
     expect(screen.queryByRole('listbox')).toBeNull();
     expect(button()).toHaveAttribute('aria-expanded', 'false');
@@ -33,6 +34,7 @@ describe('ChainPicker', () => {
       'BaseNo swap here',
       'Robinhood ChainNo swap here',
       'SolanaOur pools + Jupiter',
+      'CardanoMinswap pools',
     ]);
     expect(screen.getByRole('option', { name: /Ethereum/ })).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByRole('option', { name: /Base/ })).toHaveAttribute('aria-disabled', 'true');
@@ -60,8 +62,9 @@ describe('ChainPicker', () => {
     mount();
     fireEvent.keyDown(button(), { key: 'ArrowDown' });
     expect(screen.getByRole('option', { name: /Ethereum/ })).toHaveFocus();
+    // Up from the first wraps to the last: Cardano.
     fireEvent.keyDown(screen.getByRole('listbox'), { key: 'ArrowUp' });
-    expect(screen.getByRole('option', { name: /Solana/ })).toHaveFocus();
+    expect(screen.getByRole('option', { name: /Cardano/ })).toHaveFocus();
     fireEvent.keyDown(screen.getByRole('listbox'), { key: 'Escape' });
     expect(screen.queryByRole('listbox')).toBeNull();
     expect(button()).toHaveFocus();

@@ -12,7 +12,7 @@ export function usePoolData() {
   // whole fix. NOT gated on useChainId() === CHAIN_ID: since the multichain
   // config that gate disabled these reads off mainnet and handed FarmStatsRow a
   // "0%" APR (see useLPFarming.ts).
-  const { data, isLoading } = useReadContracts({
+  const { data, isLoading, refetch } = useReadContracts({
     contracts: [
       { address: addr, abi: TEGRIDY_STAKING_ABI, functionName: 'totalStaked', chainId: CHAIN_ID },
       { address: addr, abi: TEGRIDY_STAKING_ABI, functionName: 'totalBoostedStake', chainId: CHAIN_ID },
@@ -21,6 +21,8 @@ export function usePoolData() {
       { address: addr, abi: TEGRIDY_STAKING_ABI, functionName: 'totalPenaltiesCollected', chainId: CHAIN_ID },
       { address: addr, abi: TEGRIDY_STAKING_ABI, functionName: 'totalUnsettledRewards', chainId: CHAIN_ID },
       { address: TOWELI_ADDRESS, abi: ERC20_ABI, functionName: 'balanceOf', args: [addr], chainId: CHAIN_ID },
+      // The "Beta is over" notice needs the pause for a visitor with no wallet.
+      { address: addr, abi: TEGRIDY_STAKING_ABI, functionName: 'paused', chainId: CHAIN_ID },
     ],
     query: { enabled: isDeployed, refetchInterval: 60_000, refetchOnWindowFocus: true },
   });
@@ -50,6 +52,7 @@ export function usePoolData() {
   const penaltiesUnread = !readOk(4);
   const unsettledUnread = !readOk(5);
   const stakingBalanceUnread = !readOk(6);
+  const paused: boolean | null = data?.[7]?.status === 'success' ? (data[7].result as boolean) : null;
 
   // HONESTY PASS 2026-06-11: totalRewardsFunded is CUMULATIVE (never
   // decreases), so it must not be displayed as "rewards remaining".
@@ -115,6 +118,8 @@ export function usePoolData() {
     totalStakedRaw: totalStaked,
     totalBoostedStake: formatEther(totalBoostedStake),
     rewardRate: formatEther(rewardRate),
+    /** rewardRate in wei/s: a forced 0n when unread, so gate on rewardRateUnread. */
+    rewardRateRaw: rewardRate,
     totalRewardsFunded: formatEther(totalRewardsFunded),
     totalPenalties: formatEther(totalPenalties),
     /** Unix seconds when the reward pool runs dry at the current rate (derived; 0 if unread). */
@@ -123,6 +128,8 @@ export function usePoolData() {
     secondsRemaining: Number(secondsRemaining),
     /** TOWELI actually left in the reward pool — the honest "remaining" figure. */
     rewardsRemaining: formatEther(rewardsRemaining),
+    /** rewardsRemaining in wei: a forced 0n when unread, so gate on rewardsRemainingUnread. */
+    rewardsRemainingRaw: rewardsRemaining,
     /** True once reads landed and the reward pool is EMPTY — emissions are 0, whatever the rate says. */
     isDry,
     apr,
@@ -151,7 +158,10 @@ export function usePoolData() {
     aprUnread,
     /** Display alongside APR values */
     aprDisclaimer: 'Bootstrap rate — falls as staking grows',
+    /** paused(): `null` when the read did not land, never read as "running". */
+    paused,
     isDeployed,
     isLoading,
+    refetch,
   };
 }

@@ -1,7 +1,11 @@
 import { useEffect, useId, type ReactNode, type RefObject } from 'react';
 import { SHADOW } from '../curve/uiFormat';
+import { useInDoor } from './lpDoor';
 
-/** The panel's frame: a section named by its heading, which takes focus when the panel opens. */
+/**
+ * The panel's frame: a section named by its heading, which takes focus when the panel opens.
+ * In the LP door it is already at the top of the page, inside the door's card: no scroll, no box.
+ */
 export function PanelFrame({
   testId,
   title,
@@ -14,6 +18,7 @@ export function PanelFrame({
   children: ReactNode;
 }) {
   const id = useId();
+  const inDoor = useInDoor();
   useEffect(() => {
     const h = headingRef.current;
     if (!h) return;
@@ -21,7 +26,7 @@ export function PanelFrame({
     // The top of the panel goes to the top of the screen. The page's scroll-padding
     // (index.css) keeps it clear of the fixed bar and the tab strip. On a phone 'nearest'
     // left the heading at the bottom edge and the form itself below the screen.
-    h.scrollIntoView?.({ block: 'start' });
+    if (!inDoor) h.scrollIntoView?.({ block: 'start' });
     // Once, on open.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -29,8 +34,8 @@ export function PanelFrame({
     <section
       data-testid={testId}
       aria-labelledby={id}
-      className="relative rounded-lg p-3 mt-2 space-y-3 text-white/75 text-[11px] leading-relaxed min-w-0"
-      style={{ background: 'rgba(0,0,0,0.35)', border: '1px solid rgba(255,255,255,0.12)' }}
+      className={`relative space-y-3 text-white/75 text-[11px] leading-relaxed min-w-0 ${inDoor ? '' : 'rounded-lg p-3 mt-2'}`}
+      style={inDoor ? undefined : { background: 'rgba(0,0,0,0.35)', border: '1px solid rgba(255,255,255,0.12)' }}
     >
       <h4 id={id} ref={headingRef} tabIndex={-1} className="text-white font-semibold text-[13px] outline-none" style={SHADOW}>
         {title}

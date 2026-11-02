@@ -1,4 +1,4 @@
-import { TEGRIDY_STAKING_ADDRESS, TOWELI_ADDRESS, VOTE_INCENTIVES_ADDRESS, LP_FARMING_ADDRESS } from './constants';
+import { TEGRIDY_STAKING_ADDRESS, TOWELI_ADDRESS, LP_FARMING_ADDRESS } from './constants';
 
 // Re-export the ABIs extracted from forge build artifacts.
 // See frontend/scripts/extract-missing-abis.mjs — regenerate abi-supplement.ts
@@ -65,30 +65,6 @@ export const TEGRIDY_STAKING_ABI = [
   { type: 'function', name: 'balanceOf', inputs: [{ name: 'owner', type: 'address' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
 ] as const;
 
-// ─── TegridyRestaking (Bonus yield layer) ───────────────────────
-export const TEGRIDY_RESTAKING_ABI = [
-  { type: 'function', name: 'restake', inputs: [{ name: '_tokenId', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
-  { type: 'function', name: 'unrestake', inputs: [], outputs: [], stateMutability: 'nonpayable' },
-  { type: 'function', name: 'claimAll', inputs: [], outputs: [], stateMutability: 'nonpayable' },
-  // pendingBonus / pendingBase were golfed off TegridyRestaking (they live on
-  // RestakingMonitorView now) and had no call site left — removed rather than
-  // re-pointed. pendingTotal is still read by useRestaking, but at
-  // TEGRIDY_RESTAKING_ADDRESS, where the selector does not exist; the read is
-  // dormant only because that address is still 0x0. Re-point it at the
-  // RestakingMonitorView deployment before restaking goes live.
-  { type: 'function', name: 'pendingTotal', inputs: [{ name: '_user', type: 'address' }], outputs: [{ name: 'base', type: 'uint256' }, { name: 'bonus', type: 'uint256' }], stateMutability: 'view' },
-  // `unsettledSnapshot` (6th field) was missing until 2026-08-21. This entry
-  // dates from 28e03481; the struct field arrived later in c7822932/fff1e9ba.
-  // Benign so far: viem decodes the declared params sequentially and ignores
-  // trailing words, and useRestaking reads only [0..2]. But the ABI must match
-  // the struct it will be deployed from — RestakeInfo in TegridyRestaking.sol.
-  { type: 'function', name: 'restakers', inputs: [{ name: '', type: 'address' }], outputs: [{ name: 'tokenId', type: 'uint256' }, { name: 'positionAmount', type: 'uint256' }, { name: 'boostedAmount', type: 'uint256' }, { name: 'bonusDebt', type: 'int256' }, { name: 'depositTime', type: 'uint256' }, { name: 'unsettledSnapshot', type: 'uint256' }], stateMutability: 'view' },
-  { type: 'function', name: 'totalRestaked', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  { type: 'function', name: 'totalBonusFunded', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  { type: 'function', name: 'totalBonusDistributed', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  { type: 'function', name: 'bonusRewardPerSecond', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-] as const;
-
 // ─── ERC20 ──────────────────────────────────────────────────────
 export const ERC20_ABI = [
   { type: 'function', name: 'approve', inputs: [{ name: 'spender', type: 'address' }, { name: 'amount', type: 'uint256' }], outputs: [{ name: '', type: 'bool' }], stateMutability: 'nonpayable' },
@@ -146,41 +122,6 @@ export const REVENUE_DISTRIBUTOR_ABI = [
   { type: 'function', name: 'totalDistributed', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'totalClaimed', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'epochCount', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-] as const;
-
-// ─── CommunityGrants ────────────────────────────────────────────
-export const COMMUNITY_GRANTS_ABI = [
-  { type: 'function', name: 'createProposal', inputs: [{ name: '_recipient', type: 'address' }, { name: '_amount', type: 'uint256' }, { name: '_description', type: 'string' }], outputs: [], stateMutability: 'nonpayable' },
-  { type: 'function', name: 'voteOnProposal', inputs: [{ name: '_proposalId', type: 'uint256' }, { name: '_support', type: 'bool' }], outputs: [], stateMutability: 'nonpayable' },
-  { type: 'function', name: 'finalizeProposal', inputs: [{ name: '_proposalId', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
-  { type: 'function', name: 'proposalCount', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  { type: 'function', name: 'getProposal', inputs: [{ name: '_id', type: 'uint256' }], outputs: [{ name: 'proposer', type: 'address' }, { name: 'recipient', type: 'address' }, { name: 'amount', type: 'uint256' }, { name: 'description', type: 'string' }, { name: 'votesFor', type: 'uint256' }, { name: 'votesAgainst', type: 'uint256' }, { name: 'deadline', type: 'uint256' }, { name: 'status', type: 'uint8' }, { name: 'snapshotTimestamp', type: 'uint256' }, { name: 'snapshotTotalStake', type: 'uint256' }], stateMutability: 'view' },
-  { type: 'function', name: 'hasVotedOnProposal', inputs: [{ name: '', type: 'uint256' }, { name: '', type: 'address' }], outputs: [{ name: '', type: 'bool' }], stateMutability: 'view' },
-  { type: 'function', name: 'totalGranted', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  { type: 'function', name: 'executeProposal', inputs: [{ name: '_proposalId', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
-  { type: 'function', name: 'cancelProposal', inputs: [{ name: '_proposalId', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
-  { type: 'function', name: 'lapseProposal', inputs: [{ name: '_proposalId', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
-] as const;
-
-// ─── MemeBountyBoard ────────────────────────────────────────────
-export const MEME_BOUNTY_BOARD_ABI = [
-  { type: 'function', name: 'createBounty', inputs: [{ name: '_description', type: 'string' }, { name: '_deadline', type: 'uint256' }], outputs: [], stateMutability: 'payable' },
-  { type: 'function', name: 'submitWork', inputs: [{ name: '_bountyId', type: 'uint256' }, { name: '_contentURI', type: 'string' }], outputs: [], stateMutability: 'nonpayable' },
-  { type: 'function', name: 'voteForSubmission', inputs: [{ name: '_bountyId', type: 'uint256' }, { name: '_submissionId', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
-  { type: 'function', name: 'completeBounty', inputs: [{ name: '_bountyId', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
-  { type: 'function', name: 'cancelBounty', inputs: [{ name: '_bountyId', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
-  { type: 'function', name: 'bountyCount', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  { type: 'function', name: 'getBounty', inputs: [{ name: '_id', type: 'uint256' }], outputs: [{ name: 'creator', type: 'address' }, { name: 'description', type: 'string' }, { name: 'reward', type: 'uint256' }, { name: 'deadline', type: 'uint256' }, { name: 'winner', type: 'address' }, { name: 'submCount', type: 'uint256' }, { name: 'status', type: 'uint8' }], stateMutability: 'view' },
-  { type: 'function', name: 'getSubmission', inputs: [{ name: '_bountyId', type: 'uint256' }, { name: '_submissionId', type: 'uint256' }], outputs: [{ name: 'submitter', type: 'address' }, { name: 'contentURI', type: 'string' }, { name: 'votes', type: 'uint256' }], stateMutability: 'view' },
-  { type: 'function', name: 'submissionCount', inputs: [{ name: '_bountyId', type: 'uint256' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  { type: 'function', name: 'totalBountiesPosted', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  { type: 'function', name: 'totalPaidOut', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  { type: 'function', name: 'withdrawPayout', inputs: [], outputs: [], stateMutability: 'nonpayable' },
-  { type: 'function', name: 'withdrawRefund', inputs: [], outputs: [], stateMutability: 'nonpayable' },
-  { type: 'function', name: 'pendingPayouts', inputs: [{ name: '', type: 'address' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  { type: 'function', name: 'pendingRefund', inputs: [{ name: '', type: 'address' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  { type: 'function', name: 'hasVotedOnBounty', inputs: [{ name: '', type: 'uint256' }, { name: '', type: 'address' }], outputs: [{ name: '', type: 'bool' }], stateMutability: 'view' },
-  { type: 'function', name: 'refundStaleBounty', inputs: [{ name: '_bountyId', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
 ] as const;
 
 // ─── SwapFeeRouter ──────────────────────────────────────────────
@@ -265,109 +206,6 @@ export const TEGRIDY_ROUTER_ABI = [
   { type: 'function', name: 'factory', inputs: [], outputs: [{ name: '', type: 'address' }], stateMutability: 'view' },
   { type: 'function', name: 'WETH', inputs: [], outputs: [{ name: '', type: 'address' }], stateMutability: 'view' },
 ] as const;
-
-// ─── VoteIncentives (Bribe Market) ──────────────────────────────
-export const VOTE_INCENTIVES_ABI = [
-  { type: 'function', name: 'epochCount', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  { type: 'function', name: 'currentEpoch', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  // EpochInfo struct has 3 public fields — include usesCommitReveal so the
-  // UI can detect which voting path applies.
-  { type: 'function', name: 'epochs', inputs: [{ name: '', type: 'uint256' }], outputs: [
-    { name: 'totalPower', type: 'uint256' },
-    { name: 'timestamp', type: 'uint256' },
-    { name: 'usesCommitReveal', type: 'bool' },
-  ], stateMutability: 'view' },
-  { type: 'function', name: 'epochBribes', inputs: [{ name: 'epoch', type: 'uint256' }, { name: 'pair', type: 'address' }, { name: 'token', type: 'address' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  { type: 'function', name: 'getEpochBribeTokens', inputs: [{ name: 'epoch', type: 'uint256' }, { name: 'pair', type: 'address' }], outputs: [{ name: '', type: 'address[]' }], stateMutability: 'view' },
-  { type: 'function', name: 'claimable', inputs: [{ name: 'user', type: 'address' }, { name: 'epoch', type: 'uint256' }, { name: 'pair', type: 'address' }], outputs: [{ name: 'tokens', type: 'address[]' }, { name: 'amounts', type: 'uint256[]' }], stateMutability: 'view' },
-  { type: 'function', name: 'claimBribes', inputs: [{ name: 'epoch', type: 'uint256' }, { name: 'pair', type: 'address' }], outputs: [], stateMutability: 'nonpayable' },
-  { type: 'function', name: 'claimBribesBatch', inputs: [{ name: 'epochStart', type: 'uint256' }, { name: 'epochEnd', type: 'uint256' }, { name: 'pair', type: 'address' }], outputs: [], stateMutability: 'nonpayable' },
-  { type: 'function', name: 'depositBribe', inputs: [{ name: 'pair', type: 'address' }, { name: 'token', type: 'address' }, { name: 'amount', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
-  { type: 'function', name: 'depositBribeETH', inputs: [{ name: 'pair', type: 'address' }], outputs: [], stateMutability: 'payable' },
-  { type: 'function', name: 'advanceEpoch', inputs: [], outputs: [], stateMutability: 'nonpayable' },
-  { type: 'function', name: 'bribeFeeBps', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  { type: 'function', name: 'pendingFeeBps', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  { type: 'function', name: 'feeChangeTime', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  { type: 'function', name: 'getWhitelistedTokens', inputs: [], outputs: [{ name: '', type: 'address[]' }], stateMutability: 'view' },
-  { type: 'function', name: 'whitelistedTokens', inputs: [{ name: 'token', type: 'address' }], outputs: [{ name: '', type: 'bool' }], stateMutability: 'view' },
-  { type: 'function', name: 'minBribeAmounts', inputs: [{ name: 'token', type: 'address' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  { type: 'function', name: 'MIN_BRIBE_AMOUNT', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  { type: 'function', name: 'BRIBE_RESCUE_DELAY', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  { type: 'function', name: 'epochBribeFirstDeposit', inputs: [{ name: 'epoch', type: 'uint256' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  // Pull-pattern withdrawals (ETH + ERC20)
-  { type: 'function', name: 'withdrawPendingETH', inputs: [], outputs: [], stateMutability: 'nonpayable' },
-  { type: 'function', name: 'pendingETHWithdrawals', inputs: [{ name: 'user', type: 'address' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  { type: 'function', name: 'withdrawPendingToken', inputs: [{ name: 'token', type: 'address' }], outputs: [], stateMutability: 'nonpayable' },
-  { type: 'function', name: 'pendingTokenWithdrawals', inputs: [{ name: 'user', type: 'address' }, { name: 'token', type: 'address' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  // Legacy (non-commit-reveal) gauge voting
-  { type: 'function', name: 'vote', inputs: [{ name: 'epoch', type: 'uint256' }, { name: 'pair', type: 'address' }, { name: 'power', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
-  { type: 'function', name: 'gaugeVotes', inputs: [{ name: 'user', type: 'address' }, { name: 'epoch', type: 'uint256' }, { name: 'pair', type: 'address' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  { type: 'function', name: 'totalGaugeVotes', inputs: [{ name: 'epoch', type: 'uint256' }, { name: 'pair', type: 'address' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  { type: 'function', name: 'userTotalVotes', inputs: [{ name: 'user', type: 'address' }, { name: 'epoch', type: 'uint256' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  { type: 'function', name: 'VOTE_DEADLINE', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  // Commit-reveal gauge voting (Phase-1/Phase-2 anti-arbitrage)
-  { type: 'function', name: 'commitRevealEnabled', inputs: [], outputs: [{ name: '', type: 'bool' }], stateMutability: 'view' },
-  { type: 'function', name: 'COMMIT_BOND', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  { type: 'function', name: 'COMMIT_RATIO_BPS', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  { type: 'function', name: 'commitDeadline', inputs: [{ name: 'epoch', type: 'uint256' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  { type: 'function', name: 'revealDeadline', inputs: [{ name: 'epoch', type: 'uint256' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  { type: 'function', name: 'computeCommitHash', inputs: [
-    { name: 'user', type: 'address' },
-    { name: 'epoch', type: 'uint256' },
-    { name: 'pair', type: 'address' },
-    { name: 'power', type: 'uint256' },
-    { name: 'salt', type: 'bytes32' },
-  ], outputs: [{ name: '', type: 'bytes32' }], stateMutability: 'view' },
-  { type: 'function', name: 'commitVote', inputs: [{ name: 'epoch', type: 'uint256' }, { name: 'commitHash', type: 'bytes32' }, { name: 'power', type: 'uint256' }], outputs: [{ name: 'commitIndex', type: 'uint256' }], stateMutability: 'nonpayable' },
-  { type: 'function', name: 'revealVote', inputs: [
-    { name: 'epoch', type: 'uint256' },
-    { name: 'commitIndex', type: 'uint256' },
-    { name: 'pair', type: 'address' },
-    { name: 'power', type: 'uint256' },
-    { name: 'salt', type: 'bytes32' },
-  ], outputs: [], stateMutability: 'nonpayable' },
-  { type: 'function', name: 'sweepForfeitedBond', inputs: [{ name: 'user', type: 'address' }, { name: 'epoch', type: 'uint256' }, { name: 'commitIndex', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
-  { type: 'function', name: 'voterCommitCount', inputs: [{ name: 'user', type: 'address' }, { name: 'epoch', type: 'uint256' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  { type: 'function', name: 'voterCommits', inputs: [{ name: '', type: 'address' }, { name: '', type: 'uint256' }, { name: '', type: 'uint256' }], outputs: [
-    { name: 'commitHash', type: 'bytes32' },
-    { name: 'bond', type: 'uint96' },
-    { name: 'revealed', type: 'bool' },
-  ], stateMutability: 'view' },
-  // R075: events used by useWatchContractEvent in useBribes / useGaugeList
-  { type: 'event', name: 'BribeDeposited', inputs: [
-    { name: 'depositor', type: 'address', indexed: true },
-    { name: 'pair', type: 'address', indexed: true },
-    { name: 'token', type: 'address', indexed: true },
-    { name: 'amount', type: 'uint256', indexed: false },
-    { name: 'epoch', type: 'uint256', indexed: false },
-  ], anonymous: false },
-  { type: 'event', name: 'BribeDepositedETH', inputs: [
-    { name: 'depositor', type: 'address', indexed: true },
-    { name: 'pair', type: 'address', indexed: true },
-    { name: 'amount', type: 'uint256', indexed: false },
-    { name: 'epoch', type: 'uint256', indexed: false },
-  ], anonymous: false },
-  { type: 'event', name: 'BribeClaimed', inputs: [
-    { name: 'user', type: 'address', indexed: true },
-    { name: 'pair', type: 'address', indexed: true },
-    { name: 'epoch', type: 'uint256', indexed: false },
-  ], anonymous: false },
-  { type: 'event', name: 'GaugeVoted', inputs: [
-    { name: 'user', type: 'address', indexed: true },
-    { name: 'epoch', type: 'uint256', indexed: true },
-    { name: 'pair', type: 'address', indexed: true },
-    { name: 'power', type: 'uint256', indexed: false },
-  ], anonymous: false },
-  { type: 'event', name: 'EpochAdvanced', inputs: [
-    { name: 'epoch', type: 'uint256', indexed: true },
-    { name: 'totalPower', type: 'uint256', indexed: false },
-  ], anonymous: false },
-] as const;
-
-export const voteIncentivesConfig = {
-  address: VOTE_INCENTIVES_ADDRESS,
-  abi: VOTE_INCENTIVES_ABI,
-} as const;
 
 // ─── LP Farming (Synthetix StakingRewards) ──────────────────────
 export const LP_FARMING_ABI = [
@@ -467,22 +305,6 @@ export const LIGHTHOUSE_LADDER_ABI = [
   { type: 'function', name: 'EARLY_EXIT_PENALTY_BPS', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'MAX_EARLY_EXIT_PENALTY_BPS', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'penaltyFor', inputs: [{ name: 'amount', type: 'uint256' }, { name: 'lockEnd', type: 'uint64' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-] as const;
-
-// ─── TegridyLending (P2P NFT-Collateralized Lending) ───────────
-export const TEGRIDY_LENDING_ABI = [
-  { type: 'function', name: 'createLoanOffer', inputs: [{ name: '_aprBps', type: 'uint256' }, { name: '_duration', type: 'uint256' }, { name: '_collateralContract', type: 'address' }, { name: '_minPositionValue', type: 'uint256' }, { name: '_minPositionETHValue', type: 'uint256' }], outputs: [{ name: 'offerId', type: 'uint256' }], stateMutability: 'payable' },
-  { type: 'function', name: 'cancelOffer', inputs: [{ name: '_offerId', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
-  { type: 'function', name: 'acceptOffer', inputs: [{ name: '_offerId', type: 'uint256' }, { name: '_tokenId', type: 'uint256' }], outputs: [{ name: 'loanId', type: 'uint256' }], stateMutability: 'nonpayable' },
-  { type: 'function', name: 'repayLoan', inputs: [{ name: '_loanId', type: 'uint256' }], outputs: [], stateMutability: 'payable' },
-  { type: 'function', name: 'claimDefaultedCollateral', inputs: [{ name: '_loanId', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
-  { type: 'function', name: 'getOffer', inputs: [{ name: '_offerId', type: 'uint256' }], outputs: [{ name: 'lender', type: 'address' }, { name: 'principal', type: 'uint256' }, { name: 'aprBps', type: 'uint256' }, { name: 'duration', type: 'uint256' }, { name: 'collateralContract', type: 'address' }, { name: 'minPositionValue', type: 'uint256' }, { name: 'minPositionETHValue', type: 'uint256' }, { name: 'active', type: 'bool' }], stateMutability: 'view' },
-  { type: 'function', name: 'getLoan', inputs: [{ name: '_loanId', type: 'uint256' }], outputs: [{ name: 'borrower', type: 'address' }, { name: 'lender', type: 'address' }, { name: 'offerId', type: 'uint256' }, { name: 'tokenId', type: 'uint256' }, { name: 'principal', type: 'uint256' }, { name: 'aprBps', type: 'uint256' }, { name: 'startTime', type: 'uint256' }, { name: 'deadline', type: 'uint256' }, { name: 'repaid', type: 'bool' }, { name: 'defaultClaimed', type: 'bool' }], stateMutability: 'view' },
-  { type: 'function', name: 'getRepaymentAmount', inputs: [{ name: '_loanId', type: 'uint256' }], outputs: [{ name: 'total', type: 'uint256' }], stateMutability: 'view' },
-  { type: 'function', name: 'isDefaulted', inputs: [{ name: '_loanId', type: 'uint256' }], outputs: [{ name: '', type: 'bool' }], stateMutability: 'view' },
-  { type: 'function', name: 'offerCount', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  { type: 'function', name: 'loanCount', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  { type: 'function', name: 'protocolFeeBps', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
 ] as const;
 
 // ─── TegridyLaunchpadV2 (Click-Deploy Factory — CollectionConfig struct input) ──
@@ -729,83 +551,6 @@ export const TEGRIDY_NFT_LENDING_ABI = [
   { type: 'function', name: 'protocolFeeBps', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
 ] as const;
 
-// ─── GaugeController (Curve-style emission voting) ─────────────
-export const GAUGE_CONTROLLER_ABI = [
-  { type: 'function', name: 'vote', inputs: [{ name: 'tokenId', type: 'uint256' }, { name: 'gauges', type: 'address[]' }, { name: 'weights', type: 'uint256[]' }], outputs: [], stateMutability: 'nonpayable' },
-  { type: 'function', name: 'currentEpoch', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  { type: 'function', name: 'getGaugeWeight', inputs: [{ name: 'gauge', type: 'address' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  { type: 'function', name: 'getRelativeWeight', inputs: [{ name: 'gauge', type: 'address' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  { type: 'function', name: 'getGaugeEmission', inputs: [{ name: 'gauge', type: 'address' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  { type: 'function', name: 'getGauges', inputs: [], outputs: [{ name: '', type: 'address[]' }], stateMutability: 'view' },
-  { type: 'function', name: 'gaugeCount', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  { type: 'function', name: 'emissionBudget', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  { type: 'function', name: 'lastVotedEpoch', inputs: [{ name: '', type: 'uint256' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  { type: 'function', name: 'EPOCH_DURATION', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  { type: 'function', name: 'genesisEpoch', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  { type: 'function', name: 'totalWeightByEpoch', inputs: [{ name: '', type: 'uint256' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  // ─── Commit-Reveal (Audit H-2 closure) ──────────────────────────
-  { type: 'function', name: 'REVEAL_WINDOW', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  { type: 'function', name: 'epochStartTime', inputs: [{ name: 'epoch', type: 'uint256' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  { type: 'function', name: 'computeCommitment',
-    inputs: [
-      { name: 'voter', type: 'address' },
-      { name: 'tokenId', type: 'uint256' },
-      { name: 'gauges', type: 'address[]' },
-      { name: 'weights', type: 'uint256[]' },
-      { name: 'salt', type: 'bytes32' },
-      { name: 'epoch', type: 'uint256' },
-    ], outputs: [{ name: '', type: 'bytes32' }], stateMutability: 'view' },
-  { type: 'function', name: 'commitVote',
-    inputs: [{ name: 'tokenId', type: 'uint256' }, { name: 'commitmentHash', type: 'bytes32' }],
-    outputs: [], stateMutability: 'nonpayable' },
-  { type: 'function', name: 'revealVote',
-    inputs: [
-      { name: 'tokenId', type: 'uint256' },
-      { name: 'gauges', type: 'address[]' },
-      { name: 'weights', type: 'uint256[]' },
-      { name: 'salt', type: 'bytes32' },
-    ], outputs: [], stateMutability: 'nonpayable' },
-  { type: 'function', name: 'isRevealWindowOpen', inputs: [],
-    outputs: [
-      { name: 'epoch', type: 'uint256' },
-      { name: 'open', type: 'bool' },
-      { name: 'revealOpensAt', type: 'uint256' },
-      { name: 'revealClosesAt', type: 'uint256' },
-    ], stateMutability: 'view' },
-  { type: 'function', name: 'commitmentOf',
-    inputs: [{ name: '', type: 'uint256' }, { name: '', type: 'uint256' }],
-    outputs: [{ name: '', type: 'bytes32' }], stateMutability: 'view' },
-  { type: 'function', name: 'hasVotedInEpoch',
-    inputs: [{ name: '', type: 'uint256' }, { name: '', type: 'uint256' }],
-    outputs: [{ name: '', type: 'bool' }], stateMutability: 'view' },
-  // Events (indexed in event logs, helpful for wagmi event hooks)
-  { type: 'event', name: 'VoteCommitted', inputs: [
-    { name: 'voter', type: 'address', indexed: true },
-    { name: 'tokenId', type: 'uint256', indexed: true },
-    { name: 'epoch', type: 'uint256', indexed: true },
-    { name: 'commitmentHash', type: 'bytes32', indexed: false },
-  ], anonymous: false },
-  { type: 'event', name: 'VoteRevealed', inputs: [
-    { name: 'voter', type: 'address', indexed: true },
-    { name: 'tokenId', type: 'uint256', indexed: true },
-    { name: 'epoch', type: 'uint256', indexed: true },
-    { name: 'gauges', type: 'address[]', indexed: false },
-    { name: 'weights', type: 'uint256[]', indexed: false },
-  ], anonymous: false },
-  // R075: gauge add/remove + simple Voted event
-  { type: 'event', name: 'GaugeAdded', inputs: [
-    { name: 'gauge', type: 'address', indexed: true },
-  ], anonymous: false },
-  { type: 'event', name: 'GaugeRemoved', inputs: [
-    { name: 'gauge', type: 'address', indexed: true },
-  ], anonymous: false },
-  { type: 'event', name: 'Voted', inputs: [
-    { name: 'voter', type: 'address', indexed: true },
-    { name: 'tokenId', type: 'uint256', indexed: true },
-    { name: 'epoch', type: 'uint256', indexed: true },
-  ], anonymous: false },
-] as const;
-
 export const ERC721_ABI = [
   { type: 'function', name: 'approve', inputs: [{ name: 'to', type: 'address' }, { name: 'tokenId', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
   { type: 'function', name: 'setApprovalForAll', inputs: [{ name: 'operator', type: 'address' }, { name: 'approved', type: 'bool' }], outputs: [], stateMutability: 'nonpayable' },
@@ -813,148 +558,4 @@ export const ERC721_ABI = [
   { type: 'function', name: 'getApproved', inputs: [{ name: 'tokenId', type: 'uint256' }], outputs: [{ name: '', type: 'address' }], stateMutability: 'view' },
   { type: 'function', name: 'ownerOf', inputs: [{ name: 'tokenId', type: 'uint256' }], outputs: [{ name: '', type: 'address' }], stateMutability: 'view' },
   { type: 'function', name: 'balanceOf', inputs: [{ name: 'owner', type: 'address' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-] as const;
-
-// ─── AirdropFactory (#65) ───────────────────────────────────────
-// Reads only, plus the one write the create flow needs. No fee-administration
-// entries: proposeClaimFee / executeClaimFee / proposeFeeSink and the pause
-// controls are 48h-timelocked owner ceremonies operated by direct contract
-// interaction, exactly like the staking/router admin pairs (see the note in
-// scripts/extract-missing-abis.mjs). A selector the dApp cannot legitimately
-// call is a selector the dApp must not carry.
-export const AIRDROP_FACTORY_ABI = [
-  { type: 'function', name: 'createCampaign', inputs: [
-    { name: 'token', type: 'address' },
-    { name: 'merkleRoot', type: 'bytes32' },
-    { name: 'fundingAmount', type: 'uint256' },
-    { name: 'claimWindow', type: 'uint64' },
-  ], outputs: [{ name: 'distributor', type: 'address' }], stateMutability: 'nonpayable' },
-  // Read immediately before signing createCampaign and print the result — a landed
-  // timelock proposal can move the fee a campaign will snapshot between page load
-  // and signature.
-  { type: 'function', name: 'currentCampaignFee', inputs: [], outputs: [{ name: 'fee', type: 'uint256' }, { name: 'sink', type: 'address' }], stateMutability: 'view' },
-  { type: 'function', name: 'campaignCount', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  { type: 'function', name: 'campaignsOf', inputs: [{ name: 'creator', type: 'address' }], outputs: [{ name: '', type: 'address[]' }], stateMutability: 'view' },
-  { type: 'function', name: 'campaignsForToken', inputs: [{ name: 'token', type: 'address' }], outputs: [{ name: '', type: 'address[]' }], stateMutability: 'view' },
-  // Provenance for a distributor address arriving from a link or a pasted manifest:
-  // false means this factory never bounds-checked its parameters.
-  { type: 'function', name: 'isCampaign', inputs: [{ name: '', type: 'address' }], outputs: [{ name: '', type: 'bool' }], stateMutability: 'view' },
-  { type: 'function', name: 'paused', inputs: [], outputs: [{ name: '', type: 'bool' }], stateMutability: 'view' },
-  { type: 'function', name: 'MIN_CLAIM_WINDOW', inputs: [], outputs: [{ name: '', type: 'uint64' }], stateMutability: 'view' },
-  { type: 'function', name: 'MAX_CLAIM_WINDOW', inputs: [], outputs: [{ name: '', type: 'uint64' }], stateMutability: 'view' },
-  { type: 'event', name: 'CampaignCreated', inputs: [
-    { name: 'distributor', type: 'address', indexed: true },
-    { name: 'creator', type: 'address', indexed: true },
-    { name: 'token', type: 'address', indexed: true },
-    { name: 'merkleRoot', type: 'bytes32', indexed: false },
-    { name: 'funded', type: 'uint256', indexed: false },
-    { name: 'expiresAt', type: 'uint64', indexed: false },
-    { name: 'claimFeeWei', type: 'uint256', indexed: false },
-    { name: 'feeSink', type: 'address', indexed: false },
-  ], anonymous: false },
-] as const;
-
-// ─── TegridyAirdropDistributor (one campaign) ───────────────────
-// `claim` and `claimWithFee` are siblings, not variants: Solidity forbids widening
-// the vendored `claim` to payable, so a fee-bearing campaign is claimable ONLY
-// through claimWithFee. The claim surface picks by the campaign's own
-// claimFeeWei, never by a cached factory value.
-export const AIRDROP_DISTRIBUTOR_ABI = [
-  { type: 'function', name: 'claim', inputs: [
-    { name: 'index', type: 'uint256' },
-    { name: 'account', type: 'address' },
-    { name: 'amount', type: 'uint256' },
-    { name: 'merkleProof', type: 'bytes32[]' },
-  ], outputs: [], stateMutability: 'nonpayable' },
-  { type: 'function', name: 'claimWithFee', inputs: [
-    { name: 'index', type: 'uint256' },
-    { name: 'account', type: 'address' },
-    { name: 'amount', type: 'uint256' },
-    { name: 'merkleProof', type: 'bytes32[]' },
-  ], outputs: [], stateMutability: 'payable' },
-  { type: 'function', name: 'reclaim', inputs: [], outputs: [{ name: 'amount', type: 'uint256' }], stateMutability: 'nonpayable' },
-  { type: 'function', name: 'isClaimed', inputs: [{ name: 'index', type: 'uint256' }], outputs: [{ name: '', type: 'bool' }], stateMutability: 'view' },
-  { type: 'function', name: 'campaignInfo', inputs: [], outputs: [{ name: '', type: 'tuple', components: [
-    { name: 'token', type: 'address' },
-    { name: 'merkleRoot', type: 'bytes32' },
-    { name: 'creator', type: 'address' },
-    { name: 'expiresAt', type: 'uint64' },
-    { name: 'claimsOpen', type: 'bool' },
-    { name: 'claimFeeWei', type: 'uint256' },
-    { name: 'feeSink', type: 'address' },
-    // Live token balance, not a bookkeeping figure. For a fee-on-transfer or
-    // rebasing token this is what is actually there, which is not the same as
-    // "unclaimed allocation" — never labelled as such.
-    { name: 'remaining', type: 'uint256' },
-  ]}], stateMutability: 'view' },
-  { type: 'function', name: 'merkleRoot', inputs: [], outputs: [{ name: '', type: 'bytes32' }], stateMutability: 'view' },
-  { type: 'function', name: 'token', inputs: [], outputs: [{ name: '', type: 'address' }], stateMutability: 'view' },
-] as const;
-
-// ─── VestingFactory (#28) ───────────────────────────────────────
-// Registry reads only. The dashboard shows streams; it does not create them —
-// stream creation belongs to the launch wizard's vesting step, which is not this
-// surface. No fee-administration or pause entries, same reasoning as the airdrop
-// factory above.
-export const VESTING_FACTORY_ABI = [
-  { type: 'function', name: 'vestingsForBeneficiary', inputs: [{ name: 'beneficiary', type: 'address' }], outputs: [{ name: '', type: 'address[]' }], stateMutability: 'view' },
-  { type: 'function', name: 'vestingsForCreator', inputs: [{ name: 'creator', type: 'address' }], outputs: [{ name: '', type: 'address[]' }], stateMutability: 'view' },
-  { type: 'function', name: 'vestingsForToken', inputs: [{ name: 'token', type: 'address' }], outputs: [{ name: '', type: 'address[]' }], stateMutability: 'view' },
-  { type: 'function', name: 'vestingCountForToken', inputs: [{ name: 'token', type: 'address' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  // Cumulative INFLOW per token. Never decreases as beneficiaries release, so it is
-  // "total vested to date", never "currently vesting".
-  { type: 'function', name: 'totalVestedInflow', inputs: [{ name: '', type: 'address' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-  { type: 'function', name: 'isVesting', inputs: [{ name: '', type: 'address' }], outputs: [{ name: '', type: 'bool' }], stateMutability: 'view' },
-  { type: 'function', name: 'vestingCount', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
-] as const;
-
-// ─── TegridyVestingWallet (one stream) ──────────────────────────
-// `release(address)` is permissionless to call and pays owner() — the beneficiary —
-// so a third party cranking it can only push vested funds toward the person they
-// already belong to. There is no clawback, no revoke and no admin selector to add.
-export const VESTING_WALLET_ABI = [
-  { type: 'function', name: 'release', inputs: [{ name: 'token', type: 'address' }], outputs: [], stateMutability: 'nonpayable' },
-  { type: 'function', name: 'vestingInfo', inputs: [], outputs: [{ name: '', type: 'tuple', components: [
-    { name: 'beneficiary', type: 'address' },
-    { name: 'token', type: 'address' },
-    { name: 'creator', type: 'address' },
-    { name: 'start', type: 'uint256' },
-    { name: 'cliff', type: 'uint256' },
-    { name: 'end', type: 'uint256' },
-    { name: 'balance', type: 'uint256' },
-    { name: 'released', type: 'uint256' },
-    { name: 'releasable', type: 'uint256' },
-    { name: 'locked', type: 'uint256' },
-    { name: 'cliffReached', type: 'bool' },
-    { name: 'fullyVested', type: 'bool' },
-  ]}], stateMutability: 'view' },
-  { type: 'function', name: 'declaredToken', inputs: [], outputs: [{ name: '', type: 'address' }], stateMutability: 'view' },
-] as const;
-
-// ─── LaunchLockView (#28 read joiner) ───────────────────────────
-// The two `*SourceAvailable` booleans are the honesty contract of this ABI: false
-// means NO DATA (rail unset, wrong address, or the call reverted) and every numeric
-// field beside it is zero because nothing was read. Rendering that as "0 locked"
-// turns an outage into a claim about the token — see the contract's own header note.
-export const LAUNCH_LOCK_VIEW_ABI = [
-  { type: 'function', name: 'snapshot', inputs: [
-    { name: 'token', type: 'address' },
-    { name: 'lockOffset', type: 'uint256' },
-    { name: 'lockLimit', type: 'uint256' },
-  ], outputs: [{ name: 'snap', type: 'tuple', components: [
-    { name: 'vestingSourceAvailable', type: 'bool' },
-    { name: 'lockSourceAvailable', type: 'bool' },
-    { name: 'vestedInflow', type: 'uint256' },
-    { name: 'vestingWalletCount', type: 'uint256' },
-    { name: 'lockedTotal', type: 'uint256' },
-    { name: 'lockedScanned', type: 'uint256' },
-    { name: 'earliestUnlockAt', type: 'uint64' },
-    { name: 'latestUnlockAt', type: 'uint64' },
-    { name: 'activeLockCount', type: 'uint256' },
-    // Non-zero means the lock scan is INCOMPLETE and the unlock dates above
-    // describe part of the token's locks only.
-    { name: 'nextLockOffset', type: 'uint256' },
-  ]}], stateMutability: 'view' },
-  { type: 'function', name: 'vestingFactory', inputs: [], outputs: [{ name: '', type: 'address' }], stateMutability: 'view' },
-  { type: 'function', name: 'lockVault', inputs: [], outputs: [{ name: '', type: 'address' }], stateMutability: 'view' },
 ] as const;

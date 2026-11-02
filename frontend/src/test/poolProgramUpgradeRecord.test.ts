@@ -120,18 +120,11 @@ const NOT_BEFORE = '2026-10-09';
 const ANCHOR = { slot: 454_077_498, atMs: Date.UTC(2026, 9, 7, 1, 38) };
 const SLOTS_PER_SECOND = { slowest: 1.5, fastest: 6 };
 /**
- * The new program behind the loader's 45-byte header. Its size is the registry's pin, the
- * one mainnet's bytes are hashed against, so a re-pin to another build moves this too.
+ * The upgrade's program (1e55bcdc, 725,176 bytes) behind the loader's 45-byte header. A fixed
+ * size, not the registry's: after the roll-back of 2026-10-24 the registry names the old build
+ * again, while this record stays the record of the upgrade.
  */
-const SMALLEST_DATA_ACCOUNT = registeredProgramBytes() + 45;
-function registeredProgramBytes(): number {
-  const registry = JSON.parse(readFileSync(join(ROOT, 'frontend', 'scripts', 'addresses.json'), 'utf-8')) as {
-    solana?: { id?: string; expect?: { holdsProgram?: { bytes?: unknown } } }[];
-  };
-  const bytes = registry.solana?.find((row) => row.id === 'cp-swap-programdata-restart')?.expect?.holdsProgram?.bytes;
-  if (!Number.isInteger(bytes)) throw new Error('addresses.json: cp-swap-programdata-restart has no expect.holdsProgram.bytes');
-  return bytes as number;
-}
+const SMALLEST_DATA_ACCOUNT = 725_176 + 45;
 const LARGEST_DATA_ACCOUNT = 10 * 1024 * 1024 + 45;
 
 /** What is wrong with the record. An empty list means every cell has the shape of its fact. */

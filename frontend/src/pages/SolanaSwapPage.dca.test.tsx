@@ -229,6 +229,36 @@ describe('DCA and limit orders: the wallet’s throw is said for what it is', ()
   });
 });
 
+// A wallet's order list that could not be read is said as that, with a way to read it
+// again. It never reads "No open orders" (a failed read once did).
+describe('Open orders and active DCAs: a list that could not be read says so', () => {
+  const LIMIT = { tab: 'Limit order', read: jup.getTriggerOrders, none: 'No open orders.', unread: 'Your open orders could not be read just now.' };
+  const DCA = { tab: 'DCA', read: jup.getRecurringOrders, none: 'No active DCAs.', unread: 'Your DCAs could not be read just now.' };
+  async function openTab(tab: string) {
+    window.history.replaceState(null, '', `/solana?out=${USDC_MINT}`);
+    render(<SolanaSwapPage />);
+    fireEvent.click(await screen.findByRole('button', { name: tab }));
+  }
+
+  it.each([['limit', LIMIT], ['DCA', DCA]])('%s: a failed read is said, never an empty list; Try again reads it again', async (_n, t) => {
+    t.read.mockRejectedValueOnce(new Error('Could not load orders (503)'));
+    t.read.mockResolvedValue([{ orderKey: ORDER, inputMint: SOL_MINT, outputMint: USDC_MINT }]);
+    await openTab(t.tab);
+    expect(await screen.findByText(t.unread)).toBeInTheDocument();
+    expect(screen.queryByText(t.none)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(await screen.findByRole('button', { name: 'Cancel' })).toBeInTheDocument();
+    expect(screen.queryByText(t.unread)).toBeNull();
+    expect(t.read).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([['limit', LIMIT], ['DCA', DCA]])('%s: a read that answered with no orders still says there are none', async (_n, t) => {
+    await openTab(t.tab);
+    expect(await screen.findByText(t.none)).toBeInTheDocument();
+    expect(screen.queryByText(t.unread)).toBeNull();
+  });
+});
+
 describe('DCA: Jupiter asks for at least $50 per buy', () => {
   it('the hint names the per-buy minimum, not a total', async () => {
     await openDca(`?out=${USDC_MINT}`);

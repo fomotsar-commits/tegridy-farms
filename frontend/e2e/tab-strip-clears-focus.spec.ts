@@ -14,14 +14,14 @@ import { playLiveVenue } from './fixtures/playedVenue';
 const PHONE = { width: 390, height: 664 };
 
 // /tokenomics is a TOWELI room page: its band stands between the top bar and the strip.
-const PAGES = ['/solana-lp', '/liquidity', '/trust', '/tokenomics', '/faq'];
+const PAGES = ['/pools', '/liquidity', '/trust', '/tokenomics', '/faq'];
 
-/** The page settled at `size`. /solana-lp is the played live venue, so its finder is up. */
+/** The page settled at `size`. /pools is the played live venue, so its finder is up. */
 async function settle(page: Page, path: string, size = PHONE): Promise<void> {
   await page.setViewportSize(size);
-  if (path === '/solana-lp') await playLiveVenue(page, { gateOpen: true });
+  if (path === '/pools') await playLiveVenue(page, { gateOpen: true });
   await gotoRoute(page, path);
-  if (path === '/solana-lp') {
+  if (path === '/pools') {
     await expect(page.getByTestId('lp-finder'), 'the LP section did not mount on the played venue').toBeVisible({ timeout: 20_000 });
     await expect(page.locator('[data-testid="fee-tier"][data-state="live"]'), 'both played fee tiers read').toHaveCount(2);
   }
@@ -189,9 +189,9 @@ for (const path of PAGES) {
  * still lands just under the top bar: the margin is air, the scrollport clears the bar.
  */
 const MOST_AIR_PX = 80;
-// /solana-lp: the status card. The LP section's own scroll targets carry no margin
+// /pools: the status card. The LP section's own scroll targets carry no margin
 // (src/components/solana/lp/scrollTargets.test.ts), so they land 18px under the bar.
-const SCROLL_TARGETS: Record<string, number> = { '/solana-lp': 1, '/liquidity': 1, '/privacy': 1 };
+const SCROLL_TARGETS: Record<string, number> = { '/pools': 1, '/liquidity': 1, '/privacy': 1 };
 
 for (const [path, atLeast] of Object.entries(SCROLL_TARGETS)) {
   test(`${path}: a section that is scrolled to lands within ${MOST_AIR_PX}px under the top bar`, async ({ page, walletMock: _w }) => {

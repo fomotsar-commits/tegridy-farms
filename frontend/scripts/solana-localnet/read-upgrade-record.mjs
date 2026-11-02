@@ -46,6 +46,10 @@ export function registeredBuild(registryPath = join(HERE, '..', 'addresses.json'
   if (!want || !Number.isInteger(want.bytes) || !/^[0-9a-f]{64}$/.test(want.sha256 ?? '')) {
     throw new Error(`addresses.json has no expect.holdsProgram { bytes, sha256 } on the row for ${PROGRAM_DATA}: this reader does not know which build to look for`);
   }
+  // After a roll-back the row names the old build again, which is not an upgrade to read.
+  if (want.sha256 === OLD_BUILD.sha256) {
+    throw new Error(`addresses.json names the build from before the upgrade (${OLD_BUILD.sha256.slice(0, 8)}...): a roll-back is in effect, so there is no upgrade to read. Re-pin that row to the upgrade's build first, in the release that ships with the re-upgrade.`);
+  }
   return { sha256: want.sha256, bytes: want.bytes };
 }
 

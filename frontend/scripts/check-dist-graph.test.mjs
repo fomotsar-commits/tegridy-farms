@@ -61,7 +61,7 @@ afterAll(() => {
  * markers and one static dependency (invariants A and B), a lazy Solana page
  * holding the adapter's marker, and a chunk holding sign-client's.
  */
-function fixture({ adapterEdge = 'dynamic', adapterMarker = true, signClient = true, fromEntry = false, preload = false } = {}) {
+function fixture({ adapterEdge = 'dynamic', adapterMarker = true, signClient = true, fromEntry = false, preload = false, cardano = 'lazy' } = {}) {
   const SIGN = markerFromGate('SIGN_CLIENT_MARKER');
   const SOLANA = markerFromGate('SOLANA_WALLETCONNECT_MARKER');
   const dir = mkdtempSync(join(tmpdir(), 'dist-graph-'));
@@ -72,6 +72,7 @@ function fixture({ adapterEdge = 'dynamic', adapterMarker = true, signClient = t
     'index-e.js',
     'import"./vendor-react-r.js";globalThis.Buffer=1;globalThis.global=globalThis;' +
       (fromEntry ? 'import{S as c}from"./sign-client-c.js";' : '') +
+      (cardano === 'eager' ? 'import"./vendor-cardano-k.js";' : 'const csl=()=>import(`./vendor-cardano-k.js`);') +
       'const page=()=>import(`./SolanaPage-s.js`);export{page};',
   );
   chunk('vendor-react-r.js', 'export const r=1;');
@@ -84,11 +85,14 @@ function fixture({ adapterEdge = 'dynamic', adapterMarker = true, signClient = t
       'export{};',
   );
   if (signClient) chunk('sign-client-c.js', `console.info("${SIGN}");export const S=1;`);
+  if (cardano !== 'missing') chunk('vendor-cardano-k.js', 'export const C=1;');
   writeFileSync(
     join(dir, 'index.html'),
     '<!doctype html><html><head>' +
       '<script type="module" crossorigin src="/assets/index-e.js"></script>' +
       (preload ? '<link rel="modulepreload" crossorigin href="/assets/sign-client-c.js">' : '') +
+      (cardano === 'preload' ? '<link rel="modulepreload" crossorigin href="/assets/vendor-cardano-k.js">' : '') +
+      (cardano === 'preload-wasm' ? '<link rel="preload" as="fetch" crossorigin href="/assets/csl-w.wasm">' : '') +
       '</head><body></body></html>',
   );
   return dir;
@@ -169,6 +173,34 @@ describe('check-dist-graph invariant D, for a build WITHOUT a project id', () =>
     const run = gate(fixture({ signClient: false }), WITH_ID);
     expect(run.status).toBe(1);
     expect(run.stderr).toContain(markerFromGate('SIGN_CLIENT_MARKER'));
+  });
+});
+
+describe('check-dist-graph invariant E: the Cardano library stays lazy', () => {
+  it('a lazy vendor-cardano chunk passes, and the pass names it', () => {
+    const run = gate(fixture());
+    expect(run.status).toBe(0);
+    expect(run.stdout).toContain('Cardano library lazy (vendor-cardano-k.js)');
+  });
+
+  it("vendor-cardano in the entry's static closure fails", () => {
+    const run = gate(fixture({ cardano: 'eager' }));
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain('vendor-cardano-k.js');
+  });
+
+  it('index.html preloading the chunk or a .wasm fails', () => {
+    for (const cardano of ['preload', 'preload-wasm']) {
+      const run = gate(fixture({ cardano }));
+      expect(run.status).toBe(1);
+      expect(run.stderr).toMatch(/Cardano library must stay lazy/);
+    }
+  });
+
+  it('no vendor-cardano chunk at all fails: E checked nothing', () => {
+    const run = gate(fixture({ cardano: 'missing' }));
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain('invariant E checked nothing');
   });
 });
 

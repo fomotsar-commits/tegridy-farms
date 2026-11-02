@@ -68,7 +68,9 @@ is refused (check V9), though one proposal can **re-point the island's share** (
 more than 4% of a swap or give the venue and the island more than 16% of each fee, made or changed (K1 to K5),
 and a dynamic fee is held to 4% too (K6). A reward's unpaid rest goes back only to whoever started it, whoever owns
 the pool (R11, R13, R14). (A fee earned where no LP's range is in use, when a swap fills a limit order there, goes to
-the venue's share.) What the vault can still do, the pause of any part of a pool included, is in
+the venue's share.) Opening a pool paid exactly 0.5 SOL to the vault, by each of the three instructions that open
+one (P4, X18, X19); a wrong receiver, a transaction built without the fee account and a wallet short of the 0.5 SOL
+were refused (P5 to P7). What the vault can still do, the pause of any part of a pool included, is in
 docs/RANGE_POOLS_PLAN.md.
 
 Run ${clean.started} to ${clean.finished}. Nothing was deployed anywhere, no program key exists, and nothing was
@@ -76,10 +78,10 @@ signed or sent on mainnet: mainnet was only read.
 
 ## The local chain
 
-- **Program**: \`solana/tegridy-clmm\` built with \`cargo build-sbf --features placeholder-id -- --locked\` (the
-  release shape CI builds; every role is the vault, so no \`devnet\`/\`localnet\` feature and no \`test-chain-keys\`
-  is needed). Solana tools 3.1.11 in WSL (CI pins 3.1.10), sha256 \`${sweep?.programSha ?? 'see manifest'}\`,
-  loaded at the placeholder id \`${man.addresses.program}\` with the vault as upgrade authority.
+- **Program**: \`solana/tegridy-clmm\` built with \`cargo build-sbf -- --locked\`, no features: the release CI
+  builds (every role is the vault, so no \`devnet\`/\`localnet\` feature and no \`test-chain-keys\` is needed).
+  Solana tools 3.1.11 in WSL (CI pins 3.1.10), sha256 \`${sweep?.programSha ?? 'see manifest'}\`,
+  loaded at the program id lib.rs declares, \`${man.addresses.program}\`, with the vault as upgrade authority.
 - **Copied from mainnet** (read at slot ${man.accounts.multisig.slot.toLocaleString('en-US')}, ${man.readAt.slice(0, 16)}Z): the programs Squads v4, Token-2022, SPL Token,
   Associated Token, Memo and Metaplex (each byte-identical to mainnet's: table below); the BAYLA mint
   \`${man.addresses.bayla}\`; the wrapped-SOL mint; the Squads multisig \`${man.addresses.multisig}\`;

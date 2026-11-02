@@ -121,7 +121,7 @@
       "address": "EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT",
       "role": "The restart's cp-swap fork program id (owner ruling 2026-09-25): the fork's committed non-devnet declare_id! and tegridy-launch's compile-time cp_swap::ID graduation venue since 2026-09-26. Replaces cp-swap-program (3ZvZXEBr…), which is spent. frontend: curve/program.ts CP_SWAP_PROGRAM_ID (the default of every cp-swap PDA helper and builder) and REGISTERED_CP_SWAP_PROGRAM_ID, and cpswap/program.ts REGISTERED_PROGRAM_ID (the default of LIVE_PROGRAM_ID). Executable, owned by BPFLoaderUpgradeab1e11111111111111111111111; its ProgramData is cp-swap-programdata-restart.",
       "custody": "the program keypair claimed the address at first deploy and authorises nothing afterwards. What can change this program is the UPGRADE AUTHORITY on its ProgramData account: squads-vault after the §8 handover (tegridy-launch-deployer before it).",
-      "status": "DEPLOYED, and upgraded once since: expected bytecode sha256 1e55bcdcb10c39ee9678efb697b453cb23415621bded4968c01950629de4fd22, 725,176 bytes (artifacts/cp_swap.upgrade-1e55bcdc.mainnet.so), the build that adds create_lp_metadata, moves the on-chain security text to memetics.finance and refuses a public initialize on fee tier 0 (the launch tier; graduation's initialize_with_permission is unchanged). The Squads vault's upgrade installed it; the day, the slot and the transaction are recorded in one place, solana/tegridy-amm/MAINNET_RUNBOOK.md section 4b. This sentence was written as the state the website release that shipped with the upgrade REQUIRES, not as a read: that release merges only after the upgrade pack's check has hashed these bytes on mainnet. Before the upgrade the program was sha256 88b98aa91559824c682f6e6c31906abf222d189ce7a45f16af117368b33db882, 691,640 bytes (artifacts/cp_swap.mainnet.so, kept as the roll-back build). That build was recorded as deployed by website release 2 (branch ship/solana-launch-on), which the owner deploys only after website-release-2/precheck.mjs has read it on mainnet (MAINNET_GO_LIVE.md §3-§8 done). Written 2026-09-29 as the state this release REQUIRES, not as a read of it. What precheck.mjs read that day: both programs on mainnet with the tested bytes (last deployed slots 451,687,458 cp-swap and 451,687,658 tegridy-launch), their upgrade authority still tegridy-launch-deployer, and global, AmmConfig and Permission not created yet. If this branch is built before the rest is done, an entry here is wrong and the daily registry-onchain job fails on it, which is the point. `expect.type: executable` is not on its own evidence the program can run (a closed program keeps the flag); cp-swap-programdata-restart holds the liveness claim.",
+      "status": "DEPLOYED, upgraded once and rolled back: expected bytecode sha256 88b98aa91559824c682f6e6c31906abf222d189ce7a45f16af117368b33db882, 691,640 bytes (artifacts/cp_swap.mainnet.so), the build deployed on 2026-09-29, again. The Squads vault upgraded it on 2026-10-23 to sha256 1e55bcdcb10c39ee9678efb697b453cb23415621bded4968c01950629de4fd22, 725,176 bytes (artifacts/cp_swap.upgrade-1e55bcdc.mainnet.so: create_lp_metadata, the security text on memetics.finance, and a public initialize on fee tier 0 refused), and its roll-back proposal #16 executed on 2026-10-24 at 17:03:00 UTC. Read 2026-10-24 at finalized slot 460,929,168: the first 691,640 bytes hash to 88b98aa91559824c682f6e6c31906abf222d189ce7a45f16af117368b33db882, last deployed in slot 460,927,956. Both executes are recorded in solana/tegridy-amm/MAINNET_RUNBOOK.md section 4b. A re-upgrade to the 1e55bcdc build is planned: when it executes, this row names that build again. That build was recorded as deployed by website release 2 (branch ship/solana-launch-on), which the owner deploys only after website-release-2/precheck.mjs has read it on mainnet (MAINNET_GO_LIVE.md §3-§8 done). Written 2026-09-29 as the state this release REQUIRES, not as a read of it. What precheck.mjs read that day: both programs on mainnet with the tested bytes (last deployed slots 451,687,458 cp-swap and 451,687,658 tegridy-launch), their upgrade authority still tegridy-launch-deployer, and global, AmmConfig and Permission not created yet. If this branch is built before the rest is done, an entry here is wrong and the daily registry-onchain job fails on it, which is the point. `expect.type: executable` is not on its own evidence the program can run (a closed program keeps the flag); cp-swap-programdata-restart holds the liveness claim.",
       "expect": {
         "type": "executable"
       }
@@ -159,12 +159,12 @@
       "address": "F475omgJMd5mnDXJFyjHTkg9zs7WSb6ek9dFoUmUvi5V",
       "role": "ProgramData account for cp-swap-program-restart: PDA of BPFLoaderUpgradeab1e11111111111111111111111, seeds [EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT]. Same liveness role as the entry above. Pinned by restartRegistry.test.ts.",
       "custody": "upgrade authority = squads-vault GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd after the §8 handover.",
-      "status": "LIVE (post-deploy truth for website release 2). Since the pool program's upgrade this account holds the 725,176-byte build (sha256 1e55bcdcb10c39ee9678efb697b453cb23415621bded4968c01950629de4fd22; see cp-swap-program-restart) and is larger than the 691,685 bytes it had before: an ordinary wallet enlarged it first. Its size after the upgrade and the slot of the upgrade are recorded in solana/tegridy-amm/MAINNET_RUNBOOK.md section 4b. `expect.holdsProgram` is that claim in a form the chain read checks: verify-addresses.mjs --onchain fetches the first 725,176 bytes of program behind this account's 45-byte header and hashes them, so the registry's chain job is red for as long as mainnet holds any other build, and no edit to a paper can turn it green. It is a hash and not a slot or a size on purpose: an enlarge moves the last-deployed slot and the size while the old program still runs. After a roll-back, put the old build's size and hash here (691,640 bytes, 88b98aa91559824c682f6e6c31906abf222d189ce7a45f16af117368b33db882). The rest of this status is what was written for the first deploy. Recorded as deployed by website release 2 (branch ship/solana-launch-on), which the owner deploys only after website-release-2/precheck.mjs has read it on mainnet (MAINNET_GO_LIVE.md §3-§8 done). Written 2026-09-29 as the state this release REQUIRES, not as a read of it. What precheck.mjs read that day: both programs on mainnet with the tested bytes (last deployed slots 451,687,458 cp-swap and 451,687,658 tegridy-launch), their upgrade authority still tegridy-launch-deployer, and global, AmmConfig and Permission not created yet. If this branch is built before the rest is done, an entry here is wrong and the daily registry-onchain job fails on it, which is the point.",
+      "status": "LIVE (post-deploy truth for website release 2). Since the roll-back of 2026-10-24 this account holds the 691,640-byte build again (sha256 88b98aa91559824c682f6e6c31906abf222d189ce7a45f16af117368b33db882; see cp-swap-program-restart), followed by zeros: it stays 725,221 bytes, the size it was enlarged to for the upgrade, and an account never shrinks. The upgrade's and the roll-back's slots are recorded in solana/tegridy-amm/MAINNET_RUNBOOK.md section 4b. `expect.holdsProgram` is that claim in a form the chain read checks: verify-addresses.mjs --onchain fetches the first 691,640 bytes of program behind this account's 45-byte header and hashes them, so the registry's chain job is red for as long as mainnet holds any other build, and no edit to a paper can turn it green. It is a hash and not a slot or a size on purpose: an enlarge moves the last-deployed slot and the size while the old program still runs. After the re-upgrade, put the new build's size and hash here (725,176 bytes, 1e55bcdcb10c39ee9678efb697b453cb23415621bded4968c01950629de4fd22). The rest of this status is what was written for the first deploy. Recorded as deployed by website release 2 (branch ship/solana-launch-on), which the owner deploys only after website-release-2/precheck.mjs has read it on mainnet (MAINNET_GO_LIVE.md §3-§8 done). Written 2026-09-29 as the state this release REQUIRES, not as a read of it. What precheck.mjs read that day: both programs on mainnet with the tested bytes (last deployed slots 451,687,458 cp-swap and 451,687,658 tegridy-launch), their upgrade authority still tegridy-launch-deployer, and global, AmmConfig and Permission not created yet. If this branch is built before the rest is done, an entry here is wrong and the daily registry-onchain job fails on it, which is the point.",
       "expect": {
         "type": "program-owned",
         "holdsProgram": {
-          "bytes": 725176,
-          "sha256": "1e55bcdcb10c39ee9678efb697b453cb23415621bded4968c01950629de4fd22"
+          "bytes": 691640,
+          "sha256": "88b98aa91559824c682f6e6c31906abf222d189ce7a45f16af117368b33db882"
         }
       }
     },
@@ -245,7 +245,7 @@
     {
       "id": "squads-vault",
       "address": "GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd",
-      "role": "Squads vault PDA, index 0. Held upgrade authority for both own-venue programs until they were closed on 2026-08-13, and is tegridy-launch's `global.fee_recipient` on a global PDA that is now stranded. It was NOT the admin::ID of any deployed cp-swap binary — see the correction below. Since 2026-09-26 it IS the committed non-devnet admin::ID and create_support_mint_associated_owner::ID of the restart source (owner ruling 2026-09-25). That source is deployed (cp-swap-program-restart, last deployed slot 451,687,458, 2026-09-29T15:52:11Z) and the live program has accepted this vault as its admin: it created both fee tiers and changed cp-swap-amm-config-restart twice. This sentence ended 'NOT yet deployed' until 2026-10-10. WHAT IT HOLDS, read on mainnet-beta 2026-10-10 at finalized slots 455,314,128 to 455,314,217: the upgrade authority of all three live programs (bayla-ladder-programdata, cp-swap-programdata-restart, tegridy-launch-programdata-restart), the `authority` field of bayla-ladder-pool and of bayla-ladder-idl, the protocol_owner and fund_owner of both fee tiers (cp-swap-amm-config-restart, cp-swap-amm-config-public-restart; the fund_owner of both passed to island-workshop-wallet under the 2026-10-18 revenue split), and the two token accounts the site's swap fee is paid to (cpswap-fee-receiver-wsol-ata, squads-vault-usdc-ata). Re-derive it from the multisig rather than trusting this literal; System-ownership alone proves nothing.",
+      "role": "Squads vault PDA, index 0. Held upgrade authority for both own-venue programs until they were closed on 2026-08-13, and is tegridy-launch's `global.fee_recipient` on a global PDA that is now stranded. It was NOT the admin::ID of any deployed cp-swap binary — see the correction below. Since 2026-09-26 it IS the committed non-devnet admin::ID and create_support_mint_associated_owner::ID of the restart source (owner ruling 2026-09-25). That source is deployed (cp-swap-program-restart, last deployed slot 451,687,458, 2026-09-29T15:52:11Z) and the live program has accepted this vault as its admin: it created both fee tiers and changed cp-swap-amm-config-restart twice. This sentence ended 'NOT yet deployed' until 2026-10-10. WHAT IT HOLDS, read on mainnet-beta 2026-10-10 at finalized slots 455,314,128 to 455,314,217: the upgrade authority of all three live programs (bayla-ladder-programdata, cp-swap-programdata-restart, tegridy-launch-programdata-restart), the `authority` field of bayla-ladder-pool and of bayla-ladder-idl, the protocol_owner and fund_owner of both fee tiers (cp-swap-amm-config-restart, cp-swap-amm-config-public-restart; the fund_owner of both passed to island-workshop-wallet under the 2026-10-18 revenue split), and the token accounts the site's swap fee is paid to (cpswap-fee-receiver-wsol-ata, squads-vault-usdc-ata and, since 2026-11-02, squads-vault-usdt-ata). Re-derive it from the multisig rather than trusting this literal; System-ownership alone proves nothing.",
       "custody": "PDA of the Squads multisig — no private key exists",
       "status": "live",
       "correction": "This entry used to read 'Squads vault PDA index 0 = cp-swap admin::ID and create_support_mint_associated_owner::ID'. Both halves were wrong, and it is the exact confusion that bricked graduation. (a) The cp-swap binary that WAS deployed baked the MULTISIG account EVGSnRZ… as admin::ID — a 495-byte Squads-program-owned account that can neither sign (v4 signs CPIs as the vault) nor be debited by the System Program, and `CreateAmmConfig` has `payer = owner`. create_amm_config was therefore uncallable and migrate_to_amm never got past AmmNotConfigured (6015). (b) The SOURCE fix (#281) repoints admin::ID at deploy-authority Dcjink4RG…, a plain system-owned wallet — still not this vault. (c) create_support_mint_associated_owner::ID is deliberately the multisig, left as-is because it is a pure OR-fallback. This correction is now history rather than a live hazard: both program ids were closed on 2026-08-13, `verify-program-constants.mjs --deployed` has no bytecode left to search, and the question it settled must be re-answered against whatever binary a restart actually deploys.",
@@ -303,7 +303,7 @@
     {
       "id": "squads-vault-usdc-ata",
       "address": "3gGzyz6cushQWNTAYRj4qJoQJyGcqdctXh98vNwBRvZ6",
-      "role": "The Squads vault's USDC associated token account: ATA(USDC EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v, squads-vault) under the classic token program, derived and matched. It is where the site's Solana swap fee lands when that fee is taken in USDC (src/lib/jupiter.ts prefers USDC, then wrapped SOL, and pays the fee owner's associated token account). An SPL token account, NOT a wallet. Pinned against the code's own derivation by src/lib/solana/feeRowsRegistry.test.ts.",
+      "role": "The Squads vault's USDC associated token account: ATA(USDC EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v, squads-vault) under the classic token program, derived and matched. It is where the site's Solana swap fee lands when that fee is taken in USDC (src/lib/jupiter.ts prefers USDC, then USDT since 2026-11-02, then wrapped SOL, and pays the fee owner's associated token account). An SPL token account, NOT a wallet. Pinned against the code's own derivation by src/lib/solana/feeRowsRegistry.test.ts.",
       "custody": "owned by the Squads vault",
       "status": "live, balance 0. Created 2026-09-30T04:35:09Z (slot 451,858,343), paid for by tegridy-launch-deployer; that creation is its only transaction, so no USDC fee has arrived yet. Read at finalized slot 455,314,130 (2026-10-10): 165 bytes, 1,488,440 lamports, mint USDC, owner field squads-vault. Registered 2026-10-10.",
       "expect": {
@@ -311,9 +311,19 @@
       }
     },
     {
+      "id": "squads-vault-usdt-ata",
+      "address": "GT8LWC8xwwXGE9FatRyMDZccSYBqYNRMZkz2SCdgV6dj",
+      "role": "The Squads vault's USDT associated token account: ATA(USDT Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB, squads-vault) under the classic token program, derived and matched. It is where the site's Solana swap fee lands when that fee is taken in USDT: since 2026-11-02 (#1105) src/lib/jupiter.ts picks the fee mint from {wrapped SOL, USDC, USDT}, USDC first, then USDT, then wrapped SOL, and pays the fee owner's associated token account. Jupiter refuses a swap whose fee account does not exist, so this account had to exist before that build reached production. An SPL token account, NOT a wallet. Pinned against the code's own derivation by src/lib/solana/feeRowsRegistry.test.ts; frontend/create-fee-atas.mjs --dry-run derives and reads it.",
+      "custody": "owned by the Squads vault",
+      "status": "live, balance 0. Created 2026-11-02T02:49:07Z (slot 464,333,061, signature 4oQ6nCyKA3Re3XazmjAnfcuUaUsShCe7Gdj2JSQ8UpjfAoLWxVMNCFyPGYYDRYQTWPZApx7uVYv2uCQdB2nV189T) by the owner running frontend/create-fee-atas.mjs; the payer was 9WAugU3g3YECwuEuoPy3NEH5Co475fHATGdjr2dy2Fcz, not a registered wallet, and paid the 1,488,440 lamports of rent plus the 5,000-lamport fee. That creation is its only transaction, so no USDT fee has arrived yet. Read at finalized slot 464,333,605 (2026-11-02): 165 bytes, 1,488,440 lamports, program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA, mint USDT, owner field squads-vault, state initialized, amount 0. Registered 2026-11-02.",
+      "expect": {
+        "type": "token-account"
+      }
+    },
+    {
       "id": "swap-fee-account",
       "address": "DVGiHe98CzEf7VuCS6YpVDFnp38ubJmKNLt6aMJwAyER",
-      "role": "NOT the swap-fee receiver any more; the id is kept because older notes use it. It WAS VITE_SOLANA_FEE_ACCOUNT, the owner of the Jupiter platform-fee accounts for /solana, and this row said 'the live Jupiter platform-fee receiver ... Verified present in the deployed bundle' until 2026-10-10. What the live build carries now, read 2026-10-10T16:07Z from https://memetics.finance/assets/solana-Etwqv48D.js (the site's front page was last modified 2026-10-09T07:57:39Z): the fee owner is squads-vault GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd, the fee is 50 bps, and this address is not in that file. The chain agrees: four swap fees have landed in cpswap-fee-receiver-wsol-ata, the first on 2026-10-06, and none has ever landed in this wallet's two fee accounts. The fee accounts in use are cpswap-fee-receiver-wsol-ata and squads-vault-usdc-ata. The day the setting changed is not recorded in this repo, and no read here returned it.",
+      "role": "NOT the swap-fee receiver any more; the id is kept because older notes use it. It WAS VITE_SOLANA_FEE_ACCOUNT, the owner of the Jupiter platform-fee accounts for /solana, and this row said 'the live Jupiter platform-fee receiver ... Verified present in the deployed bundle' until 2026-10-10. What the live build carries now, read 2026-10-10T16:07Z from https://memetics.finance/assets/solana-Etwqv48D.js (the site's front page was last modified 2026-10-09T07:57:39Z): the fee owner is squads-vault GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd, the fee is 50 bps, and this address is not in that file. The chain agrees: four swap fees have landed in cpswap-fee-receiver-wsol-ata, the first on 2026-10-06, and none has ever landed in this wallet's two fee accounts. The fee accounts in use are cpswap-fee-receiver-wsol-ata, squads-vault-usdc-ata and, since 2026-11-02, squads-vault-usdt-ata. The day the setting changed is not recorded in this repo, and no read here returned it.",
       "custody": "SINGLE KEY, not a Squads vault. Proven on-curve and by transaction-level signing: it signed its own transactions on 2026-07-10, 2026-08-29 and 2026-09-21, so somebody holds the key. It used to be a custody gap for fee income; it is not one now, because no fee is sent here.",
       "status": "live as a wallet, and it never collected a fee: both of its fee accounts hold 0 and each has one transaction ever, its own creation (see swap-fee-ata-wsol, swap-fee-ata-usdc). 17,894,587 lamports at finalized slot 455,314,130 (2026-10-10), seven transactions ever, none of them a fee.",
       "expect": {
@@ -488,7 +498,7 @@
       "address": "Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6",
       "role": "Deployer of bayla-ladder. It holds NEITHER of the ladder's authorities now. From the deploy on 2026-09-20 until 2026-09-30 it held both: the ProgramData upgrade authority AND the pool's `authority` field (set_deposit_cap, notify_reward, set_degraded, the authority handover itself); both are squads-vault today, and so is the IDL authority. WHAT IT STILL HOLDS, read at finalized slot 455,316,026 (2026-10-10): the `authority` field of the five Streamflow stake pools registered here (lighthouse-bobo, lighthouse-soy, lighthouse-brainlet, lighthouse-rizz, lighthouse-bayla), which it took over from GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9 on 2026-09-21T09:21:46Z (slot 449,013,404). Compiled into the build as the only key that could call initialize_pool. Rotated 2026-09-20 away from GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9, which was also a devnet faucet hot key in a cloud-synced folder.",
       "custody": "single key, operator-held, generated outside any cloud-synced folder. BOTH LADDER AUTHORITIES HAVE MOVED to squads-vault GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd (multisig EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK, threshold 2; time_lock 0 until Squads #14 set 172,800 s on 2026-10-19): pool.authority on 2026-09-30T06:31:33Z (slot 451,884,482), and the upgrade authority with the IDL authority on 2026-09-30T14:05:22Z (slot 451,986,389). Read at finalized slots 455,314,128 to 455,314,130 (2026-10-10): this key is on none of the three, and pool.pendingAuthority is unset. It can no longer upgrade the ladder or change its pool. It is still one key over the five Streamflow pools named in the role. HISTORY: until 2026-10-10 this row said, with a red mark, that neither move had happened and that one key could upgrade the program; that was the chain at slot 448,901,426 (2026-09-20).",
-      "status": "live and funded: 180,150,400 lamports (0.1801504 SOL) at finalized slot 455,314,130 (2026-10-10), system-owned; it was 211,679,240 on 2026-09-20. Its BAYLA ATA is DsGFcoYREF44GJxYofDKJXbxhY2oEMoAewELUMn89Wqc (Token-2022, derived and matched), which is where the reward funding came from; that ATA is deliberately NOT a separate row, because nothing in this repo references it and rule 4 reaches only the files it names.",
+      "status": "FUNDED AGAIN by its owner for the ladder upgrade (wallet limit #1031 and extend_lock #1056, pack ladder-wallet-cap-upgrade-2026-10, build 1b91609c): 2.81 SOL, of which about 2.705 SOL is the upload buffer that comes back when the upgrade executes and 0.086 SOL pays for enlarging the program for good. This row was changed in the PR that merged the day that SOL was sent; read on mainnet 2026-10-30 at 03:50 UTC, before the send, it was still absent. Keep some SOL here afterwards: it still signs as the authority of the five Streamflow stake pools named in the role (scripts/streamflow-receipt-name.mjs). BEFORE: EMPTIED by its owner on 2026-10-24, so it no longer existed: transaction 5uBUPfyMGHx1uDu9aPEJzLD6CHQ7FCrCVuG4C1W1QVmHoVVMvZnULZVkHQcPBwX6v2kuzoTHd6ajJdigee6VKkGk (slot 460,935,076, 17:28:16 UTC), signed by this key alone, sent its 2.827186952 SOL to Upmhw8i6RSLXoj4yGzq9ZYLXb4UzZMRm7BSX8BxCdEd, the owner's wallet (MAINNET_RUNBOOK.md, the cost table). Read at finalized slot 460,936,545: no account. What follows was read before that. live and funded: 180,150,400 lamports (0.1801504 SOL) at finalized slot 455,314,130 (2026-10-10), system-owned; it was 211,679,240 on 2026-09-20. Its BAYLA ATA is DsGFcoYREF44GJxYofDKJXbxhY2oEMoAewELUMn89Wqc (Token-2022, derived and matched), which is where the reward funding came from; that ATA is deliberately NOT a separate row, because nothing in this repo references it and rule 4 reaches only the files it names.",
       "expect": {
         "type": "wallet",
         "funded": true
@@ -521,20 +531,20 @@
       "id": "range-clmm-amm-config-0",
       "address": "9makve2QUjz3FpwqHzqioY2DLmiQ73VVtcuYYHnm9kvR",
       "role": "tegridy-clmm AmmConfig index 0 under range-clmm-program, seeds [\"amm_config\", 0u16 big-endian], bump 255, derived and matched: the 1% tier as range-clmm-tiers-transaction-19 makes it, create_amm_config(0, tick spacing 120, trade fee 10,000 per million of each swap, protocol fee 104,000 and fund fee 56,000 per million of that fee), then its fund owner set to island-workshop-wallet. So of each fee, 84% stays with the liquidity providers in range, 10.4% to squads-vault and 5.6% to the island's Workshop (the CHANGELOG notice of 2026-10-21).",
-      "custody": "program-derived, no key. Once created it is owned by range-clmm-program; its owner field is squads-vault and its fund owner island-workshop-wallet.",
-      "status": "NOT YET CREATED: value:null at finalized slot 459,710,510 (2026-10-21). `expect.type: absent` is a tripwire: the day the fee-tier proposal executes, the chain read goes red here, and this row must become program-owned, with its fee fields asserted in solanaFields.",
+      "custody": "program-derived, no key. Owned by range-clmm-program; its owner field (the tier's admin and protocol fee owner) is squads-vault and its fund owner island-workshop-wallet. solanaFields asserts both, and every rate, on each chain read.",
+      "status": "CREATED 2026-10-27T03:52:39Z by the execute of range-clmm-tiers-proposal-19 (slot 461,924,979, transaction 5t4B2D81y5Gvj8uLkEKVZ8L8T3CUW4Akf68X2PWZqi2C4Hy8USUYwtz21hhaNZ2rR4c67aUE8xTfoGYRyXFvFa3v, signed by squads member 5QHzAqbGk3W8qGRBHCMyWjhLXf8YJcs3yPEh14Ymcwgz). Read at finalized slot 462,122,645: owned by range-clmm-program, 117 bytes, 1,244,600 lamports, every field as the role says; the deploy pack's 6-verify-tiers.mjs passed the same day. The tier the site reads (FEE_TIER_INDEXES = 1, index 0 only). A tier cannot be removed. Until range-clmm-program runs a build that charges an opening fee (#1019), anyone may open a pool on it without paying one.",
       "expect": {
-        "type": "absent"
+        "type": "program-owned"
       }
     },
     {
       "id": "range-clmm-amm-config-1",
       "address": "CYfA3WyMS9Ygx2Z988d5Uk4KsuBRsDZqkqXy9hhroW6Q",
-      "role": "tegridy-clmm AmmConfig index 1 under range-clmm-program, seeds [\"amm_config\", 1u16 big-endian], bump 255, derived and matched: the 0.25% tier as range-clmm-tiers-transaction-19 makes it, create_amm_config(1, tick spacing 60, trade fee 2,500 per million of each swap, protocol fee 104,000 and fund fee 56,000 per million of that fee), then its fund owner set to island-workshop-wallet. The same split as range-clmm-amm-config-0.",
-      "custody": "program-derived, no key. Once created it is owned by range-clmm-program; its owner field is squads-vault and its fund owner island-workshop-wallet.",
-      "status": "NOT YET CREATED: value:null at finalized slot 459,710,510 (2026-10-21). `expect.type: absent` is a tripwire: the day the fee-tier proposal executes, the chain read goes red here, and this row must become program-owned, with its fee fields asserted in solanaFields.",
+      "role": "tegridy-clmm AmmConfig index 1 under range-clmm-program, seeds [\"amm_config\", 1u16 big-endian], bump 255, derived and matched. range-clmm-tiers-transaction-19 made it a 0.25% tier, create_amm_config(1, tick spacing 60, trade fee 2,500 per million of each swap, protocol fee 104,000 and fund fee 56,000 per million of that fee), then set its fund owner to island-workshop-wallet. Vault proposal #21, update_amm_config(param 0, 10,000) on this account and nothing else, raised its trade fee to 10,000 per million: 1% of each swap, with price steps still 60. The same split as range-clmm-amm-config-0: of each fee, 84% stays with the liquidity providers in range, 10.4% goes to squads-vault and 5.6% to the island's Workshop.",
+      "custody": "program-derived, no key. Owned by range-clmm-program; its owner field (the tier's admin and protocol fee owner) is squads-vault and its fund owner island-workshop-wallet. solanaFields asserts both, and every rate, on each chain read.",
+      "status": "CREATED 2026-10-27T03:52:39Z in the same transaction as range-clmm-amm-config-0 (slot 461,924,979, transaction 5t4B2D81y5Gvj8uLkEKVZ8L8T3CUW4Akf68X2PWZqi2C4Hy8USUYwtz21hhaNZ2rR4c67aUE8xTfoGYRyXFvFa3v). Read at finalized slot 462,122,645: owned by range-clmm-program, 117 bytes, 1,244,600 lamports, every field as made at 0.25%; 6-verify-tiers.mjs passed the same day. TRADE FEE 0.25% TO 1% by vault proposal #21: created and approved by squads member 6VHowW4pnD4WTGsXhqBp6yxGgC3EExVmYgebSrRNu2tY at 2026-10-28T16:04Z (transaction 5nBmXBPKU6Wghu4aaJd4nx9x5LZhWTFBmcavv3G55Wcq3G419WHJTzHF9tp12p2wsf7ZPiKWowYvabSwdEaJq7bC), approved by squads member 5QHzAqbGk3W8qGRBHCMyWjhLXf8YJcs3yPEh14Ymcwgz at 2026-10-28T16:06:32Z (transaction 2GTbBYPXQX5ryvY1pMZqxvFVWd9DeHFVrQ5mNxmjb8ALB5L74GaeN1DCuBqhbTVY5rJWQ2xYJnUS6Qtuc2KY86dg), executable from about 2026-10-30T16:06Z. EXECUTED 2026-10-30T16:32:37Z (block time) by squads member 5QHzAqbGk3W8qGRBHCMyWjhLXf8YJcs3yPEh14Ymcwgz at slot 463,353,748 (transaction 5vJVrJGtqQcZn5og7UZnNKVwjnHR93usn3QZnKkTJr2hWdCUd1kKcj6TGXAafKfQ2CG9UJkCTQUqLYUb8EipGY5U, VaultTransactionExecute then UpdateAmmConfig, no error); 8-verify-tier-fee.mjs the same day: tier 1 charges 1% now, with the same split and owners, and tier 0 is unchanged. The owner had ruled on 2026-10-25 for one 1% tier only; after #21 both tiers charge 1%, and the site still reads index 0 alone (FEE_TIER_INDEXES = 1), so it never lists a pool on this tier or routes a swap into one. A tier cannot be removed, so other tools can still open pools here, and until range-clmm-program runs a build that charges an opening fee (#1019) they pay none. The venue's 10.4% and the Workshop's 5.6% of each fee hold here too.",
       "expect": {
-        "type": "absent"
+        "type": "program-owned"
       }
     },
     {
@@ -542,7 +552,7 @@
       "address": "CL6cZ2zDsmA72f6ncLYz1UcSLcQ41kL4WRTtFGy5BmNM",
       "role": "Squads v4 vault transaction 19 of squads-multisig, seeds [\"multisig\", multisig, \"transaction\", 19u64 little-endian] under SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf, derived and matched: the fee-tier proposal. Its stored message is byte for byte the one solana/clmm-deploy/scripts/lib/tiers.mjs compiles (the page's `isOurs`, read 2026-10-21T17:22:43Z): both tiers above, then each tier's fund owner set to island-workshop-wallet.",
       "custody": "program-derived, owned by the Squads v4 program; only a member of squads-multisig can execute it.",
-      "status": "LIVE, created 2026-10-21T13:42:48Z (slot 459,649,865, transaction 5XZuPgxthnJZyBCtcaPw5p1xnqyetb9phudUSurr1uCkNXtsuXRB69xg3LkcV71AJqNHJvUvPFw6ECWiqZo2uzzk, signed by squads member 6VHowW4pnD4WTGsXhqBp6yxGgC3EExVmYgebSrRNu2tY). 416 bytes. Not executed: see range-clmm-tiers-proposal-19.",
+      "status": "LIVE, created 2026-10-21T13:42:48Z (slot 459,649,865, transaction 5XZuPgxthnJZyBCtcaPw5p1xnqyetb9phudUSurr1uCkNXtsuXRB69xg3LkcV71AJqNHJvUvPFw6ECWiqZo2uzzk, signed by squads member 6VHowW4pnD4WTGsXhqBp6yxGgC3EExVmYgebSrRNu2tY). 416 bytes. EXECUTED 2026-10-27T03:52:39Z: see range-clmm-tiers-proposal-19. Read at finalized slot 462,122,645: still open (416 bytes), as Squads leaves an executed transaction until its rent is reclaimed.",
       "expect": {
         "type": "program-owned"
       }
@@ -552,7 +562,7 @@
       "address": "DvGQ2Hhdqn8i9TJMTkMC7adxiWujxeSJEm77ctZkWBfg",
       "role": "Squads v4 proposal for vault transaction 19, seeds [\"multisig\", multisig, \"transaction\", 19u64 little-endian, \"proposal\"] under SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf, derived and matched.",
       "custody": "program-derived, owned by the Squads v4 program.",
-      "status": "APPROVED 2 of 2, NOT EXECUTED. Member 6VHowW4pnD4WTGsXhqBp6yxGgC3EExVmYgebSrRNu2tY created and approved it at 2026-10-21T13:42:48Z; member 5QHzAqbGk3W8qGRBHCMyWjhLXf8YJcs3yPEh14Ymcwgz approved at 13:45:21Z (slot 459,650,577, transaction 2CXCRAHzRGhTniquvdecQugMSfoZw56BdndVcuQs2sRGmzR6FhvWVMvZxeYYKonqjfZVNfFCkhDK8gU312XqHCc8). Read at finalized slot 459,710,510: status Approved at 13:45:21Z. So the chain's 48-hour lock is over at 2026-10-23T13:45:21Z, five days before the seven days the first notice (#929) promised. The owner then moved the promise (2026-10-22, 'update the promise date'; #938): the notice now says no sooner than 2026-10-23 14:00 UTC, and it executes from the deploy pack's page no sooner than 2026-10-23T14:00:00Z (tiers.mjs `decide`, gated at the later of the lock's end and that time). The Squads app does not read the notice: from the lock's end it would execute it at once.",
+      "status": "EXECUTED 2026-10-27T03:52:39Z by squads member 5QHzAqbGk3W8qGRBHCMyWjhLXf8YJcs3yPEh14Ymcwgz (slot 461,924,979, transaction 5t4B2D81y5Gvj8uLkEKVZ8L8T3CUW4Akf68X2PWZqi2C4Hy8USUYwtz21hhaNZ2rR4c67aUE8xTfoGYRyXFvFa3v; the owner confirmed it was theirs). Read at finalized slot 462,122,645: status Executed at 03:52:39Z. It made both tiers (range-clmm-amm-config-0 and -1). Before that: approved 2 of 2. Member 6VHowW4pnD4WTGsXhqBp6yxGgC3EExVmYgebSrRNu2tY created and approved it at 2026-10-21T13:42:48Z; member 5QHzAqbGk3W8qGRBHCMyWjhLXf8YJcs3yPEh14Ymcwgz approved at 13:45:21Z (slot 459,650,577, transaction 2CXCRAHzRGhTniquvdecQugMSfoZw56BdndVcuQs2sRGmzR6FhvWVMvZxeYYKonqjfZVNfFCkhDK8gU312XqHCc8). Read at finalized slot 459,710,510: status Approved at 13:45:21Z. So the chain's 48-hour lock is over at 2026-10-23T13:45:21Z, five days before the seven days the first notice (#929) promised. The owner then moved the promise (2026-10-22, 'update the promise date'; #938): the notice now says no sooner than 2026-10-23 14:00 UTC, and it executes from the deploy pack's page no sooner than 2026-10-23T14:00:00Z (tiers.mjs `decide`, gated at the later of the lock's end and that time). The Squads app does not read the notice: from the lock's end it would execute it at once.",
       "expect": {
         "type": "program-owned"
       }
@@ -629,6 +639,126 @@
       "role": "Pool-share (LP) mint of venue-pool-bayla-usdc: PDA seeds [\"pool_lp_mint\", pool] under cp-swap-program-restart, bump 254, derived and matched. A classic SPL Token mint, 9 decimals, no freeze authority; its mint authority is cp-swap-authority-restart. The site serves its name and picture at /mint/3D3EKJxfePDQ1N8YtNwg8W6eSL4mjVpbYf57pnqgcAQx.json: \"BAYLA/USDC Pool Share\", symbol BAYLA-USDC.",
       "custody": "program-derived, no key. Only the pool program mints it, on a deposit, and burns it, on a withdrawal.",
       "status": "live, supply 5.006253412 shares at finalized slot 454,077,498 (2026-10-07T01:38Z). No on-chain name yet: it has no Metaplex record, and only an instruction of the pool program can create one, because the record needs this mint's authority to sign.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-pool-sol-usdc",
+      "address": "CvAVyjZk1A4hLuNDvEseCYHAn98mU1f4mKpveGvAM2UC",
+      "role": "The venue's SOL/USDC pool: a cp-swap PoolState under cp-swap-program-restart, 637 bytes. Token 0 is wrapped SOL (So11111111111111111111111111111111111111112), token 1 is USDC (EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v), and its fee tier is AmmConfig CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy. Its pool_creator field is 3ptKrPsDiX69hkzzrxEz5gEWAbLku34EpP7KBS2XvqeH, not one of the owner's wallets.",
+      "custody": "program-derived, no key. Only the pool program's own instructions change it.",
+      "status": "live. At confirmed slot 460,928,062 (2026-10-24T17:01Z) it is owned by cp-swap-program-restart and its lp_mint field is venue-lp-mint-sol-usdc.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-lp-mint-sol-usdc",
+      "address": "45SMHUNbwLi91E792o3auPy7v8C4F58v6Yk5Yre7a4pC",
+      "role": "Pool-share (LP) mint of venue-pool-sol-usdc: PDA seeds [\"pool_lp_mint\", pool] under cp-swap-program-restart, bump 254, derived and matched. A classic SPL Token mint, 9 decimals, no freeze authority; its mint authority is cp-swap-authority-restart. The site serves its name and picture at /mint/45SMHUNbwLi91E792o3auPy7v8C4F58v6Yk5Yre7a4pC.json: \"SOL/USDC LP\", symbol SOL-USDC.",
+      "custody": "program-derived, no key. Only the pool program mints it, on a deposit, and burns it, on a withdrawal.",
+      "status": "live, supply 0.316537764 shares at confirmed slot 460,928,062 (2026-10-24T17:01Z). No on-chain name yet: it has no Metaplex record, and only an instruction of the pool program can create one, because the record needs this mint's authority to sign.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-pool-rizz-sol",
+      "address": "3yDDaZtABgj7z4BNtPKpfnK4yrx5bvEphDXYGGTnTmfA",
+      "role": "The venue's RIZZ/SOL pool: a cp-swap PoolState under cp-swap-program-restart, 637 bytes. Token 0 is wrapped SOL (So11111111111111111111111111111111111111112), token 1 is RIZZ (5ad4puH6yDBoeCcrQfwV5s9bxvPnAeWDoYDj3uLyBS8k), and its fee tier is AmmConfig CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy. Its pool_creator field is 61wJUbVugmLZY5AmBY18UM91FuX3kMMjeKAAz7kh2d3o, not one of the owner's wallets.",
+      "custody": "program-derived, no key. Only the pool program's own instructions change it.",
+      "status": "live. At confirmed slot 460,928,062 (2026-10-24T17:01Z) it is owned by cp-swap-program-restart and its lp_mint field is venue-lp-mint-rizz-sol.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-lp-mint-rizz-sol",
+      "address": "8LUVkr5K9PFuLnXeZ2GfgiRXHxrQQQdzjnw1EiCQxcgZ",
+      "role": "Pool-share (LP) mint of venue-pool-rizz-sol: PDA seeds [\"pool_lp_mint\", pool] under cp-swap-program-restart, bump 254, derived and matched. A classic SPL Token mint, 9 decimals, no freeze authority; its mint authority is cp-swap-authority-restart. The site serves its name and picture at /mint/8LUVkr5K9PFuLnXeZ2GfgiRXHxrQQQdzjnw1EiCQxcgZ.json: \"RIZZ/SOL LP\", symbol RIZZ-SOL.",
+      "custody": "program-derived, no key. Only the pool program mints it, on a deposit, and burns it, on a withdrawal.",
+      "status": "live, supply 64.062104644 shares at confirmed slot 460,928,062 (2026-10-24T17:01Z). No on-chain name yet: it has no Metaplex record, and only an instruction of the pool program can create one, because the record needs this mint's authority to sign.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-pool-brainlet-sol",
+      "address": "HaRnur2ETP44bFtjUU4haQcFVYrCDTSaJfjKY3E3bDDD",
+      "role": "The venue's BRAINLET/SOL pool: a cp-swap PoolState under cp-swap-program-restart, 637 bytes. Token 0 is wrapped SOL (So11111111111111111111111111111111111111112), token 1 is BRAINLET (4XKGjKaKowFvL5sYwh2AKx72vj9iwC8MNvpL44E9pump), and its fee tier is AmmConfig CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy. Its pool_creator field is 6JMP6scYgNEmjUv3tXbSmBXrvR93JxdXB1EMdHYYWgkc, not one of the owner's wallets.",
+      "custody": "program-derived, no key. Only the pool program's own instructions change it.",
+      "status": "live. At confirmed slot 460,928,062 (2026-10-24T17:01Z) it is owned by cp-swap-program-restart and its lp_mint field is venue-lp-mint-brainlet-sol.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-lp-mint-brainlet-sol",
+      "address": "AgSTcTMvo2U3hhRMxq6UVbaSNuiaBJSQRZ5b78A5ymc4",
+      "role": "Pool-share (LP) mint of venue-pool-brainlet-sol: PDA seeds [\"pool_lp_mint\", pool] under cp-swap-program-restart, bump 255, derived and matched. A classic SPL Token mint, 9 decimals, no freeze authority; its mint authority is cp-swap-authority-restart. The site serves its name and picture at /mint/AgSTcTMvo2U3hhRMxq6UVbaSNuiaBJSQRZ5b78A5ymc4.json: \"BRAINLET/SOL LP\", symbol BRAIN-SOL.",
+      "custody": "program-derived, no key. Only the pool program mints it, on a deposit, and burns it, on a withdrawal.",
+      "status": "live, supply 7.684790640 shares at confirmed slot 460,928,062 (2026-10-24T17:01Z). No on-chain name yet: it has no Metaplex record, and only an instruction of the pool program can create one, because the record needs this mint's authority to sign.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-pool-bobo-sol",
+      "address": "9mHGFULXNFjcdkZ9fLy24A3pp4iYVk6y889NNcUvSgRV",
+      "role": "The venue's BOBO/SOL pool: a cp-swap PoolState under cp-swap-program-restart, 637 bytes. Token 0 is wrapped SOL (So11111111111111111111111111111111111111112), token 1 is BOBO (4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump), and its fee tier is AmmConfig CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy. Its pool_creator field is 6JMP6scYgNEmjUv3tXbSmBXrvR93JxdXB1EMdHYYWgkc, not one of the owner's wallets.",
+      "custody": "program-derived, no key. Only the pool program's own instructions change it.",
+      "status": "live. At confirmed slot 460,928,062 (2026-10-24T17:01Z) it is owned by cp-swap-program-restart and its lp_mint field is venue-lp-mint-bobo-sol.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-lp-mint-bobo-sol",
+      "address": "CcLsQeUD1dWhrR3aNW3sjcKHeLbMdPvzFRyBniUTCtNJ",
+      "role": "Pool-share (LP) mint of venue-pool-bobo-sol: PDA seeds [\"pool_lp_mint\", pool] under cp-swap-program-restart, bump 254, derived and matched. A classic SPL Token mint, 9 decimals, no freeze authority; its mint authority is cp-swap-authority-restart. The site serves its name and picture at /mint/CcLsQeUD1dWhrR3aNW3sjcKHeLbMdPvzFRyBniUTCtNJ.json: \"BOBO/SOL LP\", symbol BOBO-SOL.",
+      "custody": "program-derived, no key. Only the pool program mints it, on a deposit, and burns it, on a withdrawal.",
+      "status": "live, supply 9.647500384 shares at confirmed slot 460,928,062 (2026-10-24T17:01Z). No on-chain name yet: it has no Metaplex record, and only an instruction of the pool program can create one, because the record needs this mint's authority to sign.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-pool-soy-sol",
+      "address": "5M4SZy9Ytu1LGWWjBUwiDZ98bGdpQL4fD3PHETEXPAN8",
+      "role": "The venue's SOY/SOL pool: a cp-swap PoolState under cp-swap-program-restart, 637 bytes. Token 0 is wrapped SOL (So11111111111111111111111111111111111111112), token 1 is SOY (8zsZESzrGoYVi1dVH4QNWXJ2EfW4v287aEGNiDvQpump), and its fee tier is AmmConfig CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy. Its pool_creator field is 6JMP6scYgNEmjUv3tXbSmBXrvR93JxdXB1EMdHYYWgkc, not one of the owner's wallets.",
+      "custody": "program-derived, no key. Only the pool program's own instructions change it.",
+      "status": "live. At confirmed slot 460,928,062 (2026-10-24T17:01Z) it is owned by cp-swap-program-restart and its lp_mint field is venue-lp-mint-soy-sol.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-lp-mint-soy-sol",
+      "address": "3YMYSG627S1gFMtG8GMWpzqVYd3DThRPMbxrgyqtpzUj",
+      "role": "Pool-share (LP) mint of venue-pool-soy-sol: PDA seeds [\"pool_lp_mint\", pool] under cp-swap-program-restart, bump 251, derived and matched. A classic SPL Token mint, 9 decimals, no freeze authority; its mint authority is cp-swap-authority-restart. The site serves its name and picture at /mint/3YMYSG627S1gFMtG8GMWpzqVYd3DThRPMbxrgyqtpzUj.json: \"SOY/SOL LP\", symbol SOY-SOL.",
+      "custody": "program-derived, no key. Only the pool program mints it, on a deposit, and burns it, on a withdrawal.",
+      "status": "live, supply 25.404215974 shares at confirmed slot 460,928,062 (2026-10-24T17:01Z). No on-chain name yet: it has no Metaplex record, and only an instruction of the pool program can create one, because the record needs this mint's authority to sign.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-pool-crying-sol",
+      "address": "8T2ErLrntFdGMZaVHXNqX6z96Ay1qh5xGMm67mVeGrgB",
+      "role": "The venue's CRYING/SOL pool: a cp-swap PoolState under cp-swap-program-restart, 637 bytes. Token 0 is wrapped SOL (So11111111111111111111111111111111111111112), token 1 is CRYING (Ep5tnKTSkLDeQ12ctS3RhQNcbcApkcyJcGPgHh4dpump), and its fee tier is AmmConfig CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy. Its pool_creator field is 2jDh1Nuzy8Zvc1NjfzmGhJRdRKCRV9XkDcP26DHW1wuF, a wallet in no row of this registry; whose it is was not known on 2026-10-24.",
+      "custody": "program-derived, no key. Only the pool program's own instructions change it.",
+      "status": "live. At confirmed slot 460,928,062 (2026-10-24T17:01Z) it is owned by cp-swap-program-restart and its lp_mint field is venue-lp-mint-crying-sol.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "venue-lp-mint-crying-sol",
+      "address": "4HPgmQyPSEXMGcCQHUDeo1EhJWKpjrnugPBSNLkyrrzh",
+      "role": "Pool-share (LP) mint of venue-pool-crying-sol: PDA seeds [\"pool_lp_mint\", pool] under cp-swap-program-restart, bump 255, derived and matched. A classic SPL Token mint, 9 decimals, no freeze authority; its mint authority is cp-swap-authority-restart. The site serves its name and picture at /mint/4HPgmQyPSEXMGcCQHUDeo1EhJWKpjrnugPBSNLkyrrzh.json: \"CRYING/SOL LP\", symbol CRYING-SOL.",
+      "custody": "program-derived, no key. Only the pool program mints it, on a deposit, and burns it, on a withdrawal.",
+      "status": "live, supply 13.924244201 shares at confirmed slot 460,928,062 (2026-10-24T17:01Z). No on-chain name yet: it has no Metaplex record, and only an instruction of the pool program can create one, because the record needs this mint's authority to sign.",
       "expect": {
         "type": "program-owned"
       }
@@ -742,7 +872,7 @@
       "expect": {
         "type": "eoa"
       },
-      "evidence": "frontend/src/lib/launcher/config.ts:26-27: 'OPERATOR-CHOSEN 2026-07-22: a fresh single-key EOA (verified on-chain: valid EIP-55 checksum, no code, nonce 0)'; docs/WHETSTONE_MIGRATOR_PETITION.md:101 says the same. CAVEAT, read this before switching the gate off: EIP-7702 can put a delegation designator (code 0xef0100...) at an EOA without any key changing hands, and CONTRACTS.md (Superseded, Treasury row) records exactly that having happened to the ex-treasury EOA 0xE9B7...f53e. So a failure here means 'this wallet grew code, go look', not automatically 'the registry is wrong'. Asserted deliberately anyway: it is the only entry that exercises the eoa branch, and a fee-receiving hot wallet quietly becoming a contract is worth a red build."
+      "evidence": "frontend/src/lib/launcher/config.ts:27-28: 'OPERATOR-CHOSEN 2026-07-22: a fresh single-key EOA (verified on-chain: valid EIP-55 checksum, no code, nonce 0)'; docs/archive/WHETSTONE_MIGRATOR_PETITION.md:103 says the same. CAVEAT, read this before switching the gate off: EIP-7702 can put a delegation designator (code 0xef0100...) at an EOA without any key changing hands, and CONTRACTS.md (Superseded, Treasury row) records exactly that having happened to the ex-treasury EOA 0xE9B7...f53e. So a failure here means 'this wallet grew code, go look', not automatically 'the registry is wrong'. Asserted deliberately anyway: it is the only entry that exercises the eoa branch, and a fee-receiving hot wallet quietly becoming a contract is worth a red build."
     },
     {
       "id": "tegridy-factory",
@@ -2143,7 +2273,7 @@
     }
   ],
   "solanaFields": {
-    "$comment": "Who holds each authority of our Solana programs, and what each fee tier charges, as decoded from the account data by `verify-addresses.mjs --onchain` (check 3d). Values that name a key are solana row ids. Every admin, fee owner and fee receiver must be `onlyHolder`: the offline check fails on anything else, with ONE exception: `fundOwner` may be `fundOwnerUnderTheSplit`, the island's Workshop, under the split the island accepted on 2026-10-18 (its answer, §7: fund_owner on fee settings 1, 0 and the 0.25% tier). A fund owner can collect only the fund fee (cp-swap admin/collect_fund_fee.rs); the protocol owner, the admin and every other authority stay `onlyHolder`. All values read 2026-10-13 at finalized slot 456,675,628, except the protocolFeeRate, fundFeeRate and fundOwner of fee settings 0 and 1, which are the values the split's day-one Squads proposal sets. Not covered here: cp-swap's admin, which is compiled into the program (src/lib.rs `admin::ID`, the Squads vault), not stored in an account.",
+    "$comment": "Who holds each authority of our Solana programs, and what each fee tier charges, as decoded from the account data by `verify-addresses.mjs --onchain` (check 3d). Values that name a key are solana row ids. Every admin, fee owner and fee receiver must be `onlyHolder`: the offline check fails on anything else, with ONE exception: `fundOwner` may be `fundOwnerUnderTheSplit`, the island's Workshop, under the split the island accepted on 2026-10-18 (its answer, §7: fund_owner on fee settings 1, 0 and the 0.25% tier). A fund owner can collect only the fund fee (cp-swap admin/collect_fund_fee.rs); the protocol owner, the admin and every other authority stay `onlyHolder`. All values read 2026-10-13 at finalized slot 456,675,628, except the protocolFeeRate, fundFeeRate and fundOwner of fee settings 0 and 1, which are the values the split's day-one Squads proposal sets. The two range tiers (range-clmm-amm-config-0 and -1, tegridy-clmm's own AmmConfig layout, whose `owner` field is read as protocolOwner) were read 2026-10-27 at finalized slot 462,122,645. Not covered here: cp-swap's admin, which is compiled into the program (src/lib.rs `admin::ID`, the Squads vault), not stored in an account.",
     "onlyHolder": "squads-vault",
     "fundOwnerUnderTheSplit": "island-workshop-wallet",
     "accounts": {
@@ -2178,6 +2308,28 @@
         "protocolOwner": "squads-vault",
         "fundOwner": "island-workshop-wallet",
         "creatorFeeRate": 0
+      },
+      "range-clmm-amm-config-0": {
+        "layout": "clmm-amm-config",
+        "owner": "range-clmm-program",
+        "index": 0,
+        "protocolOwner": "squads-vault",
+        "protocolFeeRate": 104000,
+        "tradeFeeRate": 10000,
+        "tickSpacing": 120,
+        "fundFeeRate": 56000,
+        "fundOwner": "island-workshop-wallet"
+      },
+      "range-clmm-amm-config-1": {
+        "layout": "clmm-amm-config",
+        "owner": "range-clmm-program",
+        "index": 1,
+        "protocolOwner": "squads-vault",
+        "protocolFeeRate": 104000,
+        "tradeFeeRate": 10000,
+        "tickSpacing": 60,
+        "fundFeeRate": 56000,
+        "fundOwner": "island-workshop-wallet"
       },
       "tegridy-launch-global-restart": {
         "layout": "tegridy-launch-global",

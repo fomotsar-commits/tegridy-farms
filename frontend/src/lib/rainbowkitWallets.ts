@@ -25,7 +25,8 @@
 // import the wallets from '@rainbow-me/rainbowkit/wallets' instead.
 import { createConnector } from 'wagmi';
 import { injected } from 'wagmi/connectors';
-import { TRUST_ICON } from './walletIcons';
+import { UserRejectedRequestError } from 'viem';
+import { COINBASE_ICON, TRUST_ICON } from './walletIcons';
 import { getWalletConnectConnector } from '@rainbow-me/rainbowkit';
 import type {
   RainbowKitWalletConnectParameters,
@@ -341,3 +342,64 @@ export const rabbyWallet = (): Wallet => ({
   },
   createConnector: getInjectedConnector({ flag: 'isRabby' }),
 });
+
+/**
+ * Coinbase Wallet: RainbowKit's own `base` row under Coinbase's name, mark and
+ * rdns (wagmi.ts says why), with one addition for phones.
+ *
+ * ON A PHONE, OUTSIDE COINBASE'S OWN BROWSER, THE TAP OPENS THIS PAGE INSIDE
+ * THE COINBASE WALLET APP. Coinbase's sign-in window offers a phone only an
+ * email or a passkey, so a recovery-phrase wallet had no way in from it.
+ * Inside the app every wallet type connects: the app's browser injects its own
+ * provider, and the Base Account SDK uses that provider there
+ * (@base-org/account getInjectedProvider, `isCoinbaseBrowser`). The link is the
+ * one the Solana list's Coinbase row already opens (solanaWallets.ts), and the
+ * hand-off is what Reown's AppKit does for Coinbase on a phone
+ * (appkit-controllers MobileWallet.js). Computers keep Coinbase's window.
+ *
+ * Any Coinbase provider in the page means this is Coinbase's browser (or the
+ * extension): the tap connects there and never hands off, so the link can never
+ * send the app back into itself. RainbowKit's phone list ignores the refusal
+ * thrown after the hand-off (MobileWalletItem's empty catch).
+ */
+const COINBASE_DAPP_LINK = 'https://go.cb-w.com/dapp?cb_url=';
+
+function hasCoinbaseProvider(): boolean {
+  const w = window as unknown as {
+    ethereum?: { isCoinbaseBrowser?: boolean; isCoinbaseWallet?: boolean };
+    coinbaseWalletExtension?: unknown;
+    coinbaseSolana?: unknown;
+  };
+  return Boolean(w.ethereum?.isCoinbaseBrowser || w.ethereum?.isCoinbaseWallet || w.coinbaseWalletExtension || w.coinbaseSolana);
+}
+
+export function coinbaseWalletFromBase<P>(base: (params: P) => Wallet) {
+  return (params: P): Wallet => {
+    const wallet = base(params);
+    return {
+      ...wallet,
+      name: 'Coinbase Wallet',
+      shortName: 'Coinbase',
+      rdns: 'com.coinbase.wallet',
+      iconUrl: COINBASE_ICON,
+      iconBackground: '#0052FF',
+      iconAccent: '#0052FF',
+      createConnector: (walletDetails: WalletDetailsParams) => {
+        const signIn = wallet.createConnector(walletDetails);
+        return createConnector((config) => {
+          const connector = signIn(config);
+          return {
+            ...connector,
+            async connect(parameters) {
+              if (isMobile() && !hasCoinbaseProvider()) {
+                window.location.href = `${COINBASE_DAPP_LINK}${encodeURIComponent(window.location.href)}`;
+                throw new UserRejectedRequestError(new Error('Opened in the Coinbase Wallet app.'));
+              }
+              return connector.connect(parameters);
+            },
+          } as typeof connector;
+        });
+      },
+    };
+  };
+}

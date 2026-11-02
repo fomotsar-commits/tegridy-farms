@@ -22,27 +22,6 @@ import {
 } from '../contracts';
 import { TEGRIDY_ROUTER_ADDRESS, WETH_ADDRESS } from '../constants';
 
-/**
- * The one ERC-4626 entry point a zap needs, declared here rather than in `lib/contracts.ts`
- * because the vault has no deployed address yet and this slice does not own that file. When
- * the vault ships and its address joins `constants.ts`, this belongs there with it —
- * `venues.test.ts` fails on that day and says so.
- *
- * Signature checked against `contracts/src/vaults/TegridyHarvestVault.sol`, which overrides
- * `deposit(uint256,address)` with the standard shape.
- */
-const ERC4626_DEPOSIT_ABI = [
-  {
-    type: 'function',
-    name: 'deposit',
-    inputs: [
-      { name: 'assets', type: 'uint256' },
-      { name: 'receiver', type: 'address' },
-    ],
-    outputs: [{ name: 'shares', type: 'uint256' }],
-    stateMutability: 'nonpayable',
-  },
-] as const;
 import type { WalletCall } from '../eip5792';
 import type { ZapAmount, ZapMeasureKey, ZapStepPlan } from './planner';
 
@@ -259,23 +238,6 @@ export function bindZapStep(
               abi: TEGRIDY_STAKING_ABI,
               functionName: 'stake',
               args: [resolved, step.lockDurationSeconds],
-            }),
-          },
-        };
-      }
-      if (step.id === 'vault-deposit') {
-        // The receiver is the caller, always. An ERC-4626 deposit can mint shares to any
-        // address, and the one thing this zap must never do is take a destination from
-        // anywhere but the connected account.
-        return {
-          kind: 'call',
-          amount: resolved,
-          call: {
-            to: step.spender,
-            data: encodeFunctionData({
-              abi: ERC4626_DEPOSIT_ABI,
-              functionName: 'deposit',
-              args: [resolved, account],
             }),
           },
         };

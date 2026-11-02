@@ -1,7 +1,7 @@
 import { getDefaultWallets, connectorsForWallets } from '@rainbow-me/rainbowkit';
 import { createConfig } from 'wagmi';
 import { injected, coinbaseWallet } from 'wagmi/connectors';
-import { phantomWallet, trustWallet, rabbyWallet } from './rainbowkitWallets';
+import { coinbaseWalletFromBase, phantomWallet, trustWallet, rabbyWallet } from './rainbowkitWallets';
 import { WAGMI_CHAINS, WAGMI_TRANSPORTS } from './chains/viemChains';
 
 const projectId = import.meta.env.VITE_WALLETCONNECT_PROJECT_ID as string | undefined;
@@ -85,6 +85,18 @@ function buildConfig() {
         // upstream default list by id, so a RainbowKit change that reorders or
         // renames these fails loudly instead of silently reshuffling the strip.
         const [safe, rainbow, base, metaMask, walletConnect] = popular.wallets;
+        // COINBASE WALLET IS UPSTREAM'S `base` ROW, RENAMED (2026-10-24). Coinbase
+        // renamed Base Account back to Coinbase Wallet: the sign-in window this
+        // row opens now says "Base Account is now Coinbase Wallet", and Coinbase's
+        // docs name this SDK (@base-org/account) as the way to connect it. So the
+        // connector and the id 'base' stay upstream's (the id keys the saved
+        // session: nobody who connected as "Base" is signed out) and only the
+        // name, mark and rdns change. The rdns is the Coinbase extension's own, so
+        // on a computer that has the extension RainbowKit shows the extension's
+        // row in place of this one, never two rows called Coinbase Wallet. On a
+        // phone the tap opens the page in the Coinbase Wallet app instead
+        // (rainbowkitWallets.ts says why).
+        const coinbase = base && coinbaseWalletFromBase(base);
         return [
           {
             ...popular,
@@ -105,9 +117,10 @@ function buildConfig() {
             // ready entries than its ~4 visible slots, so appending WalletConnect-backed
             // wallets (OKX, Zerion, Bitget, Binance, Uniswap, Ledger) would push the
             // wallets people actually use here off the visible strip to serve rows
-            // nobody scrolls to. Brave and Coinbase-extension users already get a row
-            // via EIP-6963 discovery, and `base` covers Base Account.
-            wallets: [safe, metaMask, phantomWallet, trustWallet, walletConnect, rainbow, base, rabbyWallet].filter(
+            // nobody scrolls to. Brave users already get a row via EIP-6963
+            // discovery. Coinbase Wallet sits ahead of WalletConnect so a phone
+            // shows it without a swipe (it was 5th of 5 as "Base").
+            wallets: [safe, metaMask, phantomWallet, trustWallet, coinbase, walletConnect, rainbow, rabbyWallet].filter(
               (w): w is NonNullable<typeof w> => Boolean(w),
             ),
           },

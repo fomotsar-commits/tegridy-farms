@@ -62,8 +62,14 @@ const priced: LpPrepareReads = { outsidePrice: async () => ({ kind: 'ok', solPer
 
 /** Every extension this site has a name for, and one it does not. */
 const ALL_EXTENSIONS = [...Object.values(EXTENSION), 99];
-/** The body length each Token-2022 mint extension needs to decode (the two name ones); any other is opaque here. */
-const extensionOf = (type: number): [number, number] => [type, type === EXTENSION.MetadataPointer ? 64 : type === EXTENSION.TokenMetadata ? 76 : 8];
+/**
+ * The body length each Token-2022 mint extension needs to decode: the two name ones, and a
+ * transfer fee (108 zeroes: 0%, nobody can change it). Any other is opaque here.
+ */
+const extensionOf = (type: number): [number, number] => [
+  type,
+  type === EXTENSION.MetadataPointer ? 64 : type === EXTENSION.TokenMetadata ? 76 : type === EXTENSION.TransferFeeConfig ? 108 : 8,
+];
 
 /** A chain whose test run always fails: a builder that reaches it got past all its own checks. */
 function chainWith(mint: PublicKey, type: number | number[]): FakeChain {
@@ -125,7 +131,7 @@ describe('the leave rule, with the token verdict loosened by mistake', () => {
   it('a mint with a buildable extension AND one that is not is refused by all three builders, wherever the bad one sits', async () => {
     const mixed: number[][] = [
       [EXTENSION.MetadataPointer, EXTENSION.TokenMetadata, EXTENSION.TransferHook],
-      [EXTENSION.InterestBearingConfig, EXTENSION.MetadataPointer, EXTENSION.TokenMetadata, EXTENSION.TransferFeeConfig],
+      [EXTENSION.InterestBearingConfig, EXTENSION.MetadataPointer, EXTENSION.TokenMetadata, EXTENSION.TransferFeeConfig, EXTENSION.DefaultAccountState],
       [EXTENSION.ScaledUiAmountConfig, EXTENSION.PermanentDelegate, EXTENSION.MetadataPointer, EXTENSION.TokenMetadata],
       [EXTENSION.MetadataPointer, EXTENSION.TokenMetadata, EXTENSION.PausableConfig],
       [EXTENSION.MetadataPointer, EXTENSION.TokenMetadata, 99],
@@ -135,8 +141,8 @@ describe('the leave rule, with the token verdict loosened by mistake', () => {
       expect(letThrough(await create(types)), `create ${types.join(',')}`).toBe(false);
       expect(letThrough(await withdraw(types)), `withdraw ${types.join(',')}`).toBe(false);
     }
-    // The four buildable ones together go through all three, so each refusal above is the bad one's.
-    const all = [EXTENSION.MetadataPointer, EXTENSION.InterestBearingConfig, EXTENSION.ScaledUiAmountConfig, EXTENSION.TokenMetadata];
+    // The five buildable ones together go through all three, so each refusal above is the bad one's.
+    const all = [EXTENSION.MetadataPointer, EXTENSION.InterestBearingConfig, EXTENSION.ScaledUiAmountConfig, EXTENSION.TokenMetadata, EXTENSION.TransferFeeConfig];
     expect(letThrough(await deposit(all))).toBe(true);
     expect(letThrough(await create(all))).toBe(true);
     expect(letThrough(await withdraw(all))).toBe(true);
@@ -150,7 +156,7 @@ describe('the leave rule, with the token verdict loosened by mistake', () => {
       if (letThrough(await create(type))) letIn.create.push(type);
       if (letThrough(await withdraw(type))) letOut.push(type);
     }
-    // Not a vacuous pass: each builder lets the four through, and only those.
+    // Not a vacuous pass: each builder lets the five through, and only those.
     expect(sorted(letIn.deposit)).toEqual(sorted(BUILDABLE_EXTENSIONS));
     expect(sorted(letIn.create)).toEqual(sorted(BUILDABLE_EXTENSIONS));
     expect(sorted(letOut)).toEqual(sorted(BUILDABLE_EXTENSIONS));
@@ -163,9 +169,9 @@ describe('the leave rule, with the token verdict loosened by mistake', () => {
 
   it('every extension outside the set is refused by each builder ITSELF, in its own words, though the verdict let it through', async () => {
     const outside = ALL_EXTENSIONS.filter((t) => !BUILDABLE_EXTENSIONS.has(t));
-    // A transfer fee is the one the pool program takes and this site does not.
-    expect(outside).toContain(EXTENSION.TransferFeeConfig);
-    expect(outside.length).toBe(ALL_EXTENSIONS.length - 4);
+    // A transfer fee is no longer outside: every builder subtracts it (transferFee.ts).
+    expect(outside).not.toContain(EXTENSION.TransferFeeConfig);
+    expect(outside.length).toBe(ALL_EXTENSIONS.length - 5);
     for (const type of outside) {
       const uses = `It uses ${extensionPlain(type)}.`;
       expect(refusal(await deposit(type)), String(type)).toBe(LP_COPY.tokenBlocked(uses));

@@ -191,11 +191,19 @@ describe('reading range pools for a swap', () => {
   it('a vault that does not read makes the answer an error, never "no pool" and never a quote', async () => {
     const read = await readRangeRoutePools(chain({ vaultMissing: true }).rpc, WSOL_MINT, BAYLA_MINT, { programId: PROG, visible: true });
     expect(quoteRangePools(read, WSOL_MINT, 1_000_000n)).toEqual({ state: 'error', candidates: [] });
-    // That pool alone is unread: another pool of the pair, read whole, still quotes.
+    // A pool of the pair on any other tier is never read, whole or not: one tier, 1% (owner,
+    // 2026-10-25), so it never stands in for the unread one.
     const both = await readRangeRoutePools(chain({ vaultMissing: true, secondPool: true }).rpc, WSOL_MINT, BAYLA_MINT, { programId: PROG, visible: true });
     if (both.kind !== 'ok') throw new Error(both.kind);
-    expect([both.unread, both.pools.map((p) => p.range.pool.address)]).toEqual([1, [POOL1.toBase58()]]);
-    expect(quoteRangePools(both, WSOL_MINT, 1_000_000n).candidates.map((c) => c.poolAddress)).toEqual([POOL1.toBase58()]);
+    expect([both.unread, both.pools.map((p) => p.range.pool.address)]).toEqual([1, []]);
+    expect(quoteRangePools(both, WSOL_MINT, 1_000_000n)).toEqual({ state: 'error', candidates: [] });
+  });
+
+  it('a pool on a tier other than index 0 is never in the route, even read whole', async () => {
+    const read = await readRangeRoutePools(chain({ secondPool: true }).rpc, WSOL_MINT, BAYLA_MINT, { programId: PROG, visible: true });
+    if (read.kind !== 'ok') throw new Error(read.kind);
+    expect(read.pools.map((p) => p.range.pool.address)).not.toContain(POOL1.toBase58());
+    expect(quoteRangePools(read, WSOL_MINT, 1_000_000n).candidates.map((c) => c.poolAddress)).not.toContain(POOL1.toBase58());
   });
 
   it('price impact is what the trade gets less than the pool’s price before it, the pool fee included', async () => {
