@@ -1,4 +1,4 @@
-import type { CSSProperties, ReactNode } from 'react';
+import { useCallback, useState, type CSSProperties, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Modal } from '../ui/Modal';
 import { FinePrint } from '../ui/FinePrint';
@@ -7,7 +7,8 @@ import { artSrcSet } from '../../lib/artSrcSet';
 import { BUNGALOWS } from '../../lib/bungalows';
 import { doorArt } from '../../lib/doorArt';
 import { EDITORIAL_INK, HEADING_FONT, pad2 } from '../../lib/editorial';
-import { QUICK_USD, acceptUsd } from '../../lib/islandBasket';
+import { QUICK_USD, acceptUsd, evenPcts, isSplit, reweigh, usdText, type Split } from '../../lib/islandBasket';
+import { safeGetItem, safeJsonParse, safeSetItem } from '../../lib/storage';
 
 /**
  * "Buy all bungalows": the button on the swap card and the order it opens. Only what both
@@ -100,6 +101,50 @@ export function IslandBasketButton({ count, symbols, onOpen }: { count: number; 
   );
 }
 
+/** The order's split on screen: each row's share and dollars, and what moving a slider does. */
+export interface BasketSplitView {
+  /** Each row's share of the order, in percent (the even split's exact figure while `even`). */
+  pcts: readonly number[];
+  /** Each row's dollars of the order. */
+  dollars: readonly number[];
+  even: boolean;
+  onPct: (i: number, pct: number) => void;
+  onEven: () => void;
+}
+
+const SPLIT_KEY = 'tegridy-island-split-v1';
+
+/**
+ * The trader's split for one order, kept in this browser for the next visit. `coins` names the
+ * order's coins in order: a split kept for another list of coins (one added or taken away) is not
+ * used, and the order starts even again. A convenience: storage that fails just starts even.
+ */
+export function useBasketSplit(coins: readonly string[]): { split: Split; setPct: (i: number, pct: number) => void; reset: () => void } {
+  const id = coins.join(',');
+  const recall = (): Split => {
+    const kept = safeJsonParse<Record<string, unknown> | null>(safeGetItem(SPLIT_KEY), null)?.[id];
+    return Array.isArray(kept) && isSplit(kept as number[], coins.length) ? (kept as number[]) : null;
+  };
+  const [held, setHeld] = useState<{ id: string; split: Split }>(() => ({ id, split: recall() }));
+  // Another list of coins (another chain) is another order: its own kept split, or even.
+  const split = held.id === id ? held.split : recall();
+  const keep = useCallback((next: Split) => {
+    setHeld({ id, split: next });
+    const all = { ...safeJsonParse<Record<string, unknown> | null>(safeGetItem(SPLIT_KEY), null) };
+    if (next) all[id] = next;
+    else delete all[id];
+    safeSetItem(SPLIT_KEY, JSON.stringify(all));
+  }, [id]);
+  const setPct = useCallback((i: number, pct: number) => keep(reweigh(split ?? evenPcts(coins.length), i, pct)), [keep, split, coins.length]);
+  const reset = useCallback(() => keep(null), [keep]);
+  return { split, setPct, reset };
+}
+
+/** A share in words: whole percents, one decimal for an even split that is not whole (7 coins: 14.3%). */
+function pctWords(p: number): string {
+  return Number.isInteger(p) ? `${p}%` : `${p.toFixed(1)}%`;
+}
+
 /** A coin's door picture, or its room's colour while it has none. */
 function Door({ room }: { room?: string }) {
   const b = room ? BUNGALOWS.find((x) => x.id === room) : undefined;
@@ -138,6 +183,8 @@ export function IslandBasketDialog(p: {
   /** Under the button, e.g. "Stop after this coin". */
   after?: ReactNode;
   finePrint: ReactNode;
+  /** Each coin's share, on a slider under its row. */
+  split?: BasketSplitView;
 }) {
   // Mounted only while open: a closed order costs the swap card nothing. Portalled to the
   // body: the swap card is animated with a transform, which would trap a fixed dialog in
@@ -163,7 +210,9 @@ export function IslandBasketDialog(p: {
           <span aria-hidden="true" className="w-1.5 h-1.5 bg-[#22c55e]" />
           Island order · {p.chainName} · {pad2(p.rows.length)} coins
         </p>
-        <p className="mt-1.5 text-[13px] leading-snug text-[#f5e4b8]/80">One amount, split evenly across every island coin on {p.chainName}.</p>
+        <p className="mt-1.5 text-[13px] leading-snug text-[#f5e4b8]/80">
+          {p.split ? `One amount, split across every island coin on ${p.chainName}. Slide a coin to change its share.` : `One amount, split evenly across every island coin on ${p.chainName}.`}
+        </p>
 
         <label htmlFor="island-basket-usd" className="sr-only">Dollars to spend</label>
         <div className="mt-4 flex items-end gap-2 border-b border-[#f5e4b8]/35 pb-1.5">
@@ -211,12 +260,23 @@ export function IslandBasketDialog(p: {
           </div>
         )}
 
-        <ul className="mt-3 border-t border-[#f5e4b8]/30" aria-label="Coins in this order">
+        {p.split && (
+          <div className="mt-3 flex items-center justify-between gap-3 font-mono text-[10px] uppercase tracking-[0.16em] text-[#f5e4b8]/60">
+            <span data-testid="island-basket-split-mode">Split · {p.split.even ? 'even' : 'yours'}</span>
+            {!p.split.even && (
+              <button type="button" disabled={p.locked} onClick={p.split.onEven}
+                className="min-h-[32px] px-1 underline underline-offset-4 uppercase tracking-[0.14em] text-[#f5e4b8] hover:text-[#22c55e] disabled:opacity-50">
+                Split evenly
+              </button>
+            )}
+          </div>
+        )}
+        <ul className={`${p.split ? 'mt-1' : 'mt-3'} border-t border-[#f5e4b8]/30`} aria-label="Coins in this order">
           {p.rows.map((r, i) => (
             <li
               key={r.key}
               data-testid={`island-basket-row-${r.key}`}
-              className="relative grid grid-cols-[1.5rem_2.25rem_minmax(0,1fr)_auto] items-center gap-x-2.5 py-2 border-b border-[#f5e4b8]/12"
+              className={`relative grid grid-cols-[1.5rem_2.25rem_minmax(0,1fr)_auto] items-center gap-x-2.5 py-2 border-b border-[#f5e4b8]/12${p.split && p.split.pcts[i] === 0 ? ' opacity-60' : ''}`}
             >
               {/* The coin's state, as a rule up the row's edge. */}
               <span aria-hidden="true" className="absolute left-0 top-0 bottom-0 w-[2px] transition-colors duration-500" style={{ background: r.status ? TONE_INK[r.status.tone] : 'transparent' }} />
@@ -229,6 +289,27 @@ export function IslandBasketDialog(p: {
                 {r.status && <span className={`mt-0.5 block text-[11px] leading-snug ${TONE[r.status.tone]}`}>{r.status.text}</span>}
               </span>
               <span className={`shrink-0 pr-1 text-right font-mono text-[13px] tabular-nums${r.estimate ? ' text-[#f5e4b8]/55' : ''}`}>{r.pays ?? '…'}</span>
+              {p.split && (() => {
+                const pct = p.split.pcts[i] ?? 0;
+                return (
+                  <span className="col-start-2 col-span-3 flex items-center gap-2.5">
+                    <input
+                      type="range" min={0} max={100} step={1}
+                      value={Math.round(pct)}
+                      disabled={p.locked}
+                      onChange={(e) => p.split!.onPct(i, Number(e.target.value))}
+                      aria-label={`${r.symbol}’s share of the order`}
+                      aria-valuetext={`${pctWords(pct)}, ${usdText(p.split.dollars[i] ?? 0)}`}
+                      data-testid={`island-basket-split-${r.key}`}
+                      className="basket-split flex-1 min-w-0"
+                      style={{ '--fill': `${pct}%` } as CSSProperties}
+                    />
+                    <span className="shrink-0 w-[7.5rem] pr-1 text-right font-mono text-[11px] tabular-nums text-[#f5e4b8]/80">
+                      <span className={pct > 0 ? 'text-[#22c55e]' : ''}>{pctWords(pct)}</span> · {usdText(p.split.dollars[i] ?? 0)}
+                    </span>
+                  </span>
+                );
+              })()}
             </li>
           ))}
         </ul>

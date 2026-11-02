@@ -4,7 +4,7 @@ import { PublicKey, VersionedTransaction, type Transaction } from '@solana/web3.
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { SOL_MINT, SOLANA_PLATFORM_FEE_BPS, isSolanaFeeConfigured } from '../../lib/solana';
 import { NoRouteError, buildSwapTransaction, fromBaseUnits, getQuote, getUsdPrices, simulateSwap, swapCarriesPlatformFee, type JupiterQuote, type PriorityLevel } from '../../lib/jupiter';
-import { MIN_USD_PER_COIN, SOL_BASKET, shortAmount, splitEvenly, usdText, usdToBaseUnits, type SolBasketCoin } from '../../lib/islandBasket';
+import { MIN_USD_PER_COIN, SOL_BASKET, coinsInOrder, dollarsEach, minOrderUsd, shortAmount, splitOrder, usdText, usdToBaseUnits, type SolBasketCoin } from '../../lib/islandBasket';
 import { pinnedGetQuote, prepareSolLeg, retryingGetQuote, sendSigned, signatureOf, solLegRoute, stampBlockhash, BASKET_COPY, PoolNotNamedError, type PreparedSolLeg } from '../../lib/solana/swap/islandBasketSol';
 import { freshDecision, within } from '../../lib/solana/swap/ownPoolRoute';
 import { whileJupiterBusy } from '../../lib/solana/swap/jupiterBusy';
@@ -22,7 +22,7 @@ import { setLastBuy } from '../../lib/heat/lastBuy';
 import { bungalowByAddress } from '../../lib/bungalows';
 import { surfaceUnconfirmedTx } from '../../lib/txErrors';
 import { readOwnPoolsFor } from './useSolanaRoute';
-import { BasketCta, IslandBasketButton, IslandBasketDialog, type BasketRow, type RowTone } from './IslandBasket';
+import { BasketCta, IslandBasketButton, IslandBasketDialog, useBasketSplit, type BasketRow, type RowTone } from './IslandBasket';
 
 /**
  * The order's figures are asked for again this often while it is open. Longer than the
@@ -157,26 +157,36 @@ export function IslandBasketSolana(p: {
   const [states, setStates] = useState<Record<number, LegState>>({});
   // The split a press bought with. It stands until the amount is changed: a new SOL price
   // must not re-size, or wipe, an order already part bought.
-  const [frozen, setFrozen] = useState<{ usd: string; shares: bigint[] } | null>(null);
+  const [frozen, setFrozen] = useState<{ usd: string; split: string; shares: bigint[] } | null>(null);
   const [notice, setNotice] = useState<{ tone: RowTone; text: string } | null>(null);
   const [tick, setTick] = useState(0);
   const stopAfter = useRef(false);
   const wallet = publicKey?.toBase58() ?? null;
 
-  const n = SOL_BASKET.length;
+  // The trader's split (IslandBasket.tsx useBasketSplit): even until a slider moves. Each share
+  // below is SOL_BASKET's coin at the same place; a coin at 0% is no leg of the order.
+  const basketSplit = useBasketSplit(SOL_BASKET.map((c) => c.mint));
+  const { split } = basketSplit;
+  const all = SOL_BASKET.length;
+  const n = coinsInOrder(all, split);
   const dollars = Number(usd);
-  const tooSmall = Number.isFinite(dollars) && dollars > 0 && dollars < MIN_USD_PER_COIN * n;
+  const least = minOrderUsd(all, split);
+  const tooSmall = Number.isFinite(dollars) && dollars > 0 && dollars < least;
+  const splitKey = split ? split.join(',') : 'even';
   const computed = useMemo(() => {
     const total = tooSmall ? null : usdToBaseUnits(usd, solUsd, 9);
-    return total !== null ? splitEvenly(total, n) : null;
-  }, [usd, solUsd, tooSmall, n]);
-  const shares = frozen && frozen.usd === usd ? frozen.shares : computed;
+    return total !== null ? splitOrder(total, all, split) : null;
+  }, [usd, solUsd, tooSmall, all, split]);
+  const shares = frozen && frozen.usd === usd && frozen.split === splitKey ? frozen.shares : computed;
   const total = shares ? shares.reduce((s, x) => s + x, 0n) : null;
   const orderKey = shares ? `${shares.join(',')}|${p.slippageBps}` : null;
-  const legs = useMemo<Leg[] | null>(() => (shares ? SOL_BASKET.map((coin, i) => ({ coin, amountIn: shares[i]! })) : null), [shares]);
+  // The coins this order buys, by their place in SOL_BASKET: the legs, the quotes and the
+  // rows' states are all in this order.
+  const active = useMemo(() => (shares ? SOL_BASKET.flatMap((_, i) => (shares[i]! > 0n ? [i] : [])) : []), [shares]);
+  const legs = useMemo<Leg[] | null>(() => (shares ? active.map((i) => ({ coin: SOL_BASKET[i]!, amountIn: shares[i]! })) : null), [shares, active]);
 
-  // A new amount or wallet is a new order: the last one's results go (never mid-run).
-  const orderOf = `${usd}|${wallet ?? ''}`;
+  // A new amount, split or wallet is a new order: the last one's results go (never mid-run).
+  const orderOf = `${usd}|${splitKey}|${wallet ?? ''}`;
   const [resultsFor, setResultsFor] = useState(orderOf);
   if (resultsFor !== orderOf && !running) {
     setResultsFor(orderOf);
@@ -544,7 +554,7 @@ export function IslandBasketSolana(p: {
     const signAll = signAllTransactions ?? null;
     setRunning(true);
     setNotice(null);
-    setFrozen({ usd, shares });
+    setFrozen({ usd, split: splitKey, shares });
     stopAfter.current = false;
     let bought = 0;
     try {
@@ -590,12 +600,16 @@ export function IslandBasketSolana(p: {
   // Until a coin's quote lands, its figure is its dollars at its market price, less the
   // site fee where one is taken: a figure to look at, never one a press is held to.
   const feeShare = isSolanaFeeConfigured() ? SOLANA_PLATFORM_FEE_BPS / 10_000 : 0;
-  const usdEach = orderKey && Number.isFinite(dollars) && dollars > 0 ? dollars / n : 0;
+  const coinDollars = dollarsEach(dollars, all, split);
   const rows: BasketRow[] = SOL_BASKET.map((coin, i) => {
-    const q = shown?.[i];
+    // A coin the split gives nothing is not bought, and says so.
+    if (split && split[i] === 0) return { key: coin.room, room: coin.room, symbol: coin.symbol, venue: 'Not in this order', pays: '–' };
+    const k = active.indexOf(i);
+    const q = k >= 0 ? shown?.[k] : undefined;
     const r = shownRoute(q);
-    const s = states[i];
+    const s = k >= 0 ? states[k] : undefined;
     const coinUsd = prices?.[coin.mint];
+    const usdEach = orderKey ? coinDollars[i] ?? 0 : 0;
     const estimate = !r && usdEach > 0 && typeof coinUsd === 'number' && Number.isFinite(coinUsd) && coinUsd > 0 ? (usdEach / coinUsd) * (1 - feeShare) : null;
     const viaJupiter = `${coin.pool.dex === 'pumpswap' ? 'PumpSwap' : 'Raydium'} via Jupiter`;
     // A bought coin names where it was bought, whatever the quotes on screen say by then.
@@ -624,7 +638,7 @@ export function IslandBasketSolana(p: {
     ? `Site fee: ${(SOLANA_PLATFORM_FEE_BPS / 100).toFixed(2)}% of each coin bought through Jupiter goes to the venue. A coin bought in our own pool pays its pool fee instead, inside its quote.`
     : 'No site fee is taken here. A coin bought in our own pool pays its pool fee, inside its quote.';
   const perCoin = Number.isFinite(dollars) && dollars > 0 ? dollars / n : 0;
-  const summary = total !== null ? `${n} coins · ${usdText(perCoin)} each · ≈ ${sol(total).toFixed(4)} SOL` : null;
+  const summary = total !== null ? `${n} coin${n === 1 ? '' : 's'} · ${split ? 'your split' : `${usdText(perCoin)} each`} · ≈ ${sol(total).toFixed(4)} SOL` : null;
   const left = legs ? legs.filter((_, i) => buyable(states[i])).length : n;
   const started = Object.keys(states).length > 0;
   // A coin whose Jupiter price could not be read: the order waits for it, whatever our pools quote.
@@ -633,12 +647,12 @@ export function IslandBasketSolana(p: {
   const short = total !== null && lamports !== null && lamports < total;
   const tight = total !== null && lamports !== null && !short && lamports < total + reserve;
 
-  let label = started && left > 0 && left < n ? `Buy the ${left} left` : `Buy all ${n}`;
+  let label = started && left > 0 && left < n ? `Buy the ${left} left` : n === all ? `Buy all ${n}` : `Buy ${n} coin${n === 1 ? '' : 's'}`;
   let disabled = false;
   if (running) [label, disabled] = ['Buying…', true];
   else if (!publicKey) [label, disabled] = ['Connect a wallet to buy', true];
   else if (!dollars) [label, disabled] = ['Enter an amount', true];
-  else if (tooSmall) [label, disabled] = [`Enter at least ${usdText(MIN_USD_PER_COIN * n)}`, true];
+  else if (tooSmall) [label, disabled] = [`Enter at least ${usdText(least)}`, true];
   else if (solUsd === null && !frozen) [label, disabled] = ['SOL price unavailable', true];
   else if (short) [label, disabled] = ['Not enough SOL', true];
   else if (p.busy) [label, disabled] = ['A swap is on its way', true];
@@ -653,7 +667,7 @@ export function IslandBasketSolana(p: {
 
   return (
     <>
-      <IslandBasketButton count={n} symbols={SOL_BASKET.map((c) => c.symbol)} onOpen={() => setOpen(true)} />
+      <IslandBasketButton count={all} symbols={SOL_BASKET.map((c) => c.symbol)} onOpen={() => setOpen(true)} />
       <IslandBasketDialog
         open={open}
         onClose={() => setOpen(false)}
@@ -666,6 +680,7 @@ export function IslandBasketSolana(p: {
         rows={rows}
         feeLine={feeLine}
         notice={shownNotice}
+        split={{ pcts: split ?? SOL_BASKET.map(() => 100 / all), dollars: coinDollars, even: !split, onPct: basketSplit.setPct, onEven: basketSplit.reset }}
         cta={<BasketCta label={label} disabled={disabled} onClick={() => void buy()} />}
         after={
           // With one approval every coin is already signed: there is no coin to stop after.
