@@ -22,16 +22,7 @@ import {
   type OnboardingStep,
 } from './onboardingSteps';
 import {
-  AIRDROP_FACTORY_ADDRESS,
-  COMMUNITY_GRANTS_ADDRESS,
-  GAUGE_CONTROLLER_ADDRESS,
-  LAUNCH_LOCK_VIEW_ADDRESS,
-  MEME_BOUNTY_BOARD_ADDRESS,
-  TEGRIDY_LOCK_VAULT_ADDRESS,
   TEGRIDY_PRO_PASS_ADDRESS,
-  TEGRIDY_RESTAKING_ADDRESS,
-  VESTING_FACTORY_ADDRESS,
-  VOTE_INCENTIVES_ADDRESS,
   isDeployed,
 } from '../../lib/constants';
 
@@ -98,16 +89,6 @@ describe('the copy names no surface this deployment does not run', () => {
   // NOT deployed, the word must not appear anywhere in the flow's copy. When a rail is
   // un-gated, its entry here stops applying automatically — this list does not need editing.
   const gated: { word: string; address: string }[] = [
-    { word: 'restak', address: TEGRIDY_RESTAKING_ADDRESS },
-    { word: 'gauge', address: GAUGE_CONTROLLER_ADDRESS },
-    { word: 'bribe', address: VOTE_INCENTIVES_ADDRESS },
-    { word: 'vote incentive', address: VOTE_INCENTIVES_ADDRESS },
-    { word: 'grant', address: COMMUNITY_GRANTS_ADDRESS },
-    { word: 'bounty', address: MEME_BOUNTY_BOARD_ADDRESS },
-    { word: 'airdrop', address: AIRDROP_FACTORY_ADDRESS },
-    { word: 'vesting', address: VESTING_FACTORY_ADDRESS },
-    { word: 'lock vault', address: TEGRIDY_LOCK_VAULT_ADDRESS },
-    { word: 'lock viewer', address: LAUNCH_LOCK_VIEW_ADDRESS },
     { word: 'pro pass', address: TEGRIDY_PRO_PASS_ADDRESS },
   ];
 

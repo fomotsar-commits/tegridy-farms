@@ -1,7 +1,8 @@
 // The all-time volume counter's one public read, `?resource=venue-volume` on the catchall.
-// .github/workflows/venue-volume.yml writes one row per source into venue_volume
-// (migration 028) every hour; this sums them for the home page. The edge caches it, so
-// a visitor costs nothing. It never answers a partial or failed read with a number:
+// The counter (api/venue-volume-count.js every five minutes, venue-volume.yml hourly as the
+// backup) writes one row per source into venue_volume (migration 028); this sums them for
+// the home page. The edge caches it for a minute, so a visitor costs nothing and still sees
+// each count soon after it lands. It never answers a partial or failed read with a number:
 // a source never counted makes the whole answer "unread", and a failing or late one
 // makes it "behind", with the time it was last complete.
 
@@ -47,7 +48,7 @@ export async function handleVenueVolume(req, res, { nowMs = Date.now(), fetchImp
     if (!r.ok || truncated) return unread(res, 502);
     const body = summarize(JSON.parse(text), nowMs);
     if (body.state === "unread") return unread(res, 200);
-    res.setHeader("Cache-Control", "s-maxage=300, stale-while-revalidate=600");
+    res.setHeader("Cache-Control", "s-maxage=60, stale-while-revalidate=60");
     return res.status(200).json(body);
   } catch (err) {
     console.error("venue-volume error:", logSafe(err));

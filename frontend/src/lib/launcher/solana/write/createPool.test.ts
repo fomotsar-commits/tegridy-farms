@@ -9,7 +9,7 @@
 // anywhere but the prepared transaction's signer list.
 import { afterEach, describe, it, expect, vi } from 'vitest';
 import { base58, hex } from '@scure/base';
-import { NATIVE_MINT_2022 } from '@solana/spl-token';
+import { ExtensionType, NATIVE_MINT_2022, getAccountLen } from '@solana/spl-token';
 import { Keypair, PublicKey } from '@solana/web3.js';
 import { SYSTEM_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, WSOL_MINT } from '../curve/program';
 import { associatedTokenAddress } from '../curve/ix';
@@ -18,7 +18,8 @@ import { deriveLpMint, deriveObservation, derivePool, deriveVault, publicTierCon
 import { feeReserveFor, isqrt, spendableSol } from '../../../solana/lp/liquidityMath';
 import { estimatedLoss } from '../../../solana/lp/opening';
 import type { OutsidePrice } from '../../../solana/lp/outsidePrice';
-import { BUILDABLE_EXTENSIONS, EXTENSION } from '../../../solana/lp/tokenSafety';
+import { CLOCK_SYSVAR } from '../../../solana/lp/poolFinder';
+import { BUILDABLE_EXTENSIONS, EXACT_EXTENSIONS, EXTENSION } from '../../../solana/lp/tokenSafety';
 import { METAPLEX_TOKEN_METADATA_ID, metadataPda } from './metaplex';
 import { CP_CREATE_POOL_FEE_RECEIVER } from './config';
 import {
@@ -43,6 +44,8 @@ import {
   createSimulator,
   encodeAmmConfig,
   rent,
+  setClock,
+  setTransferFee,
   skewTestRun,
   type AmmConfigOverrides,
   type FeeReceiverOptions,
@@ -76,7 +79,11 @@ const answering = (o: OutsidePrice): LpPrepareReads => ({ outsidePrice: async ()
 const NO_ROUTE: OutsidePrice = { kind: 'no-route', detail: 'Jupiter has no route for this token' };
 
 /** The body length each Token-2022 mint extension needs to decode (the two name ones); any other is opaque here. */
-const extensionOf = (type: number): [number, number] => [type, type === EXTENSION.MetadataPointer ? 64 : type === EXTENSION.TokenMetadata ? 76 : 8];
+// A transfer fee needs its real 108 bytes to decode (zeroes: 0%, nobody can change it).
+const extensionOf = (type: number): [number, number] => [
+  type,
+  type === EXTENSION.MetadataPointer ? 64 : type === EXTENSION.TokenMetadata ? 76 : type === EXTENSION.TransferFeeConfig ? 108 : 8,
+];
 
 const NO_MARKET_OPENING =
   'Jupiter has no market price for this token, so there is nothing to compare your opening price with. You are setting the price yourself: if it is off, the first trades take the difference out of what you put in.';
@@ -189,7 +196,7 @@ afterEach(() => {
 // ── the single read ──────────────────────────────────────────────────────────
 
 describe('readCreateSnapshot: one read for both possible addresses', () => {
-  it('reads the 18 keys in ONE call, in 3.1 step 3’s order; prepare then reads only the balances it watches', async () => {
+  it('reads the 18 keys and then the clock in ONE call, in 3.1 step 3’s order; prepare then reads only the balances it watches', async () => {
     const w = world();
     const fresh = Keypair.generate();
     vi.spyOn(Keypair, 'generate').mockReturnValueOnce(fresh);
@@ -212,6 +219,8 @@ describe('readCreateSnapshot: one read for both possible addresses', () => {
       w.wsolAta,
       ...five(w.standard),
       ...five(fresh.publicKey),
+      // The clock: its epoch says which of a token's transfer fees applies now.
+      new PublicKey(CLOCK_SYSVAR),
     ].map((k) => k.toBase58());
     expect(asked[0]).toEqual(want);
     // The only other account read is the shared pipeline's balance read of the 4 watched accounts and the wallet.
@@ -404,23 +413,62 @@ describe('prepareLpCreate: what refuses it, each in its own words', () => {
     expect(refused(await create(world({ feeReceiver: { native: false } })))).toBe(CREATE_COPY.feeAccount('it is not a native wrapped-SOL account'));
   });
 
-  it('the token, what still refuses it: absent, never set up, SOL under Token-2022, a transfer fee at 0 bps, an extension the pool program rejects', async () => {
+  it('the token, what still refuses it: absent, never set up, SOL under Token-2022, an extension the pool program rejects', async () => {
     expect(refused(await create(world({ noMint: true })))).toBe(CREATE_COPY.tokenRefused('The token does not exist.'));
     const never = world();
     never.chain.accounts.get(never.mint.toBase58())!.data[45] = 0;
     expect(refused(await create(never))).toBe(CREATE_COPY.tokenRefused('This token mint was never set up.'));
     expect(refused(await create(world({ mint: NATIVE_MINT_2022, tokenProgram: TOKEN_2022_PROGRAM_ID, mintExtensions: [] })))).toBe(CREATE_COPY.native2022);
-    // A transfer fee: the leave rule. The words say it is this site's limit.
-    const fee = world({ tokenProgram: TOKEN_2022_PROGRAM_ID, mintExtensions: [[EXT.TransferFeeConfig, 108]] });
-    expect(refused(await create(fee))).toBe(
-      CREATE_COPY.tokenRefused(
-        'It uses a transfer-fee setting, which lets the token take a fee out of every transfer. This site cannot build exact deposits and withdrawals for a token with one, so it does not open or add to pools for it.',
-      ),
-    );
     const hook = world({ tokenProgram: TOKEN_2022_PROGRAM_ID, mintExtensions: [extensionOf(EXTENSION.TransferHook)] });
     expect(refused(await create(hook))).toBe(
       CREATE_COPY.tokenRefused('It uses a transfer hook, a program that runs on every transfer and can refuse or redirect it. The pool program does not accept tokens with it.'),
     );
+  });
+
+  // Owner, 2026-10-29: a token with a transfer fee opens a pool. Its vault gets what is sent
+  // less the fee, and the pool counts its shares from that (initialize.rs). This chain's
+  // pool program counts them the same way (testkit `createSimulator`), and the builder's
+  // share check is exact, so a builder that left the fee out is refused at its own test run.
+  it('a token with a transfer fee opens a pool: the shares count what reaches its vault, and the review says what the token keeps', async () => {
+    const w = world({ tokenProgram: TOKEN_2022_PROGRAM_ID, mintExtensions: [[EXT.TransferFeeConfig, 108], ...METADATA_ONLY] });
+    setTransferFee(w.chain, w.mint, { basisPoints: 500 });
+    const p = ok(await create(w));
+    const s = summaryOf(p);
+    const kept = TOKENS / 20n; // 5% of 100 tokens
+    expect(s.put).toEqual({ quote: SOL, token: TOKENS });
+    expect(s.transferFee).toEqual({ rate: '5%', kept });
+    expect(s.supply).toBe(isqrt(SOL * (TOKENS - kept)));
+    expect(s.lpAmount).toBe(s.supply - 100n);
+    // The whole amount typed leaves the wallet; only the vault sees less.
+    const tok = p.simulated.tokenDeltas.find((d) => d.account.equals(w.tokenAta))!;
+    expect(tok.delta).toBe(-TOKENS);
+    // The token's own warning rides to the review, and the opening's price is the one the pool opens at.
+    expect(s.tokenWarnings.map((x) => x.code)).toContain('transfer-fee');
+    // 1 SOL against the 95 tokens that reach the vault, not the 100 typed: 5% above the market's 0.01.
+    expect(s.price).toMatchObject({ state: 'disagrees', against: 'outside' });
+    expect(s.price.state === 'disagrees' && s.price.pool).toBeCloseTo(1 / 95, 12);
+  });
+
+  it('a fee change pending: the network epoch picks the setting, and with no clock nothing is built', async () => {
+    const w = world({ tokenProgram: TOKEN_2022_PROGRAM_ID, mintExtensions: [[EXT.TransferFeeConfig, 108], ...METADATA_ONLY] });
+    setTransferFee(w.chain, w.mint, { basisPoints: 100, newer: { epoch: 50n, basisPoints: 300 } });
+    setClock(w.chain, null);
+    expect(refused(await create(w))).toBe(LP_COPY.noEpoch);
+    setClock(w.chain, 2_000_000_000n, 49n);
+    const before = summaryOf(ok(await create(w)));
+    expect(before.transferFee).toEqual({ rate: '1%', kept: TOKENS / 100n });
+    // An opening has no minimum: one that lands in epoch 50 pays 3%, and the review says so.
+    expect(before.warnings).toContain(CREATE_COPY.feeChangesNext('3%'));
+    setClock(w.chain, 2_000_000_000n, 50n);
+    const after = summaryOf(ok(await create(w)));
+    expect(after.transferFee).toEqual({ rate: '3%', kept: (TOKENS * 3n) / 100n });
+    expect(after.warnings).not.toContain(CREATE_COPY.feeChangesNext('3%'));
+  });
+
+  it('a fee that leaves the vault too little is refused as too small, before any price is asked', async () => {
+    const w = world({ tokenProgram: TOKEN_2022_PROGRAM_ID, mintExtensions: [[EXT.TransferFeeConfig, 108], ...METADATA_ONLY] });
+    setTransferFee(w.chain, w.mint, { basisPoints: 1 });
+    expect(refused(await create(w, { token: 1n }))).toBe(CREATE_COPY.tooSmall);
   });
 
   // Owner ruling 2026-10-04: these two open a pool, and the review is handed the warning.
@@ -954,7 +1002,7 @@ describe('vaultAccountSize', () => {
     return { address: k.toBase58(), owner: a.owner.toBase58(), data: a.data, lamports: a.lamports };
   };
 
-  it('165 for a classic mint, a Token-2022 mint with no extensions, and a metadata-only one, whose ASSOCIATED account is 170; a transfer fee cannot be sized', () => {
+  it('165 for a classic mint, a Token-2022 mint with no extensions, and a metadata-only one, whose ASSOCIATED account is 170; a transfer fee adds its fee record', () => {
     const c = new FakeChain();
     const [classic, bare, meta, fee] = [0, 1, 2, 3].map(() => Keypair.generate().publicKey) as [PublicKey, PublicKey, PublicKey, PublicKey];
     c.mint(classic).mint2022(bare, []).mint2022(meta, METADATA_ONLY).mint2022(fee, [[EXT.TransferFeeConfig, 108]]);
@@ -962,7 +1010,12 @@ describe('vaultAccountSize', () => {
     expect(vaultAccountSize(acc(c, bare))).toBe(165);
     expect(vaultAccountSize(acc(c, meta))).toBe(165);
     expect(tokenAccountSize(acc(c, meta))).toBe(170);
-    expect(vaultAccountSize(acc(c, fee))).toMatch(/^it uses a transfer-fee setting/);
+    // cp-swap's vault gets `TransferFeeAmount` (get_required_init_account_extensions), the associated account ImmutableOwner too.
+    expect(vaultAccountSize(acc(c, fee))).toBe(getAccountLen([ExtensionType.TransferFeeAmount]));
+    expect(vaultAccountSize(acc(c, fee))).toBe(178);
+    expect(tokenAccountSize(acc(c, fee))).toBe(getAccountLen([ExtensionType.TransferFeeAmount, ExtensionType.ImmutableOwner]));
+    // A pairing coin is sized from the exact set: one with a fee cannot be.
+    expect(vaultAccountSize(acc(c, fee), EXACT_EXTENSIONS)).toMatch(/^it uses a transfer-fee setting/);
     expect(vaultAccountSize({ address: 'x', owner: STRANGER.toBase58(), data: new Uint8Array(82), lamports: 1 })).toMatch(/not owned by a token program/);
   });
 
@@ -975,7 +1028,9 @@ describe('vaultAccountSize', () => {
       const k = Keypair.generate().publicKey;
       c.mint2022(k, [extensionOf(type)]);
       const size = vaultAccountSize(acc(c, k));
-      if (BUILDABLE_EXTENSIONS.has(type)) {
+      if (type === EXTENSION.TransferFeeConfig) {
+        expect(size).toBe(178);
+      } else if (BUILDABLE_EXTENSIONS.has(type)) {
         expect(size, String(type)).toBe(165);
         expect(tokenAccountSize(acc(c, k)), String(type)).toBe(170);
       } else {

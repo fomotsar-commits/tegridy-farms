@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
 import { SummaryRows, TxReview } from './TxFlowView';
 import { KEY } from './fakeWriteApi.fixture';
+import { lpCreateSummary, lpDepositSummary, lpWithdrawSummary } from '../lp/fakeLpWriteApi.fixture';
 import { BAYLA_QUOTE, SOL_QUOTE, USDC_QUOTE } from '../../../lib/solana/lp/quotes';
 import { BAYLA_MINT } from '../../../lib/solana/lp/tokenSafety';
 import { PublicKey } from '@solana/web3.js';
@@ -189,5 +190,33 @@ describe('the whole review', () => {
     const t = (container.textContent ?? '').replace(/\s+/g, ' ');
     expect(t).toMatch(/Test run: your USDC changes by ?-250/);
     expect(t).not.toMatch(/pairing coin|0\.25/);
+  });
+});
+
+// Owner, 2026-10-29: a token's own transfer fee is said on every review it is part of,
+// as the token's, never the pool's or the venue's, and only when there is one.
+describe('the token’s own transfer fee, on each review', () => {
+  const FEE = { rate: '5%', kept: 250_000n };
+  const SAID = 'kept by the token for its fee collector, not by the pool or this site';
+
+  it('a buy says it is kept of the payout, and a sale of what is paid in', () => {
+    expect(text(buy({ transferFee: FEE }))).toMatch(new RegExp(`The token’s own transfer fee ?0\\.25 tokens of what the pool pays out \\(5%\\), ${SAID}; what you receive is after it`));
+    const sell = buy({ paysCoin: false, amountIn: 5_000_000n, transferFee: FEE });
+    expect(text(sell)).toMatch(new RegExp(`The token’s own transfer fee ?0\\.25 tokens of what you pay \\(5%\\), ${SAID}; the pool trades the rest`));
+  });
+
+  it('adding, removing and opening each say what the token keeps of its side', () => {
+    expect(text(lpDepositSummary(POOL, TOKEN, { transferFee: FEE }))).toMatch(new RegExp(`The token’s own transfer fee ?about 0\\.25 tokens of what you put in \\(5%\\), ${SAID}; the pool gets the rest`));
+    expect(text(lpWithdrawSummary(POOL, TOKEN, KEY(43), { transferFee: FEE }))).toMatch(
+      new RegExp(`The token’s own transfer fee ?about 0\\.25 tokens more of what the pool pays out \\(5%\\), ${SAID}; the amounts above are after it`),
+    );
+    const open = lpCreateSummary(POOL, TOKEN, { put: { quote: 1_000_000_000n, token: 5_000_000n }, transferFee: FEE });
+    expect(text(open)).toMatch(new RegExp(`The token’s own transfer fee ?0\\.25 of those tokens \\(5%\\), ${SAID}; the pool starts with 4\\.75`));
+  });
+
+  it('a token with no fee has no such row on any of them', () => {
+    for (const s of [buy(), lpDepositSummary(POOL, TOKEN), lpWithdrawSummary(POOL, TOKEN, KEY(43)), lpCreateSummary(POOL, TOKEN)]) {
+      expect(text(s)).not.toContain('transfer fee');
+    }
   });
 });

@@ -1,13 +1,8 @@
 import {
   isDeployed,
-  TEGRIDY_LENDING_ADDRESS,
   TEGRIDY_NFT_LENDING_ADDRESS,
   TEGRIDY_NFT_POOL_FACTORY_ADDRESS,
   TEGRIDY_LAUNCHPAD_V2_ADDRESS,
-  COMMUNITY_GRANTS_ADDRESS,
-  MEME_BOUNTY_BOARD_ADDRESS,
-  VOTE_INCENTIVES_ADDRESS,
-  GAUGE_CONTROLLER_ADDRESS,
   PREMIUM_ACCESS_ADDRESS,
 } from './constants';
 import { isSolanaSwapLive } from './solana';
@@ -41,33 +36,12 @@ export interface NavItem {
   live?: boolean;
 }
 
-/**
- * Keeps NFT finance and governance in the nav ahead of their constants.ts wiring.
- * Governance contracts are deployed but their constants are still 0x0, so this
- * alone carries /community. The address halves are exported so a test can tell
- * which input carries each entry.
- */
-const PROMOTE_PENDING: boolean = true;
-
-/** Address-derived half of the NFT-finance gate (no PROMOTE_PENDING override). */
-export const NFT_FINANCE_ADDRESSES_LIVE = [
-  TEGRIDY_LENDING_ADDRESS,
+/** The NFT-finance entry lists on the strength of its own addresses. */
+export const NFT_FINANCE_LIVE = [
   TEGRIDY_NFT_LENDING_ADDRESS,
   TEGRIDY_NFT_POOL_FACTORY_ADDRESS,
   TEGRIDY_LAUNCHPAD_V2_ADDRESS,
 ].some(isDeployed);
-
-export const NFT_FINANCE_LIVE = PROMOTE_PENDING || NFT_FINANCE_ADDRESSES_LIVE;
-
-/** Address-derived half of the governance gate (no PROMOTE_PENDING override). */
-export const COMMUNITY_ADDRESSES_LIVE = [
-  COMMUNITY_GRANTS_ADDRESS,
-  MEME_BOUNTY_BOARD_ADDRESS,
-  VOTE_INCENTIVES_ADDRESS,
-  GAUGE_CONTROLLER_ADDRESS,
-].some(isDeployed);
-
-export const COMMUNITY_LIVE = PROMOTE_PENDING || COMMUNITY_ADDRESSES_LIVE;
 
 export const PREMIUM_LIVE = isDeployed(PREMIUM_ACCESS_ADDRESS);
 
@@ -167,7 +141,7 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { to: '/island',      label: 'The island',  tabLabel: 'Island' },
       { to: '/gallery',     label: 'Gallery' },
-      ...(COMMUNITY_LIVE ? [{ to: '/community', label: 'Community' }] : []),
+      { to: '/community', label: 'Community' },
       // NUMBERS_TABS[0]; StatsPage hosts /tokenomics, /treasury and /tax. The test keeps the two equal.
       { to: '/tokenomics',  label: 'Treasury & numbers', tabLabel: 'Numbers' },
     ],

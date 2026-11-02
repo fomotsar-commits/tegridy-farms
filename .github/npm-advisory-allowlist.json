@@ -6,23 +6,22 @@
     "",
     "TWO LISTS, ON PURPOSE.",
     "",
-    "  accepted[] — a decision. Requires `reason` (>= 10 chars, what makes this tolerable HERE) and",
-    "               `expires`. On the expiry date it becomes blocking again, so an acceptance is a",
-    "               dated promise to revisit, never a permanent pardon. Extending one is a commit",
-    "               someone reviews.",
+    "  accepted[]: a decision. Requires `reason` (>= 10 chars, what makes this tolerable HERE) and",
+    "              `expires`. On the expiry date it becomes blocking again, so an acceptance is a",
+    "              dated promise to revisit, never a permanent pardon. Extending one is a commit",
+    "              someone reviews.",
     "",
-    "               Also requires `projects`: the projects the reason was judged for, named as the",
-    "               baseline names them ('.', 'frontend', 'indexer'). The acceptance counts in those",
-    "               projects and in no other. Anywhere else the advisory blocks until someone judges",
-    "               it for that tree. An entry with no `projects` list counts nowhere. The same id",
-    "               may have a second entry, with its own reason, for another project.",
+    "              Also requires `projects`: the projects the reason was judged for, named as the",
+    "              baseline names them ('.', 'frontend', 'indexer'). The acceptance counts in those",
+    "              projects and in no other. Anywhere else the advisory blocks until someone judges",
+    "              it for that tree. An entry with no `projects` list counts nowhere. The same id",
+    "              may have a second entry, with its own reason, for another project.",
     "",
-    "  baseline   — the advisories that already existed when the gate was armed (2026-08-18),",
-    "               recorded verbatim from that run. No reason is written for them because nobody",
-    "               has triaged them, and inventing 32 rationales would be exactly the fabrication",
-    "               this repo's honesty rule forbids. The whole baseline expires at once. After",
-    "               that date every untriaged inherited advisory blocks — either fix it, or move it",
-    "               into accepted[] with a real reason.",
+    "  baseline:   the advisories that already existed when the gate was armed (2026-08-18),",
+    "              recorded verbatim, with no reasons and one shared expiry. All of them were",
+    "              triaged on 2026-10-29: each was fixed or moved into accepted[] with a reason, so",
+    "              every list is empty. Add nothing to it; a new advisory is fixed or accepted.",
+    "              Its project keys stay: they name the projects the workflow audits.",
     "",
     "WHEN A RUN SAYS 'PRUNE'. Each project's run reports only its own suppressions whose advisory is",
     "gone from that project. For a baseline id, delete it from that project's list. For an accepted",
@@ -31,23 +30,70 @@
     "THE UNIT IS THE GHSA ID, NEVER THE PACKAGE. Suppressing 'axios' would silently absorb the next",
     "axios advisory too; suppressing GHSA-gcfj-64vw-6mp9 suppresses exactly one known finding.",
     "",
-    "KNOWN WORST ITEM IN THE BASELINE: GHSA-3gc7-fjrx-p6mg, a bigint-buffer heap overflow reachable",
-    "through @solana/spl-token in an application that signs transactions. npm reports its only fix",
-    "as a semver-major downgrade of @solana/spl-token to 0.1.8, which is a product decision and a",
-    "code change, not a lockfile bump — that is why it is baselined rather than fixed in the commit",
-    "that armed this gate, and why the baseline expiry is 90 days and not a year."
+    "WORST ITEM CARRIED: GHSA-3gc7-fjrx-p6mg, bigint-buffer under @solana/spl-token, in an app that",
+    "signs transactions. No bigint-buffer release fixes it, and npm's only fix is @solana/spl-token",
+    "0.1.8, a downgrade that is a code change, not a lockfile bump. The owner ruled on 2026-10-29 to",
+    "keep carrying it. Its entry says why no install of ours can reach the flawed code."
   ],
   "accepted": [
     {
+      "ghsa": "GHSA-3gc7-fjrx-p6mg",
+      "reason": "Triaged on 2026-10-29. Scope: the frontend. The flaw: bigint-buffer's toBigIntLE() hands its argument to the package's C addon without checking that it is a Buffer, and a bad argument overflows a buffer and crashes the process. No release fixes it: 1.1.5 is the newest and the advisory names no patched version. It arrives through @solana/buffer-layout-utils, under our @solana/spl-token 0.4.15 (the newest) and under the 0.4.9 that @streamflow/common and @streamflow/staking 13.4.0 (the newest) pin exactly. The C addon is never built for us. bigint-buffer ships no prebuilt binary and compiles it only in its install script (node-gyp rebuild), and frontend/.npmrc sets ignore-scripts=true for every install, CI's and Vercel's included: a fresh npm ci on 2026-10-29 left no build/ folder in the package. Without the addon, toBigIntLE() copies and reverses the bytes in plain JavaScript, which cannot overflow. The browser build takes dist/browser.js, which has no addon at all, and api/ imports none of these packages. npm's only fix, @solana/spl-token 0.1.8 (2021), is the old class-based API with none of the functions the site imports (createAssociatedTokenAccountIdempotentInstruction, getAssociatedTokenAddressSync, TOKEN_2022_PROGRAM_ID among them), so it is a rewrite of the Solana write paths, and it would leave Streamflow's two copies in place. The owner ruled on 2026-10-29 to keep carrying it and not make that rewrite. Expires 2027-01-27. It can go when spl-token and Streamflow stop depending on bigint-buffer, or bigint-buffer publishes a fix.",
+      "expires": "2027-01-27",
+      "projects": ["frontend"]
+    },
+    {
       "ghsa": "GHSA-mrhx-c7xc-m3w5",
-      "reason": "Proposed on 2026-10-24, in the pull request that moves the frontend's own zod from 4.4.3 to 4.6.6, the patched release. It is carried only if the owner merges that pull request. Scope: the frontend. The flaw: before 4.6.6, zod parsed every element of an array before checking its .max(), collecting an error for each bad one, so a huge array could run the process out of memory. The 4.6.6 bump covers every copy our code imports: the browser schemas in src/ and api/_lib/proxy-schemas.js, which checks strangers' request bodies in api/supabase-proxy.js against arrays capped at .max(200). This entry carries two zod 3 copies that the advisory also covers (every version below 4.6.6) and that no zod 3 release fixes. Neither is in the site. (1) zod 3.22.4, pinned exactly by @reown/appkit-wallet 1.8.19 (1.8.24, the newest, still pins it), under @walletconnect/ethereum-provider. Its only use is the schemas for Reown's embedded-wallet frame, which ethereum-provider's @reown/appkit/core entry does not load. (2) zod 3.25.76 under @coinbase/cdp-sdk 1.56.0 (1.60.0, the newest, still asks for ^3.25.76), which @base-org/account imports only from its Node entry (payment and subscription helpers). Checked on 2026-10-24 in a vite build made with a WalletConnect project id, as production's is: AppKit is in it, but no zod 3 (its own strings ZodEffects, ZodBranded and ZodNativeEnum are absent from all 488 files) and no cdp-sdk; the only zod is 4.6.6. api/ imports neither package. If a later Reown release did bundle the frame, it would check postMessage events in the visitor's browser with no origin check, and the worst a hostile window could do is run that one tab out of memory. Forcing zod 4 under either package is a major-version override under code we do not own, the move NOTES.md 2026-10-06 shows can break quietly. npm's suggested fix, @base-org/account 2.5.5, still depends on cdp-sdk and keeps appkit-wallet's copy, so it fixes nothing. Expires with the baseline. It can go when both packages move to zod 4.6.6 or later, or drop zod.",
-      "expires": "2026-11-16",
+      "reason": "Triaged on 2026-10-24 and again on 2026-10-29. Scope: the frontend. The flaw: before zod 4.6.6, an array's .max() was checked only after every element had been parsed, collecting an error for each bad one, so a huge array could run the process out of memory. Every zod our own code imports is 4.6.6: the browser schemas in src/ and api/_lib/proxy-schemas.js, which checks strangers' request bodies in api/supabase-proxy.js against arrays capped at .max(200). Two zod 3 copies remain, and no zod 3 release fixes it. (1) zod 3.22.4, pinned exactly by @reown/appkit-wallet 1.8.19 (1.8.24, the newest on 2026-10-29, still pins it), under @walletconnect/ethereum-provider. Its only use is the schemas for Reown's embedded-wallet frame, which ethereum-provider's @reown/appkit/core entry does not load. (2) zod 3.25.76 under @coinbase/cdp-sdk 1.56.0 (1.60.0, the newest on 2026-10-29, still asks for ^3.25.76), which @base-org/account imports only from its Node entry (payment and subscription helpers). A vite build made with a WalletConnect project id, as production's is, held no zod 3 and no cdp-sdk on 2026-10-24 (zod 3's own strings ZodEffects, ZodBranded and ZodNativeEnum were absent from all 488 files), and the lockfile entries for zod, @reown/appkit, @reown/appkit-wallet, @walletconnect/ethereum-provider, @coinbase/cdp-sdk and @base-org/account were unchanged on 2026-10-29. api/ imports neither package. If a later Reown release did bundle the frame, it would check postMessage events in the visitor's browser with no origin check, and the worst a hostile window could do is run that one tab out of memory. Forcing zod 4 under either package is a major-version override under code we do not own, the move NOTES.md 2026-10-06 shows can break quietly. npm's suggested fix, @base-org/account 2.5.5, still depends on cdp-sdk and keeps appkit-wallet's copy, so it fixes nothing. Expires 2027-01-27. It can go when both packages move to zod 4.6.6 or later, or drop zod.",
+      "expires": "2027-01-27",
       "projects": ["frontend"]
     },
     {
       "ghsa": "GHSA-587h-7wmj-h5pm",
-      "reason": "Proposed on 2026-10-21, in the same pull request that clears this advisory from the frontend with vite 8.3.3. It is carried only if the owner merges that pull request. Scope: the indexer. The flaw (published 2026-10-20) is in launch-editor, which vite bundles and serves at /__open-in-editor on its dev server: on Windows a crafted file path passes the existence check and reaches a shell command. The fix on this line is vite 6.4.4 and there is no safe way to reach it. ponder 0.8.33 pins vite at exactly 5.0.7, beside vite-node 1.0.2, which asks for vite ^5, so the fix is a major-version override under the loader ponder runs every indexing file through. ponder 0.18.2, the newest, does not clear it either: it pins vite 8.3.1, which is affected. No request reaches the flaw here. ponder calls vite's createServer only to load ponder.config.ts and the indexing files through vite-node. It never calls listen() on that server, and its own HTTP server (hono) mounts none of vite's middlewares, so /__open-in-editor is on no port (read in ponder 0.8.33's dist/bin/ponder.js on 2026-10-21). The flaw also needs Windows, and production runs on Railway's Linux containers. Expires with the baseline so the indexer's ponder 0.8 debt comes due together. It can go when the indexer moves to a ponder whose vite is 6.4.4, 7.3.7, 8.1.6, 8.2.4 or 8.3.3 or later on its line.",
-      "expires": "2026-11-16",
+      "reason": "Triaged on 2026-10-21 and again on 2026-10-29. Scope: the indexer. The flaw (published 2026-10-20) is in launch-editor, which vite bundles and serves at /__open-in-editor on its dev server: on Windows a crafted file path passes the existence check and reaches a shell command. ponder 0.8.33 pins vite at exactly 5.0.7, beside vite-node 1.0.2, which asks for vite ^5. No 5.x release has the fix (the first is 6.4.4), so taking it is a major-version override under the loader ponder runs every indexing file through. ponder 0.18.3, the newest on 2026-10-29, pins vite 8.3.1, which is still affected. No request reaches the flaw here. ponder calls vite's createServer only to load ponder.config.ts and the indexing files through vite-node. It never calls listen() on that server, and its own HTTP server (hono, through @hono/node-server's serve) mounts none of vite's middlewares, so /__open-in-editor is on no port (read in ponder 0.8.33's dist/bin/ponder.js on 2026-10-21 and 2026-10-29). The flaw also needs Windows, and production runs on Railway's Linux containers. Expires 2027-01-27, with the rest of the indexer's ponder 0.8 debt. It can go when the indexer moves to a ponder whose vite is 6.4.4, 7.3.7, 8.1.6, 8.2.4 or 8.3.3 or later on its line.",
+      "expires": "2027-01-27",
+      "projects": ["indexer"]
+    },
+    {
+      "ghsa": "GHSA-c27g-q93r-2cwf",
+      "reason": "Triaged on 2026-10-29. Scope: the indexer. The flaw: launch-editor before 2.9.0, which vite up to 5.4.8 bundles and serves at /__open-in-editor on its dev server, passes a crafted file name to a shell on Windows. ponder 0.8.33 pins vite at exactly 5.0.7. vite 5.4.9 has the fix in the same major, but the override would swap the loader ponder runs every indexing file through (5.0 to 5.4 also moves its esbuild from ^0.19 to ^0.21), under a package that pins it exactly, for a route that is on no port: ponder calls vite's createServer only to load files through vite-node, never calls listen() on it, and its own HTTP server mounts none of vite's middlewares (read in ponder 0.8.33's dist/bin/ponder.js on 2026-10-29). The flaw also needs Windows, and production runs on Railway's Linux containers. Expires 2027-01-27. It can go when the indexer's ponder brings vite 5.4.9 or later; ponder 0.18.3 (vite 8.3.1) does.",
+      "expires": "2027-01-27",
+      "projects": ["indexer"]
+    },
+    {
+      "ghsa": "GHSA-c24v-8rfc-w8vw",
+      "reason": "Triaged on 2026-10-29. Scope: the indexer. The flaw: vite's dev server up to 5.0.11 lets server.fs.deny be bypassed with a differently cased file name on a case-insensitive file system. ponder 0.8.33 pins vite at exactly 5.0.7. 5.0.12 has the fix in the same major, but taking it is an override of ponder's exact pin on the loader that runs every indexing file. No request reaches the flaw: the check guards the dev server's file serving, and ponder never calls listen() on its vite server (createServer with publicDir off, used only through vite-node; read in ponder 0.8.33's dist/bin/ponder.js on 2026-10-29), so vite serves no file on any port. Production also runs on Railway's Linux containers, whose file systems are case-sensitive. Expires 2027-01-27. It can go when the indexer's ponder brings vite 5.0.12 or later; ponder 0.18.3 (vite 8.3.1) does.",
+      "expires": "2027-01-27",
+      "projects": ["indexer"]
+    },
+    {
+      "ghsa": "GHSA-gpj5-g38j-94v9",
+      "reason": "Triaged on 2026-10-29. Scope: the indexer. The flaw: drizzle-orm before 0.45.2 did not double the quote character inside an identifier, so code that passes a stranger's text to sql.identifier() or .as() can be made to run SQL. ponder 0.8.33 pins drizzle-orm at exactly 0.36.4. 0.45.2 is nine 0.x releases on, a breaking range, under the ORM ponder builds every query with: an override there is the move NOTES.md 2026-10-06 shows can break quietly. No request reaches the flaw. ponder's GraphQL takes orderBy and where field names from the request, but looks each one up in the table's column map and throws 'Unknown column' when it is not there, so request text never becomes an identifier (read in ponder 0.8.33's dist/chunk-QDEX6PEZ.js on 2026-10-29; on a local server that day, an orderBy of id\" desc; -- came back as that error). Every .as() alias in ponder is a fixed string, and indexer/src passes no request text to SQL. Expires 2027-01-27. It can go when the indexer moves to a ponder with drizzle-orm 0.45.2 or later (ponder 0.18.3 pins 0.41.0, still affected).",
+      "expires": "2027-01-27",
+      "projects": ["indexer"]
+    },
+    {
+      "ghsa": "GHSA-wc8c-qw6v-h7f6",
+      "reason": "Triaged on 2026-10-29. Scope: the indexer. The flaw: @hono/node-server before 1.19.10 decodes %2F in its serveStatic middleware but not in route matching, so a static file under a protected path can be fetched past that path's middleware. ponder 0.8.33 pins @hono/node-server at exactly 1.13.3. 1.19.10 is the same major, but the override would swap the adapter every request to the production indexer passes through, under a package that pins it exactly, for a function nothing calls: ponder imports only serve from @hono/node-server (dist/bin/ponder.js, read on 2026-10-29), indexer/src/api/index.ts mounts only CORS and GraphQL, and the indexer serves no static files. Expires 2027-01-27. It can go when the indexer moves to a ponder with @hono/node-server 1.19.10 or later (ponder 0.18.3 pins 1.19.5, still affected).",
+      "expires": "2027-01-27",
+      "projects": ["indexer"]
+    },
+    {
+      "ghsa": "GHSA-8cpq-38p9-67gx",
+      "reason": "Triaged on 2026-10-29. Scope: the indexer. The flaw: kysely up to 0.28.13 escapes a quote but not a backslash when it writes a string literal into SQL, which breaks out of the string on MySQL (where backslash escapes are on by default), through CreateIndexBuilder.where() and CreateViewBuilder.as(). The indexer has two copies: 0.26.3, which ponder 0.8.33 asks for (^0.26.3; 0.26.3 is the last 0.26), and 0.27.6, which kysely-pglite brings. The fix, 0.28.14, is a breaking range in 0.x under ponder's own database layer. No request reaches the flaw: it needs the MySQL dialect, and ponder talks only to Postgres (Railway, through DATABASE_URL) or PGlite (local runs), building its index and view statements from its own schema, not from requests. Expires 2027-01-27. It can go when the indexer's ponder brings kysely 0.28.14 or later or drops kysely; ponder 0.18.3 no longer depends on it.",
+      "expires": "2027-01-27",
+      "projects": ["indexer"]
+    },
+    {
+      "ghsa": "GHSA-wmrf-hv6w-mr66",
+      "reason": "Triaged on 2026-10-29. Scope: the indexer. The flaw: kysely 0.26.0 to 0.28.11 writes the keys given to a JSON path's .key() and .at() into a quoted SQL string without escaping, on the MySQL and SQLite dialects. Copies: 0.26.3 (ponder 0.8.33 asks for ^0.26.3) and 0.27.6 (kysely-pglite). The fix, 0.28.12, is a breaking range in 0.x under ponder's database layer. No request reaches the flaw: ponder uses only Postgres and PGlite, none of ponder 0.8.33, kysely-pglite or kysely-codegen calls .key() or .at() (their dist searched on 2026-10-29), and indexer/src does not use kysely. Expires 2027-01-27. It can go when the indexer's ponder brings kysely 0.28.12 or later or drops kysely; ponder 0.18.3 no longer depends on it.",
+      "expires": "2027-01-27",
+      "projects": ["indexer"]
+    },
+    {
+      "ghsa": "GHSA-pv5w-4p9q-p3v2",
+      "reason": "Triaged on 2026-10-29. Scope: the indexer. The flaw: kysely 0.26.0 to 0.28.16 does not escape JSON-path characters (. [ ] *) in keys given to a JSON path's .key() and .at(), so a stranger's key can reach another part of a JSON column, on MySQL, SQLite and Postgres ->$ paths. Copies: 0.26.3 (ponder 0.8.33 asks for ^0.26.3) and 0.27.6 (kysely-pglite). The fix, 0.28.17, is a breaking range in 0.x under ponder's database layer. No request reaches the flaw: none of ponder 0.8.33, kysely-pglite or kysely-codegen calls .key() or .at() (their dist searched on 2026-10-29), and indexer/src does not use kysely. Expires 2027-01-27. It can go when the indexer's ponder brings kysely 0.28.17 or later or drops kysely; ponder 0.18.3 no longer depends on it.",
+      "expires": "2027-01-27",
       "projects": ["indexer"]
     }
   ],
@@ -57,24 +103,8 @@
     "measuredWith": "npm audit --json, npm 10 / node 20, lockfiles as committed on 2026-08-18",
     "projects": {
       ".": [],
-      "frontend": [
-        "GHSA-3gc7-fjrx-p6mg",
-        "GHSA-96hv-2xvq-fx4p",
-        "GHSA-ph9p-34f9-6g65"
-      ],
-      "indexer": [
-        "GHSA-6g55-p6wh-862q",
-        "GHSA-88fw-hqm2-52qc",
-        "GHSA-8cpq-38p9-67gx",
-        "GHSA-96hv-2xvq-fx4p",
-        "GHSA-c24v-8rfc-w8vw",
-        "GHSA-c27g-q93r-2cwf",
-        "GHSA-gpj5-g38j-94v9",
-        "GHSA-pv5w-4p9q-p3v2",
-        "GHSA-r28c-9q8g-f849",
-        "GHSA-wc8c-qw6v-h7f6",
-        "GHSA-wmrf-hv6w-mr66"
-      ]
+      "frontend": [],
+      "indexer": []
     }
   }
 }

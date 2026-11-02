@@ -89,8 +89,6 @@ const TYPE_ICONS: Record<ReceiptType, string> = {
   stake:            '\u{1F512}',
   unstake:          '\u{1F513}',
   claim:            '\u{1F4B0}',
-  vote:             '\u{1F5F3}\u{FE0F}',
-  bounty:           '\u{1F3AF}',
   lock:             '\u{26D3}\u{FE0F}',
   approve:          '\u{2705}',
   liquidity_add:    '\u{1F4A7}',
@@ -104,8 +102,6 @@ const TYPE_CONFIG: Record<ReceiptType, { label: string; icon: string; verb: stri
   stake:            { ...RECEIPT_COPY.stake,            icon: TYPE_ICONS.stake },
   unstake:          { ...RECEIPT_COPY.unstake,          icon: TYPE_ICONS.unstake },
   claim:            { ...RECEIPT_COPY.claim,            icon: TYPE_ICONS.claim },
-  vote:             { ...RECEIPT_COPY.vote,             icon: TYPE_ICONS.vote },
-  bounty:           { ...RECEIPT_COPY.bounty,           icon: TYPE_ICONS.bounty },
   lock:             { ...RECEIPT_COPY.lock,             icon: TYPE_ICONS.lock },
   approve:          { ...RECEIPT_COPY.approve,          icon: TYPE_ICONS.approve },
   liquidity_add:    { ...RECEIPT_COPY.liquidity_add,    icon: TYPE_ICONS.liquidity_add },
@@ -151,16 +147,6 @@ function buildDetailRows(receipt: ReceiptData): { label: string; value: string }
       if (data.rewardAmount && data.token) {
         rows.push({ label: 'Rewards', value: `${formatTokenAmount(data.rewardAmount, 6)} ${sanitize(data.token)}` });
       }
-      break;
-
-    case 'vote':
-      if (data.poolName) rows.push({ label: 'Pool', value: sanitize(data.poolName) });
-      if (data.voteWeight) rows.push({ label: 'Weight', value: sanitize(data.voteWeight) });
-      break;
-
-    case 'bounty':
-      if (data.bountyTitle) rows.push({ label: 'Bounty', value: sanitize(data.bountyTitle) });
-      if (data.bountyReward) rows.push({ label: 'Reward', value: `${sanitize(data.bountyReward)} ETH` });
       break;
 
     case 'approve':

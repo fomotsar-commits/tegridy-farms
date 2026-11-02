@@ -41,7 +41,7 @@ const NOT_IN_REPO: Array<[string, string]> = [
   ['Tegridy Fee Hook (V4)', TEGRIDY_FEE_HOOK_ADDRESS],
 ];
 
-/** On mainnet but unwired (address 0x0, so outside the Etherscan query); source retired 2026-10-27. */
+/** On mainnet, never wired into this app; source retired 2026-10-27, so each row says so instead of linking. */
 const RETIRED_SOURCE = ['Gauge Controller', 'Vote Incentives', 'Community Grants', 'Meme Bounty Board'];
 
 /** Rows that are not ours to publish: third-party contracts and retired deployments. */

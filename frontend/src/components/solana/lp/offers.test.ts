@@ -186,6 +186,17 @@ describe('the leave rule, row by row (spec 3.7)', () => {
     expect(remove(position(view({ sol: 0n })))).toBe('dust');
   });
 
+  it('a share whose token payout the transfer fee would take whole is dust, though it is enough without the fee', () => {
+    // 1,000 tokens over 10^6 shares: 1,000 shares pay 1 token, and any fee takes at least 1 of it.
+    const v = view({ sol: 10n ** 12n, tok: 1_000n, lpSupply: 1_000_000n });
+    const p = position(v, { lpAmount: 1_000n });
+    const oneBps = { epoch: 0n, maximumFee: (1n << 64n) - 1n, basisPoints: 1 };
+    expect(withdrawOffer({ mode: 'on', gate: OPEN, position: p, held: false })).toBe('offer');
+    expect(withdrawOffer({ mode: 'on', gate: OPEN, position: p, held: false, tokenFee: oneBps })).toBe('dust');
+    // Two tokens out, one reaching the wallet: offered.
+    expect(withdrawOffer({ mode: 'on', gate: OPEN, position: position(v, { lpAmount: 2_000n }), held: false, tokenFee: oneBps })).toBe('offer');
+  });
+
   it('a pool that does not pair the token with SOL, or that could not be read: no remove from here', () => {
     expect(remove(position(null, { pool: { kind: 'other-pair', address: key().toBase58(), token0Mint: key().toBase58(), token1Mint: key().toBase58() } }))).toBe('other-pair');
     for (const pool of [
@@ -809,7 +820,7 @@ describe('createOffer', () => {
     // opening check says each of them above Review. If the check ever stopped saying one,
     // it would be said nowhere in the form: this pins that it cannot.
     it('every code the form leaves out of its top list has a line from the opening check', () => {
-      expect([...POOL_RISK_CODES].sort()).toEqual(['copies-known-name', 'freeze-authority', 'interest-bearing', 'scaled-amount']);
+      expect([...POOL_RISK_CODES].sort()).toEqual(['copies-known-name', 'freeze-authority', 'interest-bearing', 'scaled-amount', 'transfer-fee', 'transfer-fee-mutable']);
       for (const code of POOL_RISK_CODES) {
         expect(tokenReasons(warnedWith(code), 'pools').warned, code).toHaveLength(1);
       }

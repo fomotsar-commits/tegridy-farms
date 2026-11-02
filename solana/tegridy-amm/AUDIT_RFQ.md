@@ -60,7 +60,7 @@ authorities:
 | Constant | File | Change |
 |---|---|---|
 | `declare_id!` (program ID) | `programs/cp-swap/src/lib.rs` | Raydium → our program id. Mainnet arm: `EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT`, the live program. Devnet arm: a throwaway. |
-| `admin::ID` | `lib.rs` | Raydium → our admin. Mainnet arm: the Squads **vault PDA** `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd`, never the Squads multisig account. Devnet arm: a throwaway key. |
+| `admin::ID` | `lib.rs` | Raydium → our admin. Mainnet arm: the Squads **vault PDA** `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd`, never the Squads multisig account. Devnet arm: an operator-held devnet key, not a throwaway (it has also signed on mainnet; see `TEGRIDY_FORK.md`). |
 | `create_pool_fee_reveiver::ID` | `lib.rs` | Raydium WSOL acct → `2sa31zceMSTAAbSu5wfSnNA6sBYzS7r97nvZYaQouEXa`, the vault's WSOL ATA. **A token account, not a wallet**: it is consumed as `InterfaceAccount<TokenAccount>` at `instructions/initialize.rs:131-135`. |
 | `create_support_mint_associated_owner::ID` | `instructions/admin/create_support_mint_associated.rs` | Raydium → the same Squads vault PDA on the mainnet arm. |
 

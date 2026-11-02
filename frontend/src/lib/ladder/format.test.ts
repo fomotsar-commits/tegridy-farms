@@ -151,3 +151,13 @@ describe('fmtRawFixed — the meter\'s fixed-width figure', () => {
     expect(fmtRawParts(null, 6, 6)).toBeNull();
   });
 });
+
+describe('fmtDaily', () => {
+  it('two decimals from one whole token up, four below it', async () => {
+    const { fmtDaily } = await import('./format');
+    expect(fmtDaily(22_678_617_600n, 6)).toBe((22_678).toLocaleString() + '.61');
+    // A small stake's real 0.0042 a day — two decimals would print "0.00".
+    expect(fmtDaily(4_200n, 6)).toBe('0.0042');
+    expect(fmtDaily(null, 6)).toBe('–');
+  });
+});

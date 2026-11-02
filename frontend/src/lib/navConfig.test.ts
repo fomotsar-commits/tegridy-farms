@@ -9,11 +9,7 @@ import {
   MORE_NAV,
   NAV_SECTIONS,
   POOLS_SECTION,
-  // Not NFT_FINANCE_LIVE: comparing the nav against the gate that built it is a tautology.
-  // The address-derived halves below can fail when PROMOTE_PENDING moves.
-  NFT_FINANCE_ADDRESSES_LIVE,
-  COMMUNITY_LIVE,
-  COMMUNITY_ADDRESSES_LIVE,
+  NFT_FINANCE_LIVE,
   tradeRoute,
   lockRoute,
   poolsRoute,
@@ -187,22 +183,18 @@ describe('the drawer', () => {
 });
 
 describe('navConfig', () => {
-  // Three of NFT finance's four relaunch addresses are real, so the address-derived gate is
-  // true on its own; zeroing them must fail here, not hide behind PROMOTE_PENDING.
+  // Three of NFT finance's relaunch addresses are real, so the address-derived gate is
+  // true on its own; zeroing them must fail here.
   it('lists NFT Finance on the strength of its OWN addresses', () => {
     expect(
-      NFT_FINANCE_ADDRESSES_LIVE,
+      NFT_FINANCE_LIVE,
       'an nft-finance address must be deployed in constants.ts for this entry to be honest',
     ).toBe(true);
     expect(MORE_NAV.map((n) => n.to)).toContain('/nft-finance');
     expect(ALL_NAV.find((n) => n.to === '/nft-finance')?.label).toBe('Borrow on NFTs');
   });
 
-  // Governance is deployed on mainnet but 0x0 in constants.ts, so only PROMOTE_PENDING lists
-  // /community. Turn it off and the last two assertions fail.
-  it('lists Community ONLY because PROMOTE_PENDING forces it', () => {
-    expect(COMMUNITY_ADDRESSES_LIVE, 'no governance address is wired in constants.ts yet').toBe(false);
-    expect(COMMUNITY_LIVE, 'Community is listed, so something other than the addresses carries it').toBe(true);
+  it('lists Community', () => {
     expect(MORE_NAV.map((n) => n.to)).toContain('/community');
   });
 
@@ -415,17 +407,6 @@ describe('navConfig', () => {
     const entrySource = source.slice(start, source.indexOf('},', start));
     expect(entrySource, 'the mark must read the registry, not one chain').toContain('isCurveLive()');
     expect(entrySource).not.toContain('CURVE_LAUNCHER_ADDRESS');
-  });
-
-  // Every rail behind them is undeployed (pages/airdropVestingHonesty.test.ts). Listing either
-  // is a deliberate act that deletes this test first.
-  it('leaves /airdrop and /vesting reachable by URL but out of the nav', () => {
-    const routed = ROUTES.map((r) => r.path);
-    const listed = ALL_NAV.map((n) => n.to);
-    for (const path of ['/airdrop', '/vesting']) {
-      expect(routed, `${path} must stay reachable by URL`).toContain(path);
-      expect(listed, `${path}'s rails are undeployed; it must not be listed`).not.toContain(path);
-    }
   });
 });
 

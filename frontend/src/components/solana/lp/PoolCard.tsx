@@ -7,7 +7,7 @@ import type { QuoteCoin } from '../../../lib/solana/lp/quotes';
 import { NOTHING_WHY, noPriceClause } from '../../../lib/solana/lp/poolHealth';
 import { chargedCreatorFeeRate, feeSplit } from '../../../lib/solana/cpswap/venue';
 import { ratePercent } from '../../../lib/solana/cpswap/math';
-import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
+import { EXACT_EXTENSIONS, type TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { poolEarned } from '../../../lib/solana/lp/poolGrowth';
 import {
   POOL_PAST_AGAIN,
@@ -35,6 +35,8 @@ import type { LpReaders } from './readers';
 import { useLpWrites, type LpWrites } from './useLpWrites';
 import { WholeDates } from './WholeDates';
 import { DoorPortal } from './LpDoorFrame';
+import { Link } from 'react-router-dom';
+import { pairSwapLink } from '../../../lib/solana/lp/poolList';
 
 const ORIGIN_LABEL: Record<PoolView['origin'], string> = {
   'launch-pool': 'Launch pool: opened by the launch program when the token graduated',
@@ -425,6 +427,12 @@ export function PoolCard({
         <Part title="Price">
           <Row label="In the pool" value={`${quoteText(view.quoteReserve, view.quote)} and ${tokenText(view.tokenReserve, tokenDecimals, unit.many)}`} mono={false} />
           <PriceRows price={price} quote={view.quote} unit={unit} />
+          {/* The pair on the swap page, under the price it would trade at (owner, 2026-10-30: Swap beside Add). */}
+          <div className="pt-1">
+            <Link to={pairSwapLink(view)} className="btn-secondary min-h-[44px] px-4 text-[13px] inline-flex items-center" data-testid="lp-pool-swap" aria-label={`Swap ${pairLabel(view, safety)}`}>
+              Swap
+            </Link>
+          </div>
         </Part>
 
         <Part title="Trading and deposits">
@@ -600,8 +608,11 @@ function DepositOfferBlock({
   const blockRef = useRef<HTMLDivElement | null>(null);
   const acted = useRef(0);
   const { open: openPanel, busy } = writes;
+  // "Add with one coin" swaps, then deposits, with no transfer-fee maths: a token whose
+  // transfers do not move exactly what is sent (EXACT_EXTENSIONS) is added with both coins.
+  const oneCoinOff = safety?.kind === 'read' && (safety.facts?.extensions ?? []).some((e) => !EXACT_EXTENSIONS.has(e));
   // The LP door asks for Add with one coin (`openForm`); every other wish, Add liquidity.
-  const wishKey = openForm === 'one' ? `one:${view.address}` : key;
+  const wishKey = openForm === 'one' && !oneCoinOff ? `one:${view.address}` : key;
   useEffect(() => {
     if (!openNow || acted.current === openNow || offer !== 'offer') return;
     acted.current = openNow;
@@ -616,7 +627,7 @@ function DepositOfferBlock({
   // own sent deposit makes this pool `held`, and the outcome on screen must not vanish.
   // "Add with one coin" (AddOneCoinPanel.tsx): offered exactly where Add liquidity is, and held by the same lock.
   const oneKey = `one:${view.address}`;
-  const oneOpen = writes.active?.key === oneKey;
+  const oneOpen = writes.active?.key === oneKey && !oneCoinOff;
   const blockedOne = writes.busy && !oneOpen;
   // The door's wish (`atTop`) opens its form in the door, and this card's forms stay there ("I
   // have both coins" too) until they close; the next form it opens is on the card. Latched when
@@ -657,16 +668,19 @@ function DepositOfferBlock({
             >
               Add liquidity
             </button>
-            <button
-              type="button"
-              className="btn-secondary w-full sm:w-auto min-h-[44px] px-4 text-[13px] disabled:opacity-60"
-              disabled={blockedOne}
-              aria-expanded={oneOpen}
-              onClick={(e) => writes.open('add', oneKey, e.currentTarget)}
-            >
-              Add with one coin
-            </button>
+            {!oneCoinOff && (
+              <button
+                type="button"
+                className="btn-secondary w-full sm:w-auto min-h-[44px] px-4 text-[13px] disabled:opacity-60"
+                disabled={blockedOne}
+                aria-expanded={oneOpen}
+                onClick={(e) => writes.open('add', oneKey, e.currentTarget)}
+              >
+                Add with one coin
+              </button>
+            )}
           </div>
+          {oneCoinOff && <p className="text-white/45 text-[11px]">Add with one coin is not offered for a token with a transfer fee: add both sides.</p>}
           {(blockedByOther || blockedOne) && <Notice>Finish or close the open liquidity panel first.</Notice>}
           {/* The checks run again at Review, where they are said; nothing about them here (owner, 2026-10-17). */}
         </>
