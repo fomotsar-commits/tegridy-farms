@@ -156,9 +156,10 @@ test('Add in the BAYLA room raises the sheet over the room: its button on it wit
   await shoot(page, 'sheet-844');
   const tall = await measure(page);
   if (OUT) console.log('SHEET', JSON.stringify(tall), 'unanswered rpc:', [...unknown].join(','));
-  // The room never scrolled under it, and the sheet did not move once it rose.
+  // The room never scrolled under it, and the sheet, which fits what it holds, moved little once it rose.
   expect((tall.walk as Walk).scrolls).toEqual([0]);
-  expect(new Set((tall.walk as Walk).sheetTops).size).toBeLessThanOrEqual(2);
+  const tops = (tall.walk as Walk).sheetTops;
+  expect(Math.max(...tops) - Math.min(...tops)).toBeLessThanOrEqual(60);
   expect(tall.goText).toBe('Add SOL + BAYLA');
   expect(tall.go!.bottom).toBeLessThanOrEqual(tall.innerHeight);
   // One green button on the screen the sheet is: its own.

@@ -10,7 +10,8 @@ import { useSheet } from './sheetContext';
 const SolanaSwapInner = lazy(() => import('../../pages/SolanaSwapPage').then((m) => ({ default: m.SolanaSwapInner })));
 
 const READING = (
-  <p role="status" className="text-white/70 text-[13px] py-3">
+  // About a form's height, so the sheet does not climb far when the form lands.
+  <p role="status" className="text-white/70 text-[13px] py-3 min-h-[340px]">
     Reading the pool…
   </p>
 );

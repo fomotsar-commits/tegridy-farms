@@ -94,8 +94,6 @@ function OpenSheet({ kind, named }: { kind: SheetKind; named: Bungalow | null })
         data-sheet={kind}
         className="absolute inset-x-0 bottom-0 mx-auto w-full max-w-[480px] flex flex-col outline-none"
         style={{
-          // The drawn height (540 at 844 tall) from the first frame, so the sheet does not climb while its form loads.
-          minHeight: 'min(540px, calc(100dvh - 16px))',
           maxHeight: 'calc(100dvh - 16px)',
           background: 'var(--color-bg-surface)',
           borderRadius: '20px 20px 0 0',

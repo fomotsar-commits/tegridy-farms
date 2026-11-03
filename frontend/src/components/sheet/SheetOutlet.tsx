@@ -23,7 +23,7 @@ export function SheetBodyOutlet({ page = true }: { page?: boolean }) {
   if (page ? head !== token : head !== null) return null;
   return createPortal(
     <SheetContext.Provider value={place}>
-      <Suspense fallback={<p role="status" className="text-white/70 text-[13px] py-3">Reading the pool…</p>}>
+      <Suspense fallback={<p role="status" className="text-white/70 text-[13px] py-3 min-h-[340px]">Reading the pool…</p>}>
         <SheetBody key={`${place.kind}:${place.room.id}`} />
       </Suspense>
     </SheetContext.Provider>,

@@ -35,7 +35,7 @@ import { holdReload } from '../lib/reloadHold';
 import { isSolanaFeeConfigured, isSolanaSwapLive, SOLANA_FEE_ACCOUNT, SOLANA_PLATFORM_FEE_BPS, SOL_MINT, USDC_MINT } from '../lib/solana';
 import { clockFor, raiseReceipt } from '../lib/receipt';
 import { lastReading } from '../lib/heat/heatStore';
-import { settleSwapReceipt, type FeeRoute } from '../lib/solana/receiptRead';
+import { amountText, settleSwapReceipt, type FeeRoute } from '../lib/solana/receiptRead';
 import {
   PAY_WITH_TOKENS,
   BUY_TOKENS,
@@ -2535,7 +2535,10 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
   // and the signing are the form's own, unchanged; its notes are said whenever they apply.
   if (inSheet) {
     const own = ownBest && !isRangeCandidate(ownBest) ? ownBest : null;
-    const perToken = own ? poolPricePerToken(own.view.snapshot, buyToken.mint, buyToken.decimals) : null;
+    // The drawn first row, Pool price, whichever route wins: the room's own pool, as it quoted this amount.
+    const roomPool = route.candidates.find((c) => !isRangeCandidate(c) && c.poolAddress === inSheet.room.venueSolPool);
+    const roomView = roomPool && !isRangeCandidate(roomPool) ? roomPool.view : null;
+    const perToken = roomView ? poolPricePerToken(roomView.snapshot, buyToken.mint, buyToken.decimals) : null;
     const quoted = shownOut !== null && !quoteLoading;
     const row = (label: string, value: ReactNode, testId?: string) => (
       <div className="flex items-baseline justify-between gap-3 min-h-[24px] text-[13px]" data-testid={testId}>
@@ -2602,7 +2605,7 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
             {quoted && (
               <div className="!mt-4" data-testid="sheet-buy-rows">
                 {perToken !== null && row(SHEET_WORDS.poolPrice, `1 ${buyToken.symbol} = ${formatSolPrice(perToken)} ${payToken.symbol}`)}
-                {row(SHEET_WORDS.youGet, `${outputDisplay} ${buyToken.symbol}`, 'sheet-you-get')}
+                {row(SHEET_WORDS.youGet, `${shownOut !== null ? amountText(BigInt(shownOut), buyToken.decimals) : outputDisplay} ${buyToken.symbol}`, 'sheet-you-get')}
                 <div className="text-[12px]">
                   <SolanaRouteLine route={route} ownUnavailable={venueSwap.unavailable} aggregatorFail={quoteFail} refusedWhy={route.aggregatorRefused ? (refusedTrade?.why ?? null) : null} />
                 </div>

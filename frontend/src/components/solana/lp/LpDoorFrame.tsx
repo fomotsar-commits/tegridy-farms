@@ -20,7 +20,7 @@ export function LpDoorFrame({ mint, waiting, slotRef }: { mint: string; waiting:
     return (
       <div data-testid="lp-door" data-in-sheet="">
         {waiting && (
-          <p role="status" className="text-white/70 text-[13px] py-3">
+          <p role="status" className="text-white/70 text-[13px] py-3 min-h-[340px]">
             Reading this pool from the chain…
           </p>
         )}
