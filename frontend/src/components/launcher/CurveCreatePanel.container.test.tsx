@@ -176,7 +176,7 @@ describe('CurveCreatePanel container: the heat gate at submit', () => {
     renderPanel();
     fillAndSubmit();
     await waitFor(() => expect(toastError).toHaveBeenCalled());
-    expect(String(toastError.mock.calls[0][0])).toContain('This wallet reads 12.00° (Observer). The door opens at 80°');
+    expect(String(toastError.mock.calls[0][0])).toContain('This wallet reads 12.00° (Observer). Residents launch here. Nobody can buy last year.');
     nothingSignedOrSent();
   });
 
@@ -185,7 +185,7 @@ describe('CurveCreatePanel container: the heat gate at submit', () => {
     renderPanel();
     fillAndSubmit();
     await waitFor(() => expect(toastError).toHaveBeenCalled());
-    expect(String(toastError.mock.calls[0][0])).toContain('the door cannot read you');
+    expect(String(toastError.mock.calls[0][0])).toContain('the door has no reading of you yet');
     nothingSignedOrSent();
   });
 

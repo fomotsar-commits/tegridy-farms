@@ -64,6 +64,9 @@ export interface IslandTorches {
   fireBurned: number | null;
   season: { number: number; endsAtMs: number } | null;
   flames: number | null;
+  /** The flames from 30° up to the 80° launch door, for the countdown's roster (answer
+   *  twenty-five, screen 2). Null when the board was not read whole: never a 0 that was not read. */
+  warming: number | null;
   /** When this tab read it: the "now" an age or a day count is measured against. */
   readAtMs: number;
 }
@@ -136,6 +139,7 @@ function parse(body: Record<string, unknown>): IslandTorches {
       ? { number: season.season, endsAtMs }
       : null,
     flames: isCount(body.flames) ? body.flames : null,
+    warming: isCount(body.warming) ? body.warming : null,
     readAtMs: Date.now(),
   };
 }

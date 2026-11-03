@@ -7,11 +7,13 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { m, AnimatePresence } from 'framer-motion';
 import { useAccount, useSignMessage } from 'wagmi';
 import { meetsHeatFloor } from '../lib/heat/launchGate';
-import { isHeatGateEnabled } from '../lib/heat/heatGateConfig';
-import type { GateDecision } from '../lib/heat/heatOracle';
+import { heatGateMaxAgeDays, heatLaunchFloor, isHeatGateEnabled } from '../lib/heat/heatGateConfig';
+import { gateDecision, type GateDecision, type HeatReading } from '../lib/heat/heatOracle';
 import type { GateAuditRow } from '../lib/heat/gateAudit';
+import { useLastReading } from '../lib/heat/heatStore';
 import { HeatCard } from './HeatCard';
 import { GateAuditPanel } from './heat/GateAuditPanel';
+import { DoorCountdown } from './heat/Countdown';
 import { CardArt } from './ui/CardArt';
 import { shortenAddress } from '../lib/formatting';
 
@@ -36,7 +38,7 @@ export function ownershipMessage(address: string, nowIso: string): string {
 type Phase =
   | { kind: 'no-wallet' }
   | { kind: 'reading' }
-  | { kind: 'decided'; decision: GateDecision; audit: GateAuditRow | null };
+  | { kind: 'decided'; decision: GateDecision; audit: GateAuditRow | null; reading: HeatReading | null };
 
 export type LaunchGateProps =
   | {
@@ -119,6 +121,12 @@ interface DoorProps {
 
 function Door({ rail, address, signProof, onOpen, connect, below, launchingOff, children }: DoorProps) {
   const [phase, setPhase] = useState<Phase>({ kind: 'no-wallet' });
+  // The wallet this tab read last (connected, pasted or shared), which Bayla's line speaks
+  // from too: with no wallet at the door, the countdown counts from it. Its freshness is judged
+  // at the moment the door opened: a render may not read the clock, and a seven-day window does
+  // not move within one visit.
+  const last = useLastReading();
+  const [openedAt] = useState(() => Math.floor(Date.now() / 1000));
   const [proving, setProving] = useState(false);
   const [proveError, setProveError] = useState<string | null>(null);
   const reqRef = useRef(0);
@@ -133,8 +141,8 @@ function Door({ rail, address, signProof, onOpen, connect, below, launchingOff, 
     // `meetsHeatFloor` never throws for an unreachable oracle — it returns STALE with a
     // reason. So there is no try/catch here by design, and no path where a thrown error
     // could leave the door in an undefined state.
-    const { decision, audit } = await meetsHeatFloor(address);
-    if (seq === reqRef.current) setPhase({ kind: 'decided', decision, audit });
+    const { decision, audit, reading } = await meetsHeatFloor(address);
+    if (seq === reqRef.current) setPhase({ kind: 'decided', decision, audit, reading });
   }, [address]);
 
   // Re-read whenever the connected wallet changes.
@@ -166,9 +174,18 @@ function Door({ rail, address, signProof, onOpen, connect, below, launchingOff, 
     }
   }, [address, signProof, phase, onOpen]);
 
-  if (phase.kind === 'no-wallet') {
+  if (phase.kind === 'no-wallet' && !address) {
+    // The countdown's words at a door with no wallet (island answer twenty-five, screen 2), for
+    // the wallet this tab read last when it reads under the floor. With nothing read there is no
+    // clock to show yet: Bayla's line asks for a read, and the field below takes one. A page
+    // where no launch can be made gives no verdict, so it draws no countdown either.
+    const counts =
+      !launchingOff &&
+      last !== null &&
+      gateDecision(last.address, last, openedAt, heatLaunchFloor(), heatGateMaxAgeDays()).state === 'COLD';
     return (
       <>
+        {counts && last && <DoorCountdown reading={last} />}
         <Frame>
           <Title>Who may plant</Title>
           <p className="text-[13px] text-white/60 leading-relaxed">
@@ -195,6 +212,7 @@ function Door({ rail, address, signProof, onOpen, connect, below, launchingOff, 
             <HeatCard
               variant="embedded"
               showEligibility={!launchingOff}
+              countdown={false}
               initialDraft={rail === 'solana' ? '' : null}
               fillFrom={rail}
             />
@@ -212,7 +230,9 @@ function Door({ rail, address, signProof, onOpen, connect, below, launchingOff, 
     );
   }
 
-  if (phase.kind === 'reading') {
+  // A wallet whose read has not started yet is being read: its effect starts the read after
+  // this render, and the door never shows a connected wallet the no-wallet door, even for a frame.
+  if (phase.kind === 'reading' || phase.kind === 'no-wallet') {
     return (
       <>
         <Frame>
@@ -276,10 +296,12 @@ function Door({ rail, address, signProof, onOpen, connect, below, launchingOff, 
             <div className="rounded-xl p-4" style={{ background: 'rgba(0,0,0,0.35)', border: '1px solid var(--color-purple-25)' }}>
               <HeatCard address={decision.address} variant="embedded" showEligibility={false} />
             </div>
+            {/* What size does to a day is the island's to say (How heat is earned); the door
+                says the countdown's line above, "Nobody can buy last year." */}
             <p className="text-[11.5px] text-white/45 leading-relaxed mt-3">
               Warmth is held time. It accrues by holding tokens the island measures and holding them
-              across time. Size can raise what a day is worth, it cannot buy a day. Nobody
-              approves this by hand and there is nobody to ask: the door reads the instrument, and so can you.
+              across time. Nobody approves this by hand and there is nobody to ask: the door reads the
+              instrument, and so can you.
             </p>
             {/* The denied wallet is standing HERE, so the record of what it was denied on
                 lives here too — collapsed, because the reading above is the answer and
@@ -322,9 +344,12 @@ function Door({ rail, address, signProof, onOpen, connect, below, launchingOff, 
     </Frame>
   );
   // Both rails: the lane sits below the door and its lines as its own card, full width
-  // on a phone, so the order there is door, lines, form.
+  // on a phone, so the order there is door, lines, form. A COLD verdict for this wallet also
+  // draws the countdown on its own reading, which the launch hub lifts to the page's top.
+  const counts = decision.state === 'COLD' && forThisWallet && !launchingOff;
   return (
     <>
+      {counts && phase.reading && <DoorCountdown reading={phase.reading} />}
       {door}
       {below}
       {open && children}

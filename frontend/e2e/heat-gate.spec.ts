@@ -98,9 +98,11 @@ test.describe('the launch door', () => {
     const door = await openLaunch(page);
     await expect(door.getByText('COLD', { exact: true })).toBeVisible();
 
-    // The door's explanation, in its own words, with the floor named.
-    await expect(door.getByText(/The door opens at 80°,/).first()).toBeVisible();
-    await expect(door.getByText(/Size can raise what a day is worth, it cannot buy a day[.]/)).toBeVisible();
+    // The door speaks the countdown's words (island answer twenty-four, build 5): the wallet's
+    // own degrees and the island's line, never "Cannot". The countdown itself opens the page.
+    await expect(door.getByText('This wallet reads 62.40° (Observer). Residents launch here. Nobody can buy last year.')).toBeVisible();
+    expect(await door.innerText()).not.toMatch(/\bcannot\b/i);
+    await expect(page.getByTestId('countdown').getByRole('link', { name: 'Start the clock' })).toBeVisible();
 
     // THIS WALLET'S OWN READING, from the embedded card: the rooms heading is HeatCard's
     // alone, and the room under it prints the wallet's own served degrees.
@@ -124,7 +126,7 @@ test.describe('the launch door', () => {
     await walletMock.connect();
     const door = await openLaunch(page);
     await expect(door.getByText('STALE', { exact: true })).toBeVisible();
-    await expect(door.getByText(/instrument is unreachable, so the door cannot read you/i)).toBeVisible();
+    await expect(door.getByText(/instrument is unreachable, so the door has no reading of you yet/i)).toBeVisible();
     await expect(door.getByRole('button', { name: /read again/i })).toBeVisible();
     await expect(door.getByText(/No verdict has been recorded against you/i)).toBeVisible();
 

@@ -11,15 +11,16 @@
 //   origin (read 2026-10-23), so a browser fetch from the venue is blocked. Proxying
 //   also keeps the browser talking only to `'self'`.
 //
-// ONE READ, TWO SURFACES (the island's venue review, items 6 and 9; the venue's plan
+// ONE READ, THREE SURFACES (the island's venue review, items 6 and 9; the venue's plan
 // of 2026-10-03 promised one proxy over the island's torch routes). A room's door
 // paints its own torches from `places`; the home's strip paints the fire, the flames,
-// the season and the island's last torch. Five upstream routes, read in parallel:
+// the season and the island's last torch; the launch countdown's roster says how many
+// flames are warming toward the door. Five upstream routes, read in parallel:
 //   /api/torches?limit=500   every torch, newest first: each room's last torch
 //   /api/torches/places      the twelve places: lit, the open row, the next price
 //   /api/torches/season      the season's number and its end
 //   /api/fire                `all_time.burned`, the island's own served total
-//   /api/flames?limit=500    counted here; only the count leaves this file
+//   /api/flames?limit=500    counted here, all and warming; only the counts leave this file
 //
 // EACH PART STANDS ALONE. A route that fails, times out, or changes shape makes ITS
 // part null and the rest still answer. Only when every part failed is this a 502. An
@@ -137,6 +138,24 @@ function parseFlameCount(body) {
   return body.flames.length < FLAMES_PAGE ? body.flames.length : null;
 }
 
+// The flames warming toward the launch door, for the countdown's roster (island answer
+// twenty-five, screen 2): from the Observer floor up to the door, which is Resident and so
+// not counted. The island's band, kept here so only the count leaves this file.
+const WARMING_FROM = 30;
+const WARMING_TO = 80;
+
+function parseWarmingCount(body) {
+  if (!Array.isArray(body?.flames) || body.flames.length >= FLAMES_PAGE) return null;
+  let warming = 0;
+  for (const flame of body.flames) {
+    const degrees = flame?.degrees;
+    // A flame whose degrees cannot be read might be in the band: the count would be a guess.
+    if (typeof degrees !== "number" || !Number.isFinite(degrees)) return null;
+    if (degrees >= WARMING_FROM && degrees < WARMING_TO) warming += 1;
+  }
+  return warming;
+}
+
 // ── Handler ────────────────────────────────────────────────────────────────
 export async function handleTorches(req, res) {
   setCors(req, res);
@@ -185,6 +204,7 @@ export async function handleTorches(req, res) {
     fire: parseFire(fireBody),
     season: parseSeason(seasonBody),
     flames: parseFlameCount(flamesBody),
+    warming: parseWarmingCount(flamesBody),
     as_of_unix: count(placesBody?.as_of_unix) ? placesBody.as_of_unix : null,
   };
 

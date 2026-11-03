@@ -6,6 +6,7 @@
 // No curve, formula, averaging window or decay schedule lives here (islandClaims.test.ts).
 
 import { servedCount } from './roomRank';
+import { COUNTDOWN_WORDS } from '../arrival';
 
 /** Tier words. Rendered VERBATIM — never restyled, never translated into yield language. */
 export type HeatTier = 'Elder' | 'Builder' | 'Resident' | 'Observer' | 'Drifter';
@@ -204,7 +205,7 @@ export function gateDecision(
       degrees: null,
       tier: null,
       asOfUnix: null,
-      detail: 'The island’s instrument is unreachable, so the door cannot read you. Nothing has been decided. Try again in a moment.',
+      detail: 'The island’s instrument is unreachable, so the door has no reading of you yet. Nothing has been decided. Try again in a moment.',
     };
   }
 
@@ -217,7 +218,7 @@ export function gateDecision(
       state: 'STALE',
       reason: 'stale-reading',
       qualified: false,
-      detail: `This reading was reckoned more than ${maxAgeDays} days ago, so it cannot pass or fail anyone. Try again once the island has re-measured.`,
+      detail: `This reading was reckoned more than ${maxAgeDays} days ago, so it passes and fails no one. Try again once the island has re-measured.`,
     };
   }
 
@@ -233,14 +234,35 @@ export function gateDecision(
     };
   }
 
+  // The countdown's words (island answer twenty-four, build 5): a wallet under the floor is
+  // told its own reading, the time to the door when there is a true one to tell, and the
+  // island's line. The line is said at the island's floor, 80 and Residents; a dev server's
+  // other floor still decides on its own number.
+  const timer = countdownTimer(reading);
+  const until =
+    timer === null
+      ? '.'
+      : `: ${'days' in timer ? `${timer.days} ${COUNTDOWN_WORDS.days}` : COUNTDOWN_WORDS.unserved} ${COUNTDOWN_WORDS.under}`;
   return {
     ...base,
     ...measured,
     state: 'COLD',
     reason: 'below-floor',
     qualified: false,
-    detail: `This wallet reads ${reading.degrees.toFixed(2)}° (${reading.tier}). The door opens at ${floor}°, and degrees are held time: they accrue by holding tokens the island measures, and they cannot be bought.`,
+    detail: `This wallet reads ${reading.degrees.toFixed(2)}° (${reading.tier})${until} ${COUNTDOWN_WORDS.line}`,
   };
+}
+
+/**
+ * The countdown's timer for a wallet under the floor (island answer twenty-five, screen 2): the
+ * island's served days to the launch floor. Until it serves them, the law's half a year, which
+ * is true only from a standing start: a cold wallet, or one at zero degrees. A warm wallet with
+ * no served days gets no timer, because the venue never works the days out.
+ */
+export function countdownTimer(reading: HeatReading): { days: number } | { unserved: true } | null {
+  if (reading.daysToPlant !== null) return { days: reading.daysToPlant };
+  if (reading.isCold || !(reading.degrees > 0)) return { unserved: true };
+  return null;
 }
 
 /** The ladder rung a number sits on. Never the word beside a wallet: that is served. */
