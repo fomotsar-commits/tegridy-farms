@@ -1,12 +1,13 @@
 import { NavLink, Link, useLocation } from 'react-router-dom';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useAccount } from 'wagmi';
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { toast } from 'sonner';
 import { AnimatePresence, m } from 'framer-motion';
 import { useTheme } from '../../contexts/ThemeContext';
 import { BAR_NAV } from '../../lib/navConfig';
+import { BaylaLine } from '../BaylaLine';
 import { safeGetItem } from '../../lib/storage';
 import { pageArt } from '../../lib/artConfig';
 import { getActiveBungalow, getBungalowIdentity, OPEN_BUNGALOWS_EVENT } from '../../lib/bungalows';
@@ -239,14 +240,36 @@ export const TopNav = React.memo(function TopNav() {
     }
   }, [open]);
 
+  // The header's height, as `--app-header-h` on <html>: the 3.5rem row, the top inset, and
+  // Bayla's line when it shows (island answer twenty-four, build 4). Everything that sits
+  // under the fixed header reads it (AppLayout's offset, the network banner, the dashboard's
+  // frame, the room rail), so the line is chrome, not content: nothing in the page moves for
+  // it, a pinned tab row still hangs from the header, and the static first frame pads for it.
+  const headerRef = useRef<HTMLElement>(null);
+  useLayoutEffect(() => {
+    const el = headerRef.current;
+    const rootEl = document.documentElement;
+    if (!el) return;
+    const measure = () => rootEl.style.setProperty('--app-header-h', `${el.offsetHeight}px`);
+    measure();
+    const resized = typeof ResizeObserver === 'function' ? new ResizeObserver(measure) : null;
+    resized?.observe(el);
+    return () => {
+      resized?.disconnect();
+      rootEl.style.removeProperty('--app-header-h');
+    };
+  }, []);
+
   return (
     <>
       {/* iOS standalone with viewport-fit=cover puts the status bar over this fixed header, so
-          env(safe-area-inset-top) is reserved above the 3.5rem row. AppLayout's offset matches. */}
+          env(safe-area-inset-top) is reserved above the 3.5rem row. AppLayout's offset follows
+          the measured height (`--app-header-h`), Bayla's line included. */}
       <header
+        ref={headerRef}
         className="fixed top-0 left-0 right-0 z-50"
         style={{
-          height: 'calc(3.5rem + env(safe-area-inset-top, 0px))',
+          minHeight: 'calc(3.5rem + env(safe-area-inset-top, 0px))',
           paddingTop: 'env(safe-area-inset-top, 0px)',
           background: isDark
             ? 'linear-gradient(180deg, rgba(0,0,0,0.92) 0%, rgba(0,0,0,0.86) 100%)'
@@ -327,7 +350,7 @@ export const TopNav = React.memo(function TopNav() {
               this nav, BottomNav.tsx, AppLayout.tsx's content pb and index.css's two max-width:799px
               blocks; a split opens a band with no bar. e2e/header-reachability.spec.ts sweeps it. */}
           <nav aria-label="Main navigation" className="hidden min-[800px]:flex items-center gap-0.5">
-            {/* Four words (navConfig BAR_NAV), each lit on every page it owns, never by its own
+            {/* Five words (navConfig BAR_NAV), each lit on every page it owns, never by its own
                 URL alone: Island owns the home, each room's door and the island's pages. */}
             {BAR_NAV.map((word) => {
               const lit = word.lit(location.pathname, location.hash);
@@ -462,6 +485,8 @@ export const TopNav = React.memo(function TopNav() {
             </button>
           </div>
         </div>
+        {/* Bayla at the door: the header's second row on every venue route (BaylaLine says where not). */}
+        <BaylaLine />
       </header>
 
       {/* The menu, full screen at every width (NavDrawer.tsx). z-[70]: over the phone's bottom bar

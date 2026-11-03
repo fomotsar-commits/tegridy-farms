@@ -63,13 +63,19 @@ const VENUE_VOICE_DEBT: Record<string, number> = {
   '/risks': 3,
   '/copy-trading': 10,
   '/tax': 13,
-  '/curve-launch': 7,
+  '/curve-launch': 0,
   '/eth-curve': 9,
   '/alerts': 16,
   '/yield': 21,
-  '/launch': 24,
-
+  '/launch': 0,
+  // The lore tab of LearnPage. The census gives it TOWELI's voice (it is the TOWELI room's own story),
+  // but its prose is held to the venue's law all the same: see TOWELI_PAGES_HELD_AT_ZERO below.
+  '/lore': 0,
 };
+
+/** TOWELI-room pages that this table may name, but only at 0. The census (e2e/fixtures/routes.ts)
+ *  gives them TOWELI's voice; the owner holds their prose to law 1 anyway. */
+const TOWELI_PAGES_HELD_AT_ZERO = new Set(['/lore']);
 
 /** The three GeckoTerminal routes, read with the feed aborted, so the degraded branch is
  *  what is pinned. The abort needs serviceWorkers: 'block' in playwright.config and a glob
@@ -222,7 +228,9 @@ test.describe('element I: em dashes in venue-voice prose', () => {
     for (const path of Object.keys(VENUE_VOICE_DEBT)) {
       const route = ROUTES.find((r) => navigablePath(r) === path);
       expect(route, `${path} is not in the route fixture`).toBeTruthy();
-      expect(['venue', 'record', 'legal'], `${path} has census voice ${route?.voice}`).toContain(route?.voice);
+      const voices: (string | null | undefined)[] = ['venue', 'record', 'legal'];
+      if (TOWELI_PAGES_HELD_AT_ZERO.has(path) && VENUE_VOICE_DEBT[path] === 0) voices.push('toweli');
+      expect(voices, `${path} has census voice ${route?.voice}`).toContain(route?.voice);
     }
   });
 });

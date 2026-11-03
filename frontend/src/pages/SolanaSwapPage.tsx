@@ -13,6 +13,8 @@ import { ArtImg } from '../components/ArtImg';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
 import { FeatureNotDeployed } from '../components/ui/FeatureNotDeployed';
 import { FinePrint } from '../components/ui/FinePrint';
+import { CoinName } from '../components/ui/CoinName';
+import { tick } from '../lib/tick';
 import { SolanaProviders } from '../components/solana/SolanaProviders';
 import { SolanaConnectButton } from '../components/solana/SolanaConnectButton';
 import { ChainSwitch } from '../components/swap/ChainSwitch';
@@ -110,6 +112,7 @@ import { PairChart } from '../components/solana/PairChart';
 import { PairAverageLine, type PairAverageTrade } from '../components/solana/PairAverageLine';
 import { ClockLine } from '../components/ClockLine';
 import { bungalowByAddress, getActiveBungalow } from '../lib/bungalows';
+import { markLanded } from '../lib/landed';
 import { openingBuyMint } from '../lib/solanaOpeningPair';
 import { setLastBuy } from '../lib/heat/lastBuy';
 import { recordActivity, getActivity, timeAgo } from '../lib/solanaActivity';
@@ -137,6 +140,11 @@ const pressQuote = whileJupiterBusy((p: Parameters<typeof getQuote>[0]) => getQu
 const pressBuild = whileJupiterBusy((p: Parameters<typeof buildSwapTransaction>[0]) => buildSwapTransaction(p));
 
 const SLIPPAGE_PRESETS = [50, 100, 300]; // bps
+
+/** The pay field's amounts in one press when SOL is paid, beside MAX (island answer twenty-four). */
+const SOL_CHIPS = ['0.05', '0.5'] as const;
+const CHIP_CLS = 'min-h-[44px] px-3 rounded-lg text-[11px] font-semibold text-white';
+const CHIP_STYLE = { background: 'rgba(0,0,0,0.45)', border: '1px solid rgba(255,255,255,0.12)' } as const;
 
 // Priority-fee levels for the swap build ("Speed"). The lamport ceiling is
 // hard-capped in lib/jupiter.ts and disclosed under the chips.
@@ -253,8 +261,9 @@ function thrownWords(err: unknown): string {
   return s.length > 160 ? `${s.slice(0, 160)}…` : s;
 }
 
-/** SOL and the dollar coins: what a trader cashes a token out into. */
-const CASH_MINTS: ReadonlySet<string> = new Set([SOL.mint, USDC.mint, USDT.mint]);
+/** SOL and the dollar coins: what a trader cashes a token out into, and what the token picker opens on. */
+const MAJORS: readonly SolToken[] = [SOL, USDC, USDT];
+const CASH_MINTS: ReadonlySet<string> = new Set(MAJORS.map((t) => t.mint));
 
 /** A token paid for cash is a sale of that token. Everything else is a buy of what is received. */
 function sideWords(pay: SolToken, buy: SolToken): { verb: 'Buy' | 'Sell'; done: 'Bought' | 'Sold'; symbol: string } {
@@ -263,13 +272,6 @@ function sideWords(pay: SolToken, buy: SolToken): { verb: 'Buy' | 'Sell'; done: 
 }
 
 type RowBadge = { label: string; tone: 'amber' | 'red' | 'green' };
-
-/**
- * The head and the tail of a mint, for a coin the site names itself (ours, the pairing
- * coins). Any other coin's ticker is its own claim, and a head and a tail can be grinded
- * to match, so its row shows the whole address, as the pool screens do (identity.ts).
- */
-const mintLine = (mint: string) => (siteNamed(mint) ? `${mint.slice(0, 6)}…${mint.slice(-4)}` : mint);
 
 function riskBadges(t: SolToken): RowBadge[] {
   const out: RowBadge[] = [];
@@ -368,26 +370,30 @@ function TokenAvatar({ token, size = 28 }: { token: SolToken; size?: number }) {
   );
 }
 
+/**
+ * Sibling presses, never nested (invalid HTML): the row picks, the coin's name copies its whole
+ * address (CoinName, island answer twenty-four), the star toggles the favorite. The name lies on
+ * the row's first line, which the row's own press leaves empty for it. A coin the site does not
+ * name itself keeps its whole address under it: a head and a tail can be grinded (identity.ts).
+ */
 function TokenRow({ t, onSelect }: { t: SolToken; onSelect: (t: SolToken) => void }) {
   const badges = riskBadges(t);
-  // Sibling buttons, never nested (invalid HTML): the row selects, the star
-  // toggles the localStorage favorite.
   const [fav, setFav] = useState(() => isFavoriteToken(t.mint));
   return (
-    <div className="w-full flex items-center rounded-lg hover:bg-white/5 transition-colors" data-token-row={t.mint}>
+    <div className="relative w-full flex items-start rounded-lg hover:bg-white/5 transition-colors" data-token-row={t.mint}>
       <button
         type="button"
         onClick={() => onSelect(t)}
-        className="flex-1 flex items-center gap-3 px-3 py-2.5 text-left min-w-0"
+        className="flex-1 flex items-start gap-3 px-3 py-2 text-left min-w-0 min-h-[44px]"
       >
-        <TokenAvatar token={t} size={28} />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5">
-            <span className="text-white text-[13px] font-medium truncate">{t.symbol}</span>
-            {t.verified === true && <span className="text-success text-[10px]" title="Verified on Jupiter" aria-label="Verified">✓</span>}
-          </div>
+        <div className="mt-2 flex-shrink-0">
+          <TokenAvatar token={t} size={28} />
+        </div>
+        <div className="min-w-0 flex-1 pt-11">
+          {/* The row's press is named for its coin too: the name in view belongs to the copy press. */}
+          <span className="sr-only">{t.verified === true ? `${t.symbol} Verified` : t.symbol}</span>
           <div className="text-white/50 text-[11px] truncate">{t.name}</div>
-          <div className="text-white/45 text-[10px] font-mono break-all">{mintLine(t.mint)}</div>
+          {!siteNamed(t.mint) && <div className="text-white/45 text-[10px] font-mono break-all">{t.mint}</div>}
           {badges.length > 0 && (
             <div className="flex gap-1 flex-wrap mt-0.5">
               {badges.map((b) => (
@@ -402,12 +408,16 @@ function TokenRow({ t, onSelect }: { t: SolToken; onSelect: (t: SolToken) => voi
           )}
         </div>
       </button>
+      <div className="absolute top-2 left-[52px] right-11 flex items-center gap-1.5 min-w-0 pointer-events-none">
+        <CoinName name={t.symbol} address={t.mint} className="pointer-events-auto min-w-0" nameClassName="text-white text-[13px] truncate" />
+        {t.verified === true && <span className="text-success text-[10px]" title="Verified on Jupiter" aria-hidden="true">✓</span>}
+      </div>
       <button
         type="button"
         onClick={() => setFav(toggleFavoriteToken(t))}
         aria-pressed={fav}
         aria-label={fav ? `Remove ${t.symbol} from favorites` : `Add ${t.symbol} to favorites`}
-        className="px-3 py-2.5 text-[15px] flex-shrink-0"
+        className="mt-2 px-3 py-2.5 min-h-[44px] text-[15px] flex-shrink-0"
         style={{ color: fav ? 'var(--color-stan)' : 'rgba(255,255,255,0.35)' }}
       >
         {fav ? '★' : '☆'}
@@ -495,21 +505,21 @@ function TokenPicker({ title, featured, onSelect, onClose }: TokenPickerProps) {
   }, [query]);
 
   const list = results ?? featured;
-  // Empty state renders three labeled groups instead of a flat "Popular"
-  // list: Favorites, then Recent, then Popular — deduped by mint in that
-  // priority order. localStorage reads are cheap and the empty state only
-  // re-renders on open/query-clear, so no memo. Remembered/favorited tokens
-  // re-run through riskBadges like any other row — an unverified token stays
-  // visibly unverified no matter where it renders from.
+  // With nothing typed: SOL, USDC and USDT first (island answer twenty-four), under the venue's
+  // BAYLA where the list leads with it (the Buy list, owner 2026-10-08); then Favorites, Recent
+  // and Popular, each coin once. Remembered tokens still go through riskBadges like any row.
   const groups = results
     ? null
     : (() => {
-        const favs = getFavoriteTokens();
-        const seen = new Set(favs.map((t) => t.mint));
+        const top = [...(featured[0]?.mint === BAYLA.mint ? [featured[0]] : []), ...MAJORS];
+        const seen = new Set(top.map((t) => t.mint));
+        const favs = getFavoriteTokens().filter((t) => !seen.has(t.mint));
+        for (const t of favs) seen.add(t.mint);
         const recents = getRecentTokens().filter((t) => !seen.has(t.mint));
         for (const t of recents) seen.add(t.mint);
         const popular = featured.filter((t) => !seen.has(t.mint));
         return [
+          { label: null, tokens: top },
           { label: 'Favorites', tokens: favs },
           { label: 'Recent', tokens: recents },
           { label: 'Popular', tokens: popular },
@@ -550,8 +560,8 @@ function TokenPicker({ title, featured, onSelect, onClose }: TokenPickerProps) {
           {loading && <div className="px-3 py-2.5 text-white/50 text-[12px]">Searching…</div>}
           {!loading && groups
             ? groups.map((g) => (
-                <div key={g.label}>
-                  <p className="text-white/55 text-[10px] uppercase tracking-wide mb-1 px-1">{g.label}</p>
+                <div key={g.label ?? 'top'}>
+                  {g.label && <p className="text-white/55 text-[10px] uppercase tracking-wide mb-1 px-1">{g.label}</p>}
                   {g.tokens.map((t) => <TokenRow key={t.mint} t={t} onSelect={onSelect} />)}
                 </div>
               ))
@@ -1657,6 +1667,8 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
         const words = `≈${got} ${t.buy} with ${t.amount} ${t.pay}, in our own pool`;
         // Kept in "Your recent activity", as a Jupiter swap is, so the signature outlives the page.
         recordActivity(wallet, { sig: outcome.signature, ts: Date.now(), kind: 'swap', summary: outcome.status === 'confirmed' ? `Bought ${words}` : `Sent, not confirmed: ${words}` });
+        // Bayla's line says "Done." for a minute (answer twenty-four, build 4).
+        if (outcome.status === 'confirmed') markLanded('trade');
         const room = outcome.status === 'confirmed' ? bungalowByAddress('solana', t.buyMint) : null;
         if (room) setLastBuy({ hash: outcome.signature, symbol: room.symbol, tokenAddress: t.buyMint, chain: room.chain, buyer: wallet, atUnix: Math.floor(Date.now() / 1000) });
         // The form is cleared so the same buy is not one click away.
@@ -1856,6 +1868,10 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
     return Number.isFinite(amt) ? amt * p : null;
   })();
   const fmtUsd = (n: number) => (n < 0.01 ? '<$0.01' : `~$${n.toLocaleString('en-US', { maximumFractionDigits: 2 })}`);
+
+  // The pay field's one-press amounts: SOL's two while the field takes SOL, MAX on a balance that was read.
+  const solChips = payToken.mint === SOL_MINT && !usdMode;
+  const maxOn = payBalance.raw !== null && payBalance.raw > 0n;
 
   function handleMax() {
     if (payBalance.raw === null) return;
@@ -2530,12 +2546,24 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
                       Retry
                     </button>
                   )}
-                  {payBalance.raw !== null && payBalance.raw > 0n && (
-                    <button type="button" onClick={handleMax} className="ml-1 px-2 py-2.5 -my-2 font-semibold" style={{ color: 'var(--color-stan)' }}>MAX</button>
-                  )}
                 </span>
               )}
             </div>
+            {/* Amounts in one press, above the field: two SOL amounts when SOL is paid, and MAX on a balance that was read. */}
+            {(solChips || maxOn) && (
+              <div className="flex justify-end gap-1.5 mb-2">
+                {solChips && SOL_CHIPS.map((sol) => (
+                  <button key={sol} type="button" onClick={() => { tick(); setAmount(sol); }} className={CHIP_CLS} style={CHIP_STYLE}>
+                    {sol} SOL
+                  </button>
+                ))}
+                {maxOn && (
+                  <button type="button" onClick={() => { tick(); handleMax(); }} className={CHIP_CLS} style={{ ...CHIP_STYLE, color: 'var(--color-stan)' }}>
+                    MAX
+                  </button>
+                )}
+              </div>
+            )}
             <div className="flex items-center gap-3 rounded-xl p-3" style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.18)' }}>
               <button
                 type="button"
@@ -2850,7 +2878,10 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
             <button
               ref={buyRef}
               type="button"
-              onClick={() => void handleSwap()}
+              onClick={() => {
+                tick();
+                void handleSwap();
+              }}
               disabled={actionDisabled}
               className="btn-primary w-full py-2.5 text-[14px] disabled:opacity-50"
             >
