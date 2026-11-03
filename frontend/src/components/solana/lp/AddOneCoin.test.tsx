@@ -618,14 +618,14 @@ describe('Add with one coin: the amount’s chips and the coin’s name', () => 
 
 // Island answer twenty-five, screen 1: the sheet hosts this form, drawn as the island drew it.
 describe('Add with one coin, in the sheet', () => {
-  function inSheet(v: PoolView = view()) {
+  function inSheet(v: PoolView = view(), rs: LpReaders = readers(v)) {
     const room = { id: 'corn', name: 'Corn', symbol: 'CORN', chain: 'solana', address: M, venueSolPool: v.address, live: true } as unknown as Bungalow;
     const place: SheetPlace = { kind: 'add', room, bayla: <p data-testid="her-line">12.34° Observer. Every day in this pool counts double.</p> };
     const writes: LpWritesOverrides = { mode: 'on', load: vi.fn(async () => fakeLpApi()), gateRpc: unusedGateRpc };
     render(
       <MemoryRouter initialEntries={['/corn?sheet=add']}>
         <SheetContext.Provider value={place}>
-          <LpInner readers={readers(v)} writes={writes} home={{ mint: M, pool: v.address }} />
+          <LpInner readers={rs} writes={writes} home={{ mint: M, pool: v.address }} />
         </SheetContext.Provider>
       </MemoryRouter>,
     );
@@ -681,6 +681,22 @@ describe('Add with one coin, in the sheet', () => {
     const review = await within(panel).findByTestId('lp-one-review');
     expect(review).toHaveTextContent('Step 1: swap, through Jupiter');
     expect(wallet.sendTransaction).not.toHaveBeenCalled();
+  });
+
+  it('a pool that could not be read says so, with its way on: never an empty sheet', async () => {
+    const v = view();
+    const rs = { ...readers(v), findPools: vi.fn(async () => ({ kind: 'unread', detail: 'the RPC refused' }) as PoolSearchRead) };
+    inSheet(v, rs);
+    expect(await screen.findByText('The pool could not be read just now.')).toBeVisible();
+    expect(screen.getByRole('button', { name: /Read again/ })).toBeVisible();
+    expect(screen.queryByTestId('sheet-amount')).toBeNull();
+  });
+
+  it('while the pool is read, the sheet says so', async () => {
+    const v = view();
+    const rs = { ...readers(v), findPools: vi.fn(() => new Promise<PoolSearchRead>(() => {})) };
+    inSheet(v, rs);
+    expect(await screen.findByText('Reading the token and its pools from the chain…')).toBeVisible();
   });
 
   it('with no wallet the green button connects one, never a second button', async () => {

@@ -485,8 +485,9 @@ export function PoolFinder({
   const doorWaits = (doorAsked || wish?.top === true) && writes !== null && writes.status !== 'load-failed';
   const doorFrame = (doorWaits || doorHeld > 0) && doorMint ? <LpDoorFrame mint={doorMint} waiting={doorHeld === 0} slotRef={setDoorSlot} /> : null;
 
-  // In the sheet (island answer twenty-five, build 3) only the door is seen: the form, or why it
-  // did not open, is drawn there. The finder under it still reads the pool and runs its checks.
+  // In the sheet (island answer twenty-five, build 3) the door is the form, or why it did not
+  // open; under it only what the read says while it reads or when it fails. The pool's card
+  // the form rides on is not drawn (SearchResults).
   const sheet = useSheet() !== null;
   const rest = (
     <>
@@ -625,7 +626,7 @@ export function PoolFinder({
     // In the sheet the door is all that is drawn: no gap is kept for the finder under it.
     <section data-testid="lp-finder" aria-label="Find pools for a token" className={sheet ? undefined : 'space-y-4'}>
       {doorFrame && (doorAt ? createPortal(doorFrame, doorAt) : doorFrame)}
-      {sheet ? <div hidden>{rest}</div> : rest}
+      {rest}
     </section>
   );
   return <LpDoorContext.Provider value={doorPlace}>{finder}</LpDoorContext.Provider>;
@@ -687,6 +688,7 @@ function SearchResults({
 }) {
   const { safety, pools, outside, coins, outsideAt, mint } = state;
   const writes = useLpWrites();
+  const sheet = useSheet() !== null;
   const decimals = safety.kind === 'read' ? safety.facts?.decimals ?? null : null;
   // One check per pool, shared by its card and by the "Open a pool" card. All of them
   // together (`assessPools`): the launch pool this search read is the other pools'
@@ -797,6 +799,8 @@ function SearchResults({
               )}
             </Card>
           ) : (
+            // In the sheet the card is not drawn: its form is drawn in the door (DoorPortal), its checks still run.
+            <div hidden={sheet || undefined}>
             <ul className="space-y-3" aria-label={only ? 'The pool' : 'Pools: SOL pools first, then USDC, then BAYLA, the deepest of each first'}>
               {listed.map((p) =>
                 p.kind === 'pool' ? (
@@ -820,6 +824,7 @@ function SearchResults({
                 ),
               )}
             </ul>
+            </div>
           )}
           {/* The home card: an outside price that could not be read leaves deposits unchecked
               and adding off. The pool's card says why; this is the way on from it. */}
