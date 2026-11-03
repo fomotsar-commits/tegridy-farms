@@ -1,7 +1,7 @@
 // Island answer twenty-five, screen 1, the Buy state: the sheet hosts the swap page's form on SOL
 // to the room's coin, drawn as the island drew it, with the form's own quote, route, notes and press.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { PublicKey } from '@solana/web3.js';
 
@@ -72,7 +72,6 @@ vi.setConfig({ testTimeout: 30_000 });
 
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
 const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
-const USDT_MINT = 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB';
 const BAYLA_MINT = '7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump';
 
 const quote = {
@@ -86,7 +85,6 @@ const quote = {
   routePlan: [],
 };
 const confirmed = { context: { slot: 9 }, value: [{ slot: 9, confirmations: 1, err: null, confirmationStatus: 'confirmed' }] };
-const tokenAccount = (amount: string) => ({ account: { data: { parsed: { info: { tokenAmount: { amount } } } } } });
 
 const writeText = vi.fn(async () => {});
 const vibrate = vi.fn(() => true);
