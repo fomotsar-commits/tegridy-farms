@@ -97,3 +97,23 @@ describe('vercel.json CSP img-src: Irys token pictures', () => {
     expect(allowsImage('https://datasprite-cdn.com.evil.example/x.png')).toBe(false);
   });
 });
+
+// The trencher layer (island answer twenty-four, build 7) paints two pictures the island
+// serves itself: a wallet's card under a warm heat read (the card page's own og:image), and
+// the newest piece hung on the island in the timeline strip (each torch's piece.image on
+// /api/torches). Both URLs were read live on 2026-11-03; neither redirects.
+describe('vercel.json CSP img-src: the island\'s card and its hung pieces', () => {
+  it.each([
+    'https://memetics.wtf/api/card?w=27t671aWXQvfUk6WugfLFEKkaXbJmT5yxpmrydEkjjo7',
+    'https://memetics.wtf/api/card?w=0x279e7cff2dbc93ff1f5cae6cbd072f98d75987ca',
+    'https://junglebayisland.com/api/storage-image?key=gallery%2Floground%2F7f4dc061-e10a-4ae3-b73f-83e078efad26%2Flarge.webp',
+  ])('permits %s', (url) => {
+    expect(allowsImage(url), `img-src blocks ${url}`).toBe(true);
+  });
+
+  it('opens the two island hosts by name, not their neighbours', () => {
+    expect(allowsImage('https://api.memetics.wtf/api/torch/card/112.png')).toBe(false);
+    expect(allowsImage('https://memetics.wtf.evil.example/x.png')).toBe(false);
+    expect(allowsImage('https://junglebayisland.com.evil.example/x.png')).toBe(false);
+  });
+});
