@@ -2605,7 +2605,7 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
             {quoted && (
               <div className="!mt-4" data-testid="sheet-buy-rows">
                 {perToken !== null && row(SHEET_WORDS.poolPrice, `1 ${buyToken.symbol} = ${formatSolPrice(perToken)} ${payToken.symbol}`)}
-                {row(SHEET_WORDS.youGet, `${shownOut !== null ? amountText(BigInt(shownOut), buyToken.decimals) : outputDisplay} ${buyToken.symbol}`, 'sheet-you-get')}
+                {row(SHEET_WORDS.youGet, `≈ ${shownOut !== null ? amountText(BigInt(shownOut), buyToken.decimals) : outputDisplay} ${buyToken.symbol}`, 'sheet-you-get')}
                 <div className="text-[12px]">
                   <SolanaRouteLine route={route} ownUnavailable={venueSwap.unavailable} aggregatorFail={quoteFail} refusedWhy={route.aggregatorRefused ? (refusedTrade?.why ?? null) : null} />
                 </div>

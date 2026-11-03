@@ -157,7 +157,8 @@ describe('the sheet’s Buy', () => {
     expect(screen.getByRole('button', { name: '0.5 SOL' })).toHaveAttribute('aria-pressed', 'true');
     await waitFor(() => expect(jup.getQuote).toHaveBeenCalledWith(expect.objectContaining({ inputMint: SOL_MINT, outputMint: BAYLA_MINT, amount: '500000000' })), { timeout: 5_000 });
     const got = await screen.findByTestId('sheet-you-get', {}, { timeout: 5_000 });
-    expect(got).toHaveTextContent(/You get\s*668\.5 BAYLA/);
+    // As drawn: the quote is an estimate, so it reads "≈".
+    expect(got).toHaveTextContent(/You get\s*≈ 668\.5 BAYLA/);
     // Jupiter's route: the fee line is the swap's own sentence, not a pool's split.
     expect(screen.getByTestId('sheet-fee-line').textContent).toMatch(/platform fee|No platform fee/);
     const go = await screen.findByRole('button', { name: 'Buy BAYLA' });
