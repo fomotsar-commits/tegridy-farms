@@ -20,7 +20,8 @@ function sourceFiles(dir: string): string[] {
   for (const e of readdirSync(dir, { withFileTypes: true })) {
     const p = join(dir, e.name);
     if (e.isDirectory()) out.push(...sourceFiles(p));
-    else if (/\.(tsx?|jsx?)$/.test(e.name) && !/\.(test|fixture)\.|\.d\.ts$/.test(e.name)) out.push(p);
+    // Tests, fixtures and type declarations put nothing on a page: two plain checks, so no anchor reads as shared.
+    else if (/\.(tsx?|jsx?)$/.test(e.name) && !/\.(test|fixture)\./.test(e.name) && !e.name.endsWith('.d.ts')) out.push(p);
   }
   return out;
 }
