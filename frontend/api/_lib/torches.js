@@ -30,6 +30,10 @@
 // also carry signatures, painted-card URLs and piece metadata; the flames carry the
 // `person_id` and `wallet_count` that flames.js exists to strip. None of it is
 // forwarded, and a field the island adds later is dropped until it is reviewed in.
+// One piece is reviewed in (island answer twenty-four, build 7, THE TIMELINE): the newest
+// piece hung on the island, its picture, artist and title, the island page it hangs in,
+// and when, for the timeline strip in every room and on the home. Its ref and its minted
+// asset stay here.
 
 import { checkRateLimit, checkGlobalLimit } from "./ratelimit.js";
 import { isOriginAllowed, isRequestOriginAllowed } from "./aggregator-proxy.js";
@@ -98,6 +102,42 @@ function torchRows(body) {
   }
   // Newest first by the time each was lit, not by the order served.
   return rows.sort((a, b) => Date.parse(b.lit_at) - Date.parse(a.lit_at));
+}
+
+// The island's two hosts for a hung piece, read 2026-11-03: every piece's picture is on its
+// image host and every torch's door on its own site. vercel.json's img-src names the first.
+const PIECE_IMAGE_HOST = "junglebayisland.com";
+const ISLAND_HOST = "memetics.wtf";
+
+/** An https URL on `host` exactly (its default port, no credentials), as served, or null. */
+function islandUrl(v, host) {
+  if (typeof v !== "string" || v.length > 512) return null;
+  try {
+    const u = new URL(v);
+    return u.protocol === "https:" && u.hostname === host && u.port === "" && !u.username && !u.password ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The newest piece hung on the island: the newest torch, by the time lit, whose piece has a
+ * picture on the island's image host, an artist, a door on the island and a time. A torch
+ * with none of that (a feed to the fire, a torch lit with no piece) is passed over.
+ */
+function lastPiece(body) {
+  if (!Array.isArray(body?.torches)) return null;
+  let best = null;
+  for (const t of body.torches) {
+    const image = islandUrl(t?.piece?.image, PIECE_IMAGE_HOST);
+    const artist = typeof t?.piece?.artist === "string" ? word(t.piece.artist.trim(), 64) : null;
+    const door = islandUrl(t?.door, ISLAND_HOST);
+    if (!image || !artist || !door || !when(t.lit_at)) continue;
+    if (best && Date.parse(best.lit_at) >= Date.parse(t.lit_at)) continue;
+    const title = typeof t.piece.title === "string" ? word(t.piece.title.trim(), 128) : null;
+    best = { image, artist, title, door, lit_at: t.lit_at };
+  }
+  return best;
 }
 
 function parsePlaces(body, lastByPlace) {
@@ -182,13 +222,14 @@ export async function handleTorches(req, res) {
     last_torch: newest
       ? { kind: newest.kind, place: newest.place, label: newest.label, name: newest.name, amount: newest.amount, lit_at: newest.lit_at }
       : null,
+    last_piece: lastPiece(torchesBody),
     fire: parseFire(fireBody),
     season: parseSeason(seasonBody),
     flames: parseFlameCount(flamesBody),
     as_of_unix: count(placesBody?.as_of_unix) ? placesBody.as_of_unix : null,
   };
 
-  const anyRead = out.places !== null || out.last_torch !== null || out.fire !== null
+  const anyRead = out.places !== null || out.last_torch !== null || out.last_piece !== null || out.fire !== null
     || out.season !== null || out.flames !== null;
   if (!anyRead) {
     return res.status(502).json({ error: "The island could not be read" });

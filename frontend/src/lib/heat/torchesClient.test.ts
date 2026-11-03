@@ -103,6 +103,45 @@ describe('fetchIslandTorches', () => {
   });
 });
 
+// THE TIMELINE (island answer twenty-four, build 7): the proxy's newest hung piece, as
+// api/_lib/torches.js forwards it. Checked again here, so a picture or a door that is not
+// the island's never reaches an <img> or a link, whatever the proxy let through.
+describe('the newest piece hung on the island', () => {
+  const PIECE = {
+    image: 'https://junglebayisland.com/api/storage-image?key=gallery%2Floground%2F7f4dc061-e10a-4ae3-b73f-83e078efad26%2Flarge.webp',
+    artist: 'loground',
+    title: 'Halloween',
+    door: 'https://memetics.wtf/b/ethereum-0x6982508145454ce325ddbe47a25d4ec3d2311933',
+    lit_at: '2026-10-28T20:55:02.000Z',
+  };
+
+  it('keeps its picture, artist, title, door and time', async () => {
+    vi.stubGlobal('fetch', answer(200, { ...PROXY_BODY, last_piece: PIECE }));
+    expect((await fetchIslandTorches()).lastPiece).toEqual({
+      image: PIECE.image, artist: 'loground', title: 'Halloween', door: PIECE.door, litAtMs: Date.parse(PIECE.lit_at),
+    });
+  });
+
+  it('keeps a piece with no title; the artist is the one word it needs', async () => {
+    vi.stubGlobal('fetch', answer(200, { ...PROXY_BODY, last_piece: { ...PIECE, title: null } }));
+    expect((await fetchIslandTorches()).lastPiece).toMatchObject({ artist: 'loground', title: null });
+  });
+
+  it.each([
+    ['not served', undefined],
+    ['null', null],
+    ['a picture off the island', { ...PIECE, image: 'https://evil.example/x.webp' }],
+    ['a picture over http', { ...PIECE, image: 'http://junglebayisland.com/api/storage-image?key=x' }],
+    ['a door off the island', { ...PIECE, door: 'https://memetics.wtf.evil.example/b/pepe' }],
+    ['a door that is a script', { ...PIECE, door: 'javascript:alert(1)' }],
+    ['no artist', { ...PIECE, artist: '' }],
+    ['no time', { ...PIECE, lit_at: 'soon' }],
+  ])('is null when %s', async (_why, piece) => {
+    vi.stubGlobal('fetch', answer(200, { ...PROXY_BODY, last_piece: piece }));
+    expect((await fetchIslandTorches()).lastPiece).toBeNull();
+  });
+});
+
 describe('roomTorches', () => {
   async function read(body: unknown = PROXY_BODY): Promise<IslandTorches> {
     vi.stubGlobal('fetch', answer(200, body));
