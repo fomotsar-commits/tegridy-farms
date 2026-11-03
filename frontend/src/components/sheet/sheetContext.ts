@@ -14,6 +14,16 @@ export interface SheetPlace {
   bayla: ReactNode;
 }
 
+/**
+ * What the sheet holds while its form loads: about the form's height (Add's as drawn, Buy's before an
+ * amount), so the sheet rises once instead of climbing and dropping as its pieces land. `line` is for
+ * a waiting line; `slot` for the sheet's own frame before anything is drawn in it.
+ */
+export const SHEET_WAIT: Record<SheetKind, { line: string; slot: string }> = {
+  add: { line: 'min-h-[320px]', slot: 'empty:min-h-[320px]' },
+  buy: { line: 'min-h-[204px]', slot: 'empty:min-h-[204px]' },
+};
+
 export const SheetContext = createContext<SheetPlace | null>(null);
 
 export const useSheet = (): SheetPlace | null => useContext(SheetContext);

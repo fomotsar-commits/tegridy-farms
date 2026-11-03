@@ -11,6 +11,7 @@ import { useReceipt } from '../../lib/receipt';
 import { useScreenMove } from '../../lib/screenMove';
 import { tick } from '../../lib/tick';
 import { CoinName } from '../ui/CoinName';
+import { SHEET_WAIT } from './sheetContext';
 
 // The sheet's own Solana connection, for a page with none: its own chunk, as every Solana section is.
 const SheetOwnConnection = lazy(() => import('./SheetSolana'));
@@ -119,7 +120,7 @@ function OpenSheet({ kind, named }: { kind: SheetKind; named: Bungalow | null })
             {SHEET_WORDS.back}
           </button>
           {room ? <CoinRow room={room} /> : <BungalowRow onPick={pick} />}
-          <div ref={setSlot} data-testid="sheet-body" className="mt-4" />
+          <div ref={setSlot} data-testid="sheet-body" className={room ? `mt-4 ${SHEET_WAIT[kind].slot}` : 'mt-4'} />
           {room && pageOutlet === null && (
             <Suspense fallback={null}>
               <SheetOwnConnection />

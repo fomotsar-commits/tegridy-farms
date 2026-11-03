@@ -149,9 +149,10 @@ function LpBody({ readers, mode, reloadKey, home, door }: { readers: LpReaders; 
   // The page holds the door's place until this section takes it, whether or not it draws one.
   useLayoutEffect(() => door?.claim(), [door]);
   // The sheet (island answer twenty-five, build 3): Add with one coin on the room's own pool, asked
-  // once as the door asks it, so its form, or why it did not open, is drawn in the sheet.
+  // once as the door asks it, so its form, or why it did not open, is drawn in the sheet. Before the
+  // first paint: a frame of the section without its door dropped the sheet 320 px and back.
   const sheet = useSheet();
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!sheet || !homeMint || !homePool || !finderRef.current) return;
     finderRef.current.openAdd(homeMint, { form: 'one', top: true, pool: homePool });
   }, [sheet, homeMint, homePool]);

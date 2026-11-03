@@ -9,6 +9,7 @@ import { Buffer } from 'buffer';
 import { PublicKey } from '@solana/web3.js';
 import { LIVE_PROGRAM_ID, deriveAmmConfig } from '../src/lib/solana/cpswap/program';
 import { buildPool, clockAccount, configBytes, mintBytes, type FakeAccount } from '../src/lib/solana/lp/testkit.fixture';
+import { METAPLEX_TOKEN_METADATA_ID, metadataPda } from '../src/lib/launcher/solana/write/metaplex';
 import { CONNECT_ONLY_WALLET_ADDRESS, CONNECT_ONLY_WALLET_NAME, installConnectOnlySolanaWallet } from './fixtures/solanaConnectOnlyWallet';
 
 // The Bayla room's door, as lib/bungalows.ts names it (the spec checks the room's link says the same).
@@ -22,6 +23,12 @@ const MAINNET_GENESIS = '5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d';
 const OUTSIDE_AMM = '58oQChx4yWmvKdwLLZzBi4ChoCc2fqCUWBkwMihLYQo2';
 const SOL_PER_BAYLA = 0.000006;
 
+// The coin's name on chain, locked, as the real BAYLA's is (a Metaplex record: key 4, update authority,
+// mint, name, symbol, uri, no fee, no creators, not sold, not mutable): its token check reads clean.
+const borshText = (t: string) => [t.length, 0, 0, 0, ...Buffer.from(t, 'utf8')];
+const nameOnChain = (mint: string) =>
+  Uint8Array.from([4, ...new Uint8Array(32), ...new PublicKey(mint).toBytes(), ...borshText('BAYLA'), ...borshText('BAYLA'), ...borshText('https://x.test/b.json'), 0, 0, 0, 0, 0]);
+
 test.use({ serviceWorkers: 'block', viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 3 });
 
 async function playDoor(page: Page) {
@@ -34,6 +41,7 @@ async function playDoor(page: Page) {
     [deriveAmmConfig(LIVE_PROGRAM_ID, 0).toBase58()]: { owner: program, data: configBytes(0, 2_500n, 120_000n) },
     ...pool.accounts,
     [BAYLA]: { owner: TOKEN_PROGRAM, data: mintBytes(null, 6) },
+    [metadataPda(new PublicKey(BAYLA)).toBase58()]: { owner: METAPLEX_TOKEN_METADATA_ID.toBase58(), data: nameOnChain(BAYLA) },
     SysvarC1ock11111111111111111111111111111111: clockAccount(BigInt(now)),
     [CONNECT_ONLY_WALLET_ADDRESS]: { owner: '11111111111111111111111111111111', data: new Uint8Array(0), lamports: 3_000_000_000 },
   };
@@ -159,7 +167,7 @@ test('Add in the BAYLA room raises the sheet over the room: its button on it wit
   // The room never scrolled under it, and the sheet, which fits what it holds, moved little once it rose.
   expect((tall.walk as Walk).scrolls).toEqual([0]);
   const tops = (tall.walk as Walk).sheetTops;
-  expect(Math.max(...tops) - Math.min(...tops)).toBeLessThanOrEqual(60);
+  expect(Math.max(...tops) - Math.min(...tops), `the sheet's tops: ${tops.join(', ')}`).toBeLessThanOrEqual(60);
   expect(tall.goText).toBe('Add SOL + BAYLA');
   expect(tall.go!.bottom).toBeLessThanOrEqual(tall.innerHeight);
   // One green button on the screen the sheet is: its own.
@@ -199,6 +207,15 @@ test('a connected visitor: the drawn rows, her line with no button, and one gree
   test.slow();
   await installConnectOnlySolanaWallet(context);
   await playDoor(page);
+  // The connected wallet reads warm, so her line in the sheet is the drawn one.
+  await page.route('**/api/aggregator**', (route) => {
+    if (new URL(route.request().url()).searchParams.get('resource') !== 'heat') return route.abort();
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ address: CONNECT_ONLY_WALLET_ADDRESS, degrees: 41.2, tier: 'Observer', is_cold: false, held_since_unix: 1_760_000_000, as_of_unix: Math.floor(Date.now() / 1000), token_count: 1, breakdown: [], x_handle: null }),
+    });
+  });
   await walkIn(page);
   const sheet = page.getByRole('dialog', { name: 'Add SOL + BAYLA' });
   await expect(sheet.getByTestId('sheet-go')).toBeVisible({ timeout: 30_000 });
@@ -212,8 +229,10 @@ test('a connected visitor: the drawn rows, her line with no button, and one gree
   await expect(facts).toContainText('Pool price1 BAYLA = ');
   await expect(facts).toContainText(/Outside price[\d.]+ SOL/);
   await expect(sheet.getByTestId('sheet-fee-line')).toHaveText(/^LPs keep [\d.]+% of each trade, the venue [\d.]+%\.$/);
-  await expect(sheet.getByTestId('sheet-bayla')).toBeVisible();
+  await expect(sheet.getByTestId('sheet-bayla')).toHaveText('41.20° Observer. Every day in this pool counts double.');
   await expect(sheet.getByTestId('sheet-bayla').getByRole('link')).toHaveCount(0);
+  // Under the sheet her header button is quiet: the sheet's own green button is her move.
+  await expect(page.getByTestId('bayla-line-button')).toHaveAttribute('data-quiet', 'true');
   await expect(sheet.getByTestId('sheet-go')).toBeEnabled();
   expect(await sheet.locator('.btn-primary:visible').count()).toBe(1);
   await page.waitForTimeout(800);

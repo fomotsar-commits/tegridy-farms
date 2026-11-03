@@ -4,7 +4,7 @@ import { BUNGALOWS } from '../../../lib/bungalows';
 import { CardArt } from '../../ui/CardArt';
 import { CARD, CARD_STYLE, SHADOW } from '../curve/uiFormat';
 import { InDoorContext, LpDoorContext } from './lpDoor';
-import { useSheet } from '../../sheet/sheetContext';
+import { SHEET_WAIT, useSheet } from '../../sheet/sheetContext';
 
 /**
  * Where the LP door lands (island, answer twenty-two): a room's Add SOL + coin opens its form
@@ -20,7 +20,7 @@ export function LpDoorFrame({ mint, waiting, slotRef }: { mint: string; waiting:
     return (
       <div data-testid="lp-door" data-in-sheet="">
         {waiting && (
-          <p role="status" className="text-white/70 text-[13px] py-3 min-h-[340px]">
+          <p role="status" className={`text-white/70 text-[13px] py-3 ${SHEET_WAIT.add.line}`}>
             Reading this pool from the chain…
           </p>
         )}

@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { holdSheetOutlet, useSheetOpen, useSheetOutletHead } from '../../lib/sheetStore';
-import { SheetContext, type SheetPlace } from './sheetContext';
+import { SHEET_WAIT, SheetContext, type SheetPlace } from './sheetContext';
 import { SheetBaylaRow } from './SheetBaylaRow';
 
 // The forms themselves, in the Solana chunk: an outlet is cheap to mount on any Solana section.
@@ -23,7 +23,7 @@ export function SheetBodyOutlet({ page = true }: { page?: boolean }) {
   if (page ? head !== token : head !== null) return null;
   return createPortal(
     <SheetContext.Provider value={place}>
-      <Suspense fallback={<p role="status" className="text-white/70 text-[13px] py-3 min-h-[340px]">Reading the pool…</p>}>
+      <Suspense fallback={<p role="status" className={`text-white/70 text-[13px] py-3 ${SHEET_WAIT[place.kind].line}`}>Reading the pool…</p>}>
         <SheetBody key={`${place.kind}:${place.room.id}`} />
       </Suspense>
     </SheetContext.Provider>,

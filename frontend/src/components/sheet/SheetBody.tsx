@@ -4,14 +4,14 @@ import { lazy, Suspense, useMemo } from 'react';
 import { LpInner } from '../solana/lp/SolanaLpSection';
 import { browserLpReaders } from '../solana/lp/readers';
 import { useVenueStatus } from '../../hooks/useVenueStatus';
-import { useSheet } from './sheetContext';
+import { SHEET_WAIT, useSheet } from './sheetContext';
+import type { SheetKind } from '../../lib/sheet';
 
 // The swap page's own form, in its sheet mode, as the home's card loads it.
 const SolanaSwapInner = lazy(() => import('../../pages/SolanaSwapPage').then((m) => ({ default: m.SolanaSwapInner })));
 
-const READING = (
-  // About a form's height, so the sheet does not climb far when the form lands.
-  <p role="status" className="text-white/70 text-[13px] py-3 min-h-[340px]">
+const reading = (kind: SheetKind) => (
+  <p role="status" className={`text-white/70 text-[13px] py-3 ${SHEET_WAIT[kind].line}`}>
     Reading the pool…
   </p>
 );
@@ -26,7 +26,7 @@ export default function SheetBody() {
   if (!sheet) return null;
   if (sheet.kind === 'add') return <SheetAdd />;
   return (
-    <Suspense fallback={READING}>
+    <Suspense fallback={reading('buy')}>
       <SolanaSwapInner sheet />
     </Suspense>
   );
@@ -40,7 +40,7 @@ function SheetAdd() {
   const { address: mint, venueSolPool: pool } = sheet.room;
   if (!readers || !mint || !pool) return null;
   if (status?.kind === 'live') return <LpInner readers={readers} home={{ mint, pool }} />;
-  if (status === null) return READING;
+  if (status === null) return reading('add');
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-[13px] py-3" data-testid="sheet-lp-unread">
       <p className="text-white/80">{status.kind === 'unreadable' ? 'The pool could not be read just now.' : 'The pool is not open right now.'}</p>
