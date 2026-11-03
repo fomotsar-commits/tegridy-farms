@@ -272,16 +272,21 @@ const HISTORY_VERSION = 1;
 const TOKEN_PROGRAMS = ['TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb'];
 /** Coin accounts whose history is read, at most: anyone can open coin accounts in the keeper's name. */
 const MAX_TRACKED = 40;
+/** The chain is read again this soon after a read starts, whether or not a page is open. */
+const READ_EVERY_MS = 15_000;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const said = (e) => (e instanceof Error ? e.message : String(e));
 
-/** A read the public RPC turned away for speed is tried again, slower. */
+/**
+ * A read the public RPC turned away for speed, or could not serve from its long-term storage
+ * that moment ("Failed to query long-term storage; please try again"), is tried again, slower.
+ */
 async function rpcPatient(method, params) {
   for (let i = 0; ; i++) {
     try {
       return await rpc(method, params);
     } catch (e) {
-      if (i >= 5 || !/429|too many/i.test(said(e))) throw e;
+      if (i >= 5 || !/429|too many|long-term storage/i.test(said(e))) throw e;
       await sleep(2000 * (i + 1));
     }
   }
@@ -402,7 +407,9 @@ async function dashboard() {
     unpriced: coins(r.madeTokens).filter((c) => c.usd === null).length,
   });
 
+  let turn = 0;
   async function build() {
+    turn++;
     if (Date.now() - venue.at > 10 * 60_000) {
       const rows = await poolCoverage({ rpc, indexFetch }).catch((e) => said(e));
       venue = typeof rows === 'string' ? { ...venue, at: Date.now(), note: `pools not read: ${rows}` } : { rows, at: Date.now(), note: null };
@@ -410,7 +417,10 @@ async function dashboard() {
     const pools = new Set(venue.rows.map((r) => r.pool));
     const readOne = (tx) => readActivity(tx, owner, venueProgram, pools);
     // Twice at most: a trade landing between the wallet read and the history read shows as a
-    // difference that the second read explains.
+    // difference that the second read explains. The keeper pays for every trip it sends, so its
+    // own address names each one; a coin account also changes when a stranger sends to it, which
+    // the keeper never signs, so each read also takes one coin account in turn, and the second
+    // round takes them all when the wallet holds what the history does not explain.
     let wallet;
     let historyNote = null;
     let check;
@@ -418,8 +428,9 @@ async function dashboard() {
       wallet = await walletNow(owner);
       const known = (a) => onVenue(a.mint) ? 0 : 1;
       const tracked = [...wallet.accounts].sort((a, b) => known(a) - known(b)).slice(0, MAX_TRACKED);
+      const coinAccounts = round > 0 ? tracked : tracked.slice(turn % Math.max(1, tracked.length)).slice(0, 1);
       historyNote = null;
-      for (const address of [owner, ...tracked.map((a) => a.address)]) {
+      for (const address of [owner, ...coinAccounts.map((a) => a.address)]) {
         if (!(await readNew(address, history, readOne))) historyNote = 'the newest transactions are not served yet: read again in a moment';
       }
       saveHistory(owner, history);
@@ -494,24 +505,29 @@ async function dashboard() {
     };
   }
 
-  // The chain figures are read again at most every 30 s, and only when asked for: after a
-  // quiet spell (a minimized window stops the page asking) the first answer is the old read,
-  // with the time it was made, while a new one is under way.
+  // The chain is read on the dashboard's own clock, whether or not a page is open: a hidden,
+  // minimized or frozen tab stops asking, and a page that looks again after a quiet spell must
+  // find figures seconds old, not the ones from when it last asked.
   let state = null;
   let building = null;
-  let tried = 0;
-  const current = async () => {
-    if (!building && Date.now() - tried > 30_000) {
-      tried = Date.now();
-      building = build()
-        .then((s) => (state = s))
+  let firstRead;
+  const ready = new Promise((r) => (firstRead = r));
+  async function readForever() {
+    for (;;) {
+      const started = Date.now();
+      building = build();
+      try {
+        state = await building;
+      } catch (e) {
         // The read before it stays, with its own time: the page says how old it is.
-        .catch((e) => (state = { ...(state ?? {}), error: said(e) }))
-        .finally(() => (building = null));
+        state = { ...(state ?? {}), error: said(e) };
+      }
+      building = null;
+      firstRead();
+      push();
+      await sleep(Math.max(2_000, READ_EVERY_MS - (Date.now() - started)));
     }
-    if (!state) await building;
-    return state;
-  };
+  }
   // The robot's own report is read at every answer, never from an old read of the chain: an
   // old read must not make a running robot look gone.
   const live = () => {
@@ -523,6 +539,23 @@ async function dashboard() {
     }
   };
 
+  // Every open page is sent each read as it lands and the robot's report as it changes (and the
+  // same again every 5 s, so its "seconds ago" stay true and it can tell the dashboard is still
+  // there). A page that was away reconnects and is sent the latest at once.
+  const listeners = new Set();
+  let sent = '';
+  let sentAt = 0;
+  const snapshot = () => JSON.stringify({ ...state, ...live() });
+  function push() {
+    if (!state || !listeners.size) return;
+    const body = snapshot();
+    if (body === sent && Date.now() - sentAt < 5_000) return;
+    sent = body;
+    sentAt = Date.now();
+    for (const res of listeners) res.write(`data: ${body}\n\n`);
+  }
+  setInterval(push, 2_000);
+
   const common = { 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer', 'x-frame-options': 'DENY' };
   const server = http.createServer(async (req, res) => {
     // Only this computer, by its own names: a web page elsewhere that points a name of its
@@ -532,8 +565,15 @@ async function dashboard() {
     if (req.url === '/') return res.writeHead(200, { ...common, 'content-type': 'text/html; charset=utf-8', 'content-security-policy': csp }).end(page);
     if (req.url === '/app.js') return res.writeHead(200, { ...common, 'content-type': 'text/javascript; charset=utf-8' }).end(app);
     if (req.url === '/state.json') {
-      const body = JSON.stringify({ ...(await current()), ...live() });
-      return res.writeHead(200, { ...common, 'content-type': 'application/json' }).end(body);
+      if (!state) await ready;
+      return res.writeHead(200, { ...common, 'content-type': 'application/json' }).end(snapshot());
+    }
+    if (req.url === '/events') {
+      res.writeHead(200, { ...common, 'content-type': 'text/event-stream' });
+      listeners.add(res);
+      req.on('close', () => listeners.delete(res));
+      if (state) res.write(`data: ${snapshot()}\n\n`);
+      return;
     }
     return res.writeHead(404, common).end();
   });
@@ -545,8 +585,7 @@ async function dashboard() {
     log(`Dashboard for ${owner}: http://127.0.0.1:${port}`);
     log('  read-only, on this computer only; Ctrl+C stops it (the robot keeps running)');
   });
-  current();
-  await new Promise(() => {});
+  await readForever();
 }
 
 async function main() {

@@ -2,7 +2,7 @@
 // /app.js by `node scripts/price-keeper.mjs dashboard`: the only script the page's content
 // security policy lets run. It reads /state.json and writes every figure as text: coin names
 // are the coins' own claims, so nothing is ever written as HTML. It runs in the browser.
-/* global document, window, Node, requestAnimationFrame, cancelAnimationFrame */
+/* global document, window, Node, EventSource, requestAnimationFrame, cancelAnimationFrame */
 (() => {
   const $ = (id) => document.getElementById(id);
   const B58 = /^[1-9A-HJ-NP-Za-km-z]{32,90}$/;
@@ -203,7 +203,7 @@
     $('wallet').textContent = s.wallet;
     const link = $('walletLink');
     if (B58.test(s.wallet)) { link.href = `https://solscan.io/account/${s.wallet}`; link.hidden = false; }
-    $('updated').textContent = `Read ${new Date(s.builtAt).toLocaleTimeString()} · SOL ${usd(s.solUsd)} · refreshes every 30 s`;
+    $('updated').textContent = `Read ${new Date(s.builtAt).toLocaleTimeString()} · SOL ${usd(s.solUsd)} · live, read every 15 s`;
 
     const h = s.holdings;
     const res = s.results;
@@ -278,26 +278,21 @@
     resizing = requestAnimationFrame(() => last && drawCurve(last));
   });
 
-  // Asked every 30 s; every 5 s while a new read is under way; and at once when the tab is shown
-  // again, since a hidden or minimized window can stop the page's timers for hours.
-  let timer = null;
-  async function tick() {
-    let soon = false;
-    try {
-      const r = await fetch('/state.json', { cache: 'no-store' });
-      if (!r.ok) throw new Error(`the dashboard answered ${r.status}`);
-      const s = await r.json();
-      render(s);
-      soon = s.reading === true;
-    } catch (e) {
+  // The dashboard sends each read as it lands and the robot's report as it changes, so the page
+  // keeps no timer of its own (a hidden or minimized window stops those for hours). A stream
+  // that drops, or a tab coming back from being frozen, reconnects and is sent the latest at once.
+  let stream = null;
+  function listen() {
+    stream = new EventSource('/events');
+    stream.onmessage = (e) => render(JSON.parse(e.data));
+    stream.onerror = () => {
+      if (stream.readyState === EventSource.OPEN) return;
       $('error').hidden = false;
-      $('error').textContent = `The dashboard is not answering (${e instanceof Error ? e.message : e}): is its window still open?`;
-    }
-    clearTimeout(timer);
-    timer = setTimeout(tick, soon ? 5_000 : 30_000);
+      $('error').textContent = 'The dashboard is not answering: is its window still open? This page reconnects by itself once it is.';
+    };
   }
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') tick();
+    if (document.visibilityState === 'visible' && stream.readyState === EventSource.CLOSED) listen();
   });
-  tick();
+  listen();
 })();
