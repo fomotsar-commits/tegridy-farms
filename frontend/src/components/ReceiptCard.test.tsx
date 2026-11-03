@@ -8,7 +8,8 @@ import { clearLanded, lastLanded } from '../lib/landed';
 import type { HeatReading } from '../lib/heat/heatOracle';
 
 const confetti = vi.hoisted(() => ({ fire: vi.fn() }));
-vi.mock('../hooks/useConfetti', () => ({ useConfetti: () => ({ fire: confetti.fire }) }));
+// As the provider gives it: a new function on every render.
+vi.mock('../hooks/useConfetti', () => ({ useConfetti: () => ({ fire: () => confetti.fire() }) }));
 
 const SIG = '5Kq3' + 'x'.repeat(80) + '9xWz';
 const WALLET = '8SxYtKrtPZoEwtgpkXmn7TrS7VGa1qSiGPHnYjfFWQuv';
@@ -118,6 +119,15 @@ describe('the receipt card', () => {
   it('a fee the transaction did not show is said as not read, never a figure', () => {
     act(() => raiseReceipt(receipt({ fee: { kind: 'unread' } })));
     expect(screen.getByTestId('receipt-rows')).toHaveTextContent('Feecould not be read from the transaction');
+  });
+
+  it('a card whose fee is read at once still rises: the read’s re-render never cancels the rise', async () => {
+    act(() => raiseReceipt(receipt()));
+    act(() => settleReceipt(SIG, { title: 'Bought 25,623 BAYLA', fee: { kind: 'pool', unit: 'SOL', fee: '0.00122 SOL', lps: '0.0010248 SOL', venue: '0.0001952 SOL', creator: null } }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+    expect(screen.getByTestId('receipt-card').style.opacity).toBe('1');
   });
 
   it('a late read of an older signature never touches a newer card', () => {

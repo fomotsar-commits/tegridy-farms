@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { RECEIPT_WORDS } from '../lib/arrival';
 import { clockText, closeReceipt, useReceipt, type Receipt } from '../lib/receipt';
@@ -10,6 +10,9 @@ import { tick } from '../lib/tick';
 
 /** How long the card waits for the confetti to start before it rises: the last pieces may still be falling. */
 const RISE_AFTER_MS = 250;
+
+/** The confetti is once a landing: the signature it last fell for. Bayla's Receipt raises the card again without it. */
+let confettiFor: string | null = null;
 
 /**
  * The receipt card (island answer twenty-five, screen 3, build 6): one card over the page the
@@ -30,14 +33,17 @@ function OpenReceipt({ receipt }: { receipt: Receipt }) {
   const titleId = useId();
   const { fire } = useConfetti();
   const [risen, setRisen] = useState(false);
-  const fired = useRef<string | null>(null);
+  // The provider's fire is a new function on each of its renders: the confetti and the rise are
+  // kept apart, so a re-render never cancels the rise.
   useEffect(() => {
-    if (fired.current === receipt.signature) return;
-    fired.current = receipt.signature;
+    if (confettiFor === receipt.signature) return;
+    confettiFor = receipt.signature;
     fire();
+  }, [receipt.signature, fire]);
+  useEffect(() => {
     const t = window.setTimeout(() => setRisen(true), RISE_AFTER_MS);
     return () => window.clearTimeout(t);
-  }, [receipt.signature, fire]);
+  }, [receipt.signature]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') closeReceipt();
