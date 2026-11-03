@@ -114,8 +114,9 @@ from fresh clones by `node solana/guards/provenance.mjs --regenerate <scratch fo
 can re-run it, and `git diff solana/guards/upstream` must then show no change.
 
 1. **Same code as Raydium's, plus only the reviewed patch** (`solana/guards/provenance.mjs`, in
-   `diff-guard` and `clmm-guards`). Range pools: 79 upstream files, 18 patched. cp-swap: its
-   whole package, 37 files, 4 patched. `vendor/uint`: 16 files, none patched. Undoing the patch
+   `diff-guard` and `clmm-guards`). Range pools: 79 upstream files, 22 patched. cp-swap: its
+   whole package, 37 files, 8 patched (2026-11-03; the `patched` lists in `provenance.mjs` are the
+   record). `vendor/uint`: 16 files, none patched. Undoing the patch
    on our file must give back Raydium's exact file. No file may be added anywhere in either
    package, a `build.rs` included. The patch and the lockfile are each pinned by hash, so even a
    crate swapped for another version Raydium's lock lists fails. cp-swap's workspace is pinned
@@ -147,8 +148,9 @@ Each guard first meets copies it must refuse, so it cannot pass by checking noth
 
 One kept exception: our live cp-swap carries Raydium's list of four stablecoin mints (USDP, GYEN,
 ZUSD, PYUSD) that may skip a Token-2022 check. They pay no one; assessed 2026-10-10 as not
-exploitable here; removing them needs a cp-swap upgrade. The guard allows them in that one file
-only.
+exploitable here. The source deleted the list on 2026-11-03, as Raydium itself did; the live
+program keeps it until the next cp-swap upgrade. The guard allows the four in that one file only,
+where a unit test now names them to prove they meet the same check as every coin.
 
 ## What is left, in order
 

@@ -37,7 +37,7 @@
 > //   - 2026-10-19, initialize.rs: a public pool cannot open on the launch tier (index 0).
 > //   - 2026-11-03, the range-pool program's fee rules: only a tier's fund owner collects
 > //     the fund fee (collect_fund_fee.rs); a tier charges a trader more than 0 and at most
-> //     4%, and keeps at most 20% of each fee for the protocol and fund owners together
+> //     4%, and keeps at most 20% of its trade fee for the protocol and fund owners together
 > //     (here and update_config.rs; constants in states/config.rs).
 > //   - 2026-11-03, utils/token.rs: MINT_WHITELIST deleted, as upstream itself deleted it
 > //     (59fb845); a support-mint record no longer skips the Token-2022 extension check.
@@ -330,7 +330,7 @@
 <     assert!(creator_fee_rate + amm_config.trade_fee_rate < FEE_RATE_DENOMINATOR_VALUE);
 ---
 >     assert!(creator_fee_rate + amm_config.trade_fee_rate <= MAX_FEE_RATE_NUMERATOR);
-84a87,177
+84a87,182
 > }
 > 
 > #[cfg(test)]
@@ -421,6 +421,11 @@
 >         update_protocol_fee_rate(&mut t, 144_000);
 >         assert_eq!(t.trade_fee_rate, 40_000);
 >         assert_eq!(t.protocol_fee_rate + t.fund_fee_rate, 200_000);
+>         let mut c = public_tier();
+>         update_creator_fee_rate(&mut c, 30_000);
+>         update_fund_fee_rate(&mut c, 96_000);
+>         assert_eq!(c.trade_fee_rate + c.creator_fee_rate, 40_000);
+>         assert_eq!(c.protocol_fee_rate + c.fund_fee_rate, 200_000);
 >     }
 === src/instructions/initialize.rs ===
 204a205,209
@@ -430,13 +435,64 @@
 >         return err!(ErrorCode::NotApproved);
 >     }
 === src/states/config.rs ===
-4a5,10
+4a5,11
 > /// memetics.finance: a tier's trade and creator fees together are at most 4% of a swap.
 > pub const MAX_FEE_RATE_NUMERATOR: u64 = 40_000;
 > 
-> /// memetics.finance: a tier's protocol and fund rates together are at most 20% of each fee.
+> /// memetics.finance: a tier's protocol and fund rates together are at most 20% of its trade
+> /// fee. They are shares of the trade fee only; the creator fee is the creator's alone.
 > pub const MAX_PROTOCOL_AND_FUND_FEE_RATE: u64 = 200_000;
 > 
+34a42,90
+> }
+> 
+> #[cfg(test)]
+> mod live_tier_split_test {
+>     use crate::curve::CurveCalculator;
+> 
+>     // How each live tier (frontend/scripts/addresses.json, fee settings 0 and 1) splits a swap's
+>     // fee: the trader pays the trade fee, plus the creator fee on the launch tier; the protocol
+>     // (the venue) and the fund (the island) take their rates of the trade fee, rounded down; the
+>     // pool's LPs keep the rest of the trade fee. Returns (trade, protocol, fund, creator) fees.
+>     fn split(input: u128, trade: u64, creator: u64, protocol: u64, fund: u64) -> (u128, u128, u128, u128) {
+>         let r = CurveCalculator::swap_base_input(
+>             input,
+>             1_000_000_000_000,
+>             1_000_000_000_000,
+>             trade,
+>             creator,
+>             protocol,
+>             fund,
+>             true,
+>         )
+>         .unwrap();
+>         (r.trade_fee, r.protocol_fee, r.fund_fee, r.creator_fee)
+>     }
+> 
+>     #[test]
+>     fn the_1_percent_tier_sends_10_4_percent_of_its_fee_to_the_venue_and_5_6_to_the_island() {
+>         // 1,000 tokens in: 10 in fees; 1.04 to the venue, 0.56 to the island, 8.40 stays for LPs.
+>         assert_eq!(
+>             split(1_000_000_000, 10_000, 0, 104_000, 56_000),
+>             (10_000_000, 1_040_000, 560_000, 0)
+>         );
+>     }
+> 
+>     #[test]
+>     fn the_launch_tier_sends_13_and_7_percent_of_its_trade_fee_and_the_creator_keeps_the_creator_fee() {
+>         // 1,000 tokens in: 7.5 in fees, 5 of them the creator's. Of the 2.5 trade fee, 0.325 goes
+>         // to the venue (0.0325% of the swap) and 0.175 to the island.
+>         assert_eq!(
+>             split(1_000_000_000, 2_500, 5_000, 130_000, 70_000),
+>             (2_500_000, 325_000, 175_000, 5_000_000)
+>         );
+>     }
+> 
+>     #[test]
+>     fn the_venue_and_island_shares_round_down_and_the_lps_keep_the_dust() {
+>         // 99 units in on the 1% tier: a 1-unit fee (rounded up), and neither share reaches a unit.
+>         assert_eq!(split(99, 10_000, 0, 104_000, 56_000), (1, 0, 0, 0));
+>     }
 === src/utils/token.rs ===
 16,23d15
 < use std::collections::HashSet;

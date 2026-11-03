@@ -90,7 +90,7 @@ export const COPIES = {
     take: (p) => p.startsWith('programs/cp-swap/'),
     map: (p) => p.replace(/^programs\/cp-swap\//, ''),
     delta: 'cp-swap.diff',
-    deltaSha256: '8fac7e1f97fbd383654eeb126c7529ed57b05a3896ed49ebb0f813268b1c2ffe',
+    deltaSha256: 'f291e34fbc2d74dee0fd6a58bc1acff86475a26aa2f23a41b398d5ff789a20a3',
     patched: [
       'src/lib.rs',
       'src/instructions/admin/collect_fund_fee.rs',

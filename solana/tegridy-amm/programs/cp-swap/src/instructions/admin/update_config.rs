@@ -174,5 +174,10 @@ mod fee_ceiling_test {
         update_protocol_fee_rate(&mut t, 144_000);
         assert_eq!(t.trade_fee_rate, 40_000);
         assert_eq!(t.protocol_fee_rate + t.fund_fee_rate, 200_000);
+        let mut c = public_tier();
+        update_creator_fee_rate(&mut c, 30_000);
+        update_fund_fee_rate(&mut c, 96_000);
+        assert_eq!(c.trade_fee_rate + c.creator_fee_rate, 40_000);
+        assert_eq!(c.protocol_fee_rate + c.fund_fee_rate, 200_000);
     }
 }

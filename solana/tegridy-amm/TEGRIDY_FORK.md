@@ -67,7 +67,7 @@ fallback for pairs we don't host well.
 
 > **2026-11-03: the range-pool program's fee rules, and upstream's own deletion of
 > `MINT_WHITELIST`, in source.** Only a tier's fund owner collects the fund fee; a tier charges
-> a trader more than 0 and at most 4%, and keeps at most 20% of each fee; the four stablecoins
+> a trader more than 0 and at most 4%, and keeps at most 20% of its trade fee; the four stablecoins
 > the list let in, and any coin with a support-mint record, now meet the same Token-2022 check
 > as every coin. See "The fee rules and the coin check" below. They reach mainnet only with
 > the next cp-swap upgrade, a vault proposal of its own. `diff-guard` was re-pinned for it.
@@ -325,30 +325,38 @@ wait.
 
 From the Solana audit of 2026-11-03 (CA-1 / DO-11, CA-3 / CM-1, CP-05 / RU-01 / TK-2, TK-1 / CL-08).
 Each is a deletion or the range-pool program's own rule (`solana/tegridy-clmm`, owner ruling of
-2026-10-20), carried over.
+2026-10-20), carried over, except one check of our own: a trade fee of 0 is refused.
 
 | Rule | Where | Before |
 |---|---|---|
-| Only the tier's fund owner collects the fund fee (the island's Workshop on both live tiers). The vault can still point a tier's fund owner elsewhere by proposal (`update_amm_config` param 4), as on range pools. | `collect_fund_fee.rs`: upstream's `\|\| owner == admin::ID` deleted | the vault could collect the island's share to any account |
-| A tier charges a trader at most 4% of a swap, its trade and creator fees together, and its trade fee is never 0. | `create_amm_config` (`lib.rs`) and `update_config.rs` params 0 and 7; `MAX_FEE_RATE_NUMERATOR` in `states/config.rs` | up to 99.9999%; a 0 fee made every swap into a public pool revert (`split_creator_fee` divides by the two rates' sum) |
-| A tier keeps at most 20% of each fee for the protocol and fund owners together. Range pools keep at most 16%; here it is 20% because the launch tier's split, set by the island split's proposal (`frontend/scripts/addresses.json`, fee settings 0), is 130,000 + 70,000. The 1% tier's is 104,000 + 56,000. | the same places; `MAX_PROTOCOL_AND_FUND_FEE_RATE` | up to 100% |
+| Only the tier's fund owner collects the fund fee (the island's Workshop on both live tiers). The vault can still point a tier's fund owner elsewhere by proposal (`update_amm_config` param 4), collect, and point it back, as on range pools. | `collect_fund_fee.rs`: upstream's `\|\| owner == admin::ID` deleted | the vault could collect the island's share directly, to any account |
+| A tier charges a trader at most 4% of a swap, its trade and creator fees together, and its trade fee is never 0. Two exceptions, as on range pools: a fee is rounded up to the coin's smallest unit, so a very small swap can pay more than 4%, and a Token-2022 coin's own transfer fee comes on top. | `create_amm_config` (`lib.rs`) and `update_config.rs` params 0 and 7; `MAX_FEE_RATE_NUMERATOR` in `states/config.rs` | up to 99.9999%; a 0 fee made every swap into a public pool revert (`split_creator_fee` divides by the two rates' sum) |
+| A tier keeps at most 20% of its trade fee for the protocol and fund owners together; the creator fee is the creator's alone. Range pools keep at most 16%; here it is 20% because the launch tier's split, set by the island split's proposal (`frontend/scripts/addresses.json`, fee settings 0), is 130,000 + 70,000. The 1% tier's is 104,000 + 56,000. | the same places; `MAX_PROTOCOL_AND_FUND_FEE_RATE` | up to 100% |
 | The four Token-2022 stablecoins in upstream's `MINT_WHITELIST` (USDP, GYEN, ZUSD, PYUSD, each with a permanent delegate their issuer controls) meet the same extension check as every coin. Upstream deleted the list itself (raydium-cp-swap `59fb845`); this is that deletion. | `utils/token.rs` | let in by name, whatever their extensions |
 | A support-mint record no longer lets a coin skip that check. The record and its two instructions stay, so the interface is upstream's, but `is_supported_mint` ignores it. The range-pool program's copy changed the same day. | `utils/token.rs` | the vault could let any Token-2022 coin in, a permanent delegate or a transfer hook included |
 
-**What it changes on chain, once upgraded.** Read 2026-11-03: two tiers, both inside every
-ceiling (the launch tier sits exactly on the 20% one); no support-mint record; no pool holding
-one of the four stablecoins; 17 of the 19 pools owe the Workshop a fund fee, which it alone can
-collect. Moving the launch tier's split down to 104,000 + 56,000 takes three changes in one
-proposal (protocol to 90,000, fund to 56,000, protocol to 104,000), because each change is
-checked against the other rate as it stands. No account, argument or error code changes, so the
-IDL is the same; the swap maths is untouched.
+**What it changes on chain, once upgraded.** Read 2026-11-03 (slot 464,983,351): two tiers, both
+inside every ceiling (the launch tier sits exactly on the 20% one); no support-mint record; no
+pool holding one of the four stablecoins; 18 of the 19 pools owe the Workshop a fund fee, which
+only it can collect unless the vault first points the tier elsewhere (param 4). Moving the launch
+tier's split down to 104,000 + 56,000 takes two changes, in either order. Order matters only
+when one rate goes up while the pair sits at 20%: lower the other first, in the same proposal.
+The IDL's instructions, accounts and errors are the same; one account's doc line changes
+(`collect_fund_fee`'s owner). The swap maths is untouched.
+
+**In the same release as the upgrade, not before** (each describes the program on chain): the
+site's `frontend/src/lib/solana/lp/tokenSafety.ts`, which says the pool program accepts the four
+stablecoins by name (its block stays; only the reason changes); the operator script's pre-sign
+checks in `frontend/scripts/tegridy-launch-operator.mjs` (copy the three new asserts in); the
+registry text in `frontend/scripts/addresses.json`; `MAINNET_RUNBOOK.md`'s fee bound and
+fallback-collector lines; and the committed `idl/raydium_cp_swap.json` (the doc line above).
 
 **How it was proved, 2026-11-03.** Every new test was run against a copy with the fixes
 undone, and only the controls passed there.
 
 | run | result |
 |---|---|
-| unit tests (`cargo test --lib`, now run by CI's `build` job): six on the fee helpers in `update_config.rs`, four on `is_supported_mint` | 20 of 20 with upstream's ten. Fixes undone: the seven that guard a fix fail, the three controls pass |
+| unit tests (`cargo test --lib`, now run by CI's `build` job): six on the fee helpers in `update_config.rs`, four on `is_supported_mint`, three on how each live tier splits a swap's fee (`states/config.rs`) | 23 of 23 with upstream's ten. Fixes undone: the seven that guard a fix fail, the controls pass. Each mutant that breaks only what a boundary or split test pins also fails it: a ceiling one unit low on the creator path and on the fund path, the venue's share rounded up, the venue's and the island's rates swapped |
 | `tests/cp-swap-fee-rules.test.ts` (CI's migration-rehearsal job), on a local validator, both builds made as that job makes them (Solana 2.3.0, Anchor 0.32.1, this wallet as admin): `create_amm_config`'s checks and the fund-owner rule, which a unit test cannot reach | 6 of 6. Fixes undone: the five that guard a fix fail (each refused tier made; the admin collects the fund fee), the control passes |
 | the range-pool program's own test of its `is_supported_mint` | 2 of 2. Fix undone: the guard fails, the control passes |
 

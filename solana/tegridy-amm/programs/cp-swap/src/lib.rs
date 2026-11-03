@@ -38,7 +38,7 @@ solana_security_txt::security_txt! {
 //   - 2026-10-19, initialize.rs: a public pool cannot open on the launch tier (index 0).
 //   - 2026-11-03, the range-pool program's fee rules: only a tier's fund owner collects
 //     the fund fee (collect_fund_fee.rs); a tier charges a trader more than 0 and at most
-//     4%, and keeps at most 20% of each fee for the protocol and fund owners together
+//     4%, and keeps at most 20% of its trade fee for the protocol and fund owners together
 //     (here and update_config.rs; constants in states/config.rs).
 //   - 2026-11-03, utils/token.rs: MINT_WHITELIST deleted, as upstream itself deleted it
 //     (59fb845); a support-mint record no longer skips the Token-2022 extension check.
