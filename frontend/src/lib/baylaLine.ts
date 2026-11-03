@@ -1,5 +1,6 @@
 import { BAYLA_LINES } from './arrival';
 import type { HeatReading } from './heat/heatOracle';
+import type { ScreenMove } from './screenMove';
 
 /**
  * Bayla's line at the door (island answer twenty-four, build 4): one sentence in her
@@ -19,13 +20,20 @@ export interface BaylaInputs {
   landed: 'trade' | 'add' | null;
   /** The room pool's own price and the age of its outside price, when the shared list is behind (readers in BaylaLine.tsx). */
   slow: { price: string; age: string } | null;
-  /** Where the buttons go, read at render by the component: the room's pool, the Buy form, the launch door, the home's field, the hall. */
+  /** Where the buttons go, read at render by the component: the Add sheet, the Buy sheet, the launch door, the home's field, the hall. */
   to: { pools: string; buy: string; launch: string; read: string; pick: string; receipt: string };
+  /** The move the screen's own green button makes, when it draws one (lib/screenMove.ts). */
+  screenMove?: ScreenMove | null;
 }
+
+/** What the line's button does: the screen's own green button can do the same (answer twenty-five, §2). */
+export type BaylaMove = 'read' | 'start' | 'add' | 'pick' | 'launch' | 'receipt';
 
 export interface BaylaLine {
   text: string;
-  button: { label: string; to: string };
+  button: { label: string; to: string; move: BaylaMove };
+  /** The screen's own green button makes this move, so the line's button is drawn quiet: one green button per screen. */
+  sameMove: boolean;
 }
 
 /** Degrees as the line says them: two decimals, as the card prints them. */
@@ -33,23 +41,28 @@ export function degreesText(degrees: number): string {
   return degrees.toFixed(2);
 }
 
-export function baylaLine(i: BaylaInputs): BaylaLine {
+function lineFor(i: BaylaInputs): Omit<BaylaLine, 'sameMove'> {
   const L = BAYLA_LINES;
-  if (i.landed) return { text: L.done, button: { label: L.buttons.receipt, to: i.to.receipt } };
+  if (i.landed) return { text: L.done, button: { label: L.buttons.receipt, to: i.to.receipt, move: 'receipt' } };
   const r = i.reading;
-  if (!r) return { text: L.noWallet, button: { label: L.buttons.read, to: i.to.read } };
-  if (r.isCold || !(r.degrees > 0)) return { text: L.cold, button: { label: L.buttons.start, to: i.to.buy } };
-  const add = (coin: string) => ({ label: L.buttons.add(coin), to: i.to.pools });
+  if (!r) return { text: L.noWallet, button: { label: L.buttons.read, to: i.to.read, move: 'read' } };
+  if (r.isCold || !(r.degrees > 0)) return { text: L.cold, button: { label: L.buttons.start, to: i.to.buy, move: 'start' } };
+  const add = (coin: string) => ({ label: L.buttons.add(coin), to: i.to.pools, move: 'add' as const });
   const inRoom = i.room !== null && i.room.solanaPool;
   if (inRoom && i.slow) return { text: L.slow(i.slow.price, i.slow.age), button: add(i.room!.coin) };
   const d = degreesText(r.degrees);
   if (r.degrees >= i.floor) {
-    return { text: L.open(d, r.tier), button: inRoom ? add(i.room!.coin) : { label: L.buttons.launch, to: i.to.launch } };
+    return { text: L.open(d, r.tier), button: inRoom ? add(i.room!.coin) : { label: L.buttons.launch, to: i.to.launch, move: 'launch' } };
   }
   if (inRoom) return { text: L.warmInRoom(d, r.tier), button: add(i.room!.coin) };
   const days = r.daysToPlant;
   const text = days !== null && days >= 1 ? L.warmDays(d, r.tier, days) : L.warmPick(d, r.tier);
-  return { text, button: { label: L.buttons.pick, to: i.to.pick } };
+  return { text, button: { label: L.buttons.pick, to: i.to.pick, move: 'pick' } };
+}
+
+export function baylaLine(i: BaylaInputs): BaylaLine {
+  const line = lineFor(i);
+  return { ...line, sameMove: (i.screenMove ?? null) === line.button.move };
 }
 
 /** The intel line under Bayla's: one fact read, in the past tense; null when it could not be read (never 0). */

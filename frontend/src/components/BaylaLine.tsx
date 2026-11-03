@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { readFire, type FireWeek } from '../lib/fire';
 import { Link, useLocation } from 'react-router-dom';
 import { useAccount } from 'wagmi';
-import { baylaLine, intelLine } from '../lib/baylaLine';
+import { baylaLine, intelLine, type BaylaLine as Line } from '../lib/baylaLine';
 import { voiceAt } from '../lib/arrival';
 import { BUNGALOWS, getActiveBungalow } from '../lib/bungalows';
 import { useActiveBungalowId } from '../hooks/useActiveBungalowId';
@@ -14,6 +14,8 @@ import { useSolanaSurface } from '../lib/solanaSurface';
 import { LAUNCH_SECTION, poolsRoute } from '../lib/navConfig';
 import { isSolanaSwapLive } from '../lib/solana';
 import { useRoomSlow } from '../lib/solana/lp/roomPrice';
+import { useCurrentScreenMove } from '../lib/screenMove';
+import { sheetHref } from '../lib/sheet';
 import { tick } from '../lib/tick';
 
 function useFire(): FireWeek | null {
@@ -33,6 +35,41 @@ function useFire(): FireWeek | null {
 /** The line's height in CSS pixels: the header's second row, and what the static first frames pad for. */
 export const BAYLA_LINE_HEIGHT = 65;
 
+/** The quiet button (answer twenty-five, §2): the same press, an edge and its words, no fill. */
+export const QUIET_BUTTON_STYLE = { background: 'transparent', border: '1px solid rgba(255,255,255,0.25)', color: 'rgba(255,255,255,0.78)' } as const;
+
+/**
+ * Her line for this screen, as the header draws it and the sheet quotes it: the wallet read
+ * last, the room, a landed action, the room pool's price when the shared list is behind, and
+ * the screen's own green move. Add and Start the clock open the sheet over the page (build 3).
+ */
+export function useBaylaLine(): Line {
+  const location = useLocation();
+  useActiveBungalowId();
+  const reading = useLastReading();
+  const landed = useLanded();
+  const screenMove = useCurrentScreenMove();
+  const room = getActiveBungalow();
+  const solanaPool = room !== null && room.chain === 'solana' && !!room.address;
+  const slow = useRoomSlow(solanaPool ? room.address! : null);
+  return baylaLine({
+    reading,
+    room: room ? { coin: room.symbol, solanaPool } : null,
+    floor: heatLaunchFloor(),
+    landed: landed?.kind ?? null,
+    slow,
+    screenMove,
+    to: {
+      pools: solanaPool && room.venueSolPool ? sheetHref(location.pathname, location.search, 'add') : poolsRoute(),
+      buy: isSolanaSwapLive() ? sheetHref(location.pathname, location.search, 'buy') : '/swap',
+      launch: LAUNCH_SECTION.primaryTo ?? LAUNCH_SECTION.hub,
+      read: '/',
+      pick: '/#hall',
+      receipt: '/dashboard',
+    },
+  });
+}
+
 /**
  * Bayla at the door (island answer twenty-four, build 4): one line in her voice under the
  * nav on every venue route, always in the same place, reading the state and saying the one
@@ -44,13 +81,9 @@ export const BAYLA_LINE_HEIGHT = 65;
  */
 export function BaylaLine() {
   const location = useLocation();
-  useActiveBungalowId();
   const reading = useLastReading();
-  const landed = useLanded();
   const fireWeek = useFire();
-  const room = getActiveBungalow();
-  const solanaPool = room !== null && room.chain === 'solana' && !!room.address;
-  const slow = useRoomSlow(solanaPool ? room.address! : null);
+  const line = useBaylaLine();
   const { address: evm } = useAccount();
   const sol = useSolanaSurface().surface?.address ?? null;
 
@@ -74,21 +107,6 @@ export function BaylaLine() {
   // carries it inside. The pools page itself keeps the line.
   if (location.pathname === '/pools' && new URLSearchParams(location.search).has('mint')) return null;
 
-  const line = baylaLine({
-    reading,
-    room: room ? { coin: room.symbol, solanaPool } : null,
-    floor: heatLaunchFloor(),
-    landed: landed?.kind ?? null,
-    slow,
-    to: {
-      pools: poolsRoute(),
-      buy: isSolanaSwapLive() ? (solanaPool ? `/solana?out=${room.address}` : '/solana') : '/swap',
-      launch: LAUNCH_SECTION.primaryTo ?? LAUNCH_SECTION.hub,
-      read: '/',
-      pick: '/#hall',
-      receipt: '/dashboard',
-    },
-  });
   const intel = intelLine(fireWeek);
 
   return (
@@ -109,12 +127,14 @@ export function BaylaLine() {
         <p className="flex-1 min-w-0 text-[12.5px] leading-[15px] max-h-[45px] overflow-hidden text-white/90" data-testid="bayla-line-text">
           {line.text}
         </p>
+        {/* Quiet where the screen's own green button makes the same move: one green button per screen. */}
         <Link
           to={line.button.to}
           onClick={tick}
           data-testid="bayla-line-button"
-          className="btn-primary shrink-0 min-h-[40px] px-3 text-[13px] font-semibold inline-flex items-center justify-center"
-          style={{ background: 'var(--color-kyle)', color: '#06101a' }}
+          data-quiet={line.sameMove || undefined}
+          className={`${line.sameMove ? 'rounded-[10px]' : 'btn-primary'} shrink-0 min-h-[40px] px-3 text-[13px] font-semibold inline-flex items-center justify-center`}
+          style={line.sameMove ? QUIET_BUTTON_STYLE : { background: 'var(--color-kyle)', color: '#06101a' }}
         >
           {line.button.label}
         </Link>

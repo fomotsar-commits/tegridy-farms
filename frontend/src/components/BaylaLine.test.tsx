@@ -8,6 +8,7 @@ import { BaylaLine } from './BaylaLine';
 import { __resetFire } from '../lib/fire';
 import { setLastReading } from '../lib/heat/heatStore';
 import { clearLanded, markLanded } from '../lib/landed';
+import { clearScreenMoves, useScreenMove, type ScreenMove } from '../lib/screenMove';
 import type { HeatReading } from '../lib/heat/heatOracle';
 
 vi.mock('wagmi', () => ({ useAccount: () => ({ address: undefined }) }));
@@ -42,6 +43,7 @@ beforeEach(() => {
   localStorage.clear();
   setLastReading(null);
   clearLanded();
+  clearScreenMoves();
   __resetFire();
   vi.stubGlobal('fetch', fireAnswer({ error: 'sealed' }, false));
 });
@@ -103,5 +105,49 @@ describe('BaylaLine', () => {
   it('the farm keeps its own voice: nothing on /toweli', () => {
     mount('/toweli');
     expect(screen.queryByTestId('bayla-line')).toBeNull();
+  });
+
+  // Island answer twenty-five, build 3: her Add and her Start the clock open the sheet over the page.
+  it('in a room, her Add opens the Add sheet over the page, and a cold wallet’s Start the clock the Buy sheet', () => {
+    localStorage.setItem('tegridy-bungalow', 'bayla');
+    setLastReading(reading);
+    mount('/bayla');
+    expect(screen.getByRole('link', { name: 'Add BAYLA' })).toHaveAttribute('href', '/bayla?sheet=add');
+    cleanup();
+    setLastReading({ ...reading, degrees: 0, isCold: true, tier: 'Drifter' });
+    mount('/launch');
+    expect(screen.getByRole('link', { name: 'Start the clock' })).toHaveAttribute('href', '/launch?sheet=buy');
+  });
+
+  // Island answer twenty-five, §2: one green button per screen.
+  it('goes quiet where the screen’s own green button makes her move, and stays green where it makes another', () => {
+    localStorage.setItem('tegridy-bungalow', 'bayla');
+    setLastReading(reading);
+    function Screen({ move }: { move: ScreenMove }) {
+      useScreenMove(move);
+      return null;
+    }
+    const at = (move: ScreenMove) =>
+      render(
+        <MemoryRouter initialEntries={['/bayla']}>
+          <BaylaLine />
+          <Screen move={move} />
+        </MemoryRouter>,
+      );
+    at('add');
+    const quiet = screen.getByRole('link', { name: 'Add BAYLA' });
+    expect(quiet).toHaveAttribute('data-quiet', 'true');
+    expect(quiet).not.toHaveClass('btn-primary');
+    // The island's quiet press: no fill, a 0.25 white edge, 0.78 white words.
+    expect(quiet.style.background).toBe('transparent');
+    expect(quiet.style.border).toBe('1px solid rgba(255, 255, 255, 0.25)');
+    expect(quiet.style.color).toBe('rgba(255, 255, 255, 0.78)');
+    // The same press: it still opens the sheet.
+    expect(quiet).toHaveAttribute('href', '/bayla?sheet=add');
+    cleanup();
+    at('start');
+    const green = screen.getByRole('link', { name: 'Add BAYLA' });
+    expect(green).not.toHaveAttribute('data-quiet');
+    expect(green).toHaveClass('btn-primary');
   });
 });

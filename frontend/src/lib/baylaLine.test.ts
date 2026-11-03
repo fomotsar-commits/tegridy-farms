@@ -28,12 +28,13 @@ const BAYLA = { coin: 'BAYLA', solanaPool: true };
 
 describe('baylaLine: every state, the island’s words', () => {
   it('no wallet, nothing pasted', () => {
-    expect(baylaLine(base())).toEqual({ text: 'Your held time already has a number. Paste any wallet.', button: { label: 'Read heat', to: '/' } });
+    expect(baylaLine(base())).toEqual({ text: 'Your held time already has a number. Paste any wallet.', button: { label: 'Read heat', to: '/', move: 'read' }, sameMove: false });
   });
   it('a cold wallet opens Buy on the room’s coin', () => {
     expect(baylaLine(base({ reading: reading({ isCold: true, degrees: 0, tier: 'Drifter' }), room: BAYLA }))).toEqual({
       text: '0° today. Hold any island coin and your clock starts tonight.',
-      button: { label: 'Start the clock', to: TO.buy },
+      button: { label: 'Start the clock', to: TO.buy, move: 'start' },
+      sameMove: false,
     });
     // Zero degrees with rows is cold too: never "0.00° Drifter".
     expect(baylaLine(base({ reading: reading({ degrees: 0, tier: 'Drifter' }) })).text).toBe(BAYLA_LINES.cold);
@@ -41,12 +42,13 @@ describe('baylaLine: every state, the island’s words', () => {
   it('warm, under the floor, in a room', () => {
     expect(baylaLine(base({ reading: reading(), room: BAYLA }))).toEqual({
       text: '12.34° Observer. Every day in this pool counts double.',
-      button: { label: 'Add BAYLA', to: TO.pools },
+      button: { label: 'Add BAYLA', to: TO.pools, move: 'add' },
+      sameMove: false,
     });
   });
   it('warm, under the floor, no room: the island’s days when served, else pick a bungalow', () => {
-    expect(baylaLine(base({ reading: reading({ daysToPlant: 41 }) }))).toEqual({ text: '12.34° Observer. Resident in 41 days.', button: { label: 'Pick', to: '/#hall' } });
-    expect(baylaLine(base({ reading: reading() }))).toEqual({ text: '12.34° Observer. Pick a bungalow and add to its pool.', button: { label: 'Pick', to: '/#hall' } });
+    expect(baylaLine(base({ reading: reading({ daysToPlant: 41 }) }))).toEqual({ text: '12.34° Observer. Resident in 41 days.', button: { label: 'Pick', to: '/#hall', move: 'pick' }, sameMove: false });
+    expect(baylaLine(base({ reading: reading() }))).toEqual({ text: '12.34° Observer. Pick a bungalow and add to its pool.', button: { label: 'Pick', to: '/#hall', move: 'pick' }, sameMove: false });
     // Zero days served is not a countdown worth a sentence.
     expect(baylaLine(base({ reading: reading({ daysToPlant: 0 }) })).text).toBe('12.34° Observer. Pick a bungalow and add to its pool.');
   });
@@ -55,21 +57,22 @@ describe('baylaLine: every state, the island’s words', () => {
   });
   it('at the floor and up: Launch, or Add in a room', () => {
     const warm = reading({ degrees: 80, tier: 'Resident' });
-    expect(baylaLine(base({ reading: warm }))).toEqual({ text: '80.00° Resident. The launch door is open to you.', button: { label: 'Launch', to: '/launch' } });
-    expect(baylaLine(base({ reading: warm, room: BAYLA })).button).toEqual({ label: 'Add BAYLA', to: TO.pools });
+    expect(baylaLine(base({ reading: warm }))).toEqual({ text: '80.00° Resident. The launch door is open to you.', button: { label: 'Launch', to: '/launch', move: 'launch' }, sameMove: false });
+    expect(baylaLine(base({ reading: warm, room: BAYLA })).button).toEqual({ label: 'Add BAYLA', to: TO.pools, move: 'add' });
     expect(baylaLine(base({ reading: reading({ degrees: 79.99, tier: 'Observer' }) })).button.label).toBe('Pick');
   });
   it('the outside price not read, in a room: the pool’s own price and its age, adding stays open', () => {
     expect(baylaLine(base({ reading: reading(), room: BAYLA, slow: { price: '0.00000474 SOL', age: '3 min' } }))).toEqual({
       text: "Jupiter is slow. The pool's own price is 0.00000474 SOL, read 3 min ago. Adding stays open.",
-      button: { label: 'Add BAYLA', to: TO.pools },
+      button: { label: 'Add BAYLA', to: TO.pools, move: 'add' },
+      sameMove: false,
     });
     // Out of a room there is no pool to speak of: the wallet's own line.
     expect(baylaLine(base({ reading: reading(), slow: { price: 'x', age: 'y' } })).text).toBe('12.34° Observer. Pick a bungalow and add to its pool.');
   });
   it('after a trade or an add', () => {
     for (const landed of ['trade', 'add'] as const) {
-      expect(baylaLine(base({ reading: reading(), room: BAYLA, landed }))).toEqual({ text: 'Done. Your fee went to the island. Read it.', button: { label: 'Receipt', to: '/dashboard' } });
+      expect(baylaLine(base({ reading: reading(), room: BAYLA, landed }))).toEqual({ text: 'Done. Your fee went to the island. Read it.', button: { label: 'Receipt', to: '/dashboard', move: 'receipt' }, sameMove: false });
     }
   });
   it('every line is one or two sentences and never a paragraph', () => {
@@ -87,6 +90,33 @@ describe('baylaLine: every state, the island’s words', () => {
       expect(l.text.length, l.text).toBeLessThan(110);
       expect(l.text).not.toMatch(/—/);
     }
+  });
+});
+
+// Island answer twenty-five, §2: one green button per screen. On a screen whose own green
+// button makes the same move as her line's, her line's button goes quiet; one row per state.
+describe('sameMove: her button goes quiet where the screen’s own green button makes her move', () => {
+  const cold = reading({ isCold: true, degrees: 0, tier: 'Drifter' });
+  it.each([
+    ['the countdown or the Buy sheet, a cold wallet', base({ reading: cold, room: BAYLA, screenMove: 'start' }), true],
+    ['the Add sheet, a warm wallet in the room', base({ reading: reading(), room: BAYLA, screenMove: 'add' }), true],
+    ['the Add sheet, Jupiter slow in the room', base({ reading: reading(), room: BAYLA, slow: { price: '0.001 SOL', age: '4 min' }, screenMove: 'add' }), true],
+    ['the receipt card, after a trade', base({ reading: reading(), room: BAYLA, landed: 'trade', screenMove: 'receipt' }), true],
+    ['the receipt card, after an add', base({ landed: 'add', screenMove: 'receipt' }), true],
+    ['the countdown, a warm wallet in the room: her Add is another move', base({ reading: reading(), room: BAYLA, screenMove: 'start' }), false],
+    ['the Add sheet, a cold wallet: her Start the clock is another move', base({ reading: cold, room: BAYLA, screenMove: 'add' }), false],
+    ['the countdown, no wallet read', base({ screenMove: 'start' }), false],
+    ['the countdown, a Resident: her Launch is another move', base({ reading: reading({ degrees: 90, tier: 'Resident' }), screenMove: 'start' }), false],
+    ['a screen with no green button of its own', base({ reading: cold, room: BAYLA }), false],
+    ['a screen that says null', base({ reading: cold, room: BAYLA, screenMove: null }), false],
+  ] as const)('%s', (_name, inputs, quiet) => {
+    expect(baylaLine(inputs).sameMove).toBe(quiet);
+  });
+  it('a quiet button keeps its words and its press: the same move, drawn quiet', () => {
+    const loud = baylaLine(base({ reading: reading(), room: BAYLA }));
+    const quiet = baylaLine(base({ reading: reading(), room: BAYLA, screenMove: 'add' }));
+    expect(quiet.text).toBe(loud.text);
+    expect(quiet.button).toEqual(loud.button);
   });
 });
 
