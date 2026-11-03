@@ -650,11 +650,13 @@ body,
  * its line, so the line is 18px past the bar's 56px (at 64px a field on /airdrop sat
  * 2px under the bar). Safari ignores a field's scroll margin, so while a field has focus
  * the line drops 28px more and the label above it (13px text, 8px gap) clears the bar. */
+/* The bar's height is measured (TopNav sets --app-header-h on <html>, inset and Bayla's line
+   included), so the room reserved follows it: 18px past the bar, 46px while a field has focus. */
 html {
-  scroll-padding-top: calc(74px + env(safe-area-inset-top, 0px));
+  scroll-padding-top: calc(var(--app-header-h, calc(56px + env(safe-area-inset-top, 0px))) + 18px);
 }
 html:has(:is(input, select, textarea):focus) {
-  scroll-padding-top: calc(102px + env(safe-area-inset-top, 0px));
+  scroll-padding-top: calc(var(--app-header-h, calc(56px + env(safe-area-inset-top, 0px))) + 46px);
 }
 /* Tracks the BottomNav's own breakpoint (min-[800px]:hidden) — see index.css's
    safe-area-content-bottom note and TopNav.tsx. */

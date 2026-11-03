@@ -91,9 +91,10 @@ describe('a door reaches the surfaces that outlive it', () => {
   it('moves the memoized bottom nav Swap target with no re-render of the tree', () => {
     mount(<BottomNav />);
     const swap = () => screen.getByRole('link', { name: 'Swap' });
-    expect(swap().getAttribute('href')).toBe('/swap');
-    aDoorOpens('bayla');
-    expect(swap().getAttribute('href'), 'the Swap word still points at the other chain').toBe('/solana');
+    // With no room Swap opens the Solana swap; PEPE's room is on Ethereum.
+    expect(swap().getAttribute('href')).toBe('/solana');
+    aDoorOpens('pepe');
+    expect(swap().getAttribute('href'), 'the Swap word still points at the other chain').toBe('/swap');
   });
 });
 

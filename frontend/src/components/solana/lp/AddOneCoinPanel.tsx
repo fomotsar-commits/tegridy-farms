@@ -13,6 +13,7 @@ import {
 } from '../../../lib/jupiter';
 import { decimalCommaToPoint, formatTokenAmount, parseDecimalToBaseUnits } from '../../../lib/launcher/solana/curve/format';
 import { holdReload } from '../../../lib/reloadHold';
+import { markLanded } from '../../../lib/landed';
 import { quoteOwnPool } from '../../../lib/solana/cpswap/read';
 import { feeReserveFor, isPlanProblem, solSetAside } from '../../../lib/solana/lp/liquidityMath';
 import { outsideShare, ownPoolShare, stepTwo, type Side, type StepTwo } from '../../../lib/solana/lp/oneCoin';
@@ -27,6 +28,7 @@ import type { VenuePoolCandidate } from '../../../lib/solana/swap/venuePools';
 import { CHECK_KEEPS_FAILING, LOST_ANSWER_TITLE, LOST_NO_SIGNATURE, OWN_POOL_REVIEW_OFFER } from '../../../lib/solana/swap/walletCopy';
 import type { AggregatorSeen } from '../../../lib/launcher/solana/write/types';
 import { useVenueSwap } from '../../swap/useVenueSwap';
+import { CoinName } from '../../ui/CoinName';
 import { FinePrint } from '../../ui/FinePrint';
 import { PendingTradeCard } from '../curve/PendingTradeCard';
 import { noteKey, readPendingTrades, swapPendingScope } from '../curve/pendingTrade';
@@ -50,6 +52,9 @@ import { useLpWrites, type LpWrites } from './useLpWrites';
 export const ONE_COIN_LINE = 'Part of it is swapped first, as an ordinary swap with the swap page’s fees. Then both coins go in. Two signatures: the swap, then the add.';
 /** Kept back from a SOL amount for the swap's fees and its temporary accounts: the swap page's own Max reserve. */
 export const SWAP_SOL_RESERVE = 10_000_000n;
+/** The amount's SOL presses beside Max, as the swap page's pay field has them (island answer twenty-four). */
+const SOL_CHIPS = ['0.05', '0.5'] as const;
+const CHIP_STYLE = { background: 'rgba(0,0,0,0.45)', border: '1px solid rgba(255,255,255,0.12)' } as const;
 /** How long the press waits for our pool to be read again before Jupiter's transaction goes to the wallet. */
 const OWN_CHECK_MS = 4_000;
 
@@ -153,7 +158,8 @@ function OneCoinInner({
   const decimals = tokenDecimals ?? (view.quoteIsToken0 ? pool.mint1Decimals : pool.mint0Decimals);
   const tokenProgram = view.quoteIsToken0 ? pool.token1Program : pool.token0Program;
   // Its ticker as the pool's heading says it (identity.ts): a copy of a well-known one reads "fake USDC", never "USDC".
-  const tokenName = (safety?.kind !== 'read' || safety.verdict !== 'blocked' ? tokenTicker(view.tokenMint, safety) : null) ?? 'tokens';
+  const ticker = safety?.kind !== 'read' || safety.verdict !== 'blocked' ? tokenTicker(view.tokenMint, safety) : null;
+  const tokenName = ticker ?? 'tokens';
   const signer = writes.signerState.kind === 'ready' ? writes.signerState.signer : null;
   const owner = signer?.publicKey ?? null;
   const ownerKey = owner?.toBase58() ?? null;
@@ -259,6 +265,8 @@ function OneCoinInner({
    */
   const landed = async (p: Plan, signature: string, least: bigint) => {
     if (!ownerKey) return;
+    // Bayla's line says "Done." for a minute (answer twenty-four, build 4).
+    markLanded('add');
     const floor: StepTwoNote = { pool: view.address, paid: p.paid, kept: p.total - p.swapIn, got: least, gotExact: false, bps: p.bps, signature, at: Date.now() };
     saveStepTwo(ownerKey, floor);
     const outIsSol = p.paid === 'token' && coin.native;
@@ -676,7 +684,13 @@ function OneCoinInner({
             : `You have ${exact(paid, available)}.`;
 
   return (
-    <PanelFrame testId="lp-one-coin-panel" title="Add with one coin" headingRef={headingRef}>
+    <PanelFrame
+      testId="lp-one-coin-panel"
+      title="Add with one coin"
+      headingRef={headingRef}
+      // The token's name copies its whole address (island answer twenty-four); -my-3 takes its 44px reach back.
+      aside={<CoinName name={ticker ?? 'Token'} address={view.tokenMint} className="-my-3" />}
+    >
       {!signer && <WalletNeeded state={writes.signerState} />}
       {said && (
         <div role="alert" data-testid="lp-one-said">
@@ -798,10 +812,13 @@ function OneCoinInner({
           </div>
           <Field label={`${name(paid)} to put in`} hint={hint} error={bad ? `That is not a ${name(paid)} amount (at most ${decimalsOf(paid)} decimals).` : null}>
             {(a11y) => (
-              <div className="flex gap-1.5 items-stretch">
+              // Amounts in one press beside the box (island answer twenty-four): SOL's two when SOL is paid, and
+              // Max, the most both steps leave room for. After the box, so the label still names it; on one line
+              // in the door, so its first screen keeps its height; under the box where the box would be too narrow.
+              <div className="flex flex-wrap gap-1.5 items-stretch">
                 <input
                   {...a11y}
-                  className={`${inputCls} flex-1 min-w-0`}
+                  className={`${inputCls} flex-1 min-w-[6rem]`}
                   style={inputStyle}
                   value={text}
                   onChange={(e) => {
@@ -814,12 +831,30 @@ function OneCoinInner({
                   autoComplete="off"
                   disabled={phase.kind !== 'form'}
                 />
+                {paysSol &&
+                  SOL_CHIPS.map((sol) => (
+                    <button
+                      key={sol}
+                      type="button"
+                      className={`${TOGGLE_CLS} !flex-none !text-[11px] px-2`}
+                      style={CHIP_STYLE}
+                      disabled={phase.kind !== 'form'}
+                      onClick={() => {
+                        tick();
+                        setPctBps(null);
+                        setText(sol);
+                      }}
+                    >
+                      {sol} SOL
+                    </button>
+                  ))}
                 {available !== null && available > 0n && (
                   <button
                     type="button"
                     className={`${TOGGLE_CLS} !flex-none min-w-[56px] px-3`}
-                    style={{ background: 'rgba(0,0,0,0.45)', border: '1px solid rgba(255,255,255,0.12)' }}
+                    style={CHIP_STYLE}
                     aria-label={`Max ${name(paid)}`}
+                    disabled={phase.kind !== 'form'}
                     onClick={() => {
                       tick();
                       setPctBps(null);

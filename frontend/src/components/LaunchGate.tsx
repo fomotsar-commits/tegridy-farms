@@ -296,7 +296,7 @@ function Door({ rail, address, signProof, onOpen, connect, below, launchingOff, 
               Read again
             </button>
             <p className="text-[11.5px] text-white/45 leading-relaxed mt-2">
-              The door is shut because it has nothing it is allowed to judge on — not because of
+              The door is shut because it has nothing it is allowed to judge on, not because of
               anything about this wallet. No verdict has been recorded against you.
             </p>
             {/* No `onReRead` here: "Read again" is already the primary control above, and a
