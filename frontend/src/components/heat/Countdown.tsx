@@ -9,7 +9,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { COUNTDOWN_WORDS } from '../../lib/arrival';
 import { countdownTimer, type HeatReading } from '../../lib/heat/heatOracle';
 import { heatLaunchFloor } from '../../lib/heat/heatGateConfig';
-import { sheetHref } from '../../lib/sheet';
+import { sheetHref, SHEET_PRESS } from '../../lib/sheet';
 import { useScreenMove } from '../../lib/screenMove';
 import { useIslandTorches } from '../../hooks/useIslandTorches';
 
@@ -121,7 +121,8 @@ export function Countdown({ reading, look = 'card' }: CountdownProps) {
               style={{ background: 'radial-gradient(circle 240px at 50% 240px, var(--color-purple-20), transparent)' }}
             />
           )}
-          <Link to={sheetHref(pathname, search, 'buy')} className="btn-primary w-full h-[52px] flex items-center justify-center text-[15px]">
+          {/* A press on this page: the sheet's Back pops back to it (lib/sheet.ts SHEET_PRESS). */}
+          <Link to={sheetHref(pathname, search, 'buy')} state={SHEET_PRESS} className="btn-primary w-full h-[52px] flex items-center justify-center text-[15px]">
             {COUNTDOWN_WORDS.button}
           </Link>
         </div>

@@ -7,6 +7,15 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-11-03
+
+- Add and Buy are one screen now. In a room whose coin has its pool on the venue, Trade and Add SOL + the coin (and the bar's Swap and Add in that room, and Bayla's Add and Start the clock) raise one sheet over the room: the coin, one amount with three presses, the pool's price and the outside price (or what you get), the fee line, Bayla's line and one green button. Back closes it and the room is still there. The island's links to /pools?mint=&task=add and /solana?in=&out= open it over the coin's room.
+- Every Solana swap and add now ends on a receipt card: what you did, the fee and where it went, read from the transaction itself (for a swap in our pool, the part kept by the pool's LPs and the part to the venue and the island; for a swap through Jupiter, the venue's fee; for an add of both coins, the network's cost), the signature, what it did to your clock, and Share your card. The success pop-ups are gone: a pop-up now only says something went wrong.
+- One green button per screen: where a screen's own green button does what Bayla's line suggests, her line's button goes quiet.
+- The launch door counts down for a wallet under 80°: the days to the door when the island serves them (until then "about half a year"), a track from 0° to the door, one line, Start the clock, and how many flames are warming toward the door.
+- The word Cannot is gone from the venue: each place it said no now says what is true and what to do next. On the Terms, Privacy and Risks pages the words changed and the meaning did not.
+- The heat read says since when a wallet has held each coin ("In BAYLA since October 2026."), and a warm read hands over the wallet's island card. A Solana pool share in a room's coin says its double days ("Day 3 in the pool = 6 warm days."). Every room and the home show the newest piece of art hung on the island.
+
 ### 2026-11-02
 
 - Swap on Base: BNKR, DRB, QR, JBM, $mfer, and TOWELI and RIZZ on Base now trade against their own Uniswap V3 pools, the ones holding their real liquidity, through Uniswap's own router. Selling 1.75 million BNKR now gets about 0.22 ETH instead of 0.0000011 ETH. The swap still takes whichever route pays you most, after fees: our pools, Uniswap V2, or the coin's V3 pool. A trade through the V3 pool pays the venue its usual 0.5%, always in ETH, to the venue's fee Safe on Base, in the same transaction; the pool's own 1% fee goes to its liquidity providers. A sale asks you to approve the coin once, then to sign a permit for exactly the amount you are selling, valid for 30 minutes. These coins are now on Base's swap list, so they no longer show as unverified.
