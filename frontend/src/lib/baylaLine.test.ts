@@ -163,4 +163,16 @@ describe('the door is not open yet (island answer twenty-six)', () => {
     expect(line.text).toBe(text);
     expect(line.sameMove).toBe(true);
   });
+
+  // Her quiet button makes the screen's own move (answer twenty-six, §2.7): never Launch, the page
+  // she is on, beside "Warm enough" on a door that says it is not open.
+  it.each([
+    ['a cold wallet', base({ reading: cold, room: BAYLA, screenMove: 'door' }), { label: 'Start the clock', to: TO.buy, move: 'start' }],
+    ['under the floor', base({ reading: reading({ degrees: 41.2, tier: 'Observer', daysToPlant: 41 }), screenMove: 'door' }), { label: 'Start the clock', to: TO.buy, move: 'start' }],
+    ['under the floor in a room', base({ reading: reading({ degrees: 41.2, tier: 'Observer' }), room: BAYLA, screenMove: 'door' }), { label: 'Start the clock', to: TO.buy, move: 'start' }],
+    ['at the floor and up in a room', base({ reading: reading({ degrees: 92, tier: 'Resident' }), room: BAYLA, screenMove: 'door' }), { label: 'Add BAYLA', to: TO.pools, move: 'add' }],
+    ['at the floor and up outside one', base({ reading: reading({ degrees: 92, tier: 'Resident' }), screenMove: 'door' }), { label: 'Pick', to: TO.pools, move: 'pick' }],
+  ] as const)('on the launch door, %s: her button is the screen move', (_name, inputs, button) => {
+    expect(baylaLine(inputs).button).toEqual(button);
+  });
 });

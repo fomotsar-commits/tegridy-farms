@@ -56,12 +56,22 @@ function lineFor(i: BaylaInputs): Omit<BaylaLine, 'sameMove'> {
   const d = degreesText(r.degrees);
   // Never the word Drifter: under Observer the degrees stand alone (answer twenty-six, §2.8).
   const tier = printedTier(r.tier);
-  if (r.degrees >= i.floor) {
-    return { text: L.open(d, tier), button: inRoom ? add(i.room!.coin) : { label: L.buttons.launch, to: i.to.launch, move: 'launch' } };
-  }
+  const atFloor = r.degrees >= i.floor;
   const days = r.daysToPlant;
   const served = days !== null && days >= 1;
-  if (door) return { text: served ? L.doorDays(d, days) : L.doorWarming(d), button: inRoom ? add(i.room!.coin) : pick };
+  if (door) {
+    // Her quiet button makes the screen's own move (answer twenty-six, §2.7): the clock under the
+    // floor; at it, the room's Add or a pick on the Add sheet. Never Launch, the page she is on.
+    const button = !atFloor
+      ? { label: L.buttons.start, to: i.to.buy, move: 'start' as const }
+      : inRoom
+        ? add(i.room!.coin)
+        : { label: L.buttons.pick, to: i.to.pools, move: 'pick' as const };
+    return { text: atFloor ? L.open(d, tier) : served ? L.doorDays(d, days) : L.doorWarming(d), button };
+  }
+  if (atFloor) {
+    return { text: L.open(d, tier), button: inRoom ? add(i.room!.coin) : { label: L.buttons.launch, to: i.to.launch, move: 'launch' } };
+  }
   if (inRoom) return { text: L.warmInRoom(d, tier), button: add(i.room!.coin) };
   return { text: served ? L.warmDays(d, tier, days) : L.warmPick(d, tier), button: pick };
 }
