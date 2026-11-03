@@ -1,5 +1,5 @@
 import { BAYLA_LINES } from './arrival';
-import type { HeatReading } from './heat/heatOracle';
+import { printedTier, type HeatReading } from './heat/heatOracle';
 import type { ScreenMove } from './screenMove';
 
 /**
@@ -48,23 +48,30 @@ function lineFor(i: BaylaInputs): Omit<BaylaLine, 'sameMove'> {
   if (!r) return { text: L.noWallet, button: { label: L.buttons.read, to: i.to.read, move: 'read' } };
   if (r.isCold || !(r.degrees > 0)) return { text: L.cold, button: { label: L.buttons.start, to: i.to.buy, move: 'start' } };
   const add = (coin: string) => ({ label: L.buttons.add(coin), to: i.to.pools, move: 'add' as const });
+  const pick = { label: L.buttons.pick, to: i.to.pick, move: 'pick' as const };
   const inRoom = i.room !== null && i.room.solanaPool;
-  if (inRoom && i.slow) return { text: L.slow(i.slow.price, i.slow.age), button: add(i.room!.coin) };
+  // The launch door's own screen says the door's words (answer twenty-six, §2.7).
+  const door = i.screenMove === 'door';
+  if (!door && inRoom && i.slow) return { text: L.slow(i.slow.price, i.slow.age), button: add(i.room!.coin) };
   const d = degreesText(r.degrees);
+  // Never the word Drifter: under Observer the degrees stand alone (answer twenty-six, §2.8).
+  const tier = printedTier(r.tier);
   if (r.degrees >= i.floor) {
-    return { text: L.open(d, r.tier), button: inRoom ? add(i.room!.coin) : { label: L.buttons.launch, to: i.to.launch, move: 'launch' } };
+    return { text: L.open(d, tier), button: inRoom ? add(i.room!.coin) : { label: L.buttons.launch, to: i.to.launch, move: 'launch' } };
   }
-  if (inRoom) return { text: L.warmInRoom(d, r.tier), button: add(i.room!.coin) };
   const days = r.daysToPlant;
-  const text = days !== null && days >= 1 ? L.warmDays(d, r.tier, days) : L.warmPick(d, r.tier);
-  return { text, button: { label: L.buttons.pick, to: i.to.pick, move: 'pick' } };
+  const served = days !== null && days >= 1;
+  if (door) return { text: served ? L.doorDays(d, days) : L.doorWarming(d), button: inRoom ? add(i.room!.coin) : pick };
+  if (inRoom) return { text: L.warmInRoom(d, tier), button: add(i.room!.coin) };
+  return { text: served ? L.warmDays(d, tier, days) : L.warmPick(d, tier), button: pick };
 }
 
 export function baylaLine(i: BaylaInputs): BaylaLine {
   const line = lineFor(i);
-  // Under the sheet every line is quiet: the sheet's own green button is her move (answer twenty-five, §2).
+  // Under the sheet and on the launch door every line is quiet: the screen's own green button is
+  // her move (answer twenty-five, §2; twenty-six, §2.7).
   const move = i.screenMove ?? null;
-  return { ...line, sameMove: move === 'sheet' || move === line.button.move };
+  return { ...line, sameMove: move === 'sheet' || move === 'door' || move === line.button.move };
 }
 
 /** The intel line under Bayla's: one fact read, in the past tense; null when it could not be read (never 0). */

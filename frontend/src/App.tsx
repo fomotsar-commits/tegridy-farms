@@ -51,6 +51,7 @@ const TrustPage = lazy(() => import('./pages/TrustPage'));
 const EarnPage = lazy(() => import('./pages/EarnPage'));
 const StatsPage = lazy(() => import('./pages/StatsPage'));
 const LaunchHubPage = lazy(() => import('./pages/LaunchHubPage'));
+const LaunchDoorPage = lazy(() => import('./pages/LaunchDoorPage'));
 const TradeHostPage = lazy(() => import('./pages/TradeHostPage'));
 // Liquidity, the venue's Solana AMM, and Zap — the Pools section (2026-09-05).
 const PoolsHostPage = lazy(() => import('./pages/PoolsHostPage'));
@@ -331,7 +332,7 @@ function AnimatedRoutes() {
         <Route path="curve-launch/:mint" element={<Suspense fallback={<PageSkeleton />}><CurveLaunchDetailPage /></Suspense>} />
         <Route path="eth-curve" element={<Suspense fallback={<PageSkeleton />}><LaunchHubPage /></Suspense>} />
         <Route path="eth-curve/:token" element={<Suspense fallback={<PageSkeleton />}><CurveTokenPage /></Suspense>} />
-        <Route path="launch" element={<Suspense fallback={<PageSkeleton />}><LaunchHubPage /></Suspense>} />
+        <Route path="launch" element={<Suspense fallback={<PageSkeleton />}><LaunchDoorPage /></Suspense>} />
         <Route path="launch/:token" element={<Suspense fallback={<PageSkeleton />}><LaunchTokenPage /></Suspense>} />
         <Route path="launch-simulator" element={<Suspense fallback={<PageSkeleton />}><LaunchHubPage /></Suspense>} />
         <Route path="start" element={<Suspense fallback={<PageSkeleton />}><OnboardingFlow /></Suspense>} />

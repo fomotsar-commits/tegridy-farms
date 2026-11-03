@@ -14,6 +14,17 @@ const SOL_A ='EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK';
 const SOL_B = 'GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd';
 const EVM = '0x71be63f3384f5fb98995898a86b02fb2426c5788';
 
+// The launch door, closed as committed; one control opens it to show what the closed door withholds.
+const doorState = vi.hoisted(() => ({ open: false }));
+vi.mock('../lib/launcher/door', () => ({
+  get LAUNCH_DOOR_OPEN() {
+    return doorState.open;
+  },
+}));
+afterEach(() => {
+  doorState.open = false;
+});
+
 const h = vi.hoisted(() => ({
   evmAddress: undefined as string | undefined,
   fetchHeat: vi.fn(),
@@ -248,11 +259,14 @@ describe('the Solana door on a page where launching is off', () => {
       });
       await screen.findByText('The ladder');
     };
-    // With launching on, the same card does give the verdict: that is what is being withheld.
+    // With launching on and the door open, the same card does give the verdict: that is what is
+    // being withheld. (The door is closed as committed, island answer twenty-six.)
+    doorState.open = true;
     const on = render(solanaDoor(null));
     await paste();
     expect(screen.getByText(/Can launch a token here/)).toBeInTheDocument();
     on.unmount();
+    doorState.open = false;
 
     render(offDoor(null));
     expect(door()).toHaveTextContent('Connect a Solana wallet to see its reading, or read any address below.');
@@ -428,7 +442,9 @@ describe('the countdown at the door, for a wallet under the floor', () => {
     act(() => setLastReading(reading(SOL_A, 0, 'Drifter')));
     const view = render(ethereumDoor());
     expect(countdowns()).toHaveLength(1);
-    expect(countdowns()[0]!.textContent).toContain('Drifter · 0.00°');
+    // The degrees alone, never the word Drifter (answer twenty-six).
+    expect(countdowns()[0]!.querySelector('[data-standing]')?.textContent).toBe('0.00°');
+    expect(countdowns()[0]!.textContent).not.toContain('Drifter');
     expect(countdowns()[0]!.textContent).toContain('about half a year');
     expect(screen.getByRole('link', { name: 'Start the clock' }).getAttribute('href')).toBe('/launch?sheet=buy');
     view.unmount();
@@ -445,10 +461,11 @@ describe('the countdown at the door, for a wallet under the floor', () => {
     await screen.findByText('COLD');
     await waitFor(() => expect(countdowns()).toHaveLength(1));
     const words = countdowns()[0]!.textContent ?? '';
-    expect(words).toContain('Observer · 41.20°');
+    expect(words).toContain('41.20°');
+    expect(words).not.toContain('Observer');
     expect(screen.getByText('148').nextElementSibling?.textContent).toBe('days');
     const door = screen.getByRole('region', { name: 'Who may plant' });
-    expect(door.textContent).toContain('This wallet reads 41.20° (Observer): 148 days to the launch door, if you hold from today.');
+    expect(door.textContent).toContain('This wallet reads 41.20° (Observer): 148 days to the door, if you hold from today.');
     expect(door.textContent).toContain('Residents launch here. Nobody can buy last year.');
     expect(document.body.textContent).not.toMatch(/\bcannot\b/i);
   });
@@ -497,7 +514,7 @@ describe('the countdown at the door, for a wallet under the floor', () => {
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Read Heat' }));
     });
-    await waitFor(() => expect(countdowns()[0]?.textContent).toContain('Observer · 41.20°'));
+    await waitFor(() => expect(countdowns()[0]?.querySelector('[data-standing]')?.textContent).toBe('41.20°'));
     expect(countdowns()).toHaveLength(1);
   });
 

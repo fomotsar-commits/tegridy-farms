@@ -21,6 +21,7 @@ import {
   tierAtFloor,
   tierAbove,
   gateDecision,
+  printedTier,
   TIER_FLOORS,
   type HeatReading,
   type HeatTier,
@@ -29,7 +30,7 @@ import { fetchFlames, insertionRank } from '../lib/heat/flamesClient';
 import { roomRankLine } from '../lib/heat/roomRank';
 import { heatLaunchFloor, heatGateMaxAgeDays } from '../lib/heat/heatGateConfig';
 import { shortenAddress } from '../lib/formatting';
-import { heatExampleLine, VENUE } from '../lib/arrival';
+import { HEAT_WORDS, heatExampleLine, VENUE } from '../lib/arrival';
 import { injectedNetworks, readInjectedAddress, type FillNetwork } from '../lib/heat/walletFill';
 import { useSolanaSurface } from '../lib/solanaSurface';
 import { SITE_URL } from '../lib/constants';
@@ -37,6 +38,7 @@ import { BUNGALOWS, bungalowLpDoor } from '../lib/bungalows';
 import { CardArt } from './ui/CardArt';
 import { FinePrint } from './ui/FinePrint';
 import { Countdown } from './heat/Countdown';
+import { LAUNCH_DOOR_OPEN } from '../lib/launcher/door';
 
 const TIER_COLOR: Record<HeatTier, string> = {
   Elder: '#f5e4b8',
@@ -519,7 +521,8 @@ function Reading({
     const rank = deepest ? roomRankLine(deepest.roomRank, deepest.roomHolders) : null;
     const text =
       `${reading.degrees.toFixed(1)}° on Jungle Bay Island's instrument. ` +
-      `${reading.tier}. ${days} days held. ` +
+      (printedTier(reading.tier) ? `${printedTier(reading.tier)}. ` : '') +
+      `${days} days held. ` +
       (rank && deepest ? `${rank} in the ${deepest.symbol} room. ` : '') +
       `Held time counts here. ${SITE_URL}/read/${reading.address}`;
     return `https://x.com/intent/post?text=${encodeURIComponent(text)}`;
@@ -601,12 +604,15 @@ function Reading({
       {/* The island's order: tier, days, degrees, since, tokens. The word a stranger knows
           leads, days are the unit anyone compares, and degrees follow. */}
       <div className="mb-4">
-        <div
-          className="text-[22px] leading-none tracking-[0.10em] uppercase font-semibold"
-          style={{ color }}
-        >
-          {reading.tier}
-        </div>
+        {/* The served word, except under Observer: the venue never prints Drifter (island answer
+            twenty-six), and says where the clock starts in its place. */}
+        {printedTier(reading.tier) ? (
+          <div className="text-[22px] leading-none tracking-[0.10em] uppercase font-semibold" style={{ color }}>
+            {printedTier(reading.tier)}
+          </div>
+        ) : (
+          <div className="text-[15px] leading-snug text-white/80">{HEAT_WORDS.noTier}</div>
+        )}
 
         {days !== null && (
           <div className="flex items-baseline gap-2 mt-2">
@@ -907,7 +913,7 @@ function ScopedReading({
       )}
 
       <p className="text-white/60 text-[12px]">
-        your whole flame reads {reading.degrees.toFixed(2)}&deg; {reading.tier}
+        your whole flame reads {reading.degrees.toFixed(2)}&deg;{printedTier(reading.tier) ? ` ${printedTier(reading.tier)}` : ''}
       </p>
       {nextTierLine(reading) && <p className="text-white/60 text-[12px] mt-1">{nextTierLine(reading)}</p>}
       {/* THE FLEX in a room: the same card, under a warm read. */}
@@ -938,7 +944,7 @@ function TierLadder({ degrees, next }: { degrees: number; next: ReturnType<typeo
             <li key={rung.tier}>
               <div className="flex items-baseline gap-2 text-[12px]">
                 <span className="w-[68px] shrink-0" style={{ color: reached ? TIER_COLOR[rung.tier] : dim }}>
-                  {rung.tier}
+                  {printedTier(rung.tier) ?? HEAT_WORDS.ladderCold}
                 </span>
                 <span className="w-[46px] shrink-0 stat-value" style={{ color: dim }}>{rung.floor}&deg;</span>
                 {reached && (
@@ -974,6 +980,9 @@ function Eligibility({ reading, now, countdown }: { reading: HeatReading; now: n
 
   // In the launch door the page already opens on the countdown, so the card adds nothing here.
   if (d.state === 'COLD') return countdown ? <Countdown reading={reading} look="card" /> : null;
+  // The door is not open yet (island answer twenty-six): at the floor and up the card is the
+  // countdown's warm state, never "Can launch a token here".
+  if (d.state === 'WARM' && !LAUNCH_DOOR_OPEN) return countdown ? <Countdown reading={reading} look="card" /> : null;
 
   return (
     <div

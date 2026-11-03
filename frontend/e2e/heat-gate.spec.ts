@@ -6,6 +6,7 @@
 
 import type { Page } from '@playwright/test';
 import { test, expect } from './fixtures/wallet';
+import { LAUNCH_DOOR_OPEN } from '../src/lib/launcher/door';
 
 /** Mirrors the fixture's DEFAULT_ACCOUNT — the wallet the mock connects. */
 const WALLET = '0x71be63f3384f5fb98995898a86b02fb2426c5788';
@@ -76,6 +77,7 @@ async function openLaunch(page: Page): Promise<ReturnType<typeof gate>> {
 const COLD_READING = { degrees: 62.4, tier: 'Observer' };
 
 test.describe('the launch door', () => {
+  test.skip(!LAUNCH_DOOR_OPEN, 'the launch door is closed (island answer twenty-six): /launch is the countdown, and what this walks waits behind the door');
   test('WARM opens the launch lane', async ({ page, walletMock }) => {
     await stubHeat(page, { status: 200, body: heatPayload() });
     await walletMock.connect();
@@ -139,6 +141,7 @@ test.describe('the launch door', () => {
 });
 
 test.describe('the audit panel', () => {
+  test.skip(!LAUNCH_DOOR_OPEN, 'the launch door is closed (island answer twenty-six): /launch is the countdown, and what this walks waits behind the door');
   /** A denial taken earlier, against a floor that has since moved. */
   const priorDenial = {
     id: 'gd_prior_denial_fixture',

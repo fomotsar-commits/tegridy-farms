@@ -8,6 +8,14 @@ import { MemoryRouter } from 'react-router-dom';
 
 const door = vi.hoisted(() => ({ open: true, rails: [] as string[] }));
 
+// The curve's launch switch (curveChains.ts CURVE_LAUNCH_OPEN) is committed closed (island answer
+// twenty-six); these tests read the page the day it opens.
+const curveLaunch = vi.hoisted(() => ({ open: true }));
+vi.mock('../lib/launcher/curveChains', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/launcher/curveChains')>()),
+  isCurveLaunchOpen: () => curveLaunch.open,
+}));
+
 vi.mock('wagmi', () => ({
   useChainId: () => 1,
   useReadContracts: () => ({ data: [] }),
@@ -59,6 +67,21 @@ describe('/eth-curve: only the create form sits behind the door', () => {
     expect(within(doors[0]).getByTestId('create-form')).toBeInTheDocument();
     expect(door.rails).toContain('ethereum');
     expect(door.rails.every((r) => r === 'ethereum')).toBe(true);
+  });
+
+  it('with launching closed (answer twenty-six): no Live mark, no create form, what it waits on, and the launches', () => {
+    curveLaunch.open = false;
+    try {
+      const { container } = mount();
+      expect(screen.queryByTestId('create-form')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('door')).not.toBeInTheDocument();
+      expect(screen.getByTestId('curve-launch-closed')).toHaveTextContent('Launching here is not switched on yet.');
+      expect(container.textContent).not.toMatch(/Live on/i);
+      expect(screen.getByTestId('grid')).toBeInTheDocument();
+      expect(screen.getByLabelText('Curve token address to trade')).toBeInTheDocument();
+    } finally {
+      curveLaunch.open = true;
+    }
   });
 
   it('a shut door hides the create form and nothing else', () => {

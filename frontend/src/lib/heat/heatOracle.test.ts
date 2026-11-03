@@ -4,6 +4,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+  printedTier,
   heatEnvelopeFailure,
   parseHeatReading,
   normalizeXHandle,
@@ -163,10 +164,10 @@ describe('gateDecision — the gate primitive, fail-closed', () => {
   it('COLD counts the island’s served days to the door, and the law’s half a year from nothing', () => {
     const served = parseHeatReading({ ...WARM, degrees: 42.5, tier: 'Observer', as_of_unix: asOf, days_to_plant: 148 });
     expect(gateDecision(ADDR, served, asOf).detail).toBe(
-      'This wallet reads 42.50° (Observer): 148 days to the launch door, if you hold from today. Residents launch here. Nobody can buy last year.',
+      'This wallet reads 42.50° (Observer): 148 days to the door, if you hold from today. Residents launch here. Nobody can buy last year.',
     );
     expect(gateDecision(ADDR, parseHeatReading(COLD), asOf).detail).toBe(
-      'This wallet reads 0.00° (Drifter): about half a year to the launch door, if you hold from today. Residents launch here. Nobody can buy last year.',
+      'This wallet reads 0.00°: about half a year to the door, if you hold from today. Residents launch here. Nobody can buy last year.',
     );
   });
 
@@ -682,5 +683,15 @@ describe('countdownTimer', () => {
 
   it('is nothing for a warm wallet the island has served no days for', () => {
     expect(countdownTimer(parseHeatReading({ ...WARM, degrees: 41.2, tier: 'Observer' }))).toBeNull();
+  });
+});
+
+describe('printedTier: the venue never prints Drifter (island answer twenty-six)', () => {
+  it('prints every served word but Drifter, whatever its case', () => {
+    for (const t of ['Elder', 'Builder', 'Resident', 'Observer']) expect(printedTier(t)).toBe(t);
+    expect(printedTier('Drifter')).toBeNull();
+    expect(printedTier('DRIFTER')).toBeNull();
+    expect(printedTier(null)).toBeNull();
+    expect(printedTier('')).toBeNull();
   });
 });

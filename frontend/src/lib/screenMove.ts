@@ -6,9 +6,10 @@ import { useEffect, useSyncExternalStore } from 'react';
  * on screen, and her line's button goes quiet there (lib/baylaLine.ts, `sameMove`): the
  * countdown's "Start the clock" starts the clock, the receipt card is the receipt, and the sheet
  * ('sheet') is her move whatever her line says: its own green button is hers, and the header is
- * under its veil. In memory only; the last screen mounted wins.
+ * under its veil. So is the launch door's own screen ('door', answer twenty-six, §2.7), which also
+ * gives her its own words. In memory only; the last screen mounted wins.
  */
-export type ScreenMove = 'start' | 'add' | 'receipt' | 'sheet';
+export type ScreenMove = 'start' | 'add' | 'receipt' | 'sheet' | 'door';
 
 const held: { move: ScreenMove; key: symbol }[] = [];
 const listeners = new Set<() => void>();

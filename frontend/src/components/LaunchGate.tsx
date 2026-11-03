@@ -8,7 +8,7 @@ import { m, AnimatePresence } from 'framer-motion';
 import { useAccount, useSignMessage } from 'wagmi';
 import { meetsHeatFloor } from '../lib/heat/launchGate';
 import { heatGateMaxAgeDays, heatLaunchFloor, isHeatGateEnabled } from '../lib/heat/heatGateConfig';
-import { gateDecision, type GateDecision, type HeatReading } from '../lib/heat/heatOracle';
+import { gateDecision, printedTier, type GateDecision, type HeatReading } from '../lib/heat/heatOracle';
 import type { GateAuditRow } from '../lib/heat/gateAudit';
 import { useLastReading } from '../lib/heat/heatStore';
 import { HeatCard } from './HeatCard';
@@ -267,7 +267,7 @@ function Door({ rail, address, signProof, onOpen, connect, below, launchingOff, 
           <m.div key="warm" initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
             {/* `detail` ends "The launch lane is open."; with launching off only the reading is said. */}
             <p className="text-[13px] text-white/75 leading-relaxed mb-3">
-              {launchingOff ? `This wallet reads ${decision.degrees?.toFixed(2)}° (${decision.tier}).` : decision.detail}
+              {launchingOff ? `This wallet reads ${decision.degrees?.toFixed(2)}°${printedTier(decision.tier) ? ` (${printedTier(decision.tier)})` : ''}.` : decision.detail}
             </p>
             {!signProof ? null : !proved ? (
               <>

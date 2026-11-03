@@ -115,13 +115,20 @@ export const VENUE = {
  * sentence per state, not reworded. lib/baylaLine.ts picks the line; every surface quotes
  * this one source.
  */
+/** A wallet's degrees and the tier word the venue prints for it, when it prints one (heatOracle.ts printedTier). */
+const degreesAndTier = (degrees: string, tier: string | null) => (tier ? `${degrees}° ${tier}` : `${degrees}°`);
+
 export const BAYLA_LINES = {
   noWallet: 'Your held time already has a number. Paste any wallet.',
   cold: '0\u00b0 today. Hold any island coin and your clock starts tonight.',
-  warmInRoom: (degrees: string, tier: string) => `${degrees}\u00b0 ${tier}. Every day in this pool counts double.`,
-  warmDays: (degrees: string, tier: string, days: number) => `${degrees}\u00b0 ${tier}. Resident in ${days} days.`,
-  warmPick: (degrees: string, tier: string) => `${degrees}\u00b0 ${tier}. Pick a bungalow and add to its pool.`,
-  open: (degrees: string, tier: string) => `${degrees}\u00b0 ${tier}. The launch door is open to you.`,
+  warmInRoom: (degrees: string, tier: string | null) => `${degreesAndTier(degrees, tier)}. Every day in this pool counts double.`,
+  warmDays: (degrees: string, tier: string | null, days: number) => `${degreesAndTier(degrees, tier)}. Resident in ${days} days.`,
+  warmPick: (degrees: string, tier: string | null) => `${degreesAndTier(degrees, tier)}. Pick a bungalow and add to its pool.`,
+  // The door is not open yet, on any screen (answer twenty-six, §2.7).
+  open: (degrees: string, tier: string | null) => `${degreesAndTier(degrees, tier)}. Warm enough. The door opens on the island's word.`,
+  // On the launch door's own screen, under the floor: the degrees alone (answer twenty-six, §2.7).
+  doorDays: (degrees: string, days: number) => `${degrees}°. Resident in ${days} days.`,
+  doorWarming: (degrees: string) => `${degrees}°. Every held day counts toward the door.`,
   slow: (price: string, age: string) => `Jupiter is slow. The pool's own price is ${price}, read ${age} ago. Adding stays open.`,
   done: 'Done. Your fee went to the island. Read it.',
   intelFire: (bayla: string) => `The fire took ${bayla} $BAYLA this week.`,
@@ -155,18 +162,30 @@ export const SHEET_WORDS = {
 } as const;
 
 export const COUNTDOWN_WORDS = {
-  eyebrow: 'THE LAUNCH DOOR',
-  /** The served tier word as served (law 3); the eyebrow's capitals are its type, not the word. */
-  standing: (tier: string, degrees: string) => `${tier} · ${degrees}°`,
+  // The door is not open yet, and the eyebrow says so (answer twenty-six, §2.4).
+  eyebrow: 'THE LAUNCH DOOR · NOT OPEN YET',
+  /** The wallet's degrees alone, never a tier word (answer twenty-six, §2.4). */
+  standing: (degrees: string) => `${degrees}°`,
   days: 'days',
   unserved: 'about half a year',
-  under: 'to the launch door, if you hold from today.',
+  under: 'to the door, if you hold from today.',
   today: '0° today',
   door: (floor: number) => `${floor}° · the door`,
   line: 'Residents launch here. Nobody can buy last year.',
   button: 'Start the clock',
   roster: (n: number) => `${n} flames are warming toward the door right now.`,
-  open: 'The launch lane is open.',
+  /** At the floor and up, the door closed (answer twenty-six, §2.6): the number is the wallet's degrees. */
+  warmUnder: "warm enough. The door opens on the island's word.",
+  warmLine: 'You are on the list the day it opens.',
+  add: (coin: string) => `Add ${coin}`,
+  pick: 'Pick a bungalow',
+} as const;
+
+/** A reading under Observer (answer twenty-six, §2.8): its degrees and no tier word, and this where
+ *  the word stood; and the ladder's bottom rung, as the island's own ladder names it ("COLD below"). */
+export const HEAT_WORDS = {
+  noTier: 'Your clock starts at your first hold.',
+  ladderCold: 'Cold',
 } as const;
 
 export const RECEIPT_WORDS = {

@@ -7,6 +7,7 @@ import { useAccount } from 'wagmi';
 import { isAddress } from 'viem';
 import { GALLERY_ORDER, UNIQUE_GALLERY_COUNT, pageArt, artStyle } from '../lib/artConfig';
 import { isLauncherEnabled } from '../lib/launcher/config';
+import { LAUNCH_DOOR_OPEN } from '../lib/launcher/door';
 import { isSolanaSwapLive } from '../lib/solana';
 import { chainHref, tabServes } from '../lib/sectionChains';
 import { useFarmStats } from '../hooks/useFarmStats';
@@ -1064,17 +1065,26 @@ export default function HomePage() {
                     art: pageArt('home', 17),
                   }]
                 : []),
-              // The launch card follows the SAME gate the nav uses, so the front door
-              // can never advertise a rail that is switched off (it reads "Soon" and
-              // /launch renders its explainer instead of a wizard).
-              {
-                to: '/launch',
-                title: 'Launch on Ethereum',
-                desc: 'A Doppler dynamic auction with an automated hygiene gate and a published Fact Sheet.',
-                stat: isLauncherEnabled() ? 'Doppler V4' : 'Soon',
-                label: isLauncherEnabled() ? 'Ethereum' : 'Not yet live',
-                art: pageArt('home', 12),
-              },
+              // The launch card follows the SAME gates the bar's Launch word does, so the front
+              // door never advertises a rail that is closed: while the launch door is (island
+              // answer twenty-six) the card is the door, with its art, and never says "Soon".
+              LAUNCH_DOOR_OPEN && isLauncherEnabled()
+                ? {
+                    to: '/launch',
+                    title: 'Launch on Ethereum',
+                    desc: 'A Doppler dynamic auction with an automated hygiene gate and a published Fact Sheet.',
+                    stat: 'Doppler V4',
+                    label: 'Ethereum',
+                    art: pageArt('home', 12),
+                  }
+                : {
+                    to: '/launch',
+                    title: 'The launch door',
+                    desc: "The door opens on the island's word.",
+                    stat: 'Not open yet',
+                    label: 'on any rail',
+                    art: pageArt('home', 12),
+                  },
               // The 'Launch on Solana' tile pointed at /solana-launch (Meteora DBC) and
               // was REMOVED 2026-08-23 with that rail — it graduated into a pool we do
               // not own. Its replacement, /curve-launch, is deliberately NOT promoted

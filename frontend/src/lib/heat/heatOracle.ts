@@ -23,6 +23,23 @@ export const TIER_FLOORS: readonly { tier: HeatTier; floor: number }[] = [
   { tier: 'Drifter',  floor: 0 },
 ] as const;
 
+/**
+ * The tier word the venue prints beside a wallet: the served one, except under Observer (island
+ * answer twenty-six, §2.8). The island serves Drifter under 30, and the gate and the bands keep it
+ * (law 3), but the venue never prints it: a reading there shows its degrees alone. Null where no
+ * word is printed.
+ */
+export function printedTier(tier: string | null | undefined): string | null {
+  if (!tier || tier.toLowerCase() === 'drifter') return null;
+  return tier;
+}
+
+/** The tier word in brackets after a reading's degrees, or nothing where none is printed. */
+function tierAside(tier: string): string {
+  const word = printedTier(tier);
+  return word ? ` (${word})` : '';
+}
+
 /** The launch floor in degrees: 80, the Resident band. Residents may plant.
  *  A degrees floor, never a tenure rule. heatLaunchFloor() reads it; only a dev server may override. */
 export const LAUNCH_FLOOR = 80;
@@ -239,7 +256,7 @@ export function gateDecision(
       reason: 'qualified',
       qualified: true,
       // The wallet's own tier word, never the floor's.
-      detail: `This wallet reads ${reading.degrees.toFixed(2)}° (${reading.tier}). The launch lane is open.`,
+      detail: `This wallet reads ${reading.degrees.toFixed(2)}°${tierAside(reading.tier)}. The launch lane is open.`,
     };
   }
 
@@ -258,7 +275,7 @@ export function gateDecision(
     state: 'COLD',
     reason: 'below-floor',
     qualified: false,
-    detail: `This wallet reads ${reading.degrees.toFixed(2)}° (${reading.tier})${until} ${COUNTDOWN_WORDS.line}`,
+    detail: `This wallet reads ${reading.degrees.toFixed(2)}°${tierAside(reading.tier)}${until} ${COUNTDOWN_WORDS.line}`,
   };
 }
 

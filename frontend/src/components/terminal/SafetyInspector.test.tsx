@@ -31,3 +31,11 @@ describe('the heat standing', () => {
     expect(container.textContent).not.toMatch(/Observer|Resident|Builder|Elder|Drifter/);
   });
 });
+
+describe('the word Drifter is never printed (island answer twenty-six)', () => {
+  it('a deployer under Observer reads its degrees alone', () => {
+    const { container } = mount({ ...SAFETY, heat: componentRead({ tier: 'Drifter', degrees: 12, isCold: false }) });
+    expect(screen.getByText('12 degrees')).toBeTruthy();
+    expect(container.textContent).not.toContain('Drifter');
+  });
+});

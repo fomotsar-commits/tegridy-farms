@@ -99,9 +99,12 @@ test.describe('the countdown at 390', () => {
     expect(m.text).toContain('about half a year');
     expect(m.text).toContain('Residents launch here. Nobody can buy last year.');
     expect(m.text).not.toMatch(/\bcannot\b|—/i);
-    // 28 px under the header, and the whole first screen, as drawn: the tabs wait below the fold.
+    // The door is not open yet (answer twenty-six): its eyebrow says so, and nothing launches here.
+    expect(m.text).toContain('THE LAUNCH DOOR · NOT OPEN YET');
+    expect(m.text).not.toMatch(/Drifter|Launch a token|Launchpad|Memetics Curve|Token name/i);
+    // 28 px under the header, and the whole first screen, as drawn; the door has no tab strip.
     expect(Math.abs(m.eyebrow!.top - m.header! - 28), `eyebrow ${m.eyebrow!.top}, header ${m.header}`).toBeLessThanOrEqual(1.5);
-    expect(m.tabs!.top).toBeGreaterThanOrEqual(844 - 1);
+    expect(m.tabs, 'the launch door has no tab strip').toBeNull();
     // The green button: 52 tall, the column's whole width; the roster 12 px under it.
     expect(Math.abs(m.button!.height - 52)).toBeLessThanOrEqual(1);
     expect(Math.abs(m.button!.width - m.content!.width)).toBeLessThanOrEqual(1);
@@ -122,14 +125,18 @@ test.describe('the countdown at 390', () => {
     expect(m.button!.bottom, `button bottom ${m.button!.bottom}, bar top ${m.barTop}`).toBeLessThanOrEqual(m.barTop!);
   });
 
-  test('a wallet at the door and up does not see it: the page reads as it does today', async ({ page, walletMock }) => {
+  test('a wallet at the door and up sees the warm state, and no form (answer twenty-six)', async ({ page, walletMock }) => {
     await island(page, heat(95.5, 'Resident'));
     await walletMock.connect();
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/launch');
-    const door = page.getByRole('region', { name: 'Who may plant' });
-    await expect(door.getByText('WARM', { exact: true })).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByTestId('countdown')).toHaveCount(0);
+    const countdown = page.getByTestId('countdown');
+    await expect(countdown).toHaveAttribute('data-state', 'warm', { timeout: 30_000 });
+    await expect(countdown.getByText("warm enough. The door opens on the island's word.")).toBeVisible();
+    await expect(countdown.getByText('You are on the list the day it opens.')).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Who may plant' })).toHaveCount(0);
+    await expect(page.getByRole('tablist')).toHaveCount(0);
+    expect(await page.locator('main').innerText()).not.toMatch(/Launch a token|Launchpad|Memetics Curve|\bLIVE\b|Token name/);
   });
 
   test('the heat card on the home shows it for a cold wallet read there', async ({ page }) => {

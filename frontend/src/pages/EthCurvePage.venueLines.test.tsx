@@ -12,6 +12,14 @@ import { parseHeatReading } from '../lib/heat/heatOracle';
 const EVM = '0x71be63f3384f5fb98995898a86b02fb2426c5788';
 const h = vi.hoisted(() => ({ address: undefined as string | undefined, fetchHeat: vi.fn() }));
 
+// The curve's launch switch (curveChains.ts CURVE_LAUNCH_OPEN) is committed closed (island answer
+// twenty-six); these tests read the page the day it opens.
+const curveLaunch = vi.hoisted(() => ({ open: true }));
+vi.mock('../lib/launcher/curveChains', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/launcher/curveChains')>()),
+  isCurveLaunchOpen: () => curveLaunch.open,
+}));
+
 vi.mock('wagmi', () => ({
   useChainId: () => 1,
   useReadContracts: () => ({ data: [] }),

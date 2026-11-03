@@ -7,6 +7,7 @@ import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { parseHeatReading } from '../../lib/heat/heatOracle';
 import { clearScreenMoves, useCurrentScreenMove } from '../../lib/screenMove';
+import { setActiveBungalow } from '../../lib/bungalows';
 
 const h = vi.hoisted(() => ({ warming: 28 as number | null, torches: true }));
 
@@ -63,10 +64,10 @@ describe('the screen for a cold wallet, as drawn', () => {
   it('says every word in the drawn order, and nothing else', () => {
     mount(<Countdown reading={COLD} look="screen" />);
     const order = [
-      'THE LAUNCH DOOR',
-      'Drifter · 0.00°',
+      'THE LAUNCH DOOR · NOT OPEN YET',
+      '0.00°',
       'about half a year',
-      'to the launch door, if you hold from today.',
+      'to the door, if you hold from today.',
       '0° today',
       '80° · the door',
       'Residents launch here. Nobody can buy last year.',
@@ -82,10 +83,10 @@ describe('the screen for a cold wallet, as drawn', () => {
     expect(text().length, 'a word the drawing does not hold').toBe(order.join('').length);
   });
 
-  it('shows the served tier and degrees in capitals by its type, not by changing the word', () => {
+  it('shows the wallet\'s degrees alone at the right, never a tier word (answer twenty-six, §2.4)', () => {
     mount(<Countdown reading={reading(41.2, 'Observer')} look="screen" />);
-    const standing = screen.getByText('Observer · 41.20°');
-    expect(standing.className).toMatch(/\buppercase\b/);
+    expect(screen.getByText('41.20°').closest('[data-standing]')).not.toBeNull();
+    expect(text()).not.toMatch(/Observer|Drifter/);
   });
 
   it('never says Cannot and carries no em dash, in any state', () => {
@@ -107,20 +108,20 @@ describe('the number', () => {
     const number = screen.getByText('148');
     expect(number.nextElementSibling?.textContent).toBe('days');
     expect(number.parentElement?.className).toMatch(/\bitems-baseline\b/);
-    expect(text()).toContain('to the launch door, if you hold from today.');
+    expect(text()).toContain('to the door, if you hold from today.');
     expect(text()).not.toContain('about half a year');
   });
 
   it('is the words “about half a year” until served, for a wallet starting from nothing', () => {
     mount(<Countdown reading={COLD} look="screen" />);
     expect(screen.getByText('about half a year')).toBeInTheDocument();
-    expect(text()).toContain('to the launch door, if you hold from today.');
+    expect(text()).toContain('to the door, if you hold from today.');
   });
 
   it('is left out for a warm wallet the island has served no days for: the venue never works them out', () => {
     mount(<Countdown reading={reading(41.2, 'Observer')} look="screen" />);
     expect(text()).not.toContain('about half a year');
-    expect(text()).not.toContain('to the launch door, if you hold from today.');
+    expect(text()).not.toContain('to the door, if you hold from today.');
     expect(text()).not.toMatch(/\d+\s*days/);
     // The line, the green button and the track still stand.
     expect(text()).toContain('Residents launch here. Nobody can buy last year.');
@@ -217,5 +218,65 @@ describe('the two looks', () => {
     mount(<Countdown reading={COLD} look="card" />);
     expect(box().getAttribute('data-look')).toBe('card');
     expect(box().querySelector('[data-glow]')).toBeNull();
+  });
+});
+
+describe('the door is not open yet (island answer twenty-six)', () => {
+  afterEach(() => {
+    setActiveBungalow('venue');
+  });
+
+  it('says so in its eyebrow, with the degrees alone at the right', () => {
+    mount(<Countdown reading={reading(41.2, 'Observer')} look="screen" />);
+    expect(box().querySelector('[data-eyebrow]')?.textContent).toBe('THE LAUNCH DOOR · NOT OPEN YET');
+    expect(box().querySelector('[data-standing]')?.textContent).toBe('41.20°');
+    expect(text()).not.toMatch(/Observer|Drifter|lane is open/);
+  });
+
+  it('at the floor and up: the degrees are the number, warm enough, on the list, and Add in the room', () => {
+    setActiveBungalow('bayla');
+    mount(<Countdown reading={reading(92.5, 'Resident')} look="screen" />);
+    expect(box().dataset.state).toBe('warm');
+    const order = [
+      'THE LAUNCH DOOR · NOT OPEN YET',
+      '92.50°',
+      '92.50°',
+      "warm enough. The door opens on the island's word.",
+      '80° · the door',
+      'You are on the list the day it opens.',
+      'Add BAYLA',
+      '28 flames are warming toward the door right now.',
+    ];
+    let at = -1;
+    for (const words of order) {
+      const next = text().indexOf(words, at + 1);
+      expect(next, `"${words}" is missing or out of order`).toBeGreaterThan(at);
+      at = next;
+    }
+    expect(text().length, 'a word the island did not give').toBe(order.join('').length);
+    expect(screen.getByRole('link', { name: 'Add BAYLA' }).getAttribute('href')).toBe('/launch?c=1&sheet=add');
+  });
+
+  it('outside a room the warm move is picking one, in the Add sheet', () => {
+    mount(<Countdown reading={reading(92.5, 'Resident')} look="screen" />);
+    expect(screen.getByRole('link', { name: 'Pick a bungalow' }).getAttribute('href')).toBe('/launch?c=1&sheet=add');
+  });
+
+  it('for a visitor with nothing read: the standing start, no degrees and no today', () => {
+    mount(<Countdown reading={null} look="screen" />);
+    expect(box().dataset.state).toBe('unread');
+    expect(box().querySelector('[data-standing]')).toBeNull();
+    expect(text()).toContain('about half a year');
+    expect(text()).toContain('to the door, if you hold from today.');
+    expect(text()).not.toContain('0° today');
+    expect(screen.getByRole('link', { name: 'Start the clock' })).toBeTruthy();
+  });
+
+  it('on the launch door its move quiets her line whatever it says; in a heat card only her own move does', () => {
+    const first = mount(<Countdown reading={reading(92.5, 'Resident')} look="screen" />);
+    expect(screen.getByTestId('move').textContent).toBe('door');
+    first.unmount();
+    mount(<Countdown reading={reading(92.5, 'Resident')} look="card" />);
+    expect(screen.getByTestId('move').textContent).toBe('none');
   });
 });

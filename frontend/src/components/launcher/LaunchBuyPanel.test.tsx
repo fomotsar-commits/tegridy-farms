@@ -21,6 +21,13 @@ const readContract = vi.fn();
 // One stable client object: wagmi memoizes its client, and a fresh identity per render
 // would re-fire the pool read forever.
 const publicClient = { readContract };
+// The Doppler rail (config.ts LAUNCHER_ENABLED) is committed off (island answer twenty-six);
+// these tests read it the day it opens.
+vi.mock('../../lib/launcher/config', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/launcher/config')>()),
+  isLauncherEnabled: () => true,
+}));
+
 vi.mock('wagmi', () => ({ usePublicClient: () => publicClient }));
 
 const { toastSuccess, toastError } = vi.hoisted(() => ({ toastSuccess: vi.fn(), toastError: vi.fn() }));
