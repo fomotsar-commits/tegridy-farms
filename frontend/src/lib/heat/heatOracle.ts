@@ -70,6 +70,9 @@ export interface HeatReading {
    *  launch floor. Null until the island serves them (it does not yet). Never computed here. */
   daysToNextTier: number | null;
   daysToPlant: number | null;
+  /** The island's percentile beside held_since_unix: how many of the coin's holders today
+   *  came later. Absent until the island serves it (it does not yet). Never computed here. */
+  earlierThanPct?: number | null;
 }
 
 const TIER_WORDS = new Set<string>(['Elder', 'Builder', 'Resident', 'Observer', 'Drifter']);
@@ -77,6 +80,11 @@ const TIER_WORDS = new Set<string>(['Elder', 'Builder', 'Resident', 'Observer', 
 /** A served number of days: a whole number of zero or more, or null. */
 function servedDays(value: unknown): number | null {
   return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : null;
+}
+
+/** A served percentile: a number from 0 to 100, or null. */
+function servedPct(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 100 ? value : null;
 }
 
 /** A real answer, or an outage wearing a 200? A reason string, or null when trustworthy.
@@ -131,6 +139,7 @@ export function parseHeatReading(payload: unknown): HeatReading {
     xHandle: normalizeXHandle(p.x_handle),
     daysToNextTier: servedDays(p.days_to_next_tier),
     daysToPlant: servedDays(p.days_to_plant),
+    earlierThanPct: servedPct(p.earlier_than_pct),
     breakdown: rows.map((b) => ({
       tokenAddress: String(b.token_address ?? ''),
       chain: String(b.chain ?? ''),

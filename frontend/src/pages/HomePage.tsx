@@ -49,6 +49,7 @@ import { VenuePaths } from '../components/VenuePaths';
 import { FlamesBoard } from '../components/FlamesBoard';
 import { IslandStrip } from '../components/IslandStrip';
 import { RoomTorches } from '../components/RoomTorches';
+import { TimelineStrip } from '../components/TimelineStrip';
 import { BungalowHero } from '../components/bungalow/BungalowHero';
 import { BungalowMarket } from '../components/bungalow/BungalowMarket';
 import { BungalowHolders } from '../components/bungalow/BungalowHolders';
@@ -502,6 +503,10 @@ export default function HomePage() {
                 Torch it to the room's own page there. Draws nothing until read, or on a miss. */}
             {(bungalowIdentity || isToweliArrival) && <RoomTorches roomId={bungalowIdentity?.id ?? 'toweli'} />}
 
+            {/* THE TIMELINE (island answer twenty-four, build 7): the newest piece hung on the
+                island, in every room, under the room's torches. Draws nothing until read. */}
+            {(bungalowIdentity || isToweliArrival) && <TimelineStrip className="mt-6" />}
+
             {/* WAVE SEVEN, element C: THE SECURITY BADGE MOVED TO THE CHECK
                 OVERVIEW. It is C's fifth and last item.
 
@@ -832,6 +837,9 @@ export default function HomePage() {
             in the ladder, BAYLA fed to the fire, the flames, then the season and the last torch.
             Each part is read on load and drawn only if read; with nothing read, no strip. */}
         {!bungalowIdentity && !isToweliArrival && <IslandStrip />}
+
+        {/* THE TIMELINE on the home (island answer twenty-four, build 7), under the island today. */}
+        {!bungalowIdentity && !isToweliArrival && <TimelineStrip className="pb-16" />}
 
         {/* WAVE SEVEN, element G: THE ISLAND'S BOARD, on the venue. Five named flames,
             so a stranger sees held time attached to people before they are asked to

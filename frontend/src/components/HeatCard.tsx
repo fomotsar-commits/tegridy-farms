@@ -12,6 +12,8 @@ import { useAccount } from 'wagmi';
 import { fetchHeat, isSupportedHeatAddress, HeatUnavailableError } from '../lib/heat/heatClient';
 import { setLastReading } from '../lib/heat/heatStore';
 import { HeatSince, RollingDegrees } from './heat/RollingDegrees';
+import { IslandCard } from './heat/IslandCard';
+import { earliestRow, sinceLine } from '../lib/heat/sinceLine';
 import {
   isStale,
   nextTier,
@@ -498,6 +500,9 @@ function Reading({
   );
   const liveRows = rows.filter((r) => !r.retired);
   const deepest = liveRows[0] ?? null;
+  // SINCE (island answer twenty-four, build 7): the coin held_since_unix belongs to, named.
+  const earliest = earliestRow(reading);
+  const since = earliest && earliest.symbol ? sinceLine(reading, earliest, earliest.symbol) : null;
 
   // The post, built from served numbers only, and the number leads. The rank is the
   // deepest live room's, named by its room, and absent when the island served none.
@@ -617,8 +622,12 @@ function Reading({
         )}
 
         <div className="text-[12px] text-white/55 leading-relaxed mt-2">
-          {reading.heldSinceUnix !== null && (
-            <div>on the island since {sinceLabel(reading.heldSinceUnix)}</div>
+          {/* The since slot says the island's line when a served row names the coin; the
+              old line stays when none does, so the date is never lost and never said twice. */}
+          {since ? (
+            <div className="text-[13px] text-white/80" data-testid="trencher-since">{since}</div>
+          ) : (
+            reading.heldSinceUnix !== null && <div>on the island since {sinceLabel(reading.heldSinceUnix)}</div>
           )}
           <div>
             {reading.isCold
@@ -800,6 +809,10 @@ function Reading({
         </div>
       )}
 
+      {/* THE FLEX (island answer twenty-four, build 7): the island's own card for this
+          wallet, under a warm read. A cold wallet has no card to hand over. */}
+      {!reading.isCold && <IslandCard wallet={reading.address} />}
+
       {/* The share: one button, under a WARM read only, since a cold wallet has nothing to
           post. It opens the composer with served numbers and the read link; nothing is
           posted on the holder's behalf. mr-4 keeps it off "How heat is earned" on its line. */}
@@ -845,6 +858,9 @@ function ScopedReading({
   const want = scopeTo.address.trim().toLowerCase();
   const row = reading.breakdown.find((r) => r.tokenAddress.trim().toLowerCase() === want) ?? null;
   const days = row?.firstSeenAtUnix != null ? daysHeld(row.firstSeenAtUnix, reading.asOfUnix) : null;
+  // SINCE (island answer twenty-four, build 7), for this room's coin: its own first hold, never
+  // held_since_unix, which may be another coin's.
+  const since = row ? sinceLine(reading, row, scopeTo.symbol) : null;
   const rowColor = row?.retired ? 'rgba(255,255,255,0.45)' : TIER_COLOR[reading.tier];
 
   return (
@@ -865,8 +881,11 @@ function ScopedReading({
           {days !== null && (
             <p className="text-white/80 text-[13px] mt-1">
               {days.toLocaleString('en-US')} {days === 1 ? 'day' : 'days'} held
-              {row.firstSeenAtUnix != null && <> &middot; since {sinceLabel(row.firstSeenAtUnix)}</>}
             </p>
+          )}
+          {/* The island's line carries the month the days line used to repeat. */}
+          {since && (
+            <p className="text-white/80 text-[13px] mt-1" data-testid="trencher-since">{since}</p>
           )}
           {/* The island's place for this wallet in this room, as served. */}
           {roomRankLine(row.roomRank, row.roomHolders) && (
@@ -883,6 +902,8 @@ function ScopedReading({
         your whole flame reads {reading.degrees.toFixed(2)}&deg; {reading.tier}
       </p>
       {nextTierLine(reading) && <p className="text-white/60 text-[12px] mt-1">{nextTierLine(reading)}</p>}
+      {/* THE FLEX in a room: the same card, under a warm read. */}
+      {!reading.isCold && <IslandCard wallet={reading.address} className="mt-3" />}
     </div>
   );
 }
