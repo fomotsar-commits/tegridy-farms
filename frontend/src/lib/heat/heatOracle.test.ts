@@ -617,3 +617,24 @@ describe('the days the island counts down', () => {
     }
   });
 });
+
+// The island will serve `earlier_than_pct` beside `held_since_unix` (answer twenty-five, §4).
+// It is not served yet (read 2026-11-03), so today it parses to null and the since line
+// prints alone.
+describe('the percentile the island serves beside held_since_unix', () => {
+  it('reads it as absent from today’s envelope', () => {
+    expect(parseHeatReading(WARM).earlierThanPct).toBeNull();
+  });
+
+  it('keeps a served percentile as served', () => {
+    expect(parseHeatReading({ ...WARM, earlier_than_pct: 87.4 }).earlierThanPct).toBe(87.4);
+    expect(parseHeatReading({ ...WARM, earlier_than_pct: 0 }).earlierThanPct).toBe(0);
+    expect(parseHeatReading({ ...WARM, earlier_than_pct: 100 }).earlierThanPct).toBe(100);
+  });
+
+  it('reads anything but a number from 0 to 100 as absent', () => {
+    for (const v of [null, '87', -1, 100.5, NaN, Infinity, true]) {
+      expect(parseHeatReading({ ...WARM, earlier_than_pct: v }).earlierThanPct, String(v)).toBeNull();
+    }
+  });
+});
