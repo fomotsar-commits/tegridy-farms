@@ -109,6 +109,9 @@ describe('sameMove: her button goes quiet where the screen’s own green button 
     ['the countdown, a Resident: her Launch is another move', base({ reading: reading({ degrees: 90, tier: 'Resident' }), screenMove: 'start' }), false],
     ['a screen with no green button of its own', base({ reading: cold, room: BAYLA }), false],
     ['a screen that says null', base({ reading: cold, room: BAYLA, screenMove: null }), false],
+    ['the sheet, a stranger: her Read heat is under its veil', base({ screenMove: 'sheet' }), true],
+    ['the sheet, a cold wallet', base({ reading: cold, room: BAYLA, screenMove: 'sheet' }), true],
+    ['the sheet, a Resident with no room: her Launch', base({ reading: reading({ degrees: 90, tier: 'Resident' }), screenMove: 'sheet' }), true],
   ] as const)('%s', (_name, inputs, quiet) => {
     expect(baylaLine(inputs).sameMove).toBe(quiet);
   });

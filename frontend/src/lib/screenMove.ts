@@ -4,10 +4,11 @@ import { useEffect, useSyncExternalStore } from 'react';
  * The move a screen's own green button makes (island answer twenty-five, §2: one green button
  * per screen). A screen that draws a green button doing one of Bayla's moves says so while it is
  * on screen, and her line's button goes quiet there (lib/baylaLine.ts, `sameMove`): the
- * countdown's "Start the clock" and the sheet's Buy start the clock, the sheet's Add adds, the
- * receipt card is the receipt. In memory only; the last screen mounted wins.
+ * countdown's "Start the clock" starts the clock, the receipt card is the receipt, and the sheet
+ * ('sheet') is her move whatever her line says: its own green button is hers, and the header is
+ * under its veil. In memory only; the last screen mounted wins.
  */
-export type ScreenMove = 'start' | 'add' | 'receipt';
+export type ScreenMove = 'start' | 'add' | 'receipt' | 'sheet';
 
 const held: { move: ScreenMove; key: symbol }[] = [];
 const listeners = new Set<() => void>();

@@ -38,8 +38,8 @@ function OpenSheet({ kind, named }: { kind: SheetKind; named: Bungalow | null })
   const room = named ?? sheetRoom(getActiveBungalow()?.id);
   const [slot, setSlot] = useState<HTMLDivElement | null>(null);
   const pageOutlet = useSheetOutletHead();
-  // The sheet's green button is Add, or Buy (the move Start the clock makes): her line goes quiet on it.
-  useScreenMove(kind === 'add' ? 'add' : 'start');
+  // The sheet's green button is her move, whatever her line says: her header button goes quiet under it.
+  useScreenMove('sheet');
   const pressed = (location.state as { sheet?: boolean } | null)?.sheet === true;
   const close = useCallback(() => {
     // Opened by a press on this page: Back pops back to it. Opened by a link: the page replaces the sheet.
@@ -72,7 +72,7 @@ function OpenSheet({ kind, named }: { kind: SheetKind; named: Bungalow | null })
       document.body.style.overflow = was;
     };
   }, [close]);
-  const panelRef = useFocusTrap<HTMLDivElement>(true);
+  const panelRef = useFocusTrap<HTMLDivElement>(true, { focusContainer: true });
 
   const pick = (b: Bungalow) => {
     tick();

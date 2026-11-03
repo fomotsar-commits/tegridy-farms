@@ -7,6 +7,8 @@ import { useBaylaLine } from '../useBaylaLine';
  */
 export function SheetBaylaRow() {
   const line = useBaylaLine();
+  // Nothing read yet: her line asks for a wallet to paste, and the sheet has no field for one.
+  if (line.button.move === 'read') return null;
   return (
     <div
       data-testid="sheet-bayla"

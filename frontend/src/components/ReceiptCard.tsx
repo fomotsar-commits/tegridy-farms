@@ -51,7 +51,7 @@ function OpenReceipt({ receipt }: { receipt: Receipt }) {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
-  const cardRef = useFocusTrap<HTMLDivElement>(true);
+  const cardRef = useFocusTrap<HTMLDivElement>(true, { focusContainer: true });
   const close = () => {
     tick();
     closeReceipt();

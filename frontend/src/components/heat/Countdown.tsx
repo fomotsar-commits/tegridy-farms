@@ -80,7 +80,8 @@ export function Countdown({ reading, look = 'card' }: CountdownProps) {
               <span style={{ fontFamily: ARCHIVO, fontWeight: 700, fontSize: 28, lineHeight: 1 }}>{COUNTDOWN_WORDS.days}</span>
             </p>
           ) : (
-            <p className="mt-[22px] text-white" style={{ fontFamily: ARCHIVO, fontWeight: 800, fontSize: 40, lineHeight: 1.05 }}>
+            // 40 px as drawn on the launch screen; in a heat card's narrower column it shrinks to stay one line at 390.
+            <p className="mt-[22px] text-white" style={{ fontFamily: ARCHIVO, fontWeight: 800, fontSize: screen ? 40 : 'clamp(28px, 9.4vw, 40px)', lineHeight: 1.05 }}>
               {COUNTDOWN_WORDS.unserved}
             </p>
           ))}

@@ -65,17 +65,26 @@ describe('the sheet', () => {
     await act(async () => {});
   });
 
-  it('says its green move while it is up, so her line goes quiet: Add on the Add sheet, Start the clock on the Buy sheet', () => {
+  it('says it is up, so her header button goes quiet whatever her line says: the sheet’s button is her move', () => {
     localStorage.setItem('tegridy-bungalow', 'bayla');
     mount(['/bayla?sheet=add']);
-    expect(screen.getByTestId('move')).toHaveTextContent('add');
+    expect(screen.getByTestId('move')).toHaveTextContent('sheet');
     cleanup();
     mount(['/bayla?sheet=buy']);
-    expect(screen.getByTestId('move')).toHaveTextContent('start');
+    expect(screen.getByTestId('move')).toHaveTextContent('sheet');
     cleanup();
     mount(['/bayla']);
     expect(screen.getByTestId('move')).toHaveTextContent('none');
     expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('takes focus itself, not its first control, so nothing is lit before a tap', async () => {
+    localStorage.setItem('tegridy-bungalow', 'bayla');
+    mount(['/bayla?sheet=add']);
+    await act(async () => {
+      await new Promise((r) => requestAnimationFrame(() => r(null)));
+    });
+    expect(document.activeElement).toBe(screen.getByRole('dialog', { name: 'Add SOL + BAYLA' }));
   });
 
   it('Back after a press on the page pops back to it: the room is still there', () => {

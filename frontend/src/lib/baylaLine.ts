@@ -62,7 +62,9 @@ function lineFor(i: BaylaInputs): Omit<BaylaLine, 'sameMove'> {
 
 export function baylaLine(i: BaylaInputs): BaylaLine {
   const line = lineFor(i);
-  return { ...line, sameMove: (i.screenMove ?? null) === line.button.move };
+  // Under the sheet every line is quiet: the sheet's own green button is her move (answer twenty-five, §2).
+  const move = i.screenMove ?? null;
+  return { ...line, sameMove: move === 'sheet' || move === line.button.move };
 }
 
 /** The intel line under Bayla's: one fact read, in the past tense; null when it could not be read (never 0). */
