@@ -135,6 +135,70 @@ export const BAYLA_LINES = {
   },
 } as const;
 
+/**
+ * The three drawn screens of session B (island answer twenty-five), their words exactly as
+ * drawn, and the trencher layer's (answer twenty-four, build 7). Not reworded; every surface
+ * quotes this one source. No minimum is printed under an amount (answer twenty-five, §2).
+ */
+export const SHEET_WORDS = {
+  back: 'Back to the room',
+  poolLine: (coin: string) => `SOL + ${coin} pool · Solana`,
+  unit: 'SOL',
+  chips: ['0.05 SOL', '0.5 SOL', 'Max SOL'] as const,
+  poolPrice: 'Pool price',
+  poolPriceValue: (coin: string, sol: string) => `1 ${coin} = ${sol} SOL`,
+  outsidePrice: 'Outside price',
+  outsidePriceValue: (sol: string, age: string) => `${sol} SOL · read ${age} ago`,
+  youGet: 'You get',
+  feeLine: (lp: string, venue: string) => `LPs keep ${lp}% of each trade, the venue ${venue}%.`,
+  add: (coin: string) => `Add SOL + ${coin}`,
+  buy: (coin: string) => `Buy ${coin}`,
+} as const;
+
+export const COUNTDOWN_WORDS = {
+  eyebrow: 'THE LAUNCH DOOR',
+  /** The served tier word as served (law 3); the eyebrow's capitals are its type, not the word. */
+  standing: (tier: string, degrees: string) => `${tier} · ${degrees}°`,
+  days: 'days',
+  unserved: 'about half a year',
+  under: 'to the launch door, if you hold from today.',
+  today: '0° today',
+  door: (floor: number) => `${floor}° · the door`,
+  line: 'Residents launch here. Nobody can buy last year.',
+  button: 'Start the clock',
+  roster: (n: number) => `${n} flames are warming toward the door right now.`,
+  open: 'The launch lane is open.',
+} as const;
+
+export const RECEIPT_WORDS = {
+  bought: (amount: string, coin: string) => `Bought ${amount} ${coin}`,
+  boughtFor: (amount: string, paid: string) => `for ${amount} ${paid}, on the venue`,
+  added: (sol: string, amount: string, coin: string) => `Added ${sol} SOL + ${amount} ${coin}`,
+  addedTo: (coin: string) => `to the SOL + ${coin} pool`,
+  fee: 'Fee',
+  toLps: "To this pool's LPs",
+  toVenue: 'To the venue and the island',
+  signature: 'Signature',
+  noFee: 'No venue fee on an add',
+  dayOne: (coin: string) => `Day 1 of your clock on ${coin} starts tonight.`,
+  double: 'Every day in this pool counts double from tomorrow.',
+  kept: (coin: string) => `Your clock on ${coin} kept counting.`,
+  share: 'Share your card',
+  back: 'Back to the room',
+  cardUrl: (wallet: string) => `https://memetics.wtf/card/${wallet}`,
+} as const;
+
+export const TRENCHER_WORDS = {
+  since: (coin: string, monthYear: string) => `In ${coin} since ${monthYear}.`,
+  sinceEarlier: (coin: string, monthYear: string, pct: number) => `In ${coin} since ${monthYear}, earlier than ${pct}% of today's holders.`,
+  harbor: (signed: number, day: number) => `${signed} of 3 Residents have signed it in · day ${day} of 90`,
+  the369: 'up 369% a year after it moves in: 369,000 $BAYLA to each signer who held',
+  bringHome: 'Bring it home: three Residents sign it in.',
+  doubleDays: (day: number) => `Day ${day} in the pool = ${2 * day} warm days.`,
+  poolPays: (pct: string) => `Our pool pays ${pct}% more than Jupiter right now.`,
+  timeline: 'Art on this timeline since 2021, every day.',
+} as const;
+
 // Loader identity: which words the particles form, which the glitch flashes, which art shows.
 
 export interface LoaderIdentity {
