@@ -37,6 +37,8 @@ vi.mock('@solana/wallet-adapter-react', () => ({
 }));
 // The sheet's green button connects a wallet when none is: the press is seen here.
 const connect = vi.hoisted(() => ({ open: vi.fn() }));
+// The venue's fee account: off as the test build has none, on as the live site has one.
+const fee = vi.hoisted(() => ({ on: false }));
 vi.mock('../components/solana/useSolanaConnect', () => ({ useSolanaConnect: () => connect.open }));
 vi.mock('@solana/web3.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@solana/web3.js')>()),
@@ -51,6 +53,10 @@ vi.mock('../components/swap/ChainSwitch', () => ({ ChainSwitch: () => null }));
 vi.mock('../components/swap/SolanaRouteLine', () => ({ SolanaRouteLine: () => null }));
 vi.mock('../components/ArtImg', () => ({ ArtImg: () => null }));
 vi.mock('../lib/analytics', () => ({ trackPageView: () => {} }));
+vi.mock('../lib/solana', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/solana')>()),
+  isSolanaFeeConfigured: () => fee.on,
+}));
 vi.mock('../lib/solanaTokenList', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../lib/solanaTokenList')>()),
   fetchTrending: async () => [],
@@ -106,6 +112,7 @@ beforeEach(() => {
   jup.getTriggerOrders.mockReset().mockResolvedValue([]);
   jup.getRecurringOrders.mockReset().mockResolvedValue([]);
   signedIn.yes = true;
+  fee.on = false;
   connect.open.mockClear();
   // The room's page under the sheet: its address names no pair, and the sheet reads none from it.
   window.history.replaceState(null, '', `/bayla?sheet=buy&out=${USDC_MINT}`);
@@ -159,13 +166,23 @@ describe('the sheet’s Buy', () => {
     const got = await screen.findByTestId('sheet-you-get', {}, { timeout: 5_000 });
     // As drawn: the quote is an estimate, so it reads "≈".
     expect(got).toHaveTextContent(/You get\s*≈ 668\.5 BAYLA/);
-    // Jupiter's route: the fee line is the swap's own sentence, not a pool's split.
-    expect(screen.getByTestId('sheet-fee-line').textContent).toMatch(/platform fee|No platform fee/);
+    // Jupiter's route, and this build has no fee account: the venue's take from this trade, none.
+    expect(screen.getByTestId('sheet-fee-line')).toHaveTextContent(/^The venue takes no fee on this trade\.$/);
     const go = await screen.findByRole('button', { name: 'Buy BAYLA' });
     await waitFor(() => expect(go).toBeEnabled(), { timeout: 5_000 });
     fireEvent.click(go);
     await waitFor(() => expect(wallet.sendTransaction).toHaveBeenCalledTimes(1));
     expect(jup.buildSwapTransaction).toHaveBeenCalledWith(expect.objectContaining({ quote: expect.objectContaining({ outputMint: BAYLA_MINT }) }));
+  });
+
+  it('on Jupiter’s route the fee line is the venue’s own take from this trade, in the coin it is taken in', async () => {
+    fee.on = true;
+    jup.getQuote.mockResolvedValue(baylaQuote);
+    inSheet();
+    fireEvent.click(await screen.findByRole('button', { name: '0.5 SOL' }));
+    const line = await screen.findByTestId('sheet-fee-line', {}, { timeout: 5_000 });
+    // In the Add sheet's own words ("the venue 0.160%"), not a rule about pairs.
+    expect(line).toHaveTextContent(/^The venue takes \d+\.\d{2}% of this trade, in SOL\.$/);
   });
 
   it('with no wallet the green button connects one', async () => {

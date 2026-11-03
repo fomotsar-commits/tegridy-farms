@@ -2546,11 +2546,12 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
         <span className="text-right [overflow-wrap:anywhere]" style={{ color: 'var(--color-text-primary)' }}>{value}</span>
       </div>
     );
-    // The fee this trade pays, in the route's own words: our pool's split read from its config, or the site's fee on Jupiter's route.
+    // The fee this trade pays: our pool's split read from its config, or on Jupiter's route the venue's
+    // own take from this trade, in the coin it is taken in (the page's Platform fee row says the same).
     const feeLine = own?.view.config
       ? `${feeSplitText(own.view.config, own.view.snapshot.pool.enableCreatorFee)}.`
       : quote && !ownBest
-        ? !isSolanaFeeConfigured() ? 'No platform fee is charged here today.' : feeWaived ? 'No platform fee on this route.' : `A ${feePct}% platform fee applies on pairs that include SOL, USDC or USDT.`
+        ? feeWaived ? 'The venue takes no fee on this route.' : feeMintSymbol ? `The venue takes ${feePct}% of this trade, in ${feeMintSymbol}.` : 'The venue takes no fee on this trade.'
         : null;
     const buyLabel = swapping ? 'Swapping…' : ownBusy ?? SHEET_WORDS.buy(buyToken.symbol);
     return (
