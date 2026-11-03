@@ -2,6 +2,12 @@ use anchor_lang::prelude::*;
 
 pub const AMM_CONFIG_SEED: &str = "amm_config";
 
+/// memetics.finance: a tier's trade and creator fees together are at most 4% of a swap.
+pub const MAX_FEE_RATE_NUMERATOR: u64 = 40_000;
+
+/// memetics.finance: a tier's protocol and fund rates together are at most 20% of each fee.
+pub const MAX_PROTOCOL_AND_FUND_FEE_RATE: u64 = 200_000;
+
 /// Holds the current owner of the factory
 #[account]
 #[derive(Default, Debug)]

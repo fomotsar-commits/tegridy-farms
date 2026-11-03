@@ -25,19 +25,19 @@
   },
   "keptUpstream": {
     "HVbpJAQGNpkgBaYBZQBR1t7yFdvaYVp2vCQQfKKEN4tM": {
-      "why": "USDP (Pax Dollar) mint. Upstream cp-swap's MINT_WHITELIST, in the live binary; it lets this coin skip the Token-2022 extension check. Pays no one. Assessed 2026-10-10: not exploitable here, and removing it needs a cp-swap upgrade.",
+      "why": "USDP (Pax Dollar) mint. Was in upstream cp-swap's MINT_WHITELIST, which let this coin skip the Token-2022 extension check. The list was deleted from our copy on 2026-11-03, as upstream itself deleted it (59fb845); the live binary keeps it until the next cp-swap upgrade. Named now only in the unit test that holds the four coins to the same check as every coin. Pays no one.",
       "only_in": ["solana/tegridy-amm/programs/cp-swap/src/utils/token.rs"]
     },
     "Crn4x1Y2HUKko7ox2EZMT6N2t2ZyH7eKtwkBGVnhEq1g": {
-      "why": "GYEN (GMO JPY) mint. Upstream cp-swap's MINT_WHITELIST; same as USDP above.",
+      "why": "GYEN (GMO JPY) mint. Was in upstream cp-swap's MINT_WHITELIST; same as USDP above.",
       "only_in": ["solana/tegridy-amm/programs/cp-swap/src/utils/token.rs"]
     },
     "FrBfWJ4qE5sCzKm3k3JaAtqZcXUh4LvJygDeketsrsH4": {
-      "why": "ZUSD (Z.com USD) mint. Upstream cp-swap's MINT_WHITELIST; same as USDP above.",
+      "why": "ZUSD (Z.com USD) mint. Was in upstream cp-swap's MINT_WHITELIST; same as USDP above.",
       "only_in": ["solana/tegridy-amm/programs/cp-swap/src/utils/token.rs"]
     },
     "2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo": {
-      "why": "PYUSD (PayPal USD) mint. Upstream cp-swap's MINT_WHITELIST; same as USDP above.",
+      "why": "PYUSD (PayPal USD) mint. Was in upstream cp-swap's MINT_WHITELIST; same as USDP above.",
       "only_in": ["solana/tegridy-amm/programs/cp-swap/src/utils/token.rs"]
     }
   }

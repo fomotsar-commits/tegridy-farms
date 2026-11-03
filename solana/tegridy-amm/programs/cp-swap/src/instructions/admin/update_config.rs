@@ -40,23 +40,25 @@ pub fn update_amm_config(ctx: Context<UpdateAmmConfig>, param: u8, value: u64) -
 
 fn update_protocol_fee_rate(amm_config: &mut Account<AmmConfig>, protocol_fee_rate: u64) {
     assert!(protocol_fee_rate <= FEE_RATE_DENOMINATOR_VALUE);
-    assert!(protocol_fee_rate + amm_config.fund_fee_rate <= FEE_RATE_DENOMINATOR_VALUE);
+    assert!(protocol_fee_rate + amm_config.fund_fee_rate <= MAX_PROTOCOL_AND_FUND_FEE_RATE);
     amm_config.protocol_fee_rate = protocol_fee_rate;
 }
 
 fn update_trade_fee_rate(amm_config: &mut Account<AmmConfig>, trade_fee_rate: u64) {
-    assert!(trade_fee_rate + amm_config.creator_fee_rate < FEE_RATE_DENOMINATOR_VALUE);
+    // memetics.finance: never 0, as in create_amm_config (lib.rs).
+    assert!(trade_fee_rate > 0);
+    assert!(trade_fee_rate + amm_config.creator_fee_rate <= MAX_FEE_RATE_NUMERATOR);
     amm_config.trade_fee_rate = trade_fee_rate;
 }
 
 fn update_fund_fee_rate(amm_config: &mut Account<AmmConfig>, fund_fee_rate: u64) {
     assert!(fund_fee_rate <= FEE_RATE_DENOMINATOR_VALUE);
-    assert!(fund_fee_rate + amm_config.protocol_fee_rate <= FEE_RATE_DENOMINATOR_VALUE);
+    assert!(fund_fee_rate + amm_config.protocol_fee_rate <= MAX_PROTOCOL_AND_FUND_FEE_RATE);
     amm_config.fund_fee_rate = fund_fee_rate;
 }
 
 fn update_creator_fee_rate(amm_config: &mut Account<AmmConfig>, creator_fee_rate: u64) {
-    assert!(creator_fee_rate + amm_config.trade_fee_rate < FEE_RATE_DENOMINATOR_VALUE);
+    assert!(creator_fee_rate + amm_config.trade_fee_rate <= MAX_FEE_RATE_NUMERATOR);
     amm_config.creator_fee_rate = creator_fee_rate;
 }
 
@@ -82,4 +84,95 @@ fn set_new_fund_owner(amm_config: &mut Account<AmmConfig>, new_fund_owner: Pubke
     );
     amm_config.fund_owner = new_fund_owner;
     Ok(())
+}
+
+#[cfg(test)]
+mod fee_ceiling_test {
+    use super::*;
+
+    /// A fee tier as the update helpers take it.
+    fn tier(trade: u64, creator: u64, protocol: u64, fund: u64) -> Account<'static, AmmConfig> {
+        let mut data = Vec::new();
+        AmmConfig {
+            trade_fee_rate: trade,
+            creator_fee_rate: creator,
+            protocol_fee_rate: protocol,
+            fund_fee_rate: fund,
+            ..Default::default()
+        }
+        .try_serialize(&mut data)
+        .unwrap();
+        let info: &'static AccountInfo<'static> = Box::leak(Box::new(AccountInfo::new(
+            Box::leak(Box::new(Pubkey::new_unique())),
+            false,
+            true,
+            Box::leak(Box::new(1_000_000u64)),
+            Box::leak(data.into_boxed_slice()),
+            Box::leak(Box::new(crate::id())),
+            false,
+            0,
+        )));
+        Account::try_from(info).unwrap()
+    }
+
+    // The two tiers on mainnet: fee settings 0 and 1 in frontend/scripts/addresses.json.
+    fn launch_tier() -> Account<'static, AmmConfig> {
+        tier(2_500, 5_000, 130_000, 70_000)
+    }
+    fn public_tier() -> Account<'static, AmmConfig> {
+        tier(10_000, 0, 104_000, 56_000)
+    }
+
+    #[test]
+    #[should_panic(expected = "trade_fee_rate + amm_config.creator_fee_rate <= MAX_FEE_RATE_NUMERATOR")]
+    fn a_trade_fee_above_4_percent_is_refused() {
+        update_trade_fee_rate(&mut public_tier(), 40_001);
+    }
+
+    #[test]
+    #[should_panic(expected = "creator_fee_rate + amm_config.trade_fee_rate <= MAX_FEE_RATE_NUMERATOR")]
+    fn a_creator_fee_taking_the_total_above_4_percent_is_refused() {
+        update_creator_fee_rate(&mut public_tier(), 30_001);
+    }
+
+    #[test]
+    #[should_panic(expected = "trade_fee_rate > 0")]
+    fn a_zero_trade_fee_is_refused() {
+        update_trade_fee_rate(&mut public_tier(), 0);
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "protocol_fee_rate + amm_config.fund_fee_rate <= MAX_PROTOCOL_AND_FUND_FEE_RATE"
+    )]
+    fn a_protocol_rate_taking_the_pair_above_20_percent_is_refused() {
+        update_protocol_fee_rate(&mut public_tier(), 144_001);
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "fund_fee_rate + amm_config.protocol_fee_rate <= MAX_PROTOCOL_AND_FUND_FEE_RATE"
+    )]
+    fn a_fund_rate_taking_the_pair_above_20_percent_is_refused() {
+        update_fund_fee_rate(&mut public_tier(), 96_001);
+    }
+
+    // Controls: both live tiers can be set to their own values again, and each ceiling
+    // itself is accepted (the launch tier sits exactly on the 20% one).
+    #[test]
+    fn the_live_tiers_and_each_ceiling_itself_are_accepted() {
+        for mut t in [launch_tier(), public_tier()] {
+            let (trade, creator) = (t.trade_fee_rate, t.creator_fee_rate);
+            let (protocol, fund) = (t.protocol_fee_rate, t.fund_fee_rate);
+            update_trade_fee_rate(&mut t, trade);
+            update_creator_fee_rate(&mut t, creator);
+            update_protocol_fee_rate(&mut t, protocol);
+            update_fund_fee_rate(&mut t, fund);
+        }
+        let mut t = public_tier();
+        update_trade_fee_rate(&mut t, 40_000);
+        update_protocol_fee_rate(&mut t, 144_000);
+        assert_eq!(t.trade_fee_rate, 40_000);
+        assert_eq!(t.protocol_fee_rate + t.fund_fee_rate, 200_000);
+    }
 }

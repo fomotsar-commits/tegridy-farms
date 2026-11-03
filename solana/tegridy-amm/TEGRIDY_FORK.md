@@ -65,6 +65,13 @@ fallback for pairs we don't host well.
 > of the three is on chain: a public `initialize` on fee tier 0 is not refused, and
 > `create_lp_metadata` answers 101. A re-upgrade to `1e55bcdc…` is planned.
 
+> **2026-11-03: the range-pool program's fee rules, and upstream's own deletion of
+> `MINT_WHITELIST`, in source.** Only a tier's fund owner collects the fund fee; a tier charges
+> a trader more than 0 and at most 4%, and keeps at most 20% of each fee; the four stablecoins
+> the list let in, and any coin with a support-mint record, now meet the same Token-2022 check
+> as every coin. See "The fee rules and the coin check" below. They reach mainnet only with
+> the next cp-swap upgrade, a vault proposal of its own. `diff-guard` was re-pinned for it.
+
 ---
 
 ## The entire code diff from upstream
@@ -73,8 +80,11 @@ Exactly **four authority/identity constants** across **two files** (`lib.rs` and
 `instructions/admin/create_support_mint_associated.rs`), **plus one added instruction**,
 `create_lp_metadata`, all of it in `lib.rs`, **plus one added refusal** in
 `instructions/initialize.rs` (since 2026-10-19: public `initialize` refuses fee tier 0, see
-"The launch-tier gate" below). **No other code**: all swap, curve, and fee math is
-byte-identical to upstream, and no other upstream instruction is changed. After the fork,
+"The launch-tier gate" below), **plus the fee rules and the coin check** of 2026-11-03
+(`collect_fund_fee.rs`, `update_config.rs`, `states/config.rs`, `utils/token.rs` and the
+`create_amm_config` checks in `lib.rs`; see "The fee rules and the coin check" below).
+**No other code**: all swap, curve, and fee math is byte-identical to upstream, and no other
+upstream instruction is changed. After the fork,
 **no external party retains any authority on this program**; every authority is the Tegridy
 admin/treasury.
 
@@ -311,6 +321,37 @@ are the combined path.
 the gate and `create_lp_metadata` together, and it is a vault proposal with the same 48-hour
 wait.
 
+### The fee rules and the coin check (2026-11-03)
+
+From the Solana audit of 2026-11-03 (CA-1 / DO-11, CA-3 / CM-1, CP-05 / RU-01 / TK-2, TK-1 / CL-08).
+Each is a deletion or the range-pool program's own rule (`solana/tegridy-clmm`, owner ruling of
+2026-10-20), carried over.
+
+| Rule | Where | Before |
+|---|---|---|
+| Only the tier's fund owner collects the fund fee (the island's Workshop on both live tiers). The vault can still point a tier's fund owner elsewhere by proposal (`update_amm_config` param 4), as on range pools. | `collect_fund_fee.rs`: upstream's `\|\| owner == admin::ID` deleted | the vault could collect the island's share to any account |
+| A tier charges a trader at most 4% of a swap, its trade and creator fees together, and its trade fee is never 0. | `create_amm_config` (`lib.rs`) and `update_config.rs` params 0 and 7; `MAX_FEE_RATE_NUMERATOR` in `states/config.rs` | up to 99.9999%; a 0 fee made every swap into a public pool revert (`split_creator_fee` divides by the two rates' sum) |
+| A tier keeps at most 20% of each fee for the protocol and fund owners together. Range pools keep at most 16%; here it is 20% because the launch tier's split, set by the island split's proposal (`frontend/scripts/addresses.json`, fee settings 0), is 130,000 + 70,000. The 1% tier's is 104,000 + 56,000. | the same places; `MAX_PROTOCOL_AND_FUND_FEE_RATE` | up to 100% |
+| The four Token-2022 stablecoins in upstream's `MINT_WHITELIST` (USDP, GYEN, ZUSD, PYUSD, each with a permanent delegate their issuer controls) meet the same extension check as every coin. Upstream deleted the list itself (raydium-cp-swap `59fb845`); this is that deletion. | `utils/token.rs` | let in by name, whatever their extensions |
+| A support-mint record no longer lets a coin skip that check. The record and its two instructions stay, so the interface is upstream's, but `is_supported_mint` ignores it. The range-pool program's copy changed the same day. | `utils/token.rs` | the vault could let any Token-2022 coin in, a permanent delegate or a transfer hook included |
+
+**What it changes on chain, once upgraded.** Read 2026-11-03: two tiers, both inside every
+ceiling (the launch tier sits exactly on the 20% one); no support-mint record; no pool holding
+one of the four stablecoins; 17 of the 19 pools owe the Workshop a fund fee, which it alone can
+collect. Moving the launch tier's split down to 104,000 + 56,000 takes three changes in one
+proposal (protocol to 90,000, fund to 56,000, protocol to 104,000), because each change is
+checked against the other rate as it stands. No account, argument or error code changes, so the
+IDL is the same; the swap maths is untouched.
+
+**How it was proved, 2026-11-03.** Every new test was run against a copy with the fixes
+undone, and only the controls passed there.
+
+| run | result |
+|---|---|
+| unit tests (`cargo test --lib`, now run by CI's `build` job): six on the fee helpers in `update_config.rs`, four on `is_supported_mint` | 20 of 20 with upstream's ten. Fixes undone: the seven that guard a fix fail, the three controls pass |
+| `tests/cp-swap-fee-rules.test.ts` (CI's migration-rehearsal job), on a local validator, both builds made as that job makes them (Solana 2.3.0, Anchor 0.32.1, this wallet as admin): `create_amm_config`'s checks and the fund-owner rule, which a unit test cannot reach | 6 of 6. Fixes undone: the five that guard a fix fail (each refused tier made; the admin collects the fund fee), the control passes |
+| the range-pool program's own test of its `is_supported_mint` | 2 of 2. Fix undone: the guard fails, the control passes |
+
 ---
 
 ## How Tegridy earns (no code change for the fee recipient)
@@ -328,7 +369,8 @@ every pool using that config** accrues a protocol cut (per `protocol_fee_rate`) 
 receives at collection time — regardless of who provides the liquidity. That is the venue
 economics the operator wanted. `protocol_fee_rate` is a fraction of the trade fee out of
 1_000_000 (e.g. 120000 = 12% of the trade fee), bounded by `protocol_fee_rate + fund_fee_rate ≤
-1_000_000`. (`fund_fee` → `fund_owner`, disabled-by-default `creator_fee` = separate levers.)
+200_000` since 2026-11-03 (in source; on chain from the next upgrade; it was `≤ 1_000_000`).
+(`fund_fee` → `fund_owner`, disabled-by-default `creator_fee` = separate levers.)
 
 ---
 
@@ -360,7 +402,7 @@ math, checked arithmetic, oracle, fee calc. Risk here ≈ the risk Raydium CPMM 
 production. We do not modify it.
 
 **New surface introduced by the fork (the whole audit focus):**
-- **`admin::ID`** — `create_config` / `update_config` / `update_pool_status` AND a fallback collector on `collect_protocol_fee` / `collect_fund_fee` (can sweep accrued protocol+fund fees to any recipient) — a **fund-touching** key, not config-only. Compromise ⇒ hostile configs, paused pools, swept fees. It also reaches **graduated launches**: it can freeze any pool's swaps (`update_pool_status`), burned-LP pools included; close the migration `Permission` account (`close_permission_pda`), which blocks every graduation; turn pool creation off (`update_config` param 6, `disable_create_pool`), which also blocks every graduation until it is set back; raise `create_pool_fee` (`update_config` param 5, unbounded) above `migration_reserve − 42,156,720`, which bricks every pending curve's graduation at once; and change the trade and creator fee rates (`update_config` params 0 and 7) of every pool on the config, graduated burned-LP pools included, since swaps read them live. **Mitigation:** an explicit owner decision on who holds it (MAINNET_RUNBOOK §5, "OWNER DECISION") — ruled 2026-09-25: the Squads vault PDA `GRMtSx…` (2-of-2), so every admin action is a two-signer proposal. It must be an account that can sign AND pay, so never the multisig account. Moving it is a program upgrade.
+- **`admin::ID`** — `create_config` / `update_config` / `update_pool_status` AND a fallback collector on `collect_protocol_fee` / `collect_fund_fee` (can sweep accrued protocol+fund fees to any recipient; since 2026-11-03, in source, `collect_protocol_fee` only, and every fee rate it sets is held under the ceilings of "The fee rules and the coin check") — a **fund-touching** key, not config-only. Compromise ⇒ hostile configs, paused pools, swept fees. It also reaches **graduated launches**: it can freeze any pool's swaps (`update_pool_status`), burned-LP pools included; close the migration `Permission` account (`close_permission_pda`), which blocks every graduation; turn pool creation off (`update_config` param 6, `disable_create_pool`), which also blocks every graduation until it is set back; raise `create_pool_fee` (`update_config` param 5, unbounded) above `migration_reserve − 42,156,720`, which bricks every pending curve's graduation at once; and change the trade and creator fee rates (`update_config` params 0 and 7) of every pool on the config, graduated burned-LP pools included, since swaps read them live. **Mitigation:** an explicit owner decision on who holds it (MAINNET_RUNBOOK §5, "OWNER DECISION") — ruled 2026-09-25: the Squads vault PDA `GRMtSx…` (2-of-2), so every admin action is a two-signer proposal. It must be an account that can sign AND pay, so never the multisig account. Moving it is a program upgrade.
 - **Program upgrade authority** — whoever holds it can replace the program bytecode (drain-class). **Mitigation:** the Squads vault PDA (not the multisig account) or a burned upgrade authority; verifiable build so the deployed bytes are provably this source.
 - **Config misconfiguration** — wrong rates at `create_config`. The enforced bound is `protocol_fee_rate + fund_fee_rate ≤ 1_000_000` (NOT ≤ trade_fee_rate); the `create_pool_fee` receiver MUST be a WSOL token account or every pool creation reverts. **Mitigation:** the create_config step is scripted + reviewed in Phase 2.
 - **`create_lp_metadata`** (added 2026-10-06; in the binary on mainnet from the upgrade of `MAINNET_RUNBOOK.md` section 4b until its roll-back on 2026-10-24). Anyone may call it, and it signs a Metaplex call as `AUTH_SEED`, the address that owns every pool vault. The caller picks the record slot and the program does not check it. Why the vaults are still out of reach, and what is left exposed, is in "The one thing a reviewer must hold it to" above. Its editor role outlives `admin::ID`, and any pool anyone opens can take the house name: both are in that section too.
@@ -371,6 +413,14 @@ production. We do not modify it.
   unsignable multisig account, which made the fallback dead). Add-only allowlist, no fund
   path; low impact.
 
+Since 2026-11-03, in source (on chain from the next upgrade): the config bound above is
+`protocol_fee_rate + fund_fee_rate ≤ 200_000`, and a tier's trade and creator fees together
+are at most 40,000 and its trade fee more than 0; a support-mint record no longer lets a coin
+past the Token-2022 check, so the allowlist decides nothing. Every pool opening and every
+graduation reads the vault's wrapped-SOL account `2sa31zce…` as a token account, even on a tier
+with no opening fee: closing it (unwrapping that SOL) stops both until it is re-created, which
+any wallet can do, since it is the vault's associated token account. Never close it.
+
 **Non-code (operational) risks:** capital as LP bears impermanent loss; revenue depends on real
 volume; Jupiter de-routes under-funded pools (30-min liquidity recheck) — keep pools funded.
 
@@ -380,7 +430,8 @@ volume; Jupiter de-routes under-funded pools (30-min liquidity recheck) — keep
 
 Scope is small and mostly mechanical: **"confirm the only delta from audited upstream
 `raydium-cp-swap` is the four identity/authority constants (program id, `admin`, fee receiver,
-support-mint owner) + program name and on-chain security text + the one added instruction `create_lp_metadata`; that the
+support-mint owner) + program name and on-chain security text + the one added instruction `create_lp_metadata`
++ the launch-tier gate + the fee rules and the coin check of 2026-11-03; that the
 mainnet authorities are the Squads vault PDA and its WSOL ATA; and that `create_lp_metadata`
 can do nothing but create the name record of a real pool's lp mint (it signs a Metaplex call
 with the address that also owns every vault)."** Recommended Solana firms: OtterSec, Neodyme,
@@ -396,8 +447,11 @@ programs/cp-swap/src/
   lib.rs            ← 3 of the 4 authority constants (+ fork header) and the one added
                       instruction, create_lp_metadata (accounts, handler, two helpers)
   instructions/admin/create_support_mint_associated.rs  ← 4th authority constant
+  instructions/admin/collect_fund_fee.rs, update_config.rs  ← fee rules (2026-11-03)
+  instructions/initialize.rs  ← the launch-tier gate (2026-10-19)
+  utils/token.rs    ← the coin check: MINT_WHITELIST deleted, support-mint record ignored
   curve/fees.rs     ← fee math (untouched, audited upstream)
-  states/config.rs  ← AmmConfig: protocol_owner / fee rates (untouched)
+  states/config.rs  ← AmmConfig (untouched) + the two fee ceilings (2026-11-03)
   instructions/     ← swap / deposit / withdraw / admin (otherwise untouched)
 keys/               ← devnet keypairs (gitignored); the admin one is also a mainnet wallet
 ```

@@ -51,7 +51,7 @@ role use the venue's devnet key `GgE6AfEH2AVSrKGckyKMzC6mhtXWiAn39EzAikAsWq5a`.
 | Spare-SOL collector | `Ray9LdYRLXsHzL8pr3Ceahfiz8MsS2pZagzHo1ckdfJ` | vault | Sweep SOL sent to a pool's accounts above what they need |
 | Limit-order keeper | `Ray8HHtixhL9zvnokMyELCVGp622PDPJj96zcVC9RWp` | vault | Settle or close a user's limit order; the coins go to the order's owner only |
 | Permission admin | `RayzVBPm6p6xtG7fU3KX4k44UexK4NjewDk2QCwoLqa` | vault | Say who may open a permission-only pool |
-| Support-mint owner | `RayVyjyJQz9vAi126A4sGexKnSU1XeZaHTRcM1mZMPY` | vault | Let in a coin with unusual Token-2022 features |
+| Support-mint owner | `RayVyjyJQz9vAi126A4sGexKnSU1XeZaHTRcM1mZMPY` | vault | Let in a coin with unusual Token-2022 features. Since 2026-11-03 the source ignores such a record (on chain from the upgrade after #22), so it lets in nothing |
 | Frozen-NFT issuer list | `2Yq4T3mPNfjtEyTxSbRjRKqLf1pwbTasuCQrWe6QpM7x` (an outside coin issuer) | empty | Nothing: no position NFT is ever frozen |
 
 Also replaced: the on-chain security text (now memetics.finance, our contact, no audit claim),
@@ -83,6 +83,8 @@ hours):
   within the 16% ceiling;
 - let in a Token-2022 coin (support-mint) whose owner can move coins out of any account (a
   permanent delegate), which would reach the pool's vault: so the vault lets in no such coin.
+  This one closes with the upgrade after #22: since 2026-11-03 the source checks every coin's
+  Token-2022 features, a support-mint record or not, as the swap-pool program's does.
 
 **What else the vault can still do**, kept on purpose (the owner's ruling, 2026-10-20):
 
