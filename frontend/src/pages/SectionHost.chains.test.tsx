@@ -124,3 +124,36 @@ describe('Launch, with its network drop-down', () => {
     expect(where()).toBe('/eth-curve?c=1');
   });
 });
+
+// Build 2 (2026-11-01): Solana first. With nothing to read the network from (no `?chain=`, no
+// room, a wallet on a chain the venue does not run on), a page is on the first network it serves,
+// in the drop-down's order: Solana, Base, Robinhood Chain, Ethereum.
+describe('with nothing to read the network from', () => {
+  it('a tab that names no network is on Solana where the section serves it', () => {
+    const section: NavSection = {
+      heading: 'Launch',
+      hub: '/curve-launch',
+      items: [
+        { to: '/curve-launch', label: 'Memetics Curve (Solana)', tabLabel: 'Solana Curve' },
+        { to: '/launch', label: 'Launch', tabLabel: 'Launchpad' },
+        { to: '/launch-simulator', label: 'Launch Simulator', tabLabel: 'Simulator' },
+      ],
+    };
+    at(section, '/launch-simulator', 'Launch network');
+    expect(screen.getByRole('button', { name: 'Launch network: Solana' })).toBeInTheDocument();
+    expect(tabs()).toEqual(['Solana Curve', 'Simulator']);
+  });
+
+  it('else on the first network the section serves: Base, while launching on Solana is off', () => {
+    expect(LAUNCH_SECTION.items.find((i) => i.to === '/curve-launch')?.soon, 'the precondition: the Solana curve is off').toBe(true);
+    at(LAUNCH_SECTION, '/launch-simulator', 'Launch network');
+    expect(screen.getByRole('button', { name: 'Launch network: Base' })).toBeInTheDocument();
+  });
+
+  it('a wallet on a chain the venue does not run on reads as the first network the tab serves', () => {
+    wallet.isConnected = true;
+    wallet.chainId = 42161;
+    at(POOLS_SECTION, '/liquidity', 'Pools network');
+    expect(screen.getByRole('button', { name: 'Pools network: Base' })).toBeInTheDocument();
+  });
+});

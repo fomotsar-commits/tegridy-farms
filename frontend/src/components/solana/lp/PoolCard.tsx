@@ -5,6 +5,9 @@ import { feeRateText, quoteText, tokenText, tradeCostText, turnedDiff } from '..
 import { pairLabel, tokenTicker } from '../../../lib/solana/lp/identity';
 import type { QuoteCoin } from '../../../lib/solana/lp/quotes';
 import { NOTHING_WHY, noPriceClause } from '../../../lib/solana/lp/poolHealth';
+import { readAgo } from '../../../lib/solana/lp/outsidePrice';
+import { publishRoomPrice } from '../../../lib/solana/lp/roomPrice';
+import { getActiveBungalow } from '../../../lib/bungalows';
 import { chargedCreatorFeeRate, feeSplit } from '../../../lib/solana/cpswap/venue';
 import { ratePercent } from '../../../lib/solana/cpswap/math';
 import { EXACT_EXTENSIONS, type TokenSafety } from '../../../lib/solana/lp/tokenSafety';
@@ -24,6 +27,7 @@ import { HISTORY_PAGES_MAX } from '../../../lib/solana/lp/txHistory';
 import { Notice, Row } from '../curve/ui';
 import { CARD, CARD_STYLE, DIVIDER, SHADOW } from '../curve/uiFormat';
 import { CardArt } from '../../ui/CardArt';
+import { CoinName } from '../../ui/CoinName';
 import { AddLiquidityPanel } from './AddLiquidityPanel';
 import { AddOneCoinPanel } from './AddOneCoinPanel';
 import { AddressRow } from './AddressRow';
@@ -151,6 +155,15 @@ function PriceRows({ price, quote, unit }: { price: PoolHealth['price']; quote: 
       );
     case 'skipped':
     case 'unread':
+      // The shared list's hold is one row in its own words: "not read for 12 min; adding waits" (answer twenty-four, build 1c).
+      if (price.state === 'unread' && price.hold) {
+        return (
+          <>
+            <Row label="Price here" value={price.pool === null ? 'not worked out' : here(price.pool)} mono={false} />
+            <Row label="Outside price" value={price.detail.replace(/^Outside price /, '')} mono={false} tone="warn" />
+          </>
+        );
+      }
       return (
         <>
           <Row label="Price here" value={price.pool === null ? 'not worked out' : here(price.pool)} mono={false} />
@@ -163,9 +176,19 @@ function PriceRows({ price, quote, unit }: { price: PoolHealth['price']; quote: 
       return (
         <>
           <Row label="Price here" value={here(price.pool)} mono={false} />
+          {/* With the shared list's read time: "read 40 s ago" (answer twenty-four, build 1). */}
           <Row
             label={REFERENCE_LABEL[price.against]}
-            value={here(price.reference)}
+            value={
+              price.readAtMs === undefined ? (
+                here(price.reference)
+              ) : (
+                <>
+                  {here(price.reference)}
+                  <span className="text-white/55">, {readAgo(price.readAtMs)}</span>
+                </>
+              )
+            }
             mono={false}
           />
           {/* Further apart than the check allows is a warning, not a refusal: the value is in the warning colour and names what it is off from; its cost is listed with the deposit checks. */}
@@ -305,6 +328,12 @@ export function PoolCard({
   const tokFees = view.quoteIsToken0 ? [pool.protocolFeesToken1 + pool.fundFeesToken1, pool.creatorFeesToken1] : [pool.protocolFeesToken0 + pool.fundFeesToken0, pool.creatorFeesToken0];
   const price = health.price;
   const depositsHead = depositHeading(health.deposits);
+  // The room's own pool tells Bayla's line its price and how old its outside price is (answer twenty-four, build 4).
+  useEffect(() => {
+    if ((price.state !== 'agrees' && price.state !== 'disagrees') || price.readAtMs === undefined) return;
+    if (getActiveBungalow()?.address !== view.tokenMint) return;
+    publishRoomPrice({ mint: view.tokenMint, text: `${price.pool.toPrecision(3)} ${view.quote.symbol}`, readAtMs: price.readAtMs });
+  }, [price, view.tokenMint, view.quote.symbol]);
   // What its shares have earned, from what the finder already read: no call of its own.
   const earned = poolEarned(view, chainNow);
   const unit = tokenUnits(view.tokenMint, safety);
@@ -405,6 +434,11 @@ export function PoolCard({
       <h3 ref={headingRef} tabIndex={-1} aria-describedby={why ? whyId : undefined} className="text-white font-semibold text-[15px] mb-1 outline-none [overflow-wrap:anywhere]" style={SHADOW}>
         {pairLabel(view, safety)}
       </h3>
+      {/* Each coin's name copies its whole address (island answer twenty-four), under the heading's words. */}
+      <div data-testid="lp-pool-coins" className="flex flex-wrap gap-x-4 mb-1">
+        <CoinName name={tokenTicker(view.tokenMint, safety) ?? 'Token'} address={view.tokenMint} />
+        <CoinName name={view.quote.symbol} address={view.quote.mint} />
+      </div>
       {why && (
         <DoorPortal when={shownAtTop}>
           <WishWhy id={whyId} why={why} fromDoor={shownFromDoor} />
@@ -447,7 +481,8 @@ export function PoolCard({
           )}
           <div data-testid="lp-pool-deposits">
             <p className={`text-[12px] font-semibold ${depositsHead.tone}`}>{depositsHead.title}</p>
-            {health.deposits.reasons.map((r) => (
+            {/* The shared list's hold is already the one row above the checks; it is not said again as a paragraph. */}
+            {health.deposits.reasons.filter((r) => !(price.state === 'unread' && price.hold && r === price.detail)).map((r) => (
               <Notice key={r} tone={health.deposits.verdict === 'refused' ? 'bad' : 'warn'}>{r}</Notice>
             ))}
             {/* Said whatever the verdict is: a pool that is refused or unchecked for another reason still has them. */}
@@ -700,6 +735,8 @@ function OfferLine({ offer, health }: { offer: DepositOffer; health: PoolHealth 
       // Not about the outside price alone any more: a pool with no market price at all is
       // offered, with a warning. What stops it here is a check that could not be RUN (the
       // reasons above say which), and a read that failed is never taken as a pass.
+      // The shared list's hold said it in one row ("adding waits"): nothing more under it.
+      if (health.price.state === 'unread' && health.price.hold) return null;
       return health.deposits.verdict === 'unchecked' ? (
         <Notice>Adding is off: a check above could not be run just now.</Notice>
       ) : null;

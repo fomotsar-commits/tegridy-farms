@@ -259,7 +259,7 @@ export const BUNGALOWS: Bungalow[] = [
         title: 'The muse of Jungle Bay Island',
         paragraphs: [
           // Trimmed to 41 words (owner, 2026-10-14: fewer words); the map line went.
-          'An island in a sea of rugs, built by the memes: bungalows for token ' +
+          'An island built by the memes: bungalows for token ' +
           'communities, an artist economy, and time held is what counts. Bayla is ' +
           'its muse: brought to light by the Jungle Bay Artists Collective, seated ' +
           'at the lighthouse.',

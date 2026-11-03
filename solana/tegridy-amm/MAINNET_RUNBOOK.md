@@ -356,9 +356,12 @@ hour, by undoing #991; `read-upgrade-record.mjs` kept its refusal of a registry 
 old build. Its four facts, read from mainnet by that script once the registry's row named the
 upgrade's build again:
 
-UNFILLED-UNTIL-THE-UPGRADE-EXECUTES: replace this line with `| | |`, `|---|---|` and the four rows
-`read-upgrade-record.mjs` prints after "UPGRADED". `poolProgramUpgradeRecord.test.ts` fails while
-this word is anywhere in the tree.
+| | |
+|---|---|
+| Day of the execute (UTC) | `2026-11-03` |
+| Slot of the execute (the program's "Last Deployed In Slot") | `464,955,427` |
+| Transaction of the execute (its signature) | `4WEQiYHKkZggKbkaY4xfFyoJBq2p5dpMqj7VNzMGY96sUaGZoP826cgAQEZBwBEpjcM6W3n2oJkpS5zYwbvj5dqq` |
+| Size of the program's data account afterwards (bytes) | `725,221` |
 
 The four values are printed by `frontend/scripts/solana-localnet/read-upgrade-record.mjs`. It
 reads mainnet, sends nothing, and prints the rows only when the program there hashes to the
