@@ -7,6 +7,7 @@ import { LazyMotion, domAnimation, MotionConfig } from 'framer-motion';
 import '@rainbow-me/rainbowkit/styles.css';
 import { config } from './lib/wagmi';
 import { AppLayout } from './components/layout/AppLayout';
+import { DeepLinkSheet } from './components/sheet/ActionSheet';
 import { PageSkeleton } from './components/PageSkeleton';
 import { FirstFrame } from './components/FirstFrame';
 import { DoorFrame } from './components/DoorFrame';
@@ -315,7 +316,7 @@ function AnimatedRoutes() {
         <Route path="farm" element={<LegacyFarmRedirect />} />
         {/* Swap is a tabbed host: Ethereum / Solana. */}
         <Route path="swap" element={<SwapRoute />} />
-        <Route path="solana" element={<Suspense fallback={<SwapSkeleton />}><TradeHostPage /></Suspense>} />
+        <Route path="solana" element={<DeepLinkSheet><Suspense fallback={<SwapSkeleton />}><TradeHostPage /></Suspense></DeepLinkSheet>} />
         {/* No route until the Cardano swap is opened (lib/cardano/flags.ts). */}
         {cardanoSwapVisible() && <Route path="cardano" element={<Suspense fallback={<SwapSkeleton />}><TradeHostPage /></Suspense>} />}
         {/* Pools is its own section: /liquidity, /pools, /range-pools and /zap. */}
@@ -323,7 +324,7 @@ function AnimatedRoutes() {
         <Route path="solana-lp" element={<SolanaLpRedirect />} />
         {/* The Range tab: no route at all until range pools open (clmm/programId.ts). */}
         {rangePoolsVisible() && <Route path="range-pools" element={<Suspense fallback={<SwapSkeleton />}><PoolsHostPage /></Suspense>} />}
-        <Route path="pools" element={<Suspense fallback={<SwapSkeleton />}><PoolsHostPage /></Suspense>} />
+        <Route path="pools" element={<DeepLinkSheet><Suspense fallback={<SwapSkeleton />}><PoolsHostPage /></Suspense></DeepLinkSheet>} />
         {/* No /solana-launch and no redirect for it: it 404s, because the rail it
             would point at cannot launch either. */}
         <Route path="curve-launch" element={<Suspense fallback={<PageSkeleton />}><LaunchHubPage /></Suspense>} />

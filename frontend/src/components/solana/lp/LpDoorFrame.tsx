@@ -4,6 +4,7 @@ import { BUNGALOWS } from '../../../lib/bungalows';
 import { CardArt } from '../../ui/CardArt';
 import { CARD, CARD_STYLE, SHADOW } from '../curve/uiFormat';
 import { InDoorContext, LpDoorContext } from './lpDoor';
+import { useSheet } from '../../sheet/sheetContext';
 
 /**
  * Where the LP door lands (island, answer twenty-two): a room's Add SOL + coin opens its form
@@ -14,6 +15,19 @@ import { InDoorContext, LpDoorContext } from './lpDoor';
 export function LpDoorFrame({ mint, waiting, slotRef }: { mint: string; waiting: boolean; slotRef?: Ref<HTMLDivElement> }) {
   const id = useId();
   const room = BUNGALOWS.find((b) => b.chain === 'solana' && b.address === mint);
+  // Inside the sheet (island answer twenty-five) the door is only its slot: the sheet draws the coin.
+  if (useSheet()) {
+    return (
+      <div data-testid="lp-door" data-in-sheet="">
+        {waiting && (
+          <p role="status" className="text-white/70 text-[13px] py-3">
+            Reading this pool from the chain…
+          </p>
+        )}
+        <div ref={slotRef} />
+      </div>
+    );
+  }
   return (
     <section
       data-testid="lp-door"

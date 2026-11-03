@@ -9,6 +9,7 @@ import { isSolanaSwapLive } from './solana';
 // Plain text only, like rangePoolsVisible below: the Cardano swap's switch (lib/cardano/flags.ts).
 import { cardanoSwapVisible } from './cardano/flags';
 import { BUNGALOWS, getActiveBungalow } from './bungalows';
+import { roomSheetHref, sheetRoom, type SheetKind } from './sheet';
 import { EARN_PATH, earnPoolPath, isEarnPoolId } from './earnRoutes';
 import { hasRoutableYieldVenue } from './yield/venues';
 import { isLauncherEnabled } from './launcher/config';
@@ -279,6 +280,22 @@ function sectionWord(section: NavSection, label = section.heading): BarWord {
 }
 
 /**
+ * In a room whose coin has its SOL pool on the venue, the bar's Swap and Add open that room's
+ * sheet over it, Buy and Add (island answer twenty-five, build 3); anywhere else, the section.
+ */
+function sheetWord(section: NavSection, kind: SheetKind, label = section.heading): BarWord {
+  const word = sectionWord(section, label);
+  return {
+    label,
+    get to() {
+      const room = sheetRoom(getActiveBungalow()?.id);
+      return room ? roomSheetHref(room, kind) : word.to;
+    },
+    lit: word.lit,
+  };
+}
+
+/**
  * The bar, phone and wide screen alike: Island · Swap · Add · Lock · Launch (build 2,
  * 2026-11-01). Island is the home, with its read field and its hall of doors, or inside a room
  * that room's own page (owner, 2026-10-18: Heat and Rooms "are the same"; one word stays, named
@@ -295,8 +312,8 @@ export const BAR_NAV: readonly BarWord[] = [
     },
     lit: (pathname) => pathname === '/' || isRoomDoor(pathname) || sectionIsActive(ISLAND_SECTION, pathname),
   },
-  sectionWord(SWAP_SECTION),
-  sectionWord(POOLS_SECTION, 'Add'),
+  sheetWord(SWAP_SECTION, 'buy'),
+  sheetWord(POOLS_SECTION, 'add', 'Add'),
   sectionWord(LOCK_SECTION),
   sectionWord(LAUNCH_SECTION),
 ];

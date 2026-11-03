@@ -37,6 +37,8 @@ import { readStepTwo, saveStepTwo, type StepTwoNote } from './oneCoinSwap';
 import { HELD_NOT_SENT } from '../../../lib/solana/swap/walletCopy';
 import { reloadHeld } from '../../../lib/reloadHold';
 import { ONE_COIN_LINE } from './AddOneCoinPanel';
+import { SheetContext, type SheetPlace } from '../../sheet/sheetContext';
+import type { Bungalow } from '../../../lib/bungalows';
 
 const OWNER = key();
 const wallet = vi.hoisted(() => ({
@@ -50,6 +52,9 @@ const wallet = vi.hoisted(() => ({
 const conn = vi.hoisted(() => ({ connection: { rpcEndpoint: 'fake' } }));
 vi.mock('@solana/wallet-adapter-react', () => ({ useWallet: () => wallet, useConnection: () => conn }));
 vi.mock('../SolanaConnectButton', () => ({ SolanaConnectButton: () => <button type="button">Connect Solana Wallet</button> }));
+// The sheet's green button connects a wallet when none is: the press is seen here.
+const connect = vi.hoisted(() => ({ open: vi.fn() }));
+vi.mock('../useSolanaConnect', () => ({ useSolanaConnect: () => connect.open }));
 
 // Jupiter's quotes, set in beforeEach. The send path's build and test run are the real ones
 // unless a test sets its own; the pair carries the site fee only where a test says so.
@@ -608,5 +613,85 @@ describe('Add with one coin: the amount’s chips and the coin’s name', () => 
     });
     expect(writeText).toHaveBeenCalledWith(M);
     expect(vibrate).toHaveBeenCalledTimes(1);
+  });
+});
+
+// Island answer twenty-five, screen 1: the sheet hosts this form, drawn as the island drew it.
+describe('Add with one coin, in the sheet', () => {
+  function inSheet(v: PoolView = view()) {
+    const room = { id: 'corn', name: 'Corn', symbol: 'CORN', chain: 'solana', address: M, venueSolPool: v.address, live: true } as unknown as Bungalow;
+    const place: SheetPlace = { kind: 'add', room, bayla: <p data-testid="her-line">12.34° Observer. Every day in this pool counts double.</p> };
+    const writes: LpWritesOverrides = { mode: 'on', load: vi.fn(async () => fakeLpApi()), gateRpc: unusedGateRpc };
+    render(
+      <MemoryRouter initialEntries={['/corn?sheet=add']}>
+        <SheetContext.Provider value={place}>
+          <LpInner readers={readers(v)} writes={writes} home={{ mint: M, pool: v.address }} />
+        </SheetContext.Provider>
+      </MemoryRouter>,
+    );
+    return v;
+  }
+
+  it('opens by itself and holds only what was drawn: the amount, three chips, two rows, the fee line, her line, one green button', async () => {
+    inSheet();
+    const amount = await screen.findByTestId('sheet-amount');
+    const panel = screen.getByTestId('lp-one-coin-panel');
+    expect(amount).toHaveAttribute('placeholder', '0');
+    expect(within(panel).getByRole('group', { name: 'How much SOL' }).querySelectorAll('button')).toHaveLength(3);
+    for (const chip of ['0.05 SOL', '0.5 SOL', 'Max SOL']) expect(within(panel).getByRole('button', { name: chip })).toBeInTheDocument();
+    const facts = within(panel).getByTestId('lp-door-facts');
+    expect(facts).toHaveTextContent('Pool price1 CORN = 0.01 SOL');
+    expect(facts).toHaveTextContent('Outside price0.01 SOL');
+    expect(within(facts).getByTestId('sheet-fee-line').textContent).toMatch(/^LPs keep \d+\.\d{3}% of each trade, the venue \d+\.\d{3}%\.$/);
+    expect(within(panel).getByTestId('her-line')).toBeInTheDocument();
+    // One green button on the sheet, and it says the island's words.
+    expect(panel.querySelectorAll('.btn-primary')).toHaveLength(1);
+    expect(within(panel).getByRole('button', { name: 'Add SOL + CORN' })).toHaveClass('btn-primary');
+    // Nothing else: no pay-with toggle, no paragraph, no how-it-works, no second button, no slippage.
+    expect(within(panel).queryByRole('group', { name: 'Pay with' })).toBeNull();
+    expect(within(panel).queryByTestId('lp-one-what')).toBeNull();
+    expect(within(panel).queryByTestId('lp-one-line')).toBeNull();
+    expect(within(panel).queryByText('How it works')).toBeNull();
+    expect(within(panel).queryByRole('button', { name: 'Close' })).toBeNull();
+    expect(within(panel).queryByRole('button', { name: 'I have both coins' })).toBeNull();
+    expect(within(panel).queryByText(/Slippage/)).toBeNull();
+    // The card the form rides on is not seen: only the door's slot is.
+    expect(screen.getByTestId('lp-pool').closest('[hidden]')).not.toBeNull();
+  });
+
+  it('a chip fills the amount and is the chosen one until a key is typed', async () => {
+    inSheet();
+    const amount = await screen.findByTestId('sheet-amount');
+    const half = screen.getByRole('button', { name: '0.5 SOL' });
+    fireEvent.click(half);
+    expect(amount).toHaveValue('0.5');
+    expect(half).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.change(amount, { target: { value: '0.3' } });
+    expect(half).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('the green button asks the same review Review asked, inside the sheet', async () => {
+    inSheet();
+    const amount = await screen.findByTestId('sheet-amount');
+    const panel = screen.getByTestId('lp-one-coin-panel');
+    await within(panel).findByText('Max SOL');
+    await waitFor(() => expect(within(panel).getByRole('button', { name: 'Max SOL' })).toBeEnabled());
+    fireEvent.change(amount, { target: { value: '1' } });
+    fireEvent.click(within(panel).getByRole('button', { name: 'Add SOL + CORN' }));
+    const review = await within(panel).findByTestId('lp-one-review');
+    expect(review).toHaveTextContent('Step 1: swap, through Jupiter');
+    expect(wallet.sendTransaction).not.toHaveBeenCalled();
+  });
+
+  it('with no wallet the green button connects one, never a second button', async () => {
+    wallet.publicKey = null;
+    connect.open.mockClear();
+    inSheet();
+    await screen.findByTestId('sheet-amount');
+    const go = screen.getByRole('button', { name: 'Add SOL + CORN' });
+    expect(go).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'Connect Solana Wallet' })).toBeNull();
+    fireEvent.click(go);
+    expect(connect.open).toHaveBeenCalledTimes(1);
   });
 });

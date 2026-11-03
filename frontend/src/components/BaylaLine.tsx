@@ -15,7 +15,7 @@ import { LAUNCH_SECTION, poolsRoute } from '../lib/navConfig';
 import { isSolanaSwapLive } from '../lib/solana';
 import { useRoomSlow } from '../lib/solana/lp/roomPrice';
 import { useCurrentScreenMove } from '../lib/screenMove';
-import { sheetHref } from '../lib/sheet';
+import { opensSheet, sheetHref, SHEET_PRESS } from '../lib/sheet';
 import { tick } from '../lib/tick';
 
 function useFire(): FireWeek | null {
@@ -130,6 +130,7 @@ export function BaylaLine() {
         {/* Quiet where the screen's own green button makes the same move: one green button per screen. */}
         <Link
           to={line.button.to}
+          state={opensSheet(line.button.to) ? SHEET_PRESS : undefined}
           onClick={tick}
           data-testid="bayla-line-button"
           data-quiet={line.sameMove || undefined}

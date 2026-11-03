@@ -145,12 +145,11 @@ export const SHEET_WORDS = {
   poolLine: (coin: string) => `SOL + ${coin} pool · Solana`,
   unit: 'SOL',
   chips: ['0.05 SOL', '0.5 SOL', 'Max SOL'] as const,
+  /** Its value is the venue's own price text ("1 BAYLA = 0.000007394 SOL", lib/solana/lp/format.ts priceText). */
   poolPrice: 'Pool price',
-  poolPriceValue: (coin: string, sol: string) => `1 ${coin} = ${sol} SOL`,
+  /** Its value is the shared list's price with its age ("0.000007465 SOL · read 37 s ago", sharedPrices.ts readAgo). */
   outsidePrice: 'Outside price',
-  outsidePriceValue: (sol: string, age: string) => `${sol} SOL · read ${age} ago`,
   youGet: 'You get',
-  feeLine: (lp: string, venue: string) => `LPs keep ${lp}% of each trade, the venue ${venue}%.`,
   add: (coin: string) => `Add SOL + ${coin}`,
   buy: (coin: string) => `Buy ${coin}`,
 } as const;

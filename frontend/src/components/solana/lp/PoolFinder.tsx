@@ -22,6 +22,7 @@ import { useLpWrites } from './useLpWrites';
 import type { LpReaders } from './readers';
 import { DoorPortal, LpDoorFrame } from './LpDoorFrame';
 import { LpDoorContext } from './lpDoor';
+import { useSheet } from '../../sheet/sheetContext';
 
 /** What a visitor came to do. The three are on the first screen, as buttons. */
 export type LpTask = 'create' | 'add' | 'remove';
@@ -484,9 +485,11 @@ export function PoolFinder({
   const doorWaits = (doorAsked || wish?.top === true) && writes !== null && writes.status !== 'load-failed';
   const doorFrame = (doorWaits || doorHeld > 0) && doorMint ? <LpDoorFrame mint={doorMint} waiting={doorHeld === 0} slotRef={setDoorSlot} /> : null;
 
-  const finder = (
-    <section data-testid="lp-finder" aria-label="Find pools for a token" className="space-y-4">
-      {doorFrame && (doorAt ? createPortal(doorFrame, doorAt) : doorFrame)}
+  // In the sheet (island answer twenty-five, build 3) only the door is seen: the form, or why it
+  // did not open, is drawn there. The finder under it still reads the pool and runs its checks.
+  const sheet = useSheet() !== null;
+  const rest = (
+    <>
       {/* Named for a visitor, not for the buttons under it, which say what each does. */}
       {!only && <Card
         title={tasks.length > 0 ? 'Start here' : 'Find a pool'}
@@ -616,6 +619,12 @@ export function PoolFinder({
           onRetry={reread}
         />
       )}
+    </>
+  );
+  const finder = (
+    <section data-testid="lp-finder" aria-label="Find pools for a token" className="space-y-4">
+      {doorFrame && (doorAt ? createPortal(doorFrame, doorAt) : doorFrame)}
+      {sheet ? <div hidden>{rest}</div> : rest}
     </section>
   );
   return <LpDoorContext.Provider value={doorPlace}>{finder}</LpDoorContext.Provider>;

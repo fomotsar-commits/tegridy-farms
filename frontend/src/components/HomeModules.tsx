@@ -3,6 +3,7 @@ import '../lib/solanaPolyfill';
 import { lazy, Suspense, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { SolanaProviders } from './solana/SolanaProviders';
+import { SheetBodyOutlet } from './sheet/SheetOutlet';
 import { SolanaLadderPoolCard } from './bungalow/SolanaLadderPoolLive';
 import { LighthouseClaimStrip } from './bungalow/LighthousePoolLive';
 import { LpInner } from './solana/lp/SolanaLpSection';
@@ -60,6 +61,8 @@ export default function HomeModules({ readers: given }: { readers?: LpReaders } 
   return (
     // `mixed`: the home connects Ethereum too, so the top bar keeps its Solana-or-Ethereum sheet.
     <SolanaProviders mixed>
+      {/* The sheet's form signs with this page's one connection (lib/sheetStore.ts). */}
+      <SheetBodyOutlet />
       {(swap || ladder || lp) && (
         <div className="mt-6 mb-2 grid grid-cols-1 gap-4 lg:grid-cols-3 items-start" data-testid="home-modules">
           {swap && (

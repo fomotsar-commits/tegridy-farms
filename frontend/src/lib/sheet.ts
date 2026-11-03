@@ -58,6 +58,15 @@ export function withoutSheet(pathname: string, search: string): string {
   return withParams(pathname, params);
 }
 
+/** The address state a press that opens the sheet carries: Back then pops back to the page it was on. */
+export const SHEET_PRESS = { sheet: true } as const;
+
+/** Does this address open the sheet? (A bar word's target, a door's.) */
+export function opensSheet(to: string): boolean {
+  const at = to.indexOf('?');
+  return at >= 0 && readSheet(to.slice(at)) !== null;
+}
+
 /** Where a room's door opens its sheet: the room's own page, with the sheet over it. */
 export function roomSheetHref(room: Bungalow, kind: SheetKind): string {
   return `/${room.id}?${SHEET_PARAM}=${kind}`;

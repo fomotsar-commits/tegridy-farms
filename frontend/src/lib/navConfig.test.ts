@@ -441,7 +441,8 @@ describe('tradeRoute', () => {
 
     window.localStorage.setItem('tegridy-bungalow', 'bayla');
     expect(tradeRoute(), 'a Solana room lands on the Solana swap').toBe('/solana');
-    expect(swapWord()).toBe('/solana');
+    // Island answer twenty-five, build 3: in a room the sheet acts on, the bar's Swap raises its Buy sheet over the room.
+    expect(swapWord()).toBe('/bayla?sheet=buy');
 
     window.localStorage.setItem('tegridy-bungalow', 'toweli');
     expect(tradeRoute(), 'the classic TOWELI room lands on the Ethereum swap').toBe('/swap');
@@ -452,6 +453,22 @@ describe('tradeRoute', () => {
     expect(tradeRoute(), "PEPE's room, on Ethereum").toBe('/swap');
     window.localStorage.setItem('tegridy-bungalow', 'qr');
     expect(tradeRoute(), "QR's room, on Base").toBe('/swap');
+  });
+
+  // Island answer twenty-five, build 3: in a room the sheet acts on, Swap and Add raise its sheet over the room.
+  it('in a room the sheet acts on, the bar’s Swap and Add open its Buy and Add sheets; anywhere else, their sections', () => {
+    const addWord = () => BAR_NAV.find((w) => w.label === 'Add')?.to;
+    for (const id of ['bayla', 'bobo', 'soy', 'brainlet', 'rizz']) {
+      window.localStorage.setItem('tegridy-bungalow', id);
+      expect(swapWord(), id).toBe(`/${id}?sheet=buy`);
+      expect(addWord(), id).toBe(`/${id}?sheet=add`);
+    }
+    window.localStorage.setItem('tegridy-bungalow', 'pepe');
+    expect(swapWord()).toBe('/swap');
+    expect(addWord()).toBe('/pools');
+    window.localStorage.clear();
+    expect(swapWord()).toBe('/solana');
+    expect(addWord()).toBe('/pools');
   });
 
   it('lands on a tab the Swap section really has, in every room', () => {
