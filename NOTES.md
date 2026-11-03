@@ -15,6 +15,39 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-11-03: a program's red-first proof needs no second CI round, and the guards rewrite only what they are told to
+
+**Believed:** `node solana/guards/provenance.mjs --regenerate <clones>` re-derives a copy's whole
+reviewed patch from our source, so after editing cp-swap one regenerate and one re-pin are enough.
+
+**Measured** (2026-11-03, the swap-pool audit round): it regenerates only the files named in that
+copy's `patched` list. After editing four new cp-swap files, the first regenerate wrote a
+`cp-swap.diff` with none of them and printed the usual "re-pin only after reading the delta". The
+check then fails with "differs from upstream and is not a patched file". Add every edited file to
+`COPIES[<copy>].patched` first, then regenerate, then re-pin `deltaSha256`, and regenerate again
+after any later edit to a patched file, tests included: an in-file `#[cfg(test)]` module is part
+of the delta.
+
+**Also measured, the same round:**
+
+- `key-guard.mjs` refuses `Pubkey::from_str(key)` with a variable anywhere in a copy, unit tests
+  included ("is given something other than one plain key"). Write each key as `pubkey!("…")`.
+- A Rust `assert!` that refuses an Anchor instruction reaches a TypeScript test as the text
+  `assertion failed: <the condition as written>` inside the `SendTransactionError` message
+  (web3.js puts the last 10 log lines there), with solana-test-validator 2.3.0 and
+  @coral-xyz/anchor 0.32.1. Matching that text pins WHICH check refused, not just that something
+  did.
+- Red-first on a local validator, without pushing a red commit: build the fixed and the unfixed
+  program under two program ids (WSL, Solana 2.3.0 and anchor 0.32.1, `CARGO_NET_OFFLINE=true`:
+  both workspaces' crates, dev-dependencies included, are already in WSL's registry), deploy both
+  to one `solana-test-validator` on a port of your own, and run the test from Windows node against
+  `http://127.0.0.1:<port>` (WSL forwards localhost), swapping `target/idl/<program>.json` between
+  the two runs. About 2 minutes per build and 8 seconds per test run. Split a table-driven test
+  into one `it` per row first: in one `it`, the first failing row hides whether the rest would
+  have failed too.
+
+---
+
 ## 2026-11-02: a one-time operator tool names an owner that config has since moved, and it would have run clean while pointing at the wrong wallet
 
 **Believed:** `frontend/create-fee-atas.mjs`, the tool that creates the fee wallet's token accounts,
