@@ -622,7 +622,8 @@ export function PoolFinder({
     </>
   );
   const finder = (
-    <section data-testid="lp-finder" aria-label="Find pools for a token" className="space-y-4">
+    // In the sheet the door is all that is drawn: no gap is kept for the finder under it.
+    <section data-testid="lp-finder" aria-label="Find pools for a token" className={sheet ? undefined : 'space-y-4'}>
       {doorFrame && (doorAt ? createPortal(doorFrame, doorAt) : doorFrame)}
       {sheet ? <div hidden>{rest}</div> : rest}
     </section>

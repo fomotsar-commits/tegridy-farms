@@ -281,18 +281,12 @@ function sectionWord(section: NavSection, label = section.heading): BarWord {
 
 /**
  * In a room whose coin has its SOL pool on the venue, the bar's Swap and Add open that room's
- * sheet over it, Buy and Add (island answer twenty-five, build 3); anywhere else, the section.
+ * sheet over it, Buy and Add (island answer twenty-five, build 3); anywhere else, `fallback`.
+ * Read only inside the bar words' getters, so it follows the room on every access.
  */
-function sheetWord(section: NavSection, kind: SheetKind, label = section.heading): BarWord {
-  const word = sectionWord(section, label);
-  return {
-    label,
-    get to() {
-      const room = sheetRoom(getActiveBungalow()?.id);
-      return room ? roomSheetHref(room, kind) : word.to;
-    },
-    lit: word.lit,
-  };
+function sheetOr(kind: SheetKind, fallback: string): string {
+  const room = sheetRoom(getActiveBungalow()?.id);
+  return room ? roomSheetHref(room, kind) : fallback;
 }
 
 /**
@@ -312,8 +306,20 @@ export const BAR_NAV: readonly BarWord[] = [
     },
     lit: (pathname) => pathname === '/' || isRoomDoor(pathname) || sectionIsActive(ISLAND_SECTION, pathname),
   },
-  sheetWord(SWAP_SECTION, 'buy'),
-  sheetWord(POOLS_SECTION, 'add', 'Add'),
+  {
+    label: SWAP_SECTION.heading,
+    get to() {
+      return sheetOr('buy', SWAP_SECTION.primaryTo ?? SWAP_SECTION.hub);
+    },
+    lit: (pathname) => sectionIsActive(SWAP_SECTION, pathname),
+  },
+  {
+    label: 'Add',
+    get to() {
+      return sheetOr('add', POOLS_SECTION.primaryTo ?? POOLS_SECTION.hub);
+    },
+    lit: (pathname) => sectionIsActive(POOLS_SECTION, pathname),
+  },
   sectionWord(LOCK_SECTION),
   sectionWord(LAUNCH_SECTION),
 ];
