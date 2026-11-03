@@ -1,0 +1,167 @@
+// Island answer twenty-five, screen 3, build 6: the receipt card after a swap or an add lands.
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { ReceiptCard } from './ReceiptCard';
+import { clearReceipt, clockFor, raiseReceipt, settleReceipt, type Receipt } from '../lib/receipt';
+import { clearScreenMoves, useCurrentScreenMove } from '../lib/screenMove';
+import { clearLanded, lastLanded } from '../lib/landed';
+import type { HeatReading } from '../lib/heat/heatOracle';
+
+const confetti = vi.hoisted(() => ({ fire: vi.fn() }));
+vi.mock('../hooks/useConfetti', () => ({ useConfetti: () => ({ fire: confetti.fire }) }));
+
+const SIG = '5Kq3' + 'x'.repeat(80) + '9xWz';
+const WALLET = '8SxYtKrtPZoEwtgpkXmn7TrS7VGa1qSiGPHnYjfFWQuv';
+const BAYLA = '7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump';
+
+function receipt(over: Partial<Receipt> = {}): Receipt {
+  return {
+    signature: SIG,
+    explorerUrl: `https://solscan.io/tx/${SIG}`,
+    wallet: WALLET,
+    action: 'bought',
+    coin: { symbol: 'BAYLA', mint: BAYLA },
+    title: null,
+    under: null,
+    fee: { kind: 'reading' },
+    clock: 'day1',
+    ...over,
+  };
+}
+
+function Move() {
+  return <p data-testid="move">{useCurrentScreenMove() ?? 'none'}</p>;
+}
+
+beforeEach(() => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  clearReceipt();
+  clearScreenMoves();
+  clearLanded();
+  confetti.fire.mockClear();
+  render(
+    <>
+      <ReceiptCard />
+      <Move />
+    </>,
+  );
+});
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
+
+describe('the receipt card', () => {
+  it('is nothing until something lands', () => {
+    expect(screen.queryByTestId('receipt-card')).toBeNull();
+    expect(screen.getByTestId('move')).toHaveTextContent('none');
+  });
+
+  it('rises after the confetti, says it is reading the fee, and holds one green button: Share your card', async () => {
+    act(() => raiseReceipt(receipt()));
+    expect(confetti.fire).toHaveBeenCalledTimes(1);
+    // Bayla's line says Done, and her Receipt goes quiet while the card is up.
+    expect(lastLanded()?.kind).toBe('trade');
+    expect(screen.getByTestId('move')).toHaveTextContent('receipt');
+    const card = screen.getByRole('dialog', { name: 'Bought BAYLA' });
+    expect(within(card).getByRole('status')).toHaveTextContent('Reading the fee from the transaction…');
+    const sig = within(card).getByRole('link', { name: /on the explorer/ });
+    expect(sig).toHaveAttribute('href', `https://solscan.io/tx/${SIG}`);
+    expect(sig).toHaveTextContent('5Kq3 … 9xWz');
+    const share = within(card).getByRole('link', { name: 'Share your card' });
+    expect(share).toHaveAttribute('href', `https://memetics.wtf/card/${WALLET}`);
+    expect(share).toHaveAttribute('target', '_blank');
+    expect(card.querySelectorAll('.btn-primary')).toHaveLength(1);
+    expect(share).toHaveClass('btn-primary');
+    expect(within(card).getByRole('button', { name: 'Back to the room' })).toBeInTheDocument();
+    expect(within(card).getByTestId('receipt-clock')).toHaveTextContent('Day 1 of your clock on BAYLA starts tonight.');
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+    expect(card.style.opacity).toBe('1');
+  });
+
+  it('a swap in our pool: what was done, the fee, the LPs’ part and the venue and island’s part, as read', () => {
+    act(() => raiseReceipt(receipt()));
+    act(() =>
+      settleReceipt(SIG, {
+        title: 'Bought 13,371 BAYLA',
+        under: 'for 0.1 SOL, on the venue',
+        fee: { kind: 'pool', unit: 'SOL', fee: '0.001 SOL', lps: '0.00084 SOL', venue: '0.00016 SOL', creator: null },
+      }),
+    );
+    const card = screen.getByRole('dialog', { name: 'Bought 13,371 BAYLA' });
+    expect(within(card).getByTestId('receipt-under')).toHaveTextContent('for 0.1 SOL, on the venue');
+    const rows = within(card).getByTestId('receipt-rows');
+    expect(rows).toHaveTextContent('Fee0.001 SOL');
+    expect(rows).toHaveTextContent("To this pool's LPs0.00084 SOL");
+    expect(rows).toHaveTextContent('To the venue and the island0.00016 SOL');
+    expect(rows).not.toHaveTextContent("pool's creator");
+  });
+
+  it('Jupiter’s route says what the venue’s fee account received, or that this route took nothing', () => {
+    act(() => raiseReceipt(receipt({ fee: { kind: 'site', venue: '0.001 SOL' } })));
+    expect(screen.getByTestId('receipt-rows')).toHaveTextContent('To the venue and the island0.001 SOL');
+    expect(screen.getByTestId('receipt-rows')).not.toHaveTextContent("To this pool's LPs");
+    act(() => settleReceipt(SIG, { fee: { kind: 'site', venue: null } }));
+    expect(screen.getByTestId('receipt-rows')).toHaveTextContent('To the venue and the islandnothing on this route');
+  });
+
+  it('an add of both coins pays the pool no fee: the network’s cost instead; its clock counts double', () => {
+    act(() => raiseReceipt(receipt({ action: 'added', clock: 'double', under: 'to the SOL + BAYLA pool', fee: { kind: 'add', network: '0.000005 SOL' } })));
+    expect(lastLanded()?.kind).toBe('add');
+    const card = screen.getByRole('dialog', { name: 'Added SOL + BAYLA' });
+    expect(within(card).getByTestId('receipt-rows')).toHaveTextContent('No venue fee on an add0.000005 SOL');
+    expect(within(card).getByTestId('receipt-clock')).toHaveTextContent('Every day in this pool counts double from tomorrow.');
+  });
+
+  it('a fee the transaction did not show is said as not read, never a figure', () => {
+    act(() => raiseReceipt(receipt({ fee: { kind: 'unread' } })));
+    expect(screen.getByTestId('receipt-rows')).toHaveTextContent('Feecould not be read from the transaction');
+  });
+
+  it('a late read of an older signature never touches a newer card', () => {
+    act(() => raiseReceipt(receipt({ signature: 'old' })));
+    act(() => raiseReceipt(receipt()));
+    act(() => settleReceipt('old', { title: 'Bought 1 BAYLA' }));
+    expect(screen.getByRole('dialog', { name: 'Bought BAYLA' })).toBeInTheDocument();
+  });
+
+  it('Back to the room, Escape and the veil close it; the screen’s move goes with it', () => {
+    act(() => raiseReceipt(receipt()));
+    fireEvent.click(screen.getByRole('button', { name: 'Back to the room' }));
+    expect(screen.queryByTestId('receipt-card')).toBeNull();
+    expect(screen.getByTestId('move')).toHaveTextContent('none');
+    act(() => raiseReceipt(receipt({ signature: 'second' })));
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByTestId('receipt-card')).toBeNull();
+  });
+});
+
+describe('the clock line', () => {
+  const reading = (rows: string[], address = WALLET): HeatReading => ({
+    address,
+    degrees: 12,
+    tier: 'Observer',
+    isCold: false,
+    heldSinceUnix: 1,
+    asOfUnix: 1,
+    tokenCount: rows.length,
+    breakdown: rows.map((tokenAddress) => ({ tokenAddress, chain: 'solana', name: '', symbol: '', degrees: 1, firstSeenAtUnix: 1, lastTransferAtUnix: null, retired: false })) as HeatReading['breakdown'],
+    observedAt: 1,
+    xHandle: null,
+    daysToNextTier: null,
+    daysToPlant: null,
+  });
+  it.each([
+    ['an add counts double', 'added', reading([]), true, 'double'],
+    ['a sell keeps counting (it cools, never resets)', 'sold', null, true, 'kept'],
+    ['a first buy of the coin: day 1 tonight', 'bought', reading(['other']), true, 'day1'],
+    ['a buy of a coin already held: it kept counting', 'bought', reading([BAYLA]), true, 'kept'],
+    ['a buy with no reading of this wallet: nothing said', 'bought', null, true, null],
+    ['a buy with another wallet’s reading: nothing said', 'bought', reading([], 'someone else'), true, null],
+    ['a coin the island does not measure: nothing said', 'bought', reading([]), false, null],
+  ] as const)('%s', (_name, action, read, island, line) => {
+    expect(clockFor(action, BAYLA, WALLET, read, island)).toBe(line);
+  });
+});

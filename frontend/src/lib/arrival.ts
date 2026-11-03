@@ -172,6 +172,8 @@ export const COUNTDOWN_WORDS = {
 export const RECEIPT_WORDS = {
   bought: (amount: string, coin: string) => `Bought ${amount} ${coin}`,
   boughtFor: (amount: string, paid: string) => `for ${amount} ${paid}, on the venue`,
+  /** The venue's own word for a sale (the swap page's "Sold"); the island drew the buy and the add. */
+  sold: (amount: string, coin: string) => `Sold ${amount} ${coin}`,
   added: (sol: string, amount: string, coin: string) => `Added ${sol} SOL + ${amount} ${coin}`,
   addedTo: (coin: string) => `to the SOL + ${coin} pool`,
   fee: 'Fee',

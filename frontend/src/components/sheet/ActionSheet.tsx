@@ -7,6 +7,7 @@ import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { SHEET_WORDS } from '../../lib/arrival';
 import { deepLinkSheet, readSheet, sheetHref, sheetRoom, sheetRooms, withoutSheet, type SheetKind } from '../../lib/sheet';
 import { setSheetOpen, useSheetOutletHead } from '../../lib/sheetStore';
+import { useReceipt } from '../../lib/receipt';
 import { useScreenMove } from '../../lib/screenMove';
 import { tick } from '../../lib/tick';
 import { CoinName } from '../ui/CoinName';
@@ -51,6 +52,12 @@ function OpenSheet({ kind, named }: { kind: SheetKind; named: Bungalow | null })
     setSheetOpen({ kind, room, slot, close });
     return () => setSheetOpen(null);
   }, [kind, room, slot, close]);
+
+  // A swap or an add that landed in the sheet ends on the receipt card over the room: the sheet goes.
+  const { open: receiptUp } = useReceipt();
+  useEffect(() => {
+    if (receiptUp) close();
+  }, [receiptUp, close]);
 
   // Escape closes; the page under the veil does not scroll.
   useEffect(() => {

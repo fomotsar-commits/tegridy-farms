@@ -2,13 +2,14 @@
 // line with no reading; the wallet's line once the card has read one; the farm's own pages
 // keep their voice; the intel line comes from a read and is left out when there is none.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, cleanup, act } from '@testing-library/react';
+import { render, screen, cleanup, act, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { BaylaLine } from './BaylaLine';
 import { __resetFire } from '../lib/fire';
 import { setLastReading } from '../lib/heat/heatStore';
 import { clearLanded, markLanded } from '../lib/landed';
 import { clearScreenMoves, useScreenMove, type ScreenMove } from '../lib/screenMove';
+import { clearReceipt, closeReceipt, raiseReceipt, useReceipt } from '../lib/receipt';
 import type { HeatReading } from '../lib/heat/heatOracle';
 
 vi.mock('wagmi', () => ({ useAccount: () => ({ address: undefined }) }));
@@ -44,6 +45,7 @@ beforeEach(() => {
   setLastReading(null);
   clearLanded();
   clearScreenMoves();
+  clearReceipt();
   __resetFire();
   vi.stubGlobal('fetch', fireAnswer({ error: 'sealed' }, false));
 });
@@ -68,12 +70,28 @@ describe('BaylaLine', () => {
     expect(screen.getByRole('link', { name: 'Pick' })).toHaveAttribute('href', '/#hall');
   });
 
-  it('after an add it says Done for a minute, with Receipt', () => {
+  it('after an add it says Done for a minute, with Receipt, which raises the last receipt card again', () => {
     setLastReading(reading);
     markLanded('add');
-    mount('/pools');
+    function Open() {
+      return <p data-testid="receipt-open">{String(useReceipt().open)}</p>;
+    }
+    render(
+      <MemoryRouter initialEntries={['/pools']}>
+        <BaylaLine />
+        <Open />
+      </MemoryRouter>,
+    );
     expect(screen.getByTestId('bayla-line-text')).toHaveTextContent('Done. Your fee went to the island. Read it.');
-    expect(screen.getByRole('link', { name: 'Receipt' })).toHaveAttribute('href', '/dashboard');
+    const press = screen.getByRole('button', { name: 'Receipt' });
+    // Island answer twenty-five, build 6: the card that was raised, closed, then asked for again.
+    act(() => {
+      raiseReceipt({ signature: 'S'.repeat(88), explorerUrl: 'https://solscan.io/tx/S', wallet: reading.address, action: 'added', coin: { symbol: 'BAYLA', mint: 'm' }, title: null, under: null, fee: { kind: 'reading' }, clock: null });
+      closeReceipt();
+    });
+    expect(screen.getByTestId('receipt-open')).toHaveTextContent('false');
+    fireEvent.click(press);
+    expect(screen.getByTestId('receipt-open')).toHaveTextContent('true');
   });
 
   it('the intel line is the fire’s week, read once, and never a zero', async () => {

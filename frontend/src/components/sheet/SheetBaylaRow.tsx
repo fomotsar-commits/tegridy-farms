@@ -1,4 +1,4 @@
-import { useBaylaLine } from '../BaylaLine';
+import { useBaylaLine } from '../useBaylaLine';
 
 /**
  * Bayla's line inside the sheet (answer twenty-five, screen 1, row 8): a 40 px row with a

@@ -639,6 +639,8 @@ function OneCoinInner({
         onClose={onClose}
         title="Step 2: add both coins"
         initial={phase.initial ?? undefined}
+        // The receipt card shows step 1's swap fee (island answer twenty-five, build 6).
+        leg={{ signature: n.signature, paid: n.paid }}
         onSettled={(o) => {
           if (o.status !== 'confirmed' || !ownerKey) return;
           clearStepTwo(ownerKey, view.address);

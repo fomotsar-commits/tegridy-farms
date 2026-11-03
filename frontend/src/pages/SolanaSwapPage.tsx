@@ -32,7 +32,10 @@ import type { TxSummary } from '../components/solana/curve/ports';
 import { useVenueSwap } from '../components/swap/useVenueSwap';
 import { useReturnFocus, type OnSettled } from '../components/solana/curve/useTxFlow';
 import { holdReload } from '../lib/reloadHold';
-import { isSolanaFeeConfigured, isSolanaSwapLive, SOLANA_PLATFORM_FEE_BPS, SOL_MINT, USDC_MINT } from '../lib/solana';
+import { isSolanaFeeConfigured, isSolanaSwapLive, SOLANA_FEE_ACCOUNT, SOLANA_PLATFORM_FEE_BPS, SOL_MINT, USDC_MINT } from '../lib/solana';
+import { clockFor, raiseReceipt } from '../lib/receipt';
+import { lastReading } from '../lib/heat/heatStore';
+import { settleSwapReceipt, type FeeRoute } from '../lib/solana/receiptRead';
 import {
   PAY_WITH_TOKENS,
   BUY_TOKENS,
@@ -273,6 +276,32 @@ const MAJORS: readonly SolToken[] = [SOL, USDC, USDT];
 const CASH_MINTS: ReadonlySet<string> = new Set(MAJORS.map((t) => t.mint));
 
 /** A token paid for cash is a sale of that token. Everything else is a buy of what is received. */
+/**
+ * A swap that landed ends on the receipt card, not a toast (island answer twenty-five, build 6):
+ * it rises at once, and its figures are then read from the signature (lib/solana/receiptRead.ts).
+ */
+function raiseSwapReceipt(
+  rpc: Parameters<typeof settleSwapReceipt>[0],
+  signature: string,
+  a: { wallet: string; done: 'Bought' | 'Sold'; pay: { mint: string; symbol: string; decimals: number }; buy: { mint: string; symbol: string; decimals: number }; sent: bigint; route: FeeRoute },
+): void {
+  const action = a.done === 'Bought' ? 'bought' : 'sold';
+  const coin = action === 'bought' ? a.buy : a.pay;
+  const island = bungalowByAddress('solana', coin.mint) !== null;
+  raiseReceipt({
+    signature,
+    explorerUrl: `https://solscan.io/tx/${signature}`,
+    wallet: a.wallet,
+    action,
+    coin: { symbol: coin.symbol, mint: coin.mint },
+    title: null,
+    under: null,
+    fee: { kind: 'reading' },
+    clock: clockFor(action, coin.mint, a.wallet, lastReading(), island),
+  });
+  void settleSwapReceipt(rpc, signature, { wallet: a.wallet, action, paid: a.pay, got: { ...a.buy, native: a.buy.mint === SOL_MINT }, sent: a.sent, route: a.route, coin: coin.symbol });
+}
+
 function sideWords(pay: SolToken, buy: SolToken): { verb: 'Buy' | 'Sell'; done: 'Bought' | 'Sold'; symbol: string } {
   const selling = CASH_MINTS.has(buy.mint) && !CASH_MINTS.has(pay.mint);
   return selling ? { verb: 'Sell', done: 'Sold', symbol: pay.symbol } : { verb: 'Buy', done: 'Bought', symbol: buy.symbol };
@@ -1664,7 +1693,12 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
   // What a swap in our own pool was, kept from the press of Buy for when it settles:
   // the pair on the form can change under an open review (a pick from the rails below).
   // `owner` is the wallet it was built for: the only one that can sign it (submitPrepared).
-  const ownTrade = useRef<{ owner: string; pay: string; buy: string; buyMint: string; amount: string; outDecimals: number; done: 'Bought' | 'Sold'; symbol: string } | null>(null);
+  // `payCoin`/`buyCoin`, the pool it was built in and that pool's fee settings: the receipt's reading.
+  const ownTrade = useRef<{
+    owner: string; pay: string; buy: string; buyMint: string; amount: string; outDecimals: number; done: 'Bought' | 'Sold'; symbol: string;
+    payCoin: { mint: string; symbol: string; decimals: number }; buyCoin: { mint: string; symbol: string; decimals: number }; sent: bigint;
+    pool: string | null; rates: { protocolFeeRate: bigint; fundFeeRate: bigint } | null;
+  } | null>(null);
   // The same, for the page to draw: the words of the trade pressed.
   const [pressed, setPressed] = useState<{ pay: string; buy: string; amount: string; outDecimals: number } | null>(null);
   const onOwnSettled = useCallback<OnSettled>(
@@ -1738,18 +1772,19 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
   const inFlight = inFlightTx ? ownSwapView(inFlightTx.summary) : null;
 
   const { reset: resetOwn } = venueSwap.flow;
-  const explorerOwn = venueSwap.api?.explorerTxUrl;
-  const ownCluster = venueSwap.cfg?.cluster ?? 'mainnet';
   useEffect(() => {
     if (flowState.step !== 'outcome') return;
     const ending = quietEnding(flowState.outcome);
     if (!ending) return;
     const t = ownTrade.current;
     if (ending.kind === 'confirmed') {
-      const out = ownSwapOut(flowState.prepared?.summary);
-      const got = out !== null && t ? `≈${prettyAmount(fromBaseUnits(out.toString(), t.outDecimals))} ${t.buy} for ${t.amount} ${t.pay}` : shortSig(ending.signature);
-      const url = explorerOwn ? explorerOwn(ending.signature, ownCluster) : `https://solscan.io/tx/${ending.signature}`;
-      toast.success(t ? `${t.done} ${t.symbol}` : 'Swap confirmed', { description: got, action: { label: 'View', onClick: () => window.open(url, '_blank', 'noopener,noreferrer') } });
+      // The receipt card, not a toast (island answer twenty-five): the fee read from the pool's own event.
+      if (t) {
+        raiseSwapReceipt(connection, ending.signature, {
+          wallet: t.owner, done: t.done, pay: t.payCoin, buy: t.buyCoin, sent: t.sent,
+          route: { kind: 'pool', pool: t.pool ?? '', rates: t.rates ?? { protocolFeeRate: 0n, fundFeeRate: 0n } },
+        });
+      }
     } else if (ending.kind === 'not-signed') {
       toast.info('Not sent', { description: ending.message });
     } else {
@@ -1761,7 +1796,7 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
       const b = buyRef.current;
       if (b && !b.disabled) b.focus({ preventScroll: true });
     });
-  }, [flowState, explorerOwn, ownCluster, resetOwn, buyRef]);
+  }, [flowState, resetOwn, buyRef, connection]);
   // A swap the connected wallet sent from this browser, by either route, in any tab, and
   // not confirmed yet holds Buy for that wallet until the chain answers (useVenueSwap).
   const pendingNote = venueSwap.pending.notes.length > 0;
@@ -1938,9 +1973,22 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
     void loadVenueSwapFlow().catch(() => {});
     setPressed({ pay: payToken.symbol, buy: buyToken.symbol, amount: prettyAmount(tokenAmount), outDecimals: buyToken.decimals });
     const user = owner.toBase58();
-    ownTrade.current = { owner: user, pay: payToken.symbol, buy: buyToken.symbol, buyMint: outputMint, amount: prettyAmount(tokenAmount), outDecimals: buyToken.decimals, done: said.done, symbol: said.symbol };
+    ownTrade.current = {
+      owner: user, pay: payToken.symbol, buy: buyToken.symbol, buyMint: outputMint, amount: prettyAmount(tokenAmount), outDecimals: buyToken.decimals, done: said.done, symbol: said.symbol,
+      payCoin: { mint: payToken.mint, symbol: payToken.symbol, decimals: payToken.decimals }, buyCoin: { mint: buyToken.mint, symbol: buyToken.symbol, decimals: buyToken.decimals }, sent: amountIn,
+      pool: null, rates: null,
+    };
     const priority = speed;
     const buildIn = (pool: string, aggregator: AggregatorSeen) => {
+      // The pool this swap is built in, and its fee settings: what the receipt reads the fee by.
+      const built = route.candidates.find((c) => c.poolAddress === pool);
+      if (ownTrade.current) {
+        ownTrade.current = {
+          ...ownTrade.current,
+          pool,
+          rates: built && !isRangeCandidate(built) && built.view.config ? { protocolFeeRate: built.view.config.protocolFeeRate, fundFeeRate: built.view.config.fundFeeRate } : null,
+        };
+      }
       const args = {
         owner,
         pool: new PublicKey(pool),
@@ -2318,7 +2366,6 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
       // A signature exists: the swap may be on chain. Its note holds Buy for this wallet,
       // in every tab of this site, until the chain answers for it (useVenueSwap).
       press.note(sig);
-      toast.success('Swap submitted', { description: `${shortSig(sig)}. Confirming…` });
       // From here nothing below may say "failed" unless the chain itself said so.
       // pollConfirm (lib/solana/confirm.ts, the one poller the ladder and the DCA and
       // limit tabs also use) never throws; a timeout or an unreadable status is
@@ -2351,9 +2398,10 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
         return;
       }
       const said = sideWords(payToken, buyToken);
-      toast.success(`${said.done} ${said.symbol}`, {
-        description: feeWaivedOnSend ? `${shortSig(sig)}. ${NO_SITE_FEE_ROUTE_COPY}` : shortSig(sig),
-        action: view,
+      // The receipt card, not a toast (island answer twenty-five): the venue's fee read from what its fee account received.
+      raiseSwapReceipt(connection, sig, {
+        wallet: publicKey.toBase58(), done: said.done, pay: payToken, buy: buyToken, sent: BigInt(baseAmount ?? '0'),
+        route: { kind: 'site', feeOwner: SOLANA_FEE_ACCOUNT || null },
       });
       // WAVE SEVEN, element O: latch a buy that landed in a resident's token.
       // The five Solana rooms are mints, so the finder takes the chain word;
