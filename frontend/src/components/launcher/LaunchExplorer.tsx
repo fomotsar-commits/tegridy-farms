@@ -87,7 +87,7 @@ export function LaunchExplorer({ launches, outcomes, now }: LaunchExplorerProps)
           </p>
           <FinePrint className="max-w-lg">
             <p>
-              Ordered by a published, deterministic score — tier, recency, and log-scaled on-chain
+              Ordered by a published, deterministic score: tier, recency, and log-scaled on-chain
               activity. Post-launch outcomes below are factual disclosures, not safety judgements.
             </p>
           </FinePrint>

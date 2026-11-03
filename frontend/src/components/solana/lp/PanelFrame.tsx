@@ -10,11 +10,14 @@ export function PanelFrame({
   testId,
   title,
   headingRef,
+  aside,
   children,
 }: {
   testId: string;
   title: string;
   headingRef: RefObject<HTMLHeadingElement | null>;
+  /** On the heading's line, at its end: the Add panel's coin name. */
+  aside?: ReactNode;
   children: ReactNode;
 }) {
   const id = useId();
@@ -30,6 +33,11 @@ export function PanelFrame({
     // Once, on open.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  const heading = (
+    <h4 id={id} ref={headingRef} tabIndex={-1} className="text-white font-semibold text-[13px] outline-none" style={SHADOW}>
+      {title}
+    </h4>
+  );
   return (
     <section
       data-testid={testId}
@@ -37,9 +45,14 @@ export function PanelFrame({
       className={`relative space-y-3 text-white/75 text-[11px] leading-relaxed min-w-0 ${inDoor ? '' : 'rounded-lg p-3 mt-2'}`}
       style={inDoor ? undefined : { background: 'rgba(0,0,0,0.35)', border: '1px solid rgba(255,255,255,0.12)' }}
     >
-      <h4 id={id} ref={headingRef} tabIndex={-1} className="text-white font-semibold text-[13px] outline-none" style={SHADOW}>
-        {title}
-      </h4>
+      {aside ? (
+        <div className="flex flex-wrap items-center justify-between gap-x-3">
+          {heading}
+          {aside}
+        </div>
+      ) : (
+        heading
+      )}
       {children}
     </section>
   );

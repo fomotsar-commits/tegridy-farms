@@ -4,6 +4,9 @@ import type { SolanaRpc } from '../../launcher/solana/curve/rpc';
 import { clipDetail } from '../../launcher/solana/curve/read';
 import { getMultipleAccounts } from './accounts';
 import type { QuoteCoin } from './quotes';
+import { listedOutsidePrice } from './sharedPrices';
+
+export * from './sharedPrices';
 
 /**
  * The token's price OUTSIDE our pools, to check a pool's price against before anyone
@@ -51,10 +54,12 @@ const LAMPORTS_PER_SOL = 1e9;
 const MAX_ROUTE_POOLS = 40;
 
 export type OutsidePrice =
-  | { kind: 'ok'; solPerToken: number; source: 'Jupiter' }
+  /** `readAtMs`: when the shared list read it (below); a direct read carries none. */
+  | { kind: 'ok'; solPerToken: number; source: 'Jupiter'; readAtMs?: number }
   /** Jupiter answered that it has no route for this token: no outside market it can reach. */
   | { kind: 'no-route'; detail: string }
-  | { kind: 'unread'; detail: string };
+  /** `hold`: the shared list's own one-row words for a token with no price in ten minutes ("Outside price not read for 12 min; adding waits"). */
+  | { kind: 'unread'; detail: string; hold?: true };
 
 class NoRoute extends Error {}
 
@@ -202,11 +207,29 @@ export async function readOutsidePrice(
 }
 
 /**
+ * What a page reads: the shared list for a listed token, the two quotes for the rest and
+ * for every fresh read. The one entry for the pool cards, the Add panel's check, the
+ * Arbitrage card's price basis, the home's pool card and the range section (readers.ts).
+ */
+export async function readListedOrOutsidePrice(
+  mint: string,
+  tokenDecimals: number,
+  guard: OwnPoolGuard,
+  fetchImpl: typeof fetch = fetch,
+  signal?: AbortSignal,
+  opts: { fresh?: boolean } = {},
+): Promise<OutsidePrice> {
+  const listed = opts.fresh === true ? null : await listedOutsidePrice(mint, fetchImpl);
+  return listed ?? readOutsidePrice(mint, tokenDecimals, guard, fetchImpl, signal, opts);
+}
+
+
+/**
  * A token's outside price in a POOL'S OWN pairing coin: what a pool paired with USDC or
  * BAYLA is checked against. `perToken` is whole coins per whole token.
  */
 export type QuotePrice =
-  | { kind: 'ok'; perToken: number; source: 'Jupiter' }
+  | { kind: 'ok'; perToken: number; source: 'Jupiter'; readAtMs?: number }
   /**
    * Jupiter ANSWERED that it has no route, and `of` says for what. `token`: the token has
    * no outside market. `coin`: the token has a price, but the pool's pairing coin has
@@ -214,7 +237,8 @@ export type QuotePrice =
    * warning; it switches nothing off). Never a failed read: that is `unread`.
    */
   | { kind: 'no-route'; of: 'token' | 'coin'; detail: string }
-  | { kind: 'unread'; detail: string };
+  /** `hold`: the token's price is the shared list's one-row hold, passed through as it is. */
+  | { kind: 'unread'; detail: string; hold?: true };
 
 /**
  * Why a pairing coin's OWN price is missing, in words about the coin. The coin is priced
@@ -249,7 +273,7 @@ export function priceInQuote(token: OutsidePrice, quote: QuoteCoin, coin: Outsid
   if (token.kind === 'no-route') return { kind: 'no-route', of: 'token', detail: token.detail };
   if (token.kind !== 'ok') return token;
   const priced = solPriceIn(quote, token.solPerToken, coin);
-  return priced.kind === 'ok' ? { ...priced, source: 'Jupiter' } : priced;
+  return priced.kind === 'ok' ? { ...priced, source: 'Jupiter', ...(token.readAtMs !== undefined ? { readAtMs: token.readAtMs } : {}) } : priced;
 }
 
 /**

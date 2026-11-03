@@ -121,14 +121,14 @@ export function GateAuditPanel({ address, onReRead, limit = DEFAULT_LIMIT }: Gat
           <CardArt pageId="gate-audit-panel" idx={0} />
           <p className="text-[11.5px] text-white/55 leading-relaxed mb-3">
             Every decision this door takes is written down on this device, with the reading it used.
-            It is kept here and nowhere else — it is never sent anywhere, and it is not analytics.
+            It is kept here and nowhere else: it is never sent anywhere, and it is not analytics.
             Each row shows the floor <strong className="text-white/80">that decision</strong> was taken
             against, so a floor that moves later cannot rewrite what you were measured against.
           </p>
 
           {view?.kind === 'unavailable' && (
             <Notice tone="warn">
-              This browser is not letting the page keep a record — private mode, or site storage
+              This browser is not letting the page keep a record: private mode, or site storage
               blocked. So there is nothing here to show. That is <strong>not</strong> the same as
               &ldquo;no decision was taken&rdquo;: the door still read you and still decided, the
               local copy simply has nowhere to live.
@@ -138,7 +138,7 @@ export function GateAuditPanel({ address, onReRead, limit = DEFAULT_LIMIT }: Gat
           {view?.kind === 'unreadable' && (
             <Notice tone="warn">
               The stored record is not in the shape this page writes, so it cannot be read back.
-              Nothing is being guessed from it — it is being ignored.
+              Nothing is being guessed from it, and it is being ignored.
             </Notice>
           )}
 
@@ -224,7 +224,7 @@ function DecisionRow({ row, floorNow }: { row: GateAuditRow; floorNow: number })
         <Field label="Floor at the time">{row.floor}°</Field>
         <Field label="Island reckoned">
           {row.as_of === null ? (
-            <span className="text-white/45">never — nothing measured</span>
+            <span className="text-white/45">never: nothing measured</span>
           ) : (
             <span title={stamp(row.as_of)}>{stamp(row.as_of)}</span>
           )}

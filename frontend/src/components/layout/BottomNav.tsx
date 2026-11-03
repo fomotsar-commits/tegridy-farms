@@ -36,10 +36,17 @@ const ICONS: Record<string, React.ReactNode> = {
       <path d="M7 10l5-5 5 5M7 14l5 5 5-5" />
     </svg>
   ),
+  // A plus in a circle: the Pools section, where liquidity is added.
+  Add: (
+    <svg {...ICON}>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 8.5v7M8.5 12h7" />
+    </svg>
+  ),
 };
 
 /**
- * The phone bar: the same four words as the top bar (navConfig BAR_NAV). Five is the ceiling,
+ * The phone bar: the same five words as the top bar (navConfig BAR_NAV). Five is the ceiling,
  * a 44px target and a 10px label at 390px, so Dashboard is a drawer row. A word is lit on every
  * page it owns, never by its own URL alone: Island owns the home, each room's door and the island's pages.
  */

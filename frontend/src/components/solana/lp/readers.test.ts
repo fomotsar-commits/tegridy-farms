@@ -31,7 +31,8 @@ vi.mock('../../../lib/solana/lp/poolFinder', async (importOriginal) => {
 });
 vi.mock('../../../lib/solana/lp/outsidePrice', async (importOriginal) => {
   const mod = await importOriginal<typeof import('../../../lib/solana/lp/outsidePrice')>();
-  return { ...mod, readOutsidePrice: vi.fn(async () => ({ kind: 'unread', detail: 'stub' })) };
+  // The shared list (answer twenty-four) is stubbed as carrying nothing, so every read here reaches readOutsidePrice.
+  return { ...mod, readOutsidePrice: vi.fn(async () => ({ kind: 'unread', detail: 'stub' })), listedOutsidePrice: vi.fn(async () => null) };
 });
 vi.mock('../../../lib/solana/lp/positions', async (importOriginal) => {
   const mod = await importOriginal<typeof import('../../../lib/solana/lp/positions')>();
