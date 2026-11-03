@@ -22,6 +22,11 @@ describe('swapSpenderFor — approval spender == useSwap executor', () => {
     expect(swapSpenderFor('aggregator', 'uniswap')).toBe(UNISWAP_V2_ROUTER);
   });
 
+  it('uniswap-v3 route → Permit2, which the Universal Router pulls the coin through', () => {
+    expect(swapSpenderFor('uniswap-v3', 'uniswap-v3')).toBe('0x000000000022D473030F116dDEE9F6B43aC78BA3');
+    expect(swapSpenderFor('aggregator', 'uniswap-v3')).toBe('0x000000000022D473030F116dDEE9F6B43aC78BA3');
+  });
+
   it('never returns the bare TegridyRouter (the F186 wrong-spender)', () => {
     const routes = ['tegridy', 'uniswap', 'aggregator'] as const;
     const sources = ['tegridy', 'uniswap'] as const;
