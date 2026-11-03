@@ -90,7 +90,7 @@ export interface TapeLeaderboard {
 export const TAPE_RETURN_RANKING: ReturnRankingVerdict = {
   ranked: false,
   reason:
-    'No wallet on this board is ranked by profit. A pool fill shows both sides of one swap but not the round trip: the exit may land in another pool, another chain or a plain transfer this tape cannot see, and the tape reaches back only as far as GeckoTerminal returns for each pool. No realised return exists here for anyone — and a leader’s return would not be yours anyway: you enter after them and exit after them.',
+    'No wallet on this board is ranked by profit. A pool fill shows both sides of one swap but not the round trip: the exit may land in another pool, another chain or a plain transfer this tape does not see, and the tape reaches back only as far as GeckoTerminal returns for each pool. No realised return exists here for anyone — and a leader’s return would not be yours anyway: you enter after them and exit after them.',
   rankedInstead:
     'Ranked by GeckoTerminal’s USD valuation of the fills this address sent through the island’s pools inside the tape window. That is activity, not skill and not outcome.',
 };

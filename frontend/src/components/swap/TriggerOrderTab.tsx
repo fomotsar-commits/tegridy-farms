@@ -462,7 +462,7 @@ export function TriggerOrderTab() {
               ? 'Registering…'
               : trigger.arm.armed
                 ? `Arm ${TRIGGER_KIND_LABELS[kind].toLowerCase()}`
-                : 'Cannot be armed'}
+                : 'Not armed yet: see what it needs above'}
           </button>
         )}
       </div>

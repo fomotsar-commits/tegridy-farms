@@ -110,7 +110,7 @@ export function RealYieldProof({ showWhenEmpty = false }: { showWhenEmpty?: bool
           </p>
           <FinePrint summary="Details">
             <p>
-              The cumulative-distribution read has not returned, so this panel cannot say whether any
+              The cumulative-distribution read has not returned, so this panel does not know yet whether any
               ETH has been paid out. That is a gap in what we can show you, not a figure of zero — the
               Etherscan link above answers it directly in the meantime.
             </p>

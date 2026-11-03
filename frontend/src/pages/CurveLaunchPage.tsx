@@ -864,7 +864,7 @@ function CurveExplainer({ treasury }: { treasury: TreasuryDescription }) {
       </Card>
 
       <Card title="What this page will not show you" art={<CardArt pageId="curve-launch" idx={9} />}>
-        <p>Where a value cannot be read it says so rather than showing a zero.</p>
+        <p>Where a read fails it says so rather than showing a zero.</p>
         <FinePrint>
         <p>
           Program state contains reserves, terms and a completion flag. It does not contain a price in dollars, a market

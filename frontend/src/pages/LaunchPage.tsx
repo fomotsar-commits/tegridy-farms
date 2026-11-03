@@ -1403,7 +1403,7 @@ function StepDetails({ w, set }: { w: WizardState; set: <K extends keyof WizardS
       <Field label="Metadata URI" hint="IPFS/Arweave link to the token's image + description JSON.">
         <input className={inputCls} value={w.tokenURI} onChange={(e) => set('tokenURI', e.target.value)} placeholder="ipfs://…" />
       </Field>
-      <Field label="Total supply" hint="Whole tokens. Fixed at launch: the template cannot mint more.">
+      <Field label="Total supply" hint="Whole tokens. Fixed at launch: the template never mints more.">
         <input className={inputCls} inputMode="numeric" value={w.totalSupply} onChange={(e) => set('totalSupply', e.target.value.replace(/\D/g, ''))} />
       </Field>
     </div>
