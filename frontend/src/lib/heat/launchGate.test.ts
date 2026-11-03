@@ -72,7 +72,7 @@ describe('below floor sees its degrees and the path', () => {
     expect(decision.state).toBe('COLD');
     expect(decision.degrees).toBe(12);
     expect(decision.detail).toContain('12.00°');
-    expect(decision.detail).toContain('held time');
+    expect(decision.detail).toContain('Residents launch here. Nobody can buy last year.');
   });
 });
 

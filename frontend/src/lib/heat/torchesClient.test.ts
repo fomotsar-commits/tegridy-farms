@@ -95,6 +95,19 @@ describe('fetchIslandTorches', () => {
     expect(data.places).toHaveLength(2);
   });
 
+  // The countdown's roster (island answer twenty-five, screen 2): the flames warming toward
+  // the launch door, as the proxy counted them. Unread or malformed is null, never 0.
+  it('keeps the count of flames warming toward the door, and only a whole count', async () => {
+    vi.stubGlobal('fetch', answer(200, { ...PROXY_BODY, warming: 28 }));
+    expect((await fetchIslandTorches()).warming).toBe(28);
+    vi.stubGlobal('fetch', answer(200, { ...PROXY_BODY, warming: 0 }));
+    expect((await fetchIslandTorches({ fresh: true })).warming).toBe(0);
+    for (const unread of [null, undefined, '28', 2.5, -1]) {
+      vi.stubGlobal('fetch', answer(200, { ...PROXY_BODY, warming: unread }));
+      expect((await fetchIslandTorches({ fresh: true })).warming, String(unread)).toBeNull();
+    }
+  });
+
   it('a 502 and a network error are both unavailable, never an empty island', async () => {
     vi.stubGlobal('fetch', answer(502, { error: 'The island could not be read' }));
     await expect(fetchIslandTorches()).rejects.toBeInstanceOf(TorchesUnavailableError);

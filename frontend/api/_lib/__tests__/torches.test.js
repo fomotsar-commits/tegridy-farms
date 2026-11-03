@@ -364,6 +364,61 @@ describe("each part stands alone, and an unread part is never a zero", () => {
   });
 });
 
+// The countdown's roster (island answer twenty-five, screen 2): "{n} flames are warming toward
+// the door right now", the flames from the Observer floor up to the 80° door, counted from the
+// same board read the flame count comes from, and only the count leaves.
+describe("the flames warming toward the launch door", () => {
+  const board = (degrees) => ({ flames: degrees.map((d, i) => ({ ...flameRow(i), degrees: d })), as_of_unix: 1792746260 });
+
+  it("counts the flames from 30° up to the 80° door, the door itself not included", async () => {
+    fetchMock = islandWith({ [URLS.flames]: board([1831.24, 120, 80, 79.99, 55, 30, 29.99, 0]) });
+    vi.stubGlobal("fetch", fetchMock);
+    const { body } = await call();
+    expect(body.warming).toBe(3);
+    expect(body.flames).toBe(8);
+  });
+
+  it("a board with none in the band is a read zero, not an unread one", async () => {
+    fetchMock = islandWith({ [URLS.flames]: board([300, 90, 12, 0]) });
+    vi.stubGlobal("fetch", fetchMock);
+    expect((await call()).body.warming).toBe(0);
+  });
+
+  it("a full page is where the island stopped, so it is not a count", async () => {
+    fetchMock = islandWith({ [URLS.flames]: board(Array.from({ length: 500 }, () => 50)) });
+    vi.stubGlobal("fetch", fetchMock);
+    expect((await call()).body.warming).toBeNull();
+  });
+
+  it("a flame with no readable degrees leaves the count unread, never a smaller number", async () => {
+    const flames = board([120, 55, 40]).flames;
+    flames[1] = { ...flames[1], degrees: "55" };
+    fetchMock = islandWith({ [URLS.flames]: { flames } });
+    vi.stubGlobal("fetch", fetchMock);
+    expect((await call()).body.warming).toBeNull();
+  });
+
+  it("a flames route that fails or answers no list leaves the count null, and the rest standing", async () => {
+    for (const failed of [null, { board: [] }]) {
+      fetchMock = islandWith({ [URLS.flames]: failed });
+      vi.stubGlobal("fetch", fetchMock);
+      const { status, body } = await call();
+      expect(status).toBe(200);
+      expect(body.warming).toBeNull();
+      expect(body.fire).toEqual({ burned: 5716710 });
+    }
+  });
+
+  it("forwards the count and nothing about the flames counted", async () => {
+    fetchMock = islandWith({ [URLS.flames]: board([55, 40]) });
+    vi.stubGlobal("fetch", fetchMock);
+    const text = JSON.stringify((await call()).body);
+    for (const leak of ["person_id", "wallet_count", "x_username", "held_since_unix", "token_count"]) {
+      expect(text, leak).not.toContain(leak);
+    }
+  });
+});
+
 describe("the dispatch", () => {
   it("api/aggregator sends ?resource=torches here, not into the provider 404", async () => {
     const { default: handler } = await import("../../aggregator.js");

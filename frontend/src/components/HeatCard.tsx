@@ -36,6 +36,7 @@ import { SITE_URL } from '../lib/constants';
 import { BUNGALOWS, bungalowLpDoor } from '../lib/bungalows';
 import { CardArt } from './ui/CardArt';
 import { FinePrint } from './ui/FinePrint';
+import { Countdown } from './heat/Countdown';
 
 const TIER_COLOR: Record<HeatTier, string> = {
   Elder: '#f5e4b8',
@@ -159,6 +160,9 @@ export interface HeatCardProps {
   variant?: 'panel' | 'embedded';
   /** Hide the launch-floor line, for surfaces where launching is not the subject. */
   showEligibility?: boolean;
+  /** Draw the countdown for a wallet under the launch floor (island answer twenty-five, screen 2).
+   *  False inside the launch door, whose page already opens on it: one countdown per page. */
+  countdown?: boolean;
   /** Answer one token's question from the same reading: a room shows its own row, then the
    *  whole flame. Same address, fetch, freshness and failure sentences; the form, loading
    *  and error arms render as they do on the venue, so an unreadable instrument in a room
@@ -184,6 +188,7 @@ export function HeatCard({
   focusField = false,
   variant = 'panel',
   showEligibility = true,
+  countdown = true,
   scopeTo,
   fillFrom,
   lpDoors = false,
@@ -440,6 +445,7 @@ export function HeatCard({
                 showMath={showMath}
                 onToggleMath={() => setShowMath((v) => !v)}
                 showEligibility={showEligibility}
+                countdown={countdown}
                 lpDoors={lpDoors}
               />
             )}
@@ -475,6 +481,7 @@ function Reading({
   showMath,
   onToggleMath,
   showEligibility = true,
+  countdown = true,
   lpDoors = false,
 }: {
   reading: HeatReading;
@@ -482,6 +489,7 @@ function Reading({
   showMath: boolean;
   onToggleMath: () => void;
   showEligibility?: boolean;
+  countdown?: boolean;
   lpDoors?: boolean;
 }) {
   const stale = isStale(reading, now);
@@ -667,7 +675,7 @@ function Reading({
 
       {/* LAUNCH ELIGIBILITY, from the same primitive the launch paths enforce with, so
           what a wallet is told here and what happens at submit cannot drift. */}
-      {showEligibility && <Eligibility reading={reading} now={now} />}
+      {showEligibility && <Eligibility reading={reading} now={now} countdown={countdown} />}
 
       {doors.length > 0 && (
         <div data-testid="heat-lp-doors" className="space-y-1">
@@ -955,13 +963,17 @@ function TierLadder({ degrees, next }: { degrees: number; next: ReturnType<typeo
   );
 }
 
-/** The launch floor on the card, from gateDecision: what the launch paths enforce with. */
-function Eligibility({ reading, now }: { reading: HeatReading; now: number }) {
+/** The launch floor on the card, from gateDecision: what the launch paths enforce with. Under
+ *  the floor it is the countdown (island answer twenty-five, screen 2), never "Cannot". */
+function Eligibility({ reading, now, countdown }: { reading: HeatReading; now: number; countdown: boolean }) {
   const floor = heatLaunchFloor();
   const floorTier = tierAtFloor(floor);
   const d = gateDecision(reading.address, reading, now, floor, heatGateMaxAgeDays());
   const warm = d.state === 'WARM';
   const pct = Math.min(100, (reading.degrees / floor) * 100);
+
+  // In the launch door the page already opens on the countdown, so the card adds nothing here.
+  if (d.state === 'COLD') return countdown ? <Countdown reading={reading} look="card" /> : null;
 
   return (
     <div
@@ -972,8 +984,9 @@ function Eligibility({ reading, now }: { reading: HeatReading; now: number }) {
       }}
     >
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 mb-1.5">
+        {/* A stale reading decides nothing either way: the next move is a fresh one. */}
         <span className="text-[12.5px] font-semibold" style={{ color: warm ? 'var(--color-kyle)' : 'rgba(255,255,255,0.75)' }}>
-          {warm ? '✓ Can launch a token here' : 'Cannot launch a token yet'}
+          {warm ? '✓ Can launch a token here' : 'Waiting on a fresh reading'}
         </span>
         {/* The tier is named only when the floor sits exactly on its rung
             (answer ten, ruling 4). Between rungs the number stands alone,
@@ -993,14 +1006,6 @@ function Eligibility({ reading, now }: { reading: HeatReading; now: number }) {
       )}
 
       <p className="text-[11.5px] text-white/55 leading-relaxed">{d.detail}</p>
-
-      {/* The island's own countdown to the floor, when it serves one. A stale reading
-          decides nothing and a warm one has nothing to wait for. */}
-      {d.state === 'COLD' && reading.daysToPlant !== null && reading.daysToPlant >= 1 && (
-        <p className="text-[11.5px] text-white/75 leading-relaxed mt-1">
-          You may plant in {reading.daysToPlant.toLocaleString('en-US')} {reading.daysToPlant === 1 ? 'day' : 'days'}.
-        </p>
-      )}
 
       {/* The one thing this venue must never imply. Both rails sign client-side, so
           the door raises the floor on the path we control and proves nothing about

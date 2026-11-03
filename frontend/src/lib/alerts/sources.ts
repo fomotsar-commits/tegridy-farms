@@ -97,7 +97,7 @@ export interface SourceReadiness {
 }
 
 const INDEXER_UNSET_DETAIL =
-  'This deployment has no indexer configured, so indexed transfers and lock events cannot be read. Rules that need them cannot be evaluated — that is not the same as there being nothing to report.';
+  'This deployment has no indexer configured, so it does not read indexed transfers or lock events. Rules that need them report “Could not evaluate” — that is not the same as there being nothing to report.';
 
 /**
  * Read the live config. A function, not a module constant, so nothing snapshots
