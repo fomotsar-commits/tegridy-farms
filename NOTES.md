@@ -15,6 +15,36 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-11-03: a stand-in `window.phantom` did not stop Phantom's poll, and a one-file run never shows an error thrown while its worker stops
+
+**Believed:** setting `window.phantom = { solana: { isPhantom: true } }` lets the Phantom adapter
+find "its" extension and end its one-second poll, so a test file can let its polls end before
+vitest deletes the window (the `afterAll` in `TopNav.ownSolana.test.tsx`, 2026-11-02).
+
+**Measured** (2026-11-03): `@solana/wallet-adapter-phantom` 0.9.29 also wants
+`window.isPhantomInstalled` (`lib/esm/adapter.js:52`). After that `afterAll` ran, all 15 polls of
+the file (5 mounts, each Phantom, Trust and Coinbase) were still live at teardown, and CI runs
+41573483600 and 41683443157 went red on one Phantom tick. With the environment held 1.5 s past
+teardown, the file threw `ReferenceError: window is not defined` 7 times a run, in 3 runs of 3;
+with the guard also setting `isPhantomInstalled`, 0 in 3.
+
+**Believed:** an error thrown while a file's worker is stopping fails the run, so running that
+one file reproduces it.
+**Measured:** vitest 5.0.3 counts unhandled errors only until the run ends, and a one-file run
+ends before its worker has stopped: those 7 errors reached the worker's `rpc.onUnhandledError`
+and the run still exited 0. Run beside a second file that kept the run open, all 7 were counted
+and it exited 1. Also, a `@vitest-environment` line cannot name a path in vitest 5 (it matches
+`[\w-]+`): one that tries is ignored without a word, and the file runs in plain jsdom.
+
+**Do:** a stand-in for an injected wallet passes the adapter's whole check, read from the
+installed source, and a test shows it (`readyState` is `Installed`). `frontend/src/test/setup.ts`
+now stops every interval a test file starts when the file ends, in every file. To reproduce an
+error from after teardown, name a held-open environment with `--environment ./path.ts` (a copy
+of the file without its own `@vitest-environment jsdom` line, which wins over the flag), and keep
+the run open with a second file.
+
+---
+
 ## 2026-11-02: a one-time operator tool names an owner that config has since moved, and it would have run clean while pointing at the wrong wallet
 
 **Believed:** `frontend/create-fee-atas.mjs`, the tool that creates the fee wallet's token accounts,
