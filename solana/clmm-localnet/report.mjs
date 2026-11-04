@@ -132,7 +132,7 @@ check it lists came out FAIL there, and passes on this build.
 
 | Build | sha256 | Run | Checks that failed there |
 |---|---|---|---|
-${beforeFix.map((b) => `| ${esc(b.what)} | \`${b.programSha}\` | ${b.started.slice(0, 16)}Z | ${b.checks.filter((c) => !c.pass).map((c) => `${c.id} (${esc(c.counts)})`).join('; ')} |`).join('\n')}
+${beforeFix.map((b) => `| ${esc(b.what)} | \`${b.programSha}\` | ${b.started.slice(0, 16)}Z | ${b.checks.filter((c) => !c.pass).map((c) => `${c.id} (${esc(c.counts)})`).join('; ')}${b.note ? `. ${esc(b.note)}` : ''} |`).join('\n')}
 ` : ''}
 ## Rent and sizes, measured
 
