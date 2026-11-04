@@ -166,19 +166,12 @@ pub mod raydium_clmm {
     }
 
     // memetics.finance: create_dynamic_fee_config and update_dynamic_fee_config are deleted
-    // (2026-11-03 audit, CR-1/CO-1/CR-7). No pool can carry a dynamic fee: create_permissioned_pool
-    // refuses one and create_customizable_pool is gone.
+    // (2026-11-03 audit, CR-1/CO-1/CR-7). No pool can carry a dynamic fee: create_pool, the one
+    // instruction left that opens a pool, sets none.
 
-    /// Create a permission PDA granting `permission_authority` the right to
-    /// call permissioned instructions. Admin-only.
-    pub fn create_permission_pda(ctx: Context<CreatePermissionPda>) -> Result<()> {
-        instructions::create_permission_pda(ctx)
-    }
-
-    /// Close a permission PDA and refund rent to the admin owner. Admin-only.
-    pub fn close_permission_pda(ctx: Context<ClosePermissionPda>) -> Result<()> {
-        instructions::close_permission_pda(ctx)
-    }
+    // memetics.finance: create_permission_pda and close_permission_pda are deleted with
+    // create_permissioned_pool, the one instruction that read a permission (the owner's ruling,
+    // 2026-11-03).
 
     /// Close a support-mint-associated PDA and refund rent. Admin-only.
     pub fn close_support_mint_associated(ctx: Context<CloseSupportMintAssociated>) -> Result<()> {
@@ -202,24 +195,8 @@ pub mod raydium_clmm {
 
     // memetics.finance: create_customizable_pool is deleted (2026-11-03 audit, CL-03/DG-02). It let
     // whoever opened a pair first fix that pool's fee coin and dynamic fee for good; create_pool
-    // opens the same pool with the defaults.
-
-    /// Creates a pool for the given token pair with a client-supplied u16 seed
-    /// index, allowing multiple pools per pair. Caller must hold a permission PDA.
-    ///
-    /// # Arguments
-    ///
-    /// * `ctx` - The context of accounts
-    /// * `customizable_params` - the customizable parameters
-    /// * `seed_index` - non-zero u16 folded into the pool PDA seeds
-    ///
-    pub fn create_permissioned_pool(
-        ctx: Context<CreatePermissionedPool>,
-        customizable_params: CreateCustomizableParams,
-        seed_index: u16,
-    ) -> Result<()> {
-        instructions::create_permissioned_pool(ctx, customizable_params, seed_index)
-    }
+    // opens the same pool with the defaults. create_permissioned_pool, which opened more pools per
+    // pair for a holder of the vault's permission, is deleted too (the owner's ruling, 2026-11-03).
 
     /// Update pool status for given value
     ///
@@ -806,5 +783,21 @@ mod deleted_instructions_test {
     #[test]
     fn collect_excess_lamports_is_gone() {
         assert_eq!(answer(&[28, 189, 19, 40, 164, 176, 118, 17]), unknown());
+    }
+
+    // The owner's ruling: permissioned pools, and the permission accounts only they read.
+    #[test]
+    fn create_permissioned_pool_is_gone() {
+        assert_eq!(answer(&[36, 243, 179, 35, 42, 239, 53, 229]), unknown());
+    }
+
+    #[test]
+    fn create_permission_pda_is_gone() {
+        assert_eq!(answer(&[135, 136, 2, 216, 137, 169, 181, 202]), unknown());
+    }
+
+    #[test]
+    fn close_permission_pda_is_gone() {
+        assert_eq!(answer(&[156, 84, 32, 118, 69, 135, 70, 123]), unknown());
     }
 }

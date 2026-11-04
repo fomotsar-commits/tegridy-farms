@@ -1,6 +1,6 @@
 // Phase 11 of suite.mjs: the remaining instructions the venue or a visitor can reach.
 // Operators, a coin with an unusual Token-2022 feature, the instructions deleted on 2026-11-03,
-// a permission pool, a two-hop route, the old swap, and the Metaplex path a stranger can call.
+// a two-hop route, the old swap, and the Metaplex path a stranger can call.
 import { createHash } from 'node:crypto';
 import { PublicKey, SystemProgram, Keypair, TransactionInstruction, spl } from './lib/deps.mjs';
 import { ADDR } from './lib/config.mjs';
@@ -89,43 +89,20 @@ export async function more(c, h, s) {
   }
 
   // ---- the instructions deleted on 2026-11-03 -------------------------------------------------
-  // Custom pools (audit CL-03/DG-02), both dynamic-fee settings (CR-1/CO-1/CR-7) and the rent
-  // sweep (CD-2). Each is sent bare, its 8-byte name (sha256 of "global:<name>") and nothing else:
-  // the program answers it as an unknown instruction before it reads any account, where the build
-  // before the deletion found it. The broken input sends close_limit_order's name instead.
+  // Custom pools (audit CL-03/DG-02), both dynamic-fee settings (CR-1/CO-1/CR-7), the rent sweep
+  // (CD-2), and permissioned pools with the permission accounts only they read (the owner's ruling).
+  // Each is sent bare, its 8-byte name (sha256 of "global:<name>") and nothing else: the program
+  // answers it as an unknown instruction before it reads any account, where the build before the
+  // deletion found it. The broken input sends close_limit_order's name instead.
   const bare = (name) => new TransactionInstruction({ programId: ADDR.program, keys: [], data: createHash('sha256').update(`global:${name}`).digest().subarray(0, 8) });
-  for (const [id, name, finding] of [['D1', 'create_customizable_pool', 'CL-03/DG-02'], ['D2', 'create_dynamic_fee_config', 'CR-1/CO-1/CR-7'], ['D3', 'update_dynamic_fee_config', 'CR-1/CO-1/CR-7'], ['D4', 'collect_excess_lamports', 'CD-2']]) {
+  for (const [id, name, why] of [
+    ['D1', 'create_customizable_pool', 'audit CL-03/DG-02'], ['D2', 'create_dynamic_fee_config', 'audit CR-1/CO-1/CR-7'],
+    ['D3', 'update_dynamic_fee_config', 'audit CR-1/CO-1/CR-7'], ['D4', 'collect_excess_lamports', 'audit CD-2'],
+    ['D5', 'create_permissioned_pool', "the owner's ruling"], ['D6', 'create_permission_pda', "the owner's ruling"],
+    ['D7', 'close_permission_pda', "the owner's ruling"],
+  ]) {
     const r = await send(`${name}, sent bare`, [bare(mut(id) ? 'close_limit_order' : name)], [mallory], { expectFail: true });
-    check(id, name, `the program has no ${name} (deleted 2026-11-03, audit ${finding}): it answers as to any unknown instruction`, failedWith(r, 'InstructionFallbackNotFound'), `refused: ${errName(r)}`);
-  }
-
-  // ---- a permission and a second pool for the same pair ----------------------------------
-  const perm = reg(PDA.permission(erin.publicKey), 'erin permission');
-  const permIx = (name, owner) => ix(name, { owner, permission_authority: erin.publicKey, permission: perm });
-  {
-    const r = mut('X12') ? (await vaultRun('X12 mutant: the vault', [permIx('create_permission_pda', VAULT)])).execute
-      : await send('a stranger grants a permission', [permIx('create_permission_pda', mallory.publicKey)], [mallory], { expectFail: true });
-    check('X12', 'create_permission_pda', 'a stranger cannot grant the right to open extra pools', failedWith(r, 'NotApproved'), `refused: ${errName(r)}`);
-  }
-  if (!mut('X13')) await mustVault('vault grants erin a permission', [permIx('create_permission_pda', VAULT)]);
-  const seeded = (n) => { const b = Buffer.alloc(2); b.writeUInt16LE(n); return PublicKey.findProgramAddressSync([Buffer.from('pool'), cfg0.toBuffer(), M0.toBuffer(), M1.toBuffer(), b], ADDR.program)[0]; };
-  const permPoolIx = (n, dynamicFee = false) => { const pool = regPool(seeded(n), `pool BAYLA/SOL #${n}`, M0, M1); return ix('create_permissioned_pool', { payer: erin.publicKey, permission: perm, ...poolIxAccounts(erin.publicKey, cfg0, M0, M1, pool) }, { customizable_params: { sqrt_price_x64: 1n << 64n, collect_fee_on: 0, enable_dynamic_fee: dynamicFee }, seed_index: n }); };
-  {
-    const v0 = await sol(VAULT);
-    const r = await send('erin opens a second BAYLA/SOL 1% pool', [permPoolIx(1), ...(mut('X19') ? [SystemProgram.transfer({ fromPubkey: erin.publicKey, toPubkey: VAULT, lamports: 1 })] : [])], [erin]);
-    check('X13', 'create_permissioned_pool', 'a permission holder can open another pool for a pair that has one', r.ok && !!(await conn.getAccountInfo(seeded(1))), r.ok ? 'pool #1 opened' : errName(r));
-    const gained = (await sol(VAULT)) - v0;
-    check('X19', 'create_permissioned_pool', 'a permission holder pays the 0.5 SOL opening fee to the vault as well', r.ok && gained === OPEN_FEE, `vault +${fmt(gained, 9)} SOL`);
-    {
-      // No pool carries a dynamic fee (2026-11-03 audit, CR-1/CO-1/CR-7): a permission holder who
-      // asks for one is refused. Its broken input asks for none.
-      const r3 = await send('erin asks for a dynamic fee on pool #3', [permPoolIx(3, !mut('X20'))], [erin], { expectFail: !mut('X20') });
-      check('X20', 'create_permissioned_pool', 'a permission holder cannot open a pool with a dynamic fee: none can be set up',
-        failedWith(r3, 'InvalidDynamicFeeConfigParams') && !(await conn.getAccountInfo(seeded(3))), r3.ok ? 'pool #3 opened' : `refused: ${errName(r3)}`);
-    }
-    if (!mut('X14')) await mustVault("vault withdraws erin's permission", [permIx('close_permission_pda', VAULT)]);
-    const r2 = await send('erin tries pool #2 without it', [permPoolIx(2)], [erin], { expectFail: true });
-    check('X14', 'close_permission_pda', 'once the vault withdraws the permission, no more extra pools', !r2.ok && !(await conn.getAccountInfo(perm)), `refused: ${errName(r2)}`);
+    check(id, name, `the program has no ${name} (deleted 2026-11-03, ${why}): it answers as to any unknown instruction`, failedWith(r, 'InstructionFallbackNotFound'), `refused: ${errName(r)}`);
   }
 
   // ---- a two-hop route: BAYLA -> SOL (1% pool) -> USD (0.25% pool) ------------------------

@@ -69,13 +69,14 @@ the venue's 10.4% was collectable only by the vault, and the island's 5.6% only 
 is refused (check V9), though one proposal can **re-point the island's share** (check V6). No tier may charge
 more than 4% of a swap or give the venue and the island more than 16% of each fee, made or changed (K1 to K5), or
 have a tick spacing of 0 (T10). Only the vault or an operator it names can start a reward, a pool's opener cannot
-(R4), and a reward's unpaid rest goes back only to whoever started it, whoever owns the pool (R11, R13, R14). (A fee earned where no LP's range is in use, when a swap fills a limit order there, goes to the
-venue's share.) Opening a pool paid exactly 0.5 SOL to the vault, by each of the two instructions that open one (P4,
-X19); a wrong receiver, a transaction built without the fee account and a wallet short of the 0.5 SOL were refused
-(P5 to P7). Four instructions are gone since 2026-11-03, custom pools, both dynamic-fee settings and the rent sweep:
-each is answered as unknown (D1 to D4), and no pool can carry a dynamic fee (X20). A new pool takes no limit order
-until the vault turns them on (O0). What the vault can still do, the pause of any part of a pool included, is in
-docs/RANGE_POOLS_PLAN.md.
+(R4), and a reward's unpaid rest goes back only to whoever started it, whoever owns the pool (R11, R13, R14). (A fee
+earned where no LP's range is in use, when a swap fills a limit order there, goes to the venue's share.) Opening a
+pool paid exactly 0.5 SOL to the vault through \`create_pool\`, now the one instruction that opens one (P4); a wrong
+receiver, a transaction built without the fee account and a wallet short of the 0.5 SOL were refused (P5 to P7).
+Seven instructions are gone since 2026-11-03: custom and permissioned pools, the permission accounts, both
+dynamic-fee settings and the rent sweep. Each is answered as unknown (D1 to D7), so nothing left can give a pool a
+dynamic fee. A new pool takes no limit order until the vault turns them on (O0). What the vault can still do, the
+pause of any part of a pool included, is in docs/RANGE_POOLS_PLAN.md.
 
 Run ${clean.started} to ${clean.finished}. Nothing was deployed anywhere, no program key exists, and nothing was
 signed or sent on mainnet: mainnet was only read.

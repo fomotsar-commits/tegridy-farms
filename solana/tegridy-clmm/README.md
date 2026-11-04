@@ -4,8 +4,9 @@ Raydium's concentrated-liquidity program, `raydium-io/raydium-clmm` at commit
 `ed1eb41519d5355755f7df52b43fa9610938b60b` (Apache-2.0, see `LICENSE`), with one reviewed patch:
 every address upstream hard-codes for itself is the venue's (admin and fee owners are the venue's
 two-signature vault), its name, links and memos say memetics.finance, the venue's fee rules and
-0.5 SOL opening fee are in, and since 2026-11-03 four instructions are gone (custom pools, both
-dynamic-fee settings and the rent sweep) and new pools start with limit orders off.
+0.5 SOL opening fee are in, and since 2026-11-03 seven instructions are gone (custom and
+permissioned pools, the permission accounts, both dynamic-fee settings and the rent sweep), new
+pools start with limit orders off, and only the vault or an operator it names starts a reward.
 `docs/RANGE_POOLS_PLAN.md` lists every change. Its program id is
 `7ghzbbmq59QEbdweSzM1ggpeBH1Q2CyxZg4Tr2x8Aso`, made by the owner on 2026-10-21. A `devnet` or
 `localnet` build is refused unless `test-chain-keys` is named, and a `devnet`, `localnet` or

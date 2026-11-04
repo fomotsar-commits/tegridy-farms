@@ -50,7 +50,7 @@ role use the venue's devnet key `GgE6AfEH2AVSrKGckyKMzC6mhtXWiAn39EzAikAsWq5a`.
 | Fund-fee owner | `FundHfY8oo8J9KYGyfXFFuQCHe7Z1VBNmsj84eMcdYs4` | vault, as each tier is born; the same proposal then hands each tier's fund share to the island's Workshop | Collect the fund's share of swap fees |
 | Spare-SOL collector | `Ray9LdYRLXsHzL8pr3Ceahfiz8MsS2pZagzHo1ckdfJ` | vault | Nothing since 2026-11-03: its sweep is deleted from the source (on chain from the upgrade after #22), and nothing reads the key. The sweep could trim users' refundable deposits |
 | Limit-order keeper | `Ray8HHtixhL9zvnokMyELCVGp622PDPJj96zcVC9RWp` | vault | Settle or close a user's limit order; the coins go to the order's owner only. Since 2026-11-03 a new pool takes no limit order until the admin turns them on |
-| Permission admin | `RayzVBPm6p6xtG7fU3KX4k44UexK4NjewDk2QCwoLqa` | vault | Say who may open a permission-only pool |
+| Permission admin | `RayzVBPm6p6xtG7fU3KX4k44UexK4NjewDk2QCwoLqa` | vault | Nothing since 2026-11-03: permissioned pools and their permissions are deleted (the owner's ruling), and nothing reads the key |
 | Support-mint owner | `RayVyjyJQz9vAi126A4sGexKnSU1XeZaHTRcM1mZMPY` | vault | Let in a coin with unusual Token-2022 features. Since 2026-11-03 the source ignores such a record (on chain from the upgrade after #22), so it lets in nothing |
 | Frozen-NFT issuer list | `2Yq4T3mPNfjtEyTxSbRjRKqLf1pwbTasuCQrWe6QpM7x` (an outside coin issuer) | empty | Nothing: no position NFT is ever frozen |
 
@@ -69,8 +69,8 @@ carry a dynamic fee at all. Two exceptions: a fee is rounded up to the coin's sm
 very small swap can pay more than 4% (and a Token-2022 coin's own transfer fee comes on top); and
 when a swap fills a limit order where no LP's range is in use, the LPs' share of that fee goes to
 the venue's share. The ceilings bind every tier this build makes; a later upgrade must check any
-tier made before it. Opening a pool costs 0.5 SOL, paid to the vault, by whichever of the two
-instructions opens it (owner, 2026-10-25; "Decided 2026-10-25", below). Until the vault upgrades
+tier made before it. Opening a pool costs 0.5 SOL, paid to the vault through `create_pool`, the
+one instruction that opens one (owner, 2026-10-25; "Decided 2026-10-25", below). Until the vault upgrades
 the program on mainnet, the program there charges nothing to open a pool. Spare SOL sent to a
 pool's accounts stays there: the sweep is deleted (2026-11-03). None of these paths can reach a
 Raydium address, because none is in the code. Each path was run on a local chain (below).
@@ -119,7 +119,7 @@ from fresh clones by `node solana/guards/provenance.mjs --regenerate <scratch fo
 can re-run it, and `git diff solana/guards/upstream` must then show no change.
 
 1. **Same code as Raydium's, plus only the reviewed patch** (`solana/guards/provenance.mjs`, in
-   `diff-guard` and `clmm-guards`). Range pools: 79 upstream files, 28 patched. cp-swap: its
+   `diff-guard` and `clmm-guards`). Range pools: 79 upstream files, 32 patched. cp-swap: its
    whole package, 37 files, 8 patched (2026-11-03; the `patched` lists in `provenance.mjs` are the
    record). `vendor/uint`: 16 files, none patched. Undoing the patch
    on our file must give back Raydium's exact file. No file may be added anywhere in either
@@ -165,7 +165,7 @@ The audit of 2026-11-03 found no critical bug in this program. Each finding belo
 source, or routed, with a test seen failing on the code before the fix: the unit tests run in CI,
 the local chain's checks are in [RESULTS.md](../solana/clmm-localnet/RESULTS.md). **None of it is on
 chain yet.** It rides the program upgrade after #22, which itself upgrades to the source before this
-round. The release build is 1,442,792 bytes, 83,912 fewer than before.
+round. The release build is 1,374,528 bytes, 152,176 fewer than before.
 
 Until that upgrade, the program on chain (today's, and #22's after it) still lets anyone open a
 range pool with `create_customizable_pool` and its fee coin of choice, with limit orders on;
@@ -178,7 +178,8 @@ changes no pool already open: such a pool keeps limit orders on (status 0) until
 | Finding | What it was | What changed | Proved by |
 |---|---|---|---|
 | CL-03, DG-02, CR-4 | `create_customizable_pool` let whoever opened a pair first fix that pool's fee coin and dynamic fee for good, and every opener could fill reward slots 1 and 2 for good | `create_customizable_pool` deleted; `create_pool` opens the same pool with the defaults. `initialize_reward`'s pool-owner clause deleted (the owner's ruling, 2026-11-03), as Orca's pools give an opener no reward power | D1, R4, unit test |
-| CR-1, CO-1, CR-7 | The dynamic fee lacks Orca's limit, an order filled across a price gap skips it, and its settings were frozen at a pool's opening | `create_dynamic_fee_config` and `update_dynamic_fee_config` deleted, and `create_permissioned_pool` refuses a dynamic fee, so no pool can carry one. The swap's dynamic-fee code stays as Raydium wrote it, unreachable | D2, D3, X20, unit tests |
+| CR-1, CO-1, CR-7 | The dynamic fee lacks Orca's limit, an order filled across a price gap skips it, and its settings were frozen at a pool's opening | `create_dynamic_fee_config` and `update_dynamic_fee_config` deleted, with both instructions that could switch a pool's dynamic fee on, so no pool can carry one. The swap's dynamic-fee code stays as Raydium wrote it, unreachable | D1, D2, D3, D5, unit tests |
+| (the owner's ruling) | `create_permissioned_pool` let a holder of the vault's permission open more pools per pair, choosing the fee coin and naming any owner; Raydium added it in July 2026 | Deleted, with `create_permission_pda`, `close_permission_pda` and the Permission account, which nothing else read | D5, D6, D7, unit tests |
 | CD-2 | `collect_excess_lamports` let the vault trim users' refundable rent deposits | Deleted. Its key constant stays, read by nothing, so the deploy pack's count of eight vault keys holds | D4, unit test |
 | CO-2 | Limit orders were on in every pool, with no site support or keeper behind them | A new pool starts with them off; the vault turns them on per pool | O0, unit test |
 | CL-09 | A fee tier with tick spacing 0 was accepted, and pools divide by it | Refused, as Uniswap v3's `enableFeeAmount` refuses it | T10 |
@@ -361,7 +362,7 @@ left the rest to the builder. Decided on that basis:
    `initialize.rs` charges its `create_pool_fee`. A wrong receiver is refused (Anchor's address
    check), a transaction built without the account is refused, and an opener short of the 0.5 SOL
    cannot open a pool (checks P2, P4 to P7, X18, X19 in `solana/clmm-localnet`). `create_customizable_pool`
-   was deleted on 2026-11-03, and X18 with it.
+   and `create_permissioned_pool` were deleted on 2026-11-03, and X18 and X19 with them.
 2. **A constant, not a fee-tier field.** cp-swap keeps the amount on each fee tier. Here it is one
    number in the program, so every tier charges it, a tier made before the upgrade too, and no
    proposal can set it to zero for one tier. Changing it takes a program upgrade, which waits the
@@ -391,11 +392,13 @@ left the rest to the builder. Decided on that basis:
    clause is deleted, rather than making the vault every pool's owner.
 3. **Just-in-time liquidity (ME-2) stays**, an owner-approved exception: every major exchange has
    it, and any fix would be new code.
+4. **Permissioned pools are deleted** (owner: "Yes, delete it"): `create_permissioned_pool`, with
+   `create_permission_pda`, `close_permission_pda` and the Permission account, which nothing else
+   read. `create_pool` is the one way to open a range pool. Raydium added the instruction in July
+   2026 (commit `01b7f6af`); none of its accounts exists on mainnet (slot 465,158,817).
 
 ## Still the owner's
 
 1. **The mainnet date**, after the internal review.
 2. **Who does the outside review after launch**, and when.
 3. **The vault's top-up** before the first reward (above).
-4. **Keep or delete `create_permissioned_pool`** (asked 2026-11-03). Only a vault proposal can grant
-   its permission, and none exists on mainnet. Raydium added it in July 2026 (commit `01b7f6af`).
