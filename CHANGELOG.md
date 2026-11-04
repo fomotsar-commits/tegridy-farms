@@ -9,6 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-11-04
 
+- The chat assistant no longer says a token can be launched. Asked about launching, the curves or the chains, it says launching a new token is not switched on yet, as the curve pages do.
 - No token launch is open on the venue, on any rail, until the island says so. Launch on the bar opens the launch door: the countdown for every wallet, with no form and no tab strip. At 80° and up it says you are warm enough and on the list the day the door opens. Tokens already launched keep their pages.
 - The word Drifter is never printed: a reading under 30° shows its degrees, and "Your clock starts at your first hold." where the word stood. The ladder's bottom rung reads Cold, as the island's own ladder does.
 - Add and Buy are one screen now. In a room whose coin has its pool on the venue, Trade and Add SOL + the coin (and the bar's Swap and Add in that room, and Bayla's Add and Start the clock) raise one sheet over the room: the coin, one amount with three presses, the pool's price and the outside price (or what you get), the fee line, Bayla's line and one green button. Back closes it and the room is still there. The island's links to /pools?mint=&task=add and /solana?in=&out= open it over the coin's room.
