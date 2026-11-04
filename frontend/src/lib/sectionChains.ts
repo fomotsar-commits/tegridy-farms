@@ -1,3 +1,4 @@
+import { isLaunchDoorOpen } from './launcher/door';
 import type { NavItem } from './navConfig';
 import { getChainConfig } from './chains/registry';
 import { liquidityVenueOn } from './chains/liquidityVenue';
@@ -71,8 +72,11 @@ export function tabChains(to: string): TabChains {
       return evmWhere((id) => liquidityVenueOn(id) !== null);
     // The zap plan compiles at CHAIN_ID, and the Doppler launchpad refuses every other chain.
     case '/zap':
-    case '/launch':
       return ['ethereum'];
+    // The launch door names no network while it is closed (island answer twenty-six); open, it
+    // hosts the Doppler launchpad again, which is Ethereum's.
+    case '/launch':
+      return isLaunchDoorOpen() ? ['ethereum'] : 'any';
     // Our own EVM curve, on every chain its launcher is deployed to (`?c=<chainId>` picks one).
     case '/eth-curve':
       return evmWhere((id) => curveLauncherOn(id).status === 'deployed');

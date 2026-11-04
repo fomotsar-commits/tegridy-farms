@@ -97,7 +97,7 @@ export default function YieldPage() {
               <span className="text-text-primary">The peg is a reading too.</span> A liquid staking token is not worth
               one ETH because it is called staked ETH. Where a market price could not be read the column says so; it is
               never filled in as 1.00. A feed that republishes a protocol's own rate is never used as a market price,
-              because it cannot show a discount.
+              because it never shows a discount.
             </li>
             <li>
               <span className="text-text-primary">

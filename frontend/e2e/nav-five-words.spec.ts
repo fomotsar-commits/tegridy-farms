@@ -167,7 +167,7 @@ test('the footer fits the height a real iPhone browser gives a page', async ({ p
 test('no tab strip says Soon, and an off tab is listed only on its own page', async ({ page }) => {
   test.slow();
   await page.setViewportSize({ width: 1280, height: 900 });
-  for (const path of ['/launch', '/eth-curve', '/curve-launch', '/earn', '/trust', '/nft-finance', '/pools']) {
+  for (const path of ['/launch-simulator', '/eth-curve', '/curve-launch', '/earn', '/trust', '/nft-finance', '/pools']) {
     await open(page, path);
     const strips = page.getByRole('tablist');
     await expect(strips.first(), `no tab strip on ${path}`).toBeVisible({ timeout: 30_000 });
@@ -175,9 +175,13 @@ test('no tab strip says Soon, and an off tab is listed only on its own page', as
       expect(text, `a tab strip on ${path} says Soon`).not.toMatch(/\bsoon\b/i);
     }
   }
+  // The launch door has no tab strip at all (island answer twenty-six).
+  await open(page, '/launch');
+  await expect(page.getByTestId('countdown')).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('tablist')).toHaveCount(0);
   // Launching on Solana is off in a production build (curveWriteFlag.ts), so its tab is not
   // listed off its own page, and on its own page it is the lit tab.
-  await open(page, '/launch');
+  await open(page, '/launch-simulator');
   await expect(page.getByRole('tab', { name: 'Solana Curve' })).toHaveCount(0);
   await open(page, '/curve-launch');
   await expect(page.getByRole('tab', { name: 'Solana Curve' })).toHaveAttribute('aria-selected', 'true');
