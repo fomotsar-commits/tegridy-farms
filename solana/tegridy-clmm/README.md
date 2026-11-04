@@ -32,6 +32,10 @@ received to equal the amount asked, which holds only at a zero fee. CI skips it,
 `programs/amm/tests/swap_math_fee_rule.rs`, our own file beside upstream's, checks the rule
 for all four swap kinds.
 
+Any change to a `.rs` file under `programs/amm/src`, a unit test included, needs the site's test
+vectors made again (`bash frontend/scripts/clmm-vectors/run.sh <scratch folder>`): their stamp
+hashes this source, and `frontend/src/lib/solana/clmm/quote.test.ts` fails until it matches.
+
 Its own workspace, because upstream builds with Anchor 1.0.2 and Solana 3.1.10 and the three
 programs in `../tegridy-amm` stay on Anchor 0.32.1. Plan, costs and owner decisions:
 `docs/RANGE_POOLS_PLAN.md`.
