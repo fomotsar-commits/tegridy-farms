@@ -1,11 +1,14 @@
 /**
- * cp-swap's fee rules of 2026-11-03, the range-pool program's rules carried over, on a local
- * validator. solana-ci.yml's migration-rehearsal job builds cp-swap with this wallet as
- * `admin::ID` and its WSOL ATA as the pool-opening fee receiver, then runs this file.
+ * cp-swap's fee rules of 2026-11-03 on a local validator. solana-ci.yml's migration-rehearsal
+ * job builds cp-swap with this wallet as `admin::ID` and its WSOL ATA as the pool-opening fee
+ * receiver, then runs this file.
  *
+ * The range-pool program's rules, carried over:
  *  - A tier charges a trader more than 0 and at most 4% (trade fee and creator fee together),
- *    and keeps at most 20% of each fee for the protocol and fund owners together.
+ *    and keeps at most 20% of its trade fee for the protocol and fund owners together.
  *  - Only a tier's fund owner collects the fund fee. The admin (the vault on mainnet) cannot.
+ * Our own:
+ *  - The admin hands a tier's fund fee over once, while it still holds it, and never again.
  */
 import * as anchor from "@coral-xyz/anchor";
 import { AnchorProvider, BN, Idl, Program } from "@coral-xyz/anchor";
@@ -205,4 +208,39 @@ describe("cp-swap fee rules", () => {
     const left = BigInt((await (cpSwap.account as any).poolState.fetch(pool)).fundFeesToken0.toString());
     assert.equal(left.toString(), "0");
   });
+
+  // The admin hands a new tier's fund fee over once (create_amm_config makes the admin its fund
+  // owner). After that it cannot point it anywhere else. One tier per target, so one target
+  // going through cannot hide the other.
+  const targets: [string, number, () => PublicKey][] = [
+    ["back at the admin", 31, () => wallet.publicKey],
+    ["at another wallet", 32, () => Keypair.generate().publicKey],
+  ];
+  for (const [what, index, target] of targets) {
+    it(`never lets the admin point a handed-over fund fee ${what}`, async () => {
+      assert.equal(await makeTier(index, 10_000, 104_000, 56_000, 0), "", "the 1% tier's shape");
+      const tier = tierAt(index);
+      const pointAt = async (who: PublicKey) => {
+        try {
+          await cpSwap.methods
+            .updateAmmConfig(4, new BN(0))
+            .accountsPartial({ owner: wallet.publicKey, ammConfig: tier })
+            .remainingAccounts([{ pubkey: who, isSigner: false, isWritable: false }])
+            .rpc();
+          return "";
+        } catch (e) {
+          return failure(e) || "refused";
+        }
+      };
+      const fundOwner = async () => ((await (cpSwap.account as any).ammConfig.fetch(tier)).fundOwner as PublicKey).toBase58();
+      const island = Keypair.generate().publicKey;
+      assert.equal(await pointAt(island), "", "the first hand-over goes through");
+      assert.equal(await fundOwner(), island.toBase58());
+
+      const refused = await pointAt(target());
+      assert.include(refused, "InvalidOwner", "a second hand-over must be refused");
+      assert.include(refused, "update_config.rs", "by the hand-over rule, not the signer check");
+      assert.equal(await fundOwner(), island.toBase58(), "the fund fee stays with its owner");
+    });
+  }
 });

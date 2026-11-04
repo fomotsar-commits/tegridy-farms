@@ -40,6 +40,8 @@ solana_security_txt::security_txt! {
 //     the fund fee (collect_fund_fee.rs); a tier charges a trader more than 0 and at most
 //     4%, and keeps at most 20% of its trade fee for the protocol and fund owners together
 //     (here and update_config.rs; constants in states/config.rs).
+//   - 2026-11-03, update_config.rs: the admin hands a tier's fund fee over once, while it
+//     still holds it, and can never point it anywhere else after that.
 //   - 2026-11-03, utils/token.rs: MINT_WHITELIST deleted, as upstream itself deleted it
 //     (59fb845); a support-mint record no longer skips the Token-2022 extension check.
 // The security.txt above is ours too, on our own domain since 2026-10-06. Every line of
@@ -63,7 +65,8 @@ pub mod admin {
     // Admin authority: create_config / update_config / update_pool_status AND a
     // fallback collector on collect_protocol_fee (can sweep accrued protocol fees to any
     // recipient) — a fund-touching, top-tier key. Since 2026-11-03 it is not one on
-    // collect_fund_fee: only the tier's fund owner collects the fund fee.
+    // collect_fund_fee: only the tier's fund owner collects the fund fee, and the admin
+    // hands that role over only once (update_config.rs).
     //
     // ─── THIS MUST BE A SIGNABLE, RENT-PAYING ACCOUNT ──────────────────────────
     // It was the Squads MULTISIG account (EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK),
@@ -86,7 +89,9 @@ pub mod admin {
     // a Squads vault transaction, and pays `CreateAmmConfig`'s rent from its own
     // lamports — so fund it before `create_amm_config`. Every admin action is now a
     // 2-of-2 proposal. Moving THIS constant again needs a program upgrade, because
-    // it is resolved at compile time.
+    // it is resolved at compile time. Before moving it, hand over every tier whose fund
+    // owner is still this key: update_config.rs lets only the running build's admin hand
+    // a fund fee over, so a tier left on the old key could not be handed over again.
     #[cfg(feature = "devnet")]
     pub const ID: Pubkey = pubkey!("GgE6AfEH2AVSrKGckyKMzC6mhtXWiAn39EzAikAsWq5a");
     #[cfg(not(feature = "devnet"))]
