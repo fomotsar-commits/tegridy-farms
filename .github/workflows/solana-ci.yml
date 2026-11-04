@@ -5,7 +5,8 @@ name: solana-ci
 # added instruction (create_lp_metadata, which names a pool's lp token), one
 # refusal (public initialize on fee tier 0), the range-pool program's fee rules
 # (only the fund owner collects the fund fee; a tier charges more than 0 and at most
-# 4%, keeping at most 20% of its trade fee), upstream's own deletion of MINT_WHITELIST
+# 4%, keeping at most 20% of its trade fee), our own rule that the admin hands a
+# tier's fund fee over only once, upstream's own deletion of MINT_WHITELIST
 # and a support-mint record that no longer skips the Token-2022 check, plus
 # tegridy-launch, our own bonding curve that graduates into it.
 # Gates:
@@ -511,8 +512,9 @@ jobs:
           fi
           sha256sum "$SO"
           { echo "### cp-swap mainnet build"; echo; echo "sha256 \`$(sha256sum "$SO" | cut -d' ' -f1)\`, $(stat -c%s "$SO") bytes"; } >> "$GITHUB_STEP_SUMMARY"
-      # Upstream's own unit tests and the fork's: the fee ceilings and the Token-2022 coin
-      # check. Upstream's passed but no job ran them until 2026-11-03.
+      # Upstream's own unit tests and the fork's: the fee ceilings, the fund fee's one
+      # hand-over and the Token-2022 coin check. Upstream's passed but no job ran them
+      # until 2026-11-03.
       - name: cp-swap's unit tests
         run: cargo test --locked --lib
 

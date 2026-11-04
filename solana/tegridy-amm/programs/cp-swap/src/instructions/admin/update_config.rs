@@ -75,6 +75,9 @@ fn set_new_protocol_owner(amm_config: &mut Account<AmmConfig>, new_owner: Pubkey
 }
 
 fn set_new_fund_owner(amm_config: &mut Account<AmmConfig>, new_fund_owner: Pubkey) -> Result<()> {
+    // memetics.finance: the admin hands a tier's fund fee over once, while it still holds it
+    // (create_amm_config makes it the fund owner); after that only a program upgrade can move it.
+    require_keys_eq!(amm_config.fund_owner, crate::admin::ID, ErrorCode::InvalidOwner);
     require_keys_neq!(new_fund_owner, Pubkey::default());
     #[cfg(feature = "enable-log")]
     msg!(
@@ -86,33 +89,36 @@ fn set_new_fund_owner(amm_config: &mut Account<AmmConfig>, new_fund_owner: Pubke
     Ok(())
 }
 
+/// A fee tier as the update helpers take it.
+#[cfg(test)]
+fn test_tier(config: AmmConfig) -> Account<'static, AmmConfig> {
+    let mut data = Vec::new();
+    config.try_serialize(&mut data).unwrap();
+    let info: &'static AccountInfo<'static> = Box::leak(Box::new(AccountInfo::new(
+        Box::leak(Box::new(Pubkey::new_unique())),
+        false,
+        true,
+        Box::leak(Box::new(1_000_000u64)),
+        Box::leak(data.into_boxed_slice()),
+        Box::leak(Box::new(crate::id())),
+        false,
+        0,
+    )));
+    Account::try_from(info).unwrap()
+}
+
 #[cfg(test)]
 mod fee_ceiling_test {
     use super::*;
 
-    /// A fee tier as the update helpers take it.
     fn tier(trade: u64, creator: u64, protocol: u64, fund: u64) -> Account<'static, AmmConfig> {
-        let mut data = Vec::new();
-        AmmConfig {
+        test_tier(AmmConfig {
             trade_fee_rate: trade,
             creator_fee_rate: creator,
             protocol_fee_rate: protocol,
             fund_fee_rate: fund,
             ..Default::default()
-        }
-        .try_serialize(&mut data)
-        .unwrap();
-        let info: &'static AccountInfo<'static> = Box::leak(Box::new(AccountInfo::new(
-            Box::leak(Box::new(Pubkey::new_unique())),
-            false,
-            true,
-            Box::leak(Box::new(1_000_000u64)),
-            Box::leak(data.into_boxed_slice()),
-            Box::leak(Box::new(crate::id())),
-            false,
-            0,
-        )));
-        Account::try_from(info).unwrap()
+        })
     }
 
     // The two tiers on mainnet: fee settings 0 and 1 in frontend/scripts/addresses.json.
@@ -179,5 +185,64 @@ mod fee_ceiling_test {
         update_fund_fee_rate(&mut c, 96_000);
         assert_eq!(c.trade_fee_rate + c.creator_fee_rate, 40_000);
         assert_eq!(c.protocol_fee_rate + c.fund_fee_rate, 200_000);
+    }
+}
+
+#[cfg(test)]
+mod fund_owner_test {
+    use super::*;
+
+    /// A tier whose fund fee belongs to `fund_owner`; its protocol owner is the admin, as on
+    /// every real tier (create_amm_config sets both roles to the admin).
+    fn owned_by(fund_owner: Pubkey) -> Account<'static, AmmConfig> {
+        test_tier(AmmConfig {
+            fund_owner,
+            protocol_owner: crate::admin::ID,
+            ..Default::default()
+        })
+    }
+
+    fn refused_by_the_hand_over_rule(r: Result<()>) -> bool {
+        matches!(r, Err(e) if format!("{e:?}").contains("InvalidOwner"))
+    }
+
+    // Both live tiers' fund fee belongs to the island's Workshop, not to the admin.
+    #[test]
+    fn the_admin_cannot_point_a_handed_over_fund_fee_back_at_itself() {
+        let island = Pubkey::new_unique();
+        let mut t = owned_by(island);
+        assert!(refused_by_the_hand_over_rule(set_new_fund_owner(&mut t, crate::admin::ID)));
+        assert_eq!(t.fund_owner, island);
+    }
+
+    #[test]
+    fn the_admin_cannot_point_a_handed_over_fund_fee_at_another_wallet() {
+        let island = Pubkey::new_unique();
+        let mut t = owned_by(island);
+        assert!(refused_by_the_hand_over_rule(set_new_fund_owner(&mut t, Pubkey::new_unique())));
+        assert_eq!(t.fund_owner, island);
+    }
+
+    // The rule reads the admin key, not the tier's protocol owner: param 3 can move the protocol
+    // role, so a tier whose two roles both sit with the island must refuse the admin too.
+    #[test]
+    fn the_rule_reads_the_admin_key_not_the_tiers_protocol_owner() {
+        let island = Pubkey::new_unique();
+        let mut t = test_tier(AmmConfig {
+            fund_owner: island,
+            protocol_owner: island,
+            ..Default::default()
+        });
+        assert!(refused_by_the_hand_over_rule(set_new_fund_owner(&mut t, crate::admin::ID)));
+        assert_eq!(t.fund_owner, island);
+    }
+
+    // Control: a new tier, whose fund owner create_amm_config makes the admin, is handed over.
+    #[test]
+    fn the_admin_hands_a_new_tiers_fund_fee_over() {
+        let island = Pubkey::new_unique();
+        let mut t = owned_by(crate::admin::ID);
+        set_new_fund_owner(&mut t, island).unwrap();
+        assert_eq!(t.fund_owner, island);
     }
 }

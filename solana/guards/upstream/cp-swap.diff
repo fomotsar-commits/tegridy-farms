@@ -27,7 +27,7 @@
 >     // this fork's diff-audit is PENDING; the upstream audit does NOT cover it, so
 >     // claiming it on-chain would be false. Every link above is on our own domain:
 >     // never put a git-host URL in this macro (docs/TODO_OPERATOR.md O-0929-10).
-21a32,55
+21a32,57
 > // ─── TEGRIDY FORK CHANGES (2026-07-11) ────────────────────────────────────────
 > // The ENTIRE code delta from upstream raydium-cp-swap (Apache-2.0) is 4 authority/
 > // identity constants (3 here + create_support_mint_associated_owner in
@@ -39,6 +39,8 @@
 > //     the fund fee (collect_fund_fee.rs); a tier charges a trader more than 0 and at most
 > //     4%, and keeps at most 20% of its trade fee for the protocol and fund owners together
 > //     (here and update_config.rs; constants in states/config.rs).
+> //   - 2026-11-03, update_config.rs: the admin hands a tier's fund fee over once, while it
+> //     still holds it, and can never point it anywhere else after that.
 > //   - 2026-11-03, utils/token.rs: MINT_WHITELIST deleted, as upstream itself deleted it
 > //     (59fb845); a support-mint record no longer skips the Token-2022 extension check.
 > // The security.txt above is ours too, on our own domain since 2026-10-06. Every line of
@@ -52,19 +54,20 @@
 > // mistake that shipped 2026-08-08 and bricked graduation. The authoritative
 > // guidance is the admin module's own comment below: the constant must be a
 > // SIGNABLE, SYSTEM-OWNED, rent-paying account, never the Squads multisig account.)
-23c57
+23c59
 < declare_id!("DRaycpLY18LhpbydsBWbVJtxpNv9oXPgjRSfpF2bWpYb");
 ---
 > declare_id!("BvBkt84ZiKmiPSuWrdefxbxPTX5YiLnU6YEGtY6pDodL");
-25c59
+25c61
 < declare_id!("CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C");
 ---
 > declare_id!("EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT");
-28a63,89
+28a65,94
 >     // Admin authority: create_config / update_config / update_pool_status AND a
 >     // fallback collector on collect_protocol_fee (can sweep accrued protocol fees to any
 >     // recipient) — a fund-touching, top-tier key. Since 2026-11-03 it is not one on
->     // collect_fund_fee: only the tier's fund owner collects the fund fee.
+>     // collect_fund_fee: only the tier's fund owner collects the fund fee, and the admin
+>     // hands that role over only once (update_config.rs).
 >     //
 >     // ─── THIS MUST BE A SIGNABLE, RENT-PAYING ACCOUNT ──────────────────────────
 >     // It was the Squads MULTISIG account (EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK),
@@ -87,41 +90,43 @@
 >     // a Squads vault transaction, and pays `CreateAmmConfig`'s rent from its own
 >     // lamports — so fund it before `create_amm_config`. Every admin action is now a
 >     // 2-of-2 proposal. Moving THIS constant again needs a program upgrade, because
->     // it is resolved at compile time.
-30c91
+>     // it is resolved at compile time. Before moving it, hand over every tier whose fund
+>     // owner is still this key: update_config.rs lets only the running build's admin hand
+>     // a fund fee over, so a tier left on the old key could not be handed over again.
+30c96
 <     pub const ID: Pubkey = pubkey!("DRayqG9RXYi8WHgWEmRQGrUWRWbhjYWYkCRJDd6JBBak");
 ---
 >     pub const ID: Pubkey = pubkey!("GgE6AfEH2AVSrKGckyKMzC6mhtXWiAn39EzAikAsWq5a");
-32c93
+32c98
 <     pub const ID: Pubkey = pubkey!("GThUX1Atko4tqhN2NaiTazWSeFWMuiUvfFnyJyUghFMJ");
 ---
 >     pub const ID: Pubkey = pubkey!("GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd");
-36a98,102
+36a103,107
 >     // Flat pool-creation fee recipient. This account is consumed as a native-SOL
 >     // (WSOL) SPL TOKEN ACCOUNT — the create path deserializes it as
 >     // InterfaceAccount<TokenAccount> and calls sync_native — so it MUST be a WSOL
 >     // token account (e.g. the treasury's WSOL ATA), NOT a wallet. Devnet = the
 >     // treasury/admin's WSOL ATA (created before deploy; see deploy-devnet.sh).
-38c104
+38c109
 <     pub const ID: Pubkey = pubkey!("3oE58BKVt8KuYkGxx8zBojugnymWmBiyafWgMrnb6eYy");
 ---
 >     pub const ID: Pubkey = pubkey!("27AC7YwwAULHQcQXGErV7rHMsLZAUBWF6ozDNhSpTQE9");
-40c106
+40c111
 <     pub const ID: Pubkey = pubkey!("DNXgeM9EiiaAbaWvwjHj9fQQLAX5ZsfHyvmYUNRAdNC8");
 ---
 >     pub const ID: Pubkey = pubkey!("2sa31zceMSTAAbSu5wfSnNA6sBYzS7r97nvZYaQouEXa");
-67c133,136
+67c138,141
 <         assert!(trade_fee_rate + creator_fee_rate < FEE_RATE_DENOMINATOR_VALUE);
 ---
 >         // memetics.finance: a trade fee of 0 makes every swap into a public pool revert
 >         // (split_creator_fee divides by the two rates' sum), so it is refused.
 >         assert!(trade_fee_rate > 0);
 >         assert!(trade_fee_rate + creator_fee_rate <= MAX_FEE_RATE_NUMERATOR);
-70c139
+70c144
 <         assert!(fund_fee_rate + protocol_fee_rate <= FEE_RATE_DENOMINATOR_VALUE);
 ---
 >         assert!(fund_fee_rate + protocol_fee_rate <= MAX_PROTOCOL_AND_FUND_FEE_RATE);
-298a368,524
+298a373,529
 > 
 >     /// Create the Metaplex name record of a pool's lp token mint. Anyone may call it and
 >     /// the caller pays. It takes no arguments: the name, the symbol and the link are fixed
@@ -330,36 +335,43 @@
 <     assert!(creator_fee_rate + amm_config.trade_fee_rate < FEE_RATE_DENOMINATOR_VALUE);
 ---
 >     assert!(creator_fee_rate + amm_config.trade_fee_rate <= MAX_FEE_RATE_NUMERATOR);
-84a87,182
+75a78,80
+>     // memetics.finance: the admin hands a tier's fund fee over once, while it still holds it
+>     // (create_amm_config makes it the fund owner); after that only a program upgrade can move it.
+>     require_keys_eq!(amm_config.fund_owner, crate::admin::ID, ErrorCode::InvalidOwner);
+84a90,247
+> }
+> 
+> /// A fee tier as the update helpers take it.
+> #[cfg(test)]
+> fn test_tier(config: AmmConfig) -> Account<'static, AmmConfig> {
+>     let mut data = Vec::new();
+>     config.try_serialize(&mut data).unwrap();
+>     let info: &'static AccountInfo<'static> = Box::leak(Box::new(AccountInfo::new(
+>         Box::leak(Box::new(Pubkey::new_unique())),
+>         false,
+>         true,
+>         Box::leak(Box::new(1_000_000u64)),
+>         Box::leak(data.into_boxed_slice()),
+>         Box::leak(Box::new(crate::id())),
+>         false,
+>         0,
+>     )));
+>     Account::try_from(info).unwrap()
 > }
 > 
 > #[cfg(test)]
 > mod fee_ceiling_test {
 >     use super::*;
 > 
->     /// A fee tier as the update helpers take it.
 >     fn tier(trade: u64, creator: u64, protocol: u64, fund: u64) -> Account<'static, AmmConfig> {
->         let mut data = Vec::new();
->         AmmConfig {
+>         test_tier(AmmConfig {
 >             trade_fee_rate: trade,
 >             creator_fee_rate: creator,
 >             protocol_fee_rate: protocol,
 >             fund_fee_rate: fund,
 >             ..Default::default()
->         }
->         .try_serialize(&mut data)
->         .unwrap();
->         let info: &'static AccountInfo<'static> = Box::leak(Box::new(AccountInfo::new(
->             Box::leak(Box::new(Pubkey::new_unique())),
->             false,
->             true,
->             Box::leak(Box::new(1_000_000u64)),
->             Box::leak(data.into_boxed_slice()),
->             Box::leak(Box::new(crate::id())),
->             false,
->             0,
->         )));
->         Account::try_from(info).unwrap()
+>         })
 >     }
 > 
 >     // The two tiers on mainnet: fee settings 0 and 1 in frontend/scripts/addresses.json.
@@ -426,6 +438,65 @@
 >         update_fund_fee_rate(&mut c, 96_000);
 >         assert_eq!(c.trade_fee_rate + c.creator_fee_rate, 40_000);
 >         assert_eq!(c.protocol_fee_rate + c.fund_fee_rate, 200_000);
+>     }
+> }
+> 
+> #[cfg(test)]
+> mod fund_owner_test {
+>     use super::*;
+> 
+>     /// A tier whose fund fee belongs to `fund_owner`; its protocol owner is the admin, as on
+>     /// every real tier (create_amm_config sets both roles to the admin).
+>     fn owned_by(fund_owner: Pubkey) -> Account<'static, AmmConfig> {
+>         test_tier(AmmConfig {
+>             fund_owner,
+>             protocol_owner: crate::admin::ID,
+>             ..Default::default()
+>         })
+>     }
+> 
+>     fn refused_by_the_hand_over_rule(r: Result<()>) -> bool {
+>         matches!(r, Err(e) if format!("{e:?}").contains("InvalidOwner"))
+>     }
+> 
+>     // Both live tiers' fund fee belongs to the island's Workshop, not to the admin.
+>     #[test]
+>     fn the_admin_cannot_point_a_handed_over_fund_fee_back_at_itself() {
+>         let island = Pubkey::new_unique();
+>         let mut t = owned_by(island);
+>         assert!(refused_by_the_hand_over_rule(set_new_fund_owner(&mut t, crate::admin::ID)));
+>         assert_eq!(t.fund_owner, island);
+>     }
+> 
+>     #[test]
+>     fn the_admin_cannot_point_a_handed_over_fund_fee_at_another_wallet() {
+>         let island = Pubkey::new_unique();
+>         let mut t = owned_by(island);
+>         assert!(refused_by_the_hand_over_rule(set_new_fund_owner(&mut t, Pubkey::new_unique())));
+>         assert_eq!(t.fund_owner, island);
+>     }
+> 
+>     // The rule reads the admin key, not the tier's protocol owner: param 3 can move the protocol
+>     // role, so a tier whose two roles both sit with the island must refuse the admin too.
+>     #[test]
+>     fn the_rule_reads_the_admin_key_not_the_tiers_protocol_owner() {
+>         let island = Pubkey::new_unique();
+>         let mut t = test_tier(AmmConfig {
+>             fund_owner: island,
+>             protocol_owner: island,
+>             ..Default::default()
+>         });
+>         assert!(refused_by_the_hand_over_rule(set_new_fund_owner(&mut t, crate::admin::ID)));
+>         assert_eq!(t.fund_owner, island);
+>     }
+> 
+>     // Control: a new tier, whose fund owner create_amm_config makes the admin, is handed over.
+>     #[test]
+>     fn the_admin_hands_a_new_tiers_fund_fee_over() {
+>         let island = Pubkey::new_unique();
+>         let mut t = owned_by(crate::admin::ID);
+>         set_new_fund_owner(&mut t, island).unwrap();
+>         assert_eq!(t.fund_owner, island);
 >     }
 === src/instructions/initialize.rs ===
 204a205,209
