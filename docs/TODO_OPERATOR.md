@@ -111,6 +111,57 @@ enough for step 5 (about 63,000 gas) at that day's gas.
 
 ---
 
+## 🔴 2026-11-04, 02:52 UTC: the pool undo (#24) ran by mistake. The redo is one proposal, with no undo
+
+Read on mainnet 2026-11-04 between 02:51 and 03:20 UTC. This section replaces what the Day 2 section
+below says about #22, #24 and the roll-back buffer's return.
+
+**What ran.** On 11-03 #23 (15:50:34), #25 (15:59:25), #26 (15:59:43) and #27 (16:08:01) executed
+and every check passed. On 11-04 member A pressed Execute in the Squads app on two more:
+- **#24, the pool undo, at 02:52:41 UTC** (transaction
+  `4dERffNjSiQZdZUGJMsF6cujCVP7C2zsuSfVdWh9TXUg8kfTnuESD4wAvoQxtmRy7wSjdm2Aid4wQGdVprzgfA5M`). The pool
+  program is back on the old build `88b98aa9`. **Anyone can again open a pool on the launch tier and
+  skip the venue's 0.15 SOL opening fee** (0 pools there at 03:00 UTC). Swaps and the 19 pools are
+  unaffected.
+- **#22, the range upgrade, at 02:52:50 UTC** (transaction
+  `5Z9mMkJBgyPejHQbWwV6pauJogMxKZrz7wzGghhf8JMQt64PXRNvjLC92LiCm2Zxtrw2UCGDN4DYk8Ndq3dVZLGt`), build
+  `1e896e1e`. Opening a range pool now costs 0.5 SOL, paid to the vault. It ran 3 h 33 min before the
+  seven-day notice ended (06:25 UTC); 0 range pools exist, so nobody paid it early.
+- No SOL went anywhere it shouldn't: both buffers' SOL (7.758 + 3.514) went back to the deploy
+  wallet `CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg`, which holds 15.032507881 SOL. The roll-back
+  buffer is gone, so its "return" proposal is no longer needed.
+
+The Squads app also made **#28, #29 and #30**, each "set the rent collector to the vault". #30 has both
+approvals and can execute from 2026-11-06 02:55:38 UTC. It is harmless, but when it executes every
+proposal that does not yet have both approvals goes stale: run it only after the redo below has both.
+#28 has one vote and can't run; #29 is rejected.
+
+**The rule from now on (this was the second time: #16 on 10-24 was the same undo).**
+- No undo is ever approved in advance. One proposal per change. If a new build breaks, a session
+  uploads the old build and you propose the undo then; it waits 48 hours like everything else.
+- Never press Execute in the Squads app. If no page is running, ask a session to start one.
+- At the end of every sitting a session reads the vault: every approved, not yet executed proposal
+  must be one you want to run. Anything else is cancelled that sitting.
+
+**The redo (pool program back to `1e55bcdc`).** The paying wallet already holds enough (3.69 SOL is
+parked and comes back at the execute); member A pays 0.0046 SOL for the proposal. Pack:
+`C:\Users\jimbo\solana-launch-release-2026-09-26\pool-program-upgrade-2026-10`, folder
+`owner-run\round-3-2026-11-04` (the preflight was run into it 03:05 UTC; its two REFUSED lines are
+member A's balance for the old four-proposal plan and #30, both covered above).
+1. Steps R4 to R8 of `RE-UPGRADE-2026-10-24.md`, with `round-3-2026-11-04` in place of
+   `round-2-2026-10-24`: make the buffer key, upload `cp_swap.upgrade-1e55bcdc.mainnet.so`, check
+   (`1e55bcdcb10c39ee…fd22`), hand it to the vault, check again.
+2. **Skip R9 to R11 (the roll-back upload) and the roll-back step on the page.**
+3. Page `proposer\serve.mjs` (http://127.0.0.1:5299/): member A picks **Upgrade the pool program** and
+   signs **proposal #31**; member B approves #31 the same night. Write down the time the page names.
+4. At that time: **Upgrade the pool program** only, **EXECUTE proposal #31**, then
+   `scripts\4-verify-after-upgrade.mjs --before ...\owner-run\round-3-2026-11-04\pools-before-upgrade.mainnet.json`
+   must end `RESULT: the upgrade is live and both pools are untouched.`
+5. The same hour: #1107 (it says `1e55bcdc` is live; it must not merge before). Until then the
+   registry's `88b98aa9` pin is right again.
+
+---
+
 ## 🔴 2026-11-02 from 19:53 UTC: Day 2 of the vault batch (Day 0 is done)
 
 Day 0 ran on 2026-10-31 and every proposal below was read back from mainnet at 19:55 UTC that day.
