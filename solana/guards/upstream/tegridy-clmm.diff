@@ -38,9 +38,9 @@
 12a13,18
 > // Changed by memetics.finance (tegridy-clmm): raydium-clmm @ ed1eb415 (Apache-2.0) with every
 > // address upstream hard-codes for itself replaced by the venue's, plus its name, links and memos,
-> // the build gates below, the venue's fee rules and opening fee, and the instructions deleted on
-> // 2026-11-03. docs/RANGE_POOLS_PLAN.md lists each change; the guards in solana/guards/ hold the
-> // copy to exactly that patch.
+> // the build gates below, the venue's fee rules and opening fee, and the fixes of the 2026-11-03
+> // audit. docs/RANGE_POOLS_PLAN.md lists each change; the guards in solana/guards/ hold the copy to
+> // exactly that patch.
 > // No `auditors` line: upstream's audits do not cover this copy.
 15,21c21,26
 <     name: "raydium-clmm",
@@ -96,33 +96,34 @@
 <     pub const ID: Pubkey = pubkey!("Ray8HHtixhL9zvnokMyELCVGp622PDPJj96zcVC9RWp");
 ---
 >     pub const ID: Pubkey = pubkey!("GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd");
-52c70
-< pub mod collect_lamports {
----
-> pub mod fund_fee_owner {
-55c73
+51a70
+> // memetics.finance: nothing reads this since collect_excess_lamports was deleted (2026-11-03).
+55c74
 <     pub const ID: Pubkey = pubkey!("DRay9ncC4JVKemPgT4FBaAV2wyTK21CUa7reZKgKdE9B");
 ---
 >     pub const ID: Pubkey = pubkey!("GgE6AfEH2AVSrKGckyKMzC6mhtXWiAn39EzAikAsWq5a");
-57c75
+57c76
 <     pub const ID: Pubkey = pubkey!("Ray9LdYRLXsHzL8pr3Ceahfiz8MsS2pZagzHo1ckdfJ");
 ---
 >     pub const ID: Pubkey = pubkey!("GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd");
-60c78
-< pub mod fund_fee_owner {
----
-> pub mod protocol_fee_owner {
-63c81
+63c82
 <     pub const ID: Pubkey = pubkey!("DRayDktajVnqaNPyuYATWmZXyiJkdXpmUPdBYEapgaLY");
 ---
 >     pub const ID: Pubkey = pubkey!("GgE6AfEH2AVSrKGckyKMzC6mhtXWiAn39EzAikAsWq5a");
-65c83
+65c84
 <     pub const ID: Pubkey = pubkey!("FundHfY8oo8J9KYGyfXFFuQCHe7Z1VBNmsj84eMcdYs4");
 ---
 >     pub const ID: Pubkey = pubkey!("GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd");
-68c86,93
-< pub mod protocol_fee_owner {
+71c90
+<     pub const ID: Pubkey = pubkey!("DRayDktajVnqaNPyuYATWmZXyiJkdXpmUPdBYEapgaLY");
 ---
+>     pub const ID: Pubkey = pubkey!("GgE6AfEH2AVSrKGckyKMzC6mhtXWiAn39EzAikAsWq5a");
+73c92,107
+<     pub const ID: Pubkey = pubkey!("projjosVCPQH49d5em7VYS7fJZzaqKixqKtus7yk416");
+---
+>     pub const ID: Pubkey = pubkey!("GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd");
+> }
+> 
 > // memetics.finance: cp-swap's pool-opening fee (its initialize.rs), in every instruction that
 > // opens a pool. The receiver is the vault itself, a wallet: cp-swap's wrapped-SOL account would
 > // need the SPL Token program to sync, and a pool's two coins may both be Token-2022. The amount is
@@ -131,15 +132,12 @@
 > pub const CREATE_POOL_FEE: u64 = 500_000_000;
 > 
 > pub mod create_pool_fee_reveiver {
-71c96
-<     pub const ID: Pubkey = pubkey!("DRayDktajVnqaNPyuYATWmZXyiJkdXpmUPdBYEapgaLY");
----
+>     use super::{pubkey, Pubkey};
+>     #[cfg(feature = "devnet")]
 >     pub const ID: Pubkey = pubkey!("GgE6AfEH2AVSrKGckyKMzC6mhtXWiAn39EzAikAsWq5a");
-73c98
-<     pub const ID: Pubkey = pubkey!("projjosVCPQH49d5em7VYS7fJZzaqKixqKtus7yk416");
----
+>     #[cfg(not(feature = "devnet"))]
 >     pub const ID: Pubkey = pubkey!("GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd");
-134,196c159,161
+134,196c168,170
 <     /// Create dynamic fee config
 <     ///
 <     /// # Arguments
@@ -207,7 +205,7 @@
 >     // memetics.finance: create_dynamic_fee_config and update_dynamic_fee_config are deleted
 >     // (2026-11-03 audit, CR-1/CO-1/CR-7). No pool can carry a dynamic fee: create_permissioned_pool
 >     // refuses one and create_customizable_pool is gone.
-229,241c194,196
+229,241c203,205
 <     /// Creates a pool for the given token pair with customizable parameters
 <     ///
 <     /// # Arguments
@@ -225,7 +223,7 @@
 >     // memetics.finance: create_customizable_pool is deleted (2026-11-03 audit, CL-03/DG-02). It let
 >     // whoever opened a pair first fix that pool's fee coin and dynamic fee for good; create_pool
 >     // opens the same pool with the defaults.
-782,786c737,799
+782,786c746,808
 <     /// Collect excess lamports, including accounts for SPL tokens owned by authority and Program PDA accounts.
 <     pub fn collect_excess_lamports<'info>(
 <         ctx: Context<'info, CollectExcessLamports<'info>>,
@@ -245,7 +243,7 @@
 >     #[test]
 >     fn only_a_release_build_carries_the_mainnet_id() {
 >         let test_build = cfg!(any(feature = "devnet", feature = "localnet", feature = "paramset"));
->         assert_eq!(ID == pubkey!("7ghzbbmq59QEbdweSzM1ggpeBH1Q2CyxZg4Tr2x8Aso"), !test_build);
+>         assert_eq!(ID.to_string() == "7ghzbbmq59QEbdweSzM1ggpeBH1Q2CyxZg4Tr2x8Aso", !test_build);
 >     }
 > }
 > 

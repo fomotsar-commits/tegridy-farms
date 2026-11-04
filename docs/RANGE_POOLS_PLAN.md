@@ -48,7 +48,7 @@ role use the venue's devnet key `GgE6AfEH2AVSrKGckyKMzC6mhtXWiAn39EzAikAsWq5a`.
 | Admin | `GThUX1Atko4tqhN2NaiTazWSeFWMuiUvfFnyJyUghFMJ` | vault | Make and change fee tiers (at most 4% of a swap; at most 16% of each fee to the venue and the island together; tick spacing above 0), pause a pool, turn its limit orders on, collect the protocol's share |
 | Protocol-fee owner | `projjosVCPQH49d5em7VYS7fJZzaqKixqKtus7yk416` | vault | Collect the protocol's share of swap fees |
 | Fund-fee owner | `FundHfY8oo8J9KYGyfXFFuQCHe7Z1VBNmsj84eMcdYs4` | vault, as each tier is born; the same proposal then hands each tier's fund share to the island's Workshop | Collect the fund's share of swap fees |
-| Spare-SOL collector | `Ray9LdYRLXsHzL8pr3Ceahfiz8MsS2pZagzHo1ckdfJ` | none since 2026-11-03 (the vault before) | Nothing: its sweep is deleted from the source (on chain from the upgrade after #22). It could trim users' refundable deposits |
+| Spare-SOL collector | `Ray9LdYRLXsHzL8pr3Ceahfiz8MsS2pZagzHo1ckdfJ` | vault | Nothing since 2026-11-03: its sweep is deleted from the source (on chain from the upgrade after #22), and nothing reads the key. The sweep could trim users' refundable deposits |
 | Limit-order keeper | `Ray8HHtixhL9zvnokMyELCVGp622PDPJj96zcVC9RWp` | vault | Settle or close a user's limit order; the coins go to the order's owner only. Since 2026-11-03 a new pool takes no limit order until the admin turns them on |
 | Permission admin | `RayzVBPm6p6xtG7fU3KX4k44UexK4NjewDk2QCwoLqa` | vault | Say who may open a permission-only pool |
 | Support-mint owner | `RayVyjyJQz9vAi126A4sGexKnSU1XeZaHTRcM1mZMPY` | vault | Let in a coin with unusual Token-2022 features. Since 2026-11-03 the source ignores such a record (on chain from the upgrade after #22), so it lets in nothing |
@@ -169,7 +169,7 @@ round. The release build is 1,443,096 bytes, 83,608 fewer than before.
 |---|---|---|---|
 | CL-03, DG-02 | `create_customizable_pool` let whoever opened a pair first fix that pool's fee coin and dynamic fee for good | Deleted; `create_pool` opens the same pool with the defaults | D1, unit test |
 | CR-1, CO-1, CR-7 | The dynamic fee lacks Orca's limit, an order filled across a price gap skips it, and its settings were frozen at a pool's opening | `create_dynamic_fee_config` and `update_dynamic_fee_config` deleted, and `create_permissioned_pool` refuses a dynamic fee, so no pool can carry one. The swap's dynamic-fee code stays as Raydium wrote it, unreachable | D2, D3, X20, unit tests |
-| CD-2 | `collect_excess_lamports` let the vault trim users' refundable rent deposits | Deleted, with its key | D4, unit test |
+| CD-2 | `collect_excess_lamports` let the vault trim users' refundable rent deposits | Deleted. Its key constant stays, read by nothing, so the deploy pack's count of eight vault keys holds | D4, unit test |
 | CO-2 | Limit orders were on in every pool, with no site support or keeper behind them | A new pool starts with them off; the vault turns them on per pool | O0, unit test |
 | CL-09 | A fee tier with tick spacing 0 was accepted, and pools divide by it | Refused, as Uniswap v3's `enableFeeAmount` refuses it | T10 |
 | CD-1 | A `localnet` or `paramset` build kept the mainnet program id | Both now declare the devnet build's id, which nobody can deploy at | unit test under each setting, in CI |

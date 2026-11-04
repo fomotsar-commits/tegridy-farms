@@ -12,9 +12,9 @@ use states::*;
 
 // Changed by memetics.finance (tegridy-clmm): raydium-clmm @ ed1eb415 (Apache-2.0) with every
 // address upstream hard-codes for itself replaced by the venue's, plus its name, links and memos,
-// the build gates below, the venue's fee rules and opening fee, and the instructions deleted on
-// 2026-11-03. docs/RANGE_POOLS_PLAN.md lists each change; the guards in solana/guards/ hold the
-// copy to exactly that patch.
+// the build gates below, the venue's fee rules and opening fee, and the fixes of the 2026-11-03
+// audit. docs/RANGE_POOLS_PLAN.md lists each change; the guards in solana/guards/ hold the copy to
+// exactly that patch.
 // No `auditors` line: upstream's audits do not cover this copy.
 #[cfg(not(feature = "no-entrypoint"))]
 solana_security_txt::security_txt! {
@@ -60,6 +60,15 @@ pub mod admin {
 }
 
 pub mod limit_order_admin {
+    use super::{pubkey, Pubkey};
+    #[cfg(feature = "devnet")]
+    pub const ID: Pubkey = pubkey!("GgE6AfEH2AVSrKGckyKMzC6mhtXWiAn39EzAikAsWq5a");
+    #[cfg(not(feature = "devnet"))]
+    pub const ID: Pubkey = pubkey!("GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd");
+}
+
+// memetics.finance: nothing reads this since collect_excess_lamports was deleted (2026-11-03).
+pub mod collect_lamports {
     use super::{pubkey, Pubkey};
     #[cfg(feature = "devnet")]
     pub const ID: Pubkey = pubkey!("GgE6AfEH2AVSrKGckyKMzC6mhtXWiAn39EzAikAsWq5a");
@@ -747,7 +756,7 @@ mod program_id_test {
     #[test]
     fn only_a_release_build_carries_the_mainnet_id() {
         let test_build = cfg!(any(feature = "devnet", feature = "localnet", feature = "paramset"));
-        assert_eq!(ID == pubkey!("7ghzbbmq59QEbdweSzM1ggpeBH1Q2CyxZg4Tr2x8Aso"), !test_build);
+        assert_eq!(ID.to_string() == "7ghzbbmq59QEbdweSzM1ggpeBH1Q2CyxZg4Tr2x8Aso", !test_build);
     }
 }
 
