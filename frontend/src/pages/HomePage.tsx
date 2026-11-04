@@ -7,7 +7,7 @@ import { useAccount } from 'wagmi';
 import { isAddress } from 'viem';
 import { GALLERY_ORDER, UNIQUE_GALLERY_COUNT, pageArt, artStyle } from '../lib/artConfig';
 import { isLauncherEnabled } from '../lib/launcher/config';
-import { LAUNCH_DOOR_OPEN } from '../lib/launcher/door';
+import { isLaunchDoorOpen } from '../lib/launcher/door';
 import { isSolanaSwapLive } from '../lib/solana';
 import { chainHref, tabServes } from '../lib/sectionChains';
 import { useFarmStats } from '../hooks/useFarmStats';
@@ -1068,7 +1068,7 @@ export default function HomePage() {
               // The launch card follows the SAME gates the bar's Launch word does, so the front
               // door never advertises a rail that is closed: while the launch door is (island
               // answer twenty-six) the card is the door, with its art, and never says "Soon".
-              LAUNCH_DOOR_OPEN && isLauncherEnabled()
+              isLaunchDoorOpen() && isLauncherEnabled()
                 ? {
                     to: '/launch',
                     title: 'Launch on Ethereum',

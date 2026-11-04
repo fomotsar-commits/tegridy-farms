@@ -17,9 +17,7 @@ const EVM = '0x71be63f3384f5fb98995898a86b02fb2426c5788';
 // The launch door, closed as committed; one control opens it to show what the closed door withholds.
 const doorState = vi.hoisted(() => ({ open: false }));
 vi.mock('../lib/launcher/door', () => ({
-  get LAUNCH_DOOR_OPEN() {
-    return doorState.open;
-  },
+  isLaunchDoorOpen: () => doorState.open,
 }));
 afterEach(() => {
   doorState.open = false;

@@ -3,7 +3,7 @@ import { Countdown } from '../components/heat/Countdown';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { trackPageView } from '../lib/analytics';
 import { useLastReading } from '../lib/heat/heatStore';
-import { LAUNCH_DOOR_OPEN } from '../lib/launcher/door';
+import { isLaunchDoorOpen } from '../lib/launcher/door';
 
 // The launch hub, with its tabs and rails, for the day the island opens the door.
 const LaunchHubPage = lazy(() => import('./LaunchHubPage'));
@@ -21,6 +21,6 @@ export default function LaunchDoorPage() {
     trackPageView('/launch');
   }, []);
   const reading = useLastReading();
-  if (LAUNCH_DOOR_OPEN) return <LaunchHubPage />;
+  if (isLaunchDoorOpen()) return <LaunchHubPage />;
   return <Countdown reading={reading} look="screen" />;
 }

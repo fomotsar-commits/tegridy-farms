@@ -7,3 +7,12 @@
  * LAUNCHER_ENABLED, curveChains.ts CURVE_LAUNCH_OPEN, solana/curveWriteFlag.ts CURVE_WRITES_ENABLED.
  */
 export const LAUNCH_DOOR_OPEN: boolean = false;
+
+/**
+ * Is the launch door open? Branch on this, as on the rails' isLauncherEnabled() and
+ * isCurveLaunchOpen(), never on the constant: CodeQL reads a branch on an imported false constant
+ * as dead code.
+ */
+export function isLaunchDoorOpen(): boolean {
+  return LAUNCH_DOOR_OPEN;
+}

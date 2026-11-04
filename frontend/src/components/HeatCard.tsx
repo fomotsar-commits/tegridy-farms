@@ -38,7 +38,7 @@ import { BUNGALOWS, bungalowLpDoor } from '../lib/bungalows';
 import { CardArt } from './ui/CardArt';
 import { FinePrint } from './ui/FinePrint';
 import { Countdown } from './heat/Countdown';
-import { LAUNCH_DOOR_OPEN } from '../lib/launcher/door';
+import { isLaunchDoorOpen } from '../lib/launcher/door';
 
 const TIER_COLOR: Record<HeatTier, string> = {
   Elder: '#f5e4b8',
@@ -982,7 +982,7 @@ function Eligibility({ reading, now, countdown }: { reading: HeatReading; now: n
   if (d.state === 'COLD') return countdown ? <Countdown reading={reading} look="card" /> : null;
   // The door is not open yet (island answer twenty-six): at the floor and up the card is the
   // countdown's warm state, never "Can launch a token here".
-  if (d.state === 'WARM' && !LAUNCH_DOOR_OPEN) return countdown ? <Countdown reading={reading} look="card" /> : null;
+  if (d.state === 'WARM' && !isLaunchDoorOpen()) return countdown ? <Countdown reading={reading} look="card" /> : null;
 
   return (
     <div
