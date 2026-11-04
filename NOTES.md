@@ -56,6 +56,11 @@ sources that differ give two hashes before trusting either.
   builds in the middle of the sweep: each broken input starts a fresh validator from that path, and
   the restore check (the same hash before and after) would have failed. Copy the build under test
   to a read-only file named by its hash and point the sweep there.
+- One full suite run against the build before the fix is a better red record than one run per
+  check, but only if a fix check that the old build passes through leaves nothing behind. The
+  opener's reward on the old range build would have filled a reward slot two later checks use, so
+  the try runs on a pool opened only for it. Run that way, round 1's build failed exactly the ten fix
+  checks of 109 and nothing else.
 
 ---
 
