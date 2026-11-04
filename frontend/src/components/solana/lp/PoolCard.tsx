@@ -1,15 +1,16 @@
 import { useEffect, useId, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { isCreatedPool, type PoolEntry, type PoolView } from '../../../lib/solana/lp/poolFinder';
 import { REFERENCE_NAME, formatWhen, vaultFreezer, type PoolHealth, type PriceReference, type WithdrawalsState } from '../../../lib/solana/lp/poolHealth';
-import { feeRateText, quoteText, tokenText, tradeCostText, turnedDiff } from '../../../lib/solana/lp/format';
+import { feeRateText, formatSolPrice, priceText, quoteText, tokenText, tradeCostText, turnedDiff } from '../../../lib/solana/lp/format';
+import { SHEET_WORDS } from '../../../lib/arrival';
+import { useSheet } from '../../sheet/sheetContext';
 import { pairLabel, tokenTicker } from '../../../lib/solana/lp/identity';
 import type { QuoteCoin } from '../../../lib/solana/lp/quotes';
 import { NOTHING_WHY, noPriceClause } from '../../../lib/solana/lp/poolHealth';
 import { readAgo } from '../../../lib/solana/lp/outsidePrice';
 import { publishRoomPrice } from '../../../lib/solana/lp/roomPrice';
 import { getActiveBungalow } from '../../../lib/bungalows';
-import { chargedCreatorFeeRate, feeSplit } from '../../../lib/solana/cpswap/venue';
-import { ratePercent } from '../../../lib/solana/cpswap/math';
+import { chargedCreatorFeeRate, feeSplit, feeSplitText } from '../../../lib/solana/cpswap/venue';
 import { EXACT_EXTENSIONS, type TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { poolEarned } from '../../../lib/solana/lp/poolGrowth';
 import {
@@ -204,6 +205,63 @@ function PriceRows({ price, quote, unit }: { price: PoolHealth['price']; quote: 
 }
 
 /**
+ * The sheet's two rows and its fee line (island answer twenty-five, screen 1, rows 6 and 7),
+ * from the same reads as the card's rows: "Pool price / 1 BAYLA = 0.000007394 SOL" and
+ * "Outside price / 0.000007465 SOL · read 37 s ago", 24 px each, 13 px; past ten minutes the
+ * list's one-row hold says why adding waits. A price with no outside reference is said in the
+ * card's own words. Never a typed figure.
+ */
+function SheetPoolRows({ price, quote, unit, split }: { price: PoolHealth['price']; quote: QuoteCoin; unit: { one: string; many: string }; split: string | null }) {
+  const row = (label: string, value: ReactNode, warn = false) => (
+    <div className="flex items-baseline justify-between gap-3 min-h-[24px] text-[13px]">
+      <span className="shrink-0" style={{ color: 'var(--color-text-secondary)' }}>
+        {label}
+      </span>
+      <span className={`text-right [overflow-wrap:anywhere] ${warn ? 'text-amber-300' : ''}`} style={warn ? undefined : { color: 'var(--color-text-primary)' }}>
+        {value}
+      </span>
+    </div>
+  );
+  let rows: ReactNode;
+  if (price.state === 'agrees' || price.state === 'disagrees') {
+    const value = (
+      <>
+        {formatSolPrice(price.reference)} {quote.symbol}
+        {price.readAtMs !== undefined && <span style={{ color: 'var(--color-text-secondary)' }}> · {readAgo(price.readAtMs)}</span>}
+      </>
+    );
+    rows = (
+      <>
+        {row(SHEET_WORDS.poolPrice, priceText(price.pool, quote, unit.one))}
+        {row(price.against === 'outside' ? SHEET_WORDS.outsidePrice : REFERENCE_LABEL[price.against], value)}
+        {price.state === 'disagrees' && row('Difference', `${differenceText(price.diff)} ${REFERENCE_NAME[price.against]}`, true)}
+      </>
+    );
+  } else if (price.state === 'unread' && price.hold) {
+    rows = (
+      <>
+        {row(SHEET_WORDS.poolPrice, price.pool === null ? 'not worked out' : priceText(price.pool, quote, unit.one))}
+        {row(SHEET_WORDS.outsidePrice, price.detail.replace(/^Outside price /, ''), true)}
+      </>
+    );
+  } else {
+    rows = (
+      <div className="space-y-1.5 text-[12px]">
+        <PriceRows price={price} quote={quote} unit={unit} />
+      </div>
+    );
+  }
+  return (
+    <div data-testid="lp-door-facts" className="!mt-4">
+      {rows}
+      <p data-testid="sheet-fee-line" className={`text-[12px] mt-3 ${split ? '' : 'text-amber-300'}`} style={split ? { color: 'var(--color-text-secondary)' } : undefined}>
+        {split ? `${split}.` : 'This pool’s fee settings could not be read.'}
+      </p>
+    </div>
+  );
+}
+
+/**
  * A wish that names this pool and cannot end in its Add form (PoolFinder `LpWish.pool`:
  * the pool refuses deposits, could not be checked or read, has a deposit pending, or
  * adding is paused). The card comes onto the screen and its heading takes focus, once,
@@ -341,9 +399,7 @@ export function PoolCard({
   const explorer = explorerOf(writes);
   // The wallet a creator fee is paid to stays in view whenever this pool charges one.
   const openedBy = <AddressRow label="Opened by" value={pool.poolCreator} explorer={explorer(pool.poolCreator, 'wallet')} />;
-  const splitText = split
-    ? `LPs keep ${split.lpKeepsPct.toFixed(3)}% of each trade, the venue ${split.venueTakesPct.toFixed(3)}%${creatorRate > 0n ? `, the pool's creator ${ratePercent(creatorRate).toFixed(3)}%` : ''}`
-    : null;
+  const splitText = cfg ? feeSplitText(cfg, pool.enableCreatorFee) : null;
   // The pool's own account keeps its records; its coins sit in its two vaults, each a press away.
   const [quoteVault, tokenVault] = view.quoteIsToken0 ? [pool.token0Vault, pool.token1Vault] : [pool.token1Vault, pool.token0Vault];
   const address = (
@@ -403,7 +459,11 @@ export function PoolCard({
   );
 
   // The door draws the Add form away from this card (LpDoorFrame): the figures it needs go with it.
-  const doorFacts = (
+  // In the sheet (island answer twenty-five) they are its two rows and its fee line.
+  const sheet = useSheet();
+  const doorFacts = sheet ? (
+    <SheetPoolRows price={price} quote={view.quote} unit={unit} split={splitText} />
+  ) : (
     <div data-testid="lp-door-facts" className="space-y-1.5 text-[12px]">
       <PriceRows price={price} quote={view.quote} unit={unit} />
       <Row label="Who earns" value={splitText ? `${splitText}.` : 'This pool’s fee settings could not be read.'} mono={false} />

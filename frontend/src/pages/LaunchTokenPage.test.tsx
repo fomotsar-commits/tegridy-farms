@@ -148,11 +148,11 @@ describe('LaunchTokenPage — honest unknown states', () => {
     expect(card.textContent).not.toContain('—');
   });
 
-  it('reports a failed attestation lookup as "Cannot verify", never as "No attestation"', async () => {
+  it('reports a failed attestation lookup as "Not checked", never as "No attestation"', async () => {
     clientRef.current = makeClient({ code: DOPPLER_CLONE_CODE });
     easReply.current = async () => json({ error: 'Attestations could not be looked up right now' }, 502);
     renderAt(TOKEN);
-    expect(await screen.findByText('Cannot verify')).toBeInTheDocument();
+    expect(await screen.findByText('Not checked')).toBeInTheDocument();
     expect(screen.queryByText('No attestation')).not.toBeInTheDocument();
   });
 
@@ -186,7 +186,7 @@ describe('LaunchTokenPage — honest unknown states', () => {
     };
     renderAt(TOKEN);
     expect(await screen.findByText('No attestation')).toBeInTheDocument();
-    expect(screen.queryByText('Cannot verify')).not.toBeInTheDocument();
+    expect(screen.queryByText('Not checked')).not.toBeInTheDocument();
     expect(scans).toBe(0);
   });
 

@@ -23,7 +23,8 @@ const TOLERANCE_PX = 0.5;
 // One route per RouteTabs host. /swap has none: its chain switch is the one in the page (TradeHostPage.tsx).
 const STRIPS = [
   { path: '/liquidity', strip: 'Liquidity sections' },
-  { path: '/launch', strip: 'Launch sections' },
+  // The launch door (/launch) has no strip (island answer twenty-six): the section's is on its rails.
+  { path: '/launch-simulator', strip: 'Launch sections' },
   { path: '/earn', strip: 'Earn sections' },
   { path: '/trust', strip: 'Token-checking tools' },
   { path: '/tokenomics', strip: 'Treasury and numbers sections' },

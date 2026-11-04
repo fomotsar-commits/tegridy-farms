@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { PublicKey } from '@solana/web3.js';
@@ -15,6 +15,13 @@ import {
   type MintFacts,
   type Read,
 } from '../lib/launcher/solana/curve';
+
+// The EVM curve's launch switch, closed as committed; one test opens it to show the link out it gates.
+const curveLaunch = vi.hoisted(() => ({ open: false }));
+vi.mock('../lib/launcher/curveChains', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/launcher/curveChains')>()),
+  isCurveLaunchOpen: () => curveLaunch.open,
+}));
 
 // The page's I/O sits in the default export; `CurveLaunchView` is the
 // presentational seam, so every phase can be driven directly without a wallet
@@ -797,5 +804,23 @@ describe('create checklist: what you pay', () => {
     });
     expect(within(card()).getByText(/Could not read the rent, so what you would pay is not shown/)).toBeInTheDocument();
     expect(within(card()).queryByText('0 SOL')).not.toBeInTheDocument();
+  });
+});
+
+describe('a dead program links out only to a rail whose launching is open (island answer twenty-six)', () => {
+  afterEach(() => {
+    curveLaunch.open = false;
+  });
+
+  it('with the EVM curve shut, nothing calls it LIVE: the swap link stays', () => {
+    renderView({ probe: { kind: 'not-deployed' } });
+    expect(screen.queryByText(/LIVE on Ethereum/i)).toBeNull();
+    expect(screen.getByRole('link', { name: 'Swap any Solana token' })).toBeInTheDocument();
+  });
+
+  it('with it open, the link out names it', () => {
+    curveLaunch.open = true;
+    renderView({ probe: { kind: 'not-deployed' } });
+    expect(screen.getByRole('link', { name: /The Memetics Curve is LIVE/ })).toHaveAttribute('href', '/eth-curve');
   });
 });

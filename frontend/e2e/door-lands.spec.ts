@@ -1,12 +1,15 @@
-// Island, answer twenty-two ("where the door lands"), on the production build at 390x844:
-// from the Bayla room, Add SOL + BAYLA opens /pools with Add with one coin at the top of the
-// first screen, and the page never scrolls to reach it. The chain, the pool index and Jupiter
-// are answered from made-up accounts for BAYLA's own pool address; every other /api call fails.
+// Island, answer twenty-five (the sheet, build 3), on the production build at 390x844: from
+// the Bayla room, Add SOL + BAYLA raises the sheet over the room with Add with one coin on it,
+// its green button on the first screen with no scroll, still on screen at 660 tall; Back closes
+// it; the island's deep link opens it over the room. (Answer twenty-two's door landed on /pools;
+// the sheet replaces it.) The chain, the pool index and Jupiter are answered from made-up
+// accounts for BAYLA's own pool address; every other /api call fails.
 import { test, expect, type Page } from '@playwright/test';
 import { Buffer } from 'buffer';
 import { PublicKey } from '@solana/web3.js';
 import { LIVE_PROGRAM_ID, deriveAmmConfig } from '../src/lib/solana/cpswap/program';
 import { buildPool, clockAccount, configBytes, mintBytes, type FakeAccount } from '../src/lib/solana/lp/testkit.fixture';
+import { METAPLEX_TOKEN_METADATA_ID, metadataPda } from '../src/lib/launcher/solana/write/metaplex';
 import { CONNECT_ONLY_WALLET_ADDRESS, CONNECT_ONLY_WALLET_NAME, installConnectOnlySolanaWallet } from './fixtures/solanaConnectOnlyWallet';
 
 // The Bayla room's door, as lib/bungalows.ts names it (the spec checks the room's link says the same).
@@ -20,6 +23,12 @@ const MAINNET_GENESIS = '5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d';
 const OUTSIDE_AMM = '58oQChx4yWmvKdwLLZzBi4ChoCc2fqCUWBkwMihLYQo2';
 const SOL_PER_BAYLA = 0.000006;
 
+// The coin's name on chain, locked, as the real BAYLA's is (a Metaplex record: key 4, update authority,
+// mint, name, symbol, uri, no fee, no creators, not sold, not mutable): its token check reads clean.
+const borshText = (t: string) => [t.length, 0, 0, 0, ...Buffer.from(t, 'utf8')];
+const nameOnChain = (mint: string) =>
+  Uint8Array.from([4, ...new Uint8Array(32), ...new PublicKey(mint).toBytes(), ...borshText('BAYLA'), ...borshText('BAYLA'), ...borshText('https://x.test/b.json'), 0, 0, 0, 0, 0]);
+
 test.use({ serviceWorkers: 'block', viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 3 });
 
 async function playDoor(page: Page) {
@@ -32,6 +41,7 @@ async function playDoor(page: Page) {
     [deriveAmmConfig(LIVE_PROGRAM_ID, 0).toBase58()]: { owner: program, data: configBytes(0, 2_500n, 120_000n) },
     ...pool.accounts,
     [BAYLA]: { owner: TOKEN_PROGRAM, data: mintBytes(null, 6) },
+    [metadataPda(new PublicKey(BAYLA)).toBase58()]: { owner: METAPLEX_TOKEN_METADATA_ID.toBase58(), data: nameOnChain(BAYLA) },
     SysvarC1ock11111111111111111111111111111111: clockAccount(BigInt(now)),
     [CONNECT_ONLY_WALLET_ADDRESS]: { owner: '11111111111111111111111111111111', data: new Uint8Array(0), lamports: 3_000_000_000 },
   };
@@ -88,14 +98,15 @@ async function playDoor(page: Page) {
       localStorage.setItem('tegridy-onboarding-seen', '1');
       localStorage.setItem('tegridy_telemetry_consent', 'denied');
     } catch { /* private mode */ }
-    const w = { scrolls: [] as number[], doorTops: [] as number[] };
+    const w = { scrolls: [] as number[], sheetTops: [] as number[] };
     (window as unknown as { __walk: typeof w }).__walk = w;
     const push = (a: number[], v: number) => { if (a[a.length - 1] !== v) a.push(v); };
     const tick = () => {
-      if (location.pathname === '/pools') {
+      // Every frame with the sheet up: the room's scroll under it, and where the sheet's top is.
+      const sheet = document.querySelector('[data-testid="action-sheet"]');
+      if (sheet && innerHeight >= 800) {
         push(w.scrolls, Math.round(window.scrollY));
-        const d = document.querySelector('[data-testid="lp-door"]');
-        if (d) push(w.doorTops, Math.round(d.getBoundingClientRect().top));
+        push(w.sheetTops, Math.round(sheet.getBoundingClientRect().top));
       }
       requestAnimationFrame(tick);
     };
@@ -108,35 +119,27 @@ async function walkIn(page: Page) {
   await page.goto('/bayla');
   const link = page.getByRole('link', { name: 'Add SOL + BAYLA' }).first();
   await expect(link).toBeVisible({ timeout: 30_000 });
-  expect(await link.getAttribute('href')).toBe(`/pools?mint=${BAYLA}&task=add&pool=${POOL}`);
+  // Island answer twenty-five, build 3: the room's door raises the sheet over the room, never the pools page.
+  expect(await link.getAttribute('href')).toBe('/bayla?sheet=add');
   await link.click();
-  await page.waitForURL(/\/pools/);
+  await page.waitForURL(/\/bayla\?sheet=add$/);
 }
 
 async function measure(page: Page) {
   return page.evaluate(() => {
     const rect = (el: Element | null) => (el ? { top: Math.round(el.getBoundingClientRect().top), bottom: Math.round(el.getBoundingClientRect().bottom) } : null);
-    const panel = document.querySelector('[data-testid="lp-one-coin-panel"]');
-    const button = (name: string) => [...(panel?.querySelectorAll('button') ?? [])].find((b) => b.textContent?.trim() === name) ?? null;
-    const review = button('Review: add with one coin');
-    const connect = button('Connect Solana Wallet');
-    const amount = panel?.querySelector('input[inputmode="decimal"]') ?? null;
-    const bottomBar = [...document.querySelectorAll('nav')].filter((n) => getComputedStyle(n).position === 'fixed' && n.getBoundingClientRect().top > innerHeight / 2)[0] ?? null;
+    const sheet = document.querySelector('[data-testid="action-sheet"]');
+    const go = document.querySelector('[data-testid="sheet-go"]');
     return {
       walk: (window as unknown as { __walk: unknown }).__walk,
       innerHeight,
       scrollY: Math.round(scrollY),
-      door: rect(document.querySelector('[data-testid="lp-door"]')),
-      roomName: document.querySelector('[data-testid="lp-door"] h2')?.textContent ?? null,
-      panel: rect(panel),
-      amount: rect(amount),
-      review: rect(review),
-      connect: rect(connect),
-      reviewDisabled: review ? (review as HTMLButtonElement).disabled : null,
+      sheet: rect(sheet),
+      go: rect(go),
+      goText: go?.textContent?.trim() ?? null,
+      // Seen ones only: the pool card the form rides on is in the sheet, hidden.
+      greens: sheet ? [...sheet.querySelectorAll('.btn-primary')].filter((b) => b.getClientRects().length > 0).length : 0,
       hero: rect(document.querySelector('h1')),
-      finder: rect(document.querySelector('[data-testid="lp-tasks"]')),
-      poolCard: rect(document.querySelector('[data-testid="lp-pool"]')),
-      bottomBar: rect(bottomBar),
       url: location.pathname + location.search,
     };
   });
@@ -147,59 +150,93 @@ const OUT = process.env.DOOR_WALK_OUT;
 const shoot = async (page: Page, name: string, fullPage = false) => {
   if (OUT) await page.screenshot({ path: `${OUT}/${name}.png`, fullPage });
 };
-type Walk = { scrolls: number[]; doorTops: number[] };
+type Walk = { scrolls: number[]; sheetTops: number[] };
 
-test('a fresh visitor: the form is the first thing on /pools, and nothing scrolls', async ({ page }) => {
+test('Add in the BAYLA room raises the sheet over the room: its button on it with zero scroll, at 844 tall and at 660', async ({ page }) => {
   test.skip(test.info().project.name !== 'chromium', 'one walk, at the phone size this test sets');
   test.slow();
   const { unknown } = await playDoor(page);
   await walkIn(page);
-  const panel = page.getByTestId('lp-one-coin-panel');
-  await expect(panel).toBeVisible({ timeout: 30_000 });
-  await expect(page.getByTestId('lp-pool')).toBeVisible({ timeout: 30_000 });
-  await page.waitForTimeout(2_000);
-  await shoot(page, 'fresh-first-screen');
-  await shoot(page, 'fresh-full', true);
-  const m = await measure(page);
-  if (OUT) console.log('FRESH', JSON.stringify(m), 'unanswered rpc:', [...unknown].join(','));
-  expect(m.url, 'the door left the address').toBe(`/pools?mint=${BAYLA}`);
-  // Not one frame on /pools away from the top, and the door never moved.
-  expect((m.walk as Walk).scrolls).toEqual([0]);
-  expect((m.walk as Walk).doorTops).toHaveLength(1);
-  expect(m.roomName).toBe('Bayla');
-  expect(m.door!.top).toBeLessThan(m.hero!.top);
-  expect(m.door!.top).toBeLessThan(m.finder!.top);
-  // No wallet yet: its green button is the panel's first, above the bottom bar.
-  expect(m.connect!.bottom).toBeLessThanOrEqual(m.bottomBar?.top ?? m.innerHeight);
+  const sheet = page.getByRole('dialog', { name: 'Add SOL + BAYLA' });
+  await expect(sheet).toBeVisible({ timeout: 30_000 });
+  await expect(sheet.getByTestId('sheet-go')).toBeVisible({ timeout: 30_000 });
+  await page.waitForTimeout(1_500);
+  await shoot(page, 'sheet-844');
+  const tall = await measure(page);
+  if (OUT) console.log('SHEET', JSON.stringify(tall), 'unanswered rpc:', [...unknown].join(','));
+  // The room never scrolled under it, and the sheet, which fits what it holds, moved little once it rose.
+  expect((tall.walk as Walk).scrolls).toEqual([0]);
+  const tops = (tall.walk as Walk).sheetTops;
+  expect(Math.max(...tops) - Math.min(...tops), `the sheet's tops: ${tops.join(', ')}`).toBeLessThanOrEqual(60);
+  expect(tall.goText).toBe('Add SOL + BAYLA');
+  expect(tall.go!.bottom).toBeLessThanOrEqual(tall.innerHeight);
+  // One green button on the screen the sheet is: its own.
+  expect(tall.greens).toBe(1);
+  // The room is still there, under the veil.
+  expect(tall.hero).not.toBeNull();
+  // A phone browser with its bars: the button is still on the screen at 660 tall.
+  await page.setViewportSize({ width: 390, height: 660 });
+  await page.waitForTimeout(600);
+  await shoot(page, 'sheet-660');
+  const short = await measure(page);
+  expect(short.go!.top).toBeGreaterThanOrEqual(0);
+  expect(short.go!.bottom).toBeLessThanOrEqual(660);
+  // Back closes it, and the room is as it was.
+  await sheet.getByRole('button', { name: 'Back to the room' }).click();
+  await page.waitForURL(/\/bayla$/);
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await shoot(page, 'sheet-back');
 });
 
-test('a connected visitor: one amount, one sentence, one green button on the first screen', async ({ page, context }) => {
+test('the island’s deep link opens the sheet over the coin’s room, and Back stays on the site', async ({ page }) => {
+  test.skip(test.info().project.name !== 'chromium', 'one walk, at the phone size this test sets');
+  test.slow();
+  await playDoor(page);
+  await page.goto(`/pools?mint=${BAYLA}&task=add&pool=${POOL}`);
+  await page.waitForURL(/\/bayla\?sheet=add$/);
+  const sheet = page.getByRole('dialog', { name: 'Add SOL + BAYLA' });
+  await expect(sheet.getByTestId('sheet-go')).toBeVisible({ timeout: 30_000 });
+  await shoot(page, 'sheet-deep-link');
+  await sheet.getByRole('button', { name: 'Back to the room' }).click();
+  await page.waitForURL(/\/bayla$/);
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+});
+
+test('a connected visitor: the drawn rows, her line with no button, and one green button', async ({ page, context }) => {
   test.skip(test.info().project.name !== 'chromium', 'one walk, at the phone size this test sets');
   test.slow();
   await installConnectOnlySolanaWallet(context);
-  const { unknown } = await playDoor(page);
+  await playDoor(page);
+  // The connected wallet reads warm, so her line in the sheet is the drawn one.
+  await page.route('**/api/aggregator**', (route) => {
+    if (new URL(route.request().url()).searchParams.get('resource') !== 'heat') return route.abort();
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ address: CONNECT_ONLY_WALLET_ADDRESS, degrees: 41.2, tier: 'Observer', is_cold: false, held_since_unix: 1_760_000_000, as_of_unix: Math.floor(Date.now() / 1000), token_count: 1, breakdown: [], x_handle: null }),
+    });
+  });
   await walkIn(page);
-  const panel = page.getByTestId('lp-one-coin-panel');
-  await expect(panel).toBeVisible({ timeout: 30_000 });
-  // Connect from the panel's own button, as a visitor whose wallet is not connected yet does.
-  const connect = page.getByRole('banner').getByRole('button', { name: 'Connect a Solana wallet' });
-  await connect.click();
+  const sheet = page.getByRole('dialog', { name: 'Add SOL + BAYLA' });
+  await expect(sheet.getByTestId('sheet-go')).toBeVisible({ timeout: 30_000 });
+  // No wallet yet: the sheet's own green button connects one.
+  await sheet.getByTestId('sheet-go').click();
   await page.getByRole('dialog').getByRole('button', { name: new RegExp(CONNECT_ONLY_WALLET_NAME) }).click();
-  await expect(panel.getByText(/after both steps’ fees and deposits/)).toBeVisible({ timeout: 30_000 });
-  await page.waitForTimeout(1_500);
-  await shoot(page, 'connected-first-screen');
-  const before = await measure(page);
-  await panel.getByLabel('SOL to put in').fill('0.5');
-  await expect(panel.getByTestId('lp-one-share')).toBeVisible();
+  await expect(sheet.getByRole('button', { name: 'Max SOL' })).toBeEnabled({ timeout: 30_000 });
+  await sheet.getByRole('button', { name: '0.5 SOL' }).click();
+  await expect(sheet.getByTestId('sheet-amount')).toHaveValue('0.5');
+  const facts = sheet.getByTestId('lp-door-facts');
+  await expect(facts).toContainText('Pool price1 BAYLA = ');
+  await expect(facts).toContainText(/Outside price[\d.]+ SOL/);
+  await expect(sheet.getByTestId('sheet-fee-line')).toHaveText(/^LPs keep [\d.]+% of each trade, the venue [\d.]+%\.$/);
+  await expect(sheet.getByTestId('sheet-bayla')).toHaveText('41.20° Observer. Every day in this pool counts double.');
+  await expect(sheet.getByTestId('sheet-bayla').getByRole('link')).toHaveCount(0);
+  // Under the sheet her header button is quiet: the sheet's own green button is her move.
+  await expect(page.getByTestId('bayla-line-button')).toHaveAttribute('data-quiet', 'true');
+  await expect(sheet.getByTestId('sheet-go')).toBeEnabled();
+  expect(await sheet.locator('.btn-primary:visible').count()).toBe(1);
   await page.waitForTimeout(800);
-  await shoot(page, 'connected-amount');
-  const after = await measure(page);
-  if (OUT) console.log('CONNECTED', JSON.stringify(before), 'AFTER', JSON.stringify(after), 'unanswered rpc:', [...unknown].join(','));
-  for (const m of [before, after]) {
-    expect((m.walk as Walk).scrolls).toEqual([0]);
-    expect((m.walk as Walk).doorTops).toHaveLength(1);
-    // The green button on the first screen, above the bottom bar, with an amount in and without.
-    expect(m.review!.bottom).toBeLessThanOrEqual(m.bottomBar?.top ?? m.innerHeight);
-  }
-  expect(after.reviewDisabled).toBe(false);
+  await shoot(page, 'sheet-connected');
+  const m = await measure(page);
+  expect(m.go!.bottom).toBeLessThanOrEqual(m.innerHeight);
 });
