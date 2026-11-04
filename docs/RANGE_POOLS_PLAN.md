@@ -45,11 +45,11 @@ role use the venue's devnet key `GgE6AfEH2AVSrKGckyKMzC6mhtXWiAn39EzAikAsWq5a`.
 | Role | Raydium's address | Ours | What it can do |
 |---|---|---|---|
 | Program id | `CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK` | `7ghzbbmq59QEbdweSzM1ggpeBH1Q2CyxZg4Tr2x8Aso`, made by the owner on 2026-10-21 | Claimed by the first deploy; afterwards only its upgrade authority, the vault, can change the program |
-| Admin | `GThUX1Atko4tqhN2NaiTazWSeFWMuiUvfFnyJyUghFMJ` | vault | Make and change fee tiers (at most 4% of a swap; at most 16% of each fee to the venue and the island together), pause a pool, collect the protocol's share |
+| Admin | `GThUX1Atko4tqhN2NaiTazWSeFWMuiUvfFnyJyUghFMJ` | vault | Make and change fee tiers (at most 4% of a swap; at most 16% of each fee to the venue and the island together; tick spacing above 0), pause a pool, turn its limit orders on, collect the protocol's share |
 | Protocol-fee owner | `projjosVCPQH49d5em7VYS7fJZzaqKixqKtus7yk416` | vault | Collect the protocol's share of swap fees |
 | Fund-fee owner | `FundHfY8oo8J9KYGyfXFFuQCHe7Z1VBNmsj84eMcdYs4` | vault, as each tier is born; the same proposal then hands each tier's fund share to the island's Workshop | Collect the fund's share of swap fees |
-| Spare-SOL collector | `Ray9LdYRLXsHzL8pr3Ceahfiz8MsS2pZagzHo1ckdfJ` | vault | Sweep SOL sent to a pool's accounts above what they need |
-| Limit-order keeper | `Ray8HHtixhL9zvnokMyELCVGp622PDPJj96zcVC9RWp` | vault | Settle or close a user's limit order; the coins go to the order's owner only |
+| Spare-SOL collector | `Ray9LdYRLXsHzL8pr3Ceahfiz8MsS2pZagzHo1ckdfJ` | none since 2026-11-03 (the vault before) | Nothing: its sweep is deleted from the source (on chain from the upgrade after #22). It could trim users' refundable deposits |
+| Limit-order keeper | `Ray8HHtixhL9zvnokMyELCVGp622PDPJj96zcVC9RWp` | vault | Settle or close a user's limit order; the coins go to the order's owner only. Since 2026-11-03 a new pool takes no limit order until the admin turns them on |
 | Permission admin | `RayzVBPm6p6xtG7fU3KX4k44UexK4NjewDk2QCwoLqa` | vault | Say who may open a permission-only pool |
 | Support-mint owner | `RayVyjyJQz9vAi126A4sGexKnSU1XeZaHTRcM1mZMPY` | vault | Let in a coin with unusual Token-2022 features. Since 2026-11-03 the source ignores such a record (on chain from the upgrade after #22), so it lets in nothing |
 | Frozen-NFT issuer list | `2Yq4T3mPNfjtEyTxSbRjRKqLf1pwbTasuCQrWe6QpM7x` (an outside coin issuer) | empty | Nothing: no position NFT is ever frozen |
@@ -64,15 +64,16 @@ each position collects its own. The protocol share can be collected only by the 
 share can be collected only by the tier's fund owner, the island's Workshop: Raydium's code let
 the admin collect it too, and the venue removed that (the owner's ruling, 2026-10-20). No tier may
 charge more than 4% of a swap, nor give the venue and the island together more than 16% of each
-fee; both are checked when a tier is made and when it is changed, and a dynamic fee is held to the
-same 4%. Two exceptions: a fee is rounded up to the coin's smallest unit, so a very small swap can
-pay more than 4% (and a Token-2022 coin's own transfer fee comes on top); and when a swap fills a
-limit order where no LP's range is in use, the LPs' share of that fee goes to the venue's share.
-The ceilings bind every tier this build makes; a later upgrade must check any tier made before it.
-Opening a pool costs 0.5 SOL, paid to the vault, by whichever of the three instructions opens it
-(owner, 2026-10-25; "Decided 2026-10-25", below). Until the vault upgrades the program on mainnet,
-the program there charges nothing to open a pool. Spare SOL goes to the vault. None of these paths
-can reach a Raydium address, because none is in the code. Each path was run on a local chain (below).
+fee; both are checked when a tier is made and when it is changed, and since 2026-11-03 no pool can
+carry a dynamic fee at all. Two exceptions: a fee is rounded up to the coin's smallest unit, so a
+very small swap can pay more than 4% (and a Token-2022 coin's own transfer fee comes on top); and
+when a swap fills a limit order where no LP's range is in use, the LPs' share of that fee goes to
+the venue's share. The ceilings bind every tier this build makes; a later upgrade must check any
+tier made before it. Opening a pool costs 0.5 SOL, paid to the vault, by whichever of the two
+instructions opens it (owner, 2026-10-25; "Decided 2026-10-25", below). Until the vault upgrades
+the program on mainnet, the program there charges nothing to open a pool. Spare SOL sent to a
+pool's accounts stays there: the sweep is deleted (2026-11-03). None of these paths can reach a
+Raydium address, because none is in the code. Each path was run on a local chain (below).
 
 **How the vault can still move the island's share**, each by a proposal (two signatures, then 48
 hours):
@@ -91,7 +92,9 @@ hours):
 1. **Pause a pool**: deposits, LP withdrawals with their fees and rewards, swaps and new limit
    orders, in any mix (`update_pool_status`). A pause does not stop the venue or the island
    collecting their shares, nor a limit order's owner taking their coins out. It is the only brake
-   there is.
+   there is. The same instruction turns a pool's limit orders on, and it is the rescue when a
+   reward coin's vault is frozen ("Fixed in the source 2026-11-03", below). It writes the whole
+   status byte, so every proposal states every bit.
 2. **Nothing it does is fast**: a pause, like every vault action, takes effect 48 hours after its
    second approval at the earliest. The lock protects everyone from a hasty change, and it also
    means the brake is slow. One exception would be an operation owner: a key the vault adds
@@ -114,7 +117,7 @@ from fresh clones by `node solana/guards/provenance.mjs --regenerate <scratch fo
 can re-run it, and `git diff solana/guards/upstream` must then show no change.
 
 1. **Same code as Raydium's, plus only the reviewed patch** (`solana/guards/provenance.mjs`, in
-   `diff-guard` and `clmm-guards`). Range pools: 79 upstream files, 22 patched. cp-swap: its
+   `diff-guard` and `clmm-guards`). Range pools: 79 upstream files, 27 patched. cp-swap: its
    whole package, 37 files, 8 patched (2026-11-03; the `patched` lists in `provenance.mjs` are the
    record). `vendor/uint`: 16 files, none patched. Undoing the patch
    on our file must give back Raydium's exact file. No file may be added anywhere in either
@@ -142,7 +145,9 @@ can re-run it, and `git diff solana/guards/upstream` must then show no change.
 3. **The build** (`clmm-build`): builds with the placeholder, then proves a build without it is
    refused, and that `devnet` or `localnet` is refused without `test-chain-keys`. Those two
    settings would give every power to one test key or to a key read at build time; the gate
-   stays after the placeholder goes.
+   stays after the placeholder goes. Since 2026-11-03 it also proves that a `devnet`, `localnet`
+   or `paramset` build declares an id nobody can deploy at, so only a release build carries the
+   mainnet id, and it runs the copy's own unit tests with upstream's.
 
 Each guard first meets copies it must refuse, so it cannot pass by checking nothing.
 
@@ -151,6 +156,40 @@ ZUSD, PYUSD) that may skip a Token-2022 check. They pay no one; assessed 2026-10
 exploitable here. The source deleted the list on 2026-11-03, as Raydium itself did; the live
 program keeps it until the next cp-swap upgrade. The guard allows the four in that one file only,
 where a unit test now names them to prove they meet the same check as every coin.
+
+## Fixed in the source 2026-11-03 (the audit's range-pool round)
+
+The audit of 2026-11-03 found no critical bug in this program. Each finding below is fixed in the
+source, or routed, with a test seen failing on the code before the fix: the unit tests run in CI,
+the local chain's checks are in [RESULTS.md](../solana/clmm-localnet/RESULTS.md). **None of it is on
+chain yet.** It rides the program upgrade after #22, which itself upgrades to the source before this
+round. The release build is 1,443,096 bytes, 83,608 fewer than before.
+
+| Finding | What it was | What changed | Proved by |
+|---|---|---|---|
+| CL-03, DG-02 | `create_customizable_pool` let whoever opened a pair first fix that pool's fee coin and dynamic fee for good | Deleted; `create_pool` opens the same pool with the defaults | D1, unit test |
+| CR-1, CO-1, CR-7 | The dynamic fee lacks Orca's limit, an order filled across a price gap skips it, and its settings were frozen at a pool's opening | `create_dynamic_fee_config` and `update_dynamic_fee_config` deleted, and `create_permissioned_pool` refuses a dynamic fee, so no pool can carry one. The swap's dynamic-fee code stays as Raydium wrote it, unreachable | D2, D3, X20, unit tests |
+| CD-2 | `collect_excess_lamports` let the vault trim users' refundable rent deposits | Deleted, with its key | D4, unit test |
+| CO-2 | Limit orders were on in every pool, with no site support or keeper behind them | A new pool starts with them off; the vault turns them on per pool | O0, unit test |
+| CL-09 | A fee tier with tick spacing 0 was accepted, and pools divide by it | Refused, as Uniswap v3's `enableFeeAmount` refuses it | T10 |
+| CD-1 | A `localnet` or `paramset` build kept the mainnet program id | Both now declare the devnet build's id, which nobody can deploy at | unit test under each setting, in CI |
+| CL-07 | A reward coin whose vault is frozen or paused blocks every withdrawal that would pay it | Nothing: a rescue exists (below) | A4 |
+| ME-2 | Just-in-time liquidity takes most of the LP fee on a big swap | Not changed: every fix is new code, so it is the owner's call (asked 2026-11-03) | |
+
+Also asked of the owner, not changed: `create_pool` still makes the opener the pool's owner, and an
+owner can fill reward slots 1 and 2 for good (CR-4, the rest of CL-03). One line would make the vault
+every pool's owner, and openers could then start no reward.
+
+**The status byte is written whole.** `update_pool_status` sets all six bits at once: open or add
+(1), withdraw (2), collect fees (4), collect rewards (8), swap (16), new limit orders (32); a set bit
+turns that action off. A pool born on this build reads 32. Lifting a pause with 0, as Raydium's own
+tools do, would turn limit orders on too, so on such a pool a swap pause is 48 and lifting it is 32.
+
+**The rescue for a frozen reward coin (CL-07).** If a reward coin's issuer freezes or pauses a
+pool's reward vault, every withdrawal that would pay that reward fails, principal included. The
+vault then proposes `update_pool_status` with 8 added to the pool's status (40 on a pool at 32). Once it executes, 48 hours later, LPs withdraw as usual: they are paid no reward, and what each
+position earned stays owed to it. When the coin moves again, the vault sets the byte back. The site
+already leaves the reward accounts out while collection is off. Measured on the local chain: check A4.
 
 ## What is left, in order
 
@@ -308,7 +347,8 @@ left the rest to the builder. Decided on that basis:
    `CREATE_POOL_FEE` (500,000,000 lamports) to it from the opener, the way cp-swap's
    `initialize.rs` charges its `create_pool_fee`. A wrong receiver is refused (Anchor's address
    check), a transaction built without the account is refused, and an opener short of the 0.5 SOL
-   cannot open a pool (checks P2, P4 to P7, X18, X19 in `solana/clmm-localnet`).
+   cannot open a pool (checks P2, P4 to P7, X18, X19 in `solana/clmm-localnet`). `create_customizable_pool`
+   was deleted on 2026-11-03, and X18 with it.
 2. **A constant, not a fee-tier field.** cp-swap keeps the amount on each fee tier. Here it is one
    number in the program, so every tier charges it, a tier made before the upgrade too, and no
    proposal can set it to zero for one tier. Changing it takes a program upgrade, which waits the

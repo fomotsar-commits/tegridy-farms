@@ -2,7 +2,7 @@
   "about": "Every key that may appear in the venue's Solana programs (our copies of cp-swap and tegridy-clmm, and our own tegridy-launch and bayla-ladder), each named. key-guard.mjs fails on any other key, on any key the pinned upstream hard-codes, and on any entry here that appears nowhere. Change this list only in a pull request of its own (provenance.mjs --pr-files).",
   "ours": {
     "7ghzbbmq59QEbdweSzM1ggpeBH1Q2CyxZg4Tr2x8Aso": "tegridy-clmm's program id, made by the owner on 2026-10-21; its upgrade authority is the vault once deployed (docs/RANGE_POOLS_PLAN.md step 7).",
-    "RangePoo1DEVNETarmNotDep1oyed11111111111111": "tegridy-clmm's id in a devnet build only: not a key, nobody can deploy at it, so a devnet build (every power to a test key) runs nowhere. The release build never names it.",
+    "RangePoo1DEVNETarmNotDep1oyed11111111111111": "tegridy-clmm's id in a test build only (devnet, localnet or paramset, since 2026-11-03): not a key, nobody can deploy at it, so a build that gives a power to a test key or shortens reward periods runs nowhere. The release build never names it.",
     "GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd": "The venue's Squads v4 vault (vault 0 of multisig EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK, two signatures). Mainnet admin, fee owner and fee receiver of both programs.",
     "EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK": "The venue's Squads multisig account that owns the vault. Named only in a cp-swap comment; it can sign nothing.",
     "2sa31zceMSTAAbSu5wfSnNA6sBYzS7r97nvZYaQouEXa": "The vault's wrapped-SOL account: cp-swap's mainnet pool-opening fee lands here.",
