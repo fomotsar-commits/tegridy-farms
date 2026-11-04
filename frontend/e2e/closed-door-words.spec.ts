@@ -134,6 +134,28 @@ test.describe('the launch door is closed, and Drifter is never printed, on every
     });
   }
 
+  // The home's chain pills speak to a screen reader in their labels, which the walk's phrases (read
+  // as the page's text) never see: no curve pill may say a launch is open while the door is shut.
+  test('no curve pill on the home tells a screen reader it can launch', async ({ page }) => {
+    test.skip(test.info().project.name !== 'chromium', 'a label is not engine-dependent: read on the desktop project, at 390');
+    await page.addInitScript(() => {
+      try {
+        localStorage.setItem('tegridy-onboarding-seen', '1');
+        localStorage.setItem('tegridy_telemetry_consent', 'denied');
+        localStorage.setItem('tegridy-bungalow', 'venue');
+      } catch { /* private mode */ }
+    });
+    await page.route('**/api/**', (r) => r.abort());
+    await page.route((url) => url.hostname !== 'localhost', (r) => r.abort());
+    await settle(page, '/');
+    const labels = await page
+      .locator('a.badge[href^="/eth-curve"][aria-label]')
+      .evaluateAll((els) => els.map((el) => el.getAttribute('aria-label') ?? ''));
+    expect(labels.length, 'the Base pill, at least').toBeGreaterThanOrEqual(1);
+    // "launch", the whole word ("launch and trade"); "launching not switched on yet" is the truth.
+    expect(labels.filter((label) => /\blaunch\b/i.test(label)), 'a curve pill says a launch is open').toEqual([]);
+  });
+
   test('the walk covers every route the census renders, the four launch addresses, and the thirteen farms', () => {
     expect(DOOR_IDS.length, 'thirteen registry ids').toBe(13);
     for (const route of AUDITABLE_ROUTES) expect(PATHS).toContain(navigablePath(route));

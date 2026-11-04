@@ -233,6 +233,17 @@ describe('the door is not open yet (island answer twenty-six)', () => {
     expect(text()).not.toMatch(/Observer|Drifter|lane is open/);
   });
 
+  it('on the door its eyebrow is the page heading: /launch has nothing else to be its h1', () => {
+    mount(<Countdown reading={COLD} look="screen" />);
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('THE LAUNCH DOOR · NOT OPEN YET');
+  });
+
+  it('on a card its eyebrow stays a label, never a second heading on the page it sits on', () => {
+    mount(<Countdown reading={COLD} look="card" />);
+    expect(screen.queryByRole('heading')).toBeNull();
+    expect(box().querySelector('[data-eyebrow]')?.textContent).toBe('THE LAUNCH DOOR · NOT OPEN YET');
+  });
+
   it('at the floor and up: the degrees are the number, warm enough, on the list, and Add in the room', () => {
     setActiveBungalow('bayla');
     mount(<Countdown reading={reading(92.5, 'Resident')} look="screen" />);

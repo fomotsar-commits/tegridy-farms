@@ -267,7 +267,7 @@ export default function EthCurvePage() {
                 <WrongChainBanner requiredChainId={activeChainId} />
               </>
             )}
-            <CurveLaunchesGrid launcher={availability.address} chainId={activeChainId} chainName={chainName} />
+            <CurveLaunchesGrid launcher={availability.address} chainId={activeChainId} chainName={chainName} launchOpen={launchOpen} />
             <TradeByAddress launcher={availability.address} chainId={activeChainId} />
             <CurveHowItWorks />
           </m.div>

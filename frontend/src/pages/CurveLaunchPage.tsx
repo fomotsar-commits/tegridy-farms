@@ -37,6 +37,7 @@ import { useCurveSigner, type CurveSignerState } from '../components/solana/curv
 import type { OpenGate, WriteApi, WriteRpc } from '../components/solana/curve/ports';
 import { useLaunchLookup, type LaunchLookupReaders } from '../components/solana/curve/useLaunchLookup';
 import { PublicKey } from '@solana/web3.js';
+import { isCurveLaunchOpen } from '../lib/launcher/curveChains';
 import {
   LAUNCH_ERROR_COPY,
   PLATFORM_TREASURY_VAULT,
@@ -196,12 +197,15 @@ export function DeploymentBanner({
         {/* The dead-end fix (2026-08-28): a dead Solana program is not a dead
             venue. Same rationale as App.tsx's no-redirect note — we never
             redirect INTO a dead rail, but a measured link OUT to live ones is
-            exactly what that note leaves open. */}
+            exactly what that note leaves open. The EVM curve is one only while its
+            launching is open (island answer twenty-six). */}
         {(probe?.kind === 'closed' || probe?.kind === 'not-a-program' || probe?.kind === 'not-deployed') && (
           <div className="mt-3 flex flex-wrap gap-2">
-            <Link to="/eth-curve" className="btn-primary px-4 py-2 text-[12px]">
-              The Memetics Curve is LIVE on Ethereum, Base + Robinhood →
-            </Link>
+            {isCurveLaunchOpen() && (
+              <Link to="/eth-curve" className="btn-primary px-4 py-2 text-[12px]">
+                The Memetics Curve is LIVE on Ethereum, Base + Robinhood →
+              </Link>
+            )}
             <Link to="/solana" className="btn-secondary px-4 py-2 text-[12px]">
               Swap any Solana token
             </Link>

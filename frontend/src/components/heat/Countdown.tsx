@@ -49,6 +49,9 @@ export function Countdown({ reading, look = 'card' }: CountdownProps) {
   const move: ScreenMove | null = screen ? 'door' : warm ? (room ? 'add' : null) : 'start';
   useScreenMove(move);
   const eyebrowId = useId();
+  // On the door's own screen the eyebrow is the page's one heading, as /launch has no other; on a
+  // card it stays a label, since the page it sits on has its own.
+  const Eyebrow = screen ? 'h1' : 'p';
 
   // A stranger counts from a standing start, as a cold wallet does; the warm state has no timer.
   const timer = warm ? null : reading ? countdownTimer(reading) : ({ unserved: true } as const);
@@ -86,9 +89,9 @@ export function Countdown({ reading, look = 'card' }: CountdownProps) {
     >
       <div data-column className={screen ? 'relative max-w-3xl mx-auto px-5 pt-7 pb-8' : 'relative'}>
         <div className="flex items-baseline justify-between gap-3">
-          <p id={eyebrowId} data-eyebrow className="text-[11px] leading-none tracking-[0.14em]" style={{ ...MONO, color: 'var(--color-kyle)' }}>
+          <Eyebrow id={eyebrowId} data-eyebrow className="text-[11px] leading-none tracking-[0.14em]" style={{ ...MONO, color: 'var(--color-kyle)' }}>
             {COUNTDOWN_WORDS.eyebrow}
-          </p>
+          </Eyebrow>
           {degrees && (
             <p data-standing className="text-[11px] leading-none tracking-[0.14em] text-right" style={{ ...MONO, color: 'var(--color-text-secondary)' }}>
               {degrees}

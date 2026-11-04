@@ -45,7 +45,7 @@ vi.mock('../components/launcher/CurveCreatePanel', () => ({
 }));
 vi.mock('../components/launcher/CurveTradePanel', () => ({ CurveTradePanel: () => null }));
 vi.mock('../components/launcher/CurveLaunchesGrid', () => ({
-  CurveLaunchesGrid: () => <div data-testid="grid" />,
+  CurveLaunchesGrid: ({ launchOpen }: { launchOpen?: boolean }) => <div data-testid="grid" data-launch-open={String(launchOpen)} />,
 }));
 
 import EthCurvePage from './EthCurvePage';
@@ -67,6 +67,8 @@ describe('/eth-curve: only the create form sits behind the door', () => {
     expect(within(doors[0]).getByTestId('create-form')).toBeInTheDocument();
     expect(door.rails).toContain('ethereum');
     expect(door.rails.every((r) => r === 'ethereum')).toBe(true);
+    // The grid hears it too: its empty state invites the first launch only while this is open.
+    expect(screen.getByTestId('grid')).toHaveAttribute('data-launch-open', 'true');
   });
 
   it('with launching closed (answer twenty-six): no Live mark, no create form, what it waits on, and the launches', () => {
@@ -77,7 +79,7 @@ describe('/eth-curve: only the create form sits behind the door', () => {
       expect(screen.queryByTestId('door')).not.toBeInTheDocument();
       expect(screen.getByTestId('curve-launch-closed')).toHaveTextContent('Launching here is not switched on yet.');
       expect(container.textContent).not.toMatch(/Live on/i);
-      expect(screen.getByTestId('grid')).toBeInTheDocument();
+      expect(screen.getByTestId('grid')).toHaveAttribute('data-launch-open', 'false');
       expect(screen.getByLabelText('Curve token address to trade')).toBeInTheDocument();
     } finally {
       curveLaunch.open = true;
