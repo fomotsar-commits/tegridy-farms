@@ -48,6 +48,14 @@ sources that differ give two hashes before trusting either.
   same name on the build that has the instruction answers `Custom(102)` (InstructionDidNotDeserialize)
   when it takes arguments and `Custom(3005)` (AccountNotEnoughKeys) when it takes none. That
   difference is a unit test that an instruction is gone.
+- One blank line added at the top of the range program's `lib.rs` changed its release build's
+  sha256 (`2249d8a6` to `188978e7`, the same 1,443,096 bytes): Anchor 1.0.2's `require!` and
+  `err!` record `file!()` and `line!()`. A comment edit that adds or removes lines is a new build
+  to check against the chain; one that keeps the line count gave the same bytes.
+- Rebuilding into the path a running local-chain sweep loads its program from (`CLMM_SO`) switched
+  builds in the middle of the sweep: each broken input starts a fresh validator from that path, and
+  the restore check (the same hash before and after) would have failed. Copy the build under test
+  to a read-only file named by its hash and point the sweep there.
 
 ---
 
