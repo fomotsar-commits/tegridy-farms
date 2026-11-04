@@ -156,7 +156,7 @@ await must('vault: BAYLA account', [ataIx(memberA.publicKey, VAULT, BAYLA)], [me
 // Two local coins: a reward coin and a dollar coin for the 0.25% tier's pool.
 const REWARD = await newMint('REWARD mint (local)', K.rewardMintAuthority, 6);
 const USD = await newMint('USD mint (local)', K.usdMintAuthority, 6);
-for (const [owner, amt] of [[alice.publicKey, 10_000_000n], [mallory.publicKey, 0n]]) {
+for (const [owner, amt] of [[alice.publicKey, 10_000_000n], [erin.publicKey, 1_000_000n], [mallory.publicKey, 0n]]) {
   await must('fund REWARD', [ataIx(K.rewardMintAuthority.publicKey, owner, REWARD), ...(amt ? [spl.createMintToInstruction(REWARD, ata(owner, REWARD), K.rewardMintAuthority.publicKey, amt * 1_000_000n, [], ADDR.token)] : [])], [K.rewardMintAuthority]);
 }
 for (const owner of [alice.publicKey, dave.publicKey]) await must('fund USD', [ataIx(K.usdMintAuthority.publicKey, owner, USD), spl.createMintToInstruction(USD, ata(owner, USD), K.usdMintAuthority.publicKey, 10_000_000n * 1_000_000n, [], ADDR.token)], [K.usdMintAuthority]);

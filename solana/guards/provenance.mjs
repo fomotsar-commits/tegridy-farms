@@ -37,7 +37,7 @@ export const COPIES = {
     take: (p) => p.startsWith('programs/amm/') || ['Anchor.toml', 'Cargo.toml', 'Cargo.lock', 'LICENSE'].includes(p),
     map: (p) => p,
     delta: 'tegridy-clmm.diff',
-    deltaSha256: '02359992d7a031272c7e0ea18ef10cf0d42af05cbdcf6e0fe146823f0115d3d7',
+    deltaSha256: '520fe81335cd4d3e7c632bc9565296d4f4d1569bd74c2d501f7bdcc168af7a15',
     patched: [
       'Anchor.toml',
       'Cargo.toml',
@@ -58,6 +58,7 @@ export const COPIES = {
       'programs/amm/src/instructions/create_permissioned_pool.rs',
       'programs/amm/src/instructions/create_pool.rs',
       'programs/amm/src/instructions/decrease_liquidity.rs',
+      'programs/amm/src/instructions/initialize_reward.rs',
       'programs/amm/src/instructions/open_position.rs',
       'programs/amm/src/instructions/swap_v2.rs',
       'programs/amm/src/states/config.rs',

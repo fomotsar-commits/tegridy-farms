@@ -99,12 +99,14 @@ hours):
    second approval at the earliest. The lock protects everyone from a hasty change, and it also
    means the brake is slow. One exception would be an operation owner: a key the vault adds
    (`update_operation_account`) can change any pool's reward window and rate at once, with no
-   proposal. So the vault adds none.
+   proposal, and since 2026-11-03 it is the only key besides the vault that can start a reward. So
+   the vault adds none unless it means to.
 3. Change a tier's fee within the 4% and 16% ceilings, on every pool of that tier at once.
 4. Move a reward's window before it opens, or change its rate, paying for what it adds. After the
    end the unpaid rest goes back to whoever started the reward, with anything the vault paid in, so
    the vault never tops up a reward it did not start. If that person loses their key, the rest
-   stays in the pool for good. Moving a pool's owner now changes only who may start new rewards.
+   stays in the pool for good. Moving a pool's owner (`transfer_reward_owner`) changes nothing since
+   2026-11-03: no instruction reads it.
 5. Upgrade the program itself: the vault holds its upgrade authority.
 
 Also: with the frozen-NFT issuer list empty, the vault never lets in a coin whose issuer may freeze
@@ -117,7 +119,7 @@ from fresh clones by `node solana/guards/provenance.mjs --regenerate <scratch fo
 can re-run it, and `git diff solana/guards/upstream` must then show no change.
 
 1. **Same code as Raydium's, plus only the reviewed patch** (`solana/guards/provenance.mjs`, in
-   `diff-guard` and `clmm-guards`). Range pools: 79 upstream files, 27 patched. cp-swap: its
+   `diff-guard` and `clmm-guards`). Range pools: 79 upstream files, 28 patched. cp-swap: its
    whole package, 37 files, 8 patched (2026-11-03; the `patched` lists in `provenance.mjs` are the
    record). `vendor/uint`: 16 files, none patched. Undoing the patch
    on our file must give back Raydium's exact file. No file may be added anywhere in either
@@ -163,22 +165,33 @@ The audit of 2026-11-03 found no critical bug in this program. Each finding belo
 source, or routed, with a test seen failing on the code before the fix: the unit tests run in CI,
 the local chain's checks are in [RESULTS.md](../solana/clmm-localnet/RESULTS.md). **None of it is on
 chain yet.** It rides the program upgrade after #22, which itself upgrades to the source before this
-round. The release build is 1,443,096 bytes, 83,608 fewer than before.
+round. The release build is 1,442,792 bytes, 83,912 fewer than before.
+
+Until that upgrade, the program on chain (today's, and #22's after it) still lets anyone open a
+range pool with `create_customizable_pool` and its fee coin of choice, with limit orders on;
+today's also charges nothing to open one (#22 adds the 0.5 SOL). A pool opened that way holds its
+pair's one `create_pool` address on its tier for good, with the fee coin it chose. No dynamic-fee
+setting exists, and only the vault could make one, so no pool can get a dynamic fee meanwhile (read
+2026-11-03 at slot 465,158,817: the program's only accounts are its two fee tiers). The upgrade
+changes no pool already open: such a pool keeps limit orders on (status 0) until the vault sets 32.
 
 | Finding | What it was | What changed | Proved by |
 |---|---|---|---|
-| CL-03, DG-02 | `create_customizable_pool` let whoever opened a pair first fix that pool's fee coin and dynamic fee for good | Deleted; `create_pool` opens the same pool with the defaults | D1, unit test |
+| CL-03, DG-02, CR-4 | `create_customizable_pool` let whoever opened a pair first fix that pool's fee coin and dynamic fee for good, and every opener could fill reward slots 1 and 2 for good | `create_customizable_pool` deleted; `create_pool` opens the same pool with the defaults. `initialize_reward`'s pool-owner clause deleted (the owner's ruling, 2026-11-03), as Orca's pools give an opener no reward power | D1, R4, unit test |
 | CR-1, CO-1, CR-7 | The dynamic fee lacks Orca's limit, an order filled across a price gap skips it, and its settings were frozen at a pool's opening | `create_dynamic_fee_config` and `update_dynamic_fee_config` deleted, and `create_permissioned_pool` refuses a dynamic fee, so no pool can carry one. The swap's dynamic-fee code stays as Raydium wrote it, unreachable | D2, D3, X20, unit tests |
 | CD-2 | `collect_excess_lamports` let the vault trim users' refundable rent deposits | Deleted. Its key constant stays, read by nothing, so the deploy pack's count of eight vault keys holds | D4, unit test |
 | CO-2 | Limit orders were on in every pool, with no site support or keeper behind them | A new pool starts with them off; the vault turns them on per pool | O0, unit test |
 | CL-09 | A fee tier with tick spacing 0 was accepted, and pools divide by it | Refused, as Uniswap v3's `enableFeeAmount` refuses it | T10 |
 | CD-1 | A `localnet` or `paramset` build kept the mainnet program id | Both now declare the devnet build's id, which nobody can deploy at | unit test under each setting, in CI |
 | CL-07 | A reward coin whose vault is frozen or paused blocks every withdrawal that would pay it | Nothing: a rescue exists (below) | A4 |
-| ME-2 | Just-in-time liquidity takes most of the LP fee on a big swap | Not changed: every fix is new code, so it is the owner's call (asked 2026-11-03) | |
+| ME-2 | Just-in-time liquidity takes most of the LP fee on a big swap | **An owner-approved exception, 2026-11-03**: left as every major exchange leaves it. No code | |
 
-Also asked of the owner, not changed: `create_pool` still makes the opener the pool's owner, and an
-owner can fill reward slots 1 and 2 for good (CR-4, the rest of CL-03). One line would make the vault
-every pool's owner, and openers could then start no reward.
+**Who can start a reward now.** Only the vault, or an operation owner the vault names. A pool's
+opener still becomes its owner, but no instruction reads a pool's owner any more. Nothing was exposed
+before the ruling either: every reward needs the operation account, which does not exist and only the
+vault can make (slot 465,158,817). An operation owner can also change any pool's reward window and
+rate with no proposal ("What else the vault can still do", 2), so a reward someone else pays for now
+takes a vault proposal, or an operator the vault trusts with every pool.
 
 **The status byte is written whole.** `update_pool_status` sets all six bits at once: open or add
 (1), withdraw (2), collect fees (4), collect rewards (8), swap (16), new limit orders (32); a set bit
@@ -357,7 +370,7 @@ left the rest to the builder. Decided on that basis:
 3. **Paid to the vault itself**, a wallet, not cp-swap's wrapped-SOL account
    (`2sa31zceMSTAAbSu5wfSnNA6sBYzS7r97nvZYaQouEXa`): putting SOL into a wrapped-SOL account needs
    the SPL Token program to sync it, and a range pool's two coins may both be Token-2022, so the
-   instruction may hold no SPL Token program. The vault already receives this program's spare SOL.
+   instruction may hold no SPL Token program. The vault then also received this program's spare SOL; that sweep was deleted on 2026-11-03.
 4. **The order.** The fee is only in the program once the vault executes the upgrade. Vault
    proposal **#19**, which makes the range fee tiers, was approved 2/2 on 2026-10-21 and may be
    executed at any time. **Executed before the upgrade, #19 opens range pools to anyone for free**
@@ -370,8 +383,19 @@ left the rest to the builder. Decided on that basis:
    by 10,240 bytes (4,336 are missing; the loader's smallest step is 10,240), about 0.052 SOL
    locked for good. The owner deferred the upload: `docs/TODO_OPERATOR.md`.
 
+## Decided 2026-11-03
+
+1. **The audit's range-pool findings are fixed in the source**, never accepted (the owner's rule),
+   except one ("Fixed in the source 2026-11-03", above).
+2. **A pool's opener starts no reward** (CR-4, the rest of CL-03): `initialize_reward`'s pool-owner
+   clause is deleted, rather than making the vault every pool's owner.
+3. **Just-in-time liquidity (ME-2) stays**, an owner-approved exception: every major exchange has
+   it, and any fix would be new code.
+
 ## Still the owner's
 
 1. **The mainnet date**, after the internal review.
 2. **Who does the outside review after launch**, and when.
 3. **The vault's top-up** before the first reward (above).
+4. **Keep or delete `create_permissioned_pool`** (asked 2026-11-03). Only a vault proposal can grant
+   its permission, and none exists on mainnet. Raydium added it in July 2026 (commit `01b7f6af`).

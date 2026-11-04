@@ -882,6 +882,12 @@
 ---
 > // Changed by memetics.finance (tegridy-clmm): the venue's name in the memo.
 > pub const DECREASE_MEMO_MSG: &'static [u8] = b"memetics_decrease";
+=== programs/amm/src/instructions/initialize_reward.rs ===
+130a131,132
+>     // memetics.finance: a pool's opener starts no reward (2026-11-03 audit, CL-03/CR-4, the
+>     // owner's ruling), as in Orca's pools: only the vault or an operation owner it named does.
+133d134
+<             || ctx.accounts.reward_funder.key() == ctx.accounts.pool_state.load()?.owner
 === programs/amm/src/instructions/open_position.rs ===
 798a799,800
 > // Changed by memetics.finance (tegridy-clmm): the venue's name, symbol and link. The link is
