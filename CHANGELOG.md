@@ -7,6 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-11-04
+
+- BAYLA lock ladder: a position still locked can be locked for longer without leaving it, for example a one-year lock moved to four years. The new lock counts from today and gets the same boost a new stake of that length gets, so it earns a bigger share of the same daily BAYLA; there is no fee and no tokens move. Before you confirm, the card says the new end date, the new boost and what leaving early would then cost (up to 75%). Only lengths that raise the boost are offered, and a lock that has ended is withdrawn instead.
+
 ### 2026-11-02
 
 - Swap on Base: BNKR, DRB, QR, JBM, $mfer, and TOWELI and RIZZ on Base now trade against their own Uniswap V3 pools, the ones holding their real liquidity, through Uniswap's own router. Selling 1.75 million BNKR now gets about 0.22 ETH instead of 0.0000011 ETH. The swap still takes whichever route pays you most, after fees: our pools, Uniswap V2, or the coin's V3 pool. A trade through the V3 pool pays the venue its usual 0.5%, always in ETH, to the venue's fee Safe on Base, in the same transaction; the pool's own 1% fee goes to its liquidity providers. A sale asks you to approve the coin once, then to sign a permit for exactly the amount you are selling, valid for 30 minutes. These coins are now on Base's swap list, so they no longer show as unverified.

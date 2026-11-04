@@ -117,6 +117,8 @@ export const IX_DISCRIMINATOR = {
   emergencyWithdraw: Uint8Array.from([239, 45, 203, 64, 150, 73, 218, 92]),
   claimCarried: Uint8Array.from([173, 173, 45, 126, 170, 32, 215, 248]),
   notifyReward: Uint8Array.from([252, 51, 75, 132, 223, 48, 177, 213]),
+  // Added 2026-10-29. Live only once the vault upgrade that carries it has executed.
+  extendLock: Uint8Array.from([68, 151, 140, 144, 139, 122, 118, 170]),
 } as const;
 
 export const ACCOUNT_DISCRIMINATOR = {
@@ -437,6 +439,33 @@ export function penaltyFor(amountRaw: bigint, lockEnd: bigint, nowSecs: bigint):
  * printed without trailing zeros ("75%", "25%", "0.47%"). Never rounds UP, so a card never
  * shows a price above the one the program charges.
  */
+/**
+ * `extend_lock`, decided LOCALLY by the program's own rules (math.rs `extended_lock`,
+ * plus lib.rs's degraded check first), so a rung the program would refuse is never
+ * offered. The new lock counts from `nowSecs` and is priced like a fresh stake on that
+ * rung. Returns null when the program would refuse it.
+ *
+ * `raises` is the card's own, stricter filter: the program also accepts an EQUAL
+ * weight (a re-lock at the four-year top), but that only lengthens the lock for
+ * nothing, so the card does not offer it.
+ */
+export function quoteExtend(
+  position: Pick<LadderPositionView, 'amountRaw' | 'lockEnd' | 'weight'>,
+  pool: Pick<LadderPoolView, 'degraded'>,
+  lockSecs: number,
+  nowSecs: number,
+): { lockEnd: bigint; weight: bigint; boostBps: number; raises: boolean } | null {
+  if (pool.degraded) return null;
+  if (lockSecs < MIN_LOCK_SECS || lockSecs > MAX_LOCK_SECS) return null;
+  const now = BigInt(Math.floor(nowSecs));
+  if (now >= position.lockEnd) return null;
+  const lockEnd = now + BigInt(Math.trunc(lockSecs));
+  if (lockEnd <= position.lockEnd) return null;
+  const weight = weightForStake(position.amountRaw, lockSecs);
+  if (weight < position.weight) return null;
+  return { lockEnd, weight, boostBps: boostBpsForLock(lockSecs), raises: weight > position.weight };
+}
+
 export function penaltyPct(penaltyRaw: bigint, amountRaw: bigint): string {
   if (amountRaw <= 0n) return '0%';
   const hundredths = (penaltyRaw * 10_000n) / amountRaw;
