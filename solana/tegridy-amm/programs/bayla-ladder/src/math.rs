@@ -81,8 +81,10 @@ pub const MAX_BOOST_BPS: u64 = 40_000;
 /// while locked, `emergency_withdraw` — and they MUST stay equal, or every leaver takes
 /// the cheaper door (see the comment above `emergency_withdraw`).
 ///
-/// THE TRADE, stated rather than glossed. Weight is frozen at stake time, so claiming a
-/// longer lock than you will serve earns extra reward that the penalty must outweigh.
+/// THE TRADE, stated rather than glossed. Weight is frozen at stake time (or at the last
+/// [`extended_lock`], which prices the new lock from that moment exactly as a fresh stake
+/// would), so claiming a longer lock than you will serve earns extra reward that the
+/// penalty must outweigh.
 /// Under this schedule that stops paying only while the max-boost reward rate stays
 /// below roughly 28% a year; above it, "lock 4 years and leave early" beats an honest
 /// shorter lock. veYFI itself has the same bound (~25%), and holds it by paying a low
@@ -194,6 +196,74 @@ pub fn weight_for(amount: u64, lock_secs: i64) -> u128 {
 /// smallest boost. Derived, never stored twice.
 pub fn min_weight_floor(min_stake: u64) -> u128 {
     (min_stake as u128) * (MIN_BOOST_BPS as u128) / (BPS as u128)
+}
+
+/* ─────────────────────────── extending a lock ─────────────────────────── */
+
+/// Why [`extended_lock`] refuses. `lib.rs` maps each one onto the `LadderError` of the
+/// same name; kept here, dependency-free, so every rule is proven on the host.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExtendRefusal {
+    LockTooShort,
+    LockTooLong,
+    LockExpired,
+    LockNotExtended,
+    BoostWouldDrop,
+    Overflow,
+}
+
+/// A still-locked position re-locked for `lock_secs` COUNTED FROM NOW (added 2026-10-29:
+/// holders on the one-year rung asked to move to four years, and the only route was
+/// `early_exit` — up to 75% of principal — then `stake`). Returns the new
+/// `(lock_end, weight)`.
+///
+/// COPIED, rule for rule, from the venue's audited `TegridyStaking.extendLock`
+/// (`contracts/src/TegridyStaking.sol`), itself veCRV's `increase_unlock_time`:
+///
+/// * the new lock is priced from now: `lock_end = now + lock_secs` and
+///   `weight = weight_for(amount, lock_secs)` — exactly what a fresh stake of the same
+///   principal on the same rung gets. Nothing here is cheaper than withdraw-then-stake;
+///   it only spares a locked holder the penalty for leaving a lock they are LENGTHENING.
+/// * it must end LATER than the current lock (its F-02-K-03: compared against the
+///   resulting end, not the original length) and stay on the ladder, 7 days to 4 years.
+/// * an ENDED lock is refused (its DEEP-DS-06). A matured position climbs by
+///   `withdraw_matured` then `stake`, which costs it nothing.
+///
+/// ONE RULE ADDED that the Solidity lacks: the weight may not FALL. Weight here is frozen
+/// at stake time and kept after maturity, so a position opened on a long rung and moved
+/// late onto a shorter one would lengthen its lock AND lose boost — a request no holder
+/// means to make. `boost_bps` is monotone, so this is "pick a lock at least as long as the
+/// one the position was opened with". Equal is allowed: at the four-year top a re-lock
+/// cannot raise the weight.
+///
+/// The penalty is time-left based ([`penalty_for`]), so lengthening a lock only ever
+/// RAISES what leaving costs: "extend to four years, then leave" pays the 75% cap, as a
+/// fresh four-year stake left at once does.
+pub fn extended_lock(
+    now: i64,
+    lock_end: i64,
+    amount: u64,
+    weight: u128,
+    lock_secs: i64,
+) -> Result<(i64, u128), ExtendRefusal> {
+    if lock_secs < MIN_LOCK_SECS {
+        return Err(ExtendRefusal::LockTooShort);
+    }
+    if lock_secs > MAX_LOCK_SECS {
+        return Err(ExtendRefusal::LockTooLong);
+    }
+    if now >= lock_end {
+        return Err(ExtendRefusal::LockExpired);
+    }
+    let new_end = now.checked_add(lock_secs).ok_or(ExtendRefusal::Overflow)?;
+    if new_end <= lock_end {
+        return Err(ExtendRefusal::LockNotExtended);
+    }
+    let new_weight = weight_for(amount, lock_secs);
+    if new_weight < weight {
+        return Err(ExtendRefusal::BoostWouldDrop);
+    }
+    Ok((new_end, new_weight))
 }
 
 /* ────────────────────────── the reward engine ───────────────────────── */
@@ -542,6 +612,144 @@ mod tests {
         assert_eq!(weight_for(2, 7 * DAY), 0);
         assert_eq!(weight_for(3, 7 * DAY), 1);
         assert_eq!(min_weight_floor(HARD_MIN_STAKE_RAW), 4_000);
+    }
+
+    // ── extending a lock ──────────────────────────────────────────────────
+
+    const YEAR: i64 = 365 * DAY;
+    const AMT: u64 = 1_000_000_000_000; // 1,000,000 BAYLA at six decimals
+
+    /// The request that started this: a one-year position, 28 days in, moved to four years.
+    #[test]
+    fn a_one_year_lock_moves_to_four_years_at_the_four_year_price() {
+        let staked_at = 1_000_000_000;
+        let lock_end = staked_at + YEAR;
+        let weight = weight_for(AMT, YEAR);
+        let now = staked_at + 28 * DAY;
+        let (end, w) = extended_lock(now, lock_end, AMT, weight, MAX_LOCK_SECS).unwrap();
+        assert_eq!(end, now + MAX_LOCK_SECS, "the new lock is counted from NOW");
+        assert_eq!(w, 4_000_000_000_000, "x4.00, exactly what a fresh four-year stake gets");
+        assert!(w > weight);
+    }
+
+    /// Priced from now, never from the original stake: the result is ALWAYS the fresh-stake
+    /// weight and end for the same principal and rung. A lock counted from the original
+    /// start would sell the 4.00x rung for less than four years of commitment.
+    #[test]
+    fn an_extension_is_priced_exactly_like_a_fresh_stake() {
+        let lock_end = 10 * YEAR;
+        let weight = weight_for(AMT, 7 * DAY);
+        for now in [lock_end - 6 * DAY, lock_end - 1] {
+            for secs in [7 * DAY, 30 * DAY, 249 * DAY, YEAR, 2 * YEAR, MAX_LOCK_SECS] {
+                let (end, w) = extended_lock(now, lock_end, AMT, weight, secs).unwrap();
+                assert_eq!(end, now + secs);
+                assert_eq!(w, weight_for(AMT, secs));
+            }
+        }
+    }
+
+    #[test]
+    fn an_extension_stays_on_the_ladder() {
+        let (now, lock_end, weight) = (YEAR, 2 * YEAR, weight_for(AMT, YEAR));
+        assert_eq!(
+            extended_lock(now, lock_end, AMT, weight, MAX_LOCK_SECS + 1),
+            Err(ExtendRefusal::LockTooLong)
+        );
+        assert!(extended_lock(now, lock_end, AMT, weight, MAX_LOCK_SECS).is_ok());
+        // Short is refused before anything else, as `stake` does, even where it would
+        // also fail to extend.
+        assert_eq!(
+            extended_lock(now, now + 1, AMT, 0, MIN_LOCK_SECS - 1),
+            Err(ExtendRefusal::LockTooShort)
+        );
+        assert!(extended_lock(now, now + 1, AMT, weight_for(AMT, 7 * DAY), MIN_LOCK_SECS).is_ok());
+    }
+
+    /// TegridyStaking's DEEP-DS-06: an ended lock is not revived in place. The boundary is
+    /// the matured door's own (`now >= lock_end`), so a position is extendable exactly
+    /// while `early_exit` would take it.
+    #[test]
+    fn an_ended_lock_is_refused_at_the_matured_doors_boundary() {
+        let (lock_end, weight) = (2 * YEAR, weight_for(AMT, YEAR));
+        for now in [lock_end, lock_end + 1, lock_end + 3 * YEAR] {
+            assert_eq!(
+                extended_lock(now, lock_end, AMT, weight, MAX_LOCK_SECS),
+                Err(ExtendRefusal::LockExpired),
+                "now = lock_end + {}",
+                now - lock_end
+            );
+        }
+        assert!(extended_lock(lock_end - 1, lock_end, AMT, weight, MAX_LOCK_SECS).is_ok());
+    }
+
+    /// TegridyStaking's F-02-K-03: compared against the RESULTING end. Equal is not later.
+    #[test]
+    fn the_new_end_must_be_strictly_later() {
+        let weight = weight_for(AMT, YEAR);
+        let now = YEAR;
+        // a four-year position one day in: a fresh four-year lock ends one day later
+        let lock_end = now + MAX_LOCK_SECS - DAY;
+        assert!(extended_lock(now, lock_end, AMT, weight, MAX_LOCK_SECS).is_ok());
+        assert_eq!(
+            extended_lock(now, now + YEAR, AMT, weight, YEAR),
+            Err(ExtendRefusal::LockNotExtended),
+            "the same end is no extension"
+        );
+        assert_eq!(
+            extended_lock(now, now + YEAR, AMT, weight_for(AMT, 30 * DAY), 300 * DAY),
+            Err(ExtendRefusal::LockNotExtended),
+            "an earlier end is no extension"
+        );
+        assert!(extended_lock(now, now + YEAR, AMT, weight, YEAR + 1).is_ok());
+    }
+
+    /// The one rule added to the Solidity. A four-year position 1,000 days in has 460 days
+    /// left; a 500-day lock ends later but carries ~1.6x — refused, not quietly applied.
+    #[test]
+    fn the_weight_never_falls() {
+        let weight = weight_for(AMT, MAX_LOCK_SECS);
+        let now = 1_000 * DAY;
+        let lock_end = MAX_LOCK_SECS;
+        assert_eq!(
+            extended_lock(now, lock_end, AMT, weight, 500 * DAY),
+            Err(ExtendRefusal::BoostWouldDrop)
+        );
+        // POSITIVE CONTROL: equal weight at the top is allowed — the only re-lock there is.
+        let (end, w) = extended_lock(now, lock_end, AMT, weight, MAX_LOCK_SECS).unwrap();
+        assert_eq!((end, w), (now + MAX_LOCK_SECS, weight));
+        // and a rung three days shorter than the original is refused even though it ends later
+        let year_weight = weight_for(AMT, YEAR);
+        assert_eq!(
+            extended_lock(YEAR - DAY, YEAR, AMT, year_weight, YEAR - 3 * DAY),
+            Err(ExtendRefusal::BoostWouldDrop)
+        );
+    }
+
+    #[test]
+    fn an_end_past_i64_is_refused_not_wrapped() {
+        assert_eq!(
+            extended_lock(i64::MAX - 1, i64::MAX, AMT, 0, MIN_LOCK_SECS),
+            Err(ExtendRefusal::Overflow)
+        );
+    }
+
+    /// Lengthening a lock can only make leaving dearer: the veYFI penalty is time-left
+    /// based, so the extension never opens a cheaper door than the lock it replaces.
+    #[test]
+    fn an_extension_never_lowers_the_early_exit_penalty() {
+        let weight = weight_for(AMT, YEAR);
+        let now = 100 * DAY;
+        let lock_end = YEAR;
+        for secs in [YEAR, 2 * YEAR, 3 * YEAR, MAX_LOCK_SECS] {
+            let (end, _) = extended_lock(now, lock_end, AMT, weight, secs).unwrap();
+            assert!(penalty_for(AMT, end, now) >= penalty_for(AMT, lock_end, now));
+        }
+        let (end, _) = extended_lock(now, lock_end, AMT, weight, MAX_LOCK_SECS).unwrap();
+        assert_eq!(
+            penalty_for(AMT, end, now),
+            AMT * 3 / 4,
+            "extend to four years and leave at once = the 75% cap"
+        );
     }
 
     // ── the engine ────────────────────────────────────────────────────────

@@ -7,9 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
-### 2026-11-03
+### 2026-11-04
 
 - BOBO, SOY, BRAINLET and RIZZ: staking now works exactly like BAYLA's. Each room has a pool on the same lock ladder: lock for 7 days to 4 years, and a longer lock earns a bigger share of the rewards (0.40× to 4.00×); leave early and you give up a share of your stake that shrinks as the lock runs down (at most 75%), which stays in the pool for the stakers who remain; up to 10,000,000 per wallet. Each pool pays in its own coin, from rewards the team's vault puts in, and the venue takes nothing. The room's old Streamflow pool takes no new stakes; if you staked there, you can still claim, unstake and rescue on the room's page. The dashboard, Harvest and the home page's TVL read every room's ladder, not only BAYLA's.
+- BAYLA lock ladder: a position still locked can be locked for longer without leaving it, for example a one-year lock moved to four years. The new lock counts from today and gets the same boost a new stake of that length gets, so it earns a bigger share of the same daily BAYLA; there is no fee and no tokens move. Before you confirm, the card says the new end date, the new boost and what leaving early would then cost (up to 75%). Only lengths that raise the boost are offered, and a lock that has ended is withdrawn instead.
 
 ### 2026-11-02
 
