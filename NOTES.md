@@ -55,6 +55,17 @@ of the delta.
   the two runs. About 2 minutes per build and 8 seconds per test run. Split a table-driven test
   into one `it` per row first: in one `it`, the first failing row hides whether the rest would
   have failed too.
+- A red run in a second copy of the same workspace can run the FIRST copy's test binary. For
+  #1113's hand-over rule, the fixed and unfixed copies shared one `CARGO_TARGET_DIR`, and both
+  were made before the first build. `cargo test` in the unfixed copy passed 26 of 26, though it
+  had lost the check. `target/debug/deps` held one test binary for both copies, and the unfixed
+  sources, copied before the fixed build, looked older than it. After touching the unfixed
+  sources, cargo printed `Compiling raydium-cp-swap (…/unfixed/…)` and the two guards failed. The
+  program builds were sound, since each built in its own copy's `target/`. Give each copy its own
+  target dir, or touch its sources, and check for that `Compiling` line before trusting a pass.
+- With Node 24, `ts-mocha` loads a `.ts` test as an ES module, because Node now strips types
+  itself. Then `import { BN } from "@coral-xyz/anchor"` fails with "Named export 'BN' not found".
+  `NODE_OPTIONS=--no-experimental-strip-types` hands the file back to ts-node.
 
 ---
 
