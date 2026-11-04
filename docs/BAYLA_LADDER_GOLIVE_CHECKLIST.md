@@ -498,8 +498,9 @@ returns the accumulator unchanged), and the CLI's replay does the same.
 setter-less values. `deposit_cap` HAS a raise path — `propose_cap_raise` / `execute_cap_raise`,
 both in `lib.rs` — and the `math.rs` constant is only the penalty.)
 
-- **`min_stake` and `max_wallet_principal` have no setter** (runbook §6): written once in
-  `initialize_pool`, never changed.
+- **`min_stake` has no setter** (runbook §6): written once in `initialize_pool`, never
+  changed. `max_wallet_principal` had none either until the 2026-10-27 build added the
+  raise-only `raise_wallet_cap` (never above `deposit_cap`).
 - **The early-exit penalty is compiled in, with no setter: veYFI's schedule,
   `amount × min(time_left / 4 years, 75%)`** (`math::penalty_for`, capped by
   `MAX_EARLY_EXIT_PENALTY_BPS = 7_500` in `math.rs`, branch
@@ -657,8 +658,9 @@ this box silently — it is a promise to a third party, not an internal preferen
 
 - **BAYLA in the reward vault.** No clawback, ever.
 - **`pool.authority`**, until a two-step propose/accept completes. Loss is final.
-- **`min_stake`, `max_wallet_principal`, and the early-exit penalty schedule,
-  `min(time_left / 4 years, 75%)`** — no setter. (`deposit_cap` can only go up. The
+- **`min_stake` and the early-exit penalty schedule,
+  `min(time_left / 4 years, 75%)`** — no setter. (`deposit_cap` and, from the 2026-10-27
+  build, `max_wallet_principal` can only go up. The
   penalty could change only by a program upgrade, and that would reach every open
   position.)
 - **The reward-sizing bound the schedule leaves.** Frozen weights plus a time-left penalty
