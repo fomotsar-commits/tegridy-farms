@@ -7,9 +7,9 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
-### 2026-11-03
+### 2026-11-04
 
-- BAYLA lock ladder: a position still locked can be locked for longer without leaving it, for example a one-year lock moved to four years. The new lock counts from today and gets the same boost a new stake of that length gets, so it earns a bigger share of the same daily BAYLA; there is no fee and no tokens move. Before you confirm, the card says the new end date, the new boost and what leaving early would then cost (up to 75%). Only lengths that raise the boost are offered, and a lock that has ended is withdrawn instead. It works once the team's vault upgrades the ladder program.
+- BAYLA lock ladder: a position still locked can be locked for longer without leaving it, for example a one-year lock moved to four years. The new lock counts from today and gets the same boost a new stake of that length gets, so it earns a bigger share of the same daily BAYLA; there is no fee and no tokens move. Before you confirm, the card says the new end date, the new boost and what leaving early would then cost (up to 75%). Only lengths that raise the boost are offered, and a lock that has ended is withdrawn instead.
 
 ### 2026-11-02
 
