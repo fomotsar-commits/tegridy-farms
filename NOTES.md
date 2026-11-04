@@ -15,7 +15,7 @@ Rules for entries, so this stays worth reading:
 
 ---
 
-## 2026-11-03: a program's red-first proof needs no second CI round, and the guards rewrite only what they are told to
+## 2026-11-03: the guards rewrite only what they are told to, a program edit can fail a site test, and red-first needs no red commit in CI
 
 **Believed:** `node solana/guards/provenance.mjs --regenerate <clones>` re-derives a copy's whole
 reviewed patch from our source, so after editing cp-swap one regenerate and one re-pin are enough.
@@ -30,6 +30,16 @@ of the delta.
 
 **Also measured, the same round:**
 
+- A program's own tests passing does not mean CI will pass. #1113 changed one file of the range
+  program, `util/token.rs`, and its unit tests passed. Its first CI run still failed in "Lint,
+  Type Check & Test". `frontend/src/lib/solana/clmm/quote.test.ts` hashes every `.rs` file under
+  `tegridy-clmm/programs/amm/src`, plus `vendor/`, both `Cargo.toml` files and `Cargo.lock`, and
+  holds that hash to the stamp in its vectors fixture. The fix was to re-run
+  `frontend/scripts/clmm-vectors/run.sh` (fixed seed, about 15 seconds in WSL once the crates are
+  built) and compare the output with the committed fixture. Everything but the stamp came out
+  byte-identical, all 1,246,560 bytes, which also shows the edit left the quote maths alone.
+  Before pushing a program edit, grep `frontend/src` for the program's folder: 22 site test files
+  named one on 2026-11-03.
 - `key-guard.mjs` refuses `Pubkey::from_str(key)` with a variable anywhere in a copy, unit tests
   included ("is given something other than one plain key"). Write each key as `pubkey!("…")`.
 - A Rust `assert!` that refuses an Anchor instruction reaches a TypeScript test as the text
