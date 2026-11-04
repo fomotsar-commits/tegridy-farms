@@ -47,7 +47,7 @@ role use the venue's devnet key `GgE6AfEH2AVSrKGckyKMzC6mhtXWiAn39EzAikAsWq5a`.
 | Program id | `CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK` | `7ghzbbmq59QEbdweSzM1ggpeBH1Q2CyxZg4Tr2x8Aso`, made by the owner on 2026-10-21 | Claimed by the first deploy; afterwards only its upgrade authority, the vault, can change the program |
 | Admin | `GThUX1Atko4tqhN2NaiTazWSeFWMuiUvfFnyJyUghFMJ` | vault | Make and change fee tiers (at most 4% of a swap; at most 16% of each fee to the venue and the island together; tick spacing above 0), pause a pool, turn its limit orders on, collect the protocol's share |
 | Protocol-fee owner | `projjosVCPQH49d5em7VYS7fJZzaqKixqKtus7yk416` | vault | Collect the protocol's share of swap fees |
-| Fund-fee owner | `FundHfY8oo8J9KYGyfXFFuQCHe7Z1VBNmsj84eMcdYs4` | vault, as each tier is born; the same proposal then hands each tier's fund share to the island's Workshop | Collect the fund's share of swap fees |
+| Fund-fee owner | `FundHfY8oo8J9KYGyfXFFuQCHe7Z1VBNmsj84eMcdYs4` | vault, as each tier is born; the same proposal then hands each tier's fund share to the island's Workshop, its one hand-over (since 2026-11-03 the vault can never move it again) | Collect the fund's share of swap fees |
 | Spare-SOL collector | `Ray9LdYRLXsHzL8pr3Ceahfiz8MsS2pZagzHo1ckdfJ` | vault | Nothing since 2026-11-03: its sweep is deleted from the source (on chain from the upgrade after #22), and nothing reads the key. The sweep could trim users' refundable deposits |
 | Limit-order keeper | `Ray8HHtixhL9zvnokMyELCVGp622PDPJj96zcVC9RWp` | vault | Settle or close a user's limit order; the coins go to the order's owner only. Since 2026-11-03 a new pool takes no limit order until the admin turns them on |
 | Permission admin | `RayzVBPm6p6xtG7fU3KX4k44UexK4NjewDk2QCwoLqa` | vault | Nothing since 2026-11-03: permissioned pools and their permissions are deleted (the owner's ruling), and nothing reads the key |
@@ -78,10 +78,13 @@ Raydium address, because none is in the code. Each path was run on a local chain
 **How the vault can still move the island's share**, each by a proposal (two signatures, then 48
 hours):
 
-- point a tier's fund owner at another account, itself included, and then collect as the fund
-  owner; the re-point, the collection and the re-point back can sit in one proposal (check V10);
+- it can no longer point a handed-over share anywhere else, itself included (the owner's ruling,
+  2026-11-03; check V6): `update_amm_config`'s param 4 works only while the vault still holds the
+  share, so after a tier's one hand-over only a program upgrade can move it. Until the upgrade
+  after #22 the program on chain still allows it;
 - re-split a tier: set the island's part to nothing, then raise the venue's part into the room,
-  within the 16% ceiling;
+  within the 16% ceiling. The vault keeps this rate setting on purpose: phase two of the split
+  needs it;
 - let in a Token-2022 coin (support-mint) whose owner can move coins out of any account (a
   permanent delegate), which would reach the pool's vault: so the vault lets in no such coin.
   This one closes with the upgrade after #22: since 2026-11-03 the source checks every coin's
@@ -185,6 +188,7 @@ changes no pool already open: such a pool keeps limit orders on (status 0) until
 | CL-09 | A fee tier with tick spacing 0 was accepted, and pools divide by it | Refused, as Uniswap v3's `enableFeeAmount` refuses it | T10 |
 | CD-1 | A `localnet` or `paramset` build kept the mainnet program id | Both now declare the devnet build's id, which nobody can deploy at | unit test under each setting, in CI |
 | CL-07 | A reward coin whose vault is frozen or paused blocks every withdrawal that would pay it | Nothing: a rescue exists (below) | A4 |
+| PARI-4 (round 1) | The vault could point a tier's island share at any account, itself included, collect it and point it back, in one proposal | `update_amm_config`'s param 4 works only while the vault still holds the share (the owner's ruling, 2026-11-03), as in swap pools | V6 |
 | ME-2 | Just-in-time liquidity takes most of the LP fee on a big swap | **An owner-approved exception, 2026-11-03**: left as every major exchange leaves it. No code | |
 
 **Who can start a reward now.** Only the vault, or an operation owner the vault names. A pool's
@@ -275,9 +279,10 @@ million). One vault proposal makes both tiers and points each one's fund owner a
 made): one 48-hour wait, and no moment when one tier exists without the other.
 Each tier costs the vault 0.0012 SOL in rent.
 
-**The vault can still move the island's share** by a proposal ("How the vault can still move the
-island's share", above), but it can no longer collect it directly (check V9: refused). The island
-can watch for such a proposal through its 48 hours.
+**The vault can no longer move the island's share** once a tier hands it over (check V6), nor
+collect it (check V9); it can still change a tier's rates within the ceilings ("How the vault can
+still move the island's share", above). The island can watch for such a proposal through its 48
+hours.
 
 Sources: our cp-swap's own tiers (`CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy` and
 `BHMteE8u6LAppswQmFmd2h7hp1fCfWtGahvVJnhRk8jW`) carry the same 104,000 and 56,000 since Squads
@@ -396,6 +401,13 @@ left the rest to the builder. Decided on that basis:
    `create_permission_pda`, `close_permission_pda` and the Permission account, which nothing else
    read. `create_pool` is the one way to open a range pool. Raydium added the instruction in July
    2026 (commit `01b7f6af`); none of its accounts exists on mainnet (slot 465,158,817).
+5. **A tier's island share is handed over once** (owner: "Yes, build it"; "no we should ask the
+   island for an address to route their share"): the vault hands it over while it still holds it,
+   and after that only a program upgrade can move it. This reverses the 2026-10-20 "keep 5" for
+   range pools; swap pools get the same rule (#1113). The percentages do not change: the island
+   gets 35% of the venue's cut now and 45% in phase two, so the vault keeps the rate setting.
+   Both live range tiers' island shares already belong to the Workshop (slot 465,177,666), so after
+   the upgrade neither can move.
 
 ## Still the owner's
 

@@ -650,15 +650,20 @@
 <         reward_info.authority = new_owner;
 <     }
 === programs/amm/src/instructions/admin/update_amm_config.rs ===
-63c63
+38a39,42
+>             // memetics.finance: a tier's island share is handed over once, while the vault still
+>             // holds it, and never moved again; only a program upgrade can (the owner's ruling,
+>             // 2026-11-03). Swap pools hold the same rule.
+>             require_keys_eq!(amm_config.fund_owner, crate::admin::ID, ErrorCode::NotApproved);
+63c67
 <         FEE_RATE_DENOMINATOR_VALUE,
 ---
 >         MAX_PROTOCOL_AND_FUND_FEE_RATE,
-71c71
+71c75
 <     require_gt!(FEE_RATE_DENOMINATOR_VALUE, trade_fee_rate);
 ---
 >     require_gte!(MAX_FEE_RATE_NUMERATOR, trade_fee_rate);
-79c79
+79c83
 <         FEE_RATE_DENOMINATOR_VALUE,
 ---
 >         MAX_PROTOCOL_AND_FUND_FEE_RATE,

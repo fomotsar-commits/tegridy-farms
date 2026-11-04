@@ -4,6 +4,7 @@ import { readFileSync, writeFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { WORK } from './lib/config.mjs';
 import { spec } from './lib/clmm.mjs';
+import { MUTANTS } from './mutants.mjs';
 
 const j = (f) => JSON.parse(readFileSync(join(WORK, f), 'utf-8'));
 const clean = j('results-clean.json');
@@ -11,8 +12,9 @@ const man = j('manifest.json');
 // Every sweep in the work folder, oldest first: a later run of the same broken input wins, and
 // the restore that counts is the last sweep's.
 const sweeps = readdirSync(WORK).filter((f) => /^mutants-.*\.json$/.test(f)).sort().map(j);
+// A broken input since removed from mutants.mjs no longer counts.
 const sweep = sweeps.length
-  ? { ...sweeps.at(-1), mutants: Object.values(Object.fromEntries(sweeps.flatMap((x) => x.mutants.map((m) => ({ ...m, programSha: x.programSha }))).map((m) => [m.id, m]))), runs: sweeps.length }
+  ? { ...sweeps.at(-1), mutants: Object.values(Object.fromEntries(sweeps.flatMap((x) => x.mutants.map((m) => ({ ...m, programSha: x.programSha }))).map((m) => [m.id, m]))).filter((m) => MUTANTS[m.id]), runs: sweeps.length }
   : null;
 const perByte = man.mainnetRent.perByte;
 const offCount = readFileSync(join(WORK, 'deactivate-features.txt'), 'utf-8').split('\n').filter(Boolean).length;
@@ -66,7 +68,8 @@ ${sweep ? `${sweep.mutants.filter((m) => m.red).length} of ${sweep.mutants.lengt
 Every admin action was signed by the vault's real address through a real Squads 2-of-2 with a time lock. No path
 sent anything to a Raydium address. The fee tiers are the owner's (2026-10-20): of each fee the LPs collected 84%,
 the venue's 10.4% was collectable only by the vault, and the island's 5.6% only by its Workshop's role: the vault
-is refused (check V9), though one proposal can **re-point the island's share** (check V6). No tier may charge
+is refused (check V9), and since 2026-11-03 a tier's island share, once handed over, cannot be pointed anywhere
+else, not even at the vault (check V6). No tier may charge
 more than 4% of a swap or give the venue and the island more than 16% of each fee, made or changed (K1 to K5), or
 have a tick spacing of 0 (T10). Only the vault or an operator it names can start a reward, a pool's opener cannot
 (R4), and a reward's unpaid rest goes back only to whoever started it, whoever owns the pool (R11, R13, R14). (A fee
@@ -148,9 +151,9 @@ ${cuRows.join('\n')}
 
 ## What surprised us
 
-1. **The vault keeps power over the island's 5.6%.** As admin it can collect the fund share itself, into any
-   account, and re-point a tier's fund owner at any time (V6, V9). The same is true of our cp-swap. Each takes a
-   vault proposal, so two signatures and the 48-hour lock, which the island can watch for.
+1. **The island's 5.6% is the island's once handed over.** The vault hands each tier's share over once, as the tier
+   is made (T6, T7), and since 2026-11-03 cannot point it anywhere else, not even at itself (V6), nor collect it
+   (V9): only a program upgrade could. The vault keeps the rate setting, within the ceilings (K1 to K5).
 2. **The vault cannot pay for rewards today.** Every reward stream needs the operation account first (3,529 bytes,
    0.0186 SOL at mainnet's rate), made and paid by the vault, and since 2026-11-03 only the vault or an operator it
    names can start one (R4). The vault held 0.0152 SOL on 2026-10-20. Two tiers take 0.0025 more.
@@ -173,8 +176,8 @@ ${cuRows.join('\n')}
    Token-2022 features, pass or not, so issuing a support-mint pass changes nothing; the instruction stays so the
    program's interface stays Raydium's.
 10. **Two things the local chain could not do.** It cannot wait out the real 172,800 s lock: the same Squads check
-    refused an early execute at 10 s (T4) and accepted one after (T5). And it cannot sign as the island's Workshop:
-    a local key stood in for it in the fund-owner role (V7), then the tier was pointed back at the Workshop (V8).
+    refused an early execute at 10 s (T4) and accepted one after (T5). And it cannot sign as the island's Workshop,
+    so tier 0's one hand-over went to a local stand-in (T6, V7); tier 1's went to the Workshop's own address (T7).
 11. **WSL here has no network, and stops its machine about a minute after the last \`wsl.exe\` client exits**,
     detached validators and all. The harness reads mainnet from Windows and holds a client open for each run.
 

@@ -169,12 +169,25 @@ export async function phases(c, h) {
     check('V3', 'collect_protocol_fee', "the venue's share landed in token accounts the vault owns", owners.every((o) => o.equals(VAULT)), [...new Set(owners.map((o) => o.toBase58()))].join(', '));
   }
   {
-    // The Workshop's own signature cannot be made here, so a local key stands in for it in the
-    // fund-owner role. Pointing the tier at it, and back, is itself the admin's re-point path.
+    // The Workshop's own signature cannot be made here, so tier 0's island share went to a local
+    // stand-in when the tier was made (T6). That was its one hand-over: since 2026-11-03 (the
+    // owner's ruling) the vault can point a handed-over share nowhere else, itself included, so it
+    // cannot collect the island's share by pointing it at itself first. Only a program upgrade can
+    // move it. The broken input re-points tier 9 instead, whose share the vault still holds.
     const standIn = K.workshopStandIn;
-    await mustVault("vault points tier 0's fund owner at a stand-in for the Workshop", [ix('update_amm_config', { owner: VAULT, amm_config: cfg0 }, { param: 4, value: 0 }, [{ pubkey: mut('V6') ? c.WORKSHOP : standIn.publicKey, isWritable: false }])]);
-    const moved = (await account('AmmConfig', cfg0)).fund_owner.equals(standIn.publicKey);
-    check('V6', 'update_amm_config (param 4)', "the vault can point a tier's fund share at any account, at any time (an admin path over the island's share)", moved, 'fund owner re-pointed by one vault proposal');
+    {
+      const point = (cfg, to) => ix('update_amm_config', { owner: VAULT, amm_config: cfg }, { param: 4, value: 0 }, [{ pubkey: to, isWritable: false }]);
+      const p0 = await pool();
+      const v0 = [await tok(ata(VAULT, M0)), await tok(ata(VAULT, M1))];
+      const r = await vaultRun("vault tries to point tier 0's island share at itself, collect it, and point it back", mut('V6') ? [point(c.cfg9, VAULT)]
+        : [point(cfg0, VAULT), feeIx('collect_fund_fee', VAULT, ata(VAULT, M0), ata(VAULT, M1)), point(cfg0, standIn.publicKey)]);
+      const p1 = await pool();
+      const got = [(await tok(ata(VAULT, M0))) - v0[0], (await tok(ata(VAULT, M1))) - v0[1]];
+      check('V6', 'update_amm_config (param 4)', "once a tier's island share is handed over, the vault cannot point it anywhere else, itself included, so it cannot collect the island's share that way (the owner's ruling, 2026-11-03)",
+        !r.executed && failedWith(r.execute, 'NotApproved') && (await account('AmmConfig', cfg0)).fund_owner.equals(standIn.publicKey)
+          && got[0] === 0n && got[1] === 0n && p1.fund_fees_token_0 === p0.fund_fees_token_0 && p1.fund_fees_token_1 === p0.fund_fees_token_1,
+        r.executed ? `executed, proposal ${r.index}` : `refused: ${errName(r.execute)}`);
+    }
     for (const m of [M0, M1]) await must('stand-in token account', [ataIx(standIn.publicKey, standIn.publicKey, m)], [standIn]);
     {
       // Its broken input is the fund owner itself, who may collect.
@@ -192,8 +205,6 @@ export async function phases(c, h) {
     check('V7', 'collect_fund_fee', "the fund owner collects exactly the island's share that built up, into its own accounts",
       r.ok && got[0] === p0.fund_fees_token_0 && got[1] === p0.fund_fees_token_1 && got[0] > 0n && got[1] > 0n && p1.fund_fees_token_0 === 0n && p1.fund_fees_token_1 === 0n,
       r.ok ? `${fmt(baylaIs0 ? got[0] : got[1], 6)} BAYLA + ${fmt(baylaIs0 ? got[1] : got[0], 9)} SOL` : `refused: ${errName(r)}`);
-    if (!mut('V8')) await mustVault("vault points tier 0's fund owner back at the Workshop", [ix('update_amm_config', { owner: VAULT, amm_config: cfg0 }, { param: 4, value: 0 }, [{ pubkey: c.WORKSHOP, isWritable: false }])]);
-    check('V8', 'update_amm_config (param 4)', "tier 0's fund owner is the Workshop again", (await account('AmmConfig', cfg0)).fund_owner.equals(c.WORKSHOP), '');
   }
   phaseDone('phase6');
 
@@ -514,23 +525,9 @@ export async function phases(c, h) {
       [feeIx(mut('V9') ? 'collect_protocol_fee' : 'collect_fund_fee', VAULT, r0, r1)]);
     const got = [(await tok(r0)) - b[0], (await tok(r1)) - b[1]];
     const p1 = await pool();
-    check('V9', 'collect_fund_fee', "the vault cannot collect the island's share, even while the Workshop is the fund owner: only the fund owner can",
+    check('V9', 'collect_fund_fee', "the vault cannot collect the island's share: only the tier's fund owner can",
       !r.executed && failedWith(r.execute, 'NotApproved') && got[0] === 0n && got[1] === 0n && p1.fund_fees_token_0 === p0.fund_fees_token_0 && p1.fund_fees_token_1 === p0.fund_fees_token_1,
       r.executed ? `executed: ${fmt(baylaIs0 ? got[0] : got[1], 6)} BAYLA + ${fmt(baylaIs0 ? got[1] : got[0], 9)} SOL to the vault, proposal ${r.index}` : `refused: ${errName(r.execute)}`);
-  }
-  {
-    // Kept on purpose and disclosed (the owner's ruling): the vault can still move the island's
-    // share, by pointing the tier's fund owner at itself. Its broken input skips that step.
-    const p0 = await pool();
-    const r0 = ata(VAULT, M0); const r1 = ata(VAULT, M1);
-    const b = [await tok(r0), await tok(r1)];
-    const point = (to) => ix('update_amm_config', { owner: VAULT, amm_config: cfg0 }, { param: 4, value: 0 }, [{ pubkey: to, isWritable: false }]);
-    const r = await vaultRun("vault points tier 0's island share at itself, collects it, and points it back", [
-      ...(mut('V10') ? [] : [point(VAULT)]), feeIx('collect_fund_fee', VAULT, r0, r1), point(c.WORKSHOP)]);
-    const got = [(await tok(r0)) - b[0], (await tok(r1)) - b[1]];
-    check('V10', 'update_amm_config (param 4) + collect_fund_fee', "kept and disclosed: in one proposal the vault can point a tier's island share at itself, collect it, and point it back",
-      r.executed && got[0] === p0.fund_fees_token_0 && got[1] === p0.fund_fees_token_1 && got[0] + got[1] > 0n && (await account('AmmConfig', cfg0)).fund_owner.equals(c.WORKSHOP),
-      r.executed ? `${fmt(baylaIs0 ? got[0] : got[1], 6)} BAYLA + ${fmt(baylaIs0 ? got[1] : got[0], 9)} SOL, proposal ${r.index}` : `refused: ${errName(r.execute)}`);
   }
   {
     const p = positions.carol;

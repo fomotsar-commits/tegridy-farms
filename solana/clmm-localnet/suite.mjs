@@ -180,9 +180,14 @@ const cfg0 = reg(PDA.ammConfig(0), 'fee tier 0');
 const cfg1 = reg(PDA.ammConfig(1), 'fee tier 1');
 const tierIx = (t, owner = VAULT) => ix('create_amm_config', { owner, amm_config: PDA.ammConfig(t.index) }, t);
 const fundOwnerIx = (cfg, to) => ix('update_amm_config', { owner: VAULT, amm_config: cfg }, { param: 4, value: 0 }, [{ pubkey: to, isWritable: false }]);
-/** One vault proposal per tier: create it, then point its fund share at the Workshop. */
-const tierProposal = (t) => [tierIx(t), ...((mut('T6') && t.index === 0) || (mut('T7') && t.index === 1) ? [] : [fundOwnerIx(PDA.ammConfig(t.index), WORKSHOP)])];
-const splitOk = (c, spacing, trade) => c && c.tick_spacing === spacing && c.trade_fee_rate === trade && c.protocol_fee_rate === 104_000 && c.fund_fee_rate === 56_000 && c.owner.equals(VAULT) && c.fund_owner.equals(WORKSHOP);
+// One vault proposal per tier makes it and hands over its island share, the one hand-over a tier
+// gets (the owner's ruling, 2026-11-03).
+// Tier 0's goes to a stand-in for the Workshop, which can then sign here as its fund owner (V5, V7);
+// tier 1's goes to the Workshop's own address, as on mainnet.
+const STAND_IN = K.workshopStandIn.publicKey;
+const fundTo = (t) => (t.index === 0 ? STAND_IN : WORKSHOP);
+const tierProposal = (t) => [tierIx(t), ...((mut('T6') && t.index === 0) || (mut('T7') && t.index === 1) ? [] : [fundOwnerIx(PDA.ammConfig(t.index), fundTo(t))])];
+const splitOk = (c, spacing, trade, fundOwner) => c && c.tick_spacing === spacing && c.trade_fee_rate === trade && c.protocol_fee_rate === 104_000 && c.fund_fee_rate === 56_000 && c.owner.equals(VAULT) && c.fund_owner.equals(fundOwner);
 
 {
   const r = mut('T1') ? (await vaultRun('T1 mutant: tier 0 by the vault', [tierIx(TIER0)])).execute : await send('stranger creates fee tier 0', [tierIx(TIER0, mallory.publicKey)], [mallory], { expectFail: true });
@@ -206,14 +211,14 @@ let pendingIndex;
   const waited = r.executedAt - r.approvedAt;
   check('T5', 'create_amm_config', 'the vault makes fee tier 0 through Squads, executed only after the lock', r.executed && waited >= LOCAL_TIME_LOCK, `proposal ${r.index}, executed ${waited} s after the second approval`);
   const c = await account('AmmConfig', cfg0);
-  check('T6', 'create_amm_config + update_amm_config', "one proposal makes tier 0 (1%, spacing 120) with the split: 104,000 per million of each fee to the venue (owner: the vault), 56,000 to the island (fund owner: its Workshop)",
-    splitOk(c, 120, 10_000), c ? `protocol ${c.protocol_fee_rate}, fund ${c.fund_fee_rate} per million; fund owner ${c.fund_owner.toBase58()}` : 'missing');
+  check('T6', 'create_amm_config + update_amm_config', "one proposal makes tier 0 (1%, spacing 120) with the split: 104,000 per million of each fee to the venue (owner: the vault), 56,000 to the island (fund owner: a stand-in for its Workshop, which the local chain cannot sign as)",
+    splitOk(c, 120, 10_000, STAND_IN), c ? `protocol ${c.protocol_fee_rate}, fund ${c.fund_fee_rate} per million; fund owner ${c.fund_owner.toBase58()}` : 'missing');
   await measure('fee tier (AmmConfig)', cfg0, 'vault');
 }
 {
   const r = await mustVault('fee tier 1 (0.25%, spacing 60) and its fund owner', tierProposal(TIER1));
   const c = await account('AmmConfig', cfg1);
-  check('T7', 'create_amm_config + update_amm_config', 'one proposal makes tier 1 (0.25%, spacing 60) with the same split and the same two owners', splitOk(c, 60, 2_500), `proposal ${r.index}`);
+  check('T7', 'create_amm_config + update_amm_config', "one proposal makes tier 1 (0.25%, spacing 60) with the same split, its island share handed to the Workshop's own address", splitOk(c, 60, 2_500, WORKSHOP), `proposal ${r.index}`);
 }
 {
   const upd = (owner, value) => ix('update_amm_config', { owner, amm_config: cfg1 }, { param: 1, value });
