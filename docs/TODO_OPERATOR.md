@@ -154,6 +154,12 @@ member A's balance for the old four-proposal plan and #30, both covered above).
 2. **Skip R9 to R11 (the roll-back upload) and the roll-back step on the page.**
 3. Page `proposer\serve.mjs` (http://127.0.0.1:5299/): member A picks **Upgrade the pool program** and
    signs **proposal #31**; member B approves #31 the same night. Write down the time the page names.
+   ✅ **Done 2026-11-04:** upload buffer `AnhZDtyYYygWDac4qDdhwZgXYeroWdF7r5atsWvQzFpW` (`1e55bcdc`, checked
+   before and after the hand-over), #31 proposed by member A and approved by member B at 04:57:54 UTC
+   (transaction `5rTy4es1aHn8XKZ6jxtww7ffYjvUVzj4R4sKbVdLBWzazaKnX8YfRTMKTpDofiZrCvwDh11jYSXf1Mvz2GyiqmVh`).
+   **#31 can execute from 2026-11-06 04:57:54 UTC** (Thu 11-05, 9:57 pm MST). Read after the sitting:
+   the only approved, unexecuted proposals are #31, #30 (harmless, safe to run now), #18 (its buffer is
+   gone, so it can only fail) and #3 (stale, can never run).
 4. At that time: **Upgrade the pool program** only, **EXECUTE proposal #31**, then
    `scripts\4-verify-after-upgrade.mjs --before ...\owner-run\round-3-2026-11-04\pools-before-upgrade.mainnet.json`
    must end `RESULT: the upgrade is live and both pools are untouched.`
