@@ -1,10 +1,11 @@
 // Phase 11 of suite.mjs: the remaining instructions the venue or a visitor can reach.
-// Operators, a coin with an unusual Token-2022 feature, dynamic fees, a custom pool, a
-// permission pool, a two-hop route, the old swap, and the Metaplex path a stranger can call.
-import { PublicKey, SystemProgram, Keypair, spl } from './lib/deps.mjs';
+// Operators, a coin with an unusual Token-2022 feature, the instructions deleted on 2026-11-03,
+// a permission pool, a two-hop route, the old swap, and the Metaplex path a stranger can call.
+import { createHash } from 'node:crypto';
+import { PublicKey, SystemProgram, Keypair, TransactionInstruction, spl } from './lib/deps.mjs';
 import { ADDR } from './lib/config.mjs';
 import { conn, send, clockNow } from './lib/chain.mjs';
-import { ix, PDA, account, order, tickAt, alignDown, arrayStart, sqrtPriceX64 } from './lib/clmm.mjs';
+import { ix, PDA, account, order, tickAt, alignDown, arrayStart } from './lib/clmm.mjs';
 
 export async function more(c, h, s) {
   const { K, VAULT, BAYLA, WSOL, USD, M0, M1, baylaIs0, poolA, poolB, vA0, vA1, obsA, bitmapA, cfg0, cfg1, arrays, SPACING, BAYLA_UNIT, OPEN_FEE } = c;
@@ -52,7 +53,7 @@ export async function more(c, h, s) {
   reg(odd.publicKey, 'ODD mint (Token-2022, permanent delegate)');
   setProg(odd.publicKey, ADDR.token2022);
   {
-    const ext = mut('X5') ? [] : [spl.ExtensionType.PermanentDelegate];
+    const ext = mut('X5') || mut('X7') ? [] : [spl.ExtensionType.PermanentDelegate];
     const space = spl.getMintLen(ext);
     await must('a coin with a permanent delegate (ODD)', [
       SystemProgram.createAccount({ fromPubkey: K.usdMintAuthority.publicKey, newAccountPubkey: odd.publicKey, lamports: await conn.getMinimumBalanceForRentExemption(space), space, programId: ADDR.token2022 }),
@@ -64,7 +65,8 @@ export async function more(c, h, s) {
   const poolOdd = regPool(PDA.pool(cfg0, O0, O1), 'pool ODD/SOL', O0, O1);
   const support = reg(PDA.supportMint(odd.publicKey), 'ODD support pass');
   const oddPoolIx = (extra) => ix('create_pool', poolIxAccounts(dave.publicKey, cfg0, O0, O1, poolOdd), { sqrt_price_x64: 1n << 64n, open_time: 0n }, extra);
-  {
+  // X7's broken input makes ODD a plain coin, whose pool X4 would open first.
+  if (!mut('X7')) {
     const r = await send('dave opens a pool for ODD', [oddPoolIx([])], [dave], { expectFail: true });
     check('X4', 'create_pool', 'a coin with an unusual Token-2022 feature (a permanent delegate) cannot get a pool by default', failedWith(r, 'NotSupportMint'), `refused: ${errName(r)}`);
   }
@@ -77,102 +79,24 @@ export async function more(c, h, s) {
   await mustVault('vault lets ODD in', [passIx('create_support_mint_associated', VAULT)]);
   await measure('support-mint pass (SupportMintAssociated)', support, 'vault');
   {
-    const r = await send('dave opens the ODD pool with the pass', [oddPoolIx(mut('X7') ? [] : [{ pubkey: support, isWritable: false }])], [dave]);
-    check('X7', 'create_pool + create_support_mint_associated', "once the vault lets a coin in, anyone can open its pool", r.ok && !!(await conn.getAccountInfo(poolOdd)), r.ok ? 'pool opened' : errName(r));
+    // Since 2026-11-03 the program reads every coin's Token-2022 features, a pass or not (audit
+    // TK-1/CL-08): the pass the vault issued lets nothing in. Its broken input is a plain coin.
+    const r = await send('dave opens the ODD pool with the pass', [oddPoolIx([{ pubkey: support, isWritable: false }])], [dave], { expectFail: !mut('X7') });
+    check('X7', 'create_pool + create_support_mint_associated', "even with the vault's pass, a coin with a permanent delegate cannot get a pool: the program reads no pass",
+      failedWith(r, 'NotSupportMint') && !(await conn.getAccountInfo(poolOdd)), r.ok ? 'pool opened' : `refused: ${errName(r)}`);
     if (!mut('X8')) await mustVault("vault closes ODD's pass", [passIx('close_support_mint_associated', VAULT)]);
     check('X8', 'close_support_mint_associated', 'the vault can withdraw the pass', !(await conn.getAccountInfo(support)), 'closed');
   }
 
-  // ---- dynamic fees and a custom pool ----------------------------------------------------
-  const dfc = reg(PDA.dynamicFee(0), 'dynamic fee config 0');
-  const dfArgs = { filter_period: 30, decay_period: 600, reduction_factor: 5_000, dynamic_fee_control: 4_000, max_volatility_accumulator: 350_000 };
-  const dfIx = (owner) => ix('create_dynamic_fee_config', { owner, dynamic_fee_config: dfc }, { index: 0, ...dfArgs });
-  {
-    const r = mut('X9') ? (await vaultRun('X9 mutant: the vault', [dfIx(VAULT)])).execute : await send('a stranger makes a dynamic fee setting', [dfIx(mallory.publicKey)], [mallory], { expectFail: true });
-    check('X9', 'create_dynamic_fee_config', 'a stranger cannot make a dynamic fee setting', failedWith(r, 'NotApproved'), `refused: ${errName(r)}`);
-  }
-  await mustVault('vault makes dynamic fee setting 0', [dfIx(VAULT)]);
-  if (!mut('X10')) await mustVault('vault changes its decay period', [ix('update_dynamic_fee_config', { owner: VAULT, dynamic_fee_config: dfc }, { ...dfArgs, decay_period: 900 })]);
-  {
-    const d = await account('DynamicFeeConfig', dfc);
-    check('X10', 'create_dynamic_fee_config + update_dynamic_fee_config', 'the vault makes a dynamic fee setting and changes it', d.filter_period === 30 && d.decay_period === 900 && d.reduction_factor === 5_000, 'decay 600 -> 900 s');
-    await measure('dynamic fee setting (DynamicFeeConfig)', dfc, 'vault');
-  }
-  {
-    const poolC = regPool(PDA.pool(cfg1, M0, M1), 'pool BAYLA/SOL 0.25% custom', M0, M1);
-    const solSide = M0.equals(WSOL) ? 1 : 2; // CollectFeeOn: Token0Only = 1, Token1Only = 2
-    const v0 = await sol(VAULT);
-    const r = await send('a visitor opens a custom pool: fee in SOL only, dynamic fee on', [ix('create_customizable_pool', poolIxAccounts(K.bob.publicKey, cfg1, M0, M1, poolC),
-      { customizable_params: { sqrt_price_x64: (await account('PoolState', poolA)).sqrt_price_x64, collect_fee_on: solSide, enable_dynamic_fee: !mut('X11') } }, [{ pubkey: dfc, isWritable: false }]),
-    ...(mut('X18') ? [SystemProgram.transfer({ fromPubkey: K.bob.publicKey, toPubkey: VAULT, lamports: 1 })] : [])], [K.bob]);
-    const p = r.ok ? await account('PoolState', poolC) : null;
-    check('X11', 'create_customizable_pool', 'anyone can open a pool that takes its fee in one coin only, with the dynamic fee the vault set', r.ok && p.fee_on === solSide && p.dynamic_fee_info.decay_period === 900,
-      r.ok ? `fee_on ${p.fee_on}, decay ${p.dynamic_fee_info.decay_period} s` : errName(r));
-    const gained = (await sol(VAULT)) - v0;
-    check('X18', 'create_customizable_pool', 'opening a custom pool pays exactly 0.5 SOL to the vault too', r.ok && gained === OPEN_FEE, `vault +${fmt(gained, 9)} SOL`);
-  }
-
-  // ---- the 4% ceiling holds a dynamic fee too ------------------------------------------------
-  // Pool D sits on tier 8 (3%) with a strong dynamic fee. A first swap moves the price many steps;
-  // a second, inside the filter period, then pays the raised rate on all of it: above 4% without
-  // the ceiling, exactly 4% with it, and 3% with no dynamic fee at all.
-  {
-    const cfg8 = reg(PDA.ammConfig(8), 'fee tier 8 (3%)');
-    const TIER8 = { index: 8, tick_spacing: 10, trade_fee_rate: 30_000, protocol_fee_rate: 104_000, fund_fee_rate: 56_000 };
-    await mustVault('vault makes tier 8 (3%)', [ix('create_amm_config', { owner: VAULT, amm_config: cfg8 }, TIER8)]);
-    const dfc1 = reg(PDA.dynamicFee(1), 'dynamic fee config 1 (strong)');
-    await mustVault('vault makes a strong dynamic fee setting', [ix('create_dynamic_fee_config', { owner: VAULT, dynamic_fee_config: dfc1 },
-      { index: 1, filter_period: 120, decay_period: 600, reduction_factor: 5_000, dynamic_fee_control: 99_999, max_volatility_accumulator: 350_000 })]);
-    const [D0, D1] = order(WSOL, USD);
-    const poolD = regPool(PDA.pool(cfg8, D0, D1), 'pool D (SOL/USD, 3%, dynamic)', D0, D1);
-    c.extraPools = [...(c.extraPools ?? []), poolD];
-    const sqrtD = D0.equals(WSOL) ? sqrtPriceX64(180 * 1e6, 1e9) : sqrtPriceX64(1e9, 180 * 1e6);
-    await must('alice opens pool D with the strong dynamic fee', [ix('create_customizable_pool', poolIxAccounts(alice.publicKey, cfg8, D0, D1, poolD),
-      { customizable_params: { sqrt_price_x64: sqrtD, collect_fee_on: 0, enable_dynamic_fee: !mut('K6') } }, [{ pubkey: dfc1, isWritable: false }])], [alice]);
-    const sp = TIER8.tick_spacing;
-    const t0 = (await account('PoolState', poolD)).tick_current;
-    const lower = alignDown(t0 - 300, sp); const upper = alignDown(t0 + 300, sp);
-    const taL = arrayStart(lower, sp); const taU = arrayStart(upper, sp);
-    for (const a of new Set([taL, taU])) reg(PDA.tickArray(poolD, a), `pool D tick array ${a}`);
-    const nft = Keypair.generate();
-    reg(nft.publicKey, 'pool D position NFT mint'); reg(PDA.position(nft.publicKey), 'pool D position');
-    reg(spl.getAssociatedTokenAddressSync(nft.publicKey, alice.publicKey, false, ADDR.token2022), 'pool D position NFT account');
-    const vD0 = PDA.vault(poolD, D0); const vD1 = PDA.vault(poolD, D1);
-    await must('alice adds a narrow range to pool D', [ix('open_position_with_token22_nft', {
-      payer: alice.publicKey, position_nft_owner: alice.publicKey, position_nft_mint: nft.publicKey,
-      position_nft_account: spl.getAssociatedTokenAddressSync(nft.publicKey, alice.publicKey, false, ADDR.token2022), pool_state: poolD, protocol_position: SystemProgram.programId,
-      tick_array_lower: PDA.tickArray(poolD, taL), tick_array_upper: PDA.tickArray(poolD, taU), personal_position: PDA.position(nft.publicKey),
-      token_account_0: ata(alice.publicKey, D0), token_account_1: ata(alice.publicKey, D1), token_vault_0: vD0, token_vault_1: vD1, vault_0_mint: D0, vault_1_mint: D1,
-    }, {
-      tick_lower_index: lower, tick_upper_index: upper, tick_array_lower_start_index: taL, tick_array_upper_start_index: taU,
-      liquidity: 0n, amount_0_max: D0.equals(WSOL) ? 2n * 10n ** 9n : 400n * 10n ** 6n, amount_1_max: D0.equals(WSOL) ? 400n * 10n ** 6n : 2n * 10n ** 9n,
-      with_metadata: false, base_flag: D0.equals(WSOL),
-    })], [alice, nft]);
-    // SOL in: the price of SOL falls, ticks move toward the lower array.
-    const solIs0 = D0.equals(WSOL);
-    const swapD = async (amount) => {
-      const cur = arrayStart((await account('PoolState', poolD)).tick_current, sp);
-      const list = [...new Set([taL, taU])];
-      const ordered = solIs0 ? list.filter((s) => s <= cur).sort((a, b) => b - a) : list.filter((s) => s >= cur).sort((a, b) => a - b);
-      return ix('swap_v2', {
-        payer: alice.publicKey, amm_config: cfg8, pool_state: poolD, input_token_account: ata(alice.publicKey, WSOL), output_token_account: ata(alice.publicKey, USD),
-        input_vault: PDA.vault(poolD, WSOL), output_vault: PDA.vault(poolD, USD), observation_state: PDA.observation(poolD), input_vault_mint: WSOL, output_vault_mint: USD,
-      }, { amount, other_amount_threshold: 0n, sqrt_price_limit_x64: 0n, is_base_input: true },
-      [{ pubkey: PDA.bitmap(poolD) }, ...ordered.map((s) => ({ pubkey: PDA.tickArray(poolD, s) }))]);
-    };
-    await must('alice swaps 1.5 SOL into pool D, moving its price many steps', [await swapD(15n * 10n ** 8n)], [alice]);
-    const mid = await account('PoolState', poolD);
-    const moved = Math.abs(mid.tick_current - t0) / sp;
-    const amount = 10n ** 7n; // 0.01 SOL
-    const protoBefore = solIs0 ? mid.protocol_fees_token_0 : mid.protocol_fees_token_1;
-    await must('alice swaps 0.01 SOL more, inside the filter period', [await swapD(amount)], [alice]);
-    const end = await account('PoolState', poolD);
-    const proto = (solIs0 ? end.protocol_fees_token_0 : end.protocol_fees_token_1) - protoBefore;
-    const t8 = await account('AmmConfig', cfg8);
-    const rate = Number(proto) * 1e6 / t8.protocol_fee_rate / Number(amount) * 1e6; // per million of the swap
-    check('K6', 'swap_v2 (dynamic fee)', 'a swap through a pool whose dynamic fee would add more than 1% to its 3% pays exactly 4%, the ceiling',
-      end.dynamic_fee_info.volatility_accumulator >= 120_000 && rate <= 40_000 * 1.0001 && rate >= 40_000 * 0.999,
-      `${moved.toFixed(1)} steps moved, volatility ${end.dynamic_fee_info.volatility_accumulator}, second swap paid ${(rate / 1e4).toFixed(3)}%`);
+  // ---- the instructions deleted on 2026-11-03 -------------------------------------------------
+  // Custom pools (audit CL-03/DG-02), both dynamic-fee settings (CR-1/CO-1/CR-7) and the rent
+  // sweep (CD-2). Each is sent bare, its 8-byte name (sha256 of "global:<name>") and nothing else:
+  // the program answers it as an unknown instruction before it reads any account, where the build
+  // before the deletion found it. The broken input sends close_limit_order's name instead.
+  const bare = (name) => new TransactionInstruction({ programId: ADDR.program, keys: [], data: createHash('sha256').update(`global:${name}`).digest().subarray(0, 8) });
+  for (const [id, name, finding] of [['D1', 'create_customizable_pool', 'CL-03/DG-02'], ['D2', 'create_dynamic_fee_config', 'CR-1/CO-1/CR-7'], ['D3', 'update_dynamic_fee_config', 'CR-1/CO-1/CR-7'], ['D4', 'collect_excess_lamports', 'CD-2']]) {
+    const r = await send(`${name}, sent bare`, [bare(mut(id) ? 'close_limit_order' : name)], [mallory], { expectFail: true });
+    check(id, name, `the program has no ${name} (deleted 2026-11-03, audit ${finding}): it answers as to any unknown instruction`, failedWith(r, 'InstructionFallbackNotFound'), `refused: ${errName(r)}`);
   }
 
   // ---- a permission and a second pool for the same pair ----------------------------------
@@ -185,13 +109,20 @@ export async function more(c, h, s) {
   }
   if (!mut('X13')) await mustVault('vault grants erin a permission', [permIx('create_permission_pda', VAULT)]);
   const seeded = (n) => { const b = Buffer.alloc(2); b.writeUInt16LE(n); return PublicKey.findProgramAddressSync([Buffer.from('pool'), cfg0.toBuffer(), M0.toBuffer(), M1.toBuffer(), b], ADDR.program)[0]; };
-  const permPoolIx = (n) => { const pool = regPool(seeded(n), `pool BAYLA/SOL #${n}`, M0, M1); return ix('create_permissioned_pool', { payer: erin.publicKey, permission: perm, ...poolIxAccounts(erin.publicKey, cfg0, M0, M1, pool) }, { customizable_params: { sqrt_price_x64: 1n << 64n, collect_fee_on: 0, enable_dynamic_fee: false }, seed_index: n }); };
+  const permPoolIx = (n, dynamicFee = false) => { const pool = regPool(seeded(n), `pool BAYLA/SOL #${n}`, M0, M1); return ix('create_permissioned_pool', { payer: erin.publicKey, permission: perm, ...poolIxAccounts(erin.publicKey, cfg0, M0, M1, pool) }, { customizable_params: { sqrt_price_x64: 1n << 64n, collect_fee_on: 0, enable_dynamic_fee: dynamicFee }, seed_index: n }); };
   {
     const v0 = await sol(VAULT);
     const r = await send('erin opens a second BAYLA/SOL 1% pool', [permPoolIx(1), ...(mut('X19') ? [SystemProgram.transfer({ fromPubkey: erin.publicKey, toPubkey: VAULT, lamports: 1 })] : [])], [erin]);
     check('X13', 'create_permissioned_pool', 'a permission holder can open another pool for a pair that has one', r.ok && !!(await conn.getAccountInfo(seeded(1))), r.ok ? 'pool #1 opened' : errName(r));
     const gained = (await sol(VAULT)) - v0;
     check('X19', 'create_permissioned_pool', 'a permission holder pays the 0.5 SOL opening fee to the vault as well', r.ok && gained === OPEN_FEE, `vault +${fmt(gained, 9)} SOL`);
+    {
+      // No pool carries a dynamic fee (2026-11-03 audit, CR-1/CO-1/CR-7): a permission holder who
+      // asks for one is refused. Its broken input asks for none.
+      const r3 = await send('erin asks for a dynamic fee on pool #3', [permPoolIx(3, !mut('X20'))], [erin], { expectFail: !mut('X20') });
+      check('X20', 'create_permissioned_pool', 'a permission holder cannot open a pool with a dynamic fee: none can be set up',
+        failedWith(r3, 'InvalidDynamicFeeConfigParams') && !(await conn.getAccountInfo(seeded(3))), r3.ok ? 'pool #3 opened' : `refused: ${errName(r3)}`);
+    }
     if (!mut('X14')) await mustVault("vault withdraws erin's permission", [permIx('close_permission_pda', VAULT)]);
     const r2 = await send('erin tries pool #2 without it', [permPoolIx(2)], [erin], { expectFail: true });
     check('X14', 'close_permission_pda', 'once the vault withdraws the permission, no more extra pools', !r2.ok && !(await conn.getAccountInfo(perm)), `refused: ${errName(r2)}`);

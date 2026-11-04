@@ -227,7 +227,7 @@ let pendingIndex;
 }
 // The ceilings (the owner's ruling, 2026-10-20): at most 4% of a swap, and at most 16% of each fee
 // to the venue and the island together, when a tier is made and when it is changed. Tier 9 sits
-// exactly at both; the pool on it (phase 11) shows a dynamic fee held to the same 4%.
+// exactly at both.
 const cfg9 = reg(PDA.ammConfig(9), 'fee tier 9 (at the ceilings)');
 const TIER9 = { index: 9, tick_spacing: 10, trade_fee_rate: 40_000, protocol_fee_rate: 104_000, fund_fee_rate: 56_000 };
 const refusedAsOver = (r) => !r.executed && failedWith(r.execute, 'RequireGteViolated');
@@ -249,6 +249,14 @@ for (const [id, param, field, over, ok, what] of [
   const r = await vaultRun(`the vault tries to ${what}`, [ix('update_amm_config', { owner: VAULT, amm_config: cfg9 }, { param, value: mut(id) ? ok : over })]);
   const t = await account('AmmConfig', cfg9);
   check(id, 'update_amm_config', `the vault cannot ${what}`, refusedAsOver(r) && t[field] === TIER9[field], r.executed ? `changed to ${t[field]}` : `refused: ${errName(r.execute)}`);
+}
+// A pool divides by its tier's tick spacing, so a tier with spacing 0 is refused (2026-11-03 audit,
+// CL-09). Its broken input asks for spacing 1, which is allowed.
+const cfg7 = reg(PDA.ammConfig(7), 'fee tier 7 (tick spacing 0)');
+{
+  const r = await vaultRun('the vault tries a tier with tick spacing 0', [tierIx({ ...TIER0, index: 7, tick_spacing: mut('T10') ? 1 : 0 })]);
+  check('T10', 'create_amm_config', 'the vault cannot make a fee tier with tick spacing 0, which its pools would divide by',
+    !r.executed && failedWith(r.execute, 'RequireGtViolated') && !(await conn.getAccountInfo(cfg7)), r.executed ? 'made' : `refused: ${errName(r.execute)}`);
 }
 phaseDone('phase1');
 

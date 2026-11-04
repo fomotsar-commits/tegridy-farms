@@ -342,6 +342,7 @@ export async function phases(c, h) {
   // ===========================================================================================
   // Phase 8: a limit order, filled by a swap, settled and closed by the keeper (the vault).
   // ===========================================================================================
+  const statusIx = (authority, status) => ix('update_pool_status', { authority, pool_state: poolA }, { status });
   const zeroForOne = baylaIs0; // selling BAYLA
   const orderTick = alignDown(tickAt(raw(S * 0.6)), SPACING) + (zeroForOne ? SPACING : 0);
   const orderArray = arrayStart(orderTick, SPACING);
@@ -351,11 +352,11 @@ export async function phases(c, h) {
   const order0 = reg(PDA.limitOrder(erin.publicKey, nonce, 0), 'erin order 0');
   const order1 = reg(PDA.limitOrder(erin.publicKey, nonce, 1), 'erin order 1');
   const inV = vaultOf(BAYLA); const outV = vaultOf(WSOL);
-  const openOrderIx = (order, tick, amount) => ix('open_limit_order', {
-    payer: erin.publicKey, pool_state: poolA, tick_array: PDA.tickArray(poolA, arrayStart(tick, SPACING)), limit_order_nonce: nonce, limit_order: order,
+  const openOrderIx = (order, tick, amount, nonceIndex = 0) => ix('open_limit_order', {
+    payer: erin.publicKey, pool_state: poolA, tick_array: PDA.tickArray(poolA, arrayStart(tick, SPACING)), limit_order_nonce: PDA.limitNonce(erin.publicKey, nonceIndex), limit_order: order,
     input_token_account: ata(erin.publicKey, BAYLA), output_token_account: ata(erin.publicKey, WSOL), input_vault: inV, output_vault: outV,
     input_vault_mint: BAYLA, output_vault_mint: WSOL, input_token_program: prog(BAYLA),
-  }, { nonce_index: 0, zero_for_one: zeroForOne, tick_index: tick, amount });
+  }, { nonce_index: nonceIndex, zero_for_one: zeroForOne, tick_index: tick, amount });
   const decOrderIx = (order, tick, amount) => ix('decrease_limit_order', {
     owner: erin.publicKey, pool_state: poolA, tick_array: PDA.tickArray(poolA, arrayStart(tick, SPACING)), limit_order: order, input_token_account: ata(erin.publicKey, BAYLA),
     output_token_account: ata(erin.publicKey, WSOL), input_vault: inV, output_vault: outV, input_vault_mint: BAYLA, output_vault_mint: WSOL,
@@ -363,6 +364,20 @@ export async function phases(c, h) {
   const settleIx = (signer, dest) => ix('settle_limit_order', {
     signer, pool_state: poolA, tick_array: PDA.tickArray(poolA, orderArray), limit_order: order0, output_token_account: dest, output_vault: outV, output_vault_mint: WSOL, output_token_program: prog(WSOL),
   });
+  {
+    // Limit orders start off in every pool (2026-11-03 audit, CO-2): pool A takes none until the
+    // vault turns them on. The try uses nonce 1, so a build that takes it leaves order 0 free.
+    // Its broken input turns them on first.
+    if (mut('O0')) await mustVault('O0 mutant: the vault turns limit orders on first', [statusIx(VAULT, 0)]);
+    const nonce1 = reg(PDA.limitNonce(erin.publicKey, 1), 'erin order nonce 1');
+    const tried = reg(PDA.limitOrder(erin.publicKey, nonce1, 0), 'erin order on pool A as opened');
+    const b = await tok(ata(erin.publicKey, BAYLA));
+    const status = (await pool()).status;
+    const r = await send('erin places a limit order on pool A as it was opened', [openOrderIx(tried, orderTick, 1_000n * BAYLA_UNIT, 1)], [erin], { expectFail: !mut('O0') });
+    check('O0', 'open_limit_order', 'a new pool takes no limit order: they start off, and only the vault can turn them on',
+      failedWith(r, 'NotApproved') && (await tok(ata(erin.publicKey, BAYLA))) === b && !(await conn.getAccountInfo(tried)), `status ${status}, refused: ${errName(r)}`);
+  }
+  await mustVault('vault turns limit orders on for pool A', [statusIx(VAULT, 0)]);
   {
     const b = await tok(ata(erin.publicKey, BAYLA)); const v = await tok(inV);
     await must('erin places a limit order: sell 1,000,000 BAYLA at 0.6x today', [openOrderIx(order0, orderTick, mut('O1') ? 999_999n * BAYLA_UNIT : 1_000_000n * BAYLA_UNIT)], [erin]);
@@ -428,9 +443,8 @@ export async function phases(c, h) {
   phaseDone('phase8');
 
   // ===========================================================================================
-  // Phase 9: pausing, the spare-SOL sweep, closing a position.
+  // Phase 9: pausing, the rescue for a frozen reward coin, closing a position.
   // ===========================================================================================
-  const statusIx = (authority, status) => ix('update_pool_status', { authority, pool_state: poolA }, { status });
   {
     const m = mut('A3') ? (await vaultRun('A3 mutant: the vault pauses', [statusIx(VAULT, 16)])).execute : await send('a stranger pauses the pool', [statusIx(mallory.publicKey, 16)], [mallory], { expectFail: true });
     check('A3', 'update_pool_status', 'a stranger cannot pause a pool', !m.ok && (await pool()).status === 0, `refused: ${errName(m)}`);
@@ -440,6 +454,19 @@ export async function phases(c, h) {
     if (!mut('A2')) await mustVault('vault unpauses pool A', [statusIx(VAULT, 0)]);
     const s2 = await swap('dave swaps after the pause', dave, WSOL, { amount: 10n ** 9n });
     check('A2', 'update_pool_status', 'after the vault lifts the pause, swaps work again', s2.r.ok && s2.got > 0n, `${fmt(s2.got, 6)} BAYLA`);
+  }
+  {
+    // A reward coin whose vault is frozen or paused blocks every withdrawal that would pay it. The
+    // rescue (2026-11-03 audit, CL-07): the vault turns reward collection off, withdrawals then pay
+    // no reward, and what each position earned stays owed to it. Its broken input never turns
+    // collection off.
+    if (!mut('A4')) await mustVault('vault turns reward collection off on pool A', [statusIx(VAULT, 8)]);
+    const off = await collect('alice', 'collect while reward collection is off');
+    const owed = (await account('PersonalPositionState', positions.alice.pos)).reward_infos[1].reward_amount_owed;
+    await mustVault('vault turns reward collection back on', [statusIx(VAULT, 0)]);
+    const on = await collect('alice', 'collect with reward collection back on');
+    check('A4', 'update_pool_status (reward collection off)', "the rescue for a frozen reward coin: with reward collection off an LP still withdraws, is paid no reward, and keeps it owed until the vault turns collection back on",
+      off.reward === 0n && owed > 0n && on.reward >= owed, `${fmt(owed, 6)} REWARD owed while off, ${fmt(on.reward, 6)} paid once on`);
   }
   {
     const p0 = await pool();
@@ -468,26 +495,6 @@ export async function phases(c, h) {
     check('V10', 'update_amm_config (param 4) + collect_fund_fee', "kept and disclosed: in one proposal the vault can point a tier's island share at itself, collect it, and point it back",
       r.executed && got[0] === p0.fund_fees_token_0 && got[1] === p0.fund_fees_token_1 && got[0] + got[1] > 0n && (await account('AmmConfig', cfg0)).fund_owner.equals(c.WORKSHOP),
       r.executed ? `${fmt(baylaIs0 ? got[0] : got[1], 6)} BAYLA + ${fmt(baylaIs0 ? got[1] : got[0], 9)} SOL, proposal ${r.index}` : `refused: ${errName(r.execute)}`);
-  }
-  {
-    const gift = { [poolA.toBase58()]: 500_000_000n, [obsA.toBase58()]: 250_000_000n, [vaultOf(BAYLA).toBase58()]: 50_000_000n, [vaultOf(WSOL).toBase58()]: 100_000_000n };
-    await must('a stranger sends spare SOL to four pool accounts', Object.entries(gift).map(([to, l]) => SystemProgram.transfer({ fromPubkey: mallory.publicKey, toPubkey: new PublicKey(to), lamports: l })), [mallory]);
-    const sweep = (wallet, extra) => ix('collect_excess_lamports', { collect_lamports_wallet: wallet, pool_state: poolA }, {}, extra.map((p) => ({ pubkey: p })));
-    const m = mut('E3') ? (await vaultRun('E3 mutant: the vault sweeps', [sweep(VAULT, [obsA])])).execute : await send('a stranger sweeps the spare SOL', [sweep(mallory.publicKey, [obsA])], [mallory], { expectFail: true });
-    check('E3', 'collect_excess_lamports', 'a stranger cannot sweep spare SOL', failedWith(m, 'NotApproved'), `refused: ${errName(m)}`);
-    const v0 = await sol(VAULT); const bv = await tok(vaultOf(BAYLA));
-    await mustVault('vault sweeps the spare SOL of the pool, its history and its BAYLA vault', [sweep(VAULT, mut('E1') ? [obsA, bitmapA] : [obsA, bitmapA, vaultOf(BAYLA)])]);
-    const gained = (await sol(VAULT)) - v0;
-    check('E1', 'collect_excess_lamports', 'the vault receives exactly the spare SOL, and the BAYLA in the pool is untouched', gained === 800_000_000n && (await tok(vaultOf(BAYLA))) === bv, `${fmt(gained, 9)} SOL to the vault`);
-    const w = vaultOf(WSOL);
-    const before = { amount: await tok(w), lamports: await sol(w) };
-    if (mut('E2')) await swap('E2 mutant: a swap in between', dave, WSOL, { amount: 10n ** 9n });
-    const r = await vaultRun("vault tries to sweep the pool's wrapped-SOL vault", [sweep(VAULT, [w])]);
-    const after = { amount: await tok(w), lamports: await sol(w) };
-    const rentW = BigInt(await conn.getMinimumBalanceForRentExemption(165));
-    check('E2', 'collect_excess_lamports', "the sweep cannot take LPs' SOL out of the wrapped-SOL vault: its balance and lamports are unchanged",
-      after.amount === before.amount && after.lamports >= rentW + after.amount && (r.executed ? after.lamports === before.lamports - 100_000_000n : after.lamports === before.lamports),
-      r.executed ? `swept only the 0.1 SOL gift; balance ${fmt(after.amount, 9)} SOL kept` : `refused: ${errName(r.execute)}; the 0.1 SOL gift stays, ${fmt(after.amount, 9)} SOL kept`);
   }
   {
     const p = positions.carol;

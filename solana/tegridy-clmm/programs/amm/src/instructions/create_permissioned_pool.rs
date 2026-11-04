@@ -152,6 +152,11 @@ pub fn create_permissioned_pool(
     seed_index: u16,
 ) -> Result<()> {
     require_gt!(seed_index, 0);
+    // memetics.finance: no pool carries a dynamic fee (2026-11-03 audit, CR-1/CO-1/CR-7).
+    require!(
+        !customizable_params.enable_dynamic_fee,
+        ErrorCode::InvalidDynamicFeeConfigParams
+    );
 
     let mint0_associated_is_initialized = util::support_mint_associated_is_initialized(
         &ctx.remaining_accounts,
@@ -233,23 +238,6 @@ pub fn create_permissioned_pool(
         customizable_params.collect_fee_on,
     )?;
     pool_state.set_seed_index(seed_index);
-
-    if customizable_params.enable_dynamic_fee {
-        let dynamic_fee_config_info = ctx
-            .remaining_accounts
-            .last()
-            .ok_or_else(|| error!(ErrorCode::AccountLack))?;
-        let dynamic_fee_config: Account<DynamicFeeConfig> =
-            Account::try_from(dynamic_fee_config_info)?;
-        pool_state.initialize_dynamic_fee_info(
-            tick,
-            dynamic_fee_config.filter_period,
-            dynamic_fee_config.decay_period,
-            dynamic_fee_config.reduction_factor,
-            dynamic_fee_config.dynamic_fee_control,
-            dynamic_fee_config.max_volatility_accumulator,
-        )?;
-    }
 
     ctx.accounts
         .tick_array_bitmap
