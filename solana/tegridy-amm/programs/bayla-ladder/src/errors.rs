@@ -66,4 +66,11 @@ pub enum LadderError {
     // committed IDL, which CI diffs against a fresh build.
     #[msg("A reload inside a live window may not lower the reward rate: schedule at least reward_rate x seconds elapsed, or wait for period_finish")]
     RewardRateWouldDecrease,
+    // 6029-6031, added 2026-10-29 with extend_lock. APPENDED LAST, plain ASCII, as 6028.
+    #[msg("This lock has ended: use withdraw_matured, then stake again for a new lock")]
+    LockExpired,
+    #[msg("The new lock must end later than the current one")]
+    LockNotExtended,
+    #[msg("That lock would lower this position's boost: pick one at least as long as the lock it was opened with")]
+    BoostWouldDrop,
 }
