@@ -29,6 +29,74 @@ stop and say so — a surprise is information.
 
 ---
 
+## 🔴 2026-11-05: NFT lending on Gondi's loan contract (about 0.01 ETH, one deploy and one database file from you)
+
+Your ask (2026-11-05): "do everything needed lets get this done" for collection loan offers on NFT Finance.
+Everything that can be done without you is done and waiting as drafts: the contracts (#1038), the site (#1039), and
+the loan shield with due-date alerts (#1127, built on #1039). Nothing is deployed yet. The first lending contract,
+`0x89BeB6cc0255B7465c01aA38a6f937efd345f14F`, never held an offer or a loan (read 2026-11-05: 0 offers, 0 loans,
+0 ETH), so nobody is left behind; the site now lists it as retired.
+
+**How the money moves.** A lender signs an offer of WETH against any NFT in a collection; the site keeps it in its
+offer book, and nothing moves until a borrower takes it. The borrower locks the NFT, gets the WETH, and pays it back
+plus interest for the days actually used. Lenders earn that interest. The venue takes 5% of the interest (500 basis
+points), paid to the treasury Safe `0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d` as the interest is paid. **There is no
+grace period: from the due second the lender can take the NFT** (a loan funded by several lenders goes to a 3-day
+auction instead). The contract is Gondi's v3.2, unchanged.
+
+**Who owns it.** The treasury Safe, your pick on 2026-11-05. For the loan contract and its liquidator that takes a
+second step two days after the deploy (step 6); until then your deployer wallet owns those two.
+
+| Step | When (UTC) | What | Who |
+|---|---|---|---|
+| ⬜ 1 | now | Send about 0.01 ETH to the deployer `0x14898258122C0740106391E6e8E4F17F3b6d456E`. It held 0.0013117 ETH on 2026-11-05. The deploy needs about 0.006 ETH (13,479,232 gas in the 2026-11-05 rehearsal, at forge's padded price); the rest covers a gas spike. | you |
+| ⬜ 2 | after step 1 | Deploy: the commands below, test first, then send. | you |
+| ⬜ 3 | after step 2 | A session checks the contracts on chain (same bytes as Gondi's, 500 basis points to the treasury, the Safe set as next owner), verifies them on Etherscan, puts the loan contract's address into the site, reruns the browser tests and pushes. | a session |
+| ⬜ 4 | any time | Run `frontend/supabase/migrations/030_nft_loan_offers.sql` in Supabase's SQL editor. It makes the table the offer book keeps offers in. Sessions can't run SQL on production. | you |
+| ⬜ 5 | after steps 3 and 4 | Merge #1038, then #1039, then #1127, each on your word (each merge is a production deploy). After each, a session reads the Vercel status. After #1039 it walks NFT Finance from the home page at phone width, and checks that MetaMask and Rabby show no scam warning on the offer-signing popup. | you, then a session |
+| ⬜ 6 | two days after step 2 | The treasury Safe calls `transferOwnership()` on the loan contract and on the liquidator (the deploy prints both addresses). A session prepares both transactions for the Safe; both signers sign. | you |
+
+**Before step 2: your keystore must be the deployer.**
+
+```powershell
+& "C:\Users\jimbo\.foundry\bin\cast.exe" wallet address --account deployer
+```
+
+You should see `0x14898258122C0740106391E6e8E4F17F3b6d456E`. Anything else: stop.
+
+**Step 2, test (sends nothing, asks for no password):**
+
+```powershell
+cd C:\Users\jimbo\dev\wt\nft-collection-offers\contracts; $env:MULTISIG="0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d"; $env:TREASURY="0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d"; $env:WETH="0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"; & "C:\Users\jimbo\.foundry\bin\forge.exe" script script/DeployGondiLending.s.sol --rpc-url https://ethereum-rpc.publicnode.com --sender 0x14898258122C0740106391E6e8E4F17F3b6d456E --skip test --skip "src/**"
+```
+
+You should see `Script ran successfully` and the line `MultiSourceLoan (the loan contract): 0x4f2b53DAE3edCf1B527c53d2C11A28ec5Ac6D630`.
+That address holds only while the deployer has sent nothing since 2026-11-05 (its next transaction number was 117);
+a different address is fine if it has sent something since, and the one the send prints is the one that counts.
+
+**Step 2, send (asks for your keystore password):**
+
+```powershell
+cd C:\Users\jimbo\dev\wt\nft-collection-offers\contracts; $env:MULTISIG="0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d"; $env:TREASURY="0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d"; $env:WETH="0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"; & "C:\Users\jimbo\.foundry\bin\forge.exe" script script/DeployGondiLending.s.sol --rpc-url https://ethereum-rpc.publicnode.com --account deployer --sender 0x14898258122C0740106391E6e8E4F17F3b6d456E --skip test --skip "src/**" --broadcast --slow
+```
+
+It sends one transaction at a time and prints every address at the end. Give a session that output. Its last lines
+say to put the address in `constants.ts`: ignore that, the site reads it from elsewhere (step 3). If the test fails, or
+the send stops partway, do not run it again (a second run deploys a second set): tell a session.
+
+**For the next session**
+- Branches: #1038 `feat/gondi-lending-contracts`, #1039 `feat/gondi-lending-site` (worktree
+  `C:\Users\jimbo\dev\wt\nft-collection-offers`), #1127 `feat/gondi-loan-shield` (based on #1039's branch).
+- The address goes in `GONDI_LOAN_ADDRESS` in `frontend/src/lib/gondi/loanOffer.js`. While it is zero, every page
+  says lending is not live yet, and three NFT Finance browser tests are red.
+- Then add the NFT lending row back to `frontend/src/pages/deployClaimHonesty.test.ts`, and move the CHANGELOG
+  lending line (now under 2026-10-28) to the day it ships.
+- After the deploy, check on chain: the bytes match Gondi's build (`contracts/vendor/gondi-v3.2/build.mjs`), the protocol fee is 500 basis points
+  to `0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d`, and `pendingOwner()` on the loan contract and the liquidator is
+  that Safe.
+
+---
+
 ## ✅ 2026-10-31: the Venue AMM page is live (handoff; nothing for you to do)
 
 Your ask (2026-10-30): bring the Venue AMM page "to cutting edge avantegarde level", make the arbitrage top tier, and put
