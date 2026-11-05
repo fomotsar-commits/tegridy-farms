@@ -118,16 +118,20 @@ export const VENUE = {
 /** A wallet's degrees and the tier word the venue prints for it, when it prints one (heatOracle.ts printedTier). */
 const degreesAndTier = (degrees: string, tier: string | null) => (tier ? `${degrees}° ${tier}` : `${degrees}°`);
 
+/** The unit beside a count, in plain English: the singular at one, the plural otherwise ("1 day",
+ *  "2 days", "0 days") (island answer twenty-eight, §2.1). */
+export const dayWord = (n: number) => (n === 1 ? 'day' : 'days');
+
 export const BAYLA_LINES = {
   noWallet: 'Your held time already has a number. Paste any wallet.',
   cold: '0\u00b0 today. Hold any island coin and your clock starts tonight.',
   warmInRoom: (degrees: string, tier: string | null) => `${degreesAndTier(degrees, tier)}. Every day in this pool counts double.`,
-  warmDays: (degrees: string, tier: string | null, days: number) => `${degreesAndTier(degrees, tier)}. Resident in ${days} days.`,
+  warmDays: (degrees: string, tier: string | null, days: number) => `${degreesAndTier(degrees, tier)}. Resident in ${days} ${dayWord(days)}.`,
   warmPick: (degrees: string, tier: string | null) => `${degreesAndTier(degrees, tier)}. Pick a bungalow and add to its pool.`,
   // The door is not open yet, on any screen (answer twenty-six, §2.7).
   open: (degrees: string, tier: string | null) => `${degreesAndTier(degrees, tier)}. Warm enough. The door opens on the island's word.`,
   // On the launch door's own screen, under the floor: the degrees alone (answer twenty-six, §2.7).
-  doorDays: (degrees: string, days: number) => `${degrees}°. Resident in ${days} days.`,
+  doorDays: (degrees: string, days: number) => `${degrees}°. Resident in ${days} ${dayWord(days)}.`,
   doorWarming: (degrees: string) => `${degrees}°. Every held day counts toward the door.`,
   slow: (price: string, age: string) => `Jupiter is slow. The pool's own price is ${price}, read ${age} ago. Adding stays open.`,
   done: 'Done. Your fee went to the island. Read it.',
@@ -166,14 +170,15 @@ export const COUNTDOWN_WORDS = {
   eyebrow: 'THE LAUNCH DOOR · NOT OPEN YET',
   /** The wallet's degrees alone, never a tier word (answer twenty-six, §2.4). */
   standing: (degrees: string) => `${degrees}°`,
-  days: 'days',
+  days: dayWord,
   unserved: 'about half a year',
   under: 'to the door, if you hold from today.',
   today: '0° today',
   door: (floor: number) => `${floor}° · the door`,
   line: 'Residents launch here. Nobody can buy last year.',
   button: 'Start the clock',
-  roster: (n: number) => `${n} flames are warming toward the door right now.`,
+  roster: (n: number) =>
+    n === 1 ? '1 flame is warming toward the door right now.' : `${n} flames are warming toward the door right now.`,
   /** At the floor and up, the door closed (answer twenty-six, §2.6): the number is the wallet's degrees. */
   warmUnder: "warm enough. The door opens on the island's word.",
   warmLine: 'You are on the list the day it opens.',
