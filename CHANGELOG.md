@@ -9,6 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-11-05
 
+- Add opens on every pool again, $BAYLA first. An outside price that was not read is now one row ("Outside price not read yet"), never a reason to keep the Add form closed; the pool's own price, its reserves and the pause still decide. The price loop reads the island's coins first, then USDC and USDT. On /pools, Add on a room's pool raises its sheet over the list, Back lands on the same card, and the Arbitrage card sits under All pools. The Buy sheet gains a row of the island's coins and "Any coin".
 - The chat assistant no longer says a token can be launched. Asked about launching, the curves or the chains, it says launching a new token is not switched on yet, as the curve pages do.
 
 ### 2026-11-04

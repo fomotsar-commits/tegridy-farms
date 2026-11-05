@@ -10,7 +10,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 vi.mock("../_lib/ratelimit.js", () => ({ checkRateLimit: vi.fn(async () => true), checkGlobalLimit: vi.fn(async () => true) }));
 
 import handler from "../outside-prices.js";
-import { __resetOutsidePrices, probeAmount, midPrice, spacingMs, tokensOf, FRESH_FOR_MS, SWR_SECS } from "../_lib/outside-prices.js";
+import { __resetOutsidePrices, probeAmount, midPrice, spacingMs, tokensOf, FIRST_MINTS, FRESH_FOR_MS, SWR_SECS } from "../_lib/outside-prices.js";
+import { BUNGALOWS } from "../../src/lib/bungalows.ts";
 import { CP_SWAP_PROGRAM, WSOL_MINT, TOKEN_PROGRAM, TOKEN_2022_PROGRAM, OFFSETS } from "../_lib/pool-index.js";
 import { base58 } from "@scure/base";
 
@@ -126,6 +127,21 @@ describe("probeAmount: the sale's amount repeats", () => {
   });
   it("prices every mint in a pool that is not SOL, once each", () => {
     expect(tokensOf([{ mints: [WSOL_MINT, BAYLA] }, { mints: [USDC, BAYLA] }, { mints: [WSOL_MINT, USDC] }])).toEqual([BAYLA, USDC]);
+  });
+  // Answer twenty-seven, cut 2: the loop ran out of time on the coins the chain lists last,
+  // and $BAYLA was one of them every run. The island's coins go first, then USDC and USDT.
+  it("reads $BAYLA first whatever order the chain lists the pools in", () => {
+    const OTHER = "6Rwcmkz9yiYVhPp9LBBMuTtNgXc6Bi2MjePQ5nJNtnUt";
+    const USDT = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB";
+    const BOBO = "4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump";
+    const pools = [{ mints: [WSOL_MINT, OTHER] }, { mints: [USDT, WSOL_MINT] }, { mints: [WSOL_MINT, BOBO] }, { mints: [USDC, OTHER] }, { mints: [BAYLA, WSOL_MINT] }];
+    expect(tokensOf(pools)).toEqual([BAYLA, BOBO, USDC, USDT, OTHER]);
+    expect(tokensOf([...pools].reverse())[0]).toBe(BAYLA);
+  });
+  it("the first coins are the Solana rooms with a venue pool, in the registry's order, then USDC and USDT", () => {
+    const rooms = BUNGALOWS.filter((b) => b.chain === "solana" && b.address && b.venueSolPool).map((b) => b.address);
+    expect(rooms[0]).toBe(BAYLA);
+    expect(FIRST_MINTS).toEqual([...rooms, USDC, "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"]);
   });
 });
 

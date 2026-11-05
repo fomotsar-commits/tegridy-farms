@@ -339,11 +339,12 @@ describe('prepareLpDeposit: a pool paired with USDC or BAYLA', () => {
   // UNREAD IS STILL REFUSED (owner: "every unread state is still refused"). A read of the
   // coin's own price that FAILED builds nothing. The mutation "treat every coin that is
   // not ok as no-route" fails here: it would build this deposit.
-  it.each(COINS)('%s: the coin’s own price could not be read, with a token price to compare: the deposit check is unchecked, so nothing is built', async (_n, quote) => {
+  it.each(COINS)('%s: the coin’s own price could not be read, with a token price to compare: one row, never a gate (answer twenty-seven), never a warning', async (_n, quote) => {
     const w = world(quote);
-    const msg = refused(await deposit(w, {}, priced(quote, { coin: { kind: 'unread', detail: 'HTTP 502' } })));
-    expect(msg).toBe(`We did not build this deposit: We could not check its price against an outside price (the price of ${quote.symbol} could not be read (HTTP 502)).`);
-    expect(msg).not.toMatch(/this token/);
+    const s = prepared(await deposit(w, {}, priced(quote, { coin: { kind: 'unread', detail: 'HTTP 502' } }))).summary as LpDepositSummary;
+    expect(s.price).toMatchObject({ state: 'unread', detail: 'Outside price not read yet', outside: true });
+    expect(s.warnings).toEqual([]);
+    expect(s.priceGap).toBeNull();
   });
 
   // Owner ruling 2026-10-07: Jupiter ANSWERING that it has no route for the pool's coin

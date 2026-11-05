@@ -18,6 +18,8 @@ import { tick } from '../lib/tick';
 import { SolanaProviders } from '../components/solana/SolanaProviders';
 import { SheetBodyOutlet } from '../components/sheet/SheetOutlet';
 import { useSheet } from '../components/sheet/sheetContext';
+import { SheetBuyRow } from '../components/sheet/SheetBuyRow';
+import { SheetPickLine } from '../components/sheet/SheetBaylaRow';
 import { useSolanaConnect } from '../components/solana/useSolanaConnect';
 import { SHEET_WORDS } from '../lib/arrival';
 import { feeSplitText } from '../lib/solana/cpswap/venue';
@@ -1454,13 +1456,17 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
   // any other resolves async below, with $BAYLA standing until it does.
   const [openingBuy] = useState(() => {
     try {
-      // The sheet opens on its room's coin; the home's card on BAYLA whatever room was last entered.
-      if (inSheet?.room.address) return inSheet.room.address;
+      // The sheet opens on its room's coin (with none, nothing is bought until its row picks one);
+      // the home's card on BAYLA whatever room was last entered.
+      if (inSheet) return inSheet.room?.address ?? BAYLA.mint;
       return openingBuyMint(linkSearch, home ? null : getActiveBungalow());
     } catch { /* URL APIs unavailable — default stands */ }
     return BAYLA.mint;
   });
   const [buyToken, setBuyToken] = useState<SolToken>(() => findSolToken(openingBuy) ?? BAYLA);
+  // The sheet with no room opens on its bungalow row with nothing picked (island answer twenty-seven):
+  // no quote is asked and its green button is off until Any coin picks one (a room's chip reopens the form on it).
+  const [unpicked, setUnpicked] = useState(() => inSheet !== null && inSheet.room === null);
   // ?amt=<decimal> presets the pay amount (token-denominated). Malformed
   // values fall back silently — a bad deep link must never break the page.
   const [amount, setAmount] = useState(() => {
@@ -1554,7 +1560,7 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
       return 0;
     }
   });
-  const canQuote = baseAmount !== null && !sameToken && linkPending === 0;
+  const canQuote = baseAmount !== null && !sameToken && linkPending === 0 && !unpicked;
 
   // The opening pair, continued: a NON-curated mint (a link's, or a room's coin) needs
   // the Jupiter lookup for authoritative decimals (never invent them). A coin Jupiter
@@ -2529,14 +2535,25 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
     </>
   );
   const Heading = home ? 'h2' : 'h1';
+  // The BUY side's picker: the page's, and the sheet's Any coin (island answer twenty-seven).
+  const buyPicker = picker === 'buy' && (
+    <TokenPicker
+      title="Buy"
+      featured={BUY_TOKENS}
+      onClose={() => setPicker(null)}
+      onSelect={(t) => { rememberToken(t); setBuyToken(t); setUnpicked(false); setPicker(null); }}
+    />
+  );
 
   // The sheet's Buy (island answer twenty-five, screen 1, Buy state): the amount is what you pay,
   // the second row is what you get with the route line under it, one green button. The review
-  // and the signing are the form's own, unchanged; its notes are said whenever they apply.
+  // and the signing are the form's own, unchanged; its notes are said whenever they apply. Above
+  // the amount, the bungalow row picks the coin (answer twenty-seven).
   if (inSheet) {
     const own = ownBest && !isRangeCandidate(ownBest) ? ownBest : null;
+    const room = inSheet.room;
     // The drawn first row, Pool price, whichever route wins: the room's own pool, as it quoted this amount.
-    const roomPool = route.candidates.find((c) => !isRangeCandidate(c) && c.poolAddress === inSheet.room.venueSolPool);
+    const roomPool = room ? route.candidates.find((c) => !isRangeCandidate(c) && c.poolAddress === room.venueSolPool) : undefined;
     const roomView = roomPool && !isRangeCandidate(roomPool) ? roomPool.view : null;
     const perToken = roomView ? poolPricePerToken(roomView.snapshot, buyToken.mint, buyToken.decimals) : null;
     const quoted = shownOut !== null && !quoteLoading;
@@ -2553,7 +2570,13 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
       : quote && !ownBest
         ? feeWaived ? 'The venue takes no fee on this route.' : feeMintSymbol ? `The venue takes ${feePct}% of this trade, in ${feeMintSymbol}.` : 'The venue takes no fee on this trade.'
         : null;
-    const buyLabel = swapping ? 'Swapping…' : ownBusy ?? SHEET_WORDS.buy(buyToken.symbol);
+    const buyLabel = unpicked ? 'Buy' : swapping ? 'Swapping…' : ownBusy ?? SHEET_WORDS.buy(buyToken.symbol);
+    // The coin its row lights: none before a pick, the room's while the room's coin is still being looked up.
+    const sheetCoin = unpicked
+      ? null
+      : room?.address && linkPending > 0
+        ? { symbol: room.symbol, mint: room.address }
+        : { symbol: buyToken.symbol, mint: buyToken.mint };
     return (
       <div data-testid="sheet-buy" className="space-y-3 text-white/75 text-[12px]">
         {ownFlowOpen ? (
@@ -2562,6 +2585,7 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
           </Suspense>
         ) : (
           <fieldset disabled={held} className="border-0 p-0 m-0 min-w-0 space-y-3">
+            <SheetBuyRow coin={sheetCoin} onAny={() => setPicker('buy')} />
             {/* The amount, a 64 px box: what you pay, in Archivo 800 32 px, the coin at its right. */}
             <label className="flex items-center gap-3 h-16 px-4 rounded-xl" style={{ background: 'var(--color-bg-input)', border: '1px solid var(--color-border)' }}>
               <span className="sr-only">{`Amount of ${payToken.symbol} to pay`}</span>
@@ -2632,8 +2656,8 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
                 <VenueSwapFlow swap={venueSwap} />
               </Suspense>
             )}
-            {inSheet.bayla}
-            {/* The green button, 20 px under her line: with a wallet it buys, as Buy does on the page; without one it connects. */}
+            {unpicked ? <SheetPickLine /> : inSheet.bayla}
+            {/* The green button, 20 px under her line: with a wallet it buys, as Buy does on the page; without one it connects. Off until a coin is picked. */}
             <button
               ref={buyRef}
               type="button"
@@ -2643,7 +2667,7 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
                 if (!publicKey) openConnect();
                 else void handleSwap();
               }}
-              disabled={publicKey ? actionDisabled : false}
+              disabled={unpicked || (publicKey ? actionDisabled : false)}
               className="btn-primary w-full !mt-5 disabled:opacity-50"
               style={{ height: 52, fontSize: 15, fontWeight: 700 }}
             >
@@ -2651,6 +2675,7 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
             </button>
           </fieldset>
         )}
+        {buyPicker}
       </div>
     );
   }
@@ -3143,14 +3168,7 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
           onSelect={(t) => { rememberToken(t); setPayToken(t); setPicker(null); }}
         />
       )}
-      {picker === 'buy' && (
-        <TokenPicker
-          title="Buy"
-          featured={BUY_TOKENS}
-          onClose={() => setPicker(null)}
-          onSelect={(t) => { rememberToken(t); setBuyToken(t); setPicker(null); }}
-        />
-      )}
+      {buyPicker}
       {detailToken && <TokenDetail token={detailToken} onClose={() => setDetailToken(null)} />}
     </div>
     </>

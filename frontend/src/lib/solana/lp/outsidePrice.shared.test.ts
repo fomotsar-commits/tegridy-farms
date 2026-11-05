@@ -59,30 +59,30 @@ describe('fromShared: the list’s entry as a price', () => {
     const r = fromShared({ state: 'ok', sol_per_token: 7.5e-6, read_at: now - 5 * MIN }, BAYLA, now);
     expect(r).toEqual({ kind: 'ok', solPerToken: 7.5e-6, source: 'Jupiter', readAtMs: now - 5 * MIN });
   });
-  it('ten minutes is the line: a price a second past it is the one-row hold', () => {
+  it('ten minutes is the line: a price a second past it is one row with its age, never a gate', () => {
     expect(fromShared({ state: 'ok', sol_per_token: 7.5e-6, read_at: now - FRESH_FOR_MS }, BAYLA, now)?.kind).toBe('ok');
     __resetSharedPrices();
     const r = fromShared({ state: 'ok', sol_per_token: 7.5e-6, read_at: now - FRESH_FOR_MS - 1000 }, BAYLA, now);
-    expect(r).toEqual({ kind: 'unread', detail: 'Outside price not read for 10 min; adding waits', hold: true });
+    expect(r).toEqual({ kind: 'unread', detail: 'Outside price 0.0000075 SOL, read 10 min ago', row: true });
   });
   it('a token the loop could not read is still a price while its last good read is under ten minutes old', () => {
     const r = fromShared({ state: 'unread', detail: 'HTTP 429', last: { sol_per_token: 7.4e-6, read_at: now - 4 * MIN } }, BAYLA, now);
     expect(r).toEqual({ kind: 'ok', solPerToken: 7.4e-6, source: 'Jupiter', readAtMs: now - 4 * MIN });
   });
-  it('none for eleven minutes is the one-row hold, in the island’s words', () => {
+  it('none for eleven minutes is one row with the last price and its age, in the island’s words', () => {
     const r = fromShared({ state: 'unread', detail: 'HTTP 429', last: { sol_per_token: 7.4e-6, read_at: now - 11 * MIN } }, BAYLA, now);
-    expect(r).toEqual({ kind: 'unread', detail: 'Outside price not read for 11 min; adding waits', hold: true });
+    expect(r).toEqual({ kind: 'unread', detail: 'Outside price 0.0000074 SOL, read 11 min ago', row: true });
   });
-  it('with no read at all, the hold says why', () => {
+  it('with no read at all, the row says so in the island’s words', () => {
     const r = fromShared({ state: 'unread', detail: 'Jupiter did not answer', last: null }, BAYLA, now);
-    expect(r).toEqual({ kind: 'unread', detail: 'Outside price not read (Jupiter did not answer); adding waits', hold: true });
+    expect(r).toEqual({ kind: 'unread', detail: 'Outside price not read yet', row: true });
   });
   it('this tab remembers a good read, so a later list with none still passes inside ten minutes', () => {
     expect(fromShared({ state: 'ok', sol_per_token: 7.5e-6, read_at: now - 2 * MIN }, BAYLA, now)?.kind).toBe('ok');
     const later = fromShared({ state: 'unread', detail: 'HTTP 502', last: null }, BAYLA, now + 6 * MIN);
     expect(later).toEqual({ kind: 'ok', solPerToken: 7.5e-6, source: 'Jupiter', readAtMs: now - 2 * MIN });
     const much = fromShared({ state: 'unread', detail: 'HTTP 502', last: null }, BAYLA, now + 9 * MIN);
-    expect(much).toEqual({ kind: 'unread', detail: 'Outside price not read for 11 min; adding waits', hold: true });
+    expect(much).toEqual({ kind: 'unread', detail: 'Outside price 0.0000075 SOL, read 11 min ago', row: true });
   });
   it('Jupiter’s no-route is the answer no-route; a token the list does not carry is null', () => {
     expect(fromShared({ state: 'no-route', read_at: now }, BAYLA, now)).toEqual({ kind: 'no-route', detail: 'Jupiter has no route for this token' });
@@ -161,10 +161,10 @@ describe('readListedOrOutsidePrice: what a page reads', () => {
     expect(w.calls.some((c) => c.startsWith('/api/outside-prices'))).toBe(false);
     expect(w.calls.filter((c) => c.includes('/quote?') && !c.includes('priceCheck'))).toHaveLength(2);
   });
-  it('the list’s hold is the answer for a listed token: no quote is made to get round it', async () => {
+  it('the list’s row is the answer for a listed token: no quote is made to get round it', async () => {
     const w = world(listWith({ state: 'unread', detail: 'HTTP 429', last: { sol_per_token: 7.5e-6, read_at: Date.now() - 12 * MIN } }));
     const r = await readListedOrOutsidePrice(BAYLA, 6, guard(), w.f);
-    expect(r).toEqual({ kind: 'unread', detail: 'Outside price not read for 12 min; adding waits', hold: true });
+    expect(r).toEqual({ kind: 'unread', detail: 'Outside price 0.0000075 SOL, read 12 min ago', row: true });
     expect(w.calls).toEqual(['/api/outside-prices']);
   });
 });
