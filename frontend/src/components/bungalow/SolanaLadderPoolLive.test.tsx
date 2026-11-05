@@ -321,14 +321,27 @@ describe('what a position has earned', () => {
   // Owner, 2026-11-02: the four rooms' ladder pools open with no rewards yet. Whoever is about to
   // lock must read that beside the Lock button, wallet or not, never only in a chip or the details.
   it('a pool never funded says, beside the lock, that it pays nothing yet: with a wallet and without', async () => {
-    const NO_REWARDS = 'No rewards yet: a lock here counts your held time and earns nothing until the vault funds this pool.';
+    const NO_REWARDS = 'No rewards yet: a lock here earns nothing until the vault funds this pool.';
     draw();
-    expect(await screen.findByTestId('ladder-no-rewards')).toHaveTextContent(NO_REWARDS);
+    expect((await screen.findByTestId('ladder-no-rewards')).textContent).toBe(NO_REWARDS);
     cleanup();
     walletState.publicKey = null;
     draw();
-    expect(await screen.findByTestId('ladder-no-rewards')).toHaveTextContent(NO_REWARDS);
+    expect((await screen.findByTestId('ladder-no-rewards')).textContent).toBe(NO_REWARDS);
     expect(screen.getByRole('button', { name: /Connect to lock/ })).toBeTruthy();
+  });
+
+  // 2026-11-04: this line said a lock "counts your held time" on the four rooms' pools, which the
+  // island does not read, one line below "Not counted as held time yet". Held time is the held-time
+  // line's to say, from the island's read list, so this one never names it.
+  it('the no-rewards line leaves held time to the held-time line', async () => {
+    for (const wallet of [true, false]) {
+      walletState.publicKey = wallet ? { toBase58: () => OWNER } : null;
+      draw();
+      expect((await screen.findByTestId('ladder-no-rewards')).textContent).not.toMatch(/held time/i);
+      expect(document.querySelector('[data-held-time="unread"]')).not.toBeNull();
+      cleanup();
+    }
   });
 
   it('a funded pool, or an ended one, carries no such line', async () => {
