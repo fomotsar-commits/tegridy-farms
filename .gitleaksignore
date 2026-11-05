@@ -37,3 +37,9 @@ c7f8f33b2a3fe593de41317f8a80548be07dfdbf:solana/guards/provenance.mjs:generic-ap
 143fced7e65d06c3191cdb64fff86496d6c882c1:.gitleaksignore:generic-api-key:30
 a0bafd057be3908533ba7c63a792b14d59740396:.gitleaksignore:generic-api-key:30
 ddf8b25d41c5286459d5726ceb153a25061bd1b6:.gitleaksignore:generic-api-key:30
+#
+# 2026-11-05, PR #1123. The arb scanner's test kept the public ZEC coin address (a
+# mint, readable by anyone on chain) in a constant whose name the generic-api-key rule
+# takes for a credential. Nothing secret is in it. The constant is renamed ZEC_MINT
+# in the commit that adds this line, so the branch head has nothing for the rule.
+37b7dd28d1b936a51d43ee75610c43daaf7bd007:frontend/scripts/lib/arb-chain.test.mjs:generic-api-key:6

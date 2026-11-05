@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import bs58 from 'bs58';
 import { COINS, ROBOT, SOL_MINT, USDC_MINT, TOKEN_PROGRAM, TOKEN_2022_PROGRAM, busyTokens, clmmConfigFee, decodePool, depthOf, lastSlippageBps, minOutAt, testRunProblem, tokenGate, tripsFor, withFee } from './arb-chain.mjs';
 
-const TOKEN = 'A7bdiYdS5GjqGFtxf17ppRHtDKPkkRqbKtR27dxvQXaS';
+const ZEC_MINT = 'A7bdiYdS5GjqGFtxf17ppRHtDKPkkRqbKtR27dxvQXaS';
 const key = (n) => bs58.encode(Buffer.alloc(32, n));
 const tag = (name) => createHash('sha256').update(`account:${name}`).digest().subarray(0, 8);
 const put = (b, at, mint) => Buffer.from(bs58.decode(mint)).copy(b, at);
@@ -14,7 +14,7 @@ const u128 = (b, at, v) => {
 /** √price in Q64.64 for `price` raw units of B per raw unit of A. */
 const sqrtX64 = (price) => BigInt(Math.round(Math.sqrt(price) * 2 ** 64));
 
-/** An Orca pool of TOKEN (8 decimals) against `coin`, at `usd` a token, with `liquidity` in its band. */
+/** An Orca pool of ZEC_MINT (8 decimals) against `coin`, at `usd` a token, with `liquidity` in its band. */
 function whirlpool({ feeRate = 3000, liquidity = 10n ** 12n, usd = 1000, coin = USDC_MINT, solUsd = 100 } = {}) {
   const b = Buffer.alloc(653);
   tag('Whirlpool').copy(b, 0);
@@ -22,7 +22,7 @@ function whirlpool({ feeRate = 3000, liquidity = 10n ** 12n, usd = 1000, coin = 
   u128(b, 49, liquidity);
   const coinPerToken = (coin === USDC_MINT ? usd : usd / solUsd) * 10 ** (COINS[coin].decimals - 8);
   u128(b, 65, sqrtX64(coinPerToken));
-  put(b, 101, TOKEN);
+  put(b, 101, ZEC_MINT);
   put(b, 133, key(1));
   put(b, 181, coin);
   put(b, 213, key(2));
@@ -32,7 +32,7 @@ function whirlpool({ feeRate = 3000, liquidity = 10n ** 12n, usd = 1000, coin = 
 describe('decodePool reads each pool’s own fee and price', () => {
   it('takes an Orca pool’s fee from its account, not an assumed 0.3%', () => {
     const p = decodePool('whirlpool', key(9), whirlpool({ feeRate: 1600 }));
-    expect(p).toMatchObject({ mintA: TOKEN, mintB: USDC_MINT, fee: 0.0016, stopped: null });
+    expect(p).toMatchObject({ mintA: ZEC_MINT, mintB: USDC_MINT, fee: 0.0016, stopped: null });
   });
   it('takes a Raydium CLMM pool’s fee from its fee config (2% there, 11-05)', () => {
     const cfg = Buffer.alloc(117);
@@ -74,7 +74,7 @@ function trips(pools, holds = new Map([[USDC_MINT, 1e12], [SOL_MINT, 1e15]]), br
     return b;
   })());
   const depths = new Map(decoded.map((p) => [p.address, depthOf(p, new Map())]));
-  return tripsFor(decoded, { token: TOKEN, decimals: 8, depths, usd: new Map([[USDC_MINT, 1], [SOL_MINT, 100]]), holds, bridge: { pool: bridge, depth: depthOf(bridge, new Map()) } });
+  return tripsFor(decoded, { token: ZEC_MINT, decimals: 8, depths, usd: new Map([[USDC_MINT, 1], [SOL_MINT, 100]]), holds, bridge: { pool: bridge, depth: depthOf(bridge, new Map()) } });
 }
 
 describe('tripsFor: only what the robot would take', () => {
@@ -111,7 +111,7 @@ describe('tripsFor: only what the robot would take', () => {
     const a = decodePool('whirlpool', key(30), whirlpool({ usd: 1000 }));
     const b = { ...decodePool('whirlpool', key(31), whirlpool({ usd: 1020 })), stopped: 'trading switched off' };
     const depths = new Map([a, b].map((p) => [p.address, depthOf(p, new Map())]));
-    expect(tripsFor([a, b], { token: TOKEN, decimals: 8, depths, usd: new Map([[USDC_MINT, 1], [SOL_MINT, 100]]), holds: new Map(), bridge: null })).toHaveLength(0);
+    expect(tripsFor([a, b], { token: ZEC_MINT, decimals: 8, depths, usd: new Map([[USDC_MINT, 1], [SOL_MINT, 100]]), holds: new Map(), bridge: null })).toHaveLength(0);
   });
   it('the floor is $0.01 and the network fee: a gap paying less is listed as not paying', () => {
     const [best] = trips([whirlpool({ usd: 1000 }), whirlpool({ usd: 1006.05 })]);
@@ -144,22 +144,22 @@ function mint({ program = TOKEN_PROGRAM, freeze = false, ext = [] } = {}) {
 
 describe('tokenGate: the robot’s token rule, read from the mint', () => {
   it('passes a plain token and reads its decimals', () => {
-    expect(tokenGate(TOKEN, mint())).toEqual({ decimals: 6, program: TOKEN_PROGRAM, problem: null });
+    expect(tokenGate(ZEC_MINT, mint())).toEqual({ decimals: 6, program: TOKEN_PROGRAM, problem: null });
   });
   it('refuses a live freeze authority, except USDC’s', () => {
-    expect(tokenGate(TOKEN, mint({ freeze: true })).problem).toMatch(/freeze/);
+    expect(tokenGate(ZEC_MINT, mint({ freeze: true })).problem).toMatch(/freeze/);
     expect(tokenGate(USDC_MINT, mint({ freeze: true })).problem).toBeNull();
   });
   it('refuses a transfer fee, a transfer hook and a permanent delegate; passes empty slots', () => {
     const fee = Buffer.alloc(108);
     fee.writeUInt16LE(100, 106);
-    expect(tokenGate(TOKEN, mint({ program: TOKEN_2022_PROGRAM, ext: [[1, fee]] })).problem).toMatch(/fee/);
-    expect(tokenGate(TOKEN, mint({ program: TOKEN_2022_PROGRAM, ext: [[1, Buffer.alloc(108)]] })).problem).toBeNull();
+    expect(tokenGate(ZEC_MINT, mint({ program: TOKEN_2022_PROGRAM, ext: [[1, fee]] })).problem).toMatch(/fee/);
+    expect(tokenGate(ZEC_MINT, mint({ program: TOKEN_2022_PROGRAM, ext: [[1, Buffer.alloc(108)]] })).problem).toBeNull();
     const hook = Buffer.alloc(64);
     hook[40] = 1;
-    expect(tokenGate(TOKEN, mint({ program: TOKEN_2022_PROGRAM, ext: [[14, hook]] })).problem).toMatch(/hook/);
-    expect(tokenGate(TOKEN, mint({ program: TOKEN_2022_PROGRAM, ext: [[14, Buffer.alloc(64)]] })).problem).toBeNull();
-    expect(tokenGate(TOKEN, mint({ program: TOKEN_2022_PROGRAM, ext: [[12, Buffer.alloc(32, 7)]] })).problem).toMatch(/delegate/);
+    expect(tokenGate(ZEC_MINT, mint({ program: TOKEN_2022_PROGRAM, ext: [[14, hook]] })).problem).toMatch(/hook/);
+    expect(tokenGate(ZEC_MINT, mint({ program: TOKEN_2022_PROGRAM, ext: [[14, Buffer.alloc(64)]] })).problem).toBeNull();
+    expect(tokenGate(ZEC_MINT, mint({ program: TOKEN_2022_PROGRAM, ext: [[12, Buffer.alloc(32, 7)]] })).problem).toMatch(/delegate/);
   });
 });
 
@@ -184,7 +184,7 @@ describe('the robot’s test-run rule', () => {
 
 describe('busyTokens', () => {
   it('lists each token once with its listed ticker, leaving out SOL, USDC and USDT', () => {
-    const json = { data: [{ attributes: { name: 'ZEC / USDC 0.16%' }, relationships: { base_token: { data: { id: `solana_${TOKEN}` } }, quote_token: { data: { id: `solana_${USDC_MINT}` } } } }] };
-    expect([...busyTokens(json)]).toEqual([[TOKEN, 'ZEC']]);
+    const json = { data: [{ attributes: { name: 'ZEC / USDC 0.16%' }, relationships: { base_token: { data: { id: `solana_${ZEC_MINT}` } }, quote_token: { data: { id: `solana_${USDC_MINT}` } } } }] };
+    expect([...busyTokens(json)]).toEqual([[ZEC_MINT, 'ZEC']]);
   });
 });
