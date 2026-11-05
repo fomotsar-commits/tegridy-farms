@@ -88,6 +88,43 @@ describe('jupiterApi', () => {
     expect(await jupiterApi({ fetchImpl: r.fetchImpl, gapMs: 0 }).prices(['A', 'B', 'C', 'A'])).toEqual({ A: 2 });
     expect(new URL(r.calls[0]!.url).searchParams.get('ids')).toBe('A,B,C');
   });
+
+  // Keyless, every call is one of 30 a minute for the whole PC: none is spent twice on one answer.
+  it('reads the venue list once an hour, not once a pass', async () => {
+    let clock = 0;
+    const r = recorder(() => ({ body: { P1: 'Raydium' } }));
+    const api = jupiterApi({ fetchImpl: r.fetchImpl, gapMs: 0, now: () => clock });
+    expect(await api.labels()).toEqual({ P1: 'Raydium' });
+    clock += 59 * 60_000;
+    expect(await api.labels()).toEqual({ P1: 'Raydium' });
+    expect(r.calls).toHaveLength(1);
+    clock += 2 * 60_000;
+    await api.labels();
+    expect(r.calls).toHaveLength(2);
+  });
+
+  it('answers a price read from the last one while it is young, and asks again once it is not', async () => {
+    let clock = 0;
+    const r = recorder(() => ({ body: { A: { usdPrice: 2 }, B: null } }));
+    const api = jupiterApi({ fetchImpl: r.fetchImpl, gapMs: 0, now: () => clock, priceTtlMs: 30_000 });
+    expect(await api.prices(['A', 'B'])).toEqual({ A: 2 });
+    clock += 29_000;
+    expect(await api.prices(['B', 'A'])).toEqual({ A: 2 });
+    expect(await api.prices(['A'])).toEqual({ A: 2 });
+    expect(r.calls).toHaveLength(1);
+    // A coin never asked is asked, with the rest.
+    await api.prices(['A', 'C']);
+    expect(r.calls).toHaveLength(2);
+    clock += 31_000;
+    await api.prices(['A']);
+    expect(r.calls).toHaveLength(3);
+    // Without a keep time, every read asks.
+    const every = recorder(() => ({ body: { A: { usdPrice: 2 } } }));
+    const api0 = jupiterApi({ fetchImpl: every.fetchImpl, gapMs: 0, now: () => clock });
+    await api0.prices(['A']);
+    await api0.prices(['A']);
+    expect(every.calls).toHaveLength(2);
+  });
 });
 
 describe('refusedVenues', () => {

@@ -47,7 +47,24 @@ export interface JupiterApi {
 export const JUPITER_KEYED_BASE = 'https://api.jup.ag';
 export const JUPITER_KEYLESS_BASE = 'https://lite-api.jup.ag';
 
-export function jupiterApi(opts: { key?: string; fetchImpl?: typeof fetch; gapMs?: number; now?: () => number; sleep?: (ms: number) => Promise<void> } = {}): JupiterApi {
+/** How long the venue list is kept: it changes when Jupiter adds a venue, not between passes. */
+export const LABELS_KEEP_MS = 60 * 60_000;
+
+export function jupiterApi(
+  opts: {
+    key?: string;
+    fetchImpl?: typeof fetch;
+    gapMs?: number;
+    now?: () => number;
+    sleep?: (ms: number) => Promise<void>;
+    /**
+     * A price read this young is answered from the last read, not asked again. The keyless host
+     * allows one call in 2 s, shared by every read; a price only sizes a trip and screens a gap,
+     * and every trip is still test-run against the chain before it is sent. 0 asks every time.
+     */
+    priceTtlMs?: number;
+  } = {},
+): JupiterApi {
   const key = opts.key?.trim() ?? '';
   const base = key ? JUPITER_KEYED_BASE : JUPITER_KEYLESS_BASE;
   const headers: Record<string, string> = key ? { 'x-api-key': key, Accept: 'application/json' } : { Accept: 'application/json' };
@@ -57,6 +74,10 @@ export function jupiterApi(opts: { key?: string; fetchImpl?: typeof fetch; gapMs
   const now = opts.now ?? Date.now;
   const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   let last = -Infinity;
+  const priceTtlMs = opts.priceTtlMs ?? 0;
+  // Each coin's last price (null: Jupiter listed none), and when it was read.
+  const priced = new Map<string, { usd: number | null; at: number }>();
+  let labels: { at: number; value: Record<string, string> } | null = null;
 
   async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
     const wait = last + gapMs - now();
@@ -108,13 +129,32 @@ export function jupiterApi(opts: { key?: string; fetchImpl?: typeof fetch; gapMs
       const extra = (r.cleanupInstruction ? 1 : 0) + (r.tokenLedgerInstruction ? 1 : 0) + (r.otherInstructions?.length ?? 0);
       return { swap: toInstruction(r.swapInstruction), lookupTables: r.addressLookupTableAddresses ?? [], extra };
     },
-    labels: () => call<Record<string, string>>('/swap/v1/program-id-to-label'),
+    labels: async () => {
+      if (labels && now() - labels.at < LABELS_KEEP_MS) return labels.value;
+      const value = await call<Record<string, string>>('/swap/v1/program-id-to-label');
+      labels = { at: now(), value };
+      return value;
+    },
     prices: async (mints) => {
       const ids = [...new Set(mints)];
       if (!ids.length) return {};
-      const json = await call<Record<string, { usdPrice?: number } | null>>(`/price/v3?ids=${ids.join(',')}`);
+      const fresh = (m: string) => {
+        const p = priced.get(m);
+        return p !== undefined && now() - p.at < priceTtlMs;
+      };
+      if (!ids.every(fresh)) {
+        const json = await call<Record<string, { usdPrice?: number } | null>>(`/price/v3?ids=${ids.join(',')}`);
+        const at = now();
+        for (const m of ids) {
+          const v = json[m];
+          priced.set(m, { usd: v && typeof v.usdPrice === 'number' ? v.usdPrice : null, at });
+        }
+      }
       const out: Record<string, number> = {};
-      for (const [mint, v] of Object.entries(json)) if (v && typeof v.usdPrice === 'number') out[mint] = v.usdPrice;
+      for (const m of ids) {
+        const usd = priced.get(m)?.usd;
+        if (typeof usd === 'number') out[m] = usd;
+      }
       return out;
     },
   };

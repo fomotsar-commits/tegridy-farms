@@ -23,7 +23,7 @@ vi.mock('../lp/poolList', async (orig) => ({
 vi.mock('../lp/tokenSafety', async (orig) => ({ ...(await orig<typeof import('../lp/tokenSafety')>()), readTokenSafety: vi.fn(async () => new Map()) }));
 vi.mock('./plan', async (orig) => ({ ...(await orig<typeof import('./plan')>()), poolProblem: vi.fn(() => null) }));
 
-const { runCycle, DEFAULT_SETTINGS } = await import('./cycle');
+const { runCycle, gapKey, NO_ROUTE_KEEP_MS, DEFAULT_SETTINGS } = await import('./cycle');
 const { DEFAULT_LIMITS } = await import('./plan');
 
 const TOKEN_PROGRAM = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
@@ -49,7 +49,8 @@ function holding(amount: bigint) {
 }
 
 let pools: PoolView[] = [];
-const settings = { ...DEFAULT_LIMITS, ...DEFAULT_SETTINGS, minProfitUsd: 0.01, allowRaydium: true, raydiumPrograms: [] };
+// No outside pool: their read is keeper/outside.ts's test, and would take this fake chain's first answer.
+const settings = { ...DEFAULT_LIMITS, ...DEFAULT_SETTINGS, minProfitUsd: 0.01, allowRaydium: true, raydiumPrograms: [], outsidePools: [] };
 
 describe('runCycle, for the gap log', () => {
   beforeEach(() => gaps.clear());
@@ -97,5 +98,103 @@ describe('runCycle, for the gap log', () => {
     vi.mocked(listPools).mockResolvedValueOnce({ kind: 'unread', detail: 'down' });
     const r = await runCycle({ rpc: vi.fn(), jupiter: {} as JupiterApi, owner: Keypair.generate().publicKey, indexFetch: fetch, log: vi.fn() }, settings);
     expect([r.looked, r.seen]).toEqual([[], []]);
+  });
+
+  // Keyless Jupiter allows one call in 2 s: a gap it has already said no to costs none, until it moves.
+  it('asks Jupiter about a gap it found no route for once, until our pool moves', async () => {
+    const pool = { ...view(), quoteReserve: 10n, tokenReserve: 10n } as PoolView;
+    pools = [pool];
+    gaps.set(pool.address, arb(0.4));
+    const rpc = vi.fn(async (_method: string, params: unknown[]) => ({
+      value: [holding(5_000_000_000n), ...Array.from({ length: (params[0] as string[]).length - 1 }, () => null)],
+    }));
+    const quote = vi.fn(async () => {
+      throw new Error('Jupiter answered 400: NO_ROUTES_FOUND');
+    });
+    const io = { rpc, jupiter: { quote } as unknown as JupiterApi, owner: Keypair.generate().publicKey, indexFetch: fetch, log: vi.fn() };
+
+    const first = await runCycle(io, settings);
+    const asked = quote.mock.calls.length;
+    expect(asked).toBeGreaterThan(0);
+    expect(first.seen.map((g) => g.outcome)).toEqual(['no-route']);
+
+    const again = await runCycle(io, settings);
+    expect(quote.mock.calls.length).toBe(asked);
+    // Still in the gap log, with the reason it was left, marked as answered from memory.
+    expect(again.seen.map((g) => g.outcome)).toEqual(['no-route']);
+    expect(first.seen.map((g) => g.remembered)).toEqual([false]);
+    expect(again.seen.map((g) => g.remembered)).toEqual([true]);
+
+    // No route does not hang on a price: a trade in our pool changes nothing for an hour.
+    const moved = { ...pool, quoteReserve: 11n } as PoolView;
+    pools = [moved];
+    gaps.set(moved.address, arb(0.4));
+    await runCycle(io, settings);
+    expect(quote.mock.calls.length).toBe(asked);
+    // An hour on, Jupiter is asked again.
+    const later = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + NO_ROUTE_KEEP_MS + 1);
+    await runCycle(io, settings);
+    later.mockRestore();
+    expect(quote.mock.calls.length).toBe(2 * asked);
+  });
+});
+
+describe('runCycle, when Jupiter says too many calls', () => {
+  it('asks nothing more that pass', async () => {
+    const a = { ...view(), quoteReserve: 20n, tokenReserve: 20n } as PoolView;
+    const b = { ...view(), quoteReserve: 30n, tokenReserve: 30n } as PoolView;
+    pools = [a, b];
+    gaps.set(a.address, arb(0.4));
+    gaps.set(b.address, arb(0.4));
+    const rpc = vi.fn(async (_method: string, params: unknown[]) => ({
+      value: [holding(5_000_000_000n), ...Array.from({ length: (params[0] as string[]).length - 1 }, () => null)],
+    }));
+    const quote = vi.fn(async () => {
+      throw new Error('Jupiter /swap/v1/quote answered 429');
+    });
+    const r = await runCycle({ rpc, jupiter: { quote } as unknown as JupiterApi, owner: Keypair.generate().publicKey, indexFetch: fetch, log: vi.fn() }, settings);
+    expect(quote).toHaveBeenCalledTimes(1);
+    expect(r.seen.map((g) => [g.pool, g.outcome])).toEqual([[a.address, 'error']]);
+  });
+
+  it('goes on when it is the RPC, not Jupiter, that says too many calls', async () => {
+    const a = { ...view(), quoteReserve: 40n, tokenReserve: 40n } as PoolView;
+    const b = { ...view(), quoteReserve: 50n, tokenReserve: 50n } as PoolView;
+    pools = [a, b];
+    gaps.set(a.address, arb(0.4));
+    gaps.set(b.address, arb(0.4));
+    let reads = 0;
+    const rpc = vi.fn(async (_method: string, params: unknown[]) => {
+      if (reads++ === 0) throw new Error('getMultipleAccounts: the RPC answered 429');
+      return { value: [holding(5_000_000_000n), ...Array.from({ length: (params[0] as string[]).length - 1 }, () => null)] };
+    });
+    const quote = vi.fn(async () => {
+      throw new Error('Jupiter /swap/v1/quote answered 400 (NO_ROUTES_FOUND)');
+    });
+    const r = await runCycle({ rpc, jupiter: { quote } as unknown as JupiterApi, owner: Keypair.generate().publicKey, indexFetch: fetch, log: vi.fn() }, settings);
+    expect(quote).toHaveBeenCalled();
+    expect(r.seen.map((g) => [g.pool, g.outcome])).toEqual([
+      [a.address, 'error'],
+      [b.address, 'no-route'],
+    ]);
+  });
+});
+
+describe('gapKey: when a quote that fell short is asked again', () => {
+  const usd = new Map([[SOL_QUOTE.mint, 100]]);
+  const pool = { ...view(), quoteReserve: 10n, tokenReserve: 10n } as PoolView;
+  usd.set(pool.tokenMint, 1);
+  const key0 = gapKey(pool, usd);
+
+  it('is the same gap while nothing moves, or a price moves under a 0.25% step', () => {
+    expect(gapKey({ ...pool } as PoolView, new Map(usd))).toBe(key0);
+    expect(gapKey(pool, new Map([...usd, [pool.tokenMint, 1.0001]]))).toBe(key0);
+  });
+
+  it('is a new gap once our pool trades, or either price moves a step', () => {
+    expect(gapKey({ ...pool, quoteReserve: 11n } as PoolView, usd)).not.toBe(key0);
+    expect(gapKey({ ...pool, tokenReserve: 11n } as PoolView, usd)).not.toBe(key0);
+    expect(gapKey(pool, new Map([...usd, [pool.tokenMint, 1.01]]))).not.toBe(key0);
+    expect(gapKey(pool, new Map([...usd, [SOL_QUOTE.mint, 101]]))).not.toBe(key0);
   });
 });

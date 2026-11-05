@@ -51,6 +51,13 @@
  *   KEEPER_PAY_SETUP        yes = open a coin's account on its first trip even when that trip
  *                           does not earn the ~0.0015 SOL rent back (default no)
  *   KEEPER_DASHBOARD_PORT   the dashboard's port on this computer (default 8790)
+ *   KEEPER_PRICE_TTL_SEC    a Jupiter price this young is reused, not asked again (default 30;
+ *                           0 asks every time). Keyless Jupiter allows one call in 2 s
+ *   KEEPER_SCREEN_PORT      the gap screen page `run` serves on this computer, read-only: what
+ *                           each pass found and the Jupiter calls made and saved (default 8792;
+ *                           "off" = no page)
+ *   KEEPER_WS_URL           the RPC's websocket, which wakes the keeper when a watched pool
+ *                           changes (default: KEEPER_RPC_URL over ws; "off" = the timer only)
  *
  * ─── COMMANDS ───────────────────────────────────────────────────────────────────
  *   status                     the keeper's address and what it holds
@@ -112,10 +119,12 @@ const { QUOTE_COINS } = await lib('solana/lp/quotes.ts');
 const { PRICE_IDS_MAX } = await lib('solana/lp/poolList.ts');
 const { jupiterApi } = await lib('solana/keeper/jupiterApi.ts');
 const { DEFAULT_LIMITS } = await lib('solana/keeper/plan.ts');
+const { accountWake, socketUrlOf } = await lib('solana/keeper/wake.ts');
 const { pollConfirm } = await lib('solana/confirm.ts');
 
 const WSOL = new PublicKey('So11111111111111111111111111111111111111112');
 const USDC = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
+const MIN_CHECK_MS = 2_000; // the least time between two quick checks, however often the chain says a pool moved
 const KEEP_LAMPORTS = 10_000_000n; // what `withdraw` leaves behind for fees and rent
 
 const env = process.env;
@@ -603,6 +612,36 @@ async function dashboard() {
   await readForever();
 }
 
+// ─── The gap screen: a read-only page served by `run` itself, on this computer only. What each
+// pass found, and the Jupiter calls it made and saved. A port already taken, or "off", leaves
+// the robot running without the page. ───
+const SCREEN_PASSES = 30;
+
+function serveScreen(screen) {
+  const raw = env.KEEPER_SCREEN_PORT?.trim().toLowerCase();
+  if (raw === 'off') return;
+  const port = raw ? Number(raw) : 8792;
+  if (!Number.isInteger(port) || port <= 0 || port > 65535) throw new Error(`KEEPER_SCREEN_PORT must be a port or "off", not "${raw}"`);
+  const page = fs.readFileSync(path.join(HERE, 'price-keeper-screen.html'), 'utf8');
+  const app = fs.readFileSync(path.join(HERE, 'price-keeper-screen.js'), 'utf8');
+  const csp = ["default-src 'none'", "script-src 'self'", "style-src 'unsafe-inline'", "connect-src 'self'", "base-uri 'none'", "form-action 'none'", "frame-ancestors 'none'"].join('; ');
+  const common = { 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer', 'x-frame-options': 'DENY' };
+  const server = http.createServer((req, res) => {
+    // Only this computer, by its own names: a web page elsewhere that points a name of its
+    // own at 127.0.0.1 is turned away.
+    if (req.headers.host !== `127.0.0.1:${port}` && req.headers.host !== `localhost:${port}`) return res.writeHead(421, common).end();
+    if (req.method !== 'GET') return res.writeHead(405, common).end();
+    if (req.url === '/') return res.writeHead(200, { ...common, 'content-type': 'text/html; charset=utf-8', 'content-security-policy': csp }).end(page);
+    if (req.url === '/app.js') return res.writeHead(200, { ...common, 'content-type': 'text/javascript; charset=utf-8' }).end(app);
+    if (req.url === '/state.json') return res.writeHead(200, { ...common, 'content-type': 'application/json' }).end(JSON.stringify(screen));
+    return res.writeHead(404, common).end();
+  });
+  server.on('error', (e) => log(e.code === 'EADDRINUSE' ? `Gap screen not served: port ${port} is taken (set KEEPER_SCREEN_PORT): the robot runs on` : `Gap screen stopped: ${said(e)}`));
+  server.listen(port, '127.0.0.1', () => log(`  gap screen: http://127.0.0.1:${port} (read-only, this computer only)`));
+  // The page never keeps the robot alive: `run --once` ends when its pass does.
+  server.unref();
+}
+
 async function main() {
   if (cmd === 'dashboard') return dashboard();
 
@@ -698,9 +737,48 @@ async function main() {
         log(`Earnings log not written (${e instanceof Error ? e.message : String(e)}): the trip still counts towards today's cap`);
       }
     };
+    // Every Jupiter call is counted: the keyless host allows one in 2 s, so the count is the cost.
+    let jupiterCalls = 0;
+    // What the gap screen page shows (KEEPER_SCREEN_PORT): calls made by kind, reads asked for, passes.
+    const screen = {
+      since: new Date().toISOString(),
+      live,
+      keyed: !!env.JUPITER_API_KEY?.trim(),
+      wallet: owner.toBase58(),
+      calls: { quote: 0, swap: 0, price: 0, labels: 0 },
+      asks: { price: 0, labels: 0 },
+      remembered: 0,
+      loops: 0,
+      passCount: 0,
+      passes: [],
+    };
+    const KIND = { '/swap/v1/quote': 'quote', '/swap/v1/swap-instructions': 'swap', '/price/v3': 'price', '/swap/v1/program-id-to-label': 'labels' };
+    const jupiterFetch = (input, init) => {
+      jupiterCalls++;
+      const kind = KIND[new URL(String(input)).pathname];
+      if (kind) screen.calls[kind]++;
+      return fetch(input, init);
+    };
+    const priceTtlSec = env.KEEPER_PRICE_TTL_SEC?.trim() === '0' ? 0 : num('KEEPER_PRICE_TTL_SEC', 30);
+    const wsUrl = env.KEEPER_WS_URL?.trim() || socketUrlOf(RPC);
+    const wake = wsUrl.toLowerCase() === 'off' ? null : accountWake({ url: wsUrl, socket: (url) => new WebSocket(url), log });
+    const jup = jupiterApi({ key: env.JUPITER_API_KEY, fetchImpl: jupiterFetch, priceTtlMs: priceTtlSec * 1000 });
+    // Every price and venue-list read asked for, answered from the client's memory or not: the difference is calls saved.
+    const jupiter = {
+      ...jup,
+      prices: (mints) => {
+        screen.asks.price++;
+        return jup.prices(mints);
+      },
+      labels: () => {
+        screen.asks.labels++;
+        return jup.labels();
+      },
+    };
+    serveScreen(screen);
     const io = {
       rpc,
-      jupiter: jupiterApi({ key: env.JUPITER_API_KEY }),
+      jupiter,
       owner,
       indexFetch: (input, init) => fetch(new URL(String(input), SITE), init),
       send: undefined,
@@ -712,6 +790,7 @@ async function main() {
     log(`  Raydium ${settings.allowRaydium ? 'ALLOWED' : 'refused'} · new coin accounts ${settings.payNewAccountRent ? 'opened on any paying trip' : 'opened only when the trip earns the rent back'}`);
     log(`  quick check every ${checkMs / 1000} s · full pass at least every ${intervalMs / 1000} s · at most ${maxDailySol} SOL a day on fees and new accounts`);
     log(`  earnings log ${TRADES} · gap log ${GAPS} · to pause sending, create ${STOP_FILE}`);
+    log(`  Jupiter prices reused for ${priceTtlSec} s · woken by chain updates: ${wake ? redactRpcUrl(wsUrl) : 'off, the timer only'}`);
     let watch = null;
     // The gaps still open, kept here: a gap is written once a pass finds it closed (live only).
     let openGaps = new Map();
@@ -750,10 +829,19 @@ async function main() {
       }
       if (!watch || Date.now() - lastPass >= intervalMs || (now !== null && now !== seen)) {
         seen = now;
+        const callsBefore = jupiterCalls;
         try {
           const r = await runCycle(io, settings);
           watch = r.watch;
-          log(`Pass done: ${r.pools} pools, ${r.gaps} gaps, ${r.sent} sent`);
+          wake?.watch(watch.vaults);
+          log(`Pass done: ${r.pools} pools, ${r.gaps} gaps, ${r.sent} sent, ${jupiterCalls - callsBefore} Jupiter calls`);
+          screen.passCount++;
+          screen.loops += r.loops;
+          screen.remembered += r.seen.filter((g) => g.remembered).length;
+          screen.passes = [
+            { at: new Date().toISOString(), pools: r.pools, gaps: r.gaps, sent: r.sent, loops: r.loops, jupiterCalls: jupiterCalls - callsBefore, rows: r.seen },
+            ...screen.passes,
+          ].slice(0, SCREEN_PASSES);
           if (live) {
             const folded = foldGaps(openGaps, r, Date.now());
             openGaps = folded.open;
@@ -779,8 +867,16 @@ async function main() {
         lastDust = Date.now();
         await sellDust(io, settings).catch((e) => log(`Leftover sale stopped: ${e instanceof Error ? e.message : String(e)}`));
       }
-      if (flag('--once')) return;
-      await new Promise((r) => setTimeout(r, checkMs));
+      if (flag('--once')) {
+        wake?.close();
+        return;
+      }
+      // Until a watched pool changes, or the timer. Never two checks closer than MIN_CHECK_MS:
+      // a busy outside pool must not turn the quick check into a flood of reads.
+      const waited = Date.now();
+      await (wake ? wake.wait(checkMs) : new Promise((r) => setTimeout(r, checkMs)));
+      const spare = MIN_CHECK_MS - (Date.now() - waited);
+      if (spare > 0) await new Promise((r) => setTimeout(r, spare));
     }
   }
 

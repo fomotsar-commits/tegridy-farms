@@ -44,6 +44,12 @@ export interface GapSeen {
   /** The trip the gap wants, in USD, before the cap or the keeper's holdings cut it. */
   wantUsd: number;
   outcome: 'sent' | 'unsure' | Skip;
+  /** For the screen page: the token's claimed ticker and whole address, and the pool's coin. */
+  name?: string;
+  /** The outcome is Jupiter's earlier answer to this same gap: no call was made for it this pass. */
+  remembered?: boolean;
+  /** The token was priced from its outside pool on the chain (keeper/outside.ts), not at Jupiter's listed price alone. */
+  byChain?: boolean;
 }
 
 /** One gap, from the first pass that saw it to the latest. */

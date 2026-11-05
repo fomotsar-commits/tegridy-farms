@@ -4,7 +4,7 @@ import { swapEnabled } from '../cpswap/program';
 import { quoteOwnPool } from '../cpswap/read';
 import type { PoolView } from '../lp/poolFinder';
 import type { Arbitrage } from '../lp/poolList';
-import { SOL_QUOTE, USDC_QUOTE } from '../lp/quotes';
+import { SOL_QUOTE, USDC_QUOTE, type QuoteCoin } from '../lp/quotes';
 import type { TransferFee } from '../lp/transferFee';
 
 /**
@@ -325,6 +325,116 @@ export function ownPairPlan(a: PoolView, b: PoolView, nowSecs: number, usd: Read
         best = { cheap, dear, coinMint: a.quote.mint, tokenMint: a.tokenMint, coinIn: x, tokens: t.tokens, coinOut: t.coinOut, minProfit };
       }
     }
+  }
+  return best;
+}
+
+/** One swap of a loop through our pools: the pool, and which of its two sides goes in. */
+export interface LoopLeg {
+  view: PoolView;
+  input: 'coin' | 'token';
+}
+
+const sideMint = (v: PoolView, side: LoopLeg['input']) => (side === 'coin' ? v.quote.mint : v.tokenMint);
+const flip = (side: LoopLeg['input']): LoopLeg['input'] => (side === 'coin' ? 'token' : 'coin');
+const SIDES = ['coin', 'token'] as const;
+
+/**
+ * Every round trip through three of OUR pools that starts and ends in one of the keeper's
+ * coins, e.g. SOL → BAYLA (BAYLA / SOL) → USDC (BAYLA / USDC) → SOL (USDC / SOL), and the same
+ * the other way round. No outside venue and no Jupiter call: every leg is our program's, and
+ * all three fees stay with the venue. Each loop is listed once, from the first of KEEPER_COINS
+ * it passes through. Two pools of one pair are `ownPairPlan`'s, not a loop.
+ */
+export function ownLoops(pools: readonly PoolView[]): LoopLeg[][] {
+  const out: LoopLeg[][] = [];
+  KEEPER_COINS.forEach((coin, i) => {
+    const earlier = new Set(KEEPER_COINS.slice(0, i).map((c) => c.mint));
+    for (const p1 of pools) {
+      for (const s1 of SIDES) {
+        if (sideMint(p1, s1) !== coin.mint) continue;
+        const m1 = sideMint(p1, flip(s1));
+        for (const p2 of pools) {
+          if (p2 === p1) continue;
+          for (const s2 of SIDES) {
+            if (sideMint(p2, s2) !== m1) continue;
+            const m2 = sideMint(p2, flip(s2));
+            if (m2 === coin.mint || m2 === m1 || earlier.has(m1) || earlier.has(m2)) continue;
+            for (const p3 of pools) {
+              if (p3 === p1 || p3 === p2) continue;
+              for (const s3 of SIDES) {
+                if (sideMint(p3, s3) !== m2 || sideMint(p3, flip(s3)) !== coin.mint) continue;
+                out.push([{ view: p1, input: s1 }, { view: p2, input: s2 }, { view: p3, input: s3 }]);
+              }
+            }
+          }
+        }
+      }
+    }
+  });
+  return out;
+}
+
+export interface OwnLoopPlan {
+  legs: LoopLeg[];
+  /** The coin the loop starts and ends in. */
+  coin: QuoteCoin;
+  /** The two coins it passes through, in order. */
+  middle: [string, string];
+  coinIn: bigint;
+  /** What each leg pays out, exactly, by the pool program's maths now: each one the next leg's input. */
+  outs: bigint[];
+  coinOut: bigint;
+  minProfit: bigint;
+}
+
+/**
+ * The best size for one loop (`ownLoops`), or null when none clears the floor. Each leg is
+ * x·y = k after its fee, so what comes back rises ever more slowly with what goes in: the
+ * profit rises, peaks and falls, and the peak is found the way `ownPairPlan` finds it, never
+ * larger than `limits.maxTradeUsd` or than `holds`.
+ */
+export function ownLoopPlan(legs: LoopLeg[], nowSecs: number, usd: ReadonlyMap<string, number>, limits: KeeperLimits, holds: bigint): OwnLoopPlan | null {
+  if (legs.length < 2 || legs.some((l) => !l.view.config)) return null;
+  const coin = KEEPER_COINS.find((c) => c.mint === sideMint(legs[0]!.view, legs[0]!.input));
+  const last = legs[legs.length - 1]!;
+  if (!coin || sideMint(last.view, flip(last.input)) !== coin.mint) return null;
+  const coinUsd = usd.get(coin.mint);
+  if (coinUsd === undefined || !(coinUsd > 0)) return null;
+  const coinUnit = coinUsd / 10 ** coin.decimals;
+  const minProfit = BigInt(Math.ceil(limits.minProfitUsd / coinUnit));
+  const cap = BigInt(Math.floor(limits.maxTradeUsd / coinUnit));
+  const most = holds < cap ? holds : cap;
+  const run = (x: bigint): bigint[] | null => {
+    const outs: bigint[] = [];
+    let amount = x;
+    for (const l of legs) {
+      const q = quoteOwnPool(l.view.snapshot, l.view.config!, sideMint(l.view, l.input), amount, nowSecs);
+      if (!q || q.outAmount <= 0n) return null;
+      amount = q.outAmount;
+      outs.push(amount);
+    }
+    return outs;
+  };
+  const gain = (x: bigint) => {
+    const outs = run(x);
+    return outs ? outs[outs.length - 1]! - x : -(10n ** 30n);
+  };
+  let lo = 1n;
+  let hi = most;
+  while (hi - lo > 2n) {
+    const m1 = lo + (hi - lo) / 3n;
+    const m2 = hi - (hi - lo) / 3n;
+    if (gain(m1) < gain(m2)) lo = m1;
+    else hi = m2;
+  }
+  let best: OwnLoopPlan | null = null;
+  for (let x = lo; x <= hi; x++) {
+    const outs = run(x);
+    if (!outs) continue;
+    const coinOut = outs[outs.length - 1]!;
+    if (coinOut - x < minProfit || (best && coinOut - x <= best.coinOut - best.coinIn)) continue;
+    best = { legs, coin, middle: [sideMint(legs[0]!.view, flip(legs[0]!.input)), sideMint(last.view, last.input)], coinIn: x, outs, coinOut, minProfit };
   }
   return best;
 }
