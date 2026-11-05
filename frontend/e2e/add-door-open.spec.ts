@@ -6,10 +6,12 @@
 // answering as it did that night, each of the three now opens the form, the outside price is
 // one row ("Outside price not read yet"), and the three phrases appear nowhere on the page.
 //
-// The pools are read from mainnet through the preview's /api/solrpc proxy, as the other pools
-// specs read them, so this runs with ADD_DOOR_LIVE=1 (a keyed SOLANA_RPC_URL holds best). The
-// hermetic proof of the same rule is the unit tests (poolHealth.test.ts, PoolCard.hold.test.tsx,
-// outsidePrice.shared.test.ts). Red first against the trunk of 2026-11-05 (08e1b4f51).
+// The pools are read from mainnet, so this runs with ADD_DOOR_LIVE=1. The chain reads go from
+// Node one at a time (`chainFromNode`): the keyless RPC refuses a browser User-Agent that comes
+// without a browser's other headers, which is what the preview's proxy sends, and limits a room's
+// burst of reads. The hermetic proof of the same rule is the unit tests (poolHealth.test.ts,
+// PoolCard.hold.test.tsx, outsidePrice.shared.test.ts). Red first against the trunk of 2026-11-05
+// (08e1b4f51): all three ended on "Add form was not opened ... adding waits".
 import { test, expect, type Page } from '@playwright/test';
 import { gotoRoute } from './fixtures/routes';
 
@@ -38,6 +40,24 @@ async function tonightsList(page: Page) {
   );
 }
 
+/** /api/solrpc answered from Node, one read at a time, retried on 429 (SOLANA_RPC_URL when set). */
+let queue: Promise<unknown> = Promise.resolve();
+async function chainFromNode(page: Page) {
+  const rpc = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
+  await page.route('**/api/solrpc', (r) => {
+    const run = queue.then(async () => {
+      for (let i = 0; i < 6; i++) {
+        const res = await fetch(rpc, { method: 'POST', headers: { 'content-type': 'application/json' }, body: r.request().postData() ?? '' }).catch(() => null);
+        if (res && res.status !== 429) return r.fulfill({ status: res.status, contentType: 'application/json', body: await res.text() });
+        await new Promise((ok) => setTimeout(ok, 800 * (i + 1)));
+      }
+      return r.fulfill({ status: 502, contentType: 'application/json', body: '{"jsonrpc":"2.0","error":{"code":502,"message":"not read"}}' });
+    });
+    queue = run.catch(() => undefined);
+    return run;
+  });
+}
+
 async function neverSays(page: Page) {
   const text = await page.locator('body').innerText();
   for (const w of NEVER) expect(text, `the page says ${w}`).not.toMatch(w);
@@ -58,6 +78,7 @@ test.describe('the Add door never closes on an outside price', () => {
       }
     });
     await tonightsList(page);
+    await chainFromNode(page);
   });
 
   for (const [name, path] of [
