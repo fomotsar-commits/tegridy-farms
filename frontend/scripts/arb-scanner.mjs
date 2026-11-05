@@ -216,7 +216,10 @@ async function readUniverse() {
     const safety = TS.classifyToken(m, raw(m), raw(meta(m)));
     const facts = safety.kind === 'read' ? safety.facts : null;
     const gate = { decimals: facts?.decimals ?? null, program: facts ? (facts.program === 'token-2022' ? C.TOKEN_2022_PROGRAM : C.TOKEN_PROGRAM) : null, problem: R.tokenGate(safety) };
-    S.coins.set(m, { mint: m, symbol: symbols.get(m) || C.metadataSymbol(accs.get(meta(m))?.data) || '?', ...gate, ours: false, pools: [], foundAt: 0, scannedAt: 0, slot: 0, trips: [] });
+    // The ticker the coin claims (untrusted: shown beside its whole address): the listing's, else
+    // its own metadata's, Token-2022 or Metaplex, as the site reads it.
+    const claimed = (safety.kind === 'read' ? safety.symbol?.trim().slice(0, 16) : null) || C.metadataSymbol(accs.get(meta(m))?.data);
+    S.coins.set(m, { mint: m, symbol: symbols.get(m) || claimed || '?', ...gate, ours: false, pools: [], foundAt: 0, scannedAt: 0, slot: 0, trips: [] });
   }
   for (const o of ours) {
     const p = C.decodePool('ours', o.pubkey, Buffer.from(o.account.data[0], 'base64'));
