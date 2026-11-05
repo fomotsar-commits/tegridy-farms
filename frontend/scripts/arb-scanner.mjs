@@ -250,7 +250,8 @@ async function discover(coin) {
   let pools = [...found.map((f) => C.decodePool(f.dex, f.address, accs.get(f.address)?.data)).filter(Boolean), ...(S.ourPools.get(coin.mint) ?? [])];
   await readConfigs(pools);
   pools = pools.map((p) => C.withFee(p, S.configs)).filter(Boolean);
-  // Depth on the coin's side, at today's price: shallow pools are left out.
+  // Depth on the coin's side, at today's price: shallow outside pools are left out. Our own pools
+  // are always kept, and first: the robot trades them however small.
   const vaults = await manyChunked(pools.flatMap((p) => (p.kind === 'band' ? [] : [p.vaultA, p.vaultB])));
   const amounts = new Map([...vaults].map(([k, a]) => [k, C.tokenAmount(a?.data)]));
   const deep = [];
@@ -260,9 +261,10 @@ async function discover(coin) {
     if (!depth) continue;
     const coinRaw = coinMint === p.mintA ? depth.a : depth.b;
     const usd = (coinRaw / 10 ** C.COINS[coinMint].decimals) * (S.usd.get(coinMint) ?? 0);
-    if (usd >= MIN_DEPTH_USD) deep.push({ p, usd });
+    if (usd >= MIN_DEPTH_USD || p.dex === 'ours') deep.push({ p, usd });
   }
-  coin.pools = deep.sort((a, b) => b.usd - a.usd).slice(0, POOLS_PER_COIN).map((x) => x.p);
+  const ours = (x) => Number(x.p.dex === 'ours');
+  coin.pools = deep.sort((a, b) => ours(b) - ours(a) || b.usd - a.usd).slice(0, POOLS_PER_COIN).map((x) => x.p);
   coin.foundAt = Date.now();
 }
 
