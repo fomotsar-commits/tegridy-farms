@@ -47,12 +47,34 @@ const TOKEN_PROGRAMS = new Set([TOKEN_PROGRAM, TOKEN_2022_PROGRAM]);
 
 /** This instance's last good read per token. Warm instances carry it between loops; a cold one starts empty. */
 const lastGood = new Map();
+/** When this instance last asked Jupiter for each token, whatever the answer. */
+const lastAsked = new Map();
 /** The last dollar prices this instance read (price/v3, one call for every token and SOL), with when. */
 let lastUsd = null;
 /** Tests only. */
 export function __resetOutsidePrices() {
   lastGood.clear();
+  lastAsked.clear();
   lastUsd = null;
+}
+
+/**
+ * The order one loop prices in. The tokens this instance asked about longest ago go first, a
+ * token never asked counting as longest ago, so the tail the budget cut off in one loop is first
+ * in the next. Before this the order was the pool list's, every loop, and the same tail ran out
+ * of time every loop: BAYLA's Add form never opened (the walk of 2026-11-05). Ties keep the list's
+ * order turned to start at a place that moves each minute, so cold instances, which all tie, do
+ * not starve the same tail either.
+ */
+export function pricingOrder(all, asked, nowMs) {
+  if (all.length === 0) return [];
+  const turn = Math.floor(nowMs / 60_000) % all.length;
+  const turned = [...all.slice(turn), ...all.slice(0, turn)];
+  const at = (mint) => asked.get(mint) ?? -Infinity;
+  return turned
+    .map((mint, i) => ({ mint, i }))
+    .sort((a, b) => (at(a.mint) === at(b.mint) ? a.i - b.i : at(a.mint) < at(b.mint) ? -1 : 1))
+    .map((x) => x.mint);
 }
 
 /** The sale's amount: the buy's return rounded to two significant figures, so the sale's quote repeats. */
@@ -317,8 +339,9 @@ export async function readOutsidePrices({ fetchImpl, env = process.env, nowMs = 
   const t0 = nowMs();
   const pools = await listPoolMints(fetchImpl, env);
   const all = tokensOf(pools);
-  // The first MAX_MINTS in the list's order are priced; the rest are said as unread, never dropped in silence.
-  const mints = all.slice(0, MAX_MINTS);
+  // The first MAX_MINTS in pricing order are priced; the rest are said as unread, never dropped in silence.
+  const order = pricingOrder(all, lastAsked, t0);
+  const mints = order.slice(0, MAX_MINTS);
   const decimals = await readDecimals(mints, fetchImpl, env);
   const up = jupiterUpstream(env);
   const pace = pacer(spacingMs(env), sleep);
@@ -334,7 +357,7 @@ export async function readOutsidePrices({ fetchImpl, env = process.env, nowMs = 
     if (usd && Object.keys(usd).length > 0) lastUsd = { usd, read_at: nowMs(), asked };
   }
   const fresh = [];
-  for (const mint of all.slice(MAX_MINTS)) unread(mint, `beyond the ${MAX_MINTS} tokens one loop prices`);
+  for (const mint of order.slice(MAX_MINTS)) unread(mint, `beyond the ${MAX_MINTS} tokens one loop prices`);
   for (const mint of mints) {
     const d = decimals.get(mint);
     if (d === undefined) {
@@ -345,6 +368,7 @@ export async function readOutsidePrices({ fetchImpl, env = process.env, nowMs = 
       unread(mint, "the loop ran out of time before this token");
       continue;
     }
+    lastAsked.set(mint, nowMs());
     const buy = await quoteWithFallback(up, WSOL_MINT, mint, PROBE_LAMPORTS, fetchImpl, pace);
     if (buy.kind === "no-route") {
       prices[mint] = { state: "no-route", read_at: nowMs() };
