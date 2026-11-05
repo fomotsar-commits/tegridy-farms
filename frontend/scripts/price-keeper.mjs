@@ -56,8 +56,10 @@
  *   status                     the keeper's address and what it holds
  *   pools                      every pool on the venue, and whether the keeper can trade it
  *   run [--once] [--live]      one pass, or keep watching (Ctrl+C stops)
- *   report                     what the keeper earned and spent, day by day, from its log
- *   dashboard                  a page on this computer (http://127.0.0.1:8790) showing what the
+ *   report                     what the keeper earned and spent, day by day, from its log; and
+ *                              from the gap log, the gaps it saw, how soon it traded them, and
+ *                              why it left the rest
+ *   dashboard                 a page on this computer (http://127.0.0.1:8790) showing what the
  *                              keeper holds and what it made, read from the chain; read-only
  *   wrap <SOL> [--send]        move SOL into the keeper's wrapped-SOL account
  *   withdraw <address> [--send]  unwrap, then send all USDC and all SOL but 0.01 to <address>
@@ -103,6 +105,7 @@ const lib = (rel) => import(pathToFileURL(path.join(HERE, '..', 'src', 'lib', ..
 const { Connection, Keypair, PublicKey, SystemProgram, TransactionMessage, VersionedTransaction } = await import('@solana/web3.js');
 const spl = await import('@solana/spl-token');
 const { runCycle, poolCoverage, fingerprint, sellDust, DEFAULT_SETTINGS } = await lib('solana/keeper/cycle.ts');
+const { foldGaps, gapLine, gapReport, GAP_HEADER } = await lib('solana/keeper/gaps.ts');
 const { readActivity, results, byDay, madeSol, expectedHoldings } = await lib('solana/keeper/history.ts');
 const { REGISTERED_PROGRAM_ID } = await lib('solana/cpswap/program.ts');
 const { QUOTE_COINS } = await lib('solana/lp/quotes.ts');
@@ -231,6 +234,18 @@ function writeTrip(r) {
   const fd = fs.openSync(TRADES, 'a');
   try {
     fs.writeSync(fd, `${fs.fstatSync(fd).size === 0 ? `${HEADER}\n` : ''}${line}\n`);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+// The gap log: one line per gap a live robot saw, once it closed (src/lib/solana/keeper/gaps.ts).
+const GAPS = path.join(LOG_DIR, 'price-keeper-gaps.csv');
+
+function writeGap(g, capUsd) {
+  const fd = fs.openSync(GAPS, 'a');
+  try {
+    fs.writeSync(fd, `${fs.fstatSync(fd).size === 0 ? `${GAP_HEADER}\n` : ''}${gapLine(g, capUsd)}\n`);
   } finally {
     fs.closeSync(fd);
   }
@@ -613,7 +628,7 @@ async function main() {
 
   if (cmd === 'report') {
     const trips = readTrips();
-    if (!trips.length) return log(`No trips logged yet (${TRADES})`);
+    if (!trips.length) log(`No trips logged yet (${TRADES})`);
     for (const day of [...new Set(trips.map((t) => t.day))].sort()) {
       const of = trips.filter((t) => t.day === day);
       const done = of.filter((t) => t.outcome === 'confirmed');
@@ -621,6 +636,15 @@ async function main() {
       const spent = of.reduce((sum, t) => sum + (t.solSpent ?? 0), 0);
       log(`${day}: ${done.length} of ${of.length} sent trips confirmed · gained ${gained('SOL').toFixed(6)} SOL and ${gained('USDC').toFixed(6)} USDC · spent ${spent.toFixed(6)} SOL on fees and new accounts`);
     }
+    let gaps = '';
+    try {
+      gaps = fs.readFileSync(GAPS, 'utf8');
+    } catch (e) {
+      if (e?.code !== 'ENOENT') throw e;
+    }
+    const lines = gapReport(gaps);
+    if (!lines.length) log(`No gaps logged yet (${GAPS}): a live robot writes one once a gap closes`);
+    for (const line of lines) log(line);
     return;
   }
 
@@ -687,8 +711,11 @@ async function main() {
     log(`  RPC ${redactRpcUrl(RPC)} · Jupiter ${env.JUPITER_API_KEY?.trim() ? 'own key' : 'keyless'} · up to $${settings.maxTradeUsd} a trip · floor $${settings.minProfitUsd}`);
     log(`  Raydium ${settings.allowRaydium ? 'ALLOWED' : 'refused'} · new coin accounts ${settings.payNewAccountRent ? 'opened on any paying trip' : 'opened only when the trip earns the rent back'}`);
     log(`  quick check every ${checkMs / 1000} s · full pass at least every ${intervalMs / 1000} s · at most ${maxDailySol} SOL a day on fees and new accounts`);
-    log(`  earnings log ${TRADES} · to pause sending, create ${STOP_FILE}`);
+    log(`  earnings log ${TRADES} · gap log ${GAPS} · to pause sending, create ${STOP_FILE}`);
     let watch = null;
+    // The gaps still open, kept here: a gap is written once a pass finds it closed (live only).
+    let openGaps = new Map();
+    let gapLogSaid = false;
     let seen = null;
     let lastPass = 0;
     let lastDust = 0;
@@ -727,6 +754,19 @@ async function main() {
           const r = await runCycle(io, settings);
           watch = r.watch;
           log(`Pass done: ${r.pools} pools, ${r.gaps} gaps, ${r.sent} sent`);
+          if (live) {
+            const folded = foldGaps(openGaps, r, Date.now());
+            openGaps = folded.open;
+            for (const g of folded.closed) {
+              try {
+                writeGap(g, settings.maxTradeUsd);
+              } catch (e) {
+                // Said once: the log is a measurement, never a reason to stop trading.
+                if (!gapLogSaid) log(`Gap log not written (${e instanceof Error ? e.message : String(e)}): trading goes on`);
+                gapLogSaid = true;
+              }
+            }
+          }
           passSeen = { at: new Date().toISOString(), pools: r.pools, gaps: r.gaps, sent: r.sent };
         } catch (e) {
           log(`Pass stopped: ${e instanceof Error ? e.message : String(e)}`);

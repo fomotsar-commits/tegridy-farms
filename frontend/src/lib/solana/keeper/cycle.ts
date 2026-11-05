@@ -17,6 +17,7 @@ import type { PoolView } from '../lp/poolFinder';
 import { PRICE_IDS_MAX, arbitrage, listPools, marketPriceIds, readMarketPrices, rowTokenFee } from '../lp/poolList';
 import { SOL_QUOTE, type QuoteCoin } from '../lp/quotes';
 import { readTokenSafety, type TokenSafety } from '../lp/tokenSafety';
+import type { GapSeen, Skip } from './gaps';
 import { refusedVenues, type JupiterApi, type JupiterQuote, type SwapInstructions } from './jupiterApi';
 import {
   KEEPER_COINS,
@@ -116,6 +117,10 @@ export interface CycleResult {
   gaps: number;
   sent: number;
   watch: Watch;
+  /** Every pool weighed against Jupiter this pass. One not here was not looked at: moved by a trip, or the pass stopped. */
+  looked: string[];
+  /** The gaps among them worth the floor at Jupiter's listed price, for the gap log (keeper/gaps.ts). */
+  seen: GapSeen[];
 }
 
 const SIM_UNITS = 1_400_000;
@@ -131,7 +136,10 @@ const MAX_DUST_SALES = 5;
 /** A leftover sale's minimum must be at least this share of the coin's listed worth. */
 const DUST_FLOOR_OF_WORTH = 0.9;
 type Refused = { names: string[]; programs: Set<string> };
-type Outcome = 'none' | 'sent' | 'unsure';
+type Tried = 'sent' | 'unsure' | Skip;
+type Outcome = 'none' | Tried;
+/** Whether the trip went out: anything else is a reason it did not. */
+const wentOut = (o: Outcome) => o === 'sent' || o === 'unsure';
 
 interface Venue {
   pools: PoolView[];
@@ -190,7 +198,7 @@ export async function poolCoverage(io: Pick<KeeperIo, 'rpc' | 'indexFetch'>): Pr
 }
 
 export async function runCycle(io: KeeperIo, s: KeeperSettings): Promise<CycleResult> {
-  const empty = (pools: PoolView[]): CycleResult => ({ pools: pools.length, gaps: 0, sent: 0, watch: watchOf(pools) });
+  const empty = (pools: PoolView[]): CycleResult => ({ pools: pools.length, gaps: 0, sent: 0, watch: watchOf(pools), looked: [], seen: [] });
   const venue = await readVenue(io);
   if (typeof venue === 'string') {
     io.log(`Pools not read: ${venue}`);
@@ -212,13 +220,16 @@ export async function runCycle(io: KeeperIo, s: KeeperSettings): Promise<CycleRe
   let sent = 0;
   // Pools a sent trip has moved: their read is old until the next pass.
   const moved = new Set<string>();
+  const looked: string[] = [];
+  const seen: GapSeen[] = [];
   const counted = (o: Outcome, ...touched: PoolView[]) => {
-    if (o !== 'none') {
+    if (wentOut(o)) {
       sent++;
       for (const v of touched) moved.add(v.address);
     }
     return o === 'unsure';
   };
+  const stop = () => stopForUnsure(io, { pools: pools.length, gaps, sent, watch: watchOf(pools), looked, seen });
 
   // 1. Between our own pools of one pair: both fees stay with the venue.
   for (const [i, a] of usable.entries()) {
@@ -227,7 +238,7 @@ export async function runCycle(io: KeeperIo, s: KeeperSettings): Promise<CycleRe
       if (chainNow === null) continue;
       try {
         const o = await ownPairTrip(io, s, a, b, chainNow, prices.usd, nameOf(a, safety));
-        if (counted(o, a, b)) return stopForUnsure(io, pools, gaps, sent);
+        if (counted(o, a, b)) return stop();
       } catch (e) {
         io.log(`${nameOf(a, safety)}, between our pools: stopped, ${e instanceof Error ? e.message : String(e)}`);
       }
@@ -237,30 +248,40 @@ export async function runCycle(io: KeeperIo, s: KeeperSettings): Promise<CycleRe
   // 2. Against Jupiter.
   for (const view of usable) {
     if (moved.has(view.address)) continue;
+    looked.push(view.address);
+    const at = Date.now();
     const name = nameOf(view, safety);
     const arb = arbitrage(view, prices.usd, chainNow, null);
     if (!arb) continue;
     gaps++;
+    // A gap under the floor even at the listed price is no gap to the gap log.
+    const note = (outcome: Tried) => {
+      if (arb.profitUsd >= s.minProfitUsd) seen.push({ pool: view.address, tokenMint: view.tokenMint, coin: view.quote.symbol, at, listedUsd: arb.profitUsd, wantUsd: arb.tradeUsd, outcome });
+    };
     const plan = planFor(view, arb, prices.usd, s);
     if (typeof plan === 'string') {
       io.log(`${name}: gap of up to $${arb.profitUsd.toFixed(2)} at Jupiter's listed price, skipped (${plan})`);
+      note('no-plan');
       continue;
     }
     try {
-      if (counted(await jupiterTrip(io, s, view, plan, chainNow, prices.usd, refused, name), view)) return stopForUnsure(io, pools, gaps, sent);
+      const o = await jupiterTrip(io, s, view, plan, chainNow, prices.usd, refused, name);
+      note(o);
+      if (counted(o, view)) return stop();
     } catch (e) {
       const said = e instanceof Error ? e.message : String(e);
       // The usual reason, said plainly: the coin's only market Jupiter knows is a refused venue's.
       io.log(`${name}: ${/NO_ROUTES_FOUND/.test(said) && refused.names.length ? 'skipped, Jupiter has no route for it that avoids Raydium' : `stopped, ${said}`}`);
+      note(/NO_ROUTES_FOUND/.test(said) ? 'no-route' : 'error');
     }
   }
-  return { pools: pools.length, gaps, sent, watch: watchOf(pools) };
+  return { pools: pools.length, gaps, sent, watch: watchOf(pools), looked, seen };
 }
 
-function stopForUnsure(io: KeeperIo, pools: PoolView[], gaps: number, sent: number): CycleResult {
+function stopForUnsure(io: KeeperIo, result: CycleResult): CycleResult {
   // Until it is known whether that trip landed, no balance read can be trusted.
   io.log('A sent trip is not confirmed yet: the rest of this pass waits for the next read');
-  return { pools: pools.length, gaps, sent, watch: watchOf(pools) };
+  return result;
 }
 
 function watchOf(pools: readonly PoolView[]): Watch {
@@ -378,7 +399,7 @@ async function jupiterTrip(
   usd: ReadonlyMap<string, number>,
   refused: Refused,
   name: string,
-): Promise<Outcome> {
+): Promise<Tried> {
   if (!view.config || chainNow === null) throw new Error('pool fees or the clock not read');
   const owner = io.owner;
   const amt = amountText(view.quote);
@@ -386,7 +407,7 @@ async function jupiterTrip(
   const before = await balances(io.rpc, [acc.coinAta, acc.tokenAta, acc.otherAta, owner]);
   if (before.coin <= 0n) {
     io.log(`${name}: skipped, the keeper holds no ${view.quote.symbol}`);
-    return 'none';
+    return 'no-coin';
   }
   if (before.coin < plan.coinIn) {
     // A smaller trip than the gap allows still pays on x·y = k; the checks below say if it does not.
@@ -396,7 +417,7 @@ async function jupiterTrip(
   const rent = rentToEarn(s, before.tokenExists, view.quote, usd);
   if (rent === null) {
     io.log(`${name}: skipped, no SOL price to count the new token account’s rent`);
-    return 'none';
+    return 'no-sol-price';
   }
   plan = { ...plan, minProfit: plan.minProfit + rent };
   const need = plan.coinIn + plan.minProfit;
@@ -410,7 +431,7 @@ async function jupiterTrip(
     const bps = lastJupiterSlippage(BigInt(q.outAmount), need, s.slippageBps);
     if (bps === null) {
       io.log(`${name}: skipped, Jupiter pays back ${amt(BigInt(q.outAmount))} for ${amt(plan.coinIn)}: under the profit floor`);
-      return 'none';
+      return 'quote-short';
     }
     const minOut = jupiterFloor(BigInt(q.outAmount), bps);
     const si = await jupiterLeg(io.jupiter, owner, { ...q, slippageBps: bps, otherAmountThreshold: minOut.toString() }, (x) =>
@@ -430,7 +451,7 @@ async function jupiterTrip(
     const ownMin = own ? lastPoolMinimum(own.outAmount, need, s.slippageBps) : null;
     if (ownMin === null) {
       io.log(`${name}: skipped, our pool pays ${amt(own?.outAmount ?? 0n)} for what ${amt(plan.coinIn)} buys on Jupiter: under the profit floor`);
-      return 'none';
+      return 'quote-short';
     }
     legs = [si.swap, ownSwap(owner, view, 'token', tokensIn, ownMin)];
     lookupTables = si.lookupTables;
@@ -506,7 +527,7 @@ interface Trip {
  * Build the trip, test-run it, judge what the test run did to the keeper's accounts, and send it
  * only when that passes (and only live). A confirmed trip's real result is read back for the log.
  */
-async function sendChecked(io: KeeperIo, s: KeeperSettings, t: Trip): Promise<Outcome> {
+async function sendChecked(io: KeeperIo, s: KeeperSettings, t: Trip): Promise<Tried> {
   const owner = io.owner;
   const { coinAta, tokenAta, otherAta, tokenMint, tokenProgram, coinMint } = t.accounts;
   const keys = [coinAta, tokenAta, otherAta, owner];
@@ -526,16 +547,16 @@ async function sendChecked(io: KeeperIo, s: KeeperSettings, t: Trip): Promise<Ou
   const sim = await simulate(io.rpc, await build(SIM_UNITS), keys);
   if (sim.err) {
     io.log(`${t.name}: test run refused (${JSON.stringify(sim.err)})${sim.lastLog ? `: ${sim.lastLog}` : ''}`);
-    return 'none';
+    return 'test-failed';
   }
   const change = changeOf(t.before, sim.after);
   const problem = t.verdict(change);
   if (problem) {
     io.log(`${t.name}: test run not sent, ${problem}`);
-    return 'none';
+    return 'test-checks';
   }
   io.log(`${t.name}: ${t.says(change.coinAfter - change.coinBefore)}`);
-  if (!io.send) return 'none';
+  if (!io.send) return 'not-sent';
   const tx = await build(Math.ceil(sim.units * 1.2) + 10_000);
   // Read right before the send, so a top-up of the keeper's wallet meanwhile is no part of it.
   const atSend = await balances(io.rpc, keys);
@@ -629,7 +650,7 @@ export async function sellDust(io: KeeperIo, s: KeeperSettings): Promise<number>
         verdict: (c) => dustSaleProblem(c, minOut, before.token),
         says: (gained) => `sold for ${amt(gained)} (minimum ${amt(minOut)})`,
       });
-      if (o !== 'none') sent++;
+      if (wentOut(o)) sent++;
       if (o === 'unsure') break;
     } catch (e) {
       io.log(`${name}: not sold, ${e instanceof Error ? e.message : String(e)}`);
