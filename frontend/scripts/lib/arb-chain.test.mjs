@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createHash } from 'node:crypto';
 import bs58 from 'bs58';
-import { COINS, ROBOT, SOL_MINT, USDC_MINT, TOKEN_PROGRAM, TOKEN_2022_PROGRAM, busyTokens, clmmConfigFee, decodePool, depthOf, lastSlippageBps, minOutAt, testRunProblem, tokenGate, tripsFor, withFee } from './arb-chain.mjs';
+import { COINS, ROBOT, SOL_MINT, USDC_MINT, busyTokens, clmmConfigFee, decodePool, depthOf, lastSlippageBps, minOutAt, testRunProblem, tripsFor, withFee } from './arb-chain.mjs';
 import { SAFE_CAP_USD } from '../../src/lib/solana/keeper/rule.ts';
 
 /** The robot's settings before the Lighthouse check is proven: $25 a trip, a $0.01 floor plus the network fee. */
@@ -99,6 +99,15 @@ describe('tripsFor: only what the robot would take', () => {
     expect(other.pays).toBe(false);
     expect(best.netUsd).toBeGreaterThan(other.netUsd);
   });
+  it('says the robot does not take a trip through two outside pools, and does take one through ours', () => {
+    const [outside] = trips([whirlpool({ usd: 1000 }), whirlpool({ usd: 1020 })]);
+    expect(outside.robotTakes).toBe(false);
+    const a = decodePool('whirlpool', key(32), whirlpool({ usd: 1000 }));
+    const b = { ...decodePool('whirlpool', key(33), whirlpool({ usd: 1020 })), dex: 'ours' };
+    const depths = new Map([a, b].map((p) => [p.address, depthOf(p, new Map())]));
+    const [ours] = tripsFor([a, b], { token: ZEC_MINT, decimals: 8, depths, usd: new Map([[USDC_MINT, 1], [SOL_MINT, 100]]), holds: new Map(), bridge: null, settings: SETTINGS });
+    expect(ours.robotTakes).toBe(true);
+  });
   it('the same gap does not pay when the pools really charge 2%', () => {
     const t = trips([whirlpool({ usd: 1000, feeRate: 20_000 }), whirlpool({ usd: 1020, feeRate: 20_000 })]);
     expect(t.every((x) => !x.pays)).toBe(true);
@@ -144,42 +153,6 @@ describe('withFee fills a pool’s fee from its config, never a guess', () => {
   it('returns nothing when the config was not read', () => {
     expect(withFee({ dex: 'clmm', config: key(3), fee: null }, new Map())).toBeNull();
     expect(withFee({ dex: 'clmm', config: key(3), fee: null }, new Map([[key(3), 0.0025]]))).toMatchObject({ fee: 0.0025 });
-  });
-});
-
-function mint({ program = TOKEN_PROGRAM, freeze = false, ext = [] } = {}) {
-  const base = Buffer.alloc(program === TOKEN_2022_PROGRAM ? 166 : 82);
-  base[44] = 6;
-  base[45] = 1;
-  if (freeze) base.writeUInt32LE(1, 46);
-  if (program === TOKEN_2022_PROGRAM) base[165] = 1;
-  const tlv = ext.map(([type, value]) => {
-    const h = Buffer.alloc(4);
-    h.writeUInt16LE(type, 0);
-    h.writeUInt16LE(value.length, 2);
-    return Buffer.concat([h, value]);
-  });
-  return { owner: program, data: Buffer.concat([base, ...tlv]) };
-}
-
-describe('tokenGate: the robot’s token rule, read from the mint', () => {
-  it('passes a plain token and reads its decimals', () => {
-    expect(tokenGate(ZEC_MINT, mint())).toEqual({ decimals: 6, program: TOKEN_PROGRAM, problem: null });
-  });
-  it('refuses a live freeze authority, except USDC’s', () => {
-    expect(tokenGate(ZEC_MINT, mint({ freeze: true })).problem).toMatch(/freeze/);
-    expect(tokenGate(USDC_MINT, mint({ freeze: true })).problem).toBeNull();
-  });
-  it('refuses a transfer fee, a transfer hook and a permanent delegate; passes empty slots', () => {
-    const fee = Buffer.alloc(108);
-    fee.writeUInt16LE(100, 106);
-    expect(tokenGate(ZEC_MINT, mint({ program: TOKEN_2022_PROGRAM, ext: [[1, fee]] })).problem).toMatch(/fee/);
-    expect(tokenGate(ZEC_MINT, mint({ program: TOKEN_2022_PROGRAM, ext: [[1, Buffer.alloc(108)]] })).problem).toBeNull();
-    const hook = Buffer.alloc(64);
-    hook[40] = 1;
-    expect(tokenGate(ZEC_MINT, mint({ program: TOKEN_2022_PROGRAM, ext: [[14, hook]] })).problem).toMatch(/hook/);
-    expect(tokenGate(ZEC_MINT, mint({ program: TOKEN_2022_PROGRAM, ext: [[14, Buffer.alloc(64)]] })).problem).toBeNull();
-    expect(tokenGate(ZEC_MINT, mint({ program: TOKEN_2022_PROGRAM, ext: [[12, Buffer.alloc(32, 7)]] })).problem).toMatch(/delegate/);
   });
 });
 

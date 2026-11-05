@@ -254,43 +254,14 @@ export function tripsFor(pools, ctx) {
         why: judged.why,
         sizedBy: judged.sizedBy,
         threeSwap: legs.length === 3,
+        // The robot's trips today: two swaps with one in our pool (its Jupiter trip; Jupiter's
+        // best route is at least this pool's price), or both in our pools. Two outside pools,
+        // or a third swap through SOL/USDC, it does not take yet.
+        robotTakes: legs.length === 2 && legs.some((l) => l.pool.dex === 'ours'),
       });
     }
   }
   return rankTrips(trips, 'profit');
-}
-
-/** spl-token-2022 extensions the robot refuses in a coin (keeper token gate, plan step 8). */
-const REFUSED_EXTENSIONS = { 9: 'it cannot be transferred', 12: 'a permanent delegate can take it from any account', 14: 'a transfer hook runs on every transfer', 26: 'a pause switch can stop every transfer' };
-const FREEZE_OK = new Set([USDC_MINT, USDT_MINT]);
-
-/**
- * The token gate, read from the mint account itself: `{ decimals, program, problem }`, where
- * `problem` (null when it passes) says why the robot must not trade the token: a transfer fee,
- * a transfer hook, a permanent delegate, accounts frozen from the start, or a live freeze
- * authority (USDC and USDT keep one by design).
- */
-export function tokenGate(mint, account) {
-  if (!account || !Buffer.isBuffer(account.data)) return { decimals: null, program: null, problem: 'its mint was not read' };
-  const { data, owner } = account;
-  if ((owner !== TOKEN_PROGRAM && owner !== TOKEN_2022_PROGRAM) || data.length < 82 || data[45] !== 1) return { decimals: null, program: owner, problem: 'not a token mint' };
-  const out = { decimals: data[44], program: owner, problem: null };
-  if (u32(data, 46) === 1 && !FREEZE_OK.has(mint)) return { ...out, problem: 'a live freeze authority can freeze any account of it' };
-  if (owner === TOKEN_2022_PROGRAM && data.length > 166 && data[165] === 1) {
-    for (let at = 166; at + 4 <= data.length; ) {
-      const type = u16(data, at);
-      const len = u16(data, at + 2);
-      const v = data.subarray(at + 4, at + 4 + len);
-      if (type === 0) break;
-      if (type === 1 && v.length >= 108 && (u16(v, 88) > 0 || u16(v, 106) > 0)) return { ...out, problem: 'it keeps a fee out of every transfer' };
-      if (type === 6 && v[0] === 2) return { ...out, problem: 'new accounts of it start frozen' };
-      const set = (from) => v.length >= from + 32 && !v.subarray(from, from + 32).equals(Buffer.alloc(32));
-      // A delegate or hook slot left empty is no delegate or hook.
-      if (type === 9 || type === 26 || (type === 12 && set(0)) || (type === 14 && set(32))) return { ...out, problem: REFUSED_EXTENSIONS[type] };
-      at += 4 + len;
-    }
-  }
-  return out;
 }
 
 /** The ticker a Metaplex metadata account claims (untrusted: shown as the token's claim only). */

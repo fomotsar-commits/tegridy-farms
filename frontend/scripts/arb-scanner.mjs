@@ -66,6 +66,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const keeper = (name) => import(pathToFileURL(path.join(HERE, '..', 'src', 'lib', 'solana', 'keeper', name)).href);
 const C = await import('./lib/arb-chain.mjs');
 const R = await keeper('rule.ts');
+const TS = await import(pathToFileURL(path.join(HERE, '..', 'src', 'lib', 'solana', 'lp', 'tokenSafety.ts')).href);
 const LH = await keeper('lighthouse.ts');
 const PORT = Number(process.env.ARB_PORT || 8791);
 const RPC = process.env.ARB_RPC_URL?.trim() || 'https://api.mainnet-beta.solana.com';
@@ -210,7 +211,11 @@ async function readUniverse() {
   const meta = (m) => PublicKey.findProgramAddressSync([Buffer.from('metadata'), METAPLEX.toBuffer(), new PublicKey(m).toBuffer()], METAPLEX)[0].toBase58();
   const accs = await manyChunked(fresh.flatMap((m) => [m, meta(m)]));
   for (const m of fresh) {
-    const gate = C.tokenGate(m, accs.get(m));
+    // The robot's own gate (keeper/rule.ts), on the site's own read of the mint (lp/tokenSafety.ts).
+    const raw = (k) => (accs.get(k) ? { address: k, ...accs.get(k) } : null);
+    const safety = TS.classifyToken(m, raw(m), raw(meta(m)));
+    const facts = safety.kind === 'read' ? safety.facts : null;
+    const gate = { decimals: facts?.decimals ?? null, program: facts ? (facts.program === 'token-2022' ? C.TOKEN_2022_PROGRAM : C.TOKEN_PROGRAM) : null, problem: R.tokenGate(safety) };
     S.coins.set(m, { mint: m, symbol: symbols.get(m) || C.metadataSymbol(accs.get(meta(m))?.data) || '?', ...gate, ours: false, pools: [], foundAt: 0, scannedAt: 0, slot: 0, trips: [] });
   }
   for (const o of ours) {
@@ -307,8 +312,13 @@ async function scan(coin) {
 async function readHoldings() {
   const owner = new PublicKey(C.ROBOT.wallet);
   const atas = Object.keys(C.COINS).map((m) => getAssociatedTokenAddressSync(new PublicKey(m), owner, true).toBase58());
-  const { accounts } = await many(atas);
+  // The SOL/USDC pool in the same call: SOL's price is needed before any coin is looked up, or
+  // every SOL pool counts as $0 deep and is left out (a fresh start found no pool at all).
+  const { accounts } = await many([...atas, BRIDGE]);
   Object.keys(C.COINS).forEach((m, i) => S.holds.set(m, Number(C.tokenAmount(accounts[i]?.data) ?? 0n)));
+  const bridge = C.withFee(C.decodePool('whirlpool', BRIDGE, accounts[atas.length]?.data) ?? {}, S.configs);
+  const depth = bridge && C.depthOf(bridge, new Map());
+  if (depth) S.usd.set(C.SOL_MINT, (depth.b / depth.a) * 1e3);
 }
 
 /** When each pool last traded (its newest transaction's slot), cached for five minutes. */
@@ -526,7 +536,7 @@ function snapshot() {
       rows.push({ mint: c.mint, symbol: c.symbol, ours: c.ours, slot: c.slot, scannedAt: c.scannedAt, ...t, legs: t.legs.map((l) => ({ ...l, venue: C.DEXES[l.dex]?.name ?? l.dex })), proof: proof ?? null });
     }
   }
-  const take = rows.filter((r) => r.proof?.ok && Date.now() - r.proof.at < PROOF_KEEP_MS);
+  const take = rows.filter((r) => r.robotTakes && r.proof?.ok && Date.now() - r.proof.at < PROOF_KEEP_MS);
   const watch = rows.filter((r) => !take.includes(r)).sort((a, b) => b.netUsd - a.netUsd).slice(0, 60);
   // Each coin's best trip that does NOT pay on its latest read (within 5 minutes): how far each gap is from paying.
   const closest = coins

@@ -84,6 +84,7 @@
     tr.append(el('td', 'n', usd(r.netUsd)));
     tr.append(roiCell(r), gapCell(r));
     const td = el('td');
+    if (!r.robotTakes) td.append(el('span', 'tag warn', 'the robot does not take this yet'), el('span', 'sub', r.threeSwap ? 'three swaps: the robot does not add a SOL/USDC swap yet' : 'two outside pools: the robot trades only trips through our pools today'));
     if (!r.proof) td.append(el('span', 'sub', 'waiting for its test run'));
     else {
       td.append(el('span', r.proof.ok ? 'tag good' : r.proof.quiet ? 'tag warn' : 'tag bad', r.proof.ok ? 'passed (over 3 min ago)' : r.proof.quiet ? 'quiet pool' : 'test run said no'));
