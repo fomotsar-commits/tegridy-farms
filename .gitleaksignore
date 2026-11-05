@@ -43,3 +43,13 @@ ddf8b25d41c5286459d5726ceb153a25061bd1b6:.gitleaksignore:generic-api-key:30
 # takes for a credential. Nothing secret is in it. The constant is renamed ZEC_MINT
 # in the commit that adds this line, so the branch head has nothing for the rule.
 37b7dd28d1b936a51d43ee75610c43daaf7bd007:frontend/scripts/lib/arb-chain.test.mjs:generic-api-key:6
+#
+# 2026-11-01, PR #1079. The price keeper's dashboard tests name real token accounts from the
+# keeper's own transactions in a field called `key`: the same `generic-api-key` rule. They
+# are public chain addresses, no credential. The field is renamed `address` in the commit
+# that adds these lines.
+7a8e16ea2765ab4e1b5e4355a8af8267dd1b514f:frontend/src/lib/solana/keeper/history.test.ts:generic-api-key:61
+7a8e16ea2765ab4e1b5e4355a8af8267dd1b514f:frontend/src/lib/solana/keeper/history.test.ts:generic-api-key:62
+7a8e16ea2765ab4e1b5e4355a8af8267dd1b514f:frontend/src/lib/solana/keeper/history.test.ts:generic-api-key:63
+7a8e16ea2765ab4e1b5e4355a8af8267dd1b514f:frontend/src/lib/solana/keeper/history.test.ts:generic-api-key:64
+7a8e16ea2765ab4e1b5e4355a8af8267dd1b514f:frontend/src/lib/solana/keeper/history.test.ts:generic-api-key:75
