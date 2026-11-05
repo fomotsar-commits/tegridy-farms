@@ -156,7 +156,7 @@ describe("GET /api/outside-prices", () => {
     // Two quotes a token, the sale at the rounded probe, through the keyless host with no key set.
     expect(w.jupiterCalls.filter((c) => c.url.includes("/swap/v1/quote?"))).toHaveLength(4);
     const quotes = w.jupiterCalls.filter((c) => c.url.includes("/swap/v1/quote?"));
-    const sale = new URL(quotes[1].url).searchParams;
+    const sale = quotes.map((c) => new URL(c.url).searchParams).find((q) => q.get("inputMint") === BAYLA);
     expect(sale.get("inputMint")).toBe(BAYLA);
     expect(sale.get("amount")).toBe(bayla.probe);
     expect(bayla.probe).toMatch(/^\d\d0+$/);
@@ -172,6 +172,50 @@ describe("GET /api/outside-prices", () => {
     // Five calls (four quotes and the dollar read): the first waits for nothing, each of the next four waits the plan's spacing (the stubs answer in 0 ms).
     expect(sleep).toHaveBeenCalledTimes(4);
     for (const [ms] of sleep.mock.calls) expect(ms).toBeGreaterThan(1000);
+  });
+
+  describe("a loop the budget cuts short", () => {
+    // Four tokens; every quote takes ten seconds on this clock, so a loop prices three and the fourth runs out of time.
+    const USDT = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB";
+    const JUP = "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN";
+    const four = () => {
+      const w = world({
+        pools: [[WSOL_MINT, BAYLA], [WSOL_MINT, USDC], [WSOL_MINT, USDT], [WSOL_MINT, JUP]],
+        price: { [BAYLA]: 7.5e-6, [USDC]: 0.0055, [USDT]: 0.0055, [JUP]: 0.003 },
+        decimals: { [BAYLA]: 6, [USDC]: 6, [USDT]: 6, [JUP]: 6 },
+      });
+      const clock = { now: 0 };
+      const fetchImpl = async (url, init) => {
+        if (String(url).includes("/swap/v1/quote?")) clock.now += 10_000;
+        return w.fetchImpl(url, init);
+      };
+      const run = async () => {
+        const { res, out } = makeRes();
+        await handler(makeReq(), res, { fetchImpl, sleep, nowMs: () => clock.now });
+        return out.body.prices;
+      };
+      return { clock, run };
+    };
+
+    it("the token it cut off goes first in the next loop, so none is cut off every time", async () => {
+      const { run } = four();
+      const first = await run();
+      expect(first[JUP]).toMatchObject({ state: "unread", detail: "the loop ran out of time before this token" });
+      expect([BAYLA, USDC, USDT].map((m) => first[m].state)).toEqual(["ok", "ok", "ok"]);
+      const second = await run();
+      expect(second[JUP].state).toBe("ok");
+      // The one cut off now is the one asked longest ago, with its last good read beside it.
+      expect(second[USDT]).toMatchObject({ state: "unread", detail: "the loop ran out of time before this token" });
+      expect(second[USDT].last).not.toBeNull();
+    });
+
+    it("a cold instance starts at a place that moves each minute, so cold starts do not starve one tail", async () => {
+      const { clock, run } = four();
+      clock.now = 3 * 60_000;
+      const prices = await run();
+      expect(prices[JUP].state).toBe("ok");
+      expect(prices[USDT]).toMatchObject({ state: "unread", detail: "the loop ran out of time before this token" });
+    });
   });
 
   it("with the key set, asks the keyed host with the key in x-api-key and the Developer plan's spacing", async () => {
