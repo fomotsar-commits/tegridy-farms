@@ -35,6 +35,12 @@ vi.mock("./contexts/WalletContext", () => {
   };
 });
 vi.mock("./hooks/useEns", () => ({ default: () => ({ ensName: null }) }));
+// The loan desk lights up once Gondi's loan contract is deployed (NFT_LOAN_DESK_LIVE reads
+// GONDI_LOAN_ADDRESS, zero until then). A stand-in address plays the deployed desk here.
+vi.mock("../lib/gondi/loanOffer.js", async (importOriginal) => ({
+  ...(await importOriginal()),
+  GONDI_LOAN_ADDRESS: "0x5555555555555555555555555555555555555555",
+}));
 vi.mock("./api", async (importOriginal) => {
   const actual = await importOriginal();
   return {
