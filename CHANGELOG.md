@@ -9,6 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-11-05
 
+- Copy Trading reads every island pool's trades in turn. The trades feed stops answering after about ten quick reads, and the page always read the pools in the same order, so the same last pools were never read. Each refresh now starts with the pools it read longest ago.
 - Add BAYLA opens. Adding to a pool waits for the coin's price outside our pools, and the venue reads those prices in one timed pass that kept running out of time before it reached BAYLA, USDC and USDT. Each pass now starts with the coins it read longest ago, so a coin skipped in one pass is read first in the next.
 - The chat assistant no longer says a token can be launched. Asked about launching, the curves or the chains, it says launching a new token is not switched on yet, as the curve pages do.
 
