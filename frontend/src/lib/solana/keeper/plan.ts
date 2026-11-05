@@ -6,6 +6,7 @@ import type { PoolView } from '../lp/poolFinder';
 import type { Arbitrage } from '../lp/poolList';
 import { SOL_QUOTE, USDC_QUOTE, type QuoteCoin } from '../lp/quotes';
 import type { TransferFee } from '../lp/transferFee';
+import { coinBounds, type RuleSettings } from './rule';
 
 /**
  * The price keeper's pure half: which gaps to close, how big a round trip to make, and the
@@ -35,11 +36,11 @@ export const SHARED_ACCOUNTS_ROUTE_V2 = Uint8Array.from([209, 152, 83, 147, 124,
 /** The coins a round trip can start and end in. BAYLA-priced pools are left alone. */
 export const KEEPER_COINS = [SOL_QUOTE, USDC_QUOTE] as const;
 
-export interface KeeperLimits {
-  /** The largest round trip, in USD at Jupiter's listed price. */
-  maxTradeUsd: number;
-  /** The least coin a round trip must end up with, in USD. Also the floor the chain enforces. */
-  minProfitUsd: number;
+/**
+ * The robot's limits: the shared rule's (keeper/rule.ts: the cap, held to $25 until the Lighthouse
+ * check is proven; the floor, the network fee plus `minProfitUsd`), and each leg's tolerance.
+ */
+export interface KeeperLimits extends RuleSettings {
   /**
    * Each leg's tolerance. The first leg's minimum is its quote less this; the last leg's is the
    * LARGER of that and spent + profit floor, so a sandwich can take at most this much of the
@@ -48,7 +49,7 @@ export interface KeeperLimits {
   slippageBps: number;
 }
 
-export const DEFAULT_LIMITS: KeeperLimits = { maxTradeUsd: 25, minProfitUsd: 0.01, slippageBps: 50 };
+export const DEFAULT_LIMITS: KeeperLimits = { maxTradeUsd: 25, minProfitUsd: 0.01, slippageBps: 50, microLamports: 10_000, lighthouseProven: false };
 
 /**
  * Rent for a token account the keeper opens on its first trade of a token (a Token-2022
@@ -86,14 +87,13 @@ export interface Plan {
 export function planFor(view: PoolView, arb: Arbitrage, usd: ReadonlyMap<string, number>, limits: KeeperLimits): Plan | string {
   if (!KEEPER_COINS.some((c) => c.mint === view.quote.mint)) return `priced in ${view.quote.symbol}`;
   if (view.vaultsFrozen) return 'a pool vault is frozen';
-  if (!(arb.profitUsd >= limits.minProfitUsd)) return 'listed profit under the floor';
-  const coinUsd = usd.get(view.quote.mint);
-  if (coinUsd === undefined || !(coinUsd > 0)) return 'no price for the coin';
-  const coinUnit = coinUsd / 10 ** view.quote.decimals;
-  const scale = Math.min(1, limits.maxTradeUsd / arb.tradeUsd);
+  const b = coinBounds(view.quote, usd.get(view.quote.mint), usd.get(SOL_QUOTE.mint), limits);
+  if (typeof b === 'string') return b;
+  if (!(arb.profitUsd >= b.floorUsd)) return 'listed profit under the floor';
+  const scale = Math.min(1, b.capUsd / arb.tradeUsd);
   // Both sides are sized in coin: what goes into our pool buying, what goes into Jupiter selling.
-  const coinIn = BigInt(Math.floor((arb.tradeUsd * scale) / coinUnit));
-  const minProfit = BigInt(Math.ceil(limits.minProfitUsd / coinUnit));
+  const coinIn = BigInt(Math.floor((arb.tradeUsd * scale) / b.unit));
+  const minProfit = b.floor;
   if (coinIn <= 0n || minProfit <= 0n) return 'too small to trade';
   return { pool: view.address, side: arb.side, coinMint: view.quote.mint, tokenMint: view.tokenMint, coinIn, minProfit };
 }
@@ -289,16 +289,14 @@ export interface OwnPairPlan {
  * The best round trip between two pools of the same token and coin, or null when none clears
  * the floor. On two x·y = k pools the profit of a trip of size x rises, peaks and falls, so the
  * peak is found by narrowing the range (a ternary search on whole base units), never larger
- * than `limits.maxTradeUsd` or than `holds`, what the keeper has of the coin.
+ * than the shared rule's cap (keeper/rule.ts) or than `holds`, what the keeper has of the coin.
  */
-export function ownPairPlan(a: PoolView, b: PoolView, nowSecs: number, usd: ReadonlyMap<string, number>, limits: KeeperLimits, holds: bigint): OwnPairPlan | null {
+export function ownPairPlan(a: PoolView, b: PoolView, nowSecs: number, usd: ReadonlyMap<string, number>, limits: RuleSettings, holds: bigint): OwnPairPlan | null {
   if (a.tokenMint !== b.tokenMint || a.quote.mint !== b.quote.mint || a.address === b.address) return null;
   if (!a.config || !b.config) return null;
-  const coinUsd = usd.get(a.quote.mint);
-  if (coinUsd === undefined || !(coinUsd > 0)) return null;
-  const coinUnit = coinUsd / 10 ** a.quote.decimals;
-  const minProfit = BigInt(Math.ceil(limits.minProfitUsd / coinUnit));
-  const cap = BigInt(Math.floor(limits.maxTradeUsd / coinUnit));
+  const bounds = coinBounds(a.quote, usd.get(a.quote.mint), usd.get(SOL_QUOTE.mint), limits);
+  if (typeof bounds === 'string') return null;
+  const { floor: minProfit, cap } = bounds;
   const most = holds < cap ? holds : cap;
   let best: OwnPairPlan | null = null;
   for (const [cheap, dear] of [[a, b], [b, a]] as const) {
@@ -392,18 +390,16 @@ export interface OwnLoopPlan {
  * The best size for one loop (`ownLoops`), or null when none clears the floor. Each leg is
  * x·y = k after its fee, so what comes back rises ever more slowly with what goes in: the
  * profit rises, peaks and falls, and the peak is found the way `ownPairPlan` finds it, never
- * larger than `limits.maxTradeUsd` or than `holds`.
+ * larger than the shared rule's cap or than `holds`.
  */
-export function ownLoopPlan(legs: LoopLeg[], nowSecs: number, usd: ReadonlyMap<string, number>, limits: KeeperLimits, holds: bigint): OwnLoopPlan | null {
+export function ownLoopPlan(legs: LoopLeg[], nowSecs: number, usd: ReadonlyMap<string, number>, limits: RuleSettings, holds: bigint): OwnLoopPlan | null {
   if (legs.length < 2 || legs.some((l) => !l.view.config)) return null;
   const coin = KEEPER_COINS.find((c) => c.mint === sideMint(legs[0]!.view, legs[0]!.input));
   const last = legs[legs.length - 1]!;
   if (!coin || sideMint(last.view, flip(last.input)) !== coin.mint) return null;
-  const coinUsd = usd.get(coin.mint);
-  if (coinUsd === undefined || !(coinUsd > 0)) return null;
-  const coinUnit = coinUsd / 10 ** coin.decimals;
-  const minProfit = BigInt(Math.ceil(limits.minProfitUsd / coinUnit));
-  const cap = BigInt(Math.floor(limits.maxTradeUsd / coinUnit));
+  const bounds = coinBounds(coin, usd.get(coin.mint), usd.get(SOL_QUOTE.mint), limits);
+  if (typeof bounds === 'string') return null;
+  const { floor: minProfit, cap } = bounds;
   const most = holds < cap ? holds : cap;
   const run = (x: bigint): bigint[] | null => {
     const outs: bigint[] = [];

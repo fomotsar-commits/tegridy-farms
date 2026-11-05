@@ -29,6 +29,8 @@ export type Skip =
   | 'not-sent'
   /** Jupiter found no route (that avoids the refused venues). */
   | 'no-route'
+  /** Two of its sent trips were refused by the chain within a day: left alone for a day (keeper/rule.ts TripBans). */
+  | 'banned'
   | 'error';
 
 /** A gap one pass found worth the floor at Jupiter's listed price, and what came of it. */
@@ -148,6 +150,7 @@ const SAID: Record<Skip, string> = {
   'test-checks': 'the test run made too little',
   'not-sent': 'paused, or a dry run',
   'no-route': 'Jupiter had no route',
+  banned: 'banned for a day after two refused trips',
   error: 'an error',
 };
 

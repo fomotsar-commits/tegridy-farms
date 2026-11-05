@@ -44,7 +44,7 @@ describe('planFor: which gaps, and how big', () => {
     const p = planFor(view(SOL_QUOTE), arb({ side: 'buy', tradeUsd: 10 }), usd, DEFAULT_LIMITS) as Plan;
     expect(p.side).toBe('buy');
     expect(p.coinIn).toBe(50_000_000n); // $10 at $200 a SOL
-    expect(p.minProfit).toBe(50_000n); // $0.01
+    expect(p.minProfit).toBe(69_000n); // $0.01, and the network fee at the most a trip may use (19,000 lamports)
     expect(p.coinMint).toBe(SOL_QUOTE.mint);
     expect(p.tokenMint).toBe(TOKEN);
   });

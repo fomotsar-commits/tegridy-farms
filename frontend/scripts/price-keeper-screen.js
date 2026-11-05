@@ -12,6 +12,7 @@
     'no-sol-price': 'No SOL price to count a new account’s rent',
     'test-failed': 'Test run refused by the chain',
     'test-checks': 'Test run made less than the floor',
+    banned: 'Banned for a day: the chain refused two of its trips',
     'not-sent': 'Test run PASSED: a trip (not sent: dry run, stop file or day’s cap)',
     sent: 'SENT',
     unsure: 'Sent, not confirmed yet',

@@ -32,7 +32,7 @@ describe('ownPairPlan: a trip between two of our pools of one pair', () => {
   const cheap = pool(50n * SOL, 10n ** 9n);
   const dear = pool(50n * SOL, 9n * 10n ** 8n);
   const lots = 100n * SOL;
-  const wide = { ...DEFAULT_LIMITS, maxTradeUsd: 10_000 };
+  const wide = { ...DEFAULT_LIMITS, maxTradeUsd: 10_000, lighthouseProven: true };
 
   it('buys where the token is cheap, sells where it is dear, at the size that makes the most', () => {
     for (const [a, b] of [[cheap, dear], [dear, cheap]] as const) {
@@ -44,13 +44,19 @@ describe('ownPairPlan: a trip between two of our pools of one pair', () => {
       // Smaller or larger, the same trip makes less.
       expect(made(cheap, dear, (p.coinIn * 9n) / 10n)).toBeLessThan(p.coinOut - p.coinIn);
       expect(made(cheap, dear, (p.coinIn * 11n) / 10n)).toBeLessThan(p.coinOut - p.coinIn);
-      expect(p.minProfit).toBe(50_000n); // $0.01 at $200 a SOL
+      expect(p.minProfit).toBe(69_000n); // $0.01 at $200 a SOL, and the network fee at the most a trip may use (19,000 lamports)
     }
   });
 
   it('never spends more than the keeper holds, or than a trip may be', () => {
     expect(ownPairPlan(cheap, dear, NOW, usd, wide, SOL / 10n)!.coinIn).toBeLessThanOrEqual(SOL / 10n);
     expect(ownPairPlan(cheap, dear, NOW, usd, { ...DEFAULT_LIMITS, maxTradeUsd: 20 }, lots)!.coinIn).toBeLessThanOrEqual(SOL / 10n);
+  });
+
+  it('stays at $25 a trip, whatever the setting, until the Lighthouse check is proven', () => {
+    // $25 at $200 a SOL.
+    expect(ownPairPlan(cheap, dear, NOW, usd, { ...DEFAULT_LIMITS, maxTradeUsd: 10_000 }, lots)!.coinIn).toBeLessThanOrEqual(SOL / 8n);
+    expect(ownPairPlan(cheap, dear, NOW, usd, wide, lots)!.coinIn).toBeGreaterThan(SOL / 8n);
   });
 
   it('is null when no trip clears the floor, or the two are not one pair', () => {

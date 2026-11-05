@@ -119,6 +119,8 @@ const { QUOTE_COINS } = await lib('solana/lp/quotes.ts');
 const { PRICE_IDS_MAX } = await lib('solana/lp/poolList.ts');
 const { jupiterApi } = await lib('solana/keeper/jupiterApi.ts');
 const { DEFAULT_LIMITS } = await lib('solana/keeper/plan.ts');
+const { TripBans, capUsd, SAFE_CAP_USD } = await lib('solana/keeper/rule.ts');
+const { proveLighthouse } = await lib('solana/keeper/lighthouse.ts');
 const { accountWake, socketUrlOf } = await lib('solana/keeper/wake.ts');
 const { pollConfirm } = await lib('solana/confirm.ts');
 
@@ -275,6 +277,42 @@ function readTrips() {
     const [time, kind, coin, coinIn, gained, solSpent, outcome] = row.split(',');
     return { day: String(time).slice(0, 10), kind, coin, coinIn: figure(coinIn), gained: figure(gained), solSpent: figure(solSpent), outcome };
   });
+}
+
+/** The earnings log's rows with each trip's time (ms) and pools, for the bans. */
+function readTripRows() {
+  let text;
+  try {
+    text = fs.readFileSync(TRADES, 'utf8');
+  } catch (e) {
+    if (e?.code === 'ENOENT') return [];
+    throw e;
+  }
+  const [, ...rows] = text.trim().split(/\r?\n/);
+  return rows.filter(Boolean).map((row) => {
+    const cells = row.split(',');
+    return { at: Date.parse(cells[0] ?? ''), outcome: cells[6], pools: String(cells[8] ?? '').split(/\s+/).filter((p) => /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(p)) };
+  });
+}
+
+/**
+ * The Lighthouse proof (keeper/lighthouse.ts proveLighthouse) against the robot's wrapped-SOL
+ * account: null when proven, else why not. Test runs only; nothing is signed or sent.
+ */
+async function lighthouseProof(owner) {
+  try {
+    const ata = spl.getAssociatedTokenAddressSync(WSOL, owner, true);
+    const held = await rpc('getTokenAccountBalance', [ata.toBase58(), { commitment: 'confirmed' }]);
+    const balance = BigInt(held.value.amount);
+    return await proveLighthouse(ata, balance, async (ix) => {
+      const { blockhash } = (await rpc('getLatestBlockhash', [{ commitment: 'confirmed' }])).value;
+      const tx = new VersionedTransaction(new TransactionMessage({ payerKey: owner, recentBlockhash: blockhash, instructions: [ix] }).compileToV0Message());
+      const r = await rpc('simulateTransaction', [Buffer.from(tx.serialize()).toString('base64'), { encoding: 'base64', sigVerify: false, replaceRecentBlockhash: true, commitment: 'confirmed' }]);
+      return r.value.err;
+    });
+  } catch (e) {
+    return `the proof could not run: ${e instanceof Error ? e.message : String(e)}`;
+  }
 }
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -696,7 +734,9 @@ async function main() {
       ...DEFAULT_SETTINGS,
       maxTradeUsd: num('KEEPER_MAX_TRADE_USD', DEFAULT_LIMITS.maxTradeUsd),
       minProfitUsd: num('KEEPER_MIN_PROFIT_USD', DEFAULT_LIMITS.minProfitUsd),
-      microLamports: num('KEEPER_PRIORITY_MICROLAMPORTS', DEFAULT_SETTINGS.microLamports),
+      microLamports: num('KEEPER_PRIORITY_MICROLAMPORTS', DEFAULT_LIMITS.microLamports),
+      // Lifted below, once the Lighthouse check is proven on mainnet this run.
+      lighthouseProven: false,
       allowRaydium: yes('KEEPER_ALLOW_RAYDIUM'),
       raydiumPrograms: RAYDIUM_PROGRAMS,
       payNewAccountRent: yes('KEEPER_PAY_SETUP'),
@@ -775,6 +815,18 @@ async function main() {
         return jup.labels();
       },
     };
+    // The cap past $25 waits on this: two test runs from the robot's own wallet, a Lighthouse
+    // check at its wrapped-SOL balance (must pass) and one a unit over it (must fail).
+    const proof = await lighthouseProof(owner);
+    settings.lighthouseProven = proof === null;
+    screen.lighthouse = { proven: proof === null, why: proof, capUsd: capUsd(settings), settingUsd: settings.maxTradeUsd };
+    // Pools whose sent trips the chain refused: two in a day ban the pool for a day, seeded from the earnings log.
+    const bans = new TripBans();
+    try {
+      for (const t of readTripRows()) if (t.outcome === 'reverted' && Number.isFinite(t.at) && t.pools.length) bans.reverted(t.pools, t.at);
+    } catch (e) {
+      log(`Earnings log not read for bans (${e instanceof Error ? e.message : String(e)}): none carried over`);
+    }
     serveScreen(screen);
     const io = {
       rpc,
@@ -783,10 +835,16 @@ async function main() {
       indexFetch: (input, init) => fetch(new URL(String(input), SITE), init),
       send: undefined,
       record,
+      bans,
       log,
     };
     log(`Keeper ${owner.toBase58()}, ${live ? 'LIVE: round trips that pass their test run are SENT' : 'dry run: nothing is sent'}`);
-    log(`  RPC ${redactRpcUrl(RPC)} · Jupiter ${env.JUPITER_API_KEY?.trim() ? 'own key' : 'keyless'} · up to $${settings.maxTradeUsd} a trip · floor $${settings.minProfitUsd}`);
+    log(`  RPC ${redactRpcUrl(RPC)} · Jupiter ${env.JUPITER_API_KEY?.trim() ? 'own key' : 'keyless'} · up to $${capUsd(settings)} a trip · floor $${settings.minProfitUsd} + the network fee`);
+    log(
+      proof === null
+        ? `  Lighthouse check PROVEN on mainnet (a trip under its floor is undone): trips may go up to the setting, $${settings.maxTradeUsd}`
+        : `  Lighthouse check NOT proven (${proof}): trips stay at most $${SAFE_CAP_USD}, and every trip still carries the check`,
+    );
     log(`  Raydium ${settings.allowRaydium ? 'ALLOWED' : 'refused'} · new coin accounts ${settings.payNewAccountRent ? 'opened on any paying trip' : 'opened only when the trip earns the rent back'}`);
     log(`  quick check every ${checkMs / 1000} s · full pass at least every ${intervalMs / 1000} s · at most ${maxDailySol} SOL a day on fees and new accounts`);
     log(`  earnings log ${TRADES} · gap log ${GAPS} · to pause sending, create ${STOP_FILE}`);

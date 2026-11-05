@@ -22,6 +22,8 @@ vi.mock('../lp/poolList', async (orig) => ({
 }));
 vi.mock('../lp/tokenSafety', async (orig) => ({ ...(await orig<typeof import('../lp/tokenSafety')>()), readTokenSafety: vi.fn(async () => new Map()) }));
 vi.mock('./plan', async (orig) => ({ ...(await orig<typeof import('./plan')>()), poolProblem: vi.fn(() => null) }));
+// The token gate's own test is rule.test.ts; this fake chain has no mint accounts to read.
+vi.mock('./rule', async (orig) => ({ ...(await orig<typeof import('./rule')>()), tokenGate: vi.fn(() => null) }));
 
 const { runCycle, gapKey, NO_ROUTE_KEEP_MS, DEFAULT_SETTINGS } = await import('./cycle');
 const { DEFAULT_LIMITS } = await import('./plan');

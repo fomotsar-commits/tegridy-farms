@@ -18,6 +18,8 @@ import { PRICE_IDS_MAX, arbitrage, listPools, marketPriceIds, readMarketPrices, 
 import { SOL_QUOTE, type QuoteCoin } from '../lp/quotes';
 import { readTokenSafety, type TokenSafety } from '../lp/tokenSafety';
 import type { GapSeen, Skip } from './gaps';
+import { atLeastCheck } from './lighthouse';
+import { MAX_TRIP_UNITS, tokenGate, type TripBans } from './rule';
 import { refusedVenues, type JupiterApi, type JupiterQuote, type SwapInstructions } from './jupiterApi';
 import { OUTSIDE_POOLS, outsideUsd, readOutsidePools, screenUsd, type Anchors, type OutsidePool } from './outside';
 import {
@@ -63,14 +65,14 @@ export interface KeeperIo {
   send?: (tx: VersionedTransaction) => Promise<{ signature: string; outcome: 'confirmed' | 'reverted' | 'unknown' }>;
   /** Told of every sent trip, with what it really did once it confirmed. */
   record?: (r: TripRecord) => void;
+  /** Pools whose sent trips the chain refused twice in a day: no trip through them for a day. */
+  bans?: TripBans;
   log: (line: string) => void;
 }
 
 export interface KeeperSettings extends KeeperLimits {
   /** Jupiter's route may use at most this many accounts, so both swaps fit one transaction. */
   maxAccounts: number;
-  /** Priority fee, in micro-lamports per compute unit. */
-  microLamports: number;
   /**
    * Let Jupiter's leg go through Raydium. Off by default (owner ruling 2026-10-13: no money to
    * Raydium); the owner allowed it for the keeper on 2026-10-31, for coins Raydium alone trades.
@@ -92,7 +94,6 @@ export interface KeeperSettings extends KeeperLimits {
 
 export const DEFAULT_SETTINGS: Omit<KeeperSettings, keyof KeeperLimits | 'raydiumPrograms'> = {
   maxAccounts: 30,
-  microLamports: 10_000,
   allowRaydium: false,
   payNewAccountRent: false,
   dustMinUsd: 1,
@@ -132,7 +133,7 @@ export interface CycleResult {
   loops: number;
 }
 
-const SIM_UNITS = 1_400_000;
+const SIM_UNITS = MAX_TRIP_UNITS;
 /**
  * The route size asked for again when Jupiter finds none within `maxAccounts`: a coin traded on
  * Pump.fun's pools needs more (BAYLA, GRR, walked 2026-10-31). A route too big to sit beside our
@@ -175,7 +176,9 @@ function nameOf(view: PoolView, safety: ReadonlyMap<string, TokenSafety>): strin
   return `${symbolOf(view, safety) ?? '?'} (${view.tokenMint}) / ${view.quote.symbol}`;
 }
 
-const problemOf = (view: PoolView, safety: ReadonlyMap<string, TokenSafety>) => poolProblem(view, rowTokenFee(view, safety.get(view.tokenMint) ?? null));
+/** Why the keeper cannot trade a pool: the pool's own problem, then the shared token gate (keeper/rule.ts). */
+const problemOf = (view: PoolView, safety: ReadonlyMap<string, TokenSafety>) =>
+  poolProblem(view, rowTokenFee(view, safety.get(view.tokenMint) ?? null)) ?? tokenGate(safety.get(view.tokenMint));
 
 export interface Coverage {
   name: string;
@@ -497,6 +500,7 @@ async function ownPairTrip(io: KeeperIo, s: KeeperSettings, a: PoolView, b: Pool
     before,
     legs: [ownSwap(io.owner, plan.cheap, 'coin', plan.coinIn, plan.tokens), ownSwap(io.owner, plan.dear, 'token', plan.tokens, lastMin)],
     lookupTables: [],
+    floor: minProfit,
     verdict: (c) => simulationProblem(c, { minProfit }),
     says: (gained) => `buy in ${plan.cheap.address}, sell in ${plan.dear.address}, ${amt(plan.coinIn)} in, test run gains ${amt(gained)} (floor ${amt(minProfit)})`,
   });
@@ -561,6 +565,7 @@ async function ownLoopTrip(io: KeeperIo, s: KeeperSettings, loop: LoopLeg[], cha
     // sendChecked opens the coin's and the first middle coin's accounts; the second's is opened here.
     legs: [createAssociatedTokenAccountIdempotentInstruction(owner, otherAta, owner, new PublicKey(m2), p2), ...swaps],
     lookupTables: [],
+    floor: minProfit,
     verdict: (c) => simulationProblem(c, { minProfit }),
     says: (gained) => `${amt(plan.coinIn)} in, test run gains ${amt(gained)} (floor ${amt(minProfit)})`,
   });
@@ -643,6 +648,7 @@ async function jupiterTrip(
     before,
     legs,
     lookupTables,
+    floor: done.minProfit,
     verdict: (c) => simulationProblem(c, done),
     says: (gained) =>
       `${done.side === 'buy' ? 'buy here, sell on Jupiter' : 'buy on Jupiter, sell here'}, ${amt(done.coinIn)} in, test run gains ${amt(gained)} (floor ${amt(done.minProfit)})`,
@@ -684,7 +690,7 @@ async function quoteWithRoom(io: KeeperIo, s: KeeperSettings, p: Omit<Parameters
   }
 }
 
-interface Trip {
+export interface Trip {
   name: string;
   kind: TripRecord['kind'];
   pool: string;
@@ -694,9 +700,38 @@ interface Trip {
   before: Balances;
   legs: TransactionInstruction[];
   lookupTables: string[];
+  /**
+   * The least the trip must gain, in the coin's base units (the network fee, $0.01, and any new
+   * account's rent). The last instruction, a Lighthouse check, holds the coin account to what it
+   * held before plus this, or the chain undoes the whole trip.
+   */
+  floor: bigint;
   /** Why the test run's result must not be sent, or null. */
   verdict: (c: SimulatedChange) => string | null;
   says: (gained: bigint) => string;
+}
+
+/**
+ * Every instruction of one trip, in order: the compute budget, the two coin accounts (opened if
+ * missing), the swaps, and LAST the Lighthouse check that the coin account holds at least
+ * `held` + the trip's floor. Starting and ending in the same coin account, in one transaction.
+ */
+export function tripInstructions(
+  owner: PublicKey,
+  t: Pick<Trip, 'accounts' | 'legs' | 'floor'>,
+  microLamports: number,
+  units: number,
+  held: bigint,
+): TransactionInstruction[] {
+  const { coinAta, tokenAta, tokenMint, tokenProgram, coinMint } = t.accounts;
+  return [
+    ComputeBudgetProgram.setComputeUnitLimit({ units }),
+    ComputeBudgetProgram.setComputeUnitPrice({ microLamports }),
+    createAssociatedTokenAccountIdempotentInstruction(owner, coinAta, owner, coinMint, TOKEN_PROGRAM_ID),
+    createAssociatedTokenAccountIdempotentInstruction(owner, tokenAta, owner, tokenMint, tokenProgram),
+    ...t.legs,
+    atLeastCheck(coinAta, held + t.floor),
+  ];
 }
 
 /**
@@ -705,22 +740,25 @@ interface Trip {
  */
 async function sendChecked(io: KeeperIo, s: KeeperSettings, t: Trip): Promise<Tried> {
   const owner = io.owner;
-  const { coinAta, tokenAta, otherAta, tokenMint, tokenProgram, coinMint } = t.accounts;
+  const { coinAta, tokenAta, otherAta } = t.accounts;
   const keys = [coinAta, tokenAta, otherAta, owner];
+  const pools = t.pool.split(' → ');
+  const banned = io.bans?.banned(pools, Date.now());
+  if (banned) {
+    io.log(`${t.name}: skipped, ${banned}`);
+    return 'banned';
+  }
+  if (t.floor <= 0n) throw new Error('a trip with no floor is never built');
   const alts = await lookupTablesOf(io.rpc, t.lookupTables);
-  const build = async (units: number) => {
+  // `held`: the coin account's amount the trip starts from. The Lighthouse check is last: it
+  // holds the account to `held` + the floor once every swap has run, or the trip is undone.
+  const build = async (units: number, held: bigint) => {
     const { blockhash } = ((await io.rpc('getLatestBlockhash', [{ commitment: 'confirmed' }])) as { value: { blockhash: string } }).value;
-    const instructions = [
-      ComputeBudgetProgram.setComputeUnitLimit({ units }),
-      ComputeBudgetProgram.setComputeUnitPrice({ microLamports: s.microLamports }),
-      createAssociatedTokenAccountIdempotentInstruction(owner, coinAta, owner, coinMint, TOKEN_PROGRAM_ID),
-      createAssociatedTokenAccountIdempotentInstruction(owner, tokenAta, owner, tokenMint, tokenProgram),
-      ...t.legs,
-    ];
+    const instructions = tripInstructions(owner, t, s.microLamports, units, held);
     return new VersionedTransaction(new TransactionMessage({ payerKey: owner, recentBlockhash: blockhash, instructions }).compileToV0Message(alts));
   };
 
-  const sim = await simulate(io.rpc, await build(SIM_UNITS), keys);
+  const sim = await simulate(io.rpc, await build(SIM_UNITS, t.before.coin), keys);
   if (sim.err) {
     io.log(`${t.name}: test run refused (${JSON.stringify(sim.err)})${sim.lastLog ? `: ${sim.lastLog}` : ''}`);
     return 'test-failed';
@@ -733,10 +771,12 @@ async function sendChecked(io: KeeperIo, s: KeeperSettings, t: Trip): Promise<Tr
   }
   io.log(`${t.name}: ${t.says(change.coinAfter - change.coinBefore)}`);
   if (!io.send) return 'not-sent';
-  const tx = await build(Math.ceil(sim.units * 1.2) + 10_000);
-  // Read right before the send, so a top-up of the keeper's wallet meanwhile is no part of it.
+  // Read right before the send, so a top-up of the keeper's wallet meanwhile is no part of it:
+  // the Lighthouse check counts from this amount.
   const atSend = await balances(io.rpc, keys);
+  const tx = await build(Math.ceil(sim.units * 1.2) + 10_000, atSend.coin);
   const r = await io.send(tx);
+  if (r.outcome === 'reverted') io.bans?.reverted(pools, Date.now());
   io.log(`${t.name}: sent ${r.signature}: ${r.outcome}`);
   let gained: bigint | null = null;
   // An unknown ending counts as the most a trip may cost, so the daily cap never counts it as free.
@@ -823,6 +863,8 @@ export async function sellDust(io: KeeperIo, s: KeeperSettings): Promise<number>
         before,
         legs: [si.swap],
         lookupTables: si.lookupTables,
+        // The sale's minimum: the Lighthouse check holds the wrapped SOL to growing by at least that.
+        floor: minOut,
         verdict: (c) => dustSaleProblem(c, minOut, before.token),
         says: (gained) => `sold for ${amt(gained)} (minimum ${amt(minOut)})`,
       });

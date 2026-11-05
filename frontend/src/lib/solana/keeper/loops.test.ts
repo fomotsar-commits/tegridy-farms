@@ -18,7 +18,7 @@ const usd = new Map([
   [SOL_QUOTE.mint, 200],
   [USDC_QUOTE.mint, 1],
 ]);
-const wide = { ...DEFAULT_LIMITS, maxTradeUsd: 10_000 };
+const wide = { ...DEFAULT_LIMITS, maxTradeUsd: 10_000, lighthouseProven: true };
 const lots = 1_000n * SOL;
 
 function pool(mint: PublicKey, quote: typeof SOL_QUOTE, quoteReserve: bigint, tokenReserve: bigint): PoolView {
@@ -81,7 +81,7 @@ describe('ownLoopPlan: the size of a loop', () => {
     expect(p.outs[2]).toBe(p.coinOut);
     expect(made(cheapFirst, (p.coinIn * 9n) / 10n)).toBeLessThan(p.coinOut - p.coinIn);
     expect(made(cheapFirst, (p.coinIn * 11n) / 10n)).toBeLessThan(p.coinOut - p.coinIn);
-    expect(p.minProfit).toBe(50_000n); // $0.01 at $200 a SOL
+    expect(p.minProfit).toBe(69_000n); // $0.01 at $200 a SOL, and the network fee at the most a trip may use (19,000 lamports)
   });
 
   it('is null the losing way round, and when the pools agree', () => {
