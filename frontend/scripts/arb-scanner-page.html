@@ -8,34 +8,26 @@
 </head>
 <body>
 <header>
-  <h1>Arbitrage scanner</h1>
-  <p class="lede">Every busy token on Solana and Robinhood Chain: its cheapest and dearest pool, and what buying in one and selling in the other would make after both pools' fees.</p>
-  <p class="fine">Estimates from listed prices (GeckoTerminal, DexScreener), not quotes: check each leg with a real quote before trading. Read-only; nothing here signs or sends.</p>
+  <h1>Arbitrage scanner · Solana</h1>
+  <p class="lede">Only the round trips our price robot would really take: bought in one pool and sold in another in one transaction, starting and ending in SOL or USDC, at most $25, and ending with at least what went in plus the floor ($0.01 and the network fee).</p>
+  <p class="fine">Every price is read from the pools themselves, all of a coin's pools in the same slot, with each pool's real fee. A trip is listed as one the robot would take only after a test run from the robot's wallet passes on mainnet. Read-only: nothing here signs or sends.</p>
 </header>
-<section class="controls">
-  <label>Chain <select id="chain"><option value="all">Both</option><option value="solana">Solana</option><option value="robinhood">Robinhood Chain</option></select></label>
-  <label><input type="checkbox" id="paying" checked> Only gaps that pay after fees</label>
-  <label>at least $<input type="number" id="min" value="1" min="0" step="0.5"></label>
-  <label><input type="checkbox" id="sure" checked> Hide quiet and suspect rows</label>
-</section>
 <section id="status" class="status"></section>
+<section id="summary" class="summary"></section>
 <main>
-  <p id="empty" class="empty" hidden></p>
-  <table>
-    <thead>
-      <tr>
-        <th>Token</th>
-        <th>Buy in</th>
-        <th>Sell in</th>
-        <th class="n">Gap</th>
-        <th class="n">Fees</th>
-        <th class="n">Est. trip</th>
-        <th class="n">Est. profit</th>
-        <th>Notes</th>
-      </tr>
-    </thead>
-    <tbody id="rows"></tbody>
-  </table>
+  <h2>The robot would take these <span class="fine">(test run passed in the last 3 minutes)</span></h2>
+  <p id="take-empty" class="empty" hidden></p>
+  <div class="scroll"><table>
+    <thead><tr><th>Coin</th><th>Trip</th><th class="n">In</th><th class="n">Test run gained</th><th>Read at</th></tr></thead>
+    <tbody id="take"></tbody>
+  </table></div>
+  <h2>Watch list <span class="fine">(pays on the chain read, not yet proven, or its test run said no)</span></h2>
+  <p id="watch-empty" class="empty" hidden></p>
+  <div class="scroll"><table>
+    <thead><tr><th>Coin</th><th>Trip</th><th class="n">In</th><th class="n">Est. after fees</th><th>Test run</th></tr></thead>
+    <tbody id="watch"></tbody>
+  </table></div>
+  <details class="refused"><summary id="refused-head">Coins the robot refuses</summary><ul id="refused"></ul></details>
 </main>
 <script src="/app.js"></script>
 </body>

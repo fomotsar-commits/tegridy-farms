@@ -1,162 +1,505 @@
 #!/usr/bin/env node
 /**
- * Arbitrage scanner (owner 2026-11-05: "a proper scanner ... where you can actively see all of
- * the arb across robinhood and solana tokens"). A page on this computer that lists, for every
- * busy token on Solana and Robinhood Chain, its cheapest and dearest pool and what a round trip
- * between them would make after both pools' fees. It refreshes on its own clock.
+ * Arbitrage scanner, Solana (owner 2026-11-05: "build this scanner and fill it with arbs that
+ * are actually the ones our bot would execute and try to find more"). A page on this computer
+ * listing ONLY the round trips the price robot would really take, and a watch list.
  *
- * READ-ONLY: it holds no key, signs nothing and sends nothing. Every figure is an ESTIMATE from
- * listed prices (scripts/lib/arb-scan.mjs says how); a row is real only once a quote confirms it.
+ *   1. Coins: our 20 pools' (program EKS4C6…) and those in GeckoTerminal's busiest pools.
+ *   2. Every pool of each coin against SOL or USDC on six venues, found on chain (a one-coin
+ *      getProgramAccounts on each program), not from a listing's first 30.
+ *   3. Each coin's pools re-read in ONE getMultipleAccounts call: every price compared is from
+ *      the same slot, with each pool's real fee and the depth at its price (lib/arb-chain.mjs).
+ *   4. A trip that clears the robot's floor there is TEST-RUN as the robot would run it: one
+ *      transaction from the robot's wallet, each outside leg built by Jupiter held to that
+ *      venue's direct route, our pool's leg built here, the last leg's minimum = spent + floor,
+ *      then a mainnet simulateTransaction judged on the balances it leaves (the robot's rule).
  *
- * Sources, both public and keyless:
- *   GeckoTerminal  which pools are busiest on each chain, and their fee from the pool's name.
- *                  It turns a caller away after ~10 quick reads, so: one read every 7 s, a
- *                  minute's pause on a refusal, and the list renewed every UNIVERSE_MIN.
- *   DexScreener    every pool of those tokens with its price, one token a read, 4 reads a second
- *                  at most (its limit is 300 a minute).
+ * READ-ONLY: it holds no key, signs nothing and sends nothing. A test run needs no signature.
+ * One IP serves every script here (the robot too), so every reader is gated and backs off.
  *
  *   node scripts/arb-scanner.mjs           the page, http://127.0.0.1:8791 (Ctrl+C stops it)
- *   node scripts/arb-scanner.mjs --once    one scan, printed here
+ *   node scripts/arb-scanner.mjs --once    one pass, printed here
  *
- * Settings (environment): ARB_PORT (8791), ARB_PAGES (GeckoTerminal pages a chain, 20 pools each, 5)
+ * Settings (environment): ARB_PORT (8791), ARB_RPC_URL (the public mainnet RPC),
+ * ARB_LOG (a CSV of every test run; default in the system's temp folder)
  */
 import fs from 'node:fs';
 import http from 'node:http';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CHAINS, addrKey, parseDexPair, parsePool, scan } from './lib/arb-scan.mjs';
+import bs58 from 'bs58';
+import { AddressLookupTableAccount, ComputeBudgetProgram, PublicKey, TransactionInstruction, TransactionMessage, VersionedTransaction } from '@solana/web3.js';
+import { createAssociatedTokenAccountIdempotentInstruction, getAssociatedTokenAddressSync } from '@solana/spl-token';
+import * as C from './lib/arb-chain.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.ARB_PORT || 8791);
-const PAGES = Math.min(10, Math.max(1, Number(process.env.ARB_PAGES || 5)));
-const UNIVERSE_MIN = 10;
-const GECKO_GAP_MS = 7_000;
-const DEX_GAP_MS = 250;
-const MAX_ROWS = 300;
+const RPC = process.env.ARB_RPC_URL?.trim() || 'https://api.mainnet-beta.solana.com';
+const LOG = process.env.ARB_LOG?.trim() || path.join(os.tmpdir(), 'arb-scanner-test-runs.csv');
 const ONCE = process.argv.includes('--once');
+const MAX_COINS = Number(process.env.ARB_MAX_COINS) || Infinity;
+const RPC_GAP_MS = 700;
+const JUP_GAP_MS = 3_000;
+const GECKO_PAGES = 3;
+const UNIVERSE_MS = 15 * 60_000;
+const REDISCOVER_MS = 2 * 60 * 60_000;
+const PROOF_KEEP_MS = 3 * 60_000;
+const MIN_DEPTH_USD = 1_000;
+const POOLS_PER_COIN = 10;
+const QUIET_SLOTS = 9_000; // about an hour
+/** The SOL/USDC pool that prices SOL and closes a trip priced in both coins: Orca SOL/USDC 0.04%. */
+const BRIDGE = 'Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const said = (e) => (e instanceof Error ? e.message : String(e));
 const log = (line) => console.log(`${new Date().toISOString()}  ${line}`);
 
-async function getJson(url) {
-  const r = await fetch(url, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(20_000) });
-  if (r.status === 429) throw Object.assign(new Error('rate limited'), { busy: true });
-  if (!r.ok) throw new Error(`${new URL(url).host} answered ${r.status}`);
-  return r.json();
-}
-
-/** A read of `url` no sooner than `gap` after the last read through the same gate, whichever chain asks. */
-function gate(gap) {
+/** A reader no sooner than `gap` after its last read, and `rest` after a refusal for speed. */
+function gated(gap, rest, read) {
   let next = 0;
-  return async (url) => {
-    const wait = next - Date.now();
-    next = Math.max(Date.now(), next) + gap;
-    if (wait > 0) await sleep(wait);
-    return getJson(url);
+  return async (...args) => {
+    for (let tries = 0; ; tries++) {
+      const wait = next - Date.now();
+      next = Math.max(Date.now(), next) + gap;
+      if (wait > 0) await sleep(wait);
+      try {
+        return await read(...args);
+      } catch (e) {
+        if (!e.busy || tries >= 2) throw e;
+        log(`${e.message}: resting ${rest / 1000} s`);
+        next = Date.now() + rest;
+      }
+    }
   };
 }
-const geckoRead = gate(GECKO_GAP_MS);
-const dexRead = gate(DEX_GAP_MS);
 
-/** One chain's state: the busy pools (GeckoTerminal) and every pool of their tokens (DexScreener). */
-function chainState(id) {
-  return { id, name: CHAINS[id].name, gecko: [], fees: new Map(), tokens: [], dex: new Map(), universeAt: 0, pricesAt: 0, rows: [], pools: 0, note: 'reading…' };
+const rpcCall = async (method, params) => {
+  const r = await fetch(RPC, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }), signal: AbortSignal.timeout(30_000) });
+  if (r.status === 429) throw Object.assign(new Error(`RPC ${method} refused for speed`), { busy: true });
+  if (!r.ok) throw new Error(`RPC ${method} answered ${r.status}`);
+  const j = await r.json();
+  if (j.error) throw Object.assign(new Error(`RPC ${method}: ${String(j.error.message ?? j.error.code).slice(0, 160)}`), { busy: j.error.code === 429 });
+  return j.result;
+};
+const rpc = gated(RPC_GAP_MS, 30_000, rpcCall);
+/** The one-coin lookups are the heaviest reads: their own, slower gate. */
+const rpcHeavy = gated(2_500, 60_000, rpcCall);
+
+const JUP = 'https://lite-api.jup.ag';
+const jupiter = gated(JUP_GAP_MS, 60_000, async (p, body) => {
+  const r = await fetch(`${JUP}${p}`, body ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(20_000) } : { signal: AbortSignal.timeout(20_000) });
+  if (r.status === 429) throw Object.assign(new Error('Jupiter refused for speed'), { busy: true });
+  const j = await r.json().catch(() => null);
+  if (!r.ok) throw new Error(`Jupiter ${p.split('?')[0]} answered ${r.status}${j?.errorCode || j?.error ? ` (${String(j.errorCode ?? j.error).slice(0, 80)})` : ''}`);
+  return j;
+});
+
+const gecko = gated(7_000, 60_000, async (url) => {
+  const r = await fetch(url, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(20_000) });
+  if (r.status === 429) throw Object.assign(new Error('GeckoTerminal refused for speed'), { busy: true });
+  if (!r.ok) throw new Error(`GeckoTerminal answered ${r.status}`);
+  return r.json();
+});
+
+/** Accounts in one call (≤ 100), all from one slot. */
+async function many(keys) {
+  const r = await rpc('getMultipleAccounts', [keys, { encoding: 'base64', commitment: 'confirmed' }]);
+  return { slot: r.context.slot, accounts: r.value.map((a) => (a ? { owner: a.owner, lamports: a.lamports, data: Buffer.from(a.data[0], 'base64') } : null)) };
 }
-const chains = Object.fromEntries(Object.keys(CHAINS).map((id) => [id, chainState(id)]));
+async function manyChunked(keys) {
+  const out = new Map();
+  for (let i = 0; i < keys.length; i += 100) {
+    const part = keys.slice(i, i + 100);
+    const { accounts } = await many(part);
+    part.forEach((k, j) => out.set(k, accounts[j]));
+  }
+  return out;
+}
 
-async function readUniverse(c) {
-  const { network, refs } = CHAINS[c.id];
-  const gecko = [];
-  for (let page = 1; page <= PAGES; page++) {
+// ─── state ─────────────────────────────────────────────────────────────────────────────
+const S = {
+  startedAt: Date.now(),
+  coins: new Map(), // mint → { mint, symbol, decimals, program, problem, pools, foundAt, scannedAt, slot, trips }
+  configs: new Map(),
+  labels: null, // program id → Jupiter's venue name
+  holds: new Map(), // coin mint → raw amount the robot holds
+  usd: new Map([[C.USDC_MINT, 1]]),
+  proofs: new Map(), // route → last test run
+  ourPools: new Map(), // coin mint → our pools of it
+  lastSlots: new Map(), // pool → { slot, at } of its last transaction
+  slot: 0,
+  note: 'starting…',
+  stats: { scans: 0, paying: 0, tried: 0, passed: 0, payingRoutes: new Set(), passedRoutes: new Set() },
+  universeAt: 0,
+};
+const routeOf = (t) => t.legs.map((l) => l.pool).join('>');
+
+async function readUniverse() {
+  const ours = await rpc('getProgramAccounts', [C.DEXES.ours.program, { encoding: 'base64', commitment: 'confirmed', filters: [{ dataSize: C.DEXES.ours.size }] }]);
+  const symbols = new Map();
+  for (const o of ours) {
+    const p = C.decodePool('ours', o.pubkey, Buffer.from(o.account.data[0], 'base64'));
+    if (p) for (const m of [p.mintA, p.mintB]) if (!C.COINS[m] && m !== C.USDT_MINT) symbols.set(m, symbols.get(m) ?? null);
+  }
+  for (let page = 1; page <= GECKO_PAGES; page++) {
     try {
-      const j = await geckoRead(`https://api.geckoterminal.com/api/v2/networks/${network}/pools?sort=h24_volume_usd_desc&page=${page}`);
-      for (const raw of j.data ?? []) {
-        const p = parsePool(raw, network);
-        if (p) gecko.push(p);
+      const json = await gecko(`https://api.geckoterminal.com/api/v2/networks/solana/pools?sort=h24_volume_usd_desc&page=${page}`);
+      for (const [m, s] of C.busyTokens(json)) if (!symbols.get(m)) symbols.set(m, s);
+    } catch (e) {
+      log(`GeckoTerminal page ${page} not read: ${said(e)}`);
+    }
+  }
+  const fresh = [...symbols.keys()].filter((m) => !S.coins.has(m));
+  // Each new coin's mint (the token gate and decimals) and its claimed ticker, in batches.
+  const meta = (m) => PublicKey.findProgramAddressSync([Buffer.from('metadata'), METAPLEX.toBuffer(), new PublicKey(m).toBuffer()], METAPLEX)[0].toBase58();
+  const accs = await manyChunked(fresh.flatMap((m) => [m, meta(m)]));
+  for (const m of fresh) {
+    const gate = C.tokenGate(m, accs.get(m));
+    S.coins.set(m, { mint: m, symbol: symbols.get(m) || C.metadataSymbol(accs.get(meta(m))?.data) || '?', ...gate, ours: false, pools: [], foundAt: 0, scannedAt: 0, slot: 0, trips: [] });
+  }
+  for (const o of ours) {
+    const p = C.decodePool('ours', o.pubkey, Buffer.from(o.account.data[0], 'base64'));
+    const m = p && (C.COINS[p.mintA] ? p.mintB : p.mintA);
+    const c = m && S.coins.get(m);
+    if (c) c.ours = true;
+    if (m) S.ourPools.set(m, [...(S.ourPools.get(m) ?? []).filter((x) => x.address !== p.address), p]);
+  }
+  S.universeAt = Date.now();
+  log(`${S.coins.size} coins (${ours.length} pools of ours), ${[...S.coins.values()].filter((c) => c.problem).length} refused by the token gate`);
+}
+const METAPLEX = new PublicKey('metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s');
+
+/** Every pool of `coin` against SOL or USDC on the six venues and ours, kept when deep enough. */
+async function discover(coin) {
+  const found = [];
+  for (const [dex, d] of Object.entries(C.DEXES)) {
+    if (dex === 'ours') continue; // read whole, with the coins
+    for (let side = 0; side < 2; side++) {
+      const filters = [{ memcmp: { offset: d.mints[side], bytes: coin.mint } }];
+      if (d.size) filters.unshift({ dataSize: d.size });
+      try {
+        const res = await rpcHeavy('getProgramAccounts', [d.program, { encoding: 'base64', commitment: 'confirmed', dataSlice: { offset: d.mints[1 - side], length: 32 }, filters }]);
+        for (const r of res) if (C.COINS[bs58.encode(Buffer.from(r.account.data[0], 'base64'))]) found.push({ address: r.pubkey, dex });
+      } catch (e) {
+        log(`${coin.symbol} ${coin.mint} on ${d.name}: not looked up (${said(e)})`);
       }
-    } catch (e) {
-      if (!e.busy) throw e;
-      log(`${c.name}: GeckoTerminal is busy, page ${page} again in a minute`);
-      await sleep(60_000);
-      page--;
     }
   }
-  if (!gecko.length) throw new Error('GeckoTerminal listed no pools');
-  c.gecko = gecko;
-  c.fees = new Map(gecko.filter((p) => p.feeKnown).map((p) => [addrKey(p.address), p.fee]));
-  // The tokens to follow: every one in a busy pool but the chain's own coins (whose pools number thousands).
-  const isRef = (a) => Object.keys(refs).some((r) => addrKey(r) === addrKey(a));
-  c.tokens = [...new Set(gecko.flatMap((p) => [p.base, p.quote]).filter((a) => !isRef(a)))];
-  c.universeAt = Date.now();
-  log(`${c.name}: ${gecko.length} busy pools, ${c.tokens.length} tokens to follow`);
+  const accs = await manyChunked(found.map((f) => f.address));
+  let pools = [...found.map((f) => C.decodePool(f.dex, f.address, accs.get(f.address)?.data)).filter(Boolean), ...(S.ourPools.get(coin.mint) ?? [])];
+  await readConfigs(pools);
+  pools = pools.map((p) => C.withFee(p, S.configs)).filter(Boolean);
+  // Depth on the coin's side, at today's price: shallow pools are left out.
+  const vaults = await manyChunked(pools.flatMap((p) => (p.kind === 'band' ? [] : [p.vaultA, p.vaultB])));
+  const amounts = new Map([...vaults].map(([k, a]) => [k, C.tokenAmount(a?.data)]));
+  const deep = [];
+  for (const p of pools) {
+    const depth = C.depthOf(p, amounts);
+    const coinMint = C.COINS[p.mintA] ? p.mintA : p.mintB;
+    if (!depth) continue;
+    const coinRaw = coinMint === p.mintA ? depth.a : depth.b;
+    const usd = (coinRaw / 10 ** C.COINS[coinMint].decimals) * (S.usd.get(coinMint) ?? 0);
+    if (usd >= MIN_DEPTH_USD) deep.push({ p, usd });
+  }
+  coin.pools = deep.sort((a, b) => b.usd - a.usd).slice(0, POOLS_PER_COIN).map((x) => x.p);
+  coin.foundAt = Date.now();
 }
 
-async function readPrices(c) {
-  for (const token of c.tokens) {
+async function readConfigs(pools) {
+  const want = [...new Set(pools.flatMap((p) => (p.dex === 'pumpswap' ? [C.PUMPSWAP_GLOBAL] : p.config ? [p.config] : [])))].filter((k) => !S.configs.has(k));
+  if (!want.length) return;
+  const accs = await manyChunked(want);
+  for (const k of want) {
+    const a = accs.get(k);
+    if (!a) continue;
+    const dex = C.dexOfProgram(a.owner);
+    S.configs.set(k, k === C.PUMPSWAP_GLOBAL ? C.pumpGlobalFee(a.data) : dex === 'clmm' ? C.clmmConfigFee(a.data) : C.cpConfigFee(a.data));
+  }
+}
+
+/** One coin's pools and the SOL/USDC bridge, read in one call (one slot), and its trips. */
+async function scan(coin) {
+  const keys = [BRIDGE, ...coin.pools.flatMap((p) => (p.kind === 'band' ? [p.address] : [p.address, p.vaultA, p.vaultB]))];
+  const { slot, accounts } = await many(keys);
+  const byKey = new Map(keys.map((k, i) => [k, accounts[i]]));
+  const bridge = C.withFee(C.decodePool('whirlpool', BRIDGE, byKey.get(BRIDGE)?.data) ?? {}, S.configs);
+  const bridgeDepth = bridge && C.depthOf(bridge, new Map());
+  if (!bridgeDepth) throw new Error('the SOL/USDC pool was not read');
+  S.usd.set(C.SOL_MINT, (bridgeDepth.b / bridgeDepth.a) * 1e3);
+  const amounts = new Map(keys.map((k) => [k, C.tokenAmount(byKey.get(k)?.data)]));
+  const pools = coin.pools.map((p) => C.withFee(C.decodePool(p.dex, p.address, byKey.get(p.address)?.data) ?? {}, S.configs)).filter((p) => p && p.mintA);
+  const depths = new Map(pools.map((p) => [p.address, C.depthOf(p, amounts)]));
+  const trips = C.tripsFor(pools, { token: coin.mint, decimals: coin.decimals, depths, usd: S.usd, holds: S.holds, bridge: { pool: bridge, depth: bridgeDepth } });
+  coin.slot = slot;
+  coin.scannedAt = Date.now();
+  coin.trips = trips.filter((t) => t.pays).slice(0, 6);
+  coin.closest = trips[0] ?? null;
+  coin.livePools = pools;
+  coin.depths = depths;
+  S.slot = Math.max(S.slot, slot);
+  S.stats.scans++;
+  for (const t of coin.trips) {
+    const minute = Math.floor(Date.now() / 60_000);
+    const k = `${routeOf(t)}@${minute}`;
+    if (!S.stats.payingRoutes.has(k)) {
+      S.stats.payingRoutes.add(k);
+      S.stats.paying++;
+    }
+  }
+}
+
+async function readHoldings() {
+  const owner = new PublicKey(C.ROBOT.wallet);
+  const atas = Object.keys(C.COINS).map((m) => getAssociatedTokenAddressSync(new PublicKey(m), owner, true).toBase58());
+  const { accounts } = await many(atas);
+  Object.keys(C.COINS).forEach((m, i) => S.holds.set(m, Number(C.tokenAmount(accounts[i]?.data) ?? 0n)));
+}
+
+/** When each pool last traded (its newest transaction's slot), cached for five minutes. */
+async function lastTradeSlot(pool) {
+  const c = S.lastSlots.get(pool);
+  if (c && Date.now() - c.at < 5 * 60_000) return c.slot;
+  const r = await rpc('getSignaturesForAddress', [pool, { limit: 1, commitment: 'confirmed' }]);
+  const slot = r?.[0]?.slot ?? 0;
+  S.lastSlots.set(pool, { slot, at: Date.now() });
+  return slot;
+}
+
+// ─── the test run ──────────────────────────────────────────────────────────────────────
+const TOKEN_PROGRAM_ID = new PublicKey(C.TOKEN_PROGRAM);
+const toIx = (w) => new TransactionInstruction({ programId: new PublicKey(w.programId), keys: w.accounts.map((a) => ({ pubkey: new PublicKey(a.pubkey), isSigner: a.isSigner, isWritable: a.isWritable })), data: Buffer.from(w.data, 'base64') });
+const SWAP_BASE_INPUT = Buffer.from([143, 190, 90, 218, 196, 30, 51, 222]);
+
+/** Our pool's swap (cp-swap swap_base_input, the robot's own leg; cpswap/ix.ts account order). */
+function ourSwap(owner, pool, fromMint, amountIn, minOut) {
+  const prog = new PublicKey(C.DEXES[pool.dex].program);
+  const aIn = pool.mintA === fromMint;
+  const [mIn, mOut] = aIn ? [pool.mintA, pool.mintB] : [pool.mintB, pool.mintA];
+  const [vIn, vOut] = aIn ? [pool.vaultA, pool.vaultB] : [pool.vaultB, pool.vaultA];
+  const [pIn, pOut] = aIn ? [pool.programA, pool.programB] : [pool.programB, pool.programA];
+  const ata = (m, p) => getAssociatedTokenAddressSync(new PublicKey(m), owner, true, new PublicKey(p));
+  const k = (x, w = false) => ({ pubkey: new PublicKey(x), isSigner: false, isWritable: w });
+  const data = Buffer.alloc(24);
+  SWAP_BASE_INPUT.copy(data, 0);
+  data.writeBigUInt64LE(amountIn, 8);
+  data.writeBigUInt64LE(minOut, 16);
+  return new TransactionInstruction({
+    programId: prog,
+    keys: [
+      { pubkey: owner, isSigner: true, isWritable: true },
+      k(PublicKey.findProgramAddressSync([Buffer.from('vault_and_lp_mint_auth_seed')], prog)[0]),
+      k(pool.config), k(pool.address, true),
+      { pubkey: ata(mIn, pIn), isSigner: false, isWritable: true }, { pubkey: ata(mOut, pOut), isSigner: false, isWritable: true },
+      k(vIn, true), k(vOut, true), k(pIn), k(pOut), k(mIn), k(mOut), k(pool.observation, true),
+    ],
+    data,
+  });
+}
+
+/**
+ * Test-run `trip` as the robot would send it, from the robot's wallet, and judge the balances
+ * it leaves by the robot's own rule. Returns { ok, why, gainedUsd, units }.
+ */
+async function prove(coin, trip) {
+  const owner = new PublicKey(C.ROBOT.wallet);
+  const start = trip.coin;
+  const other = start === C.SOL_MINT ? C.USDC_MINT : C.SOL_MINT;
+  const unit = (S.usd.get(start) ?? 0) / 10 ** C.COINS[start].decimals;
+  if (!(unit > 0)) return { ok: false, why: 'no price for the coin' };
+  const floorRaw = BigInt(Math.ceil(trip.floorUsd / unit));
+  const inRaw = BigInt(trip.inRaw);
+  const tokenProgram = new PublicKey(coin.program);
+  const ataOf = (m) => getAssociatedTokenAddressSync(new PublicKey(m), owner, true, m === coin.mint ? tokenProgram : TOKEN_PROGRAM_ID);
+  if (!S.labels) S.labels = await jupiter('/swap/v1/program-id-to-label');
+  const legs = [];
+  const alts = new Set();
+  const jupiterPools = [];
+  let amount = inRaw;
+  for (let i = 0; i < trip.legs.length; i++) {
+    const l = trip.legs[i];
+    const last = i === trip.legs.length - 1;
+    const pool = l.pool === BRIDGE ? null : coin.livePools.find((p) => p.address === l.pool);
+    if (pool && pool.dex === 'ours') {
+      // Our pool's leg, built here as the robot builds it: its maths on the scan's reserves.
+      const d = C.legOf(pool, coin.depths.get(pool.address), l.from);
+      const expect = BigInt(Math.floor(C.swapOut(d.rin, d.rout, d.fee, Number(amount))));
+      const need = inRaw + floorRaw;
+      if (last && expect < need) return { ok: false, why: `our pool pays back ${expect} for ${inRaw}: under the floor (${need})` };
+      const min = last ? (C.minOutAt(expect, C.ROBOT.slippageBps) > need ? C.minOutAt(expect, C.ROBOT.slippageBps) : need) : C.minOutAt(expect, C.ROBOT.slippageBps);
+      legs.push(ourSwap(owner, pool, l.from, amount, min));
+      amount = min;
+      continue;
+    }
+    const label = S.labels[C.DEXES[l.dex].program];
+    if (!label) return { ok: false, why: `Jupiter does not trade ${C.DEXES[l.dex].name}` };
+    const qs = new URLSearchParams({ inputMint: l.from, outputMint: l.to, amount: amount.toString(), slippageBps: String(C.ROBOT.slippageBps), swapMode: 'ExactIn', onlyDirectRoutes: 'true', dexes: label, restrictIntermediateTokens: 'true', instructionVersion: 'V2' });
+    let q;
     try {
-      const pairs = await dexRead(`https://api.dexscreener.com/token-pairs/v1/${c.id}/${token}`);
-      const pools = (Array.isArray(pairs) ? pairs : []).filter((p) => p?.chainId === c.id).map((p) => parseDexPair(p, c.fees)).filter(Boolean);
-      c.dex.set(addrKey(token), pools);
+      q = await jupiter(`/swap/v1/quote?${qs}`);
     } catch (e) {
-      if (e.busy) await sleep(30_000);
+      return { ok: false, why: said(e) };
     }
+    jupiterPools.push(q.routePlan?.[0]?.swapInfo?.ammKey ?? '?');
+    const out = BigInt(q.outAmount);
+    if (last) {
+      const need = inRaw + floorRaw;
+      const bps = C.lastSlippageBps(out, need);
+      if (bps === null) return { ok: false, why: `Jupiter's quote pays back ${out} for ${inRaw}: under the floor (${need})`, quotedGainUsd: Number(out - inRaw) * unit };
+      q = { ...q, slippageBps: bps, otherAmountThreshold: C.minOutAt(out, bps).toString() };
+    }
+    let si;
+    try {
+      si = await jupiter('/swap/v1/swap-instructions', { quoteResponse: q, userPublicKey: owner.toBase58(), wrapAndUnwrapSol: false, useSharedAccounts: false, dynamicComputeUnitLimit: false });
+    } catch (e) {
+      return { ok: false, why: said(e) };
+    }
+    if (!si?.swapInstruction) return { ok: false, why: 'Jupiter built no swap' };
+    legs.push(toIx(si.swapInstruction));
+    for (const a of si.addressLookupTableAddresses ?? []) alts.add(a);
+    amount = BigInt(q.otherAmountThreshold);
   }
-  for (const key of [...c.dex.keys()]) if (!c.tokens.some((t) => addrKey(t) === key)) c.dex.delete(key);
-  rescan(c);
-  c.pricesAt = Date.now();
+  const tables = alts.size ? await many([...alts]) : { accounts: [] };
+  const lookups = [...alts].map((k, i) => tables.accounts[i] && new AddressLookupTableAccount({ key: new PublicKey(k), state: AddressLookupTableAccount.deserialize(tables.accounts[i].data) })).filter(Boolean);
+  const coinAta = ataOf(start);
+  const tokenAta = ataOf(coin.mint);
+  const otherAta = ataOf(other);
+  const ixs = [
+    ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }),
+    ComputeBudgetProgram.setComputeUnitPrice({ microLamports: C.ROBOT.microLamports }),
+    createAssociatedTokenAccountIdempotentInstruction(owner, coinAta, owner, new PublicKey(start), TOKEN_PROGRAM_ID),
+    createAssociatedTokenAccountIdempotentInstruction(owner, tokenAta, owner, new PublicKey(coin.mint), tokenProgram),
+    ...(trip.threeSwap ? [createAssociatedTokenAccountIdempotentInstruction(owner, otherAta, owner, new PublicKey(other), TOKEN_PROGRAM_ID)] : []),
+    ...legs,
+  ];
+  const tx = new VersionedTransaction(new TransactionMessage({ payerKey: owner, recentBlockhash: PublicKey.default.toBase58(), instructions: ixs }).compileToV0Message(lookups));
+  const watch = [coinAta, tokenAta, otherAta, owner].map((k) => k.toBase58());
+  const before = await many(watch);
+  const sim = await rpc('simulateTransaction', [Buffer.from(tx.serialize()).toString('base64'), { encoding: 'base64', sigVerify: false, replaceRecentBlockhash: true, commitment: 'confirmed', accounts: { encoding: 'base64', addresses: watch } }]);
+  const v = sim.value;
+  if (v.err) return { ok: false, why: `the test run failed: ${JSON.stringify(v.err).slice(0, 120)}${v.logs?.length ? ` · ${String(v.logs[v.logs.length - 1]).slice(0, 140)}` : ''}`, units: v.unitsConsumed, jupiterPools, slot: sim.context.slot };
+  const amt = (a) => C.tokenAmount(a ? Buffer.from(a.data[0], 'base64') : null) ?? 0n;
+  const amtBefore = (a) => C.tokenAmount(a?.data) ?? 0n;
+  const change = {
+    coinBefore: amtBefore(before.accounts[0]), coinAfter: amt(v.accounts[0]),
+    tokenBefore: amtBefore(before.accounts[1]), tokenAfter: amt(v.accounts[1]),
+    otherBefore: amtBefore(before.accounts[2]), otherAfter: amt(v.accounts[2]),
+    lamportsBefore: BigInt(before.accounts[3]?.lamports ?? 0), lamportsAfter: BigInt(v.accounts[3]?.lamports ?? 0),
+  };
+  const gainedUsd = Number(change.coinAfter - change.coinBefore) * unit;
+  const why = C.testRunProblem(change, floorRaw);
+  return { ok: !why, why, gainedUsd, units: v.unitsConsumed, jupiterPools, slot: sim.context.slot };
 }
 
-/** Busy pools and DexScreener's pools together, one entry a pool (DexScreener's when both list it). */
-function rescan(c) {
-  const byAddress = new Map();
-  for (const p of c.gecko) byAddress.set(addrKey(p.address), p);
-  for (const pools of c.dex.values()) for (const p of pools) byAddress.set(addrKey(p.address), p);
-  c.pools = byAddress.size;
-  c.rows = scan([...byAddress.values()], CHAINS[c.id].refs).slice(0, MAX_ROWS);
-  c.note = null;
+/** The best paying trip not test-run lately, its pools checked for being alive first. */
+async function proveNext() {
+  const now = Date.now();
+  const candidates = [...S.coins.values()].filter((c) => !c.problem && now - c.scannedAt < 2 * 60_000).flatMap((c) => c.trips.map((t) => ({ c, t })));
+  candidates.sort((a, b) => b.t.netUsd - a.t.netUsd);
+  for (const { c, t } of candidates) {
+    const route = routeOf(t);
+    const last = S.proofs.get(route);
+    if (last && now - last.at < (last.ok ? 60_000 : PROOF_KEEP_MS)) continue;
+    for (const l of t.legs) if (l.pool !== BRIDGE) l.lastSlot = await lastTradeSlot(l.pool);
+    const quiet = t.legs.some((l) => l.pool !== BRIDGE && S.slot - (l.lastSlot ?? 0) > QUIET_SLOTS);
+    const r = quiet ? { ok: false, why: 'a pool has not traded in about an hour: its price is likely stale or its liquidity stuck', quiet: true } : await prove(c, t);
+    if (!quiet) {
+      S.stats.tried++;
+      if (r.ok) {
+        S.stats.passed++;
+        S.stats.passedRoutes.add(route);
+      }
+    }
+    S.proofs.set(route, { ...r, at: Date.now(), coin: c.mint, netUsd: t.netUsd, inUsd: t.inUsd });
+    if (!quiet) fs.appendFile(LOG, `${new Date().toISOString()},${r.slot ?? ''},${c.mint},${c.symbol.replace(/[,\n]/g, ' ')},${route},${t.inUsd.toFixed(2)},${t.netUsd.toFixed(4)},${r.ok ? 'PASS' : 'fail'},${(r.gainedUsd ?? 0).toFixed(4)},"${String(r.why ?? '').replace(/"/g, "'")}"\n`, () => {});
+    log(`test run ${c.symbol} ${c.mint} ${route}: ${r.ok ? `PASSES, gains $${r.gainedUsd?.toFixed(4)}` : `no: ${r.why}`}`);
+    return;
+  }
 }
 
-async function runChain(c) {
+// ─── loops ─────────────────────────────────────────────────────────────────────────────
+async function scanLoop() {
   for (;;) {
     try {
-      if (Date.now() - c.universeAt > UNIVERSE_MIN * 60_000) {
-        await readUniverse(c);
-        rescan(c); // the busy pools alone, while every token's pools are read
+      if (Date.now() - S.universeAt > UNIVERSE_MS) await readUniverse();
+      await readHoldings();
+      const coins = [...S.coins.values()].filter((c) => !c.problem && c.decimals !== null).sort((a, b) => Number(b.ours) - Number(a.ours)).slice(0, MAX_COINS);
+      for (const c of coins) {
+        try {
+          if (Date.now() - c.foundAt > REDISCOVER_MS) {
+            S.note = `looking up every pool of ${c.symbol}`;
+            await discover(c);
+          }
+          if (c.pools.length >= 2) await scan(c);
+        } catch (e) {
+          log(`${c.symbol} ${c.mint}: ${said(e)}`);
+        }
       }
-      await readPrices(c);
+      S.note = null;
+      S.cycleAt = Date.now();
     } catch (e) {
-      c.note = `not read: ${said(e)}`;
-      log(`${c.name}: ${c.note}`);
+      S.note = `not read: ${said(e)}`;
+      log(S.note);
       await sleep(30_000);
     }
     if (ONCE) return;
   }
 }
 
+async function proveLoop() {
+  for (;;) {
+    await sleep(15_000);
+    try {
+      await proveNext();
+    } catch (e) {
+      log(`test run: ${said(e)}`);
+    }
+  }
+}
+
 function snapshot() {
+  const coins = [...S.coins.values()];
+  const rows = [];
+  for (const c of coins) {
+    for (const t of c.trips) {
+      const proof = S.proofs.get(routeOf(t));
+      rows.push({ mint: c.mint, symbol: c.symbol, ours: c.ours, slot: c.slot, scannedAt: c.scannedAt, ...t, legs: t.legs.map((l) => ({ ...l, venue: C.DEXES[l.dex]?.name ?? l.dex })), proof: proof ?? null });
+    }
+  }
+  const take = rows.filter((r) => r.proof?.ok && Date.now() - r.proof.at < PROOF_KEEP_MS);
+  const watch = rows.filter((r) => !take.includes(r)).sort((a, b) => b.netUsd - a.netUsd).slice(0, 60);
+  const hours = Math.max((Date.now() - S.startedAt) / 3_600_000, 1 / 60);
   return JSON.stringify({
     at: Date.now(),
-    chains: Object.values(chains).map((c) => ({ id: c.id, name: c.name, universeAt: c.universeAt, pricesAt: c.pricesAt, tokens: c.tokens.length, pools: c.pools, rows: c.rows, note: c.note })),
+    slot: S.slot,
+    note: S.note,
+    solUsd: S.usd.get(C.SOL_MINT) ?? null,
+    holds: Object.fromEntries([...S.holds].map(([m, v]) => [C.COINS[m].symbol, v / 10 ** C.COINS[m].decimals])),
+    coins: coins.length,
+    refused: coins.filter((c) => c.problem).map((c) => ({ mint: c.mint, symbol: c.symbol, problem: c.problem })),
+    pools: coins.reduce((s, c) => s + c.pools.length, 0),
+    looked: coins.filter((c) => c.foundAt).length,
+    cycleAt: S.cycleAt ?? 0,
+    stats: { scans: S.stats.scans, paying: S.stats.paying, tried: S.stats.tried, passed: S.stats.passed, routesPassed: S.stats.passedRoutes.size, hours },
+    take,
+    watch,
   });
 }
 
 if (ONCE) {
-  await Promise.all(Object.values(chains).map(runChain));
-  for (const c of Object.values(chains)) {
-    log(`${c.name}: ${c.pools} pools, ${c.rows.length} tokens in two or more${c.note ? ` (${c.note})` : ''}`);
-    for (const r of c.rows.slice(0, 15)) {
-      log(`  ${r.label} (${r.token}): gap ${r.gapPct.toFixed(3)}%, costs ${r.costPct.toFixed(3)}%, est. $${r.profitUsd.toFixed(2)} on $${r.sizeUsd.toFixed(0)} · buy ${r.buy.dex} ${r.buy.pool} · sell ${r.sell.dex} ${r.sell.pool}${r.quiet ? ' · quiet' : ''}${r.suspect ? ' · suspect' : ''}`);
-    }
-  }
+  await scanLoop();
+  for (let i = 0; i < 3; i++) await proveNext();
+  const s = JSON.parse(snapshot());
+  log(`${s.coins} coins, ${s.pools} pools; ${s.take.length} the robot would take, ${s.watch.length} to watch`);
+  for (const r of [...s.take, ...s.watch].slice(0, 15)) log(`  ${r.symbol} ${r.mint}: ${r.legs.map((l) => `${l.venue} ${l.pool} (${(l.fee * 100).toFixed(2)}%)`).join(' → ')} · $${r.inUsd.toFixed(2)} in, est. +$${r.netUsd.toFixed(4)} net · ${r.proof ? (r.proof.ok ? 'TEST RUN PASSES' : `test run: ${r.proof.why}`) : 'not test-run yet'}`);
   process.exit(0);
 }
 
 const page = fs.readFileSync(path.join(HERE, 'arb-scanner-page.html'), 'utf8');
 const app = fs.readFileSync(path.join(HERE, 'arb-scanner-page.js'), 'utf8');
+const css = fs.readFileSync(path.join(HERE, 'arb-scanner-page.css'), 'utf8');
 const csp = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 const common = { 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer', 'x-frame-options': 'DENY' };
-const css = fs.readFileSync(path.join(HERE, 'arb-scanner-page.css'), 'utf8');
 
 const server = http.createServer((req, res) => {
   // Only this computer, by its own names: a web page elsewhere that points a name of its own at
@@ -174,7 +517,7 @@ server.on('error', (e) => {
   process.exit(1);
 });
 server.listen(PORT, '127.0.0.1', () => {
-  log(`Arbitrage scanner: http://127.0.0.1:${PORT}`);
-  log('  read-only, on this computer only; Ctrl+C stops it');
+  log(`Arbitrage scanner (Solana): http://127.0.0.1:${PORT}`);
+  log(`  read-only, on this computer only; test runs logged to ${LOG}; Ctrl+C stops it`);
 });
-await Promise.all(Object.values(chains).map(runChain));
+await Promise.all([scanLoop(), proveLoop()]);
