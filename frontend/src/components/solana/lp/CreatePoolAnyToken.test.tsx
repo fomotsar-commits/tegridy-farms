@@ -68,6 +68,7 @@ const freezable = realToken(MINT, { freeze: FREEZER });
 const copy = realToken(MINT, { name: 'BOBO', symbol: 'BOBO' });
 const freezableCopy = realToken(MINT, { freeze: FREEZER, name: 'BOBO', symbol: 'BOBO' });
 const feeToken = realToken(MINT, { transferFee: true });
+const hookToken = realToken(MINT, { transferHook: true });
 
 const STANDARD: Record<QuoteSymbol, string> = { SOL: key().toBase58(), USDC: key().toBase58(), BAYLA: key().toBase58() };
 function noPools(): PoolSearchRead {
@@ -164,12 +165,13 @@ beforeEach(() => {
 describe('the tokens these tests use are what the real checker says they are', () => {
   const codes = (s: TokenSafety) => (s.kind === 'read' ? { verdict: s.verdict, blocks: s.blocks.map((r) => r.code), warnings: s.warnings.map((r) => r.code) } : s.kind);
 
-  it('clean, freezable, a copy, both, and one that charges a transfer fee', () => {
+  it('clean, freezable, a copy, both, one that charges a transfer fee, and one that runs a hook', () => {
     expect(codes(clean)).toEqual({ verdict: 'ok', blocks: [], warnings: [] });
     expect(codes(freezable)).toEqual({ verdict: 'warn', blocks: [], warnings: ['freeze-authority'] });
     expect(codes(copy)).toEqual({ verdict: 'warn', blocks: [], warnings: ['copies-known-name'] });
     expect(codes(freezableCopy)).toEqual({ verdict: 'warn', blocks: [], warnings: ['freeze-authority', 'copies-known-name'] });
-    expect(codes(feeToken)).toEqual({ verdict: 'blocked', blocks: ['transfer-fee'], warnings: [] });
+    expect(codes(feeToken)).toEqual({ verdict: 'warn', blocks: [], warnings: ['transfer-fee', 'transfer-fee-mutable'] });
+    expect(codes(hookToken)).toEqual({ verdict: 'blocked', blocks: ['extension'], warnings: [] });
   });
 });
 
@@ -189,12 +191,12 @@ describe('the token’s own card', () => {
   // Owner ruling 2026-10-07: "Blocked on this site" was the wrong wording. The token is not
   // accused of anything: the title says what THIS SITE does not do, and the line under it
   // says why. `blocked` stays this code's own name for the verdict (`data-verdict`).
-  it('a token that charges a transfer fee is still refused: the title says what this site does not do, never "blocked", and its sentence is a block', async () => {
-    mount(readers(feeToken));
+  it('a token whose transfers run a hook is still refused: the title says what this site does not do, never "blocked", and its sentence is a block', async () => {
+    mount(readers(hookToken));
     const card = await screen.findByTestId('token-safety');
     expect(card).toHaveAttribute('data-verdict', 'blocked');
     expect(within(card).getByTestId('token-safety-verdict')).toHaveTextContent(/^This site does not open or add to pools for this token$/);
-    expect(within(card).getByText(reasonText(feeToken, 'transfer-fee'))).toHaveClass('text-rose-300/90');
+    expect(within(card).getByText(reasonText(hookToken, 'extension'))).toHaveClass('text-rose-300/90');
     // No sentence a visitor reads on the page calls the token blocked: the card, the
     // Open-a-pool card under it, and the line a screen reader is read.
     expect(card).not.toHaveTextContent(/blocked/i);
@@ -414,15 +416,48 @@ describe('Review is described by the warnings above it', () => {
   });
 });
 
+// Owner, 2026-10-29: a token with a transfer fee may have a pool. Its two risks are said
+// before the button and above Review, and the form's numbers count what reaches the pool.
+describe('a token that charges a transfer fee', () => {
+  it('its card is "Allowed, with warnings", and both fee sentences are warnings', async () => {
+    mount(readers(feeToken));
+    const card = await screen.findByTestId('token-safety');
+    expect(card).toHaveAttribute('data-verdict', 'warn');
+    expect(within(card).getByTestId('token-safety-verdict')).toHaveTextContent(/^Allowed, with warnings$/);
+    for (const code of ['transfer-fee', 'transfer-fee-mutable']) {
+      expect(within(card).getByText(reasonText(feeToken, code))).toHaveClass('text-amber-300/90');
+    }
+  });
+
+  it('the form says both risks above Review, the preview says what the token keeps, Match counts the fee, and Review is ON', async () => {
+    mount(readers(feeToken));
+    const { panel } = await openPanel();
+    await within(panel).findByRole('button', { name: 'Max SOL' });
+    const lines = tokenReasons(feeToken, 'pools').warned;
+    expect(lines).toHaveLength(2);
+    const warnings = within(panel).getByTestId('lp-create-warnings');
+    for (const line of lines) expect(warnings).toHaveTextContent(line);
+    type(coinBox(panel, 'SOL'), '1');
+    type(tokens(panel), '100');
+    // 5 of the 100 typed are kept: the pool opens with 95, so at 1 SOL it opens above the market's 0.01.
+    expect(within(panel).getByTestId('lp-create-preview')).toHaveTextContent(/5 of those tokens \(5%\), kept by the token for its fee collector; the pool starts with 95/);
+    expect(price(panel)).toHaveAttribute('data-price', 'disagrees');
+    // Matching the market keeps the tokens typed last and prices what REACHES the pool: 95 tokens at 0.01 is 0.95 SOL, not 1.
+    fireEvent.click(within(within(panel).getByTestId('lp-create-warnings')).getByRole('button', { name: 'Match the market price' }));
+    expect(tokens(panel)).toHaveValue('100');
+    expect(coinBox(panel, 'SOL')).toHaveValue('0.95');
+    expect(price(panel)).toHaveAttribute('data-price', 'agrees');
+    expect(reviewButton(panel)).toBeEnabled();
+  });
+});
+
 describe('what still stops an opening', () => {
-  it('a token that charges a transfer fee is refused in the checker’s own words, and no form can be opened for it', async () => {
-    const r = readers(feeToken);
+  it('a token whose transfers run a hook is refused in the checker’s own words, and no form can be opened for it', async () => {
+    const r = readers(hookToken);
     mount(r);
     const card = await settled('token-refused');
-    const block = reasonText(feeToken, 'transfer-fee');
-    expect(block).toBe(
-      'It uses a transfer-fee setting, which lets the token take a fee out of every transfer. This site cannot build exact deposits and withdrawals for a token with one, so it does not open or add to pools for it.',
-    );
+    const block = reasonText(hookToken, 'extension');
+    expect(block).toBe('It uses a transfer hook, a program that runs on every transfer and can refuse or redirect it. The pool program does not accept tokens with it.');
     expect(card).toHaveTextContent(`This site does not open pools for this token: ${block}`);
     expect(within(card).queryByRole('button', { name: 'Open a pool' })).toBeNull();
     expect(screen.queryByTestId('lp-create-panel')).toBeNull();

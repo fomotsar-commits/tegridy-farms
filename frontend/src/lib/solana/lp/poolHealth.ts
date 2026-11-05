@@ -133,8 +133,9 @@ function gapCostWords(fraction: number | null): string {
 }
 
 export type PriceCheck =
-  | { state: 'agrees'; pool: number; reference: number; against: PriceReference; diff: number }
-  | { state: 'disagrees'; pool: number; reference: number; against: PriceReference; diff: number }
+  /** `readAtMs`: when the shared list read the outside price (outsidePrice.ts); the card says "read 40 s ago". */
+  | { state: 'agrees'; pool: number; reference: number; against: PriceReference; diff: number; readAtMs?: number }
+  | { state: 'disagrees'; pool: number; reference: number; against: PriceReference; diff: number; readAtMs?: number }
   /** A launch pool that has never traded AND still holds what its shares account for: its price is the one the launch program set. */
   | { state: 'no-trades-yet'; pool: number }
   /** A launch pool that has never traded, yet holds more than its shares account for: something was sent straight into a vault. */
@@ -158,7 +159,8 @@ export type PriceCheck =
   | { state: 'no-market'; of: 'token' | 'coin'; pool: number; detail: string }
   /** Not compared on purpose (the token is blocked, so nothing here will be deposited). */
   | { state: 'skipped'; pool: number | null; detail: string }
-  | { state: 'unread'; pool: number | null; detail: string };
+  /** `hold`: the detail is the shared list's one-row hold ("Outside price not read for 12 min; adding waits"), said once. */
+  | { state: 'unread'; pool: number | null; detail: string; hold?: true };
 
 /**
  * The warning a `too-new` pool carries, on its card, on the Add form and on the review.
@@ -243,9 +245,9 @@ export function formatWhen(unixSecs: bigint): string {
 }
 
 /** A price against its reference: more than `PRICE_TOLERANCE` apart disagrees; exactly 3% agrees. */
-export function comparePrice(pool: number, reference: number, against: PriceReference): PriceCheck {
+export function comparePrice(pool: number, reference: number, against: PriceReference, readAtMs?: number): PriceCheck {
   const diff = pool / reference - 1;
-  return { state: Math.abs(diff) > PRICE_TOLERANCE ? 'disagrees' : 'agrees', pool, reference, against, diff };
+  return { state: Math.abs(diff) > PRICE_TOLERANCE ? 'disagrees' : 'agrees', pool, reference, against, diff, ...(readAtMs !== undefined ? { readAtMs } : {}) };
 }
 
 /** The launch pool's own average, when its record was read; the reason when not. */
@@ -361,6 +363,12 @@ export function tokenReasons(safety: TokenSafety | null, action: 'deposits' | 'p
         'The amount a wallet displays for this token changes over time. This site shows and moves raw token units, so check the amounts against your wallet before you sign.',
       );
     }
+    if (has('transfer-fee')) {
+      warned.push(`It keeps back part of every transfer of it: into ${pool}, out of it, and on every trade. Taken out at the same price, you get back less of it than you put in.`);
+    }
+    if (has('transfer-fee-mutable')) {
+      warned.push(`Whoever controls its transfer fee can raise it, up to all of every transfer. At that rate nobody could take anything out of ${pool}, you included.`);
+    }
   }
   return { refused, unchecked, warned };
 }
@@ -433,7 +441,7 @@ export function assessPool(input: {
   } else if (poolPrice === null) {
     price = { state: 'empty-pool' };
   } else if (reference?.kind === 'ok') {
-    price = comparePrice(poolPrice, reference.perToken, 'outside');
+    price = comparePrice(poolPrice, reference.perToken, 'outside', reference.readAtMs);
   } else if (tokenBlocked) {
     price = { state: 'skipped', pool: poolPrice, detail: 'not compared, because this site does not add to pools for this token' };
   } else if (reference?.kind === 'no-route') {
@@ -462,11 +470,13 @@ export function assessPool(input: {
       }
     }
   } else {
-    price = { state: 'unread', pool: poolPrice, detail: reference?.detail ?? 'not asked' };
+    // The shared list's hold is one row, said in its own words (outsidePrice.ts fromShared).
+    const hold = reference?.kind === 'unread' && reference.hold === true;
+    price = { state: 'unread', pool: poolPrice, detail: reference?.detail ?? 'not asked', ...(hold ? { hold: true as const } : {}) };
   }
   if (price.state === 'empty-pool') refused.push('The pool is empty on one side, so it has no price.');
   if (price.state === 'unread') {
-    unchecked.push(isLaunchPool ? `We could not check its price (${price.detail}).` : `We could not check its price against ${unreadAgainst} (${price.detail}).`);
+    unchecked.push(price.hold ? price.detail : isLaunchPool ? `We could not check its price (${price.detail}).` : `We could not check its price against ${unreadAgainst} (${price.detail}).`);
   }
 
   if (view.config === null) unchecked.push('We could not read this pool’s fee settings.');

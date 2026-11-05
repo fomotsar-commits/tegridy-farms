@@ -131,9 +131,10 @@ export function SolanaSurfaceBridge({ own = false, mixed = false }: { own?: bool
   const [settled, setSettled] = useState(false);
   if (!settled && surface?.open === open) setSettled(true);
   const busy = connecting || !settled;
+  const signer = publicKey ? wallet?.adapter ?? null : null;
   useEffect(() => {
-    setSolanaSurface(owner, { open, address, connecting: busy }, own, mixed);
-  }, [owner, open, address, busy, own, mixed]);
+    setSolanaSurface(owner, { open, address, connecting: busy, signer }, own, mixed);
+  }, [owner, open, address, busy, signer, own, mixed]);
   useEffect(() => {
     if (surface?.open !== open || !openPending || connecting) return;
     // A restore that connected answers the tap; otherwise it is the card's click.
@@ -209,6 +210,15 @@ export function SolanaSurfaceBridge({ own = false, mixed = false }: { own?: bool
 const restoreOwn = async () => !solanaHandoffPending() || solanaWasConnectedHere();
 
 /**
+ * ONE object for the life of the page. ConnectionProvider makes a new Connection whenever its
+ * `config` is a new object, and every card's reads re-run on a new Connection: written inline,
+ * each re-render of the page started them all again, and the home's ladder card read its pool
+ * and vaults every few seconds instead of every 45 (2026-10-31: phones and iPads got "Couldn't
+ * read" from the proxy's per-minute limit, api/solrpc.js).
+ */
+const CONNECTION_CONFIG = { commitment: 'confirmed' } as const;
+
+/**
  * `own` marks the top bar's own connection (TopBarSolanaProviders below), the
  * one mounted where the page has no Solana section. Every page site leaves it
  * unset. `mixed` marks a page section on a page that connects Ethereum too
@@ -235,7 +245,7 @@ export function SolanaProviders({ children, own = false, mixed = false }: { chil
     [],
   );
   return (
-    <ConnectionProvider endpoint={endpoint} config={{ commitment: 'confirmed' }}>
+    <ConnectionProvider endpoint={endpoint} config={CONNECTION_CONFIG}>
       <WalletProvider wallets={wallets} autoConnect={own || mixed ? restoreOwn : true}>
         <SolanaWalletModalProvider>
           <SolanaSurfaceBridge own={own} mixed={mixed} />

@@ -25,11 +25,11 @@ const NOT_LIVE = 'GONDI_LOAN_ADDRESS is still zero: NFT lending is gated until t
 const NAKAMIGOS = '0xd774557b647330C91Bf44cfEAB205095f7E6c367';
 
 test.describe('NFT lending surface', () => {
-  test('/nft-finance loads with NFT Lending and Token Lending tabs', async ({ page, walletMock: _w }) => {
+  test('/nft-finance loads with NFT Lending and NFT AMM tabs', async ({ page, walletMock: _w }) => {
     await page.goto('/nft-finance');
     await expect(page.locator('h1')).toContainText(/NFT Finance/i);
     await expect(page.getByRole('tab', { name: /NFT Lending/i }).first()).toBeVisible();
-    await expect(page.getByRole('tab', { name: /Token Lending/i }).first()).toBeVisible();
+    await expect(page.getByRole('tab', { name: /NFT AMM/i }).first()).toBeVisible();
   });
 
   test('connected wallet renders without unhandled errors', async ({ page, walletMock }) => {

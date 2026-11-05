@@ -39,3 +39,35 @@ export function stakingClaimPaid(receipt: { logs: readonly Log[] } | null | unde
     return null;
   }
 }
+
+// The four ways a TegridyStaking position's stake comes back, each logging what it
+// sent to the holder: withdraw, earlyWithdraw (net of the penalty), and the two
+// exits, emergencyWithdrawPosition (paused only) and emergencyExitPosition.
+const EXIT_EVENTS = parseAbi([
+  'event Withdrawn(address indexed user, uint256 indexed tokenId, uint256 amount)',
+  'event EarlyWithdrawn(address indexed user, uint256 indexed tokenId, uint256 amount, uint256 penalty)',
+  'event EmergencyWithdraw(address indexed user, uint256 indexed tokenId, uint256 amount)',
+  'event EmergencyExitPosition(address indexed user, uint256 indexed tokenId, uint256 amount)',
+]);
+
+/**
+ * TOWELI a confirmed TegridyStaking withdrawal sent back, read off its own receipt.
+ *
+ * @returns wei returned; `null` when there is no receipt, its logs would not parse,
+ *          or it holds no exit log (then it is not this withdrawal's receipt). A
+ *          null is unknown, never zero: the caller falls back to its snapshot.
+ */
+export function stakingStakeReturned(receipt: { logs: readonly Log[] } | null | undefined): bigint | null {
+  if (!receipt) return null;
+  try {
+    const staking = TEGRIDY_STAKING_ADDRESS.toLowerCase();
+    const events = parseEventLogs({
+      abi: EXIT_EVENTS,
+      logs: receipt.logs.filter((l) => l.address.toLowerCase() === staking) as Log[],
+    });
+    if (events.length === 0) return null;
+    return events.reduce((sum, e) => sum + e.args.amount, 0n);
+  } catch {
+    return null;
+  }
+}

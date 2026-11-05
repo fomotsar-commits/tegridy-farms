@@ -3,6 +3,8 @@
 // the hero, the page description and the loading line name the lock ladder instead.
 // The pool slot is held suspended here, so the loading line is what renders.
 import { describe, it, expect, vi } from 'vitest';
+// Harvest (components/farm/HarvestCard.tsx) needs the app's wagmi root; it has its own tests.
+vi.mock('../farm/HarvestCard', () => ({ HarvestCard: () => null }));
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import type { Bungalow } from '../../lib/bungalows';

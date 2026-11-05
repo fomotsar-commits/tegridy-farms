@@ -27,7 +27,19 @@ vi.mock('wagmi', () => ({
   useWaitForTransactionReceipt: () => ({ data: undefined }),
 }));
 
+// The room's torches read the island; here only where they stand is under test.
+vi.mock('../RoomTorches', () => ({
+  RoomTorches: ({ roomId }: { roomId: string }) => <div data-testid="room-torches-stub">{roomId}</div>,
+}));
+
 const { EvmLadderPoolLive } = await import('./EvmLadderPoolLive');
+
+/** The torches stand above the notice, inside the same card (owner, 2026-10-15). */
+function expectTorchesAbove(notice: HTMLElement) {
+  const torches = screen.getByTestId('room-torches-stub');
+  expect(torches).toHaveTextContent('qr');
+  expect(torches.compareDocumentPosition(notice) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+}
 
 const E18 = 10n ** 18n;
 const QR = {
@@ -73,6 +85,7 @@ describe('EvmLadderPoolLive: an ended reward period', () => {
     expect(screen.queryByLabelText(/Amount of QR to stake/)).toBeNull();
     // Claim stays.
     expect(screen.getByRole('button', { name: /Claim rewards/ })).toBeInTheDocument();
+    expectTorchesAbove(line);
   });
 });
 
@@ -82,6 +95,8 @@ describe('EvmLadderPoolLive: not ended (negative controls)', () => {
     render(<EvmLadderPoolLive bungalow={QR} />);
     expect(await screen.findByRole('button', { name: /^Stake for/ })).toBeInTheDocument();
     expect(screen.queryByTestId('ladder-rewards-ended')).toBeNull();
+    // A pool that pays keeps its form first: no torches inside its card.
+    expect(screen.queryByTestId('room-torches-stub')).toBeNull();
   });
 });
 
@@ -89,9 +104,11 @@ describe('EvmLadderPoolLive: a pool that pays 0 now', () => {
   it('a period that runs at a rate of 0 (QR today) takes no new stake; claim stays', async () => {
     seed(BigInt(Math.floor(Date.now() / 1000) + 30 * 86_400), 0n);
     render(<EvmLadderPoolLive bungalow={QR} />);
-    expect(await screen.findByTestId('ladder-rewards-zero')).toHaveTextContent(
+    const zero = await screen.findByTestId('ladder-rewards-zero');
+    expect(zero).toHaveTextContent(
       'This pool pays 0 rewards now, so new stakes are closed. Withdraw and claim still work.',
     );
+    expectTorchesAbove(zero);
     expect(stakeButton()).toBeNull();
     expect(screen.queryByRole('button', { name: /^Approve/ })).toBeNull();
     expect(screen.queryByLabelText(/Amount of QR to stake/)).toBeNull();

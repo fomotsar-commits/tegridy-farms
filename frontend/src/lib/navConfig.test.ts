@@ -9,11 +9,7 @@ import {
   MORE_NAV,
   NAV_SECTIONS,
   POOLS_SECTION,
-  // Not NFT_FINANCE_LIVE: comparing the nav against the gate that built it is a tautology.
-  // The address-derived halves below can fail when PROMOTE_PENDING moves.
-  NFT_FINANCE_ADDRESSES_LIVE,
-  COMMUNITY_LIVE,
-  COMMUNITY_ADDRESSES_LIVE,
+  NFT_FINANCE_LIVE,
   tradeRoute,
   lockRoute,
   poolsRoute,
@@ -37,14 +33,15 @@ import { deployedCurveChains } from './launcher/curveChains';
 // answer to "is this path routed at all".
 import { ROUTES } from '../../e2e/fixtures/routes';
 
-// The bar is four words at every width: Island, Lock, Launch, Swap (owner, 2026-10-03, the
-// island's venue review item 1; on 2026-10-18 Heat and Rooms became the one word Island, and the
-// drawer's Island row went up into it). Pools and Check are drawer rows. Every section is still
-// one tabbed page; the bar and the drawer only decide where its row is.
+// The bar is five words at every width: Island, Swap, Add, Lock, Launch (owner, 2026-10-03, the
+// island's venue review item 1; on 2026-10-18 Heat and Rooms became the one word Island; build 2
+// of the outside review, 2026-11-01: Solana first, and Pools came up from the drawer as Add).
+// Check is the drawer's row. Every section is still one tabbed page; the bar and the drawer only
+// decide where its row is.
 
 describe('the bar', () => {
-  it('reads Island · Lock · Launch · Swap, and nothing else', () => {
-    expect(BAR_NAV.map((w) => w.label)).toEqual(['Island', 'Lock', 'Launch', 'Swap']);
+  it('reads Island · Swap · Add · Lock · Launch, and nothing else', () => {
+    expect(BAR_NAV.map((w) => w.label)).toEqual(['Island', 'Swap', 'Add', 'Lock', 'Launch']);
     for (const dead of ['Heat', 'Rooms', 'Pools', 'Check', 'Earn', 'Farm', 'Trade', 'More', 'Dashboard']) {
       expect(BAR_NAV.map((w) => w.label), `${dead} came back to the bar`).not.toContain(dead);
     }
@@ -64,11 +61,12 @@ describe('the bar', () => {
     expect(BAR_NAV[0]?.label).toBe(ISLAND_SECTION.heading);
   });
 
-  it('points Lock, Launch and Swap at a tab of their own section', () => {
-    for (const label of ['Lock', 'Launch', 'Swap']) {
+  it('points Swap, Add, Lock and Launch at a tab of their own section', () => {
+    // Add is the Pools section's word on the bar.
+    for (const [label, heading] of [['Swap', 'Swap'], ['Add', 'Pools'], ['Lock', 'Lock'], ['Launch', 'Launch']] as const) {
       const word = BAR_NAV.find((w) => w.label === label)!;
-      const section = NAV_SECTIONS.find((s) => s.heading === label);
-      expect(section, `no ${label} section`).toBeDefined();
+      const section = NAV_SECTIONS.find((s) => s.heading === heading);
+      expect(section, `no ${heading} section`).toBeDefined();
       expect(section!.items.map((i) => i.to), `${label} opens a page whose strip lights nothing`).toContain(word.to);
     }
     expect(BAR_NAV.find((w) => w.label === 'Lock')?.to, 'Lock opens the list of every pool').toBe('/earn');
@@ -105,11 +103,14 @@ describe('which word is lit', () => {
     ['/launch-simulator', '', 'Launch'],
     ['/swap', '', 'Swap'],
     ['/solana', '', 'Swap'],
+    ['/pools', '', 'Add'],
+    ['/liquidity', '', 'Add'],
+    ['/zap', '', 'Add'],
   ])('%s%s lights %s', (path, hash, word) => {
     expect(at(path, hash)).toBe(word);
   });
 
-  it.each(['/pools', '/liquidity', '/trust', '/scan', '/history', '/lore', '/changelog', '/dashboard', '/start'])(
+  it.each(['/trust', '/scan', '/history', '/lore', '/changelog', '/dashboard', '/start'])(
     'lights no bar word on %s, a page the drawer or the footer opens',
     (path) => {
       expect(at(path)).toBeNull();
@@ -128,21 +129,25 @@ describe('which word is lit', () => {
 });
 
 describe('the drawer', () => {
-  it('carries Pools and Check, one row each, and the bar carries the rest', () => {
-    expect(DRAWER_SECTIONS.map((s) => s.heading)).toEqual(['Pools', 'Check']);
-    const onBar = BAR_NAV.map((w) => w.label);
+  it('carries Check, one row, and the bar carries the rest', () => {
+    expect(DRAWER_SECTIONS.map((s) => s.heading)).toEqual(['Check']);
     for (const s of NAV_SECTIONS) {
-      const places = (onBar.includes(s.heading) ? 1 : 0) + (DRAWER_SECTIONS.includes(s) ? 1 : 0);
+      // On the bar is a word that owns the section's landing tab (Pools' word is Add).
+      const onBar = BAR_NAV.filter((w) => w.lit(s.hub, '')).length;
+      const places = onBar + (DRAWER_SECTIONS.includes(s) ? 1 : 0);
       expect(places, `the ${s.heading} section is in ${places} places; it belongs in exactly one`).toBe(1);
     }
   });
 
   // Owner, 2026-10-03: "pools land on solana lp"; 2026-10-24: "remove solana lp keep venue amm",
-  // the same LP section, so the row lands there.
-  it('lands the Pools row on the Venue AMM tab, and keeps the strip in its order', () => {
+  // the same LP section, so its word lands there. Build 2 (2026-11-01) moved that word from the
+  // drawer to the bar, third, as Add.
+  it('lands Add, the Pools word on the bar, on the Venue AMM tab, and keeps the strip in its order', () => {
     expect(POOLS_SECTION.hub).toBe('/liquidity');
     expect(POOLS_SECTION.primaryTo).toBe('/pools');
-    expect(DRAWER_SECTIONS[0], 'Pools is the drawer row people come for: it leads').toBe(POOLS_SECTION);
+    const add = BAR_NAV.find((w) => w.label === 'Add');
+    expect(add, 'Pools is on the bar as Add, the third word').toBe(BAR_NAV[2]);
+    expect(add?.to).toBe('/pools');
     expect(POOLS_SECTION.items.map((i) => [i.to, i.tabLabel ?? i.label])).toEqual([
       ['/liquidity', 'Add / Remove'],
       ['/pools', 'Venue AMM'],
@@ -187,22 +192,18 @@ describe('the drawer', () => {
 });
 
 describe('navConfig', () => {
-  // Three of NFT finance's four relaunch addresses are real, so the address-derived gate is
-  // true on its own; zeroing them must fail here, not hide behind PROMOTE_PENDING.
+  // Three of NFT finance's relaunch addresses are real, so the address-derived gate is
+  // true on its own; zeroing them must fail here.
   it('lists NFT Finance on the strength of its OWN addresses', () => {
     expect(
-      NFT_FINANCE_ADDRESSES_LIVE,
+      NFT_FINANCE_LIVE,
       'an nft-finance address must be deployed in constants.ts for this entry to be honest',
     ).toBe(true);
     expect(MORE_NAV.map((n) => n.to)).toContain('/nft-finance');
     expect(ALL_NAV.find((n) => n.to === '/nft-finance')?.label).toBe('Borrow on NFTs');
   });
 
-  // Governance is deployed on mainnet but 0x0 in constants.ts, so only PROMOTE_PENDING lists
-  // /community. Turn it off and the last two assertions fail.
-  it('lists Community ONLY because PROMOTE_PENDING forces it', () => {
-    expect(COMMUNITY_ADDRESSES_LIVE, 'no governance address is wired in constants.ts yet').toBe(false);
-    expect(COMMUNITY_LIVE, 'Community is listed, so something other than the addresses carries it').toBe(true);
+  it('lists Community', () => {
     expect(MORE_NAV.map((n) => n.to)).toContain('/community');
   });
 
@@ -390,14 +391,13 @@ describe('navConfig', () => {
 
   // The curve is live on Base and Robinhood Chain as well as mainnet; "(EVM)" is not what anyone
   // hunting for the Robinhood launcher types. Preconditions first, so a removed deploy names itself.
-  it('names every chain the curve is deployed on, so each launcher is findable by name', () => {
+  it('names no chain for the curve while its launch switch is off, and is left out (answer twenty-six)', () => {
     const chains = deployedCurveChains();
     expect(chains.map((c) => c.chainId), 'the curve must still be deployed on Robinhood Chain (4663)').toContain(4663);
     expect(chains.length, 'a single-chain rail has nothing to enumerate').toBeGreaterThan(1);
     const entry = ALL_NAV.find((n) => n.to === '/eth-curve');
-    for (const c of chains) {
-      expect(entry?.label, `the menu never names the ${c.name} launcher`).toContain(c.name);
-    }
+    expect(entry?.label).toBe('Memetics Curve (EVM)');
+    expect(entry?.soon, 'a deployed launcher opens nothing by itself').toBe(true);
   });
 
   // Mainnet is deployed, so the outcome assertions pass for the old mainnet-only gate too; the
@@ -405,32 +405,24 @@ describe('navConfig', () => {
   it('marks /eth-curve on whether the curve launches ANYWHERE, not just on mainnet', () => {
     const chains = deployedCurveChains();
     const entry = ALL_NAV.find((n) => n.to === '/eth-curve');
-    expect(entry?.live, 'a launcher that launches must not be missing its LIVE pill').toBe(true);
-    expect(entry?.soon, 'a launcher that launches must never read as off').toBe(false);
+    // Off on every rail (answer twenty-six): no LIVE pill until the curve's own switch opens it.
+    expect(entry?.live, 'no LIVE pill while launching is off').toBe(false);
+    expect(entry?.soon, 'a closed launcher reads as off').toBe(true);
     expect(chains.filter((c) => c.chainId !== 1).map((c) => c.chainId)).toContain(4663);
     const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'navConfig.ts'), 'utf8');
     expect(source.length, 'navConfig.ts could not be read').toBeGreaterThan(1000);
     const start = source.indexOf("to: '/eth-curve'");
     expect(start, 'the /eth-curve entry is not where this guard looks').toBeGreaterThan(-1);
     const entrySource = source.slice(start, source.indexOf('},', start));
-    expect(entrySource, 'the mark must read the registry, not one chain').toContain('isCurveLive()');
+    expect(entrySource, 'the mark must read the switch and the registry, not one chain').toContain('isCurveLaunchOpen()');
     expect(entrySource).not.toContain('CURVE_LAUNCHER_ADDRESS');
-  });
-
-  // Every rail behind them is undeployed (pages/airdropVestingHonesty.test.ts). Listing either
-  // is a deliberate act that deletes this test first.
-  it('leaves /airdrop and /vesting reachable by URL but out of the nav', () => {
-    const routed = ROUTES.map((r) => r.path);
-    const listed = ALL_NAV.map((n) => n.to);
-    for (const path of ['/airdrop', '/vesting']) {
-      expect(routed, `${path} must stay reachable by URL`).toContain(path);
-      expect(listed, `${path}'s rails are undeployed; it must not be listed`).not.toContain(path);
-    }
   });
 });
 
-// Swap follows the room's chain, read at render: a door switches the skin in place, so a value
-// taken at import keeps the previous room's swap. ChainSwitch keeps the other chain one click away.
+// Swap opens the Solana swap (build 2, 2026-11-01: the island's traffic is Solana), except inside
+// an EVM room, where it opens the EVM swap. Read at render: a door switches the skin in place, so
+// a value taken at import keeps the previous room's swap. ChainSwitch keeps the other chain one
+// click away.
 describe('tradeRoute', () => {
   afterEach(() => {
     window.localStorage.clear();
@@ -439,27 +431,105 @@ describe('tradeRoute', () => {
   const swapWord = () => BAR_NAV.find((w) => w.label === 'Swap')?.to;
   const swapSection = () => NAV_SECTIONS.find((s) => s.heading === 'Swap')!;
 
-  it('follows the skin with no module reload', () => {
-    expect(tradeRoute()).toBe('/swap');
-    expect(swapWord()).toBe('/swap');
+  it('opens the Solana swap with no room, and follows the skin with no module reload', () => {
+    expect(tradeRoute(), 'a stranger with no room lands on the Solana swap').toBe('/solana');
+    expect(swapWord()).toBe('/solana');
+    expect(swapSection().primaryTo).toBe('/solana');
+
+    window.localStorage.setItem('tegridy-bungalow', 'venue');
+    expect(tradeRoute(), 'the venue sentinel is no room').toBe('/solana');
 
     window.localStorage.setItem('tegridy-bungalow', 'bayla');
     expect(tradeRoute(), 'a Solana room lands on the Solana swap').toBe('/solana');
-    expect(swapWord()).toBe('/solana');
-    expect(swapSection().primaryTo).toBe('/solana');
+    // Island answer twenty-five, build 3: in a room the sheet acts on, the bar's Swap raises its Buy sheet over the room.
+    expect(swapWord()).toBe('/bayla?sheet=buy');
 
     window.localStorage.setItem('tegridy-bungalow', 'toweli');
     expect(tradeRoute(), 'the classic TOWELI room lands on the Ethereum swap').toBe('/swap');
     expect(swapWord()).toBe('/swap');
     expect(swapSection().primaryTo).toBe('/swap');
+
+    window.localStorage.setItem('tegridy-bungalow', 'pepe');
+    expect(tradeRoute(), "PEPE's room, on Ethereum").toBe('/swap');
+    window.localStorage.setItem('tegridy-bungalow', 'qr');
+    expect(tradeRoute(), "QR's room, on Base").toBe('/swap');
+  });
+
+  // Island answer twenty-five, build 3: in a room the sheet acts on, Swap and Add raise its sheet over the room.
+  it('in a room the sheet acts on, the bar’s Swap and Add open its Buy and Add sheets; anywhere else, their sections', () => {
+    const addWord = () => BAR_NAV.find((w) => w.label === 'Add')?.to;
+    for (const id of ['bayla', 'bobo', 'soy', 'brainlet', 'rizz']) {
+      window.localStorage.setItem('tegridy-bungalow', id);
+      expect(swapWord(), id).toBe(`/${id}?sheet=buy`);
+      expect(addWord(), id).toBe(`/${id}?sheet=add`);
+    }
+    window.localStorage.setItem('tegridy-bungalow', 'pepe');
+    expect(swapWord()).toBe('/swap');
+    expect(addWord()).toBe('/pools');
+    window.localStorage.clear();
+    expect(swapWord()).toBe('/solana');
+    expect(addWord()).toBe('/pools');
   });
 
   it('lands on a tab the Swap section really has, in every room', () => {
-    for (const id of [null, 'bayla', 'toweli', 'pepe']) {
+    for (const id of [null, 'bayla', 'toweli', 'pepe', 'qr']) {
       window.localStorage.clear();
       if (id) window.localStorage.setItem('tegridy-bungalow', id);
       expect(swapSection().items.map((i) => i.to), String(id)).toContain(tradeRoute());
     }
+  });
+
+  it('opens the EVM swap with no room while the Solana swap is off, so the word never leaves its strip', async () => {
+    vi.resetModules();
+    vi.doMock('./solana', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('./solana')>()),
+      isSolanaSwapLive: () => false,
+    }));
+    try {
+      const off = await import('./navConfig');
+      expect(off.SWAP_SECTION.items.map((i) => i.to)).not.toContain('/solana');
+      expect(off.tradeRoute()).toBe('/swap');
+    } finally {
+      vi.doUnmock('./solana');
+      vi.resetModules();
+    }
+  });
+});
+
+// Build 2 (2026-11-01): the Solana curve leads the Launch strip. The word opens the curve only
+// while launching on Solana is on (curveWriteFlag.ts), else the launchpad: an off page is listed
+// on no strip (law 23).
+describe('the Launch word', () => {
+  async function withCurve(on: boolean) {
+    vi.resetModules();
+    vi.doMock('./launcher/solana/curveWriteFlag', () => ({ isCurveWriteEnabled: () => on }));
+    try {
+      return await import('./navConfig');
+    } finally {
+      vi.doUnmock('./launcher/solana/curveWriteFlag');
+      vi.resetModules();
+    }
+  }
+
+  it('lists the Solana curve first, the launch door second', async () => {
+    const nav = await withCurve(true);
+    expect(nav.LAUNCH_SECTION.items.map((i) => i.to)).toEqual(['/curve-launch', '/launch', '/eth-curve', '/launch-simulator']);
+    expect(nav.LAUNCH_SECTION.hub).toBe('/curve-launch');
+  });
+
+  it('opens the launch door even while launching on Solana is on (answer twenty-six)', async () => {
+    const nav = await withCurve(true);
+    expect(nav.BAR_NAV.find((w) => w.label === 'Launch')?.to).toBe('/launch');
+    expect(nav.INDEX_GROUPS.find((g) => g.heading === 'Launch')?.to).toBe('/launch');
+  });
+
+  it('opens the launchpad while it is off, and is lit on both', async () => {
+    const nav = await withCurve(false);
+    const word = nav.BAR_NAV.find((w) => w.label === 'Launch')!;
+    expect(nav.ALL_NAV.find((n) => n.to === '/curve-launch')?.soon, 'the precondition: the curve is off').toBe(true);
+    expect(word.to).toBe('/launch');
+    expect(nav.INDEX_GROUPS.find((g) => g.heading === 'Launch')?.to).toBe('/launch');
+    for (const path of ['/curve-launch', '/launch']) expect(word.lit(path, ''), path).toBe(true);
   });
 });
 

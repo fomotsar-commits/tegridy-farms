@@ -57,7 +57,7 @@ export function dayTwoEconomyPhrase(phase: LpEmissionsPhase): string {
     case 'running':
       return 'boosted LP farming, funded and running right now, with a gauge-emissions program as governance deploys';
     case 'ended':
-      return 'a boosted LP-farming rail — deployed and wired, though its last emissions period has ended and a new one has to be funded — with a gauge-emissions program as governance deploys';
+      return 'a boosted LP-farming rail (deployed and wired, though its last emissions period has ended and a new one has to be funded) with a gauge-emissions program as governance deploys';
     default:
       return 'a boosted LP-farming rail (we could not read whether an emissions period is currently funded) and a gauge-emissions program as governance deploys';
   }

@@ -288,7 +288,7 @@ export function feesBecomeStakerYieldOn(chainId: number | undefined | null): boo
 export function launchWrongChainMessage(chainId: number | undefined | null): string {
   const config = getChainConfig(chainId);
   if (config && config.id !== DEFAULT_CHAIN_ID) {
-    return `Token launches run on Ethereum today — ${config.name} is supported by the app, but its launch rail isn't deployed there yet. Switch to Ethereum to launch.`;
+    return `Token launches run on Ethereum today. ${config.name} is supported by the app, but its launch rail isn't deployed there yet. Switch to Ethereum to launch.`;
   }
   if (!config && chainId != null) {
     return `This app doesn't serve ${unconfiguredChainLabel(chainId)}. Switch to Ethereum to launch.`;

@@ -4,7 +4,7 @@
 // for good; `lpFetch` gives a request READ_TIMEOUT_MS and then throws a sentence the card
 // can print. Fake timers throughout: the 20 seconds are advanced, never waited for.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { lpFetch, OPTIONAL_READ_FLOOR, READ_TIMEOUT_MS, timeoutDetail } from './readFetch';
+import { lpFetch, OPTIONAL_READ_FLOOR, RATE_LIMIT_RETRIES, RATE_LIMIT_WAIT_MAX_MS, READ_TIMEOUT_MS, timeoutDetail } from './readFetch';
 
 /** A fetch that only ever settles when its signal aborts, as a real fetch does on abort. */
 function neverAnswers(): typeof fetch {
@@ -167,5 +167,81 @@ describe('lpFetch: every read ends', () => {
     expect(timeoutDetail('the pool index')).toBe('the pool index did not answer in 20 seconds');
     expect(timeoutDetail('Jupiter')).toBe('Jupiter did not answer in 20 seconds');
     for (const what of ['the chain', 'the pool index', 'Jupiter'] as const) expect(timeoutDetail(what)).not.toMatch(/—/);
+  });
+});
+
+// 2026-10-31: a phone and an iPad on one house's Wi-Fi shared the proxy's 300 calls a minute,
+// and the dashboard's holdings and pool shares said "Couldn't read" on the first 429.
+describe('lpFetch: a 429 from a proxy’s per-minute limit is asked again once its wait is over', () => {
+  const limited = (after: string | null) =>
+    new Response('{"error":"Too many requests"}', { status: 429, headers: after === null ? {} : { 'Retry-After': after } });
+  const answered = () => new Response('{"ok":true}', { status: 200 });
+
+  it('waits the Retry-After it names, then asks the same thing again and hands back that answer', async () => {
+    const f = vi.fn().mockResolvedValueOnce(limited('3')).mockResolvedValueOnce(answered());
+    vi.stubGlobal('fetch', f);
+    let got: Response | null = null;
+    const p = lpFetch({ what: 'the chain' })('/api/solrpc', { method: 'POST', body: '{"method":"getBalance"}' }).then((r) => {
+      got = r;
+    });
+    await vi.advanceTimersByTimeAsync(2_999);
+    expect(f).toHaveBeenCalledTimes(1);
+    expect(got).toBeNull();
+    await vi.advanceTimersByTimeAsync(1);
+    await p;
+    expect(f).toHaveBeenCalledTimes(2);
+    expect(f.mock.calls[1]![0]).toBe('/api/solrpc');
+    expect(f.mock.calls[1]![1]).toMatchObject({ method: 'POST', body: '{"method":"getBalance"}' });
+    expect(got!.status).toBe(200);
+    expect(await got!.json()).toEqual({ ok: true });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it(`asks again at most ${RATE_LIMIT_RETRIES} times, then hands back the 429 for the card to say`, async () => {
+    const f = vi.fn(async () => limited('1'));
+    vi.stubGlobal('fetch', f);
+    const p = lpFetch({ what: 'the chain' })('/api/solrpc');
+    await vi.advanceTimersByTimeAsync(RATE_LIMIT_RETRIES * 1_000);
+    expect((await p).status).toBe(429);
+    expect(f).toHaveBeenCalledTimes(RATE_LIMIT_RETRIES + 1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('a 429 that names no wait, or a wait past the limit’s minute, is handed back at once', async () => {
+    for (const after of [null, String(RATE_LIMIT_WAIT_MAX_MS / 1000 + 1), 'soon']) {
+      const f = vi.fn(async () => limited(after));
+      vi.stubGlobal('fetch', f);
+      expect((await lpFetch({ what: 'the pool index' })('/api/pools')).status).toBe(429);
+      expect(f).toHaveBeenCalledTimes(1);
+    }
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('the caller giving up during the wait ends it, with the caller’s reason, and asks nothing more', async () => {
+    const f = vi.fn(async () => limited('30'));
+    vi.stubGlobal('fetch', f);
+    const ctrl = new AbortController();
+    const p = lpFetch({ what: 'the chain' })('/api/solrpc', { signal: ctrl.signal }).catch((e: unknown) => e);
+    await vi.advanceTimersByTimeAsync(1_000);
+    ctrl.abort(new Error('left the page'));
+    const e = await p;
+    expect((e as Error).message).toBe('left the page');
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(f).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('every answer, the 429s too, reaches onResponse, so the budget hears that none are left', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(limited('1')).mockResolvedValueOnce(answered()));
+    const onResponse = vi.fn();
+    const p = lpFetch({ what: 'the chain', onResponse })('/api/solrpc');
+    await vi.advanceTimersByTimeAsync(1_000);
+    await p;
+    expect(onResponse.mock.calls.map(([r]) => (r as Response).status)).toEqual([429, 200]);
+  });
+
+  it('the figures: twice at most, each wait at most the limit’s minute', () => {
+    expect(RATE_LIMIT_RETRIES).toBe(2);
+    expect(RATE_LIMIT_WAIT_MAX_MS).toBe(60_000);
   });
 });

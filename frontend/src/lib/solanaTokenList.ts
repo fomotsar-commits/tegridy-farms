@@ -8,6 +8,7 @@
 // any pair). All calls go through our same-origin hardened proxy.
 import { JUPITER_TOKENS_BASE } from './solana';
 import { liveIpfsUrl } from './ipfsGateways';
+import { claimedTicker } from './solana/lp/identity';
 
 // Canonical legacy SPL Token program id — anything else implies Token-2022.
 export const LEGACY_TOKEN_PROGRAM = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
@@ -170,7 +171,8 @@ function mapV2(t: JupTokenV2): SolToken | null {
   const score = t.organicScoreLabel;
   return {
     mint: t.id,
-    symbol: t.symbol || `${t.id.slice(0, 4)}…`,
+    // Named as the pool screens name a coin (identity.ts): ours by mint, a copy's ticker as "fake SOY".
+    symbol: claimedTicker(t.id, t.symbol) ?? `${t.id.slice(0, 4)}…`,
     name: t.name || t.symbol || 'Unknown token',
     decimals: t.decimals,
     logoURI: t.icon,
@@ -360,8 +362,14 @@ export function rememberToken(t: SolToken): void {
 }
 
 // A venue coin stored before it had a picture is the old curated row: show today's.
-// A row the search gave carries its own picture and live fields, and is kept.
-const asKnownNow = (t: SolToken): SolToken => (t.logoURI ? t : (VENUE_COINS.find((v) => v.mint === t.mint) ?? t));
+// A row the search gave carries its own picture and live fields, and is kept. A row
+// stored before copies were named "fake SOY" is named now (one named already is kept).
+const asKnownNow = (t: SolToken): SolToken => {
+  const row = t.logoURI ? t : (VENUE_COINS.find((v) => v.mint === t.mint) ?? t);
+  if (row.symbol.startsWith('fake ')) return row;
+  const symbol = claimedTicker(row.mint, row.symbol) ?? row.symbol;
+  return symbol === row.symbol ? row : { ...row, symbol };
+};
 
 export function getRecentTokens(): SolToken[] {
   return readStoredTokens(RECENTS_KEY).map(asKnownNow);

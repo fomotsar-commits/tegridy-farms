@@ -36,6 +36,13 @@ export interface SolanaSurface {
   /** base58, never a PublicKey: this file carries no Solana code. */
   readonly address: string | null;
   readonly connecting: boolean;
+  /**
+   * That connection's connected wallet adapter, to sign with; null while none is
+   * connected. Opaque for the same reason as `address`. Harvest signs its claims with
+   * it (components/farm/HarvestCard.tsx), so the Earn list keeps ONE connection, the
+   * top bar's, and needs none of its own.
+   */
+  readonly signer?: object | null;
 }
 
 export interface SolanaSurfaceState {
@@ -124,6 +131,15 @@ export function setSolanaSurface(owner: object, surface: SolanaSurface | null, o
 const RESTORE_KEY = 'tegridy-solana-restore';
 export function solanaWasConnectedHere(): boolean {
   return safeGetItem(RESTORE_KEY) === '1';
+}
+
+/** The wallet adapter's own key (WalletProvider `localStorageKey`): set while a Solana wallet is chosen. */
+const SAVED_WALLET_KEY = 'walletName';
+
+/** A Solana wallet connected here and still chosen: the one a later visit restores (TopBarSolana.tsx). */
+export function solanaToRestore(): boolean {
+  const saved = safeGetItem(SAVED_WALLET_KEY);
+  return solanaWasConnectedHere() && Boolean(saved) && saved !== 'null';
 }
 
 /**

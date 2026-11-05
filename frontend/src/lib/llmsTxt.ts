@@ -5,7 +5,7 @@
  * the safety facts, and it is ASCII only. collectFacts() gathers and renderLlmsTxt() only renders.
  */
 import { VENUE, heatExampleLine } from './arrival';
-import { BUNGALOWS, type Bungalow } from './bungalows';
+import { BUNGALOWS, ladderRooms, type Bungalow } from './bungalows';
 import {
   SITE_URL,
   TOWELI_ADDRESS,
@@ -72,6 +72,8 @@ export interface LlmsFacts {
    * `ladderPool` AND the build is pointed at a deployed program.
    */
   baylaLadderStaking: StakingTerms | null;
+  /** The rooms whose pool is on that program, by symbol; empty exactly when it is null. */
+  solanaLadderRooms: string[];
   /** Live contracts, confirmed against the ledger, grouped by chain. */
   contracts: { chain: string; label: string; address: string }[];
   /**
@@ -183,7 +185,7 @@ export function collectFacts(ledger: AddressLedger, deployConfig?: RedirectConfi
     // bungalow carrying `ladderPool`, and the card refuses to derive anything without
     // the program. An operator halfway through the ceremony (program set, pool not)
     // must not have llms.txt tell BAYLA holders the terms of a pool nobody can open.
-    baylaLadderStaking: BUNGALOWS.some((b) => b.chain === 'solana' && b.ladderPool) && baylaLadder.isLadderConfigured()
+    baylaLadderStaking: ladderRooms().length > 0 && baylaLadder.isLadderConfigured()
       ? {
           minLockSeconds: baylaLadder.MIN_LOCK_SECS,
           maxLockSeconds: baylaLadder.MAX_LOCK_SECS,
@@ -193,6 +195,7 @@ export function collectFacts(ledger: AddressLedger, deployConfig?: RedirectConfi
           maxBoostBps: baylaLadder.MAX_BOOST_BPS,
         }
       : null,
+    solanaLadderRooms: baylaLadder.isLadderConfigured() ? ladderRooms().map((b) => b.symbol) : [],
     contracts,
     aliasHosts: aliasHostsFrom(deployConfig, SITE_URL),
   };
@@ -271,7 +274,7 @@ export function renderLlmsTxt(f: LlmsFacts, meta: { date: string; commit?: strin
   for (const d of f.doors.filter((x) => x.depositsClosed)) {
     out.push(`- ${d.name}: the venue is closed to new deposits into this pool.`);
   }
-  if (f.baylaLadderStaking) out.push(`- BAYLA ladder on Solana: ${terms(f.baylaLadderStaking)}.`);
+  if (f.baylaLadderStaking) out.push(`- Lock ladder on Solana (${f.solanaLadderRooms.join(', ')}): ${terms(f.baylaLadderStaking)}.`);
   out.push('');
 
   out.push('## Contracts', '');

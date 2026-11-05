@@ -1,7 +1,8 @@
 // The Cardano chain reader (api/cardano.js + _lib/cardano-ops.js): only named reads, strict
 // params, the upstream request built server-side, the key never reflected.
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { buildKoiosRequest, CARDANO_OPS, MINSWAP_V2_AUTHEN_POLICY, MINSWAP_V2_POOL_SCRIPT } from "../_lib/cardano-ops.js";
+import { buildKoiosRequest, CARDANO_OPS, MINSWAP_V2_AUTHEN_POLICY, MINSWAP_V2_POOL_SCRIPT, POLICY_COINS_ROWS } from "../_lib/cardano-ops.js";
+import { POLICY_READ_ROWS } from "../../src/lib/cardano/chain";
 import { MINSWAP_V2 } from "../../src/lib/cardano/minswapV2";
 
 vi.mock("../_lib/ratelimit.js", () => ({ checkRateLimit: vi.fn(async () => true), checkGlobalLimit: vi.fn(async () => true) }));
@@ -41,6 +42,8 @@ function upstream(body, status = 200) {
 
 const LP = "e66195788208dcd363edb600eaf2331019e3599baba645d81d61ef060c82d861";
 const TX = "73a22d3ed91deb5bf614434ef72745b296171d4515baf49bfb33755590b1499f";
+const POLICY = "279c909f348e533da5808898f87f9a14bb2c3dfbbacccd631d927a3f";
+const FP = "asset108xu02ckwrfc8qs9d97mgyh4kn8gdu9w8f5sxk";
 
 describe("cardano-ops", () => {
   it("pins the same Minswap V2 script and policy as the browser library", () => {
@@ -49,7 +52,7 @@ describe("cardano-ops", () => {
   });
 
   it("knows only its named reads", () => {
-    expect(Object.keys(CARDANO_OPS).sort()).toEqual(["asset", "credtxs", "params", "pool", "tip", "tx", "txstatus", "utxo"]);
+    expect(Object.keys(CARDANO_OPS).sort()).toEqual(["asset", "credtxs", "fingerprint", "params", "policy", "pool", "tip", "tx", "txstatus", "utxo"]);
     expect(buildKoiosRequest("submittx", {}, "")).toEqual({ error: 404, message: "Unknown Cardano read" });
     expect(buildKoiosRequest("constructor", {}, "")).toEqual({ error: 404, message: "Unknown Cardano read" });
     expect(buildKoiosRequest("__proto__", {}, "")).toEqual({ error: 404, message: "Unknown Cardano read" });
@@ -59,6 +62,17 @@ describe("cardano-ops", () => {
     const r = buildKoiosRequest("pool", { lp: LP }, "");
     expect(r.url).toBe(`https://api.koios.rest/api/v1/asset_utxos?payment_cred=eq.${MINSWAP_V2_POOL_SCRIPT}`);
     expect(JSON.parse(r.init.body)).toEqual({ _asset_list: [[MINSWAP_V2_AUTHEN_POLICY, LP]], _extended: true });
+  });
+
+  it("builds a pasted policy id's and asset1… id's reads itself, the caller's id the only text in them", () => {
+    const policy = buildKoiosRequest("policy", { policy: POLICY }, "");
+    expect(policy.url).toBe(
+      `https://api.koios.rest/api/v1/policy_asset_info?_asset_policy=${POLICY}&select=asset_name,asset_name_ascii,total_supply,token_registry_metadata->ticker&order=asset_name.asc&limit=51`,
+    );
+    expect(policy.init.method).toBe("GET");
+    expect(buildKoiosRequest("fingerprint", { fp: FP }, "").url).toBe(`https://api.koios.rest/api/v1/asset_list?fingerprint=eq.${FP}&select=policy_id,asset_name,fingerprint`);
+    // The browser knows the cap, to tell a whole list from a cut one.
+    expect(POLICY_COINS_ROWS).toBe(POLICY_READ_ROWS);
   });
 
   it("refuses every malformed param, so no caller text reaches the upstream", () => {
@@ -72,6 +86,11 @@ describe("cardano-ops", () => {
       ["utxo", { ref: TX }],
       ["credtxs", { cred: "ab".repeat(28), after: "1e9" }],
       ["tx", { tx: `${TX}0` }],
+      ["policy", { policy: `${POLICY}&select=*` }],
+      ["policy", { policy: POLICY.toUpperCase() }],
+      ["fingerprint", { fp: `${FP}&policy_id=neq.x` }],
+      ["fingerprint", { fp: "asset1" + "b".repeat(38) }],
+      ["fingerprint", { fp: FP.slice(0, -1) }],
     ]) {
       expect(buildKoiosRequest(op, q, "")).toEqual({ error: 400, message: "Bad parameters" });
     }
@@ -100,6 +119,8 @@ describe("cardano-ops", () => {
   it("caches only what is the same for everyone", () => {
     expect(buildKoiosRequest("params", {}, "").cache).toMatch(/^public/);
     expect(buildKoiosRequest("tip", {}, "").cache).toMatch(/^public/);
+    expect(buildKoiosRequest("policy", { policy: POLICY }, "").cache).toMatch(/^public/);
+    expect(buildKoiosRequest("fingerprint", { fp: FP }, "").cache).toMatch(/^public/);
     for (const [op, q] of [
       ["pool", { lp: LP }],
       ["txstatus", { tx: TX }],
@@ -225,5 +246,110 @@ describe("api/cardano", () => {
     await handler(makeReq({ query: { op: "tip" } }), res);
     expect(JSON.stringify([out, headers])).not.toContain("s3cret");
     expect(globalThis.fetch.mock.calls[0][1].headers.Authorization).toBe("Bearer s3cret");
+  });
+
+  describe("a slow pool read", () => {
+    const POOL_ROWS = '[{"tx_hash":"aa"}]';
+    const poolReq = () => makeReq({ query: { op: "pool", lp: LP } });
+    const timedOut = () => Object.assign(new Error("The operation was aborted due to timeout"), { name: "TimeoutError" });
+    afterEach(() => vi.restoreAllMocks());
+
+    it("is asked once more, with a longer wait, and the visitor gets the pool", async () => {
+      const timeouts = vi.spyOn(AbortSignal, "timeout");
+      globalThis.fetch = vi.fn().mockRejectedValueOnce(timedOut()).mockImplementationOnce(upstream(POOL_ROWS));
+      const { res, out } = makeRes();
+      await handler(poolReq(), res);
+      expect(out.status).toBe(200);
+      expect(out.sent).toBe(POOL_ROWS);
+      expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+      expect(timeouts.mock.calls.map((c) => c[0])).toEqual([10_000, 15_000]);
+    });
+
+    it("is asked once more when Koios's gateway fails, never a third time", async () => {
+      globalThis.fetch = vi.fn().mockImplementationOnce(upstream("<html>504</html>", 504)).mockImplementationOnce(upstream(POOL_ROWS));
+      let r = makeRes();
+      await handler(poolReq(), r.res);
+      expect(r.out.status).toBe(200);
+      expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+      globalThis.fetch = vi.fn().mockRejectedValueOnce(timedOut()).mockRejectedValueOnce(timedOut()).mockImplementationOnce(upstream(POOL_ROWS));
+      r = makeRes();
+      await handler(poolReq(), r.res);
+      expect(r.out.status).toBe(502);
+      expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+      globalThis.fetch = vi.fn().mockImplementationOnce(upstream("<html>502</html>", 502)).mockImplementationOnce(upstream("<html>502</html>", 502));
+      r = makeRes();
+      await handler(poolReq(), r.res);
+      expect(r.out.status).toBe(502);
+      expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+    });
+
+    it("is never asked again after a 429, and no other read is asked twice", async () => {
+      globalThis.fetch = vi.fn().mockImplementationOnce(upstream("slow down", 429)).mockImplementationOnce(upstream(POOL_ROWS));
+      let r = makeRes();
+      await handler(poolReq(), r.res);
+      expect(r.out.status).toBe(429);
+      expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+      globalThis.fetch = vi.fn().mockRejectedValueOnce(timedOut()).mockImplementationOnce(upstream("[{}]"));
+      r = makeRes();
+      await handler(makeReq({ query: { op: "asset", policy: "ab".repeat(28), name: "" } }), r.res);
+      expect(r.out.status).toBe(502);
+      expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    });
+
+    it("counts the second ask against the caller's daily cap and the site's, and a spent cap stops it", async () => {
+      const rl = await import("../_lib/ratelimit.js");
+      const daily = { limit: 45_000, windowSec: 86_400, identifier: "cardano-day" };
+      const callerDaily = { limit: 6000, windowSec: 86_400, identifier: "cardano-day" };
+      rl.checkGlobalLimit.mockClear();
+      rl.checkRateLimit.mockClear();
+      globalThis.fetch = vi.fn().mockRejectedValueOnce(timedOut()).mockImplementationOnce(upstream(POOL_ROWS));
+      let r = makeRes();
+      await handler(poolReq(), r.res);
+      expect(rl.checkGlobalLimit.mock.calls.filter((c) => c[1].identifier === "cardano-day")).toEqual([
+        [expect.anything(), daily],
+        [expect.anything(), daily],
+      ]);
+      expect(rl.checkRateLimit.mock.calls.filter((c) => c[2].identifier === "cardano-day")).toEqual([
+        [expect.anything(), expect.anything(), callerDaily],
+        [expect.anything(), expect.anything(), callerDaily],
+      ]);
+      // The caller's day spent by the second ask: it is not sent.
+      rl.checkRateLimit
+        .mockImplementationOnce(async () => true)
+        .mockImplementationOnce(async () => true)
+        .mockImplementationOnce(async (_req, res) => {
+          res.status(429).json({ error: "Too many requests" });
+          return false;
+        });
+      globalThis.fetch = vi.fn().mockRejectedValueOnce(timedOut()).mockImplementationOnce(upstream(POOL_ROWS));
+      r = makeRes();
+      await handler(poolReq(), r.res);
+      expect(r.out.status).toBe(429);
+      expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+      // The minute's cap and the day's pass for the first ask; the day's is spent by the second.
+      rl.checkGlobalLimit
+        .mockImplementationOnce(async () => true)
+        .mockImplementationOnce(async () => true)
+        .mockImplementationOnce(async (res) => {
+          res.status(503).json({ error: "Service temporarily unavailable" });
+          return false;
+        });
+      globalThis.fetch = vi.fn().mockRejectedValueOnce(timedOut()).mockImplementationOnce(upstream(POOL_ROWS));
+      r = makeRes();
+      await handler(poolReq(), r.res);
+      expect(r.out.status).toBe(503);
+      expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    });
+
+    it("has room for both asks before Vercel stops the function", async () => {
+      const { ATTEMPT_TIMEOUTS_MS } = await import("../cardano.js");
+      const { readFileSync } = await import("node:fs");
+      const { join } = await import("node:path");
+      const vercel = JSON.parse(readFileSync(join(process.cwd(), "vercel.json"), "utf8"));
+      const room = vercel.functions["api/cardano.js"].maxDuration * 1000;
+      expect(room).toBeGreaterThanOrEqual(ATTEMPT_TIMEOUTS_MS.reduce((a, b) => a + b, 0) + 3_000);
+      expect(buildKoiosRequest("pool", { lp: LP }, "").retry).toBe(true);
+      expect(Object.keys(CARDANO_OPS).filter((op) => CARDANO_OPS[op].retry)).toEqual(["pool"]);
+    });
   });
 });

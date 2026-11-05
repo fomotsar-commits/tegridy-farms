@@ -1,5 +1,6 @@
 import { lpTokensToTradingTokens } from '../cpswap/math';
 import type { PoolSnapshot } from '../cpswap/read';
+import { afterFee, poolFee, poolInverseFee, preFeeAmountOf, type TransferFee } from './transferFee';
 
 /**
  * The numbers a deposit or a withdrawal carries, worked out from one pool snapshot.
@@ -28,10 +29,33 @@ import type { PoolSnapshot } from '../cpswap/read';
  * mean "no limit"). A withdrawal's minima round DOWN and are never below 1 (`minOutFor`).
  * `minimumOutFor` (cpswap/ix.ts) is NOT used for a deposit: it rounds down, so it would
  * refuse an honest deposit.
+ *
+ * A TRANSFER FEE (`PoolFees`, transferFee.ts) on a side changes what moves, never what the
+ * pool counts: a deposit sends the pool's cost PLUS the fee on top (deposit.rs
+ * `get_transfer_inverse_fee`), a withdrawal pays the pool's payout LESS the fee
+ * (withdraw.rs `get_transfer_fee`), and an opening's shares count only what reaches the
+ * vaults (initialize.rs). Every amount these functions answer is the WALLET's: what
+ * leaves it, or what reaches it. The pairing coin never has a fee (EXACT_EXTENSIONS).
  */
 
 export const U64_MAX = (1n << 64n) - 1n;
 const BPS = 10_000n;
+
+/** The transfer fee on each side of a pool, token0 first. Null = that side takes none. */
+export type PoolFees = readonly [TransferFee | null, TransferFee | null];
+export const NO_FEES: PoolFees = [null, null];
+
+/** A pool's fees from its token's: the pairing coin's side takes none. */
+export function poolFeesOf(quoteIsToken0: boolean, tokenFee: TransferFee | null): PoolFees {
+  return quoteIsToken0 ? [null, tokenFee] : [tokenFee, null];
+}
+
+/** The smallest payout that reaches the wallet as at least 1: 1 with no fee. Null = none does. */
+function leastPayout(f: TransferFee | null): bigint | null {
+  if (!f) return 1n;
+  const pre = preFeeAmountOf(f, 1n);
+  return pre === null || afterFee(f, pre) < 1n ? null : pre;
+}
 
 /**
  * The shares a deposit can buy so that the most leaving on the driving side is exactly
@@ -55,13 +79,20 @@ export function minOutFor(out: bigint, bps: bigint): bigint {
   return m < 1n ? 1n : m;
 }
 
-/** The fewest shares that give both sides at least 1: `max(ceil(S/R0), ceil(S/R1))`. `null` with no price. */
-export function minLpForBothSides(s: PoolSnapshot): bigint | null {
+/**
+ * The fewest shares that give both sides at least 1: `max(ceil(S/R0), ceil(S/R1))`. With
+ * a transfer fee on a side, at least 1 must REACH the wallet, so that side needs the
+ * smallest payout the fee leaves 1 of. `null` with no price, or a fee that leaves nothing.
+ */
+export function minLpForBothSides(s: PoolSnapshot, fees: PoolFees = NO_FEES): bigint | null {
   const S = s.pool.lpSupply;
   if (S <= 0n || s.reserve0 <= 0n || s.reserve1 <= 0n) return null;
-  const c = (r: bigint) => (S + r - 1n) / r;
-  const a = c(s.reserve0);
-  const b = c(s.reserve1);
+  const n0 = leastPayout(fees[0]);
+  const n1 = leastPayout(fees[1]);
+  if (n0 === null || n1 === null) return null;
+  const c = (need: bigint, r: bigint) => (need * S + r - 1n) / r;
+  const a = c(n0, s.reserve0);
+  const b = c(n1, s.reserve1);
   return a > b ? a : b;
 }
 
@@ -72,7 +103,9 @@ export type PlanProblem =
   | { problem: 'over-balance'; side: 'quote' | 'token'; need: bigint; have: bigint; mostBoth: bigint | null }
   | { problem: 'dust-remainder'; keep: bigint; minLp: bigint }
   | { problem: 'bad-percent' }
-  | { problem: 'nothing-held' };
+  | { problem: 'nothing-held' }
+  /** The pool program would refuse the token's transfer fee on this deposit (deposit.rs, TransferFeeCalculateNotMatch). */
+  | { problem: 'transfer-fee' };
 
 export function isPlanProblem<T extends object>(p: T | PlanProblem): p is PlanProblem {
   return 'problem' in p;
@@ -80,9 +113,15 @@ export function isPlanProblem<T extends object>(p: T | PlanProblem): p is PlanPr
 
 export interface DepositPlan {
   lp: bigint;
-  /** What the deposit costs on each side at this snapshot (ceiling). */
+  /**
+   * What the deposit takes from the wallet on each side at this snapshot: the pool's cost
+   * (ceiling), plus the side's transfer fee on top.
+   */
   cost0: bigint;
   cost1: bigint;
+  /** The transfer fee inside each `cost`: the token keeps it back, the pool never sees it. 0 with no fee. */
+  fee0: bigint;
+  fee1: bigint;
   /** The maxima the transaction carries. */
   max0: bigint;
   max1: bigint;
@@ -96,41 +135,73 @@ export interface DepositPlan {
  */
 export function planDeposit(
   s: PoolSnapshot,
-  a: { quoteIsToken0: boolean; driving: 'quote' | 'token'; maxIn: bigint; bps: bigint; availableQuote: bigint | null; availableToken: bigint | null },
+  a: {
+    quoteIsToken0: boolean;
+    driving: 'quote' | 'token';
+    maxIn: bigint;
+    bps: bigint;
+    availableQuote: bigint | null;
+    availableToken: bigint | null;
+    fees?: PoolFees;
+  },
 ): DepositPlan | PlanProblem {
   const S = s.pool.lpSupply;
   const R0 = s.reserve0;
   const R1 = s.reserve1;
+  const fees = a.fees ?? NO_FEES;
   // 1. No price on either side.
   if (S <= 0n || R0 <= 0n || R1 <= 0n) return { problem: 'no-price' };
 
   const drivingIs0 = (a.driving === 'quote') === a.quoteIsToken0;
   const rDriving = drivingIs0 ? R0 : R1;
   const rOther = drivingIs0 ? R1 : R0;
+  const feeDriving = drivingIs0 ? fees[0] : fees[1];
+  const feeOther = drivingIs0 ? fees[1] : fees[0];
   const availDriving = a.driving === 'quote' ? a.availableQuote : a.availableToken;
   const availOther = a.driving === 'quote' ? a.availableToken : a.availableQuote;
   const otherSide: 'quote' | 'token' = a.driving === 'quote' ? 'token' : 'quote';
   const mostBoth = availDriving !== null && availOther !== null
     ? (() => {
-        const viaOther = (availOther * rDriving) / rOther;
+        // What the other side's balance delivers to the pool, priced in the driving side,
+        // and what the driving side must send to deliver as much.
+        const delivered = (afterFee(feeOther, availOther) * rDriving) / rOther;
+        const viaOther = feeDriving ? (preFeeAmountOf(feeDriving, delivered) ?? U64_MAX) : delivered;
         return availDriving < viaOther ? availDriving : viaOther;
       })()
     : null;
 
-  // 2. The shares the driving side can buy.
-  const lp = lpForMaxIn(a.maxIn, rDriving, S, a.bps);
+  // 2. The shares the driving side can buy, with what reaches the pool of the most typed.
+  const lp = lpForMaxIn(afterFee(feeDriving, a.maxIn), rDriving, S, a.bps);
   if (lp === null) return { problem: 'no-price' };
-  if (lp === 0n) return { problem: 'too-small', minLp: minLpForBothSides(s) };
+  if (lp === 0n) return { problem: 'too-small', minLp: minLpForBothSides(s, fees) };
 
-  // 3. What they cost, the program's way.
+  // 3. What they cost, the program's way, and each side's transfer fee on top of that.
   const cost = lpTokensToTradingTokens(lp, S, R0, R1, 'ceiling');
   if (!cost) return { problem: 'overflow' };
-  if (cost.token0Amount === 0n || cost.token1Amount === 0n) return { problem: 'too-small', minLp: minLpForBothSides(s) };
-  const costDriving = drivingIs0 ? cost.token0Amount : cost.token1Amount;
-  const costOther = drivingIs0 ? cost.token1Amount : cost.token0Amount;
+  if (cost.token0Amount === 0n || cost.token1Amount === 0n) return { problem: 'too-small', minLp: minLpForBothSides(s, fees) };
+  const fee0 = poolInverseFee(fees[0], cost.token0Amount);
+  const fee1 = poolInverseFee(fees[1], cost.token1Amount);
+  if (fee0 === null || fee1 === null) return { problem: 'transfer-fee' };
+  const sent0 = cost.token0Amount + fee0;
+  const sent1 = cost.token1Amount + fee1;
+  const costDriving = drivingIs0 ? sent0 : sent1;
+  const costOther = drivingIs0 ? sent1 : sent0;
+
+  // 3b. The leave rule, on a side that takes a fee: these shares, taken out of the pool as
+  // this deposit leaves it, must bring at least 1 back to the wallet there.
+  if (fees[0] || fees[1]) {
+    const back = lpTokensToTradingTokens(lp, S + lp, R0 + cost.token0Amount, R1 + cost.token1Amount, 'floor');
+    if (!back) return { problem: 'overflow' };
+    if (afterFee(fees[0], back.token0Amount) < 1n || afterFee(fees[1], back.token1Amount) < 1n) {
+      return { problem: 'too-small', minLp: minLpForBothSides(s, fees) };
+    }
+  }
 
   // 4. The driving side's maximum is exactly what was typed.
-  if (costDriving > a.maxIn) throw new Error('planDeposit: the driving side costs more than its maximum');
+  if (costDriving > a.maxIn) {
+    if (!feeDriving) throw new Error('planDeposit: the driving side costs more than its maximum');
+    return { problem: 'transfer-fee' };
+  }
   const maxDriving = a.maxIn;
 
   // 5. The other side's maximum, lowered to the balance when the cost still fits it.
@@ -152,18 +223,21 @@ export function planDeposit(
   // 7. Nothing past u64, no maximum of u64::MAX, and the supply after must fit.
   const max0 = drivingIs0 ? maxDriving : maxOther;
   const max1 = drivingIs0 ? maxOther : maxDriving;
-  for (const v of [lp, cost.token0Amount, cost.token1Amount]) if (v > U64_MAX) return { problem: 'overflow' };
+  for (const v of [lp, sent0, sent1]) if (v > U64_MAX) return { problem: 'overflow' };
   if (max0 > U64_MAX - 1n || max1 > U64_MAX - 1n) return { problem: 'overflow' };
   if (S + lp > U64_MAX) return { problem: 'overflow' };
 
-  return { lp, cost0: cost.token0Amount, cost1: cost.token1Amount, max0, max1, limitedByBalance };
+  return { lp, cost0: sent0, cost1: sent1, fee0, fee1, max0, max1, limitedByBalance };
 }
 
 export interface WithdrawPlan {
   lp: bigint;
-  /** What the withdrawal pays on each side at this snapshot (floor). */
+  /** What reaches the wallet on each side at this snapshot: the pool's payout (floor), less the side's transfer fee. */
   out0: bigint;
   out1: bigint;
+  /** The transfer fee the token keeps back of each payout. 0 with no fee. */
+  fee0: bigint;
+  fee1: bigint;
   /** The minima the transaction carries. */
   min0: bigint;
   min1: bigint;
@@ -174,27 +248,36 @@ export interface WithdrawPlan {
 }
 
 /** A withdrawal of `pctBps` (1 to 10000) of `held`. 10000 is exactly `held`. */
-export function planWithdraw(s: PoolSnapshot, a: { held: bigint; pctBps: bigint; bps: bigint }): WithdrawPlan | PlanProblem {
+export function planWithdraw(s: PoolSnapshot, a: { held: bigint; pctBps: bigint; bps: bigint; fees?: PoolFees }): WithdrawPlan | PlanProblem {
+  const fees = a.fees ?? NO_FEES;
   // 1. Inputs.
   if (a.pctBps < 1n || a.pctBps > BPS) return { problem: 'bad-percent' };
   if (a.held < 1n) return { problem: 'nothing-held' };
   // 2. The shares.
   const lp = a.pctBps === BPS ? a.held : (a.held * a.pctBps) / BPS;
-  const minLp = minLpForBothSides(s);
+  const minLp = minLpForBothSides(s, fees);
   if (lp < 1n) return { problem: 'too-small', minLp };
-  // 3. What they pay, the program's way.
+  // 3. What they pay, the program's way, and what reaches the wallet of it: withdraw.rs
+  // takes each side's transfer fee off the payout, and holds the minimum to what is left.
   const out = lpTokensToTradingTokens(lp, s.pool.lpSupply, s.reserve0, s.reserve1, 'floor');
   if (!out || out.token0Amount === 0n || out.token1Amount === 0n) return { problem: 'too-small', minLp };
+  const fee0 = poolFee(fees[0], out.token0Amount);
+  const fee1 = poolFee(fees[1], out.token1Amount);
+  const get0 = out.token0Amount - fee0;
+  const get1 = out.token1Amount - fee1;
+  if (get0 < 1n || get1 < 1n) return { problem: 'too-small', minLp };
   // 4. A remainder too small to ever take out.
   const keep = a.held - lp;
   if (keep > 0n && minLp !== null && keep < minLp) return { problem: 'dust-remainder', keep, minLp };
   // 5. The minima.
   return {
     lp,
-    out0: out.token0Amount,
-    out1: out.token1Amount,
-    min0: minOutFor(out.token0Amount, a.bps),
-    min1: minOutFor(out.token1Amount, a.bps),
+    out0: get0,
+    out1: get1,
+    fee0,
+    fee1,
+    min0: minOutFor(get0, a.bps),
+    min1: minOutFor(get1, a.bps),
     all: lp === a.held,
     keep,
   };
@@ -267,25 +350,35 @@ export type OpeningProblem =
  * amounts and `supply` shares, and the opener holds `supply − 100`. Taken out whole, the
  * pool program's own way (floor), they must pay at least 1 on EACH side: a withdrawal
  * that pays 0 on a side is refused, and a smaller share of the same pool pays no more.
+ *
+ * With a transfer fee on a side (`fees`), the pool holds what REACHES its vault, and the
+ * opener's shares, taken out whole, must bring at least 1 back after the fee again. A fee
+ * that leaves the vault nothing gives a supply of 0, so the opening is `too-small`.
  */
-export function openingProblem(amount0: bigint, amount1: bigint): OpeningProblem | null {
+export function openingProblem(amount0: bigint, amount1: bigint, fees: PoolFees = NO_FEES): OpeningProblem | null {
   if (amount0 < 1n || amount1 < 1n) return { problem: 'empty-side' };
   if (amount0 > U64_MAX || amount1 > U64_MAX) return { problem: 'overflow' };
-  const supply = isqrt(amount0 * amount1);
+  const vault0 = afterFee(fees[0], amount0);
+  const vault1 = afterFee(fees[1], amount1);
+  const supply = isqrt(vault0 * vault1);
   if (supply <= LOCKED_LP) return { problem: 'too-small', supply };
   if (LOCKED_LP * BPS > supply * MAX_LOCK_BPS) return { problem: 'lock-too-large', supply };
-  const mine = lpTokensToTradingTokens(supply - LOCKED_LP, supply, amount0, amount1, 'floor');
+  const mine = lpTokensToTradingTokens(supply - LOCKED_LP, supply, vault0, vault1, 'floor');
   if (!mine) return { problem: 'overflow' };
-  if (mine.token0Amount < 1n) return { problem: 'cannot-leave', supply, short: 0 };
-  if (mine.token1Amount < 1n) return { problem: 'cannot-leave', supply, short: 1 };
+  if (afterFee(fees[0], mine.token0Amount) < 1n) return { problem: 'cannot-leave', supply, short: 0 };
+  if (afterFee(fees[1], mine.token1Amount) < 1n) return { problem: 'cannot-leave', supply, short: 1 };
   return null;
 }
 
 export interface CreatePlan {
-  /** What `initialize` carries, by side: token0 first. */
+  /** What `initialize` carries, by side: token0 first. All of it leaves the wallet. */
   init0: bigint;
   init1: bigint;
-  /** isqrt(quote·token): the pool's whole share count. */
+  /** What reaches the pool's vaults of each side: the amount less its transfer fee. */
+  vault: { quote: bigint; token: bigint };
+  /** What each side's transfer fee keeps back. 0 with no fee. */
+  fee: { quote: bigint; token: bigint };
+  /** isqrt of the two vault amounts: the pool's whole share count. */
   supply: bigint;
   /** What the opener gets: supply − 100. */
   lp: bigint;
@@ -314,22 +407,28 @@ export function planCreate(a: {
   token: bigint;
   availableQuote: bigint | null;
   availableToken: bigint | null;
+  /** The TOKEN's transfer fee; the pairing coin takes none. */
+  tokenFee?: TransferFee | null;
 }): CreatePlan | CreateProblem {
+  const tokenFee = a.tokenFee ?? null;
   // Asked with the coin's amount first, so a short first amount is the coin's.
-  const problem = openingProblem(a.quote, a.token);
+  const problem = openingProblem(a.quote, a.token, [null, tokenFee]);
   if (problem?.problem === 'cannot-leave') return { problem: 'cannot-leave', supply: problem.supply, side: problem.short === 0 ? 'quote' : 'token' };
   if (problem) return problem;
   if (a.availableQuote !== null && a.quote > a.availableQuote) return { problem: 'over-balance', side: 'quote', need: a.quote, have: a.availableQuote };
   if (a.availableToken !== null && a.token > a.availableToken) {
     return { problem: 'over-balance', side: 'token', need: a.token, have: a.availableToken };
   }
-  const supply = isqrt(a.quote * a.token);
+  const vault = { quote: a.quote, token: afterFee(tokenFee, a.token) };
+  const supply = isqrt(vault.quote * vault.token);
   return {
     init0: a.quoteIsToken0 ? a.quote : a.token,
     init1: a.quoteIsToken0 ? a.token : a.quote,
+    vault,
+    fee: { quote: 0n, token: a.token - vault.token },
     supply,
     lp: supply - LOCKED_LP,
-    locked: { quote: lockedBehind(a.quote, supply), token: lockedBehind(a.token, supply) },
+    locked: { quote: lockedBehind(vault.quote, supply), token: lockedBehind(vault.token, supply) },
   };
 }
 

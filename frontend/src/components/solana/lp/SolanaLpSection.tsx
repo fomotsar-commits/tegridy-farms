@@ -4,6 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { useSearchParams } from 'react-router-dom';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { SolanaProviders } from '../SolanaProviders';
+import { SheetBodyOutlet } from '../../sheet/SheetOutlet';
 import type { FeeTierRead } from '../../../lib/solana/lp/poolFinder';
 import { lpWriteMode, type LpWriteMode } from '../../../lib/launcher/solana/lpWriteFlag';
 import { isLpKind } from '../../../lib/launcher/solana/write/lpKinds';
@@ -24,6 +25,7 @@ import { RISK_SHORT } from './LpDisclosures';
 import { LpWritesProvider, useLpWrites } from './useLpWrites';
 import { browserLpReaders, type LpReaders } from './readers';
 import type { LpDoorAnchor } from './lpDoor';
+import { useSheet } from '../../sheet/sheetContext';
 
 /**
  * The Solana LP section on /pools (owner, 2026-10-14:
@@ -42,6 +44,8 @@ export default function SolanaLpSection({ readers: given, door }: { readers?: Lp
   return (
     <SolanaProviders>
       <LpInner readers={readers} door={door} />
+      {/* The sheet's form signs with this page's one connection (lib/sheetStore.ts). */}
+      <SheetBodyOutlet />
     </SolanaProviders>
   );
 }
@@ -144,6 +148,14 @@ function LpBody({ readers, mode, reloadKey, home, door }: { readers: LpReaders; 
   const doorPool = params.get('pool');
   // The page holds the door's place until this section takes it, whether or not it draws one.
   useLayoutEffect(() => door?.claim(), [door]);
+  // The sheet (island answer twenty-five, build 3): Add with one coin on the room's own pool, asked
+  // once as the door asks it, so its form, or why it did not open, is drawn in the sheet. Before the
+  // first paint: a frame of the section without its door dropped the sheet 320 px and back.
+  const sheet = useSheet();
+  useLayoutEffect(() => {
+    if (!sheet || !homeMint || !homePool || !finderRef.current) return;
+    finderRef.current.openAdd(homeMint, { form: 'one', top: true, pool: homePool });
+  }, [sheet, homeMint, homePool]);
   useEffect(() => {
     if (doorTask !== 'add' || !mint || !finderRef.current) return;
     finderRef.current.openAdd(mint, { form: 'one', top: true, ...(doorPool ? { pool: doorPool } : { quote: SOL_MINT }) });
@@ -194,6 +206,15 @@ function LpBody({ readers, mode, reloadKey, home, door }: { readers: LpReaders; 
       onAllPools={readers.listPools && !homeMint ? toAllPools : undefined}
     />
   );
+
+  if (homeMint && sheet) {
+    return (
+      <div className="flex flex-col gap-3" data-testid="lp-section" data-lp-mode={mode} data-lp-sheet="">
+        {writesTop}
+        {finder}
+      </div>
+    );
+  }
 
   if (homeMint) {
     return (

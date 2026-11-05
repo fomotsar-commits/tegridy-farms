@@ -45,6 +45,9 @@ vi.mock('wagmi', () => ({
   useReadContracts: () => ({ data: undefined, isLoading: false, isError: false }),
   useWriteContract: () => ({ writeContract: vi.fn(), data: undefined, isPending: false, reset: vi.fn() }),
   useWaitForTransactionReceipt: () => ({ data: undefined, isLoading: false, isSuccess: false }),
+  // Harvest's (components/farm/HarvestCard.tsx), rendered for real: with no wallet it draws nothing.
+  useSwitchChain: () => ({ switchChainAsync: vi.fn() }),
+  usePublicClient: () => undefined,
 }));
 vi.mock('framer-motion', () => {
   const passthrough = new Proxy(

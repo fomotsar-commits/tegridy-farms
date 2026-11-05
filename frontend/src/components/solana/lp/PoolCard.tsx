@@ -1,13 +1,17 @@
 import { useEffect, useId, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { isCreatedPool, type PoolEntry, type PoolView } from '../../../lib/solana/lp/poolFinder';
 import { REFERENCE_NAME, formatWhen, vaultFreezer, type PoolHealth, type PriceReference, type WithdrawalsState } from '../../../lib/solana/lp/poolHealth';
-import { feeRateText, quoteText, tokenText, tradeCostText, turnedDiff } from '../../../lib/solana/lp/format';
+import { feeRateText, formatSolPrice, priceText, quoteText, tokenText, tradeCostText, turnedDiff } from '../../../lib/solana/lp/format';
+import { SHEET_WORDS } from '../../../lib/arrival';
+import { useSheet } from '../../sheet/sheetContext';
 import { pairLabel, tokenTicker } from '../../../lib/solana/lp/identity';
 import type { QuoteCoin } from '../../../lib/solana/lp/quotes';
 import { NOTHING_WHY, noPriceClause } from '../../../lib/solana/lp/poolHealth';
-import { chargedCreatorFeeRate, feeSplit } from '../../../lib/solana/cpswap/venue';
-import { ratePercent } from '../../../lib/solana/cpswap/math';
-import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
+import { readAgo } from '../../../lib/solana/lp/outsidePrice';
+import { publishRoomPrice } from '../../../lib/solana/lp/roomPrice';
+import { getActiveBungalow } from '../../../lib/bungalows';
+import { chargedCreatorFeeRate, feeSplit, feeSplitText } from '../../../lib/solana/cpswap/venue';
+import { EXACT_EXTENSIONS, type TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { poolEarned } from '../../../lib/solana/lp/poolGrowth';
 import {
   POOL_PAST_AGAIN,
@@ -24,6 +28,7 @@ import { HISTORY_PAGES_MAX } from '../../../lib/solana/lp/txHistory';
 import { Notice, Row } from '../curve/ui';
 import { CARD, CARD_STYLE, DIVIDER, SHADOW } from '../curve/uiFormat';
 import { CardArt } from '../../ui/CardArt';
+import { CoinName } from '../../ui/CoinName';
 import { AddLiquidityPanel } from './AddLiquidityPanel';
 import { AddOneCoinPanel } from './AddOneCoinPanel';
 import { AddressRow } from './AddressRow';
@@ -35,6 +40,8 @@ import type { LpReaders } from './readers';
 import { useLpWrites, type LpWrites } from './useLpWrites';
 import { WholeDates } from './WholeDates';
 import { DoorPortal } from './LpDoorFrame';
+import { Link } from 'react-router-dom';
+import { pairSwapLink } from '../../../lib/solana/lp/poolList';
 
 const ORIGIN_LABEL: Record<PoolView['origin'], string> = {
   'launch-pool': 'Launch pool: opened by the launch program when the token graduated',
@@ -149,6 +156,15 @@ function PriceRows({ price, quote, unit }: { price: PoolHealth['price']; quote: 
       );
     case 'skipped':
     case 'unread':
+      // The shared list's hold is one row in its own words: "not read for 12 min; adding waits" (answer twenty-four, build 1c).
+      if (price.state === 'unread' && price.hold) {
+        return (
+          <>
+            <Row label="Price here" value={price.pool === null ? 'not worked out' : here(price.pool)} mono={false} />
+            <Row label="Outside price" value={price.detail.replace(/^Outside price /, '')} mono={false} tone="warn" />
+          </>
+        );
+      }
       return (
         <>
           <Row label="Price here" value={price.pool === null ? 'not worked out' : here(price.pool)} mono={false} />
@@ -161,9 +177,19 @@ function PriceRows({ price, quote, unit }: { price: PoolHealth['price']; quote: 
       return (
         <>
           <Row label="Price here" value={here(price.pool)} mono={false} />
+          {/* With the shared list's read time: "read 40 s ago" (answer twenty-four, build 1). */}
           <Row
             label={REFERENCE_LABEL[price.against]}
-            value={here(price.reference)}
+            value={
+              price.readAtMs === undefined ? (
+                here(price.reference)
+              ) : (
+                <>
+                  {here(price.reference)}
+                  <span className="text-white/55">, {readAgo(price.readAtMs)}</span>
+                </>
+              )
+            }
             mono={false}
           />
           {/* Further apart than the check allows is a warning, not a refusal: the value is in the warning colour and names what it is off from; its cost is listed with the deposit checks. */}
@@ -176,6 +202,63 @@ function PriceRows({ price, quote, unit }: { price: PoolHealth['price']; quote: 
       );
     }
   }
+}
+
+/**
+ * The sheet's two rows and its fee line (island answer twenty-five, screen 1, rows 6 and 7),
+ * from the same reads as the card's rows: "Pool price / 1 BAYLA = 0.000007394 SOL" and
+ * "Outside price / 0.000007465 SOL · read 37 s ago", 24 px each, 13 px; past ten minutes the
+ * list's one-row hold says why adding waits. A price with no outside reference is said in the
+ * card's own words. Never a typed figure.
+ */
+function SheetPoolRows({ price, quote, unit, split }: { price: PoolHealth['price']; quote: QuoteCoin; unit: { one: string; many: string }; split: string | null }) {
+  const row = (label: string, value: ReactNode, warn = false) => (
+    <div className="flex items-baseline justify-between gap-3 min-h-[24px] text-[13px]">
+      <span className="shrink-0" style={{ color: 'var(--color-text-secondary)' }}>
+        {label}
+      </span>
+      <span className={`text-right [overflow-wrap:anywhere] ${warn ? 'text-amber-300' : ''}`} style={warn ? undefined : { color: 'var(--color-text-primary)' }}>
+        {value}
+      </span>
+    </div>
+  );
+  let rows: ReactNode;
+  if (price.state === 'agrees' || price.state === 'disagrees') {
+    const value = (
+      <>
+        {formatSolPrice(price.reference)} {quote.symbol}
+        {price.readAtMs !== undefined && <span style={{ color: 'var(--color-text-secondary)' }}> · {readAgo(price.readAtMs)}</span>}
+      </>
+    );
+    rows = (
+      <>
+        {row(SHEET_WORDS.poolPrice, priceText(price.pool, quote, unit.one))}
+        {row(price.against === 'outside' ? SHEET_WORDS.outsidePrice : REFERENCE_LABEL[price.against], value)}
+        {price.state === 'disagrees' && row('Difference', `${differenceText(price.diff)} ${REFERENCE_NAME[price.against]}`, true)}
+      </>
+    );
+  } else if (price.state === 'unread' && price.hold) {
+    rows = (
+      <>
+        {row(SHEET_WORDS.poolPrice, price.pool === null ? 'not worked out' : priceText(price.pool, quote, unit.one))}
+        {row(SHEET_WORDS.outsidePrice, price.detail.replace(/^Outside price /, ''), true)}
+      </>
+    );
+  } else {
+    rows = (
+      <div className="space-y-1.5 text-[12px]">
+        <PriceRows price={price} quote={quote} unit={unit} />
+      </div>
+    );
+  }
+  return (
+    <div data-testid="lp-door-facts" className="!mt-4">
+      {rows}
+      <p data-testid="sheet-fee-line" className={`text-[12px] mt-3 ${split ? '' : 'text-amber-300'}`} style={split ? { color: 'var(--color-text-secondary)' } : undefined}>
+        {split ? `${split}.` : 'This pool’s fee settings could not be read.'}
+      </p>
+    </div>
+  );
 }
 
 /**
@@ -303,6 +386,12 @@ export function PoolCard({
   const tokFees = view.quoteIsToken0 ? [pool.protocolFeesToken1 + pool.fundFeesToken1, pool.creatorFeesToken1] : [pool.protocolFeesToken0 + pool.fundFeesToken0, pool.creatorFeesToken0];
   const price = health.price;
   const depositsHead = depositHeading(health.deposits);
+  // The room's own pool tells Bayla's line its price and how old its outside price is (answer twenty-four, build 4).
+  useEffect(() => {
+    if ((price.state !== 'agrees' && price.state !== 'disagrees') || price.readAtMs === undefined) return;
+    if (getActiveBungalow()?.address !== view.tokenMint) return;
+    publishRoomPrice({ mint: view.tokenMint, text: `${price.pool.toPrecision(3)} ${view.quote.symbol}`, readAtMs: price.readAtMs });
+  }, [price, view.tokenMint, view.quote.symbol]);
   // What its shares have earned, from what the finder already read: no call of its own.
   const earned = poolEarned(view, chainNow);
   const unit = tokenUnits(view.tokenMint, safety);
@@ -310,9 +399,7 @@ export function PoolCard({
   const explorer = explorerOf(writes);
   // The wallet a creator fee is paid to stays in view whenever this pool charges one.
   const openedBy = <AddressRow label="Opened by" value={pool.poolCreator} explorer={explorer(pool.poolCreator, 'wallet')} />;
-  const splitText = split
-    ? `LPs keep ${split.lpKeepsPct.toFixed(3)}% of each trade, the venue ${split.venueTakesPct.toFixed(3)}%${creatorRate > 0n ? `, the pool's creator ${ratePercent(creatorRate).toFixed(3)}%` : ''}`
-    : null;
+  const splitText = cfg ? feeSplitText(cfg, pool.enableCreatorFee) : null;
   // The pool's own account keeps its records; its coins sit in its two vaults, each a press away.
   const [quoteVault, tokenVault] = view.quoteIsToken0 ? [pool.token0Vault, pool.token1Vault] : [pool.token1Vault, pool.token0Vault];
   const address = (
@@ -372,7 +459,11 @@ export function PoolCard({
   );
 
   // The door draws the Add form away from this card (LpDoorFrame): the figures it needs go with it.
-  const doorFacts = (
+  // In the sheet (island answer twenty-five) they are its two rows and its fee line.
+  const sheet = useSheet();
+  const doorFacts = sheet ? (
+    <SheetPoolRows price={price} quote={view.quote} unit={unit} split={splitText} />
+  ) : (
     <div data-testid="lp-door-facts" className="space-y-1.5 text-[12px]">
       <PriceRows price={price} quote={view.quote} unit={unit} />
       <Row label="Who earns" value={splitText ? `${splitText}.` : 'This pool’s fee settings could not be read.'} mono={false} />
@@ -403,6 +494,11 @@ export function PoolCard({
       <h3 ref={headingRef} tabIndex={-1} aria-describedby={why ? whyId : undefined} className="text-white font-semibold text-[15px] mb-1 outline-none [overflow-wrap:anywhere]" style={SHADOW}>
         {pairLabel(view, safety)}
       </h3>
+      {/* Each coin's name copies its whole address (island answer twenty-four), under the heading's words. */}
+      <div data-testid="lp-pool-coins" className="flex flex-wrap gap-x-4 mb-1">
+        <CoinName name={tokenTicker(view.tokenMint, safety) ?? 'Token'} address={view.tokenMint} />
+        <CoinName name={view.quote.symbol} address={view.quote.mint} />
+      </div>
       {why && (
         <DoorPortal when={shownAtTop}>
           <WishWhy id={whyId} why={why} fromDoor={shownFromDoor} />
@@ -425,6 +521,12 @@ export function PoolCard({
         <Part title="Price">
           <Row label="In the pool" value={`${quoteText(view.quoteReserve, view.quote)} and ${tokenText(view.tokenReserve, tokenDecimals, unit.many)}`} mono={false} />
           <PriceRows price={price} quote={view.quote} unit={unit} />
+          {/* The pair on the swap page, under the price it would trade at (owner, 2026-10-30: Swap beside Add). */}
+          <div className="pt-1">
+            <Link to={pairSwapLink(view)} className="btn-secondary min-h-[44px] px-4 text-[13px] inline-flex items-center" data-testid="lp-pool-swap" aria-label={`Swap ${pairLabel(view, safety)}`}>
+              Swap
+            </Link>
+          </div>
         </Part>
 
         <Part title="Trading and deposits">
@@ -439,7 +541,8 @@ export function PoolCard({
           )}
           <div data-testid="lp-pool-deposits">
             <p className={`text-[12px] font-semibold ${depositsHead.tone}`}>{depositsHead.title}</p>
-            {health.deposits.reasons.map((r) => (
+            {/* The shared list's hold is already the one row above the checks; it is not said again as a paragraph. */}
+            {health.deposits.reasons.filter((r) => !(price.state === 'unread' && price.hold && r === price.detail)).map((r) => (
               <Notice key={r} tone={health.deposits.verdict === 'refused' ? 'bad' : 'warn'}>{r}</Notice>
             ))}
             {/* Said whatever the verdict is: a pool that is refused or unchecked for another reason still has them. */}
@@ -600,8 +703,11 @@ function DepositOfferBlock({
   const blockRef = useRef<HTMLDivElement | null>(null);
   const acted = useRef(0);
   const { open: openPanel, busy } = writes;
+  // "Add with one coin" swaps, then deposits, with no transfer-fee maths: a token whose
+  // transfers do not move exactly what is sent (EXACT_EXTENSIONS) is added with both coins.
+  const oneCoinOff = safety?.kind === 'read' && (safety.facts?.extensions ?? []).some((e) => !EXACT_EXTENSIONS.has(e));
   // The LP door asks for Add with one coin (`openForm`); every other wish, Add liquidity.
-  const wishKey = openForm === 'one' ? `one:${view.address}` : key;
+  const wishKey = openForm === 'one' && !oneCoinOff ? `one:${view.address}` : key;
   useEffect(() => {
     if (!openNow || acted.current === openNow || offer !== 'offer') return;
     acted.current = openNow;
@@ -616,7 +722,7 @@ function DepositOfferBlock({
   // own sent deposit makes this pool `held`, and the outcome on screen must not vanish.
   // "Add with one coin" (AddOneCoinPanel.tsx): offered exactly where Add liquidity is, and held by the same lock.
   const oneKey = `one:${view.address}`;
-  const oneOpen = writes.active?.key === oneKey;
+  const oneOpen = writes.active?.key === oneKey && !oneCoinOff;
   const blockedOne = writes.busy && !oneOpen;
   // The door's wish (`atTop`) opens its form in the door, and this card's forms stay there ("I
   // have both coins" too) until they close; the next form it opens is on the card. Latched when
@@ -657,16 +763,19 @@ function DepositOfferBlock({
             >
               Add liquidity
             </button>
-            <button
-              type="button"
-              className="btn-secondary w-full sm:w-auto min-h-[44px] px-4 text-[13px] disabled:opacity-60"
-              disabled={blockedOne}
-              aria-expanded={oneOpen}
-              onClick={(e) => writes.open('add', oneKey, e.currentTarget)}
-            >
-              Add with one coin
-            </button>
+            {!oneCoinOff && (
+              <button
+                type="button"
+                className="btn-secondary w-full sm:w-auto min-h-[44px] px-4 text-[13px] disabled:opacity-60"
+                disabled={blockedOne}
+                aria-expanded={oneOpen}
+                onClick={(e) => writes.open('add', oneKey, e.currentTarget)}
+              >
+                Add with one coin
+              </button>
+            )}
           </div>
+          {oneCoinOff && <p className="text-white/45 text-[11px]">Add with one coin is not offered for a token with a transfer fee: add both sides.</p>}
           {(blockedByOther || blockedOne) && <Notice>Finish or close the open liquidity panel first.</Notice>}
           {/* The checks run again at Review, where they are said; nothing about them here (owner, 2026-10-17). */}
         </>
@@ -686,6 +795,8 @@ function OfferLine({ offer, health }: { offer: DepositOffer; health: PoolHealth 
       // Not about the outside price alone any more: a pool with no market price at all is
       // offered, with a warning. What stops it here is a check that could not be RUN (the
       // reasons above say which), and a read that failed is never taken as a pass.
+      // The shared list's hold said it in one row ("adding waits"): nothing more under it.
+      if (health.price.state === 'unread' && health.price.hold) return null;
       return health.deposits.verdict === 'unchecked' ? (
         <Notice>Adding is off: a check above could not be run just now.</Notice>
       ) : null;
