@@ -62,14 +62,17 @@ export function __resetOutsidePrices() {
  * The order one loop prices in. The tokens this instance asked about longest ago go first, a
  * token never asked counting as longest ago, so the tail the budget cut off in one loop is first
  * in the next. Before this the order was the pool list's, every loop, and the same tail ran out
- * of time every loop: BAYLA's Add form never opened (the walk of 2026-11-05). Ties keep the list's
- * order turned to start at a place that moves each minute, so cold instances, which all tie, do
- * not starve the same tail either.
+ * of time every loop: BAYLA's Add form never opened (the walk of 2026-11-05). Where tokens tie
+ * (every token, on a cold instance) the island's coins go first, in FIRST_MINTS order (island
+ * answer twenty-seven, cut 2), and the rest keep the list's order turned to start at a place that
+ * moves each minute, so cold instances do not starve the same tail either.
  */
 export function pricingOrder(all, asked, nowMs) {
   if (all.length === 0) return [];
-  const turn = Math.floor(nowMs / 60_000) % all.length;
-  const turned = [...all.slice(turn), ...all.slice(0, turn)];
+  const first = FIRST_MINTS.filter((m) => all.includes(m));
+  const rest = all.filter((m) => !FIRST_MINTS.includes(m));
+  const turn = rest.length === 0 ? 0 : Math.floor(nowMs / 60_000) % rest.length;
+  const turned = [...first, ...rest.slice(turn), ...rest.slice(0, turn)];
   const at = (mint) => asked.get(mint) ?? -Infinity;
   return turned
     .map((mint, i) => ({ mint, i }))
