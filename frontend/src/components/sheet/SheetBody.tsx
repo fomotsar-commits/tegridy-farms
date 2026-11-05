@@ -19,7 +19,8 @@ const reading = (kind: SheetKind) => (
 /**
  * The sheet's form (island answer twenty-five, build 3), hosting the logic that already
  * exists: Add is the LP section's Add with one coin on the room's own pool, Buy is the swap
- * page's form on SOL to the room's coin. Their checks, review and signing are theirs, unchanged.
+ * page's form, opening on SOL to the room's coin, either coin pickable from the page's lists.
+ * Their checks, review and signing are theirs, unchanged.
  */
 export default function SheetBody() {
   const sheet = useSheet();
