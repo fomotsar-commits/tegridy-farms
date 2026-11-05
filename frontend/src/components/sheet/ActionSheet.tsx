@@ -5,6 +5,7 @@ import { getActiveBungalow, type Bungalow } from '../../lib/bungalows';
 import { useActiveBungalowId } from '../../hooks/useActiveBungalowId';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { SHEET_WORDS } from '../../lib/arrival';
+import { isRoomDoor } from '../../lib/navConfig';
 import { deepLinkSheet, readSheet, sheetHref, sheetRoom, withoutSheet, type SheetKind } from '../../lib/sheet';
 import { setSheetOpen, useSheetOutletHead } from '../../lib/sheetStore';
 import { useReceipt } from '../../lib/receipt';
@@ -124,7 +125,7 @@ function OpenSheet({ kind, named }: { kind: SheetKind; named: Bungalow | null })
             <svg width="10" height="16" viewBox="0 0 10 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M8 2L2 8l6 6" />
             </svg>
-            {SHEET_WORDS.back}
+            {isRoomDoor(location.pathname) ? SHEET_WORDS.back : SHEET_WORDS.backOff}
           </button>
           {/* Buy names its coin in the form's own bungalow row, which follows a pick from Any coin (SheetBuyRow). */}
           {kind === 'add' && (room ? <CoinRow room={room} /> : <BungalowRow onPick={pick} />)}

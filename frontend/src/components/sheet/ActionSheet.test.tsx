@@ -108,6 +108,17 @@ describe('the sheet', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
+  // Answer twenty-seven: the sheet rises over /pools (a room's pool's Add) and over the home (the
+  // bar's Swap with no room). Neither is a room, so Back says only Back there.
+  it('over a page that is not a room, Back says Back, never "Back to the room"', () => {
+    for (const at of ['/pools?sheet=add&coin=bayla', '/?sheet=buy']) {
+      const { unmount } = mount([at]);
+      expect(within(screen.getByRole('dialog')).getByRole('button', { name: 'Back' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Back to the room' })).toBeNull();
+      unmount();
+    }
+  });
+
   it('Escape and a press on the veil close it too', () => {
     localStorage.setItem('tegridy-bungalow', 'bayla');
     mount(['/bayla?sheet=add']);
