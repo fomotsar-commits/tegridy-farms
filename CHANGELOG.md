@@ -7,6 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-11-05
+
+- The chat assistant no longer says a token can be launched. Asked about launching, the curves or the chains, it says launching a new token is not switched on yet, as the curve pages do.
+
 ### 2026-11-04
 
 - BOBO, SOY, BRAINLET and RIZZ: the "No rewards yet" line beside the lock no longer says a lock there counts your held time. The island does not read these four pools yet, as the card's own line says ("Not counted as held time yet").
