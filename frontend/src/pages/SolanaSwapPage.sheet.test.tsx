@@ -156,7 +156,10 @@ describe('the sheet’s Buy', () => {
     expect(within(buy).getByTestId('her-line')).toBeInTheDocument();
     expect(buy.querySelectorAll('.btn-primary')).toHaveLength(1);
     expect(within(buy).getByRole('button', { name: 'Buy BAYLA' })).toHaveClass('btn-primary');
-    // Not the page's: no heading, no tabs, no pickers, no flip, no share, no slippage drawer.
+    // Both coins are presses that pick them, as on the page (owner, 2026-11-05).
+    expect(within(buy).getByRole('button', { name: 'Pay with SOL' })).toHaveAttribute('aria-haspopup', 'dialog');
+    expect(within(buy).getByRole('button', { name: 'Get BAYLA' })).toHaveAttribute('aria-haspopup', 'dialog');
+    // Not the page's: no heading, no tabs, no flip, no share, no slippage drawer.
     expect(screen.queryByRole('heading', { name: /Swap/ })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Instant swap' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Flip pay and receive tokens' })).toBeNull();
@@ -193,6 +196,50 @@ describe('the sheet’s Buy', () => {
     const line = await screen.findByTestId('sheet-fee-line', {}, { timeout: 5_000 });
     // In the Add sheet's own words ("the venue 0.160%"), not a rule about pairs.
     expect(line).toHaveTextContent(/^The venue takes \d+\.\d{2}% of this trade, in SOL\.$/);
+  });
+
+  it('the coin paid is picked from the page’s own list: the box, the chips and the quote follow it', async () => {
+    inSheet();
+    fireEvent.click(await screen.findByRole('button', { name: 'Pay with SOL' }));
+    const list = await screen.findByRole('dialog', { name: 'Pay with' });
+    fireEvent.click(list.querySelector<HTMLElement>(`[data-token-row="${USDC_MINT}"] > button`)!);
+    expect(screen.queryByRole('dialog', { name: 'Pay with' })).toBeNull();
+    const buy = screen.getByTestId('sheet-buy');
+    expect(within(buy).getByRole('button', { name: 'Pay with USDC' })).toBeInTheDocument();
+    // The SOL amounts are SOL's; Max is the coin paid, in Max's place.
+    const chips = within(buy).getByRole('group', { name: 'How much USDC' }).querySelectorAll('button');
+    expect([...chips].map((b) => b.textContent)).toEqual(['Max USDC']);
+    expect(within(buy).queryByRole('button', { name: '0.05 SOL' })).toBeNull();
+    fireEvent.change(screen.getByTestId('sheet-amount'), { target: { value: '5' } });
+    await waitFor(() => expect(jup.getQuote).toHaveBeenCalledWith(expect.objectContaining({ inputMint: USDC_MINT, outputMint: BAYLA_MINT, amount: '5000000' })), { timeout: 5_000 });
+  });
+
+  it('the coin got is picked from the page’s own list, and the green button buys it', async () => {
+    jup.getQuote.mockResolvedValue(quote);
+    inSheet();
+    fireEvent.click(await screen.findByRole('button', { name: 'Get BAYLA' }));
+    const list = await screen.findByRole('dialog', { name: 'Buy' });
+    fireEvent.click(list.querySelector<HTMLElement>(`[data-token-row="${USDC_MINT}"] > button`)!);
+    expect(await screen.findByRole('button', { name: 'Get USDC' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Buy USDC' })).toHaveClass('btn-primary');
+    fireEvent.click(screen.getByRole('button', { name: '0.5 SOL' }));
+    await waitFor(() => expect(jup.getQuote).toHaveBeenCalledWith(expect.objectContaining({ inputMint: SOL_MINT, outputMint: USDC_MINT, amount: '500000000' })), { timeout: 5_000 });
+    expect(await screen.findByTestId('sheet-you-get', {}, { timeout: 5_000 })).toHaveTextContent(/You get\s*≈ 75 USDC/);
+  });
+
+  it('Escape closes the list and nothing under it: the sheet’s own Escape never hears it', async () => {
+    const sheetEscape = vi.fn((e: KeyboardEvent) => e.key === 'Escape');
+    window.addEventListener('keydown', sheetEscape);
+    try {
+      inSheet();
+      fireEvent.click(await screen.findByRole('button', { name: 'Pay with SOL' }));
+      const list = await screen.findByRole('dialog', { name: 'Pay with' });
+      fireEvent.keyDown(within(list).getByRole('textbox', { name: 'Search tokens' }), { key: 'Escape' });
+      expect(screen.queryByRole('dialog', { name: 'Pay with' })).toBeNull();
+      expect(sheetEscape.mock.results.some((r) => r.value === true)).toBe(false);
+    } finally {
+      window.removeEventListener('keydown', sheetEscape);
+    }
   });
 
   it('with no wallet the green button connects one', async () => {
@@ -295,6 +342,9 @@ describe('the sheet’s bungalow row', () => {
     expect(buy.querySelectorAll('.btn-primary')).toHaveLength(1);
     expect(screen.getByTestId('sheet-go')).toHaveTextContent(/^Buy$/);
     expect(screen.getByTestId('sheet-go')).toBeDisabled();
+    // The You get line names no coin before a pick (the row is the picker then); the coin paid is still a press.
+    expect(screen.queryByTestId('sheet-get-coin')).toBeNull();
+    expect(within(buy).getByRole('button', { name: 'Pay with SOL' })).toBeInTheDocument();
     // No coin, no quote: an amount waits for the pick.
     fireEvent.click(screen.getByRole('button', { name: '0.5 SOL' }));
     await new Promise((r) => setTimeout(r, 600));
@@ -305,6 +355,16 @@ describe('the sheet’s bungalow row', () => {
     await waitFor(() => expect(jup.getQuote).toHaveBeenCalledWith(expect.objectContaining({ inputMint: SOL_MINT, outputMint: USDC_MINT })), { timeout: 5_000 });
     await waitFor(() => expect(screen.getByTestId('sheet-go')).toBeEnabled(), { timeout: 5_000 });
     expect(screen.getByTestId('sheet-go')).toHaveTextContent('Buy USDC');
+    expect(within(buy).getByRole('button', { name: 'Get USDC' })).toBeInTheDocument();
+  });
+
+  it('the row and the You get press are one picker: a pick from the press lights Any coin on the row', async () => {
+    inSheet();
+    fireEvent.click(await screen.findByRole('button', { name: 'Get BAYLA' }));
+    await pickInPicker(USDC_MINT);
+    expect(await screen.findByRole('button', { name: 'Get USDC' })).toBeInTheDocument();
+    expect(chip('Any coin')).toHaveAttribute('aria-pressed', 'true');
+    expect(chip('BAYLA')).toHaveAttribute('aria-pressed', 'false');
   });
 
   it('with no room and no wallet, the green button still waits for a pick before it connects', async () => {
