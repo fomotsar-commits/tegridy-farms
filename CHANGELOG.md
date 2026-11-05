@@ -9,6 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-11-05
 
+- A room's Swap sheet now trades any coin, not only SOL for the room's coin. The coin you pay (beside the amount) and the coin you get (on the You get line) each open the Solana swap's own coin list, with its search; it still opens on SOL to the room's coin. The amount chips follow the coin you pay (two SOL amounts and Max when it is SOL, Max of that coin otherwise), and Pool price shows while the trade is SOL and the room's coin, either way round. Quotes, routes, fees and signing are the swap's own: through Jupiter the venue takes 0.50% when SOL, USDC or USDT is one side of the trade, and nothing on a trade between two other coins.
 - The chat assistant no longer says a token can be launched. Asked about launching, the curves or the chains, it says launching a new token is not switched on yet, as the curve pages do.
 
 ### 2026-11-04
