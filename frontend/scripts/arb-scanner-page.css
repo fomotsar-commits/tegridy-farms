@@ -46,3 +46,6 @@ a:hover { text-decoration: underline; }
 .tag { display: inline-block; font-size: 11px; border-radius: 3px; padding: 0 4px; margin: 0 4px 2px 0; border: 1px solid var(--line); }
 .tag.warn { color: var(--warn); border-color: var(--warn); }
 .tag.bad { color: var(--bad); border-color: var(--bad); }
+.rank { margin: 0.5rem 0; }
+.rank button { font: inherit; padding: 0.15rem 0.6rem; border: 1px solid var(--line); background: var(--panel); color: var(--text); border-radius: 4px; cursor: pointer; }
+.rank button[aria-pressed="true"] { border-color: var(--link); color: var(--link); font-weight: 700; }

@@ -14,6 +14,12 @@
  *      venue's direct route, our pool's leg built here, the last leg's minimum = spent + floor,
  *      then a mainnet simulateTransaction judged on the balances it leaves (the robot's rule).
  *
+ * Whether the robot takes a trip, its size and its floor come from the robot's OWN rule
+ * (src/lib/solana/keeper/rule.ts), read with the robot's settings (KEEPER_MAX_TRADE_USD,
+ * KEEPER_MIN_PROFIT_USD, KEEPER_PRIORITY_MICROLAMPORTS), and each test run ends with the robot's
+ * Lighthouse check (keeper/lighthouse.ts). The cap goes past $25 only once the check is proven
+ * on mainnet at start, as the robot does.
+ *
  * READ-ONLY: it holds no key, signs nothing and sends nothing. A test run needs no signature.
  * One IP serves every script here (the robot too), so every reader is gated and backs off.
  *
@@ -27,13 +33,40 @@ import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { register } from 'node:module';
 import bs58 from 'bs58';
 import { AddressLookupTableAccount, ComputeBudgetProgram, PublicKey, TransactionInstruction, TransactionMessage, VersionedTransaction } from '@solana/web3.js';
 import { createAssociatedTokenAccountIdempotentInstruction, getAssociatedTokenAddressSync } from '@solana/spl-token';
-import * as C from './lib/arb-chain.mjs';
+
+// The robot's TS modules run here as they do in scripts/price-keeper.mjs: its loader, registered
+// before anything imports them.
+const loaderSource = `
+import { stripTypeScriptTypes } from 'node:module';
+export async function resolve(specifier, context, nextResolve) {
+  const relative = specifier[0] === '.';
+  const hasExt = /\\.[cm]?[jt]sx?$/.test(specifier);
+  if (!relative || hasExt) return nextResolve(specifier, context);
+  try {
+    return await nextResolve(specifier + '.ts', context);
+  } catch {
+    return nextResolve(specifier + '.js', context);
+  }
+}
+export async function load(url, context, nextLoad) {
+  if (!/\\.tsx?$/.test(new URL(url).pathname)) return nextLoad(url, context);
+  const r = await nextLoad(url, { ...context, format: 'module' });
+  const src = typeof r.source === 'string' ? r.source : Buffer.from(r.source).toString('utf8');
+  return { ...r, format: 'module', source: 'import.meta.env ??= {};' + stripTypeScriptTypes(src, { mode: 'strip' }) };
+}
+`;
+register(`data:text/javascript,${encodeURIComponent(loaderSource)}`);
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
+const keeper = (name) => import(pathToFileURL(path.join(HERE, '..', 'src', 'lib', 'solana', 'keeper', name)).href);
+const C = await import('./lib/arb-chain.mjs');
+const R = await keeper('rule.ts');
+const LH = await keeper('lighthouse.ts');
 const PORT = Number(process.env.ARB_PORT || 8791);
 const RPC = process.env.ARB_RPC_URL?.trim() || 'https://api.mainnet-beta.solana.com';
 const LOG = process.env.ARB_LOG?.trim() || path.join(os.tmpdir(), 'arb-scanner-test-runs.csv');
@@ -132,7 +165,29 @@ const S = {
   note: 'starting…',
   stats: { scans: 0, paying: 0, tried: 0, passed: 0, payingRoutes: new Set(), passedRoutes: new Set() },
   universeAt: 0,
+  // The robot's rule settings; `lighthouseProven` is set once the proof below has run.
+  settings: R.ruleSettingsFromEnv(process.env, false),
+  lighthouse: { proven: false, why: 'not run yet' },
 };
+
+/** The robot's start-up proof (keeper/lighthouse.ts), from its wallet: test runs only. */
+async function proveLighthouseNow() {
+  try {
+    const owner = new PublicKey(C.ROBOT.wallet);
+    const ata = getAssociatedTokenAddressSync(new PublicKey(C.SOL_MINT), owner, true);
+    const held = await rpc('getTokenAccountBalance', [ata.toBase58(), { commitment: 'confirmed' }]);
+    const why = await LH.proveLighthouse(ata, BigInt(held.value.amount), async (ix) => {
+      const tx = new VersionedTransaction(new TransactionMessage({ payerKey: owner, recentBlockhash: PublicKey.default.toBase58(), instructions: [ix] }).compileToV0Message());
+      const r = await rpc('simulateTransaction', [Buffer.from(tx.serialize()).toString('base64'), { encoding: 'base64', sigVerify: false, replaceRecentBlockhash: true, commitment: 'confirmed' }]);
+      return r.value.err;
+    });
+    S.lighthouse = { proven: why === null, why };
+  } catch (e) {
+    S.lighthouse = { proven: false, why: `the proof could not run: ${said(e)}` };
+  }
+  S.settings = { ...S.settings, lighthouseProven: S.lighthouse.proven };
+  log(S.lighthouse.proven ? `Lighthouse check PROVEN on mainnet: trips up to $${R.capUsd(S.settings)}` : `Lighthouse check not proven (${S.lighthouse.why}): trips at most $${R.SAFE_CAP_USD}`);
+}
 const routeOf = (t) => t.legs.map((l) => l.pool).join('>');
 
 async function readUniverse() {
@@ -230,7 +285,7 @@ async function scan(coin) {
   const amounts = new Map(keys.map((k) => [k, C.tokenAmount(byKey.get(k)?.data)]));
   const pools = coin.pools.map((p) => C.withFee(C.decodePool(p.dex, p.address, byKey.get(p.address)?.data) ?? {}, S.configs)).filter((p) => p && p.mintA);
   const depths = new Map(pools.map((p) => [p.address, C.depthOf(p, amounts)]));
-  const trips = C.tripsFor(pools, { token: coin.mint, decimals: coin.decimals, depths, usd: S.usd, holds: S.holds, bridge: { pool: bridge, depth: bridgeDepth } });
+  const trips = C.tripsFor(pools, { token: coin.mint, decimals: coin.decimals, depths, usd: S.usd, holds: S.holds, bridge: { pool: bridge, depth: bridgeDepth }, settings: S.settings });
   coin.slot = slot;
   coin.scannedAt = Date.now();
   coin.trips = trips.filter((t) => t.pays).slice(0, 6);
@@ -305,9 +360,11 @@ async function prove(coin, trip) {
   const owner = new PublicKey(C.ROBOT.wallet);
   const start = trip.coin;
   const other = start === C.SOL_MINT ? C.USDC_MINT : C.SOL_MINT;
-  const unit = (S.usd.get(start) ?? 0) / 10 ** C.COINS[start].decimals;
-  if (!(unit > 0)) return { ok: false, why: 'no price for the coin' };
-  const floorRaw = BigInt(Math.ceil(trip.floorUsd / unit));
+  const bounds = R.coinBounds(C.COINS[start], S.usd.get(start), S.usd.get(C.SOL_MINT), S.settings);
+  if (typeof bounds === 'string') return { ok: false, why: bounds };
+  const unit = bounds.unit;
+  // The robot's floor, in the coin's base units: the network fee and the minimum profit.
+  const floorRaw = bounds.floor;
   const inRaw = BigInt(trip.inRaw);
   const tokenProgram = new PublicKey(coin.program);
   const ataOf = (m) => getAssociatedTokenAddressSync(new PublicKey(m), owner, true, m === coin.mint ? tokenProgram : TOKEN_PROGRAM_ID);
@@ -364,17 +421,20 @@ async function prove(coin, trip) {
   const coinAta = ataOf(start);
   const tokenAta = ataOf(coin.mint);
   const otherAta = ataOf(other);
+  const watch = [coinAta, tokenAta, otherAta, owner].map((k) => k.toBase58());
+  const before = await many(watch);
+  const coinHeld = C.tokenAmount(before.accounts[0]?.data) ?? 0n;
   const ixs = [
-    ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }),
-    ComputeBudgetProgram.setComputeUnitPrice({ microLamports: C.ROBOT.microLamports }),
+    ComputeBudgetProgram.setComputeUnitLimit({ units: R.MAX_TRIP_UNITS }),
+    ComputeBudgetProgram.setComputeUnitPrice({ microLamports: S.settings.microLamports }),
     createAssociatedTokenAccountIdempotentInstruction(owner, coinAta, owner, new PublicKey(start), TOKEN_PROGRAM_ID),
     createAssociatedTokenAccountIdempotentInstruction(owner, tokenAta, owner, new PublicKey(coin.mint), tokenProgram),
     ...(trip.threeSwap ? [createAssociatedTokenAccountIdempotentInstruction(owner, otherAta, owner, new PublicKey(other), TOKEN_PROGRAM_ID)] : []),
     ...legs,
+    // The robot's last instruction: the coin account holds what it held plus the floor, or the trip is undone.
+    LH.atLeastCheck(coinAta, coinHeld + floorRaw),
   ];
   const tx = new VersionedTransaction(new TransactionMessage({ payerKey: owner, recentBlockhash: PublicKey.default.toBase58(), instructions: ixs }).compileToV0Message(lookups));
-  const watch = [coinAta, tokenAta, otherAta, owner].map((k) => k.toBase58());
-  const before = await many(watch);
   const sim = await rpc('simulateTransaction', [Buffer.from(tx.serialize()).toString('base64'), { encoding: 'base64', sigVerify: false, replaceRecentBlockhash: true, commitment: 'confirmed', accounts: { encoding: 'base64', addresses: watch } }]);
   const v = sim.value;
   if (v.err) return { ok: false, why: `the test run failed: ${JSON.stringify(v.err).slice(0, 120)}${v.logs?.length ? ` · ${String(v.logs[v.logs.length - 1]).slice(0, 140)}` : ''}`, units: v.unitsConsumed, jupiterPools, slot: sim.context.slot };
@@ -468,6 +528,17 @@ function snapshot() {
   }
   const take = rows.filter((r) => r.proof?.ok && Date.now() - r.proof.at < PROOF_KEEP_MS);
   const watch = rows.filter((r) => !take.includes(r)).sort((a, b) => b.netUsd - a.netUsd).slice(0, 60);
+  // Each coin's best trip that does NOT pay on its latest read (within 5 minutes): how far each gap is from paying.
+  const closest = coins
+    .filter((c) => c.closest && !c.closest.pays && Date.now() - c.scannedAt < 5 * 60_000)
+    .map((c) => ({ mint: c.mint, symbol: c.symbol, ours: c.ours, slot: c.slot, scannedAt: c.scannedAt, ...c.closest, legs: c.closest.legs.map((l) => ({ ...l, venue: C.DEXES[l.dex]?.name ?? l.dex })) }))
+    .sort((a, b) => b.netUsd - a.netUsd)
+    .slice(0, 20);
+  const sol = S.usd.get(C.SOL_MINT);
+  const floorOf = (m) => {
+    const b = R.coinBounds(C.COINS[m], S.usd.get(m), sol, S.settings);
+    return typeof b === 'string' ? null : b.floorUsd;
+  };
   const hours = Math.max((Date.now() - S.startedAt) / 3_600_000, 1 / 60);
   return JSON.stringify({
     at: Date.now(),
@@ -475,6 +546,16 @@ function snapshot() {
     note: S.note,
     solUsd: S.usd.get(C.SOL_MINT) ?? null,
     holds: Object.fromEntries([...S.holds].map(([m, v]) => [C.COINS[m].symbol, v / 10 ** C.COINS[m].decimals])),
+    holdsUsd: Object.fromEntries([...S.holds].map(([m, v]) => [C.COINS[m].symbol, (v / 10 ** C.COINS[m].decimals) * (S.usd.get(m) ?? 0)])),
+    rule: {
+      capUsd: R.capUsd(S.settings),
+      settingUsd: S.settings.maxTradeUsd,
+      safeCapUsd: R.SAFE_CAP_USD,
+      minProfitUsd: S.settings.minProfitUsd,
+      feeLamports: R.tripFeeLamports(S.settings.microLamports),
+      floorUsd: { SOL: floorOf(C.SOL_MINT), USDC: floorOf(C.USDC_MINT) },
+      lighthouse: S.lighthouse,
+    },
     coins: coins.length,
     refused: coins.filter((c) => c.problem).map((c) => ({ mint: c.mint, symbol: c.symbol, problem: c.problem })),
     pools: coins.reduce((s, c) => s + c.pools.length, 0),
@@ -483,15 +564,18 @@ function snapshot() {
     stats: { scans: S.stats.scans, paying: S.stats.paying, tried: S.stats.tried, passed: S.stats.passed, routesPassed: S.stats.passedRoutes.size, hours },
     take,
     watch,
+    closest,
   });
 }
+
+await proveLighthouseNow();
 
 if (ONCE) {
   await scanLoop();
   for (let i = 0; i < 3; i++) await proveNext();
   const s = JSON.parse(snapshot());
   log(`${s.coins} coins, ${s.pools} pools; ${s.take.length} the robot would take, ${s.watch.length} to watch`);
-  for (const r of [...s.take, ...s.watch].slice(0, 15)) log(`  ${r.symbol} ${r.mint}: ${r.legs.map((l) => `${l.venue} ${l.pool} (${(l.fee * 100).toFixed(2)}%)`).join(' → ')} · $${r.inUsd.toFixed(2)} in, est. +$${r.netUsd.toFixed(4)} net · ${r.proof ? (r.proof.ok ? 'TEST RUN PASSES' : `test run: ${r.proof.why}`) : 'not test-run yet'}`);
+  for (const r of [...s.take, ...s.watch].slice(0, 15)) log(`  ${r.symbol} ${r.mint}: ${r.legs.map((l) => `${l.venue} ${l.pool} (${(l.fee * 100).toFixed(2)}%)`).join(' → ')} · $${r.inUsd.toFixed(2)} in (held by the ${r.sizedBy}; the gap closes at $${r.gapInUsd.toFixed(2)}), est. ${r.netUsd >= 0 ? '+' : ''}$${r.netUsd.toFixed(4)} net, ROI ${r.roiPct.toFixed(2)}% · ${r.proof ? (r.proof.ok ? 'TEST RUN PASSES' : `test run: ${r.proof.why}`) : 'not test-run yet'}`);
   process.exit(0);
 }
 

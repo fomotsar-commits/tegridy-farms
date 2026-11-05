@@ -9,13 +9,14 @@
  *     from the liquidity in its current band, not from its whole reserve;
  *   - whether it can trade at all (switched off, empty band).
  *
- * A trip is the price robot's own (price-keeper keeper/plan.ts): it starts and ends in SOL or
- * USDC, spends at most $25 and what the robot holds, and must end with at least what it spent
- * plus the floor ($0.01 and the network fee). This file only SCREENS: the robot's test run
- * (arb-prove.mjs) decides.
+ * Whether the robot would take a trip, at what size, and what it makes is decided by the robot's
+ * OWN rule (src/lib/solana/keeper/rule.ts, imported here): the size where the gap closes, held to
+ * the robot's float and cap, and the floor (the network fee and $0.01). This file reads the pools;
+ * the scanner's test run from the robot's wallet decides.
  */
 import { createHash } from 'node:crypto';
 import bs58 from 'bs58';
+import { judgeTrip, rankTrips } from '../../src/lib/solana/keeper/rule.ts';
 
 export const SOL_MINT = 'So11111111111111111111111111111111111111112';
 export const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
@@ -29,24 +30,12 @@ export const COINS = Object.freeze({
   [USDC_MINT]: { symbol: 'USDC', decimals: 6 },
 });
 
-/** The robot's own rules (keeper/plan.ts DEFAULT_LIMITS, MAX_LAMPORTS_SPENT; cycle.ts DEFAULT_SETTINGS). */
+/** The robot's wallet and the two figures of its (keeper/plan.ts DEFAULT_LIMITS, MAX_LAMPORTS_SPENT) a test run needs. Its cap and floor are keeper/rule.ts's. */
 export const ROBOT = Object.freeze({
   wallet: '9WAugU3g3YECwuEuoPy3NEH5Co475fHATGdjr2dy2Fcz',
-  maxTradeUsd: 25,
-  minProfitUsd: 0.01,
   slippageBps: 50,
-  microLamports: 10_000,
   maxLamportsSpent: 3_000_000,
 });
-const BASE_FEE_LAMPORTS = 5_000;
-/** Compute a swap leg takes, before the test run measures it. */
-const UNITS_PER_LEG = 150_000;
-
-/** The network fee of a trip of `legs` swaps, in lamports, as the robot sets it (cycle.ts sendChecked). */
-export function networkFeeLamports(legs, units = UNITS_PER_LEG * legs + 50_000) {
-  const limit = Math.ceil(units * 1.2) + 10_000;
-  return BASE_FEE_LAMPORTS + Math.ceil((limit * ROBOT.microLamports) / 1e6);
-}
 
 /**
  * The six outside venues and ours. `mints`: where the pool's two coins sit in its account (the
@@ -210,35 +199,16 @@ export function legOf(pool, depth, fromMint) {
   return { pool, from: fromMint, to: aToB ? pool.mintB : pool.mintA, rin: aToB ? depth.a : depth.b, rout: aToB ? depth.b : depth.a, fee: pool.fee };
 }
 
-/** What `x` of the first leg's coin comes back as after every leg. */
-export const runLegs = (legs, x) => legs.reduce((amt, l) => swapOut(l.rin, l.rout, l.fee, amt), x);
-
 /**
- * The size (in the start coin's raw units, at most `most`) where a round trip through `legs`
- * gains most, and that gain. Profit on x·y = k legs rises, peaks and falls with the size.
- */
-export function bestSize(legs, most) {
-  const gain = (x) => runLegs(legs, x) - x;
-  let lo = 0;
-  let hi = Math.max(0, most);
-  for (let i = 0; i < 120; i++) {
-    const m1 = lo + (hi - lo) / 3;
-    const m2 = hi - (hi - lo) / 3;
-    if (gain(m1) < gain(m2)) lo = m1;
-    else hi = m2;
-  }
-  const x = (lo + hi) / 2;
-  return { x, gain: gain(x) };
-}
-
-/**
- * Every round trip the robot could take among `pools` (one token's pools, all read in one slot),
- * best first, with why each is or is not worth its test run. `ctx`:
+ * Every round trip among `pools` (one token's pools, all read in one slot), judged by the robot's
+ * own rule (keeper/rule.ts judgeTrip), the trips it takes first and then by profit after the
+ * network fee. `ctx`:
  *   token, decimals   the token and its decimals
  *   depths            pool address → depthOf()
  *   usd               coin mint → USD (SOL from a SOL/USDC pool read in the same call; USDC 1)
- *   holds             coin mint → what the robot holds, raw
+ *   holds             coin mint → what the robot holds, raw (missing: not read, sized by the cap)
  *   bridge            the SOL/USDC pool that closes a trip priced in both coins, with its depth
+ *   settings          the robot's rule settings (keeper/rule.ts ruleSettingsFromEnv)
  */
 export function tripsFor(pools, ctx) {
   const trips = [];
@@ -255,16 +225,9 @@ export function tripsFor(pools, ctx) {
         legs.push(legOf(ctx.bridge.pool, ctx.bridge.depth, end));
       }
       const coin = COINS[start];
-      const usd = ctx.usd.get(start);
-      if (!(usd > 0)) continue;
-      const unit = usd / 10 ** coin.decimals;
-      const cap = ROBOT.maxTradeUsd / unit;
       const holds = ctx.holds?.get(start);
-      const most = holds === undefined ? cap : Math.min(cap, holds);
-      const { x, gain } = bestSize(legs, most);
-      const feeLamports = networkFeeLamports(legs.length);
-      const feeUsd = (feeLamports / 1e9) * (ctx.usd.get(SOL_MINT) ?? 0);
-      const floorUsd = ROBOT.minProfitUsd + feeUsd;
+      const judged = judgeTrip(legs, { decimals: coin.decimals, coinUsd: ctx.usd.get(start), solUsd: ctx.usd.get(SOL_MINT), holdsRaw: holds === undefined ? null : holds, settings: ctx.settings });
+      if (typeof judged === 'string') continue;
       const tokenUsd = (l) => (l.from === ctx.token ? l.rout / l.rin : l.rin / l.rout) * 10 ** (ctx.decimals - COINS[l.from === ctx.token ? l.to : l.from].decimals) * ctx.usd.get(l.from === ctx.token ? l.to : l.from);
       const priceBuy = tokenUsd(legs[0]);
       const priceSell = tokenUsd(legs[1]);
@@ -275,19 +238,26 @@ export function tripsFor(pools, ctx) {
         priceSellUsd: priceSell,
         gapPct: (priceSell / priceBuy - 1) * 100,
         costPct: legs.reduce((s, l) => s + l.fee, 0) * 100,
-        inRaw: Math.floor(x),
-        inUsd: x * unit,
-        gainUsd: gain * unit,
-        feeUsd,
-        floorUsd,
-        netUsd: gain * unit - feeUsd,
-        pays: gain * unit >= floorUsd,
-        sizedBy: holds !== undefined && holds < cap ? 'holdings' : 'cap',
+        judged,
+        inRaw: judged.inRaw,
+        inUsd: judged.inUsd,
+        gainUsd: judged.gainUsd,
+        feeUsd: judged.feeUsd,
+        floorUsd: judged.floorUsd,
+        netUsd: judged.netUsd,
+        roiPct: judged.roiPct,
+        gapInUsd: judged.gapInUsd,
+        gapNetUsd: judged.gapNetUsd,
+        capUsd: judged.capUsd,
+        floatUsd: judged.floatUsd,
+        pays: judged.takes,
+        why: judged.why,
+        sizedBy: judged.sizedBy,
         threeSwap: legs.length === 3,
       });
     }
   }
-  return trips.sort((p, q) => q.gainUsd - q.feeUsd - (p.gainUsd - p.feeUsd));
+  return rankTrips(trips, 'profit');
 }
 
 /** spl-token-2022 extensions the robot refuses in a coin (keeper token gate, plan step 8). */

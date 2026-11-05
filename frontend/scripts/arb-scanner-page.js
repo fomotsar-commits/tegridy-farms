@@ -51,11 +51,25 @@
     return td;
   }
 
+  const HELD = { gap: 'the whole gap', float: 'all the robot holds', cap: 'the robot’s cap' };
+  function inCell(r) {
+    const td = el('td', 'n');
+    td.append(el('span', null, `${usd(r.inUsd)} ${COIN[r.coin]}`), el('span', 'sub', `held by ${HELD[r.sizedBy] ?? r.sizedBy}`));
+    return td;
+  }
+  function gapCell(r) {
+    const td = el('td', 'n');
+    td.append(el('span', null, usd(r.gapInUsd)), el('span', 'sub', `would make ${usd(r.gapNetUsd)}`));
+    return td;
+  }
+  const roiCell = (r) => el('td', 'n', pct(r.roiPct));
+
   function takeRow(r) {
     const tr = el('tr');
     tr.append(coinCell(r), tripCell(r));
-    tr.append(el('td', 'n', `${usd(r.inUsd)} ${COIN[r.coin]}${r.sizedBy === 'holdings' ? ' (all the robot holds)' : ''}`));
+    tr.append(inCell(r));
     tr.append(el('td', 'n pays', usd(r.proof.gainedUsd)));
+    tr.append(roiCell(r), gapCell(r));
     const td = el('td');
     td.append(el('span', 'sub', `slot ${r.proof.slot ?? r.slot}, ${ago(r.proof.at)}`));
     td.append(el('span', 'sub', `${r.proof.units ?? '?'} compute units`));
@@ -66,8 +80,9 @@
   function watchRow(r) {
     const tr = el('tr');
     tr.append(coinCell(r), tripCell(r));
-    tr.append(el('td', 'n', `${usd(r.inUsd)} ${COIN[r.coin]}${r.sizedBy === 'holdings' ? ' (all the robot holds)' : ''}`));
+    tr.append(inCell(r));
     tr.append(el('td', 'n', usd(r.netUsd)));
+    tr.append(roiCell(r), gapCell(r));
     const td = el('td');
     if (!r.proof) td.append(el('span', 'sub', 'waiting for its test run'));
     else {
@@ -76,6 +91,16 @@
       td.append(el('span', 'sub', `tried ${ago(r.proof.at)}`));
     }
     tr.append(td);
+    return tr;
+  }
+
+  function closestRow(r) {
+    const tr = el('tr');
+    tr.append(coinCell(r), tripCell(r));
+    tr.append(inCell(r));
+    tr.append(el('td', 'n', usd(r.netUsd)));
+    tr.append(roiCell(r), gapCell(r));
+    tr.append(el('td', 'sub', r.why ?? ''));
     return tr;
   }
 
@@ -90,16 +115,32 @@
     line('Chain', `: slot ${s.slot || '…'}${s.note ? ` · ${s.note}` : ''}`);
     line('Coins', `: ${s.coins} (${s.looked} looked up on six venues + ours), ${s.pools} pools deep enough to trade`);
     line('SOL', `: ${s.solUsd ? usd(s.solUsd) : '…'} (from the Orca SOL/USDC pool, same slot)`);
-    line('Robot holds', `: ${Object.entries(s.holds).map(([k, v]) => `${v.toFixed(k === 'SOL' ? 4 : 2)} ${k}`).join(', ') || '…'}`);
+    line('Robot holds', `: ${Object.entries(s.holds).map(([k, v]) => `${v.toFixed(k === 'SOL' ? 4 : 2)} ${k} (${usd(s.holdsUsd?.[k] ?? 0)})`).join(', ') || '…'}`);
+
+    const rule = $('rule');
+    rule.replaceChildren();
+    const rl = (b, text) => {
+      const sp = el('span');
+      sp.append(el('b', null, b), document.createTextNode(text));
+      rule.append(sp);
+    };
+    const lh = s.rule.lighthouse;
+    rl('Robot’s cap', `: ${usd(s.rule.capUsd)} a trip (setting ${usd(s.rule.settingUsd)}${lh.proven ? '' : `; held to ${usd(s.rule.safeCapUsd)} until the Lighthouse check is proven`})`);
+    rl('Lighthouse check', lh.proven ? ': PROVEN on mainnet at start (a trip under its floor is undone)' : `: not proven (${lh.why})`);
+    rl('Floor', `: ${usd(s.rule.minProfitUsd)} + the network fee (${s.rule.feeLamports} lamports at most) = ${s.rule.floorUsd.SOL === null ? '…' : usd(s.rule.floorUsd.SOL)} a SOL trip, ${s.rule.floorUsd.USDC === null ? '…' : usd(s.rule.floorUsd.USDC)} a USDC trip`);
 
     const st = s.stats;
     const perHour = (n) => (n / st.hours).toFixed(1);
     $('summary').textContent = `Since the scanner started (${(st.hours * 60).toFixed(0)} min): ${st.paying} trips paid on the chain read (${perHour(st.paying)} an hour), ${st.tried} were test-run, ${st.passed} passed (${perHour(st.passed)} an hour, ${st.routesPassed} different routes).`;
 
-    $('take').replaceChildren(...s.take.map(takeRow));
+    const order = (rows) => [...rows].sort((a, b) => (rankBy === 'roi' ? b.roiPct - a.roiPct : b.netUsd - a.netUsd));
+    $('take').replaceChildren(...order(s.take).map(takeRow));
     $('take-empty').hidden = s.take.length > 0;
     $('take-empty').textContent = 'None right now. A trip lands here only once a test run from the robot’s wallet passes; the watch list below shows what is being tried.';
-    $('watch').replaceChildren(...s.watch.map(watchRow));
+    $('watch').replaceChildren(...order(s.watch).map(watchRow));
+    $('closest').replaceChildren(...order(s.closest ?? []).map(closestRow));
+    $('closest-empty').hidden = (s.closest ?? []).length > 0;
+    $('closest-empty').textContent = 'No coin read in the last 5 minutes yet: the first look-up of every pool takes a while on the shared connection.';
     $('watch-empty').hidden = s.watch.length > 0;
     $('watch-empty').textContent = 'No trip clears the floor on the latest chain read. Busy pools sit inside their fees; gaps open in thinner pools, and for seconds.';
     $('refused-head').textContent = `Coins the robot refuses (${s.refused.length}): the token gate`;
@@ -112,10 +153,21 @@
     );
   }
 
+  let rankBy = 'profit';
+  let last = null;
+  for (const [id, by] of [['by-profit', 'profit'], ['by-roi', 'roi']]) {
+    $(id).addEventListener('click', () => {
+      rankBy = by;
+      $('by-profit').setAttribute('aria-pressed', String(by === 'profit'));
+      $('by-roi').setAttribute('aria-pressed', String(by === 'roi'));
+      if (last) render(last);
+    });
+  }
+
   async function load() {
     try {
       const r = await fetch('/state.json', { cache: 'no-store' });
-      if (r.ok) render(await r.json());
+      if (r.ok) render((last = await r.json()));
     } catch {
       // the next read tries again
     }
