@@ -13,6 +13,7 @@ import { ERC20_ABI } from '../../lib/contracts';
 import { GONDI_LOAN_ABI } from '../../lib/gondi/abi.js';
 import { GONDI_LOAN_ADDRESS, WETH_ADDRESS, isWholeCollectionOffer, sameAddress } from '../../lib/gondi/loanOffer.js';
 import { loanEnd, loanFromJson, loanHash, owedAt, type Loan } from '../../lib/gondi/loanMath';
+import { nextRepayStep, repayLoanArgs, repayNeeded } from '../../lib/gondi/repay';
 import { recordLoanTx, syncOffer, useBookLoans, useBookOffers, useRefreshBook, type BookLoan, type BookOffer } from '../../lib/gondi/offerBook';
 import { CardArt } from '../ui/CardArt';
 import { FinePrint } from '../ui/FinePrint';
@@ -33,9 +34,6 @@ import {
 } from './nftLendingShared';
 
 const ZERO_HASH = `0x${'0'.repeat(64)}` as Hex;
-// Repaying pulls interest up to the block it lands in; approve and hold enough for 10
-// more minutes so a slow confirmation does not revert.
-const REPAY_PAD_SECONDS = 600n;
 
 const STATUS_COLORS: Record<string, { bg: string; text: string; border: string }> = {
   active: { bg: 'rgba(16,185,129,0.12)', text: 'text-emerald-400', border: 'border-emerald-500/30' },
@@ -135,7 +133,7 @@ function LoanCard({ row, chainHash, userAddress }: { row: BookLoan; chainHash: H
     functionName: 'balanceOf',
     args: [userAddress],
     chainId: CHAIN_ID,
-    query: { enabled: isBorrower && open },
+    query: { enabled: isBorrower && view === 'active' },
   });
   const { data: allowance, refetch: refetchAllowance } = useReadContract({
     address: WETH_ADDRESS,
@@ -143,16 +141,17 @@ function LoanCard({ row, chainHash, userAddress }: { row: BookLoan; chainHash: H
     functionName: 'allowance',
     args: [userAddress, GONDI_LOAN_ADDRESS],
     chainId: CHAIN_ID,
-    query: { enabled: isBorrower && open },
+    query: { enabled: isBorrower && view === 'active' },
   });
 
   // Ticks with the countdown, so the figure moves as interest accrues.
   const now = nowSeconds();
   const owedNow = owedAt(loan, now);
-  const owedPadded = owedAt(loan, now + REPAY_PAD_SECONDS).total;
-  const wethShort = typeof wethBalance === 'bigint' ? (wethBalance < owedPadded ? owedPadded - wethBalance : 0n) : null;
-  const needsApproval = typeof allowance === 'bigint' ? allowance < owedPadded : null;
-  const repayStep = wethShort === null || needsApproval === null ? null : wethShort > 0n ? 'wrap' : needsApproval ? 'approve' : 'repay';
+  // Wrap what is short, approve, repay: the same steps the loan shield builds (lib/gondi/repay.ts).
+  const owedPadded = repayNeeded(loan, now);
+  const next = typeof wethBalance === 'bigint' && typeof allowance === 'bigint' ? nextRepayStep(wethBalance, allowance, owedPadded) : null;
+  const repayStep = next?.step ?? null;
+  const wethShort = next?.wethShort ?? null;
 
   const tx = useWriteContract();
   const txQuery = useWaitForTransactionReceipt({ hash: tx.data, onReplaced: noteReplacement });
@@ -215,7 +214,7 @@ function LoanCard({ row, chainHash, userAddress }: { row: BookLoan; chainHash: H
           address: GONDI_LOAN_ADDRESS,
           abi: GONDI_LOAN_ABI,
           functionName: 'repayLoan',
-          args: [{ data: { loanId: BigInt(row.loanId), callbackData: '0x' as Hex, shouldDelegate: false }, loan, borrowerSignature: '0x' as Hex }],
+          args: repayLoanArgs(BigInt(row.loanId), loan),
         },
         onError('NFTLendingLoans.repay'),
       );
@@ -310,8 +309,14 @@ function LoanCard({ row, chainHash, userAddress }: { row: BookLoan; chainHash: H
         </div>
       )}
 
-      {/* Gondi lets a borrower repay until the loan is claimed, even after the deadline. */}
-      {isBorrower && open && (
+      {/* Gondi refuses repayment from the deadline second on (LoanExpiredError in
+          MultiSourceLoan._baseLoanChecks), so an overdue loan offers no Repay button. */}
+      {isBorrower && view === 'overdue' && (
+        <p className="text-yellow-300 text-[11px]">
+          The deadline has passed, so the loan contract no longer accepts repayment. The lender can claim the NFT at any moment.
+        </p>
+      )}
+      {isBorrower && view === 'active' && (
         <button
           onClick={handleRepayStep}
           disabled={busy || repayStep === null}

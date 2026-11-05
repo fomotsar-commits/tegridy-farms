@@ -36,24 +36,13 @@ export function snapshotLoanReader(snapshot: ShieldPositionsSnapshot) {
     const loans: LoanDeadlineFact[] = [];
     for (const p of snapshot.positions) {
       if (p.lendingContract.toLowerCase() !== rule.subject.toLowerCase()) continue;
-      // A position whose deadline could not be read carries no deadline to
-      // compare. Dropping it silently would shrink the list the rule judges, so
-      // the whole reading is refused instead — one unreadable loan makes the
-      // answer for this contract unknown, not smaller.
-      if (p.health.status !== 'read') {
-        return {
-          status: 'unavailable',
-          detail: `Loan #${p.loanId} could not be read: ${p.health.detail} No deadline verdict was reached for this lending contract.`,
-        };
-      }
+      // Every position in a ready snapshot is a loan whose hash the chain confirmed (a
+      // record that did not check out makes the whole snapshot unreadable, above), so
+      // each one carries the chain's own deadline.
       loans.push({
         loanId: p.loanId,
         contract: p.lendingContract.toLowerCase(),
         deadlineAt: p.health.deadlineUnix,
-        // The earliest the window could close, not the moment it does — the
-        // contract extends grace by its own pause time. The rule compares
-        // `deadlineAt`; this travels as context and must not be read as exact.
-        graceEndsAt: p.health.graceEndsAtLeastUnix,
         band: p.health.band,
         consequence: p.health.consequence,
       });

@@ -10,28 +10,23 @@
 // The venues also differ in WHAT liquidates, and conflating the two mechanisms
 // would produce a number nothing on-chain acts on:
 //
-//   deadline-default      the venue's own P2P loans. Fixed term. There is no price
-//                         oracle, no LTV, and no partial liquidation. The lender
-//                         claims the whole collateral NFT once the deadline plus
-//                         grace passes, regardless of what the collateral is
-//                         worth. A "health factor" for one of these is fiction.
+//   deadline-default      the venue's NFT loans, on Gondi's v3.2 loan contract.
+//                         Fixed term. There is no price oracle, no LTV, no partial
+//                         liquidation and no grace period. The lender claims the
+//                         whole collateral NFT once the deadline passes,
+//                         regardless of what the collateral is worth. A "health
+//                         factor" for one of these is fiction.
 //
 //   price-health-factor   Aave/Morpho-shaped. Collateral value against debt,
 //                         liquidated with a penalty on a bounded slice. Nothing
 //                         here reads one today.
 //
-// Addresses come from `constants.ts` and are zero until an operator deploys.
-// Nothing in this module hardcodes a third-party market address: an address that
-// is wired but unreadable is worse than one that is absent, because it looks like
-// coverage.
+// The loan contract's address is `GONDI_LOAN_ADDRESS` (lib/gondi/loanOffer.js), zero until
+// the deploy. Nothing in this module hardcodes a third-party market address: an address that
+// is wired but unreadable is worse than one that is absent, because it looks like coverage.
 
-// NFT lending moved to Gondi's v3.2 loan contract. The adapter in this folder reads the
-// first-version contract (TEGRIDY_NFT_LENDING_ADDRESS, retired, never held a loan), so the
-// venue is unreadable here until an adapter for Gondi's loans is built.
-
-/** Why the shield watches no venue loan, in the user's words. Also the alert source's line. */
-export const VENUE_LOANS_NOT_WATCHED =
-  "The shield doesn't read loans on Gondi's loan contract yet, so it is watching no loan here. Your loans and their due dates are under NFT Lending, My Loans.";
+import { isDeployed } from '../constants';
+import { GONDI_LOAN_ADDRESS } from '../gondi/loanOffer.js';
 
 export type ShieldVenueId = 'tegridy-nft-lending' | 'aave-v3' | 'morpho-blue';
 
@@ -55,7 +50,7 @@ export const SHIELD_VENUES: Record<ShieldVenueId, ShieldVenue> = {
     lossOnTrigger:
       'The lender claims the entire collateral NFT. There is no partial liquidation and no penalty percentage — the whole item is gone, and the borrowed ETH stays borrowed.',
     operatorStep:
-      'Deployed. Loans are read directly from the contract; no indexer or backend is involved.',
+      'Loans are listed from the venue’s offer book, and each one is checked against Gondi’s loan contract on chain before it is shown.',
   },
   'aave-v3': {
     id: 'aave-v3',
@@ -90,7 +85,7 @@ export const SHIELD_VENUE_IDS: readonly ShieldVenueId[] = [
  * up claiming coverage it does not have.
  */
 export const ADAPTER_BUILT: Record<ShieldVenueId, boolean> = {
-  'tegridy-nft-lending': false,
+  'tegridy-nft-lending': true,
   'aave-v3': false,
   'morpho-blue': false,
 };
@@ -110,11 +105,13 @@ export interface ShieldVenueReadiness {
  * `indexer/client.ts` and `alerts/sources.ts`.
  */
 export function shieldVenueReadiness(): Record<ShieldVenueId, ShieldVenueReadiness> {
+  const deployed = isDeployed(GONDI_LOAN_ADDRESS);
+  const readable = ADAPTER_BUILT['tegridy-nft-lending'] && deployed;
   return {
     'tegridy-nft-lending': {
-      readable: ADAPTER_BUILT['tegridy-nft-lending'],
-      detail: ADAPTER_BUILT['tegridy-nft-lending'] ? null : VENUE_LOANS_NOT_WATCHED,
-      address: null,
+      readable,
+      detail: readable ? null : 'Gondi’s loan contract is not deployed on this network yet, so there are no loans to read.',
+      address: deployed ? GONDI_LOAN_ADDRESS : null,
     },
     'aave-v3': {
       readable: false,
