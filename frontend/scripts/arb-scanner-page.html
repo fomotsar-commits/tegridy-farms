@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Arbitrage scanner</title>
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<header>
+  <h1>Arbitrage scanner</h1>
+  <p class="lede">Every busy token on Solana and Robinhood Chain: its cheapest and dearest pool, and what buying in one and selling in the other would make after both pools' fees.</p>
+  <p class="fine">Estimates from listed prices (GeckoTerminal, DexScreener), not quotes: check each leg with a real quote before trading. Read-only; nothing here signs or sends.</p>
+</header>
+<section class="controls">
+  <label>Chain <select id="chain"><option value="all">Both</option><option value="solana">Solana</option><option value="robinhood">Robinhood Chain</option></select></label>
+  <label><input type="checkbox" id="paying" checked> Only gaps that pay after fees</label>
+  <label>at least $<input type="number" id="min" value="1" min="0" step="0.5"></label>
+  <label><input type="checkbox" id="sure" checked> Hide quiet and suspect rows</label>
+</section>
+<section id="status" class="status"></section>
+<main>
+  <p id="empty" class="empty" hidden></p>
+  <table>
+    <thead>
+      <tr>
+        <th>Token</th>
+        <th>Buy in</th>
+        <th>Sell in</th>
+        <th class="n">Gap</th>
+        <th class="n">Fees</th>
+        <th class="n">Est. trip</th>
+        <th class="n">Est. profit</th>
+        <th>Notes</th>
+      </tr>
+    </thead>
+    <tbody id="rows"></tbody>
+  </table>
+</main>
+<script src="/app.js"></script>
+</body>
+</html>
