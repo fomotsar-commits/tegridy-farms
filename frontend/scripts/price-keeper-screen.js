@@ -37,6 +37,12 @@
     $('mode').textContent = s.live ? 'LIVE' : 'DRY RUN';
     $('mode').className = s.live ? 'mode live' : 'mode';
     $('who').replaceChildren('Robot wallet ', el('code', { text: s.wallet }), ` · running since ${s.since.replace('T', ' ').slice(0, 19)} UTC · Jupiter ${s.keyed ? 'with its own key' : 'keyless (1 call in 2 s, shared by this PC)'}`);
+    const lh = s.lighthouse;
+    $('safety').textContent = lh
+      ? lh.proven
+        ? `Every trip ends with a Lighthouse check (proven on mainnet at start: a trip under its floor is undone) · up to $${lh.capUsd} a trip`
+        : `Lighthouse check NOT proven (${lh.why}) · trips held to $${lh.capUsd} · every trip still carries the check`
+      : '';
     const c = s.calls;
     const made = c.quote + c.swap + c.price + c.labels;
     $('tPasses').textContent = String(s.passes.length ? s.passCount : 0);
