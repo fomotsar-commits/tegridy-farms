@@ -299,7 +299,10 @@ async function scan(coin) {
   coin.slot = slot;
   coin.scannedAt = Date.now();
   coin.trips = trips.filter((t) => t.pays).slice(0, 6);
-  coin.closest = trips[0] ?? null;
+  // The trip nearest to paying: its gap less its pools' fees. (When none pays, every direction
+  // makes the same nothing at size 0, so profit cannot tell the near one from the far one.)
+  const short = (t) => t.gapPct - t.costPct;
+  coin.closest = trips.find((t) => t.pays) ?? [...trips].sort((a, b) => short(b) - short(a))[0] ?? null;
   coin.livePools = pools;
   coin.depths = depths;
   S.slot = Math.max(S.slot, slot);
@@ -547,7 +550,7 @@ function snapshot() {
   const closest = coins
     .filter((c) => c.closest && !c.closest.pays && Date.now() - c.scannedAt < 5 * 60_000)
     .map((c) => ({ mint: c.mint, symbol: c.symbol, ours: c.ours, slot: c.slot, scannedAt: c.scannedAt, ...c.closest, legs: c.closest.legs.map((l) => ({ ...l, venue: C.DEXES[l.dex]?.name ?? l.dex })) }))
-    .sort((a, b) => b.netUsd - a.netUsd)
+    .sort((a, b) => b.gapPct - b.costPct - (a.gapPct - a.costPct))
     .slice(0, 20);
   const sol = S.usd.get(C.SOL_MINT);
   const floorOf = (m) => {

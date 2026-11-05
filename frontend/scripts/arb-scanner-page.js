@@ -101,7 +101,8 @@
     tr.append(inCell(r));
     tr.append(el('td', 'n', usd(r.netUsd)));
     tr.append(roiCell(r), gapCell(r));
-    tr.append(el('td', 'sub', r.why ?? ''));
+    const short = r.costPct - r.gapPct;
+    tr.append(el('td', 'sub', short > 0 ? `the gap (${pct(r.gapPct)}) is under the pools’ fees (${pct(r.costPct)}): ${pct(short)} short` : (r.why ?? '')));
     return tr;
   }
 
@@ -139,7 +140,8 @@
     $('take-empty').hidden = s.take.length > 0;
     $('take-empty').textContent = 'None right now. A trip lands here only once a test run from the robot’s wallet passes; the watch list below shows what is being tried.';
     $('watch').replaceChildren(...order(s.watch).map(watchRow));
-    $('closest').replaceChildren(...order(s.closest ?? []).map(closestRow));
+    // Nearest to paying first, as the scanner sends them: none pays, so profit and ROI cannot rank them.
+    $('closest').replaceChildren(...(s.closest ?? []).map(closestRow));
     $('closest-empty').hidden = (s.closest ?? []).length > 0;
     $('closest-empty').textContent = 'No coin read in the last 5 minutes yet: the first look-up of every pool takes a while on the shared connection.';
     $('watch-empty').hidden = s.watch.length > 0;
