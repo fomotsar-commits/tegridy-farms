@@ -140,6 +140,20 @@ describe('jupiterApi', () => {
     await api0.prices(['A']);
     expect(every.calls).toHaveLength(2);
   });
+
+  it('asks again for a young price once told its coin’s outside pool traded, and only for that coin', async () => {
+    const r = recorder(() => ({ body: { A: { usdPrice: 2 }, B: { usdPrice: 3 } } }));
+    const api = jupiterApi({ fetchImpl: r.fetchImpl, gapMs: 0, now: () => 0, priceTtlMs: 30_000 });
+    await api.prices(['A', 'B']);
+    api.forget!(['C']);
+    await api.prices(['A', 'B']);
+    expect(r.calls).toHaveLength(1);
+    api.forget!(['B']);
+    await api.prices(['A', 'B']);
+    expect(r.calls).toHaveLength(2);
+    await api.prices(['A']);
+    expect(r.calls).toHaveLength(2);
+  });
 });
 
 describe('refusedVenues', () => {

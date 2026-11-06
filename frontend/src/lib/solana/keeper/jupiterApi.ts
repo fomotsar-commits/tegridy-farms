@@ -55,6 +55,8 @@ export interface JupiterApi {
   /** Program id → venue name, for the venues the keeper refuses. */
   labels(): Promise<Record<string, string>>;
   prices(mints: string[]): Promise<Record<string, number>>;
+  /** Drop these coins' remembered prices: the next `prices` asks Jupiter (an outside pool of theirs traded, keeper/streams.ts). */
+  forget?(mints: readonly string[]): void;
 }
 
 export const JUPITER_KEYED_BASE = 'https://api.jup.ag';
@@ -171,6 +173,9 @@ export function jupiterApi(
         if (typeof usd === 'number') out[m] = usd;
       }
       return out;
+    },
+    forget: (mints) => {
+      for (const m of mints) priced.delete(m);
     },
   };
 }

@@ -58,6 +58,11 @@
  *                           "off" = no page)
  *   KEEPER_WS_URL           the RPC's websocket, which wakes the keeper when a watched pool
  *                           changes (default: KEEPER_RPC_URL over ws; "off" = the timer only)
+ *   KEEPER_STREAMS          yes = that websocket also hears every trade that lands in the deepest
+ *                           few outside pools of each coin the robot trades (PumpSwap, Raydium,
+ *                           Orca, Meteora: DexScreener's list, each pool's owner checked on chain),
+ *                           log lines only, never account data; a trade asks Jupiter's price again
+ *                           at the next quick check (default yes; no = our pools' vaults only)
  *   KEEPER_FLASH_LOANS      yes = a SOL trip bigger than the keeper's float borrows the rest from
  *                           Kamino inside the same transaction and repays it there (0.001% fee,
  *                           counted in the floor), so trips size to KEEPER_MAX_TRADE_USD, not to
@@ -131,6 +136,8 @@ const { DEFAULT_LIMITS } = await lib('solana/keeper/plan.ts');
 const { TripBans, capUsd, SAFE_CAP_USD } = await lib('solana/keeper/rule.ts');
 const { proveLighthouse } = await lib('solana/keeper/lighthouse.ts');
 const { accountWake, socketUrlOf } = await lib('solana/keeper/wake.ts');
+const { listedPools, streamPools, STREAM_REFRESH_MS } = await lib('solana/keeper/streams.ts');
+const { isKeeperCoin } = await lib('solana/keeper/plan.ts');
 const { pollConfirm } = await lib('solana/confirm.ts');
 
 const WSOL = new PublicKey('So11111111111111111111111111111111111111112');
@@ -709,6 +716,30 @@ async function scannerTakes() {
   };
 }
 
+/**
+ * The outside pools whose trades wake the robot (keeper/streams.ts): DexScreener's deepest few per
+ * coin, then each pool's owner read from the chain (no data, only the owner) and kept only when it
+ * is one of the six exchanges. A listing that cannot be read throws; the caller keeps the last list.
+ */
+async function outsideStreamPools(coins) {
+  const listing = [];
+  for (const coin of coins) {
+    const res = await fetch(`https://api.dexscreener.com/token-pairs/v1/solana/${coin}`, { signal: AbortSignal.timeout(10_000) });
+    if (!res.ok) throw new Error(`DexScreener answered ${res.status}`);
+    const page = await res.json();
+    if (Array.isArray(page)) listing.push(...page);
+  }
+  const listed = listedPools(listing, new Set(coins));
+  const owners = new Map();
+  for (let i = 0; i < listed.length; i += 100) {
+    const chunk = listed.slice(i, i + 100).map((l) => l.pool);
+    const r = await rpc('getMultipleAccounts', [chunk, { encoding: 'base64', commitment: 'confirmed', dataSlice: { offset: 0, length: 0 } }]);
+    if (!Array.isArray(r?.value) || r.value.length !== chunk.length) throw new Error('the pools’ owners were not read');
+    chunk.forEach((pool, j) => owners.set(pool, typeof r.value[j]?.owner === 'string' ? r.value[j].owner : null));
+  }
+  return streamPools(listed, owners, Object.values(OUTSIDE_DEX_PROGRAMS));
+}
+
 async function main() {
   if (cmd === 'dashboard') return dashboard();
 
@@ -832,6 +863,9 @@ async function main() {
     const priceTtlSec = env.KEEPER_PRICE_TTL_SEC?.trim() === '0' ? 0 : num('KEEPER_PRICE_TTL_SEC', 30);
     const wsUrl = env.KEEPER_WS_URL?.trim() || socketUrlOf(RPC);
     const wake = wsUrl.toLowerCase() === 'off' ? null : accountWake({ url: wsUrl, socket: (url) => new WebSocket(url), log });
+    const streamsOn = wake !== null && (env.KEEPER_STREAMS?.trim() ? yes('KEEPER_STREAMS') : true);
+    // The outside pools heard, looked up again every STREAM_REFRESH_MS; a failed look-up keeps the last.
+    const streams = { pools: [], at: -Infinity, said: null };
     const jup = jupiterApi({ key: env.JUPITER_API_KEY, fetchImpl: jupiterFetch, priceTtlMs: priceTtlSec * 1000 });
     // Every price and venue-list read asked for, answered from the client's memory or not: the difference is calls saved.
     const jupiter = {
@@ -883,6 +917,7 @@ async function main() {
     log(`  quick check every ${checkMs / 1000} s · full pass at least every ${intervalMs / 1000} s · at most ${maxDailySol} SOL a day on fees and new accounts`);
     log(`  earnings log ${TRADES} · gap log ${GAPS} · to pause sending, create ${STOP_FILE}`);
     log(`  Jupiter prices reused for ${priceTtlSec} s · woken by chain updates: ${wake ? redactRpcUrl(wsUrl) : 'off, the timer only'}`);
+    log(`  trades in outside pools: ${streamsOn ? 'heard as they land, after the first pass (log lines only)' : 'not heard (KEEPER_STREAMS=yes and a websocket hear them)'}`);
     let watch = null;
     // The gaps still open, kept here: a gap is written once a pass finds it closed (live only).
     let openGaps = new Map();
@@ -925,7 +960,22 @@ async function main() {
         try {
           const r = await runCycle(io, settings);
           watch = r.watch;
-          wake?.watch(watch.vaults);
+          if (streamsOn && Date.now() - streams.at >= STREAM_REFRESH_MS) {
+            streams.at = Date.now();
+            const coins = watch.mints.filter((m) => !isKeeperCoin(m));
+            try {
+              streams.pools = await outsideStreamPools(coins);
+              log(`Listening for trades in ${streams.pools.length} outside pools of ${new Set(streams.pools.map((p) => p.mint)).size} of ${coins.length} coins`);
+              streams.said = null;
+            } catch (e) {
+              // Said once until a look-up works again: the vaults still wake the robot meanwhile.
+              const why = e instanceof Error ? e.message : String(e);
+              if (streams.said === null) log(`Outside pools not looked up (${why}): ${streams.pools.length ? 'the last list is kept' : 'our pools’ vaults only'}, trying again every 2 min`);
+              streams.said = why;
+              streams.at = Date.now() - STREAM_REFRESH_MS + 2 * 60_000;
+            }
+          }
+          wake?.watch(watch.vaults, streams.pools);
           log(`Pass done: ${r.pools} pools, ${r.gaps} gaps, ${r.sent} sent, ${jupiterCalls - callsBefore} Jupiter calls`);
           screen.passCount++;
           screen.loops += r.loops;
@@ -967,6 +1017,9 @@ async function main() {
       // a busy outside pool must not turn the quick check into a flood of reads.
       const waited = Date.now();
       await (wake ? wake.wait(checkMs) : new Promise((r) => setTimeout(r, checkMs)));
+      // A trade in a coin's outside pool: its remembered price is stale, so the quick check asks Jupiter again.
+      const moved = wake?.moved() ?? [];
+      if (moved.length) jup.forget(moved);
       const spare = MIN_CHECK_MS - (Date.now() - waited);
       if (spare > 0) await new Promise((r) => setTimeout(r, spare));
     }
