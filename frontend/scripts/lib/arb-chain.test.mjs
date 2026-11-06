@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createHash } from 'node:crypto';
 import bs58 from 'bs58';
-import { COINS, ROBOT, SOL_MINT, USDC_MINT, busyTokens, clmmConfigFee, decodePool, depthOf, lastSlippageBps, minOutAt, testRunProblem, tripsFor, withFee } from './arb-chain.mjs';
+import { COINS, Misreads, ROBOT, SOL_MINT, USDC_MINT, busyTokens, poolsFromListing, takeRows, clmmConfigFee, decodePool, depthOf, lastSlippageBps, minOutAt, testRunProblem, tripsFor, withFee } from './arb-chain.mjs';
 import { SAFE_CAP_USD } from '../../src/lib/solana/keeper/rule.ts';
 
 /** The robot's settings before the Lighthouse check is proven: $25 a trip, a $0.01 floor plus the network fee. */
@@ -99,9 +99,9 @@ describe('tripsFor: only what the robot would take', () => {
     expect(other.pays).toBe(false);
     expect(best.netUsd).toBeGreaterThan(other.netUsd);
   });
-  it('says the robot does not take a trip through two outside pools, and does take one through ours', () => {
+  it('says the robot takes a two-swap trip through two outside pools (keeper/takes.ts) and one through ours', () => {
     const [outside] = trips([whirlpool({ usd: 1000 }), whirlpool({ usd: 1020 })]);
-    expect(outside.robotTakes).toBe(false);
+    expect(outside.robotTakes).toBe(true);
     const a = decodePool('whirlpool', key(32), whirlpool({ usd: 1000 }));
     const b = { ...decodePool('whirlpool', key(33), whirlpool({ usd: 1020 })), dex: 'ours' };
     const depths = new Map([a, b].map((p) => [p.address, depthOf(p, new Map())]));
@@ -179,5 +179,61 @@ describe('busyTokens', () => {
   it('lists each token once with its listed ticker, leaving out SOL, USDC and USDT', () => {
     const json = { data: [{ attributes: { name: 'ZEC / USDC 0.16%' }, relationships: { base_token: { data: { id: `solana_${ZEC_MINT}` } }, quote_token: { data: { id: `solana_${USDC_MINT}` } } } }] };
     expect([...busyTokens(json)]).toEqual([[ZEC_MINT, 'ZEC']]);
+  });
+});
+
+describe('the wider scanner (11-06: 6 of 64 coins looked up in 6.7 h, 0 test runs passed)', () => {
+  const BAYLA = '7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump';
+  const band = (address, mintA, mintB, rawBPerA, fee, liquidity = 10n ** 13n) => ({ address, dex: 'whirlpool', kind: 'band', fee, liquidity, sqrtPriceX64: sqrtX64(rawBPerA), mintA, mintB, stopped: null, owedA: 0n, owedB: 0n });
+
+  it('finds a coin’s pools from one listing read, deepest first, its own address only', () => {
+    const listing = [
+      { chainId: 'solana', pairAddress: key(50), baseToken: { address: ZEC_MINT }, quoteToken: { address: SOL_MINT }, liquidity: { usd: 5_000 } },
+      { chainId: 'solana', pairAddress: key(51), baseToken: { address: ZEC_MINT }, quoteToken: { address: USDC_MINT }, liquidity: { usd: 90_000 } },
+      { chainId: 'solana', pairAddress: key(52), baseToken: { address: ZEC_MINT }, quoteToken: { address: SOL_MINT }, liquidity: { usd: 200 } },
+      { chainId: 'ethereum', pairAddress: key(53), baseToken: { address: ZEC_MINT }, quoteToken: { address: SOL_MINT }, liquidity: { usd: 9e9 } },
+      { chainId: 'solana', pairAddress: 'not an address', baseToken: { address: ZEC_MINT }, quoteToken: { address: SOL_MINT }, liquidity: { usd: 9e9 } },
+      { chainId: 'solana', pairAddress: key(54), baseToken: { address: SOL_MINT }, quoteToken: { address: USDC_MINT }, liquidity: { usd: 9e9 } },
+      { chainId: 'solana', pairAddress: key(51), baseToken: { address: ZEC_MINT }, quoteToken: { address: USDC_MINT }, liquidity: { usd: 90_000 } },
+    ];
+    expect(poolsFromListing(listing, ZEC_MINT, 1_000).map((p) => p.address)).toEqual([key(51), key(50)]);
+    expect(poolsFromListing({ error: 'x' }, ZEC_MINT, 1_000)).toEqual([]);
+  });
+
+  it('trades a pool priced in BAYLA: SOL → BAYLA → the token → SOL, three swaps', () => {
+    // ZEC $1000 in its BAYLA pool, $1020 in its SOL pool; BAYLA $0.01, SOL $100.
+    const link = band(key(60), SOL_MINT, BAYLA, (100 / 0.01) * 10 ** (6 - 9), 0.0025, 10n ** 15n);
+    const cheap = band(key(61), ZEC_MINT, BAYLA, (1000 / 0.01) * 10 ** (6 - 8), 0.003);
+    const dear = band(key(62), ZEC_MINT, SOL_MINT, (1020 / 100) * 10 ** (9 - 8), 0.003);
+    const depths = new Map([cheap, dear].map((p) => [p.address, depthOf(p, new Map())]));
+    const quotes = new Map([[BAYLA, { pool: link, depth: depthOf(link, new Map()) }]]);
+    const usd = new Map([[USDC_MINT, 1], [SOL_MINT, 100], [BAYLA, 0.01]]);
+    const [best] = tripsFor([cheap, dear], { token: ZEC_MINT, decimals: 8, depths, usd, holds: new Map([[SOL_MINT, 1e15]]), bridge: null, quotes, settings: SETTINGS });
+    expect(best.pays).toBe(true);
+    expect(best.coin).toBe(SOL_MINT);
+    expect(best.legs.map((l) => l.pool)).toEqual([key(60), key(61), key(62)]);
+    expect(best.via).toEqual([BAYLA, ZEC_MINT]);
+    expect(best.gapPct).toBeCloseTo(2, 6);
+    // Three swaps: shown, test-run, but not handed to the robot (keeper/takes.ts reads two).
+    expect(best.robotTakes).toBe(false);
+  });
+
+  it('leaves a misread pool out of test runs, longer each time', () => {
+    const m = new Misreads();
+    expect(m.judge('P', 1_000, 990, 0)).toBe(false); // within 2%: a fair reading
+    expect(m.judge('P', 1_000, 900, 0)).toBe(true);
+    expect(m.held('P', 9 * 60_000)).toBe(true);
+    expect(m.held('P', 11 * 60_000)).toBe(false);
+    m.judge('P', 1_000, 900, 11 * 60_000);
+    expect(m.held('P', 30 * 60_000)).toBe(true); // 20 minutes the second time
+    for (let i = 0; i < 12; i++) m.judge('P', 1_000, 900, 0);
+    expect(m.list(0)[0].until).toBe(6 * 60 * 60_000); // never past 6 hours
+  });
+
+  it('hands the robot every fresh passed two-swap trip, outside pools included, not only the best 60', () => {
+    const now = 1e9;
+    const row = (robotTakes, ok, age) => ({ robotTakes, proof: { ok, at: now - age } });
+    const rows = [row(true, true, 1_000), row(true, false, 1_000), row(false, true, 1_000), row(true, true, 4 * 60_000)];
+    expect(takeRows(rows, now, 3 * 60_000)).toEqual([rows[0]]);
   });
 });
