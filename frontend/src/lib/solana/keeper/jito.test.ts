@@ -2,7 +2,7 @@
 //
 // Jito: the tip copied from a real mainnet Jito-tipped transaction, the 30% rule, where the tip
 // sits in a trip and what it adds to the floor, and how a sent bundle's ending is called.
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { base58 } from '@scure/base';
 import { Keypair, PublicKey, TransactionInstruction, type VersionedTransaction } from '@solana/web3.js';
 import { SOL_QUOTE } from '../lp/quotes';
@@ -40,6 +40,18 @@ describe('the Jito tip: the real transaction’s instruction, byte for byte', ()
     expect(() => jitoTipIx(payer, JITO_MIN_TIP_LAMPORTS - 1n, REAL.tipAccount)).toThrow(/at least/);
     expect(pickTipAccount(() => 0)).toBe(JITO_TIP_ACCOUNTS[0]);
     expect(pickTipAccount(() => 0.9999)).toBe(JITO_TIP_ACCOUNTS[7]);
+  });
+
+  it('picks the tip account with the cryptographic random source, never Math.random', () => {
+    const plain = vi.spyOn(Math, 'random');
+    try {
+      const picked = new Set(Array.from({ length: 200 }, () => pickTipAccount()));
+      for (const a of picked) expect(JITO_TIP_ACCOUNTS).toContain(a);
+      expect(picked.size).toBeGreaterThan(1);
+      expect(plain).not.toHaveBeenCalled();
+    } finally {
+      plain.mockRestore();
+    }
   });
 });
 

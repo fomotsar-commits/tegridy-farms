@@ -53,8 +53,11 @@ export function jitoTip(gained: bigint, floor: bigint, solAfter: bigint): bigint
   return tip >= JITO_MIN_TIP_LAMPORTS ? tip : null;
 }
 
+/** A draw in [0, 1) from the platform's cryptographic source (Node and every browser have it), not Math.random. */
+const cryptoRandom = () => globalThis.crypto.getRandomValues(new Uint32Array(1))[0]! / 2 ** 32;
+
 /** A tip account picked at random each trip, as Jito asks, so tips do not queue on one account. */
-export const pickTipAccount = (random: () => number = Math.random) => JITO_TIP_ACCOUNTS[Math.floor(random() * JITO_TIP_ACCOUNTS.length) % JITO_TIP_ACCOUNTS.length]!;
+export const pickTipAccount = (random: () => number = cryptoRandom) => JITO_TIP_ACCOUNTS[Math.floor(random() * JITO_TIP_ACCOUNTS.length) % JITO_TIP_ACCOUNTS.length]!;
 
 export type JitoOutcome = 'confirmed' | 'reverted' | 'unknown' | 'lost';
 type Status = { err: unknown; confirmationStatus?: string | null } | null;
