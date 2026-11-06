@@ -168,7 +168,187 @@
     $('poolsNote').textContent = rows.length ? `Over ${span(t)}, each in its pool's own coin, ranked by worth at today's prices. Before network fees; leftover coins are not counted here.` : '';
   }
 
+  // ─── The scanner's half (s.scanner, read by the dashboard from the scanner's page on this
+  // computer and checked there: keeper/scannerView.ts). Its dollars are estimates until the robot
+  // trades; only panels 01 to 08 are money the robot really made. ───
+  const pct = (v) => `${v.toFixed(Math.abs(v) < 1 ? 3 : 2)}%`;
+  const rate = (v) => (v >= 100 ? Math.round(v).toLocaleString() : v.toFixed(1));
+  const count = (v) => Math.round(v).toLocaleString();
+  const addrLink = (id) => (B58.test(id) ? el('a', { class: 'addr', href: `https://solscan.io/account/${id}`, target: '_blank', rel: 'noopener noreferrer', text: id }) : el('span', { class: 'addr', text: id }));
+  const HELD = { gap: 'the whole gap', float: 'all the robot holds', cap: 'the robot’s cap' };
+  let rankBy = 'profit';
+
+  /** What the scanner's feed is: live, old (kept a short while after it stopped answering), or off. */
+  function feedOf(s) {
+    const f = s.scanner;
+    if (!f) return { kind: 'off', view: null, text: 'this dashboard does not read the scanner' };
+    if (!f.view) return { kind: 'off', view: null, text: f.problem || 'not read yet' };
+    const age = Date.now() - f.readAt;
+    if (f.problem) return { kind: 'old', view: f.view, text: `${f.problem} · showing its read of ${new Date(f.readAt).toLocaleTimeString()}, ${ago(age)}` };
+    return { kind: 'live', view: f.view, text: `read ${ago(age)}` };
+  }
+
+  /** The order the trips are listed in: what each would make, or that over what it puts in. */
+  const ranked = (rows) => [...rows].sort((a, b) => (rankBy === 'roi' ? b.roiPct - a.roiPct : b.netUsd - a.netUsd));
+
+  // The one sentence at the top: is there money on the table, and is the robot taking it?
+  function headline(s, feed, rs) {
+    const robot = rs.cls === 'good' ? 'The robot is running' : `The robot is ${rs.text.toLowerCase()}`;
+    const v = feed.view;
+    if (feed.kind === 'off') return { parts: [['c', 'The scanner is off.'], ['', ` ${robot}.`]], sub: `The scanner: ${feed.text}. The robot's own figures below do not depend on it.` };
+    const take = ranked(v.take);
+    if (take.length) {
+      const best = take[0];
+      return { parts: [['em', `${take.length} trip${take.length === 1 ? '' : 's'} pass${take.length === 1 ? 'es' : ''} the test run`], ['', ` · best est. ${signedUsd(best.netUsd)} on ${best.symbol}. ${robot}.`]], sub: `Passed from the robot's own wallet in the last 3 minutes. The robot quotes, test-runs and checks each one again before it sends.` };
+    }
+    const top = ranked(v.watch)[0];
+    if (top) {
+      const why = !top.proof ? 'waiting for its test run' : top.proof.quiet ? 'a pool in it has been quiet for an hour' : top.proof.ok ? 'its pass is over 3 minutes old' : 'its test run said no';
+      return { parts: [['em', `${signedUsd(top.netUsd)} est.`], ['w', ` shows on ${top.symbol}, not proven:`], ['', ` ${why}. ${robot}.`]], sub: `${v.watch.length} trip${v.watch.length === 1 ? ' clears' : 's clear'} the floor on the latest chain read; none has passed a test run in the last 3 minutes.` };
+    }
+    return { parts: [['', 'Nothing on the table. '], ['', `${robot} and waiting.`]], sub: 'No trip clears the robot’s floor on the latest chain read: the busy pools sit inside their fees.' };
+  }
+
+  // The funnel: what the scanner looked at, down to what passed, then what the robot did.
+  function drawSpine(s, feed) {
+    const st = feed.view && feed.view.stats;
+    const res = s.results;
+    const max = st ? Math.log10(st.scans + 1) : 1;
+    const taper = (n) => el('div', { class: 'taper' }, el('i', { style: `width:${st && max > 0 ? Math.max(1.5, (Math.log10(n + 1) / max) * 100) : 0}%` }));
+    const conv = (n, of, those) => (of > 0 ? ` · ${((n / of) * 100).toFixed(n / of < 0.01 ? 2 : 1)}% of those ${those}` : '');
+    const cell = (k, v, sub, extra, cls) => el('li', { class: cls || 'scanCell' }, el('div', { class: 'k', text: k }), el('div', { class: 'v', text: v }), extra, el('div', { class: 's', text: sub }));
+    const pass = s.robot && s.robot.pass;
+    fill('spine',
+      cell('01 Scanned', st ? count(st.scans) : '—', st ? `${rate(st.perHour.scans)} an hour · ${feed.view.coins ?? '?'} coins, ${feed.view.pools ?? '?'} pools` : 'no scanner figures', st ? taper(st.scans) : null),
+      cell('02 Pays on the read', st ? count(st.paying) : '—', st ? `${rate(st.perHour.paying)} an hour${conv(st.paying, st.scans, 'scanned')}` : '', st ? taper(st.paying) : null),
+      cell('03 Test-run', st ? count(st.tried) : '—', st ? `${rate(st.perHour.tried)} an hour, from the robot’s wallet${conv(st.tried, st.paying, 'that paid')}` : '', st ? taper(st.tried) : null),
+      cell('04 Passed', st ? count(st.passed) : '—', st ? `${rate(st.perHour.passed)} an hour · ${st.routesPassed} different route${st.routesPassed === 1 ? '' : 's'}${conv(st.passed, st.tried, 'tried')}` : '', st ? taper(st.passed) : null),
+      el('li', { class: 'seam', 'aria-hidden': 'true' }),
+      cell('05 The robot traded', res ? String(res.trades) : '…', pass ? `last pass: ${pass.pools} pools → ${pass.gaps} gaps → ${pass.sent} sent` : 'all time', null, 'robotCell'),
+      cell('06 Made, after fees', res ? signedUsd(res.netUsd) : '…', 'all time, at today’s prices (panel 01)', null, 'robotCell'));
+    $('spineWrap').classList.toggle('off', !st);
+    $('spineNote').textContent = st
+      ? `The scanner's counts since it started ${st.hours >= 1 ? `${st.hours.toFixed(1)} h` : `${Math.round(st.hours * 60)} min`} ago; the robot's since its first trade. The scanner looks; the robot quotes, test-runs and checks every trip again itself before it sends.`
+      : `The scanner's half is empty: ${feed.text}.`;
+  }
+
+  function drawLamps(feed) {
+    const v = feed.view;
+    if (!v) return fill('lamps', el('span', { class: 'empty', text: 'not read: the scanner is off' }));
+    const r = v.rule;
+    const lamp = (k, val, cls, sub) => el('div', {}, el('div', { class: 'k', text: k }), el('div', { class: `lv ${cls || ''}`, text: val }), el('div', { class: 'ls', text: sub }));
+    const lh = r.lighthouse;
+    const floor = (x) => (x === null ? '…' : usd(x));
+    const holds = v.holds.map((h) => `${amount(h.amount)} ${h.ticker}${h.usd === null ? '' : ` (${usd(h.usd)})`}`).join(' + ');
+    fill('lamps',
+      lamp('Cap', r.capUsd === null ? '…' : `${usd(r.capUsd)} a trip`, '', lh.proven || r.settingUsd === null ? `setting ${usd(r.settingUsd)}` : `setting ${usd(r.settingUsd)}; held to ${usd(r.safeCapUsd)} until the Lighthouse check is proven`),
+      lamp('Lighthouse', lh.proven ? 'Proven' : 'Not proven', lh.proven ? 'good' : 'warn', lh.proven ? 'on mainnet at start: a trip that ends under its floor is undone' : (lh.why || 'not run yet')),
+      lamp('Floor', `${floor(r.floorUsd.SOL)} SOL · ${floor(r.floorUsd.USDC)} USDC`, '', `${usd(r.minProfitUsd)} profit + the network fee (${r.feeLamports ?? '?'} lamports at most)`),
+      lamp('Float', holds || '…', '', 'what the robot holds to trade, as the scanner read it'));
+  }
+
+  const coinHead = (t) => el('div', {}, el('span', { class: 'claims', title: 'the ticker this coin claims for itself', text: t.symbol }), t.ours ? el('span', { class: 'tag ours', text: 'in our pools' }) : null, el('div', { class: 'addr', text: t.mint }));
+
+  function route(t) {
+    const out = el('div', { class: 'route' }, el('span', { class: 'stop', text: t.legs[0].fromTicker }));
+    for (const l of t.legs) {
+      out.append(el('div', { class: 'hop' }, el('span', { class: 'arrow', text: '─' }),
+        el('div', { class: `venue${l.ours ? ' ours' : ''}` }, el('b', { text: `${l.venue} · ${pct(l.fee * 100)}${l.rough ? ' · depth rough' : ''}` }), addrLink(l.pool)),
+        el('span', { class: 'arrow', text: '→' }), el('span', { class: 'stop', text: l.toTicker })));
+    }
+    return out;
+  }
+
+  // The gap against the pools' fees: the fill is the gap, the line the fees, hatching what is short.
+  function gapMeter(t) {
+    const top = Math.max(t.gapPct, t.costPct, 1e-9);
+    const w = (x) => `${(Math.max(0, x) / top) * 100}%`;
+    return el('div', {}, el('div', { class: 'mk', text: 'Gap against the pools’ fees' }),
+      el('div', { class: 'gapbar' }, el('i', { style: `width:${w(t.gapPct)}` }), t.shortPct > 0 ? el('s', { style: `left:${w(t.gapPct)};width:${w(t.shortPct)}` }) : null, el('u', { style: `left:calc(${w(t.costPct)} - 1px)` })),
+      el('div', { class: 'ml', text: t.shortPct > 0 ? `${pct(t.shortPct)} short: gap ${pct(t.gapPct)} against fees ${pct(t.costPct)}` : `gap ${pct(t.gapPct)} · fees ${pct(t.costPct)}` }));
+  }
+
+  // What sized it: the trip is the least of the gap, the cap and all the robot holds.
+  function fences(t) {
+    const lim = [['gap', 'Gap', t.gapInUsd], ['cap', 'Cap', t.capUsd], ['float', 'Float', t.floatUsd]].filter((x) => x[2] !== null);
+    const top = Math.max(...lim.map((x) => x[2]), t.inUsd, 1e-9);
+    return el('div', {}, el('div', { class: 'mk', text: `In ${usd(t.inUsd)} ${t.coinTicker} · held by ${HELD[t.sizedBy] || 'its limits'}` }),
+      ...lim.map(([key, name, v]) => el('div', { class: `fence${key === t.sizedBy ? ' held' : ''}` }, el('span', { text: name }), el('div', { class: 'bar' }, el('i', { style: `width:${(v / top) * 100}%` })), el('span', { text: usd(v) }))));
+  }
+
+  function stampOf(t) {
+    const p = t.proof;
+    if (!p) return el('span', { class: 'stamp wait', text: '… waiting for its test run' });
+    if (p.ok) return el('span', { class: 'stamp good', text: '✓ test run passed' });
+    if (p.quiet) return el('span', { class: 'stamp warn', text: '◌ quiet pool: not tried' });
+    return el('span', { class: 'stamp crit', text: '✕ test run said no' });
+  }
+
+  // Who gets paid on this trip, leg by leg.
+  function whoPaid(t) {
+    const ours = t.legs.filter((l) => l.ours);
+    const outside = t.legs.filter((l) => !l.ours);
+    return el('div', { class: 'paid' }, el('b', { text: 'Who gets paid: ' }),
+      `the robot ${signedUsd(t.netUsd)} est., the gap, paid by the liquidity providers of the pools it trades against`,
+      ours.length ? `; our venue its share of our pool’s ${ours.map((l) => pct(l.fee * 100)).join(' and ')} fee` : '; our venue nothing (no pool of ours in this trip)',
+      outside.length ? `; ${outside.map((l) => `${l.venue} its ${pct(l.fee * 100)}`).join(', ')}` : '', '.');
+  }
+
+  function tripCard(t, kind) {
+    const big = rankBy === 'roi' ? pct(t.roiPct) : `${signedUsd(kind === 'take' && t.proof && t.proof.gainedUsd !== null ? t.proof.gainedUsd : t.netUsd)}`;
+    const small = rankBy === 'roi' ? `${signedUsd(t.netUsd)} est.` : `ROI ${pct(t.roiPct)}`;
+    const p = t.proof;
+    return el('article', { class: `card ${kind}` },
+      el('div', { class: 'cardTop' }, coinHead(t), el('div', { class: 'fig' }, el('div', { class: `big${t.netUsd > 0 ? ' gain' : ''}`, text: big }), el('div', { class: 'small', text: kind === 'take' && rankBy !== 'roi' ? `test run gained · ${small}` : `${small}${rankBy === 'roi' ? '' : ' · est. after fees'}` }))),
+      route(t),
+      el('div', { class: 'meters' }, gapMeter(t), fences(t)),
+      el('div', { class: 'proof' },
+        el('div', {}, stampOf(t), !t.robotTakes ? el('span', { class: 'tag warn', style: 'margin-left:8px', text: t.threeSwap ? 'the robot does not add a SOL/USDC swap yet' : 'between two outside pools: the robot takes these only once proven' }) : null),
+        p && p.why ? el('div', { class: 'ml', text: p.why }) : null,
+        p ? el('div', { class: 'ml', text: `tried ${ago(Date.now() - p.at)}${p.slot ? ` · slot ${p.slot.toLocaleString()}` : ''}${p.units ? ` · ${p.units.toLocaleString()} compute units` : ''}` }) : null,
+        t.why ? el('div', { class: 'ml', text: t.why }) : null),
+      whoPaid(t));
+  }
+
+  function nearCard(t) {
+    return el('div', { class: 'near' }, coinHead(t), route(t), gapMeter(t), t.why ? el('div', { class: 'ml', text: t.why }) : null);
+  }
+
+  function renderScanner(s, rs) {
+    const feed = feedOf(s);
+    const lamp = $('scanLamp');
+    lamp.replaceChildren(el('span', { class: `dot ${feed.kind === 'live' ? 'good' : feed.kind === 'old' ? 'warn' : 'crit'}` }), `Scanner${s.scanner && s.scanner.page ? ` ${s.scanner.page}` : ''} · ${feed.kind === 'live' ? `${feed.text}${feed.view.slot ? ` · slot ${feed.view.slot.toLocaleString()}` : ''}` : feed.kind === 'old' ? 'not answering' : 'off'}`);
+    const h = headline(s, feed, rs);
+    fill('hlText', ...h.parts.map(([cls, text]) => (cls === 'em' ? el('em', { text }) : cls ? el('span', { class: cls, text }) : text)));
+    $('hlSub').textContent = h.sub;
+    drawSpine(s, feed);
+    drawLamps(feed);
+    $('market').classList.toggle('off', feed.kind !== 'live');
+    $('scanOff').hidden = feed.kind === 'live';
+    $('scanOff').textContent = feed.kind === 'old'
+      ? `The scanner stopped answering (${s.scanner.problem}). Its last read is shown faded until ${new Date(s.scanner.readAt + 120_000).toLocaleTimeString()}, then cleared. The robot's figures are not affected.`
+      : `The scanner's half of this page is empty: ${feed.text}. The robot's figures are not affected.`;
+    const v = feed.view;
+    const empty = (text) => el('span', { class: 'empty', text });
+    fill('take', ...(v && v.take.length ? ranked(v.take).map((t) => tripCard(t, 'take')) : [empty(v ? 'None right now. A trip lands here only once a test run from the robot’s wallet passes; the watch list shows what is being tried.' : 'No scanner read.')]));
+    fill('watch', ...(v && v.watch.length ? ranked(v.watch).map((t) => tripCard(t, 'watch')) : [empty(v ? 'No trip clears the floor on the latest chain read. Busy pools sit inside their fees; gaps open in thinner pools, and for seconds.' : 'No scanner read.')]));
+    // Nearest to paying first, as the scanner sends them: none pays, so profit and ROI cannot rank them.
+    fill('closest', ...(v && v.closest.length ? v.closest.map(nearCard) : [empty(v ? 'No coin read in the last 5 minutes yet.' : 'No scanner read.')]));
+    $('refusedHead').textContent = `Turned away at the door (${v ? v.refused.length : 0}): the token gate`;
+    fill('refused', ...(v ? v.refused.map((c) => el('li', {}, el('span', { class: 'claims', text: c.symbol }), el('div', { class: 'ml', text: c.problem }), el('div', { class: 'addr', text: c.mint }))) : []));
+  }
+
+  for (const [id, by] of [['byProfit', 'profit'], ['byRoi', 'roi']]) {
+    $(id).addEventListener('click', () => {
+      rankBy = by;
+      $('byProfit').setAttribute('aria-pressed', String(by === 'profit'));
+      $('byRoi').setAttribute('aria-pressed', String(by === 'roi'));
+      if (lastAny) renderScanner(lastAny, robotState(lastAny));
+    });
+  }
+
   let last = null;
+  let lastAny = null;
   let first = true;
   function render(s) {
     $('error').hidden = !s.error;
@@ -197,6 +377,10 @@
       budget.firstElementChild.style.width = '0';
       $('budgetText').textContent = 'not reported';
     }
+
+    // The scanner's half is read on its own clock, so it shows before the chain's first read lands.
+    lastAny = s;
+    renderScanner(s, rs);
 
     if (!s.wallet) return;
     last = s;

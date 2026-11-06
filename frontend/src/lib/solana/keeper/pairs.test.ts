@@ -10,6 +10,10 @@ import { buildPool, key, viewOf } from '../lp/testkit.fixture';
 import { BAYLA_QUOTE, SOL_QUOTE } from '../lp/quotes';
 import type { PoolView } from '../lp/poolFinder';
 import { DEFAULT_LIMITS, MAX_FEE_LAMPORTS, dustSaleProblem, ownPairPlan, poolProblem, priceStep } from './plan';
+import { PublicKey } from '@solana/web3.js';
+import { getAssociatedTokenAddressSync } from '@solana/spl-token';
+import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from '../cpswap/ix';
+import { feesOf, ownSwap } from './cycle';
 
 const NOW = 10_000_000;
 const SOL = 10n ** 9n;
@@ -73,13 +77,48 @@ describe('poolProblem: which pools the keeper can trade', () => {
   it('trades a SOL pool whose token keeps no fee', () => {
     expect(poolProblem(pool(SOL, 10n ** 9n), null)).toBeNull();
   });
+  it('trades a pool priced in BAYLA (reached from SOL through Jupiter), and a token whose transfer fee was read', () => {
+    expect(poolProblem(pool(SOL, 10n ** 9n, { quote: BAYLA_QUOTE }), null)).toBeNull();
+    expect(poolProblem(pool(SOL, 10n ** 9n), { epoch: 0n, maximumFee: 1n, basisPoints: 300 })).toBeNull();
+  });
   it('says why it cannot', () => {
-    expect(poolProblem(pool(SOL, 10n ** 9n, { quote: BAYLA_QUOTE }), null)).toMatch(/priced in BAYLA/);
+    expect(poolProblem({ ...pool(SOL, 10n ** 9n, { quote: BAYLA_QUOTE }), tokenMint: SOL_QUOTE.mint }, null)).toMatch(/keeper’s own coin/);
     expect(poolProblem({ ...pool(SOL, 10n ** 9n), vaultsFrozen: true }, null)).toMatch(/frozen/);
     expect(poolProblem(pool(SOL, 10n ** 9n, { status: POOL_STATUS_DISABLE_SWAP }), null)).toMatch(/switched off/);
     expect(poolProblem({ ...pool(SOL, 10n ** 9n), config: null }, null)).toMatch(/fee settings/);
     expect(poolProblem(pool(SOL, 10n ** 9n), 'unread')).toMatch(/not read/);
-    expect(poolProblem(pool(SOL, 10n ** 9n), { epoch: 0n, maximumFee: 1n, basisPoints: 100 })).toMatch(/transfer fee/);
+  });
+});
+
+describe('ownSwap and feesOf: our pool’s leg in a pool priced in BAYLA, a Token-2022 coin', () => {
+  const owner = key();
+  const bayla = pool(10n ** 12n, 10n ** 9n, { quote: BAYLA_QUOTE });
+  const has = (ix: { keys: { pubkey: PublicKey }[] }, k: PublicKey) => ix.keys.some((m) => m.pubkey.equals(k));
+  const baylaMint = new PublicKey(BAYLA_QUOTE.mint);
+
+  it('spends and pays the keeper’s BAYLA account under Token-2022, both ways', () => {
+    const right = getAssociatedTokenAddressSync(baylaMint, owner, true, TOKEN_2022_PROGRAM_ID);
+    const wrong = getAssociatedTokenAddressSync(baylaMint, owner, true, TOKEN_PROGRAM_ID);
+    for (const side of ['coin', 'token'] as const) {
+      const ix = ownSwap(owner, bayla, side, 1_000n, 1n);
+      expect(has(ix, right)).toBe(true);
+      expect(has(ix, wrong)).toBe(false);
+      // swap_base_input: input/output accounts at 4/5, their token programs at 8/9 (cpswap/ix.ts SWAP_ACCOUNTS).
+      const [acct, prog] = side === 'coin' ? [4, 8] : [5, 9];
+      expect(ix.keys[acct]!.pubkey.equals(right)).toBe(true);
+      expect(ix.keys[prog]!.pubkey.equals(TOKEN_2022_PROGRAM_ID)).toBe(true);
+    }
+  });
+
+  it('puts the token’s transfer fee on the token’s side of the pool, none on the coin’s', () => {
+    const fee = { epoch: 0n, maximumFee: 10n ** 18n, basisPoints: 300 };
+    const [f0, f1] = feesOf(bayla, fee);
+    expect(bayla.quoteIsToken0 ? [f0, f1] : [f1, f0]).toEqual([null, fee]);
+    // And it is counted: 3% kept out of what the pool pays.
+    const plain = quoteOwnPool(bayla.snapshot, bayla.config!, BAYLA_QUOTE.mint, 10n ** 9n, NOW)!.outAmount;
+    const fed = quoteOwnPool(bayla.snapshot, bayla.config!, BAYLA_QUOTE.mint, 10n ** 9n, NOW, feesOf(bayla, fee))!.outAmount;
+    expect(fed).toBeLessThan(plain);
+    expect(Number(plain - fed) / Number(plain)).toBeCloseTo(0.03, 3);
   });
 });
 

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createHash } from 'node:crypto';
 import bs58 from 'bs58';
-import { COINS, Misreads, PUMP_FEE_CONFIG, ROBOT, SOL_MINT, USDC_MINT, busyTokens, poolsFromListing, pumpFeeConfig, takeRows, clmmConfigFee, decodePool, depthOf, lastSlippageBps, minOutAt, testRunProblem, tripsFor, withFee } from './arb-chain.mjs';
+import { COINS, Misreads, PUMP_FEE_CONFIG, ROBOT, SOL_MINT, USDC_MINT, busyTokens, poolsFromListing, pumpFeeConfig, takeRows, clmmConfigFee, decodePool, depthOf, lastSlippageBps, minOutAt, robotSettings, testRunProblem, tripsFor, withFee } from './arb-chain.mjs';
 import { SAFE_CAP_USD } from '../../src/lib/solana/keeper/rule.ts';
 
 /** The robot's settings before the Lighthouse check is proven: $25 a trip, a $0.01 floor plus the network fee. */
@@ -146,6 +146,40 @@ describe('tripsFor: only what the robot would take', () => {
     const [best] = trips([whirlpool({ usd: 1000 }), whirlpool({ usd: 1006.05 })]);
     expect(best.floorUsd).toBeGreaterThan(SETTINGS.minProfitUsd);
     expect(best.pays).toBe(best.gainUsd >= best.floorUsd);
+  });
+});
+
+describe('robotSettings: the rule the running robot judges with, read from its page', () => {
+  // The live robot of 2026-11-06: a $100 cap and a $0.002 floor, where a scanner started without
+  // its settings judged at $25 and $0.01 (and the robot sizes an outside trip by the scanner's size).
+  const rule = { maxTradeUsd: 100, minProfitUsd: 0.002, microLamports: 10_000, lighthouseProven: true, flashLoans: true };
+  const page = (body, status = 200) => {
+    const asked = [];
+    const fetchImpl = async (url) => {
+      asked.push(url);
+      return new Response(JSON.stringify(body), { status });
+    };
+    return Object.assign(fetchImpl, { asked });
+  };
+
+  it('gives the robot’s own settings when its page has them, asked of the page named', async () => {
+    const f = page({ wallet: ROBOT.wallet, lighthouse: { proven: true }, rule });
+    expect(await robotSettings('http://127.0.0.1:8792/state.json', f)).toEqual({ rule });
+    expect(f.asked).toEqual(['http://127.0.0.1:8792/state.json']);
+  });
+
+  it('says why not, so the scanner’s own settings stand in and the page says so', async () => {
+    const off = page({ rule });
+    expect((await robotSettings('off', off)).why).toMatch(/ARB_ROBOT_URL is off/);
+    expect(off.asked).toEqual([]);
+    // A robot started on an older build publishes its cap but not its floor.
+    expect(await robotSettings('http://127.0.0.1:8792/state.json', page({ lighthouse: { proven: true, capUsd: 100, settingUsd: 100 } }))).toEqual({ why: expect.stringMatching(/does not give its settings/) });
+    expect(await robotSettings('http://127.0.0.1:8792/state.json', page({ rule: { ...rule, minProfitUsd: -1 } }))).toEqual({ why: expect.stringMatching(/not a positive number/) });
+    expect((await robotSettings('http://127.0.0.1:8792/state.json', page({ rule }, 421))).why).toMatch(/answered 421/);
+    const down = async () => {
+      throw new TypeError('fetch failed', { cause: { code: 'ECONNREFUSED' } });
+    };
+    expect((await robotSettings('http://127.0.0.1:8792/state.json', down)).why).toMatch(/ECONNREFUSED.*is the robot running/);
   });
 });
 

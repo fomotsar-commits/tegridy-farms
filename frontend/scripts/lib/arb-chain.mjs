@@ -11,12 +11,13 @@
  *
  * Whether the robot would take a trip, at what size, and what it makes is decided by the robot's
  * OWN rule (src/lib/solana/keeper/rule.ts, imported here): the size where the gap closes, held to
- * the robot's float and cap, and the floor (the network fee and $0.01). This file reads the pools;
- * the scanner's test run from the robot's wallet decides.
+ * the robot's float and cap, and the floor (the network fee and the robot's minimum profit), with
+ * the settings the running robot publishes (`robotSettings`). This file reads the pools; the
+ * scanner's test run from the robot's wallet decides.
  */
 import { createHash } from 'node:crypto';
 import bs58 from 'bs58';
-import { judgeTrip, rankTrips } from '../../src/lib/solana/keeper/rule.ts';
+import { judgeTrip, rankTrips, robotRule } from '../../src/lib/solana/keeper/rule.ts';
 
 export const SOL_MINT = 'So11111111111111111111111111111111111111112';
 export const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
@@ -46,6 +47,25 @@ export const ROBOT = Object.freeze({
   slippageBps: 50,
   maxLamportsSpent: 3_000_000,
 });
+
+/**
+ * The rule the running robot judges with, read from its gap screen (keeper/rule.ts robotRule):
+ * `{ rule }` (its cap, floor, fee, Lighthouse proof and SOL loans), or `{ why }` when the page
+ * cannot be read or does not give them, and the scanner's own settings must stand in. The robot
+ * sizes a trip through two outside pools by the scanner's size, so the two must judge alike.
+ * `url` "off" reads nothing.
+ */
+export async function robotSettings(url, fetchImpl) {
+  if (url.toLowerCase() === 'off') return { why: 'ARB_ROBOT_URL is off' };
+  try {
+    const r = await fetchImpl(url, { signal: AbortSignal.timeout(5_000) });
+    const got = r.ok ? robotRule(await r.json()) : `the robot’s page answered ${r.status}`;
+    return typeof got === 'string' ? { why: got } : { rule: got };
+  } catch (e) {
+    const said = e?.cause?.code ?? (e instanceof Error ? e.message : String(e));
+    return { why: `the robot’s page was not read (${said}): is the robot running?` };
+  }
+}
 
 /**
  * The six outside venues and ours. `mints`: where the pool's two coins sit in its account (the

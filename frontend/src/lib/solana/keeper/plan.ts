@@ -33,8 +33,14 @@ export const JUPITER_PROGRAM = new PublicKey('JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi
 export const ROUTE_V2 = Uint8Array.from([187, 100, 250, 204, 49, 196, 175, 20]);
 export const SHARED_ACCOUNTS_ROUTE_V2 = Uint8Array.from([209, 152, 83, 147, 124, 254, 216, 233]);
 
-/** The coins a round trip can start and end in. BAYLA-priced pools are left alone. */
+/**
+ * The coins a round trip can start and end in. A pool priced in another coin (BAYLA) is reached
+ * from SOL through Jupiter: SOL → that coin → our pool → SOL, all in one transaction (`Plan.via`).
+ */
 export const KEEPER_COINS = [SOL_QUOTE, USDC_QUOTE] as const;
+
+/** Whether the keeper holds `mint` as one of its two coins. */
+export const isKeeperCoin = (mint: string) => KEEPER_COINS.some((c) => c.mint === mint);
 
 /**
  * The robot's limits: the shared rule's (keeper/rule.ts: the cap, held to $25 until the Lighthouse
@@ -76,6 +82,11 @@ export interface Plan {
   coinIn: bigint;
   /** The least coin it must gain, in base units. */
   minProfit: bigint;
+  /**
+   * Set when the pool is priced in a coin the keeper does not hold (BAYLA): this is that coin's
+   * mint, and the trip starts and ends in SOL (`coinMint`), reaching it through Jupiter.
+   */
+  via?: string;
 }
 
 /**
@@ -83,19 +94,32 @@ export interface Plan {
  * (lp/poolList.ts `arbitrage`, against Jupiter's LISTED price, before the other leg's cost):
  * a gap whose listed profit is under the floor is not worth two quotes. A larger gap is
  * made smaller to `maxTradeUsd`: on x·y = k, any trade short of the best size still pays.
+ * A pool priced in a coin the keeper does not hold is sized in SOL, the coin its trip starts in.
  */
 export function planFor(view: PoolView, arb: Arbitrage, usd: ReadonlyMap<string, number>, limits: KeeperLimits): Plan | string {
-  if (!KEEPER_COINS.some((c) => c.mint === view.quote.mint)) return `priced in ${view.quote.symbol}`;
+  const held = isKeeperCoin(view.quote.mint);
+  if (!held && isKeeperCoin(view.tokenMint)) return `priced in ${view.quote.symbol} against the keeper’s own coin`;
   if (view.vaultsFrozen) return 'a pool vault is frozen';
-  const b = coinBounds(view.quote, usd.get(view.quote.mint), usd.get(SOL_QUOTE.mint), limits);
+  const start = held ? view.quote : SOL_QUOTE;
+  const b = coinBounds(start, usd.get(start.mint), usd.get(SOL_QUOTE.mint), limits);
   if (typeof b === 'string') return b;
   if (!(arb.profitUsd >= b.floorUsd)) return 'listed profit under the floor';
   const scale = Math.min(1, b.capUsd / arb.tradeUsd);
   // Both sides are sized in coin: what goes into our pool buying, what goes into Jupiter selling.
+  // Through another coin, the same worth goes into Jupiter first, in SOL.
   const coinIn = BigInt(Math.floor((arb.tradeUsd * scale) / b.unit));
   const minProfit = b.floor;
   if (coinIn <= 0n || minProfit <= 0n) return 'too small to trade';
-  return { pool: view.address, side: arb.side, coinMint: view.quote.mint, tokenMint: view.tokenMint, coinIn, minProfit };
+  return { pool: view.address, side: arb.side, coinMint: start.mint, tokenMint: view.tokenMint, coinIn, minProfit, ...(held ? {} : { via: view.quote.mint }) };
+}
+
+/**
+ * A trip through another coin (`Plan.via`), in order: what Jupiter buys with SOL, which our pool
+ * takes in, then what our pool pays out, which Jupiter sells for SOL. Buying (the token is cheap
+ * here) goes in with the pool's coin and out with the token; selling, the other way round.
+ */
+export function viaOrder(side: Plan['side'], via: string, tokenMint: string): [string, string] {
+  return side === 'buy' ? [via, tokenMint] : [tokenMint, via];
 }
 
 /**
@@ -218,6 +242,18 @@ export function jupiterLegProblem(ix: TransactionInstruction, e: JupiterLegExpec
   return null;
 }
 
+/**
+ * Why a Jupiter swap is not held to `program`'s exchange, or null when it is: a leg of a trip
+ * between two outside pools must go through the exchange the trip was priced on, and through
+ * one pool of it (`ammKeys`, the quote's route plan, one step).
+ */
+export function routeHeldTo(ix: TransactionInstruction, program: string, ammKeys: readonly (string | undefined)[]): string | null {
+  if (ammKeys.length !== 1 || !ammKeys[0]) return 'the swap is not one pool’s';
+  if (!ix.keys.some((m) => m.pubkey.toBase58() === program)) return `the swap does not go through ${program}`;
+  if (!ix.keys.some((m) => m.pubkey.toBase58() === ammKeys[0])) return 'the swap does not name the pool it was quoted in';
+  return null;
+}
+
 /** What a simulated round trip did to the keeper's accounts, in base units (lamports for `fee`). */
 export interface SimulatedChange {
   coinBefore: bigint;
@@ -255,15 +291,17 @@ export function simulationProblem(c: SimulatedChange, plan: Pick<Plan, 'minProfi
 /**
  * Why the keeper cannot trade a pool at all, or null when it can: the `pools` command's answer
  * and the first gate of every pass. `fee` is the list's own read of the token's transfer fee
- * (lp/poolList.ts `rowTokenFee`).
+ * (lp/poolList.ts `rowTokenFee`). A fee that was read is counted, not refused: our pool's quote
+ * takes it out of both sides (cpswap/read.ts `quoteOwnPool`), the test run pays it for real, and
+ * the Lighthouse check undoes any trip it leaves under the floor. A fee can only change two
+ * epochs after it is set, so the one read holds for the whole trip.
  */
 export function poolProblem(view: PoolView, fee: TransferFee | null | 'unread'): string | null {
-  if (!KEEPER_COINS.some((c) => c.mint === view.quote.mint)) return `priced in ${view.quote.symbol}; the keeper trades SOL and USDC pools`;
+  if (!isKeeperCoin(view.quote.mint) && isKeeperCoin(view.tokenMint)) return `priced in ${view.quote.symbol} against the keeper’s own coin`;
   if (view.vaultsFrozen) return 'a pool vault is frozen';
   if (!swapEnabled(view.snapshot.pool)) return 'trading is switched off in this pool';
   if (!view.config) return 'the pool’s fee settings were not read';
   if (fee === 'unread') return 'the coin’s transfer fee was not read';
-  if (fee !== null) return 'the coin keeps a transfer fee';
   return null;
 }
 
