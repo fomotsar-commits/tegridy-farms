@@ -15,10 +15,13 @@
  *      then a mainnet simulateTransaction judged on the balances it leaves (the robot's rule).
  *
  * Whether the robot takes a trip, its size and its floor come from the robot's OWN rule
- * (src/lib/solana/keeper/rule.ts), read with the robot's settings (KEEPER_MAX_TRADE_USD,
- * KEEPER_MIN_PROFIT_USD, KEEPER_PRIORITY_MICROLAMPORTS), and each test run ends with the robot's
- * Lighthouse check (keeper/lighthouse.ts). The cap goes past $25 only once the check is proven
- * on mainnet at start, as the robot does.
+ * (src/lib/solana/keeper/rule.ts), with the settings the RUNNING robot judges with: its cap,
+ * floor, fee and Lighthouse proof, read from its gap screen every round (ARB_ROBOT_URL). The
+ * robot sizes a trip through two outside pools by this scanner's size, so a scanner on other
+ * numbers would hold those trips to its own cap. When the robot's page cannot be read, this
+ * scanner's own environment stands in (KEEPER_MAX_TRADE_USD, KEEPER_MIN_PROFIT_USD,
+ * KEEPER_PRIORITY_MICROLAMPORTS; past $25 only once its own Lighthouse proof passed at start),
+ * and the page says so. Each test run ends with the robot's Lighthouse check (keeper/lighthouse.ts).
  *
  * READ-ONLY: it holds no key, signs nothing and sends nothing. A test run needs no signature.
  * One IP serves every script here (the robot too), so every reader is gated and backs off.
@@ -27,7 +30,8 @@
  *   node scripts/arb-scanner.mjs --once    one pass, printed here
  *
  * Settings (environment): ARB_PORT (8791), ARB_RPC_URL (the public mainnet RPC),
- * ARB_LOG (a CSV of every test run; default in the system's temp folder)
+ * ARB_LOG (a CSV of every test run; default in the system's temp folder), ARB_ROBOT_URL (the
+ * robot's gap screen, http://127.0.0.1:8792/state.json; "off" judges with this scanner's own)
  */
 import fs from 'node:fs';
 import http from 'node:http';
@@ -71,6 +75,7 @@ const LH = await keeper('lighthouse.ts');
 const PORT = Number(process.env.ARB_PORT || 8791);
 const RPC = process.env.ARB_RPC_URL?.trim() || 'https://api.mainnet-beta.solana.com';
 const LOG = process.env.ARB_LOG?.trim() || path.join(os.tmpdir(), 'arb-scanner-test-runs.csv');
+const ROBOT_URL = process.env.ARB_ROBOT_URL?.trim() || 'http://127.0.0.1:8792/state.json';
 const ONCE = process.argv.includes('--once');
 const MAX_COINS = Number(process.env.ARB_MAX_COINS) || Infinity;
 const RPC_GAP_MS = 700;
@@ -166,8 +171,12 @@ const S = {
   note: 'starting…',
   stats: { scans: 0, paying: 0, tried: 0, passed: 0, payingRoutes: new Set(), passedRoutes: new Set() },
   universeAt: 0,
-  // The robot's rule settings; `lighthouseProven` is set once the proof below has run.
+  // The settings trips are judged with: the running robot's (readRobotRule), else `own`.
   settings: R.ruleSettingsFromEnv(process.env, false),
+  // This scanner's own, from its environment; `lighthouseProven` is set once the proof below has run.
+  own: R.ruleSettingsFromEnv(process.env, false),
+  ruleFrom: { robot: false, why: 'not read yet', at: 0 },
+  flashLoans: false,
   lighthouse: { proven: false, why: 'not run yet' },
 };
 
@@ -186,8 +195,25 @@ async function proveLighthouseNow() {
   } catch (e) {
     S.lighthouse = { proven: false, why: `the proof could not run: ${said(e)}` };
   }
-  S.settings = { ...S.settings, lighthouseProven: S.lighthouse.proven };
-  log(S.lighthouse.proven ? `Lighthouse check PROVEN on mainnet: trips up to $${R.capUsd(S.settings)}` : `Lighthouse check not proven (${S.lighthouse.why}): trips at most $${R.SAFE_CAP_USD}`);
+  S.own = { ...S.own, lighthouseProven: S.lighthouse.proven };
+  log(S.lighthouse.proven ? `Lighthouse check PROVEN on mainnet: this scanner's own cap is $${R.capUsd(S.own)}` : `Lighthouse check not proven (${S.lighthouse.why}): this scanner's own cap is at most $${R.SAFE_CAP_USD}`);
+}
+
+/**
+ * The rule the running robot judges with, from its own page (keeper/rule.ts robotRule): its cap,
+ * floor, fee and Lighthouse proof. Read every round, so a robot restarted on new settings is
+ * followed. When the page cannot be read, this scanner's own settings stand in, and the page says so.
+ */
+async function readRobotRule() {
+  const { rule, why } = await C.robotSettings(ROBOT_URL, fetch);
+  if (rule) {
+    const { flashLoans, ...settings } = rule;
+    if (!S.ruleFrom.robot || JSON.stringify(settings) !== JSON.stringify(S.settings)) log(`Judging with the robot's own settings (${ROBOT_URL}): cap $${R.capUsd(settings)} a trip, floor $${settings.minProfitUsd} + the network fee`);
+    Object.assign(S, { settings, flashLoans, ruleFrom: { robot: true, why: null, at: Date.now() } });
+    return;
+  }
+  if (S.ruleFrom.robot || S.ruleFrom.why !== why) log(`NOT the robot's settings: ${why}. This scanner's own stand in: cap $${R.capUsd(S.own)} a trip, floor $${S.own.minProfitUsd} + the network fee`);
+  Object.assign(S, { settings: S.own, flashLoans: false, ruleFrom: { robot: false, why, at: Date.now() } });
 }
 const routeOf = (t) => t.legs.map((l) => l.pool).join('>');
 
@@ -501,6 +527,7 @@ async function scanLoop() {
     try {
       if (Date.now() - S.universeAt > UNIVERSE_MS) await readUniverse();
       await readHoldings();
+      await readRobotRule();
       const coins = [...S.coins.values()].filter((c) => !c.problem && c.decimals !== null).sort((a, b) => Number(b.ours) - Number(a.ours)).slice(0, MAX_COINS);
       for (const c of coins) {
         try {
@@ -566,12 +593,16 @@ function snapshot() {
     holds: Object.fromEntries([...S.holds].map(([m, v]) => [C.COINS[m].symbol, v / 10 ** C.COINS[m].decimals])),
     holdsUsd: Object.fromEntries([...S.holds].map(([m, v]) => [C.COINS[m].symbol, (v / 10 ** C.COINS[m].decimals) * (S.usd.get(m) ?? 0)])),
     rule: {
+      // Whose settings these are: the running robot's (read from its page), or this scanner's own.
+      from: S.ruleFrom,
       capUsd: R.capUsd(S.settings),
       settingUsd: S.settings.maxTradeUsd,
       safeCapUsd: R.SAFE_CAP_USD,
+      lighthouseProven: S.settings.lighthouseProven,
       minProfitUsd: S.settings.minProfitUsd,
       feeLamports: R.tripFeeLamports(S.settings.microLamports),
       floorUsd: { SOL: floorOf(C.SOL_MINT), USDC: floorOf(C.USDC_MINT) },
+      flashLoans: S.flashLoans,
       lighthouse: S.lighthouse,
     },
     coins: coins.length,
@@ -587,6 +618,7 @@ function snapshot() {
 }
 
 await proveLighthouseNow();
+await readRobotRule();
 
 if (ONCE) {
   await scanLoop();

@@ -127,8 +127,17 @@
       rule.append(sp);
     };
     const lh = s.rule.lighthouse;
-    rl('Robot’s cap', `: ${usd(s.rule.capUsd)} a trip (setting ${usd(s.rule.settingUsd)}${lh.proven ? '' : `; held to ${usd(s.rule.safeCapUsd)} until the Lighthouse check is proven`})`);
-    rl('Lighthouse check', lh.proven ? ': PROVEN on mainnet at start (a trip under its floor is undone)' : `: not proven (${lh.why})`);
+    const from = s.rule.from;
+    if (from.robot) rl('Settings', `: the robot’s own, read from its page ${ago(from.at)}`);
+    else {
+      const sp = el('span');
+      sp.append(el('span', 'tag bad', 'NOT the robot’s settings'), document.createTextNode(` ${from.why}. This scanner’s own stand in.`));
+      rule.append(sp);
+    }
+    rl('Robot’s cap', `: ${usd(s.rule.capUsd)} a trip (setting ${usd(s.rule.settingUsd)}${s.rule.lighthouseProven ? '' : `; held to ${usd(s.rule.safeCapUsd)} until the Lighthouse check is proven`})`);
+    if (from.robot) rl('Lighthouse check', s.rule.lighthouseProven ? ': PROVEN on mainnet at the robot’s start (a trip under its floor is undone)' : ': not proven at the robot’s start');
+    else rl('Lighthouse check', lh.proven ? ': PROVEN on mainnet at this scanner’s start (a trip under its floor is undone)' : `: not proven (${lh.why})`);
+    if (s.rule.flashLoans) rl('SOL loans', ': the robot borrows SOL past its float, up to its cap; trips here are still sized by the float (a test run here cannot borrow)');
     rl('Floor', `: ${usd(s.rule.minProfitUsd)} + the network fee (${s.rule.feeLamports} lamports at most) = ${s.rule.floorUsd.SOL === null ? '…' : usd(s.rule.floorUsd.SOL)} a SOL trip, ${s.rule.floorUsd.USDC === null ? '…' : usd(s.rule.floorUsd.USDC)} a USDC trip`);
 
     const st = s.stats;
