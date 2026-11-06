@@ -67,6 +67,10 @@
  *                           Kamino inside the same transaction and repays it there (0.001% fee,
  *                           counted in the floor), so trips size to KEEPER_MAX_TRADE_USD, not to
  *                           the float (default no)
+ *   KEEPER_JITO             yes = a SOL trip goes to Jito's block engine as a bundle, with a tip
+ *                           to Jito inside it of up to 30% of its test-run gain, added to its
+ *                           floor; a race lost to another robot never lands and costs nothing.
+ *                           USDC trips go the usual way (default no)
  *   KEEPER_SCANNER_URL      the arbitrage scanner's page on THIS computer, e.g.
  *                           http://127.0.0.1:8795/state.json: the keeper also tries the trips
  *                           between two outside pools whose scanner test run passed in the last
@@ -138,6 +142,7 @@ const { proveLighthouse } = await lib('solana/keeper/lighthouse.ts');
 const { accountWake, socketUrlOf } = await lib('solana/keeper/wake.ts');
 const { listedPools, streamPools, STREAM_REFRESH_MS } = await lib('solana/keeper/streams.ts');
 const { isKeeperCoin } = await lib('solana/keeper/plan.ts');
+const { jitoSender } = await lib('solana/keeper/jito.ts');
 const { pollConfirm } = await lib('solana/confirm.ts');
 
 const WSOL = new PublicKey('So11111111111111111111111111111111111111112');
@@ -801,6 +806,7 @@ async function main() {
       raydiumPrograms: RAYDIUM_PROGRAMS,
       payNewAccountRent: yes('KEEPER_PAY_SETUP'),
       flashLoans: yes('KEEPER_FLASH_LOANS'),
+      jito: yes('KEEPER_JITO'),
     };
     settings.dustMinUsd = num('KEEPER_DUST_MIN_USD', DEFAULT_SETTINGS.dustMinUsd);
     const intervalMs = num('KEEPER_INTERVAL_SEC', 60) * 1000;
@@ -828,6 +834,13 @@ async function main() {
       const hold = holdReason();
       if (hold) throw new Error(hold);
       return sendSigned(tx, key);
+    };
+    const jito = jitoSender({ fetchImpl: fetch, status: async (sig) => (await conn.getSignatureStatuses([sig])).value[0] ?? null });
+    const sendJito = async (tx) => {
+      const hold = holdReason();
+      if (hold) throw new Error(hold);
+      tx.sign([key]);
+      return jito(tx);
     };
     const record = (r) => {
       spentToday();
@@ -913,6 +926,7 @@ async function main() {
         : `  Lighthouse check NOT proven (${proof}): trips stay at most $${SAFE_CAP_USD}, and every trip still carries the check`,
     );
     log(`  Raydium ${settings.allowRaydium ? 'ALLOWED' : 'refused'} · new coin accounts ${settings.payNewAccountRent ? 'opened on any paying trip' : 'opened only when the trip earns the rent back'}`);
+    log(`  SOL trips sent: ${settings.jito ? 'through Jito as bundles, tip up to 30% of the test-run gain, in the floor; a lost race costs nothing' : 'the usual way (KEEPER_JITO=yes sends them through Jito)'}`);
     log(`  SOL trips past the float: ${settings.flashLoans ? 'a Kamino loan inside the trip (0.001% fee, counted in the floor), up to the cap' : 'made smaller (KEEPER_FLASH_LOANS=yes borrows the rest inside the trip)'}`);
     log(`  quick check every ${checkMs / 1000} s · full pass at least every ${intervalMs / 1000} s · at most ${maxDailySol} SOL a day on fees and new accounts`);
     log(`  earnings log ${TRADES} · gap log ${GAPS} · to pause sending, create ${STOP_FILE}`);
@@ -944,6 +958,7 @@ async function main() {
       held = hold;
       beat();
       io.send = live && !hold ? send : undefined;
+      io.sendJito = live && !hold && settings.jito ? sendJito : undefined;
       // The quick check's reading is taken BEFORE a pass: a move during the pass shows as a
       // change at the next check, never as the starting point.
       let now = null;

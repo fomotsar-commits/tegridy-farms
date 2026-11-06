@@ -22,6 +22,7 @@ import type { GapSeen, Skip } from './gaps';
 import { atLeastCheck } from './lighthouse';
 import { MAX_TRIP_UNITS, coinBounds, tokenGate, type TripBans } from './rule';
 import { KAMINO_LOOKUP_TABLE, flashBorrowIx, flashFee, flashRepayIx, loanFor } from './flashLoan';
+import { jitoTip, jitoTipIx, pickTipAccount, type JitoOutcome } from './jito';
 import type { OutsideTake } from './takes';
 import { refusedVenues, type JupiterApi, type JupiterQuote, type SwapInstructions } from './jupiterApi';
 import { OUTSIDE_POOLS, outsideUsd, readOutsidePools, screenUsd, type Anchors, type OutsidePool } from './outside';
@@ -69,6 +70,8 @@ export interface KeeperIo {
   indexFetch: typeof fetch;
   /** Signs and sends; absent on a dry run, which stops after the test run. */
   send?: (tx: VersionedTransaction) => Promise<{ signature: string; outcome: 'confirmed' | 'reverted' | 'unknown' }>;
+  /** Signs and sends through Jito as a bundle (keeper/jito.ts); absent unless sending and KEEPER_JITO. 'lost': it never landed. */
+  sendJito?: (tx: VersionedTransaction) => Promise<{ signature: string; outcome: JitoOutcome }>;
   /** Told of every sent trip, with what it really did once it confirmed. */
   record?: (r: TripRecord) => void;
   /** Pools whose sent trips the chain refused twice in a day: no trip through them for a day. */
@@ -104,6 +107,12 @@ export interface KeeperSettings extends KeeperLimits {
    * (KEEPER_FLASH_LOANS; off by default). The fee is counted in the floor.
    */
   flashLoans: boolean;
+  /**
+   * Send each SOL trip through Jito as a bundle with a tip inside it, at most 30% of its test-run
+   * gain and added to its floor (keeper/jito.ts; KEEPER_JITO, off by default): a race lost never
+   * lands and costs nothing. USDC trips go the usual way: the tip is paid in SOL.
+   */
+  jito: boolean;
 }
 
 export const DEFAULT_SETTINGS: Omit<KeeperSettings, keyof KeeperLimits | 'raydiumPrograms'> = {
@@ -113,6 +122,7 @@ export const DEFAULT_SETTINGS: Omit<KeeperSettings, keyof KeeperLimits | 'raydiu
   dustMinUsd: 1,
   outsidePools: OUTSIDE_POOLS,
   flashLoans: false,
+  jito: false,
 };
 
 /** One sent trip, for the keeper's earnings log. `gained`/`lamportsSpent` are null when it did not confirm. */
@@ -161,7 +171,7 @@ const MAX_DUST_SALES = 5;
 /** A leftover sale's minimum must be at least this share of the coin's listed worth. */
 const DUST_FLOOR_OF_WORTH = 0.9;
 type Refused = { names: string[]; programs: Set<string> };
-type Tried = 'sent' | 'unsure' | Skip;
+export type Tried = 'sent' | 'unsure' | Skip;
 type Outcome = 'none' | Tried;
 /** Whether the trip went out: anything else is a reason it did not. */
 const wentOut = (o: Outcome) => o === 'sent' || o === 'unsure';
@@ -983,6 +993,8 @@ export interface Trip {
   lookupTables: string[];
   /** Lamports borrowed from Kamino inside the trip (SOL trips only, keeper/flashLoan.ts); absent or 0: none. */
   loan?: bigint;
+  /** Jito's tip, paid inside the trip (SOL trips only, keeper/jito.ts) and added to its floor; absent: none. */
+  tip?: { lamports: bigint; account: string };
   /**
    * The least the trip must gain, in the coin's base units (the network fee, $0.01, any new
    * account's rent, and any loan's fee). The last instruction, a Lighthouse check, holds the coin
@@ -996,13 +1008,13 @@ export interface Trip {
 
 /**
  * Every instruction of one trip, in order: the compute budget, the two coin accounts (opened if
- * missing), any loan's borrow, the swaps, the loan's repayment, and LAST the Lighthouse check
- * that the coin account holds at least `held` + the trip's floor (which counts the loan's fee).
- * Starting and ending in the same coin account, in one transaction.
+ * missing), any loan's borrow, the swaps, the loan's repayment, any Jito tip, and LAST the
+ * Lighthouse check that the coin account holds at least `held` + the trip's floor (which counts
+ * the loan's fee) + the tip. Starting and ending in the same coin account, in one transaction.
  */
 export function tripInstructions(
   owner: PublicKey,
-  t: Pick<Trip, 'accounts' | 'legs' | 'floor' | 'loan'>,
+  t: Pick<Trip, 'accounts' | 'legs' | 'floor' | 'loan' | 'tip'>,
   microLamports: number,
   units: number,
   held: bigint,
@@ -1016,6 +1028,9 @@ export function tripInstructions(
   ];
   const loan = t.loan ?? 0n;
   if (loan > 0n && coinMint.toBase58() !== SOL_QUOTE.mint) throw new Error('a loan is only taken on a SOL trip');
+  // The tip is plain SOL out of the wallet, so the wrapped-SOL account must grow by it on top of the floor.
+  const tip = t.tip?.lamports ?? 0n;
+  if (t.tip && coinMint.toBase58() !== SOL_QUOTE.mint) throw new Error('a Jito tip is only paid on a SOL trip');
   // Kamino's repayment names the borrow by its place in the transaction.
   const borrowAt = head.length;
   return [
@@ -1023,7 +1038,8 @@ export function tripInstructions(
     ...(loan > 0n ? [flashBorrowIx(owner, coinAta, loan)] : []),
     ...t.legs,
     ...(loan > 0n ? [flashRepayIx(owner, coinAta, loan, borrowAt)] : []),
-    atLeastCheck(coinAta, held + t.floor),
+    ...(t.tip ? [jitoTipIx(owner, tip, t.tip.account)] : []),
+    atLeastCheck(coinAta, held + t.floor + tip),
   ];
 }
 
@@ -1032,9 +1048,10 @@ const borrowed = (loan: bigint, amt: (raw: bigint) => string) => (loan > 0n ? ` 
 
 /**
  * Build the trip, test-run it, judge what the test run did to the keeper's accounts, and send it
- * only when that passes (and only live). A confirmed trip's real result is read back for the log.
+ * only when that passes (and only live), through Jito when that is on (keeper/jito.ts). A
+ * confirmed trip's real result is read back for the log. Exported for its test.
  */
-async function sendChecked(io: KeeperIo, s: KeeperSettings, t: Trip): Promise<Tried> {
+export async function sendChecked(io: KeeperIo, s: KeeperSettings, t: Trip): Promise<Tried> {
   const owner = io.owner;
   const { coinAta, tokenAta, otherAta } = t.accounts;
   const keys = [coinAta, tokenAta, otherAta, owner];
@@ -1049,9 +1066,9 @@ async function sendChecked(io: KeeperIo, s: KeeperSettings, t: Trip): Promise<Tr
   const alts = await lookupTablesOf(io.rpc, (t.loan ?? 0n) > 0n ? [...new Set([...t.lookupTables, KAMINO_LOOKUP_TABLE])] : t.lookupTables);
   // `held`: the coin account's amount the trip starts from. The Lighthouse check is last: it
   // holds the account to `held` + the floor once every swap has run, or the trip is undone.
-  const build = async (units: number, held: bigint) => {
+  const build = async (units: number, held: bigint, tip?: Trip['tip']) => {
     const { blockhash } = ((await io.rpc('getLatestBlockhash', [{ commitment: 'confirmed' }])) as { value: { blockhash: string } }).value;
-    const instructions = tripInstructions(owner, t, s.microLamports, units, held);
+    const instructions = tripInstructions(owner, { ...t, tip }, s.microLamports, units, held);
     return new VersionedTransaction(new TransactionMessage({ payerKey: owner, recentBlockhash: blockhash, instructions }).compileToV0Message(alts));
   };
 
@@ -1066,15 +1083,31 @@ async function sendChecked(io: KeeperIo, s: KeeperSettings, t: Trip): Promise<Tr
     io.log(`${t.name}: test run not sent, ${problem}`);
     return 'test-checks';
   }
-  io.log(`${t.name}: ${t.says(change.coinAfter - change.coinBefore)}`);
+  const gainedInTest = change.coinAfter - change.coinBefore;
+  io.log(`${t.name}: ${t.says(gainedInTest)}`);
+  // Jito: a SOL trip only (the tip is SOL), sized from this test run's gain and the plain SOL it
+  // leaves; the floor rises by it.
+  const tipLamports = s.jito && t.coin.mint === SOL_QUOTE.mint ? jitoTip(gainedInTest, t.floor, change.lamportsAfter) : null;
+  const viaJito = tipLamports !== null && (!io.send || io.sendJito !== undefined);
+  if (viaJito) io.log(`${t.name}: ${io.send ? 'goes' : 'would go'} through Jito with a tip of ${tipLamports} lamports, added to the floor`);
   if (!io.send) return 'not-sent';
   // Read right before the send, so a top-up of the keeper's wallet meanwhile is no part of it:
   // the Lighthouse check counts from this amount.
   const atSend = await balances(io.rpc, keys);
-  const tx = await build(Math.ceil(sim.units * 1.2) + 10_000, atSend.coin);
-  const r = await io.send(tx);
+  const units = Math.ceil(sim.units * 1.2) + 10_000;
+  const tip = viaJito ? { lamports: tipLamports, account: pickTipAccount() } : undefined;
+  const r = tip && io.sendJito ? await io.sendJito(await build(units, atSend.coin, tip)) : await io.send(await build(units, atSend.coin));
   if (r.outcome === 'reverted') io.bans?.reverted(pools, Date.now());
   io.log(`${t.name}: sent ${r.signature}: ${r.outcome}`);
+  if (r.outcome === 'lost') {
+    // Jito never put it in a block: no fee, no tip, nothing moved. Logged, at no cost to the day's cap.
+    try {
+      io.record?.({ at: new Date().toISOString(), kind: t.kind, pool: t.pool, name: t.name, coin: t.coin, coinIn: t.coinIn, gained: 0n, lamportsSpent: 0n, signature: r.signature, outcome: r.outcome });
+    } catch (e) {
+      io.log(`${t.name}: the lost race was not logged: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    return 'race-lost';
+  }
   let gained: bigint | null = null;
   // An unknown ending counts as the most a trip may cost, so the daily cap never counts it as free.
   let lamportsSpent: bigint | null = r.outcome === 'unknown' ? MAX_LAMPORTS_SPENT : null;
@@ -1082,8 +1115,10 @@ async function sendChecked(io: KeeperIo, s: KeeperSettings, t: Trip): Promise<Tr
   if (r.outcome !== 'unknown') {
     try {
       const after = await balances(io.rpc, keys);
-      gained = after.coin - atSend.coin;
-      const spent = atSend.lamports - after.lamports;
+      // A tip paid came out of the gain, not the float: neither the gain nor the day's fees count it.
+      const paid = r.outcome === 'confirmed' ? (tip?.lamports ?? 0n) : 0n;
+      gained = after.coin - atSend.coin - paid;
+      const spent = atSend.lamports - after.lamports - paid;
       lamportsSpent = spent < 0n ? 0n : spent > MAX_LAMPORTS_SPENT ? MAX_LAMPORTS_SPENT : spent;
     } catch {
       // Unread: counted as the most a trip may cost.
