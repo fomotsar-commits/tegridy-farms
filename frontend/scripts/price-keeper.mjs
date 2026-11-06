@@ -58,6 +58,10 @@
  *                           "off" = no page)
  *   KEEPER_WS_URL           the RPC's websocket, which wakes the keeper when a watched pool
  *                           changes (default: KEEPER_RPC_URL over ws; "off" = the timer only)
+ *   KEEPER_FLASH_LOANS      yes = a SOL trip bigger than the keeper's float borrows the rest from
+ *                           Kamino inside the same transaction and repays it there (0.001% fee,
+ *                           counted in the floor), so trips size to KEEPER_MAX_TRADE_USD, not to
+ *                           the float (default no)
  *   KEEPER_SCANNER_URL      the arbitrage scanner's page on THIS computer, e.g.
  *                           http://127.0.0.1:8795/state.json: the keeper also tries the trips
  *                           between two outside pools whose scanner test run passed in the last
@@ -765,6 +769,7 @@ async function main() {
       allowRaydium: yes('KEEPER_ALLOW_RAYDIUM'),
       raydiumPrograms: RAYDIUM_PROGRAMS,
       payNewAccountRent: yes('KEEPER_PAY_SETUP'),
+      flashLoans: yes('KEEPER_FLASH_LOANS'),
     };
     settings.dustMinUsd = num('KEEPER_DUST_MIN_USD', DEFAULT_SETTINGS.dustMinUsd);
     const intervalMs = num('KEEPER_INTERVAL_SEC', 60) * 1000;
@@ -874,6 +879,7 @@ async function main() {
         : `  Lighthouse check NOT proven (${proof}): trips stay at most $${SAFE_CAP_USD}, and every trip still carries the check`,
     );
     log(`  Raydium ${settings.allowRaydium ? 'ALLOWED' : 'refused'} · new coin accounts ${settings.payNewAccountRent ? 'opened on any paying trip' : 'opened only when the trip earns the rent back'}`);
+    log(`  SOL trips past the float: ${settings.flashLoans ? 'a Kamino loan inside the trip (0.001% fee, counted in the floor), up to the cap' : 'made smaller (KEEPER_FLASH_LOANS=yes borrows the rest inside the trip)'}`);
     log(`  quick check every ${checkMs / 1000} s · full pass at least every ${intervalMs / 1000} s · at most ${maxDailySol} SOL a day on fees and new accounts`);
     log(`  earnings log ${TRADES} · gap log ${GAPS} · to pause sending, create ${STOP_FILE}`);
     log(`  Jupiter prices reused for ${priceTtlSec} s · woken by chain updates: ${wake ? redactRpcUrl(wsUrl) : 'off, the timer only'}`);

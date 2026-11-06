@@ -21,6 +21,7 @@ import type { TransferFee } from '../lp/transferFee';
 import type { GapSeen, Skip } from './gaps';
 import { atLeastCheck } from './lighthouse';
 import { MAX_TRIP_UNITS, coinBounds, tokenGate, type TripBans } from './rule';
+import { KAMINO_LOOKUP_TABLE, flashBorrowIx, flashFee, flashRepayIx, loanFor } from './flashLoan';
 import type { OutsideTake } from './takes';
 import { refusedVenues, type JupiterApi, type JupiterQuote, type SwapInstructions } from './jupiterApi';
 import { OUTSIDE_POOLS, outsideUsd, readOutsidePools, screenUsd, type Anchors, type OutsidePool } from './outside';
@@ -97,6 +98,12 @@ export interface KeeperSettings extends KeeperLimits {
   dustMinUsd: number;
   /** Outside pools whose reserves, read from the chain, price their coin in place of Jupiter's listed price (keeper/outside.ts). */
   outsidePools: readonly string[];
+  /**
+   * Borrow inside the trip from Kamino (keeper/flashLoan.ts) when a SOL trip is bigger than the
+   * keeper's float, so it is sized to the gap and the cap, not to what the keeper holds
+   * (KEEPER_FLASH_LOANS; off by default). The fee is counted in the floor.
+   */
+  flashLoans: boolean;
 }
 
 export const DEFAULT_SETTINGS: Omit<KeeperSettings, keyof KeeperLimits | 'raydiumPrograms'> = {
@@ -105,6 +112,7 @@ export const DEFAULT_SETTINGS: Omit<KeeperSettings, keyof KeeperLimits | 'raydiu
   payNewAccountRent: false,
   dustMinUsd: 1,
   outsidePools: OUTSIDE_POOLS,
+  flashLoans: false,
 };
 
 /** One sent trip, for the keeper's earnings log. `gained`/`lamportsSpent` are null when it did not confirm. */
@@ -647,7 +655,9 @@ async function jupiterTrip(
     io.log(`${name}: skipped, the keeper holds no ${view.quote.symbol}`);
     return 'no-coin';
   }
-  if (before.coin < plan.coinIn) {
+  // Past the float: a loan inside the trip when loans are on (SOL only), else a smaller trip.
+  const loan = loanFor(plan.coinMint, plan.coinIn, before.coin, s.flashLoans);
+  if (before.coin < plan.coinIn && loan === 0n) {
     // A smaller trip than the gap allows still pays on x·y = k; the checks below say if it does not.
     io.log(`${name}: the gap takes ${amt(plan.coinIn)}, the keeper holds ${amt(before.coin)}: a smaller trip`);
     plan = { ...plan, coinIn: before.coin };
@@ -657,7 +667,7 @@ async function jupiterTrip(
     io.log(`${name}: skipped, no SOL price to count the new token account’s rent`);
     return 'no-sol-price';
   }
-  plan = { ...plan, minProfit: plan.minProfit + rent };
+  plan = { ...plan, minProfit: plan.minProfit + rent + flashFee(loan) };
   const need = plan.coinIn + plan.minProfit;
   const legExpect = { owner, refused: refused.programs, untouchable: acc.hasOther ? [acc.otherAta] : [] };
   let legs: TransactionInstruction[];
@@ -705,10 +715,11 @@ async function jupiterTrip(
     before,
     legs,
     lookupTables,
+    loan,
     floor: done.minProfit,
     verdict: (c) => simulationProblem(c, done),
     says: (gained) =>
-      `${done.side === 'buy' ? 'buy here, sell on Jupiter' : 'buy on Jupiter, sell here'}, ${amt(done.coinIn)} in, test run gains ${amt(gained)} (floor ${amt(done.minProfit)})`,
+      `${done.side === 'buy' ? 'buy here, sell on Jupiter' : 'buy on Jupiter, sell here'}, ${amt(done.coinIn)} in${borrowed(loan, amt)}, test run gains ${amt(gained)} (floor ${amt(done.minProfit)})`,
   });
 }
 
@@ -752,7 +763,8 @@ async function viaTrip(
     return 'no-coin';
   }
   let coinIn = plan.coinIn;
-  if (before.coin < coinIn) {
+  const loan = loanFor(SOL_QUOTE.mint, coinIn, before.coin, s.flashLoans);
+  if (before.coin < coinIn && loan === 0n) {
     io.log(`${name}: the gap takes ${amt(coinIn)}, the keeper holds ${amt(before.coin)}: a smaller trip`);
     coinIn = before.coin;
   }
@@ -762,7 +774,7 @@ async function viaTrip(
     io.log(`${name}: skipped, it would open two new token accounts`);
     return 'no-plan';
   }
-  const minProfit = plan.minProfit + (opens && !s.payNewAccountRent ? NEW_ACCOUNT_RENT : 0n);
+  const minProfit = plan.minProfit + (opens && !s.payNewAccountRent ? NEW_ACCOUNT_RENT : 0n) + flashFee(loan);
   const need = coinIn + minProfit;
   const q1 = await quoteDirectFirst(io, s, { inputMint: SOL_QUOTE.mint, outputMint: a, amount: coinIn, slippageBps: s.slippageBps, excludeDexes: refused.names });
   // Our pool spends exactly the least the first leg must pay.
@@ -805,10 +817,11 @@ async function viaTrip(
       si3.swap,
     ],
     lookupTables: [...new Set([...si1.lookupTables, ...si3.lookupTables])],
+    loan,
     floor: minProfit,
     verdict: (c) => simulationProblem(c, { minProfit }),
     says: (gained) =>
-      `${plan.side === 'buy' ? `buy here with ${view.quote.symbol}, sell on Jupiter` : `buy on Jupiter, sell here for ${view.quote.symbol}`}, ${amt(coinIn)} in, test run gains ${amt(gained)} (floor ${amt(minProfit)})`,
+      `${plan.side === 'buy' ? `buy here with ${view.quote.symbol}, sell on Jupiter` : `buy on Jupiter, sell here for ${view.quote.symbol}`}, ${amt(coinIn)} in${borrowed(loan, amt)}, test run gains ${amt(gained)} (floor ${amt(minProfit)})`,
   });
 }
 
@@ -860,11 +873,14 @@ async function outsideTrip(io: KeeperIo, s: KeeperSettings, t: OutsideTake, usd:
     io.log(`${name}: skipped, the keeper holds no ${coin.symbol}`);
     return 'no-coin';
   }
-  // The scanner's size, never past the rule's cap or what the keeper holds: on x·y = k a smaller trip still pays.
-  const coinIn = [t.inRaw, bounds.cap, before.coin].reduce((a, b) => (b < a ? b : a));
+  // The scanner's size, never past the rule's cap, nor past what the keeper holds unless a loan
+  // carries the rest (SOL, loans on): on x·y = k a smaller trip still pays.
+  const sized = t.inRaw < bounds.cap ? t.inRaw : bounds.cap;
+  const loan = loanFor(coin.mint, sized, before.coin, s.flashLoans);
+  const coinIn = loan > 0n || sized <= before.coin ? sized : before.coin;
   const rent = rentToEarn(s, before.tokenExists, coin, usd);
   if (rent === null || coinIn <= 0n) return 'no-sol-price';
-  const minProfit = bounds.floor + rent;
+  const minProfit = bounds.floor + rent + flashFee(loan);
   const need = coinIn + minProfit;
   const held = (dex: string) => ({ slippageBps: s.slippageBps, excludeDexes: [], dexes: [dex], onlyDirectRoutes: true, maxAccounts: s.maxAccounts });
   const q1 = await io.jupiter.quote({ inputMint: coin.mint, outputMint: t.tokenMint, amount: coinIn, ...held(buyDex) });
@@ -903,9 +919,10 @@ async function outsideTrip(io: KeeperIo, s: KeeperSettings, t: OutsideTake, usd:
     before,
     legs: [si1.swap, si2.swap],
     lookupTables: [...new Set([...si1.lookupTables, ...si2.lookupTables])],
+    loan,
     floor: minProfit,
     verdict: (c) => simulationProblem(c, { minProfit }),
-    says: (gained) => `buy through ${buyDex}, sell through ${sellDex}, ${amt(coinIn)} in, test run gains ${amt(gained)} (floor ${amt(minProfit)})`,
+    says: (gained) => `buy through ${buyDex}, sell through ${sellDex}, ${amt(coinIn)} in${borrowed(loan, amt)}, test run gains ${amt(gained)} (floor ${amt(minProfit)})`,
   });
 }
 
@@ -964,10 +981,12 @@ export interface Trip {
   before: Balances;
   legs: TransactionInstruction[];
   lookupTables: string[];
+  /** Lamports borrowed from Kamino inside the trip (SOL trips only, keeper/flashLoan.ts); absent or 0: none. */
+  loan?: bigint;
   /**
-   * The least the trip must gain, in the coin's base units (the network fee, $0.01, and any new
-   * account's rent). The last instruction, a Lighthouse check, holds the coin account to what it
-   * held before plus this, or the chain undoes the whole trip.
+   * The least the trip must gain, in the coin's base units (the network fee, $0.01, any new
+   * account's rent, and any loan's fee). The last instruction, a Lighthouse check, holds the coin
+   * account to what it held before plus this, or the chain undoes the whole trip.
    */
   floor: bigint;
   /** Why the test run's result must not be sent, or null. */
@@ -977,26 +996,39 @@ export interface Trip {
 
 /**
  * Every instruction of one trip, in order: the compute budget, the two coin accounts (opened if
- * missing), the swaps, and LAST the Lighthouse check that the coin account holds at least
- * `held` + the trip's floor. Starting and ending in the same coin account, in one transaction.
+ * missing), any loan's borrow, the swaps, the loan's repayment, and LAST the Lighthouse check
+ * that the coin account holds at least `held` + the trip's floor (which counts the loan's fee).
+ * Starting and ending in the same coin account, in one transaction.
  */
 export function tripInstructions(
   owner: PublicKey,
-  t: Pick<Trip, 'accounts' | 'legs' | 'floor'>,
+  t: Pick<Trip, 'accounts' | 'legs' | 'floor' | 'loan'>,
   microLamports: number,
   units: number,
   held: bigint,
 ): TransactionInstruction[] {
   const { coinAta, tokenAta, tokenMint, tokenProgram, coinMint } = t.accounts;
-  return [
+  const head = [
     ComputeBudgetProgram.setComputeUnitLimit({ units }),
     ComputeBudgetProgram.setComputeUnitPrice({ microLamports }),
     createAssociatedTokenAccountIdempotentInstruction(owner, coinAta, owner, coinMint, TOKEN_PROGRAM_ID),
     createAssociatedTokenAccountIdempotentInstruction(owner, tokenAta, owner, tokenMint, tokenProgram),
+  ];
+  const loan = t.loan ?? 0n;
+  if (loan > 0n && coinMint.toBase58() !== SOL_QUOTE.mint) throw new Error('a loan is only taken on a SOL trip');
+  // Kamino's repayment names the borrow by its place in the transaction.
+  const borrowAt = head.length;
+  return [
+    ...head,
+    ...(loan > 0n ? [flashBorrowIx(owner, coinAta, loan)] : []),
     ...t.legs,
+    ...(loan > 0n ? [flashRepayIx(owner, coinAta, loan, borrowAt)] : []),
     atLeastCheck(coinAta, held + t.floor),
   ];
 }
+
+/** " (0.5 SOL of it borrowed)", or nothing without a loan. */
+const borrowed = (loan: bigint, amt: (raw: bigint) => string) => (loan > 0n ? ` (${amt(loan)} of it borrowed)` : '');
 
 /**
  * Build the trip, test-run it, judge what the test run did to the keeper's accounts, and send it
@@ -1013,7 +1045,8 @@ async function sendChecked(io: KeeperIo, s: KeeperSettings, t: Trip): Promise<Tr
     return 'banned';
   }
   if (t.floor <= 0n) throw new Error('a trip with no floor is never built');
-  const alts = await lookupTablesOf(io.rpc, t.lookupTables);
+  // A loan's accounts sit in Kamino's lookup table, so they fit beside a Jupiter route.
+  const alts = await lookupTablesOf(io.rpc, (t.loan ?? 0n) > 0n ? [...new Set([...t.lookupTables, KAMINO_LOOKUP_TABLE])] : t.lookupTables);
   // `held`: the coin account's amount the trip starts from. The Lighthouse check is last: it
   // holds the account to `held` + the floor once every swap has run, or the trip is undone.
   const build = async (units: number, held: bigint) => {
