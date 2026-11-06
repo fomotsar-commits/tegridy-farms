@@ -58,6 +58,23 @@
  *                           "off" = no page)
  *   KEEPER_WS_URL           the RPC's websocket, which wakes the keeper when a watched pool
  *                           changes (default: KEEPER_RPC_URL over ws; "off" = the timer only)
+ *   KEEPER_STREAMS          yes = that websocket also hears every trade that lands in the deepest
+ *                           few outside pools of each coin the robot trades (PumpSwap, Raydium,
+ *                           Orca, Meteora: DexScreener's list, each pool's owner checked on chain),
+ *                           log lines only, never account data; a trade asks Jupiter's price again
+ *                           at the next quick check (default yes; no = our pools' vaults only)
+ *   KEEPER_FLASH_LOANS      yes = a SOL trip bigger than the keeper's float borrows the rest from
+ *                           Kamino inside the same transaction and repays it there (0.001% fee,
+ *                           counted in the floor), so trips size to KEEPER_MAX_TRADE_USD, not to
+ *                           the float (default no)
+ *   KEEPER_JITO             yes = a SOL trip goes to Jito's block engine as a bundle, with a tip
+ *                           to Jito inside it of up to 30% of its test-run gain, added to its
+ *                           floor; a race lost to another robot never lands and costs nothing.
+ *                           USDC trips go the usual way (default no)
+ *   KEEPER_SCANNER_URL      the arbitrage scanner's page on THIS computer, e.g.
+ *                           http://127.0.0.1:8795/state.json: the keeper also tries the trips
+ *                           between two outside pools whose scanner test run passed in the last
+ *                           3 minutes, quoting, gating and test-running each itself (default off)
  *
  * ─── COMMANDS ───────────────────────────────────────────────────────────────────
  *   status                     the keeper's address and what it holds
@@ -79,6 +96,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { register } from 'node:module';
 import { redactRpcUrl } from '../../scripts/lib/redact-url.mjs';
 import { RAYDIUM_PROGRAMS } from './lib/raydium-programs.mjs';
+import { OUTSIDE_DEX_PROGRAMS } from './lib/outside-dexes.mjs';
 
 // ─── Make the bundler-targeted TS modules run under Node (tegridy-launch-operator.mjs's
 // loader, plus an empty `import.meta.env` for the modules that read Vite's settings) ───
@@ -119,9 +137,12 @@ const { QUOTE_COINS } = await lib('solana/lp/quotes.ts');
 const { PRICE_IDS_MAX } = await lib('solana/lp/poolList.ts');
 const { jupiterApi } = await lib('solana/keeper/jupiterApi.ts');
 const { DEFAULT_LIMITS } = await lib('solana/keeper/plan.ts');
-const { TripBans, capUsd, SAFE_CAP_USD } = await lib('solana/keeper/rule.ts');
+const { TripBans, capUsd, SAFE_CAP_USD, publishedRule } = await lib('solana/keeper/rule.ts');
 const { proveLighthouse } = await lib('solana/keeper/lighthouse.ts');
 const { accountWake, socketUrlOf } = await lib('solana/keeper/wake.ts');
+const { listedPools, streamPools, STREAM_REFRESH_MS } = await lib('solana/keeper/streams.ts');
+const { isKeeperCoin } = await lib('solana/keeper/plan.ts');
+const { jitoSender } = await lib('solana/keeper/jito.ts');
 const { pollConfirm } = await lib('solana/confirm.ts');
 
 const WSOL = new PublicKey('So11111111111111111111111111111111111111112');
@@ -336,6 +357,10 @@ const TOKEN_PROGRAMS = ['TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', 'TokenzQd
 const MAX_TRACKED = 40;
 /** The chain is read again this soon after a read starts, whether or not a page is open. */
 const READ_EVERY_MS = 15_000;
+/** The scanner's page (on this computer) is read this often, as its own page reads itself. */
+const SCANNER_EVERY_MS = 5_000;
+/** A scanner page longer than this is not read: it sends about 40 KB. */
+const SCANNER_MAX_BYTES = 2_000_000;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const said = (e) => (e instanceof Error ? e.message : String(e));
 
@@ -399,6 +424,38 @@ async function readNew(address, h, readOne) {
     h.newest[address] = signature;
   }
   return true;
+}
+
+/**
+ * The scanner's page (KEEPER_SCANNER_URL, the one the robot reads), as the dashboard shows it
+ * (keeper/scannerView.ts): read here and streamed with the robot's figures, since the dashboard's
+ * page may ask nothing of any other address. Never followed elsewhere, never longer than it should be.
+ */
+async function readScanner(url, scannerView) {
+  let res;
+  try {
+    res = await fetch(url, { redirect: 'error', signal: AbortSignal.timeout(3_000) });
+  } catch (e) {
+    const code = e?.cause?.code;
+    if (code === 'ECONNREFUSED') return `nothing answers at ${url.host}: the scanner is not running`;
+    if (e?.name === 'TimeoutError') return `the scanner at ${url.host} did not answer within 3 s`;
+    return `the scanner at ${url.host} was not read (${code ?? said(e)})`;
+  }
+  if (!res.ok) return `the scanner at ${url.host} answered ${res.status}`;
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of res.body) {
+    size += chunk.length;
+    if (size > SCANNER_MAX_BYTES) return `the scanner's page is longer than ${SCANNER_MAX_BYTES / 1e6} MB: not read`;
+    chunks.push(chunk);
+  }
+  let json;
+  try {
+    json = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+  } catch {
+    return `the page at ${url.host} is not a scanner's page`;
+  }
+  return scannerView(json);
 }
 
 /** The keeper's wallet and every coin account it has, and the latest slot they were read at. */
@@ -574,6 +631,30 @@ async function dashboard() {
   let building = null;
   let firstRead;
   const ready = new Promise((r) => (firstRead = r));
+
+  // The scanner, on its own clock: a scanner that stops answering is said on the page, and the
+  // robot's figures carry on without it.
+  const { scannerView, nextScannerFeed } = await lib('solana/keeper/scannerView.ts');
+  const { scannerPageUrl } = await lib('solana/keeper/takes.ts');
+  const scannerRaw = env.KEEPER_SCANNER_URL?.trim();
+  let scannerUrl = null;
+  let scanner = { page: null, view: null, readAt: null, problem: 'not set: KEEPER_SCANNER_URL names the scanner’s page on this computer' };
+  if (scannerRaw) {
+    try {
+      scannerUrl = scannerPageUrl(scannerRaw);
+      scanner = { ...scanner, page: scannerUrl.host, problem: 'not read yet' };
+    } catch (e) {
+      scanner = { ...scanner, problem: said(e) };
+    }
+  }
+  async function readScannerForever() {
+    for (;;) {
+      const started = Date.now();
+      scanner = nextScannerFeed(scanner, await readScanner(scannerUrl, scannerView).catch((e) => `the scanner was not read: ${said(e)}`), Date.now());
+      push();
+      await sleep(Math.max(1_000, SCANNER_EVERY_MS - (Date.now() - started)));
+    }
+  }
   async function readForever() {
     for (;;) {
       const started = Date.now();
@@ -607,9 +688,9 @@ async function dashboard() {
   const listeners = new Set();
   let sent = '';
   let sentAt = 0;
-  const snapshot = () => JSON.stringify({ ...state, ...live() });
+  const snapshot = () => JSON.stringify({ ...state, ...live(), scanner });
   function push() {
-    if (!state || !listeners.size) return;
+    if (!listeners.size) return;
     const body = snapshot();
     if (body === sent && Date.now() - sentAt < 5_000) return;
     sent = body;
@@ -634,7 +715,7 @@ async function dashboard() {
       res.writeHead(200, { ...common, 'content-type': 'text/event-stream' });
       listeners.add(res);
       req.on('close', () => listeners.delete(res));
-      if (state) res.write(`data: ${snapshot()}\n\n`);
+      res.write(`data: ${snapshot()}\n\n`);
       return;
     }
     return res.writeHead(404, common).end();
@@ -646,8 +727,9 @@ async function dashboard() {
   server.listen(port, '127.0.0.1', () => {
     log(`Dashboard for ${owner}: http://127.0.0.1:${port}`);
     log('  read-only, on this computer only; Ctrl+C stops it (the robot keeps running)');
+    log(`  the scanner: ${scannerUrl ? `read from ${scannerUrl.host} every ${SCANNER_EVERY_MS / 1000} s` : scanner.problem}`);
   });
-  await readForever();
+  await Promise.all([readForever(), scannerUrl ? readScannerForever() : null]);
 }
 
 // ─── The gap screen: a read-only page served by `run` itself, on this computer only. What each
@@ -678,6 +760,47 @@ function serveScreen(screen) {
   server.listen(port, '127.0.0.1', () => log(`  gap screen: http://127.0.0.1:${port} (read-only, this computer only)`));
   // The page never keeps the robot alive: `run --once` ends when its pass does.
   server.unref();
+}
+
+/**
+ * KEEPER_SCANNER_URL as the keeper's `takes`: the scanner's proven trips between two outside pools
+ * (keeper/takes.ts), read fresh each pass with a 3 s limit. Only a page on this computer: what it
+ * says chooses what to ask about, never what is signed. Null when the setting is not set.
+ */
+async function scannerTakes() {
+  const raw = env.KEEPER_SCANNER_URL?.trim();
+  if (!raw) return null;
+  const { outsideTakes, scannerPageUrl } = await lib('solana/keeper/takes.ts');
+  const url = scannerPageUrl(raw);
+  return async () => {
+    const res = await fetch(url, { signal: AbortSignal.timeout(3_000) });
+    if (!res.ok) throw new Error(`the scanner page answered ${res.status}`);
+    return outsideTakes(await res.json(), OUTSIDE_DEX_PROGRAMS, Date.now());
+  };
+}
+
+/**
+ * The outside pools whose trades wake the robot (keeper/streams.ts): DexScreener's deepest few per
+ * coin, then each pool's owner read from the chain (no data, only the owner) and kept only when it
+ * is one of the six exchanges. A listing that cannot be read throws; the caller keeps the last list.
+ */
+async function outsideStreamPools(coins) {
+  const listing = [];
+  for (const coin of coins) {
+    const res = await fetch(`https://api.dexscreener.com/token-pairs/v1/solana/${coin}`, { signal: AbortSignal.timeout(10_000) });
+    if (!res.ok) throw new Error(`DexScreener answered ${res.status}`);
+    const page = await res.json();
+    if (Array.isArray(page)) listing.push(...page);
+  }
+  const listed = listedPools(listing, new Set(coins));
+  const owners = new Map();
+  for (let i = 0; i < listed.length; i += 100) {
+    const chunk = listed.slice(i, i + 100).map((l) => l.pool);
+    const r = await rpc('getMultipleAccounts', [chunk, { encoding: 'base64', commitment: 'confirmed', dataSlice: { offset: 0, length: 0 } }]);
+    if (!Array.isArray(r?.value) || r.value.length !== chunk.length) throw new Error('the pools’ owners were not read');
+    chunk.forEach((pool, j) => owners.set(pool, typeof r.value[j]?.owner === 'string' ? r.value[j].owner : null));
+  }
+  return streamPools(listed, owners, Object.values(OUTSIDE_DEX_PROGRAMS));
 }
 
 async function main() {
@@ -740,6 +863,8 @@ async function main() {
       allowRaydium: yes('KEEPER_ALLOW_RAYDIUM'),
       raydiumPrograms: RAYDIUM_PROGRAMS,
       payNewAccountRent: yes('KEEPER_PAY_SETUP'),
+      flashLoans: yes('KEEPER_FLASH_LOANS'),
+      jito: yes('KEEPER_JITO'),
     };
     settings.dustMinUsd = num('KEEPER_DUST_MIN_USD', DEFAULT_SETTINGS.dustMinUsd);
     const intervalMs = num('KEEPER_INTERVAL_SEC', 60) * 1000;
@@ -767,6 +892,13 @@ async function main() {
       const hold = holdReason();
       if (hold) throw new Error(hold);
       return sendSigned(tx, key);
+    };
+    const jito = jitoSender({ fetchImpl: fetch, status: async (sig) => (await conn.getSignatureStatuses([sig])).value[0] ?? null });
+    const sendJito = async (tx) => {
+      const hold = holdReason();
+      if (hold) throw new Error(hold);
+      tx.sign([key]);
+      return jito(tx);
     };
     const record = (r) => {
       spentToday();
@@ -802,6 +934,9 @@ async function main() {
     const priceTtlSec = env.KEEPER_PRICE_TTL_SEC?.trim() === '0' ? 0 : num('KEEPER_PRICE_TTL_SEC', 30);
     const wsUrl = env.KEEPER_WS_URL?.trim() || socketUrlOf(RPC);
     const wake = wsUrl.toLowerCase() === 'off' ? null : accountWake({ url: wsUrl, socket: (url) => new WebSocket(url), log });
+    const streamsOn = wake !== null && (env.KEEPER_STREAMS?.trim() ? yes('KEEPER_STREAMS') : true);
+    // The outside pools heard, looked up again every STREAM_REFRESH_MS; a failed look-up keeps the last.
+    const streams = { pools: [], at: -Infinity, said: null };
     const jup = jupiterApi({ key: env.JUPITER_API_KEY, fetchImpl: jupiterFetch, priceTtlMs: priceTtlSec * 1000 });
     // Every price and venue-list read asked for, answered from the client's memory or not: the difference is calls saved.
     const jupiter = {
@@ -820,6 +955,8 @@ async function main() {
     const proof = await lighthouseProof(owner);
     settings.lighthouseProven = proof === null;
     screen.lighthouse = { proven: proof === null, why: proof, capUsd: capUsd(settings), settingUsd: settings.maxTradeUsd };
+    // The rule this run judges with, for the scanner to judge and size with too (keeper/rule.ts robotRule).
+    screen.rule = publishedRule(settings);
     // Pools whose sent trips the chain refused: two in a day ban the pool for a day, seeded from the earnings log.
     const bans = new TripBans();
     try {
@@ -828,6 +965,7 @@ async function main() {
       log(`Earnings log not read for bans (${e instanceof Error ? e.message : String(e)}): none carried over`);
     }
     serveScreen(screen);
+    const takes = await scannerTakes();
     const io = {
       rpc,
       jupiter,
@@ -836,8 +974,10 @@ async function main() {
       send: undefined,
       record,
       bans,
+      takes,
       log,
     };
+    log(`  trips between outside pools: ${takes ? `the scanner's proven ones, from ${env.KEEPER_SCANNER_URL.trim()}` : 'off (set KEEPER_SCANNER_URL to the scanner page’s /state.json)'}`);
     log(`Keeper ${owner.toBase58()}, ${live ? 'LIVE: round trips that pass their test run are SENT' : 'dry run: nothing is sent'}`);
     log(`  RPC ${redactRpcUrl(RPC)} · Jupiter ${env.JUPITER_API_KEY?.trim() ? 'own key' : 'keyless'} · up to $${capUsd(settings)} a trip · floor $${settings.minProfitUsd} + the network fee`);
     log(
@@ -846,9 +986,12 @@ async function main() {
         : `  Lighthouse check NOT proven (${proof}): trips stay at most $${SAFE_CAP_USD}, and every trip still carries the check`,
     );
     log(`  Raydium ${settings.allowRaydium ? 'ALLOWED' : 'refused'} · new coin accounts ${settings.payNewAccountRent ? 'opened on any paying trip' : 'opened only when the trip earns the rent back'}`);
+    log(`  SOL trips sent: ${settings.jito ? 'through Jito as bundles, tip up to 30% of the test-run gain, in the floor; a lost race costs nothing' : 'the usual way (KEEPER_JITO=yes sends them through Jito)'}`);
+    log(`  SOL trips past the float: ${settings.flashLoans ? 'a Kamino loan inside the trip (0.001% fee, counted in the floor), up to the cap' : 'made smaller (KEEPER_FLASH_LOANS=yes borrows the rest inside the trip)'}`);
     log(`  quick check every ${checkMs / 1000} s · full pass at least every ${intervalMs / 1000} s · at most ${maxDailySol} SOL a day on fees and new accounts`);
     log(`  earnings log ${TRADES} · gap log ${GAPS} · to pause sending, create ${STOP_FILE}`);
     log(`  Jupiter prices reused for ${priceTtlSec} s · woken by chain updates: ${wake ? redactRpcUrl(wsUrl) : 'off, the timer only'}`);
+    log(`  trades in outside pools: ${streamsOn ? 'heard as they land, after the first pass (log lines only)' : 'not heard (KEEPER_STREAMS=yes and a websocket hear them)'}`);
     let watch = null;
     // The gaps still open, kept here: a gap is written once a pass finds it closed (live only).
     let openGaps = new Map();
@@ -875,6 +1018,7 @@ async function main() {
       held = hold;
       beat();
       io.send = live && !hold ? send : undefined;
+      io.sendJito = live && !hold && settings.jito ? sendJito : undefined;
       // The quick check's reading is taken BEFORE a pass: a move during the pass shows as a
       // change at the next check, never as the starting point.
       let now = null;
@@ -891,7 +1035,22 @@ async function main() {
         try {
           const r = await runCycle(io, settings);
           watch = r.watch;
-          wake?.watch(watch.vaults);
+          if (streamsOn && Date.now() - streams.at >= STREAM_REFRESH_MS) {
+            streams.at = Date.now();
+            const coins = watch.mints.filter((m) => !isKeeperCoin(m));
+            try {
+              streams.pools = await outsideStreamPools(coins);
+              log(`Listening for trades in ${streams.pools.length} outside pools of ${new Set(streams.pools.map((p) => p.mint)).size} of ${coins.length} coins`);
+              streams.said = null;
+            } catch (e) {
+              // Said once until a look-up works again: the vaults still wake the robot meanwhile.
+              const why = e instanceof Error ? e.message : String(e);
+              if (streams.said === null) log(`Outside pools not looked up (${why}): ${streams.pools.length ? 'the last list is kept' : 'our pools’ vaults only'}, trying again every 2 min`);
+              streams.said = why;
+              streams.at = Date.now() - STREAM_REFRESH_MS + 2 * 60_000;
+            }
+          }
+          wake?.watch(watch.vaults, streams.pools);
           log(`Pass done: ${r.pools} pools, ${r.gaps} gaps, ${r.sent} sent, ${jupiterCalls - callsBefore} Jupiter calls`);
           screen.passCount++;
           screen.loops += r.loops;
@@ -933,6 +1092,9 @@ async function main() {
       // a busy outside pool must not turn the quick check into a flood of reads.
       const waited = Date.now();
       await (wake ? wake.wait(checkMs) : new Promise((r) => setTimeout(r, checkMs)));
+      // A trade in a coin's outside pool: its remembered price is stale, so the quick check asks Jupiter again.
+      const moved = wake?.moved() ?? [];
+      if (moved.length) jup.forget(moved);
       const spare = MIN_CHECK_MS - (Date.now() - waited);
       if (spare > 0) await new Promise((r) => setTimeout(r, spare));
     }

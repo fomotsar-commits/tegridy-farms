@@ -31,6 +31,8 @@ export type Skip =
   | 'no-route'
   /** Two of its sent trips were refused by the chain within a day: left alone for a day (keeper/rule.ts TripBans). */
   | 'banned'
+  /** Sent through Jito, and another robot took the gap first: the bundle never landed, nothing was paid. */
+  | 'race-lost'
   | 'error';
 
 /** A gap one pass found worth the floor at Jupiter's listed price, and what came of it. */
@@ -151,6 +153,7 @@ const SAID: Record<Skip, string> = {
   'not-sent': 'paused, or a dry run',
   'no-route': 'Jupiter had no route',
   banned: 'banned for a day after two refused trips',
+  'race-lost': 'lost the race through Jito, at no cost',
   error: 'an error',
 };
 

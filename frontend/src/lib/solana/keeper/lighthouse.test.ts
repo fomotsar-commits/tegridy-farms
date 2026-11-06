@@ -3,6 +3,8 @@ import { describe, it, expect } from 'vitest';
 import { Keypair, PublicKey, TransactionInstruction } from '@solana/web3.js';
 import { LIGHTHOUSE_PROGRAM, atLeastCheck, failedAsLighthouse, floorOfCheck, proveLighthouse } from './lighthouse';
 import { tripInstructions } from './cycle';
+import { KAMINO_LEND, flashBorrowIx, flashRepayIx } from './flashLoan';
+import { SOL_QUOTE } from '../lp/quotes';
 
 /** The robot's wrapped-SOL account, and the balance the mainnet proof ran at (2026-11-05). */
 const ACCOUNT = new PublicKey('2GK38o149SdbNrzKhNdEuQfWf4EWdrhd2ZZ7UYhPB5y2');
@@ -52,5 +54,23 @@ describe('a trip’s instructions', () => {
     const ixs = tripInstructions(owner, { accounts, legs: [swap, swap], floor: 119_000n }, 10_000, 400_000, 5_000_000n);
     expect(ixs.at(-3)).toBe(swap);
     expect(floorOfCheck(ixs.at(-1)!)).toEqual({ account: coinAta, min: 5_119_000n });
+    expect(ixs.some((ix) => ix.programId.equals(KAMINO_LEND))).toBe(false);
+  });
+
+  it('with a loan: borrow before the swaps, repay after them naming the borrow’s place, the check still last', () => {
+    const owner = Keypair.generate().publicKey;
+    const coinAta = Keypair.generate().publicKey;
+    const swap = new TransactionInstruction({ programId: owner, keys: [], data: Buffer.from([1]) });
+    const accounts = { coinAta, tokenAta: Keypair.generate().publicKey, otherAta: Keypair.generate().publicKey, tokenMint: Keypair.generate().publicKey, tokenProgram: Keypair.generate().publicKey, coinMint: new PublicKey(SOL_QUOTE.mint) };
+    const ixs = tripInstructions(owner, { accounts, legs: [swap, swap], floor: 119_000n, loan: 3_000_000n }, 10_000, 400_000, 5_000_000n);
+    const at = ixs.findIndex((ix) => ix.programId.equals(KAMINO_LEND));
+    expect(at).toBe(4);
+    expect(ixs[at]!.data).toEqual(flashBorrowIx(owner, coinAta, 3_000_000n).data);
+    expect(ixs.slice(at + 1, at + 3)).toEqual([swap, swap]);
+    expect(ixs.at(-2)!.data).toEqual(flashRepayIx(owner, coinAta, 3_000_000n, at).data);
+    expect(ixs.at(-2)!.keys[6]!.pubkey.equals(coinAta)).toBe(true);
+    expect(floorOfCheck(ixs.at(-1)!)).toEqual({ account: coinAta, min: 5_119_000n });
+    // Never a loan on a trip in another coin.
+    expect(() => tripInstructions(owner, { accounts: { ...accounts, coinMint: Keypair.generate().publicKey }, legs: [swap], floor: 1n, loan: 1n }, 10_000, 400_000, 0n)).toThrow(/SOL trip/);
   });
 });

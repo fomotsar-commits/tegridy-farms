@@ -235,23 +235,128 @@
   ::-webkit-scrollbar-thumb { background: var(--line-2); }
   ::-webkit-scrollbar-track { background: transparent; }
 
+  /* ── The scanner, merged in: the headline, the funnel, the rule, the trips ── */
+  .lamp { display: inline-flex; align-items: center; gap: 8px; font: 11px/1.4 var(--mono); color: var(--muted); }
+  .lamp .dot { margin-right: 0; }
+  .headline { position: relative; z-index: 1; margin: 0 0 14px; padding: 4px 0 16px; border-bottom: 3px double var(--line-2); }
+  .hl { margin: 6px 0 0; font: 700 clamp(26px, 3.6vw, 46px)/1 var(--display); font-stretch: 75%; text-transform: uppercase; letter-spacing: 0.005em; max-width: 46ch; text-wrap: balance; }
+  .hl em { font-style: normal; color: var(--acid); text-shadow: 0 0 22px var(--acid-glow); }
+  .hl .w { color: var(--warn); } .hl .c { color: var(--crit); }
+  .hlSub { margin: 10px 0 0; color: var(--ink-2); font-size: 13.5px; max-width: 88ch; }
+
+  .spineWrap { margin-bottom: 14px; }
+  .spine { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)) 14px repeat(2, minmax(0, 1.25fr)); }
+  .spine > li { position: relative; min-width: 0; padding: 4px 14px 2px 0; }
+  .spine > li + li:not(.seam) { padding-left: 14px; border-left: 1px solid var(--line); }
+  .spine .seam { border: 0; padding: 0; background: repeating-linear-gradient(180deg, var(--line-2) 0 6px, transparent 6px 10px) center / 1px 100% no-repeat; }
+  .spine .seam + li { border-left: 0; }
+  .spine .v { font: 700 34px/1 var(--display); font-stretch: 75%; font-variant-numeric: tabular-nums; margin: 8px 0 4px; }
+  .spine .s { font: 11px/1.45 var(--mono); color: var(--muted); }
+  .spine .taper { height: 4px; margin: 10px 0 6px; background: oklch(100% 0 0 / 0.07); }
+  .spine .taper > i { display: block; height: 100%; background: var(--ink-2); }
+  .spine .robotCell .v { color: var(--acid); text-shadow: 0 0 22px var(--acid-glow); }
+  header.mast > div:last-child { text-align: right; }
+
+  .gate .lamps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; }
+  .gate .lamps > div { min-width: 0; padding: 2px 14px 4px 0; }
+  .gate .lamps > div + div { padding-left: 14px; border-left: 1px solid var(--line); }
+  .gate .lv { font: 700 22px/1.05 var(--display); font-stretch: 75%; margin: 8px 0 4px; text-transform: uppercase; }
+  .gate .lv.good { color: var(--acid); } .gate .lv.warn { color: var(--warn); }
+  .gate .ls { font: 11px/1.45 var(--mono); color: var(--muted); }
+
+  .marketHead { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px 18px; margin: 18px 0 12px; }
+  .marketHead h2 { font-size: 13px; }
+  .rank { display: inline-flex; border: 1px solid var(--line-2); }
+  .rank button { appearance: none; border: 0; margin: 0; padding: 7px 14px; font: 700 11px/1 var(--mono); letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); background: transparent; cursor: pointer; }
+  .rank button + button { border-left: 1px solid var(--line-2); }
+  .rank button[aria-pressed="true"] { color: var(--bg); background: var(--acid); }
+  .rank button:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
+
+  .market.off .cards, .market.off .gate .lamps, .spineWrap.off .scanCell { opacity: 0.45; filter: grayscale(0.6); }
+  .market.off .cards:empty { opacity: 1; }
+  .cards { display: grid; gap: 12px; }
+  .card { position: relative; min-width: 0; padding: 14px 14px 12px; border: 1px solid var(--line); background: oklch(100% 0 0 / 0.018); }
+  .card.take { border-color: oklch(91% 0.21 128 / 0.5); box-shadow: inset 3px 0 0 var(--acid); }
+  .cardTop { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 14px; align-items: start; }
+  .claims { display: inline-block; padding: 1px 7px; border: 1px dashed var(--line-2); font: 700 14px/1.4 var(--text); }
+  .claims + .tag { margin-left: 8px; }
+  .tag { display: inline-block; padding: 1px 6px; font: 600 9.5px/1.5 var(--mono); letter-spacing: 0.12em; text-transform: uppercase; border: 1px solid var(--line-2); color: var(--ink-2); vertical-align: 2px; }
+  .tag.ours { border-color: oklch(91% 0.21 128 / 0.45); color: var(--acid); }
+  .tag.warn { border-color: oklch(82% 0.16 78 / 0.45); color: var(--warn); }
+  .fig { text-align: right; }
+  .fig .big { font: 700 26px/1 var(--display); font-stretch: 75%; font-variant-numeric: tabular-nums; }
+  .fig .big.gain { color: var(--acid); }
+  .fig .small { font: 11px/1.4 var(--mono); color: var(--muted); }
+  .route { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 6px 0; margin: 12px 0 4px; }
+  .stop { font: 700 12px/26px var(--mono); padding: 0 2px; white-space: nowrap; }
+  .hop { display: flex; align-items: flex-start; min-width: 0; }
+  .hop .arrow { font: 12px/26px var(--mono); color: var(--faint); padding: 0 4px; }
+  .venue { min-width: 0; max-width: 260px; padding: 3px 8px 4px; border: 1px solid var(--line-2); }
+  .venue.ours { border-color: var(--acid); box-shadow: 0 0 12px var(--acid-dim); }
+  .venue b { display: block; font: 600 11.5px/1.3 var(--text); }
+  .venue .addr { font-size: 10.5px; }
+  .venue a.addr { border-bottom: 0; color: var(--muted); }
+  .venue a.addr:hover { color: var(--link); }
+  .meters { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px 20px; margin-top: 10px; }
+  .mk { font: 600 9.5px/1.2 var(--mono); letter-spacing: 0.16em; text-transform: uppercase; color: var(--faint); margin-bottom: 6px; }
+  .gapbar { position: relative; height: 8px; background: oklch(100% 0 0 / 0.06); }
+  .gapbar > i { position: absolute; inset: 0 auto 0 0; background: var(--acid); }
+  .gapbar > s { position: absolute; top: 0; bottom: 0; background: repeating-linear-gradient(135deg, oklch(82% 0.16 78 / 0.55) 0 3px, transparent 3px 6px); }
+  .gapbar > u { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--ink); }
+  .ml { font: 11px/1.45 var(--mono); color: var(--muted); margin-top: 6px; }
+  .fence { display: grid; grid-template-columns: 54px minmax(0, 1fr) auto; gap: 8px; align-items: center; font: 11px/1.6 var(--mono); color: var(--faint); }
+  .fence .bar { height: 3px; margin: 0; }
+  .fence .bar > i { background: var(--line-2); box-shadow: none; }
+  .fence.held { color: var(--acid); }
+  .fence.held .bar > i { background: var(--acid); box-shadow: 0 0 8px var(--acid-glow); }
+  .stamp { display: inline-block; padding: 2px 8px; font: 700 10.5px/1.5 var(--mono); letter-spacing: 0.14em; text-transform: uppercase; border: 1.5px solid; transform: rotate(-1.5deg); }
+  .stamp.good { color: var(--acid); } .stamp.warn { color: var(--warn); } .stamp.crit { color: var(--crit); } .stamp.wait { color: var(--faint); border-style: dashed; }
+  .proof { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--line); display: grid; gap: 4px; }
+  .proof .ml { margin-top: 0; }
+  .paid { margin-top: 8px; font-size: 12px; color: var(--ink-2); }
+  .paid b { color: var(--ink); font-weight: 600; }
+  .near { padding: 12px 0; border-bottom: 1px solid var(--line); }
+  .near:last-child { border-bottom: 0; }
+  .near .route { margin: 8px 0 8px; }
+  .refused summary { cursor: pointer; font: 700 12px/1 var(--mono); letter-spacing: 0.2em; text-transform: uppercase; }
+  .refused summary::marker { color: var(--crit); }
+  .refused ul { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 10px; }
+  .refused li { padding-left: 22px; position: relative; }
+  .refused li::before { content: "⊘"; position: absolute; left: 0; top: 0; color: var(--crit); }
+
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation: none !important; transition: none !important; }
   }
   @media (max-width: 1080px) {
     .hero { grid-template-columns: 1fr; }
     .c4, .c5, .c7, .c8 { grid-column: 1 / -1; }
+    .spine { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .spine .seam { grid-column: 1 / -1; height: 14px; background: repeating-linear-gradient(90deg, var(--line-2) 0 6px, transparent 6px 10px) center / 100% 1px no-repeat; }
+    .spine .seam + li { padding-left: 0; }
+    .spine .seam ~ li { grid-column: span 2; }
+    .spine .seam ~ li + li { border-left: 1px solid var(--line); padding-left: 14px; }
   }
   @media (max-width: 620px) {
     main { padding: 16px 16px 48px; }
     header.mast { grid-template-columns: 1fr; }
-    #updated { text-align: left; }
+    #updated, header.mast > div:last-child { text-align: left; }
     h1 { font-size: 34px; }
     .radarRow { grid-template-columns: 96px 1fr; }
     .radar { width: 96px; }
     .state { font-size: 34px; }
     dl { grid-template-columns: 1fr; }
     dt { padding-bottom: 0; border-bottom: 0; }
+    .spine { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .spine > li:nth-child(odd):not(.seam) { border-left: 0; padding-left: 0; }
+    .spine > li { padding-bottom: 10px; }
+    .spine .seam ~ li { grid-column: 1 / -1; border-left: 0 !important; padding-left: 0 !important; }
+    .gate .lamps { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 0; }
+    .gate .lamps > div:nth-child(odd) { border-left: 0; padding-left: 0; }
+    .meters, .cardTop { grid-template-columns: minmax(0, 1fr); }
+    .fig { text-align: left; }
+    .route { flex-direction: column; }
+    .hop { width: 100%; }
+    .venue { max-width: none; flex: 1; }
   }
 </style>
 </head>
@@ -263,10 +368,19 @@
       <span class="addr" id="wallet"></span>
       <a id="walletLink" target="_blank" rel="noopener noreferrer" hidden>Solscan ↗</a>
     </div>
-    <span id="updated">Reading the chain… the first read takes about a minute.</span>
+    <div>
+      <div id="updated">Reading the chain… the first read takes about a minute.</div>
+      <div class="lamp" id="scanLamp"></div>
+    </div>
   </header>
   <div class="banner crit" id="error" hidden></div>
   <div class="banner" id="notes" hidden></div>
+
+  <section class="headline" aria-live="polite">
+    <div class="k">Right now · money on the table, and is the robot taking it?</div>
+    <p class="hl" id="hlText">Reading…</p>
+    <p class="hlSub" id="hlSub"></p>
+  </section>
 
   <section class="hero">
     <div class="panel made">
@@ -299,7 +413,49 @@
     </div>
   </section>
 
-  <div class="bento">
+  <section class="panel spineWrap" id="spineWrap">
+    <div class="head"><h2><span class="n">A0</span>From the scanner to the wallet</h2><span class="k">scanner since its start · robot all time</span></div>
+    <ol class="spine" id="spine"></ol>
+    <p class="fine" id="spineNote"></p>
+  </section>
+
+  <div class="market" id="market">
+    <div class="banner" id="scanOff" hidden></div>
+    <section class="panel gate">
+      <div class="head"><h2><span class="n">A1</span>The rule every trip must pass</h2><span class="k">the robot's own rule file, as the scanner reads it</span></div>
+      <div class="lamps" id="lamps"></div>
+      <p class="fine">How money moves on a trip: the robot earns the price gap it closes, paid by the liquidity providers of the pool it buys from or sells into. Our venue earns its usual share of the pool fee on each swap in our own pools. Each outside pool keeps its own fee. Figures from the scanner are estimates (est.) until the robot trades; only panels 01 to 08 are money the robot really made.</p>
+    </section>
+
+    <div class="marketHead">
+      <h2>The market the scanner sees</h2>
+      <div class="rank" role="group" aria-label="Rank trips by">
+        <button type="button" id="byProfit" aria-pressed="true">$ Profit</button><button type="button" id="byRoi" aria-pressed="false">% ROI</button>
+      </div>
+    </div>
+
+    <div class="bento">
+      <section class="panel c12">
+        <div class="head"><h2><span class="n">A2</span>The robot would take these</h2><span class="k">test run passed, last 3 min</span></div>
+        <div class="cards" id="take"></div>
+      </section>
+      <section class="panel c7">
+        <div class="head"><h2><span class="n">A3</span>Watch list</h2><span class="k">pays on the chain read · not proven yet</span></div>
+        <div class="cards" id="watch"></div>
+      </section>
+      <div class="c5 stack">
+        <section class="panel">
+          <div class="head"><h2><span class="n">A4</span>Closest to paying</h2><span class="k">nearest first · none pays</span></div>
+          <div class="cards" id="closest"></div>
+        </section>
+        <section class="panel">
+          <details class="refused"><summary id="refusedHead">Turned away at the door</summary><ul id="refused"></ul></details>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <div class="bento" style="margin-top:14px">
     <section class="panel c7">
       <div class="head"><h2><span class="n">02</span>What it holds</h2><span class="k">by worth</span></div>
       <div class="mix" id="mix"></div>

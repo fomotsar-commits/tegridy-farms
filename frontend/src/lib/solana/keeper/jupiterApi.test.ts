@@ -40,6 +40,21 @@ describe('jupiterApi', () => {
     expect(q.get('instructionVersion')).toBe('V2');
     expect(q.get('excludeDexes')).toBe('Raydium,Raydium CLMM');
     expect(q.get('maxAccounts')).toBe('30');
+    expect(q.get('onlyDirectRoutes')).toBeNull();
+  });
+
+  it('holds a quote to named venues in place of leaving the refused ones out', async () => {
+    const r = recorder(() => ({ body: {} }));
+    await jupiterApi({ fetchImpl: r.fetchImpl, gapMs: 0 }).quote({ ...quoteArgs, dexes: ['Pump.fun Amm'] });
+    const q = new URL(r.calls[0]!.url).searchParams;
+    expect(q.get('dexes')).toBe('Pump.fun Amm');
+    expect(q.get('excludeDexes')).toBeNull();
+  });
+
+  it('asks for a one-pool route only when told to', async () => {
+    const r = recorder(() => ({ body: {} }));
+    await jupiterApi({ fetchImpl: r.fetchImpl, gapMs: 0 }).quote({ ...quoteArgs, onlyDirectRoutes: true });
+    expect(new URL(r.calls[0]!.url).searchParams.get('onlyDirectRoutes')).toBe('true');
   });
 
   it('spaces its calls, so a free key’s one request a second holds', async () => {
@@ -124,6 +139,20 @@ describe('jupiterApi', () => {
     await api0.prices(['A']);
     await api0.prices(['A']);
     expect(every.calls).toHaveLength(2);
+  });
+
+  it('asks again for a young price once told its coin’s outside pool traded, and only for that coin', async () => {
+    const r = recorder(() => ({ body: { A: { usdPrice: 2 }, B: { usdPrice: 3 } } }));
+    const api = jupiterApi({ fetchImpl: r.fetchImpl, gapMs: 0, now: () => 0, priceTtlMs: 30_000 });
+    await api.prices(['A', 'B']);
+    api.forget!(['C']);
+    await api.prices(['A', 'B']);
+    expect(r.calls).toHaveLength(1);
+    api.forget!(['B']);
+    await api.prices(['A', 'B']);
+    expect(r.calls).toHaveLength(2);
+    await api.prices(['A']);
+    expect(r.calls).toHaveLength(2);
   });
 });
 
