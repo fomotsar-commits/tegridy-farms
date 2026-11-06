@@ -22,6 +22,7 @@ import {
 } from './navConfig';
 import { readFileSync } from 'node:fs';
 import { BUNGALOWS } from './bungalows';
+import { opensSheet, readSheet } from './sheet';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { isIndexerConfigured } from './indexer/client';
@@ -51,7 +52,8 @@ describe('the bar', () => {
     const routed = new Set(ROUTES.map((r) => r.path));
     for (const w of BAR_NAV) {
       expect(w.to.startsWith('/'), w.label).toBe(true);
-      expect(routed, `${w.label} opens ${w.to}, which no route draws`).toContain(w.to.split('#')[0]);
+      // A sheet's address is the page it rises over, with ?sheet= on it (lib/sheet.ts).
+      expect(routed, `${w.label} opens ${w.to}, which no route draws`).toContain(w.to.split(/[?#]/)[0]);
     }
   });
 
@@ -67,7 +69,10 @@ describe('the bar', () => {
       const word = BAR_NAV.find((w) => w.label === label)!;
       const section = NAV_SECTIONS.find((s) => s.heading === heading);
       expect(section, `no ${heading} section`).toBeDefined();
-      expect(section!.items.map((i) => i.to), `${label} opens a page whose strip lights nothing`).toContain(word.to);
+      // With no room, Swap raises the Buy sheet over the home (answer twenty-seven): a sheet, not a strip's page.
+      // Its section's own word, in the menu's index, still opens a tab of the strip.
+      const to = label === 'Swap' && opensSheet(word.to) ? section!.primaryTo! : word.to;
+      expect(section!.items.map((i) => i.to), `${label} opens a page whose strip lights nothing`).toContain(to);
     }
     expect(BAR_NAV.find((w) => w.label === 'Lock')?.to, 'Lock opens the list of every pool').toBe('/earn');
   });
@@ -391,14 +396,13 @@ describe('navConfig', () => {
 
   // The curve is live on Base and Robinhood Chain as well as mainnet; "(EVM)" is not what anyone
   // hunting for the Robinhood launcher types. Preconditions first, so a removed deploy names itself.
-  it('names every chain the curve is deployed on, so each launcher is findable by name', () => {
+  it('names no chain for the curve while its launch switch is off, and is left out (answer twenty-six)', () => {
     const chains = deployedCurveChains();
     expect(chains.map((c) => c.chainId), 'the curve must still be deployed on Robinhood Chain (4663)').toContain(4663);
     expect(chains.length, 'a single-chain rail has nothing to enumerate').toBeGreaterThan(1);
     const entry = ALL_NAV.find((n) => n.to === '/eth-curve');
-    for (const c of chains) {
-      expect(entry?.label, `the menu never names the ${c.name} launcher`).toContain(c.name);
-    }
+    expect(entry?.label).toBe('Memetics Curve (EVM)');
+    expect(entry?.soon, 'a deployed launcher opens nothing by itself').toBe(true);
   });
 
   // Mainnet is deployed, so the outcome assertions pass for the old mainnet-only gate too; the
@@ -406,15 +410,16 @@ describe('navConfig', () => {
   it('marks /eth-curve on whether the curve launches ANYWHERE, not just on mainnet', () => {
     const chains = deployedCurveChains();
     const entry = ALL_NAV.find((n) => n.to === '/eth-curve');
-    expect(entry?.live, 'a launcher that launches must not be missing its LIVE pill').toBe(true);
-    expect(entry?.soon, 'a launcher that launches must never read as off').toBe(false);
+    // Off on every rail (answer twenty-six): no LIVE pill until the curve's own switch opens it.
+    expect(entry?.live, 'no LIVE pill while launching is off').toBe(false);
+    expect(entry?.soon, 'a closed launcher reads as off').toBe(true);
     expect(chains.filter((c) => c.chainId !== 1).map((c) => c.chainId)).toContain(4663);
     const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'navConfig.ts'), 'utf8');
     expect(source.length, 'navConfig.ts could not be read').toBeGreaterThan(1000);
     const start = source.indexOf("to: '/eth-curve'");
     expect(start, 'the /eth-curve entry is not where this guard looks').toBeGreaterThan(-1);
     const entrySource = source.slice(start, source.indexOf('},', start));
-    expect(entrySource, 'the mark must read the registry, not one chain').toContain('isCurveLive()');
+    expect(entrySource, 'the mark must read the switch and the registry, not one chain').toContain('isCurveLaunchOpen()');
     expect(entrySource).not.toContain('CURVE_LAUNCHER_ADDRESS');
   });
 });
@@ -433,15 +438,18 @@ describe('tradeRoute', () => {
 
   it('opens the Solana swap with no room, and follows the skin with no module reload', () => {
     expect(tradeRoute(), 'a stranger with no room lands on the Solana swap').toBe('/solana');
-    expect(swapWord()).toBe('/solana');
+    // Island answer twenty-seven: with no room the bar's Swap raises the Buy sheet over the home, on the bungalow row.
+    expect(swapWord()).toBe('/?sheet=buy');
     expect(swapSection().primaryTo).toBe('/solana');
 
     window.localStorage.setItem('tegridy-bungalow', 'venue');
     expect(tradeRoute(), 'the venue sentinel is no room').toBe('/solana');
+    expect(swapWord()).toBe('/?sheet=buy');
 
     window.localStorage.setItem('tegridy-bungalow', 'bayla');
     expect(tradeRoute(), 'a Solana room lands on the Solana swap').toBe('/solana');
-    expect(swapWord()).toBe('/solana');
+    // Island answer twenty-five, build 3: in a room the sheet acts on, the bar's Swap raises its Buy sheet over the room.
+    expect(swapWord()).toBe('/bayla?sheet=buy');
 
     window.localStorage.setItem('tegridy-bungalow', 'toweli');
     expect(tradeRoute(), 'the classic TOWELI room lands on the Ethereum swap').toBe('/swap');
@@ -452,6 +460,34 @@ describe('tradeRoute', () => {
     expect(tradeRoute(), "PEPE's room, on Ethereum").toBe('/swap');
     window.localStorage.setItem('tegridy-bungalow', 'qr');
     expect(tradeRoute(), "QR's room, on Base").toBe('/swap');
+  });
+
+  // Island answer twenty-five, build 3: in a room the sheet acts on, Swap and Add raise its sheet over the room.
+  it('in a room the sheet acts on, the bar’s Swap and Add open its Buy and Add sheets; anywhere else, their sections', () => {
+    const addWord = () => BAR_NAV.find((w) => w.label === 'Add')?.to;
+    for (const id of ['bayla', 'bobo', 'soy', 'brainlet', 'rizz']) {
+      window.localStorage.setItem('tegridy-bungalow', id);
+      expect(swapWord(), id).toBe(`/${id}?sheet=buy`);
+      expect(addWord(), id).toBe(`/${id}?sheet=add`);
+    }
+    window.localStorage.setItem('tegridy-bungalow', 'pepe');
+    expect(swapWord()).toBe('/swap');
+    expect(addWord()).toBe('/pools');
+    window.localStorage.clear();
+    expect(swapWord()).toBe('/?sheet=buy');
+    expect(addWord()).toBe('/pools');
+  });
+
+  // Island answer twenty-seven: the Buy sheet is no longer a room's alone. With no room the bar's
+  // Swap raises it over the home, on the bungalow row with nothing lit; Add stays the pools list
+  // (a pool is one coin), and Island stays the home.
+  it('with no room, the bar’s Swap raises the Buy sheet over the home; Add and Island are as they were', () => {
+    const word = (label: string) => BAR_NAV.find((w) => w.label === label)?.to;
+    expect(word('Swap')).toBe('/?sheet=buy');
+    expect(opensSheet(word('Swap')!), 'a press on it is the sheet’s, so its Back pops back').toBe(true);
+    expect(readSheet('?sheet=buy'), 'no coin named: the row, nothing lit').toEqual({ kind: 'buy', coin: null });
+    expect(word('Add')).toBe('/pools');
+    expect(word('Island')).toBe('/');
   });
 
   it('lands on a tab the Swap section really has, in every room', () => {
@@ -494,16 +530,16 @@ describe('the Launch word', () => {
     }
   }
 
-  it('lists the Solana curve first, the launchpad second', async () => {
+  it('lists the Solana curve first, the launch door second', async () => {
     const nav = await withCurve(true);
     expect(nav.LAUNCH_SECTION.items.map((i) => i.to)).toEqual(['/curve-launch', '/launch', '/eth-curve', '/launch-simulator']);
     expect(nav.LAUNCH_SECTION.hub).toBe('/curve-launch');
   });
 
-  it('opens the Solana curve while launching on Solana is on', async () => {
+  it('opens the launch door even while launching on Solana is on (answer twenty-six)', async () => {
     const nav = await withCurve(true);
-    expect(nav.BAR_NAV.find((w) => w.label === 'Launch')?.to).toBe('/curve-launch');
-    expect(nav.INDEX_GROUPS.find((g) => g.heading === 'Launch')?.to).toBe('/curve-launch');
+    expect(nav.BAR_NAV.find((w) => w.label === 'Launch')?.to).toBe('/launch');
+    expect(nav.INDEX_GROUPS.find((g) => g.heading === 'Launch')?.to).toBe('/launch');
   });
 
   it('opens the launchpad while it is off, and is lit on both', async () => {

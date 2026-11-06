@@ -79,6 +79,7 @@ vi.mock('../lib/jupiter', async (importOriginal) => ({
 
 import SolanaSwapPage from './SolanaSwapPage';
 import { reloadHeld } from '../lib/reloadHold';
+import { clearReceipt, lastReceipt } from '../lib/receipt';
 
 // The first test here pays for the page's first render: 1.3 s alone, 2.1 s to 3.9 s in six
 // full runs, and 5.2 s in a seventh on a busy machine. The 5 s default timed it out there,
@@ -108,6 +109,7 @@ const rpcDown = () => Promise.reject(new Error('fetch failed: 503'));
 const toastTitles = (fn: { mock: { calls: unknown[][] } }) => fn.mock.calls.map((c) => String(c[0]));
 
 beforeEach(() => {
+  clearReceipt();
   vi.useFakeTimers({ shouldAdvanceTime: true });
   localStorage.clear();
   // The page opens SOL to $BAYLA; these tests are about a SOL to USDC swap, so the link names it.
@@ -150,7 +152,7 @@ describe('Instant swap: after the swap is sent', () => {
     connection.getSignatureStatuses.mockImplementationOnce(rpcDown).mockResolvedValue(confirmed);
     await swap();
     await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
-    await waitFor(() => expect(toastTitles(toast.success)).toContain('Bought USDC'));
+    await waitFor(() => expect(lastReceipt()).toMatchObject({ action: 'bought', coin: { symbol: 'USDC' } }));
     expect(toastTitles(toast.error)).not.toContain('Swap failed');
   });
 
@@ -162,7 +164,7 @@ describe('Instant swap: after the swap is sent', () => {
       description: expect.stringContaining(SIG.slice(0, 10)),
     })));
     expect(toastTitles(toast.error)).not.toContain('Swap failed');
-    expect(toastTitles(toast.success)).not.toContain('Bought USDC');
+    expect(lastReceipt()).toBeNull();
   });
 
   it('not confirmed: the amount is cleared, so one more click does not send the same swap again', async () => {
@@ -183,7 +185,7 @@ describe('Instant swap: after the swap is sent', () => {
       description: expect.stringContaining('Only the network fee was spent'),
     })));
     expect(toast.warning).not.toHaveBeenCalled();
-    expect(toastTitles(toast.success)).not.toContain('Bought USDC');
+    expect(lastReceipt()).toBeNull();
   });
 
   it('a failure seen only at "processed" is not a revert: the watch goes on, and the swap confirms', async () => {
@@ -191,7 +193,7 @@ describe('Instant swap: after the swap is sent', () => {
     connection.getSignatureStatuses.mockResolvedValueOnce(failedAtProcessed).mockResolvedValue(confirmed);
     await swap();
     await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
-    await waitFor(() => expect(toastTitles(toast.success)).toContain('Bought USDC'));
+    await waitFor(() => expect(lastReceipt()).toMatchObject({ action: 'bought', coin: { symbol: 'USDC' } }));
     expect(toast.error).not.toHaveBeenCalled();
     expect(toast.warning).not.toHaveBeenCalled();
   });
@@ -281,7 +283,7 @@ describe('no reload by itself while a transaction is at the wallet or on its way
     await prompt.sign();
     expect(reloadHeld()).toBe(true);
     await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
-    await waitFor(() => expect(toastTitles(toast.success)).toContain('Bought USDC'));
+    await waitFor(() => expect(lastReceipt()).toMatchObject({ action: 'bought', coin: { symbol: 'USDC' } }));
     expect(reloadHeld()).toBe(false);
   });
 

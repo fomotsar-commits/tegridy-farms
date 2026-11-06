@@ -424,7 +424,7 @@ describe('it goes to that pool or to nowhere', () => {
       says: /Deposits: refused here/,
       why: /this pool does not pass the checks a deposit needs\. This pool is almost empty, so anyone can move its price for next to nothing, and a deposit would go in at whatever price they set\./,
     },
-    { name: 'could not be checked (its fee settings were not read)', mine: () => view({ noConfig: true }), offer: 'checks', says: /Deposits: not checked/, why: /the checks a deposit needs could not be run on this pool\. \S/ },
+    { name: 'could not be checked (its fee settings were not read)', mine: () => view({ noConfig: true }), offer: 'checks', says: /Deposits: a check did not run/, why: /the checks a deposit needs could not be run on this pool\. \S/ },
     { name: 'has a deposit still pending', mine: () => view(), hold: true, offer: 'held', says: /A deposit you sent to this pool is not confirmed yet/, why: /a deposit you sent to this pool is not confirmed yet\./ },
   ];
   it.each(cases)('the position’s pool $name: its card comes onto the screen with its own reason, and no form opens anywhere', async (c) => {
@@ -445,7 +445,7 @@ describe('it goes to that pool or to nowhere', () => {
     expect(heading).toHaveFocus();
     expect(heading.textContent).toBe(pairLabel(mine, okToken));
     const why = within(its).getByTestId('lp-wish-why');
-    expect(why).toHaveTextContent('This is your position’s pool. Its Add form was not opened:');
+    expect(why).toHaveTextContent('This is your position’s pool. Its Add form stays closed:');
     expect(why).toHaveTextContent(c.why);
     expect(heading).toHaveAttribute('aria-describedby', why.id);
     expect(screen.getAllByTestId('lp-wish-why')).toHaveLength(1);
@@ -493,7 +493,7 @@ describe('it goes to that pool or to nowhere', () => {
     const heading = within(card(mine.address)).getByRole('heading', { level: 3 });
     expect(heading).toHaveFocus();
     const why = within(card(mine.address)).getByTestId('lp-wish-why');
-    expect(why).toHaveTextContent('This is your position’s pool. Its Add form was not opened: this pool could not be read just now.');
+    expect(why).toHaveTextContent('This is your position’s pool. Its Add form stays closed: this pool could not be read just now.');
     expect(heading).toHaveAttribute('aria-describedby', why.id);
     await act(async () => {});
     noFormOpen();
@@ -510,7 +510,7 @@ describe('it goes to that pool or to nowhere', () => {
     fireEvent.click(await addMore(mine.address));
     const line = await screen.findByTestId('lp-wish-unfound');
     expect(line).toHaveTextContent(`Your position’s pool (${mine.address}) did not read as a pool for this token just now`);
-    expect(line).toHaveTextContent('its Add form was not opened, and no other pool’s was opened in its place');
+    expect(line).toHaveTextContent('its Add form did not open, and no other pool’s was opened in its place');
     // The wish is spent, so Read again alone opens nothing: the line names the press that does.
     expect(line).toHaveTextContent('Press Add more liquidity on your position again in a minute.');
     expect(line).not.toHaveTextContent('Read again');

@@ -52,11 +52,12 @@ describe('BottomNav: the five words', () => {
     expect(tabs().map((a) => a.getAttribute('aria-label'))).toEqual(['Island', 'Swap', 'Add', 'Lock', 'Launch']);
   });
 
-  it('with no room, opens Island on the home, Swap on the Solana swap, Add on the Venue AMM tab and Lock on the list of pools', () => {
+  it('with no room, opens Island on the home, Swap on the Buy sheet over it, Add on the Venue AMM tab and Lock on the list of pools', () => {
     const href = (name: string) => screen.getByRole('link', { name }).getAttribute('href');
     tabs();
     expect(href('Island')).toBe('/');
-    expect(href('Swap')).toBe('/solana');
+    // Island answer twenty-seven: the Buy sheet over the home, on the bungalow row with nothing lit.
+    expect(href('Swap')).toBe('/?sheet=buy');
     expect(href('Add')).toBe('/pools');
     expect(href('Lock')).toBe('/earn');
     // Launching on Solana is off in a test build (curveWriteFlag.ts), so Launch opens the launchpad.

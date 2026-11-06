@@ -137,11 +137,9 @@ describe('assessPool', () => {
     expect(h.deposits.reasons.join(' ')).toMatch(/fee settings/);
   });
 
-  it('what was not read is "unchecked", never "allowed" and never a warning: the clock, the outside price, the token', () => {
+  it('what was not read is "unchecked", never "allowed" and never a warning: the clock, the token', () => {
     const unread = [
       assessPool({ ...base, chainNow: null, view: view(), outside: outside(0.01) }),
-      assessPool({ ...base, view: view(), outside: { kind: 'unread', detail: 'down' } }),
-      assessPool({ ...base, view: view(), outside: null }),
       assessPool({ ...base, safety: { kind: 'unread', mint: mint.toBase58(), detail: 'x' }, view: view(), outside: outside(0.01) }),
       assessPool({ ...base, safety: null, view: view(), outside: outside(0.01) }),
     ];
@@ -152,16 +150,22 @@ describe('assessPool', () => {
     }
   });
 
+  // Answer twenty-seven withdrew twenty-four's hold: the outside price is intel, one row,
+  // never a gate. The pool's own price is the truth of a deposit.
+  it('an outside price not read is one row, "Outside price not read yet", and never a gate', () => {
+    for (const o of [{ kind: 'unread' as const, detail: 'down' }, null]) {
+      const h = assessPool({ ...base, view: view(), outside: o });
+      expect(h.price).toMatchObject({ state: 'unread', detail: 'Outside price not read yet', outside: true });
+      expect(h.deposits).toEqual({ verdict: 'allowed', reasons: [], warnings: [] });
+    }
+  });
+
   // Jupiter failing to answer is NOT "no route": the token may trade elsewhere at another
-  // price. It stays unread, for a pool anyone could open as for a launch pool.
+  // price. It stays unread (never "no market"), for a pool anyone could open as for a launch pool.
   it('Jupiter failing to answer is unread, never "no market": the price state says unread and nothing is warned', () => {
     const h = assessPool({ ...base, view: view(), outside: { kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' } });
-    expect(h.price).toMatchObject({ state: 'unread' });
-    expect(h.deposits).toEqual({
-      verdict: 'unchecked',
-      reasons: ['We could not check its price against an outside price (Jupiter did not give a price (HTTP 502)).'],
-      warnings: [],
-    });
+    expect(h.price).toMatchObject({ state: 'unread', outside: true });
+    expect(h.deposits).toEqual({ verdict: 'allowed', reasons: [], warnings: [] });
   });
 
   // A pool for SOL under the newer token program can be opened with another tool. This
@@ -505,19 +509,23 @@ describe('assessPool: a launch pool is checked against its own recent average', 
 
   // UNREAD IS STILL REFUSED. Only the answer "this record is short" became a warning.
   // Each of these is something that was NOT read, on the same brand-new pool.
-  it('a brand-new launch pool is still unchecked when anything was not read: its record, the clock, Jupiter', () => {
+  it('a brand-new launch pool is still unchecked when anything of its own was not read: its record, the clock', () => {
     const unread: Array<[string, ReturnType<typeof assessPool>]> = [
       ['its price record was not read', assessPool({ ...now, view: launch({ kind: 'not-read' }), outside: noOutside })],
       ['its price record could not be read', assessPool({ ...now, view: launch({ kind: 'unread', detail: 'its price record account is missing' }), outside: noOutside })],
       ['the clock was not read', assessPool({ ...now, chainNow: null, view: brandNew(), outside: noOutside })],
       ['its record is later than the clock', assessPool({ ...now, chainNow: 4_550n, view: brandNew(), outside: noOutside })],
-      ['Jupiter failed to answer', assessPool({ ...now, view: brandNew(), outside: { kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' } })],
-      ['Jupiter was not asked', assessPool({ ...now, view: brandNew(), outside: null })],
     ];
     for (const [name, h] of unread) {
       expect(h.price.state, name).toBe('unread');
       expect(h.deposits.verdict, name).toBe('unchecked');
       expect(h.deposits.warnings, name).toEqual([]);
+    }
+    // Jupiter's price not read is one row, never a gate (answer twenty-seven).
+    for (const o of [{ kind: 'unread' as const, detail: 'Jupiter did not give a price (HTTP 502)' }, null]) {
+      const h = assessPool({ ...now, view: brandNew(), outside: o });
+      expect(h.price).toMatchObject({ state: 'unread', outside: true });
+      expect(h.deposits.verdict).toBe('allowed');
     }
   });
 
@@ -529,18 +537,18 @@ describe('assessPool: a launch pool is checked against its own recent average', 
 
   // A failed Jupiter read is not "no outside market": the token may trade elsewhere at
   // another price. Only Jupiter's own no-route answer opens the own-history path.
-  it('Jupiter down (not "no route"): never traded is unchecked, never allowed', () => {
+  it('Jupiter down (not "no route"): never traded is unread, never "no trades yet", and not a gate (answer twenty-seven)', () => {
     const down = { kind: 'unread' as const, detail: 'Jupiter did not give a price (HTTP 502)' };
     const h = assessPool({ ...now, view: launch(history(10n * Q32, { initialized: false })), outside: down });
-    expect(h.price.state).toBe('unread');
-    expect(h.deposits.verdict).toBe('unchecked');
-    expect(h.deposits.reasons.join(' ')).toMatch(/HTTP 502/);
+    expect(h.price).toMatchObject({ state: 'unread', outside: true });
+    expect(h.deposits.verdict).toBe('allowed');
   });
 
-  it('Jupiter down (not "no route"): agreeing with its own average is still unchecked', () => {
+  it('Jupiter down (not "no route"): its own average is not looked at; the outside price is one row', () => {
     const down = { kind: 'unread' as const, detail: 'Jupiter did not give a price (HTTP 502)' };
     const h = assessPool({ ...now, view: launch(history(10n * Q32)), outside: down });
-    expect(h.deposits.verdict).toBe('unchecked');
+    expect(h.price).toMatchObject({ state: 'unread', outside: true });
+    expect(h.deposits.verdict).toBe('allowed');
   });
 
   // Its opener wrote that history, so it is no reference. With no route it has none at
@@ -643,10 +651,10 @@ describe('assessPool: a launch pool is checked against its own recent average', 
       expect(h.price).toMatchObject({ state: 'agrees', against: 'outside' });
     });
 
-    it('Jupiter down: unread and unchecked, never compared with the launch pool', () => {
+    it('Jupiter down: unread, one row, never compared with the launch pool', () => {
       const h = assessPool({ ...now, view: TEN_TIMES, outside: { kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' }, launchPrice: launchPrice(history(10n * Q32)) });
-      expect(h.price.state).toBe('unread');
-      expect(h.deposits).toEqual({ verdict: 'unchecked', reasons: ['We could not check its price against an outside price (Jupiter did not give a price (HTTP 502)).'], warnings: [] });
+      expect(h.price).toMatchObject({ state: 'unread', outside: true });
+      expect(h.deposits).toEqual({ verdict: 'allowed', reasons: [], warnings: [] });
     });
 
     it('the launch pool itself keeps its own check: a reference handed in is never used on it', () => {

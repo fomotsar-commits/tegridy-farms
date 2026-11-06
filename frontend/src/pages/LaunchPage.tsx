@@ -495,17 +495,14 @@ export default function LaunchPage() {
     return (
       <div className="max-w-3xl mx-auto px-4 py-10">
         <LaunchHeader />
-        {/* ⚠ UNREACHABLE TODAY. LAUNCHER_ENABLED is true (lib/launcher/config.ts), so
-            isLauncherEnabled() short-circuits this whole branch and the live wizard
-            renders instead. Kept as the fail-closed path if the flag is ever turned
-            off — but do not read the copy below as a description of the current
-            state, and do not "update" it to match today's app: its whole job is to
-            describe the OFF state. */}
+        {/* Reached only once the launch door is open (lib/launcher/door.ts) with this rail
+            still off: while the door is closed /launch is the countdown (island answer
+            twenty-six). It says what the rail waits on, in words true of the door. */}
         <FeatureNotDeployed
           pageId="community"
           idx={5}
-          title="The launch rail isn't live yet"
-          subtitle="Launching opens once the core loop is live, treasury ownership is re-homed, and TOWELI has an active market. The engine (Doppler V4 on mainnet) is integrated and verified. This is a sequencing gate, not a build gate."
+          title="Launching here is not switched on yet."
+          subtitle="The launch door opens on the island's word, and each rail on the operator's."
         />
         {/* Pre-launch explainer. Rendered only in the gated state, BENEATH the SOON
             wall (which stays exactly as-is), so /launch teaches the rail instead of
@@ -1403,7 +1400,7 @@ function StepDetails({ w, set }: { w: WizardState; set: <K extends keyof WizardS
       <Field label="Metadata URI" hint="IPFS/Arweave link to the token's image + description JSON.">
         <input className={inputCls} value={w.tokenURI} onChange={(e) => set('tokenURI', e.target.value)} placeholder="ipfs://…" />
       </Field>
-      <Field label="Total supply" hint="Whole tokens. Fixed at launch: the template cannot mint more.">
+      <Field label="Total supply" hint="Whole tokens. Fixed at launch: the template never mints more.">
         <input className={inputCls} inputMode="numeric" value={w.totalSupply} onChange={(e) => set('totalSupply', e.target.value.replace(/\D/g, ''))} />
       </Field>
     </div>

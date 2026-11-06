@@ -862,7 +862,7 @@ export function SolanaLadderPoolCard({ bungalow, compact = false, harvest }: {
                       open with no rewards yet), so whoever is about to lock reads it here, wallet or not. */}
                   {rewardWindow === 'never' && (
                     <p data-testid="ladder-no-rewards" className="m-0 mb-3 text-[12px]" style={{ color: '#f0b26b' }}>
-                      No rewards yet: a lock here counts your held time and earns nothing until the vault funds this pool.
+                      No rewards yet: a lock here earns nothing until the vault funds this pool.
                     </p>
                   )}
                   {/* An ended reward window takes no new stake (owner, 2026-10-14): the

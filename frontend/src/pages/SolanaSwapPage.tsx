@@ -1,7 +1,7 @@
 // Polyfill MUST load before any @solana/* import (jupiter.ts / providers pull
 // in web3.js) — keep this the very first import in this lazy chunk's entry.
 import '../lib/solanaPolyfill';
-import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import { m } from 'framer-motion';
 import { toast } from 'sonner';
@@ -16,6 +16,15 @@ import { FinePrint } from '../components/ui/FinePrint';
 import { CoinName } from '../components/ui/CoinName';
 import { tick } from '../lib/tick';
 import { SolanaProviders } from '../components/solana/SolanaProviders';
+import { SheetBodyOutlet } from '../components/sheet/SheetOutlet';
+import { useSheet } from '../components/sheet/sheetContext';
+import { SheetBuyRow } from '../components/sheet/SheetBuyRow';
+import { SheetPickLine } from '../components/sheet/SheetBaylaRow';
+import { useSolanaConnect } from '../components/solana/useSolanaConnect';
+import { SHEET_WORDS } from '../lib/arrival';
+import { feeSplitText } from '../lib/solana/cpswap/venue';
+import { poolPricePerToken } from '../lib/solana/lp/poolHealth';
+import { formatSolPrice } from '../lib/solana/lp/format';
 import { SolanaConnectButton } from '../components/solana/SolanaConnectButton';
 import { ChainSwitch } from '../components/swap/ChainSwitch';
 import { SolanaRouteLine } from '../components/swap/SolanaRouteLine';
@@ -25,7 +34,10 @@ import type { TxSummary } from '../components/solana/curve/ports';
 import { useVenueSwap } from '../components/swap/useVenueSwap';
 import { useReturnFocus, type OnSettled } from '../components/solana/curve/useTxFlow';
 import { holdReload } from '../lib/reloadHold';
-import { isSolanaFeeConfigured, isSolanaSwapLive, SOLANA_PLATFORM_FEE_BPS, SOL_MINT, USDC_MINT } from '../lib/solana';
+import { isSolanaFeeConfigured, isSolanaSwapLive, SOLANA_FEE_ACCOUNT, SOLANA_PLATFORM_FEE_BPS, SOL_MINT, USDC_MINT } from '../lib/solana';
+import { clockFor, raiseReceipt } from '../lib/receipt';
+import { lastReading } from '../lib/heat/heatStore';
+import { amountText, settleSwapReceipt, type FeeRoute } from '../lib/solana/receiptRead';
 import {
   PAY_WITH_TOKENS,
   BUY_TOKENS,
@@ -266,6 +278,32 @@ const MAJORS: readonly SolToken[] = [SOL, USDC, USDT];
 const CASH_MINTS: ReadonlySet<string> = new Set(MAJORS.map((t) => t.mint));
 
 /** A token paid for cash is a sale of that token. Everything else is a buy of what is received. */
+/**
+ * A swap that landed ends on the receipt card, not a toast (island answer twenty-five, build 6):
+ * it rises at once, and its figures are then read from the signature (lib/solana/receiptRead.ts).
+ */
+function raiseSwapReceipt(
+  rpc: Parameters<typeof settleSwapReceipt>[0],
+  signature: string,
+  a: { wallet: string; done: 'Bought' | 'Sold'; pay: { mint: string; symbol: string; decimals: number }; buy: { mint: string; symbol: string; decimals: number }; sent: bigint; route: FeeRoute },
+): void {
+  const action = a.done === 'Bought' ? 'bought' : 'sold';
+  const coin = action === 'bought' ? a.buy : a.pay;
+  const island = bungalowByAddress('solana', coin.mint) !== null;
+  raiseReceipt({
+    signature,
+    explorerUrl: `https://solscan.io/tx/${signature}`,
+    wallet: a.wallet,
+    action,
+    coin: { symbol: coin.symbol, mint: coin.mint },
+    title: null,
+    under: null,
+    fee: { kind: 'reading' },
+    clock: clockFor(action, coin.mint, a.wallet, lastReading(), island),
+  });
+  void settleSwapReceipt(rpc, signature, { wallet: a.wallet, action, paid: a.pay, got: { ...a.buy, native: a.buy.mint === SOL_MINT }, sent: a.sent, route: a.route, coin: coin.symbol });
+}
+
 function sideWords(pay: SolToken, buy: SolToken): { verb: 'Buy' | 'Sell'; done: 'Bought' | 'Sold'; symbol: string } {
   const selling = CASH_MINTS.has(buy.mint) && !CASH_MINTS.has(pay.mint);
   return selling ? { verb: 'Sell', done: 'Sold', symbol: pay.symbol } : { verb: 'Buy', done: 'Bought', symbol: buy.symbol };
@@ -455,7 +493,9 @@ function TokenPicker({ title, featured, onSelect, onClose }: TokenPickerProps) {
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { onCloseRef.current(); return; }
+      // Escape closes this list and nothing under it: inside the sheet, the sheet's own Escape
+      // (a window listener) would otherwise close the sheet too.
+      if (e.key === 'Escape') { e.stopPropagation(); onCloseRef.current(); return; }
       if (e.key !== 'Tab' || !panelRef.current) return;
       const focusables = panelRef.current.querySelectorAll<HTMLElement>(
         'input, button:not([disabled]), [tabindex]:not([tabindex="-1"])',
@@ -1386,13 +1426,18 @@ function LimitTab({ payToken, buyToken, shieldWarnings, needsAck, ack, setAck, o
  * home's address is not a share link), no page header, no Limit or DCA tabs, no chart and
  * no rails. The trade itself, its route, its fee line and every check are this form's own.
  */
-export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
+export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolean; sheet?: boolean } = {}) {
   const { connection } = useConnection();
   const { publicKey, sendTransaction } = useWallet();
-  // The address this form reads its opening pair and amount from: none on the home.
+  // Inside the sheet (island answer twenty-five, build 3): opens on SOL to the room's coin, drawn as the
+  // island drew it; either coin is a press that picks another from the page's own lists (owner, 2026-11-05).
+  const sheetPlace = useSheet();
+  const inSheet = sheet ? sheetPlace : null;
+  const openConnect = useSolanaConnect();
+  // The address this form reads its opening pair and amount from: none on the home, none in the sheet (it is the room's).
   const [linkSearch] = useState(() => {
     try {
-      return home ? '' : window.location.search;
+      return home || sheet ? '' : window.location.search;
     } catch {
       return '';
     }
@@ -1414,12 +1459,17 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
   // any other resolves async below, with $BAYLA standing until it does.
   const [openingBuy] = useState(() => {
     try {
-      // The home's card opens on BAYLA whatever room was last entered.
+      // The sheet opens on its room's coin (with none, nothing is bought until its row picks one);
+      // the home's card on BAYLA whatever room was last entered.
+      if (inSheet) return inSheet.room?.address ?? BAYLA.mint;
       return openingBuyMint(linkSearch, home ? null : getActiveBungalow());
     } catch { /* URL APIs unavailable — default stands */ }
     return BAYLA.mint;
   });
   const [buyToken, setBuyToken] = useState<SolToken>(() => findSolToken(openingBuy) ?? BAYLA);
+  // The sheet with no room opens on its bungalow row with nothing picked (island answer twenty-seven):
+  // no quote is asked and its green button is off until Any coin picks one (a room's chip reopens the form on it).
+  const [unpicked, setUnpicked] = useState(() => inSheet !== null && inSheet.room === null);
   // ?amt=<decimal> presets the pay amount (token-denominated). Malformed
   // values fall back silently — a bad deep link must never break the page.
   const [amount, setAmount] = useState(() => {
@@ -1513,7 +1563,7 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
       return 0;
     }
   });
-  const canQuote = baseAmount !== null && !sameToken && linkPending === 0;
+  const canQuote = baseAmount !== null && !sameToken && linkPending === 0 && !unpicked;
 
   // The opening pair, continued: a NON-curated mint (a link's, or a room's coin) needs
   // the Jupiter lookup for authoritative decimals (never invent them). A coin Jupiter
@@ -1652,7 +1702,12 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
   // What a swap in our own pool was, kept from the press of Buy for when it settles:
   // the pair on the form can change under an open review (a pick from the rails below).
   // `owner` is the wallet it was built for: the only one that can sign it (submitPrepared).
-  const ownTrade = useRef<{ owner: string; pay: string; buy: string; buyMint: string; amount: string; outDecimals: number; done: 'Bought' | 'Sold'; symbol: string } | null>(null);
+  // `payCoin`/`buyCoin`, the pool it was built in and that pool's fee settings: the receipt's reading.
+  const ownTrade = useRef<{
+    owner: string; pay: string; buy: string; buyMint: string; amount: string; outDecimals: number; done: 'Bought' | 'Sold'; symbol: string;
+    payCoin: { mint: string; symbol: string; decimals: number }; buyCoin: { mint: string; symbol: string; decimals: number }; sent: bigint;
+    pool: string | null; rates: { protocolFeeRate: bigint; fundFeeRate: bigint } | null;
+  } | null>(null);
   // The same, for the page to draw: the words of the trade pressed.
   const [pressed, setPressed] = useState<{ pay: string; buy: string; amount: string; outDecimals: number } | null>(null);
   const onOwnSettled = useCallback<OnSettled>(
@@ -1726,18 +1781,19 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
   const inFlight = inFlightTx ? ownSwapView(inFlightTx.summary) : null;
 
   const { reset: resetOwn } = venueSwap.flow;
-  const explorerOwn = venueSwap.api?.explorerTxUrl;
-  const ownCluster = venueSwap.cfg?.cluster ?? 'mainnet';
   useEffect(() => {
     if (flowState.step !== 'outcome') return;
     const ending = quietEnding(flowState.outcome);
     if (!ending) return;
     const t = ownTrade.current;
     if (ending.kind === 'confirmed') {
-      const out = ownSwapOut(flowState.prepared?.summary);
-      const got = out !== null && t ? `≈${prettyAmount(fromBaseUnits(out.toString(), t.outDecimals))} ${t.buy} for ${t.amount} ${t.pay}` : shortSig(ending.signature);
-      const url = explorerOwn ? explorerOwn(ending.signature, ownCluster) : `https://solscan.io/tx/${ending.signature}`;
-      toast.success(t ? `${t.done} ${t.symbol}` : 'Swap confirmed', { description: got, action: { label: 'View', onClick: () => window.open(url, '_blank', 'noopener,noreferrer') } });
+      // The receipt card, not a toast (island answer twenty-five): the fee read from the pool's own event.
+      if (t) {
+        raiseSwapReceipt(connection, ending.signature, {
+          wallet: t.owner, done: t.done, pay: t.payCoin, buy: t.buyCoin, sent: t.sent,
+          route: { kind: 'pool', pool: t.pool ?? '', rates: t.rates ?? { protocolFeeRate: 0n, fundFeeRate: 0n } },
+        });
+      }
     } else if (ending.kind === 'not-signed') {
       toast.info('Not sent', { description: ending.message });
     } else {
@@ -1749,7 +1805,7 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
       const b = buyRef.current;
       if (b && !b.disabled) b.focus({ preventScroll: true });
     });
-  }, [flowState, explorerOwn, ownCluster, resetOwn, buyRef]);
+  }, [flowState, resetOwn, buyRef, connection]);
   // A swap the connected wallet sent from this browser, by either route, in any tab, and
   // not confirmed yet holds Buy for that wallet until the chain answers (useVenueSwap).
   const pendingNote = venueSwap.pending.notes.length > 0;
@@ -1926,9 +1982,22 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
     void loadVenueSwapFlow().catch(() => {});
     setPressed({ pay: payToken.symbol, buy: buyToken.symbol, amount: prettyAmount(tokenAmount), outDecimals: buyToken.decimals });
     const user = owner.toBase58();
-    ownTrade.current = { owner: user, pay: payToken.symbol, buy: buyToken.symbol, buyMint: outputMint, amount: prettyAmount(tokenAmount), outDecimals: buyToken.decimals, done: said.done, symbol: said.symbol };
+    ownTrade.current = {
+      owner: user, pay: payToken.symbol, buy: buyToken.symbol, buyMint: outputMint, amount: prettyAmount(tokenAmount), outDecimals: buyToken.decimals, done: said.done, symbol: said.symbol,
+      payCoin: { mint: payToken.mint, symbol: payToken.symbol, decimals: payToken.decimals }, buyCoin: { mint: buyToken.mint, symbol: buyToken.symbol, decimals: buyToken.decimals }, sent: amountIn,
+      pool: null, rates: null,
+    };
     const priority = speed;
     const buildIn = (pool: string, aggregator: AggregatorSeen) => {
+      // The pool this swap is built in, and its fee settings: what the receipt reads the fee by.
+      const built = route.candidates.find((c) => c.poolAddress === pool);
+      if (ownTrade.current) {
+        ownTrade.current = {
+          ...ownTrade.current,
+          pool,
+          rates: built && !isRangeCandidate(built) && built.view.config ? { protocolFeeRate: built.view.config.protocolFeeRate, fundFeeRate: built.view.config.fundFeeRate } : null,
+        };
+      }
       const args = {
         owner,
         pool: new PublicKey(pool),
@@ -2306,7 +2375,6 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
       // A signature exists: the swap may be on chain. Its note holds Buy for this wallet,
       // in every tab of this site, until the chain answers for it (useVenueSwap).
       press.note(sig);
-      toast.success('Swap submitted', { description: `${shortSig(sig)}. Confirming…` });
       // From here nothing below may say "failed" unless the chain itself said so.
       // pollConfirm (lib/solana/confirm.ts, the one poller the ladder and the DCA and
       // limit tabs also use) never throws; a timeout or an unreadable status is
@@ -2339,9 +2407,10 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
         return;
       }
       const said = sideWords(payToken, buyToken);
-      toast.success(`${said.done} ${said.symbol}`, {
-        description: feeWaivedOnSend ? `${shortSig(sig)}. ${NO_SITE_FEE_ROUTE_COPY}` : shortSig(sig),
-        action: view,
+      // The receipt card, not a toast (island answer twenty-five): the venue's fee read from what its fee account received.
+      raiseSwapReceipt(connection, sig, {
+        wallet: publicKey.toBase58(), done: said.done, pay: payToken, buy: buyToken, sent: BigInt(baseAmount ?? '0'),
+        route: { kind: 'site', feeOwner: SOLANA_FEE_ACCOUNT || null },
       });
       // WAVE SEVEN, element O: latch a buy that landed in a resident's token.
       // The five Solana rooms are mints, so the finder takes the chain word;
@@ -2415,7 +2484,248 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
     : quoteFail === 'unavailable' ? 'Quote unavailable'
     : 'Fetching quote…';
 
+  // What the form says about this amount and pair, under the quote: on the page and in the sheet alike.
+  const formNotes = (
+    <>
+    {impactNote && (
+      <p className={impactNote.tone === 'bad' ? 'text-red-300' : 'text-amber-300'} data-testid="solana-impact-warning">{impactNote.text}</p>
+    )}
+    {sameToken && <p className="text-amber-300">Pick two different tokens.</p>}
+    {quoteFail === 'no-route' && !sameToken && ownNone && <p className="text-amber-300">No route for this pair / amount.</p>}
+    {quoteFail === 'no-route' && !sameToken && route.own === 'error' && (
+      <p className="text-amber-300">
+        Our pools could not be read just now, so this is not a statement that the pair cannot be traded.
+        <button
+          type="button"
+          onClick={() => {
+            // The held read is dropped, so our pools are read again, not quoted from it.
+            forgetPools();
+            setQuoteAttempt((n) => n + 1);
+          }}
+          className="ml-1 px-2 py-2.5 -my-2 font-semibold underline underline-offset-2"
+        >
+          Try again
+        </button>
+      </p>
+    )}
+    {quoteFail === 'unavailable' && !sameToken && (
+      <p className="text-amber-300" data-testid="solana-quote-unavailable">
+        {/* With our pool quoting, the trade CAN go ahead: what is missing is the comparison. */}
+        {ownBest
+          ? 'Jupiter could not be asked for a quote just now, so our pool was not compared with it.'
+          : 'Could not get a quote just now. This is not a statement that the pair cannot be traded.'}
+        <button
+          type="button"
+          onClick={() => setQuoteAttempt((n) => n + 1)}
+          className="ml-1 px-2 py-2.5 -my-2 font-semibold underline underline-offset-2"
+        >
+          Try again
+        </button>
+      </p>
+    )}
+    {amount.trim() !== '' && !baseAmount && !sameToken && <p className="text-amber-300">Enter a valid amount.</p>}
+    {insufficient && <p className="text-amber-300">Insufficient {payToken.symbol} balance.</p>}
+    {publicKey && payBalance.unread && (
+      <p className="text-amber-300" data-testid="solana-balance-unread">
+        Your {payToken.symbol} balance could not be read just now. This is not a statement that you hold none.
+      </p>
+    )}
+    {shieldWarnings.map((w, i) => (
+      <p key={`sh-${i}`} className={`flex items-start gap-1 ${shieldIsAlarming(w, w.mint) ? 'text-red-300' : 'text-white/50'}`}>
+        <span aria-hidden="true">⚠</span><span>{w.message}</span>
+      </p>
+    ))}
+    </>
+  );
   const Heading = home ? 'h2' : 'h1';
+  // The coin lists, on the page and in the sheet alike (inside the sheet they draw over it, in its focus).
+  // The BUY list is also the sheet's Any coin (island answer twenty-seven): a pick ends the sheet's unpicked state.
+  const pickers = (
+    <>
+      {picker === 'pay' && (
+        <TokenPicker
+          title="Pay with"
+          featured={PAY_WITH_TOKENS}
+          onClose={() => setPicker(null)}
+          onSelect={(t) => { rememberToken(t); setPayToken(t); setPicker(null); }}
+        />
+      )}
+      {picker === 'buy' && (
+        <TokenPicker
+          title="Buy"
+          featured={BUY_TOKENS}
+          onClose={() => setPicker(null)}
+          onSelect={(t) => { rememberToken(t); setBuyToken(t); setUnpicked(false); setPicker(null); }}
+        />
+      )}
+    </>
+  );
+
+  // The sheet's Buy (island answer twenty-five, screen 1, Buy state): the amount is what you pay,
+  // the second row is what you get with the route line under it, one green button. The review
+  // and the signing are the form's own, unchanged; its notes are said whenever they apply. Above
+  // the amount, the bungalow row picks the coin (answer twenty-seven).
+  if (inSheet) {
+    const own = ownBest && !isRangeCandidate(ownBest) ? ownBest : null;
+    const room = inSheet.room;
+    // The drawn first row, Pool price, whichever route wins: the room's own pool, as it quoted this amount.
+    // Said only while the pair IS that pool's, SOL and the room's coin either way round, in SOL per coin.
+    const roomPool = room ? route.candidates.find((c) => !isRangeCandidate(c) && c.poolAddress === room.venueSolPool) : undefined;
+    const roomView = roomPool && !isRangeCandidate(roomPool) ? roomPool.view : null;
+    const roomCoin = !room?.address ? null : buyToken.mint === room.address ? buyToken : payToken.mint === room.address ? payToken : null;
+    const roomPair = roomCoin !== null && (roomCoin === buyToken ? payToken : buyToken).mint === SOL_MINT;
+    const perToken = roomView && roomCoin && roomPair ? poolPricePerToken(roomView.snapshot, roomCoin.mint, roomCoin.decimals) : null;
+    // The chips follow the coin paid: two SOL amounts and Max while it is SOL; Max of it, in Max's place, otherwise.
+    const chips: readonly string[] = solChips ? SHEET_WORDS.chips : [`Max ${payToken.symbol}`];
+    // The coin a press picks, as on the page: the same lists, the same search.
+    const coinPress = (side: 'pay' | 'buy', coin: SolToken, cls: string) => (
+      <button
+        type="button"
+        onClick={() => { tick(); setPicker(side); }}
+        aria-haspopup="dialog"
+        aria-label={side === 'pay' ? `Pay with ${coin.symbol}` : `Get ${coin.symbol}`}
+        data-testid={side === 'pay' ? 'sheet-pay-coin' : 'sheet-get-coin'}
+        className={`flex items-center gap-1 min-h-[44px] px-2 rounded-lg font-semibold hover:bg-white/5 transition-colors ${cls}`}
+      >
+        {coin.symbol}
+        <span aria-hidden="true" className="text-white/70">▾</span>
+      </button>
+    );
+    const quoted = shownOut !== null && !quoteLoading;
+    const row = (label: string, value: ReactNode, testId?: string) => (
+      <div className="flex items-baseline justify-between gap-3 min-h-[24px] text-[13px]" data-testid={testId}>
+        <span className="shrink-0" style={{ color: 'var(--color-text-secondary)' }}>{label}</span>
+        <span className="text-right [overflow-wrap:anywhere]" style={{ color: 'var(--color-text-primary)' }}>{value}</span>
+      </div>
+    );
+    // The fee this trade pays: our pool's split read from its config, or on Jupiter's route the venue's
+    // own take from this trade, in the coin it is taken in (the page's Platform fee row says the same).
+    const feeLine = own?.view.config
+      ? `${feeSplitText(own.view.config, own.view.snapshot.pool.enableCreatorFee)}.`
+      : quote && !ownBest
+        ? feeWaived ? 'The venue takes no fee on this route.' : feeMintSymbol ? `The venue takes ${feePct}% of this trade, in ${feeMintSymbol}.` : 'The venue takes no fee on this trade.'
+        : null;
+    const buyLabel = unpicked ? 'Buy' : swapping ? 'Swapping…' : ownBusy ?? SHEET_WORDS.buy(buyToken.symbol);
+    // The coin its row lights: none before a pick, the room's while the room's coin is still being looked up.
+    const sheetCoin = unpicked
+      ? null
+      : room?.address && linkPending > 0
+        ? { symbol: room.symbol, mint: room.address }
+        : { symbol: buyToken.symbol, mint: buyToken.mint };
+    return (
+      <div data-testid="sheet-buy" className="space-y-3 text-white/75 text-[12px]">
+        {ownFlowOpen ? (
+          <Suspense fallback={<p role="status" className="text-white/55 text-[11px]">One moment…</p>}>
+            <VenueSwapFlow swap={venueSwap} extraReview={reviewAverage} />
+          </Suspense>
+        ) : (
+          <fieldset disabled={held} className="border-0 p-0 m-0 min-w-0 space-y-3">
+            <SheetBuyRow coin={sheetCoin} onAny={() => setPicker('buy')} />
+            {/* The amount, a 64 px box: what you pay, in Archivo 800 32 px, the coin at its right, a press that picks it. */}
+            <div className="flex items-center gap-3 h-16 pl-4 pr-2 rounded-xl" style={{ background: 'var(--color-bg-input)', border: '1px solid var(--color-border)' }}>
+              <label className="flex-1 min-w-0 flex items-center h-full">
+                <span className="sr-only">{`Amount of ${payToken.symbol} to pay`}</span>
+                <input
+                  data-testid="sheet-amount"
+                  type="text" inputMode="decimal" autoComplete="off" placeholder="0"
+                  value={amount}
+                  onChange={(e) => acceptAmountInput(e.target.value, setAmount)}
+                  className="w-full min-w-0 bg-transparent outline-none text-white placeholder:text-white/30"
+                  style={{ fontFamily: 'var(--font-family-heading)', fontWeight: 800, fontSize: 32, lineHeight: '40px' }}
+                />
+              </label>
+              {coinPress('pay', payToken, 'shrink-0 text-[15px] text-[color:var(--color-text-secondary)]')}
+            </div>
+            {/* The chips, 12 px under the box: three in a row, a third wide each (Max keeps its place). */}
+            <div role="group" aria-label={`How much ${payToken.symbol}`} className="grid grid-cols-3 gap-2 !mt-3">
+              {chips.map((label, i) => {
+                const isMax = i === chips.length - 1;
+                const chosen = isMax ? false : amount === SOL_CHIPS[i];
+                return (
+                  <button
+                    key={label}
+                    type="button"
+                    aria-pressed={chosen}
+                    className={`h-11 rounded-xl text-[14px] font-semibold disabled:opacity-50 ${isMax ? 'col-start-3' : ''}`}
+                    style={{
+                      background: 'var(--color-bg-elevated)',
+                      border: `1px solid ${chosen ? 'rgba(139,92,246,0.70)' : 'var(--color-border)'}`,
+                      color: chosen ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
+                    }}
+                    disabled={isMax ? !maxOn : !solChips}
+                    onClick={() => {
+                      tick();
+                      if (isMax) handleMax();
+                      else setAmount(SOL_CHIPS[i]!);
+                    }}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+            {/* Two rows, 24 px each: the pool's price, and what you get (its coin a press that picks it) with the route line under it.
+                Before a pick (no room) the row above is the only picker: no coin is named here until one is chosen. */}
+            <div className="!mt-4" data-testid="sheet-buy-rows">
+              {quoted && perToken !== null && roomCoin && row(SHEET_WORDS.poolPrice, `1 ${roomCoin.symbol} = ${formatSolPrice(perToken)} SOL`)}
+              {!unpicked && row(
+                SHEET_WORDS.youGet,
+                <span className="inline-flex items-center justify-end gap-1">
+                  {quoted && <span>{`≈ ${shownOut !== null ? amountText(BigInt(shownOut), buyToken.decimals) : outputDisplay}`}</span>}
+                  {quoted && ' '}
+                  {coinPress('buy', buyToken, '-my-[10px] -mr-2')}
+                </span>,
+                'sheet-you-get',
+              )}
+              {quoted && (
+                <div className="text-[12px]">
+                  <SolanaRouteLine route={route} ownUnavailable={venueSwap.unavailable} aggregatorFail={quoteFail} refusedWhy={route.aggregatorRefused ? (refusedTrade?.why ?? null) : null} />
+                </div>
+              )}
+            </div>
+            {feeLine && (
+              <p data-testid="sheet-fee-line" className="text-[12px]" style={{ color: 'var(--color-text-secondary)' }}>
+                {feeLine}
+              </p>
+            )}
+            <div className="space-y-1 text-[11px]">{formNotes}</div>
+            {needsAck && (
+              <label className="flex items-start gap-2 px-3 py-2.5 rounded-lg cursor-pointer" style={{ background: 'rgba(150,40,40,0.20)', border: '1px solid rgba(255,90,90,0.35)' }}>
+                <input type="checkbox" checked={ack} onChange={(e) => onAck(e.target.checked)} className="mt-0.5 flex-shrink-0" />
+                <span className="text-[11px] text-red-200">
+                  This pair carries a risk warning (an unverified token, or flagged by Jupiter Shield above).
+                  It could be a scam or have transfer restrictions. I understand and want to swap anyway.
+                </span>
+              </label>
+            )}
+            {pendingNote && (
+              <Suspense fallback={null}>
+                <VenueSwapFlow swap={venueSwap} />
+              </Suspense>
+            )}
+            {unpicked ? <SheetPickLine /> : inSheet.bayla}
+            {/* The green button, 20 px under her line: with a wallet it buys, as Buy does on the page; without one it connects. Off until a coin is picked. */}
+            <button
+              ref={buyRef}
+              type="button"
+              data-testid="sheet-go"
+              onClick={() => {
+                tick();
+                if (!publicKey) openConnect();
+                else void handleSwap();
+              }}
+              disabled={unpicked || (publicKey ? actionDisabled : false)}
+              className="btn-primary w-full !mt-5 disabled:opacity-50"
+              style={{ height: 52, fontSize: 15, fontWeight: 700 }}
+            >
+              {buyLabel}
+            </button>
+          </fieldset>
+        )}
+        {pickers}
+      </div>
+    );
+  }
   return (
     <>
     {!home && <PageArtBackdrop pageId="solana-swap" />}
@@ -2798,54 +3108,7 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
               </div>
             </details>
             )}
-            {impactNote && (
-              <p className={impactNote.tone === 'bad' ? 'text-red-300' : 'text-amber-300'} data-testid="solana-impact-warning">{impactNote.text}</p>
-            )}
-            {sameToken && <p className="text-amber-300">Pick two different tokens.</p>}
-            {quoteFail === 'no-route' && !sameToken && ownNone && <p className="text-amber-300">No route for this pair / amount.</p>}
-            {quoteFail === 'no-route' && !sameToken && route.own === 'error' && (
-              <p className="text-amber-300">
-                Our pools could not be read just now, so this is not a statement that the pair cannot be traded.
-                <button
-                  type="button"
-                  onClick={() => {
-                    // The held read is dropped, so our pools are read again, not quoted from it.
-                    forgetPools();
-                    setQuoteAttempt((n) => n + 1);
-                  }}
-                  className="ml-1 px-2 py-2.5 -my-2 font-semibold underline underline-offset-2"
-                >
-                  Try again
-                </button>
-              </p>
-            )}
-            {quoteFail === 'unavailable' && !sameToken && (
-              <p className="text-amber-300" data-testid="solana-quote-unavailable">
-                {/* With our pool quoting, the trade CAN go ahead: what is missing is the comparison. */}
-                {ownBest
-                  ? 'Jupiter could not be asked for a quote just now, so our pool was not compared with it.'
-                  : 'Could not get a quote just now. This is not a statement that the pair cannot be traded.'}
-                <button
-                  type="button"
-                  onClick={() => setQuoteAttempt((n) => n + 1)}
-                  className="ml-1 px-2 py-2.5 -my-2 font-semibold underline underline-offset-2"
-                >
-                  Try again
-                </button>
-              </p>
-            )}
-            {amount.trim() !== '' && !baseAmount && !sameToken && <p className="text-amber-300">Enter a valid amount.</p>}
-            {insufficient && <p className="text-amber-300">Insufficient {payToken.symbol} balance.</p>}
-            {publicKey && payBalance.unread && (
-              <p className="text-amber-300" data-testid="solana-balance-unread">
-                Your {payToken.symbol} balance could not be read just now. This is not a statement that you hold none.
-              </p>
-            )}
-            {shieldWarnings.map((w, i) => (
-              <p key={`sh-${i}`} className={`flex items-start gap-1 ${shieldIsAlarming(w, w.mint) ? 'text-red-300' : 'text-white/50'}`}>
-                <span aria-hidden="true">⚠</span><span>{w.message}</span>
-              </p>
-            ))}
+            {formNotes}
           </div>
 
           {/* Risk acknowledgement — warn, don't block (any pair is allowed). */}
@@ -2944,22 +3207,7 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
         </>
       )}
 
-      {picker === 'pay' && (
-        <TokenPicker
-          title="Pay with"
-          featured={PAY_WITH_TOKENS}
-          onClose={() => setPicker(null)}
-          onSelect={(t) => { rememberToken(t); setPayToken(t); setPicker(null); }}
-        />
-      )}
-      {picker === 'buy' && (
-        <TokenPicker
-          title="Buy"
-          featured={BUY_TOKENS}
-          onClose={() => setPicker(null)}
-          onSelect={(t) => { rememberToken(t); setBuyToken(t); setPicker(null); }}
-        />
-      )}
+      {pickers}
       {detailToken && <TokenDetail token={detailToken} onClose={() => setDetailToken(null)} />}
     </div>
     </>
@@ -3010,6 +3258,8 @@ export default function SolanaSwapPage() {
   return (
     <SolanaProviders>
       <SolanaSwapInner />
+      {/* The sheet's form signs with this page's one connection (lib/sheetStore.ts). */}
+      <SheetBodyOutlet />
     </SolanaProviders>
   );
 }

@@ -61,6 +61,7 @@ vi.mock('../lib/jupiter', async (importOriginal) => ({
 }));
 
 import SolanaSwapPage from './SolanaSwapPage';
+import { clearReceipt, lastReceipt } from '../lib/receipt';
 
 // The first render of this page takes seconds on a busy machine (SolanaSwapPage.confirm.test.tsx).
 vi.setConfig({ testTimeout: 30_000 });
@@ -87,6 +88,7 @@ const writeText = vi.fn(async () => {});
 const vibrate = vi.fn(() => true);
 
 beforeEach(() => {
+  clearReceipt();
   vi.useFakeTimers({ shouldAdvanceTime: true });
   localStorage.clear();
   Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
@@ -201,6 +203,6 @@ describe('the Buy press', () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5_000);
     });
-    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Bought USDC', expect.anything()));
+    await waitFor(() => expect(lastReceipt()).toMatchObject({ action: 'bought', coin: { symbol: 'USDC' } }));
   });
 });
