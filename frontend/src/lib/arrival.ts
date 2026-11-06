@@ -153,6 +153,8 @@ export const BAYLA_LINES = {
  */
 export const SHEET_WORDS = {
   back: 'Back to the room',
+  /** Over a page that is not a room (/pools, the home): answer twenty-seven raised the sheet there. */
+  backOff: 'Back',
   poolLine: (coin: string) => `SOL + ${coin} pool · Solana`,
   unit: 'SOL',
   chips: ['0.05 SOL', '0.5 SOL', 'Max SOL'] as const,
