@@ -322,6 +322,7 @@ export function tripsFor(pools, ctx) {
         roiPct: judged.roiPct,
         gapInUsd: judged.gapInUsd,
         gapNetUsd: judged.gapNetUsd,
+        reachUsd: reachOf(legs) * (ctx.usd.get(start) / 10 ** coin.decimals),
         capUsd: judged.capUsd,
         floatUsd: judged.floatUsd,
         pays: judged.takes,
@@ -338,6 +339,30 @@ export function tripsFor(pools, ctx) {
   }
   return rankTrips(trips, 'profit');
 }
+
+/**
+ * The most a trip can ever bring back, in its start coin's raw units, at any size and any gap: no
+ * pool pays out more than it holds, and the swaps after it pay at most their price. Its thinnest
+ * pool sets it.
+ */
+function reachOf(legs) {
+  let reach = Infinity;
+  let rate = 1; // start coin per unit of what leg i pays out, at the later legs' prices
+  for (let i = legs.length - 1; i >= 0; i--) {
+    reach = Math.min(reach, legs[i].rout * rate);
+    rate *= legs[i].rout / legs[i].rin;
+  }
+  return reach;
+}
+
+/**
+ * Trips that do not pay, nearest to paying first (each coin's closest, and the closest list). A trip
+ * that can never bring back the floor goes last whatever its gap: a pool on it holds dust. Then the
+ * dollars it makes at its best size; then, for trips that make nothing at any size, the gap less the
+ * pools' fees.
+ */
+const canPay = (t) => Number(t.reachUsd >= t.floorUsd);
+export const nearestFirst = (trips) => [...trips].sort((a, b) => canPay(b) - canPay(a) || b.gainUsd - a.gainUsd || b.gapPct - b.costPct - (a.gapPct - a.costPct));
 
 /** The ticker a Metaplex metadata account claims (untrusted: shown as the token's claim only). */
 export function metadataSymbol(data) {
