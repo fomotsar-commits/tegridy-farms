@@ -39,7 +39,18 @@ describe('the Jito tip: the real transaction’s instruction, byte for byte', ()
     expect(() => jitoTipIx(payer, 5_000n, Keypair.generate().publicKey.toBase58())).toThrow(/tip account/);
     expect(() => jitoTipIx(payer, JITO_MIN_TIP_LAMPORTS - 1n, REAL.tipAccount)).toThrow(/at least/);
     expect(pickTipAccount(() => 0)).toBe(JITO_TIP_ACCOUNTS[0]);
-    expect(pickTipAccount(() => 0.9999)).toBe(JITO_TIP_ACCOUNTS[7]);
+    expect(pickTipAccount(() => 7)).toBe(JITO_TIP_ACCOUNTS[7]);
+    expect(pickTipAccount(() => 255)).toBe(JITO_TIP_ACCOUNTS[7]);
+  });
+
+  it('gives every tip account the same odds: each of the 256 bytes picks one, 32 bytes to each', () => {
+    const count = new Map<string, number>();
+    for (let b = 0; b < 256; b++) {
+      const a = pickTipAccount(() => b);
+      count.set(a, (count.get(a) ?? 0) + 1);
+    }
+    expect([...count.keys()].sort()).toEqual([...JITO_TIP_ACCOUNTS].sort());
+    expect([...count.values()]).toEqual(Array(8).fill(32));
   });
 
   it('picks the tip account with the cryptographic random source, never Math.random', () => {
