@@ -357,6 +357,10 @@ const TOKEN_PROGRAMS = ['TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', 'TokenzQd
 const MAX_TRACKED = 40;
 /** The chain is read again this soon after a read starts, whether or not a page is open. */
 const READ_EVERY_MS = 15_000;
+/** The scanner's page (on this computer) is read this often, as its own page reads itself. */
+const SCANNER_EVERY_MS = 5_000;
+/** A scanner page longer than this is not read: it sends about 40 KB. */
+const SCANNER_MAX_BYTES = 2_000_000;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const said = (e) => (e instanceof Error ? e.message : String(e));
 
@@ -420,6 +424,38 @@ async function readNew(address, h, readOne) {
     h.newest[address] = signature;
   }
   return true;
+}
+
+/**
+ * The scanner's page (KEEPER_SCANNER_URL, the one the robot reads), as the dashboard shows it
+ * (keeper/scannerView.ts): read here and streamed with the robot's figures, since the dashboard's
+ * page may ask nothing of any other address. Never followed elsewhere, never longer than it should be.
+ */
+async function readScanner(url, scannerView) {
+  let res;
+  try {
+    res = await fetch(url, { redirect: 'error', signal: AbortSignal.timeout(3_000) });
+  } catch (e) {
+    const code = e?.cause?.code;
+    if (code === 'ECONNREFUSED') return `nothing answers at ${url.host}: the scanner is not running`;
+    if (e?.name === 'TimeoutError') return `the scanner at ${url.host} did not answer within 3 s`;
+    return `the scanner at ${url.host} was not read (${code ?? said(e)})`;
+  }
+  if (!res.ok) return `the scanner at ${url.host} answered ${res.status}`;
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of res.body) {
+    size += chunk.length;
+    if (size > SCANNER_MAX_BYTES) return `the scanner's page is longer than ${SCANNER_MAX_BYTES / 1e6} MB: not read`;
+    chunks.push(chunk);
+  }
+  let json;
+  try {
+    json = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+  } catch {
+    return `the page at ${url.host} is not a scanner's page`;
+  }
+  return scannerView(json);
 }
 
 /** The keeper's wallet and every coin account it has, and the latest slot they were read at. */
@@ -595,6 +631,30 @@ async function dashboard() {
   let building = null;
   let firstRead;
   const ready = new Promise((r) => (firstRead = r));
+
+  // The scanner, on its own clock: a scanner that stops answering is said on the page, and the
+  // robot's figures carry on without it.
+  const { scannerView, nextScannerFeed } = await lib('solana/keeper/scannerView.ts');
+  const { scannerPageUrl } = await lib('solana/keeper/takes.ts');
+  const scannerRaw = env.KEEPER_SCANNER_URL?.trim();
+  let scannerUrl = null;
+  let scanner = { page: null, view: null, readAt: null, problem: 'not set: KEEPER_SCANNER_URL names the scanner’s page on this computer' };
+  if (scannerRaw) {
+    try {
+      scannerUrl = scannerPageUrl(scannerRaw);
+      scanner = { ...scanner, page: scannerUrl.host, problem: 'not read yet' };
+    } catch (e) {
+      scanner = { ...scanner, problem: said(e) };
+    }
+  }
+  async function readScannerForever() {
+    for (;;) {
+      const started = Date.now();
+      scanner = nextScannerFeed(scanner, await readScanner(scannerUrl, scannerView).catch((e) => `the scanner was not read: ${said(e)}`), Date.now());
+      push();
+      await sleep(Math.max(1_000, SCANNER_EVERY_MS - (Date.now() - started)));
+    }
+  }
   async function readForever() {
     for (;;) {
       const started = Date.now();
@@ -628,9 +688,9 @@ async function dashboard() {
   const listeners = new Set();
   let sent = '';
   let sentAt = 0;
-  const snapshot = () => JSON.stringify({ ...state, ...live() });
+  const snapshot = () => JSON.stringify({ ...state, ...live(), scanner });
   function push() {
-    if (!state || !listeners.size) return;
+    if (!listeners.size) return;
     const body = snapshot();
     if (body === sent && Date.now() - sentAt < 5_000) return;
     sent = body;
@@ -655,7 +715,7 @@ async function dashboard() {
       res.writeHead(200, { ...common, 'content-type': 'text/event-stream' });
       listeners.add(res);
       req.on('close', () => listeners.delete(res));
-      if (state) res.write(`data: ${snapshot()}\n\n`);
+      res.write(`data: ${snapshot()}\n\n`);
       return;
     }
     return res.writeHead(404, common).end();
@@ -667,8 +727,9 @@ async function dashboard() {
   server.listen(port, '127.0.0.1', () => {
     log(`Dashboard for ${owner}: http://127.0.0.1:${port}`);
     log('  read-only, on this computer only; Ctrl+C stops it (the robot keeps running)');
+    log(`  the scanner: ${scannerUrl ? `read from ${scannerUrl.host} every ${SCANNER_EVERY_MS / 1000} s` : scanner.problem}`);
   });
-  await readForever();
+  await Promise.all([readForever(), scannerUrl ? readScannerForever() : null]);
 }
 
 // ─── The gap screen: a read-only page served by `run` itself, on this computer only. What each
@@ -709,11 +770,8 @@ function serveScreen(screen) {
 async function scannerTakes() {
   const raw = env.KEEPER_SCANNER_URL?.trim();
   if (!raw) return null;
-  const url = new URL(raw);
-  if (url.protocol !== 'http:' || !['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname)) {
-    throw new Error(`KEEPER_SCANNER_URL must be the scanner's page on this computer (http://127.0.0.1:<port>/state.json), not "${raw}"`);
-  }
-  const { outsideTakes } = await lib('solana/keeper/takes.ts');
+  const { outsideTakes, scannerPageUrl } = await lib('solana/keeper/takes.ts');
+  const url = scannerPageUrl(raw);
   return async () => {
     const res = await fetch(url, { signal: AbortSignal.timeout(3_000) });
     if (!res.ok) throw new Error(`the scanner page answered ${res.status}`);

@@ -31,7 +31,7 @@ export interface OutsideTake {
 /** A trip is taken only this soon after the scanner's test run of it passed (the scanner keeps a pass 3 minutes). */
 export const TAKE_FRESH_MS = 3 * 60_000;
 
-const isAddress = (s: unknown): s is string => {
+export const isAddress = (s: unknown): s is string => {
   if (typeof s !== 'string' || s.length < 32 || s.length > 44) return false;
   try {
     return new PublicKey(s).toBase58() === s;
@@ -39,7 +39,24 @@ const isAddress = (s: unknown): s is string => {
     return false;
   }
 };
-const isObject = (x: unknown): x is Record<string, unknown> => typeof x === 'object' && x !== null && !Array.isArray(x);
+export const isObject = (x: unknown): x is Record<string, unknown> => typeof x === 'object' && x !== null && !Array.isArray(x);
+
+/**
+ * KEEPER_SCANNER_URL as a URL, held to the scanner's page on THIS computer: the robot (which trips
+ * to try) and the dashboard (what the scanner shows) read nothing from anywhere else.
+ */
+export function scannerPageUrl(raw: string): URL {
+  let url: URL | null = null;
+  try {
+    url = new URL(raw);
+  } catch {
+    // said below, as any other address
+  }
+  if (!url || url.protocol !== 'http:' || !['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname)) {
+    throw new Error(`KEEPER_SCANNER_URL must be the scanner's page on this computer (http://127.0.0.1:<port>/state.json), not "${raw}"`);
+  }
+  return url;
+}
 
 /** One scanner row as a trip the robot may try, or null. */
 function takeOf(row: unknown, programs: Readonly<Record<string, string>>, now: number): OutsideTake | null {
