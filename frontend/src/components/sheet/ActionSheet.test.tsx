@@ -9,6 +9,12 @@ import { holdSheetOutlet, resetSheetStore, useSheetOpen } from '../../lib/sheetS
 
 // The sheet's own Solana connection is its own chunk: a stand-in here says whether it mounted.
 vi.mock('./SheetSolana', () => ({ default: () => <p data-testid="own-connection">own connection</p> }));
+// Buy's network drop-down asks the EVM wallet where it is: none connected here.
+vi.mock('wagmi', () => ({
+  useAccount: () => ({ isConnected: false }),
+  useChainId: () => 1,
+  useSwitchChain: () => ({ switchChain: vi.fn() }),
+}));
 
 function Probe() {
   const location = useLocation();
@@ -189,6 +195,36 @@ describe('the sheet', () => {
     inner.remove();
     fireEvent.keyDown(screen.getByRole('dialog', { name: 'Buy BAYLA' }), { key: 'Escape' });
     expect(screen.queryByRole('dialog', { name: 'Buy BAYLA' })).toBeNull();
+  });
+
+  // Owner, 2026-11-06: "put a drop down to switch chains like we have" — the home's swap card's own.
+  it('Buy carries the swap network drop-down by Back, on Solana; Add, the room’s own pool, carries none', async () => {
+    localStorage.setItem('tegridy-bungalow', 'bayla');
+    mount(['/bayla?sheet=buy']);
+    const sheet = screen.getByRole('dialog', { name: 'Buy BAYLA' });
+    expect(await within(sheet).findByRole('button', { name: 'Swap network: Solana' })).toBeInTheDocument();
+    cleanup();
+    mount(['/bayla?sheet=add']);
+    await act(async () => {});
+    expect(screen.queryByRole('button', { name: /Swap network/ })).toBeNull();
+  });
+
+  it('a pick of another network leaves for its own swap page, and the sheet goes', async () => {
+    localStorage.setItem('tegridy-bungalow', 'bayla');
+    mount(['/bayla?sheet=buy']);
+    fireEvent.click(await screen.findByRole('button', { name: 'Swap network: Solana' }));
+    fireEvent.click(screen.getByRole('option', { name: /Base/ }));
+    expect(screen.getByTestId('where')).toHaveTextContent(/^\/swap\?c=8453$/);
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('Escape in the network list closes the list, not the sheet', async () => {
+    localStorage.setItem('tegridy-bungalow', 'bayla');
+    mount(['/bayla?sheet=buy']);
+    fireEvent.click(await screen.findByRole('button', { name: 'Swap network: Solana' }));
+    fireEvent.keyDown(screen.getByRole('listbox', { name: 'Swap network' }), { key: 'Escape' });
+    expect(screen.queryByRole('listbox')).toBeNull();
+    expect(screen.getByRole('dialog', { name: 'Buy BAYLA' })).toBeInTheDocument();
   });
 
   it('brings its own Solana connection only where the page has none: one live connection per page', async () => {
