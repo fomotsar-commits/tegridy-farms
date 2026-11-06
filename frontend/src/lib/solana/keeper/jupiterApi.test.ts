@@ -40,6 +40,13 @@ describe('jupiterApi', () => {
     expect(q.get('instructionVersion')).toBe('V2');
     expect(q.get('excludeDexes')).toBe('Raydium,Raydium CLMM');
     expect(q.get('maxAccounts')).toBe('30');
+    expect(q.get('onlyDirectRoutes')).toBeNull();
+  });
+
+  it('asks for a one-pool route only when told to', async () => {
+    const r = recorder(() => ({ body: {} }));
+    await jupiterApi({ fetchImpl: r.fetchImpl, gapMs: 0 }).quote({ ...quoteArgs, onlyDirectRoutes: true });
+    expect(new URL(r.calls[0]!.url).searchParams.get('onlyDirectRoutes')).toBe('true');
   });
 
   it('spaces its calls, so a free key’s one request a second holds', async () => {

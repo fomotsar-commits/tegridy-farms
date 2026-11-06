@@ -205,9 +205,13 @@ export function rankTrips<T extends { judged: Judged }>(trips: readonly T[], by:
   return [...trips].sort((p, q) => Number(q.judged.takes) - Number(p.judged.takes) || key(q) - key(p));
 }
 
-/** Token-2022 extensions the robot never trades through: each can take coins back, stop them, or change what arrives. */
+/**
+ * Token-2022 extensions the robot never trades through: each can take coins back, stop them, or
+ * run code on a transfer. A transfer fee is not among them: it is a known cut, fixed for two
+ * epochs once set, that the robot counts (keeper/plan.ts `poolProblem`), and the Lighthouse check
+ * undoes any trip it leaves under the floor (owner, 2026-11-06: GROYPER's 3% fee, "take this").
+ */
 const REFUSED_EXTENSIONS: ReadonlyMap<number, string> = new Map([
-  [EXTENSION.TransferFeeConfig, 'it keeps a fee out of every transfer'],
   [EXTENSION.DefaultAccountState, 'new accounts of it can start frozen'],
   [EXTENSION.NonTransferable, 'it cannot be transferred'],
   [EXTENSION.PermanentDelegate, 'a permanent delegate can take it from any account'],

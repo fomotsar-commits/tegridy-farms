@@ -15,8 +15,9 @@ import { quoteOwnPool } from '../cpswap/read';
 import { decodeRpcAccount, getMultipleAccounts, getTokenAccountsByOwner, type RawAccount } from '../lp/accounts';
 import type { PoolView } from '../lp/poolFinder';
 import { PRICE_IDS_MAX, arbitrage, listPools, marketPriceIds, readMarketPrices, rowTokenFee, tokenDecimalsOf } from '../lp/poolList';
-import { SOL_QUOTE, type QuoteCoin } from '../lp/quotes';
+import { SOL_QUOTE, USDC_QUOTE, type QuoteCoin } from '../lp/quotes';
 import { readTokenSafety, type TokenSafety } from '../lp/tokenSafety';
+import type { TransferFee } from '../lp/transferFee';
 import type { GapSeen, Skip } from './gaps';
 import { atLeastCheck } from './lighthouse';
 import { MAX_TRIP_UNITS, tokenGate, type TripBans } from './rule';
@@ -29,6 +30,7 @@ import {
   NEW_ACCOUNT_RENT,
   decodeJupiterRoute,
   dustSaleProblem,
+  isKeeperCoin,
   jupiterFloor,
   jupiterLegProblem,
   lamportsInCoin,
@@ -41,6 +43,7 @@ import {
   poolProblem,
   priceStep,
   simulationProblem,
+  viaOrder,
   type KeeperLimits,
   type LoopLeg,
   type Plan,
@@ -241,6 +244,13 @@ export async function runCycle(io: KeeperIo, s: KeeperSettings): Promise<CycleRe
     return empty(pools);
   }
   const usable = pools.filter((v) => problemOf(v, safety) === null);
+  // The token's transfer fee as read; an unread one never got past problemOf.
+  const feeOf = (v: PoolView): TransferFee | null => {
+    const f = rowTokenFee(v, safety.get(v.tokenMint) ?? null);
+    return f === 'unread' ? null : f;
+  };
+  // Trips through our pools alone price each leg without a transfer fee: only fee-free pools.
+  const feeFree = usable.filter((v) => feeOf(v) === null);
   let gaps = 0;
   let sent = 0;
   // Pools a sent trip has moved: their read is old until the next pass.
@@ -257,9 +267,11 @@ export async function runCycle(io: KeeperIo, s: KeeperSettings): Promise<CycleRe
   let loops = 0;
   const stop = () => stopForUnsure(io, { pools: pools.length, gaps, sent, watch: watchOf(pools, outside), looked, seen, loops });
 
-  // 1. Between our own pools of one pair: both fees stay with the venue.
-  for (const [i, a] of usable.entries()) {
-    for (const b of usable.slice(i + 1)) {
+  // 1. Between our own pools of one pair: both fees stay with the venue. Only a pair priced in a
+  //    coin the keeper holds: a trip starts in the pool's own coin.
+  for (const [i, a] of feeFree.entries()) {
+    for (const b of feeFree.slice(i + 1)) {
+      if (!isKeeperCoin(a.quote.mint)) continue;
       if (a.tokenMint !== b.tokenMint || a.quote.mint !== b.quote.mint || moved.has(a.address) || moved.has(b.address)) continue;
       if (chainNow === null) continue;
       try {
@@ -273,7 +285,7 @@ export async function runCycle(io: KeeperIo, s: KeeperSettings): Promise<CycleRe
 
   // 1b. Round three of our own pools (BAYLA / SOL, BAYLA / USDC, USDC / SOL): no Jupiter call, every fee stays here.
   if (chainNow !== null) {
-    for (const loop of ownLoops(usable)) {
+    for (const loop of ownLoops(feeFree)) {
       if (loop.some((l) => moved.has(l.view.address))) continue;
       loops++;
       const name = loopName(loop, safety);
@@ -292,7 +304,8 @@ export async function runCycle(io: KeeperIo, s: KeeperSettings): Promise<CycleRe
     looked.push(view.address);
     const at = Date.now();
     const name = nameOf(view, safety);
-    const arb = arbitrage(view, prices.usd, chainNow, null);
+    const fee = feeOf(view);
+    const arb = arbitrage(view, prices.usd, chainNow, fee);
     if (!arb) continue;
     gaps++;
     // A gap under the floor even at the listed price is no gap to the gap log.
@@ -320,7 +333,9 @@ export async function runCycle(io: KeeperIo, s: KeeperSettings): Promise<CycleRe
       }
     };
     try {
-      const o = await jupiterTrip(io, s, view, plan, chainNow, prices.usd, refused, name);
+      const o = plan.via
+        ? await viaTrip(io, s, view, plan, chainNow, refused, name, fee)
+        : await jupiterTrip(io, s, view, plan, chainNow, prices.usd, refused, name, fee);
       note(o);
       remember(o);
       if (counted(o, view)) return stop();
@@ -433,14 +448,21 @@ function accountsFor(owner: PublicKey, view: PoolView) {
   const { pool } = view.snapshot;
   const coinMint = new PublicKey(view.quote.mint);
   const tokenMint = new PublicKey(view.tokenMint);
+  // Each side's token program as the pool names it: BAYLA, a pool's coin, is Token-2022.
+  const coinProgram = new PublicKey(view.quoteIsToken0 ? pool.token0Program : pool.token1Program);
   const tokenProgram = new PublicKey(view.quoteIsToken0 ? pool.token1Program : pool.token0Program);
-  const coinAta = getAssociatedTokenAddressSync(coinMint, owner, true, TOKEN_PROGRAM_ID);
+  const coinAta = getAssociatedTokenAddressSync(coinMint, owner, true, coinProgram);
   const tokenAta = getAssociatedTokenAddressSync(tokenMint, owner, true, tokenProgram);
   // The keeper's other float (USDC on a SOL trip, wrapped SOL on a USDC one): watched, never
   // touched. In the SOL/USDC pool the token IS that float, already watched as the token.
   const other = KEEPER_COINS.find((c) => c.mint !== view.quote.mint && c.mint !== view.tokenMint);
   const otherAta = other ? getAssociatedTokenAddressSync(new PublicKey(other.mint), owner, true, TOKEN_PROGRAM_ID) : tokenAta;
-  return { coinMint, tokenMint, tokenProgram, coinAta, tokenAta, otherAta, hasOther: !!other };
+  return { coinMint, coinProgram, tokenMint, tokenProgram, coinAta, tokenAta, otherAta, hasOther: !!other };
+}
+
+/** The pool's two transfer fees, token0's then token1's, for `quoteOwnPool`: the token's as read, none on the pool's own coin. */
+export function feesOf(view: PoolView, tokenFee: TransferFee | null): readonly [TransferFee | null, TransferFee | null] {
+  return view.quoteIsToken0 ? [null, tokenFee] : [tokenFee, null];
 }
 
 /** A swap in one of our pools, from the keeper's account of one side to its account of the other. */
@@ -459,8 +481,8 @@ export function ownSwap(owner: PublicKey, view: PoolView, input: 'coin' | 'token
     outputTokenAccount: coinIn ? a.tokenAta : a.coinAta,
     inputVault: coinIn ? coinVault : tokenVault,
     outputVault: coinIn ? tokenVault : coinVault,
-    inputTokenProgram: coinIn ? TOKEN_PROGRAM_ID : a.tokenProgram,
-    outputTokenProgram: coinIn ? a.tokenProgram : TOKEN_PROGRAM_ID,
+    inputTokenProgram: coinIn ? a.coinProgram : a.tokenProgram,
+    outputTokenProgram: coinIn ? a.tokenProgram : a.coinProgram,
     inputTokenMint: coinIn ? a.coinMint : a.tokenMint,
     outputTokenMint: coinIn ? a.tokenMint : a.coinMint,
     observationState: new PublicKey(pool.observationKey),
@@ -580,10 +602,12 @@ async function jupiterTrip(
   usd: ReadonlyMap<string, number>,
   refused: Refused,
   name: string,
+  tokenFee: TransferFee | null,
 ): Promise<Tried> {
   if (!view.config || chainNow === null) throw new Error('pool fees or the clock not read');
   const owner = io.owner;
   const amt = amountText(view.quote);
+  const fees = feesOf(view, tokenFee);
   const acc = accountsFor(owner, view);
   const before = await balances(io.rpc, [acc.coinAta, acc.tokenAta, acc.otherAta, owner]);
   if (before.coin <= 0n) {
@@ -606,7 +630,7 @@ async function jupiterTrip(
   let legs: TransactionInstruction[];
   let lookupTables: string[];
   if (plan.side === 'buy') {
-    const own = quoteOwnPool(view.snapshot, view.config, plan.coinMint, plan.coinIn, Number(chainNow));
+    const own = quoteOwnPool(view.snapshot, view.config, plan.coinMint, plan.coinIn, Number(chainNow), fees);
     if (!own || own.outAmount <= 0n) throw new Error('our pool would not quote the buy');
     const q = await quoteWithRoom(io, s, { inputMint: plan.tokenMint, outputMint: plan.coinMint, amount: own.outAmount, slippageBps: s.slippageBps, excludeDexes: refused.names });
     const bps = lastJupiterSlippage(BigInt(q.outAmount), need, s.slippageBps);
@@ -628,7 +652,7 @@ async function jupiterTrip(
       jupiterLegProblem(x.swap, { ...legExpect, inputMint: acc.coinMint, inputProgram: TOKEN_PROGRAM_ID, outputMint: acc.tokenMint, outputProgram: acc.tokenProgram, inAmount: plan.coinIn, minOut: routeFloor(x) }),
     );
     const tokensIn = routeFloor(si);
-    const own = quoteOwnPool(view.snapshot, view.config, plan.tokenMint, tokensIn, Number(chainNow));
+    const own = quoteOwnPool(view.snapshot, view.config, plan.tokenMint, tokensIn, Number(chainNow), fees);
     const ownMin = own ? lastPoolMinimum(own.outAmount, need, s.slippageBps) : null;
     if (ownMin === null) {
       io.log(`${name}: skipped, our pool pays ${amt(own?.outAmount ?? 0n)} for what ${amt(plan.coinIn)} buys on Jupiter: under the profit floor`);
@@ -653,6 +677,116 @@ async function jupiterTrip(
     says: (gained) =>
       `${done.side === 'buy' ? 'buy here, sell on Jupiter' : 'buy on Jupiter, sell here'}, ${amt(done.coinIn)} in, test run gains ${amt(gained)} (floor ${amt(done.minProfit)})`,
   });
+}
+
+/**
+ * A pool priced in a coin the keeper does not hold (BAYLA): the trip starts and ends in SOL, and
+ * Jupiter carries it to our pool and back, in one transaction. Buying (the token is cheap here):
+ * SOL → BAYLA on Jupiter, BAYLA → token here, token → SOL on Jupiter. Selling: SOL → token on
+ * Jupiter, token → BAYLA here, BAYLA → SOL on Jupiter. Each leg spends exactly the least the leg
+ * before must pay, so neither middle account can shrink (the owner's own BAYLA, kept, sits in the
+ * keeper's BAYLA account), and the last leg's minimum and the Lighthouse check hold the SOL to its
+ * floor. The last leg is quoted before any swap is built: a trip that falls short costs two
+ * Jupiter calls, not four.
+ */
+async function viaTrip(
+  io: KeeperIo,
+  s: KeeperSettings,
+  view: PoolView,
+  plan: Plan,
+  chainNow: bigint | null,
+  refused: Refused,
+  name: string,
+  tokenFee: TransferFee | null,
+): Promise<Tried> {
+  if (!view.config || chainNow === null || !plan.via) throw new Error('pool fees or the clock not read');
+  const owner = io.owner;
+  const { pool } = view.snapshot;
+  const amt = amountText(SOL_QUOTE);
+  const programOf = (mint: string) => new PublicKey(pool.token0Mint === mint ? pool.token0Program : pool.token1Program);
+  const ata = (mint: string, program: PublicKey) => getAssociatedTokenAddressSync(new PublicKey(mint), owner, true, program);
+  // `a`: what Jupiter buys with SOL, our pool's input. `b`: what our pool pays out, Jupiter's to sell.
+  const [a, b] = viaOrder(plan.side, plan.via, view.tokenMint);
+  const coinMint = new PublicKey(SOL_QUOTE.mint);
+  const coinAta = ata(SOL_QUOTE.mint, TOKEN_PROGRAM_ID);
+  const aAta = ata(a, programOf(a));
+  const bAta = ata(b, programOf(b));
+  // The keeper's USDC: no leg may name it.
+  const usdcAta = ata(USDC_QUOTE.mint, TOKEN_PROGRAM_ID);
+  const before = await balances(io.rpc, [coinAta, aAta, bAta, owner]);
+  if (before.coin <= 0n) {
+    io.log(`${name}: skipped, the keeper holds no SOL`);
+    return 'no-coin';
+  }
+  let coinIn = plan.coinIn;
+  if (before.coin < coinIn) {
+    io.log(`${name}: the gap takes ${amt(coinIn)}, the keeper holds ${amt(before.coin)}: a smaller trip`);
+    coinIn = before.coin;
+  }
+  // Rent for each middle account the trip opens. Two new ones cost more SOL than a trip may spend.
+  const opens = (before.tokenExists ? 0 : 1) + (before.otherExists ? 0 : 1);
+  if (opens > 1) {
+    io.log(`${name}: skipped, it would open two new token accounts`);
+    return 'no-plan';
+  }
+  const minProfit = plan.minProfit + (opens && !s.payNewAccountRent ? NEW_ACCOUNT_RENT : 0n);
+  const need = coinIn + minProfit;
+  const q1 = await quoteDirectFirst(io, s, { inputMint: SOL_QUOTE.mint, outputMint: a, amount: coinIn, slippageBps: s.slippageBps, excludeDexes: refused.names });
+  // Our pool spends exactly the least the first leg must pay.
+  const aIn = jupiterFloor(BigInt(q1.outAmount), q1.slippageBps);
+  const own = quoteOwnPool(view.snapshot, view.config, a, aIn, Number(chainNow), feesOf(view, tokenFee));
+  if (!own || own.outAmount <= 0n) throw new Error('our pool would not quote the middle swap');
+  const q3 = await quoteDirectFirst(io, s, { inputMint: b, outputMint: SOL_QUOTE.mint, amount: own.outAmount, slippageBps: s.slippageBps, excludeDexes: refused.names });
+  const bps = lastJupiterSlippage(BigInt(q3.outAmount), need, s.slippageBps);
+  if (bps === null) {
+    io.log(`${name}: skipped, ${amt(coinIn)} through ${view.quote.symbol} comes back as ${amt(BigInt(q3.outAmount))}: under the profit floor`);
+    return 'quote-short';
+  }
+  const minOut = jupiterFloor(BigInt(q3.outAmount), bps);
+  const si1 = await jupiterLeg(io.jupiter, owner, q1, (x) =>
+    jupiterLegProblem(x.swap, {
+      owner, refused: refused.programs, untouchable: [usdcAta, bAta],
+      inputMint: coinMint, inputProgram: TOKEN_PROGRAM_ID, outputMint: new PublicKey(a), outputProgram: programOf(a), inAmount: coinIn, minOut: aIn,
+    }),
+  );
+  const si3 = await jupiterLeg(io.jupiter, owner, { ...q3, slippageBps: bps, otherAmountThreshold: minOut.toString() }, (x) =>
+    jupiterLegProblem(x.swap, {
+      owner, refused: refused.programs, untouchable: [usdcAta, aAta],
+      inputMint: new PublicKey(b), inputProgram: programOf(b), outputMint: coinMint, outputProgram: TOKEN_PROGRAM_ID, inAmount: own.outAmount, minOut,
+    }),
+  );
+  return sendChecked(io, s, {
+    name,
+    kind: 'jupiter',
+    pool: view.address,
+    coin: SOL_QUOTE,
+    coinIn,
+    // Watched: the SOL grows by the floor; neither middle account shrinks.
+    accounts: { coinAta, tokenAta: aAta, otherAta: bAta, tokenMint: new PublicKey(a), tokenProgram: programOf(a), coinMint },
+    before,
+    // sendChecked opens the SOL's and the first middle coin's accounts; the second's is opened here.
+    legs: [
+      createAssociatedTokenAccountIdempotentInstruction(owner, bAta, owner, new PublicKey(b), programOf(b)),
+      si1.swap,
+      ownSwap(owner, view, a === view.quote.mint ? 'coin' : 'token', aIn, own.outAmount),
+      si3.swap,
+    ],
+    lookupTables: [...new Set([...si1.lookupTables, ...si3.lookupTables])],
+    floor: minProfit,
+    verdict: (c) => simulationProblem(c, { minProfit }),
+    says: (gained) =>
+      `${plan.side === 'buy' ? `buy here with ${view.quote.symbol}, sell on Jupiter` : `buy on Jupiter, sell here for ${view.quote.symbol}`}, ${amt(coinIn)} in, test run gains ${amt(gained)} (floor ${amt(minProfit)})`,
+  });
+}
+
+/** A quote through one pool when Jupiter has one, so two Jupiter legs fit one transaction; else `quoteWithRoom`'s. */
+async function quoteDirectFirst(io: KeeperIo, s: KeeperSettings, p: Omit<Parameters<JupiterApi['quote']>[0], 'maxAccounts' | 'onlyDirectRoutes'>): Promise<JupiterQuote> {
+  try {
+    return await io.jupiter.quote({ ...p, maxAccounts: s.maxAccounts, onlyDirectRoutes: true });
+  } catch (e) {
+    if (!(e instanceof Error && /NO_ROUTES_FOUND/.test(e.message))) throw e;
+    return quoteWithRoom(io, s, p);
+  }
 }
 
 /**

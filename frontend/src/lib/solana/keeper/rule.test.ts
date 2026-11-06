@@ -131,8 +131,11 @@ describe('tokenGate', () => {
     expect(tokenGate(read(MINT, FREEZER))).toMatch(/freeze/);
     expect(tokenGate(read(USDC_MINT, FREEZER))).toBeNull();
   });
-  it('refuses a transfer fee, a hook, a permanent delegate, a pause switch, frozen-at-start accounts', () => {
-    for (const ext of [1, 6, 9, 12, 14, 26]) expect(tokenGate(read(MINT, null, [18, ext]))).not.toBeNull();
+  it('refuses a hook, a permanent delegate, a pause switch, frozen-at-start accounts, a token that cannot move', () => {
+    for (const ext of [6, 9, 12, 14, 26]) expect(tokenGate(read(MINT, null, [18, ext]))).not.toBeNull();
+  });
+  it('lets a transfer fee through: the robot counts it, and the Lighthouse check undoes a trip it leaves short', () => {
+    expect(tokenGate(read(MINT, null, [18, 1]))).toBeNull();
   });
   it('refuses a token it could not read', () => {
     expect(tokenGate(undefined)).toBe('its mint was not read');

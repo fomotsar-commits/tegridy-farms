@@ -26,6 +26,7 @@ import {
   lastPoolMinimum,
   planFor,
   simulationProblem,
+  viaOrder,
   type JupiterLegExpect,
   type Plan,
 } from './plan';
@@ -54,8 +55,21 @@ describe('planFor: which gaps, and how big', () => {
     expect(p.coinIn).toBe(25_000_000n);
   });
 
+  it('reaches a pool priced in BAYLA from SOL: sized and floored in SOL, through BAYLA', () => {
+    for (const side of ['buy', 'sell'] as const) {
+      const p = planFor(view(BAYLA_QUOTE), arb({ side, tradeUsd: 10 }), usd, DEFAULT_LIMITS) as Plan;
+      expect(p.coinMint).toBe(SOL_QUOTE.mint);
+      expect(p.via).toBe(BAYLA_QUOTE.mint);
+      expect(p.coinIn).toBe(50_000_000n); // $10 at $200 a SOL
+      expect(p.minProfit).toBe(69_000n);
+      expect(viaOrder(p.side, p.via!, TOKEN)).toEqual(side === 'buy' ? [BAYLA_QUOTE.mint, TOKEN] : [TOKEN, BAYLA_QUOTE.mint]);
+    }
+    // A pool in a coin it holds goes straight, with no `via`.
+    expect((planFor(view(SOL_QUOTE), arb(), usd, DEFAULT_LIMITS) as Plan).via).toBeUndefined();
+  });
+
   it('leaves alone what it cannot measure or should not touch', () => {
-    expect(planFor(view(BAYLA_QUOTE), arb(), usd, DEFAULT_LIMITS)).toBe('priced in BAYLA');
+    expect(planFor(view(BAYLA_QUOTE, { tokenMint: USDC_QUOTE.mint }), arb(), usd, DEFAULT_LIMITS)).toMatch(/keeper’s own coin/);
     expect(planFor(view(SOL_QUOTE, { vaultsFrozen: true }), arb(), usd, DEFAULT_LIMITS)).toBe('a pool vault is frozen');
     expect(planFor(view(SOL_QUOTE), arb({ profitUsd: 0.009 }), usd, DEFAULT_LIMITS)).toBe('listed profit under the floor');
     expect(planFor(view(SOL_QUOTE), arb(), new Map(), DEFAULT_LIMITS)).toBe('no price for the coin');
