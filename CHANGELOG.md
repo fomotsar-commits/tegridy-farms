@@ -7,6 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-11-06
+
+- Solana pools: the pool program is upgraded again, so pool share tokens can get a name in wallets and the launch fee tier is kept for launches: opening a pool the public way no longer accepts it. Its on-chain security contact is an email and links on memetics.finance again. The lines you read before adding liquidity or opening a pool say so again: our pool program is Raydium's, with its admin keys changed, one added instruction that names pool share tokens and one added check that keeps the launch fee tier for launches. "The program" card no longer says the program was built before them.
+
 ### 2026-11-05
 
 - Add opens on every pool again, $BAYLA first. An outside price that was not read is now one row ("Outside price not read yet"), never a reason to keep the Add form closed; the pool's own price, its reserves and the pause still decide. The price loop reads the island's coins first, then USDC and USDT. On /pools, Add on a room's pool raises its sheet over the list, Back lands on the same card, and the Arbitrage card sits under All pools. The Buy sheet gains a row of the island's coins and "Any coin".
