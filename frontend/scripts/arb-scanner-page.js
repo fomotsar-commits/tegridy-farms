@@ -102,7 +102,9 @@
     tr.append(el('td', 'n', usd(r.netUsd)));
     tr.append(roiCell(r), gapCell(r));
     const short = r.costPct - r.gapPct;
-    tr.append(el('td', 'sub', short > 0 ? `the gap (${pct(r.gapPct)}) is under the pools’ fees (${pct(r.costPct)}): ${pct(short)} short` : (r.why ?? '')));
+    const most = r.reachUsd < 0.0001 ? 'less than $0.0001' : usd(r.reachUsd);
+    const why = r.reachUsd < r.floorUsd ? `a pool on it holds dust: the most it could ever bring back is ${most}, under the ${usd(r.floorUsd)} floor` : short > 0 ? `the gap (${pct(r.gapPct)}) is under the pools’ fees (${pct(r.costPct)}): ${pct(short)} short` : (r.why ?? '');
+    tr.append(el('td', 'sub', why));
     return tr;
   }
 

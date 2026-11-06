@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createHash } from 'node:crypto';
 import bs58 from 'bs58';
-import { COINS, Misreads, PUMP_FEE_CONFIG, ROBOT, SOL_MINT, USDC_MINT, busyTokens, poolsFromListing, pumpFeeConfig, takeRows, clmmConfigFee, decodePool, depthOf, lastSlippageBps, minOutAt, testRunProblem, tripsFor, withFee } from './arb-chain.mjs';
+import { COINS, Misreads, PUMP_FEE_CONFIG, ROBOT, SOL_MINT, USDC_MINT, busyTokens, poolsFromListing, pumpFeeConfig, takeRows, clmmConfigFee, decodePool, depthOf, lastSlippageBps, minOutAt, nearestFirst, testRunProblem, tripsFor, withFee } from './arb-chain.mjs';
 import { SAFE_CAP_USD } from '../../src/lib/solana/keeper/rule.ts';
 
 /** The robot's settings before the Lighthouse check is proven: $25 a trip, a $0.01 floor plus the network fee. */
@@ -235,6 +235,61 @@ describe('the wider scanner (11-06: 6 of 64 coins looked up in 6.7 h, 0 test run
     const row = (robotTakes, ok, age) => ({ robotTakes, proof: { ok, at: now - age } });
     const rows = [row(true, true, 1_000), row(true, false, 1_000), row(false, true, 1_000), row(true, true, 4 * 60_000)];
     expect(takeRows(rows, now, 3 * 60_000)).toEqual([rows[0]]);
+  });
+});
+
+describe('closest to paying: the money behind a gap, not its percent (11-06: KWIF 14%, TBB 890%, both into pools holding dust)', () => {
+  /** A constant-product pool of `token` against SOL: `lamports` deep, at `solPerToken` (6-decimal token). */
+  const pair = (n, token, dex, fee, lamports, solPerToken) => ({
+    pool: { address: key(n), dex, kind: 'pair', fee, mintA: token, mintB: SOL_MINT, stopped: null },
+    depth: { a: lamports / (solPerToken * 1e3), b: lamports },
+  });
+  const tripsOf = (token, pools) =>
+    tripsFor(pools.map((x) => x.pool), { token, decimals: 6, depths: new Map(pools.map((x) => [x.pool.address, x.depth])), usd: new Map([[USDC_MINT, 1], [SOL_MINT, 100]]), holds: new Map([[SOL_MINT, 6.8e8]]), bridge: null, settings: SETTINGS });
+  const through = (t, x) => t.legs.some((l) => l.pool === x.pool.address);
+  const route = (t) => t.legs.map((l) => l.pool);
+
+  // KWIF read 11-06 ~13:31Z: a ~$60k Raydium pool, our HBGZ… (0.136 SOL) 1.3% dearer, our H3ru… (5 lamports) 14% dearer.
+  const KWIF = key(70);
+  const RAY = pair(72, KWIF, 'cpmm', 0.0025, 3e11, 2e-6);
+  const HBGZ = pair(73, KWIF, 'ours', 0.01, 135_958_000, 2.026e-6);
+  const H3RU = pair(74, KWIF, 'ours', 0.01, 5, 2.28e-6);
+  // TBB: a ~$165k PumpSwap pool, ours 6tNC… (0.36 SOL) 0.6% dearer, and a pool of dust 890% dearer.
+  const TBB = key(71);
+  const PUMP = pair(75, TBB, 'pumpswap', 0.0025, 8.25e11, 3e-5);
+  const SIX = pair(76, TBB, 'ours', 0.01, 362_797_000, 3e-5 * 1.006);
+  const DUST = pair(77, TBB, 'ours', 0.01, 40, 3e-5 * 9.9);
+  // A coin with two $60k pools 1.28% apart: a smaller gap than KWIF's in percent, more in dollars.
+  const DEEP = key(78);
+  const OUT = pair(79, DEEP, 'cpmm', 0.0025, 3e11, 1e-5);
+  const IN = pair(80, DEEP, 'ours', 0.01, 3e11, 1e-5 * 1.0128);
+  const kwif = tripsOf(KWIF, [RAY, HBGZ, H3RU]);
+  const tbb = tripsOf(TBB, [PUMP, SIX, DUST]);
+  const deep = tripsOf(DEEP, [OUT, IN]);
+
+  it('a coin’s closest is the 1.3% trip through $60k, not a 14% gap into 5 lamports', () => {
+    const dust = kwif.find((t) => route(t).join() === [RAY.pool.address, H3RU.pool.address].join());
+    expect(dust.gapPct).toBeCloseTo(14, 0);
+    expect(dust.pays).toBe(false);
+    expect(dust.gapInUsd).toBeLessThan(1e-6);
+    const [closest] = nearestFirst(kwif);
+    expect(route(closest)).toEqual([RAY.pool.address, HBGZ.pool.address]);
+    expect(closest.gapPct).toBeCloseTo(1.3, 1);
+  });
+
+  it('the list puts every trip into a dust pool after every trip with money behind it', () => {
+    expect(route(nearestFirst(tbb)[0])).toEqual([PUMP.pool.address, SIX.pool.address]);
+    const listed = nearestFirst([...kwif, ...tbb, ...deep]);
+    const dust = (t) => through(t, H3RU) || through(t, DUST);
+    const firstDust = listed.findIndex(dust);
+    expect(firstDust).toBeGreaterThan(0);
+    expect(listed.slice(firstDust).every(dust)).toBe(true);
+    // In dollars at the best size: the $60k pair makes more than KWIF's $0.14-deep pool, though its
+    // gap is the smaller in percent; the TBB trip, under its fees, makes nothing.
+    expect(listed[0].gapPct).toBeLessThan(listed[1].gapPct);
+    expect(route(listed[0])).toEqual([OUT.pool.address, IN.pool.address]);
+    expect(route(listed[1])).toEqual([RAY.pool.address, HBGZ.pool.address]);
+    expect(route(listed[2])).toEqual([PUMP.pool.address, SIX.pool.address]);
   });
 });
 
