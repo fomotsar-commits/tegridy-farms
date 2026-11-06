@@ -5,13 +5,15 @@ import { getActiveBungalow, type Bungalow } from '../../lib/bungalows';
 import { useActiveBungalowId } from '../../hooks/useActiveBungalowId';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { SHEET_WORDS } from '../../lib/arrival';
-import { deepLinkSheet, readSheet, sheetHref, sheetRoom, sheetRooms, withoutSheet, type SheetKind } from '../../lib/sheet';
+import { isRoomDoor } from '../../lib/navConfig';
+import { deepLinkSheet, readSheet, sheetHref, sheetRoom, withoutSheet, type SheetKind } from '../../lib/sheet';
 import { setSheetOpen, useSheetOutletHead } from '../../lib/sheetStore';
 import { useReceipt } from '../../lib/receipt';
 import { useScreenMove } from '../../lib/screenMove';
 import { tick } from '../../lib/tick';
 import { CoinName } from '../ui/CoinName';
 import { SHEET_WAIT } from './sheetContext';
+import { BungalowRow } from './SheetBuyRow';
 
 // The sheet's own Solana connection, for a page with none: its own chunk, as every Solana section is.
 const SheetOwnConnection = lazy(() => import('./SheetSolana'));
@@ -37,6 +39,8 @@ function OpenSheet({ kind, named }: { kind: SheetKind; named: Bungalow | null })
   const navigate = useNavigate();
   // The coin named in the address, else the room entered last when the sheet can act on it, else the bungalow row.
   const room = named ?? sheetRoom(getActiveBungalow()?.id);
+  // Buy's form is drawn with no coin too: its own bungalow row picks one (answer twenty-seven). Add's waits for a room.
+  const drawn = room !== null || kind === 'buy';
   const [slot, setSlot] = useState<HTMLDivElement | null>(null);
   const pageOutlet = useSheetOutletHead();
   // The sheet's green button is her move, whatever her line says: her header button goes quiet under it.
@@ -49,10 +53,10 @@ function OpenSheet({ kind, named }: { kind: SheetKind; named: Bungalow | null })
   }, [pressed, navigate, location.pathname, location.search]);
 
   useEffect(() => {
-    if (!room || !slot) return;
+    if (!drawn || !slot) return;
     setSheetOpen({ kind, room, slot, close });
     return () => setSheetOpen(null);
-  }, [kind, room, slot, close]);
+  }, [drawn, kind, room, slot, close]);
 
   // A swap or an add that landed in the sheet ends on the receipt card over the room: the sheet goes.
   const { open: receiptUp } = useReceipt();
@@ -60,10 +64,15 @@ function OpenSheet({ kind, named }: { kind: SheetKind; named: Bungalow | null })
     if (receiptUp) close();
   }, [receiptUp, close]);
 
-  // Escape closes; the page under the veil does not scroll.
+  const panelRef = useFocusTrap<HTMLDivElement>(true, { focusContainer: true });
+  // Escape closes, but not from a dialog over the form (the swap's picker): that one takes its own.
+  // The page under the veil does not scroll.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') close();
+      if (e.key !== 'Escape') return;
+      const over = e.target instanceof Element ? e.target.closest('[role="dialog"]') : null;
+      if (over && over !== panelRef.current && panelRef.current?.contains(over)) return;
+      close();
     };
     window.addEventListener('keydown', onKey);
     const was = document.body.style.overflow;
@@ -72,8 +81,7 @@ function OpenSheet({ kind, named }: { kind: SheetKind; named: Bungalow | null })
       window.removeEventListener('keydown', onKey);
       document.body.style.overflow = was;
     };
-  }, [close]);
-  const panelRef = useFocusTrap<HTMLDivElement>(true, { focusContainer: true });
+  }, [close, panelRef]);
 
   const pick = (b: Bungalow) => {
     tick();
@@ -117,11 +125,12 @@ function OpenSheet({ kind, named }: { kind: SheetKind; named: Bungalow | null })
             <svg width="10" height="16" viewBox="0 0 10 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M8 2L2 8l6 6" />
             </svg>
-            {SHEET_WORDS.back}
+            {isRoomDoor(location.pathname) ? SHEET_WORDS.back : SHEET_WORDS.backOff}
           </button>
-          {room ? <CoinRow room={room} /> : <BungalowRow onPick={pick} />}
-          <div ref={setSlot} data-testid="sheet-body" className={room ? `mt-4 ${SHEET_WAIT[kind].slot}` : 'mt-4'} />
-          {room && pageOutlet === null && (
+          {/* Buy names its coin in the form's own bungalow row, which follows a pick from Any coin (SheetBuyRow). */}
+          {kind === 'add' && (room ? <CoinRow room={room} /> : <BungalowRow onPick={pick} />)}
+          <div ref={setSlot} data-testid="sheet-body" className={drawn ? `mt-4 ${SHEET_WAIT[kind].slot}` : 'mt-4'} />
+          {drawn && pageOutlet === null && (
             <Suspense fallback={null}>
               <SheetOwnConnection />
             </Suspense>
@@ -150,26 +159,6 @@ function CoinRow({ room }: { room: Bungalow }) {
           {SHEET_WORDS.poolLine(room.symbol)}
         </p>
       </div>
-    </div>
-  );
-}
-
-/** A visitor with no room picks the coin here, in the coin row's place; the sheet then reads as drawn. */
-function BungalowRow({ onPick }: { onPick: (b: Bungalow) => void }) {
-  return (
-    <div role="group" aria-label="Pick a coin" className="flex flex-wrap gap-2 mt-2" data-testid="sheet-bungalow-row">
-      {sheetRooms().map((b) => (
-        <button
-          key={b.id}
-          type="button"
-          onClick={() => onPick(b)}
-          className="flex items-center gap-2 min-h-[44px] pl-1.5 pr-3 rounded-full text-[13px] font-semibold text-white"
-          style={{ background: 'var(--color-bg-input)', border: '1px solid var(--color-border)' }}
-        >
-          <img src={b.thumb} alt="" aria-hidden="true" className="w-7 h-7 rounded-full object-cover" style={{ objectPosition: b.thumbPosition ?? '50% 30%' }} />
-          {b.symbol}
-        </button>
-      ))}
     </div>
   );
 }

@@ -19,7 +19,8 @@ const reading = (kind: SheetKind) => (
 /**
  * The sheet's form (island answer twenty-five, build 3), hosting the logic that already
  * exists: Add is the LP section's Add with one coin on the room's own pool, Buy is the swap
- * page's form, opening on SOL to the room's coin, either coin pickable from the page's lists.
+ * page's form on SOL to the coin its bungalow row lights, the room's to start (answer twenty-seven),
+ * either coin also pickable from the page's lists.
  * Their checks, review and signing are theirs, unchanged.
  */
 export default function SheetBody() {
@@ -38,7 +39,8 @@ function SheetAdd() {
   const sheet = useSheet()!;
   const readers = useMemo(() => browserLpReaders(), []);
   const { status, retry } = useVenueStatus();
-  const { address: mint, venueSolPool: pool } = sheet.room;
+  const mint = sheet.room?.address;
+  const pool = sheet.room?.venueSolPool;
   if (!readers || !mint || !pool) return null;
   if (status?.kind === 'live') return <LpInner readers={readers} home={{ mint, pool }} />;
   if (status === null) return reading('add');

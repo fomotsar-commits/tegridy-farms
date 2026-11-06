@@ -15,6 +15,7 @@
 // The write layer is a fake (fakeLpWriteApi.fixture.ts); pools, wallet and Jupiter are fakes.
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { BUNGALOWS } from '../../../lib/bungalows';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import type { PublicKey } from '@solana/web3.js';
@@ -303,20 +304,19 @@ describe('the home card', () => {
     expect(screen.getAllByTestId('lp-only-way-on')).toHaveLength(1);
   });
 
-  it('an outside price that could not be read tries again by itself, and offers the way on meanwhile', async () => {
+  // Answer twenty-seven: the outside price is intel, one row, never a gate. Tonight's $BAYLA.
+  it('an outside price that could not be read is no gate: the home card offers Add at once, and the row says "not read yet"', async () => {
     const sol = view();
     const r = readers([sol]);
-    let calls = 0;
     r.outsidePrice = vi.fn(async (mint: string) =>
-      mint === M && ++calls === 1
+      mint === M
         ? { kind: 'unread' as const, detail: 'Jupiter did not give a price (HTTP 429)' }
-        : { kind: 'ok' as const, solPerToken: mint === M ? 0.01 : 1, source: 'Jupiter' as const }) as LpReaders['outsidePrice'];
+        : { kind: 'ok' as const, solPerToken: 1, source: 'Jupiter' as const }) as LpReaders['outsidePrice'];
     mountHome(r, '/', sol.address);
-    const row = await screen.findByTestId('lp-only-way-on');
-    expect(within(row).getByRole('link', { name: 'Add on the Venue AMM tab' })).toBeInTheDocument();
     const card = await waitFor(() => cardOf(sol.address));
     expect(await within(card).findByRole('button', { name: 'Add with one coin' }, { timeout: 6_000 })).toBeInTheDocument();
     expect(screen.queryByTestId('lp-only-way-on')).toBeNull();
+    expect(card).not.toHaveTextContent(/adding waits|Deposits: a check did not run|Add form was not opened/);
   }, 15_000);
 
   it('Read again reads again at once', async () => {
@@ -448,6 +448,27 @@ describe('the list of every pool', () => {
     const panel = await screen.findByTestId('lp-one-coin-panel');
     expect(cardOf(sol.address)).toContainElement(panel);
   });
+
+  // Answer twenty-seven, cut 4: a room's pool rises as the Add sheet over the list, so the
+  // page does not jump up to the finder (and the Arbitrage card under it), and Back lands on the card.
+  it('a room’s pool raises the Add sheet on that pool over the list, and the page stays where it was', async () => {
+    const bayla = BUNGALOWS.find((b) => b.id === 'bayla')!;
+    const sol = { ...view(), tokenMint: bayla.address!, address: bayla.venueSolPool! };
+    mount(readers([view()], { kind: 'ok', list: { pools: [sol], unread: 0, truncated: false, chainNow: null, safety: new Map() } }), '/pools');
+    const [row] = await screen.findAllByTestId('lp-all-pools-row');
+    fireEvent.click(within(row!).getByRole('button', { name: /^Add to / }));
+    await waitFor(() => expect(new URLSearchParams(where).get('sheet')).toBe('add'));
+    expect(new URLSearchParams(where).get('coin')).toBe('bayla');
+    expect(screen.queryByTestId('lp-one-coin-panel')).toBeNull();
+  });
+
+  it('the first card under the finder is All pools; the Arbitrage board sits under it', async () => {
+    const sol = view();
+    mount(readers([sol], { kind: 'ok', list: { pools: [sol], unread: 0, truncated: false, chainNow: null, safety: new Map() } }), '/pools');
+    const list = await screen.findByTestId('lp-all-pools');
+    const board = screen.getByTestId('lp-arb');
+    expect(list.compareDocumentPosition(board) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
 });
 
 describe('the screen the door opens', () => {
@@ -565,16 +586,16 @@ describe('the landing', () => {
 // pool cannot open its form, the card says "this pool", never "your position's pool".
 describe('the door names no position', () => {
   it('a door whose pool cannot open its form says why without calling it your position', async () => {
-    const sol = view();
+    // Its fee settings were not read: a check of the pool's own that could not run.
+    const sol = { ...view(), config: null };
     const r = readers([sol]);
-    r.outsidePrice = vi.fn(async () => ({ kind: 'unread' as const, detail: 'HTTP 429' })) as LpReaders['outsidePrice'];
     mount(r, `/pools?mint=${M}&task=add&pool=${sol.address}`);
     // Waited for: the reason settles once the gate and the pool's checks have both answered.
-    await waitFor(() => expect(screen.getByTestId('lp-wish-why')).toHaveTextContent(/^This pool’s Add form was not opened:/), { timeout: 8_000 });
+    await waitFor(() => expect(screen.getByTestId('lp-wish-why')).toHaveTextContent(/^This pool’s Add form stays closed:/), { timeout: 8_000 });
     // And after the card has spent the wish (CI, 2026-10-17: the line flipped back to "your
     // position's pool" once the live wish was gone): the line keeps where it came from.
     await new Promise((res) => setTimeout(res, 600));
-    expect(screen.getByTestId('lp-wish-why')).toHaveTextContent(/^This pool’s Add form was not opened:/);
+    expect(screen.getByTestId('lp-wish-why')).toHaveTextContent(/^This pool’s Add form stays closed:/);
     expect(screen.getByTestId('lp-wish-why')).not.toHaveTextContent(/your position/);
     // Said where the form would have been, at the top: the page does not scroll to the card.
     expect(screen.getByTestId('lp-door')).toContainElement(screen.getByTestId('lp-wish-why'));

@@ -3,6 +3,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import type { ReactNode } from 'react';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { PublicKey } from '@solana/web3.js';
 
 const { toast, connection, wallet, jup } = vi.hoisted(() => ({
@@ -127,12 +128,21 @@ afterEach(() => {
 const BAYLA = BUNGALOWS.find((b) => b.id === 'bayla')!;
 const baylaQuote = { ...quote, outputMint: BAYLA_MINT, outAmount: '668500000', otherAmountThreshold: '665157500' };
 
-function inSheet() {
-  const place: SheetPlace = { kind: 'buy', room: BAYLA, bayla: <p data-testid="her-line">0° today. Hold any island coin and your clock starts tonight.</p> };
+/** The address the sheet is at, as the router holds it: a chip's pick names its coin there. */
+function Where() {
+  const { pathname, search } = useLocation();
+  return <p data-testid="where">{`${pathname}${search}`}</p>;
+}
+
+function inSheet(room: SheetPlace['room'] = BAYLA, at = '/bayla?sheet=buy') {
+  const place: SheetPlace = { kind: 'buy', room, bayla: <p data-testid="her-line">0° today. Hold any island coin and your clock starts tonight.</p> };
   return render(
-    <SheetContext.Provider value={place}>
-      <SolanaSwapInner sheet />
-    </SheetContext.Provider>,
+    <MemoryRouter initialEntries={[at]}>
+      <Where />
+      <SheetContext.Provider value={place}>
+        <SolanaSwapInner sheet />
+      </SheetContext.Provider>
+    </MemoryRouter>,
   );
 }
 
@@ -240,5 +250,129 @@ describe('the sheet’s Buy', () => {
     fireEvent.click(go);
     expect(connect.open).toHaveBeenCalledTimes(1);
     expect(wallet.sendTransaction).not.toHaveBeenCalled();
+  });
+});
+
+// Island answer twenty-seven: the Buy sheet carries the bungalow row above the amount, so the bar's
+// Swap inside a room is not a one-coin app. The swap that is signed stays SOL to the coin picked,
+// through the form's own press.
+describe('the sheet’s bungalow row', () => {
+  const row = () => within(screen.getByTestId('sheet-buy')).getByRole('group', { name: 'Pick a coin' });
+  const chip = (name: string) => within(row()).getByRole('button', { name });
+  const pickInPicker = async (mint: string) => {
+    const picker = await screen.findByRole('dialog', { name: 'Buy' });
+    fireEvent.click(picker.querySelector(`[data-token-row="${mint}"] button`)!);
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Buy' })).toBeNull());
+  };
+
+  it('stands above the amount: the five rooms’ coins in the hall’s order, the room’s lit, then Any coin', async () => {
+    inSheet();
+    await screen.findByTestId('sheet-buy');
+    expect(within(row()).getAllByRole('button').map((b) => b.textContent)).toEqual(['BAYLA', 'BOBO', 'SOY', 'BRAINLET', 'RIZZ', 'Any coin']);
+    expect(chip('BAYLA')).toHaveAttribute('aria-pressed', 'true');
+    for (const other of ['BOBO', 'SOY', 'BRAINLET', 'RIZZ', 'Any coin']) expect(chip(other)).toHaveAttribute('aria-pressed', 'false');
+    // Above the amount, and every chip a 44 px target; the row wraps at a phone's width.
+    expect(row().compareDocumentPosition(screen.getByTestId('sheet-amount')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    for (const b of within(row()).getAllByRole('button')) expect(b.className).toContain('min-h-[44px]');
+    expect(row().className).toContain('flex-wrap');
+    // The coin on the sheet, by its ticker and its whole address.
+    expect(within(screen.getByTestId('sheet-buy')).getByRole('button', { name: `BAYLA: copy its address ${BAYLA_MINT}` })).toBeInTheDocument();
+  });
+
+  it('a tap on BOBO names it in the address over the same room, so Back and a reload hold it', async () => {
+    inSheet();
+    await screen.findByTestId('sheet-buy');
+    fireEvent.click(chip('BOBO'));
+    expect(screen.getByTestId('where')).toHaveTextContent(/^\/bayla\?sheet=buy&coin=bobo$/);
+  });
+
+  it('Any coin opens the swap’s own picker inside the sheet, majors first; the pick is bought with SOL through the form’s own press', async () => {
+    inSheet();
+    await screen.findByTestId('sheet-buy');
+    fireEvent.click(chip('Any coin'));
+    const picker = await screen.findByRole('dialog', { name: 'Buy' });
+    expect(screen.getByTestId('sheet-buy').contains(picker), 'the picker rises inside the sheet').toBe(true);
+    const rows = [...picker.querySelectorAll('[data-token-row]')].map((r) => r.getAttribute('data-token-row'));
+    expect(rows.slice(0, 4)).toEqual([BAYLA_MINT, SOL_MINT, USDC_MINT, 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB']);
+    expect(within(picker).getByRole('button', { name: `USDC: copy its address ${USDC_MINT}` })).toBeInTheDocument();
+    await pickInPicker(USDC_MINT);
+    expect(chip('Any coin')).toHaveAttribute('aria-pressed', 'true');
+    expect(chip('BAYLA')).toHaveAttribute('aria-pressed', 'false');
+    // The room behind it is unchanged.
+    expect(screen.getByTestId('where')).toHaveTextContent(/^\/bayla\?sheet=buy$/);
+    expect(within(screen.getByTestId('sheet-buy')).getByRole('button', { name: `USDC: copy its address ${USDC_MINT}` })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '0.5 SOL' }));
+    await waitFor(() => expect(jup.getQuote).toHaveBeenCalledWith(expect.objectContaining({ inputMint: SOL_MINT, outputMint: USDC_MINT, amount: '500000000' })), { timeout: 5_000 });
+    const go = await screen.findByRole('button', { name: 'Buy USDC' });
+    await waitFor(() => expect(go).toBeEnabled(), { timeout: 5_000 });
+    fireEvent.click(go);
+    await waitFor(() => expect(wallet.sendTransaction).toHaveBeenCalledTimes(1));
+    expect(jup.buildSwapTransaction).toHaveBeenCalledWith(expect.objectContaining({ quote: expect.objectContaining({ inputMint: SOL_MINT, outputMint: USDC_MINT }) }));
+  });
+
+  it('after a pick from Any coin, the room’s own chip opens the form on the room’s coin again', async () => {
+    const reopen = vi.fn();
+    const place: SheetPlace = { kind: 'buy', room: BAYLA, bayla: null, reopen };
+    render(
+      <MemoryRouter initialEntries={['/bayla?sheet=buy']}>
+        <Where />
+        <SheetContext.Provider value={place}>
+          <SolanaSwapInner sheet />
+        </SheetContext.Provider>
+      </MemoryRouter>,
+    );
+    await screen.findByTestId('sheet-buy');
+    fireEvent.click(chip('BAYLA'));
+    expect(reopen, 'a lit chip is already the coin').not.toHaveBeenCalled();
+    fireEvent.click(chip('Any coin'));
+    await pickInPicker(USDC_MINT);
+    fireEvent.click(chip('BAYLA'));
+    expect(reopen).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('where')).toHaveTextContent(/^\/bayla\?sheet=buy&coin=bayla$/);
+  });
+
+  it('with no room: nothing lit, her line reads “Pick a coin.”, and the one green button is off until a coin is picked', async () => {
+    jup.getQuote.mockResolvedValue(quote);
+    inSheet(null, '/?sheet=buy');
+    await screen.findByTestId('sheet-buy');
+    for (const b of within(row()).getAllByRole('button')) expect(b, b.textContent!).toHaveAttribute('aria-pressed', 'false');
+    expect(within(screen.getByTestId('sheet-buy')).getByText('Pick a coin.')).toBeInTheDocument();
+    expect(screen.queryByTestId('her-line')).toBeNull();
+    const buy = screen.getByTestId('sheet-buy');
+    expect(buy.querySelectorAll('.btn-primary')).toHaveLength(1);
+    expect(screen.getByTestId('sheet-go')).toHaveTextContent(/^Buy$/);
+    expect(screen.getByTestId('sheet-go')).toBeDisabled();
+    // The You get line names no coin before a pick (the row is the picker then); the coin paid is still a press.
+    expect(screen.queryByTestId('sheet-get-coin')).toBeNull();
+    expect(within(buy).getByRole('button', { name: 'Pay with SOL' })).toBeInTheDocument();
+    // No coin, no quote: an amount waits for the pick.
+    fireEvent.click(screen.getByRole('button', { name: '0.5 SOL' }));
+    await new Promise((r) => setTimeout(r, 600));
+    expect(jup.getQuote).not.toHaveBeenCalled();
+    fireEvent.click(chip('Any coin'));
+    await pickInPicker(USDC_MINT);
+    expect(screen.queryByText('Pick a coin.')).toBeNull();
+    await waitFor(() => expect(jup.getQuote).toHaveBeenCalledWith(expect.objectContaining({ inputMint: SOL_MINT, outputMint: USDC_MINT })), { timeout: 5_000 });
+    await waitFor(() => expect(screen.getByTestId('sheet-go')).toBeEnabled(), { timeout: 5_000 });
+    expect(screen.getByTestId('sheet-go')).toHaveTextContent('Buy USDC');
+    expect(within(buy).getByRole('button', { name: 'Get USDC' })).toBeInTheDocument();
+  });
+
+  it('the row and the You get press are one picker: a pick from the press lights Any coin on the row', async () => {
+    inSheet();
+    fireEvent.click(await screen.findByRole('button', { name: 'Get BAYLA' }));
+    await pickInPicker(USDC_MINT);
+    expect(await screen.findByRole('button', { name: 'Get USDC' })).toBeInTheDocument();
+    expect(chip('Any coin')).toHaveAttribute('aria-pressed', 'true');
+    expect(chip('BAYLA')).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('with no room and no wallet, the green button still waits for a pick before it connects', async () => {
+    signedIn.yes = false;
+    inSheet(null, '/?sheet=buy');
+    await screen.findByTestId('sheet-buy');
+    expect(screen.getByTestId('sheet-go')).toBeDisabled();
+    fireEvent.click(chip('BOBO'));
+    expect(screen.getByTestId('where')).toHaveTextContent(/^\/\?sheet=buy&coin=bobo$/);
   });
 });

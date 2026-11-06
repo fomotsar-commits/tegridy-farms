@@ -27,7 +27,7 @@ import { RANGE_PROGRAM } from "./venueTvl.js";
 
 /** The buy's size, as outsidePrice.ts has it. */
 export const PROBE_LAMPORTS = 50_000_000n;
-/** A price older than this holds the Add form (the browser's rule too, FRESH_FOR_MS in outsidePrice.ts). */
+/** A price older than this is said with its age, never compared (the browser's rule too, FRESH_FOR_MS in sharedPrices.ts). */
 export const FRESH_FOR_MS = 10 * 60_000;
 export const SWR_SECS = 600;
 export const DEFAULT_MAX_AGE_SEC = 60;
@@ -62,14 +62,17 @@ export function __resetOutsidePrices() {
  * The order one loop prices in. The tokens this instance asked about longest ago go first, a
  * token never asked counting as longest ago, so the tail the budget cut off in one loop is first
  * in the next. Before this the order was the pool list's, every loop, and the same tail ran out
- * of time every loop: BAYLA's Add form never opened (the walk of 2026-11-05). Ties keep the list's
- * order turned to start at a place that moves each minute, so cold instances, which all tie, do
- * not starve the same tail either.
+ * of time every loop: BAYLA's Add form never opened (the walk of 2026-11-05). Where tokens tie
+ * (every token, on a cold instance) the island's coins go first, in FIRST_MINTS order (island
+ * answer twenty-seven, cut 2), and the rest keep the list's order turned to start at a place that
+ * moves each minute, so cold instances do not starve the same tail either.
  */
 export function pricingOrder(all, asked, nowMs) {
   if (all.length === 0) return [];
-  const turn = Math.floor(nowMs / 60_000) % all.length;
-  const turned = [...all.slice(turn), ...all.slice(0, turn)];
+  const first = FIRST_MINTS.filter((m) => all.includes(m));
+  const rest = all.filter((m) => !FIRST_MINTS.includes(m));
+  const turn = rest.length === 0 ? 0 : Math.floor(nowMs / 60_000) % rest.length;
+  const turned = [...first, ...rest.slice(turn), ...rest.slice(0, turn)];
   const at = (mint) => asked.get(mint) ?? -Infinity;
   return turned
     .map((mint, i) => ({ mint, i }))
@@ -175,7 +178,23 @@ export async function listPoolMints(fetchImpl, env) {
   });
 }
 
-/** The tokens to price: every mint in a pool that is not SOL, each once, in the order first seen. */
+/**
+ * Read before any other token (island answer twenty-seven, cut 2): the Solana rooms' coins
+ * with a venue pool, in src/lib/bungalows.ts's order (BAYLA, BOBO, SOY, BRAINLET, RIZZ; a test
+ * pins the list), then USDC and USDT. The loop ran out of time on whatever the chain listed
+ * last, and the island's own coin was among them every run.
+ */
+export const FIRST_MINTS = Object.freeze([
+  "7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump", // BAYLA
+  "4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump", // BOBO
+  "8zsZESzrGoYVi1dVH4QNWXJ2EfW4v287aEGNiDvQpump", // SOY
+  "4XKGjKaKowFvL5sYwh2AKx72vj9iwC8MNvpL44E9pump", // BRAINLET
+  "5ad4puH6yDBoeCcrQfwV5s9bxvPnAeWDoYDj3uLyBS8k", // RIZZ
+  "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", // USDC
+  "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB", // USDT
+]);
+
+/** The tokens to price: every mint in a pool that is not SOL, each once; FIRST_MINTS first, then the rest in the order first seen. */
 export function tokensOf(pools) {
   const seen = new Set();
   const out = [];
@@ -186,7 +205,8 @@ export function tokensOf(pools) {
       out.push(m);
     }
   }
-  return out;
+  const first = FIRST_MINTS.filter((m) => seen.has(m));
+  return [...first, ...out.filter((m) => !FIRST_MINTS.includes(m))];
 }
 
 /** Each mint's decimals, read from its account; a mint not under a token program is left out. */
