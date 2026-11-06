@@ -1,7 +1,7 @@
 // Polyfill MUST load before any @solana/* import, the same rule as SolanaProviders.
 import '../../../lib/solanaPolyfill';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { SolanaProviders } from '../SolanaProviders';
 import { SheetBodyOutlet } from '../../sheet/SheetOutlet';
@@ -26,6 +26,7 @@ import { LpWritesProvider, useLpWrites } from './useLpWrites';
 import { browserLpReaders, type LpReaders } from './readers';
 import type { LpDoorAnchor } from './lpDoor';
 import { useSheet } from '../../sheet/sheetContext';
+import { SHEET_PRESS, sheetHref, sheetRoom } from '../../../lib/sheet';
 
 /**
  * The Solana LP section on /pools (owner, 2026-10-14:
@@ -136,9 +137,17 @@ function LpBody({ readers, mode, reloadKey, home, door }: { readers: LpReaders; 
   // Every pool, under the finder: a View there is a lookup in the finder, like a picked token.
   const view = useCallback((tokenMint: string) => finderRef.current?.show(tokenMint), []);
   // A row's Add: that pool's Add form, Add with one coin when it is paired with SOL.
+  const navigate = useNavigate();
+  const { pathname, search } = useLocation();
+  // A room's own pool rises as the Add sheet over the list (answer twenty-seven, cut 4): the
+  // page stays where the card was and Back lands on it. Any other pool opens in the finder.
   const addFromList = useCallback(
-    (tokenMint: string, pool: string, quoteMint: string) => finderRef.current?.openAdd(tokenMint, { pool, ...(quoteMint === SOL_MINT ? { form: 'one' as const } : {}) }),
-    [],
+    (tokenMint: string, pool: string, quoteMint: string) => {
+      const room = sheetRoom(tokenMint);
+      if (room && room.venueSolPool === pool) navigate(sheetHref(pathname, search, 'add', room.id), { state: SHEET_PRESS });
+      else finderRef.current?.openAdd(tokenMint, { pool, ...(quoteMint === SOL_MINT ? { form: 'one' as const } : {}) });
+    },
+    [navigate, pathname, search],
   );
   // The LP door (island, answer twenty): ?mint=<token>&task=add[&pool=<address>] ends in Add with
   // one coin, of the pool named or of the token's deepest SOL pool, drawn at the top of the page

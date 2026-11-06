@@ -1,13 +1,14 @@
 import { SOL_MINT } from '../../solana';
+import { formatSolPrice } from './format';
 import type { OutsidePrice } from './outsidePrice';
 
 /**
  * ONE READ FOR EVERYONE (island answer twenty-four, build 1b). api/outside-prices.js prices
  * every listed pool's token once, paced to the key's plan, and Vercel's edge keeps the
  * answer for ten minutes past its age; a page reads that list and never asks Jupiter for a
- * listed token itself (`readListedOrOutsidePrice`). A price up to ten minutes old passes
- * the deposit check; only a token with no price in the last ten minutes holds the Add form,
- * in one row. A token the list does not carry (a coin with no pool here yet), a list that
+ * listed token itself (`readListedOrOutsidePrice`). A price up to ten minutes old is compared
+ * with the pool's; an older one, or none, is one row and never a gate (answer twenty-seven
+ * withdrew the hold). A token the list does not carry (a coin with no pool here yet), a list that
  * did not answer, and every `fresh` read (the check run again at Review) use the two
  * quotes below, as before.
  */
@@ -72,7 +73,8 @@ export function readAgo(readAtMs: number, nowMs = Date.now()): string {
 /**
  * The list's entry for one token as a price. Ok when a read is at most ten minutes old (the
  * list's, the list's last good, or this tab's own); no-route is Jupiter's answer; anything
- * older is the one-row hold. Null for a token the list does not carry.
+ * older is one row in the island's words, "Outside price 0.0000067 SOL, read 12 min ago" or
+ * "Outside price not read yet", never a gate. Null for a token the list does not carry.
  */
 export function fromShared(entry: SharedEntry | undefined, mint: string, nowMs = Date.now()): OutsidePrice | null {
   if (!entry) return null;
@@ -91,10 +93,8 @@ export function fromShared(entry: SharedEntry | undefined, mint: string, nowMs =
     remembered.set(mint, best);
     return { kind: 'ok', solPerToken: best.solPerToken, source: 'Jupiter', readAtMs: best.readAtMs };
   }
-  const detail = best
-    ? `Outside price not read for ${Math.max(1, Math.round((nowMs - best.readAtMs) / 60_000))} min; adding waits`
-    : `Outside price not read (${entry.state === 'unread' ? entry.detail : 'no usable price'}); adding waits`;
-  return { kind: 'unread', detail, hold: true };
+  const detail = best ? `Outside price ${formatSolPrice(best.solPerToken)} SOL, ${readAgo(best.readAtMs, nowMs)}` : 'Outside price not read yet';
+  return { kind: 'unread', detail, row: true };
 }
 
 /**

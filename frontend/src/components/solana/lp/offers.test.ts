@@ -132,9 +132,10 @@ describe('the leave rule, row by row (spec 3.7)', () => {
     }
   });
 
-  it('a price that could not be read: no add, and it is not a warning; remove offered', () => {
-    expect(add(view(), { price: 'unread' })).toBe('checks');
-    expect(health(view(), { price: 'unread' }).deposits).toMatchObject({ verdict: 'unchecked', warnings: [] });
+  // Answer twenty-seven: the outside price is intel, one row, never a gate.
+  it('an outside price that could not be read: add is offered, and it is not a warning; remove offered', () => {
+    expect(add(view(), { price: 'unread' })).toBe('offer');
+    expect(health(view(), { price: 'unread' }).deposits).toMatchObject({ verdict: 'allowed', warnings: [] });
     expect(remove(position(view()))).toBe('offer');
   });
 
