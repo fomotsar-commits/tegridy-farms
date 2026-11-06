@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { USDC_MINT } from '../lp/tokenSafety';
 import type { TokenSafety } from '../lp/tokenSafety';
-import { BAN_MS, SAFE_CAP_USD, TripBans, capUsd, coinBounds, judgeTrip, rankTrips, runLegs, ruleSettingsFromEnv, tokenGate, tripFeeLamports, type CpLeg, type RuleSettings } from './rule';
+import { BAN_MS, SAFE_CAP_USD, TripBans, capUsd, coinBounds, judgeTrip, publishedRule, rankTrips, robotRule, runLegs, ruleSettingsFromEnv, tokenGate, tripFeeLamports, type CpLeg, type PublishedRule, type RuleSettings } from './rule';
 
 const SOL_USD = 100;
 const settings = (over: Partial<RuleSettings> = {}): RuleSettings => ({ maxTradeUsd: 25, minProfitUsd: 0.01, microLamports: 10_000, lighthouseProven: false, ...over });
@@ -22,6 +22,31 @@ describe('the cap', () => {
     const s = ruleSettingsFromEnv({ KEEPER_MAX_TRADE_USD: '300', KEEPER_MIN_PROFIT_USD: '0.02', KEEPER_PRIORITY_MICROLAMPORTS: '5000' }, false);
     expect(s).toEqual({ maxTradeUsd: 300, minProfitUsd: 0.02, microLamports: 5000, lighthouseProven: false });
     expect(() => ruleSettingsFromEnv({ KEEPER_MAX_TRADE_USD: '-1' }, false)).toThrow('KEEPER_MAX_TRADE_USD');
+  });
+});
+
+describe('the rule the robot publishes, read back by the scanner', () => {
+  // The live robot of 2026-11-06: a $100 cap, a $0.002 floor, Lighthouse proven, SOL loans on.
+  const live: PublishedRule = { ...settings({ maxTradeUsd: 100, minProfitUsd: 0.002, lighthouseProven: true }), flashLoans: true };
+
+  it('gives back exactly what the robot runs with, and none of its other settings', () => {
+    const robotSettings = { ...live, slippageBps: 50, jito: true, raydiumPrograms: ['x'] };
+    const page: unknown = JSON.parse(JSON.stringify({ wallet: 'w', lighthouse: { proven: true }, rule: publishedRule(robotSettings) }));
+    expect((page as { rule: unknown }).rule).toEqual(live);
+    expect(robotRule(page)).toEqual(live);
+    expect(robotRule({ rule: { ...live, flashLoans: false, lighthouseProven: false } })).toEqual({ ...live, flashLoans: false, lighthouseProven: false });
+  });
+
+  it('says why not when the page has no rule (a robot on an older build), or one the robot did not write', () => {
+    // What the robot started on 2026-11-06 06:22Z publishes: its cap, but no floor.
+    expect(robotRule({ lighthouse: { proven: true, why: null, capUsd: 100, settingUsd: 100 } })).toMatch(/does not give its settings/);
+    for (const page of [null, undefined, 'rule', 7, { rule: null }, { rule: 'x' }]) expect(robotRule(page)).toMatch(/does not give its settings/);
+    for (const bad of [{ maxTradeUsd: '100' }, { maxTradeUsd: Infinity }, { minProfitUsd: 0 }, { minProfitUsd: Number.NaN }, { microLamports: -1 }, { microLamports: undefined }]) {
+      expect(robotRule({ rule: { ...live, ...bad } })).toMatch(/not a positive number/);
+    }
+    for (const bad of [{ lighthouseProven: 'yes' }, { lighthouseProven: undefined }, { flashLoans: 1 }, { flashLoans: undefined }]) {
+      expect(robotRule({ rule: { ...live, ...bad } })).toMatch(/yes or no/);
+    }
   });
 });
 

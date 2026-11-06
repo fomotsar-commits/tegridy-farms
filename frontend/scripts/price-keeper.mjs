@@ -137,7 +137,7 @@ const { QUOTE_COINS } = await lib('solana/lp/quotes.ts');
 const { PRICE_IDS_MAX } = await lib('solana/lp/poolList.ts');
 const { jupiterApi } = await lib('solana/keeper/jupiterApi.ts');
 const { DEFAULT_LIMITS } = await lib('solana/keeper/plan.ts');
-const { TripBans, capUsd, SAFE_CAP_USD } = await lib('solana/keeper/rule.ts');
+const { TripBans, capUsd, SAFE_CAP_USD, publishedRule } = await lib('solana/keeper/rule.ts');
 const { proveLighthouse } = await lib('solana/keeper/lighthouse.ts');
 const { accountWake, socketUrlOf } = await lib('solana/keeper/wake.ts');
 const { listedPools, streamPools, STREAM_REFRESH_MS } = await lib('solana/keeper/streams.ts');
@@ -955,6 +955,8 @@ async function main() {
     const proof = await lighthouseProof(owner);
     settings.lighthouseProven = proof === null;
     screen.lighthouse = { proven: proof === null, why: proof, capUsd: capUsd(settings), settingUsd: settings.maxTradeUsd };
+    // The rule this run judges with, for the scanner to judge and size with too (keeper/rule.ts robotRule).
+    screen.rule = publishedRule(settings);
     // Pools whose sent trips the chain refused: two in a day ban the pool for a day, seeded from the earnings log.
     const bans = new TripBans();
     try {
