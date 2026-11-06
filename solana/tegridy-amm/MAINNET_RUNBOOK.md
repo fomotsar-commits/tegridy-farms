@@ -321,7 +321,9 @@ solana program show <PROGRAM_ID>   # verify authority == GRMtSx… + last-deploy
 
 Added 2026-10-06. Brought in line with three rehearsals on 2026-10-08. **Executed since.** It
 was cp-swap's FIRST upgrade on mainnet, of a program that held funded pools. It was rolled back
-on 2026-10-24 and upgraded again with proposal #23 (both below the table). Mainnet now runs
+on 2026-10-24 and upgraded again with proposal #23, rolled back again by mistake on 2026-11-04
+(proposal #24) and upgraded a third time with proposal #31 on 2026-11-06 (all below the table).
+Mainnet now runs
 the new build, `1e55bcdc…` (725,176 bytes): the one with `create_lp_metadata`, the security
 text on `memetics.finance`, and the launch-tier refusal (a public `initialize` on fee tier 0
 is refused; "The build moved on 2026-10-19 and 2026-10-20" below). Until the execute it ran
@@ -361,6 +363,29 @@ upgrade's build again:
 | Day of the execute (UTC) | `2026-11-03` |
 | Slot of the execute (the program's "Last Deployed In Slot") | `464,955,427` |
 | Transaction of the execute (its signature) | `4WEQiYHKkZggKbkaY4xfFyoJBq2p5dpMqj7VNzMGY96sUaGZoP826cgAQEZBwBEpjcM6W3n2oJkpS5zYwbvj5dqq` |
+| Size of the program's data account afterwards (bytes) | `725,221` |
+
+**Rolled back again on 2026-11-04, by mistake: proposal #24.** #23's round had pre-staged a
+roll-back beside the upgrade, as the first round did. It was executed from the Squads app at
+02:52:42 UTC (the block's time; slot 465,140,701, transaction
+`4dERffNjSiQZdZUGJMsF6cujCVP7C2zsuSfVdWh9TXUg8kfTnuESD4wAvoQxtmRy7wSjdm2Aid4wQGdVprzgfA5M`),
+and the program was `88b98aa9…` again, so a public `initialize` on fee tier 0 was accepted again.
+No pool was opened there before the redo. Both buffers' SOL went back to the paying wallet. This
+time the website was NOT moved back: this pull request was still open, and it waited for the redo.
+From then on a roll-back is never approved in advance (`docs/TODO_OPERATOR.md`, 2026-11-04).
+
+**Upgraded a third time: proposal #31.** One proposal, with no roll-back beside it, from a fresh
+upload (`AnhZDtyYYygWDac4qDdhwZgXYeroWdF7r5atsWvQzFpW`, `1e55bcdc…`), approved by both members on
+2026-11-04 at 04:57:54 UTC and executed from the pack's own page after the 48 hours. The pack's
+check after the execute passed ("the upgrade is live and both pools are untouched"), and the
+upload's 3.684732 SOL went back to the paying wallet. Its four facts, read from mainnet by
+`read-upgrade-record.mjs` (the execute's block time: 15:13:03 UTC):
+
+| | |
+|---|---|
+| Day of the execute (UTC) | `2026-11-06` |
+| Slot of the execute (the program's "Last Deployed In Slot") | `466,155,644` |
+| Transaction of the execute (its signature) | `2kB7XVijuBYkSMpoCkcBbpNRt8XAu3KnhskUjzwKYjYNvkT6Hk4ajULHWRqN8KdZtgiQ3Kr7wfeCf6Wdze2sxvGK` |
 | Size of the program's data account afterwards (bytes) | `725,221` |
 
 The four values are printed by `frontend/scripts/solana-localnet/read-upgrade-record.mjs`. It

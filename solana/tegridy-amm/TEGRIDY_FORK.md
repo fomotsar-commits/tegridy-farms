@@ -64,6 +64,10 @@ fallback for pairs we don't host well.
 > #16, executed at 17:03:00 UTC (slot 460,927,956), and mainnet ran the 2026-09-29 build
 > `88b98aa9…` again, without any of the three. Proposal #23 put `1e55bcdc…` back; its day, slot
 > and transaction are in `MAINNET_RUNBOOK.md`, section 4b, under the roll-back.
+>
+> **2026-11-04: rolled back again, by mistake; 2026-11-06: upgraded a third time.** Roll-back #24
+> put `88b98aa9…` back at 02:52:42 UTC, and proposal #31, with no roll-back staged beside it, put
+> `1e55bcdc…` back at 15:13:03 UTC on 2026-11-06. Both are in section 4b too.
 
 > **2026-11-03: the range-pool program's fee rules, one rule of our own, and upstream's own
 > deletion of `MINT_WHITELIST`, in source.** Only a tier's fund owner collects the fund fee; a
@@ -128,8 +132,8 @@ upgrade. **Never put a git-host URL in this macro.** The email is the `Contact:`
 `frontend/public/.well-known/security.txt`. If that changes, the macro must follow, and that
 is a new binary.
 
-**The program on mainnet has carried this text since its re-upgrade, and from its first upgrade
-until the roll-back of 2026-10-24** (`MAINNET_RUNBOOK.md`, section 4b). Until then the binary deployed on 2026-09-29 carried `https://memetic.fun` as
+**The program on mainnet has carried this text since its third upgrade (2026-11-06), from its
+first upgrade until the roll-back of 2026-10-24, and from 2026-11-03 until the roll-back of 2026-11-04** (`MAINNET_RUNBOOK.md`, section 4b). Until then the binary deployed on 2026-09-29 carried `https://memetic.fun` as
 its project (now another project's site), a contact link that is a 404 there, and two links
 to GitHub's `main` branch, which no longer exists. Read on 2026-10-06: the text, from the
 release's copy of that binary, whose sha256 (`88b98aa9…`) was the program's on chain; and

@@ -35,8 +35,8 @@ export function VenueProgramCard() {
           Raydium&rsquo;s, not ours, and the quotes on the swap page run that same maths
           client-side.
         </p>
-        {/* Until the pool program's upgrade, and again from its roll-back (2026-10-24) until the
-            re-upgrade, a paragraph here said the program on Solana was built before that instruction
+        {/* Until the pool program's upgrade, and again during each roll-back (2026-10-24 to 11-03,
+            2026-11-04 to 11-06), a paragraph here said the program on Solana was built before that instruction
             was added. It went out with each upgrade, and src/test/poolProgramCopy.test.ts keeps it
             out for as long as the harness pins that build. */}
         <p>

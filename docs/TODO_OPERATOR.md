@@ -231,6 +231,11 @@ member A's balance for the old four-proposal plan and #30, both covered above).
 4. At that time: **Upgrade the pool program** only, **EXECUTE proposal #31**, then
    `scripts\4-verify-after-upgrade.mjs --before ...\owner-run\round-3-2026-11-04\pools-before-upgrade.mainnet.json`
    must end `RESULT: the upgrade is live and both pools are untouched.`
+   ✅ **Done 2026-11-06:** #31 executed at 15:13:03 UTC by member B from the page (slot 466,155,644,
+   transaction `2kB7XVijuBYkSMpoCkcBbpNRt8XAu3KnhskUjzwKYjYNvkT6Hk4ajULHWRqN8KdZtgiQ3Kr7wfeCf6Wdze2sxvGK`).
+   The check ended `RESULT: the upgrade is live and both pools are untouched.` The upload's 3.684732
+   SOL went back to the paying wallet. 0 pools were opened on the launch tier while it was open.
+   #30 is now safe to run; #18 and #3 can never run.
 5. The same hour: #1107 (it says `1e55bcdc` is live; it must not merge before). Until then the
    registry's `88b98aa9` pin is right again.
 
@@ -1717,7 +1722,9 @@ GIT_HOSTING.md, the runbook's four GitLab lines and `OUR_REPOS` in
 **Rolled back, then upgraded again.** The pre-staged roll-back, proposal #16, executed on
 2026-10-24 at 17:03:00 UTC (slot 460,927,956), and mainnet ran the 2026-09-29 build `88b98aa9…`
 with the old text until proposal #23 put the build below back (runbook section 4b, under the
-roll-back). The paragraph below is true again.
+roll-back). The same happened once more: roll-back #24 ran by mistake on 2026-11-04 at 02:52:42
+UTC, and proposal #31 put the build back on 2026-11-06 at 15:13:03 UTC. The paragraph below is
+true again.
 
 **Where it stands now: the upgrade has executed.** The pool program on mainnet is the build
 that carries the four values below (sha256 `1e55bcdc…`, 725,176 bytes; the same upgrade also

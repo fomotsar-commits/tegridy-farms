@@ -148,8 +148,9 @@ publishes that address as the repo. So when the code moves hosts, the site and
 `held-through.json` keep working after **one edit: four lines of `frontend/vercel.json`**. No
 page changes. A program's on-chain security.txt gets the same protection once it uses these
 links. cp-swap's source has used them since 2026-10-06, and the program on mainnet has since
-its re-upgrade (it also had them from its first upgrade, 2026-10-23, until its roll-back on
-2026-10-24; TODO_OPERATOR O-0929-10).
+its third upgrade, 2026-11-06 (it also had them from its first upgrade, 2026-10-23, until its
+roll-back on 2026-10-24, and from 2026-11-03 until the roll-back of 2026-11-04;
+TODO_OPERATOR O-0929-10).
 
 **Today the links go to GitHub, the primary.** These are the four lines in
 `frontend/vercel.json`, one rule per line:
