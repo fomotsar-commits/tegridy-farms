@@ -122,14 +122,14 @@ describe('tokenGate', () => {
   const read = (mint: string, freezeAuthority: string | null, extensions: number[] = []): TokenSafety =>
     ({ kind: 'read', mint, verdict: 'ok', blocks: [], warnings: [], name: null, symbol: null, metadataSource: 'none', facts: { program: 'token-2022', mintAuthority: null, freezeAuthority, supply: 1n, decimals: 6, isInitialized: true, extensions, metadataPointer: null, tokenMetadata: null } }) as TokenSafety;
   const MINT = 'GtAEjZbnimbJKDo6BD7Gz8i9SN3fLUs4RoeUBPCfpump';
-  const AUTH = 'L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95';
+  const FREEZER = 'L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95';
 
   it('lets a plain token through', () => {
     expect(tokenGate(read(MINT, null, [18, 19]))).toBeNull();
   });
   it('refuses a live freeze authority, but not USDC’s', () => {
-    expect(tokenGate(read(MINT, AUTH))).toMatch(/freeze/);
-    expect(tokenGate(read(USDC_MINT, AUTH))).toBeNull();
+    expect(tokenGate(read(MINT, FREEZER))).toMatch(/freeze/);
+    expect(tokenGate(read(USDC_MINT, FREEZER))).toBeNull();
   });
   it('refuses a transfer fee, a hook, a permanent delegate, a pause switch, frozen-at-start accounts', () => {
     for (const ext of [1, 6, 9, 12, 14, 26]) expect(tokenGate(read(MINT, null, [18, ext]))).not.toBeNull();
