@@ -15,6 +15,78 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-11-04: a pre-approved undo is one press from running, and a read-back only guards the page it is on
+
+**Wrong belief:** an upgrade's roll-back can sit approved beside the upgrade "just in case", as long as
+the signing page labels it "execute ONLY IF TOLD TO" and someone reads the proposal number back before
+each press.
+
+**Measured:** it was executed by mistake twice. Multisig `EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK`:
+#16 on 2026-10-24 17:03:00 UTC (member B on our page, meant the step next to it) and #24 on 2026-11-04
+02:52:41 UTC (member A in the Squads web app, with no page running and no read-back). Both put the
+pool program back on `88b98aa9` and reopened the free launch-tier opening. The Squads app lists both
+as "Program Upgrade" with the same program and shows no proposal number on the card. Before the second
+press, a `vault_transaction_execute` simulated with `sigVerify: false` showed both proposals would
+succeed: the first failure the owner saw was the wallet pop-up being closed, not a chain refusal.
+
+**Do instead:** never leave anything approved that must not run. One proposal per change; if a build
+breaks, upload the old build then and propose the undo (it waits the 48 h lock like the rest). End
+every signing sitting by listing the vault's approved, unexecuted proposals and cancelling anything
+not meant to run before proposing anything new. Also: a config proposal (the Squads app's rent
+collector setting) makes every proposal not yet approved by both members stale when it executes, so
+get both approvals on new proposals first.
+
+---
+
+## 2026-11-03: a rebuild printed the old program's hash for different source: a copied `target/` trusts file times, and `git archive` dates every file to its commit
+
+**Believed:** building a second checkout of a program inside a copy of another build's `target/`
+reuses only the dependencies; the program's own crate is compiled again from the source in front
+of it, so a different source gives a different hash.
+
+**Measured** (2026-11-03, the range-pool audit round, WSL, `cargo build-sbf -- --locked` with
+Solana 3.1.11 tools): two checkouts of `solana/tegridy-clmm`, each unpacked from `git archive`
+(PR #1113's head, then `origin/mvp-launch`), each built in a copy of an earlier build's `target/`.
+The second one compiled nothing of `raydium-clmm` and printed the first one's sha256, `c0432972`,
+for source that differs in `util/token.rs`. After `find programs vendor Cargo.toml Cargo.lock
+-type f -exec touch {} +` it printed "Compiling raydium-clmm" and `1e896e1e`, the hash the local
+suite had tested on 2026-10-25 for that source. Cargo calls a crate up to date when no source file
+is newer than its last build, and `git archive` stamps every file with its commit's time, which is
+older than the copied build. Touch the sources, or build in a fresh `target/`, and check that two
+sources that differ give two hashes before trusting either.
+
+**Also measured, the same round:**
+
+- Git Bash rewrites a Linux path in an environment variable handed to a Windows program:
+  `CLMM_LEDGER=/root/clmm-r2/ledger-main node validator.mjs` reached WSL as
+  `C:/Program Files/Git/root/...` ("bash: line 1: C:/Program: No such file or directory").
+  PowerShell's `$env:CLMM_LEDGER = '/root/...'` passes it as written. This is the environment
+  half of the 2026-10-30 `mklink /J` trap.
+- Anchor 1.0.2's `anchor_lang::solana_program` re-exports no `hash` module (solana-program 3.0
+  has one), so a host test cannot compute an instruction's 8-byte name with it. A live
+  instruction's name is `instruction::<Name>::DISCRIMINATOR`; a deleted one's bytes come from
+  outside, and the red run on the code that still has it is what proves them.
+- The program's generated `entry()` runs in a plain `cargo test`. With no accounts, an unknown
+  8-byte name answers `Custom(101)` (InstructionFallbackNotFound) before any account is read; the
+  same name on the build that has the instruction answers `Custom(102)` (InstructionDidNotDeserialize)
+  when it takes arguments and `Custom(3005)` (AccountNotEnoughKeys) when it takes none. That
+  difference is a unit test that an instruction is gone.
+- One blank line added at the top of the range program's `lib.rs` changed its release build's
+  sha256 (`2249d8a6` to `188978e7`, the same 1,443,096 bytes): Anchor 1.0.2's `require!` and
+  `err!` record `file!()` and `line!()`. A comment edit that adds or removes lines is a new build
+  to check against the chain; one that keeps the line count gave the same bytes.
+- Rebuilding into the path a running local-chain sweep loads its program from (`CLMM_SO`) switched
+  builds in the middle of the sweep: each broken input starts a fresh validator from that path, and
+  the restore check (the same hash before and after) would have failed. Copy the build under test
+  to a read-only file named by its hash and point the sweep there.
+- One full suite run against the build before the fix is a better red record than one run per
+  check, but only if a fix check that the old build passes through leaves nothing behind. The
+  opener's reward on the old range build would have filled a reward slot two later checks use, so
+  the try runs on a pool opened only for it. Run that way, round 1's build failed exactly the ten fix
+  checks of 109 and nothing else.
+
+---
+
 ## 2026-11-02: a one-time operator tool names an owner that config has since moved, and it would have run clean while pointing at the wrong wallet
 
 **Believed:** `frontend/create-fee-atas.mjs`, the tool that creates the fee wallet's token accounts,

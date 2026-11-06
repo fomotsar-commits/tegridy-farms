@@ -210,11 +210,91 @@ describe("the island read", () => {
   });
 });
 
+// THE TIMELINE (island answer twenty-four, build 7): the newest piece hung on the island,
+// read from the same /api/torches the doors already read. Shapes are torch #95 and #70 as
+// the island served them on 2026-11-03: a hung piece rides a minted bungalow torch.
+const HUNG = {
+  id: 95, place: "ethereum-0x6982508145454ce325ddbe47a25d4ec3d2311933", kind: "bungalow", for: null,
+  door: "https://memetics.wtf/b/ethereum-0x6982508145454ce325ddbe47a25d4ec3d2311933", label: "$PEPE", row: 1, slot: 9,
+  name: "loground", amount: 50000, signature: "sigHUNG", lit_at: "2026-10-28T20:55:02.000Z",
+  piece: {
+    ref: "7f4dc061-e10a-4ae3-b73f-83e078efad26", title: "Halloween", artist: "loground",
+    image: "https://junglebayisland.com/api/storage-image?key=gallery%2Floground%2F7f4dc061-e10a-4ae3-b73f-83e078efad26%2Flarge.webp",
+  },
+  asset: "BsNpDPMz8xLyYiAUp4JRNr23zfQNXr5NAv5GrP2ECR1E", status: "minted",
+  card: { wide: "https://api.memetics.wtf/api/torch/card/95.png" },
+};
+const HUNG_OLDER = {
+  ...HUNG, id: 70, place: "jungle-bay", door: "https://memetics.wtf/b/jungle-bay", label: "$JBM", lit_at: "2026-10-15T21:05:11.000Z",
+  piece: {
+    ref: "a919adb9-c1a6-4008-86f7-724bc773c966", title: "Skull", artist: "CoppyBoyz ",
+    image: "https://junglebayisland.com/api/storage-image?key=gallery%2Fcoppyboyz%2Fa919adb9-c1a6-4008-86f7-724bc773c966%2Flarge.webp",
+  },
+  asset: "5PtsSxVJJzFJ14UzfFtMJ4o6tu5JYFgMQ9b8Rjzupeir",
+};
+const withPieces = (...extra) => ({ [URLS.torches]: { torches: [...TORCHES.torches, ...extra], as_of_unix: 1793677136 } });
+
+describe("the newest piece hung on the island", () => {
+  it("is the newest torch that hangs a piece: its picture, artist, title, the island page it hangs in, and when", async () => {
+    // Torch #112, a feed to the fire lit after the piece: the island's newest torch hangs nothing.
+    const feed = { ...TORCHES.torches[0], id: 112, lit_at: "2026-11-02T17:35:59.000Z" };
+    fetchMock = islandWith(withPieces(HUNG_OLDER, HUNG, feed));
+    vi.stubGlobal("fetch", fetchMock);
+    const { body } = await call();
+    expect(body.last_piece).toEqual({
+      image: HUNG.piece.image,
+      artist: "loground",
+      title: "Halloween",
+      door: "https://memetics.wtf/b/ethereum-0x6982508145454ce325ddbe47a25d4ec3d2311933",
+      lit_at: "2026-10-28T20:55:02.000Z",
+    });
+    // A feed to the fire hangs nothing, so the island's last torch and its last piece differ.
+    expect(body.last_torch.kind).toBe("fire");
+  });
+
+  it("trims the artist's name as the island typed it", async () => {
+    fetchMock = islandWith(withPieces(HUNG_OLDER));
+    vi.stubGlobal("fetch", fetchMock);
+    const { body } = await call();
+    expect(body.last_piece.artist).toBe("CoppyBoyz");
+    expect(body.last_piece.title).toBe("Skull");
+  });
+
+  it.each([
+    ["a picture off the island's image host", { piece: { ...HUNG.piece, image: "https://evil.example/x.webp" } }],
+    ["a picture not on https", { piece: { ...HUNG.piece, image: "http://junglebayisland.com/api/storage-image?key=x" } }],
+    ["a picture that is not a URL", { piece: { ...HUNG.piece, image: "javascript:alert(1)" } }],
+    ["no artist", { piece: { ...HUNG.piece, artist: "   " } }],
+    ["a door off the island", { door: "https://evil.example/b/pepe" }],
+    ["a time that is not one", { lit_at: "soon" }],
+  ])("passes over a piece with %s, to the next one that reads", async (_why, over) => {
+    fetchMock = islandWith(withPieces(HUNG_OLDER, { ...HUNG, ...over }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { body } = await call();
+    expect(body.last_piece.title).toBe("Skull");
+  });
+
+  it("is null when no torch hangs a piece, and when the torches route was not read", async () => {
+    expect((await call()).body.last_piece).toBeNull();
+    fetchMock = islandWith({ [URLS.torches]: null });
+    vi.stubGlobal("fetch", fetchMock);
+    const { status, body } = await call();
+    expect(status).toBe(200);
+    expect(body.last_piece).toBeNull();
+  });
+});
+
 describe("the allowlist", () => {
-  it("forwards no signature, painted card, piece, person id or wallet count", async () => {
+  it("forwards no signature, painted card, piece ref or asset, person id or wallet count", async () => {
+    fetchMock = islandWith(withPieces(HUNG_OLDER, HUNG));
+    vi.stubGlobal("fetch", fetchMock);
     const { body } = await call();
     const text = JSON.stringify(body);
-    for (const leak of ["signature", "sigBAYLA", "card", "torch/card", "piece", "person_id", "wallet_count", "0414f482", "collection", "x_pfp"]) {
+    for (const leak of [
+      "signature", "sigBAYLA", "sigHUNG", "card", "torch/card", "person_id", "wallet_count", "0414f482", "collection", "x_pfp",
+      // The piece's own ref and its minted asset stay behind; its picture's URL is the island's to name.
+      '"ref"', '"asset"', "BsNpDPMz8xLy", "5PtsSxVJJzFJ", "minted", '"status"',
+    ]) {
       expect(text, leak).not.toContain(leak);
     }
   });
@@ -281,6 +361,61 @@ describe("each part stands alone, and an unread part is never a zero", () => {
     vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("ECONNRESET"); }));
     const { status } = await call();
     expect(status).toBe(502);
+  });
+});
+
+// The countdown's roster (island answer twenty-five, screen 2): "{n} flames are warming toward
+// the door right now", the flames from the Observer floor up to the 80° door, counted from the
+// same board read the flame count comes from, and only the count leaves.
+describe("the flames warming toward the launch door", () => {
+  const board = (degrees) => ({ flames: degrees.map((d, i) => ({ ...flameRow(i), degrees: d })), as_of_unix: 1792746260 });
+
+  it("counts the flames from 30° up to the 80° door, the door itself not included", async () => {
+    fetchMock = islandWith({ [URLS.flames]: board([1831.24, 120, 80, 79.99, 55, 30, 29.99, 0]) });
+    vi.stubGlobal("fetch", fetchMock);
+    const { body } = await call();
+    expect(body.warming).toBe(3);
+    expect(body.flames).toBe(8);
+  });
+
+  it("a board with none in the band is a read zero, not an unread one", async () => {
+    fetchMock = islandWith({ [URLS.flames]: board([300, 90, 12, 0]) });
+    vi.stubGlobal("fetch", fetchMock);
+    expect((await call()).body.warming).toBe(0);
+  });
+
+  it("a full page is where the island stopped, so it is not a count", async () => {
+    fetchMock = islandWith({ [URLS.flames]: board(Array.from({ length: 500 }, () => 50)) });
+    vi.stubGlobal("fetch", fetchMock);
+    expect((await call()).body.warming).toBeNull();
+  });
+
+  it("a flame with no readable degrees leaves the count unread, never a smaller number", async () => {
+    const flames = board([120, 55, 40]).flames;
+    flames[1] = { ...flames[1], degrees: "55" };
+    fetchMock = islandWith({ [URLS.flames]: { flames } });
+    vi.stubGlobal("fetch", fetchMock);
+    expect((await call()).body.warming).toBeNull();
+  });
+
+  it("a flames route that fails or answers no list leaves the count null, and the rest standing", async () => {
+    for (const failed of [null, { board: [] }]) {
+      fetchMock = islandWith({ [URLS.flames]: failed });
+      vi.stubGlobal("fetch", fetchMock);
+      const { status, body } = await call();
+      expect(status).toBe(200);
+      expect(body.warming).toBeNull();
+      expect(body.fire).toEqual({ burned: 5716710 });
+    }
+  });
+
+  it("forwards the count and nothing about the flames counted", async () => {
+    fetchMock = islandWith({ [URLS.flames]: board([55, 40]) });
+    vi.stubGlobal("fetch", fetchMock);
+    const text = JSON.stringify((await call()).body);
+    for (const leak of ["person_id", "wallet_count", "x_username", "held_since_unix", "token_count"]) {
+      expect(text, leak).not.toContain(leak);
+    }
   });
 });
 

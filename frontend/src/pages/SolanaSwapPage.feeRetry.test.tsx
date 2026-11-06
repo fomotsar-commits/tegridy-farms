@@ -112,6 +112,7 @@ import SolanaSwapPage from './SolanaSwapPage';
 import { getActivity } from '../lib/solanaActivity';
 import { NOT_TEST_RUN_COPY, REFUSED_COPY } from '../lib/solana/swap/jupiterFeeRetry';
 import { JupiterBusyError } from '../lib/solana/swap/jupiterBusy';
+import { clearReceipt, lastReceipt } from '../lib/receipt';
 
 const WOULD_FAIL = 'Swap would fail';
 
@@ -129,6 +130,7 @@ let atSign: { notice: string | null; receive: string | null; feeValue: string | 
 const SIG = '5'.repeat(88);
 
 beforeEach(() => {
+  clearReceipt();
   atSign = null;
   // The page opens SOL to $BAYLA; these tests are about a SOL to USDC swap, so the link names it.
   window.history.replaceState(null, '', `/solana?out=${USDC_MINT}`);
@@ -196,8 +198,9 @@ describe('SolanaSwapPage: Jupiter 6014 on the fee build -> one no-fee rebuild, s
     expect(atSign!.infoToasts[0]![0]).toBe(COPY);
     expect(JSON.stringify(atSign!.infoToasts[0]![1])).toContain('15 USDC');
 
-    // IN THE RESULT: the success toast says it again.
-    await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('Bought USDC', expect.objectContaining({ description: expect.stringContaining(COPY) })));
+    // IN THE RESULT: the receipt card, whose venue row is read from what the fee account received (island answer twenty-five).
+    await waitFor(() => expect(lastReceipt()).toMatchObject({ action: 'bought', coin: { symbol: 'USDC' } }));
+    expect(h.toast.success).not.toHaveBeenCalled();
     expect(h.toast.error).not.toHaveBeenCalled();
   });
 
@@ -209,9 +212,9 @@ describe('SolanaSwapPage: Jupiter 6014 on the fee build -> one no-fee rebuild, s
     expect(atSign!.notice).toBeNull();
     expect(atSign!.receive).toBe('14.925');
     expect(h.toast.info).not.toHaveBeenCalled();
-    await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('Bought USDC', expect.anything()));
-    const bought = h.toast.success.mock.calls.find((c) => c[0] === 'Bought USDC')!;
-    expect(JSON.stringify(bought[1])).not.toMatch(/no site fee/i);
+    await waitFor(() => expect(lastReceipt()).toMatchObject({ action: 'bought', coin: { symbol: 'USDC' } }));
+    // The toast is for errors only: nothing says a waiver.
+    expect(h.toast.success).not.toHaveBeenCalled();
   });
 
   it('any other simulation failure is blocked exactly as before: no re-quote, no wallet', async () => {
@@ -405,7 +408,7 @@ describe('SolanaSwapPage: clicking again on a waived quote compares like with li
     expect(h.toast.error).not.toHaveBeenCalledWith('Price moved', expect.anything());
     const second = h.sendTransaction.mock.calls[1]![0] as VersionedTransaction;
     expect(second.message.compiledInstructions[0]!.data[0]).toBe(2);
-    await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('Bought USDC', expect.objectContaining({ description: expect.stringContaining(COPY) })));
+    await waitFor(() => expect(lastReceipt()).toMatchObject({ action: 'bought', coin: { symbol: 'USDC' } }));
   });
 
   it('if the fee can be taken after all on the second click, the fee-bearing swap is shown, not signed', async () => {
@@ -453,7 +456,7 @@ describe('SolanaSwapPage: a swap that was SENT is never called "failed" for want
     expect(opts.action.label).toBe('Check on Explorer');
     // Never "failed", never "bought".
     expect(h.toast.error).not.toHaveBeenCalled();
-    expect(h.toast.success).not.toHaveBeenCalledWith('Bought USDC', expect.anything());
+    expect(lastReceipt()).toBeNull();
     // It was asked for the whole 90 s before giving up: every second to 10 s, then every
     // 2 s to 90 s inclusive (11 + 40 reads).
     expect(h.getSignatureStatuses).toHaveBeenCalledTimes(51);
@@ -507,7 +510,7 @@ describe('SolanaSwapPage: a swap that was SENT is never called "failed" for want
         : { value: [{ err: null, confirmationStatus: 'confirmed' }] };
     });
     await typeAmountAndBuy();
-    await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('Bought USDC', expect.anything()));
+    await waitFor(() => expect(lastReceipt()).toMatchObject({ action: 'bought', coin: { symbol: 'USDC' } }));
     expect(reads).toBe(2);
     expect(h.toast.error).not.toHaveBeenCalled();
     expect(h.toast.warning).not.toHaveBeenCalled();

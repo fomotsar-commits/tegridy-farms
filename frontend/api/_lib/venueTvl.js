@@ -86,6 +86,10 @@ export const SOLANA_STAKE_POOLS = Object.freeze(
     ["5hgUVCWW4fwM7oq3SQyaj5ucVQFa2dQ4YqQc4JqrGXHj", "streamflow", "8zsZESzrGoYVi1dVH4QNWXJ2EfW4v287aEGNiDvQpump"], // SOY
     ["2qSZBzjpxKzhJWmyaoN5kP3XQxUikH3SQR5suXuQjkZR", "streamflow", "4XKGjKaKowFvL5sYwh2AKx72vj9iwC8MNvpL44E9pump"], // BRAINLET
     ["BZ1rGCD8G5kXyKkXxmNh2Xf92QLz4PUZitzauMEdxd5c", "streamflow", "5ad4puH6yDBoeCcrQfwV5s9bxvPnAeWDoYDj3uLyBS8k"], // RIZZ
+    ["CX24Ti8vamGXAVF2T9bgJj3EfX627Na4tcXbfkaDz1pT", "ladder", "4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump"], // BOBO lock ladder
+    ["3woT5BZgznYQGvemUQmaKesbUmXJRWxaGUxAYkudSYBn", "ladder", "8zsZESzrGoYVi1dVH4QNWXJ2EfW4v287aEGNiDvQpump"], // SOY lock ladder
+    ["9LunTnw1r4Xtjb86Cf9UeMTQMREmx3yc61CqzVLyBdGG", "ladder", "4XKGjKaKowFvL5sYwh2AKx72vj9iwC8MNvpL44E9pump"], // BRAINLET lock ladder
+    ["AenisnJhCvL7cPz49T7UHhePvBi1bjhJAfY4bV2t1Hgw", "ladder", "5ad4puH6yDBoeCcrQfwV5s9bxvPnAeWDoYDj3uLyBS8k"], // RIZZ lock ladder
   ].map(([pool, kind, mint]) => Object.freeze({ pool, kind, mint })),
 );
 

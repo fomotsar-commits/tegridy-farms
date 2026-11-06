@@ -59,7 +59,7 @@ export function LiquidityPrimer() {
         <div>
           <h3 className="text-white text-[13px] font-semibold mb-1">Why does a venue need them?</h3>
           <p>
-            A token with no pool cannot be bought. Every swap on this venue is executed against a
+            A token with no pool has nowhere to be bought. Every swap on this venue is executed against a
             pool, so liquidity is not a feature sitting beside trading — it is the thing trading
             runs on. A deeper pool moves its price less for the same size of trade, which is what
             people mean by slippage. Providing liquidity is how a community makes its own token

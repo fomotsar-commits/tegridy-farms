@@ -64,7 +64,7 @@ const VENUE_VOICE_DEBT: Record<string, number> = {
   '/copy-trading': 10,
   '/tax': 13,
   '/curve-launch': 0,
-  '/eth-curve': 9,
+  '/eth-curve': 6,
   '/alerts': 16,
   '/yield': 21,
   '/launch': 0,

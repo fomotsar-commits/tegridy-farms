@@ -239,7 +239,7 @@ export function TelegramLinkPanel({ fetchImpl }: Props) {
       )}
 
       <details className="mt-3">
-        <summary className="text-white/60 text-[11px] cursor-pointer">Where the bot runs, and what it cannot do</summary>
+        <summary className="text-white/60 text-[11px] cursor-pointer">Where the bot runs, and what it does not do</summary>
         <ul className="mt-2 space-y-1 list-disc pl-4">
           <li className="text-white/50 text-[11px] leading-snug">
             Link a Telegram chat to this wallet and the bot can answer read-only questions there — your standing, your
@@ -257,7 +257,7 @@ export function TelegramLinkPanel({ fetchImpl }: Props) {
             browser tab while the app is open, and the delivery panel above says the same.
           </li>
           <li className="text-white/50 text-[11px] leading-snug">
-            Balances and fills come from the venue&apos;s indexer. If the bot cannot read it, the bot says so
+            Balances and fills come from the venue&apos;s indexer. If the bot could not read it, the bot says so
             rather than answering zero.
           </li>
           <li className="text-white/50 text-[11px] leading-snug">

@@ -14,7 +14,7 @@ import { POOL_DISCRIMINATOR_B58, POOL_STATE_LEN } from "../pool-index.js";
 import { RANGE_PROGRAM_ADDRESS } from "../../../src/lib/solana/clmm/programId.ts";
 import { ACCOUNT_POOL_STATE, POOL_STATE_LEN as RANGE_LEN_TS, POOL_STATE_OFFSETS } from "../../../src/lib/solana/clmm/program.ts";
 import { ACCOUNT_DISCRIMINATOR, POOL_SIZE as LADDER_POOL_SIZE, decodeLadderPool } from "../../../src/lib/ladder/program.ts";
-import { BUNGALOWS, ISLAND_READ_POOLS, RETIRED_STAKE_POOLS } from "../../../src/lib/bungalows.ts";
+import { BUNGALOWS, ISLAND_READ_POOLS, RETIRED_STAKE_POOLS, ROOM_LADDER_POOLS } from "../../../src/lib/bungalows.ts";
 
 vi.mock("../ratelimit.js", () => ({
   checkRateLimit: vi.fn(async () => true),
@@ -278,12 +278,16 @@ describe("the staking pools, as their programs and the site name them", () => {
       ...RETIRED_STAKE_POOLS.map((r) => [r.pool, BUNGALOWS.find((b) => b.id === r.bungalow).address]),
       ...REGISTRY.solana.filter((r) => /^lighthouse-[a-z]+$/.test(r.id)).map((r) => [r.address, BUNGALOWS.find((b) => b.id === r.id.slice(11)).address]),
       [REGISTRY.solana.find((r) => r.id === "bayla-ladder-pool").address, BAYLA],
+      ...Object.entries(ROOM_LADDER_POOLS).map(([id, pool]) => [pool, BUNGALOWS.find((b) => b.id === id).address]),
       ...ISLAND_READ_POOLS.filter((r) => r.chain === "solana").map((r) => [r.pool, BAYLA]),
     ];
     const listed = new Map(SOLANA_STAKE_POOLS.map((p) => [p.pool, p.mint]));
     for (const [pool, mint] of named) expect([pool, listed.get(pool)]).toEqual([pool, mint]);
     expect(listed.size).toBe(new Set(named.map(([pool]) => pool)).size);
-    expect(SOLANA_STAKE_POOLS.find((p) => p.kind === "ladder").pool).toBe(REGISTRY.solana.find((r) => r.id === "bayla-ladder-pool").address);
+    expect(SOLANA_STAKE_POOLS.filter((p) => p.kind === "ladder").map((p) => p.pool)).toEqual([
+      REGISTRY.solana.find((r) => r.id === "bayla-ladder-pool").address,
+      ...Object.keys(ROOM_LADDER_POOLS).map((id) => REGISTRY.solana.find((r) => r.id === `ladder-pool-${id}`).address),
+    ]);
   });
 
   it("lists every EVM staking contract in the registry, each with its room's coin", () => {

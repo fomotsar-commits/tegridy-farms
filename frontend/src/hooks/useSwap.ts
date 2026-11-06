@@ -540,7 +540,7 @@ export function useSwap(opts?: { chainId?: number }) {
     const fromAddr = fromToken.isNative ? venue.weth : fromToken.address;
     const toAddr = toToken.isNative ? venue.weth : toToken.address;
     if (fromAddr.toLowerCase() === toAddr.toLowerCase()) {
-      toast.error('Cannot swap a token for itself');
+      toast.error('Both sides are the same token. Pick a different one to receive.');
       isPendingRef.current = false;
       return;
     }

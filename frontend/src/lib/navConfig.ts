@@ -9,10 +9,10 @@ import { isSolanaSwapLive } from './solana';
 // Plain text only, like rangePoolsVisible below: the Cardano swap's switch (lib/cardano/flags.ts).
 import { cardanoSwapVisible } from './cardano/flags';
 import { BUNGALOWS, getActiveBungalow } from './bungalows';
+import { roomSheetHref, sheetHref, sheetRoom, type SheetKind } from './sheet';
 import { EARN_PATH, earnPoolPath, isEarnPoolId } from './earnRoutes';
 import { hasRoutableYieldVenue } from './yield/venues';
-import { isLauncherEnabled } from './launcher/config';
-import { curveChainNames, isCurveLive } from './launcher/curveChains';
+import { curveChainNames, isCurveLaunchOpen } from './launcher/curveChains';
 // Web3-free on purpose: this module is in the main bundle.
 import { isCurveWriteEnabled } from './launcher/solana/curveWriteFlag';
 // String-only, for the same reason: the range program's id and whether its tab shows.
@@ -152,26 +152,27 @@ export const NAV_SECTIONS: NavSection[] = [
   },
   {
     heading: 'Launch',
-    // The Solana curve leads (build 2, 2026-11-01). The word opens the first tab that is on: the
-    // curve once launching on Solana is on, else the launchpad, as an off page is listed nowhere
-    // (law 23). From the curve, the launchpad is one network pick away.
+    // The word opens the launch door, /launch: the countdown for every wallet (island answer
+    // twenty-six, 2026-11-03). No token launch is live on the venue until the island says so, on
+    // any rail, and law 23 does not reach the door: its state, not open yet, is the page. Each
+    // rail keeps its own switch and is left out of the strip while it is off.
     hub: '/curve-launch',
-    get primaryTo() {
-      return this.items.find((i) => !i.soon)?.to ?? this.hub;
-    },
+    primaryTo: '/launch',
     items: [
       // The venue's own Solana curve. Off whenever launching and trading cannot load:
       // in a production build that is ONLY the committed CURVE_WRITES_ENABLED, which
       // website release 2 turns on together with the program ids (curveWriteFlag.ts).
       { to: '/curve-launch', label: 'Memetics Curve (Solana)', tabLabel: 'Solana Curve', soon: !isCurveWriteEnabled() },
-      { to: '/launch',      label: 'Launch', tabLabel: 'Launchpad', soon: !isLauncherEnabled() },
-      // The EVM curve on every chain it is deployed to: the label names them and the Live mark reads them all.
+      // The launch door (pages/LaunchDoorPage.tsx), never off, named as the island names it.
+      { to: '/launch',      label: 'Launch', tabLabel: 'Launch door' },
+      // The EVM curve on every chain it is deployed to, once its own switch opens it (curveChains.ts
+      // CURVE_LAUNCH_OPEN): the label names them and the Live mark reads them all.
       {
         to: '/eth-curve',
-        label: isCurveLive() ? `Memetics Curve (${curveChainNames()})` : 'Memetics Curve (EVM)',
+        label: isCurveLaunchOpen() ? `Memetics Curve (${curveChainNames()})` : 'Memetics Curve (EVM)',
         tabLabel: 'Memetics Curve',
-        soon: !isCurveLive(),
-        live: isCurveLive(),
+        soon: !isCurveLaunchOpen(),
+        live: isCurveLaunchOpen(),
       },
       { to: '/launch-simulator', label: 'Launch Simulator', tabLabel: 'Simulator' },
     ],
@@ -279,6 +280,20 @@ function sectionWord(section: NavSection, label = section.heading): BarWord {
 }
 
 /**
+ * In a room whose coin has its SOL pool on the venue, the bar's Swap and Add open that room's
+ * sheet over it, Buy and Add (island answer twenty-five, build 3). With no room, Swap opens the
+ * Buy sheet over the home, on its bungalow row with nothing lit (answer twenty-seven: the room
+ * only lights a chip); Add stays `fallback`, the pools list. Anywhere else, `fallback`.
+ * Read only inside the bar words' getters, so it follows the room on every access.
+ */
+function sheetOr(kind: SheetKind, fallback: string): string {
+  const active = getActiveBungalow();
+  const room = sheetRoom(active?.id);
+  if (room) return roomSheetHref(room, kind);
+  return kind === 'buy' && !active && isSolanaSwapLive() ? sheetHref('/', '', 'buy') : fallback;
+}
+
+/**
  * The bar, phone and wide screen alike: Island · Swap · Add · Lock · Launch (build 2,
  * 2026-11-01). Island is the home, with its read field and its hall of doors, or inside a room
  * that room's own page (owner, 2026-10-18: Heat and Rooms "are the same"; one word stays, named
@@ -295,8 +310,20 @@ export const BAR_NAV: readonly BarWord[] = [
     },
     lit: (pathname) => pathname === '/' || isRoomDoor(pathname) || sectionIsActive(ISLAND_SECTION, pathname),
   },
-  sectionWord(SWAP_SECTION),
-  sectionWord(POOLS_SECTION, 'Add'),
+  {
+    label: SWAP_SECTION.heading,
+    get to() {
+      return sheetOr('buy', SWAP_SECTION.primaryTo ?? SWAP_SECTION.hub);
+    },
+    lit: (pathname) => sectionIsActive(SWAP_SECTION, pathname),
+  },
+  {
+    label: 'Add',
+    get to() {
+      return sheetOr('add', POOLS_SECTION.primaryTo ?? POOLS_SECTION.hub);
+    },
+    lit: (pathname) => sectionIsActive(POOLS_SECTION, pathname),
+  },
   sectionWord(LOCK_SECTION),
   sectionWord(LAUNCH_SECTION),
 ];

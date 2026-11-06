@@ -12,14 +12,14 @@ import { TOWELI_ADDRESS } from '../constants';
 const ZERO: Address = '0x0000000000000000000000000000000000000000';
 
 /**
- * Master gate. GO-LIVE 2026-07-22 (operator-authorized "do it all"): flipped true after
- * the §5 fork rehearsal passed in-session — real createDynamicAuction mined green
- * (status 1), token deployed as the whitelisted DopplerERC20V1 Solady clone (0xdb7b…),
- * 266 launcher tests green, integrator address verified on-chain. The §1 TOWELI-liveness
- * / pool-depth gates were explicitly WAIVED by the operator after the dormancy trade-off
- * was surfaced. Reversible: set back to false + redeploy to re-gate at any time.
+ * Master gate. GO-LIVE 2026-07-22 (operator-authorized "do it all") after the §5 fork
+ * rehearsal passed in-session: real createDynamicAuction mined green, the token deployed as
+ * the whitelisted DopplerERC20V1 Solady clone (0xdb7b…), the integrator verified on-chain.
+ * OFF since 2026-11-03 (island answer twenty-six): no token launch is live on the venue until
+ * the island says so, on any rail. It opens again only once the launch door is open
+ * (door.ts LAUNCH_DOOR_OPEN, on the island's written word), and then on the operator's word.
  */
-export const LAUNCHER_ENABLED = true;
+export const LAUNCHER_ENABLED: boolean = false;
 
 /**
  * Address that captures Doppler integrator fees (withIntegrator) — ~80-95% of trade
