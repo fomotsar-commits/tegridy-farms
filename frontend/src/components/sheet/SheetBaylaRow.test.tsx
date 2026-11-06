@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { SheetBaylaRow } from './SheetBaylaRow';
+import { SheetBaylaRow, SheetPickLine } from './SheetBaylaRow';
 import { setLastReading } from '../../lib/heat/heatStore';
 import { clearLanded } from '../../lib/landed';
 import type { HeatReading } from '../../lib/heat/heatOracle';
@@ -51,5 +51,15 @@ describe('her line inside the sheet', () => {
   it('is left out while no wallet is read: "Paste any wallet." has nowhere to paste in the sheet', () => {
     mount();
     expect(screen.queryByTestId('sheet-bayla')).toBeNull();
+  });
+});
+
+// Island answer twenty-seven: the Buy sheet with no coin picked, on its bungalow row.
+describe('her line before a coin is picked', () => {
+  it('reads “Pick a coin.”, wallet read or not, with no button: the row above is the move', () => {
+    render(<SheetPickLine />);
+    const row = screen.getByTestId('sheet-bayla');
+    expect(row).toHaveTextContent(/^Pick a coin\.$/);
+    expect(row.querySelector('a, button')).toBeNull();
   });
 });

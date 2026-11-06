@@ -18,13 +18,18 @@ export function SheetBodyOutlet({ page = true }: { page?: boolean }) {
   useEffect(() => (page ? holdSheetOutlet(token) : undefined), [page, token]);
   const head = useSheetOutletHead();
   const open = useSheetOpen();
-  const place = useMemo<SheetPlace | null>(() => (open ? { kind: open.kind, room: open.room, bayla: <SheetBaylaRow /> } : null), [open]);
+  // Bumped by `reopen`: the form is drawn afresh on the same coin (SheetBuyRow).
+  const [opened, setOpened] = useState(0);
+  const place = useMemo<SheetPlace | null>(
+    () => (open ? { kind: open.kind, room: open.room, bayla: <SheetBaylaRow />, reopen: () => setOpened((n) => n + 1) } : null),
+    [open],
+  );
   if (!open || !place) return null;
   if (page ? head !== token : head !== null) return null;
   return createPortal(
     <SheetContext.Provider value={place}>
       <Suspense fallback={<p role="status" className={`text-white/70 text-[13px] py-3 ${SHEET_WAIT[place.kind].line}`}>Reading the pool…</p>}>
-        <SheetBody key={`${place.kind}:${place.room.id}`} />
+        <SheetBody key={`${place.kind}:${place.room?.id ?? ''}:${opened}`} />
       </Suspense>
     </SheetContext.Provider>,
     open.slot,

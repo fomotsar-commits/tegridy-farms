@@ -10,7 +10,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 vi.mock("../_lib/ratelimit.js", () => ({ checkRateLimit: vi.fn(async () => true), checkGlobalLimit: vi.fn(async () => true) }));
 
 import handler from "../outside-prices.js";
-import { __resetOutsidePrices, probeAmount, midPrice, spacingMs, tokensOf, FRESH_FOR_MS, SWR_SECS } from "../_lib/outside-prices.js";
+import { __resetOutsidePrices, probeAmount, midPrice, spacingMs, tokensOf, pricingOrder, FIRST_MINTS, FRESH_FOR_MS, SWR_SECS } from "../_lib/outside-prices.js";
+import { BUNGALOWS } from "../../src/lib/bungalows.ts";
 import { CP_SWAP_PROGRAM, WSOL_MINT, TOKEN_PROGRAM, TOKEN_2022_PROGRAM, OFFSETS } from "../_lib/pool-index.js";
 import { base58 } from "@scure/base";
 
@@ -127,6 +128,37 @@ describe("probeAmount: the sale's amount repeats", () => {
   it("prices every mint in a pool that is not SOL, once each", () => {
     expect(tokensOf([{ mints: [WSOL_MINT, BAYLA] }, { mints: [USDC, BAYLA] }, { mints: [WSOL_MINT, USDC] }])).toEqual([BAYLA, USDC]);
   });
+  // Answer twenty-seven, cut 2: the loop ran out of time on the coins the chain lists last,
+  // and $BAYLA was one of them every run. The island's coins go first, then USDC and USDT.
+  it("reads $BAYLA first whatever order the chain lists the pools in", () => {
+    const OTHER = "6Rwcmkz9yiYVhPp9LBBMuTtNgXc6Bi2MjePQ5nJNtnUt";
+    const USDT = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB";
+    const BOBO = "4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump";
+    const pools = [{ mints: [WSOL_MINT, OTHER] }, { mints: [USDT, WSOL_MINT] }, { mints: [WSOL_MINT, BOBO] }, { mints: [USDC, OTHER] }, { mints: [BAYLA, WSOL_MINT] }];
+    expect(tokensOf(pools)).toEqual([BAYLA, BOBO, USDC, USDT, OTHER]);
+    expect(tokensOf([...pools].reverse())[0]).toBe(BAYLA);
+  });
+  // Twenty-seven's order with trunk's turns (1126): a token asked longest ago still goes first, and
+  // where tokens tie (every token, on a cold instance) the island's coins go first, in its order;
+  // only the rest turn with the minute.
+  it("on a cold instance prices the island's coins first, $BAYLA at index 0, and turns only the rest each minute", () => {
+    const BOBO = "4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump";
+    const all = [BAYLA, BOBO, "O1", "O2", "O3"];
+    for (let minute = 0; minute < 6; minute++) {
+      expect(pricingOrder(all, new Map(), minute * 60_000).slice(0, 2)).toEqual([BAYLA, BOBO]);
+    }
+    expect(pricingOrder(all, new Map(), 0)).toEqual([BAYLA, BOBO, "O1", "O2", "O3"]);
+    expect(pricingOrder(all, new Map(), 60_000)).toEqual([BAYLA, BOBO, "O2", "O3", "O1"]);
+  });
+  it("still puts a token asked longer ago ahead of the island's coins, so none is cut off every time", () => {
+    const asked = new Map([[BAYLA, 5_000], ["O1", 1_000]]);
+    expect(pricingOrder([BAYLA, "O1", "O2"], asked, 0)).toEqual(["O2", "O1", BAYLA]);
+  });
+  it("the first coins are the Solana rooms with a venue pool, in the registry's order, then USDC and USDT", () => {
+    const rooms = BUNGALOWS.filter((b) => b.chain === "solana" && b.address && b.venueSolPool).map((b) => b.address);
+    expect(rooms[0]).toBe(BAYLA);
+    expect(FIRST_MINTS).toEqual([...rooms, USDC, "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"]);
+  });
 });
 
 describe("GET /api/outside-prices", () => {
@@ -209,12 +241,15 @@ describe("GET /api/outside-prices", () => {
       expect(second[USDT].last).not.toBeNull();
     });
 
-    it("a cold instance starts at a place that moves each minute, so cold starts do not starve one tail", async () => {
-      const { clock, run } = four();
-      clock.now = 3 * 60_000;
-      const prices = await run();
-      expect(prices[JUP].state).toBe("ok");
-      expect(prices[USDT]).toMatchObject({ state: "unread", detail: "the loop ran out of time before this token" });
+    it("a cold instance prices the island's coins first at any minute; the rest wait their turn", async () => {
+      for (let minute = 0; minute < 4; minute++) {
+        __resetOutsidePrices();
+        const { clock, run } = four();
+        clock.now = minute * 60_000;
+        const prices = await run();
+        expect([BAYLA, USDC, USDT].map((m) => prices[m].state)).toEqual(["ok", "ok", "ok"]);
+        expect(prices[JUP]).toMatchObject({ state: "unread", detail: "the loop ran out of time before this token" });
+      }
     });
   });
 
