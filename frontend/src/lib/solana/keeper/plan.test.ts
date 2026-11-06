@@ -25,6 +25,7 @@ import {
   lastJupiterSlippage,
   lastPoolMinimum,
   planFor,
+  routeHeldTo,
   simulationProblem,
   viaOrder,
   type JupiterLegExpect,
@@ -74,6 +75,23 @@ describe('planFor: which gaps, and how big', () => {
     expect(planFor(view(SOL_QUOTE), arb({ profitUsd: 0.009 }), usd, DEFAULT_LIMITS)).toBe('listed profit under the floor');
     expect(planFor(view(SOL_QUOTE), arb(), new Map(), DEFAULT_LIMITS)).toBe('no price for the coin');
     expect(planFor(view(SOL_QUOTE), arb({ tradeUsd: 1e-12 }), usd, DEFAULT_LIMITS)).toBe('too small to trade');
+  });
+});
+
+describe('routeHeldTo: a leg between two outside pools goes through the exchange and pool it was priced on', () => {
+  const program = Keypair.generate().publicKey;
+  const pool = Keypair.generate().publicKey;
+  const ix = (...keys: PublicKey[]) => new TransactionInstruction({ programId: JUPITER_PROGRAM, keys: keys.map((pubkey) => ({ pubkey, isSigner: false, isWritable: false })), data: Buffer.alloc(0) });
+
+  it('passes a one-pool route through that exchange and that pool', () => {
+    expect(routeHeldTo(ix(Keypair.generate().publicKey, program, pool), program.toBase58(), [pool.toBase58()])).toBeNull();
+  });
+  it('refuses another exchange, another pool, or a route of more than one pool', () => {
+    const elsewhere = Keypair.generate().publicKey;
+    expect(routeHeldTo(ix(elsewhere, pool), program.toBase58(), [pool.toBase58()])).toMatch(/does not go through/);
+    expect(routeHeldTo(ix(program, elsewhere), program.toBase58(), [pool.toBase58()])).toMatch(/does not name the pool/);
+    expect(routeHeldTo(ix(program, pool), program.toBase58(), [pool.toBase58(), elsewhere.toBase58()])).toMatch(/one pool/);
+    expect(routeHeldTo(ix(program, pool), program.toBase58(), [undefined])).toMatch(/one pool/);
   });
 });
 

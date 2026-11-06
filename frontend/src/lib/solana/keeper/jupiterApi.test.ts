@@ -43,6 +43,14 @@ describe('jupiterApi', () => {
     expect(q.get('onlyDirectRoutes')).toBeNull();
   });
 
+  it('holds a quote to named venues in place of leaving the refused ones out', async () => {
+    const r = recorder(() => ({ body: {} }));
+    await jupiterApi({ fetchImpl: r.fetchImpl, gapMs: 0 }).quote({ ...quoteArgs, dexes: ['Pump.fun Amm'] });
+    const q = new URL(r.calls[0]!.url).searchParams;
+    expect(q.get('dexes')).toBe('Pump.fun Amm');
+    expect(q.get('excludeDexes')).toBeNull();
+  });
+
   it('asks for a one-pool route only when told to', async () => {
     const r = recorder(() => ({ body: {} }));
     await jupiterApi({ fetchImpl: r.fetchImpl, gapMs: 0 }).quote({ ...quoteArgs, onlyDirectRoutes: true });

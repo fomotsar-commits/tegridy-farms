@@ -18,7 +18,7 @@ export interface JupiterQuote {
   otherAmountThreshold: string;
   swapMode: string;
   slippageBps: number;
-  routePlan: { swapInfo?: { label?: string } }[];
+  routePlan: { swapInfo?: { label?: string; ammKey?: string } }[];
   [key: string]: unknown;
 }
 
@@ -36,8 +36,20 @@ export interface SwapInstructions {
 }
 
 export interface JupiterApi {
-  /** `onlyDirectRoutes`: one pool, no hop between coins; a trip with two Jupiter legs asks this first so both fit one transaction. */
-  quote(p: { inputMint: string; outputMint: string; amount: bigint; slippageBps: number; excludeDexes: readonly string[]; maxAccounts: number; onlyDirectRoutes?: boolean }): Promise<JupiterQuote>;
+  /**
+   * `onlyDirectRoutes`: one pool, no hop between coins; a trip with two Jupiter legs asks this first so both fit one transaction.
+   * `dexes`: only these venues (Jupiter's labels), in place of `excludeDexes`: a leg held to the exchange a trip was priced on.
+   */
+  quote(p: {
+    inputMint: string;
+    outputMint: string;
+    amount: bigint;
+    slippageBps: number;
+    excludeDexes: readonly string[];
+    maxAccounts: number;
+    onlyDirectRoutes?: boolean;
+    dexes?: readonly string[];
+  }): Promise<JupiterQuote>;
   /** Through the user's own accounts; `shared` asks for Jupiter's shared accounts for the route's middle steps instead. */
   swapInstructions(quote: JupiterQuote, user: PublicKey, opts?: { shared?: boolean }): Promise<SwapInstructions>;
   /** Program id → venue name, for the venues the keeper refuses. */
@@ -105,7 +117,8 @@ export function jupiterApi(
         instructionVersion: 'V2',
         maxAccounts: String(p.maxAccounts),
       });
-      if (p.excludeDexes.length) qs.set('excludeDexes', p.excludeDexes.join(','));
+      if (p.dexes?.length) qs.set('dexes', p.dexes.join(','));
+      else if (p.excludeDexes.length) qs.set('excludeDexes', p.excludeDexes.join(','));
       if (p.onlyDirectRoutes) qs.set('onlyDirectRoutes', 'true');
       return call<JupiterQuote>(`/swap/v1/quote?${qs.toString()}`);
     },

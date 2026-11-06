@@ -242,6 +242,18 @@ export function jupiterLegProblem(ix: TransactionInstruction, e: JupiterLegExpec
   return null;
 }
 
+/**
+ * Why a Jupiter swap is not held to `program`'s exchange, or null when it is: a leg of a trip
+ * between two outside pools must go through the exchange the trip was priced on, and through
+ * one pool of it (`ammKeys`, the quote's route plan, one step).
+ */
+export function routeHeldTo(ix: TransactionInstruction, program: string, ammKeys: readonly (string | undefined)[]): string | null {
+  if (ammKeys.length !== 1 || !ammKeys[0]) return 'the swap is not one pool’s';
+  if (!ix.keys.some((m) => m.pubkey.toBase58() === program)) return `the swap does not go through ${program}`;
+  if (!ix.keys.some((m) => m.pubkey.toBase58() === ammKeys[0])) return 'the swap does not name the pool it was quoted in';
+  return null;
+}
+
 /** What a simulated round trip did to the keeper's accounts, in base units (lamports for `fee`). */
 export interface SimulatedChange {
   coinBefore: bigint;

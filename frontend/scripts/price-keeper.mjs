@@ -58,6 +58,10 @@
  *                           "off" = no page)
  *   KEEPER_WS_URL           the RPC's websocket, which wakes the keeper when a watched pool
  *                           changes (default: KEEPER_RPC_URL over ws; "off" = the timer only)
+ *   KEEPER_SCANNER_URL      the arbitrage scanner's page on THIS computer, e.g.
+ *                           http://127.0.0.1:8795/state.json: the keeper also tries the trips
+ *                           between two outside pools whose scanner test run passed in the last
+ *                           3 minutes, quoting, gating and test-running each itself (default off)
  *
  * ─── COMMANDS ───────────────────────────────────────────────────────────────────
  *   status                     the keeper's address and what it holds
@@ -79,6 +83,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { register } from 'node:module';
 import { redactRpcUrl } from '../../scripts/lib/redact-url.mjs';
 import { RAYDIUM_PROGRAMS } from './lib/raydium-programs.mjs';
+import { OUTSIDE_DEX_PROGRAMS } from './lib/outside-dexes.mjs';
 
 // ─── Make the bundler-targeted TS modules run under Node (tegridy-launch-operator.mjs's
 // loader, plus an empty `import.meta.env` for the modules that read Vite's settings) ───
@@ -680,6 +685,26 @@ function serveScreen(screen) {
   server.unref();
 }
 
+/**
+ * KEEPER_SCANNER_URL as the keeper's `takes`: the scanner's proven trips between two outside pools
+ * (keeper/takes.ts), read fresh each pass with a 3 s limit. Only a page on this computer: what it
+ * says chooses what to ask about, never what is signed. Null when the setting is not set.
+ */
+async function scannerTakes() {
+  const raw = env.KEEPER_SCANNER_URL?.trim();
+  if (!raw) return null;
+  const url = new URL(raw);
+  if (url.protocol !== 'http:' || !['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname)) {
+    throw new Error(`KEEPER_SCANNER_URL must be the scanner's page on this computer (http://127.0.0.1:<port>/state.json), not "${raw}"`);
+  }
+  const { outsideTakes } = await lib('solana/keeper/takes.ts');
+  return async () => {
+    const res = await fetch(url, { signal: AbortSignal.timeout(3_000) });
+    if (!res.ok) throw new Error(`the scanner page answered ${res.status}`);
+    return outsideTakes(await res.json(), OUTSIDE_DEX_PROGRAMS, Date.now());
+  };
+}
+
 async function main() {
   if (cmd === 'dashboard') return dashboard();
 
@@ -828,6 +853,7 @@ async function main() {
       log(`Earnings log not read for bans (${e instanceof Error ? e.message : String(e)}): none carried over`);
     }
     serveScreen(screen);
+    const takes = await scannerTakes();
     const io = {
       rpc,
       jupiter,
@@ -836,8 +862,10 @@ async function main() {
       send: undefined,
       record,
       bans,
+      takes,
       log,
     };
+    log(`  trips between outside pools: ${takes ? `the scanner's proven ones, from ${env.KEEPER_SCANNER_URL.trim()}` : 'off (set KEEPER_SCANNER_URL to the scanner page’s /state.json)'}`);
     log(`Keeper ${owner.toBase58()}, ${live ? 'LIVE: round trips that pass their test run are SENT' : 'dry run: nothing is sent'}`);
     log(`  RPC ${redactRpcUrl(RPC)} · Jupiter ${env.JUPITER_API_KEY?.trim() ? 'own key' : 'keyless'} · up to $${capUsd(settings)} a trip · floor $${settings.minProfitUsd} + the network fee`);
     log(

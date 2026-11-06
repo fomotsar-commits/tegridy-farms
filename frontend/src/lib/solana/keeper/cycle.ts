@@ -20,7 +20,8 @@ import { readTokenSafety, type TokenSafety } from '../lp/tokenSafety';
 import type { TransferFee } from '../lp/transferFee';
 import type { GapSeen, Skip } from './gaps';
 import { atLeastCheck } from './lighthouse';
-import { MAX_TRIP_UNITS, tokenGate, type TripBans } from './rule';
+import { MAX_TRIP_UNITS, coinBounds, tokenGate, type TripBans } from './rule';
+import type { OutsideTake } from './takes';
 import { refusedVenues, type JupiterApi, type JupiterQuote, type SwapInstructions } from './jupiterApi';
 import { OUTSIDE_POOLS, outsideUsd, readOutsidePools, screenUsd, type Anchors, type OutsidePool } from './outside';
 import {
@@ -42,6 +43,7 @@ import {
   planFor,
   poolProblem,
   priceStep,
+  routeHeldTo,
   simulationProblem,
   viaOrder,
   type KeeperLimits,
@@ -70,6 +72,8 @@ export interface KeeperIo {
   record?: (r: TripRecord) => void;
   /** Pools whose sent trips the chain refused twice in a day: no trip through them for a day. */
   bans?: TripBans;
+  /** Trips between two outside pools the scanner test-ran lately (keeper/takes.ts); absent: none are tried. */
+  takes?: () => Promise<OutsideTake[]>;
   log: (line: string) => void;
 }
 
@@ -106,7 +110,7 @@ export const DEFAULT_SETTINGS: Omit<KeeperSettings, keyof KeeperLimits | 'raydiu
 /** One sent trip, for the keeper's earnings log. `gained`/`lamportsSpent` are null when it did not confirm. */
 export interface TripRecord {
   at: string;
-  kind: 'jupiter' | 'own-pools' | 'dust';
+  kind: 'jupiter' | 'own-pools' | 'outside' | 'dust';
   pool: string;
   name: string;
   coin: QuoteCoin;
@@ -349,12 +353,41 @@ export async function runCycle(io: KeeperIo, s: KeeperSettings): Promise<CycleRe
       // Too many calls: the keyless allowance is the whole PC's, so the rest of this pass asks nothing.
       if (/^Jupiter \S+ answered 429/.test(said)) {
         io.log('Jupiter says too many calls: no more Jupiter asks this pass');
-        break;
+        return { pools: pools.length, gaps, sent, watch: watchOf(pools, outside), looked, seen, loops };
+      }
+    }
+  }
+
+  // 3. Between two pools that are not ours, as the scanner found and test-ran them: our pools
+  //    first, these after, a few a pass (up to four Jupiter calls each).
+  if (io.takes) {
+    let takes: OutsideTake[] = [];
+    try {
+      takes = await io.takes();
+    } catch (e) {
+      io.log(`Scanner not read (${e instanceof Error ? e.message : String(e)}): no trips between outside pools this pass`);
+    }
+    for (const t of takes.slice(0, MAX_OUTSIDE_TRIPS)) {
+      const route = `outside ${t.coinMint} ${t.legs[0].pool} ${t.legs[1].pool}`;
+      const before = jupiterSaidNo.get(route);
+      if (before && Date.now() < before.until) continue;
+      const name = `${t.tokenMint}, buy in ${t.legs[0].pool}, sell in ${t.legs[1].pool}`;
+      try {
+        const o = await outsideTrip(io, s, t, prices.usd, refused, name);
+        if (o === 'quote-short' || o === 'no-route') jupiterSaidNo.set(route, { key: route, until: Date.now() + QUOTE_SHORT_KEEP_MS, outcome: o });
+        if (counted(o)) return stop();
+      } catch (e) {
+        const said = e instanceof Error ? e.message : String(e);
+        io.log(`${name}: stopped, ${said}`);
+        if (/^Jupiter \S+ answered 429/.test(said)) break;
       }
     }
   }
   return { pools: pools.length, gaps, sent, watch: watchOf(pools, outside), looked, seen, loops };
 }
+
+/** Trips between two outside pools tried a pass, at most. */
+const MAX_OUTSIDE_TRIPS = 2;
 
 /**
  * Gaps Jupiter said no to, by pool: what the gap looked like then, and until when that answer
@@ -776,6 +809,103 @@ async function viaTrip(
     verdict: (c) => simulationProblem(c, { minProfit }),
     says: (gained) =>
       `${plan.side === 'buy' ? `buy here with ${view.quote.symbol}, sell on Jupiter` : `buy on Jupiter, sell here for ${view.quote.symbol}`}, ${amt(coinIn)} in, test run gains ${amt(gained)} (floor ${amt(minProfit)})`,
+  });
+}
+
+/**
+ * A trip between two pools that are not ours, as the scanner found and test-ran it: buy the token
+ * through one outside exchange, sell it through another, in one transaction. Each leg is a Jupiter
+ * swap held to its exchange and to one pool of it (`routeHeldTo`), the two in different pools; the
+ * token passes the shared gate (keeper/rule.ts) on a fresh read of its mint; the size is the
+ * scanner's, held to the rule's cap and the keeper's float; the second leg spends exactly the least
+ * the first must pay, and its minimum and the Lighthouse check hold the coin to its floor. The
+ * second leg is quoted before either swap is built: a trip that falls short costs two calls.
+ */
+async function outsideTrip(io: KeeperIo, s: KeeperSettings, t: OutsideTake, usd: ReadonlyMap<string, number>, refused: Refused, name: string): Promise<Tried> {
+  const coin = KEEPER_COINS.find((c) => c.mint === t.coinMint);
+  if (!coin || isKeeperCoin(t.tokenMint)) return 'no-plan';
+  const [buy, sell] = t.legs;
+  if (refused.programs.has(buy.program) || refused.programs.has(sell.program)) {
+    io.log(`${name}: skipped, a leg is on a refused exchange`);
+    return 'no-route';
+  }
+  const labels = await io.jupiter.labels();
+  const [buyDex, sellDex] = [labels[buy.program], labels[sell.program]];
+  if (!buyDex || !sellDex) {
+    io.log(`${name}: skipped, Jupiter does not trade one of its exchanges`);
+    return 'no-route';
+  }
+  const safety = (await readTokenSafety(io.rpc, [t.tokenMint])).get(t.tokenMint);
+  const gate = tokenGate(safety);
+  const facts = safety?.kind === 'read' ? safety.facts : null;
+  if (gate || !facts) {
+    io.log(`${name}: skipped, ${gate ?? 'its mint was not read'}`);
+    return 'no-plan';
+  }
+  const owner = io.owner;
+  const amt = amountText(coin);
+  const coinMint = new PublicKey(coin.mint);
+  const tokenMint = new PublicKey(t.tokenMint);
+  const tokenProgram = facts.program === 'token-2022' ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
+  const coinAta = getAssociatedTokenAddressSync(coinMint, owner, true, TOKEN_PROGRAM_ID);
+  const tokenAta = getAssociatedTokenAddressSync(tokenMint, owner, true, tokenProgram);
+  const otherAta = getAssociatedTokenAddressSync(new PublicKey(KEEPER_COINS.find((c) => c.mint !== coin.mint)!.mint), owner, true, TOKEN_PROGRAM_ID);
+  const bounds = coinBounds(coin, usd.get(coin.mint), usd.get(SOL_QUOTE.mint), s);
+  if (typeof bounds === 'string') {
+    io.log(`${name}: skipped, ${bounds}`);
+    return 'no-sol-price';
+  }
+  const before = await balances(io.rpc, [coinAta, tokenAta, otherAta, owner]);
+  if (before.coin <= 0n) {
+    io.log(`${name}: skipped, the keeper holds no ${coin.symbol}`);
+    return 'no-coin';
+  }
+  // The scanner's size, never past the rule's cap or what the keeper holds: on x·y = k a smaller trip still pays.
+  const coinIn = [t.inRaw, bounds.cap, before.coin].reduce((a, b) => (b < a ? b : a));
+  const rent = rentToEarn(s, before.tokenExists, coin, usd);
+  if (rent === null || coinIn <= 0n) return 'no-sol-price';
+  const minProfit = bounds.floor + rent;
+  const need = coinIn + minProfit;
+  const held = (dex: string) => ({ slippageBps: s.slippageBps, excludeDexes: [], dexes: [dex], onlyDirectRoutes: true, maxAccounts: s.maxAccounts });
+  const q1 = await io.jupiter.quote({ inputMint: coin.mint, outputMint: t.tokenMint, amount: coinIn, ...held(buyDex) });
+  // The second leg spends exactly the least the first must pay.
+  const tokensIn = jupiterFloor(BigInt(q1.outAmount), q1.slippageBps);
+  const q2 = await io.jupiter.quote({ inputMint: t.tokenMint, outputMint: coin.mint, amount: tokensIn, ...held(sellDex) });
+  const amm1 = q1.routePlan.map((r) => r.swapInfo?.ammKey);
+  const amm2 = q2.routePlan.map((r) => r.swapInfo?.ammKey);
+  if (amm1.length === 1 && amm1[0] === amm2[0]) {
+    io.log(`${name}: skipped, Jupiter put both legs in one pool`);
+    return 'no-route';
+  }
+  const bps = lastJupiterSlippage(BigInt(q2.outAmount), need, s.slippageBps);
+  if (bps === null) {
+    io.log(`${name}: skipped, ${amt(coinIn)} comes back as ${amt(BigInt(q2.outAmount))} through ${buyDex} then ${sellDex}: under the profit floor`);
+    return 'quote-short';
+  }
+  const minOut = jupiterFloor(BigInt(q2.outAmount), bps);
+  const legExpect = { owner, refused: refused.programs, untouchable: [otherAta] };
+  const si1 = await jupiterLeg(io.jupiter, owner, q1, (x) =>
+    routeHeldTo(x.swap, buy.program, amm1) ??
+    jupiterLegProblem(x.swap, { ...legExpect, inputMint: coinMint, inputProgram: TOKEN_PROGRAM_ID, outputMint: tokenMint, outputProgram: tokenProgram, inAmount: coinIn, minOut: tokensIn }),
+  );
+  const si2 = await jupiterLeg(io.jupiter, owner, { ...q2, slippageBps: bps, otherAmountThreshold: minOut.toString() }, (x) =>
+    routeHeldTo(x.swap, sell.program, amm2) ??
+    jupiterLegProblem(x.swap, { ...legExpect, inputMint: tokenMint, inputProgram: tokenProgram, outputMint: coinMint, outputProgram: TOKEN_PROGRAM_ID, inAmount: tokensIn, minOut }),
+  );
+  return sendChecked(io, s, {
+    name,
+    kind: 'outside',
+    // The pools Jupiter used, for the ban list: two refusals within a day leave either alone for a day.
+    pool: `${amm1[0]} → ${amm2[0]}`,
+    coin,
+    coinIn,
+    accounts: { coinAta, tokenAta, otherAta, tokenMint, tokenProgram, coinMint },
+    before,
+    legs: [si1.swap, si2.swap],
+    lookupTables: [...new Set([...si1.lookupTables, ...si2.lookupTables])],
+    floor: minProfit,
+    verdict: (c) => simulationProblem(c, { minProfit }),
+    says: (gained) => `buy through ${buyDex}, sell through ${sellDex}, ${amt(coinIn)} in, test run gains ${amt(gained)} (floor ${amt(minProfit)})`,
   });
 }
 
