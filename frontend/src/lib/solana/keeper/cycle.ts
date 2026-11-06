@@ -550,7 +550,15 @@ function rentToEarn(s: KeeperSettings, tokenExists: boolean, coin: QuoteCoin, us
   return lamportsInCoin(NEW_ACCOUNT_RENT, coin, usd);
 }
 
+/**
+ * More than any trip's cap: a plan sized by the cap alone. What the keeper holds only lowers
+ * the size, and a trip's profit rises then falls with its size, so a pair or loop that pays at
+ * no size up to the cap pays at none up to the holding: no wallet read (an RPC call) for it.
+ */
+const ANY_HOLDING = 2n ** 64n - 1n;
+
 async function ownPairTrip(io: KeeperIo, s: KeeperSettings, a: PoolView, b: PoolView, chainNow: bigint, usd: ReadonlyMap<string, number>, name: string): Promise<Outcome> {
+  if (!ownPairPlan(a, b, Number(chainNow), usd, s, ANY_HOLDING)) return 'none';
   const acc = accountsFor(io.owner, a);
   const before = await balances(io.rpc, [acc.coinAta, acc.tokenAta, acc.otherAta, io.owner]);
   const plan = ownPairPlan(a, b, Number(chainNow), usd, s, before.coin);
@@ -595,7 +603,7 @@ async function ownLoopTrip(io: KeeperIo, s: KeeperSettings, loop: LoopLeg[], cha
   const start = loop[0]!;
   const startMint = start.input === 'coin' ? start.view.quote.mint : start.view.tokenMint;
   const coin = KEEPER_COINS.find((c) => c.mint === startMint);
-  if (!coin) return 'none';
+  if (!coin || !ownLoopPlan(loop, Number(chainNow), usd, s, ANY_HOLDING)) return 'none';
   // Each coin's account, by the program its pool names for it.
   const programOf = (v: PoolView, mint: string) => new PublicKey(v.snapshot.pool.token0Mint === mint ? v.snapshot.pool.token0Program : v.snapshot.pool.token1Program);
   const outMint = (l: LoopLeg) => (l.input === 'coin' ? l.view.tokenMint : l.view.quote.mint);
