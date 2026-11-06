@@ -62,8 +62,13 @@ export const DEXES = Object.freeze({
 });
 export const dexOfProgram = (program) => Object.keys(DEXES).find((k) => DEXES[k].program === program) ?? null;
 
-/** PumpSwap's one fee setting for every pool (its GlobalConfig). */
-export const PUMPSWAP_GLOBAL = 'ADyA8hdefvWN2dbGGWFotbzWxrAvLW83WG6QCVXvJKqw';
+/**
+ * PumpSwap's fees: the pump fee program's FeeConfig for PumpSwap (PDA ["fee_config", PumpSwap],
+ * read 11-06): flat fees for a pool with no coin creator, else a tier by the coin's market cap
+ * (1.25% under 420 SOL, down to 0.30% from 98,240 SOL). GlobalConfig's flat 0.30% is not it.
+ */
+export const PUMP_FEE_CONFIG = '5PHirr8joyTMp9JMm6nW7hNDVyEYdkzDqazxPD7RaTjx';
+export const PUMP_FEE_PROGRAM = 'pfeeUxB6jkeY1Hxd7CsFCAjcbHA9rWtchMGdZ6VojVZ';
 
 const tagOf = (name) => createHash('sha256').update(`account:${name}`).digest().subarray(0, 8);
 const TAGS = Object.fromEntries(Object.entries(DEXES).map(([k, d]) => [k, d.tag ? tagOf(d.tag) : null]));
@@ -125,7 +130,10 @@ export function decodePool(dex, address, data) {
     }
     case 'pumpswap': {
       if (data.length < 243) return null;
-      return { ...base, kind: 'pair', mintA: key(data, 43), mintB: key(data, 75), vaultA: key(data, 139), vaultB: key(data, 171), creatorSet: !data.subarray(211, 243).equals(Buffer.alloc(32)) };
+      // The 301-byte pool prices with extra quote (SOL) at byte 245 beside its vault: Jupiter's
+      // quotes through it match vault + extra to 0.01% (SOY, 20 SOL, 11-06), the vault alone 18% off.
+      const extraB = data.length >= 253 ? u64(data, 245) : 0n;
+      return { ...base, kind: 'pair', mintA: key(data, 43), mintB: key(data, 75), vaultA: key(data, 139), vaultB: key(data, 171), creatorSet: !data.subarray(211, 243).equals(Buffer.alloc(32)), extraB };
     }
     case 'dlmm': {
       const binStep = u16(data, 80);
@@ -147,12 +155,30 @@ export function decodePool(dex, address, data) {
 export const clmmConfigFee = (data) => (Buffer.isBuffer(data) && data.length >= 51 ? u32(data, 47) / 1e6 : null);
 /** The trade and creator fees in a cp-swap fee config (ours and Raydium CPMM), or null. */
 export const cpConfigFee = (data) => (Buffer.isBuffer(data) && data.length >= 116 ? { trade: Number(u64(data, 12)) / 1e6, creator: Number(u64(data, 108)) / 1e6 } : null);
-/** PumpSwap's fees (GlobalConfig): LP + protocol, and the coin creator's on top when a pool has one. */
-export const pumpGlobalFee = (data) =>
-  Buffer.isBuffer(data) && data.length >= 321 ? { base: Number(u64(data, 40) + u64(data, 48)) / 1e4, creator: Number(u64(data, 313)) / 1e4 } : null;
+/** The pump fee program's FeeConfig: flat fees and market-cap tiers, each a fraction; null when not one. */
+export function pumpFeeConfig(data) {
+  if (!Buffer.isBuffer(data) || data.length < 73 || !data.subarray(0, 8).equals(tagOf('FeeConfig'))) return null;
+  const fees = (at) => Number(u64(data, at) + u64(data, at + 8) + u64(data, at + 16)) / 1e4;
+  const n = u32(data, 65);
+  if (n === 0 || data.length < 69 + n * 40) return null;
+  const tiers = Array.from({ length: n }, (_, i) => ({ threshold: Number(u128(data, 69 + i * 40)), fee: fees(69 + i * 40 + 16) }));
+  return { flat: fees(41), tiers };
+}
 
-/** The pool with its real fee filled in from `configs` (address → decoded fee config); null when unread. */
-export function withFee(pool, configs) {
+/** A PumpSwap pool's fee: its market cap's tier (lamports: supply × SOL per token) or the flat fee. */
+function pumpFee(pool, cfg, ctx) {
+  if (!pool.creatorSet || pool.mintB !== SOL_MINT) return cfg.flat;
+  if (!ctx?.depth || !(ctx.supply > 0)) return Math.max(cfg.flat, ...cfg.tiers.map((t) => t.fee)); // depth unread: the dearest
+  const cap = (ctx.depth.b / ctx.depth.a) * Number(ctx.supply);
+  if (cap < cfg.tiers[0].threshold) return cfg.tiers[0].fee;
+  return [...cfg.tiers].reverse().find((t) => cap >= t.threshold).fee;
+}
+
+/**
+ * The pool with its real fee filled in from `configs` (address → decoded fee config); null when
+ * unread. A PumpSwap pool's needs its depth and its token's supply (`ctx`): its tier is its market cap.
+ */
+export function withFee(pool, configs, ctx) {
   if (pool.dex === 'clmm') {
     const f = configs.get(pool.config);
     return typeof f === 'number' ? { ...pool, fee: f } : null;
@@ -162,8 +188,8 @@ export function withFee(pool, configs) {
     return f ? { ...pool, fee: f.trade + (pool.creatorOn ? f.creator : 0) } : null;
   }
   if (pool.dex === 'pumpswap') {
-    const f = configs.get(PUMPSWAP_GLOBAL);
-    return f ? { ...pool, fee: f.base + (pool.creatorSet ? f.creator : 0) } : null;
+    const cfg = configs.get(PUMP_FEE_CONFIG);
+    return cfg ? { ...pool, fee: pumpFee(pool, cfg, ctx) } : null;
   }
   return pool.fee === null ? null : pool;
 }
@@ -189,7 +215,7 @@ export function depthOf(pool, amounts) {
   if (va === undefined || vb === undefined || va === null || vb === null) return null;
   if (pool.kind === 'pair') {
     const a = Number(va - pool.owedA);
-    const b = Number(vb - pool.owedB);
+    const b = Number(vb - pool.owedB + (pool.extraB ?? 0n));
     return a > 0 && b > 0 ? { a, b } : null;
   }
   const price = (1 + pool.binStep / 1e4) ** pool.activeId;

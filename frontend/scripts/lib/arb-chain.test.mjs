@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createHash } from 'node:crypto';
 import bs58 from 'bs58';
-import { COINS, Misreads, ROBOT, SOL_MINT, USDC_MINT, busyTokens, poolsFromListing, takeRows, clmmConfigFee, decodePool, depthOf, lastSlippageBps, minOutAt, testRunProblem, tripsFor, withFee } from './arb-chain.mjs';
+import { COINS, Misreads, PUMP_FEE_CONFIG, ROBOT, SOL_MINT, USDC_MINT, busyTokens, poolsFromListing, pumpFeeConfig, takeRows, clmmConfigFee, decodePool, depthOf, lastSlippageBps, minOutAt, testRunProblem, tripsFor, withFee } from './arb-chain.mjs';
 import { SAFE_CAP_USD } from '../../src/lib/solana/keeper/rule.ts';
 
 /** The robot's settings before the Lighthouse check is proven: $25 a trip, a $0.01 floor plus the network fee. */
@@ -235,5 +235,71 @@ describe('the wider scanner (11-06: 6 of 64 coins looked up in 6.7 h, 0 test run
     const row = (robotTakes, ok, age) => ({ robotTakes, proof: { ok, at: now - age } });
     const rows = [row(true, true, 1_000), row(true, false, 1_000), row(false, true, 1_000), row(true, true, 4 * 60_000)];
     expect(takeRows(rows, now, 3 * 60_000)).toEqual([rows[0]]);
+  });
+});
+
+describe('PumpSwap pools priced as PumpSwap prices them (11-06: Jupiter paid 3% to 18% less than the vaults said)', () => {
+  // SOY's pool H8yiDq… read 11-06 ~07:10Z: base vault, quote vault, the pool's extra SOL at byte 245.
+  const B = 171231486962232n;
+  const Q = 86860086012n;
+  const V = 17584291633n;
+  const SUPPLY = 1_000_000_000n * 10n ** 6n;
+  function pumpPool({ extra = V, creator = true, length = 301 } = {}) {
+    const b = Buffer.alloc(length);
+    tag('Pool').copy(b, 0);
+    put(b, 43, ZEC_MINT);
+    put(b, 75, SOL_MINT);
+    put(b, 139, key(1));
+    put(b, 171, key(2));
+    if (creator) put(b, 211, key(3));
+    if (length >= 253) b.writeBigUInt64LE(extra, 245);
+    return decodePool('pumpswap', key(70), b);
+  }
+  /** The pump fee program's FeeConfig as read 11-06: flat 25+5+0 bps, then 25 market-cap tiers (three here). */
+  function feeConfigBytes() {
+    const tiers = [[0n, 2n, 93n, 30n], [420n * 10n ** 9n, 20n, 5n, 95n], [98_240n * 10n ** 9n, 20n, 5n, 5n]];
+    const b = Buffer.alloc(8 + 1 + 32 + 24 + 4 + tiers.length * 40);
+    tag('FeeConfig').copy(b, 0);
+    let o = 41;
+    for (const f of [25n, 5n, 0n]) (b.writeBigUInt64LE(f, o), (o += 8));
+    b.writeUInt32LE(tiers.length, o);
+    o += 4;
+    for (const [th, lp, pr, cr] of tiers) {
+      u128(b, o, th);
+      b.writeBigUInt64LE(lp, o + 16);
+      b.writeBigUInt64LE(pr, o + 24);
+      b.writeBigUInt64LE(cr, o + 32);
+      o += 40;
+    }
+    return b;
+  }
+  const amounts = new Map([[key(1), B], [key(2), Q]]);
+
+  it('counts the pool’s extra SOL (byte 245) as depth: a buy pays what Jupiter paid through it', () => {
+    const p = pumpPool();
+    const d = depthOf(p, amounts);
+    expect(d.b).toBe(Number(Q + V));
+    // 20 SOL in at the 1.2% tier: Jupiter paid 27,244,965,195,998 through this pool (11-06).
+    const xin = 20e9 * (1 - 0.012);
+    expect((d.a * xin) / (d.b + xin) / 27_244_965_195_998).toBeCloseTo(1, 3);
+  });
+
+  it('a pool of the older 243-byte layout has no extra SOL', () => {
+    expect(depthOf(pumpPool({ length: 243 }), amounts).b).toBe(Number(Q));
+  });
+
+  it('charges the market-cap tier from the pump fee program, not GlobalConfig’s flat 0.30%', () => {
+    const cfg = pumpFeeConfig(feeConfigBytes());
+    const configs = new Map([[PUMP_FEE_CONFIG, cfg]]);
+    const p = pumpPool();
+    // SOY: about 605 SOL of market cap, the 420 SOL tier: 20 + 5 + 95 bps.
+    expect(withFee(p, configs, { depth: depthOf(p, amounts), supply: SUPPLY }).fee).toBeCloseTo(0.012, 9);
+    // Under 420 SOL: 1.25%. A pool with no coin creator pays the flat 0.30%.
+    const small = new Map([[key(1), B * 4n], [key(2), Q]]);
+    expect(withFee(p, configs, { depth: depthOf(p, small), supply: SUPPLY }).fee).toBeCloseTo(0.0125, 9);
+    expect(withFee(pumpPool({ creator: false }), configs, { depth: depthOf(p, amounts), supply: SUPPLY }).fee).toBeCloseTo(0.003, 9);
+    // Unread, the fee is not guessed.
+    expect(withFee(p, new Map(), { depth: depthOf(p, amounts), supply: SUPPLY })).toBeNull();
+    expect(pumpFeeConfig(Buffer.alloc(100))).toBeNull();
   });
 });

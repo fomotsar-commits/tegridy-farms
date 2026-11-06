@@ -233,7 +233,9 @@ async function readUniverse() {
     // The ticker the coin claims (untrusted: shown beside its whole address): the listing's, else
     // its own metadata's, Token-2022 or Metaplex, as the site reads it.
     const claimed = (safety.kind === 'read' ? safety.symbol?.trim().slice(0, 16) : null) || C.metadataSymbol(accs.get(meta(m))?.data);
-    S.coins.set(m, { mint: m, symbol: symbols.get(m) || claimed || '?', ...gate, ours: false, pools: [], foundAt: 0, scannedAt: 0, slot: 0, trips: [] });
+    // Its supply: a PumpSwap pool's fee tier is the coin's market cap.
+    const supply = accs.get(m)?.data?.length >= 44 ? accs.get(m).data.readBigUInt64LE(36) : null;
+    S.coins.set(m, { mint: m, symbol: symbols.get(m) || claimed || '?', ...gate, supply, ours: false, pools: [], foundAt: 0, scannedAt: 0, slot: 0, trips: [] });
   }
   for (const o of ours) {
     const p = C.decodePool('ours', o.pubkey, Buffer.from(o.account.data[0], 'base64'));
@@ -313,14 +315,20 @@ async function discover(coin) {
 }
 
 async function readConfigs(pools) {
-  const want = [...new Set(pools.flatMap((p) => (p.dex === 'pumpswap' ? [C.PUMPSWAP_GLOBAL] : p.config ? [p.config] : [])))].filter((k) => !S.configs.has(k));
+  const want = [...new Set(pools.flatMap((p) => (p.dex === 'pumpswap' ? [C.PUMP_FEE_CONFIG] : p.config ? [p.config] : [])))].filter((k) => !S.configs.has(k));
   if (!want.length) return;
   const accs = await manyChunked(want);
   for (const k of want) {
     const a = accs.get(k);
     if (!a) continue;
     const dex = C.dexOfProgram(a.owner);
-    S.configs.set(k, k === C.PUMPSWAP_GLOBAL ? C.pumpGlobalFee(a.data) : dex === 'clmm' ? C.clmmConfigFee(a.data) : C.cpConfigFee(a.data));
+    if (k === C.PUMP_FEE_CONFIG) {
+      const cfg = a.owner === C.PUMP_FEE_PROGRAM ? C.pumpFeeConfig(a.data) : null;
+      if (cfg) S.configs.set(k, cfg);
+      else log('PumpSwap fee tiers not read: its pools are left out');
+      continue;
+    }
+    S.configs.set(k, dex === 'clmm' ? C.clmmConfigFee(a.data) : C.cpConfigFee(a.data));
   }
 }
 
@@ -336,8 +344,10 @@ async function scan(coin) {
   if (!bridgeDepth) throw new Error('the SOL/USDC pool was not read');
   S.usd.set(C.SOL_MINT, (bridgeDepth.b / bridgeDepth.a) * 1e3);
   const amounts = new Map(keys.map((k) => [k, C.tokenAmount(byKey.get(k)?.data)]));
-  const pools = coin.pools.map((p) => C.withFee(C.decodePool(p.dex, p.address, byKey.get(p.address)?.data) ?? {}, S.configs)).filter((p) => p && p.mintA);
+  let pools = coin.pools.map((p) => C.withFee(C.decodePool(p.dex, p.address, byKey.get(p.address)?.data) ?? {}, S.configs)).filter((p) => p && p.mintA);
   const depths = new Map(pools.map((p) => [p.address, C.depthOf(p, amounts)]));
+  // A PumpSwap pool's fee is its coin's market-cap tier, read at this slot's depth.
+  pools = pools.map((p) => (p.dex === 'pumpswap' ? C.withFee(p, S.configs, { depth: depths.get(p.address), supply: p.mintA === coin.mint ? coin.supply : null }) : p)).filter(Boolean);
   // Each pricing coin's link, read in this slot, and its USD price from it.
   const quotes = new Map();
   for (const [q, l] of links) {
