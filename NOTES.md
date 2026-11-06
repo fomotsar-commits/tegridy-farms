@@ -38,6 +38,55 @@ get both approvals on new proposals first.
 
 ---
 
+## 2026-11-03: a rebuild printed the old program's hash for different source: a copied `target/` trusts file times, and `git archive` dates every file to its commit
+
+**Believed:** building a second checkout of a program inside a copy of another build's `target/`
+reuses only the dependencies; the program's own crate is compiled again from the source in front
+of it, so a different source gives a different hash.
+
+**Measured** (2026-11-03, the range-pool audit round, WSL, `cargo build-sbf -- --locked` with
+Solana 3.1.11 tools): two checkouts of `solana/tegridy-clmm`, each unpacked from `git archive`
+(PR #1113's head, then `origin/mvp-launch`), each built in a copy of an earlier build's `target/`.
+The second one compiled nothing of `raydium-clmm` and printed the first one's sha256, `c0432972`,
+for source that differs in `util/token.rs`. After `find programs vendor Cargo.toml Cargo.lock
+-type f -exec touch {} +` it printed "Compiling raydium-clmm" and `1e896e1e`, the hash the local
+suite had tested on 2026-10-25 for that source. Cargo calls a crate up to date when no source file
+is newer than its last build, and `git archive` stamps every file with its commit's time, which is
+older than the copied build. Touch the sources, or build in a fresh `target/`, and check that two
+sources that differ give two hashes before trusting either.
+
+**Also measured, the same round:**
+
+- Git Bash rewrites a Linux path in an environment variable handed to a Windows program:
+  `CLMM_LEDGER=/root/clmm-r2/ledger-main node validator.mjs` reached WSL as
+  `C:/Program Files/Git/root/...` ("bash: line 1: C:/Program: No such file or directory").
+  PowerShell's `$env:CLMM_LEDGER = '/root/...'` passes it as written. This is the environment
+  half of the 2026-10-30 `mklink /J` trap.
+- Anchor 1.0.2's `anchor_lang::solana_program` re-exports no `hash` module (solana-program 3.0
+  has one), so a host test cannot compute an instruction's 8-byte name with it. A live
+  instruction's name is `instruction::<Name>::DISCRIMINATOR`; a deleted one's bytes come from
+  outside, and the red run on the code that still has it is what proves them.
+- The program's generated `entry()` runs in a plain `cargo test`. With no accounts, an unknown
+  8-byte name answers `Custom(101)` (InstructionFallbackNotFound) before any account is read; the
+  same name on the build that has the instruction answers `Custom(102)` (InstructionDidNotDeserialize)
+  when it takes arguments and `Custom(3005)` (AccountNotEnoughKeys) when it takes none. That
+  difference is a unit test that an instruction is gone.
+- One blank line added at the top of the range program's `lib.rs` changed its release build's
+  sha256 (`2249d8a6` to `188978e7`, the same 1,443,096 bytes): Anchor 1.0.2's `require!` and
+  `err!` record `file!()` and `line!()`. A comment edit that adds or removes lines is a new build
+  to check against the chain; one that keeps the line count gave the same bytes.
+- Rebuilding into the path a running local-chain sweep loads its program from (`CLMM_SO`) switched
+  builds in the middle of the sweep: each broken input starts a fresh validator from that path, and
+  the restore check (the same hash before and after) would have failed. Copy the build under test
+  to a read-only file named by its hash and point the sweep there.
+- One full suite run against the build before the fix is a better red record than one run per
+  check, but only if a fix check that the old build passes through leaves nothing behind. The
+  opener's reward on the old range build would have filled a reward slot two later checks use, so
+  the try runs on a pool opened only for it. Run that way, round 1's build failed exactly the ten fix
+  checks of 109 and nothing else.
+
+---
+
 ## 2026-11-03: the guards rewrite only what they are told to, a program edit can fail a site test, and red-first needs no red commit in CI
 
 **Believed:** `node solana/guards/provenance.mjs --regenerate <clones>` re-derives a copy's whole
@@ -78,14 +127,12 @@ of the delta.
   the two runs. About 2 minutes per build and 8 seconds per test run. Split a table-driven test
   into one `it` per row first: in one `it`, the first failing row hides whether the rest would
   have failed too.
-- A red run in a second copy of the same workspace can run the FIRST copy's test binary. For
-  #1113's hand-over rule, the fixed and unfixed copies shared one `CARGO_TARGET_DIR`, and both
-  were made before the first build. `cargo test` in the unfixed copy passed 26 of 26, though it
-  had lost the check. `target/debug/deps` held one test binary for both copies, and the unfixed
-  sources, copied before the fixed build, looked older than it. After touching the unfixed
-  sources, cargo printed `Compiling raydium-cp-swap (…/unfixed/…)` and the two guards failed. The
-  program builds were sound, since each built in its own copy's `target/`. Give each copy its own
-  target dir, or touch its sources, and check for that `Compiling` line before trusting a pass.
+- The file-time trap in the range-pool entry above also hits `cargo test`, and there it fakes a
+  red run. For #1113's hand-over rule, a fixed and an unfixed copy shared one `CARGO_TARGET_DIR`
+  and were both made before the first build: the unfixed copy's `cargo test` reused the fixed
+  copy's test binary and passed 26 of 26, though it had lost the check. After touching its
+  sources, cargo printed `Compiling raydium-cp-swap (…/unfixed/…)` and the two guards failed.
+  Look for that line in every red run.
 - With Node 24, `ts-mocha` loads a `.ts` test as an ES module, because Node now strips types
   itself. Then `import { BN } from "@coral-xyz/anchor"` fails with "Named export 'BN' not found".
   `NODE_OPTIONS=--no-experimental-strip-types` hands the file back to ts-node.
