@@ -1,10 +1,11 @@
 /**
- * What wakes the keeper between checks: the chain telling it a watched account changed. One
- * websocket to the RPC, one `accountSubscribe` per watched vault (our pools' and the outside
- * pools'). A change ends the wait at once; without one, the wait ends on its timer, so a socket
- * that is down or slow only makes the keeper as slow as it was with the timer alone. Free: no
- * Jupiter call, and the public RPC serves websockets.
+ * What wakes the keeper between checks: the chain telling it a watched account changed, or a
+ * trade landed in a listened-to outside pool. One websocket to the RPC: an `accountSubscribe` per
+ * watched vault, a `logsSubscribe` per outside pool (keeper/streams.ts). Either ends the wait at
+ * once; without one, the wait ends on its timer, so a socket that is down or slow only makes the
+ * keeper as slow as it was with the timer alone.
  */
+import { tradeLanded, type StreamPool } from './streams';
 
 /** The little of a WebSocket this needs (Node's global one, or a test's). */
 export interface SocketLike {
@@ -17,10 +18,12 @@ export interface SocketLike {
 }
 
 export interface Wake {
-  /** Watch these accounts from now on; the same set again changes nothing. */
-  watch(accounts: readonly string[]): void;
-  /** Wait up to `ms`: 'change' as soon as a watched account changes (or one already did since the last wait), else 'time'. */
+  /** Watch these accounts, and listen for trades in these pools, from now on; the same again changes nothing. */
+  watch(accounts: readonly string[], pools?: readonly StreamPool[]): void;
+  /** Wait up to `ms`: 'change' as soon as a watched account changes or a pool trades (or one already did since the last wait), else 'time'. */
   wait(ms: number): Promise<'change' | 'time'>;
+  /** The coins whose outside pool traded since this was last asked. */
+  moved(): string[];
   close(): void;
 }
 
@@ -45,15 +48,22 @@ export function accountWake(opts: {
   const setTimer = opts.setTimer ?? ((f, ms) => setTimeout(f, ms));
   const clearTimer = opts.clearTimer ?? ((t) => clearTimeout(t as ReturnType<typeof setTimeout>));
   let accounts: string[] = [];
+  let pools: StreamPool[] = [];
   let socket: SocketLike | null = null;
   let changed = false;
+  const moved = new Set<string>();
   let waiter: (() => void) | null = null;
   let closed = false;
   let reopen: unknown = null;
   let saidDown = false;
 
+  const wakeUp = () => {
+    changed = true;
+    waiter?.();
+  };
+
   const open = () => {
-    if (closed || !accounts.length) return;
+    if (closed || (!accounts.length && !pools.length)) return;
     let s: SocketLike;
     try {
       s = opts.socket(opts.url);
@@ -63,17 +73,39 @@ export function accountWake(opts: {
     }
     socket = s;
     const watching = accounts;
+    const listening = pools;
+    // A pool's trades arrive under the subscription number the RPC answered its request with.
+    const asked = new Map<number, StreamPool>();
+    const subs = new Map<number, StreamPool>();
     s.onopen = () => {
       saidDown = false;
       watching.forEach((a, i) =>
         s.send(JSON.stringify({ jsonrpc: '2.0', id: i + 1, method: 'accountSubscribe', params: [a, { encoding: 'base64', commitment: 'confirmed' }] })),
       );
+      listening.forEach((p, i) => {
+        const id = watching.length + i + 1;
+        asked.set(id, p);
+        s.send(JSON.stringify({ jsonrpc: '2.0', id, method: 'logsSubscribe', params: [{ mentions: [p.pool] }, { commitment: 'confirmed' }] }));
+      });
       keepAlive(s);
     };
     s.onmessage = (e) => {
-      if (typeof e.data !== 'string' || !e.data.includes('"accountNotification"')) return;
-      changed = true;
-      waiter?.();
+      if (typeof e.data !== 'string') return;
+      if (e.data.includes('"accountNotification"')) return wakeUp();
+      let m: { id?: unknown; result?: unknown; method?: unknown; params?: { subscription?: unknown; result?: { value?: unknown } } };
+      try {
+        m = JSON.parse(e.data);
+      } catch {
+        return;
+      }
+      if (m.method === 'logsNotification') {
+        const p = typeof m.params?.subscription === 'number' ? subs.get(m.params.subscription) : undefined;
+        if (!p || !tradeLanded(m.params?.result?.value, p.program)) return;
+        moved.add(p.mint);
+        return wakeUp();
+      }
+      const p = typeof m.id === 'number' ? asked.get(m.id) : undefined;
+      if (p && typeof m.result === 'number') subs.set(m.result, p);
     };
     s.onerror = () => {};
     s.onclose = () => {
@@ -116,10 +148,13 @@ export function accountWake(opts: {
   };
 
   return {
-    watch(next) {
+    watch(next, nextPools = []) {
       const sorted = [...new Set(next)].sort();
-      if (sorted.length === accounts.length && sorted.every((a, i) => a === accounts[i])) return;
+      const byPool = [...new Map(nextPools.map((p) => [p.pool, p])).values()].sort((a, b) => (a.pool < b.pool ? -1 : a.pool > b.pool ? 1 : 0));
+      const same = (x: unknown[], y: unknown[]) => JSON.stringify(x) === JSON.stringify(y);
+      if (same(sorted, accounts) && same(byPool, pools)) return;
       accounts = sorted;
+      pools = byPool;
       shut();
       if (reopen !== null) {
         clearTimer(reopen);
@@ -144,6 +179,11 @@ export function accountWake(opts: {
           resolve('change');
         };
       });
+    },
+    moved() {
+      const out = [...moved];
+      moved.clear();
+      return out;
     },
     close() {
       closed = true;

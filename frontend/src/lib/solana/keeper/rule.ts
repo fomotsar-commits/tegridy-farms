@@ -66,6 +66,41 @@ export function capUsd(s: Pick<RuleSettings, 'maxTradeUsd' | 'lighthouseProven'>
   return s.lighthouseProven ? s.maxTradeUsd : Math.min(s.maxTradeUsd, SAFE_CAP_USD);
 }
 
+/**
+ * The rule as the running robot publishes it on its gap screen (`/state.json`, KEEPER_SCREEN_PORT):
+ * its settings as read at its start, whether the Lighthouse check was proven, and whether it
+ * borrows SOL past its float inside a trip (KEEPER_FLASH_LOANS, keeper/flashLoan.ts). The scanner
+ * reads it back (`robotRule`), so it judges and sizes trips with the robot's own numbers, however
+ * the scanner itself was started. The robot sizes a trip through two outside pools by the
+ * scanner's size, so a scanner on other numbers holds those trips to ITS cap.
+ */
+export interface PublishedRule extends RuleSettings {
+  flashLoans: boolean;
+}
+
+/** The rule's fields only, for the robot's page: none of its other settings. */
+export function publishedRule(s: PublishedRule): PublishedRule {
+  return { maxTradeUsd: s.maxTradeUsd, minProfitUsd: s.minProfitUsd, microLamports: s.microLamports, lighthouseProven: s.lighthouseProven, flashLoans: s.flashLoans };
+}
+
+/** The rule block of the robot's page, read back; why not, when it is missing or not what the robot writes. */
+export function robotRule(page: unknown): PublishedRule | string {
+  const block: unknown = page !== null && typeof page === 'object' ? (page as { rule?: unknown }).rule : undefined;
+  if (block === null || typeof block !== 'object') return 'the robot’s page does not give its settings (a robot started on an older build does not)';
+  const o = block as Record<string, unknown>;
+  const positive = (k: string): number | null => {
+    const v = o[k];
+    return typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : null;
+  };
+  const maxTradeUsd = positive('maxTradeUsd');
+  const minProfitUsd = positive('minProfitUsd');
+  const microLamports = positive('microLamports');
+  if (maxTradeUsd === null || minProfitUsd === null || microLamports === null) return 'the robot’s page gives a cap, floor or fee that is not a positive number';
+  const { lighthouseProven, flashLoans } = o;
+  if (typeof lighthouseProven !== 'boolean' || typeof flashLoans !== 'boolean') return 'the robot’s page does not say yes or no to the Lighthouse check and to loans';
+  return { maxTradeUsd, minProfitUsd, microLamports, lighthouseProven, flashLoans };
+}
+
 /** A trip's network fee in lamports at `units` of compute: the signature fee plus the priority fee. */
 export function tripFeeLamports(microLamports: number, units = MAX_TRIP_UNITS): number {
   return BASE_FEE_LAMPORTS + Math.ceil((units * microLamports) / 1e6);
@@ -205,9 +240,13 @@ export function rankTrips<T extends { judged: Judged }>(trips: readonly T[], by:
   return [...trips].sort((p, q) => Number(q.judged.takes) - Number(p.judged.takes) || key(q) - key(p));
 }
 
-/** Token-2022 extensions the robot never trades through: each can take coins back, stop them, or change what arrives. */
+/**
+ * Token-2022 extensions the robot never trades through: each can take coins back, stop them, or
+ * run code on a transfer. A transfer fee is not among them: it is a known cut, fixed for two
+ * epochs once set, that the robot counts (keeper/plan.ts `poolProblem`), and the Lighthouse check
+ * undoes any trip it leaves under the floor (owner, 2026-11-06: GROYPER's 3% fee, "take this").
+ */
 const REFUSED_EXTENSIONS: ReadonlyMap<number, string> = new Map([
-  [EXTENSION.TransferFeeConfig, 'it keeps a fee out of every transfer'],
   [EXTENSION.DefaultAccountState, 'new accounts of it can start frozen'],
   [EXTENSION.NonTransferable, 'it cannot be transferred'],
   [EXTENSION.PermanentDelegate, 'a permanent delegate can take it from any account'],

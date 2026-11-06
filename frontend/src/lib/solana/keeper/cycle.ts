@@ -15,11 +15,15 @@ import { quoteOwnPool } from '../cpswap/read';
 import { decodeRpcAccount, getMultipleAccounts, getTokenAccountsByOwner, type RawAccount } from '../lp/accounts';
 import type { PoolView } from '../lp/poolFinder';
 import { PRICE_IDS_MAX, arbitrage, listPools, marketPriceIds, readMarketPrices, rowTokenFee, tokenDecimalsOf } from '../lp/poolList';
-import { SOL_QUOTE, type QuoteCoin } from '../lp/quotes';
+import { SOL_QUOTE, USDC_QUOTE, type QuoteCoin } from '../lp/quotes';
 import { readTokenSafety, type TokenSafety } from '../lp/tokenSafety';
+import type { TransferFee } from '../lp/transferFee';
 import type { GapSeen, Skip } from './gaps';
 import { atLeastCheck } from './lighthouse';
-import { MAX_TRIP_UNITS, tokenGate, type TripBans } from './rule';
+import { MAX_TRIP_UNITS, coinBounds, tokenGate, type TripBans } from './rule';
+import { KAMINO_LOOKUP_TABLE, flashBorrowIx, flashFee, flashRepayIx, loanFor } from './flashLoan';
+import { jitoTip, jitoTipIx, pickTipAccount, type JitoOutcome } from './jito';
+import type { OutsideTake } from './takes';
 import { refusedVenues, type JupiterApi, type JupiterQuote, type SwapInstructions } from './jupiterApi';
 import { OUTSIDE_POOLS, outsideUsd, readOutsidePools, screenUsd, type Anchors, type OutsidePool } from './outside';
 import {
@@ -29,6 +33,7 @@ import {
   NEW_ACCOUNT_RENT,
   decodeJupiterRoute,
   dustSaleProblem,
+  isKeeperCoin,
   jupiterFloor,
   jupiterLegProblem,
   lamportsInCoin,
@@ -40,7 +45,9 @@ import {
   planFor,
   poolProblem,
   priceStep,
+  routeHeldTo,
   simulationProblem,
+  viaOrder,
   type KeeperLimits,
   type LoopLeg,
   type Plan,
@@ -63,10 +70,14 @@ export interface KeeperIo {
   indexFetch: typeof fetch;
   /** Signs and sends; absent on a dry run, which stops after the test run. */
   send?: (tx: VersionedTransaction) => Promise<{ signature: string; outcome: 'confirmed' | 'reverted' | 'unknown' }>;
+  /** Signs and sends through Jito as a bundle (keeper/jito.ts); absent unless sending and KEEPER_JITO. 'lost': it never landed. */
+  sendJito?: (tx: VersionedTransaction) => Promise<{ signature: string; outcome: JitoOutcome }>;
   /** Told of every sent trip, with what it really did once it confirmed. */
   record?: (r: TripRecord) => void;
   /** Pools whose sent trips the chain refused twice in a day: no trip through them for a day. */
   bans?: TripBans;
+  /** Trips between two outside pools the scanner test-ran lately (keeper/takes.ts); absent: none are tried. */
+  takes?: () => Promise<OutsideTake[]>;
   log: (line: string) => void;
 }
 
@@ -90,6 +101,18 @@ export interface KeeperSettings extends KeeperLimits {
   dustMinUsd: number;
   /** Outside pools whose reserves, read from the chain, price their coin in place of Jupiter's listed price (keeper/outside.ts). */
   outsidePools: readonly string[];
+  /**
+   * Borrow inside the trip from Kamino (keeper/flashLoan.ts) when a SOL trip is bigger than the
+   * keeper's float, so it is sized to the gap and the cap, not to what the keeper holds
+   * (KEEPER_FLASH_LOANS; off by default). The fee is counted in the floor.
+   */
+  flashLoans: boolean;
+  /**
+   * Send each SOL trip through Jito as a bundle with a tip inside it, at most 30% of its test-run
+   * gain and added to its floor (keeper/jito.ts; KEEPER_JITO, off by default): a race lost never
+   * lands and costs nothing. USDC trips go the usual way: the tip is paid in SOL.
+   */
+  jito: boolean;
 }
 
 export const DEFAULT_SETTINGS: Omit<KeeperSettings, keyof KeeperLimits | 'raydiumPrograms'> = {
@@ -98,12 +121,14 @@ export const DEFAULT_SETTINGS: Omit<KeeperSettings, keyof KeeperLimits | 'raydiu
   payNewAccountRent: false,
   dustMinUsd: 1,
   outsidePools: OUTSIDE_POOLS,
+  flashLoans: false,
+  jito: false,
 };
 
 /** One sent trip, for the keeper's earnings log. `gained`/`lamportsSpent` are null when it did not confirm. */
 export interface TripRecord {
   at: string;
-  kind: 'jupiter' | 'own-pools' | 'dust';
+  kind: 'jupiter' | 'own-pools' | 'outside' | 'dust';
   pool: string;
   name: string;
   coin: QuoteCoin;
@@ -146,7 +171,7 @@ const MAX_DUST_SALES = 5;
 /** A leftover sale's minimum must be at least this share of the coin's listed worth. */
 const DUST_FLOOR_OF_WORTH = 0.9;
 type Refused = { names: string[]; programs: Set<string> };
-type Tried = 'sent' | 'unsure' | Skip;
+export type Tried = 'sent' | 'unsure' | Skip;
 type Outcome = 'none' | Tried;
 /** Whether the trip went out: anything else is a reason it did not. */
 const wentOut = (o: Outcome) => o === 'sent' || o === 'unsure';
@@ -241,6 +266,13 @@ export async function runCycle(io: KeeperIo, s: KeeperSettings): Promise<CycleRe
     return empty(pools);
   }
   const usable = pools.filter((v) => problemOf(v, safety) === null);
+  // The token's transfer fee as read; an unread one never got past problemOf.
+  const feeOf = (v: PoolView): TransferFee | null => {
+    const f = rowTokenFee(v, safety.get(v.tokenMint) ?? null);
+    return f === 'unread' ? null : f;
+  };
+  // Trips through our pools alone price each leg without a transfer fee: only fee-free pools.
+  const feeFree = usable.filter((v) => feeOf(v) === null);
   let gaps = 0;
   let sent = 0;
   // Pools a sent trip has moved: their read is old until the next pass.
@@ -257,9 +289,11 @@ export async function runCycle(io: KeeperIo, s: KeeperSettings): Promise<CycleRe
   let loops = 0;
   const stop = () => stopForUnsure(io, { pools: pools.length, gaps, sent, watch: watchOf(pools, outside), looked, seen, loops });
 
-  // 1. Between our own pools of one pair: both fees stay with the venue.
-  for (const [i, a] of usable.entries()) {
-    for (const b of usable.slice(i + 1)) {
+  // 1. Between our own pools of one pair: both fees stay with the venue. Only a pair priced in a
+  //    coin the keeper holds: a trip starts in the pool's own coin.
+  for (const [i, a] of feeFree.entries()) {
+    for (const b of feeFree.slice(i + 1)) {
+      if (!isKeeperCoin(a.quote.mint)) continue;
       if (a.tokenMint !== b.tokenMint || a.quote.mint !== b.quote.mint || moved.has(a.address) || moved.has(b.address)) continue;
       if (chainNow === null) continue;
       try {
@@ -273,7 +307,7 @@ export async function runCycle(io: KeeperIo, s: KeeperSettings): Promise<CycleRe
 
   // 1b. Round three of our own pools (BAYLA / SOL, BAYLA / USDC, USDC / SOL): no Jupiter call, every fee stays here.
   if (chainNow !== null) {
-    for (const loop of ownLoops(usable)) {
+    for (const loop of ownLoops(feeFree)) {
       if (loop.some((l) => moved.has(l.view.address))) continue;
       loops++;
       const name = loopName(loop, safety);
@@ -292,7 +326,8 @@ export async function runCycle(io: KeeperIo, s: KeeperSettings): Promise<CycleRe
     looked.push(view.address);
     const at = Date.now();
     const name = nameOf(view, safety);
-    const arb = arbitrage(view, prices.usd, chainNow, null);
+    const fee = feeOf(view);
+    const arb = arbitrage(view, prices.usd, chainNow, fee);
     if (!arb) continue;
     gaps++;
     // A gap under the floor even at the listed price is no gap to the gap log.
@@ -320,7 +355,9 @@ export async function runCycle(io: KeeperIo, s: KeeperSettings): Promise<CycleRe
       }
     };
     try {
-      const o = await jupiterTrip(io, s, view, plan, chainNow, prices.usd, refused, name);
+      const o = plan.via
+        ? await viaTrip(io, s, view, plan, chainNow, refused, name, fee)
+        : await jupiterTrip(io, s, view, plan, chainNow, prices.usd, refused, name, fee);
       note(o);
       remember(o);
       if (counted(o, view)) return stop();
@@ -334,12 +371,41 @@ export async function runCycle(io: KeeperIo, s: KeeperSettings): Promise<CycleRe
       // Too many calls: the keyless allowance is the whole PC's, so the rest of this pass asks nothing.
       if (/^Jupiter \S+ answered 429/.test(said)) {
         io.log('Jupiter says too many calls: no more Jupiter asks this pass');
-        break;
+        return { pools: pools.length, gaps, sent, watch: watchOf(pools, outside), looked, seen, loops };
+      }
+    }
+  }
+
+  // 3. Between two pools that are not ours, as the scanner found and test-ran them: our pools
+  //    first, these after, a few a pass (up to four Jupiter calls each).
+  if (io.takes) {
+    let takes: OutsideTake[] = [];
+    try {
+      takes = await io.takes();
+    } catch (e) {
+      io.log(`Scanner not read (${e instanceof Error ? e.message : String(e)}): no trips between outside pools this pass`);
+    }
+    for (const t of takes.slice(0, MAX_OUTSIDE_TRIPS)) {
+      const route = `outside ${t.coinMint} ${t.legs[0].pool} ${t.legs[1].pool}`;
+      const before = jupiterSaidNo.get(route);
+      if (before && Date.now() < before.until) continue;
+      const name = `${t.tokenMint}, buy in ${t.legs[0].pool}, sell in ${t.legs[1].pool}`;
+      try {
+        const o = await outsideTrip(io, s, t, prices.usd, refused, name);
+        if (o === 'quote-short' || o === 'no-route') jupiterSaidNo.set(route, { key: route, until: Date.now() + QUOTE_SHORT_KEEP_MS, outcome: o });
+        if (counted(o)) return stop();
+      } catch (e) {
+        const said = e instanceof Error ? e.message : String(e);
+        io.log(`${name}: stopped, ${said}`);
+        if (/^Jupiter \S+ answered 429/.test(said)) break;
       }
     }
   }
   return { pools: pools.length, gaps, sent, watch: watchOf(pools, outside), looked, seen, loops };
 }
+
+/** Trips between two outside pools tried a pass, at most. */
+const MAX_OUTSIDE_TRIPS = 2;
 
 /**
  * Gaps Jupiter said no to, by pool: what the gap looked like then, and until when that answer
@@ -433,14 +499,21 @@ function accountsFor(owner: PublicKey, view: PoolView) {
   const { pool } = view.snapshot;
   const coinMint = new PublicKey(view.quote.mint);
   const tokenMint = new PublicKey(view.tokenMint);
+  // Each side's token program as the pool names it: BAYLA, a pool's coin, is Token-2022.
+  const coinProgram = new PublicKey(view.quoteIsToken0 ? pool.token0Program : pool.token1Program);
   const tokenProgram = new PublicKey(view.quoteIsToken0 ? pool.token1Program : pool.token0Program);
-  const coinAta = getAssociatedTokenAddressSync(coinMint, owner, true, TOKEN_PROGRAM_ID);
+  const coinAta = getAssociatedTokenAddressSync(coinMint, owner, true, coinProgram);
   const tokenAta = getAssociatedTokenAddressSync(tokenMint, owner, true, tokenProgram);
   // The keeper's other float (USDC on a SOL trip, wrapped SOL on a USDC one): watched, never
   // touched. In the SOL/USDC pool the token IS that float, already watched as the token.
   const other = KEEPER_COINS.find((c) => c.mint !== view.quote.mint && c.mint !== view.tokenMint);
   const otherAta = other ? getAssociatedTokenAddressSync(new PublicKey(other.mint), owner, true, TOKEN_PROGRAM_ID) : tokenAta;
-  return { coinMint, tokenMint, tokenProgram, coinAta, tokenAta, otherAta, hasOther: !!other };
+  return { coinMint, coinProgram, tokenMint, tokenProgram, coinAta, tokenAta, otherAta, hasOther: !!other };
+}
+
+/** The pool's two transfer fees, token0's then token1's, for `quoteOwnPool`: the token's as read, none on the pool's own coin. */
+export function feesOf(view: PoolView, tokenFee: TransferFee | null): readonly [TransferFee | null, TransferFee | null] {
+  return view.quoteIsToken0 ? [null, tokenFee] : [tokenFee, null];
 }
 
 /** A swap in one of our pools, from the keeper's account of one side to its account of the other. */
@@ -459,8 +532,8 @@ export function ownSwap(owner: PublicKey, view: PoolView, input: 'coin' | 'token
     outputTokenAccount: coinIn ? a.tokenAta : a.coinAta,
     inputVault: coinIn ? coinVault : tokenVault,
     outputVault: coinIn ? tokenVault : coinVault,
-    inputTokenProgram: coinIn ? TOKEN_PROGRAM_ID : a.tokenProgram,
-    outputTokenProgram: coinIn ? a.tokenProgram : TOKEN_PROGRAM_ID,
+    inputTokenProgram: coinIn ? a.coinProgram : a.tokenProgram,
+    outputTokenProgram: coinIn ? a.tokenProgram : a.coinProgram,
     inputTokenMint: coinIn ? a.coinMint : a.tokenMint,
     outputTokenMint: coinIn ? a.tokenMint : a.coinMint,
     observationState: new PublicKey(pool.observationKey),
@@ -580,17 +653,21 @@ async function jupiterTrip(
   usd: ReadonlyMap<string, number>,
   refused: Refused,
   name: string,
+  tokenFee: TransferFee | null,
 ): Promise<Tried> {
   if (!view.config || chainNow === null) throw new Error('pool fees or the clock not read');
   const owner = io.owner;
   const amt = amountText(view.quote);
+  const fees = feesOf(view, tokenFee);
   const acc = accountsFor(owner, view);
   const before = await balances(io.rpc, [acc.coinAta, acc.tokenAta, acc.otherAta, owner]);
   if (before.coin <= 0n) {
     io.log(`${name}: skipped, the keeper holds no ${view.quote.symbol}`);
     return 'no-coin';
   }
-  if (before.coin < plan.coinIn) {
+  // Past the float: a loan inside the trip when loans are on (SOL only), else a smaller trip.
+  const loan = loanFor(plan.coinMint, plan.coinIn, before.coin, s.flashLoans);
+  if (before.coin < plan.coinIn && loan === 0n) {
     // A smaller trip than the gap allows still pays on x·y = k; the checks below say if it does not.
     io.log(`${name}: the gap takes ${amt(plan.coinIn)}, the keeper holds ${amt(before.coin)}: a smaller trip`);
     plan = { ...plan, coinIn: before.coin };
@@ -600,13 +677,13 @@ async function jupiterTrip(
     io.log(`${name}: skipped, no SOL price to count the new token account’s rent`);
     return 'no-sol-price';
   }
-  plan = { ...plan, minProfit: plan.minProfit + rent };
+  plan = { ...plan, minProfit: plan.minProfit + rent + flashFee(loan) };
   const need = plan.coinIn + plan.minProfit;
   const legExpect = { owner, refused: refused.programs, untouchable: acc.hasOther ? [acc.otherAta] : [] };
   let legs: TransactionInstruction[];
   let lookupTables: string[];
   if (plan.side === 'buy') {
-    const own = quoteOwnPool(view.snapshot, view.config, plan.coinMint, plan.coinIn, Number(chainNow));
+    const own = quoteOwnPool(view.snapshot, view.config, plan.coinMint, plan.coinIn, Number(chainNow), fees);
     if (!own || own.outAmount <= 0n) throw new Error('our pool would not quote the buy');
     const q = await quoteWithRoom(io, s, { inputMint: plan.tokenMint, outputMint: plan.coinMint, amount: own.outAmount, slippageBps: s.slippageBps, excludeDexes: refused.names });
     const bps = lastJupiterSlippage(BigInt(q.outAmount), need, s.slippageBps);
@@ -628,7 +705,7 @@ async function jupiterTrip(
       jupiterLegProblem(x.swap, { ...legExpect, inputMint: acc.coinMint, inputProgram: TOKEN_PROGRAM_ID, outputMint: acc.tokenMint, outputProgram: acc.tokenProgram, inAmount: plan.coinIn, minOut: routeFloor(x) }),
     );
     const tokensIn = routeFloor(si);
-    const own = quoteOwnPool(view.snapshot, view.config, plan.tokenMint, tokensIn, Number(chainNow));
+    const own = quoteOwnPool(view.snapshot, view.config, plan.tokenMint, tokensIn, Number(chainNow), fees);
     const ownMin = own ? lastPoolMinimum(own.outAmount, need, s.slippageBps) : null;
     if (ownMin === null) {
       io.log(`${name}: skipped, our pool pays ${amt(own?.outAmount ?? 0n)} for what ${amt(plan.coinIn)} buys on Jupiter: under the profit floor`);
@@ -648,11 +725,225 @@ async function jupiterTrip(
     before,
     legs,
     lookupTables,
+    loan,
     floor: done.minProfit,
     verdict: (c) => simulationProblem(c, done),
     says: (gained) =>
-      `${done.side === 'buy' ? 'buy here, sell on Jupiter' : 'buy on Jupiter, sell here'}, ${amt(done.coinIn)} in, test run gains ${amt(gained)} (floor ${amt(done.minProfit)})`,
+      `${done.side === 'buy' ? 'buy here, sell on Jupiter' : 'buy on Jupiter, sell here'}, ${amt(done.coinIn)} in${borrowed(loan, amt)}, test run gains ${amt(gained)} (floor ${amt(done.minProfit)})`,
   });
+}
+
+/**
+ * A pool priced in a coin the keeper does not hold (BAYLA): the trip starts and ends in SOL, and
+ * Jupiter carries it to our pool and back, in one transaction. Buying (the token is cheap here):
+ * SOL → BAYLA on Jupiter, BAYLA → token here, token → SOL on Jupiter. Selling: SOL → token on
+ * Jupiter, token → BAYLA here, BAYLA → SOL on Jupiter. Each leg spends exactly the least the leg
+ * before must pay, so neither middle account can shrink (the owner's own BAYLA, kept, sits in the
+ * keeper's BAYLA account), and the last leg's minimum and the Lighthouse check hold the SOL to its
+ * floor. The last leg is quoted before any swap is built: a trip that falls short costs two
+ * Jupiter calls, not four.
+ */
+async function viaTrip(
+  io: KeeperIo,
+  s: KeeperSettings,
+  view: PoolView,
+  plan: Plan,
+  chainNow: bigint | null,
+  refused: Refused,
+  name: string,
+  tokenFee: TransferFee | null,
+): Promise<Tried> {
+  if (!view.config || chainNow === null || !plan.via) throw new Error('pool fees or the clock not read');
+  const owner = io.owner;
+  const { pool } = view.snapshot;
+  const amt = amountText(SOL_QUOTE);
+  const programOf = (mint: string) => new PublicKey(pool.token0Mint === mint ? pool.token0Program : pool.token1Program);
+  const ata = (mint: string, program: PublicKey) => getAssociatedTokenAddressSync(new PublicKey(mint), owner, true, program);
+  // `a`: what Jupiter buys with SOL, our pool's input. `b`: what our pool pays out, Jupiter's to sell.
+  const [a, b] = viaOrder(plan.side, plan.via, view.tokenMint);
+  const coinMint = new PublicKey(SOL_QUOTE.mint);
+  const coinAta = ata(SOL_QUOTE.mint, TOKEN_PROGRAM_ID);
+  const aAta = ata(a, programOf(a));
+  const bAta = ata(b, programOf(b));
+  // The keeper's USDC: no leg may name it.
+  const usdcAta = ata(USDC_QUOTE.mint, TOKEN_PROGRAM_ID);
+  const before = await balances(io.rpc, [coinAta, aAta, bAta, owner]);
+  if (before.coin <= 0n) {
+    io.log(`${name}: skipped, the keeper holds no SOL`);
+    return 'no-coin';
+  }
+  let coinIn = plan.coinIn;
+  const loan = loanFor(SOL_QUOTE.mint, coinIn, before.coin, s.flashLoans);
+  if (before.coin < coinIn && loan === 0n) {
+    io.log(`${name}: the gap takes ${amt(coinIn)}, the keeper holds ${amt(before.coin)}: a smaller trip`);
+    coinIn = before.coin;
+  }
+  // Rent for each middle account the trip opens. Two new ones cost more SOL than a trip may spend.
+  const opens = (before.tokenExists ? 0 : 1) + (before.otherExists ? 0 : 1);
+  if (opens > 1) {
+    io.log(`${name}: skipped, it would open two new token accounts`);
+    return 'no-plan';
+  }
+  const minProfit = plan.minProfit + (opens && !s.payNewAccountRent ? NEW_ACCOUNT_RENT : 0n) + flashFee(loan);
+  const need = coinIn + minProfit;
+  const q1 = await quoteDirectFirst(io, s, { inputMint: SOL_QUOTE.mint, outputMint: a, amount: coinIn, slippageBps: s.slippageBps, excludeDexes: refused.names });
+  // Our pool spends exactly the least the first leg must pay.
+  const aIn = jupiterFloor(BigInt(q1.outAmount), q1.slippageBps);
+  const own = quoteOwnPool(view.snapshot, view.config, a, aIn, Number(chainNow), feesOf(view, tokenFee));
+  if (!own || own.outAmount <= 0n) throw new Error('our pool would not quote the middle swap');
+  const q3 = await quoteDirectFirst(io, s, { inputMint: b, outputMint: SOL_QUOTE.mint, amount: own.outAmount, slippageBps: s.slippageBps, excludeDexes: refused.names });
+  const bps = lastJupiterSlippage(BigInt(q3.outAmount), need, s.slippageBps);
+  if (bps === null) {
+    io.log(`${name}: skipped, ${amt(coinIn)} through ${view.quote.symbol} comes back as ${amt(BigInt(q3.outAmount))}: under the profit floor`);
+    return 'quote-short';
+  }
+  const minOut = jupiterFloor(BigInt(q3.outAmount), bps);
+  const si1 = await jupiterLeg(io.jupiter, owner, q1, (x) =>
+    jupiterLegProblem(x.swap, {
+      owner, refused: refused.programs, untouchable: [usdcAta, bAta],
+      inputMint: coinMint, inputProgram: TOKEN_PROGRAM_ID, outputMint: new PublicKey(a), outputProgram: programOf(a), inAmount: coinIn, minOut: aIn,
+    }),
+  );
+  const si3 = await jupiterLeg(io.jupiter, owner, { ...q3, slippageBps: bps, otherAmountThreshold: minOut.toString() }, (x) =>
+    jupiterLegProblem(x.swap, {
+      owner, refused: refused.programs, untouchable: [usdcAta, aAta],
+      inputMint: new PublicKey(b), inputProgram: programOf(b), outputMint: coinMint, outputProgram: TOKEN_PROGRAM_ID, inAmount: own.outAmount, minOut,
+    }),
+  );
+  return sendChecked(io, s, {
+    name,
+    kind: 'jupiter',
+    pool: view.address,
+    coin: SOL_QUOTE,
+    coinIn,
+    // Watched: the SOL grows by the floor; neither middle account shrinks.
+    accounts: { coinAta, tokenAta: aAta, otherAta: bAta, tokenMint: new PublicKey(a), tokenProgram: programOf(a), coinMint },
+    before,
+    // sendChecked opens the SOL's and the first middle coin's accounts; the second's is opened here.
+    legs: [
+      createAssociatedTokenAccountIdempotentInstruction(owner, bAta, owner, new PublicKey(b), programOf(b)),
+      si1.swap,
+      ownSwap(owner, view, a === view.quote.mint ? 'coin' : 'token', aIn, own.outAmount),
+      si3.swap,
+    ],
+    lookupTables: [...new Set([...si1.lookupTables, ...si3.lookupTables])],
+    loan,
+    floor: minProfit,
+    verdict: (c) => simulationProblem(c, { minProfit }),
+    says: (gained) =>
+      `${plan.side === 'buy' ? `buy here with ${view.quote.symbol}, sell on Jupiter` : `buy on Jupiter, sell here for ${view.quote.symbol}`}, ${amt(coinIn)} in${borrowed(loan, amt)}, test run gains ${amt(gained)} (floor ${amt(minProfit)})`,
+  });
+}
+
+/**
+ * A trip between two pools that are not ours, as the scanner found and test-ran it: buy the token
+ * through one outside exchange, sell it through another, in one transaction. Each leg is a Jupiter
+ * swap held to its exchange and to one pool of it (`routeHeldTo`), the two in different pools; the
+ * token passes the shared gate (keeper/rule.ts) on a fresh read of its mint; the size is the
+ * scanner's, held to the rule's cap and the keeper's float; the second leg spends exactly the least
+ * the first must pay, and its minimum and the Lighthouse check hold the coin to its floor. The
+ * second leg is quoted before either swap is built: a trip that falls short costs two calls.
+ */
+async function outsideTrip(io: KeeperIo, s: KeeperSettings, t: OutsideTake, usd: ReadonlyMap<string, number>, refused: Refused, name: string): Promise<Tried> {
+  const coin = KEEPER_COINS.find((c) => c.mint === t.coinMint);
+  if (!coin || isKeeperCoin(t.tokenMint)) return 'no-plan';
+  const [buy, sell] = t.legs;
+  if (refused.programs.has(buy.program) || refused.programs.has(sell.program)) {
+    io.log(`${name}: skipped, a leg is on a refused exchange`);
+    return 'no-route';
+  }
+  const labels = await io.jupiter.labels();
+  const [buyDex, sellDex] = [labels[buy.program], labels[sell.program]];
+  if (!buyDex || !sellDex) {
+    io.log(`${name}: skipped, Jupiter does not trade one of its exchanges`);
+    return 'no-route';
+  }
+  const safety = (await readTokenSafety(io.rpc, [t.tokenMint])).get(t.tokenMint);
+  const gate = tokenGate(safety);
+  const facts = safety?.kind === 'read' ? safety.facts : null;
+  if (gate || !facts) {
+    io.log(`${name}: skipped, ${gate ?? 'its mint was not read'}`);
+    return 'no-plan';
+  }
+  const owner = io.owner;
+  const amt = amountText(coin);
+  const coinMint = new PublicKey(coin.mint);
+  const tokenMint = new PublicKey(t.tokenMint);
+  const tokenProgram = facts.program === 'token-2022' ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
+  const coinAta = getAssociatedTokenAddressSync(coinMint, owner, true, TOKEN_PROGRAM_ID);
+  const tokenAta = getAssociatedTokenAddressSync(tokenMint, owner, true, tokenProgram);
+  const otherAta = getAssociatedTokenAddressSync(new PublicKey(KEEPER_COINS.find((c) => c.mint !== coin.mint)!.mint), owner, true, TOKEN_PROGRAM_ID);
+  const bounds = coinBounds(coin, usd.get(coin.mint), usd.get(SOL_QUOTE.mint), s);
+  if (typeof bounds === 'string') {
+    io.log(`${name}: skipped, ${bounds}`);
+    return 'no-sol-price';
+  }
+  const before = await balances(io.rpc, [coinAta, tokenAta, otherAta, owner]);
+  if (before.coin <= 0n) {
+    io.log(`${name}: skipped, the keeper holds no ${coin.symbol}`);
+    return 'no-coin';
+  }
+  // The scanner's size, never past the rule's cap, nor past what the keeper holds unless a loan
+  // carries the rest (SOL, loans on): on x·y = k a smaller trip still pays.
+  const sized = t.inRaw < bounds.cap ? t.inRaw : bounds.cap;
+  const loan = loanFor(coin.mint, sized, before.coin, s.flashLoans);
+  const coinIn = loan > 0n || sized <= before.coin ? sized : before.coin;
+  const rent = rentToEarn(s, before.tokenExists, coin, usd);
+  if (rent === null || coinIn <= 0n) return 'no-sol-price';
+  const minProfit = bounds.floor + rent + flashFee(loan);
+  const need = coinIn + minProfit;
+  const held = (dex: string) => ({ slippageBps: s.slippageBps, excludeDexes: [], dexes: [dex], onlyDirectRoutes: true, maxAccounts: s.maxAccounts });
+  const q1 = await io.jupiter.quote({ inputMint: coin.mint, outputMint: t.tokenMint, amount: coinIn, ...held(buyDex) });
+  // The second leg spends exactly the least the first must pay.
+  const tokensIn = jupiterFloor(BigInt(q1.outAmount), q1.slippageBps);
+  const q2 = await io.jupiter.quote({ inputMint: t.tokenMint, outputMint: coin.mint, amount: tokensIn, ...held(sellDex) });
+  const amm1 = q1.routePlan.map((r) => r.swapInfo?.ammKey);
+  const amm2 = q2.routePlan.map((r) => r.swapInfo?.ammKey);
+  if (amm1.length === 1 && amm1[0] === amm2[0]) {
+    io.log(`${name}: skipped, Jupiter put both legs in one pool`);
+    return 'no-route';
+  }
+  const bps = lastJupiterSlippage(BigInt(q2.outAmount), need, s.slippageBps);
+  if (bps === null) {
+    io.log(`${name}: skipped, ${amt(coinIn)} comes back as ${amt(BigInt(q2.outAmount))} through ${buyDex} then ${sellDex}: under the profit floor`);
+    return 'quote-short';
+  }
+  const minOut = jupiterFloor(BigInt(q2.outAmount), bps);
+  const legExpect = { owner, refused: refused.programs, untouchable: [otherAta] };
+  const si1 = await jupiterLeg(io.jupiter, owner, q1, (x) =>
+    routeHeldTo(x.swap, buy.program, amm1) ??
+    jupiterLegProblem(x.swap, { ...legExpect, inputMint: coinMint, inputProgram: TOKEN_PROGRAM_ID, outputMint: tokenMint, outputProgram: tokenProgram, inAmount: coinIn, minOut: tokensIn }),
+  );
+  const si2 = await jupiterLeg(io.jupiter, owner, { ...q2, slippageBps: bps, otherAmountThreshold: minOut.toString() }, (x) =>
+    routeHeldTo(x.swap, sell.program, amm2) ??
+    jupiterLegProblem(x.swap, { ...legExpect, inputMint: tokenMint, inputProgram: tokenProgram, outputMint: coinMint, outputProgram: TOKEN_PROGRAM_ID, inAmount: tokensIn, minOut }),
+  );
+  return sendChecked(io, s, {
+    name,
+    kind: 'outside',
+    // The pools Jupiter used, for the ban list: two refusals within a day leave either alone for a day.
+    pool: `${amm1[0]} → ${amm2[0]}`,
+    coin,
+    coinIn,
+    accounts: { coinAta, tokenAta, otherAta, tokenMint, tokenProgram, coinMint },
+    before,
+    legs: [si1.swap, si2.swap],
+    lookupTables: [...new Set([...si1.lookupTables, ...si2.lookupTables])],
+    loan,
+    floor: minProfit,
+    verdict: (c) => simulationProblem(c, { minProfit }),
+    says: (gained) => `buy through ${buyDex}, sell through ${sellDex}, ${amt(coinIn)} in${borrowed(loan, amt)}, test run gains ${amt(gained)} (floor ${amt(minProfit)})`,
+  });
+}
+
+/** A quote through one pool when Jupiter has one, so two Jupiter legs fit one transaction; else `quoteWithRoom`'s. */
+async function quoteDirectFirst(io: KeeperIo, s: KeeperSettings, p: Omit<Parameters<JupiterApi['quote']>[0], 'maxAccounts' | 'onlyDirectRoutes'>): Promise<JupiterQuote> {
+  try {
+    return await io.jupiter.quote({ ...p, maxAccounts: s.maxAccounts, onlyDirectRoutes: true });
+  } catch (e) {
+    if (!(e instanceof Error && /NO_ROUTES_FOUND/.test(e.message))) throw e;
+    return quoteWithRoom(io, s, p);
+  }
 }
 
 /**
@@ -700,10 +991,14 @@ export interface Trip {
   before: Balances;
   legs: TransactionInstruction[];
   lookupTables: string[];
+  /** Lamports borrowed from Kamino inside the trip (SOL trips only, keeper/flashLoan.ts); absent or 0: none. */
+  loan?: bigint;
+  /** Jito's tip, paid inside the trip (SOL trips only, keeper/jito.ts) and added to its floor; absent: none. */
+  tip?: { lamports: bigint; account: string };
   /**
-   * The least the trip must gain, in the coin's base units (the network fee, $0.01, and any new
-   * account's rent). The last instruction, a Lighthouse check, holds the coin account to what it
-   * held before plus this, or the chain undoes the whole trip.
+   * The least the trip must gain, in the coin's base units (the network fee, $0.01, any new
+   * account's rent, and any loan's fee). The last instruction, a Lighthouse check, holds the coin
+   * account to what it held before plus this, or the chain undoes the whole trip.
    */
   floor: bigint;
   /** Why the test run's result must not be sent, or null. */
@@ -713,32 +1008,50 @@ export interface Trip {
 
 /**
  * Every instruction of one trip, in order: the compute budget, the two coin accounts (opened if
- * missing), the swaps, and LAST the Lighthouse check that the coin account holds at least
- * `held` + the trip's floor. Starting and ending in the same coin account, in one transaction.
+ * missing), any loan's borrow, the swaps, the loan's repayment, any Jito tip, and LAST the
+ * Lighthouse check that the coin account holds at least `held` + the trip's floor (which counts
+ * the loan's fee) + the tip. Starting and ending in the same coin account, in one transaction.
  */
 export function tripInstructions(
   owner: PublicKey,
-  t: Pick<Trip, 'accounts' | 'legs' | 'floor'>,
+  t: Pick<Trip, 'accounts' | 'legs' | 'floor' | 'loan' | 'tip'>,
   microLamports: number,
   units: number,
   held: bigint,
 ): TransactionInstruction[] {
   const { coinAta, tokenAta, tokenMint, tokenProgram, coinMint } = t.accounts;
-  return [
+  const head = [
     ComputeBudgetProgram.setComputeUnitLimit({ units }),
     ComputeBudgetProgram.setComputeUnitPrice({ microLamports }),
     createAssociatedTokenAccountIdempotentInstruction(owner, coinAta, owner, coinMint, TOKEN_PROGRAM_ID),
     createAssociatedTokenAccountIdempotentInstruction(owner, tokenAta, owner, tokenMint, tokenProgram),
+  ];
+  const loan = t.loan ?? 0n;
+  if (loan > 0n && coinMint.toBase58() !== SOL_QUOTE.mint) throw new Error('a loan is only taken on a SOL trip');
+  // The tip is plain SOL out of the wallet, so the wrapped-SOL account must grow by it on top of the floor.
+  const tip = t.tip?.lamports ?? 0n;
+  if (t.tip && coinMint.toBase58() !== SOL_QUOTE.mint) throw new Error('a Jito tip is only paid on a SOL trip');
+  // Kamino's repayment names the borrow by its place in the transaction.
+  const borrowAt = head.length;
+  return [
+    ...head,
+    ...(loan > 0n ? [flashBorrowIx(owner, coinAta, loan)] : []),
     ...t.legs,
-    atLeastCheck(coinAta, held + t.floor),
+    ...(loan > 0n ? [flashRepayIx(owner, coinAta, loan, borrowAt)] : []),
+    ...(t.tip ? [jitoTipIx(owner, tip, t.tip.account)] : []),
+    atLeastCheck(coinAta, held + t.floor + tip),
   ];
 }
 
+/** " (0.5 SOL of it borrowed)", or nothing without a loan. */
+const borrowed = (loan: bigint, amt: (raw: bigint) => string) => (loan > 0n ? ` (${amt(loan)} of it borrowed)` : '');
+
 /**
  * Build the trip, test-run it, judge what the test run did to the keeper's accounts, and send it
- * only when that passes (and only live). A confirmed trip's real result is read back for the log.
+ * only when that passes (and only live), through Jito when that is on (keeper/jito.ts). A
+ * confirmed trip's real result is read back for the log. Exported for its test.
  */
-async function sendChecked(io: KeeperIo, s: KeeperSettings, t: Trip): Promise<Tried> {
+export async function sendChecked(io: KeeperIo, s: KeeperSettings, t: Trip): Promise<Tried> {
   const owner = io.owner;
   const { coinAta, tokenAta, otherAta } = t.accounts;
   const keys = [coinAta, tokenAta, otherAta, owner];
@@ -749,12 +1062,13 @@ async function sendChecked(io: KeeperIo, s: KeeperSettings, t: Trip): Promise<Tr
     return 'banned';
   }
   if (t.floor <= 0n) throw new Error('a trip with no floor is never built');
-  const alts = await lookupTablesOf(io.rpc, t.lookupTables);
+  // A loan's accounts sit in Kamino's lookup table, so they fit beside a Jupiter route.
+  const alts = await lookupTablesOf(io.rpc, (t.loan ?? 0n) > 0n ? [...new Set([...t.lookupTables, KAMINO_LOOKUP_TABLE])] : t.lookupTables);
   // `held`: the coin account's amount the trip starts from. The Lighthouse check is last: it
   // holds the account to `held` + the floor once every swap has run, or the trip is undone.
-  const build = async (units: number, held: bigint) => {
+  const build = async (units: number, held: bigint, tip?: Trip['tip']) => {
     const { blockhash } = ((await io.rpc('getLatestBlockhash', [{ commitment: 'confirmed' }])) as { value: { blockhash: string } }).value;
-    const instructions = tripInstructions(owner, t, s.microLamports, units, held);
+    const instructions = tripInstructions(owner, { ...t, tip }, s.microLamports, units, held);
     return new VersionedTransaction(new TransactionMessage({ payerKey: owner, recentBlockhash: blockhash, instructions }).compileToV0Message(alts));
   };
 
@@ -769,15 +1083,31 @@ async function sendChecked(io: KeeperIo, s: KeeperSettings, t: Trip): Promise<Tr
     io.log(`${t.name}: test run not sent, ${problem}`);
     return 'test-checks';
   }
-  io.log(`${t.name}: ${t.says(change.coinAfter - change.coinBefore)}`);
+  const gainedInTest = change.coinAfter - change.coinBefore;
+  io.log(`${t.name}: ${t.says(gainedInTest)}`);
+  // Jito: a SOL trip only (the tip is SOL), sized from this test run's gain and the plain SOL it
+  // leaves; the floor rises by it.
+  const tipLamports = s.jito && t.coin.mint === SOL_QUOTE.mint ? jitoTip(gainedInTest, t.floor, change.lamportsAfter) : null;
+  const viaJito = tipLamports !== null && (!io.send || io.sendJito !== undefined);
+  if (viaJito) io.log(`${t.name}: ${io.send ? 'goes' : 'would go'} through Jito with a tip of ${tipLamports} lamports, added to the floor`);
   if (!io.send) return 'not-sent';
   // Read right before the send, so a top-up of the keeper's wallet meanwhile is no part of it:
   // the Lighthouse check counts from this amount.
   const atSend = await balances(io.rpc, keys);
-  const tx = await build(Math.ceil(sim.units * 1.2) + 10_000, atSend.coin);
-  const r = await io.send(tx);
+  const units = Math.ceil(sim.units * 1.2) + 10_000;
+  const tip = viaJito ? { lamports: tipLamports, account: pickTipAccount() } : undefined;
+  const r = tip && io.sendJito ? await io.sendJito(await build(units, atSend.coin, tip)) : await io.send(await build(units, atSend.coin));
   if (r.outcome === 'reverted') io.bans?.reverted(pools, Date.now());
   io.log(`${t.name}: sent ${r.signature}: ${r.outcome}`);
+  if (r.outcome === 'lost') {
+    // Jito never put it in a block: no fee, no tip, nothing moved. Logged, at no cost to the day's cap.
+    try {
+      io.record?.({ at: new Date().toISOString(), kind: t.kind, pool: t.pool, name: t.name, coin: t.coin, coinIn: t.coinIn, gained: 0n, lamportsSpent: 0n, signature: r.signature, outcome: r.outcome });
+    } catch (e) {
+      io.log(`${t.name}: the lost race was not logged: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    return 'race-lost';
+  }
   let gained: bigint | null = null;
   // An unknown ending counts as the most a trip may cost, so the daily cap never counts it as free.
   let lamportsSpent: bigint | null = r.outcome === 'unknown' ? MAX_LAMPORTS_SPENT : null;
@@ -785,8 +1115,10 @@ async function sendChecked(io: KeeperIo, s: KeeperSettings, t: Trip): Promise<Tr
   if (r.outcome !== 'unknown') {
     try {
       const after = await balances(io.rpc, keys);
-      gained = after.coin - atSend.coin;
-      const spent = atSend.lamports - after.lamports;
+      // A tip paid came out of the gain, not the float: neither the gain nor the day's fees count it.
+      const paid = r.outcome === 'confirmed' ? (tip?.lamports ?? 0n) : 0n;
+      gained = after.coin - atSend.coin - paid;
+      const spent = atSend.lamports - after.lamports - paid;
       lamportsSpent = spent < 0n ? 0n : spent > MAX_LAMPORTS_SPENT ? MAX_LAMPORTS_SPENT : spent;
     } catch {
       // Unread: counted as the most a trip may cost.
