@@ -107,7 +107,7 @@ const facts = (): WalletFacts => ({
   wsol: { exists: false, amount: 0n },
   coin: null,
   lpAccountExists: false,
-  rents: { walletFloor: 890_880n, tokenAccount165: 2_039_280n, neverRefunded: 40_000_000n },
+  rents: { walletFloor: 890_880n, tokenAccount165: 2_039_280n, neverRefunded: 40_000_000n, nameRecord: 13_733_800n },
 });
 
 function readers(o: Partial<LpReaders> = {}): LpReaders {

@@ -1877,6 +1877,7 @@ describe('opening a pool: the review', () => {
     locked: { quote: 1_414n, token: 7n },
     createFee: 150_000_000n, feeReceiver: KEY(8),
     rents: { neverRefunded: 40_000_000n, lpAccount: 2_039_280n },
+    nameRecord: { rent: 3_733_800n, metaplexFee: 10_000_000n },
     price: { state: 'agrees', pool: 0.2, reference: 0.195, against: 'outside', diff: 0.2 / 0.195 - 1 },
     tokenWarnings: [{ code: 'mint-authority', text: 'Its creator can still mint more.' }],
     unwrapsWsol: true, wsolHeldBefore: 0n, notices: ['A spender is approved on your token account.'], warnings: [], priceGap: null, ...over,
@@ -1904,6 +1905,10 @@ describe('opening a pool: the review', () => {
     );
     expect(value('Account deposits that never come back')).toBe(
       '0.04 SOL (the pool, its price record, its share token and its two vaults; none can be closed)',
+    );
+    // How the money moves: Metaplex's fee and the record's own deposit, both the opener's, none to the team.
+    expect(value('Name record of the pool share')).toBe(
+      "0.0137338 SOL: 0.01 SOL is Metaplex's fee for making it, 0.0037338 SOL stays in the record for good. It gives the share its name and picture in wallets; the team gets none of it",
     );
     expect(value('Your pool-share account')).toBe('0.00203928 SOL (it comes back if you close that account later)');
     expect(value('You get')).toBe('0.070710578 pool shares, exactly');
@@ -2023,6 +2028,7 @@ describe('opening a pool: the review wraps sentences between words', () => {
       put: { quote: 1_000_000_000n, token: 5_000_000n }, supply: 70_710_678n, lpAmount: 70_710_578n, lpDecimals: 9,
       locked: { quote: 1_414n, token: 7n }, createFee: 150_000_000n, feeReceiver: KEY(8),
       rents: { neverRefunded: 40_000_000n, lpAccount: 2_039_280n },
+      nameRecord: { rent: 3_733_800n, metaplexFee: 10_000_000n },
       price: { state: 'agrees', pool: 0.2, reference: 0.195, against: 'outside', diff: 0.2 / 0.195 - 1 },
       tokenWarnings: [], unwrapsWsol: true, wsolHeldBefore: 0n, notices: [], warnings: [], priceGap: null,
     };
@@ -2035,6 +2041,7 @@ describe('opening a pool: the review wraps sentences between words', () => {
       'You put in',
       'Fee to open the pool',
       'Account deposits that never come back',
+      'Name record of the pool share',
       'Your pool-share account',
       'You get',
       'Locked in the pool forever',

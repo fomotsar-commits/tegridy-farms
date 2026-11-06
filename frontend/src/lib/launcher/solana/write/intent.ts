@@ -53,10 +53,12 @@ import {
   migrateToAmmIx,
 } from '../curve/ix';
 import {
+  IX_CREATE_LP_METADATA,
   IX_DEPOSIT,
   IX_INITIALIZE,
   IX_SWAP_BASE_INPUT,
   IX_WITHDRAW,
+  LP_NAME_EDITOR,
   deriveAmmConfig,
   deriveAuthority,
   deriveLpMint,
@@ -562,7 +564,7 @@ function cpswap(ix: TransactionInstruction, ctx: IntentContext): IntentStep {
       case 'lp-withdraw':
         return poolWithdraw(ix, ctx);
       case 'lp-create':
-        return poolInitialize(ix, ctx);
+        return startsWith(ix.data, IX_CREATE_LP_METADATA) ? poolName(ix, ctx) : poolInitialize(ix, ctx);
       default:
         return noPoolInstructionFor(ctx);
     }
@@ -742,6 +744,36 @@ function poolInitialize(ix: TransactionInstruction, ctx: PoolIntent): IntentStep
   if (problem) refuse('the pool would keep more than 0.1% of what you put in forever');
   if (openTime !== 0n) refuse('the pool would open for trading later, not now');
   return { kind: 'pool-create', pool: p.address, ammConfig: tier1, init0, init1 };
+}
+
+const CREATE_LP_METADATA_KEY_COUNT = 9;
+
+/**
+ * cp-swap `create_lp_metadata`, sent right after the opening: the new pool share's name
+ * record. It takes no arguments, so the caller chooses no word. Every account is pinned:
+ * the signer pays, the pool is the one being opened and the token its own share token,
+ * the record is Metaplex's own address for that token, and the editor is the one the
+ * program compiles in, the team's vault.
+ */
+function poolName(ix: TransactionInstruction, ctx: PoolIntent): IntentStep {
+  if (ix.data.length !== IX_CREATE_LP_METADATA.length) refuse('the call that names the pool share carries data it never takes');
+  expectKeyCount(ix, CREATE_LP_METADATA_KEY_COUNT, 'naming the pool share');
+  const cp = ctx.cfg.cpSwapProgram;
+  const pool = ctx.pins.address;
+  const lpMint = deriveLpMint(cp, pool);
+  const checks: Array<[number, PublicKey, string]> = [
+    [0, ctx.signer, 'the pool share is named and paid for by someone else'],
+    [1, deriveAuthority(cp), 'naming the pool share names the wrong pool authority'],
+    [2, pool, 'it names the share of a different pool than the one opened'],
+    [3, lpMint, 'it names a different token than the new pool share'],
+    [4, metadataPda(lpMint), "the name record is written somewhere other than the pool share's own record address"],
+    [5, LP_NAME_EDITOR, "the name record would be editable by someone other than the team's vault"],
+    [6, METAPLEX_TOKEN_METADATA_ID, 'naming the pool share calls the wrong program'],
+    [7, SYSTEM_PROGRAM_ID, 'naming the pool share names the wrong system program'],
+    [8, SYSVAR_RENT_PUBKEY, 'naming the pool share names the wrong system program'],
+  ];
+  for (const [i, want, why] of checks) if (!key(ix, i).equals(want)) refuse(why);
+  return { kind: 'pool-name', pool, lpMint };
 }
 
 // ── range positions ──────────────────────────────────────────────────────────
@@ -1016,6 +1048,13 @@ export function decodeIntent(
       // shows one, and the balance check is sized for one.
       const own = OWN_STEP[ctx.kind];
       if (steps.filter((s) => s.kind === own.step).length !== 1) refuse(own.refuse);
+      // An opening names its new pool share once, after the pool exists in the same
+      // transaction; no other liquidity change names anything.
+      const names = steps.filter((s) => s.kind === 'pool-name').length;
+      if (ctx.kind === 'lp-create' && (names !== 1 || steps.findIndex((s) => s.kind === 'pool-name') < steps.findIndex((s) => s.kind === 'pool-create'))) {
+        refuse('it does not name the new pool share exactly once, right after opening the pool');
+      }
+      if (ctx.kind !== 'lp-create' && names !== 0) refuse('it names a pool share, and only an opening does');
     }
     // One swap per transaction, for the same reasons.
     if (isSwapIntent(ctx) && steps.filter((s) => s.kind === 'pool-swap').length !== 1) refuse('it does not hold exactly one swap in the pool');

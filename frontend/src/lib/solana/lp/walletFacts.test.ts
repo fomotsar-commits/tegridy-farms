@@ -106,6 +106,8 @@ describe('readWalletFacts', () => {
     expect(opened.kind).toBe('ok');
     if (opened.kind !== 'ok') return;
     expect(opened.rents.neverRefunded).toBe(rentFor(637) + rentFor(4075) + rentFor(82) + rentFor(165) + rentFor(165));
+    // And what naming the new share costs: the record's deposit and Metaplex's fee.
+    expect(opened.rents.nameRecord).toBe(rentFor(607) + 10_000_000n);
     const plain = await readWalletFacts(fakeRpc(w.accounts), a);
     expect(plain.kind === 'ok' && Object.keys(plain.rents).sort()).toEqual(['tokenAccount165', 'walletFloor']);
   });
@@ -296,6 +298,7 @@ describe('readWalletFacts: a pool paired with USDC or BAYLA', () => {
       walletFloor: rentFor(0),
       tokenAccount165: rentFor(165),
       neverRefunded: rentFor(637) + rentFor(4075) + rentFor(82) + rentFor(165) + rentFor(165),
+      nameRecord: rentFor(607) + 10_000_000n,
       coinAccount: rentFor(COIN_ACCOUNT_SIZE[name]!),
     });
   });

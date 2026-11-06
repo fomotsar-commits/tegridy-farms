@@ -142,8 +142,11 @@ describe('an opening at a one-off address through the shared send path', () => {
     const o = await submitPrepared(
       W(chain),
       walletSigner((tx) => {
-        const ix = openingIx(tx);
-        ix.keys[3] = { ...ix.keys[3]!, isSigner: false };
+        // A signature belongs to an account for the whole transaction, and the call that
+        // names the share lists the pool too (as a signer, once read back from bytes): so the
+        // pool's signature is dropped only when no instruction asks for it any more.
+        const pool = openingIx(tx).keys[3]!.pubkey;
+        for (const ix of tx.instructions) ix.keys = ix.keys.map((k) => (k.pubkey.equals(pool) ? { ...k, isSigner: false } : k));
         // A legacy Transaction keeps every key it already holds a signature slot for as a
         // signer, so the wallet's new message must start without those slots.
         tx.signatures = [];

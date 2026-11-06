@@ -1,6 +1,8 @@
 import { PublicKey, SystemProgram, SYSVAR_RENT_PUBKEY, TransactionInstruction } from '@solana/web3.js';
 import {
   IX_INITIALIZE,
+  IX_CREATE_LP_METADATA,
+  LP_NAME_EDITOR,
   IX_DEPOSIT,
   IX_WITHDRAW,
   IX_SWAP_BASE_INPUT,
@@ -83,6 +85,13 @@ export const INITIALIZE_ACCOUNTS: AccountSpec[] = [
   A('create_pool_fee', false, true), A('observation_state', false, true),
   A('token_program'), A('token_0_program'), A('token_1_program'),
   A('associated_token_program'), A('system_program'), A('rent'),
+];
+
+/** `CreateLpMetadata` — lib.rs, the fork's one added instruction. */
+export const CREATE_LP_METADATA_ACCOUNTS: AccountSpec[] = [
+  A('payer', true, true), A('authority'), A('pool_state'), A('lp_mint'),
+  A('metadata', false, true), A('update_authority'), A('metadata_program'),
+  A('system_program'), A('rent'),
 ];
 
 /* ───────────────────────────── encoding ─────────────────────────────────── */
@@ -270,6 +279,33 @@ export function initializeIx(a: InitializeArgs): TransactionInstruction {
     programId: a.programId,
     keys: ks,
     data: encode(IX_INITIALIZE, [a.initAmount0, a.initAmount1, a.openTime]),
+  });
+}
+
+export interface CreateLpMetadataArgs {
+  programId: PublicKey;
+  /** Pays the record's rent and Metaplex's creation fee. */
+  payer: PublicKey;
+  pool: PublicKey;
+  /** The record's address: Metaplex's PDA ["metadata", Metaplex, lp mint]. The program does not check it; Metaplex does. */
+  record: PublicKey;
+  /** Metaplex Token Metadata. */
+  metadataProgram: PublicKey;
+}
+
+/**
+ * `create_lp_metadata`: the share token's name record, with the words fixed in the
+ * program and the editor it compiles in. Sent right after `initialize` in the same
+ * transaction, so a pool this site opens has its share named from its first block.
+ */
+export function createLpMetadataIx(a: CreateLpMetadataArgs): TransactionInstruction {
+  return new TransactionInstruction({
+    programId: a.programId,
+    keys: keys(CREATE_LP_METADATA_ACCOUNTS, [
+      a.payer, deriveAuthority(a.programId), a.pool, deriveLpMint(a.programId, a.pool),
+      a.record, LP_NAME_EDITOR, a.metadataProgram, SystemProgram.programId, SYSVAR_RENT_PUBKEY,
+    ]),
+    data: Buffer.from(IX_CREATE_LP_METADATA),
   });
 }
 
