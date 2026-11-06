@@ -61,7 +61,8 @@ const TOUCH_WIDTHS = [
 // at all (navConfig.ts explains why that section alone is not a SectionHost), so
 // the `toBeGreaterThan(1)` guard below would fail on a count of 0 — reporting a
 // page that is correct by design as a page that changed shape.
-for (const path of ['/nft-finance', '/trust', '/launch', '/lore', '/contracts', '/history', '/liquidity', '/earn']) {
+// The launch door (/launch) has no strip (island answer twenty-six): the Launch section's is on the simulator.
+for (const path of ['/nft-finance', '/trust', '/launch-simulator', '/lore', '/contracts', '/history', '/liquidity', '/earn']) {
   for (const vp of TOUCH_WIDTHS) {
     test(`${path} section tabs clear the ${FLOOR}px touch floor at ${vp.name}`, async ({
       page,

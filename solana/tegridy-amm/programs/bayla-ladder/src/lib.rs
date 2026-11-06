@@ -74,8 +74,10 @@
 //! - **I-5/I-6** every cumulative counter is u128, every accrual saturates, and
 //!   narrowing happens once — in `math::payable`, at the transfer.
 //! - **I-7** a closed position is DELETED (`close = owner`). There is no `relock` and no
-//!   permissionless `decay`; climbing the ladder is withdraw-then-stake. All three
-//!   criticals in the EVM design review began with a record that outlived its close.
+//!   permissionless `decay`; a MATURED position climbs the ladder by withdraw-then-stake.
+//!   All three criticals in the EVM design review began with a record that outlived its
+//!   close. `extend_lock` (2026-10-29) lengthens a STILL-LOCKED position in place — it
+//!   closes and recreates nothing, so this invariant does not reach it.
 //! - **I-8** `saturating_sub` on every decrement, so a desynchronised ledger degrades
 //!   into a boost error and never a panic on the principal path.
 //! - **I-9** `position.weight <= pool.total_weighted` is checked before the accrual
@@ -98,7 +100,8 @@
 //!
 //! `pause`, `sweep_penalty` (to a treasury), `recover_tokens`, `relock`, permissionless
 //! `decay`/`kick`, `set_penalty_bps`, `set_ladder`, `close_pool`, and — load-bearing,
-//! see below — `close_user_stats`. Retaining the penalty
+//! see below — `close_user_stats`. (`extend_lock` is not `relock`: the owner signs it,
+//! it only ever lengthens a running lock, and it prices the new one from now.) Retaining the penalty
 //! in-pool removes an instruction, an address, and a whole class of admin discretion.
 //! The penalty and the ladder are compile-time constants: a stolen authority key can
 //! raise the cap (slowly, visibly), rotate itself, and declare the pool degraded —
@@ -327,6 +330,18 @@ fn debit_closed(pool: &mut Pool, user: &mut UserStats, position: &Position) {
     user.open_positions = user.open_positions.saturating_sub(1);
 }
 
+/// `math::ExtendRefusal` onto the program's error of the same name, one to one.
+fn extend_refusal(refusal: ExtendRefusal) -> LadderError {
+    match refusal {
+        ExtendRefusal::LockTooShort => LadderError::LockTooShort,
+        ExtendRefusal::LockTooLong => LadderError::LockTooLong,
+        ExtendRefusal::LockExpired => LadderError::LockExpired,
+        ExtendRefusal::LockNotExtended => LadderError::LockNotExtended,
+        ExtendRefusal::BoostWouldDrop => LadderError::BoostWouldDrop,
+        ExtendRefusal::Overflow => LadderError::Overflow,
+    }
+}
+
 fn pool_signer_seeds<'a>(mint: &'a Pubkey, nonce: &'a [u8; 1], bump: &'a [u8; 1]) -> [&'a [u8]; 4] {
     [POOL_SEED, mint.as_ref(), nonce, bump]
 }
@@ -518,6 +533,60 @@ pub mod bayla_ladder {
             nonce,
             amount: received,
             lock_secs,
+            weight,
+        });
+        Ok(())
+    }
+
+    /// Lengthen a still-locked position's lock IN PLACE, priced from now. The rules are
+    /// `math::extended_lock`'s: `TegridyStaking.extendLock`'s, plus "the weight may not
+    /// fall". Added 2026-10-29: holders on the one-year rung asked to move to four years,
+    /// and the only route was `early_exit` (up to 75% of principal) then `stake`.
+    ///
+    /// Not a `relock`, which stays on the deliberately-absent list: no record is closed or
+    /// recreated, so I-7 and the nonce coupling are untouched. It moves no tokens and is
+    /// handed no vault, so I-1 and I-12 cannot be reached from here. Principal, the
+    /// wallet's share and its position count do not change; only the weight and the end.
+    ///
+    /// The order is the one every weight change obeys: checkpoint the pool, settle this
+    /// position at its OLD weight, THEN write the new one. The other way round, the new
+    /// boost would be paid backwards over time already served at the old one.
+    pub fn extend_lock(ctx: Context<ExtendLock>, lock_secs: i64) -> Result<()> {
+        // AUDIT M-3, the reason `stake` reads it: in a degraded pool both early doors are
+        // free, so an extension would sell the 4.00x weight for no commitment at all.
+        require!(!ctx.accounts.pool.degraded, LadderError::PoolDegraded);
+        let now = Clock::get()?.unix_timestamp;
+        let (lock_end, weight) = extended_lock(
+            now,
+            ctx.accounts.position.lock_end,
+            ctx.accounts.position.amount,
+            ctx.accounts.position.weight,
+            lock_secs,
+        )
+        .map_err(extend_refusal)?;
+
+        checkpoint(&mut ctx.accounts.pool, now);
+        accrue_position(&ctx.accounts.pool, &mut ctx.accounts.position)?;
+
+        let pool = &mut ctx.accounts.pool;
+        let position = &mut ctx.accounts.position;
+        let previous_weight = position.weight;
+        // I-8: the decrement is floored like every other; the add cannot saturate (see
+        // `accrue_position_inner`'s bound on `total_weighted`).
+        pool.total_weighted = pool
+            .total_weighted
+            .saturating_sub(previous_weight)
+            .saturating_add(weight);
+        position.weight = weight;
+        position.lock_end = lock_end;
+
+        emit!(LockExtended {
+            pool: pool.key(),
+            owner: ctx.accounts.owner.key(),
+            nonce: position.nonce,
+            lock_secs,
+            lock_end,
+            previous_weight,
             weight,
         });
         Ok(())
@@ -962,6 +1031,36 @@ pub mod bayla_ladder {
         Ok(())
     }
 
+    /// Raise-only. Lifts the per-wallet limit (`max_wallet_principal`), which
+    /// `initialize_pool` writes and nothing else could change until this instruction
+    /// (owner decision 2026-10-27: 2,000,000 → 10,000,000 BAYLA on the live pool).
+    ///
+    /// Never lowers: a wallet already above a lowered limit could no longer add a
+    /// position, and the limit would stop meaning "your share" for the wallets inside it.
+    /// Never above `deposit_cap`: `initialize_pool` holds `max_wallet_principal <=
+    /// deposit_cap` (audit M-4) and `execute_cap_raise` only ever raises the right side.
+    ///
+    /// No program timelock, unlike `propose_cap_raise`: the authority is the Squads vault,
+    /// whose own 48 h time lock gates every call, and a higher limit moves no tokens. It
+    /// lets one wallet hold a larger share of the same reward stream; the rate, the
+    /// window and every open position are untouched. Adds no Pool fields.
+    pub fn raise_wallet_cap(ctx: Context<AuthorityOnly>, new_max: u64) -> Result<()> {
+        let pool = &mut ctx.accounts.pool;
+        require!(
+            new_max > pool.max_wallet_principal,
+            LadderError::CapCanOnlyRaise
+        );
+        require!(new_max <= pool.deposit_cap, LadderError::InvalidParameter);
+        let previous = pool.max_wallet_principal;
+        pool.max_wallet_principal = new_max;
+        emit!(WalletCapRaised {
+            pool: pool.key(),
+            previous_cap: previous,
+            new_cap: new_max,
+        });
+        Ok(())
+    }
+
     /// ONE-WAY. After this, the emergency hatch charges no penalty while locked.
     pub fn declare_degraded(ctx: Context<AuthorityOnly>) -> Result<()> {
         let pool = &mut ctx.accounts.pool;
@@ -1150,6 +1249,24 @@ pub struct Stake<'info> {
     pub stake_vault: Box<InterfaceAccount<'info, TokenAccount>>,
     pub token_program: Interface<'info, TokenInterface>,
     pub system_program: Program<'info, System>,
+}
+
+/// `extend_lock`. It moves no tokens, so it is handed no vault, no mint and no token
+/// program (I-12 by absence), and no `user_stats`: principal and the position count do
+/// not change.
+#[derive(Accounts)]
+pub struct ExtendLock<'info> {
+    pub owner: Signer<'info>,
+    #[account(mut)]
+    pub pool: Box<Account<'info, Pool>>,
+    #[account(
+        mut,
+        has_one = pool,
+        has_one = owner,
+        seeds = [POSITION_SEED, pool.key().as_ref(), owner.key().as_ref(), &position.nonce.to_le_bytes()],
+        bump = position.bump,
+    )]
+    pub position: Box<Account<'info, Position>>,
 }
 
 /// A reward-only path: it is handed the REWARD vault and nothing else (I-12).
@@ -1358,6 +1475,60 @@ mod layout_tests {
         // 14 instructions -> 15 with cancel_cap_raise needed no new error variants.
         // 2026-09-17: the rate guard added one, appended LAST.
         assert_eq!(LadderError::RewardRateWouldDecrease as u32 + 6000, 6028);
+        // 2026-10-29: extend_lock added three, appended LAST.
+        assert_eq!(LadderError::LockExpired as u32 + 6000, 6029);
+        assert_eq!(LadderError::LockNotExtended as u32 + 6000, 6030);
+        assert_eq!(LadderError::BoostWouldDrop as u32 + 6000, 6031);
+    }
+
+    /// EXTEND_LOCK SETTLES AT THE OLD WEIGHT BEFORE IT WRITES THE NEW ONE. Written the
+    /// other way round, the new boost is paid backwards over every second since the last
+    /// checkpoint — a 1-year holder moving to 4 years would collect ~3x on time already
+    /// served. It must also refuse a degraded pool (audit M-3: free doors + a 4.00x weight
+    /// = reward for no commitment) and use the STRICT accrual, never the hatch's.
+    #[test]
+    fn extend_lock_settles_before_it_reweights() {
+        let src = include_str!("lib.rs");
+        let start = src
+            .find("pub fn extend_lock")
+            .expect("extend_lock not found — this test must be re-anchored");
+        let body = &src[start
+            ..start
+                + src[start..]
+                    .find(
+                        "
+    }",
+                    )
+                    .expect("could not find the end of extend_lock")];
+        let at = |needle: &str| {
+            body.find(needle)
+                .unwrap_or_else(|| panic!("extend_lock lost `{needle}`:\n{body}"))
+        };
+        assert!(at("LadderError::PoolDegraded") < at("extended_lock("));
+        assert!(at("checkpoint(&mut ctx.accounts.pool, now)") < at("accrue_position(&ctx.accounts.pool"));
+        assert!(at("accrue_position(&ctx.accounts.pool") < at("position.weight = weight"));
+        assert!(at("accrue_position(&ctx.accounts.pool") < at("pool.total_weighted = pool"));
+        assert!(
+            !body.contains("accrue_position_lenient"),
+            "only the hatch may clamp a desynchronised ledger"
+        );
+    }
+
+    /// extend_lock moves no tokens, so its account list must stay free of every vault and
+    /// of the token program: I-12 holds there by absence, as it does for the hatch.
+    #[test]
+    fn extend_lock_is_handed_no_vault() {
+        let src = include_str!("lib.rs");
+        let start = src
+            .find("pub struct ExtendLock<'info>")
+            .expect("ExtendLock not found — re-anchor this test");
+        let block = &src[start..start + src[start..].find("\n}").expect("end of ExtendLock")];
+        for forbidden in ["vault", "token_program", "TokenAccount", "close ="] {
+            assert!(
+                !block.contains(forbidden),
+                "ExtendLock must not declare `{forbidden}`:\n{block}"
+            );
+        }
     }
 
     /// THE DEPLOYER GATE MUST NOT BE THE PROGRAM ITSELF (audit L-5).

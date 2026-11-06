@@ -29,6 +29,74 @@ stop and say so — a surprise is information.
 
 ---
 
+## 🔴 2026-11-05: NFT lending on Gondi's loan contract (about 0.01 ETH, one deploy and one database file from you)
+
+Your ask (2026-11-05): "do everything needed lets get this done" for collection loan offers on NFT Finance.
+Everything that can be done without you is done and waiting as drafts: the contracts (#1038), the site (#1039), and
+the loan shield with due-date alerts (#1127, built on #1039). Nothing is deployed yet. The first lending contract,
+`0x89BeB6cc0255B7465c01aA38a6f937efd345f14F`, never held an offer or a loan (read 2026-11-05: 0 offers, 0 loans,
+0 ETH), so nobody is left behind; the site now lists it as retired.
+
+**How the money moves.** A lender signs an offer of WETH against any NFT in a collection; the site keeps it in its
+offer book, and nothing moves until a borrower takes it. The borrower locks the NFT, gets the WETH, and pays it back
+plus interest for the days actually used. Lenders earn that interest. The venue takes 5% of the interest (500 basis
+points), paid to the treasury Safe `0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d` as the interest is paid. **There is no
+grace period: from the due second the lender can take the NFT** (a loan funded by several lenders goes to a 3-day
+auction instead). The contract is Gondi's v3.2, unchanged.
+
+**Who owns it.** The treasury Safe, your pick on 2026-11-05. For the loan contract and its liquidator that takes a
+second step two days after the deploy (step 6); until then your deployer wallet owns those two.
+
+| Step | When (UTC) | What | Who |
+|---|---|---|---|
+| ⬜ 1 | now | Send about 0.01 ETH to the deployer `0x14898258122C0740106391E6e8E4F17F3b6d456E`. It held 0.0013117 ETH on 2026-11-05. The deploy needs about 0.006 ETH (13,479,232 gas in the 2026-11-05 rehearsal, at forge's padded price); the rest covers a gas spike. | you |
+| ⬜ 2 | after step 1 | Deploy: the commands below, test first, then send. | you |
+| ⬜ 3 | after step 2 | A session checks the contracts on chain (same bytes as Gondi's, 500 basis points to the treasury, the Safe set as next owner), verifies them on Etherscan, puts the loan contract's address into the site, reruns the browser tests and pushes. | a session |
+| ⬜ 4 | any time | Run `frontend/supabase/migrations/030_nft_loan_offers.sql` in Supabase's SQL editor. It makes the table the offer book keeps offers in. Sessions can't run SQL on production. | you |
+| ⬜ 5 | after steps 3 and 4 | Merge #1038, then #1039, then #1127, each on your word (each merge is a production deploy). After each, a session reads the Vercel status. After #1039 it walks NFT Finance from the home page at phone width, and checks that MetaMask and Rabby show no scam warning on the offer-signing popup. | you, then a session |
+| ⬜ 6 | two days after step 2 | The treasury Safe calls `transferOwnership()` on the loan contract and on the liquidator (the deploy prints both addresses). A session prepares both transactions for the Safe; both signers sign. | you |
+
+**Before step 2: your keystore must be the deployer.**
+
+```powershell
+& "C:\Users\jimbo\.foundry\bin\cast.exe" wallet address --account deployer
+```
+
+You should see `0x14898258122C0740106391E6e8E4F17F3b6d456E`. Anything else: stop.
+
+**Step 2, test (sends nothing, asks for no password):**
+
+```powershell
+cd C:\Users\jimbo\dev\wt\nft-collection-offers\contracts; $env:MULTISIG="0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d"; $env:TREASURY="0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d"; $env:WETH="0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"; & "C:\Users\jimbo\.foundry\bin\forge.exe" script script/DeployGondiLending.s.sol --rpc-url https://ethereum-rpc.publicnode.com --sender 0x14898258122C0740106391E6e8E4F17F3b6d456E --skip test --skip "src/**"
+```
+
+You should see `Script ran successfully` and the line `MultiSourceLoan (the loan contract): 0x4f2b53DAE3edCf1B527c53d2C11A28ec5Ac6D630`.
+That address holds only while the deployer has sent nothing since 2026-11-05 (its next transaction number was 117);
+a different address is fine if it has sent something since, and the one the send prints is the one that counts.
+
+**Step 2, send (asks for your keystore password):**
+
+```powershell
+cd C:\Users\jimbo\dev\wt\nft-collection-offers\contracts; $env:MULTISIG="0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d"; $env:TREASURY="0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d"; $env:WETH="0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"; & "C:\Users\jimbo\.foundry\bin\forge.exe" script script/DeployGondiLending.s.sol --rpc-url https://ethereum-rpc.publicnode.com --account deployer --sender 0x14898258122C0740106391E6e8E4F17F3b6d456E --skip test --skip "src/**" --broadcast --slow
+```
+
+It sends one transaction at a time and prints every address at the end. Give a session that output. Its last lines
+say to put the address in `constants.ts`: ignore that, the site reads it from elsewhere (step 3). If the test fails, or
+the send stops partway, do not run it again (a second run deploys a second set): tell a session.
+
+**For the next session**
+- Branches: #1038 `feat/gondi-lending-contracts`, #1039 `feat/gondi-lending-site` (worktree
+  `C:\Users\jimbo\dev\wt\nft-collection-offers`), #1127 `feat/gondi-loan-shield` (based on #1039's branch).
+- The address goes in `GONDI_LOAN_ADDRESS` in `frontend/src/lib/gondi/loanOffer.js`. While it is zero, every page
+  says lending is not live yet, and three NFT Finance browser tests are red.
+- Then add the NFT lending row back to `frontend/src/pages/deployClaimHonesty.test.ts`, and move the CHANGELOG
+  lending line (now under 2026-10-28) to the day it ships.
+- After the deploy, check on chain: the bytes match Gondi's build (`contracts/vendor/gondi-v3.2/build.mjs`), the protocol fee is 500 basis points
+  to `0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d`, and `pendingOwner()` on the loan contract and the liquidator is
+  that Safe.
+
+---
+
 ## ✅ 2026-10-31: the Venue AMM page is live (handoff; nothing for you to do)
 
 Your ask (2026-10-30): bring the Venue AMM page "to cutting edge avantegarde level", make the arbitrage top tier, and put
@@ -108,6 +176,63 @@ enough for step 5 (about 63,000 gas) at that day's gas.
 ```powershell
 & "C:\Users\jimbo\.foundry\bin\cast.exe" send 0xcaDc93E96De58EA554c71ca609974625615E046D "pause()" --account deployer --rpc-url https://ethereum-rpc.publicnode.com
 ```
+
+---
+
+## 🔴 2026-11-04, 02:52 UTC: the pool undo (#24) ran by mistake. The redo is one proposal, with no undo
+
+Read on mainnet 2026-11-04 between 02:51 and 03:20 UTC. This section replaces what the Day 2 section
+below says about #22, #24 and the roll-back buffer's return.
+
+**What ran.** On 11-03 #23 (15:50:34), #25 (15:59:25), #26 (15:59:43) and #27 (16:08:01) executed
+and every check passed. On 11-04 member A pressed Execute in the Squads app on two more:
+- **#24, the pool undo, at 02:52:41 UTC** (transaction
+  `4dERffNjSiQZdZUGJMsF6cujCVP7C2zsuSfVdWh9TXUg8kfTnuESD4wAvoQxtmRy7wSjdm2Aid4wQGdVprzgfA5M`). The pool
+  program is back on the old build `88b98aa9`. **Anyone can again open a pool on the launch tier and
+  skip the venue's 0.15 SOL opening fee** (0 pools there at 03:00 UTC). Swaps and the 19 pools are
+  unaffected.
+- **#22, the range upgrade, at 02:52:50 UTC** (transaction
+  `5Z9mMkJBgyPejHQbWwV6pauJogMxKZrz7wzGghhf8JMQt64PXRNvjLC92LiCm2Zxtrw2UCGDN4DYk8Ndq3dVZLGt`), build
+  `1e896e1e`. Opening a range pool now costs 0.5 SOL, paid to the vault. It ran 3 h 33 min before the
+  seven-day notice ended (06:25 UTC); 0 range pools exist, so nobody paid it early.
+- No SOL went anywhere it shouldn't: both buffers' SOL (7.758 + 3.514) went back to the deploy
+  wallet `CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg`, which holds 15.032507881 SOL. The roll-back
+  buffer is gone, so its "return" proposal is no longer needed.
+
+The Squads app also made **#28, #29 and #30**, each "set the rent collector to the vault". #30 has both
+approvals and can execute from 2026-11-06 02:55:38 UTC. It is harmless, but when it executes every
+proposal that does not yet have both approvals goes stale: run it only after the redo below has both.
+#28 has one vote and can't run; #29 is rejected.
+
+**The rule from now on (this was the second time: #16 on 10-24 was the same undo).**
+- No undo is ever approved in advance. One proposal per change. If a new build breaks, a session
+  uploads the old build and you propose the undo then; it waits 48 hours like everything else.
+- Never press Execute in the Squads app. If no page is running, ask a session to start one.
+- At the end of every sitting a session reads the vault: every approved, not yet executed proposal
+  must be one you want to run. Anything else is cancelled that sitting.
+
+**The redo (pool program back to `1e55bcdc`).** The paying wallet already holds enough (3.69 SOL is
+parked and comes back at the execute); member A pays 0.0046 SOL for the proposal. Pack:
+`C:\Users\jimbo\solana-launch-release-2026-09-26\pool-program-upgrade-2026-10`, folder
+`owner-run\round-3-2026-11-04` (the preflight was run into it 03:05 UTC; its two REFUSED lines are
+member A's balance for the old four-proposal plan and #30, both covered above).
+1. Steps R4 to R8 of `RE-UPGRADE-2026-10-24.md`, with `round-3-2026-11-04` in place of
+   `round-2-2026-10-24`: make the buffer key, upload `cp_swap.upgrade-1e55bcdc.mainnet.so`, check
+   (`1e55bcdcb10c39ee…fd22`), hand it to the vault, check again.
+2. **Skip R9 to R11 (the roll-back upload) and the roll-back step on the page.**
+3. Page `proposer\serve.mjs` (http://127.0.0.1:5299/): member A picks **Upgrade the pool program** and
+   signs **proposal #31**; member B approves #31 the same night. Write down the time the page names.
+   ✅ **Done 2026-11-04:** upload buffer `AnhZDtyYYygWDac4qDdhwZgXYeroWdF7r5atsWvQzFpW` (`1e55bcdc`, checked
+   before and after the hand-over), #31 proposed by member A and approved by member B at 04:57:54 UTC
+   (transaction `5rTy4es1aHn8XKZ6jxtww7ffYjvUVzj4R4sKbVdLBWzazaKnX8YfRTMKTpDofiZrCvwDh11jYSXf1Mvz2GyiqmVh`).
+   **#31 can execute from 2026-11-06 04:57:54 UTC** (Thu 11-05, 9:57 pm MST). Read after the sitting:
+   the only approved, unexecuted proposals are #31, #30 (harmless, safe to run now), #18 (its buffer is
+   gone, so it can only fail) and #3 (stale, can never run).
+4. At that time: **Upgrade the pool program** only, **EXECUTE proposal #31**, then
+   `scripts\4-verify-after-upgrade.mjs --before ...\owner-run\round-3-2026-11-04\pools-before-upgrade.mainnet.json`
+   must end `RESULT: the upgrade is live and both pools are untouched.`
+5. The same hour: #1107 (it says `1e55bcdc` is live; it must not merge before). Until then the
+   registry's `88b98aa9` pin is right again.
 
 ---
 

@@ -27,7 +27,7 @@ export function VenueProgramCard() {
           the program&rsquo;s own name and contact text, comments, one added instruction and
           one added check. The instruction lets a pool&rsquo;s share token carry a name and a
           picture in wallets. Its caller chooses nothing: the name and the link are fixed in
-          the program. It cannot move pool funds. Whoever calls it pays a small one-time fee
+          the program. It has no way to move pool funds. Whoever calls it pays a small one-time fee
           for the record. The check keeps the launch fee tier for launches: opening a pool
           there the public way is refused, and a launch&rsquo;s graduation still opens its
           pool there.
@@ -43,7 +43,7 @@ export function VenueProgramCard() {
           gets them only through a program upgrade.
         </p>
         <p>
-          A browser cannot list pools itself: <code className="font-mono">getProgramAccounts</code> stays
+          A browser has no way to list pools itself: <code className="font-mono">getProgramAccounts</code> stays
           off our RPC proxy&rsquo;s allowlist as an unbounded scan. Our server runs that one scan,
           filtered to pools holding the token you look up, and returns addresses only; this page
           then reads and checks every one of those pools on chain itself.

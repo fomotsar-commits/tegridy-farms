@@ -159,8 +159,12 @@ export type PriceCheck =
   | { state: 'no-market'; of: 'token' | 'coin'; pool: number; detail: string }
   /** Not compared on purpose (the token is blocked, so nothing here will be deposited). */
   | { state: 'skipped'; pool: number | null; detail: string }
-  /** `hold`: the detail is the shared list's one-row hold ("Outside price not read for 12 min; adding waits"), said once. */
-  | { state: 'unread'; pool: number | null; detail: string; hold?: true };
+  /**
+   * `outside`: only the outside price is missing, and `detail` is its one row ("Outside price
+   * not read yet"). Intel, never a gate: the pool's own price is the truth of a deposit
+   * (answer twenty-seven withdrew twenty-four's hold). Without it, a check that could not run.
+   */
+  | { state: 'unread'; pool: number | null; detail: string; outside?: true };
 
 /**
  * The warning a `too-new` pool carries, on its card, on the Add form and on the review.
@@ -470,13 +474,14 @@ export function assessPool(input: {
       }
     }
   } else {
-    // The shared list's hold is one row, said in its own words (outsidePrice.ts fromShared).
-    const hold = reference?.kind === 'unread' && reference.hold === true;
-    price = { state: 'unread', pool: poolPrice, detail: reference?.detail ?? 'not asked', ...(hold ? { hold: true as const } : {}) };
+    // The outside price was not read: one row, in the shared list's words when it has them
+    // (sharedPrices.ts fromShared), and never a gate (answer twenty-seven).
+    const listed = reference?.kind === 'unread' && reference.row === true;
+    price = { state: 'unread', pool: poolPrice, detail: listed ? reference.detail : 'Outside price not read yet', outside: true };
   }
   if (price.state === 'empty-pool') refused.push('The pool is empty on one side, so it has no price.');
-  if (price.state === 'unread') {
-    unchecked.push(price.hold ? price.detail : isLaunchPool ? `We could not check its price (${price.detail}).` : `We could not check its price against ${unreadAgainst} (${price.detail}).`);
+  if (price.state === 'unread' && !price.outside) {
+    unchecked.push(isLaunchPool ? `We could not check its price (${price.detail}).` : `We could not check its price against ${unreadAgainst} (${price.detail}).`);
   }
 
   if (view.config === null) unchecked.push('We could not read this pool’s fee settings.');

@@ -450,8 +450,9 @@ export const ROUTES: readonly RouteSpec[] = [
   { path: '/eth-curve', voice: 'venue', owner: 'pages/EthCurvePage.tsx',
     tabOf: 'LaunchHubPage · eth-curve', gate: null, knownViolations: [] },
   { path: '/eth-curve/:token', voice: 'venue', owner: 'pages/CurveTokenPage.tsx', gate: null, knownViolations: [] },
-  { path: '/launch', voice: 'venue', owner: 'pages/LaunchPage.tsx',
-    tabOf: 'LaunchHubPage · launch', gate: null, knownViolations: ['form-field-label'] },
+  // While the launch door is shut (island answer twenty-six) /launch is the countdown, not the hub's
+  // first tab: no wizard, so no unlabelled field, and the door's eyebrow is the page's h1.
+  { path: '/launch', voice: 'venue', owner: 'pages/LaunchDoorPage.tsx', gate: null, knownViolations: [] },
   {
     path: '/launch/:token',
     voice: 'venue',

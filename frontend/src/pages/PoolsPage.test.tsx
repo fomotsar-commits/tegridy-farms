@@ -355,9 +355,9 @@ describe('always', () => {
     expect(screen.getByText(/can switch removing off on a pool/i)).toBeInTheDocument();
   });
 
-  it('says the browser cannot list pools itself, and how the server index fills that gap', async () => {
+  it('says a browser has no way to list pools itself, and how the server index fills that gap', async () => {
     await mount();
-    await waitFor(() => expect(screen.getByText(/A browser cannot list pools itself/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/A browser has no way to list pools itself/i)).toBeInTheDocument());
     expect(screen.getByText(/returns addresses only/i)).toBeInTheDocument();
   });
 
@@ -391,9 +391,9 @@ describe('always', () => {
     expect(program).toHaveTextContent(/one added instruction/i);
     // Calling the added instruction is not free (the record's rent and Metaplex's fee), so the
     // card says who pays, and never that it takes nothing or moves no funds.
-    expect(program).toHaveTextContent(/It cannot move pool funds\. Whoever calls it pays a small one-time fee for the record\./);
+    expect(program).toHaveTextContent(/It has no way to move pool funds\. Whoever calls it pays a small one-time fee for the record\./);
     expect(program).not.toHaveTextContent(/takes nothing from its caller|moves no funds/i);
-    expect(program).toHaveTextContent(/A browser cannot list pools itself/i);
+    expect(program).toHaveTextContent(/A browser has no way to list pools itself/i);
     const status = screen.getByRole('region', { name: 'Venue status' });
     expect(status.compareDocumentPosition(program) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
