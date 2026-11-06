@@ -130,9 +130,9 @@ export function decodePool(dex, address, data) {
     }
     case 'pumpswap': {
       if (data.length < 243) return null;
-      // The 301-byte pool prices with extra quote (SOL) at byte 245 beside its vault: Jupiter's
-      // quotes through it match vault + extra to 0.01% (SOY, 20 SOL, 11-06), the vault alone 18% off.
-      const extraB = data.length >= 253 ? u64(data, 245) : 0n;
+      // A newer pool prices with a signed 128-bit quote (SOL) adjustment at byte 245 beside its
+      // vault: Jupiter matches vault + it to 0.01% (SOY, +17.6 SOL, 11-06); some hold a few lamports below 0.
+      const extraB = data.length >= 261 ? BigInt.asIntN(128, u128(data, 245)) : 0n;
       return { ...base, kind: 'pair', mintA: key(data, 43), mintB: key(data, 75), vaultA: key(data, 139), vaultB: key(data, 171), creatorSet: !data.subarray(211, 243).equals(Buffer.alloc(32)), extraB };
     }
     case 'dlmm': {

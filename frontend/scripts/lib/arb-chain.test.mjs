@@ -252,7 +252,12 @@ describe('PumpSwap pools priced as PumpSwap prices them (11-06: Jupiter paid 3% 
     put(b, 139, key(1));
     put(b, 171, key(2));
     if (creator) put(b, 211, key(3));
-    if (length >= 253) b.writeBigUInt64LE(extra, 245);
+    if (length >= 261) {
+      // A signed 128-bit number: two's complement over 16 bytes.
+      const raw = BigInt.asUintN(128, extra);
+      b.writeBigUInt64LE(raw & ((1n << 64n) - 1n), 245);
+      b.writeBigUInt64LE(raw >> 64n, 253);
+    }
     return decodePool('pumpswap', key(70), b);
   }
   /** The pump fee program's FeeConfig as read 11-06: flat 25+5+0 bps, then 25 market-cap tiers (three here). */
@@ -282,6 +287,10 @@ describe('PumpSwap pools priced as PumpSwap prices them (11-06: Jupiter paid 3% 
     // 20 SOL in at the 1.2% tier: Jupiter paid 27,244,965,195,998 through this pool (11-06).
     const xin = 20e9 * (1 - 0.012);
     expect((d.a * xin) / (d.b + xin) / 27_244_965_195_998).toBeCloseTo(1, 3);
+  });
+
+  it('reads the extra as signed: Fartcoin’s pool AmmpSn… holds −9,401 lamports there, not 2^64 − 9,401', () => {
+    expect(depthOf(pumpPool({ extra: -9_401n, length: 300 }), amounts).b).toBe(Number(Q) - 9_401);
   });
 
   it('a pool of the older 243-byte layout has no extra SOL', () => {
