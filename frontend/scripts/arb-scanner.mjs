@@ -578,7 +578,13 @@ async function scanLoop() {
     try {
       // SOL's price first: the pricing coins' prices and every pool's depth are counted in it.
       await readHoldings();
-      if (Date.now() - S.universeAt > UNIVERSE_MS) await readUniverse();
+      // The first coin list is waited for; later ones load beside the scan (13 GeckoTerminal pages,
+      // with its refusals, take minutes).
+      if (!S.universeAt) await readUniverse();
+      else if (Date.now() - S.universeAt > UNIVERSE_MS && !S.refreshing) {
+        S.refreshing = true;
+        readUniverse().catch((e) => log(`coin list not refreshed: ${said(e)}`)).finally(() => (S.refreshing = false));
+      }
       const coins = [...S.coins.values()].filter((c) => !c.problem && c.decimals !== null).sort((a, b) => Number(b.ours) - Number(a.ours)).slice(0, MAX_COINS);
       for (const c of coins) {
         try {
