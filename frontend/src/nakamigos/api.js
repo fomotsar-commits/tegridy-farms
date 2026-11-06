@@ -2,6 +2,7 @@ import { CONTRACT, COLLECTION_SLUG, METADATA_BASE, FALLBACK_NFTS, FALLBACK_STATS
 import { liveIpfsUrl } from "../lib/ipfsGateways";
 import { venueCollectionByContract, venueRefusalForAll } from "./lib/venue";
 import { seaportCallNftTokens } from "./lib/seaportCalldata";
+import { buyTradeRefusal, decodeSeaportTrade, shownPriceCeilingWei } from "./lib/seaportTrade";
 import { waitForTxOutcome, txOutcomeResult } from "./lib/txOutcome";
 import { alchemyGet as proxyAlchemyGet, alchemyPost as proxyAlchemyPost, openseaGet as rawOpenseaGet, openseaPost as rawOpenseaPost, ApiError } from "./lib/proxy";
 
@@ -729,11 +730,21 @@ async function fetchOpenSeaListingsPage(slug, cursor) {
   return { raw: data.listings || [], next: data.next || null };
 }
 
+// The price below is read as 18-decimal ETH. A listing in any other coin would
+// be misread (5,000 USDC is 5e9 units: "0 ETH", the floor of the book), so only a
+// listing in ETH whose signed order asks for nothing but ETH is shown at all.
+export function isEthListing(listing) {
+  const current = listing?.price?.current;
+  if (current?.currency !== "ETH" || (current.decimals != null && Number(current.decimals) !== 18)) return false;
+  const consideration = listing?.protocol_data?.parameters?.consideration;
+  return !Array.isArray(consideration) || consideration.every((c) => Number(c?.itemType) === 0);
+}
+
 // Normalize raw OpenSea listing payloads into our listing shape, deduped by
 // tokenId (cheapest wins) and sorted cheapest-first. Pure — safe to re-run as
 // background pages stream in.
 function normalizeOpenSeaListings(allRawListings) {
-  const allListings = allRawListings.map(listing => {
+  const allListings = allRawListings.filter(isEthListing).map(listing => {
     const offer = listing.protocol_data?.parameters?.offer?.[0];
     const tokenId = offer?.identifierOrCriteria || null;
     const priceWei = listing.price?.current?.value;
@@ -1365,6 +1376,15 @@ async function buildSeaportFulfillCall(listing, { ethers, buyerAddress }) {
   // What gets signed is `encoded`, so the NFT it moves is read back from it.
   const nftRefusal = fulfillCallRefusal(seaportCallNftTokens(iface, fnName, encoded), listingNftTokens(listing));
   if (nftRefusal) return nftRefusal;
+  // ...and so is everything else it commits the buyer to: ETH only, no more than
+  // the shown price, the listed token, delivered to the buyer.
+  const tradeRefusal = buyTradeRefusal(decodeSeaportTrade(iface, fnName, encoded), {
+    buyer: buyerAddress,
+    tokenId: listing.tokenId ?? listing.id,
+    txValue,
+    maxValue: shownPriceCeilingWei(listing),
+  });
+  if (tradeRefusal) return tradeRefusal;
 
   return { to: txData.to, value: txValue, data: encoded };
 }
