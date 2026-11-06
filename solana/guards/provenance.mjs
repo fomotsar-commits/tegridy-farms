@@ -37,7 +37,7 @@ export const COPIES = {
     take: (p) => p.startsWith('programs/amm/') || ['Anchor.toml', 'Cargo.toml', 'Cargo.lock', 'LICENSE'].includes(p),
     map: (p) => p,
     delta: 'tegridy-clmm.diff',
-    deltaSha256: '3e37bb35eb72bcacf576309c42d3c587a2d97c41541e228a0094c8d53a4b5df5',
+    deltaSha256: '4a7d0ce47fb153148dd6a850d64561b722e6e7ca1e8c587cd162569adfe76fbf',
     patched: [
       'Anchor.toml',
       'Cargo.toml',
@@ -90,8 +90,17 @@ export const COPIES = {
     take: (p) => p.startsWith('programs/cp-swap/'),
     map: (p) => p.replace(/^programs\/cp-swap\//, ''),
     delta: 'cp-swap.diff',
-    deltaSha256: '42f378caa75f89b554596067e20898ce9dbc6a02af9d51d2086bc0c5ffc4251e',
-    patched: ['src/lib.rs', 'src/instructions/admin/create_support_mint_associated.rs', 'src/instructions/initialize.rs', 'Cargo.toml'],
+    deltaSha256: '8eb6cef00ed774f152e33ede7141cc58982173fbf58eed3267135a4f2e8fa11a',
+    patched: [
+      'src/lib.rs',
+      'src/instructions/admin/collect_fund_fee.rs',
+      'src/instructions/admin/create_support_mint_associated.rs',
+      'src/instructions/admin/update_config.rs',
+      'src/instructions/initialize.rs',
+      'src/states/config.rs',
+      'src/utils/token.rs',
+      'Cargo.toml',
+    ],
     oursOnly: [],
     // The workspace cargo builds cp-swap in. Its manifest (patch tables, the release profile,
     // members) is pinned whole; its lock, for the crates cp-swap compiles; programs/ holds only

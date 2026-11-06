@@ -2,9 +2,13 @@ name: solana-ci
 
 # Tegridy CP-AMM (solana/tegridy-amm): a fork of raydium-cp-swap that differs from
 # it by four authority constants, the program's own name and contact text, one
-# added instruction (create_lp_metadata, which names a pool's lp token) and one
-# refusal (public initialize on fee tier 0), plus tegridy-launch, our own bonding
-# curve that graduates into it.
+# added instruction (create_lp_metadata, which names a pool's lp token), one
+# refusal (public initialize on fee tier 0), the range-pool program's fee rules
+# (only the fund owner collects the fund fee; a tier charges more than 0 and at most
+# 4%, keeping at most 20% of its trade fee), our own rule that the admin hands a
+# tier's fund fee over only once, upstream's own deletion of MINT_WHITELIST
+# and a support-mint record that no longer skips the Token-2022 check, plus
+# tegridy-launch, our own bonding curve that graduates into it.
 # Gates:
 #   1. diff-guard  — proves the fork's delta from pinned audited upstream is
 #      EXACTLY the pinned hash. Not a file allowlist: the previous version accepted
@@ -13,7 +17,9 @@ name: solana-ci
 #      2026-10-14 no clone: no job here fetches anything from Raydium.
 #      SCOPED TO cp-swap ONLY — tegridy-launch is our own code with no upstream
 #      to diff against, so it is deliberately NOT covered by this job.
-#   2. build       — compiles the SBF program (validates our diff compiles).
+#   2. build       — compiles the SBF program (validates our diff compiles), builds the
+#      mainnet binary and prints its hash (published nowhere), and runs cp-swap's
+#      unit tests, upstream's and the fork's.
 #   3. launch-curve — host-tests tegridy-launch's dependency-free curve math,
 #      SBF-builds the program, and runs its layout and error-code pins under both
 #      feature configs. This is the ONLY compile gate for that program:
@@ -33,6 +39,7 @@ name: solana-ci
 #      BOTH programs to a validator, creates an AmmConfig, then drives the full
 #      lifecycle: create -> buy to target -> migrate -> assert the pool exists,
 #      the curve is closed and records it, and LP SUPPLY IS ZERO (the burn).
+#      The same cp-swap then runs its fee rules (tests/cp-swap-fee-rules.test.ts).
 #      It patches cp-swap's hardcoded admin + fee-receiver in a throwaway
 #      checkout because we hold neither key; diff-guard runs on its own clean
 #      checkout and independently proves the COMMITTED fork still carries exactly
@@ -476,6 +483,29 @@ jobs:
           path: solana/tegridy-amm/target/deploy/*.so
           if-no-files-found: error
           retention-days: 14
+      # The binary a cp-swap upgrade deploys, built after the devnet one is published so it
+      # cannot replace it. Nothing publishes it: the hash is printed so a clean machine shows,
+      # on every run, the bytes an upgrade buffer must match. Its command is
+      # solana-deploy-artifact.yml's mainnet cp-swap build, on the same Solana version.
+      - name: Build the mainnet binary and print its hash (published nowhere)
+        run: |
+          set -euo pipefail
+          SO=../../target/deploy/raydium_cp_swap.so
+          rm -f "$SO"
+          cargo build-sbf -- --locked 2>&1 | tee /tmp/cpswap-mainnet.log
+          [ -f "$SO" ] || { echo "::error::cargo build-sbf exited 0 but produced no $SO"; exit 1; }
+          if grep -q "exceeded max offset" /tmp/cpswap-mainnet.log; then
+            echo "::error::SBF stack frame overflow in the mainnet build"
+            grep -B3 "exceeded max offset" /tmp/cpswap-mainnet.log
+            exit 1
+          fi
+          sha256sum "$SO"
+          { echo "### cp-swap mainnet build"; echo; echo "sha256 \`$(sha256sum "$SO" | cut -d' ' -f1)\`, $(stat -c%s "$SO") bytes"; } >> "$GITHUB_STEP_SUMMARY"
+      # Upstream's own unit tests and the fork's: the fee ceilings, the fund fee's one
+      # hand-over and the Token-2022 coin check. Upstream's passed but no job ran them
+      # until 2026-11-03.
+      - name: cp-swap's unit tests
+        run: cargo test --locked --lib
 
   launch-curve:
     needs: scope
@@ -562,6 +592,10 @@ jobs:
             exit 1
           fi
           ls -l "$SO"
+          # This build carries the committed ids, the mainnet ones, so its hash is the one a
+          # launcher upgrade buffer must match, printed here as cp-swap's build job prints its own.
+          sha256sum "$SO"
+          { echo "### tegridy-launch build with the committed (mainnet) ids"; echo; echo "sha256 \`$(sha256sum "$SO" | cut -d' ' -f1)\`, $(stat -c%s "$SO") bytes"; } >> "$GITHUB_STEP_SUMMARY"
 
       # -- DEPLOY COST, MEASURED --------------------------------------------
       # What deploying the .so just built would lock up in rent: the number an
@@ -1168,7 +1202,9 @@ jobs:
       - name: Install JS deps
         run: yarn install --frozen-lockfile
 
-      - name: Deploy both and run the rehearsal
+      # The same deployed cp-swap (this wallet its admin) also runs its fee rules:
+      # tests/cp-swap-fee-rules.test.ts opens its own tiers, so neither file needs the other.
+      - name: Deploy both, run the rehearsal and cp-swap's fee rules
         env:
           ANCHOR_PROVIDER_URL: http://127.0.0.1:8899
           ANCHOR_WALLET: /home/runner/.config/solana/id.json
@@ -1191,7 +1227,7 @@ jobs:
               --program-id "target/deploy/${P}-keypair.json" "target/deploy/${P}.so"
           done
 
-          yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/tegridy-launch-migration.test.ts
+          yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/tegridy-launch-migration.test.ts tests/cp-swap-fee-rules.test.ts
 
   # ─────────────────────────────────────────────────────────────────────
   # Required-status aggregator, mirroring contracts-ci.yml's all-tests-pass.
