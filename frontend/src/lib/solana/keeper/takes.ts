@@ -42,10 +42,10 @@ export const isAddress = (s: unknown): s is string => {
 export const isObject = (x: unknown): x is Record<string, unknown> => typeof x === 'object' && x !== null && !Array.isArray(x);
 
 /**
- * KEEPER_SCANNER_URL as a URL, held to the scanner's page on THIS computer: the robot (which trips
- * to try) and the dashboard (what the scanner shows) read nothing from anywhere else.
+ * A setting naming a page on THIS computer (the scanner's, the engine's) as a URL: the robot reads
+ * which trips to try from nowhere else. `setting` names it in the refusal.
  */
-export function scannerPageUrl(raw: string): URL {
+export function localPageUrl(raw: string, setting: string): URL {
   let url: URL | null = null;
   try {
     url = new URL(raw);
@@ -53,10 +53,16 @@ export function scannerPageUrl(raw: string): URL {
     // said below, as any other address
   }
   if (!url || url.protocol !== 'http:' || !['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname)) {
-    throw new Error(`KEEPER_SCANNER_URL must be the scanner's page on this computer (http://127.0.0.1:<port>/state.json), not "${raw}"`);
+    throw new Error(`${setting} must be a page on this computer (http://127.0.0.1:<port>/state.json), not "${raw}"`);
   }
   return url;
 }
+
+/**
+ * KEEPER_SCANNER_URL as a URL, held to the scanner's page on THIS computer: the robot (which trips
+ * to try) and the dashboard (what the scanner shows) read nothing from anywhere else.
+ */
+export const scannerPageUrl = (raw: string): URL => localPageUrl(raw, 'KEEPER_SCANNER_URL');
 
 /** One scanner row as a trip the robot may try, or null. */
 function takeOf(row: unknown, programs: Readonly<Record<string, string>>, now: number): OutsideTake | null {

@@ -85,6 +85,16 @@
  *                           http://127.0.0.1:8795/state.json: the keeper also tries the trips
  *                           between two outside pools whose scanner test run passed in the last
  *                           3 minutes, quoting, gating and test-running each itself (default off)
+ *   KEEPER_ENGINE_URL       the engine's page on THIS computer (scripts/arb-listen.mjs), e.g.
+ *                           http://127.0.0.1:8798/state.json: the keeper follows its event
+ *                           stream and, the moment the engine hands over a trip that pays after
+ *                           every cost (any venue it prices: PumpSwap, Raydium CPMM / AMM v4 / CLMM,
+ *                           Orca, Meteora DLMM / DAMM v2, our pools), reads the pools itself,
+ *                           builds every swap with the program's own maths, test-runs the trip and
+ *                           sends it under every rule above, then tells the engine what it did.
+ *                           A handover older than 0.8 s is not built (default off)
+ *   KEEPER_ENGINE_ONLY      yes = no passes against Jupiter and no quick checks: only the engine's
+ *                           handovers (a proof run, or a robot given over to the engine; default no)
  *
  * ─── COMMANDS ───────────────────────────────────────────────────────────────────
  *   status                     the keeper's address and what it holds
@@ -105,7 +115,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { register } from 'node:module';
 import { redactRpcUrl } from '../../scripts/lib/redact-url.mjs';
-import { RAYDIUM_AMM_V4, RAYDIUM_AMM_V4_AUTHORITY, RAYDIUM_CPMM, RAYDIUM_PROGRAMS } from './lib/raydium-programs.mjs';
+import { RAYDIUM_AMM_V4, RAYDIUM_AMM_V4_AUTHORITY, RAYDIUM_CLMM, RAYDIUM_CPMM, RAYDIUM_PROGRAMS } from './lib/raydium-programs.mjs';
 import { OUTSIDE_DEX_PROGRAMS } from './lib/outside-dexes.mjs';
 
 // ─── Make the bundler-targeted TS modules run under Node (tegridy-launch-operator.mjs's
@@ -139,7 +149,8 @@ const lib = (rel) => import(pathToFileURL(path.join(HERE, '..', 'src', 'lib', ..
 
 const { Connection, Keypair, PublicKey, SystemProgram, TransactionMessage, VersionedTransaction } = await import('@solana/web3.js');
 const spl = await import('@solana/spl-token');
-const { runCycle, poolCoverage, fingerprint, sellDust, DEFAULT_SETTINGS } = await lib('solana/keeper/cycle.ts');
+const { runCycle, poolCoverage, fingerprint, sellDust, engineTrip, DEFAULT_SETTINGS } = await lib('solana/keeper/cycle.ts');
+const { ENGINE_FRESH_MS, enginePageUrl, engineEventsUrl, engineOutcomeUrl, engineStands, followEngine } = await lib('solana/keeper/engine.ts');
 const { foldGaps, gapLine, gapReport, GAP_HEADER } = await lib('solana/keeper/gaps.ts');
 const { readActivity, results, byDay, madeSol, expectedHoldings } = await lib('solana/keeper/history.ts');
 const { REGISTERED_PROGRAM_ID } = await lib('solana/cpswap/program.ts');
@@ -790,6 +801,24 @@ async function scannerTakes() {
 }
 
 /**
+ * The engine's doors (KEEPER_ENGINE_URL, keeper/engine.ts), or null when not set: its event stream,
+ * where handovers arrive, and where the robot posts what it did with each. The leg builder reads
+ * the pools over the robot's RPC with Raydium's ids handed in (scripts/lib/arb-legs.mjs).
+ */
+async function engineDoors() {
+  const raw = env.KEEPER_ENGINE_URL?.trim();
+  if (!raw) return null;
+  const page = enginePageUrl(raw);
+  const { routeLegReader } = await import('./lib/arb-legs.mjs');
+  return {
+    page,
+    events: engineEventsUrl(page),
+    outcome: engineOutcomeUrl(page),
+    routeLegs: routeLegReader({ rpc, ids: { cpmm: RAYDIUM_CPMM, ammV4: RAYDIUM_AMM_V4, ammV4Authority: RAYDIUM_AMM_V4_AUTHORITY, clmm: RAYDIUM_CLMM } }),
+  };
+}
+
+/**
  * The outside pools whose trades wake the robot (keeper/streams.ts): DexScreener's deepest few per
  * coin, then each pool's owner read from the chain (no data, only the owner) and kept only when it
  * is one of the six exchanges. A listing that cannot be read throws; the caller keeps the last list.
@@ -983,6 +1012,9 @@ async function main() {
     }
     serveScreen(screen);
     const takes = await scannerTakes();
+    const engine = await engineDoors();
+    const engineOnly = yes('KEEPER_ENGINE_ONLY');
+    if (engineOnly && !engine) throw new Error('KEEPER_ENGINE_ONLY=yes needs KEEPER_ENGINE_URL');
     const io = {
       rpc,
       jupiter,
@@ -994,9 +1026,63 @@ async function main() {
       takes,
       // The outside pools heard (refreshed every STREAM_REFRESH_MS), for direct trips.
       directPools: settings.direct ? () => streams.pools : undefined,
+      // The swaps of a route the engine hands over, built from the robot's own read (scripts/lib/arb-legs.mjs).
+      routeLegs: engine?.routeLegs,
       log,
     };
+    // The engine's handovers (keeper/engine.ts): each acted on the moment it arrives, one at a time,
+    // the newest a route; one that has stopped standing by its turn is answered 'stale', never built.
+    screen.engine = { page: engine ? engine.page.host : null, handed: 0, acted: 0, stale: 0, lastAt: null, latest: [] };
+    const queue = new Map();
+    let draining = false;
+    const tell = (rec, outcome, ms, note) => {
+      screen.engine.latest = [{ at: new Date().toISOString(), route: rec.route, symbol: rec.symbol, mint: rec.tokenMint, venues: rec.legs.map((l) => l.dex).join(' > '), outcome, ms, netAllUsd: rec.netAllUsd }, ...screen.engine.latest].slice(0, 30);
+      if (!engine) return;
+      fetch(engine.outcome, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: rec.id, outcome, ms, ...(note ? { note } : {}) }), signal: AbortSignal.timeout(2_000) }).catch(() => {});
+    };
+    async function drain() {
+      if (draining) return;
+      draining = true;
+      try {
+        while (queue.size) {
+          const [route, rec] = queue.entries().next().value;
+          queue.delete(route);
+          const now = Date.now();
+          if (!engineStands(rec, now)) {
+            screen.engine.stale++;
+            tell(rec, 'stale', now - rec.at);
+            continue;
+          }
+          screen.engine.acted++;
+          screen.engine.lastAt = new Date().toISOString();
+          const name = `${rec.symbol} (${rec.tokenMint}) from the engine, ${rec.legs.map((l) => l.dex).join(' > ')}`;
+          try {
+            const o = await engineTrip(io, settings, rec, name);
+            tell(rec, o, Date.now() - rec.at);
+          } catch (e) {
+            const why = e instanceof Error ? e.message : String(e);
+            log(`${name}: stopped, ${why}`);
+            tell(rec, 'error', Date.now() - rec.at, why.slice(0, 200));
+          }
+        }
+      } finally {
+        draining = false;
+      }
+    }
+    if (engine) {
+      followEngine({
+        url: engine.events,
+        fetchImpl: (url, init) => fetch(url, init),
+        log,
+        onRecord: (rec) => {
+          screen.engine.handed++;
+          queue.set(rec.route, rec);
+          drain().catch((e) => log(`Engine trips stopped: ${e instanceof Error ? e.message : String(e)}`));
+        },
+      }).catch((e) => log(`Engine stream stopped: ${e instanceof Error ? e.message : String(e)}`));
+    }
     log(`  trips between outside pools: ${takes ? `the scanner's proven ones, from ${env.KEEPER_SCANNER_URL.trim()}` : 'off (set KEEPER_SCANNER_URL to the scanner page’s /state.json)'}`);
+    log(`  trips from the engine: ${engine ? `ON, ${engine.events.href} (a handover is built within ${ENGINE_FRESH_MS} ms of its judgement or not at all)${engineOnly ? '; ENGINE ONLY: no passes, no quick checks' : ''}` : 'off (KEEPER_ENGINE_URL names the engine’s page on this computer)'}`);
     log(`Keeper ${owner.toBase58()}, ${live ? 'LIVE: round trips that pass their test run are SENT' : 'dry run: nothing is sent'}`);
     log(`  RPC ${redactRpcUrl(RPC)} · Jupiter ${env.JUPITER_API_KEY?.trim() ? 'own key' : 'keyless'} · up to $${capUsd(settings)} a trip · floor $${settings.minProfitUsd} + the network fee`);
     log(
@@ -1042,14 +1128,14 @@ async function main() {
       // The quick check's reading is taken BEFORE a pass: a move during the pass shows as a
       // change at the next check, never as the starting point.
       let now = null;
-      if (watch) {
+      if (watch && !engineOnly) {
         try {
           now = await fingerprint(io, watch);
         } catch (e) {
           log(`Quick check not read: ${e instanceof Error ? e.message : String(e)}`);
         }
       }
-      if (!watch || Date.now() - lastPass >= intervalMs || (now !== null && now !== seen)) {
+      if (!engineOnly && (!watch || Date.now() - lastPass >= intervalMs || (now !== null && now !== seen))) {
         seen = now;
         const callsBefore = jupiterCalls;
         try {
@@ -1100,7 +1186,7 @@ async function main() {
         lastPass = Date.now();
         beat();
       }
-      if (Date.now() - lastDust >= dustMs) {
+      if (!engineOnly && Date.now() - lastDust >= dustMs) {
         lastDust = Date.now();
         await sellDust(io, settings).catch((e) => log(`Leftover sale stopped: ${e instanceof Error ? e.message : String(e)}`));
       }

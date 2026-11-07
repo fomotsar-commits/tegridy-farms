@@ -17,7 +17,7 @@
  */
 import { createHash } from 'node:crypto';
 import bs58 from 'bs58';
-import { judgeTrip, rankTrips, robotRule } from '../../src/lib/solana/keeper/rule.ts';
+import { judgeTrip, rankTrips, robotRule, swapOut as legOut } from '../../src/lib/solana/keeper/rule.ts';
 
 export const SOL_MINT = 'So11111111111111111111111111111111111111112';
 export const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
@@ -372,6 +372,10 @@ export function tripsFor(pools, ctx) {
       const at = qBuy === start ? 0 : 1;
       const priceBuy = tokenUsd(legs[at]);
       const priceSell = tokenUsd(legs[at + 1]);
+      // What each leg pays at the robot's size, in order: the amounts a handover chains the
+      // swaps by (keeper/engine.ts), each leg's out the next leg's in.
+      let flow = judged.inRaw;
+      const outs = legs.map((l) => (flow = legOut(l, flow)));
       trips.push({
         coin: start,
         legs: legs.map((l) => ({ pool: l.pool.address, dex: l.pool.dex, from: l.from, to: l.to, fee: l.fee, rough: Boolean(ctx.depths.get(l.pool.address)?.rough), ...(l.inCut ? { inCut: l.inCut } : {}), ...(l.outCut ? { outCut: l.outCut } : {}) })),
@@ -382,6 +386,7 @@ export function tripsFor(pools, ctx) {
         transferFeePct: (ctx.tokenCut ?? 0) * 100,
         judged,
         inRaw: judged.inRaw,
+        outs,
         inUsd: judged.inUsd,
         gainUsd: judged.gainUsd,
         feeUsd: judged.feeUsd,

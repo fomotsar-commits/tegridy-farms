@@ -10,6 +10,106 @@ import { JITO_LANDING_TIP_LAMPORTS, JITO_TIP_SHARE_PCT } from '../../src/lib/sol
 export const DIRECT_DEXES = new Set(['ours', 'cpmm', 'pumpswap', 'ammV4']);
 
 /**
+ * The venues whose swap the robot builds for a trip the engine hands it (scripts/lib/arb-legs.mjs,
+ * through keeper/engine.ts): the four above, and the band and bin venues priced to the unit.
+ */
+export const BUILDABLE_DEXES = new Set([...DIRECT_DEXES, 'whirlpool', 'clmm', 'dlmm', 'damm']);
+
+/**
+ * How long a handover stands: the robot acts on a record this young, measured from the judgement,
+ * and discards anything older (the published practice: a stale route is a lost race, not a trade).
+ */
+export const HANDOVER_TTL_MS = 800;
+/** A trip of more swaps than this is not handed over: the robot holds two coins mid-trip at most. */
+export const HANDOVER_MAX_LEGS = 3;
+
+/**
+ * The record the engine hands the robot for one paying trip (owner 2026-11-07: "build it"): the
+ * route in order with each leg's pool, venue, direction, fee and the accounts its exact quote
+ * walked (tick or bin arrays, an Orca pool's Oracle, a CLMM pool's fee config and far-band map);
+ * the size and what each leg pays at it, in raw units as decimal strings (the robot chains its
+ * minimums from them); what it makes after every cost; the prices it was judged at; and when it
+ * stops standing. Null when the trip does not pay after every cost, has too many legs, a leg the
+ * robot cannot build, or no size. `ctx`: coin { mint, symbol, decimals }, slot, now, usd (mint →
+ * USD), programOf (mint → its token program, or null), arraysOf (pool → the accounts read for it).
+ */
+export function handoverOf(t, ctx) {
+  if (!t.paysAll || !(t.inRaw >= 1) || !Array.isArray(t.outs) || t.outs.length !== t.legs.length) return null;
+  if (t.legs.length < 2 || t.legs.length > HANDOVER_MAX_LEGS) return null;
+  if (!t.legs.every((l) => BUILDABLE_DEXES.has(l.dex))) return null;
+  if (!t.outs.every((x) => Number.isFinite(x) && x >= 1)) return null;
+  const mints = [...new Set(t.legs.flatMap((l) => [l.from, l.to]))];
+  const route = routeOf(t);
+  return {
+    id: `${route}@${ctx.slot}@${ctx.now}`,
+    route,
+    at: ctx.now,
+    slot: ctx.slot,
+    expiresAt: ctx.now + HANDOVER_TTL_MS,
+    coin: t.coin,
+    mint: ctx.coin.mint,
+    symbol: ctx.coin.symbol,
+    decimals: ctx.coin.decimals,
+    legs: t.legs.map((l) => ({ pool: l.pool, dex: l.dex, from: l.from, to: l.to, fee: l.fee, inCut: l.inCut ?? 0, outCut: l.outCut ?? 0, accounts: ctx.arraysOf(l.pool) ?? [] })),
+    inRaw: String(Math.floor(t.inRaw)),
+    outs: t.outs.map((x) => String(Math.floor(x))),
+    inUsd: t.inUsd,
+    gainUsd: t.gainUsd,
+    feeUsd: t.feeUsd,
+    floorUsd: t.floorUsd,
+    netUsd: t.netUsd,
+    tipUsd: t.tipUsd,
+    netAllUsd: t.netAllUsd,
+    gapPct: t.gapPct,
+    transferFeePct: t.transferFeePct ?? 0,
+    mints: Object.fromEntries(mints.map((m) => [m, ctx.programOf(m)])),
+    usd: Object.fromEntries(mints.filter((m) => ctx.usd.get(m) > 0).map((m) => [m, ctx.usd.get(m)])),
+  };
+}
+
+/** Whether a handover still stands at `now`. */
+export const handoverStands = (rec, now) => now < rec.expiresAt;
+
+const plainText = (x, max) => (typeof x === 'string' ? x.replace(/[\p{Cc}\p{Cf}]/gu, '').trim().slice(0, max) : null);
+
+/**
+ * What the robot says it did with a handover (POST /outcome from this computer): the record's id,
+ * the robot's outcome word (keeper/cycle.ts Tried: sent, unsure, not-sent, test-failed,
+ * test-checks, quote-short, …; or 'stale' when the record had stopped standing, 'skipped' with a
+ * note), how long after the judgement it acted, and a note. Null when it is not that.
+ */
+export function outcomeOf(json) {
+  if (!json || typeof json !== 'object') return null;
+  const id = plainText(json.id, 240);
+  const outcome = plainText(json.outcome, 40);
+  if (!id || !outcome) return null;
+  const ms = Number.isFinite(json.ms) && json.ms >= 0 ? Math.round(json.ms) : null;
+  return { id, outcome, ms, note: plainText(json.note, 240) || null, route: id.split('@')[0] };
+}
+
+/** The robot's outcomes, the latest `max` kept whole and every one counted by its word. */
+export class Outcomes {
+  constructor(max = 200) {
+    this.max = max;
+    this.latest = [];
+    this.byOutcome = new Map();
+    this.actMs = [];
+  }
+
+  add(o, now) {
+    this.latest.unshift({ ...o, at: now });
+    if (this.latest.length > this.max) this.latest.length = this.max;
+    this.byOutcome.set(o.outcome, (this.byOutcome.get(o.outcome) ?? 0) + 1);
+    if (o.ms !== null) this.actMs.push(o.ms);
+  }
+
+  /** Each outcome word's count, how many came in all, and the median time from judgement to the robot's act. */
+  counts() {
+    return { total: this.latest.length ? [...this.byOutcome.values()].reduce((a, b) => a + b, 0) : 0, byOutcome: Object.fromEntries(this.byOutcome), medianActMs: median(this.actMs) };
+  }
+}
+
+/**
  * The accounts that move a pool's price: a band pool's own account and its tick arrays; a pair or
  * bin pool's and its two vaults, and a bin pool's bin arrays. `arrays` are the array accounts the
  * listener read for the pool (lib/arb-venues.mjs), none until it has.

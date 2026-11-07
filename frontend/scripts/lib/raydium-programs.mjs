@@ -22,3 +22,5 @@ export const RAYDIUM_PROGRAMS = Object.freeze([
 export const RAYDIUM_CPMM = 'CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C';
 export const RAYDIUM_AMM_V4 = '675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8';
 export const RAYDIUM_AMM_V4_AUTHORITY = '5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1';
+/** Raydium's concentrated pools (CLMM): a leg of a trip the engine hands over (scripts/lib/arb-legs.mjs). */
+export const RAYDIUM_CLMM = 'CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK';

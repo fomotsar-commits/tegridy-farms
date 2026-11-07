@@ -26,6 +26,7 @@ import { jitoTip, jitoTipIx, pickTipAccount, type JitoOutcome } from './jito';
 import { bestSize, fitLeg, legOut, nearMiss, shortShare } from './size';
 import type { OutsideTake } from './takes';
 import { DIRECT_LOOKUP_TABLES, directPlan, readDirectPools, type DirectIds, type DirectPool } from './direct';
+import type { EngineRecord, RouteLegs } from './engine';
 import type { StreamPool } from './streams';
 import { refusedVenues, type JupiterApi, type JupiterQuote, type SwapInstructions } from './jupiterApi';
 import { OUTSIDE_POOLS, outsideUsd, readOutsidePools, screenUsd, type Anchors, type OutsidePool } from './outside';
@@ -83,6 +84,12 @@ export interface KeeperIo {
   takes?: () => Promise<OutsideTake[]>;
   /** The coins' outside pools the robot listens to (keeper/streams.ts), for direct trips (keeper/direct.ts); absent: none. */
   directPools?: () => readonly StreamPool[];
+  /**
+   * The swaps of a route the engine handed over (keeper/engine.ts), built from the robot's own
+   * read of each pool (scripts/lib/arb-legs.mjs, handed in by scripts/price-keeper.mjs: Raydium's
+   * ids may not sit in src/); absent: no engine trips.
+   */
+  routeLegs?: (rec: EngineRecord, owner: PublicKey, nowSecs: number) => Promise<RouteLegs>;
   log: (line: string) => void;
 }
 
@@ -146,7 +153,7 @@ export const DEFAULT_SETTINGS: Omit<KeeperSettings, keyof KeeperLimits | 'raydiu
 /** One sent trip, for the keeper's earnings log. `gained`/`lamportsSpent` are null when it did not confirm. */
 export interface TripRecord {
   at: string;
-  kind: 'jupiter' | 'own-pools' | 'outside' | 'dust' | 'direct';
+  kind: 'jupiter' | 'own-pools' | 'outside' | 'dust' | 'direct' | 'engine';
   pool: string;
   name: string;
   coin: QuoteCoin;
@@ -717,6 +724,133 @@ export async function directTrip(io: KeeperIo, s: KeeperSettings, view: PoolView
   });
 }
 
+/** A token's gate verdict is kept this long: a mint's extensions and freeze authority change rarely. */
+export const GATE_KEEP_MS = 60 * 60_000;
+const gates = new Map<string, { at: number; safety: TokenSafety | undefined }>();
+
+/** The token gate (keeper/rule.ts) on a read of the mint kept GATE_KEEP_MS: why the robot must not trade `mint`, or null. */
+async function gateOf(io: KeeperIo, mint: string): Promise<string | null> {
+  const now = Date.now();
+  let was = gates.get(mint);
+  if (!was || now - was.at >= GATE_KEEP_MS) {
+    was = { at: now, safety: (await readTokenSafety(io.rpc, [mint])).get(mint) };
+    gates.set(mint, was);
+  }
+  return tokenGate(was.safety);
+}
+
+/**
+ * A trip the engine handed over (keeper/engine.ts), through the robot's own send step: every pool
+ * read by the robot and every swap built by it (io.routeLegs), the engine's size held to the
+ * rule's cap, the float and any loan, each leg spending exactly what the one before pays by the
+ * robot's own quote, the last leg's minimum and the Lighthouse check holding the coin to what
+ * went in plus the floor. A coin with a transfer fee is left to the pass: these legs are priced
+ * without one. Exported for its test.
+ */
+export async function engineTrip(io: KeeperIo, s: KeeperSettings, rec: EngineRecord, name: string): Promise<Tried> {
+  const coin = KEEPER_COINS.find((c) => c.mint === rec.coinMint);
+  if (!coin || !io.routeLegs) return 'no-plan';
+  if (rec.legs.some((l) => l.inCut > 0 || l.outCut > 0)) {
+    io.log(`${name}: skipped, the coin has a transfer fee: left to the pass`);
+    return 'no-plan';
+  }
+  const bounds = coinBounds(coin, rec.usd.get(coin.mint), rec.usd.get(SOL_QUOTE.mint), s);
+  if (typeof bounds === 'string') {
+    io.log(`${name}: skipped, ${bounds}`);
+    return 'no-sol-price';
+  }
+  const gate = await gateOf(io, rec.tokenMint);
+  if (gate) {
+    io.log(`${name}: skipped, ${gate}`);
+    return 'no-plan';
+  }
+  const nowSecs = Math.floor(Date.now() / 1000);
+  const built = await io.routeLegs(rec, io.owner, nowSecs);
+  if (typeof built === 'string') {
+    io.log(`${name}: skipped, ${built}`);
+    return 'no-plan';
+  }
+  const { legs } = built;
+  if (legs.length !== rec.legs.length || legs.some((l, i) => l.pool !== rec.legs[i]!.pool || l.from !== rec.legs[i]!.from || l.to !== rec.legs[i]!.to)) return 'no-plan';
+  const owner = io.owner;
+  // The coins the trip holds between its swaps: the token, and a second one on a three-swap trip.
+  const middle = legs.slice(1).map((l) => l.from);
+  const programOf = (mint: string) => legs.find((l) => l.from === mint)?.fromProgram ?? legs.find((l) => l.to === mint)!.toProgram;
+  const ata = (mint: string, program: PublicKey) => getAssociatedTokenAddressSync(new PublicKey(mint), owner, true, program);
+  const coinAta = ata(coin.mint, TOKEN_PROGRAM_ID);
+  const tokenAta = ata(middle[0]!, programOf(middle[0]!));
+  // The robot's other coin is watched, never touched; a second middle coin takes its place in the watch.
+  const other = KEEPER_COINS.find((c) => c.mint !== coin.mint)!;
+  const second = middle[1] ?? null;
+  const otherAta = second ? ata(second, programOf(second)) : ata(other.mint, TOKEN_PROGRAM_ID);
+  const amt = amountText(coin);
+  const engineOut = rec.outs[rec.outs.length - 1]!;
+  return withTripLock(async () => {
+    const before = await balances(io.rpc, [coinAta, tokenAta, otherAta, owner]);
+    if (before.coin <= 0n) {
+      io.log(`${name}: skipped, the keeper holds no ${coin.symbol}`);
+      return 'no-coin';
+    }
+    // The engine's size, never past the cap, nor past the float unless a loan carries the rest.
+    const sized = rec.inRaw < bounds.cap ? rec.inRaw : bounds.cap;
+    const loan = loanFor(coin.mint, sized, before.coin, s.flashLoans);
+    const coinIn = loan > 0n || sized <= before.coin ? sized : before.coin;
+    // Rent for each middle account the trip opens. Two new ones cost more SOL than a trip may spend.
+    const opens = (before.tokenExists ? 0 : 1) + (second && !before.otherExists ? 1 : 0);
+    if (opens > 1) {
+      io.log(`${name}: skipped, it would open two new token accounts`);
+      return 'no-plan';
+    }
+    const rent = rentToEarn(s, opens === 0, coin, rec.usd);
+    if (rent === null || coinIn <= 0n) return 'no-sol-price';
+    const minProfit = bounds.floor + rent + flashFee(loan);
+    // Each leg spends exactly what the one before pays, by the robot's own quotes.
+    const ins: bigint[] = [coinIn];
+    const outs: bigint[] = [];
+    for (const [i, l] of legs.entries()) {
+      const out = l.out(ins[i]!);
+      if (out === null || out <= 0n) {
+        io.log(`${name}: skipped, ${l.venue} ${l.pool} would not quote ${ins[i]} in`);
+        return 'quote-short';
+      }
+      outs.push(out);
+      ins.push(out);
+    }
+    const back = outs[outs.length - 1]!;
+    const lastMin = lastPoolMinimum(back, coinIn + minProfit, s.slippageBps);
+    if (lastMin === null) {
+      io.log(`${name}: skipped, ${amt(coinIn)} comes back as ${amt(back)} by the robot's own quotes (the engine said ${amt(engineOut)} for ${amt(rec.inRaw)}): under the floor ${amt(minProfit)}`);
+      return 'quote-short';
+    }
+    const swaps: TransactionInstruction[] = [];
+    for (const [i, l] of legs.entries()) {
+      const ix = l.ix(ins[i]!, i === legs.length - 1 ? lastMin : outs[i]!);
+      if (!ix) {
+        io.log(`${name}: skipped, the ${l.venue} swap could not be built`);
+        return 'no-plan';
+      }
+      swaps.push(ix);
+    }
+    // sendChecked opens the coin's and the first middle coin's accounts; a second middle coin's is opened here.
+    const head = second ? [createAssociatedTokenAccountIdempotentInstruction(owner, otherAta, owner, new PublicKey(second), programOf(second))] : [];
+    return sendCheckedNow(io, s, {
+      name,
+      kind: 'engine',
+      pool: legs.map((l) => l.pool).join(' → '),
+      coin,
+      coinIn,
+      accounts: { coinAta, tokenAta, otherAta, tokenMint: new PublicKey(middle[0]!), tokenProgram: programOf(middle[0]!), coinMint: new PublicKey(coin.mint) },
+      before,
+      legs: [...head, ...swaps],
+      lookupTables: [...s.directLookupTables],
+      loan,
+      floor: minProfit,
+      verdict: (c) => simulationProblem(c, { minProfit }),
+      says: (gained) => `${legs.map((l) => l.venue).join(' > ')}, ${amt(coinIn)} in${borrowed(loan, amt)}, test run gains ${amt(gained)} (floor ${amt(minProfit)}; the engine said +${amt(engineOut - rec.inRaw)} at ${amt(rec.inRaw)})`,
+    });
+  });
+}
+
 /** A loop as the log says it: each coin by its claimed ticker and whole address, and each pool. */
 function loopName(loop: LoopLeg[], safety: ReadonlyMap<string, TokenSafety>): string {
   const coinOf = (v: PoolView, side: LoopLeg['input']) => {
@@ -1250,11 +1384,29 @@ export function tripInstructions(
 const borrowed = (loan: bigint, amt: (raw: bigint) => string) => (loan > 0n ? ` (${amt(loan)} of it borrowed)` : '');
 
 /**
+ * One trip at a time through the send step. A trip the engine hands over (engineTrip) arrives on
+ * its own clock, mid-pass as often as not, and two trips in flight from one wallet would each
+ * read the other's gain as its own and count the Lighthouse floor from the wrong amount. The
+ * lock is a chain of promises: sendChecked takes it; engineTrip takes it around its balance read
+ * too, so the amount its floor counts from is the amount at its own send.
+ */
+let tripLock: Promise<unknown> = Promise.resolve();
+export function withTripLock<T>(f: () => Promise<T>): Promise<T> {
+  const run = tripLock.then(f, f);
+  tripLock = run.catch(() => undefined);
+  return run;
+}
+
+/**
  * Build the trip, test-run it, judge what the test run did to the keeper's accounts, and send it
  * only when that passes (and only live), through Jito when that is on (keeper/jito.ts). A
  * confirmed trip's real result is read back for the log. Exported for its test.
  */
 export async function sendChecked(io: KeeperIo, s: KeeperSettings, t: Trip): Promise<Tried> {
+  return withTripLock(() => sendCheckedNow(io, s, t));
+}
+
+async function sendCheckedNow(io: KeeperIo, s: KeeperSettings, t: Trip): Promise<Tried> {
   const owner = io.owner;
   const { coinAta, tokenAta, otherAta } = t.accounts;
   const keys = [coinAta, tokenAta, otherAta, owner];

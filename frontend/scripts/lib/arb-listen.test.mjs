@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { GapBook, SUSPECT_MS, accountsOf, afterCosts, byEachVenue, coinsByAccount, coinsFromMap, gapsFromLog, stage0Report, watchedOf } from './arb-listen.mjs';
+import { GapBook, HANDOVER_TTL_MS, Outcomes, SUSPECT_MS, accountsOf, afterCosts, byEachVenue, coinsByAccount, coinsFromMap, gapsFromLog, handoverOf, handoverStands, outcomeOf, stage0Report, watchedOf } from './arb-listen.mjs';
 
 const trip = (pools, dexes, pays, netUsd = 0.05) => ({
   legs: pools.map((pool, i) => ({ pool, dex: dexes[i], rough: dexes[i] === 'dlmm' })),
@@ -169,5 +169,74 @@ describe('Stage 0: the gaps in the listener’s log', () => {
   it('from a time on: only gaps that opened since', () => {
     const lines = [line('open', 'a>b', 1_000, 1_000), line('close', 'a>b', 1_000, 4_000, { ms: 3_000, slots: 7 }), line('open', 'c>d', 5_000, 5_000)];
     expect(gapsFromLog(lines, 2_000).gaps.map((g) => g.route)).toEqual(['c>d']);
+  });
+});
+
+const SOL = 'So11111111111111111111111111111111111111112';
+const M = 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263';
+/** A trip as tripsFor judges it and afterCosts prices it: two legs, our pool then a DLMM pool. */
+const payingTrip = (over = {}) => ({
+  coin: SOL,
+  legs: [{ pool: 'p1', dex: 'ours', from: SOL, to: M, fee: 0.003 }, { pool: 'p2', dex: 'dlmm', from: M, to: SOL, fee: 0.001 }],
+  inRaw: 1e9, outs: [2e9, 1.001e9], inUsd: 90, gainUsd: 0.09, feeUsd: 0.004, floorUsd: 0.006, netUsd: 0.086, tipUsd: 0.027, netAllUsd: 0.059, gapPct: 1.1, transferFeePct: 0, paysAll: true,
+  ...over,
+});
+const ctx = (over = {}) => ({ coin: { mint: M, symbol: 'X', decimals: 6 }, slot: 5, now: 1000, usd: new Map([[SOL, 90], ['USDC', 1]]), programOf: (m) => (m === M ? 'Tok22' : 'Tok'), arraysOf: (pool) => (pool === 'p2' ? ['arr1', 'arr2'] : []), ...over });
+
+describe('handoverOf: the record the engine hands the robot', () => {
+  it('names the route, each leg with the accounts its quote read, the size and pays as decimal strings, the prices, and when it stops standing', () => {
+    const r = handoverOf(payingTrip(), ctx());
+    expect(r).toMatchObject({ id: 'p1>p2@5@1000', route: 'p1>p2', at: 1000, slot: 5, expiresAt: 1000 + HANDOVER_TTL_MS, coin: SOL, mint: M, symbol: 'X', decimals: 6, inRaw: '1000000000', outs: ['2000000000', '1001000000'], netAllUsd: 0.059, tipUsd: 0.027, gapPct: 1.1 });
+    expect(r.legs[1]).toEqual({ pool: 'p2', dex: 'dlmm', from: M, to: SOL, fee: 0.001, inCut: 0, outCut: 0, accounts: ['arr1', 'arr2'] });
+    expect(r.legs[0].accounts).toEqual([]);
+    expect(r.mints).toEqual({ [SOL]: 'Tok', [M]: 'Tok22' });
+    expect(r.usd).toEqual({ [SOL]: 90 });
+    expect(handoverStands(r, 1000 + HANDOVER_TTL_MS - 1)).toBe(true);
+    expect(handoverStands(r, 1000 + HANDOVER_TTL_MS)).toBe(false);
+  });
+  it('floors a fractional size and pay to whole units', () => {
+    const r = handoverOf(payingTrip({ inRaw: 123.9, outs: [456.7, 124.2] }), ctx());
+    expect(r.inRaw).toBe('123');
+    expect(r.outs).toEqual(['456', '124']);
+  });
+  it('carries a transfer fee’s cuts on the legs that pay it', () => {
+    const t = payingTrip({ transferFeePct: 3 });
+    t.legs[0].outCut = 0.03;
+    t.legs[1].inCut = 0.03;
+    const r = handoverOf(t, ctx());
+    expect(r.legs.map((l) => [l.inCut, l.outCut])).toEqual([[0, 0.03], [0.03, 0]]);
+    expect(r.transferFeePct).toBe(3);
+  });
+  it.each([
+    ['a trip that does not pay after every cost', { paysAll: false }],
+    ['no size', { inRaw: 0 }],
+    ['no pays', { outs: undefined }],
+    ['a pay of nothing', { outs: [2e9, 0] }],
+    ['pays that do not match the legs', { outs: [2e9] }],
+    ['four legs', { legs: [{ pool: 'a', dex: 'ours', from: SOL, to: M }, { pool: 'b', dex: 'ours', from: M, to: 'U' }, { pool: 'c', dex: 'ours', from: 'U', to: 'T' }, { pool: 'd', dex: 'ours', from: 'T', to: SOL }], outs: [1, 1, 1, 1] }],
+    ['a leg on an exchange the robot does not build for', { legs: [{ pool: 'p1', dex: 'ours', from: SOL, to: M }, { pool: 'p2', dex: 'phoenix', from: M, to: SOL }] }],
+  ])('hands nothing over for %s', (_what, over) => {
+    expect(handoverOf(payingTrip(over), ctx())).toBeNull();
+  });
+});
+
+describe('outcomeOf and Outcomes: what the robot said it did', () => {
+  it('takes an id, an outcome word, a time and a note, stripped of hidden marks and cut short', () => {
+    expect(outcomeOf({ id: 'p1>p2@5@1000', outcome: 'test-\u200bchecks', ms: 412.6, note: 'x'.repeat(300) })).toEqual({ id: 'p1>p2@5@1000', outcome: 'test-checks', ms: 413, note: 'x'.repeat(240), route: 'p1>p2' });
+    expect(outcomeOf({ id: 'p1>p2@5@1000', outcome: 'stale' })).toMatchObject({ ms: null, note: null });
+  });
+  it('refuses what is not an outcome', () => {
+    expect(outcomeOf(null)).toBeNull();
+    expect(outcomeOf({ outcome: 'sent' })).toBeNull();
+    expect(outcomeOf({ id: 'x', outcome: 7 })).toBeNull();
+  });
+  it('counts by outcome word, keeps the latest whole, and gives the median time to act', () => {
+    const o = new Outcomes(2);
+    o.add(outcomeOf({ id: 'a@1@1', outcome: 'stale', ms: 900 }), 1);
+    o.add(outcomeOf({ id: 'b@1@1', outcome: 'test-checks', ms: 300 }), 2);
+    o.add(outcomeOf({ id: 'c@1@1', outcome: 'stale', ms: 1200 }), 3);
+    expect(o.counts()).toEqual({ total: 3, byOutcome: { stale: 2, 'test-checks': 1 }, medianActMs: 900 });
+    expect(o.latest.map((x) => x.id)).toEqual(['c@1@1', 'b@1@1']);
+    expect(new Outcomes().counts()).toEqual({ total: 0, byOutcome: {}, medianActMs: null });
   });
 });

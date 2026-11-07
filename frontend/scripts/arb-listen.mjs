@@ -31,12 +31,26 @@
  * A band or bin pool with no quote (an Orca pool on an adaptive fee tier, an array not read yet)
  * is left out of that judgement and counted (`venues` in state.json).
  *
+ * The engine (owner 2026-11-07: "build it"; reports/Building the best Solana arb scanner.md):
+ * both coin sets at once (ARB_COINS=both: the map's coins on the x·y = k venues AND the busiest
+ * coins on every venue), and every trip that pays after every cost is HANDED to the robot the
+ * moment it is judged: a record on the event stream at /events (lib/arb-listen.mjs handoverOf:
+ * the route, each leg's pool, venue, direction and the accounts its exact quote walked, the size
+ * and what each leg pays at it, the prices judged at) that stands HANDOVER_TTL_MS. The robot
+ * (KEEPER_ENGINE_URL, keeper/engine.ts) builds every swap itself from its own read of the pools,
+ * test-runs the trip and sends it under every rule it has, then posts what it did to /outcome,
+ * so state.json's `outcomes` says how many handovers died before a trip could land: the one
+ * number the report says decides whether a faster feed is worth paying for. This process still
+ * holds no key and sends nothing itself.
+ *
  *   node scripts/arb-listen.mjs        counts at http://127.0.0.1:8799/state.json; Ctrl+C stops it
+ *                                      handovers at /handover.json and /events; POST /outcome
  *
  * Settings (environment): ARB_LISTEN_PORT (8799), ARB_RPC_URL (public mainnet), ARB_WS_URL (the
  * RPC's, as ws), ARB_ROBOT_URL (http://127.0.0.1:8792/state.json), ARB_LISTEN_LOG (each gap, JSON
  * lines; default in the system's temp folder), ARB_MAX_COINS, ARB_LISTEN_COMMITMENT (confirmed),
- * ARB_MAP_FILE (the map's arb-map.json: Stage 0), ARB_SCAN_RPC_URL (the one program-wide read
+ * ARB_MAP_FILE (the map's arb-map.json: Stage 0), ARB_COINS (map | markets | both: both when a map
+ * file is given, else markets), ARB_SCAN_RPC_URL (the one program-wide read
  * of our own pools, which publicnode refuses: the public mainnet RPC), ARB_RPC_GAP_MS (1500 between reads),
  * ARB_READ_BATCH (accounts a read: 100, publicnode 10), ARB_WS_PER_SOCKET (80),
  * ARB_MIN_DEPTH_USD (1000 a pool), ARB_RECHECK_MS (5000), ARB_POOL_REREAD_MS (120000).
@@ -94,6 +108,9 @@ const LOG = process.env.ARB_LISTEN_LOG?.trim() || path.join(os.tmpdir(), 'arb-li
 const COMMITMENT = process.env.ARB_LISTEN_COMMITMENT?.trim() || 'confirmed';
 const MAX_COINS = Number(process.env.ARB_MAX_COINS) || Infinity;
 const MAP_FILE = process.env.ARB_MAP_FILE?.trim() || null;
+const COINS_MODE = process.env.ARB_COINS?.trim().toLowerCase() || (MAP_FILE ? 'both' : 'markets');
+if (!['map', 'markets', 'both'].includes(COINS_MODE)) throw new Error(`ARB_COINS must be map, markets or both, not "${COINS_MODE}"`);
+if (COINS_MODE !== 'markets' && !MAP_FILE) throw new Error(`ARB_COINS=${COINS_MODE} needs ARB_MAP_FILE`);
 const numEnv = (name, fallback) => {
   const raw = process.env[name]?.trim();
   if (!raw) return fallback;
@@ -182,7 +199,10 @@ const S = {
   ruleFrom: 'not read yet',
   // A gap: a trip that pays after every cost a send pays (lib/arb-listen.mjs afterCosts).
   book: new L.GapBook({ pays: (t) => t.paysAll, net: (t) => t.netAllUsd }),
-  stats: { notes: 0, judged: 0, subscribed: 0, refusedSubs: 0, opens: 0, reconnects: 0, slot: 0, readyAt: 0, rechecks: 0, closedByRecheck: 0, poolRereads: 0, arrayReads: 0, needs: 0, staleBins: 0, unpriced: 0, judgeMs: 0, judgeMaxMs: 0 },
+  // The handovers (lib/arb-listen.mjs handoverOf), the newest a route; and what the robot said it did with them.
+  handover: new Map(),
+  outcomes: new L.Outcomes(),
+  stats: { notes: 0, judged: 0, subscribed: 0, refusedSubs: 0, opens: 0, reconnects: 0, slot: 0, readyAt: 0, rechecks: 0, closedByRecheck: 0, poolRereads: 0, arrayReads: 0, needs: 0, staleBins: 0, unpriced: 0, judgeMs: 0, judgeMaxMs: 0, handovers: 0, notHanded: 0 },
   bridgePool: null,
   note: 'starting…',
 };
@@ -449,7 +469,9 @@ function admit(m, symbolHint) {
   const fee = TF.feeNow(facts.transferFee ?? null, null);
   const cut = fee && fee.maximumFee > 0n ? fee.basisPoints / 10_000 : 0;
   const supply = a.data.length >= 44 ? a.data.readBigUInt64LE(36) : null;
-  S.coins.set(m, { mint: m, symbol: String(symbolHint || safety.symbol || '?').slice(0, 16), decimals: facts.decimals, supply, cut, pools: [], links: [] });
+  // A coin both sources list keeps the first ticker it was given.
+  const was = S.coins.get(m);
+  S.coins.set(m, { mint: m, symbol: String(symbolHint || was?.symbol || safety.symbol || '?').slice(0, 16), decimals: facts.decimals, supply, cut, pools: [], links: [] });
   return true;
 }
 
@@ -506,16 +528,23 @@ async function listFromMap() {
   return listed;
 }
 
-/** The coins and their pools: listed, owned and decoded on chain, at least MIN_DEPTH_USD deep, POOLS_PER_COIN a coin at most. */
+/**
+ * The coins and their pools: listed, owned and decoded on chain, at least MIN_DEPTH_USD deep,
+ * POOLS_PER_COIN a coin at most. ARB_COINS says which lists: the map's (Stage 0), the markets'
+ * (our pools' coins and the busiest), or both at once, a coin on both keeping every pool either names.
+ */
 async function discover() {
   await readBasics();
-  const listed = MAP_FILE ? await listFromMap() : await listFromMarkets();
+  const listed = new Map();
+  const add = (m, addrs) => listed.set(m, [...new Set([...(listed.get(m) ?? []), ...addrs])]);
+  if (COINS_MODE !== 'markets') for (const [m, addrs] of await listFromMap()) add(m, addrs);
+  if (COINS_MODE !== 'map') for (const [m, addrs] of await listFromMarkets()) add(m, addrs);
   await readAll([...new Set([...listed.values()].flat())]);
   const candidates = new Map();
   for (const [m, addrs] of listed) {
     const found = [...new Set(addrs)].map((k) => ({ k, a: S.acc.get(k) })).filter(({ a }) => a?.data && C.dexOfProgram(a.owner));
-    // From the map, only what its owner proves is a venue priced to the unit, whatever the row says.
-    candidates.set(m, found.map(({ k, a }) => C.decodePool(C.dexOfProgram(a.owner), k, a.data)).filter((p) => p && (!MAP_FILE || L.DIRECT_DEXES.has(p.dex)) && [p.mintA, p.mintB].includes(m) && linkedQuote(quoteOf(p, m))));
+    // Whatever a list says, a pool is what its owner on chain proves it is; every venue here is priced to the unit.
+    candidates.set(m, found.map(({ k, a }) => C.decodePool(C.dexOfProgram(a.owner), k, a.data)).filter((p) => p && [p.mintA, p.mintB].includes(m) && linkedQuote(quoteOf(p, m))));
   }
   await readConfigs([...candidates.values()].flat());
   const withFees = new Map([...candidates].map(([m, ps]) => [m, ps.map((p) => C.withFee(p, S.configs)).filter(Boolean)]));
@@ -612,7 +641,9 @@ function judgeNow(coin, closedBy) {
   for (const t of trips) Object.assign(t, L.afterCosts(t, solUsd));
   const slot = Math.max(...[...coin.pools, ...coin.links].flatMap(L.accountsOf).map((k) => S.acc.get(k)?.slot ?? 0));
   S.stats.judged++;
-  const { opened, closed } = S.book.seen(coin.mint, trips, slot, Date.now());
+  const now = Date.now();
+  const { opened, closed } = S.book.seen(coin.mint, trips, slot, now);
+  handOver(coin, trips, [...pools, ...coin.links, ...(bridge ? [bridge.pool] : [])], slot, now);
   for (const g of opened) {
     S.stats.opens++;
     g.symbol = coin.symbol;
@@ -626,6 +657,73 @@ function judgeNow(coin, closedBy) {
     log(`CLOSE ${coin.symbol} ${coin.mint} slot ${slot}: ${g.venues} open ${(g.ms / 1000).toFixed(1)} s, ${g.slots} slots; at 1 s ${at(1_000)}, at 3 s ${at(3_000)}, best +$${g.bestNetUsd.toFixed(4)}; closed by ${closedBy}`);
     fs.appendFile(LOG, `${JSON.stringify({ event: 'close', at: new Date().toISOString(), ...g })}\n`, () => {});
   }
+}
+
+// ─── handing over to the robot ───────────────────────────────────────────────────────
+const sseListeners = new Set();
+/** A mint's token program: the robot's coins' and the pricing coins' are known, a coin's is its mint account's owner. */
+const programOf = (m) => (C.COINS[m] ? C.TOKEN_PROGRAM : (C.QUOTES[m]?.program ?? S.acc.get(m)?.owner ?? null));
+/** The handovers still standing, best first. */
+const standingHandovers = (now) => [...S.handover.values()].filter((r) => L.handoverStands(r, now)).sort((a, b) => b.netAllUsd - a.netAllUsd);
+
+/**
+ * Every trip of this judgement that pays after every cost, handed to the robot: a record kept
+ * here (the newest a route, for /handover.json) and written to every open /events stream at
+ * once. `pools` are the coin's pools as judged (with the arrays each exact quote read).
+ */
+function handOver(coin, trips, pools, slot, now) {
+  const byAddress = new Map(pools.map((p) => [p.address, p]));
+  let any = false;
+  for (const t of trips) {
+    if (!t.paysAll) continue;
+    const rec = L.handoverOf(t, { coin, slot, now, usd: S.usd, programOf, arraysOf: (pool) => byAddress.get(pool)?.arrays ?? [] });
+    if (!rec) {
+      S.stats.notHanded++;
+      continue;
+    }
+    S.handover.set(rec.route, rec);
+    S.stats.handovers++;
+    any = true;
+    const g = S.book.open.get(rec.route);
+    if (g) g.handed = (g.handed ?? 0) + 1;
+    const body = `event: handover\ndata: ${JSON.stringify(rec)}\n\n`;
+    for (const res of sseListeners) res.write(body);
+  }
+  if (any && S.handover.size > 500) for (const [route, r] of S.handover) if (!L.handoverStands(r, now)) S.handover.delete(route);
+}
+
+/** An /events stream: the handovers standing now, then each new one as it is judged; a comment every 15 s keeps it open. */
+function serveEvents(req, res) {
+  res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
+  res.write('retry: 1000\n\n');
+  for (const rec of standingHandovers(Date.now())) res.write(`event: handover\ndata: ${JSON.stringify(rec)}\n\n`);
+  sseListeners.add(res);
+  const beat = setInterval(() => res.write(': ping\n\n'), 15_000);
+  req.on('close', () => {
+    clearInterval(beat);
+    sseListeners.delete(res);
+  });
+}
+
+/** POST /outcome: what the robot did with a handover (lib/arb-listen.mjs outcomeOf), from this computer only. */
+function takeOutcome(req, res) {
+  let body = '';
+  req.on('data', (c) => {
+    body += c;
+    if (body.length > 4_096) req.destroy();
+  });
+  req.on('end', () => {
+    let o = null;
+    try {
+      o = L.outcomeOf(JSON.parse(body));
+    } catch {
+      // said below
+    }
+    if (!o) return res.writeHead(400).end();
+    S.outcomes.add(o, Date.now());
+    log(`ROBOT ${o.outcome}${o.ms === null ? '' : ` ${o.ms} ms after the judgement`}: ${o.route}${o.note ? ` (${o.note})` : ''}`);
+    return res.writeHead(204).end();
+  });
 }
 
 /**
@@ -763,6 +861,7 @@ function snapshot() {
     poolsByVenue: Object.fromEntries(Object.keys(C.DEXES).map((d) => [C.DEXES[d].name, [...S.coins.values()].reduce((s, c) => s + c.pools.filter((p) => p.dex === d).length, 0)])),
     venues: venuesNow(),
     stats: S.stats, gaps: S.book.done.length + S.book.open.size,
+    handover: standingHandovers(now), outcomes: S.outcomes.counts(), robotSaid: S.outcomes.latest.slice(0, 20),
     stage0: L.stage0Report([...S.book.done, ...S.book.open.values()], now),
     transferFeeCoins: [...S.coins.values()].filter((c) => c.cut > 0).map((c) => ({ mint: c.mint, symbol: c.symbol, pct: c.cut * 100 })),
     byRoute: S.book.counts(now), byVenue: S.book.counts(now, L.byEachVenue), openNow,
@@ -771,15 +870,18 @@ function snapshot() {
 
 const server = http.createServer((req, res) => {
   if (req.headers.host !== `127.0.0.1:${PORT}` && req.headers.host !== `localhost:${PORT}`) return res.writeHead(421).end();
+  if (req.method === 'POST' && req.url === '/outcome') return takeOutcome(req, res);
   if (req.method !== 'GET') return res.writeHead(405).end();
   if (req.url === '/state.json') return res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }).end(snapshot());
+  if (req.url === '/handover.json') return res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }).end(JSON.stringify({ at: Date.now(), handover: standingHandovers(Date.now()) }));
+  if (req.url === '/events') return serveEvents(req, res);
   return res.writeHead(404).end();
 });
 server.on('error', (e) => {
   log(e.code === 'EADDRINUSE' ? `Port ${PORT} is taken: set ARB_LISTEN_PORT` : `stopped: ${said(e)}`);
   process.exit(1);
 });
-server.listen(PORT, '127.0.0.1', () => log(`Listen-only engine: http://127.0.0.1:${PORT}/state.json; gaps logged to ${LOG}; sends nothing`));
+server.listen(PORT, '127.0.0.1', () => log(`Engine: http://127.0.0.1:${PORT}/state.json; handovers for the robot at /events (standing ${L.HANDOVER_TTL_MS} ms each); gaps logged to ${LOG}; coins from ${COINS_MODE === 'both' ? 'the map and the markets' : COINS_MODE === 'map' ? 'the map' : 'the markets'}; this process sends nothing`));
 
 await discover();
 const watched = [...new Set([BRIDGE, ...ATAS.map(([, a]) => a), ...[...S.coins.values()].flatMap((c) => [...c.pools, ...c.links]).flatMap(L.watchedOf)])];
