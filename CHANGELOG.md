@@ -9,6 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-11-07
 
+- Marketplace: Bojungles and Seeds from the Memetic Garden can be bought here. Their pages show each OpenSea listing's exact price, and an item's panel has a Buy button that settles on Base through Seaport, OpenSea's own contract. The buyer pays the seller's OpenSea price plus Base gas; the venue takes no fee on these buys. Listing them for sale and making offers still happen on OpenSea.
 - Home page: the all-time volume counts again. On Nov 5 a swap in one of our Solana pools used Solana's newer transaction format, which the counter did not ask for, and every count since stopped there, so the figure said "not up to date". A pool's history and finding a share's pool read that format too now.
 
 ### 2026-11-06
