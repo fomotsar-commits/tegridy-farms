@@ -1,7 +1,8 @@
-# Opening a pool on Ethereum costs 0.006 ETH
+# Opening a pool on Ethereum, Base and Robinhood Chain costs 0.006 ETH
 
 > The to-do list is [`TODO_OPERATOR.md`](TODO_OPERATOR.md). This page is the runbook for one item
-> on it: charging to open a pool on Ethereum. Written 2026-10-25.
+> on it: charging to open a pool on Ethereum (written 2026-10-25), and on Base and Robinhood Chain
+> (added 2026-11-07, [below](#base-and-robinhood-chain)).
 
 ## What this does
 
@@ -63,8 +64,9 @@ lost either way.
   the free launch tier on Solana. Do not point a new curve launcher at the new factory: the
   launcher does not pay the fee, so its graduations would wait until someone opened the pair by
   hand (paying 0.006 ETH).
-- **Base and Robinhood Chain** run the same free factory code. Charging there needs the same
-  redeploy on each chain; the site already has a slot for each chain's new addresses.
+- **Base and Robinhood Chain** run the same free factory code, and their old factories stay free
+  too. The same script deploys the charging contracts there: see
+  [Base and Robinhood Chain](#base-and-robinhood-chain).
 
 ## One call for you
 
@@ -128,6 +130,87 @@ production deploy, so it waits for your word.
 
 **NFT pools** ride the NFT pool factory redeploy in [`NFT_POOL_FACTORY_REDEPLOY.md`](NFT_POOL_FACTORY_REDEPLOY.md):
 same steps, same script. That script now also refuses a factory without the 0.006 ETH fee.
+
+## Base and Robinhood Chain
+
+Your word 2026-11-07: "Add Base + Robinhood too", and the fee goes to the **treasury Safe
+`0x796c22ff58F24e4a5d07683d8A5c03Ec54dB38C0`** (the same address on both chains), not to the
+fee-remittance Safe the old factories there pay.
+
+**Why it needs new contracts there too.** Base's factory `0x12a249A027AA7DdF184E824b4bb63ba031A39fEC`
+(7 pools, read 2026-11-07) and Robinhood's `0x4B134C08aAF86B6e2A8E097D1039C4e7638806f3` (0 pools)
+are the same free code as Ethereum's old one and cannot be changed. The same script deploys a
+charging factory, a router and a SwapFeeRouter on each chain. The fee is 0.006 ETH on each: ETH is
+the coin you pay gas in on all three.
+
+**How money moves on Base and Robinhood:**
+
+| | When the pool is opened | On every trade afterwards |
+|---|---|---|
+| The opener pays | 0.006 ETH, on top of their deposit | nothing extra |
+| The treasury Safe `0x796c…38C0` gets | the 0.006 ETH, straight away | 1/6 of the 0.3% pool fee (0.05% of the trade), as LP tokens |
+| The venue gets | | 0.5% of each trade made on the site, through the new SwapFeeRouter, which sends it to the fee-remittance Safe `0xfc5D5018E557941A3BB7Ff057d1B0c2eCC09fbf1`, queued to be bridged to mainnet stakers, exactly as today's Base and Robinhood pools do |
+| The liquidity providers get | their whole deposit goes in the pool | 5/6 of the 0.3% pool fee (0.25% of the trade) |
+
+The treasury takes the 1/6 share because the factory pays its fees to one address: the one you
+picked for the opening fee. On the old factories that share goes to the remittance Safe.
+
+**Who holds the roles there (copied from the live contracts on each chain, read 2026-11-07):**
+`FEE_TO_SETTER` = the multisig `0xBC4E8abe4b0F16FC65c5bCADd018b3C44c47Be5B` (it holds Base's factory
+today); `GUARDIAN` and `PAUSE_GUARDIAN` = `0xF2De91a0086baA36D60B73ee1DF261ef8919A56c` (both old
+factories' guardian and both SwapFeeRouters' pause guardian); `REVENUE_DISTRIBUTOR` = the remittance
+Safe; no referral splitter (there is no veTOWELI off Ethereum); `SEQUENCER_FEED` = the feed the live
+SwapFeeRouter on that chain uses. The script refuses a role with no code, another chain's WETH, a
+referral splitter, a missing pause guardian, and a feed that does not answer like one.
+
+**Base, step 1. Dry run, no key.** Nothing is sent.
+
+```bash
+FEE_TO_SETTER=0xBC4E8abe4b0F16FC65c5bCADd018b3C44c47Be5B GUARDIAN=0xF2De91a0086baA36D60B73ee1DF261ef8919A56c TREASURY=0x796c22ff58F24e4a5d07683d8A5c03Ec54dB38C0 WETH=0x4200000000000000000000000000000000000006 REVENUE_DISTRIBUTOR=0xfc5D5018E557941A3BB7Ff057d1B0c2eCC09fbf1 PAUSE_GUARDIAN=0xF2De91a0086baA36D60B73ee1DF261ef8919A56c SEQUENCER_FEED=0xBCF85224fc0756B9Fa45aA7892530B47e10b6433 forge script script/DeployPoolOpeningFeeAMM.s.sol:DeployPoolOpeningFeeAMMScript --rpc-url https://mainnet.base.org --sender 0x14898258122C0740106391E6e8E4F17F3b6d456E
+```
+
+You should see `Script ran successfully`, `Opening fee (wei): 6000000000000000` and
+`Swap fee (bps): 50`.
+
+**Base, step 2. Deploy (your key).** Nine transactions: the eight on Ethereum plus wiring the
+sequencer feed. The same command with `--account deployer --broadcast` in place of `--sender …`.
+The deployer needs a little ETH on Base. Write down the four addresses it prints.
+
+**Robinhood, step 1. Dry run, no key.** Nothing is sent.
+
+```bash
+FEE_TO_SETTER=0xBC4E8abe4b0F16FC65c5bCADd018b3C44c47Be5B GUARDIAN=0xF2De91a0086baA36D60B73ee1DF261ef8919A56c TREASURY=0x796c22ff58F24e4a5d07683d8A5c03Ec54dB38C0 WETH=0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73 REVENUE_DISTRIBUTOR=0xfc5D5018E557941A3BB7Ff057d1B0c2eCC09fbf1 PAUSE_GUARDIAN=0xF2De91a0086baA36D60B73ee1DF261ef8919A56c SEQUENCER_FEED=0x12a249A027AA7DdF184E824b4bb63ba031A39fEC forge script script/DeployPoolOpeningFeeAMM.s.sol:DeployPoolOpeningFeeAMMScript --rpc-url https://rpc.mainnet.chain.robinhood.com --sender 0x14898258122C0740106391E6e8E4F17F3b6d456E
+```
+
+**Robinhood, step 2. Deploy (your key), by replay.** forge's `--broadcast` dies on chain 4663
+(`Chain 4663 not supported`, proven 2026-08-24), so the deploy replays step 1's dry run with
+`cast send`, in order, from the same key:
+follow [`ROBINHOOD_CAST_REPLAY.md`](ROBINHOOD_CAST_REPLAY.md). The deployer needs a little ETH on
+Robinhood.
+
+**Both chains, step 3. The multisig accepts ownership.** In the Safe app for `0xBC4E…Be5B` on that
+chain, one batch: `acceptOwnership()` on the new SwapFeeRouter and on its admin contract, within 14
+days of step 2. Read 2026-11-07: on Robinhood the OLD SwapFeeRouter and factory are still only
+offered to this Safe (owner and fee setter = the deployer key `0x1489…456E`); that is separate from
+this runbook.
+
+**Both chains, step 4. Check them** (put in the addresses and that chain's RPC):
+
+```bash
+cast call <factory> "POOL_OPENING_FEE()(uint256)" --rpc-url <rpc>
+cast call <factory> "feeTo()(address)" --rpc-url <rpc>
+cast call <swapFeeRouter> "router()(address)" --rpc-url <rpc>
+cast call <swapFeeRouter> "sequencerFeed()(address)" --rpc-url <rpc>
+cast call <swapFeeRouter> "owner()(address)" --rpc-url <rpc>
+```
+
+You should see `6000000000000000`, the treasury Safe `0x796c…38C0`, the new router, the feed from
+step 1, and the multisig.
+
+**Both chains, step 5. Hand the addresses to a session** for the site PR: in
+`frontend/src/lib/chains/registry.ts`, that chain's `openingFactory`, `openingRouter` and
+`openingSwapFeeRouter`. While any is null the site opens pools on the old free factory there, as
+today.
 
 ## The site PR (the follow-up)
 

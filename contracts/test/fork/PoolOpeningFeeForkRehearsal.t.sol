@@ -50,7 +50,8 @@ contract PoolOpeningFeeForkRehearsal is Test {
                     revenueDistributor: live.revenueDistributor(),
                     referralSplitter: address(live.referralSplitter()),
                     swapFeeBps: live.feeBps(),
-                    pauseGuardian: live.pauseGuardian()
+                    pauseGuardian: live.pauseGuardian(),
+                    sequencerFeed: address(0)
                 })
             );
             (factory, router, swapFeeRouter) = (d.factory, d.router, d.swapFeeRouter);

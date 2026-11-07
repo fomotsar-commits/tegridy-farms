@@ -7,6 +7,15 @@ import {DeployPoolOpeningFeeAMMScript} from "../script/DeployPoolOpeningFeeAMM.s
 import {TegridyFactory} from "../src/TegridyFactory.sol";
 import {TegridyRouter} from "../src/TegridyRouter.sol";
 import {SwapFeeRouter} from "../src/SwapFeeRouter.sol";
+import {BaseChainConfig} from "../script/base/BaseChainConfig.sol";
+import {RobinhoodChainConfig} from "../script/robinhood/RobinhoodChainConfig.sol";
+
+/// Chainlink L2 sequencer-uptime feed reporting "up, long ago" (DeployBaseMVP.t.sol's mock).
+contract OpeningFeeMockSequencerFeed {
+    function latestRoundData() external view returns (uint80, int256, uint256, uint256, uint80) {
+        return (1, 0, block.timestamp - 30 days, block.timestamp - 30 days, 1);
+    }
+}
 
 contract DeployFeeToken is ERC20 {
     constructor() ERC20("Token", "TKN") {
@@ -61,7 +70,8 @@ contract PoolOpeningFeeAMMDeployTest is Test {
             revenueDistributor: DISTRIBUTOR,
             referralSplitter: address(0),
             swapFeeBps: 50,
-            pauseGuardian: address(0)
+            pauseGuardian: address(0),
+            sequencerFeed: address(0)
         });
     }
 
@@ -122,10 +132,118 @@ contract PoolOpeningFeeAMMDeployTest is Test {
         assertGt(token.balanceOf(trader), 0, "the trader got tokens from the new pool");
     }
 
-    function test_refusesOffMainnet() public {
-        vm.chainId(8453);
-        vm.expectRevert(bytes("MAINNET_ONLY: gated features deploy to Ethereum mainnet"));
-        script.runForTest(_cfg());
+    function test_refusesAnyOtherChain() public {
+        uint256[3] memory others = [uint256(10), 42161, 11155111];
+        for (uint256 i; i < others.length; ++i) {
+            vm.chainId(others[i]);
+            vm.expectRevert(bytes("CHAIN: Ethereum, Base or Robinhood only"));
+            script.runForTest(_cfg());
+        }
+    }
+
+    function test_mainnet_refusesASequencerFeed() public {
+        DeployPoolOpeningFeeAMMScript.Config memory cfg = _cfg();
+        cfg.sequencerFeed = address(new OpeningFeeMockSequencerFeed());
+        vm.expectRevert(bytes("SEQUENCER_FEED is for Base and Robinhood"));
+        script.runForTest(cfg);
+    }
+
+    // ─── Base and Robinhood (owner 2026-11-07: "Add Base + Robinhood too", fee to the treasury) ───
+
+    address internal constant L2_TREASURY = address(0x796C);
+    address internal constant L2_REMITTANCE = address(0xFC5D);
+    address internal constant L2_PAUSE_GUARDIAN = address(0xF2DE);
+
+    /// The live SwapFeeRouter's shape on that chain, with the opening fee paid to the treasury.
+    function _l2Cfg(uint256 chainId) internal returns (DeployPoolOpeningFeeAMMScript.Config memory cfg) {
+        vm.chainId(chainId);
+        vm.warp(100 days);
+        vm.etch(L2_TREASURY, hex"60006000f3"); // Safes: code that accepts ETH
+        vm.etch(L2_REMITTANCE, hex"60006000f3");
+        address chainWeth = chainId == BaseChainConfig.CHAIN_ID ? BaseChainConfig.WETH : RobinhoodChainConfig.WETH;
+        vm.etch(chainWeth, address(weth).code);
+        cfg = _cfg();
+        cfg.treasury = L2_TREASURY;
+        cfg.weth = chainWeth;
+        cfg.revenueDistributor = L2_REMITTANCE;
+        cfg.pauseGuardian = L2_PAUSE_GUARDIAN;
+        cfg.sequencerFeed = address(new OpeningFeeMockSequencerFeed());
+    }
+
+    function _assertL2(DeployPoolOpeningFeeAMMScript.Config memory cfg) internal {
+        DeployPoolOpeningFeeAMMScript.Deployed memory d = script.runForTest(cfg);
+        assertEq(d.factory.POOL_OPENING_FEE(), 0.006 ether);
+        assertEq(d.factory.feeTo(), L2_TREASURY, "the opening fee goes to the treasury Safe");
+        assertEq(d.router.WETH(), cfg.weth);
+        SwapFeeRouter sfr = d.swapFeeRouter;
+        assertEq(sfr.sequencerFeed(), cfg.sequencerFeed, "L2 feed wired (H-13)");
+        assertEq(sfr.revenueDistributor(), L2_REMITTANCE, "swap fees queue for the bridge, as today");
+        assertEq(sfr.treasury(), L2_TREASURY);
+        assertEq(address(sfr.referralSplitter()), address(0));
+        assertEq(sfr.pauseGuardian(), L2_PAUSE_GUARDIAN);
+        assertEq(sfr.pendingOwner(), SETTER);
+    }
+
+    function test_base_deploys_feeToTheTreasury_feedWired() public {
+        _assertL2(_l2Cfg(BaseChainConfig.CHAIN_ID));
+    }
+
+    function test_robinhood_deploys_feeToTheTreasury_feedWired() public {
+        _assertL2(_l2Cfg(RobinhoodChainConfig.CHAIN_ID));
+    }
+
+    function test_base_opensAPool_andTheTreasuryGetsTheFee() public {
+        DeployPoolOpeningFeeAMMScript.Deployed memory d = script.runForTest(_l2Cfg(BaseChainConfig.CHAIN_ID));
+        DeployFeeToken token = new DeployFeeToken();
+        token.approve(address(d.router), type(uint256).max);
+        d.router.addLiquidityETH{value: 1 ether + 0.006 ether}(
+            address(token), 1_000 ether, 0, 0, address(this), block.timestamp + 60
+        );
+        assertEq(L2_TREASURY.balance, 0.006 ether, "the treasury did not get the opening fee");
+        assertEq(L2_REMITTANCE.balance, 0, "the remittance Safe takes no opening fee");
+    }
+
+    function test_l2_refusesNoSequencerFeed() public {
+        DeployPoolOpeningFeeAMMScript.Config memory cfg = _l2Cfg(BaseChainConfig.CHAIN_ID);
+        cfg.sequencerFeed = address(0);
+        vm.expectRevert(abi.encodeWithSelector(BaseChainConfig.ZeroRole.selector, "SEQUENCER_FEED"));
+        script.runForTest(cfg);
+    }
+
+    function test_l2_refusesAnotherChainsWeth() public {
+        DeployPoolOpeningFeeAMMScript.Config memory cfg = _l2Cfg(RobinhoodChainConfig.CHAIN_ID);
+        cfg.weth = BaseChainConfig.WETH;
+        vm.expectRevert(bytes("WETH != this chain's WETH"));
+        script.runForTest(cfg);
+    }
+
+    function test_l2_refusesAReferralSplitter() public {
+        DeployPoolOpeningFeeAMMScript.Config memory cfg = _l2Cfg(BaseChainConfig.CHAIN_ID);
+        cfg.referralSplitter = address(0x5E1F);
+        vm.expectRevert(bytes("no referral splitter off Ethereum (no veTOWELI)"));
+        script.runForTest(cfg);
+    }
+
+    function test_l2_refusesNoPauseGuardian() public {
+        DeployPoolOpeningFeeAMMScript.Config memory cfg = _l2Cfg(BaseChainConfig.CHAIN_ID);
+        cfg.pauseGuardian = address(0);
+        vm.expectRevert(bytes("set PAUSE_GUARDIAN"));
+        script.runForTest(cfg);
+    }
+
+    // The fee is paid to feeTo for good: a typo'd treasury with no code is refused before the deploy.
+    function test_l2_refusesATreasuryWithNoCode() public {
+        DeployPoolOpeningFeeAMMScript.Config memory cfg = _l2Cfg(RobinhoodChainConfig.CHAIN_ID);
+        cfg.treasury = makeAddr("typo");
+        vm.expectRevert(bytes("TREASURY must be a contract (Safe)"));
+        script.runForTest(cfg);
+    }
+
+    function test_l2_refusesARemittanceWithNoCode() public {
+        DeployPoolOpeningFeeAMMScript.Config memory cfg = _l2Cfg(BaseChainConfig.CHAIN_ID);
+        cfg.revenueDistributor = makeAddr("typo");
+        vm.expectRevert(bytes("REVENUE_DISTRIBUTOR must be the fee-remittance Safe"));
+        script.runForTest(cfg);
     }
 
     function test_refusesASetterWithNoCode() public {

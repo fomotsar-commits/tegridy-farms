@@ -134,7 +134,9 @@ const BASE: ChainConfig = {
     // pending the 2-of-2 accept ceremony; the curve is MULTISIG-owned from birth.
     factory: '0x12a249A027AA7DdF184E824b4bb63ba031A39fEC',
     router: '0x4B134C08aAF86B6e2A8E097D1039C4e7638806f3',
-    // Same free factory code as Ethereum's old one; charging here needs the same redeploy.
+    // The factory above is the same free code as Ethereum's old one. These are the ones that charge
+    // 0.006 ETH to open a pool, paid to the treasury Safe 0x796c… (owner 2026-11-07): set them from
+    // DeployPoolOpeningFeeAMM.s.sol's output here (docs/POOL_OPENING_FEE_EVM.md); null until then.
     openingFactory: null,
     openingRouter: null,
     openingSwapFeeRouter: null,
@@ -189,7 +191,9 @@ const ROBINHOOD: ChainConfig = {
     // The AttestedSequencerUptimeFeed is the sequencerUptimeFeed above (deployed first).
     factory: '0x4B134C08aAF86B6e2A8E097D1039C4e7638806f3',
     router: '0xB021651dACaD5dabf83ef587297E093DfA0c95Ec',
-    // Same free factory code as Ethereum's old one; charging here needs the same redeploy.
+    // The factory above is the same free code as Ethereum's old one. These are the ones that charge
+    // 0.006 ETH to open a pool, paid to the treasury Safe 0x796c… (owner 2026-11-07): set them from
+    // DeployPoolOpeningFeeAMM.s.sol's output here (docs/POOL_OPENING_FEE_EVM.md); null until then.
     openingFactory: null,
     openingRouter: null,
     openingSwapFeeRouter: null,

@@ -9,6 +9,8 @@ The site's Changelog tab shows both files.
 
 ### 2026-11-07
 
+- Opening a pool on Ethereum, Base and Robinhood Chain will cost 0.006 ETH, paid to the treasury (on Base and Robinhood the treasury Safe there, not the fee-remittance Safe the old factories pay): a new coin-pool factory and router on each chain and the new NFT pool factory on Ethereum charge it, and the site's Add liquidity and NFT pool forms say so and ask the wallet for it once those contracts are deployed. Pools opened there are listed on the pools page and swapped on the site with the same 0.5% venue fee as today's pools, through their own fee router. Until then nothing changes, except that the NFT pool form now says when opening pools is paused.
+
 - Receipt card (Solana): the confetti after a swap or an add is gone. In its place the card's ring holds an ember that catches into the island's flame the moment the card is up: the ring breathes once, the edge warms once, the clock line lights. A sale never lights. The farm keeps its own confetti.
 
 - Home page: the all-time volume counts again. On Nov 5 a swap in one of our Solana pools used Solana's newer transaction format, which the counter did not ask for, and every count since stopped there, so the figure said "not up to date". A pool's history and finding a share's pool read that format too now.
@@ -99,7 +101,6 @@ The site's Changelog tab shows both files.
 
 ### 2026-10-25
 
-- Opening a pool on Ethereum will cost 0.006 ETH, paid to the treasury: the new coin-pool factory and router and the new NFT pool factory charge it, and the site's Add liquidity and NFT pool forms say so and ask the wallet for it once those contracts are deployed. Pools opened there are listed on the pools page and swapped on the site with the same 0.5% venue fee as today's pool, through their own fee router. Until then nothing changes, except that the NFT pool form now says when opening pools is paused.
 - The dashboard opens at once for a wallet it has read before in this browser: it shows that wallet's last reading straight away, says "As of 3h ago · updating" beside Refresh, and swaps in the new reading as it arrives. A part the new reading cannot read still says so, never the old figures. On /dashboard a Solana wallet connected here before reconnects as the page opens, not 1.5 seconds later. Measured on a returning visit: rows in about 0.6 seconds, down from about 3.3.
 - Pools: a room's Add SOL + coin now opens Add with one coin at the top of the Venue AMM page, above everything else, with the pool's price, the outside price, the gap between them and how each trade's fee splits as rows inside it. The page no longer jumps down to the form, and nothing loading above it moves it. The pool finder, every pool and the rest of the page sit below.
 - Solana pools: a pool opened on the launch fee tier without a launch (free to open on the pool program running now) is never listed, swapped in or added to from this site, and a link or a position that names one says so in one bold line. Holders of one can still remove their liquidity. Graduated launch pools are unchanged.

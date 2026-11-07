@@ -29,18 +29,24 @@ stop and say so — a surprise is information.
 
 ---
 
-## 2026-10-25: opening a pool on Ethereum costs 0.006 ETH (two deploys, your key)
+## 2026-11-07: opening a pool on Ethereum, Base and Robinhood costs 0.006 ETH (one script per chain, your key)
 
-Your ruling: "0.006 eth on all evm", with a new factory and router for coin pools. Every command
-and what you should see: [`POOL_OPENING_FEE_EVM.md`](POOL_OPENING_FEE_EVM.md).
+Your ruling: "0.006 eth on all evm", with a new factory and router for coin pools; on 2026-11-07
+"Add Base + Robinhood too", with the fee there going to the treasury Safe `0x796c…38C0`. Every
+command and what you should see: [`POOL_OPENING_FEE_EVM.md`](POOL_OPENING_FEE_EVM.md). Until these
+run, opening a pool is free on all three chains.
 
 - ✅ **How the site swaps the new coin pools** (your word 2026-10-27, "do whats best"): through a
   second SwapFeeRouter bound to the new router, with the same 0.5% to the venue.
-- ⬜ **Deploy the new coin-pool factory, router and SwapFeeRouter** (one script, your key), then
-  the Safe accepts ownership of the SwapFeeRouter and its admin (one batch). Pools opened there pay
-  0.006 ETH to the treasury; today's pool and the old factory stay as they are.
-- ⬜ **NFT pools:** the NFT pool factory redeploy below now charges 0.006 ETH to open a pool too.
-  Nothing extra to run.
+- ⬜ **Ethereum: deploy the new coin-pool factory, router and SwapFeeRouter** (one script, your
+  key), then the Safe accepts ownership of the SwapFeeRouter and its admin (one batch). Pools opened
+  there pay 0.006 ETH to the treasury; today's pool and the old factory stay as they are.
+- ⬜ **Base: the same script** (your key), then the multisig `0xBC4E…Be5B` accepts the two (one
+  batch). Base's 7 pools on the old factory stay as they are.
+- ⬜ **Robinhood: the same script, deployed by cast replay** (forge can't broadcast on chain 4663),
+  then the multisig accepts the two.
+- ⬜ **NFT pools (Ethereum):** the NFT pool factory redeploy below now charges 0.006 ETH to open a
+  pool too. Nothing extra to run.
 
 ---
 
