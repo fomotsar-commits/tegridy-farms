@@ -56,7 +56,9 @@
  * ARB_MIN_DEPTH_USD (1000 a pool), ARB_RECHECK_MS (5000), ARB_POOL_REREAD_MS (120000),
  * ARB_MEME_PAIRS (on: a coin's pools priced in another memecoin, GRR/BOBO, are traded through
  * that memecoin's deepest SOL or USDC pool, SOL → BOBO → GRR → SOL; "off" leaves them out),
- * ARB_MEME_QUOTES (80: the most memecoins linked so).
+ * ARB_MEME_QUOTES (80: the most memecoins linked so), ARB_VERIFY_MS (1500: a paying trip counts,
+ * and is handed over, only once every account of its pools was read over HTTP this recently;
+ * ARB_VERIFY_RPC_URL, the public mainnet RPC by default, reads them in one call).
  *
  * The public mainnet websocket gives ~4 sockets × 80 accounts an IP and the robot uses it: point
  * ARB_RPC_URL and ARB_WS_URL at publicnode (measured 11-07: ~300 subscriptions a socket, updates
@@ -135,6 +137,8 @@ const POOLS_PER_COIN = 10;
 const MIN_DEPTH_USD = numEnv('ARB_MIN_DEPTH_USD', 1_000);
 const MEME_PAIRS = !/^(off|no|false|0)$/i.test(process.env.ARB_MEME_PAIRS?.trim() ?? '');
 const MEME_QUOTES_MAX = numEnv('ARB_MEME_QUOTES', 80);
+const VERIFY_MS = numEnv('ARB_VERIFY_MS', 1_500);
+const VERIFY_RPC = process.env.ARB_VERIFY_RPC_URL?.trim() || 'https://api.mainnet-beta.solana.com';
 const BRIDGE = 'Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE';
 // One swap moves two vaults in one slot; their updates arrive apart. A coin is judged once both are in.
 const JUDGE_AFTER_MS = 250;
@@ -188,6 +192,8 @@ const callRpc = (url) => async (method, params) => {
 const rpc = gated(RPC_GAP_MS, 30_000, callRpc(RPC));
 // The one program-wide read (our own pools): the public mainnet RPC takes it, publicnode does not.
 const scanRpc = gated(RPC_GAP_MS, 30_000, callRpc(SCAN_RPC));
+// A paying trip's accounts, read in ONE call (100 at most) so they are one snapshot: the public RPC takes 100 a call, publicnode 10.
+const verifyRpc = gated(300, 10_000, callRpc(VERIFY_RPC));
 const dexscreener = gated(400, 60_000, async (mint) => {
   const r = await fetch(`https://api.dexscreener.com/token-pairs/v1/solana/${mint}`, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(20_000) });
   if (r.status === 429) throw Object.assign(new Error('DexScreener refused for speed'), { busy: true });
@@ -225,7 +231,9 @@ const S = {
   unwatched: new Set(),
   // Accounts a subscription keeps fresh: taken, and read afresh after it was (a change since is sent).
   live: new Set(),
-  stats: { notes: 0, judged: 0, subscribed: 0, refusedSubs: 0, opens: 0, reconnects: 0, slot: 0, readyAt: 0, rechecks: 0, closedByRecheck: 0, poolRereads: 0, arrayReads: 0, needs: 0, staleBins: 0, unpriced: 0, judgeMs: 0, judgeMaxMs: 0, handovers: 0, notHanded: 0, notHandedUnwatched: 0 },
+  // address → when it was last read over HTTP (ms): what a paying trip is verified by.
+  readAt: new Map(),
+  stats: { notes: 0, judged: 0, subscribed: 0, refusedSubs: 0, opens: 0, reconnects: 0, slot: 0, readyAt: 0, rechecks: 0, closedByRecheck: 0, poolRereads: 0, arrayReads: 0, needs: 0, staleBins: 0, unpriced: 0, judgeMs: 0, judgeMaxMs: 0, handovers: 0, notHanded: 0, notHandedUnwatched: 0, verifyReads: 0, unverified: 0, verifiedPaying: 0 },
   bridgePool: null,
   note: 'starting…',
 };
@@ -238,6 +246,8 @@ async function readAll(keys) {
     const part = keys.slice(i, i + READ_BATCH);
     const r = await rpc('getMultipleAccounts', [part, { encoding: 'base64', commitment: COMMITMENT }]);
     part.forEach((k, j) => keep(k, r.value[j] ? Buffer.from(r.value[j].data[0], 'base64') : null, r.context.slot, r.value[j]?.owner));
+    const at = Date.now();
+    for (const k of part) S.readAt.set(k, at);
   }
 }
 function keep(k, data, slot, owner) {
@@ -434,6 +444,28 @@ function readSoon(needs, mint) {
     })
     .catch((e) => log(`reading arrays for ${mint}: ${said(e)}`))
     .finally(() => fresh.forEach(([k]) => pendingReads.delete(k)));
+}
+
+/** A paying trip's accounts read over HTTP in one call (one snapshot), then its coin judged again; once a coin at a time. */
+const verifying = new Set();
+function verifySoon(coin, keys) {
+  if (verifying.has(coin.mint)) return;
+  verifying.add(coin.mint);
+  S.stats.verifyReads++;
+  const want = keys.slice(0, 100);
+  verifyRpc('getMultipleAccounts', [want, { encoding: 'base64', commitment: COMMITMENT }])
+    .then((r) => {
+      if (!Array.isArray(r?.value) || r.value.length !== want.length) return;
+      const at = Date.now();
+      want.forEach((k, j) => {
+        keep(k, r.value[j] ? Buffer.from(r.value[j].data[0], 'base64') : null, r.context.slot, r.value[j]?.owner);
+        // Read now: verified even when the copy here was already as new (keep refused an older one).
+        S.readAt.set(k, at);
+      });
+      judge(coin, 'a verify read');
+    })
+    .catch((e) => log(`verify read of ${coin.symbol} ${coin.mint}: ${said(e)}`))
+    .finally(() => verifying.delete(coin.mint));
 }
 
 const quoteOf = (p, mint) => (p.mintA === mint ? p.mintB : p.mintA);
@@ -788,8 +820,32 @@ function judgeNow(coin, closedBy) {
   const slot = Math.max(...[...coin.pools, ...coin.links].flatMap(L.accountsOf).map((k) => S.acc.get(k)?.slot ?? 0));
   S.stats.judged++;
   const now = Date.now();
-  const { opened, closed } = S.book.seen(coin.mint, trips, slot, now);
-  handOver(coin, trips, [...pools, ...coin.links, ...(bridge ? [bridge.pool] : [])], slot, now);
+  // A gap on the websocket's word alone is not one: measured 11-07, publicnode delivered none of
+  // the changes to five quiet memecoin pools in two minutes (Solana's own socket: 10) and closes
+  // every socket every few minutes, so a pool's copy here can be minutes old. A trip that pays
+  // counts, and is handed over, only once every account its pools hold was read over HTTP within
+  // VERIFY_MS; one that was not has them read now, in one call, and its coin judged again. A gap
+  // already open stays open while it is checked.
+  const judgedPools = [...pools, ...coin.links, ...(bridge ? [bridge.pool] : [])];
+  const byAddress = new Map(judgedPools.map((p) => [p.address, p]));
+  const accountsOfTrip = (t) => [...new Set(t.legs.flatMap((l) => (byAddress.has(l.pool) ? L.accountsOf(byAddress.get(l.pool)) : [l.pool])))];
+  const toVerify = new Set();
+  for (const t of trips) {
+    if (!t.paysAll) continue;
+    const keys = accountsOfTrip(t);
+    if (keys.every((k) => now - (S.readAt.get(k) ?? 0) <= VERIFY_MS)) {
+      S.stats.verifiedPaying++;
+      continue;
+    }
+    t.unverified = true;
+    S.stats.unverified++;
+    for (const k of keys) toVerify.add(k);
+  }
+  if (toVerify.size) verifySoon(coin, [...toVerify]);
+  const openHere = new Set([...S.book.open.values()].filter((g) => g.coin === coin.mint).map((g) => g.route));
+  const forBook = trips.filter((t) => !(t.unverified && !openHere.has(L.routeOf(t))));
+  const { opened, closed } = S.book.seen(coin.mint, forBook, slot, now);
+  handOver(coin, trips.filter((t) => !t.unverified), judgedPools, slot, now);
   for (const g of opened) {
     S.stats.opens++;
     g.symbol = coin.symbol;
@@ -821,11 +877,10 @@ function handOver(coin, trips, pools, slot, now) {
   const byAddress = new Map(pools.map((p) => [p.address, p]));
   let any = false;
   for (const t of trips) {
-    if (!t.paysAll) continue;
-    if (t.legs.some((l) => L.watchedOf(byAddress.get(l.pool) ?? { kind: 'pair', address: l.pool }).some((k) => S.unwatched.has(k)))) {
-      S.stats.notHandedUnwatched++;
-      continue;
-    }
+    // Only verified trips come here (judgeNow): every account of their pools read over HTTP within
+    // VERIFY_MS, so a pool whose socket is resubscribing, or whose subscription was refused, is
+    // handed over too (f3671dc62 held those back: 1-2 minutes in every ~10 on publicnode).
+    if (!t.paysAll || t.unverified) continue;
     const rec = L.handoverOf(t, { coin, slot, now, usd: S.usd, programOf, arraysOf: (pool) => byAddress.get(pool)?.arrays ?? [] });
     if (!rec) {
       S.stats.notHanded++;
