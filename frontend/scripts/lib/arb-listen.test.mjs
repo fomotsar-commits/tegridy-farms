@@ -107,6 +107,7 @@ describe('Stage 0: watched accounts, the map, the report', () => {
     expect(watchedOf({ kind: 'band', dex: 'whirlpool', address: 'a' })).toEqual(['a']);
     // Tick arrays change only with liquidity: re-read, not watched. Bin arrays change with every swap: watched.
     expect(watchedOf({ kind: 'band', dex: 'clmm', address: 'a', arrays: ['t1'] })).toEqual(['a']);
+    expect(watchedOf({ kind: 'band', dex: 'whirlpool', address: 'a', arrays: ['o', 't1'], oracle: 'o' })).toEqual(['a', 'o']);
     expect(watchedOf({ kind: 'bins', dex: 'dlmm', address: 'a', vaultA: 'va', vaultB: 'vb', arrays: ['b1', 'b2'] })).toEqual(['a', 'b1', 'b2']);
   });
 

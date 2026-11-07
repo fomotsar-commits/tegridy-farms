@@ -68,8 +68,9 @@ export async function robotSettings(url, fetchImpl) {
 }
 
 /**
- * The six outside venues and ours. `mints`: where the pool's two coins sit in its account (the
+ * The seven outside venues and ours. `mints`: where the pool's two coins sit in its account (the
  * one-coin lookup filters on them); `size`: the account's length, when every pool's is the same.
+ * Meteora DAMM v2's Pool shares PumpSwap's "Pool" tag: its size (1112) and owner tell them apart.
  */
 export const DEXES = Object.freeze({
   ours: { program: 'EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT', name: 'Tegriddy Farms (ours)', mints: [168, 200], size: 637, tag: 'PoolState' },
@@ -79,6 +80,7 @@ export const DEXES = Object.freeze({
   clmm: { program: 'CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK', name: 'Raydium CLMM', mints: [73, 105], size: 1544, tag: 'PoolState' },
   whirlpool: { program: 'whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc', name: 'Orca', mints: [101, 181], size: 653, tag: 'Whirlpool' },
   dlmm: { program: 'LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo', name: 'Meteora DLMM', mints: [88, 120], size: 904, tag: 'LbPair' },
+  damm: { program: 'cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG', name: 'Meteora DAMM v2', mints: [168, 200], size: 1112, tag: 'Pool' },
 });
 export const dexOfProgram = (program) => Object.keys(DEXES).find((k) => DEXES[k].program === program) ?? null;
 
@@ -116,12 +118,25 @@ export function decodePool(dex, address, data) {
       const liquidity = u128(data, 49);
       const tickSpacing = u16(data, 41);
       // A pool on an adaptive fee tier (fee_tier_index ≠ tick_spacing) adds a fee from its Oracle
-      // account that is not read: priced, it would look cheaper than it is. Left out, and said so.
+      // account, which the exact quote reads (lib/arb-venues.mjs); its `fee` here is the static part.
       const adaptive = u16(data, 43) !== tickSpacing;
       return {
         ...base, kind: 'band', fee: u16(data, 45) / 1e6, liquidity, sqrtPriceX64: u128(data, 65), tickCurrent: i32(data, 81), tickSpacing, adaptive,
         mintA: key(data, 101), vaultA: key(data, 133), mintB: key(data, 181), vaultB: key(data, 213),
-        stopped: liquidity === 0n ? 'no liquidity at its price' : adaptive ? 'adaptive fee tier: its Oracle account is not read' : null,
+        stopped: liquidity === 0n ? 'no liquidity at its price' : null,
+      };
+    }
+    case 'damm': {
+      // One range on Uniswap v3's maths; the program's liquidity carries 64 more bits than a
+      // Uniswap L, so shifted here depthOf's virtual reserves hold. `fee` is the cliff fee: the
+      // exact quote follows the pool's schedule (lib/arb-venues.mjs dammFee).
+      const liquidity = u128(data, 360) >> 64n;
+      const status = data[481];
+      const feeMode = data[16];
+      return {
+        ...base, kind: 'band', fee: Number(u64(data, 8)) / 1e9, liquidity, sqrtPriceX64: u128(data, 456),
+        mintA: key(data, 168), mintB: key(data, 200), vaultA: key(data, 232), vaultB: key(data, 264),
+        stopped: status !== 0 ? 'trading switched off' : feeMode > 1 ? 'rate-limiter fee mode: not read' : liquidity === 0n ? 'no liquidity' : null,
       };
     }
     case 'clmm': {

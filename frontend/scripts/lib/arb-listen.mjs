@@ -27,7 +27,8 @@ export const accountsOf = (p) => (p.kind === 'band' ? [p.address, ...(p.arrays ?
  */
 export const watchedOf = (p) => {
   if (p.kind === 'pair') return p.dex === 'pumpswap' ? accountsOf(p) : [p.vaultA, p.vaultB];
-  if (p.kind === 'band') return [p.address];
+  // An adaptive-fee Orca pool's Oracle (`oracle`) moves with every swap, as its fee does: watched.
+  if (p.kind === 'band') return [p.address, ...(p.oracle ? [p.oracle] : [])];
   return [p.address, ...(p.arrays ?? [])];
 };
 

@@ -228,7 +228,9 @@ function venueAccounts(p) {
   if (!d) return [];
   if (p.dex === 'whirlpool') {
     const w = V.whirlpoolState(d);
-    return w && !w.adaptive ? V.orcaArraysNear(p.address, w).map((x) => x.address) : [];
+    if (!w) return [];
+    const arrays = V.orcaArraysNear(p.address, w).map((x) => x.address);
+    return w.adaptive ? [V.orcaOracleAddress(p.address), ...arrays] : arrays;
   }
   if (p.dex === 'clmm') {
     const pool = V.decodeClmmPool(p.address, d);
@@ -252,7 +254,10 @@ async function readVenueAccounts(pools) {
     if (!want.length) break;
     await readAll(want);
   }
-  for (const p of venue) p.arrays = venueAccounts(p);
+  for (const p of venue) {
+    p.arrays = venueAccounts(p);
+    if (p.dex === 'whirlpool' && p.adaptive) p.oracle = V.orcaOracleAddress(p.address);
+  }
 }
 
 /** A bin pool's depth: what its read bin arrays hold, and its price at the active bin (lib/arb-chain.mjs depthOf). */
@@ -279,7 +284,18 @@ function exactQuote(p, fromMint, needs) {
   };
   if (p.dex === 'whirlpool') {
     const w = V.whirlpoolState(d);
-    if (!w || w.adaptive) return null;
+    if (!w) return null;
+    let oracle = null;
+    if (w.adaptive) {
+      const k = V.orcaOracleAddress(p.address);
+      if (!S.acc.has(k)) {
+        want(k);
+        return null;
+      }
+      oracle = decodedOf(k, V.decodeOrcaOracle);
+      if (!oracle) return null;
+    }
+    const now = Date.now() / 1000;
     const array = (start) => {
       const k = V.orcaArrayAddress(p.address, start);
       const a = S.acc.get(k);
@@ -289,7 +305,13 @@ function exactQuote(p, fromMint, needs) {
       }
       return a.data ? decodedOf(k, V.decodeOrcaTickArray) : null;
     };
-    return (x) => Number(V.orcaQuote(w, BigInt(Math.floor(x)), aToB, array).out);
+    return (x) => Number(V.orcaQuote(w, BigInt(Math.floor(x)), aToB, array, oracle, now).out);
+  }
+  if (p.dex === 'damm') {
+    const s = decodedOf(p.address, V.dammState);
+    if (!s) return null;
+    const when = { now: Date.now() / 1000, slot: S.stats.slot };
+    return (x) => Number(V.dammQuote(s, BigInt(Math.floor(x)), aToB, when).out);
   }
   if (p.dex === 'clmm') {
     const pool = decodedOf(p.address, (data) => V.decodeClmmPool(p.address, data));
@@ -551,7 +573,14 @@ function judgeNow(coin, closedBy) {
   if (!bridge) return;
   let pools = coin.pools.map((p) => {
     const fresh = C.withFee(C.decodePool(p.dex, p.address, dataOf(p.address)) ?? {}, S.configs);
-    return fresh && fresh.mintA ? { ...fresh, arrays: p.arrays ?? [] } : null;
+    if (!fresh || !fresh.mintA) return null;
+    // A DAMM v2 pool's fee follows its schedule: the fee now, for the screen at zero size.
+    if (fresh.dex === 'damm') {
+      const s = decodedOf(p.address, V.dammState);
+      const f = s && V.dammFee(s, { now: Date.now() / 1000, slot: S.stats.slot });
+      if (typeof f === 'bigint') fresh.fee = Number(f) / 1e9;
+    }
+    return { ...fresh, arrays: p.arrays ?? [], ...(p.oracle ? { oracle: p.oracle } : {}) };
   }).filter(Boolean);
   const depths = new Map(pools.map((p) => [p.address, C.depthOf(p, amounts, binsOf)]));
   const needs = new Map();
@@ -707,16 +736,18 @@ function listen(accounts, n) {
 
 /** The band and bin pools: how many are priced to the unit now, and how many are not, and why. */
 function venuesNow() {
-  const out = { priced: {}, adaptive: 0, noArrays: 0, stopped: 0 };
+  const out = { priced: {}, adaptive: 0, noOracle: 0, noArrays: 0, stopped: 0 };
   for (const c of S.coins.values()) {
     for (const p of c.pools) {
       if (p.kind === 'pair') continue;
       const name = C.DEXES[p.dex]?.name ?? p.dex;
-      if (p.stopped) {
-        if (/adaptive/.test(p.stopped)) out.adaptive++;
-        else out.stopped++;
-      } else if (!(p.arrays ?? []).some((k) => S.acc.get(k)?.data)) out.noArrays++;
-      else out.priced[name] = (out.priced[name] ?? 0) + 1;
+      if (p.stopped) out.stopped++;
+      else if (p.oracle && !S.acc.get(p.oracle)?.data) out.noOracle++;
+      else if (p.dex !== 'damm' && !(p.arrays ?? []).some((k) => S.acc.get(k)?.data)) out.noArrays++;
+      else {
+        out.priced[name] = (out.priced[name] ?? 0) + 1;
+        if (p.oracle) out.adaptive++;
+      }
     }
   }
   return out;

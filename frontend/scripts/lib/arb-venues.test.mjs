@@ -3,9 +3,10 @@ import { describe, it, expect } from 'vitest';
 import { createHash } from 'node:crypto';
 import bs58 from 'bs58';
 import {
-  CLMM_PROGRAM, DLMM_PROGRAM, WHIRLPOOL_PROGRAM, ORCA_TICKS_PER_ARRAY, DLMM_BINS_PER_ARRAY,
-  decodeBinArray, decodeOrcaTickArray, dlmmArrayAddress, dlmmArrayIndex, dlmmArrayInUse, dlmmArraysNear, dlmmBaseFee, dlmmDepth, dlmmPow, dlmmPrice, dlmmQuote, dlmmTotalFee, dlmmVariableFee,
-  orcaArrayAddress, orcaArrayStart, orcaArraysNear, orcaQuote, whirlpoolState,
+  CLMM_PROGRAM, DLMM_PROGRAM, WHIRLPOOL_PROGRAM, ORCA_TICKS_PER_ARRAY, DLMM_BINS_PER_ARRAY, ORCA_FEE_RATE_HARD_LIMIT,
+  decodeBinArray, decodeOrcaOracle, decodeOrcaTickArray, dlmmArrayAddress, dlmmArrayIndex, dlmmArrayInUse, dlmmArraysNear, dlmmBaseFee, dlmmDepth, dlmmPow, dlmmPrice, dlmmQuote, dlmmTotalFee, dlmmVariableFee,
+  dammBaseFee, dammPoint, dammQuote, dammState,
+  orcaAdaptiveFeeRate, orcaArrayAddress, orcaArrayStart, orcaArraysNear, orcaOracleAddress, orcaQuote, whirlpoolState,
 } from './arb-venues.mjs';
 import { DEXES, SOL_MINT, USDC_MINT, decodePool, depthOf, tripsFor } from './arb-chain.mjs';
 import { getSqrtPriceAtTick } from '../../src/lib/solana/clmm/math.ts';
@@ -250,11 +251,13 @@ describe('Orca Whirlpools', () => {
     const s = whirlpoolState(b);
     expect(s).toMatchObject({ tickSpacing: 16, feeTierIndex: 1030, adaptive: true, feeRate: 1600, liquidity: 7n, tickCurrent: 25793 });
     expect(orcaArraysNear(DLMM_POOL, s).map((x) => x.start)).toEqual([23936, 25344, 26752]);
+    // An adaptive pool trades (its Oracle gives the fee the quote adds); its `fee` here is the static part.
     const pool = decodePool('whirlpool', DLMM_POOL, b);
     expect(pool.adaptive).toBe(true);
-    expect(pool.stopped).toMatch(/adaptive/);
+    expect(pool.stopped).toBeNull();
+    expect(pool.fee).toBe(0.0016);
     b.writeUInt16LE(16, 43);
-    expect(decodePool('whirlpool', DLMM_POOL, b).stopped).toBeNull();
+    expect(decodePool('whirlpool', DLMM_POOL, b).adaptive).toBe(false);
   });
 });
 
@@ -299,5 +302,165 @@ describe('exact quotes in a trip (arb-chain.mjs tripsFor)', () => {
     expect(depthOf(bins, amounts, () => ({ a: 5, b: 6 }))).toEqual({ a: 5, b: 6 });
     expect(depthOf(bins, amounts, () => ({ a: 5, b: 6, spot: 1.2 }))).toEqual({ a: 5, b: 6, spot: 1.2 });
     expect(depthOf(bins, amounts, () => null).rough).toBe(true);
+  });
+});
+
+describe('Meteora DAMM v2', () => {
+  /** A pool at price 1 with a Uniswap L of 1e12 (the program's figure carries 64 more bits), a 0.1% fee on the coin out. */
+  const pool = (over = {}) => ({
+    cliffFeeNumerator: 1_000_000n, baseFeeMode: 0, numberOfPeriod: 0, periodFrequency: 0n, reductionFactor: 0n, dynamic: null,
+    liquidity: 10n ** 12n << 64n, sqrtMinPrice: 4295048016n, sqrtMaxPrice: 79226673521066979257578248091n, sqrtPrice: ONE,
+    activationPoint: 0n, activationType: 1, status: 0, collectFeeMode: 0, version: 1, ...over,
+  });
+  const when = { now: 1_000, slot: 500 };
+  const xyk = (x, fee) => (1e12 * x) / (1e12 + x) * (1 - fee);
+
+  it('decodes a Pool account, and the chain library sees a band pool with a Uniswap liquidity', () => {
+    const b = Buffer.alloc(1112);
+    tag('Pool').copy(b, 0);
+    b.writeBigUInt64LE(400_000n, 8);
+    b[16] = 0;
+    b.writeUInt16LE(3, 22);
+    b.writeBigUInt64LE(100n, 24);
+    b.writeBigUInt64LE(50_000n, 32);
+    b[56] = 1;
+    b.writeUInt32LE(880_000, 64);
+    b.writeUInt32LE(2_000_000, 68);
+    b.writeUInt16LE(10, 72);
+    b.writeUInt16LE(30, 74);
+    b.writeUInt16LE(600, 76);
+    b.writeUInt16LE(5_000, 78);
+    put(b, 168, SOL_MINT);
+    put(b, 200, USDC_MINT);
+    put(b, 232, DLMM_POOL);
+    put(b, 264, DLMM_ARRAY_344);
+    u128(b, 360, 7n << 64n);
+    u128(b, 424, 100n);
+    u128(b, 440, 1000n);
+    u128(b, 456, ONE);
+    b.writeBigUInt64LE(1_754_985_927n, 472);
+    b[480] = 1;
+    b[484] = 1;
+    b[486] = 1;
+    const s = dammState(b);
+    expect(s).toMatchObject({ cliffFeeNumerator: 400_000n, baseFeeMode: 0, numberOfPeriod: 3, periodFrequency: 100n, reductionFactor: 50_000n, liquidity: 7n << 64n, sqrtMinPrice: 100n, sqrtMaxPrice: 1000n, sqrtPrice: ONE, activationPoint: 1_754_985_927n, activationType: 1, status: 0, collectFeeMode: 1, version: 1 });
+    expect(s.dynamic).toMatchObject({ maxVolatilityAccumulator: 880_000, variableFeeControl: 2_000_000, binStep: 10, filterPeriod: 30, decayPeriod: 600, reductionFactor: 5_000 });
+    const p = decodePool('damm', DLMM_POOL, b);
+    expect(p).toMatchObject({ kind: 'band', fee: 0.0004, liquidity: 7n, sqrtPriceX64: ONE, mintA: SOL_MINT, mintB: USDC_MINT, vaultA: DLMM_POOL, vaultB: DLMM_ARRAY_344, stopped: null });
+    b[481] = 1;
+    expect(decodePool('damm', DLMM_POOL, b).stopped).toBe('trading switched off');
+    b[481] = 0;
+    b[16] = 2;
+    expect(decodePool('damm', DLMM_POOL, b).stopped).toMatch(/rate-limiter/);
+    expect(DEXES.damm.program).toBe('cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG');
+  });
+
+  it('swaps within its range as x·y = k on its liquidity, the fee taken from the coin out', () => {
+    const a = dammQuote(pool(), 1_000_000_000n, true, when);
+    expect(a.used).toBe(1_000_000_000n);
+    expect(a.fee).toBe(1_000_000n);
+    expect(Number(a.out) / xyk(1e9, 0.001)).toBeCloseTo(1, 8);
+    const b = dammQuote(pool(), 1_000_000_000n, false, when);
+    expect(Number(b.out) / xyk(1e9, 0.001)).toBeCloseTo(1, 8);
+  });
+
+  it('in collect mode 1 the fee is in token B: on the coin in when B goes in, on the coin out otherwise', () => {
+    const onB = pool({ collectFeeMode: 1 });
+    const bIn = dammQuote(onB, 1_000_000_000n, false, when);
+    expect(Number(bIn.out) / ((1e12 * 1e9 * 0.999) / (1e12 + 1e9 * 0.999))).toBeCloseTo(1, 8);
+    const aIn = dammQuote(onB, 1_000_000_000n, true, when);
+    expect(Number(aIn.out) / xyk(1e9, 0.001)).toBeCloseTo(1, 8);
+  });
+
+  it('follows the fee schedule from activation: linear, by a factor, and not at all for the rate limiter', () => {
+    const linear = pool({ cliffFeeNumerator: 10_000_000n, numberOfPeriod: 10, periodFrequency: 100n, reductionFactor: 1_000_000n, activationPoint: 0n });
+    expect(dammBaseFee(linear, 350n)).toBe(7_000_000n);
+    expect(dammBaseFee(linear, 5_000n)).toBe(0n);
+    const factor = pool({ baseFeeMode: 1, cliffFeeNumerator: 10_000_000n, numberOfPeriod: 10, periodFrequency: 100n, reductionFactor: 5_000n });
+    const two = dammBaseFee(factor, 250n);
+    expect(two >= 2_499_990n && two <= 2_500_000n).toBe(true);
+    expect(dammBaseFee(pool({ baseFeeMode: 2 }), 1n)).toBeNull();
+    expect(dammQuote(pool({ baseFeeMode: 2 }), 1n, true, when).refused).toBe('RateLimiterFeeNotRead');
+    // On the slot when the pool says so.
+    expect(dammPoint(pool({ activationType: 0 }), when)).toBe(500n);
+    expect(dammPoint(pool(), when)).toBe(1_000n);
+  });
+
+  it('refuses a trade its range cannot hold, and a pool not yet active or switched off', () => {
+    const narrow = pool({ sqrtMinPrice: ONE - 1_000n });
+    expect(dammQuote(narrow, 10n ** 12n, true, when).refused).toBe('PriceRangeViolation');
+    expect(dammQuote(pool({ activationPoint: 2_000n }), 1n, true, when).refused).toBe('PoolNotActive');
+    expect(dammQuote(pool({ status: 1 }), 1n, true, when).refused).toBe('PoolDisabled');
+  });
+});
+
+describe('Orca adaptive fee', () => {
+  const oracle = (over = {}) => ({
+    whirlpool: DLMM_POOL, tradeEnableTimestamp: 0n, filterPeriod: 30, decayPeriod: 600, reductionFactor: 5_000, adaptiveFeeControlFactor: 80_000, maxVolatilityAccumulator: 880_000, tickGroupSize: 1, majorSwapThresholdTicks: 1,
+    lastReferenceUpdateTimestamp: 1_000n, lastMajorSwapTimestamp: 0n, volatilityReference: 0, tickGroupIndexReference: 0, volatilityAccumulator: 0, ...over,
+  });
+
+  it('decodes an Oracle account and names it', () => {
+    const b = Buffer.alloc(254);
+    tag('Oracle').copy(b, 0);
+    put(b, 8, DLMM_POOL);
+    b.writeBigUInt64LE(5n, 40);
+    b.writeUInt16LE(30, 48);
+    b.writeUInt16LE(600, 50);
+    b.writeUInt16LE(5_000, 52);
+    b.writeUInt32LE(80_000, 54);
+    b.writeUInt32LE(880_000, 58);
+    b.writeUInt16LE(2, 62);
+    b.writeUInt16LE(2, 64);
+    b.writeBigUInt64LE(1_794_040_073n, 82);
+    b.writeBigUInt64LE(1_794_039_710n, 90);
+    b.writeUInt32LE(8_755, 98);
+    b.writeInt32LE(3_156, 102);
+    b.writeUInt32LE(8_755, 106);
+    expect(decodeOrcaOracle(b)).toEqual({ whirlpool: DLMM_POOL, tradeEnableTimestamp: 5n, filterPeriod: 30, decayPeriod: 600, reductionFactor: 5_000, adaptiveFeeControlFactor: 80_000, maxVolatilityAccumulator: 880_000, tickGroupSize: 2, majorSwapThresholdTicks: 2, lastReferenceUpdateTimestamp: 1_794_040_073n, lastMajorSwapTimestamp: 1_794_039_710n, volatilityReference: 8_755, tickGroupIndexReference: 3_156, volatilityAccumulator: 8_755 });
+    expect(decodeOrcaOracle(Buffer.alloc(254))).toBeNull();
+    expect(orcaOracleAddress(DLMM_POOL)).toMatch(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/);
+  });
+
+  it('adds nothing at rest, 0.62% at this pool’s most volatility, and never past the hard limit', () => {
+    expect(orcaAdaptiveFeeRate(oracle(), 0)).toBe(0);
+    // 880,000 at control factor 80,000: 80,000 × 880,000² / 1e13 = 6,195.2 → 6,196 per million.
+    expect(orcaAdaptiveFeeRate(oracle(), 880_000)).toBe(6_196);
+    // 10,000 (one tick group): 80,000 × 10,000² / 1e13 = 0.8 → 1 per million, rounded up.
+    expect(orcaAdaptiveFeeRate(oracle(), 10_000)).toBe(1);
+    expect(orcaAdaptiveFeeRate(oracle({ adaptiveFeeControlFactor: 4_000_000_000 }), 880_000)).toBe(ORCA_FEE_RATE_HARD_LIMIT);
+  });
+
+  const fixedArray = (start) => {
+    const b = Buffer.alloc(9988);
+    tag('TickArray').copy(b, 0);
+    b.writeInt32LE(start, 8);
+    put(b, 9956, DLMM_POOL);
+    return decodeOrcaTickArray(b);
+  };
+  const arrays = new Map([[-88, fixedArray(-88)], [0, fixedArray(0)], [88, fixedArray(88)]]);
+  const w = { tickSpacing: 1, feeTierIndex: 1026, adaptive: true, feeRate: 100, liquidity: 10n ** 12n, sqrtPriceX64: ONE, tickCurrent: 0 };
+
+  it('a quiet pool pays its static fee plus what its own ticks add; a volatile one pays the adaptive fee too', () => {
+    const plain = (amount) => orcaQuote({ ...w, adaptive: false }, amount, true, (s) => arrays.get(s));
+    // A trade that stays in its tick group pays the static fee (one group counted at the boundary it starts on: a unit per million).
+    const small = orcaQuote(w, 1_000_000n, true, (s) => arrays.get(s), oracle(), 1_010);
+    expect(Number(small.out) / Number(plain(1_000_000n).out)).toBeCloseTo(1, 5);
+    // One that crosses some twenty tick groups pays a little more each group, as the program charges.
+    const quiet = orcaQuote(w, 1_000_000_000n, true, (s) => arrays.get(s), oracle(), 1_010);
+    expect(quiet.used).toBe(1_000_000_000n);
+    const ratio = Number(quiet.out) / Number(plain(1_000_000_000n).out);
+    expect(ratio).toBeLessThan(1);
+    expect(ratio).toBeGreaterThan(0.999);
+    // Within the filter period the stored accumulator holds: at its most, 6,196 per million on top of the static 100.
+    const volatile = orcaQuote(w, 1_000_000_000n, true, (s) => arrays.get(s), oracle({ volatilityAccumulator: 880_000, volatilityReference: 880_000 }), 1_010);
+    expect(Number(volatile.out) / Number(plain(1_000_000_000n).out)).toBeCloseTo((1 - 0.006296) / (1 - 0.0001), 4);
+    // Past the decay period the references reset: the same swap pays what the quiet pool's does.
+    const decayed = orcaQuote(w, 1_000_000_000n, true, (s) => arrays.get(s), oracle({ volatilityAccumulator: 880_000, volatilityReference: 880_000 }), 2_000);
+    expect(decayed.out).toBe(quiet.out);
+    // Within the decay period the reference is the accumulator reduced by half: between the two.
+    const halved = orcaQuote(w, 1_000_000_000n, true, (s) => arrays.get(s), oracle({ volatilityAccumulator: 880_000, volatilityReference: 880_000, lastReferenceUpdateTimestamp: 900n }), 1_010);
+    expect(halved.out).toBeGreaterThan(volatile.out);
+    expect(halved.out).toBeLessThan(quiet.out);
   });
 });

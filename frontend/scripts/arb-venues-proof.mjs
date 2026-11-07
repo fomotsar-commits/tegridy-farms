@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 /**
  * Proof, read-only: the venue quotes (scripts/lib/arb-venues.mjs) against Jupiter's own direct
- * quote through the same pool, for SOL → USDC on one pool each of Orca, Raydium CLMM and Meteora
- * DLMM, at two sizes. It holds no key, signs nothing and sends nothing. The two quotes are read
- * seconds apart on busy pools, so a few units of drift is the pools moving, not the maths; a
- * difference past ARB_PROOF_TOLERANCE_BPS (default 5) fails the proof.
+ * quote through the same pool, on one pool each of Orca (a static fee tier and two adaptive
+ * ones), Raydium CLMM, Meteora DLMM and Meteora DAMM v2, at two sizes. It holds no key, signs
+ * nothing and sends nothing. The two quotes are read seconds apart on busy pools, so a few units
+ * of drift is the pools moving, not the maths; a difference past ARB_PROOF_TOLERANCE_BPS (default
+ * 5) fails the proof. Jupiter picks the venue's best pool for the size: a quote through another
+ * pool is not compared.
  *
  *   node scripts/arb-venues-proof.mjs            (ARB_RPC_URL: publicnode by default)
  */
@@ -63,8 +65,8 @@ async function readAll(keys) {
 }
 const data = (k) => acc.get(k)?.data ?? null;
 
-async function jupiter(dex, amount) {
-  const u = `https://lite-api.jup.ag/swap/v1/quote?inputMint=${SOL}&outputMint=${USDC}&amount=${amount}&slippageBps=50&onlyDirectRoutes=true&dexes=${encodeURIComponent(dex)}`;
+async function jupiter(dex, inMint, outMint, amount) {
+  const u = `https://lite-api.jup.ag/swap/v1/quote?inputMint=${inMint}&outputMint=${outMint}&amount=${amount}&slippageBps=50&onlyDirectRoutes=true&dexes=${encodeURIComponent(dex)}`;
   for (let t = 0; t < 6; t++) {
     const r = await fetch(u, { signal: AbortSignal.timeout(20_000) });
     const j = await r.json();
@@ -80,13 +82,15 @@ async function jupiter(dex, amount) {
   throw new Error('Jupiter kept refusing');
 }
 
-/** Each venue's reference pool (the one Jupiter's direct SOL → USDC route used on 2026-11-07), and how it is quoted. */
+/** Each venue's reference pool (Jupiter's direct route of 2026-11-07, or the venue's busiest adaptive pools), the coin put in, and the sizes. */
 const CASES = [
-  { venue: 'Orca', dex: 'Whirlpool', pool: '83v8iPyZihDEjDdY8RdZddyZNyUtXngz69Lgo9Kt5d6d' },
-  { venue: 'Raydium CLMM', dex: 'Raydium CLMM', pool: 'CYbD9RaToYMtWKA7QZyoLahnHdWq553Vm62Lh6qWtuxq' },
-  { venue: 'Meteora DLMM', dex: 'Meteora DLMM', pool: 'HTvjzsfX3yU6BUodCjZ5vZkUrAxMDTrBs3CJaq43ashR' },
+  { venue: 'Orca', dex: 'Whirlpool', pool: '83v8iPyZihDEjDdY8RdZddyZNyUtXngz69Lgo9Kt5d6d', in: SOL, amounts: [100_000_000n, 2_000_000_000n] },
+  { venue: 'Orca adaptive (SOL/cbBTC)', dex: 'Whirlpool', pool: 'B4bn8eSGUWsETHdKj2uXUHDLW2s2zeRWrKZofBWxCMAm', in: SOL, amounts: [100_000_000n, 2_000_000_000n] },
+  { venue: 'Orca adaptive (NVDAx/USDC)', dex: 'Whirlpool', pool: '6R4r93V5fcMzc13CL2enEepDSYcr4Qx3ptZBDwudTXCo', in: USDC, amounts: [10_000_000n, 200_000_000n] },
+  { venue: 'Raydium CLMM', dex: 'Raydium CLMM', pool: 'CYbD9RaToYMtWKA7QZyoLahnHdWq553Vm62Lh6qWtuxq', in: SOL, amounts: [100_000_000n, 2_000_000_000n] },
+  { venue: 'Meteora DLMM', dex: 'Meteora DLMM', pool: 'HTvjzsfX3yU6BUodCjZ5vZkUrAxMDTrBs3CJaq43ashR', in: SOL, amounts: [100_000_000n, 2_000_000_000n] },
+  { venue: 'Meteora DAMM v2', dex: 'Meteora DAMM v2', pool: '8Pm2kZpnxD3hoMmt4bjStX2Pw2Z9abpbHzZxMPqxPmie', in: SOL, amounts: [100_000_000n, 2_000_000_000n] },
 ];
-const AMOUNTS = [100_000_000n, 2_000_000_000n];
 
 let failed = 0;
 for (const c of CASES) {
@@ -104,49 +108,61 @@ for (const c of CASES) {
     failed++;
     continue;
   }
-  const aToB = pool.mintA === SOL;
-  if (!aToB && pool.mintB !== SOL) {
-    log(`${c.venue}: ${c.pool} is not a SOL pool`);
+  if (![pool.mintA, pool.mintB].includes(c.in)) {
+    log(`${c.venue}: ${c.pool} does not hold ${c.in}`);
     failed++;
     continue;
   }
+  const aToB = pool.mintA === c.in;
+  const outMint = aToB ? pool.mintB : pool.mintA;
   let quote;
-  let arrays = [];
   if (dex === 'whirlpool') {
     const w = V.whirlpoolState(a.data);
-    arrays = V.orcaArraysNear(c.pool, w);
-    await readAll(arrays.map((x) => x.address));
+    const arrays = V.orcaArraysNear(c.pool, w);
+    const oracleK = w.adaptive ? V.orcaOracleAddress(c.pool) : null;
+    await readAll([...arrays.map((x) => x.address), ...(oracleK ? [oracleK] : [])]);
     const byStart = new Map(arrays.map((x) => [x.start, data(x.address) === null ? null : V.decodeOrcaTickArray(data(x.address))]));
-    log(`${c.venue} ${c.pool}: tick ${w.tickCurrent} spacing ${w.tickSpacing} fee ${w.feeRate}/1e6${w.adaptive ? ' ADAPTIVE' : ''}; arrays ${arrays.map((x) => `${x.start}:${byStart.get(x.start) === null ? 'none' : byStart.get(x.start) ? (byStart.get(x.start).dynamic ? 'dynamic' : 'fixed') : 'undecoded'}`).join(' ')}`);
-    quote = (amount) => V.orcaQuote(w, amount, aToB, (start) => byStart.get(start));
+    const oracle = oracleK ? V.decodeOrcaOracle(data(oracleK)) : null;
+    if (oracleK && !oracle) {
+      log(`${c.venue}: ${c.pool} is adaptive but its Oracle ${oracleK} did not read`);
+      failed++;
+      continue;
+    }
+    log(`${c.venue} ${c.pool}: tick ${w.tickCurrent} spacing ${w.tickSpacing} fee ${w.feeRate}/1e6${oracle ? ` adaptive (group ${oracle.tickGroupSize}, accumulator ${oracle.volatilityAccumulator}, reference ${oracle.volatilityReference})` : ''}; arrays ${arrays.map((x) => `${x.start}:${byStart.get(x.start) === null ? 'none' : byStart.get(x.start) ? (byStart.get(x.start).dynamic ? 'dynamic' : 'fixed') : 'undecoded'}`).join(' ')}`);
+    quote = (amount) => V.orcaQuote(w, amount, aToB, (start) => byStart.get(start), oracle, Date.now() / 1000);
   } else if (dex === 'clmm') {
     const p = V.decodeClmmPool(c.pool, a.data);
     const extAddr = V.clmmExtensionAddress(c.pool);
     await readAll([p.ammConfig, extAddr]);
     const config = V.decodeClmmConfig(p.ammConfig, data(p.ammConfig));
     const ext = data(extAddr) ? V.decodeClmmExtension(extAddr, data(extAddr)) : null;
-    arrays = V.clmmArraysNear(c.pool, p, ext);
+    const arrays = V.clmmArraysNear(c.pool, p, ext);
     await readAll(arrays.map((x) => x.address));
     const byStart = new Map(arrays.map((x) => [x.start, data(x.address) ? V.decodeClmmArray(x.address, data(x.address)) : undefined]));
     log(`${c.venue} ${c.pool}: tick ${p.tickCurrent} spacing ${p.tickSpacing} fee ${config.tradeFeeRate}/1e6 ext ${ext ? 'yes' : 'none'}; arrays ${arrays.map((x) => `${x.start}:${byStart.get(x.start) ? 'ok' : 'missing'}`).join(' ')}`);
     quote = (amount) => V.clmmQuote(p, config, ext, amount, aToB, Math.floor(Date.now() / 1000), (start) => byStart.get(start));
   } else if (dex === 'dlmm') {
     const p = V.lbPairState(a.data);
-    arrays = V.dlmmArraysNear(c.pool, p);
+    const arrays = V.dlmmArraysNear(c.pool, p);
     await readAll(arrays.map((x) => x.address));
     const byIndex = new Map(arrays.map((x) => [x.index, data(x.address) === null ? null : V.decodeBinArray(data(x.address))]));
     log(`${c.venue} ${c.pool}: active ${p.activeId} step ${p.binStep} fee ${V.dlmmTotalFee(p)}/1e9 (base ${V.dlmmBaseFee(p)}); arrays ${arrays.map((x) => `${x.index}:${byIndex.get(x.index) === null ? 'none' : byIndex.get(x.index) ? 'ok' : 'undecoded'}`).join(' ')}`);
     quote = (amount) => V.dlmmQuote(p, amount, aToB, Date.now() / 1000, (index) => byIndex.get(index));
+  } else if (dex === 'damm') {
+    const p = V.dammState(a.data);
+    const when = { now: Date.now() / 1000, slot };
+    log(`${c.venue} ${c.pool}: price ${(Number(p.sqrtPrice) / 2 ** 64) ** 2} fee ${V.dammFee(p, when)}/1e9 (cliff ${p.cliffFeeNumerator}, mode ${p.baseFeeMode}, periods ${p.numberOfPeriod}, dynamic ${p.dynamic ? 'yes' : 'no'}) collect mode ${p.collectFeeMode}`);
+    quote = (amount) => V.dammQuote(p, amount, aToB, { now: Date.now() / 1000, slot });
   } else {
     log(`${c.venue}: ${c.pool} is a ${dex} pool, not this proof's`);
     failed++;
     continue;
   }
-  for (const amount of AMOUNTS) {
+  for (const amount of c.amounts) {
     const mine = quote(amount);
     let jup;
     try {
-      jup = await jupiter(c.dex, amount);
+      jup = await jupiter(c.dex, c.in, outMint, amount);
     } catch (e) {
       log(`${c.venue}: Jupiter not read (${e.message}); mine: ${mine.out} for ${mine.used}${mine.needs !== null && mine.needs !== undefined ? ` (needs ${mine.needs})` : ''}`);
       failed++;
@@ -154,10 +170,9 @@ for (const c of CASES) {
     }
     const diffBps = jup.out > 0n ? Number(((mine.out - jup.out) * 1_000_000n) / jup.out) / 100 : NaN;
     const samePool = jup.pool === c.pool;
-    // Jupiter picks the venue's best pool for the size; another pool's quote proves nothing either way.
     const ok = !samePool || (Math.abs(diffBps) <= TOLERANCE_BPS && mine.used === amount);
     if (!ok) failed++;
-    log(`${!samePool ? 'SKIP' : ok ? 'OK  ' : 'FAIL'} ${c.venue} ${Number(amount) / 1e9} SOL: mine ${mine.out} (${mine.used === amount ? 'filled' : `only ${mine.used} placed`}${mine.needs !== null && mine.needs !== undefined ? `, needs ${mine.needs}` : ''}${mine.refused ? `, refused ${mine.refused}` : ''}) vs Jupiter ${jup.out} through ${jup.pool}${samePool ? '' : ' (another pool: not compared)'} = ${diffBps.toFixed(2)} bps; my slot ${slot}, Jupiter's ${jup.slot}`);
+    log(`${!samePool ? 'SKIP' : ok ? 'OK  ' : 'FAIL'} ${c.venue} ${amount} in: mine ${mine.out} (${mine.used === amount ? 'filled' : `only ${mine.used} placed`}${mine.needs !== null && mine.needs !== undefined ? `, needs ${mine.needs}` : ''}${mine.refused ? `, refused ${mine.refused}` : ''}) vs Jupiter ${jup.out} through ${jup.pool}${samePool ? '' : ' (another pool: not compared)'} = ${diffBps.toFixed(2)} bps; my slot ${slot}, Jupiter's ${jup.slot}`);
     await sleep(4_000);
   }
 }

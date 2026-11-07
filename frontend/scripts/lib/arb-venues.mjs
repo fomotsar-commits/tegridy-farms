@@ -37,7 +37,7 @@ export const CLMM_PROGRAM = 'CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK';
 export const DLMM_PROGRAM = 'LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo';
 
 const tagOf = (name) => createHash('sha256').update(`account:${name}`).digest().subarray(0, 8);
-const TAG = { tickArray: tagOf('TickArray'), dynamicTickArray: tagOf('DynamicTickArray'), binArray: tagOf('BinArray') };
+const TAG = { tickArray: tagOf('TickArray'), dynamicTickArray: tagOf('DynamicTickArray'), oracle: tagOf('Oracle'), binArray: tagOf('BinArray') };
 
 const key = (d, at) => bs58.encode(d.subarray(at, at + 32));
 const u16 = (d, at) => d.readUInt16LE(at);
@@ -132,6 +132,79 @@ export function orcaArraysNear(pool, w) {
   return [start - per, start, start + per].filter((s) => s >= orcaArrayStart(MIN_TICK, w.tickSpacing) && s <= orcaArrayStart(MAX_TICK, w.tickSpacing)).map((s) => ({ start: s, address: orcaArrayAddress(pool, s) }));
 }
 
+/** `["oracle", whirlpool]`: the account an adaptive-fee pool keeps its fee's state in. */
+export const orcaOracleAddress = (pool) => remembered(`r:${pool}`, () => pda(WHIRLPOOL_PROGRAM, [Buffer.from('oracle'), new PublicKey(pool).toBuffer()]));
+
+/**
+ * An Oracle account (254 bytes, read 2026-11-07 on five live pools): the adaptive fee's
+ * constants (filter and decay periods, reduction factor, control factor, the most volatility
+ * counts, the tick group size) and its variables (the reference timestamps, the volatility
+ * reference, the tick group reference, the accumulator); null when not one.
+ */
+export function decodeOrcaOracle(data) {
+  if (!Buffer.isBuffer(data) || data.length !== 254 || !data.subarray(0, 8).equals(TAG.oracle)) return null;
+  return {
+    whirlpool: key(data, 8), tradeEnableTimestamp: u64(data, 40),
+    filterPeriod: u16(data, 48), decayPeriod: u16(data, 50), reductionFactor: u16(data, 52), adaptiveFeeControlFactor: u32(data, 54), maxVolatilityAccumulator: u32(data, 58), tickGroupSize: u16(data, 62), majorSwapThresholdTicks: u16(data, 64),
+    lastReferenceUpdateTimestamp: u64(data, 82), lastMajorSwapTimestamp: u64(data, 90), volatilityReference: u32(data, 98), tickGroupIndexReference: i32(data, 102), volatilityAccumulator: u32(data, 106),
+  };
+}
+
+/** The most a whirlpool's whole fee rate can be, 10% (fee_rate_manager.rs FEE_RATE_HARD_LIMIT), per million. */
+export const ORCA_FEE_RATE_HARD_LIMIT = 100_000;
+
+/** `compute_adaptive_fee_rate`: the fee the volatility adds, per million, capped at the hard limit. */
+export function orcaAdaptiveFeeRate(o, volatilityAccumulator) {
+  const crossed = BigInt(volatilityAccumulator) * BigInt(o.tickGroupSize);
+  const rate = ceilDiv(BigInt(o.adaptiveFeeControlFactor) * crossed * crossed, 100_000n * 10_000n * 10_000n);
+  return rate > BigInt(ORCA_FEE_RATE_HARD_LIMIT) ? ORCA_FEE_RATE_HARD_LIMIT : Number(rate);
+}
+
+/**
+ * The adaptive fee's state as a swap starts (FeeRateManager::new, update_reference): the tick
+ * group the price is in, and the references refreshed by the time since the last reference
+ * update or major swap (within the filter period they hold; within the decay period the
+ * volatility reference is the accumulator reduced; past it, zero). The same design Raydium's
+ * dynamic fee ported (src/lib/solana/clmm/quote.ts), followed here step for step.
+ */
+function adaptiveStart(o, tick, now) {
+  const fm = { o, g: o.tickGroupSize, index: Math.floor(tick / o.tickGroupSize), ref: o.tickGroupIndexReference, vRef: o.volatilityReference, acc: o.volatilityAccumulator };
+  const t = BigInt(Math.floor(now));
+  const last = o.lastReferenceUpdateTimestamp > o.lastMajorSwapTimestamp ? o.lastReferenceUpdateTimestamp : o.lastMajorSwapTimestamp;
+  const since = t > last ? t - last : 0n;
+  if (since >= BigInt(o.decayPeriod)) {
+    fm.ref = fm.index;
+    fm.vRef = 0;
+  } else if (since >= BigInt(o.filterPeriod)) {
+    fm.ref = fm.index;
+    fm.vRef = Number((BigInt(o.volatilityAccumulator) * BigInt(o.reductionFactor)) / 10_000n);
+  }
+  return fm;
+}
+/** `update_volatility_accumulator`: the reference plus the tick groups crossed since it, capped. */
+function adaptiveAccumulate(fm) {
+  const acc = fm.vRef + Math.abs(fm.ref - fm.index) * 10_000;
+  fm.acc = Math.min(acc, fm.o.maxVolatilityAccumulator);
+}
+/** `get_bounded_sqrt_price_target`: with a live adaptive fee a step stops at each tick group's edge, so the fee can rise; skipped when nothing would change it. */
+function adaptiveBound(fm, target, liquidity, aToB) {
+  if (liquidity === 0n || fm.acc === fm.o.maxVolatilityAccumulator) return [true, target, null];
+  const edge = Math.min(MAX_TICK, Math.max(MIN_TICK, aToB ? fm.index * fm.g : (fm.index + 1) * fm.g));
+  const price = getSqrtPriceAtTick(edge);
+  if (aToB) return target > price ? [false, target, null] : [false, price, edge];
+  return target < price ? [false, target, null] : [false, price, edge];
+}
+/** `advance_tick_group` / `advance_tick_group_after_skip`: the next tick group, the accumulator caught up after a skipped step. */
+function adaptiveAdvance(fm, skipped, tickAtPrice, aToB) {
+  if (skipped) {
+    let index = Math.floor(tickAtPrice / fm.g);
+    if (!aToB && tickAtPrice % fm.g === 0) index -= 1;
+    fm.index = index;
+    if (fm.acc !== fm.o.maxVolatilityAccumulator) adaptiveAccumulate(fm);
+  }
+  fm.index += aToB ? -1 : 1;
+}
+
 /** The most arrays one walk looks through: what a swap could carry, and more than a trip of the robot's size reaches. */
 const ORCA_MAX_ARRAYS = 8;
 
@@ -174,43 +247,62 @@ function orcaNextTick(tick, aToB, spacing, array) {
  * What `amountIn` of one coin pays out of a whirlpool (a to b: coin A in), walking its ticks as
  * swap_manager.rs does. { out, used, needs }: `used` is the input the walk could place (all of it
  * unless an array was missing on chain), `needs` a start tick whose array must be read first.
+ * `oracle` (decodeOrcaOracle) is an adaptive-fee pool's: each step then pays the static rate
+ * plus the fee its volatility adds, stopping at tick group edges so the fee can rise mid-swap,
+ * exactly as the program's fee rate manager does; `now` is the swap's time in unix seconds.
  */
-export function orcaQuote(w, amountIn, aToB, array) {
+export function orcaQuote(w, amountIn, aToB, array, oracle = null, now = Date.now() / 1000) {
   const limit = aToB ? MIN_SQRT_PRICE_X64 : MAX_SQRT_PRICE_X64;
   let remaining = amountIn;
   let out = 0n;
   let sqrtP = w.sqrtPriceX64;
   let tick = w.tickCurrent;
   let L = w.liquidity;
-  for (let steps = 0; remaining > 0n && sqrtP !== limit; steps++) {
-    if (steps > MAX_STEPS) break;
+  const fm = oracle ? adaptiveStart(oracle, tick, now) : null;
+  let steps = 0;
+  walk: while (remaining > 0n && sqrtP !== limit) {
+    if (++steps > MAX_STEPS) break;
     const next = orcaNextTick(tick, aToB, w.tickSpacing, array);
     if (next.needs !== undefined) return { out, used: amountIn - remaining, needs: next.needs };
     const nextSqrt = getSqrtPriceAtTick(Math.min(MAX_TICK, Math.max(MIN_TICK, next.tick)));
     const target = aToB ? (nextSqrt < limit ? limit : nextSqrt) : nextSqrt > limit ? limit : nextSqrt;
-    let step;
-    try {
-      step = computeSwap(sqrtP, target, L, remaining, w.feeRate, true, aToB, true);
-    } catch (e) {
-      if (e instanceof ClmmMathError) break;
-      throw e;
-    }
-    remaining -= step.amountIn + step.feeAmount;
-    out += step.amountOut;
-    sqrtP = step.sqrtPriceNextX64;
-    if (sqrtP === nextSqrt) {
-      if (next.initialized) {
+    let liquidityNext = L;
+    for (;;) {
+      if (++steps > MAX_STEPS) break walk;
+      if (fm) adaptiveAccumulate(fm);
+      const feeRate = fm ? Math.min(w.feeRate + orcaAdaptiveFeeRate(fm.o, fm.acc), ORCA_FEE_RATE_HARD_LIMIT) : w.feeRate;
+      const [skipped, bounded, edge] = fm ? adaptiveBound(fm, target, L, aToB) : [true, target, null];
+      let step;
+      if (sqrtP !== bounded) {
         try {
-          L = addDelta(L, aToB ? -next.liquidityNet : next.liquidityNet);
+          step = computeSwap(sqrtP, bounded, L, remaining, feeRate, true, aToB, true);
         } catch (e) {
-          if (e instanceof ClmmMathError) break;
+          if (e instanceof ClmmMathError) break walk;
           throw e;
         }
+        remaining -= step.amountIn + step.feeAmount;
+        out += step.amountOut;
+      } else {
+        step = { sqrtPriceNextX64: bounded, amountIn: 0n, amountOut: 0n, feeAmount: 0n };
       }
-      tick = aToB ? next.tick - 1 : next.tick;
-    } else {
-      tick = getTickAtSqrtPrice(sqrtP);
+      if (step.sqrtPriceNextX64 === nextSqrt) {
+        if (next.initialized) {
+          try {
+            liquidityNext = addDelta(L, aToB ? -next.liquidityNet : next.liquidityNet);
+          } catch (e) {
+            if (e instanceof ClmmMathError) break walk;
+            throw e;
+          }
+        }
+        tick = aToB ? next.tick - 1 : next.tick;
+      } else if (step.sqrtPriceNextX64 !== sqrtP) {
+        tick = edge !== null && step.sqrtPriceNextX64 === bounded ? edge : getTickAtSqrtPrice(step.sqrtPriceNextX64);
+      }
+      sqrtP = step.sqrtPriceNextX64;
+      if (fm) adaptiveAdvance(fm, skipped, sqrtP === nextSqrt ? next.tick : tick, aToB);
+      if (remaining === 0n || sqrtP === target) break;
     }
+    L = liquidityNext;
     if (next.then === 'end') break;
     if (next.then?.needs !== undefined) {
       if (remaining > 0n) return { out, used: amountIn - remaining, needs: next.then.needs };
@@ -430,6 +522,111 @@ export function dlmmQuote(p, amountIn, swapForY, now, array) {
     }
   }
   return { out, used: amountIn - left, needs: null, fee };
+}
+
+/* ─────────────────────────────── Meteora DAMM v2 ─────────────────────────────── */
+
+export const DAMM_PROGRAM = 'cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG';
+const DAMM_FEE_DENOMINATOR = 1_000_000_000n;
+/** The most a DAMM v2 total fee can be, 50% (constants.rs MAX_FEE_NUMERATOR). */
+const DAMM_MAX_FEE_NUMERATOR = 500_000_000n;
+
+/**
+ * The figures a DAMM v2 quote needs, from its Pool account (1112 bytes, read 2026-11-07: the
+ * layout accounts for every byte). One position range [sqrt_min, sqrt_max] on Uniswap v3's
+ * maths in Q64.64, with `liquidity` carrying 64 more bits than a Uniswap L. The base fee may
+ * follow a schedule from the pool's activation (linear or exponential); a dynamic fee, when
+ * initialized, follows the price's volatility as DLMM's does.
+ */
+export function dammState(data) {
+  if (!Buffer.isBuffer(data) || data.length !== 1112) return null;
+  return {
+    cliffFeeNumerator: u64(data, 8), baseFeeMode: data[16], numberOfPeriod: u16(data, 22), periodFrequency: u64(data, 24), reductionFactor: u64(data, 32),
+    dynamic: data[56] !== 0
+      ? { maxVolatilityAccumulator: u32(data, 64), variableFeeControl: u32(data, 68), binStep: u16(data, 72), filterPeriod: u16(data, 74), decayPeriod: u16(data, 76), reductionFactor: u16(data, 78), lastUpdateTimestamp: u64(data, 80), binStepU128: u128(data, 88), sqrtPriceReference: u128(data, 104), volatilityAccumulator: u128(data, 120), volatilityReference: u128(data, 136) }
+      : null,
+    liquidity: u128(data, 360), sqrtMinPrice: u128(data, 424), sqrtMaxPrice: u128(data, 440), sqrtPrice: u128(data, 456),
+    activationPoint: u64(data, 472), activationType: data[480], status: data[481], collectFeeMode: data[484], version: data[486],
+  };
+}
+
+/** The point a DAMM v2 pool's schedule runs on: the slot or the unix time, by its activation type. */
+export const dammPoint = (p, { now, slot }) => (p.activationType === 0 ? BigInt(slot ?? 0) : BigInt(Math.floor(now)));
+
+/**
+ * `get_current_base_fee_numerator`: the cliff fee, lowered each period since activation,
+ * linearly (mode 0) or by a factor (mode 1, the program's own pow). Null for the rate-limiter
+ * mode (2), whose fee depends on the amount and is not read here.
+ */
+export function dammBaseFee(p, point) {
+  if (p.baseFeeMode > 1) return null;
+  if (p.periodFrequency === 0n || p.numberOfPeriod === 0) return p.cliffFeeNumerator;
+  const elapsed = point > p.activationPoint ? point - p.activationPoint : 0n;
+  const periods = elapsed / p.periodFrequency;
+  const period = periods < BigInt(p.numberOfPeriod) ? periods : BigInt(p.numberOfPeriod);
+  if (p.baseFeeMode === 0) {
+    const cut = period * p.reductionFactor;
+    return cut < p.cliffFeeNumerator ? p.cliffFeeNumerator - cut : 0n;
+  }
+  const factor = dlmmPow(ONE - (p.reductionFactor << 64n) / BPS, Number(period));
+  return factor === null ? null : (p.cliffFeeNumerator * factor) >> 64n;
+}
+
+/** The dynamic fee at this price and time, as the program sets it before a swap (update_pre_swap); 0 without one. */
+export function dammVariableFee(p, now) {
+  const d = p.dynamic;
+  if (!d || !(d.variableFeeControl > 0)) return 0n;
+  let vRef = d.volatilityReference;
+  let sqrtRef = d.sqrtPriceReference;
+  const elapsed = BigInt(Math.floor(now)) - d.lastUpdateTimestamp;
+  if (elapsed >= BigInt(d.filterPeriod)) {
+    sqrtRef = p.sqrtPrice;
+    vRef = elapsed < BigInt(d.decayPeriod) ? (d.volatilityAccumulator * BigInt(d.reductionFactor)) / BPS : 0n;
+  }
+  const [upper, lower] = p.sqrtPrice > sqrtRef ? [p.sqrtPrice, sqrtRef] : [sqrtRef, p.sqrtPrice];
+  const ratio = lower > 0n ? (upper << 64n) / lower : ONE;
+  const deltaBin = d.binStepU128 > 0n ? ((ratio - ONE) / d.binStepU128) * 2n : 0n;
+  const acc = vRef + deltaBin * BPS;
+  const max = BigInt(d.maxVolatilityAccumulator);
+  const square = ((acc < max ? acc : max) * BigInt(d.binStep)) ** 2n;
+  return (BigInt(d.variableFeeControl) * square + 99_999_999_999n) / 100_000_000_000n;
+}
+
+/** The whole fee a swap pays now, in billionths; null when it cannot be read (the rate-limiter mode). */
+export function dammFee(p, when) {
+  const base = dammBaseFee(p, dammPoint(p, when));
+  if (base === null) return null;
+  const total = base + dammVariableFee(p, when.now);
+  return total < DAMM_MAX_FEE_NUMERATOR ? total : DAMM_MAX_FEE_NUMERATOR;
+}
+
+/**
+ * What `amountIn` pays out of a DAMM v2 pool (a to b: token A in), as swap.rs's get_swap_result
+ * does: the fee on the coin out (collect mode 0: both tokens) or on token B (mode 1), then one
+ * Uniswap v3 step within the pool's range. A trade the range cannot hold is refused, as the
+ * program refuses it (PriceRangeViolation).
+ */
+export function dammQuote(p, amountIn, aToB, when) {
+  if (p.status !== 0) return { out: 0n, used: 0n, needs: null, refused: 'PoolDisabled' };
+  if (dammPoint(p, when) < p.activationPoint) return { out: 0n, used: 0n, needs: null, refused: 'PoolNotActive' };
+  const fee = dammFee(p, when);
+  if (fee === null) return { out: 0n, used: 0n, needs: null, refused: 'RateLimiterFeeNotRead' };
+  if (p.liquidity === 0n) return { out: 0n, used: 0n, needs: null, refused: 'ZeroLiquidity' };
+  const feesOnInput = p.collectFeeMode === 1 && !aToB;
+  const feeOf = (amount) => ceilDiv(amount * fee, DAMM_FEE_DENOMINATOR);
+  const actualIn = feesOnInput ? amountIn - feeOf(amountIn) : amountIn;
+  const L = p.liquidity;
+  let out;
+  if (aToB) {
+    const next = ceilDiv(L * p.sqrtPrice, L + actualIn * p.sqrtPrice);
+    if (next < p.sqrtMinPrice) return { out: 0n, used: 0n, needs: null, refused: 'PriceRangeViolation', fee };
+    out = (L * (p.sqrtPrice - next)) >> 128n;
+  } else {
+    const next = p.sqrtPrice + (actualIn << 128n) / L;
+    if (next > p.sqrtMaxPrice) return { out: 0n, used: 0n, needs: null, refused: 'PriceRangeViolation', fee };
+    out = (L * (next - p.sqrtPrice)) / (p.sqrtPrice * next);
+  }
+  return { out: feesOnInput ? out : out - feeOf(out), used: amountIn, needs: null, fee };
 }
 
 /** What the loaded bin arrays hold on each side: a bin pool's depth, in raw units. */
