@@ -132,9 +132,10 @@ describe('the leave rule, row by row (spec 3.7)', () => {
     }
   });
 
-  it('a price that could not be read: no add, and it is not a warning; remove offered', () => {
-    expect(add(view(), { price: 'unread' })).toBe('checks');
-    expect(health(view(), { price: 'unread' }).deposits).toMatchObject({ verdict: 'unchecked', warnings: [] });
+  // Answer twenty-seven: the outside price is intel, one row, never a gate.
+  it('an outside price that could not be read: add is offered, and it is not a warning; remove offered', () => {
+    expect(add(view(), { price: 'unread' })).toBe('offer');
+    expect(health(view(), { price: 'unread' }).deposits).toMatchObject({ verdict: 'allowed', warnings: [] });
     expect(remove(position(view()))).toBe('offer');
   });
 
@@ -184,6 +185,15 @@ describe('the leave rule, row by row (spec 3.7)', () => {
     expect(remove(position(v, { lpAmount: 1_000n }))).toBe('offer');
     // An empty side: no amount can come out.
     expect(remove(position(view({ sol: 0n })))).toBe('dust');
+  });
+
+  // Audit CM-2, 2026-11-03: a pool too empty to hold its price takes no deposit (poolHealth.ts).
+  // Whoever holds its last shares can still take them out.
+  it('a pool almost everyone has left: Add is refused by its checks, and Remove is still offered', () => {
+    // 1,100 shares, the locked 100 among them, over 3,480 lamports and 348 units: 0.01 SOL a token.
+    const v = view({ sol: 3_480n, tok: 348n, lpSupply: 1_100n });
+    expect(add(v)).toBe('checks');
+    expect(remove(position(v, { lpAmount: 1_000n }))).toBe('offer');
   });
 
   it('a share whose token payout the transfer fee would take whole is dust, though it is enough without the fee', () => {

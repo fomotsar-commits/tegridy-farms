@@ -138,7 +138,7 @@ export function AlertRuleBuilder({ rules, limit, writeError, storeWarning, onAdd
               <optgroup label="Not readable on this deployment yet">
                 {dark.map((k) => (
                   <option key={k} value={k}>
-                    {RULE_KIND_LABELS[k]} — not readable here
+                    {RULE_KIND_LABELS[k]} (not readable here)
                   </option>
                 ))}
               </optgroup>

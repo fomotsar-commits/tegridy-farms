@@ -27,7 +27,7 @@ import { RANGE_PROGRAM } from "./venueTvl.js";
 
 /** The buy's size, as outsidePrice.ts has it. */
 export const PROBE_LAMPORTS = 50_000_000n;
-/** A price older than this holds the Add form (the browser's rule too, FRESH_FOR_MS in outsidePrice.ts). */
+/** A price older than this is said with its age, never compared (the browser's rule too, FRESH_FOR_MS in sharedPrices.ts). */
 export const FRESH_FOR_MS = 10 * 60_000;
 export const SWR_SECS = 600;
 export const DEFAULT_MAX_AGE_SEC = 60;
@@ -47,12 +47,37 @@ const TOKEN_PROGRAMS = new Set([TOKEN_PROGRAM, TOKEN_2022_PROGRAM]);
 
 /** This instance's last good read per token. Warm instances carry it between loops; a cold one starts empty. */
 const lastGood = new Map();
+/** When this instance last asked Jupiter for each token, whatever the answer. */
+const lastAsked = new Map();
 /** The last dollar prices this instance read (price/v3, one call for every token and SOL), with when. */
 let lastUsd = null;
 /** Tests only. */
 export function __resetOutsidePrices() {
   lastGood.clear();
+  lastAsked.clear();
   lastUsd = null;
+}
+
+/**
+ * The order one loop prices in. The tokens this instance asked about longest ago go first, a
+ * token never asked counting as longest ago, so the tail the budget cut off in one loop is first
+ * in the next. Before this the order was the pool list's, every loop, and the same tail ran out
+ * of time every loop: BAYLA's Add form never opened (the walk of 2026-11-05). Where tokens tie
+ * (every token, on a cold instance) the island's coins go first, in FIRST_MINTS order (island
+ * answer twenty-seven, cut 2), and the rest keep the list's order turned to start at a place that
+ * moves each minute, so cold instances do not starve the same tail either.
+ */
+export function pricingOrder(all, asked, nowMs) {
+  if (all.length === 0) return [];
+  const first = FIRST_MINTS.filter((m) => all.includes(m));
+  const rest = all.filter((m) => !FIRST_MINTS.includes(m));
+  const turn = rest.length === 0 ? 0 : Math.floor(nowMs / 60_000) % rest.length;
+  const turned = [...first, ...rest.slice(turn), ...rest.slice(0, turn)];
+  const at = (mint) => asked.get(mint) ?? -Infinity;
+  return turned
+    .map((mint, i) => ({ mint, i }))
+    .sort((a, b) => (at(a.mint) === at(b.mint) ? a.i - b.i : at(a.mint) < at(b.mint) ? -1 : 1))
+    .map((x) => x.mint);
 }
 
 /** The sale's amount: the buy's return rounded to two significant figures, so the sale's quote repeats. */
@@ -153,7 +178,23 @@ export async function listPoolMints(fetchImpl, env) {
   });
 }
 
-/** The tokens to price: every mint in a pool that is not SOL, each once, in the order first seen. */
+/**
+ * Read before any other token (island answer twenty-seven, cut 2): the Solana rooms' coins
+ * with a venue pool, in src/lib/bungalows.ts's order (BAYLA, BOBO, SOY, BRAINLET, RIZZ; a test
+ * pins the list), then USDC and USDT. The loop ran out of time on whatever the chain listed
+ * last, and the island's own coin was among them every run.
+ */
+export const FIRST_MINTS = Object.freeze([
+  "7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump", // BAYLA
+  "4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump", // BOBO
+  "8zsZESzrGoYVi1dVH4QNWXJ2EfW4v287aEGNiDvQpump", // SOY
+  "4XKGjKaKowFvL5sYwh2AKx72vj9iwC8MNvpL44E9pump", // BRAINLET
+  "5ad4puH6yDBoeCcrQfwV5s9bxvPnAeWDoYDj3uLyBS8k", // RIZZ
+  "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", // USDC
+  "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB", // USDT
+]);
+
+/** The tokens to price: every mint in a pool that is not SOL, each once; FIRST_MINTS first, then the rest in the order first seen. */
 export function tokensOf(pools) {
   const seen = new Set();
   const out = [];
@@ -164,7 +205,8 @@ export function tokensOf(pools) {
       out.push(m);
     }
   }
-  return out;
+  const first = FIRST_MINTS.filter((m) => seen.has(m));
+  return [...first, ...out.filter((m) => !FIRST_MINTS.includes(m))];
 }
 
 /** Each mint's decimals, read from its account; a mint not under a token program is left out. */
@@ -317,8 +359,9 @@ export async function readOutsidePrices({ fetchImpl, env = process.env, nowMs = 
   const t0 = nowMs();
   const pools = await listPoolMints(fetchImpl, env);
   const all = tokensOf(pools);
-  // The first MAX_MINTS in the list's order are priced; the rest are said as unread, never dropped in silence.
-  const mints = all.slice(0, MAX_MINTS);
+  // The first MAX_MINTS in pricing order are priced; the rest are said as unread, never dropped in silence.
+  const order = pricingOrder(all, lastAsked, t0);
+  const mints = order.slice(0, MAX_MINTS);
   const decimals = await readDecimals(mints, fetchImpl, env);
   const up = jupiterUpstream(env);
   const pace = pacer(spacingMs(env), sleep);
@@ -334,7 +377,7 @@ export async function readOutsidePrices({ fetchImpl, env = process.env, nowMs = 
     if (usd && Object.keys(usd).length > 0) lastUsd = { usd, read_at: nowMs(), asked };
   }
   const fresh = [];
-  for (const mint of all.slice(MAX_MINTS)) unread(mint, `beyond the ${MAX_MINTS} tokens one loop prices`);
+  for (const mint of order.slice(MAX_MINTS)) unread(mint, `beyond the ${MAX_MINTS} tokens one loop prices`);
   for (const mint of mints) {
     const d = decimals.get(mint);
     if (d === undefined) {
@@ -345,6 +388,7 @@ export async function readOutsidePrices({ fetchImpl, env = process.env, nowMs = 
       unread(mint, "the loop ran out of time before this token");
       continue;
     }
+    lastAsked.set(mint, nowMs());
     const buy = await quoteWithFallback(up, WSOL_MINT, mint, PROBE_LAMPORTS, fetchImpl, pace);
     if (buy.kind === "no-route") {
       prices[mint] = { state: "no-route", read_at: nowMs() };

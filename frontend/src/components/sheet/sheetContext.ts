@@ -9,10 +9,23 @@ import type { SheetKind } from '../../lib/sheet';
  */
 export interface SheetPlace {
   kind: SheetKind;
-  room: Bungalow;
+  /** The room whose coin the sheet acts on. Add always has one; Buy has none until its bungalow row picks a coin. */
+  room: Bungalow | null;
   /** Bayla's line as the sheet draws it, with no button: the sheet's own green button is her move. */
   bayla: ReactNode;
+  /** Opens the form again from its start, on the room's coin: the room's chip pressed after a pick from Any coin. */
+  reopen?: () => void;
 }
+
+/**
+ * The bungalow row's words (island answer twenty-seven), as the island gave them: the row's name,
+ * its last chip, and her line in the Buy sheet before a coin is picked.
+ */
+export const SHEET_ROW_WORDS = {
+  group: 'Pick a coin',
+  any: 'Any coin',
+  pick: 'Pick a coin.',
+} as const;
 
 /**
  * What the sheet holds while its form loads: about the form's height (Add's as drawn, Buy's before an

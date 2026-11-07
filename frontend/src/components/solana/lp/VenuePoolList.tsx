@@ -55,7 +55,7 @@ export function VenuePoolList({
   if (!readers.listPools) return null;
   return (
     <>
-      <ArbitrageBoard live={live} prices={market} legQuote={readers.legQuote} />
+      {/* The list is the first card under the finder; the Arbitrage board, a trader's card, sits under it (answer twenty-seven, cut 4). */}
       <section ref={sectionRef} tabIndex={sectionRef ? -1 : undefined} className="outline-none" data-testid="lp-all-pools" aria-label="All pools">
         <Card title="All pools" art={<CardArt pageId="solana-lp" idx={13} />}>
           {read === null ? (
@@ -74,7 +74,7 @@ export function VenuePoolList({
             <p>
               Our pool index names every pool paired with {QUOTE_COINS_OR}, and each one is then read and checked on chain. Past what the
               list can hold it shows the deepest, and a search finds the rest. The dollars beside a pair are what the pool holds at
-              Jupiter’s listed prices, the read the Arbitrage card above is stamped with; a coin Jupiter does not price gets none.
+              Jupiter’s listed prices, the read the Arbitrage card below is stamped with; a coin Jupiter does not price gets none.
             </p>
             <p>
               The pools with the most money in come first. A pool priced over {PRICE_TOLERANCE * 100}% below Jupiter is ranked by its{' '}
@@ -93,14 +93,16 @@ export function VenuePoolList({
               below Jupiter: the pool’s price is that far from Jupiter’s market price, read once for the whole list. Adding at that price
               loses part of the deposit to the first trade that closes the gap. The pool’s card checks again with live quotes and gives
               the exact gap, which can differ by a few points on a thinly traded coin; what that trade makes, and for whom, is on the
-              Arbitrage card above. Trading not open yet: its trading starts later,
-              maybe years from now. Little money in pool: it holds {LITTLE_MONEY_TEXT} (a pool priced in BAYLA never gets this tag). No
+              Arbitrage card below. Trading not open yet: its trading starts later,
+              maybe years from now. Almost empty: it holds so little that anyone can move its price for next to nothing, so it takes no
+              deposit here. Little money in pool: it holds {LITTLE_MONEY_TEXT} (a pool priced in BAYLA never gets this tag). No
               trades yet, and No trades in 7 days: from the pool’s own trade record. Anything not read gives no tag, and a row with no tag is
               not a pool that passed: its full price check is on its card, when you View it.
             </p>
           </FinePrint>
         </Card>
       </section>
+      <ArbitrageBoard live={live} prices={market} legQuote={readers.legQuote} />
     </>
   );
 }

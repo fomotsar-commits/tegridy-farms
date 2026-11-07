@@ -65,7 +65,7 @@ const VENUE_VOICE_DEBT: Record<string, number> = {
   '/tax': 13,
   '/curve-launch': 0,
   '/eth-curve': 6,
-  '/alerts': 16,
+  '/alerts': 14,
   '/yield': 21,
   '/launch': 0,
   // The lore tab of LearnPage. The census gives it TOWELI's voice (it is the TOWELI room's own story),
