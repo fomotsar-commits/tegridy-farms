@@ -4,6 +4,7 @@ import { useActiveCollection } from "../../contexts/CollectionContext";
 import { useToast } from "../../contexts/ToastContext";
 import { explorerAddressUrl, marketCollectionUrl } from "../../lib/venue";
 import useExternalCollection from "../../hooks/useExternalCollection";
+import useBuyHereListings from "../../hooks/useBuyHereListings";
 import { useOpensAtTheTop } from "../../../hooks/useOpensAtTheTop";
 import Background from "../Background";
 import Header from "../Header";
@@ -24,13 +25,26 @@ const WalletModal = lazy(() => import("../WalletModal"));
 // OpenSea does not list (Junglets) has neither the reads nor the button, and
 // says so. None of the Ethereum trading app mounts here: no cart, no order
 // book, no Alchemy reads, no wallet-gated tabs. Any other tab renders an
-// explicit unavailable state.
+// explicit unavailable state. A Base buy collection (Bojungles, Seeds) also
+// reads its OpenSea listings and offers each one for sale in the item panel.
 export default function ExternalCollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycleTheme, wallet, walletName, disconnect }) {
   const collection = useActiveCollection();
   const location = useLocation();
   const navigate = useNavigate();
   const { toasts, addToast, removeToast } = useToast();
   const { stats, items, retry } = useExternalCollection(collection);
+  const buyListings = useBuyHereListings(collection);
+  const [boughtIds, setBoughtIds] = useState(() => new Set());
+  const listingsById = useMemo(() => {
+    if (buyListings.status === "idle") return null;
+    if (boughtIds.size === 0) return buyListings.byId;
+    const m = new Map(buyListings.byId);
+    for (const id of boughtIds) m.delete(id);
+    return m;
+  }, [buyListings.status, buyListings.byId, boughtIds]);
+  const handleBought = useCallback((id) => {
+    setBoughtIds((prev) => new Set(prev).add(String(id)));
+  }, []);
   const [selected, setSelected] = useState(null);
   const [walletModalOpen, setWalletModalOpen] = useState(false);
 
@@ -95,6 +109,7 @@ export default function ExternalCollectionView({ tab, deepLinkTokenId, collectio
             onRetry={retry}
             onPick={setSelected}
             notice={notFoundNotice}
+            listings={listingsById}
           />
         </>
       );
@@ -135,7 +150,19 @@ export default function ExternalCollectionView({ tab, deepLinkTokenId, collectio
         {renderTab()}
       </main>
 
-      {panelItem && <ExternalItemPanel collection={collection} item={panelItem} onClose={closePanel} />}
+      {panelItem && (
+        <ExternalItemPanel
+          collection={collection}
+          item={panelItem}
+          onClose={closePanel}
+          listing={listingsById?.get(String(panelItem.id)) || null}
+          listingsStatus={buyListings.status}
+          wallet={wallet}
+          onConnect={() => setWalletModalOpen(true)}
+          addToast={addToast}
+          onBought={handleBought}
+        />
+      )}
 
       {walletModalOpen && (
         <Suspense fallback={null}>
