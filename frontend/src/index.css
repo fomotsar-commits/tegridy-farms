@@ -551,6 +551,85 @@ body {
   100% { background-position: 0 4px; }
 }
 
+/* ─── The flame catches (island answer twenty-nine, §1; the owner's word 11-06) ───
+   The receipt card's ring (components/FlameCatch.tsx) holds an ember while the card
+   rises. On a buy's or an add's card the ember catches the moment the card is up: the
+   flame grows out of it, the ring's glow breathes once, the card's edge warms once, the
+   clock line lights last. Every delay counts from the card's rise (its 300 ms transition).
+   Nothing runs longer than 600 ms; all still by 1.2 s after the signature. A sale keeps
+   the ember (data-flame="ember"); a card raised again for a signature that already caught
+   is lit and still (data-flame="lit"). */
+.flame-ring {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  margin: 0 auto;
+  border-radius: 50%;
+  border: 2px solid var(--color-kyle);
+  box-shadow: 0 0 24px rgba(76,175,80,0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.flame-ember {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #d4a017;
+  box-shadow: 0 0 8px rgba(212,160,23,0.9);
+  opacity: 0.95;
+}
+.flame-fire {
+  width: 32px;
+  height: 32px;
+  transform: scale(0.15);
+  opacity: 0;
+  transform-origin: 50% 85%;
+}
+.flame-ring[data-flame="catching"] .flame-ember { animation: ember-out 140ms ease-in 300ms forwards; }
+.flame-ring[data-flame="catching"] .flame-fire { animation: flame-catch 320ms cubic-bezier(0.2, 1.25, 0.4, 1) 300ms forwards; }
+.flame-ring[data-flame="catching"] { animation: ring-breathe 600ms ease-out 300ms forwards; }
+.receipt-card[data-flame="catching"] { animation: edge-warm 600ms ease-out 300ms forwards; }
+.receipt-card[data-flame="catching"] .receipt-clock { opacity: 0; animation: clock-light 200ms ease-out 500ms forwards; }
+.receipt-card[data-flame="catching"] .receipt-clock-dot { transform: scale(0.5); animation: clock-light 200ms ease-out 500ms forwards; }
+.flame-ring[data-flame="lit"] .flame-ember { opacity: 0; }
+.flame-ring[data-flame="lit"] .flame-fire { transform: none; opacity: 1; }
+@keyframes ember-out {
+  to { opacity: 0; transform: scale(2.2); }
+}
+@keyframes flame-catch {
+  0% { transform: scale(0.15); opacity: 0.9; }
+  70% { transform: scale(1.08); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+@keyframes ring-breathe {
+  0% { box-shadow: 0 0 24px rgba(76,175,80,0.35); }
+  35% { box-shadow: 0 0 44px rgba(76,175,80,0.80); }
+  100% { box-shadow: 0 0 24px rgba(76,175,80,0.35); }
+}
+@keyframes edge-warm {
+  0% { border-color: rgba(139,92,246,0.45); }
+  35% { border-color: rgba(76,175,80,0.65); }
+  100% { border-color: rgba(139,92,246,0.45); }
+}
+@keyframes clock-light {
+  to { opacity: 1; transform: none; }
+}
+/* Reduced motion: the flame renders lit at once, the ring at its resting glow, the clock line visible. */
+@media (prefers-reduced-motion: reduce) {
+  .flame-ring[data-flame="catching"],
+  .flame-ring[data-flame="catching"] .flame-ember,
+  .flame-ring[data-flame="catching"] .flame-fire,
+  .receipt-card[data-flame="catching"],
+  .receipt-card[data-flame="catching"] .receipt-clock,
+  .receipt-card[data-flame="catching"] .receipt-clock-dot { animation: none; }
+  .flame-ring[data-flame="catching"] .flame-ember { opacity: 0; }
+  .flame-ring[data-flame="catching"] .flame-fire { transform: none; opacity: 1; }
+  .receipt-card[data-flame="catching"] .receipt-clock,
+  .receipt-card[data-flame="catching"] .receipt-clock-dot { opacity: 1; transform: none; }
+}
+
 /* ─── Deep Purple Glow Pulse (all cards) ─── */
 .glass-card-animated {
   position: relative;

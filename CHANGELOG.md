@@ -7,9 +7,17 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-11-07
+
+- The Buy sheet: the network drop-down takes "Any coin"'s place at the end of the coin row, the same drop-down as the home's swap card. It reads Solana; picking Ethereum, Base, Robinhood Chain or Cardano opens that network's own swap page. Another Solana coin is still one press away: pick a coin, then its name on the You get line. Escape in the network list now closes only the list, not the sheet under it.
+
+- Receipt card (Solana): the confetti after a swap or an add is gone. In its place the card's ring holds an ember that catches into the island's flame the moment the card is up: the ring breathes once, the edge warms once, the clock line lights. A sale never lights. The farm keeps its own confetti.
+
+- Home page: the all-time volume counts again. On Nov 5 a swap in one of our Solana pools used Solana's newer transaction format, which the counter did not ask for, and every count since stopped there, so the figure said "not up to date". A pool's history and finding a share's pool read that format too now.
+
 ### 2026-11-06
 
-- The Buy sheet has the network drop-down beside Back, the same one as the home's swap card. It reads Solana; picking Base, Robinhood Chain, Ethereum or Cardano opens that network's own swap page. Escape in the network list now closes only the list, not the sheet under it.
+- Pools: an almost empty pool no longer takes deposits. That is a pool where the shares the pool program keeps forever are more than 0.1% of it, the same floor a new pool must already clear. Anyone can move such a pool's price for next to nothing, and a deposit would go in at that price. Its card says "Deposits: refused here" and why, and the All pools list tags it "Almost empty". Whoever holds its last shares can still take them out.
 
 ### 2026-11-05
 

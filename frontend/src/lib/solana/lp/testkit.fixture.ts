@@ -220,8 +220,13 @@ export function fakeRpcWithHistory(accounts: Record<string, FakeAccount>, histor
       }
       return all.slice(from, from + (o?.limit ?? 1000));
     }
-    const [signature] = params as [string];
+    const [signature, o] = params as [string, { maxSupportedTransactionVersion?: number } | undefined];
     if (!(signature in txs)) throw new Error(`fake rpc: no transaction configured for ${signature}`);
+    // Like a node: a transaction newer than the version asked for is refused, not returned.
+    const version = (txs[signature] as { version?: unknown } | null)?.version;
+    if (typeof version === 'number' && !(version <= (o?.maxSupportedTransactionVersion ?? -1))) {
+      throw new Error(`getTransaction: {"code":-32015,"message":"Transaction version (${version}) is not supported by the requesting client."}`);
+    }
     return txs[signature];
   };
 }

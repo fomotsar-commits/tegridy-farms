@@ -209,6 +209,8 @@ describe('All pools: every pool on the venue, before a token is picked', () => {
     // What each tag means, and the threshold, are one press away.
     // Said by the price line every row shows: BAYLA / SOL is priced in SOL and can get the tag.
     expect(screen.getByTestId('lp-all-pools')).toHaveTextContent('Little money in pool: it holds under 1 SOL or 100 USDC (a pool priced in BAYLA never gets this tag).');
+    // The red tag of audit CM-2 is explained in the same place as every other tag (Fable read at 390, 2026-11-06).
+    expect(screen.getByTestId('lp-all-pools')).toHaveTextContent('Almost empty: it holds so little that anyone can move its price for next to nothing, so it takes no deposit here.');
     expect(screen.getByTestId('lp-all-pools')).toHaveTextContent('a row with no tag is not a pool that passed');
   });
 
