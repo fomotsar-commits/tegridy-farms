@@ -20,7 +20,7 @@ import { readTokenSafety, type TokenSafety } from '../lp/tokenSafety';
 import type { TransferFee } from '../lp/transferFee';
 import type { GapSeen, Skip } from './gaps';
 import { atLeastCheck } from './lighthouse';
-import { MAX_TRIP_UNITS, coinBounds, tokenGate, type TripBans } from './rule';
+import { MAX_TRIP_UNITS, PLAIN_AFTER_DROP_MS, coinBounds, tokenGate, type TripBans } from './rule';
 import { KAMINO_LOOKUP_TABLE, flashBorrowIx, flashFee, flashRepayIx, loanFor } from './flashLoan';
 import { jitoTip, jitoTipIx, pickTipAccount, type JitoOutcome } from './jito';
 import { bestSize, fitLeg, legOut, nearMiss, shortShare } from './size';
@@ -1194,7 +1194,10 @@ export async function sendChecked(io: KeeperIo, s: KeeperSettings, t: Trip): Pro
   io.log(`${t.name}: ${t.says(gainedInTest)}`);
   // Jito: a SOL trip only (the tip is SOL), sized from this test run's gain and the plain SOL it
   // leaves; the floor rises by it.
-  const tipLamports = s.jito && t.coin.mint === SOL_QUOTE.mint ? jitoTip(gainedInTest, t.floor, change.lamportsAfter) : null;
+  // A pool whose last bundle did not land goes the usual way for a while, not the same bundle again.
+  const plainOnly = s.jito && t.coin.mint === SOL_QUOTE.mint && io.bans?.plainOnly(pools, Date.now()) === true;
+  if (plainOnly) io.log(`${t.name}: goes the usual way, no tip: a Jito bundle through it did not land in the last ${PLAIN_AFTER_DROP_MS / 60_000} min`);
+  const tipLamports = s.jito && !plainOnly && t.coin.mint === SOL_QUOTE.mint ? jitoTip(gainedInTest, t.floor, change.lamportsAfter) : null;
   const viaJito = tipLamports !== null && (!io.send || io.sendJito !== undefined);
   if (viaJito) io.log(`${t.name}: ${io.send ? 'goes' : 'would go'} through Jito with a tip of ${tipLamports} lamports, added to the floor`);
   if (!io.send) return 'not-sent';
@@ -1205,6 +1208,7 @@ export async function sendChecked(io: KeeperIo, s: KeeperSettings, t: Trip): Pro
   const tip = viaJito ? { lamports: tipLamports, account: pickTipAccount() } : undefined;
   const r = tip && io.sendJito ? await io.sendJito(await build(units, atSend.coin, tip)) : await io.send(await build(units, atSend.coin));
   if (r.outcome === 'reverted') io.bans?.reverted(pools, Date.now());
+  if (tip && io.sendJito && (r.outcome === 'lost' || r.outcome === 'unknown')) io.bans?.jitoDropped(pools, Date.now());
   io.log(`${t.name}: sent ${r.signature}: ${r.outcome}`);
   if (r.outcome === 'lost') {
     // Jito never put it in a block: no fee, no tip, nothing moved. Logged, at no cost to the day's cap.
