@@ -15,6 +15,25 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-11-07: a mutant that makes a service retry forever never fails its test, it hangs it
+
+**Wrong belief:** a mutation run reports each mutant as killed or survived, so a run that is taking
+long is just slow.
+
+**Measured:** on the Cardano batcher, a mutant that read the global setting with the wrong shape
+made `node --test test/main.test.ts` run 11 minutes with no verdict: the watcher catches the
+unreadable setting and retries, and those tests await a batch with no per-test timeout. Stopping
+the run also stopped the script's `finally`, so the mutant stayed in `src/select.ts` until it was
+restored by hand and checked with `git diff`. With `--test-timeout=120000` and only the fast test
+file that reads the setting, the same mutant failed in under a second.
+
+**Do:** give every mutation run `--test-timeout`, point each mutant at the fastest test that reads
+the mutated line, and after any run that was stopped, diff the file before trusting it.
+
+Aiken 1.0.24, met the same day: `aiken check -m <text>` keeps tests whose NAME contains the text
+(not the module), and the way to print a value is `trace` in a test that returns `False`: the
+report shows the trace under the failure.
+
 ## 2026-11-04: a pre-approved undo is one press from running, and a read-back only guards the page it is on
 
 **Wrong belief:** an upgrade's roll-back can sit approved beside the upgrade "just in case", as long as
