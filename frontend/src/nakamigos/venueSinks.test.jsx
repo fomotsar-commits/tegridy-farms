@@ -887,6 +887,17 @@ describe("Bojungles and Seeds are listed, bought from the book and bid on, on Ba
         expect(body.order.protocol_address).toBe(SEAPORT_16);
       });
 
+      it("a listing on Base from a wallet that does not own the token is refused before any approval", async () => {
+        h.chainId = BASE;
+        const base = h.contractImpl;
+        h.contractImpl = (method, target, args) => (method === "ownerOf" ? Promise.resolve("0x" + "c".repeat(40)) : base(method, target, args));
+        const ob = await import("./lib/orderbook");
+        const res = await ob.createNativeListing({ contract, tokenId: "7", priceEth: 0.02 });
+        expect(res.error).toBe("not-owner");
+        expect(h.contractCalls.map((c) => c.method)).not.toContain("setApprovalForAll");
+        expect(h.signTypedData).not.toHaveBeenCalled();
+      });
+
       it("its native listing is bought on Base, on Seaport 1.6, and the fill is reported as Base's", async () => {
         h.chainId = BASE;
         const base = h.contractImpl;

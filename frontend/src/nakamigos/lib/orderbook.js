@@ -451,6 +451,15 @@ export async function createNativeListing({ contract, tokenId, priceEth, expirat
       "function setApprovalForAll(address,bool)",
     ], signer);
 
+    // On Base the token is read first: an approval from a wallet that does not
+    // own it costs gas for a listing the book would refuse.
+    if (book.chainId !== 1) {
+      const owner = await new ethers.Contract(contract, ["function ownerOf(uint256) view returns (address)"], provider).ownerOf(String(tokenId));
+      if (String(owner).toLowerCase() !== sellerAddress.toLowerCase()) {
+        return { error: "not-owner", message: `This wallet does not own #${tokenId}, so it cannot list it.` };
+      }
+    }
+
     const isApproved = await nftContract.isApprovedForAll(sellerAddress, CONDUIT_ADDRESS);
     if (!isApproved) {
       const approveTx = await nftContract.setApprovalForAll(CONDUIT_ADDRESS, true);
