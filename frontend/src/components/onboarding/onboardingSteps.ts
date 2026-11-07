@@ -17,9 +17,10 @@
 import {
   TEGRIDY_ROUTER_ADDRESS,
   TEGRIDY_STAKING_ADDRESS,
-  TEGRIDY_NFT_LENDING_ADDRESS,
   isDeployed,
 } from '../../lib/constants';
+// NFT lending runs on Gondi's v3.2 loan contract; GONDI_LOAN_ADDRESS is zero until it is deployed.
+import { GONDI_LOAN_ADDRESS } from '../../lib/gondi/loanOffer.js';
 import { isLauncherEnabled } from '../../lib/launcher/config';
 import { isSolanaSwapLive } from '../../lib/solana';
 import { VENUE, isToweliVoice } from '../../lib/arrival';
@@ -97,7 +98,7 @@ export const ONBOARDING_SURFACES: readonly OnboardingSurface[] = [
     route: '/nft-finance',
     label: 'NFT finance',
     blurb: 'Borrow against an NFT, or trade one through the pooled market.',
-    isLive: () => isDeployed(TEGRIDY_NFT_LENDING_ADDRESS),
+    isLive: () => isDeployed(GONDI_LOAN_ADDRESS),
   },
   {
     id: 'risks',

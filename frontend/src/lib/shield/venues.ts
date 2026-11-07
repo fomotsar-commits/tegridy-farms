@@ -25,7 +25,13 @@
 // is wired but unreadable is worse than one that is absent, because it looks like
 // coverage.
 
-import { TEGRIDY_NFT_LENDING_ADDRESS, isDeployed } from '../constants';
+// NFT lending moved to Gondi's v3.2 loan contract. The adapter in this folder reads the
+// first-version contract (TEGRIDY_NFT_LENDING_ADDRESS, retired, never held a loan), so the
+// venue is unreadable here until an adapter for Gondi's loans is built.
+
+/** Why the shield watches no venue loan, in the user's words. Also the alert source's line. */
+export const VENUE_LOANS_NOT_WATCHED =
+  "The shield doesn't read loans on Gondi's loan contract yet, so it is watching no loan here. Your loans and their due dates are under NFT Lending, My Loans.";
 
 export type ShieldVenueId = 'tegridy-nft-lending' | 'aave-v3' | 'morpho-blue';
 
@@ -84,7 +90,7 @@ export const SHIELD_VENUE_IDS: readonly ShieldVenueId[] = [
  * up claiming coverage it does not have.
  */
 export const ADAPTER_BUILT: Record<ShieldVenueId, boolean> = {
-  'tegridy-nft-lending': true,
+  'tegridy-nft-lending': false,
   'aave-v3': false,
   'morpho-blue': false,
 };
@@ -104,15 +110,11 @@ export interface ShieldVenueReadiness {
  * `indexer/client.ts` and `alerts/sources.ts`.
  */
 export function shieldVenueReadiness(): Record<ShieldVenueId, ShieldVenueReadiness> {
-  const nftDeployed = isDeployed(TEGRIDY_NFT_LENDING_ADDRESS);
   return {
     'tegridy-nft-lending': {
-      readable: ADAPTER_BUILT['tegridy-nft-lending'] && nftDeployed,
-      detail:
-        ADAPTER_BUILT['tegridy-nft-lending'] && nftDeployed
-          ? null
-          : 'The venue’s NFT lending contract is not deployed on this network, so there are no loans to read.',
-      address: nftDeployed ? TEGRIDY_NFT_LENDING_ADDRESS : null,
+      readable: ADAPTER_BUILT['tegridy-nft-lending'],
+      detail: ADAPTER_BUILT['tegridy-nft-lending'] ? null : VENUE_LOANS_NOT_WATCHED,
+      address: null,
     },
     'aave-v3': {
       readable: false,

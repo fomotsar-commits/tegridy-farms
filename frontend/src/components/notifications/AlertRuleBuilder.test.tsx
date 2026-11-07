@@ -79,11 +79,13 @@ describe('a dark kind is disclosed where it is chosen', () => {
 
     const dark = groups[1]!;
     const labels = [...dark.querySelectorAll('option')].map((o) => o.textContent);
-    // The indexer is unhosted AND has no transfer or lock tables, so these two
-    // cannot be evaluated by any rail on this deployment.
+    // The indexer is unhosted AND has no transfer or lock tables, so the first two
+    // cannot be evaluated by any rail on this deployment. Loan deadlines: NFT lending is
+    // on Gondi's contract, and no reader for its loans is built yet.
     expect(labels).toEqual([
       'Whale move — not readable here',
       'LP unlock — not readable here',
+      'Loan deadline approaching — not readable here',
     ]);
   });
 
