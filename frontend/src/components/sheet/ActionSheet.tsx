@@ -17,8 +17,6 @@ import { BungalowRow } from './SheetBuyRow';
 
 // The sheet's own Solana connection, for a page with none: its own chunk, as every Solana section is.
 const SheetOwnConnection = lazy(() => import('./SheetSolana'));
-// Buy's network drop-down, the swap pages' own: its own chunk too, so every page does not carry the network list.
-const SheetChainSwitch = lazy(() => import('../swap/ChainSwitch').then((m) => ({ default: m.ChainSwitch })));
 
 /**
  * The sheet (island answer twenty-five, screen 1, build 3): Add or Buy as one screen over the
@@ -114,30 +112,22 @@ function OpenSheet({ kind, named }: { kind: SheetKind; named: Bungalow | null })
       >
         <div className="overflow-y-auto overscroll-contain px-4" style={{ paddingBottom: 'max(48px, calc(16px + env(safe-area-inset-bottom, 0px)))' }}>
           <div aria-hidden="true" className="mx-auto mt-2 rounded-full" style={{ width: 36, height: 4, background: 'rgba(255,255,255,0.22)' }} />
-          <div className="flex items-center justify-between gap-3 mt-1.5">
-            <button
-              type="button"
-              onClick={() => {
-                tick();
-                close();
-              }}
-              className="flex items-center gap-3 min-h-[44px] text-[14px] font-semibold"
-              style={{ color: '#c4b5fd' }}
-              data-testid="sheet-back"
-            >
-              <svg width="10" height="16" viewBox="0 0 10 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M8 2L2 8l6 6" />
-              </svg>
-              {isRoomDoor(location.pathname) ? SHEET_WORDS.back : SHEET_WORDS.backOff}
-            </button>
-            {/* Buy's network drop-down, as the home's swap card has: Solana here, another network leaves for its own swap page. */}
-            {kind === 'buy' && (
-              <Suspense fallback={null}>
-                <SheetChainSwitch at="/solana" align="end" />
-              </Suspense>
-            )}
-          </div>
-          {/* Buy names its coin in the form's own bungalow row, which follows a pick from Any coin (SheetBuyRow). */}
+          <button
+            type="button"
+            onClick={() => {
+              tick();
+              close();
+            }}
+            className="flex items-center gap-3 min-h-[44px] mt-1.5 text-[14px] font-semibold"
+            style={{ color: '#c4b5fd' }}
+            data-testid="sheet-back"
+          >
+            <svg width="10" height="16" viewBox="0 0 10 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M8 2L2 8l6 6" />
+            </svg>
+            {isRoomDoor(location.pathname) ? SHEET_WORDS.back : SHEET_WORDS.backOff}
+          </button>
+          {/* Buy names its coin in the form's own bungalow row, which follows a pick from the You get press (SheetBuyRow). */}
           {kind === 'add' && (room ? <CoinRow room={room} /> : <BungalowRow onPick={pick} />)}
           <div ref={setSlot} data-testid="sheet-body" className={drawn ? `mt-4 ${SHEET_WAIT[kind].slot}` : 'mt-4'} />
           {drawn && pageOutlet === null && (
