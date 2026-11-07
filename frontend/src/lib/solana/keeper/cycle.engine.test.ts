@@ -9,7 +9,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { Keypair, PublicKey, TransactionInstruction, TransactionMessage, VersionedTransaction } from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID } from '../cpswap/ix';
 import { SOL_QUOTE, USDC_QUOTE } from '../lp/quotes';
-import { DEFAULT_SETTINGS, engineTrip, withTripLock, type KeeperIo, type KeeperSettings } from './cycle';
+import { DEFAULT_SETTINGS, engineTrip, tripInstructions, withTripLock, type KeeperIo, type KeeperSettings } from './cycle';
 import type { EngineRecord, RouteLeg } from './engine';
 import { LIGHTHOUSE_PROGRAM, floorOfCheck } from './lighthouse';
 import { DEFAULT_LIMITS, lastPoolMinimum } from './plan';
@@ -166,6 +166,26 @@ describe('engineTrip: a handed-over trip through the send step', () => {
     const results = await Promise.all([engineTrip(r.io, s, record(legs), 'first'), engineTrip(r.io, s, record(legs, { route: 'other' }), 'second')]);
     expect(results).toEqual(['not-sent', 'not-sent']);
     expect(r.events).toEqual(['balances', 'sim', 'balances', 'sim']);
+  });
+});
+
+describe('tripInstructions, given the balances read before the trip', () => {
+  const owner = Keypair.generate().publicKey;
+  const swap = new TransactionInstruction({ programId: owner, keys: [], data: Buffer.from([1]) });
+  const accounts = { coinAta: Keypair.generate().publicKey, tokenAta: Keypair.generate().publicKey, otherAta: Keypair.generate().publicKey, tokenMint: Keypair.generate().publicKey, tokenProgram: TOKEN_PROGRAM_ID, coinMint: new PublicKey(SOL_QUOTE.mint) };
+  const before = { coin: 1n, token: 0n, tokenExists: true, other: 0n, otherExists: true, lamports: 1n };
+  const opens = (ixs: TransactionInstruction[]) => ixs.filter((ix) => ix.programId.toBase58() === ATA_PROGRAM).length;
+  it('opens neither account when both exist, only the token’s when it is new, and both when nothing was read', () => {
+    expect(opens(tripInstructions(owner, { accounts, legs: [swap], floor: 1n, before }, 1, 1, 0n))).toBe(0);
+    expect(opens(tripInstructions(owner, { accounts, legs: [swap], floor: 1n, before: { ...before, tokenExists: false } }, 1, 1, 0n))).toBe(1);
+    expect(opens(tripInstructions(owner, { accounts, legs: [swap], floor: 1n }, 1, 1, 0n))).toBe(2);
+  });
+  it('still ends with the Lighthouse check, and a loan’s repayment still names the borrow’s place', () => {
+    const ixs = tripInstructions(owner, { accounts, legs: [swap, swap], floor: 5n, loan: 7n, before }, 1, 1, 100n);
+    expect(floorOfCheck(ixs.at(-1)!)).toEqual({ account: accounts.coinAta, min: 105n });
+    const at = ixs.findIndex((ix) => !ix.programId.equals(owner) && ix.data.length === 16);
+    expect(at).toBe(2);
+    expect(ixs.at(-2)!.data[16]).toBe(at);
   });
 });
 

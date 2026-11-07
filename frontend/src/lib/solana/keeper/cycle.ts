@@ -1350,10 +1350,12 @@ export interface Trip {
  * missing), any loan's borrow, the swaps, the loan's repayment, any Jito tip, and LAST the
  * Lighthouse check that the coin account holds at least `held` + the trip's floor (which counts
  * the loan's fee) + the tip. Starting and ending in the same coin account, in one transaction.
+ * Given the balances read before the trip (`before`), an account that exists is not opened again:
+ * each opening is about ten bytes, and a three-swap trip can sit within ten bytes of the limit.
  */
 export function tripInstructions(
   owner: PublicKey,
-  t: Pick<Trip, 'accounts' | 'legs' | 'floor' | 'loan' | 'tip'>,
+  t: Pick<Trip, 'accounts' | 'legs' | 'floor' | 'loan' | 'tip'> & Partial<Pick<Trip, 'before'>>,
   microLamports: number,
   units: number,
   held: bigint,
@@ -1362,8 +1364,9 @@ export function tripInstructions(
   const head = [
     ComputeBudgetProgram.setComputeUnitLimit({ units }),
     ComputeBudgetProgram.setComputeUnitPrice({ microLamports }),
-    createAssociatedTokenAccountIdempotentInstruction(owner, coinAta, owner, coinMint, TOKEN_PROGRAM_ID),
-    createAssociatedTokenAccountIdempotentInstruction(owner, tokenAta, owner, tokenMint, tokenProgram),
+    // The coin account holds the trip's coin (it was read, and holds more than nothing); the token's may be new.
+    ...(t.before && t.before.coin > 0n ? [] : [createAssociatedTokenAccountIdempotentInstruction(owner, coinAta, owner, coinMint, TOKEN_PROGRAM_ID)]),
+    ...(t.before?.tokenExists ? [] : [createAssociatedTokenAccountIdempotentInstruction(owner, tokenAta, owner, tokenMint, tokenProgram)]),
   ];
   const loan = t.loan ?? 0n;
   if (loan > 0n && coinMint.toBase58() !== SOL_QUOTE.mint) throw new Error('a loan is only taken on a SOL trip');
