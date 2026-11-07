@@ -4,7 +4,9 @@
  *
  *   ours, Raydium CPMM   cp-swap swap_base_input (keeper/directLegs.ts cpLeg)
  *   Raydium AMM v4       swap_base_in_v2 (directLegs.ts ammV4Leg)
- *   PumpSwap             buy (SOL in) and sell (coin in) (directLegs.ts), SOL pools only
+ *   PumpSwap             buy (the quote coin in) and sell (the base coin in) (directLegs.ts); a pool
+ *                        priced in a coin other than SOL (a memecoin's pool in another memecoin)
+ *                        is built the same way, its quote's token program read from its mint
  *   Orca                 swap_v2 with the three tick arrays in the walk's direction and the pool's
  *                        Oracle (an adaptive-fee pool reads its fee from it; a static one passes
  *                        the address unread), quoted by lib/arb-venues.mjs orcaQuote
@@ -30,13 +32,12 @@ import {
   ammV4Leg, ammV4Out, ammV4Swaps, cpLeg, decodeAmmV4, decodePumpFeeConfig, decodePumpPool, pumpBuyLeg, pumpBuyOut, pumpFeesFor, pumpSellLeg, pumpSellOut,
 } from '../../src/lib/solana/keeper/directLegs.ts';
 import { REGISTERED_PROGRAM_ID, decodeAmmConfig, decodePoolState } from '../../src/lib/solana/cpswap/program.ts';
-import { MEMO_PROGRAM_ID, TOKEN_PROGRAM_ID } from '../../src/lib/solana/cpswap/ix.ts';
+import { MEMO_PROGRAM_ID } from '../../src/lib/solana/cpswap/ix.ts';
 import { vaultAmountWithoutFee } from '../../src/lib/solana/cpswap/math.ts';
 import { quoteOwnPool } from '../../src/lib/solana/cpswap/read.ts';
 import { swapV2Ix } from '../../src/lib/solana/clmm/ix.ts';
 import { quoteSwapAsRaydium } from '../../src/lib/solana/clmm/quote.ts';
 
-const SOL = C.SOL_MINT;
 const pk = (s) => (s instanceof PublicKey ? s : new PublicKey(s));
 const anchorTag = (name) => createHash('sha256').update(`global:${name}`).digest().subarray(0, 8);
 const le64 = (n) => {
@@ -266,7 +267,10 @@ function buildLeg(l, p, acc, owner, nowSecs, { ids, pick, programOf, slot }) {
     }
     case 'pumpswap': {
       const pool = decodePumpPool(l.pool, acc.get(l.pool).data);
-      if (!pool || pool.quoteMint !== SOL) return 'not a SOL pool';
+      if (!pool) return 'not a PumpSwap pool';
+      if (l.from !== pool.quoteMint && l.from !== pool.baseMint) return 'not a pool of this coin';
+      const quoteProgram = programOf(pool.quoteMint);
+      if (!quoteProgram) return 'its quote coin’s mint was not read';
       const cfgAcc = acc.get(PUMP_FEE_CONFIG.toBase58());
       const global = acc.get(PUMP_GLOBAL_CONFIG.toBase58());
       const mint = acc.get(pool.baseMint);
@@ -281,9 +285,9 @@ function buildLeg(l, p, acc, owner, nowSecs, { ids, pick, programOf, slot }) {
         protocolFeeRecipient: new PublicKey(global.data.subarray(57, 89)),
         buybackRecipient: new PublicKey(PUMP_BUYBACK_RECIPIENTS[Math.floor(pick() * PUMP_BUYBACK_RECIPIENTS.length) % PUMP_BUYBACK_RECIPIENTS.length]),
         baseProgram: pk(mint.owner),
-        quoteProgram: TOKEN_PROGRAM_ID,
+        quoteProgram,
       };
-      if (l.from === SOL) {
+      if (l.from === pool.quoteMint) {
         return {
           out: (x) => pumpBuyOut(pool, fees, base, quote, x),
           ix: (x, minOut) => pumpBuyLeg(pool, fees, base, quote, own, ctx, x, minOut)?.ix ?? null,
