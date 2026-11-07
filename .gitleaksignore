@@ -37,3 +37,7 @@ c7f8f33b2a3fe593de41317f8a80548be07dfdbf:solana/guards/provenance.mjs:generic-ap
 143fced7e65d06c3191cdb64fff86496d6c882c1:.gitleaksignore:generic-api-key:30
 a0bafd057be3908533ba7c63a792b14d59740396:.gitleaksignore:generic-api-key:30
 ddf8b25d41c5286459d5726ceb153a25061bd1b6:.gitleaksignore:generic-api-key:30
+
+# Minswap V2 public pool stake key hash, named in the own-pool deployment check so a record
+# carrying it is refused (deployment.ts). A public Cardano key hash, not a secret.
+a88f8f15dd628b457ac6ce6c42610be134c78249:frontend/src/lib/cardano/ownPools/deployment.ts:generic-api-key:23
