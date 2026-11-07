@@ -9,7 +9,7 @@ import { isSolanaSwapLive } from './solana';
 // Plain text only, like rangePoolsVisible below: the Cardano swap's switch (lib/cardano/flags.ts).
 import { cardanoSwapVisible } from './cardano/flags';
 import { BUNGALOWS, getActiveBungalow } from './bungalows';
-import { roomSheetHref, sheetRoom, type SheetKind } from './sheet';
+import { roomSheetHref, sheetHref, sheetRoom, type SheetKind } from './sheet';
 import { EARN_PATH, earnPoolPath, isEarnPoolId } from './earnRoutes';
 import { hasRoutableYieldVenue } from './yield/venues';
 import { curveChainNames, isCurveLaunchOpen } from './launcher/curveChains';
@@ -281,12 +281,16 @@ function sectionWord(section: NavSection, label = section.heading): BarWord {
 
 /**
  * In a room whose coin has its SOL pool on the venue, the bar's Swap and Add open that room's
- * sheet over it, Buy and Add (island answer twenty-five, build 3); anywhere else, `fallback`.
+ * sheet over it, Buy and Add (island answer twenty-five, build 3). With no room, Swap opens the
+ * Buy sheet over the home, on its bungalow row with nothing lit (answer twenty-seven: the room
+ * only lights a chip); Add stays `fallback`, the pools list. Anywhere else, `fallback`.
  * Read only inside the bar words' getters, so it follows the room on every access.
  */
 function sheetOr(kind: SheetKind, fallback: string): string {
-  const room = sheetRoom(getActiveBungalow()?.id);
-  return room ? roomSheetHref(room, kind) : fallback;
+  const active = getActiveBungalow();
+  const room = sheetRoom(active?.id);
+  if (room) return roomSheetHref(room, kind);
+  return kind === 'buy' && !active && isSolanaSwapLive() ? sheetHref('/', '', 'buy') : fallback;
 }
 
 /**

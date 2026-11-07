@@ -58,8 +58,8 @@ export type OutsidePrice =
   | { kind: 'ok'; solPerToken: number; source: 'Jupiter'; readAtMs?: number }
   /** Jupiter answered that it has no route for this token: no outside market it can reach. */
   | { kind: 'no-route'; detail: string }
-  /** `hold`: the shared list's own one-row words for a token with no price in ten minutes ("Outside price not read for 12 min; adding waits"). */
-  | { kind: 'unread'; detail: string; hold?: true };
+  /** `row`: the detail is the shared list's own row words ("Outside price not read yet"), never a gate (answer twenty-seven). */
+  | { kind: 'unread'; detail: string; row?: true };
 
 class NoRoute extends Error {}
 
@@ -237,8 +237,8 @@ export type QuotePrice =
    * warning; it switches nothing off). Never a failed read: that is `unread`.
    */
   | { kind: 'no-route'; of: 'token' | 'coin'; detail: string }
-  /** `hold`: the token's price is the shared list's one-row hold, passed through as it is. */
-  | { kind: 'unread'; detail: string; hold?: true };
+  /** `row`: the token's price is the shared list's one row, passed through as it is. */
+  | { kind: 'unread'; detail: string; row?: true };
 
 /**
  * Why a pairing coin's OWN price is missing, in words about the coin. The coin is priced

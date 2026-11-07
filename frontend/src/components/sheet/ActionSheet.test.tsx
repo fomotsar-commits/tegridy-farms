@@ -19,7 +19,7 @@ function Probe() {
     <>
       <p data-testid="where">{`${location.pathname}${location.search}`}</p>
       <p data-testid="move">{move ?? 'none'}</p>
-      <p data-testid="open">{open ? `${open.kind}:${open.room.id}:${open.slot.dataset.testid}` : 'closed'}</p>
+      <p data-testid="open">{open ? `${open.kind}:${open.room?.id ?? 'no coin'}:${open.slot.dataset.testid}` : 'closed'}</p>
       <button type="button" onClick={() => navigate(-1)}>browser back</button>
     </>
   );
@@ -108,6 +108,17 @@ describe('the sheet', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
+  // Answer twenty-seven: the sheet rises over /pools (a room's pool's Add) and over the home (the
+  // bar's Swap with no room). Neither is a room, so Back says only Back there.
+  it('over a page that is not a room, Back says Back, never "Back to the room"', () => {
+    for (const at of ['/pools?sheet=add&coin=bayla', '/?sheet=buy']) {
+      const { unmount } = mount([at]);
+      expect(within(screen.getByRole('dialog')).getByRole('button', { name: 'Back' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Back to the room' })).toBeNull();
+      unmount();
+    }
+  });
+
   it('Escape and a press on the veil close it too', () => {
     localStorage.setItem('tegridy-bungalow', 'bayla');
     mount(['/bayla?sheet=add']);
@@ -119,23 +130,65 @@ describe('the sheet', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
-  it('with no room, the bungalow row stands in the coin’s place; a pick names the coin and the sheet reads as drawn', () => {
-    mount(['/launch?sheet=buy']);
+  it('with no room, Add’s bungalow row stands in the coin’s place; a pick names the coin and the sheet reads as drawn', () => {
+    mount(['/launch?sheet=add']);
     const row = screen.getByRole('group', { name: 'Pick a coin' });
     expect(within(row).getAllByRole('button').map((b) => b.textContent)).toEqual(['BAYLA', 'BOBO', 'SOY', 'BRAINLET', 'RIZZ']);
     expect(screen.getByTestId('open')).toHaveTextContent('closed');
     fireEvent.click(within(row).getByRole('button', { name: 'SOY' }));
-    expect(screen.getByTestId('where')).toHaveTextContent('/launch?sheet=buy&coin=soy');
-    expect(screen.getByRole('dialog', { name: 'Buy SOY' })).toBeInTheDocument();
+    expect(screen.getByTestId('where')).toHaveTextContent('/launch?sheet=add&coin=soy');
+    expect(screen.getByRole('dialog', { name: 'Add SOL + SOY' })).toBeInTheDocument();
     expect(screen.getByTestId('sheet-coin')).toHaveTextContent('SOL + SOY pool · Solana');
-    expect(screen.getByTestId('open')).toHaveTextContent('buy:soy:sheet-body');
+    expect(screen.getByTestId('open')).toHaveTextContent('add:soy:sheet-body');
   });
 
-  it('a room the sheet cannot act on opens the bungalow row, never its own coin', () => {
+  // Island answer twenty-seven: Buy's bungalow row is the form's own, above the amount, so its
+  // "Any coin" can open the swap's own picker. The frame asks the form to draw with or without a coin.
+  it('Buy asks the form to draw in every case: on the room’s coin, on the coin named, or with none on the row', async () => {
+    localStorage.setItem('tegridy-bungalow', 'bayla');
+    mount(['/bayla?sheet=buy']);
+    expect(screen.getByRole('dialog', { name: 'Buy BAYLA' })).toBeInTheDocument();
+    expect(screen.getByTestId('open')).toHaveTextContent('buy:bayla:sheet-body');
+    // The coin is named by the form's row, which follows a pick from Any coin: the frame names none.
+    expect(screen.queryByTestId('sheet-coin')).toBeNull();
+    expect(screen.queryByRole('group', { name: 'Pick a coin' })).toBeNull();
+    cleanup();
+    mount(['/bayla?sheet=buy&coin=bobo']);
+    expect(screen.getByRole('dialog', { name: 'Buy BOBO' })).toBeInTheDocument();
+    expect(screen.getByTestId('open')).toHaveTextContent('buy:bobo:sheet-body');
+    cleanup();
+    localStorage.clear();
+    mount(['/?sheet=buy']);
+    expect(screen.getByRole('dialog', { name: 'Buy' })).toBeInTheDocument();
+    expect(screen.getByTestId('open')).toHaveTextContent('buy:no coin:sheet-body');
+    // With no room the page has no Solana section of its own: the sheet brings its connection.
+    expect(await screen.findByTestId('own-connection')).toBeInTheDocument();
+  });
+
+  it('a room the sheet cannot act on opens on no coin, never its own', () => {
     localStorage.setItem('tegridy-bungalow', 'pepe');
     mount(['/pepe?sheet=buy']);
+    expect(screen.getByTestId('open')).toHaveTextContent('buy:no coin:sheet-body');
+    expect(screen.queryByTestId('sheet-coin')).toBeNull();
+    cleanup();
+    mount(['/pepe?sheet=add']);
     expect(screen.getByRole('group', { name: 'Pick a coin' })).toBeInTheDocument();
     expect(screen.queryByTestId('sheet-coin')).toBeNull();
+  });
+
+  it('Escape inside a dialog over the form (the swap’s picker) closes that one, not the sheet', () => {
+    localStorage.setItem('tegridy-bungalow', 'bayla');
+    mount(['/bayla?sheet=buy']);
+    const inner = document.createElement('div');
+    inner.setAttribute('role', 'dialog');
+    const field = document.createElement('input');
+    inner.appendChild(field);
+    screen.getByTestId('sheet-body').appendChild(inner);
+    fireEvent.keyDown(field, { key: 'Escape' });
+    expect(screen.getByRole('dialog', { name: 'Buy BAYLA' })).toBeInTheDocument();
+    inner.remove();
+    fireEvent.keyDown(screen.getByRole('dialog', { name: 'Buy BAYLA' }), { key: 'Escape' });
+    expect(screen.queryByRole('dialog', { name: 'Buy BAYLA' })).toBeNull();
   });
 
   it('brings its own Solana connection only where the page has none: one live connection per page', async () => {

@@ -22,6 +22,7 @@ import {
 } from './navConfig';
 import { readFileSync } from 'node:fs';
 import { BUNGALOWS } from './bungalows';
+import { opensSheet, readSheet } from './sheet';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { isIndexerConfigured } from './indexer/client';
@@ -51,7 +52,8 @@ describe('the bar', () => {
     const routed = new Set(ROUTES.map((r) => r.path));
     for (const w of BAR_NAV) {
       expect(w.to.startsWith('/'), w.label).toBe(true);
-      expect(routed, `${w.label} opens ${w.to}, which no route draws`).toContain(w.to.split('#')[0]);
+      // A sheet's address is the page it rises over, with ?sheet= on it (lib/sheet.ts).
+      expect(routed, `${w.label} opens ${w.to}, which no route draws`).toContain(w.to.split(/[?#]/)[0]);
     }
   });
 
@@ -67,7 +69,10 @@ describe('the bar', () => {
       const word = BAR_NAV.find((w) => w.label === label)!;
       const section = NAV_SECTIONS.find((s) => s.heading === heading);
       expect(section, `no ${heading} section`).toBeDefined();
-      expect(section!.items.map((i) => i.to), `${label} opens a page whose strip lights nothing`).toContain(word.to);
+      // With no room, Swap raises the Buy sheet over the home (answer twenty-seven): a sheet, not a strip's page.
+      // Its section's own word, in the menu's index, still opens a tab of the strip.
+      const to = label === 'Swap' && opensSheet(word.to) ? section!.primaryTo! : word.to;
+      expect(section!.items.map((i) => i.to), `${label} opens a page whose strip lights nothing`).toContain(to);
     }
     expect(BAR_NAV.find((w) => w.label === 'Lock')?.to, 'Lock opens the list of every pool').toBe('/earn');
   });
@@ -433,11 +438,13 @@ describe('tradeRoute', () => {
 
   it('opens the Solana swap with no room, and follows the skin with no module reload', () => {
     expect(tradeRoute(), 'a stranger with no room lands on the Solana swap').toBe('/solana');
-    expect(swapWord()).toBe('/solana');
+    // Island answer twenty-seven: with no room the bar's Swap raises the Buy sheet over the home, on the bungalow row.
+    expect(swapWord()).toBe('/?sheet=buy');
     expect(swapSection().primaryTo).toBe('/solana');
 
     window.localStorage.setItem('tegridy-bungalow', 'venue');
     expect(tradeRoute(), 'the venue sentinel is no room').toBe('/solana');
+    expect(swapWord()).toBe('/?sheet=buy');
 
     window.localStorage.setItem('tegridy-bungalow', 'bayla');
     expect(tradeRoute(), 'a Solana room lands on the Solana swap').toBe('/solana');
@@ -467,8 +474,20 @@ describe('tradeRoute', () => {
     expect(swapWord()).toBe('/swap');
     expect(addWord()).toBe('/pools');
     window.localStorage.clear();
-    expect(swapWord()).toBe('/solana');
+    expect(swapWord()).toBe('/?sheet=buy');
     expect(addWord()).toBe('/pools');
+  });
+
+  // Island answer twenty-seven: the Buy sheet is no longer a room's alone. With no room the bar's
+  // Swap raises it over the home, on the bungalow row with nothing lit; Add stays the pools list
+  // (a pool is one coin), and Island stays the home.
+  it('with no room, the bar’s Swap raises the Buy sheet over the home; Add and Island are as they were', () => {
+    const word = (label: string) => BAR_NAV.find((w) => w.label === label)?.to;
+    expect(word('Swap')).toBe('/?sheet=buy');
+    expect(opensSheet(word('Swap')!), 'a press on it is the sheet’s, so its Back pops back').toBe(true);
+    expect(readSheet('?sheet=buy'), 'no coin named: the row, nothing lit').toEqual({ kind: 'buy', coin: null });
+    expect(word('Add')).toBe('/pools');
+    expect(word('Island')).toBe('/');
   });
 
   it('lands on a tab the Swap section really has, in every room', () => {

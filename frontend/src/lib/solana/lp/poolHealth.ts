@@ -1,5 +1,6 @@
 import { depositEnabled, swapEnabled, withdrawEnabled } from '../cpswap/program';
 import type { PoolSnapshot } from '../cpswap/read';
+import { tooFewShares } from './liquidityMath';
 import { priceInQuote, solPriceIn, type OutsidePrice } from './outsidePrice';
 import { ownAveragePrice, TRUSTED_HISTORY_SECS, type OwnPrice } from './ownPrice';
 import { LAUNCH_TIER_POOL, type PoolView } from './poolFinder';
@@ -22,6 +23,9 @@ import { MIN_HISTORY_TEXT, TOO_NEW_WHY } from './ownPrice';
  *     79-80) while deposits still go through (deposit.rs 96), so liquidity added there
  *     can never earn a fee;
  *   - the pool is empty on either side (no price at all);
+ *   - the pool is almost empty: the 100 shares the pool program locks are more than 0.1%
+ *     of it (`tooFewShares`). Its price can be moved for a few lamports, whatever it is
+ *     checked against, and a deposit's limits are worked out from that same price;
  *   - the token itself is blocked (tokenSafety.ts);
  *   - the pool is on the launch tier and is not the launch pool (`LAUNCH_TIER_POOL`).
  *
@@ -66,6 +70,8 @@ import { MIN_HISTORY_TEXT, TOO_NEW_WHY } from './ownPrice';
  */
 
 export const PRICE_TOLERANCE = 0.03;
+/** Why an almost empty pool takes no deposit (`tooFewShares`), on its card and in the builder's refusal. */
+export const NEARLY_EMPTY = 'This pool is almost empty, so anyone can move its price for next to nothing, and a deposit would go in at whatever price they set.';
 /** An open time this far ahead is not a launch delay; it is a pool that will not trade. */
 export const FAR_FUTURE_SECS = 7n * 24n * 3600n;
 /** The status bits this site knows (PoolStatusBitIndex): deposit, withdraw, swap. */
@@ -159,8 +165,12 @@ export type PriceCheck =
   | { state: 'no-market'; of: 'token' | 'coin'; pool: number; detail: string }
   /** Not compared on purpose (the token is blocked, so nothing here will be deposited). */
   | { state: 'skipped'; pool: number | null; detail: string }
-  /** `hold`: the detail is the shared list's one-row hold ("Outside price not read for 12 min; adding waits"), said once. */
-  | { state: 'unread'; pool: number | null; detail: string; hold?: true };
+  /**
+   * `outside`: only the outside price is missing, and `detail` is its one row ("Outside price
+   * not read yet"). Intel, never a gate: the pool's own price is the truth of a deposit
+   * (answer twenty-seven withdrew twenty-four's hold). Without it, a check that could not run.
+   */
+  | { state: 'unread'; pool: number | null; detail: string; outside?: true };
 
 /**
  * The warning a `too-new` pool carries, on its card, on the Add form and on the review.
@@ -470,13 +480,15 @@ export function assessPool(input: {
       }
     }
   } else {
-    // The shared list's hold is one row, said in its own words (outsidePrice.ts fromShared).
-    const hold = reference?.kind === 'unread' && reference.hold === true;
-    price = { state: 'unread', pool: poolPrice, detail: reference?.detail ?? 'not asked', ...(hold ? { hold: true as const } : {}) };
+    // The outside price was not read: one row, in the shared list's words when it has them
+    // (sharedPrices.ts fromShared), and never a gate (answer twenty-seven).
+    const listed = reference?.kind === 'unread' && reference.row === true;
+    price = { state: 'unread', pool: poolPrice, detail: listed ? reference.detail : 'Outside price not read yet', outside: true };
   }
   if (price.state === 'empty-pool') refused.push('The pool is empty on one side, so it has no price.');
-  if (price.state === 'unread') {
-    unchecked.push(price.hold ? price.detail : isLaunchPool ? `We could not check its price (${price.detail}).` : `We could not check its price against ${unreadAgainst} (${price.detail}).`);
+  else if (tooFewShares(pool.lpSupply)) refused.push(NEARLY_EMPTY);
+  if (price.state === 'unread' && !price.outside) {
+    unchecked.push(isLaunchPool ? `We could not check its price (${price.detail}).` : `We could not check its price against ${unreadAgainst} (${price.detail}).`);
   }
 
   if (view.config === null) unchecked.push('We could not read this pool’s fee settings.');
