@@ -36,6 +36,11 @@ const fixtures = vi.hoisted(() => ({
   },
   entriesByWallet: {} as Record<string, unknown>,
   walletKey: null as string | null,
+  // The room coin's price on the price endpoint; null = no answer.
+  usd: null as number | null,
+  // Your positions' two reads (lib/wallet/readSolanaWallet.ts): the ladder's locks and the pool shares.
+  ladder: { status: 'ok', rows: [] } as unknown,
+  shares: { status: 'ok', rows: [] } as unknown,
 }));
 
 vi.mock('../solana/SolanaProviders', () => ({
@@ -65,7 +70,11 @@ vi.mock('@solana/wallet-adapter-react', () => ({
 }));
 vi.mock('../../lib/jupiter', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../lib/jupiter')>()),
-  getUsdPrices: async () => null,
+  getUsdPrices: async (mints: string[]) => (fixtures.usd === null ? null : { [mints[0]!]: fixtures.usd }),
+}));
+vi.mock('../../lib/wallet/readSolanaWallet', () => ({
+  readSolanaLadder: vi.fn(async () => fixtures.ladder),
+  readSolanaPoolShares: vi.fn(async () => fixtures.shares),
 }));
 vi.mock('../ArtImg', () => ({ ArtImg: () => null }));
 vi.mock('./HeatCard', () => ({ HeatCard: () => null }));
@@ -84,6 +93,7 @@ vi.mock('../../lib/bungalowStaking', async (importOriginal) => ({
 }));
 
 const staking = await import('../../lib/bungalowStaking');
+const walletReads = await import('../../lib/wallet/readSolanaWallet');
 const { BungalowDashboardPanel } = await import('./BungalowDashboardPanel');
 
 type Dashboarded = Bungalow & { identity: BungalowIdentity };
@@ -119,6 +129,11 @@ beforeEach(() => {
   vi.mocked(staking.readPool).mockClear();
   fixtures.entriesByWallet = {};
   fixtures.walletKey = WALLET_A;
+  fixtures.usd = null;
+  fixtures.ladder = { status: 'ok', rows: [] };
+  fixtures.shares = { status: 'ok', rows: [] };
+  vi.mocked(walletReads.readSolanaLadder).mockClear();
+  vi.mocked(walletReads.readSolanaPoolShares).mockClear();
 });
 
 describe('a members-only pool on the dashboard', () => {
@@ -134,6 +149,8 @@ describe('a members-only pool on the dashboard', () => {
     expect(screen.getByRole('link', { name: 'The lock ladder' }).getAttribute('href')).toBe('/earn/bayla');
     expect(staking.readEntries).not.toHaveBeenCalled();
     expect(staking.readPool).not.toHaveBeenCalled();
+    expect(walletReads.readSolanaLadder).not.toHaveBeenCalled();
+    expect(walletReads.readSolanaPoolShares).not.toHaveBeenCalled();
   });
 
   it('a connected wallet with no position sees the ladder, and nothing of the old pool', async () => {
@@ -371,5 +388,80 @@ describe('the quick links carry the marketplace and NFT loans doors', () => {
     expect(screen.getByRole('link', { name: 'NFT loans' }).getAttribute('href')).toBe('/nft-finance');
     expect(screen.getByRole('link', { name: `Trade ${b.symbol}` })).toBeTruthy();
     await settle();
+  });
+});
+
+// Owner, 2026-10-30: "the dashboard doesnt show the dollar value of lp or staking value".
+describe('your positions: what the locks and pool shares hold, in USD', () => {
+  const row = (o: Record<string, unknown>) => ({ key: 'k', roomId: 'bayla', chain: 'solana', title: 'BAYLA lock', facts: ['34,065 BAYLA', 'unlocks 15 Jan 2030'], usd: 68.13, to: '/earn/bayla', ...o });
+  const card = () => screen.queryByText('Your positions')?.closest('div') ?? null;
+
+  it('lists each lock and pool share in this room with its worth, and their total', async () => {
+    fixtures.ladder = { status: 'ok', rows: [row({ key: 'l1' })] };
+    fixtures.shares = { status: 'ok', rows: [
+      row({ key: 's1', title: 'BAYLA / SOL pool', facts: ['2.31% of the pool', '40,000 BAYLA + 1.2 SOL'], usd: 320, to: '/pools' }),
+      // Another room's coin: that room's dashboard lists it, not this one.
+      row({ key: 's2', roomId: 'bobo', title: 'BOBO / SOL pool', usd: 999, to: '/pools' }),
+    ] };
+    mount(MEMBERS_ONLY);
+    const c = await waitFor(() => { const el = card(); expect(el).toBeTruthy(); return el!; });
+    expect(c.textContent).toContain('≈ $388.13');
+    expect(c.textContent).toContain('≈ $68.13');
+    expect(c.textContent).toContain('≈ $320.00');
+    expect(c.textContent).not.toMatch(/BOBO|999/);
+    expect(within(c).getByRole('link', { name: 'BAYLA lock' }).getAttribute('href')).toBe('/earn/bayla');
+    expect(walletReads.readSolanaLadder).toHaveBeenCalledWith(WALLET_A, expect.objectContaining({ id: 'bayla', ladderPool: MEMBERS_ONLY.ladderPool }));
+  });
+
+  it("a room with its own ladder reads that room's ladder, not BAYLA's (owner, 2026-10-31)", async () => {
+    const BOBO_LADDER = { ...MEMBERS_ONLY, id: 'bobo', symbol: 'BOBO', ladderPool: 'CX24Ti8vamGXAVF2T9bgJj3EfX627Na4tcXbfkaDz1pT' } as unknown as Dashboarded;
+    fixtures.ladder = { status: 'ok', rows: [row({ key: 'l1', roomId: 'bobo', title: 'BOBO lock', to: '/earn/bobo' })] };
+    mount(BOBO_LADDER);
+    const c = await waitFor(() => { const el = card(); expect(el).toBeTruthy(); return el!; });
+    expect(walletReads.readSolanaLadder).toHaveBeenCalledWith(WALLET_A, expect.objectContaining({ id: 'bobo', ladderPool: BOBO_LADDER.ladderPool }));
+    expect(within(c).getByRole('link', { name: 'BOBO lock' }).getAttribute('href')).toBe('/earn/bobo');
+  });
+
+  it('prints no total while a position has no price, and says which one', async () => {
+    fixtures.ladder = { status: 'ok', rows: [row({ key: 'l1' }), row({ key: 'l2', usd: null })] };
+    mount(MEMBERS_ONLY);
+    const c = await waitFor(() => { const el = card(); expect(el).toBeTruthy(); return el!; });
+    expect(c.textContent).toContain('no price read');
+    expect(c.textContent).toContain('No total while a position has no price.');
+    expect(within(c).getByText('—')).toBeTruthy();
+  });
+
+  it('⚠️ a failed read is an outage with Try again, never an empty card, and Try again reads again', async () => {
+    fixtures.ladder = { status: 'unread', detail: '429' };
+    mount(MEMBERS_ONLY);
+    const outage = await screen.findByText(/Some of your BAYLA locks or pool shares could not be read/);
+    expect(outage.textContent).toMatch(/outage, not an empty result/);
+    fixtures.ladder = { status: 'ok', rows: [row({ key: 'l1' })] };
+    fireEvent.click(within(outage).getByRole('button', { name: 'Try again' }));
+    await waitFor(() => expect(screen.queryByText(/locks or pool shares could not be read/)).toBeNull());
+    expect(card()?.textContent).toContain('≈ $68.13');
+  });
+
+  it('draws nothing when the wallet has nothing in this room', async () => {
+    mount(MEMBERS_ONLY);
+    await waitFor(() => expect(walletReads.readSolanaPoolShares).toHaveBeenCalled());
+    await settle();
+    expect(card()).toBeNull();
+    expect(pageText()).not.toMatch(/Reading your locks/);
+  });
+
+  it('a room with no lock ladder asks for its pool shares only', async () => {
+    mount(OPEN);
+    await waitFor(() => expect(walletReads.readSolanaPoolShares).toHaveBeenCalled());
+    expect(walletReads.readSolanaLadder).not.toHaveBeenCalled();
+  });
+
+  it('a lighthouse stake shows its worth under Staked when the price was read', async () => {
+    fixtures.usd = 0.002;
+    reply(WALLET_A, [POSITION]);
+    mount(MEMBERS_ONLY);
+    expect(await screen.findByText('Staked')).toBeTruthy();
+    // 50,000 BAYLA at $0.002.
+    await waitFor(() => expect(pageText()).toContain('≈ $100'));
   });
 });

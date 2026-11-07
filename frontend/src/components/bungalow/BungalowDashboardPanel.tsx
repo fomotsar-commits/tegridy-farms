@@ -33,6 +33,8 @@ import { BungalowHolders } from './BungalowHolders';
 import { BungalowBurn } from './BungalowBurn';
 import { HarvestCard } from '../farm/HarvestCard';
 import { useOnStakesChanged } from '../../lib/harvest/stakesChanged';
+import { readSolanaLadder, readSolanaPoolShares } from '../../lib/wallet/readSolanaWallet';
+import { fmtUsd, holdingsTotal, type Leg, type PositionRow } from '../../lib/wallet/walletRows';
 
 /**
  * The bungalow dashboard (Bayla) — "your standing on the island".
@@ -130,12 +132,12 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
   const decimals = poolRead?.decimals ?? bungalow.decimals ?? 6;
   const walletKey = publicKey?.toBase58() ?? '';
   const stakePool = bungalow.stakePool;
-  // ⚠️ THIS PANEL READS THE LIGHTHOUSE (Streamflow) POOL ONLY. When a bayla-ladder
+  // ⚠️ THESE CARDS READ THE LIGHTHOUSE (Streamflow) POOL ONLY. When a bayla-ladder
   // pool is also configured, every "nothing staked" sentence below becomes a claim
-  // about a program this panel never looked at — and telling someone with a live
+  // about a program they never looked at — and telling someone with a live
   // ladder position that they have nothing staked is the worst answer this surface
-  // can give. It does not read the ladder (that is its pool page's card, which owns the
-  // ladder client); it stops speaking for it.
+  // can give. They do not read the ladder; they stop speaking for it. The wallet's
+  // ladder locks (and its pool shares) are RoomPositions' card, under these.
   const ladderPool = bungalow.ladderPool;
   const membersOnly = stakePoolMembersOnly(bungalow);
 
@@ -206,6 +208,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
   // This wallet could not be checked. An outage, not "no position", on either card.
   const stakeReadFailed = mine !== null && mine.list === null;
   const stakedRaw = openEntries.reduce((a, e) => a + e.amountRaw, 0n);
+  const stakedUsd = usdPrice !== null ? Number(fromBaseUnits(stakedRaw.toString(), decimals)) * usdPrice : null;
   // A position deep into the u64 accounting band MAY not be payable, so its
   // pending figure is reported separately rather than folded into one confident
   // "Accrued rewards" line — see splitAccruedByRisk. It is separated as a RISK,
@@ -248,6 +251,12 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
         {fmtRaw(stakedRaw, decimals)}
         <span className="text-[14px] text-white/60 ml-2">{bungalow.symbol}</span>
       </p>
+      {stakedUsd !== null && (
+        <p className="text-white/70 text-[13px] -mt-1 mb-2">
+          ≈ ${stakedUsd.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+          <span className="text-white/40"> · live Jupiter read</span>
+        </p>
+      )}
       <dl className="text-[12px] space-y-1 mb-3">
         <div className="flex justify-between gap-3">
           <dt className="text-white/60">Accrued rewards</dt>
@@ -436,7 +445,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
                       {ladderPool ? (
                         <>
                           This card reads that pool only. {bungalow.symbol} also has a lock-ladder
-                          pool, and anything you hold there is shown on the pool page, not here.
+                          pool; your locks there are listed under Your positions.
                         </>
                       ) : (
                         <>
@@ -477,8 +486,8 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
               <Link to={`/earn/${bungalow.id}`} className="btn-primary px-4 py-2 text-[12px] inline-block">Stake {bungalow.symbol}</Link>
               <FinePrint className="mt-2">
                 <p>
-                  {bungalow.symbol} staking runs on the venue&rsquo;s own lock ladder. Its terms, and
-                  any position you hold there, are read live on the pool page.
+                  {bungalow.symbol} staking runs on the venue&rsquo;s own lock ladder. Its terms are
+                  read live on the pool page; your locks there are listed under Your positions.
                 </p>
               </FinePrint>
               {stakeReadFailed && (
@@ -530,6 +539,8 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
             )}
           </div>
         </div>
+
+        {publicKey && <RoomPositions bungalow={bungalow} wallet={walletKey} readGen={readGen} />}
 
         {/* The market — chart + numbers for her own pool. The classic dashboard
             leads with a TOWELI chart; this is the same answer for this token,
@@ -602,5 +613,75 @@ function PoolFacts({ facts, failed, onRetry, symbol }: {
         </p>
       )}
     </dl>
+  );
+}
+
+const NO_ROWS: Leg<PositionRow> = { status: 'ok', rows: [] };
+
+/**
+ * The wallet's locks on this room's lock ladder and its shares in the venue's pools paired with
+ * this room's coin, each with what it holds in USD, and their total (owner, 2026-10-30: "the
+ * dashboard doesnt show the dollar value of lp or staking value"). Read by the island board's own
+ * readers (lib/wallet/readSolanaWallet.ts), so the room and the board give the same figures.
+ *
+ * A read that failed is an outage line with Try again, never an empty card; a total is printed
+ * only over a whole read with every position priced. With nothing in this room, it draws nothing:
+ * the lock ladder card above says where to start.
+ */
+function RoomPositions({ bungalow, wallet, readGen }: { bungalow: Bungalow; wallet: string; readGen: number }) {
+  // Kept with the wallet it was read for: a Refresh keeps the rows on screen until the new ones land.
+  const [read, setRead] = useState<{ wallet: string; legs: Leg<PositionRow>[] } | null>(null);
+  const [retries, setRetries] = useState(0);
+  const ladderPool = bungalow.ladderPool;
+  useEffect(() => {
+    let cancelled = false;
+    // This room's own ladder: BAYLA's is not the only one (owner, 2026-10-31).
+    void Promise.all([ladderPool ? readSolanaLadder(wallet, { ...bungalow, ladderPool }) : Promise.resolve(NO_ROWS), readSolanaPoolShares(wallet)])
+      .then((legs) => { if (!cancelled) setRead({ wallet, legs }); });
+    return () => { cancelled = true; };
+  }, [bungalow, ladderPool, wallet, readGen, retries]);
+
+  if (!read || read.wallet !== wallet) {
+    return <p className="mt-4 text-white/70 text-[13px]">Reading your locks and pool shares…</p>;
+  }
+  const legs = read.legs.map((l): Leg<PositionRow> => (l.status === 'ok' ? { status: 'ok', rows: l.rows.filter((r) => r.roomId === bungalow.id) } : l));
+  const rows = legs.flatMap((l) => (l.status === 'ok' ? l.rows : []));
+  const unread = legs.some((l) => l.status === 'unread');
+  if (!rows.length && !unread) return null;
+  const total = holdingsTotal(legs);
+
+  return (
+    <div className="relative isolate rounded-2xl p-5 mt-4" style={CARD}>
+      <CardArt pageId="bungalow-dashboard" idx={8} />
+      <p className="text-[10px] uppercase tracking-wider mb-2" style={{ color: 'var(--color-kyle)' }}>Your positions</p>
+      {rows.length > 0 && (
+        <>
+          <p className="stat-value text-3xl text-white leading-tight">{total.kind === 'total' ? `≈ ${fmtUsd(total.usd)}` : '—'}</p>
+          <p className="text-white/50 text-[11px] mb-3">
+            {total.kind === 'total' ? 'What your locks and pool shares hold, at the live Jupiter price.'
+              : unread ? 'No total while a part could not be read.' : 'No total while a position has no price.'}
+          </p>
+          <ul className="divide-y divide-white/10">
+            {rows.map((r) => (
+              <li key={r.key} className="py-2.5 flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <Link to={r.to} className="text-white text-[14px] font-semibold underline-offset-2 hover:underline">{r.title}</Link>
+                  <p className="mt-0.5 flex flex-wrap gap-x-3 font-mono text-[12px] text-white/60">
+                    {r.facts.map((f) => <span key={f}>{f}</span>)}
+                  </p>
+                </div>
+                <p className="shrink-0 font-mono text-[14px] text-white tabular-nums">{r.usd !== null ? `≈ ${fmtUsd(r.usd)}` : 'no price read'}</p>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      {unread && (
+        <p role="status" className="text-[12px] mt-2 mb-0" style={{ color: '#f0b26b' }}>
+          Some of your {bungalow.symbol} locks or pool shares could not be read. That is an outage, not an empty result.{' '}
+          <button type="button" onClick={() => setRetries((n) => n + 1)} className="min-h-[44px] underline underline-offset-2">Try again</button>
+        </p>
+      )}
+    </div>
   );
 }

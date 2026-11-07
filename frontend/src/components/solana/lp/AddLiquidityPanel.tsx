@@ -1,4 +1,7 @@
 import { useCallback, useId, useMemo, useState, type ReactNode } from 'react';
+import { raiseAddReceipt } from './addReceipt';
+import { useConnection } from '@solana/wallet-adapter-react';
+import { tokenTicker } from '../../../lib/solana/lp/identity';
 import { PublicKey } from '@solana/web3.js';
 import { parseDecimalToBaseUnits } from '../../../lib/launcher/solana/curve/format';
 import { displaySafe } from '../../../lib/launchMetadata/validate';
@@ -67,6 +70,8 @@ interface AddPanelProps {
   title?: string;
   lead?: ReactNode;
   onSettled?: OnSettled;
+  /** Step 1 of an add made with one coin: its signature and the coin it paid. The receipt shows that swap's fee. */
+  leg?: { signature: string; paid: 'quote' | 'token' };
 }
 
 function AddInner({
@@ -79,6 +84,7 @@ function AddInner({
   title = 'Add liquidity to this pool',
   lead,
   onSettled,
+  leg,
   writes,
   api,
   gate,
@@ -101,12 +107,17 @@ function AddInner({
   const [slippageBps, setSlippageBps] = useState<bigint | null>(initial?.bps ?? DEFAULT_SLIPPAGE_BPS);
 
   const { record } = writes.pending;
+  const { connection } = useConnection();
+  const ticker = tokenTicker(view.tokenMint, safety) ?? 'tokens';
+  const owner = signer?.publicKey.toBase58() ?? null;
   const settled = useCallback<OnSettled>(
     (outcome, prepared, sig) => {
       record(outcome, prepared, sig);
+      // Every add that lands ends on the receipt card (island answer twenty-five, build 6).
+      if (outcome.status === 'confirmed' && owner) raiseAddReceipt(connection, outcome.signature, { view, wallet: owner, ticker, decimals, leg });
       onSettled?.(outcome, prepared, sig);
     },
-    [record, onSettled],
+    [record, onSettled, connection, owner, view, ticker, decimals, leg],
   );
   const flow = useTxFlow(api, writes.rpc, settled, writes.pending.sent);
   const { target: reviewRef, fallback: headingRef } = useReturnFocus(flow.state.step);

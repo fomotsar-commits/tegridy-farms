@@ -35,7 +35,7 @@ describe('with the swap shown', () => {
     vi.doMock('./flags', () => ({ CARDANO_SWAP_OPEN: true, cardanoSwapVisible: () => true }));
     const { VENUE_CHAINS, tabChains } = await import('../sectionChains');
     const { SWAP_SECTION } = await import('../navConfig');
-    expect(VENUE_CHAINS.map((c) => c.id)).toEqual(['ethereum', 'base', 'robinhood', 'solana', 'cardano']);
+    expect(VENUE_CHAINS.map((c) => c.id)).toEqual(['solana', 'base', 'robinhood', 'ethereum', 'cardano']);
     expect(VENUE_CHAINS.at(-1)).toEqual({ id: 'cardano', name: 'Cardano', short: 'Cardano', evmChainId: null });
     expect(tabChains('/cardano')).toEqual(['cardano']);
     expect(SWAP_SECTION.items.map((i) => i.to)).toContain('/cardano');

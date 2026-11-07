@@ -11,15 +11,16 @@
 //   origin (read 2026-10-23), so a browser fetch from the venue is blocked. Proxying
 //   also keeps the browser talking only to `'self'`.
 //
-// ONE READ, TWO SURFACES (the island's venue review, items 6 and 9; the venue's plan
+// ONE READ, THREE SURFACES (the island's venue review, items 6 and 9; the venue's plan
 // of 2026-10-03 promised one proxy over the island's torch routes). A room's door
 // paints its own torches from `places`; the home's strip paints the fire, the flames,
-// the season and the island's last torch. Five upstream routes, read in parallel:
+// the season and the island's last torch; the launch countdown's roster says how many
+// flames are warming toward the door. Five upstream routes, read in parallel:
 //   /api/torches?limit=500   every torch, newest first: each room's last torch
 //   /api/torches/places      the twelve places: lit, the open row, the next price
 //   /api/torches/season      the season's number and its end
 //   /api/fire                `all_time.burned`, the island's own served total
-//   /api/flames?limit=500    counted here; only the count leaves this file
+//   /api/flames?limit=500    counted here, all and warming; only the counts leave this file
 //
 // EACH PART STANDS ALONE. A route that fails, times out, or changes shape makes ITS
 // part null and the rest still answer. Only when every part failed is this a 502. An
@@ -30,6 +31,10 @@
 // also carry signatures, painted-card URLs and piece metadata; the flames carry the
 // `person_id` and `wallet_count` that flames.js exists to strip. None of it is
 // forwarded, and a field the island adds later is dropped until it is reviewed in.
+// One piece is reviewed in (island answer twenty-four, build 7, THE TIMELINE): the newest
+// piece hung on the island, its picture, artist and title, the island page it hangs in,
+// and when, for the timeline strip in every room and on the home. Its ref and its minted
+// asset stay here.
 
 import { checkRateLimit, checkGlobalLimit } from "./ratelimit.js";
 import { isOriginAllowed, isRequestOriginAllowed } from "./aggregator-proxy.js";
@@ -100,6 +105,42 @@ function torchRows(body) {
   return rows.sort((a, b) => Date.parse(b.lit_at) - Date.parse(a.lit_at));
 }
 
+// The island's two hosts for a hung piece, read 2026-11-03: every piece's picture is on its
+// image host and every torch's door on its own site. vercel.json's img-src names the first.
+const PIECE_IMAGE_HOST = "junglebayisland.com";
+const ISLAND_HOST = "memetics.wtf";
+
+/** An https URL on `host` exactly (its default port, no credentials), as served, or null. */
+function islandUrl(v, host) {
+  if (typeof v !== "string" || v.length > 512) return null;
+  try {
+    const u = new URL(v);
+    return u.protocol === "https:" && u.hostname === host && u.port === "" && !u.username && !u.password ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The newest piece hung on the island: the newest torch, by the time lit, whose piece has a
+ * picture on the island's image host, an artist, a door on the island and a time. A torch
+ * with none of that (a feed to the fire, a torch lit with no piece) is passed over.
+ */
+function lastPiece(body) {
+  if (!Array.isArray(body?.torches)) return null;
+  let best = null;
+  for (const t of body.torches) {
+    const image = islandUrl(t?.piece?.image, PIECE_IMAGE_HOST);
+    const artist = typeof t?.piece?.artist === "string" ? word(t.piece.artist.trim(), 64) : null;
+    const door = islandUrl(t?.door, ISLAND_HOST);
+    if (!image || !artist || !door || !when(t.lit_at)) continue;
+    if (best && Date.parse(best.lit_at) >= Date.parse(t.lit_at)) continue;
+    const title = typeof t.piece.title === "string" ? word(t.piece.title.trim(), 128) : null;
+    best = { image, artist, title, door, lit_at: t.lit_at };
+  }
+  return best;
+}
+
 function parsePlaces(body, lastByPlace) {
   if (!Array.isArray(body?.places)) return null;
   const places = [];
@@ -135,6 +176,24 @@ function parseFlameCount(body) {
   if (!Array.isArray(body?.flames)) return null;
   // A full page is where the island stopped, not how many flames there are.
   return body.flames.length < FLAMES_PAGE ? body.flames.length : null;
+}
+
+// The flames warming toward the launch door, for the countdown's roster (island answer
+// twenty-five, screen 2): from the Observer floor up to the door, which is Resident and so
+// not counted. The island's band, kept here so only the count leaves this file.
+const WARMING_FROM = 30;
+const WARMING_TO = 80;
+
+function parseWarmingCount(body) {
+  if (!Array.isArray(body?.flames) || body.flames.length >= FLAMES_PAGE) return null;
+  let warming = 0;
+  for (const flame of body.flames) {
+    const degrees = flame?.degrees;
+    // A flame whose degrees cannot be read might be in the band: the count would be a guess.
+    if (typeof degrees !== "number" || !Number.isFinite(degrees)) return null;
+    if (degrees >= WARMING_FROM && degrees < WARMING_TO) warming += 1;
+  }
+  return warming;
 }
 
 // ── Handler ────────────────────────────────────────────────────────────────
@@ -182,13 +241,15 @@ export async function handleTorches(req, res) {
     last_torch: newest
       ? { kind: newest.kind, place: newest.place, label: newest.label, name: newest.name, amount: newest.amount, lit_at: newest.lit_at }
       : null,
+    last_piece: lastPiece(torchesBody),
     fire: parseFire(fireBody),
     season: parseSeason(seasonBody),
     flames: parseFlameCount(flamesBody),
+    warming: parseWarmingCount(flamesBody),
     as_of_unix: count(placesBody?.as_of_unix) ? placesBody.as_of_unix : null,
   };
 
-  const anyRead = out.places !== null || out.last_torch !== null || out.fire !== null
+  const anyRead = out.places !== null || out.last_torch !== null || out.last_piece !== null || out.fire !== null
     || out.season !== null || out.flames !== null;
   if (!anyRead) {
     return res.status(502).json({ error: "The island could not be read" });

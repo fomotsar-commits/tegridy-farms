@@ -105,6 +105,23 @@ export function turnedDiff(diff: number): number {
   return 1 / (1 + diff) - 1;
 }
 
+/**
+ * How long ago a read landed, for a stamp: "just now" under 5 seconds, then "12 s ago",
+ * "3 min ago", "2 h ago", "1 day ago". Cut, never rounded up: a read 59 seconds old is
+ * "59 s ago", not "1 min ago", so the stamp never claims a figure is fresher than it is.
+ */
+export function agoText(ms: number): string {
+  const secs = Math.floor(Math.max(0, ms) / 1000);
+  if (secs < 5) return 'just now';
+  if (secs < 60) return `${secs} s ago`;
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins} min ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours} h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days} ${days === 1 ? 'day' : 'days'} ago`;
+}
+
 /** Dollars: whole from $1,000, cents below, "<$0.01" under a cent (the wallet's rule, lib/wallet/walletRows.ts `fmtUsd`). */
 export function usdText(v: number): string {
   if (v >= 1000) return `$${v.toLocaleString('en-US', { maximumFractionDigits: 0 })}`;

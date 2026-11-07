@@ -23,6 +23,14 @@ const chainState = vi.hoisted(() => ({
   gridChainIds: [] as number[],
 }));
 
+// The curve's launch switch (curveChains.ts CURVE_LAUNCH_OPEN) is committed closed (island answer
+// twenty-six); these tests read the page the day it opens.
+const curveLaunch = vi.hoisted(() => ({ open: true }));
+vi.mock('../lib/launcher/curveChains', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/launcher/curveChains')>()),
+  isCurveLaunchOpen: () => curveLaunch.open,
+}));
+
 vi.mock('wagmi', () => ({
   useChainId: () => chainState.walletChainId,
   useReadContracts: () => ({ data: chainState.counts }),

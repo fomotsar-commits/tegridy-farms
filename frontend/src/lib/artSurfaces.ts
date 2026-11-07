@@ -102,6 +102,7 @@ export const PAGE_ROUTES: Record<string, string> = {
   'flames-board': '/',
   'island-strip': '/',
   'room-torches': '/bayla',
+  'timeline-strip': '/bayla',
   'three-paths': '/',
   'venue-doors': '/',
   'island-dashboard': '/',
@@ -595,6 +596,7 @@ export const SURFACES: Surface[] = [
   { group: 'Home', pageId: 'flames-board', idx: 0, label: 'The board card (venue home and /island, when the island bo…)' },
   { group: 'Home', pageId: 'island-strip', idx: 0, label: 'The island today strip (venue home, under the doors, when the island is read)' },
   { group: 'Home', pageId: 'room-torches', idx: 0, label: "The island's torches card (every room's door, when the island is read)" },
+  { group: 'Home', pageId: 'timeline-strip', idx: 0, label: "The timeline strip, the island's newest hung piece (every room and the venue home, when read)" },
   { group: 'Home', pageId: 'home', idx: 18, label: 'Your held time card (room with a token)' },
   // 'three-paths' is the id the studios saved under; the row holds two cards since the
   // marketplace left the home (2026-10-24). idx 1 was its card. Launch keeps idx 2.
@@ -611,6 +613,7 @@ export const SURFACES: Surface[] = [
   { group: 'Dashboard', pageId: 'bungalow-dashboard', idx: 5, label: 'Live surfaces card' },
   { group: 'Dashboard', pageId: 'bungalow-dashboard', idx: 6, label: 'EVM dashboard header card (EVM room)' },
   { group: 'Dashboard', pageId: 'bungalow-dashboard', idx: 7, label: 'EVM lighthouse position card (EVM room with a stake pool)' },
+  { group: 'Dashboard', pageId: 'bungalow-dashboard', idx: 8, label: 'Your positions card (Solana room: lock-ladder locks and pool shares)' },
   { group: 'Dashboard', pageId: 'dashboard', idx: 15, label: 'Reconnecting wallet card (TOWELI room, wallet reconnecting)' },
   { group: 'Dashboard', pageId: 'dashboard', idx: 16, label: 'Price chart card (not connected) (TOWELI room, not connected)' },
   { group: 'Dashboard', pageId: 'dashboard', idx: 17, label: 'Wrong network banner (TOWELI room, connected on the wrong network)' },
@@ -737,6 +740,7 @@ export const SURFACES: Surface[] = [
   { group: 'Pools · Solana LP', pageId: 'solana-lp', idx: 9, label: 'Open a pool card (after a lookup, liquidity writes on)' },
   { group: 'Pools · Solana LP', pageId: 'solana-lp', idx: 13, label: 'All pools card (every pool on the venue, before a lookup)' },
   { group: 'Pools · Solana LP', pageId: 'solana-lp', idx: 14, label: 'Every position card (every holder of every pool)' },
+  { group: 'Pools · Solana LP', pageId: 'solana-lp', idx: 15, label: 'Arbitrage card (every pool’s gap against Jupiter, ranked by what a trade makes)' },
   { group: 'Pools · Solana LP', pageId: 'venue-amm', idx: 0, label: 'Venue status card' },
   { group: 'Pools · Solana LP', pageId: 'venue-amm', idx: 1, label: 'The program card' },
 
