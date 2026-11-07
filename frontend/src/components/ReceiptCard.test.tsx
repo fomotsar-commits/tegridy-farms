@@ -8,7 +8,8 @@ import { clearLanded, lastLanded } from '../lib/landed';
 import type { HeatReading } from '../lib/heat/heatOracle';
 
 const confetti = vi.hoisted(() => ({ fire: vi.fn() }));
-// As the provider gives it: a new function on every render.
+// The venue's confetti, as the provider gives it. The card never calls it (island answer
+// twenty-nine: the flame catches in the ring instead); the farm keeps its own.
 vi.mock('../hooks/useConfetti', () => ({ useConfetti: () => ({ fire: () => confetti.fire() }) }));
 
 const SIG = '5Kq3' + 'x'.repeat(80) + '9xWz';
@@ -58,9 +59,9 @@ describe('the receipt card', () => {
     expect(screen.getByTestId('move')).toHaveTextContent('none');
   });
 
-  it('rises after the confetti, says it is reading the fee, and holds one green button: Share your card', async () => {
+  it('rises with no confetti, says it is reading the fee, and holds one green button: Share your card', async () => {
     act(() => raiseReceipt(receipt()));
-    expect(confetti.fire).toHaveBeenCalledTimes(1);
+    expect(confetti.fire).not.toHaveBeenCalled();
     // Bayla's line says Done, and her Receipt goes quiet while the card is up.
     expect(lastLanded()?.kind).toBe('trade');
     expect(screen.getByTestId('move')).toHaveTextContent('receipt');
@@ -80,6 +81,25 @@ describe('the receipt card', () => {
       await vi.advanceTimersByTimeAsync(300);
     });
     expect(card.style.opacity).toBe('1');
+    expect(confetti.fire).not.toHaveBeenCalled();
+  });
+
+  it('the card’s words, rows, Share and Back are exactly what they were: the ring says nothing', () => {
+    act(() => raiseReceipt(receipt()));
+    act(() => settleReceipt(SIG, { title: 'Bought 25,623 BAYLA', under: 'for 0.122 SOL, on the venue', fee: { kind: 'pool', unit: 'SOL', fee: '0.00122 SOL', lps: '0.001025 SOL', venue: '0.000195 SOL', creator: null } }));
+    const card = screen.getByTestId('receipt-card');
+    expect(card.textContent).toBe(
+      'Bought 25,623 BAYLA' +
+        'for 0.122 SOL, on the venue' +
+        'Fee0.00122 SOL' +
+        "To this pool's LPs0.001025 SOL" +
+        'To the venue and the island0.000195 SOL' +
+        'Signature5Kq3 … 9xWz ↗' +
+        'Day 1 of your clock on BAYLA starts tonight.' +
+        'Share your card' +
+        'Back to the room',
+    );
+    expect(card.querySelectorAll('.btn-primary')).toHaveLength(1);
   });
 
   it('a swap in our pool: what was done, the fee, the LPs’ part and the venue and island’s part, as read', () => {
