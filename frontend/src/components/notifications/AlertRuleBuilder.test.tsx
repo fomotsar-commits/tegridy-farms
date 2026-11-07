@@ -83,9 +83,9 @@ describe('a dark kind is disclosed where it is chosen', () => {
     // cannot be evaluated by any rail on this deployment. Loan deadlines: NFT lending is
     // on Gondi's contract, and no reader for its loans is built yet.
     expect(labels).toEqual([
-      'Whale move — not readable here',
-      'LP unlock — not readable here',
-      'Loan deadline approaching — not readable here',
+      'Whale move (not readable here)',
+      'LP unlock (not readable here)',
+      'Loan deadline approaching (not readable here)',
     ]);
   });
 
