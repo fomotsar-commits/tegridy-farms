@@ -176,7 +176,12 @@ export function ownPoolOps(dep) {
   };
 }
 
-export const CARDANO_OPS = { ...BASE_OPS, ...(OWN_POOLS_DEPLOYMENT ? ownPoolOps(OWN_POOLS_DEPLOYMENT) : {}) };
+/** The named reads: Koios's, and the own pools' once a deployment record exists. */
+export function cardanoOps(deployment) {
+  return { ...BASE_OPS, ...(deployment ? ownPoolOps(deployment) : {}) };
+}
+
+export const CARDANO_OPS = cardanoOps(OWN_POOLS_DEPLOYMENT);
 
 /** One string per param, the first if repeated; anything else is dropped. */
 function flatQuery(query) {
