@@ -255,6 +255,9 @@ describe('the wider scanner (11-06: 6 of 64 coins looked up in 6.7 h, 0 test run
       { chainId: 'solana', pairAddress: key(51), baseToken: { address: ZEC_MINT }, quoteToken: { address: USDC_MINT }, liquidity: { usd: 90_000 } },
     ];
     expect(poolsFromListing(listing, ZEC_MINT, 1_000).map((p) => p.address)).toEqual([key(51), key(50)]);
+    // Each with the coin on its other side, whichever side the listing names the token on.
+    expect(poolsFromListing(listing, ZEC_MINT, 1_000).map((p) => p.other)).toEqual([USDC_MINT, SOL_MINT]);
+    expect(poolsFromListing([{ chainId: 'solana', pairAddress: key(55), baseToken: { address: SOL_MINT }, quoteToken: { address: ZEC_MINT }, liquidity: { usd: 5_000 } }], ZEC_MINT, 1_000)[0].other).toBe(SOL_MINT);
     expect(poolsFromListing({ error: 'x' }, ZEC_MINT, 1_000)).toEqual([]);
   });
 
@@ -274,6 +277,29 @@ describe('the wider scanner (11-06: 6 of 64 coins looked up in 6.7 h, 0 test run
     expect(best.gapPct).toBeCloseTo(2, 6);
     // Three swaps: shown, test-run, but not handed to the robot (keeper/takes.ts reads two).
     expect(best.robotTakes).toBe(false);
+  });
+
+  it('trades a pool priced in another memecoin: SOL → the memecoin → the token → SOL, its decimals from its link', () => {
+    // MEME (9 decimals, in no table) $0.002 by its SOL pool; GRR (6 decimals) 0.01 MEME = $0.00002 in
+    // its MEME pool and $0.0000206 in its SOL pool: 3% apart. SOL $100.
+    const MEME = key(70);
+    const GRR = key(71);
+    const link = band(key(72), MEME, SOL_MINT, (0.002 / 100) * 10 ** (9 - 9), 0.0025, 10n ** 15n);
+    const cheap = band(key(73), GRR, MEME, 0.01 * 10 ** (9 - 6), 0.003, 10n ** 16n);
+    const dear = band(key(74), GRR, SOL_MINT, (0.0000206 / 100) * 10 ** (9 - 6), 0.003, 10n ** 16n);
+    const depths = new Map([cheap, dear].map((p) => [p.address, depthOf(p, new Map())]));
+    const usd = new Map([[USDC_MINT, 1], [SOL_MINT, 100], [MEME, 0.002]]);
+    const ctx = { token: GRR, decimals: 6, depths, usd, holds: new Map([[SOL_MINT, 1e15]]), bridge: null, settings: SETTINGS };
+    const [best] = tripsFor([cheap, dear], { ...ctx, quotes: new Map([[MEME, { pool: link, depth: depthOf(link, new Map()), decimals: 9 }]]) });
+    expect(best.pays).toBe(true);
+    expect(best.legs.map((l) => [l.pool, l.from, l.to])).toEqual([[key(72), SOL_MINT, MEME], [key(73), MEME, GRR], [key(74), GRR, SOL_MINT]]);
+    expect(best.gapPct).toBeCloseTo(3, 6);
+    expect(best.priceBuyUsd).toBeCloseTo(0.00002, 12);
+    // Wrong decimals on the link would price GRR 1,000 times off: the same pools at 6 decimals find no 3% gap.
+    const [wrong] = tripsFor([cheap, dear], { ...ctx, quotes: new Map([[MEME, { pool: link, depth: depthOf(link, new Map()), decimals: 6 }]]) });
+    expect(wrong?.gapPct).not.toBeCloseTo(3, 1);
+    // Without its link, a memecoin-priced pool is not traded at all.
+    expect(tripsFor([cheap, dear], { ...ctx, quotes: new Map() })).toEqual([]);
   });
 
   it('leaves a misread pool out of test runs, longer each time', () => {

@@ -310,7 +310,8 @@ export function legOf(pool, depth, fromMint, out) {
  */
 export function tripsFor(pools, ctx) {
   const trips = [];
-  // ctx.quotes: quote mint → { pool, depth } linking it to SOL or USDC (QUOTES), when read.
+  // ctx.quotes: quote mint → { pool, depth, decimals } linking it to SOL or USDC (QUOTES, or a
+  // memecoin another coin is priced in), when read.
   const linked = (q) => COINS[q] || ctx.quotes?.get(q);
   // A bin pool's depth (Meteora DLMM) is rough: its price steps are not read, so a gap through
   // it is not a real one. 11-06/07: 1,328 of 1,330 test runs through one lost at Jupiter's real
@@ -362,7 +363,8 @@ export function tripsFor(pools, ctx) {
       const holds = ctx.holds?.get(start);
       const judged = judgeTrip(legs, { decimals: coin.decimals, coinUsd: ctx.usd.get(start), solUsd: ctx.usd.get(SOL_MINT), holdsRaw: holds === undefined ? null : holds, settings: ctx.settings });
       if (typeof judged === 'string') continue;
-      const decimalsOf = (m) => (COINS[m] ?? QUOTES[m]).decimals;
+      // A pricing coin found on the chain (a memecoin another is priced in) carries its decimals on its link.
+      const decimalsOf = (m) => (COINS[m] ?? QUOTES[m] ?? ctx.quotes?.get(m)).decimals;
       // The token's price in each leg at zero size: the leg's spot (a bin pool's active bin; a depth's ratio otherwise).
       const tokenUsd = (l) => {
         const q = l.from === ctx.token ? l.to : l.from;
@@ -470,7 +472,7 @@ const ADDRESS = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 
 /**
  * Every pool a DexScreener `token-pairs/v1/solana/<mint>` answer lists for `mint` on Solana, deepest
- * first, at least `minUsd` deep by its own figure. Untrusted: it only says which accounts to read;
+ * first, at least `minUsd` deep by its own figure, with the coin on its other side (`other`). Untrusted: it only says which accounts to read;
  * the chain says whose pool each is (its owner) and what it holds. One read per coin replaces
  * twelve one-coin getProgramAccounts calls, which the public RPC refuses.
  */
@@ -484,7 +486,7 @@ export function poolsFromListing(json, mint, minUsd) {
     if (raw?.chainId !== 'solana' || !ADDRESS.test(address) || seen.has(address) || !sides.includes(mint)) continue;
     if (!(usd >= minUsd)) continue;
     seen.add(address);
-    out.push({ address, listedUsd: usd });
+    out.push({ address, listedUsd: usd, other: sides[0] === mint ? sides[1] : sides[0] });
   }
   return out.sort((a, b) => b.listedUsd - a.listedUsd);
 }

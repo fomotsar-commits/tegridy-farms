@@ -61,6 +61,7 @@ console.log(`  ${r.reach[1000].gaps} were still there at 1 s, worth ${usd(r.reac
 console.log(`  ${r.reach[3000].gaps} were still there at 3 s, worth ${usd(r.reach[3000].usd)}.`);
 console.log(`  Taken the instant each opened (only a co-located bot could): ${usd(r.usdIfEveryOneTakenAtOpen)}.`);
 console.log(`  ${r.suspect} stayed open past 10 minutes and are counted as misreads, not money; ${r.stillOpen} were still open at the end.`);
+console.log(`  ${r.misread} were closed only by a fresh read (the chain did not show them when read again; ${usd(r.misreadUsdAtOpen)} on paper): misreads, not money.`);
 if (robot.total) {
   const pct = (n) => `${((n / robot.total) * 100).toFixed(0)}%`;
   console.log(`The robot answered ${robot.total} handovers (median ${robot.medianActMs ?? '?'} ms after the judgement): ${Object.entries(robot.byOutcome).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${k} ${n}`).join(', ')}.`);

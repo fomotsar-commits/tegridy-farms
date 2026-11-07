@@ -62,6 +62,7 @@
  * ARB_RPC_URL and ARB_WS_URL at publicnode (measured 11-07: ~300 subscriptions a socket, updates
  * within a few ms of mainnet's) so this never crowds the robot.
  */
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
@@ -222,6 +223,8 @@ const S = {
   // the host refused the subscription. A pool with one is judged (the gap book keeps its record)
   // but not handed over: its state here may be stale.
   unwatched: new Set(),
+  // Accounts a subscription keeps fresh: taken, and read afresh after it was (a change since is sent).
+  live: new Set(),
   stats: { notes: 0, judged: 0, subscribed: 0, refusedSubs: 0, opens: 0, reconnects: 0, slot: 0, readyAt: 0, rechecks: 0, closedByRecheck: 0, poolRereads: 0, arrayReads: 0, needs: 0, staleBins: 0, unpriced: 0, judgeMs: 0, judgeMaxMs: 0, handovers: 0, notHanded: 0, notHandedUnwatched: 0 },
   bridgePool: null,
   note: 'starting…',
@@ -381,6 +384,7 @@ function exactQuote(p, fromMint, needs) {
       needs.set(activeK, p.address);
       return null;
     }
+    const poolSlot = S.acc.get(p.address).slot;
     const array = (index) => {
       const k = V.dlmmArrayAddress(p.address, index);
       const a = S.acc.get(k);
@@ -388,10 +392,22 @@ function exactQuote(p, fromMint, needs) {
         want(k);
         return undefined;
       }
+      // An array no subscription keeps fresh (read on demand), read before the pool last changed:
+      // the swap that changed the pool may have changed it too (11-07: Baton's pool priced a bin
+      // low, 1.0% over the robot's quote). Read again before it prices anything.
+      if (!S.live.has(k) && a.slot < poolSlot) {
+        S.stats.staleBins++;
+        needs.set(k, p.address);
+        return undefined;
+      }
       return a.data ? decodedOf(k, V.decodeBinArray) : null;
     };
     const now = Date.now() / 1000;
-    return (x) => Number(V.dlmmQuote(s, BigInt(Math.floor(x)), aToB, now, array).out);
+    // A walk that reached an array not read (or stale) is no quote: never a part-filled amount.
+    return (x) => {
+      const q = V.dlmmQuote(s, BigInt(Math.floor(x)), aToB, now, array);
+      return q.needs === null && q.used === BigInt(Math.floor(x)) ? Number(q.out) : 0;
+    };
   }
   return null;
 }
@@ -409,7 +425,10 @@ function readSoon(needs, mint) {
       const pools = [...(coin?.pools ?? []), ...(coin?.links ?? []), ...(S.bridgePool ? [S.bridgePool] : [])];
       for (const [k, poolAddress] of fresh) {
         const p = pools.find((x) => x.address === poolAddress);
-        if (p && S.acc.get(k)?.data) p.arrays = [...new Set([...(p.arrays ?? []), k])].slice(-12);
+        if (p && S.acc.get(k)?.data) {
+          p.arrays = [...new Set([...(p.arrays ?? []), k])].slice(-12);
+          if (p.kind === 'bins') watchLater(k);
+        }
       }
       if (coin) judgeSoon(mint);
     })
@@ -887,19 +906,28 @@ async function recheckOpenGaps() {
  */
 async function rereadPools() {
   const pools = [...[...S.coins.values()].flatMap((c) => [...c.pools, ...c.links]), ...(S.bridgePool ? [S.bridgePool] : [])];
-  const keys = [...new Set(pools.flatMap((p) => L.accountsOf(p).filter((k) => !L.watchedOf(p).includes(k))))];
+  // What no subscription watches: a pair pool's own account, the tick arrays, and any account whose subscription was refused.
+  const keys = [...new Set([...pools.flatMap((p) => L.accountsOf(p).filter((k) => !L.watchedOf(p).includes(k))), ...S.unwatched])];
   if (!keys.length) return;
   await readAll(keys);
   S.stats.poolRereads++;
 }
 
 // ─── the websocket ─────────────────────────────────────────────────────────────────────
+/**
+ * One websocket watching `accounts` (an array that `add` may grow later): subscribed one by one,
+ * read afresh once all are taken, and only then live (S.live) and handed over; reopened 5 s after
+ * it closes, every account unwatched (and not live) until it is listening again.
+ */
 function listen(accounts, n) {
   let socket = null;
+  let ready = false;
+  let asked = new Map();
   const open = () => {
     const s = new WebSocket(WS);
     socket = s;
-    const asked = new Map();
+    ready = false;
+    asked = new Map();
     const subs = new Map();
     let beat = null;
     s.onopen = async () => {
@@ -922,7 +950,11 @@ function listen(accounts, n) {
       S.note = null;
       S.stats.readyAt ||= Date.now();
       // Read afresh and subscribed: watched again. A refused one stays unwatched until a later socket takes it.
-      for (const a of subs.values()) S.unwatched.delete(a);
+      for (const a of subs.values()) {
+        S.unwatched.delete(a);
+        S.live.add(a);
+      }
+      ready = socket === s;
       log(`websocket ${n} listening: ${subs.size} of ${accounts.length} subscriptions taken; judging its coins once`);
       for (const m of new Set(accounts.flatMap((a) => [...(S.coinsOf.get(a) ?? [])]))) judgeSoon(m);
     };
@@ -945,8 +977,17 @@ function listen(accounts, n) {
       }
       if (typeof m.id === 'number' && m.id > 0 && asked.has(m.id)) {
         if (typeof m.result === 'number') {
-          subs.set(m.result, asked.get(m.id));
+          const a = asked.get(m.id);
+          subs.set(m.result, a);
           S.stats.subscribed++;
+          // Taken after the socket was listening (an array found later): live once read afresh.
+          if (ready) {
+            readAll([a])
+              .then(() => {
+                if (socket === s) S.live.add(a);
+              })
+              .catch((e) => log(`reading ${a} after subscribing: ${said(e)}`));
+          }
         } else if (m.error) {
           S.stats.refusedSubs++;
           S.unwatched.add(asked.get(m.id));
@@ -960,12 +1001,37 @@ function listen(accounts, n) {
       if (socket !== s) return;
       S.stats.reconnects++;
       S.stats.subscribed -= subs.size;
-      for (const a of accounts) S.unwatched.add(a);
+      ready = false;
+      for (const a of accounts) {
+        S.unwatched.add(a);
+        S.live.delete(a);
+      }
       log(`websocket ${n} closed (${ev?.code ?? '?'}) with ${subs.size} subscriptions: opening again in 5 s`);
       setTimeout(open, 5_000);
     };
   };
   open();
+  return {
+    size: () => accounts.length,
+    /** One more account, subscribed now when the socket is listening, else with the rest when it opens. */
+    add(k) {
+      accounts.push(k);
+      if (!ready || socket?.readyState !== WebSocket.OPEN) return;
+      asked.set(accounts.length, k);
+      socket.send(JSON.stringify({ jsonrpc: '2.0', id: accounts.length, method: 'accountSubscribe', params: [k, { encoding: 'base64', commitment: COMMITMENT }] }));
+    },
+  };
+}
+
+// Bin arrays found after the start (a price walked past those read then): watched on a socket of
+// their own, opened once the others are; found before it opens, they wait in `later`.
+const later = [];
+const watchedAtStart = new Set();
+let spare = null;
+function watchLater(k) {
+  if (watchedAtStart.has(k) || later.includes(k) || later.length >= ACCOUNTS_PER_SOCKET) return;
+  if (spare) spare.add(k);
+  else later.push(k);
 }
 
 /** The band and bin pools: how many are priced to the unit now, and how many are not, and why. */
@@ -1012,6 +1078,16 @@ const server = http.createServer((req, res) => {
   if (req.url === '/state.json') return res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }).end(snapshot());
   if (req.url === '/handover.json') return res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }).end(JSON.stringify({ at: Date.now(), handover: standingHandovers(Date.now()) }));
   if (req.url === '/events') return serveEvents(req, res);
+  // What this process holds for some accounts (?k=a,b,…; 40 at most): each one's slot, whether a
+  // subscription keeps it fresh, and a hash of its data, to compare with the chain's.
+  if (req.url.startsWith('/accounts?')) {
+    const keys = (new URL(req.url, 'http://x').searchParams.get('k') ?? '').split(',').filter((k) => /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(k)).slice(0, 40);
+    const body = Object.fromEntries(keys.map((k) => {
+      const a = S.acc.get(k);
+      return [k, a ? { slot: a.slot, live: S.live.has(k), unwatched: S.unwatched.has(k), sha: a.data ? createHash('sha256').update(a.data).digest('hex').slice(0, 16) : null } : null];
+    }));
+    return res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }).end(JSON.stringify({ at: Date.now(), slot: S.stats.slot, accounts: body }));
+  }
   return res.writeHead(404).end();
 });
 server.on('error', (e) => {
@@ -1030,10 +1106,13 @@ const watched = [...new Set([BRIDGE, ...ATAS.map(([, a]) => a), ...[...S.coins.v
 // Nothing is handed over until its socket is listening and has read its accounts afresh.
 S.unwatched = new Set(watched);
 log(`${S.coins.size} coins with 2+ pools, ${[...S.coins.values()].reduce((s, c) => s + c.pools.length, 0)} pools, ${watched.length} accounts to watch on ${redactRpcUrl(WS)}; judging with ${S.ruleFrom}: cap $${R.capUsd(S.settings)}, floor $${S.settings.minProfitUsd} + the network fee + a Jito tip (the larger of 20,000 lamports and 30% of the gain)${S.flashLoans ? ', SOL loans on' : ''}`);
+for (const k of watched) watchedAtStart.add(k);
+let sockets = 0;
 for (let i = 0; i * ACCOUNTS_PER_SOCKET < watched.length; i++) {
-  listen(watched.slice(i * ACCOUNTS_PER_SOCKET, (i + 1) * ACCOUNTS_PER_SOCKET), i + 1);
+  listen(watched.slice(i * ACCOUNTS_PER_SOCKET, (i + 1) * ACCOUNTS_PER_SOCKET), ++sockets);
   await sleep(ACCOUNTS_PER_SOCKET * SUBSCRIBE_GAP_MS + 2_000);
 }
+spare = listen(later, ++sockets);
 setInterval(() => readRule().catch(() => {}), RULE_EVERY_MS);
 setInterval(() => recheckOpenGaps().catch((e) => log(`fresh reads: ${said(e)}`)), 1_000);
 setInterval(() => rereadPools().catch((e) => log(`pool re-read: ${said(e)}`)), POOL_REREAD_MS);
