@@ -1032,8 +1032,14 @@ async function main() {
     };
     // The engine's handovers (keeper/engine.ts): each acted on the moment it arrives, one at a time,
     // the newest a route; one that has stopped standing by its turn is answered 'stale', never built.
-    screen.engine = { page: engine ? engine.page.host : null, handed: 0, acted: 0, stale: 0, lastAt: null, latest: [] };
+    screen.engine = { page: engine ? engine.page.host : null, handed: 0, acted: 0, stale: 0, held: 0, lastAt: null, latest: [] };
     const queue = new Map();
+    // A route whose last handover came to nothing is held: 30 s after a trip that fell short of
+    // the floor or failed its test run (the gap is a little smaller than the engine read it, or
+    // gone), 10 min after one the robot could not build or gate. A standing gap is handed over at
+    // every judgement, and each act costs the RPC five calls for the same answer.
+    const holds = new Map();
+    const HOLD_MS = { 'quote-short': 30_000, 'test-checks': 30_000, 'test-failed': 30_000, 'no-plan': 10 * 60_000, 'no-coin': 60_000, 'no-sol-price': 60_000, banned: 10 * 60_000, error: 60_000 };
     let draining = false;
     const tell = (rec, outcome, ms, note) => {
       screen.engine.latest = [{ at: new Date().toISOString(), route: rec.route, symbol: rec.symbol, mint: rec.tokenMint, venues: rec.legs.map((l) => l.dex).join(' > '), outcome, ms, netAllUsd: rec.netAllUsd }, ...screen.engine.latest].slice(0, 30);
@@ -1053,17 +1059,24 @@ async function main() {
             tell(rec, 'stale', now - rec.at);
             continue;
           }
+          if ((holds.get(rec.route) ?? 0) > now) {
+            screen.engine.held++;
+            continue;
+          }
           screen.engine.acted++;
           screen.engine.lastAt = new Date().toISOString();
           const name = `${rec.symbol} (${rec.tokenMint}) from the engine, ${rec.legs.map((l) => l.dex).join(' > ')}`;
           try {
             const o = await engineTrip(io, settings, rec, name);
             tell(rec, o, Date.now() - rec.at);
+            if (HOLD_MS[o]) holds.set(rec.route, Date.now() + HOLD_MS[o]);
           } catch (e) {
             const why = e instanceof Error ? e.message : String(e);
             log(`${name}: stopped, ${why}`);
             tell(rec, 'error', Date.now() - rec.at, why.slice(0, 200));
+            holds.set(rec.route, Date.now() + HOLD_MS.error);
           }
+          if (holds.size > 1_000) for (const [route, until] of holds) if (until <= Date.now()) holds.delete(route);
         }
       } finally {
         draining = false;
