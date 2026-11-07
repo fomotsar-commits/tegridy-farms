@@ -1,14 +1,15 @@
 // Test-only. The venue's own pools as the batcher's test world has them (feat/cardano-batcher
 // cardano/batcher/test/world.ts, our contracts compiled with TEST parameters: a made-up seed,
 // nothing on any network), written to __fixtures__/own-pools-test-world.json from that branch.
-// The test deployment compiles no factory, so its hash, the reference UTxOs, the treasury and
-// the budgets below are made up too.
+// The test deployment compiles no factory, so its hash, the reference UTxOs and the budgets
+// below are made up too. The treasury is the venue's real one: a record may name no other.
 import type { OwnPoolsDeploymentRecord } from '../../../../api/_lib/cardano-own-pools';
-import { composeAddress, parseAddressBech32, type ParsedAddress } from '../address';
+import { parseAddressBech32, type ParsedAddress } from '../address';
 import type { Csl } from '../csl';
 import type { ProtocolParams } from '../chain';
 import type { WalletUtxo } from '../orderTx';
 import { fixture } from '../testkit.fixture';
+import { CARDANO_VENUE_FEE_ADDRESS } from '../venueFee';
 import type { PlutusParams } from './chainReads';
 
 export interface TestWorld {
@@ -27,8 +28,8 @@ export interface TestWorld {
 
 export const WORLD = fixture<TestWorld>('own-pools-test-world.json');
 
-/** Made up: an enterprise script address standing for the two-key treasury. */
-export const TEST_TREASURY: ParsedAddress = composeAddress({ kind: 'script', hash: '7e'.repeat(28) }, null);
+/** The venue's two-key treasury (venueFee.ts), proven on mainnet 2026-11-07. */
+export const VENUE_TREASURY: ParsedAddress = parseAddressBech32(CARDANO_VENUE_FEE_ADDRESS ?? '')!;
 
 export const TEST_RECORD: OwnPoolsDeploymentRecord = {
   authenPolicy: WORLD.scripts.authen.hash,
@@ -41,7 +42,7 @@ export const TEST_RECORD: OwnPoolsDeploymentRecord = {
   authenRef: { ref: `${'f2'.repeat(32)}#0`, scriptSize: WORLD.scripts.authen.size },
   orderRef: { ref: `${'f3'.repeat(32)}#0`, scriptSize: WORLD.scripts.order.size },
   openingFeeLovelace: '73000000',
-  treasury: TEST_TREASURY.bech32,
+  treasury: VENUE_TREASURY.bech32,
   batcherFeeLovelace: '2000000',
   openPoolBudget: { factory: { mem: 1_500_000, steps: 500_000_000 }, authen: { mem: 800_000, steps: 300_000_000 } },
 };

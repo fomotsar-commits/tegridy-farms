@@ -1,15 +1,15 @@
-// The venue's own Cardano pools: the deployment record (api/_lib/cardano-own-pools.js), read
-// and checked once. Every own-pool reader and writer takes the OwnPools this returns, never a
-// constant of its own, so nothing here can fall back to Minswap's deployment.
-//
-// A record carrying any of Minswap's mainnet hashes, its pool stake key or one of its
-// reference-script UTxOs is refused whole (Minswap V2 deployed/mainnet, @ c3293ad43): copied
-// unpatched, those send our users' orders into Minswap's pools and our fees to Minswap.
+// The venue's own Cardano pools: the deployment record (api/_lib/cardano-own-pools.js), checked
+// once; every own-pool reader and writer takes the OwnPools this returns, never a constant.
+// Refused whole: any of Minswap's mainnet hashes, its pool stake key or reference-script UTxOs
+// (Minswap V2 deployed/mainnet, @ c3293ad43), which send our users' orders into Minswap's pools
+// and our fees to Minswap; and a treasury that is not exactly the venue's two-key treasury
+// (venueFee.ts CARDANO_VENUE_FEE_ADDRESS), the only receiver of a pool's opening fee.
 
 import { OWN_POOLS_DEPLOYMENT } from '../../../../api/_lib/cardano-own-pools.js';
 import type { OwnPoolsDeploymentRecord, ScriptRefRecord } from '../../../../api/_lib/cardano-own-pools';
 import { MAINNET_NETWORK_ID, parseAddressBech32, type ParsedAddress } from '../address';
 import { MINSWAP_V2, type DexScripts } from '../minswapV2';
+import { CARDANO_VENUE_FEE_ADDRESS } from '../venueFee';
 
 /** Minswap V2 mainnet: authen, order, pool, factory, pool-batching and expired-cancel scripts. */
 const MINSWAP_SCRIPTS: ReadonlySet<string> = new Set([
@@ -94,6 +94,7 @@ export function readOwnPoolsDeployment(raw: OwnPoolsDeploymentRecord | null = OW
   if ([factoryRef, authenRef, orderRef].some((r) => MINSWAP_REF_TXS.has(r.txHash))) return no('a reference script is one of Minswap’s');
   const treasury = parseAddressBech32(raw.treasury);
   if (!treasury || treasury.network !== MAINNET_NETWORK_ID) return no('the treasury is not a mainnet address');
+  if (CARDANO_VENUE_FEE_ADDRESS === null || raw.treasury !== CARDANO_VENUE_FEE_ADDRESS) return no('the treasury is not the venue’s two-key treasury');
   if (typeof raw.openingFeeLovelace !== 'string' || !DECIMAL.test(raw.openingFeeLovelace)) return no('the opening fee is not a whole lovelace amount');
   if (typeof raw.batcherFeeLovelace !== 'string' || !DECIMAL.test(raw.batcherFeeLovelace)) return no('the batcher fee is not a whole lovelace amount');
   const openingFee = BigInt(raw.openingFeeLovelace);

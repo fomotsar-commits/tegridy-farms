@@ -1,7 +1,8 @@
-// The add / remove page names the chain its form is on. Picked from the network drop-down with
-// no wallet (`?c=`), or the wallet's chain once one is connected; a wallet's chain always wins,
-// so a write is never addressed to a chain the URL names. Off mainnet that chain's own pool list
-// replaces the Ethereum table, and the money line says how the venue earns there.
+// The add / remove page names the chain its form is on: the network drop-down's pick (`?c=`),
+// else the wallet's chain. The pick wins over a connected wallet, and a wallet left on another
+// network is told to switch (every write names the page's chain, so it cannot sign there). Off
+// mainnet that chain's own pool list replaces the Ethereum table, and the money line says how
+// the venue earns there.
 import { beforeEach, describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
@@ -11,6 +12,8 @@ const formMounts = vi.hoisted(() => ({ count: 0 }));
 vi.mock('wagmi', () => ({
   useAccount: () => ({ isConnected: wallet.isConnected }),
   useChainId: () => wallet.chainId,
+  useChains: () => [{ id: 1, name: 'Ethereum' }, { id: 8453, name: 'Base' }, { id: 4663, name: 'Robinhood Chain' }],
+  useSwitchChain: () => ({ switchChain: () => {}, isPending: false }),
 }));
 vi.mock('../hooks/usePageTitle', () => ({ usePageTitle: () => {} }));
 vi.mock('../hooks/usePoolTVL', () => ({ usePoolTVL: () => ({}) }));
@@ -104,11 +107,29 @@ describe('/liquidity on the picked chain', () => {
     expect(formMounts.count).toBe(2);
   });
 
-  it("ignores ?c= once a wallet is connected: the wallet's chain is the one that signs", () => {
+  // Owner, 2026-10-31: "the liquidity pools on other chains besides sol arent showing". With a
+  // wallet that did not switch, a pick of Base left the menu and the list on Ethereum.
+  it('follows ?c= over a connected wallet, and tells a wallet on another network to switch', () => {
     wallet.isConnected = true;
     wallet.chainId = 4663;
     at('/liquidity?c=8453');
-    expect(screen.getByText(/^Robinhood Chain pools\./)).toBeInTheDocument();
-    expect(screen.getByTestId('form')).toHaveTextContent('4663');
+    expect(screen.getByText(/^Base pools\./)).toBeInTheDocument();
+    expect(screen.getByTestId('chain-pools')).toHaveTextContent('8453');
+    expect(screen.getByTestId('form')).toHaveTextContent('8453');
+    expect(screen.getByRole('alert')).toHaveTextContent(/Your wallet is on another network\. Switch it to add or remove here\./);
+    expect(screen.getByRole('button', { name: 'Switch to Base' })).toBeInTheDocument();
+  });
+
+  it('shows no switch banner when the wallet is on the picked network, or with no wallet', () => {
+    wallet.isConnected = true;
+    wallet.chainId = 8453;
+    const view = at('/liquidity?c=8453');
+    expect(screen.getByText(/^Base pools\./)).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).toBeNull();
+    view.unmount();
+    wallet.isConnected = false;
+    wallet.chainId = 1;
+    at('/liquidity?c=8453');
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 });

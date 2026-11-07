@@ -60,3 +60,16 @@ export function curveChainNames(): string {
 export function isCurveLive(): boolean {
   return deployedCurveChains().length > 0;
 }
+
+/**
+ * The EVM curve's committed launch switch, as the Solana curve has its own (solana/curveWriteFlag.ts
+ * CURVE_WRITES_ENABLED). OFF since 2026-11-03 (island answer twenty-six): a chain's deployed launcher
+ * no longer opens the create form or a Live mark by itself. A launched token keeps its page; only
+ * creating a new one is closed. It opens once the launch door is open (door.ts), on the operator's word.
+ */
+export const CURVE_LAUNCH_OPEN: boolean = false;
+
+/** May the curve's create form and its Live mark show? Its switch, then a chain it is deployed to. */
+export function isCurveLaunchOpen(): boolean {
+  return CURVE_LAUNCH_OPEN && isCurveLive();
+}

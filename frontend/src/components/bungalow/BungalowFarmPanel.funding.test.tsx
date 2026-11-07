@@ -2,6 +2,8 @@
 // (the island's ledger: BAYLA's goes "Whole, no split."), so no room offers it as a route,
 // pump-born or not. The live pool cards are stubbed: their copy is theirs to answer for.
 import { describe, it, expect, vi } from 'vitest';
+// Harvest (components/farm/HarvestCard.tsx) needs the app's wagmi root; it has its own tests.
+vi.mock('../farm/HarvestCard', () => ({ HarvestCard: () => null }));
 import { render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { BUNGALOWS } from '../../lib/bungalows';

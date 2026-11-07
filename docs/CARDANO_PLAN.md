@@ -28,7 +28,7 @@ lp", under the rule: battle-tested code that has never been hacked, our own only
   custody until payout. Hence ruling 1.
 - A Cardano DEX swap is an **order**, filled by a batcher a few blocks later. "Confirmed" is "placed".
 
-## Part 1: the swap (open since 2026-10-24, `CARDANO_SWAP_OPEN = true`, no venue fee yet)
+## Part 1: the swap (open since 2026-10-24, `CARDANO_SWAP_OPEN = true`, venue fee on since 2026-11-07)
 
 How the money moves on one swap, ADA in:
 
@@ -46,11 +46,11 @@ much), so swaps under about 200 ADA pay none. It is paid with the order: an orde
 returns (price moved past the minimum) has still paid it.
 
 **How it opened (2026-10-24):**
-1. ⬜ The venue's Cardano fee address in `frontend/src/lib/cardano/venueFee.ts`
-   (`CARDANO_VENUE_FEE_ADDRESS`) is still null: the owner opened the swap without it ("Go live
-   without the venue fee for now, and add it when the treasury exists"). Until it is registered the
-   swap charges no venue fee and says so. A native-script multisig (two signatures) is the
-   Squads-vault analog; Eternl makes one only with Eternl Pro.
+1. ✅ The venue's Cardano fee address in `frontend/src/lib/cardano/venueFee.ts`
+   (`CARDANO_VENUE_FEE_ADDRESS`): the owner opened the swap without it ("Go live without the venue
+   fee for now, and add it when the treasury exists"), and it was registered 2026-11-07, once the
+   two-key treasury (an Eternl Pro multi-sig, the Squads-vault analog) had spent on mainnet with
+   both signatures.
 2. ✅ `KOIOS_API_KEY` is set on Vercel (Koios free tier: 50,000 reads a day). Without it the public
    tier allows 5,000 a day for the whole site.
 3. ✅ A real buy and a real sell were walked on mainnet, each filled at exactly the quoted amount;
@@ -98,8 +98,9 @@ pays every trader at least their minimum. It is also audit scope.
 - **The batcher fee** on every order our own batcher fills, and **the staking rewards** of the
   pools' ADA (which since the Plomin hard fork need a DRep delegation to withdraw).
 - **The split** is off chain, quarterly from the treasury, as on EVM (30/35/35, later 10/45/45).
-- **Owed before any of it:** the treasury itself. `CARDANO_VENUE_FEE_ADDRESS` is null until the
-  owner's two-key wallet exists, and the deploy must name it as the opening fee's receiver.
+- **The treasury** exists and is proven (2026-11-07): `CARDANO_VENUE_FEE_ADDRESS` names it, and
+  the pools' deploy must name the same address as the opening fee's receiver; the LP screens refuse
+  a record naming any other.
 
 **Order of work:** (1) vendor the contracts at the pinned commit with a provenance check like
 `solana/guards/provenance.mjs`, and prove our build matches Minswap's mainnet script bytes before
@@ -111,7 +112,8 @@ remove, open a pool. Off (`CARDANO_OWN_POOLS_OPEN = false` in `frontend/src/lib/
 walked in a `--mode cardano-preview` build. Every hash, address and fee comes from ONE record,
 `frontend/api/_lib/cardano-own-pools.js`, null until the deploy: while null the screens say the
 pools are not open, build nothing, and the API has no own-pool reads. The record refuses any of
-Minswap's script hashes, its pool stake key and its reference UTxOs. Add and remove are orders at
+Minswap's script hashes, its pool stake key and its reference UTxOs, and any treasury but the
+proven two-key one (`CARDANO_VENUE_FEE_ADDRESS`, exactly). Add and remove are orders at
 our order script for our batcher; opening spends our factory entry and pays the opening fee to the
 treasury, checked against the chain's global setting before anything is built. An add or remove
 order still open can be taken back by its owner (Cancel order, under Your pool orders): it spends

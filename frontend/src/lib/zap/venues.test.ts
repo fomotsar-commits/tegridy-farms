@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { venueAvailability, zapVenue, zapVenues } from './venues';
+import { NEW_STAKES_CLOSED_LINE } from '../stakingBetaOver';
 import {
   LP_FARMING_ADDRESS,
   TEGRIDY_LP_ADDRESS,
@@ -15,7 +16,9 @@ describe('the venue catalog', () => {
     const byId = Object.fromEntries(
       zapVenues().map((v) => [v.available ? v.venue.id : v.id, v]),
     );
-    expect(byId['staking-lock']!.available).toBe(isDeployed(TEGRIDY_STAKING_ADDRESS));
+    // TegridyStaking is v1 and closing (lib/stakingBetaOver): never a destination,
+    // whatever the build's addresses say.
+    expect(byId['staking-lock']!.available).toBe(false);
     expect(byId['lp-farm']!.available).toBe(
       isDeployed(LP_FARMING_ADDRESS) && isDeployed(TEGRIDY_LP_ADDRESS) && isDeployed(TEGRIDY_ROUTER_ADDRESS),
     );
@@ -37,6 +40,17 @@ describe('the venue catalog', () => {
     expect(source).toMatch(/isDeployed\(TEGRIDY_ROUTER_ADDRESS\)/);
     expect(source).toMatch(/isDeployed\(TEGRIDY_LP_ADDRESS\)/);
     expect(source).toMatch(/isDeployed\(venue\.target\)/);
+  });
+});
+
+describe('venueAvailability: TOWELI staking v1 is closing (owner, 2026-10-30)', () => {
+  it('offers no zap into the v1 staking lock, and says why', () => {
+    const staking = venueAvailability('staking-lock');
+    expect(staking.available).toBe(false);
+    if (staking.available) return;
+    // With an address in this build, the reason is the closure, not a missing contract.
+    if (isDeployed(TEGRIDY_STAKING_ADDRESS)) expect(staking.reason).toBe(NEW_STAKES_CLOSED_LINE);
+    expect(zapVenue('staking-lock')).toBeNull();
   });
 });
 

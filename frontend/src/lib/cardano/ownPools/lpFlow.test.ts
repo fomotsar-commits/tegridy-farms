@@ -13,7 +13,7 @@ import { readOwnPoolsDeployment, type OwnPools } from './deployment';
 import { factoryDatumHex } from './openPoolTx';
 import { prepareLpCancel, prepareOpen, signAndSendLpCancel } from './lpFlow';
 import { readLpNotes, writeLpNote, type LpOrderNote } from './lpWatch';
-import { PLUTUS, TEST_RECORD, WORLD, walletUtxo } from './testWorld.fixture';
+import { PLUTUS, TEST_RECORD, VENUE_TREASURY, WORLD, walletUtxo } from './testWorld.fixture';
 
 const NEW_TOKEN = { policyId: '42'.repeat(28), assetName: '4e4557' };
 const PARAMS = { txFeePerByte: 44, txFeeFixed: 155381, utxoCostPerByte: 4310, maxTxSize: 16384, maxValueSize: 5000, stakeAddressDeposit: 2000000, stakePoolDeposit: 500000000, minFeeRefScriptCostPerByte: 15 };
@@ -31,11 +31,12 @@ const constr = (alt: number, fs: PlutusData[]) => {
 };
 const bytes = (h: string) => csl.PlutusData.new_bytes(Uint8Array.from(Buffer.from(h, 'hex')));
 
-function settingRow(fee: bigint, receiverHash: string) {
+function settingRow(fee: bigint, to: ParsedAddress) {
+  const cred = (c: { kind: 'key' | 'script'; hash: string }) => constr(c.kind === 'key' ? 0 : 1, [bytes(c.hash)]);
   const pam = constr(1, [bytes('ad'.repeat(28))]);
   const batchers = csl.PlutusList.new();
   batchers.add(constr(0, [bytes('ba'.repeat(28))]));
-  const receiver = constr(0, [constr(1, [bytes(receiverHash)]), constr(1, [])]);
+  const receiver = constr(0, [cred(to.payment), to.stake ? constr(0, [constr(0, [cred(to.stake)])]) : constr(1, [])]);
   const datum = constr(0, [csl.PlutusData.new_list(batchers), pam, pam, pam, pam, pam, csl.PlutusData.new_integer(csl.BigInt.from_str(fee.toString())), receiver]);
   return {
     tx_hash: 'a1'.repeat(32),
@@ -60,7 +61,7 @@ function factoryRow(head: string, tail: string) {
 
 function chain(over: Partial<Record<string, unknown>> = {}) {
   const table: Record<string, unknown> = {
-    ownsetting: [settingRow(73_000_000n, '7e'.repeat(28))],
+    ownsetting: [settingRow(73_000_000n, VENUE_TREASURY)],
     ownpool: [],
     ownfactory: [factoryRow('00', 'ff'.repeat(33))],
     params: { ...PARAMS, costModels: { PlutusV2: PLUTUS.costModelV2 }, executionUnitPrices: { priceMemory: 0.0577, priceSteps: 7.21e-5 }, collateralPercentage: 150, maxCollateralInputs: 3 },
@@ -110,13 +111,13 @@ describe('prepareOpen', () => {
   });
 
   it('builds nothing when the chain’s opening fee is not the record’s', async () => {
-    chain({ ownsetting: [settingRow(50_000_000n, '7e'.repeat(28))] });
+    chain({ ownsetting: [settingRow(50_000_000n, VENUE_TREASURY)] });
     const p = await prepareOpen(csl, dep, api, opener, NEW_TOKEN, 500_000_000n, 1_000_000_000n);
     expect(p).toEqual({ kind: 'stop', message: 'The chain’s opening fee or its receiver is not the one this page states. Nothing was built.', problems: undefined });
   });
 
   it('builds nothing when the chain pays the fee to another receiver', async () => {
-    chain({ ownsetting: [settingRow(73_000_000n, '99'.repeat(28))] });
+    chain({ ownsetting: [settingRow(73_000_000n, composeAddress({ kind: 'script', hash: '99'.repeat(28) }, null))] });
     const p = await prepareOpen(csl, dep, api, opener, NEW_TOKEN, 500_000_000n, 1_000_000_000n);
     expect(p.kind).toBe('stop');
   });

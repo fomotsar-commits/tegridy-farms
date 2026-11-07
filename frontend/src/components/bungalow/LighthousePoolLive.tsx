@@ -10,6 +10,7 @@ import type { Bungalow } from '../../lib/bungalows';
 import { staggerContainer } from '../../lib/motion';
 import { Fact, HAIR, DIVIDED_BG } from './ledger';
 import { HeldTimeLine } from './HeldTimeLine';
+import { noteStakesChanged, useOnStakesChanged } from '../../lib/harvest/stakesChanged';
 import { CardArt } from '../ui/CardArt';
 import { FinePrint } from '../ui/FinePrint';
 import {
@@ -79,10 +80,10 @@ import { RoomTorches } from '../RoomTorches';
  * through the connected wallet; every action reports its tx signature or
  * its honest failure inline.
  */
-export function LighthousePoolLive({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
+export function LighthousePoolLive({ bungalow, harvest }: { bungalow: Bungalow & { stakePool: string }; harvest?: ReactNode }) {
   return (
     <SolanaProviders>
-      <Inner bungalow={bungalow} />
+      <Inner bungalow={bungalow} harvest={harvest} />
     </SolanaProviders>
   );
 }
@@ -188,7 +189,7 @@ function refineFence(sig: string, set: (f: (prev: SigFence | null) => SigFence |
   });
 }
 
-function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
+function Inner({ bungalow, harvest }: { bungalow: Bungalow & { stakePool: string }; harvest?: ReactNode }) {
   const { publicKey, wallet } = useWallet();
   const openConnect = useSolanaConnect();
   const fid = useId();
@@ -244,6 +245,10 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
   // bumps this generation instead — the ladder card's pattern (SolanaLadderPoolLive).
   const [readGen, setReadGen] = useState(0);
   const reread = () => setReadGen((n) => n + 1);
+  // Harvest on this page claims the same rewards: read again when it runs, and say so after
+  // every write here (lib/harvest/stakesChanged.ts).
+  const [me] = useState(() => ({}));
+  useOnStakesChanged(me, reread);
 
   // ⚠️ A READ THAT PREDATES YOUR CONFIRMED WRITE — the ladder card's two guards.
   //
@@ -508,6 +513,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
     setAction({ busy: label });
     const res = await held(fn);
     if (res.ok) {
+      noteStakesChanged(me);
       setStaleEntries(latestEntriesRead.current);
       setWriteFence({ key: walletKey, slot: null, sig: res.txId });
       refineFence(res.txId, setWriteFence);
@@ -1114,6 +1120,10 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
             </>
             )}
 
+            {/* Every pool's rewards in one press, in this card (owner, 2026-10-30); drawn only
+                while there is something to claim, whether or not this pool holds a stake. */}
+            {harvest}
+
             {/* ── Your position ──────────────────────────────────────────── */}
             {publicKey && openEntries.length > 0 && (
               <div className="rounded-xl p-4" style={{ background: 'rgba(0,0,0,0.5)', border: '1px solid var(--color-purple-25)' }}>
@@ -1389,6 +1399,9 @@ export function LighthouseClaimStrip({ bungalow }: { bungalow: Bungalow & { stak
   // Every read goes through the one effect below, so a newer read cancels an older one.
   const [readGen, setReadGen] = useState(0);
   const reread = () => setReadGen((n) => n + 1);
+  // As the full card: Harvest on this page claims the same rewards (lib/harvest/stakesChanged.ts).
+  const [me] = useState(() => ({}));
+  useOnStakesChanged(me, reread);
   const [nowSec, setNowSec] = useState(() => Math.floor(Date.now() / 1000));
   useEffect(() => {
     const t = setInterval(() => setNowSec(Math.floor(Date.now() / 1000)), 60_000);
@@ -1506,6 +1519,7 @@ export function LighthouseClaimStrip({ bungalow }: { bungalow: Bungalow & { stak
     setRescueFor(null);
     setAction({ key, busy: label });
     const res = await held(fn);
+    if (res.ok) noteStakesChanged(me);
     setAction(res.ok ? { key, note: `${label} confirmed.`, tx: res.txId } : { key, note: res.reason });
     reread();
   };

@@ -10,8 +10,7 @@
 // whole access control: `select=wallet` + `code=eq.<one code>` + `limit=1`
 // answers "who owns THIS code" and nothing else. A second service-role query,
 // a `select=*`, or a missing eq-filter turns it into an enumeration of every
-// referrer's wallet, readable by anyone — the exact shape airdrop.js refuses
-// to expose a recipient list for.
+// referrer's wallet, readable by anyone.
 
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";

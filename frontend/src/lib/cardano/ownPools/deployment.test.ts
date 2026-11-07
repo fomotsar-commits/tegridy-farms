@@ -1,10 +1,12 @@
-// The one deployment record: null as shipped (nothing on chain), and never Minswap's.
-import { describe, expect, it } from 'vitest';
+// The one deployment record: null as shipped (nothing on chain), never Minswap's, and its
+// opening fee paid to the venue's proven two-key treasury and nowhere else.
+import { describe, expect, it, vi } from 'vitest';
 import { OWN_POOLS_DEPLOYMENT } from '../../../../api/_lib/cardano-own-pools.js';
 import { composeAddress } from '../address';
 import { MINSWAP_V2 } from '../minswapV2';
+import { CARDANO_VENUE_FEE_ADDRESS } from '../venueFee';
 import { OWN_POOLS, readOwnPoolsDeployment } from './deployment';
-import { TEST_RECORD } from './testWorld.fixture';
+import { TEST_RECORD, VENUE_TREASURY } from './testWorld.fixture';
 
 describe('the own-pools deployment record', () => {
   it('is null as shipped: no pool is open, and the screens build nothing', () => {
@@ -55,5 +57,32 @@ describe('the own-pools deployment record', () => {
     expect(readOwnPoolsDeployment({ ...TEST_RECORD, openingFeeLovelace: '73000000000' }).kind).toBe('refused');
     expect(readOwnPoolsDeployment({ ...TEST_RECORD, batcherFeeLovelace: '0' }).kind).toBe('refused');
     expect(readOwnPoolsDeployment({ ...TEST_RECORD, openPoolBudget: { factory: { mem: 14_000_000, steps: 1 }, authen: { mem: 14_000_000, steps: 1 } } }).kind).toBe('refused');
+  });
+
+  it('pays the opening fee only to the venue’s two-key treasury, and refuses a record naming any other', () => {
+    expect(TEST_RECORD.treasury).toBe(CARDANO_VENUE_FEE_ADDRESS);
+    const r = readOwnPoolsDeployment(TEST_RECORD);
+    expect(r.kind === 'deployed' && r.pools.treasury.bech32).toBe(CARDANO_VENUE_FEE_ADDRESS);
+    const others = [
+      composeAddress({ kind: 'script', hash: '7e'.repeat(28) }, null), // a made-up treasury
+      composeAddress(VENUE_TREASURY.payment, null), // our spending script without our staking script
+      composeAddress(VENUE_TREASURY.payment, { kind: 'key', hash: '01'.repeat(28) }), // someone else's staking key
+      composeAddress({ kind: 'key', hash: VENUE_TREASURY.payment.hash }, VENUE_TREASURY.stake), // the same hash as a key
+    ];
+    for (const other of others) {
+      expect(readOwnPoolsDeployment({ ...TEST_RECORD, treasury: other.bech32 })).toEqual({ kind: 'refused', reason: 'the treasury is not the venue’s two-key treasury' });
+    }
+  });
+
+  it('refuses every record while the venue names no treasury', async () => {
+    vi.resetModules();
+    vi.doMock('../venueFee', async (original) => ({ ...(await original<typeof import('../venueFee')>()), CARDANO_VENUE_FEE_ADDRESS: null }));
+    try {
+      const { readOwnPoolsDeployment: readWithNoTreasury } = await import('./deployment');
+      expect(readWithNoTreasury(TEST_RECORD)).toEqual({ kind: 'refused', reason: 'the treasury is not the venue’s two-key treasury' });
+    } finally {
+      vi.doUnmock('../venueFee');
+      vi.resetModules();
+    }
   });
 });

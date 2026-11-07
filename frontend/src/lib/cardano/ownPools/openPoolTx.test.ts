@@ -12,7 +12,7 @@ import { readOwnPoolsDeployment, type OwnPools } from './deployment';
 import { FACTORY_NFT_NAME, type FactoryEntry } from './chainReads';
 import { MIN_POOL_ADA } from './lpMath';
 import { assembleSignedOpen, buildOpenPoolTx, checkOpenPoolTx, collateralTotal, factoryDatumHex, MAX_OPEN_NETWORK_FEE, OpenPoolBuildError, type OpenPoolPlan } from './openPoolTx';
-import { PARAMS, PLUTUS, TEST_RECORD, TEST_TREASURY, WORLD, walletUtxo } from './testWorld.fixture';
+import { PARAMS, PLUTUS, TEST_RECORD, VENUE_TREASURY, WORLD, walletUtxo } from './testWorld.fixture';
 
 const TIP = 201_255_884;
 const ADA_1 = 1_000_000n;
@@ -131,7 +131,7 @@ describe('buildOpenPoolTx + checkOpenPoolTx: the untampered build', () => {
     // The pool at OUR pool address (never Minswap's), the fee at the treasury.
     expect(Buffer.from(outs.get(0).address().to_bytes()).toString('hex')).toBe(WORLD.pool.addressHex);
     expect(Buffer.from(outs.get(0).address().to_bytes()).toString('hex').slice(2, 58)).not.toBe(MINSWAP_V2.poolScriptHash);
-    expect(Buffer.from(outs.get(3).address().to_bytes()).toString('hex')).toBe(TEST_TREASURY.hex);
+    expect(Buffer.from(outs.get(3).address().to_bytes()).toString('hex')).toBe(VENUE_TREASURY.hex);
     expect(BigInt(outs.get(3).amount().coin().to_str())).toBe(73n * ADA_1);
     expect(r.open.openingFee).toBe(73n * ADA_1);
     // sqrt(500,000,000 lovelace × 1,000,000,000) = 707,106,781.19, rounded up, less the 10 burned.
@@ -165,7 +165,7 @@ describe('checkOpenPoolTx refuses', () => {
   });
 
   it('the opening fee cut short, the rest to your change', () => {
-    const bad = rebuild(original, (_b, outs) => outs.map((o, i) => (i === 3 ? repay(o, TEST_TREASURY, 72n * ADA_1) : i === outs.length - 1 ? repay(o, opener, BigInt(o.amount().coin().to_str()) + ADA_1) : o)));
+    const bad = rebuild(original, (_b, outs) => outs.map((o, i) => (i === 3 ? repay(o, VENUE_TREASURY, 72n * ADA_1) : i === outs.length - 1 ? repay(o, opener, BigInt(o.amount().coin().to_str()) + ADA_1) : o)));
     expectRefused(bad, /opening fee is not the planned amount/);
   });
 

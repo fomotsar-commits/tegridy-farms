@@ -23,6 +23,8 @@ export interface HoldingRow {
   usd: number | null;
   /** The island room this coin belongs to; null for SOL and ETH. */
   roomId: string | null;
+  /** A coin with no room: its address, for its picture (offIslandCoins.ts). */
+  mint?: string;
   /** Where the row opens; null for a row that opens nothing. */
   to: string | null;
 }
@@ -31,11 +33,19 @@ export interface HoldingRow {
 export interface PositionRow {
   key: string;
   roomId: string | null;
+  /** A pool share whose coin has no room: that coin's address, for its picture (offIslandCoins.ts). */
+  mint?: string;
   chain: WalletChain;
   /** "BAYLA lock", "BAYLA / SOL pool", … */
   title: string;
   /** The read facts, each short: "10,000 BAYLA", "unlocks 20 Nov 2026", "earned 12.3 BAYLA". */
   facts: string[];
+  /**
+   * What the position holds, in USD at a read price: a lock's or a stake's coins, or both sides of
+   * a pool share. Rewards not yet claimed are left out (they are in "earned"). Null when no price
+   * was read for every coin in it.
+   */
+  usd: number | null;
   to: string;
 }
 
@@ -52,6 +62,11 @@ export interface NamedLeg<T> {
   what: string;
   leg: Leg<T>;
   retry: () => void;
+  /**
+   * Set while the rows are this part's last read in this browser (boardMemory.ts), not yet the
+   * new one: when they were read, epoch ms.
+   */
+  readAt?: number;
 }
 
 /** Live rooms whose coin is on this chain and has an address. */
@@ -117,9 +132,9 @@ export function usdOf(raw: bigint, decimals: number, price: number | null | unde
 /**
  * The holdings' total, and only when it is whole: every holdings leg read, and every coin held
  * priced. A total that silently leaves a coin out understates the wallet, so a partial total is
- * reported as such and never printed as the figure.
+ * reported as such and never printed as the figure. The positions' total is kept the same way.
  */
-export function holdingsTotal(legs: readonly Leg<HoldingRow>[]): { kind: 'total'; usd: number } | { kind: 'partial' } | { kind: 'none' } {
+export function holdingsTotal(legs: readonly Leg<{ usd: number | null }>[]): { kind: 'total'; usd: number } | { kind: 'partial' } | { kind: 'none' } {
   if (legs.some((l) => l.status !== 'ok')) return { kind: 'partial' };
   const rows = legs.flatMap((l) => (l.status === 'ok' ? l.rows : []));
   if (rows.length === 0) return { kind: 'none' };

@@ -79,7 +79,7 @@ export const BACKGROUND_DELIVERY_AVAILABLE = false;
 export const BACKGROUND_DELIVERY_REQUIREMENTS: readonly string[] = [
   'A long-running process — not a Vercel function, which only runs when something calls it — that watches the same sources the rules are evaluated against.',
   'Server-side evaluation of stored rules, so a rule keeps being checked after the tab is closed.',
-  'Idempotency per (rule, event), so a restart cannot deliver the same alert twice.',
+  'Idempotency per (rule, event), so a restart never delivers the same alert twice.',
   'Per-attempt delivery receipts readable back into this UI: an alert that failed to send must be visible as failed, not as never triggered.',
   'A VAPID key pair on both halves — VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY on the server, VITE_VAPID_PUBLIC_KEY in the client build.',
 ];
