@@ -72,7 +72,7 @@ export function readGlobalSetting(dep: Deployment, utxos: ChainUtxo[]): { utxo: 
   if (found.length !== 1) throw new DecodeError(`${found.length} global settings found, not exactly one`);
   const d = outputDatum(CSL.TransactionOutput.from_hex(found[0]!.outputHex));
   if (d.kind !== 'inline') throw new DecodeError('the global setting has no inline datum');
-  return { utxo: found[0]!, setting: decodeGlobalSetting(d.data) };
+  return { utxo: found[0]!, setting: decodeGlobalSetting(d.data, dep.dex.setting) };
 }
 
 /** The global setting does not (or no longer) name this batcher's key: a person is needed. */

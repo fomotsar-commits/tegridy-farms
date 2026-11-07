@@ -54,7 +54,7 @@ export interface Settings {
   quarantineSlots: number;
   maxRefusalsInARow: number;
   idleRoundMs: number;
-  /** Once the two-key treasury exists: above floatCap, the excess is swept there, down to `keep`. */
+  /** Once set, naming the two-key treasury (README step 8): above floatCap, the excess is swept there, down to `keep`. */
   sweep?: { treasury: string; treasuryScript: string; treasuryStakeScript?: string; keep: string };
 }
 
@@ -108,7 +108,7 @@ export function parseSettings(text: string): ReadSettings {
   const floatCap = lovelace('floatCap', 10_000_000n);
   // The batcher's change and its collateral's return go to this address: it must be its own key's.
   if (typeof s.batcherAddress !== 'string' || !isBatcherAddress(s.batcherAddress, s.batcherKeyHash, s.network)) throw new Error("settings: batcherAddress is not the batcher key's own mainnet enterprise address");
-  // Optional until the treasury exists; given, every part of it is checked.
+  // Optional until the treasury is named (README step 8); given, every part of it is checked.
   let sweep: ReadSettings['sweep'];
   if (s.sweep !== undefined) {
     const w = s.sweep as Partial<Record<'treasury' | 'treasuryScript' | 'treasuryStakeScript' | 'keep', unknown>> | null;
@@ -123,7 +123,7 @@ export function parseSettings(text: string): ReadSettings {
   }
   return {
     network: s.network,
-    deployment: { network: s.network, dex: { authenPolicy: d.authenPolicy, poolScriptHash: d.poolScriptHash, time: MAINNET_TIME }, orderScriptHash: d.orderScriptHash, poolBatchingScriptHash: d.poolBatchingScriptHash, scriptRefs: d.scriptRefs },
+    deployment: { network: s.network, dex: { authenPolicy: d.authenPolicy, poolScriptHash: d.poolScriptHash, time: MAINNET_TIME, setting: 'ours' }, orderScriptHash: d.orderScriptHash, poolBatchingScriptHash: d.poolBatchingScriptHash, scriptRefs: d.scriptRefs },
     policy: { batcherFee, maxOrdersPerBatch, slotsBefore: BigInt(slotsBefore), slotsAfter: BigInt(slotsAfter) },
     batcher: { keyHash: s.batcherKeyHash, address: s.batcherAddress },
     floatCap,

@@ -66,8 +66,8 @@ refused as `BatchTooBig`, to be split.
   replacement is named through the 48-hour lock. Before a key is retired, set `sweep.keep` to
   10 ADA and `floatCap` to 20 ADA: the next check sweeps the rest to the treasury. The 10 ADA
   kept and the collateral stay at the old key for good, so never delete its volume.
-- **Its earnings stay in its own wallet, capped.** Until the two-key treasury exists, above the
-  cap it stops and alerts. Once the settings name the treasury, above the cap it sweeps the
+- **Its earnings stay in its own wallet, capped.** Until the settings name the two-key treasury
+  (step 8), above the cap it stops and alerts. Once they do, above the cap it sweeps the
   excess there, down to `sweep.keep`, and goes on (the owner's ruling, 2026-10-27).
 
 ## What it can and cannot do
@@ -95,7 +95,7 @@ node src/main.ts settings.json --once     # one round, then exit (no alarm)
 
 `settings.json` holds no secrets (the deployment's hashes and reference-script UTxOs, the batcher
 key's hash and its own enterprise address, the fee per order, the float cap, the window and the
-limits; every one required and range-checked; and, once the treasury exists, `sweep`). The environment holds the rest: `OGMIOS_URL` and
+limits; every one required and range-checked; and `sweep`, naming the treasury: step 8). The environment holds the rest: `OGMIOS_URL` and
 `OGMIOS_WS` (Demeter puts the key in the host name), `KUPO_URL`, `KOIOS_URL` and `KOIOS_TOKEN`,
 `BATCHER_KEY_FILE`, `HC_PING_URL_CARDANO_BATCHER` and `HC_PING_URL_CARDANO_BATCHER_ALERTS`. Every
 log line and every alarm ping is scrubbed of the endpoints, the Koios token and the ping URLs.
@@ -205,16 +205,21 @@ until a week of dry runs is clean.
    checks have answered "OK" (`alarm-unreachable` in the log until then), so a wrong ping URL,
    even one naming a check that does not exist, keeps it from signing rather than signing with
    no alarm. After changing any ping URL, see both checks green again.
-8. **Once the two-key treasury exists, name it**, and the batcher sweeps instead of stopping at
-   the cap. The treasury is a multi-signature wallet of two keys (the owner's plan of 10-24:
-   Eternl's multi-sig wallet; Lace's shared wallets are, in Lace's own code, a testnet-only beta
-   that Lace 2.x does not carry over). Its address is the role timelock's `treasury`
-   (cardano/role-timelock), exactly: the same string in both places. Build the settings' block
-   from the address and the wallet's members' key hashes, given in any order:
-   `node scripts/treasury-script.ts --address <the treasury's address> --payment <key hash> <key hash> --stake <key hash> <key hash> --batcher <the batcher's key hash>`
-   (`--stake` only when the address has a stake part). It tries every order and every form
-   ("all of", "at least n of") and prints only scripts the address is paid and staked to, as
-   `{"treasury", "treasuryScript", "treasuryStakeScript"}`. Add `"keep": "30000000"` and put the
+8. **Name the two-key treasury**, and the batcher sweeps instead of stopping at the cap. The
+   treasury is the owner's Eternl multi-sig wallet "memetics.finance" (Lace's shared wallets are,
+   in Lace's own code, a testnet-only beta that Lace 2.x does not carry over), proven on mainnet
+   2026-11-07 by tx `06c0fc163e49d1b3486c37c8c56727df85e88e4d73209be800531ce17037d4da`. Its address
+   is the role timelock's `treasury` (cardano/role-timelock), exactly: the same string in both
+   places, and the swap's venue fee address. Build the settings' block from it:
+   `node scripts/treasury-script.ts --address addr1xy6kxswfkhnxfwllzcxkqfumhyjedvkvkvlt3p7mhwxwp3spv7vdp6er80lvtdm32cqvvetu93ams9yrggg5pm5tq3usr47kat --payment 47901a27b081437abaeb2e6a16762388f68f3eb40de056a529e9dc39 063f7b2abbf1cb581516c5b4a78929a118752cc3672c10709bb8bc21 --stake a91f2db69b8b44ef8355a53e648d052680d009c70d07bc9017292b5a f9824d0d357d21b5b12b1b83e0d1f567d6076aa74481cb1741f0be7c --batcher <the batcher's key hash>`
+   (the four keys are the two scripts' members, as Eternl's registration tx
+   `4774ad698f1df93b3a09d1942b0ff1001b87b9788d50fd2a13820576fbe42762` publishes them; any other
+   treasury: its own address and keys, `--stake` only when the address has a stake part). It tries
+   every order and every form ("all of", "at least n of") and prints only scripts the address is
+   paid and staked to, as `{"treasury", "treasuryScript", "treasuryStakeScript"}`. Run 2026-11-07
+   on this treasury, it printed spend script `356341c9b5e664bbff160d60279bb92596b2ccb33eb887dbbb8ce0c6`
+   and stake script `016798d0eb233bfec5b7715600c6657c2c7bb81483421140ee8b0479`, each "all of" its
+   two keys, byte for byte the scripts on chain. Add `"keep": "30000000"` and put the
    whole as `"sweep"` in `BATCHER_SETTINGS`. The batcher refuses (by name) a treasury paid or
    staked to one key, a stake address, a script needing fewer than two distinct keys or more
    keys than it has, one naming the batcher's own key, or one the address is not paid or staked

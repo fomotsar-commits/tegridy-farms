@@ -69,8 +69,13 @@ export interface PoolDatum {
 
 export type AuthorizationMethod = { kind: 'signature' | 'spendScript' | 'withdrawScript'; hash: string };
 
+/** Which GlobalSetting a deployment holds: ours (#1016, eight fields) or Minswap's mainnet six, read only to replay its batches. */
+export type SettingShape = 'ours' | 'minswap';
+
 export interface GlobalSetting {
   batchers: AuthorizationMethod[];
+  /** Ours only: the lovelace opening a pool pays (pool_creation_fee), and to whom. */
+  poolCreation: { fee: bigint; receiver: Address } | null;
 }
 
 export interface PoolBatchingRedeemer {
@@ -225,9 +230,14 @@ function decodeAuthorization(d: PlutusData, what: string): AuthorizationMethod {
   return { kind: (['signature', 'spendScript', 'withdrawScript'] as const)[c.alt]!, hash: bytes(c.fields[0]!, what) };
 }
 
-export function decodeGlobalSetting(d: PlutusData): GlobalSetting {
-  const f = fieldsOf(d, 0, 6, 'GlobalSetting');
-  return { batchers: list(f[0]!, 'batchers').map((b, i) => decodeAuthorization(b, `batchers[${i}]`)) };
+// Ours is Minswap's six fields, then pool_creation_fee and pool_creation_fee_receiver. The pool
+// contract casts the whole datum, so a setting of the other shape fails every batch: refused here.
+export function decodeGlobalSetting(d: PlutusData, shape: SettingShape): GlobalSetting {
+  const f = fieldsOf(d, 0, shape === 'ours' ? 8 : 6, 'GlobalSetting');
+  return {
+    batchers: list(f[0]!, 'batchers').map((b, i) => decodeAuthorization(b, `batchers[${i}]`)),
+    poolCreation: shape === 'ours' ? { fee: int(f[6]!, 'pool_creation_fee'), receiver: decodeAddress(f[7]!, 'pool_creation_fee_receiver') } : null,
+  };
 }
 
 export function decodeBatchingRedeemer(d: PlutusData): PoolBatchingRedeemer {

@@ -13,6 +13,7 @@ const MINSWAP_MAINNET: DexConstants = {
   authenPolicy: 'f5808c2c990d86da54bfc97d89cee6efa20cd8461616359478d96b4c',
   poolScriptHash: 'ea07b733d932129c378af627436e7cbc2ef0bf96e0036bb51b3bde6b',
   time: MAINNET_TIME,
+  setting: 'minswap',
 };
 const fx = JSON.parse(readFileSync(new URL('./fixtures/minswap-batches.json', import.meta.url), 'utf8')) as {
   batches: { tx: string; cbor: string }[];

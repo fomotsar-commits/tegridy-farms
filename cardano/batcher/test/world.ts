@@ -17,7 +17,7 @@ const deployment = JSON.parse(readFileSync(new URL('./fixtures/test-deployment.j
 export const PP = JSON.parse(readFileSync(new URL('./fixtures/protocol-params.json', import.meta.url), 'utf8')) as ProtocolParams;
 export const NETWORK = 1;
 export const S = deployment.scripts;
-export const DEX: DexConstants = { authenPolicy: S.authen.hash, poolScriptHash: S.pool.hash, time: MAINNET_TIME };
+export const DEX: DexConstants = { authenPolicy: S.authen.hash, poolScriptHash: S.pool.hash, time: MAINNET_TIME, setting: 'ours' };
 
 export const TOKEN = { policyId: '70'.repeat(28), assetName: '544f4b' }; // "TOK"
 export const LP_NAME = lpAssetName({ policyId: '', assetName: '' }, TOKEN);
@@ -62,6 +62,11 @@ const some = (d: PlutusData) => mkConstr(0, [d]);
 const asset = (policy: string, name: string) => mkConstr(0, [mkBytes(policy), mkBytes(name)]);
 const keyAddressData = (n: number) => mkConstr(0, [mkConstr(0, [mkBytes(traderKey(n))]), some(mkConstr(0, [mkConstr(0, [mkBytes(traderKey(n))])]))]);
 const EOD_NONE = mkConstr(0, []);
+/** The venue's two-key treasury (addr1xy6kxswf...r47kat): spend script 356341c9..., stake script 016798d0.... */
+const TREASURY_DATA = mkConstr(0, [
+  mkConstr(1, [mkBytes('356341c9b5e664bbff160d60279bb92596b2ccb33eb887dbbb8ce0c6')]),
+  some(mkConstr(0, [mkConstr(1, [mkBytes('016798d0eb233bfec5b7715600c6657c2c7bb81483421140ee8b0479')])])),
+]);
 export const step = {
   swapIn: (aToB: boolean, amount: bigint, minimum: bigint, killable = true) => mkConstr(0, [aToB ? TRUE : FALSE, mkConstr(0, [mkInt(amount)]), mkInt(minimum), killable ? TRUE : FALSE]),
   swapOut: (aToB: boolean, maxIn: bigint, expected: bigint) => mkConstr(3, [aToB ? TRUE : FALSE, mkConstr(0, [mkInt(maxIn)]), mkInt(expected), TRUE]),
@@ -136,6 +141,8 @@ export function world() {
     mkConstr(0, [
       mkList([mkConstr(0, [mkBytes(BATCHER_KEY)])]), // batchers: [PAMSignature(batcher)]
       ...Array.from({ length: 5 }, () => mkConstr(0, [mkBytes(ADMIN_KEY)])),
+      mkInt(73_000_000n), // pool_creation_fee
+      TREASURY_DATA, // pool_creation_fee_receiver
     ]),
   );
   const scriptUtxo = (name: 'pool' | 'order' | 'poolBatching', ix: number): Utxo =>

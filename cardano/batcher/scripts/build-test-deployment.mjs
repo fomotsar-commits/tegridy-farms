@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Compiles OUR pool contracts (cardano/minswap-dex-v2 as it stands, the 1333 patch applied) with
+// Compiles OUR pool contracts (cardano/minswap-dex-v2 as it stands: the 1333 patch, the opening fee) with
 // TEST parameters, and writes the scripts the batcher's tests build and simulate batches against:
 // test/fixtures/test-deployment.json. Never a real deployment: the seed UTxO and every key are
 // made up here. Same compiler, stdlib and parameter order as cardano/guards/prove-build.mjs.
@@ -104,7 +104,7 @@ try {
   if (scripts.authen.hash !== scripts.globalSetting.hash) throw new Error('the authen policy and the global setting spend script differ');
   writeFileSync(
     OUT,
-    `${JSON.stringify({ compiler: version, stdlib: STDLIB.commit, source: 'cardano/minswap-dex-v2 as it stands (the 1333 patch applied), TEST parameters', test: TEST, scripts }, null, 1)}\n`,
+    `${JSON.stringify({ compiler: version, stdlib: STDLIB.commit, source: 'cardano/minswap-dex-v2 as it stands (the 1333 patch and the pool creation fee applied), TEST parameters', test: TEST, scripts }, null, 1)}\n`,
   );
   console.log(`wrote ${OUT}`);
   for (const [k, s] of Object.entries(scripts)) console.log(`${k}: ${s.hash} (${s.compiledCode.length / 2} bytes)`);

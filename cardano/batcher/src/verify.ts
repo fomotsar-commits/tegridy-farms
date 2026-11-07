@@ -20,6 +20,7 @@ import {
   type AuthorizationMethod,
   type PoolBatchingRedeemer,
   type PoolDatum,
+  type SettingShape,
 } from './types.ts';
 import { equals, quantityOf, show, valueOf, type Value } from './value.ts';
 
@@ -30,6 +31,8 @@ export interface DexConstants {
   /** The pool validator's script hash: every pool sits under it. */
   poolScriptHash: string;
   time: NetworkTime;
+  /** The GlobalSetting's shape: 'ours' for our deployment, 'minswap' only to replay Minswap's batches. */
+  setting: SettingShape;
 }
 
 const POOL_NFT_NAME = '4d5350'; // "MSP"
@@ -89,7 +92,7 @@ export function verifySinglePoolBatch(txHex: string, spentHex: Readonly<Record<s
   check(quantityOf(valueFromCsl(global.amount()), { policyId: k.authenPolicy, assetName: GLOBAL_SETTING_NAME }) === 1n, 'the global setting does not hold exactly one settings token');
   const globalDatum = outputDatum(global);
   if (globalDatum.kind !== 'inline') throw new DecodeError('the global setting has no inline datum');
-  const setting = decodeGlobalSetting(globalDatum.data);
+  const setting = decodeGlobalSetting(globalDatum.data, k.setting);
 
   // Redeemers by (purpose, index): a spend's index is its input's place in ledger order, a
   // withdrawal's its place among the withdrawals. A batch this checker reads has exactly one

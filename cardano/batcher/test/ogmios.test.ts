@@ -129,7 +129,7 @@ test('live: every real Minswap batch, re-judged by mainnet’s node, needs exact
 test('live: our one-swap batch, built, judged by mainnet’s node, read back', { skip: live }, async () => {
   const b = await batch(swaps(1));
   assert.equal(b.report.orders[0]!.filled, true);
-  assert.equal(b.budgets.get('reward:0')!.mem, 1_324_811n); // Aiken's memory figure, to the unit
+  assert.equal(b.budgets.get('reward:0')!.mem, 1_347_241n); // Aiken's memory figure, to the unit (the 8-field setting)
 });
 
 test('live: 40 swaps, which Aiken refuses, fit one transaction by the chain’s own limits', { skip: live }, async () => {
