@@ -9,6 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-11-07
 
+- Marketplace: Bojungles and Seeds can be listed for sale on the venue's own order book and bid on here, on Base. An item's panel shows its listing here (buy it, or cancel your own), its best offer (the owner can accept it), and forms to list it and to make an offer. The seller pays the venue 0.5% out of the price, to the venue's Base treasury; an accepted offer also pays OpenSea's 1%.
 - Marketplace: Bojungles and Seeds from the Memetic Garden can be bought here. Their pages show each OpenSea listing's exact price, and an item's panel has a Buy button that settles on Base through Seaport, OpenSea's own contract. The buyer pays the seller's OpenSea price plus Base gas; the venue takes no fee on these buys. Listing them for sale and making offers still happen on OpenSea.
 - Receipt card (Solana): the confetti after a swap or an add is gone. In its place the card's ring holds an ember that catches into the island's flame the moment the card is up: the ring breathes once, the edge warms once, the clock line lights. A sale never lights. The farm keeps its own confetti.
 
