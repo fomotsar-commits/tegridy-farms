@@ -37,3 +37,16 @@ c7f8f33b2a3fe593de41317f8a80548be07dfdbf:solana/guards/provenance.mjs:generic-ap
 143fced7e65d06c3191cdb64fff86496d6c882c1:.gitleaksignore:generic-api-key:30
 a0bafd057be3908533ba7c63a792b14d59740396:.gitleaksignore:generic-api-key:30
 ddf8b25d41c5286459d5726ceb153a25061bd1b6:.gitleaksignore:generic-api-key:30
+#
+# 2026-10-24, PR #952. Seven recorded mainnet transactions (getTransaction answers, kept
+# as they came) name the address lookup tables they load, in a field whose name ends in
+# the word the generic-api-key rule looks for. The six distinct values are accounts owned
+# by Solana's Address Lookup Table program (getMultipleAccounts, 2026-10-24): public,
+# not credentials.
+815a78d5735e942a4b569412e73c9dd24c882fdc:frontend/scripts/fixtures/fill-scoreboard/mainnet.json:generic-api-key:539
+815a78d5735e942a4b569412e73c9dd24c882fdc:frontend/scripts/fixtures/fill-scoreboard/mainnet.json:generic-api-key:1266
+815a78d5735e942a4b569412e73c9dd24c882fdc:frontend/scripts/fixtures/fill-scoreboard/mainnet.json:generic-api-key:1978
+815a78d5735e942a4b569412e73c9dd24c882fdc:frontend/scripts/fixtures/fill-scoreboard/mainnet.json:generic-api-key:2938
+815a78d5735e942a4b569412e73c9dd24c882fdc:frontend/scripts/fixtures/fill-scoreboard/mainnet.json:generic-api-key:2957
+815a78d5735e942a4b569412e73c9dd24c882fdc:frontend/scripts/fixtures/fill-scoreboard/mainnet.json:generic-api-key:3905
+815a78d5735e942a4b569412e73c9dd24c882fdc:frontend/scripts/fixtures/fill-scoreboard/mainnet.json:generic-api-key:3925

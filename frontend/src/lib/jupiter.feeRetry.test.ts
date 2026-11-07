@@ -2,6 +2,8 @@
 // (node, not jsdom: web3.js cannot serialize a transaction under jsdom, where
 // Buffer and Uint8Array come from different realms.)
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { PublicKey, TransactionInstruction, TransactionMessage, VersionedTransaction } from '@solana/web3.js';
 
 /**
@@ -23,6 +25,9 @@ const BAYLA = '7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump';
 const USER = '5tzFkiKscXHK5ZXCGbXZxdw7gTjjD1mBwuoFbhUvuAi9';
 const VAULT = 'GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd';
 const VAULT_WSOL_FEE_ACCOUNT = '2sa31zceMSTAAbSu5wfSnNA6sBYzS7r97nvZYaQouEXa';
+const USDC = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+// Test runs of Jupiter V2 builds with the vault's fee accounts (2026-10-23).
+const V2_RUNS = JSON.parse(readFileSync(join(__dirname, '../../scripts/fixtures/fill-scoreboard/v2-simulation.json'), 'utf-8'));
 
 /** A real, serialized v0 transaction whose instructions call `programs`, in order. */
 function txCalling(programs: string[]): string {
@@ -203,6 +208,40 @@ describe('simulateSwap reports the 6014 as a structured flag, not as text', () =
     expect((await simulateSwap(SWAP_TX)).cause).toEqual({ kind: 'price-limit' });
     rpcAnswers({ err: { InstructionError: [2, { Custom: 1 }] }, logs: LOGS_SHORT_OF_SOL });
     expect((await simulateSwap(SWAP_TX)).cause).toEqual({ kind: 'low-sol', had: 1_200_000n, needed: 2_039_280n });
+  });
+});
+
+// The decoding itself is held to a recorded mainnet test run in swap/jupiterEvents.test.ts.
+describe('simulateSwap reads what the route delivers on a pass', () => {
+  it('asks the RPC for inner instructions, and passes with no figure when there are none', async () => {
+    const { simulateSwap } = await load();
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, result: { value: { err: null, logs: [] } } }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    expect(await simulateSwap(SWAP_TX)).toEqual({ ok: true, reason: null, jupiterIncorrectTokenProgram: false });
+    const body = JSON.parse(String(((fetchMock.mock.calls[0] as unknown[])[1] as RequestInit).body));
+    expect(body.params[1]).toMatchObject({ innerInstructions: true, sigVerify: false, replaceRecentBlockhash: true });
+  });
+
+  it('takes our fee off a V2 route that paid it from the output, at the fee accounts the build used', async () => {
+    const { simulateSwap } = await load();
+    for (const [name, delivered] of [['baylaToSol', { mint: SOL, amount: 315_158_228n }], ['baylaToUsdc', { mint: USDC, amount: 13_186_308n }]] as const) {
+      const inner = V2_RUNS.txs[name].meta.innerInstructions;
+      vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, result: { value: { err: null, logs: [], innerInstructions: inner } } }), { status: 200 })));
+      expect((await simulateSwap(SWAP_TX)).delivered).toEqual(delivered);
+    }
+  });
+
+  it('an RPC that refuses the option is asked again without it, and its answer stands', async () => {
+    const { simulateSwap } = await load();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, error: { code: -32602, message: 'Invalid params: unknown field innerInstructions' } }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, result: { value: { err: ERR_6014_AT_2, logs: LOGS_JUP_6014 } } }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const sim = await simulateSwap(SWAP_TX);
+    expect(sim).toMatchObject({ ok: false, jupiterIncorrectTokenProgram: true });
+    const second = JSON.parse(String(((fetchMock.mock.calls[1] as unknown[])[1] as RequestInit).body));
+    expect(second.params[1].innerInstructions).toBeUndefined();
   });
 });
 
