@@ -7,6 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-11-07
+
+- Home page: the all-time volume counts again. On Nov 5 a swap in one of our Solana pools used Solana's newer transaction format, which the counter did not ask for, and every count since stopped there, so the figure said "not up to date". A pool's history and finding a share's pool read that format too now.
+
 ### 2026-11-06
 
 - Pools: an almost empty pool no longer takes deposits. That is a pool where the shares the pool program keeps forever are more than 0.1% of it, the same floor a new pool must already clear. Anyone can move such a pool's price for next to nothing, and a deposit would go in at that price. Its card says "Deposits: refused here" and why, and the All pools list tags it "Almost empty". Whoever holds its last shares can still take them out.
