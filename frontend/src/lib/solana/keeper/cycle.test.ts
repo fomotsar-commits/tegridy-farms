@@ -1,3 +1,7 @@
+// @vitest-environment node
+//
+// The robot runs in Node (scripts/price-keeper.mjs), and cycle.ts now loads keeper/directLegs.ts,
+// which derives PumpSwap's addresses as it loads: a browser-like test realm cannot.
 import { describe, it, expect } from 'vitest';
 import { Keypair, TransactionInstruction } from '@solana/web3.js';
 import { jupiterLeg } from './cycle';

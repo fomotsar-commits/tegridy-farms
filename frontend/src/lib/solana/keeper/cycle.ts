@@ -25,6 +25,8 @@ import { KAMINO_LOOKUP_TABLE, flashBorrowIx, flashFee, flashRepayIx, loanFor } f
 import { jitoTip, jitoTipIx, pickTipAccount, type JitoOutcome } from './jito';
 import { bestSize, fitLeg, legOut, nearMiss, shortShare } from './size';
 import type { OutsideTake } from './takes';
+import { DIRECT_LOOKUP_TABLES, directPlan, readDirectPools, type DirectIds, type DirectPool } from './direct';
+import type { StreamPool } from './streams';
 import { refusedVenues, type JupiterApi, type JupiterQuote, type SwapInstructions } from './jupiterApi';
 import { OUTSIDE_POOLS, outsideUsd, readOutsidePools, screenUsd, type Anchors, type OutsidePool } from './outside';
 import {
@@ -79,6 +81,8 @@ export interface KeeperIo {
   bans?: TripBans;
   /** Trips between two outside pools the scanner test-ran lately (keeper/takes.ts); absent: none are tried. */
   takes?: () => Promise<OutsideTake[]>;
+  /** The coins' outside pools the robot listens to (keeper/streams.ts), for direct trips (keeper/direct.ts); absent: none. */
+  directPools?: () => readonly StreamPool[];
   log: (line: string) => void;
 }
 
@@ -114,6 +118,16 @@ export interface KeeperSettings extends KeeperLimits {
    * lands and costs nothing. USDC trips go the usual way: the tip is paid in SOL.
    */
   jito: boolean;
+  /**
+   * Trips between one of our pools and the coin's outside pool on PumpSwap (and Raydium CPMM or
+   * AMM v4 when `allowRaydium`), both swaps built here with no Jupiter call (keeper/direct.ts;
+   * KEEPER_DIRECT, off by default). Asked before the trips against Jupiter.
+   */
+  direct: boolean;
+  /** Raydium's CPMM and AMM v4 programs, handed in by scripts/price-keeper.mjs; null: PumpSwap only. */
+  directIds: DirectIds | null;
+  /** The lookup tables a direct trip compiles with (keeper/direct.ts DIRECT_LOOKUP_TABLES). */
+  directLookupTables: readonly string[];
 }
 
 export const DEFAULT_SETTINGS: Omit<KeeperSettings, keyof KeeperLimits | 'raydiumPrograms'> = {
@@ -124,12 +138,15 @@ export const DEFAULT_SETTINGS: Omit<KeeperSettings, keyof KeeperLimits | 'raydiu
   outsidePools: OUTSIDE_POOLS,
   flashLoans: false,
   jito: false,
+  direct: false,
+  directIds: null,
+  directLookupTables: DIRECT_LOOKUP_TABLES,
 };
 
 /** One sent trip, for the keeper's earnings log. `gained`/`lamportsSpent` are null when it did not confirm. */
 export interface TripRecord {
   at: string;
-  kind: 'jupiter' | 'own-pools' | 'outside' | 'dust';
+  kind: 'jupiter' | 'own-pools' | 'outside' | 'dust' | 'direct';
   pool: string;
   name: string;
   coin: QuoteCoin;
@@ -157,6 +174,8 @@ export interface CycleResult {
   seen: GapSeen[];
   /** Loops through three of our pools weighed this pass: no Jupiter call each. */
   loops: number;
+  /** Our pools weighed against an outside pool this pass, both swaps built here (keeper/direct.ts): no Jupiter call each. */
+  direct?: number;
 }
 
 const SIM_UNITS = MAX_TRIP_UNITS;
@@ -288,7 +307,7 @@ export async function runCycle(io: KeeperIo, s: KeeperSettings): Promise<CycleRe
     return o === 'unsure';
   };
   let loops = 0;
-  const stop = () => stopForUnsure(io, { pools: pools.length, gaps, sent, watch: watchOf(pools, outside), looked, seen, loops });
+  const stop = () => stopForUnsure(io, { pools: pools.length, gaps, sent, watch: watchOf(pools, outside), looked, seen, loops, direct });
 
   // 1. Between our own pools of one pair: both fees stay with the venue. Only a pair priced in a
   //    coin the keeper holds: a trip starts in the pool's own coin.
@@ -317,6 +336,32 @@ export async function runCycle(io: KeeperIo, s: KeeperSettings): Promise<CycleRe
         if (counted(o, ...loop.map((l) => l.view))) return stop();
       } catch (e) {
         io.log(`${name}: stopped, ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+  }
+
+  // 1c. Against the coin's outside pool, both swaps built here (keeper/direct.ts): no Jupiter call,
+  //     so it is asked before Jupiter, and a pool a direct trip moves is not asked about this pass.
+  let direct = 0;
+  if (s.direct && io.directPools && chainNow !== null) {
+    let outsidePools: DirectPool[] = [];
+    try {
+      outsidePools = await readDirectPools(io.rpc, io.directPools(), s.allowRaydium ? s.directIds : null, Number(chainNow));
+    } catch (e) {
+      io.log(`Outside pools for direct trips not read (${e instanceof Error ? e.message : String(e)}): none this pass`);
+    }
+    for (const view of feeFree) {
+      if (view.quote.mint !== SOL_QUOTE.mint) continue;
+      for (const d of outsidePools) {
+        if (d.tokenMint !== view.tokenMint || moved.has(view.address)) continue;
+        direct++;
+        const name = `${nameOf(view, safety)}, against ${d.venue} ${d.address}`;
+        try {
+          const o = await directTrip(io, s, view, d, chainNow, prices.usd, name);
+          if (counted(o, view)) return stop();
+        } catch (e) {
+          io.log(`${name}: stopped, ${e instanceof Error ? e.message : String(e)}`);
+        }
       }
     }
   }
@@ -374,7 +419,7 @@ export async function runCycle(io: KeeperIo, s: KeeperSettings): Promise<CycleRe
       // Too many calls: the keyless allowance is the whole PC's, so the rest of this pass asks nothing.
       if (/^Jupiter \S+ answered 429/.test(said)) {
         io.log('Jupiter says too many calls: no more Jupiter asks this pass');
-        return { pools: pools.length, gaps, sent, watch: watchOf(pools, outside), looked, seen, loops };
+        return { pools: pools.length, gaps, sent, watch: watchOf(pools, outside), looked, seen, loops, direct };
       }
     }
   }
@@ -404,7 +449,7 @@ export async function runCycle(io: KeeperIo, s: KeeperSettings): Promise<CycleRe
       }
     }
   }
-  return { pools: pools.length, gaps, sent, watch: watchOf(pools, outside), looked, seen, loops };
+  return { pools: pools.length, gaps, sent, watch: watchOf(pools, outside), looked, seen, loops, direct };
 }
 
 /** Trips between two outside pools tried a pass, at most. */
@@ -618,6 +663,57 @@ async function ownPairTrip(io: KeeperIo, s: KeeperSettings, a: PoolView, b: Pool
     floor: minProfit,
     verdict: (c) => simulationProblem(c, { minProfit }),
     says: (gained) => `buy in ${plan.cheap.address}, sell in ${plan.dear.address}, ${amt(plan.coinIn)} in, test run gains ${amt(gained)} (floor ${amt(minProfit)})`,
+  });
+}
+
+/**
+ * One of our pools against an outside pool of the same coin (keeper/direct.ts), both swaps built
+ * here: planned with each program's exact maths, then the same test run, Lighthouse floor, Jito
+ * tip and daily cap as every trip (sendChecked). Past the float only with a loan inside the trip.
+ * Exported for its test.
+ */
+export async function directTrip(io: KeeperIo, s: KeeperSettings, view: PoolView, d: DirectPool, chainNow: bigint, usd: ReadonlyMap<string, number>, name: string): Promise<Outcome> {
+  const now = Number(chainNow);
+  if (!directPlan(view, d, now, usd, s, ANY_HOLDING)) return 'none';
+  const acc = accountsFor(io.owner, view);
+  const before = await balances(io.rpc, [acc.coinAta, acc.tokenAta, acc.otherAta, io.owner]);
+  const plan = directPlan(view, d, now, usd, s, s.flashLoans ? ANY_HOLDING : before.coin);
+  if (!plan) return 'none';
+  const amt = amountText(view.quote);
+  const loan = loanFor(view.quote.mint, plan.coinIn, before.coin, s.flashLoans);
+  const rent = rentToEarn(s, before.tokenExists, view.quote, usd);
+  const minProfit = rent === null ? null : plan.minProfit + rent + flashFee(loan);
+  if (minProfit === null || plan.profit < minProfit) {
+    io.log(`${name}: skipped, the trip makes ${amt(plan.profit)}, under the floor, any loan's fee and any new account's rent`);
+    return 'none';
+  }
+  // The last leg must bring back what the first took plus the floor; the Lighthouse check holds it.
+  const lastMin = lastPoolMinimum(plan.coinOut, plan.spent + minProfit, s.slippageBps);
+  if (lastMin === null) return 'none';
+  const legs =
+    plan.buyIn === 'ours'
+      ? [ownSwap(io.owner, view, 'coin', plan.coinIn, plan.tokens), d.sellIx(io.owner, plan.tokens, lastMin)]
+      : [d.buyIx(io.owner, plan.coinIn, plan.tokens), ownSwap(io.owner, view, 'token', plan.tokens, lastMin)];
+  const built = legs.filter((l): l is TransactionInstruction => l !== null);
+  if (built.length !== legs.length) {
+    io.log(`${name}: skipped, the ${d.venue} swap could not be built`);
+    return 'none';
+  }
+  const [first, second] = plan.buyIn === 'ours' ? [view.address, d.address] : [d.address, view.address];
+  return sendChecked(io, s, {
+    name,
+    kind: 'direct',
+    pool: `${first} → ${second}`,
+    coin: view.quote,
+    coinIn: plan.coinIn,
+    accounts: acc,
+    before,
+    legs: built,
+    lookupTables: [...s.directLookupTables],
+    loan,
+    floor: minProfit,
+    verdict: (c) => simulationProblem(c, { minProfit }),
+    says: (gained) => `${plan.buyIn === 'ours' ? `buy here, sell in ${d.venue}` : `buy in ${d.venue}, sell here`}, ${amt(plan.coinIn)} in${borrowed(loan, amt)}, test run gains ${amt(gained)} (floor ${amt(minProfit)})`,
   });
 }
 
