@@ -12,8 +12,7 @@
 //      emissions. The controller IS deployed and wired here (launcher-local
 //      AFTERLIFE_GAUGE_CONTROLLER_ADDRESS, 0x6c79…1054), so a graduated launch
 //      reports gauge application as 'eligible'. Its ownership still sits on the
-//      flagged Safe pending re-home, so it is deliberately kept out of the
-//      app-global gauge gate (see constants.ts). Boosted-LP (feature 1) stays
+//      flagged Safe pending re-home (see constants.ts). Boosted-LP (feature 1) stays
 //      'pending-deployment' until the V4 PositionManager is wired (still zero).
 //
 // This module is PURE PARAM COMPUTATION ONLY. It builds typed, testable inputs —
@@ -26,11 +25,8 @@ import type { Address, Hex } from 'viem';
 import { keccak256, encodeAbiParameters } from 'viem';
 import type { LaunchTier } from './factSheet';
 import { TOWELI_ADDRESS, TEGRIDY_STAKING_ADDRESS } from '../constants';
-// GaugeController is sourced from the launcher-LOCAL address book, NOT the
-// app-global `GAUGE_CONTROLLER_ADDRESS`. The global gates live gauge-voting UI on
-// `isDeployed(...)` with no separate flag, and the controller's ownership is not
-// yet re-homed — so afterlife reports the real address without lighting that up.
-// See constants.ts (AFTERLIFE_GAUGE_CONTROLLER_ADDRESS) for the full rationale.
+// GaugeController is sourced from the launcher-LOCAL address book; the app has no
+// app-global gauge constant. See constants.ts (AFTERLIFE_GAUGE_CONTROLLER_ADDRESS).
 import { AFTERLIFE_GAUGE_CONTROLLER_ADDRESS, AFTERLIFE_V4_POSITION_MANAGER_ADDRESS } from './constants';
 
 export const ZERO_ADDRESS: Address = '0x0000000000000000000000000000000000000000';
@@ -97,9 +93,8 @@ export function computeV4PoolId(key: V4PoolKey): Hex {
  * That is NOT "farming is live": a per-pool TegridyBoostedLPStaker is still deployed
  * per-launch by a re-homed-Safe owner (buildBoostedStakerDeployParams requires a
  * non-zero owner — no fabricated default). `gaugeController` likewise defaults to the
- * real deployed mainnet address (AFTERLIFE_GAUGE_CONTROLLER_ADDRESS) — deliberately
- * kept out of the app-global gauge gate, which is not yet turned on (ownership not
- * re-homed).
+ * real deployed mainnet address (AFTERLIFE_GAUGE_CONTROLLER_ADDRESS), whose ownership
+ * is not yet re-homed.
  */
 export interface AfterlifeAddressBook {
   /** Emissions reward token — TOWELI. */

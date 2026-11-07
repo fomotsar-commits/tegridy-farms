@@ -2,6 +2,8 @@
 // alone in its own text node counts here, where the e2e walk files it as the unread
 // placeholder. The live pool cards are stubbed: their copy is theirs to answer for.
 import { describe, it, expect, vi } from 'vitest';
+// Harvest (components/farm/HarvestCard.tsx) needs the app's wagmi root; it has its own tests.
+vi.mock('../farm/HarvestCard', () => ({ HarvestCard: () => null }));
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { BUNGALOWS, type Bungalow } from '../../lib/bungalows';

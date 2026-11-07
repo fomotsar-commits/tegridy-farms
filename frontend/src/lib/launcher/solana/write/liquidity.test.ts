@@ -15,13 +15,14 @@ import {
   POOL_STATUS_DISABLE_SWAP,
   POOL_STATUS_DISABLE_WITHDRAW,
   decodePoolState,
+  deriveAmmConfig,
 } from '../../../solana/cpswap/program';
 import { lpTokensToTradingTokens } from '../../../solana/cpswap/math';
-import { spendableSol } from '../../../solana/lp/liquidityMath';
+import { isqrt, spendableSol } from '../../../solana/lp/liquidityMath';
 import { estimatedLoss } from '../../../solana/lp/opening';
 import { assessPool } from '../../../solana/lp/poolHealth';
 import { BUILDABLE_EXTENSIONS, EXTENSION, classifyToken } from '../../../solana/lp/tokenSafety';
-import { observationBytes } from '../../../solana/lp/testkit.fixture';
+import { observationBytes, steadyRecord } from '../../../solana/lp/testkit.fixture';
 import type { OutsidePrice } from '../../../solana/lp/outsidePrice';
 import { METAPLEX_TOKEN_METADATA_ID, metadataPda } from './metaplex';
 import {
@@ -50,10 +51,14 @@ import {
   openAccount,
   rent,
   setClock,
+  setTransferFee,
   skewTestRun,
+  tokenFeeOnChain,
+  tokenFeeTaken,
   type PoolFixture,
   type SimHandler,
 } from './testkit.fixture';
+import { poolInverseFee } from '../../../solana/lp/transferFee';
 import type { LpOpenGate, PreparedTx, WriteRpc, LpDepositSummary, LpWithdrawSummary, IntentStep } from './types';
 import { SOL_QUOTE } from '../../../solana/lp/quotes';
 
@@ -73,7 +78,11 @@ const answering = (o: OutsidePrice): LpPrepareReads => ({ outsidePrice: async ()
 const NO_ROUTE: OutsidePrice = { kind: 'no-route', detail: 'Jupiter has no route for this token' };
 
 /** The body length each Token-2022 mint extension needs to decode (the two name ones); any other is opaque here. */
-const extensionOf = (type: number): [number, number] => [type, type === EXTENSION.MetadataPointer ? 64 : type === EXTENSION.TokenMetadata ? 76 : 8];
+// A transfer fee needs its real 108 bytes to decode (zeroes: 0%, nobody can change it).
+const extensionOf = (type: number): [number, number] => [
+  type,
+  type === EXTENSION.MetadataPointer ? 64 : type === EXTENSION.TokenMetadata ? 76 : type === EXTENSION.TransferFeeConfig ? 108 : 8,
+];
 /** A Token-2022 mint's extra beyond its name and picture. */
 const withExtra = (type: number): Array<[number, number]> => [extensionOf(type), ...METADATA_ONLY];
 
@@ -139,22 +148,33 @@ const lpSimulator: SimHandler = (vtx: VersionedTransaction, config, chain) => {
   const tokBefore = amountAt(chain, userTok) ?? 0n;
   const lpBefore = amountAt(chain, userLp) ?? 0n;
 
+  // The token's transfer fee, as its mint on this chain sets it: a deposit sends it on top
+  // of what the pool takes (deposit.rs), a withdrawal pays out less it (withdraw.rs).
+  const tokMint = new PublicKey(solIs0 ? state.token1Mint : state.token0Mint);
   let solMoved: bigint;
   let tokMoved: bigint;
   if (isDeposit) {
     const c = lpTokensToTradingTokens(lp, state.lpSupply, R0, R1, 'ceiling');
     if (!c || c.token0Amount === 0n || c.token1Amount === 0n) return fail(6006);
-    if (c.token0Amount > b0 || c.token1Amount > b1) return fail(6005);
-    if (tokBefore < (solIs0 ? c.token1Amount : c.token0Amount)) return { err: { InstructionError: [3, { Custom: 1 }] }, logs: [], unitsConsumed: 1 };
+    const tokCost = solIs0 ? c.token1Amount : c.token0Amount;
+    const inv = poolInverseFee(tokenFeeOnChain(chain, tokMint), tokCost);
+    if (inv === null) return fail(6010);
+    const sent = tokCost + inv;
+    const [s0, s1] = solIs0 ? [c.token0Amount, sent] : [sent, c.token1Amount];
+    if (s0 > b0 || s1 > b1) return fail(6005);
+    if (tokBefore < sent) return { err: { InstructionError: [3, { Custom: 1 }] }, logs: [], unitsConsumed: 1 };
     solMoved = -(solIs0 ? c.token0Amount : c.token1Amount);
-    tokMoved = -(solIs0 ? c.token1Amount : c.token0Amount);
+    tokMoved = -sent;
   } else if (isWithdraw) {
     const o = lpTokensToTradingTokens(lp, state.lpSupply, R0, R1, 'floor');
     if (!o || o.token0Amount === 0n || o.token1Amount === 0n) return fail(6006);
-    if (o.token0Amount < b0 || o.token1Amount < b1) return fail(6005);
+    const tokOut = solIs0 ? o.token1Amount : o.token0Amount;
+    const got = tokOut - tokenFeeTaken(chain, tokMint, tokOut);
+    const [g0, g1] = solIs0 ? [o.token0Amount, got] : [got, o.token1Amount];
+    if (g0 < b0 || g1 < b1) return fail(6005);
     if (lpBefore < lp) return { err: { InstructionError: [3, { Custom: 2506 }] }, logs: [], unitsConsumed: 1 };
     solMoved = solIs0 ? o.token0Amount : o.token1Amount;
-    tokMoved = solIs0 ? o.token1Amount : o.token0Amount;
+    tokMoved = got;
   } else {
     return { err: 'not a liquidity instruction', logs: [], unitsConsumed: 1 };
   }
@@ -204,6 +224,8 @@ function world(o: {
   heldLp?: bigint;
   heldWsol?: bigint;
   record?: Parameters<typeof addPool>[2]['record'];
+  ammConfig?: PublicKey;
+  address?: PublicKey;
 } = {}): World {
   const chain = FakeChain.healthy();
   chain.simulate = lpSimulator;
@@ -215,7 +237,8 @@ function world(o: {
   const pool = addPool(chain, mint, {
     sol: o.sol ?? SOL_RESERVE,
     tokens: o.tokens ?? TOKEN_RESERVE,
-    lpSupply: o.lpSupply ?? LP_SUPPLY,
+    // A launch pool's shares are the ones the pool program opened it with (addPool's default).
+    lpSupply: o.lpSupply ?? (o.launch ? undefined : LP_SUPPLY),
     status: o.status,
     openTime: o.openTime,
     launch: o.launch,
@@ -223,6 +246,8 @@ function world(o: {
     tokenProgram,
     frozenTokenVault: o.frozenTokenVault,
     record: o.record,
+    ammConfig: o.ammConfig,
+    address: o.address,
     ...(o.poolDecimals === undefined ? {} : { tokenDecimals: o.poolDecimals }),
   });
   setClock(chain, NOW);
@@ -371,6 +396,25 @@ describe('poolPins', () => {
 
 // ── deposit ──────────────────────────────────────────────────────────────────
 
+// Audit CM-2, 2026-11-03: a pool too empty to hold its price takes no deposit (poolHealth.ts).
+// The pool here is the live one everyone had left that day: the locked 100 shares over 5
+// lamports and 2,138 token units.
+describe('a pool too empty to hold its price', () => {
+  const live = (o: Parameters<typeof world>[0] = {}) => world({ sol: 5n, tokens: 2_138n, lpSupply: 100n, ...o });
+
+  it('builds no deposit on the fresh read, even one that fits the wallet at the price the pool agrees with', async () => {
+    expect(refused(await deposit(live(), { maxIn: 1_000n }, priced(5 / 1e9 / (2_138 / 1e6))))).toBe(
+      'We did not build this deposit: This pool is almost empty, so anyone can move its price for next to nothing, and a deposit would go in at whatever price they set.',
+    );
+  });
+
+  it('still builds the withdrawal of whoever holds its last shares', async () => {
+    // 1,100 shares, the locked 100 among them, over 3,480 lamports and 348 units; the wallet holds the other 1,000.
+    const p = ok(await withdraw(world({ sol: 3_480n, tokens: 348n, lpSupply: 1_100n, heldLp: 1_000n })));
+    expect(p.kind).toBe('lp-withdraw');
+  });
+});
+
 describe('prepareLpDeposit', () => {
   it('a clean pool: one deposit, bounded on both sides, every number from the transaction', async () => {
     const w = world();
@@ -479,11 +523,15 @@ describe('prepareLpDeposit', () => {
     expect(s.warnings.join(' ')).not.toMatch(/about 0 SOL/);
   });
 
-  it('refused when the outside price cannot be read at prepare, or the read throws: unread is never a warning', async () => {
-    const w = world();
-    expect(refused(await deposit(w, {}, answering({ kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' })))).toMatch(/could not check its price.*HTTP 502/);
+  // Answer twenty-seven withdrew twenty-four's hold: the pool's own price is the truth of a
+  // deposit, and an outside price not read is one row, never a gate and never a warning.
+  it('builds when the outside price cannot be read at prepare, or the read throws: one row, never a gate, never a warning', async () => {
+    const s = ok(await deposit(world(), {}, answering({ kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' }))).summary as LpDepositSummary;
+    expect(s.price).toMatchObject({ state: 'unread', detail: 'Outside price not read yet', outside: true });
+    expect(s.warnings).toEqual([]);
+    expect(s.priceGap).toBeNull();
     const throwing: LpPrepareReads = { outsidePrice: async () => { throw new Error('offline'); } };
-    expect(refused(await deposit(w, {}, throwing))).toMatch(/could not check its price.*offline/);
+    expect((ok(await deposit(world(), {}, throwing)).summary as LpDepositSummary).price).toMatchObject({ state: 'unread', outside: true });
   });
 
   // Owner ruling 2026-10-04. Jupiter ANSWERING "no route" for a pool anyone could open is
@@ -496,19 +544,46 @@ describe('prepareLpDeposit', () => {
     expect(s.priceGap).toBeNull();
   });
 
-  it('what still refuses a deposit, each in its own words: a mint under another program than the pool’s, other decimals, a 0-bps transfer fee, an extension the pool program rejects', async () => {
+  // Owner, 2026-10-29: a token with a transfer fee is added to. deposit.rs sends the pool's
+  // cost PLUS the fee on top, and refuses it above the maximum; this chain's pool program
+  // does the same, so a maximum set without the fee is refused at the test run.
+  it('a token with a transfer fee is added to: its fee rides on top of what the pool takes, inside the maximum, and the review says it', async () => {
+    for (const driving of ['quote', 'token'] as const) {
+      const w = world({ tokenProgram: TOKEN_2022_PROGRAM_ID, mintExtensions: [[EXT.TransferFeeConfig, 108], ...METADATA_ONLY] });
+      setTransferFee(w.chain, w.mint, { basisPoints: 500 });
+      const p = ok(await deposit(w, { driving, maxIn: driving === 'quote' ? 100_000_000n : 1_000_000n }));
+      const s = p.summary as LpDepositSummary;
+      expect(s.transferFee?.rate, driving).toBe('5%');
+      const kept = s.transferFee!.kept;
+      // What leaves is the pool's cost and the fee on top: the pool gets exactly its cost.
+      const poolCost = s.quoted.token - kept;
+      expect(kept, driving).toBe(poolInverseFee({ epoch: 0n, maximumFee: (1n << 64n) - 1n, basisPoints: 500 }, poolCost));
+      expect(s.quoted.token, driving).toBeLessThanOrEqual(s.max.token);
+      const tok = p.simulated.tokenDeltas.find((d) => d.account.equals(w.tokenAta))!;
+      expect(tok.delta, driving).toBe(-s.quoted.token);
+      expect(s.tokenWarnings.map((x) => x.code), driving).toContain('transfer-fee');
+    }
+  });
+
+  it('a fee change pending and the clock unread: nothing is built, a deposit or a withdrawal', async () => {
+    const w = world({ tokenProgram: TOKEN_2022_PROGRAM_ID, mintExtensions: [[EXT.TransferFeeConfig, 108], ...METADATA_ONLY], heldLp: LP_SUPPLY / 10n });
+    setTransferFee(w.chain, w.mint, { basisPoints: 100, newer: { epoch: 9n, basisPoints: 400 } });
+    setClock(w.chain, null);
+    expect(refused(await deposit(w))).toBe(LP_COPY.noEpoch);
+    expect(refused(await withdraw(w))).toBe(LP_COPY.noEpoch);
+    // With the clock, the epoch picks: before 9 the older 1%, from 9 the newer 4%.
+    setClock(w.chain, NOW, 8n);
+    expect((ok(await deposit(w)).summary as LpDepositSummary).transferFee?.rate).toBe('1%');
+    setClock(w.chain, NOW, 9n);
+    expect((ok(await withdraw(w)).summary as LpWithdrawSummary).transferFee?.rate).toBe('4%');
+  });
+
+  it('what still refuses a deposit, each in its own words: a mint under another program than the pool’s, other decimals, an extension the pool program rejects', async () => {
     // The pool says classic; the mint is Token-2022.
     const w = world();
     w.chain.mint2022(w.mint, METADATA_ONLY, { decimals: 6 });
     expect(refused(await deposit(w))).toBe(LP_COPY.poolChanged("the token's program"));
     expect(refused(await deposit(world({ mintDecimals: 9 })))).toBe(LP_COPY.poolChanged("the token's decimals"));
-    // A transfer fee: the leave rule. The words say it is this site's limit.
-    const fee = world({ tokenProgram: TOKEN_2022_PROGRAM_ID, mintExtensions: [[EXT.TransferFeeConfig, 108], ...METADATA_ONLY] });
-    expect(refused(await deposit(fee))).toBe(
-      LP_COPY.tokenBlocked(
-        'It uses a transfer-fee setting, which lets the token take a fee out of every transfer. This site cannot build exact deposits and withdrawals for a token with one, so it does not open or add to pools for it.',
-      ),
-    );
     const hook = world({ tokenProgram: TOKEN_2022_PROGRAM_ID, mintExtensions: withExtra(EXTENSION.TransferHook) });
     expect(refused(await deposit(hook))).toBe(
       LP_COPY.tokenBlocked('It uses a transfer hook, a program that runs on every transfer and can refuse or redirect it. The pool program does not accept tokens with it.'),
@@ -681,13 +756,14 @@ describe('prepareLpDeposit', () => {
     expect((plain.summary as LpDepositSummary).enableCreatorFee).toBe(false);
   });
 
-  it('a never-traded launch pool prepares when Jupiter answers no route, and is refused when Jupiter is down', async () => {
+  it('a never-traded launch pool prepares when Jupiter answers no route, and when Jupiter is down (answer twenty-seven)', async () => {
     const w = world({ launch: true });
     const p = ok(await deposit(w, {}, answering({ kind: 'no-route', detail: 'Jupiter has no route for this token' })));
     expect((p.summary as LpDepositSummary).origin).toBe('launch-pool');
     expect((p.summary as LpDepositSummary).price.state).toBe('no-trades-yet');
-    // The card had said allowed; at prepare Jupiter is down: unchecked, so no deposit.
-    expect(refused(await deposit(w, {}, answering({ kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' })))).toMatch(/^We did not build this deposit: .*HTTP 502/);
+    // At prepare Jupiter is down: the outside price is one row, never a gate.
+    const down = ok(await deposit(world({ launch: true }), {}, answering({ kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' })));
+    expect((down.summary as LpDepositSummary).price).toMatchObject({ state: 'unread', outside: true });
   });
 
   // A launch pool with no route keeps its own-average check. Off that average it builds
@@ -730,14 +806,10 @@ describe('prepareLpDeposit', () => {
       const launch = addPool(w.chain, w.mint, { sol: SOL_RESERVE, tokens: TOKEN_RESERVE, launch: true, ...o.launch });
       return { w, launch };
     }
-    /** An hour of trading on `pool` at `perBase` lamports a token base unit, last written ten seconds ago. */
+    /** An hour of steady trading on `pool` at `perBase` lamports a token base unit, last written ten seconds ago. */
     function traded(chain: FakeChain, pool: PoolFixture, perBase: bigint) {
-      const Q32 = 1n << 32n;
-      const [first, last] = [NOW - 3_610n, NOW - 10n];
-      const own = perBase * Q32 * (last - first);
-      const other = ((Q32 * Q32) / (perBase * Q32)) * (last - first);
-      const [c0, c1] = pool.quoteIsToken0 ? [other, own] : [own, other];
-      chain.set(pool.observation, { lamports: rent(4075), owner: CPSWAP, data: observationBytes({ pool: pool.address, index: 1, lastUpdate: last, obs: [[0, first, 0n, 0n], [1, last, c0, c1]] }) });
+      const data = steadyRecord({ pool: pool.address, quoteIsToken0: pool.quoteIsToken0, perBaseX32: perBase << 32n, first: NOW - 3_610n, last: NOW - 10n });
+      chain.set(pool.observation, { lamports: rent(4075), owner: CPSWAP, data });
     }
     /** Every address each account read asked for, in order. */
     function reads(w: World): string[][] {
@@ -775,15 +847,17 @@ describe('prepareLpDeposit', () => {
       }
     });
 
-    it('the launch pool is read fresh: its price moves after the page read it, and the review follows', async () => {
+    // A never-traded launch pool's price moves only by a transfer into a vault (M-1009-6),
+    // and a pool whose price moved that way is no reference: the review says so.
+    it('the launch pool is read fresh: tokens sent into it after the page read it take it away as a reference, and the review follows', async () => {
       // The stranger's pool sits at 0.02 SOL a token. The page saw the launch pool there too.
       const { w, launch } = besideLaunch({ sol: 2n * 10n ** 9n, tokens: 100n * 10n ** 6n, launch: { sol: 2n * SOL_RESERVE } });
       expect((await summaryOf(w)).price).toMatchObject({ state: 'agrees', against: 'launch-pool' });
-      // Before Review the launch pool is back at 0.01: the stranger's pool is now 100% above it.
-      w.chain.tokenAccount(launch.solVault, WSOL_MINT, new PublicKey(w.chain.accounts.get(launch.solVault.toBase58())!.data.subarray(32, 64)), SOL_RESERVE);
+      // Before Review, as many tokens again are sent straight into the launch pool's token vault: 0.01 a token, its shares unchanged.
+      w.chain.tokenAccount(launch.tokenVault, w.mint, new PublicKey(w.chain.accounts.get(launch.tokenVault.toBase58())!.data.subarray(32, 64)), 2n * TOKEN_RESERVE);
       const s = await summaryOf(w);
-      expect(s.price).toMatchObject({ state: 'disagrees', against: 'launch-pool' });
-      expect(s.priceGap!.diff).toBeCloseTo(1, 9);
+      expect(s.price).toMatchObject({ state: 'no-market', detail: 'Jupiter has no route for this token' });
+      expect(s.warnings).toEqual([NO_MARKET_DEPOSIT]);
     });
 
     it('at the launch price it agrees with the launch pool: nothing to warn of, and no price gap', async () => {
@@ -826,10 +900,10 @@ describe('prepareLpDeposit', () => {
       expect((await summaryOf(withPrice.w, priced(0.1))).price).toMatchObject({ state: 'agrees', against: 'outside' });
       expect(priced1.flat()).not.toContain(withPrice.launch.address.toBase58());
 
-      // Jupiter is down: refused as unread, and the launch pool does not stand in.
+      // Jupiter is down: one row (answer twenty-seven), and the launch pool does not stand in.
       const down = besideLaunch();
       const downReads = reads(down.w);
-      expect(refused(await deposit(down.w, {}, answering({ kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' })))).toMatch(/could not check its price against an outside price.*HTTP 502/);
+      expect((await summaryOf(down.w, answering({ kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' }))).price).toMatchObject({ state: 'unread', outside: true });
       expect(downReads.flat()).not.toContain(down.launch.address.toBase58());
 
       // A deposit into the launch pool itself reads it once, as the pool it writes to.
@@ -849,26 +923,18 @@ describe('prepareLpDeposit', () => {
     });
   });
 
-  // Owner ruling 2026-10-07: a brand-new launch pool (no route, under 10 minutes of
-  // trading) takes deposits. Its record is too short to prove anything, so the price was
-  // checked against nothing: the builder builds, and the warning reaches the review the
-  // person signs. Before, this was `unchecked` and nothing was built.
-  describe('a launch pool with no route and under 10 minutes of trading', () => {
+  // Owner ruling 2026-10-07: a brand-new launch pool (no route, too short a record) takes
+  // deposits. Its record proves nothing yet, so the price was checked against nothing: the
+  // builder builds, and the warning reaches the review the person signs. "Too short" is
+  // under 24 minutes since M-1009-6 (ownPrice.ts TRUSTED_HISTORY_SECS).
+  describe('a launch pool with no route and under 24 minutes of trading', () => {
     const TOO_NEW =
-      'This pool has traded for under 10 minutes and Jupiter has no price for this token, so its price was checked against nothing. If someone has just pushed it, a deposit now pays for that.';
-    /** A launch pool whose first trade was `age` seconds ago, at today's price, last written ten seconds ago. */
+      'This pool has traded for under 24 minutes and Jupiter has no price for this token, so its price was checked against nothing. If someone has just pushed it, a deposit now pays for that.';
+    /** A launch pool that has traded steadily at today's price since `age` seconds ago, last written ten seconds ago. */
     const tradedFor = (age: bigint, o: Parameters<typeof world>[0] = {}) => {
       const w = world({ launch: true, ...o });
-      const Q32 = 1n << 32n;
-      const [first, last] = [NOW - age, NOW - 10n];
-      const own = 10n * Q32 * (last - first);
-      const other = ((Q32 * Q32) / (10n * Q32)) * (last - first);
-      const [c0, c1] = w.pool.quoteIsToken0 ? [other, own] : [own, other];
-      w.chain.set(w.pool.observation, {
-        lamports: rent(4075),
-        owner: CPSWAP,
-        data: observationBytes({ pool: w.pool.address, index: 1, lastUpdate: last, obs: [[0, first, 0n, 0n], [1, last, c0, c1]] }),
-      });
+      const data = steadyRecord({ pool: w.pool.address, quoteIsToken0: w.pool.quoteIsToken0, perBaseX32: 10n << 32n, first: NOW - age, last: NOW - 10n });
+      w.chain.set(w.pool.observation, { lamports: rent(4075), owner: CPSWAP, data });
       return w;
     };
 
@@ -888,14 +954,15 @@ describe('prepareLpDeposit', () => {
       expect(young.check.expect.maxSolOut).toBe(old.check.expect.maxSolOut);
     });
 
-    it('one second short of 10 minutes is "too new"; at 10 minutes it is checked against its own average', async () => {
-      expect((ok(await deposit(tradedFor(599n), {}, answering(NO_ROUTE))).summary as LpDepositSummary).price.state).toBe('too-new');
-      expect((ok(await deposit(tradedFor(600n), {}, answering(NO_ROUTE))).summary as LpDepositSummary).price.state).toBe('agrees');
+    it('one second short of 24 minutes is "too new"; at 24 minutes it is checked against its own average', async () => {
+      expect((ok(await deposit(tradedFor(1_439n), {}, answering(NO_ROUTE))).summary as LpDepositSummary).price.state).toBe('too-new');
+      expect((ok(await deposit(tradedFor(1_440n), {}, answering(NO_ROUTE))).summary as LpDepositSummary).price.state).toBe('agrees');
     });
 
-    // UNREAD IS STILL REFUSED: the same brand-new pool builds nothing when something was not read.
-    it('nothing is built when Jupiter failed to answer, when the clock was not read, or when its price record is missing', async () => {
-      expect(refused(await deposit(tradedFor(120n), {}, answering({ kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' })))).toMatch(/^We did not build this deposit: .*HTTP 502/);
+    // UNREAD IS STILL REFUSED for the pool's own reads: the same brand-new pool builds nothing
+    // when its clock or its price record was not read. Jupiter not answering is one row (answer twenty-seven).
+    it('nothing is built when the clock was not read, or when its price record is missing; Jupiter failing to answer is no gate', async () => {
+      expect((ok(await deposit(tradedFor(120n), {}, answering({ kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' }))).summary as LpDepositSummary).price).toMatchObject({ state: 'unread', outside: true });
       const noClock = tradedFor(120n);
       setClock(noClock.chain, null);
       expect(refused(await deposit(noClock, {}, answering(NO_ROUTE)))).toMatch(/^We did not build this deposit: .*network clock/);
@@ -906,6 +973,65 @@ describe('prepareLpDeposit', () => {
 
     it('it lifts nothing else: the same pool with withdrawals switched off is still refused', async () => {
       expect(refused(await deposit(tradedFor(120n, { status: POOL_STATUS_DISABLE_WITHDRAW }), {}, answering(NO_ROUTE)))).toMatch(/^We did not build this deposit: Withdrawals are switched off/);
+    });
+  });
+
+  // M-1009-6 at prepare time, on the fresh read: the same rule as the card (assessPool). A
+  // launch pool whose price may have moved without a trade builds, and its warning reaches
+  // the review the person signs (warn, not refuse). Removing never reads any of it.
+  describe('a launch pool with no route whose price may have moved without a trade', () => {
+    const RESERVES_MOVED =
+      'Nobody has traded in this pool, yet it holds more than its shares account for, and Jupiter has no price for this token. Someone may have moved its price by sending tokens or SOL straight into it; if so, a deposit now pays for that.';
+    const TOO_QUIET =
+      'This pool has had long gaps between trades over the last half hour, and Jupiter has no price for this token, so its own average cannot show its price is honest. If someone moved it between trades, a deposit now pays for that.';
+    /** The launch pool as the pool program opened it (10 SOL, 1,000 tokens), holding `tokens` now; the wallet holds a tenth of its shares. */
+    const opened = (tokens = TOKEN_RESERVE) => world({ launch: true, tokens, lpSupply: isqrt(SOL_RESERVE * TOKEN_RESERVE), heldLp: isqrt(SOL_RESERVE * TOKEN_RESERVE) / 10n });
+    /** A price record at `perBase` lamports a token base unit, a slot every `step` seconds for an hour, ending `endedAgo` seconds ago. */
+    const record = (w: World, perBase: bigint, step: bigint, endedAgo = 10n) => {
+      const data = steadyRecord({ pool: w.pool.address, quoteIsToken0: w.pool.quoteIsToken0, perBaseX32: perBase << 32n, first: NOW - endedAgo - 3_600n, last: NOW - endedAgo, step });
+      w.chain.set(w.pool.observation, { lamports: rent(4075), owner: CPSWAP, data });
+    };
+
+    it('never traded, tokens sent straight into its vault: it builds, with the warning on the summary; Remove still prepares', async () => {
+      const w = opened(2n * TOKEN_RESERVE);
+      const s = ok(await deposit(w, {}, answering(NO_ROUTE))).summary as LpDepositSummary;
+      expect(s.price.state).toBe('reserves-moved');
+      expect(s.warnings).toEqual([RESERVES_MOVED]);
+      expect(s.priceGap).toBeNull();
+      expect((await withdraw(w)).ok).toBe(true);
+    });
+
+    it('a transfer, then one dust swap (two slots an hour apart, both at the moved price): it builds, warned; Remove still prepares', async () => {
+      const w = opened(2n * TOKEN_RESERVE);
+      record(w, 5n, 3_600n);
+      const s = ok(await deposit(w, {}, answering(NO_ROUTE))).summary as LpDepositSummary;
+      expect(s.price.state).toBe('too-quiet');
+      expect(s.warnings).toEqual([TOO_QUIET]);
+      expect((await withdraw(w)).ok).toBe(true);
+    });
+
+    it('steady trading that stopped an hour ago: warned the same way', async () => {
+      const w = opened();
+      record(w, 10n, 60n, 3_600n);
+      expect((ok(await deposit(w, {}, answering(NO_ROUTE))).summary as LpDepositSummary).warnings).toEqual([TOO_QUIET]);
+    });
+
+    it('the warning decides nothing: the same shares, limits and bounds as the same pool trading steadily up to now, which has nothing to warn of', async () => {
+      const quiet = opened();
+      record(quiet, 10n, 60n, 3_600n);
+      const steady = opened();
+      record(steady, 10n, 60n);
+      const q = ok(await deposit(quiet, {}, answering(NO_ROUTE)));
+      const s = ok(await deposit(steady, {}, answering(NO_ROUTE)));
+      expect((s.summary as LpDepositSummary).price).toMatchObject({ state: 'agrees', against: 'own-average' });
+      expect((s.summary as LpDepositSummary).warnings).toEqual([]);
+      const [qs, ss] = [q.summary as LpDepositSummary, s.summary as LpDepositSummary];
+      expect([qs.lpAmount, qs.max, qs.quoted]).toEqual([ss.lpAmount, ss.max, ss.quoted]);
+      expect(q.check.expect.maxSolOut).toBe(s.check.expect.maxSolOut);
+    });
+
+    it('two sides below what its shares account for (a state the pool program never makes): unread, so nothing is built', async () => {
+      expect(refused(await deposit(opened(TOKEN_RESERVE / 2n), {}, answering(NO_ROUTE)))).toMatch(/^We did not build this deposit: .*below what its shares account for/);
     });
   });
 
@@ -983,6 +1109,25 @@ describe('prepareLpDeposit', () => {
 });
 
 // ── withdraw ─────────────────────────────────────────────────────────────────
+
+describe('a pool opened on the launch tier (fee tier 0) without a launch', () => {
+  const tier0 = deriveAmmConfig(CPSWAP, 0);
+
+  it('takes no deposit from this site, at the standard address or at its own', async () => {
+    for (const address of [undefined, Keypair.generate().publicKey]) {
+      expect(refused(await deposit(world({ ammConfig: tier0, address })))).toBe(LP_COPY.launchTier);
+    }
+  });
+
+  it('still lets a holder take their liquidity out', async () => {
+    const p = ok(await withdraw(holding({ ammConfig: tier0, address: Keypair.generate().publicKey })));
+    expect(p.steps.map((s) => s.kind)).toContain('pool-withdraw');
+  });
+
+  it('the launch pool on the same tier still takes a deposit', async () => {
+    ok(await deposit(world({ ammConfig: tier0, launch: true })));
+  });
+});
 
 describe('prepareLpWithdraw: the leave rule', () => {
   it('a clean withdrawal: one withdrawal, a minimum of at least 1 on each side, and it all comes to you', async () => {
@@ -1075,11 +1220,26 @@ describe('prepareLpWithdraw: what may refuse it', () => {
 
   // The row still offers Remove in this state, so the "Leaving without this site" block
   // is not on screen: the refusal must stand on its own and point at nothing.
-  it('a transfer-fee token: this site cannot build it yet, says the program still allows it, and points at no section that is not shown', async () => {
-    const w = holding({ tokenProgram: TOKEN_2022_PROGRAM_ID, mintExtensions: [[EXT.TransferFeeConfig, 108], ...METADATA_ONLY] });
+  it('a token this site cannot build for: says the program still allows it, and points at no section that is not shown', async () => {
+    const w = holding({ tokenProgram: TOKEN_2022_PROGRAM_ID, mintExtensions: withExtra(EXTENSION.TransferHook) });
     const msg = refused(await withdraw(w));
-    expect(msg).toMatch(/^This site cannot build a withdrawal for this token yet \(it uses a transfer-fee setting[^)]*\)\. The pool program still lets you withdraw/);
+    expect(msg).toMatch(/^This site cannot build a withdrawal for this token yet \(it uses a transfer hook[^)]*\)\. The pool program still lets you withdraw/);
     expect(msg).not.toMatch(/Leaving without this site|\bsee\b/i);
+  });
+
+  // Owner, 2026-10-29: a token with a transfer fee can be taken back out. withdraw.rs pays
+  // the floor share less the fee and holds the minimum to what is left; this chain's pool
+  // program does the same, so a minimum set before the fee is refused at the test run.
+  it('a token with a transfer fee is withdrawn: what reaches the wallet is the payout less the fee, and the minimum is held to that', async () => {
+    const w = holding({ tokenProgram: TOKEN_2022_PROGRAM_ID, mintExtensions: [[EXT.TransferFeeConfig, 108], ...METADATA_ONLY] });
+    setTransferFee(w.chain, w.mint, { basisPoints: 500 });
+    const p = ok(await withdraw(w));
+    const s = p.summary as LpWithdrawSummary;
+    const tokOut = s.quoted.token + s.transferFee!.kept;
+    expect(s.transferFee).toEqual({ rate: '5%', kept: (tokOut * 500n + 9_999n) / 10_000n });
+    expect(s.min.token).toBeLessThanOrEqual(s.quoted.token);
+    const tok = p.simulated.tokenDeltas.find((d) => d.account.equals(s.tokenAccount))!;
+    expect(tok.delta).toBe(s.quoted.token);
   });
 
   it('a payout account a stranger owns is refused, naming the owner; required memos are refused; so is a spender who could take the payout', async () => {

@@ -23,7 +23,7 @@ const TOKEN = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
 const entry = (signature: string, over: Partial<SigEntry> = {}): SigEntry => ({ signature, slot: 1, blockTime: null, err: null, confirmationStatus: 'finalized', ...over });
 /** A signature unique to this file and test: the cache is module state. The `x` keeps `tag1` and `tag11` apart under the padding. */
 const sig = (tag: string, i: number) => `${tag}${i}x`.padEnd(88, '1');
-const GET_TX_CONFIG = { encoding: 'json', maxSupportedTransactionVersion: 0, commitment: 'confirmed' };
+const GET_TX_CONFIG = { encoding: 'json', maxSupportedTransactionVersion: 1, commitment: 'confirmed' };
 
 /** The raw shape as the tests reach into it to break one field. */
 interface Loose {
@@ -115,7 +115,14 @@ describe('readSignatures', () => {
 });
 
 describe('readTransactions', () => {
-  it('asks one page of getTransaction at confirmed with version 0 allowed; null is "no record", a real answer', async () => {
+  it('a version 1 transaction (on mainnet in our pools since 2026-11-05) is read, not refused', async () => {
+    const { a, raw } = simple();
+    const s = sig('v1', 0);
+    const map = await readTransactions(fakeRpcWithHistory({}, {}, { [s]: { ...raw, version: 1 } }), [entry(s)]);
+    expect(map.get(s)?.keys).toEqual([a, POOL_PROGRAM]);
+  });
+
+  it('asks one page of getTransaction at confirmed with versions up to 1 allowed; null is "no record", a real answer', async () => {
     const calls: [string, unknown[]][] = [];
     const { raw } = simple();
     const has = sig('rt', 0);

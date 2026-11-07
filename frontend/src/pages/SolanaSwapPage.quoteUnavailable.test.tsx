@@ -43,6 +43,8 @@ const h = vi.hoisted(() => ({
   sendTransaction: vi.fn(),
 }));
 
+// The constant-product pools' route only: range pools in the route are SolanaSwapPage.rangePool.test.tsx's.
+vi.mock('../lib/solana/clmm/programId', async (orig) => ({ ...(await orig<typeof import('../lib/solana/clmm/programId')>()), rangePoolsVisible: () => false }));
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() } }));
 vi.mock('../lib/analytics', () => ({ trackPageView: vi.fn() }));
 vi.mock('../hooks/usePageTitle', () => ({ usePageTitle: vi.fn() }));

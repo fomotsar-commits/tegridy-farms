@@ -21,7 +21,7 @@ const opts = { programId: PROGRAM, launchProgramId: LAUNCH };
  * read asks about must be listed, with `[]` for no history: the kit keeps "no history"
  * apart from "not configured" and throws on the latter.
  */
-function chainWith(accounts: Record<string, FakeAccount>, history: Record<string, Array<{ keys: string[]; loaded?: string[] } | 'junk'>>, calls: string[] = []): SolanaRpc {
+function chainWith(accounts: Record<string, FakeAccount>, history: Record<string, Array<{ keys: string[]; loaded?: string[]; version?: number } | 'junk'>>, calls: string[] = []): SolanaRpc {
   const entries: Record<string, SigEntry[]> = {};
   const txs: Record<string, unknown> = {};
   for (const [address, list] of Object.entries(history)) {
@@ -29,7 +29,7 @@ function chainWith(accounts: Record<string, FakeAccount>, history: Record<string
       const signature = `${address.slice(0, 20)}${i}`.padEnd(88, '1');
       txs[signature] = t === 'junk'
         ? { transaction: { message: { accountKeys: 'not a list' } } }
-        : txJson({ keys: t.keys, loaded: t.loaded && { writable: t.loaded }, instructions: [], balances: [], slot: 1, blockTime: null });
+        : { ...(txJson({ keys: t.keys, loaded: t.loaded && { writable: t.loaded }, instructions: [], balances: [], slot: 1, blockTime: null }) as object), ...(t.version !== undefined && { version: t.version }) };
       return { signature, slot: 1, blockTime: null, err: null, confirmationStatus: 'finalized' };
     });
   }
@@ -65,6 +65,13 @@ describe('placeShareOnChain', () => {
   it('falls back to the share mint’s history, and reads keys loaded from lookup tables', async () => {
     const s = share();
     const rpc = chainWith(s.accounts, { [s.lpAccount]: [], [s.lpMint]: [{ keys: noise(), loaded: [s.p.address.toBase58()] }] });
+    const r = await placeShareOnChain(rpc, opts, { lpMint: s.lpMint, lpAccount: s.lpAccount });
+    expect(r.kind === 'placed' && r.entry.view.address).toBe(s.p.address.toBase58());
+  });
+
+  it('places a share from a version 1 transaction (on mainnet since 2026-11-05)', async () => {
+    const s = share();
+    const rpc = chainWith(s.accounts, { [s.lpAccount]: [{ keys: [...noise(), s.p.address.toBase58()], version: 1 }] });
     const r = await placeShareOnChain(rpc, opts, { lpMint: s.lpMint, lpAccount: s.lpAccount });
     expect(r.kind === 'placed' && r.entry.view.address).toBe(s.p.address.toBase58());
   });

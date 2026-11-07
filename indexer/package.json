@@ -20,5 +20,10 @@
   "devDependencies": {
     "typescript": "^5.7.0",
     "@types/node": "^22.0.0"
+  },
+  "overrides": {
+    "viem": {
+      "ws": "~8.21.1"
+    }
   }
 }

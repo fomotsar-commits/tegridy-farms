@@ -168,8 +168,8 @@ the same code. Nothing is deployed, so no live hash moves.
    cancel decodes every script input as an order, and the factory's datum is not one; the lock's
    `WithdrawFeeSharing` allows exactly one output holding a pool NFT, and opening adds a second.
    Did we miss one?
-2. **The receiver.** It must be the treasury, a native-script (Lace shared wallet) address, so any
-   output to it is spendable whatever datum it carries. Minswap's `validate_global_setting` does
+2. **The receiver.** It must be the treasury, a native-script address (the Eternl multi-sig wallet
+   named in section 4), so any output to it is spendable whatever datum it carries. Minswap's `validate_global_setting` does
    not check the two new fields; the lock refuses a `SetGlobalSetting` whose receiver is not its
    `treasury` parameter or whose fee is negative (section 3). That holds while the lock is the
    admin: an announced change that hands the admin to someone else hands them the receiver too,
@@ -288,7 +288,7 @@ was refused by at least one test.
 
 ## 4. In scope: the deploy parameters
 
-Not chosen yet, except the fees and the treasury's shape. **Never reuse Minswap's
+Not chosen yet, except the fees and the treasury (below). **Never reuse Minswap's
 `deployed/mainnet/params.json`**: its `poolStakeCredential`
 (`52563c5410bff6a0d43ccebb7c37e1f69f5eb260552521adff33b9c2`) is Minswap's key, and a pool deployed
 with it pays its ADA staking rewards to Minswap.
@@ -298,9 +298,34 @@ with it pays its ADA staking rewards to Minswap.
 | Authen seed | a UTxO the deploy spends; fixes our authen policy and every hash after it | ours, chosen at deploy |
 | NFT names `MSF`, `MSP`, `MSGS` | constants in Minswap's code, not parameters | unchanged |
 | Pool stake credential | where each new pool's ADA is staked, and so who earns its staking rewards (and, since Plomin, which DRep it delegates to) | the venue's |
-| Role timelock `Params` | `seed` (a second UTxO), `owner_a`, `owner_b`, `treasury`, `authen_policy_id` (ours) | treasury: a Lace shared wallet, a 2-of-2 native script the owner is creating; keys: owner's decision |
-| First GlobalSetting | `batchers` = the batcher's key(s); the five roles = `PAMSpendScript(role timelock hash)`; `pool_creation_fee` = 73,000,000 lovelace; `pool_creation_fee_receiver` = the treasury, exactly the lock's `treasury` parameter (`DexInitialization` checks neither field, so the deploy script must assert both; the lock refuses any later receiver but that one) | fee: owner's ruling, 2026-10-25; treasury: **owed**, the frontend's `CARDANO_VENUE_FEE_ADDRESS` is still null until the two-key wallet exists |
+| Role timelock `Params` | `seed` (a second UTxO), `owner_a`, `owner_b`, `treasury`, `authen_policy_id` (ours) | treasury: the venue's two-key treasury, proven on mainnet (below); keys: owner's decision |
+| First GlobalSetting | `batchers` = the batcher's key(s); the five roles = `PAMSpendScript(role timelock hash)`; `pool_creation_fee` = 73,000,000 lovelace; `pool_creation_fee_receiver` = the treasury, exactly the lock's `treasury` parameter (`DexInitialization` checks neither field, so the deploy script must assert both; the lock refuses any later receiver but that one) | fee: owner's ruling, 2026-10-25; receiver: the proven treasury below, the same address as the frontend's `CARDANO_VENUE_FEE_ADDRESS` |
 | Pools the site opens | base fee 30 / 10000 on both sides (0.3%); fee share switched on at 1333 / 10000 by a `SetPool` announcement | owner's ruling, 2026-10-24 |
+
+**The treasury** is the owner's Eternl multi-sig wallet "memetics.finance" (Eternl Pro, made
+2026-10-31), not a Lace shared wallet: Lace's own source calls those "a beta feature
+(testnet-only)", and Lace 2.x does not migrate them (input-output-hk/lace @ `d0df8d7e07`,
+`packages/module/migrate-v1-data/src/store/v1-data/prepare-preloaded-state.ts`). Its address:
+
+`addr1xy6kxswfkhnxfwllzcxkqfumhyjedvkvkvlt3p7mhwxwp3spv7vdp6er80lvtdm32cqvvetu93ams9yrggg5pm5tq3usr47kat`
+
+- Payment part: script `356341c9b5e664bbff160d60279bb92596b2ccb33eb887dbbb8ce0c6`, all of the keys
+  `47901a27b081437abaeb2e6a16762388f68f3eb40de056a529e9dc39` and
+  `063f7b2abbf1cb581516c5b4a78929a118752cc3672c10709bb8bc21`.
+- Stake part: script `016798d0eb233bfec5b7715600c6657c2c7bb81483421140ee8b0479`, all of the keys
+  `a91f2db69b8b44ef8355a53e648d052680d009c70d07bc9017292b5a` and
+  `f9824d0d357d21b5b12b1b83e0d1f567d6076aa74481cb1741f0be7c`. A one-key stake part would let that
+  key alone withdraw the treasury's staking rewards to any address.
+
+Both scripts are published in Eternl's registration tx
+`4774ad698f1df93b3a09d1942b0ff1001b87b9788d50fd2a13820576fbe42762` (metadata label 1854), and
+proven on mainnet 2026-11-07 by tx
+`06c0fc163e49d1b3486c37c8c56727df85e88e4d73209be800531ce17037d4da`, a spend from it carrying
+exactly the two payment keys' signatures. The same address is the swap's venue fee address
+(`CARDANO_VENUE_FEE_ADDRESS`, `frontend/src/lib/cardano/venueFee.ts`). It goes, as this one
+string, in the lock's `treasury` and the batcher's `sweep` setting (draft PR #1008,
+`cardano/batcher/README.md` step 8): the lock compares whole addresses, so the same spend script
+with another stake part is refused (`withdraw_to_the_treasury_restaked` in the lock's tests).
 
 Order: pick both seeds, compute the authen policy, compute the lock's hash with it, mint the lock
 token (both keys sign), then `DexInitialization` with the first GlobalSetting naming the lock.
@@ -339,7 +364,8 @@ collateral, and keeps the batcher fee. It cannot move any role: those are in the
 ## Decisions that are the owner's
 
 Decided 2026-10-24: the 0.3% fee and the 1333 share (which needed the patch in section 2a), the
-quarterly split from the treasury, and a two-key treasury (a Lace shared wallet, being set up).
+quarterly split from the treasury, and a two-key treasury (an Eternl multi-sig wallet, made
+2026-10-31 and proven on mainnet 2026-11-07: section 4).
 Decided 2026-10-25: a pool creation fee of about $15, as fixed ADA on chain (73 ADA to start),
 re-set by hand through the lock when ADA moves (which needed the patch in section 2b and widens
 this audit). Still open:

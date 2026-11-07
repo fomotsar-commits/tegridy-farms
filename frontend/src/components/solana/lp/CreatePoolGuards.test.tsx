@@ -72,6 +72,7 @@ function tier1View(address: PublicKey): PoolView {
     quoteReserve: s,
     tokenReserve: t,
     vaultsFrozen: false,
+    launchTierWithoutLaunch: false,
     history: { kind: 'not-read' },
   };
 }
@@ -90,6 +91,7 @@ function search(mint: string, views: PoolView[], standardState: 'absent' | 'pool
       index: { kind: 'ok', pools: views.map((v) => v.address), truncated: false },
       pools: views.map((v) => ({ kind: 'pool' as const, view: v })),
       otherPairs: 0,
+      launchTierPools: [],
       knownState: { [STANDARD.toBase58()]: standardState },
       chainNow: 1_000n,
     },

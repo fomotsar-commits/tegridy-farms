@@ -26,13 +26,30 @@ function text(s: string): number[] {
 }
 
 const NOBODY = new Uint8Array(32);
+/** Who can raise the fixture's transfer fee, and who collects it: two fixed keys. */
+export const FEE_RAISER = new Uint8Array(32).fill(7);
+export const FEE_COLLECTOR = new Uint8Array(32).fill(8);
+
+/** A 5% transfer fee with no cap, both settings the same: spl-token-2022 `TransferFeeConfig`, 108 bytes. */
+function fivePercentFee(): Uint8Array {
+  const v = new Uint8Array(108);
+  const d = new DataView(v.buffer);
+  v.set(FEE_RAISER, 0);
+  v.set(FEE_COLLECTOR, 32);
+  for (const at of [72, 90]) {
+    d.setBigUint64(at + 8, (1n << 64n) - 1n, true);
+    d.setUint16(at + 16, 500, true);
+  }
+  return v;
+}
 
 /**
  * A token as the page would read it. Left as it is: a clean token called Corn, with a
  * name nobody can change. `freeze`: its creator kept the freeze authority. `name` and
  * `symbol`: what it calls itself (BOBO is a well-known name with one real mint).
- * `transferFee`: it charges a transfer fee, which this site still refuses. `transferHook`:
- * it runs a program on every transfer, which the pool program itself rejects.
+ * `transferFee`: it keeps back 5% of every transfer, and someone can still raise that: a
+ * warning, never a block (owner, 2026-10-29). `transferHook`: it runs a program on every
+ * transfer, which the pool program itself rejects.
  */
 export function realToken(
   mint: PublicKey,
@@ -46,7 +63,7 @@ export function realToken(
   const entries = [
     // The name is kept in the mint itself, and nobody can point it elsewhere.
     entry(EXTENSION.MetadataPointer, Uint8Array.from([...NOBODY, ...mint.toBytes()])),
-    ...(o.transferFee ? [entry(EXTENSION.TransferFeeConfig, new Uint8Array(108))] : []),
+    ...(o.transferFee ? [entry(EXTENSION.TransferFeeConfig, fivePercentFee())] : []),
     ...(o.transferHook ? [entry(EXTENSION.TransferHook, new Uint8Array(64))] : []),
     entry(EXTENSION.TokenMetadata, Uint8Array.from([...NOBODY, ...mint.toBytes(), ...text(o.name ?? 'Corn'), ...text(o.symbol ?? 'CORN'), ...text('https://x.test/a.json'), 0, 0, 0, 0])),
   ];

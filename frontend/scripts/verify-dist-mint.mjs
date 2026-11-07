@@ -84,4 +84,5 @@ if (problems.length > 0) {
   for (const p of problems) console.error(`    ${p}`);
   process.exit(1);
 }
-console.log(`✔ dist token files: all ${wanted.length} metadata files and ${named.length} pictures present in ${MINT_DIR}/`);
+// Two files may share a picture, so the pictures are counted once each.
+console.log(`✔ dist token files: all ${wanted.length} metadata files and ${new Set(named).size} pictures present in ${MINT_DIR}/`);

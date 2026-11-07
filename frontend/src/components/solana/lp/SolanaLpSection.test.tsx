@@ -42,6 +42,7 @@ function view(o: { address?: PublicKey; configIndex?: number; sol?: bigint; tok?
     quoteReserve: s,
     tokenReserve: t,
     vaultsFrozen: o.frozen ?? false,
+    launchTierWithoutLaunch: false,
     history: { kind: 'not-read' },
   };
 }
@@ -60,6 +61,7 @@ function search(views: PoolView[], extra: Partial<Extract<PoolSearchRead, { kind
       index: { kind: 'ok', pools: views.map((v) => v.address), truncated: false },
       pools: views.map((v) => ({ kind: 'pool' as const, view: v })),
       otherPairs: 0,
+      launchTierPools: [],
       knownState: {},
       chainNow: 1_000n,
       ...extra,
@@ -159,11 +161,12 @@ describe('the LP section', () => {
     expect(await screen.findByText(/only the addresses we can work out ourselves were checked/)).toBeInTheDocument();
   });
 
-  it('an unread outside price leaves deposits unchecked and says so', async () => {
+  // Answer twenty-seven: the outside price is intel, one row, never a gate.
+  it('an unread outside price is one row, "not read yet", and leaves deposits open', async () => {
     mount(readers({ outsidePrice: vi.fn(async () => ({ kind: 'unread' as const, detail: 'Jupiter did not give a price (HTTP 502)' })) }));
     const card = await screen.findByTestId('lp-pool');
-    expect(card).toHaveAttribute('data-deposits', 'unchecked');
-    expect(within(card).getAllByText(/Jupiter did not give a price/).length).toBeGreaterThan(0);
+    await waitFor(() => expect(card).toHaveAttribute('data-deposits', 'allowed'));
+    expect(within(card).getByText('Outside price', { exact: true }).nextElementSibling).toHaveTextContent('not read yet');
   });
 
   it('refuses a bad address before reading anything', async () => {
@@ -468,7 +471,7 @@ describe('the order of the section', () => {
   });
 
   it('on both tabs: the earn line, the actions, the positions, the rates, the routes, the full notice', () => {
-    for (const path of ['/pools', '/solana-lp']) {
+    for (const path of ['/pools', '/pools']) {
       const view = mount(readers(), path);
       expect(parts()).toEqual(ORDER);
       view.unmount();
@@ -476,7 +479,7 @@ describe('the order of the section', () => {
   });
 
   it('the rates come straight after the positions, and the earn line stands above the actions', () => {
-    mount(readers(), '/solana-lp');
+    mount(readers(), '/pools');
     expect(screen.getByTestId('lp-positions').nextElementSibling).toBe(screen.getByTestId('fee-tiers'));
     expect(screen.getByTestId('fee-tiers').nextElementSibling).toBe(screen.getByTestId('lp-routes'));
     const line = screen.getByTestId('lp-earn-line');
@@ -493,7 +496,7 @@ describe('the order of the section', () => {
   // The vault's powers: the pool program's admin and its upgrade authority are both vault 0 of
   // a 2-of-2 Squads multisig whose time lock is 172,800 s since Squads #14 (read 2026-10-20).
   it('the vault sentence names what the team’s vault can do, with both keys and the 48-hour wait, and keeps the afford-to-lose clause', () => {
-    mount(readers(), '/solana-lp');
+    mount(readers(), '/pools');
     const line = within(screen.getByTestId('lp-disclosure')).getByText(RISK_LINE).textContent ?? '';
     expect(line).toContain('48 hours after both its keys approve');
     expect(line).not.toMatch(/no waiting period|at once/);
@@ -690,7 +693,7 @@ describe('the rates: what a trade pays, what stays in the pool, what the venue t
 // where it pays the trader more, a tie going to our pool; the sentence is in the small print.
 describe('swap routes', () => {
   it('two rules, the swap one press away, the venue fee said, the full sentence in the small print', () => {
-    mount(readers(), '/solana-lp');
+    mount(readers(), '/pools');
     const routes = screen.getByTestId('lp-routes');
     expect(within(routes).getByRole('heading', { level: 2 })).toHaveTextContent('Swap routes');
     const rules = within(within(routes).getByTestId('lp-route-rules')).getAllByRole('listitem').map((li) => li.textContent);

@@ -2,9 +2,6 @@
   "note": "Files that collapse a contract read with no unread signal. This list may SHRINK, never grow. Per-file triage (live vs dormant rail, and what a degraded read renders as) lives in BASELINE_TRIAGE in check-unread-signal.mjs and prints on every green run.",
   "files": [
     "src/hooks/useAutoRefreshBoost.ts",
-    "src/hooks/useBribes.ts",
-    "src/hooks/useGaugeList.ts",
-    "src/hooks/useProtocolStats.ts",
-    "src/hooks/useRestaking.ts"
+    "src/hooks/useProtocolStats.ts"
   ]
 }

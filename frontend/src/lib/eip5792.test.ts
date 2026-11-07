@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   isAtomicBatchSupported,
+  isBatchSupported,
   getWalletCapabilities,
   sendCalls,
   type Eip1193Like,
@@ -37,6 +38,24 @@ describe('isAtomicBatchSupported', () => {
     expect(isAtomicBatchSupported(null, chain)).toBe(false);
     expect(isAtomicBatchSupported(undefined, chain)).toBe(false);
     expect(isAtomicBatchSupported('nope', chain)).toBe(false);
+  });
+});
+
+describe('isBatchSupported: wallet_sendCalls at all, atomic or not', () => {
+  it('any of the three atomic statuses on that chain', () => {
+    for (const status of ['supported', 'ready', 'unsupported']) {
+      expect(isBatchSupported({ '0x2105': { atomic: { status } } }, '0x2105')).toBe(true);
+    }
+    expect(isBatchSupported({ '0X2105': { atomic: { status: 'unsupported' } } }, '0x2105')).toBe(true);
+  });
+
+  it('a chain with no atomic named, an unknown status, or nothing readable: never a batch', () => {
+    expect(isBatchSupported({ '0x1': { atomic: { status: 'supported' } } }, '0x2105')).toBe(false);
+    expect(isBatchSupported({ '0x2105': {} }, '0x2105')).toBe(false);
+    expect(isBatchSupported({ '0x2105': { atomic: { status: 'maybe' } } }, '0x2105')).toBe(false);
+    expect(isBatchSupported({ '0x2105': { atomic: null } }, '0x2105')).toBe(false);
+    expect(isBatchSupported(null, '0x2105')).toBe(false);
+    expect(isBatchSupported('nope', '0x2105')).toBe(false);
   });
 });
 

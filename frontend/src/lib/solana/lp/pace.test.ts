@@ -152,8 +152,8 @@ describe('the yearly figure never appears without its basis (the one door in the
   it('no other LP source says a yearly, daily or weekly rate: pace.ts is the only door, format.ts holds the ban', () => {
     const here = dirname(fileURLToPath(import.meta.url));
     const dirs = [here, join(here, '..', '..', '..', 'components', 'solana', 'lp')];
-    // And the two pages that mount the LP section, whose own cards speak of fees.
-    const pages = ['PoolsPage.tsx', 'SolanaLpPage.tsx'].map((f) => join(here, '..', '..', '..', 'pages', f));
+    // And the page that mounts the LP section, whose own cards speak of fees.
+    const pages = ['PoolsPage.tsx'].map((f) => join(here, '..', '..', '..', 'pages', f));
     const files = [...dirs.flatMap((d) => readdirSync(d).filter((f) => /\.tsx?$/.test(f) && !/\.(test|fixture)\./.test(f)).map((f) => join(d, f))), ...pages];
     expect(files.length).toBeGreaterThan(32);
     const saying = (re: RegExp, among: string[]) => among.filter((f) => re.test(readFileSync(f, 'utf8'))).map((f) => f.replace(/^.*[\\/]/, '')).sort();

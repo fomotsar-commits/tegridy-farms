@@ -19,15 +19,36 @@ export const LIMITS = { name: 32, symbol: 10, uri: 200 };
 const share = (pair, a, b) =>
   `A share of the ${pair} pool on ${HOST}. Remove liquidity there and it comes back as ${a} and ${b}. Do not burn it.`;
 
+/** The coins in our pools, by mint, as each share's `coins` names them. */
+export const COINS = {
+  SOL: 'So11111111111111111111111111111111111111112',
+  USDC: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
+  BAYLA: '7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump',
+  RIZZ: '5ad4puH6yDBoeCcrQfwV5s9bxvPnAeWDoYDj3uLyBS8k',
+  SOY: '8zsZESzrGoYVi1dVH4QNWXJ2EfW4v287aEGNiDvQpump',
+  BOBO: '4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump',
+  BRAINLET: '4XKGjKaKowFvL5sYwh2AKx72vj9iwC8MNvpL44E9pump',
+  CRYING: 'Ep5tnKTSkLDeQ12ctS3RhQNcbcApkcyJcGPgHh4dpump',
+};
+
 /**
  * One row per mint. `picture` is the file's slug; the generator adds a hash of the
- * bytes to it. `ring` names the ring colour in the generator.
+ * bytes to it. `ring` names the ring colour in the generator. `art` names the bungalow
+ * whose door art sits inside the ring; a row without it carries BAYLA's island mark.
+ * A pool share's `coins` are its two coins, the pool's own coin first and the coin it
+ * is paired with last, the order its name reads.
+ *
+ * Owner rulings 2026-10-24: a pool share is named "<first coin>/<second coin> LP"; only
+ * a bungalow's coin gets its own art inside its ring, every other share gets BAYLA's.
+ * The two BAYLA shares still carry the names of 2026-10-08 until the pool program is
+ * upgraded again: the upgrade's own page compares their live files with its copies.
  */
 export const MINT_TOKENS = [
   {
     mint: 'BQZth5DhHZT9H1AxZonoLAwGHknWo4LebQBxjKWtzY8e',
     kind: 'pool-share',
     pool: 'ErvzV1NMZmcfAqZtGH4AQhYAjn77nJEworKK1mYPz5w4',
+    coins: [COINS.BAYLA, COINS.SOL],
     name: 'Bayla LP SOL',
     symbol: 'BAYLA-SOL',
     description: share('BAYLA/SOL', 'BAYLA', 'SOL'),
@@ -38,9 +59,82 @@ export const MINT_TOKENS = [
     mint: '3D3EKJxfePDQ1N8YtNwg8W6eSL4mjVpbYf57pnqgcAQx',
     kind: 'pool-share',
     pool: 'J35mQ6UF9PpB6bQMes2TRVUMbJVPwMYjcfapbkdm8mYm',
+    coins: [COINS.BAYLA, COINS.USDC],
     name: 'Bayla LP USDC',
     symbol: 'BAYLA-USDC',
     description: share('BAYLA/USDC', 'BAYLA', 'USDC'),
+    picture: 'bayla-usdc',
+    ring: 'usdc',
+  },
+  {
+    mint: '8LUVkr5K9PFuLnXeZ2GfgiRXHxrQQQdzjnw1EiCQxcgZ',
+    kind: 'pool-share',
+    pool: '3yDDaZtABgj7z4BNtPKpfnK4yrx5bvEphDXYGGTnTmfA',
+    coins: [COINS.RIZZ, COINS.SOL],
+    name: 'RIZZ/SOL LP',
+    symbol: 'RIZZ-SOL',
+    description: share('RIZZ/SOL', 'RIZZ', 'SOL'),
+    picture: 'rizz-sol',
+    ring: 'sol',
+    art: 'rizz',
+  },
+  {
+    mint: '3YMYSG627S1gFMtG8GMWpzqVYd3DThRPMbxrgyqtpzUj',
+    kind: 'pool-share',
+    pool: '5M4SZy9Ytu1LGWWjBUwiDZ98bGdpQL4fD3PHETEXPAN8',
+    coins: [COINS.SOY, COINS.SOL],
+    name: 'SOY/SOL LP',
+    symbol: 'SOY-SOL',
+    description: share('SOY/SOL', 'SOY', 'SOL'),
+    picture: 'soy-sol',
+    ring: 'sol',
+    art: 'soy',
+  },
+  {
+    mint: 'CcLsQeUD1dWhrR3aNW3sjcKHeLbMdPvzFRyBniUTCtNJ',
+    kind: 'pool-share',
+    pool: '9mHGFULXNFjcdkZ9fLy24A3pp4iYVk6y889NNcUvSgRV',
+    coins: [COINS.BOBO, COINS.SOL],
+    name: 'BOBO/SOL LP',
+    symbol: 'BOBO-SOL',
+    description: share('BOBO/SOL', 'BOBO', 'SOL'),
+    picture: 'bobo-sol',
+    ring: 'sol',
+    art: 'bobo',
+  },
+  {
+    mint: 'AgSTcTMvo2U3hhRMxq6UVbaSNuiaBJSQRZ5b78A5ymc4',
+    kind: 'pool-share',
+    pool: 'HaRnur2ETP44bFtjUU4haQcFVYrCDTSaJfjKY3E3bDDD',
+    coins: [COINS.BRAINLET, COINS.SOL],
+    name: 'BRAINLET/SOL LP',
+    // "BRAINLET-SOL" is past the 10 bytes a symbol may hold. Owner, 2026-10-24: "use brain instead drop the L".
+    symbol: 'BRAIN-SOL',
+    description: share('BRAINLET/SOL', 'BRAINLET', 'SOL'),
+    picture: 'brainlet-sol',
+    ring: 'sol',
+    art: 'brainlet',
+  },
+  {
+    mint: '4HPgmQyPSEXMGcCQHUDeo1EhJWKpjrnugPBSNLkyrrzh',
+    kind: 'pool-share',
+    pool: '8T2ErLrntFdGMZaVHXNqX6z96Ay1qh5xGMm67mVeGrgB',
+    coins: [COINS.CRYING, COINS.SOL],
+    name: 'CRYING/SOL LP',
+    symbol: 'CRYING-SOL',
+    // Not one of the island's coins, so its whole address is said: a copy can share a ticker.
+    description: share('CRYING/SOL', `CRYING (${COINS.CRYING})`, 'SOL'),
+    picture: 'bayla-sol',
+    ring: 'sol',
+  },
+  {
+    mint: '45SMHUNbwLi91E792o3auPy7v8C4F58v6Yk5Yre7a4pC',
+    kind: 'pool-share',
+    pool: 'CvAVyjZk1A4hLuNDvEseCYHAn98mU1f4mKpveGvAM2UC',
+    coins: [COINS.SOL, COINS.USDC],
+    name: 'SOL/USDC LP',
+    symbol: 'SOL-USDC',
+    description: share('SOL/USDC', 'SOL', 'USDC'),
     picture: 'bayla-usdc',
     ring: 'usdc',
   },

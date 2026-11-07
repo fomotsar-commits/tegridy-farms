@@ -335,8 +335,9 @@ function offMarketLine(health: PoolHealth | undefined): string | null {
  *     token with no market, the pool that exists may well be the right place;
  *   - no price in the pool's own coin (Jupiter has no route for the pairing COIN, owner
  *     ruling 2026-10-07): the same, and the line names the coin, never "this token";
- *   - a launch pool with no route and under ten minutes of trading (`too-new`, the same
- *     ruling): the same again, in that state's own words.
+ *   - a launch pool with no route whose own record proves nothing (`too-new`, the same
+ *     ruling; `reserves-moved`, `too-quiet`, M-1009-6): the same again, in each state's
+ *     own words.
  */
 function adviceCaveat(health: PoolHealth | undefined, coin: QuoteCoin): { line: string; add: boolean } | null {
   const off = offMarketLine(health);
@@ -349,6 +350,12 @@ function adviceCaveat(health: PoolHealth | undefined, coin: QuoteCoin): { line: 
   if (health?.price.state === 'too-new') {
     // The pool's own warning (poolHealth.ts `TOO_NEW_WARNING`), said of "that pool".
     return { line: `That pool has traded for under ${MIN_HISTORY_TEXT} and Jupiter has no price for this token, so its price was checked against nothing. ${either}`, add: true };
+  }
+  if (health?.price.state === 'reserves-moved') {
+    return { line: `Nobody has traded in that pool, yet it holds more than its shares account for, and Jupiter has no price for this token, so its price was checked against nothing. ${either}`, add: true };
+  }
+  if (health?.price.state === 'too-quiet') {
+    return { line: `That pool has had long gaps between trades over the last half hour, and Jupiter has no price for this token, so its price was checked against nothing. ${either}`, add: true };
   }
   return null;
 }

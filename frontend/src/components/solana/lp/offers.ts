@@ -13,7 +13,8 @@
 
 import { publicTierConfig, withdrawEnabled } from '../../../lib/solana/cpswap/program';
 import type { LpWriteMode } from '../../../lib/launcher/solana/lpWriteFlag';
-import { minLpForBothSides } from '../../../lib/solana/lp/liquidityMath';
+import { minLpForBothSides, poolFeesOf } from '../../../lib/solana/lp/liquidityMath';
+import type { TransferFee } from '../../../lib/solana/lp/transferFee';
 import { TOKEN_2022_NATIVE_MINT } from '../../../lib/solana/lp/opening';
 import type { OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
 import { tokenReasons, type PoolHealth } from '../../../lib/solana/lp/poolHealth';
@@ -61,9 +62,10 @@ export type WithdrawOffer =
  * has no pool placed → its pool could not be read (or was not the pool the share
  * names) → the pool does not pair the token with a pairing coin → a withdrawal from this pool is
  * still pending → the pool program's withdraw switch is off → a vault is frozen → the
- * whole share is below the program's minimum (one side would round to zero) → offer.
+ * whole share is below the program's minimum (one side would round to zero, or reach the
+ * wallet as nothing once the token's transfer fee `tokenFee` is taken) → offer.
  */
-export function withdrawOffer(a: { mode: LpWriteMode; gate: LpGate | null; position: Position; held: boolean }): WithdrawOffer {
+export function withdrawOffer(a: { mode: LpWriteMode; gate: LpGate | null; position: Position; held: boolean; tokenFee?: TransferFee | null }): WithdrawOffer {
   if (a.mode === 'off') return 'off';
   if (!a.gate || a.gate.kind !== 'open') return 'gate';
   const pool = a.position.pool;
@@ -75,7 +77,7 @@ export function withdrawOffer(a: { mode: LpWriteMode; gate: LpGate | null; posit
   if (a.held) return 'held';
   if (!withdrawEnabled(pool.view.snapshot.pool)) return 'switched-off';
   if (pool.view.vaultsFrozen) return 'vault-frozen';
-  const minLp = minLpForBothSides(pool.view.snapshot);
+  const minLp = minLpForBothSides(pool.view.snapshot, poolFeesOf(pool.view.quoteIsToken0, a.tokenFee ?? null));
   if (minLp === null || a.position.lpAmount < minLp) return 'dust';
   return 'offer';
 }
@@ -218,7 +220,8 @@ export function createOffer(a: {
 
 /**
  * The token warnings that change what a pool for the token risks: it copies a well-known
- * name, its creator can freeze accounts, or a wallet shows a changing amount for it.
+ * name, its creator can freeze accounts, a wallet shows a changing amount for it, or it
+ * keeps back part of every transfer (and whoever controls that can raise it).
  * `tokenReasons` (poolHealth.ts) says each of these again for the pool, and the
  * open-a-pool form shows those lines above Review. So the form leaves these out of the
  * list above its amount boxes (on a phone that list pushes the boxes off the first
@@ -230,6 +233,8 @@ export const POOL_RISK_CODES: ReadonlySet<SafetyReason['code']> = new Set<Safety
   'freeze-authority',
   'interest-bearing',
   'scaled-amount',
+  'transfer-fee',
+  'transfer-fee-mutable',
 ]);
 
 const NO_MARKET_CAUTION =
@@ -296,14 +301,14 @@ export function createAdvice(a: {
 /**
  * Did a pool's price check end in a warning: its price is more than 3% off its reference,
  * or it was compared with nothing (Jupiter has no price for the token or for the pool's
- * pairing coin, `no-market`; or a launch pool with no route has traded for too short a
- * time for its own average to count, `too-new`)? A deposit there may lose money to the
- * price alone, so an Add wish that names no pool passes such a pool over while another
- * offers adding (PoolFinder `addTo`).
+ * pairing coin, `no-market`; or a launch pool with no route whose own record proves
+ * nothing: too short, `too-new`; moved without a trade, `reserves-moved`; too quiet,
+ * `too-quiet`)? A deposit there may lose money to the price alone, so an Add wish that
+ * names no pool passes such a pool over while another offers adding (PoolFinder `addTo`).
  */
 export function priceWarned(health: PoolHealth | undefined): boolean {
   const state = health?.price.state;
-  return state === 'disagrees' || state === 'no-market' || state === 'too-new';
+  return state === 'disagrees' || state === 'no-market' || state === 'too-new' || state === 'reserves-moved' || state === 'too-quiet';
 }
 
 /**

@@ -12,7 +12,7 @@
  * see it fail, make WalletSheet's waiting effect call `openSolanaList()`
  * itself instead of leaving it in `afterClose`.
  */
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, useNavigate } from 'react-router-dom';
 import { useEffect, type ReactNode } from 'react';
@@ -139,6 +139,17 @@ async function until(done: () => boolean, what: string) {
   }
   if (!done()) throw new Error(`never happened: ${what}`);
 }
+
+// SolanaProviders builds the wallet adapters, and each polls for its extension on a real
+// one-second interval (wallet-adapter-base scopePollingDetectionStrategy; this file fakes
+// setTimeout only) until it finds it. Nothing disposes that poll, and a tick after this
+// file's window is gone is an unhandled ReferenceError that fails the whole run (CI,
+// 2026-11-02). Let the adapter find "its" extension once, so it disposes, before teardown.
+afterAll(async () => {
+  vi.useRealTimers();
+  (window as unknown as { phantom?: unknown }).phantom = { solana: { isPhantom: true } };
+  await new Promise((r) => setTimeout(r, 1_200));
+});
 
 afterEach(() => {
   cleanup();

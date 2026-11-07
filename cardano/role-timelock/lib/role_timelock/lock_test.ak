@@ -72,12 +72,21 @@ fn params() -> Params {
   }
 }
 
+/// The venue's two-key treasury, proven on mainnet 2026-11-07 (tx 06c0fc16...):
+/// addr1xy6kxswfkhnxfwllzcxkqfumhyjedvkvkvlt3p7mhwxwp3spv7vdp6er80lvtdm32cqvvetu93ams9yrggg5pm5tq3usr47kat
+/// Spending and staking are each a script needing both of its keys.
 fn treasury() -> Address {
   Address {
     payment_credential: ScriptCredential(
-      #"70707070707070707070707070707070707070707070707070707070",
+      #"356341c9b5e664bbff160d60279bb92596b2ccb33eb887dbbb8ce0c6",
     ),
-    stake_credential: None,
+    stake_credential: Some(
+      Inline(
+        ScriptCredential(
+          #"016798d0eb233bfec5b7715600c6657c2c7bb81483421140ee8b0479",
+        ),
+      ),
+    ),
   }
 }
 
@@ -1291,6 +1300,22 @@ test minswap_takes_the_withdrawal() {
 
 test withdraw_to_a_stranger() fail {
   withdraw(withdraw_tx(wallet(stranger)))
+}
+
+// The treasury's spend script alone is not the treasury: its stake part counts.
+test withdraw_to_the_treasury_unstaked() fail {
+  withdraw(withdraw_tx(Address { ..treasury(), stake_credential: None }))
+}
+
+test withdraw_to_the_treasury_restaked() fail {
+  withdraw(
+    withdraw_tx(
+      Address {
+        ..treasury(),
+        stake_credential: Some(Inline(VerificationKeyCredential(stranger))),
+      },
+    ),
+  )
 }
 
 test minswap_would_pay_a_stranger() {

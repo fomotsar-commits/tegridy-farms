@@ -117,6 +117,8 @@ export const IX_DISCRIMINATOR = {
   emergencyWithdraw: Uint8Array.from([239, 45, 203, 64, 150, 73, 218, 92]),
   claimCarried: Uint8Array.from([173, 173, 45, 126, 170, 32, 215, 248]),
   notifyReward: Uint8Array.from([252, 51, 75, 132, 223, 48, 177, 213]),
+  // Added 2026-10-29. Live only once the vault upgrade that carries it has executed.
+  extendLock: Uint8Array.from([68, 151, 140, 144, 139, 122, 118, 170]),
 } as const;
 
 export const ACCOUNT_DISCRIMINATOR = {
@@ -437,6 +439,33 @@ export function penaltyFor(amountRaw: bigint, lockEnd: bigint, nowSecs: bigint):
  * printed without trailing zeros ("75%", "25%", "0.47%"). Never rounds UP, so a card never
  * shows a price above the one the program charges.
  */
+/**
+ * `extend_lock`, decided LOCALLY by the program's own rules (math.rs `extended_lock`,
+ * plus lib.rs's degraded check first), so a rung the program would refuse is never
+ * offered. The new lock counts from `nowSecs` and is priced like a fresh stake on that
+ * rung. Returns null when the program would refuse it.
+ *
+ * `raises` is the card's own, stricter filter: the program also accepts an EQUAL
+ * weight (a re-lock at the four-year top), but that only lengthens the lock for
+ * nothing, so the card does not offer it.
+ */
+export function quoteExtend(
+  position: Pick<LadderPositionView, 'amountRaw' | 'lockEnd' | 'weight'>,
+  pool: Pick<LadderPoolView, 'degraded'>,
+  lockSecs: number,
+  nowSecs: number,
+): { lockEnd: bigint; weight: bigint; boostBps: number; raises: boolean } | null {
+  if (pool.degraded) return null;
+  if (lockSecs < MIN_LOCK_SECS || lockSecs > MAX_LOCK_SECS) return null;
+  const now = BigInt(Math.floor(nowSecs));
+  if (now >= position.lockEnd) return null;
+  const lockEnd = now + BigInt(Math.trunc(lockSecs));
+  if (lockEnd <= position.lockEnd) return null;
+  const weight = weightForStake(position.amountRaw, lockSecs);
+  if (weight < position.weight) return null;
+  return { lockEnd, weight, boostBps: boostBpsForLock(lockSecs), raises: weight > position.weight };
+}
+
 export function penaltyPct(penaltyRaw: bigint, amountRaw: bigint): string {
   if (amountRaw <= 0n) return '0%';
   const hundredths = (penaltyRaw * 10_000n) / amountRaw;
@@ -450,8 +479,8 @@ export function penaltyPct(penaltyRaw: bigint, amountRaw: bigint): string {
  * in [0, 100]. `null` when it cannot be stated honestly.
  *
  * This is a FACT the chain fixes (rewards are split by weight: `earned` in math.rs), not
- * a yield. It is deliberately never multiplied by a reward rate or annualised — see the
- * "NO APR" note on the ladder card.
+ * a yield. The per-day and APR figures are `perDayAtTodaysRate` and `aprLabel` below,
+ * which say they are a projection; this one stays a present fact.
  *
  * - Floored, like `penaltyPct`, but for the opposite reason: a share must never read
  *   LARGER than it is. 70.89% prints 70.8%.
@@ -682,4 +711,50 @@ export function earnedNow(
   const weight = position.weight < pool.totalWeighted ? position.weight : pool.totalWeighted;
   const delta = rpw > position.rewardPerWeightPaid ? rpw - position.rewardPerWeightPaid : 0n;
   return (weight * delta) / PRECISION + position.rewardsOwed;
+}
+
+/* ─────────────────── what a weight earns per day, at today's rate ─────────────────── */
+
+const DAY_SECS = 86_400n;
+
+/**
+ * What `weight` earns in a day if today's rate and today's pool weight held:
+ * `reward_rate × 86,400 × weight / total_weighted`, floored — `earned` (math.rs) over
+ * one day. Weight is stake × lock boost, so the same stake earns more on a longer lock.
+ *
+ * A PROJECTION, so it is shown only beside its basis ("at today's rate"): a staker
+ * joining shrinks it, one leaving grows it, and the stream stops at `period_finish`
+ * unless it is refilled. `null` where there is no stream to project — no window ever
+ * scheduled, or it has ended — and where the accumulator does not move (a pool below its
+ * weight floor, I-11). `null`, never a clamp, when the weight exceeds the total: the two
+ * reads disagree, and a clamp would flatter the reader (as in `sharePct`).
+ */
+export function perDayAtTodaysRate(
+  weight: bigint,
+  totalWeighted: bigint,
+  pool: Pick<LadderPoolView, 'rewardRate' | 'periodFinish' | 'minStakeRaw'>,
+  nowSecs: number,
+): bigint | null {
+  const runway = rewardRunwaySecs(pool, nowSecs);
+  if (runway === null || runway <= 0) return null;
+  if (totalWeighted <= 0n || totalWeighted < minWeightFloor(pool.minStakeRaw)) return null;
+  if (weight < 0n || weight > totalWeighted) return null;
+  return (pool.rewardRate * DAY_SECS * weight) / totalWeighted;
+}
+
+/**
+ * A daily figure as a yearly rate on the principal that earns it: `perDay × 365 /
+ * principal`. Stake and reward are the SAME mint here, so no price enters it.
+ *
+ * Floored, like `sharePct`: a yield must never read larger than it is. One decimal
+ * under 100%, whole percent from there. A real yield that floors to 0.0 reads "<0.1%".
+ * `null` with no principal to divide by.
+ */
+export function aprLabel(perDayRaw: bigint, principalRaw: bigint): string | null {
+  if (principalRaw <= 0n || perDayRaw < 0n) return null;
+  const tenths = (perDayRaw * 365n * 1_000n) / principalRaw;
+  if (tenths === 0n) return perDayRaw > 0n ? '<0.1%' : '0%';
+  if (tenths >= 1_000n) return `${Number(tenths / 10n).toLocaleString()}%`;
+  const t = tenths % 10n;
+  return t === 0n ? `${tenths / 10n}%` : `${tenths / 10n}.${t}%`;
 }

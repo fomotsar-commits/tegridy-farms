@@ -5,7 +5,7 @@
 //   1. One row: the swap form, BAYLA's stake card (short) and its SOL pool's LP card, in that
 //      order, so stake and LP sit side by side; each is the form its own page mounts.
 //   2. All inside ONE SolanaProviders, so a wallet connected in one is connected in the others.
-//   3. The LP card only once the venue reads open, as on /solana-lp; the swap only where the
+//   3. The LP card only once the venue reads open, as on /pools; the swap only where the
 //      swap is live, as on /solana.
 //   4. The LP card carries the Pools network drop-down (owner, 2026-10-17: "swap and add
 //      liquidity missing chain drop down"), lit on Solana; another network leaves for its tab.

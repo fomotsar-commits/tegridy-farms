@@ -96,6 +96,7 @@ function view(o: { mint?: PublicKey; quote?: QuoteCoin; reserve?: bigint; tokens
     quoteReserve: reserve,
     tokenReserve: tokens,
     vaultsFrozen: false,
+    launchTierWithoutLaunch: false,
     history: { kind: 'not-read' },
   };
 }
@@ -113,6 +114,7 @@ function search(views: PoolView[], o: { mint?: string; taken?: QuoteSymbol[]; tr
       index: { kind: 'ok', pools: views.map((v) => v.address), truncated: o.truncated === true },
       pools: views.map((v) => ({ kind: 'pool' as const, view: v })),
       otherPairs: 0,
+      launchTierPools: [],
       knownState: Object.fromEntries(coins.map((q) => [STANDARD[q.symbol], o.taken?.includes(q.symbol) ? ('pool' as const) : ('absent' as const)])),
       chainNow: 1_000n,
     },

@@ -49,6 +49,11 @@ vi.mock('../../lib/bungalowStaking', async (importOriginal) => ({
   readWalletBalance: vi.fn(async () => ({ ok: true as const, raw: 5_000_000_000n })),
 }));
 
+// The room's torches read the island; here only where they stand is under test.
+vi.mock('../RoomTorches', () => ({
+  RoomTorches: ({ roomId }: { roomId: string }) => <div data-testid="room-torches-stub">{roomId}</div>,
+}));
+
 const { LighthousePoolLive } = await import('./LighthousePoolLive');
 
 const ROOM = {
@@ -81,6 +86,14 @@ describe('an empty reward vault', () => {
       expect(lock.textContent ?? '').not.toMatch(/%/);
     }
   });
+
+  it("puts the room's torches above the notice, and keeps the notice (owner, 2026-10-15)", async () => {
+    await drawWithAnAmount();
+    const notice = await screen.findByText(/staking is paused until the reward vault is funded/i);
+    const torches = screen.getByTestId('room-torches-stub');
+    expect(torches).toHaveTextContent('bobo');
+    expect(torches.compareDocumentPosition(notice) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
 });
 
 describe('a funded vault (the control)', () => {
@@ -90,5 +103,7 @@ describe('a funded vault (the control)', () => {
     expect(within(figures).getByText('Configured')).toBeTruthy();
     expect(screen.getAllByRole('radio').some((b) => /%/.test(b.textContent ?? ''))).toBe(true);
     expect(await screen.findByText(/at the configured/i)).toBeTruthy();
+    // A pool that pays keeps its form first: no torches inside its card.
+    expect(screen.queryByTestId('room-torches-stub')).toBeNull();
   });
 });

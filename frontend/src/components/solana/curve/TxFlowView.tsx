@@ -4,7 +4,6 @@ import { ExplorerLink, ImpactRows, Notice, Row } from './ui';
 import { DIVIDER, bpsPercent, fractionToBps, sharePercent } from './uiFormat';
 import { CREATOR_FEE_SWITCH, feeSplit } from '../../../lib/solana/cpswap/venue';
 import { feeRateText, formatSolPrice, tradeCostText } from '../../../lib/solana/lp/format';
-import { TOO_NEW_WHY } from '../../../lib/solana/lp/ownPrice';
 import { edgePercent } from '../../../lib/solana/route';
 import { perMillionPercent } from '../../../lib/solana/clmm/feeText';
 import type { FeeSplitView, NotSent, PreparedTx, SolanaCluster, TokenRole, TxKind, TxOutcome, TxSigner, TxSummary, TxViewApi } from './ports';
@@ -13,7 +12,7 @@ import { RangeRows } from './RangeRows';
 import { rangeVenueEarns, type RangeVenueEarns } from '../../../lib/solana/clmm/venueEarns';
 import type { ReviewState, TxFlow } from './useTxFlow';
 import { quoteCoin, type QuoteCoin } from '../../../lib/solana/lp/quotes';
-import type { PriceReference } from '../../../lib/solana/lp/poolHealth';
+import { NOTHING_WHY, type PriceReference } from '../../../lib/solana/lp/poolHealth';
 
 // What the user sees between pressing a Review button and the chain's answer.
 // Every word here is about THIS transaction, and the numbers come from the
@@ -328,8 +327,10 @@ function priceText(p: Extract<TxSummary, { kind: 'lp-deposit' }>['price']): stri
     case 'no-trades-yet':
       return 'nobody has traded since the launch program opened it';
     case 'too-new':
-      // A launch pool with no route and too short a record: built for, with a warning.
-      return `not checked against anything: ${TOO_NEW_WHY}`;
+    case 'reserves-moved':
+    case 'too-quiet':
+      // A launch pool with no route whose own record proves nothing: built for, with a warning.
+      return `not checked against anything: ${NOTHING_WHY[p.state]}`;
     case 'empty-pool':
       return 'not checked: the pool is empty';
     case 'no-market':
@@ -426,6 +427,10 @@ function ReviewWarnings({ id, warnings }: { id: string; warnings: string[] }) {
   );
 }
 
+/** A token's own transfer fee (lp/transferFee.ts): the token keeps it, never the pool or the venue. */
+const TRANSFER_FEE_LABEL = 'The token’s own transfer fee';
+const KEPT_BY_TOKEN = 'kept by the token for its fee collector, not by the pool or this site';
+
 function LpPoolRows({ summary }: { summary: LpSummary }) {
   return (
     <>
@@ -453,6 +458,13 @@ function LpDepositRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp
       <Row label="Paired with" value={q.symbol} mono={false} />
       <Row label="You put in about" value={`${coinAbout(s.quoted.quote, q)} and ${tok(s.quoted.token)} tokens`} mono={false} />
       <Row label="At most" value={`${coinExact(s.max.quote, q)} and ${unitsExact(s.max.token, s.tokenDecimals)} tokens${limited}`} mono={false} />
+      {s.transferFee && (
+        <Row
+          label={TRANSFER_FEE_LABEL}
+          value={`about ${tok(s.transferFee.kept)} tokens of what you put in (${s.transferFee.rate}), ${KEPT_BY_TOKEN}; the pool gets the rest`}
+          mono={false}
+        />
+      )}
       <Row label="You get" value={`${unitsExact(s.lpAmount, s.lpDecimals)} pool shares, exactly`} mono={false} />
       <Row label="Your share of the pool" value={`${shareText(s.sharePct.before)} → ${shareText(s.sharePct.after)}`} />
       <Row label="Price check" value={pricedText(s.price, q)} mono={false} line="market" />
@@ -497,6 +509,13 @@ function LpWithdrawRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'l
       {s.all && <Notice>This is all of your share in this pool.</Notice>}
       <Row label="You get about" value={`${coinAbout(s.quoted.quote, q)} and ${tok(s.quoted.token)} tokens`} mono={false} />
       <Row label="You get at least" value={`${coinExact(s.min.quote, q)} and ${unitsExact(s.min.token, s.tokenDecimals)} tokens`} mono={false} />
+      {s.transferFee && (
+        <Row
+          label={TRANSFER_FEE_LABEL}
+          value={`about ${tok(s.transferFee.kept)} tokens more of what the pool pays out (${s.transferFee.rate}), ${KEPT_BY_TOKEN}; the amounts above are after it`}
+          mono={false}
+        />
+      )}
       <Row label="You keep" value={s.keep > 0n ? `${shares(s.keep)} pool shares` : 'none in this pool'} mono={false} />
       <Row
         words
@@ -580,6 +599,13 @@ function LpCreateRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp-
       <Row label="Fee tier" value={feeTierText(s.config, CREATOR_FEE_SWITCH.publicOpen)} mono={false} />
       {/* Sentences break only between words (mono={false}); only an address row breaks anywhere. */}
       <Row label="You put in" value={`${coinExact(s.put.quote, q)} and ${unitsExact(s.put.token, s.tokenDecimals)} tokens, exactly`} mono={false} />
+      {s.transferFee && (
+        <Row
+          label={TRANSFER_FEE_LABEL}
+          value={`${unitsExact(s.transferFee.kept, s.tokenDecimals)} of those tokens (${s.transferFee.rate}), ${KEPT_BY_TOKEN}; the pool starts with ${unitsExact(s.put.token - s.transferFee.kept, s.tokenDecimals)}`}
+          mono={false}
+        />
+      )}
       <Row label="Opening price" value={openingPriceText(s.price, q)} mono={false} line="market" />
       {s.priceGap && <Row label="Estimated cost of that gap" value={gapCostText(s.priceGap, q)} mono={false} line="market" />}
       <Row label="Opens for trading" value="At once (one second after it lands)" mono={false} />
@@ -690,6 +716,17 @@ function VenueSwapRows({ summary: s }: { summary: Extract<TxSummary, { kind: 've
       <Row label="You pay" value={pay(s.amountIn, true)} />
       <Row label="You receive (quoted)" value={get(s.quoted.outAmount)} />
       <Row label="You receive at least" value={get(s.minimumAmountOut, true)} />
+      {s.transferFee && (
+        <Row
+          label={TRANSFER_FEE_LABEL}
+          value={
+            s.paysCoin
+              ? `${tok(s.transferFee.kept)} of what the pool pays out (${s.transferFee.rate}), ${KEPT_BY_TOKEN}; what you receive is after it`
+              : `${tok(s.transferFee.kept)} of what you pay (${s.transferFee.rate}), ${KEPT_BY_TOKEN}; the pool trades the rest`
+          }
+          mono={false}
+        />
+      )}
       <Row label="Pool fee (inside what you pay)" value={`${pay(s.quoted.result.tradeFee)} (${feeRateText(s.config.tradeFeeRate)})`} />
       <PoolCreatorFeeRow quote={s.quoted} buying={s.paysCoin} sol={(v) => coin(v)} tok={(v) => tok(v)} />
       {/* Measured against the pool's price before the trade, so the pool fee is inside it. */}

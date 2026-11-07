@@ -1,9 +1,10 @@
 // Polyfill MUST load before any @solana/* import, the same rule as SolanaProviders.
 import '../../../lib/solanaPolyfill';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { SolanaProviders } from '../SolanaProviders';
+import { SheetBodyOutlet } from '../../sheet/SheetOutlet';
 import type { FeeTierRead } from '../../../lib/solana/lp/poolFinder';
 import { lpWriteMode, type LpWriteMode } from '../../../lib/launcher/solana/lpWriteFlag';
 import { isLpKind } from '../../../lib/launcher/solana/write/lpKinds';
@@ -23,9 +24,12 @@ import { LpGateBanner } from './LpGateBanner';
 import { RISK_SHORT } from './LpDisclosures';
 import { LpWritesProvider, useLpWrites } from './useLpWrites';
 import { browserLpReaders, type LpReaders } from './readers';
+import type { LpDoorAnchor } from './lpDoor';
+import { useSheet } from '../../sheet/sheetContext';
+import { SHEET_PRESS, sheetHref, sheetRoom } from '../../../lib/sheet';
 
 /**
- * The Solana LP section on /pools and /solana-lp, in one order on both (owner, 2026-10-14:
+ * The Solana LP section on /pools (owner, 2026-10-14:
  * "the actions people need to take spotlighted and their positions and the rates and
  * routes getting the attention"): the earn line, the three actions
  * (the finder), every pool, the wallet's positions, the rates read from the chain, where a swap goes,
@@ -33,14 +37,16 @@ import { browserLpReaders, type LpReaders } from './readers';
  * with it 'off' no write code is fetched and nothing here can sign; otherwise
  * LpWritesProvider loads it and offers.ts decides each button. `?mint=<address>` opens the
  * finder on a token; nothing else is ever read from the URL (no amount, side, percent,
- * slippage or open panel).
+ * slippage or open panel). `door`: where the LP door is drawn, above the page's hero (lpDoor.ts).
  */
-export default function SolanaLpSection({ readers: given }: { readers?: LpReaders }) {
+export default function SolanaLpSection({ readers: given, door }: { readers?: LpReaders; door?: LpDoorAnchor }) {
   const readers = useMemo(() => given ?? browserLpReaders(), [given]);
   if (!readers) return null;
   return (
     <SolanaProviders>
-      <LpInner readers={readers} />
+      <LpInner readers={readers} door={door} />
+      {/* The sheet's form signs with this page's one connection (lib/sheetStore.ts). */}
+      <SheetBodyOutlet />
     </SolanaProviders>
   );
 }
@@ -65,14 +71,14 @@ export interface LpHome {
   pool: string;
 }
 
-export function LpInner({ readers, writes, home }: { readers: LpReaders; writes?: LpWritesOverrides; home?: LpHome }) {
+export function LpInner({ readers, writes, home, door }: { readers: LpReaders; writes?: LpWritesOverrides; home?: LpHome; door?: LpDoorAnchor }) {
   // Fixed for the life of a build: a production build reads only the committed constant.
   const mode = writes?.mode ?? lpWriteMode();
   // Bumped when a liquidity flow goes back to idle after an outcome: the finder and the
   // positions read again, keeping what they show until the new answer arrives.
   const [reloadKey, setReloadKey] = useState(0);
   const finished = useCallback(() => setReloadKey((k) => k + 1), []);
-  const body = <LpBody readers={readers} mode={mode} reloadKey={reloadKey} home={home} />;
+  const body = <LpBody readers={readers} mode={mode} reloadKey={reloadKey} home={home} door={door} />;
   if (mode === 'off') return body;
   return (
     <LpWritesProvider readers={readers} mode={mode} load={writes?.load} gateRpc={writes?.gateRpc} onFinished={finished}>
@@ -81,7 +87,7 @@ export function LpInner({ readers, writes, home }: { readers: LpReaders; writes?
   );
 }
 
-function LpBody({ readers, mode, reloadKey, home }: { readers: LpReaders; mode: LpWriteMode; reloadKey: number; home?: LpHome }) {
+function LpBody({ readers, mode, reloadKey, home, door }: { readers: LpReaders; mode: LpWriteMode; reloadKey: number; home?: LpHome; door?: LpDoorAnchor }) {
   const [params, setParams] = useSearchParams();
   const homeMint = home?.mint ?? null;
   const homePool = home?.pool ?? null;
@@ -131,18 +137,37 @@ function LpBody({ readers, mode, reloadKey, home }: { readers: LpReaders; mode: 
   // Every pool, under the finder: a View there is a lookup in the finder, like a picked token.
   const view = useCallback((tokenMint: string) => finderRef.current?.show(tokenMint), []);
   // A row's Add: that pool's Add form, Add with one coin when it is paired with SOL.
+  const navigate = useNavigate();
+  const { pathname, search } = useLocation();
+  // A room's own pool rises as the Add sheet over the list (answer twenty-seven, cut 4): the
+  // page stays where the card was and Back lands on it. Any other pool opens in the finder.
   const addFromList = useCallback(
-    (tokenMint: string, pool: string, quoteMint: string) => finderRef.current?.openAdd(tokenMint, { pool, ...(quoteMint === SOL_MINT ? { form: 'one' as const } : {}) }),
-    [],
+    (tokenMint: string, pool: string, quoteMint: string) => {
+      const room = sheetRoom(tokenMint);
+      if (room && room.venueSolPool === pool) navigate(sheetHref(pathname, search, 'add', room.id), { state: SHEET_PRESS });
+      else finderRef.current?.openAdd(tokenMint, { pool, ...(quoteMint === SOL_MINT ? { form: 'one' as const } : {}) });
+    },
+    [navigate, pathname, search],
   );
   // The LP door (island, answer twenty): ?mint=<token>&task=add[&pool=<address>] ends in Add with
-  // one coin, of the pool named or of the token's deepest SOL pool. Asked once, then dropped from the
-  // address, so a reload or Back does not open the form again over what the visitor did since.
+  // one coin, of the pool named or of the token's deepest SOL pool, drawn at the top of the page
+  // (answer twenty-two). Asked once, then dropped from the address, so a reload or Back does not
+  // open the form again over what the visitor did since.
   const doorTask = homeMint ? null : params.get('task');
   const doorPool = params.get('pool');
+  // The page holds the door's place until this section takes it, whether or not it draws one.
+  useLayoutEffect(() => door?.claim(), [door]);
+  // The sheet (island answer twenty-five, build 3): Add with one coin on the room's own pool, asked
+  // once as the door asks it, so its form, or why it did not open, is drawn in the sheet. Before the
+  // first paint: a frame of the section without its door dropped the sheet 320 px and back.
+  const sheet = useSheet();
+  useLayoutEffect(() => {
+    if (!sheet || !homeMint || !homePool || !finderRef.current) return;
+    finderRef.current.openAdd(homeMint, { form: 'one', top: true, pool: homePool });
+  }, [sheet, homeMint, homePool]);
   useEffect(() => {
     if (doorTask !== 'add' || !mint || !finderRef.current) return;
-    finderRef.current.openAdd(mint, { form: 'one', ...(doorPool ? { pool: doorPool } : { quote: SOL_MINT }) });
+    finderRef.current.openAdd(mint, { form: 'one', top: true, ...(doorPool ? { pool: doorPool } : { quote: SOL_MINT }) });
     setParams(
       (prev) => {
         const next = new URLSearchParams(prev);
@@ -176,6 +201,8 @@ function LpBody({ readers, mode, reloadKey, home }: { readers: LpReaders; mode: 
       feeTiers={tierRead}
       onRemove={toPositions}
       only={homePool ?? undefined}
+      doorAt={door?.at}
+      doorAsked={doorTask === 'add' && mint !== null}
     />
   );
   const positions = (
@@ -189,6 +216,15 @@ function LpBody({ readers, mode, reloadKey, home }: { readers: LpReaders; mode: 
     />
   );
 
+  if (homeMint && sheet) {
+    return (
+      <div className="flex flex-col gap-3" data-testid="lp-section" data-lp-mode={mode} data-lp-sheet="">
+        {writesTop}
+        {finder}
+      </div>
+    );
+  }
+
   if (homeMint) {
     return (
       <div className="flex flex-col gap-3" data-testid="lp-section" data-lp-mode={mode} data-lp-home="">
@@ -196,7 +232,7 @@ function LpBody({ readers, mode, reloadKey, home }: { readers: LpReaders; mode: 
         {writesTop}
         {finder}
         {/* No Your positions card: each Add form carries its own Connect, and a wallet's
-            shares are on the Solana LP tab. The full notice is one drop-down. */}
+            shares are on the Venue AMM tab. The full notice is one drop-down. */}
         {disclosure}
       </div>
     );
@@ -298,13 +334,12 @@ export function LpDisclosure({ programId, mode = 'off', programBelow = true, bar
         <FinePrint summary="Risks">
           {/* The vault risk in one sentence, once on screen and now here (owner, 2026-10-17: "remove this warning from everywhere"). */}
           <p>{RISK_SHORT}</p>
-          {/* True of the pool program RUNNING on mainnet since its upgrade to the build that has
-              create_lp_metadata and refuses a public opening on fee tier 0. Before the upgrade this named
-              the admin keys as the only change. src/test/poolProgramCopy.test.ts ties it to the harness pin. */}
+          {/* True of the pool program RUNNING on mainnet, built before the source gained create_lp_metadata.
+              It goes false the day that program is upgraded: reword it in the same release as the upgrade
+              (src/test/poolProgramCopy.test.ts fails that release until you do, and holds the wording). */}
           <p>
-            Our pool program is Raydium’s constant-product pool, with its admin keys changed, one added instruction that names pool
-            share tokens and one added check that keeps the launch fee tier for launches (see “The program”{' '}
-            {programBelow ? 'below' : 'on the Solana LP tab'}).{' '}
+            Our pool program is Raydium’s constant-product pool; we changed only its admin keys (see “The program”{' '}
+            {programBelow ? 'below' : 'on the Venue AMM tab'}).{' '}
             <strong>Those changes have not had their own independent review yet.</strong> Put in only what you can afford to lose.
           </p>
           {/* Multisig read 2026-10-20, finalized slot 459,251,370: threshold 2 of 2 members, time_lock 172,800 (Squads #14),

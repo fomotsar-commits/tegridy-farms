@@ -1,5 +1,6 @@
 // Polyfill MUST load before any @solana/* import, same rule as SolanaProviders.
 import '../../lib/solanaPolyfill';
+import type { ReactNode } from 'react';
 import { SolanaProviders } from '../solana/SolanaProviders';
 import type { Bungalow } from '../../lib/bungalows';
 import { SolanaLadderPoolCard } from './SolanaLadderPoolLive';
@@ -11,11 +12,11 @@ import { LighthouseClaimStrip } from './LighthousePoolLive';
  * WalletProvider reads the saved wallet only when it mounts, so a member who connected
  * through the ladder would not appear in a separately provided strip until a reload.
  */
-export function SolanaPoolStack({ bungalow }: { bungalow: Bungalow & { ladderPool: string; stakePool: string } }) {
+export function SolanaPoolStack({ bungalow, harvest }: { bungalow: Bungalow & { ladderPool: string; stakePool: string }; harvest?: ReactNode }) {
   return (
     <SolanaProviders>
       <div className="flex flex-col gap-5">
-        <SolanaLadderPoolCard bungalow={bungalow} />
+        <SolanaLadderPoolCard bungalow={bungalow} harvest={harvest} />
         <LighthouseClaimStrip bungalow={bungalow} />
       </div>
     </SolanaProviders>
