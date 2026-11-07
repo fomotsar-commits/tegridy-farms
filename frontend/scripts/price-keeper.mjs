@@ -73,6 +73,14 @@
  *                           A tip under 20,000 lamports (those never landed) and a pool whose
  *                           last bundle did not land in 10 min go the usual way, as do USDC
  *                           trips (default no)
+ *   KEEPER_DIRECT           yes = before asking Jupiter, each of our SOL pools is weighed against
+ *                           its coin's outside pools on PumpSwap (and Raydium CPMM / AMM v4 when
+ *                           KEEPER_ALLOW_RAYDIUM=yes), both swaps built by the robot with each
+ *                           program's exact maths: no Jupiter call, so no wait on its allowance.
+ *                           Same test run, Lighthouse floor, Jito tip and daily cap as every trip.
+ *                           Uses the outside pools heard (KEEPER_STREAMS), from the first pass on.
+ *                           Coins with a transfer fee are left out (default no). KEEPER_DIRECT_ALTS:
+ *                           the lookup tables its trips compile with (default Jupiter's PumpSwap one)
  *   KEEPER_SCANNER_URL      the arbitrage scanner's page on THIS computer, e.g.
  *                           http://127.0.0.1:8795/state.json: the keeper also tries the trips
  *                           between two outside pools whose scanner test run passed in the last
@@ -97,7 +105,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { register } from 'node:module';
 import { redactRpcUrl } from '../../scripts/lib/redact-url.mjs';
-import { RAYDIUM_PROGRAMS } from './lib/raydium-programs.mjs';
+import { RAYDIUM_AMM_V4, RAYDIUM_AMM_V4_AUTHORITY, RAYDIUM_CPMM, RAYDIUM_PROGRAMS } from './lib/raydium-programs.mjs';
 import { OUTSIDE_DEX_PROGRAMS } from './lib/outside-dexes.mjs';
 
 // ─── Make the bundler-targeted TS modules run under Node (tegridy-launch-operator.mjs's
@@ -867,6 +875,9 @@ async function main() {
       payNewAccountRent: yes('KEEPER_PAY_SETUP'),
       flashLoans: yes('KEEPER_FLASH_LOANS'),
       jito: yes('KEEPER_JITO'),
+      direct: yes('KEEPER_DIRECT'),
+      directLookupTables: env.KEEPER_DIRECT_ALTS?.trim() ? env.KEEPER_DIRECT_ALTS.split(',').map((x) => x.trim()).filter(Boolean) : DEFAULT_SETTINGS.directLookupTables,
+      directIds: { cpmm: RAYDIUM_CPMM, ammV4: RAYDIUM_AMM_V4, ammV4Authority: RAYDIUM_AMM_V4_AUTHORITY },
     };
     settings.dustMinUsd = num('KEEPER_DUST_MIN_USD', DEFAULT_SETTINGS.dustMinUsd);
     const intervalMs = num('KEEPER_INTERVAL_SEC', 60) * 1000;
@@ -981,6 +992,8 @@ async function main() {
       record,
       bans,
       takes,
+      // The outside pools heard (refreshed every STREAM_REFRESH_MS), for direct trips.
+      directPools: settings.direct ? () => streams.pools : undefined,
       log,
     };
     log(`  trips between outside pools: ${takes ? `the scanner's proven ones, from ${env.KEEPER_SCANNER_URL.trim()}` : 'off (set KEEPER_SCANNER_URL to the scanner page’s /state.json)'}`);
@@ -998,6 +1011,7 @@ async function main() {
     log(`  earnings log ${TRADES} · gap log ${GAPS} · to pause sending, create ${STOP_FILE}`);
     log(`  Jupiter prices reused for ${priceTtlSec} s · woken by chain updates: ${wake ? redactRpcUrl(wsUrl) : 'off, the timer only'}`);
     log(`  trades in outside pools: ${streamsOn ? 'heard as they land, after the first pass (log lines only)' : 'not heard (KEEPER_STREAMS=yes and a websocket hear them)'}`);
+    log(`  direct trips (our pool against the coin's ${settings.allowRaydium ? 'PumpSwap, Raydium CPMM or AMM v4' : 'PumpSwap'} pool, both swaps built here, no Jupiter call): ${settings.direct ? (streamsOn ? 'ON, from the first pass on' : 'ON, but no outside pools are heard, so none are weighed') : 'off (KEEPER_DIRECT=yes)'}`);
     let watch = null;
     // The gaps still open, kept here: a gap is written once a pass finds it closed (live only).
     let openGaps = new Map();
@@ -1057,7 +1071,7 @@ async function main() {
             }
           }
           wake?.watch(watch.vaults, streams.pools);
-          log(`Pass done: ${r.pools} pools, ${r.gaps} gaps, ${r.sent} sent, ${jupiterCalls - callsBefore} Jupiter calls`);
+          log(`Pass done: ${r.pools} pools, ${r.gaps} gaps, ${r.sent} sent, ${jupiterCalls - callsBefore} Jupiter calls${settings.direct ? `, ${r.direct ?? 0} direct pairs weighed` : ''}`);
           screen.passCount++;
           screen.loops += r.loops;
           screen.remembered += r.seen.filter((g) => g.remembered).length;

@@ -123,9 +123,12 @@ export function ammV4Out(p: AmmV4Pool, coinVault: bigint, pcVault: bigint, coinI
   return (rout * inAfterFee) / (rin + inAfterFee);
 }
 
+/** Whether the pool swaps now: a swapping status, and past its open time. */
+export const ammV4Swaps = (p: AmmV4Pool, nowSecs: number) => AMM_V4_SWAPS.has(p.status) && BigInt(nowSecs) >= p.openTime;
+
 /** swap_base_in_v2: the token program, the pool, its authority, its two vaults, the trader's two accounts, the trader. */
 export function ammV4Leg(p: AmmV4Pool, coinVault: bigint, pcVault: bigint, owner: PublicKey, fromMint: string, amountIn: bigint, minOut: bigint, ids: AmmV4Ids, nowSecs = Math.floor(Date.now() / 1000)): DirectLeg | null {
-  if (!AMM_V4_SWAPS.has(p.status) || BigInt(nowSecs) < p.openTime) return null;
+  if (!ammV4Swaps(p, nowSecs)) return null;
   const coinIn = fromMint === p.coinMint;
   if (!coinIn && fromMint !== p.pcMint) return null;
   const out = ammV4Out(p, coinVault, pcVault, coinIn, amountIn);
