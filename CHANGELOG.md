@@ -9,6 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-11-06
 
+- Pools: a pool where deposits are refused shows a dimmed Add in the All pools list; it still opens the card, which says why under "Deposits: refused here".
 - Pools: an almost empty pool no longer takes deposits. That is a pool where the shares the pool program keeps forever are more than 0.1% of it, the same floor a new pool must already clear. Anyone can move such a pool's price for next to nothing, and a deposit would go in at that price. Its card says "Deposits: refused here" and why, and the All pools list tags it "Almost empty". Whoever holds its last shares can still take them out.
 
 ### 2026-11-05
