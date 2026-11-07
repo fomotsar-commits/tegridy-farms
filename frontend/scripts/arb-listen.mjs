@@ -721,6 +721,7 @@ function takeOutcome(req, res) {
     }
     if (!o) return res.writeHead(400).end();
     S.outcomes.add(o, Date.now());
+    fs.appendFile(LOG, `${JSON.stringify({ event: 'outcome', at: new Date().toISOString(), ...o })}\n`, () => {});
     log(`ROBOT ${o.outcome}${o.ms === null ? '' : ` ${o.ms} ms after the judgement`}: ${o.route}${o.note ? ` (${o.note})` : ''}`);
     return res.writeHead(204).end();
   });

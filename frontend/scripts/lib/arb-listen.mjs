@@ -105,7 +105,7 @@ export class Outcomes {
 
   /** Each outcome word's count, how many came in all, and the median time from judgement to the robot's act. */
   counts() {
-    return { total: this.latest.length ? [...this.byOutcome.values()].reduce((a, b) => a + b, 0) : 0, byOutcome: Object.fromEntries(this.byOutcome), medianActMs: median(this.actMs) };
+    return { total: [...this.byOutcome.values()].reduce((a, b) => a + b, 0), byOutcome: Object.fromEntries(this.byOutcome), medianActMs: median(this.actMs) };
   }
 }
 
@@ -329,6 +329,36 @@ export function stage0Report(gaps, now) {
     stillOpen: rows.filter((g) => g.stillOpen).length,
     topCoins: [...byCoin.values()].sort((a, b) => b.usdAt1s - a.usdAt1s || b.gaps - a.gaps).slice(0, 15),
   };
+}
+
+/**
+ * The robot's outcomes in the engine's log (its `outcome` lines, scripts/arb-listen.mjs POST
+ * /outcome), tallied: how many handovers the robot answered, by outcome word, with the median
+ * time from the judgement to the robot's act; and the share that died before a trip could land
+ * (stale, or a test run that found the gap gone: test-failed, test-checks, quote-short). `since`
+ * (ms): only outcomes from then on. That share is the number the scanner report says decides
+ * whether a faster feed is worth paying for.
+ */
+export const DIED_OUTCOMES = new Set(['stale', 'test-failed', 'test-checks', 'quote-short']);
+export function outcomesFromLog(lines, since = 0) {
+  const tally = new Outcomes(0);
+  for (const line of lines) {
+    let e;
+    try {
+      e = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (e?.event !== 'outcome') continue;
+    const at = Date.parse(e.at);
+    if (!Number.isFinite(at) || at < since) continue;
+    const o = outcomeOf(e);
+    if (o) tally.add(o, at);
+  }
+  const c = tally.counts();
+  const died = [...DIED_OUTCOMES].reduce((n, k) => n + (c.byOutcome[k] ?? 0), 0);
+  const landed = (c.byOutcome.sent ?? 0) + (c.byOutcome.unsure ?? 0) + (c.byOutcome['not-sent'] ?? 0);
+  return { ...c, died, diedShare: c.total ? died / c.total : null, wouldLand: landed };
 }
 
 /**

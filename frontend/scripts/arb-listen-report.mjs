@@ -47,8 +47,9 @@ const lines = fs.readFileSync(file, 'utf8').split('\n').filter(Boolean);
 const { gaps, firstAt, lastAt } = L.gapsFromLog(lines, since);
 const now = lastAt ?? Date.now();
 const r = L.stage0Report(gaps, now);
+const robot = L.outcomesFromLog(lines, since);
 if (args.includes('--json')) {
-  console.log(JSON.stringify({ file, since: since || null, firstAt, lastAt, ...r }, null, 1));
+  console.log(JSON.stringify({ file, since: since || null, firstAt, lastAt, ...r, robot }, null, 1));
   process.exit(0);
 }
 const hours = firstAt && lastAt ? (lastAt - firstAt) / 3_600_000 : 0;
@@ -60,6 +61,11 @@ console.log(`  ${r.reach[1000].gaps} were still there at 1 s, worth ${usd(r.reac
 console.log(`  ${r.reach[3000].gaps} were still there at 3 s, worth ${usd(r.reach[3000].usd)}.`);
 console.log(`  Taken the instant each opened (only a co-located bot could): ${usd(r.usdIfEveryOneTakenAtOpen)}.`);
 console.log(`  ${r.suspect} stayed open past 10 minutes and are counted as misreads, not money; ${r.stillOpen} were still open at the end.`);
+if (robot.total) {
+  const pct = (n) => `${((n / robot.total) * 100).toFixed(0)}%`;
+  console.log(`The robot answered ${robot.total} handovers (median ${robot.medianActMs ?? '?'} ms after the judgement): ${Object.entries(robot.byOutcome).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${k} ${n}`).join(', ')}.`);
+  console.log(`  ${robot.died} (${pct(robot.died)}) were gone by the time a trip could be built and test-run; ${robot.wouldLand} (${pct(robot.wouldLand)}) passed their test run (a dry run says not-sent).`);
+}
 if (r.topCoins.length) {
   console.log('Coins, most money at 1 s first:');
   for (const c of r.topCoins) console.log(`  ${String(c.symbol ?? '?').padEnd(12)} ${c.coin}  ${c.gaps} gaps, ${c.reached1s} still there at 1 s, ${usd(c.usdAt1s)}, best ${usd(c.bestNetUsd)}`);

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { GapBook, HANDOVER_TTL_MS, Outcomes, SUSPECT_MS, accountsOf, afterCosts, byEachVenue, coinsByAccount, coinsFromMap, gapsFromLog, handoverOf, handoverStands, outcomeOf, stage0Report, watchedOf } from './arb-listen.mjs';
+import { GapBook, HANDOVER_TTL_MS, Outcomes, SUSPECT_MS, accountsOf, afterCosts, byEachVenue, coinsByAccount, coinsFromMap, gapsFromLog, handoverOf, handoverStands, outcomeOf, outcomesFromLog, stage0Report, watchedOf } from './arb-listen.mjs';
 
 const trip = (pools, dexes, pays, netUsd = 0.05) => ({
   legs: pools.map((pool, i) => ({ pool, dex: dexes[i], rough: dexes[i] === 'dlmm' })),
@@ -238,5 +238,22 @@ describe('outcomeOf and Outcomes: what the robot said it did', () => {
     expect(o.counts()).toEqual({ total: 3, byOutcome: { stale: 2, 'test-checks': 1 }, medianActMs: 900 });
     expect(o.latest.map((x) => x.id)).toEqual(['c@1@1', 'b@1@1']);
     expect(new Outcomes().counts()).toEqual({ total: 0, byOutcome: {}, medianActMs: null });
+  });
+});
+
+describe('outcomesFromLog: the robot’s answers in the gap log', () => {
+  it('tallies outcome lines, skipping gaps and junk, and says the share gone before a trip could land', () => {
+    const lines = [
+      JSON.stringify({ event: 'open', route: 'a>b', openedAt: 1 }),
+      JSON.stringify({ event: 'outcome', at: '2026-11-07T17:00:00Z', id: 'a>b@1@1', outcome: 'stale', ms: 1200 }),
+      JSON.stringify({ event: 'outcome', at: '2026-11-07T17:00:01Z', id: 'a>b@1@2', outcome: 'test-checks', ms: 400 }),
+      JSON.stringify({ event: 'outcome', at: '2026-11-07T17:00:02Z', id: 'a>b@1@3', outcome: 'not-sent', ms: 350 }),
+      JSON.stringify({ event: 'outcome', at: '2026-11-07T16:00:00Z', id: 'old@1@1', outcome: 'sent', ms: 300 }),
+      'not json',
+    ];
+    const r = outcomesFromLog(lines, Date.parse('2026-11-07T16:30:00Z'));
+    expect(r).toMatchObject({ total: 3, byOutcome: { stale: 1, 'test-checks': 1, 'not-sent': 1 }, medianActMs: 400, died: 2, wouldLand: 1 });
+    expect(r.diedShare).toBeCloseTo(2 / 3, 6);
+    expect(outcomesFromLog([]).diedShare).toBeNull();
   });
 });
