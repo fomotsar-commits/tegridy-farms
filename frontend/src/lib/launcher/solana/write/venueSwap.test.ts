@@ -20,7 +20,7 @@ import { BAYLA_QUOTE, SOL_QUOTE, USDC_QUOTE, type QuoteCoin } from '../../../sol
 import { BAYLA_MINT } from '../../../solana/lp/tokenSafety';
 import { decodeIntent } from './intent';
 import { LP_COPY } from './liquidity';
-import { CPSWAP, EXT, FakeChain, LAUNCH, addPool, cfgLocal, openAccount, rent, setClock, skewTestRun, type PoolFixture, type SimHandler } from './testkit.fixture';
+import { CPSWAP, EXT, FakeChain, LAUNCH, addPool, cfgLocal, openAccount, rent, setClock, setTransferFee, skewTestRun, tokenFeeTaken, type PoolFixture, type SimHandler } from './testkit.fixture';
 import type { AggregatorSeen, PreparedTx, SwapIntent, SwapOpenGate, VenueSwapSummary, WriteRpc } from './types';
 import { VENUE_SWAP_COPY, prepareVenueSwap, swapStepsProblem, type VenueSwapArgs } from './venueSwap';
 
@@ -87,7 +87,12 @@ const swapSimulator: SimHandler = (vtx: VersionedTransaction, config, chain) => 
   const tier = decodeAmmConfig(at(2).toBase58(), chain.accounts.get(at(2).toBase58())!.data)!;
   // creator_fee_on: 0 both sides (always from what is paid in), 1 token_0 only, 2 token_1 only.
   const creator = { ppm: state.enableCreatorFee ? tier.creatorFeeRate : 0n, onInput: state.creatorFeeOn === 0 || (state.creatorFeeOn === 1) === in0 };
-  const out = expectedOut(amountIn, amountAt(chain, at(6))!, amountAt(chain, at(7))!, tier.tradeFeeRate, creator);
+  // swap_base_input.rs: the pool trades what reaches its input vault (the amount less the
+  // input mint's transfer fee), and the trader gets the payout less the output mint's.
+  const actualIn = amountIn - tokenFeeTaken(chain, new PublicKey(mIn), amountIn);
+  const paid = expectedOut(actualIn, amountAt(chain, at(6))!, amountAt(chain, at(7))!, tier.tradeFeeRate, creator);
+  const out = paid - tokenFeeTaken(chain, new PublicKey(mOut), paid);
+  if (out <= 0n) return cpFail(6006);
   if (out < minOut) return cpFail(6005);
 
   const wsolAta = associatedTokenAddress(WSOL_MINT, ME);
@@ -448,6 +453,51 @@ describe('a wallet’s own wrapped SOL is never spent or unwrapped behind its ba
   });
 });
 
+// Owner, 2026-10-29: a token with a transfer fee trades in our pools. swap_base_input.rs
+// trades what reaches the input vault and pays out less the output side's fee, and holds
+// the price limit to what reaches the trader; this chain's pool program does the same.
+describe('a token with a transfer fee is swapped, the fee taken the pool program’s way', () => {
+  const feeToken = () => {
+    const w = world({ tokenProgram: TOKEN_2022_PROGRAM_ID, mintExtensions: [[EXT.TransferFeeConfig, 108]] });
+    setTransferFee(w.chain, w.mint, { basisPoints: 500 });
+    return w;
+  };
+  const fivePct = (v: bigint) => (v * 500n + 9_999n) / 10_000n;
+
+  it('buying it: the pool pays out, the token keeps 5% of that, and the price limit is set on what arrives', async () => {
+    const w = feeToken();
+    const p = ok(await prepareVenueSwap(W(w.chain), OPEN, buy(w)));
+    const s = summaryOf(p);
+    const paid = expectedOut(SOL, COIN_RESERVE, TOKEN_RESERVE, 10_000n);
+    const kept = fivePct(paid);
+    expect(s.quoted.outAmount).toBe(paid - kept);
+    expect(s.transferFee).toEqual({ rate: '5%', kept });
+    expect(s.minimumAmountOut).toBe(((paid - kept) * 9_900n) / 10_000n);
+    expect(p.simulated.tokenDeltas.find((t) => t.mint.equals(w.mint))?.delta).toBe(paid - kept);
+  });
+
+  it('selling it: the token keeps 5% of what is paid in, and the pool trades the rest', async () => {
+    const w = feeToken();
+    const amountIn = 1_000n * TOK;
+    const p = ok(await prepareVenueSwap(W(w.chain), OPEN, sell(w, { amountIn })));
+    const s = summaryOf(p);
+    const kept = fivePct(amountIn);
+    expect(s.amountIn).toBe(amountIn);
+    expect(s.transferFee).toEqual({ rate: '5%', kept });
+    expect(s.quoted.outAmount).toBe(expectedOut(amountIn - kept, TOKEN_RESERVE, COIN_RESERVE, 10_000n));
+    expect(p.simulated.tokenDeltas.find((t) => t.mint.equals(w.mint))?.delta).toBe(-amountIn);
+  });
+
+  it('the routing rule is held on what reaches the wallet: an aggregator paying more than that, after the fee, keeps the trade', async () => {
+    const w = feeToken();
+    const paid = expectedOut(SOL, COIN_RESERVE, TOKEN_RESERVE, 10_000n);
+    const got = paid - fivePct(paid);
+    // Between what arrives through the pool and the pool's own payout: the aggregator pays more.
+    expect((await refusal(w, buy(w, { aggregator: quotedNow(got + 1n) }))).message).toBe(VENUE_SWAP_COPY.routeMoved);
+    ok(await prepareVenueSwap(W(w.chain), OPEN, buy(w, { aggregator: quotedNow(got) })));
+  });
+});
+
 describe('what it refuses to build, in words', () => {
   it('a pair with no pairing coin', async () => {
     const w = world();
@@ -464,10 +514,10 @@ describe('what it refuses to build, in words', () => {
     expect(o.message).toBe(LP_COPY.notThisPair('SOL'));
   });
 
-  it('a token that takes a fee on every transfer', async () => {
-    const w = world({ tokenProgram: TOKEN_2022_PROGRAM_ID, mintExtensions: [[EXT.TransferFeeConfig, 108]] });
+  it('a token that uses an extension this site cannot work a swap out for', async () => {
+    const w = world({ tokenProgram: TOKEN_2022_PROGRAM_ID, mintExtensions: [[14, 8]] });
     const o = await refusal(w, buy(w));
-    expect(o.message).toMatch(/^This token uses a transfer-fee setting/);
+    expect(o.message).toMatch(/^This token uses a transfer hook/);
     expect(o.message).toMatch(/Nothing was built\.$/);
   });
 

@@ -1,17 +1,18 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { bungalowByAddress } from '../lib/bungalows';
 import { setLastBuy } from '../lib/heat/lastBuy';
-import { useReadContract, useWriteContract, useWaitForTransactionReceipt, useAccount, useBalance, useChainId, usePublicClient } from 'wagmi';
+import { useReadContract, useWriteContract, useWaitForTransactionReceipt, useAccount, useBalance, useChainId, usePublicClient, useSignTypedData } from 'wagmi';
 import { parseUnits, formatUnits } from 'viem';
 import { toast } from 'sonner';
 import { ERC20_ABI, SWAP_FEE_ROUTER_ABI, UNISWAP_V2_ROUTER_ABI } from '../lib/contracts';
 import { CHAIN_ID } from '../lib/constants';
-import { type TokenInfo, defaultTokensFor, headlineTokenFor } from '../lib/tokenList';
+import { type TokenInfo, defaultTokensFor, headlineTokenFor, swapTokensFor } from '../lib/tokenList';
 import { swapVenueOn, openingSwapVenue } from '../lib/chains/swapVenue';
 import { decodeRevertReason } from '../lib/revertDecoder';
 import { trackSwap } from '../lib/analytics';
 import { getTxUrl } from '../lib/explorer';
-import { surfaceUnconfirmedTx, receiptOutcome, noteReplacement } from '../lib/txErrors';
+import { surfaceUnconfirmedTx, receiptOutcome, noteReplacement, isUserRejection, extractErrorMessage } from '../lib/txErrors';
+import { buyWithEth, sellForEth, permit2Domain, PERMIT2, PERMIT2_ALLOWANCE_ABI, PERMIT_SINGLE_TYPES, UNIVERSAL_ROUTER_ABI, type PermitSingle } from '../lib/evm/universalRouter';
 import { useReplacedTxNotice } from './useReceiptOutcome';
 import { useSwapQuote, QUOTE_MAX_AGE_MS as _QUOTE_MAX_AGE_MS } from './useSwapQuote';
 import { useSwapAllowance } from './useSwapAllowance';
@@ -98,7 +99,7 @@ function loadCustomTokens(chain: number): TokenInfo[] {
     // attacker address. Drop any entry whose symbol collides with a
     // verified default token at a different address, or that fails basic
     // shape validation.
-    const defaults = defaultTokensFor(chain);
+    const defaults = swapTokensFor(chain);
     const filtered: TokenInfo[] = [];
     for (const raw of parsed) {
       if (!raw || typeof raw !== 'object') continue;
@@ -111,6 +112,8 @@ function loadCustomTokens(chain: number): TokenInfo[] {
       // Reject native impostors entirely (only ETH is native and is in the defaults).
       if (isNative) continue;
       if (!/^0x[a-fA-F0-9]{40}$/.test(addr)) continue;
+      // A token the list now carries is no longer custom (or it would be listed twice).
+      if (defaults.some(d => d.address.toLowerCase() === addr)) continue;
       // Drop any entry whose symbol collides with a verified token at a
       // DIFFERENT address. Mirrors TokenSelectModal.tsx isSpoofedSymbol.
       const collides = defaults.some(d =>
@@ -124,6 +127,17 @@ function loadCustomTokens(chain: number): TokenInfo[] {
     return [];
   }
 }
+
+/**
+ * At or above this price impact the swap refuses to sign. Uniswap's interface
+ * blocks at the same line (BLOCKED_PRICE_IMPACT_NON_EXPERT, 15%); its 3% and 5%
+ * tiers are the red figure and the banner TradePage already shows.
+ *
+ * Read live 2026-11-01: Base's Uniswap V2 BNKR/WETH pair held 7 BNKR and
+ * 0.0000011 ETH, so 1.75M BNKR (~0.22 ETH at market) quoted 0.0000011 ETH and the
+ * Swap button stayed live - a 99.99% impact behind one red line of text.
+ */
+export const BLOCKED_PRICE_IMPACT_PCT = 15;
 
 /**
  * `opts.chainId` is the chain the form trades on (TradePage passes useSwapChainId()).
@@ -238,6 +252,7 @@ export function useSwap(opts?: { chainId?: number }) {
 
   // ---- Transaction writing ----
   const { writeContract, data: hash, isPending, reset, error: writeError } = useWriteContract();
+  const { signTypedDataAsync } = useSignTypedData();
 
   // ---- Allowance (delegated to useSwapAllowance) ----
   const allowance = useSwapAllowance(fromToken, parsedAmount, quote.selectedRoute, quote.selectedOnChainRoute.source, address, writeContract, execVenue);
@@ -504,6 +519,8 @@ export function useSwap(opts?: { chainId?: number }) {
     return parsedAmount > (fromTokenBalance ?? 0n);
   }, [parsedAmount, fromToken, ethBalance, fromTokenBalance]);
 
+  const impactBlocked = quote.priceImpact !== null && quote.priceImpact >= BLOCKED_PRICE_IMPACT_PCT;
+
   // ---- Actions ----
   const executeSwap = useCallback(() => {
     if (isPendingRef.current) return; // R033 H-04
@@ -511,6 +528,7 @@ export function useSwap(opts?: { chainId?: number }) {
     if (!venue) { toast.error('Swaps are not available on this network'); return; }
     if (chainId !== swapChain) { toast.error(switchMessage); return; }
     if (allowance.needsApproval) { toast.error('Please approve the token first'); return; }
+    if (impactBlocked) { toast.error(`Price impact is ${quote.priceImpact!.toFixed(2)}%: this pool is too thin for this trade`); return; }
     // R033 H-02: if the displayed quote is stale, force a refresh and bail.
     if (quote.isQuoteStale) {
       toast.error('Quote is stale — refreshing now');
@@ -527,7 +545,7 @@ export function useSwap(opts?: { chainId?: number }) {
     const fromAddr = fromToken.isNative ? venue.weth : fromToken.address;
     const toAddr = toToken.isNative ? venue.weth : toToken.address;
     if (fromAddr.toLowerCase() === toAddr.toLowerCase()) {
-      toast.error('Cannot swap a token for itself');
+      toast.error('Both sides are the same token. Pick a different one to receive.');
       isPendingRef.current = false;
       return;
     }
@@ -549,6 +567,51 @@ export function useSwap(opts?: { chainId?: number }) {
     // slippage, and useSwapQuote displays the SAME on-chain-derived floor in
     // the "Min. Received" row, so R033's display==submit invariant holds.
     const minReceivedRaw = minimumReceived;
+
+    if (quote.v3) {
+      // ISLAND COIN, ITS OWN V3 POOL: Uniswap's Universal Router swaps and pays the venue
+      // its fee in the same transaction (lib/evm/universalRouter.ts, proven on a Base fork
+      // 2026-11-01). The floor is the quote's own Min. Received, net of that fee.
+      const { leg, feeBips, feeRecipient } = quote.v3;
+      if (leg.side === 'buy') {
+        const call = buyWithEth({ coin: leg.coin, weth: venue.weth, poolFee: leg.poolFee, minOut: minReceivedRaw, feeBips, feeRecipient });
+        writeContract({ chainId: swapChain, address: leg.router, abi: UNIVERSAL_ROUTER_ABI, functionName: 'execute', args: [call.commands, call.inputs, deadlineTs], value: parsedAmount });
+        return;
+      }
+      // A sale: the router pulls the coin through Permit2. Unless a Permit2 allowance to
+      // the router already covers it, the seller signs one for exactly this amount, for
+      // thirty minutes, and the router spends it in the same transaction.
+      void (async () => {
+        try {
+          if (!publicClient) throw new Error(`No connection to ${venue.name}`);
+          const [allowed, expiration, nonce] = await publicClient.readContract({
+            address: PERMIT2, abi: PERMIT2_ALLOWANCE_ABI, functionName: 'allowance', args: [address, leg.coin, leg.router],
+          });
+          const now = Math.floor(Date.now() / 1000);
+          let permit: { permit: PermitSingle; signature: `0x${string}` } | undefined;
+          if (allowed < parsedAmount || BigInt(expiration) <= deadlineTs) {
+            const message: PermitSingle = {
+              details: { token: leg.coin, amount: parsedAmount, expiration: now + 30 * 60, nonce },
+              spender: leg.router,
+              sigDeadline: BigInt(now + 30 * 60),
+            };
+            const signature = await signTypedDataAsync({ domain: permit2Domain(swapChain), types: PERMIT_SINGLE_TYPES, primaryType: 'PermitSingle', message });
+            permit = { permit: message, signature };
+          }
+          const call = sellForEth({ coin: leg.coin, weth: venue.weth, poolFee: leg.poolFee, amountIn: parsedAmount, minOut: minReceivedRaw, feeBips, feeRecipient, permit });
+          writeContract({ chainId: swapChain, address: leg.router, abi: UNIVERSAL_ROUTER_ABI, functionName: 'execute', args: [call.commands, call.inputs, deadlineTs] });
+        } catch (e) {
+          // Nothing was sent: release the latch and the snapshots, as a write error does.
+          isPendingRef.current = false;
+          lastActionRef.current = null;
+          submittedInputAmountRef.current = '';
+          submittedRouteRef.current = '';
+          if (isUserRejection(e)) toast.error('Signature cancelled. Nothing was sold.');
+          else toast.error('Could not prepare the sale. Nothing was sold.', { description: extractErrorMessage(e) });
+        }
+      })();
+      return;
+    }
 
     if (selectedRoute === 'aggregator') {
       const { selectedOnChainRoute } = quote;
@@ -657,7 +720,7 @@ export function useSwap(opts?: { chainId?: number }) {
         });
       }
     }
-  }, [address, chainId, fromToken, toToken, parsedAmount, insufficientBalance, swapType, deadline, quote, writeContract, supportsFeeOnTransfer, allowance.needsApproval, inputAmount, venue, execVenue, swapChain, switchMessage, slippage]);
+  }, [address, chainId, fromToken, toToken, parsedAmount, insufficientBalance, impactBlocked, swapType, deadline, quote, writeContract, signTypedDataAsync, publicClient, supportsFeeOnTransfer, allowance.needsApproval, inputAmount, venue, execVenue, swapChain, switchMessage, slippage]);
 
   const flipDirection = useCallback(() => {
     const prev = fromToken;
@@ -719,6 +782,7 @@ export function useSwap(opts?: { chainId?: number }) {
     // Travels WITH the number it qualifies: a consumer branching on a null impact
     // still needs to know whether it is unpriceable or simply unread.
     priceImpactUnread: quote.priceImpactUnread,
+    impactBlocked,
     minimumReceived: quote.minimumReceivedFormatted,
     needsApproval: allowance.needsApproval,
     insufficientBalance,
@@ -746,8 +810,8 @@ export function useSwap(opts?: { chainId?: number }) {
     // AUDIT FIX FE-HIGH-6: surface the custom-ness of the active from/to so
     // TradePage can render a permanent "unverified token" banner. Cheaper to
     // compute here once than to re-derive in the consumer.
-    isFromTokenCustom: !!fromToken && !defaultTokensFor(swapChain).some(d => d.address.toLowerCase() === fromToken.address.toLowerCase()),
-    isToTokenCustom: !!toToken && !defaultTokensFor(swapChain).some(d => d.address.toLowerCase() === toToken.address.toLowerCase()),
+    isFromTokenCustom: !!fromToken && !swapTokensFor(swapChain).some(d => d.address.toLowerCase() === fromToken.address.toLowerCase()),
+    isToTokenCustom: !!toToken && !swapTokensFor(swapChain).some(d => d.address.toLowerCase() === toToken.address.toLowerCase()),
     unlimitedApproval: allowance.unlimitedApproval,
     toggleUnlimitedApproval: allowance.toggleUnlimitedApproval,
     isApprovingMultiStep: allowance.isApprovingMultiStep,

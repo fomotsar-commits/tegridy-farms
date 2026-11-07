@@ -4,9 +4,10 @@ import { maxUint256 } from 'viem';
 import { toast } from 'sonner';
 import { ERC20_ABI } from '../lib/contracts';
 import { CHAIN_ID } from '../lib/constants';
-import { type TokenInfo, defaultTokensFor } from '../lib/tokenList';
+import { type TokenInfo, swapTokensFor } from '../lib/tokenList';
 import { swapVenueOn, type SwapVenue } from '../lib/chains/swapVenue';
-import type { RouteSource } from './useSwapQuote';
+import type { OnChainSource, RouteSource } from './useSwapQuote';
+import { PERMIT2 } from '../lib/evm/universalRouter';
 import { swapSpenderFor } from '../lib/swapRouting';
 
 export interface SwapAllowanceResult {
@@ -31,7 +32,7 @@ export function useSwapAllowance(
   selectedRoute: RouteSource,
   /** The aggregator route's on-chain fallback venue (quote.selectedOnChainRoute.source).
    *  Needed so the approval spender matches useSwap's executor on the aggregator path. */
-  onChainSource: 'tegridy' | 'uniswap',
+  onChainSource: OnChainSource,
   address: `0x${string}` | undefined,
   writeContract: (args: {
     chainId?: number;
@@ -75,6 +76,13 @@ export function useSwapAllowance(
         args: [address!, venue?.uniswapV2Router ?? ZERO],
         chainId: venueChainId,
       },
+      {
+        address: (fromToken?.address ?? ZERO) as `0x${string}`,
+        abi: ERC20_ABI,
+        functionName: 'allowance',
+        args: [address!, PERMIT2],
+        chainId: venueChainId,
+      },
     ],
     // R042 MED-3: gated on the wallet being on the venue's chain, and kept. The
     // reads are pinned to that chain too; the gate is here because nothing displays
@@ -85,6 +93,7 @@ export function useSwapAllowance(
 
   const sfrAllowance = allowanceData?.[0]?.status === 'success' ? allowanceData[0].result as bigint : 0n;
   const uniV2Allowance = allowanceData?.[1]?.status === 'success' ? allowanceData[1].result as bigint : 0n;
+  const permit2Allowance = allowanceData?.[2]?.status === 'success' ? allowanceData[2].result as bigint : 0n;
 
   // THIS FILE SPENDS THE SAME COLLAPSED 0n WITH OPPOSITE POLARITY, which is why
   // an earlier hand-check cleared it and it stayed on the ratchet baseline.
@@ -105,14 +114,16 @@ export function useSwapAllowance(
   // we cannot know the current allowance is non-zero. So the guard against
   // USDT's quirk is disarmed by the one condition it must survive, and the user
   // pays mainnet gas for a transaction that reverts.
-  const allowanceUnread = !!fromToken && !fromToken.isNative && onRightChain && !!address
-    && (allowanceData?.[0]?.status !== 'success' || allowanceData?.[1]?.status !== 'success');
-
   // F186: the approval spender MUST equal the contract useSwap executes against
   // for this route — SFR for tegridy (and aggregator→tegridy), UniswapV2Router
-  // for uniswap (and aggregator→uniswap). Single source of truth: swapSpenderFor().
+  // for uniswap (and aggregator→uniswap), Permit2 for uniswap-v3. Single source
+  // of truth: swapSpenderFor().
   const spender = venue ? swapSpenderFor(selectedRoute, onChainSource, venue) : swapSpenderFor(selectedRoute, onChainSource);
-  const activeAllowance = venue && spender === venue.swapFeeRouter ? sfrAllowance : uniV2Allowance;
+  const onPermit2 = spender === PERMIT2;
+  const allowanceUnread = !!fromToken && !fromToken.isNative && onRightChain && !!address
+    && (allowanceData?.[0]?.status !== 'success' || allowanceData?.[1]?.status !== 'success'
+      || (onPermit2 && allowanceData?.[2]?.status !== 'success'));
+  const activeAllowance = onPermit2 ? permit2Allowance : venue && spender === venue.swapFeeRouter ? sfrAllowance : uniV2Allowance;
 
   const needsApproval = !!fromToken && !fromToken.isNative && parsedAmount > 0n && activeAllowance < parsedAmount;
 
@@ -129,7 +140,7 @@ export function useSwapAllowance(
     // pull every later transfer. Exact-amount approvals still work for
     // custom tokens — every swap re-approves, which is mildly annoying but
     // not exploitable.
-    const isCustomToken = !defaultTokensFor(venueChainId).some(d =>
+    const isCustomToken = !swapTokensFor(venueChainId).some(d =>
       d.address.toLowerCase() === fromToken.address.toLowerCase()
     );
     let approvalAmount: bigint;

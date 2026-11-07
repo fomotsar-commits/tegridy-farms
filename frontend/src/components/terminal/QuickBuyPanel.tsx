@@ -284,7 +284,7 @@ export function QuickBuyPanel({ token, safety, network, pool }: QuickBuyPanelPro
             <button
               type="button"
               onClick={() => swap.executeSwap()}
-              disabled={blocked || swap.needsApproval || swap.isPending || swap.insufficientBalance}
+              disabled={blocked || swap.needsApproval || swap.isPending || swap.insufficientBalance || swap.impactBlocked}
               className="inline-flex min-h-11 items-center rounded-md border border-emerald-400/50 bg-emerald-400/10 px-3 text-xs font-semibold text-white disabled:opacity-40"
             >
               {swap.isPending || swap.isConfirming ? 'Submitting…' : 'Buy'}

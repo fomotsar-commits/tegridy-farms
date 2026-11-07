@@ -10,14 +10,9 @@ import { useToweliQueueInternal } from '../hooks/useTowelie';
 import { answerQuestion } from '../lib/towelieKnowledge';
 import {
   isDeployed,
-  TEGRIDY_LENDING_ADDRESS,
   TEGRIDY_NFT_LENDING_ADDRESS,
   TEGRIDY_NFT_POOL_FACTORY_ADDRESS,
   TEGRIDY_LAUNCHPAD_V2_ADDRESS,
-  COMMUNITY_GRANTS_ADDRESS,
-  MEME_BOUNTY_BOARD_ADDRESS,
-  VOTE_INCENTIVES_ADDRESS,
-  GAUGE_CONTROLLER_ADDRESS,
   PREMIUM_ACCESS_ADDRESS,
 } from '../lib/constants';
 import { artImgProps } from '../lib/artSrcSet';
@@ -93,7 +88,7 @@ const ROUTE_TIPS: Record<string, string> = {
   '/earn/toweli': "4× boost at max lock. Math checks out, I think.",
   '/swap':        "Trade TOWELI here. Or whatever — I'm just a towel.",
   '/liquidity':   "Add liquidity, earn fees. Easy money. Probably.",
-  '/community':   "Vote, post bounties, propose grants. The island demands it.",
+  '/community':   "Talk to the crew, then go see the art.",
   '/nft-finance': "Lend, borrow, trade NFTs. No oracles, no rugs.",
   '/lore':        "The story of how the island was found.",
   // CORRECTED 2026-09-03: this said "100% of fees flow back to stakers". That is
@@ -118,27 +113,18 @@ const ROUTE_TIPS: Record<string, string> = {
   '/treasury':    "Watch the funds. Transparency, on-chain.",
 };
 
-// F34: three routes (nft-finance/community/premium) are promoted in the nav
+// F34: two routes (nft-finance/premium) are promoted in the nav
 // while their contracts are still zeroed, so the page renders a "not deployed"
 // placeholder. Towelie's first-visit tip promised live functionality the page
 // then denied. Gate those tips on the ACTUAL deployed state (isDeployed on the
-// addresses — NOT navConfig's PROMOTE_PENDING flag) and substitute a
+// addresses, not the nav gate) and substitute a
 // coming-soon line until the addresses land. The full tip returns automatically.
 function tipIsLive(pathname: string): boolean {
   if (pathname === '/nft-finance') {
     return [
-      TEGRIDY_LENDING_ADDRESS,
       TEGRIDY_NFT_LENDING_ADDRESS,
       TEGRIDY_NFT_POOL_FACTORY_ADDRESS,
       TEGRIDY_LAUNCHPAD_V2_ADDRESS,
-    ].some(isDeployed);
-  }
-  if (pathname === '/community') {
-    return [
-      COMMUNITY_GRANTS_ADDRESS,
-      MEME_BOUNTY_BOARD_ADDRESS,
-      VOTE_INCENTIVES_ADDRESS,
-      GAUGE_CONTROLLER_ADDRESS,
     ].some(isDeployed);
   }
   if (pathname === '/premium') return isDeployed(PREMIUM_ACCESS_ADDRESS);
@@ -147,7 +133,6 @@ function tipIsLive(pathname: string): boolean {
 
 const COMING_SOON_TIPS: Record<string, string> = {
   '/nft-finance': "NFT lending lands here soon. Contracts aren't live yet — sit tight.",
-  '/community':   "Grants, bounties, votes — coming once governance ships. Patience, with held time.",
   '/premium':     "Randy's Gold Card isn't open yet. I'll holler when it drops.",
 };
 

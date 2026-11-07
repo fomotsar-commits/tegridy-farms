@@ -1,0 +1,6 @@
+{
+  "name": "SOL/USDC LP",
+  "symbol": "SOL-USDC",
+  "description": "A share of the SOL/USDC pool on memetics.finance. Remove liquidity there and it comes back as SOL and USDC. Do not burn it.",
+  "image": "https://memetics.finance/mint/img/bayla-usdc-54b66a97.png"
+}

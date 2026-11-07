@@ -43,12 +43,19 @@ const BUDGET: Record<string, { desktop: number; phone: number }> = {
   // "put the bayla staking module and the lp pool module here on the homepage"): 373 measured on the
   // desktop with both drawn, 220 of them the cards' (238 when the LP card waits on the venue's read),
   // after the hero's two sentences went into How heat works. 200 / 200 before them.
-  '/': { desktop: 410, phone: 410 },
+  // Raised 2026-11-02 for the frictionless set (island answer twenty-four): the amount chips and
+  // the coin names' head-and-tail on the home's two cards are controls, counted as words; CI
+  // measured 432 on the desktop with both cards drawn.
+  '/': { desktop: 440, phone: 440 },
   '/earn': { desktop: 140, phone: 125 },
   '/liquidity': { desktop: 140, phone: 140 },
   // One Rates card and one Swap routes card since 2026-10-14 (four fee cards before);
-  // raised 2026-10-15 for the All pools card (290 / 285 before it).
-  '/pools': { desktop: 340, phone: 335 },
+  // raised 2026-10-15 for the All pools card (290 / 285 before it). Lowered 2026-10-30: 292 / 292
+  // measured with the Rates table landed (252 / 252 on a run where it had not), with the Arbitrage
+  // card (its unread line, Read again and its small print's summary) and without the hero's eyebrow
+  // and Details, the share card's second "Nothing to claim.", Every position's lead line and the
+  // list's arbitrage prose: 340 / 335 before.
+  '/pools': { desktop: 325, phone: 325 },
   '/zap': { desktop: 95, phone: 95 },
   '/nft-finance': { desktop: 275, phone: 260 },
   // Its landing counts live collection data (listings, floors): 227 and 265 on two runs.

@@ -37,12 +37,21 @@ export function siteNamed(mint: string): boolean {
  * ("fake X" for a copy); null when there is none to show.
  */
 export function tokenTicker(mint: string, safety?: TokenSafety | null): string | null {
+  return claimedTicker(mint, safety?.kind === 'read' && safety.mint === mint ? safety.symbol : null);
+}
+
+/**
+ * The same name from a ticker read anywhere else (Jupiter's token list on the swap page):
+ * the registry's symbol, else a pairing coin's, else `symbol` cleaned for the screen,
+ * "fake X" for a copy; null when there is none to show.
+ */
+export function claimedTicker(mint: string, symbol: string | null | undefined): string | null {
   const ours = registryToken(mint)?.symbol ?? quoteCoin(mint)?.symbol;
   if (ours) return ours;
-  if (safety?.kind !== 'read' || safety.mint !== mint || !safety.symbol) return null;
-  const shown = displaySafe(safety.symbol, TICKER_CHARS);
+  if (!symbol) return null;
+  const shown = displaySafe(symbol, TICKER_CHARS);
   if (shown === '') return null;
-  return copiedWellKnownName(mint, [safety.symbol, shown]) ? `fake ${shown}` : shown;
+  return copiedWellKnownName(mint, [symbol, shown]) ? `fake ${shown}` : shown;
 }
 
 /** The ticker (tokenTicker), else the short address. */
