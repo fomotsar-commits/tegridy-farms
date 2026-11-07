@@ -35,8 +35,6 @@ const le64 = (n: bigint) => {
 
 /* ───────────────────────────── Raydium CPMM ───────────────────────────── */
 
-export const RAYDIUM_CPMM = new PublicKey('CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C');
-
 /** A cp-swap pool (Raydium CPMM or ours) as read: its state, its fee config and its two vault balances. */
 export interface CpPool {
   pool: PoolStateView;
@@ -45,8 +43,12 @@ export interface CpPool {
   vault1: bigint;
 }
 
-/** swap_base_input on a cp-swap pool: the program's own maths (cpswap/read.ts quoteOwnPool) and builder (cpswap/ix.ts). */
-export function cpLeg(p: CpPool, owner: PublicKey, fromMint: string, amountIn: bigint, minOut: bigint, programId: PublicKey = RAYDIUM_CPMM, nowSecs?: number): DirectLeg | null {
+/**
+ * swap_base_input on a cp-swap pool: the program's own maths (cpswap/read.ts quoteOwnPool) and
+ * builder (cpswap/ix.ts). `programId` is handed in: Raydium's (scripts/lib/raydium-programs.mjs
+ * RAYDIUM_CPMM) or ours. No Raydium key may be named in src/ (src/test/siteNoRaydiumKeys.test.ts).
+ */
+export function cpLeg(p: CpPool, owner: PublicKey, fromMint: string, amountIn: bigint, minOut: bigint, programId: PublicKey, nowSecs?: number): DirectLeg | null {
   const s = p.pool;
   const reserve0 = vaultAmountWithoutFee(p.vault0, s.protocolFeesToken0, s.fundFeesToken0, s.creatorFeesToken0);
   const reserve1 = vaultAmountWithoutFee(p.vault1, s.protocolFeesToken1, s.fundFeesToken1, s.creatorFeesToken1);
@@ -69,9 +71,15 @@ export function cpLeg(p: CpPool, owner: PublicKey, fromMint: string, amountIn: b
 
 /* ──────────────────────────── Raydium AMM v4 ──────────────────────────── */
 
-export const RAYDIUM_AMM_V4 = new PublicKey('675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8');
-/** The program's authority: PDA ["amm authority"]. */
-export const AMM_V4_AUTHORITY = new PublicKey('5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1');
+/**
+ * The AMM v4 program and its authority (PDA ["amm authority"]), handed in from
+ * scripts/lib/raydium-programs.mjs (RAYDIUM_AMM_V4, RAYDIUM_AMM_V4_AUTHORITY): no Raydium key may
+ * be named in src/ (src/test/siteNoRaydiumKeys.test.ts).
+ */
+export interface AmmV4Ids {
+  program: PublicKey;
+  authority: PublicKey;
+}
 export const AMM_V4_SWAP_BASE_IN_V2 = 16;
 const AMM_V4_SIZE = 752;
 /** Initialized, SwapOnly, WaitingTrade (after its open time): the statuses that swap. */
@@ -116,7 +124,7 @@ export function ammV4Out(p: AmmV4Pool, coinVault: bigint, pcVault: bigint, coinI
 }
 
 /** swap_base_in_v2: the token program, the pool, its authority, its two vaults, the trader's two accounts, the trader. */
-export function ammV4Leg(p: AmmV4Pool, coinVault: bigint, pcVault: bigint, owner: PublicKey, fromMint: string, amountIn: bigint, minOut: bigint, nowSecs = Math.floor(Date.now() / 1000)): DirectLeg | null {
+export function ammV4Leg(p: AmmV4Pool, coinVault: bigint, pcVault: bigint, owner: PublicKey, fromMint: string, amountIn: bigint, minOut: bigint, ids: AmmV4Ids, nowSecs = Math.floor(Date.now() / 1000)): DirectLeg | null {
   if (!AMM_V4_SWAPS.has(p.status) || BigInt(nowSecs) < p.openTime) return null;
   const coinIn = fromMint === p.coinMint;
   if (!coinIn && fromMint !== p.pcMint) return null;
@@ -129,9 +137,9 @@ export function ammV4Leg(p: AmmV4Pool, coinVault: bigint, pcVault: bigint, owner
   data.set(le64(minOut), 9);
   const w = (k: PublicKey | string, isWritable: boolean, isSigner = false) => ({ pubkey: typeof k === 'string' ? pk(k) : k, isSigner, isWritable });
   const ix = new TransactionInstruction({
-    programId: RAYDIUM_AMM_V4,
+    programId: ids.program,
     keys: [
-      w(TOKEN_PROGRAM_ID, false), w(p.address, true), w(AMM_V4_AUTHORITY, false), w(p.coinVault, true), w(p.pcVault, true),
+      w(TOKEN_PROGRAM_ID, false), w(p.address, true), w(ids.authority, false), w(p.coinVault, true), w(p.pcVault, true),
       w(ata(owner, mIn, TOKEN_PROGRAM_ID), true), w(ata(owner, mOut, TOKEN_PROGRAM_ID), true), w(owner, false, true),
     ],
     data: Buffer.from(data),

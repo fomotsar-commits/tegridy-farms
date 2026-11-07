@@ -4,9 +4,14 @@
 import { describe, expect, it } from 'vitest';
 import { PublicKey } from '@solana/web3.js';
 import { decodeAmmConfig, decodePoolState } from '../cpswap/program';
-import { AMM_V4_AUTHORITY, RAYDIUM_AMM_V4, RAYDIUM_CPMM, ammV4Leg, ammV4Out, cpLeg, decodeAmmV4, type AmmV4Pool } from './directLegs';
+import { ammV4Leg, ammV4Out, cpLeg, decodeAmmV4, type AmmV4Pool } from './directLegs';
 import { LEG_RUNS } from './directLegs.fixture';
 
+// Raydium's ids live in scripts/lib/raydium-programs.mjs (src/ may not name them; a test may).
+const RAYDIUM_CPMM = new PublicKey('CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C');
+const RAYDIUM_AMM_V4 = new PublicKey('675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8');
+const AMM_V4_AUTHORITY = new PublicKey('5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1');
+const AMM_V4 = { program: RAYDIUM_AMM_V4, authority: AMM_V4_AUTHORITY };
 const WALLET = new PublicKey('9WAugU3g3YECwuEuoPy3NEH5Co475fHATGdjr2dy2Fcz');
 const SOL = 'So11111111111111111111111111111111111111112';
 const run = (venue: string) => LEG_RUNS.find((r) => r.venue === venue)!;
@@ -21,7 +26,7 @@ describe('Raydium AMM v4: swap_base_in_v2, held to a mainnet simulation', () => 
   const pc = amountOf(bytes(r, p.pcVault));
 
   it('pays exactly what the program paid, with the accounts and bytes it accepted', () => {
-    const leg = ammV4Leg(p, coin, pc, WALLET, SOL, BigInt(r.amountIn), BigInt(r.out))!;
+    const leg = ammV4Leg(p, coin, pc, WALLET, SOL, BigInt(r.amountIn), BigInt(r.out), AMM_V4)!;
     expect(leg.out).toBe(BigInt(r.out));
     expect(leg.ix.programId.equals(RAYDIUM_AMM_V4)).toBe(true);
     expect(shape(leg.ix.keys)).toEqual(r.keys);
@@ -40,9 +45,9 @@ describe('Raydium AMM v4: swap_base_in_v2, held to a mainnet simulation', () => 
     expect(ammV4Out({ ...toy, needTakePnlCoin: 500_000n }, 1_000_000n, 1_000_000n, true, 1001n)).toBe(1992n);
   });
   it('builds nothing for a pool that does not swap, or before it opens', () => {
-    expect(ammV4Leg({ ...p, status: 4n }, coin, pc, WALLET, SOL, 1_000n, 1n)).toBeNull();
-    expect(ammV4Leg({ ...p, openTime: 4_000_000_000n }, coin, pc, WALLET, SOL, 1_000n, 1n, 1_800_000_000)).toBeNull();
-    expect(ammV4Leg(p, coin, pc, WALLET, 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', 1_000n, 1n)).toBeNull();
+    expect(ammV4Leg({ ...p, status: 4n }, coin, pc, WALLET, SOL, 1_000n, 1n, AMM_V4)).toBeNull();
+    expect(ammV4Leg({ ...p, openTime: 4_000_000_000n }, coin, pc, WALLET, SOL, 1_000n, 1n, AMM_V4, 1_800_000_000)).toBeNull();
+    expect(ammV4Leg(p, coin, pc, WALLET, 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', 1_000n, 1n, AMM_V4)).toBeNull();
   });
 });
 
@@ -53,17 +58,17 @@ describe('Raydium CPMM: the cp-swap program, held to a mainnet simulation', () =
   const cp = { pool, config, vault0: amountOf(bytes(r, pool.token0Vault)), vault1: amountOf(bytes(r, pool.token1Vault)) };
 
   it('pays exactly what the program paid, with the accounts and bytes it accepted', () => {
-    const leg = cpLeg(cp, WALLET, SOL, BigInt(r.amountIn), BigInt(r.out))!;
+    const leg = cpLeg(cp, WALLET, SOL, BigInt(r.amountIn), BigInt(r.out), RAYDIUM_CPMM)!;
     expect(leg.out).toBe(BigInt(r.out));
     expect(leg.ix.programId.equals(RAYDIUM_CPMM)).toBe(true);
     expect(shape(leg.ix.keys)).toEqual(r.keys);
     expect(Buffer.from(leg.ix.data).toString('hex')).toBe(r.data);
   });
   it('prices against the vaults less the fees parked in them', () => {
-    const lean = cpLeg({ ...cp, vault0: cp.vault0 + 1_000_000_000n, vault1: cp.vault1 + 1_000_000_000n }, WALLET, SOL, BigInt(r.amountIn), 1n)!;
+    const lean = cpLeg({ ...cp, vault0: cp.vault0 + 1_000_000_000n, vault1: cp.vault1 + 1_000_000_000n }, WALLET, SOL, BigInt(r.amountIn), 1n, RAYDIUM_CPMM)!;
     expect(lean.out).not.toBe(BigInt(r.out));
   });
   it('builds nothing for a coin the pool does not hold', () => {
-    expect(cpLeg(cp, WALLET, 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', 1_000n, 1n)).toBeNull();
+    expect(cpLeg(cp, WALLET, 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', 1_000n, 1n, RAYDIUM_CPMM)).toBeNull();
   });
 });
