@@ -156,7 +156,7 @@ by at least one test.
 
 ## 4. In scope: the deploy parameters
 
-Not chosen yet, except the fees and the treasury's shape. **Never reuse Minswap's
+Not chosen yet, except the fees and the treasury (below). **Never reuse Minswap's
 `deployed/mainnet/params.json`**: its `poolStakeCredential`
 (`52563c5410bff6a0d43ccebb7c37e1f69f5eb260552521adff33b9c2`) is Minswap's key, and a pool deployed
 with it pays its ADA staking rewards to Minswap.
@@ -166,20 +166,34 @@ with it pays its ADA staking rewards to Minswap.
 | Authen seed | a UTxO the deploy spends; fixes our authen policy and every hash after it | ours, chosen at deploy |
 | NFT names `MSF`, `MSP`, `MSGS` | constants in Minswap's code, not parameters | unchanged |
 | Pool stake credential | where each new pool's ADA is staked, and so who earns its staking rewards (and, since Plomin, which DRep it delegates to) | the venue's |
-| Role timelock `Params` | `seed` (a second UTxO), `owner_a`, `owner_b`, `treasury`, `authen_policy_id` (ours) | treasury: a two-key multi-signature wallet, not made yet (below); keys: owner's decision |
+| Role timelock `Params` | `seed` (a second UTxO), `owner_a`, `owner_b`, `treasury`, `authen_policy_id` (ours) | treasury: the venue's two-key treasury, proven on mainnet (below); keys: owner's decision |
 | First GlobalSetting | `batchers` = the batcher's key(s); the five roles = `PAMSpendScript(role timelock hash)` | |
 | Pools the site opens | base fee 30 / 10000 on both sides (0.3%); fee share switched on at 1333 / 10000 by a `SetPool` announcement | owner's ruling, 2026-10-24 |
 
-**The treasury** is a multi-signature wallet of two keys. The owner's plan (2026-10-24) is
-Eternl's multi-sig wallet, which needs Eternl Pro. Not a Lace shared wallet: Lace's own source
-calls those "a beta feature (testnet-only)", and Lace 2.x does not migrate them
-(input-output-hk/lace @ `d0df8d7e07`,
-`packages/module/migrate-v1-data/src/store/v1-data/prepare-preloaded-state.ts`). Both parts of
-its address must be scripts that need both keys: the payment part, and the stake part too, since
-a one-key stake part lets that key alone withdraw the treasury's staking rewards to any address.
-The lock's `treasury` and the batcher's `sweep` setting (draft PR #1008,
-`cardano/batcher/README.md` step 8) must hold the same address string: the lock compares whole
-addresses.
+**The treasury** is the owner's Eternl multi-sig wallet "memetics.finance" (Eternl Pro, made
+2026-10-31), not a Lace shared wallet: Lace's own source calls those "a beta feature
+(testnet-only)", and Lace 2.x does not migrate them (input-output-hk/lace @ `d0df8d7e07`,
+`packages/module/migrate-v1-data/src/store/v1-data/prepare-preloaded-state.ts`). Its address:
+
+`addr1xy6kxswfkhnxfwllzcxkqfumhyjedvkvkvlt3p7mhwxwp3spv7vdp6er80lvtdm32cqvvetu93ams9yrggg5pm5tq3usr47kat`
+
+- Payment part: script `356341c9b5e664bbff160d60279bb92596b2ccb33eb887dbbb8ce0c6`, all of the keys
+  `47901a27b081437abaeb2e6a16762388f68f3eb40de056a529e9dc39` and
+  `063f7b2abbf1cb581516c5b4a78929a118752cc3672c10709bb8bc21`.
+- Stake part: script `016798d0eb233bfec5b7715600c6657c2c7bb81483421140ee8b0479`, all of the keys
+  `a91f2db69b8b44ef8355a53e648d052680d009c70d07bc9017292b5a` and
+  `f9824d0d357d21b5b12b1b83e0d1f567d6076aa74481cb1741f0be7c`. A one-key stake part would let that
+  key alone withdraw the treasury's staking rewards to any address.
+
+Both scripts are published in Eternl's registration tx
+`4774ad698f1df93b3a09d1942b0ff1001b87b9788d50fd2a13820576fbe42762` (metadata label 1854), and
+proven on mainnet 2026-11-07 by tx
+`06c0fc163e49d1b3486c37c8c56727df85e88e4d73209be800531ce17037d4da`, a spend from it carrying
+exactly the two payment keys' signatures. The same address is the swap's venue fee address
+(`CARDANO_VENUE_FEE_ADDRESS`, `frontend/src/lib/cardano/venueFee.ts`). It goes, as this one
+string, in the lock's `treasury` and the batcher's `sweep` setting (draft PR #1008,
+`cardano/batcher/README.md` step 8): the lock compares whole addresses, so the same spend script
+with another stake part is refused (`withdraw_to_the_treasury_restaked` in the lock's tests).
 
 Order: pick both seeds, compute the authen policy, compute the lock's hash with it, mint the lock
 token (both keys sign), then `DexInitialization` with the first GlobalSetting naming the lock.
@@ -213,7 +227,8 @@ collateral, and keeps the batcher fee. It cannot move any role: those are in the
 ## Decisions that are the owner's
 
 Decided 2026-10-24: the 0.3% fee and the 1333 share (which needed the patch in section 2), the
-quarterly split from the treasury, and a two-key treasury (a multi-signature wallet, not made yet: section 4).
+quarterly split from the treasury, and a two-key treasury (an Eternl multi-sig wallet, made 2026-10-31 and proven on mainnet
+2026-11-07: section 4).
 Still open:
 
 1. Who holds the role timelock's two owner keys.
