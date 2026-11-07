@@ -88,16 +88,19 @@ describe('the receipt card', () => {
     act(() => raiseReceipt(receipt()));
     act(() => settleReceipt(SIG, { title: 'Bought 25,623 BAYLA', under: 'for 0.122 SOL, on the venue', fee: { kind: 'pool', unit: 'SOL', fee: '0.00122 SOL', lps: '0.001025 SOL', venue: '0.000195 SOL', creator: null } }));
     const card = screen.getByTestId('receipt-card');
+    // The card's text, element by element, with nothing between them.
     expect(card.textContent).toBe(
-      'Bought 25,623 BAYLA' +
-        'for 0.122 SOL, on the venue' +
-        'Fee0.00122 SOL' +
-        "To this pool's LPs0.001025 SOL" +
-        'To the venue and the island0.000195 SOL' +
-        'Signature5Kq3 … 9xWz ↗' +
-        'Day 1 of your clock on BAYLA starts tonight.' +
-        'Share your card' +
+      [
+        'Bought 25,623 BAYLA',
+        'for 0.122 SOL, on the venue',
+        'Fee0.00122 SOL',
+        "To this pool's LPs0.001025 SOL",
+        'To the venue and the island0.000195 SOL',
+        'Signature5Kq3 … 9xWz ↗',
+        'Day 1 of your clock on BAYLA starts tonight.',
+        'Share your card',
         'Back to the room',
+      ].join(''),
     );
     expect(card.querySelectorAll('.btn-primary')).toHaveLength(1);
   });

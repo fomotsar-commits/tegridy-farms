@@ -213,7 +213,8 @@ describe('the CSS', () => {
       '.receipt-card[data-flame="catching"] .receipt-clock',
       '.receipt-card[data-flame="catching"] .receipt-clock-dot',
     ]) {
-      expect(reduced, `${sel} still animates under reduced motion`).toMatch(new RegExp(`${sel.replace(/[.[\]()*+?]/g, '\\$&')}[^{]*\\{[^}]*animation:\\s*none`));
+      const literal = sel.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&');
+      expect(reduced, `${sel} still animates under reduced motion`).toMatch(new RegExp(`${literal}[^{]*\\{[^}]*animation:\\s*none`));
     }
     expect(reduced).toMatch(/\.flame-ember\s*\{\s*opacity:\s*0/);
     expect(reduced).toMatch(/\.flame-fire\s*\{\s*transform:\s*none;\s*opacity:\s*1/);
