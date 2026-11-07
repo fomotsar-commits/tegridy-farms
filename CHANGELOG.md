@@ -9,6 +9,8 @@ The site's Changelog tab shows both files.
 
 ### 2026-11-07
 
+- Cardano swap: the venue fee is on. A swap of about 200 ADA or more pays 0.5% of its ADA side (the ADA you pay in, or the ADA the pool quotes back on a sale) in the same transaction, straight to the venue's two-key Cardano treasury; under that it pays none, because a Cardano payment must hold about 1 ADA. The quote and the review show the amount, and the review shows the treasury's whole address so you can match it on your wallet's screen. Minswap's own fees are unchanged.
+
 - Receipt card (Solana): the confetti after a swap or an add is gone. In its place the card's ring holds an ember that catches into the island's flame the moment the card is up: the ring breathes once, the edge warms once, the clock line lights. A sale never lights. The farm keeps its own confetti.
 
 - Home page: the all-time volume counts again. On Nov 5 a swap in one of our Solana pools used Solana's newer transaction format, which the counter did not ask for, and every count since stopped there, so the figure said "not up to date". A pool's history and finding a share's pool read that format too now.
