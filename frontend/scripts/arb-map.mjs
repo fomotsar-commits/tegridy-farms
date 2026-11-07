@@ -88,31 +88,10 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const said = (e) => (e instanceof Error ? e.message : String(e));
 const log = (line) => console.log(`${new Date().toISOString()}  ${line}`);
 
-/** One JSON-RPC host, called no sooner than `gap` after its last call; a refusal for speed rests 30 s, three times. */
-function host(url, gap) {
-  let next = 0;
-  return async (method, params) => {
-    for (let tries = 0; ; tries++) {
-      const wait = next - Date.now();
-      next = Math.max(Date.now(), next) + gap;
-      if (wait > 0) await sleep(wait);
-      try {
-        const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }), signal: AbortSignal.timeout(180_000) });
-        if (r.status === 429) throw Object.assign(new Error(`${method} refused for speed`), { busy: true });
-        if (!r.ok) throw new Error(`${method} answered ${r.status}`);
-        const j = await r.json();
-        if (j.error) throw Object.assign(new Error(`${method}: ${String(j.error.message ?? j.error.code).slice(0, 160)}`), { busy: j.error.code === 429 });
-        return j.result;
-      } catch (e) {
-        if (!e.busy || tries >= 3) throw e;
-        log(`${new URL(url).host}: ${e.message}: resting 30 s`);
-        next = Date.now() + 30_000;
-      }
-    }
-  };
-}
-const scan = host(SCAN_RPC, GAP_MS);
-const read = host(READ_RPC, READ_GAP_MS);
+// Each host is called no sooner than its gap after its last call; a refusal, a dropped
+// connection or a timeout rests 30 s and asks again (lib/arb-map.mjs).
+const scan = M.rpcHost(SCAN_RPC, GAP_MS, { log });
+const read = M.rpcHost(READ_RPC, READ_GAP_MS, { log });
 
 const POOLS_DIR = path.join(DIR, 'pools');
 const sliceFile = (s) => path.join(POOLS_DIR, `${s.dex}-${s.size}-${s.byte.toString(16).padStart(2, '0')}.json`);
@@ -174,13 +153,23 @@ async function loadCandidates() {
 }
 
 // ─── 2. depths, fees, prices ──────────────────────────────────────────────────────────────
-/** Accounts in calls of READ_BATCH, whole or a slice; address → { owner, data } or null. */
+/**
+ * Accounts in calls of READ_BATCH, whole or a slice; address → { owner, data } or null (no such
+ * account). A call the host would not answer even after its rests leaves its accounts out (unread
+ * this pass, read again next pass) rather than losing the pass.
+ */
 async function accounts(keys, dataSlice) {
   const out = new Map();
   const want = [...new Set(keys)];
   for (let i = 0; i < want.length; i += READ_BATCH) {
     const part = want.slice(i, i + READ_BATCH);
-    const r = await read('getMultipleAccounts', [part, { encoding: 'base64', commitment: 'confirmed', ...(dataSlice ? { dataSlice } : {}) }]);
+    let r;
+    try {
+      r = await read('getMultipleAccounts', [part, { encoding: 'base64', commitment: 'confirmed', ...(dataSlice ? { dataSlice } : {}) }]);
+    } catch (e) {
+      log(`${part.length} accounts not read this pass (${said(e)})`);
+      continue;
+    }
     part.forEach((k, j) => out.set(k, r.value[j] ? { owner: r.value[j].owner, data: Buffer.from(r.value[j].data[0], 'base64') } : null));
     if (i > 0 && (i / READ_BATCH) % 200 === 0) log(`read ${i + part.length}/${want.length} accounts`);
   }
@@ -198,13 +187,14 @@ async function readLinks(pools) {
     if (k === BRIDGE) {
       const pool = C.decodePool('whirlpool', k, a.data);
       const depth = pool && C.depthOf(pool, new Map());
-      if (!pool || !depth) throw new Error('the SOL/USDC bridge pool was not read: nothing can be priced');
+      if (!pool || !depth) continue;
       const sol = (pool.mintA === C.SOL_MINT ? depth.b / depth.a : depth.a / depth.b) * 10 ** (9 - 6);
       S.usd.set(C.SOL_MINT, sol);
       S.bridge = { pool, depth };
     } else if (k === C.PUMP_FEE_CONFIG) S.configs.set(k, C.pumpFeeConfig(a.data));
     else S.configs.set(k, C.cpConfigFee(a.data));
   }
+  if (!S.bridge) throw new Error('the SOL/USDC bridge pool was not read: nothing can be priced');
 }
 
 /**
@@ -273,17 +263,24 @@ function print() {
 await fs.mkdir(DIR, { recursive: true });
 log(`arb map: scans ${new URL(SCAN_RPC).host} every ${GAP_MS} ms, reads ${new URL(READ_RPC).host} every ${READ_GAP_MS} ms, slices ${SLICE_FROM}-${SLICE_TO}, cache ${DIR}`);
 for (;;) {
-  if (Date.now() - S.listedAt > RELIST_MS) {
-    await listPools();
-    S.listedAt = Date.now();
-    const { byDex, coins, byCoin, slices } = await loadCandidates();
-    S.candidates = [...byCoin.values()].flat();
-    S.counts = { slices, pools: Object.values(byDex).reduce((a, b) => a + b, 0), byDex, coins, candidates: byCoin.size };
-    log(`${S.counts.pools} pools of ${coins} coins in ${slices} slices; ${byCoin.size} coins have 2+ pools (${S.candidates.length} pools): reading their depths`);
-    await readLinks(S.candidates);
-    await pass(S.candidates);
-  } else {
-    await pass(S.deep.length ? S.deep : S.candidates);
+  // A round that fails (a host gone for minutes) is logged and tried again next round; a listing
+  // round counts as done only once its first pass is, and its slices are cached, so a retry is cheap.
+  try {
+    if (Date.now() - S.listedAt > RELIST_MS) {
+      await listPools();
+      const { byDex, coins, byCoin, slices } = await loadCandidates();
+      S.candidates = [...byCoin.values()].flat();
+      S.counts = { slices, pools: Object.values(byDex).reduce((a, b) => a + b, 0), byDex, coins, candidates: byCoin.size };
+      log(`${S.counts.pools} pools of ${coins} coins in ${slices} slices; ${byCoin.size} coins have 2+ pools (${S.candidates.length} pools): reading their depths`);
+      await readLinks(S.candidates);
+      await pass(S.candidates);
+      S.listedAt = Date.now();
+    } else {
+      await pass(S.deep.length ? S.deep : S.candidates);
+    }
+  } catch (e) {
+    if (ONCE) throw e;
+    log(`this round not finished (${said(e)}); the next starts in ${EVERY_MS / 1000} s`);
   }
   if (ONCE) break;
   await sleep(EVERY_MS);

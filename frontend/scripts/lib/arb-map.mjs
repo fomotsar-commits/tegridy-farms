@@ -114,6 +114,40 @@ export function rankCoins(byCoin, ctx) {
   return rows.sort((a, b) => b.gapNetUsd - a.gapNetUsd);
 }
 
+/**
+ * One JSON-RPC host, called no sooner than `gap` ms after its last call. A refusal for speed
+ * (429), a dropped connection or a timeout rests 30 s and asks again, three times (the full
+ * chain-wide run died at 17:40Z on 11-06 to one dropped read, 4,000 accounts into 74,000);
+ * an answer the host meant (a wrong param, a 403) throws at once. `deps` are for tests.
+ */
+export function rpcHost(url, gap, deps = {}) {
+  const { fetch: f = globalThis.fetch, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), now = Date.now, log = () => {} } = deps;
+  const name = new URL(url).host;
+  let next = 0;
+  return async (method, params) => {
+    for (let tries = 0; ; tries++) {
+      const wait = next - now();
+      next = Math.max(now(), next) + gap;
+      if (wait > 0) await sleep(wait);
+      try {
+        const r = await f(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }), signal: AbortSignal.timeout(180_000) });
+        if (r.status === 429) throw Object.assign(new Error(`${method} refused for speed`), { busy: true });
+        if (!r.ok) throw new Error(`${method} answered ${r.status}`);
+        const j = await r.json();
+        if (j.error) throw Object.assign(new Error(`${method}: ${String(j.error.message ?? j.error.code).slice(0, 160)}`), { busy: j.error.code === 429 });
+        return j.result;
+      } catch (e) {
+        if (!(e.busy || dropped(e)) || tries >= 3) throw e;
+        log(`${name}: ${e.busy ? e.message : `${method} not answered (${e.cause?.code ?? e.name})`}: resting 30 s`);
+        next = now() + 30_000;
+      }
+    }
+  };
+}
+
+/** A connection that dropped (undici's "fetch failed", whose cause names the error) or timed out. */
+const dropped = (e) => e instanceof Error && (e.message === 'fetch failed' || e.name === 'TimeoutError' || e.name === 'AbortError');
+
 /** JSON that keeps a pool's 64-bit figures (owed fees, the PumpSwap adjustment) exact: `123n`. */
 export const toJson = (v) => JSON.stringify(v, (_, x) => (typeof x === 'bigint' ? `${x}n` : x));
 export const fromJson = (s) => JSON.parse(s, (_, x) => (typeof x === 'string' && /^-?\d+n$/.test(x) ? BigInt(x.slice(0, -1)) : x));

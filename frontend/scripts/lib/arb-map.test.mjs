@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createHash } from 'node:crypto';
 import bs58 from 'bs58';
-import { MAPPED, candidates, depthUsd, fromJson, poolFromSlice, rankCoins, sidesOf, sliceParams, slices, toJson } from './arb-map.mjs';
+import { MAPPED, candidates, depthUsd, fromJson, poolFromSlice, rankCoins, rpcHost, sidesOf, sliceParams, slices, toJson } from './arb-map.mjs';
 import { DEXES, SOL_MINT, USDC_MINT, decodePool } from './arb-chain.mjs';
 
 const SETTINGS = { maxTradeUsd: 1000, minProfitUsd: 0.01, microLamports: 10_000, lighthouseProven: false };
@@ -111,6 +111,53 @@ describe('rankCoins', () => {
   it('prices depth from the quote side', () => {
     expect(depthUsd(cheap, depths, usd)).toBe(2e4);
     expect(depthUsd(cheap, new Map(), usd)).toBeNull();
+  });
+});
+
+describe('rpcHost', () => {
+  const answer = (result) => ({ ok: true, status: 200, json: async () => ({ jsonrpc: '2.0', id: 1, result }) });
+  const drop = () => Object.assign(new Error('fetch failed'), { cause: Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' }) });
+  /** A host whose fetch answers (or throws) each step in turn; sleeps are recorded and advance a fake clock. */
+  function fake(steps) {
+    const calls = [];
+    const rests = [];
+    const lines = [];
+    let t = 1_000_000;
+    const fetch = async (url, init) => {
+      calls.push(JSON.parse(init.body).method);
+      const s = steps.shift();
+      if (s instanceof Error) throw s;
+      return s;
+    };
+    const host = rpcHost('https://rpc.example', 250, { fetch, sleep: async (ms) => { rests.push(ms); t += ms; }, now: () => t, log: (l) => lines.push(l) });
+    return { host, calls, rests, lines };
+  }
+
+  it('rests 30 s after a refusal for speed, then asks again', async () => {
+    const { host, calls, rests, lines } = fake([{ ok: false, status: 429 }, answer(7)]);
+    expect(await host('getSlot', [])).toBe(7);
+    expect(calls).toEqual(['getSlot', 'getSlot']);
+    expect(rests).toEqual([30_000]);
+    expect(lines).toEqual(['rpc.example: getSlot refused for speed: resting 30 s']);
+  });
+
+  it('rests after a dropped connection or a timeout too; the fourth drop in a row throws', async () => {
+    const { host, rests, lines } = fake([drop(), Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' }), answer('ok')]);
+    expect(await host('getMultipleAccounts', [[]])).toBe('ok');
+    expect(rests).toEqual([30_000, 30_000]);
+    expect(lines).toEqual(['rpc.example: getMultipleAccounts not answered (ECONNRESET): resting 30 s', 'rpc.example: getMultipleAccounts not answered (TimeoutError): resting 30 s']);
+    const four = fake([drop(), drop(), drop(), drop()]);
+    await expect(four.host('getSlot', [])).rejects.toThrow('fetch failed');
+    expect(four.calls).toHaveLength(4);
+  });
+
+  it('throws at once on an answer the host meant, and keeps the gap between calls', async () => {
+    const { host, calls, rests } = fake([{ ok: true, status: 200, json: async () => ({ error: { code: -32602, message: 'Invalid param' } }) }, { ok: false, status: 403 }, answer(1)]);
+    await expect(host('getProgramAccounts', [])).rejects.toThrow('getProgramAccounts: Invalid param');
+    await expect(host('getProgramAccounts', [])).rejects.toThrow('getProgramAccounts answered 403');
+    expect(calls).toHaveLength(2);
+    expect(await host('getSlot', [])).toBe(1);
+    expect(rests).toEqual([250, 250]);
   });
 });
 
