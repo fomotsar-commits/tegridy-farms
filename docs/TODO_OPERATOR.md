@@ -29,6 +29,43 @@ stop and say so — a surprise is information.
 
 ---
 
+## 🔴 2026-11-07: Cardano pools, everything left before you can add liquidity
+
+Your ask (2026-11-07): what is left before you can add liquidity on Cardano on memetics.finance.
+**Today you cannot.** None of our own Cardano pools is deployed, and by your ruling of 2026-10-24
+the site never sends liquidity into Minswap's pools (a sixth of their trade fee goes to Minswap).
+The code is written and waiting as drafts: our copy of Minswap V2 with the 48-hour, two-key lock
+(#988), the 73 ADA pool opening fee (#1016), the batcher that fills orders (#1008), the LP screens
+(#1068) and Cancel order (#1071). The plan is [`CARDANO_PLAN.md`](CARDANO_PLAN.md) Part 2.
+
+**How the money moves once it is live** (your rulings of 2026-10-24 and 2026-10-25):
+- **Opening a pool:** whoever opens it pays 73 ADA, in the same transaction, straight to the
+  two-key treasury. Their own deposit all goes into the pool.
+- **Trading:** each trade pays 0.3% of what goes in. LPs keep about 0.26% of the trade. The venue
+  takes 1333/10000 of the fee (about 0.04% of the trade); it builds up inside each pool and the
+  lock pays it out only to the treasury. A new pool starts with the venue's share off (Minswap's
+  factory requires it); switching it on is a lock change, live 48 hours after it is announced.
+- **Filling orders:** our batcher keeps the batcher fee on each order it fills. Above its float
+  cap it sweeps the excess to the treasury.
+
+| Step | What | Who |
+|---|---|---|
+| ⬜ 1 | Finish the treasury (the Cardano swap section below): confirm the two keys come from two different 24-word phrases, and move key B to your phone. The pools pay into this same treasury. | you |
+| ⬜ 2 | Decide who holds the lock's two owner keys. Every pool setting change (fees, batchers, the treasury) needs both, 48 hours after it is announced. Also pick a DRep for the pools' stake, or "always abstain": since the Plomin hard fork, staking rewards cannot be withdrawn without one. | you |
+| ⬜ 3 | A lawyer reads Minswap's licence. Its `LICENSE.md` says GPL-3.0; its `aiken.toml` and `plutus.json` say Apache-2.0. Owed before any deploy. | you |
+| ⬜ 4 | Code fixes before the audit. The batcher reads the global settings as 6 fields, but the opening fee (#1016) makes them 8. Bring the treasury-is-Eternl fix (#1032, #1033) into the branches, and name the proven treasury as the lock's treasury. Bring the LP screens (#1068) up to date with trunk: they conflict today. | a session |
+| ⬜ 5 | Write the deploy script, which does not exist yet: our seed UTxO, the pool contracts with our settings, the lock, the reference scripts, and registering the batching script's reward account. Rehearse it on preprod. The rehearsal says how much ADA the deploy locks up. | a session |
+| ⬜ 6 | Pick and pay an auditor. Scope: the one-line fee-share patch, the opening fee, the lock, the deploy settings and the batcher. The brief is `docs/CARDANO_AUDIT_SCOPE.md` on #988. Every finding gets fixed, none accepted (your rule of 2026-10-13). This is the longest wait, so it sets the date. | you, then a session |
+| ⬜ 7 | Give the batcher a home: a new Railway project (two-factor on, no other members, a volume, volume backups off), two healthchecks.io checks, a Demeter account for Ogmios and Kupo, and a second Koios key used only by the batcher. Step by step in `cardano/batcher/README.md` on #1008. | you |
+| ⬜ 8 | After the audit, deploy with your keys. Then name the batcher's key through the lock (48 hours) and fund it: about 5 ADA of collateral and a float of at least 10 ADA. | you, with a session |
+| ⬜ 9 | A week of batcher dry runs, signing nothing, with one small order per pool. Then switch it live. | a session, live on your word |
+| ⬜ 10 | Merge the pool PRs and the LP screens, each on your word (each merge is a production deploy). A session walks the screens from the home page after each. | you, then a session |
+| ⬜ 11 | Open the first pool (73 ADA to the treasury) and add liquidity. Announce the venue's share; it switches on 48 hours later. | you |
+
+Steps 1 to 7 can all run at once. Steps 2, 3 and 6 only you can start, and step 6 sets the date.
+
+---
+
 ## 🔴 2026-11-05: NFT lending on Gondi's loan contract (about 0.01 ETH, one deploy and one database file from you)
 
 Your ask (2026-11-05): "do everything needed lets get this done" for collection loan offers on NFT Finance.
@@ -628,7 +665,8 @@ for now, and add it when the treasury exists". Plan and rulings: [`CARDANO_PLAN.
 3. ✅ **Real swaps walked on mainnet**, 2026-10-24, from key A: a buy (25 ADA for 1,580.426944 MIN)
    and a sell (the same MIN for 24.532531 ADA), each filled at exactly the quoted amount.
 
-Next after that: our own Cardano pools (plan Part 2), which ends in an audit you pay for.
+Next after that: our own Cardano pools (plan Part 2), which ends in an audit you pay for. Every
+step left before you can add liquidity is in the 2026-11-07 section at the top of this file.
 
 ## 2026-10-24: for later, Jupiter's paid plan (you: "stay on free now")
 
