@@ -105,7 +105,7 @@ export const OFFSETS = Object.freeze({ token0Vault: 72, lpMint: 136, token0Mint:
 /**
  * Addresses returned per answer. The browser refuses a longer list (poolIndex.ts
  * `POOL_INDEX_MAX`, pinned to this by a test). It reads these plus the few it works out
- * itself: the launch pool, and two standard addresses for each coin.
+ * itself: the launch pool, and the public tier's standard address for each coin.
  */
 export const MAX_POOLS = 96;
 /**

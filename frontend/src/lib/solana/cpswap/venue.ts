@@ -98,3 +98,14 @@ export function tradeCost(config: { tradeFeeRate: bigint }, creatorFeeRate: bigi
 export function solOf(lamports: bigint): number {
   return Number(lamports) / Number(LAMPORTS_PER_SOL);
 }
+
+/**
+ * How LPs earn and what the venue takes, in the words a pool's card and the sheet say
+ * (owner, 2026-10-09: it stays in view): "LPs keep 0.840% of each trade, the venue 0.160%",
+ * and the pool's creator's cut when its switch is on.
+ */
+export function feeSplitText(config: { tradeFeeRate: bigint; protocolFeeRate: bigint; fundFeeRate: bigint; creatorFeeRate: bigint }, enableCreatorFee: boolean): string {
+  const split = feeSplit(config);
+  const creator = chargedCreatorFeeRate(config, enableCreatorFee);
+  return `LPs keep ${split.lpKeepsPct.toFixed(3)}% of each trade, the venue ${split.venueTakesPct.toFixed(3)}%${creator > 0n ? `, the pool's creator ${ratePercent(creator).toFixed(3)}%` : ''}`;
+}

@@ -24,7 +24,8 @@ validator(
   ) {
     let ScriptContext { transaction, purpose } = context
     expect Spend(factory_ref) = purpose
-    let Transaction { inputs, mint, outputs, .. } = transaction
+    let Transaction { inputs, mint, outputs, reference_inputs, .. } =
+      transaction
     let FactoryRedeemer { asset_a, asset_b } = redeemer
     let FactoryDatum { head: current_head, tail: current_tail } = datum
     let Asset { policy_id: asset_a_policy_id, asset_name: asset_a_asset_name } =
@@ -190,6 +191,24 @@ validator(
         |> value.add(asset_b_policy_id, asset_b_asset_name, amount_b)
         |> value.add(authen_policy_id, lp_asset_name, remaining_liquidity)
         |> value.add(authen_policy_id, utils.pool_auth_asset_name, 1)
+    let global_setting =
+      pool_validation.get_and_validate_global_setting(
+        reference_inputs,
+        authen_policy_id,
+      )
+    let pool_creation_fee_paid =
+      list.foldl(
+        outputs,
+        0,
+        fn(output, paid) {
+          let Output { address: out_addr, value: out_value, .. } = output
+          if out_addr == global_setting.pool_creation_fee_receiver {
+            paid + value.lovelace_of(out_value)
+          } else {
+            paid
+          }
+        },
+      )
     and {
       // stake_credential must be the same with configured credential
       pool_stake_credential == pool_batching_stake_credential,
@@ -229,6 +248,8 @@ validator(
       // - 1 Pool NFT Token
       // - 3 ADA (required ADA for an UTxO)
       expected_pool_out_value == pool_output_value,
+      // Transaction must pay the Global Setting's pool creation fee to its receiver
+      pool_creation_fee_paid >= global_setting.pool_creation_fee,
     }
   }
 }

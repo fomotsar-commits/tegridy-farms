@@ -95,7 +95,12 @@ test.describe('a door walked inside the app', () => {
     const swap = info.project.name === 'mobile-chrome'
       ? page.locator('nav[aria-label="Main navigation"] a[aria-label="Swap"]')
       : page.locator('header nav[aria-label="Main navigation"] a', { hasText: /^Swap$/ });
-    await expect(swap).toHaveAttribute('href', '/solana');
+    // Island answer twenty-five: in a room whose coin has its pool on the venue, the Solana swap is
+    // the room's Buy sheet, the swap page's own form over the room. Pressed, it rises in place.
+    await expect(swap).toHaveAttribute('href', '/bayla?sheet=buy');
+    await swap.click();
+    await expect(page.getByRole('dialog', { name: 'Buy BAYLA' })).toBeVisible({ timeout: 20_000 });
+    await expect(page).toHaveURL(/\/bayla\?sheet=buy$/);
     expect(docs.n - before).toBe(0);
   });
 

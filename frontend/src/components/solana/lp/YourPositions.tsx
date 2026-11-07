@@ -3,13 +3,17 @@ import { m } from 'framer-motion';
 import type { PublicKey } from '@solana/web3.js';
 import { displaySafe } from '../../../lib/launchMetadata/validate';
 import { MAX_POSITIONS, type PositionsRead, type Position } from '../../../lib/solana/lp/positions';
-import type { PoolView } from '../../../lib/solana/lp/poolFinder';
+import { LAUNCH_TIER_POOL, type PoolView } from '../../../lib/solana/lp/poolFinder';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
+import { feeNow } from '../../../lib/solana/lp/transferFee';
 import { formatWhen, vaultFreezer, withdrawalsState } from '../../../lib/solana/lp/poolHealth';
 import { swapEnabled } from '../../../lib/solana/cpswap/program';
 import { tokenText } from '../../../lib/solana/lp/format';
 import { pairLabel } from '../../../lib/solana/lp/identity';
 import { LEDGER_COPY, LEDGER_LABELS, ledgerFigures, ledgerText, ledgerUnits, type LedgerEntry, type LedgerLine, type LedgerRead } from '../../../lib/solana/lp/ledger';
+import { poolDays } from '../../../lib/solana/lp/poolDays';
+import { TRENCHER_WORDS } from '../../../lib/arrival';
+import { bungalowByAddress } from '../../../lib/bungalows';
 import { tradesExplain } from '../../../lib/solana/lp/poolGrowth';
 import { lastTrade } from '../../../lib/solana/lp/poolPast';
 import { QUOTE_COINS_OR } from '../../../lib/solana/lp/quotes';
@@ -374,10 +378,16 @@ function PositionRow({
     gate: writes?.gate ?? null,
     position: p,
     held: writes !== null && poolAddress !== null && lpHeld(writes.pending.notes, poolAddress, 'remove'),
+    // A share the token's transfer fee would leave nothing of is too small to take out.
+    tokenFee: feeNow(safety?.kind === 'read' ? safety.facts?.transferFee : null, null),
   });
   const units = view ? ledgerUnits(view, safety) : null;
   // What the opener's 100 locked share units are worth, once the ledger has read the opening: shown in the fold.
   const [locked, setLocked] = useState<string | null>(null);
+  // DOUBLE DAYS (island answer twenty-four, build 7): the share's age, once its history proves it. Said only
+  // for an island room's coin: warm days are the island's count, and it counts none for a coin it does not measure.
+  const [days, setDays] = useState<number | null>(null);
+  const warmed = view !== null && bungalowByAddress('solana', view.tokenMint) !== null;
   // Needs no history: the share of the pool's two reserves, to the unit, under the token's registry name.
   const worth: ReactNode =
     view && units && p.value ? (
@@ -426,6 +436,12 @@ function PositionRow({
       data-remove={offer}
     >
       {view ? <h3 className={HEAD}>{pairLabel(view, safety)}</h3> : shareRows}
+      {/* Day 0 is the deposit's own day: the doubling starts tomorrow, so there is nothing to say yet. */}
+      {warmed && days !== null && days >= 1 && (
+        <p className="text-[12.5px] font-semibold" style={{ color: '#31d0aa' }} data-testid="lp-double-days">
+          {TRENCHER_WORDS.doubleDays(days)}
+        </p>
+      )}
       {setAside && <Notice tone="warn">Set aside: {setAside}.</Notice>}
       {p.placement === 'index-unread' && (
         <Notice tone="warn">
@@ -460,7 +476,7 @@ function PositionRow({
           {!checkedClean && tokenCheck}
           <p data-testid="lp-fees-in-shares">{LEDGER_COPY.feesInShares}</p>
           {!setAside && readers.ledger ? (
-            <LedgerBlock p={p} owner={owner} view={view} safety={safety} readers={readers} auto={autoLedger} chainNow={chainNow} worth={worth} onLocked={setLocked} />
+            <LedgerBlock p={p} owner={owner} view={view} safety={safety} readers={readers} auto={autoLedger} chainNow={chainNow} worth={worth} onLocked={setLocked} onDays={setDays} />
           ) : (
             worth
           )}
@@ -564,6 +580,7 @@ function LedgerBlock({
   chainNow,
   worth,
   onLocked,
+  onDays,
 }: {
   p: Position;
   owner: PublicKey;
@@ -576,6 +593,8 @@ function LedgerBlock({
   worth: ReactNode;
   /** Told what the opener's locked share units are worth, or null: the row prints it in its fold. */
   onLocked: (text: string | null) => void;
+  /** Told the shares' age in whole days, or null when the history read does not prove it: the row says it under its heading. */
+  onDays: (days: number | null) => void;
 }) {
   const [answer, setAnswer] = useState<LedgerAnswer | null>(null);
   const [busy, setBusy] = useState(false);
@@ -648,6 +667,12 @@ function LedgerBlock({
     onLocked(locked);
     return () => onLocked(null);
   }, [onLocked, locked]);
+  // Every entry read so far, so Read 20 more can reach a start the first page did not.
+  const days = shown ? poolDays(shown.entries, p.lpAmount, chainNow) : null;
+  useEffect(() => {
+    onDays(days);
+    return () => onDays(null);
+  }, [onDays, days]);
 
   const working = busy || (auto && !shown);
   const trade = lastTrade(view);
@@ -771,9 +796,11 @@ function RemoveBlock({
   // card, after its checks. Nor does it wait on Remove: a share too small to take out is
   // one a holder may well want to add to. The one thing the row does know: a pool whose
   // withdrawals are off or whose vault is frozen takes no deposit from this site (nobody
-  // is let in who cannot be let out), so the row that says so does not offer to add.
+  // is let in who cannot be let out), so the row that says so does not offer to add. Nor
+  // does a pool on the launch tier that is not the launch pool: the row says that instead.
+  const launchTier = view?.launchTierWithoutLaunch === true;
   const addMore =
-    onAddMore && !setAside && view && view.snapshot.pool.lpMint === p.lpMint && withdrawalsState(view) === 'open' && addingOpen(writes) ? (
+    onAddMore && !setAside && view && !launchTier && view.snapshot.pool.lpMint === p.lpMint && withdrawalsState(view) === 'open' && addingOpen(writes) ? (
       <button
         type="button"
         className="btn-secondary w-full sm:w-auto min-h-[44px] px-4 text-[13px] disabled:opacity-60"
@@ -905,9 +932,15 @@ function RemoveBlock({
         ) : null;
       break;
   }
-  if (!line && !buttons && !leaving && !panel) return null;
+  const tierLine = launchTier ? (
+    <p className="text-amber-300/90 [overflow-wrap:anywhere]">
+      <strong>{LAUNCH_TIER_POOL}</strong>
+    </p>
+  ) : null;
+  if (!tierLine && !line && !buttons && !leaving && !panel) return null;
   return (
     <div className="space-y-2 pt-1">
+      {tierLine}
       {line}
       {buttons}
       {wait}

@@ -1,11 +1,12 @@
 import { depositEnabled, swapEnabled, withdrawEnabled } from '../cpswap/program';
 import type { PoolSnapshot } from '../cpswap/read';
+import { tooFewShares } from './liquidityMath';
 import { priceInQuote, solPriceIn, type OutsidePrice } from './outsidePrice';
-import { ownAveragePrice, type OwnPrice } from './ownPrice';
-import type { PoolView } from './poolFinder';
+import { ownAveragePrice, TRUSTED_HISTORY_SECS, type OwnPrice } from './ownPrice';
+import { LAUNCH_TIER_POOL, type PoolView } from './poolFinder';
 import { readPair, type QuoteCoin } from './quotes';
 import { TOKEN_2022_NATIVE_MINT, type SafetyReason, type TokenSafety } from './tokenSafety';
-import { MIN_HISTORY_TEXT } from './ownPrice';
+import { MIN_HISTORY_TEXT, TOO_NEW_WHY } from './ownPrice';
 
 /**
  * Is this pool safe to deposit into right now? Pure: every input was read elsewhere.
@@ -22,7 +23,11 @@ import { MIN_HISTORY_TEXT } from './ownPrice';
  *     79-80) while deposits still go through (deposit.rs 96), so liquidity added there
  *     can never earn a fee;
  *   - the pool is empty on either side (no price at all);
- *   - the token itself is blocked (tokenSafety.ts).
+ *   - the pool is almost empty: the 100 shares the pool program locks are more than 0.1%
+ *     of it (`tooFewShares`). Its price can be moved for a few lamports, whatever it is
+ *     checked against, and a deposit's limits are worked out from that same price;
+ *   - the token itself is blocked (tokenSafety.ts);
+ *   - the pool is on the launch tier and is not the launch pool (`LAUNCH_TIER_POOL`).
  *
  * A deposit is WARNED ABOUT, and allowed (owner ruling 2026-10-04), when:
  *   - its price is more than 3% from the reference price: the trade that moves it back
@@ -36,8 +41,10 @@ import { MIN_HISTORY_TEXT } from './ownPrice';
  *     PAIRING COIN: there is no price in that coin, so the pool's price was checked
  *     against nothing (`no-market`, `of: 'coin'`), and the warning names the coin;
  *   - (owner ruling 2026-10-07) a launch pool with no route whose own price record was
- *     READ and is shorter than `MIN_HISTORY_SECS`: its average proves nothing yet, so its
- *     price was checked against nothing (`too-new`).
+ *     READ and is shorter than `TRUSTED_HISTORY_SECS`: its average proves nothing yet, so
+ *     its price was checked against nothing (`too-new`);
+ *   - a launch pool with no route whose price may have been moved WITHOUT a trade
+ *     (`reserves-moved`, `too-quiet`: `launchOwnCheck`). Warned, not refused (M-1009-6).
  * The warnings are sentences for the person about to sign, and `allowed` may carry them.
  *
  * EVERY PRICE HERE IS IN THE POOL'S OWN PAIRING COIN (quotes.ts): SOL per token for a
@@ -50,8 +57,7 @@ import { MIN_HISTORY_TEXT } from './ownPrice';
  * THE REFERENCE PRICE. The outside price (Jupiter) when there is one. A launch pool,
  * which only the launch program can open, usually has none (it is the token's only
  * market). When Jupiter ANSWERS that it has no route (`no-route`, never a failed read),
- * a launch pool is checked against its OWN average over the last half hour instead
- * (ownPrice.ts): someone who pushes its price just before a deposit is caught. A pool
+ * a launch pool is checked against ITSELF instead (`launchOwnCheck`). A pool
  * anyone could have opened is never checked against its own history, because its opener
  * wrote that history. With no route it is checked against the token's LAUNCH POOL's
  * price, when one was read and its own check passed (`launchReference`). With no such
@@ -64,6 +70,8 @@ import { MIN_HISTORY_TEXT } from './ownPrice';
  */
 
 export const PRICE_TOLERANCE = 0.03;
+/** Why an almost empty pool takes no deposit (`tooFewShares`), on its card and in the builder's refusal. */
+export const NEARLY_EMPTY = 'This pool is almost empty, so anyone can move its price for next to nothing, and a deposit would go in at whatever price they set.';
 /** An open time this far ahead is not a launch delay; it is a pool that will not trade. */
 export const FAR_FUTURE_SECS = 7n * 24n * 3600n;
 /** The status bits this site knows (PoolStatusBitIndex): deposit, withdraw, swap. */
@@ -131,10 +139,15 @@ function gapCostWords(fraction: number | null): string {
 }
 
 export type PriceCheck =
-  | { state: 'agrees'; pool: number; reference: number; against: PriceReference; diff: number }
-  | { state: 'disagrees'; pool: number; reference: number; against: PriceReference; diff: number }
-  /** A launch pool that has never traded: its price is still the one the launch program set. */
+  /** `readAtMs`: when the shared list read the outside price (outsidePrice.ts); the card says "read 40 s ago". */
+  | { state: 'agrees'; pool: number; reference: number; against: PriceReference; diff: number; readAtMs?: number }
+  | { state: 'disagrees'; pool: number; reference: number; against: PriceReference; diff: number; readAtMs?: number }
+  /** A launch pool that has never traded AND still holds what its shares account for: its price is the one the launch program set. */
   | { state: 'no-trades-yet'; pool: number }
+  /** A launch pool that has never traded, yet holds more than its shares account for: something was sent straight into a vault. */
+  | { state: 'reserves-moved'; pool: number }
+  /** A launch pool within 3% of its own average, but that average has a long stretch with no trade in it, so it proves nothing. */
+  | { state: 'too-quiet'; pool: number; reference: number; diff: number }
   /**
    * A launch pool with no route whose own price record was read and spans `historySecs`,
    * less than `MIN_HISTORY_SECS`, since its first trade: too short for its average to
@@ -152,13 +165,30 @@ export type PriceCheck =
   | { state: 'no-market'; of: 'token' | 'coin'; pool: number; detail: string }
   /** Not compared on purpose (the token is blocked, so nothing here will be deposited). */
   | { state: 'skipped'; pool: number | null; detail: string }
-  | { state: 'unread'; pool: number | null; detail: string };
+  /**
+   * `outside`: only the outside price is missing, and `detail` is its one row ("Outside price
+   * not read yet"). Intel, never a gate: the pool's own price is the truth of a deposit
+   * (answer twenty-seven withdrew twenty-four's hold). Without it, a check that could not run.
+   */
+  | { state: 'unread'; pool: number | null; detail: string; outside?: true };
 
 /**
  * The warning a `too-new` pool carries, on its card, on the Add form and on the review.
  * The minutes come from `MIN_HISTORY_SECS` (ownPrice.ts), never typed a second time.
  */
 export const TOO_NEW_WARNING = `This pool has traded for under ${MIN_HISTORY_TEXT} and Jupiter has no price for this token, so its price was checked against nothing. If someone has just pushed it, a deposit now pays for that.`;
+
+/** Why a launch pool's own record proved nothing, as the card's and the review's rows say it. */
+export const NOTHING_WHY: Readonly<Record<'too-new' | 'reserves-moved' | 'too-quiet', string>> = {
+  'too-new': TOO_NEW_WHY,
+  'reserves-moved': 'nobody has traded in this pool, yet it holds more than its shares account for, and Jupiter has no price for this token',
+  'too-quiet': 'this pool has had long gaps between trades over the last half hour, and Jupiter has no price for this token',
+};
+/** The warnings of the two newer states, on the card, the Add form and the review. */
+export const RESERVES_MOVED_WARNING =
+  'Nobody has traded in this pool, yet it holds more than its shares account for, and Jupiter has no price for this token. Someone may have moved its price by sending tokens or SOL straight into it; if so, a deposit now pays for that.';
+export const TOO_QUIET_WARNING =
+  'This pool has had long gaps between trades over the last half hour, and Jupiter has no price for this token, so its own average cannot show its price is honest. If someone moved it between trades, a deposit now pays for that.';
 
 /**
  * Who Jupiter has no price for when it ANSWERED "no route" (`no-market`), as the clause
@@ -225,9 +255,9 @@ export function formatWhen(unixSecs: bigint): string {
 }
 
 /** A price against its reference: more than `PRICE_TOLERANCE` apart disagrees; exactly 3% agrees. */
-export function comparePrice(pool: number, reference: number, against: PriceReference): PriceCheck {
+export function comparePrice(pool: number, reference: number, against: PriceReference, readAtMs?: number): PriceCheck {
   const diff = pool / reference - 1;
-  return { state: Math.abs(diff) > PRICE_TOLERANCE ? 'disagrees' : 'agrees', pool, reference, against, diff };
+  return { state: Math.abs(diff) > PRICE_TOLERANCE ? 'disagrees' : 'agrees', pool, reference, against, diff, ...(readAtMs !== undefined ? { readAtMs } : {}) };
 }
 
 /** The launch pool's own average, when its record was read; the reason when not. */
@@ -243,6 +273,52 @@ function ownPriceOf(view: PoolView, tokenDecimals: number, chainNow: bigint | nu
     tokenDecimals,
     now: chainNow,
   });
+}
+
+/**
+ * Until its first swap a pool holds `side0 x side1` at `lp_supply^2`, a hair above from
+ * rounding in the pool's favour (opening, deposits and withdrawals all keep it). Tokens or
+ * SOL sent straight into a vault raise it. 'impossible' is below the shares, a state the
+ * pool program never produces: unread, never fine.
+ */
+export const UNTRADED_RESERVES_TOLERANCE_BPS = 10n;
+function untradedReserves(view: PoolView): 'match' | 'moved' | 'impossible' {
+  const lp = view.snapshot.pool.lpSupply;
+  if (lp <= 0n || view.quoteReserve <= 0n || view.tokenReserve <= 0n) return 'impossible';
+  const product = view.quoteReserve * view.tokenReserve;
+  const shares = lp * lp;
+  if (product < shares) return 'impossible';
+  return product * 10_000n <= shares * (10_000n + UNTRADED_RESERVES_TOLERANCE_BPS) ? 'match' : 'moved';
+}
+
+/**
+ * A traded launch pool's average counts only if no stretch without a recorded swap is
+ * longer than this share of its window (5 minutes of 30): a price moved inside such a
+ * stretch then moves the average enough that a move past about 3.6% still disagrees.
+ */
+export const MAX_SILENCE_DIVISOR = 6n;
+
+/**
+ * A launch pool's price against the pool itself, when Jupiter ANSWERED "no route". Its
+ * price can move without a trade (a transfer into a vault leaves no mark in its record),
+ * so: never traded must still match its shares; traded must agree with its average, over
+ * at least `TRUSTED_HISTORY_SECS`, of steady trading. Anything not read is 'unread'.
+ */
+function launchOwnCheck(view: PoolView, poolPrice: number, tokenDecimals: number, chainNow: bigint | null, noRoute: string): PriceCheck {
+  const own = ownPriceOf(view, tokenDecimals, chainNow);
+  const unread = (why: string): PriceCheck => ({ state: 'unread', pool: poolPrice, detail: `no outside price (${noRoute}), and ${why}` });
+  if (own.kind === 'no-trades') {
+    const r = untradedReserves(view);
+    if (r === 'impossible') return unread('its two sides are below what its shares account for, which the pool program never does');
+    return r === 'match' ? { state: 'no-trades-yet', pool: poolPrice } : { state: 'reserves-moved', pool: poolPrice };
+  }
+  if (own.kind === 'too-new') return { state: 'too-new', pool: poolPrice, historySecs: own.historySecs };
+  if (own.kind !== 'ok') return unread(`its own price history could not be used: ${own.detail}`);
+  const compared = comparePrice(poolPrice, own.solPerToken, 'own-average');
+  if (compared.state !== 'agrees') return compared;
+  if (own.windowSecs < TRUSTED_HISTORY_SECS) return { state: 'too-new', pool: poolPrice, historySecs: own.windowSecs };
+  if (own.silenceSecs * MAX_SILENCE_DIVISOR > own.windowSecs) return { state: 'too-quiet', pool: poolPrice, reference: own.solPerToken, diff: compared.diff };
+  return compared;
 }
 
 /**
@@ -297,6 +373,12 @@ export function tokenReasons(safety: TokenSafety | null, action: 'deposits' | 'p
         'The amount a wallet displays for this token changes over time. This site shows and moves raw token units, so check the amounts against your wallet before you sign.',
       );
     }
+    if (has('transfer-fee')) {
+      warned.push(`It keeps back part of every transfer of it: into ${pool}, out of it, and on every trade. Taken out at the same price, you get back less of it than you put in.`);
+    }
+    if (has('transfer-fee-mutable')) {
+      warned.push(`Whoever controls its transfer fee can raise it, up to all of every transfer. At that rate nobody could take anything out of ${pool}, you included.`);
+    }
   }
   return { refused, unchecked, warned };
 }
@@ -347,6 +429,7 @@ export function assessPool(input: {
   // tool, whatever its price check says (review, 2026-10-04).
   if (view.tokenMint === TOKEN_2022_NATIVE_MINT) refused.push('This is SOL under the newer token program. This site does not add to a pool for it.');
   if (view.vaultsFrozen) refused.push(`One of this pool’s vaults is frozen by ${vaultFreezer(view.quote)}, so nothing can move in or out of it.`);
+  if (view.launchTierWithoutLaunch) refused.push(LAUNCH_TIER_POOL);
   if (swaps.state === 'not-open-yet') {
     refused.push(
       swaps.farFuture
@@ -368,24 +451,14 @@ export function assessPool(input: {
   } else if (poolPrice === null) {
     price = { state: 'empty-pool' };
   } else if (reference?.kind === 'ok') {
-    price = comparePrice(poolPrice, reference.perToken, 'outside');
+    price = comparePrice(poolPrice, reference.perToken, 'outside', reference.readAtMs);
   } else if (tokenBlocked) {
     price = { state: 'skipped', pool: poolPrice, detail: 'not compared, because this site does not add to pools for this token' };
   } else if (reference?.kind === 'no-route') {
     // Only when Jupiter ANSWERED "no route". A failed read is not "no outside market":
     // the token may trade elsewhere at another price, so it stays unread below.
     if (isLaunchPool) {
-      // `too-new`: its record was READ and is too short to prove anything. That is an
-      // answer, so a warning. A record that could not be read or used is `unread`.
-      const own = ownPriceOf(view, tokenDecimals, chainNow);
-      price =
-        own.kind === 'ok'
-          ? comparePrice(poolPrice, own.solPerToken, 'own-average')
-          : own.kind === 'no-trades'
-            ? { state: 'no-trades-yet', pool: poolPrice }
-            : own.kind === 'too-new'
-              ? { state: 'too-new', pool: poolPrice, historySecs: own.historySecs }
-              : { state: 'unread', pool: poolPrice, detail: `no outside price (${reference.detail}), and its own price history could not be used: ${own.detail}` };
+      price = launchOwnCheck(view, poolPrice, tokenDecimals, chainNow, reference.detail);
     } else {
       // A pool anyone could open has no history worth trusting. The token's launch pool,
       // when its own check passed, is the reference instead, in this pool's coin: without
@@ -407,10 +480,14 @@ export function assessPool(input: {
       }
     }
   } else {
-    price = { state: 'unread', pool: poolPrice, detail: reference?.detail ?? 'not asked' };
+    // The outside price was not read: one row, in the shared list's words when it has them
+    // (sharedPrices.ts fromShared), and never a gate (answer twenty-seven).
+    const listed = reference?.kind === 'unread' && reference.row === true;
+    price = { state: 'unread', pool: poolPrice, detail: listed ? reference.detail : 'Outside price not read yet', outside: true };
   }
   if (price.state === 'empty-pool') refused.push('The pool is empty on one side, so it has no price.');
-  if (price.state === 'unread') {
+  else if (tooFewShares(pool.lpSupply)) refused.push(NEARLY_EMPTY);
+  if (price.state === 'unread' && !price.outside) {
     unchecked.push(isLaunchPool ? `We could not check its price (${price.detail}).` : `We could not check its price against ${unreadAgainst} (${price.detail}).`);
   }
 
@@ -434,6 +511,8 @@ export function assessPool(input: {
     );
   }
   if (price.state === 'too-new') warnings.push(TOO_NEW_WARNING);
+  if (price.state === 'reserves-moved') warnings.push(RESERVES_MOVED_WARNING);
+  if (price.state === 'too-quiet') warnings.push(TOO_QUIET_WARNING);
 
   return {
     swaps,

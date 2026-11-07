@@ -153,8 +153,13 @@ describe('the builds it looks for', () => {
     const registry = JSON.parse(readFileSync(join(HERE, '..', 'addresses.json'), 'utf-8'));
     const row = registry.solana.find((e) => e.id === 'cp-swap-programdata-restart');
     expect(row.address).toBe(PROGRAM_DATA);
-    expect(registeredBuild()).toEqual(row.expect.holdsProgram);
-    expect(registeredBuild().sha256).not.toBe(OLD_BUILD.sha256);
+    if (row.expect.holdsProgram.sha256 === OLD_BUILD.sha256) {
+      // A roll-back is in effect: the row names the build mainnet runs, the old one, so there is
+      // no upgrade to read. Reading it as "the new build" would print a record of the roll-back.
+      expect(() => registeredBuild()).toThrow('roll-back');
+    } else {
+      expect(registeredBuild()).toEqual(row.expect.holdsProgram);
+    }
   });
 
   it('refuses a registry that does not say which build the account holds', () => {

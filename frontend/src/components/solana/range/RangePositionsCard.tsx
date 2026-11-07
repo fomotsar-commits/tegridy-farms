@@ -14,7 +14,8 @@ import { useReturnFocus, useTxFlow } from '../curve/useTxFlow';
 import type { CurveSignerState } from '../curve/useCurveSigner';
 import type { PendingTradesState } from '../curve/usePendingTrades';
 import type { CurveWriteConfig, RangeWriteApi, WriteRpc } from '../curve/ports';
-import { bothAmounts, priceText, tokenWord } from './rangeText';
+import { siteNamed } from '../../../lib/solana/lp/identity';
+import { bothAmounts, priceText, tokenWord, withTokenLabel } from './rangeText';
 import { useFlowReports } from './useRangeData';
 
 const TAKE_HINT = 'If the price moves more than this before your withdrawal runs, it is refused and only the network fee is spent.';
@@ -30,6 +31,8 @@ type Action = { kind: 'claim' | 'remove' | 'close'; position: string };
  */
 export function RangePositionsCard(p: {
   read: Read<WalletPositionsRead> | null;
+  /** A position token's ticker as the pool screens give it (identity.ts), once its check was read. */
+  nameOf: (mint: string) => string | null;
   reading: boolean;
   onReadAgain: () => void;
   signerState: CurveSignerState;
@@ -105,11 +108,13 @@ function PositionRow(p: {
   programId: PublicKey;
   signerState: CurveSignerState;
   pending: PendingTradesState;
+  nameOf: (mint: string) => string | null;
   onBusy: (busy: boolean) => void;
   onFinished: () => void;
 }) {
   const { w } = p;
-  const pair = pairOf(w.pool);
+  const base = pairOf(w.pool);
+  const pair = base ? withTokenLabel(base, p.nameOf(base.tokenMint)) : null;
   const split = feeSplit(w.config, poolFeeCeiling(w.pool, w.config.tradeFeeRate));
   const id = w.position.address;
   const status =
@@ -122,7 +127,8 @@ function PositionRow(p: {
   const empty = w.position.liquidity === 0n;
   return (
     <div className="rounded-xl border border-white/10 bg-black/25 p-3 space-y-1.5" data-testid="range-position">
-      {pair && tokenWord(pair) === 'tokens' && <Row label="Token (mint)" value={pair.tokenMint} />}
+      {/* A ticker off the site's own list is the coin's claim: its whole address goes with it. */}
+      {pair && !siteNamed(pair.tokenMint) && <Row label="Token (mint)" value={pair.tokenMint} />}
       <Row label="Pool" value={pair ? `${tokenWord(pair) === 'tokens' ? 'The token' : tokenWord(pair)} with ${pair.quote.symbol}, ${split.fee} fee per swap` : 'a pair this site does not read'} mono={false} />
       {prices && pair && <Row label="Range" value={`${priceText(pair, prices.min)} to ${formatSolPrice(priceNumber(prices.max))}`} mono={false} />}
       <Notice tone={status.tone}>{status.text}</Notice>

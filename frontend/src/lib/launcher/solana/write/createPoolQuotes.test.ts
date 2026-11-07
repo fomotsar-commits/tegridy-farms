@@ -30,6 +30,7 @@ import { feeReserveFor, isqrt, solSetAside } from '../../../solana/lp/liquidityM
 import { arbitrageLoss, assessOpening, estimatedLoss, matchMarket, mostBothAtMarket, openingPricePerToken } from '../../../solana/lp/opening';
 import type { OutsidePrice } from '../../../solana/lp/outsidePrice';
 import { BAYLA_QUOTE, SOL_QUOTE, USDC_QUOTE, type QuoteCoin } from '../../../solana/lp/quotes';
+import { CLOCK_SYSVAR } from '../../../solana/lp/poolFinder';
 import { USDT_MINT, type TokenSafety } from '../../../solana/lp/tokenSafety';
 import { CP_CREATE_POOL_FEE_RECEIVER } from './config';
 import { CREATE_COPY, createPins, createStepsProblem, prepareLpCreate, readCreateSnapshot, type CreateSnapshot, type LpCreateArgs } from './createPool';
@@ -274,7 +275,7 @@ afterEach(() => {
 // ── the single read ──────────────────────────────────────────────────────────
 
 describe('readCreateSnapshot: an opening paired with USDC or BAYLA', () => {
-  it.each(COIN_ROWS)('%s: 19 keys in ONE call: the 18, with the coin’s account where the wrapped-SOL account was, then the coin’s own mint', async (_n, quote) => {
+  it.each(COIN_ROWS)('%s: 20 keys in ONE call: the 18, with the coin’s account where the wrapped-SOL account was, then the coin’s own mint, then the clock', async (_n, quote) => {
     const w = world(quote);
     const key = Keypair.generate();
     vi.spyOn(Keypair, 'generate').mockReturnValueOnce(key);
@@ -298,8 +299,9 @@ describe('readCreateSnapshot: an opening paired with USDC or BAYLA', () => {
       ...five(w.standard),
       ...five(key.publicKey),
       w.quoteMint,
+      new PublicKey(CLOCK_SYSVAR),
     ].map((k) => k.toBase58());
-    expect(asked[0]).toHaveLength(19);
+    expect(asked[0]).toHaveLength(20);
     expect(asked[0]).toEqual(want);
     // The coin's account is the associated one under the coin's OWN program.
     expect(asked[0]![7]).toBe(associatedTokenAddress(w.quoteMint, ME, new PublicKey(quote.program)).toBase58());

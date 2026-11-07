@@ -72,12 +72,21 @@ fn params() -> Params {
   }
 }
 
+/// The venue's two-key treasury, proven on mainnet 2026-11-07 (tx 06c0fc16...):
+/// addr1xy6kxswfkhnxfwllzcxkqfumhyjedvkvkvlt3p7mhwxwp3spv7vdp6er80lvtdm32cqvvetu93ams9yrggg5pm5tq3usr47kat
+/// Spending and staking are each a script needing both of its keys.
 fn treasury() -> Address {
   Address {
     payment_credential: ScriptCredential(
-      #"70707070707070707070707070707070707070707070707070707070",
+      #"356341c9b5e664bbff160d60279bb92596b2ccb33eb887dbbb8ce0c6",
     ),
-    stake_credential: None,
+    stake_credential: Some(
+      Inline(
+        ScriptCredential(
+          #"016798d0eb233bfec5b7715600c6657c2c7bb81483421140ee8b0479",
+        ),
+      ),
+    ),
   }
 }
 
@@ -219,6 +228,8 @@ fn setting(batcher: ByteArray) -> GlobalSetting {
     pool_stake_key_updater: PAMSpendScript(lock_hash),
     pool_dynamic_fee_updater: PAMSpendScript(lock_hash),
     admin: PAMSpendScript(lock_hash),
+    pool_creation_fee: 73000000,
+    pool_creation_fee_receiver: treasury(),
   }
 }
 
@@ -1183,6 +1194,73 @@ test execute_a_setting_change_on_a_pool() fail {
   )
 }
 
+// --- The pool creation fee, re-set by hand ------------------------------------
+
+/// `new` announced, ready, and made exactly.
+fn execute_announced(new: GlobalSetting) -> Bool {
+  lock.spend(
+    params(),
+    ready(SetGlobalSetting(new)),
+    Execute { index: 0 },
+    spend_ctx(
+      [lock_in(ready(SetGlobalSetting(new))), setting_in(), wallet_in()],
+      [setting_out(new), lock_out(empty())],
+      now,
+      now + 10 * minute,
+    ),
+  )
+}
+
+// ADA fell: 73 ADA becomes 100.
+test execute_a_new_pool_creation_fee() {
+  execute_announced(
+    GlobalSetting { ..setting(batcher), pool_creation_fee: 100000000 },
+  )
+}
+
+test execute_no_pool_creation_fee() {
+  execute_announced(GlobalSetting { ..setting(batcher), pool_creation_fee: 0 })
+}
+
+// Announced, waited for and signed by both keys, and still refused: the
+// venue's opening fees would go somewhere other than the treasury.
+test execute_a_pool_creation_fee_to_a_stranger() fail {
+  execute_announced(
+    GlobalSetting {
+      ..setting(batcher),
+      pool_creation_fee_receiver: wallet(stranger),
+    },
+  )
+}
+
+test minswap_would_take_a_pool_creation_fee_to_a_stranger() {
+  minswap_admin_present(
+    setting_tx(
+      GlobalSetting {
+        ..setting(batcher),
+        pool_creation_fee_receiver: wallet(stranger),
+      },
+    ),
+  )
+}
+
+// The treasury's payment script with another stake key is another address.
+test execute_a_pool_creation_fee_to_the_treasury_restaked() fail {
+  execute_announced(
+    GlobalSetting {
+      ..setting(batcher),
+      pool_creation_fee_receiver: Address {
+        ..treasury(),
+        stake_credential: Some(Inline(VerificationKeyCredential(stranger))),
+      },
+    },
+  )
+}
+
+test execute_a_negative_pool_creation_fee() fail {
+  execute_announced(GlobalSetting { ..setting(batcher), pool_creation_fee: -1 })
+}
+
 // --- Withdraw the fee share -------------------------------------------------
 
 fn paid(lovelace: Int, tokens: Int, to: Address) -> Output {
@@ -1222,6 +1300,22 @@ test minswap_takes_the_withdrawal() {
 
 test withdraw_to_a_stranger() fail {
   withdraw(withdraw_tx(wallet(stranger)))
+}
+
+// The treasury's spend script alone is not the treasury: its stake part counts.
+test withdraw_to_the_treasury_unstaked() fail {
+  withdraw(withdraw_tx(Address { ..treasury(), stake_credential: None }))
+}
+
+test withdraw_to_the_treasury_restaked() fail {
+  withdraw(
+    withdraw_tx(
+      Address {
+        ..treasury(),
+        stake_credential: Some(Inline(VerificationKeyCredential(stranger))),
+      },
+    ),
+  )
 }
 
 test minswap_would_pay_a_stranger() {

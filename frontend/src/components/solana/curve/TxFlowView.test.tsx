@@ -8,7 +8,7 @@ import { CREATOR, KEY, PLANT_SUMMARY, SIG, buySummary, fakeApi, prepared } from 
 import { lpCreateSummary, lpDepositSummary, lpWithdrawSummary } from '../lp/fakeLpWriteApi.fixture';
 import type { Prepared, PreparedTx, TxOutcome, TxSigner, TxSummary, WriteApi, WriteRpc } from './ports';
 import { SOL_QUOTE } from '../../../lib/solana/lp/quotes';
-import { PRICE_TOLERANCE, TOO_NEW_WARNING, gapCostFraction, noPriceClause } from '../../../lib/solana/lp/poolHealth';
+import { PRICE_TOLERANCE, RESERVES_MOVED_WARNING, TOO_NEW_WARNING, TOO_QUIET_WARNING, gapCostFraction, noPriceClause } from '../../../lib/solana/lp/poolHealth';
 import { TOO_NEW_WHY } from '../../../lib/solana/lp/ownPrice';
 import { PLATFORM_TREASURY_VAULT } from '../../../lib/launcher/solana/curve/program';
 import { RANGE_COPY } from '../../../lib/launcher/solana/write/range';
@@ -1658,19 +1658,41 @@ describe('liquidity reviews', () => {
     expect(value('Price check')).toBe('nobody has traded since the launch program opened it');
   });
 
-  // Owner ruling 2026-10-07: a brand-new launch pool (no route, under 10 minutes of trading)
+  // Owner ruling 2026-10-07: a brand-new launch pool (no route, under 24 minutes of trading)
   // takes a deposit, with a warning. The review says the warning first, and its price row
   // says the price was checked against nothing and why. It never reads as a check that passed.
-  it('adding to a launch pool that has traded for under 10 minutes: the warning first, and the row says it was checked against nothing', async () => {
+  it('adding to a launch pool that has traded for under 24 minutes: the warning first, and the row says it was checked against nothing', async () => {
     await review(deposit({ origin: 'launch-pool', price: { state: 'too-new', pool: 1, historySecs: 120n }, warnings: [TOO_NEW_WARNING] }));
-    expect(value('Price check')).toBe('not checked against anything: this pool has traded for under 10 minutes and Jupiter has no price for this token');
+    expect(value('Price check')).toBe('not checked against anything: this pool has traded for under 24 minutes and Jupiter has no price for this token');
     expect(value('Price check')).toBe(`not checked against anything: ${TOO_NEW_WHY}`);
     const box = screen.getByTestId('tx-review-warnings');
     expect(Array.from(box.querySelectorAll('li')).map((li) => li.textContent)).toEqual([
-      'This pool has traded for under 10 minutes and Jupiter has no price for this token, so its price was checked against nothing. If someone has just pushed it, a deposit now pays for that.',
+      'This pool has traded for under 24 minutes and Jupiter has no price for this token, so its price was checked against nothing. If someone has just pushed it, a deposit now pays for that.',
     ]);
     expect(screen.getByRole('heading', { name: 'Review: add liquidity' })).toHaveAttribute('aria-describedby', box.id);
     // Nothing to compare with, so no gap and no cost row. A warning is not a stop: Sign is on.
+    expect(screen.queryByText('Estimated cost of that gap')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Sign in wallet' })).toBeEnabled();
+  });
+
+  // M-1009-6: a launch pool whose price may have moved without a trade takes a deposit, with
+  // a warning; the price row says what it was not checked against, never a check that passed.
+  it.each([
+    [
+      { state: 'reserves-moved' as const, pool: 1 },
+      'not checked against anything: nobody has traded in this pool, yet it holds more than its shares account for, and Jupiter has no price for this token',
+      RESERVES_MOVED_WARNING,
+    ],
+    [
+      { state: 'too-quiet' as const, pool: 1, reference: 1.01, diff: -0.0099 },
+      'not checked against anything: this pool has had long gaps between trades over the last half hour, and Jupiter has no price for this token',
+      TOO_QUIET_WARNING,
+    ],
+  ])('adding to a launch pool whose price may have moved without a trade (%o): the warning, and the row says it was checked against nothing', async (price, row, warning) => {
+    await review(deposit({ origin: 'launch-pool', price, warnings: [warning] }));
+    expect(value('Price check')).toBe(row);
+    const box = screen.getByTestId('tx-review-warnings');
+    expect(Array.from(box.querySelectorAll('li')).map((li) => li.textContent)).toEqual([warning]);
     expect(screen.queryByText('Estimated cost of that gap')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Sign in wallet' })).toBeEnabled();
   });

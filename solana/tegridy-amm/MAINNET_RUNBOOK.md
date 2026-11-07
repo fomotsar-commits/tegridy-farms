@@ -96,7 +96,7 @@ one. Rent assumes an exact `--max-len` (ProgramData = binary + 45 B header).
 
 | program | ProgramData account | rent at 5,080/byte |
 |---|---|---|
-| `raydium_cp_swap` | **On chain since the upgrade of section 4b:** binary **725,176 B**, sha256 `1e55bcdc…` (the build with `create_lp_metadata` and the launch-tier refusal). Its ProgramData account was enlarged for it: 725,221 B if the enlarge was the exact 33,536 the pack asks for, which is 3,684,772,920 lamports, about 3.68 SOL (4b's table has the size read after the execute). **What the restart deployed, and what the figure beside this priced:** binary **691,640 B** → ProgramData **691,685 B**: `cp_swap.mainnet.so` sha256 `88b98aa9…`, the rehearsed mainnet build, now the roll-back build (the 2026-08-08 deploy put ~701,925 B on chain, but the restart deploys a fresh binary; not the 793,824 in `solana-ci.yml` either) | **~3.51 SOL** |
+| `raydium_cp_swap` | **Rolled back on 2026-10-24: on chain again is the 691,640 B build `88b98aa9…`, in the enlarged 725,221 B account.** **On chain from the upgrade of section 4b until then:** binary **725,176 B**, sha256 `1e55bcdc…` (the build with `create_lp_metadata` and the launch-tier refusal). Its ProgramData account was enlarged for it: 725,221 B if the enlarge was the exact 33,536 the pack asks for, which is 3,684,772,920 lamports, about 3.68 SOL (4b's table has the size read after the execute). **What the restart deployed, and what the figure beside this priced:** binary **691,640 B** → ProgramData **691,685 B**: `cp_swap.mainnet.so` sha256 `88b98aa9…`, the rehearsed mainnet build, now the roll-back build (the 2026-08-08 deploy put ~701,925 B on chain, but the restart deploys a fresh binary; not the 793,824 in `solana-ci.yml` either) | **~3.51 SOL** |
 | `tegridy_launch` | binary **470,728 B** → ProgramData **470,773 B**: `tegridy_launch.mainnet.so` sha256 `a3c41afa…`, the reserve-paid-at-create mainnet build (tag `wip/solana-reserve-at-create`), built twice byte-identical. Mainnet quoted 2,392,177,080 lamports for it on 2026-09-26. (The escrow build it replaces was 483,288 B.) | **~2.39 SOL** |
 | fee-receiver WSOL ATA | already exists (`2sa31zce…`) | 0 |
 | tx fees | | ~0.01 SOL |
@@ -320,7 +320,8 @@ solana program show <PROGRAM_ID>   # verify authority == GRMtSx… + last-deploy
 ## 4b. The `create_lp_metadata` upgrade: the gates, the order, and what ships with it
 
 Added 2026-10-06. Brought in line with three rehearsals on 2026-10-08. **Executed since.** It
-was cp-swap's FIRST upgrade on mainnet, of a program that held funded pools. Mainnet now runs
+was cp-swap's FIRST upgrade on mainnet, of a program that held funded pools. **It was rolled
+back on 2026-10-24** (below the table). From 2026-10-23 until then mainnet ran
 the new build, `1e55bcdc…` (725,176 bytes): the one with `create_lp_metadata`, the security
 text on `memetics.finance`, and the launch-tier refusal (a public `initialize` on fee tier 0
 is refused; "The build moved on 2026-10-19 and 2026-10-20" below). Until the execute it ran
@@ -340,6 +341,16 @@ does not have the shape of what it names.
 | Slot of the execute (the program's "Last Deployed In Slot") | `460,379,427` |
 | Transaction of the execute (its signature) | `QBcqHKiFwwjNBWXmtB1d4PhFXekQTB7FyK4YtPec4iUcMJz56AA5WRCWq3beyzaSCmSTu2YDpSt5wAvgffqjoQC` |
 | Size of the program's data account afterwards (bytes) | `725,221` |
+
+**Rolled back on 2026-10-24.** The vault's pre-staged roll-back, proposal #16, executed at
+17:03:00 UTC: the program's last deployed slot is 460,927,956 (read at finalized slot
+460,929,168, with that slot's block time). The program is the 2026-09-29 build `88b98aa9…` again:
+its first 691,640 bytes hash to it, followed by zeros, in a data account that stays 725,221 bytes
+(E, "The roll-back"). The website went back with it, as E says: the harness pins, the registry's
+`expect.holdsProgram` and the four lines name the old build again. The table above stays as the
+record of the upgrade. A re-upgrade, a fresh upload and a new 48-hour round, is planned. When it
+executes, `read-upgrade-record.mjs` reads it once the registry's row names the upgrade's build
+again (it refuses while the row names the old one).
 
 The four values are printed by `frontend/scripts/solana-localnet/read-upgrade-record.mjs`. It
 reads mainnet, sends nothing, and prints the rows only when the program there hashes to the

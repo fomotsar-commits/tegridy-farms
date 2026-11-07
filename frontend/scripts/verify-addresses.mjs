@@ -555,6 +555,17 @@ const SOLANA_FIELD_LAYOUTS = {
       creatorFeeRate: { at: 108, kind: 'u64' },
     },
   },
+  // solana/tegridy-clmm/programs/amm/src/states/config.rs, AmmConfig::LEN 117. Its `owner`
+  // field is the tier's admin and protocol fee owner, read here as protocolOwner because
+  // `owner` in a spec names the program that owns the account.
+  'clmm-amm-config': {
+    size: 117,
+    fields: {
+      index: { at: 9, kind: 'u16' }, protocolOwner: { at: 11, kind: 'holder' },
+      protocolFeeRate: { at: 43, kind: 'u32' }, tradeFeeRate: { at: 47, kind: 'u32' }, tickSpacing: { at: 51, kind: 'u16' },
+      fundFeeRate: { at: 53, kind: 'u32' }, fundOwner: { at: 61, kind: 'holder' },
+    },
+  },
   // solana/tegridy-amm/programs/tegridy-launch/src/state.rs, GlobalConfig (202 bytes).
   'tegridy-launch-global': {
     size: 202,
@@ -633,7 +644,7 @@ export function solanaFieldProblems(spec, v, ids) {
   if (v === null) return { answered: true, problems: ['the account DOES NOT EXIST'] };
   if (!v || typeof v !== 'object' || !Array.isArray(v.data) || v.data[1] !== 'base64') return unanswered('the account came back without base64 data');
   const b = Buffer.from(v.data[0], 'base64');
-  const need = Math.max(...Object.values(layout.fields).map((f) => f.at + ({ holder: 32, pubkey: 32, u64: 8, u16: 2, u8: 1 })[f.kind]));
+  const need = Math.max(...Object.values(layout.fields).map((f) => f.at + ({ holder: 32, pubkey: 32, u64: 8, u32: 4, u16: 2, u8: 1 })[f.kind]));
   if (b.length < need) return unanswered(`asked for ${need} bytes of data, the response carried ${b.length}`);
   const problems = [];
   const owner = layout.ownerAddress ?? ids.get(spec.owner);
@@ -648,7 +659,9 @@ export function solanaFieldProblems(spec, v, ids) {
       const got = key(f.at);
       if (got !== ids.get(want)) problems.push(`${name} is ${got}, registry says ${want} (${ids.get(want)})`);
     } else {
-      const got = f.kind === 'u64' ? b.readBigUInt64LE(f.at) : f.kind === 'u16' ? BigInt(b.readUInt16LE(f.at)) : BigInt(b[f.at]);
+      const got = f.kind === 'u64' ? b.readBigUInt64LE(f.at)
+        : f.kind === 'u32' ? BigInt(b.readUInt32LE(f.at))
+          : f.kind === 'u16' ? BigInt(b.readUInt16LE(f.at)) : BigInt(b[f.at]);
       if (got !== BigInt(want)) problems.push(`${name} is ${got}, registry says ${want}`);
     }
   }
@@ -1837,6 +1850,40 @@ function selfTest() {
   t('check 3d (chain) fails an account another program owns', onChain(acct(cfgBytes(), { owner: '11111111111111111111111111111111' })).problems.some((p) => p.startsWith('owner is')));
   t('check 3d (chain): a missing account is a definite failure', onChain(null).problems.some((p) => p.includes('DOES NOT EXIST')));
   t('check 3d (chain): a SHORT body is NOT an answer', onChain(acct(cfgBytes().subarray(0, 60))).answered === false);
+
+  // 11c'. The same read on the range program's tiers (tegridy-clmm's 117-byte AmmConfig),
+  //       whose rates are u32: read as u64, each would swallow the field after it.
+  const rid = 'range-clmm-amm-config-0';
+  const rspec = reg.solanaFields.accounts[rid];
+  const rangeBytes = (over = {}) => {
+    const s = { ...rspec, ...over };
+    const b = Buffer.alloc(117);
+    b.writeUInt16LE(s.index, 9);
+    Buffer.from(base58Decode(fid.get(s.protocolOwner))).copy(b, 11);
+    b.writeUInt32LE(s.protocolFeeRate, 43);
+    b.writeUInt32LE(s.tradeFeeRate, 47);
+    b.writeUInt16LE(s.tickSpacing, 51);
+    b.writeUInt32LE(s.fundFeeRate, 53);
+    Buffer.from(base58Decode(fid.get(s.fundOwner))).copy(b, 61);
+    return b;
+  };
+  const rangeAcct = (b) => ({ owner: fid.get(rspec.owner), space: 117, lamports: 1, data: [b.toString('base64'), 'base64'] });
+  const onRange = (v) => solanaFieldProblems(rspec, v, fid);
+  t('CONTROL: check 3d (chain) passes a range tier exactly as registered', onRange(rangeAcct(rangeBytes())).answered && onRange(rangeAcct(rangeBytes())).problems.length === 0);
+  t('check 3d (chain) fails a range tier whose trade fee moved', onRange(rangeAcct(rangeBytes({ tradeFeeRate: 2500 }))).problems.some((p) => p.includes('tradeFeeRate is 2500')));
+  t('check 3d (chain) fails a range tier whose tick spacing moved', onRange(rangeAcct(rangeBytes({ tickSpacing: 60 }))).problems.some((p) => p.includes('tickSpacing is 60')));
+  t(
+    'check 3d (chain) fails a range tier whose fund fee goes to someone else',
+    onRange(rangeAcct(rangeBytes({ fundOwner: 'operator-payer' }))).problems.some((p) => p.startsWith('fundOwner is 5hNA2MXk')),
+  );
+  t(
+    'check 3d fails a range tier whose protocol owner is not the Squads vault',
+    fieldFailsWith((r) => { r.solanaFields.accounts[rid].protocolOwner = 'operator-payer'; }, `solanaFields/${rid}`, 'protocolOwner', 'Only the venue'),
+  );
+  t(
+    'check 3d fails a live range tier it neither asserts nor explains',
+    fieldFailsWith((r) => { delete r.solanaFields.accounts['range-clmm-amm-config-1']; }, 'solana/range-clmm-amm-config-1', 'neither asserts'),
+  );
 
   // 11d. Check 3e offline: the multisig row names all four settings, spelled as the read
   //      spells them, and none of them anywhere a read would ignore.

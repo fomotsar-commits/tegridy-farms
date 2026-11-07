@@ -361,7 +361,7 @@ function AttestationCard({ lookup }: { lookup: AttestationLookup | null }) {
               ? 'Attested'
               : lookup.status === 'none'
                 ? 'No attestation'
-                : 'Cannot verify'}
+                : 'Not checked'}
         </Pill>
       </div>
 

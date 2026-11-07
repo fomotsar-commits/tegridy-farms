@@ -59,5 +59,23 @@ export function ChainIcon({ chain, size = 20 }: { chain: VenueChain; size?: numb
           </g>
         </svg>
       );
+    case 'cardano': {
+      // A ring of dots round a centre on Cardano blue: the network's constellation, simplified.
+      const ring = (r: number, n: number, offset: number, dot: number) =>
+        Array.from({ length: n }, (_, i) => {
+          const a = offset + (i * 2 * Math.PI) / n;
+          return <circle key={`${r}-${i}`} cx={16 + r * Math.cos(a)} cy={16 + r * Math.sin(a)} r={dot} />;
+        });
+      return (
+        <svg {...common} data-chain-icon="cardano">
+          <circle cx="16" cy="16" r="16" fill="#0033AD" />
+          <g fill="#FFF">
+            <circle cx="16" cy="16" r="2.2" />
+            {ring(6, 6, Math.PI / 6, 1.5)}
+            {ring(10.5, 6, 0, 1.05)}
+          </g>
+        </svg>
+      );
+    }
   }
 }

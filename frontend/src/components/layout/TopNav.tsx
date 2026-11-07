@@ -1,17 +1,22 @@
 import { NavLink, Link, useLocation } from 'react-router-dom';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useAccount } from 'wagmi';
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { toast } from 'sonner';
 import { AnimatePresence, m } from 'framer-motion';
 import { useTheme } from '../../contexts/ThemeContext';
 import { BAR_NAV } from '../../lib/navConfig';
+import { opensSheet, SHEET_PRESS } from '../../lib/sheet';
+import { BaylaLine } from '../BaylaLine';
 import { safeGetItem } from '../../lib/storage';
 import { pageArt } from '../../lib/artConfig';
 import { getActiveBungalow, getBungalowIdentity, OPEN_BUNGALOWS_EVENT } from '../../lib/bungalows';
 import { useActiveBungalowId } from '../../hooks/useActiveBungalowId';
-import { hasMixedSolanaSection, isSolanaPage, isToweliRoomPage } from '../../lib/routeVoice';
+import { hasMixedSolanaSection, isCardanoPage, isSolanaPage, isToweliRoomPage } from '../../lib/routeVoice';
+// No Cardano library: the connection's store and the address's bech32 only (lib/cardano/walletStore.ts).
+import { requestCardanoWalletList, useCardanoWallet } from '../../lib/cardano/walletStore';
+import { shortCardanoAddress } from '../../lib/cardano/address';
 import {
   cancelSolanaOpenRequest,
   requestSolanaOpen,
@@ -76,6 +81,33 @@ function SolanaWalletSlot({ surface, pending }: { surface: SolanaSurface | null;
         className={`${CONNECT_BUTTON_CLASS}${busy ? ' opacity-60' : ''}`}
         style={CONNECT_BUTTON_STYLE}
       >
+        Connect
+      </button>
+    </div>
+  );
+}
+
+/**
+ * On a Cardano page the slot is that page's Cardano wallet: a press opens the page's own list
+ * (CardanoWalletModal), and one made before the page has loaded waits for it.
+ */
+function CardanoWalletSlot() {
+  const wallet = useCardanoWallet();
+  if (wallet.status === 'connected') {
+    const short = shortCardanoAddress(wallet.address.bech32);
+    return (
+      <div className="min-w-0">
+        <button type="button" onClick={requestCardanoWalletList} aria-label={`Cardano wallet ${short}, copy or disconnect`} title="Cardano wallet" className={ACCOUNT_CHIP_CLASS} style={ACCOUNT_CHIP_STYLE}>
+          <span className={ACCOUNT_DOT_CLASS} />
+          <span className="truncate">{short}</span>
+        </button>
+      </div>
+    );
+  }
+  const busy = wallet.status === 'connecting';
+  return (
+    <div className="min-w-0">
+      <button type="button" onClick={requestCardanoWalletList} aria-label="Connect a Cardano wallet" aria-busy={busy || undefined} className={`${CONNECT_BUTTON_CLASS}${busy ? ' opacity-60' : ''}`} style={CONNECT_BUTTON_STYLE}>
         Connect
       </button>
     </div>
@@ -209,14 +241,36 @@ export const TopNav = React.memo(function TopNav() {
     }
   }, [open]);
 
+  // The header's height, as `--app-header-h` on <html>: the 3.5rem row, the top inset, and
+  // Bayla's line when it shows (island answer twenty-four, build 4). Everything that sits
+  // under the fixed header reads it (AppLayout's offset, the network banner, the dashboard's
+  // frame, the room rail), so the line is chrome, not content: nothing in the page moves for
+  // it, a pinned tab row still hangs from the header, and the static first frame pads for it.
+  const headerRef = useRef<HTMLElement>(null);
+  useLayoutEffect(() => {
+    const el = headerRef.current;
+    const rootEl = document.documentElement;
+    if (!el) return;
+    const measure = () => rootEl.style.setProperty('--app-header-h', `${el.offsetHeight}px`);
+    measure();
+    const resized = typeof ResizeObserver === 'function' ? new ResizeObserver(measure) : null;
+    resized?.observe(el);
+    return () => {
+      resized?.disconnect();
+      rootEl.style.removeProperty('--app-header-h');
+    };
+  }, []);
+
   return (
     <>
       {/* iOS standalone with viewport-fit=cover puts the status bar over this fixed header, so
-          env(safe-area-inset-top) is reserved above the 3.5rem row. AppLayout's offset matches. */}
+          env(safe-area-inset-top) is reserved above the 3.5rem row. AppLayout's offset follows
+          the measured height (`--app-header-h`), Bayla's line included. */}
       <header
+        ref={headerRef}
         className="fixed top-0 left-0 right-0 z-50"
         style={{
-          height: 'calc(3.5rem + env(safe-area-inset-top, 0px))',
+          minHeight: 'calc(3.5rem + env(safe-area-inset-top, 0px))',
           paddingTop: 'env(safe-area-inset-top, 0px)',
           background: isDark
             ? 'linear-gradient(180deg, rgba(0,0,0,0.92) 0%, rgba(0,0,0,0.86) 100%)'
@@ -238,8 +292,8 @@ export const TopNav = React.memo(function TopNav() {
         }} />
         {/* px-2 below 400px, px-3 to 480, then px-4: the narrowest phones need every pixel. */}
         <div className="page-column mx-auto h-14 px-2 min-[400px]:px-3 min-[480px]:px-4 md:px-6 flex items-center justify-between">
-          {/* THE 360px ROW. The wordmark stays whole at every width (owner, 2026-08-31), so the
-              row fits on its gaps and padding: its intrinsic width is 350px. CI rasterises
+          {/* THE 320px ROW. The wordmark stays whole at every width (owner, 2026-08-31), so the
+              row fits on its gaps, padding and the wordmark's stack below 360px. CI rasterises
               Archivo a shade wider than a local run, so re-run e2e/header-reachability.spec.ts
               (it sweeps real widths) after any change here, never a local 360px look. */}
           <div className="flex items-center gap-0.5 min-[400px]:gap-1 min-[480px]:gap-2">
@@ -265,9 +319,12 @@ export const TopNav = React.memo(function TopNav() {
                 />
               </span>
               {/* The venue's name is the only one the app speaks, in every room, and it is never
-                  abbreviated: below 480px it is sized down instead, so the row fits at 375px. */}
-              <span className="heading-luxury text-[12px] min-[480px]:text-[16px] tracking-wide text-white">{VENUE.markMain}</span>
-              <span className="text-[11px] min-[480px]:text-[15px] font-semibold tracking-tight" style={{ color: 'var(--color-kyle)' }}>{VENUE.markSub}</span>
+                  abbreviated: below 480px it is sized down, and below 360px its two parts stack,
+                  so the row fits at 320px with the menu button on screen. */}
+              <span className="flex flex-col max-[359px]:leading-none min-[360px]:flex-row min-[360px]:items-center min-[360px]:gap-1.5 min-[480px]:gap-2">
+                <span className="heading-luxury text-[12px] min-[480px]:text-[16px] tracking-wide text-white">{VENUE.markMain}</span>
+                <span className="text-[11px] min-[480px]:text-[15px] font-semibold tracking-tight" style={{ color: 'var(--color-kyle)' }}>{VENUE.markSub}</span>
+              </span>
             </Link>
             {/* The bungalow chooser, from any page (AppLayout listens for the event). It names
                 where you are; icon-only below lg to spare the crowded bar. */}
@@ -294,12 +351,13 @@ export const TopNav = React.memo(function TopNav() {
               this nav, BottomNav.tsx, AppLayout.tsx's content pb and index.css's two max-width:799px
               blocks; a split opens a band with no bar. e2e/header-reachability.spec.ts sweeps it. */}
           <nav aria-label="Main navigation" className="hidden min-[800px]:flex items-center gap-0.5">
-            {/* Four words (navConfig BAR_NAV), each lit on every page it owns, never by its own
+            {/* Five words (navConfig BAR_NAV), each lit on every page it owns, never by its own
                 URL alone: Island owns the home, each room's door and the island's pages. */}
             {BAR_NAV.map((word) => {
               const lit = word.lit(location.pathname, location.hash);
+              const to = word.to;
               return (
-                <Link key={word.label} to={word.to} aria-current={lit ? 'page' : undefined}
+                <Link key={word.label} to={to} state={opensSheet(to) ? SHEET_PRESS : undefined} aria-current={lit ? 'page' : undefined}
                   className={`nav-link ${lit ? 'active' : ''}`}>
                   {word.label}
                 </Link>
@@ -312,7 +370,9 @@ export const TopNav = React.memo(function TopNav() {
 
             {/* The wallet, then the menu button at the far right. Padding, font size and the name's
                 width shrink on a phone so a long ENS name never pushes the menu button off-screen. */}
-            {solanaPage ? (
+            {isCardanoPage(location.pathname) ? (
+              <CardanoWalletSlot />
+            ) : solanaPage ? (
               <SolanaWalletSlot surface={solana} pending={solanaOpenPending} />
             ) : (
             <ConnectButton.Custom>
@@ -427,6 +487,8 @@ export const TopNav = React.memo(function TopNav() {
             </button>
           </div>
         </div>
+        {/* Bayla at the door: the header's second row on every venue route (BaylaLine says where not). */}
+        <BaylaLine />
       </header>
 
       {/* The menu, full screen at every width (NavDrawer.tsx). z-[70]: over the phone's bottom bar

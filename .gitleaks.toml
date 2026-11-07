@@ -212,4 +212,21 @@ regexes = [
   # Flagged by `generic-api-key` as TOKEN_2022_NATIVE_MINT in
   # frontend/src/lib/solana/lp/opening.ts:23 (commit 27131a79, PR #693).
   '''\b9pan9bMn5HatX4EJdBwg9VgCa7Uz5HL8N1m5D3NdXejP\b''',
+  #
+  # \ CARDANO, added 2026-10-24 (PR #986) \\\\\\\\\\\\\\\\\\\\\\\\@
+  #
+  # Four public Cardano mainnet ids the Cardano swap pins, flagged by
+  # `generic-api-key` as "<name> = <high-entropy hex>". EXACT strings, per this
+  # file's doctrine, and here it matters twice over: a 32-byte transaction hash is
+  # 64 hex, the same width as a hex Ed25519 private-key seed, so no hex shape rule
+  # could ever be safe for Cardano.
+  # Minswap V2's authen / LP policy id (minswap-dex-v2 deployed/mainnet/script.json,
+  # `lpPolicyId`), in frontend/src/lib/cardano/minswapV2.ts and api/_lib/cardano-ops.js.
+  '''\bf5808c2c990d86da54bfc97d89cee6efa20cd8461616359478d96b4c\b''',
+  # Two Minswap V2 swap-order transactions on mainnet (read from Koios 2026-10-24),
+  # the byte-for-byte fixtures in frontend/src/lib/cardano/testkit.fixture.ts.
+  '''\b73a22d3ed91deb5bf614434ef72745b296171d4515baf49bfb33755590b1499f\b''',
+  '''\b35e569d964d56787c5d238d17ff0c475dad8c121b798f65936985723764f40a1\b''',
+  # The trader's mainnet address in the first of those orders (orderWatch.test.ts).
+  '''\baddr1qyawx3jznhwfhsen5kg3dq4nxgvkexrw7fa6uj8qkx95cynn60n5e0298xn7eyj7lzks2lv5tcmxsqsu7ne7sa7jf4xsulzg6g\b''',
 ]

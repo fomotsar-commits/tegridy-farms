@@ -13,7 +13,8 @@ pub type Params {
   /// The two owner keys. Every spend of the lock needs both signatures.
   owner_a: Hash<Blake2b_224, VerificationKey>,
   owner_b: Hash<Blake2b_224, VerificationKey>,
-  /// The only address a fee-sharing withdrawal may pay.
+  /// The only address a fee-sharing withdrawal may pay, and the only pool
+  /// creation fee receiver a GlobalSetting change may name.
   treasury: Address,
   /// Our Minswap deploy's authen policy: its pool and GlobalSetting tokens
   /// mark the UTxOs Minswap's roles can change.

@@ -4,7 +4,6 @@ pragma solidity ^0.8.26;
 import "forge-std/Test.sol";
 import {SwapFeeRouter} from "../src/SwapFeeRouter.sol";
 import {ReferralSplitter} from "../src/ReferralSplitter.sol";
-import {CommunityGrants} from "../src/CommunityGrants.sol";
 
 /// @title  [ADMIN-ROTATION-EOA] — privileged address slots must reject EOAs, on EVERY live path.
 ///
@@ -15,7 +14,7 @@ import {CommunityGrants} from "../src/CommunityGrants.sol";
 ///
 ///         Found by the same sweep that produced [LEND-EOA-WHITELIST]
 ///         (test/StakingLendingWhitelistEOA_2026_09_05.t.sol), which was the staking-registry
-///         instance of this class. These are the other three that survived adversarial review:
+///         instance of this class. These are the other two that survived adversarial review:
 ///
 ///         1. SwapFeeRouter — `setSwapFeeRouterAdmin` HAS the filter but is ONE-SHOT
 ///            (`AdminAlreadySet`). The rotation pair `proposeAdminReplacement` /
@@ -27,8 +26,8 @@ import {CommunityGrants} from "../src/CommunityGrants.sol";
 ///            timelock lives in the SwapFeeRouterAdmin SISTER, not in the router. So an EOA here
 ///            does not merely misconfigure the router — it replaces timelocked governance of the
 ///            whole fee path with one key that calls every `apply*` instantly.
-///            SwapFeeRouter was the sole outlier of five admin-slot contracts: TegridyStaking,
-///            TegridyRestaking, TegridyLending and TegridyNFTLending all filter BOTH halves.
+///            SwapFeeRouter was the sole outlier of the admin-slot contracts: TegridyStaking
+///            and TegridyNFTLending filter BOTH halves.
 ///
 ///         2. ReferralSplitter.setRestakingContract — one-shot, no rotation path, no admin
 ///            sister, and unfiltered. `restakingContract` is read through a high-level `try` call
@@ -36,21 +35,17 @@ import {CommunityGrants} from "../src/CommunityGrants.sol";
 ///            caller's frame instead of degrading into the catch, so an EOA here makes every
 ///            `recordFee` revert permanently.
 ///
-///         3. CommunityGrants.setRestakingContract — same one-shot shape; the contract's own
-///            natspec already states the consequence (voting power reads 0 and every grant
-///            proposal silently loses eligibility).
+/// @notice 2 is not a new idea: the governance-gates 2026-08 batch added this exact filter to
+///         the byte-identical setter elsewhere; this one was simply missed. The fix is that
+///         batch's code, copied. (A third instance, CommunityGrants.setRestakingContract, left
+///         the repo with that contract on 2026-10-27.)
 ///
-/// @notice 2 and 3 are not new ideas: the governance-gates 2026-08 batch added this exact filter
-///         to the byte-identical setter in MemeBountyBoard (MBB-WIRE-01) and VoteIncentives
-///         (VI-WIRE-01). These two were simply missed. The fix is that batch's code, copied.
-///
-/// @notice SEVERITY. All three are owner-gated, so none is a permissionless exploit. 1 is the
+/// @notice SEVERITY. Both are owner-gated, so neither is a permissionless exploit. 1 is the
 ///         serious one (it converts timelocked governance into an instant single key and the
-///         guarded path is unreachable); 2 and 3 are permanent-brick footguns on a one-shot wire.
+///         guarded path is unreachable); 2 is a permanent-brick footgun on a one-shot wire.
 contract Audit_AdminRotationEOA_2026_09_05_Test is Test {
     SwapFeeRouter internal router;
     ReferralSplitter internal splitter;
-    CommunityGrants internal grants;
 
     RotationAdminStub internal goodAdmin;
     RotationAdminStub internal otherAdmin;
@@ -116,7 +111,7 @@ contract Audit_AdminRotationEOA_2026_09_05_Test is Test {
         assertEq(router.swapFeeRouterAdmin(), address(otherAdmin), "legitimate rotation unaffected");
     }
 
-    // ──────────────────── 2 & 3. one-shot restaking wires ────────────────────
+    // ──────────────────── 2. one-shot restaking wire ────────────────────
 
     /// PRE-FIX: succeeds -> test fails.
     function test_referralSplitter_setRestakingContract_rejectsAnEOA() public {
@@ -140,26 +135,6 @@ contract Audit_AdminRotationEOA_2026_09_05_Test is Test {
 
         vm.expectRevert(ReferralSplitter.RestakingAlreadySet.selector);
         splitter.setRestakingContract(address(otherAdmin));
-    }
-
-    /// PRE-FIX: succeeds -> test fails.
-    function test_communityGrants_setRestakingContract_rejectsAnEOA() public {
-        grants = _newGrants();
-        vm.expectRevert(CommunityGrants.NotAContract.selector);
-        grants.setRestakingContract(eve);
-    }
-
-    function test_communityGrants_setRestakingContract_rejectsA7702DelegatedEOA() public {
-        grants = _newGrants();
-        vm.etch(eve, _delegation());
-        vm.expectRevert(CommunityGrants.NotAContract.selector);
-        grants.setRestakingContract(eve);
-    }
-
-    function test_communityGrants_setRestakingContract_acceptsAContractOnce() public {
-        grants = _newGrants();
-        grants.setRestakingContract(address(goodAdmin));
-        assertEq(grants.restakingContract(), address(goodAdmin), "legitimate wire lands");
     }
 
     // ───────────────────────────── helpers ─────────────────────────────
@@ -189,15 +164,6 @@ contract Audit_AdminRotationEOA_2026_09_05_Test is Test {
             100, // _referralFeeBps (non-zero, under MAX_REFERRAL_FEE)
             address(new RotationAdminStub()), // _stakingContract
             treasury,
-            address(new RotationAdminStub()) // _weth
-        );
-    }
-
-    function _newGrants() internal returns (CommunityGrants g) {
-        g = new CommunityGrants(
-            address(new RotationAdminStub()), // _votingEscrow
-            address(new RotationAdminStub()), // _toweli
-            treasury, // _feeReceiver
             address(new RotationAdminStub()) // _weth
         );
     }

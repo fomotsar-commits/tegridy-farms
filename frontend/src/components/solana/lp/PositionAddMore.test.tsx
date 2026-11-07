@@ -32,7 +32,7 @@ import { LpInner, type LpWritesOverrides } from './SolanaLpSection';
 import type { LpReaders } from './readers';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { BAYLA_QUOTE, SOL_QUOTE, USDC_QUOTE, type QuoteCoin } from '../../../lib/solana/lp/quotes';
-import type { PoolSearchRead, PoolView } from '../../../lib/solana/lp/poolFinder';
+import { LAUNCH_TIER_POOL, type PoolSearchRead, type PoolView } from '../../../lib/solana/lp/poolFinder';
 import { pairLabel } from '../../../lib/solana/lp/identity';
 import { decodeAmmConfig, decodePoolState } from '../../../lib/solana/cpswap/program';
 import type { Position } from '../../../lib/solana/lp/positions';
@@ -67,12 +67,12 @@ const SIG = '5'.repeat(88);
 const ADD_MORE = 'Add more liquidity';
 
 /** A pool for MINT: 10 SOL and 1,000 tokens (0.01 SOL a token) unless told otherwise. */
-function view(o: { sol?: bigint; tok?: bigint; openTime?: bigint; noConfig?: boolean; quote?: QuoteCoin; mint?: PublicKey } = {}): PoolView {
+function view(o: { sol?: bigint; tok?: bigint; lpSupply?: bigint; openTime?: bigint; noConfig?: boolean; quote?: QuoteCoin; mint?: PublicKey } = {}): PoolView {
   const quote = o.quote ?? SOL_QUOTE;
   const s = o.sol ?? 10n * 10n ** 9n;
   const t = o.tok ?? 1_000n * 10n ** 6n;
   const mint = o.mint ?? MINT;
-  const b = buildPool({ plain: true, mint, quote, configIndex: 1, quoteReserve: s, tokenReserve: t, openTime: o.openTime ?? 1n });
+  const b = buildPool({ plain: true, mint, quote, configIndex: 1, quoteReserve: s, tokenReserve: t, lpSupply: o.lpSupply, openTime: o.openTime ?? 1n });
   const pool = decodePoolState(b.address.toBase58(), b.accounts[b.address.toBase58()]!.data)!;
   const config = decodeAmmConfig(b.config.toBase58(), b.accounts[b.config.toBase58()]!.data);
   const quoteIsToken0 = pool.token0Mint === quote.mint;
@@ -87,6 +87,7 @@ function view(o: { sol?: bigint; tok?: bigint; openTime?: bigint; noConfig?: boo
     quoteReserve: s,
     tokenReserve: t,
     vaultsFrozen: false,
+    launchTierWithoutLaunch: false,
     history: { kind: 'not-read' },
   };
 }
@@ -110,6 +111,7 @@ function search(entries: (PoolView | Entry)[]): PoolSearchRead {
       index: { kind: 'ok', pools: pools.map((p) => (p.kind === 'pool' ? p.view.address : p.address)), truncated: false },
       pools,
       otherPairs: 0,
+      launchTierPools: [],
       knownState: {},
       chainNow: 1_000n,
     },
@@ -410,9 +412,19 @@ describe('the press is the finder’s own lookup, and it ends in that pool’s A
 describe('it goes to that pool or to nowhere', () => {
   // Each of these has a deeper pool that takes deposits right beside it, and an
   // Open-a-pool card that can offer: both are what the press must NOT end in.
-  const cases: { name: string; mine: () => PoolView; hold?: boolean; offer: string; says: RegExp; why: RegExp }[] = [
+  const cases: { name: string; mine: () => PoolView; lp?: bigint; hold?: boolean; offer: string; says: RegExp; why: RegExp }[] = [
     { name: 'refuses deposits (it cannot trade yet)', mine: () => view({ openTime: 10n ** 10n }), offer: 'checks', says: /Deposits: refused here/, why: /this pool does not pass the checks a deposit needs\. \S/ },
-    { name: 'could not be checked (its fee settings were not read)', mine: () => view({ noConfig: true }), offer: 'checks', says: /Deposits: not checked/, why: /the checks a deposit needs could not be run on this pool\. \S/ },
+    // Audit CM-2, 2026-11-03: everyone else has left. 1,100 shares, the locked 100 among them
+    // and the holder's 1,000, over 3,480 lamports and 348 units: the market's own 0.01 SOL a token.
+    {
+      name: 'is almost empty (at the market price, too)',
+      mine: () => view({ sol: 3_480n, tok: 348n, lpSupply: 1_100n }),
+      lp: 1_000n,
+      offer: 'checks',
+      says: /Deposits: refused here/,
+      why: /this pool does not pass the checks a deposit needs\. This pool is almost empty, so anyone can move its price for next to nothing, and a deposit would go in at whatever price they set\./,
+    },
+    { name: 'could not be checked (its fee settings were not read)', mine: () => view({ noConfig: true }), offer: 'checks', says: /Deposits: a check did not run/, why: /the checks a deposit needs could not be run on this pool\. \S/ },
     { name: 'has a deposit still pending', mine: () => view(), hold: true, offer: 'held', says: /A deposit you sent to this pool is not confirmed yet/, why: /a deposit you sent to this pool is not confirmed yet\./ },
   ];
   it.each(cases)('the position’s pool $name: its card comes onto the screen with its own reason, and no form opens anywhere', async (c) => {
@@ -420,7 +432,7 @@ describe('it goes to that pool or to nowhere', () => {
     const mine = c.mine();
     if (c.hold) savePendingTrade(LP_PENDING_SCOPE, { kind: 'lp-deposit', signature: SIG, lastValidBlockHeight: 50, pool: mine.address });
     const api = openApi({ recheckOutcome: vi.fn(async () => ({ status: 'unknown' as const, signature: SIG, message: 'Not found yet.' })) });
-    const r = readers({ findPools: vi.fn(async () => search([deep, mine])), positions: held(position(mine)) });
+    const r = readers({ findPools: vi.fn(async () => search([deep, mine])), positions: held(position(mine, c.lp === undefined ? {} : { lpAmount: c.lp })) });
     mount(r, { api });
     fireEvent.click(await addMore(mine.address));
     await waitFor(() => expect(scrolledTo()).toContain(card(mine.address)));
@@ -433,7 +445,7 @@ describe('it goes to that pool or to nowhere', () => {
     expect(heading).toHaveFocus();
     expect(heading.textContent).toBe(pairLabel(mine, okToken));
     const why = within(its).getByTestId('lp-wish-why');
-    expect(why).toHaveTextContent('This is your position’s pool. Its Add form was not opened:');
+    expect(why).toHaveTextContent('This is your position’s pool. Its Add form stays closed:');
     expect(why).toHaveTextContent(c.why);
     expect(heading).toHaveAttribute('aria-describedby', why.id);
     expect(screen.getAllByTestId('lp-wish-why')).toHaveLength(1);
@@ -481,7 +493,7 @@ describe('it goes to that pool or to nowhere', () => {
     const heading = within(card(mine.address)).getByRole('heading', { level: 3 });
     expect(heading).toHaveFocus();
     const why = within(card(mine.address)).getByTestId('lp-wish-why');
-    expect(why).toHaveTextContent('This is your position’s pool. Its Add form was not opened: this pool could not be read just now.');
+    expect(why).toHaveTextContent('This is your position’s pool. Its Add form stays closed: this pool could not be read just now.');
     expect(heading).toHaveAttribute('aria-describedby', why.id);
     await act(async () => {});
     noFormOpen();
@@ -498,7 +510,7 @@ describe('it goes to that pool or to nowhere', () => {
     fireEvent.click(await addMore(mine.address));
     const line = await screen.findByTestId('lp-wish-unfound');
     expect(line).toHaveTextContent(`Your position’s pool (${mine.address}) did not read as a pool for this token just now`);
-    expect(line).toHaveTextContent('its Add form was not opened, and no other pool’s was opened in its place');
+    expect(line).toHaveTextContent('its Add form did not open, and no other pool’s was opened in its place');
     // The wish is spent, so Read again alone opens nothing: the line names the press that does.
     expect(line).toHaveTextContent('Press Add more liquidity on your position again in a minute.');
     expect(line).not.toHaveTextContent('Read again');
@@ -864,5 +876,44 @@ describe('Remove liquidity is as it was', () => {
     fireEvent.click(within(panel).getByRole('button', { name: 'Close' }));
     await waitFor(() => expect(screen.queryByTestId('lp-remove-panel')).toBeNull());
     expect(remove).toHaveFocus();
+  });
+});
+
+describe('a pool opened on the launch fee tier without a launch', () => {
+  const withStrays = (found: PoolSearchRead, launchTierPools: string[]): PoolSearchRead => {
+    if (found.kind !== 'ok') throw new Error('unreachable');
+    return { kind: 'ok', search: { ...found.search, launchTierPools } };
+  };
+
+  it('its row offers no Add more liquidity, says why in bold, and keeps Remove liquidity', async () => {
+    const mine: PoolView = { ...view(), launchTierWithoutLaunch: true };
+    const open = view();
+    mount(readers({ positions: held(position(mine), position(open)) }));
+    // The other row has its button, so the section can add: this is about the pool.
+    await addMore(open.address);
+    const r = await row(mine.address);
+    await waitFor(() => expect(r).toHaveAttribute('data-remove', 'offer'));
+    expect(within(r).queryByRole('button', { name: ADD_MORE })).toBeNull();
+    expect(within(r).getByRole('button', { name: 'Remove liquidity' })).toBeInTheDocument();
+    expect(within(r).getByText(LAUNCH_TIER_POOL).tagName).toBe('STRONG');
+  });
+
+  it('a link that names one opens no form and says why in bold, never that it did not read', async () => {
+    const stray = key().toBase58();
+    const r = readers({ findPools: vi.fn(async () => withStrays(search([]), [stray])) });
+    mount(r, { path: `/solana-lp?mint=${M}&task=add&pool=${stray}` });
+    const lines = await screen.findAllByText(LAUNCH_TIER_POOL);
+    expect(lines.every((l) => l.tagName === 'STRONG')).toBe(true);
+    noFormOpen();
+    expect(screen.queryByText(/did not read as a pool/)).toBeNull();
+  });
+
+  it('a lookup of a token that has some says how many, in one bold line, and lists only the others', async () => {
+    const fair = view();
+    const r = readers({ findPools: vi.fn(async () => withStrays(search([fair]), [key().toBase58(), key().toBase58()])) });
+    mount(r, { path: `/pools?mint=${M}` });
+    const line = await screen.findByText(/^2 pools of this token were opened on the launch fee tier without a launch/);
+    expect(line.tagName).toBe('STRONG');
+    expect(screen.getAllByTestId('lp-pool').map((c) => c.getAttribute('data-pool'))).toEqual([fair.address]);
   });
 });

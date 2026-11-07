@@ -154,14 +154,14 @@ export function LaunchRadar() {
           <p className="text-white/30 text-[11px]">
             A dash means no trusted figure, never zero.
             {state.poolsReadFailed && (
-              <> Part of the window could not be read, so this list is short — it is not everything that launched.</>
+              <> Part of the window could not be read, so this list is short. It is not everything that launched.</>
             )}
             {state.observedAt > 0 && <> Read {formatTimeAgo(state.observedAt)}.</>}
           </p>
           <FinePrint>
             <p>
-              Liquidity is the pool reserve as reported upstream. &ldquo;—&rdquo; means we have no figure we trust — either
-              none was reported, or what was reported isn&apos;t a believable market price — never that it is zero.
+              Liquidity is the pool reserve as reported upstream. A dash means we have no figure we trust: either
+              none was reported, or what was reported isn&apos;t a believable market price. It never means the reserve is zero.
             </p>
           </FinePrint>
         </>

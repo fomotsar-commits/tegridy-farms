@@ -4,7 +4,7 @@ import { useTOWELIPrice } from '../contexts/PriceContext';
 import { pageArt, artStyle } from '../lib/artConfig';
 import {
   TOWELI_ADDRESS, TEGRIDY_STAKING_ADDRESS, SWAP_FEE_ROUTER_ADDRESS,
-  COMMUNITY_GRANTS_ADDRESS, MEME_BOUNTY_BOARD_ADDRESS, REVENUE_DISTRIBUTOR_ADDRESS,
+  REVENUE_DISTRIBUTOR_ADDRESS,
   REFERRAL_SPLITTER_ADDRESS, PREMIUM_ACCESS_ADDRESS, POL_ACCUMULATOR_ADDRESS,
   TREASURY_ADDRESS, ETHERSCAN_TOKEN, UNISWAP_BUY_URL, GECKOTERMINAL_URL,
   TOWELI_TOTAL_SUPPLY, isDeployed,
@@ -66,8 +66,6 @@ const CONTRACTS = [
   { label: 'TegridyStaking', address: TEGRIDY_STAKING_ADDRESS },
   { label: 'SwapFeeRouter', address: SWAP_FEE_ROUTER_ADDRESS },
   { label: 'RevenueDistributor', address: REVENUE_DISTRIBUTOR_ADDRESS },
-  { label: 'CommunityGrants', address: COMMUNITY_GRANTS_ADDRESS },
-  { label: 'MemeBountyBoard', address: MEME_BOUNTY_BOARD_ADDRESS },
   { label: 'ReferralSplitter', address: REFERRAL_SPLITTER_ADDRESS },
   { label: 'PremiumAccess', address: PREMIUM_ACCESS_ADDRESS },
   { label: 'POLAccumulator', address: POL_ACCUMULATOR_ADDRESS },

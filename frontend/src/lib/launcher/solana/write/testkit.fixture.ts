@@ -41,6 +41,9 @@ import {
   sortMints,
 } from '../../../solana/cpswap/program';
 import { isqrt } from '../../../solana/lp/liquidityMath';
+import { chainEpochOf } from '../../../solana/lp/poolFinder';
+import { decodeMintAccount } from '../../../solana/lp/tokenSafety';
+import { epochFee, feeOf, type TransferFee } from '../../../solana/lp/transferFee';
 import { associatedTokenAddress } from '../curve/ix';
 import { priorityLamports } from './budget';
 import { CP_CREATE_POOL_FEE_RECEIVER } from './config';
@@ -450,6 +453,7 @@ export function addPool(
   o: {
     sol: bigint;
     tokens: bigint;
+    /** Default 1,000,000,000; a launch pool's, isqrt(sol x tokens), as the pool program opens it. */
     lpSupply?: bigint;
     status?: number;
     openTime?: bigint;
@@ -471,11 +475,16 @@ export function addPool(
     quote?: QuoteCoin;
     /** Override recorded fields (to test a pool whose record and derivation disagree). */
     record?: Partial<Record<'token0Vault' | 'token1Vault' | 'lpMint' | 'observationKey' | 'token0Program' | 'token1Program', PublicKey>>;
-    /** The fee tier the pool is on (its recorded config, and its standard address); default tier 0. */
+    /**
+     * The fee tier the pool is on (its recorded config, and its standard address). Default:
+     * tier 0 for a launch pool, tier 1 for any other (added to the chain if missing): a
+     * pool on tier 0 that is not the launch pool is one this site refuses.
+     */
     ammConfig?: PublicKey;
   },
 ): PoolFixture {
-  const ammConfig = o.ammConfig ?? AMM_CONFIG;
+  const ammConfig = o.ammConfig ?? (o.launch ? AMM_CONFIG : publicTierConfig(CPSWAP));
+  if (ammConfig.equals(publicTierConfig(CPSWAP)) && !chain.accounts.has(ammConfig.toBase58())) chain.addTier1();
   const quote = o.quote ?? SOL_QUOTE;
   const quoteMint = new PublicKey(quote.mint);
   const quoteProgram = new PublicKey(quote.program);
@@ -488,6 +497,7 @@ export function addPool(
   const lpMint = deriveLpMint(CPSWAP, address);
   const observation = deriveObservation(CPSWAP, address);
   const off = POOL_STATE_OFFSETS;
+  const lpSupply = o.lpSupply ?? (o.launch ? isqrt(o.sol * o.tokens) : 1_000_000_000n);
   const d = new Uint8Array(POOL_STATE_LEN);
   d.set(ACCOUNT_POOL_STATE, 0);
   const r = o.record ?? {};
@@ -509,7 +519,7 @@ export function addPool(
   const dec = o.tokenDecimals ?? 6;
   d[off.mint0Decimals] = quoteIsToken0 ? quote.decimals : dec;
   d[off.mint1Decimals] = quoteIsToken0 ? dec : quote.decimals;
-  d.set(u64le(o.lpSupply ?? 1_000_000_000n), off.lpSupply);
+  d.set(u64le(lpSupply), off.lpSupply);
   d.set(u64le(o.openTime ?? 0n), off.openTime);
   if (o.enableCreatorFee) {
     d[off.creatorFeeOn] = quoteIsToken0 ? CREATOR_FEE_ON_TOKEN_0 : CREATOR_FEE_ON_TOKEN_1;
@@ -524,7 +534,7 @@ export function addPool(
   const vaultOpts = { state: o.frozenTokenVault ? (2 as const) : (1 as const) };
   if (tokenProgram.equals(TOKEN_2022_PROGRAM_ID)) chain.token2022Account(tokenVault, mint, authority, o.tokens, vaultOpts);
   else chain.tokenAccount(tokenVault, mint, authority, o.tokens, vaultOpts);
-  chain.mint(lpMint, { decimals: 9, mintAuthority: authority, supply: o.lpSupply ?? 1_000_000_000n });
+  chain.mint(lpMint, { decimals: 9, mintAuthority: authority, supply: lpSupply });
   if (o.launch) {
     // A never-traded price record: initialized 0, naming this pool.
     const obs = new Uint8Array(4075);
@@ -537,13 +547,14 @@ export function addPool(
 
 const CLOCK_SYSVAR = new PublicKey('SysvarC1ock11111111111111111111111111111111');
 
-/** The cluster clock (unix seconds), or no clock at all with `null`. */
-export function setClock(chain: FakeChain, unix: bigint | null): void {
+/** The cluster clock (unix seconds, and the epoch: 0 unless given), or no clock at all with `null`. */
+export function setClock(chain: FakeChain, unix: bigint | null, epoch = 0n): void {
   if (unix === null) {
     chain.accounts.delete(CLOCK_SYSVAR.toBase58());
     return;
   }
   const b = new Uint8Array(40);
+  new DataView(b.buffer).setBigUint64(16, epoch, true);
   new DataView(b.buffer).setBigInt64(32, unix, true);
   chain.set(CLOCK_SYSVAR, { lamports: 1, owner: new PublicKey('Sysvar1111111111111111111111111111111111111'), data: b });
 }
@@ -824,6 +835,10 @@ export function createSimulator(o: CreateSimOptions = {}): SimHandler {
     const u64 = (at: number) => new DataView(d.buffer, d.byteOffset, d.byteLength).getBigUint64(at, true);
     const [init0, init1] = [u64(8), u64(16)];
     const at = (i: number) => open.accounts[i]!;
+    // initialize.rs counts the shares from what the vaults hold once both transfers ran:
+    // each amount less its mint's transfer fee.
+    const vault0 = init0 - tokenFeeTaken(chain, at(4), init0);
+    const vault1 = init1 - tokenFeeTaken(chain, at(5), init1);
     const cpFail = (code: number) => ({ err: { InstructionError: [3, { Custom: code }] }, logs: [`Program ${CPSWAP.toBase58()} failed: custom program error: 0x${code.toString(16)}`], unitsConsumed: 30_000 });
     const tierAcc = chain.accounts.get(at(1).toBase58());
     const tier = tierAcc ? decodeAmmConfig(at(1).toBase58(), tierAcc.data) : null;
@@ -836,7 +851,7 @@ export function createSimulator(o: CreateSimOptions = {}): SimHandler {
         unitsConsumed: 20_000,
       };
     }
-    const supply = isqrt(init0 * init1);
+    const supply = isqrt(vault0 * vault1);
     if (supply < 100n) return cpFail(6009);
     const signer = at(0);
     if (!at(4).equals(WSOL_MINT) && !at(5).equals(WSOL_MINT)) {
@@ -951,3 +966,61 @@ function coinInitialize(
 }
 
 const SYSTEM_PROGRAM = new PublicKey('11111111111111111111111111111111');
+
+/**
+ * Give a Token-2022 mint on this chain a transfer fee, in place: its TransferFeeConfig
+ * entry (which `mint2022` makes as 108 zeroes) gets both settings at `basisPoints` and
+ * `maximumFee` (no cap when left out), or a second setting from `newer.epoch` on.
+ */
+export function setTransferFee(chain: FakeChain, mint: PublicKey, o: TransferFeeSetting): void {
+  const acc = chain.accounts.get(mint.toBase58());
+  if (!acc) throw new Error('setTransferFee: no such mint');
+  writeTransferFee(acc.data, o);
+}
+
+export interface TransferFeeSetting {
+  basisPoints: number;
+  maximumFee?: bigint;
+  configAuthority?: PublicKey;
+  withdrawAuthority?: PublicKey;
+  newer?: { epoch: bigint; basisPoints: number; maximumFee?: bigint };
+}
+
+/** `setTransferFee` on a mint's own bytes (`encodeMint2022`'s, with a 108-byte TransferFeeConfig entry). */
+export function writeTransferFee(data: Uint8Array, o: TransferFeeSetting): Uint8Array {
+  const v = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  let at = 166;
+  while (at + 4 <= data.length && v.getUint16(at, true) !== 1) at += 4 + v.getUint16(at + 2, true);
+  if (at + 4 > data.length || v.getUint16(at + 2, true) !== 108) throw new Error('writeTransferFee: the mint has no 108-byte TransferFeeConfig entry');
+  const start = at + 4;
+  const U64_MAX = (1n << 64n) - 1n;
+  if (o.configAuthority) data.set(o.configAuthority.toBytes(), start);
+  if (o.withdrawAuthority) data.set(o.withdrawAuthority.toBytes(), start + 32);
+  const put = (off: number, epoch: bigint, max: bigint, bps: number) => {
+    v.setBigUint64(start + off, epoch, true);
+    v.setBigUint64(start + off + 8, max, true);
+    v.setUint16(start + off + 16, bps, true);
+  };
+  put(72, 0n, o.maximumFee ?? U64_MAX, o.basisPoints);
+  const n = o.newer ?? { epoch: 0n, basisPoints: o.basisPoints, maximumFee: o.maximumFee };
+  put(90, n.epoch, n.maximumFee ?? U64_MAX, n.basisPoints);
+  return data;
+}
+
+/** The transfer fee this chain's token program charges on `mint` now: its setting at the clock's epoch (0 with no clock). */
+export function tokenFeeOnChain(chain: FakeChain, mint: PublicKey): TransferFee | null {
+  const acc = chain.accounts.get(mint.toBase58());
+  if (!acc) return null;
+  const d = decodeMintAccount(acc.owner.toBase58(), acc.data);
+  const c = d.ok ? d.value.transferFee : null;
+  if (!c) return null;
+  const clock = chain.accounts.get(CLOCK_SYSVAR.toBase58());
+  const epoch = clock ? chainEpochOf({ address: CLOCK_SYSVAR.toBase58(), owner: clock.owner.toBase58(), data: clock.data, lamports: clock.lamports }) : null;
+  return epochFee(c, epoch ?? 0n);
+}
+
+/** What the token program keeps of a transfer of `amount` of `mint` (0 with no fee). */
+export function tokenFeeTaken(chain: FakeChain, mint: PublicKey, amount: bigint): bigint {
+  const f = tokenFeeOnChain(chain, mint);
+  return f ? feeOf(f, amount) : 0n;
+}

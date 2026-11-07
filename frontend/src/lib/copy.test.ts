@@ -3,8 +3,6 @@ import {
   RECEIPT_COPY,
   LOCK_DURATIONS,
   PENALTY_COPY,
-  GOVERNANCE_COPY,
-  COMMUNITY_TAB_INTRO,
   FAQ_INTRO,
   VENUE_FAQ_INTRO,
   TOWELIE_QUOTES,
@@ -18,7 +16,7 @@ import {
 describe('RECEIPT_COPY', () => {
   it('covers every documented receipt type', () => {
     const expected = [
-      'swap', 'stake', 'unstake', 'claim', 'vote', 'bounty', 'lock',
+      'swap', 'stake', 'unstake', 'claim', 'lock',
       'approve', 'liquidity_add', 'liquidity_remove', 'subscribe', 'claim_revenue',
     ];
     for (const key of expected) {
@@ -41,7 +39,6 @@ describe('RECEIPT_COPY', () => {
     // farm's own verbs), not the retired name.
     expect(RECEIPT_COPY.stake.label).toMatch(/HELD TIME/i);
     expect(RECEIPT_COPY.claim.label).toMatch(/HARVEST/i);
-    expect(RECEIPT_COPY.vote.label).toMatch(/VOTE/i);
     for (const entry of Object.values(RECEIPT_COPY)) {
       expect(entry.label).not.toMatch(/tegridy/i);
       expect(entry.verb).not.toMatch(/tegridy/i);
@@ -103,41 +100,6 @@ describe('PENALTY_COPY', () => {
   });
 });
 
-describe('GOVERNANCE_COPY', () => {
-  it('re-brands bribes as "Cartman\'s Market"', () => {
-    expect(GOVERNANCE_COPY.bribesSectionTitle).toMatch(/Cartman/);
-    expect(GOVERNANCE_COPY.bribesSectionTag).toMatch(/Not Bribes/i);
-  });
-});
-
-describe('COMMUNITY_TAB_INTRO', () => {
-  // F357: each logged-out community tab must read distinctly (what it is +
-  // what connecting unlocks) instead of one generic "connect to participate".
-  const KEYS = ['grants', 'bounties', 'bribes', 'gauges'] as const;
-
-  it('provides an intro for every community tab', () => {
-    for (const k of KEYS) {
-      expect(COMMUNITY_TAB_INTRO).toHaveProperty(k);
-      expect(COMMUNITY_TAB_INTRO[k]).toBeTruthy();
-    }
-  });
-
-  it('every intro is a distinct, descriptive sentence', () => {
-    const values = KEYS.map((k) => COMMUNITY_TAB_INTRO[k]);
-    // all distinct
-    expect(new Set(values).size).toBe(values.length);
-    // each long enough to actually describe the tab
-    for (const v of values) {
-      expect(v.length).toBeGreaterThan(40);
-    }
-  });
-
-  it('each intro tells the user what connecting unlocks', () => {
-    for (const k of KEYS) {
-      expect(COMMUNITY_TAB_INTRO[k]).toMatch(/connect/i);
-    }
-  });
-});
 
 describe('FAQ_INTRO', () => {
   it('opens with a Randy-voice subheading', () => {

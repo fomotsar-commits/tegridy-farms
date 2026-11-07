@@ -105,7 +105,7 @@ pub fn spend(
             own,
             State { announced: remove(state.announced, index) },
           ),
-          makes(change, moved, outputs, params.authen_policy_id),
+          makes(change, moved, outputs, params),
         }
       }
       WithdrawFeeSharing -> and {
@@ -118,13 +118,15 @@ pub fn spend(
 
 /// The transaction moves one UTxO and leaves it as announced. The checks fail
 /// unless that UTxO is the one changed: the GlobalSetting token exists once,
-/// and a pool keeps its value here and its address in `pays_treasury`.
+/// and a pool keeps its value here and its address in `pays_treasury`. A new
+/// GlobalSetting pays its pool creation fee to the treasury.
 fn makes(
   change: Change,
   moved: List<Input>,
   outputs: List<Output>,
-  authen: PolicyId,
+  params: Params,
 ) -> Bool {
+  let authen = params.authen_policy_id
   when change is {
     SetGlobalSetting { setting } -> {
       expect [_] = moved
@@ -134,7 +136,11 @@ fn makes(
           fn(o) { holds(o.value, authen, global_setting_asset_name) },
         )
       let expected: Data = setting
-      setting_out.datum == InlineDatum(expected)
+      and {
+        setting_out.datum == InlineDatum(expected),
+        setting.pool_creation_fee >= 0,
+        setting.pool_creation_fee_receiver == params.treasury,
+      }
     }
     SetPool {
       asset_a,

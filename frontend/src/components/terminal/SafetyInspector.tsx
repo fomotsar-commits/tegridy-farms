@@ -4,6 +4,7 @@ import { DEPLOYER_NOT_ON_THIS_CHAIN } from '../../hooks/useTerminalSafety';
 import type { RowSafety } from '../../lib/terminal/rowSafety';
 import { SafetyBadge } from './SafetyBadge';
 import { FinePrint } from '../ui/FinePrint';
+import { printedTier } from '../../lib/heat/heatOracle';
 
 // The selected row's safety, component by component.
 //
@@ -86,7 +87,8 @@ export function SafetyInspector({
             </h3>
             {safety.heat.state === 'read' ? (
               <p className="mt-1 text-xs text-white/80">
-                {safety.heat.value.tier} · {safety.heat.value.degrees} degrees
+                {printedTier(safety.heat.value.tier) ? `${printedTier(safety.heat.value.tier)} · ` : ''}
+                {safety.heat.value.degrees} degrees
                 {safety.heat.value.isCold ? ' · no island tokens held' : ''}
               </p>
             ) : (

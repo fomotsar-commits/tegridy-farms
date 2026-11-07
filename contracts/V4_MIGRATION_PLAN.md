@@ -1,5 +1,7 @@
 # V4 Migration Plan — Phase 7.x (Next-Wave)
 
+> **Retired 2026-10-28:** the EVM V4 graduation stack this plan covers (`TegridyLiquidityMigrator`, `TegridyFeeLocker`, `TegridyBoostedLPStaker`, `TegridyV4SwapRouter`) was deleted from `contracts/`; the live `TegridyV4Hook` stays and its natspec still points here. Kept as a record, not a to-do list. The one to-do list is [docs/TODO_OPERATOR.md](../docs/TODO_OPERATOR.md).
+
 > Branch: `next-wave/v4-migration` (off `mvp-launch`).
 > Status: **PLAN ONLY — not active code.** Awaiting V2 mainnet launch + 30-day clean monitoring window at $100M TVL before this branch goes from plan to implementation.
 > Approval given: 2026-05-23. Choice 1 = Option B (V2 now → V4 in Phase 7.x). Choices 2-5 = defaults (bundle / $1.2M staggered / V2-style NFTPool / fold FeeHook).
