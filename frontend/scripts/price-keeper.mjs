@@ -70,7 +70,9 @@
  *   KEEPER_JITO             yes = a SOL trip goes to Jito's block engine as a bundle, with a tip
  *                           to Jito inside it of up to 30% of its test-run gain, added to its
  *                           floor; a race lost to another robot never lands and costs nothing.
- *                           USDC trips go the usual way (default no)
+ *                           A tip under 20,000 lamports (those never landed) and a pool whose
+ *                           last bundle did not land in 10 min go the usual way, as do USDC
+ *                           trips (default no)
  *   KEEPER_SCANNER_URL      the arbitrage scanner's page on THIS computer, e.g.
  *                           http://127.0.0.1:8795/state.json: the keeper also tries the trips
  *                           between two outside pools whose scanner test run passed in the last
@@ -893,7 +895,11 @@ async function main() {
       if (hold) throw new Error(hold);
       return sendSigned(tx, key);
     };
-    const jito = jitoSender({ fetchImpl: fetch, status: async (sig) => (await conn.getSignatureStatuses([sig])).value[0] ?? null });
+    const jito = jitoSender({
+      fetchImpl: fetch,
+      status: async (sig) => (await conn.getSignatureStatuses([sig])).value[0] ?? null,
+      blockhashValid: async (blockhash) => (await conn.isBlockhashValid(blockhash, { commitment: 'confirmed' })).value,
+    });
     const sendJito = async (tx) => {
       const hold = holdReason();
       if (hold) throw new Error(hold);
@@ -986,7 +992,7 @@ async function main() {
         : `  Lighthouse check NOT proven (${proof}): trips stay at most $${SAFE_CAP_USD}, and every trip still carries the check`,
     );
     log(`  Raydium ${settings.allowRaydium ? 'ALLOWED' : 'refused'} · new coin accounts ${settings.payNewAccountRent ? 'opened on any paying trip' : 'opened only when the trip earns the rent back'}`);
-    log(`  SOL trips sent: ${settings.jito ? 'through Jito as bundles, tip up to 30% of the test-run gain, in the floor; a lost race costs nothing' : 'the usual way (KEEPER_JITO=yes sends them through Jito)'}`);
+    log(`  SOL trips sent: ${settings.jito ? 'through Jito as bundles, tip up to 30% of the test-run gain, in the floor, at least 20,000 lamports (else the usual way); a lost race costs nothing' : 'the usual way (KEEPER_JITO=yes sends them through Jito)'}`);
     log(`  SOL trips past the float: ${settings.flashLoans ? 'a Kamino loan inside the trip (0.001% fee, counted in the floor), up to the cap' : 'made smaller (KEEPER_FLASH_LOANS=yes borrows the rest inside the trip)'}`);
     log(`  quick check every ${checkMs / 1000} s · full pass at least every ${intervalMs / 1000} s · at most ${maxDailySol} SOL a day on fees and new accounts`);
     log(`  earnings log ${TRADES} · gap log ${GAPS} · to pause sending, create ${STOP_FILE}`);

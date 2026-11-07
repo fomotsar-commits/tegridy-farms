@@ -8,7 +8,18 @@ import { Keypair, PublicKey, TransactionInstruction, type VersionedTransaction }
 import { SOL_QUOTE } from '../lp/quotes';
 import { tripInstructions } from './cycle';
 import { floorOfCheck } from './lighthouse';
-import { JITO_KEEP_LAMPORTS, JITO_MIN_TIP_LAMPORTS, JITO_TIP_ACCOUNTS, jitoSender, jitoTip, jitoTipIx, pickTipAccount } from './jito';
+import {
+  JITO_GIVE_UP_MS,
+  JITO_KEEP_LAMPORTS,
+  JITO_LANDING_TIP_LAMPORTS,
+  JITO_MIN_TIP_LAMPORTS,
+  JITO_TIP_ACCOUNTS,
+  JITO_WATCH_MS,
+  jitoSender,
+  jitoTip,
+  jitoTipIx,
+  pickTipAccount,
+} from './jito';
 
 // Mainnet transaction 5NWjWUTarePF557unjrhWPnobzYca6oDMRwARnbAmVbYTfUHik9cshCHRZ1yTDkeT3qgGAXLDeiSeitncQGBNQQF
 // (slot 465,966,356), its last instruction (5 of 0..5), as getTransaction returned it 2026-11-05.
@@ -89,6 +100,16 @@ describe('jitoTip', () => {
     expect(jitoTip(3_000n, 0n, RICH)).toBeNull();
     expect(jitoTip(100_000n, 100_000n, RICH)).toBeNull();
   });
+
+  it('is none under the least tip that lands: such bundles never landed live, so the trip goes the usual way', () => {
+    expect(JITO_LANDING_TIP_LAMPORTS).toBe(20_000n);
+    // 11-06/07: a ~37,400-lamport gain gave an 11,224-lamport tip, sent 15 times, landed 0 times.
+    expect(jitoTip(37_413n, 0n, RICH)).toBeNull();
+    expect(jitoTip(66_000n, 0n, RICH)).toBeNull();
+    expect(jitoTip(1_000_000n, 1_000_000n - 19_999n, RICH)).toBeNull();
+    expect(jitoTip(70_000n, 0n, RICH)).toBe(21_000n);
+    expect(jitoTip(1_000_000n, 1_000_000n - 20_000n, RICH)).toBe(20_000n);
+  });
 });
 
 describe('a trip with a tip', () => {
@@ -158,5 +179,79 @@ describe('jitoSender', () => {
   it('throws when Jito refuses the bundle: nothing was sent', async () => {
     await expect(rig({ send: { error: { message: 'bundle tip too low' } } }).send(signed)).rejects.toThrow(/tip too low/);
     await expect(rig({ status: 429, send: {} }).send(signed)).rejects.toThrow(/429/);
+  });
+
+  describe('watched until its blockhash runs out', () => {
+    const BLOCKHASH = 'Blockhash1111111111111111111111111111111111';
+    const withHash = { ...signed, message: { recentBlockhash: BLOCKHASH } } as unknown as VersionedTransaction;
+    const EXPIRES_AT = 65_000;
+    /**
+     * A bundle Jito never fails; the chain's status of it is `status(clock, ranOut)` (an Error =
+     * unread), `ranOut` once the robot has been told the blockhash ran out; it runs out at `expiresAt`.
+     */
+    function watch(status: (clock: number, ranOut: boolean) => { err: unknown; confirmationStatus: string } | null | Error, expiresAt = EXPIRES_AT) {
+      let clock = 0;
+      let ranOut = false;
+      const asked: string[] = [];
+      const fetchImpl = (async (_url: string, init: RequestInit) => {
+        const body = JSON.parse(String(init.body));
+        if (body.method === 'sendBundle') return new Response(JSON.stringify({ result: 'bundle-1' }));
+        return new Response(JSON.stringify({ result: { value: [{ status: 'Pending' }] } }));
+      }) as unknown as typeof fetch;
+      const send = jitoSender({
+        fetchImpl,
+        status: async () => {
+          const s = status(clock, ranOut);
+          if (s instanceof Error) throw s;
+          return s;
+        },
+        blockhashValid: async (bh) => {
+          asked.push(bh);
+          ranOut = clock >= expiresAt;
+          return !ranOut;
+        },
+        sleep: async (ms) => {
+          clock += ms;
+        },
+        now: () => clock,
+      });
+      return { send: () => send(withHash), asked, clock: () => clock };
+    }
+
+    it('calls a bundle the chain never took, once its blockhash ran out, lost: it costs nothing', async () => {
+      const r = watch(() => null);
+      expect((await r.send()).outcome).toBe('lost');
+      expect(r.clock()).toBeGreaterThanOrEqual(EXPIRES_AT);
+      expect(r.clock()).toBeLessThan(JITO_GIVE_UP_MS);
+      expect(r.asked.every((bh) => bh === BLOCKHASH)).toBe(true);
+    });
+
+    it('asks about the blockhash only once the first watch is over', async () => {
+      const r = watch(() => null, 0);
+      expect((await r.send()).outcome).toBe('lost');
+      expect(r.clock()).toBeGreaterThanOrEqual(JITO_WATCH_MS);
+    });
+
+    it('is still confirmed (or refused) when the last read, after the blockhash ran out, finds it landed', async () => {
+      expect((await watch((_, ranOut) => (ranOut ? { err: null, confirmationStatus: 'confirmed' } : null)).send()).outcome).toBe('confirmed');
+      expect((await watch((_, ranOut) => (ranOut ? { err: { InstructionError: [3, 'Custom'] }, confirmationStatus: 'confirmed' } : null)).send()).outcome).toBe('reverted');
+    });
+
+    it('stays unknown when the chain cannot be read once the blockhash ran out', async () => {
+      const r = watch((_, ranOut) => (ranOut ? new Error('429') : null));
+      expect((await r.send()).outcome).toBe('unknown');
+    });
+
+    it('stays unknown, after JITO_GIVE_UP_MS, while the blockhash never reads as run out', async () => {
+      const r = watch(() => null, Number.POSITIVE_INFINITY);
+      expect((await r.send()).outcome).toBe('unknown');
+      expect(r.clock()).toBeGreaterThanOrEqual(JITO_GIVE_UP_MS);
+    });
+
+    it('watches on while the chain has it in a block not yet confirmed', async () => {
+      const r = watch((clock, ranOut) => (clock >= 90_000 ? { err: null, confirmationStatus: 'confirmed' } : ranOut ? { err: null, confirmationStatus: 'processed' } : null));
+      expect((await r.send()).outcome).toBe('confirmed');
+      expect(r.clock()).toBeGreaterThanOrEqual(90_000);
+    });
   });
 });
