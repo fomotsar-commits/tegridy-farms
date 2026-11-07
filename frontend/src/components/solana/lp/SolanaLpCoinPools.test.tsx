@@ -789,16 +789,17 @@ describe.each(COINS)('Remove liquidity from a pool paired with %s', (symbol, coi
     expect(review()).toBeEnabled();
   });
 
-  it('a price that cannot be checked switches Add off and leaves Remove on', async () => {
-    // Jupiter gives no price for the coin: the pool's deposits are unchecked.
+  // Answer twenty-seven: an outside price not read is one row, never a gate.
+  it('an outside price that cannot be read leaves Add on, and Remove on', async () => {
+    // Jupiter gives no price for the coin: one row, and the pool's deposits stay open.
     const v = view(coin, LOW);
     const { review, panel } = await openRemove(v, {
       path: `/pools?mint=${v.tokenMint}`,
       readers: { outsidePrice: vi.fn(async () => ({ kind: 'unread' as const, detail: 'Jupiter did not give a price (HTTP 502)' })) },
     });
     const card = await screen.findByTestId('lp-pool');
-    await waitFor(() => expect(card).toHaveAttribute('data-add', 'checks'));
-    expect(within(card).queryByRole('button', { name: 'Add liquidity' })).toBeNull();
+    await waitFor(() => expect(card).toHaveAttribute('data-add', 'offer'));
+    expect(card).toHaveAttribute('data-deposits', 'allowed');
     fireEvent.click(within(panel).getByRole('button', { name: 'All' }));
     expect(review()).toBeEnabled();
   });

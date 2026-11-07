@@ -20,7 +20,12 @@ const chains = () => [
   { chain: 'base', read: true, usd: 233.44, pools: 3, unvalued: 0 },
   { chain: 'robinhood', read: true, usd: 0, pools: 0, unvalued: 0 },
 ];
-const tvl = (over: Record<string, unknown> = {}) => ({ state: 'current', usd: 11734.62, chains: chains(), readAt: '2026-10-19T16:29:30.000Z', ...over });
+const staking = () => [
+  { chain: 'solana', read: true, usd: 22440.26, vaults: 3, unvalued: 0 },
+  { chain: 'ethereum', read: true, usd: 64.79, vaults: 3, unvalued: 0 },
+  { chain: 'base', read: true, usd: 0, vaults: 0, unvalued: 0 },
+];
+const tvl = (over: Record<string, unknown> = {}) => ({ state: 'current', usd: 34239.67, chains: chains(), staking: staking(), readAt: '2026-10-19T16:29:30.000Z', ...over });
 
 describe('parseVenueVolume', () => {
   it('turns a cached "current" answer behind once its staleAt has passed', () => {
@@ -37,10 +42,21 @@ describe('parseVenueVolume', () => {
 });
 
 describe('parseVenueTvl', () => {
-  it('reads a whole answer, every chain in order', () => {
+  it('reads a whole answer, every chain in order, pools and staking', () => {
     const t = parseVenueTvl(tvl());
-    expect(t).toMatchObject({ state: 'current', usd: 11734.62 });
+    expect(t).toMatchObject({ state: 'current', usd: 34239.67 });
     expect(t.state !== 'unread' && t.chains.map((c) => c.chain)).toEqual(['solana', 'ethereum', 'base', 'robinhood']);
+    expect(t.state !== 'unread' && t.staking).toEqual(staking());
+  });
+
+  it('reads an answer from before staking was counted as partial, its staking unread', () => {
+    const t = parseVenueTvl(tvl({ staking: undefined }));
+    expect(t).toMatchObject({ state: 'partial', usd: 34239.67 });
+    expect(t.state !== 'unread' && t.staking).toEqual([
+      { chain: 'solana', read: false },
+      { chain: 'ethereum', read: false },
+      { chain: 'base', read: false },
+    ]);
   });
 
   it('reads "current" with a chain missing or a pool left out as partial, never whole', () => {
@@ -50,6 +66,12 @@ describe('parseVenueTvl', () => {
     const left = chains();
     left[0].unvalued = 1;
     expect(parseVenueTvl(tvl({ chains: left })).state).toBe('partial');
+    const unstaked = staking();
+    unstaked[1] = { chain: 'ethereum', read: false } as never;
+    expect(parseVenueTvl(tvl({ staking: unstaked })).state).toBe('partial');
+    const unpriced = staking();
+    unpriced[0].unvalued = 1;
+    expect(parseVenueTvl(tvl({ staking: unpriced })).state).toBe('partial');
   });
 
   it('reads anything it cannot trust as unread, never as a number', () => {
@@ -57,7 +79,24 @@ describe('parseVenueTvl', () => {
     const swapped = [chains()[1], chains()[0], ...chains().slice(2)];
     const bad = chains();
     bad[1].usd = -5;
-    for (const body of [null, 'html', { state: 'unread' }, tvl({ usd: null }), tvl({ usd: -1 }), tvl({ readAt: 'x' }), tvl({ chains: short }), tvl({ chains: swapped }), tvl({ chains: bad })]) {
+    const badStake = staking();
+    badStake[0].vaults = 1.5;
+    const stakeSwapped = [staking()[1], staking()[0], staking()[2]];
+    for (const body of [
+      null,
+      'html',
+      { state: 'unread' },
+      tvl({ usd: null }),
+      tvl({ usd: -1 }),
+      tvl({ readAt: 'x' }),
+      tvl({ chains: short }),
+      tvl({ chains: swapped }),
+      tvl({ chains: bad }),
+      tvl({ staking: staking().slice(1) }),
+      tvl({ staking: stakeSwapped }),
+      tvl({ staking: badStake }),
+      tvl({ staking: null }),
+    ]) {
       expect(parseVenueTvl(body)).toEqual({ state: 'unread' });
     }
   });
@@ -78,15 +117,18 @@ describe('<VenueStats />', () => {
     return f;
   };
 
-  it('shows the TVL, live, and the all-time volume, with each chain in the small print', async () => {
+  it('shows the TVL, live, and the all-time volume, with each chain in the small print, pools and staking apart', async () => {
     vi.useFakeTimers({ now: NOW, toFake: ['Date'] });
     serve({ tvl: [tvl(), 200], volume: [volume(), 200] });
     render(<VenueStats />);
-    expect(await screen.findByText('$11,735')).toBeTruthy();
+    expect(await screen.findByText('$34,240')).toBeTruthy();
     expect(await screen.findByText('$2,481')).toBeTruthy();
-    expect(screen.getByTestId('venue-tvl').textContent).toBe('TVL $11,735');
+    expect(screen.getByTestId('venue-tvl').textContent).toBe('TVL $34,240');
     expect(screen.getByTestId('venue-tvl').querySelector('.rounded-full')).toBeTruthy();
-    expect(screen.getByTestId('venue-tvl-chains').textContent).toBe('Solana $11,060 · Ethereum $442 · Base $233 · Robinhood $0');
+    expect(screen.getByTestId('venue-tvl-chains').textContent).toBe('Pools: Solana $11,060 · Ethereum $442 · Base $233 · Robinhood $0');
+    expect(screen.getByTestId('venue-tvl-staking').textContent).toBe('Staked: Solana $22,440 · Ethereum $65 · Base $0');
+    expect(screen.getByText(/plus what is staked in our staking pools/)).toBeTruthy();
+    expect(screen.queryByText(/staked coin with no market price/)).toBeNull();
     expect(screen.getByText(/Last counted /)).toBeTruthy();
     expect(screen.getByText(/our pools on Ethereum, Base and Robinhood\./)).toBeTruthy();
     expect(screen.queryByText(/not up to date/)).toBeNull();
@@ -100,6 +142,17 @@ describe('<VenueStats />', () => {
     expect(await screen.findByText(/TVL at least/)).toBeTruthy();
     expect(screen.getByTestId('venue-tvl').querySelector('.rounded-full')).toBeNull();
     expect(screen.getByTestId('venue-tvl-chains').textContent).toContain('Base could not be read just now');
+  });
+
+  it('names a chain whose staking could not be read, and says when a staked coin had no price', async () => {
+    const stakes = staking();
+    stakes[2] = { chain: 'base', read: false } as never;
+    stakes[0].unvalued = 1;
+    serve({ tvl: [tvl({ state: 'partial', staking: stakes }), 200], volume: [volume(), 200] });
+    render(<VenueStats />);
+    expect(await screen.findByText(/TVL at least/)).toBeTruthy();
+    expect(screen.getByTestId('venue-tvl-staking').textContent).toBe('Staked: Solana $22,440 · Ethereum $65 · Base could not be read just now');
+    expect(screen.getByText('A staked coin with no market price just now is left out.')).toBeTruthy();
   });
 
   it('says a late volume count is not up to date', async () => {
@@ -122,7 +175,7 @@ describe('<VenueStats />', () => {
     const f = serve(answers);
     render(<VenueStats />);
     await act(async () => {});
-    expect(screen.getByTestId('venue-tvl').textContent).toBe('TVL $11,735');
+    expect(screen.getByTestId('venue-tvl').textContent).toBe('TVL $34,240');
     const tvlCalls = () => f.mock.calls.filter(([u]) => u === VENUE_TVL_URL).length;
     expect(tvlCalls()).toBe(1);
 
@@ -130,9 +183,9 @@ describe('<VenueStats />', () => {
     for (let i = 0; i < 3; i++) await act(async () => vi.advanceTimersByTime(POLL_MS));
     expect(tvlCalls()).toBe(4);
     // Three minutes of failed reads: the figure stays, says when it was read, and is no longer live.
-    expect(screen.getByTestId('venue-tvl').textContent).toBe('TVL $11,735');
+    expect(screen.getByTestId('venue-tvl').textContent).toBe('TVL $34,240');
     await act(async () => vi.advanceTimersByTime(POLL_MS));
-    expect(screen.getByTestId('venue-tvl').textContent).toMatch(/^TVL \$11,735 as of /);
+    expect(screen.getByTestId('venue-tvl').textContent).toMatch(/^TVL \$34,240 as of /);
     expect(screen.getByTestId('venue-tvl').querySelector('.rounded-full')).toBeNull();
 
     // Out of view, nothing is asked.
@@ -143,6 +196,6 @@ describe('<VenueStats />', () => {
     answers.tvl = [tvl(), 200];
     await act(async () => document.dispatchEvent(new Event('visibilitychange')));
     expect(tvlCalls()).toBe(6);
-    expect(screen.getByTestId('venue-tvl').textContent).toBe('TVL $11,735');
+    expect(screen.getByTestId('venue-tvl').textContent).toBe('TVL $34,240');
   });
 });

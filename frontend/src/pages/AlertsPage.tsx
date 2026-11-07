@@ -80,7 +80,7 @@ export default function AlertsPage() {
               evaluates a rule when the tab is closed, and no panel here claims otherwise.
             </li>
             <li>
-              A rule whose source is unreadable on this deployment says “cannot evaluate” — the builder discloses that
+              A rule whose source is unreadable on this deployment says “Could not evaluate” — the builder discloses that
               at the moment you pick the rule type, rather than letting it surface later as silence.
             </li>
             <li>

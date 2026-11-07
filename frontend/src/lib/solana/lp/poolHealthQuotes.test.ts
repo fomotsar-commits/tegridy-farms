@@ -150,20 +150,17 @@ describe('assessPool: a pool paired with USDC or BAYLA', () => {
     expect(h.deposits.warnings).toEqual(['Its price is 99.5% below the outside price. If you add now, whoever trades it back takes up to about 85.9% of what you add (about $85.93 per $100).']);
   });
 
-  // UNREAD IS STILL REFUSED. A coin price that was not asked for, or whose read FAILED, is
-  // not an answer. The mutation "treat every coin that is not ok as no-route" fails here.
+  // UNREAD IS NOT AN ANSWER. A coin price that was not asked for, or whose read FAILED, is
+  // the outside price not read: one row, never "no market" and never a warning. The mutation
+  // "treat every coin that is not ok as no-route" fails here. Never a gate (answer twenty-seven).
   it.each([
     ['not read at all', undefined],
     ['null', null],
     ['a failed read', DOWN],
-  ] as const)('the coin’s price %s, with a token price to compare: unchecked, never allowed and never a warning', (_n, coinOutside) => {
+  ] as const)('the coin’s price %s, with a token price to compare: one row, never a gate and never a warning', (_n, coinOutside) => {
     const h = assessPool({ ...base, view: usdcPool(), outside: ok(FAIR), coinOutside });
-    expect(h.price.state).toBe('unread');
-    expect(h.deposits.verdict).toBe('unchecked');
-    expect(h.deposits.reasons.join(' ')).toMatch(/the price of USDC/);
-    // What the card says of this pool never says "this token" of the coin.
-    expect(h.deposits.reasons.join(' ')).not.toMatch(/this token/);
-    expect(h.deposits.warnings).toEqual([]);
+    expect(h.price).toMatchObject({ state: 'unread', detail: 'Outside price not read yet', outside: true });
+    expect(h.deposits).toEqual({ verdict: 'allowed', reasons: [], warnings: [] });
   });
 
   // Owner ruling 2026-10-07: Jupiter ANSWERING that it has no route for the pool's coin
@@ -202,11 +199,11 @@ describe('assessPool: a pool paired with USDC or BAYLA', () => {
     expect(h.deposits.verdict).toBe('unchecked');
   });
 
-  it('the token’s price unread or not asked for: unchecked, never a warning', () => {
+  it('the token’s price unread or not asked for: one row, never a gate and never a warning', () => {
     for (const outside of [DOWN, null]) {
       const h = assessPool({ ...base, view: usdcPool(), outside, coinOutside: USDC_IN_SOL });
-      expect(h.price.state).toBe('unread');
-      expect(h.deposits.verdict).toBe('unchecked');
+      expect(h.price).toMatchObject({ state: 'unread', outside: true });
+      expect(h.deposits.verdict).toBe('allowed');
       expect(h.deposits.warnings).toEqual([]);
     }
   });

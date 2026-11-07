@@ -1,4 +1,5 @@
 import type { SignerWalletAdapter } from '@solana/wallet-adapter-base';
+import type { PublicKey, TransactionInstruction } from '@solana/web3.js';
 import { solanaRpcEndpoint } from './solana';
 import { confirmedSlotOf, slotOrNull } from './ladder/writeFence';
 import { readSendThrow } from './solana/walletThrow';
@@ -1416,8 +1417,46 @@ export async function claimRewards(args: {
     );
     return { ok: true, txId: String(res?.txId ?? '') };
   } catch (err) {
-    return writeFailure(err, 'The claim did not go through. Your rewards are untouched.', wallet.signed());
+    return writeFailure(err, CLAIM_FAILED, wallet.signed());
   }
+}
+
+const CLAIM_FAILED = 'The claim did not go through. Your rewards are untouched.';
+
+/**
+ * The instructions `claimRewards` sends, from the SDK's own prepare path, unsent: for
+ * Harvest, which signs several claims on one wallet prompt (lib/harvest/solana.ts).
+ */
+export async function claimRewardsInstructions(args: {
+  claimant: PublicKey;
+  pool: PoolView;
+  rewardPool: RewardPoolView;
+  entryNonce: number;
+}): Promise<Result<{ ixs: TransactionInstruction[] }> | Failure> {
+  try {
+    const client = await makeClient();
+    const { ixs } = await client.prepareClaimRewardsInstructions(
+      {
+        stakePool: args.pool.address as any,
+        stakePoolMint: args.pool.mint as any,
+        rewardPoolNonce: args.rewardPool.nonce,
+        depositNonce: args.entryNonce,
+        rewardMint: args.rewardPool.mint as any,
+        rewardPoolType: args.rewardPool.kind,
+        tokenProgramId: args.pool.tokenProgram as any,
+      },
+      // Building reads only the claimant's key (the SDK's prepareClaimRewardsInstructions).
+      { invoker: { publicKey: args.claimant } as any },
+    );
+    return { ok: true, ixs };
+  } catch (err) {
+    return { ok: false, reason: `${CLAIM_FAILED} (${(err instanceof Error ? err.message : String(err ?? '')).slice(0, 140)})` };
+  }
+}
+
+/** A claim its test run refused, said as `claimRewards` says the same refusal (6012, 6000, 6013). */
+export function claimRefusal(logs: readonly string[]): string {
+  return writeFailure(Object.assign(new Error('its test run refused it'), { logs: [...logs] }), CLAIM_FAILED).reason;
 }
 
 /**

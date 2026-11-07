@@ -15,6 +15,187 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-11-04: a pre-approved undo is one press from running, and a read-back only guards the page it is on
+
+**Wrong belief:** an upgrade's roll-back can sit approved beside the upgrade "just in case", as long as
+the signing page labels it "execute ONLY IF TOLD TO" and someone reads the proposal number back before
+each press.
+
+**Measured:** it was executed by mistake twice. Multisig `EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK`:
+#16 on 2026-10-24 17:03:00 UTC (member B on our page, meant the step next to it) and #24 on 2026-11-04
+02:52:41 UTC (member A in the Squads web app, with no page running and no read-back). Both put the
+pool program back on `88b98aa9` and reopened the free launch-tier opening. The Squads app lists both
+as "Program Upgrade" with the same program and shows no proposal number on the card. Before the second
+press, a `vault_transaction_execute` simulated with `sigVerify: false` showed both proposals would
+succeed: the first failure the owner saw was the wallet pop-up being closed, not a chain refusal.
+
+**Do instead:** never leave anything approved that must not run. One proposal per change; if a build
+breaks, upload the old build then and propose the undo (it waits the 48 h lock like the rest). End
+every signing sitting by listing the vault's approved, unexecuted proposals and cancelling anything
+not meant to run before proposing anything new. Also: a config proposal (the Squads app's rent
+collector setting) makes every proposal not yet approved by both members stale when it executes, so
+get both approvals on new proposals first.
+
+---
+
+## 2026-11-03: a rebuild printed the old program's hash for different source: a copied `target/` trusts file times, and `git archive` dates every file to its commit
+
+**Believed:** building a second checkout of a program inside a copy of another build's `target/`
+reuses only the dependencies; the program's own crate is compiled again from the source in front
+of it, so a different source gives a different hash.
+
+**Measured** (2026-11-03, the range-pool audit round, WSL, `cargo build-sbf -- --locked` with
+Solana 3.1.11 tools): two checkouts of `solana/tegridy-clmm`, each unpacked from `git archive`
+(PR #1113's head, then `origin/mvp-launch`), each built in a copy of an earlier build's `target/`.
+The second one compiled nothing of `raydium-clmm` and printed the first one's sha256, `c0432972`,
+for source that differs in `util/token.rs`. After `find programs vendor Cargo.toml Cargo.lock
+-type f -exec touch {} +` it printed "Compiling raydium-clmm" and `1e896e1e`, the hash the local
+suite had tested on 2026-10-25 for that source. Cargo calls a crate up to date when no source file
+is newer than its last build, and `git archive` stamps every file with its commit's time, which is
+older than the copied build. Touch the sources, or build in a fresh `target/`, and check that two
+sources that differ give two hashes before trusting either.
+
+**Also measured, the same round:**
+
+- Git Bash rewrites a Linux path in an environment variable handed to a Windows program:
+  `CLMM_LEDGER=/root/clmm-r2/ledger-main node validator.mjs` reached WSL as
+  `C:/Program Files/Git/root/...` ("bash: line 1: C:/Program: No such file or directory").
+  PowerShell's `$env:CLMM_LEDGER = '/root/...'` passes it as written. This is the environment
+  half of the 2026-10-30 `mklink /J` trap.
+- Anchor 1.0.2's `anchor_lang::solana_program` re-exports no `hash` module (solana-program 3.0
+  has one), so a host test cannot compute an instruction's 8-byte name with it. A live
+  instruction's name is `instruction::<Name>::DISCRIMINATOR`; a deleted one's bytes come from
+  outside, and the red run on the code that still has it is what proves them.
+- The program's generated `entry()` runs in a plain `cargo test`. With no accounts, an unknown
+  8-byte name answers `Custom(101)` (InstructionFallbackNotFound) before any account is read; the
+  same name on the build that has the instruction answers `Custom(102)` (InstructionDidNotDeserialize)
+  when it takes arguments and `Custom(3005)` (AccountNotEnoughKeys) when it takes none. That
+  difference is a unit test that an instruction is gone.
+- One blank line added at the top of the range program's `lib.rs` changed its release build's
+  sha256 (`2249d8a6` to `188978e7`, the same 1,443,096 bytes): Anchor 1.0.2's `require!` and
+  `err!` record `file!()` and `line!()`. A comment edit that adds or removes lines is a new build
+  to check against the chain; one that keeps the line count gave the same bytes.
+- Rebuilding into the path a running local-chain sweep loads its program from (`CLMM_SO`) switched
+  builds in the middle of the sweep: each broken input starts a fresh validator from that path, and
+  the restore check (the same hash before and after) would have failed. Copy the build under test
+  to a read-only file named by its hash and point the sweep there.
+- One full suite run against the build before the fix is a better red record than one run per
+  check, but only if a fix check that the old build passes through leaves nothing behind. The
+  opener's reward on the old range build would have filled a reward slot two later checks use, so
+  the try runs on a pool opened only for it. Run that way, round 1's build failed exactly the ten fix
+  checks of 109 and nothing else.
+
+---
+
+## 2026-11-02: a one-time operator tool names an owner that config has since moved, and it would have run clean while pointing at the wrong wallet
+
+**Believed:** `frontend/create-fee-atas.mjs`, the tool that creates the fee wallet's token accounts,
+names the wallet the site pays into: its header says it uses "the SAME libraries + derivation the
+app uses", and it had created the two accounts that existed.
+
+**Measured** (2026-11-02, #1105): the tool hardcoded `FEE_OWNER =
+DVGiHe98CzEf7VuCS6YpVDFnp38ubJmKNLt6aMJwAyER`, and `frontend/scripts/addresses.json` (row
+`swap-fee-account`) records that the live bundle's fee owner has been the Squads vault
+`GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd` since before 2026-10-10: the old owner's two
+accounts hold 0 with one transaction each (their creation), and the vault's accounts have taken
+every fee. Adding USDT to the tool as it stood and running it would have made a USDT account for a
+wallet nothing pays into; after the merge every USDT-paid swap would still have failed at Jupiter
+(the fee account does not exist), and the tool's own output would have read success. The corrected
+tool's `--dry-run` derived the vault's wSOL and USDC accounts to the registry's two rows exactly.
+
+**Do:** before running a tool that hardcodes an owner, recipient or authority, check that address
+against the registry and the deployed setting, never against the tool's own comment. Its dry run
+prints the owner, so the operator compares it with `VITE_SOLANA_FEE_ACCOUNT` before signing.
+
+**Believed:** a top-level-await Node script may `process.exit(0)` once it has printed its result.
+**Measured:** with a `@solana/web3.js` `Connection` that had just answered
+`getMultipleAccountsInfo`, `process.exit(0)` on Windows (Node 24.13.0) printed `Assertion failed:
+!(handle->flags & UV_HANDLE_CLOSING), file src\win\async.c, line 76` after the correct output and
+exited 127. Returning from `main()` into `process.exitCode` exited 0 with the same output.
+**Do:** in a script that opened an RPC connection, set `process.exitCode` and return; call
+`process.exit` only before the connection exists.
+
+## 2026-11-01: a claim test that makes its own rewards tests the reward rate, not the claim
+
+**Believed:** opening a fresh position on a fork and moving the clock is the honest way to get
+something to claim, because the contract's own math makes the rewards.
+
+**Measured** (TegridyStaking v1, anvil 1.5.1 fork of mainnet block ~26,321,738, `rewardRate()` 0
+since the wind-down): the fresh 40,000 TOWELI position earned 0 in 120 s, Claim stayed disabled,
+and the leg blamed an exhausted reserve that had just been refilled with exactly what was owed.
+The 22 existing positions were owed 3,579,490.94 TOWELI; claiming four of them through the page
+paid each exactly `earned`, to the wei, and an expectation one wei off failed.
+
+**Do:** when a protocol can stop accruing on purpose, drive the claim as a holder who is already
+owed. Find them on the fork every run (owner of the id, the id the site shows them, owed above
+the CTA's floor), impersonate them, and assert the payout to the wei. Never hardcode the holder:
+real holders claim on mainnet, and a retry must pass over the one an earlier attempt paid.
+
+---
+
+## 2026-11-01: the strongest setting is not for the hardest code
+
+**Believed:** the strongest model setting belongs on the hardest code, and a strong builder at
+the helm ships a strong venue.
+
+**Measured** (the island's walk of trunk `0d1761b` at 390 px, 2026-11-01, and this repo's own
+counts): every piece on the trunk was built well and tested, and the sum was 67 routes
+(`App.tsx`), 37 menu entries (`lib/navConfig.ts`), a 12,766 px pools page under the Add door,
+a Swap that opened on Ethereum for Solana traffic (three `'ethereum'` fallbacks in
+`useSectionChain.ts`, "like uniswap" read literally in `sectionChains.ts`), a cold wallet told
+"Cannot launch a token yet" (`HeatCard.tsx`), and an Add door that said "Adding is off" on
+every pool whenever strangers arrived (the free Jupiter key's one call a second, spent by the
+venue's own pages: 12 quotes from one /pools tab in its first minute, 6 of 12 probes refused
+at 0.7 s spacing). None of those is a bug a test catches. They are what a builder model
+produces when it also decides: it adds and never removes, it reads an owner's words literally,
+and it builds the next three things nobody asked for.
+
+**Do:** law 25 (`docs/WORKSHOP_SETTINGS.md`). The strongest setting decides what is on a
+stranger's first screen, the words, anything with money's shape, the order of shipping, and
+reads the result at 390 before it merges; a builder setting builds a specified thing to a
+line that says done; a lower setting counts, lints and moves docs. Every pull request names
+its setting in the first line of its body. The proof does not change with the setting: a
+screenshot at 390 from a production build.
+
+---
+
+## 2026-11-01: a burst from many browsers is not fixed by caching each browser's read
+
+**Believed:** marking a quote as shareable at the edge (`s-maxage=30`) was enough to keep a
+one-request-a-second key under its limit, because every visitor would then share one read.
+
+**Measured** (2026-11-01, `src/lib/solana/lp/outsidePrice.ts` before build 1): the price
+check's sale leg quoted exactly what the buy returned, so its amount changed with every read
+and its edge key never repeated; and even a shared buy leg burst in parallel, seven pools at
+once, from the first visitor of every window. The island's probe: 6 of 12 calls refused at
+0.7 s spacing, 1 of 10 at 3 s. A per-visitor read cannot pace across visitors.
+
+**Do:** read once for everyone, server-side, paced to the key's plan (`api/outside-prices.js`,
+`JUPITER_RATE_PER_SEC`), with a fixed probe amount (the buy's return rounded to two figures)
+so even the loop's own reads share keys; keep the answer at the edge with a long
+`stale-while-revalidate` and answer a failed loop `no-store`, so a refusal never replaces the
+last good answer. The browser's rule then becomes an age: a price under ten minutes old
+passes, older holds, in one row.
+
+---
+
+## 2026-10-31: a merged pull request reads `mergeable: UNKNOWN`, and REST still calls it clean
+
+**Believed:** `gh pr view N --json mergeable,mergeStateStatus` reading `UNKNOWN` after a push is
+GitHub still computing; and `gh api repos/.../pulls/N` reading
+`mergeable: true, mergeable_state: clean` confirms the pull request can be merged.
+
+**Measured** (#1059, 2026-10-31): the pull request was merged at 18:34:46Z. From 18:34Z to 18:48Z,
+ten GraphQL reads returned `UNKNOWN` for both fields and three REST reads returned `true` and
+`clean`. Neither said merged. The report at 18:46Z called the pull request open and waiting for the
+owner's word; the owner's "merge it" then found nothing to merge. The tell was in a read I had:
+`updatedAt` had jumped to 18:34:49Z.
+
+**Do:** read `state` and `mergedAt` in the same call as `mergeable`, and read them first. An
+`UNKNOWN` that survives one re-read is a reason to look at `state`, not to wait. REST's
+`mergeable_state` is stale on a merged pull request and proves nothing on its own. Before any
+`gh pr merge`, read `state` once more: the merge word can arrive after the merge.
+
 ## 2026-10-30: CSL's script data hash goes stale when coin selection adds inputs, and "square root" in any string is a formula
 
 **Believed:** with CSL 17, `calc_script_data_hash` is called once, after the scripts' redeemers
@@ -31,6 +212,41 @@ final only then); the hash is 32 bytes either way, so the fee holds.
 `src/lib/heat/islandClaims.test.ts` "states no a formula line" reads every string literal in
 shipped source; `throw new Error('square root of a negative number')` in a Cardano maths file
 failed it. **Do:** name the contract function (`calculate_sqrt`) in error strings, never the maths.
+
+## 2026-10-30: one build, two word counts: a ceiling comes from the run where everything landed; a Git Bash `mklink /J` makes no junction
+
+**Believed:** `e2e/word-budget.spec.ts` measures a route once and the figure is the route's.
+**Measured:** three runs of the spec on ONE production build of `/pools` counted 252, 292 and 252
+visible words (desktop and phone alike). The 40 words are the Rates card: on the 292 run its
+two-tier table had landed from the chain before the 600 ms quiet window; on the other two the
+card still said "Reading the rates from the chain…" (6 words). A ceiling set from a 252 run
+(280) failed the very next run. **Do:** when lowering a ceiling, run the spec until the
+`[word-budget]` line shows the fuller figure (the 2026-10-16 entry's longest-blocks print shows
+which cards drew), and set the ceiling from that run: `/pools` got 325 from 292, not 280 from 252.
+
+**Believed:** `cmd /c mklink /J <link> <target>` from Git Bash makes the junction.
+**Measured:** it printed cmd's banner and nothing else, and `ls` of the link found nothing: Git
+Bash had path-converted the `/J` flag. `MSYS_NO_PATHCONV=1 cmd /c mklink /J ...` printed
+"Junction created" at once. **Do:** prefix a `cmd /c` whose flags start with `/` with
+`MSYS_NO_PATHCONV=1` (the general path-conversion rule is further down; this is the flag case).
+
+## 2026-10-30: a web3.js signature fails inside a jsdom test, and a stand-in wallet counted transactions, not prompts
+
+**Believed:** a vitest file can build and sign a real `VersionedTransaction` with a `Keypair`.
+**Measured:** under the default jsdom environment, `tx.sign([keypair])` and the code after it threw
+`Blob.encode[data] requires (length 1) Uint8Array as src` (8 of 32 tests in
+`lib/harvest/solana.test.ts`): jsdom's `Uint8Array` is another realm's, and the layout encoder
+checks `instanceof`. With `// @vitest-environment node` as the file's first line, all 32 passed.
+`islandBasketSol.test.ts` already starts that way. **Do:** any test that signs or serializes a
+real Solana transaction runs in the node environment.
+
+**Believed:** "1 signing request" from a stand-in wallet that refuses proves one prompt.
+**Measured:** a wallet-standard wallet's `signAllTransactions` reaches the wallet as ONE call of
+the `solana:signTransaction` feature, every transaction a separate input. Harvest's walk wallet
+(`harvest-walk.mjs`) recorded per input and threw on the first, so it read 1 for a batch of 3, and
+also 1 for the old one-claim-per-prompt run, whose first refusal stops it: the count could not
+tell the two apart. Recording each call with all its inputs showed `prompts: 1`, carrying 3
+transactions on one blockhash. **Do:** record per call and keep every input, then count both.
 
 ## 2026-10-29: a pushed tag holds a PR's merge, a failed vault execute still reads "Approved", and funding a wallet can turn the registry red
 

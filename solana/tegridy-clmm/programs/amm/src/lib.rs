@@ -11,9 +11,10 @@ use instructions::*;
 use states::*;
 
 // Changed by memetics.finance (tegridy-clmm): raydium-clmm @ ed1eb415 (Apache-2.0) with every
-// address upstream hard-codes for itself replaced by the venue's, plus its name, links and memos.
-// Beside that only the build gates below differ; the guards in solana/guards/ hold that
-// (docs/RANGE_POOLS_PLAN.md).
+// address upstream hard-codes for itself replaced by the venue's, plus its name, links and memos,
+// the build gates below, the venue's fee rules and opening fee, and the fixes of the 2026-11-03
+// audit. docs/RANGE_POOLS_PLAN.md lists each change; the guards in solana/guards/ hold the copy to
+// exactly that patch.
 // No `auditors` line: upstream's audits do not cover this copy.
 #[cfg(not(feature = "no-entrypoint"))]
 solana_security_txt::security_txt! {
@@ -34,9 +35,12 @@ compile_error!("tegridy-clmm: devnet and localnet give every power to a test key
 // `paramset` shortens reward periods for tests: it too builds only with `test-chain-keys`.
 #[cfg(all(feature = "paramset", not(feature = "test-chain-keys")))]
 compile_error!("tegridy-clmm: paramset is for tests; add the test-chain-keys feature to build one, and never deploy that build");
-// A devnet build (every power to a test key) gets an address nobody holds a key for: it runs nowhere.
-#[cfg(feature = "devnet")]
+// A test build gets an address nobody holds a key for, so it runs nowhere: devnet and localnet
+// give every power to a test key, and paramset shortens reward periods. Only a build with none of
+// the three carries the mainnet id; the not(devnet) line stays next to it for the tools that read it.
+#[cfg(any(feature = "devnet", feature = "localnet", feature = "paramset"))]
 declare_id!("RangePoo1DEVNETarmNotDep1oyed11111111111111");
+#[cfg(not(any(feature = "localnet", feature = "paramset")))]
 #[cfg(not(feature = "devnet"))]
 declare_id!("7ghzbbmq59QEbdweSzM1ggpeBH1Q2CyxZg4Tr2x8Aso");
 
@@ -63,6 +67,7 @@ pub mod limit_order_admin {
     pub const ID: Pubkey = pubkey!("GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd");
 }
 
+// memetics.finance: nothing reads this since collect_excess_lamports was deleted (2026-11-03).
 pub mod collect_lamports {
     use super::{pubkey, Pubkey};
     #[cfg(feature = "devnet")]
@@ -160,80 +165,13 @@ pub mod raydium_clmm {
         instructions::update_amm_config(ctx, param, value)
     }
 
-    /// Create dynamic fee config
-    ///
-    /// # Arguments
-    ///
-    /// * `ctx` - The context of accounts
-    /// * `index` - The index of dynamic fee config
-    /// * `filter_period` - The period of filter
-    /// * `decay_period` - The period of decay
-    /// * `reduction_factor` - The reduction factor
-    /// * `adaptive_fee_control_factor` - The adaptive fee control factor
-    /// * `max_volatility_accumulator` - The max volatility accumulator
-    /// * `tick_group_size` - The tick group size
-    pub fn create_dynamic_fee_config(
-        ctx: Context<CreateDynamicFeeConfig>,
-        index: u16,
-        filter_period: u16,
-        decay_period: u16,
-        reduction_factor: u16,
-        dynamic_fee_control: u32,
-        max_volatility_accumulator: u32,
-    ) -> Result<()> {
-        instructions::create_dynamic_fee_config(
-            ctx,
-            index,
-            filter_period,
-            decay_period,
-            reduction_factor,
-            dynamic_fee_control,
-            max_volatility_accumulator,
-        )
-    }
+    // memetics.finance: create_dynamic_fee_config and update_dynamic_fee_config are deleted
+    // (2026-11-03 audit, CR-1/CO-1/CR-7). No pool can carry a dynamic fee: create_pool, the one
+    // instruction left that opens a pool, sets none.
 
-    /// Updates the dynamic fee configuration constants.
-    ///
-    /// This function allows updating the parameters that control dynamic fee calculation,
-    /// such as filter period, decay period, reduction factor, fee control factor, etc.
-    /// Only the admin or the amm config owner can update these settings.
-    ///
-    /// # Arguments
-    ///
-    /// * `ctx` - The context of accounts
-    /// * `filter_period` - Period that determines the high frequency trading time window (in seconds)
-    /// * `decay_period` - Period that determines when the dynamic fee starts to decrease (in seconds)
-    /// * `reduction_factor` - Dynamic fee rate decrement rate, used for volatility reference decay
-    /// * `dynamic_fee_control` - Factor used to scale the dynamic fee component
-    /// * `max_volatility_accumulator` - Maximum value for the volatility accumulator
-    pub fn update_dynamic_fee_config(
-        ctx: Context<UpdateDynamicFeeConfig>,
-        filter_period: u16,
-        decay_period: u16,
-        reduction_factor: u16,
-        dynamic_fee_control: u32,
-        max_volatility_accumulator: u32,
-    ) -> Result<()> {
-        instructions::update_dynamic_fee_config(
-            ctx,
-            filter_period,
-            decay_period,
-            reduction_factor,
-            dynamic_fee_control,
-            max_volatility_accumulator,
-        )
-    }
-
-    /// Create a permission PDA granting `permission_authority` the right to
-    /// call permissioned instructions. Admin-only.
-    pub fn create_permission_pda(ctx: Context<CreatePermissionPda>) -> Result<()> {
-        instructions::create_permission_pda(ctx)
-    }
-
-    /// Close a permission PDA and refund rent to the admin owner. Admin-only.
-    pub fn close_permission_pda(ctx: Context<ClosePermissionPda>) -> Result<()> {
-        instructions::close_permission_pda(ctx)
-    }
+    // memetics.finance: create_permission_pda and close_permission_pda are deleted with
+    // create_permissioned_pool, the one instruction that read a permission (the owner's ruling,
+    // 2026-11-03).
 
     /// Close a support-mint-associated PDA and refund rent. Admin-only.
     pub fn close_support_mint_associated(ctx: Context<CloseSupportMintAssociated>) -> Result<()> {
@@ -255,36 +193,10 @@ pub mod raydium_clmm {
         instructions::create_pool(ctx, sqrt_price_x64, open_time)
     }
 
-    /// Creates a pool for the given token pair with customizable parameters
-    ///
-    /// # Arguments
-    ///
-    /// * `ctx` - The context of accounts
-    /// * `customizable_params` - the customizable parameters
-    ///
-    pub fn create_customizable_pool<'info>(
-        ctx: Context<'info, CreateCustomizablePool<'info>>,
-        customizable_params: CreateCustomizableParams,
-    ) -> Result<()> {
-        instructions::create_customizable_pool(ctx, customizable_params)
-    }
-
-    /// Creates a pool for the given token pair with a client-supplied u16 seed
-    /// index, allowing multiple pools per pair. Caller must hold a permission PDA.
-    ///
-    /// # Arguments
-    ///
-    /// * `ctx` - The context of accounts
-    /// * `customizable_params` - the customizable parameters
-    /// * `seed_index` - non-zero u16 folded into the pool PDA seeds
-    ///
-    pub fn create_permissioned_pool(
-        ctx: Context<CreatePermissionedPool>,
-        customizable_params: CreateCustomizableParams,
-        seed_index: u16,
-    ) -> Result<()> {
-        instructions::create_permissioned_pool(ctx, customizable_params, seed_index)
-    }
+    // memetics.finance: create_customizable_pool is deleted (2026-11-03 audit, CL-03/DG-02). It let
+    // whoever opened a pair first fix that pool's fee coin and dynamic fee for good; create_pool
+    // opens the same pool with the defaults. create_permissioned_pool, which opened more pools per
+    // pair for a holder of the vault's permission, is deleted too (the owner's ruling, 2026-11-03).
 
     /// Update pool status for given value
     ///
@@ -808,10 +720,84 @@ pub mod raydium_clmm {
         instructions::close_limit_order(ctx)
     }
 
-    /// Collect excess lamports, including accounts for SPL tokens owned by authority and Program PDA accounts.
-    pub fn collect_excess_lamports<'info>(
-        ctx: Context<'info, CollectExcessLamports<'info>>,
-    ) -> Result<()> {
-        instructions::collect_excess_lamports(ctx)
+    // memetics.finance: collect_excess_lamports is deleted (2026-11-03 audit, CD-2). It let the
+    // vault trim the refundable rent deposits on users' positions and orders.
+}
+
+// memetics.finance: CD-1 of the 2026-11-03 audit. solana-ci.yml runs this under devnet, localnet
+// and paramset as well as under no feature.
+#[cfg(test)]
+mod program_id_test {
+    use super::*;
+
+    #[test]
+    fn only_a_release_build_carries_the_mainnet_id() {
+        let test_build = cfg!(any(feature = "devnet", feature = "localnet", feature = "paramset"));
+        assert_eq!(ID.to_string() == "7ghzbbmq59QEbdweSzM1ggpeBH1Q2CyxZg4Tr2x8Aso", !test_build);
+    }
+}
+
+// memetics.finance: the instructions deleted on 2026-11-03 are answered as unknown, before any
+// account is read. Each name is sha256("global:<name>")[..8], Anchor's own; the build before the
+// deletion found all four.
+#[cfg(test)]
+mod deleted_instructions_test {
+    use super::*;
+    use anchor_lang::solana_program::{entrypoint::ProgramResult, program_error::ProgramError};
+
+    /// What the program answers an instruction's 8-byte name, sent with no accounts and no data.
+    fn answer(name: &[u8]) -> ProgramResult {
+        entry(Box::leak(Box::new(ID)), &[], Box::leak(name.to_vec().into_boxed_slice()))
+    }
+
+    fn unknown() -> ProgramResult {
+        Err(ProgramError::Custom(
+            anchor_lang::error::ErrorCode::InstructionFallbackNotFound as u32,
+        ))
+    }
+
+    // The control: an instruction the program has is found, and fails later, on its arguments.
+    #[test]
+    fn an_instruction_the_program_has_is_found() {
+        assert_ne!(answer(instruction::CreatePool::DISCRIMINATOR), unknown());
+    }
+
+    // CL-03 / DG-02.
+    #[test]
+    fn create_customizable_pool_is_gone() {
+        assert_eq!(answer(&[43, 68, 212, 167, 89, 47, 164, 1]), unknown());
+    }
+
+    // CR-1 / CO-1 / CR-7.
+    #[test]
+    fn create_dynamic_fee_config_is_gone() {
+        assert_eq!(answer(&[189, 14, 181, 120, 85, 118, 227, 62]), unknown());
+    }
+
+    #[test]
+    fn update_dynamic_fee_config_is_gone() {
+        assert_eq!(answer(&[7, 7, 80, 8, 2, 199, 132, 240]), unknown());
+    }
+
+    // CD-2.
+    #[test]
+    fn collect_excess_lamports_is_gone() {
+        assert_eq!(answer(&[28, 189, 19, 40, 164, 176, 118, 17]), unknown());
+    }
+
+    // The owner's ruling: permissioned pools, and the permission accounts only they read.
+    #[test]
+    fn create_permissioned_pool_is_gone() {
+        assert_eq!(answer(&[36, 243, 179, 35, 42, 239, 53, 229]), unknown());
+    }
+
+    #[test]
+    fn create_permission_pda_is_gone() {
+        assert_eq!(answer(&[135, 136, 2, 216, 137, 169, 181, 202]), unknown());
+    }
+
+    #[test]
+    fn close_permission_pda_is_gone() {
+        assert_eq!(answer(&[156, 84, 32, 118, 69, 135, 70, 123]), unknown());
     }
 }

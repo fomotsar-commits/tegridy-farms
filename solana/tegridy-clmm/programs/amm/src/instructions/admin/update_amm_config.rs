@@ -36,6 +36,10 @@ pub fn update_amm_config(ctx: Context<UpdateAmmConfig>, param: u8, value: u32) -
                 .next()
                 .ok_or(ErrorCode::AccountLack)?
                 .key;
+            // memetics.finance: a tier's island share is handed over once, while the vault still
+            // holds it, and never moved again; only a program upgrade can (the owner's ruling,
+            // 2026-11-03). Swap pools hold the same rule.
+            require_keys_eq!(amm_config.fund_owner, crate::admin::ID, ErrorCode::NotApproved);
             set_new_fund_owner(amm_config, new_fund_owner);
         }
         _ => return err!(ErrorCode::InvalidUpdateConfigFlag),

@@ -128,9 +128,10 @@ pub fn initialize_reward(
     )?;
 
     let operation_state = ctx.accounts.operation_state.load()?;
+    // memetics.finance: a pool's opener starts no reward (2026-11-03 audit, CL-03/CR-4, the
+    // owner's ruling), as in Orca's pools: only the vault or an operation owner it named does.
     require!(
         ctx.accounts.reward_funder.key() == crate::admin::ID
-            || ctx.accounts.reward_funder.key() == ctx.accounts.pool_state.load()?.owner
             || operation_state.validate_operation_owner(ctx.accounts.reward_funder.key()),
         ErrorCode::NotApproved
     );

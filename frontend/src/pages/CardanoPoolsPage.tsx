@@ -10,7 +10,8 @@ import { CardanoWalletModal } from '../components/cardano/CardanoWalletModal';
 import { loadCsl, type Csl } from '../lib/cardano/csl';
 import { ADA, feePercentText, lpAsset, type CardanoAsset, type PoolState } from '../lib/cardano/minswapV2';
 import { readTokenInfo, type Read, type TokenInfo } from '../lib/cardano/chain';
-import { cardanoscanToken, cardanoscanTx, formatAda, formatAmount, LOVELACE_DECIMALS, parseAmount, parseTokenId } from '../lib/cardano/format';
+import { cardanoscanToken, cardanoscanTx, formatAda, formatAmount, LOVELACE_DECIMALS, parseAmount } from '../lib/cardano/format';
+import { parseCoinInput } from '../lib/cardano/coinInput';
 import { parseWalletUtxos } from '../lib/cardano/orderTx';
 import type { CoinLabel } from '../lib/cardano/orderWatch';
 import { restoreCardanoWallet, subscribeCardanoWalletList, takeCardanoWalletListRequest, useCardanoWallet } from '../lib/cardano/walletStore';
@@ -96,9 +97,16 @@ function PoolRates({ pool }: { pool: PoolState }) {
   return <Line label="This pool’s fee" value={fee} note={pool.allowDynamicFee ? `${note}; its batcher may add a fee to each trade` : note} />;
 }
 
+/** The coin as its whole id (coinInput.ts); a bare policy id is that policy's coin with no name. */
+function parseCoinId(text: string): { policyId: string; assetName: string } | null {
+  const c = parseCoinInput(text);
+  if (c?.kind === 'coin') return { policyId: c.policyId, assetName: c.assetName };
+  return c?.kind === 'policy' && c.name === undefined ? { policyId: c.policyId, assetName: '' } : null;
+}
+
 /** The coin a form is about: typed as its id, read for its ticker and decimals. */
 function useCoin(text: string) {
-  const token = useMemo(() => parseTokenId(text), [text]);
+  const token = useMemo(() => parseCoinId(text), [text]);
   const key = token ? token.policyId + token.assetName : null;
   const [read, setRead] = useState<{ key: string; value: Read<TokenInfo | null> } | null>(null);
   useEffect(() => {

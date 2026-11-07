@@ -2,7 +2,7 @@
 // run stops. The stops are the Buy-all order's (IslandBasketEvm): a cancel, and a sent
 // claim whose outcome is unknown. One pool's failure never blocks the next pool.
 import { describe, it, expect, vi } from 'vitest';
-import { runHarvest, runSummary, type SwitchResult } from './run';
+import { promptCount, runHarvest, runSummary, type SendTogether, type SwitchResult } from './run';
 import { orderClaims, type ClaimResult, type ClaimState, type HarvestChain, type HarvestClaim } from './types';
 
 const claim = (key: string, chain: HarvestChain, caution: string | null = null): HarvestClaim => ({
@@ -94,6 +94,119 @@ describe('runHarvest', () => {
     await runHarvest([claim('s1', 'solana'), claim('s2', 'solana')], null, h.deps);
     expect(h.states.get('s1')).toMatchObject({ kind: 'unconfirmed', stop: true });
     expect(h.states.get('s2')).toEqual({ kind: 'not-sent' });
+  });
+});
+
+/** A chain whose wallet signs its claims together: records each batch, and answers each claim from `answers`. */
+function together(answers: Record<string, ClaimResult> = {}, how: 'done' | 'one-by-one' = 'done') {
+  const batches: string[][] = [];
+  const batch: SendTogether<HarvestClaim> = async (cs, settle) => {
+    batches.push(cs.map((c) => c.key));
+    if (how === 'done') for (const c of cs) settle(c.key, answers[c.key] ?? { kind: 'claimed', tx: `tx-${c.key}` });
+    return how;
+  };
+  return { batches, batch };
+}
+
+describe('runHarvest, a chain on one prompt', () => {
+  it('each chain whose wallet signs them together is one batch; the rest go one by one', async () => {
+    const h = harness();
+    const t = together();
+    const out = await runHarvest(
+      [claim('s1', 'solana'), claim('s2', 'solana', 'may not pay'), claim('e1', 'ethereum'), claim('e2', 'ethereum'), claim('b1', 'base'), claim('b2', 'base')],
+      'ethereum',
+      { ...h.deps, together: (ch) => (ch === 'base' ? null : t.batch) },
+    );
+    expect(t.batches).toEqual([['s1', 's2'], ['e1', 'e2']]);
+    expect(h.sent).toEqual(['b1', 'b2']);
+    expect(h.switched).toEqual(['base']);
+    expect(out.every((s) => s.kind === 'claimed')).toBe(true);
+  });
+
+  it('one claim on a chain is its own prompt, never a batch of one', async () => {
+    const h = harness();
+    const t = together();
+    await runHarvest([claim('s1', 'solana'), claim('e1', 'ethereum')], 'ethereum', { ...h.deps, together: () => t.batch });
+    expect(t.batches).toEqual([]);
+    expect(h.sent).toEqual(['s1', 'e1']);
+  });
+
+  it('a cancel of the batch stops the run: no later chain is asked', async () => {
+    const h = harness();
+    const t = together({ s1: { kind: 'declined' }, s2: { kind: 'declined' } });
+    await runHarvest([claim('s1', 'solana'), claim('s2', 'solana'), claim('e1', 'ethereum')], 'ethereum', { ...h.deps, together: (ch) => (ch === 'solana' ? t.batch : null) });
+    expect(h.sent).toEqual([]);
+    expect(h.states.get('s1')).toEqual({ kind: 'declined' });
+    expect(h.states.get('e1')).toEqual({ kind: 'not-sent' });
+  });
+
+  it('a claim in the batch whose outcome is unknown stops the run after that chain', async () => {
+    const h = harness();
+    const t = together({ s2: { kind: 'unconfirmed', reason: 'may still land', tx: 'S2', stop: true } });
+    await runHarvest([claim('s1', 'solana'), claim('s2', 'solana'), claim('e1', 'ethereum')], 'ethereum', { ...h.deps, together: (ch) => (ch === 'solana' ? t.batch : null) });
+    expect(h.states.get('s1')).toEqual({ kind: 'claimed', tx: 'tx-s1' });
+    expect(h.sent).toEqual([]);
+    expect(h.states.get('e1')).toEqual({ kind: 'not-sent' });
+  });
+
+  it('one claim refused in the batch belongs to its pool alone: the run goes on', async () => {
+    const h = harness();
+    const t = together({ s1: { kind: 'unconfirmed', reason: 'test run refused it' } });
+    const out = await runHarvest([claim('s1', 'solana'), claim('s2', 'solana'), claim('e1', 'ethereum')], 'ethereum', { ...h.deps, together: (ch) => (ch === 'solana' ? t.batch : null) });
+    expect(out.map((s) => s.kind)).toEqual(['unconfirmed', 'claimed', 'claimed']);
+    expect(h.sent).toEqual(['e1']);
+  });
+
+  it('a wallet that would not take the batch: each claim then goes on its own prompt', async () => {
+    const h = harness();
+    const t = together({}, 'one-by-one');
+    const out = await runHarvest([claim('e1', 'ethereum'), claim('e2', 'ethereum')], 'ethereum', { ...h.deps, together: () => t.batch });
+    expect(t.batches).toEqual([['e1', 'e2']]);
+    expect(h.sent).toEqual(['e1', 'e2']);
+    expect(out.every((s) => s.kind === 'claimed')).toBe(true);
+  });
+
+  it('a claim the batch never answered for, or a batch that throws, is unknown and stops the run', async () => {
+    const h = harness();
+    const silent: SendTogether<HarvestClaim> = async (cs, settle) => {
+      settle(cs[0]!.key, { kind: 'claimed', tx: 'A' });
+      return 'done';
+    };
+    await runHarvest([claim('s1', 'solana'), claim('s2', 'solana'), claim('e1', 'ethereum')], 'ethereum', { ...h.deps, together: (ch) => (ch === 'solana' ? silent : null) });
+    expect(h.states.get('s2')).toMatchObject({ kind: 'unconfirmed', stop: true });
+    expect(h.states.get('e1')).toEqual({ kind: 'not-sent' });
+
+    const h2 = harness();
+    const throws: SendTogether<HarvestClaim> = async () => {
+      throw new Error('boom');
+    };
+    await runHarvest([claim('s1', 'solana'), claim('s2', 'solana')], null, { ...h2.deps, together: () => throws });
+    expect(h2.states.get('s1')).toMatchObject({ kind: 'unconfirmed', stop: true });
+    expect(h2.states.get('s2')).toMatchObject({ kind: 'unconfirmed', stop: true });
+    expect(h2.sent).toEqual([]);
+  });
+
+  it('an answer for a claim outside the batch, or a second answer, is ignored', async () => {
+    const h = harness();
+    const noisy: SendTogether<HarvestClaim> = async (cs, settle) => {
+      settle('e1', { kind: 'declined' });
+      for (const c of cs) settle(c.key, { kind: 'claimed', tx: c.key });
+      settle(cs[0]!.key, { kind: 'declined' });
+      return 'done';
+    };
+    const out = await runHarvest([claim('s1', 'solana'), claim('s2', 'solana'), claim('e1', 'ethereum')], 'ethereum', { ...h.deps, together: (ch) => (ch === 'solana' ? noisy : null) });
+    expect(out.map((s) => s.kind)).toEqual(['claimed', 'claimed', 'claimed']);
+    expect(h.sent).toEqual(['e1']);
+  });
+});
+
+describe('promptCount', () => {
+  const cs = [claim('s1', 'solana'), claim('s2', 'solana'), claim('e1', 'ethereum'), claim('e2', 'ethereum'), claim('b1', 'base')];
+  it('one per chain signed together, one per claim elsewhere, one per network switch', () => {
+    expect(promptCount(cs, 'ethereum', () => true)).toBe(1 + 1 + (1 + 1));
+    expect(promptCount(cs, 'ethereum', () => false)).toBe(2 + 2 + (1 + 1));
+    expect(promptCount(cs, null, (ch) => ch === 'solana')).toBe(1 + (2 + 1) + (1 + 1));
+    expect(promptCount([claim('s1', 'solana'), claim('s2', 'solana')], null, () => true)).toBe(1);
   });
 });
 

@@ -133,6 +133,15 @@ export function solanaWasConnectedHere(): boolean {
   return safeGetItem(RESTORE_KEY) === '1';
 }
 
+/** The wallet adapter's own key (WalletProvider `localStorageKey`): set while a Solana wallet is chosen. */
+const SAVED_WALLET_KEY = 'walletName';
+
+/** A Solana wallet connected here and still chosen: the one a later visit restores (TopBarSolana.tsx). */
+export function solanaToRestore(): boolean {
+  const saved = safeGetItem(SAVED_WALLET_KEY);
+  return solanaWasConnectedHere() && Boolean(saved) && saved !== 'null';
+}
+
 /**
  * How long a Solana connect may run before the page stops waiting on it: the
  * card names the wallet, and a held top-bar tap or the wallet sheet opens the

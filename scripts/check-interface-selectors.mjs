@@ -119,12 +119,6 @@ const FRONTEND_ABI_TARGET_OVERRIDES = {
   // belongs here; the export name carries the island vocabulary, not the
   // contract's.
   LIGHTHOUSE_STAKING_ABI: 'StakingRewards',
-  // Same shape — the airdrop surface landed with the prefix dropped, so
-  // `normalize(stem)` finds no candidate and the guard fails the whole job. It IS
-  // an in-repo contract (contracts/src/TegridyAirdropDistributor.sol), so it
-  // belongs here and NOT in EXTERNAL_FRONTEND_ABIS — that list is for ABIs we do
-  // not build, and the guard rejects an entry there that has an in-repo `*_ADDRESS`.
-  AIRDROP_DISTRIBUTOR_ABI: 'TegridyAirdropDistributor',
 };
 
 // Frontend ABIs whose contract left the repo (the dead-EVM-contract removal of

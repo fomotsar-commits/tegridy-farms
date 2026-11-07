@@ -213,7 +213,7 @@ export function plannedVenueMigrator(): {
     // WAVE SEVEN, element F: the venue's PROSE is swept; the contract's NAME is
     // not. `TegridyV4Hook` is what the artifact is called on chain, and renaming
     // it in copy would misname a real thing an operator has to go and find.
-    venue: `a hooked canonical Uniswap V4 pool (${VENUE_HOOK_NAME} — the venue's fee economics on Uniswap liquidity)`,
+    venue: `a hooked canonical Uniswap V4 pool (${VENUE_HOOK_NAME}, the venue's fee economics on Uniswap liquidity)`,
     preconditions: [
       'Deploy the venue graduation migrator and verify it on Etherscan.',
       'Whetstone whitelists it on the Airlock: setModuleState(migrator, 4). Airlock.create rejects a non-whitelisted module, so launches fail at CREATE time without this.',
@@ -284,7 +284,7 @@ export function resolveEvmGraduationVenue(opts: EvmVenueOpts = {}): GraduationVe
 
   const disclosure = planned.configured
     ? `Launches graduate through the venue migrator at ${planned.address}. Liquidity lands in a pool this protocol operates.`
-    : `Launches currently graduate through Doppler's own migrator at ${DOPPLER_MAINNET.modules.uniswapV4Migrator.address} — an external venue. Venue graduation is NOT live: the venue migrator address is unset, and the protocol earns only its published share of the graduated pool's fee, not the pool itself.`;
+    : `Launches currently graduate through Doppler's own migrator at ${DOPPLER_MAINNET.modules.uniswapV4Migrator.address}, an external venue. Venue graduation is NOT live: the venue migrator address is unset, and the protocol earns only its published share of the graduated pool's fee, not the pool itself.`;
 
   return {
     rail: 'evm',
@@ -368,7 +368,7 @@ export function resolveSolanaGraduationVenue(): GraduationVenuePlan {
     lpLock: {
       disposition: 'permanently-locked',
       custodian: null,
-      custodianLabel: 'burned at migration — no custodian',
+      custodianLabel: 'burned at migration, no custodian',
       durationSeconds: null,
       irreversible: true,
       note:
@@ -387,7 +387,7 @@ export function resolveSolanaGraduationVenue(): GraduationVenuePlan {
       'spent, so nothing can be launched or graduated until the redeploy. The graduated pool’s trade ' +
       'fee is not yet determined because its AmmConfig has never been created.',
     preconditions: [
-      'Both program ids were closed on mainnet 2026-08-13 and are permanently spent — a restart needs fresh keypairs and new declare_id! values.',
+      'Both program ids were closed on mainnet 2026-08-13 and are permanently spent, so a restart needs fresh keypairs and new declare_id! values.',
       'The cp-swap AmmConfig has never been created; until create_amm_config and update_global both run, migrate_to_amm fails AmmNotConfigured (6015) and no launch can graduate.',
       'No launch has ever graduated on this rail, so the migration path is unproven on mainnet.',
     ],
