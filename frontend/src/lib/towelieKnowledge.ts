@@ -6,6 +6,7 @@
 
 import { isCurveLaunchOpen } from './launcher/curveChains';
 import { isCurveWriteEnabled } from './launcher/solana/curveWriteFlag';
+import { CARDANO_VENUE_FEE_ADDRESS, CARDANO_VENUE_FEE_BPS } from './cardano/venueFee';
 
 export interface KnowledgeEntry {
   keywords: string[];
@@ -250,7 +251,11 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
       (SOLANA_LAUNCHING
         ? 'and a maker at Resident or better can launch through the memetics.finance gate.'
         : 'and launching a new token there is not switched on yet.') +
-      " On Cardano, /cardano swaps ADA for a coin, or a coin for ADA, through that pair's Minswap V2 pool; your Cardano wallet (Eternl, Lace, VESPR) signs, and the venue takes no fee there yet. The token scanner reads EVM and Solana both.",
+      " On Cardano, /cardano swaps ADA for a coin, or a coin for ADA, through that pair's Minswap V2 pool; your Cardano wallet (Eternl, Lace, VESPR) signs, and " +
+      (CARDANO_VENUE_FEE_ADDRESS
+        ? `the venue takes ${CARDANO_VENUE_FEE_BPS / 100}% of the ADA side, paid with your order straight to its two-key Cardano treasury; a swap under about 200 ADA pays it nothing, because a Cardano payment must hold about 1 ADA.`
+        : 'the venue takes no fee there yet.') +
+      ' The token scanner reads EVM and Solana both.',
   },
   {
     // The bump wins "launch a token on solana" from the EVM launch entry; the phrases win
