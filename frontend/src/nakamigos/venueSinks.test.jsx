@@ -250,7 +250,9 @@ describe("api.js buys", () => {
         h.chainId = BASE_CHAIN;
         h.openseaPost = vi.fn(async () => buyFulfillment(contract));
         const api = await import("./api");
-        const res = await api.fulfillSeaportOrder({ orderHash: "0xabc", protocolAddress: SEAPORT_16, contract }, { buyerAddress: WALLET });
+        // Shaped like a real listing (token id and the price shown), so it
+        // also passes the trade-on-screen check open in #1023.
+        const res = await api.fulfillSeaportOrder({ tokenId: "7", price: 0.1, priceWei: "100000000000000000", orderHash: "0xabc", protocolAddress: SEAPORT_16, contract }, { buyerAddress: WALLET });
         expect(res.success).toBe(true);
         expect(h.openseaPost).toHaveBeenCalledTimes(1);
         expect(h.openseaPost.mock.calls[0][0]).toBe("listings/fulfillment_data");
