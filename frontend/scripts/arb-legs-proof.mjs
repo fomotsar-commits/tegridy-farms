@@ -42,6 +42,9 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const src = (p) => import(pathToFileURL(path.join(HERE, '..', 'src', 'lib', 'solana', p)).href);
 const D = await src('keeper/directLegs.ts');
 const P = await src('cpswap/program.ts');
+const RAY = await import('./lib/raydium-programs.mjs');
+const CPMM = new PublicKey(RAY.RAYDIUM_CPMM);
+const AMM_V4 = { program: new PublicKey(RAY.RAYDIUM_AMM_V4), authority: new PublicKey(RAY.RAYDIUM_AMM_V4_AUTHORITY) };
 
 const RPC = process.env.ARB_RPC_URL?.trim() || 'https://api.mainnet-beta.solana.com';
 const WALLET = new PublicKey('9WAugU3g3YECwuEuoPy3NEH5Co475fHATGdjr2dy2Fcz');
@@ -76,8 +79,8 @@ const CASES = [
       const coin = amountOf(acc.get(p.coinVault));
       const pc = amountOf(acc.get(p.pcVault));
       const outMint = p.coinMint === SOL ? p.pcMint : p.coinMint;
-      const probe = D.ammV4Leg(p, coin, pc, WALLET, SOL, AMOUNT_IN, 1n);
-      return { leg: probe && D.ammV4Leg(p, coin, pc, WALLET, SOL, AMOUNT_IN, probe.out), outMint, outProgram: TOKEN, vIn: p.coinMint === SOL ? p.coinVault : p.pcVault, vOut: p.coinMint === SOL ? p.pcVault : p.coinVault };
+      const probe = D.ammV4Leg(p, coin, pc, WALLET, SOL, AMOUNT_IN, 1n, AMM_V4);
+      return { leg: probe && D.ammV4Leg(p, coin, pc, WALLET, SOL, AMOUNT_IN, probe.out, AMM_V4), outMint, outProgram: TOKEN, vIn: p.coinMint === SOL ? p.coinVault : p.pcVault, vOut: p.coinMint === SOL ? p.pcVault : p.coinVault };
     },
   },
   {
@@ -87,8 +90,8 @@ const CASES = [
       const config = P.decodeAmmConfig(p.ammConfig, acc.get(p.ammConfig).data);
       const cp = { pool: p, config, vault0: amountOf(acc.get(p.token0Vault)), vault1: amountOf(acc.get(p.token1Vault)) };
       const in0 = p.token0Mint === SOL;
-      const probe = D.cpLeg(cp, WALLET, SOL, AMOUNT_IN, 1n);
-      return { leg: probe && D.cpLeg(cp, WALLET, SOL, AMOUNT_IN, probe.out), outMint: in0 ? p.token1Mint : p.token0Mint, outProgram: in0 ? p.token1Program : p.token0Program, vIn: in0 ? p.token0Vault : p.token1Vault, vOut: in0 ? p.token1Vault : p.token0Vault };
+      const probe = D.cpLeg(cp, WALLET, SOL, AMOUNT_IN, 1n, CPMM);
+      return { leg: probe && D.cpLeg(cp, WALLET, SOL, AMOUNT_IN, probe.out, CPMM), outMint: in0 ? p.token1Mint : p.token0Mint, outProgram: in0 ? p.token1Program : p.token0Program, vIn: in0 ? p.token0Vault : p.token1Vault, vOut: in0 ? p.token1Vault : p.token0Vault };
     },
   },
   ...['8z52phbctYyW8FsMbbz9KeWY2n1W4ucGJc9vCsjYpK2n', 'GiV7bAkQ6dipyPd5rFuoQeLLBJCNrRwP57dETVe6ourc'].map((pool) => ({
