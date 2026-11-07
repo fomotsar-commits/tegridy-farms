@@ -270,7 +270,11 @@ export function tripsFor(pools, ctx) {
   const trips = [];
   // ctx.quotes: quote mint → { pool, depth } linking it to SOL or USDC (QUOTES), when read.
   const linked = (q) => COINS[q] || ctx.quotes?.get(q);
-  const usable = pools.filter((p) => !p.stopped && ctx.depths.get(p.address) && linked(p.mintA === ctx.token ? p.mintB : p.mintA));
+  // A bin pool's depth (Meteora DLMM) is rough: its price steps are not read, so a gap through
+  // it is not a real one. 11-06/07: 1,328 of 1,330 test runs through one lost at Jupiter's real
+  // quote (median -1.32% against +0.52% on paper); the other two lost too. Left out until the
+  // bins are read.
+  const usable = pools.filter((p) => !p.stopped && ctx.depths.get(p.address) && !ctx.depths.get(p.address).rough && linked(p.mintA === ctx.token ? p.mintB : p.mintA));
   const coinOf = (p) => (p.mintA === ctx.token ? p.mintB : p.mintA);
   const link = (q) => ctx.quotes.get(q);
   const coinAcross = (q) => (COINS[q] ? q : link(q).pool.mintA === q ? link(q).pool.mintB : link(q).pool.mintA);
