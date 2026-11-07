@@ -396,6 +396,25 @@ describe('poolPins', () => {
 
 // ── deposit ──────────────────────────────────────────────────────────────────
 
+// Audit CM-2, 2026-11-03: a pool too empty to hold its price takes no deposit (poolHealth.ts).
+// The pool here is the live one everyone had left that day: the locked 100 shares over 5
+// lamports and 2,138 token units.
+describe('a pool too empty to hold its price', () => {
+  const live = (o: Parameters<typeof world>[0] = {}) => world({ sol: 5n, tokens: 2_138n, lpSupply: 100n, ...o });
+
+  it('builds no deposit on the fresh read, even one that fits the wallet at the price the pool agrees with', async () => {
+    expect(refused(await deposit(live(), { maxIn: 1_000n }, priced(5 / 1e9 / (2_138 / 1e6))))).toBe(
+      'We did not build this deposit: This pool is almost empty, so anyone can move its price for next to nothing, and a deposit would go in at whatever price they set.',
+    );
+  });
+
+  it('still builds the withdrawal of whoever holds its last shares', async () => {
+    // 1,100 shares, the locked 100 among them, over 3,480 lamports and 348 units; the wallet holds the other 1,000.
+    const p = ok(await withdraw(world({ sol: 3_480n, tokens: 348n, lpSupply: 1_100n, heldLp: 1_000n })));
+    expect(p.kind).toBe('lp-withdraw');
+  });
+});
+
 describe('prepareLpDeposit', () => {
   it('a clean pool: one deposit, bounded on both sides, every number from the transaction', async () => {
     const w = world();
