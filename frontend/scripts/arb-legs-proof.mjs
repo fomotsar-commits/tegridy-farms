@@ -105,7 +105,7 @@ const CASES = [
       const base = amountOf(acc.get(p.baseVault));
       const quote = amountOf(acc.get(p.quoteVault)) + p.quoteExtra;
       const f = D.pumpFeesFor(p, cfg, base, quote, mint.data.readBigUInt64LE(36));
-      const ctx = { protocolFeeRecipient: recipient, baseProgram: new PublicKey(mint.owner), quoteProgram: new PublicKey(TOKEN) };
+      const ctx = { protocolFeeRecipient: recipient, buybackRecipient: new PublicKey(D.PUMP_BUYBACK_RECIPIENTS[0]), baseProgram: new PublicKey(mint.owner), quoteProgram: new PublicKey(TOKEN) };
       return { leg: D.pumpBuyLeg(p, f, base, quote, WALLET, ctx, AMOUNT_IN, 1n), outMint: p.baseMint, outProgram: mint.owner, vIn: p.quoteVault, vOut: p.baseVault, fees: f };
     },
   })),
@@ -145,6 +145,54 @@ for (const c of CASES) {
       console.log(`${c.venue} ${c.pool}: not run (${e instanceof Error ? e.message : String(e)})`);
       break;
     }
+  }
+}
+/**
+ * PumpSwap both ways in ONE test run: buy with AMOUNT_IN SOL, then sell exactly the coins bought.
+ * The sell's exact payout is computed from the pool as the buy alone leaves it (a first test run
+ * of the buy, its vaults read back), so the second run proves the sell to the unit: the wallet's
+ * wrapped SOL must end at -AMOUNT_IN + that payout.
+ */
+async function pumpRoundTrip(pool) {
+  const head = await read([pool]);
+  const p = D.decodePumpPool(pool, head.acc.get(pool).data);
+  const { slot, acc } = await read([pool, p.baseVault, p.quoteVault, p.baseMint, D.PUMP_GLOBAL_CONFIG.toBase58(), D.PUMP_FEE_CONFIG.toBase58()]);
+  const cfg = D.decodePumpFeeConfig(acc.get(D.PUMP_FEE_CONFIG.toBase58()).data);
+  const recipient = new PublicKey(acc.get(D.PUMP_GLOBAL_CONFIG.toBase58()).data.subarray(57, 89));
+  const mint = acc.get(p.baseMint);
+  const supply = mint.data.readBigUInt64LE(36);
+  const ctx = { protocolFeeRecipient: recipient, buybackRecipient: new PublicKey(D.PUMP_BUYBACK_RECIPIENTS[1]), baseProgram: new PublicKey(mint.owner), quoteProgram: new PublicKey(TOKEN) };
+  const base = amountOf(acc.get(p.baseVault));
+  const quote = amountOf(acc.get(p.quoteVault)) + p.quoteExtra;
+  const buy = D.pumpBuyLeg(p, D.pumpFeesFor(p, cfg, base, quote, supply), base, quote, WALLET, ctx, AMOUNT_IN, 1n);
+  if (!buy) throw new Error('no buy leg built');
+  const coinAta = getAssociatedTokenAddressSync(new PublicKey(p.baseMint), WALLET, true, new PublicKey(mint.owner)).toBase58();
+  const solAta = getAssociatedTokenAddressSync(new PublicKey(SOL), WALLET, true, new PublicKey(TOKEN)).toBase58();
+  const { acc: before } = await read([solAta]);
+  const run = async (legs) => {
+    const ixs = [ComputeBudgetProgram.setComputeUnitLimit({ units: 600_000 }), createAssociatedTokenAccountIdempotentInstruction(WALLET, new PublicKey(coinAta), WALLET, new PublicKey(p.baseMint), new PublicKey(mint.owner)), ...legs];
+    const tx = new VersionedTransaction(new TransactionMessage({ payerKey: WALLET, recentBlockhash: PublicKey.default.toBase58(), instructions: ixs }).compileToV0Message());
+    return (await rpc('simulateTransaction', [Buffer.from(tx.serialize()).toString('base64'), { encoding: 'base64', sigVerify: false, replaceRecentBlockhash: true, commitment: 'confirmed', minContextSlot: slot, accounts: { encoding: 'base64', addresses: [p.baseVault, p.quoteVault, solAta] } }])).value;
+  };
+  const first = await run([buy.ix]);
+  if (first.err) return console.log(`PumpSwap round trip ${pool}: the buy alone FAILS ${JSON.stringify(first.err)}\n${(first.logs ?? []).slice(-6).join('\n')}`);
+  const [b2, q2] = first.accounts.slice(0, 2).map((a) => amountOf({ data: Buffer.from(a.data[0], 'base64') }));
+  const quote2 = q2 + p.quoteExtra;
+  const fees2 = D.pumpFeesFor(p, cfg, b2, quote2, supply);
+  const sellOut = D.pumpSellOut(p, fees2, b2, quote2, buy.out);
+  const sell = D.pumpSellLeg(p, fees2, b2, quote2, WALLET, ctx, buy.out, sellOut);
+  const both = await run([buy.ix, sell.ix]);
+  const solAfter = both.accounts?.[2] ? amountOf({ data: Buffer.from(both.accounts[2].data[0], 'base64') }) : null;
+  const delta = solAfter === null ? null : solAfter - amountOf(before.get(solAta));
+  const ok = !both.err && delta === sellOut - AMOUNT_IN;
+  console.log(`PumpSwap round trip ${pool} (read at slot ${slot}): ${ok ? 'PASSES' : 'FAILS'}; bought ${buy.out} for ${AMOUNT_IN}, directLegs says the sell pays ${sellOut}, wrapped SOL moved ${delta}${both.err ? `; error ${JSON.stringify(both.err)}` : ''}; ${both.unitsConsumed} units`);
+  if (both.err) console.log((both.logs ?? []).slice(-8).map((l) => `    ${l}`).join('\n'));
+}
+for (const pool of ['8z52phbctYyW8FsMbbz9KeWY2n1W4ucGJc9vCsjYpK2n', 'GiV7bAkQ6dipyPd5rFuoQeLLBJCNrRwP57dETVe6ourc']) {
+  try {
+    await pumpRoundTrip(pool);
+  } catch (e) {
+    console.log(`PumpSwap round trip ${pool}: not run (${e instanceof Error ? e.message : String(e)})`);
   }
 }
 if (fixtureAt) fs.writeFileSync(fixtureAt, `${JSON.stringify(fixtures, null, 1)}\n`);

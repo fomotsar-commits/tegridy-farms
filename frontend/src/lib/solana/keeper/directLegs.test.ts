@@ -3,8 +3,9 @@
 // The robot's own swap legs, held to mainnet simulations the programs accepted (directLegs.fixture.ts).
 import { describe, expect, it } from 'vitest';
 import { PublicKey } from '@solana/web3.js';
+import { getAssociatedTokenAddressSync } from '@solana/spl-token';
 import { decodeAmmConfig, decodePoolState } from '../cpswap/program';
-import { ammV4Leg, ammV4Out, cpLeg, decodeAmmV4, type AmmV4Pool } from './directLegs';
+import { PUMP_BUYBACK_RECIPIENTS, PUMP_GLOBAL_CONFIG, ammV4Leg, ammV4Out, cpLeg, decodeAmmV4, decodePumpPool, pumpBuyLeg, pumpPoolV2, pumpSellLeg, type AmmV4Pool, type PumpFees } from './directLegs';
 import { LEG_RUNS } from './directLegs.fixture';
 
 // Raydium's ids live in scripts/lib/raydium-programs.mjs (src/ may not name them; a test may).
@@ -70,5 +71,61 @@ describe('Raydium CPMM: the cp-swap program, held to a mainnet simulation', () =
   });
   it('builds nothing for a coin the pool does not hold', () => {
     expect(cpLeg(cp, WALLET, 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', 1_000n, 1n, RAYDIUM_CPMM)).toBeNull();
+  });
+});
+
+describe('PumpSwap: buy and sell, held to mainnet simulations (2026-11-07)', () => {
+  const TOKEN = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
+  const pumpRuns = LEG_RUNS.filter((r) => r.venue === 'PumpSwap');
+  const setUp = (r: (typeof pumpRuns)[number]) => {
+    const p = decodePumpPool(r.pool, bytes(r, r.pool))!;
+    const mintOwner = (r.accounts as Record<string, { owner: string }>)[p.baseMint]!.owner;
+    const ctx = {
+      protocolFeeRecipient: new PublicKey(bytes(r, PUMP_GLOBAL_CONFIG.toBase58()).subarray(57, 89)),
+      buybackRecipient: new PublicKey(PUMP_BUYBACK_RECIPIENTS[0]!),
+      baseProgram: new PublicKey(mintOwner),
+      quoteProgram: new PublicKey(TOKEN),
+    };
+    const f = (r as { fees?: Record<string, string> }).fees!;
+    const fees: PumpFees = { lpBps: BigInt(f.lpBps!), protocolBps: BigInt(f.protocolBps!), creatorBps: BigInt(f.creatorBps!) };
+    const base = amountOf(bytes(r, p.baseVault));
+    const quote = amountOf(bytes(r, p.quoteVault)) + p.quoteExtra;
+    return { p, ctx, fees, base, quote };
+  };
+
+  it('has two pools on record, both buys the program accepted', () => {
+    expect(pumpRuns.map((r) => r.pool)).toEqual(['8z52phbctYyW8FsMbbz9KeWY2n1W4ucGJc9vCsjYpK2n', 'GiV7bAkQ6dipyPd5rFuoQeLLBJCNrRwP57dETVe6ourc']);
+  });
+  for (const r of pumpRuns) {
+    it(`buys exactly what the program paid in ${r.pool}, with the 26 accounts it accepted`, () => {
+      const { p, ctx, fees, base, quote } = setUp(r);
+      const leg = pumpBuyLeg(p, fees, base, quote, WALLET, ctx, BigInt(r.amountIn), 1n)!;
+      expect(leg.out).toBe(BigInt(r.out));
+      expect(shape(leg.ix.keys)).toEqual(r.keys);
+      expect(Buffer.from(leg.ix.data).toString('hex')).toBe(r.data);
+    });
+  }
+  it('names the pool-v2 address, a buyback recipient and its wrapped-SOL account last, as every trade must since 2026-11 (6062 InvalidPoolV2 without)', () => {
+    const { p, ctx, fees, base, quote } = setUp(pumpRuns[0]!);
+    const keys = pumpBuyLeg(p, fees, base, quote, WALLET, ctx, 10_000_000n, 1n)!.ix.keys;
+    const tail = shape(keys.slice(-3));
+    expect(tail).toEqual([
+      [pumpPoolV2(p.baseMint).toBase58(), false, false],
+      [PUMP_BUYBACK_RECIPIENTS[0], false, false],
+      [getAssociatedTokenAddressSync(new PublicKey(SOL), new PublicKey(PUMP_BUYBACK_RECIPIENTS[0]!), true).toBase58(), false, true],
+    ]);
+  });
+  it('derives pool-v2 as a live mainnet trade named it (BOBO, 2026-11-07)', () => {
+    expect(pumpPoolV2('4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump').toBase58()).toBe('8UBw7wPkT2ZzQrXLdvJaGpcw8YepBHmSwk75xGpxmWTb');
+  });
+  it('sells with 24 accounts: no volume accounts, then the fee accounts, then the same three', () => {
+    const { p, ctx, fees, base, quote } = setUp(pumpRuns[0]!);
+    const buy = pumpBuyLeg(p, fees, base, quote, WALLET, ctx, 10_000_000n, 1n)!;
+    const sell = pumpSellLeg(p, fees, base, quote, WALLET, ctx, 1_000_000n, 1n)!;
+    expect(sell.ix.keys).toHaveLength(24);
+    expect(buy.ix.keys).toHaveLength(26);
+    // The buy's two volume accounts sit between the shared head and the fee accounts.
+    expect(shape(sell.ix.keys)).toEqual(shape([...buy.ix.keys.slice(0, 19), ...buy.ix.keys.slice(21)]));
+    expect(Buffer.from(sell.ix.data).subarray(0, 8)).toEqual(Buffer.from([51, 230, 133, 164, 1, 127, 131, 173]));
   });
 });

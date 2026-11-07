@@ -159,6 +159,15 @@ export const PUMP_GLOBAL_CONFIG = pda(['global_config']);
 export const PUMP_EVENT_AUTHORITY = pda(['__event_authority']);
 export const PUMP_FEE_CONFIG = pda(['fee_config', PUMP_AMM.toBytes()], PUMP_FEE_PROGRAM);
 export const PUMP_GLOBAL_VOLUME = pda(['global_volume_accumulator']);
+/**
+ * Pump's buyback fee recipients (pump-public-docs FEE_RECIPIENTS.md lists eight; these two were
+ * seen in mainnet trades 2026-11-07). A trade names one, and that wallet's wrapped-SOL account
+ * takes the buyback fee; any of them is accepted, and spreading trades over them spreads the
+ * write locks.
+ */
+export const PUMP_BUYBACK_RECIPIENTS: readonly string[] = ['5YxQFdt3Tr9zJLvkFccqXVUwhdTWJQc1fFg2YPbxvxeD', '5eHhjP8JaYkz83CWwvGU2uMUXefd3AazWGx4gpcuEEYD'];
+/** The pool's v2 address, ["pool-v2", base mint] of PumpSwap: the program refuses a trade without it (6062 InvalidPoolV2). */
+export const pumpPoolV2 = (baseMint: string) => pda(['pool-v2', pk(baseMint).toBytes()]);
 /** Anchor's instruction tags: sha256("global:sell"), sha256("global:buy"), first 8 bytes. */
 export const PUMP_SELL = Uint8Array.from([51, 230, 133, 164, 1, 127, 131, 173]);
 export const PUMP_BUY = Uint8Array.from([102, 6, 61, 18, 1, 218, 235, 234]);
@@ -247,9 +256,11 @@ export function pumpBuyOut(p: PumpPool, f: PumpFees, baseReserve: bigint, quoteR
   return lo > 0n ? lo : null;
 }
 
-/** What a PumpSwap trade needs beyond the pool: who takes the protocol fee, and each coin's token program. */
+/** What a PumpSwap trade needs beyond the pool: who takes the protocol and buyback fees, and each coin's token program. */
 export interface PumpContext {
   protocolFeeRecipient: PublicKey;
+  /** One of PUMP_BUYBACK_RECIPIENTS. */
+  buybackRecipient: PublicKey;
   baseProgram: PublicKey;
   quoteProgram: PublicKey;
 }
@@ -266,7 +277,9 @@ function pumpKeys(p: PumpPool, owner: PublicKey, c: PumpContext) {
       w(PUMP_EVENT_AUTHORITY, false), w(PUMP_AMM, false), w(ata(creatorVault, p.quoteMint, c.quoteProgram), true), w(creatorVault, false),
     ],
     fees: [w(PUMP_FEE_CONFIG, false), w(PUMP_FEE_PROGRAM, false)],
-    volume: [w(PUMP_GLOBAL_VOLUME, false), w(pda(['user_volume_accumulator', owner.toBytes()]), true)],
+    volume: [w(PUMP_GLOBAL_VOLUME, true), w(pda(['user_volume_accumulator', owner.toBytes()]), true)],
+    // After the fee accounts, as every mainnet trade passed them on 2026-11-07 (sell 24 accounts, buy 26).
+    after: [w(pumpPoolV2(p.baseMint), false), w(c.buybackRecipient, false), w(ata(c.buybackRecipient, p.quoteMint, c.quoteProgram), true)],
   };
 }
 
@@ -276,7 +289,7 @@ export function pumpSellLeg(p: PumpPool, f: PumpFees, baseReserve: bigint, quote
   if (out === null) return null;
   const k = pumpKeys(p, owner, c);
   const data = Buffer.concat([PUMP_SELL, le64(baseIn), le64(minOut)]);
-  return { out, ix: new TransactionInstruction({ programId: PUMP_AMM, keys: [...k.head, ...k.fees], data }) };
+  return { out, ix: new TransactionInstruction({ programId: PUMP_AMM, keys: [...k.head, ...k.fees, ...k.after], data }) };
 }
 
 /** buy: the most coin `quoteIn` SOL buys (exact out), paying at most `quoteIn`; volume not tracked. */
@@ -285,5 +298,5 @@ export function pumpBuyLeg(p: PumpPool, f: PumpFees, baseReserve: bigint, quoteR
   if (out === null || out < minOut) return null;
   const k = pumpKeys(p, owner, c);
   const data = Buffer.concat([PUMP_BUY, le64(out), le64(quoteIn), Uint8Array.from([0])]);
-  return { out, ix: new TransactionInstruction({ programId: PUMP_AMM, keys: [...k.head, ...k.volume, ...k.fees], data }) };
+  return { out, ix: new TransactionInstruction({ programId: PUMP_AMM, keys: [...k.head, ...k.volume, ...k.fees, ...k.after], data }) };
 }
