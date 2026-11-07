@@ -144,6 +144,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const said = (e) => (e instanceof Error ? e.message : String(e));
 const log = (line) => console.log(`${new Date().toISOString()}  ${line}`);
 
+/** A read that failed on the wire (a reset, a timeout, no answer): tried again, up to three times, a few seconds apart. */
+const transient = (e) => e?.name === 'TimeoutError' || /fetch failed|ECONNRESET|ETIMEDOUT|ECONNREFUSED|EAI_AGAIN|socket hang up/i.test(`${e?.message} ${e?.cause?.code ?? ''} ${e?.cause?.message ?? ''}`);
 function gated(gap, rest, read) {
   let next = 0;
   return async (...args) => {
@@ -154,9 +156,17 @@ function gated(gap, rest, read) {
       try {
         return await read(...args);
       } catch (e) {
-        if (!e.busy || tries >= 2) throw e;
-        log(`${e.message}: resting ${rest / 1000} s`);
-        next = Date.now() + rest;
+        if (e.busy && tries < 2) {
+          log(`${e.message}: resting ${rest / 1000} s`);
+          next = Date.now() + rest;
+          continue;
+        }
+        if (transient(e) && tries < 3) {
+          log(`${e.message} (${e?.cause?.code ?? 'the wire'}): trying again in 5 s`);
+          next = Date.now() + 5_000;
+          continue;
+        }
+        throw e;
       }
     }
   };
@@ -884,7 +894,12 @@ server.on('error', (e) => {
 });
 server.listen(PORT, '127.0.0.1', () => log(`Engine: http://127.0.0.1:${PORT}/state.json; handovers for the robot at /events (standing ${L.HANDOVER_TTL_MS} ms each); gaps logged to ${LOG}; coins from ${COINS_MODE === 'both' ? 'the map and the markets' : COINS_MODE === 'map' ? 'the map' : 'the markets'}; this process sends nothing`));
 
-await discover();
+try {
+  await discover();
+} catch (e) {
+  log(`stopped while finding the coins and pools: ${said(e)}`);
+  process.exit(1);
+}
 const watched = [...new Set([BRIDGE, ...ATAS.map(([, a]) => a), ...[...S.coins.values()].flatMap((c) => [...c.pools, ...c.links]).flatMap(L.watchedOf)])];
 log(`${S.coins.size} coins with 2+ pools, ${[...S.coins.values()].reduce((s, c) => s + c.pools.length, 0)} pools, ${watched.length} accounts to watch on ${redactRpcUrl(WS)}; judging with ${S.ruleFrom}: cap $${R.capUsd(S.settings)}, floor $${S.settings.minProfitUsd} + the network fee + a Jito tip (the larger of 20,000 lamports and 30% of the gain)${S.flashLoans ? ', SOL loans on' : ''}`);
 for (let i = 0; i * ACCOUNTS_PER_SOCKET < watched.length; i++) {
