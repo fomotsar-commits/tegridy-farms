@@ -28,6 +28,8 @@ import { register } from 'node:module';
 import { PublicKey } from '@solana/web3.js';
 
 const args = process.argv.slice(2);
+// A leg the robot prices this far under the engine is a disagreement worth explaining.
+const DIFF_PCT = 0.05;
 if (args[0] === '--report') {
   report(args[1], args.includes('--since') ? Date.parse(args[args.indexOf('--since') + 1]) : 0);
   process.exit(0);
@@ -64,8 +66,6 @@ const LOG = process.env.ARB_CHECK_LOG?.trim() || path.join(os.tmpdir(), 'arb-eng
 const MINUTES = Number(args[0]) || Infinity;
 const WALLET = new PublicKey(C.ROBOT.wallet);
 const ids = { cpmm: RAY.RAYDIUM_CPMM, ammV4: RAY.RAYDIUM_AMM_V4, ammV4Authority: RAY.RAYDIUM_AMM_V4_AUTHORITY, clmm: RAY.RAYDIUM_CLMM };
-// A leg the robot prices this far under the engine is a disagreement worth explaining.
-const DIFF_PCT = 0.05;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const log = (line) => console.log(`${new Date().toISOString()}  ${line}`);
@@ -165,6 +165,28 @@ function report(file, since) {
     const ok = xs.filter((r) => r.survives);
     if (xs.length) console.log(`  ${n} swaps: ${xs.length} quoted, ${ok.length} survived ($${sum(ok, (r) => r.robotNetUsd).toFixed(2)})`);
   }
+  // The same gap handed over again and again (nobody else takes it) is ONE gap: a route's survivors
+  // in a run, none more than RUN_GAP_MS after the one before and no failed check between, count
+  // once, at their best (taking it closes it; it may form again later, a new run).
+  const RUN_GAP_MS = 120_000;
+  const runs = [];
+  const byRoute = new Map();
+  for (const r of quoted) byRoute.set(r.route, [...(byRoute.get(r.route) ?? []), r]);
+  for (const xs of byRoute.values()) {
+    let run = null;
+    for (const r of xs) {
+      const t = Date.parse(r.at);
+      if (r.survives && run && t - run.last <= RUN_GAP_MS) {
+        Object.assign(run, { last: t, best: Math.max(run.best, r.robotNetUsd), n: run.n + 1 });
+        continue;
+      }
+      if (run) runs.push(run);
+      run = r.survives ? { route: r.route, symbol: r.symbol, dexes: r.dexes, first: t, last: t, best: r.robotNetUsd, n: 1 } : null;
+    }
+    if (run) runs.push(run);
+  }
+  console.log(`As distinct gaps (a route's survivors in a run, none ${RUN_GAP_MS / 1000} s apart, taken once at their best): ${runs.length} on ${new Set(runs.map((x) => x.route)).size} routes, worth $${sum(runs, (x) => x.best).toFixed(2)}.`);
+  for (const x of [...runs].sort((a, b) => b.best - a.best).slice(0, 8)) console.log(`  ${new Date(x.first).toISOString().slice(0, 19)}Z ${String(x.symbol).padEnd(12)} ${x.dexes.join(' > ').padEnd(30)} +$${x.best.toFixed(4)}, handed over ${x.n} times over ${((x.last - x.first) / 60_000).toFixed(1)} min`);
   console.log(`Legs: ${legs.length}; the robot priced ${under.length} more than ${DIFF_PCT}% under the engine (median ${median(under.map((q) => q.diffPct))?.toFixed(3) ?? '-'}%): ${under.filter((q) => q.tradedSince).length} of those pools traded between the engine's slot and the robot's read (the market moved), ${under.filter((q) => q.tradedSince === false).length} did not (the engine's copy was off).`);
   const differs = rows.filter((r) => r.differ?.length);
   console.log(`Handovers where an account the engine held differed from the chain's at once: ${differs.length} of ${rows.filter((r) => r.differ).length} compared; accounts not kept fresh by a subscription among them: ${differs.flatMap((r) => r.differ).filter((d) => d.live === false).length}.`);
