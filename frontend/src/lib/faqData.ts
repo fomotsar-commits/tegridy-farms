@@ -87,7 +87,7 @@ export const TOWELI_FAQ_DATA: FAQSection[] = [
       { q: 'What is the lock duration?', a: 'You can lock your TOWELI from 7 days up to 4 years. Contract bounds are MIN_LOCK_DURATION = 7 days and MAX_LOCK_DURATION = 4 years. Longer lock durations give you a higher boost multiplier, which means more rewards.' },
       { q: 'Can I withdraw early?', a: 'Yes, but with a 25% early withdrawal penalty. The penalty is sent to the protocol treasury — it is not redistributed to other stakers.' },
       { q: 'What is a boost multiplier?', a: 'Your lock duration determines your yield boost on a linear scale: 0.4x at 7 days up to 4.0x at the full 4-year lock. With the JBAC NFT bonus stacked on top, the contract enforces a 4.5x ceiling (MAX_BOOST_BPS_CEILING = 45000). Higher multipliers mean a larger share of the reward pool.' },
-      { q: 'Do I get an NFT for staking?', a: 'Yes. Your staking position is represented as an ERC-721 NFT. This NFT tracks your deposit amount, lock duration, and boost. It can also be used as collateral for peer-to-peer lending.' },
+      { q: 'Do I get an NFT for staking?', a: 'Yes. Your staking position is represented as an ERC-721 NFT. This NFT tracks your deposit amount, lock duration, and boost.' },
       { q: 'What are NFT boosts?', a: 'Holders of a JBAC NFT receive a flat +0.5x bonus on top of their lock multiplier (capped at 4.5x by MAX_BOOST_BPS_CEILING). Simply hold the NFT in your connected wallet to activate the bonus.' },
     ],
   },
@@ -101,8 +101,8 @@ export const TOWELI_FAQ_DATA: FAQSection[] = [
   {
     category: 'NFT Finance',
     items: [
-      { q: 'What is NFT Lending?', a: 'Borrow ETH by locking your NFTs (JBAC, Nakamigos, GNSS) as collateral. It is fully peer-to-peer with no oracles and no liquidation auctions. NFT Lending is live — the contracts have been extensively internally reviewed, but not third-party audited, so treat it accordingly.' },
-      { q: 'What happens if I default on a loan?', a: 'The lender claims your NFT permanently. There is no liquidation auction — the NFT simply transfers to the lender after the loan expires unpaid.' },
+      { q: 'What is NFT Lending?', a: "Borrow WETH by locking an NFT from Jungle Bay, Nakamigos or GNSS. Lenders sign offers for a whole collection or one NFT and earn the interest; you pay it only for the days you borrow, and the venue keeps 5% of it. There is no grace period: once a loan is due and unpaid, its lender can take the NFT, and a loan funded by several lenders goes to a 3-day auction. It runs on Gondi's own v3.2 loan contracts, unchanged." },
+      { q: 'What happens if I default on a loan?', a: 'You lose the NFT. From the second the loan is due and unpaid, its lender can take it; a loan funded by several lenders goes to a 3-day auction instead, and the lenders share what it fetches.' },
       { q: 'What is the NFT AMM?', a: 'Bonding curve pools for instant NFT trading. Provide liquidity by depositing NFTs and ETH into a pool to earn fees on every trade that occurs in that pool. The AMM is live — internally reviewed, not third-party audited.' },
       { q: 'What is pro-rata interest?', a: 'Interest is calculated based on the actual time borrowed, not the full loan term. If you repay early, you pay proportionally less interest than the maximum.' },
     ],

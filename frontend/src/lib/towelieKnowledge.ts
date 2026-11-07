@@ -200,11 +200,11 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
     // said "waiting". The assistant is a surface like any other: keep it in
     // sync with constants.ts in BOTH directions.
     keywords: ['nft', 'lending', 'borrow', 'collateral'],
-    answer: "NFT Finance → NFT Lending, live on mainnet. Use JBAC, Nakamigos, or GNSS as collateral to borrow ETH — peer-to-peer terms, no oracles needed. Internally reviewed, no third-party audit yet.",
+    answer: "NFT Finance → NFT Lending, live on mainnet on Gondi's own v3.2 loan contracts. Lock a Jungle Bay, Nakamigos or GNSS NFT to borrow WETH from a lender's signed offer, and pay interest only for the days you borrow. The venue keeps 5% of the interest.",
   },
   {
     keywords: ['liquidation', 'liquidate', 'default'],
-    answer: "If you don't repay your NFT loan by the deadline, the lender keeps the NFT. No partial liquidations — it's all-or-repay.",
+    answer: "If you don't repay your NFT loan by the deadline, you lose the NFT: there is no grace period. One lender can take it that second; a loan from several lenders goes to a 3-day auction.",
   },
   {
     keywords: ['nakamigos', 'naka'],
