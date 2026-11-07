@@ -138,15 +138,18 @@ describe('Stage 0: watched accounts, the map, the report', () => {
       g('A', 1_500, 4, 0.05, 0.04), // reached at 1 s, gone by 3 s
       g('B', 5_000, 12, 0.1, 0.08), // reached at both
       g('C', SUSPECT_MS + 1, 3_000, 9, 9), // open past ten minutes: a misread
+      g('W', 6_000, 20, 278, 278, { closedBy: 'a fresh read' }), // only a fresh read closed it: a misread (11-07 08:05Z)
+      g('B', 2_000, 8, 0.01, 0.01, { closedBy: 'a change' }), // closed by a change the websocket sent: counted
       { coin: 'B', openedAt: now - 2_000, firstNetUsd: 0.06, bestNetUsd: 0.06, netBy: { 1000: 0.06, 3000: 0.06 } }, // still open
     ], now);
-    expect(r).toMatchObject({ gaps: 5, sameSlot: 2, goneBeforeReach: 2, suspect: 1, stillOpen: 1 });
-    expect(r.reach[1000].gaps).toBe(3);
-    expect(r.reach[1000].usd).toBeCloseTo(0.05 + 0.1 + 0.06, 12);
+    expect(r).toMatchObject({ gaps: 6, sameSlot: 2, goneBeforeReach: 2, suspect: 1, misread: 1, misreadUsdAtOpen: 0.2, stillOpen: 1 });
+    expect(r.reach[1000].gaps).toBe(4);
+    expect(r.reach[1000].usd).toBeCloseTo(0.05 + 0.1 + 0.01 + 0.06, 12);
     expect(r.reach[3000]).toEqual({ gaps: 1, usd: 0.08 });
-    expect(r.topCoins[0]).toMatchObject({ coin: 'B', gaps: 2, reached1s: 2 });
+    expect(r.topCoins[0]).toMatchObject({ coin: 'B', gaps: 3, reached1s: 3 });
     expect(r.topCoins[1]).toMatchObject({ coin: 'A', gaps: 3, reached1s: 1 });
-    expect(r.topCoins[0].usdAt1s).toBeCloseTo(0.16, 12);
+    expect(r.topCoins[0].usdAt1s).toBeCloseTo(0.17, 12);
+    expect(r.topCoins.some((c) => c.coin === 'W')).toBe(false);
   });
 });
 
@@ -181,7 +184,7 @@ const payingTrip = (over = {}) => ({
   inRaw: 1e9, outs: [2e9, 1.001e9], inUsd: 90, gainUsd: 0.09, feeUsd: 0.004, floorUsd: 0.006, netUsd: 0.086, tipUsd: 0.027, netAllUsd: 0.059, gapPct: 1.1, transferFeePct: 0, paysAll: true,
   ...over,
 });
-const ctx = (over = {}) => ({ coin: { mint: M, symbol: 'X', decimals: 6 }, slot: 5, now: 1000, usd: new Map([[SOL, 90], ['USDC', 1]]), programOf: (m) => (m === M ? 'Tok22' : 'Tok'), arraysOf: (pool) => (pool === 'p2' ? ['arr1', 'arr2'] : []), ...over });
+const ctx = (over = {}) => ({ coin: { mint: M, symbol: 'X', decimals: 6 }, slot: 5, now: 1000, usd: new Map([[SOL, 90], ['EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', 1]]), programOf: (m) => (m === M ? 'Tok22' : 'Tok'), arraysOf: (pool) => (pool === 'p2' ? ['arr1', 'arr2'] : []), ...over });
 
 describe('handoverOf: the record the engine hands the robot', () => {
   it('names the route, each leg with the accounts its quote read, the size and pays as decimal strings, the prices, and when it stops standing', () => {
@@ -190,7 +193,8 @@ describe('handoverOf: the record the engine hands the robot', () => {
     expect(r.legs[1]).toEqual({ pool: 'p2', dex: 'dlmm', from: M, to: SOL, fee: 0.001, inCut: 0, outCut: 0, accounts: ['arr1', 'arr2'] });
     expect(r.legs[0].accounts).toEqual([]);
     expect(r.mints).toEqual({ [SOL]: 'Tok', [M]: 'Tok22' });
-    expect(r.usd).toEqual({ [SOL]: 90 });
+    // SOL and USDC always, for the robot's floor and cap: the network fee and the tip are paid in SOL.
+    expect(r.usd).toEqual({ [SOL]: 90, EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v: 1 });
     expect(handoverStands(r, 1000 + HANDOVER_TTL_MS - 1)).toBe(true);
     expect(handoverStands(r, 1000 + HANDOVER_TTL_MS)).toBe(false);
   });

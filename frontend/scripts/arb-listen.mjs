@@ -53,7 +53,10 @@
  * file is given, else markets), ARB_SCAN_RPC_URL (the one program-wide read
  * of our own pools, which publicnode refuses: the public mainnet RPC), ARB_RPC_GAP_MS (1500 between reads),
  * ARB_READ_BATCH (accounts a read: 100, publicnode 10), ARB_WS_PER_SOCKET (80),
- * ARB_MIN_DEPTH_USD (1000 a pool), ARB_RECHECK_MS (5000), ARB_POOL_REREAD_MS (120000).
+ * ARB_MIN_DEPTH_USD (1000 a pool), ARB_RECHECK_MS (5000), ARB_POOL_REREAD_MS (120000),
+ * ARB_MEME_PAIRS (on: a coin's pools priced in another memecoin, GRR/BOBO, are traded through
+ * that memecoin's deepest SOL or USDC pool, SOL → BOBO → GRR → SOL; "off" leaves them out),
+ * ARB_MEME_QUOTES (80: the most memecoins linked so).
  *
  * The public mainnet websocket gives ~4 sockets × 80 accounts an IP and the robot uses it: point
  * ARB_RPC_URL and ARB_WS_URL at publicnode (measured 11-07: ~300 subscriptions a socket, updates
@@ -129,6 +132,8 @@ const TRENDING_PAGES = 2;
 const LISTED_POOLS = 12;
 const POOLS_PER_COIN = 10;
 const MIN_DEPTH_USD = numEnv('ARB_MIN_DEPTH_USD', 1_000);
+const MEME_PAIRS = !/^(off|no|false|0)$/i.test(process.env.ARB_MEME_PAIRS?.trim() ?? '');
+const MEME_QUOTES_MAX = numEnv('ARB_MEME_QUOTES', 80);
 const BRIDGE = 'Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE';
 // One swap moves two vaults in one slot; their updates arrive apart. A coin is judged once both are in.
 const JUDGE_AFTER_MS = 250;
@@ -199,7 +204,8 @@ const S = {
   startedAt: Date.now(),
   coins: new Map(), // mint → { mint, symbol, decimals, supply, pools, links }
   configs: new Map(),
-  quoteLinks: new Map(),
+  quoteLinks: new Map(), // pricing coin → the pool linking it to SOL or USDC
+  memeQuotes: new Map(), // memecoin other coins are priced in → { symbol, decimals, program }
   usd: new Map([[C.USDC_MINT, 1]]),
   holds: new Map(),
   acc: new Map(), // address → { data, slot }: the newest seen
@@ -212,7 +218,11 @@ const S = {
   // The handovers (lib/arb-listen.mjs handoverOf), the newest a route; and what the robot said it did with them.
   handover: new Map(),
   outcomes: new L.Outcomes(),
-  stats: { notes: 0, judged: 0, subscribed: 0, refusedSubs: 0, opens: 0, reconnects: 0, slot: 0, readyAt: 0, rechecks: 0, closedByRecheck: 0, poolRereads: 0, arrayReads: 0, needs: 0, staleBins: 0, unpriced: 0, judgeMs: 0, judgeMaxMs: 0, handovers: 0, notHanded: 0 },
+  // Watched accounts not being watched right now: a socket closed and is subscribing again, or
+  // the host refused the subscription. A pool with one is judged (the gap book keeps its record)
+  // but not handed over: its state here may be stale.
+  unwatched: new Set(),
+  stats: { notes: 0, judged: 0, subscribed: 0, refusedSubs: 0, opens: 0, reconnects: 0, slot: 0, readyAt: 0, rechecks: 0, closedByRecheck: 0, poolRereads: 0, arrayReads: 0, needs: 0, staleBins: 0, unpriced: 0, judgeMs: 0, judgeMaxMs: 0, handovers: 0, notHanded: 0, notHandedUnwatched: 0 },
   bridgePool: null,
   note: 'starting…',
 };
@@ -396,7 +406,7 @@ function readSoon(needs, mint) {
   readAll(fresh.map(([k]) => k))
     .then(() => {
       const coin = S.coins.get(mint);
-      const pools = [...(coin?.pools ?? []), ...(S.bridgePool ? [S.bridgePool] : [])];
+      const pools = [...(coin?.pools ?? []), ...(coin?.links ?? []), ...(S.bridgePool ? [S.bridgePool] : [])];
       for (const [k, poolAddress] of fresh) {
         const p = pools.find((x) => x.address === poolAddress);
         if (p && S.acc.get(k)?.data) p.arrays = [...new Set([...(p.arrays ?? []), k])].slice(-12);
@@ -408,8 +418,17 @@ function readSoon(needs, mint) {
 }
 
 const quoteOf = (p, mint) => (p.mintA === mint ? p.mintB : p.mintA);
-const decimalsOf = (m) => (C.COINS[m] ?? C.QUOTES[m]).decimals;
-const linkedQuote = (q) => Boolean(C.COINS[q] || (C.QUOTES[q] && S.quoteLinks.get(q)));
+/** A pricing coin's figures: SOL and USDC, the fixed pricing coins (C.QUOTES), or a memecoin other coins are priced in. */
+const quoteMeta = (m) => C.COINS[m] ?? C.QUOTES[m] ?? S.memeQuotes.get(m) ?? null;
+const decimalsOf = (m) => quoteMeta(m).decimals;
+const linkedQuote = (q) => Boolean(C.COINS[q] || (quoteMeta(q) && S.quoteLinks.get(q)));
+/** A mint's supply from its account (read), or null. */
+const supplyOf = (m) => {
+  const d = S.acc.get(m)?.data;
+  return d && d.length >= 44 ? d.readBigUInt64LE(36) : null;
+};
+/** B per A, raw, at zero size: a bin pool's active bin, else the depth's ratio. */
+const perA = (depth) => depth.spot ?? depth.b / depth.a;
 
 async function readRule() {
   const { rule, why } = await C.robotSettings(ROBOT_URL, fetch);
@@ -527,15 +546,108 @@ async function listFromMarkets() {
   return listed;
 }
 
-/** Stage 0: the chain-wide map's coins and pools (lib/arb-listen.mjs coinsFromMap): mint → pool addresses. */
+/**
+ * Stage 0: the chain-wide map's coins and pools (lib/arb-listen.mjs coinsFromMap): mint → pool
+ * addresses. The map holds only pools priced in SOL or USDC; with ARB_MEME_PAIRS each coin's
+ * listing adds its pools priced in another memecoin (one DexScreener read a coin).
+ */
 async function listFromMap() {
   S.note = `the map: ${MAP_FILE}`;
   const rows = L.coinsFromMap(JSON.parse(fs.readFileSync(MAP_FILE, 'utf8')), { max: MAX_COINS });
   await readAll(rows.map((r) => r.mint));
   const listed = new Map();
-  for (const r of rows) if (admit(r.mint, r.symbol)) listed.set(r.mint, r.pools.map((p) => p.address));
-  log(`the map gives ${rows.length} coins with 2+ deep pools the robot can price; ${listed.size} pass the robot's token gate`);
+  let memePools = 0;
+  for (const r of rows) {
+    if (!admit(r.mint, r.symbol)) continue;
+    const addrs = r.pools.map((p) => p.address);
+    if (MEME_PAIRS) {
+      S.note = `memecoin pairs of ${r.mint}`;
+      try {
+        const meme = C.poolsFromListing(await dexscreener(r.mint), r.mint, MIN_DEPTH_USD).filter((f) => !C.COINS[f.other] && f.other !== r.mint).slice(0, LISTED_POOLS);
+        memePools += meme.length;
+        addrs.push(...meme.map((f) => f.address));
+      } catch (e) {
+        log(`DexScreener ${r.mint}: ${said(e)}`);
+      }
+    }
+    listed.set(r.mint, addrs);
+  }
+  log(`the map gives ${rows.length} coins with 2+ deep pools the robot can price; ${listed.size} pass the robot's token gate${MEME_PAIRS ? `; their listings add ${memePools} pools priced in another coin` : ''}`);
   return listed;
+}
+
+/**
+ * Memecoins other coins are priced in (a GRR/BOBO pool prices GRR in BOBO; owner 2026-11-07:
+ * "exotic pairs of memecoins"), each linked to SOL or USDC by its deepest pool there, as BAYLA is
+ * by our BAYLA/SOL pool, so SOL → BOBO → GRR → SOL is one trip of three swaps (lib/arb-chain.mjs
+ * tripsFor). A memecoin the robot's token gate refuses, or one with a transfer fee (not counted on
+ * a link's hop), is not linked; nor one with no SOL or USDC pool MIN_DEPTH_USD deep. The most-used
+ * MEME_QUOTES_MAX at most. Its SOL and USDC pools are those found when it is a coin here, else its
+ * listing's (one DexScreener read).
+ */
+async function linkMemeQuotes(withFees) {
+  const uses = new Map();
+  for (const [m, ps] of withFees) {
+    for (const p of ps) {
+      const q = quoteOf(p, m);
+      if (!C.COINS[q] && !C.QUOTES[q]) uses.set(q, (uses.get(q) ?? 0) + 1);
+    }
+  }
+  const wanted = [...uses].sort((a, b) => b[1] - a[1]).slice(0, MEME_QUOTES_MAX).map(([q]) => q);
+  if (!wanted.length) return;
+  S.note = `linking ${wanted.length} memecoins other coins are priced in`;
+  await readAll(wanted);
+  const options = new Map();
+  for (const q of wanted) {
+    const a = S.acc.get(q);
+    const safety = TS.classifyToken(q, a?.data ? { address: q, owner: a.owner, data: a.data, lamports: 0 } : null, null);
+    const facts = safety.kind === 'read' ? safety.facts : null;
+    if (R.tokenGate(safety) || !facts) continue;
+    const fee = TF.feeNow(facts.transferFee ?? null, null);
+    if (fee && fee.maximumFee > 0n && fee.basisPoints > 0) continue;
+    let addrs = (withFees.get(q) ?? []).filter((p) => C.COINS[quoteOf(p, q)]).map((p) => p.address);
+    let symbol = S.coins.get(q)?.symbol ?? null;
+    if (!addrs.length) {
+      try {
+        const json = await dexscreener(q);
+        addrs = C.poolsFromListing(json, q, MIN_DEPTH_USD).filter((f) => C.COINS[f.other]).slice(0, 4).map((f) => f.address);
+        symbol ??= (Array.isArray(json) ? json : []).map((x) => (x?.baseToken?.address === q ? x.baseToken.symbol : x?.quoteToken?.address === q ? x.quoteToken.symbol : null)).find(Boolean) ?? null;
+      } catch (e) {
+        log(`DexScreener ${q}: ${said(e)}`);
+      }
+    }
+    if (addrs.length) options.set(q, { decimals: facts.decimals, program: a.owner, symbol: String(symbol || safety.symbol || q.slice(0, 6)).slice(0, 16), addrs });
+  }
+  await readAll([...new Set([...options.values()].flatMap((o) => o.addrs))]);
+  const decoded = new Map();
+  for (const k of new Set([...options.values()].flatMap((o) => o.addrs))) {
+    const a = S.acc.get(k);
+    const dex = a?.data && C.dexOfProgram(a.owner);
+    const p = dex && C.decodePool(dex, k, a.data);
+    if (p && !p.stopped) decoded.set(k, p);
+  }
+  await readConfigs([...decoded.values()]);
+  const priced = new Map([...decoded].map(([k, p]) => [k, C.withFee(p, S.configs)]).filter(([, p]) => p));
+  await readVenueAccounts([...priced.values()]);
+  await readAll([...new Set([...priced.values()].flatMap(L.accountsOf))]);
+  for (const [q, o] of options) {
+    let best = null;
+    for (const k of o.addrs) {
+      const p = priced.get(k);
+      const c = p && [p.mintA, p.mintB].includes(q) ? quoteOf(p, q) : null;
+      if (!c || !C.COINS[c]) continue;
+      const depth = C.depthOf(p, amounts, binsOf);
+      if (!depth || depth.rough) continue;
+      const usd = ((c === p.mintA ? depth.a : depth.b) / 10 ** C.COINS[c].decimals) * (S.usd.get(c) ?? 0);
+      if (usd >= MIN_DEPTH_USD && !(best?.usd >= usd)) best = { p, depth, c, usd };
+    }
+    if (!best) continue;
+    const { p, depth, c } = best;
+    S.memeQuotes.set(q, { symbol: o.symbol, decimals: o.decimals, program: o.program });
+    S.quoteLinks.set(q, p);
+    S.usd.set(q, (p.mintA === q ? perA(depth) : 1 / perA(depth)) * 10 ** (o.decimals - C.COINS[c].decimals) * S.usd.get(c));
+  }
+  log(`memecoins other coins are priced in: ${S.memeQuotes.size} of ${wanted.length} linked to SOL or USDC (${[...S.memeQuotes.values()].slice(0, 20).map((x) => x.symbol).join(', ')}${S.memeQuotes.size > 20 ? ', …' : ''})`);
 }
 
 /**
@@ -554,10 +666,12 @@ async function discover() {
   for (const [m, addrs] of listed) {
     const found = [...new Set(addrs)].map((k) => ({ k, a: S.acc.get(k) })).filter(({ a }) => a?.data && C.dexOfProgram(a.owner));
     // Whatever a list says, a pool is what its owner on chain proves it is; every venue here is priced to the unit.
-    candidates.set(m, found.map(({ k, a }) => C.decodePool(C.dexOfProgram(a.owner), k, a.data)).filter((p) => p && [p.mintA, p.mintB].includes(m) && linkedQuote(quoteOf(p, m))));
+    const pricedIn = (q) => linkedQuote(q) || (MEME_PAIRS && q !== m && !C.COINS[q] && !C.QUOTES[q]);
+    candidates.set(m, found.map(({ k, a }) => C.decodePool(C.dexOfProgram(a.owner), k, a.data)).filter((p) => p && [p.mintA, p.mintB].includes(m) && pricedIn(quoteOf(p, m))));
   }
   await readConfigs([...candidates.values()].flat());
   const withFees = new Map([...candidates].map(([m, ps]) => [m, ps.map((p) => C.withFee(p, S.configs)).filter(Boolean)]));
+  if (MEME_PAIRS) await linkMemeQuotes(withFees);
   S.note = 'reading the band and bin pools’ arrays';
   await readVenueAccounts([...withFees.values()].flat());
   S.note = 'reading the pools’ vaults';
@@ -573,7 +687,7 @@ async function discover() {
     }
     const coin = S.coins.get(m);
     coin.pools = deep.sort((a, b) => Number(b.p.dex === 'ours') - Number(a.p.dex === 'ours') || b.usd - a.usd).slice(0, POOLS_PER_COIN).map((x) => x.p);
-    coin.links = [...new Set(coin.pools.map((p) => quoteOf(p, m)).filter((q) => C.QUOTES[q] && S.quoteLinks.get(q)))].map((q) => S.quoteLinks.get(q));
+    coin.links = [...new Set(coin.pools.map((p) => quoteOf(p, m)).filter((q) => !C.COINS[q] && S.quoteLinks.get(q)))].map((q) => S.quoteLinks.get(q));
     if (coin.pools.length < 2) S.coins.delete(m);
   }
   for (const m of [...S.coins.keys()]) if (!withFees.has(m)) S.coins.delete(m);
@@ -631,13 +745,16 @@ function judgeNow(coin, closedBy) {
   pools = pools.map((p) => (p.dex === 'pumpswap' ? C.withFee(p, S.configs, { depth: depths.get(p.address), supply: p.mintA === coin.mint ? coin.supply : null }) : p)).filter(Boolean);
   const quotes = new Map();
   for (const l of coin.links) {
-    const q = C.QUOTES[l.mintA] ? l.mintA : l.mintB;
-    const live = C.withFee(C.decodePool(l.dex, l.address, dataOf(l.address)) ?? {}, S.configs);
-    const depth = live && live.mintA && C.depthOf(live, amounts);
+    // A link pairs its pricing coin with SOL or USDC.
+    const q = C.COINS[l.mintA] ? l.mintB : l.mintA;
+    const decoded = C.decodePool(l.dex, l.address, dataOf(l.address));
+    const read = decoded && { ...decoded, arrays: l.arrays ?? [] };
+    const live = read && C.withFee(read, S.configs, read.dex === 'pumpswap' ? { depth: C.depthOf(read, amounts), supply: read.mintA === q ? supplyOf(q) : null } : undefined);
+    const depth = live && live.mintA && C.depthOf(live, amounts, binsOf);
     if (!depth) continue;
     const c = quoteOf(live, q);
-    S.usd.set(q, (live.mintA === q ? depth.b / depth.a : depth.a / depth.b) * 10 ** (decimalsOf(q) - decimalsOf(c)) * (S.usd.get(c) ?? NaN));
-    quotes.set(q, { pool: live, depth });
+    S.usd.set(q, (live.mintA === q ? perA(depth) : 1 / perA(depth)) * 10 ** (decimalsOf(q) - decimalsOf(c)) * (S.usd.get(c) ?? NaN));
+    quotes.set(q, { pool: live, depth, decimals: decimalsOf(q) });
     depths.set(live.address, depth);
   }
   // With loans on, the robot borrows SOL past its float (keeper/flashLoan.ts): SOL trips are held by the cap only.
@@ -672,7 +789,7 @@ function judgeNow(coin, closedBy) {
 // ─── handing over to the robot ───────────────────────────────────────────────────────
 const sseListeners = new Set();
 /** A mint's token program: the robot's coins' and the pricing coins' are known, a coin's is its mint account's owner. */
-const programOf = (m) => (C.COINS[m] ? C.TOKEN_PROGRAM : (C.QUOTES[m]?.program ?? S.acc.get(m)?.owner ?? null));
+const programOf = (m) => (C.COINS[m] ? C.TOKEN_PROGRAM : (quoteMeta(m)?.program ?? S.acc.get(m)?.owner ?? null));
 /** The handovers still standing, best first. */
 const standingHandovers = (now) => [...S.handover.values()].filter((r) => L.handoverStands(r, now)).sort((a, b) => b.netAllUsd - a.netAllUsd);
 
@@ -686,6 +803,10 @@ function handOver(coin, trips, pools, slot, now) {
   let any = false;
   for (const t of trips) {
     if (!t.paysAll) continue;
+    if (t.legs.some((l) => L.watchedOf(byAddress.get(l.pool) ?? { kind: 'pair', address: l.pool }).some((k) => S.unwatched.has(k)))) {
+      S.stats.notHandedUnwatched++;
+      continue;
+    }
     const rec = L.handoverOf(t, { coin, slot, now, usd: S.usd, programOf, arraysOf: (pool) => byAddress.get(pool)?.arrays ?? [] });
     if (!rec) {
       S.stats.notHanded++;
@@ -800,6 +921,8 @@ function listen(accounts, n) {
       }
       S.note = null;
       S.stats.readyAt ||= Date.now();
+      // Read afresh and subscribed: watched again. A refused one stays unwatched until a later socket takes it.
+      for (const a of subs.values()) S.unwatched.delete(a);
       log(`websocket ${n} listening: ${subs.size} of ${accounts.length} subscriptions taken; judging its coins once`);
       for (const m of new Set(accounts.flatMap((a) => [...(S.coinsOf.get(a) ?? [])]))) judgeSoon(m);
     };
@@ -826,6 +949,7 @@ function listen(accounts, n) {
           S.stats.subscribed++;
         } else if (m.error) {
           S.stats.refusedSubs++;
+          S.unwatched.add(asked.get(m.id));
           if (S.stats.refusedSubs <= 3) log(`subscription refused: ${String(m.error.message ?? m.error.code).slice(0, 120)}`);
         }
       }
@@ -836,6 +960,7 @@ function listen(accounts, n) {
       if (socket !== s) return;
       S.stats.reconnects++;
       S.stats.subscribed -= subs.size;
+      for (const a of accounts) S.unwatched.add(a);
       log(`websocket ${n} closed (${ev?.code ?? '?'}) with ${subs.size} subscriptions: opening again in 5 s`);
       setTimeout(open, 5_000);
     };
@@ -869,9 +994,10 @@ function snapshot() {
   return JSON.stringify({
     at: now, note: S.note, listeningHours: hours, ruleFrom: S.ruleFrom, rule: { ...S.settings, capUsd: R.capUsd(S.settings), flashLoans: S.flashLoans },
     solUsd: S.usd.get(C.SOL_MINT) ?? null, coins: S.coins.size, pools: [...S.coins.values()].reduce((s, c) => s + c.pools.length, 0),
+    memeQuotes: [...S.memeQuotes].map(([mint, q]) => ({ mint, symbol: q.symbol, usd: S.usd.get(mint) ?? null, link: S.quoteLinks.get(mint)?.address, venue: C.DEXES[S.quoteLinks.get(mint)?.dex]?.name, pricedIn: [...S.coins.values()].filter((c) => c.links.some((l) => l === S.quoteLinks.get(mint))).length })),
     poolsByVenue: Object.fromEntries(Object.keys(C.DEXES).map((d) => [C.DEXES[d].name, [...S.coins.values()].reduce((s, c) => s + c.pools.filter((p) => p.dex === d).length, 0)])),
     venues: venuesNow(),
-    stats: S.stats, gaps: S.book.done.length + S.book.open.size,
+    stats: S.stats, gaps: S.book.done.length + S.book.open.size, unwatched: S.unwatched.size,
     handover: standingHandovers(now), outcomes: S.outcomes.counts(), robotSaid: S.outcomes.latest.slice(0, 20),
     stage0: L.stage0Report([...S.book.done, ...S.book.open.values()], now),
     transferFeeCoins: [...S.coins.values()].filter((c) => c.cut > 0).map((c) => ({ mint: c.mint, symbol: c.symbol, pct: c.cut * 100 })),
@@ -901,6 +1027,8 @@ try {
   process.exit(1);
 }
 const watched = [...new Set([BRIDGE, ...ATAS.map(([, a]) => a), ...[...S.coins.values()].flatMap((c) => [...c.pools, ...c.links]).flatMap(L.watchedOf)])];
+// Nothing is handed over until its socket is listening and has read its accounts afresh.
+S.unwatched = new Set(watched);
 log(`${S.coins.size} coins with 2+ pools, ${[...S.coins.values()].reduce((s, c) => s + c.pools.length, 0)} pools, ${watched.length} accounts to watch on ${redactRpcUrl(WS)}; judging with ${S.ruleFrom}: cap $${R.capUsd(S.settings)}, floor $${S.settings.minProfitUsd} + the network fee + a Jito tip (the larger of 20,000 lamports and 30% of the gain)${S.flashLoans ? ', SOL loans on' : ''}`);
 for (let i = 0; i * ACCOUNTS_PER_SOCKET < watched.length; i++) {
   listen(watched.slice(i * ACCOUNTS_PER_SOCKET, (i + 1) * ACCOUNTS_PER_SOCKET), i + 1);

@@ -3,7 +3,7 @@
  * sends nothing. It answers one question before any send is built: when the pools are watched
  * live, how many gaps clear the robot's floor, through which venues, and how long each stays open.
  */
-import { DEXES } from './arb-chain.mjs';
+import { DEXES, SOL_MINT, USDC_MINT } from './arb-chain.mjs';
 import { JITO_LANDING_TIP_LAMPORTS, JITO_TIP_SHARE_PCT } from '../../src/lib/solana/keeper/jito.ts';
 
 /** The venues whose swap the robot builds itself, with no Jupiter (keeper/directLegs.ts): x·y = k pools. */
@@ -39,6 +39,9 @@ export function handoverOf(t, ctx) {
   if (!t.legs.every((l) => BUILDABLE_DEXES.has(l.dex))) return null;
   if (!t.outs.every((x) => Number.isFinite(x) && x >= 1)) return null;
   const mints = [...new Set(t.legs.flatMap((l) => [l.from, l.to]))];
+  // The prices the robot's floor and cap need: the trip's coins, and always SOL (the network fee
+  // and any tip are paid in it) and USDC.
+  const priced = [...new Set([...mints, SOL_MINT, USDC_MINT])];
   const route = routeOf(t);
   return {
     id: `${route}@${ctx.slot}@${ctx.now}`,
@@ -63,7 +66,7 @@ export function handoverOf(t, ctx) {
     gapPct: t.gapPct,
     transferFeePct: t.transferFeePct ?? 0,
     mints: Object.fromEntries(mints.map((m) => [m, ctx.programOf(m)])),
-    usd: Object.fromEntries(mints.filter((m) => ctx.usd.get(m) > 0).map((m) => [m, ctx.usd.get(m)])),
+    usd: Object.fromEntries(priced.filter((m) => ctx.usd.get(m) > 0).map((m) => [m, ctx.usd.get(m)])),
   };
 }
 
@@ -291,16 +294,25 @@ export function coinsFromMap(map, { max = Infinity } = {}) {
 export const SUSPECT_MS = 10 * 60_000;
 
 /**
+ * A gap that only a fresh HTTP read closed (scripts/arb-listen.mjs recheckOpenGaps): the
+ * websocket held a price the chain did not show when read again, so how long it was there, if
+ * ever, is unknown. 11-07 08:05Z: a '$278 W gap' (3,357%) closed this way; both pools agreed
+ * within 0.6% and neither traded. Counted apart, never as money.
+ */
+export const closedByFreshRead = (g) => g.closedBy === 'a fresh read';
+
+/**
  * Stage 0's answer from its gaps (GapBook records, or the listener's JSON lines): how many paid
  * after every cost, how long they stayed, and the money a sender reaching each one REACT_MS after
  * it opened would have found there. A gap still open (no `ms`) counts as lasting until `now`. One
- * open past SUSPECT_MS is counted apart, never as money. A gap gone within the slot it opened in
- * was never there to take.
+ * open past SUSPECT_MS, or closed only by a fresh read (closedByFreshRead), is counted apart,
+ * never as money. A gap gone within the slot it opened in was never there to take.
  */
 export function stage0Report(gaps, now) {
   const rows = gaps.map((g) => ({ ...g, stillOpen: g.ms === undefined, ms: g.ms ?? now - g.openedAt }));
   const sum = (xs, f) => xs.reduce((s, x) => s + f(x), 0);
-  const real = rows.filter((g) => g.ms < SUSPECT_MS);
+  const misread = rows.filter((g) => g.ms < SUSPECT_MS && closedByFreshRead(g));
+  const real = rows.filter((g) => g.ms < SUSPECT_MS && !closedByFreshRead(g));
   const sameSlot = (g) => !g.stillOpen && g.slots <= 0;
   const reached = (g, ms) => g.ms >= ms && !sameSlot(g);
   const at = (g, ms) => Math.max(0, g.netBy?.[ms] ?? g.firstNetUsd);
@@ -325,7 +337,9 @@ export function stage0Report(gaps, now) {
     goneBeforeReach: real.filter((g) => !reached(g, REACT_MS[0])).length,
     reach,
     usdIfEveryOneTakenAtOpen: sum(real, (g) => Math.max(0, g.firstNetUsd)),
-    suspect: rows.length - real.length,
+    suspect: rows.length - real.length - misread.length,
+    misread: misread.length,
+    misreadUsdAtOpen: sum(misread, (g) => Math.max(0, g.firstNetUsd)),
     stillOpen: rows.filter((g) => g.stillOpen).length,
     topCoins: [...byCoin.values()].sort((a, b) => b.usdAt1s - a.usdAt1s || b.gaps - a.gaps).slice(0, 15),
   };

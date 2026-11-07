@@ -186,6 +186,8 @@ export interface CycleResult {
 }
 
 const SIM_UNITS = MAX_TRIP_UNITS;
+/** Solana's size for one transaction (a packet): the RPC refuses anything longer. */
+export const MAX_TRANSACTION_BYTES = 1232;
 /**
  * The route size asked for again when Jupiter finds none within `maxAccounts`: a coin traded on
  * Pump.fun's pools needs more (BAYLA, GRR, walked 2026-10-31). A route too big to sit beside our
@@ -1427,7 +1429,17 @@ async function sendCheckedNow(io: KeeperIo, s: KeeperSettings, t: Trip): Promise
     return new VersionedTransaction(new TransactionMessage({ payerKey: owner, recentBlockhash: blockhash, instructions }).compileToV0Message(alts));
   };
 
-  const sim = await simulate(io.rpc, await build(SIM_UNITS, t.before.coin), keys);
+  let sim: Simulated;
+  try {
+    sim = await simulate(io.rpc, await build(SIM_UNITS, t.before.coin), keys);
+  } catch (e) {
+    // Too many accounts for one transaction (three swaps through pools no lookup table holds): no trip, and no error.
+    if (e instanceof Error && /do not fit in one transaction/.test(e.message)) {
+      io.log(`${t.name}: skipped, ${e.message}`);
+      return 'no-plan';
+    }
+    throw e;
+  }
   if (sim.err) {
     io.log(`${t.name}: test run refused (${JSON.stringify(sim.err)})${sim.lastLog ? `: ${sim.lastLog}` : ''}`);
     return 'test-failed';
@@ -1628,6 +1640,7 @@ async function simulate(rpc: SolanaRpc, tx: VersionedTransaction, keys: PublicKe
   } catch {
     throw new Error('the trip’s swaps do not fit in one transaction');
   }
+  if (bytes.length > MAX_TRANSACTION_BYTES) throw new Error(`the trip’s swaps do not fit in one transaction (${bytes.length} bytes of ${MAX_TRANSACTION_BYTES})`);
   const r = (await rpc('simulateTransaction', [
     Buffer.from(bytes).toString('base64'),
     {
