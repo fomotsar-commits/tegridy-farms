@@ -9,6 +9,9 @@ import { SolanaWalletModalProvider } from './SolanaWalletModal';
 import { SolanaProviders } from './SolanaProviders';
 import { PAIRING_REASONS, WalletConnectWalletAdapter, resetWalletConnectClientForTests } from '../../lib/solanaWalletConnect';
 import { orderWallets } from '../../lib/solanaWalletOrder';
+import { stopLeftoverIntervals } from '../../test/stopLeftoverIntervals';
+
+stopLeftoverIntervals();
 
 /**
  * The WalletConnect row inside the REAL WalletProvider and our modal, with the

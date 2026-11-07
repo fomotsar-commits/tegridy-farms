@@ -13,7 +13,9 @@ import { useConnection } from '@solana/wallet-adapter-react';
 import type { Connection } from '@solana/web3.js';
 import { SolanaProviders } from './SolanaProviders';
 import { resetSolanaSurfaceForTests } from '../../lib/solanaSurface';
+import { stopLeftoverIntervals } from '../../test/stopLeftoverIntervals';
 
+stopLeftoverIntervals();
 afterEach(() => {
   cleanup();
   act(() => resetSolanaSurfaceForTests());

@@ -58,6 +58,9 @@ import {
   getSolanaSurfaceState,
   resetSolanaSurfaceForTests,
 } from '../../lib/solanaSurface';
+import { stopLeftoverIntervals } from '../../test/stopLeftoverIntervals';
+
+stopLeftoverIntervals();
 
 let goTo: (path: string) => void = () => {};
 function Navigator() {
