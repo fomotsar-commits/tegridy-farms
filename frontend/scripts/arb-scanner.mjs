@@ -31,7 +31,8 @@
  *
  * Settings (environment): ARB_PORT (8791), ARB_RPC_URL (the public mainnet RPC),
  * ARB_LOG (a CSV of every test run; default in the system's temp folder), ARB_ROBOT_URL (the
- * robot's gap screen, http://127.0.0.1:8792/state.json; "off" judges with this scanner's own)
+ * robot's gap screen, http://127.0.0.1:8792/state.json; "off" judges with this scanner's own),
+ * ARB_COINS_FILE (the arbitrage map's ranked coins, scripts/arb-map.mjs; none by default)
  */
 import fs from 'node:fs';
 import http from 'node:http';
@@ -77,6 +78,8 @@ const LOG = process.env.ARB_LOG?.trim() || path.join(os.tmpdir(), 'arb-scanner-t
 const ROBOT_URL = process.env.ARB_ROBOT_URL?.trim() || 'http://127.0.0.1:8792/state.json';
 const ONCE = process.argv.includes('--once');
 const MAX_COINS = Number(process.env.ARB_MAX_COINS) || Infinity;
+/** The arbitrage map's ranked coins (scripts/arb-map.mjs, arb-map-coins.json), scanned beside the listing's. */
+const COINS_FILE = process.env.ARB_COINS_FILE?.trim() || '';
 const RPC_GAP_MS = 700;
 const JUP_GAP_MS = 3_000;
 const GECKO_PAGES = 10;
@@ -244,6 +247,16 @@ async function readUniverse() {
       for (const [m, s] of C.busyTokens(json)) if (!symbols.get(m)) symbols.set(m, s);
     } catch (e) {
       log(`GeckoTerminal page ${page} not read: ${said(e)}`);
+    }
+  }
+  // The coins the arbitrage map ranked from the whole chain, when a file is given: addresses only,
+  // each checked for shape (the file is written by another process).
+  if (COINS_FILE) {
+    try {
+      const listed = JSON.parse(fs.readFileSync(COINS_FILE, 'utf8'));
+      for (const m of Array.isArray(listed) ? listed : []) if (typeof m === 'string' && /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(m) && !symbols.has(m)) symbols.set(m, null);
+    } catch (e) {
+      log(`Map coins not read (${COINS_FILE}): ${said(e)}`);
     }
   }
   const fresh = [...symbols.keys()].filter((m) => !S.coins.has(m));
