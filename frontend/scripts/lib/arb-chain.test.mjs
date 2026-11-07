@@ -65,7 +65,7 @@ describe('depthOf sizes a concentrated pool from the liquidity in its band', () 
 });
 
 /** One coin's trips, given pools, with the robot's holdings. */
-function trips(pools, holds = new Map([[USDC_MINT, 1e12], [SOL_MINT, 1e15]]), bridgeFee = 400, settings = SETTINGS) {
+function trips(pools, holds = new Map([[USDC_MINT, 1e12], [SOL_MINT, 1e15]]), bridgeFee = 400, settings = SETTINGS, more = {}) {
   const decoded = pools.map((b, i) => decodePool('whirlpool', key(20 + i), b));
   const bridge = decodePool('whirlpool', key(40), (() => {
     const b = Buffer.alloc(653);
@@ -78,7 +78,7 @@ function trips(pools, holds = new Map([[USDC_MINT, 1e12], [SOL_MINT, 1e15]]), br
     return b;
   })());
   const depths = new Map(decoded.map((p) => [p.address, depthOf(p, new Map())]));
-  return tripsFor(decoded, { token: ZEC_MINT, decimals: 8, depths, usd: new Map([[USDC_MINT, 1], [SOL_MINT, 100]]), holds, bridge: { pool: bridge, depth: depthOf(bridge, new Map()) }, settings });
+  return tripsFor(decoded, { token: ZEC_MINT, decimals: 8, depths, usd: new Map([[USDC_MINT, 1], [SOL_MINT, 100]]), holds, bridge: { pool: bridge, depth: depthOf(bridge, new Map()) }, settings, ...more });
 }
 
 describe('tripsFor: only what the robot would take', () => {
@@ -107,6 +107,22 @@ describe('tripsFor: only what the robot would take', () => {
     const depths = new Map([a, b].map((p) => [p.address, depthOf(p, new Map())]));
     const [ours] = tripsFor([a, b], { token: ZEC_MINT, decimals: 8, depths, usd: new Map([[USDC_MINT, 1], [SOL_MINT, 100]]), holds: new Map(), bridge: null, settings: SETTINGS });
     expect(ours.robotTakes).toBe(true);
+  });
+  it('a coin with a 3% transfer fee pays it on both of its hops: the same 2% gap no longer pays', () => {
+    const pools = [whirlpool({ usd: 1000 }), whirlpool({ usd: 1020 })];
+    const [plain] = trips(pools);
+    const taxed = trips(pools, undefined, undefined, undefined, { tokenCut: 0.03 });
+    expect(plain.pays).toBe(true);
+    expect(taxed.every((t) => !t.pays)).toBe(true);
+    const [t] = taxed;
+    expect(t.transferFeePct).toBe(3);
+    expect(t.legs.find((l) => l.to === ZEC_MINT)).toMatchObject({ outCut: 0.03 });
+    expect(t.legs.find((l) => l.from === ZEC_MINT)).toMatchObject({ inCut: 0.03 });
+    expect(t.costPct).toBeCloseTo(0.3 + 0.3 + 6, 9);
+    // A small fee still lets it pay, for less.
+    const [light] = trips(pools, undefined, undefined, undefined, { tokenCut: 0.001 });
+    expect(light.pays).toBe(true);
+    expect(light.netUsd).toBeLessThan(plain.netUsd);
   });
   it('the same gap does not pay when the pools really charge 2%', () => {
     const t = trips([whirlpool({ usd: 1000, feeRate: 20_000 }), whirlpool({ usd: 1020, feeRate: 20_000 })]);

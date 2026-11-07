@@ -134,6 +134,34 @@ describe('judgeTrip', () => {
   });
 });
 
+describe('a transfer fee on each hop (CpLeg inCut, outCut)', () => {
+  const leg = (rin: number, rout: number): CpLeg => ({ rin, rout, fee: 0.0025 });
+  const big = (s = settings({ maxTradeUsd: 1e9, lighthouseProven: true })) => ({ decimals: 9, coinUsd: SOL_USD, solUsd: SOL_USD, holdsRaw: null, settings: s });
+
+  it('the pool swaps only what its vault received, and the trader keeps only what reached them', () => {
+    const l = leg(1e12, 3e12);
+    expect(runLegs([{ ...l, inCut: 0.03 }], 1e6)).toBeCloseTo(runLegs([l], 1e6 * 0.97), 6);
+    expect(runLegs([{ ...l, outCut: 0.03 }], 1e6)).toBeCloseTo(runLegs([l], 1e6) * 0.97, 6);
+  });
+
+  it('a 2% gap between two 0.25% pools pays, and does not once the coin keeps 3% of each hop', () => {
+    // SOL → coin at 1 coin a lamport, coin → SOL 2% dearer.
+    const plain: CpLeg[] = [leg(1e13, 1e13), leg(1e13, 1.02e13)];
+    const taxed: CpLeg[] = [{ ...plain[0]!, outCut: 0.03 }, { ...plain[1]!, inCut: 0.03 }];
+    const a = judgeTrip(plain, big());
+    const b = judgeTrip(taxed, big());
+    if (typeof a === 'string' || typeof b === 'string') throw new Error('not judged');
+    expect(a.takes).toBe(true);
+    expect(b.takes).toBe(false);
+    expect(b.gainUsd).toBeLessThanOrEqual(0);
+  });
+
+  it('refuses a fee that is not a rate under 100%', () => {
+    expect(judgeTrip([{ ...leg(1e13, 1e13), outCut: 1 }, leg(1e13, 1.02e13)], big())).toBe('a transfer fee is not a rate under 100%');
+    expect(judgeTrip([leg(1e13, 1e13), { ...leg(1e13, 1.02e13), inCut: -0.1 }], big())).toBe('a transfer fee is not a rate under 100%');
+  });
+});
+
 describe('rankTrips', () => {
   const t = (netUsd: number, roiPct: number, takes = true) => ({ judged: { netUsd, roiPct, takes } as never });
   it('puts the trips the robot takes first, then by profit or by ROI', () => {

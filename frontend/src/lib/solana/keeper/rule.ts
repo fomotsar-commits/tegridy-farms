@@ -134,16 +134,25 @@ export function coinBounds(coin: { decimals: number }, coinUsd: number | undefin
   return { unit, cap: BigInt(Math.floor(cap / unit)), capUsd: cap, floor, floorUsd: Number(floor) * unit, feeUsd };
 }
 
-/** One swap on x·y = k: what goes in (`rin` deep), what comes out (`rout` deep), and the fee kept from what goes in. */
+/**
+ * One swap on x·y = k: what goes in (`rin` deep), what comes out (`rout` deep), and the fee kept
+ * from what goes in. `inCut` and `outCut` are a Token-2022 transfer fee's rate on the coin going
+ * in (the pool's vault receives less than was sent, and swaps only that) and on the coin coming
+ * out (the trader receives less than the vault sent): a coin with a fee pays it on every hop
+ * (GROYPER's 3%, 11-06). Absent: no fee. The rate ignores the fee's per-transfer maximum, which
+ * can only make it smaller.
+ */
 export interface CpLeg {
   rin: number;
   rout: number;
   fee: number;
+  inCut?: number;
+  outCut?: number;
 }
 
 export const swapOut = (l: CpLeg, x: number): number => {
-  const xin = x * (1 - l.fee);
-  return (l.rout * xin) / (l.rin + xin);
+  const xin = x * (1 - (l.inCut ?? 0)) * (1 - l.fee);
+  return ((l.rout * xin) / (l.rin + xin)) * (1 - (l.outCut ?? 0));
 };
 
 /** What `x` of the start coin comes back as after every leg. */
@@ -202,6 +211,7 @@ export function judgeTrip(
 ): Judged | string {
   if (legs.length < 2) return 'a trip needs two swaps';
   if (legs.some((l) => !(l.rin > 0 && l.rout > 0 && l.fee >= 0 && l.fee < 1))) return 'a pool has no depth or no fee read';
+  if (legs.some((l) => [l.inCut ?? 0, l.outCut ?? 0].some((c) => !(c >= 0 && c < 1)))) return 'a transfer fee is not a rate under 100%';
   const b = coinBounds({ decimals: ctx.decimals }, ctx.coinUsd, ctx.solUsd, ctx.settings);
   if (typeof b === 'string') return b;
   const gain = (x: number) => runLegs(legs, x) - x;

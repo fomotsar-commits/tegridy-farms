@@ -265,6 +265,8 @@ export function legOf(pool, depth, fromMint) {
  *   holds             coin mint → what the robot holds, raw (missing: not read, sized by the cap)
  *   bridge            the SOL/USDC pool that closes a trip priced in both coins, with its depth
  *   settings          the robot's rule settings (keeper/rule.ts ruleSettingsFromEnv)
+ *   tokenCut          the token's Token-2022 transfer fee as a rate (0.03 for 3%), paid on each
+ *                     hop it makes: out of the pool it is bought from, into the pool it is sold to
  */
 export function tripsFor(pools, ctx) {
   const trips = [];
@@ -297,6 +299,12 @@ export function tripsFor(pools, ctx) {
         legs.push(legOf(ctx.bridge.pool, ctx.bridge.depth, end));
       }
       if (legs.length > 4) continue;
+      if (ctx.tokenCut > 0) {
+        for (const l of legs) {
+          if (l.from === ctx.token) l.inCut = ctx.tokenCut;
+          if (l.to === ctx.token) l.outCut = ctx.tokenCut;
+        }
+      }
       const coin = COINS[start];
       const holds = ctx.holds?.get(start);
       const judged = judgeTrip(legs, { decimals: coin.decimals, coinUsd: ctx.usd.get(start), solUsd: ctx.usd.get(SOL_MINT), holdsRaw: holds === undefined ? null : holds, settings: ctx.settings });
@@ -311,11 +319,12 @@ export function tripsFor(pools, ctx) {
       const priceSell = tokenUsd(legs[at + 1]);
       trips.push({
         coin: start,
-        legs: legs.map((l) => ({ pool: l.pool.address, dex: l.pool.dex, from: l.from, to: l.to, fee: l.fee, rough: Boolean(ctx.depths.get(l.pool.address)?.rough) })),
+        legs: legs.map((l) => ({ pool: l.pool.address, dex: l.pool.dex, from: l.from, to: l.to, fee: l.fee, rough: Boolean(ctx.depths.get(l.pool.address)?.rough), ...(l.inCut ? { inCut: l.inCut } : {}), ...(l.outCut ? { outCut: l.outCut } : {}) })),
         priceBuyUsd: priceBuy,
         priceSellUsd: priceSell,
         gapPct: (priceSell / priceBuy - 1) * 100,
-        costPct: legs.reduce((s, l) => s + l.fee, 0) * 100,
+        costPct: legs.reduce((s, l) => s + l.fee + (l.inCut ?? 0) + (l.outCut ?? 0), 0) * 100,
+        transferFeePct: (ctx.tokenCut ?? 0) * 100,
         judged,
         inRaw: judged.inRaw,
         inUsd: judged.inUsd,
