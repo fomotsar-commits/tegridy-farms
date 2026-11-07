@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { GapBook, SUSPECT_MS, accountsOf, afterCosts, byEachVenue, coinsByAccount, coinsFromMap, stage0Report, watchedOf } from './arb-listen.mjs';
+import { GapBook, SUSPECT_MS, accountsOf, afterCosts, byEachVenue, coinsByAccount, coinsFromMap, gapsFromLog, stage0Report, watchedOf } from './arb-listen.mjs';
 
 const trip = (pools, dexes, pays, netUsd = 0.05) => ({
   legs: pools.map((pool, i) => ({ pool, dex: dexes[i], rough: dexes[i] === 'dlmm' })),
@@ -140,5 +140,27 @@ describe('Stage 0: watched accounts, the map, the report', () => {
     expect(r.topCoins[0]).toMatchObject({ coin: 'B', gaps: 2, reached1s: 2 });
     expect(r.topCoins[1]).toMatchObject({ coin: 'A', gaps: 3, reached1s: 1 });
     expect(r.topCoins[0].usdAt1s).toBeCloseTo(0.16, 12);
+  });
+});
+
+describe('Stage 0: the gaps in the listener’s log', () => {
+  const line = (event, route, openedAt, at, more = {}) => JSON.stringify({ event, at: new Date(at).toISOString(), route, openedAt, coin: 'X', firstNetUsd: 0.1, bestNetUsd: 0.1, netBy: { 1000: 0.1, 3000: 0.1 }, ...more });
+  it('keeps each gap once: its close when it closed, its open when it never did', () => {
+    const lines = [
+      line('open', 'a>b', 1_000, 1_000),
+      line('open', 'c>d', 2_000, 2_000),
+      'not json, a line cut short',
+      line('close', 'a>b', 1_000, 4_000, { ms: 3_000, slots: 7 }),
+      line('open', 'a>b', 9_000, 9_000),
+    ];
+    const { gaps, firstAt, lastAt } = gapsFromLog(lines);
+    expect(gaps.map((g) => [g.route, g.openedAt, g.ms])).toEqual([['a>b', 1_000, 3_000], ['c>d', 2_000, undefined], ['a>b', 9_000, undefined]]);
+    expect(gaps[0]).not.toHaveProperty('event');
+    expect([firstAt, lastAt]).toEqual([1_000, 9_000]);
+    expect(stage0Report(gaps, lastAt)).toMatchObject({ gaps: 3, stillOpen: 2 });
+  });
+  it('from a time on: only gaps that opened since', () => {
+    const lines = [line('open', 'a>b', 1_000, 1_000), line('close', 'a>b', 1_000, 4_000, { ms: 3_000, slots: 7 }), line('open', 'c>d', 5_000, 5_000)];
+    expect(gapsFromLog(lines, 2_000).gaps.map((g) => g.route)).toEqual(['c>d']);
   });
 });

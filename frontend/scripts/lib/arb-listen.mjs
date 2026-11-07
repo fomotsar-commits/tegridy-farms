@@ -219,3 +219,32 @@ export function stage0Report(gaps, now) {
     topCoins: [...byCoin.values()].sort((a, b) => b.usdAt1s - a.usdAt1s || b.gaps - a.gaps).slice(0, 15),
   };
 }
+
+/**
+ * The gaps in the listener's log (its JSON lines, oldest first): each gap's last record, its
+ * `close` when it closed, else its `open` (still open when the log ends). A gap is its route and
+ * the time it opened. `since` (ms): only gaps that opened from then on. Lines that are not JSON
+ * are skipped (a line cut short by a stop).
+ */
+export function gapsFromLog(lines, since = 0) {
+  const byGap = new Map();
+  let firstAt = null;
+  let lastAt = null;
+  for (const line of lines) {
+    let e;
+    try {
+      e = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if ((e?.event !== 'open' && e?.event !== 'close') || typeof e.route !== 'string' || !Number.isFinite(e.openedAt)) continue;
+    const at = Date.parse(e.at);
+    if (Number.isFinite(at)) lastAt = Math.max(lastAt ?? at, at);
+    if (e.openedAt < since) continue;
+    firstAt = Math.min(firstAt ?? e.openedAt, e.openedAt);
+    const k = `${e.route}@${e.openedAt}`;
+    if (e.event === 'close' || !byGap.has(k)) byGap.set(k, e);
+  }
+  const gaps = [...byGap.values()].map(({ event, at: _at, ...g }) => (event === 'open' ? { ...g, ms: undefined } : g));
+  return { gaps, firstAt, lastAt };
+}
