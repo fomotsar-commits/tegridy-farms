@@ -293,7 +293,10 @@ describe('exact quotes in a trip (arb-chain.mjs tripsFor)', () => {
     // A bin pool's spot price comes from its active bin, not from what its arrays hold (whose ratio here would screen the trip out).
     const lopsided = new Map([[band.address, { a: 1e12, b: 1e12 }], [bins.address, { a: 1e12, b: 1e10, spot: 1.02 }]]);
     const bigGap = (p, from) => (x) => (p === bins && from === TOKEN ? (1.02e12 * x * 0.999) / (1e12 + x * 0.999) : (1e12 * x * 0.997) / (1e12 + x * 0.997));
-    expect(tripsFor([band, bins], { ...ctx(bigGap), depths: lopsided }).length).toBe(1);
+    const [trip] = tripsFor([band, bins], { ...ctx(bigGap), depths: lopsided });
+    expect(trip).toBeDefined();
+    // The gap shown is the spot prices' (2%), not the lopsided totals' ratio.
+    expect(trip.gapPct).toBeCloseTo(2, 6);
   });
 
   it('a bin pool’s depth is what its arrays hold when given, else rough', () => {

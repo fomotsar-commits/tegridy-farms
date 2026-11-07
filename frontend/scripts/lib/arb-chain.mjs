@@ -363,9 +363,11 @@ export function tripsFor(pools, ctx) {
       const judged = judgeTrip(legs, { decimals: coin.decimals, coinUsd: ctx.usd.get(start), solUsd: ctx.usd.get(SOL_MINT), holdsRaw: holds === undefined ? null : holds, settings: ctx.settings });
       if (typeof judged === 'string') continue;
       const decimalsOf = (m) => (COINS[m] ?? QUOTES[m]).decimals;
+      // The token's price in each leg at zero size: the leg's spot (a bin pool's active bin; a depth's ratio otherwise).
       const tokenUsd = (l) => {
         const q = l.from === ctx.token ? l.to : l.from;
-        return (l.from === ctx.token ? l.rout / l.rin : l.rin / l.rout) * 10 ** (ctx.decimals - decimalsOf(q)) * (ctx.usd.get(q) ?? NaN);
+        const perFrom = l.spot ?? l.rout / l.rin;
+        return (l.from === ctx.token ? perFrom : 1 / perFrom) * 10 ** (ctx.decimals - decimalsOf(q)) * (ctx.usd.get(q) ?? NaN);
       };
       const at = qBuy === start ? 0 : 1;
       const priceBuy = tokenUsd(legs[at]);
