@@ -29,6 +29,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { register } from 'node:module';
 import { PublicKey } from '@solana/web3.js';
+import { redactRpcUrl } from '../../scripts/lib/redact-url.mjs';
 
 // The robot's TS modules run here as they do in scripts/arb-scanner.mjs: its loader, registered
 // before anything imports them.
@@ -261,7 +262,7 @@ function print() {
 
 // ─── main ─────────────────────────────────────────────────────────────────────────────────
 await fs.mkdir(DIR, { recursive: true });
-log(`arb map: scans ${new URL(SCAN_RPC).host} every ${GAP_MS} ms, reads ${new URL(READ_RPC).host} every ${READ_GAP_MS} ms, slices ${SLICE_FROM}-${SLICE_TO}, cache ${DIR}`);
+log(`arb map: scans ${redactRpcUrl(SCAN_RPC)} every ${GAP_MS} ms, reads ${redactRpcUrl(READ_RPC)} every ${READ_GAP_MS} ms, slices ${SLICE_FROM}-${SLICE_TO}, cache ${DIR}`);
 for (;;) {
   // A round that fails (a host gone for minutes) is logged and tried again next round; a listing
   // round counts as done only once its first pass is, and its slices are cached, so a retry is cheap.
