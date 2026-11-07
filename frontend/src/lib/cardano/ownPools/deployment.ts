@@ -94,7 +94,7 @@ export function readOwnPoolsDeployment(raw: OwnPoolsDeploymentRecord | null = OW
   if ([factoryRef, authenRef, orderRef].some((r) => MINSWAP_REF_TXS.has(r.txHash))) return no('a reference script is one of Minswap’s');
   const treasury = parseAddressBech32(raw.treasury);
   if (!treasury || treasury.network !== MAINNET_NETWORK_ID) return no('the treasury is not a mainnet address');
-  if (CARDANO_VENUE_FEE_ADDRESS === null || raw.treasury !== CARDANO_VENUE_FEE_ADDRESS) return no('the treasury is not the venue’s two-key treasury');
+  if (raw.treasury !== CARDANO_VENUE_FEE_ADDRESS) return no('the treasury is not the venue’s two-key treasury');
   if (typeof raw.openingFeeLovelace !== 'string' || !DECIMAL.test(raw.openingFeeLovelace)) return no('the opening fee is not a whole lovelace amount');
   if (typeof raw.batcherFeeLovelace !== 'string' || !DECIMAL.test(raw.batcherFeeLovelace)) return no('the batcher fee is not a whole lovelace amount');
   const openingFee = BigInt(raw.openingFeeLovelace);

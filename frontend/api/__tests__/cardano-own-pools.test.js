@@ -2,7 +2,7 @@
 // deployment record is null, and once it exists each is pinned to it; the caller names only an
 // LP token, never a script, a policy or a path.
 import { describe, it, expect } from "vitest";
-import { buildKoiosRequest, CARDANO_OPS, ownPoolOps } from "../_lib/cardano-ops.js";
+import { buildKoiosRequest, CARDANO_OPS, cardanoOps, ownPoolOps } from "../_lib/cardano-ops.js";
 import { OWN_POOLS_DEPLOYMENT } from "../_lib/cardano-own-pools.js";
 import { MINSWAP_V2 } from "../../src/lib/cardano/minswapV2";
 import { TEST_RECORD } from "../../src/lib/cardano/ownPools/testWorld.fixture";
@@ -16,6 +16,13 @@ describe("own-pool reads", () => {
       expect(Object.prototype.hasOwnProperty.call(CARDANO_OPS, op)).toBe(false);
       expect(buildKoiosRequest(op, op === "ownpool" ? { lp: LP } : {}, "")).toEqual({ error: 404, message: "Unknown Cardano read" });
     }
+  });
+
+  it("join the named reads once a record exists, and only then", () => {
+    expect(Object.keys(cardanoOps(null)).sort()).toEqual(Object.keys(CARDANO_OPS).sort());
+    const withRecord = cardanoOps(TEST_RECORD);
+    for (const op of ["ownpool", "ownfactory", "ownsetting"]) expect(Object.prototype.hasOwnProperty.call(withRecord, op)).toBe(true);
+    for (const op of Object.keys(CARDANO_OPS)) expect(withRecord[op]).toBe(CARDANO_OPS[op]);
   });
 
   it("read our pool script under our policy, the caller's LP name only", () => {

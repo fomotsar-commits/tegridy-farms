@@ -29,7 +29,7 @@ export interface TestWorld {
 export const WORLD = fixture<TestWorld>('own-pools-test-world.json');
 
 /** The venue's two-key treasury (venueFee.ts), proven on mainnet 2026-11-07. */
-export const VENUE_TREASURY: ParsedAddress = parseAddressBech32(CARDANO_VENUE_FEE_ADDRESS ?? '')!;
+export const VENUE_TREASURY: ParsedAddress = parseAddressBech32(CARDANO_VENUE_FEE_ADDRESS as string)!;
 
 export const TEST_RECORD: OwnPoolsDeploymentRecord = {
   authenPolicy: WORLD.scripts.authen.hash,

@@ -30,6 +30,10 @@ export function cardanoscanTx(txHash: string): string {
   return `https://cardanoscan.io/transaction/${txHash}`;
 }
 
+const HEX = /^[0-9a-f]*$/i;
+
+/** A coin's Cardanoscan page. The ids can come from what a visitor typed: only hex reaches the link. */
 export function cardanoscanToken(policyId: string, assetName: string): string {
-  return `https://cardanoscan.io/token/${policyId}${assetName}`;
+  if (!HEX.test(policyId) || !HEX.test(assetName)) return 'https://cardanoscan.io/';
+  return `https://cardanoscan.io/token/${encodeURIComponent(policyId + assetName)}`;
 }
