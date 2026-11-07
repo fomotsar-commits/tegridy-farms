@@ -17,7 +17,7 @@ import {
   type FactoryEntry,
 } from './chainReads';
 import { factoryDatumHex } from './openPoolTx';
-import { TEST_RECORD, TEST_TREASURY } from './testWorld.fixture';
+import { TEST_RECORD, VENUE_TREASURY } from './testWorld.fixture';
 
 let csl: Csl;
 let dep: OwnPools;
@@ -44,6 +44,8 @@ const constr = (alt: number, fs: PlutusData[]) => {
 };
 const bytes = (h: string) => csl.PlutusData.new_bytes(Uint8Array.from(Buffer.from(h, 'hex')));
 const cred = (kind: 'key' | 'script', h: string) => constr(kind === 'key' ? 0 : 1, [bytes(h)]);
+/** The treasury as a datum Address: payment, then stake Some(Inline(cred)). */
+const treasuryDatum = () => constr(0, [cred('script', VENUE_TREASURY.payment.hash), constr(0, [constr(0, [cred('script', VENUE_TREASURY.stake!.hash)])])]);
 
 /** GlobalSetting with #1016's two fields: batchers, five roles, the fee, its receiver. */
 function settingDatum(fee: bigint, receiver: PlutusData): string {
@@ -87,12 +89,13 @@ describe('the factory’s list', () => {
 
 describe('the global setting', () => {
   it('reads the opening fee and the receiver’s two credentials', () => {
-    const d = readGlobalSettingDatum(csl, settingDatum(73_000_000n, constr(0, [cred('script', '7e'.repeat(28)), constr(1, [])])));
-    expect(d).toEqual({ openingFee: 73_000_000n, receiver: { payment: { kind: 'script', hash: '7e'.repeat(28) }, stake: null } });
-    expect(receiverIs(d!.receiver, TEST_TREASURY)).toBe(true);
-    // Same hash as a key, or with a stake part: another address.
-    expect(receiverIs({ payment: { kind: 'key', hash: '7e'.repeat(28) }, stake: null }, TEST_TREASURY)).toBe(false);
-    expect(receiverIs({ payment: { kind: 'script', hash: '7e'.repeat(28) }, stake: { kind: 'key', hash: '01'.repeat(28) } }, TEST_TREASURY)).toBe(false);
+    const d = readGlobalSettingDatum(csl, settingDatum(73_000_000n, treasuryDatum()));
+    expect(d).toEqual({ openingFee: 73_000_000n, receiver: { payment: VENUE_TREASURY.payment, stake: VENUE_TREASURY.stake } });
+    expect(receiverIs(d!.receiver, VENUE_TREASURY)).toBe(true);
+    // Same hash as a key, without its stake script, or with another stake part: another address.
+    expect(receiverIs({ payment: { kind: 'key', hash: VENUE_TREASURY.payment.hash }, stake: VENUE_TREASURY.stake }, VENUE_TREASURY)).toBe(false);
+    expect(receiverIs({ payment: VENUE_TREASURY.payment, stake: null }, VENUE_TREASURY)).toBe(false);
+    expect(receiverIs({ payment: VENUE_TREASURY.payment, stake: { kind: 'key', hash: '01'.repeat(28) } }, VENUE_TREASURY)).toBe(false);
   });
 
   it('refuses Minswap’s own six-field setting (no opening fee) and a pointer stake part', () => {
@@ -110,7 +113,7 @@ describe('the global setting', () => {
       address: at.bech32,
       value: '5000000',
       asset_list: [{ policy_id: dep.authenPolicy, asset_name: '4d534753', quantity: '1' }],
-      inline_datum: { bytes: settingDatum(73_000_000n, constr(0, [cred('script', '7e'.repeat(28)), constr(1, [])])) },
+      inline_datum: { bytes: settingDatum(73_000_000n, treasuryDatum()) },
     };
     answer([row]);
     const r = await readGlobalSetting(csl, dep);

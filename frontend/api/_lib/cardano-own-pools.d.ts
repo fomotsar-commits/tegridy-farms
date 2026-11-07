@@ -21,7 +21,7 @@ export interface OwnPoolsDeploymentRecord {
   authenRef: ScriptRefRecord;
   /** The first GlobalSetting's pool_creation_fee, lovelace, decimal: "73000000". */
   openingFeeLovelace: string;
-  /** pool_creation_fee_receiver: the two-key treasury, whole bech32. */
+  /** pool_creation_fee_receiver, whole bech32: exactly venueFee.ts CARDANO_VENUE_FEE_ADDRESS, the two-key treasury; any other is refused. */
   treasury: string;
   /**
    * The max_batcher_fee every order this site writes carries, lovelace. AT LEAST the batcher's own

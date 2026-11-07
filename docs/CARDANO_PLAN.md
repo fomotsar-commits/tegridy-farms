@@ -99,7 +99,8 @@ pays every trader at least their minimum. It is also audit scope.
   pools' ADA (which since the Plomin hard fork need a DRep delegation to withdraw).
 - **The split** is off chain, quarterly from the treasury, as on EVM (30/35/35, later 10/45/45).
 - **The treasury** exists and is proven (2026-11-07): `CARDANO_VENUE_FEE_ADDRESS` names it, and
-  the pools' deploy must name the same address as the opening fee's receiver.
+  the pools' deploy must name the same address as the opening fee's receiver; the LP screens refuse
+  a record naming any other.
 
 **Order of work:** (1) vendor the contracts at the pinned commit with a provenance check like
 `solana/guards/provenance.mjs`, and prove our build matches Minswap's mainnet script bytes before
@@ -111,7 +112,8 @@ remove, open a pool. Off (`CARDANO_OWN_POOLS_OPEN = false` in `frontend/src/lib/
 walked in a `--mode cardano-preview` build. Every hash, address and fee comes from ONE record,
 `frontend/api/_lib/cardano-own-pools.js`, null until the deploy: while null the screens say the
 pools are not open, build nothing, and the API has no own-pool reads. The record refuses any of
-Minswap's script hashes, its pool stake key and its reference UTxOs. Add and remove are orders at
+Minswap's script hashes, its pool stake key and its reference UTxOs, and any treasury but the
+proven two-key one (`CARDANO_VENUE_FEE_ADDRESS`, exactly). Add and remove are orders at
 our order script for our batcher; opening spends our factory entry and pays the opening fee to the
 treasury, checked against the chain's global setting before anything is built. The deploy owes,
 for these screens: fill the record from the deploy's own output; measure the pool opening's two
