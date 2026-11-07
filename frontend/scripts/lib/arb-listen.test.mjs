@@ -40,6 +40,9 @@ describe('which accounts move which coins', () => {
   it('a band pool by its own account; a pair pool by its account and both vaults', () => {
     expect(accountsOf({ kind: 'band', address: 'a', vaultA: 'va', vaultB: 'vb' })).toEqual(['a']);
     expect(accountsOf({ kind: 'pair', address: 'a', vaultA: 'va', vaultB: 'vb' })).toEqual(['a', 'va', 'vb']);
+    // A band pool's tick arrays and a bin pool's bin arrays, once read, move its price too.
+    expect(accountsOf({ kind: 'band', address: 'a', arrays: ['t1', 't2'] })).toEqual(['a', 't1', 't2']);
+    expect(accountsOf({ kind: 'bins', address: 'a', vaultA: 'va', vaultB: 'vb', arrays: ['b1'] })).toEqual(['a', 'va', 'vb', 'b1']);
   });
   it('a pricing coin’s link pool moves every coin priced in it', () => {
     const link = { kind: 'pair', address: 'L', vaultA: 'L1', vaultB: 'L2' };
@@ -102,6 +105,9 @@ describe('Stage 0: watched accounts, the map, the report', () => {
     for (const dex of ['cpmm', 'ammV4', 'ours']) expect(watchedOf(pair(dex))).toEqual(['va', 'vb']);
     expect(watchedOf(pair('pumpswap'))).toEqual(['a', 'va', 'vb']);
     expect(watchedOf({ kind: 'band', dex: 'whirlpool', address: 'a' })).toEqual(['a']);
+    // Tick arrays change only with liquidity: re-read, not watched. Bin arrays change with every swap: watched.
+    expect(watchedOf({ kind: 'band', dex: 'clmm', address: 'a', arrays: ['t1'] })).toEqual(['a']);
+    expect(watchedOf({ kind: 'bins', dex: 'dlmm', address: 'a', vaultA: 'va', vaultB: 'vb', arrays: ['b1', 'b2'] })).toEqual(['a', 'b1', 'b2']);
   });
 
   it('takes the map’s coins with two or more pools the robot prices exactly, in the map’s order', () => {

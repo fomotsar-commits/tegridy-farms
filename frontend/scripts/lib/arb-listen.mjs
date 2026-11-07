@@ -9,17 +9,27 @@ import { JITO_LANDING_TIP_LAMPORTS, JITO_TIP_SHARE_PCT } from '../../src/lib/sol
 /** The venues whose swap the robot builds itself, with no Jupiter (keeper/directLegs.ts): x·y = k pools. */
 export const DIRECT_DEXES = new Set(['ours', 'cpmm', 'pumpswap', 'ammV4']);
 
-/** The accounts that move a pool's price: a band pool's own account; a pair or bin pool's and its two vaults. */
-export const accountsOf = (p) => (p.kind === 'band' ? [p.address] : [p.address, p.vaultA, p.vaultB]);
+/**
+ * The accounts that move a pool's price: a band pool's own account and its tick arrays; a pair or
+ * bin pool's and its two vaults, and a bin pool's bin arrays. `arrays` are the array accounts the
+ * listener read for the pool (lib/arb-venues.mjs), none until it has.
+ */
+export const accountsOf = (p) => (p.kind === 'band' ? [p.address, ...(p.arrays ?? [])] : [p.address, p.vaultA, p.vaultB, ...(p.arrays ?? [])]);
 
 /**
  * The accounts worth a websocket subscription when they are scarce (a public host gives a few
  * hundred an IP). A Raydium CPMM, AMM v4 or our pool trades on its two vaults; its own account
  * holds only the fees it owes, which grow by a share of each swap's fee, so it is re-read now and
  * then instead (arb-listen.mjs). A PumpSwap pool's account holds a price adjustment and a band
- * pool's its price: those stay watched.
+ * pool's its price and in-band liquidity: those stay watched; a band pool's tick arrays change
+ * only when liquidity is added or taken, so they are re-read now and then. A bin pool's bin
+ * arrays change with every swap through them: watched.
  */
-export const watchedOf = (p) => (p.kind === 'pair' && p.dex !== 'pumpswap' ? [p.vaultA, p.vaultB] : accountsOf(p));
+export const watchedOf = (p) => {
+  if (p.kind === 'pair') return p.dex === 'pumpswap' ? accountsOf(p) : [p.vaultA, p.vaultB];
+  if (p.kind === 'band') return [p.address];
+  return [p.address, ...(p.arrays ?? [])];
+};
 
 /**
  * A trip's money after EVERY cost a send pays (Stage 0, owner 2026-11-07: arbs "that are actually

@@ -162,6 +162,28 @@ describe('a transfer fee on each hop (CpLeg inCut, outCut)', () => {
   });
 });
 
+describe('an exact quote on a leg (CpLeg out)', () => {
+  const big = () => ({ decimals: 9, coinUsd: SOL_USD, solUsd: SOL_USD, holdsRaw: null, settings: settings({ maxTradeUsd: 1e9, lighthouseProven: true }) });
+
+  it('stands in for x·y = k, and the transfer fees still apply around it', () => {
+    const l: CpLeg = { rin: 1e13, rout: 1e13, fee: 0.0025 };
+    const exact: CpLeg = { ...l, out: (xIn) => (1e13 * xIn * 0.9975) / (1e13 + xIn * 0.9975) };
+    expect(runLegs([exact], 1e6)).toBeCloseTo(runLegs([l], 1e6), 6);
+    expect(runLegs([{ ...exact, inCut: 0.03, outCut: 0.02 }], 1e6)).toBeCloseTo(runLegs([{ ...l, inCut: 0.03, outCut: 0.02 }], 1e6), 6);
+  });
+
+  it('is what the trip is sized and judged by: a quote that pays 2% more than the pool’s own figures makes the gap', () => {
+    const cheap: CpLeg = { rin: 1e13, rout: 1e13, fee: 0.0025 };
+    const dear: CpLeg = { ...cheap, out: (xIn) => (1.02e13 * xIn * 0.9975) / (1e13 + xIn * 0.9975) };
+    const a = judgeTrip([cheap, { ...cheap }], big());
+    const b = judgeTrip([cheap, dear], big());
+    if (typeof a === 'string' || typeof b === 'string') throw new Error('not judged');
+    expect(a.takes).toBe(false);
+    expect(b.takes).toBe(true);
+    expect(b.sizedBy).toBe('gap');
+  });
+});
+
 describe('rankTrips', () => {
   const t = (netUsd: number, roiPct: number, takes = true) => ({ judged: { netUsd, roiPct, takes } as never });
   it('puts the trips the robot takes first, then by profit or by ROI', () => {

@@ -114,13 +114,21 @@ export function decodePool(dex, address, data) {
   switch (dex) {
     case 'whirlpool': {
       const liquidity = u128(data, 49);
-      return { ...base, kind: 'band', fee: u16(data, 45) / 1e6, liquidity, sqrtPriceX64: u128(data, 65), mintA: key(data, 101), vaultA: key(data, 133), mintB: key(data, 181), vaultB: key(data, 213), stopped: liquidity === 0n ? 'no liquidity at its price' : null };
+      const tickSpacing = u16(data, 41);
+      // A pool on an adaptive fee tier (fee_tier_index ≠ tick_spacing) adds a fee from its Oracle
+      // account that is not read: priced, it would look cheaper than it is. Left out, and said so.
+      const adaptive = u16(data, 43) !== tickSpacing;
+      return {
+        ...base, kind: 'band', fee: u16(data, 45) / 1e6, liquidity, sqrtPriceX64: u128(data, 65), tickCurrent: i32(data, 81), tickSpacing, adaptive,
+        mintA: key(data, 101), vaultA: key(data, 133), mintB: key(data, 181), vaultB: key(data, 213),
+        stopped: liquidity === 0n ? 'no liquidity at its price' : adaptive ? 'adaptive fee tier: its Oracle account is not read' : null,
+      };
     }
     case 'clmm': {
       const liquidity = u128(data, 237);
       const status = data[389];
       return {
-        ...base, kind: 'band', config: key(data, 9), liquidity, sqrtPriceX64: u128(data, 253),
+        ...base, kind: 'band', config: key(data, 9), liquidity, sqrtPriceX64: u128(data, 253), tickSpacing: u16(data, 235), tickCurrent: i32(data, 269),
         mintA: key(data, 73), mintB: key(data, 105), vaultA: key(data, 137), vaultB: key(data, 169),
         stopped: status & 16 ? 'trading switched off' : liquidity === 0n ? 'no liquidity at its price' : null,
       };
@@ -220,10 +228,17 @@ export const tokenAmount = (data) => (Buffer.isBuffer(data) && data.length >= 72
 /**
  * What a pool trades like near its price, in raw units: x·y = k on `a` and `b`. A pair pool's
  * are its reserves (vaults less the fees parked in them); a band pool's are its in-band
- * liquidity's (L/√P and L·√P), which hold only within the band; a bin pool's are its smaller
- * side at its active bin's price, a rough depth. Null when it cannot be priced.
+ * liquidity's (L/√P and L·√P), which hold only within the band; a bin pool's are what its read
+ * bin arrays hold (`bins(pool)`, lib/arb-venues.mjs dlmmDepth), else its smaller side at its
+ * active bin's price, a rough depth. Null when it cannot be priced. A band or bin pool's depth
+ * only describes it: its trips are priced by an exact quote (tripsFor `ctx.exact`).
  */
-export function depthOf(pool, amounts) {
+export function depthOf(pool, amounts, bins) {
+  if (pool.kind === 'bins' && bins) {
+    const d = bins(pool);
+    // `spot`: B per A at the active bin, the price at zero size (the totals' ratio is not it).
+    if (d && (d.a > 0 || d.b > 0)) return { a: d.a, b: d.b, ...(d.spot > 0 ? { spot: d.spot } : {}) };
+  }
   if (pool.kind === 'band') {
     const sqrtP = Number(pool.sqrtPriceX64) / 2 ** 64;
     const L = Number(pool.liquidity);
@@ -249,10 +264,15 @@ export const swapOut = (rin, rout, fee, x) => {
   return (rout * xin) / (rin + xin);
 };
 
-/** A leg of a trip: the pool, which way, its depth that way (`rin`, `rout`) and fee. */
-export function legOf(pool, depth, fromMint) {
+/**
+ * A leg of a trip: the pool, which way, its depth that way (`rin`, `rout`) and fee, and for a
+ * band or bin pool the exact quote `out` (raw in → raw out) the robot's rule sizes it by.
+ */
+export function legOf(pool, depth, fromMint, out) {
   const aToB = pool.mintA === fromMint;
-  return { pool, from: fromMint, to: aToB ? pool.mintB : pool.mintA, rin: aToB ? depth.a : depth.b, rout: aToB ? depth.b : depth.a, fee: pool.fee };
+  // The price at zero size, `to` per `from`: a depth's ratio (x·y = k, a band's virtual reserves), or a bin pool's active bin.
+  const spot = depth.spot > 0 ? (aToB ? depth.spot : 1 / depth.spot) : aToB ? depth.b / depth.a : depth.a / depth.b;
+  return { pool, from: fromMint, to: aToB ? pool.mintB : pool.mintA, rin: aToB ? depth.a : depth.b, rout: aToB ? depth.b : depth.a, fee: pool.fee, spot, ...(out ? { out } : {}) };
 }
 
 /**
@@ -267,6 +287,11 @@ export function legOf(pool, depth, fromMint) {
  *   settings          the robot's rule settings (keeper/rule.ts ruleSettingsFromEnv)
  *   tokenCut          the token's Token-2022 transfer fee as a rate (0.03 for 3%), paid on each
  *                     hop it makes: out of the pool it is bought from, into the pool it is sold to
+ *   exact             (pool, fromMint) → an exact quote (raw in → raw out, the pool's fee inside)
+ *                     for a band or bin pool, or null when its ticks or bins are not read. Given
+ *                     `exact`, a band or bin pool with no quote is left out: priced from its band
+ *                     alone or its vaults it made the fake gaps of 11-06. Without `exact` at all
+ *                     (the scanner), a band pool is priced from its band as before.
  */
 export function tripsFor(pools, ctx) {
   const trips = [];
@@ -276,10 +301,17 @@ export function tripsFor(pools, ctx) {
   // it is not a real one. 11-06/07: 1,328 of 1,330 test runs through one lost at Jupiter's real
   // quote (median -1.32% against +0.52% on paper); the other two lost too. Left out until the
   // bins are read.
+  const strict = typeof ctx.exact === 'function';
+  const exactOf = (p, from) => (p.kind === 'pair' || !strict ? null : (ctx.exact(p, from) ?? null));
   const usable = pools.filter((p) => !p.stopped && ctx.depths.get(p.address) && !ctx.depths.get(p.address).rough && linked(p.mintA === ctx.token ? p.mintB : p.mintA));
   const coinOf = (p) => (p.mintA === ctx.token ? p.mintB : p.mintA);
   const link = (q) => ctx.quotes.get(q);
   const coinAcross = (q) => (COINS[q] ? q : link(q).pool.mintA === q ? link(q).pool.mintB : link(q).pool.mintA);
+  // A leg, or null when the pool is a band or bin pool with no exact quote (strict).
+  const leg = (pool, depth, from) => {
+    const out = exactOf(pool, from);
+    return strict && pool.kind !== 'pair' && !out ? null : legOf(pool, depth, from, out);
+  };
   for (const buy of usable) {
     for (const sell of usable) {
       if (buy === sell) continue;
@@ -287,23 +319,29 @@ export function tripsFor(pools, ctx) {
       const qSell = coinOf(sell);
       const start = coinAcross(qBuy);
       const legs = [];
-      if (qBuy !== start) legs.push(legOf(link(qBuy).pool, link(qBuy).depth, start));
-      legs.push(legOf(buy, ctx.depths.get(buy.address), qBuy), legOf(sell, ctx.depths.get(sell.address), ctx.token));
+      if (qBuy !== start) legs.push(leg(link(qBuy).pool, link(qBuy).depth, start));
+      legs.push(leg(buy, ctx.depths.get(buy.address), qBuy), leg(sell, ctx.depths.get(sell.address), ctx.token));
       let end = qSell;
       if (!COINS[qSell]) {
-        legs.push(legOf(link(qSell).pool, link(qSell).depth, qSell));
+        legs.push(leg(link(qSell).pool, link(qSell).depth, qSell));
         end = coinAcross(qSell);
       }
       if (end !== start) {
         if (!ctx.bridge) continue;
-        legs.push(legOf(ctx.bridge.pool, ctx.bridge.depth, end));
+        legs.push(leg(ctx.bridge.pool, ctx.bridge.depth, end));
       }
-      if (legs.length > 4) continue;
+      if (legs.length > 4 || legs.some((l) => l === null)) continue;
       if (ctx.tokenCut > 0) {
         for (const l of legs) {
           if (l.from === ctx.token) l.inCut = ctx.tokenCut;
           if (l.to === ctx.token) l.outCut = ctx.tokenCut;
         }
+      }
+      if (strict) {
+        // Prices only worsen with size: a trip whose gap at zero size does not clear its fees pays
+        // at no size, and is not sized (an exact walk costs milliseconds a trip, and most pay nothing).
+        const atZero = legs.reduce((v, l) => v * l.spot * (1 - l.fee) * (1 - (l.inCut ?? 0)) * (1 - (l.outCut ?? 0)), 1);
+        if (!(atZero > 1)) continue;
       }
       const coin = COINS[start];
       const holds = ctx.holds?.get(start);

@@ -24,12 +24,20 @@
  * after it opened would have found; a gap still open after ARB_RECHECK_MS is read afresh over
  * HTTP (a missed websocket update closes it there). state.json's `stage0` is the day's answer.
  *
+ * The concentrated and bin venues (Orca, Raydium CLMM, Meteora DLMM; owner 2026-11-07: "where
+ * the volume already is") are priced to the unit by lib/arb-venues.mjs from their tick or bin
+ * arrays, read at discovery (the arrays near the price) and on demand when a quote reaches past
+ * them; a bin array is watched (it changes with every swap), a tick array re-read now and then.
+ * A band or bin pool with no quote (an Orca pool on an adaptive fee tier, an array not read yet)
+ * is left out of that judgement and counted (`venues` in state.json).
+ *
  *   node scripts/arb-listen.mjs        counts at http://127.0.0.1:8799/state.json; Ctrl+C stops it
  *
  * Settings (environment): ARB_LISTEN_PORT (8799), ARB_RPC_URL (public mainnet), ARB_WS_URL (the
  * RPC's, as ws), ARB_ROBOT_URL (http://127.0.0.1:8792/state.json), ARB_LISTEN_LOG (each gap, JSON
  * lines; default in the system's temp folder), ARB_MAX_COINS, ARB_LISTEN_COMMITMENT (confirmed),
- * ARB_MAP_FILE (the map's arb-map.json: Stage 0), ARB_RPC_GAP_MS (1500 between reads),
+ * ARB_MAP_FILE (the map's arb-map.json: Stage 0), ARB_SCAN_RPC_URL (the one program-wide read
+ * of our own pools, which publicnode refuses: the public mainnet RPC), ARB_RPC_GAP_MS (1500 between reads),
  * ARB_READ_BATCH (accounts a read: 100, publicnode 10), ARB_WS_PER_SOCKET (80),
  * ARB_MIN_DEPTH_USD (1000 a pool), ARB_RECHECK_MS (5000), ARB_POOL_REREAD_MS (120000).
  *
@@ -72,12 +80,14 @@ register(`data:text/javascript,${encodeURIComponent(loaderSource)}`);
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const C = await import('./lib/arb-chain.mjs');
 const L = await import('./lib/arb-listen.mjs');
+const V = await import('./lib/arb-venues.mjs');
 const R = await import(pathToFileURL(path.join(HERE, '..', 'src', 'lib', 'solana', 'keeper', 'rule.ts')).href);
 const TS = await import(pathToFileURL(path.join(HERE, '..', 'src', 'lib', 'solana', 'lp', 'tokenSafety.ts')).href);
 const TF = await import(pathToFileURL(path.join(HERE, '..', 'src', 'lib', 'solana', 'lp', 'transferFee.ts')).href);
 
 const PORT = Number(process.env.ARB_LISTEN_PORT || 8799);
 const RPC = process.env.ARB_RPC_URL?.trim() || 'https://api.mainnet-beta.solana.com';
+const SCAN_RPC = process.env.ARB_SCAN_RPC_URL?.trim() || 'https://api.mainnet-beta.solana.com';
 const WS = process.env.ARB_WS_URL?.trim() || RPC.replace(/^http/i, 'ws');
 const ROBOT_URL = process.env.ARB_ROBOT_URL?.trim() || 'http://127.0.0.1:8792/state.json';
 const LOG = process.env.ARB_LISTEN_LOG?.trim() || path.join(os.tmpdir(), 'arb-listen-gaps.jsonl');
@@ -134,14 +144,17 @@ function gated(gap, rest, read) {
     }
   };
 }
-const rpc = gated(RPC_GAP_MS, 30_000, async (method, params) => {
-  const r = await fetch(RPC, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }), signal: AbortSignal.timeout(30_000) });
+const callRpc = (url) => async (method, params) => {
+  const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }), signal: AbortSignal.timeout(30_000) });
   if (r.status === 429) throw Object.assign(new Error(`RPC ${method} refused for speed`), { busy: true });
   if (!r.ok) throw new Error(`RPC ${method} answered ${r.status}`);
   const j = await r.json();
   if (j.error) throw Object.assign(new Error(`RPC ${method}: ${String(j.error.message ?? j.error.code).slice(0, 160)}`), { busy: j.error.code === 429 });
   return j.result;
-});
+};
+const rpc = gated(RPC_GAP_MS, 30_000, callRpc(RPC));
+// The one program-wide read (our own pools): the public mainnet RPC takes it, publicnode does not.
+const scanRpc = gated(RPC_GAP_MS, 30_000, callRpc(SCAN_RPC));
 const dexscreener = gated(400, 60_000, async (mint) => {
   const r = await fetch(`https://api.dexscreener.com/token-pairs/v1/solana/${mint}`, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(20_000) });
   if (r.status === 429) throw Object.assign(new Error('DexScreener refused for speed'), { busy: true });
@@ -169,7 +182,8 @@ const S = {
   ruleFrom: 'not read yet',
   // A gap: a trip that pays after every cost a send pays (lib/arb-listen.mjs afterCosts).
   book: new L.GapBook({ pays: (t) => t.paysAll, net: (t) => t.netAllUsd }),
-  stats: { notes: 0, judged: 0, subscribed: 0, refusedSubs: 0, opens: 0, reconnects: 0, slot: 0, readyAt: 0, rechecks: 0, closedByRecheck: 0, poolRereads: 0 },
+  stats: { notes: 0, judged: 0, subscribed: 0, refusedSubs: 0, opens: 0, reconnects: 0, slot: 0, readyAt: 0, rechecks: 0, closedByRecheck: 0, poolRereads: 0, arrayReads: 0, needs: 0, staleBins: 0, unpriced: 0, judgeMs: 0, judgeMaxMs: 0 },
+  bridgePool: null,
   note: 'starting…',
 };
 const owner = new PublicKey(C.ROBOT.wallet);
@@ -192,6 +206,155 @@ function keep(k, data, slot, owner) {
 }
 const dataOf = (k) => S.acc.get(k)?.data ?? null;
 const amounts = { get: (k) => C.tokenAmount(dataOf(k)) };
+// ─── the band and bin venues (lib/arb-venues.mjs) ─────────────────────────────────────
+const decoded = new Map(); // address → { slot, view }: an account decoded once a version
+function decodedOf(k, decode) {
+  const a = S.acc.get(k);
+  if (!a?.data) return null;
+  const was = decoded.get(k);
+  if (was && was.slot === a.slot) return was.view;
+  const view = decode(a.data) ?? null;
+  decoded.set(k, { slot: a.slot, view });
+  return view;
+}
+
+/**
+ * The accounts a band or bin pool's quote reads beyond its own, from its account as last read:
+ * the tick or bin arrays near its price, and a Raydium CLMM pool's fee config and far-band map.
+ * Read in rounds (a CLMM pool's arrays depend on its map): see `readVenueAccounts`.
+ */
+function venueAccounts(p) {
+  const d = dataOf(p.address);
+  if (!d) return [];
+  if (p.dex === 'whirlpool') {
+    const w = V.whirlpoolState(d);
+    return w && !w.adaptive ? V.orcaArraysNear(p.address, w).map((x) => x.address) : [];
+  }
+  if (p.dex === 'clmm') {
+    const pool = V.decodeClmmPool(p.address, d);
+    if (!pool) return [];
+    const extK = V.clmmExtensionAddress(p.address);
+    const ext = dataOf(extK) ? V.decodeClmmExtension(extK, dataOf(extK)) : null;
+    return [pool.ammConfig, extK, ...V.clmmArraysNear(p.address, pool, ext).map((x) => x.address)];
+  }
+  if (p.dex === 'dlmm') {
+    const s = V.lbPairState(d);
+    return s ? V.dlmmArraysNear(p.address, s).map((x) => x.address) : [];
+  }
+  return [];
+}
+
+/** The venue accounts of `pools` read, in rounds until nothing new is wanted; each pool keeps its list in `arrays`. */
+async function readVenueAccounts(pools) {
+  const venue = pools.filter((p) => p && p.kind !== 'pair');
+  for (let round = 0; round < 3; round++) {
+    const want = [...new Set(venue.flatMap(venueAccounts))].filter((k) => !S.acc.has(k));
+    if (!want.length) break;
+    await readAll(want);
+  }
+  for (const p of venue) p.arrays = venueAccounts(p);
+}
+
+/** A bin pool's depth: what its read bin arrays hold, and its price at the active bin (lib/arb-chain.mjs depthOf). */
+const binsOf = (p) => {
+  const arrays = (p.arrays ?? []).map((k) => decodedOf(k, V.decodeBinArray)).filter((a) => a && a.lbPair === p.address);
+  if (!arrays.length) return null;
+  const s = decodedOf(p.address, V.lbPairState);
+  const price = s && V.dlmmPrice(s.activeId, s.binStep);
+  return { ...V.dlmmDepth(arrays), spot: price ? Number(price) / 2 ** 64 : 0 };
+};
+
+/**
+ * An exact quote (raw in → raw out) for a band or bin pool from the accounts held, or null when
+ * it cannot be priced now. An array a walk reaches and the listener never read goes into `needs`
+ * (address → pool), read right after the judgement. A bin pool whose active bin array is older
+ * than its own account is stale (every swap through it changes both): not priced until re-read.
+ */
+function exactQuote(p, fromMint, needs) {
+  const d = dataOf(p.address);
+  if (!d) return null;
+  const aToB = p.mintA === fromMint;
+  const want = (k) => {
+    if (!S.acc.has(k)) needs.set(k, p.address);
+  };
+  if (p.dex === 'whirlpool') {
+    const w = V.whirlpoolState(d);
+    if (!w || w.adaptive) return null;
+    const array = (start) => {
+      const k = V.orcaArrayAddress(p.address, start);
+      const a = S.acc.get(k);
+      if (a === undefined) {
+        want(k);
+        return undefined;
+      }
+      return a.data ? decodedOf(k, V.decodeOrcaTickArray) : null;
+    };
+    return (x) => Number(V.orcaQuote(w, BigInt(Math.floor(x)), aToB, array).out);
+  }
+  if (p.dex === 'clmm') {
+    const pool = decodedOf(p.address, (data) => V.decodeClmmPool(p.address, data));
+    const cfg = pool && decodedOf(pool.ammConfig, (data) => V.decodeClmmConfig(pool.ammConfig, data));
+    if (!pool || !cfg) return null;
+    const extK = V.clmmExtensionAddress(p.address);
+    const ext = decodedOf(extK, (data) => V.decodeClmmExtension(extK, data));
+    const band = (start) => {
+      const k = V.clmmArrayAddress(p.address, start);
+      if (!S.acc.has(k)) want(k);
+      return decodedOf(k, (data) => V.decodeClmmArray(k, data)) ?? undefined;
+    };
+    const now = Math.floor(Date.now() / 1000);
+    return (x) => Number(V.clmmQuote(pool, cfg, ext, BigInt(Math.floor(x)), aToB, now, band).out);
+  }
+  if (p.dex === 'dlmm') {
+    const s = decodedOf(p.address, V.lbPairState);
+    if (!s || s.status !== 0) return null;
+    const activeK = V.dlmmArrayAddress(p.address, V.dlmmArrayIndex(s.activeId));
+    const active = S.acc.get(activeK);
+    if (!active) {
+      want(activeK);
+      return null;
+    }
+    if (active.data && active.slot < S.acc.get(p.address).slot) {
+      S.stats.staleBins++;
+      needs.set(activeK, p.address);
+      return null;
+    }
+    const array = (index) => {
+      const k = V.dlmmArrayAddress(p.address, index);
+      const a = S.acc.get(k);
+      if (a === undefined) {
+        want(k);
+        return undefined;
+      }
+      return a.data ? decodedOf(k, V.decodeBinArray) : null;
+    };
+    const now = Date.now() / 1000;
+    return (x) => Number(V.dlmmQuote(s, BigInt(Math.floor(x)), aToB, now, array).out);
+  }
+  return null;
+}
+
+const pendingReads = new Map(); // address → true while a read is out
+/** Arrays a judgement reached for and had not: read once, kept on their pools, and the coin judged again. */
+function readSoon(needs, mint) {
+  const fresh = [...needs].filter(([k]) => !pendingReads.has(k));
+  if (!fresh.length) return;
+  for (const [k] of fresh) pendingReads.set(k, true);
+  S.stats.arrayReads += fresh.length;
+  readAll(fresh.map(([k]) => k))
+    .then(() => {
+      const coin = S.coins.get(mint);
+      const pools = [...(coin?.pools ?? []), ...(S.bridgePool ? [S.bridgePool] : [])];
+      for (const [k, poolAddress] of fresh) {
+        const p = pools.find((x) => x.address === poolAddress);
+        if (p && S.acc.get(k)?.data) p.arrays = [...new Set([...(p.arrays ?? []), k])].slice(-12);
+      }
+      if (coin) judgeSoon(mint);
+    })
+    .catch((e) => log(`reading arrays for ${mint}: ${said(e)}`))
+    .finally(() => fresh.forEach(([k]) => pendingReads.delete(k)));
+}
+
 const quoteOf = (p, mint) => (p.mintA === mint ? p.mintB : p.mintA);
 const decimalsOf = (m) => (C.COINS[m] ?? C.QUOTES[m]).decimals;
 const linkedQuote = (q) => Boolean(C.COINS[q] || (C.QUOTES[q] && S.quoteLinks.get(q)));
@@ -208,7 +371,7 @@ function solPrice() {
   const bridge = C.withFee(C.decodePool('whirlpool', BRIDGE, dataOf(BRIDGE)) ?? {}, S.configs);
   const depth = bridge && C.depthOf(bridge, new Map());
   if (depth) S.usd.set(C.SOL_MINT, (depth.b / depth.a) * 1e3);
-  return depth ? { pool: bridge, depth } : null;
+  return depth ? { pool: { ...bridge, arrays: S.bridgePool?.arrays ?? [] }, depth } : null;
 }
 
 async function readConfigs(pools) {
@@ -230,6 +393,8 @@ async function readConfigs(pools) {
 /** The robot's coin accounts and rule, the SOL/USDC bridge, and the pricing coins' link pools and prices. */
 async function readBasics() {
   await readAll([...ATAS.map(([, a]) => a), BRIDGE]);
+  S.bridgePool = C.decodePool('whirlpool', BRIDGE, dataOf(BRIDGE));
+  if (S.bridgePool) await readVenueAccounts([S.bridgePool]);
   await readRule();
   // The pricing coins' link pools (BAYLA through our BAYLA/SOL, USDT through Raydium USDT/USDC).
   const linkKeys = Object.values(C.QUOTES).map((q) => q.bridge);
@@ -268,7 +433,7 @@ function admit(m, symbolHint) {
 
 /** The coins and their pools, as the scanner finds them (arb-scanner.mjs readUniverse, discover): mint → pool addresses. */
 async function listFromMarkets() {
-  const ours = await rpc('getProgramAccounts', [C.DEXES.ours.program, { encoding: 'base64', commitment: COMMITMENT, filters: [{ dataSize: C.DEXES.ours.size }] }]);
+  const ours = await scanRpc('getProgramAccounts', [C.DEXES.ours.program, { encoding: 'base64', commitment: COMMITMENT, filters: [{ dataSize: C.DEXES.ours.size }] }]);
   const ourPools = new Map();
   const symbols = new Map();
   for (const o of ours) {
@@ -332,11 +497,14 @@ async function discover() {
   }
   await readConfigs([...candidates.values()].flat());
   const withFees = new Map([...candidates].map(([m, ps]) => [m, ps.map((p) => C.withFee(p, S.configs)).filter(Boolean)]));
+  S.note = 'reading the band and bin pools’ arrays';
+  await readVenueAccounts([...withFees.values()].flat());
+  S.note = 'reading the pools’ vaults';
   await readAll([...new Set([...withFees.values()].flat().flatMap(L.accountsOf))]);
   for (const [m, pools] of withFees) {
     const deep = [];
     for (const p of pools) {
-      const depth = C.depthOf(p, amounts);
+      const depth = C.depthOf(p, amounts, binsOf);
       const q = quoteOf(p, m);
       if (!depth || !linkedQuote(q)) continue;
       const usd = ((q === p.mintA ? depth.a : depth.b) / 10 ** decimalsOf(q)) * (S.usd.get(q) ?? 0);
@@ -365,13 +533,33 @@ function judgeSoon(mint) {
   }, JUDGE_AFTER_MS));
 }
 
-/** `closedBy`: what judged it ('a change' the websocket sent, or 'a fresh read' over HTTP). */
+/** `closedBy`: what judged it ('a change' the websocket sent, or 'a fresh read' over HTTP). Timed: judgeMs, judgeMaxMs. */
 function judge(coin, closedBy = 'a change') {
+  const t0 = performance.now();
+  try {
+    return judgeNow(coin, closedBy);
+  } finally {
+    const ms = performance.now() - t0;
+    S.stats.judgeMs += ms;
+    if (ms > S.stats.judgeMaxMs) S.stats.judgeMaxMs = ms;
+  }
+}
+
+function judgeNow(coin, closedBy) {
   if (!coin) return;
   const bridge = solPrice();
   if (!bridge) return;
-  let pools = coin.pools.map((p) => C.withFee(C.decodePool(p.dex, p.address, dataOf(p.address)) ?? {}, S.configs)).filter((p) => p && p.mintA);
-  const depths = new Map(pools.map((p) => [p.address, C.depthOf(p, amounts)]));
+  let pools = coin.pools.map((p) => {
+    const fresh = C.withFee(C.decodePool(p.dex, p.address, dataOf(p.address)) ?? {}, S.configs);
+    return fresh && fresh.mintA ? { ...fresh, arrays: p.arrays ?? [] } : null;
+  }).filter(Boolean);
+  const depths = new Map(pools.map((p) => [p.address, C.depthOf(p, amounts, binsOf)]));
+  const needs = new Map();
+  const exact = (p, from) => {
+    const q = exactQuote(p, from, needs);
+    if (!q && p.kind !== 'pair') S.stats.unpriced++;
+    return q;
+  };
   pools = pools.map((p) => (p.dex === 'pumpswap' ? C.withFee(p, S.configs, { depth: depths.get(p.address), supply: p.mintA === coin.mint ? coin.supply : null }) : p)).filter(Boolean);
   const quotes = new Map();
   for (const l of coin.links) {
@@ -386,7 +574,11 @@ function judge(coin, closedBy = 'a change') {
   }
   // With loans on, the robot borrows SOL past its float (keeper/flashLoan.ts): SOL trips are held by the cap only.
   const holds = new Map(ATAS.filter(([m]) => !(S.flashLoans && m === C.SOL_MINT)).map(([m, a]) => [m, Number(C.tokenAmount(dataOf(a)) ?? 0n)]));
-  const trips = C.tripsFor(pools, { token: coin.mint, decimals: coin.decimals, depths, usd: S.usd, holds, bridge, quotes, settings: S.settings, tokenCut: coin.cut });
+  const trips = C.tripsFor(pools, { token: coin.mint, decimals: coin.decimals, depths, usd: S.usd, holds, bridge, quotes, settings: S.settings, tokenCut: coin.cut, exact });
+  if (needs.size) {
+    S.stats.needs += needs.size;
+    readSoon(needs, coin.mint);
+  }
   const solUsd = S.usd.get(C.SOL_MINT);
   for (const t of trips) Object.assign(t, L.afterCosts(t, solUsd));
   const slot = Math.max(...[...coin.pools, ...coin.links].flatMap(L.accountsOf).map((k) => S.acc.get(k)?.slot ?? 0));
@@ -429,9 +621,14 @@ async function recheckOpenGaps() {
   }
 }
 
-/** The pools whose own account is not watched (lib/arb-listen.mjs watchedOf): their owed fees, read again. */
+/**
+ * Every account a pool prices by that is not watched (lib/arb-listen.mjs watchedOf), read again: a
+ * pair pool's own account (its owed fees), a band pool's tick arrays, a CLMM pool's fee config and
+ * far-band map, and the bridge's.
+ */
 async function rereadPools() {
-  const keys = [...new Set([...S.coins.values()].flatMap((c) => [...c.pools, ...c.links]).filter((p) => !L.watchedOf(p).includes(p.address)).map((p) => p.address))];
+  const pools = [...[...S.coins.values()].flatMap((c) => [...c.pools, ...c.links]), ...(S.bridgePool ? [S.bridgePool] : [])];
+  const keys = [...new Set(pools.flatMap((p) => L.accountsOf(p).filter((k) => !L.watchedOf(p).includes(k))))];
   if (!keys.length) return;
   await readAll(keys);
   S.stats.poolRereads++;
@@ -508,6 +705,23 @@ function listen(accounts, n) {
   open();
 }
 
+/** The band and bin pools: how many are priced to the unit now, and how many are not, and why. */
+function venuesNow() {
+  const out = { priced: {}, adaptive: 0, noArrays: 0, stopped: 0 };
+  for (const c of S.coins.values()) {
+    for (const p of c.pools) {
+      if (p.kind === 'pair') continue;
+      const name = C.DEXES[p.dex]?.name ?? p.dex;
+      if (p.stopped) {
+        if (/adaptive/.test(p.stopped)) out.adaptive++;
+        else out.stopped++;
+      } else if (!(p.arrays ?? []).some((k) => S.acc.get(k)?.data)) out.noArrays++;
+      else out.priced[name] = (out.priced[name] ?? 0) + 1;
+    }
+  }
+  return out;
+}
+
 function snapshot() {
   const now = Date.now();
   const hours = S.stats.readyAt ? (now - S.stats.readyAt) / 3_600_000 : 0;
@@ -516,6 +730,7 @@ function snapshot() {
     at: now, note: S.note, listeningHours: hours, ruleFrom: S.ruleFrom, rule: { ...S.settings, capUsd: R.capUsd(S.settings), flashLoans: S.flashLoans },
     solUsd: S.usd.get(C.SOL_MINT) ?? null, coins: S.coins.size, pools: [...S.coins.values()].reduce((s, c) => s + c.pools.length, 0),
     poolsByVenue: Object.fromEntries(Object.keys(C.DEXES).map((d) => [C.DEXES[d].name, [...S.coins.values()].reduce((s, c) => s + c.pools.filter((p) => p.dex === d).length, 0)])),
+    venues: venuesNow(),
     stats: S.stats, gaps: S.book.done.length + S.book.open.size,
     stage0: L.stage0Report([...S.book.done, ...S.book.open.values()], now),
     transferFeeCoins: [...S.coins.values()].filter((c) => c.cut > 0).map((c) => ({ mint: c.mint, symbol: c.symbol, pct: c.cut * 100 })),

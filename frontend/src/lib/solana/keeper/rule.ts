@@ -148,11 +148,20 @@ export interface CpLeg {
   fee: number;
   inCut?: number;
   outCut?: number;
+  /**
+   * An exact quote in place of x·y = k: what `xIn` of the coin going in (what the pool receives,
+   * after any transfer fee) pays out before any transfer fee out, the pool's own fee inside. A
+   * concentrated pool (Orca, Raydium CLMM) or a bin pool (Meteora DLMM) walks its ticks or bins
+   * here; `rin`, `rout` and `fee` then only describe it. It must never pay more for more in.
+   */
+  out?: (xIn: number) => number;
 }
 
 export const swapOut = (l: CpLeg, x: number): number => {
-  const xin = x * (1 - (l.inCut ?? 0)) * (1 - l.fee);
-  return ((l.rout * xin) / (l.rin + xin)) * (1 - (l.outCut ?? 0));
+  const received = x * (1 - (l.inCut ?? 0));
+  const xin = received * (1 - l.fee);
+  const paid = l.out ? l.out(received) : (l.rout * xin) / (l.rin + xin);
+  return paid * (1 - (l.outCut ?? 0));
 };
 
 /** What `x` of the start coin comes back as after every leg. */
