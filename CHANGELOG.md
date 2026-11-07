@@ -9,6 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-11-07
 
+- Our Solana pools can now be charted by GeckoTerminal: the site serves the four data feeds its indexer reads (`/api/gt/latest-block`, `/api/gt/asset`, `/api/gt/pair`, `/api/gt/events`), every number read from the chain itself. Once GeckoTerminal lists the venue, each pool gets a public chart page and shows up in CoinGecko's on-chain data, where traders and price bots look.
 - Home page: the all-time volume counts again. On Nov 5 a swap in one of our Solana pools used Solana's newer transaction format, which the counter did not ask for, and every count since stopped there, so the figure said "not up to date". A pool's history and finding a share's pool read that format too now.
 
 ### 2026-11-06
