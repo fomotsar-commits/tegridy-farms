@@ -221,7 +221,7 @@ describe('the shape that cannot regress into the companion recipe', () => {
     expect(bad, 'these gates skip when the scope job itself failed, which reports success').toEqual([]);
   });
 
-  const SCOPED = ['ci.yml', 'codeql.yml', 'contracts-ci.yml', 'registry-onchain.yml', 'slither.yml', 'solana-ci.yml'];
+  const SCOPED = ['cardano-ci.yml', 'ci.yml', 'codeql.yml', 'contracts-ci.yml', 'registry-onchain.yml', 'slither.yml', 'solana-ci.yml'];
 
   it('finds scope jobs at all, so the rule above is not asserted over nothing', () => {
     const scoped = sources().filter((f) => /^ {2}scope:$/m.test(readFileSync(join(WORKFLOW_DIR, f), 'utf-8')));
@@ -272,7 +272,7 @@ describe('the shape that cannot regress into the companion recipe', () => {
     // trunk that it ignores on the PR that introduces it — which is the half
     // that matters, and it fails silently in the permissive direction.
     const drift: string[] = [];
-    for (const f of ['contracts-ci.yml', 'registry-onchain.yml', 'slither.yml', 'solana-ci.yml']) {
+    for (const f of ['cardano-ci.yml', 'contracts-ci.yml', 'registry-onchain.yml', 'slither.yml', 'solana-ci.yml']) {
       const src = readFileSync(join(WORKFLOW_DIR, f), 'utf-8');
       const push = parseOnBlock(src, 'push').paths;
       const call = /diff-scope\.mjs \\\n((?: +'[^']+'[^\n]*\n)+)/.exec(src);

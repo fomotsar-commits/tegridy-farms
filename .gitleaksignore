@@ -37,3 +37,8 @@ c7f8f33b2a3fe593de41317f8a80548be07dfdbf:solana/guards/provenance.mjs:generic-ap
 143fced7e65d06c3191cdb64fff86496d6c882c1:.gitleaksignore:generic-api-key:30
 a0bafd057be3908533ba7c63a792b14d59740396:.gitleaksignore:generic-api-key:30
 ddf8b25d41c5286459d5726ceb153a25061bd1b6:.gitleaksignore:generic-api-key:30
+#
+# 2026-10-24, PR #988. Line 51 of Minswap's own README, copied unedited into
+# cardano/minswap-dex-v2/ (a guard fails on any edit there). It names Minswap's public
+# on-chain LP token policy, a script hash anyone can read on Cardano. Not a secret.
+6ebce9ce5bf58cb206531d0937cc57ca245293a5:cardano/minswap-dex-v2/README.md:generic-api-key:51
