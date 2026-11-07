@@ -52,7 +52,7 @@ const SECTION_PROMPTS: Record<Section, { title: string; description: string; mor
   nftlending: {
     title: 'Connect to borrow against your NFT',
     description: 'You and the other side set the terms. No price feeds.',
-    more: 'Use JBAC, Nakamigos, or GNSS NFTs as collateral to borrow ETH.',
+    more: 'Use JBAC, Nakamigos, or GNSS NFTs as collateral to borrow WETH.',
   },
   amm: {
     title: 'Connect to trade NFTs in a pool',

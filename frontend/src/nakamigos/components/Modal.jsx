@@ -604,7 +604,7 @@ export default function Modal({ nft, onClose, onTheater, onShare, isFavorite, on
                 borderRadius: 8, padding: "10px 14px",
               }}
             >
-              You own this one. Borrow ETH against it in NFT Finance instead of selling {"→"}
+              You own this one. Borrow WETH against it in NFT Finance instead of selling {"→"}
             </Link>
           )}
 

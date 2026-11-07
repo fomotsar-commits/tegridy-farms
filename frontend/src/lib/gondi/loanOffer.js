@@ -7,9 +7,11 @@
 //
 // Plain JS so api/_lib/loanOffers.js can import it (types: loanOffer.d.ts).
 
-/** Gondi's MultiSourceLoan v3.2 as deployed by contracts/script/DeployGondiLending.s.sol.
- *  Zero until the deploy: everything that sends to it refuses while it is zero. */
-export const GONDI_LOAN_ADDRESS = '0x0000000000000000000000000000000000000000';
+/** Gondi's MultiSourceLoan v3.2 as deployed by contracts/script/DeployGondiLending.s.sol
+ *  on 2026-11-07 (tx 0xefdc16b817cd6cdcf4a135fafb8968992f4c413d6034cb5bd3ec8c23ea9f3e4f;
+ *  record in contracts/broadcast/DeployGondiLending.s.sol/1/). Everything that sends to it
+ *  refuses while this is zero. */
+export const GONDI_LOAN_ADDRESS = '0x4f2b53DAE3edCf1B527c53d2C11A28ec5Ac6D630';
 
 export const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 export const WETH_ADDRESS = '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2';

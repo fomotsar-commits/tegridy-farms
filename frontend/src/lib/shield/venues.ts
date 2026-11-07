@@ -31,7 +31,7 @@
 
 /** Why the shield watches no venue loan, in the user's words. Also the alert source's line. */
 export const VENUE_LOANS_NOT_WATCHED =
-  "The shield doesn't read loans on Gondi's loan contract yet, so it is watching no loan here. Your loans and their due dates are under NFT Lending, My Loans.";
+  "The shield doesn't watch loans on Gondi's contract yet. Your loans and due dates are under NFT Lending, My Loans.";
 
 export type ShieldVenueId = 'tegridy-nft-lending' | 'aave-v3' | 'morpho-blue';
 

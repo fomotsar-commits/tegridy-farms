@@ -139,13 +139,13 @@ describe("the detail Modal", () => {
   it("offers a Gold Cards owner no loan: the lending contract does not accept Gold Cards", async () => {
     expect(constants.NFT_LOAN_DESK_LIVE).toBe(true);
     await renderOwnedModal("junglebaygoldcards");
-    expect(screen.queryByText(/Borrow ETH against it/)).toBeNull();
+    expect(screen.queryByText(/Borrow WETH against it/)).toBeNull();
     expect(loanLinks()).toEqual([]);
   });
 
   it("control: a Nakamigos owner is still pointed at NFT Finance", async () => {
     await renderOwnedModal("nakamigos");
-    expect(screen.getByText(/Borrow ETH against it in NFT Finance/)).toBeInTheDocument();
+    expect(screen.getByText(/Borrow WETH against it in NFT Finance/)).toBeInTheDocument();
     expect(loanLinks().length).toBe(1);
   });
 });
