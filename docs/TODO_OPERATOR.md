@@ -614,12 +614,16 @@ A general "merge what you can" is refused as a production deploy.
 The swap is **open** (`CARDANO_SWAP_OPEN = true`), on your word: "Go live without the venue fee
 for now, and add it when the treasury exists". Plan and rulings: [`CARDANO_PLAN.md`](CARDANO_PLAN.md).
 
-1. ⬜ **Make the venue's two-key Cardano treasury** (a two-signature native-script wallet, the
-   vault's equivalent) and send its address to a session, which puts it in
-   `frontend/src/lib/cardano/venueFee.ts`. **Until then Cardano swaps earn the venue nothing** and
-   the page says so. Eternl makes multi-sig wallets only with Eternl Pro ($96 a year); your keys A
-   and B are made. After it is registered, one real swap of at least 200 ADA shows the fee line live
-   (under about 200 ADA no venue fee is charged: a Cardano output must hold about 1 ADA).
+1. ✅ **The venue's two-key Cardano treasury** is the Eternl Pro multi-sig wallet
+   "memetics.finance" (made 2026-10-31), registered in `frontend/src/lib/cardano/venueFee.ts`
+   2026-11-07. Spending and staking each need both keys: proven on mainnet 2026-11-07 by a 3 ADA
+   send carrying exactly those two signatures (tx `06c0fc16…`). Cardano swaps of about 200 ADA or
+   more now pay 0.5% of their ADA side to it (under that no venue fee is charged: a Cardano output
+   must hold about 1 ADA). Still yours:
+   - ⬜ Confirm the two keys come from **two different 24-word phrases** (the chain cannot show it).
+   - ⬜ Move key B to your phone, the two phrases on paper in two places: today both keys sit in
+     one Eternl on one PC.
+   - ⬜ After the merge, one real swap of at least 200 ADA shows the fee line live.
 2. ✅ **Koios key** set as `KOIOS_API_KEY` on Vercel (Production), 2026-10-24.
 3. ✅ **Real swaps walked on mainnet**, 2026-10-24, from key A: a buy (25 ADA for 1,580.426944 MIN)
    and a sell (the same MIN for 24.532531 ADA), each filled at exactly the quoted amount.
