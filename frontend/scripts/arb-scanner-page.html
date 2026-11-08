@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Arbitrage scanner</title>
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<header>
+  <h1>Arbitrage scanner · Solana</h1>
+  <p class="lede">Only the round trips our price robot would really take: bought in one pool and sold in another in one transaction, starting and ending in SOL or USDC, sized where the gap closes (or to the robot's float or cap), and ending with at least what went in plus the floor ($0.01 and the network fee). The robot and this page decide with the same rule file.</p>
+  <p class="fine">Every price is read from the pools themselves, all of a coin's pools in the same slot, with each pool's real fee. A trip is listed as one the robot would take only after a test run from the robot's wallet passes on mainnet. Read-only: nothing here signs or sends.</p>
+</header>
+<section id="status" class="status"></section>
+<section id="rule" class="status"></section>
+<section id="summary" class="summary"></section>
+<p class="rank">Rank by <button type="button" id="by-profit" aria-pressed="true">profit</button> <button type="button" id="by-roi" aria-pressed="false">ROI (profit ÷ money put in)</button></p>
+<main>
+  <h2>The robot would take these <span class="fine">(test run passed in the last 3 minutes)</span></h2>
+  <p id="take-empty" class="empty" hidden></p>
+  <div class="scroll"><table>
+    <thead><tr><th>Coin</th><th>Trip</th><th class="n">In</th><th class="n">Test run gained</th><th class="n">ROI</th><th class="n">Gap closes at</th><th>Read at</th></tr></thead>
+    <tbody id="take"></tbody>
+  </table></div>
+  <h2>Watch list <span class="fine">(pays on the chain read, not yet proven, or its test run said no)</span></h2>
+  <p id="watch-empty" class="empty" hidden></p>
+  <div class="scroll"><table>
+    <thead><tr><th>Coin</th><th>Trip</th><th class="n">In</th><th class="n">Est. after fees</th><th class="n">ROI</th><th class="n">Gap closes at</th><th>Test run</th></tr></thead>
+    <tbody id="watch"></tbody>
+  </table></div>
+  <h2>Closest to paying <span class="fine">(each coin's best trip on its latest read; none of these pays yet)</span></h2>
+  <p id="closest-empty" class="empty" hidden></p>
+  <div class="scroll"><table>
+    <thead><tr><th>Coin</th><th>Trip</th><th class="n">In</th><th class="n">Est. after fees</th><th class="n">ROI</th><th class="n">Gap closes at</th><th>Why not</th></tr></thead>
+    <tbody id="closest"></tbody>
+  </table></div>
+  <details class="refused"><summary id="refused-head">Coins the robot refuses</summary><ul id="refused"></ul></details>
+</main>
+<script src="/app.js"></script>
+</body>
+</html>
