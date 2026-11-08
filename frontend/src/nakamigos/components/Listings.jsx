@@ -1,4 +1,5 @@
 import { useMemo, useState, useEffect, useCallback, memo } from "react";
+import { formatListingPrice } from "../lib/formatPrice";
 import { Eth } from "./Icons";
 import NftImage from "./NftImage";
 import SweepCalculator from "./SweepCalculator";
@@ -159,7 +160,7 @@ const ListingCard = memo(function ListingCard({
         <div className="listing-card-name">{nft.name}</div>
         {nft.price ? (
           <div className="listing-card-price">
-            <Eth size={12} /> {nft.price.toFixed(4)}
+            <Eth size={12} /> {formatListingPrice(nft)}
             {nft.priceUsd && (
               <span className="listing-card-usd" style={{ marginLeft: 6 }}>
                 ${nft.priceUsd.toFixed(0)}

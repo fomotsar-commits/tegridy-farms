@@ -3,6 +3,7 @@ import { liveIpfsUrl } from "../lib/ipfsGateways";
 import { venueCollectionByContract, venueRefusalForAll } from "./lib/venue";
 import { seaportCallNftTokens } from "./lib/seaportCalldata";
 import { waitForTxOutcome, txOutcomeResult } from "./lib/txOutcome";
+import { exactEth } from "./lib/formatPrice";
 import { alchemyGet as proxyAlchemyGet, alchemyPost as proxyAlchemyPost, openseaGet as rawOpenseaGet, openseaPost as rawOpenseaPost, ApiError } from "./lib/proxy";
 
 // Seaport fulfillment entrypoints that OpenSea's fulfillment_data API
@@ -737,7 +738,10 @@ function normalizeOpenSeaListings(allRawListings) {
     const offer = listing.protocol_data?.parameters?.offer?.[0];
     const tokenId = offer?.identifierOrCriteria || null;
     const priceWei = listing.price?.current?.value;
-    const price = priceWei ? Number(BigInt(priceWei) * 10000n / BigInt(1e18)) / 10000 : null;
+    // Exact, from wei. A four-decimal cut here rounded DOWN (0.01899 came out
+    // 0.0189), so every surface showed less than the buy cost.
+    const exact = exactEth(priceWei);
+    const price = exact != null ? Number(exact) : null;
     return {
       tokenId: tokenId ? String(tokenId) : null,
       price,
