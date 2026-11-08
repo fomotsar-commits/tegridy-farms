@@ -54,6 +54,26 @@ keep legacy.
 
 ---
 
+## 2026-11-06: a PumpSwap pool's price is its two vault balances, at GlobalConfig's 0.30% fee
+
+**Wrong belief:** a PumpSwap pool is plain x·y = k on its base and quote vaults, charging LP +
+protocol from its GlobalConfig (20 + 5 bps) and the coin creator's 5 bps.
+
+**Measured (2026-11-06, Jupiter quotes held to the same pool, `onlyDirectRoutes`):**
+- Newer pools (300 or 301 bytes) hold a signed 128-bit quote adjustment at byte 245 and price as
+  quote vault + it. SOY's `H8yiDq5XaNkiT6J3QXDeBVfsFHNaVwTRNicbWZnibexi` held +17,584,291,633 lamports:
+  a 20 SOL buy got 27,244,965,195,998 tokens from Jupiter; vault + adjustment at a 1.2% fee gives
+  27,241,666,087,201 (0.01% off), the vault alone 18% off at small sizes. Eight pools held +14.8 to
+  +17.6 SOL. Four others (TROLL `4w2cys…`, Fartcoin `AmmpSnW5…`, AgenC `BUMh6Y…`, ANSEM `FnzKY6…`)
+  held −9,401 to −17,661,070 lamports, high word all ones: read as u64 they price 10^9 times too high.
+- The fee is the pump fee program's FeeConfig (`pfeeUxB6…`, PDA `["fee_config", PumpSwap]` =
+  `5PHirr8joyTMp9JMm6nW7hNDVyEYdkzDqazxPD7RaTjx`): 25 tiers by market cap in lamports, 1.25% under
+  420 SOL down to 0.30% from 98,240 SOL; flat 0.30% for a pool with no coin creator. SOY (~605 SOL)
+  paid 1.2% both ways, as its tier says.
+
+**Do instead:** price PumpSwap from vault + the i128 at 245 (when the account is at least 261 bytes)
+and the FeeConfig tier at that price × the token's supply (`scripts/lib/arb-chain.mjs`). Or ask
+Jupiter, which already does.
 
 ## 2026-11-04: a pre-approved undo is one press from running, and a read-back only guards the page it is on
 
@@ -226,6 +246,36 @@ docs edit and four broadcast files). The stash list is one list for every worktr
 **Do:** never pair a path stash with a pop. For a red-first run on committed code: `git show <old>:<path> > <path>`,
 run, `git checkout -- <path>`, and prove the restore with `git status --short`. For uncommitted code: copy the file
 aside, swap, copy it back, and `cmp`.
+
+---
+
+## 2026-11-03: a stand-in `window.phantom` did not stop Phantom's poll, and a one-file run never shows an error thrown while its worker stops
+
+**Believed:** setting `window.phantom = { solana: { isPhantom: true } }` lets the Phantom adapter
+find "its" extension and end its one-second poll, so a test file can let its polls end before
+vitest deletes the window (the `afterAll` in `TopNav.ownSolana.test.tsx`, 2026-11-02).
+
+**Measured** (2026-11-03): `@solana/wallet-adapter-phantom` 0.9.29 also wants
+`window.isPhantomInstalled` (`lib/esm/adapter.js:52`). After that `afterAll` ran, all 15 polls of
+the file (5 mounts, each Phantom, Trust and Coinbase) were still live at teardown, and CI runs
+41573483600 and 41683443157 went red on one Phantom tick. With the environment held 1.5 s past
+teardown, the file threw `ReferenceError: window is not defined` 7 times a run, in 3 runs of 3;
+with the guard also setting `isPhantomInstalled`, 0 in 3.
+
+**Believed:** an error thrown while a file's worker is stopping fails the run, so running that
+one file reproduces it.
+**Measured:** vitest 5.0.3 counts unhandled errors only until the run ends, and a one-file run
+ends before its worker has stopped: those 7 errors reached the worker's `rpc.onUnhandledError`
+and the run still exited 0. Run beside a second file that kept the run open, all 7 were counted
+and it exited 1. Also, a `@vitest-environment` line cannot name a path in vitest 5 (it matches
+`[\w-]+`): one that tries is ignored without a word, and the file runs in plain jsdom.
+
+**Do:** a stand-in for an injected wallet passes the adapter's whole check, read from the
+installed source, and a test shows it (`readyState` is `Installed`). `frontend/src/test/setup.ts`
+now stops every interval a test file starts when the file ends, in every file. To reproduce an
+error from after teardown, name a held-open environment with `--environment ./path.ts` (a copy
+of the file without its own `@vitest-environment jsdom` line, which wins over the flag), and keep
+the run open with a second file.
 
 ---
 
