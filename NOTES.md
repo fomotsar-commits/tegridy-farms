@@ -43,6 +43,31 @@ the suite with `E2E_SOLANA_RPC=http://127.0.0.1:18899 E2E_SOLANA_PORT=4188` and 
 `E2E_LIMIT_LEDGER_SIZE=4000000` the ledger folder still measured 13 GB (`du -sh`) after about 40
 minutes of two three-test runs, since that cap bounds the shred store and not the accounts and
 snapshots beside it.
+## 2026-11-08: a hand-written `transition` replaces a Tailwind transition utility, and `focus()` scrolls a tall dialog to its foot
+
+**Wrong belief 1:** a rule like `.receipt-card[data-floor] { transition: border-color 0.6s ease, box-shadow 0.6s ease; }`
+animates the card's edge while the card's own `motion-safe:transition-[opacity,transform] motion-safe:duration-300`
+keeps sliding it up.
+
+**Measured (2026-11-08, Chromium at 390x664, island answer 32's walk on the dev server):** the add's card read
+`transitionProperty: "border-color, box-shadow"`, and its opacity went from 0 to 1 between two samples 70 ms apart: no
+slide at all. `transition` is a shorthand that sets the whole list, and the class-plus-attribute selector outranks the
+one utility class, so the utility's entries are simply gone. With `opacity 0.3s` and `transform 0.3s` added to the
+rule's own list, the same samples read 0, 0.08, 0.59, 0.88 over 300 ms.
+
+**Do instead:** a rule that sets `transition` on an element that also carries a Tailwind transition utility repeats
+the utility's entries in its own list. Check with `getComputedStyle(el).transitionProperty`, not by eye.
+
+**Wrong belief 2:** focusing a dialog's container (`useFocusTrap(true, { focusContainer: true })`) leaves its scrolling
+layer where layout put it.
+
+**Measured (same day, a bare page in Chromium at 390x664: a fixed `overflow-y: auto` layer, a card with 16 px
+margins):** after a plain `card.focus()`, a 660 px card's layer was scrolled to its maximum (28 px), so the card's top
+sat above the screen; with `focus({ preventScroll: true })` it stayed at 0; a 430 px card did not scroll at all. On
+the venue that cut off the head of the add's receipt card, where its moment plays, on an iPhone 14 sized screen.
+
+**Do instead:** a dialog that can be taller than the screen either focuses with `{ preventScroll: true }` or puts the
+layer back to its top once it is up (what `ReceiptCard.tsx` does for an add).
 
 ## 2026-11-08: a pinned program build can exist nowhere once mainnet has moved past it, so a CI job can only fetch the build mainnet runs
 
