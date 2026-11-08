@@ -15,6 +15,22 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-11-08: a pinned program build can exist nowhere once mainnet has moved past it, so a CI job can only fetch the build mainnet runs
+
+**Believed:** a CI runner with no release folder can rebuild one by dumping each program from
+mainnet and checking it against the repo's pin.
+
+**Measured** (2026-11-08, `stage-from-mainnet.mjs`): the launch program dumped to exactly its pin
+(`a3c41afa`, 470,728 bytes). The pool program dumped to `1e55bcdc` (725,176 bytes), not trunk's
+pin `88b98aa9`: after the roll-back (#24) and the redo (#31) that build is on chain nowhere, its
+buffer spent. Both accounts were sized to their builds that day; for one that is not (the padding
+start-validator.sh allows for), the ELF's own end (`e_shoff + e_shnum * e_shentsize`) is where the
+build stops, and it gave both pinned hashes exactly.
+
+**Do:** fetch by the ELF's end and check the pin; when they differ, refuse and name both hashes,
+because the specs would test a program nobody runs. Re-pin to what mainnet runs (here #1107)
+before expecting that job to go green.
+
 ## 2026-11-06: a PumpSwap pool's price is its two vault balances, at GlobalConfig's 0.30% fee
 
 **Wrong belief:** a PumpSwap pool is plain x·y = k on its base and quote vaults, charging LP +
