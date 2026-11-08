@@ -218,7 +218,7 @@ describe('each answer has its own line, and only `offer` has the button', () => 
       `This token already has a pool on the public fee tier that passes the checks (above). The biggest is ${theirs.address}, holding 10 SOL. We suggest adding to it: liquidity in one place gives traders a better price.`,
     );
     expect(within(c).getByTestId('lp-create-still')).toHaveTextContent(
-      'One pool per pair and fee tier: a second SOL pool is not opened here, so add to that one instead. You can still open one paired with USDC or BAYLA on the public fee tier, at 1% a trade.',
+      'One pool per pair and fee tier: a second SOL pool is not opened here, so add to that one instead. You can still open one paired with USDC, BAYLA, BOBO, SOY, BRAINLET or RIZZ on the public fee tier, at 1% a trade.',
     );
     expect(within(c).getByRole('button', { name: 'Open a pool' })).toBeEnabled();
     expect(c).not.toHaveTextContent(/separate pool|first one|No pool for this token/);
@@ -535,7 +535,7 @@ describe('each answer has its own line, and only `offer` has the button', () => 
     fireEvent.click(within(form).getByRole('radio', { name: 'SOL' }));
     const inForm = how === PASSES ? 'that passes the checks' : 'that takes deposits, with a warning';
     expect(said(within(form).getByTestId('lp-create-taken'))).toBe(
-      `This token already has a SOL pool on the public fee tier ${inForm}: ${theirs.address}. One pool per pair and fee tier, so a second is not opened here: add to that pool instead, from its card above. You can still open one paired with USDC or BAYLA.`,
+      `This token already has a SOL pool on the public fee tier ${inForm}: ${theirs.address}. One pool per pair and fee tier, so a second is not opened here: add to that pool instead, from its card above. You can still open one paired with USDC, BAYLA, BOBO, SOY, BRAINLET or RIZZ.`,
     );
     expect(within(form).getByRole('button', { name: 'Review: open the pool' })).toBeDisabled();
     expect(within(form).queryByTestId('lp-review-why')).toBeNull();
@@ -714,7 +714,7 @@ describe('each answer has its own line, and only `offer` has the button', () => 
     const form = await screen.findByTestId('lp-create-panel');
     fireEvent.click(within(form).getByRole('radio', { name: 'SOL' }));
     expect(said(within(form).getByTestId('lp-create-taken'))).toBe(
-      `This token already has a SOL pool on the public fee tier that takes deposits, with a warning: ${theirs.address}. One pool per pair and fee tier, so a second is not opened here: add to that pool instead, from its card above. You can still open one paired with USDC or BAYLA.`,
+      `This token already has a SOL pool on the public fee tier that takes deposits, with a warning: ${theirs.address}. One pool per pair and fee tier, so a second is not opened here: add to that pool instead, from its card above. You can still open one paired with USDC, BAYLA, BOBO, SOY, BRAINLET or RIZZ.`,
     );
   }, 20_000);
 
@@ -1054,7 +1054,7 @@ describe('Open a pool: one name, and the whole cost above its button', () => {
     // Right under Go to that pool, the line names what costs: going to a pool costs nothing.
     expect(said(cost(c))).toBe('Opening a pool costs 0.15 SOL to the venue plus about 0.0401 SOL account setup you do not get back.');
     expect(within(c).getByTestId('lp-create-still')).toHaveTextContent(
-      'One pool per pair and fee tier: a second SOL pool is not opened here, so add to that one instead. You can still open one paired with USDC or BAYLA on the public fee tier, at 1% a trade.',
+      'One pool per pair and fee tier: a second SOL pool is not opened here, so add to that one instead. You can still open one paired with USDC, BAYLA, BOBO, SOY, BRAINLET or RIZZ on the public fee tier, at 1% a trade.',
     );
     // No Add button of the Open card's own: the one Add is on the pool's card.
     expect(within(c).queryByRole('button', { name: /^Add/ })).toBeNull();

@@ -677,6 +677,8 @@ describe('createOffer', () => {
           ['USDC', null],
           // A pool on another fee tier takes nothing on the public one.
           ['BAYLA', null],
+          // No pool at all on the other island coins.
+          ...QUOTE_COINS.slice(3).map((q) => [q.symbol, null]),
         ]);
         expect(facts(a)[0]!.taken?.warned).toBe(false);
       });
@@ -687,7 +689,7 @@ describe('createOffer', () => {
         const opened = (p: string) => p === mine.view.address;
         expect(facts(a, { openedHere: opened })[0]).toMatchObject({ advice: { kind: 'opened-here' }, taken: { pool: mine.view } });
         expect(facts(withPool(base(), poolOn(1), 'refused'), { openedHere: () => true })[0]!.taken).toBeNull();
-        expect(facts(a, { advise: false }).map((x) => x.taken)).toEqual([null, null, null]);
+        expect(facts(a, { advise: false }).map((x) => x.taken)).toEqual(QUOTE_COINS.map(() => null));
       });
 
       it('a card that offers no opening names no pool for any coin', () => {
