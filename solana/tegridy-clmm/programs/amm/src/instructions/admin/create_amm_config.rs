@@ -42,6 +42,9 @@ pub fn create_amm_config(
         MAX_PROTOCOL_AND_FUND_FEE_RATE,
         fund_fee_rate + protocol_fee_rate
     );
+    // memetics.finance: a pool divides by its tick spacing, so 0 is refused, as Uniswap v3's
+    // enableFeeAmount refuses it (2026-11-03 audit, CL-09).
+    require_gt!(tick_spacing, 0);
     require_gte!(MAX_TICK_SPACING, tick_spacing);
     let amm_config = ctx.accounts.amm_config.deref_mut();
     amm_config.owner = crate::protocol_fee_owner::ID;

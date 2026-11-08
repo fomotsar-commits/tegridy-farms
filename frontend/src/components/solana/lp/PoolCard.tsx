@@ -98,7 +98,7 @@ function swapsText(h: PoolHealth): { text: string; tone: 'good' | 'warn' | 'bad'
  */
 function depositHeading(d: PoolHealth['deposits']): { title: string; tone: string } {
   if (d.verdict === 'refused') return { title: 'Deposits: refused here', tone: 'text-rose-300/90' };
-  if (d.verdict === 'unchecked') return { title: 'Deposits: not checked', tone: 'text-amber-300/90' };
+  if (d.verdict === 'unchecked') return { title: 'Deposits: a check did not run', tone: 'text-amber-300/90' };
   return d.warnings.length > 0
     ? { title: 'Deposits: the checks pass, with warnings', tone: 'text-amber-300/90' }
     : { title: 'Deposits: the checks pass', tone: 'text-emerald-300/90' };
@@ -156,12 +156,12 @@ function PriceRows({ price, quote, unit }: { price: PoolHealth['price']; quote: 
       );
     case 'skipped':
     case 'unread':
-      // The shared list's hold is one row in its own words: "not read for 12 min; adding waits" (answer twenty-four, build 1c).
-      if (price.state === 'unread' && price.hold) {
+      // An outside price not read is one row, "not read yet" or the last one with its age, never a gate (answer twenty-seven).
+      if (price.state === 'unread' && price.outside) {
         return (
           <>
             <Row label="Price here" value={price.pool === null ? 'not worked out' : here(price.pool)} mono={false} />
-            <Row label="Outside price" value={price.detail.replace(/^Outside price /, '')} mono={false} tone="warn" />
+            <Row label="Outside price" value={price.detail.replace(/^Outside price /, '')} mono={false} />
           </>
         );
       }
@@ -207,9 +207,9 @@ function PriceRows({ price, quote, unit }: { price: PoolHealth['price']; quote: 
 /**
  * The sheet's two rows and its fee line (island answer twenty-five, screen 1, rows 6 and 7),
  * from the same reads as the card's rows: "Pool price / 1 BAYLA = 0.000007394 SOL" and
- * "Outside price / 0.000007465 SOL · read 37 s ago", 24 px each, 13 px; past ten minutes the
- * list's one-row hold says why adding waits. A price with no outside reference is said in the
- * card's own words. Never a typed figure.
+ * "Outside price / 0.000007465 SOL · read 37 s ago", 24 px each, 13 px; past ten minutes, or
+ * with none, the outside price is one row and never a gate (answer twenty-seven). A price with
+ * no outside reference is said in the card's own words. Never a typed figure.
  */
 function SheetPoolRows({ price, quote, unit, split }: { price: PoolHealth['price']; quote: QuoteCoin; unit: { one: string; many: string }; split: string | null }) {
   const row = (label: string, value: ReactNode, warn = false) => (
@@ -237,11 +237,11 @@ function SheetPoolRows({ price, quote, unit, split }: { price: PoolHealth['price
         {price.state === 'disagrees' && row('Difference', `${differenceText(price.diff)} ${REFERENCE_NAME[price.against]}`, true)}
       </>
     );
-  } else if (price.state === 'unread' && price.hold) {
+  } else if (price.state === 'unread' && price.outside) {
     rows = (
       <>
         {row(SHEET_WORDS.poolPrice, price.pool === null ? 'not worked out' : priceText(price.pool, quote, unit.one))}
-        {row(SHEET_WORDS.outsidePrice, price.detail.replace(/^Outside price /, ''), true)}
+        {row(SHEET_WORDS.outsidePrice, price.detail.replace(/^Outside price /, ''))}
       </>
     );
   } else {
@@ -281,13 +281,13 @@ function useShownOnce(showNow: number, onActed: ((n: number) => void) | undefine
 }
 
 /**
- * Why a wish that named this pool did not end in its Add form, in one sentence. The card
- * shows it under its heading and the heading is described by it, so the reason is what a
- * screen reader says when focus lands there: the heading alone is only the pool's kind,
- * and two cards can carry the same one (review, 2026-10-04).
+ * Why a wish that named this pool did not end in its Add form, in one sentence; the heading
+ * is described by it, since two cards can carry the same heading. A failed check's reasons
+ * are listed once, under Deposits: on the card this points there (`listedBelow`), and the
+ * door, away from the card, says them.
  */
-function notOpenedWhy(offer: DepositOffer, health: PoolHealth): string {
-  const reasons = health.deposits.reasons.join(' ');
+function notOpenedWhy(offer: DepositOffer, health: PoolHealth, listedBelow: boolean): string {
+  const reasons = listedBelow ? ' (see Deposits, below).' : `. ${health.deposits.reasons.join(' ')}`;
   switch (offer) {
     case 'paused-here':
       return 'adding liquidity from this site is paused right now.';
@@ -295,8 +295,8 @@ function notOpenedWhy(offer: DepositOffer, health: PoolHealth): string {
       return 'a deposit you sent to this pool is not confirmed yet.';
     case 'checks':
       return health.deposits.verdict === 'refused'
-        ? `this pool does not pass the checks a deposit needs. ${reasons}`
-        : `the checks a deposit needs could not be run on this pool. ${reasons}`;
+        ? `this pool does not pass the checks a deposit needs${reasons}`
+        : `the checks a deposit needs could not be run on this pool${reasons}`;
     case 'gate':
     case 'off':
     case 'offer':
@@ -324,7 +324,7 @@ function useShownWish(showNow: number, fromDoor: boolean, atTop: boolean): { sho
 function WishWhy({ id, why, fromDoor = false }: { id: string; why: string; fromDoor?: boolean }) {
   return (
     <div id={id} data-testid="lp-wish-why" className="mb-2 text-[12px] leading-relaxed">
-      <Notice tone="warn">{fromDoor ? 'This pool’s' : 'This is your position’s pool. Its'} Add form was not opened: {why}</Notice>
+      <Notice tone="warn">{fromDoor ? 'This pool’s' : 'This is your position’s pool. Its'} Add form stays closed: {why}</Notice>
     </div>
   );
 }
@@ -370,12 +370,15 @@ export function PoolCard({
   useShownOnce(showNow, onActed, cardRef, headingRef, atTop);
   const { shownFor, door: shownFromDoor, top: shownAtTop } = useShownWish(showNow, fromDoor, atTop);
   const whyId = useId();
+  const reasonsId = useId();
   const writes = useLpWrites();
   const offer: DepositOffer = writes
     ? depositOffer({ mode: writes.mode, gate: writes.gate, health, held: lpHeld(writes.pending.notes, view.address, 'add') })
     : 'off';
   // Gone as soon as the pool offers adding again: the button under the checks says so then.
-  const why = shownFor && offer !== 'offer' ? notOpenedWhy(offer, health) : null;
+  const why = shownFor && offer !== 'offer' ? notOpenedWhy(offer, health, !shownAtTop) : null;
+  // Pointed at, not said again: the heading is described by the reasons under Deposits too.
+  const describedBy = why && offer === 'checks' && !shownAtTop ? `${whyId} ${reasonsId}` : why ? whyId : undefined;
   const { pool } = view.snapshot;
   const swaps = swapsText(health);
   const cfg = view.config;
@@ -491,7 +494,7 @@ export function PoolCard({
     >
       <CardArt pageId="solana-lp" idx={7} />
       {/* Named as a position names its pool (identity.ts): the coin's ticker, the pairing coin, the tier. */}
-      <h3 ref={headingRef} tabIndex={-1} aria-describedby={why ? whyId : undefined} className="text-white font-semibold text-[15px] mb-1 outline-none [overflow-wrap:anywhere]" style={SHADOW}>
+      <h3 ref={headingRef} tabIndex={-1} aria-describedby={describedBy} className="text-white font-semibold text-[15px] mb-1 outline-none [overflow-wrap:anywhere]" style={SHADOW}>
         {pairLabel(view, safety)}
       </h3>
       {/* Each coin's name copies its whole address (island answer twenty-four), under the heading's words. */}
@@ -541,10 +544,11 @@ export function PoolCard({
           )}
           <div data-testid="lp-pool-deposits">
             <p className={`text-[12px] font-semibold ${depositsHead.tone}`}>{depositsHead.title}</p>
-            {/* The shared list's hold is already the one row above the checks; it is not said again as a paragraph. */}
-            {health.deposits.reasons.filter((r) => !(price.state === 'unread' && price.hold && r === price.detail)).map((r) => (
-              <Notice key={r} tone={health.deposits.verdict === 'refused' ? 'bad' : 'warn'}>{r}</Notice>
-            ))}
+            <div id={reasonsId}>
+              {health.deposits.reasons.map((r) => (
+                <Notice key={r} tone={health.deposits.verdict === 'refused' ? 'bad' : 'warn'}>{r}</Notice>
+              ))}
+            </div>
             {/* Said whatever the verdict is: a pool that is refused or unchecked for another reason still has them. */}
             {health.deposits.warnings.length > 0 && (
               <div data-testid="lp-pool-warnings" className="space-y-1">
@@ -795,8 +799,6 @@ function OfferLine({ offer, health }: { offer: DepositOffer; health: PoolHealth 
       // Not about the outside price alone any more: a pool with no market price at all is
       // offered, with a warning. What stops it here is a check that could not be RUN (the
       // reasons above say which), and a read that failed is never taken as a pass.
-      // The shared list's hold said it in one row ("adding waits"): nothing more under it.
-      if (health.price.state === 'unread' && health.price.hold) return null;
       return health.deposits.verdict === 'unchecked' ? (
         <Notice>Adding is off: a check above could not be run just now.</Notice>
       ) : null;

@@ -297,7 +297,7 @@ export async function placeShareOnChain(rpc: SolanaRpc, opts: ReadPoolsOptions, 
       for (const s of sigs) {
         const signature = (s as { signature?: unknown } | null)?.signature;
         if (typeof signature !== 'string') throw new Error('getSignaturesForAddress: an entry has no signature');
-        const tx = await rpc('getTransaction', [signature, { encoding: 'json', maxSupportedTransactionVersion: 0, commitment: 'confirmed' }]);
+        const tx = await rpc('getTransaction', [signature, { encoding: 'json', maxSupportedTransactionVersion: 1, commitment: 'confirmed' }]);
         const candidate = keysOf(tx).find((k) => {
           if (seen.has(k)) return false;
           seen.add(k);

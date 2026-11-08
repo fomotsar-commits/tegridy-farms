@@ -25,10 +25,18 @@ export const JITO_TIP_ACCOUNTS: readonly string[] = [
 export const JITO_BLOCK_ENGINE = 'https://mainnet.block-engine.jito.wtf';
 /** Jito's least tip. */
 export const JITO_MIN_TIP_LAMPORTS = 1_000n;
+/**
+ * The least tip the robot sends through Jito; a smaller one goes the usual way. Measured live
+ * 2026-11-06/07: tips of 7,403 to 11,246 lamports landed 0 times in 32, tips of 19,833 and more
+ * landed 18 times in 18.
+ */
+export const JITO_LANDING_TIP_LAMPORTS = 20_000n;
 /** The most of a trip's test-run gain its tip may take. */
 export const JITO_TIP_SHARE_PCT = 30n;
-/** How long a sent bundle is watched before its ending is called unknown. */
+/** How long a sent bundle is watched before the chain is asked whether its blockhash has run out. */
 export const JITO_WATCH_MS = 30_000;
+/** The longest a sent bundle is watched before its ending is called unknown (a blockhash lasts ~1 min). */
+export const JITO_GIVE_UP_MS = 120_000;
 
 /** The tip: `lamports` of SOL from the robot to one of Jito's tip accounts. */
 export function jitoTipIx(payer: PublicKey, lamports: bigint, tipAccount: string): TransactionInstruction {
@@ -44,13 +52,13 @@ export const JITO_KEEP_LAMPORTS = 1_000_000n;
  * The tip for a SOL trip whose test run gained `gained` lamports (wrapped) against a floor of
  * `floor`, leaving the wallet `solAfter` plain lamports: JITO_TIP_SHARE_PCT of the gain, cut so
  * the gain still covers floor + tip, and cut to the plain SOL the wallet can spare, since the tip
- * is paid in plain SOL and the gain lands wrapped. Null when that is under Jito's least tip: the
- * trip goes the usual way.
+ * is paid in plain SOL and the gain lands wrapped. Null when that is under the least tip that
+ * lands (JITO_LANDING_TIP_LAMPORTS): the trip goes the usual way.
  */
 export function jitoTip(gained: bigint, floor: bigint, solAfter: bigint): bigint | null {
   const least = (...xs: bigint[]) => xs.reduce((a, b) => (b < a ? b : a));
   const tip = least((gained * JITO_TIP_SHARE_PCT) / 100n, gained - floor, solAfter - JITO_KEEP_LAMPORTS);
-  return tip >= JITO_MIN_TIP_LAMPORTS ? tip : null;
+  return tip >= JITO_LANDING_TIP_LAMPORTS ? tip : null;
 }
 
 /** A random byte from the platform's cryptographic source (Node and every browser have it), not Math.random. */
@@ -67,13 +75,17 @@ type Status = { err: unknown; confirmationStatus?: string | null } | null;
 
 /**
  * Sends a signed transaction to Jito as a one-transaction bundle, then watches it: 'confirmed' once
- * the chain says so, 'lost' once Jito says every region failed it (it never lands, nothing is
- * paid), 'unknown' when neither is said within JITO_WATCH_MS (counted as the most a trip may cost).
- * A bundle Jito refuses throws: nothing was sent.
+ * the chain says so, 'lost' once Jito says every region failed it, or once the chain is past the
+ * transaction's blockhash and still does not know it (either way it never lands, nothing is paid),
+ * 'unknown' when none of that is said within JITO_WATCH_MS, or JITO_GIVE_UP_MS when
+ * `blockhashValid` is given (counted as the most a trip may cost). A bundle Jito refuses throws:
+ * nothing was sent.
  */
 export function jitoSender(opts: {
   fetchImpl: typeof fetch;
   status: (signature: string) => Promise<Status>;
+  /** Whether the chain (confirmed) would still take a transaction with this blockhash. */
+  blockhashValid?: (blockhash: string) => Promise<boolean>;
   url?: string;
   sleep?: (ms: number) => Promise<void>;
   now?: () => number;
@@ -92,12 +104,27 @@ export function jitoSender(opts: {
     const bundle = await call('sendBundle', [[base64.encode(tx.serialize())], { encoding: 'base64' }]);
     if (typeof bundle !== 'string') throw new Error('Jito sendBundle: no bundle id');
     const start = now();
-    while (now() - start < JITO_WATCH_MS) {
-      await sleep(1_000);
+    const landed = (s: Status) => !!s && (s.confirmationStatus === 'confirmed' || s.confirmationStatus === 'finalized');
+    const giveUp = opts.blockhashValid ? JITO_GIVE_UP_MS : JITO_WATCH_MS;
+    while (now() - start < giveUp) {
+      const late = now() - start >= JITO_WATCH_MS;
+      await sleep(late ? 3_000 : 1_000);
       const s = await opts.status(signature).catch(() => null);
-      if (s && (s.confirmationStatus === 'confirmed' || s.confirmationStatus === 'finalized')) return { signature, outcome: s.err ? 'reverted' : 'confirmed', bundle };
+      if (landed(s)) return { signature, outcome: s!.err ? 'reverted' : 'confirmed', bundle };
       const inflight = (await call('getInflightBundleStatuses', [[bundle]]).catch(() => null)) as { value?: { status?: string }[] } | null;
       if (inflight?.value?.[0]?.status === 'Failed') return { signature, outcome: 'lost', bundle };
+      // Past the watch: once the chain is past the transaction's blockhash, it can never land, so
+      // a signature the chain still does not know then was never paid for. Unread: unknown.
+      if (late && opts.blockhashValid && (await opts.blockhashValid(tx.message.recentBlockhash).catch(() => null)) === false) {
+        const last = await opts.status(signature).then(
+          (x) => ({ x }),
+          () => null,
+        );
+        if (!last) break;
+        if (last.x === null) return { signature, outcome: 'lost', bundle };
+        if (landed(last.x)) return { signature, outcome: last.x!.err ? 'reverted' : 'confirmed', bundle };
+        // Seen in a block not yet confirmed: watched on.
+      }
     }
     return { signature, outcome: 'unknown', bundle };
   };

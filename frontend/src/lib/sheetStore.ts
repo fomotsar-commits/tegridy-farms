@@ -14,7 +14,8 @@ import type { SheetKind } from './sheet';
  */
 export interface SheetOpen {
   kind: SheetKind;
-  room: Bungalow;
+  /** Add always has one; Buy has none until its bungalow row picks a coin (island answer twenty-seven). */
+  room: Bungalow | null;
   /** Where the form is drawn: a node inside the sheet's frame. */
   slot: HTMLElement;
   close: () => void;

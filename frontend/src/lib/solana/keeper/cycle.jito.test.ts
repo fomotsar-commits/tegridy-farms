@@ -10,6 +10,7 @@ import { DEFAULT_SETTINGS, sendChecked, type KeeperIo, type Trip, type TripRecor
 import { DEFAULT_LIMITS } from './plan';
 import { floorOfCheck } from './lighthouse';
 import { JITO_KEEP_LAMPORTS, JITO_TIP_ACCOUNTS } from './jito';
+import { PLAIN_AFTER_DROP_MS, TripBans } from './rule';
 
 const TOKEN_PROGRAM = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
 const SYSTEM = '11111111111111111111111111111111';
@@ -55,14 +56,15 @@ function rig(coin: QuoteCoin, after: { coin: bigint; lamports: bigint }, solAfte
     says: (g) => `gains ${g}`,
   };
   const records: TripRecord[] = [];
-  const reverted = vi.fn();
+  const bans = new TripBans();
+  const reverted = vi.spyOn(bans, 'reverted');
   const sent: VersionedTransaction[] = [];
   const io = {
     rpc,
     owner,
     log: vi.fn(),
     record: (r: TripRecord) => records.push(r),
-    bans: { banned: () => null, reverted },
+    bans,
   } as unknown as KeeperIo;
   const instructionsOf = (tx: VersionedTransaction) => TransactionMessage.decompile(tx.message).instructions;
   return { io, trip, owner, accounts, records, reverted, sent, instructionsOf };
@@ -118,6 +120,67 @@ describe('sendChecked with KEEPER_JITO', () => {
     const ixs = r.instructionsOf(r.sent[0]!);
     expect(ixs.some((ix) => ix.programId.toBase58() === SYSTEM)).toBe(false);
     expect(floorOfCheck(ixs.at(-1)!)!.min).toBe(HELD + FLOOR);
+  });
+
+  it('sends a SOL trip the usual way, with no tip, when its tip would be under the least tip that lands', async () => {
+    const r = rig(SOL_QUOTE, { coin: HELD + GAIN, lamports: LAMPORTS - 5_000n });
+    r.trip.floor = GAIN - 15_000n; // the gain leaves 15,000 lamports past the floor: too little a tip to land
+    r.io.sendJito = vi.fn();
+    r.io.send = vi.fn(async (tx: VersionedTransaction) => {
+      r.sent.push(tx);
+      return { signature: 'sig', outcome: 'confirmed' as const };
+    });
+    expect(await sendChecked(r.io, settings(true), r.trip)).toBe('sent');
+    expect(r.io.sendJito).not.toHaveBeenCalled();
+    expect(r.instructionsOf(r.sent[0]!).some((ix) => ix.programId.toBase58() === SYSTEM)).toBe(false);
+    expect(floorOfCheck(r.instructionsOf(r.sent[0]!).at(-1)!)!.min).toBe(HELD + GAIN - 15_000n);
+  });
+
+  it.each(['lost', 'unknown'] as const)('after a bundle %s, sends the next trip through the pool the usual way for a while, then through Jito again', async (outcome) => {
+    const first = rig(SOL_QUOTE, { coin: HELD, lamports: LAMPORTS });
+    first.io.send = vi.fn();
+    first.io.sendJito = vi.fn(async () => ({ signature: 'sig', outcome }));
+    await sendChecked(first.io, settings(true), first.trip);
+    expect(first.io.sendJito).toHaveBeenCalledTimes(1);
+
+    const next = () => {
+      const r = rig(SOL_QUOTE, { coin: HELD + GAIN, lamports: LAMPORTS - 5_000n });
+      r.io.bans = first.io.bans;
+      r.io.sendJito = vi.fn(async () => ({ signature: 'sig', outcome: 'confirmed' as const }));
+      r.io.send = vi.fn(async (tx: VersionedTransaction) => {
+        r.sent.push(tx);
+        return { signature: 'sig', outcome: 'confirmed' as const };
+      });
+      return r;
+    };
+    const plain = next();
+    expect(await sendChecked(plain.io, settings(true), plain.trip)).toBe('sent');
+    expect(plain.io.sendJito).not.toHaveBeenCalled();
+    expect(plain.instructionsOf(plain.sent[0]!).some((ix) => ix.programId.toBase58() === SYSTEM)).toBe(false);
+    expect(plain.io.log).toHaveBeenCalledWith(expect.stringMatching(/goes the usual way, no tip: a Jito bundle through it did not land/));
+
+    vi.useFakeTimers({ now: Date.now() + PLAIN_AFTER_DROP_MS + 1, toFake: ['Date'] });
+    try {
+      const later = next();
+      expect(await sendChecked(later.io, settings(true), later.trip)).toBe('sent');
+      expect(later.io.sendJito).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps sending through Jito after a bundle that landed', async () => {
+    const first = rig(SOL_QUOTE, { coin: HELD + GAIN, lamports: LAMPORTS - 5_000n });
+    first.io.send = vi.fn();
+    first.io.sendJito = vi.fn(async () => ({ signature: 'sig', outcome: 'confirmed' as const }));
+    await sendChecked(first.io, settings(true), first.trip);
+    const r = rig(SOL_QUOTE, { coin: HELD + GAIN, lamports: LAMPORTS - 5_000n });
+    r.io.bans = first.io.bans;
+    r.io.send = vi.fn();
+    r.io.sendJito = vi.fn(async () => ({ signature: 'sig', outcome: 'confirmed' as const }));
+    expect(await sendChecked(r.io, settings(true), r.trip)).toBe('sent');
+    expect(r.io.sendJito).toHaveBeenCalledTimes(1);
+    expect(r.io.send).not.toHaveBeenCalled();
   });
 
   it('sends the usual way, with no tip, when KEEPER_JITO is off', async () => {

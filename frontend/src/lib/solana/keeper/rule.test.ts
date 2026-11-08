@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { USDC_MINT } from '../lp/tokenSafety';
 import type { TokenSafety } from '../lp/tokenSafety';
-import { BAN_MS, SAFE_CAP_USD, TripBans, capUsd, coinBounds, judgeTrip, publishedRule, rankTrips, robotRule, runLegs, ruleSettingsFromEnv, tokenGate, tripFeeLamports, type CpLeg, type PublishedRule, type RuleSettings } from './rule';
+import { BAN_MS, PLAIN_AFTER_DROP_MS, SAFE_CAP_USD, TripBans, capUsd, coinBounds, judgeTrip, publishedRule, rankTrips, robotRule, runLegs, ruleSettingsFromEnv, tokenGate, tripFeeLamports, type CpLeg, type PublishedRule, type RuleSettings } from './rule';
 
 const SOL_USD = 100;
 const settings = (over: Partial<RuleSettings> = {}): RuleSettings => ({ maxTradeUsd: 25, minProfitUsd: 0.01, microLamports: 10_000, lighthouseProven: false, ...over });
@@ -184,5 +184,16 @@ describe('TripBans', () => {
     b.reverted([POOL], 0);
     b.reverted([POOL], BAN_MS + 1);
     expect(b.banned([POOL], BAN_MS + 2)).toBeNull();
+  });
+  it('sends a pool’s trips the usual way for a while after a Jito bundle through it did not land, never banning it', () => {
+    expect(PLAIN_AFTER_DROP_MS).toBe(10 * 60_000);
+    const b = new TripBans();
+    expect(b.plainOnly([POOL], 0)).toBe(false);
+    b.jitoDropped(['other', POOL], 1000);
+    expect(b.plainOnly([POOL], 1000 + PLAIN_AFTER_DROP_MS - 1)).toBe(true);
+    expect(b.plainOnly(['third', 'other'], 2000)).toBe(true);
+    expect(b.plainOnly([POOL], 1000 + PLAIN_AFTER_DROP_MS)).toBe(false);
+    expect(b.plainOnly(['third'], 2000)).toBe(false);
+    expect(b.banned([POOL], 2000)).toBeNull();
   });
 });

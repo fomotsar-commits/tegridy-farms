@@ -435,15 +435,17 @@ pub fn support_mint_associated_is_initialized(
     return Ok(mint_associated_is_initialized);
 }
 
+// memetics.finance: a support-mint record no longer lets a Token-2022 coin skip the
+// extension check below, for a pool's coins or a reward's. It did, for every extension, a
+// permanent delegate or a transfer hook included, and the vault could make one for any coin.
+// The record and its two instructions stay, so the program's interface is upstream's, but
+// nothing reads it here.
 pub fn is_supported_mint(
     mint_account: &InterfaceAccount<Mint>,
-    mint_associated_is_initialized: bool,
+    _mint_associated_is_initialized: bool,
 ) -> Result<bool> {
     let mint_info = mint_account.to_account_info();
     if *mint_info.owner == Token::id() {
-        return Ok(true);
-    }
-    if mint_associated_is_initialized {
         return Ok(true);
     }
     let mint_data = mint_info.try_borrow_data()?;
@@ -682,4 +684,62 @@ pub fn position_nft_must_freeze(
             _ => false,
         };
     is_restricted_mint(vault_0_mint) || is_restricted_mint(vault_1_mint)
+}
+
+#[cfg(test)]
+mod is_supported_mint_test {
+    use super::*;
+    use spl_token_2022::extension::{
+        metadata_pointer::MetadataPointer, permanent_delegate::PermanentDelegate,
+        BaseStateWithExtensionsMut, StateWithExtensionsMut,
+    };
+
+    /// A Token-2022 mint carrying `extensions`, as the program reads it.
+    fn token_2022_mint(extensions: &[ExtensionType]) -> InterfaceAccount<'static, Mint> {
+        let len =
+            ExtensionType::try_calculate_account_len::<spl_token_2022::state::Mint>(extensions)
+                .unwrap();
+        let mut data = vec![0u8; len];
+        let mut state =
+            StateWithExtensionsMut::<spl_token_2022::state::Mint>::unpack_uninitialized(&mut data)
+                .unwrap();
+        for e in extensions {
+            match e {
+                ExtensionType::PermanentDelegate => {
+                    state.init_extension::<PermanentDelegate>(true).unwrap();
+                }
+                ExtensionType::MetadataPointer => {
+                    state.init_extension::<MetadataPointer>(true).unwrap();
+                }
+                _ => unreachable!("add the extension here"),
+            }
+        }
+        state.base.decimals = 6;
+        state.base.is_initialized = true;
+        state.pack_base();
+        state.init_account_type().unwrap();
+        let info: &'static AccountInfo<'static> = Box::leak(Box::new(AccountInfo::new(
+            Box::leak(Box::new(Pubkey::new_unique())),
+            false,
+            false,
+            Box::leak(Box::new(1_461_600u64)),
+            Box::leak(data.into_boxed_slice()),
+            Box::leak(Box::new(spl_token_2022::ID)),
+            false,
+        )));
+        InterfaceAccount::<Mint>::try_from(info).unwrap()
+    }
+
+    #[test]
+    fn a_support_mint_record_does_not_skip_the_extension_check() {
+        let mint = token_2022_mint(&[ExtensionType::PermanentDelegate]);
+        assert!(!is_supported_mint(&mint, true).unwrap());
+    }
+
+    // Controls: an allowed extension still goes in, and a refused one is still refused.
+    #[test]
+    fn an_allowed_extension_goes_in_and_a_permanent_delegate_does_not() {
+        assert!(is_supported_mint(&token_2022_mint(&[ExtensionType::MetadataPointer]), false).unwrap());
+        assert!(!is_supported_mint(&token_2022_mint(&[ExtensionType::PermanentDelegate]), false).unwrap());
+    }
 }

@@ -308,6 +308,16 @@ export const LOCKED_SHARES_TEXT = `${(Number(LOCKED_LP) / 1e9).toFixed(9).replac
 /** The locked 100 may be at most this many basis points of the pool: 0.1%. */
 export const MAX_LOCK_BPS = 10n;
 
+/**
+ * A pool of `supply` shares in which the locked 100 are more than 0.1%. No opening that
+ * small is built (`openingProblem`), and no deposit goes into a pool that small
+ * (poolHealth.ts): at exactly 100 everyone has taken their share out, and what is left can
+ * be re-priced for a few lamports (audit CM-2, 2026-11-03).
+ */
+export function tooFewShares(supply: bigint): boolean {
+  return LOCKED_LP * BPS > supply * MAX_LOCK_BPS;
+}
+
 /** Floor square root, exact for any size (Newton's method on bigint). RangeError below 0. */
 export function isqrt(n: bigint): bigint {
   if (n < 0n) throw new RangeError('isqrt of a negative number');
@@ -362,7 +372,7 @@ export function openingProblem(amount0: bigint, amount1: bigint, fees: PoolFees 
   const vault1 = afterFee(fees[1], amount1);
   const supply = isqrt(vault0 * vault1);
   if (supply <= LOCKED_LP) return { problem: 'too-small', supply };
-  if (LOCKED_LP * BPS > supply * MAX_LOCK_BPS) return { problem: 'lock-too-large', supply };
+  if (tooFewShares(supply)) return { problem: 'lock-too-large', supply };
   const mine = lpTokensToTradingTokens(supply - LOCKED_LP, supply, vault0, vault1, 'floor');
   if (!mine) return { problem: 'overflow' };
   if (afterFee(fees[0], mine.token0Amount) < 1n) return { problem: 'cannot-leave', supply, short: 0 };
