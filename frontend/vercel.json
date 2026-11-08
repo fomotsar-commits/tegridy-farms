@@ -14,6 +14,9 @@
     "api/venue-volume-count.js": {
       "maxDuration": 120
     },
+    "api/aggregator.js": {
+      "maxDuration": 30
+    },
     "api/outside-prices.js": {
       "maxDuration": 60
     }
@@ -198,6 +201,7 @@
     { "source": "/api/swapapi/:path*", "destination": "/api/aggregator?provider=swapapi&p=:path*" },
     { "source": "/api/jupiter/:path*", "destination": "/api/aggregator?provider=jupiter&p=:path*" },
     { "source": "/api/pools", "destination": "/api/aggregator?resource=pools" },
+    { "source": "/api/gt/:endpoint", "destination": "/api/aggregator?resource=gt&endpoint=:endpoint" },
     { "source": "/api/cardano/:op", "destination": "/api/cardano?op=:op" },
     { "source": "/record/:chain/:ca.json", "destination": "/api/aggregator?resource=record&chain=:chain&ca=:ca" },
     { "source": "/record/:path*", "destination": "/api/aggregator?resource=record&path=:path*" },

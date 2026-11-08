@@ -50,11 +50,49 @@ run, opening a pool is free on all three chains.
 
 ---
 
-## 🔴 2026-11-05: NFT lending on Gondi's loan contract (about 0.01 ETH, one deploy and one database file from you)
+## 🔴 2026-11-07: Cardano pools, everything left before you can add liquidity
+
+Your ask (2026-11-07): what is left before you can add liquidity on Cardano on memetics.finance.
+**Today you cannot.** None of our own Cardano pools is deployed, and by your ruling of 2026-10-24
+the site never sends liquidity into Minswap's pools (a sixth of their trade fee goes to Minswap).
+The code is written and waiting as drafts: our copy of Minswap V2 with the 48-hour, two-key lock
+(#988), the 73 ADA pool opening fee (#1016), the batcher that fills orders (#1008), the LP screens
+(#1068) and Cancel order (#1071). The plan is [`CARDANO_PLAN.md`](CARDANO_PLAN.md) Part 2.
+
+**How the money moves once it is live** (your rulings of 2026-10-24 and 2026-10-25):
+- **Opening a pool:** whoever opens it pays 73 ADA, in the same transaction, straight to the
+  two-key treasury. Their own deposit all goes into the pool.
+- **Trading:** each trade pays 0.3% of what goes in. LPs keep about 0.26% of the trade. The venue
+  takes 1333/10000 of the fee (about 0.04% of the trade); it builds up inside each pool and the
+  lock pays it out only to the treasury. A new pool starts with the venue's share off (Minswap's
+  factory requires it); switching it on is a lock change, live 48 hours after it is announced.
+- **Filling orders:** our batcher keeps the batcher fee on each order it fills. Above its float
+  cap it sweeps the excess to the treasury.
+
+| Step | What | Who |
+|---|---|---|
+| ⬜ 1 | Finish the treasury (the Cardano swap section below): confirm the two keys come from two different 24-word phrases, and move key B to your phone. The pools pay into this same treasury. | you |
+| ⬜ 2 | Decide who holds the lock's two owner keys. Every pool setting change (fees, batchers, the treasury) needs both, 48 hours after it is announced. Also pick a DRep for the pools' stake, or "always abstain": since the Plomin hard fork, staking rewards cannot be withdrawn without one. | you |
+| ⬜ 3 | A lawyer reads Minswap's licence. Its `LICENSE.md` says GPL-3.0; its `aiken.toml` and `plutus.json` say Apache-2.0. Owed before any deploy. | you |
+| ⬜ 4 | Code fixes before the audit. The batcher reads the global settings as 6 fields, but the opening fee (#1016) makes them 8. Bring the treasury-is-Eternl fix (#1032, #1033) into the branches, and name the proven treasury as the lock's treasury. Bring the LP screens (#1068) up to date with trunk: they conflict today. | a session |
+| ⬜ 5 | Write the deploy script, which does not exist yet: our seed UTxO, the pool contracts with our settings, the lock, the reference scripts, and registering the batching script's reward account. Rehearse it on preprod. The rehearsal says how much ADA the deploy locks up. | a session |
+| ⬜ 6 | Pick and pay an auditor. Scope: the one-line fee-share patch, the opening fee, the lock, the deploy settings and the batcher. The brief is `docs/CARDANO_AUDIT_SCOPE.md` on #988. Every finding gets fixed, none accepted (your rule of 2026-10-13). This is the longest wait, so it sets the date. | you, then a session |
+| ⬜ 7 | Give the batcher a home: a new Railway project (two-factor on, no other members, a volume, volume backups off), two healthchecks.io checks, a Demeter account for Ogmios and Kupo, and a second Koios key used only by the batcher. Step by step in `cardano/batcher/README.md` on #1008. | you |
+| ⬜ 8 | After the audit, deploy with your keys. Then name the batcher's key through the lock (48 hours) and fund it: about 5 ADA of collateral and a float of at least 10 ADA. | you, with a session |
+| ⬜ 9 | A week of batcher dry runs, signing nothing, with one small order per pool. Then switch it live. | a session, live on your word |
+| ⬜ 10 | Merge the pool PRs and the LP screens, each on your word (each merge is a production deploy). A session walks the screens from the home page after each. | you, then a session |
+| ⬜ 11 | Open the first pool (73 ADA to the treasury) and add liquidity. Announce the venue's share; it switches on 48 hours later. | you |
+
+Steps 1 to 7 can all run at once. Steps 2, 3 and 6 only you can start, and step 6 sets the date.
+
+---
+
+## 🔴 2026-11-05: NFT lending on Gondi's loan contract (DEPLOYED 2026-11-07; one database file and three merges from you)
 
 Your ask (2026-11-05): "do everything needed lets get this done" for collection loan offers on NFT Finance.
 Everything that can be done without you is done and waiting as drafts: the contracts (#1038), the site (#1039), and
-the loan shield with due-date alerts (#1127, built on #1039). Nothing is deployed yet. The first lending contract,
+the loan shield with due-date alerts (#1127, built on #1039). **The contracts are deployed on Ethereum (2026-11-07,
+step 2); the site goes live when #1039 merges.** The first lending contract,
 `0x89BeB6cc0255B7465c01aA38a6f937efd345f14F`, never held an offer or a loan (read 2026-11-05: 0 offers, 0 loans,
 0 ETH), so nobody is left behind; the site now lists it as retired.
 
@@ -70,12 +108,14 @@ second step two days after the deploy (step 6); until then your deployer wallet 
 
 | Step | When (UTC) | What | Who |
 |---|---|---|---|
-| ⬜ 1 | now | Send about 0.01 ETH to the deployer `0x14898258122C0740106391E6e8E4F17F3b6d456E`. It held 0.0013117 ETH on 2026-11-05. The deploy needs about 0.006 ETH (13,479,232 gas in the 2026-11-05 rehearsal, at forge's padded price); the rest covers a gas spike. | you |
-| ⬜ 2 | after step 1 | Deploy: the commands below, test first, then send. | you |
-| ⬜ 3 | after step 2 | A session checks the contracts on chain (same bytes as Gondi's, 500 basis points to the treasury, the Safe set as next owner), verifies them on Etherscan, puts the loan contract's address into the site, reruns the browser tests and pushes. | a session |
-| ⬜ 4 | any time | Run `frontend/supabase/migrations/030_nft_loan_offers.sql` in Supabase's SQL editor. It makes the table the offer book keeps offers in. Sessions can't run SQL on production. | you |
+| ✅ 1 | done 2026-11-07 | Funded the deployer `0x14898258122C0740106391E6e8E4F17F3b6d456E`: it held 0.0450 ETH before the deploy. | you |
+| ✅ 2 | done 2026-11-07, ~21:43 UTC | Deployed: 14 transactions, all succeeded, 0.000468 ETH paid (10,343,112 gas at 0.043 gwei). Loan contract (MultiSourceLoan) `0x4f2b53DAE3edCf1B527c53d2C11A28ec5Ac6D630` (tx `0xefdc16b817cd6cdcf4a135fafb8968992f4c413d6034cb5bd3ec8c23ea9f3e4f`); liquidator `0xe61613035B85308F31E068bBC31257524ffE7Fa6`; liquidation distributor `0x5a3B60b2a53245462dF2F6791a6A3aA0B6B1f2Df`; currency list `0x5d917E12C1Ac3dBc0c75a6554807ABde0b8FAFC4`; collection list `0x9F9c3F7c4f2a65Bab54BF78a64bb32468F1E4Eb3`; registry `0xc9464734068449EF5284D6BaCbe0371b87070F32`. Record: `contracts/broadcast/DeployGondiLending.s.sol/1/` on #1039. **Do not run the deploy commands below again: a second run deploys a second set.** | you |
+| ✅ 3 | done 2026-11-07 | Checked on chain: all six contracts' code equals Gondi's build byte for byte (deploy-time settings masked); the fee is 500 basis points to the treasury Safe; WETH is the only currency; Jungle Bay, Nakamigos and GNSS are the only collections; the registry, both lists and the distributor are owned by the Safe; the Safe is the pending owner of the loan contract and the liquidator. All six show their source on Etherscan. The address is in the site (#1039 `f4dc31d90`), and the borrow-then-repay browser test passed against the real contract on a copy of mainnet. | a session |
+| ✅ 4 | done 2026-11-07 | `frontend/supabase/migrations/030_nft_loan_offers.sql` ran in Supabase's SQL editor ("Success. No rows returned"). Checked after: the ledger has its row, both tables have row security on with no policies, the public and signed-in roles have no access, and both shape checks and all three indexes exist. The server role holds every table right (the schema's default grants from 008), not only the three the file grants. Do not run it again (it is safe to, but there is no need). | a session, on your word |
 | ⬜ 5 | after steps 3 and 4 | Merge #1038, then #1039, then #1127, each on your word (each merge is a production deploy). After each, a session reads the Vercel status. After #1039 it walks NFT Finance from the home page at phone width, and checks that MetaMask and Rabby show no scam warning on the offer-signing popup. | you, then a session |
-| ⬜ 6 | two days after step 2 | The treasury Safe calls `transferOwnership()` on the loan contract and on the liquidator (the deploy prints both addresses). A session prepares both transactions for the Safe; both signers sign. | you |
+| ⬜ 6 | from 2026-11-09 21:44 UTC | The treasury Safe calls `transferOwnership()` on the loan contract `0x4f2b53DAE3edCf1B527c53d2C11A28ec5Ac6D630` and on the liquidator `0xe61613035B85308F31E068bBC31257524ffE7Fa6` (the chain allows it 2 days after the request: 21:43:47 and 21:43:35 UTC). A session prepares both transactions for the Safe; both signers sign. Until then the deployer wallet owns those two. | you |
+
+**✅ Step 2 is done (2026-11-07). The commands below are kept as a record. Do not run them again.**
 
 **Before step 2: your keystore must be the deployer.**
 
@@ -635,17 +675,22 @@ A general "merge what you can" is refused as a production deploy.
 The swap is **open** (`CARDANO_SWAP_OPEN = true`), on your word: "Go live without the venue fee
 for now, and add it when the treasury exists". Plan and rulings: [`CARDANO_PLAN.md`](CARDANO_PLAN.md).
 
-1. ⬜ **Make the venue's two-key Cardano treasury** (a two-signature native-script wallet, the
-   vault's equivalent) and send its address to a session, which puts it in
-   `frontend/src/lib/cardano/venueFee.ts`. **Until then Cardano swaps earn the venue nothing** and
-   the page says so. Eternl makes multi-sig wallets only with Eternl Pro ($96 a year); your keys A
-   and B are made. After it is registered, one real swap of at least 200 ADA shows the fee line live
-   (under about 200 ADA no venue fee is charged: a Cardano output must hold about 1 ADA).
+1. ✅ **The venue's two-key Cardano treasury** is the Eternl Pro multi-sig wallet
+   "memetics.finance" (made 2026-10-31), registered in `frontend/src/lib/cardano/venueFee.ts`
+   2026-11-07. Spending and staking each need both keys: proven on mainnet 2026-11-07 by a 3 ADA
+   send carrying exactly those two signatures (tx `06c0fc16…`). Cardano swaps of about 200 ADA or
+   more now pay 0.5% of their ADA side to it (under that no venue fee is charged: a Cardano output
+   must hold about 1 ADA). Still yours:
+   - ⬜ Confirm the two keys come from **two different 24-word phrases** (the chain cannot show it).
+   - ⬜ Move key B to your phone, the two phrases on paper in two places: today both keys sit in
+     one Eternl on one PC.
+   - ⬜ After the merge, one real swap of at least 200 ADA shows the fee line live.
 2. ✅ **Koios key** set as `KOIOS_API_KEY` on Vercel (Production), 2026-10-24.
 3. ✅ **Real swaps walked on mainnet**, 2026-10-24, from key A: a buy (25 ADA for 1,580.426944 MIN)
    and a sell (the same MIN for 24.532531 ADA), each filled at exactly the quoted amount.
 
-Next after that: our own Cardano pools (plan Part 2), which ends in an audit you pay for.
+Next after that: our own Cardano pools (plan Part 2), which ends in an audit you pay for. Every
+step left before you can add liquidity is in the 2026-11-07 section at the top of this file.
 
 ## 2026-10-24: for later, Jupiter's paid plan (you: "stay on free now")
 
