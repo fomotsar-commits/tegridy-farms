@@ -27,6 +27,7 @@ function receipt(over: Partial<Receipt> = {}): Receipt {
     under: null,
     fee: { kind: 'reading' },
     clock: 'day1',
+    lps: null,
     ...over,
   };
 }
