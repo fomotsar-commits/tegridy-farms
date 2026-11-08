@@ -10,9 +10,15 @@
 //     when they say network 1);
 //   - what none of the deploy's transactions holds: votes, proposals, a donation, a protocol
 //     update, a native script, a Byron input, a certificate other than the legacy stake
-//     registration, an input no one can show.
+//     registration, an input no one can show;
+//   - a change through the 48-hour lock that src/lock.ts's reading refuses (an Execute before
+//     ready_at or unlike its announcement, a pool's value or fee share leaving for anywhere but
+//     the treasury, a role off the lock, the wrong network). What the change does is shown in
+//     plain words, with when it can run.
 import CSL from '@emurgo/cardano-serialization-lib-nodejs';
 import { MAINNET_TIME, PREPROD_TIME, refKey, slotToPosixMs } from '../src/chain.ts';
+import { LockRefused, readLockTx, type LockDeployment, type LockReading } from '../src/lock.ts';
+import { DecodeError } from '../src/plutus.ts';
 
 export class Refused extends Error {}
 
@@ -79,6 +85,14 @@ export interface Review {
   redeemers: { tag: string; index: string; mem: string; steps: string }[];
   /** Every key that must sign, and why. */
   needs: Need[];
+  /** A change through the 48-hour lock: what it does, in plain words, and when it can run. */
+  lock?: LockReading;
+}
+
+/** The run's deployment (scripts.json), to read lock transactions; `current`: the pool's and the GlobalSetting's outputs now. */
+export interface LockView {
+  deployment: LockDeployment;
+  current?: { pool?: string; setting?: string };
 }
 
 /** An input's output, as hex, and where it was read; undefined when no one can show it. */
@@ -131,7 +145,7 @@ function held(o: CSL.TransactionOutput, network: 0 | 1, what: string): Held {
 const list = <T>(l: { len(): number; get(i: number): T } | undefined): T[] => Array.from({ length: l?.len() ?? 0 }, (_, i) => l!.get(i));
 
 /** What the transaction does, from its bytes, and who must sign it. `labels` names known keys (ownerA, the deployer). */
-export function review(txHex: string, network: 0 | 1, resolve: Resolver, labels: Record<string, string> = {}): Review {
+export function review(txHex: string, network: 0 | 1, resolve: Resolver, labels: Record<string, string> = {}, lockView?: LockView): Review {
   let tx: CSL.FixedTransaction;
   try {
     tx = CSL.FixedTransaction.from_hex(txHex);
@@ -216,6 +230,17 @@ export function review(txHex: string, network: 0 | 1, resolve: Resolver, labels:
   const from = at(body.validity_start_interval_bignum());
   const until = at(body.ttl_bignum());
 
+  let lock: LockReading | undefined;
+  if (lockView) {
+    if (lockView.deployment.network !== network) throw new Refused(`the deployment read is for ${networkName(lockView.deployment.network)}, and this run's inputs say ${networkName(network)}`);
+    try {
+      lock = readLockTx(txHex, (ref) => resolve(ref)?.outputHex, lockView.deployment, lockView.current);
+    } catch (e) {
+      if (e instanceof LockRefused || e instanceof DecodeError) throw new Refused(`the lock transaction is refused: ${e.message}`);
+      throw e;
+    }
+  }
+
   const rs = ws.redeemers();
   return {
     txId,
@@ -237,6 +262,7 @@ export function review(txHex: string, network: 0 | 1, resolve: Resolver, labels:
     plutusScripts: list(ws.plutus_scripts()).map((s) => s.hash().to_hex()),
     redeemers: list(rs).map((r) => ({ tag: CSL.RedeemerTagKind[r.tag().kind()]!, index: r.index().to_str(), mem: r.ex_units().mem().to_str(), steps: r.ex_units().steps().to_str() })),
     needs: [...needs.values()],
+    ...(lock ? { lock } : {}),
   };
 }
 

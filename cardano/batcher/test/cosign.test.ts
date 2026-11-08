@@ -4,7 +4,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import CSL from '@emurgo/cardano-serialization-lib-nodejs';
-import { addWitnesses, assemble, checkMagic, checkWalletNetwork, checkWitnessSet, missing, outputOf, review, walletKeys, type Resolver, type WitnessFile } from '../cosign/review.ts';
+import { addWitnesses, assemble, checkMagic, checkWalletNetwork, checkWitnessSet, missing, outputOf, Refused, review, walletKeys, type Resolver, type WitnessFile } from '../cosign/review.ts';
+import { announceWindow, cancelSpec, executeSpec, executeWindow, lockTx, type LockDeployment } from '../src/lock.ts';
 
 const key = () => CSL.PrivateKey.generate_ed25519();
 const K = { deployer: key(), a: key(), b: key(), stranger: key(), collateral: key(), reader: key() };
@@ -242,4 +243,38 @@ test("a chain of unsent transactions: the next one's input is read from the one 
   const t = payment();
   assert.equal(outputOf(t.hex, 0), CSL.TransactionOutput.new(at(0, K.deployer), CSL.Value.new(big(9_800_000n))).to_hex());
   assert.equal(outputOf(t.hex, 1), undefined);
+});
+
+// ---- changes through the 48-hour lock, read on the page (src/lock.ts readLockTx) ----
+const LFX = JSON.parse(readFileSync(new URL('./fixtures/lock-preprod.json', import.meta.url), 'utf8')) as { refs: Record<string, string>; outputs: Record<string, string>; pp: import('../src/build.ts').ProtocolParams; deployment: { lock: string; policy: string; pool: string; ownerA: string; ownerB: string; treasury: string; deployer: string } };
+const LD: LockDeployment = { network: 0, lock: LFX.deployment.lock, authen: LFX.deployment.policy, pool: LFX.deployment.pool, ownerA: LFX.deployment.ownerA, ownerB: LFX.deployment.ownerB, treasury: LFX.deployment.treasury };
+const lu = (k: string) => ({ ref: LFX.refs[k]!, outputHex: LFX.outputs[LFX.refs[k]!]! });
+const LREFS = { lockScript: lu('lockScript'), poolScript: lu('poolScript'), settingScript: lu('authenScript') };
+const lockResolve: Resolver = (r) => (LFX.outputs[r] ? { outputHex: LFX.outputs[r]!, from: 'the chain' } : undefined);
+const LREADY = 1_794_278_064_000n;
+const lslot = (ms: bigint) => 86_400n + (ms - 1_655_769_600_000n) / 1_000n;
+const lplan = (validity: { start: bigint; ttl: bigint }) => ({ pp: LFX.pp, funds: [lu('funds')], change: LFX.deployment.deployer, validity });
+
+test('the page reads a lock Execute: what it changes in plain words, and when it can run', () => {
+  const tx = lockTx(executeSpec(LD, LREFS, lu('lock'), 0, lu('pool'), lu('globalSetting'), LFX.pp), lplan(executeWindow(lslot(LREADY + 600_000n), 0, LREADY, 600n)));
+  const r = review(tx.txHex, 0, lockResolve, { [LD.ownerA]: 'owner A' }, { deployment: LD });
+  assert.equal(r.lock?.action, 'Execute');
+  assert.match(r.lock!.words.join('\n'), /venue share: off → 1333\/10000 of the trade fee/);
+  assert.match(r.lock!.words.join('\n'), /base fee: 30\/30 \(0\.30% each way\), unchanged/);
+  assert.match(r.lock!.when, /ready_at 2026-11-10 02:34:24 UTC, the window closes 2026-11-24 02:34:24 UTC/);
+  assert.deepEqual(r.needs.map((n) => n.label ?? n.key), ['248daaa85393a34a74070c777a613ad9b58669c992c820f9f351f3fc', 'owner A', LD.ownerB]);
+  // Without the deployment, the same bytes show no lock readout (a deploy step, read as before).
+  assert.equal(review(tx.txHex, 0, lockResolve).lock, undefined);
+  // An Announce or a Cancel is read against the pool as it is now.
+  const c = lockTx(cancelSpec(LD, LREFS, lu('lock'), 0, LFX.pp), lplan(announceWindow(lslot(LREADY - 3_600_000n), 0, 600n)));
+  const rc = review(c.txHex, 0, lockResolve, {}, { deployment: LD, current: { pool: lu('pool').outputHex, setting: lu('globalSetting').outputHex } });
+  assert.match(rc.lock!.words.join('\n'), /removes announcement #0, unmade:[\s\S]*venue share: off → 1333\/10000/);
+  assert.equal(rc.lock!.lp, 'b36a062bd77c885796736aac9887de89052be409287912d68aa27f145f438d4f');
+});
+
+test('the page refuses a lock Execute before ready_at, and a deployment read for another network', () => {
+  const early = lockTx(executeSpec(LD, LREFS, lu('lock'), 0, lu('pool'), lu('globalSetting'), LFX.pp), lplan({ start: lslot(LREADY) - 1n, ttl: lslot(LREADY) + 300n }));
+  assert.throws(() => review(early.txHex, 0, lockResolve, {}, { deployment: LD }), (e: unknown) => e instanceof Refused && /the lock transaction is refused: the Execute could run before ready_at/.test((e as Error).message));
+  const ok = lockTx(executeSpec(LD, LREFS, lu('lock'), 0, lu('pool'), lu('globalSetting'), LFX.pp), lplan(executeWindow(lslot(LREADY + 600_000n), 0, LREADY, 600n)));
+  assert.throws(() => review(ok.txHex, 0, lockResolve, {}, { deployment: { ...LD, network: 1 } }), /the deployment read is for mainnet/);
 });

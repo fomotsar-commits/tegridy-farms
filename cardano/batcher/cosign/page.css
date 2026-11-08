@@ -18,3 +18,5 @@ th { font-weight: 600; }
 button { font: inherit; padding: 6px 12px; margin: 2px 6px 2px 0; cursor: pointer; }
 ul { padding-left: 18px; }
 li button { margin-left: 8px; }
+.lock { border-left: 4px solid var(--warn); padding: 2px 0 2px 10px; overflow-wrap: anywhere; word-break: break-word; }
+.lock li { margin: 2px 0; }

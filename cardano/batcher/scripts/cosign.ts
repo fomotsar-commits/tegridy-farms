@@ -7,7 +7,8 @@
 // <out> is deploy.ts's: <step>.tx.json is the unsigned transaction it wrote, the page keeps each
 // wallet's checked signatures in <step>.witnesses.json, and assemble writes <step>.signed.tx.json.
 // The network is the inputs' (0 preprod, 1 mainnet): an address, a wallet or a chain endpoint on
-// any other is refused.
+// any other is refused. A change through the 48-hour lock (scripts/lock.ts writes it here too) is
+// read with the deploy's <out>/scripts.json, and shown in plain words with when it can run.
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { existsSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -16,8 +17,9 @@ import CSL from '@emurgo/cardano-serialization-lib-nodejs';
 import { MAINNET_TIME, PREPROD_TIME } from '../src/chain.ts';
 import { Koios } from '../src/koios.ts';
 import { rpc, submit, type Endpoint } from '../src/ogmios.ts';
-import { checkInputs, checkNothingPending, type DeployInputs } from '../src/deploy.ts';
-import { addWitnesses, assemble, checkMagic, checkWalletNetwork, checkWitnessSet, missing, networkName, outputOf, Refused, review, walletKeys, type Resolver, type Review, type WitnessFile } from '../cosign/review.ts';
+import { checkInputs, checkNothingPending, NAMES, type DeployInputs, type Scripts } from '../src/deploy.ts';
+import type { LockDeployment } from '../src/lock.ts';
+import { addWitnesses, assemble, checkMagic, checkWalletNetwork, checkWitnessSet, missing, networkName, outputOf, Refused, review, walletKeys, type LockView, type Resolver, type Review, type WitnessFile } from '../cosign/review.ts';
 
 const [cmd, inputsPath, outArg, stepArg] = process.argv.slice(2);
 if (!cmd || !inputsPath || !outArg) throw new Error('usage: node scripts/cosign.ts <serve|assemble|submit> <inputs.json> <out> [<step>] [--port 8737]');
@@ -65,6 +67,24 @@ function writeAtomic(path: string, text: string): void {
   writeFileSync(`${path}.new`, text);
   renameSync(`${path}.new`, path);
 }
+/** The deploy's scripts (<out>/scripts.json), when there: lock transactions are read with them. */
+function deployment(): LockDeployment | undefined {
+  const p = join(out, 'scripts.json');
+  if (!existsSync(p)) return undefined;
+  const s = (JSON.parse(readFileSync(p, 'utf8')) as { scripts: Scripts }).scripts;
+  return { network, lock: s.lock.hash, authen: s.authen.hash, pool: s.pool.hash, ownerA: inputs.ownerA, ownerB: inputs.ownerB, treasury: inputs.treasury };
+}
+/** For an Announce or a Cancel (which touch neither), the pool and the GlobalSetting as the chain holds them now. */
+async function current(d: LockDeployment, lp: string | undefined): Promise<NonNullable<LockView['current']>> {
+  const c: NonNullable<LockView['current']> = {};
+  const gs = await koios.utxosWithAsset(d.authen, NAMES.globalSetting, d.authen);
+  if (gs.length === 1) c.setting = gs[0]!.outputHex;
+  if (lp) {
+    const pools = (await koios.utxosWithAsset(d.authen, lp, d.pool)).filter((u) => (CSL.TransactionOutput.from_hex(u.outputHex).amount().multiasset()?.get_asset(CSL.ScriptHash.from_hex(d.authen), CSL.AssetName.new(Buffer.from(NAMES.pool, 'hex')))?.to_str() ?? '0') === '1');
+    if (pools.length === 1) c.pool = pools[0]!.outputHex;
+  }
+  return c;
+}
 const sent = (): Record<string, string> => (existsSync(join(out, 'state.json')) ? ((JSON.parse(readFileSync(join(out, 'state.json'), 'utf8')) as { txs?: Record<string, string> }).txs ?? {}) : {});
 
 /** What the transaction does: its inputs read from the run's own transactions (a chain of unsent ones) or from the chain. */
@@ -92,7 +112,10 @@ async function reviewOf(step: string): Promise<{ hex: string; r: Review }> {
     const o = fromChain.get(ref);
     return o ? { outputHex: o, from: 'the chain' } : undefined;
   };
-  return { hex, r: review(hex, network, resolve, labels) };
+  const d = deployment();
+  const r = review(hex, network, resolve, labels, d && { deployment: d });
+  if (!d || !r.lock || r.lock.action === 'Execute') return { hex, r };
+  return { hex, r: review(hex, network, resolve, labels, { deployment: d, current: await current(d, r.lock.lp) }) };
 }
 
 async function signedTx(step: string): Promise<{ hex: string; txId: string }> {

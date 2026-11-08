@@ -6,7 +6,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import CSL from '@emurgo/cardano-serialization-lib-nodejs';
-import { refKey } from './chain.ts';
+import { refKey, type NetworkTime } from './chain.ts';
 
 export interface ScriptBudget {
   tag: string;
@@ -110,10 +110,10 @@ function allInputs(body: CSL.TransactionBody): CSL.TransactionInput[] {
 
 /**
  * `aiken tx simulate`: evaluates every script in `txHex` against the outputs in `spentHex`
- * (keyed "txhash#index"). `aiken` is the path to Aiken 1.0.24; the slot settings default to
+ * (keyed "txhash#index"). `aiken` is the path to Aiken 1.0.24; the slot settings (`time`) default to
  * mainnet's.
  */
-export function simulate(aiken: string, txHex: string, spentHex: Readonly<Record<string, string>>): SimulationResult {
+export function simulate(aiken: string, txHex: string, spentHex: Readonly<Record<string, string>>, time?: NetworkTime): SimulationResult {
   const body = CSL.FixedTransaction.from_hex(txHex).body();
   const ins = allInputs(body);
   const missing = ins.map(refKey).filter((k) => spentHex[k] === undefined);
@@ -123,7 +123,8 @@ export function simulate(aiken: string, txHex: string, spentHex: Readonly<Record
     writeFileSync(join(dir, 'tx'), withoutSetTags(withArrayRedeemers(txHex)));
     writeFileSync(join(dir, 'inputs'), cborArrayHead(ins.length) + ins.map((i) => i.to_hex()).join(''));
     writeFileSync(join(dir, 'outputs'), cborArrayHead(ins.length) + ins.map((i) => spentHex[refKey(i)]).join(''));
-    const r = spawnSync(aiken, ['tx', 'simulate', join(dir, 'tx'), join(dir, 'inputs'), join(dir, 'outputs')], { encoding: 'utf-8' });
+    const slots = time ? ['--zero-time', time.zeroTimeMs.toString(), '--zero-slot', time.zeroSlot.toString(), '--slot-length', time.slotLengthMs.toString()] : [];
+    const r = spawnSync(aiken, ['tx', 'simulate', join(dir, 'tx'), join(dir, 'inputs'), join(dir, 'outputs'), ...slots], { encoding: 'utf-8' });
     const strip = (s: string | null) => (s ?? '').replace(/\x1b\[[0-9;]*m/g, '');
     const stdout = strip(r.stdout);
     const log = strip(r.stderr);

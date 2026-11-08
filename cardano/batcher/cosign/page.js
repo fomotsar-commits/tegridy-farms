@@ -60,6 +60,14 @@ function render(s) {
   const b = $('tx-body');
   b.replaceChildren();
   const part = (title, node) => b.append(el('h3', {}, title), node);
+  if (r.lock) {
+    const l = r.lock;
+    part(`Through the 48-hour lock: ${l.action}`, el('div', { class: 'lock' },
+      el('ul', {}, ...l.words.map((w) => el('li', {}, w))),
+      el('p', {}, el('strong', {}, 'When: '), l.when),
+      el('p', { class: 'small' }, `The lock after it: ${l.announced.length ? '' : 'nothing announced.'}`),
+      ...(l.announced.length ? [el('ol', { start: '0' }, ...l.announced.map((a) => el('li', {}, `${a.summary} (ready ${a.readyAt})`)))] : [])));
+  }
   part(`Inputs (${r.inputs.length}): what it spends`, helds(r.inputs, (u) => u.ref));
   part(`Outputs (${r.outputs.length}): where it pays`, helds(r.outputs, (u) => `#${u.index}:`));
   part('Network fee', el('p', {}, ada(r.fee)));

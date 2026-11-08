@@ -92,6 +92,46 @@ KOIOS_URL=... OGMIOS_URL=<your Ogmios> node scripts/cosign.ts submit inputs.json
   ADA). Use a wallet for nothing else until `register` lands: a seed spent elsewhere changes
   every hash.
 
+## Change a pool or the GlobalSetting through the 48-hour lock (`scripts/lock.ts`)
+
+Every role in our GlobalSetting is the lock, so a pool's fees, the venue's share of them, a
+pool's stake, the opening fee and the batcher list change only through it: an **Announce** both
+owners sign, then 48 hours later an **Execute** both owners sign (open for 14 days), or a
+**Cancel**. `scripts/lock.ts` writes each one unsigned into the deploy's `out` folder; the
+co-signing page reads it from its bytes and gets every signature from your own wallets. The
+script signs and sends nothing.
+
+```
+KOIOS_URL=... OGMIOS_URL=... node scripts/lock.ts show inputs.json out
+KOIOS_URL=... OGMIOS_URL=... node scripts/lock.ts announce inputs.json out --pool ada,<policy>.<name> --fee-share 1333
+KOIOS_URL=... OGMIOS_URL=... node scripts/lock.ts announce inputs.json out --setting --opening-fee 80000000
+KOIOS_URL=... OGMIOS_URL=... node scripts/lock.ts execute inputs.json out --index 0 [--fee-share 1333]
+KOIOS_URL=... OGMIOS_URL=... node scripts/lock.ts cancel inputs.json out --index 0
+```
+
+- **Pool flags:** `--fee-share <n>|off` (in 10,000ths of the trade fee; Minswap takes 1333 to
+  5000), `--base-fee <a>/<b>` (in 10,000ths; 5 to 2000), `--dynamic-fee on|off`, `--stake
+  key:<hash>|script:<hash>|none`. Only what you name changes; the pool's stake stays its own
+  unless you name `--stake`. The pool's admin path changes one of fees, dynamic fee or stake
+  at a time, so those are separate announcements.
+- **Setting flags:** `--opening-fee <lovelace>`, `--batchers <hash>,<hash>`. Every role stays
+  the lock and the opening fee stays paid to the treasury: anything else is refused.
+- **When:** an Announce is valid for `--valid-for` minutes (120 by default, at most 720) and is
+  ready 48 hours after that. `execute` waits for the chain (never this computer's clock) to be
+  two minutes past ready_at, so a clock 90 seconds slow still sees the transaction as valid.
+- **Execute flags are checked, not used:** given again, they must match the announcement
+  exactly. `--simulate` builds the Execute dated just after ready_at and runs it through Aiken
+  with the network's slot times (`AIKEN=`), written as a `.draft` the page never offers.
+- **Refused, by the script and again by the page:** an Execute before ready_at or past its
+  window; an Execute unlike its announcement; a pool whose value changes (its earned share
+  leaving it), or a share the GlobalSetting lets anyone but the lock take (only the lock's
+  withdrawal pays, and only to the treasury); a role moved off the lock; an opening fee paid
+  elsewhere; anything on another network than the inputs (Koios and Ogmios are asked their
+  network magic first); a second unsent lock transaction spending the same lock UTxO.
+- **The page shows** what the change does in plain words ("venue share: off → 1333/10000 of
+  the trade fee; base fee 30/30 (0.30% each way), unchanged; stake: kept") and when it can run,
+  in UTC, before any wallet is asked.
+
 ## The owner's rulings (2026-10-25)
 
 - **Runs on Railway**, in a new project of its own (not the indexer's), with no public port.
