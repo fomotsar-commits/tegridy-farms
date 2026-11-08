@@ -1,11 +1,13 @@
-import { TEGRIDY_NFT_LENDING_ADDRESS, isDeployed } from "../lib/constants";
+import { isDeployed } from "../lib/constants";
+import { GONDI_LOAN_ADDRESS } from "../lib/gondi/loanOffer.js";
 import { IPFS_GATEWAYS } from "../lib/ipfsGateways";
 
 // CREDIBILITY GATING (same rule as lib/navConfig.ts): loan-desk CTAs render
-// only once the relaunch TegridyNFTLending address lands in lib/constants.ts.
+// only once Gondi's v3.2 loan contract is deployed for the venue (GONDI_LOAN_ADDRESS in
+// lib/gondi/loanOffer.js).
 // A borrow button that dead-ends in "Contract Not Deployed" costs more trust
 // than the funnel earns, so the CTAs light up on deploy with no code change.
-export const NFT_LOAN_DESK_LIVE = isDeployed(TEGRIDY_NFT_LENDING_ADDRESS);
+export const NFT_LOAN_DESK_LIVE = isDeployed(GONDI_LOAN_ADDRESS);
 
 // ═══ RANK TIER (F809) ═══
 // Single source of truth for rarity-rank thresholds. Three surfaces previously
