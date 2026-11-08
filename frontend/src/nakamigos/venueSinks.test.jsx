@@ -14,6 +14,12 @@
 // and reaches its next step (with no wallet connected, that step is the
 // no-wallet answer).
 //
+// One exception, for buying only: Bojungles and Seeds (venueBuy, Base
+// ERC-721s) have their OpenSea listings bought one at a time through
+// fulfillSeaportOrder, on Base and only on Base, and only when the call OpenSea
+// built moves that same Base NFT. The cart, the order book and every offer
+// path still refuse them.
+//
 // Cancels are refused only for an order whose NFT sits on another chain (a
 // Base collection in the registry): the cancel goes to Seaport on Ethereum,
 // cannot touch that order, and would report success while it stays live.
@@ -38,6 +44,7 @@ const GOLD = ADDR.junglebaygoldcards;
 const WALLET = "0x" + "a".repeat(40);
 
 const h = vi.hoisted(() => ({
+  chainId: 1n,
   account: null,
   connectorGetProvider: null,
   providerRequest: null,
@@ -66,7 +73,7 @@ vi.mock("ethers", async (importOriginal) => {
   const actual = await importOriginal();
   class MockBrowserProvider {
     constructor() { h.browserProviders += 1; }
-    async getNetwork() { return { chainId: 1n }; }
+    async getNetwork() { return { chainId: h.chainId }; }
     async getSigner() {
       return {
         getAddress: async () => WALLET,
@@ -131,6 +138,7 @@ function disconnectWallet() {
 
 beforeEach(() => {
   vi.resetModules();
+  h.chainId = 1n;
   h.browserProviders = 0;
   h.contractCalls = [];
   h.providerRequest = vi.fn(async () => null);
@@ -184,8 +192,14 @@ function expectRefused(res) {
 }
 
 // ═══ api.js: buying an OpenSea (Seaport) listing ═══
+// The view-only collections that cannot be bought here at all.
+const NOT_BUYABLE = {
+  "the memes (Ethereum ERC-1155)": ADDR.junglebaymemes,
+  "Rare Towelie Cards (Ethereum ERC-1155)": ADDR.raretowelie,
+};
+
 describe("api.js buys", () => {
-  for (const [label, contract] of Object.entries(NON_VENUE)) {
+  for (const [label, contract] of Object.entries(NOT_BUYABLE)) {
     it(`fulfillSeaportOrder refuses a listing of ${label} (token read from the listing)`, async () => {
       const api = await import("./api");
       const res = await api.fulfillSeaportOrder({ orderHash: "0xabc", protocolAddress: SEAPORT_16, contract }, { buyerAddress: WALLET });
@@ -199,10 +213,109 @@ describe("api.js buys", () => {
     const res = await api.fulfillSeaportOrder({
       orderHash: "0xabc",
       protocolAddress: SEAPORT_16,
-      orderData: { parameters: { offer: [{ itemType: 2, token: ADDR.bojungles, identifierOrCriteria: "0" }] } },
+      orderData: { parameters: { offer: [{ itemType: 3, token: ADDR.junglebaymemes, identifierOrCriteria: "1" }] } },
     }, { buyerAddress: WALLET });
     expectRefused(res);
     expectNothingHappened();
+  });
+
+  it("refuses a listing whose signed order mixes a Base NFT with an Ethereum one, before any wallet call", async () => {
+    const api = await import("./api");
+    const res = await api.fulfillSeaportOrder({
+      orderHash: "0xabc",
+      protocolAddress: SEAPORT_16,
+      orderData: { parameters: { offer: [
+        { itemType: 2, token: ADDR.bojungles, identifierOrCriteria: "1" },
+        { itemType: 2, token: VENUE, identifierOrCriteria: "1" },
+      ] } },
+    }, { buyerAddress: WALLET });
+    expectRefused(res);
+    expectNothingHappened();
+  });
+
+  describe("Bojungles and Seeds are bought on Base, and only on Base", () => {
+    const BASE_CHAIN = 8453n;
+    for (const [label, contract] of [["Bojungles", ADDR.bojungles], ["Seeds", ADDR.memeticseeds]]) {
+      it(`a ${label} listing with the wallet on Ethereum asks for Base, and nothing is built or sent`, async () => {
+        const api = await import("./api");
+        const res = await api.fulfillSeaportOrder({ orderHash: "0xabc", protocolAddress: SEAPORT_16, contract }, { buyerAddress: WALLET });
+        expect(res.error).toBe("wrong-chain");
+        expect(res.chainId).toBe(8453);
+        expect(res.message).toMatch(/switch to Base to buy/);
+        expect(h.openseaPost).not.toHaveBeenCalled();
+        expect(h.sendTransaction).not.toHaveBeenCalled();
+      });
+
+      it(`a ${label} listing with the wallet on Base asks OpenSea for a Base fill and buys it`, async () => {
+        h.chainId = BASE_CHAIN;
+        h.openseaPost = vi.fn(async () => buyFulfillment(contract));
+        const api = await import("./api");
+        // Shaped like a real listing (token id and the price shown), so it
+        // also passes the trade-on-screen check open in #1023.
+        const res = await api.fulfillSeaportOrder({ tokenId: "7", price: 0.1, priceWei: "100000000000000000", orderHash: "0xabc", protocolAddress: SEAPORT_16, contract }, { buyerAddress: WALLET });
+        expect(res.success).toBe(true);
+        expect(h.openseaPost).toHaveBeenCalledTimes(1);
+        expect(h.openseaPost.mock.calls[0][0]).toBe("listings/fulfillment_data");
+        expect(h.openseaPost.mock.calls[0][1].listing.chain).toBe("base");
+        expect(h.sendTransaction).toHaveBeenCalledTimes(1);
+        expect(h.sendTransaction.mock.calls[0][0].to).toBe(SEAPORT_16);
+      });
+    }
+
+    it("refuses a Bojungles fill whose calldata moves an Ethereum venue NFT, and sends nothing", async () => {
+      h.chainId = BASE_CHAIN;
+      h.openseaPost = vi.fn(async () => buyFulfillment(VENUE));
+      const api = await import("./api");
+      const res = await api.fulfillSeaportOrder({ orderHash: "0xabc", protocolAddress: SEAPORT_16, contract: ADDR.bojungles }, { buyerAddress: WALLET });
+      expect(res.error).toBe("nft-mismatch");
+      expect(h.sendTransaction).not.toHaveBeenCalled();
+    });
+
+    it("refuses a Bojungles fill whose calldata moves a Seed instead, and sends nothing", async () => {
+      h.chainId = BASE_CHAIN;
+      h.openseaPost = vi.fn(async () => buyFulfillment(ADDR.memeticseeds));
+      const api = await import("./api");
+      const res = await api.fulfillSeaportOrder({ orderHash: "0xabc", protocolAddress: SEAPORT_16, contract: ADDR.bojungles }, { buyerAddress: WALLET });
+      expect(res.error).toBe("nft-mismatch");
+      expect(h.sendTransaction).not.toHaveBeenCalled();
+    });
+
+    it("refuses a Bojungles fill whose calldata moves the memes, and sends nothing", async () => {
+      h.chainId = BASE_CHAIN;
+      h.openseaPost = vi.fn(async () => fulfillOrderFulfillment(ADDR.junglebaymemes));
+      const api = await import("./api");
+      const res = await api.fulfillSeaportOrder({ orderHash: "0xabc", protocolAddress: SEAPORT_16, contract: ADDR.bojungles }, { buyerAddress: WALLET });
+      expectRefused(res);
+      expect(h.sendTransaction).not.toHaveBeenCalled();
+    });
+
+    it("an Ethereum venue listing with the wallet on Base still asks for Ethereum Mainnet", async () => {
+      h.chainId = BASE_CHAIN;
+      const api = await import("./api");
+      const res = await api.fulfillSeaportOrder({ orderHash: "0xabc", protocolAddress: SEAPORT_16, contract: VENUE }, { buyerAddress: WALLET });
+      expect(res.error).toBe("wrong-chain");
+      expect(res.chainId).toBe(1);
+      expect(res.message).toMatch(/switch to Ethereum Mainnet to buy/);
+      expect(h.sendTransaction).not.toHaveBeenCalled();
+    });
+
+    it("an Ethereum venue fill whose calldata moves a Bojungle is refused", async () => {
+      h.openseaPost = vi.fn(async () => buyFulfillment(ADDR.bojungles));
+      const api = await import("./api");
+      const res = await api.fulfillSeaportOrder({ orderHash: "0xabc", protocolAddress: SEAPORT_16, contract: VENUE }, { buyerAddress: WALLET });
+      expectRefused(res);
+      expect(h.sendTransaction).not.toHaveBeenCalled();
+    });
+
+    it("the cart still refuses a Bojungle outright, before any wallet call", async () => {
+      h.chainId = BASE_CHAIN;
+      const api = await import("./api");
+      const res = await api.fulfillSeaportOrdersBatch([
+        { orderHash: "0x1", protocolAddress: SEAPORT_16, contract: ADDR.bojungles },
+      ], { buyerAddress: WALLET });
+      expectRefused(res);
+      expectNothingHappened();
+    });
   });
 
   it("refuses a listing that names no token at all, rather than assuming Nakamigos", async () => {

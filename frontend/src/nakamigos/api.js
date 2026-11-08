@@ -1,6 +1,6 @@
 import { CONTRACT, COLLECTION_SLUG, METADATA_BASE, FALLBACK_NFTS, FALLBACK_STATS, FALLBACK_ACTIVITY, SEAPORT_DOMAIN } from "./constants";
 import { liveIpfsUrl } from "../lib/ipfsGateways";
-import { venueCollectionByContract, venueRefusalForAll } from "./lib/venue";
+import { venueCollectionByContract, venueRefusalForAll, buyChainFor, walletChainLabel } from "./lib/venue";
 import { seaportCallNftTokens } from "./lib/seaportCalldata";
 import { waitForTxOutcome, txOutcomeResult } from "./lib/txOutcome";
 import { alchemyGet as proxyAlchemyGet, alchemyPost as proxyAlchemyPost, openseaGet as rawOpenseaGet, openseaPost as rawOpenseaPost, ApiError } from "./lib/proxy";
@@ -742,6 +742,9 @@ function normalizeOpenSeaListings(allRawListings) {
       tokenId: tokenId ? String(tokenId) : null,
       price,
       priceWei: priceWei || null,
+      // OpenSea's own unit for `price` ("ETH" for a native-ETH listing). Kept
+      // so a reader can refuse a price that is not in ETH.
+      currency: listing.price?.current?.currency || null,
       priceUsd: null,
       marketplace: "OpenSea",
       marketplaceIcon: null,
@@ -1270,13 +1273,23 @@ function listingRefusal(listing) {
 }
 
 // Checks the NFTs the ENCODED call moves: at least one, each a venue contract,
-// and each one the listing (or offer) itself named.
-export function fulfillCallRefusal(nftTokens, expectedTokens) {
+// and each one the listing (or offer) itself named. `chain` is the chain the
+// fill is sent on: an Ethereum fill moves only venue NFTs, and a Base fill
+// (a single buy of a venueBuy collection) moves only that chain's buyable NFTs.
+export function fulfillCallRefusal(nftTokens, expectedTokens, chain = "ethereum") {
   if (!nftTokens.length) {
     return { error: "no-nft-token", message: "The fill names no NFT this venue can check. Nothing was sent." };
   }
-  const refusal = venueRefusalForAll(nftTokens);
-  if (refusal) return refusal;
+  if (chain === "ethereum") {
+    const refusal = venueRefusalForAll(nftTokens);
+    if (refusal) return refusal;
+  } else {
+    const buy = buyChainFor(nftTokens);
+    if (buy.error) return buy;
+    if (buy.chain !== chain) {
+      return { error: "nft-mismatch", message: "The fill would move an NFT from another chain. Nothing was sent." };
+    }
+  }
   const expected = new Set(expectedTokens.map((t) => String(t).toLowerCase()));
   if (nftTokens.some((t) => !expected.has(t.toLowerCase()))) {
     return { error: "nft-mismatch", message: "The fill would move a different NFT than the one listed. Nothing was sent." };
@@ -1288,9 +1301,10 @@ export function fulfillCallRefusal(nftTokens, expectedTokens) {
 // sending it — shared by the single buy and the EIP-5792 cart batch. Every
 // safety validation (value bounds, Seaport-address allowlist, fulfillment-
 // function allowlist) lives here, so no path can be tricked into signing a
-// non-fulfillment Seaport call. `value` is returned as a bigint. Returns
+// non-fulfillment Seaport call. `value` is returned as a bigint. `chain` is
+// the registry chain the caller already checked the wallet is on. Returns
 // { error, message } on any problem.
-async function buildSeaportFulfillCall(listing, { ethers, buyerAddress }) {
+async function buildSeaportFulfillCall(listing, { ethers, buyerAddress, chain = "ethereum" }) {
   if (!listing.orderHash) return { error: "no-order", message: "Order data not available" };
 
   // Get fulfillment transaction data from OpenSea (via proxy) with a FAST retry
@@ -1301,7 +1315,7 @@ async function buildSeaportFulfillCall(listing, { ethers, buyerAddress }) {
     fulfillData = await openseaPost("listings/fulfillment_data", {
       listing: {
         hash: listing.orderHash,
-        chain: "ethereum",
+        chain,
         protocol_address: listing.protocolAddress || listing.orderData?.protocolAddress,
       },
       fulfiller: { address: buyerAddress },
@@ -1363,7 +1377,7 @@ async function buildSeaportFulfillCall(listing, { ethers, buyerAddress }) {
   const encoded = iface.encodeFunctionData(fnName, inputValues);
 
   // What gets signed is `encoded`, so the NFT it moves is read back from it.
-  const nftRefusal = fulfillCallRefusal(seaportCallNftTokens(iface, fnName, encoded), listingNftTokens(listing));
+  const nftRefusal = fulfillCallRefusal(seaportCallNftTokens(iface, fnName, encoded), listingNftTokens(listing), chain);
   if (nftRefusal) return nftRefusal;
 
   return { to: txData.to, value: txValue, data: encoded };
@@ -1429,9 +1443,12 @@ export async function fulfillSeaportOrdersBatch(listings, opts = {}) {
   }
 }
 
+// One listing, bought on the chain its NFT lives on (lib/venue.js buyChainFor):
+// a venue collection on Ethereum, a venueBuy collection on Base. The cart above
+// stays Ethereum-only.
 export async function fulfillSeaportOrder(listing, opts = {}) {
-  const refusal = listingRefusal(listing);
-  if (refusal) return refusal;
+  const buy = buyChainFor(listingNftTokens(listing));
+  if (buy.error) return buy;
   const { provider: ethProvider, address: connectedAddress } = await getActiveWalletProvider();
   if (!ethProvider) {
     return { error: "no-metamask", message: "No wallet connected" };
@@ -1449,10 +1466,15 @@ export async function fulfillSeaportOrder(listing, opts = {}) {
     // api-offers.js refuse wrong-chain wallets up-front; this buy path did
     // not. Seaport is deployed at the same address on most chains, so a
     // wrong-chain "Buy" broadcasts a doomed tx and burns the buyer's gas.
+    // The chain is the listing NFT's registry chain, never the wallet's.
     try {
       const network = await provider.getNetwork();
-      if (Number(network.chainId) !== Number(SEAPORT_DOMAIN.chainId)) {
-        return { error: "wrong-chain", message: `Connected to chain ${Number(network.chainId)} — switch to Ethereum Mainnet to buy` };
+      if (Number(network.chainId) !== buy.chainId) {
+        return {
+          error: "wrong-chain",
+          chainId: buy.chainId,
+          message: `Connected to chain ${Number(network.chainId)} — switch to ${walletChainLabel(buy.chain)} to buy`,
+        };
       }
     } catch {
       return { error: "no-network", message: "Could not read wallet chain" };
@@ -1470,7 +1492,7 @@ export async function fulfillSeaportOrder(listing, opts = {}) {
 
     // Build the fulfillment call (fetch + validate + encode — all safety checks
     // live in the shared builder), then send it via MetaMask.
-    const call = await buildSeaportFulfillCall(listing, { ethers, buyerAddress });
+    const call = await buildSeaportFulfillCall(listing, { ethers, buyerAddress, chain: buy.chain });
     if (call.error) return call;
 
     const tx = await signer.sendTransaction({

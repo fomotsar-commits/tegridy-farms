@@ -38,6 +38,10 @@ vi.mock("../_lib/ratelimit.js", () => ({
 
 const GOLD = ADDR.junglebaygoldcards.toLowerCase();
 const READ_ONLY = VIEW_ONLY_EVM_SLUGS.map((s) => EXPECTED_FAMILY[s].openseaSlug);
+// The two Base ERC-721s whose OpenSea listings are bought here (venueBuy).
+const BASE_BUY = ["bojungless", "seeds-from-the-memetic-garden"];
+const BOJ = ADDR.bojungles.toLowerCase();
+const SEEDS = ADDR.memeticseeds.toLowerCase();
 const VIEW_ONLY_CONTRACTS = VIEW_ONLY_EVM_SLUGS.map((s) => ADDR[s]);
 
 function makeReq({ method = "GET", query = {}, body = undefined, headers = {} } = {}) {
@@ -132,7 +136,7 @@ describe("a family slug reads stats and items, and nothing else", () => {
       });
 
       it.each([
-        (s) => `listings/collection/${s}/best`,
+        ...(BASE_BUY.includes(slug) ? [] : [(s) => `listings/collection/${s}/best`]),
         (s) => `listings/collection/${s}/all`,
         (s) => `offers/collection/${s}/all`,
         (s) => `offers/collection/${s}/nfts/1/best`,
@@ -157,6 +161,35 @@ describe("a family slug reads stats and items, and nothing else", () => {
 
       it.each(["a b", "<script>", "x".repeat(1025), "abc&limit=1"])("refuses a malformed next cursor %#", async (next) => {
         const out = await call({ query: { path: `collection/${slug}/nfts`, next } });
+        expect(out.status).toBe(400);
+        expect(fetchMock).not.toHaveBeenCalled();
+      });
+    });
+  }
+
+  it("the Base buy slugs are exactly Bojungles and Seeds, and both are family read slugs", () => {
+    for (const s of BASE_BUY) expect(READ_ONLY).toContain(s);
+  });
+
+  for (const slug of BASE_BUY) {
+    describe(`${slug} also reads its best listings, to be bought here`, () => {
+      it("GET listings/collection/{slug}/best is admitted with limit and next, and forwards both", async () => {
+        const out = await call({ query: { path: `listings/collection/${slug}/best`, limit: "200", next: "abc" } });
+        expect(out.status).toBe(200);
+        const url = new URL(String(fetchMock.mock.calls[0][0]));
+        expect(url.pathname).toBe(`/api/v2/listings/collection/${slug}/best`);
+        expect(url.searchParams.get("limit")).toBe("200");
+        expect(url.searchParams.get("next")).toBe("abc");
+      });
+
+      it("refuses a POST to it", async () => {
+        const out = await call({ method: "POST", query: { path: `listings/collection/${slug}/best` }, body: {} });
+        expect([400, 403, 405]).toContain(out.status);
+        expect(fetchMock).not.toHaveBeenCalled();
+      });
+
+      it("refuses any query key other than limit and next", async () => {
+        const out = await call({ query: { path: `listings/collection/${slug}/best`, maker: "0x" + "a".repeat(40) } });
         expect(out.status).toBe(400);
         expect(fetchMock).not.toHaveBeenCalled();
       });
@@ -223,7 +256,7 @@ describe("no view-only contract is admitted in an order body", () => {
 // The two routes that build fill calldata on the venue's paid key. Both are
 // pinned to Ethereum, and accepting an offer must name a venue contract, so
 // the proxy never builds a fill for a Base or ERC-1155 family order.
-describe("fill calldata is built only for Ethereum venue orders", () => {
+describe("fill calldata is built only for Ethereum venue orders and Base buy listings", () => {
   const FULFILLER = { address: "0x" + "a".repeat(40) };
   const SEAPORT = "0x0000000000000068f116a894984e2db1123eb395";
   const buy = (listing) => ({ method: "POST", query: { path: "listings/fulfillment_data" }, body: { listing, fulfiller: FULFILLER } });
@@ -239,9 +272,47 @@ describe("fill calldata is built only for Ethereum venue orders", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it.each([["base"], ["solana"], [undefined], ["Ethereum"]])("a buy whose listing names chain %s is refused and never forwarded", async (chain) => {
+  it.each([["solana"], [undefined], ["Ethereum"], ["Base"], ["__proto__"], ["optimism"]])("a buy whose listing names chain %s is refused and never forwarded", async (chain) => {
     const out = await call(buy({ hash: "0xlisting", chain, protocol_address: SEAPORT }));
     expect(out.status).toBe(400);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  // What OpenSea answers for a fill: its advisory orders, naming the NFT.
+  const fillMoving = (token) => ({
+    fulfillment_data: {
+      transaction: { to: SEAPORT, value: "1", function: "f()", input_data: {} },
+      orders: [{ parameters: { offer: [{ itemType: 2, token, identifierOrCriteria: "1" }], consideration: [] } }],
+    },
+  });
+
+  it.each([["Bojungles", BOJ], ["Seeds", SEEDS]])("a buy on Base whose answer moves only %s is forwarded and returned", async (_label, token) => {
+    upstreamBody = fillMoving(token);
+    const out = await call(buy({ hash: "0xlisting", chain: "base", protocol_address: SEAPORT }));
+    expect(out.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).listing.chain).toBe("base");
+  });
+
+  it.each([
+    ["an Ethereum venue NFT (Gold Cards)", GOLD],
+    ["the memes, a view-only ERC-1155", ADDR.junglebaymemes.toLowerCase()],
+    ["an unknown contract", "0x" + "9".repeat(40)],
+  ])("a buy on Base whose answer moves %s is refused with 403", async (_label, token) => {
+    upstreamBody = fillMoving(token);
+    const out = await call(buy({ hash: "0xlisting", chain: "base", protocol_address: SEAPORT }));
+    expect(out.status).toBe(403);
+  });
+
+  it("a buy on Ethereum whose answer moves a Bojungle is refused with 403", async () => {
+    upstreamBody = fillMoving(BOJ);
+    const out = await call(buy({ hash: "0xlisting", chain: "ethereum", protocol_address: SEAPORT }));
+    expect(out.status).toBe(403);
+  });
+
+  it("an accept on Ethereum that names a Bojungle is refused: Base NFTs are only ever bought", async () => {
+    const out = await call(accept({ hash: "0xoffer", chain: "ethereum", protocol_address: SEAPORT }, { asset_contract_address: BOJ, token_id: "1" }));
+    expect(out.status).toBe(403);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
