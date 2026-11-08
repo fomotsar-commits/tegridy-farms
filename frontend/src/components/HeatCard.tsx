@@ -38,6 +38,7 @@ import { BUNGALOWS, bungalowLpDoor } from '../lib/bungalows';
 import { CardArt } from './ui/CardArt';
 import { FinePrint } from './ui/FinePrint';
 import { Countdown } from './heat/Countdown';
+import { QUIET_BUTTON_STYLE } from './useBaylaLine';
 import { isLaunchDoorOpen } from '../lib/launcher/door';
 
 const TIER_COLOR: Record<HeatTier, string> = {
@@ -372,10 +373,15 @@ export function HeatCard({
             className="flex-1 min-w-0 sm:min-w-[280px] px-3 py-2 rounded-lg font-mono text-[12.5px] text-white outline-none focus-visible:ring-2 focus-visible:ring-[#8b5cf6]"
             style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid var(--color-purple-40)' }}
           />
+          {/* One green button per screen (island answer twenty-eight, §2.2): Read Heat has done its
+              job once a reading is on the screen, so it goes quiet and the countdown's Start the
+              clock is the green one. Same press; an edge and its words, no fill. */}
           <button
             type="submit"
             disabled={!valid || state.kind === 'loading'}
-            className="btn-primary px-5 py-2 text-[13px] disabled:opacity-40 disabled:cursor-not-allowed"
+            data-quiet={state.kind === 'ready' || undefined}
+            className={`${state.kind === 'ready' ? 'rounded-[10px] font-semibold max-md:min-h-[44px]' : 'btn-primary'} px-5 py-2 text-[13px] disabled:opacity-40 disabled:cursor-not-allowed`}
+            style={state.kind === 'ready' ? QUIET_BUTTON_STYLE : undefined}
             title={valid ? 'Read this wallet' : 'Enter an Ethereum, Base, or Solana address'}
           >
             {state.kind === 'loading' ? 'Reading…' : 'Read Heat'}

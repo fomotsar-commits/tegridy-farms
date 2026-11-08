@@ -10,6 +10,7 @@ The site's Changelog tab shows both files.
 ### 2026-11-08
 
 - Solana pools: the pool program is upgraded again, so pool share tokens can get a name in wallets and the launch fee tier is kept for launches: opening a pool the public way no longer accepts it. Its on-chain security contact is an email and links on memetics.finance again. The lines you read before adding liquidity or opening a pool say so again: our pool program is Raydium's, with its admin keys changed, one added instruction that names pool share tokens and one added check that keeps the launch fee tier for launches. "The program" card no longer says the program was built before them.
+- Risks page: the launcher's risk no longer reads as if launching were open. While launching a new token is not switched on, its heading says so first, in plain words, and the legal copy under it is kept word for word behind one sentence saying it describes the launcher once it opens. Once launching opens, the heading reads as written.
 
 ### 2026-11-07
 
@@ -26,7 +27,9 @@ The site's Changelog tab shows both files.
 
 ### 2026-11-05
 
+- Copy Trading reads every island pool's trades in turn. The trades feed stops answering after about ten quick reads, and the page always read the pools in the same order, so the same last pools were never read. Each refresh now starts with the pools it read longest ago.
 - Pro Charting opens on the room's own coin: inside the BAYLA room it charts BAYLA / SOL, not TOWELI / WETH. A link that names a pool still opens on that pool.
+- One green button after a heat read. Once a wallet's reading is on the screen, Read Heat and Bayla's button at the top go quiet, and the countdown's Start the clock is the one green button. A count of one reads "1 day" and "1 flame", and the line under the countdown now shows at one flame too.
 - Add opens on every pool again, $BAYLA first. An outside price that was not read is now one row ("Outside price not read yet"), never a reason to keep the Add form closed; the pool's own price, its reserves and the pause still decide. The price loop reads the island's coins first, then USDC and USDT. On /pools, Add on a room's pool raises its sheet over the list, Back lands on the same card, and the Arbitrage card sits under All pools. The Buy sheet gains a row of the island's coins and "Any coin".
 - A room's Swap sheet now trades any coin, not only SOL for the room's coin. The coin you pay (beside the amount) and the coin you get (on the You get line) each open the Solana swap's own coin list, with its search; it still opens on SOL to the room's coin. The amount chips follow the coin you pay (two SOL amounts and Max when it is SOL, Max of that coin otherwise), and Pool price shows while the trade is SOL and the room's coin, either way round. Quotes, routes, fees and signing are the swap's own: through Jupiter the venue takes 0.50% when SOL, USDC or USDT is one side of the trade, and nothing on a trade between two other coins.
 - Add BAYLA opens. Adding to a pool waits for the coin's price outside our pools, and the venue reads those prices in one timed pass that kept running out of time before it reached BAYLA, USDC and USDT. Each pass now starts with the coins it read longest ago, so a coin skipped in one pass is read first in the next.
