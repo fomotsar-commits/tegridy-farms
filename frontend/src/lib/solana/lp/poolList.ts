@@ -6,7 +6,7 @@ import { chargedCreatorFeeRate } from '../cpswap/venue';
 import { quoteText } from './format';
 import { readPoolIndex } from './poolIndex';
 import { readPools, type PoolView, type ReadPoolsOptions } from './poolFinder';
-import { PRICE_TOLERANCE, comparePrice, poolPricePerToken } from './poolHealth';
+import { PRICE_TOLERANCE, assessPool, comparePrice, poolPricePerToken } from './poolHealth';
 import { siteNamed } from './identity';
 import { poolFeesOf, tooFewShares } from './liquidityMath';
 import { lastTrade } from './poolPast';
@@ -118,6 +118,15 @@ export function poolTags(view: PoolView, chainNow: bigint | null, priceGap: numb
   if (last.kind === 'none') tags.push({ text: 'No trades yet', tone: 'warn' });
   else if (last.kind === 'at' && chainNow !== null && chainNow - last.time >= QUIET_SECS) tags.push({ text: 'No trades in 7 days', tone: 'warn' });
   return tags;
+}
+
+/**
+ * Does the pool's card refuse a deposit? Its own verdict (poolHealth.ts `assessPool`), from
+ * what the list read; no refusal rests on an outside price, so none is asked. A row's Add
+ * then looks off and still opens the card, which says why.
+ */
+export function refusesDeposits(view: PoolView, chainNow: bigint | null, safety: TokenSafety | null): boolean {
+  return assessPool({ view, tokenDecimals: tokenDecimalsOf(view), chainNow, outside: null, safety }).deposits.verdict === 'refused';
 }
 
 /**

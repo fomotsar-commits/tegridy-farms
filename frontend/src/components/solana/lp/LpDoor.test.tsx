@@ -18,10 +18,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { BUNGALOWS } from '../../../lib/bungalows';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
-import type { PublicKey } from '@solana/web3.js';
+import { PublicKey } from '@solana/web3.js';
 import { LpInner, type LpWritesOverrides } from './SolanaLpSection';
 import type { LpReaders } from './readers';
-import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
+import { TOKEN_2022_NATIVE_MINT, type TokenSafety } from '../../../lib/solana/lp/tokenSafety';
+import { NEARLY_EMPTY, vaultFreezer } from '../../../lib/solana/lp/poolHealth';
+import { POOL_STATUS_DISABLE_DEPOSIT, POOL_STATUS_DISABLE_SWAP, POOL_STATUS_DISABLE_WITHDRAW } from '../../../lib/solana/cpswap/program';
 import { SOL_QUOTE, USDC_QUOTE, type QuoteCoin } from '../../../lib/solana/lp/quotes';
 import type { PoolListRead } from '../../../lib/solana/lp/poolList';
 import type { PoolSearchRead, PoolView } from '../../../lib/solana/lp/poolFinder';
@@ -66,12 +68,13 @@ const M = MINT.toBase58();
 const SOL = 10n ** 9n;
 const UNIT = 10n ** 6n;
 
-/** A pool for MINT: 10 SOL (or 10 of `quote`) and 1,000 tokens, unless told otherwise. */
-function view(o: { quote?: QuoteCoin; q?: bigint; t?: bigint } = {}): PoolView {
+/** A pool for MINT (or `mint`): 10 SOL (or 10 of `quote`) and 1,000 tokens, unless told otherwise. */
+function view(o: { quote?: QuoteCoin; q?: bigint; t?: bigint; mint?: PublicKey; openTime?: bigint; lpSupply?: bigint; status?: number } = {}): PoolView {
   const quote = o.quote ?? SOL_QUOTE;
   const q = o.q ?? 10n * 10n ** BigInt(quote.decimals);
   const t = o.t ?? 1_000n * UNIT;
-  const b = buildPool({ plain: true, mint: MINT, quote, configIndex: 1, quoteReserve: q, tokenReserve: t, openTime: 1n });
+  const mint = o.mint ?? MINT;
+  const b = buildPool({ plain: true, mint, quote, configIndex: 1, quoteReserve: q, tokenReserve: t, openTime: o.openTime ?? 1n, status: o.status ?? 0, ...(o.lpSupply === undefined ? {} : { lpSupply: o.lpSupply }) });
   const pool = decodePoolState(b.address.toBase58(), b.accounts[b.address.toBase58()]!.data)!;
   const config = decodeAmmConfig(b.config.toBase58(), b.accounts[b.config.toBase58()]!.data);
   const quoteIsToken0 = pool.token0Mint === quote.mint;
@@ -80,7 +83,7 @@ function view(o: { quote?: QuoteCoin; q?: bigint; t?: bigint } = {}): PoolView {
     origin: 'other',
     snapshot: { pool, vault0Amount: quoteIsToken0 ? q : t, vault1Amount: quoteIsToken0 ? t : q, reserve0: quoteIsToken0 ? q : t, reserve1: quoteIsToken0 ? t : q },
     config,
-    tokenMint: M,
+    tokenMint: mint.toBase58(),
     quote,
     quoteIsToken0,
     quoteReserve: q,
@@ -100,7 +103,7 @@ function search(views: PoolView[]): PoolSearchRead {
   return {
     kind: 'ok',
     search: {
-      mint: M,
+      mint: views[0]?.tokenMint ?? M,
       known: { launchPool: key().toBase58(), standard: [{ index: 1, config: key().toBase58(), address: key().toBase58(), quote: SOL_QUOTE.mint }] },
       index: { kind: 'ok', pools: views.map((v) => v.address), truncated: false },
       pools: views.map((v) => ({ kind: 'pool' as const, view: v })),
@@ -468,6 +471,75 @@ describe('the list of every pool', () => {
     const list = await screen.findByTestId('lp-all-pools');
     const board = screen.getByTestId('lp-arb');
     expect(list.compareDocumentPosition(board) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+});
+
+// Every reason assessPool (poolHealth.ts) refuses a deposit, from a row of All pools to the card
+// its Add leads to. The row's Add looks off and still opens the card; the card says the reason
+// once, under "Deposits: refused here". A pool on the launch tier without a launch is in neither.
+describe('a pool that refuses deposits, for every reason', () => {
+  const T22 = new PublicKey(TOKEN_2022_NATIVE_MINT);
+  const cases: { name: string; pool: () => PoolView; safety?: (mint: string) => TokenSafety; reason: string }[] = [
+    { name: 'Adding off', pool: () => view({ status: POOL_STATUS_DISABLE_DEPOSIT }), reason: 'Deposits are switched off on this pool.' },
+    { name: 'Removing off', pool: () => view({ status: POOL_STATUS_DISABLE_WITHDRAW }), reason: 'Withdrawals are switched off on this pool, so money put in now could not be taken out.' },
+    { name: 'Trading off', pool: () => view({ status: POOL_STATUS_DISABLE_SWAP }), reason: 'Swaps are switched off on this pool, so liquidity here earns nothing.' },
+    { name: 'a status this site does not know', pool: () => view({ status: 8 }), reason: 'The pool has a status setting this site does not know (8).' },
+    { name: 'Frozen', pool: () => ({ ...view(), vaultsFrozen: true }), reason: `One of this pool’s vaults is frozen by ${vaultFreezer(SOL_QUOTE)}, so nothing can move in or out of it.` },
+    { name: 'Trading not open yet', pool: () => view({ openTime: 2_000n }), reason: 'Deposits wait until then.' },
+    { name: 'Trading blocked for years', pool: () => view({ openTime: 10n ** 10n }), reason: 'Liquidity added before then earns nothing.' },
+    { name: 'empty on one side', pool: () => view({ t: 0n }), reason: 'The pool is empty on one side, so it has no price.' },
+    { name: 'Almost empty', pool: () => view({ lpSupply: 1_100n }), reason: NEARLY_EMPTY },
+    { name: 'SOL under the newer token program', pool: () => view({ mint: T22 }), reason: 'This is SOL under the newer token program. This site does not add to a pool for it.' },
+    { name: 'a token that does not exist', pool: () => view(), safety: (mint) => ({ kind: 'absent', mint }), reason: 'The token does not exist.' },
+    {
+      name: 'a token this site does not add to',
+      pool: () => view(),
+      safety: (mint) => ({ ...okToken, mint, verdict: 'blocked', blocks: [{ code: 'extension', text: 'It uses an extension this site does not handle.' }] }),
+      reason: 'This site does not add to pools for this token (see why above).',
+    },
+  ];
+
+  function mountList(v: PoolView, safety: TokenSafety) {
+    const r = readers([v], { kind: 'ok', list: { pools: [v], unread: 0, truncated: false, chainNow: 1_000n, safety: new Map([[v.tokenMint, safety]]) } });
+    r.safety = vi.fn(async () => new Map([[v.tokenMint, safety]]));
+    mount(r, '/pools');
+  }
+
+  it.each(cases)('$name: the row’s Add looks off and opens the card, which says the reason once', async (c) => {
+    const v = c.pool();
+    mountList(v, c.safety?.(v.tokenMint) ?? { ...okToken, mint: v.tokenMint });
+    const [row] = await screen.findAllByTestId('lp-all-pools-row');
+    const add = within(row!).getByRole('button', { name: /^Add to / });
+    expect(add).toHaveAttribute('aria-disabled', 'true');
+    expect(add).not.toHaveClass('btn-primary');
+    fireEvent.click(add);
+    const why = await screen.findByTestId('lp-wish-why', {}, { timeout: 8_000 });
+    const card = cardOf(v.address);
+    expect(card).toHaveAttribute('data-deposits', 'refused');
+    expect(card).toContainElement(why);
+    expect(why).toHaveTextContent('This pool’s Add form stays closed: this pool does not pass the checks a deposit needs (see Deposits, below).');
+    expect(why).not.toHaveTextContent(c.reason);
+    // Once on the card, in red, under the heading the warnings hang from.
+    expect(card.textContent!.split(c.reason)).toHaveLength(2);
+    const deposits = within(card).getByTestId('lp-pool-deposits');
+    expect(within(deposits).getByText('Deposits: refused here')).toHaveClass('text-rose-300/90');
+    expect(deposits).toHaveTextContent(c.reason);
+    // A screen reader landing on the heading still hears the reason.
+    const heading = within(card).getByRole('heading', { level: 3 });
+    expect(heading).toHaveFocus();
+    const described = heading.getAttribute('aria-describedby')!.split(' ').map((id) => document.getElementById(id)?.textContent ?? '');
+    expect(described.join(' ')).toContain(c.reason);
+    expect(screen.queryByTestId('lp-one-coin-panel')).toBeNull();
+    expect(screen.queryByTestId('lp-add-panel')).toBeNull();
+  }, 20_000);
+
+  it('a pool that takes deposits keeps its green Add', async () => {
+    const v = view();
+    mountList(v, okToken);
+    const [row] = await screen.findAllByTestId('lp-all-pools-row');
+    const add = within(row!).getByRole('button', { name: /^Add to / });
+    expect(add).not.toHaveAttribute('aria-disabled');
+    expect(add).toHaveClass('btn-primary');
   });
 });
 
