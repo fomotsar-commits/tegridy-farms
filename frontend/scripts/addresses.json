@@ -1259,6 +1259,72 @@
       "evidence": "AUDIT FIX TF-058 — created on mainnet and recorded NOWHERE, which verify-addresses.mjs could not see because run-latest.json for its script points at an older run. Source: contracts/broadcast/DeployNFTLending.s.sol/1/run-1784178212767.json CREATE TegridyNFTLendingAdmin at this address, deployer 0x14898258122C0740106391E6e8E4F17F3b6d456E, 2026-07-16. Created by the SAME receipt as the registered nft-lending entry (0x89BeB6cc...), whose own evidence note already flags that this script's run-latest.json points at the retired V1. The principal was recorded and this sibling was not. NOT independently read back on-chain in this session — the receipt and the repo's own cross-references are the evidence."
     },
     {
+      "id": "gondi-loan",
+      "address": "0x4f2b53DAE3edCf1B527c53d2C11A28ec5Ac6D630",
+      "role": "NFT lending: Gondi's MultiSourceLoan v3.2, unchanged. Borrowers lock a JBAC, Nakamigos or GNSS NFT and borrow WETH from signed lender offers; the venue takes 500 bps of the interest, paid to the treasury Safe. The site's GONDI_LOAN_ADDRESS (src/lib/gondi/loanOffer.js).",
+      "status": "live, deployed 2026-11-07",
+      "custody": "deployer EOA 0x14898258122C0740106391E6e8E4F17F3b6d456E until the treasury Safe 0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d accepts: pendingOwner() is the Safe, and transferOwnership() opens 2 days after the request (2026-11-09 21:43:47 UTC).",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "contracts/broadcast/DeployGondiLending.s.sol/1/run-latest.json CREATE (6th of 6), receipt status 0x1, block 0x1924f27, tx 0xefdc16b817cd6cdcf4a135fafb8968992f4c413d6034cb5bd3ec8c23ea9f3e4f. Runtime bytecode read back equal to contracts/vendor/gondi-v3.2/build/MultiSourceLoan.json apart from immutables; Etherscan-verified. owner() and pendingOwner() read 2026-11-08."
+    },
+    {
+      "id": "gondi-liquidator",
+      "address": "0xe61613035B85308F31E068bBC31257524ffE7Fa6",
+      "role": "Gondi's AuctionWithBuyoutLoanLiquidator v3.2, unchanged: runs the 3-day auction for an unpaid loan funded by several lenders. Only gondi-loan is a valid loan contract.",
+      "status": "live, deployed 2026-11-07",
+      "custody": "deployer EOA 0x14898258122C0740106391E6e8E4F17F3b6d456E until the treasury Safe 0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d accepts: pendingOwner() is the Safe, and transferOwnership() opens 2 days after the request (2026-11-09 21:43:35 UTC).",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "contracts/broadcast/DeployGondiLending.s.sol/1/run-latest.json CREATE (5th of 6), receipt status 0x1, block 0x1924f26, tx 0xb325dc5526aad9ede20f868e11ff951743c9ebffec74d68fc811c498a3f05ae8. Etherscan-verified. owner() and pendingOwner() read 2026-11-08."
+    },
+    {
+      "id": "gondi-liquidation-distributor",
+      "address": "0x5a3B60b2a53245462dF2F6791a6A3aA0B6B1f2Df",
+      "role": "Gondi's LiquidationDistributor v3.2, unchanged: splits an auction's proceeds pro rata among the loan's lenders. Its liquidator is gondi-liquidator.",
+      "status": "live, deployed 2026-11-07",
+      "custody": "treasury Safe 0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d (owner(), 2-of-2)",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "contracts/broadcast/DeployGondiLending.s.sol/1/run-latest.json CREATE (4th of 6), receipt status 0x1, block 0x1924f25, tx 0x94ba54a21dc83649b410422365271f2ec7a741671245fb991650fed5ed559bf6. Etherscan-verified. owner() read 2026-11-08."
+    },
+    {
+      "id": "gondi-currency-manager",
+      "address": "0x5d917E12C1Ac3dBc0c75a6554807ABde0b8FAFC4",
+      "role": "Gondi's AddressManager v3.2, unchanged, as the loan contract's currency list: WETH only.",
+      "status": "live, deployed 2026-11-07",
+      "custody": "treasury Safe 0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d (owner(), 2-of-2)",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "contracts/broadcast/DeployGondiLending.s.sol/1/run-latest.json CREATE (2nd of 6), receipt status 0x1, block 0x1924f22, tx 0x89da7b24ec5f52a9ee0d16a6cc8d929ef181907e1da42a4d02a45205360074ce. Etherscan-verified. owner() read 2026-11-08."
+    },
+    {
+      "id": "gondi-collection-manager",
+      "address": "0x9F9c3F7c4f2a65Bab54BF78a64bb32468F1E4Eb3",
+      "role": "Gondi's AddressManager v3.2, unchanged, as the loan contract's collection list: Jungle Bay Ape Club, Nakamigos and GNSS Art only.",
+      "status": "live, deployed 2026-11-07",
+      "custody": "treasury Safe 0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d (owner(), 2-of-2)",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "contracts/broadcast/DeployGondiLending.s.sol/1/run-latest.json CREATE (3rd of 6), receipt status 0x1, block 0x1924f23, tx 0x7cb91e023aa0cf3e064e6bc395c87f10441ea785d20ed520b90f82f20318ff5a. Etherscan-verified. owner() read 2026-11-08."
+    },
+    {
+      "id": "gondi-loan-manager-registry",
+      "address": "0xc9464734068449EF5284D6BaCbe0371b87070F32",
+      "role": "Gondi's LoanManagerRegistry v3.2, unchanged. The deploy registers no loan manager (pooled lending) in it.",
+      "status": "live, deployed 2026-11-07",
+      "custody": "treasury Safe 0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d (owner(), 2-of-2)",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "contracts/broadcast/DeployGondiLending.s.sol/1/run-latest.json CREATE (1st of 6), receipt status 0x1, block 0x1924f21, tx 0x73275208be93a099d2fb2c126b0286c0b64f2f5e527322eed44cbcabf1e0437e. Etherscan-verified. owner() read 2026-11-08."
+    },
+    {
       "id": "tegridy-twap",
       "address": "0xdFdd6D72539A425dC917F49FB834901105cA98c9",
       "role": "TWAP oracle. DEFAULT_MIN_RESERVE_FLOOR_WEI is 10 ether per side.",
