@@ -6,7 +6,8 @@
  * The owner's switch. Opened 2026-10-24 on the owner's word, after the chain-data key was set
  * on the server (api/cardano.js) and a real buy and a real sell were walked end to end on
  * mainnet. It opened WITHOUT a venue fee: the owner's call, until the two-key Cardano treasury
- * exists (venueFee.ts CARDANO_VENUE_FEE_ADDRESS is null, so no fee line is built or shown).
+ * existed. The treasury was proven 2026-11-07 and venueFee.ts CARDANO_VENUE_FEE_ADDRESS now
+ * names it, so a swap of about 200 ADA or more pays 0.5% of its ADA side to it.
  */
 export const CARDANO_SWAP_OPEN: boolean = true;
 
