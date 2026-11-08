@@ -404,10 +404,7 @@ async function scan(coin) {
   coin.slot = slot;
   coin.scannedAt = Date.now();
   coin.trips = trips.filter((t) => t.pays).slice(0, 6);
-  // The trip nearest to paying: its gap less its pools' fees. (When none pays, every direction
-  // makes the same nothing at size 0, so profit cannot tell the near one from the far one.)
-  const short = (t) => t.gapPct - t.costPct;
-  coin.closest = trips.find((t) => t.pays) ?? [...trips].sort((a, b) => short(b) - short(a))[0] ?? null;
+  coin.closest = trips.find((t) => t.pays) ?? C.nearestFirst(trips)[0] ?? null;
   coin.livePools = pools;
   coin.depths = depths;
   S.slot = Math.max(S.slot, slot);
@@ -681,12 +678,12 @@ function snapshot() {
   // Every fresh passed two-swap trip (ours or two outside pools: keeper/takes.ts reads both), not only the best 60.
   const take = C.takeRows(rows, Date.now(), PROOF_KEEP_MS);
   const watch = rows.filter((r) => !take.includes(r)).sort((a, b) => b.netUsd - a.netUsd).slice(0, 60);
-  // Each coin's best trip that does NOT pay on its latest read (within 5 minutes): how far each gap is from paying.
-  const closest = coins
-    .filter((c) => c.closest && !c.closest.pays && Date.now() - c.scannedAt < 5 * 60_000)
-    .map((c) => ({ mint: c.mint, symbol: c.symbol, ours: c.ours, slot: c.slot, scannedAt: c.scannedAt, ...c.closest, legs: c.closest.legs.map((l) => ({ ...l, venue: C.DEXES[l.dex]?.name ?? l.dex })) }))
-    .sort((a, b) => b.gapPct - b.costPct - (a.gapPct - a.costPct))
-    .slice(0, 20);
+  // Each coin's best trip that does NOT pay on its latest read (within 5 minutes), nearest to paying first.
+  const closest = C.nearestFirst(
+    coins
+      .filter((c) => c.closest && !c.closest.pays && Date.now() - c.scannedAt < 5 * 60_000)
+      .map((c) => ({ mint: c.mint, symbol: c.symbol, ours: c.ours, slot: c.slot, scannedAt: c.scannedAt, ...c.closest, legs: c.closest.legs.map((l) => ({ ...l, venue: C.DEXES[l.dex]?.name ?? l.dex })) })),
+  ).slice(0, 20);
   const sol = S.usd.get(C.SOL_MINT);
   const floorOf = (m) => {
     const b = R.coinBounds(C.COINS[m], S.usd.get(m), sol, S.settings);
