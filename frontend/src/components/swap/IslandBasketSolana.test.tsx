@@ -97,6 +97,8 @@ const status = (room: string) => screen.getByTestId(`island-basket-row-${room}`)
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // A split moved in one test is kept in this browser: every test starts even.
+  localStorage.removeItem('tegridy-island-split-v1');
   h.balance = 10_000_000_000;
   h.failQuoteFor = null;
   h.own = [];
@@ -145,6 +147,23 @@ describe('IslandBasketSolana', () => {
     expect(p.release.mock.calls.map((c) => c[0])).toEqual(['sig1', 'sig2', 'sig3', 'sig4', 'sig5']);
     // Each coin's share went to its own build, in order.
     expect(h.prepare.mock.calls.map((c) => c[1].coin.symbol)).toEqual(SOL_BASKET.map((c) => c.symbol));
+  });
+
+  it('buys in the split the sliders set: a coin at 0% is left out, the rest share its part', async () => {
+    mount();
+    await openAndPrice();
+    // $10 at SOL $100 is 0.1 SOL; BOBO slid to 0 leaves the four others a quarter each.
+    fireEvent.change(screen.getByTestId('island-basket-split-bobo'), { target: { value: '0' } });
+    await waitFor(() => expect(screen.getByTestId('island-basket-buy')).toHaveTextContent('Buy 4 coins'), { timeout: 4000 });
+    expect(within(status('bobo')).getByText(/Not in this order/)).toBeInTheDocument();
+    expect(screen.getByTestId('island-basket-split-mode')).toHaveTextContent('yours');
+    fireEvent.click(screen.getByTestId('island-basket-buy'));
+    await waitFor(() => expect(screen.getAllByText('Bought')).toHaveLength(4), { timeout: 4000 });
+    expect(h.prepare.mock.calls.map((c) => c[1].coin.symbol)).toEqual(['BAYLA', 'SOY', 'BRAINLET', 'RIZZ']);
+    expect(h.prepare.mock.calls.map((c) => c[1].amountIn)).toEqual([25_000_000n, 25_000_000n, 25_000_000n, 25_000_000n]);
+    // Split evenly puts every coin back.
+    fireEvent.click(screen.getByRole('button', { name: 'Split evenly' }));
+    expect(screen.getByTestId('island-basket-split-mode')).toHaveTextContent('even');
   });
 
   it('stops at a coin sent but not confirmed: the rest wait, so nothing is bought twice', async () => {

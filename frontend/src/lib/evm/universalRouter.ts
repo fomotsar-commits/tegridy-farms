@@ -26,6 +26,7 @@ export function universalRouterOn(chainId: number): Address | null {
 
 // Commands.sol
 const V3_SWAP_EXACT_IN = 0x00;
+const TRANSFER = 0x05;
 const PAY_PORTION = 0x06;
 const PERMIT2_PERMIT = 0x0a;
 const WRAP_ETH = 0x0b;
@@ -107,6 +108,8 @@ const v3SwapExactIn = (recipient: Address, amountIn: bigint, amountOutMin: bigin
   );
 const payPortion = (token: Address, recipient: Address, bips: bigint) =>
   encodeAbiParameters([{ type: 'address' }, { type: 'address' }, { type: 'uint256' }], [token, recipient, bips]);
+const transfer = (token: Address, recipient: Address, value: bigint) =>
+  encodeAbiParameters([{ type: 'address' }, { type: 'address' }, { type: 'uint256' }], [token, recipient, value]);
 const recipientAndMin = (recipient: Address, amountMin: bigint) =>
   encodeAbiParameters([{ type: 'address' }, { type: 'uint256' }], [recipient, amountMin]);
 const permit2Permit = (permit: PermitSingle, signature: Hex) =>
@@ -166,6 +169,37 @@ export function buyWithEth(a: {
       payPortion(ETH, a.feeRecipient, a.feeBips),
       recipientAndMin(ADDRESS_THIS, CONTRACT_BALANCE),
       v3SwapExactIn(MSG_SENDER, CONTRACT_BALANCE, a.minOut, v3Path(a.weth, a.poolFee, a.coin), false),
+    ],
+  };
+}
+
+/**
+ * Buy several coins with ETH in one call (send all their ETH as the call's value). Each leg's
+ * `amountIn` is its share of that ETH. The router first sends `feeBips` of every share to
+ * `feeRecipient`, as one exact TRANSFER (the SDK's flat fee), wraps the rest, and swaps each
+ * share less its fee straight to the buyer, at that coin's own `minOut`. So each coin spends
+ * exactly what it was quoted on, and the fee is exactly what the swap would take on that coin
+ * alone. The last leg spends what is left, so the router keeps nothing.
+ */
+export function buyManyWithEth(a: {
+  weth: Address;
+  legs: readonly { coin: Address; poolFee: number; amountIn: bigint; minOut: bigint }[];
+  feeBips: bigint;
+  feeRecipient: Address;
+}): RouterCall {
+  const fee = a.legs.reduce((s, l) => s + portion(l.amountIn, a.feeBips), 0n);
+  return {
+    commands: commandBytes([TRANSFER, WRAP_ETH, ...a.legs.map(() => V3_SWAP_EXACT_IN)]),
+    inputs: [
+      transfer(ETH, a.feeRecipient, fee),
+      recipientAndMin(ADDRESS_THIS, CONTRACT_BALANCE),
+      ...a.legs.map((l, i) => v3SwapExactIn(
+        MSG_SENDER,
+        i === a.legs.length - 1 ? CONTRACT_BALANCE : l.amountIn - portion(l.amountIn, a.feeBips),
+        l.minOut,
+        v3Path(a.weth, l.poolFee, l.coin),
+        false,
+      )),
     ],
   };
 }

@@ -1,6 +1,7 @@
 // Build 2 of the outside review, "Solana first, and the five-word bar" (2026-11-01): a stranger
 // with no room reads Island · Swap · Add · Lock · Launch, Add third, and Swap opens the Buy
-// sheet over the home on the island's coins, nothing lit (answer twenty-seven, cut 3). Where Launch opens is not walked here: launching on Solana is off in a production build
+// sheet over the home on the island's coins, nothing lit (answer twenty-seven, cut 3), the row
+// ending in the swap's network drop-down. Where Launch opens is not walked here: launching on Solana is off in a production build
 // (curveWriteFlag.ts), and navConfig.test.ts holds the word to the curve's switch both ways.
 // Walked from the home page on the production build, at a phone.
 import { test, expect, type Page } from '@playwright/test';
@@ -31,6 +32,10 @@ test('a stranger with no room: the bar reads five words, Add third, and Swap rai
   await bar(page).getByRole('link', { name: 'Swap', exact: true }).click();
   await expect.poll(() => new URL(page.url()).searchParams.get('sheet'), 'Swap did not raise the Buy sheet').toBe('buy');
   const sheet = page.getByTestId('action-sheet');
-  await expect(sheet.getByRole('button', { name: 'Any coin' })).toBeVisible({ timeout: 30_000 });
+  // The row ends with the swap's network drop-down, where "Any coin" stood (owner, 2026-11-07).
+  const row = sheet.getByRole('group', { name: 'Pick a coin' });
+  await expect(row.getByRole('button', { name: 'Swap network: Solana' })).toBeVisible({ timeout: 30_000 });
+  await expect(row.getByRole('button', { name: 'BAYLA', exact: true })).toHaveAttribute('aria-pressed', 'false');
+  await expect(sheet.getByRole('button', { name: 'Any coin' })).toHaveCount(0);
   await expect(sheet).toContainText('Pick a coin.');
 });
