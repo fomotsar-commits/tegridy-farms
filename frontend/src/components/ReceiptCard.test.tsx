@@ -132,7 +132,7 @@ describe('the receipt card', () => {
   });
 
   it('an add of both coins pays the pool no fee: the network’s cost instead; its clock counts double', () => {
-    act(() => raiseReceipt(receipt({ action: 'added', clock: 'double', under: 'to the SOL + BAYLA pool', fee: { kind: 'add', network: '0.000005 SOL' } })));
+    act(() => raiseReceipt(receipt({ action: 'added', pairing: 'SOL', clock: 'double', under: 'to the SOL + BAYLA pool', fee: { kind: 'add', network: '0.000005 SOL' } })));
     expect(lastLanded()?.kind).toBe('add');
     const card = screen.getByRole('dialog', { name: 'Added SOL + BAYLA' });
     expect(within(card).getByTestId('receipt-rows')).toHaveTextContent('No venue fee on an add0.000005 SOL');

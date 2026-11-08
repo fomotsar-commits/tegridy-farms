@@ -30,6 +30,8 @@ export interface Receipt {
   action: 'bought' | 'sold' | 'added';
   /** The coin the card is about, as the venue names it. */
   coin: { symbol: string; mint: string };
+  /** On an add, the pool's pairing coin by its ticker: SOL, USDC or BAYLA. */
+  pairing?: string;
   /** The action's words, from what the transaction moved; null until read. */
   title: string | null;
   under: string | null;

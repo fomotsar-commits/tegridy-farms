@@ -200,8 +200,9 @@ export const RECEIPT_WORDS = {
   boughtFor: (amount: string, paid: string) => `for ${amount} ${paid}, on the venue`,
   /** The venue's own word for a sale (the swap page's "Sold"); the island drew the buy and the add. */
   sold: (amount: string, coin: string) => `Sold ${amount} ${coin}`,
-  added: (sol: string, amount: string, coin: string) => `Added ${sol} SOL + ${amount} ${coin}`,
-  addedTo: (coin: string) => `to the SOL + ${coin} pool`,
+  /** `quote` is the pool's pairing coin (SOL, USDC or BAYLA), `pair` what went in of it. */
+  added: (pair: string, quote: string, amount: string, coin: string) => `Added ${pair} ${quote} + ${amount} ${coin}`,
+  addedTo: (quote: string, coin: string) => `to the ${quote} + ${coin} pool`,
   fee: 'Fee',
   toLps: "To this pool's LPs",
   toVenue: 'To the venue and the island',
