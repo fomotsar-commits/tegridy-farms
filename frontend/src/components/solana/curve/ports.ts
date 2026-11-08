@@ -30,6 +30,7 @@ import type {
   SwapOpenGate,
   TxOutcome,
   TxSigner,
+  TxVersion,
   WriteGate,
   WriteRpc,
   ActionAvailability,
@@ -78,6 +79,7 @@ export type {
   OpenGate,
   Prepared,
   PreparedTx,
+  PreparedWire,
   RangeKind,
   RangeSummary,
   SimulatedEffect,
@@ -88,10 +90,12 @@ export type {
   TierState,
   TierTerms,
   TokenRole,
+  TxConfig,
   TxKind,
   TxOutcome,
   TxSigner,
   TxSummary,
+  TxVersion,
   WriteGate,
   WriteRpc,
 } from '../../../lib/launcher/solana/write/types';
@@ -143,7 +147,7 @@ export interface WriteApi {
   prepareCurveBuy(
     rpc: WriteRpc,
     gate: OpenGate,
-    a: { trader: PublicKey; mint: PublicKey; curve: CurveAccount; lamportsIn: bigint; slippageBps: bigint },
+    a: { trader: PublicKey; mint: PublicKey; curve: CurveAccount; lamportsIn: bigint; slippageBps: bigint; txVersion?: TxVersion },
   ): Promise<Prepared>;
   prepareCurveSell(
     rpc: WriteRpc,
@@ -155,13 +159,14 @@ export interface WriteApi {
       curveRentFloor: bigint;
       tokensIn: bigint;
       slippageBps: bigint;
+      txVersion?: TxVersion;
     },
   ): Promise<Prepared>;
-  prepareMigrate(rpc: WriteRpc, gate: OpenGate, a: { payer: PublicKey; mint: PublicKey; curve: CurveAccount }): Promise<Prepared>;
+  prepareMigrate(rpc: WriteRpc, gate: OpenGate, a: { payer: PublicKey; mint: PublicKey; curve: CurveAccount; txVersion?: TxVersion }): Promise<Prepared>;
   preparePoolSwap(
     rpc: WriteRpc,
     gate: OpenGate,
-    a: { owner: PublicKey; mint: PublicKey; pool: LaunchPool; side: 'buy' | 'sell'; amountIn: bigint; slippageBps: bigint },
+    a: { owner: PublicKey; mint: PublicKey; pool: LaunchPool; side: 'buy' | 'sell'; amountIn: bigint; slippageBps: bigint; txVersion?: TxVersion },
   ): Promise<Prepared>;
 
   submitPrepared(rpc: WriteRpc, signer: TxSigner, p: PreparedTx, deps?: SubmitDeps): Promise<TxOutcome>;

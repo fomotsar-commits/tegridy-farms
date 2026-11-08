@@ -9,6 +9,8 @@
 import { JUPITER_TOKENS_BASE } from './solana';
 import { liveIpfsUrl } from './ipfsGateways';
 import { claimedTicker } from './solana/lp/identity';
+import { BUNGALOWS } from './bungalows';
+import { poolCoinMints, poolCoinUsd } from './solana/poolCoins';
 
 // Canonical legacy SPL Token program id — anything else implies Token-2022.
 export const LEGACY_TOKEN_PROGRAM = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
@@ -105,11 +107,42 @@ export function isVenueCoin(mint: string): boolean {
 }
 
 /**
- * Does trading this token ask the trader to acknowledge a risk first? Every token
- * Jupiter has not verified does, except the venue's own coins, which it knows by mint.
+ * The island's coins on Solana (bungalows.ts), as the picker shows them the moment it opens
+ * (owner, 2026-11-01: "the bungalow tokens should be there when you open the search bar ...
+ * these are the tokens we want to be always showcasing for swaps"). Each room's mint and the
+ * decimals read off it; Jupiter's own row replaces this one once it is read (resolveMints).
+ */
+export const ISLAND_TOKENS: readonly SolToken[] = BUNGALOWS.filter(
+  (b) => b.live && b.chain === 'solana' && Boolean(b.address) && typeof b.decimals === 'number',
+).map((b) => (b.address === BAYLA.mint ? BAYLA : { mint: b.address!, symbol: b.symbol, name: b.name, decimals: b.decimals!, ...(b.thumb ? { logoURI: b.thumb } : {}) }));
+const ISLAND_MINTS: ReadonlySet<string> = new Set(ISLAND_TOKENS.map((t) => t.mint));
+
+/** Is this an island room's coin? By mint only. */
+export function isIslandCoin(mint: string): boolean {
+  return ISLAND_MINTS.has(mint);
+}
+
+/** What the venue says of a coin it vouches for. By mint: a name or a symbol can be copied. */
+export type VenueMark = { kind: 'venue' } | { kind: 'island' } | { kind: 'pool'; usd: number };
+
+/**
+ * Does the venue vouch for this coin, and why: one of the coins its pools pair with, an island
+ * room's coin, or a coin with $200 or more in one of its pools (lib/solana/poolCoins.ts). Null
+ * for any other coin, and for a copy of a name the site knows ("fake SOY"), whatever its pool.
+ */
+export function venueMark(t: Pick<SolToken, 'mint' | 'symbol'>): VenueMark | null {
+  if (isVenueCoin(t.mint)) return { kind: 'venue' };
+  if (ISLAND_MINTS.has(t.mint)) return { kind: 'island' };
+  const usd = poolCoinUsd(t.mint);
+  return usd !== null && !t.symbol.startsWith('fake ') ? { kind: 'pool', usd } : null;
+}
+
+/**
+ * Does trading this token ask the trader to acknowledge a risk first? Every token Jupiter has
+ * not verified does, except a coin the venue vouches for (venueMark), which it knows by mint.
  */
 export function needsRiskAck(t: SolToken): boolean {
-  return isUnverified(t) && !isVenueCoin(t.mint);
+  return isUnverified(t) && venueMark(t) === null;
 }
 
 // Liquid-staking tokens. "Stake SOL" = buy one of these through the normal swap: the
@@ -197,7 +230,7 @@ const _cache = new Map<string, SolToken>();
  * Search tokens by symbol, name, OR mint address (one endpoint covers both
  * "search" and "paste a mint"). Returns up to 25 mapped tokens.
  */
-export async function searchTokens(query: string, signal?: AbortSignal): Promise<SolToken[]> {
+export async function searchTokens(query: string, signal?: AbortSignal, max = 25): Promise<SolToken[]> {
   const q = query.trim();
   if (!q) return [];
   const res = await fetch(`${JUPITER_TOKENS_BASE}/tokens/v2/search?query=${encodeURIComponent(q)}`, {
@@ -208,7 +241,7 @@ export async function searchTokens(query: string, signal?: AbortSignal): Promise
   const arr = (await res.json()) as unknown;
   if (!Array.isArray(arr)) return [];
   const out: SolToken[] = [];
-  for (const t of arr.slice(0, 25)) {
+  for (const t of arr.slice(0, max)) {
     const mapped = mapV2(t as JupTokenV2);
     if (mapped) {
       _cache.set(mapped.mint, mapped);
@@ -219,20 +252,95 @@ export async function searchTokens(query: string, signal?: AbortSignal): Promise
 }
 
 /**
- * Search results with the venue's own coins where a trader can find them. A venue coin
- * the search returned moves to the front. One it did not return is added when the text
- * typed is its mint or the start of its symbol: copies of a name can fill the first 25
- * results and leave the real coin out.
+ * Every coin the venue vouches for, as the picker lists it: the coins its pools pair with, the
+ * island's coins, then the coins with a $200 pool here, deepest first. A coin is Jupiter's row
+ * once that is read (the picture and the live fields), else the list's own. A pool coin Jupiter
+ * has not named yet is left out: there is no name to show it by.
+ */
+export function listedTokens(): SolToken[] {
+  const out: SolToken[] = [];
+  const seen = new Set<string>();
+  const add = (t: SolToken) => {
+    if (seen.has(t.mint)) return;
+    seen.add(t.mint);
+    out.push(_cache.get(t.mint) ?? t);
+  };
+  for (const t of [...VENUE_COINS, ...ISLAND_TOKENS]) add(t);
+  for (const mint of poolCoinMints()) {
+    const row = _cache.get(mint);
+    if (row && venueMark(row)) add(row);
+  }
+  return out;
+}
+
+/** Letters and digits only, lower case: "BIG BRAIN" and "bigbrain" are the same search. */
+const squash = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+/** At most one letter added, dropped or changed: "soyjack" for "soyjak". */
+function oneEditApart(a: string, b: string): boolean {
+  if (Math.abs(a.length - b.length) > 1) return false;
+  let i = 0;
+  let j = 0;
+  let edits = 0;
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) {
+      i++;
+      j++;
+      continue;
+    }
+    if (++edits > 1) return false;
+    if (a.length > b.length) i++;
+    else if (b.length > a.length) j++;
+    else {
+      i++;
+      j++;
+    }
+  }
+  return edits + (a.length - i) + (b.length - j) <= 1;
+}
+
+/**
+ * Is this search about this coin? Its mint pasted; or its symbol, its name or a word of its name
+ * starting with what was typed (two letters at least); or, from four letters, one of them a
+ * letter off ("soyjack" finds SOY, named Soyjak).
+ */
+export function searchFinds(t: Pick<SolToken, 'mint' | 'symbol' | 'name'>, query: string): boolean {
+  const q = query.trim();
+  if (q === t.mint) return true;
+  const s = squash(q);
+  if (s.length < 2) return false;
+  const words = [t.symbol, t.name, ...t.name.split(/\s+/)].map(squash).filter(Boolean);
+  return words.some((w) => w.startsWith(s) || (s.length >= 4 && oneEditApart(s, w)));
+}
+
+/**
+ * Search results with the venue's coins where a trader can find them (listedTokens). A listed
+ * coin the search returned moves to the front. One it did not return is added when the search is
+ * about it (searchFinds): copies of a name can fill the first 25 results and leave the real coin
+ * out, and Jupiter finds no "soyjack" or "bigbrain".
  */
 export function withVenueCoinsFirst(results: readonly SolToken[], query: string): SolToken[] {
-  const q = query.trim();
-  const lower = q.toLowerCase();
-  const wanted = VENUE_COINS.filter(
-    (v) => results.some((r) => r.mint === v.mint) || q === v.mint || (lower.length >= 2 && v.symbol.toLowerCase().startsWith(lower)),
-  );
+  const listed = listedTokens();
+  const isListed = new Set(listed.map((t) => t.mint));
+  const wanted = listed.filter((v) => results.some((r) => r.mint === v.mint) || searchFinds(v, query));
   // The row the search returned carries the picture and the live fields: keep it.
   const front = wanted.map((v) => results.find((r) => r.mint === v.mint) ?? v);
-  return [...front, ...results.filter((r) => !isVenueCoin(r.mint))];
+  return [...front, ...results.filter((r) => !isListed.has(r.mint))];
+}
+
+/**
+ * Jupiter's rows for these mints, read in one call and kept for the session (resolveMint's
+ * cache). Mints already read are not asked again. Never throws: a read that fails leaves the
+ * list's own rows standing.
+ */
+export async function resolveMints(mints: readonly string[], signal?: AbortSignal): Promise<void> {
+  const ask = [...new Set(mints)].filter((m) => !_cache.has(m)).slice(0, 100);
+  if (!ask.length) return;
+  try {
+    await searchTokens(ask.join(','), signal, 100);
+  } catch {
+    /* the list's own rows stand */
+  }
 }
 
 /** Resolve a single mint address to its token (with authoritative decimals). */
@@ -297,6 +405,8 @@ export const DIRECT_ICON_HOSTS: readonly string[] = ['gateway.irys.xyz'];
 
 export function iconSrc(url?: string): string {
   if (!url) return '';
+  // The site's own pictures (an island room's, ISLAND_TOKENS) are served from here.
+  if (url.startsWith('/') && !url.startsWith('//')) return url;
   const direct = directIconUrl(url);
   if (direct) return direct;
   return `https://wsrv.nl/?url=${encodeURIComponent(liveIpfsUrl(url))}&w=64&h=64&fit=cover&output=webp`;

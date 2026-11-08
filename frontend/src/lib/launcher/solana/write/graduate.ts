@@ -20,7 +20,7 @@ import type { CurveAccount } from '../curve/read';
 import { MAX_OWN_PRIORITY_LAMPORTS } from './budget';
 import { CP_CREATE_POOL_FEE_RECEIVER } from './config';
 import { bodySteps, buildAndSimulate, notSent } from './prepare';
-import type { IntentContext, OpenGate, Prepared, TxSummary, WriteRpc } from './types';
+import type { IntentContext, OpenGate, Prepared, TxSummary, TxVersion, WriteRpc } from './types';
 
 function ctxFor(gate: OpenGate, payer: PublicKey, mint: PublicKey, curve: CurveAccount): IntentContext {
   return {
@@ -38,7 +38,7 @@ function ctxFor(gate: OpenGate, payer: PublicKey, mint: PublicKey, curve: CurveA
 export async function prepareMigrate(
   rpc: WriteRpc,
   gate: OpenGate,
-  a: { payer: PublicKey; mint: PublicKey; curve: CurveAccount },
+  a: { payer: PublicKey; mint: PublicKey; curve: CurveAccount; txVersion?: TxVersion },
 ): Promise<Prepared> {
   if (gate.paused) return notSent('build', 'Graduation is paused right now. Selling still works.');
   if (!a.curve.curve.mint.equals(a.mint)) return notSent('build', 'The curve read does not belong to this token.');
@@ -67,6 +67,7 @@ export async function prepareMigrate(
 
   return buildAndSimulate(rpc, {
     kind: 'migrate',
+    version: a.txVersion,
     body,
     extraSigners: [],
     intent: ctxFor(gate, a.payer, a.mint, a.curve),

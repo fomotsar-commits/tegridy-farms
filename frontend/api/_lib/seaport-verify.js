@@ -35,7 +35,7 @@
 //   - Seaport SDK `verifyOrder`          (parameters + signature → offerer)
 
 import { verifyTypedData, createPublicClient, http, fallback } from "viem";
-import { mainnet, sepolia } from "viem/chains";
+import { mainnet, sepolia, base } from "viem/chains";
 import { fetchWholeBody } from "../../src/lib/fetchWholeBody.js";
 
 // AUDIT FIX H-1-FINDING-2: chainId was hardcoded to `1` in SEAPORT_DOMAIN, so
@@ -73,20 +73,21 @@ const SEAPORT_VIEM_CHAIN = SUPPORTED_VIEM_CHAINS[SEAPORT_CHAIN_ID];
 // a contract, it falls back to an `isValidSignature` staticcall (and ERC-6492
 // pre-deploy signatures). Reuses the same Alchemy URL we already use for
 // `fetchSeaportCounter` / `fetchNftOwner`.
-let _publicClient = null;
-function getPublicClient() {
-  if (_publicClient) return _publicClient;
-  const url = alchemyUrl();
+const _publicClients = new Map();
+function getPublicClient(chainId = SEAPORT_CHAIN_ID) {
+  if (_publicClients.has(chainId)) return _publicClients.get(chainId);
+  const url = alchemyUrl(chainId);
   if (!url) return null;
   // The EIP-1271 and ERC-6492 calls walk the same hosts as ethCall: the Alchemy key, the
   // fallback key, then the public list. viem's 10 s timeout ends at the headers;
   // fetchWholeBody keeps it running until the body is read, so a host that stops
   // part-way is left for the next one.
-  _publicClient = createPublicClient({
-    chain: SEAPORT_VIEM_CHAIN,
-    transport: fallback(rpcUrlChain().map((u) => http(u, { fetchFn: fetchWholeBody }))),
+  const client = createPublicClient({
+    chain: chainConfig(chainId).viemChain,
+    transport: fallback(rpcUrlChain(chainId).map((u) => http(u, { fetchFn: fetchWholeBody }))),
   });
-  return _publicClient;
+  _publicClients.set(chainId, client);
+  return client;
 }
 
 // Pinned Seaport address — the verifyingContract used in SEAPORT_DOMAIN on
@@ -99,6 +100,42 @@ const SEAPORT_DOMAIN = Object.freeze({
   chainId: SEAPORT_CHAIN_ID,
   verifyingContract: SEAPORT_VERIFYING_CONTRACT,
 });
+
+// Base orders are signed for Seaport 1.6 on Base (OpenSea's own Base orders all
+// are; read 2026-11-07). Seaport 1.6 on Base is Ethereum's bytecode but for the
+// chain id and the domain separator built from it, so the order types, the order
+// hash and the conduit are the same. Must match the client's SEAPORT_DOMAINS.
+const SEAPORT_16 = "0x0000000000000068F116a894984e2DB1123eB395";
+const BASE_SEAPORT_DOMAIN = Object.freeze({
+  name: "Seaport",
+  version: "1.6",
+  chainId: 8453,
+  verifyingContract: SEAPORT_16,
+});
+
+// Per chain: the signed domain, the viem chain, the Alchemy network and the
+// keyless hosts behind it. The order's chain comes from the registry
+// (venue-registry.js bookChainId), never from the request.
+const BASE_PUBLIC_RPC_URLS = Object.freeze([
+  "https://base-rpc.publicnode.com",
+  "https://base.drpc.org",
+  "https://mainnet.base.org",
+]);
+function chainConfig(chainId) {
+  if (chainId === 8453) {
+    return { domain: BASE_SEAPORT_DOMAIN, viemChain: base, alchemyHost: "base-mainnet", publicRpcs: BASE_PUBLIC_RPC_URLS };
+  }
+  // The Ethereum book keeps the chain SEAPORT_CHAIN_ID picks (Sepolia on staging).
+  if (chainId === SEAPORT_CHAIN_ID || chainId === 1) {
+    return { domain: SEAPORT_DOMAIN, viemChain: SEAPORT_VIEM_CHAIN, alchemyHost: "eth-mainnet", publicRpcs: PUBLIC_RPC_URLS };
+  }
+  throw new Error(`unsupported-chain ${chainId}`);
+}
+
+/** The EIP-712 domain a chain's orders are signed with (the client must sign the same). */
+export function seaportDomainFor(chainId) {
+  return chainConfig(chainId).domain;
+}
 
 const SEAPORT_ORDER_TYPES = Object.freeze({
   OrderComponents: [
@@ -141,10 +178,10 @@ const SELECTOR_OWNER_OF = "0x6352211e";
 
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
 
-function alchemyUrl() {
+function alchemyUrl(chainId = SEAPORT_CHAIN_ID) {
   const key = process.env.ALCHEMY_API_KEY;
   if (!key || key === "demo") return null;
-  return `https://eth-mainnet.g.alchemy.com/v2/${key}`;
+  return `https://${chainConfig(chainId).alchemyHost}.g.alchemy.com/v2/${key}`;
 }
 
 // ── RESIL-1 (2026-06-11): RPC failover chain ────────────────────────
@@ -172,16 +209,17 @@ const PUBLIC_RPC_URLS = Object.freeze([
   // + Origin) before ever re-adding. publicnode + drpc re-verified live today.
 ]);
 
-function rpcUrlChain() {
+function rpcUrlChain(chainId = SEAPORT_CHAIN_ID) {
   const urls = [];
-  const primary = alchemyUrl();
+  const { alchemyHost, publicRpcs } = chainConfig(chainId);
+  const primary = alchemyUrl(chainId);
   if (primary) urls.push(primary);
   const fb = process.env.ALCHEMY_API_KEY_FALLBACK;
   if (fb && fb !== "demo") {
-    const fbUrl = `https://eth-mainnet.g.alchemy.com/v2/${fb}`;
+    const fbUrl = `https://${alchemyHost}.g.alchemy.com/v2/${fb}`;
     if (fbUrl !== primary) urls.push(fbUrl);
   }
-  urls.push(...PUBLIC_RPC_URLS);
+  urls.push(...publicRpcs);
   return urls;
 }
 
@@ -237,9 +275,9 @@ async function ethCallOnce(url, to, data) {
 // revert — the "token not minted / not ERC721" signal) are NOT retried:
 // every node returns the same answer and callers map them to a 4xx. Only
 // transport-level failures (HTTP !ok, network throw) move to the next URL.
-async function ethCall(to, data) {
+async function ethCall(to, data, chainId = SEAPORT_CHAIN_ID) {
   let lastErr = null;
-  for (const url of rpcUrlChain()) {
+  for (const url of rpcUrlChain(chainId)) {
     try {
       return await ethCallOnce(url, to, data);
     } catch (err) {
@@ -257,10 +295,10 @@ async function ethCall(to, data) {
  * @param {string} offerer
  * @returns {Promise<bigint>}
  */
-export async function fetchSeaportCounter(offerer) {
-  if (!alchemyUrl()) throw new Error("alchemy-not-configured");
+export async function fetchSeaportCounter(offerer, chainId = SEAPORT_CHAIN_ID) {
+  if (!alchemyUrl(chainId)) throw new Error("alchemy-not-configured");
   const data = `${SELECTOR_GET_COUNTER}${padAddr(offerer)}`;
-  const result = await ethCall(SEAPORT_VERIFYING_CONTRACT, data);
+  const result = await ethCall(chainConfig(chainId).domain.verifyingContract, data, chainId);
   if (!result || result === "0x") return 0n;
   return BigInt(result);
 }
@@ -272,12 +310,12 @@ export async function fetchSeaportCounter(offerer) {
  * @param {string|bigint} tokenId
  * @returns {Promise<string>} lowercase address
  */
-export async function fetchNftOwner(contract, tokenId) {
-  if (!alchemyUrl()) throw new Error("alchemy-not-configured");
+export async function fetchNftOwner(contract, tokenId, chainId = SEAPORT_CHAIN_ID) {
+  if (!alchemyUrl(chainId)) throw new Error("alchemy-not-configured");
   const data = `${SELECTOR_OWNER_OF}${pad32(tokenId)}`;
   let result;
   try {
-    result = await ethCall(contract, data);
+    result = await ethCall(contract, data, chainId);
   } catch (err) {
     // Token not minted / burned / contract reverts → propagate so caller
     // can return a 4xx, not a 5xx. RESIL-1: only deterministic JSON-RPC
@@ -342,15 +380,21 @@ export function buildSeaportMessage(parameters, counter) {
  *   - production → returns { ok: false, error: 'rpc-unavailable' } (503 caller-side)
  *   - non-prod   → returns { ok: true, skipped: true } so dev/tests still work
  */
-export async function verifySeaportSignature({ parameters, signature }) {
-  if (!alchemyUrl()) {
+export async function verifySeaportSignature({ parameters, signature, chainId = SEAPORT_CHAIN_ID }) {
+  let domain;
+  try {
+    ({ domain } = chainConfig(chainId));
+  } catch {
+    return { ok: false, error: "unsupported-chain" };
+  }
+  if (!alchemyUrl(chainId)) {
     if (IS_PRODUCTION) return { ok: false, error: "rpc-unavailable" };
     console.warn("[seaport-verify] ALCHEMY_API_KEY missing — skipping signature verification (non-prod)");
     return { ok: true, skipped: true };
   }
   let counter;
   try {
-    counter = await fetchSeaportCounter(parameters.offerer);
+    counter = await fetchSeaportCounter(parameters.offerer, chainId);
   } catch (err) {
     console.error("[seaport-verify] getCounter failed:", err.message);
     return { ok: false, error: "rpc-unavailable" };
@@ -368,11 +412,11 @@ export async function verifySeaportSignature({ parameters, signature }) {
   // `alchemyUrl()` early-return, but keep the fallback defensively).
   let ok;
   try {
-    const pc = getPublicClient();
+    const pc = getPublicClient(chainId);
     if (pc) {
       ok = await pc.verifyTypedData({
         address: parameters.offerer,
-        domain: SEAPORT_DOMAIN,
+        domain,
         types: SEAPORT_ORDER_TYPES,
         primaryType: "OrderComponents",
         message,
@@ -381,7 +425,7 @@ export async function verifySeaportSignature({ parameters, signature }) {
     } else {
       ok = await verifyTypedData({
         address: parameters.offerer,
-        domain: SEAPORT_DOMAIN,
+        domain,
         types: SEAPORT_ORDER_TYPES,
         primaryType: "OrderComponents",
         message,
@@ -403,8 +447,13 @@ export async function verifySeaportSignature({ parameters, signature }) {
  *
  * Returns `{ ok: true }` or `{ ok: false, error }`.
  */
-export async function verifyNftOwnership({ parameters }) {
-  if (!alchemyUrl()) {
+export async function verifyNftOwnership({ parameters, chainId = SEAPORT_CHAIN_ID }) {
+  try {
+    chainConfig(chainId);
+  } catch {
+    return { ok: false, error: "unsupported-chain" };
+  }
+  if (!alchemyUrl(chainId)) {
     if (IS_PRODUCTION) return { ok: false, error: "rpc-unavailable" };
     console.warn("[seaport-verify] ALCHEMY_API_KEY missing — skipping ownership check (non-prod)");
     return { ok: true, skipped: true };
@@ -422,7 +471,7 @@ export async function verifyNftOwnership({ parameters }) {
   if (tokenId == null) return { ok: false, error: "no-token-id" };
   let owner;
   try {
-    owner = await fetchNftOwner(item.token, tokenId);
+    owner = await fetchNftOwner(item.token, tokenId, chainId);
   } catch (err) {
     if (err.code === "OWNER_OF_REVERT" || err.code === "OWNER_OF_EMPTY") {
       // Token not minted, contract not ERC721, etc. — reject 4xx.

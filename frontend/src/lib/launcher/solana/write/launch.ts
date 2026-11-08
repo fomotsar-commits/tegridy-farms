@@ -61,7 +61,7 @@ import {
   type PlantBalance,
 } from './plant';
 import { bodySteps, buildAndSimulate, confirmedReads, notSent } from './prepare';
-import type { IntentStep, OpenGate, Prepared, TxSummary, WriteRpc } from './types';
+import type { IntentStep, OpenGate, Prepared, TxSummary, TxVersion, WriteRpc } from './types';
 
 export {
   METAPLEX_TOKEN_METADATA_ID,
@@ -106,6 +106,8 @@ export function quoteOpeningBuy(global: GlobalConfig, lamportsIn: bigint): Retur
 
 export interface CreateLaunchInput {
   creator: PublicKey;
+  /** The format the connected wallet signs (txVersion.ts); legacy when unset. */
+  txVersion?: TxVersion;
   mint: Keypair;
   metadata: { name: string; symbol: string; uri: string };
   /** Optional. `slippageBps` is accepted for the older contract and IGNORED: the opening buy's minimum is exact. */
@@ -323,6 +325,7 @@ export async function prepareCreateLaunch(rpc: WriteRpc, gate: OpenGate, input: 
   const creatorAta = associatedTokenAddress(mint, creator);
   return buildAndSimulate(rpc, {
     kind: 'create',
+    version: input.txVersion,
     body,
     extraSigners: [input.mint],
     intent: {

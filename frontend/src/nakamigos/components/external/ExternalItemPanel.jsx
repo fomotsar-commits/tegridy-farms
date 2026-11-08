@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { chainLabel, standardLabel, marketItemUrl, explorerAddressUrl, canBuyOnVenue } from "../../lib/venue";
 import MarketButton from "./MarketButton";
 import BuyHere from "./BuyHere";
+import TradeHereBase from "./TradeHereBase";
 import { itemName } from "./externalCopy";
 
 function short(addr) {
@@ -21,7 +22,8 @@ function Fact({ label, children }) {
 // its page on OpenSea (per item where an item page was verified, the
 // collection page otherwise). A token held by the burn address gets no market
 // link at all. A Base buy collection (lib/venue.js canBuyOnVenue) also offers
-// its OpenSea listing for sale here (BuyHere); every other one offers no action.
+// its OpenSea listing for sale here (BuyHere) and trades on the venue's own
+// book and offers, on Base (TradeHereBase); every other one offers no action.
 export default function ExternalItemPanel({ collection, item, onClose, listing = null, listingsStatus = "idle", wallet = null, onConnect, addToast, onBought }) {
   const closeRef = useRef(null);
   const [broken, setBroken] = useState(false);
@@ -87,6 +89,9 @@ export default function ExternalItemPanel({ collection, item, onClose, listing =
                 addToast={addToast}
                 onBought={onBought}
               />
+              {collection.chain === "base" && (
+                <TradeHereBase collection={collection} item={item} wallet={wallet} onConnect={onConnect} addToast={addToast} />
+              )}
               <MarketButton collection={collection} href={itemUrl || undefined} compact />
             </div>
           ) : market ? (

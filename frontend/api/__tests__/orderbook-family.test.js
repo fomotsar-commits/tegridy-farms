@@ -1,5 +1,6 @@
 // The venue's own order book: Gold Cards can be listed and read here, and no
-// family collection that the venue cannot settle can.
+// family collection that the venue cannot settle can (the two Base ERC-721s can,
+// on Base).
 //
 // Harness mirrors orderbook.test.js: Supabase and viem's signature recovery
 // are mocked, so a create that passes the contract check goes on to the NEXT
@@ -22,11 +23,10 @@ vi.mock("../_lib/ratelimit.js", () => ({
 const OWNER = "0x" + "a".repeat(40);
 const ATTACKER = "0x" + "b".repeat(40);
 const GOLD = "0x6aa03f42c5366e2664c887eb2e90844ca00b92f3";
+// Bojungles and Seeds are on the book too, on Base: orderbook.base-chain.test.js.
 const VIEW_ONLY = {
   memes: "0x9edaba801123866f25993914e389924744a07e89",
   towelie: "0x2bcaad3cd618d0c0f87e153b3928e02bab757705",
-  seeds: "0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3",
-  bojungles: "0x36afee4fadc3b77ff5f1f9a040e264150afb979a",
 };
 
 let recoverImpl = vi.fn(async () => ATTACKER);

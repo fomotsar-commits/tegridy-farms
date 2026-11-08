@@ -1,8 +1,9 @@
 // @vitest-environment node
 //
 // Fee tier 0 is the launch tier: a graduation opens its pool there, at the launch pool.
-// The pool program at 88b98aa9 (rolled back 2026-10-24) also lets anyone open a pool on it
-// directly, for free, skipping the public tier's 1% and its 0.15 SOL opening fee. Owner,
+// The pool program at 88b98aa9 (on mainnet again during each roll-back: 2026-10-24 to 11-03 and
+// 2026-11-04 to 11-06) let anyone open a pool on it directly, for free, skipping the public tier's 1% and
+// its 0.15 SOL opening fee, and such a pool outlives the re-upgrade. Owner,
 // 2026-10-24: the site does not allow that option. Such a pool is never listed, never
 // quoted for a swap and never added to; the launch pool on the same tier stays as it was.
 import { describe, it, expect } from 'vitest';
