@@ -4,9 +4,11 @@
 // preprod-keys/ and preprod-run/ (the deploy's scripts.json and state.json); what each step makes
 // is kept in preprod-run/rehearsal.json.
 //   node scripts/rehearse.ts <dir> <step> [--submit]
-//   steps: split | announce | open [--fee <lovelace>] [--to <bech32>] | order | early | execute
+//   steps: split | announce | open [--fee <lovelace>] [--to <bech32>] | order | early | execute [--simulate]
 // Chain: OGMIOS_URL (parameters, tip, evaluation, submission), KOIOS_URL (UTxOs).
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import CSL from '@emurgo/cardano-serialization-lib-nodejs';
 import { builderConfig, referenceScriptOf } from '../src/build.ts';
@@ -17,6 +19,7 @@ import { Koios } from '../src/koios.ts';
 import { budgetsFromOgmios, OgmiosError, rpc, submit, tip, type Endpoint } from '../src/ogmios.ts';
 import { mkBytes, mkConstr, mkInt, mkList, type PlutusData } from '../src/plutus.ts';
 import { stringifyExact } from '../src/json.ts';
+import { withArrayRedeemers, withoutSetTags } from '../src/simulate.ts';
 import { keyFromFile } from '../src/signer.ts';
 import { decodePoolDatum } from '../src/types.ts';
 import { lpAssetName } from '../src/verify.ts';
@@ -401,8 +404,13 @@ if (step === 'split') {
   const w = await window(300n);
   const t = await tip(ogmios);
   const nowMs = slotToPosixMs(t.slot, PREPROD_TIME);
-  if (step === 'execute' && nowMs < readyAt + 60_000n) throw new Error(`not ready: the chain's time is ${new Date(Number(nowMs)).toISOString()}, ready_at ${new Date(Number(readyAt)).toISOString()}`);
-  const start = step === 'early' ? w.start : t.slot - 30n;
+  // --simulate: the Execute dated a minute after ready_at, judged offline by Aiken (the node cannot
+  // place a time past its 36-hour horizon), with preprod's slot times. Nothing is sent.
+  const simulated = step === 'execute' && process.argv.includes('--simulate');
+  if (step === 'execute' && !simulated && nowMs < readyAt + 60_000n) throw new Error(`not ready: the chain's time is ${new Date(Number(nowMs)).toISOString()}, ready_at ${new Date(Number(readyAt)).toISOString()}`);
+  const readySlot = PREPROD_TIME.zeroSlot + (readyAt + 60_000n - PREPROD_TIME.zeroTimeMs) / PREPROD_TIME.slotLengthMs;
+  const start = step === 'early' ? w.start : simulated ? readySlot : t.slot - 30n;
+  if (simulated) w.ttl = readySlot + 300n;
   const spec: Spec = {
     spends: [
       { utxo: lock, script: deployState.refs.lock!, redeemer: lockAction(mkConstr(2, [mkInt(0n)])) },
@@ -415,6 +423,24 @@ if (step === 'split') {
     validity: { start, ttl: w.ttl },
   };
   console.log(`${step}: lower bound ${new Date(Number(slotToPosixMs(start, PREPROD_TIME))).toISOString()}, ready_at ${new Date(Number(readyAt)).toISOString()}`);
+  if (simulated) {
+    const refs = await scriptRefs(spec);
+    const txHex = assemble(spec, refs, null, 0n).to_hex();
+    const spent = known(spec, refs);
+    const body = CSL.FixedTransaction.from_hex(txHex).body();
+    const ins = [body.inputs(), body.reference_inputs(), body.collateral()].flatMap((l) => Array.from({ length: l?.len() ?? 0 }, (_, i) => l!.get(i)));
+    const seen = [...new Map(ins.map((i) => [refKey(i), i])).values()];
+    const head = (n: number) => (n < 24 ? (0x80 + n).toString(16) : `98${n.toString(16).padStart(2, '0')}`);
+    const dir = mkdtempSync(join(tmpdir(), 'rehearse-sim-'));
+    writeFileSync(join(dir, 'tx'), withoutSetTags(withArrayRedeemers(txHex)));
+    writeFileSync(join(dir, 'inputs'), head(seen.length) + seen.map((i) => i.to_hex()).join(''));
+    writeFileSync(join(dir, 'outputs'), head(seen.length) + seen.map((i) => spent[refKey(i)]).join(''));
+    const r = spawnSync(process.env.AIKEN ?? 'aiken', ['tx', 'simulate', join(dir, 'tx'), join(dir, 'inputs'), join(dir, 'outputs'), '--zero-time', PREPROD_TIME.zeroTimeMs.toString(), '--zero-slot', PREPROD_TIME.zeroSlot.toString(), '--slot-length', PREPROD_TIME.slotLengthMs.toString()], { encoding: 'utf-8' });
+    rmSync(dir, { recursive: true, force: true });
+    const clean = (s: string | null) => (s ?? '').replace(/\x1b\[[0-9;]*m/g, '').trim();
+    console.log(`  aiken tx simulate (exit ${r.status}): ${clean(r.stdout)} ${clean(r.stderr).slice(-600)}`);
+    process.exit(r.status === 0 ? 0 : 1);
+  }
   const draft = await evaluate(assemble(spec, await scriptRefs(spec), null, 0n).to_hex());
   console.log(`  evaluate ${draft.ok ? `PASSED ${draft.list.join('; ')}` : `REFUSED ${draft.code}: ${draft.error}`}`);
   if (step === 'early') {
