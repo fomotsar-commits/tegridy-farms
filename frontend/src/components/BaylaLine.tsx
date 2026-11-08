@@ -1,19 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
 import { readFire, type FireWeek } from '../lib/fire';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAccount } from 'wagmi';
-import { baylaLine, intelLine } from '../lib/baylaLine';
+import { intelLine } from '../lib/baylaLine';
+import { QUIET_BUTTON_STYLE, useBaylaLine } from './useBaylaLine';
 import { voiceAt } from '../lib/arrival';
-import { BUNGALOWS, getActiveBungalow } from '../lib/bungalows';
-import { useActiveBungalowId } from '../hooks/useActiveBungalowId';
+import { BUNGALOWS } from '../lib/bungalows';
 import { fetchHeat, isSupportedHeatAddress } from '../lib/heat/heatClient';
 import { setLastReading, useLastReading } from '../lib/heat/heatStore';
-import { heatLaunchFloor } from '../lib/heat/heatGateConfig';
-import { useLanded } from '../lib/landed';
 import { useSolanaSurface } from '../lib/solanaSurface';
-import { LAUNCH_SECTION, poolsRoute } from '../lib/navConfig';
-import { isSolanaSwapLive } from '../lib/solana';
-import { useRoomSlow } from '../lib/solana/lp/roomPrice';
+import { opensSheet, SHEET_PRESS } from '../lib/sheet';
+import { reopenReceipt } from '../lib/receipt';
 import { tick } from '../lib/tick';
 
 function useFire(): FireWeek | null {
@@ -44,13 +41,10 @@ export const BAYLA_LINE_HEIGHT = 65;
  */
 export function BaylaLine() {
   const location = useLocation();
-  useActiveBungalowId();
+  const navigate = useNavigate();
   const reading = useLastReading();
-  const landed = useLanded();
   const fireWeek = useFire();
-  const room = getActiveBungalow();
-  const solanaPool = room !== null && room.chain === 'solana' && !!room.address;
-  const slow = useRoomSlow(solanaPool ? room.address! : null);
+  const line = useBaylaLine();
   const { address: evm } = useAccount();
   const sol = useSolanaSurface().surface?.address ?? null;
 
@@ -74,21 +68,6 @@ export function BaylaLine() {
   // carries it inside. The pools page itself keeps the line.
   if (location.pathname === '/pools' && new URLSearchParams(location.search).has('mint')) return null;
 
-  const line = baylaLine({
-    reading,
-    room: room ? { coin: room.symbol, solanaPool } : null,
-    floor: heatLaunchFloor(),
-    landed: landed?.kind ?? null,
-    slow,
-    to: {
-      pools: poolsRoute(),
-      buy: isSolanaSwapLive() ? (solanaPool ? `/solana?out=${room.address}` : '/solana') : '/swap',
-      launch: LAUNCH_SECTION.primaryTo ?? LAUNCH_SECTION.hub,
-      read: '/',
-      pick: '/#hall',
-      receipt: '/dashboard',
-    },
-  });
   const intel = intelLine(fireWeek);
 
   return (
@@ -109,15 +88,35 @@ export function BaylaLine() {
         <p className="flex-1 min-w-0 text-[12.5px] leading-[15px] max-h-[45px] overflow-hidden text-white/90" data-testid="bayla-line-text">
           {line.text}
         </p>
+        {/* Quiet where the screen's own green button makes the same move: one green button per screen.
+            Her Receipt raises the last receipt card again (build 6); with none held, the dashboard. */}
+        {line.button.move === 'receipt' ? (
+          <button
+            type="button"
+            onClick={() => {
+              tick();
+              if (!reopenReceipt()) navigate(line.button.to);
+            }}
+            data-testid="bayla-line-button"
+            data-quiet={line.sameMove || undefined}
+            className={`${line.sameMove ? 'rounded-[10px]' : 'btn-primary'} shrink-0 min-h-[40px] px-3 text-[13px] font-semibold inline-flex items-center justify-center`}
+            style={line.sameMove ? QUIET_BUTTON_STYLE : { background: 'var(--color-kyle)', color: '#06101a' }}
+          >
+            {line.button.label}
+          </button>
+        ) : (
         <Link
           to={line.button.to}
+          state={opensSheet(line.button.to) ? SHEET_PRESS : undefined}
           onClick={tick}
           data-testid="bayla-line-button"
-          className="btn-primary shrink-0 min-h-[40px] px-3 text-[13px] font-semibold inline-flex items-center justify-center"
-          style={{ background: 'var(--color-kyle)', color: '#06101a' }}
+          data-quiet={line.sameMove || undefined}
+          className={`${line.sameMove ? 'rounded-[10px]' : 'btn-primary'} shrink-0 min-h-[40px] px-3 text-[13px] font-semibold inline-flex items-center justify-center`}
+          style={line.sameMove ? QUIET_BUTTON_STYLE : { background: 'var(--color-kyle)', color: '#06101a' }}
         >
           {line.button.label}
         </Link>
+        )}
       </div>
       {intel && (
         <p className="page-column mx-auto h-[16px] leading-[16px] truncate text-[11px] text-white/55" data-testid="bayla-intel">

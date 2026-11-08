@@ -1,6 +1,6 @@
-// Island answer twenty-four, build 1c: the check fails open on age, closed on absence. A
-// pool whose outside price is five minutes old offers the Add form and says when the price
-// was read; a pool with no price for eleven minutes is held by one row, not a paragraph.
+// Island answer twenty-four, build 1c, as answer twenty-seven left it: the outside price is
+// intel, said in one row, never a gate. A price five minutes old is compared and says when it
+// was read; one eleven minutes old, or none at all, is one row, and the Add form is offered.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen, within } from '@testing-library/react';
 import { PublicKey } from '@solana/web3.js';
@@ -77,19 +77,40 @@ describe('the door stays open on age', () => {
   });
 });
 
-describe('the door closes on absence, in one row', () => {
-  it('no price for eleven minutes holds the form with one row, and no paragraph', () => {
+describe('the door never closes on an outside price (answer twenty-seven)', () => {
+  it('a price eleven minutes old is one row with its age, and the Add form is offered', () => {
     const now = 1_762_000_000_000;
     const { card, health } = mount({ state: 'unread', detail: 'HTTP 429', last: { sol_per_token: 0.0000047, read_at: now - 11 * MIN } }, now);
-    expect(health.deposits.verdict).toBe('unchecked');
-    expect(depositOffer({ mode: 'on', gate: OPEN, health, held: false })).toBe('checks');
-    expect(rowValue(card, 'Outside price')).toBe('not read for 11 min; adding waits');
-    expect(within(card).getByText('Deposits: not checked')).toBeInTheDocument();
-    // Said once: not again as a notice under the heading, and no "Adding is off" paragraph.
-    expect(within(card).getAllByText(/adding waits/)).toHaveLength(1);
+    expect(health.deposits.verdict).toBe('allowed');
+    expect(depositOffer({ mode: 'on', gate: OPEN, health, held: false })).toBe('offer');
+    expect(rowValue(card, 'Outside price')).toBe('0.0000047 SOL, read 11 min ago');
+    expect(card).not.toHaveTextContent('adding waits');
+    expect(card).not.toHaveTextContent('Deposits: not checked');
     expect(card).not.toHaveTextContent('We could not check its price');
     expect(card).not.toHaveTextContent('Adding is off');
-    expect(card).not.toHaveTextContent('could not be run just now');
+  });
+
+  it('a token the loop never read (tonight’s $BAYLA) reads "Outside price not read yet", and the Add form is offered', () => {
+    const now = 1_762_000_000_000;
+    const { card, health } = mount({ state: 'unread', detail: 'the loop ran out of time before this token', last: null }, now);
+    expect(health.deposits.verdict).toBe('allowed');
+    expect(depositOffer({ mode: 'on', gate: OPEN, health, held: false })).toBe('offer');
+    expect(rowValue(card, 'Outside price')).toBe('not read yet');
+    expect(card).not.toHaveTextContent('adding waits');
+    expect(card).not.toHaveTextContent('Deposits: not checked');
+  });
+
+  it('a direct read that failed is the same one row, never a gate', () => {
+    const v = view();
+    const health = assessPool({ view: v, tokenDecimals: 6, chainNow: NOW, outside: { kind: 'unread', detail: 'HTTP 502' }, safety });
+    expect(health.deposits.verdict).toBe('allowed');
+    expect(health.price).toMatchObject({ state: 'unread', detail: 'Outside price not read yet', outside: true });
+  });
+
+  it('a check that is not the outside price still holds: the token’s decimals unread is not a pass', () => {
+    const v = view();
+    const health = assessPool({ view: v, tokenDecimals: null, chainNow: NOW, outside: null, safety });
+    expect(health.deposits.verdict).toBe('unchecked');
   });
 
   it('the pool’s own reserves stay the one hard stop: an empty side refuses whatever the list says', () => {

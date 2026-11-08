@@ -1,6 +1,7 @@
 import { Link, useLocation } from 'react-router-dom';
 import React from 'react';
 import { BAR_NAV } from '../../lib/navConfig';
+import { opensSheet, SHEET_PRESS } from '../../lib/sheet';
 import { useActiveBungalowId } from '../../hooks/useActiveBungalowId';
 
 const ICON = { width: 20, height: 20, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true } as const;
@@ -70,8 +71,9 @@ export const BottomNav = React.memo(function BottomNav() {
       <div className="flex items-center justify-around h-16">
         {BAR_NAV.map((word) => {
           const lit = word.lit(pathname, hash);
+          const to = word.to;
           return (
-            <Link key={word.label} to={word.to} aria-label={word.label}
+            <Link key={word.label} to={to} state={opensSheet(to) ? SHEET_PRESS : undefined} aria-label={word.label}
               aria-current={lit ? 'page' : undefined}
               data-lit={lit}
               // min-w-0 lets the label truncate; the 44px floor comes from flex-1 and min-h.

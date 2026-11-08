@@ -22,6 +22,7 @@ import { useLpWrites } from './useLpWrites';
 import type { LpReaders } from './readers';
 import { DoorPortal, LpDoorFrame } from './LpDoorFrame';
 import { LpDoorContext } from './lpDoor';
+import { useSheet } from '../../sheet/sheetContext';
 
 /** What a visitor came to do. The three are on the first screen, as buttons. */
 export type LpTask = 'create' | 'add' | 'remove';
@@ -111,11 +112,11 @@ function unfoundText(pools: PoolSearchRead, pool: string, door = false): string 
   if (door) {
     return pools.kind !== 'ok'
       ? `This token’s pools could not be read just now, so the Add form for this pool (${pool}) was not opened. Try again in a minute.`
-      : `This pool (${pool}) did not read as a pool for this token just now, so its Add form was not opened, and no other pool’s was opened in its place.`;
+      : `This pool (${pool}) did not read as a pool for this token just now, so its Add form did not open, and no other pool’s was opened in its place.`;
   }
   return pools.kind !== 'ok'
     ? `This token’s pools could not be read just now, so the Add form for your position’s pool (${pool}) was not opened. Press Add more liquidity on your position again.`
-    : `Your position’s pool (${pool}) did not read as a pool for this token just now, so its Add form was not opened, and no other pool’s was opened in its place. Press Add more liquidity on your position again in a minute.`;
+    : `Your position’s pool (${pool}) did not read as a pool for this token just now, so its Add form did not open, and no other pool’s was opened in its place. Press Add more liquidity on your position again in a minute.`;
 }
 
 /**
@@ -297,7 +298,7 @@ export function PoolFinder({
   const autoTries = useRef(0);
   const onlyFailed =
     Boolean(only) && state.status === 'done' && !state.refreshing &&
-    (state.pools.kind !== 'ok' || state.safety.kind === 'unread' || !listsPool(state.pools, only!) || state.outside?.kind === 'unread');
+    (state.pools.kind !== 'ok' || state.safety.kind === 'unread' || !listsPool(state.pools, only!));
   useEffect(() => {
     if (!onlyFailed || autoTries.current >= ONLY_RETRY_MS.length) return;
     const t = setTimeout(() => {
@@ -484,9 +485,12 @@ export function PoolFinder({
   const doorWaits = (doorAsked || wish?.top === true) && writes !== null && writes.status !== 'load-failed';
   const doorFrame = (doorWaits || doorHeld > 0) && doorMint ? <LpDoorFrame mint={doorMint} waiting={doorHeld === 0} slotRef={setDoorSlot} /> : null;
 
-  const finder = (
-    <section data-testid="lp-finder" aria-label="Find pools for a token" className="space-y-4">
-      {doorFrame && (doorAt ? createPortal(doorFrame, doorAt) : doorFrame)}
+  // In the sheet (island answer twenty-five, build 3) the door is the form, or why it did not
+  // open; under it only what the read says while it reads or when it fails. The pool's card
+  // the form rides on is not drawn (SearchResults).
+  const sheet = useSheet() !== null;
+  const rest = (
+    <>
       {/* Named for a visitor, not for the buttons under it, which say what each does. */}
       {!only && <Card
         title={tasks.length > 0 ? 'Start here' : 'Find a pool'}
@@ -616,6 +620,13 @@ export function PoolFinder({
           onRetry={reread}
         />
       )}
+    </>
+  );
+  const finder = (
+    // In the sheet the door is all that is drawn: no gap is kept for the finder under it.
+    <section data-testid="lp-finder" aria-label="Find pools for a token" className={sheet ? undefined : 'space-y-4'}>
+      {doorFrame && (doorAt ? createPortal(doorFrame, doorAt) : doorFrame)}
+      {rest}
     </section>
   );
   return <LpDoorContext.Provider value={doorPlace}>{finder}</LpDoorContext.Provider>;
@@ -677,6 +688,7 @@ function SearchResults({
 }) {
   const { safety, pools, outside, coins, outsideAt, mint } = state;
   const writes = useLpWrites();
+  const sheet = useSheet() !== null;
   const decimals = safety.kind === 'read' ? safety.facts?.decimals ?? null : null;
   // One check per pool, shared by its card and by the "Open a pool" card. All of them
   // together (`assessPools`): the launch pool this search read is the other pools'
@@ -787,6 +799,8 @@ function SearchResults({
               )}
             </Card>
           ) : (
+            // In the sheet the card is not drawn: its form is drawn in the door (DoorPortal), its checks still run.
+            <div hidden={sheet || undefined}>
             <ul className="space-y-3" aria-label={only ? 'The pool' : 'Pools: SOL pools first, then USDC, then BAYLA, the deepest of each first'}>
               {listed.map((p) =>
                 p.kind === 'pool' ? (
@@ -810,10 +824,8 @@ function SearchResults({
                 ),
               )}
             </ul>
+            </div>
           )}
-          {/* The home card: an outside price that could not be read leaves deposits unchecked
-              and adding off. The pool's card says why; this is the way on from it. */}
-          {only && listed.length > 0 && outside?.kind === 'unread' && <OnlyWayOn mint={mint} pool={only} onRetry={onRetry} />}
           {!only && pools.search.pools.length > 0 && pools.search.otherPairs > 0 && (
             <Notice>{pools.search.otherPairs} more pool(s) pair this token with something other than {QUOTE_COINS_OR} and are not shown.</Notice>
           )}

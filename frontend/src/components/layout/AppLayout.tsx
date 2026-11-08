@@ -6,6 +6,8 @@ import { trackWalletConnect } from '../../lib/analytics';
 import { mainnet } from 'wagmi/chains';
 import { TopNav } from './TopNav';
 import { BottomNav } from './BottomNav';
+import { ActionSheet } from '../sheet/ActionSheet';
+import { ReceiptCard } from '../ReceiptCard';
 import { Background } from './Background';
 import { Footer } from './Footer';
 import { Toaster } from 'sonner';
@@ -228,6 +230,10 @@ export function AppLayout() {
       </div>
 
       <BottomNav />
+      {/* The sheet (island answer twenty-five, build 3): Add or Buy over whatever page is under it. */}
+      <ActionSheet />
+      {/* The receipt card (island answer twenty-five, build 6): every Solana swap and add ends on it. */}
+      <ReceiptCard />
       {/* LiveActivity's ticker is TOWELI-denominated (price pill, protocol
           feed) — muted alongside the assistant in a token-first bungalow,
           where the muse's quiet line takes the corner instead. */}
