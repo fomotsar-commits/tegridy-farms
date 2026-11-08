@@ -19,6 +19,7 @@ import { TxFlowView } from '../curve/TxFlowView';
 import { WalletNeeded } from '../curve/WalletNeeded';
 import { useReturnFocus, useTxFlow } from '../curve/useTxFlow';
 import type { LpOpenGate, LpWriteApi, PreparedTx } from '../curve/ports';
+import { txVersionOf } from '../../../lib/launcher/solana/write/txVersion';
 import { ALL_BPS, PercentPicker } from './PercentPicker';
 import { PanelFrame } from './PanelFrame';
 import { coinAbout, coinExact, sharePct, solAbout, solExact, tokensAbout, unitsExact, useDebounced, useFlowReports, useSettledAlert, useWalletFacts } from './panelKit';
@@ -220,6 +221,7 @@ function RemoveInner({
     const build = () =>
       api.prepareLpWithdraw(writes.rpc, gate, {
         owner: signer.publicKey,
+        txVersion: txVersionOf(signer),
         pool: new PublicKey(view.address),
         tokenMint: new PublicKey(view.tokenMint),
         quoteMint: new PublicKey(view.quote.mint),

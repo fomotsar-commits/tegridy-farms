@@ -32,7 +32,7 @@ import { SHEET_PRESS, sheetHref, sheetRoom } from '../../../lib/sheet';
  * The Solana LP section on /pools (owner, 2026-10-14:
  * "the actions people need to take spotlighted and their positions and the rates and
  * routes getting the attention"): the earn line, the three actions
- * (the finder), every pool, the wallet's positions, the rates read from the chain, where a swap goes,
+ * (the finder), the wallet's positions, every pool, the rates read from the chain, where a swap goes,
  * and the full notice last. Adding, removing and opening pools follow LP's own switch (lpWriteFlag.ts):
  * with it 'off' no write code is fetched and nothing here can sign; otherwise
  * LpWritesProvider loads it and offers.ts decides each button. `?mint=<address>` opens the
@@ -238,15 +238,16 @@ function LpBody({ readers, mode, reloadKey, home, door }: { readers: LpReaders; 
     );
   }
 
-  // Actions first, under the one line on earning; then every pool;
-  // then what you hold, and everyone's positions; then the rates and the routes; the long notice last.
+  // Actions first, under the one line on earning; then what you hold (owner, 2026-11-08: "move the
+  // positions the user has above the liquidity pools"); then every pool, and everyone's positions;
+  // then the rates and the routes; the long notice last.
   return (
     <div className="flex flex-col gap-4" data-testid="lp-section" data-lp-mode={mode}>
       <LpEarnLine />
       {writesTop}
       {finder}
-      {allPools}
       {positions}
+      {allPools}
       <EveryPosition readers={readers} owner={publicKey ?? null} reloadKey={reloadKey} />
       <Rates read={tierRead} />
       <Routes />

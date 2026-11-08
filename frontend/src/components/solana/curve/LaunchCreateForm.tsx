@@ -45,6 +45,7 @@ import type {
   WriteRpc,
 } from './ports';
 import type { CurveSignerState } from './useCurveSigner';
+import { txVersionOf } from '../../../lib/launcher/solana/write/txVersion';
 
 /** Exact types, so iOS converts a HEIC photo to one of these when it is picked. */
 const IMAGE_ACCEPT = 'image/png,image/jpeg,image/webp,image/gif';
@@ -552,6 +553,7 @@ export function LaunchCreateForm({ api, rpc, gate, actions, signerState }: Launc
         mint,
         metadata: { name: nameC.value, symbol: symbolC.value, uri },
         openingBuy,
+        txVersion: txVersionOf(signer),
       });
     });
   };

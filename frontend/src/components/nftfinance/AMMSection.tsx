@@ -2201,6 +2201,29 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
   const spotNum = parseFloat(spotPriceInput) || 0;
   const deltaNum = parseFloat(deltaInput) || 0;
 
+  // Opening a pool costs 0.006 ETH on top of the deposit (owner ruling 2026-10-25), read from
+  // the factory so the wallet is asked for exactly what it charges. The July 16 factory has no
+  // such fee and no such getter: there the read fails and Deploy waits. That factory is
+  // paused, which is read too, so the form says so instead of asking for a reload.
+  const { data: factoryPaused } = useReadContract({
+    address: TEGRIDY_NFT_POOL_FACTORY_ADDRESS,
+    abi: TEGRIDY_NFT_POOL_FACTORY_ABI,
+    functionName: 'paused',
+    chainId: CHAIN_ID,
+    query: { enabled: isDeployed(TEGRIDY_NFT_POOL_FACTORY_ADDRESS) },
+  });
+  const openingFeeRead = useReadContract({
+    address: TEGRIDY_NFT_POOL_FACTORY_ADDRESS,
+    abi: TEGRIDY_NFT_POOL_FACTORY_ABI,
+    functionName: 'POOL_OPENING_FEE',
+    chainId: CHAIN_ID,
+    query: { enabled: isDeployed(TEGRIDY_NFT_POOL_FACTORY_ADDRESS) },
+  });
+  const openingFee = openingFeeRead.data as bigint | undefined;
+  const depositWei = useMemo(() => {
+    try { return ethDeposit ? parseEther(ethDeposit) : 0n; } catch { return 0n; }
+  }, [ethDeposit]);
+
   const parsedNftIds = useMemo(() => {
     if (!nftIds.trim()) return [];
     return nftIds.split(',').map((s) => s.trim()).filter((s) => /^\d+$/.test(s)).map((s) => BigInt(s));
@@ -2318,6 +2341,8 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
     if (!address) return toast.error('Connect your wallet');
     if (!validCollection) return toast.error('Invalid collection address');
     if (approvalNeeded) return toast.error('Approve the collection first');
+    if (factoryPaused === true) return toast.error('Opening new pools is paused on this factory');
+    if (openingFee === undefined) return toast.error('Could not read the pool-opening fee. Reload and try again.');
 
     try {
       writeDeploy(
@@ -2334,7 +2359,8 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
             BigInt(poolType === 2 ? (feeBps || '0') : '0'),
             parsedNftIds,
           ],
-          value: ethDeposit ? parseEther(ethDeposit) : 0n,
+          // The factory sends the opening fee to the treasury and deposits only the rest.
+          value: parseEther(ethDeposit || '0') + openingFee,
         },
         {
           onError: (e: Error) => toast.error(e.message?.slice(0, 100) || 'Pool creation failed'),
@@ -2555,6 +2581,20 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
                       placeholder="0.0"
                       className={inputClass}
                     />
+                    <p data-testid="nft-pool-opening-fee" className="text-[10px] text-white mt-1">
+                      {factoryPaused === true
+                        ? 'Opening new pools is paused on this factory.'
+                        : openingFee !== undefined
+                        ? `Opening a pool costs ${formatEther(openingFee)} ETH, paid to the Tegridy treasury on top of your deposit.`
+                        : openingFeeRead.isError
+                          ? 'The pool-opening fee could not be read. Reload before deploying.'
+                          : 'Reading the pool-opening fee…'}
+                    </p>
+                    {openingFee !== undefined && factoryPaused !== true && (
+                      <FinePrint summary="About this fee">
+                        <p>The fee is not part of your deposit and does not come back when you withdraw. Your deposit stays yours.</p>
+                      </FinePrint>
+                    )}
                   </div>
                   <div>
                     <label className={`${labelClass} mb-2 block`}>
@@ -2611,6 +2651,10 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
                       <SummaryRow label="Delta" value={`${deltaInput} ETH`} />
                       {poolType === 2 && <SummaryRow label="LP Fee" value={`${(Number(feeBps) / 100).toFixed(2)}%`} />}
                       <SummaryRow label="Initial ETH" value={ethDeposit ? `${ethDeposit} ETH` : 'None'} />
+                      <SummaryRow label="Opening fee" value={openingFee !== undefined ? `${formatEther(openingFee)} ETH` : 'Unavailable'} />
+                      {openingFee !== undefined && (
+                        <SummaryRow label="You send" value={`${formatEther(depositWei + openingFee)} ETH`} />
+                      )}
                       <SummaryRow
                         label="Initial NFTs"
                         value={parsedNftIds.length > 0 ? `${parsedNftIds.length} token${parsedNftIds.length !== 1 ? 's' : ''}` : 'None'}
@@ -2671,7 +2715,7 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
                   ) : (
                     <button
                       className={`flex-1 ${btnPrimary}`}
-                      disabled={address ? isPending || isConfirming || approvalNeeded : !openConnectModal}
+                      disabled={address ? isPending || isConfirming || approvalNeeded || factoryPaused === true || openingFee === undefined : !openConnectModal}
                       onClick={address ? handleDeploy : openConnectModal}
                     >
                       {isPending

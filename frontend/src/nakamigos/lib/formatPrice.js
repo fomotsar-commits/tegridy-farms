@@ -37,15 +37,38 @@ export function exactEth(priceWei) {
   return frac ? `${wei / unit}.${frac}` : `${wei / unit}`;
 }
 
+// One step of the shown price: 0.000001 ETH.
+const SHOWN_STEP_WEI = 10n ** 12n;
+
 /**
- * A listing's price as the buyer will pay it. A price someone is asked to pay
- * is never shown as a rounded figure that can read below what the wallet asks
- * for (formatPrice rounds to 4 decimals: 0.018949 reads 0.0189), so it is shown
- * from its wei, exactly, whenever the listing carries one. Both OpenSea's
+ * A wei amount as shown to someone who will pay it: exact up to six decimals,
+ * otherwise rounded UP to six (84939999999999000 wei, 0.084939999999999, shows
+ * 0.08494). Never less than the wei, at most 0.000001 ETH more. Rounding to the
+ * nearest would show 0.084943 for 0.08494349, less than is paid, so it is a
+ * ceiling. null for anything that is not a plain wei string.
+ */
+export function shownEth(priceWei) {
+  if (exactEth(priceWei) == null) return null;
+  const wei = BigInt(priceWei);
+  const up = ((wei + SHOWN_STEP_WEI - 1n) / SHOWN_STEP_WEI) * SHOWN_STEP_WEI;
+  return exactEth(up.toString());
+}
+
+/**
+ * A listing's price as the buyer is shown it. Never a figure below what the
+ * wallet asks for (formatPrice rounds to 4 decimals: 0.018949 reads 0.0189), so
+ * it is read from the listing's wei whenever it carries one: exact up to six
+ * decimals, rounded up past that (shownEth). Both OpenSea's
  * `price.current.value` and the order book's `price_wei` are the buyer's total.
  */
 export function formatListingPrice(listing, opts) {
-  return exactEth(listing?.priceWei) ?? formatPrice(listing?.price, opts);
+  return shownEth(listing?.priceWei) ?? formatPrice(listing?.price, opts);
+}
+
+/** "0.084939999999999 ETH exactly" when the shown price was rounded, for a tooltip; else undefined. */
+export function listingPriceTitle(listing) {
+  const exact = exactEth(listing?.priceWei);
+  return exact != null && exact !== shownEth(listing.priceWei) ? `${exact} ETH exactly` : undefined;
 }
 
 /**

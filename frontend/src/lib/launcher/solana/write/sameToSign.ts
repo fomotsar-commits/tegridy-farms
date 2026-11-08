@@ -6,25 +6,16 @@
 
 import type { PreparedTx } from './types';
 
-const COMPUTE_BUDGET = 'ComputeBudget111111111111111111111111111111';
-
 /**
- * Every instruction but the compute budget pair, with its program, accounts, flags and
- * data, in order. That pair is left out: each prepare sets it from its own test run,
- * `decodeIntent` caps the fee it makes, and the fee is a line of the review.
+ * The instructions as prepared (`check.body`: program, accounts, flags, data, in order).
+ * The budget is not in it: each prepare sets its own from its test run, `decodeIntent`
+ * caps the fee it makes, and the fee is a line of the review. Two unset bodies read alike.
  */
-function body(p: PreparedTx): string {
-  return JSON.stringify(
-    p.tx.instructions
-      .filter((ix) => ix.programId.toBase58() !== COMPUTE_BUDGET)
-      .map((ix) => [ix.programId.toBase58(), ix.keys.map((k) => [k.pubkey.toBase58(), k.isSigner, k.isWritable]), Array.from(ix.data)]),
-  );
-}
+const body = (p: PreparedTx): string => JSON.stringify(p.check?.body ?? []);
 
-/** Same kind, same payer, same instructions. A payer that is not set matches nothing. */
+/** Same kind, same payer, same message format, same instructions. A payer that is not set matches nothing. */
 export function sameToSign(a: PreparedTx, b: PreparedTx): boolean {
-  const payer = a.tx.feePayer;
-  const other = b.tx.feePayer;
-  if (a.kind !== b.kind || !payer || !other || !payer.equals(other)) return false;
+  if (a.kind !== b.kind || !a.payer || !b.payer || !a.payer.equals(b.payer)) return false;
+  if (a.wire?.version !== b.wire?.version) return false;
   return body(a) === body(b);
 }
