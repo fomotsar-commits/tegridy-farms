@@ -34,9 +34,18 @@ before #1094 (its diff reversed onto the tree), the rewritten P1, P5 and P16 fai
 the new assertions, in 12 minutes (one build; group B's fixtures made once per failure); restored
 byte for byte, the same four runs passed in 4.7 minutes of tests.
 
+Then train 3's run of the job (42523708267) failed the rewritten P1 once, on chromium only: the
+page reads a token's pools the moment an opening confirms, and that read fell in the second before
+the new pool's open time (it opens one second after it lands). Its card said "Swaps open at …
+Deposits wait until then", so it took no pair, and the Open a pool card offered a second pool for
+the pool just opened; nothing read again until something was pressed. The finder now reads once
+more when a pool it read opens within two minutes (`PoolFinder.tsx` `opensInSeconds`), pinned in
+`CreatePoolCard.test.tsx` with fake timers.
+
 **Do:** when an e2e squat should leave a pair free, give it a far-future open time or no deposits;
 when it should take the pair, open it at or off the market. An outcome that says what Start over
-will do must say both cases. The validator starts from a worktree under a path with a space when
+will do must say both cases. A read taken as a thing lands can land in the second before it
+counts: schedule the next read from the chain's own clock instead of trusting the first. The validator starts from a worktree under a path with a space when
 the script path is quoted inside `bash -lc` (`E2E_RPC_PORT=18899`, READY in under a minute); run
 the suite with `E2E_SOLANA_RPC=http://127.0.0.1:18899 E2E_SOLANA_PORT=4188` and its own
 `E2E_SOLANA_OUT`, so another checkout's run is never built over. Stop it when done: with CI's
