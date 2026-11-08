@@ -14,15 +14,16 @@ import { REGISTERED_PROGRAM_ID } from '../cpswap/program';
 import { quoteOwnPool } from '../cpswap/read';
 import { decodeRpcAccount, getMultipleAccounts, getTokenAccountsByOwner, type RawAccount } from '../lp/accounts';
 import type { PoolView } from '../lp/poolFinder';
-import { PRICE_IDS_MAX, arbitrage, listPools, marketPriceIds, readMarketPrices, rowTokenFee, tokenDecimalsOf } from '../lp/poolList';
+import { PRICE_IDS_MAX, arbitrage, listPools, marketPriceIds, readMarketPrices, rowTokenFee, tokenDecimalsOf, type Arbitrage } from '../lp/poolList';
 import { SOL_QUOTE, USDC_QUOTE, type QuoteCoin } from '../lp/quotes';
 import { readTokenSafety, type TokenSafety } from '../lp/tokenSafety';
 import type { TransferFee } from '../lp/transferFee';
 import type { GapSeen, Skip } from './gaps';
 import { atLeastCheck } from './lighthouse';
-import { MAX_TRIP_UNITS, coinBounds, tokenGate, type TripBans } from './rule';
+import { MAX_TRIP_UNITS, PLAIN_AFTER_DROP_MS, coinBounds, tokenGate, type TripBans } from './rule';
 import { KAMINO_LOOKUP_TABLE, flashBorrowIx, flashFee, flashRepayIx, loanFor } from './flashLoan';
 import { jitoTip, jitoTipIx, pickTipAccount, type JitoOutcome } from './jito';
+import { bestSize, fitLeg, legOut, nearMiss, shortShare } from './size';
 import type { OutsideTake } from './takes';
 import { refusedVenues, type JupiterApi, type JupiterQuote, type SwapInstructions } from './jupiterApi';
 import { OUTSIDE_POOLS, outsideUsd, readOutsidePools, screenUsd, type Anchors, type OutsidePool } from './outside';
@@ -342,24 +343,26 @@ export async function runCycle(io: KeeperIo, s: KeeperSettings): Promise<CycleRe
       note('no-plan');
       continue;
     }
-    // Jupiter said no to this very gap, and neither our pool nor the price has moved since: no call.
+    // Jupiter said no to this very gap, and neither our pool nor the price has moved since, or the
+    // gap has not grown by what the trip fell short by: no call.
     const sameGap = gapKey(view, prices.usd);
     const before = jupiterSaidNo.get(view.address);
-    if (before && (before.outcome === 'no-route' || before.key === sameGap) && Date.now() < before.until) {
+    if (before && Date.now() < before.until && (before.outcome === 'no-route' || before.key === sameGap || !grownPast(before, arb))) {
       note(before.outcome, true);
       continue;
     }
-    const remember = (outcome: Tried) => {
-      if (outcome === 'quote-short' || outcome === 'no-route') {
-        jupiterSaidNo.set(view.address, { key: sameGap, until: Date.now() + (outcome === 'no-route' ? NO_ROUTE_KEEP_MS : QUOTE_SHORT_KEEP_MS), outcome });
-      }
+    const remember = (outcome: Tried, short?: number) => {
+      if (wentOut(outcome)) jupiterSaidNo.delete(view.address);
+      if (outcome === 'no-route') jupiterSaidNo.set(view.address, { key: sameGap, until: Date.now() + NO_ROUTE_KEEP_MS, outcome });
+      if (outcome === 'quote-short') jupiterSaidNo.set(view.address, fellShort(before, sameGap, arb, short, Date.now()));
     };
     try {
+      const heard: { short?: number } = {};
       const o = plan.via
         ? await viaTrip(io, s, view, plan, chainNow, refused, name, fee)
-        : await jupiterTrip(io, s, view, plan, chainNow, prices.usd, refused, name, fee);
+        : await jupiterTrip(io, s, view, plan, chainNow, prices.usd, refused, name, fee, heard);
       note(o);
-      remember(o);
+      remember(o, heard.short);
       if (counted(o, view)) return stop();
     } catch (e) {
       const said = e instanceof Error ? e.message : String(e);
@@ -409,13 +412,44 @@ const MAX_OUTSIDE_TRIPS = 2;
 
 /**
  * Gaps Jupiter said no to, by pool: what the gap looked like then, and until when that answer
- * stands. A quote that fell short is asked again once our pool's reserves or either price
- * moves (0.25% steps, as the quick check sees prices), or after 5 minutes. No route stands an
- * hour whatever moves: it changes when a venue does, not when a price does.
+ * stands. No route stands an hour whatever moves: it changes when a venue does, not when a price
+ * does. A quote that fell short is asked again after 5 minutes, twice that each time in a row it
+ * falls short again (30 at most), or sooner once the gap has grown, at Jupiter's listed price, by
+ * at least what the trip fell short by: on a thin coin the real route is worse than the listed
+ * price by about the same each time (STORMIE, GROYPER, BIG BRAIN ~2%, asked 530 times in a day
+ * and a half, 2026-11-05/06), so a gap that only moves inside that is no gap.
  */
-const jupiterSaidNo = new Map<string, { key: string; until: number; outcome: Tried }>();
-const QUOTE_SHORT_KEEP_MS = 5 * 60_000;
+interface SaidNo {
+  key: string;
+  until: number;
+  outcome: Tried;
+  /** A quote that fell short: the gap's side and size (|pool over Jupiter − 1|) then, how far short, and how many times in a row. */
+  side?: Arbitrage['side'];
+  edge?: number;
+  short?: number;
+  streak?: number;
+}
+const jupiterSaidNo = new Map<string, SaidNo>();
+export const QUOTE_SHORT_KEEP_MS = 5 * 60_000;
+export const QUOTE_SHORT_MAX_MS = 30 * 60_000;
 export const NO_ROUTE_KEEP_MS = 60 * 60_000;
+
+/** Whether the gap has grown past what its last quote fell short by, on the same side: worth asking again. */
+export function grownPast(before: SaidNo, arb: Pick<Arbitrage, 'side' | 'gap'>): boolean {
+  if (before.short === undefined || before.edge === undefined || before.side !== arb.side) return true;
+  const edge = Math.abs(arb.gap);
+  return !Number.isFinite(edge) || edge >= before.edge + before.short;
+}
+
+/** What is remembered of a gap whose quote fell short `short` (a share of what went in; unknown: the old rule, its key). */
+export function fellShort(before: SaidNo | undefined, key: string, arb: Pick<Arbitrage, 'side' | 'gap'>, short: number | undefined, now: number): SaidNo {
+  // A streak runs while each answer follows the last one's hold, not across a gap that closed and opened again.
+  const running = before?.outcome === 'quote-short' && now <= before.until + QUOTE_SHORT_MAX_MS;
+  const streak = (running ? (before.streak ?? 1) : 0) + 1;
+  const hold = Math.min(QUOTE_SHORT_KEEP_MS * 2 ** (streak - 1), QUOTE_SHORT_MAX_MS);
+  const edge = Math.abs(arb.gap);
+  return { key, until: now + hold, outcome: 'quote-short', side: arb.side, edge: Number.isFinite(edge) ? edge : undefined, short, streak };
+}
 
 /** What a gap looks like to the keeper: our pool's two reserves and both prices, in 0.25% steps. */
 export function gapKey(view: PoolView, usd: ReadonlyMap<string, number>): string {
@@ -550,7 +584,15 @@ function rentToEarn(s: KeeperSettings, tokenExists: boolean, coin: QuoteCoin, us
   return lamportsInCoin(NEW_ACCOUNT_RENT, coin, usd);
 }
 
+/**
+ * More than any trip's cap: a plan sized by the cap alone. What the keeper holds only lowers
+ * the size, and a trip's profit rises then falls with its size, so a pair or loop that pays at
+ * no size up to the cap pays at none up to the holding: no wallet read (an RPC call) for it.
+ */
+const ANY_HOLDING = 2n ** 64n - 1n;
+
 async function ownPairTrip(io: KeeperIo, s: KeeperSettings, a: PoolView, b: PoolView, chainNow: bigint, usd: ReadonlyMap<string, number>, name: string): Promise<Outcome> {
+  if (!ownPairPlan(a, b, Number(chainNow), usd, s, ANY_HOLDING)) return 'none';
   const acc = accountsFor(io.owner, a);
   const before = await balances(io.rpc, [acc.coinAta, acc.tokenAta, acc.otherAta, io.owner]);
   const plan = ownPairPlan(a, b, Number(chainNow), usd, s, before.coin);
@@ -595,7 +637,7 @@ async function ownLoopTrip(io: KeeperIo, s: KeeperSettings, loop: LoopLeg[], cha
   const start = loop[0]!;
   const startMint = start.input === 'coin' ? start.view.quote.mint : start.view.tokenMint;
   const coin = KEEPER_COINS.find((c) => c.mint === startMint);
-  if (!coin) return 'none';
+  if (!coin || !ownLoopPlan(loop, Number(chainNow), usd, s, ANY_HOLDING)) return 'none';
   // Each coin's account, by the program its pool names for it.
   const programOf = (v: PoolView, mint: string) => new PublicKey(v.snapshot.pool.token0Mint === mint ? v.snapshot.pool.token0Program : v.snapshot.pool.token1Program);
   const outMint = (l: LoopLeg) => (l.input === 'coin' ? l.view.tokenMint : l.view.quote.mint);
@@ -644,6 +686,16 @@ async function ownLoopTrip(io: KeeperIo, s: KeeperSettings, loop: LoopLeg[], cha
   });
 }
 
+/** A round trip against Jupiter at one size, from Jupiter's quote and our pool's own maths: nothing built yet. */
+interface Probe {
+  coinIn: bigint;
+  quote: JupiterQuote;
+  /** Buying: the tokens our pool pays, Jupiter's to sell. Selling: the least Jupiter pays in tokens, our pool's to buy. */
+  tokens: bigint;
+  /** What comes back in the coin at the quote, before any slippage on the last leg. */
+  back: bigint;
+}
+
 async function jupiterTrip(
   io: KeeperIo,
   s: KeeperSettings,
@@ -654,8 +706,12 @@ async function jupiterTrip(
   refused: Refused,
   name: string,
   tokenFee: TransferFee | null,
+  /** Told how far the trip fell short, as a share of what went in, when no size tried pays. */
+  heard: { short?: number } = {},
 ): Promise<Tried> {
   if (!view.config || chainNow === null) throw new Error('pool fees or the clock not read');
+  const config = view.config;
+  const now = Number(chainNow);
   const owner = io.owner;
   const amt = amountText(view.quote);
   const fees = feesOf(view, tokenFee);
@@ -666,55 +722,106 @@ async function jupiterTrip(
     return 'no-coin';
   }
   // Past the float: a loan inside the trip when loans are on (SOL only), else a smaller trip.
-  const loan = loanFor(plan.coinMint, plan.coinIn, before.coin, s.flashLoans);
-  if (before.coin < plan.coinIn && loan === 0n) {
+  const loanAt = (x: bigint) => loanFor(plan.coinMint, x, before.coin, s.flashLoans);
+  let planned = plan.coinIn;
+  if (before.coin < planned && loanAt(planned) === 0n) {
     // A smaller trip than the gap allows still pays on x·y = k; the checks below say if it does not.
-    io.log(`${name}: the gap takes ${amt(plan.coinIn)}, the keeper holds ${amt(before.coin)}: a smaller trip`);
-    plan = { ...plan, coinIn: before.coin };
+    io.log(`${name}: the gap takes ${amt(planned)}, the keeper holds ${amt(before.coin)}: a smaller trip`);
+    planned = before.coin;
   }
   const rent = rentToEarn(s, before.tokenExists, view.quote, usd);
   if (rent === null) {
     io.log(`${name}: skipped, no SOL price to count the new token account’s rent`);
     return 'no-sol-price';
   }
-  plan = { ...plan, minProfit: plan.minProfit + rent + flashFee(loan) };
-  const need = plan.coinIn + plan.minProfit;
+  // The floor at a size: the plan's, any new account's rent, and the fee of the loan that size takes.
+  const floorAt = (x: bigint) => plan.minProfit + rent + flashFee(loanAt(x));
+  const needAt = (x: bigint) => x + floorAt(x);
+  const ownOut = (inputMint: string, amountIn: bigint) => quoteOwnPool(view.snapshot, config, inputMint, amountIn, now, fees)?.outAmount ?? 0n;
+  const ask = (p: { inputMint: string; outputMint: string; amount: bigint }) => quoteWithRoom(io, s, { ...p, slippageBps: s.slippageBps, excludeDexes: refused.names });
+  // A trip at one size, from one Jupiter quote and our pool's own maths: nothing built yet.
+  const probe = async (coinIn: bigint): Promise<Probe> => {
+    if (plan.side === 'buy') {
+      const tokens = ownOut(plan.coinMint, coinIn);
+      if (tokens <= 0n) throw new Error('our pool would not quote the buy');
+      const quote = await ask({ inputMint: plan.tokenMint, outputMint: plan.coinMint, amount: tokens });
+      return { coinIn, quote, tokens, back: BigInt(quote.outAmount) };
+    }
+    const quote = await ask({ inputMint: plan.coinMint, outputMint: plan.tokenMint, amount: coinIn });
+    // What Jupiter must deliver, as the chain will hold it to: the most our pool can be sold.
+    // Anything Jupiter pays over that stays with the keeper as a little of the token.
+    const tokens = jupiterFloor(BigInt(quote.outAmount), quote.slippageBps);
+    return { coinIn, quote, tokens, back: ownOut(plan.tokenMint, tokens) };
+  };
+  const pays = (p: Probe) => p.back >= needAt(p.coinIn);
+  const first = await probe(planned);
+  let chosen: Probe | null = pays(first) ? first : null;
+  let tried = [first];
+  // Short by a little: the gap was sized at Jupiter's listed price, and a smaller trip may pay
+  // at its real one (keeper/size.ts). Half the size, then the best size on Jupiter's leg fitted
+  // to those two quotes: two more quotes at most.
+  if (!chosen && nearMiss(first.coinIn, first.back, needAt(first.coinIn))) {
+    const half = await probe(planned / 2n);
+    tried = [first, half];
+    // Jupiter's leg: buying, it sells the tokens our pool paid; selling, it buys them with the coin.
+    const point = (p: Probe): [number, number] => [Number(plan.side === 'buy' ? p.tokens : p.coinIn), Number(p.quote.outAmount)];
+    const leg = fitLeg(...point(first), ...point(half));
+    if (leg) {
+      const gain = (x: bigint): number =>
+        plan.side === 'buy'
+          ? legOut(leg, Number(ownOut(plan.coinMint, x))) - Number(x)
+          : Number(ownOut(plan.tokenMint, jupiterFloor(BigInt(Math.floor(legOut(leg, Number(x)))), first.quote.slippageBps))) - Number(x);
+      const best = bestSize(planned, gain);
+      const apart = best > half.coinIn ? best - half.coinIn : half.coinIn - best;
+      // Asked about only when the fit says it pays, and it is not the half already asked about.
+      if (gain(best) >= Number(floorAt(best)) && apart * 10n > half.coinIn) tried.push(await probe(best));
+    }
+    for (const p of tried) if (pays(p) && (!chosen || p.back - p.coinIn > chosen.back - chosen.coinIn)) chosen = p;
+    if (chosen) io.log(`${name}: ${amt(planned)} falls short at Jupiter's quote, ${amt(chosen.coinIn)} pays`);
+  }
+  if (!chosen) {
+    heard.short = Math.min(...tried.map((p) => shortShare(p.coinIn, p.back, needAt(p.coinIn))));
+    const smaller = tried.length > 1 ? `, nor do ${tried.slice(1).map((p) => amt(p.coinIn)).join(' or ')}` : '';
+    io.log(
+      plan.side === 'buy'
+        ? `${name}: skipped, Jupiter pays back ${amt(first.back)} for ${amt(first.coinIn)}: under the profit floor${smaller}`
+        : `${name}: skipped, our pool pays ${amt(first.back)} for what ${amt(first.coinIn)} buys on Jupiter: under the profit floor${smaller}`,
+    );
+    return 'quote-short';
+  }
+  const coinIn = chosen.coinIn;
+  const loan = loanAt(coinIn);
+  const minProfit = floorAt(coinIn);
+  const need = coinIn + minProfit;
   const legExpect = { owner, refused: refused.programs, untouchable: acc.hasOther ? [acc.otherAta] : [] };
   let legs: TransactionInstruction[];
   let lookupTables: string[];
   if (plan.side === 'buy') {
-    const own = quoteOwnPool(view.snapshot, view.config, plan.coinMint, plan.coinIn, Number(chainNow), fees);
-    if (!own || own.outAmount <= 0n) throw new Error('our pool would not quote the buy');
-    const q = await quoteWithRoom(io, s, { inputMint: plan.tokenMint, outputMint: plan.coinMint, amount: own.outAmount, slippageBps: s.slippageBps, excludeDexes: refused.names });
-    const bps = lastJupiterSlippage(BigInt(q.outAmount), need, s.slippageBps);
-    if (bps === null) {
-      io.log(`${name}: skipped, Jupiter pays back ${amt(BigInt(q.outAmount))} for ${amt(plan.coinIn)}: under the profit floor`);
-      return 'quote-short';
-    }
-    const minOut = jupiterFloor(BigInt(q.outAmount), bps);
-    const si = await jupiterLeg(io.jupiter, owner, { ...q, slippageBps: bps, otherAmountThreshold: minOut.toString() }, (x) =>
-      jupiterLegProblem(x.swap, { ...legExpect, inputMint: acc.tokenMint, inputProgram: acc.tokenProgram, outputMint: acc.coinMint, outputProgram: TOKEN_PROGRAM_ID, inAmount: own.outAmount, minOut }),
+    const bps = lastJupiterSlippage(chosen.back, need, s.slippageBps);
+    if (bps === null) throw new Error('a trip that pays has no slippage that keeps its floor');
+    const minOut = jupiterFloor(chosen.back, bps);
+    const tokens = chosen.tokens;
+    const si = await jupiterLeg(io.jupiter, owner, { ...chosen.quote, slippageBps: bps, otherAmountThreshold: minOut.toString() }, (x) =>
+      jupiterLegProblem(x.swap, { ...legExpect, inputMint: acc.tokenMint, inputProgram: acc.tokenProgram, outputMint: acc.coinMint, outputProgram: TOKEN_PROGRAM_ID, inAmount: tokens, minOut }),
     );
-    legs = [ownSwap(owner, view, 'coin', plan.coinIn, own.outAmount), si.swap];
+    legs = [ownSwap(owner, view, 'coin', coinIn, tokens), si.swap];
     lookupTables = si.lookupTables;
   } else {
-    const q = await quoteWithRoom(io, s, { inputMint: plan.coinMint, outputMint: plan.tokenMint, amount: plan.coinIn, slippageBps: s.slippageBps, excludeDexes: refused.names });
-    // What Jupiter must deliver, as the chain will hold it to: the most our pool can be sold.
-    // Anything Jupiter pays over that stays with the keeper as a little of the token.
-    const si = await jupiterLeg(io.jupiter, owner, q, (x) =>
-      jupiterLegProblem(x.swap, { ...legExpect, inputMint: acc.coinMint, inputProgram: TOKEN_PROGRAM_ID, outputMint: acc.tokenMint, outputProgram: acc.tokenProgram, inAmount: plan.coinIn, minOut: routeFloor(x) }),
+    const si = await jupiterLeg(io.jupiter, owner, chosen.quote, (x) =>
+      jupiterLegProblem(x.swap, { ...legExpect, inputMint: acc.coinMint, inputProgram: TOKEN_PROGRAM_ID, outputMint: acc.tokenMint, outputProgram: acc.tokenProgram, inAmount: coinIn, minOut: routeFloor(x) }),
     );
+    // The route as Jupiter built it is what the chain holds to: our pool's minimum is counted from it.
     const tokensIn = routeFloor(si);
-    const own = quoteOwnPool(view.snapshot, view.config, plan.tokenMint, tokensIn, Number(chainNow), fees);
-    const ownMin = own ? lastPoolMinimum(own.outAmount, need, s.slippageBps) : null;
+    const ownMin = lastPoolMinimum(ownOut(plan.tokenMint, tokensIn), need, s.slippageBps);
     if (ownMin === null) {
-      io.log(`${name}: skipped, our pool pays ${amt(own?.outAmount ?? 0n)} for what ${amt(plan.coinIn)} buys on Jupiter: under the profit floor`);
+      heard.short = shortShare(coinIn, ownOut(plan.tokenMint, tokensIn), need);
+      io.log(`${name}: skipped, our pool pays ${amt(ownOut(plan.tokenMint, tokensIn))} for what ${amt(coinIn)} buys on Jupiter: under the profit floor`);
       return 'quote-short';
     }
     legs = [si.swap, ownSwap(owner, view, 'token', tokensIn, ownMin)];
     lookupTables = si.lookupTables;
   }
-  const done = plan;
+  const done = { ...plan, coinIn, minProfit };
   return sendChecked(io, s, {
     name,
     kind: 'jupiter',
@@ -1087,7 +1194,10 @@ export async function sendChecked(io: KeeperIo, s: KeeperSettings, t: Trip): Pro
   io.log(`${t.name}: ${t.says(gainedInTest)}`);
   // Jito: a SOL trip only (the tip is SOL), sized from this test run's gain and the plain SOL it
   // leaves; the floor rises by it.
-  const tipLamports = s.jito && t.coin.mint === SOL_QUOTE.mint ? jitoTip(gainedInTest, t.floor, change.lamportsAfter) : null;
+  // A pool whose last bundle did not land goes the usual way for a while, not the same bundle again.
+  const plainOnly = s.jito && t.coin.mint === SOL_QUOTE.mint && io.bans?.plainOnly(pools, Date.now()) === true;
+  if (plainOnly) io.log(`${t.name}: goes the usual way, no tip: a Jito bundle through it did not land in the last ${PLAIN_AFTER_DROP_MS / 60_000} min`);
+  const tipLamports = s.jito && !plainOnly && t.coin.mint === SOL_QUOTE.mint ? jitoTip(gainedInTest, t.floor, change.lamportsAfter) : null;
   const viaJito = tipLamports !== null && (!io.send || io.sendJito !== undefined);
   if (viaJito) io.log(`${t.name}: ${io.send ? 'goes' : 'would go'} through Jito with a tip of ${tipLamports} lamports, added to the floor`);
   if (!io.send) return 'not-sent';
@@ -1098,6 +1208,7 @@ export async function sendChecked(io: KeeperIo, s: KeeperSettings, t: Trip): Pro
   const tip = viaJito ? { lamports: tipLamports, account: pickTipAccount() } : undefined;
   const r = tip && io.sendJito ? await io.sendJito(await build(units, atSend.coin, tip)) : await io.send(await build(units, atSend.coin));
   if (r.outcome === 'reverted') io.bans?.reverted(pools, Date.now());
+  if (tip && io.sendJito && (r.outcome === 'lost' || r.outcome === 'unknown')) io.bans?.jitoDropped(pools, Date.now());
   io.log(`${t.name}: sent ${r.signature}: ${r.outcome}`);
   if (r.outcome === 'lost') {
     // Jito never put it in a block: no fee, no tip, nothing moved. Logged, at no cost to the day's cap.

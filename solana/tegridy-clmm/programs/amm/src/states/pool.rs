@@ -225,6 +225,9 @@ impl PoolState {
         self.protocol_fees_token_1 = 0;
         self.padding5 = [0; 4];
         self.status = 0;
+        // memetics.finance: limit orders start off in every pool (2026-11-03 audit, CO-2); the
+        // vault turns them on with update_pool_status, which writes the whole status byte.
+        self.set_status_by_bit(PoolStatusBitIndex::LimitOrder, PoolStatusBitFlag::Disable);
         self.fee_on = collect_fee_on.to_u8();
         self.seed_index = [0, 0];
         self.padding = [0; 4];
@@ -2246,5 +2249,75 @@ mod seed_index_tests {
             &crate::id(),
         );
         assert_ne!(seeded, legacy);
+    }
+}
+
+// memetics.finance: a new pool takes no limit order until the vault turns them on (2026-11-03
+// audit, CO-2). Every other action starts on, as in upstream.
+#[cfg(test)]
+mod pool_birth_test {
+    use super::*;
+    use anchor_lang::solana_program::program_pack::Pack;
+    use anchor_spl::token_2022::spl_token_2022;
+
+    fn account(owner: Pubkey, data: Vec<u8>) -> &'static AccountInfo<'static> {
+        Box::leak(Box::new(AccountInfo::new(
+            Box::leak(Box::new(Pubkey::new_unique())),
+            false,
+            false,
+            Box::leak(Box::new(1_000_000_000u64)),
+            Box::leak(data.into_boxed_slice()),
+            Box::leak(Box::new(owner)),
+            false,
+        )))
+    }
+
+    fn mint() -> InterfaceAccount<'static, Mint> {
+        let mut data = vec![0u8; spl_token_2022::state::Mint::LEN];
+        spl_token_2022::state::Mint {
+            decimals: 6,
+            is_initialized: true,
+            ..Default::default()
+        }
+        .pack_into_slice(&mut data);
+        InterfaceAccount::<Mint>::try_from(account(spl_token_2022::ID, data)).unwrap()
+    }
+
+    #[test]
+    fn a_new_pool_takes_no_limit_order_and_allows_everything_else() {
+        let mut data = AmmConfig::DISCRIMINATOR.to_vec();
+        AmmConfig {
+            tick_spacing: 60,
+            ..Default::default()
+        }
+        .serialize(&mut data)
+        .unwrap();
+        let amm_config = Account::<AmmConfig>::try_from(account(crate::ID, data)).unwrap();
+        let mut pool = PoolState::default();
+        pool.initialize(
+            255,
+            tick_math::get_sqrt_price_at_tick(0).unwrap(),
+            0,
+            0,
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+            &amm_config,
+            &mint(),
+            &mint(),
+            Pubkey::new_unique(),
+            CollectFeeOn::default(),
+        )
+        .unwrap();
+        assert!(!pool.get_status_by_bit(PoolStatusBitIndex::LimitOrder));
+        for bit in [
+            PoolStatusBitIndex::OpenPositionOrIncreaseLiquidity,
+            PoolStatusBitIndex::DecreaseLiquidity,
+            PoolStatusBitIndex::CollectFee,
+            PoolStatusBitIndex::CollectReward,
+            PoolStatusBitIndex::Swap,
+        ] {
+            assert!(pool.get_status_by_bit(bit));
+        }
     }
 }

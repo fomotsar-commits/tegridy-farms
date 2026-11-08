@@ -275,6 +275,8 @@ export function tokenGate(safety: TokenSafety | undefined): string | null {
 /** Two sent trips the chain refused, within this long, leave a pool alone for this long. */
 export const BAN_AFTER_REVERTS = 2;
 export const BAN_MS = 24 * 60 * 60_000;
+/** After a Jito bundle through a pool did not land, trips through it go the usual way for this long. */
+export const PLAIN_AFTER_DROP_MS = 10 * 60_000;
 
 /**
  * Pools banned after their sent trips were refused: two refusals within a day ban the pool (and
@@ -283,6 +285,17 @@ export const BAN_MS = 24 * 60 * 60_000;
 export class TripBans {
   private readonly reverts = new Map<string, number[]>();
   private readonly until = new Map<string, number>();
+  private readonly plainUntil = new Map<string, number>();
+
+  /** A Jito bundle through `pools` that did not land (or whose ending is unknown), at `at` (ms). */
+  jitoDropped(pools: readonly string[], at: number): void {
+    for (const p of pools) this.plainUntil.set(p, Math.max(this.plainUntil.get(p) ?? 0, at + PLAIN_AFTER_DROP_MS));
+  }
+
+  /** Whether a trip through `pools` goes the usual way at `now`, not through Jito: a bundle through one of them just did not land. */
+  plainOnly(pools: readonly string[], now: number): boolean {
+    return pools.some((p) => now < (this.plainUntil.get(p) ?? 0));
+  }
 
   /** A sent trip through `pools` the chain refused, at `at` (ms). The second within a day bans the pool for a day from then. */
   reverted(pools: readonly string[], at: number): void {

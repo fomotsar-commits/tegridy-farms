@@ -13,7 +13,7 @@ import {
   SolflareWalletAdapter,
   TrustWalletAdapter,
 } from '../../lib/solanaWallets';
-import { WalletConnectWalletAdapter } from '../../lib/solanaWalletConnect';
+import { TangemWalletAdapter, WalletConnectWalletAdapter } from '../../lib/solanaWalletConnect';
 // VENDORED, not the package css: the upstream file opens with a Google-Fonts
 // @import that the CSP blocks, and Vite 8 turned that block into a fatal
 // CSS-preload failure — every Solana-stack page crashed in prod (2026-08-26).
@@ -90,6 +90,11 @@ import {
  * the build carries none of WalletConnect's code, because the adapter's
  * import() of it is compiled out (check-dist-graph.mjs D fails a no-id build
  * that carries any).
+ *
+ * Tangem (2026-11-01) rides on that same WalletConnect code. A card wallet with
+ * no extension and no in-app browser, it gets the QR on a computer or an iPad
+ * and a link into its app on a phone (lib/solanaWalletConnect.ts
+ * TangemWalletAdapter). It needs the same project id.
  */
 /**
  * Hands this page's Solana connection to the top bar (lib/solanaSurface.ts),
@@ -226,8 +231,9 @@ const CONNECTION_CONFIG = { commitment: 'confirmed' } as const;
  */
 export function SolanaProviders({ children, own = false, mixed = false }: { children: ReactNode; own?: boolean; mixed?: boolean }) {
   const endpoint = useMemo(() => solanaRpcEndpoint(), []);
-  const wallets = useMemo(
-    () => [
+  const wallets = useMemo(() => {
+    const walletConnectProjectId = (import.meta.env.VITE_WALLETCONNECT_PROJECT_ID as string | undefined) ?? '';
+    return [
       new IPadAwarePhantomWalletAdapter(),
       new TrustWalletAdapter(),
       new JupiterWalletAdapter(),
@@ -235,15 +241,13 @@ export function SolanaProviders({ children, own = false, mixed = false }: { chil
       new CoinbaseWalletAdapter(),
       new SolflareWalletAdapter(),
       new BackpackWalletAdapter(),
-      // Same variable as wagmi.ts. Unset (CI, previews) the adapter reports
-      // Unsupported, so WalletProvider drops it: no row, and no WalletConnect
-      // code in the build at all.
-      new WalletConnectWalletAdapter({
-        projectId: (import.meta.env.VITE_WALLETCONNECT_PROJECT_ID as string | undefined) ?? '',
-      }),
-    ],
-    [],
-  );
+      // Same variable as wagmi.ts. Unset (CI, previews) both adapters report
+      // Unsupported, so WalletProvider drops them: no rows, and no
+      // WalletConnect code in the build at all.
+      new TangemWalletAdapter({ projectId: walletConnectProjectId }),
+      new WalletConnectWalletAdapter({ projectId: walletConnectProjectId }),
+    ];
+  }, []);
   return (
     <ConnectionProvider endpoint={endpoint} config={CONNECTION_CONFIG}>
       <WalletProvider wallets={wallets} autoConnect={own || mixed ? restoreOwn : true}>

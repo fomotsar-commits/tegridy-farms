@@ -209,6 +209,8 @@ describe('All pools: every pool on the venue, before a token is picked', () => {
     // What each tag means, and the threshold, are one press away.
     // Said by the price line every row shows: BAYLA / SOL is priced in SOL and can get the tag.
     expect(screen.getByTestId('lp-all-pools')).toHaveTextContent('Little money in pool: it holds under 1 SOL or 100 USDC (a pool priced in BAYLA never gets this tag).');
+    // The red tag of audit CM-2 is explained in the same place as every other tag (Fable read at 390, 2026-11-06).
+    expect(screen.getByTestId('lp-all-pools')).toHaveTextContent('Almost empty: it holds so little that anyone can move its price for next to nothing, so it takes no deposit here.');
     expect(screen.getByTestId('lp-all-pools')).toHaveTextContent('a row with no tag is not a pool that passed');
   });
 
@@ -239,7 +241,7 @@ describe('All pools: every pool on the venue, before a token is picked', () => {
       expect(row).not.toHaveTextContent(/to LPs/);
     }
     expect(screen.getByTestId('lp-all-pools')).not.toHaveTextContent('Under such a row, Arbitrage');
-    expect(screen.getByTestId('lp-all-pools')).toHaveTextContent('is on the Arbitrage card above');
+    expect(screen.getByTestId('lp-all-pools')).toHaveTextContent('is on the Arbitrage card below');
   });
 
   it('each row links Swap to the swap page on that pair, paying with the pool’s coin, beside Add and View', async () => {
@@ -327,12 +329,13 @@ describe('Arbitrage: every paying gap, ranked, with the trade and one press to t
   // comes back: $0.42 made. The 1% fee on $19.99: 84% to the LPs ($0.17), 16% to the venue ($0.03).
   const cornDear = { [WSOL_MINT]: 100, [BAYLA_MINT]: 3, [C]: 0.95 };
 
-  it('sits under the finder and above All pools, with art, and says the basis of every figure once, stamped', async () => {
+  it('sits under All pools, with art, and says the basis of every figure once, stamped', async () => {
     mount(readers({ marketPrices: vi.fn(async () => cornDear), listPools: vi.fn(async () => ok([view(BAYLA, 30n * 10n ** 9n), view(CORN)], { chainNow: 1_000n, safety: [calls(C, 'CORN')] })) }));
     const board = screen.getByTestId('lp-arb');
     expect(board).toHaveAccessibleName('Arbitrage');
+    // A trader's card, never the first thing under a door: it sits under All pools (answer twenty-seven, cut 4).
     expect(screen.getByTestId('lp-finder').compareDocumentPosition(board) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(board.compareDocumentPosition(screen.getByTestId('lp-all-pools')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByTestId('lp-all-pools').compareDocumentPosition(board) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(within(board).getByRole('heading', { level: 2 })).toHaveTextContent('Arbitrage');
     expect(board.querySelector('[data-card-art]')).not.toBeNull();
     expect(await within(board).findByTestId('lp-arb-stamp')).toHaveTextContent('Against Jupiter’s listed prices, read just now.');

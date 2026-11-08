@@ -45,8 +45,18 @@ export interface RawChartParams {
   tf: string | null;
 }
 
-export function resolveChartParams(raw: RawChartParams): ChartParams {
+/**
+ * `room` is the active room's own pool, from the bungalow registry. A link that names
+ * neither a network nor a pool opens on it, so /chart inside a coin's room charts that
+ * coin; it is matched against the registry like any pool, never used as given.
+ */
+export function resolveChartParams(
+  raw: RawChartParams,
+  room: { network: GeckoNetwork; pool: string } | null = null,
+): ChartParams {
   const refusals: ChartParamRefusal[] = [];
+  const named = (raw.network?.trim() ?? '').length > 0 || (raw.pool?.trim() ?? '').length > 0;
+  const roomMarket = !named && room ? findMarket(room.network, room.pool) : null;
 
   const rawNetwork = raw.network?.trim() ?? '';
   let network: GeckoNetwork = DEFAULT_CHART_NETWORK;
@@ -64,7 +74,7 @@ export function resolveChartParams(raw: RawChartParams): ChartParams {
   // The fallback is resolved from the registry rather than hardcoded, so a
   // network whose last pool was removed falls back to nothing rather than to a
   // pool on a different chain.
-  let market = defaultMarketFor(network);
+  let market = roomMarket ?? defaultMarketFor(network);
 
   const rawPool = raw.pool?.trim() ?? '';
   if (rawPool.length > 0) {
