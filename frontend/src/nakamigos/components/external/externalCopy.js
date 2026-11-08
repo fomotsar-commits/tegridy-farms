@@ -1,4 +1,4 @@
-import { chainLabel, standardLabel } from "../../lib/venue";
+import { chainLabel, standardLabel, canBuyOnVenue } from "../../lib/venue";
 
 // The only tabs a view-only collection has.
 export const EXTERNAL_TABS = new Set(["gallery", "about"]);
@@ -35,6 +35,9 @@ export const TAB_LABELS = {
 
 export function explainerLine(collection) {
   const where = `${collection.name} lives on ${chainLabel(collection)}.`;
+  if (canBuyOnVenue(collection) && collection.market?.name) {
+    return `${where} Buy its ${collection.market.name} listings here, with no venue fee.`;
+  }
   return collection.market?.name
     ? `${where} Browse it here; it trades on ${collection.market.name}.`
     : `${where} This venue shows its facts, but reads no market for it.`;

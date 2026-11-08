@@ -121,8 +121,8 @@ const ANCHOR = { slot: 454_077_498, atMs: Date.UTC(2026, 9, 7, 1, 38) };
 const SLOTS_PER_SECOND = { slowest: 1.5, fastest: 6 };
 /**
  * The upgrade's program (1e55bcdc, 725,176 bytes) behind the loader's 45-byte header. A fixed
- * size, not the registry's: after the roll-back of 2026-10-24 the registry names the old build
- * again, while this record stays the record of the upgrade.
+ * size, not the registry's: after a roll-back (as from 2026-10-24 until the re-upgrade) the
+ * registry names the old build again, while this record stays the record of the upgrade.
  */
 const SMALLEST_DATA_ACCOUNT = 725_176 + 45;
 const LARGEST_DATA_ACCOUNT = 10 * 1024 * 1024 + 45;

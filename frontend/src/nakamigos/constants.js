@@ -30,8 +30,10 @@ export function rankTier(rank, supply) {
 // ═══ MULTI-COLLECTION CONFIG ═══
 // Every entry names its chain, standard and home market. venueTrade is true
 // only for an Ethereum ERC-721 (registry.test.js pins it), and lib/venue.js
-// canTradeOnVenue is the one rule money paths and surfaces read. This file
-// stays data only: it never imports lib/venue.js.
+// canTradeOnVenue is the one rule money paths and surfaces read. venueBuy is
+// narrower: a Base ERC-721 whose OpenSea listings are bought here, one at a
+// time, through Seaport on Base (lib/venue.js canBuyOnVenue). Nothing else
+// trades for it here. This file stays data only: it never imports lib/venue.js.
 export const COLLECTIONS = {
   nakamigos: {
     name: "Nakamigos",
@@ -210,6 +212,7 @@ export const COLLECTIONS = {
     chain: "base",
     standard: "erc721",
     venueTrade: false,
+    venueBuy: true,
     symbol: "SFTMG",
     supply: 369,
     burnedIds: [88], // held by 0x...dEaD: it cannot be bought
@@ -283,6 +286,7 @@ export const COLLECTIONS = {
     chain: "base",
     standard: "erc721",
     venueTrade: false,
+    venueBuy: true,
     symbol: "BOJUNG",
     supply: 250,
     supplyNote: "totalSupply() on Base at block 51695371 is 250 (ids 0 to 249).",
