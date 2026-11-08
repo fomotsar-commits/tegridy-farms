@@ -751,6 +751,7 @@ describe('the program id a build will use', () => {
     const registry = JSON.parse(readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../../scripts/addresses.json'), 'utf8'));
     const text = JSON.stringify(registry);
     expect(text).toContain(MAINNET_LADDER_PROGRAM_ID);
+    expect(MAINNET_LADDER_PROGRAM_ID).toBe(LADDER_MAINNET_PROGRAM); // the rooms read the same id (bungalows.ts)
     expect(new PublicKey(MAINNET_LADDER_PROGRAM_ID).toBase58()).toBe(MAINNET_LADDER_PROGRAM_ID);
   });
 });
