@@ -104,7 +104,13 @@ export function RangeOpenCard(p: {
       {gap?.state === 'no-market' && (
         <Notice tone="warn">Jupiter has no route for this pair, so this pool’s price cannot be checked against a market price. Anyone can open a range pool at any price.</Notice>
       )}
-      <RangePickFields pair={pair} p={pick} busy={busy} at="this pool’s price" />
+      <RangePickFields
+        pair={pair}
+        p={pick}
+        busy={busy}
+        at="this pool’s price"
+        strip={{ now, nowName: 'This pool’s price', nowMark: 'this pool', market: gap && (gap.state === 'agrees' || gap.state === 'disagrees') ? gap.reference : null }}
+      />
       {plan && (
         <div className="space-y-1.5" data-testid="range-plan">
           <Row label="You put in about" value={bothAmounts(pair, plan.amount0, plan.amount1)} mono={false} />

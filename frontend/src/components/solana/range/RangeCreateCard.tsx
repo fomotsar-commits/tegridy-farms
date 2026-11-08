@@ -191,12 +191,12 @@ function OpeningPrice(p: RangeCreateProps & { tokenDecimals: number }) {
           {`Your opening price is ${Number((Math.abs(gap.diff) * 100).toFixed(1))}% ${gap.diff > 0 ? 'above' : 'below'} the market price. The first trader could buy from your deposit at it, so Review stays off. Use the market price.`}
         </Notice>
       )}
-      {inBounds && start && <FirstPosition {...p} pair={pair} named={named} sqrt={sqrt!} start={start} gap={gap} />}
+      {inBounds && start && <FirstPosition {...p} pair={pair} named={named} sqrt={sqrt!} start={start} gap={gap} market={reference} />}
     </>
   );
 }
 
-function FirstPosition(p: RangeCreateProps & { pair: Pair; named: NamedPair; sqrt: bigint; start: Price; gap: MarketGap | null }) {
+function FirstPosition(p: RangeCreateProps & { pair: Pair; named: NamedPair; sqrt: bigint; start: Price; gap: MarketGap | null; market: number | null }) {
   const { pair, named } = p;
   const at = useMemo(() => ({ sqrtPriceX64: p.sqrt, tickCurrent: getTickAtSqrtPrice(p.sqrt) }), [p.sqrt]);
   const pick = useRangePick(pair, at);
@@ -212,7 +212,13 @@ function FirstPosition(p: RangeCreateProps & { pair: Pair; named: NamedPair; sqr
   const agrees = p.gap?.state === 'agrees';
   return (
     <>
-      <RangePickFields pair={named} p={pick} busy={busy} at="the opening price" />
+      <RangePickFields
+        pair={named}
+        p={pick}
+        busy={busy}
+        at="the opening price"
+        strip={{ now: p.start, nowName: 'The opening price', nowMark: 'opening price', market: p.market }}
+      />
       {plan && (
         <div className="space-y-1.5" data-testid="range-create-plan">
           <Row label="You put in" value={`${bothAmounts(named, plan.amount0, plan.amount1)}, exactly`} mono={false} />

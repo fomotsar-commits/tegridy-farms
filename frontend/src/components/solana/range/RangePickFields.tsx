@@ -1,11 +1,25 @@
-import { priceNumber, rangePrices, type Pair, type Preset } from '../../../lib/solana/clmm/rangeMath';
+import { priceNumber, rangePrices, type Pair, type Preset, type Price } from '../../../lib/solana/clmm/rangeMath';
 import { formatSolPrice } from '../../../lib/solana/lp/format';
 import { Notice, Row } from '../curve/ui';
 import type { RangePick } from './rangePick';
-import { priceText, tokenName, tokenWord } from './rangeText';
+import { RangeStrip } from './RangeStrip';
+import { priceNumberText, priceText, tokenName, tokenWord } from './rangeText';
 
-/** The presets, the two prices, the range they make and the amount (`useRangePick`). `at` names the price the range starts from. */
-export function RangePickFields({ pair, p, busy, at }: { pair: Pair; p: RangePick; busy: boolean; at: string }) {
+/** The price the range starts from and the market's, for the strip that draws the range against both. */
+export interface StripPrices {
+  now: Price;
+  /** "This pool’s price" / "The opening price", and its mark on the strip. */
+  nowName: string;
+  nowMark: string;
+  /** The market's price in the pool's coin per token; null while unread or when there is none. */
+  market: number | null;
+}
+
+/**
+ * The presets, the two prices, the range they make, drawn (RangeStrip), and the amount
+ * (`useRangePick`). `at` names the price the range starts from.
+ */
+export function RangePickFields({ pair, p, busy, at, strip }: { pair: Pair; p: RangePick; busy: boolean; at: string; strip: StripPrices }) {
   const PRESETS: { id: Preset; label: string }[] = [
     { id: 'close', label: `Close to ${at}` },
     { id: 'wide', label: 'Wide' },
@@ -63,6 +77,21 @@ export function RangePickFields({ pair, p, busy, at }: { pair: Pair; p: RangePic
           />
         </label>
       </div>
+      <RangeStrip
+        now={priceNumber(strip.now)}
+        market={strip.market}
+        lo={r ? priceNumber(rangePrices(pair, r).min) : null}
+        hi={r ? priceNumber(rangePrices(pair, r).max) : null}
+        nowName={strip.nowName}
+        nowMark={strip.nowMark}
+        words={{
+          now: priceText(pair, strip.now),
+          market: strip.market === null ? null : priceNumberText(pair, strip.market),
+          lo: r ? priceText(pair, rangePrices(pair, r).min) : null,
+          hi: r ? priceText(pair, rangePrices(pair, r).max) : null,
+          unit: `${pair.quote.symbol} per ${per}`,
+        }}
+      />
       {r && (
         <div className="space-y-1.5" data-testid="range-chosen">
           <Row label="Your range" value={`${priceText(pair, rangePrices(pair, r).min)} to ${formatSolPrice(priceNumber(rangePrices(pair, r).max))}`} mono={false} />

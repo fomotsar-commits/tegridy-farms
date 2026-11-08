@@ -33,6 +33,9 @@ import type { RangeSummary } from '../../../lib/launcher/solana/write/types';
 const wallet = vi.hoisted(() => ({ publicKey: null as null | PublicKey, signTransaction: undefined as undefined | (() => Promise<never>), connecting: false, wallet: null }));
 vi.mock('@solana/wallet-adapter-react', () => ({ useWallet: () => wallet, useConnection: () => ({ connection: { rpcEndpoint: 'fake' } }) }));
 vi.mock('../SolanaConnectButton', () => ({ SolanaConnectButton: () => <button type="button">Connect Solana Wallet</button> }));
+// A wallet that advertises version 1 transactions (Phantom does) when `v1.on`.
+const v1 = vi.hoisted(() => ({ on: false }));
+vi.mock('../../../lib/solana/v1Signer', () => ({ v1SignerOf: () => (v1.on ? async (bytes: Uint8Array) => bytes : null) }));
 
 const key = (n: number) => new PublicKey(new Uint8Array(32).fill(n));
 const PROG = key(1);
@@ -244,6 +247,18 @@ describe('opening a new pool', () => {
     expect(within(card).getByRole('button', { name: 'Use the market price (Jupiter): 0.0003 SOL per BAYLA' })).toBeInTheDocument();
   });
 
+  it('draws the first range against the opening price and the market’s', async () => {
+    show(readers(noPool));
+    const card = await screen.findByTestId('range-create');
+    await waitFor(() => expect((within(card).getByLabelText(/Opening price/) as HTMLInputElement).value).toBe('0.0003'));
+    const strip = await within(card).findByTestId('range-strip');
+    expect(within(strip).getByRole('img').getAttribute('aria-label')).toBe('The opening price, 0.0003 SOL per BAYLA. The market price is 0.0003 SOL per BAYLA.');
+    expect(strip.textContent).toContain('opening price');
+    await pickAndType(card);
+    expect(strip.getAttribute('data-where')).toBe('inside');
+    expect(within(strip).getByTestId('range-strip-band')).toBeInTheDocument();
+  });
+
   it('Review builds the pool and its first position at the opening price, the typed amount exactly', async () => {
     wallet.publicKey = ME;
     wallet.signTransaction = vi.fn();
@@ -266,10 +281,31 @@ describe('opening a new pool', () => {
     expect([args.tokenMint.toBase58(), args.coinMint.toBase58()]).toEqual([BAYLA_MINT, WSOL_MINT]);
     expect(args.startPrice).toEqual({ num: 3n, den: 10_000n });
     expect([args.side, args.amount]).toEqual(['token', 2_500_000n]);
+    expect(args.txVersion).toBe('legacy');
     expect(args.tickLower).toBeLessThan(TICK);
     expect(args.tickUpper).toBeGreaterThan(TICK);
     expect(api.prepareRangeOpen).not.toHaveBeenCalled();
     await within(card).findByText(/The fake builder built nothing/);
+  });
+
+  it('a wallet that signs version 1 (Phantom) gets its pool opening built as version 1', async () => {
+    wallet.publicKey = ME;
+    wallet.signTransaction = vi.fn();
+    v1.on = true;
+    try {
+      const api = fakeApi();
+      show(readers(noPool), api);
+      const card = await screen.findByTestId('range-create');
+      await waitFor(() => expect((within(card).getByLabelText(/Opening price/) as HTMLInputElement).value).toBe('0.0003'));
+      await pickAndType(card);
+      const review = await within(card).findByRole('button', { name: 'Review: open the pool and your position' });
+      await waitFor(() => expect((review as HTMLButtonElement).disabled).toBe(false));
+      fireEvent.click(review);
+      await waitFor(() => expect(api.prepareRangeCreate).toHaveBeenCalledTimes(1));
+      expect(vi.mocked(api.prepareRangeCreate).mock.calls[0]![4].txVersion).toBe(1);
+    } finally {
+      v1.on = false;
+    }
   });
 
   it('an opening price more than 3% off the market keeps Review off, and says why', async () => {
@@ -331,6 +367,14 @@ describe('naming the token (owner, 2026-10-22: every coin shows its ticker; a co
     return { pool: decodePoolState(POOL.toBase58(), data)!, config };
   }
 
+  it('the card that opens a copy’s pool names it "fake SOY", with its whole address, in its rows and its range', async () => {
+    show(readers({ pools: { kind: 'ok', value: [] }, checks: [claims(COPY, 'SOY')] }), fakeApi(), 'on', `/range-pools?mint=${COPY}`);
+    const card = await screen.findByTestId('range-create');
+    await waitFor(() => expect(card.textContent).toContain(`fake SOY · ${COPY}`));
+    await waitFor(() => expect(within(card).getByLabelText(/Opening price \(SOL per fake SOY\)/)).toBeInTheDocument());
+    expect(card.textContent).not.toContain('Unknown token');
+  });
+
   it('a copy of SOY’s ticker, picked by link, reads "fake SOY" everywhere, with its whole address', async () => {
     show(readers({ pools: { kind: 'ok', value: [] }, checks: [claims(COPY, 'SOY')] }), fakeApi(), 'on', `/range-pools?mint=${COPY}`);
     const card = await screen.findByTestId('range-pools');
@@ -375,6 +419,24 @@ describe('naming the token (owner, 2026-10-22: every coin shows its ticker; a co
 });
 
 describe('picking a range', () => {
+  it('draws the range: this pool’s price and the market’s on one axis, the picked range as a band that says whether the price is in it', async () => {
+    show(readers({ market: { kind: 'ok', solPerToken: 0.0004, source: 'Jupiter' } }));
+    const open = await screen.findByTestId('range-open');
+    const strip = await within(open).findByTestId('range-strip');
+    await waitFor(() => expect(within(strip).getByRole('img').getAttribute('aria-label')).toBe('This pool’s price, 0.0003 SOL per BAYLA. The market price is 0.0004 SOL per BAYLA.'));
+    expect(strip.getAttribute('data-where')).toBe('none');
+    expect(strip.textContent).toContain('pick a range to see it here');
+    expect(within(strip).queryByTestId('range-strip-band')).toBeNull();
+    fireEvent.click(within(open).getByRole('button', { name: 'Wide' }));
+    expect(strip.getAttribute('data-where')).toBe('inside');
+    expect(within(strip).getByTestId('range-strip-band')).toBeInTheDocument();
+    expect(strip.textContent).toContain('in range: earning from the first swap');
+    expect(within(strip).getByRole('img').getAttribute('aria-label')).toMatch(/^This pool’s price, 0\.0003 SOL per BAYLA, is inside your range, .* SOL per BAYLA to .* SOL per BAYLA\./);
+    fireEvent.click(within(open).getByRole('button', { name: 'BAYLA only, above this pool’s price' }));
+    expect(strip.getAttribute('data-where')).toBe('below');
+    expect(strip.textContent).toContain('out of range now: earns once the price reaches it');
+  });
+
   it('BAYLA only, above this pool’s price: holds BAYLA only, takes no SOL, and says it earns nothing until the price rises', async () => {
     show(readers());
     const open = await screen.findByTestId('range-open');
