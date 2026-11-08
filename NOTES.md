@@ -139,6 +139,56 @@ of the delta.
 
 ---
 
+## 2026-11-03: a sheet that fits what it holds climbs and drops while its pieces load, and only a per-frame sampler sees it
+
+**Believed:** a bottom sheet that fits its content, with a "Reading…" line about a form's height in each waiting
+state, rises once. Its settled screenshots at 390x844 and at 660 tall were right, and a unit test cannot see a frame.
+
+**Measured** (2026-11-03, #1110, the production build at 390x844 reading mainnet): an init script whose
+`requestAnimationFrame` loop pushed each new value of the sheet's top recorded 313, 634, 294, 313, 354 for the Add
+sheet. The 634 lasted one frame (11 ms): a parent's `useEffect` opened the child's form after the first paint, so one
+frame drew the section without it (the 2026-10-10 scroll-reset entry's mechanism, here a 320 px drop and back). With
+that opened in `useLayoutEffect`, the e2e's stand-in walk still went 653, 313, 294, 354 (a 359 px range): the 653 was
+the frame before anything landed in the sheet's empty slot. With every waiting state held at the height of what it
+waits for, per kind (Add 320 and Buy 204 CSS px, the empty slot included through `:empty`): live 333, 314, 333, 354
+(40 px), the Buy sheet 449 throughout, the stand-in 333, 314, 354. The settled screenshots before and after are the same.
+
+**Do:** sample the geometry of anything that loads in pieces on every frame, not once at the end, and hold each
+waiting state, the empty first frame too, at the height of what it waits for, per kind. A failing movement check is a
+finding: measure it live before touching its threshold. The first fix here loosened the check instead, which would
+have shipped the bounce.
+
+## 2026-11-03: a function you do not own in an effect's dependencies cancels the effect's timer on every render
+
+**Believed:** an effect that fires the confetti once per receipt (a module-level guard on the signature) and then
+starts the 250 ms timer that raises the card will always raise it.
+
+**Measured** (2026-11-03, #1110, `ReceiptCard.tsx`): the confetti provider's `fire` is a new function on each of its
+renders. When the receipt's fee was read within 250 ms of the card opening, that render re-ran the effect: its cleanup
+cleared the pending timer, and the re-run stopped at the once-per-signature guard, so the card stayed at opacity 0
+over a dimmed page. The live walk found it, not a test. The test written for it (an unstable `fire` mock, the fee read
+at once) fails on the code before the fix and passes after, run again on 2026-11-03 by swapping the old file in.
+
+**Do:** keep a once-guarded side effect and a timer in separate effects, the timer keyed only on the stable key (here
+the signature). Treat a function from a provider you do not own as new on every render, and test with a mock that is.
+
+## 2026-11-03: `git stash push <path>` on an unchanged path saves nothing, and the `git stash pop` after it pops another worktree's stash
+
+**Believed:** `git stash push -- <file> && <test> && git stash pop` sets a file aside for a red-first run and puts it
+back.
+
+**Measured** (2026-11-03, in a worktree of this repo): the file's change was already committed, so `push` printed "No
+local changes to save" and saved nothing; `pop` then applied and dropped stash@{0}, another session's July stash (a
+docs edit and four broadcast files). The stash list is one list for every worktree of the repository (12 entries on
+2026-11-03). The popped stash's commit could not be found afterwards in refs, reflogs or
+`git fsck --unreachable --no-reflogs`; it was put back as a new stash from the applied diff.
+
+**Do:** never pair a path stash with a pop. For a red-first run on committed code: `git show <old>:<path> > <path>`,
+run, `git checkout -- <path>`, and prove the restore with `git status --short`. For uncommitted code: copy the file
+aside, swap, copy it back, and `cmp`.
+
+---
+
 ## 2026-11-03: a stand-in `window.phantom` did not stop Phantom's poll, and a one-file run never shows an error thrown while its worker stops
 
 **Believed:** setting `window.phantom = { solana: { isPhantom: true } }` lets the Phantom adapter
