@@ -262,6 +262,7 @@ describe.each(COINS)('Add liquidity to a pool paired with %s', (symbol, coin) =>
     expect(args[2]).toBe(r);
     expect(args[3]).toEqual({
       owner: OWNER,
+      txVersion: 'legacy',
       pool: new PublicKey(v.address),
       tokenMint: mint,
       quoteMint: new PublicKey(coin.mint),
@@ -288,6 +289,7 @@ describe.each(COINS)('Add liquidity to a pool paired with %s', (symbol, coin) =>
     });
     expect(vi.mocked(api.prepareLpDeposit).mock.calls[0]![3]).toEqual({
       owner: OWNER,
+      txVersion: 'legacy',
       pool: new PublicKey(v.address),
       tokenMint: mint,
       quoteMint: new PublicKey(coin.mint),
@@ -586,6 +588,7 @@ describe.each(COINS)('Remove liquidity from a pool paired with %s', (symbol, coi
     expect(api.prepareLpWithdraw).toHaveBeenCalledTimes(1);
     expect(vi.mocked(api.prepareLpWithdraw).mock.calls[0]![2]).toEqual({
       owner: OWNER,
+      txVersion: 'legacy',
       pool: new PublicKey(v.address),
       tokenMint: mint,
       quoteMint: new PublicKey(coin.mint),

@@ -1023,6 +1023,10 @@ nothing is lost.
 - ⬜ **Phantom's review form** for the "could be malicious" warning (pack:
   `phantom-flag-dispute.md`) and **Jupiter's verify form** for BAYLA. If either is filed, say so.
   [was O-1009-6]
+- ⬜ **Phantom ticket #455104 (version 1 transactions).** Once the version 1 pull request
+  (`feat/solana-v1-transactions`) is merged, add liquidity once from Phantom on memetics.finance,
+  open the transaction on Solscan (it should read as version 1) and paste that link into the ticket
+  as the reply to William's 2026-11-05 answer. The session's report has the walk.
 - ⬜ **A free Jupiter developer key.** `lite-api.jup.ag` is being retired; another session's #839
   keeps swaps working without one, but a key is the lasting answer. [was O-1009-18]
 - ⬜ **Small, whenever:** delete the stale Vercel project `tegridyfarms` (confirm on its Domains tab

@@ -30,7 +30,7 @@ import { decodeIntent } from './intent';
 import { RANGE_SWAP_COPY, prepareRangeSwap, rangeSwapStepsProblem } from './rangeSwap';
 import { RANGE_COPY } from './range';
 import { VENUE_SWAP_COPY } from './venueSwap';
-import { FakeChain, cfgLocal, openAccount, rent, setClock, type SimHandler } from './testkit.fixture';
+import { FakeChain, cfgLocal, legacyTx, openAccount, rent, setClock, type SimHandler } from './testkit.fixture';
 import type { AggregatorSeen, IntentStep, PreparedTx, RangeIntent, RangeSwapSummary, WriteRpc } from './types';
 
 const W = (c: FakeChain) => c as unknown as WriteRpc;
@@ -162,7 +162,7 @@ const ok = (r: Awaited<ReturnType<typeof prepareRangeSwap>>): PreparedTx => {
   if (!r.ok) throw new Error(`not built: ${r.outcome.message}`);
   return r.prepared;
 };
-const body = (p: PreparedTx) => p.tx.instructions;
+const body = (p: PreparedTx) => legacyTx(p).instructions;
 const intentOf = (p: PreparedTx) => p.check.intent as RangeIntent;
 const sell = (aggregator: AggregatorSeen = NOT_ASKED, amountIn = 50_000_000n) =>
   ({ owner: ME, pool: POOL, inputMint: TOKEN, outputMint: WSOL_MINT, amountIn, slippageBps: 100n, aggregator });

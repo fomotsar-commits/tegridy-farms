@@ -25,7 +25,10 @@ test('a cold maker never reaches the create form; the list and lookup stay open'
   await connectWallet(page, ui.door(page));
   const door = ui.door(page);
   await expect(door.getByText('COLD', { exact: true })).toBeVisible({ timeout: 30_000 });
-  await expect(door).toContainText('The door opens at 80°');
+  // The cold door says the reading and where the door opens (the countdown, 2026-11-02:
+  // heatOracle.ts's COLD detail and arrival.ts heatExampleLine).
+  await expect(door).toContainText('This wallet reads 12.00°');
+  await expect(door).toContainText('At 80 degrees you reach Resident, the tier that may plant a launch here.');
   expect(heat.asked).toContain(kp.publicKey.toBase58());
 
   await expect(ui.createForm(page)).toHaveCount(0);

@@ -284,7 +284,21 @@ export async function signAndWait(p: Page, timeout = 120_000): Promise<string> {
   await clickReal(ui.signButton(p), 'Sign in wallet');
   const out = ui.outcome(p);
   await expect(out).toBeVisible({ timeout });
-  return (await out.getAttribute('data-status')) ?? '';
+  const status = (await out.getAttribute('data-status')) ?? '';
+  if (status === 'confirmed') await backToTheRoom(p);
+  return status;
+}
+
+/**
+ * A landed add or swap ends on the receipt card over the page (components/ReceiptCard.tsx),
+ * raised in the same render as the confirmed outcome, so a confirmed outcome with no card
+ * means none was raised. A person presses Back to the room before anything under it.
+ */
+export async function backToTheRoom(p: Page): Promise<void> {
+  const card = p.getByTestId('receipt-card');
+  if ((await card.count()) === 0) return;
+  await clickReal(card.getByTestId('receipt-back'), 'Back to the room');
+  await expect(p.getByTestId('receipt-layer')).toHaveCount(0);
 }
 
 /** Raw token units → the decimal string a person would type (6 decimals). */

@@ -52,6 +52,11 @@ import {
   isVenueCoin,
   needsRiskAck,
   withVenueCoinsFirst,
+  venueMark,
+  isIslandCoin,
+  listedTokens,
+  resolveMints,
+  ISLAND_TOKENS,
   isRiskAcked,
   rememberRiskAck,
   forgetRiskAck,
@@ -69,6 +74,7 @@ import {
   type TrendingCategory,
   type TrendingInterval,
 } from '../lib/solanaTokenList';
+import { loadPoolCoins, poolCoinMints, usePoolCoins } from '../lib/solana/poolCoins';
 import {
   getQuote,
   NoRouteError,
@@ -312,12 +318,19 @@ function sideWords(pay: SolToken, buy: SolToken): { verb: 'Buy' | 'Sell'; done: 
 
 type RowBadge = { label: string; tone: 'amber' | 'red' | 'green' };
 
+/** A pool's worth, short: $640, $1.2K, $35K. */
+const shortUsd = (usd: number) => (usd >= 1000 ? `$${(usd / 1000).toFixed(usd >= 10_000 ? 0 : 1)}K` : `$${Math.round(usd)}`);
+
 function riskBadges(t: SolToken): RowBadge[] {
   const out: RowBadge[] = [];
-  // The venue's own coin is known by its mint, so it says that and not "Unverified".
+  // A coin the venue vouches for is known by its mint (venueMark), so it says why and not
+  // "Unverified": its own coin, an island room's, or one with a $200 pool here.
   // Only a coin Jupiter verifies gets no mark at all: SOL and USDC need none.
-  if (isVenueCoin(t.mint) && isUnverified(t)) out.push({ label: `This venue’s ${t.symbol}`, tone: 'green' });
-  else if (isUnverified(t)) out.push({ label: 'Unverified', tone: 'amber' });
+  const mark = venueMark(t);
+  if (mark && isUnverified(t)) {
+    const label = mark.kind === 'venue' ? `This venue’s ${t.symbol}` : mark.kind === 'island' ? 'Island coin' : `Verified · ${shortUsd(mark.usd)} pool here`;
+    out.push({ label, tone: 'green' });
+  } else if (isUnverified(t)) out.push({ label: 'Unverified', tone: 'amber' });
   if (t.tokenProgram && t.tokenProgram !== LEGACY_TOKEN_PROGRAM) out.push({ label: 'Token-2022', tone: 'amber' });
   // Amber rather than red on a curated mint: USDC really can freeze, and saying
   // so is right — but it is a known property of the asset, not a warning sign.
@@ -545,15 +558,38 @@ function TokenPicker({ title, featured, onSelect, onClose }: TokenPickerProps) {
     return () => { clearTimeout(t); ctrl.abort(); };
   }, [query]);
 
+  // The venue's own list (listedTokens): the coins with a $200 pool here, read as the picker
+  // opens, then Jupiter's rows for them and the island's coins (pictures, names), in one call.
+  // Each answer draws again; one that fails leaves the list's own rows.
+  usePoolCoins();
+  const [, setNamed] = useState(0);
+  useEffect(() => {
+    const ctrl = new AbortController();
+    void (async () => {
+      await resolveMints(ISLAND_TOKENS.map((t) => t.mint), ctrl.signal);
+      if (!ctrl.signal.aborted) setNamed((n) => n + 1);
+      await loadPoolCoins();
+      await resolveMints(poolCoinMints(), ctrl.signal);
+      if (!ctrl.signal.aborted) setNamed((n) => n + 1);
+    })();
+    return () => ctrl.abort();
+  }, []);
+
   const list = results ?? featured;
   // With nothing typed: SOL, USDC and USDT first (island answer twenty-four), under the venue's
-  // BAYLA where the list leads with it (the Buy list, owner 2026-10-08); then Favorites, Recent
-  // and Popular, each coin once. Remembered tokens still go through riskBadges like any row.
+  // BAYLA where the list leads with it (the Buy list, owner 2026-10-08); then the island's coins
+  // (owner, 2026-11-01: "always showcasing for swaps") and the coins with a $200 pool here; then
+  // Favorites, Recent and Popular, each coin once. Remembered tokens still go through riskBadges.
   const groups = results
     ? null
     : (() => {
         const top = [...(featured[0]?.mint === BAYLA.mint ? [featured[0]] : []), ...MAJORS];
         const seen = new Set(top.map((t) => t.mint));
+        const listed = listedTokens();
+        const island = listed.filter((t) => isIslandCoin(t.mint) && !seen.has(t.mint));
+        for (const t of island) seen.add(t.mint);
+        const pools = listed.filter((t) => venueMark(t)?.kind === 'pool' && !seen.has(t.mint));
+        for (const t of pools) seen.add(t.mint);
         const favs = getFavoriteTokens().filter((t) => !seen.has(t.mint));
         for (const t of favs) seen.add(t.mint);
         const recents = getRecentTokens().filter((t) => !seen.has(t.mint));
@@ -561,6 +597,8 @@ function TokenPicker({ title, featured, onSelect, onClose }: TokenPickerProps) {
         const popular = featured.filter((t) => !seen.has(t.mint));
         return [
           { label: null, tokens: top },
+          { label: 'Island coins', tokens: island },
+          { label: 'On our pools', tokens: pools },
           { label: 'Favorites', tokens: favs },
           { label: 'Recent', tokens: recents },
           { label: 'Popular', tokens: popular },
@@ -1469,7 +1507,7 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
   });
   const [buyToken, setBuyToken] = useState<SolToken>(() => findSolToken(openingBuy) ?? BAYLA);
   // The sheet with no room opens on its bungalow row with nothing picked (island answer twenty-seven):
-  // no quote is asked and its green button is off until Any coin picks one (a room's chip reopens the form on it).
+  // no quote is asked and its green button is off until a room's chip picks one (it reopens the form on that coin).
   const [unpicked, setUnpicked] = useState(() => inSheet !== null && inSheet.room === null);
   // ?amt=<decimal> presets the pay amount (token-denominated). Malformed
   // values fall back silently — a bad deep link must never break the page.
@@ -2540,7 +2578,7 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
   );
   const Heading = home ? 'h2' : 'h1';
   // The coin lists, on the page and in the sheet alike (inside the sheet they draw over it, in its focus).
-  // The BUY list is also the sheet's Any coin (island answer twenty-seven): a pick ends the sheet's unpicked state.
+  // The BUY list is also the sheet's You get press (island answer twenty-seven): a pick ends the sheet's unpicked state.
   const pickers = (
     <>
       {picker === 'pay' && (
@@ -2621,7 +2659,8 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
           </Suspense>
         ) : (
           <fieldset disabled={held} className="border-0 p-0 m-0 min-w-0 space-y-3">
-            <SheetBuyRow coin={sheetCoin} onAny={() => setPicker('buy')} />
+            {/* The row's last item, where "Any coin" stood (owner, 2026-11-07): the home card's network drop-down, its list opening leftward. */}
+            <SheetBuyRow coin={sheetCoin} network={<ChainSwitch at="/solana" align="end" />} />
             {/* The amount, a 64 px box: what you pay, in Archivo 800 32 px, the coin at its right, a press that picks it. */}
             <div className="flex items-center gap-3 h-16 pl-4 pr-2 rounded-xl" style={{ background: 'var(--color-bg-input)', border: '1px solid var(--color-border)' }}>
               <label className="flex-1 min-w-0 flex items-center h-full">

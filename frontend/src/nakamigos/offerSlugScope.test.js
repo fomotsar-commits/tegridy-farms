@@ -99,16 +99,16 @@ describe("the token offer book reads the active collection", () => {
   });
 
   it("fetchTokenOfferBook reads by contract only: a contract outside the venue is unavailable, whatever the slug says", async () => {
-    // Bojungles' contract with gnssart's slug: the slug used to be the
-    // fallback, and the book of gnssart #5 was read for a Bojungles token.
+    // The memes' contract with gnssart's slug: the slug used to be the
+    // fallback, and the book of gnssart #5 was read for a token outside the venue.
     h.get = async () => bestOfferFor(ADDR.gnssart);
-    const book = await apiOffers.fetchTokenOfferBook("5", { contract: ADDR.bojungles, slug: "gnssart", openseaSlug: "gnssart" });
+    const book = await apiOffers.fetchTokenOfferBook("5", { contract: ADDR.junglebaymemes, slug: "gnssart", openseaSlug: "gnssart" });
     expect(book).toEqual({ offers: [], bestOffer: null, unavailable: true });
     expect(h.paths).toEqual([]);
   });
 
   it("fetchTokenOffers asks nothing for a contract the venue does not trade, rather than defaulting to Nakamigos", async () => {
-    const res = await apiOffers.fetchTokenOffers("5", ADDR.bojungles);
+    const res = await apiOffers.fetchTokenOffers("5", ADDR.junglebaymemes);
     expect(res).toEqual([]);
     expect(h.paths).toEqual([]);
   });
@@ -135,7 +135,7 @@ describe("a wallet's own orders are read for the active collection", () => {
   });
 
   it("fetchMyOffers says it could not ask for a contract outside the venue, instead of answering an empty list", async () => {
-    await expect(apiOffers.fetchMyOffers(WALLET, ADDR.bojungles)).rejects.toMatchObject({ code: "not-venue-tradeable" });
+    await expect(apiOffers.fetchMyOffers(WALLET, ADDR.junglebaymemes)).rejects.toMatchObject({ code: "not-venue-tradeable" });
     expect(h.paths).toEqual([]);
   });
 
