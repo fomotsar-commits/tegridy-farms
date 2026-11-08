@@ -83,7 +83,7 @@ export function checkTreasury(t: { address?: unknown; script?: unknown; stakeScr
   } catch {
     throw new Error('settings: sweep.treasury is not an address');
   }
-  if (a.network_id() !== network) throw new Error('settings: sweep.treasury is not a mainnet address');
+  if (a.network_id() !== network) throw new Error(`settings: sweep.treasury is not a ${network === 1 ? 'mainnet' : 'preprod'} address`);
   const base = CSL.BaseAddress.from_address(a);
   const enterprise = CSL.EnterpriseAddress.from_address(a);
   if (!base && !enterprise) throw new Error('settings: sweep.treasury must be a payment address (base or enterprise), never a stake address');

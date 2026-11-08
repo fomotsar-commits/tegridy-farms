@@ -22,7 +22,7 @@
 //   node src/main.ts [<settings.json>] [--once]      (--once: one round, then exit; no alarm)
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { isBatcherAddress } from './build.ts';
-import { MAINNET_TIME } from './chain.ts';
+import { MAINNET_TIME, PREPROD_TIME } from './chain.ts';
 import { Follower, type SocketFactory } from './follow.ts';
 import { stringifyExact } from './json.ts';
 import { Koios } from './koios.ts';
@@ -36,6 +36,8 @@ import { Watcher, type WatcherConfig } from './watcher.ts';
 
 export interface Settings {
   network: number;
+  /** "preprod" for a rehearsal on preprod (network 0); absent on mainnet. */
+  testnet?: unknown;
   deployment: {
     authenPolicy: string;
     poolScriptHash: string;
@@ -83,7 +85,12 @@ export function parseSettings(text: string): ReadSettings {
     if (typeof v !== 'string' || !HEX56.test(v)) throw new Error(`settings: ${k} is not a 28-byte hash`);
   }
   for (const k of ['pool', 'order', 'poolBatching'] as const) if (typeof d.scriptRefs?.[k] !== 'string' || !REF.test(d.scriptRefs[k])) throw new Error(`settings: scriptRefs.${k} is not "txhash#index"`);
-  if (s.network !== 1) throw new Error('settings: only mainnet (network 1) has its slot times built in');
+  // Mainnet unless preprod is named: its slot times are the only other ones built in.
+  if (s.testnet !== undefined && s.testnet !== 'preprod') throw new Error('settings: "testnet" may only be "preprod"');
+  if (s.testnet === 'preprod' && s.network !== 0) throw new Error('settings: "testnet": "preprod" is for network 0');
+  if (s.testnet === undefined && s.network !== 1) throw new Error('settings: only mainnet (network 1) has its slot times built in; preprod (network 0) needs "testnet": "preprod"');
+  const time = s.testnet === 'preprod' ? PREPROD_TIME : MAINNET_TIME;
+  const networkName = s.network === 1 ? 'mainnet' : 'preprod';
   const int = (k: keyof Settings, min: number, max: number): number => {
     const v = s[k];
     if (typeof v !== 'number' || !Number.isInteger(v) || v < min || v > max) throw new Error(`settings: ${k} must be a whole number from ${min} to ${max}`);
@@ -107,7 +114,7 @@ export function parseSettings(text: string): ReadSettings {
   const batcherFee = lovelace('batcherFee', 1n);
   const floatCap = lovelace('floatCap', 10_000_000n);
   // The batcher's change and its collateral's return go to this address: it must be its own key's.
-  if (typeof s.batcherAddress !== 'string' || !isBatcherAddress(s.batcherAddress, s.batcherKeyHash, s.network)) throw new Error("settings: batcherAddress is not the batcher key's own mainnet enterprise address");
+  if (typeof s.batcherAddress !== 'string' || !isBatcherAddress(s.batcherAddress, s.batcherKeyHash, s.network)) throw new Error(`settings: batcherAddress is not the batcher key's own ${networkName} enterprise address`);
   // Optional until the treasury is named (README step 8); given, every part of it is checked.
   let sweep: ReadSettings['sweep'];
   if (s.sweep !== undefined) {
@@ -123,7 +130,7 @@ export function parseSettings(text: string): ReadSettings {
   }
   return {
     network: s.network,
-    deployment: { network: s.network, dex: { authenPolicy: d.authenPolicy, poolScriptHash: d.poolScriptHash, time: MAINNET_TIME, setting: 'ours' }, orderScriptHash: d.orderScriptHash, poolBatchingScriptHash: d.poolBatchingScriptHash, scriptRefs: d.scriptRefs },
+    deployment: { network: s.network, dex: { authenPolicy: d.authenPolicy, poolScriptHash: d.poolScriptHash, time, setting: 'ours' }, orderScriptHash: d.orderScriptHash, poolBatchingScriptHash: d.poolBatchingScriptHash, scriptRefs: d.scriptRefs },
     policy: { batcherFee, maxOrdersPerBatch, slotsBefore: BigInt(slotsBefore), slotsAfter: BigInt(slotsAfter) },
     batcher: { keyHash: s.batcherKeyHash, address: s.batcherAddress },
     floatCap,
@@ -367,7 +374,7 @@ export async function main(p: Proc): Promise<number> {
       refused.add(ref);
       log({ kind: 'unreadable-utxo', ref, reason });
     };
-    const koios = e.koios ? new Koios({ url: e.koios, token: env.KOIOS_TOKEN, timeoutMs: Number(env.KOIOS_TIMEOUT_MS ?? 30_000), onRefused, skip }) : null;
+    const koios = e.koios ? new Koios({ url: e.koios, token: env.KOIOS_TOKEN, timeoutMs: Number(env.KOIOS_TIMEOUT_MS ?? 30_000), time: c.deployment.dex.time, onRefused, skip }) : null;
     const views: ChainView[] = p.views ? p.views(skip) : [];
     if (!p.views && e.ogmios && e.kupo) {
       if (!koios) throw new Error('KOIOS_URL is needed too: only Koios reads the batching account (Ogmios leaves out an account delegated nowhere)');

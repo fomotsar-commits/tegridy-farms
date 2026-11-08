@@ -174,6 +174,8 @@ export function ledgerOrder(inputs: CSL.TransactionInputs | undefined): CSL.Tran
 /** Mainnet Shelley time: slot 4,492,800 began at POSIX 1,596,059,091 s, one slot a second since. */
 export const MAINNET_TIME = { zeroSlot: 4_492_800n, zeroTimeMs: 1_596_059_091_000n, slotLengthMs: 1_000n };
 export type NetworkTime = typeof MAINNET_TIME;
+/** Preprod Shelley time: slot 86,400 began at POSIX 1,655,769,600 s (2022-06-21), one slot a second since. */
+export const PREPROD_TIME: NetworkTime = { zeroSlot: 86_400n, zeroTimeMs: 1_655_769_600_000n, slotLengthMs: 1_000n };
 
 export function slotToPosixMs(slot: bigint, t: NetworkTime = MAINNET_TIME): bigint {
   return (slot - t.zeroSlot) * t.slotLengthMs + t.zeroTimeMs;

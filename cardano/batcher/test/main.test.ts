@@ -10,7 +10,7 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSy
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import CSL from '@emurgo/cardano-serialization-lib-nodejs';
-import { MAINNET_TIME } from '../src/chain.ts';
+import { MAINNET_TIME, PREPROD_TIME } from '../src/chain.ts';
 import { ALERTS_PING_ENV, PING_ENV } from '../src/heartbeat.ts';
 import { HEARTBEAT, logger, main, makeKeyIfAsked, readEnv, readSetAside, readSettings, setAsideFileOf, writeSetAside, type Settings } from '../src/main.ts';
 import type { SocketFactory, SocketLike } from '../src/follow.ts';
@@ -622,6 +622,26 @@ test('the set-aside file: one UTxO alone is a trap, and stays one; a batch’s o
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+const PREPROD: Settings = { ...GOOD, network: 0, testnet: 'preprod', batcherAddress: enterprise(0, KEY) };
+
+test('preprod: network 0 is read only with "testnet": "preprod", and it reads preprod’s slot times', () => {
+  const c = read(PREPROD);
+  assert.equal(c.network, 0);
+  assert.equal(c.deployment.network, 0);
+  assert.deepEqual(c.deployment.dex.time, PREPROD_TIME);
+  assert.equal(c.batcher.address, PREPROD.batcherAddress);
+});
+
+test('mainnet as before: network 0 without the preprod setting is refused, with every part of it preprod’s; the setting never names mainnet', () => {
+  const { testnet: _, ...noSetting } = PREPROD;
+  assert.throws(() => read(noSetting), /only mainnet \(network 1\) has its slot times built in/);
+  assert.deepEqual(read(GOOD).deployment.dex.time, MAINNET_TIME);
+  assert.throws(() => read({ ...GOOD, testnet: 'preprod' }), /"testnet": "preprod" is for network 0/);
+  for (const testnet of ['preview', 'mainnet', '', 0, null, true]) assert.throws(() => read({ ...PREPROD, testnet }), /"testnet" may only be "preprod"/, JSON.stringify(testnet));
+  // A preprod batcher's change and sweep stay on preprod.
+  assert.throws(() => read({ ...PREPROD, batcherAddress: enterprise(1, KEY) }), /batcherAddress is not the batcher key's own preprod enterprise address/);
 });
 
 test('the sweep in the settings: the treasury checked, and the float it keeps between a fee UTxO and 10 ADA below the cap', () => {
