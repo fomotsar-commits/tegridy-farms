@@ -94,3 +94,31 @@ export function swapVenueOn(chainId: number | undefined | null): SwapVenue | nul
   VENUES.set(config.id, venue);
   return venue;
 }
+
+const OPENING_VENUES = new Map<number, SwapVenue>();
+
+/**
+ * The same chain's venue for pools on the factory that charges 0.006 ETH to open a pool
+ * (owner ruling 2026-10-25): its factory, its router, and the SwapFeeRouter bound to that
+ * router, which takes the same venue fee as `swapFeeRouter`. Uniswap V2, WETH and the fee sink
+ * are unchanged. Null until all three are deployed on this chain, so nothing changes before.
+ *
+ * Pools on the old factory are swapped through `venue`; pools on the new one through this. The
+ * quote (useSwapQuote) says which of the two won, and useSwap signs and approves against it.
+ */
+export function openingSwapVenue(venue: SwapVenue | null): SwapVenue | null {
+  if (!venue) return null;
+  const cached = OPENING_VENUES.get(venue.chainId);
+  if (cached) return cached;
+  const config = getChainConfig(venue.chainId);
+  const { openingFactory, openingRouter, openingSwapFeeRouter } = config?.contracts ?? {};
+  if (!openingFactory || !openingRouter || !openingSwapFeeRouter) return null;
+  const opening: SwapVenue = Object.freeze({
+    ...venue,
+    factory: openingFactory,
+    router: openingRouter,
+    swapFeeRouter: openingSwapFeeRouter,
+  });
+  OPENING_VENUES.set(venue.chainId, opening);
+  return opening;
+}

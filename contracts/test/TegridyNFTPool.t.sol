@@ -78,7 +78,7 @@ contract TegridyNFTPoolTest is Test {
     ) internal returns (address pool) {
         vm.startPrank(alice);
         nft.setApprovalForAll(address(factory), true);
-        pool = factory.createPool(
+        pool = factory.createPool{value: 0.006 ether}(
             address(nft),
             TegridyNFTPool.PoolType.SELL,
             _spotPrice,
@@ -96,7 +96,7 @@ contract TegridyNFTPoolTest is Test {
     ) internal returns (address pool) {
         uint256[] memory emptyIds = new uint256[](0);
         vm.prank(alice);
-        pool = factory.createPool{value: ethAmount}(
+        pool = factory.createPool{value: ethAmount + 0.006 ether}(
             address(nft),
             TegridyNFTPool.PoolType.BUY,
             _spotPrice,
@@ -115,7 +115,7 @@ contract TegridyNFTPoolTest is Test {
     ) internal returns (address pool) {
         vm.startPrank(alice);
         nft.setApprovalForAll(address(factory), true);
-        pool = factory.createPool{value: ethAmount}(
+        pool = factory.createPool{value: ethAmount + 0.006 ether}(
             address(nft),
             TegridyNFTPool.PoolType.TRADE,
             _spotPrice,
@@ -617,7 +617,7 @@ contract TegridyNFTPoolTest is Test {
         uint256[] memory emptyIds = new uint256[](0);
         vm.prank(alice);
         vm.expectRevert();
-        factory.createPool(
+        factory.createPool{value: 0.006 ether}(
             address(nft),
             TegridyNFTPool.PoolType.SELL,
             SPOT_PRICE,
@@ -961,7 +961,7 @@ contract TegridyNFTPoolTest is Test {
         vm.startPrank(alice);
         nft.setApprovalForAll(address(factory), true);
         vm.expectRevert(TegridyNFTPool.DeltaTooHigh.selector);
-        factory.createPool(
+        factory.createPool{value: 0.006 ether}(
             address(nft),
             TegridyNFTPool.PoolType.SELL,
             SPOT_PRICE,

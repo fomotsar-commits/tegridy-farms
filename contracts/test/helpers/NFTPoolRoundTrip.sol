@@ -13,6 +13,11 @@ interface INFTPoolFactoryAnyVersion {
         returns (address);
 }
 
+// Only the 2026-10-25 build answers this; the July 16 build opens pools for free.
+interface INFTPoolOpeningFee {
+    function POOL_OPENING_FEE() external view returns (uint256);
+}
+
 interface INFTPoolAnyVersion {
     function getBuyQuote(uint256) external view returns (uint256 inputAmount, uint256 protocolFee);
     function swapETHForNFTs(uint256[] calldata, uint256, uint256) external payable;
@@ -57,12 +62,13 @@ abstract contract NFTPoolRoundTrip is Test {
         HostileRoyaltyNFT nft = new HostileRoyaltyNFT(trader, ROYALTY_BPS);
         uint256[] memory ids = new uint256[](1);
         ids[0] = nft.mint(lp);
-        vm.deal(lp, POOL_ETH);
+        uint256 openingFee = _openingFee(factory);
+        vm.deal(lp, POOL_ETH + openingFee);
         vm.deal(trader, 100 ether);
 
         vm.startPrank(lp);
         nft.setApprovalForAll(factory, true);
-        address pool = INFTPoolFactoryAnyVersion(factory).createPool{value: POOL_ETH}(
+        address pool = INFTPoolFactoryAnyVersion(factory).createPool{value: POOL_ETH + openingFee}(
             address(nft), TRADE, SPOT_PRICE, DELTA, 0, ids
         );
         vm.stopPrank();
@@ -77,5 +83,13 @@ abstract contract NFTPoolRoundTrip is Test {
         }
         vm.stopPrank();
         loss = start > pool.balance ? start - pool.balance : 0;
+    }
+
+    function _openingFee(address factory) internal view returns (uint256) {
+        try INFTPoolOpeningFee(factory).POOL_OPENING_FEE() returns (uint256 fee) {
+            return fee;
+        } catch {
+            return 0;
+        }
     }
 }

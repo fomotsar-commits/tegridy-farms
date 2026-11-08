@@ -63,6 +63,7 @@ contract DeployNFTPoolFactoryScript is Script {
         require(factory.protocolFeeBps() == cfg.protocolFeeBps, "fee != PROTOCOL_FEE_BPS");
         require(factory.protocolFeeRecipient() == cfg.treasury, "fee recipient != TREASURY");
         require(factory.weth() == cfg.weth, "weth != WETH");
+        require(factory.POOL_OPENING_FEE() == 0.006 ether, "opening fee != 0.006 ETH");
         require(factory.poolImplementation().code.length > 0, "no pool template");
         require(factory.getPoolCount() == 0, "fresh factory has pools");
     }
