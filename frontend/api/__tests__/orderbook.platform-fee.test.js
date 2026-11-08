@@ -9,7 +9,9 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 // `vi.resetModules()` so the Supabase client is built after SUPABASE_* are set.
 import "../orderbook.js";
 import { PLATFORM_FEE_RECIPIENT as CLIENT_RECIPIENT, PLATFORM_FEE_BPS as CLIENT_BPS } from "../../src/nakamigos/constants.js";
-import { PLATFORM_FEE_RECIPIENT, PLATFORM_FEE_BPS, platformFeeError } from "../_lib/platform-fee.js";
+import { PLATFORM_FEE_RECIPIENT, PLATFORM_FEE_BPS, PLATFORM_FEE_RECIPIENTS, platformFeeError } from "../_lib/platform-fee.js";
+import { PLATFORM_FEE_RECIPIENTS as CLIENT_RECIPIENTS, SEAPORT_DOMAINS, WETH_BY_CHAIN } from "../../src/nakamigos/constants.js";
+import { getChainConfig } from "../../src/lib/chains/registry.ts";
 
 vi.mock("../_lib/ratelimit.js", () => ({ checkRateLimit: vi.fn(async () => true) }));
 
@@ -182,6 +184,29 @@ describe("orderbook create-bundle: the 0.5% venue fee", () => {
 });
 
 describe("the server's fee terms", () => {
+  // Each chain pays its own Safe. Base fees go to the Base treasury Safe the chain
+  // registry names; the Ethereum fee Safe has no code on Base.
+  it("name one recipient per chain, equal to the client's, Base's being the registry's Base treasury", () => {
+    expect(Object.keys(PLATFORM_FEE_RECIPIENTS).sort()).toEqual(["1", "8453"]);
+    for (const id of [1, 8453]) expect(PLATFORM_FEE_RECIPIENTS[id]).toBe(CLIENT_RECIPIENTS[id].toLowerCase());
+    expect(PLATFORM_FEE_RECIPIENTS[8453]).toBe(getChainConfig(8453).contracts.treasury.toLowerCase());
+    expect(PLATFORM_FEE_RECIPIENTS[8453]).not.toBe(PLATFORM_FEE_RECIPIENTS[1]);
+    expect(WETH_BY_CHAIN[8453].toLowerCase()).toBe(getChainConfig(8453).contracts.weth.toLowerCase());
+  });
+
+  it("sign Base orders with the same Seaport domain on both sides", async () => {
+    const { seaportDomainFor } = await vi.importActual("../_lib/seaport-verify.js");
+    expect(seaportDomainFor(8453)).toEqual(SEAPORT_DOMAINS[8453]);
+    expect(seaportDomainFor(1)).toEqual(SEAPORT_DOMAINS[1]);
+  });
+
+  it("refuse a Base listing that pays the Ethereum fee Safe, and take one that pays the Base Safe", () => {
+    const base = PLATFORM_FEE_RECIPIENTS[8453];
+    expect(platformFeeError([eth(PRICE - FEE, SELLER), eth(FEE, TREASURY)], PRICE, 8453)).toMatch(/venue fee/);
+    expect(platformFeeError([eth(PRICE - FEE, SELLER), eth(FEE, base)], PRICE, 8453)).toBeNull();
+    expect(platformFeeError([eth(PRICE - FEE, SELLER), eth(FEE, base)], PRICE, 137)).toMatch(/no venue fee recipient/);
+  });
+
   it("equal the client's", () => {
     expect(PLATFORM_FEE_RECIPIENT).toBe(CLIENT_RECIPIENT.toLowerCase());
     expect(PLATFORM_FEE_BPS).toBe(BigInt(CLIENT_BPS));
