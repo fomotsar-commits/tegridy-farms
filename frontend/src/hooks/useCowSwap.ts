@@ -38,6 +38,7 @@ import {
   buildCowSwapQuoteBody,
   parseCowSwapQuote,
   buildCowSwapOrder,
+  quoteSellsTypedAmount,
   requiredSellBalance,
   slippagePctToBps,
   cowApiUrl,
@@ -185,6 +186,10 @@ export function useCowSwap() {
           toast.error('CoW has no quote for this pair/size right now');
           return null;
         }
+        if (!quoteSellsTypedAmount(quote, params.sellAmount)) {
+          toast.error('CoW quoted a different amount than you entered. Nothing was signed.');
+          return null;
+        }
 
         // 2. Must hold sellAmount + fee, else the signed order can never settle.
         const needed = requiredSellBalance(quote);
@@ -237,6 +242,7 @@ export function useCowSwap() {
           buyToken,
           receiver: address,
           quote,
+          typedSellAmount: params.sellAmount,
           slippageBps: slippagePctToBps(params.slippagePct),
         });
         if (order.validTo > 0xffffffff) {

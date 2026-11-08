@@ -9,6 +9,18 @@ import {
   SOURCE_URL,
 } from '../lib/constants';
 import { GONDI_LOAN_ADDRESS } from '../lib/gondi/loanOffer.js';
+import { isLaunchDoorOpen } from '../lib/launcher/door';
+
+// Island answer twenty-six: no token launch is live on the venue until the island says so, on any
+// rail (lib/launcher/door.ts). While the door is closed this risk says so first, in the venue's
+// plain words, and the owner's legal copy under it stays word for word; once the door opens the
+// owner's heading reads as written.
+const LAUNCH_RISK = isLaunchDoorOpen()
+  ? { title: 'Anyone can launch a token, and a launch is permanent', lead: '' }
+  : {
+      title: 'Launching a new token here is not switched on yet; once it is, anyone can, and a launch is permanent',
+      lead: 'Launching a new token here is not switched on yet, on any rail. What follows describes the launcher once it opens. ',
+    };
 
 /**
  * HONESTY 2026-07-24: these statuses were hardcoded 'Not yet deployed' and went
@@ -78,9 +90,9 @@ const PROTOCOL_RISKS: Array<{
     body: 'The protocol is maintained by one developer. Response to incidents, emergency pauses, and bug-bounty triage is bounded by that person being online. SECURITY.md documents the disclosure channel; realistic expectations on turnaround should reflect the maintainer count.',
   },
   {
-    title: 'Anyone can launch a token, and a launch is permanent',
+    title: LAUNCH_RISK.title,
     status: 'Active',
-    body: 'The token launcher is permissionless: there is no application, no human approval and no allowlist, so any member of the public can deploy an ERC-20 through it on Ethereum mainnet. Nothing about a token appearing here is an endorsement — the Fact Sheet and its gate tier are automated structural disclosures (template, mint/pause/blacklist/upgrade powers, LP lock, insider vesting, fee split) read at one moment in time, not a security audit, a valuation or a safety warranty, and a token that clears a tier can still go to zero. For creators the exposure runs the other way: the launch transaction is irreversible and the fee constitution is fixed on-chain at creation, so a mistyped supply, market-cap band or beneficiary address is permanent, and the person who launches is the issuer for every legal purpose in their own jurisdiction. We can decline to surface a token in this app; we have no power to alter or remove it on-chain.',
+    body: LAUNCH_RISK.lead + 'The token launcher is permissionless: there is no application, no human approval and no allowlist, so any member of the public can deploy an ERC-20 through it on Ethereum mainnet. Nothing about a token appearing here is an endorsement — the Fact Sheet and its gate tier are automated structural disclosures (template, mint/pause/blacklist/upgrade powers, LP lock, insider vesting, fee split) read at one moment in time, not a security audit, a valuation or a safety warranty, and a token that clears a tier can still go to zero. For creators the exposure runs the other way: the launch transaction is irreversible and the fee constitution is fixed on-chain at creation, so a mistyped supply, market-cap band or beneficiary address is permanent, and the person who launches is the issuer for every legal purpose in their own jurisdiction. We can decline to surface a token in this app; we have no power to alter or remove it on-chain.',
   },
   {
     title: 'NFT collateral concentration',
@@ -96,7 +108,7 @@ const PROTOCOL_RISKS: Array<{
 const VENUE_RISK_TITLES: ReadonlySet<string> = new Set([
   'No paid human audit by a recognised firm',
   'Single maintainer',
-  'Anyone can launch a token, and a launch is permanent',
+  LAUNCH_RISK.title,
 ]);
 const VENUE_RISKS = PROTOCOL_RISKS.filter((r) => VENUE_RISK_TITLES.has(r.title));
 const TOWELI_RISKS = PROTOCOL_RISKS.filter((r) => !VENUE_RISK_TITLES.has(r.title));

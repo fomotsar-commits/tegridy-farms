@@ -37,6 +37,7 @@
 // be computed and shown. An earlier version of the CLI and the runbook both said
 // "no penalty"; a review caught it before anyone lost money to it.
 import { PublicKey } from '@solana/web3.js';
+import { curveWriteEnvOverridesAllowed } from '../launcher/solana/curveWriteFlag';
 
 /* ─────────────────────────── identity ─────────────────────────── */
 
@@ -53,8 +54,26 @@ import { PublicKey } from '@solana/web3.js';
  * id have to agree, so the env var is the switch. `isLadderConfigured()` is the gate
  * every caller must pass before deriving anything.
  */
-export const LADDER_PROGRAM_ID: string =
-  (import.meta.env.VITE_BAYLA_LADDER_PROGRAM as string | undefined)?.trim() ?? '';
+export const MAINNET_LADDER_PROGRAM_ID = 'EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ';
+
+/**
+ * The env var stays the go-live SWITCH, but in a production build it can only switch
+ * on the committed program: every stake signs with the staker's BAYLA account
+ * writable, so a wrong id (a hosting-dashboard edit, a mistaken paste) would hand
+ * that program the BAYLA. Any other value leaves the ladder off, the same rule the
+ * launcher applies to its own ids (launcher/solana/write/config.ts). A dev server or
+ * the named e2e build may point at a devnet deployment.
+ */
+export function resolveLadderProgramId(raw: string | undefined, envOverridesAllowed: boolean): string {
+  const id = raw?.trim() ?? '';
+  if (id === '' || envOverridesAllowed) return id;
+  return id === MAINNET_LADDER_PROGRAM_ID ? id : '';
+}
+
+export const LADDER_PROGRAM_ID: string = resolveLadderProgramId(
+  import.meta.env.VITE_BAYLA_LADDER_PROGRAM as string | undefined,
+  curveWriteEnvOverridesAllowed(),
+);
 
 /** True once an operator has pointed the app at a deployed ladder program. */
 export function isLadderConfigured(): boolean {
