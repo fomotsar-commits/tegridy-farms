@@ -9,18 +9,20 @@ The site's Changelog tab shows both files.
 
 ### 2026-11-07
 
+- Our Solana pools can now be charted by GeckoTerminal: the site serves the four data feeds its indexer reads (`/api/gt/latest-block`, `/api/gt/asset`, `/api/gt/pair`, `/api/gt/events`), every number read from the chain itself. Once GeckoTerminal lists the venue, each pool gets a public chart page and shows up in CoinGecko's on-chain data, where traders and price bots look.
 - Cardano swap: the venue fee is on. A swap of about 200 ADA or more pays 0.5% of its ADA side (the ADA you pay in, or the ADA the pool quotes back on a sale) in the same transaction, straight to the venue's two-key Cardano treasury; under that it pays none, because a Cardano payment must hold about 1 ADA. The quote and the review show the amount, and the review shows the treasury's whole address so you can match it on your wallet's screen. Minswap's own fees are unchanged.
 
 - Receipt card (Solana): the confetti after a swap or an add is gone. In its place the card's ring holds an ember that catches into the island's flame the moment the card is up: the ring breathes once, the edge warms once, the clock line lights. A sale never lights. The farm keeps its own confetti.
-
 - Home page: the all-time volume counts again. On Nov 5 a swap in one of our Solana pools used Solana's newer transaction format, which the counter did not ask for, and every count since stopped there, so the figure said "not up to date". A pool's history and finding a share's pool read that format too now.
 
 ### 2026-11-06
 
+- Pools: a pool where deposits are refused shows a dimmed Add in the All pools list; it still opens the card, which says why under "Deposits: refused here".
 - Pools: an almost empty pool no longer takes deposits. That is a pool where the shares the pool program keeps forever are more than 0.1% of it, the same floor a new pool must already clear. Anyone can move such a pool's price for next to nothing, and a deposit would go in at that price. Its card says "Deposits: refused here" and why, and the All pools list tags it "Almost empty". Whoever holds its last shares can still take them out.
 
 ### 2026-11-05
 
+- Pro Charting opens on the room's own coin: inside the BAYLA room it charts BAYLA / SOL, not TOWELI / WETH. A link that names a pool still opens on that pool.
 - Add opens on every pool again, $BAYLA first. An outside price that was not read is now one row ("Outside price not read yet"), never a reason to keep the Add form closed; the pool's own price, its reserves and the pause still decide. The price loop reads the island's coins first, then USDC and USDT. On /pools, Add on a room's pool raises its sheet over the list, Back lands on the same card, and the Arbitrage card sits under All pools. The Buy sheet gains a row of the island's coins and "Any coin".
 - A room's Swap sheet now trades any coin, not only SOL for the room's coin. The coin you pay (beside the amount) and the coin you get (on the You get line) each open the Solana swap's own coin list, with its search; it still opens on SOL to the room's coin. The amount chips follow the coin you pay (two SOL amounts and Max when it is SOL, Max of that coin otherwise), and Pool price shows while the trade is SOL and the room's coin, either way round. Quotes, routes, fees and signing are the swap's own: through Jupiter the venue takes 0.50% when SOL, USDC or USDT is one side of the trade, and nothing on a trade between two other coins.
 - Add BAYLA opens. Adding to a pool waits for the coin's price outside our pools, and the venue reads those prices in one timed pass that kept running out of time before it reached BAYLA, USDC and USDT. Each pass now starts with the coins it read longest ago, so a coin skipped in one pass is read first in the next.
@@ -60,6 +62,7 @@ The site's Changelog tab shows both files.
 - Swap: a trade that would move the price 15% or more can no longer be sent. The Swap button reads "Price impact too high" and the page says the pool is too thin, the line Uniswap's own app uses. Before, only a red warning showed: on Base, 1.75 million BNKR quoted 0.0000011 ETH (about $0.002) from a nearly empty Uniswap V2 pool, against about 0.22 ETH at market, and the Swap button still worked.
 - Solana reads no longer run out on phones and iPads. The home page re-read the BAYLA lock ladder every few seconds instead of every 45, so an open tab used about 100 of the site's 300 Solana reads a minute, which a whole house (or a phone network) shares, and the dashboard said "Couldn't read your Solana coins" when they ran out. It now re-reads every 45 seconds as meant, and a read the site's limit turns away waits the time the limit names and asks again (twice at most), instead of saying it could not read.
 - Dashboard: a pool share in a coin with no room on the island, like BIG BRAIN, is now named by the coin's own ticker ("BIG BRAIN / SOL pool", with its whole address under it) instead of the first four letters of its address, and shows its picture instead of a plain green square. The BIG BRAIN your wallet holds is now listed under Holdings, with its worth.
+- Tangem wallets can connect on Ethereum, Base, Robinhood Chain and Solana. Both connect lists now have a Tangem row: on a computer it shows a code to scan with the Tangem app, and on a phone it opens the Tangem app to approve, then the page connects. Cardano can't take Tangem, because Tangem offers no way for a Cardano site to connect.
 
 ### 2026-10-31
 
