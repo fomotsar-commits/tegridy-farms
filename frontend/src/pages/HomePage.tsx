@@ -7,6 +7,8 @@ import { useAccount } from 'wagmi';
 import { isAddress } from 'viem';
 import { GALLERY_ORDER, UNIQUE_GALLERY_COUNT, pageArt, artStyle } from '../lib/artConfig';
 import { isLauncherEnabled } from '../lib/launcher/config';
+import { isCurveLaunchOpen } from '../lib/launcher/curveChains';
+import { isLaunchDoorOpen } from '../lib/launcher/door';
 import { isSolanaSwapLive } from '../lib/solana';
 import { chainHref, tabServes } from '../lib/sectionChains';
 import { useFarmStats } from '../hooks/useFarmStats';
@@ -47,6 +49,9 @@ import { HeatCard } from '../components/HeatCard';
 import { VenueDoors } from '../components/VenueDoors';
 import { VenuePaths } from '../components/VenuePaths';
 import { FlamesBoard } from '../components/FlamesBoard';
+import { IslandStrip } from '../components/IslandStrip';
+import { RoomTorches } from '../components/RoomTorches';
+import { TimelineStrip } from '../components/TimelineStrip';
 import { BungalowHero } from '../components/bungalow/BungalowHero';
 import { BungalowMarket } from '../components/bungalow/BungalowMarket';
 import { BungalowHolders } from '../components/bungalow/BungalowHolders';
@@ -338,10 +343,13 @@ export default function HomePage() {
               </Link>
               {/* Base and Robinhood Chain open the curve ON their chain (`?c=`): a bare /eth-curve
                   shows the wallet's chain, or mainnet with no wallet. Robinhood's pill is drawn
-                  only while its launcher is in the registry, as the Launch drop-down reads it. */}
+                  only while its launcher is in the registry, as the Launch drop-down reads it.
+                  Their labels claim a launch only while the curve's launching is open (island
+                  answer twenty-six): the pill degrades instead of lying, as Solana's does, and still
+                  opens "Live on" as the rail's other pills do. */}
               <Link
                 to={chainHref('/eth-curve', 'base')}
-                aria-label="Live on Base: launch and trade on the curve"
+                aria-label={isCurveLaunchOpen() ? 'Live on Base: launch and trade on the curve' : 'Live on Base: the curve, launching not switched on yet'}
                 className="badge badge-chain-base relative before:absolute before:content-[''] before:inset-x-0 before:-inset-y-[11px] text-[10px] no-underline hover:brightness-110 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#2151f5]"
               >
                 BASE
@@ -349,7 +357,11 @@ export default function HomePage() {
               {tabServes('/eth-curve', 'robinhood') && (
                 <Link
                   to={chainHref('/eth-curve', 'robinhood')}
-                  aria-label="Live on Robinhood Chain: launch and trade on the curve"
+                  aria-label={
+                    isCurveLaunchOpen()
+                      ? 'Live on Robinhood Chain: launch and trade on the curve'
+                      : 'Live on Robinhood Chain: the curve, launching not switched on yet'
+                  }
                   className="badge badge-chain-robinhood relative before:absolute before:content-[''] before:inset-x-0 before:-inset-y-[11px] text-[10px] no-underline hover:brightness-110 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#CCFF00]"
                 >
                   ROBINHOOD
@@ -494,6 +506,15 @@ export default function HomePage() {
             </div>
             </>
             )}
+
+            {/* THE ROOM IS THE ISLAND'S ROOM (the island's venue review, item 6): every room's door,
+                TOWELI's included, carries its torches under the hero, read from the island, with
+                Torch it to the room's own page there. Draws nothing until read, or on a miss. */}
+            {(bungalowIdentity || isToweliArrival) && <RoomTorches roomId={bungalowIdentity?.id ?? 'toweli'} />}
+
+            {/* THE TIMELINE (island answer twenty-four, build 7): the newest piece hung on the
+                island, in every room, under the room's torches. Draws nothing until read. */}
+            {(bungalowIdentity || isToweliArrival) && <TimelineStrip className="mt-6" />}
 
             {/* WAVE SEVEN, element C: THE SECURITY BADGE MOVED TO THE CHECK
                 OVERVIEW. It is C's fifth and last item.
@@ -821,6 +842,14 @@ export default function HomePage() {
             an identity bungalow keeps its token-first home. */}
         {!bungalowIdentity && !isToweliArrival && <VenueDoors />}
 
+        {/* THE ISLAND TODAY, under the doors (the island's venue review, item 9): BAYLA locked
+            in the ladder, BAYLA fed to the fire, the flames, then the season and the last torch.
+            Each part is read on load and drawn only if read; with nothing read, no strip. */}
+        {!bungalowIdentity && !isToweliArrival && <IslandStrip />}
+
+        {/* THE TIMELINE on the home (island answer twenty-four, build 7), under the island today. */}
+        {!bungalowIdentity && !isToweliArrival && <TimelineStrip className="pb-16" />}
+
         {/* WAVE SEVEN, element G: THE ISLAND'S BOARD, on the venue. Five named flames,
             so a stranger sees held time attached to people before they are asked to
             care about it. It unmounts itself when the island's board is off or
@@ -1044,17 +1073,26 @@ export default function HomePage() {
                     art: pageArt('home', 17),
                   }]
                 : []),
-              // The launch card follows the SAME gate the nav uses, so the front door
-              // can never advertise a rail that is switched off (it reads "Soon" and
-              // /launch renders its explainer instead of a wizard).
-              {
-                to: '/launch',
-                title: 'Launch on Ethereum',
-                desc: 'A Doppler dynamic auction with an automated hygiene gate and a published Fact Sheet.',
-                stat: isLauncherEnabled() ? 'Doppler V4' : 'Soon',
-                label: isLauncherEnabled() ? 'Ethereum' : 'Not yet live',
-                art: pageArt('home', 12),
-              },
+              // The launch card follows the SAME gates the bar's Launch word does, so the front
+              // door never advertises a rail that is closed: while the launch door is (island
+              // answer twenty-six) the card is the door, with its art, and never says "Soon".
+              isLaunchDoorOpen() && isLauncherEnabled()
+                ? {
+                    to: '/launch',
+                    title: 'Launch on Ethereum',
+                    desc: 'A Doppler dynamic auction with an automated hygiene gate and a published Fact Sheet.',
+                    stat: 'Doppler V4',
+                    label: 'Ethereum',
+                    art: pageArt('home', 12),
+                  }
+                : {
+                    to: '/launch',
+                    title: 'The launch door',
+                    desc: "The door opens on the island's word.",
+                    stat: 'Not open yet',
+                    label: 'on any rail',
+                    art: pageArt('home', 12),
+                  },
               // The 'Launch on Solana' tile pointed at /solana-launch (Meteora DBC) and
               // was REMOVED 2026-08-23 with that rail — it graduated into a pool we do
               // not own. Its replacement, /curve-launch, is deliberately NOT promoted

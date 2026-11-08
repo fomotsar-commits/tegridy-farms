@@ -173,7 +173,14 @@ function fakeSolana(sigs, txs) {
       const cut = until ? newestFirst.findIndex((s) => s.signature === until) : -1;
       return cut >= 0 ? newestFirst.slice(0, cut) : newestFirst;
     }
-    if (method === "getTransaction") return txs[params[0]] ?? null;
+    if (method === "getTransaction") {
+      const tx = txs[params[0]] ?? null;
+      // Like a node: a transaction newer than the version asked for is refused, not returned.
+      if (tx && typeof tx.version === "number" && !(tx.version <= params[1].maxSupportedTransactionVersion)) {
+        throw new Error(`getTransaction: {"code":-32015,"message":"Transaction version (${tx.version}) is not supported by the requesting client."}`);
+      }
+      return tx;
+    }
     throw new Error(method);
   };
   return { call, calls };
@@ -196,6 +203,13 @@ describe("the Solana cursor: each run reads only what is new", () => {
     expect(second.swaps).toHaveLength(0);
     const lastList = f.calls.filter(([m]) => m === "getSignaturesForAddress").at(-1);
     expect(lastList[1][1].until).toBe("c");
+  });
+
+  it("reads a version 1 transaction (on mainnet in our pools since 2026-11-05) and counts its swap", async () => {
+    const f = fakeSolana(sigs, { a: FX.poolDeposit, b: { ...FX.poolSolIn, version: 1 } });
+    const got = await readSolanaPools(f.call, {});
+    expect(got.swaps).toHaveLength(1);
+    expect(got.cursor[SOL_BAYLA.address]).toBe("c");
   });
 
   it("throws when a transaction does not come back, so the cursor is not moved past it", async () => {
@@ -518,7 +532,9 @@ describe("main: totals and cursor are written together, or not at all", () => {
     expect(db.rows.get("jupiter")).toMatchObject({ swaps: 2, usd: 6, version: 5, cursor: { k: "sig2" } });
   });
 
-  it("refuses to write when another run moved the version first, and goes red", async () => {
+  // Two counters run (Vercel every five minutes, GitHub hourly), so losing this race is
+  // ordinary: the winner read the same swaps from the same cursor and counted them.
+  it("writes nothing when another run moved the version first, and stays green with no error recorded", async () => {
     const db = fakeDb([{ source: "jupiter", swaps: 1, usd: 3, cursor: {}, version: 4 }]);
     const readers = {
       jupiter: async () => {
@@ -526,8 +542,32 @@ describe("main: totals and cursor are written together, or not at all", () => {
         return reader(oneUsdcSwap, { k: "x" })();
       },
     };
-    expect(await main({ env, fetchImpl: db.fetchImpl, deps: {}, sources: ["jupiter"], readers, ...quiet })).toBe(1);
+    expect(await main({ env, fetchImpl: db.fetchImpl, deps: {}, sources: ["jupiter"], readers, ...quiet })).toBe(0);
+    expect(db.rows.get("jupiter")).toMatchObject({ swaps: 1, usd: 3, version: 5 });
+    expect(db.rows.get("jupiter").last_error_at).toBeUndefined();
+    expect(db.writes).toHaveLength(1);
+  });
+
+  it("a write the database refuses for any other reason still goes red", async () => {
+    const db = fakeDb([{ source: "jupiter", swaps: 1, usd: 3, cursor: {}, version: 4 }]);
+    const inner = db.fetchImpl;
+    const fetchImpl = vi.fn(async (url, init = {}) =>
+      init.method === "PATCH" && String(url).includes("version=eq.") ? new Response("{}", { status: 401 }) : inner(url, init),
+    );
+    const readers = { jupiter: reader(oneUsdcSwap, { k: "x" }) };
+    expect(await main({ env, fetchImpl, deps: {}, sources: ["jupiter"], readers, ...quiet })).toBe(1);
     expect(db.rows.get("jupiter")).toMatchObject({ swaps: 1, usd: 3 });
+    expect(db.rows.get("jupiter").last_error_at).toBeTruthy();
+  });
+
+  it("gives each source the run's budget: a short one for the five-minute Vercel run", async () => {
+    const db = fakeDb([]);
+    let deadline;
+    const readers = { jupiter: async (_c, d) => ((deadline = d.deadline), reader([], { k: "s" })()) };
+    const before = Date.now();
+    await main({ env, fetchImpl: db.fetchImpl, deps: {}, sources: ["jupiter"], readers, budgetMs: 20_000, ...quiet });
+    expect(deadline - before).toBeGreaterThanOrEqual(20_000);
+    expect(deadline - before).toBeLessThan(25_000);
   });
 
   it("a source that fails keeps its totals and cursor, records the error, and the rest still count", async () => {

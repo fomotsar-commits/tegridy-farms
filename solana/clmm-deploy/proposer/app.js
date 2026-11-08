@@ -1,14 +1,17 @@
-// The fee-tier page. Bundled with rolldown by stage.mjs into app.bundle.js. Every action re-reads the
-// chain and re-decides first, then asks the network to work the transaction out without sending it,
-// and only then hands it to your wallet to sign.
+// The fee-tier page, or in a fee-change folder (config.json's `change`) the page that sets one tier's
+// fee. Bundled with rolldown by stage.mjs into app.bundle.js. Every action re-reads the chain and
+// re-decides first, then asks the network to work the transaction out without sending it, and only
+// then hands it to your wallet to sign.
 import * as web3 from '@solana/web3.js';
 import { Buffer } from 'buffer';
 import { makeCore, decide } from '../scripts/lib/tiers.mjs';
+import { decideFee } from '../scripts/lib/tierFee.mjs';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const log = (w) => { const li = document.createElement('li'); li.textContent = `${new Date().toISOString().slice(11, 19)}  ${w}`; $('log').prepend(li); };
 const cfg = await (await fetch('/config.json')).json();
+const FEE = cfg.change ?? null;
 const conn = new web3.Connection(`${location.origin}/rpc`, { commitment: 'confirmed', disableRetryOnRateLimit: true });
 // A second RPC, for reads only: before a signature the page checks one against the other.
 const check = new web3.Connection(`${location.origin}/rpc-check`, { commitment: 'confirmed', disableRetryOnRateLimit: true });
@@ -18,7 +21,7 @@ let member = null;
 let busy = false;
 
 // ---- one tab at a time ------------------------------------------------------------------------
-const tabs = new BroadcastChannel('range-pools-fee-tier-page');
+const tabs = new BroadcastChannel(FEE ? 'range-pools-tier-fee-page' : 'range-pools-fee-tier-page');
 let otherTab = false;
 tabs.onmessage = (e) => { if (e.data === 'is anyone here?') tabs.postMessage('here'); if (e.data === 'here') { otherTab = true; render(); } };
 tabs.postMessage('is anyone here?');
@@ -30,7 +33,18 @@ $('net').textContent = net === 'mainnet' ? 'MAINNET: real money' : net === 'loca
 $('net').className = `net ${net}`;
 const okNet = (cfg.kind === 'mainnet' && net === 'mainnet') || (cfg.kind === 'rehearsal' && net === 'local');
 const pct = (r) => `${(r / 10000).toLocaleString('en-US', { maximumFractionDigits: 4 })}%`;
-$('what').innerHTML = `<h2>What this one proposal does, when it executes</h2>
+const split = (t, fee) => `<td>${pct((fee * (1e6 - t.protocolFeeRate - t.fundFeeRate)) / 1e6)}</td><td>${pct((fee * t.protocolFeeRate) / 1e6)}</td><td>${pct((fee * t.fundFeeRate) / 1e6)}</td>`;
+if (FEE) {
+  const t = cfg.tiers.find((x) => x.index === FEE.index);
+  document.title = `Range pools: fee tier ${FEE.index} to ${pct(FEE.to)}`;
+  $('title').textContent = `Range pools: fee tier ${FEE.index}, from ${pct(FEE.from)} to ${pct(FEE.to)}`;
+  $('what').innerHTML = `<h2>What this one proposal does, when it executes</h2>
+<p>It sets fee tier ${FEE.index}'s fee from ${pct(FEE.from)} to ${pct(FEE.to)} of each swap, and changes nothing else: its price steps (${t.tickSpacing}), its split and its owners stay as they are, and tier ${cfg.tiers.filter((x) => x.index !== FEE.index).map((x) => x.index).join(', ')} is not touched. The vault signs it; it costs the vault nothing. It applies to every pool on the tier, and to every position in them.</p>
+<table><tr><th></th><th>Fee of each swap</th><th>Price steps</th><th>LPs keep</th><th>Venue (vault)</th><th>Island (Workshop)</th><th>Account</th></tr>
+<tr><td>Now</td><td>${pct(FEE.from)}</td><td>${t.tickSpacing}</td>${split(t, FEE.from)}<td rowspan="2"><code>${core.ammConfig(FEE.index).toBase58()}</code></td></tr>
+<tr><td>After</td><td>${pct(FEE.to)}</td><td>${t.tickSpacing}</td>${split(t, FEE.to)}</tr></table>
+<p>Program <code>${esc(cfg.programId)}</code> · vault <code>${esc(cfg.addr.vault)}</code> · Workshop <code>${esc(cfg.addr.workshop)}</code></p>`;
+} else $('what').innerHTML = `<h2>What this one proposal does, when it executes</h2>
 <p>It makes the range program's two fee tiers, with the island split, and points each tier's fund share at the island's Workshop. The vault signs it; the vault pays ${cfg.tiers.length} x 0.0012 SOL of rent.</p>
 <table><tr><th>Tier</th><th>Fee of each swap</th><th>Price steps</th><th>LPs keep</th><th>Venue (vault)</th><th>Island (Workshop)</th><th>Account</th></tr>
 ${cfg.tiers.map((t) => `<tr><td>${t.index}</td><td>${pct(t.tradeFeeRate)}</td><td>${t.tickSpacing}</td><td>${pct((t.tradeFeeRate * (1e6 - t.protocolFeeRate - t.fundFeeRate)) / 1e6)}</td><td>${pct((t.tradeFeeRate * t.protocolFeeRate) / 1e6)}</td><td>${pct((t.tradeFeeRate * t.fundFeeRate) / 1e6)}</td><td><code>${core.ammConfig(t.index).toBase58()}</code></td></tr>`).join('')}</table>
@@ -50,7 +64,10 @@ $('disconnect').onclick = async () => { try { await provider()?.disconnect(); } 
 let last = null;
 async function notice() { try { return (await (await fetch('/notice')).json()).record; } catch { return null; } }
 async function positionLink() { try { return await (await fetch('/position-link')).json(); } catch (e) { return { ok: null, why: `the position link could not be asked (${e.message})` }; } }
-async function read() { return decide(cfg, await core.readState(conn, { sha256hex, member, notice: await notice(), positionLink: await positionLink() })); }
+async function read() {
+  if (FEE) return decideFee(cfg, await core.readState(conn, { sha256hex, member }));
+  return decide(cfg, await core.readState(conn, { sha256hex, member, notice: await notice(), positionLink: await positionLink() }));
+}
 
 /** The same accounts and clock from the second RPC, and the computer's own clock: all must agree. */
 async function crossCheck(index) {
@@ -74,8 +91,9 @@ function render() {
   if (!okNet) { act.innerHTML = '<div class="halt">STOP: this pack is not for this network.</div>'; return; }
   if (otherTab) { act.innerHTML = '<div class="halt">STOP: this page is open in another tab. Close every other tab of it, then reload this one.</div>'; return; }
   if (!d) { act.innerHTML = ''; return; }
-  const words = { propose: 'Sign: create the tier proposal and approve it', approve: `Approve proposal #${d.index}`, execute: `EXECUTE proposal #${d.index}` };
-  if (d.action === 'done') act.innerHTML = '<div class="ready">ALREADY DONE: both fee tiers exist. Nothing to sign. Run 6-verify-tiers.mjs.</div>';
+  const words = { propose: `Sign: create the ${FEE ? 'fee' : 'tier'} proposal and approve it`, approve: `Approve proposal #${d.index}`, execute: `EXECUTE proposal #${d.index}` };
+  if (d.action === 'done') act.innerHTML = FEE ? `<div class="ready">ALREADY DONE: fee tier ${FEE.index} charges ${pct(FEE.to)}. Nothing to sign. Run 8-verify-tier-fee.mjs.</div>`
+    : '<div class="ready">ALREADY DONE: both fee tiers exist. Nothing to sign. Run 6-verify-tiers.mjs.</div>';
   else if (d.action) act.innerHTML = `<div class="ready">Ready. <button id="go">${words[d.action]}</button> <button id="again">Check again</button></div>`;
   else act.innerHTML = '<div class="halt">Nothing for this wallet to sign now. <button id="again">Check again</button></div>';
   if ($('go')) $('go').onclick = () => run(d.action);
@@ -100,7 +118,7 @@ async function run(action) {
     if (disagree) { log(`STOP: ${disagree}. Nothing was signed. Check again in a minute; if it stays, stop and ask`); return refresh(); }
     const sim = await core.simulate(conn, member, ixs);
     if (!sim.ok) { log(`STOP: the network says this would fail (${JSON.stringify(sim.err)}). Nothing was signed. Last lines: ${sim.logs.slice(-3).join(' | ')}`); return refresh(); }
-    log(`the network worked it out without sending: it would succeed${action === 'execute' ? ' and make both tiers' : ''}`);
+    log(`the network worked it out without sending: it would succeed${action !== 'execute' ? '' : FEE ? ` and set tier ${FEE.index}'s fee to ${pct(FEE.to)}` : ' and make both tiers'}`);
     const { vtx, lastValidBlockHeight } = await core.txFor(conn, member, ixs);
     const signed = await provider().signTransaction(vtx);
     if (!Buffer.from(signed.message.serialize()).equals(Buffer.from(vtx.message.serialize()))) { log('STOP: your wallet changed the transaction before signing it. Nothing was sent'); return refresh(); }
@@ -110,7 +128,7 @@ async function run(action) {
       const st = (await conn.getSignatureStatuses([sig])).value[0];
       if (st?.err) { log(`FAILED: ${JSON.stringify(st.err)}. A failed transaction uses nothing up: check again`); break; }
       if (st?.confirmationStatus === 'confirmed' || st?.confirmationStatus === 'finalized') {
-        log({ propose: `Done: proposal #${index} is created and you approved it.`, approve: `Done: you approved proposal #${index}.`, execute: `Done: proposal #${index} is EXECUTED. Run 6-verify-tiers.mjs.` }[action]);
+        log({ propose: `Done: proposal #${index} is created and you approved it.`, approve: `Done: you approved proposal #${index}.`, execute: `Done: proposal #${index} is EXECUTED. Run ${FEE ? '8-verify-tier-fee.mjs' : '6-verify-tiers.mjs'}.` }[action]);
         break;
       }
       if ((await conn.getBlockHeight('confirmed')) > lastValidBlockHeight) { log('UNKNOWN: the answer could not be read. It does not mean it failed. Do not sign again: check again'); break; }

@@ -1,6 +1,6 @@
 // Polyfill MUST load before any @solana/* import — same rule as SolanaProviders.
 import '../../lib/solanaPolyfill';
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { m } from 'framer-motion';
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
@@ -11,10 +11,10 @@ import { useSolanaConnect } from '../solana/useSolanaConnect';
 import { LADDER_FUNDING_LINES, type Bungalow } from '../../lib/bungalows';
 import {
   isLadderConfigured, ladderProgramId,
-  boostBpsForLock, weightForStake, quoteExit, checkDeposit, earnedNow, rewardRunwaySecs,
+  boostBpsForLock, weightForStake, quoteExit, quoteExtend, checkDeposit, earnedNow, rewardRunwaySecs,
   minWeightFloor,
   MAX_LOCK_SECS, MAX_POSITIONS, MAX_EARLY_EXIT_PENALTY_BPS, MIN_BOOST_BPS,
-  penaltyFor, penaltyPct, sharePct,
+  penaltyFor, penaltyPct, sharePct, perDayAtTodaysRate, aprLabel,
   type LadderPoolView, type LadderPositionView,
 } from '../../lib/ladder/program';
 import {
@@ -23,12 +23,13 @@ import {
   type LadderWalletView, type ReadResult,
 } from '../../lib/ladder/read';
 import {
-  ladderStake, ladderClaim, ladderExit, ladderHatch, ladderClaimCarried,
+  ladderStake, ladderClaim, ladderExit, ladderHatch, ladderClaimCarried, ladderExtendLock,
   type WriteResult, type LadderWriteCtx,
 } from '../../lib/ladder/write';
-import { fmtRaw, fmtRawParts, toPlain, toRaw, humanDuration, lockLabel, boostLabel } from '../../lib/ladder/format';
+import { fmtRaw, fmtRawParts, fmtDaily, toPlain, toRaw, humanDuration, lockLabel, boostLabel } from '../../lib/ladder/format';
 import { basisBehindWrite, confirmedSlotOf, slotOrNull, type WriteFence } from '../../lib/ladder/writeFence';
 import { useAccrualMeter } from '../../hooks/useAccrualMeter';
+import { noteStakesChanged, useOnStakesChanged } from '../../lib/harvest/stakesChanged';
 import { Fact, HEAD, PANEL_BG, LEDGER_BG, HAIR, DIVIDED_BG } from './ledger';
 import { HeldTimeLine } from './HeldTimeLine';
 import { CardArt } from '../ui/CardArt';
@@ -38,6 +39,7 @@ import { Reveal } from '../motion/Reveal';
 import { DUR, EASE_OUT, pressTap, staggerContainer, staggerItem } from '../../lib/motion';
 
 import { PositionMark, positionHost } from '../ui/PositionMark';
+import { RoomTorches } from '../RoomTorches';
 /**
  * A `bayla-ladder` pool, LIVE.
  *
@@ -74,10 +76,10 @@ import { PositionMark, positionHost } from '../ui/PositionMark';
  *    runs them here first so a refusal explains itself instead of arriving as a
  *    constraint failure after a fee has been paid.
  */
-export function SolanaLadderPoolLive({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
+export function SolanaLadderPoolLive({ bungalow, harvest }: { bungalow: Bungalow & { ladderPool: string }; harvest?: ReactNode }) {
   return (
     <SolanaProviders>
-      <SolanaLadderPoolCard bungalow={bungalow} />
+      <SolanaLadderPoolCard bungalow={bungalow} harvest={harvest} />
     </SolanaProviders>
   );
 }
@@ -124,7 +126,12 @@ function resolveConfig(poolAddress: string): Config {
  * wallet with positions gets one line and a link to this room's full card on Earn, where its
  * positions, the pool's figures and the notes are; nothing here can claim or exit.
  */
-export function SolanaLadderPoolCard({ bungalow, compact = false }: { bungalow: Bungalow & { ladderPool: string }; compact?: boolean }) {
+export function SolanaLadderPoolCard({ bungalow, compact = false, harvest }: {
+  bungalow: Bungalow & { ladderPool: string };
+  compact?: boolean;
+  /** Harvest, placed in the earned panel by the pool page (BungalowFarmPanel). */
+  harvest?: ReactNode;
+}) {
   const { publicKey, wallet } = useWallet();
   const { connection } = useConnection();
   const openConnect = useSolanaConnect();
@@ -160,6 +167,10 @@ export function SolanaLadderPoolCard({ bungalow, compact = false }: { bungalow: 
   // positions…" with nothing on screen able to read again. They bump this instead.
   const [readGen, setReadGen] = useState(0);
   const reread = () => setReadGen((n) => n + 1);
+  // Harvest on this page claims the same rewards: read again when it runs, and say so after
+  // every write here (lib/harvest/stakesChanged.ts).
+  const [me] = useState(() => ({}));
+  useOnStakesChanged(me, reread);
   // ⚠️ A READ THAT PREDATES A CONFIRMED WRITE. After someone's first stake, the
   // pre-stake read (complete, and empty) still satisfied `walletEmpty` until the re-read
   // landed, and the card said "No open positions" to a wallet that had just opened one.
@@ -329,18 +340,18 @@ export function SolanaLadderPoolCard({ bungalow, compact = false }: { bungalow: 
     ? checkDeposit(pool, amountRaw, myPrincipal, lockSecs, openCount)
     : null;
 
-  // ⚠️ NO APR, NO PERCENTAGE, ON PURPOSE. A per-token yield depends on who else is in
-  // the pool and at what weight, on the window being refilled, and on the vault — none
-  // of which the chain fixes. What it DOES fix is how many tokens the whole pool is
-  // scheduled to receive per second, and until when. So the card shows exactly that,
-  // and only while the window is open. An earlier "configured rate" annualised this and
-  // divided by total principal rather than total weight, so it was not even the rate
-  // its own note named.
+  // ⚠️ THE POOL'S OWN FIGURES CARRY NO PERCENTAGE. A per-token yield for the pool as a
+  // whole depends on whose lock you would hold, so the ledger shows what the chain fixes:
+  // how many tokens the whole pool receives per day, and until when. An earlier
+  // "configured rate" annualised that and divided by total principal rather than total
+  // weight, so it was not even the rate its own note named.
   //
-  // What IS allowed (2026-09-20): YOUR SHARE OF POOL WEIGHT — Σ your positions' weight
-  // over `totalWeighted`, floored (`sharePct`). It is a present fact the chain fixes, not
-  // a forecast. FORBIDDEN, and not to be added later: share × rewards per day, "your
-  // daily earnings", or any annualisation of either. Those are yield promises.
+  // YOUR OWN FIGURES DO (owner, 2026-10-29: "how much bayla a day each wallet earns …
+  // and a % … based on their position", "position and time locked ofc"). Per position
+  // and for the wallet: `perDayAtTodaysRate` over your weight (stake × lock boost), and
+  // `aprLabel` on the principal that earns it. Both are projections, so they are only
+  // ever printed beside their basis — today's rate and pool weight, and the date the
+  // window is funded to — and only when the share they rest on can be stated.
   //
   // `rewardRunwaySecs` is null only when no rate has ever been set — `notify_reward`
   // refuses a zero rate — so null means NEVER FUNDED, and 0 means the window ENDED.
@@ -365,6 +376,7 @@ export function SolanaLadderPoolCard({ bungalow, compact = false }: { bungalow: 
     setConfirmFor(null);
     const res = await fn();
     if (res.ok) {
+      noteStakesChanged(me);
       setStaleRead(latestWalletRead.current);
       // One more ask for the confirmed slot if the write had none; if it still has none,
       // the fence fails closed (stale until a later write carries a slot).
@@ -423,6 +435,25 @@ export function SolanaLadderPoolCard({ bungalow, compact = false }: { bungalow: 
   // Hidden, not zeroed, when there is nothing to state: no weight of yours, or a pool
   // below its floor (where the accumulator does not move and a share decides nothing).
   const showShare = walletView !== null && !belowFloor && myWeight !== null && myWeight > 0n;
+  // What you earn per day, at today's rate. It divides by the SAME total the share does —
+  // the larger of the two honest readings, so the smaller figure — and exists only when
+  // the share does: a stale, partial or disagreeing read prints no rate either. Each
+  // position's figure is its own weight's; the wallet's is their sum, so the rows add up
+  // to it, and its APR is that sum over the principal behind it.
+  const perDayTotal = share ? share.totalWeighted : null;
+  const perDayOf = (p: LadderPositionView) =>
+    pool && perDayTotal !== null ? perDayAtTodaysRate(p.weight, perDayTotal, pool, nowSec) : null;
+  const myPerDay = (() => {
+    if (perDayTotal === null || positions.length === 0) return null;
+    let sum = 0n;
+    for (const p of positions) {
+      const d = perDayOf(p);
+      if (d === null) return null;
+      sum += d;
+    }
+    return sum;
+  })();
+  const myApr = myPerDay !== null ? aprLabel(myPerDay, positions.reduce((a, p) => a + p.amountRaw, 0n)) : null;
   const youLoaded = Boolean(publicKey) && !walletUnreadable && walletLoaded && walletView !== null;
 
   // The chip EXPLAINS the meter; it never drives it. The meter freezing is the math
@@ -638,6 +669,9 @@ export function SolanaLadderPoolCard({ bungalow, compact = false }: { bungalow: 
                       )}
                     </>
                   )}
+                  {/* Every pool's rewards in one press, in this panel (owner, 2026-10-30, on this card:
+                      "harvest all needs to be here too"). Drawn only while there is something to claim. */}
+                  {harvest}
                 </div>
 
                 {youLoaded && (
@@ -652,9 +686,32 @@ export function SolanaLadderPoolCard({ bungalow, compact = false }: { bungalow: 
                     <p className="m-0 text-[11px] uppercase tracking-[0.14em]" style={{ color: 'rgba(255,255,255,0.7)', fontFamily: HEAD }}>
                       You in this pool
                     </p>
+                    {/* What you earn a day, and that as a yearly rate on your stake. A
+                        projection, so its basis rides on the same line. */}
+                    {showShare && pool && myPerDay !== null && (
+                      <m.div variants={staggerItem}>
+                        <p className="m-0 mb-1.5 text-[11px] uppercase tracking-[0.12em]" style={{ color: 'rgba(76,175,80,0.9)', fontFamily: HEAD }}>
+                          You earn per day
+                        </p>
+                        <p className="m-0 text-white tabular-nums" style={{ fontFamily: MONO, fontWeight: 600, fontSize: 28, lineHeight: 1.1 }}>
+                          {fmtDaily(myPerDay, decimals)}{' '}
+                          <span className="text-[11px] font-medium uppercase tracking-[0.08em]" style={{ color: 'rgba(255,255,255,0.55)', fontFamily: HEAD }}>{sym}</span>
+                        </p>
+                        <p className="m-0 mt-2 text-[12px] tabular-nums" style={{ color: 'rgba(255,255,255,0.72)' }}>
+                          {myApr} APR · at today's rate, funded to {dateOf(pool.periodFinish)}
+                        </p>
+                        <FinePrint summary="How this is worked out">
+                          <p className="m-0">
+                            Your weight (each stake × its lock boost) over all stakers' weight, times the
+                            pool's {fmtRaw(pool.rewardRate * BigInt(DAY), decimals)} {sym} a day. It falls when
+                            others lock, rises when they leave, and stops on {dateOf(pool.periodFinish)} unless
+                            the pool is refilled.
+                          </p>
+                        </FinePrint>
+                      </m.div>
+                    )}
                     {/* ⚠️ A SHARE OF WEIGHT, NOT A YIELD. It is what the chain fixes
-                        about you today. Never multiplied by the rewards rate, never
-                        annualised — see the NO APR note above. */}
+                        about you today; the projection built on it is the block above. */}
                     {showShare && (
                       <m.div variants={staggerItem}>
                         <p className="m-0 mb-1.5 text-[11px] uppercase tracking-[0.12em]" style={{ color: 'rgba(76,175,80,0.9)', fontFamily: HEAD }}>
@@ -801,11 +858,21 @@ export function SolanaLadderPoolCard({ bungalow, compact = false }: { bungalow: 
 
                 {/* ── the action rail ──────────────────────────────────── */}
                 <div className={compact ? 'min-w-0' : 'min-w-0 @min-[52rem]:col-span-5'}>
+                  {/* A pool the vault never funded still takes locks (owner, 2026-11-02: the four rooms
+                      open with no rewards yet), so whoever is about to lock reads it here, wallet or not. */}
+                  {rewardWindow === 'never' && (
+                    <p data-testid="ladder-no-rewards" className="m-0 mb-3 text-[12px]" style={{ color: '#f0b26b' }}>
+                      No rewards yet: a lock here earns nothing until the vault funds this pool.
+                    </p>
+                  )}
                   {/* An ended reward window takes no new stake (owner, 2026-10-14): the
                       date the pool read returned, and no form. Claim and the exit
                       doors below are untouched. */}
                   {rewardWindow === 'ended' ? (
                     <div className="flex flex-col gap-4" data-testid="ladder-window-ended">
+                      {/* The room's torches above the notice, which stays (owner, 2026-10-15). Not on
+                          the home's compact card: the room's door already carries them. */}
+                      {!compact && <RoomTorches roomId={bungalow.id} compact />}
                       <p className="m-0 text-[12px]" style={{ color: '#f0b26b' }}>{rewardsEndedLine(pool.periodFinish)}</p>
                     </div>
                   ) : !publicKey ? (
@@ -969,6 +1036,7 @@ export function SolanaLadderPoolCard({ bungalow, compact = false }: { bungalow: 
                           position={p}
                           pool={pool}
                           nowSec={nowSec}
+                          perDayRaw={perDayOf(p)}
                           decimals={decimals}
                           sym={sym}
                           busy={action?.busy}
@@ -978,6 +1046,7 @@ export function SolanaLadderPoolCard({ bungalow, compact = false }: { bungalow: 
                           onClaim={() => ctx && void run('Claim', () => ladderClaim(ctx, { positionNonce: p.nonce }))}
                           onExit={(early) => ctx && void run(early ? 'Early exit' : 'Withdraw', () => ladderExit(ctx, { positionNonce: p.nonce, early }))}
                           onHatch={() => ctx && void run('Emergency withdraw', () => ladderHatch(ctx, { positionNonce: p.nonce }))}
+                          onExtend={(secs) => ctx && void run('Extend lock', () => ladderExtendLock(ctx, { positionNonce: p.nonce, lockSecs: secs }))}
                         />
                       ))}
                     </ul>
@@ -1241,12 +1310,14 @@ function LiveEarned(
  * not written down.
  */
 function PositionRow({
-  position, pool, nowSec, decimals, sym, busy, canWrite, confirmFor, setConfirmFor,
-  onClaim, onExit, onHatch,
+  position, pool, nowSec, perDayRaw, decimals, sym, busy, canWrite, confirmFor, setConfirmFor,
+  onClaim, onExit, onHatch, onExtend,
 }: {
   position: LadderPositionView;
   pool: LadderPoolView;
   nowSec: number;
+  /** This position's own per day at today's rate; null when it cannot be stated. */
+  perDayRaw: bigint | null;
   decimals: number;
   sym: string;
   busy?: string;
@@ -1256,6 +1327,7 @@ function PositionRow({
   onClaim: () => void;
   onExit: (early: boolean) => void;
   onHatch: () => void;
+  onExtend: (lockSecs: number) => void;
 }) {
   const quotes = quoteExit(position, pool, nowSec);
   const matured = BigInt(nowSec) >= position.lockEnd;
@@ -1283,6 +1355,15 @@ function PositionRow({
 
   const key = (door: string) => `${position.nonce}:${door}`;
 
+  // EXTEND (2026-10-29). Only rungs that RAISE the weight: the program also takes an
+  // equal one, but that lengthens the lock for nothing. `quoteExtend` returns null for
+  // everything the program would refuse — matured, degraded, not later, boost down.
+  const extendOptions = RUNGS.flatMap((secs) => {
+    const q = quoteExtend(position, pool, secs, nowSec);
+    return q?.raises ? [{ secs, ...q }] : [];
+  });
+  const armedExtend = extendOptions.find((o) => confirmFor === key(`extend:${o.secs}`));
+
   return (
     <li className="rounded-[14px] p-4 sm:p-5" style={{ background: 'rgba(7,11,22,0.94)', border: '1px solid rgba(255,255,255,0.08)' }}>
       <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 mb-3">
@@ -1294,6 +1375,11 @@ function PositionRow({
         <p className="text-white/70 text-[12px] m-0 tabular-nums">
           <LiveEarned earnedAt={earnedAt} fallback={fmtRaw(earned, decimals)} decimals={decimals} /> {sym} earned
         </p>
+        {perDayRaw !== null && (
+          <p className="text-[12px] m-0 tabular-nums" style={{ color: 'var(--color-kyle-bright)' }}>
+            {fmtDaily(perDayRaw, decimals)} {sym}/day · {aprLabel(perDayRaw, position.amountRaw)} APR
+          </p>
+        )}
       </div>
 
       {/* The lock, as a line. The read carries no lock START, so this does not
@@ -1347,6 +1433,41 @@ function PositionRow({
           tone="danger"
         />
       </div>
+
+      {/* EXTEND. Heading + one line; the price of it (the dearer early exit) is on screen
+          before Confirm, never in a drop-down. */}
+      {extendOptions.length > 0 && (
+        <div className="mt-4" data-testid="ladder-extend">
+          <p className="text-white text-[13px] font-semibold m-0">Extend lock</p>
+          <p className="text-white/70 text-[12px] m-0 mt-0.5 mb-2">
+            Re-lock from today at a higher boost: a bigger share of the same {sym} rewards, no fee.
+          </p>
+          <div role="group" aria-label="Extend this lock to" className="flex flex-wrap gap-2">
+            {extendOptions.map((o) => (
+              <ExitButton
+                key={o.secs}
+                label={`${lockLabel(o.secs)} · ${boostLabel(o.boostBps)}`}
+                needsConfirm
+                confirmed={confirmFor === key(`extend:${o.secs}`)}
+                onArm={() => setConfirmFor(key(`extend:${o.secs}`))}
+                onCancel={() => setConfirmFor(null)}
+                onGo={() => onExtend(o.secs)}
+                disabled={!canWrite}
+                busy={busy === 'Extend lock'}
+              />
+            ))}
+          </div>
+          {armedExtend && (
+            <p role="note" className="text-[12px] m-0 mt-2" style={{ color: '#f0b26b' }}>
+              Locked until {dateOf(armedExtend.lockEnd)} at {boostLabel(armedExtend.boostBps)} (now {boostLabel(boost)}).
+              Leaving right after would cost{' '}
+              {penaltyPct(penaltyFor(position.amountRaw, armedExtend.lockEnd, BigInt(nowSec)), position.amountRaw)} of
+              this {sym}; the cost falls as the lock runs down.
+            </p>
+          )}
+        </div>
+      )}
+
       {/* What each door pays, one press away (owner, 2026-10-14: fewer words). The
           sentences are the ones that sat under the buttons, word for word; the price
           itself stays on the button. */}

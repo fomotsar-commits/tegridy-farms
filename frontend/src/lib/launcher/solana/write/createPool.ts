@@ -74,10 +74,12 @@ import { LOCKED_LP, LOCKED_SHARES_TEXT, U64_MAX, feeReserveFor, isqrt, lockedBeh
 import { TOKEN_2022_NATIVE_MINT, assessOpening, estimatedLoss } from '../../../solana/lp/opening';
 import { coinPriceDetail, type OutsidePrice } from '../../../solana/lp/outsidePrice';
 import { QUOTE_COINS_OR, canPair, quoteCoin, type QuoteCoin } from '../../../solana/lp/quotes';
-import { BUILDABLE_EXTENSIONS, classifyToken, decodeMintAccount, extensionPlain } from '../../../solana/lp/tokenSafety';
+import { CLOCK_SYSVAR, chainEpochOf } from '../../../solana/lp/poolFinder';
+import { BUILDABLE_EXTENSIONS, EXACT_EXTENSIONS, classifyToken, decodeMintAccount, extensionPlain } from '../../../solana/lp/tokenSafety';
+import { afterFee, epochFee, feeOf, feeRateText } from '../../../solana/lp/transferFee';
 import { MAX_OWN_PRIORITY_LAMPORTS } from './budget';
 import { CP_CREATE_POOL_FEE_RECEIVER, MAX_CREATE_FEE_LAMPORTS, feeAccountStateOf, tierStateOf } from './config';
-import { LP_COPY, accountCheck, coinAccount, rentOf, toRaw, type LpPrepareReads } from './liquidity';
+import { LP_COPY, accountCheck, coinAccount, feeLine, rentOf, toRaw, tokenFeeAt, type LpPrepareReads } from './liquidity';
 import { metadataPda } from './metaplex';
 import { bodySteps, buildAndSimulate, notSent } from './prepare';
 import type { CurveWriteConfig, IntentStep, LpCreateSummary, LpOpenGate, PoolPins, Prepared, PriceGap, TierTerms, TxSummary, WriteRpc } from './types';
@@ -133,6 +135,8 @@ export const CREATE_COPY = {
   rentBand: (most: string) =>
     `That would leave your wallet with too little SOL to pay the fee to open, the account deposits and stay open on the network. The most you can put in from this wallet is ${most}.`,
   signerMismatch: "Internal check failed: the pool's signer does not match the review.",
+  feeChangesNext: (rate: string) =>
+    `This token's transfer fee becomes ${rate} when the next network epoch starts. If this opening lands after that, the token keeps that share of what you put in instead, and you get a different number of pool shares than this review says.`,
 } as const;
 
 // ── pins ─────────────────────────────────────────────────────────────────────
@@ -193,18 +197,19 @@ const TOKEN_ACCOUNT_SIZE = 165;
  * ImmutableOwner. So 165 for a classic mint, for a Token-2022 mint with no extensions,
  * and for one whose only extensions are a name and picture, while that mint's
  * ASSOCIATED account is 170 (`tokenAccountSize`, D20). Interest-bearing and scaled
- * amounts add nothing to an account, so those vaults are 165 too. A string = this site
- * cannot size it: a token program it does not know, or an extension outside the one set
- * this site builds for (`BUILDABLE_EXTENSIONS`).
+ * amounts add nothing to an account, so those vaults are 165 too; a transfer fee adds the
+ * account's own fee record (178). A string = this site cannot size it: a token program it
+ * does not know, or an extension outside `set`: the one set this site builds for
+ * (`BUILDABLE_EXTENSIONS`), or for a pairing coin `EXACT_EXTENSIONS`.
  */
-export function vaultAccountSize(mint: RawAccount): number | string {
+export function vaultAccountSize(mint: RawAccount, set: ReadonlySet<number> = BUILDABLE_EXTENSIONS): number | string {
   if (mint.owner === TOKEN_PROGRAM_ID.toBase58()) return TOKEN_ACCOUNT_SIZE;
   if (mint.owner !== TOKEN_2022_PROGRAM_ID.toBase58()) return 'the token is not owned by a token program';
   const d = decodeMintAccount(mint.owner, mint.data);
   if (!d.ok) return d.reason;
   const types = new Set<ExtensionType>();
   for (const e of d.value.extensions) {
-    if (!BUILDABLE_EXTENSIONS.has(e)) return `it uses ${extensionPlain(e)}`;
+    if (!set.has(e)) return `it uses ${extensionPlain(e)}`;
     const t = getAccountTypeOfMintType(e as ExtensionType) as ExtensionType | undefined;
     if (t === undefined) return `it uses ${extensionPlain(e)}`;
     if (t !== ExtensionType.Uninitialized) types.add(t);
@@ -234,6 +239,8 @@ export interface CreateSnapshot {
   quoteMint: RawAccount | null;
   standard: { address: PublicKey; accounts: Five };
   fresh: { address: PublicKey; accounts: Five };
+  /** The network's epoch, from the Clock read in the same call. */
+  chainEpoch: bigint | null;
 }
 
 function fiveKeys(cp: PublicKey, pool: PublicKey, token0: PublicKey, token1: PublicKey): PublicKey[] {
@@ -245,7 +252,8 @@ function fiveKeys(cp: PublicKey, pool: PublicKey, token0: PublicKey, token1: Pub
  * order: tier 1, the fee account, the token mint, its name record, the wallet, its token
  * account under the classic program and under Token-2022, its account for the pairing
  * coin (the wrapped-SOL account for SOL), the standard pool's five accounts, then the
- * fresh key's five. For a coin that is not SOL a 19th follows: the coin's own mint. A
+ * fresh key's five. For a coin that is not SOL a 19th follows: the coin's own mint. Last
+ * of all, the Clock: its epoch says which of a token's transfer fees applies now. A
  * string = the read failed (its detail); nothing else is a string.
  */
 export async function readCreateSnapshot(
@@ -272,8 +280,9 @@ export async function readCreateSnapshot(
     wsolAddress,
     ...fiveKeys(cp, standard, token0, token1),
     ...fiveKeys(cp, a.fresh, token0, token1),
-    // Last, so the 18 before it are the keys a SOL opening has always read, in order.
+    // After them, so the 18 before it are the keys a SOL opening has always read, in order.
     ...(a.quote.native ? [] : [quoteMintKey]),
+    new PublicKey(CLOCK_SYSVAR),
   ];
   let accs: (RawAccount | null)[];
   try {
@@ -294,6 +303,7 @@ export async function readCreateSnapshot(
     quoteMint: a.quote.native ? null : accs[18] ?? null,
     standard: { address: standard, accounts: accs.slice(8, 13) as Five },
     fresh: { address: a.fresh, accounts: accs.slice(13, 18) as Five },
+    chainEpoch: chainEpochOf(accs[accs.length - 1] ?? null),
   };
 }
 
@@ -475,6 +485,12 @@ export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: Lp
   const vaultSize = vaultAccountSize(mint);
   if (typeof vaultSize === 'string') return notSent('build', CREATE_COPY.cannotSizeVault(vaultSize));
   const decimals = facts.decimals;
+  // 6b. The token's transfer fee now: its vault receives what is sent, less the fee, and
+  // the pool's shares and price come from what the vaults then hold (initialize.rs).
+  const tokenFee = tokenFeeAt(facts, snap.chainEpoch);
+  if (typeof tokenFee === 'string') return notSent('build', tokenFee);
+  const tokenToPool = afterFee(tokenFee, a.token);
+  if (tokenToPool < 1n) return notSent('build', CREATE_COPY.tooSmall);
 
   // 7. Where the pool goes. Anything at all at the standard address or one of its four
   // accounts (a pool, a lamport gift, a wrapped-SOL vault someone pre-funded) sends the
@@ -502,7 +518,7 @@ export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: Lp
     if (!qm) return notSent('build', LP_COPY.coinChanged(quote.symbol, 'its mint is missing'));
     if (qm.owner !== quote.program) return notSent('build', LP_COPY.coinChanged(quote.symbol, 'it sits under another token program'));
     if (qm.data.length < 82 || qm.data[44] !== quote.decimals) return notSent('build', LP_COPY.coinChanged(quote.symbol, 'its decimals differ'));
-    const size = vaultAccountSize(qm);
+    const size = vaultAccountSize(qm, EXACT_EXTENSIONS);
     if (typeof size === 'string') return notSent('build', CREATE_COPY.cannotSizeVault(`${quote.symbol}: ${size}`));
     quoteVaultSize = size;
   }
@@ -524,7 +540,8 @@ export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: Lp
   // market price" is Jupiter's own ANSWER that it has no route, for the token or (owner
   // ruling 2026-10-07) for the pairing coin. Any other state is a price that was not
   // read, and never builds.
-  const opening = assessOpening({ tokenMint: mintText, quote, quoteAmount: a.quote, token: a.token, tokenDecimals: decimals, outside, coinOutside, safety });
+  // The price the pool opens at: what reaches its two vaults.
+  const opening = assessOpening({ tokenMint: mintText, quote, quoteAmount: a.quote, token: tokenToPool, tokenDecimals: decimals, outside, coinOutside, safety });
   const price = opening.price;
   if (opening.verdict !== 'allowed' || (price.state !== 'agrees' && price.state !== 'disagrees' && price.state !== 'no-market')) {
     if (outside.kind === 'unread') return notSent('build', CREATE_COPY.priceUnread(outside.detail));
@@ -539,10 +556,15 @@ export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: Lp
   // amounts typed, in the pool's own coin. Display only: it decides nothing.
   const priceGap: PriceGap | null =
     price.state === 'disagrees'
-      ? { diff: price.diff, lossQuote: estimatedLoss({ quoteAmount: a.quote, token: a.token, tokenDecimals: decimals, marketPricePerToken: price.reference, quote }) }
+      ? { diff: price.diff, lossQuote: estimatedLoss({ quoteAmount: a.quote, token: tokenToPool, tokenDecimals: decimals, marketPricePerToken: price.reference, quote }) }
       : null;
   const warnings = [...opening.warnings];
   if (priceGap) warnings.push(LP_COPY.priceGapLoss(priceGap.lossQuote === null ? null : coinText(priceGap.lossQuote, quote), 'the market price'));
+  // 9c. A fee that changes when the next network epoch starts. A deposit, a withdrawal and a
+  // swap are held to their limits across that change; an opening has none (initialize.rs
+  // takes no minimum), so one that lands after it pays the new fee and gets other shares.
+  const next = tokenFee && facts.transferFee && snap.chainEpoch !== null ? epochFee(facts.transferFee, snap.chainEpoch + 1n) : null;
+  if (tokenFee && next && feeOf(next, a.token) !== feeOf(tokenFee, a.token)) warnings.push(CREATE_COPY.feeChangesNext(feeRateText(next)));
 
   // 10. The wallet's accounts. The tokens leave by CPI inside `initialize`, so CPI Guard
   // on the source refuses (accountCheck). An approved spender on a source is not refused:
@@ -612,7 +634,7 @@ export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: Lp
     if (snap.signerLamports < setAside) return notSent('build', CREATE_COPY.needSol(solText(setAside), solText(snap.signerLamports)));
     availableQuote = snap.quoteAccount.account ? amountOf(snap.quoteAccount.account) : 0n;
   }
-  const planned = planCreate({ quoteIsToken0, quote: a.quote, token: a.token, availableQuote, availableToken });
+  const planned = planCreate({ quoteIsToken0, quote: a.quote, token: a.token, availableQuote, availableToken, tokenFee });
   if ('problem' in planned) return notSent('build', createProblemCopy(planned, decimals, quote));
 
   // 13. Pins.
@@ -707,7 +729,9 @@ export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: Lp
       const c = bodySteps(steps).find((s) => s.kind === 'pool-create');
       if (!c || c.kind !== 'pool-create') return 'The opening is missing from the transaction.';
       const put = { quote: quoteIsToken0 ? c.init0 : c.init1, token: quoteIsToken0 ? c.init1 : c.init0 };
-      const supply = isqrt(c.init0 * c.init1);
+      // The pool counts what reaches its vaults: the token's side less its transfer fee.
+      const vault = { quote: put.quote, token: afterFee(tokenFee, put.token) };
+      const supply = isqrt(vault.quote * vault.token);
       const summary: LpCreateSummary = {
         kind: 'lp-create',
         pool: c.pool,
@@ -718,10 +742,11 @@ export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: Lp
         quote,
         quoteIsToken0,
         put,
+        transferFee: feeLine(tokenFee, put.token - vault.token),
         supply,
         lpAmount: supply - LOCKED_LP,
         lpDecimals: 9,
-        locked: { quote: lockedBehind(put.quote, supply), token: lockedBehind(put.token, supply) },
+        locked: { quote: lockedBehind(vault.quote, supply), token: lockedBehind(vault.token, supply) },
         createFee,
         feeReceiver: CP_CREATE_POOL_FEE_RECEIVER,
         rents: { neverRefunded, lpAccount: lpAccountRent },

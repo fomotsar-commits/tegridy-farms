@@ -90,8 +90,6 @@ export type ZapStepId =
   | 'add-liquidity'
   | 'approve-farm'
   | 'farm-stake'
-  | 'approve-vault'
-  | 'vault-deposit'
   | 'approve-staking'
   | 'staking-lock';
 
@@ -275,8 +273,6 @@ export function planZap(descriptor: ZapDescriptor, routes: ZapRoutes, expectedCh
     return { ok: false, code: 'amount-invalid', detail: 'The input amount is zero.' };
   }
 
-  // The farm and the vault take the SAME asset — the vault's constructor asserts
-  // `farm.stakingToken() == asset` — so they share every leg but the last two.
   return venue.id === 'staking-lock'
     ? planStakingLock(descriptor, routes, venue, amountIn)
     : planLpPosition(descriptor, routes, venue, amountIn);
@@ -507,12 +503,11 @@ function planLpPosition(d: ZapDescriptor, routes: ZapRoutes, venue: ZapVenue, am
 
   const depositStage = liquidityStage + 1;
   const lpAmount: ZapAmount = { kind: 'measured', key: 'lp' };
-  const isVault = venue.id === 'compounder-vault';
-  const destination = isVault ? venue.target : LP_FARMING_ADDRESS;
+  const destination = LP_FARMING_ADDRESS;
   steps.push({
-    id: isVault ? 'approve-vault' : 'approve-farm',
+    id: 'approve-farm',
     stage: depositStage,
-    label: isVault ? 'Approve LP for the vault' : 'Approve LP for the farm',
+    label: 'Approve LP for the farm',
     kind: 'approve',
     holdingAfter: null,
     token: TEGRIDY_LP_ADDRESS,
@@ -520,9 +515,9 @@ function planLpPosition(d: ZapDescriptor, routes: ZapRoutes, venue: ZapVenue, am
     amount: lpAmount,
   });
   steps.push({
-    id: isVault ? 'vault-deposit' : 'farm-stake',
+    id: 'farm-stake',
     stage: depositStage,
-    label: isVault ? 'Deposit LP into the vault' : 'Stake LP in the farm',
+    label: 'Stake LP in the farm',
     kind: 'deposit',
     holdingAfter: venue.positionLabel,
     token: TEGRIDY_LP_ADDRESS,
@@ -539,7 +534,7 @@ function planLpPosition(d: ZapDescriptor, routes: ZapRoutes, venue: ZapVenue, am
     );
   }
   notes.push(
-    `${isVault ? 'The vault takes' : 'The farm stakes'} the LP this zap actually minted, read from your balance after the liquidity leg.`,
+    'The farm stakes the LP this zap actually minted, read from your balance after the liquidity leg.',
   );
 
   // Worst case runs down one chain at a time: a swap hands value to the liquidity leg,

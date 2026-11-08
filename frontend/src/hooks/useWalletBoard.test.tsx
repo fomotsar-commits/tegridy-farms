@@ -12,6 +12,7 @@ type Entry = { status: 'success'; result: unknown } | { status: 'failure'; error
 type Contract = { address: string; functionName: string; args?: readonly unknown[]; chainId: number };
 
 const chain = vi.hoisted(() => ({
+  loading: false,
   native: {} as Record<number, bigint | 'fail'>,
   read: (_c: Contract): Entry => ({ status: 'failure', error: new Error('unset') }),
   toweli: {} as Record<string, unknown>,
@@ -22,6 +23,7 @@ vi.mock('wagmi', () => ({
   useAccount: () => ({ address: USER }),
   useBalance: ({ chainId }: { chainId: number }) => {
     const v = chain.native[chainId];
+    if (chain.loading) return { isLoading: true, isError: false, data: undefined, refetch: vi.fn() };
     return v === 'fail'
       ? { isLoading: false, isError: true, data: undefined, refetch: vi.fn() }
       : { isLoading: false, isError: false, data: { value: v ?? 0n }, refetch: vi.fn() };
@@ -48,6 +50,8 @@ const qr = BUNGALOWS.find((b) => b.id === 'qr')!;
 const LOCK_END = BigInt(Math.floor(Date.UTC(2031, 5, 1, 12) / 1000));
 
 beforeEach(() => {
+  localStorage.clear();
+  chain.loading = false;
   chain.native = { 1: 10n ** 18n, 8453: 0n };
   chain.prices = [{ token: pepe.address!.toLowerCase(), priceUsd: 0.00001, withheld: false }];
   chain.toweli = { isDeployed: true, isLoading: false, positionUnread: false, hasPosition: false, stakedAmount: 0n, refetchAll: vi.fn() };
@@ -128,5 +132,51 @@ describe('useWalletBoard on Ethereum and Base', () => {
     chain.read = (c) => (c.address === pepe.stakePool && c.functionName === 'positionsOf' ? fail : base(c));
     const { result } = renderHook(() => useWalletBoard());
     expect(legOf(result.current.positions, 'evm-ladders').status).toBe('unread');
+  });
+});
+
+// Owner, 2026-10-24: "the dashboard takes a couple seconds to load ... can we make it instant".
+describe('useWalletBoard: the last read, drawn while the new one is under way', () => {
+  it('draws a loading part from this wallet’s last read, with when it was read', () => {
+    const first = renderHook(() => useWalletBoard());
+    expect(legOf(first.result.current.holdings, 'eth-holdings').status).toBe('ok');
+    first.unmount();
+
+    chain.loading = true;
+    const { result } = renderHook(() => useWalletBoard());
+    const named = result.current.holdings.find((l) => l.key === 'eth-holdings')!;
+    expect(named.leg.status).toBe('ok');
+    expect(legOf(result.current.holdings, 'eth-holdings').rows!.map((r) => [r.symbol, r.amount])).toEqual([['ETH', '1'], ['PEPE', '5,000,000']]);
+    expect(named.readAt).toBeGreaterThan(Date.now() - 60_000);
+  });
+
+  it('draws the new read the moment it lands, no longer marked as the last read', () => {
+    renderHook(() => useWalletBoard()).unmount();
+    chain.loading = true;
+    const { result, rerender } = renderHook(() => useWalletBoard());
+    expect(result.current.holdings.find((l) => l.key === 'eth-holdings')!.readAt).toBeDefined();
+    chain.loading = false;
+    chain.native = { 1: 2n * 10n ** 18n, 8453: 0n };
+    rerender();
+    const named = result.current.holdings.find((l) => l.key === 'eth-holdings')!;
+    expect(named.readAt).toBeUndefined();
+    expect(legOf(result.current.holdings, 'eth-holdings').rows![0]!.amount).toBe('2');
+  });
+
+  it('never draws the last read over a part the new read could not read', () => {
+    renderHook(() => useWalletBoard()).unmount();
+    chain.native = { 1: 'fail', 8453: 0n };
+    const { result } = renderHook(() => useWalletBoard());
+    expect(legOf(result.current.holdings, 'eth-holdings').status).toBe('unread');
+  });
+
+  it('draws nothing kept for a wallet it has not read: still "reading"', () => {
+    localStorage.setItem('tegridy-wallet-board-v1', JSON.stringify({
+      ts: Date.now(),
+      wallets: { '0x2222222222222222222222222222222222222222': { at: Date.now(), legs: { 'eth-holdings': { at: Date.now(), rows: [] } } } },
+    }));
+    chain.loading = true;
+    const { result } = renderHook(() => useWalletBoard());
+    expect(legOf(result.current.holdings, 'eth-holdings').status).toBe('loading');
   });
 });

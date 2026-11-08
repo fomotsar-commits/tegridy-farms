@@ -1,6 +1,7 @@
 import { lazy } from 'react';
 import { SectionHost } from './SectionHost';
 import { LAUNCH_SECTION } from '../lib/navConfig';
+import { CountdownTop } from '../components/heat/Countdown';
 
 // Token launch rail (Doppler V4 integration). LIVE since 2026-07-22
 // (LAUNCHER_ENABLED = true); renders the create wizard. Still in-page-gated by
@@ -37,18 +38,23 @@ const LaunchSimulatorPage = lazy(() => import('./LaunchSimulatorPage'));
  * arrive wrapped in the creator's navigation.
  */
 export default function LaunchHubPage() {
+  // The page opens on the countdown for a wallet under the launch floor (island answer
+  // twenty-five, screen 2): the door in the tab below draws it, and it rises to here, above the
+  // tabs. A tab with no door (the simulator), or a door where no launch can be made, draws none.
   return (
-    <SectionHost
-      section={LAUNCH_SECTION}
-      idPrefix="launch"
-      ariaLabel="Launch sections"
-      chains={{ label: 'Launch network', missing: 'No launches here' }}
-      panels={{
-        '/launch': LaunchPage,
-        '/curve-launch': CurveLaunchPage,
-        '/eth-curve': EthCurvePage,
-        '/launch-simulator': LaunchSimulatorPage,
-      }}
-    />
+    <CountdownTop>
+      <SectionHost
+        section={LAUNCH_SECTION}
+        idPrefix="launch"
+        ariaLabel="Launch sections"
+        chains={{ label: 'Launch network', missing: 'No launches here' }}
+        panels={{
+          '/launch': LaunchPage,
+          '/curve-launch': CurveLaunchPage,
+          '/eth-curve': EthCurvePage,
+          '/launch-simulator': LaunchSimulatorPage,
+        }}
+      />
+    </CountdownTop>
   );
 }

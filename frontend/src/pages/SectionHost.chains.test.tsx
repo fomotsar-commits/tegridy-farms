@@ -105,9 +105,16 @@ describe('Pools, with its network drop-down', () => {
   });
 });
 
+// The Launch section the day the EVM curve's switch opens (curveChains.ts CURVE_LAUNCH_OPEN):
+// its network drop-down reads the curve's chains. While it is closed nothing launches anywhere.
+const LAUNCH_CURVE_OPEN: NavSection = {
+  ...LAUNCH_SECTION,
+  items: LAUNCH_SECTION.items.map((i) => (i.to === '/eth-curve' ? { ...i, soon: false, live: true } : i)),
+};
+
 describe('Launch, with its network drop-down', () => {
   it("reads the curve's own ?c= and keeps it when a tab that names no chain is opened", () => {
-    at(LAUNCH_SECTION, '/eth-curve?c=8453', 'Launch network');
+    at(LAUNCH_CURVE_OPEN, '/eth-curve?c=8453', 'Launch network');
     expect(screen.getByRole('button', { name: 'Launch network: Base' })).toBeInTheDocument();
     expect(tabs()).not.toContain('Launchpad');
     fireEvent.click(screen.getByRole('tab', { name: 'Simulator' }));
@@ -122,5 +129,39 @@ describe('Launch, with its network drop-down', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Launch network: Base' }));
     fireEvent.click(screen.getByRole('option', { name: /Ethereum/ }));
     expect(where()).toBe('/eth-curve?c=1');
+  });
+});
+
+// Build 2 (2026-11-01): Solana first. With nothing to read the network from (no `?chain=`, no
+// room, a wallet on a chain the venue does not run on), a page is on the first network it serves,
+// in the drop-down's order: Solana, Base, Robinhood Chain, Ethereum.
+describe('with nothing to read the network from', () => {
+  it('a tab that names no network is on Solana where the section serves it', () => {
+    const section: NavSection = {
+      heading: 'Launch',
+      hub: '/curve-launch',
+      items: [
+        { to: '/curve-launch', label: 'Memetics Curve (Solana)', tabLabel: 'Solana Curve' },
+        { to: '/launch', label: 'Launch', tabLabel: 'Launch door' },
+        { to: '/launch-simulator', label: 'Launch Simulator', tabLabel: 'Simulator' },
+      ],
+    };
+    at(section, '/launch-simulator', 'Launch network');
+    expect(screen.getByRole('button', { name: 'Launch network: Solana' })).toBeInTheDocument();
+    // The launch door names no network while it is closed (answer twenty-six): it is on Solana too.
+    expect(tabs()).toEqual(['Solana Curve', 'Launch door', 'Simulator']);
+  });
+
+  it('else on the first network the section serves: Base, while launching on Solana is off', () => {
+    expect(LAUNCH_SECTION.items.find((i) => i.to === '/curve-launch')?.soon, 'the precondition: the Solana curve is off').toBe(true);
+    at(LAUNCH_CURVE_OPEN, '/launch-simulator', 'Launch network');
+    expect(screen.getByRole('button', { name: 'Launch network: Base' })).toBeInTheDocument();
+  });
+
+  it('a wallet on a chain the venue does not run on reads as the first network the tab serves', () => {
+    wallet.isConnected = true;
+    wallet.chainId = 42161;
+    at(POOLS_SECTION, '/liquidity', 'Pools network');
+    expect(screen.getByRole('button', { name: 'Pools network: Base' })).toBeInTheDocument();
   });
 });

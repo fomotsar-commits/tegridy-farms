@@ -4,6 +4,8 @@
 // ladder is members-only (owner, 2026-09-21): its claim strip stacks under the ladder
 // in the same full-row cell, and the funding card spans row 2 alone.
 import { describe, it, expect, vi } from 'vitest';
+// Harvest (components/farm/HarvestCard.tsx) needs the app's wagmi root; it has its own tests.
+vi.mock('../farm/HarvestCard', () => ({ HarvestCard: () => null }));
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import type { Bungalow } from '../../lib/bungalows';

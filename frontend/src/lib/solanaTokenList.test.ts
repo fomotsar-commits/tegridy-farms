@@ -19,6 +19,7 @@ import {
   isVenueCoin,
   needsRiskAck,
   withVenueCoinsFirst,
+  searchTokens,
   isRiskAcked,
   rememberRiskAck,
   forgetRiskAck,
@@ -27,6 +28,39 @@ import {
 import { BAYLA_MINT } from './bungalows';
 import { QUOTE_COINS } from './solana/lp/quotes';
 import { cspAllows } from '../test/csp';
+
+/** The island's SOY (bungalows.ts), and a mint that is not it but differs in one middle character. */
+const SOY_MINT = '8zsZESzrGoYVi1dVH4QNWXJ2EfW4v287aEGNiDvQpump';
+const SOY_COPY = `${SOY_MINT.slice(0, 20)}k${SOY_MINT.slice(21)}`;
+
+describe('search names every coin as the pool screens do (owner, 2026-10-22: a copy reads "fake SOY")', () => {
+  afterEach(() => vi.unstubAllGlobals());
+  const answer = (rows: unknown[]) =>
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => rows })));
+
+  it('a copy of SOY’s ticker at another mint is "fake SOY"; the real SOY and an unknown coin keep their tickers', async () => {
+    answer([
+      { id: SOY_COPY, symbol: 'SOY', name: 'SOY', decimals: 6 },
+      { id: SOY_MINT, symbol: 'SOY', name: 'SOY', decimals: 6 },
+      { id: 'CRYiNG1111111111111111111111111111111111pump', symbol: 'CRYING', name: 'Crying', decimals: 6 },
+    ]);
+    const found = await searchTokens('SOY');
+    expect(found.map((t) => [t.mint, t.symbol])).toEqual([
+      [SOY_COPY, 'fake SOY'],
+      [SOY_MINT, 'SOY'],
+      ['CRYiNG1111111111111111111111111111111111pump', 'CRYING'],
+    ]);
+  });
+
+  it('a copy of the venue’s BAYLA or of SOL is named too; a coin with no ticker keeps the head of its mint', async () => {
+    answer([
+      { id: `${BAYLA_MINT.slice(0, 20)}k${BAYLA_MINT.slice(21)}`, symbol: 'BAYLA', name: 'BAYLA', decimals: 6 },
+      { id: 'So1ana1111111111111111111111111111111111111', symbol: 'SOL', name: 'Solana', decimals: 9 },
+      { id: 'NoTicker11111111111111111111111111111111111', symbol: '', name: '', decimals: 6 },
+    ]);
+    expect((await searchTokens('x')).map((t) => t.symbol)).toEqual(['fake BAYLA', 'fake SOL', 'NoTi…']);
+  });
+});
 
 describe('isUnverified — the one verified/unverified decision', () => {
   it('treats an UNSET flag as unverified (the curated BAYLA case)', () => {
@@ -233,6 +267,14 @@ describe('recents + favorites store', () => {
     const live = { ...BAYLA, name: 'BAYLA', logoURI: 'https://example.test/b.png', tokenProgram: 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb' };
     store['sol.recents'] = JSON.stringify([live]);
     expect(getRecentTokens()[0]).toEqual(live);
+  });
+
+  it('a copy kept from before copies were named is named now; one already named is kept as it is', () => {
+    store['sol.recents'] = JSON.stringify([
+      { mint: SOY_COPY, symbol: 'SOY', name: 'SOY', decimals: 6 },
+      { mint: `${SOY_MINT.slice(0, 20)}j${SOY_MINT.slice(21)}`, symbol: 'fake SOY', name: 'SOY', decimals: 6 },
+    ]);
+    expect(getRecentTokens().map((t) => t.symbol)).toEqual(['fake SOY', 'fake SOY']);
   });
 
   it('toggles favorites and reports state', () => {

@@ -44,6 +44,8 @@ export function Footer() {
   const lastRoom = getBungalowIdentity();
   const bungalowIdentity = lastRoom && roomSpeaksOn(pathname, lastRoom.id) ? lastRoom : null;
   const toweliVoice = isToweliRoomPage(pathname) || voiceAt(pathname, search) === 'toweli';
+  // Read on each render: useLocation above re-renders the footer on every route change.
+  const here = typeof window !== 'undefined' ? window.location.href : '';
   return (
     <footer
       className="relative mt-8"
@@ -60,9 +62,24 @@ export function Footer() {
 
         <div className="pt-8 pb-3 grid gap-5 md:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)] md:gap-10 md:items-start">
           <div>
-            <p className="text-[18px] font-bold tracking-wide mb-2" style={{ ...SHADOW, color: 'var(--color-kyle)', fontFamily: 'var(--font-family-heading)' }}>
-              <span>{VENUE.markMain}</span><span>{VENUE.markSub}</span>
-            </p>
+            {/* This page's link, one press on every route (island answer twenty-four). A button, not one of
+                the eight links. Beside the wordmark, never under it: its 44px reach is taken back by -my-2
+                and a narrow screen wraps its words, so the footer keeps its height. */}
+            <div className="flex items-center justify-between gap-x-4 mb-2">
+              <p className="shrink-0 text-[18px] font-bold tracking-wide" style={{ ...SHADOW, color: 'var(--color-kyle)', fontFamily: 'var(--font-family-heading)' }}>
+                <span>{VENUE.markMain}</span><span>{VENUE.markSub}</span>
+              </p>
+              {here && (
+                <CopyButton
+                  text={here}
+                  display="Copy this page's link"
+                  copiedMs={1000}
+                  copiedWord="Copied"
+                  className="min-h-[44px] -my-2 text-right text-white/80 text-[12px] underline underline-offset-2 hover:text-white"
+                  style={SHADOW}
+                />
+              )}
+            </div>
             {bungalowIdentity ? (
               <p className="text-[13px] leading-relaxed max-w-[420px]" style={{ ...SHADOW, color: 'var(--color-kyle)' }}>
                 {bungalowIdentity.name} bungalow, Jungle Bay Island. {bungalowIdentity.tagline}{' '}

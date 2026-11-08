@@ -32,8 +32,7 @@
 //
 // If the indexer ever subscribes to the splitter, the ranking comes from THERE,
 // on-chain, for every referrer — not from an opt-in flag in this table. Until
-// then the absent capability is the honest answer, the same way api/_lib/
-// airdrop.js has no endpoint that returns a recipient list.
+// then the absent capability is the honest answer.
 //
 // ─── DEGRADATION CONTRACT ────────────────────────────────────────────────────
 //

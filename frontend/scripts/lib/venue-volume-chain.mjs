@@ -266,10 +266,12 @@ export async function newSignatures(call, address, until) {
   return out.reverse();
 }
 
+// Version 1 transactions are on mainnet (first in one of our pools 2026-11-05); a node
+// refuses any transaction newer than the version asked for, so a newer one stays loud.
 async function getTx(call, signature) {
   const tx = await call("getTransaction", [
     signature,
-    { encoding: "jsonParsed", maxSupportedTransactionVersion: 0, commitment: "finalized" },
+    { encoding: "jsonParsed", maxSupportedTransactionVersion: 1, commitment: "finalized" },
   ]);
   if (!tx) throw new Error(`transaction ${signature} did not come back`);
   return tx;

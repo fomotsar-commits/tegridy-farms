@@ -19,7 +19,7 @@ import { FeatureNotDeployed } from '../components/ui/FeatureNotDeployed';
 import { WrongChainBanner } from '../components/ui/WrongChainGuard';
 import { getChainConfig } from '../lib/chains/registry';
 import { curveLauncherOn, CURVE_LAUNCHER_ABI } from '../lib/launcher/curve';
-import { deployedCurveChains, curveChainNames } from '../lib/launcher/curveChains';
+import { deployedCurveChains, curveChainNames, isCurveLaunchOpen } from '../lib/launcher/curveChains';
 import { LaunchGate } from '../components/LaunchGate';
 import { VenueLaunchLines } from '../components/launcher/VenueLaunchLines';
 import { CurveCreatePanel } from '../components/launcher/CurveCreatePanel';
@@ -208,6 +208,8 @@ export default function EthCurvePage() {
     setSearchParams(next);
   };
   const availability = curveLauncherOn(activeChainId);
+  // A deployed launcher opens nothing by itself: the curve's own switch first (island answer twenty-six).
+  const launchOpen = isCurveLaunchOpen() && availability.status === 'deployed';
   const curveChains = useMemo(() => deployedCurveChains(), []);
   const chainName = getChainConfig(activeChainId)?.name ?? 'Ethereum';
 
@@ -218,7 +220,7 @@ export default function EthCurvePage() {
         <div>
           <div className="flex items-center gap-2.5 flex-wrap">
             <h1 className="heading-luxury text-2xl">Memetics Curve</h1>
-            {availability.status === 'deployed' && (
+            {launchOpen && (
               <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 text-[10px] font-semibold leading-none px-2 py-1 uppercase tracking-wide">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" aria-hidden="true" />
                 Live on {chainName}
@@ -227,7 +229,7 @@ export default function EthCurvePage() {
           </div>
           <p className="text-white/60 text-[13px] mt-1 leading-relaxed">
             Our own bonding curve. Launch, trade, then graduate into our own pool.
-            {curveChains.length > 0 && (
+            {launchOpen && curveChains.length > 0 && (
               <>
                 {' '}
                 Live on <span className="text-white/85">{curveChainNames()}</span>.
@@ -238,21 +240,34 @@ export default function EthCurvePage() {
 
         {availability.status === 'deployed' ? (
           <m.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }} className="space-y-4">
-            {/* First: it decides which launcher the create form below writes to. */}
-            {curveChains.length > 1 && (
-              <ChainLaunchCounts chains={curveChains} selected={activeChainId} onSelect={setPickedChainId} />
+            {launchOpen ? (
+              <>
+                {/* First: it decides which launcher the create form below writes to. */}
+                {curveChains.length > 1 && (
+                  <ChainLaunchCounts chains={curveChains} selected={activeChainId} onSelect={setPickedChainId} />
+                )}
+                <WrongChainBanner requiredChainId={activeChainId} />
+                {/* Only the create form sits behind the door; the list and trade below stay
+                    open to anyone. The panel reads the wallet again at submit. */}
+                <LaunchGate rail="ethereum" below={<VenueLaunchLines rail="ethereum" />}>
+                  <CurveCreatePanel
+                    launcher={availability.address}
+                    chainId={activeChainId}
+                    onTrade={(token) => navigate(`/eth-curve/${token}?c=${activeChainId}`)}
+                  />
+                </LaunchGate>
+              </>
+            ) : (
+              <>
+                {/* Launching off (island answer twenty-six): what the page waits on, in the Solana
+                    curve's words (law 23). Launched tokens and their trade stay below. */}
+                <p data-testid="curve-launch-closed" className="text-white/75 text-[13px] leading-relaxed">
+                  Launching here is not switched on yet.
+                </p>
+                <WrongChainBanner requiredChainId={activeChainId} />
+              </>
             )}
-            <WrongChainBanner requiredChainId={activeChainId} />
-            {/* Only the create form sits behind the door; the list and trade below stay
-                open to anyone. The panel reads the wallet again at submit. */}
-            <LaunchGate rail="ethereum" below={<VenueLaunchLines rail="ethereum" />}>
-              <CurveCreatePanel
-                launcher={availability.address}
-                chainId={activeChainId}
-                onTrade={(token) => navigate(`/eth-curve/${token}?c=${activeChainId}`)}
-              />
-            </LaunchGate>
-            <CurveLaunchesGrid launcher={availability.address} chainId={activeChainId} chainName={chainName} />
+            <CurveLaunchesGrid launcher={availability.address} chainId={activeChainId} chainName={chainName} launchOpen={launchOpen} />
             <TradeByAddress launcher={availability.address} chainId={activeChainId} />
             <CurveHowItWorks />
           </m.div>
