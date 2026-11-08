@@ -80,3 +80,12 @@ export function loanFor(coinMint: string, want: bigint, held: bigint, enabled: b
   if (!enabled || coinMint !== SOL_QUOTE.mint || want <= held) return 0n;
   return want - held;
 }
+
+/**
+ * Whether a trip in `coinMint` can start from a holding of `held`: anything held, or nothing at
+ * all when a loan carries the whole trip (SOL, loans on), as direct trips already did. Measured
+ * 2026-11-08: with the float at 0, the Jupiter and scanner trips were skipped 1,326 times over
+ * 4.4 h ("holds no SOL") while a loan could have carried each; the first trip that left 0.0033
+ * SOL behind let the next two through at 95% borrowed.
+ */
+export const canStartTrip = (coinMint: string, held: bigint, enabled: boolean): boolean => held > 0n || loanFor(coinMint, 1n, held, enabled) > 0n;

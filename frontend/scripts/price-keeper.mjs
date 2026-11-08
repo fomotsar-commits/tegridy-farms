@@ -85,6 +85,12 @@
  *                           http://127.0.0.1:8795/state.json: the keeper also tries the trips
  *                           between two outside pools whose scanner test run passed in the last
  *                           3 minutes, quoting, gating and test-running each itself (default off)
+ *   KEEPER_GAS_LOW_SOL      a trip's gain lands as wrapped SOL, but fees, Jito tips and new
+ *                           accounts are paid in plain SOL: when plain SOL is under this, the
+ *                           running robot unwraps wrapped SOL to bring it back up to
+ *                           KEEPER_GAS_TARGET_SOL, in one test-run transaction that only moves SOL
+ *                           inside its own wallet; checked once a minute (default 0.005; off = never)
+ *   KEEPER_GAS_TARGET_SOL   what plain SOL is brought back to (default 0.02)
  *
  * ─── COMMANDS ───────────────────────────────────────────────────────────────────
  *   status                     the keeper's address and what it holds
@@ -154,11 +160,13 @@ const { listedPools, streamPools, STREAM_REFRESH_MS } = await lib('solana/keeper
 const { isKeeperCoin } = await lib('solana/keeper/plan.ts');
 const { jitoSender } = await lib('solana/keeper/jito.ts');
 const { pollConfirm } = await lib('solana/confirm.ts');
+const { DEFAULT_GAS, GAS_TOPUP_UNITS, gasTopUp, gasTopUpIxs } = await lib('solana/keeper/gas.ts');
 
 const WSOL = new PublicKey('So11111111111111111111111111111111111111112');
 const USDC = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
 const MIN_CHECK_MS = 2_000; // the least time between two quick checks, however often the chain says a pool moved
 const KEEP_LAMPORTS = 10_000_000n; // what `withdraw` leaves behind for fees and rent
+const GAS_CHECK_MS = 60_000; // how often a running robot checks its plain SOL (keeper/gas.ts)
 
 const env = process.env;
 const RPC = env.KEEPER_RPC_URL?.trim() || 'https://api.mainnet-beta.solana.com';
@@ -884,6 +892,16 @@ async function main() {
     const checkMs = num('KEEPER_CHECK_SEC', 10) * 1000;
     const dustMs = num('KEEPER_DUST_EVERY_MIN', 60) * 60_000;
     const maxDailySol = num('KEEPER_MAX_DAILY_SOL', 0.05);
+    // Plain SOL for fees and tips, kept up from wrapped SOL (keeper/gas.ts); KEEPER_GAS_LOW_SOL=off: never.
+    const gasOff = ['off', 'no', '0'].includes(env.KEEPER_GAS_LOW_SOL?.trim().toLowerCase() ?? '');
+    const lamportsOf = (sol) => BigInt(Math.round(sol * 1e9));
+    const gas = gasOff
+      ? null
+      : {
+          lowLamports: lamportsOf(num('KEEPER_GAS_LOW_SOL', Number(DEFAULT_GAS.lowLamports) / 1e9)),
+          targetLamports: lamportsOf(num('KEEPER_GAS_TARGET_SOL', Number(DEFAULT_GAS.targetLamports) / 1e9)),
+        };
+    if (gas && gas.targetLamports <= gas.lowLamports) throw new Error('KEEPER_GAS_TARGET_SOL must be more than KEEPER_GAS_LOW_SOL');
     // The day's SOL spent on fees and new accounts, kept here: a log that cannot be written or
     // read (open in a spreadsheet, a missing folder) never switches the cap off. Seeded from the
     // log when it can be read.
@@ -905,6 +923,30 @@ async function main() {
       const hold = holdReason();
       if (hold) throw new Error(hold);
       return sendSigned(tx, key);
+    };
+    // Plain SOL under the low mark: unwrap wrapped SOL back up to the target, test-run first, sent
+    // through `send` (so the stop file and the day's cap hold it too), its fee counted in the cap.
+    let gasSaid = null;
+    const topUpGas = async () => {
+      const h = await holdings(owner);
+      const unwrap = gasTopUp(h.sol, h.hasWsol ? h.wsol : 0n, gas);
+      if (unwrap === 0n) {
+        // Said once while it lasts.
+        const why = h.sol < gas.lowLamports ? `Plain SOL is ${fmt(h.sol, 9)} and no wrapped SOL is held to top it up: fees and tips may run out` : null;
+        if (why && why !== gasSaid) log(why);
+        gasSaid = why;
+        return;
+      }
+      gasSaid = null;
+      const { blockhash } = await conn.getLatestBlockhash('confirmed');
+      const instructions = gasTopUpIxs(owner, h.wsol, unwrap, settings.microLamports);
+      const tx = new VersionedTransaction(new TransactionMessage({ payerKey: owner, recentBlockhash: blockhash, instructions }).compileToV0Message());
+      const sim = await conn.simulateTransaction(tx, { sigVerify: false });
+      if (sim.value.err) throw new Error(`test run refused: ${JSON.stringify(sim.value.err)}`);
+      const r = await send(tx);
+      spentToday();
+      spent.sol += (5_000 + Math.ceil((GAS_TOPUP_UNITS * settings.microLamports) / 1e6)) / 1e9;
+      log(`Plain SOL ${fmt(h.sol, 9)} was under ${fmt(gas.lowLamports, 9)}: unwrapped ${fmt(unwrap, 9)} of ${fmt(h.wsol, 9)} wrapped SOL, sent ${r.signature}: ${r.outcome}`);
     };
     const jito = jitoSender({
       fetchImpl: fetch,
@@ -1007,6 +1049,7 @@ async function main() {
     log(`  Raydium ${settings.allowRaydium ? 'ALLOWED' : 'refused'} · new coin accounts ${settings.payNewAccountRent ? 'opened on any paying trip' : 'opened only when the trip earns the rent back'}`);
     log(`  SOL trips sent: ${settings.jito ? 'through Jito as bundles, tip up to 30% of the test-run gain, in the floor, at least 20,000 lamports (else the usual way); a lost race costs nothing' : 'the usual way (KEEPER_JITO=yes sends them through Jito)'}`);
     log(`  SOL trips past the float: ${settings.flashLoans ? 'a Kamino loan inside the trip (0.001% fee, counted in the floor), up to the cap' : 'made smaller (KEEPER_FLASH_LOANS=yes borrows the rest inside the trip)'}`);
+    log(`  plain SOL for fees and tips: ${gas ? `under ${fmt(gas.lowLamports, 9)} SOL, wrapped SOL is unwrapped to bring it back to ${fmt(gas.targetLamports, 9)}, checked every minute` : 'not topped up (KEEPER_GAS_LOW_SOL=off)'}`);
     log(`  quick check every ${checkMs / 1000} s · full pass at least every ${intervalMs / 1000} s · at most ${maxDailySol} SOL a day on fees and new accounts`);
     log(`  earnings log ${TRADES} · gap log ${GAPS} · to pause sending, create ${STOP_FILE}`);
     log(`  Jupiter prices reused for ${priceTtlSec} s · woken by chain updates: ${wake ? redactRpcUrl(wsUrl) : 'off, the timer only'}`);
@@ -1019,6 +1062,7 @@ async function main() {
     let seen = null;
     let lastPass = 0;
     let lastDust = 0;
+    let lastGas = 0;
     let held = null;
     // What the dashboard shows of a live robot: a file it rewrites every round. One that cannot
     // be written only leaves the dashboard saying the robot has not been seen.
@@ -1103,6 +1147,11 @@ async function main() {
       if (Date.now() - lastDust >= dustMs) {
         lastDust = Date.now();
         await sellDust(io, settings).catch((e) => log(`Leftover sale stopped: ${e instanceof Error ? e.message : String(e)}`));
+      }
+      // Live and sending only (io.send is unset in a dry run, or while the stop file or the cap holds).
+      if (gas && io.send && Date.now() - lastGas >= GAS_CHECK_MS) {
+        lastGas = Date.now();
+        await topUpGas().catch((e) => log(`Plain SOL top-up stopped: ${e instanceof Error ? e.message : String(e)}`));
       }
       if (flag('--once')) {
         wake?.close();

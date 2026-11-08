@@ -21,7 +21,7 @@ import type { TransferFee } from '../lp/transferFee';
 import type { GapSeen, Skip } from './gaps';
 import { atLeastCheck } from './lighthouse';
 import { MAX_TRIP_UNITS, PLAIN_AFTER_DROP_MS, coinBounds, tokenGate, type TripBans } from './rule';
-import { KAMINO_LOOKUP_TABLE, flashBorrowIx, flashFee, flashRepayIx, loanFor } from './flashLoan';
+import { KAMINO_LOOKUP_TABLE, canStartTrip, flashBorrowIx, flashFee, flashRepayIx, loanFor } from './flashLoan';
 import { jitoTip, jitoTipIx, pickTipAccount, type JitoOutcome } from './jito';
 import { bestSize, fitLeg, legOut, nearMiss, shortShare } from './size';
 import type { OutsideTake } from './takes';
@@ -813,7 +813,8 @@ async function jupiterTrip(
   const fees = feesOf(view, tokenFee);
   const acc = accountsFor(owner, view);
   const before = await balances(io.rpc, [acc.coinAta, acc.tokenAta, acc.otherAta, owner]);
-  if (before.coin <= 0n) {
+  // Nothing held: a loan carries the whole trip when it can (SOL, loans on), else skipped.
+  if (!canStartTrip(plan.coinMint, before.coin, s.flashLoans)) {
     io.log(`${name}: skipped, the keeper holds no ${view.quote.symbol}`);
     return 'no-coin';
   }
@@ -971,7 +972,7 @@ async function viaTrip(
   // The keeper's USDC: no leg may name it.
   const usdcAta = ata(USDC_QUOTE.mint, TOKEN_PROGRAM_ID);
   const before = await balances(io.rpc, [coinAta, aAta, bAta, owner]);
-  if (before.coin <= 0n) {
+  if (!canStartTrip(SOL_QUOTE.mint, before.coin, s.flashLoans)) {
     io.log(`${name}: skipped, the keeper holds no SOL`);
     return 'no-coin';
   }
@@ -1082,7 +1083,7 @@ async function outsideTrip(io: KeeperIo, s: KeeperSettings, t: OutsideTake, usd:
     return 'no-sol-price';
   }
   const before = await balances(io.rpc, [coinAta, tokenAta, otherAta, owner]);
-  if (before.coin <= 0n) {
+  if (!canStartTrip(coin.mint, before.coin, s.flashLoans)) {
     io.log(`${name}: skipped, the keeper holds no ${coin.symbol}`);
     return 'no-coin';
   }
