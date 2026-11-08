@@ -134,6 +134,8 @@ export function RangeInner({ readers, load, mode }: { readers: RangeReaders; loa
   const openTier = tierList && poolList?.length === 0 ? (tierList.find((t) => t.index === 0) ?? null) : null;
   const tokenDecimals =
     quoteCoin(tokenMint)?.decimals ?? (freeze.read?.kind === 'ok' ? (freeze.read.value.kind === 'mint' ? freeze.read.value.decimals : 'not-a-mint') : freeze.read ? 'unread' : null);
+  // The "Open this pool" card shows, so the empty notice points to it (on a phone it is a screen below).
+  const canCreate = openTier !== null && tokenDecimals !== 'not-a-mint';
 
   const owner = signerState.kind === 'disconnected' ? null : signerState.address;
   const positions = useChainRead(owner ? `positions:${owner}` : null, nonce, () => readers.walletPositions(owner!));
@@ -234,7 +236,7 @@ export function RangeInner({ readers, load, mode }: { readers: RangeReaders; loa
         ) : tierList.length === 0 ? (
           <Notice>The range program has no fee tiers on this network yet, so there is no pool to put liquidity in.</Notice>
         ) : poolList.length === 0 ? (
-          <Notice>{`No range pool for ${tokenLabel ?? 'this token'} with ${coin.symbol} yet.`}</Notice>
+          <Notice>{`No range pool for ${tokenLabel ?? 'this token'} with ${coin.symbol} yet.${canCreate ? ' Open it below.' : ''}`}</Notice>
         ) : (
           <div className="space-y-2" role="group" aria-label="Pools by fee">
             {poolList.map((x) => {
@@ -281,7 +283,7 @@ export function RangeInner({ readers, load, mode }: { readers: RangeReaders; loa
         />
       )}
 
-      {openTier && tokenDecimals !== 'not-a-mint' && (
+      {canCreate && openTier && (
         <RangeCreateCard
           key={`${tokenMint}:${coin.mint}`}
           tier={openTier}

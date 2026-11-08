@@ -230,6 +230,8 @@ describe('opening a new pool', () => {
   it('a fee tier and no pool: says what opening costs and how a position earns, in plain sight, each coin by ticker and whole address', async () => {
     show(readers(noPool));
     const card = await screen.findByTestId('range-create');
+    // The empty notice above points down to it.
+    expect(screen.getByTestId('range-pools').textContent).toContain('No range pool for BAYLA with SOL yet. Open it below.');
     expect(card.textContent).toContain(`BAYLA · ${BAYLA_MINT}`);
     expect(card.textContent).toContain(`SOL · ${WSOL_MINT}`);
     const cost = within(card).getByText(/Opening this pool costs 0\.5 SOL, paid to the venue’s vault/);
@@ -349,6 +351,7 @@ describe('opening a new pool', () => {
     show(readers({ ...noPool, tiers: { kind: 'ok', value: [{ ...tier(), index: 1 }] } }));
     await waitFor(() => expect(screen.getByTestId('range-pools').textContent).toContain('No range pool for BAYLA with SOL yet.'));
     expect(screen.queryByTestId('range-create')).toBeNull();
+    expect(screen.getByTestId('range-pools').textContent).not.toContain('Open it below');
   });
 });
 
