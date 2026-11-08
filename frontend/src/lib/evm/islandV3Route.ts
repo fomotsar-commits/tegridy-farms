@@ -77,7 +77,4 @@ export const V3_POOL_SLOT0_ABI = [
   },
 ] as const;
 
-/** Where SwapFeeRouter sends the venue fee; the router route pays the same address. */
-export const REVENUE_DISTRIBUTOR_ABI = [
-  { type: 'function', name: 'revenueDistributor', stateMutability: 'view', inputs: [], outputs: [{ name: '', type: 'address' }] },
-] as const;
+export { REVENUE_DISTRIBUTOR_ABI } from './islandBasketEvm';

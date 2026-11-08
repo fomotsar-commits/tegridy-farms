@@ -5,10 +5,12 @@ import { useAccount, useBalance, usePublicClient, useSendTransaction } from 'wag
 import { useTOWELIPriceOptional } from '../../contexts/PriceContext';
 import { swapVenueOn } from '../../lib/chains/swapVenue';
 import { getTxUrl } from '../../lib/explorer';
-import { evmBasketFor, MIN_USD_PER_COIN, minOut, shortAmount, splitEvenly, usdText, usdToBaseUnits } from '../../lib/islandBasket';
+import { coinsInOrder, dollarsEach, evmBasketFor, MIN_USD_PER_COIN, minOrderUsd, minOut, shortAmount, splitOrder, usdText, usdToBaseUnits } from '../../lib/islandBasket';
 import { buildEvmOrder, quoteEvmLegs, routeEvmLeg, type EvmLegQuote, type EvmLegRoute, type QuoteClient } from '../../lib/evm/islandBasketEvm';
+import { universalRouterOn } from '../../lib/evm/universalRouter';
 import { extractErrorMessage, isUserRejection, surfaceReceiptNotice, waitForReceiptOutcome } from '../../lib/txErrors';
 import { BasketCta, IslandBasketButton, IslandBasketDialog, type BasketRow, type RowTone } from './IslandBasket';
+import { useBasketSplit } from './useBasketSplit';
 
 /** A quote older than this is asked for again while the order is open (the swap's own window). */
 const REQUOTE_MS = 30_000;
@@ -59,18 +61,28 @@ export function IslandBasketEvm({ chainId, slippagePct }: { chainId: number; sli
   const [tick, setTick] = useState(0);
   // The split a press bought with: it stands until the amount changes, so a new ETH price
   // never re-sizes, or wipes, the order on screen.
-  const [frozen, setFrozen] = useState<{ usd: string; chainId: number; shares: bigint[] } | null>(null);
+  const [frozen, setFrozen] = useState<{ usd: string; chainId: number; split: string; shares: bigint[] } | null>(null);
   const slippageBps = Math.round(slippagePct * 100);
 
-  const n = coins?.length ?? 0;
+  // The trader's split (IslandBasket.tsx useBasketSplit): even until a slider moves. Each share
+  // below is the chain's coin at the same place; a coin at 0% is no leg of the order.
+  const basketSplit = useBasketSplit(useMemo(() => (coins ?? []).map((c) => `${chainId}:${c.token}`), [coins, chainId]));
+  const { split } = basketSplit;
+  const all = coins?.length ?? 0;
+  const n = coinsInOrder(all, split);
   const dollars = Number(usd);
-  const tooSmall = n > 0 && Number.isFinite(dollars) && dollars > 0 && dollars < MIN_USD_PER_COIN * n;
+  const least = minOrderUsd(all, split);
+  const tooSmall = all > 0 && Number.isFinite(dollars) && dollars > 0 && dollars < least;
+  const splitKey = split ? split.join(',') : 'even';
   const computed = useMemo(() => {
     const t = tooSmall ? null : usdToBaseUnits(usd, ethUsd > 0 ? ethUsd : null, 18);
-    return t !== null && n > 0 ? splitEvenly(t, n) : null;
-  }, [usd, ethUsd, tooSmall, n]);
-  const shares = frozen && frozen.usd === usd && frozen.chainId === chainId ? frozen.shares : computed;
+    return t !== null && all > 0 ? splitOrder(t, all, split) : null;
+  }, [usd, ethUsd, tooSmall, all, split]);
+  const shares = frozen && frozen.usd === usd && frozen.chainId === chainId && frozen.split === splitKey ? frozen.shares : computed;
   const total = shares ? shares.reduce((s, x) => s + x, 0n) : null;
+  // The coins this order buys, by their place in the chain's list: the legs, the quotes and
+  // the statuses are all in this order.
+  const active = useMemo(() => (coins && shares ? coins.flatMap((_, i) => (shares[i]! > 0n ? [i] : [])) : []), [coins, shares]);
   // The order these quotes are for: a figure for another amount or chain is never shown as this one's.
   const orderKey = shares ? `${chainId}|${shares.join(',')}|${slippageBps}` : null;
 
@@ -82,8 +94,8 @@ export function IslandBasketEvm({ chainId, slippagePct }: { chainId: number; sli
     : null), [publicClient]);
 
   const legsFor = useCallback(
-    () => (coins && shares ? coins.map((coin, i) => ({ coin, amountIn: shares[i]! })) : null),
-    [coins, shares],
+    () => (coins && shares ? active.map((i) => ({ coin: coins[i]!, amountIn: shares[i]! })) : null),
+    [coins, shares, active],
   );
 
   // Quote on open, on a new amount (after typing settles), and every REQUOTE_MS while idle.
@@ -103,8 +115,8 @@ export function IslandBasketEvm({ chainId, slippagePct }: { chainId: number; sli
     }, 500);
     return () => clearTimeout(t);
   }, [open, running, client, venue, orderKey, legsFor, tick]);
-  // A new amount, chain or wallet is a new order: the last one's results go (never mid-run).
-  const orderOf = `${usd}|${chainId}|${address ?? ''}`;
+  // A new amount, split, chain or wallet is a new order: the last one's results go (never mid-run).
+  const orderOf = `${usd}|${splitKey}|${chainId}|${address ?? ''}`;
   const [resultsFor, setResultsFor] = useState(orderOf);
   if (resultsFor !== orderOf && !running) {
     setResultsFor(orderOf);
@@ -135,7 +147,7 @@ export function IslandBasketEvm({ chainId, slippagePct }: { chainId: number; sli
     setRunning(true);
     setNotice(null);
     setStatuses({});
-    if (shares) setFrozen({ usd, chainId, shares });
+    if (shares) setFrozen({ usd, chainId, split: splitKey, shares });
     const all = legs.map((_, i) => i);
     try {
       mark(all, { tone: 'busy', text: 'Checking prices…' });
@@ -221,36 +233,47 @@ export function IslandBasketEvm({ chainId, slippagePct }: { chainId: number; sli
   }
 
   const rows: BasketRow[] = coins.map((coin, i) => {
-    const r = routes?.[i];
+    const tag = coin.bridged ? `from ${coin.bridged.from === 'ethereum' ? 'Ethereum' : 'Solana'}` : undefined;
+    const key = `${coin.room}-${coin.token}`;
+    // A coin the split gives nothing is not bought, and says so.
+    if (split && split[i] === 0) return { key, room: coin.room, symbol: coin.symbol, tag, venue: 'Not in this order', pays: '–' };
+    const k = active.indexOf(i);
+    const r = k >= 0 ? routes?.[k] : undefined;
     const out = r && r.via !== 'none' ? r.out : null;
     return {
-      key: `${coin.room}-${coin.token}`,
+      key,
       room: coin.room,
       symbol: coin.symbol,
-      tag: coin.bridged ? `from ${coin.bridged.from === 'ethereum' ? 'Ethereum' : 'Solana'}` : undefined,
+      tag,
       venue: venueWord(r),
       pays: out !== null ? `≈ ${shortAmount(Number(formatUnits(out, coin.decimals)))}` : quoting || (!shown && orderKey) ? null : '–',
-      status: statuses[i],
+      status: k >= 0 ? statuses[k] : undefined,
     };
   });
 
-  const ours = routes?.flatMap((r, i) => (r.via === 'ours' ? [i] : [])) ?? [];
+  const ours = routes?.flatMap((r, k) => (r.via === 'ours' ? [k] : [])) ?? [];
   const oursFee = ours.length ? shown?.[ours[0]!]?.ours?.feeBps : undefined;
-  const feeLine = ours.length && oursFee !== undefined
-    ? `${ours.map((i) => coins[i]!.symbol).join(', ')} through our pool: its ${(Number(oursFee) / 100).toFixed(2)}% site fee goes to the venue. The rest go through Uniswap: no site fee, the venue earns nothing on them.`
-    : 'No site fee: every coin goes through Uniswap, so the venue earns nothing on this order. Uniswap’s pool fee is inside each quote.';
+  const pct = (bps: bigint) => `${(Number(bps) / 100).toFixed(2)}%`;
+  const viaV2 = routes?.flatMap((r, k) => (r.via === 'v2-router' ? [coins[active[k]!]!.symbol] : [])) ?? [];
+  // Base: Uniswap's Universal Router pays the venue on every V3 coin, as the swap does.
+  const routerFee = shown?.find((q) => q.venueFee)?.venueFee?.bps;
+  const feeLine = universalRouterOn(chainId)
+    ? `Site fee: ${routerFee !== undefined ? `${pct(routerFee)} of each coin bought through Uniswap V3 or our own pool goes to the venue` : 'each coin bought through Uniswap V3 or our own pool pays the venue its fee'}, in ETH.${viaV2.length ? ` ${viaV2.join(', ')} through Uniswap V2: no site fee, the venue earns nothing on ${viaV2.length === 1 ? 'it' : 'them'}.` : ''} Uniswap’s pool fee is inside each quote.`
+    : ours.length && oursFee !== undefined
+      ? `${ours.map((k) => coins[active[k]!]!.symbol).join(', ')} through our pool: its ${pct(oursFee)} site fee goes to the venue. The rest go through Uniswap: no site fee, the venue earns nothing on them.`
+      : 'No site fee: every coin goes through Uniswap, so the venue earns nothing on this order. Uniswap’s pool fee is inside each quote.';
 
   const perCoin = Number.isFinite(dollars) && dollars > 0 && n > 0 ? dollars / n : 0;
-  const summary = total !== null ? `${n} coins · ${usdText(perCoin)} each · ≈ ${Number(formatUnits(total, 18)).toFixed(5)} ETH` : null;
+  const summary = total !== null ? `${n} coin${n === 1 ? '' : 's'} · ${split ? 'your split' : `${usdText(perCoin)} each`} · ≈ ${Number(formatUnits(total, 18)).toFixed(5)} ETH` : null;
   const unread = routes?.some((r) => r.via === 'none') ?? false;
   const insufficient = total !== null && balance !== undefined && balance.value < total;
 
-  let label = `Buy all ${n}`;
+  let label = n === all ? `Buy all ${n}` : `Buy ${n} coin${n === 1 ? '' : 's'}`;
   let disabled = false;
   if (running) [label, disabled] = ['Buying…', true];
   else if (!isConnected) [label, disabled] = ['Connect a wallet to buy', true];
   else if (!dollars) [label, disabled] = ['Enter an amount', true];
-  else if (tooSmall) [label, disabled] = [`Enter at least ${usdText(MIN_USD_PER_COIN * n)}`, true];
+  else if (tooSmall) [label, disabled] = [`Enter at least ${usdText(least)}`, true];
   else if (ethUsd <= 0) [label, disabled] = ['ETH price unavailable', true];
   else if (insufficient) [label, disabled] = ['Not enough ETH', true];
   else if (!routes || quoting) [label, disabled] = ['Getting prices…', true];
@@ -265,7 +288,7 @@ export function IslandBasketEvm({ chainId, slippagePct }: { chainId: number; sli
 
   return (
     <>
-      <IslandBasketButton count={n} symbols={coins.map((c) => c.symbol)} onOpen={() => setOpen(true)} />
+      <IslandBasketButton count={all} symbols={coins.map((c) => c.symbol)} onOpen={() => setOpen(true)} />
       <IslandBasketDialog
         open={open}
         onClose={() => setOpen(false)}
@@ -278,12 +301,13 @@ export function IslandBasketEvm({ chainId, slippagePct }: { chainId: number; sli
         rows={rows}
         feeLine={feeLine}
         notice={shownNotice}
+        split={{ pcts: split ?? coins.map(() => 100 / all), dollars: dollarsEach(dollars, all, split), even: !split, onPct: basketSplit.setPct, onEven: basketSplit.reset }}
         cta={<BasketCta label={label} disabled={disabled} onClick={() => void buy()} />}
         after={txCount > 1 && !running ? <span className="text-white/60 text-[10px]">{txCount} wallet prompts for this order.</span> : null}
         finePrint={
           <>
             <p>Every pool here was read on chain. The order quotes each coin’s pools, takes the one that pays most, and takes our own pool when it pays at least as much after its fee, the same rule as the swap.</p>
-            <p>The coins Uniswap carries go in one transaction through Uniswap’s own router. If any of them would get less than its minimum, that whole transaction is refused and none of them is bought.{v2Leg ? ' Uniswap’s router on Base cannot reach V2 pools, so a coin whose best pool is V2 is a second transaction.' : ''}{oursLeg ? ' A coin bought in our pool is its own transaction, through the same router as the swap.' : ''}</p>
+            <p>The coins Uniswap carries go in one transaction through Uniswap’s own router. If any of them would get less than its minimum, that whole transaction is refused and none of them is bought.{universalRouterOn(chainId) ? ' That router first pays the venue its fee out of each coin’s ETH, then swaps the rest, so each quote is already net of it.' : ''}{v2Leg ? ' A coin whose best pool is Uniswap V2 is its own transaction, through Uniswap’s V2 router, and pays the venue nothing, as on the swap.' : ''}{oursLeg ? ' A coin bought in our pool is its own transaction, through the same router as the swap.' : ''}</p>
             {coins.some((c) => c.bridged) && <p>TOWELI and RIZZ here are the Wormhole copies of the coins on Ethereum and Solana: Wormhole’s bridge contract names both.</p>}
             <p>Slippage is your swap setting ({slippagePct.toFixed(2)}%). The amount is split at the ETH price from Chainlink. At least {usdText(MIN_USD_PER_COIN)} a coin, so fees do not eat the buy. You also pay the network fee; your wallet shows it.</p>
           </>
