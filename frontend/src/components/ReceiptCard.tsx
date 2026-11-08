@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { RECEIPT_WORDS } from '../lib/arrival';
 import { clockText, closeReceipt, useReceipt, type Receipt } from '../lib/receipt';
+import { sheetRoom } from '../lib/sheet';
 import { useScreenMove } from '../lib/screenMove';
 import { useFocusTrap } from '../hooks/useFocusTrap';
 import { headTail } from './ui/CoinName';
@@ -101,6 +102,8 @@ function OpenReceipt({ receipt }: { receipt: Receipt }) {
     closeReceipt();
   };
   const title = receipt.title ?? (receipt.action === 'added' ? `Added SOL + ${receipt.coin.symbol}` : `${receipt.action === 'sold' ? 'Sold' : 'Bought'} ${receipt.coin.symbol}`);
+  // An add shares on X (island answer thirty-one): its link names the coin's room, else its mint.
+  const lpTarget = receipt.action === 'added' ? (sheetRoom(receipt.coin.mint)?.id ?? receipt.coin.mint) : null;
 
   return createPortal(
     <div ref={layerRef} className="fixed inset-0 z-[85] flex items-start justify-center overflow-y-auto px-4" data-testid="receipt-layer">
@@ -190,9 +193,9 @@ function OpenReceipt({ receipt }: { receipt: Receipt }) {
           </p>
         )}
 
-        {/* The one green button: the island's card for this wallet, the object that travels. */}
+        {/* The one green button: after an add, X with the post written; else the island's card for this wallet, the object that travels. */}
         <a
-          href={RECEIPT_WORDS.cardUrl(receipt.wallet)}
+          href={lpTarget ? RECEIPT_WORDS.lpIntent(receipt.coin.symbol, lpTarget) : RECEIPT_WORDS.cardUrl(receipt.wallet)}
           target="_blank"
           rel="noopener noreferrer"
           onClick={tick}
@@ -200,7 +203,7 @@ function OpenReceipt({ receipt }: { receipt: Receipt }) {
           style={{ height: 52, fontSize: 15, fontWeight: 700 }}
           data-testid="receipt-share"
         >
-          {RECEIPT_WORDS.share}
+          {lpTarget ? RECEIPT_WORDS.shareX : RECEIPT_WORDS.share}
         </a>
         <button type="button" onClick={close} className="mt-1 w-full min-h-[44px] text-[13px] font-semibold" style={{ color: '#c4b5fd' }} data-testid="receipt-back">
           {RECEIPT_WORDS.back}
