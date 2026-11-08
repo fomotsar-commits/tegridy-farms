@@ -1506,7 +1506,7 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
   });
   const [buyToken, setBuyToken] = useState<SolToken>(() => findSolToken(openingBuy) ?? BAYLA);
   // The sheet with no room opens on its bungalow row with nothing picked (island answer twenty-seven):
-  // no quote is asked and its green button is off until Any coin picks one (a room's chip reopens the form on it).
+  // no quote is asked and its green button is off until a room's chip picks one (it reopens the form on that coin).
   const [unpicked, setUnpicked] = useState(() => inSheet !== null && inSheet.room === null);
   // ?amt=<decimal> presets the pay amount (token-denominated). Malformed
   // values fall back silently — a bad deep link must never break the page.
@@ -2577,7 +2577,7 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
   );
   const Heading = home ? 'h2' : 'h1';
   // The coin lists, on the page and in the sheet alike (inside the sheet they draw over it, in its focus).
-  // The BUY list is also the sheet's Any coin (island answer twenty-seven): a pick ends the sheet's unpicked state.
+  // The BUY list is also the sheet's You get press (island answer twenty-seven): a pick ends the sheet's unpicked state.
   const pickers = (
     <>
       {picker === 'pay' && (
@@ -2658,7 +2658,8 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
           </Suspense>
         ) : (
           <fieldset disabled={held} className="border-0 p-0 m-0 min-w-0 space-y-3">
-            <SheetBuyRow coin={sheetCoin} onAny={() => setPicker('buy')} />
+            {/* The row's last item, where "Any coin" stood (owner, 2026-11-07): the home card's network drop-down, its list opening leftward. */}
+            <SheetBuyRow coin={sheetCoin} network={<ChainSwitch at="/solana" align="end" />} />
             {/* The amount, a 64 px box: what you pay, in Archivo 800 32 px, the coin at its right, a press that picks it. */}
             <div className="flex items-center gap-3 h-16 pl-4 pr-2 rounded-xl" style={{ background: 'var(--color-bg-input)', border: '1px solid var(--color-border)' }}>
               <label className="flex-1 min-w-0 flex items-center h-full">
