@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { PublicKey } from '@solana/web3.js';
 import { depositFrom, planFromCeiling, priceAtSqrt, type Pair, type TickRange } from '../../../lib/solana/clmm/rangeMath';
 import type { RangePool } from '../../../lib/solana/clmm/read';
@@ -11,13 +11,14 @@ import { useReturnFocus, useTxFlow } from '../curve/useTxFlow';
 import type { CurveSignerState } from '../curve/useCurveSigner';
 import type { PendingTradesState } from '../curve/usePendingTrades';
 import type { CurveWriteConfig, RangeWriteApi, WriteRpc } from '../curve/ports';
+import { txVersionOf } from '../../../lib/launcher/solana/write/txVersion';
 import type { RangeOpenReads } from '../../../lib/launcher/solana/write/range';
 import { marketGap, type MarketGap } from '../../../lib/solana/clmm/priceCheck';
 import type { OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
 import { RangeReviewDisclosure, RangeRisks } from './RangeRisks';
 import { RangePickFields } from './RangePickFields';
 import { pickProblem, useRangePick } from './rangePick';
-import { bothAmounts, coinAmount, priceNumberText, priceText, tokenAmount } from './rangeText';
+import { bothAmounts, coinAmount, priceNumberText, priceText, tokenAmount, withTokenLabel } from './rangeText';
 import { useFlowReports } from './useRangeData';
 
 const TOLERANCE_HINT =
@@ -32,6 +33,8 @@ const TOLERANCE_HINT =
 export function RangeOpenCard(p: {
   pool: RangePool;
   pair: Pair;
+  /** The token's ticker as the pool screens give it (identity.ts), once its check was read. */
+  tokenLabel: string | null;
   canOpen: boolean;
   why: string | null;
   write: { api: RangeWriteApi; cfg: CurveWriteConfig } | null;
@@ -44,9 +47,11 @@ export function RangeOpenCard(p: {
   onBusy: (busy: boolean) => void;
   onFinished: () => void;
 }) {
-  const { pool, pair } = p;
+  // The pool's pair for the maths and the market read; `pair` adds the ticker every line names the token by.
+  const { pool, pair: base, tokenLabel } = p;
+  const pair = useMemo(() => withTokenLabel(base, tokenLabel), [base, tokenLabel]);
   const v = pool.pool;
-  const pick = useRangePick(pair, v);
+  const pick = useRangePick(base, v);
   const [tolerance, setTolerance] = useState<bigint | null>(DEFAULT_SLIPPAGE_BPS);
   // While a deposit is under review or on its way, the range and the amount it was built from stay put.
   const [busy, setBusy] = useState(false);
@@ -64,7 +69,7 @@ export function RangeOpenCard(p: {
   const reads = p.reads;
   useEffect(() => {
     let live = true;
-    const pr = pair;
+    const pr = base;
     const ask = (mint: string, decimals: number) =>
       reads.outsidePrice(mint, decimals).catch((e: unknown): OutsidePrice => ({ kind: 'unread', detail: e instanceof Error ? e.message : String(e) }));
     void Promise.all([ask(pr.tokenMint, pr.tokenDecimals), pr.quote.native ? Promise.resolve(null) : ask(pr.quote.mint, pr.quote.decimals)]).then(([token, coin]) => {
@@ -73,7 +78,7 @@ export function RangeOpenCard(p: {
     return () => {
       live = false;
     };
-  }, [reads, pair, v.address, v.sqrtPriceX64]);
+  }, [reads, base, v.address, v.sqrtPriceX64]);
   const marketText =
     gap === null
       ? 'reading…'
@@ -152,6 +157,7 @@ function OpenFlow(p: {
     if (!signer || p.tolerance === null) return;
     const args = {
       owner: signer.publicKey,
+      txVersion: txVersionOf(signer),
       pool: new PublicKey(p.pool.pool.address),
       tickLower: p.range.tickLower,
       tickUpper: p.range.tickUpper,

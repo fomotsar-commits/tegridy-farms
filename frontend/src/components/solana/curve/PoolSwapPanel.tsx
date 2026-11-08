@@ -19,6 +19,7 @@ import { WalletNeeded } from './WalletNeeded';
 import { useReturnFocus, useTxFlow, type OnSent, type OnSettled } from './useTxFlow';
 import type { ActionAvailability, LaunchPoolRead, OpenGate, WriteApi, WriteRpc } from './ports';
 import type { CurveSignerState } from './useCurveSigner';
+import { txVersionOf } from '../../../lib/launcher/solana/write/txVersion';
 
 type Side = 'buy' | 'sell';
 
@@ -217,7 +218,7 @@ export function PoolSwapPanel({
               raw !== null &&
               slippageBps !== null &&
               void flow.prepare(
-                () => api.preparePoolSwap(rpc, gate, { owner: signer.publicKey, mint, pool: p, side, amountIn: raw, slippageBps }),
+                () => api.preparePoolSwap(rpc, gate, { owner: signer.publicKey, mint, pool: p, side, amountIn: raw, slippageBps, txVersion: txVersionOf(signer) }),
                 { repeatable: true },
               )
             }

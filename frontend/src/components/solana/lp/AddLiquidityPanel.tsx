@@ -1,8 +1,12 @@
 import { useCallback, useId, useMemo, useState, type ReactNode } from 'react';
+import { raiseAddReceipt } from './addReceipt';
+import { useConnection } from '@solana/wallet-adapter-react';
+import { tokenTicker } from '../../../lib/solana/lp/identity';
 import { PublicKey } from '@solana/web3.js';
 import { parseDecimalToBaseUnits } from '../../../lib/launcher/solana/curve/format';
 import { displaySafe } from '../../../lib/launchMetadata/validate';
-import { feeReserveFor, isPlanProblem, planDeposit, solSetAside, spendableSol, type DepositPlan, type PlanProblem } from '../../../lib/solana/lp/liquidityMath';
+import { feeReserveFor, isPlanProblem, planDeposit, poolFeesOf, solSetAside, spendableSol, type DepositPlan, type PlanProblem } from '../../../lib/solana/lp/liquidityMath';
+import { feeNow, feeRateText } from '../../../lib/solana/lp/transferFee';
 import { estimatedLoss } from '../../../lib/solana/lp/opening';
 import type { PoolView } from '../../../lib/solana/lp/poolFinder';
 import { REFERENCE_NAME, type PoolHealth } from '../../../lib/solana/lp/poolHealth';
@@ -14,6 +18,7 @@ import { TxFlowView } from '../curve/TxFlowView';
 import { WalletNeeded } from '../curve/WalletNeeded';
 import { useReturnFocus, useTxFlow, type OnSettled } from '../curve/useTxFlow';
 import type { LpOpenGate, LpWriteApi } from '../curve/ports';
+import { txVersionOf } from '../../../lib/launcher/solana/write/txVersion';
 import { FundingNextStep } from './FundingNextStep';
 import { LpAmountPair, type LpSide } from './LpAmountPair';
 import { LpBeforeYouAdd, LpReviewDisclosure } from './LpDisclosures';
@@ -66,6 +71,8 @@ interface AddPanelProps {
   title?: string;
   lead?: ReactNode;
   onSettled?: OnSettled;
+  /** Step 1 of an add made with one coin: its signature and the coin it paid. The receipt shows that swap's fee. */
+  leg?: { signature: string; paid: 'quote' | 'token' };
 }
 
 function AddInner({
@@ -78,6 +85,7 @@ function AddInner({
   title = 'Add liquidity to this pool',
   lead,
   onSettled,
+  leg,
   writes,
   api,
   gate,
@@ -100,12 +108,17 @@ function AddInner({
   const [slippageBps, setSlippageBps] = useState<bigint | null>(initial?.bps ?? DEFAULT_SLIPPAGE_BPS);
 
   const { record } = writes.pending;
+  const { connection } = useConnection();
+  const ticker = tokenTicker(view.tokenMint, safety) ?? 'tokens';
+  const owner = signer?.publicKey.toBase58() ?? null;
   const settled = useCallback<OnSettled>(
     (outcome, prepared, sig) => {
       record(outcome, prepared, sig);
+      // Every add that lands ends on the receipt card (island answer twenty-five, build 6).
+      if (outcome.status === 'confirmed' && owner) raiseAddReceipt(connection, outcome.signature, { view, wallet: owner, ticker, decimals, leg });
       onSettled?.(outcome, prepared, sig);
     },
-    [record, onSettled],
+    [record, onSettled, connection, owner, view, ticker, decimals, leg],
   );
   const flow = useTxFlow(api, writes.rpc, settled, writes.pending.sent);
   const { target: reviewRef, fallback: headingRef } = useReturnFocus(flow.state.step);
@@ -149,22 +162,27 @@ function AddInner({
     availableToken,
   });
 
+  // The token's transfer fee, sent on top of what the pool takes. The page does not read
+  // the network's epoch: with a change pending this is the larger of the two settings, and
+  // the review says exactly (transferFee.ts `feeNow`).
+  const tokenFee = feeNow(safety?.kind === 'read' ? safety.facts?.transferFee : null, null);
   const plans = useMemo(() => {
     if (!typed || maxIn === null || maxIn === 0n) return null;
-    const base = { quoteIsToken0: view.quoteIsToken0, driving: typed.side, maxIn, bps: slippageBps ?? DEFAULT_SLIPPAGE_BPS };
+    const base = { quoteIsToken0: view.quoteIsToken0, driving: typed.side, maxIn, bps: slippageBps ?? DEFAULT_SLIPPAGE_BPS, fees: poolFeesOf(view.quoteIsToken0, tokenFee) };
     return {
       // The pool's own answer, with no balance rule: what the other box shows.
       free: planDeposit(view.snapshot, { ...base, availableQuote: null, availableToken: null }),
       plan: planDeposit(view.snapshot, { ...base, availableQuote, availableToken }),
     };
-  }, [typed, maxIn, slippageBps, view, availableQuote, availableToken]);
+  }, [typed, maxIn, slippageBps, view, availableQuote, availableToken, tokenFee]);
   const free = plans && !isPlanProblem(plans.free) ? plans.free : null;
   const plan: DepositPlan | null = plans && !isPlanProblem(plans.plan) ? plans.plan : null;
   const problem: PlanProblem | null = plans && isPlanProblem(plans.plan) ? plans.plan : null;
 
   // The coin's side of a plan, in the coin's own base units, and the token's.
   const coinOf = (pl: DepositPlan) => ({ cost: view.quoteIsToken0 ? pl.cost0 : pl.cost1, max: view.quoteIsToken0 ? pl.max0 : pl.max1 });
-  const tokOf = (pl: DepositPlan) => ({ cost: view.quoteIsToken0 ? pl.cost1 : pl.cost0, max: view.quoteIsToken0 ? pl.max1 : pl.max0 });
+  // `fee`: the token's transfer fee inside `cost`, which never reaches the pool.
+  const tokOf = (pl: DepositPlan) => ({ cost: view.quoteIsToken0 ? pl.cost1 : pl.cost0, max: view.quoteIsToken0 ? pl.max1 : pl.max0, fee: view.quoteIsToken0 ? pl.fee1 : pl.fee0 });
   const other: LpSide | null = typed ? (typed.side === 'quote' ? 'token' : 'quote') : null;
   const otherText = free && other ? baseUnitsToInput(other === 'quote' ? coinOf(free).cost : tokOf(free).cost, sideDecimals(other)) : '';
   const boxes = { quote: typed?.side === 'quote' ? typed.text : otherText, token: typed?.side === 'token' ? typed.text : otherText };
@@ -248,6 +266,9 @@ function AddInner({
       case 'overflow':
         problemText = 'These amounts are too large for one transaction.';
         break;
+      case 'transfer-fee':
+        problemText = 'The pool program would refuse this token’s transfer fee at exactly this amount. Change the amount a little.';
+        break;
       default:
         problemText = 'These amounts could not be worked out.';
     }
@@ -274,7 +295,7 @@ function AddInner({
   const off = health.price.state === 'disagrees' ? health.price : null;
   const loss =
     off && plan
-      ? estimatedLoss({ quoteAmount: coinOf(plan).cost, token: tokOf(plan).cost, tokenDecimals: decimals, marketPricePerToken: off.reference, quote: coin })
+      ? estimatedLoss({ quoteAmount: coinOf(plan).cost, token: tokOf(plan).cost - tokOf(plan).fee, tokenDecimals: decimals, marketPricePerToken: off.reference, quote: coin })
       : null;
   const lossLine = !off
     ? null
@@ -323,6 +344,7 @@ function AddInner({
     const build = () =>
       api.prepareLpDeposit(writes.rpc, gate, writes.readers, {
         owner: signer.publicKey,
+        txVersion: txVersionOf(signer),
         pool: new PublicKey(view.address),
         tokenMint: new PublicKey(view.tokenMint),
         quoteMint: new PublicKey(view.quote.mint),
@@ -412,6 +434,13 @@ function AddInner({
               <p className="text-white/45 text-[10px]">Worked out from the pool as the page read it; checked again on fresh reads when you press Review.</p>
               <Row label="You put in about" value={`${coinAbout(coinOf(plan).cost, coin)} and ${tok(tokOf(plan).cost)}`} mono={false} />
               <Row label="At most" value={`${coinExact(coinOf(plan).max, coin)} and ${unitsExact(tokOf(plan).max, decimals)} tokens`} mono={false} />
+              {tokenFee && (
+                <Row
+                  label="The token’s own transfer fee"
+                  value={`about ${tok(tokOf(plan).fee)} of those (${feeRateText(tokenFee)}), kept by the token for its fee collector; the pool gets the rest`}
+                  mono={false}
+                />
+              )}
               <Row label="You get" value={`${unitsExact(plan.lp, pool.lpMintDecimals)} pool shares, exactly`} mono={false} />
               <Row label="Your share of the pool" value={shareRow} mono={false} />
               <Row label="Pool fee to add" value="none" mono={false} />

@@ -24,20 +24,18 @@ function seedRandom(seed: number) {
   };
 }
 
-// Opens the splash and stops the page clock once the art is up, so the splash
-// cannot leave on its own and each step of time is exact. The clock runs until
-// paused, so a pause aimed at a moment already gone is aimed again.
+// Opens the splash with the page clock stopped before the page loads, then
+// steps it 50 ms at a time until the art is up (the route's loading fallback
+// needs timers). The splash cannot leave on its own (its bar runs out 1.8 s in)
+// however late the browser reports the art, and each step of time is exact.
 async function openSplashPaused(page: Page) {
   await page.clock.install();
+  await page.clock.pauseAt(Date.now() + 1_000);
   await page.goto('/nakamigos');
-  await page.locator(PIECE).first().waitFor({ timeout: 30_000 });
-  for (let attempt = 0; ; attempt++) {
-    try {
-      await page.clock.pauseAt((await page.evaluate(() => Date.now())) + 200);
-      return;
-    } catch (e) {
-      if (attempt > 4 || !/past/.test(String(e))) throw e;
-    }
+  const deadline = Date.now() + 30_000;
+  while (!(await page.locator(PIECE).count())) {
+    if (Date.now() > deadline) throw new Error('the splash art never came up');
+    await page.clock.runFor(50);
   }
 }
 

@@ -13,6 +13,8 @@ vi.mock('wagmi', async () => {
   return {
     useAccount: () => ({ isConnected: false }),
     useChainId: () => 1,
+    useChains: () => [],
+    useSwitchChain: () => ({ switchChain: () => {}, isPending: false }),
     useReadContract: f.useReadContract,
     useReadContracts: f.useReadContracts,
   };

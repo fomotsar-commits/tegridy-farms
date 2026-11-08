@@ -32,10 +32,8 @@ const VENUE_VOICE_DEBT: Record<string, number> = {
   '/start': 0,
   '/admin': 0,
   '/launch/0x0000000000000000000000000000000000000000': 0,
-  '/vesting': 0,
   '/earn': 0,
   '/island': 0,
-  '/airdrop': 0,
   '/exposure': 0,
   '/chart': 0,
   '/checkout': 0,
@@ -55,7 +53,7 @@ const VENUE_VOICE_DEBT: Record<string, number> = {
   '/terminal': 2,
   '/solana': 1,
   '/launch-simulator': 2,
-  '/community': 1,
+  '/community': 0,
   '/liquidity': 5,
   '/privacy': 7,
   '/trust': 5,
@@ -65,13 +63,19 @@ const VENUE_VOICE_DEBT: Record<string, number> = {
   '/risks': 3,
   '/copy-trading': 10,
   '/tax': 13,
-  '/curve-launch': 7,
-  '/eth-curve': 9,
-  '/alerts': 16,
+  '/curve-launch': 0,
+  '/eth-curve': 6,
+  '/alerts': 14,
   '/yield': 21,
-  '/launch': 24,
-
+  '/launch': 0,
+  // The lore tab of LearnPage. The census gives it TOWELI's voice (it is the TOWELI room's own story),
+  // but its prose is held to the venue's law all the same: see TOWELI_PAGES_HELD_AT_ZERO below.
+  '/lore': 0,
 };
+
+/** TOWELI-room pages that this table may name, but only at 0. The census (e2e/fixtures/routes.ts)
+ *  gives them TOWELI's voice; the owner holds their prose to law 1 anyway. */
+const TOWELI_PAGES_HELD_AT_ZERO = new Set(['/lore']);
 
 /** The three GeckoTerminal routes, read with the feed aborted, so the degraded branch is
  *  what is pinned. The abort needs serviceWorkers: 'block' in playwright.config and a glob
@@ -224,7 +228,9 @@ test.describe('element I: em dashes in venue-voice prose', () => {
     for (const path of Object.keys(VENUE_VOICE_DEBT)) {
       const route = ROUTES.find((r) => navigablePath(r) === path);
       expect(route, `${path} is not in the route fixture`).toBeTruthy();
-      expect(['venue', 'record', 'legal'], `${path} has census voice ${route?.voice}`).toContain(route?.voice);
+      const voices: (string | null | undefined)[] = ['venue', 'record', 'legal'];
+      if (TOWELI_PAGES_HELD_AT_ZERO.has(path) && VENUE_VOICE_DEBT[path] === 0) voices.push('toweli');
+      expect(voices, `${path} has census voice ${route?.voice}`).toContain(route?.voice);
     }
   });
 });
@@ -240,8 +246,9 @@ test.describe('element I: em dashes in venue-voice prose', () => {
 const ROOM_VOICE_DEBT: Record<string, number> = {
   // The settled rooms are at 0 and fail on their first prose dash (roomProse.test.tsx guards
   // the same sources on every push). The TOWELI-skin doors carry the protocol cluster.
-  '/toweli': 11,
-  '/towelie': 11,
+  // 11 -> 9 on 2026-11-08: NFT lending's move to Gondi rewrote copy TOWELI's room shows.
+  '/toweli': 9,
+  '/towelie': 9,
   '/bayla': 0,
   '/pepe': 0,
   '/qr': 0,

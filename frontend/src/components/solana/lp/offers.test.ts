@@ -132,9 +132,10 @@ describe('the leave rule, row by row (spec 3.7)', () => {
     }
   });
 
-  it('a price that could not be read: no add, and it is not a warning; remove offered', () => {
-    expect(add(view(), { price: 'unread' })).toBe('checks');
-    expect(health(view(), { price: 'unread' }).deposits).toMatchObject({ verdict: 'unchecked', warnings: [] });
+  // Answer twenty-seven: the outside price is intel, one row, never a gate.
+  it('an outside price that could not be read: add is offered, and it is not a warning; remove offered', () => {
+    expect(add(view(), { price: 'unread' })).toBe('offer');
+    expect(health(view(), { price: 'unread' }).deposits).toMatchObject({ verdict: 'allowed', warnings: [] });
     expect(remove(position(view()))).toBe('offer');
   });
 
@@ -184,6 +185,26 @@ describe('the leave rule, row by row (spec 3.7)', () => {
     expect(remove(position(v, { lpAmount: 1_000n }))).toBe('offer');
     // An empty side: no amount can come out.
     expect(remove(position(view({ sol: 0n })))).toBe('dust');
+  });
+
+  // Audit CM-2, 2026-11-03: a pool too empty to hold its price takes no deposit (poolHealth.ts).
+  // Whoever holds its last shares can still take them out.
+  it('a pool almost everyone has left: Add is refused by its checks, and Remove is still offered', () => {
+    // 1,100 shares, the locked 100 among them, over 3,480 lamports and 348 units: 0.01 SOL a token.
+    const v = view({ sol: 3_480n, tok: 348n, lpSupply: 1_100n });
+    expect(add(v)).toBe('checks');
+    expect(remove(position(v, { lpAmount: 1_000n }))).toBe('offer');
+  });
+
+  it('a share whose token payout the transfer fee would take whole is dust, though it is enough without the fee', () => {
+    // 1,000 tokens over 10^6 shares: 1,000 shares pay 1 token, and any fee takes at least 1 of it.
+    const v = view({ sol: 10n ** 12n, tok: 1_000n, lpSupply: 1_000_000n });
+    const p = position(v, { lpAmount: 1_000n });
+    const oneBps = { epoch: 0n, maximumFee: (1n << 64n) - 1n, basisPoints: 1 };
+    expect(withdrawOffer({ mode: 'on', gate: OPEN, position: p, held: false })).toBe('offer');
+    expect(withdrawOffer({ mode: 'on', gate: OPEN, position: p, held: false, tokenFee: oneBps })).toBe('dust');
+    // Two tokens out, one reaching the wallet: offered.
+    expect(withdrawOffer({ mode: 'on', gate: OPEN, position: position(v, { lpAmount: 2_000n }), held: false, tokenFee: oneBps })).toBe('offer');
   });
 
   it('a pool that does not pair the token with SOL, or that could not be read: no remove from here', () => {
@@ -641,6 +662,32 @@ describe('createOffer', () => {
         ]);
       });
 
+      // Owner ruling 2026-11-01: one pool per pair and fee tier.
+      it('a pair is taken by its passing pool on the public tier, and by nothing else', () => {
+        const sol = poolOn(1);
+        const failingUsdc = pairedOn(USDC_QUOTE, USDC_UNIT);
+        const otherTierBayla = pairedOn(BAYLA_QUOTE, USDC_UNIT, 0);
+        let a = withPool(withPool(base(), sol, 'allowed'), failingUsdc, 'refused');
+        a = withPool(a, otherTierBayla, 'allowed');
+        expect(facts(a).map((x) => [x.coin.symbol, x.taken?.pool.address ?? null])).toEqual([
+          ['SOL', sol.view.address],
+          // A pool that takes no deposits leaves its pair free: never nothing to add to and nothing to open.
+          ['USDC', null],
+          // A pool on another fee tier takes nothing on the public one.
+          ['BAYLA', null],
+        ]);
+        expect(facts(a)[0]!.taken?.warned).toBe(false);
+      });
+
+      it('a pool this tab opened takes its pair once it passes, and a card that offers no opening takes none', () => {
+        const mine = poolOn(1);
+        const a = withPool(base(), mine, 'allowed');
+        const opened = (p: string) => p === mine.view.address;
+        expect(facts(a, { openedHere: opened })[0]).toMatchObject({ advice: { kind: 'opened-here' }, taken: { pool: mine.view } });
+        expect(facts(withPool(base(), poolOn(1), 'refused'), { openedHere: () => true })[0]!.taken).toBeNull();
+        expect(facts(a, { advise: false }).map((x) => x.taken)).toEqual([null, null, null]);
+      });
+
       it('a card that offers no opening names no pool for any coin', () => {
         const a = withPool(base(), poolOn(1), 'allowed');
         expect(facts(a, { advise: false }).map((x) => x.advice)).toEqual([{ kind: 'none' }, { kind: 'none' }, { kind: 'none' }]);
@@ -809,7 +856,7 @@ describe('createOffer', () => {
     // opening check says each of them above Review. If the check ever stopped saying one,
     // it would be said nowhere in the form: this pins that it cannot.
     it('every code the form leaves out of its top list has a line from the opening check', () => {
-      expect([...POOL_RISK_CODES].sort()).toEqual(['copies-known-name', 'freeze-authority', 'interest-bearing', 'scaled-amount']);
+      expect([...POOL_RISK_CODES].sort()).toEqual(['copies-known-name', 'freeze-authority', 'interest-bearing', 'scaled-amount', 'transfer-fee', 'transfer-fee-mutable']);
       for (const code of POOL_RISK_CODES) {
         expect(tokenReasons(warnedWith(code), 'pools').warned, code).toHaveLength(1);
       }

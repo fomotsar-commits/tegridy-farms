@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useMemo } from "react";
 import NftImage from "./NftImage";
 import { Eth } from "./Icons";
-import { formatPrice } from "../lib/formatPrice";
+import { formatListingPrice } from "../lib/formatPrice";
 import EmptyState from "./EmptyState";
 import { useActiveCollection } from "../contexts/CollectionContext";
 
@@ -210,7 +210,7 @@ export default function Watchlist({ tokens, onPick, addToast, setTab, wallet }) 
                 </div>
                 <div className="watchlist-card-meta">
                   {nft.rank && <span style={{ color: "var(--gold)" }}>Rank #{nft.rank}</span>}
-                  {nft.price && <span style={{ color: "var(--naka-blue)" }}><Eth size={10} /> {formatPrice(nft.price)}</span>}
+                  {nft.price && <span style={{ color: "var(--naka-blue)" }}><Eth size={10} /> {formatListingPrice(nft)}</span>}
                 </div>
                 <div className="watchlist-card-inputs">
                   <div>

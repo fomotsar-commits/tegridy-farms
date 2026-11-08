@@ -6,6 +6,8 @@ import { trackWalletConnect } from '../../lib/analytics';
 import { mainnet } from 'wagmi/chains';
 import { TopNav } from './TopNav';
 import { BottomNav } from './BottomNav';
+import { ActionSheet } from '../sheet/ActionSheet';
+import { ReceiptCard } from '../ReceiptCard';
 import { Background } from './Background';
 import { Footer } from './Footer';
 import { Toaster } from 'sonner';
@@ -178,7 +180,7 @@ export function AppLayout() {
           fixed header on a notched standalone launch. */}
       <div
         className="min-h-screen relative z-10 pb-20 min-[800px]:pb-0 safe-area-content-bottom"
-        style={{ paddingTop: 'calc(3.5rem + env(safe-area-inset-top, 0px))' }}
+        style={{ paddingTop: 'var(--app-header-h, calc(3.5rem + env(safe-area-inset-top, 0px)))' }}
       >
         {/* #82 audit + R039: wrong-network banner.
             A11Y-R08: this was `position: fixed` directly under the header while
@@ -194,7 +196,7 @@ export function AppLayout() {
             ref={alertRef}
             className="sticky z-50 bg-red-600/95 backdrop-blur-sm text-white text-center py-2 px-4 text-[12px] md:text-[13px] font-medium shadow-lg"
             style={{
-              top: 'calc(56px + env(safe-area-inset-top, 0px))',
+              top: 'var(--app-header-h, calc(56px + env(safe-area-inset-top, 0px)))',
               paddingLeft: 'max(1rem, env(safe-area-inset-left))',
               paddingRight: 'max(1rem, env(safe-area-inset-right))',
             }}
@@ -228,6 +230,10 @@ export function AppLayout() {
       </div>
 
       <BottomNav />
+      {/* The sheet (island answer twenty-five, build 3): Add or Buy over whatever page is under it. */}
+      <ActionSheet />
+      {/* The receipt card (island answer twenty-five, build 6): every Solana swap and add ends on it. */}
+      <ReceiptCard />
       {/* LiveActivity's ticker is TOWELI-denominated (price pill, protocol
           feed) — muted alongside the assistant in a token-first bungalow,
           where the muse's quiet line takes the corner instead. */}

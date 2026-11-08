@@ -75,22 +75,27 @@ describe('a dark kind is disclosed where it is chosen', () => {
   it('splits the kinds into readable and not, and marks the dark ones', () => {
     renderBuilder();
     const groups = select().querySelectorAll('optgroup');
-    expect([...groups].map((g) => g.label)).toEqual(['Readable on this deployment', 'Cannot evaluate here yet']);
+    expect([...groups].map((g) => g.label)).toEqual(['Readable on this deployment', 'Not readable on this deployment yet']);
 
     const dark = groups[1]!;
     const labels = [...dark.querySelectorAll('option')].map((o) => o.textContent);
-    // The indexer is unhosted AND has no transfer or lock tables, so these two
-    // cannot be evaluated by any rail on this deployment.
+    // The indexer is unhosted AND has no transfer or lock tables, so the first two
+    // cannot be evaluated by any rail on this deployment. Loan deadlines: NFT lending is
+    // on Gondi's contract, and no reader for its loans is built yet.
     expect(labels).toEqual([
-      'Whale move — not readable here',
-      'LP unlock — not readable here',
+      'Whale move (not readable here)',
+      'LP unlock (not readable here)',
+      'Loan deadline approaching (not readable here)',
     ]);
   });
 
-  it('picking a dark kind explains that it will report “cannot evaluate”, not calm', () => {
+  it('picking a dark kind explains that it will report “Could not evaluate”, not calm', () => {
     renderBuilder();
     fireEvent.change(select(), { target: { value: 'whale-move' } });
-    expect(screen.getByText(/will not report calm/i)).toBeInTheDocument();
+    const line = screen.getByText(/will not report calm/i);
+    // The inbox's own words for a gap (lib/alerts/inbox.ts), never "cannot".
+    expect(line.textContent).toContain('it will report “Could not evaluate” until the source is readable');
+    expect(line.textContent).not.toMatch(/\bcannot\b/i);
   });
 
   it('the readable group holds the pool kinds', () => {

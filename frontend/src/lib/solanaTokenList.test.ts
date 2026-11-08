@@ -19,14 +19,55 @@ import {
   isVenueCoin,
   needsRiskAck,
   withVenueCoinsFirst,
+  searchTokens,
   isRiskAcked,
   rememberRiskAck,
   forgetRiskAck,
+  ISLAND_TOKENS,
+  isIslandCoin,
+  venueMark,
+  listedTokens,
+  searchFinds,
+  resolveMints,
   type SolToken,
 } from './solanaTokenList';
-import { BAYLA_MINT } from './bungalows';
+import { BAYLA_MINT, BUNGALOWS } from './bungalows';
+import { __setPoolCoinsForTests, parsePoolCoins } from './solana/poolCoins';
 import { QUOTE_COINS } from './solana/lp/quotes';
 import { cspAllows } from '../test/csp';
+
+/** The island's SOY (bungalows.ts), and a mint that is not it but differs in one middle character. */
+const SOY_MINT = '8zsZESzrGoYVi1dVH4QNWXJ2EfW4v287aEGNiDvQpump';
+const SOY_COPY = `${SOY_MINT.slice(0, 20)}k${SOY_MINT.slice(21)}`;
+
+describe('search names every coin as the pool screens do (owner, 2026-10-22: a copy reads "fake SOY")', () => {
+  afterEach(() => vi.unstubAllGlobals());
+  const answer = (rows: unknown[]) =>
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => rows })));
+
+  it('a copy of SOY’s ticker at another mint is "fake SOY"; the real SOY and an unknown coin keep their tickers', async () => {
+    answer([
+      { id: SOY_COPY, symbol: 'SOY', name: 'SOY', decimals: 6 },
+      { id: SOY_MINT, symbol: 'SOY', name: 'SOY', decimals: 6 },
+      { id: 'CRYiNG1111111111111111111111111111111111pump', symbol: 'CRYING', name: 'Crying', decimals: 6 },
+    ]);
+    const found = await searchTokens('SOY');
+    expect(found.map((t) => [t.mint, t.symbol])).toEqual([
+      [SOY_COPY, 'fake SOY'],
+      [SOY_MINT, 'SOY'],
+      ['CRYiNG1111111111111111111111111111111111pump', 'CRYING'],
+    ]);
+  });
+
+  it('a copy of the venue’s BAYLA or of SOL is named too; a coin with no ticker keeps the head of its mint', async () => {
+    answer([
+      { id: `${BAYLA_MINT.slice(0, 20)}k${BAYLA_MINT.slice(21)}`, symbol: 'BAYLA', name: 'BAYLA', decimals: 6 },
+      { id: 'So1ana1111111111111111111111111111111111111', symbol: 'SOL', name: 'Solana', decimals: 9 },
+      { id: 'NoTicker11111111111111111111111111111111111', symbol: '', name: '', decimals: 6 },
+    ]);
+    expect((await searchTokens('x')).map((t) => t.symbol)).toEqual(['fake BAYLA', 'fake SOL', 'NoTi…']);
+  });
+});
 
 describe('isUnverified — the one verified/unverified decision', () => {
   it('treats an UNSET flag as unverified (the curated BAYLA case)', () => {
@@ -235,6 +276,14 @@ describe('recents + favorites store', () => {
     expect(getRecentTokens()[0]).toEqual(live);
   });
 
+  it('a copy kept from before copies were named is named now; one already named is kept as it is', () => {
+    store['sol.recents'] = JSON.stringify([
+      { mint: SOY_COPY, symbol: 'SOY', name: 'SOY', decimals: 6 },
+      { mint: `${SOY_MINT.slice(0, 20)}j${SOY_MINT.slice(21)}`, symbol: 'fake SOY', name: 'SOY', decimals: 6 },
+    ]);
+    expect(getRecentTokens().map((t) => t.symbol)).toEqual(['fake SOY', 'fake SOY']);
+  });
+
   it('toggles favorites and reports state', () => {
     expect(isFavoriteToken(USDC.mint)).toBe(false);
     expect(toggleFavoriteToken(USDC)).toBe(true);
@@ -303,5 +352,92 @@ describe('iconSrc loads Irys icons directly', () => {
     }
     // The browser follows Irys's redirect, and img-src is checked again there.
     expect(cspAllows('img-src', IRYS_CDN), 'img-src blocks the Irys CDN the gateway redirects to').toBe(true);
+  });
+});
+
+// The owner, 2026-11-01: "add the tokens of the pairs above 200$ in liquidity in our pools as the
+// verified token i tried searching for bigbrain and soyjack and was having troubles. the bungalow
+// tokens should be there when you open the search bar as well".
+describe('the venue’s own list: the island’s coins, and every coin with a $200 pool here', () => {
+  const BIG_BRAIN = 'J9zjM2nn4DBYpFy3qrReaUzY66g4EFMwLa61YSGCpump';
+  const bigBrain: SolToken = { mint: BIG_BRAIN, symbol: 'BIG BRAIN', name: 'BIG BRAIN', decimals: 6, logoURI: 'https://example.test/bb.png' };
+  const soy: SolToken = { mint: SOY_MINT, symbol: 'SOY', name: 'Soyjak', decimals: 6, logoURI: 'https://example.test/soy.png' };
+  beforeEach(() => __setPoolCoinsForTests());
+  afterEach(() => { __setPoolCoinsForTests(); vi.unstubAllGlobals(); });
+  const jupiterKnows = async (rows: SolToken[]) => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => rows.map((t) => ({ id: t.mint, symbol: t.symbol, name: t.name, decimals: t.decimals, icon: t.logoURI })) })));
+    await resolveMints(rows.map((t) => t.mint));
+  };
+
+  it('lists every live Solana room’s coin, BAYLA as the venue’s own row', () => {
+    const rooms = BUNGALOWS.filter((b) => b.live && b.chain === 'solana').map((b) => b.address);
+    expect(ISLAND_TOKENS.map((t) => t.mint)).toEqual(rooms);
+    expect(ISLAND_TOKENS.find((t) => t.mint === BAYLA_MINT)).toBe(BAYLA);
+    for (const t of ISLAND_TOKENS) expect([t.symbol, isIslandCoin(t.mint), venueMark(t)?.kind]).toEqual([t.symbol, true, t.mint === BAYLA_MINT ? 'venue' : 'island']);
+  });
+
+  it('an island coin and a coin with a $200 pool ask for no tick box; a copy of either does', async () => {
+    __setPoolCoinsForTests([[BIG_BRAIN, 640]]);
+    expect(needsRiskAck(soy)).toBe(false);
+    expect(needsRiskAck(bigBrain)).toBe(false);
+    expect(venueMark(bigBrain)).toEqual({ kind: 'pool', usd: 640 });
+    expect(needsRiskAck({ ...soy, mint: SOY_COPY, symbol: 'fake SOY' })).toBe(true);
+    expect(needsRiskAck({ ...bigBrain, mint: 'Copy1111111111111111111111111111111111111pump' })).toBe(true);
+    // A coin the list names whose own ticker copies one the site knows is never vouched for.
+    __setPoolCoinsForTests([[SOY_COPY, 5000]]);
+    expect(venueMark({ mint: SOY_COPY, symbol: 'fake SOY' })).toBeNull();
+  });
+
+  it('a coin drops off the list when its pool falls under the line at the next read', () => {
+    __setPoolCoinsForTests([[BIG_BRAIN, 640]]);
+    expect(needsRiskAck(bigBrain)).toBe(false);
+    __setPoolCoinsForTests([]);
+    expect(needsRiskAck(bigBrain)).toBe(true);
+  });
+
+  it('finds "soyjack" and "bigbrain", which Jupiter’s search does not', async () => {
+    __setPoolCoinsForTests([[BIG_BRAIN, 640]]);
+    await jupiterKnows([soy, bigBrain]);
+    const spam: SolToken = { mint: 'Spam111111111111111111111111111111111111pump', symbol: 'soyjack', name: 'soyjack fomo', decimals: 6 };
+    expect(withVenueCoinsFirst([spam], 'soyjack').map((t) => t.mint)).toEqual([SOY_MINT, spam.mint]);
+    expect(withVenueCoinsFirst([], 'bigbrain').map((t) => t.mint)).toEqual([BIG_BRAIN]);
+    expect(withVenueCoinsFirst([], 'big brain').map((t) => t.mint)).toEqual([BIG_BRAIN]);
+    expect(withVenueCoinsFirst([], BIG_BRAIN).map((t) => t.mint)).toEqual([BIG_BRAIN]);
+    // Jupiter's row, with its picture, is the one listed.
+    expect(listedTokens().find((t) => t.mint === BIG_BRAIN)?.logoURI).toBe(bigBrain.logoURI);
+  });
+
+  it('a search letter-close to nothing of ours adds nothing; one or two letters never fuzz', () => {
+    expect(searchFinds(soy, 'soyjak')).toBe(true);
+    expect(searchFinds(soy, 'soyjack')).toBe(true);
+    expect(searchFinds(soy, 'soyjacks')).toBe(false);
+    expect(searchFinds(soy, 'sox')).toBe(false);
+    expect(searchFinds(bigBrain, 'bi')).toBe(true);
+    expect(searchFinds(bigBrain, 'b')).toBe(false);
+    expect(searchFinds(bigBrain, 'bigbrian')).toBe(false);
+  });
+
+  it('lists a pool coin only once Jupiter has named it, deepest pool first', async () => {
+    // Mints no other test has had Jupiter name (the session's cache outlives a test).
+    const shallow: SolToken = { mint: 'Shal111111111111111111111111111111111111pump', symbol: 'SHAL', name: 'Shallow', decimals: 6 };
+    const deep: SolToken = { mint: 'Deep111111111111111111111111111111111111pump', symbol: 'DEEP', name: 'Deep', decimals: 6 };
+    __setPoolCoinsForTests([[shallow.mint, 640], [deep.mint, 9000]]);
+    expect(listedTokens().some((t) => t.mint === shallow.mint || t.mint === deep.mint)).toBe(false);
+    await jupiterKnows([shallow, deep]);
+    const pools = listedTokens().filter((t) => venueMark(t)?.kind === 'pool').map((t) => t.symbol);
+    expect(pools).toEqual(['DEEP', 'SHAL']);
+  });
+
+  it('serves the island’s own pictures from this site', () => {
+    expect(iconSrc('/art/ape-hug.jpg')).toBe('/art/ape-hug.jpg');
+    expect(new URL(iconSrc('//evil.example/x.png')).hostname).toBe('wsrv.nl');
+  });
+});
+
+describe('parsePoolCoins', () => {
+  it('takes only whole mints at $200 or more', () => {
+    const m = parsePoolCoins({ poolCoins: [{ mint: SOY_MINT, usd: 250 }, { mint: 'short', usd: 900 }, { mint: BAYLA_MINT, usd: 199 }, { mint: SOY_COPY, usd: 'lots' }] });
+    expect([...m!]).toEqual([[SOY_MINT, 250]]);
+    expect(parsePoolCoins({ state: 'current' })).toBeNull();
   });
 });

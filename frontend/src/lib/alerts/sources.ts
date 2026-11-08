@@ -12,7 +12,7 @@
 // read the same sentence.
 
 import { indexerConfigProblem, isIndexerConfigured } from '../indexer/client';
-import { TEGRIDY_NFT_LENDING_ADDRESS, isDeployed } from '../constants';
+import { shieldVenueReadiness } from '../shield/venues';
 import { ALERT_RULE_KINDS, type AlertRuleKind } from './rules';
 
 export type AlertSourceId =
@@ -66,7 +66,7 @@ export const ALERT_SOURCES: Record<AlertSourceId, AlertSource> = {
     label: 'Venue lending contracts (direct reads)',
     attribution: 'direct reads of the venue’s own lending contracts',
     operatorStep:
-      'No operator step — loans are read straight from the chain over this app’s RPC. Note the scope this buys: the read happens in the browser tab, so a rule of this kind is evaluated only while the page is open. Nothing watches a deadline overnight.',
+      'A code step, not a setting: NFT lending runs on Gondi’s loan contract, and no reader for its loans is built yet (lib/shield/venues.ts). Once one is, loans are read straight from the chain over this app’s RPC. Note the scope this buys: the read happens in the browser tab, so a rule of this kind is evaluated only while the page is open. Nothing watches a deadline overnight.',
   },
   'gecko-pool': {
     id: 'gecko-pool',
@@ -97,7 +97,7 @@ export interface SourceReadiness {
 }
 
 const INDEXER_UNSET_DETAIL =
-  'This deployment has no indexer configured, so indexed transfers and lock events cannot be read. Rules that need them cannot be evaluated — that is not the same as there being nothing to report.';
+  'This deployment has no indexer configured, so it does not read indexed transfers or lock events. Rules that need them go unevaluated — that is not the same as there being nothing to report.';
 
 /**
  * Read the live config. A function, not a module constant, so nothing snapshots
@@ -106,7 +106,8 @@ const INDEXER_UNSET_DETAIL =
  */
 export function sourceReadiness(): Record<AlertSourceId, SourceReadiness> {
   const indexerReadable = isIndexerConfigured();
-  const lendingDeployed = isDeployed(TEGRIDY_NFT_LENDING_ADDRESS);
+  // Loan deadlines are read by the shield's venue adapter; no adapter, no loans read.
+  const lending = shieldVenueReadiness()['tegridy-nft-lending'];
   return {
     indexer: {
       readable: indexerReadable,
@@ -116,10 +117,8 @@ export function sourceReadiness(): Record<AlertSourceId, SourceReadiness> {
     // no service to configure. A failed RPC read is an outage and is reported as
     // one at read time, exactly like the same-origin sources below.
     'venue-lending': {
-      readable: lendingDeployed,
-      detail: lendingDeployed
-        ? null
-        : 'The venue’s lending contract is not deployed on this network, so there are no loans to read and no deadline to watch.',
+      readable: lending.readable,
+      detail: lending.readable ? null : lending.detail,
     },
     // Same-origin resources on the aggregator catchall. They ship with every
     // deployment, so there is no configuration that could make them absent; a

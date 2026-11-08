@@ -30,6 +30,30 @@ import type { RangePriceCheck } from '../../../solana/clmm/priceCheck';
 
 export type SolanaCluster = 'mainnet' | 'devnet' | 'localnet';
 
+/** A cluster as the Wallet Standard names it: what a wallet is told it signs a version 1 message on. */
+export type SolanaChain = `solana:${SolanaCluster}`;
+
+/** The transaction format a wallet signs: SIMD-0385 version 1, or the legacy message. */
+export type TxVersion = 'legacy' | 1;
+
+/**
+ * A version 1 message's config (SIMD-0385): what the two ComputeBudget instructions say
+ * in a legacy transaction, plus the loaded-data limit it must carry (unset means 0).
+ * `priorityFeeLamports` is the whole fee in lamports, never a price per unit.
+ */
+export interface TxConfig {
+  computeUnitLimit: number;
+  loadedAccountsDataSizeLimit: number;
+  priorityFeeLamports: bigint;
+}
+
+/** What the wallet signs, in the format it advertised (lib/solana/v1Signer.ts). */
+export type PreparedWire =
+  /** Fee payer = the wallet, blockhash and compute budget set; the adapter signs it as an object. */
+  | { version: 'legacy'; tx: Transaction }
+  /** The exact bytes the wallet signs and the config they carry. No ComputeBudget instruction. */
+  | { version: 1; bytes: Uint8Array; config: TxConfig };
+
 /** Which programs the write path talks to, and on which cluster. */
 export interface CurveWriteConfig {
   programId: PublicKey;
@@ -484,10 +508,23 @@ export interface VenueSwapSummary {
   quoted: OwnPoolQuote;
   /** What the aggregator was seen to pay for the same trade: the swap was held to it. */
   aggregator: AggregatorSeen;
+  /** The token's own transfer fee on this swap (`quoted.transferFees`, on the token's side); null or absent when it takes none. */
+  transferFee?: TokenTransferFee | null;
   /** True when the wrapped-SOL account is closed at the end. Always false when the coin is not SOL. */
   unwrapsWsol: boolean;
   wsolHeldBefore: bigint;
   notices: string[];
+}
+
+/**
+ * A token's own transfer fee on one transaction (lp/transferFee.ts), from the builder's
+ * fresh read: its rate at the network's epoch, and what it keeps back of the token's side
+ * here, at the amounts the review shows. The token keeps it for its fee collector; neither
+ * the pool nor the venue sees it.
+ */
+export interface TokenTransferFee {
+  rate: string;
+  kept: bigint;
 }
 
 /**
@@ -525,10 +562,12 @@ export interface LpDepositSummary {
   quoteIsToken0: boolean;
   lpAmount: bigint;
   lpDecimals: number;
-  /** The ceiling cost from the fresh snapshot. */
+  /** What leaves the wallet at the fresh snapshot: the ceiling cost, plus the token's transfer fee on top. */
   quoted: { quote: bigint; token: bigint };
   /** Decoded from the bytes. */
   max: { quote: bigint; token: bigint };
+  /** The token's transfer fee inside `quoted.token`; null or absent when it takes none. */
+  transferFee?: TokenTransferFee | null;
   /** The other side's maximum was lowered to what the wallet holds. */
   limitedByBalance: 'none' | 'quote' | 'token';
   /** Display only. */
@@ -574,9 +613,11 @@ export interface LpWithdrawSummary {
   /** Every pool share the account held. */
   all: boolean;
   keep: bigint;
-  /** The floor payout from the fresh snapshot. */
+  /** What reaches the wallet at the fresh snapshot: the floor payout, less the token's transfer fee. */
   quoted: { quote: bigint; token: bigint };
   min: { quote: bigint; token: bigint };
+  /** What the token's transfer fee keeps back of its payout; null or absent when it takes none. */
+  transferFee?: TokenTransferFee | null;
   tokenAccount: PublicKey;
   /** What opening the token account costs; `0n` when it exists. */
   tokenAccountRent: bigint;
@@ -607,9 +648,11 @@ export interface LpCreateSummary {
   /** The coin the token is paired with. Every `quote` amount below is in ITS base units. */
   quote: QuoteCoin;
   quoteIsToken0: boolean;
-  /** Decoded from the bytes: exactly what goes in. */
+  /** Decoded from the bytes: exactly what leaves the wallet. */
   put: { quote: bigint; token: bigint };
-  /** isqrt(quote·token), the pool's whole share count; `lpAmount` = supply − 100. */
+  /** What the token's transfer fee keeps back of `put.token`, so the pool holds the rest; null or absent when it takes none. */
+  transferFee?: TokenTransferFee | null;
+  /** isqrt of what reaches the two vaults, the pool's whole share count; `lpAmount` = supply − 100. */
   supply: bigint;
   lpAmount: bigint;
   lpDecimals: 9;
@@ -674,8 +717,9 @@ export interface SimulatedEffect {
 
 export interface PreparedTx {
   kind: TxKind;
-  /** Legacy transaction: fee payer = the wallet, blockhash and compute budget set. */
-  tx: Transaction;
+  /** Who signs and pays: the connected wallet. */
+  payer: PublicKey;
+  wire: PreparedWire;
   /**
    * `create`: the fresh mint keypair. `lp-create` on a one-off address: the new pool's
    * keypair. Memory only. Everything else: none.
@@ -683,7 +727,7 @@ export interface PreparedTx {
   extraSigners: Keypair[];
   blockhash: string;
   lastValidBlockHeight: number;
-  /** Serialized size in bytes (Solana's limit is 1,232). */
+  /** Serialized size in bytes (Solana's limit: 1,232 legacy, 4,096 version 1). */
   sizeBytes: number;
   simulation: { unitsConsumed: number; logs: string[] };
   fees: {
@@ -934,10 +978,17 @@ export type Prepared = { ok: true; prepared: PreparedTx } | { ok: false; outcome
 export interface TxSigner {
   publicKey: PublicKey;
   signTransaction<T extends Transaction>(tx: T): Promise<T>;
+  /**
+   * Sign a SIMD-0385 version 1 message as raw bytes through the Wallet Standard
+   * `solana:signTransaction` feature, returning the signed wire. Only a wallet that
+   * advertises version 1 has one (lib/solana/v1Signer.ts); the rest get legacy.
+   */
+  signV1?: (bytes: Uint8Array, chain: SolanaChain) => Promise<Uint8Array>;
 }
 
 export type WriteRpc = Pick<
   Connection,
+  | 'rpcEndpoint'
   | 'getLatestBlockhash'
   | 'simulateTransaction'
   | 'sendRawTransaction'

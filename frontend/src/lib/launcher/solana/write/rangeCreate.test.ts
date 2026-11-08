@@ -24,6 +24,7 @@ import { encodeAmmConfig, encodePool } from '../../../solana/clmm/encode.fixture
 import { pairOf, sqrtAtPrice, type Price } from '../../../solana/clmm/rangeMath';
 import type { OutsidePrice } from '../../../solana/lp/outsidePrice';
 import { decodeIntent } from './intent';
+import { V1_TX_SIZE_LIMIT, decodeV1 } from './v1';
 import { RANGE_COPY, prepareRangeCreate, type RangeCreateArgs, type RangeOpenReads } from './range';
 import { FakeChain, VAULT, cfgLocal, openAccount, rent, type SimHandler } from './testkit.fixture';
 import type { PreparedTx, RangeCreateSummary, RangeIntent, WriteRpc } from './types';
@@ -97,8 +98,10 @@ const is = (data: Uint8Array, disc: Uint8Array) => disc.every((b, i) => data[i] 
  * position's take their deposits, and the opening takes what its liquidity needs at that price.
  */
 const createSim: SimHandler = (vtx: VersionedTransaction, config, chain) => {
-  const keys = vtx.message.staticAccountKeys;
-  const ixs = vtx.message.compiledInstructions.map((ix) => ({ program: keys[ix.programIdIndex]!, accounts: ix.accountKeyIndexes.map((i) => keys[i]!), data: ix.data }));
+  // A version 1 message reaches the node as its wire bytes alone (prepare.ts asWire): read it with kit.
+  const ixs = vtx.message
+    ? vtx.message.compiledInstructions.map((ix) => ({ program: vtx.message.staticAccountKeys[ix.programIdIndex]!, accounts: ix.accountKeyIndexes.map((i) => vtx.message.staticAccountKeys[i]!), data: ix.data }))
+    : decodeV1(vtx.serialize()).instructions.map((ix) => ({ program: ix.programId, accounts: ix.keys.map((k) => k.pubkey), data: new Uint8Array(ix.data) }));
   const create = ixs.find((i) => i.program.equals(PROG) && is(i.data, IX_CREATE_POOL));
   const open = ixs.find((i) => i.program.equals(PROG) && is(i.data, IX_OPEN_POSITION_WITH_TOKEN22_NFT));
   if (!create || !open) return { err: 'not a pool opening', logs: [], unitsConsumed: 1 };
@@ -164,7 +167,7 @@ describe('opening a range pool with its first position', () => {
     const made = p.steps.find((x) => x.kind === 'range-create-pool');
     expect(made?.kind === 'range-create-pool' && made.pool.equals(POOL) && made.ammConfig.equals(TIER0) && made.sqrtPriceX64 === SQRT).toBe(true);
     // The program's own accounts list: the tier is index 0's, the fee's receiver is the vault.
-    const createIx = p.tx.instructions.find((ix) => ix.programId.equals(PROG) && is(ix.data, IX_CREATE_POOL))!;
+    const createIx = body(p).find((ix) => ix.programId.equals(PROG) && is(ix.data, IX_CREATE_POOL))!;
     expect(createIx.keys[1]!.pubkey.equals(TIER0)).toBe(true);
     expect(createIx.keys[13]!.pubkey.equals(CREATE_POOL_FEE_RECEIVER)).toBe(true);
     expect(CREATE_POOL_FEE_RECEIVER.equals(VAULT)).toBe(true);
@@ -188,7 +191,27 @@ describe('opening a range pool with its first position', () => {
     expect(-p.simulated.signerLamportsDelta).toBeGreaterThan(FEE + neverBack);
   });
 
-  it('the test run must show the vault receive the 0.5 SOL: a program that does not charge it (today’s mainnet build) builds nothing', async () => {
+  it('a wallet that signs version 1 (Phantom) gets the same pool and position as a version 1 message, the checker passing it', async () => {
+    const chain = chainWith();
+    const p = ok(await prepareRangeCreate(W(chain), cfgLocal, PROG, MARKET, { ...ARGS, txVersion: 1 }));
+    expect(p.wire.version).toBe(1);
+    if (p.wire.version !== 1) return;
+    expect(p.sizeBytes).toBe(p.wire.bytes.length);
+    expect(p.sizeBytes).toBeLessThanOrEqual(V1_TX_SIZE_LIMIT);
+    // The budget rides in the message's config, so the body is the steps alone.
+    expect(p.steps.map((x) => x.kind)).toEqual(['create-token-account', 'wrap-sol', 'sync-wsol', 'range-create-pool', 'range-open', 'close-wsol']);
+    const ixs = body(p);
+    const createIx = ixs.find((ix) => ix.programId.equals(PROG) && is(ix.data, IX_CREATE_POOL))!;
+    expect(createIx.keys[1]!.pubkey.equals(TIER0)).toBe(true);
+    expect(createIx.keys[13]!.pubkey.equals(CREATE_POOL_FEE_RECEIVER)).toBe(true);
+    expect(ixs.findIndex((ix) => is(ix.data, IX_CREATE_POOL))).toBeLessThan(ixs.findIndex((ix) => is(ix.data, IX_OPEN_POSITION_WITH_TOKEN22_NFT)));
+    expect(decodeIntent(ixs, intentOf(p), { config: p.wire.config }).ok).toBe(true);
+    // The final test run was of these very bytes, and it showed the vault gain the fee.
+    expect(p.simulated.solDeltas?.map((d) => [d.account.toBase58(), d.delta])).toEqual([[VAULT.toBase58(), 500_000_000n]]);
+    expect(Buffer.from(chain.simulateCalls.at(-1)!.vtx.serialize())).toEqual(Buffer.from(p.wire.bytes));
+  });
+
+  it('the test run must show the vault receive the 0.5 SOL: a program that does not charge it (mainnet’s build before vault #22) builds nothing', async () => {
     const p = ok(await prepareRangeCreate(W(chainWith()), cfgLocal, PROG, MARKET, ARGS));
     expect(p.simulated.solDeltas?.map((d) => [d.account.toBase58(), d.delta])).toEqual([[VAULT.toBase58(), 500_000_000n]]);
     const free = Object.assign(chainWith(), { noFee: true });
@@ -236,7 +259,10 @@ describe('opening a range pool with its first position', () => {
   });
 });
 
-const body = (p: PreparedTx) => p.tx.instructions;
+/** The instructions the wallet signs, in either format. */
+function body(p: PreparedTx): TransactionInstruction[] {
+  return p.wire.version === 'legacy' ? p.wire.tx.instructions : decodeV1(p.wire.bytes).instructions;
+}
 const intentOf = (p: PreparedTx) => p.check.intent as RangeIntent;
 const createAt = (p: PreparedTx) => body(p).findIndex((ix) => ix.programId.equals(PROG) && is(ix.data, IX_CREATE_POOL));
 const withIx = (list: TransactionInstruction[], i: number, ix: TransactionInstruction) => list.map((x, j) => (j === i ? ix : x));

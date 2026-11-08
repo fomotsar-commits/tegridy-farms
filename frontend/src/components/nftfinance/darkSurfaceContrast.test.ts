@@ -21,7 +21,6 @@ import { dirname, join } from 'node:path';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 const FILES = [
-  'nftfinance/LendingSection.tsx',
   'nftfinance/NFTLendingSection.tsx',
   'nftfinance/AMMSection.tsx',
   'launchpad/launchpadShared.tsx',

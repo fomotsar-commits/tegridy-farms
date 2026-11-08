@@ -450,8 +450,9 @@ export const ROUTES: readonly RouteSpec[] = [
   { path: '/eth-curve', voice: 'venue', owner: 'pages/EthCurvePage.tsx',
     tabOf: 'LaunchHubPage · eth-curve', gate: null, knownViolations: [] },
   { path: '/eth-curve/:token', voice: 'venue', owner: 'pages/CurveTokenPage.tsx', gate: null, knownViolations: [] },
-  { path: '/launch', voice: 'venue', owner: 'pages/LaunchPage.tsx',
-    tabOf: 'LaunchHubPage · launch', gate: null, knownViolations: ['form-field-label'] },
+  // While the launch door is shut (island answer twenty-six) /launch is the countdown, not the hub's
+  // first tab: no wizard, so no unlabelled field, and the door's eyebrow is the page's h1.
+  { path: '/launch', voice: 'venue', owner: 'pages/LaunchDoorPage.tsx', gate: null, knownViolations: [] },
   {
     path: '/launch/:token',
     voice: 'venue',
@@ -465,29 +466,6 @@ export const ROUTES: readonly RouteSpec[] = [
   },
   { path: '/launch-simulator', voice: 'venue', owner: 'pages/LaunchSimulatorPage.tsx',
     tabOf: 'LaunchHubPage · launch-simulator', gate: null, knownViolations: [] },
-  {
-    path: '/airdrop',
-    voice: 'venue',
-    owner: 'pages/AirdropPage.tsx',
-    gate: null,
-    why:
-      'Audited on the Claim tab with no wallet, no campaign address and no manifest — the ' +
-      'no-data branch. The Create tab and every verdict other than "wallet not connected" ' +
-      'need input this sweep does not supply; the eligibility verdicts are covered by unit ' +
-      'tests instead.',
-    knownViolations: [],
-  },
-  {
-    path: '/vesting',
-    voice: 'venue',
-    owner: 'pages/VestingPage.tsx',
-    gate: null,
-    why:
-      'Audited on the Streams tab with no wallet, which is the "connect a wallet" branch. ' +
-      'The stream cards and the lock snapshot table need a deployed rail to render at all, ' +
-      'and both rails are undeployed on this build.',
-    knownViolations: [],
-  },
   {
     path: '/start',
     voice: 'venue',
@@ -646,7 +624,7 @@ export const ROUTES: readonly RouteSpec[] = [
     redirectsTo: '/history',
     knownViolations: [],
   },
-  { path: '/community', voice: 'venue', owner: 'pages/CommunityPage.tsx', gate: null, knownViolations: ['aria-valid-attr-value'] },
+  { path: '/community', voice: 'venue', owner: 'pages/CommunityPage.tsx', gate: null, knownViolations: [] },
   {
     path: '/grants',
     voice: null,
@@ -661,7 +639,7 @@ export const ROUTES: readonly RouteSpec[] = [
     voice: null,
     owner: 'App.tsx',
     gate: 'redirect',
-    why: 'BountyPage was merged into CommunityPage as a section anchor.',
+    why: 'The bounty board is retired; old links land on Community.',
     redirectsTo: '/community',
     knownViolations: [],
   },
@@ -713,7 +691,7 @@ export const ROUTES: readonly RouteSpec[] = [
     voice: null,
     owner: 'App.tsx',
     gate: 'redirect',
-    why: 'BribesPage was merged into CommunityPage as a section anchor.',
+    why: 'Vote incentives are retired; old links land on Community.',
     redirectsTo: '/community',
     knownViolations: [],
   },
@@ -724,8 +702,11 @@ export const ROUTES: readonly RouteSpec[] = [
     owner: 'pages/LendingPage.tsx',
     gate: null,
     // heading-order left with the fewer-words pass (2026-10-14): no heading skips a level now.
-    knownViolations: ['aria-valid-attr-value', 'form-field-label'],
-    connectedViolations: ['aria-valid-attr-value', 'form-field-label'],
+    // form-field-label left with the Gondi lending form (2026-10-28): every field is labelled.
+    // This is the LIVE NFT Lending tab. While GONDI_LOAN_ADDRESS is zero the tab draws its
+    // "isn't live yet" notice instead, and this check reads heading-order there.
+    knownViolations: ['aria-valid-attr-value'],
+    connectedViolations: ['aria-valid-attr-value'],
   },
   {
     path: '/lending',

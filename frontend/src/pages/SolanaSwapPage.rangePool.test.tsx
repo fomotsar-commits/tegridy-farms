@@ -82,7 +82,8 @@ function preparedRangeSwap(a: VenueSwapArgs, out: bigint): PreparedTx {
 function preparedSwap(a: VenueSwapArgs, out: bigint): PreparedTx {
   return {
     kind: 'venue-swap',
-    tx: {} as PreparedTx['tx'],
+    payer: a.owner,
+    wire: { version: 'legacy', tx: {} } as PreparedTx['wire'],
     extraSigners: [],
     blockhash: 'EkSnNWid2cvwEVnVx9aBqawnmiCNiDgp3gUdkDPTKN1N',
     lastValidBlockHeight: 1_000,
@@ -230,6 +231,7 @@ vi.mock('@solana/wallet-adapter-react', () => ({
 
 import SolanaSwapPage from './SolanaSwapPage';
 import { getActivity } from '../lib/solanaActivity';
+import { clearReceipt, lastReceipt } from '../lib/receipt';
 
 // The first test here pays for the page's first render (see SolanaSwapPage.feeRetry.test.tsx).
 // In a whole run on a busy machine the page took over 3 s to offer Buy: every wait is
@@ -240,6 +242,7 @@ configure({ asyncUtilTimeout: 20_000 });
 const OPEN_GATE = { kind: 'open', cfg: { programId: new PublicKey(LAUNCH), cpSwapProgram: new PublicKey(PROGRAM), cluster: 'mainnet' } };
 
 beforeEach(() => {
+  clearReceipt();
   h.feeOnInput.value = true;
   h.fundOwner.value = 'G2EHPseTXetHbBvvRDs27XQyXfQikXXyxP9uMbsKrbu';
   h.rangeFeeOn.value = 0;
@@ -341,7 +344,7 @@ describe('range pools in the route', () => {
     await signOnReview();
     await waitFor(() => expect(h.submitPrepared).toHaveBeenCalledTimes(1));
     expect((h.submitPrepared.mock.calls[0]![2] as PreparedTx).kind).toBe('range-swap');
-    await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('Bought BAYLA', expect.objectContaining({ description: expect.stringContaining('1.02 BAYLA') })));
+    await waitFor(() => expect(lastReceipt()).toMatchObject({ signature: SIG, action: 'bought', coin: { symbol: 'BAYLA' } }));
     expect(getActivity(USER.toBase58())[0]).toMatchObject({ sig: SIG, summary: 'Bought ≈1.02 BAYLA with 0.1 SOL, in our own pool' });
   });
 

@@ -13,7 +13,7 @@ import {
   SolflareWalletAdapter,
   TrustWalletAdapter,
 } from '../../lib/solanaWallets';
-import { WalletConnectWalletAdapter } from '../../lib/solanaWalletConnect';
+import { TangemWalletAdapter, WalletConnectWalletAdapter } from '../../lib/solanaWalletConnect';
 // VENDORED, not the package css: the upstream file opens with a Google-Fonts
 // @import that the CSP blocks, and Vite 8 turned that block into a fatal
 // CSS-preload failure — every Solana-stack page crashed in prod (2026-08-26).
@@ -90,6 +90,11 @@ import {
  * the build carries none of WalletConnect's code, because the adapter's
  * import() of it is compiled out (check-dist-graph.mjs D fails a no-id build
  * that carries any).
+ *
+ * Tangem (2026-11-01) rides on that same WalletConnect code. A card wallet with
+ * no extension and no in-app browser, it gets the QR on a computer or an iPad
+ * and a link into its app on a phone (lib/solanaWalletConnect.ts
+ * TangemWalletAdapter). It needs the same project id.
  */
 /**
  * Hands this page's Solana connection to the top bar (lib/solanaSurface.ts),
@@ -131,9 +136,10 @@ export function SolanaSurfaceBridge({ own = false, mixed = false }: { own?: bool
   const [settled, setSettled] = useState(false);
   if (!settled && surface?.open === open) setSettled(true);
   const busy = connecting || !settled;
+  const signer = publicKey ? wallet?.adapter ?? null : null;
   useEffect(() => {
-    setSolanaSurface(owner, { open, address, connecting: busy }, own, mixed);
-  }, [owner, open, address, busy, own, mixed]);
+    setSolanaSurface(owner, { open, address, connecting: busy, signer }, own, mixed);
+  }, [owner, open, address, busy, signer, own, mixed]);
   useEffect(() => {
     if (surface?.open !== open || !openPending || connecting) return;
     // A restore that connected answers the tap; otherwise it is the card's click.
@@ -209,6 +215,15 @@ export function SolanaSurfaceBridge({ own = false, mixed = false }: { own?: bool
 const restoreOwn = async () => !solanaHandoffPending() || solanaWasConnectedHere();
 
 /**
+ * ONE object for the life of the page. ConnectionProvider makes a new Connection whenever its
+ * `config` is a new object, and every card's reads re-run on a new Connection: written inline,
+ * each re-render of the page started them all again, and the home's ladder card read its pool
+ * and vaults every few seconds instead of every 45 (2026-10-31: phones and iPads got "Couldn't
+ * read" from the proxy's per-minute limit, api/solrpc.js).
+ */
+const CONNECTION_CONFIG = { commitment: 'confirmed' } as const;
+
+/**
  * `own` marks the top bar's own connection (TopBarSolanaProviders below), the
  * one mounted where the page has no Solana section. Every page site leaves it
  * unset. `mixed` marks a page section on a page that connects Ethereum too
@@ -216,8 +231,9 @@ const restoreOwn = async () => !solanaHandoffPending() || solanaWasConnectedHere
  */
 export function SolanaProviders({ children, own = false, mixed = false }: { children: ReactNode; own?: boolean; mixed?: boolean }) {
   const endpoint = useMemo(() => solanaRpcEndpoint(), []);
-  const wallets = useMemo(
-    () => [
+  const wallets = useMemo(() => {
+    const walletConnectProjectId = (import.meta.env.VITE_WALLETCONNECT_PROJECT_ID as string | undefined) ?? '';
+    return [
       new IPadAwarePhantomWalletAdapter(),
       new TrustWalletAdapter(),
       new JupiterWalletAdapter(),
@@ -225,17 +241,15 @@ export function SolanaProviders({ children, own = false, mixed = false }: { chil
       new CoinbaseWalletAdapter(),
       new SolflareWalletAdapter(),
       new BackpackWalletAdapter(),
-      // Same variable as wagmi.ts. Unset (CI, previews) the adapter reports
-      // Unsupported, so WalletProvider drops it: no row, and no WalletConnect
-      // code in the build at all.
-      new WalletConnectWalletAdapter({
-        projectId: (import.meta.env.VITE_WALLETCONNECT_PROJECT_ID as string | undefined) ?? '',
-      }),
-    ],
-    [],
-  );
+      // Same variable as wagmi.ts. Unset (CI, previews) both adapters report
+      // Unsupported, so WalletProvider drops them: no rows, and no
+      // WalletConnect code in the build at all.
+      new TangemWalletAdapter({ projectId: walletConnectProjectId }),
+      new WalletConnectWalletAdapter({ projectId: walletConnectProjectId }),
+    ];
+  }, []);
   return (
-    <ConnectionProvider endpoint={endpoint} config={{ commitment: 'confirmed' }}>
+    <ConnectionProvider endpoint={endpoint} config={CONNECTION_CONFIG}>
       <WalletProvider wallets={wallets} autoConnect={own || mixed ? restoreOwn : true}>
         <SolanaWalletModalProvider>
           <SolanaSurfaceBridge own={own} mixed={mixed} />

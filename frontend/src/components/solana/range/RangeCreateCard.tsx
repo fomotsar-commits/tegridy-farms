@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { PublicKey } from '@solana/web3.js';
 import { formatSol } from '../../../lib/launcher/solana/curve';
 import type { RangeOpenReads } from '../../../lib/launcher/solana/write/range';
+import { txVersionOf } from '../../../lib/launcher/solana/write/txVersion';
 import { CREATE_POOL_FEE_LAMPORTS, CREATE_POOL_FEE_RECEIVER } from '../../../lib/solana/clmm/ix';
 import { MAX_SQRT_PRICE_X64, MIN_SQRT_PRICE_X64, getTickAtSqrtPrice } from '../../../lib/solana/clmm/math';
 import { marketGap, marketReference, type MarketGap } from '../../../lib/solana/clmm/priceCheck';
@@ -24,7 +25,7 @@ import type { CurveWriteConfig, RangeWriteApi, WriteRpc } from '../curve/ports';
 import { RangeReviewDisclosure, RangeRisks } from './RangeRisks';
 import { RangePickFields } from './RangePickFields';
 import { pickProblem, useRangePick } from './rangePick';
-import { bothAmounts, coinAmount, priceNumberText, tokenAmount, tokenWord } from './rangeText';
+import { bothAmounts, coinAmount, priceNumberText, tokenAmount, tokenWord, withTokenLabel, type NamedPair } from './rangeText';
 import { useFlowReports } from './useRangeData';
 
 /**
@@ -38,6 +39,8 @@ import { useFlowReports } from './useRangeData';
 export interface RangeCreateProps {
   tier: AmmConfigView;
   tokenMint: string;
+  /** The token's ticker as the pool screens give it (identity.ts), once its check was read: "fake SOY" for a copy. */
+  tokenLabel: string | null;
   /** The token's decimals, from its mint; null while that read is not in, or when it failed (`tokenUnread`). */
   tokenDecimals: number | null;
   tokenUnread: boolean;
@@ -64,7 +67,7 @@ export function RangeCreateCard(p: RangeCreateProps) {
   return (
     <Card title="Open this pool" testId="range-create" art={<CardArt pageId="range-pools" idx={7} />}>
       <p className="text-white/85">Set its opening price and put the first coins in, in one transaction.</p>
-      <Row label="Token" value={tickerAndAddress(p.tokenMint)} />
+      <Row label="Token" value={tickerAndAddress(p.tokenMint, p.tokenLabel)} />
       <Row label="Paired with" value={tickerAndAddress(p.coin.mint)} />
       <Row label="Fee tier" value={`${split.fee} of each swap`} mono={false} />
       {/* What opening costs and how a position earns: said before Review, never folded away. */}
@@ -110,6 +113,8 @@ function OpeningPrice(p: RangeCreateProps & { tokenDecimals: number }) {
       tickSpacing: p.tier.tickSpacing,
     });
   }, [p.tokenMint, p.coin, p.tokenDecimals, p.tier.tickSpacing]);
+  // `pair` for the maths and the market read; `named` adds the ticker every line names the token by.
+  const named = useMemo<NamedPair | null>(() => (pair ? withTokenLabel(pair, p.tokenLabel) : null), [pair, p.tokenLabel]);
 
   // The market's answers, asked once for this pair (Review asks again, fresh).
   const [market, setMarket] = useState<{ key: string; token: OutsidePrice; coin: OutsidePrice | null } | null>(null);
@@ -140,7 +145,7 @@ function OpeningPrice(p: RangeCreateProps & { tokenDecimals: number }) {
   const inBounds = sqrt !== null && sqrt >= MIN_SQRT_PRICE_X64 && sqrt < MAX_SQRT_PRICE_X64;
   const gap = answers && pair && inBounds ? marketGap(pair, sqrt!, answers.token, answers.coin) : null;
 
-  if (!pair) return <Notice tone="warn">This site does not pair these two coins in a range pool.</Notice>;
+  if (!pair || !named) return <Notice tone="warn">This site does not pair these two coins in a range pool.</Notice>;
   if (!answers) return <p className="text-white/70">Reading the market price…</p>;
   if (atMarket !== null && typeof atMarket !== 'number' && atMarket.state === 'no-market') {
     return <Notice tone="warn">This token has no market price, so a pool for it would be its launch. The venue does not open launches this way.</Notice>;
@@ -162,7 +167,7 @@ function OpeningPrice(p: RangeCreateProps & { tokenDecimals: number }) {
   return (
     <>
       <label className="block">
-        <span className="block text-white/70 text-[11px] mb-1">{`Opening price (${pair.quote.symbol} per ${tokenWord(pair) === 'tokens' ? 'token' : tokenWord(pair)})`}</span>
+        <span className="block text-white/70 text-[11px] mb-1">{`Opening price (${pair.quote.symbol} per ${tokenWord(named) === 'tokens' ? 'token' : tokenWord(named)})`}</span>
         <input
           inputMode="decimal"
           autoComplete="off"
@@ -176,7 +181,7 @@ function OpeningPrice(p: RangeCreateProps & { tokenDecimals: number }) {
       </label>
       {reference !== null && (
         <button type="button" className="underline text-white/70 min-h-[44px] text-left" onClick={useMarket}>
-          {`Use the market price (Jupiter): ${priceNumberText(pair, reference)}`}
+          {`Use the market price (Jupiter): ${priceNumberText(named, reference)}`}
         </button>
       )}
       {shown && !start && <p role="alert" className="text-rose-300/90">Type the opening price as a plain number, like 0.0003.</p>}
@@ -186,13 +191,13 @@ function OpeningPrice(p: RangeCreateProps & { tokenDecimals: number }) {
           {`Your opening price is ${Number((Math.abs(gap.diff) * 100).toFixed(1))}% ${gap.diff > 0 ? 'above' : 'below'} the market price. The first trader could buy from your deposit at it, so Review stays off. Use the market price.`}
         </Notice>
       )}
-      {inBounds && start && <FirstPosition {...p} pair={pair} sqrt={sqrt!} start={start} gap={gap} />}
+      {inBounds && start && <FirstPosition {...p} pair={pair} named={named} sqrt={sqrt!} start={start} gap={gap} />}
     </>
   );
 }
 
-function FirstPosition(p: RangeCreateProps & { pair: Pair; sqrt: bigint; start: Price; gap: MarketGap | null }) {
-  const { pair } = p;
+function FirstPosition(p: RangeCreateProps & { pair: Pair; named: NamedPair; sqrt: bigint; start: Price; gap: MarketGap | null }) {
+  const { pair, named } = p;
   const at = useMemo(() => ({ sqrtPriceX64: p.sqrt, tickCurrent: getTickAtSqrtPrice(p.sqrt) }), [p.sqrt]);
   const pick = useRangePick(pair, at);
   const [busy, setBusy] = useState(false);
@@ -203,14 +208,14 @@ function FirstPosition(p: RangeCreateProps & { pair: Pair; sqrt: bigint; start: 
   const { r, side, amount } = pick;
   // The pool opens at this price in the same transaction, so the plan is exact: no tolerance.
   const plan = r && amount !== null && amount > 0n ? depositFrom(pair, at, r, side, amount) : null;
-  const problemText = pickProblem(pair, pick, plan);
+  const problemText = pickProblem(named, pick, plan);
   const agrees = p.gap?.state === 'agrees';
   return (
     <>
-      <RangePickFields pair={pair} p={pick} busy={busy} at="the opening price" />
+      <RangePickFields pair={named} p={pick} busy={busy} at="the opening price" />
       {plan && (
         <div className="space-y-1.5" data-testid="range-create-plan">
-          <Row label="You put in" value={`${bothAmounts(pair, plan.amount0, plan.amount1)}, exactly`} mono={false} />
+          <Row label="You put in" value={`${bothAmounts(named, plan.amount0, plan.amount1)}, exactly`} mono={false} />
           <p className="text-white/45 text-[10px]">The pool opens at your price in the same transaction, so nothing can move it in between. Review reads the chain again and test-runs it.</p>
         </div>
       )}
@@ -227,7 +232,7 @@ function FirstPosition(p: RangeCreateProps & { pair: Pair; sqrt: bigint; start: 
       {/* Said beside every deposit, never folded away. */}
       <Notice tone="warn">
         Out of range, a position earns nothing.{' '}
-        {plan ? `This one is worth ${tokenAmount(pair, pair.tokenIsToken0 ? plan.amount0 : plan.amount1)} and ${coinAmount(pair, pair.tokenIsToken0 ? plan.amount1 : plan.amount0)} at the opening price.` : ''}
+        {plan ? `This one is worth ${tokenAmount(named, pair.tokenIsToken0 ? plan.amount0 : plan.amount1)} and ${coinAmount(named, pair.tokenIsToken0 ? plan.amount1 : plan.amount0)} at the opening price.` : ''}
       </Notice>
     </>
   );
@@ -247,6 +252,7 @@ function CreateFlow(
     if (!signer) return;
     const args = {
       owner: signer.publicKey,
+      txVersion: txVersionOf(signer),
       tokenMint: new PublicKey(p.pair.tokenMint),
       coinMint: new PublicKey(p.pair.quote.mint),
       startPrice: p.start,

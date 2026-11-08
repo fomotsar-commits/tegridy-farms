@@ -28,12 +28,13 @@ describe('ChainPicker', () => {
     expect(button()).toHaveAttribute('aria-expanded', 'false');
     fireEvent.click(button());
     expect(button()).toHaveAttribute('aria-expanded', 'true');
+    // In the venue's order (lib/sectionChains.ts), Solana first, whatever order the section passes.
     const options = screen.getAllByRole('option');
     expect(options.map((o) => o.textContent)).toEqual([
-      'EthereumUniswap / CoW',
+      'SolanaOur pools + Jupiter',
       'BaseNo swap here',
       'Robinhood ChainNo swap here',
-      'SolanaOur pools + Jupiter',
+      'EthereumUniswap / CoW',
       'CardanoMinswap pools',
     ]);
     expect(screen.getByRole('option', { name: /Ethereum/ })).toHaveAttribute('aria-selected', 'true');
@@ -62,12 +63,32 @@ describe('ChainPicker', () => {
     mount();
     fireEvent.keyDown(button(), { key: 'ArrowDown' });
     expect(screen.getByRole('option', { name: /Ethereum/ })).toHaveFocus();
-    // Up from the first wraps to the last: Cardano.
+    // Down from Ethereum, the fourth, reaches the last, Cardano, then wraps to the first, Solana;
+    // up from the first wraps back to the last.
+    fireEvent.keyDown(screen.getByRole('listbox'), { key: 'ArrowDown' });
+    expect(screen.getByRole('option', { name: /Cardano/ })).toHaveFocus();
+    fireEvent.keyDown(screen.getByRole('listbox'), { key: 'ArrowDown' });
+    expect(screen.getByRole('option', { name: /Solana/ })).toHaveFocus();
     fireEvent.keyDown(screen.getByRole('listbox'), { key: 'ArrowUp' });
     expect(screen.getByRole('option', { name: /Cardano/ })).toHaveFocus();
     fireEvent.keyDown(screen.getByRole('listbox'), { key: 'Escape' });
     expect(screen.queryByRole('listbox')).toBeNull();
     expect(button()).toHaveFocus();
+  });
+
+  // In the Buy sheet's coin row, the sheet's own Escape is a window listener: it must not hear the list's.
+  it('Escape in the list stops there: a window listener under it never hears it', () => {
+    const heard = vi.fn();
+    window.addEventListener('keydown', heard);
+    try {
+      mount();
+      fireEvent.click(button());
+      fireEvent.keyDown(screen.getByRole('listbox'), { key: 'Escape' });
+      expect(screen.queryByRole('listbox')).toBeNull();
+      expect(heard).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener('keydown', heard);
+    }
   });
 
   it('closes on a press outside it', () => {

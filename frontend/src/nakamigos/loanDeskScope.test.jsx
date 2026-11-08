@@ -35,6 +35,12 @@ vi.mock("./contexts/WalletContext", () => {
   };
 });
 vi.mock("./hooks/useEns", () => ({ default: () => ({ ensName: null }) }));
+// The loan desk lights up once Gondi's loan contract is deployed (NFT_LOAN_DESK_LIVE reads
+// GONDI_LOAN_ADDRESS, zero until then). A stand-in address plays the deployed desk here.
+vi.mock("../lib/gondi/loanOffer.js", async (importOriginal) => ({
+  ...(await importOriginal()),
+  GONDI_LOAN_ADDRESS: "0x5555555555555555555555555555555555555555",
+}));
 vi.mock("./api", async (importOriginal) => {
   const actual = await importOriginal();
   return {
@@ -133,13 +139,13 @@ describe("the detail Modal", () => {
   it("offers a Gold Cards owner no loan: the lending contract does not accept Gold Cards", async () => {
     expect(constants.NFT_LOAN_DESK_LIVE).toBe(true);
     await renderOwnedModal("junglebaygoldcards");
-    expect(screen.queryByText(/Borrow ETH against it/)).toBeNull();
+    expect(screen.queryByText(/Borrow WETH against it/)).toBeNull();
     expect(loanLinks()).toEqual([]);
   });
 
   it("control: a Nakamigos owner is still pointed at NFT Finance", async () => {
     await renderOwnedModal("nakamigos");
-    expect(screen.getByText(/Borrow ETH against it in NFT Finance/)).toBeInTheDocument();
+    expect(screen.getByText(/Borrow WETH against it in NFT Finance/)).toBeInTheDocument();
     expect(loanLinks().length).toBe(1);
   });
 });

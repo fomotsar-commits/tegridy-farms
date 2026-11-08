@@ -254,21 +254,17 @@ describe('Add liquidity', () => {
     expect(cards[0]).not.toContainElement(panel);
   });
 
-  it("is never offered on 'unchecked' (no outside price), and says why in the amended words", async () => {
+  // Answer twenty-seven withdrew twenty-four's hold: the pool's own price is the truth of a
+  // deposit, and an outside price not read is one row, never a gate and never a paragraph.
+  it('is offered when the outside price is not read: one row, no paragraph, and no warning', async () => {
     mount(readers({ outsidePrice: vi.fn(async () => ({ kind: 'unread' as const, detail: 'Jupiter did not give a price (HTTP 502)' })) }));
     const c = await card();
-    await waitFor(() => expect(c).toHaveAttribute('data-add', 'checks'));
-    expect(c).toHaveAttribute('data-deposits', 'unchecked');
-    expect(within(c).queryByRole('button', { name: 'Add liquidity' })).toBeNull();
-    // The reason is on the card, and the line under it says the rule as it is now: a
-    // check that could not be RUN. It no longer says an outside price is always needed
-    // (a pool with no market price at all is offered, with a warning).
-    expect(c).toHaveTextContent('We could not check its price against an outside price (Jupiter did not give a price (HTTP 502)).');
-    expect(c).toHaveTextContent('Adding is off: a check above could not be run just now.');
-    expect(c).not.toHaveTextContent(/only after checking the pool's price against a price from outside it/);
-    expect(c).not.toHaveTextContent(/Often that means/);
-    // Unread is not a warning: nothing here says deposits are open.
-    expect(c).not.toHaveTextContent('Deposits: the checks pass, with warnings');
+    await waitFor(() => expect(c).toHaveAttribute('data-add', 'offer'));
+    expect(c).toHaveAttribute('data-deposits', 'allowed');
+    expect(within(c).getByRole('button', { name: 'Add liquidity' })).toBeInTheDocument();
+    expect(c).not.toHaveTextContent('We could not check its price against an outside price');
+    expect(c).not.toHaveTextContent('Adding is off');
+    // Unread is not a warning either.
     expect(within(c).queryByTestId('lp-pool-warnings')).toBeNull();
   });
 
@@ -330,7 +326,7 @@ describe('Add liquidity', () => {
     expect(heading).toHaveFocus();
     expect(panel).toHaveAccessibleName('Add liquidity to this pool');
     const before = within(panel).getByTestId('lp-before-you-add');
-    expect(before).toHaveTextContent(/Our pool program is Raydium's, with only its admin keys changed\. Those changes have not had their own independent review yet\./);
+    expect(before).toHaveTextContent(/Our pool program is Raydium's, with its admin keys changed, one added instruction that names pool share tokens and one added check that keeps the launch fee tier for launches\. Those changes have not had their own independent review yet\./);
     expect(before).toHaveTextContent(/change its fee rates, and upgrade the program. Each change waits 48 hours after both have signed./);
     expect(before).toHaveTextContent("Jupiter does not send trades to these pools yet. This site's own swap sends a trade to this pool only when it pays the trader at least as much as Jupiter does, so fees can be small.");
     expect(before).toHaveTextContent('When the price moves, you can end up with less than if you had just held both tokens.');
@@ -651,8 +647,8 @@ describe('one panel at a time', () => {
       fireEvent.click(within(panel).getByRole('button', { name: 'Review: add liquidity' }));
     });
     const outcome = await within(panel).findByTestId('tx-outcome');
-    // The next read cannot price the token: the card no longer offers Add.
-    (r.outsidePrice as ReturnType<typeof vi.fn>).mockResolvedValue({ kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' });
+    // The next read cannot read the pool's fee settings: the card no longer offers Add.
+    (r.findPools as ReturnType<typeof vi.fn>).mockImplementation(async () => search([{ ...v, config: null }]));
     fireEvent.click(screen.getByRole('button', { name: 'Read again' }));
     await waitFor(() => expect(screen.getByTestId('lp-pool')).toHaveAttribute('data-add', 'checks'));
     expect(within(screen.getByTestId('lp-pool')).queryByRole('button', { name: 'Add liquidity' })).toBeNull();

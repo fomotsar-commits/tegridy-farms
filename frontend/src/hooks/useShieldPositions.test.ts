@@ -39,6 +39,21 @@ vi.mock('wagmi', () => ({
   usePublicClient: () => (rpc.present ? rpc.client : undefined),
 }));
 vi.mock('./useMyLoans', () => ({ useMyLoans: () => loanState }));
+// NFT lending moved to Gondi's contract, so the real venue gate is CLOSED: the adapter below
+// reads the first-version contract and stays dormant until a Gondi adapter is built. These
+// tests open the gate to keep that adapter pinned; the last describe uses the real gate.
+const gate = vi.hoisted(() => ({ open: true }));
+vi.mock('../lib/shield/venues', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../lib/shield/venues')>();
+  return {
+    ...actual,
+    shieldVenueReadiness: () => {
+      const real = actual.shieldVenueReadiness();
+      if (!gate.open) return real;
+      return { ...real, 'tegridy-nft-lending': { readable: true, detail: null, address: '0x89BeB6cc0255B7465c01aA38a6f937efd345f14F' } };
+    },
+  };
+});
 
 import { useShieldPositions } from './useShieldPositions';
 
@@ -47,7 +62,6 @@ const NOW = Math.floor(Date.now() / 1000);
 function loan(over: Record<string, unknown> = {}) {
   return {
     id: 4,
-    source: 'nft',
     role: 'borrower',
     borrower: wallet.address,
     lender: '0x2222222222222222222222222222222222222222',
@@ -89,6 +103,7 @@ beforeEach(() => {
   loanState.isError = false;
   loanState.loansUnread = false;
   rpc.present = true;
+  gate.open = true;
   rpc.readContract.mockReset();
   respond(HEALTHY_READS);
 });
@@ -254,5 +269,18 @@ describe('it watches the borrower side only', () => {
     const { result } = renderHook(() => useShieldPositions());
     await waitFor(() => expect(result.current.status).toBe('ready'));
     expect(result.current.positions).toEqual([]);
+  });
+});
+
+describe("NFT lending on Gondi's contract: the shield says it is not watching", () => {
+  it('reports idle with the plain line, and reads nothing, even for a borrower with a loan', async () => {
+    gate.open = false;
+    loanState.loans = [loan()];
+    const { VENUE_LOANS_NOT_WATCHED } = await import('../lib/shield/venues');
+    const { result } = renderHook(() => useShieldPositions());
+    await waitFor(() => expect(result.current.status).toBe('idle'));
+    expect(result.current.detail).toBe(VENUE_LOANS_NOT_WATCHED);
+    expect(result.current.positions).toEqual([]);
+    expect(rpc.readContract).not.toHaveBeenCalled();
   });
 });

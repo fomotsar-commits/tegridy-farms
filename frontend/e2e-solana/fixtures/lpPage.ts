@@ -13,7 +13,7 @@ import { installRpcGuard, type RpcGuard } from './rpcGuard';
 import { installTestWallet, TEST_WALLET_NAME, type TestWallet } from './testWallet';
 import { ui, clickReal, connectWallet, expectClickable, signAndWait } from './ui';
 import { formatSol, formatTokenAmount } from '../../src/lib/launcher/solana/curve/format';
-import { isPlanProblem, planDeposit, planWithdraw, type DepositPlan, type WithdrawPlan } from '../../src/lib/solana/lp/liquidityMath';
+import { NO_FEES, isPlanProblem, planDeposit, planWithdraw, type DepositPlan, type PoolFees, type WithdrawPlan } from '../../src/lib/solana/lp/liquidityMath';
 
 export const LP_PENDING_KEY = 'lp:pending';
 
@@ -75,9 +75,15 @@ export function sidesOf(f: PoolFacts): Sides {
  * SOL-pool specs, `'coin'` for any coin) or the token's. The coin's side comes back as
  * `costSol` / `maxSol`, in the coin's own base units whatever the coin is.
  */
-export function depositPlan(f: PoolFacts, driving: 'sol' | 'coin' | 'token', maxIn: bigint, bps = 100n): DepositPlan & { costSol: bigint; costTok: bigint; maxSol: bigint; maxTok: bigint } {
+export function depositPlan(
+  f: PoolFacts,
+  driving: 'sol' | 'coin' | 'token',
+  maxIn: bigint,
+  bps = 100n,
+  fees: PoolFees = NO_FEES,
+): DepositPlan & { costSol: bigint; costTok: bigint; maxSol: bigint; maxTok: bigint; feeTok: bigint } {
   const s = sidesOf(f);
-  const plan = planDeposit(f.snapshot, { quoteIsToken0: s.coinIs0, driving: driving === 'token' ? 'token' : 'quote', maxIn, bps, availableQuote: null, availableToken: null });
+  const plan = planDeposit(f.snapshot, { quoteIsToken0: s.coinIs0, driving: driving === 'token' ? 'token' : 'quote', maxIn, bps, availableQuote: null, availableToken: null, fees });
   if (isPlanProblem(plan)) throw new Error(`deposit plan: ${plan.problem}`);
   return {
     ...plan,
@@ -85,13 +91,21 @@ export function depositPlan(f: PoolFacts, driving: 'sol' | 'coin' | 'token', max
     costTok: s.coinIs0 ? plan.cost1 : plan.cost0,
     maxSol: s.coinIs0 ? plan.max0 : plan.max1,
     maxTok: s.coinIs0 ? plan.max1 : plan.max0,
+    // The token's transfer fee inside `costTok`: what never reaches the pool.
+    feeTok: s.coinIs0 ? plan.fee1 : plan.fee0,
   };
 }
 
 /** A withdrawal plan the page should build. The coin's side comes back as `minSol` / `outSol`, in the coin's own base units. */
-export function withdrawPlan(f: PoolFacts, held: bigint, pctBps: bigint, bps = 100n): WithdrawPlan & { minSol: bigint; minTok: bigint; outSol: bigint; outTok: bigint } {
+export function withdrawPlan(
+  f: PoolFacts,
+  held: bigint,
+  pctBps: bigint,
+  bps = 100n,
+  fees: PoolFees = NO_FEES,
+): WithdrawPlan & { minSol: bigint; minTok: bigint; outSol: bigint; outTok: bigint } {
   const s = sidesOf(f);
-  const plan = planWithdraw(f.snapshot, { held, pctBps, bps });
+  const plan = planWithdraw(f.snapshot, { held, pctBps, bps, fees });
   if (isPlanProblem(plan)) throw new Error(`withdraw plan: ${plan.problem}`);
   return {
     ...plan,
@@ -252,11 +266,11 @@ export async function addAndReview(a: Actor, pool: PublicKey, coinText: string, 
  * it is now. Every amount on the coin's side is checked in the pool's own coin, read from
  * the pool itself (`sidesOf`), and the review must name that coin.
  */
-export async function reviewDeposit(a: Actor, panel: Locator, pool: PublicKey, driving: 'sol' | 'coin' | 'token', maxIn: bigint, bps = 100n) {
+export async function reviewDeposit(a: Actor, panel: Locator, pool: PublicKey, driving: 'sol' | 'coin' | 'token', maxIn: bigint, bps = 100n, fees: PoolFees = NO_FEES) {
   await press(ui.lp.reviewAdd(panel), 'Review: add liquidity');
   const rows = await reviewRows(a.page);
   const f = await poolFacts(pool);
-  const plan = depositPlan(f, driving, maxIn, bps);
+  const plan = depositPlan(f, driving, maxIn, bps, fees);
   const s = sidesOf(f);
   const decimals = (await mintFacts(s.tokenMint)).decimals;
   expect(rows['Pool']).toBe(pool.toBase58());

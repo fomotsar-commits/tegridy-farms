@@ -132,9 +132,10 @@ our fee Safe. There is no TOWELI staking on either chain.
   [`SAFE_REHOME_RUNBOOK.md`](docs/SAFE_REHOME_RUNBOOK.md) and not done. The treasury is a
   two-signature Safe, and the EVM curve launchers are owned by two-signature Safes.
 - **Reviews:** many internal adversarial reviews ([`AUDITS.md`](docs/AUDITS.md)), no paid
-  firm. The pool program's changes from Raydium's (its admin keys; the source also adds one
-  instruction that names pool share tokens and one check that keeps the launch fee tier for
-  launches, which mainnet ran from 2026-10-23 until a roll-back on 2026-10-24) have had no independent review, and the site says so. Report a security issue privately: [`SECURITY.md`](SECURITY.md).
+  firm. The pool program's changes from Raydium's (its admin keys, plus one added instruction
+  that names pool share tokens and one check that keeps the launch fee tier for launches, both
+  live since its third upgrade on 2026-11-06, and before that from 2026-10-23 to 2026-10-24 and
+  from 2026-11-03 to 2026-11-04, each time until a roll-back) have had no independent review, and the site says so. Report a security issue privately: [`SECURITY.md`](SECURITY.md).
 
 ---
 
@@ -204,7 +205,7 @@ The full build and test recipe CI runs is in [`CLAUDE.md`](CLAUDE.md). Setup and
 frontend/              the site (Vite + React) and its serverless API (frontend/api)
 contracts/             Ethereum, Base and Robinhood contracts (Foundry)
 solana/tegridy-amm/    our Solana programs: the cp-swap fork, the launcher, the BAYLA lock ladder
-solana/tegridy-clmm/   range pools, a fork of Raydium's CLMM: source only, not deployed
+solana/tegridy-clmm/   range pools, a fork of Raydium's CLMM, live on Solana mainnet
 indexer/               Ethereum event indexer (Ponder)
 indexer-solana/        Solana event indexer
 bot/                   Telegram bot, deployed nowhere yet

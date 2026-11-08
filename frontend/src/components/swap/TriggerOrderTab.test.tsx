@@ -43,7 +43,7 @@ describe('an EOA is told plainly that nothing would fire', () => {
 
   it('does not offer a working placement button', async () => {
     render(<TriggerOrderTab />);
-    const button = await screen.findByRole('button', { name: /cannot be armed/i });
+    const button = await screen.findByRole('button', { name: /not armed yet/i });
     expect(button).toBeDisabled();
     expect(screen.queryByRole('button', { name: /^arm /i })).toBeNull();
   });
@@ -54,7 +54,7 @@ describe('an EOA is told plainly that nothing would fire', () => {
     const text = container.textContent ?? '';
     expect(text).not.toMatch(/\bmonitoring\b/i);
     expect(text).not.toMatch(/\bwatching the market\b/i);
-    // "Armed" only ever appears as part of the refusal ("Not armed" / "Cannot be armed").
+    // "Armed" only ever appears as part of the refusal ("Not armed" / "Not armed yet").
     for (const m of text.matchAll(/armed/gi)) {
       const before = text.slice(Math.max(0, m.index! - 12), m.index!);
       expect(before).toMatch(/not |be /i);

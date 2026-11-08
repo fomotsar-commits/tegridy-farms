@@ -13,7 +13,7 @@ import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, WSOL_MINT } from '../curve/pro
 import { associatedTokenAddress } from '../curve/ix';
 import { formatTokenAmount } from '../curve/format';
 import { quoteCoin, type QuoteCoin } from '../../../solana/lp/quotes';
-import { BUILDABLE_EXTENSIONS, decodeMintAccount, extensionPlain, freezeWarning } from '../../../solana/lp/tokenSafety';
+import { EXACT_EXTENSIONS, decodeMintAccount, extensionPlain, freezeWarning } from '../../../solana/lp/tokenSafety';
 import type { RawAccount } from '../../../solana/lp/accounts';
 import type { OutsidePrice } from '../../../solana/lp/outsidePrice';
 import { tokenVault } from '../../../solana/lp/poolFinder';
@@ -96,6 +96,7 @@ import type {
   TxSummary,
   WatchList,
   WriteRpc,
+  TxVersion,
 } from './types';
 import { closeWsolIxs, openWsolIx, syncCredit, wrapIxs, wsolPlanFrom, type WsolPlan } from './wsol';
 
@@ -225,7 +226,8 @@ export function rangePins(
     const d = decodeMintAccount(mint.owner, mint.data);
     if (!d.ok) return RANGE_COPY.tokenNot(d.reason);
     if (d.value.decimals !== decimals) return RANGE_COPY.poolChanged('a mint’s decimals');
-    const outside = d.value.extensions.find((e) => !BUILDABLE_EXTENSIONS.has(e));
+    // The range pools' maths moves exact amounts: no transfer fee (EXACT_EXTENSIONS).
+    const outside = d.value.extensions.find((e) => !EXACT_EXTENSIONS.has(e));
     if (outside !== undefined) return RANGE_COPY.tokenNot(`it uses ${extensionPlain(outside)}`);
     programs.push(new PublicKey(mint.owner));
   }
@@ -337,6 +339,8 @@ export function freezeLines(pair: Pick<Pair, 'tokenMint' | 'quote'>, tokenMint: 
 
 export interface RangeOpenArgs {
   owner: PublicKey;
+  /** The format the connected wallet signs (txVersion.ts); legacy when unset. */
+  txVersion?: TxVersion;
   pool: PublicKey;
   tickLower: number;
   tickUpper: number;
@@ -438,6 +442,8 @@ export async function prepareRangeOpen(rpc: WriteRpc, cfg: CurveWriteConfig, pro
 
 export interface RangeCreateArgs {
   owner: PublicKey;
+  /** The format the connected wallet signs (txVersion.ts); legacy when unset. */
+  txVersion?: TxVersion;
   tokenMint: PublicKey;
   /** One of the site's own pairing coins (quotes.ts). */
   coinMint: PublicKey;
@@ -594,7 +600,7 @@ async function openingTx(
   rpc: WriteRpc,
   cfg: CurveWriteConfig,
   programId: PublicKey,
-  a: Pick<RangeOpenArgs, 'owner' | 'tickLower' | 'tickUpper' | 'side' | 'amount'>,
+  a: Pick<RangeOpenArgs, 'owner' | 'txVersion' | 'tickLower' | 'tickUpper' | 'side' | 'amount'>,
   o: Opening,
 ): Promise<Prepared> {
   const { pins, pair, tier, pool } = o;
@@ -745,6 +751,7 @@ async function openingTx(
   };
   return buildAndSimulate(rpc, {
     kind: o.kind,
+    version: a.txVersion,
     body,
     extraSigners: [nft],
     intent,
@@ -803,6 +810,8 @@ async function openingTx(
 
 export interface RangeRemoveArgs {
   owner: PublicKey;
+  /** The format the connected wallet signs (txVersion.ts); legacy when unset. */
+  txVersion?: TxVersion;
   /** The position's record (PersonalPositionState) address. */
   position: PublicKey;
   /** 0 to 100: the share of its liquidity taken out. 0 collects its fees only. */
@@ -990,6 +999,7 @@ async function prepareDecrease(rpc: WriteRpc, cfg: CurveWriteConfig, programId: 
   const intent: RangeIntent = { kind, signer: a.owner, cfg, maxPriorityLamports: MAX_OWN_PRIORITY_LAMPORTS, pins, position: positionPins, nftMint: null };
   return buildAndSimulate(rpc, {
     kind,
+    version: a.txVersion,
     body,
     extraSigners: [],
     intent,
