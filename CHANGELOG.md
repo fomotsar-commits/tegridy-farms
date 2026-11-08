@@ -9,6 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-11-08
 
+- Receipt card (Solana): after an add, the green button is Share on X, with the post written and a link to the coin's pool. On X the link shows the island's painting titled for the coin; tapped, it opens Add for that coin. A buy keeps Share your card.
 - Risks page: the launcher's risk no longer reads as if launching were open. While launching a new token is not switched on, its heading says so first, in plain words, and the legal copy under it is kept word for word behind one sentence saying it describes the launcher once it opens. Once launching opens, the heading reads as written.
 
 ### 2026-11-07
