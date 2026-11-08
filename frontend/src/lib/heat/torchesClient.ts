@@ -56,14 +56,29 @@ export interface PlaceTorches {
   last: Torch | null;
 }
 
+/** The newest piece hung on the island (THE TIMELINE, island answer twenty-four, build 7). */
+export interface HungPiece {
+  /** Its picture, on the island's image host. */
+  image: string;
+  artist: string;
+  title: string | null;
+  /** The island's page it hangs in. */
+  door: string;
+  litAtMs: number;
+}
+
 export interface IslandTorches {
   places: PlaceTorches[] | null;
   /** The island's newest torch: lit in a room, or fed to the fire, as its own page counts it. */
   lastTorch: (Torch & { kind: 'bungalow' | 'fire'; place: string; label: string | null }) | null;
+  lastPiece: HungPiece | null;
   /** $BAYLA fed to the fire, all time: the island's own served total. */
   fireBurned: number | null;
   season: { number: number; endsAtMs: number } | null;
   flames: number | null;
+  /** The flames from 30° up to the 80° launch door, for the countdown's roster (answer
+   *  twenty-five, screen 2). Null when the board was not read whole: never a 0 that was not read. */
+  warming: number | null;
   /** When this tab read it: the "now" an age or a day count is measured against. */
   readAtMs: number;
 }
@@ -117,6 +132,28 @@ function parsePlace(raw: unknown): PlaceTorches | null {
   };
 }
 
+/** An https URL on `host` exactly, its default port: the proxy's check, made again before an <img> or a link gets it. */
+function islandUrl(v: unknown, host: string): string | null {
+  if (typeof v !== 'string') return null;
+  try {
+    const u = new URL(v);
+    return u.protocol === 'https:' && u.hostname === host && u.port === '' && !u.username && !u.password ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+function parsePiece(raw: unknown): HungPiece | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+  const image = islandUrl(r.image, 'junglebayisland.com');
+  const door = islandUrl(r.door, 'memetics.wtf');
+  const artist = typeof r.artist === 'string' ? textOf(r.artist.trim()) : null;
+  const litAtMs = timeOf(r.lit_at);
+  if (!image || !door || !artist || litAtMs === null) return null;
+  return { image, artist, title: typeof r.title === 'string' ? textOf(r.title.trim()) : null, door, litAtMs };
+}
+
 function parse(body: Record<string, unknown>): IslandTorches {
   const places = Array.isArray(body.places)
     ? body.places.map(parsePlace).filter((p): p is PlaceTorches => p !== null)
@@ -131,11 +168,13 @@ function parse(body: Record<string, unknown>): IslandTorches {
     lastTorch: lastTorch && textOf(last?.place) && (last!.kind === 'bungalow' || last!.kind === 'fire')
       ? { ...lastTorch, kind: last!.kind, place: last!.place as string, label: textOf(last!.label) }
       : null,
+    lastPiece: parsePiece(body.last_piece),
     fireBurned: fire && isAmount(fire.burned) ? fire.burned : null,
     season: season && isCount(season.season) && season.season >= 1 && endsAtMs !== null
       ? { number: season.season, endsAtMs }
       : null,
     flames: isCount(body.flames) ? body.flames : null,
+    warming: isCount(body.warming) ? body.warming : null,
     readAtMs: Date.now(),
   };
 }

@@ -657,7 +657,7 @@ const FIG_SIZES = '(min-width: 1024px) 360px, (min-width: 720px) 224px, 100vw';
 const FIG_LAYOUT = {
   follow: {
     slot: 'contents min-[720px]:block [grid-area:fig]',
-    frame: 'sticky z-10 -mx-4 mt-5 top-[calc(3.5rem+env(safe-area-inset-top,0px)+var(--app-alert-h,0px))] bg-[#05080f] min-[720px]:mx-0 min-[720px]:mt-0 min-[720px]:pt-4 min-[720px]:top-[calc(5rem+var(--app-alert-h,0px))] min-[720px]:bg-transparent lg:top-24',
+    frame: 'sticky z-10 -mx-4 mt-5 top-[calc(var(--app-header-h,3.5rem)+var(--app-alert-h,0px))] bg-[#05080f] min-[720px]:mx-0 min-[720px]:mt-0 min-[720px]:pt-4 min-[720px]:top-[calc(5rem+var(--app-alert-h,0px))] min-[720px]:bg-transparent lg:top-24',
     plate: 'aspect-[16/7] min-[640px]:aspect-[5/2] min-[720px]:aspect-[3/4] lg:aspect-[4/5] border-y min-[720px]:border',
     // An upright iPad's 14rem frame sets its caption on two lines rather than cut the name.
     caption: 'px-4 py-2 min-[720px]:px-0 min-[720px]:py-0 min-[720px]:mt-2 min-[720px]:max-lg:flex-col min-[720px]:max-lg:gap-1',

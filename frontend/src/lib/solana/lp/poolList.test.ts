@@ -10,9 +10,11 @@ import {
   PRICE_IDS_MAX,
   QUIET_SECS,
   arbitrage,
+  byWorth,
   listPools,
   marketGap,
   pairSwapLink,
+  poolRankUsd,
   poolWorthUsd,
   priceGap,
   rankArbitrage,
@@ -28,7 +30,8 @@ import type { TransferFee } from './transferFee';
 import { quoteOwnPool } from '../cpswap/read';
 import { readPoolIndex } from './poolIndex';
 import { CLOCK, LAUNCH, PROGRAM, buildPool, clockAccount, fakeRpc, key, observationBytes, viewOf, type FakeAccount } from './testkit.fixture';
-import { BAYLA_QUOTE, USDC_QUOTE, type QuoteCoin } from './quotes';
+import { BAYLA_QUOTE, SOL_QUOTE, USDC_QUOTE, type QuoteCoin } from './quotes';
+import { PRICE_TOLERANCE } from './poolHealth';
 import { decodeObservationState } from './ownPrice';
 import type { PoolView } from './poolFinder';
 import { BAYLA_MINT, TOKEN_2022_PROGRAM, USDC_MINT, WSOL_MINT, type MintFacts, type SafetyVerdict, type TokenSafety } from './tokenSafety';
@@ -154,10 +157,11 @@ describe('poolTags: warnings on a row, from what the list already read', () => {
     obs: decodeObservationState(observationBytes({ pool, initialized: last !== null, lastUpdate: last ?? 0n }))!,
   });
   /** A pool with plenty in it, every switch on, open, and traded a day ago, unless told otherwise. */
-  function row(o: { mint?: PublicKey; quote?: QuoteCoin; reserve?: bigint; status?: number; openTime?: bigint; frozen?: boolean; last?: bigint | null; history?: PoolView['history'] } = {}): PoolView {
+  function row(o: { mint?: PublicKey; quote?: QuoteCoin; reserve?: bigint; tok?: bigint; lpSupply?: bigint; status?: number; openTime?: bigint; frozen?: boolean; last?: bigint | null; history?: PoolView['history'] } = {}): PoolView {
     const reserve = o.reserve ?? 50n * 10n ** 9n;
-    const b = buildPool({ mint: o.mint ?? key(), quote: o.quote, address: at(), quoteReserve: reserve, tokenReserve: 10n ** 9n, status: o.status, openTime: o.openTime });
-    return viewOf(b, { sol: reserve, tok: 10n ** 9n, frozen: o.frozen, history: o.history ?? record(b.address, o.last === undefined ? NOW - DAY : o.last) });
+    const tok = o.tok ?? 10n ** 9n;
+    const b = buildPool({ mint: o.mint ?? key(), quote: o.quote, address: at(), quoteReserve: reserve, tokenReserve: tok, lpSupply: o.lpSupply, status: o.status, openTime: o.openTime });
+    return viewOf(b, { sol: reserve, tok, frozen: o.frozen, history: o.history ?? record(b.address, o.last === undefined ? NOW - DAY : o.last) });
   }
   const texts = (v: PoolView, now: bigint | null = NOW) => poolTags(v, now).map((t) => t.text);
 
@@ -214,6 +218,23 @@ describe('poolTags: warnings on a row, from what the list already read', () => {
     // A record not read, or not usable, gives no tag, never "traded" and never "quiet".
     expect(texts(row({ history: { kind: 'unread', detail: 'its price record account is missing' } }))).toEqual([]);
     expect(texts(row({ history: { kind: 'not-read' } }))).toEqual([]);
+  });
+
+  // Audit CM-2, 2026-11-03: a pool too empty to hold its price takes no deposit (poolHealth.ts).
+  it('a pool too empty to hold its price is Almost empty: red, after the switches, and in place of Little money', () => {
+    // The live pool everyone had left on 2026-11-03: the locked 100 shares over 5 lamports and 2,138 units.
+    expect(poolTags(row({ reserve: 5n, tok: 2_138n, lpSupply: 100n }), NOW)).toEqual([{ text: 'Almost empty', tone: 'bad' }]);
+    // The floor is an opening's own (liquidityMath.ts): `s` of each side opens `s` shares.
+    expect(texts(row({ reserve: 99_999n, tok: 99_999n, lpSupply: 99_999n }))).toEqual(['Almost empty']);
+    expect(texts(row({ reserve: 100_000n, tok: 100_000n, lpSupply: 100_000n }))).toEqual(['Little money in pool']);
+    // A pool priced in BAYLA, never measured by money, is measured by its shares.
+    expect(texts(row({ quote: BAYLA_QUOTE, reserve: 100n, tok: 100n, lpSupply: 100n }))).toEqual(['Almost empty']);
+    expect(poolTags(row({ status: 4, reserve: 5n, tok: 2_138n, lpSupply: 100n, last: null }), NOW, 0.05)).toEqual([
+      { text: 'Trading off', tone: 'bad' },
+      { text: 'Almost empty', tone: 'bad' },
+      { text: 'Price over 3% above Jupiter', tone: 'bad' },
+      { text: 'No trades yet', tone: 'warn' },
+    ]);
   });
 
   it('a price gap is a red tag after the switches and before the quieter warnings, naming no figure', () => {
@@ -286,6 +307,52 @@ describe('poolWorthUsd: what a pool holds in dollars, both sides at Jupiter’s 
     expect(poolWorthUsd(v, new Map([[WSOL_MINT, 200]]))).toBeNull();
     expect(poolWorthUsd(v, new Map([[v.tokenMint, 10]]))).toBeNull();
     expect(poolWorthUsd(v, new Map())).toBeNull();
+  });
+});
+
+describe('byWorth: All pools, the most money in first', () => {
+  const SOL = 10n ** 9n;
+  const SIX = 10n ** 6n;
+  const pool = (quote: QuoteCoin, coin: bigint, tok: bigint) => viewOf(buildPool({ mint: key(), quote, address: at(), quoteReserve: coin, tokenReserve: tok }), { sol: coin, tok });
+  /** $100 a SOL, $1 a USDC, $3 a BAYLA, and $1 for each of `tokens`. */
+  const prices = (...tokens: PoolView[]) => new Map<string, number>([[WSOL_MINT, 100], [USDC_MINT, 1], [BAYLA_MINT, 3], ...tokens.map((v) => [v.tokenMint, 1] as [string, number])]);
+
+  it('ranks by the dollars each pool holds, whatever coin it is priced in, and by exactly the dollars its row shows', () => {
+    const inSol = pool(SOL_QUOTE, 10n * SOL, 1_000n * SIX); // $1,000 + $1,000
+    const inBayla = pool(BAYLA_QUOTE, 1_000n * SIX, 3_000n * SIX); // $3,000 + $3,000
+    const inUsdc = pool(USDC_QUOTE, 5_000n * SIX, 5_000n * SIX); // $5,000 + $5,000
+    const usd = prices(inSol, inBayla, inUsdc);
+    expect(byWorth([inSol, inBayla, inUsdc], usd)).toEqual([inUsdc, inBayla, inSol]);
+    for (const v of [inSol, inBayla, inUsdc]) expect(poolRankUsd(v, usd)).toBe(poolWorthUsd(v, usd));
+  });
+
+  it('a row near the edge of the 3% rule, with no price tag, still ranks by exactly the dollars it shows', () => {
+    // 1 token = 0.01 SOL ($1) here against Jupiter's $1.03: 2.9% cheaper here, so the token side is the bigger one.
+    const v = pool(SOL_QUOTE, 10n * SOL, 1_000n * SIX);
+    const usd = new Map([[WSOL_MINT, 100], [v.tokenMint, 1.03]]);
+    expect(marketGap(v, usd)).toBeNull();
+    expect(poolRankUsd(v, usd)).toBe(poolWorthUsd(v, usd));
+  });
+
+  it('a pinch of SOL beside a billion printed tokens ranks by its SOL, never by the billion', () => {
+    const printed = pool(SOL_QUOTE, SOL / 100n, 1_000_000_000n * SIX); // $1 of SOL, and $1,000,000,000 of tokens at Jupiter's $1
+    const honest = pool(SOL_QUOTE, 10n * SOL, 1_000n * SIX);
+    const usd = prices(printed, honest);
+    expect(poolWorthUsd(printed, usd)).toBeGreaterThan(1e9);
+    expect(poolRankUsd(printed, usd)).toBeCloseTo(1 + 1 / (1 - PRICE_TOLERANCE), 6);
+    expect(byWorth([printed, honest], usd)).toEqual([honest, printed]);
+  });
+
+  it('a token Jupiter does not price counts at the pool’s own price; a pool whose coin has no price goes last, in the order read', () => {
+    const unpricedToken = pool(SOL_QUOTE, 20n * SOL, 1_000n * SIX); // 20 SOL: $4,000 at the pool's own price
+    const inSol = pool(SOL_QUOTE, 10n * SOL, 1_000n * SIX); // $2,000
+    const a = pool(BAYLA_QUOTE, 1_000n * SIX, 1_000n * SIX);
+    const b = pool(BAYLA_QUOTE, 9_000n * SIX, 1_000n * SIX);
+    const usd = new Map([[WSOL_MINT, 100], [inSol.tokenMint, 1], [a.tokenMint, 1], [b.tokenMint, 1]]);
+    expect(poolWorthUsd(unpricedToken, usd)).toBeNull();
+    expect(poolRankUsd(unpricedToken, usd)).toBe(4_000);
+    expect(poolRankUsd(a, usd)).toBeNull();
+    expect(byWorth([a, inSol, b, unpricedToken], usd)).toEqual([unpricedToken, inSol, a, b]);
   });
 });
 

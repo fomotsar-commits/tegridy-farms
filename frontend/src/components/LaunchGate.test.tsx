@@ -7,11 +7,21 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom';
 import { clearGateAudit } from '../lib/heat/gateAudit';
 import { parseHeatReading } from '../lib/heat/heatOracle';
+import { setLastReading } from '../lib/heat/heatStore';
 import { setSolanaSurface } from '../lib/solanaSurface';
 
 const SOL_A ='EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK';
 const SOL_B = 'GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd';
 const EVM = '0x71be63f3384f5fb98995898a86b02fb2426c5788';
+
+// The launch door, closed as committed; one control opens it to show what the closed door withholds.
+const doorState = vi.hoisted(() => ({ open: false }));
+vi.mock('../lib/launcher/door', () => ({
+  isLaunchDoorOpen: () => doorState.open,
+}));
+afterEach(() => {
+  doorState.open = false;
+});
 
 const h = vi.hoisted(() => ({
   evmAddress: undefined as string | undefined,
@@ -40,11 +50,15 @@ vi.mock('../lib/heat/heatClient', () => ({
   HeatUnavailableError: class HeatUnavailableError extends Error {},
 }));
 
-const { LaunchGate } = await import('./LaunchGate');
+// The countdown's roster reads the island's board through the torches read.
+vi.mock('../hooks/useIslandTorches', () => ({ useIslandTorches: () => ({ warming: 28 }) }));
 
-function reading(address: string, degrees: number, tier: string) {
+const { LaunchGate } = await import('./LaunchGate');
+const { CountdownTop } = await import('./heat/Countdown');
+
+function rawReading(address: string, degrees: number, tier: string) {
   const now = Math.floor(Date.now() / 1000);
-  return parseHeatReading({
+  return {
     address,
     degrees,
     tier,
@@ -53,7 +67,11 @@ function reading(address: string, degrees: number, tier: string) {
     as_of_unix: now - 3_600,
     token_count: 1,
     breakdown: [],
-  });
+  };
+}
+
+function reading(address: string, degrees: number, tier: string) {
+  return parseHeatReading(rawReading(address, degrees, tier));
 }
 
 const LANE = 'the create form';
@@ -72,6 +90,8 @@ const lane = () => screen.queryByText(LANE);
 
 beforeEach(() => {
   clearGateAudit();
+  // The tab's last reading is module memory: one test's pasted wallet must not speak in the next.
+  setLastReading(null);
   h.evmAddress = undefined;
   h.fetchHeat.mockReset();
   h.signMessageAsync.mockClear();
@@ -237,11 +257,14 @@ describe('the Solana door on a page where launching is off', () => {
       });
       await screen.findByText('The ladder');
     };
-    // With launching on, the same card does give the verdict: that is what is being withheld.
+    // With launching on and the door open, the same card does give the verdict: that is what is
+    // being withheld. (The door is closed as committed, island answer twenty-six.)
+    doorState.open = true;
     const on = render(solanaDoor(null));
     await paste();
     expect(screen.getByText(/Can launch a token here/)).toBeInTheDocument();
     on.unmount();
+    doorState.open = false;
 
     render(offDoor(null));
     expect(door()).toHaveTextContent('Connect a Solana wallet to see its reading, or read any address below.');
@@ -390,5 +413,126 @@ describe('the door on the Ethereum rail', () => {
     });
     expect(h.signMessageAsync).toHaveBeenCalledTimes(1);
     expect(lane()).toBeInTheDocument();
+  });
+});
+
+// THE COUNTDOWN AT THE DOOR (island answer twenty-four, build 5; twenty-five, screen 2): with
+// no wallet and for a COLD wallet, the door speaks the countdown's words, and the launch page
+// opens on it: inside the launch hub it rises to the hub's top, above the tabs. The gate itself
+// is unchanged: 80° at submit, read live.
+describe('the countdown at the door, for a wallet under the floor', () => {
+  const countdowns = () => screen.queryAllByTestId('countdown');
+  const ethereumDoor = (node: React.ReactNode = <LaunchGate rail="ethereum" />) => (
+    <MemoryRouter initialEntries={['/launch']}>{node}</MemoryRouter>
+  );
+
+  beforeEach(() => act(() => setLastReading(null)));
+  afterEach(() => act(() => setLastReading(null)));
+
+  it('with no wallet and nothing read, draws no countdown: there is no clock to show until a read', () => {
+    render(ethereumDoor());
+    expect(countdowns()).toHaveLength(0);
+    expect(screen.getByRole('textbox', { name: /Wallet address to read Heat for/ })).toBeInTheDocument();
+    expect(h.fetchHeat).not.toHaveBeenCalled();
+  });
+
+  it('with no wallet, speaks from the wallet this tab read last, as Bayla’s line does', () => {
+    act(() => setLastReading(reading(SOL_A, 0, 'Drifter')));
+    const view = render(ethereumDoor());
+    expect(countdowns()).toHaveLength(1);
+    // The degrees alone, never the word Drifter (answer twenty-six).
+    expect(countdowns()[0]!.querySelector('[data-standing]')?.textContent).toBe('0.00°');
+    expect(countdowns()[0]!.textContent).not.toContain('Drifter');
+    expect(countdowns()[0]!.textContent).toContain('about half a year');
+    expect(screen.getByRole('link', { name: 'Start the clock' }).getAttribute('href')).toBe('/launch?sheet=buy');
+    view.unmount();
+    // A wallet read at the floor has nothing to count down to.
+    act(() => setLastReading(reading(SOL_A, 95, 'Resident')));
+    render(ethereumDoor());
+    expect(countdowns()).toHaveLength(0);
+  });
+
+  it('COLD draws the countdown on the wallet’s own reading, once, and the door speaks its words', async () => {
+    h.evmAddress = EVM;
+    h.fetchHeat.mockResolvedValue(parseHeatReading({ ...rawReading(EVM, 41.2, 'Observer'), days_to_plant: 148 }));
+    render(ethereumDoor());
+    await screen.findByText('COLD');
+    await waitFor(() => expect(countdowns()).toHaveLength(1));
+    const words = countdowns()[0]!.textContent ?? '';
+    expect(words).toContain('41.20°');
+    expect(words).not.toContain('Observer');
+    expect(screen.getByText('148').nextElementSibling?.textContent).toBe('days');
+    const door = screen.getByRole('region', { name: 'Who may plant' });
+    expect(door.textContent).toContain('This wallet reads 41.20° (Observer): 148 days to the door, if you hold from today.');
+    expect(door.textContent).toContain('Residents launch here. Nobody can buy last year.');
+    expect(document.body.textContent).not.toMatch(/\bcannot\b/i);
+  });
+
+  it('WARM and STALE draw no countdown', async () => {
+    h.evmAddress = EVM;
+    h.fetchHeat.mockResolvedValue(reading(EVM, 195.54, 'Builder'));
+    const warm = render(ethereumDoor());
+    await screen.findByText('WARM');
+    expect(countdowns()).toHaveLength(0);
+    warm.unmount();
+    h.fetchHeat.mockRejectedValue(new Error('unreachable'));
+    const unreadable = render(ethereumDoor());
+    await screen.findByText('STALE');
+    expect(countdowns()).toHaveLength(0);
+    expect(document.body.textContent).not.toMatch(/\bcannot\b/i);
+    unreadable.unmount();
+    // A reading past the freshness window decides nothing, under the floor or not.
+    const old = Math.floor(Date.now() / 1000) - 8 * 86_400;
+    h.fetchHeat.mockResolvedValue(parseHeatReading({ ...rawReading(EVM, 41.2, 'Observer'), as_of_unix: old }));
+    render(ethereumDoor());
+    await screen.findByText('STALE');
+    expect(countdowns()).toHaveLength(0);
+    expect(document.body.textContent).not.toMatch(/\bcannot\b/i);
+  });
+
+  it('where no launch can be made, draws no countdown: that door gives no verdict', async () => {
+    const off = (wallet: string | null) => (
+      <MemoryRouter>
+        <LaunchGate rail="solana" wallet={wallet} launchingOff="Launching here is not switched on yet." />
+      </MemoryRouter>
+    );
+    const none = render(off(null));
+    expect(countdowns()).toHaveLength(0);
+    none.unmount();
+    h.fetchHeat.mockResolvedValue(reading(SOL_A, 12, 'Observer'));
+    render(off(SOL_A));
+    await screen.findByText('COLD');
+    expect(countdowns()).toHaveLength(0);
+  });
+
+  it('a pasted wallet under the floor moves the one countdown to it; the door’s card draws no second one', async () => {
+    render(ethereumDoor());
+    h.fetchHeat.mockResolvedValue(reading(SOL_A, 41.2, 'Observer'));
+    fireEvent.change(screen.getByRole('textbox', { name: /Wallet address to read Heat for/ }), { target: { value: SOL_A } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Read Heat' }));
+    });
+    await waitFor(() => expect(countdowns()[0]?.querySelector('[data-standing]')?.textContent).toBe('41.20°'));
+    expect(countdowns()).toHaveLength(1);
+  });
+
+  it('inside the launch hub, rises to the top of the page, above everything the hub holds', async () => {
+    h.evmAddress = EVM;
+    h.fetchHeat.mockResolvedValue(reading(EVM, 41.2, 'Observer'));
+    render(
+      ethereumDoor(
+        <CountdownTop>
+          <p>the tabs</p>
+          <LaunchGate rail="ethereum" />
+        </CountdownTop>,
+      ),
+    );
+    await screen.findByText('COLD');
+    await waitFor(() => expect(countdowns()).toHaveLength(1));
+    const countdown = countdowns()[0]!;
+    const door = screen.getByRole('region', { name: 'Who may plant' });
+    expect(door.contains(countdown), 'the countdown stayed inside the door').toBe(false);
+    const tabs = screen.getByText('the tabs');
+    expect(countdown.compareDocumentPosition(tabs) & Node.DOCUMENT_POSITION_FOLLOWING, 'the countdown is not above the tabs').toBeTruthy();
   });
 });

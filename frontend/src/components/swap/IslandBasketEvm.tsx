@@ -7,6 +7,7 @@ import { swapVenueOn } from '../../lib/chains/swapVenue';
 import { getTxUrl } from '../../lib/explorer';
 import { coinsInOrder, dollarsEach, evmBasketFor, MIN_USD_PER_COIN, minOrderUsd, minOut, shortAmount, splitOrder, usdText, usdToBaseUnits } from '../../lib/islandBasket';
 import { buildEvmOrder, quoteEvmLegs, routeEvmLeg, type EvmLegQuote, type EvmLegRoute, type QuoteClient } from '../../lib/evm/islandBasketEvm';
+import { universalRouterOn } from '../../lib/evm/universalRouter';
 import { extractErrorMessage, isUserRejection, surfaceReceiptNotice, waitForReceiptOutcome } from '../../lib/txErrors';
 import { BasketCta, IslandBasketButton, IslandBasketDialog, type BasketRow, type RowTone } from './IslandBasket';
 import { useBasketSplit } from './useBasketSplit';
@@ -252,9 +253,15 @@ export function IslandBasketEvm({ chainId, slippagePct }: { chainId: number; sli
 
   const ours = routes?.flatMap((r, k) => (r.via === 'ours' ? [k] : [])) ?? [];
   const oursFee = ours.length ? shown?.[ours[0]!]?.ours?.feeBps : undefined;
-  const feeLine = ours.length && oursFee !== undefined
-    ? `${ours.map((k) => coins[active[k]!]!.symbol).join(', ')} through our pool: its ${(Number(oursFee) / 100).toFixed(2)}% site fee goes to the venue. The rest go through Uniswap: no site fee, the venue earns nothing on them.`
-    : 'No site fee: every coin goes through Uniswap, so the venue earns nothing on this order. Uniswap’s pool fee is inside each quote.';
+  const pct = (bps: bigint) => `${(Number(bps) / 100).toFixed(2)}%`;
+  const viaV2 = routes?.flatMap((r, k) => (r.via === 'v2-router' ? [coins[active[k]!]!.symbol] : [])) ?? [];
+  // Base: Uniswap's Universal Router pays the venue on every V3 coin, as the swap does.
+  const routerFee = shown?.find((q) => q.venueFee)?.venueFee?.bps;
+  const feeLine = universalRouterOn(chainId)
+    ? `Site fee: ${routerFee !== undefined ? `${pct(routerFee)} of each coin bought through Uniswap V3 or our own pool goes to the venue` : 'each coin bought through Uniswap V3 or our own pool pays the venue its fee'}, in ETH.${viaV2.length ? ` ${viaV2.join(', ')} through Uniswap V2: no site fee, the venue earns nothing on ${viaV2.length === 1 ? 'it' : 'them'}.` : ''} Uniswap’s pool fee is inside each quote.`
+    : ours.length && oursFee !== undefined
+      ? `${ours.map((k) => coins[active[k]!]!.symbol).join(', ')} through our pool: its ${pct(oursFee)} site fee goes to the venue. The rest go through Uniswap: no site fee, the venue earns nothing on them.`
+      : 'No site fee: every coin goes through Uniswap, so the venue earns nothing on this order. Uniswap’s pool fee is inside each quote.';
 
   const perCoin = Number.isFinite(dollars) && dollars > 0 && n > 0 ? dollars / n : 0;
   const summary = total !== null ? `${n} coin${n === 1 ? '' : 's'} · ${split ? 'your split' : `${usdText(perCoin)} each`} · ≈ ${Number(formatUnits(total, 18)).toFixed(5)} ETH` : null;
@@ -300,7 +307,7 @@ export function IslandBasketEvm({ chainId, slippagePct }: { chainId: number; sli
         finePrint={
           <>
             <p>Every pool here was read on chain. The order quotes each coin’s pools, takes the one that pays most, and takes our own pool when it pays at least as much after its fee, the same rule as the swap.</p>
-            <p>The coins Uniswap carries go in one transaction through Uniswap’s own router. If any of them would get less than its minimum, that whole transaction is refused and none of them is bought.{v2Leg ? ' Uniswap’s router on Base cannot reach V2 pools, so a coin whose best pool is V2 is a second transaction.' : ''}{oursLeg ? ' A coin bought in our pool is its own transaction, through the same router as the swap.' : ''}</p>
+            <p>The coins Uniswap carries go in one transaction through Uniswap’s own router. If any of them would get less than its minimum, that whole transaction is refused and none of them is bought.{universalRouterOn(chainId) ? ' That router first pays the venue its fee out of each coin’s ETH, then swaps the rest, so each quote is already net of it.' : ''}{v2Leg ? ' A coin whose best pool is Uniswap V2 is its own transaction, through Uniswap’s V2 router, and pays the venue nothing, as on the swap.' : ''}{oursLeg ? ' A coin bought in our pool is its own transaction, through the same router as the swap.' : ''}</p>
             {coins.some((c) => c.bridged) && <p>TOWELI and RIZZ here are the Wormhole copies of the coins on Ethereum and Solana: Wormhole’s bridge contract names both.</p>}
             <p>Slippage is your swap setting ({slippagePct.toFixed(2)}%). The amount is split at the ETH price from Chainlink. At least {usdText(MIN_USD_PER_COIN)} a coin, so fees do not eat the buy. You also pay the network fee; your wallet shows it.</p>
           </>

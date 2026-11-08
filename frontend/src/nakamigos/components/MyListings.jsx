@@ -389,7 +389,7 @@ export default function MyListings({ wallet, onConnect, addToast, onPick, tokens
 
       // Step 1: Cancel on-chain via Seaport contract (invalidates the signed order)
       if (!listing.rawParameters) {
-        addToast?.("Cannot cancel: order parameters missing. Try refreshing.", "error");
+        addToast?.("This listing is missing its order details. Refresh the page, then cancel again.", "error");
         setCancelling(null);
         return;
       }
