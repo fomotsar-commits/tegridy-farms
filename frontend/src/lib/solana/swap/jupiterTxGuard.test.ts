@@ -3,7 +3,7 @@
 // NODE, like the other Solana tests (lib/ladder/program.test.ts): under jsdom a
 // Uint8Array from the other realm fails web3.js's address and encoding checks.
 import { describe, it, expect } from 'vitest';
-import bs58 from 'bs58';
+import { base58 } from '@scure/base';
 import { Message, PublicKey, VersionedTransaction } from '@solana/web3.js';
 import { JUPITER_RECURRING_PROGRAM, JUPITER_SWAP_PROGRAM, JUPITER_TRIGGER_PROGRAM, jupiterTxRefusal, type JupiterTxExpectation } from './jupiterTxGuard';
 import {
@@ -38,9 +38,9 @@ function edit(b64: string, f: (v: View) => void): string {
   const tx = VersionedTransaction.deserialize(Buffer.from(b64, 'base64'));
   const m = tx.message;
   if (m instanceof Message) {
-    const ixs: Ix[] = m.instructions.map((i) => ({ programIdIndex: i.programIdIndex, accountKeyIndexes: [...i.accounts], data: bs58.decode(i.data) }));
+    const ixs: Ix[] = m.instructions.map((i) => ({ programIdIndex: i.programIdIndex, accountKeyIndexes: [...i.accounts], data: base58.decode(i.data) }));
     f({ keys: m.accountKeys.map((k) => k.toBase58()), ixs, header: m.header });
-    m.instructions = ixs.map((i) => ({ programIdIndex: i.programIdIndex, accounts: i.accountKeyIndexes, data: bs58.encode(i.data) }));
+    m.instructions = ixs.map((i) => ({ programIdIndex: i.programIdIndex, accounts: i.accountKeyIndexes, data: base58.encode(i.data) }));
   } else {
     const ixs = m.compiledInstructions.map((i) => ({ programIdIndex: i.programIdIndex, accountKeyIndexes: [...i.accountKeyIndexes], data: Uint8Array.from(i.data) }));
     f({ keys: m.staticAccountKeys.map((k) => k.toBase58()), ixs, header: m.header });
