@@ -2,7 +2,7 @@ import type { Ref } from 'react';
 import { Link } from 'react-router-dom';
 import type { PoolView } from '../../../lib/solana/lp/poolFinder';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
-import { LITTLE_MONEY_TEXT, byWorth, marketGap, pairSwapLink, poolTags, poolWorthUsd, tokenDecimalsOf, type MarketPrices, type PoolListRead } from '../../../lib/solana/lp/poolList';
+import { LITTLE_MONEY_TEXT, byWorth, marketGap, pairSwapLink, poolTags, poolWorthUsd, refusesDeposits, tokenDecimalsOf, type MarketPrices, type PoolListRead } from '../../../lib/solana/lp/poolList';
 import { PRICE_TOLERANCE, poolPricePerToken } from '../../../lib/solana/lp/poolHealth';
 import { quoteText, tokenText, turnedDiff, usdText } from '../../../lib/solana/lp/format';
 import { pairLabel, siteNamed, tokenTicker } from '../../../lib/solana/lp/identity';
@@ -184,6 +184,7 @@ function PoolRow({
   const tags = poolTags(view, chainNow, gap !== null && side === 'coin' ? turnedDiff(gap) : gap);
   // What the pool holds in dollars, at Jupiter's listed prices: only when both coins have one, never $0.
   const worth = usd ? poolWorthUsd(view, usd) : null;
+  const refused = refusesDeposits(view, chainNow, safety);
   return (
     <li
       data-testid="lp-all-pools-row"
@@ -232,7 +233,14 @@ function PoolRow({
       {/* `relative`: painted above the price flip's press area, which reaches 14px below its line. */}
       <div className="relative flex gap-2">
         {onAdd && (
-          <button type="button" className="btn-primary min-h-[44px] px-4 text-[13px]" aria-label={`Add to ${label}`} onClick={() => onAdd(view.tokenMint, view.address, view.quote.mint)}>
+          // A pool that refuses deposits: switched off to the eye and to a screen reader, and still a press to its card, which says why.
+          <button
+            type="button"
+            className={`${refused ? 'btn-secondary' : 'btn-primary'} min-h-[44px] px-4 text-[13px] aria-disabled:opacity-60`}
+            aria-disabled={refused || undefined}
+            aria-label={`Add to ${label}`}
+            onClick={() => onAdd(view.tokenMint, view.address, view.quote.mint)}
+          >
             Add
           </button>
         )}

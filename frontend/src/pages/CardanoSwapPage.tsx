@@ -694,6 +694,15 @@ function ReviewCard({
         }
       />
       <Line label="Venue fee" value={c.venueFeeLovelace > 0n ? formatAda(c.venueFeeLovelace) : 'None'} note={venueFeeText(prepared.plan.venueFee)} />
+      {/* Whole, so the wallet's own screen can be matched: its output to this address is the fee (checkSwapTx holds both). */}
+      {prepared.plan.venueFee.kind === 'charged' && c.venueFeeLovelace > 0n && (
+        <>
+          <p className="text-[11px] text-white/60">Paid to the venue’s two-key treasury (moving it takes two signatures):</p>
+          <p className="font-mono text-[10px] text-white/60 break-all" data-testid="cardano-review-venue-fee-to">
+            {prepared.plan.venueFee.address.bech32}
+          </p>
+        </>
+      )}
       <Line
         label="Network fee"
         value={formatAda(c.networkFee)}
@@ -704,7 +713,11 @@ function ReviewCard({
       <p className="font-mono text-[10px] text-white/60 break-all" data-testid="cardano-review-paid-to">
         {prepared.plan.trader.bech32}
       </p>
-      <p className="text-[11px] text-white/60">Checked: nothing in this transaction pays anyone else or touches your stake.</p>
+      <p className="text-[11px] text-white/60">
+        {c.venueFeeLovelace > 0n
+          ? 'Checked: apart from the venue fee above, nothing in this transaction pays anyone else, and nothing touches your stake.'
+          : 'Checked: nothing in this transaction pays anyone else or touches your stake.'}
+      </p>
       <div className="flex gap-2">
         <button type="button" onClick={onBack} className="flex-1 min-h-[48px] rounded-xl text-white text-[13px]" style={{ background: 'rgba(0,0,0,0.45)', border: '1px solid rgba(255,255,255,0.18)' }}>
           Back
