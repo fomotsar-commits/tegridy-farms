@@ -371,6 +371,10 @@ test.describe('group A (chromium and mobile-chrome)', () => {
     await expect(createCard(p)).toHaveAttribute('data-create', 'offer');
     await expect(ui.lp.create.solToPut(p)).toHaveValue('');
     await expect(ui.lp.create.review(p)).toBeDisabled();
+    // The page read the pool the moment the opening confirmed, which can be the second
+    // before it opens ("Deposits wait until then", train 3's run, 2026-11-08): the finder
+    // then reads it again as it opens, with nothing pressed, and only then it takes the pair.
+    await expect(poolCard(p, pool)).toHaveAttribute('data-deposits', 'allowed', { timeout: 60_000 });
     await expect(ui.lp.create.panel(p).getByTestId('lp-create-taken')).toContainText(
       `This token already has a SOL pool on the public fee tier that passes the checks: ${pool.toBase58()}. One pool per pair and fee tier, so a second is not opened here: add to that pool instead, from its card above. You can still open one paired with USDC or BAYLA.`,
     );

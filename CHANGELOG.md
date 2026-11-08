@@ -9,6 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-11-08
 
+- Pools: a pool opened moments ago is read again by itself as it opens, so its card and the Open a pool form follow. Read in the second before it opened, it said deposits wait and the form offered a second pool for the same pair until something else was pressed.
 - Pools, Open a pool: if someone opens a pool at the same address while your review is on screen, the line after Sign now says what Start over does: add to their pool if it takes deposits, or open yours at a new address if it does not. It used to promise a new address either way.
 - NFT lending: the Wrap, Approve and Sign Offer button, Take Loan and Repay are solid green when they can be pressed and faded until then. Lend waits until every box holds a valid value.
 - Receipt card (Solana): after an add, any coin, the card's head is the pool. Both coins pour in, a bubble flashes, and your brick of light lands on the floor of the pool's LPs, in the coin's own color. A buy or a sale keeps its flame.
