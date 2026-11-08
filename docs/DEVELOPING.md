@@ -118,6 +118,39 @@ cd contracts
 forge test --fork-url http://localhost:8545
 ```
 
+## Solana e2e (local validator)
+
+`frontend/e2e-solana` drives the real pages (a production build in the `solana-e2e` mode) against
+a local `solana-test-validator` that runs the exact program builds the repo pins
+(`start-validator.sh`), with the accounts `genesis-accounts.mjs` writes and fixed test keys. CI runs
+it as **E2E Solana (local validator)** (`.github/workflows/e2e-solana.yml`): on a pull request that
+touches the Solana pages or the suite, on `mvp-launch`, every Monday, and by hand.
+
+On this machine, from `frontend/` in Git Bash, with `solana-test-validator` 3.1.11 in WSL:
+
+```bash
+node scripts/solana-localnet/genesis-accounts.mjs
+```
+
+```bash
+MSYS_NO_PATHCONV=1 wsl.exe -d Ubuntu -- bash -lc 'E2E_LEDGER=$HOME/e2e-ledger E2E_RPC_PORT=18899 exec bash /mnt/c/<checkout>/frontend/scripts/solana-localnet/start-validator.sh'
+```
+
+Leave that running until it prints `READY`, then, in another shell:
+
+```bash
+E2E_SOLANA_RPC=http://127.0.0.1:18899 E2E_SOLANA_PORT=4188 E2E_SOLANA_OUT="$TEMP/e2e-solana" npm run e2e:solana
+```
+
+- The program files come from the release folder (`TEGRIDY_RELEASE_ARTIFACTS` for the first command,
+  `TEGRIDY_RELEASE_ARTIFACTS_WSL` for the second). Without it, build one from mainnet the way CI
+  does: `node scripts/solana-localnet/stage-from-mainnet.mjs --out <dir>`. It refuses, naming both
+  hashes, when the repo pins a build mainnet no longer runs.
+- The whole suite (187 tests, chromium and a phone) takes about two hours here; add `-g "<title>"`
+  for one test. Its own port, ledger and output folder keep it apart from another checkout's run.
+- Stop the validator when done (Ctrl-C there, or `stop-validator.sh`): its ledger grows about
+  10 GB an hour.
+
 ## Adding a new contract
 
 1. Drop the `.sol` file in `contracts/src/`.

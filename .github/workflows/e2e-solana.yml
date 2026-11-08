@@ -1,0 +1,170 @@
+name: E2E Solana (local validator)
+
+# The browser specs in frontend/e2e-solana, against a local validator running the exact program
+# builds mainnet runs (start-validator.sh pins them by sha256) and the genesis accounts
+# genesis-accounts.mjs writes. Locally, docs/DEVELOPING.md "Solana e2e" has the one command.
+#
+# No release folder exists on a runner, so stage-from-mainnet.mjs builds it: each program's
+# file is read from mainnet and must hash to the repo's own pin. A pin mainnet no longer runs
+# fails the job at that step, naming both hashes: the pins are behind mainnet, and the specs
+# would test a program nobody runs.
+on:
+  # No `paths:` on pull_request (requiredCheckSynthesis.test.ts): the scope job below decides.
+  pull_request:
+    branches: [mvp-launch]
+  push:
+    branches: [mvp-launch]
+    paths:
+      - .github/workflows/e2e-solana.yml
+      - frontend/e2e-solana/**
+      - frontend/scripts/solana-localnet/**
+      - frontend/playwright.solana.config.ts
+      - frontend/api/solrpc.js
+      - frontend/src/components/solana/**
+      - frontend/src/lib/solana/**
+      - frontend/src/lib/launcher/solana/**
+  schedule:
+    # Mondays: mainnet's programs or the page can move under the specs with no PR here.
+    - cron: '23 7 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # Whether this pull request touches the suite or the pages it drives (solana-ci.yml's pattern).
+  scope:
+    name: scope
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      run: ${{ steps.q.outputs.run }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Does this diff touch the Solana pages or the suite?
+        id: q
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -uo pipefail
+          # Every uncertain answer is true: a wrong false would skip the run and report a pass.
+          say() { echo "run=$1" >> "$GITHUB_OUTPUT"; exit 0; }
+          [ -n "${PR:-}" ] || { echo "not a pull_request: in scope by trigger"; say true; }
+          files=$(gh api --paginate "repos/$REPO/pulls/$PR/files" \
+            --jq '.[] | .filename, (.previous_filename // empty)') || {
+            echo "::warning::gh could not list every changed file, running the real job"
+            say true
+          }
+          if [ -z "$files" ]; then
+            echo "::warning::could not list this PR's changed files, running the real job"
+            say true
+          fi
+          if [ "$(printf '%s\n' "$files" | wc -l)" -ge 3000 ]; then
+            echo "::warning::changed-file list is at the API cap, running the real job"
+            say true
+          fi
+          verdict=$(printf '%s\n' "$files" | node .github/scripts/diff-scope.mjs \
+            '.github/workflows/e2e-solana.yml' \
+            'frontend/e2e-solana/**' \
+            'frontend/scripts/solana-localnet/**' \
+            'frontend/playwright.solana.config.ts' \
+            'frontend/api/solrpc.js' \
+            'frontend/src/components/solana/**' \
+            'frontend/src/lib/solana/**' \
+            'frontend/src/lib/launcher/solana/**')
+          case "$verdict" in
+            true|false) say "$verdict" ;;
+            *) echo "::warning::diff-scope returned '$verdict', running the real job"; say true ;;
+          esac
+
+  e2e-solana:
+    name: E2E Solana (local validator)
+    needs: scope
+    if: >-
+      !cancelled() &&
+      (needs.scope.result != 'success' || needs.scope.outputs.run == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      SOLANA_VERSION: v3.1.11
+      # About half an hour of history: the specs look a landed transaction up within minutes,
+      # and the default 50 million shreds would fill the runner's disk in a long run.
+      E2E_LIMIT_LEDGER_SIZE: '4000000'
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Folders outside the checkout
+        run: |
+          echo "RELEASE=$RUNNER_TEMP/release" >> "$GITHUB_ENV"
+          echo "E2E_SOLANA_OUT=$RUNNER_TEMP/e2e-solana-out" >> "$GITHUB_ENV"
+          echo "E2E_LEDGER=$RUNNER_TEMP/ledger" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci --ignore-scripts
+
+      - name: Install Solana CLI ${{ env.SOLANA_VERSION }}
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/${SOLANA_VERSION}/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+
+      - name: The program files mainnet runs, checked against the pins
+        run: node scripts/solana-localnet/stage-from-mainnet.mjs --out "$RELEASE"
+
+      - name: Genesis accounts
+        run: TEGRIDY_RELEASE_ARTIFACTS="$RELEASE" node scripts/solana-localnet/genesis-accounts.mjs
+
+      - name: Start the validator
+        run: |
+          mkdir -p "$E2E_LEDGER"
+          TEGRIDY_RELEASE_ARTIFACTS_WSL="$RELEASE" nohup bash scripts/solana-localnet/start-validator.sh > "$RUNNER_TEMP/start-validator.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/start-validator.pid"
+          for _ in $(seq 1 300); do
+            grep -q '^READY ' "$RUNNER_TEMP/start-validator.log" && { grep '^READY ' "$RUNNER_TEMP/start-validator.log"; exit 0; }
+            kill -0 "$(cat "$RUNNER_TEMP/start-validator.pid")" 2>/dev/null || break
+            sleep 1
+          done
+          cat "$RUNNER_TEMP/start-validator.log"
+          echo "the validator did not come up"
+          exit 1
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run the e2e-solana specs
+        run: npm run e2e:solana
+
+      - name: Stop the validator
+        if: ${{ always() }}
+        run: kill "$(cat "$RUNNER_TEMP/start-validator.pid" 2>/dev/null)" 2>/dev/null || true
+
+      - name: Upload the report
+        uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874 # v4.4.0
+        if: ${{ failure() }}
+        with:
+          name: e2e-solana-report
+          path: |
+            ${{ runner.temp }}/e2e-solana-out/report
+            ${{ runner.temp }}/e2e-solana-out/test-results
+            ${{ runner.temp }}/start-validator.log
+            ${{ runner.temp }}/tegridy-e2e-validator.out
+          retention-days: 7
