@@ -6,6 +6,16 @@ first. The site's Changelog tab shows this file under that one. When a day leave
 
 ## Days
 
+### 2026-09-24
+
+- On phones and iPads the Copy Trading tab reads CT, and no tab runs into the next one.
+
+### 2026-09-22
+
+- Staking cards say how the island reads a locked bag.
+- The heat explainer reads the island's sentences.
+- Bungalow links open once, on the room's hero.
+
 ### 2026-09-21
 
 - The BAYLA staking cards are rebuilt, and the wrong readings the rebuild turned up are fixed.
