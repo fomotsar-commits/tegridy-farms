@@ -39,7 +39,10 @@ when it should take the pair, open it at or off the market. An outcome that says
 will do must say both cases. The validator starts from a worktree under a path with a space when
 the script path is quoted inside `bash -lc` (`E2E_RPC_PORT=18899`, READY in under a minute); run
 the suite with `E2E_SOLANA_RPC=http://127.0.0.1:18899 E2E_SOLANA_PORT=4188` and its own
-`E2E_SOLANA_OUT`, so another checkout's run is never built over.
+`E2E_SOLANA_OUT`, so another checkout's run is never built over. Stop it when done: with CI's
+`E2E_LIMIT_LEDGER_SIZE=4000000` the ledger folder still measured 13 GB (`du -sh`) after about 40
+minutes of two three-test runs, since that cap bounds the shred store and not the accounts and
+snapshots beside it.
 
 ## 2026-11-08: a pinned program build can exist nowhere once mainnet has moved past it, so a CI job can only fetch the build mainnet runs
 
