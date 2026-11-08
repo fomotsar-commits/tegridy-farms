@@ -20,6 +20,11 @@ export type Scripts = Record<ScriptName, { hash: string; compiledCode: string }>
 
 export interface DeployInputs {
   network: number;
+  /**
+   * Pays every fee and holds both seeds: an address paid to a key, on the run's network. A
+   * wallet's own (the owner signs in it, scripts/cosign.ts) or a key file's (preprod's --sign).
+   */
+  deployer: string;
   /** "txhash#index": spent by DexInitialization; fixes the authen policy and every hash after it. */
   seedTxIn: string;
   /** "txhash#index": spent by the lock token's mint. */
@@ -41,6 +46,14 @@ const REF = /^[0-9a-f]{64}#\d{1,4}$/;
 /** Every input, checked before anything is compiled or built. */
 export function checkInputs(i: DeployInputs): void {
   if (i.network !== 0 && i.network !== 1) throw new Error('network must be 0 (preprod) or 1 (mainnet)');
+  let d: CSL.Address;
+  try {
+    d = CSL.Address.from_bech32(i.deployer);
+  } catch {
+    throw new Error('deployer is not an address');
+  }
+  if (d.network_id() !== i.network) throw new Error(`deployer is not a ${i.network === 1 ? 'mainnet' : 'preprod'} address`);
+  if (!d.payment_cred()?.to_keyhash()) throw new Error('deployer must be an address paid to a key (a wallet), not a script');
   for (const [k, v] of Object.entries({ seedTxIn: i.seedTxIn, lockSeedTxIn: i.lockSeedTxIn })) if (!REF.test(v)) throw new Error(`${k} is not "txhash#index"`);
   if (i.seedTxIn === i.lockSeedTxIn) throw new Error('the authen seed and the lock seed must be two different UTxOs');
   for (const [k, v] of Object.entries({ ownerA: i.ownerA, ownerB: i.ownerB, batcherKeyHash: i.batcherKeyHash, poolStake: i.poolStake.hash })) if (!HASH.test(v)) throw new Error(`${k} is not a 28-byte hash`);
@@ -50,6 +63,30 @@ export function checkInputs(i: DeployInputs): void {
   if (i.openingFee < 0n) throw new Error('the opening fee cannot be negative');
   // The same rules the batcher's sweep holds the treasury to: two-key scripts on both parts.
   checkTreasury({ address: i.treasury, script: i.treasuryScript, stakeScript: i.treasuryStakeScript }, i.network, i.batcherKeyHash);
+}
+
+/**
+ * The template's fields the owner has not yet confirmed (deploy/mainnet-inputs.template.json):
+ * inputs that still carry "_pending" are refused until he deletes it.
+ */
+export function checkNothingPending(raw: { _pending?: unknown }): void {
+  if (raw._pending !== undefined) throw new Error(`these inputs are still pending the owner's OK (${JSON.stringify(raw._pending)}): confirm each, then delete "_pending"`);
+}
+
+/**
+ * The deployer's plain-ADA UTxOs from Koios's address_utxos, asked with _extended: without it
+ * Koios sends asset_list null for every UTxO, and a UTxO holding tokens would pass as plain ADA.
+ * A row that does not say what it holds is refused.
+ */
+export function plainFunds(rows: unknown, address: string, exclude: string[]): Utxo[] {
+  if (!Array.isArray(rows)) throw new Error("Koios did not send the deployer's UTxOs as a list");
+  return (rows as { tx_hash: string; tx_index: number; address: string; value: string; asset_list: unknown; reference_script: unknown; datum_hash: unknown; inline_datum: unknown }[])
+    .filter((u) => {
+      if (!Array.isArray(u.asset_list)) throw new Error(`Koios did not say which coins ${u.tx_hash}#${u.tx_index} holds (ask address_utxos with _extended)`);
+      return u.address === address && !u.asset_list.length && !u.reference_script && !u.datum_hash && !u.inline_datum;
+    })
+    .map((u) => ({ ref: `${u.tx_hash}#${u.tx_index}`, address, lovelace: BigInt(u.value) }))
+    .filter((u) => !exclude.includes(u.ref));
 }
 
 export function plutusAddress(bech32: string): PlutusData {

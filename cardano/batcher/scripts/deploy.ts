@@ -4,14 +4,14 @@
 //   node scripts/deploy.ts <lock|init|refs|register> <inputs.json> <out> [--sign <a.skey,b.skey>] [--submit]
 //   node scripts/deploy.ts records <inputs.json> <out>
 // Chain: OGMIOS_URL (protocol parameters, evaluation, submission), KOIOS_URL (the deployer's
-// UTxOs). --sign takes key files and is for preprod's throwaway keys: on mainnet the owner signs
-// the written transaction with their own wallets and keys, and submits it themselves.
+// UTxOs). --sign takes key files and is for preprod's throwaway keys: on mainnet every signature
+// comes from the owner's own wallets on the co-signing page (scripts/cosign.ts), which submits.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import CSL from '@emurgo/cardano-serialization-lib-nodejs';
 import { budgetsFromOgmios, protocolParams, rpc, submit, type Endpoint } from '../src/ogmios.ts';
 import { keyFromFile } from '../src/signer.ts';
-import { REF_ORDER, addresses, checkInputs, initTx, lockTx, records, refTx, registerTx, type Built, type DeployInputs, type Scripts, type TxPlan, type Utxo } from '../src/deploy.ts';
+import { REF_ORDER, addresses, checkInputs, checkNothingPending, initTx, plainFunds, lockTx, records, refTx, registerTx, type Built, type DeployInputs, type Scripts, type TxPlan, type Utxo } from '../src/deploy.ts';
 
 const [cmd, inputsPath, outArg] = process.argv.slice(2);
 const flag = (f: string) => {
@@ -21,7 +21,8 @@ const flag = (f: string) => {
 if (!cmd || !inputsPath || !outArg) throw new Error('usage: node scripts/deploy.ts <compile|lock|init|refs|register|records> <inputs.json> <out> [--sign a.skey,b.skey] [--submit]');
 const out: string = outArg;
 const raw = JSON.parse(readFileSync(inputsPath, 'utf8'));
-const inputs: DeployInputs & { deployer: string; batcherFee: string } = { ...raw, openingFee: BigInt(raw.openingFee) };
+checkNothingPending(raw);
+const inputs: DeployInputs & { batcherFee: string } = { ...raw, openingFee: BigInt(raw.openingFee) };
 checkInputs(inputs);
 mkdirSync(out, { recursive: true });
 const statePath = join(out, 'state.json');
@@ -54,13 +55,9 @@ const pp = await protocolParams(ogmios);
 
 /** The deployer's plain-ADA UTxOs, but `exclude` (a seed another step spends). */
 async function funds(exclude: string[]): Promise<Utxo[]> {
-  const r = await fetch(`${koios}/address_utxos`, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json' }, body: JSON.stringify({ _addresses: [inputs.deployer] }) });
+  const r = await fetch(`${koios}/address_utxos`, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json' }, body: JSON.stringify({ _addresses: [inputs.deployer], _extended: true }) });
   if (!r.ok) throw new Error(`Koios answered ${r.status}: the deployer's UTxOs could not be read`);
-  const rows = (await r.json()) as { tx_hash: string; tx_index: number; value: string; asset_list: unknown[]; reference_script: unknown; datum_hash: unknown; inline_datum: unknown }[];
-  return rows
-    .filter((u) => !u.asset_list?.length && !u.reference_script && !u.datum_hash && !u.inline_datum)
-    .map((u) => ({ ref: `${u.tx_hash}#${u.tx_index}`, address: inputs.deployer, lovelace: BigInt(u.value) }))
-    .filter((u) => !exclude.includes(u.ref));
+  return plainFunds(await r.json(), inputs.deployer, exclude);
 }
 
 /** Built once with a generous draft budget, judged by the node, built again with what it measured. */

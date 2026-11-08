@@ -56,6 +56,42 @@ refused as `BatchTooBig`, to be split.
 - **Keep the float in plain ADA UTxOs at the batcher's key**, and a collateral UTxO of about
   5 ADA. Anything else sent to that address is never spent by a batch.
 
+## Sign the deploy in your own wallets (`scripts/cosign.ts`)
+
+On mainnet no deploy key is ever a file: every signature comes from the owner's own wallets
+(Eternl) through CIP-30 `signTx(tx, true)`, on a page served from this computer only
+(`127.0.0.1`, never deployed: it is not under `frontend/`).
+
+```
+KOIOS_URL=https://api.koios.rest/api/v1 node scripts/cosign.ts serve inputs.json out
+```
+
+Open `http://127.0.0.1:8737`, pick a step (`out/<step>.tx.json`, as `deploy.ts` wrote it), read
+it, and press **Sign with Eternl** once in each wallet the page lists under "Who must sign"
+(switch wallets in Eternl between presses). Then:
+
+```
+KOIOS_URL=... OGMIOS_URL=<your Ogmios> node scripts/cosign.ts submit inputs.json out <step>
+```
+
+- **What it shows is read from the transaction's own bytes**: every input with its whole
+  address and amount (read from the chain, or from the run's earlier transaction that makes
+  it), every output, the fee, collateral, mint, certificates, withdrawals, required signers and
+  the validity window, and who must sign and why.
+- **It refuses**, and keeps nothing from that wallet: a signature from a key the transaction
+  does not need; a signature that is not over this body (the wallet signed other bytes); a
+  transaction whose body changed between signatures (`<step>.witnesses.json` holds one body's
+  signatures only); and any wallet, address, Koios or Ogmios on another network than the
+  inputs' (mainnet only when they say `"network": 1`). It signs no votes, proposals, donations,
+  protocol updates, native scripts or certificates other than the legacy stake registration.
+- **Submit assembles again** from the unsigned bytes and the kept signatures, checks each one,
+  checks Ogmios is on the inputs' network, and sends. The id the node answers must be the
+  transaction's.
+- **The deployer can be a wallet too.** `deploy.ts` needs only the deployer's address and its
+  UTxOs (read from Koios with `_extended`, so a UTxO holding tokens is never taken for plain
+  ADA). Use a wallet for nothing else until `register` lands: a seed spent elsewhere changes
+  every hash.
+
 ## The owner's rulings (2026-10-25)
 
 - **Runs on Railway**, in a new project of its own (not the indexer's), with no public port.
