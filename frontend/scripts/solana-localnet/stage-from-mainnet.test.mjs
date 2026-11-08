@@ -62,9 +62,16 @@ describe('stage', () => {
 
   it('refuses a pin mainnet does not run, naming both hashes, and writes nothing', async () => {
     mainnet({ [LAUNCH_PROGRAM.toBase58()]: fakeElf(500, 3), [CP_SWAP_PROGRAM.toBase58()]: fakeElf(600, 3) });
-    const out = path.join(os.tmpdir(), `stage-test-${process.pid}-${Date.now()}`);
+    // A folder of this test's own (mkdtemp), and inside it the one stage() must not create.
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'stage-test-'));
+    const out = path.join(dir, 'release');
     const soFile = Object.keys(PINNED_SHA256).find((f) => f.endsWith('.so'));
-    await expect(stage(out)).rejects.toThrow(new RegExp(`${soFile.replace(/\./g, '\\.')}: mainnet's \\w+ runs [0-9a-f]{64}, this checkout pins ${PINNED_SHA256[soFile]}`));
-    expect(fs.existsSync(out)).toBe(false);
+    const literal = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    try {
+      await expect(stage(out)).rejects.toThrow(new RegExp(`${literal(soFile)}: mainnet's \\w+ runs [0-9a-f]{64}, this checkout pins ${PINNED_SHA256[soFile]}`));
+      expect(fs.existsSync(out)).toBe(false);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
