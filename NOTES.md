@@ -102,6 +102,108 @@ sources that differ give two hashes before trusting either.
 
 ---
 
+## 2026-11-03: the guards rewrite only what they are told to, a program edit can fail a site test, and red-first needs no red commit in CI
+
+**Believed:** `node solana/guards/provenance.mjs --regenerate <clones>` re-derives a copy's whole
+reviewed patch from our source, so after editing cp-swap one regenerate and one re-pin are enough.
+
+**Measured** (2026-11-03, the swap-pool audit round): it regenerates only the files named in that
+copy's `patched` list. After editing four new cp-swap files, the first regenerate wrote a
+`cp-swap.diff` with none of them and printed the usual "re-pin only after reading the delta". The
+check then fails with "differs from upstream and is not a patched file". Add every edited file to
+`COPIES[<copy>].patched` first, then regenerate, then re-pin `deltaSha256`, and regenerate again
+after any later edit to a patched file, tests included: an in-file `#[cfg(test)]` module is part
+of the delta.
+
+**Also measured, the same round:**
+
+- A program's own tests passing does not mean CI will pass. #1113 changed one file of the range
+  program, `util/token.rs`, and its unit tests passed. Its first CI run still failed in "Lint,
+  Type Check & Test". `frontend/src/lib/solana/clmm/quote.test.ts` hashes every `.rs` file under
+  `tegridy-clmm/programs/amm/src`, plus `vendor/`, both `Cargo.toml` files and `Cargo.lock`, and
+  holds that hash to the stamp in its vectors fixture. The fix was to re-run
+  `frontend/scripts/clmm-vectors/run.sh` (fixed seed, about 15 seconds in WSL once the crates are
+  built) and compare the output with the committed fixture. Everything but the stamp came out
+  byte-identical, all 1,246,560 bytes, which also shows the edit left the quote maths alone.
+  Before pushing a program edit, grep `frontend/src` for the program's folder: 22 site test files
+  named one on 2026-11-03.
+- `key-guard.mjs` refuses `Pubkey::from_str(key)` with a variable anywhere in a copy, unit tests
+  included ("is given something other than one plain key"). Write each key as `pubkey!("…")`.
+- A Rust `assert!` that refuses an Anchor instruction reaches a TypeScript test as the text
+  `assertion failed: <the condition as written>` inside the `SendTransactionError` message
+  (web3.js puts the last 10 log lines there), with solana-test-validator 2.3.0 and
+  @coral-xyz/anchor 0.32.1. Matching that text pins WHICH check refused, not just that something
+  did.
+- Red-first on a local validator, without pushing a red commit: build the fixed and the unfixed
+  program under two program ids (WSL, Solana 2.3.0 and anchor 0.32.1, `CARGO_NET_OFFLINE=true`:
+  both workspaces' crates, dev-dependencies included, are already in WSL's registry), deploy both
+  to one `solana-test-validator` on a port of your own, and run the test from Windows node against
+  `http://127.0.0.1:<port>` (WSL forwards localhost), swapping `target/idl/<program>.json` between
+  the two runs. About 2 minutes per build and 8 seconds per test run. Split a table-driven test
+  into one `it` per row first: in one `it`, the first failing row hides whether the rest would
+  have failed too.
+- The file-time trap in the range-pool entry above also hits `cargo test`, and there it fakes a
+  red run. For #1113's hand-over rule, a fixed and an unfixed copy shared one `CARGO_TARGET_DIR`
+  and were both made before the first build: the unfixed copy's `cargo test` reused the fixed
+  copy's test binary and passed 26 of 26, though it had lost the check. After touching its
+  sources, cargo printed `Compiling raydium-cp-swap (…/unfixed/…)` and the two guards failed.
+  Look for that line in every red run.
+- With Node 24, `ts-mocha` loads a `.ts` test as an ES module, because Node now strips types
+  itself. Then `import { BN } from "@coral-xyz/anchor"` fails with "Named export 'BN' not found".
+  `NODE_OPTIONS=--no-experimental-strip-types` hands the file back to ts-node.
+
+---
+
+## 2026-11-03: a sheet that fits what it holds climbs and drops while its pieces load, and only a per-frame sampler sees it
+
+**Believed:** a bottom sheet that fits its content, with a "Reading…" line about a form's height in each waiting
+state, rises once. Its settled screenshots at 390x844 and at 660 tall were right, and a unit test cannot see a frame.
+
+**Measured** (2026-11-03, #1110, the production build at 390x844 reading mainnet): an init script whose
+`requestAnimationFrame` loop pushed each new value of the sheet's top recorded 313, 634, 294, 313, 354 for the Add
+sheet. The 634 lasted one frame (11 ms): a parent's `useEffect` opened the child's form after the first paint, so one
+frame drew the section without it (the 2026-10-10 scroll-reset entry's mechanism, here a 320 px drop and back). With
+that opened in `useLayoutEffect`, the e2e's stand-in walk still went 653, 313, 294, 354 (a 359 px range): the 653 was
+the frame before anything landed in the sheet's empty slot. With every waiting state held at the height of what it
+waits for, per kind (Add 320 and Buy 204 CSS px, the empty slot included through `:empty`): live 333, 314, 333, 354
+(40 px), the Buy sheet 449 throughout, the stand-in 333, 314, 354. The settled screenshots before and after are the same.
+
+**Do:** sample the geometry of anything that loads in pieces on every frame, not once at the end, and hold each
+waiting state, the empty first frame too, at the height of what it waits for, per kind. A failing movement check is a
+finding: measure it live before touching its threshold. The first fix here loosened the check instead, which would
+have shipped the bounce.
+
+## 2026-11-03: a function you do not own in an effect's dependencies cancels the effect's timer on every render
+
+**Believed:** an effect that fires the confetti once per receipt (a module-level guard on the signature) and then
+starts the 250 ms timer that raises the card will always raise it.
+
+**Measured** (2026-11-03, #1110, `ReceiptCard.tsx`): the confetti provider's `fire` is a new function on each of its
+renders. When the receipt's fee was read within 250 ms of the card opening, that render re-ran the effect: its cleanup
+cleared the pending timer, and the re-run stopped at the once-per-signature guard, so the card stayed at opacity 0
+over a dimmed page. The live walk found it, not a test. The test written for it (an unstable `fire` mock, the fee read
+at once) fails on the code before the fix and passes after, run again on 2026-11-03 by swapping the old file in.
+
+**Do:** keep a once-guarded side effect and a timer in separate effects, the timer keyed only on the stable key (here
+the signature). Treat a function from a provider you do not own as new on every render, and test with a mock that is.
+
+## 2026-11-03: `git stash push <path>` on an unchanged path saves nothing, and the `git stash pop` after it pops another worktree's stash
+
+**Believed:** `git stash push -- <file> && <test> && git stash pop` sets a file aside for a red-first run and puts it
+back.
+
+**Measured** (2026-11-03, in a worktree of this repo): the file's change was already committed, so `push` printed "No
+local changes to save" and saved nothing; `pop` then applied and dropped stash@{0}, another session's July stash (a
+docs edit and four broadcast files). The stash list is one list for every worktree of the repository (12 entries on
+2026-11-03). The popped stash's commit could not be found afterwards in refs, reflogs or
+`git fsck --unreachable --no-reflogs`; it was put back as a new stash from the applied diff.
+
+**Do:** never pair a path stash with a pop. For a red-first run on committed code: `git show <old>:<path> > <path>`,
+run, `git checkout -- <path>`, and prove the restore with `git status --short`. For uncommitted code: copy the file
+aside, swap, copy it back, and `cmp`.
+
+---
+
 ## 2026-11-02: a one-time operator tool names an owner that config has since moved, and it would have run clean while pointing at the wrong wallet
 
 **Believed:** `frontend/create-fee-atas.mjs`, the tool that creates the fee wallet's token accounts,
@@ -191,6 +293,74 @@ so even the loop's own reads share keys; keep the answer at the edge with a long
 `stale-while-revalidate` and answer a failed loop `no-store`, so a refusal never replaces the
 last good answer. The browser's rule then becomes an age: a price under ten minutes old
 passes, older holds, in one row.
+
+---
+
+## 2026-10-31: an inline `config={{ ... }}` on `ConnectionProvider` made a new Solana connection on every render, and phones ran out of reads
+
+**Believed:** `<ConnectionProvider endpoint={endpoint} config={{ commitment: 'confirmed' }}>` makes
+one Connection per endpoint, and leaving `config` out is just as safe.
+
+**Measured:** `@solana/wallet-adapter-react` 0.15.39 builds it with
+`useMemo(() => new Connection(endpoint, config), [endpoint, config])`. An inline object is new on
+every render, and so is the default when `config` is left out (a default parameter is built on
+each call). So every re-render of the provider made a new Connection, and every card whose effect
+depends on `connection` from `useConnection()` read again. `SolanaProviders.tsx` passed it inline.
+The home's BAYLA ladder card (`SolanaLadderPoolLive`, built to re-read every 45 s) read its pool
+and both vaults about every 5 s: about 100 `/api/solrpc` calls a minute per open home tab, against
+the proxy's 300 a minute per IP (`SOL_RATE_LIMIT` in `frontend/api/solrpc.js`), which a
+household's devices or a mobile carrier's NAT share. The owner's phone and iPad got 429s and the
+dashboard said "Couldn't read your Solana coins just now" (2026-10-31). PR #1087
+(`fix/solana-connection-stable`) passes one module-level `CONNECTION_CONFIG`, and makes `lpFetch`
+(`frontend/src/lib/solana/lp/readFetch.ts`) wait out a 429's `Retry-After` (at most twice, at most
+60 s each), as web3.js already does for its own reads.
+
+**Technique** (finding who spends a rate limit): first the 429s themselves, from Vercel's request
+logs: `vercel logs --environment production --since 1h --limit 1000 --json --non-interactive
+--status-code 429`. It returns at most 50 rows per query (the 2026-10-23 entry below), so slice
+the window with `--since`/`--until`. Then a Playwright script that wraps `window.fetch` in
+`addInitScript`, so the wrapper is in place BEFORE the app loads: web3.js keeps its own reference
+to `fetch`, and a wrapper installed later misses its calls. For each call, record the JSON-RPC
+method, its first param, and the chunk file that made it, from `new Error().stack`.
+
+**Do:** an object or array passed as a prop to a provider that memoizes on it is module-level or
+`useMemo`'d. When a card reads more often than its timer says, check whether `connection` is
+changing under it.
+
+---
+
+## 2026-10-31: a local validator charges more rent than mainnet, a vault simulation needs the vault's account, and a PDA fails to derive under jsdom
+
+Found building and rehearsing the four-rooms ladder pack (`ladder-four-rooms-2026-11`, PR #1083).
+
+**Believed:** a rehearsal can check what a send spent against mainnet's rent.
+**Measured:** `solana-test-validator` 3.1.11 asked 4,426,560 lamports for a 508-byte ladder pool
+and 2,039,280 for a 165-byte token account (6,960 lamports a byte, the 128-byte header included);
+mainnet's `getMinimumBalanceForRentExemption` the same day answered 3,230,880 and 1,488,440 (5,080
+a byte). Four pools spent 0.034045280 SOL on the local chain against 0.02485584 quoted for mainnet,
+and a check written with mainnet's figure failed a send that was right.
+**Do:** read the rent from the chain under test, never a constant.
+
+**Believed:** a snapshot can leave out the Squads vault's own account, because the vault pays
+nothing in the step being rehearsed.
+**Measured:** the signing page simulates each proposal as the vault, and the vault is that
+simulation's fee payer: with no account at its address the page said `AccountNotFound` and offered
+no Sign button, while every other check was green.
+**Do:** load the vault account in every snapshot whose page simulates as the vault.
+
+**Believed:** `PublicKey.findProgramAddressSync` works in any vitest environment.
+**Measured:** under the default `jsdom` environment it threw `Unable to find a viable program address
+nonce` for seeds that derive BAYLA's live pool under `node` (`src/lib/bungalows.test.ts`, the same
+call moved to `src/lib/ladder/program.test.ts`, which is `@vitest-environment node`, passed).
+This is the PDA half of the 2026-10-30 entry on signatures.
+**Do:** put any PDA derivation in a test that declares `// @vitest-environment node`.
+
+### Incidental
+
+`vi.mock('../lib/wallet/readSolanaWallet', factory)` in a test of `src/hooks/useWalletBoard.ts` ran
+its factory but the hook's `import('../lib/wallet/readSolanaWallet')` got the real module: a leg
+read `fetch failed` instead of the mocked rows. The cause was not found. Passing the loader in
+(`solanaJobs(load)`) made the test independent of it.
 
 ---
 

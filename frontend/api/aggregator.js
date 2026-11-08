@@ -329,6 +329,12 @@ export default async function handler(req, res) {
     const { handlePoolIndex } = await import("./_lib/pool-index.js");
     return handlePoolIndex(req, res);
   }
+  // `?resource=gt&endpoint=…`: GeckoTerminal's four indexer endpoints for our pool program,
+  // behind the /api/gt/:endpoint rewrite (api/_lib/geckoterminal.js). Above `const provider`.
+  if (req.query.resource === "gt") {
+    const { handleGeckoTerminal } = await import("./_lib/geckoterminal.js");
+    return handleGeckoTerminal(req, res);
+  }
   if (req.query.resource === "launch-radar") {
     const { handleLaunchRadar } = await import("./_lib/launch-radar.js");
     return handleLaunchRadar(req, res);
