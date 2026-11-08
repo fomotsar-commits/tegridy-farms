@@ -161,11 +161,12 @@ describe('the LP section', () => {
     expect(await screen.findByText(/only the addresses we can work out ourselves were checked/)).toBeInTheDocument();
   });
 
-  it('an unread outside price leaves deposits unchecked and says so', async () => {
+  // Answer twenty-seven: the outside price is intel, one row, never a gate.
+  it('an unread outside price is one row, "not read yet", and leaves deposits open', async () => {
     mount(readers({ outsidePrice: vi.fn(async () => ({ kind: 'unread' as const, detail: 'Jupiter did not give a price (HTTP 502)' })) }));
     const card = await screen.findByTestId('lp-pool');
-    expect(card).toHaveAttribute('data-deposits', 'unchecked');
-    expect(within(card).getAllByText(/Jupiter did not give a price/).length).toBeGreaterThan(0);
+    await waitFor(() => expect(card).toHaveAttribute('data-deposits', 'allowed'));
+    expect(within(card).getByText('Outside price', { exact: true }).nextElementSibling).toHaveTextContent('not read yet');
   });
 
   it('refuses a bad address before reading anything', async () => {

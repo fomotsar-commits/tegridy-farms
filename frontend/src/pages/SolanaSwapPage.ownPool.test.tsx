@@ -193,6 +193,7 @@ import { OWN_ROUTE_COPY } from '../lib/solana/swap/ownPoolRoute';
 import { NOT_TEST_RUN_COPY, REFUSED_COPY } from '../lib/solana/swap/jupiterFeeRetry';
 import { readPendingTrades, savePendingTrade, swapPendingScope } from '../components/solana/curve/pendingTrade';
 import { CHECK_KEEPS_FAILING, DECLINED_IN_WALLET, HELD_NOT_SENT, HOLD_DISMISS_MEANS, OWN_POOL_REVIEW_OFFER } from '../lib/solana/swap/walletCopy';
+import { clearReceipt, lastReceipt } from '../lib/receipt';
 /** Where the connected wallet's notes of sent swaps live (every tab of the site reads them). */
 const MY_NOTES = swapPendingScope(USER.toBase58());
 
@@ -205,6 +206,7 @@ configure({ asyncUtilTimeout: 20_000 });
 const OPEN_GATE = { kind: 'open', cfg: { programId: new PublicKey(LAUNCH), cpSwapProgram: new PublicKey(PROGRAM), cluster: 'mainnet' } };
 
 beforeEach(() => {
+  clearReceipt();
   window.history.replaceState(null, '', `/solana?out=${BAYLA_MINT}`);
   localStorage.clear();
   sessionStorage.clear();
@@ -321,8 +323,9 @@ describe('our own pool pays more: the trade goes there', () => {
     await waitFor(() => expect(h.submitPrepared).toHaveBeenCalledTimes(1));
     expect((h.submitPrepared.mock.calls[0]![2] as PreparedTx).kind).toBe('venue-swap');
 
-    // When it lands: one line says so, and the form is ready again with nothing to close.
-    await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('Bought BAYLA', expect.objectContaining({ description: expect.stringContaining('1.01 BAYLA') })));
+    // When it lands: the receipt card rises (island answer twenty-five), and the form is ready again under it.
+    await waitFor(() => expect(lastReceipt()).toMatchObject({ signature: SIG, action: 'bought', coin: { symbol: 'BAYLA' } }));
+    expect(h.toast.success).not.toHaveBeenCalled();
     await waitFor(backOnTheForm);
     expect(amountBox().value).toBe('');
     // And it is kept where a Jupiter swap is kept.
@@ -346,7 +349,7 @@ describe('our own pool pays more: the trade goes there', () => {
     expect(screen.getByRole('button', { name: 'Flip pay and receive tokens' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Limit order' })).toBeDisabled();
     land({ status: 'confirmed', signature: SIG, slot: 7 });
-    await waitFor(() => expect(h.toast.success).toHaveBeenCalled());
+    await waitFor(() => expect(lastReceipt()).toMatchObject({ signature: SIG }));
   });
 
   it('a wallet that already has the account is told of no deposit', async () => {
@@ -2145,10 +2148,11 @@ describe('after a confirmed swap the pay balance is read again', () => {
       const balance = () => screen.getByText(/^Balance:/).textContent?.replace('MAX', '');
       await waitFor(() => expect(balance()).toBe('Balance: 5'));
       held.lamports = o.after;
+      clearReceipt();
       fireEvent.click(buy);
       // Our pool's swap stops on its review; Jupiter's goes to the wallet from the press.
       if (o.ownOut > 1_000_000n) await signOnReview();
-      await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('Bought BAYLA', expect.anything()));
+      await waitFor(() => expect(lastReceipt()).toMatchObject({ action: 'bought', coin: { symbol: 'BAYLA' } }));
       // Balance, MAX and the insufficient guard stand on what the wallet holds now, not before the trade.
       await waitFor(() => expect(balance()).toBe(o.shown), { timeout: 3_000 });
     } finally {
@@ -2609,7 +2613,8 @@ describe('the token picker tells the venue’s BAYLA from its copies', () => {
     const [first, second] = rows(dialog);
     expect(first!.getAttribute('data-token-row')).toBe(BAYLA_MINT);
     expect(first!.textContent).toContain('This venue’s BAYLA');
-    expect(first!.textContent).toContain('7hmVkP…pump');
+    // Beside its name, as every coin's name wears it (CoinName, island answer twenty-four).
+    expect(first!.textContent).toContain('7hmV … pump');
     // A copy says what it is: not verified, and its own address in full (a head and a tail can be grinded to match).
     expect(second!.textContent).toContain('Unverified');
     expect(second!.textContent).toContain(copy(1).mint);

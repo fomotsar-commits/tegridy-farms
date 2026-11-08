@@ -37,6 +37,7 @@ import { useCurveSigner, type CurveSignerState } from '../components/solana/curv
 import type { OpenGate, WriteApi, WriteRpc } from '../components/solana/curve/ports';
 import { useLaunchLookup, type LaunchLookupReaders } from '../components/solana/curve/useLaunchLookup';
 import { PublicKey } from '@solana/web3.js';
+import { isCurveLaunchOpen } from '../lib/launcher/curveChains';
 import {
   LAUNCH_ERROR_COPY,
   PLATFORM_TREASURY_VAULT,
@@ -196,12 +197,15 @@ export function DeploymentBanner({
         {/* The dead-end fix (2026-08-28): a dead Solana program is not a dead
             venue. Same rationale as App.tsx's no-redirect note — we never
             redirect INTO a dead rail, but a measured link OUT to live ones is
-            exactly what that note leaves open. */}
+            exactly what that note leaves open. The EVM curve is one only while its
+            launching is open (island answer twenty-six). */}
         {(probe?.kind === 'closed' || probe?.kind === 'not-a-program' || probe?.kind === 'not-deployed') && (
           <div className="mt-3 flex flex-wrap gap-2">
-            <Link to="/eth-curve" className="btn-primary px-4 py-2 text-[12px]">
-              The Memetics Curve is LIVE on Ethereum, Base + Robinhood →
-            </Link>
+            {isCurveLaunchOpen() && (
+              <Link to="/eth-curve" className="btn-primary px-4 py-2 text-[12px]">
+                The Memetics Curve is LIVE on Ethereum, Base + Robinhood →
+              </Link>
+            )}
             <Link to="/solana" className="btn-secondary px-4 py-2 text-[12px]">
               Swap any Solana token
             </Link>
@@ -306,7 +310,7 @@ export function TradePanel({
         label={side === 'buy' ? 'Spend (SOL)' : decimals === null ? 'Sell (token base units)' : 'Sell (tokens)'}
         hint={
           side === 'buy'
-            ? 'A ceiling, not a spend — the program caps the last buy of a launch at the graduation line.'
+            ? 'A ceiling, not a spend. The program caps the last buy of a launch at the graduation line.'
             : decimals === null
               ? "The mint's decimals could not be read, so this is in raw base units."
               : undefined
@@ -400,7 +404,7 @@ function BuyQuoteRows({
     <div className="space-y-1.5 pt-1">
       {quote.capped && (
         <p className="text-amber-300/90">
-          Capped at the graduation line. You will spend {formatSol(quote.lamportsIn)} SOL, not the amount entered — the
+          Capped at the graduation line. You will spend {formatSol(quote.lamportsIn)} SOL, not the amount entered. The
           remainder is never taken and never leaves your wallet.
         </p>
       )}
@@ -598,21 +602,21 @@ export function CreateChecklist({
           into a fresh curve&apos;s vault and permanently revokes the mint authority, all in the
           same instruction, so no further supply can ever exist. The curve can sell everything in its vault; whatever it
           has not sold when it graduates goes into the pool. The curve&apos;s terms
-          are not chosen per launch — they are
+          are not chosen per launch: they are
           copied from the protocol config at creation and frozen, so nothing can rewrite a live launch&apos;s economics
           afterwards.
         </p>
         <ul className="space-y-1 list-disc pl-4">
           <li>The program mints the whole supply itself; a pre-minted token is rejected.</li>
           <li>
-            A retained freeze authority could freeze the curve&apos;s vault — a publicly derivable address — and
+            A retained freeze authority could freeze the curve&apos;s vault, a publicly derivable address, and
             lock every lamport raised, permanently.
           </li>
           <li>Token-2022 mints fail the program&apos;s account validation.</li>
         </ul>
         <p>
-          Name, symbol and image are not part of this. The program stores none of them and never creates token metadata —
-          that is a separate Metaplex account on the mint, and a client that showed a name here would be reading it from
+          Name, symbol and image are not part of this. The program stores none of them and never creates token metadata.
+          That is a separate Metaplex account on the mint, and a client that showed a name here would be reading it from
           somewhere else entirely.
         </p>
       </FinePrint>
@@ -739,7 +743,7 @@ export function CurveLaunchView({
           )}
           {probe?.kind === 'closed' && (
             <p className="text-white/40">
-              Nothing to look up — the program was closed, and its launches went with it.
+              Nothing to look up: the program was closed, and its launches went with it.
             </p>
           )}
           {mintInput.trim() !== '' && !looksLikePubkey(mintInput) && (
@@ -814,7 +818,7 @@ function CurveExplainer({ treasury }: { treasury: TreasuryDescription }) {
         <p>Our own Solana bonding curve. A launch graduates into our own AMM.</p>
         <FinePrint>
         <p>
-          Our own bonding curve program, and our own AMM to graduate into — unlike the retired Solana launch rail, which
+          Our own bonding curve program, and our own AMM to graduate into, unlike the retired Solana launch rail, which
           ran on Meteora&apos;s curve and migrated into Meteora&apos;s pool.
         </p>
         <p>
@@ -832,7 +836,7 @@ function CurveExplainer({ treasury }: { treasury: TreasuryDescription }) {
           calls it a multisig only after reading the live config and finding that vault there.
         </p>
         <p>
-          The Meteora rail was retired on 2026-08-23 — this curve is now the only Solana launch surface here.
+          The Meteora rail was retired on 2026-08-23. This curve is now the only Solana launch surface here.
         </p>
         </FinePrint>
       </Card>
@@ -844,7 +848,7 @@ function CurveExplainer({ treasury }: { treasury: TreasuryDescription }) {
           <li>
             The LP tokens are burned in the same instruction that creates the pool, and the program aborts the whole
             migration rather than finish with them unburned. That makes &quot;liquidity is locked&quot; checkable on
-            chain rather than a claim — the LP mint&apos;s supply must read zero.
+            chain rather than a claim: the LP mint&apos;s supply must read zero.
           </li>
           <li>
             A launch lists close to its final curve price, but not exactly at it. The protocol refuses a configuration
@@ -864,7 +868,7 @@ function CurveExplainer({ treasury }: { treasury: TreasuryDescription }) {
       </Card>
 
       <Card title="What this page will not show you" art={<CardArt pageId="curve-launch" idx={9} />}>
-        <p>Where a value cannot be read it says so rather than showing a zero.</p>
+        <p>Where a read fails it says so rather than showing a zero.</p>
         <FinePrint>
         <p>
           Program state contains reserves, terms and a completion flag. It does not contain a price in dollars, a market

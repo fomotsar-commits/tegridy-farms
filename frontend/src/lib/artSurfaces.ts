@@ -102,6 +102,7 @@ export const PAGE_ROUTES: Record<string, string> = {
   'flames-board': '/',
   'island-strip': '/',
   'room-torches': '/bayla',
+  'timeline-strip': '/bayla',
   'three-paths': '/',
   'venue-doors': '/',
   'island-dashboard': '/',
@@ -595,6 +596,7 @@ export const SURFACES: Surface[] = [
   { group: 'Home', pageId: 'flames-board', idx: 0, label: 'The board card (venue home and /island, when the island bo…)' },
   { group: 'Home', pageId: 'island-strip', idx: 0, label: 'The island today strip (venue home, under the doors, when the island is read)' },
   { group: 'Home', pageId: 'room-torches', idx: 0, label: "The island's torches card (every room's door, when the island is read)" },
+  { group: 'Home', pageId: 'timeline-strip', idx: 0, label: "The timeline strip, the island's newest hung piece (every room and the venue home, when read)" },
   { group: 'Home', pageId: 'home', idx: 18, label: 'Your held time card (room with a token)' },
   // 'three-paths' is the id the studios saved under; the row holds two cards since the
   // marketplace left the home (2026-10-24). idx 1 was its card. Launch keeps idx 2.

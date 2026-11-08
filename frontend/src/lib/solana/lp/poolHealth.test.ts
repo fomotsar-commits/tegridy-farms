@@ -21,6 +21,7 @@ import { POOL_STATUS_DISABLE_DEPOSIT, POOL_STATUS_DISABLE_SWAP, POOL_STATUS_DISA
 import type { PoolView } from './poolFinder';
 import { TOKEN_2022_NATIVE_MINT, type SafetyReason, type TokenSafety } from './tokenSafety';
 import { buildPool, key, steadyRecord, viewOf } from './testkit.fixture';
+import { openingProblem } from './liquidityMath';
 
 const mint = key();
 const OK_TOKEN: TokenSafety = { kind: 'read', mint: mint.toBase58(), verdict: 'ok', blocks: [], warnings: [], facts: null, name: null, symbol: null, metadataSource: 'none' };
@@ -136,11 +137,9 @@ describe('assessPool', () => {
     expect(h.deposits.reasons.join(' ')).toMatch(/fee settings/);
   });
 
-  it('what was not read is "unchecked", never "allowed" and never a warning: the clock, the outside price, the token', () => {
+  it('what was not read is "unchecked", never "allowed" and never a warning: the clock, the token', () => {
     const unread = [
       assessPool({ ...base, chainNow: null, view: view(), outside: outside(0.01) }),
-      assessPool({ ...base, view: view(), outside: { kind: 'unread', detail: 'down' } }),
-      assessPool({ ...base, view: view(), outside: null }),
       assessPool({ ...base, safety: { kind: 'unread', mint: mint.toBase58(), detail: 'x' }, view: view(), outside: outside(0.01) }),
       assessPool({ ...base, safety: null, view: view(), outside: outside(0.01) }),
     ];
@@ -151,16 +150,22 @@ describe('assessPool', () => {
     }
   });
 
+  // Answer twenty-seven withdrew twenty-four's hold: the outside price is intel, one row,
+  // never a gate. The pool's own price is the truth of a deposit.
+  it('an outside price not read is one row, "Outside price not read yet", and never a gate', () => {
+    for (const o of [{ kind: 'unread' as const, detail: 'down' }, null]) {
+      const h = assessPool({ ...base, view: view(), outside: o });
+      expect(h.price).toMatchObject({ state: 'unread', detail: 'Outside price not read yet', outside: true });
+      expect(h.deposits).toEqual({ verdict: 'allowed', reasons: [], warnings: [] });
+    }
+  });
+
   // Jupiter failing to answer is NOT "no route": the token may trade elsewhere at another
-  // price. It stays unread, for a pool anyone could open as for a launch pool.
+  // price. It stays unread (never "no market"), for a pool anyone could open as for a launch pool.
   it('Jupiter failing to answer is unread, never "no market": the price state says unread and nothing is warned', () => {
     const h = assessPool({ ...base, view: view(), outside: { kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' } });
-    expect(h.price).toMatchObject({ state: 'unread' });
-    expect(h.deposits).toEqual({
-      verdict: 'unchecked',
-      reasons: ['We could not check its price against an outside price (Jupiter did not give a price (HTTP 502)).'],
-      warnings: [],
-    });
+    expect(h.price).toMatchObject({ state: 'unread', outside: true });
+    expect(h.deposits).toEqual({ verdict: 'allowed', reasons: [], warnings: [] });
   });
 
   // A pool for SOL under the newer token program can be opened with another tool. This
@@ -228,6 +233,63 @@ describe('assessPool', () => {
     const h = assessPool({ ...base, view: view({ tok: 0n }), outside: outside(0.01) });
     expect(h.price.state).toBe('empty-pool');
     expect(h.deposits.verdict).toBe('refused');
+  });
+});
+
+// Audit CM-2, 2026-11-03. A pool everyone has left keeps only the 100 shares the pool
+// program locks at opening, and a few lamports behind them. Anyone can move its price for
+// next to nothing, and a deposit goes in at the pool's own ratio, with limits worked out
+// from that same ratio, so they cannot catch it.
+describe('assessPool: a pool too empty to hold its price takes no deposit', () => {
+  const NEARLY_EMPTY_SAYS = 'This pool is almost empty, so anyone can move its price for next to nothing, and a deposit would go in at whatever price they set.';
+  /** A never-traded pool of `lp` shares, as the pool program leaves one: `sol` x `tok` at about `lp` squared. */
+  function sized(lp: bigint, sol: bigint, tok: bigint): PoolView {
+    return viewOf(buildPool({ mint, quoteReserve: sol, tokenReserve: tok, lpSupply: lp, openTime: 100n }), { sol, tok });
+  }
+  // H3ruuiAi2Z4kq51YaRjKFUDDh3wHwNLQF64QeDnA88Gp, read 2026-11-03 at slot 465,139,614: SOL and
+  // 6Rwcmkz9yiYVM5EzyMcr4JsQPGEAWhcUvLvfBperYnUt (6 decimals), lp_supply 100, LP mint supply 0,
+  // and 5 lamports and 2,138 token units to trade against (its SOL vault's other 208,000
+  // lamports are fees the pool owes, never traded against).
+  const live = () => sized(100n, 5n, 2_138n);
+  const livePrice = 5 / 1e9 / (2_138 / 1e6);
+
+  it('the live pool everyone has left is refused at the outside price it agrees with, with nothing else said', () => {
+    const h = assessPool({ ...base, view: live(), outside: outside(livePrice) });
+    expect(h.price).toMatchObject({ state: 'agrees', against: 'outside' });
+    expect(h.deposits).toEqual({ verdict: 'refused', reasons: [NEARLY_EMPTY_SAYS], warnings: [] });
+  });
+
+  it('with no market price it is refused too, never only warned, and its price warning is still said', () => {
+    const h = assessPool({ ...base, view: live(), outside: noOutside });
+    expect(h.price.state).toBe('no-market');
+    expect(h.deposits.verdict).toBe('refused');
+    expect(h.deposits.reasons).toEqual([NEARLY_EMPTY_SAYS]);
+    expect(h.deposits.warnings).toEqual([
+      'Jupiter has no market price for this token, so this pool’s price was not checked against anything. If it is off, whoever trades it back takes part of what you add.',
+    ]);
+  });
+
+  it('a few shares left in it change nothing, and neither does a price that is off', () => {
+    // Someone kept 1,000 of the smallest unit: 1,100 shares over 3,480 lamports and 348 units, at 0.01 SOL a token.
+    expect(assessPool({ ...base, view: sized(1_100n, 3_480n, 348n), outside: outside(0.01) }).deposits).toEqual({ verdict: 'refused', reasons: [NEARLY_EMPTY_SAYS], warnings: [] });
+    expect(assessPool({ ...base, view: live(), outside: outside(livePrice * 100) }).deposits.reasons).toEqual([NEARLY_EMPTY_SAYS]);
+  });
+
+  it('the floor is the one an opening must clear: refused exactly where an opening of that size would be too small', () => {
+    // `s` of each side gives `s` shares at 0.001 SOL a token, whatever `s` is.
+    for (const s of [100n, 101n, 99_999n, 100_000n, 100_001n, 10n ** 12n]) {
+      const h = assessPool({ ...base, view: sized(s, s, s), outside: outside(0.001) });
+      const tooSmall = ['too-small', 'lock-too-large'].includes(openingProblem(s, s)?.problem ?? '');
+      expect(h.deposits.verdict, `${s} shares`).toBe(tooSmall ? 'refused' : 'allowed');
+      expect(h.deposits.reasons.includes(NEARLY_EMPTY_SAYS), `${s} shares`).toBe(tooSmall);
+      expect(tooSmall, `${s} shares`).toBe(s < 100_000n);
+    }
+  });
+
+  it('a pool empty on one side keeps its own reason, said once', () => {
+    const h = assessPool({ ...base, view: sized(100n, 5n, 0n), outside: outside(0.01) });
+    expect(h.price.state).toBe('empty-pool');
+    expect(h.deposits.reasons).toEqual(['The pool is empty on one side, so it has no price.']);
   });
 });
 
@@ -447,19 +509,23 @@ describe('assessPool: a launch pool is checked against its own recent average', 
 
   // UNREAD IS STILL REFUSED. Only the answer "this record is short" became a warning.
   // Each of these is something that was NOT read, on the same brand-new pool.
-  it('a brand-new launch pool is still unchecked when anything was not read: its record, the clock, Jupiter', () => {
+  it('a brand-new launch pool is still unchecked when anything of its own was not read: its record, the clock', () => {
     const unread: Array<[string, ReturnType<typeof assessPool>]> = [
       ['its price record was not read', assessPool({ ...now, view: launch({ kind: 'not-read' }), outside: noOutside })],
       ['its price record could not be read', assessPool({ ...now, view: launch({ kind: 'unread', detail: 'its price record account is missing' }), outside: noOutside })],
       ['the clock was not read', assessPool({ ...now, chainNow: null, view: brandNew(), outside: noOutside })],
       ['its record is later than the clock', assessPool({ ...now, chainNow: 4_550n, view: brandNew(), outside: noOutside })],
-      ['Jupiter failed to answer', assessPool({ ...now, view: brandNew(), outside: { kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' } })],
-      ['Jupiter was not asked', assessPool({ ...now, view: brandNew(), outside: null })],
     ];
     for (const [name, h] of unread) {
       expect(h.price.state, name).toBe('unread');
       expect(h.deposits.verdict, name).toBe('unchecked');
       expect(h.deposits.warnings, name).toEqual([]);
+    }
+    // Jupiter's price not read is one row, never a gate (answer twenty-seven).
+    for (const o of [{ kind: 'unread' as const, detail: 'Jupiter did not give a price (HTTP 502)' }, null]) {
+      const h = assessPool({ ...now, view: brandNew(), outside: o });
+      expect(h.price).toMatchObject({ state: 'unread', outside: true });
+      expect(h.deposits.verdict).toBe('allowed');
     }
   });
 
@@ -471,18 +537,18 @@ describe('assessPool: a launch pool is checked against its own recent average', 
 
   // A failed Jupiter read is not "no outside market": the token may trade elsewhere at
   // another price. Only Jupiter's own no-route answer opens the own-history path.
-  it('Jupiter down (not "no route"): never traded is unchecked, never allowed', () => {
+  it('Jupiter down (not "no route"): never traded is unread, never "no trades yet", and not a gate (answer twenty-seven)', () => {
     const down = { kind: 'unread' as const, detail: 'Jupiter did not give a price (HTTP 502)' };
     const h = assessPool({ ...now, view: launch(history(10n * Q32, { initialized: false })), outside: down });
-    expect(h.price.state).toBe('unread');
-    expect(h.deposits.verdict).toBe('unchecked');
-    expect(h.deposits.reasons.join(' ')).toMatch(/HTTP 502/);
+    expect(h.price).toMatchObject({ state: 'unread', outside: true });
+    expect(h.deposits.verdict).toBe('allowed');
   });
 
-  it('Jupiter down (not "no route"): agreeing with its own average is still unchecked', () => {
+  it('Jupiter down (not "no route"): its own average is not looked at; the outside price is one row', () => {
     const down = { kind: 'unread' as const, detail: 'Jupiter did not give a price (HTTP 502)' };
     const h = assessPool({ ...now, view: launch(history(10n * Q32)), outside: down });
-    expect(h.deposits.verdict).toBe('unchecked');
+    expect(h.price).toMatchObject({ state: 'unread', outside: true });
+    expect(h.deposits.verdict).toBe('allowed');
   });
 
   // Its opener wrote that history, so it is no reference. With no route it has none at
@@ -585,10 +651,10 @@ describe('assessPool: a launch pool is checked against its own recent average', 
       expect(h.price).toMatchObject({ state: 'agrees', against: 'outside' });
     });
 
-    it('Jupiter down: unread and unchecked, never compared with the launch pool', () => {
+    it('Jupiter down: unread, one row, never compared with the launch pool', () => {
       const h = assessPool({ ...now, view: TEN_TIMES, outside: { kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' }, launchPrice: launchPrice(history(10n * Q32)) });
-      expect(h.price.state).toBe('unread');
-      expect(h.deposits).toEqual({ verdict: 'unchecked', reasons: ['We could not check its price against an outside price (Jupiter did not give a price (HTTP 502)).'], warnings: [] });
+      expect(h.price).toMatchObject({ state: 'unread', outside: true });
+      expect(h.deposits).toEqual({ verdict: 'allowed', reasons: [], warnings: [] });
     });
 
     it('the launch pool itself keeps its own check: a reference handed in is never used on it', () => {

@@ -165,7 +165,7 @@ describe('mounting it did not arm it', () => {
 
   it('offers no working placement button', async () => {
     renderTrade('/swap?tab=trigger');
-    const button = await screen.findByRole('button', { name: /cannot be armed/i });
+    const button = await screen.findByRole('button', { name: /not armed yet/i });
     expect(button).toBeDisabled();
     expect(screen.queryByRole('button', { name: /^arm /i })).toBeNull();
   });

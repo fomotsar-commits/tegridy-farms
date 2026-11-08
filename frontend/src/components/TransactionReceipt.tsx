@@ -597,9 +597,9 @@ function TransactionReceiptOverlay({
               aria-disabled={status === 'failed' || status === 'replaced'}
               title={
                 status === 'failed'
-                  ? 'Cannot share — transaction reverted'
+                  ? 'Nothing to share: this transaction reverted, so it did not happen'
                   : status === 'replaced'
-                    ? 'Cannot share: your wallet cancelled or replaced this transaction, so it did not happen'
+                    ? 'Nothing to share: your wallet cancelled or replaced this transaction, so it did not happen'
                   : status === 'pending'
                     ? 'Tx still pending — confirm before sharing'
                     : status === 'unconfirmed'

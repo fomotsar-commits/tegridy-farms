@@ -1,0 +1,379 @@
+// /api/outside-prices (island answer twenty-four, build 1b): every listed pool's outside
+// price in one answer, read once for everyone. These pin: the loop prices each token the
+// way outsidePrice.ts does (0.05 SOL in, the sale back at the buy's return rounded to two
+// figures), paces Jupiter to the key's plan and never bursts, keeps the answer at the edge
+// with ten minutes of stale-while-revalidate, says a token it could not price as unread
+// with the last good read beside it, refuses a price through our own pools, and answers a
+// loop that priced nothing as 502 no-store so the edge keeps the last good answer.
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+
+vi.mock("../_lib/ratelimit.js", () => ({ checkRateLimit: vi.fn(async () => true), checkGlobalLimit: vi.fn(async () => true) }));
+
+import handler from "../outside-prices.js";
+import { __resetOutsidePrices, probeAmount, midPrice, spacingMs, tokensOf, pricingOrder, FIRST_MINTS, FRESH_FOR_MS, SWR_SECS } from "../_lib/outside-prices.js";
+import { BUNGALOWS } from "../../src/lib/bungalows.ts";
+import { CP_SWAP_PROGRAM, WSOL_MINT, TOKEN_PROGRAM, TOKEN_2022_PROGRAM, OFFSETS } from "../_lib/pool-index.js";
+import { base58 } from "@scure/base";
+
+const BAYLA = "7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump";
+const USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+const OTHER_DEX = "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8";
+const ROUTE_POOL = "58oQChx4yWmvKdwLLZzBi4ChoCc2fqCUWBkwMihLYQo2";
+
+function makeReq({ method = "GET", query = {}, headers = { origin: "https://tegridyfarms.vercel.app" } } = {}) {
+  return { method, query, headers };
+}
+function makeRes() {
+  const out = { status: 0, body: undefined, headers: {} };
+  const res = {
+    setHeader: (k, v) => ((out.headers[k] = v), res),
+    status: (c) => ((out.status = c), res),
+    json: (b) => ((out.body = b), res),
+    end: () => res,
+  };
+  return { res, out };
+}
+
+/** A pool slice: 64 bytes holding token0Mint then token1Mint, as the scan asks for them. */
+function poolSlice(mint0, mint1) {
+  const d = Buffer.alloc(64);
+  Buffer.from(base58.decode(mint0)).copy(d, 0);
+  Buffer.from(base58.decode(mint1)).copy(d, 32);
+  return d.toString("base64");
+}
+
+/**
+ * The chain and Jupiter behind one loop. `pools` lists the venue; `price` prices a mint in SOL
+ * (or 'no-route', or an HTTP status to refuse with); `owners` is who owns each route pool.
+ */
+function world({ pools, price, owners = { [ROUTE_POOL]: OTHER_DEX }, decimals = { [BAYLA]: 6, [USDC]: 6 }, usd = {} } = {}) {
+  const jupiterCalls = [];
+  const chainCalls = [];
+  const fetchImpl = vi.fn(async (url, init) => {
+    const u = String(url);
+    if (u.includes("jup.ag")) {
+      jupiterCalls.push({ at: Date.now(), url: u, headers: init?.headers ?? {} });
+      if (u.includes("/price/v3?ids=")) {
+        if (usd === "refused") return new Response("refused", { status: 429 });
+        const ids = new URL(u).searchParams.get("ids").split(",");
+        return new Response(JSON.stringify(Object.fromEntries(ids.map((id) => [id, { usdPrice: usd[id] ?? 1.5 }]))), { status: 200 });
+      }
+      const q = new URL(u).searchParams;
+      const input = q.get("inputMint");
+      const output = q.get("outputMint");
+      const amount = BigInt(q.get("amount"));
+      const mint = input === WSOL_MINT ? output : input;
+      const p = typeof price === "function" ? price(mint, input === WSOL_MINT ? "buy" : "sell") : price[mint];
+      if (p === "no-route") return new Response(JSON.stringify({ errorCode: "NO_ROUTES_FOUND" }), { status: 400 });
+      if (typeof p === "number" && p >= 100) return new Response("refused", { status: p });
+      const dec = decimals[mint] ?? 6;
+      const fee = 0.01;
+      const out = input === WSOL_MINT ? BigInt(Math.floor((Number(amount) / 1e9 / p) * 10 ** dec * (1 - fee))) : BigInt(Math.floor((Number(amount) / 10 ** dec) * p * 1e9 * (1 - fee)));
+      return new Response(JSON.stringify({ inputMint: input, outputMint: output, inAmount: amount.toString(), outAmount: out.toString(), routePlan: [{ swapInfo: { ammKey: ROUTE_POOL } }] }), { status: 200 });
+    }
+    // The chain.
+    const body = JSON.parse(init.body);
+    chainCalls.push(body.method);
+    if (body.method === "getProgramAccounts") {
+      return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: pools.map(([mint0, mint1], i) => ({ pubkey: `pool${i}`, account: { data: [poolSlice(mint0, mint1), "base64"] } })) }));
+    }
+    if (body.method === "getMultipleAccounts") {
+      const [keys, opts] = body.params;
+      const value = keys.map((k) => {
+        if (opts.dataSlice.offset === 44) {
+          const d = decimals[k];
+          return d === undefined ? null : { owner: k === BAYLA ? TOKEN_2022_PROGRAM : TOKEN_PROGRAM, data: [Buffer.from([d]).toString("base64"), "base64"] };
+        }
+        return k in owners ? { owner: owners[k], data: ["", "base64"] } : null;
+      });
+      return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: { context: { slot: 1 }, value } }));
+    }
+    return new Response("nope", { status: 500 });
+  });
+  return { fetchImpl, jupiterCalls, chainCalls };
+}
+
+const sleep = vi.fn(async () => {});
+
+beforeEach(() => {
+  __resetOutsidePrices();
+  process.env.SOLANA_RPC_URL = "https://keyed.test/?api-key=k";
+  delete process.env.JUPITER_API_KEY;
+  delete process.env.JUPITER_RATE_PER_SEC;
+  delete process.env.OUTSIDE_PRICES_MAX_AGE_SEC;
+  sleep.mockClear();
+});
+afterEach(() => {
+  for (const k of ["SOLANA_RPC_URL", "JUPITER_API_KEY", "JUPITER_RATE_PER_SEC", "OUTSIDE_PRICES_MAX_AGE_SEC"]) delete process.env[k];
+});
+
+describe("probeAmount: the sale's amount repeats", () => {
+  it("rounds the buy's return to two significant figures", () => {
+    expect(probeAmount(13_371_337n)).toBe(13_000_000n);
+    expect(probeAmount(13_571_337n)).toBe(14_000_000n);
+    expect(probeAmount(99_900n)).toBe(100_000n);
+    expect(probeAmount(42n)).toBe(42n);
+    expect(probeAmount(0n)).toBe(0n);
+  });
+  it("the mid cancels a route's fee each way, at two different amounts", () => {
+    // 1% off each way: the mid lands within a hair of the true price.
+    const mid = midPrice({ tokensOut: 6_600_000_000n, probe: 6_600_000_000n, lamportsBack: 49_005_000n, decimals: 6 });
+    expect(Math.abs(mid / 7.5e-6 - 1)).toBeLessThan(0.011);
+  });
+  it("paces to the key's plan: one a second on the free key, ten on the Developer plan", () => {
+    expect(spacingMs({})).toBe(1100);
+    expect(spacingMs({ JUPITER_RATE_PER_SEC: "10" })).toBe(200);
+    expect(spacingMs({ JUPITER_RATE_PER_SEC: "nonsense" })).toBe(1100);
+  });
+  it("prices every mint in a pool that is not SOL, once each", () => {
+    expect(tokensOf([{ mints: [WSOL_MINT, BAYLA] }, { mints: [USDC, BAYLA] }, { mints: [WSOL_MINT, USDC] }])).toEqual([BAYLA, USDC]);
+  });
+  // Answer twenty-seven, cut 2: the loop ran out of time on the coins the chain lists last,
+  // and $BAYLA was one of them every run. The island's coins go first, then USDC and USDT.
+  it("reads $BAYLA first whatever order the chain lists the pools in", () => {
+    const OTHER = "6Rwcmkz9yiYVhPp9LBBMuTtNgXc6Bi2MjePQ5nJNtnUt";
+    const USDT = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB";
+    const BOBO = "4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump";
+    const pools = [{ mints: [WSOL_MINT, OTHER] }, { mints: [USDT, WSOL_MINT] }, { mints: [WSOL_MINT, BOBO] }, { mints: [USDC, OTHER] }, { mints: [BAYLA, WSOL_MINT] }];
+    expect(tokensOf(pools)).toEqual([BAYLA, BOBO, USDC, USDT, OTHER]);
+    expect(tokensOf([...pools].reverse())[0]).toBe(BAYLA);
+  });
+  // Twenty-seven's order with trunk's turns (1126): a token asked longest ago still goes first, and
+  // where tokens tie (every token, on a cold instance) the island's coins go first, in its order;
+  // only the rest turn with the minute.
+  it("on a cold instance prices the island's coins first, $BAYLA at index 0, and turns only the rest each minute", () => {
+    const BOBO = "4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump";
+    const all = [BAYLA, BOBO, "O1", "O2", "O3"];
+    for (let minute = 0; minute < 6; minute++) {
+      expect(pricingOrder(all, new Map(), minute * 60_000).slice(0, 2)).toEqual([BAYLA, BOBO]);
+    }
+    expect(pricingOrder(all, new Map(), 0)).toEqual([BAYLA, BOBO, "O1", "O2", "O3"]);
+    expect(pricingOrder(all, new Map(), 60_000)).toEqual([BAYLA, BOBO, "O2", "O3", "O1"]);
+  });
+  it("still puts a token asked longer ago ahead of the island's coins, so none is cut off every time", () => {
+    const asked = new Map([[BAYLA, 5_000], ["O1", 1_000]]);
+    expect(pricingOrder([BAYLA, "O1", "O2"], asked, 0)).toEqual(["O2", "O1", BAYLA]);
+  });
+  it("the first coins are the Solana rooms with a venue pool, in the registry's order, then USDC and USDT", () => {
+    const rooms = BUNGALOWS.filter((b) => b.chain === "solana" && b.address && b.venueSolPool).map((b) => b.address);
+    expect(rooms[0]).toBe(BAYLA);
+    expect(FIRST_MINTS).toEqual([...rooms, USDC, "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"]);
+  });
+});
+
+describe("GET /api/outside-prices", () => {
+  it("answers every listed token's price in one JSON, kept at the edge for ten minutes past its age", async () => {
+    const w = world({ pools: [[WSOL_MINT, BAYLA], [USDC, BAYLA]], price: { [BAYLA]: 7.5e-6, [USDC]: 0.0055 } });
+    const { res, out } = makeRes();
+    await handler(makeReq(), res, { fetchImpl: w.fetchImpl, sleep });
+    expect(out.status).toBe(200);
+    expect(out.headers["Cache-Control"]).toBe(`s-maxage=60, stale-while-revalidate=${SWR_SECS}`);
+    expect(out.body.state).toBe("ok");
+    expect(out.body.fresh_for_ms).toBe(FRESH_FOR_MS);
+    expect(Object.keys(out.body.prices).sort()).toEqual([USDC, BAYLA].sort());
+    const bayla = out.body.prices[BAYLA];
+    expect(bayla.state).toBe("ok");
+    expect(Math.abs(bayla.sol_per_token / 7.5e-6 - 1)).toBeLessThan(0.011);
+    expect(typeof bayla.read_at).toBe("number");
+    expect(bayla.pools).toEqual([ROUTE_POOL]);
+    // The dollar prices ride the same loop: one price/v3 call for every token and SOL.
+    expect(out.body.usd[BAYLA]).toBe(1.5);
+    expect(out.body.usd[WSOL_MINT]).toBe(1.5);
+    expect(typeof out.body.usd_read_at).toBe("number");
+    const v3 = w.jupiterCalls.filter((c) => c.url.includes("/price/v3?ids="));
+    expect(v3).toHaveLength(1);
+    // First in the loop: the cheapest read, and the list's $ figures, before any quote.
+    expect(w.jupiterCalls[0].url).toContain("/price/v3?ids=");
+    expect(new URL(v3[0].url).searchParams.get("ids").split(",").sort()).toEqual([USDC, BAYLA, WSOL_MINT].sort());
+    // Two quotes a token, the sale at the rounded probe, through the keyless host with no key set.
+    expect(w.jupiterCalls.filter((c) => c.url.includes("/swap/v1/quote?"))).toHaveLength(4);
+    const quotes = w.jupiterCalls.filter((c) => c.url.includes("/swap/v1/quote?"));
+    const sale = quotes.map((c) => new URL(c.url).searchParams).find((q) => q.get("inputMint") === BAYLA);
+    expect(sale.get("inputMint")).toBe(BAYLA);
+    expect(sale.get("amount")).toBe(bayla.probe);
+    expect(bayla.probe).toMatch(/^\d\d0+$/);
+    expect(w.jupiterCalls.every((c) => c.url.startsWith("https://lite-api.jup.ag/"))).toBe(true);
+    // The marker that shares a browser quote at our edge never goes to Jupiter.
+    expect(w.jupiterCalls.every((c) => !c.url.includes("priceCheck"))).toBe(true);
+  });
+
+  it("paces Jupiter's calls one after another on the key's plan, never a burst", async () => {
+    const w = world({ pools: [[WSOL_MINT, BAYLA], [WSOL_MINT, USDC]], price: { [BAYLA]: 7.5e-6, [USDC]: 0.0055 } });
+    const { res } = makeRes();
+    await handler(makeReq(), res, { fetchImpl: w.fetchImpl, sleep });
+    // Five calls (four quotes and the dollar read): the first waits for nothing, each of the next four waits the plan's spacing (the stubs answer in 0 ms).
+    expect(sleep).toHaveBeenCalledTimes(4);
+    for (const [ms] of sleep.mock.calls) expect(ms).toBeGreaterThan(1000);
+  });
+
+  describe("a loop the budget cuts short", () => {
+    // Four tokens; every quote takes ten seconds on this clock, so a loop prices three and the fourth runs out of time.
+    const USDT = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB";
+    const JUP = "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN";
+    const four = () => {
+      const w = world({
+        pools: [[WSOL_MINT, BAYLA], [WSOL_MINT, USDC], [WSOL_MINT, USDT], [WSOL_MINT, JUP]],
+        price: { [BAYLA]: 7.5e-6, [USDC]: 0.0055, [USDT]: 0.0055, [JUP]: 0.003 },
+        decimals: { [BAYLA]: 6, [USDC]: 6, [USDT]: 6, [JUP]: 6 },
+      });
+      const clock = { now: 0 };
+      const fetchImpl = async (url, init) => {
+        if (String(url).includes("/swap/v1/quote?")) clock.now += 10_000;
+        return w.fetchImpl(url, init);
+      };
+      const run = async () => {
+        const { res, out } = makeRes();
+        await handler(makeReq(), res, { fetchImpl, sleep, nowMs: () => clock.now });
+        return out.body.prices;
+      };
+      return { clock, run };
+    };
+
+    it("the token it cut off goes first in the next loop, so none is cut off every time", async () => {
+      const { run } = four();
+      const first = await run();
+      expect(first[JUP]).toMatchObject({ state: "unread", detail: "the loop ran out of time before this token" });
+      expect([BAYLA, USDC, USDT].map((m) => first[m].state)).toEqual(["ok", "ok", "ok"]);
+      const second = await run();
+      expect(second[JUP].state).toBe("ok");
+      // The one cut off now is the one asked longest ago, with its last good read beside it.
+      expect(second[USDT]).toMatchObject({ state: "unread", detail: "the loop ran out of time before this token" });
+      expect(second[USDT].last).not.toBeNull();
+    });
+
+    it("a cold instance prices the island's coins first at any minute; the rest wait their turn", async () => {
+      for (let minute = 0; minute < 4; minute++) {
+        __resetOutsidePrices();
+        const { clock, run } = four();
+        clock.now = minute * 60_000;
+        const prices = await run();
+        expect([BAYLA, USDC, USDT].map((m) => prices[m].state)).toEqual(["ok", "ok", "ok"]);
+        expect(prices[JUP]).toMatchObject({ state: "unread", detail: "the loop ran out of time before this token" });
+      }
+    });
+  });
+
+  it("with the key set, asks the keyed host with the key in x-api-key and the Developer plan's spacing", async () => {
+    process.env.JUPITER_API_KEY = "k-test";
+    process.env.JUPITER_RATE_PER_SEC = "10";
+    const w = world({ pools: [[WSOL_MINT, BAYLA]], price: { [BAYLA]: 7.5e-6 } });
+    const { res, out } = makeRes();
+    await handler(makeReq(), res, { fetchImpl: w.fetchImpl, sleep });
+    expect(out.status).toBe(200);
+    expect(w.jupiterCalls.every((c) => c.url.startsWith("https://api.jup.ag/") && c.headers["x-api-key"] === "k-test")).toBe(true);
+    for (const [ms] of sleep.mock.calls) expect(ms).toBeLessThan(300);
+  });
+
+  it("a token Jupiter refuses is unread with this instance's last good read beside it, and the others still price", async () => {
+    const good = world({ pools: [[WSOL_MINT, BAYLA], [WSOL_MINT, USDC]], price: { [BAYLA]: 7.5e-6, [USDC]: 0.0055 } });
+    await handler(makeReq(), makeRes().res, { fetchImpl: good.fetchImpl, sleep });
+    const w = world({ pools: [[WSOL_MINT, BAYLA], [WSOL_MINT, USDC]], price: { [BAYLA]: 429, [USDC]: 0.0055 } });
+    const { res, out } = makeRes();
+    await handler(makeReq(), res, { fetchImpl: w.fetchImpl, sleep });
+    expect(out.status).toBe(200);
+    expect(out.body.prices[USDC].state).toBe("ok");
+    const b = out.body.prices[BAYLA];
+    expect(b.state).toBe("unread");
+    expect(b.detail).toContain("HTTP 429");
+    expect(b.last).not.toBeNull();
+    expect(Math.abs(b.last.sol_per_token / 7.5e-6 - 1)).toBeLessThan(0.011);
+  });
+
+  it("a 429 is tried once more after a pause of at least two seconds, and prices when the second answer does", async () => {
+    let asked = 0;
+    const w = world({ pools: [[WSOL_MINT, BAYLA]], price: (mint, leg) => (leg === "buy" && asked++ === 0 ? 429 : 7.5e-6) });
+    const { res, out } = makeRes();
+    await handler(makeReq(), res, { fetchImpl: w.fetchImpl, sleep });
+    expect(out.status).toBe(200);
+    expect(out.body.prices[BAYLA].state).toBe("ok");
+    // Three quotes: the refused buy, the buy again after the pause, the sale (and then the dollar read).
+    expect(w.jupiterCalls.filter((c) => c.url.includes("/swap/v1/quote?"))).toHaveLength(3);
+    expect(sleep.mock.calls.some(([ms]) => ms >= 2000)).toBe(true);
+  });
+
+  it("a refused dollar read keeps this instance's last good dollar prices, and a cold instance answers none", async () => {
+    const w = world({ pools: [[WSOL_MINT, BAYLA]], price: { [BAYLA]: 7.5e-6 }, usd: "refused" });
+    const { res, out } = makeRes();
+    await handler(makeReq(), res, { fetchImpl: w.fetchImpl, sleep });
+    expect(out.status).toBe(200);
+    expect(out.body.prices[BAYLA].state).toBe("ok");
+    expect(out.body.usd).toBeNull();
+    expect(out.body.usd_read_at).toBeNull();
+    const good = world({ pools: [[WSOL_MINT, BAYLA]], price: { [BAYLA]: 7.5e-6 }, usd: { [BAYLA]: 0.001 } });
+    await handler(makeReq(), makeRes().res, { fetchImpl: good.fetchImpl, sleep });
+    const again = world({ pools: [[WSOL_MINT, BAYLA]], price: { [BAYLA]: 7.5e-6 }, usd: "refused" });
+    const second = makeRes();
+    await handler(makeReq(), second.res, { fetchImpl: again.fetchImpl, sleep });
+    expect(second.out.body.usd[BAYLA]).toBe(0.001);
+  });
+
+  it("Jupiter's own no-route answer is no-route, never unread", async () => {
+    const w = world({ pools: [[WSOL_MINT, BAYLA]], price: { [BAYLA]: "no-route" } });
+    const { res, out } = makeRes();
+    await handler(makeReq(), res, { fetchImpl: w.fetchImpl, sleep });
+    expect(out.status).toBe(200);
+    expect(out.body.prices[BAYLA]).toEqual({ state: "no-route", read_at: expect.any(Number) });
+  });
+
+  it("a price that came through our own pool program is not an outside price", async () => {
+    const w = world({ pools: [[WSOL_MINT, BAYLA]], price: { [BAYLA]: 7.5e-6 }, owners: { [ROUTE_POOL]: CP_SWAP_PROGRAM } });
+    const { res, out } = makeRes();
+    await handler(makeReq(), res, { fetchImpl: w.fetchImpl, sleep });
+    // The one token priced nothing: a refusal, kept out of the edge.
+    expect(out.status).toBe(502);
+    expect(out.headers["Cache-Control"]).toBe("private, no-store");
+    expect(out.body.prices[BAYLA].state).toBe("unread");
+    expect(out.body.prices[BAYLA].detail).toMatch(/our own pools/);
+  });
+
+  it("a loop that priced nothing is 502 no-store, so the edge keeps the last good answer; a chain that will not list pools is the same", async () => {
+    const w = world({ pools: [[WSOL_MINT, BAYLA], [WSOL_MINT, USDC]], price: { [BAYLA]: 429, [USDC]: 502 } });
+    const { res, out } = makeRes();
+    await handler(makeReq(), res, { fetchImpl: w.fetchImpl, sleep });
+    expect(out.status).toBe(502);
+    expect(out.headers["Cache-Control"]).toBe("private, no-store");
+    expect(out.body.state).toBe("unread");
+
+    const dead = vi.fn(async () => new Response("down", { status: 503 }));
+    const second = makeRes();
+    await handler(makeReq(), second.res, { fetchImpl: dead, sleep });
+    expect(second.out.status).toBe(502);
+    expect(second.out.headers["Cache-Control"]).toBe("private, no-store");
+    expect(second.out.body).toEqual({ state: "unread", detail: expect.stringContaining("HTTP 503") });
+  });
+
+  it("a venue with no pools answers an empty list, cached, and asks Jupiter nothing", async () => {
+    const w = world({ pools: [], price: {} });
+    const { res, out } = makeRes();
+    await handler(makeReq(), res, { fetchImpl: w.fetchImpl, sleep });
+    expect(out.status).toBe(200);
+    expect(out.body.prices).toEqual({});
+    expect(w.jupiterCalls).toHaveLength(0);
+  });
+
+  it("is GET only, same-origin only (the origin gate binds on production, as every resource read's does)", async () => {
+    const w = world({ pools: [], price: {} });
+    const was = process.env.VERCEL_ENV;
+    process.env.VERCEL_ENV = "production";
+    try {
+      for (const req of [makeReq({ method: "POST" }), makeReq({ headers: { origin: "https://evil.example" } })]) {
+        const { res, out } = makeRes();
+        await handler(req, res, { fetchImpl: w.fetchImpl, sleep });
+        expect([403, 405]).toContain(out.status);
+      }
+    } finally {
+      if (was === undefined) delete process.env.VERCEL_ENV;
+      else process.env.VERCEL_ENV = was;
+    }
+    expect(w.fetchImpl).not.toHaveBeenCalled();
+  });
+});
+
+describe("the pool scan asks for the two mints only", () => {
+  it("slices from token0Mint for 64 bytes", async () => {
+    const w = world({ pools: [[WSOL_MINT, BAYLA]], price: { [BAYLA]: 7.5e-6 } });
+    await handler(makeReq(), makeRes().res, { fetchImpl: w.fetchImpl, sleep });
+    const scan = w.fetchImpl.mock.calls.map(([, init]) => init?.body && JSON.parse(init.body)).find((b) => b?.method === "getProgramAccounts");
+    expect(scan.params[1].dataSlice).toEqual({ offset: OFFSETS.token0Mint, length: 64 });
+  });
+});
