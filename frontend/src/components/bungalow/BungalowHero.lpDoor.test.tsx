@@ -68,7 +68,10 @@ describe('the room’s first screen', () => {
     expect(door).toBe(1);
     expect(names[0]).toMatch(new RegExp(symbol));
     expect(names.indexOf('The lighthouse') === -1 ? names.findIndex((n) => /^Stake /.test(n ?? '')) : names.indexOf('The lighthouse')).toBe(2);
-    expect(screen.getByRole('link', { name: `Add SOL + ${symbol}` }).getAttribute('href')).toBe(bungalowLpDoor(room(id))!.to);
+    // Island answer twenty-five, build 3: the door raises the room's Add sheet, Trade its Buy sheet; never the pools page.
+    expect(bungalowLpDoor(room(id))).not.toBeNull();
+    expect(screen.getByRole('link', { name: `Add SOL + ${symbol}` }).getAttribute('href')).toBe(`/${id}?sheet=add`);
+    expect(screen.getByRole('link', { name: `Trade ${symbol}` }).getAttribute('href')).toBe(`/${id}?sheet=buy`);
   });
 
   it('a Solana room with no pool named: no door', () => {

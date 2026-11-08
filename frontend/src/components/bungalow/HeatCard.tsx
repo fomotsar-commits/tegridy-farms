@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { fetchHeat, isSupportedHeatAddress } from '../../lib/heat/heatClient';
-import type { HeatReading } from '../../lib/heat/heatOracle';
+import { printedTier, type HeatReading } from '../../lib/heat/heatOracle';
 import { CardArt } from '../ui/CardArt';
 import { FinePrint } from '../ui/FinePrint';
+import { HEAT_WORDS } from '../../lib/arrival';
 
 /**
  * "Check your heat" on a room's farm: one address in, the island oracle's reading out,
@@ -86,7 +87,16 @@ export function HeatCard({ defaultAddress }: { defaultAddress?: string }) {
             <span className="text-white/60">Heat:</span>{' '}
             <strong>{reading.degrees.toLocaleString(undefined, { maximumFractionDigits: 1 })}°</strong>
           </span>
-          <span className="text-white"><span className="text-white/60">Standing:</span> <strong>{reading.tier}</strong></span>
+          {/* Never the word Drifter (island answer twenty-six): under Observer, where the clock starts. */}
+          <span className="text-white">
+            {printedTier(reading.tier) ? (
+              <>
+                <span className="text-white/60">Standing:</span> <strong>{printedTier(reading.tier)}</strong>
+              </>
+            ) : (
+              HEAT_WORDS.noTier
+            )}
+          </span>
           <span className="text-white/80">
             {reading.isCold
               ? 'Cold. The Island has no held-time rows for this wallet yet.'

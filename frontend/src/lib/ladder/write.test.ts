@@ -29,8 +29,8 @@ import { reloadHeld } from '../reloadHold';
 import { poolPda, stakeVaultPda, rewardVaultPda, ASSOCIATED_TOKEN_PROGRAM_ID, MIN_LOCK_SECS } from './program';
 import { createAtaIdempotentIx } from './ix';
 import {
-  LADDER_ERRORS, anchorCode, classifyWriteError, submitLadder,
-  ladderStake, ladderClaim, ladderExit, ladderHatch, ladderClaimCarried,
+  LADDER_ERRORS, anchorCode, classifyWriteError, refusalReason, submitLadder,
+  ladderStake, ladderClaim, ladderExit, ladderHatch, ladderClaimCarried, ladderClaimCarriedIxs, ladderClaimIxs,
   type LadderWriteCtx,
 } from './write';
 
@@ -143,6 +143,21 @@ describe('anchorCode reads both wire forms', () => {
   it('is null when there is no code, rather than 0', () => {
     expect(anchorCode('Network request failed')).toBeNull();
     expect(anchorCode('')).toBeNull();
+  });
+});
+
+describe('refusalReason: a test run’s logs, in the words the send would use', () => {
+  it('the program’s own sentence for a code it names, the same one classifyWriteError gives', () => {
+    const logs = [`Program ${PROGRAM.toBase58()} invoke [1]`, 'Program log: Instruction: Claim', `Program ${PROGRAM.toBase58()} failed: custom program error: 0x1784`];
+    expect(refusalReason(logs)).toBe(LADDER_ERRORS[6020]!.human);
+    const sent = classifyWriteError(new Error(logs.join('\n')));
+    expect(!sent.ok && sent.reason).toBe(refusalReason(logs));
+    expect(refusalReason(['Program log: AnchorError occurred. Error Code: TimelockNotElapsed. Error Number: 6016.'])).toBe('The program refused this (TimelockNotElapsed). Nothing moved.');
+  });
+
+  it('no code it knows: refused, nothing sent, never a guess', () => {
+    expect(refusalReason([])).toBe('Its test run was refused, so nothing was sent. Nothing moved.');
+    expect(refusalReason(['Program log: something else'])).toBe('Its test run was refused, so nothing was sent. Nothing moved.');
   });
 });
 
@@ -434,6 +449,15 @@ describe('every door prepends an idempotent ATA create', () => {
   it('claim-carried', async () => {
     const ix = await capture((c) => ladderClaimCarried(c));
     expect(ix[0]!.programId.toBase58()).toBe(ASSOCIATED_TOKEN_PROGRAM_ID.toBase58());
+  });
+
+  // Harvest signs several claims on one prompt from these (lib/harvest/solana.ts): the
+  // instructions it builds must be the ones the door sends, ATA create included.
+  it('the claim doors’ unsent instructions are exactly what they send', async () => {
+    const accounts = { programId: PROGRAM, pool: POOL, poolAccounts };
+    expect(ladderClaimIxs(accounts, OWNER, { positionNonce: 4 })).toEqual(await capture((c) => ladderClaim(c, { positionNonce: 4 })));
+    expect(ladderClaimCarriedIxs(accounts, OWNER)).toEqual(await capture((c) => ladderClaimCarried(c)));
+    expect(ladderClaimIxs(accounts, OWNER, { positionNonce: 4 })).not.toEqual(ladderClaimIxs(accounts, OWNER, { positionNonce: 5 }));
   });
 
   it('names the POOL token program in the create, never a hardcoded one', async () => {

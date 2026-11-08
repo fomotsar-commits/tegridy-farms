@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { PublicKey } from '@solana/web3.js';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import {
@@ -13,6 +13,7 @@ import {
 } from '../../../lib/jupiter';
 import { decimalCommaToPoint, formatTokenAmount, parseDecimalToBaseUnits } from '../../../lib/launcher/solana/curve/format';
 import { holdReload } from '../../../lib/reloadHold';
+import { markLanded } from '../../../lib/landed';
 import { quoteOwnPool } from '../../../lib/solana/cpswap/read';
 import { feeReserveFor, isPlanProblem, solSetAside } from '../../../lib/solana/lp/liquidityMath';
 import { outsideShare, ownPoolShare, stepTwo, type Side, type StepTwo } from '../../../lib/solana/lp/oneCoin';
@@ -27,6 +28,7 @@ import type { VenuePoolCandidate } from '../../../lib/solana/swap/venuePools';
 import { CHECK_KEEPS_FAILING, LOST_ANSWER_TITLE, LOST_NO_SIGNATURE, OWN_POOL_REVIEW_OFFER } from '../../../lib/solana/swap/walletCopy';
 import type { AggregatorSeen } from '../../../lib/launcher/solana/write/types';
 import { useVenueSwap } from '../../swap/useVenueSwap';
+import { CoinName } from '../../ui/CoinName';
 import { FinePrint } from '../../ui/FinePrint';
 import { PendingTradeCard } from '../curve/PendingTradeCard';
 import { noteKey, readPendingTrades, swapPendingScope } from '../curve/pendingTrade';
@@ -42,13 +44,20 @@ import { PercentPicker } from './PercentPicker';
 import { tick } from '../../../lib/tick';
 import { clearStepTwo, priceChangeOf, readStepTwo, receivedBy, saveStepTwo, sendJupiterLeg, stepOneLanded, type StepTwoNote } from './oneCoinSwap';
 import { PanelFrame } from './PanelFrame';
+import { useInDoor } from './lpDoor';
 import { coinAbout, coinExact, solExact, unitsExact, useWalletFacts } from './panelKit';
 import { useLpWrites, type LpWrites } from './useLpWrites';
+import { useSheet } from '../../sheet/sheetContext';
+import { SHEET_WORDS } from '../../../lib/arrival';
+import { useSolanaConnect } from '../../solana/useSolanaConnect';
 
 /** The one line under the button (owner, 2026-10-13: minimal words; D10: an ordinary swap). */
 export const ONE_COIN_LINE = 'Part of it is swapped first, as an ordinary swap with the swap page’s fees. Then both coins go in. Two signatures: the swap, then the add.';
 /** Kept back from a SOL amount for the swap's fees and its temporary accounts: the swap page's own Max reserve. */
 export const SWAP_SOL_RESERVE = 10_000_000n;
+/** The amount's SOL presses beside Max, as the swap page's pay field has them (island answer twenty-four). */
+const SOL_CHIPS = ['0.05', '0.5'] as const;
+const CHIP_STYLE = { background: 'rgba(0,0,0,0.45)', border: '1px solid rgba(255,255,255,0.12)' } as const;
 /** How long the press waits for our pool to be read again before Jupiter's transaction goes to the wallet. */
 const OWN_CHECK_MS = 4_000;
 
@@ -115,7 +124,7 @@ type Said = { title: string; text: string; tone: 'warn' | 'bad' | 'info' };
  * A swap this wallet sent and the chain has not answered for holds step 1 (useVenueSwap's
  * notes, the swap page's, by the wallet that signed); once step 1 lands, only step 2 is offered.
  */
-export function AddOneCoinPanel(p: { view: PoolView; health: PoolHealth; safety: TokenSafety | null; tokenDecimals: number | null; onClose: () => void; onPair?: () => void }) {
+export function AddOneCoinPanel(p: { view: PoolView; health: PoolHealth; safety: TokenSafety | null; tokenDecimals: number | null; onClose: () => void; onPair?: () => void; poolRows?: ReactNode }) {
   const writes = useLpWrites();
   if (!writes || !writes.api || writes.gate?.kind !== 'open') return null;
   return <OneCoinInner {...p} writes={writes} />;
@@ -129,6 +138,7 @@ function OneCoinInner({
   onClose,
   writes,
   onPair,
+  poolRows,
 }: {
   view: PoolView;
   health: PoolHealth;
@@ -138,15 +148,25 @@ function OneCoinInner({
   writes: LpWrites;
   /** "I have both coins": this pool's Add liquidity form, in one press. */
   onPair?: () => void;
+  /** In the LP door, away from the pool's card: the card's figures, as rows under the amount. */
+  poolRows?: ReactNode;
 }) {
   const { connection } = useConnection();
   const { sendTransaction } = useWallet();
+  // In the LP door this panel is the page's first screen (island, answer twenty-two): the
+  // green button comes right after the amount and the pool's figures, the line and the setting after it.
+  const inDoor = useInDoor();
+  // Inside the sheet (island answer twenty-five, screen 1) the form is drawn as the island drew it.
+  const sheet = useSheet();
+  const openConnect = useSolanaConnect();
+  const [chip, setChip] = useState<number | null>(null);
   const pool = view.snapshot.pool;
   const coin = view.quote;
   const decimals = tokenDecimals ?? (view.quoteIsToken0 ? pool.mint1Decimals : pool.mint0Decimals);
   const tokenProgram = view.quoteIsToken0 ? pool.token1Program : pool.token0Program;
   // Its ticker as the pool's heading says it (identity.ts): a copy of a well-known one reads "fake USDC", never "USDC".
-  const tokenName = (safety?.kind !== 'read' || safety.verdict !== 'blocked' ? tokenTicker(view.tokenMint, safety) : null) ?? 'tokens';
+  const ticker = safety?.kind !== 'read' || safety.verdict !== 'blocked' ? tokenTicker(view.tokenMint, safety) : null;
+  const tokenName = ticker ?? 'tokens';
   const signer = writes.signerState.kind === 'ready' ? writes.signerState.signer : null;
   const owner = signer?.publicKey ?? null;
   const ownerKey = owner?.toBase58() ?? null;
@@ -252,6 +272,8 @@ function OneCoinInner({
    */
   const landed = async (p: Plan, signature: string, least: bigint) => {
     if (!ownerKey) return;
+    // Bayla's line says "Done." for a minute (answer twenty-four, build 4).
+    markLanded('add');
     const floor: StepTwoNote = { pool: view.address, paid: p.paid, kept: p.total - p.swapIn, got: least, gotExact: false, bps: p.bps, signature, at: Date.now() };
     saveStepTwo(ownerKey, floor);
     const outIsSol = p.paid === 'token' && coin.native;
@@ -617,6 +639,8 @@ function OneCoinInner({
         onClose={onClose}
         title="Step 2: add both coins"
         initial={phase.initial ?? undefined}
+        // The receipt card shows step 1's swap fee (island answer twenty-five, build 6).
+        leg={{ signature: n.signature, paid: n.paid }}
         onSettled={(o) => {
           if (o.status !== 'confirmed' || !ownerKey) return;
           clearStepTwo(ownerKey, view.address);
@@ -646,6 +670,14 @@ function OneCoinInner({
   }
 
   const plan_ = phase.kind === 'review' || phase.kind === 'sending' || phase.kind === 'waiting' || phase.kind === 'own' ? phase.plan : null;
+  const slippage = (
+    <SlippagePicker valueBps={slippageBps} onChange={setSlippageBps} hint="Used by both steps. If a price moves more than this first, that step is refused and only its network fee is spent." />
+  );
+  const line = (
+    <p className="text-white/60" data-testid="lp-one-line">
+      {ONE_COIN_LINE}
+    </p>
+  );
   const loadingOwn = venueSwap.loading;
   const canReview = !!signer && total !== null && total >= 2n && !bad && !over && !shortOfSol && slippageBps !== null && !held && !loadingOwn && phase.kind === 'form';
   const hint = !signer
@@ -661,8 +693,17 @@ function OneCoinInner({
             : `You have ${exact(paid, available)}.`;
 
   return (
-    <PanelFrame testId="lp-one-coin-panel" title="Add with one coin" headingRef={headingRef}>
-      {!signer && <WalletNeeded state={writes.signerState} />}
+    <PanelFrame
+      testId="lp-one-coin-panel"
+      title="Add with one coin"
+      headingRef={headingRef}
+      bare={sheet !== null}
+      // The token's name copies its whole address (island answer twenty-four); -my-3 takes its 44px reach back.
+      // The sheet's own coin row carries it there.
+      aside={sheet ? undefined : <CoinName name={ticker ?? 'Token'} address={view.tokenMint} className="-my-3" />}
+    >
+      {/* In the sheet the green button connects a wallet; only a wallet that cannot sign is said here. */}
+      {!signer && (!sheet || writes.signerState.kind === 'cannot-sign') && <WalletNeeded state={writes.signerState} />}
       {said && (
         <div role="alert" data-testid="lp-one-said">
           <Notice tone={said.tone}>
@@ -757,7 +798,99 @@ function OneCoinInner({
 
       {phase.kind === 'planning' && <p role="status">Reading this pool and Jupiter’s price…</p>}
 
-      {(phase.kind === 'form' || phase.kind === 'planning') && (
+      {(phase.kind === 'form' || phase.kind === 'planning') && sheet && (
+        <>
+          {/* The amount, a 64 px box: the number in Archivo 800 32 px, the coin at its right. One input, nothing else in it. */}
+          <label className="flex items-center gap-3 h-16 px-4 rounded-xl" style={{ background: 'var(--color-bg-input)', border: '1px solid var(--color-border)' }}>
+            <span className="sr-only">{`${name(paid)} to put in`}</span>
+            <input
+              data-testid="sheet-amount"
+              className="flex-1 min-w-0 bg-transparent outline-none text-white placeholder:text-white/30"
+              style={{ fontFamily: 'var(--font-family-heading)', fontWeight: 800, fontSize: 32, lineHeight: '40px' }}
+              value={text}
+              onChange={(e) => {
+                setText(decimalCommaToPoint(e.target.value, text));
+                setPctBps(null);
+                setChip(null);
+              }}
+              placeholder="0"
+              inputMode="decimal"
+              spellCheck={false}
+              autoComplete="off"
+              disabled={phase.kind !== 'form'}
+            />
+            <span className="text-[15px] font-semibold" style={{ color: 'var(--color-text-secondary)' }}>
+              {name(paid)}
+            </span>
+          </label>
+          {bad && <p role="alert" className="text-amber-300 text-[12px]">That is not a {name(paid)} amount (at most {decimalsOf(paid)} decimals).</p>}
+          {/* The chips, 12 px under the box: three in a row, each 44 px tall and a third wide (session A's chips, as drawn). */}
+          <div role="group" aria-label={`How much ${name(paid)}`} className="grid grid-cols-3 gap-2 !mt-3">
+            {SHEET_WORDS.chips.map((label, i) => {
+              const max = i === 2;
+              const value = max ? (available !== null && available > 0n ? baseUnitsToInput(available, decimalsOf(paid)) : null) : SOL_CHIPS[i]!;
+              const chosen = chip === i;
+              return (
+                <button
+                  key={label}
+                  type="button"
+                  aria-pressed={chosen}
+                  className="h-11 rounded-xl text-[14px] font-semibold disabled:opacity-50"
+                  style={{
+                    background: 'var(--color-bg-elevated)',
+                    border: `1px solid ${chosen ? 'rgba(139,92,246,0.70)' : 'var(--color-border)'}`,
+                    color: chosen ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
+                  }}
+                  disabled={phase.kind !== 'form' || value === null}
+                  onClick={() => {
+                    if (value === null) return;
+                    tick();
+                    setPctBps(null);
+                    setChip(i);
+                    setText(value);
+                  }}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+          {/* The two price rows and the fee line, read as the door reads them (PoolCard's sheet rows). */}
+          {poolRows}
+          {over && available !== null && <Notice tone="warn">That is more than you can use. The most is {exact(paid, available)}.</Notice>}
+          {shortOfSol && setAside !== null && <Notice tone="warn">Your wallet needs {solExact(setAside)} for both steps’ fees and deposits.</Notice>}
+          {health.deposits.warnings.map((w) => (
+            <Notice key={w} tone="warn">
+              {w}
+            </Notice>
+          ))}
+          {coin.risk && <Notice tone="warn">{coin.risk}</Notice>}
+          {signer && loadingOwn && phase.kind === 'form' && (
+            <p role="status" className="text-white/60" data-testid="lp-one-loading">
+              Getting this pool’s swap ready, so Review can compare it with Jupiter…
+            </p>
+          )}
+          {sheet.bayla}
+          {/* The green button, 20 px under her line: with a wallet it asks the review, as Review did; without one it connects. */}
+          <button
+            ref={reviewRef}
+            type="button"
+            data-testid="sheet-go"
+            className="btn-primary w-full !mt-5 disabled:opacity-60 disabled:grayscale"
+            style={{ height: 52, fontSize: 15, fontWeight: 700 }}
+            disabled={signer ? !canReview : phase.kind !== 'form'}
+            onClick={() => {
+              tick();
+              if (!signer) openConnect();
+              else void plan();
+            }}
+          >
+            {SHEET_WORDS.add(tokenName)}
+          </button>
+        </>
+      )}
+
+      {(phase.kind === 'form' || phase.kind === 'planning') && !sheet && (
         <>
           <p data-testid="lp-one-what" className="text-white text-[14px] leading-relaxed">
             A share of the {tokenName}/{coin.symbol} pool and its fee on every trade. No lock, but the team&apos;s vault can pause removing.
@@ -783,10 +916,13 @@ function OneCoinInner({
           </div>
           <Field label={`${name(paid)} to put in`} hint={hint} error={bad ? `That is not a ${name(paid)} amount (at most ${decimalsOf(paid)} decimals).` : null}>
             {(a11y) => (
-              <div className="flex gap-1.5 items-stretch">
+              // Amounts in one press beside the box (island answer twenty-four): SOL's two when SOL is paid, and
+              // Max, the most both steps leave room for. After the box, so the label still names it; on one line
+              // in the door, so its first screen keeps its height; under the box where the box would be too narrow.
+              <div className="flex flex-wrap gap-1.5 items-stretch">
                 <input
                   {...a11y}
-                  className={`${inputCls} flex-1 min-w-0`}
+                  className={`${inputCls} flex-1 min-w-[6rem]`}
                   style={inputStyle}
                   value={text}
                   onChange={(e) => {
@@ -799,12 +935,30 @@ function OneCoinInner({
                   autoComplete="off"
                   disabled={phase.kind !== 'form'}
                 />
+                {paysSol &&
+                  SOL_CHIPS.map((sol) => (
+                    <button
+                      key={sol}
+                      type="button"
+                      className={`${TOGGLE_CLS} !flex-none !text-[11px] px-2`}
+                      style={CHIP_STYLE}
+                      disabled={phase.kind !== 'form'}
+                      onClick={() => {
+                        tick();
+                        setPctBps(null);
+                        setText(sol);
+                      }}
+                    >
+                      {sol} SOL
+                    </button>
+                  ))}
                 {available !== null && available > 0n && (
                   <button
                     type="button"
                     className={`${TOGGLE_CLS} !flex-none min-w-[56px] px-3`}
-                    style={{ background: 'rgba(0,0,0,0.45)', border: '1px solid rgba(255,255,255,0.12)' }}
+                    style={CHIP_STYLE}
                     aria-label={`Max ${name(paid)}`}
+                    disabled={phase.kind !== 'form'}
                     onClick={() => {
                       tick();
                       setPctBps(null);
@@ -846,7 +1000,8 @@ function OneCoinInner({
               <p className="text-white/70 text-[12px] mt-1">About {shareText(sharePct)} of the pool, at its price now.</p>
             </div>
           )}
-          <SlippagePicker valueBps={slippageBps} onChange={setSlippageBps} hint="Used by both steps. If a price moves more than this first, that step is refused and only its network fee is spent." />
+          {poolRows}
+          {!inDoor && slippage}
           {over && available !== null && <Notice tone="warn">That is more than you can use. The most is {exact(paid, available)}.</Notice>}
           {shortOfSol && setAside !== null && <Notice tone="warn">Your wallet needs {solExact(setAside)} for both steps’ fees and deposits.</Notice>}
           {health.deposits.warnings.map((w) => (
@@ -855,9 +1010,7 @@ function OneCoinInner({
             </Notice>
           ))}
           {coin.risk && <Notice tone="warn">{coin.risk}</Notice>}
-          <p className="text-white/60" data-testid="lp-one-line">
-            {ONE_COIN_LINE}
-          </p>
+          {!inDoor && line}
           <div className="flex flex-col sm:flex-row gap-2">
             <button
               ref={reviewRef}
@@ -875,6 +1028,8 @@ function OneCoinInner({
               Close
             </button>
           </div>
+          {inDoor && line}
+          {inDoor && slippage}
           {/* Off the page (owner, 2026-10-17: "remove this warning from everywhere"), one press away. */}
           <FinePrint summary="Risks" testId="lp-one-risk">
             <p>{RISK_SHORT}</p>

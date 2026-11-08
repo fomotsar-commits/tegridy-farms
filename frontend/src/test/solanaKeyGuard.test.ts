@@ -298,8 +298,9 @@ describe('the real tree', () => {
       return;
     }
     // After solana/clmm-deploy/program-id-change.mjs: the owner's id, no placeholder anywhere, no
-    // gate left, and a devnet build's id that is not the release's.
-    const devnet = /#\[cfg\(feature = "devnet"\)\]\ndeclare_id!\("(\w+)"\);/.exec(lib)?.[1];
+    // gate left, and an id that is not the release's for every test build (since 2026-11-03,
+    // localnet and paramset as well as devnet).
+    const devnet = /#\[cfg\(any\(feature = "devnet", feature = "localnet", feature = "paramset"\)\)\]\ndeclare_id!\("(\w+)"\);/.exec(lib)?.[1];
     expect(ALLOW.ours[release]).toBeTruthy();
     expect(devnet).toBeTruthy();
     expect(devnet).not.toBe(release);

@@ -9,6 +9,7 @@ import { rangePoolsVisible } from '../clmm/programId';
 import { MAX_SWAP_BANDS, quoteSwap } from '../clmm/quote';
 import { readBandsNear, readExtension, readFeeTiers, readPairPools, type RangePool } from '../clmm/read';
 import type { RouteCandidate } from '../route';
+import { EXACT_EXTENSIONS } from '../lp/tokenSafety';
 import { tokenProblemOf, type OwnPoolsState } from './venuePools';
 
 /**
@@ -58,7 +59,8 @@ export async function readRangeRoutePools(
     await Promise.all(
       found.value.map(async (range, i) => {
         const [m0, m1, v0, v1] = held.slice(i * 4, i * 4 + 4).map((a) => a ?? null);
-        const problem = tokenProblemOf(m0 ?? null) ?? tokenProblemOf(m1 ?? null);
+        // The range builders move exact amounts only: no transfer fee (EXACT_EXTENSIONS).
+        const problem = tokenProblemOf(m0 ?? null, EXACT_EXTENSIONS) ?? tokenProblemOf(m1 ?? null, EXACT_EXTENSIONS);
         const vaults = problem === null ? [tokenVault(v0 ?? null, m0!.owner), tokenVault(v1 ?? null, m1!.owner)] : [];
         if (problem === null && vaults.some((v) => v === null)) {
           unread++;

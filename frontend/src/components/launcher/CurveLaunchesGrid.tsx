@@ -217,12 +217,16 @@ export interface CurveLaunchesGridViewProps {
    *  grid here is an outage, not an empty product — say so instead of
    *  rendering a blank slot under a header that promises N of them. */
   tokensUnread?: boolean;
+  /** Launching on this curve is switched on: the page's own `launchOpen`. Off (island answer
+   *  twenty-six), the empty state says only that there are none, never that the curve is live or
+   *  to create one above, where no form is. */
+  launchOpen?: boolean;
   /** Renders one card slot — the container injects the hook-carrying card here,
    *  so the view stays pure and testable with a stub. */
   renderCard: (token: Address) => React.ReactNode;
 }
 
-export function CurveLaunchesGridView({ chainName, launchCount, tokens, tokensUnread = false, renderCard }: CurveLaunchesGridViewProps) {
+export function CurveLaunchesGridView({ chainName, launchCount, tokens, tokensUnread = false, launchOpen = false, renderCard }: CurveLaunchesGridViewProps) {
   return (
     <m.section
       initial={{ opacity: 0, y: 12 }}
@@ -248,10 +252,12 @@ export function CurveLaunchesGridView({ chainName, launchCount, tokens, tokensUn
         <div className="relative isolate rounded-2xl p-5" style={cardStyle}>
           <CardArt pageId="eth-curve" idx={5} />
           <p className="text-white/85 text-[13px] font-semibold">No launches on {chainName} yet.</p>
-          <p className="text-white/55 text-[12px] mt-1 leading-relaxed">
-            The curve is live and the first launch writes history — create one above and your coin
-            opens this grid.
-          </p>
+          {launchOpen && (
+            <p className="text-white/55 text-[12px] mt-1 leading-relaxed">
+              The curve is live and the first launch writes history — create one above and your coin
+              opens this grid.
+            </p>
+          )}
         </div>
       ) : tokensUnread && tokens.length === 0 ? (
         <div className="relative isolate rounded-2xl p-5" style={cardStyle}>
@@ -356,9 +362,11 @@ export interface CurveLaunchesGridProps {
   launcher: Address;
   chainId: number;
   chainName: string;
+  /** See `CurveLaunchesGridViewProps.launchOpen`. */
+  launchOpen?: boolean;
 }
 
-export function CurveLaunchesGrid({ launcher, chainId, chainName }: CurveLaunchesGridProps) {
+export function CurveLaunchesGrid({ launcher, chainId, chainName, launchOpen = false }: CurveLaunchesGridProps) {
   const { data: countRaw } = useReadContract({
     address: launcher,
     abi: CURVE_LAUNCHER_ABI,
@@ -428,6 +436,7 @@ export function CurveLaunchesGrid({ launcher, chainId, chainName }: CurveLaunche
     <CurveLaunchesGridView
       chainName={chainName}
       launchCount={launchCount}
+      launchOpen={launchOpen}
       tokens={tokens}
       tokensUnread={pageUnread}
       renderCard={(t) => (

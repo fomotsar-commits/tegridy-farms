@@ -45,7 +45,8 @@ import { vi } from 'vitest';
 export type Address = `0x${string}`;
 
 interface ReadStub {
-  match: (spec: { functionName?: string; address?: string }) => boolean;
+  /** `args` is passed for useReadContract, so a predicate can answer one call's arguments. */
+  match: (spec: { functionName?: string; address?: string; args?: readonly unknown[] }) => boolean;
   result: unknown;
   status?: 'success' | 'failure';
 }
@@ -165,7 +166,7 @@ export const wagmiMock = {
   writeContract: () => state.writeContractMock,
 };
 
-function findRead(spec: { functionName?: string; address?: string }): ReadStub | undefined {
+function findRead(spec: { functionName?: string; address?: string; args?: readonly unknown[] }): ReadStub | undefined {
   // Last match wins — tests can stack overrides.
   for (let i = state.reads.length - 1; i >= 0; i--) {
     if (state.reads[i]!.match(spec)) return state.reads[i];
@@ -206,7 +207,7 @@ vi.mock('wagmi', () => {
 
   const useReadContract = (opts: { address?: string; functionName?: string; args?: unknown[]; query?: { enabled?: boolean } }) => {
     if (opts?.query?.enabled === false && !state.answerDisabledReads) return disabledRead();
-    const stub = findRead({ address: opts?.address, functionName: opts?.functionName });
+    const stub = findRead({ address: opts?.address, functionName: opts?.functionName, args: opts?.args });
     if (!stub) {
       return { data: undefined, error: undefined, isLoading: false, isError: false, refetch: vi.fn() };
     }

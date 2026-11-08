@@ -12,6 +12,7 @@ const searchStakeEntries = vi.fn();
 const unstakeAndClaim = vi.fn();
 const unstakeAndClose = vi.fn();
 const claimRewards = vi.fn();
+const prepareClaimRewardsInstructions = vi.fn();
 const getTokenAccountBalance = vi.fn();
 const getAccountInfo = vi.fn();
 const getParsedAccountInfo = vi.fn();
@@ -54,6 +55,7 @@ vi.mock('@streamflow/staking', () => ({
     unstakeAndClaim = unstakeAndClaim;
     unstakeAndClose = unstakeAndClose;
     claimRewards = claimRewards;
+    prepareClaimRewardsInstructions = prepareClaimRewardsInstructions;
     prepareStakeInstructions = prepareStakeInstructions;
     prepareCreateRewardEntryInstructions = prepareCreateRewardEntryInstructions;
     execute = execute;
@@ -506,6 +508,64 @@ describe('stake', () => {
     if (!closed.ok) reasons.push(closed.reason);
     expect(reasons).toHaveLength(errors.length * writes.length + 1);
     for (const reason of reasons) expect(reason).not.toContain('—');
+  });
+
+  // Every bungalow's pool reaches this line, and most of them do not stake BAYLA.
+  it('a claim the reward program refuses for good names no coin', async () => {
+    const lib = await import('./bungalowStaking');
+    claimRewards.mockReset().mockRejectedValue(rewardProgramSays(6000));
+    const r = await lib.claimRewards({ invoker, pool, rewardPool: pool.rewardPools[0]!, entryNonce: 0 });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.permanent).toBe(true);
+    expect(r.reason).toContain('Your stake is safe');
+    expect(r.reason).not.toMatch(/BAYLA/);
+  });
+});
+
+// Harvest signs several claims on one prompt (lib/harvest/solana.ts): it builds each from
+// these, so a claim built there is the claim `claimRewards` would send.
+describe('claimRewardsInstructions and claimRefusal', () => {
+  const pool: PoolView = {
+    address: POOL, mint: 'MintAddr', decimals: 6, tokenProgram: 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb',
+    minDurationSecs: 0, maxDurationSecs: 0, minWeightScaled: WEIGHT_SCALE, maxWeightScaled: WEIGHT_SCALE, unstakePeriodSecs: 0,
+    totalStakeRaw: 0n, totalEffectiveStakeRaw: 0n,
+    rewardPools: [{ address: 'Rp1', mint: 'MintAddr', kind: 'dynamic' as const, nonce: 3, vault: 'V1', decimals: 6, fundedRaw: 0n, permissionless: true, rewardAmountRaw: '1', rewardPeriodSecs: 86400, fundedAmountRaw: null, claimedAmountRaw: null, claimPeriodSecs: 0, rateChangedAtTs: 0 }],
+  };
+  const claimant = { toBase58: () => 'StakerPk' } as never;
+  const invoker = { publicKey: claimant } as never;
+
+  it('asks the SDK’s prepare path with exactly what claimRewards sends, and returns its instructions unsent', async () => {
+    const lib = await import('./bungalowStaking');
+    claimRewards.mockResolvedValue({ txId: 'SIG' });
+    prepareClaimRewardsInstructions.mockResolvedValue({ ixs: [{ __ix: 'claim' }] });
+    await lib.claimRewards({ invoker, pool, rewardPool: pool.rewardPools[0]!, entryNonce: 7 });
+    const r = await lib.claimRewardsInstructions({ claimant, pool, rewardPool: pool.rewardPools[0]!, entryNonce: 7 });
+    expect(r).toEqual({ ok: true, ixs: [{ __ix: 'claim' }] });
+    expect(prepareClaimRewardsInstructions.mock.calls[0]![0]).toEqual(claimRewards.mock.calls[0]![0]);
+    expect(prepareClaimRewardsInstructions.mock.calls[0]![1].invoker.publicKey).toBe(claimant);
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('a build that throws is a reason, never a throw', async () => {
+    const lib = await import('./bungalowStaking');
+    prepareClaimRewardsInstructions.mockRejectedValue(new Error('rpc down'));
+    const r = await lib.claimRewardsInstructions({ claimant, pool, rewardPool: pool.rewardPools[0]!, entryNonce: 0 });
+    expect(r).toEqual({ ok: false, reason: 'The claim did not go through. Your rewards are untouched. (rpc down)' });
+  });
+
+  it('a test run’s logs say what the claim’s own failure says: 6012 and 6000 by their program', async () => {
+    const lib = await import('./bungalowStaking');
+    const logsOf = (program: string, code: number) => (programSays(program, code).cause as { transactionLogs: string[] }).transactionLogs;
+    claimRewards.mockReset().mockRejectedValue(rewardProgramSays(6012));
+    const said = await lib.claimRewards({ invoker, pool, rewardPool: pool.rewardPools[0]!, entryNonce: 0 });
+    expect(lib.claimRefusal(logsOf(REWARD_PROGRAM, 6012))).toBe(!said.ok && said.reason);
+    expect(lib.claimRefusal(logsOf(REWARD_PROGRAM, 6012))).toMatch(/cannot cover the accrued rewards/);
+    expect(lib.claimRefusal(logsOf(REWARD_PROGRAM, 6000))).toMatch(/can no longer pay out/);
+    expect(lib.claimRefusal(logsOf(DYNAMIC_REWARD_PROGRAM, 6013))).toMatch(/This one DOES clear/);
+    // 6000 from the stake program is not the reward program's overflow.
+    expect(lib.claimRefusal(logsOf(STAKE_PROGRAM, 6000))).toMatch(/^The claim did not go through\. Your rewards are untouched\./);
+    expect(lib.claimRefusal([])).toMatch(/^The claim did not go through\. Your rewards are untouched\./);
   });
 });
 

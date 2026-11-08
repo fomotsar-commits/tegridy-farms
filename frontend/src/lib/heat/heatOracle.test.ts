@@ -4,6 +4,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+  printedTier,
   heatEnvelopeFailure,
   parseHeatReading,
   normalizeXHandle,
@@ -13,6 +14,7 @@ import {
   tierAbove,
   nextTier,
   gateDecision,
+  countdownTimer,
   TIER_FLOORS,
   LAUNCH_FLOOR,
   GATE_MAX_AGE_DAYS,
@@ -150,13 +152,37 @@ describe('gateDecision — the gate primitive, fail-closed', () => {
     expect(d.reason).toBe('below-floor');
   });
 
-  it('COLD shows the wallet its OWN degrees and says warmth is held time', () => {
+  // THE COUNTDOWN'S WORDS (island answer twenty-four, build 5; twenty-five, screen 2): a
+  // wallet under the floor is told its own degrees, the island's days to the door when
+  // served, and the line. Never "Cannot", never "cannot be bought".
+  it('COLD shows the wallet its OWN degrees in the countdown’s words', () => {
     const d = gateDecision(ADDR, at(42.5, 'Observer'), asOf);
     expect(d.degrees).toBe(42.5);
-    expect(d.detail).toContain('42.50°');
-    expect(d.detail).toContain('Observer');
-    expect(d.detail).toContain('The door opens at 80°,');
-    expect(d.detail).toContain('held time');
+    expect(d.detail).toBe('This wallet reads 42.50° (Observer). Residents launch here. Nobody can buy last year.');
+  });
+
+  it('COLD counts the island’s served days to the door, and the law’s half a year from nothing', () => {
+    const served = parseHeatReading({ ...WARM, degrees: 42.5, tier: 'Observer', as_of_unix: asOf, days_to_plant: 148 });
+    expect(gateDecision(ADDR, served, asOf).detail).toBe(
+      'This wallet reads 42.50° (Observer): 148 days to the door, if you hold from today. Residents launch here. Nobody can buy last year.',
+    );
+    expect(gateDecision(ADDR, parseHeatReading(COLD), asOf).detail).toBe(
+      'This wallet reads 0.00°: about half a year to the door, if you hold from today. Residents launch here. Nobody can buy last year.',
+    );
+  });
+
+  it('says every verdict without the word cannot: unreadable, stale, cold and warm', () => {
+    const unreadable = gateDecision(ADDR, null, asOf);
+    const stale = gateDecision(ADDR, at(195.54, 'Builder'), asOf + 30 * DAY);
+    expect(unreadable.detail).toBe(
+      'The island’s instrument is unreachable, so the door has no reading of you yet. Nothing has been decided. Try again in a moment.',
+    );
+    expect(stale.detail).toBe(
+      'This reading was reckoned more than 7 days ago, so it passes and fails no one. Try again once the island has re-measured.',
+    );
+    const verdicts = [unreadable, stale, gateDecision(ADDR, parseHeatReading(COLD), asOf), gateDecision(ADDR, at(195.54, 'Builder'), asOf)];
+    expect(verdicts.map((d) => d.state)).toEqual(['STALE', 'STALE', 'COLD', 'WARM']);
+    for (const d of verdicts) expect(d.detail, `${d.state}: ${d.detail}`).not.toMatch(/\bcannot\b/i);
   });
 
   // THE WALLET'S TIER, NOT THE FLOOR'S (follow-up to answer ten, ruling 4). The line read
@@ -171,8 +197,9 @@ describe('gateDecision — the gate primitive, fail-closed', () => {
       expect(d.detail, d.state).not.toContain('—');
       expect(d.detail, d.state).toMatch(/^This wallet reads \d+\.\d{2}° \((Resident|Builder)\)\. /);
     }
-    expect(cold.detail).toContain('This wallet reads 95.00° (Resident). The door opens at 123°');
-    expect(cold.detail).not.toMatch(/Resident\. The door opens/);
+    // The countdown's words name no floor at all, so no tier can sit beside one.
+    expect(cold.detail).toBe('This wallet reads 95.00° (Resident). Residents launch here. Nobody can buy last year.');
+    expect(cold.detail).not.toContain('123');
     expect(warm.detail).toBe('This wallet reads 195.54° (Builder). The launch lane is open.');
   });
 
@@ -186,7 +213,7 @@ describe('gateDecision — the gate primitive, fail-closed', () => {
     const cold = gateDecision(ADDR, at(95, 'Observer'), asOf, 100);
     expect(cold.state).toBe('COLD');
     expect(cold.tier).toBe('Observer');
-    expect(cold.detail.startsWith('This wallet reads 95.00° (Observer). The door opens at 100°,')).toBe(true);
+    expect(cold.detail.startsWith('This wallet reads 95.00° (Observer). ')).toBe(true);
     const stale = gateDecision(ADDR, at(95, 'Observer'), asOf + 30 * DAY);
     expect(stale.state).toBe('STALE');
     expect(stale.tier).toBe('Observer');
@@ -615,5 +642,56 @@ describe('the days the island counts down', () => {
       expect(r.daysToNextTier, String(v)).toBeNull();
       expect(r.daysToPlant, String(v)).toBeNull();
     }
+  });
+});
+
+// The island will serve `earlier_than_pct` beside `held_since_unix` (answer twenty-five, §4).
+// It is not served yet (read 2026-11-03), so today it parses to null and the since line
+// prints alone.
+describe('the percentile the island serves beside held_since_unix', () => {
+  it('reads it as absent from today’s envelope', () => {
+    expect(parseHeatReading(WARM).earlierThanPct).toBeNull();
+  });
+
+  it('keeps a served percentile as served', () => {
+    expect(parseHeatReading({ ...WARM, earlier_than_pct: 87.4 }).earlierThanPct).toBe(87.4);
+    expect(parseHeatReading({ ...WARM, earlier_than_pct: 0 }).earlierThanPct).toBe(0);
+    expect(parseHeatReading({ ...WARM, earlier_than_pct: 100 }).earlierThanPct).toBe(100);
+  });
+
+  it('reads anything but a number from 0 to 100 as absent', () => {
+    for (const v of [null, '87', -1, 100.5, NaN, Infinity, true]) {
+      expect(parseHeatReading({ ...WARM, earlier_than_pct: v }).earlierThanPct, String(v)).toBeNull();
+    }
+  });
+});
+
+// The countdown's timer (island answer twenty-five, screen 2): the island's served days to
+// the launch floor; until then the law's half a year, said only to a wallet starting from
+// nothing. A warm wallet with no served days gets no timer: the venue never works one out.
+describe('countdownTimer', () => {
+  it('is the island’s served days, whatever the degrees', () => {
+    expect(countdownTimer(parseHeatReading({ ...WARM, degrees: 41.2, tier: 'Observer', days_to_plant: 148 }))).toEqual({ days: 148 });
+    expect(countdownTimer(parseHeatReading({ ...COLD, days_to_plant: 182 }))).toEqual({ days: 182 });
+    expect(countdownTimer(parseHeatReading({ ...WARM, degrees: 79.9, tier: 'Observer', days_to_plant: 0 }))).toEqual({ days: 0 });
+  });
+
+  it('is the half year from a standing start: a cold wallet, or one at zero degrees', () => {
+    expect(countdownTimer(parseHeatReading(COLD))).toEqual({ unserved: true });
+    expect(countdownTimer(parseHeatReading({ ...WARM, degrees: 0, tier: 'Drifter' }))).toEqual({ unserved: true });
+  });
+
+  it('is nothing for a warm wallet the island has served no days for', () => {
+    expect(countdownTimer(parseHeatReading({ ...WARM, degrees: 41.2, tier: 'Observer' }))).toBeNull();
+  });
+});
+
+describe('printedTier: the venue never prints Drifter (island answer twenty-six)', () => {
+  it('prints every served word but Drifter, whatever its case', () => {
+    for (const t of ['Elder', 'Builder', 'Resident', 'Observer']) expect(printedTier(t)).toBe(t);
+    expect(printedTier('Drifter')).toBeNull();
+    expect(printedTier('DRIFTER')).toBeNull();
+    expect(printedTier(null)).toBeNull();
+    expect(printedTier('')).toBeNull();
   });
 });

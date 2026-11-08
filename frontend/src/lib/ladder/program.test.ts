@@ -27,12 +27,13 @@ import {
   POOL_SIZE, POSITION_SIZE, USER_STATS_SIZE,
   poolPda, stakeVaultPda, rewardVaultPda, userStatsPda, positionPda,
   decodeLadderPool, decodeLadderPosition, decodeLadderUserStats,
-  boostBpsForLock, weightForStake, penaltyFor, quoteExit, checkDeposit,
+  boostBpsForLock, weightForStake, penaltyFor, quoteExit, quoteExtend, checkDeposit,
   MIN_LOCK_SECS, MAX_LOCK_SECS, MIN_BOOST_BPS, MAX_BOOST_BPS, MAX_POSITIONS,
   MAX_EARLY_EXIT_PENALTY_BPS, PENALTY_SCALE, MAX_PENALTY_RATIO, penaltyPct,
   PRECISION, minWeightFloor, lastTimeApplicable, rewardPerWeightNow, earnedNow,
-  REWARDS_DURATION_SECS,
+  REWARDS_DURATION_SECS, perDayAtTodaysRate, aprLabel,
 } from './program';
+import { BUNGALOWS, LADDER_MAINNET_PROGRAM, ROOM_LADDER_POOLS } from '../bungalows';
 
 const MATH_RS = resolve(
   dirname(fileURLToPath(import.meta.url)),
@@ -55,6 +56,7 @@ describe('discriminators — transcribed from the built IDL', () => {
     expect(b(IX_DISCRIMINATOR.emergencyWithdraw)).toEqual([239, 45, 203, 64, 150, 73, 218, 92]);
     expect(b(IX_DISCRIMINATOR.claimCarried)).toEqual([173, 173, 45, 126, 170, 32, 215, 248]);
     expect(b(IX_DISCRIMINATOR.notifyReward)).toEqual([252, 51, 75, 132, 223, 48, 177, 213]);
+    expect(b(IX_DISCRIMINATOR.extendLock)).toEqual([68, 151, 140, 144, 139, 122, 118, 170]);
   });
   it('accounts', () => {
     expect(b(ACCOUNT_DISCRIMINATOR.Pool)).toEqual([241, 154, 109, 4, 17, 177, 109, 188]);
@@ -100,6 +102,28 @@ describe('PDAs — checked against the addresses the live pool actually has', ()
   it('user stats are per (pool, owner)', () => {
     const pool = new PublicKey(POOL);
     expect(userStatsPda(PROGRAM, pool, OWNER).toBase58()).toHaveLength(44);
+  });
+
+  // Owner, 2026-10-31: the other Solana rooms stake exactly like BAYLA, each on a pool of the
+  // mainnet program. Their pools are hardcoded in bungalows.ts; the seeds are proven on BAYLA's.
+  it("each room's ladder pool is its own mint's nonce-0 pool, the seeds that give BAYLA its live pool", () => {
+    const registry = JSON.parse(readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../../scripts/addresses.json'), 'utf-8')) as {
+      solana: { id: string; address: string }[];
+    };
+    const at = (id: string) => registry.solana.find((e) => e.id === id)!.address;
+    const mainnet = new PublicKey(LADDER_MAINNET_PROGRAM);
+    const poolOf = (mint: string) => poolPda(mainnet, new PublicKey(mint), 0).toBase58();
+    expect(LADDER_MAINNET_PROGRAM).toBe(at('bayla-ladder-program'));
+    expect(poolOf(BUNGALOWS.find((r) => r.id === 'bayla')!.address!), 'the seeds, proven on the live pool').toBe(at('bayla-ladder-pool'));
+    expect(Object.keys(ROOM_LADDER_POOLS)).toEqual(['bobo', 'soy', 'brainlet', 'rizz']);
+    for (const [id, pool] of Object.entries(ROOM_LADDER_POOLS)) {
+      const room = BUNGALOWS.find((r) => r.id === id)!;
+      expect(room.chain, id).toBe('solana');
+      expect(pool, id).toBe(poolOf(room.address!));
+      expect(pool, `${id} in the registry`).toBe(at(`ladder-pool-${id}`));
+      expect(stakeVaultPda(mainnet, new PublicKey(pool)).toBase58(), `${id} stake vault`).toBe(at(`ladder-stake-vault-${id}`));
+      expect(rewardVaultPda(mainnet, new PublicKey(pool)).toBase58(), `${id} reward vault`).toBe(at(`ladder-reward-vault-${id}`));
+    }
   });
 });
 
@@ -316,6 +340,70 @@ describe('quoteExit — the doors, and what each ACTUALLY costs', () => {
     expect(door(week, 'hatch').penaltyRaw).toBe(door(week, 'early').penaltyRaw);
     expect(door(week, 'hatch').reason).toMatch(/^0\.47% retained/);
     expect(door(week, 'hatch').reason).toMatch(/time left over four years, capped at 75%/);
+  });
+});
+
+// The same cases as math.rs's `extended_lock` tests, so the card never offers a rung the
+// program refuses, and never hides one it takes.
+describe('quoteExtend — the program’s extend_lock rules, decided before signing', () => {
+  const DAY = 86_400;
+  const YEAR = 365 * DAY;
+  const AMT = 1_000_000_000_000n;
+  const staked = 1_800_000_000;
+  const now = staked + 28 * DAY;
+  // A one-year position, 28 days in: the request that started this.
+  const oneYear = { amountRaw: AMT, lockEnd: BigInt(staked + YEAR), weight: weightForStake(AMT, YEAR) };
+  const healthy = { degraded: false };
+
+  it('a one-year lock moves to four years at the four-year price, counted from now', () => {
+    const q = quoteExtend(oneYear, healthy, MAX_LOCK_SECS, now)!;
+    expect(q.lockEnd).toBe(BigInt(now + MAX_LOCK_SECS));
+    expect(q.weight).toBe(4_000_000_000_000n);
+    expect(q.boostBps).toBe(MAX_BOOST_BPS);
+    expect(q.raises).toBe(true);
+  });
+
+  it('refuses what the program refuses: off the ladder, ended, not later, boost down, degraded', () => {
+    expect(quoteExtend(oneYear, healthy, MAX_LOCK_SECS + 1, now)).toBeNull();
+    expect(quoteExtend(oneYear, healthy, MIN_LOCK_SECS - 1, now)).toBeNull();
+    expect(quoteExtend(oneYear, healthy, MAX_LOCK_SECS, Number(oneYear.lockEnd))).toBeNull();
+    expect(quoteExtend(oneYear, healthy, 30 * DAY, now)).toBeNull();
+    expect(quoteExtend(oneYear, { degraded: true }, MAX_LOCK_SECS, now)).toBeNull();
+    // A four-year position 1,000 days in: 500 days ends later but carries ~1.6x.
+    const fourYear = { amountRaw: AMT, lockEnd: BigInt(MAX_LOCK_SECS), weight: weightForStake(AMT, MAX_LOCK_SECS) };
+    expect(quoteExtend(fourYear, healthy, 500 * DAY, 1_000 * DAY)).toBeNull();
+    // POSITIVE CONTROLS: one second before the end is still extendable; equal weight is
+    // accepted by the program, and only marked as not raising.
+    expect(quoteExtend(oneYear, healthy, MAX_LOCK_SECS, Number(oneYear.lockEnd) - 1)).not.toBeNull();
+    const top = quoteExtend(fourYear, healthy, MAX_LOCK_SECS, 1_000 * DAY)!;
+    expect(top.weight).toBe(fourYear.weight);
+    expect(top.raises).toBe(false);
+  });
+
+  it('a rung that raises the boost always ends later than the lock it replaces', () => {
+    for (const secs of [30 * DAY, 90 * DAY, 180 * DAY, YEAR, 2 * YEAR, MAX_LOCK_SECS]) {
+      for (const at of [staked, now, Number(oneYear.lockEnd) - 1]) {
+        const q = quoteExtend(oneYear, healthy, secs, at);
+        if (q?.raises) expect(q.lockEnd > oneYear.lockEnd).toBe(true);
+      }
+    }
+  });
+
+  it('extending to four years and leaving at once costs the 75% cap', () => {
+    const q = quoteExtend(oneYear, healthy, MAX_LOCK_SECS, now)!;
+    expect(penaltyFor(AMT, q.lockEnd, BigInt(now))).toBe(AMT * 3n / 4n);
+  });
+
+  it('decides the boundaries exactly as math.rs `extended_lock` does', () => {
+    const src = readFileSync(MATH_RS, 'utf8');
+    const start = src.indexOf('pub fn extended_lock');
+    expect(start).toBeGreaterThan(0);
+    const fn = src.slice(start, src.indexOf('\n}\n', start));
+    expect(fn).toContain('if lock_secs < MIN_LOCK_SECS');
+    expect(fn).toContain('if lock_secs > MAX_LOCK_SECS');
+    expect(fn).toContain('if now >= lock_end');
+    expect(fn).toContain('if new_end <= lock_end');
+    expect(fn).toContain('if new_weight < weight');
   });
 });
 
@@ -626,5 +714,79 @@ describe('the accumulator is monotonic, whatever the clock says', () => {
     };
     expect(rewardPerWeightNow(behind, 1_000)).toBe(500n);
     expect(rewardPerWeightNow(behind, 1_000)).toBeGreaterThanOrEqual(behind.rewardPerWeightStored);
+  });
+});
+
+/* ────────── what a weight earns per day, at today's rate ────────── */
+
+describe('perDayAtTodaysRate — your weight’s cut of the pool’s day', () => {
+  // The live BAYLA ladder after the 2026-09-24 reload: 262,484 raw a second, which
+  // the chain read back as 22,678.62 BAYLA a day (6 decimals).
+  const live = { rewardRate: 262_484n, periodFinish: 2_000_000_000n, minStakeRaw: 100_000_000n };
+  const NOW_S = 1_800_000_000;
+
+  it('is rate × a day × weight / total, floored', () => {
+    // A quarter of the weight gets a quarter of the day: 22,678,617,600 / 4.
+    expect(perDayAtTodaysRate(1_000_000_000n, 4_000_000_000n, live, NOW_S)).toBe(5_669_654_400n);
+  });
+
+  it('agrees with the accumulator over one real day', () => {
+    // The independent witness: `earnedNow` is math.rs's `earned` transcribed, so a day
+    // of it is what the program would pay. The projection must not out-run it.
+    const pool = {
+      ...live, rewardPerWeightStored: 0n, rpwResidueRaw: 0n,
+      lastUpdateTime: BigInt(NOW_S), totalWeighted: 14_000_000_000_000n,
+    };
+    const position = { weight: 2_000_000_000_000n, rewardPerWeightPaid: 0n, rewardsOwed: 0n };
+    const aDay = earnedNow(position, pool, NOW_S + 86_400) - earnedNow(position, pool, NOW_S);
+    const projected = perDayAtTodaysRate(position.weight, pool.totalWeighted, pool, NOW_S)!;
+    expect(projected).toBeLessThanOrEqual(aDay + 1n);
+    expect(aDay - projected).toBeLessThanOrEqual(1n);
+  });
+
+  it('a longer lock earns more on the same stake — the boost is the multiplier', () => {
+    // 500 BAYLA at 4.00× vs 500 BAYLA at 0.40×: ten times the weight, ten times the day.
+    const total = 2_200_000_000n;
+    const fourYears = perDayAtTodaysRate(weightForStake(500_000_000n, Number(MAX_LOCK_SECS)), total, live, NOW_S)!;
+    const sevenDays = perDayAtTodaysRate(weightForStake(500_000_000n, Number(MIN_LOCK_SECS)), total, live, NOW_S)!;
+    expect(fourYears / sevenDays).toBe(10n);
+  });
+
+  it('is null where there is no stream to project', () => {
+    const w = 1_000_000_000n;
+    const t = 4_000_000_000n;
+    expect(perDayAtTodaysRate(w, t, { ...live, rewardRate: 0n }, NOW_S)).toBeNull();           // never scheduled
+    expect(perDayAtTodaysRate(w, t, { ...live, periodFinish: BigInt(NOW_S) }, NOW_S)).toBeNull(); // ended
+    expect(perDayAtTodaysRate(w, 0n, live, NOW_S)).toBeNull();                                  // no weight at all
+    expect(perDayAtTodaysRate(1n, 39_999_999n, live, NOW_S)).toBeNull();                        // below the I-11 floor
+  });
+
+  it('is null, never clamped, when your weight exceeds the total', () => {
+    // The reads disagree; a clamp would print the whole pool's day as yours.
+    expect(perDayAtTodaysRate(4_000_000_001n, 4_000_000_000n, live, NOW_S)).toBeNull();
+    expect(perDayAtTodaysRate(4_000_000_000n, 4_000_000_000n, live, NOW_S)).toBe(262_484n * 86_400n);
+  });
+});
+
+describe('aprLabel — a day as a yearly rate on the stake behind it', () => {
+  it('is perDay × 365 / principal, FLOORED', () => {
+    // 1 a day on 365 → exactly 100%; 0.9999 a day → 99.9%, where rounding says 100%.
+    expect(aprLabel(1_000_000n, 365_000_000n)).toBe('100%');
+    expect(aprLabel(999_900n, 365_000_000n)).toBe('99.9%');
+    expect(aprLabel(500_000n, 365_000_000n)).toBe('50%');
+  });
+
+  it('drops the decimal from 100% up, and groups big ones', () => {
+    expect(aprLabel(2_369_999n, 365_000_000n)).toBe('236%');
+    expect(aprLabel(1_000_000_000n, 365_000_000n)).toBe((100_000).toLocaleString() + '%');
+  });
+
+  it('a real yield that floors to nothing reads "<0.1%", never "0%"', () => {
+    expect(aprLabel(1n, 365_000_000n)).toBe('<0.1%');
+    expect(aprLabel(0n, 365_000_000n)).toBe('0%');
+  });
+
+  it('is null with no principal to divide by', () => {
+    expect(aprLabel(1_000n, 0n)).toBeNull();
   });
 });

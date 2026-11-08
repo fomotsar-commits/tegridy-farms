@@ -40,6 +40,8 @@ export interface GateResult {
   decision: GateDecision;
   /** null only when `skipAudit` was set. */
   audit: GateAuditRow | null;
+  /** The reading decided on, null when none came back: the door's countdown draws from it. */
+  reading: HeatReading | null;
 }
 
 /** Read the wallet's heat live, always fresh, and decide. Never throws: an unreachable
@@ -59,7 +61,7 @@ export async function meetsHeatFloor(address: string, opts: HeatGateOptions = {}
   }
 
   const decision = gateDecision(address, reading, nowUnix, floor, maxAgeDays);
-  return { decision, audit: opts.skipAudit ? null : recordGateDecision(decision) };
+  return { decision, audit: opts.skipAudit ? null : recordGateDecision(decision), reading };
 }
 
 /** Throw HeatGateDenied unless the wallet may launch; call before anything irreversible.
