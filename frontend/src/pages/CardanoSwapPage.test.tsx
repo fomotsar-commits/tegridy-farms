@@ -9,6 +9,7 @@ import type { PrivateKey } from '@emurgo/cardano-serialization-lib-browser';
 import type { Csl } from '../lib/cardano/csl';
 import { composeAddress, hexToBytes, type ParsedAddress } from '../lib/cardano/address';
 import { MINSWAP_V2 } from '../lib/cardano/minswapV2';
+import { CARDANO_VENUE_FEE_ADDRESS } from '../lib/cardano/venueFee';
 import { resetCardanoWalletForTests } from '../lib/cardano/walletStore';
 import { ASCEND, fixture, testCsl } from '../lib/cardano/testkit.fixture';
 
@@ -291,18 +292,19 @@ describe('CardanoSwapPage', () => {
     fireEvent.change(screen.getByLabelText(/You pay/), { target: { value: '400' } });
     const q = await screen.findByTestId('cardano-quote', {}, { timeout: 3000 });
     expect(q.textContent).toMatch(/Venue fee/);
-    expect(q.textContent).toMatch(/None: the venue has no Cardano fee address yet/);
+    // 0.5% of the 400 ADA paid in, to the two-key treasury.
+    expect(q.textContent).toMatch(/Venue fee0\.5% of the ADA side · to the venue2 ADA/);
     expect(q.textContent).toMatch(/1% of what you pay in/);
     expect(q.textContent).toMatch(/Minswap keeps 16\.66% of it/);
     expect(q.textContent).toMatch(/up to 2 ADA/);
     expect(q.textContent).toMatch(/comes back with your coins/);
   });
 
-  it('with no venue fee address, the explainer never speaks of a venue fee being paid', async () => {
+  it('with the fee address registered, the explainer says when the venue fee is paid and where it may go', async () => {
     renderPage();
     const explainer = (await screen.findByText('How a Cardano swap works')).closest('details') ?? document.body;
-    expect(explainer.textContent).toMatch(/pays only the order and your change to your own address/);
-    expect(explainer.textContent).not.toMatch(/venue fee/i);
+    expect(explainer.textContent).toMatch(/The venue fee is paid with the order, not with the fill, so an order that comes back has still paid it\./);
+    expect(explainer.textContent).toMatch(/pays only the order, the venue fee to the venue’s registered address, and your change to your own address/);
     expect(explainer.textContent).not.toMatch(/must send your coins back/);
   });
 
@@ -319,6 +321,10 @@ describe('CardanoSwapPage', () => {
     expect(review.textContent).toMatch(/404 ADA/); // the 400 ADA swap + 4 ADA order lock
     // Paid to the trader's whole address, to match against the wallet's own screen.
     expect(within(review).getByTestId('cardano-review-paid-to').textContent).toBe(trader.bech32);
+    // The venue fee: 0.5% of the 400 ADA, to the whole treasury address, said as the one exception.
+    expect(within(review).getByText('Venue fee').parentElement!.textContent).toMatch(/2 ADA/);
+    expect(within(review).getByTestId('cardano-review-venue-fee-to').textContent).toBe(CARDANO_VENUE_FEE_ADDRESS);
+    expect(review.textContent).toMatch(/Checked: apart from the venue fee above, nothing in this transaction pays anyone else/);
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Sign in wallet' }));
     });
@@ -328,8 +334,14 @@ describe('CardanoSwapPage', () => {
     // What went out is the body that was checked and signed, with the wallet's signature on it.
     const sent = csl.FixedTransaction.from_hex(submitted[0]!);
     expect(sent.raw_body()).toEqual(csl.FixedTransaction.from_hex(signed[0]!).raw_body());
-    const order = csl.TransactionBody.from_bytes(sent.raw_body()).outputs().get(0);
+    const outs = csl.TransactionBody.from_bytes(sent.raw_body()).outputs();
+    const order = outs.get(0);
     expect(order.address().to_hex().slice(2, 58)).toBe(MINSWAP_V2.orderScriptHash);
+    // The second output is the venue fee: exactly 2 ADA, only ADA, to the whole treasury address.
+    const fee = outs.get(1);
+    expect(fee.address().to_bech32()).toBe(CARDANO_VENUE_FEE_ADDRESS);
+    expect(fee.amount().coin().to_str()).toBe('2000000');
+    expect(fee.amount().multiasset()?.len() ?? 0).toBe(0);
     // The order is followed below, and was noted before it left.
     await waitFor(() => expect(screen.getAllByTestId('cardano-order')).toHaveLength(1));
     expect(JSON.parse(localStorage.getItem('tegridy.minswap.orders.v1') ?? '[]')).toHaveLength(1);

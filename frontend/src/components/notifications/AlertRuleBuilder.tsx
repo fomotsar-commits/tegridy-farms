@@ -135,7 +135,7 @@ export function AlertRuleBuilder({ rules, limit, writeError, storeWarning, onAdd
               ))}
             </optgroup>
             {dark.length > 0 && (
-              <optgroup label="Cannot evaluate here yet">
+              <optgroup label="Not readable on this deployment yet">
                 {dark.map((k) => (
                   <option key={k} value={k}>
                     {RULE_KIND_LABELS[k]} — not readable here
@@ -155,7 +155,7 @@ export function AlertRuleBuilder({ rules, limit, writeError, storeWarning, onAdd
         {!readiness.readable && readiness.detail && (
           <p className="text-[11px] leading-snug" style={{ color: '#FFD37C' }}>
             {readiness.detail} A rule of this type can be saved, but it will report
-            “cannot evaluate” until the source is readable — it will not report calm.
+            “Could not evaluate” until the source is readable — it will not report calm.
           </p>
         )}
 

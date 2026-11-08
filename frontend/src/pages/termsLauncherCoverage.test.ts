@@ -5,9 +5,10 @@ import { SECTIONS } from './TermsPage';
 import {
   DEFAULT_FEE_CONSTITUTION,
   LAUNCH_FEE_TIER,
-  isLauncherEnabled,
-  isExoticLaunchEnabled,
+  EXOTIC_LAUNCHES_ENABLED,
+  LAUNCHER_ENABLED,
 } from '../lib/launcher/config';
+import { LAUNCH_DOOR_OPEN } from '../lib/launcher/door';
 import { protocolFeeSink } from '../lib/launcher/launchService';
 
 // CONTENT GUARD for the Terms of Service vs the live launcher.
@@ -38,9 +39,11 @@ describe('Terms of Service — launcher coverage', () => {
   });
 
   it('§2 Description of Services covers token issuance while the EVM launcher is enabled', () => {
-    // If the launcher is ever gated off, this whole block must be revisited rather than
-    // left describing a rail that no longer exists.
-    expect(isLauncherEnabled()).toBe(true);
+    // Revisited 2026-11-03 (island answer twenty-six): the launcher is closed behind the launch
+    // door, not removed, and opens again on the island's written word, so the Terms keep covering
+    // it. If either switch flips, or the rail is ever removed, this whole block must be revisited.
+    expect(LAUNCHER_ENABLED).toBe(false);
+    expect(LAUNCH_DOOR_OPEN).toBe(false);
     const s2 = section(2);
     expect(s2?.title).toContain('Description of Services');
     expect(s2?.body).toMatch(/token launcher/i);
@@ -50,7 +53,8 @@ describe('Terms of Service — launcher coverage', () => {
   });
 
   it('§2 names the TOWELI base pair exactly while exotic launches are enabled', () => {
-    expect(isExoticLaunchEnabled()).toBe(true);
+    // On, behind the launcher, which is closed (answer twenty-six).
+    expect(EXOTIC_LAUNCHES_ENABLED).toBe(true);
     expect(section(2)?.body).toMatch(/paired against either native ETH or TOWELI/);
   });
 

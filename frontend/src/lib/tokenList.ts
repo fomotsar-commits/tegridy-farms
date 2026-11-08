@@ -3,6 +3,7 @@
 
 import { getAddress } from 'viem';
 import { TOWELI_ADDRESS, WETH_ADDRESS, CHAIN_ID } from './constants';
+import { EVM_BASKET } from './islandBasket';
 
 export interface TokenInfo {
   address: string;
@@ -142,6 +143,20 @@ const SWAP_TOKENS_BY_CHAIN: Readonly<Record<number, readonly TokenInfo[]>> = Obj
     { address: '0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168', symbol: 'USDG', name: 'Global Dollar', decimals: 6, logoURI: '' },
   ],
 });
+
+/**
+ * The Swap form's list: the chain's default tokens, plus on Base the island's own coins
+ * (lib/islandBasket.ts, each read on chain with its pool), so BNKR is not "unverified" on
+ * its own island and a copy of its ticker at another address is refused. Only the swap:
+ * the pool forms keep defaultTokensFor.
+ */
+const BASE_SWAP_TOKENS: readonly TokenInfo[] = Object.freeze([
+  ...SWAP_TOKENS_BY_CHAIN[8453]!,
+  ...EVM_BASKET.base.map((c) => ({ address: c.token, symbol: c.symbol, name: c.symbol, decimals: c.decimals, logoURI: '' })),
+]);
+export function swapTokensFor(chainId: number): readonly TokenInfo[] {
+  return chainId === 8453 ? BASE_SWAP_TOKENS : defaultTokensFor(chainId);
+}
 
 /** The swap's default tokens on `chainId`: Ethereum's list on Ethereum, none on a chain with no list. */
 export function defaultTokensFor(chainId: number): readonly TokenInfo[] {

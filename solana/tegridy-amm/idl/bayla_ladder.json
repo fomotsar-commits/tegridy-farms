@@ -499,6 +499,90 @@
       "args": []
     },
     {
+      "name": "extend_lock",
+      "docs": [
+        "Lengthen a still-locked position's lock IN PLACE, priced from now. The rules are",
+        "`math::extended_lock`'s: `TegridyStaking.extendLock`'s, plus \"the weight may not",
+        "fall\". Added 2026-10-29: holders on the one-year rung asked to move to four years,",
+        "and the only route was `early_exit` (up to 75% of principal) then `stake`.",
+        "",
+        "Not a `relock`, which stays on the deliberately-absent list: no record is closed or",
+        "recreated, so I-7 and the nonce coupling are untouched. It moves no tokens and is",
+        "handed no vault, so I-1 and I-12 cannot be reached from here. Principal, the",
+        "wallet's share and its position count do not change; only the weight and the end.",
+        "",
+        "The order is the one every weight change obeys: checkpoint the pool, settle this",
+        "position at its OLD weight, THEN write the new one. The other way round, the new",
+        "boost would be paid backwards over time already served at the old one."
+      ],
+      "discriminator": [
+        68,
+        151,
+        140,
+        144,
+        139,
+        122,
+        118,
+        170
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "signer": true,
+          "relations": [
+            "position"
+          ]
+        },
+        {
+          "name": "pool",
+          "writable": true,
+          "relations": [
+            "position"
+          ]
+        },
+        {
+          "name": "position",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool"
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              },
+              {
+                "kind": "account",
+                "path": "position.nonce",
+                "account": "Position"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "lock_secs",
+          "type": "i64"
+        }
+      ]
+    },
+    {
       "name": "initialize_pool",
       "docs": [
         "Create a pool for `mint`. Deployer-gated (see [`deployer`]). Runs the mint gate",
@@ -729,6 +813,50 @@
       "args": [
         {
           "name": "new_cap",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "raise_wallet_cap",
+      "docs": [
+        "Raise-only. Lifts the per-wallet limit (`max_wallet_principal`), which",
+        "`initialize_pool` writes and nothing else could change until this instruction",
+        "(owner decision 2026-10-27: 2,000,000 → 10,000,000 BAYLA on the live pool).",
+        "",
+        "Never lowers: a wallet already above a lowered limit could no longer add a",
+        "position, and the limit would stop meaning \"your share\" for the wallets inside it.",
+        "Never above `deposit_cap`: `initialize_pool` holds `max_wallet_principal <=",
+        "deposit_cap` (audit M-4) and `execute_cap_raise` only ever raises the right side.",
+        "",
+        "No program timelock, unlike `propose_cap_raise`: the authority is the Squads vault,",
+        "whose own 48 h time lock gates every call, and a higher limit moves no tokens. It",
+        "lets one wallet hold a larger share of the same reward stream; the rate, the",
+        "window and every open position are untouched. Adds no Pool fields."
+      ],
+      "discriminator": [
+        179,
+        219,
+        246,
+        62,
+        25,
+        149,
+        169,
+        26
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true
+        },
+        {
+          "name": "pool",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "new_max",
           "type": "u64"
         }
       ]
@@ -1125,6 +1253,19 @@
       ]
     },
     {
+      "name": "LockExtended",
+      "discriminator": [
+        25,
+        118,
+        227,
+        150,
+        119,
+        138,
+        207,
+        234
+      ]
+    },
+    {
       "name": "PenaltySwept",
       "discriminator": [
         215,
@@ -1174,6 +1315,19 @@
         58,
         213,
         240
+      ]
+    },
+    {
+      "name": "WalletCapRaised",
+      "discriminator": [
+        8,
+        168,
+        20,
+        242,
+        161,
+        119,
+        210,
+        136
       ]
     },
     {
@@ -1335,6 +1489,21 @@
       "code": 6028,
       "name": "RewardRateWouldDecrease",
       "msg": "A reload inside a live window may not lower the reward rate: schedule at least reward_rate x seconds elapsed, or wait for period_finish"
+    },
+    {
+      "code": 6029,
+      "name": "LockExpired",
+      "msg": "This lock has ended: use withdraw_matured, then stake again for a new lock"
+    },
+    {
+      "code": 6030,
+      "name": "LockNotExtended",
+      "msg": "The new lock must end later than the current one"
+    },
+    {
+      "code": 6031,
+      "name": "BoostWouldDrop",
+      "msg": "That lock would lower this position's boost: pick one at least as long as the lock it was opened with"
     }
   ],
   "types": [
@@ -1462,6 +1631,45 @@
       }
     },
     {
+      "name": "LockExtended",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "nonce",
+            "type": "u32"
+          },
+          {
+            "name": "lock_secs",
+            "docs": [
+              "The new lock, counted from this instruction's clock."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "lock_end",
+            "type": "i64"
+          },
+          {
+            "name": "previous_weight",
+            "type": "u128"
+          },
+          {
+            "name": "weight",
+            "type": "u128"
+          }
+        ]
+      }
+    },
+    {
       "name": "PenaltySwept",
       "type": {
         "kind": "struct",
@@ -1574,7 +1782,9 @@
               "Deliberately NOT a sentinel: there is no \"0 means unlimited\". A pool that wants",
               "no per-wallet limit sets this equal to `deposit_cap`, which is explicit and",
               "cannot be reached by forgetting to configure it. Carved from `_reserved`, so",
-              "`8 + Pool::INIT_SPACE` stays 508."
+              "`8 + Pool::INIT_SPACE` stays 508.",
+              "",
+              "Raise-only via `raise_wallet_cap` (added 2026-10-27), never above `deposit_cap`."
             ],
             "type": "u64"
           },
@@ -1736,12 +1946,16 @@
           {
             "name": "weight",
             "docs": [
-              "`amount x boost / BPS`, frozen at stake time."
+              "`amount x boost / BPS`, frozen at stake time. `extend_lock` (added 2026-10-29) is",
+              "the one later writer: it re-prices from its own `now` and never lowers it."
             ],
             "type": "u128"
           },
           {
             "name": "lock_end",
+            "docs": [
+              "Only ever moved LATER, and only by `extend_lock` while the lock still runs."
+            ],
             "type": "i64"
           },
           {
@@ -1946,6 +2160,26 @@
                 24
               ]
             }
+          }
+        ]
+      }
+    },
+    {
+      "name": "WalletCapRaised",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "previous_cap",
+            "type": "u64"
+          },
+          {
+            "name": "new_cap",
+            "type": "u64"
           }
         ]
       }

@@ -12,6 +12,13 @@ import { parseHeatReading } from '../lib/heat/heatOracle';
 const EVM = '0x71be63f3384f5fb98995898a86b02fb2426c5788';
 const h = vi.hoisted(() => ({ address: undefined as string | undefined, fetchHeat: vi.fn() }));
 
+// The Doppler rail (config.ts LAUNCHER_ENABLED) is committed off (island answer twenty-six);
+// these tests read it the day it opens.
+vi.mock('../lib/launcher/config', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/launcher/config')>()),
+  isLauncherEnabled: () => true,
+}));
+
 vi.mock('wagmi', async (orig) => ({
   ...(await orig<typeof import('wagmi')>()),
   useAccount: () => ({ address: h.address, isConnected: !!h.address }),

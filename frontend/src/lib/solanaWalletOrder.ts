@@ -27,7 +27,17 @@ export const OFFERED_WALLETS: ReadonlyArray<{ readonly name: string; readonly la
   { name: 'Coinbase Wallet', label: 'Coinbase Wallet' },
   { name: 'Solflare', label: 'Solflare' },
   { name: 'Backpack', label: 'Backpack' },
+  { name: 'Tangem', label: 'Tangem' },
 ];
+
+/**
+ * Tangem (owner ask, 2026-11-01): a card wallet whose phone app connects over
+ * WalletConnect only (lib/solanaWalletConnect.ts TangemWalletAdapter). On a
+ * computer or an iPad its row shows the QR (SCANNABLE_WALLETS). On a phone it
+ * opens the Tangem app, and the connection comes back to THIS page: it never
+ * reopens the page inside the app (opensInWalletApp). It has no extension.
+ */
+const TANGEM = 'Tangem';
 
 /**
  * The WalletConnect row (lib/solanaWalletConnect.ts): ALWAYS the last row,
@@ -50,9 +60,19 @@ const WALLETCONNECT_ROW = 'WalletConnect';
  * the wallet is not in this browser, its row shows that QR, named for it,
  * rather than the extension's install page: a visitor with the app on their
  * phone and no extension otherwise met a dead end, or a QR they had no
- * reason to think was theirs (owner, 2026-09-30).
+ * reason to think was theirs (owner, 2026-09-30). Tangem's own guide says its
+ * app scans a site's WalletConnect QR to connect Solana
+ * (tangem.com/en/blog/post/solana-walletconnect).
  */
-export const SCANNABLE_WALLETS: ReadonlySet<string> = new Set(['Trust', 'Jupiter']);
+export const SCANNABLE_WALLETS: ReadonlySet<string> = new Set(['Trust', 'Jupiter', TANGEM]);
+
+/**
+ * Does this wallet have an extension to offer instead of its QR? Every
+ * scannable wallet but Tangem, which is a card and a phone app only.
+ */
+export function hasExtension(name: string): boolean {
+  return name !== TANGEM;
+}
 
 /**
  * The row WalletProvider adds itself on Android Chrome: its Mobile Wallet
@@ -126,10 +146,11 @@ export function scansForWallet(readyState: WalletReadyState, name: string, canSc
 /**
  * Does a click on this row reopen the page inside that wallet's own app? True
  * for the offered wallets in a phone browser. Not for the Mobile Wallet
- * Adapter row, which is Loadable too and connects in place.
+ * Adapter row, which is Loadable too and connects in place, nor for Tangem,
+ * whose app hands the connection back to this page.
  */
 export function opensInWalletApp(readyState: WalletReadyState, name: string): boolean {
-  return readyState === WalletReadyState.Loadable && PRIORITY.has(name);
+  return readyState === WalletReadyState.Loadable && PRIORITY.has(name) && name !== TANGEM;
 }
 
 /** What a click on this row will do, in the row's own words. */

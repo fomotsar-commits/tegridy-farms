@@ -63,7 +63,7 @@ export async function isCertified(
     return {
       status: 'not-published',
       detail:
-        'The island has not published certification state yet, so nothing is certified — including this venue’s own communities. The Garden lane opens when the island’s first certifications close.',
+        'The island has not published certification state yet, so nothing is certified, including this venue’s own communities. The Garden lane opens when the island’s first certifications close.',
     };
   }
 

@@ -15,7 +15,7 @@
 // The READ SEAM is mocked one module below the card and the math above it stays real,
 // which is what makes those three assertions mean anything.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, within, fireEvent, waitFor, act } from '@testing-library/react';
+import { render, screen, within, fireEvent, waitFor, act, cleanup } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import type { Bungalow } from '../../lib/bungalows';
 
@@ -102,6 +102,7 @@ const writes = vi.hoisted(() => ({
   exit: vi.fn(async () => ({ ok: true as const, signature: 'SIG' })),
   hatch: vi.fn(async () => ({ ok: true as const, signature: 'SIG' })),
   carried: vi.fn(async () => ({ ok: true as const, signature: 'SIG' })),
+  extend: vi.fn(async () => ({ ok: true as const, signature: 'SIG' })),
 }));
 vi.mock('../../lib/ladder/write', () => ({
   ladderStake: writes.stake,
@@ -109,9 +110,11 @@ vi.mock('../../lib/ladder/write', () => ({
   ladderExit: writes.exit,
   ladderHatch: writes.hatch,
   ladderClaimCarried: writes.carried,
+  ladderExtendLock: writes.extend,
 }));
 
 const { SolanaLadderPoolLive, SolanaLadderPoolCard } = await import('./SolanaLadderPoolLive');
+const { weightForStake } = await import('../../lib/ladder/program');
 
 /* ─────────────────────────── fixtures ─────────────────────────── */
 
@@ -250,6 +253,53 @@ describe('the emergency hatch is priced, never assumed', () => {
   });
 });
 
+/* ────────── extending a lock (2026-10-29) ────────── */
+
+describe('extend lock', () => {
+  // A one-year position, 28 days in: the holders who asked for this.
+  const oneYear = () => position({
+    lockEnd: BigInt(NOW + 337 * DAY),
+    weight: weightForStake(500_000_000n, 365 * DAY),
+  });
+
+  it('offers ONLY the rungs that raise the boost: 2y and 4y for a one-year position', async () => {
+    reads.wallet = { ok: true, value: walletView({ open: [oneYear()] }) };
+    draw();
+    const box = await screen.findByTestId('ladder-extend');
+    const offered = within(box).getAllByRole('button').map((b) => b.textContent);
+    expect(offered).toEqual(['2y · 2.19×', '4y · 4.00×']);
+  });
+
+  it('shows the new end, the new boost and the 75% early-exit cost BEFORE it sends', async () => {
+    reads.wallet = { ok: true, value: walletView({ open: [oneYear()] }) };
+    draw();
+    const box = await screen.findByTestId('ladder-extend');
+    fireEvent.click(within(box).getByText('4y · 4.00×'));
+    expect(writes.extend).not.toHaveBeenCalled();     // armed, not fired
+    const note = await within(box).findByRole('note');
+    expect(note.textContent).toMatch(/at 4\.00× \(now 1\.29×\)/);
+    expect(note.textContent).toMatch(/would cost 75% of\s+this BAYLA/);
+    fireEvent.click(within(box).getByText('Confirm'));
+    await waitFor(() => expect(writes.extend).toHaveBeenCalledTimes(1));
+    expect(writes.extend).toHaveBeenCalledWith(expect.anything(), { positionNonce: 0, lockSecs: 4 * 365 * DAY });
+  });
+
+  it('is not offered where the program would refuse it or it gains nothing', async () => {
+    for (const [what, pool, pos] of [
+      ['a four-year position (already at the top)', poolView(), position()],
+      ['a matured position', poolView(), position({ lockEnd: BigInt(NOW - 1), weight: weightForStake(500_000_000n, 365 * DAY) })],
+      ['a degraded pool', poolView({ degraded: true }), oneYear()],
+    ] as const) {
+      reads.pool = { ok: true, value: pool };
+      reads.wallet = { ok: true, value: walletView({ open: [pos] }) };
+      const { unmount } = draw();
+      await screen.findByText(/Emergency withdraw/);
+      expect(screen.queryByTestId('ladder-extend'), what).toBeNull();
+      unmount();
+    }
+  });
+});
+
 /* ────────── 2. rewards are computed, not read ────────── */
 
 describe('what a position has earned', () => {
@@ -266,6 +316,44 @@ describe('what a position has earned', () => {
   it('a pool emitting nothing shows a real, labelled zero', async () => {
     draw();
     expect(await screen.findByText(/0 BAYLA earned/)).toBeTruthy();
+  });
+
+  // Owner, 2026-11-02: the four rooms' ladder pools open with no rewards yet. Whoever is about to
+  // lock must read that beside the Lock button, wallet or not, never only in a chip or the details.
+  it('a pool never funded says, beside the lock, that it pays nothing yet: with a wallet and without', async () => {
+    const NO_REWARDS = 'No rewards yet: a lock here earns nothing until the vault funds this pool.';
+    draw();
+    expect((await screen.findByTestId('ladder-no-rewards')).textContent).toBe(NO_REWARDS);
+    cleanup();
+    walletState.publicKey = null;
+    draw();
+    expect((await screen.findByTestId('ladder-no-rewards')).textContent).toBe(NO_REWARDS);
+    expect(screen.getByRole('button', { name: /Connect to lock/ })).toBeTruthy();
+  });
+
+  // 2026-11-04: this line said a lock "counts your held time" on the four rooms' pools, which the
+  // island does not read, one line below "Not counted as held time yet". Held time is the held-time
+  // line's to say, from the island's read list, so this one never names it.
+  it('the no-rewards line leaves held time to the held-time line', async () => {
+    for (const wallet of [true, false]) {
+      walletState.publicKey = wallet ? { toBase58: () => OWNER } : null;
+      draw();
+      expect((await screen.findByTestId('ladder-no-rewards')).textContent).not.toMatch(/held time/i);
+      expect(document.querySelector('[data-held-time="unread"]')).not.toBeNull();
+      cleanup();
+    }
+  });
+
+  it('a funded pool, or an ended one, carries no such line', async () => {
+    reads.pool = { ok: true, value: poolView({ rewardRate: 1_000_000n }) };
+    draw();
+    await screen.findByText(/BAYLA/);
+    expect(screen.queryByTestId('ladder-no-rewards')).toBeNull();
+    cleanup();
+    reads.pool = { ok: true, value: poolView({ rewardRate: 1_000_000n, periodFinish: BigInt(NOW - 2 * DAY) }) };
+    draw();
+    await screen.findByTestId('ladder-window-ended');
+    expect(screen.queryByTestId('ladder-no-rewards')).toBeNull();
   });
 });
 

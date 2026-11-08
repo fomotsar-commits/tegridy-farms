@@ -32,13 +32,13 @@ fails the deploy with:
 The *build* succeeds (vite/tsc compile fine); only the *deploy* step trips the cap. So a code-clean
 PR can still show a Vercel `Error` purely from function count.
 
-## Current state (counted in the tree, 2026-10-25): 15 functions
+## Current state (counted in the tree, 2026-11-01): 16 functions
 
 Vercel counts each top-level handler under `frontend/api/` (NOT `_lib/`, `__tests__/`, or
 `_`-prefixed files). There is no cap any more (see the banner). This list is kept so that a new
 route is a decision someone wrote down: `commerce-surface-parity` and `alerts-surface-parity`
 fail when the tree has a function this list does not name. Add a new route here in the same
-change. The 15:
+change. The 16:
 
 1. `api/alchemy.js`
 2. `api/etherscan.js`
@@ -55,6 +55,7 @@ change. The 15:
 13. `api/errors.js` (the client error-report sink, #466; stores nothing before 2026-10-16)
 14. `api/cardano.js` (the Cardano chain reader: named Koios reads only, the key server-side, 2026-10-24)
 15. `api/venue-volume-count.js` (the all-time volume count every five minutes, Vercel cron only; its own function for its 120-second limit, 2026-10-25)
+16. `api/outside-prices.js` (every listed pool's outside price, read once for everyone and kept at the edge; its own function for its paced Jupiter loop and 60-second limit, island answer twenty-four, 2026-11-01)
 
 ## The catchall is load-bearing — do not split it
 
