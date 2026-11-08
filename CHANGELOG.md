@@ -9,6 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-11-07
 
+- Dashboard: with a Solana wallet connected, a load reads each staking pool and lock ladder once and shares it between your positions and Harvest, instead of reading each twice: 32 network reads instead of about 80, finished in about 20 seconds instead of about 60, so a busy household no longer runs into the site's per-address read limit. A wallet with no open stake in a pool no longer asks for that pool's reward list.
 - Our Solana pools can now be charted by GeckoTerminal: the site serves the four data feeds its indexer reads (`/api/gt/latest-block`, `/api/gt/asset`, `/api/gt/pair`, `/api/gt/events`), every number read from the chain itself. Once GeckoTerminal lists the venue, each pool gets a public chart page and shows up in CoinGecko's on-chain data, where traders and price bots look.
 - Cardano swap: the venue fee is on. A swap of about 200 ADA or more pays 0.5% of its ADA side (the ADA you pay in, or the ADA the pool quotes back on a sale) in the same transaction, straight to the venue's two-key Cardano treasury; under that it pays none, because a Cardano payment must hold about 1 ADA. The quote and the review show the amount, and the review shows the treasury's whole address so you can match it on your wallet's screen. Minswap's own fees are unchanged.
 
