@@ -4,6 +4,7 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { clearGateAudit } from '../lib/heat/gateAudit';
 import { parseHeatReading } from '../lib/heat/heatOracle';
 
@@ -35,6 +36,9 @@ vi.mock('../lib/heat/heatClient', () => ({
   HeatUnavailableError: class HeatUnavailableError extends Error {},
 }));
 
+// The COLD door draws the countdown, whose roster reads the island's board through the torches read.
+vi.mock('../hooks/useIslandTorches', () => ({ useIslandTorches: () => null }));
+
 const { LaunchGate } = await import('./LaunchGate');
 
 function reading(degrees: number, tier: string) {
@@ -51,11 +55,14 @@ function reading(degrees: number, tier: string) {
   });
 }
 
+/** The door, inside the router every page that mounts it has. */
 function mountDoor() {
   render(
-    <LaunchGate rail="ethereum">
-      <div data-testid="behind-the-door" />
-    </LaunchGate>,
+    <MemoryRouter>
+      <LaunchGate rail="ethereum">
+        <div data-testid="behind-the-door" />
+      </LaunchGate>
+    </MemoryRouter>,
   );
 }
 

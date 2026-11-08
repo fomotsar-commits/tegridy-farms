@@ -15,6 +15,222 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-11-04: a pre-approved undo is one press from running, and a read-back only guards the page it is on
+
+**Wrong belief:** an upgrade's roll-back can sit approved beside the upgrade "just in case", as long as
+the signing page labels it "execute ONLY IF TOLD TO" and someone reads the proposal number back before
+each press.
+
+**Measured:** it was executed by mistake twice. Multisig `EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK`:
+#16 on 2026-10-24 17:03:00 UTC (member B on our page, meant the step next to it) and #24 on 2026-11-04
+02:52:41 UTC (member A in the Squads web app, with no page running and no read-back). Both put the
+pool program back on `88b98aa9` and reopened the free launch-tier opening. The Squads app lists both
+as "Program Upgrade" with the same program and shows no proposal number on the card. Before the second
+press, a `vault_transaction_execute` simulated with `sigVerify: false` showed both proposals would
+succeed: the first failure the owner saw was the wallet pop-up being closed, not a chain refusal.
+
+**Do instead:** never leave anything approved that must not run. One proposal per change; if a build
+breaks, upload the old build then and propose the undo (it waits the 48 h lock like the rest). End
+every signing sitting by listing the vault's approved, unexecuted proposals and cancelling anything
+not meant to run before proposing anything new. Also: a config proposal (the Squads app's rent
+collector setting) makes every proposal not yet approved by both members stale when it executes, so
+get both approvals on new proposals first.
+
+---
+
+## 2026-11-03: a rebuild printed the old program's hash for different source: a copied `target/` trusts file times, and `git archive` dates every file to its commit
+
+**Believed:** building a second checkout of a program inside a copy of another build's `target/`
+reuses only the dependencies; the program's own crate is compiled again from the source in front
+of it, so a different source gives a different hash.
+
+**Measured** (2026-11-03, the range-pool audit round, WSL, `cargo build-sbf -- --locked` with
+Solana 3.1.11 tools): two checkouts of `solana/tegridy-clmm`, each unpacked from `git archive`
+(PR #1113's head, then `origin/mvp-launch`), each built in a copy of an earlier build's `target/`.
+The second one compiled nothing of `raydium-clmm` and printed the first one's sha256, `c0432972`,
+for source that differs in `util/token.rs`. After `find programs vendor Cargo.toml Cargo.lock
+-type f -exec touch {} +` it printed "Compiling raydium-clmm" and `1e896e1e`, the hash the local
+suite had tested on 2026-10-25 for that source. Cargo calls a crate up to date when no source file
+is newer than its last build, and `git archive` stamps every file with its commit's time, which is
+older than the copied build. Touch the sources, or build in a fresh `target/`, and check that two
+sources that differ give two hashes before trusting either.
+
+**Also measured, the same round:**
+
+- Git Bash rewrites a Linux path in an environment variable handed to a Windows program:
+  `CLMM_LEDGER=/root/clmm-r2/ledger-main node validator.mjs` reached WSL as
+  `C:/Program Files/Git/root/...` ("bash: line 1: C:/Program: No such file or directory").
+  PowerShell's `$env:CLMM_LEDGER = '/root/...'` passes it as written. This is the environment
+  half of the 2026-10-30 `mklink /J` trap.
+- Anchor 1.0.2's `anchor_lang::solana_program` re-exports no `hash` module (solana-program 3.0
+  has one), so a host test cannot compute an instruction's 8-byte name with it. A live
+  instruction's name is `instruction::<Name>::DISCRIMINATOR`; a deleted one's bytes come from
+  outside, and the red run on the code that still has it is what proves them.
+- The program's generated `entry()` runs in a plain `cargo test`. With no accounts, an unknown
+  8-byte name answers `Custom(101)` (InstructionFallbackNotFound) before any account is read; the
+  same name on the build that has the instruction answers `Custom(102)` (InstructionDidNotDeserialize)
+  when it takes arguments and `Custom(3005)` (AccountNotEnoughKeys) when it takes none. That
+  difference is a unit test that an instruction is gone.
+- One blank line added at the top of the range program's `lib.rs` changed its release build's
+  sha256 (`2249d8a6` to `188978e7`, the same 1,443,096 bytes): Anchor 1.0.2's `require!` and
+  `err!` record `file!()` and `line!()`. A comment edit that adds or removes lines is a new build
+  to check against the chain; one that keeps the line count gave the same bytes.
+- Rebuilding into the path a running local-chain sweep loads its program from (`CLMM_SO`) switched
+  builds in the middle of the sweep: each broken input starts a fresh validator from that path, and
+  the restore check (the same hash before and after) would have failed. Copy the build under test
+  to a read-only file named by its hash and point the sweep there.
+- One full suite run against the build before the fix is a better red record than one run per
+  check, but only if a fix check that the old build passes through leaves nothing behind. The
+  opener's reward on the old range build would have filled a reward slot two later checks use, so
+  the try runs on a pool opened only for it. Run that way, round 1's build failed exactly the ten fix
+  checks of 109 and nothing else.
+
+---
+
+## 2026-11-03: the guards rewrite only what they are told to, a program edit can fail a site test, and red-first needs no red commit in CI
+
+**Believed:** `node solana/guards/provenance.mjs --regenerate <clones>` re-derives a copy's whole
+reviewed patch from our source, so after editing cp-swap one regenerate and one re-pin are enough.
+
+**Measured** (2026-11-03, the swap-pool audit round): it regenerates only the files named in that
+copy's `patched` list. After editing four new cp-swap files, the first regenerate wrote a
+`cp-swap.diff` with none of them and printed the usual "re-pin only after reading the delta". The
+check then fails with "differs from upstream and is not a patched file". Add every edited file to
+`COPIES[<copy>].patched` first, then regenerate, then re-pin `deltaSha256`, and regenerate again
+after any later edit to a patched file, tests included: an in-file `#[cfg(test)]` module is part
+of the delta.
+
+**Also measured, the same round:**
+
+- A program's own tests passing does not mean CI will pass. #1113 changed one file of the range
+  program, `util/token.rs`, and its unit tests passed. Its first CI run still failed in "Lint,
+  Type Check & Test". `frontend/src/lib/solana/clmm/quote.test.ts` hashes every `.rs` file under
+  `tegridy-clmm/programs/amm/src`, plus `vendor/`, both `Cargo.toml` files and `Cargo.lock`, and
+  holds that hash to the stamp in its vectors fixture. The fix was to re-run
+  `frontend/scripts/clmm-vectors/run.sh` (fixed seed, about 15 seconds in WSL once the crates are
+  built) and compare the output with the committed fixture. Everything but the stamp came out
+  byte-identical, all 1,246,560 bytes, which also shows the edit left the quote maths alone.
+  Before pushing a program edit, grep `frontend/src` for the program's folder: 22 site test files
+  named one on 2026-11-03.
+- `key-guard.mjs` refuses `Pubkey::from_str(key)` with a variable anywhere in a copy, unit tests
+  included ("is given something other than one plain key"). Write each key as `pubkey!("…")`.
+- A Rust `assert!` that refuses an Anchor instruction reaches a TypeScript test as the text
+  `assertion failed: <the condition as written>` inside the `SendTransactionError` message
+  (web3.js puts the last 10 log lines there), with solana-test-validator 2.3.0 and
+  @coral-xyz/anchor 0.32.1. Matching that text pins WHICH check refused, not just that something
+  did.
+- Red-first on a local validator, without pushing a red commit: build the fixed and the unfixed
+  program under two program ids (WSL, Solana 2.3.0 and anchor 0.32.1, `CARGO_NET_OFFLINE=true`:
+  both workspaces' crates, dev-dependencies included, are already in WSL's registry), deploy both
+  to one `solana-test-validator` on a port of your own, and run the test from Windows node against
+  `http://127.0.0.1:<port>` (WSL forwards localhost), swapping `target/idl/<program>.json` between
+  the two runs. About 2 minutes per build and 8 seconds per test run. Split a table-driven test
+  into one `it` per row first: in one `it`, the first failing row hides whether the rest would
+  have failed too.
+- The file-time trap in the range-pool entry above also hits `cargo test`, and there it fakes a
+  red run. For #1113's hand-over rule, a fixed and an unfixed copy shared one `CARGO_TARGET_DIR`
+  and were both made before the first build: the unfixed copy's `cargo test` reused the fixed
+  copy's test binary and passed 26 of 26, though it had lost the check. After touching its
+  sources, cargo printed `Compiling raydium-cp-swap (…/unfixed/…)` and the two guards failed.
+  Look for that line in every red run.
+- With Node 24, `ts-mocha` loads a `.ts` test as an ES module, because Node now strips types
+  itself. Then `import { BN } from "@coral-xyz/anchor"` fails with "Named export 'BN' not found".
+  `NODE_OPTIONS=--no-experimental-strip-types` hands the file back to ts-node.
+
+---
+
+## 2026-11-02: a one-time operator tool names an owner that config has since moved, and it would have run clean while pointing at the wrong wallet
+
+**Believed:** `frontend/create-fee-atas.mjs`, the tool that creates the fee wallet's token accounts,
+names the wallet the site pays into: its header says it uses "the SAME libraries + derivation the
+app uses", and it had created the two accounts that existed.
+
+**Measured** (2026-11-02, #1105): the tool hardcoded `FEE_OWNER =
+DVGiHe98CzEf7VuCS6YpVDFnp38ubJmKNLt6aMJwAyER`, and `frontend/scripts/addresses.json` (row
+`swap-fee-account`) records that the live bundle's fee owner has been the Squads vault
+`GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd` since before 2026-10-10: the old owner's two
+accounts hold 0 with one transaction each (their creation), and the vault's accounts have taken
+every fee. Adding USDT to the tool as it stood and running it would have made a USDT account for a
+wallet nothing pays into; after the merge every USDT-paid swap would still have failed at Jupiter
+(the fee account does not exist), and the tool's own output would have read success. The corrected
+tool's `--dry-run` derived the vault's wSOL and USDC accounts to the registry's two rows exactly.
+
+**Do:** before running a tool that hardcodes an owner, recipient or authority, check that address
+against the registry and the deployed setting, never against the tool's own comment. Its dry run
+prints the owner, so the operator compares it with `VITE_SOLANA_FEE_ACCOUNT` before signing.
+
+**Believed:** a top-level-await Node script may `process.exit(0)` once it has printed its result.
+**Measured:** with a `@solana/web3.js` `Connection` that had just answered
+`getMultipleAccountsInfo`, `process.exit(0)` on Windows (Node 24.13.0) printed `Assertion failed:
+!(handle->flags & UV_HANDLE_CLOSING), file src\win\async.c, line 76` after the correct output and
+exited 127. Returning from `main()` into `process.exitCode` exited 0 with the same output.
+**Do:** in a script that opened an RPC connection, set `process.exitCode` and return; call
+`process.exit` only before the connection exists.
+
+## 2026-11-01: a claim test that makes its own rewards tests the reward rate, not the claim
+
+**Believed:** opening a fresh position on a fork and moving the clock is the honest way to get
+something to claim, because the contract's own math makes the rewards.
+
+**Measured** (TegridyStaking v1, anvil 1.5.1 fork of mainnet block ~26,321,738, `rewardRate()` 0
+since the wind-down): the fresh 40,000 TOWELI position earned 0 in 120 s, Claim stayed disabled,
+and the leg blamed an exhausted reserve that had just been refilled with exactly what was owed.
+The 22 existing positions were owed 3,579,490.94 TOWELI; claiming four of them through the page
+paid each exactly `earned`, to the wei, and an expectation one wei off failed.
+
+**Do:** when a protocol can stop accruing on purpose, drive the claim as a holder who is already
+owed. Find them on the fork every run (owner of the id, the id the site shows them, owed above
+the CTA's floor), impersonate them, and assert the payout to the wei. Never hardcode the holder:
+real holders claim on mainnet, and a retry must pass over the one an earlier attempt paid.
+
+---
+
+## 2026-11-01: the strongest setting is not for the hardest code
+
+**Believed:** the strongest model setting belongs on the hardest code, and a strong builder at
+the helm ships a strong venue.
+
+**Measured** (the island's walk of trunk `0d1761b` at 390 px, 2026-11-01, and this repo's own
+counts): every piece on the trunk was built well and tested, and the sum was 67 routes
+(`App.tsx`), 37 menu entries (`lib/navConfig.ts`), a 12,766 px pools page under the Add door,
+a Swap that opened on Ethereum for Solana traffic (three `'ethereum'` fallbacks in
+`useSectionChain.ts`, "like uniswap" read literally in `sectionChains.ts`), a cold wallet told
+"Cannot launch a token yet" (`HeatCard.tsx`), and an Add door that said "Adding is off" on
+every pool whenever strangers arrived (the free Jupiter key's one call a second, spent by the
+venue's own pages: 12 quotes from one /pools tab in its first minute, 6 of 12 probes refused
+at 0.7 s spacing). None of those is a bug a test catches. They are what a builder model
+produces when it also decides: it adds and never removes, it reads an owner's words literally,
+and it builds the next three things nobody asked for.
+
+**Do:** law 25 (`docs/WORKSHOP_SETTINGS.md`). The strongest setting decides what is on a
+stranger's first screen, the words, anything with money's shape, the order of shipping, and
+reads the result at 390 before it merges; a builder setting builds a specified thing to a
+line that says done; a lower setting counts, lints and moves docs. Every pull request names
+its setting in the first line of its body. The proof does not change with the setting: a
+screenshot at 390 from a production build.
+
+---
+
+## 2026-11-01: a burst from many browsers is not fixed by caching each browser's read
+
+**Believed:** marking a quote as shareable at the edge (`s-maxage=30`) was enough to keep a
+one-request-a-second key under its limit, because every visitor would then share one read.
+
+**Measured** (2026-11-01, `src/lib/solana/lp/outsidePrice.ts` before build 1): the price
+check's sale leg quoted exactly what the buy returned, so its amount changed with every read
+and its edge key never repeated; and even a shared buy leg burst in parallel, seven pools at
+once, from the first visitor of every window. The island's probe: 6 of 12 calls refused at
+0.7 s spacing, 1 of 10 at 3 s. A per-visitor read cannot pace across visitors.
+
+**Do:** read once for everyone, server-side, paced to the key's plan (`api/outside-prices.js`,
+`JUPITER_RATE_PER_SEC`), with a fixed probe amount (the buy's return rounded to two figures)
+so even the loop's own reads share keys; keep the answer at the edge with a long
+`stale-while-revalidate` and answer a failed loop `no-store`, so a refusal never replaces the
+last good answer. The browser's rule then becomes an age: a price under ten minutes old
+passes, older holds, in one row.
+
+---
+
 ## 2026-10-31: an inline `config={{ ... }}` on `ConnectionProvider` made a new Solana connection on every render, and phones ran out of reads
 
 **Believed:** `<ConnectionProvider endpoint={endpoint} config={{ commitment: 'confirmed' }}>` makes
@@ -45,6 +261,8 @@ method, its first param, and the chunk file that made it, from `new Error().stac
 **Do:** an object or array passed as a prop to a provider that memoizes on it is module-level or
 `useMemo`'d. When a card reads more often than its timer says, check whether `connection` is
 changing under it.
+
+---
 
 ## 2026-10-31: a merged pull request reads `mergeable: UNKNOWN`, and REST still calls it clean
 

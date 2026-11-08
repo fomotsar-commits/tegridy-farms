@@ -135,3 +135,13 @@ describe('it unmounts rather than apologising', () => {
     expect(container.textContent ?? '').not.toContain('unavailable');
   });
 });
+
+describe('the word Drifter is never printed (island answer twenty-six)', () => {
+  it('a flame under Observer shows its degrees and where the clock starts', async () => {
+    h.fetchFlames.mockResolvedValue({ flames: [NAMED, { ...UNNAMED, degrees: 12, tier: 'Drifter' }], asOfUnix: AS_OF });
+    const { container } = render(<FlamesBoard limit={5} />);
+    await screen.findByRole('link', { name: '@_seacasa' });
+    expect(container.textContent).not.toContain('Drifter');
+    expect(screen.getByText('Your clock starts at your first hold.')).toBeTruthy();
+  });
+});

@@ -432,7 +432,7 @@ export async function planLaunchBuy(
     // have filled this swap either — and with no quote there is no honest floor.
     return {
       ok: false,
-      reason: 'We couldn’t get a price for this pool just now, so we can’t set a minimum you’re protected by. Nothing was sent — try again in a moment.',
+      reason: 'We couldn’t get a price for this pool just now, so we can’t set a minimum you’re protected by. Nothing was sent. Try again in a moment.',
     };
   }
 
@@ -442,7 +442,7 @@ export async function planLaunchBuy(
 
   const minAmountOut = minOutFromQuote(quotedAmountOut, slippageBps);
   if (minAmountOut <= 0n) {
-    return { ok: false, reason: 'That amount is too small to leave any slippage protection — increase it, or lower your slippage.' };
+    return { ok: false, reason: 'That amount is too small to leave any slippage protection. Increase it, or lower your slippage.' };
   }
 
   const swapData = encodeV4ExactInSingleSwap({

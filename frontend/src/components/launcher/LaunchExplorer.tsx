@@ -83,11 +83,11 @@ export function LaunchExplorer({ launches, outcomes, now }: LaunchExplorerProps)
         <div>
           <h2 className="text-lg font-semibold text-white">Launches &amp; outcomes</h2>
           <p className="text-white/50 text-xs mt-1 max-w-lg leading-relaxed">
-            Ranked by a published score. Rank cannot be bought.
+            Ranked by a published score. Nobody can buy rank.
           </p>
           <FinePrint className="max-w-lg">
             <p>
-              Ordered by a published, deterministic score — tier, recency, and log-scaled on-chain
+              Ordered by a published, deterministic score: tier, recency, and log-scaled on-chain
               activity. Post-launch outcomes below are factual disclosures, not safety judgements.
             </p>
           </FinePrint>
