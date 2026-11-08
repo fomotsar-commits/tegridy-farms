@@ -33,6 +33,7 @@ import { FinePrint } from '../../ui/FinePrint';
 import { PendingTradeCard } from '../curve/PendingTradeCard';
 import { noteKey, readPendingTrades, swapPendingScope } from '../curve/pendingTrade';
 import type { Prepared } from '../curve/ports';
+import { txVersionOf } from '../../../lib/launcher/solana/write/txVersion';
 import { TxFlowView } from '../curve/TxFlowView';
 import { Field, Notice, Row, SlippagePicker } from '../curve/ui';
 import { DEFAULT_SLIPPAGE_BPS, TOGGLE_CLS, baseUnitsToInput, impactWarning, inputCls, inputStyle } from '../curve/uiFormat';
@@ -402,6 +403,7 @@ function OneCoinInner({
     const buildIn = (address: string, aggregator: AggregatorSeen) =>
       ready.api.prepareVenueSwap(venueSwap.rpc, ready.gate, {
         owner,
+        txVersion: txVersionOf(signer),
         pool: new PublicKey(address),
         inputMint: new PublicKey(p.inputMint),
         outputMint: new PublicKey(p.outputMint),

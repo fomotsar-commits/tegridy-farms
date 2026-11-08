@@ -647,3 +647,244 @@ describe('recheckOutcome', () => {
 });
 
 
+
+// ── version 1 (SIMD-0385) ───────────────────────────────────────────────────────
+// A wallet that advertises version 1 is handed the message as bytes through the
+// wallet-standard `solana:signTransaction` feature and hands signed bytes back. What
+// comes back is held to the same rules as a legacy transaction: same payer, SAME
+// blockhash (a refreshed one would break the expiry proof above), our instructions
+// intact and in order, no new signer, guards allowed, re-simulated and re-checked.
+import { ed25519 } from '@noble/curves/ed25519';
+import {
+  address,
+  compileTransaction,
+  decompileTransactionMessage,
+  getCompiledTransactionMessageDecoder,
+  getTransactionDecoder,
+  getTransactionEncoder,
+  setTransactionMessageConfig,
+  setTransactionMessageLifetimeUsingBlockhash,
+  type Blockhash,
+  type TransactionMessageWithBlockhashLifetime,
+} from '@solana/kit';
+
+const decodeMessage = (bytes: Uint8Array) => {
+  const compiled = getCompiledTransactionMessageDecoder().decode(bytes);
+  if (compiled.version !== 1) throw new Error('not a version 1 message');
+  const m = decompileTransactionMessage(compiled);
+  if (!('blockhash' in m.lifetimeConstraint)) throw new Error('not a blockhash lifetime');
+  return m as Extract<typeof m, TransactionMessageWithBlockhashLifetime>;
+};
+type V1Message = ReturnType<typeof decodeMessage>;
+
+async function preparedBuyV1(): Promise<{ chain: FakeChain; p: PreparedTx }> {
+  const chain = FakeChain.healthy(globalValue());
+  chain.set(cpPermissionPda(migrationAuthorityPda(LAUNCH), CPSWAP), { lamports: 1, owner: CPSWAP, data: new Uint8Array(8) });
+  chain.tokenAccount(CP_CREATE_POOL_FEE_RECEIVER, WSOL_MINT, VAULT, 0n);
+  chain.fund(ME, 10_000_000_000);
+  chain.addCurve(freshCurve(MINT, CREATOR));
+  const gate = (await readWriteGate(chain, cfgLocal)) as OpenGate;
+  const c = await readCurve(chain, MINT, LAUNCH);
+  if (c.kind !== 'ok') throw new Error('curve');
+  const q = quoteBuyOnCurve(c.value.curve, 100_000_000n);
+  if (!q.ok) throw new Error('quote');
+  chain.simulate = (_v, config) => ({
+    err: null,
+    logs: [],
+    unitsConsumed: 50_000,
+    loadedAccountsDataSize: 60_000,
+    ...(config?.accounts
+      ? {
+          accounts: chain.post(config.accounts.addresses, {
+            [ME.toBase58()]: { lamportsDelta: -(100_000_000 + rent(165)) },
+            [ATA.toBase58()]: { tokenAmount: q.value.tokensOut, mint: MINT, owner: ME },
+          }),
+        }
+      : {}),
+  });
+  const r = await prepareCurveBuy(W(chain), gate, { trader: ME, mint: MINT, curve: c.value, lamportsIn: 100_000_000n, slippageBps: 100n, txVersion: 1 });
+  if (!r.ok) throw new Error(r.outcome.message);
+  chain.calls = [];
+  return { chain, p: r.prepared };
+}
+
+/** A wallet-standard signer: bytes in, a new signed wire out, the message optionally edited first. */
+const v1Wallet = (edit?: (m: V1Message) => V1Message, seen?: { chain?: string }): TxSigner => ({
+  publicKey: ME,
+  signTransaction: async () => {
+    throw new Error('a version 1 wallet is handed bytes, never a Transaction');
+  },
+  async signV1(bytes, chain) {
+    if (seen) seen.chain = chain;
+    const given = getTransactionDecoder().decode(bytes);
+    const base = edit ? compileTransaction(edit(decodeMessage(new Uint8Array(given.messageBytes)))) : given;
+    const sig = ed25519.sign(new Uint8Array(base.messageBytes), WALLET.secretKey.slice(0, 32));
+    return new Uint8Array(getTransactionEncoder().encode({ messageBytes: base.messageBytes, signatures: { ...base.signatures, [ME.toBase58()]: sig } }));
+  },
+});
+
+describe('version 1 (SIMD-0385)', () => {
+  it('the wallet signs the bytes through the wallet-standard feature; we send them with preflight and confirm', async () => {
+    const { chain, p } = await preparedBuyV1();
+    if (p.wire.version !== 1) throw new Error('legacy');
+    const sent: Array<{ raw: Uint8Array; opts: unknown }> = [];
+    chain.sendRawTransaction = async (raw, opts) => {
+      sent.push({ raw, opts });
+      return 'sent';
+    };
+    const seen: { chain?: string } = {};
+    const told: Array<[string, number]> = [];
+    const o = await submitPrepared(W(chain), v1Wallet(undefined, seen), p, { ...deps, onSent: (s, h) => told.push([s, h]) });
+    expect(o).toMatchObject({ status: 'confirmed', slot: 7 });
+    expect(seen.chain).toBe('solana:localnet');
+    expect(sent).toHaveLength(1);
+    const raw = sent[0]!.raw;
+    expect(raw[0]).toBe(129);
+    expect(sent[0]!.opts).toMatchObject({ skipPreflight: false, preflightCommitment: 'confirmed' });
+    // The message is the one prepared; the wallet's signature is the last 64 bytes, and
+    // it is the signature the page is told before the first send.
+    const sentMessage = new Uint8Array(getTransactionDecoder().decode(raw).messageBytes);
+    expect(Buffer.from(sentMessage)).toEqual(Buffer.from(new Uint8Array(getTransactionDecoder().decode(p.wire.bytes).messageBytes)));
+    const sig = raw.slice(raw.length - 64);
+    expect(ed25519.verify(sig, sentMessage, ME.toBytes())).toBe(true);
+    expect(told).toEqual([[base58.encode(sig), p.lastValidBlockHeight]]);
+    if (o.status === 'confirmed') expect(o.signature).toBe(base58.encode(sig));
+    // Unchanged bytes: no second look.
+    expect(chain.calls).not.toContain('simulateTransaction');
+  });
+
+  it('a wallet with no version 1 signing is never handed a version 1 message', async () => {
+    const { chain, p } = await preparedBuyV1();
+    const o = await submitPrepared(W(chain), walletSigner(), p, deps);
+    expect(o).toMatchObject({ status: 'not-sent', stage: 'sign', message: expect.stringMatching(/Prepare it again/) });
+    expect(chain.calls).not.toContain('sendRawTransaction');
+  });
+
+  it('a declined version 1 signature is not-sent and says so', async () => {
+    const { chain, p } = await preparedBuyV1();
+    const declined: TxSigner = {
+      ...v1Wallet(),
+      signV1: async () => {
+        throw Object.assign(new Error('4001'), { code: 4001 });
+      },
+    };
+    const o = await submitPrepared(W(chain), declined, p, deps);
+    expect(o).toEqual({ status: 'not-sent', stage: 'sign', message: DECLINED_IN_WALLET });
+    expect(chain.calls).not.toContain('sendRawTransaction');
+  });
+
+  it('a wallet that refreshed the blockhash is refused: the expiry proof would be wrong', async () => {
+    const { chain, p } = await preparedBuyV1();
+    const fresh = 'GfVcyD4kkTrj4bKc7WA9sZCin9JDbdT4Zkd3EittNR1W' as Blockhash;
+    const o = await submitPrepared(W(chain), v1Wallet((m) => setTransactionMessageLifetimeUsingBlockhash({ blockhash: fresh, lastValidBlockHeight: 2_000n }, m)), p, deps);
+    expect(o).toMatchObject({ status: 'not-sent', stage: 'sign', message: expect.stringMatching(/cannot check/) });
+    expect(chain.calls).not.toContain('sendRawTransaction');
+  });
+
+  it('a wallet that appended a Lighthouse guard is re-simulated, re-checked and sent', async () => {
+    const { chain, p } = await preparedBuyV1();
+    const guard = { programAddress: address(LIGHTHOUSE_PROGRAM_ID.toBase58()), accounts: [], data: new Uint8Array([1]) };
+    const o = await submitPrepared(W(chain), v1Wallet((m) => ({ ...m, instructions: [...m.instructions, guard] })), p, deps);
+    expect(o).toMatchObject({ status: 'confirmed' });
+    expect(chain.calls).toContain('simulateTransaction');
+    expect(chain.calls).toContain('sendRawTransaction');
+  });
+
+  it('a wallet that raised the priority fee past the page cap is refused', async () => {
+    const { chain, p } = await preparedBuyV1();
+    const o = await submitPrepared(W(chain), v1Wallet((m) => setTransactionMessageConfig({ ...m.config, priorityFeeLamports: 1_000_001n }, m)), p, deps);
+    expect(o).toMatchObject({ status: 'not-sent', stage: 'sign', message: expect.stringMatching(/priority fee is above/) });
+    expect(chain.calls).not.toContain('sendRawTransaction');
+  });
+
+  it('a wallet that dropped one of our instructions is refused', async () => {
+    const { chain, p } = await preparedBuyV1();
+    const o = await submitPrepared(W(chain), v1Wallet((m) => ({ ...m, instructions: m.instructions.slice(1) })), p, deps);
+    expect(o).toMatchObject({ status: 'not-sent', stage: 'sign' });
+    expect(chain.calls).not.toContain('sendRawTransaction');
+  });
+
+  it('a reverted version 1 transaction has its logs read at version 1, which web3.js cannot parse', async () => {
+    const { chain, p } = await preparedBuyV1();
+    chain.getSignatureStatuses = async () => ({ value: [{ err: { InstructionError: [1, { Custom: 6007 }] }, confirmationStatus: 'confirmed', slot: 3 }] });
+    chain.getTransaction = async () => {
+      throw new Error('web3.js refuses a version 1 answer');
+    };
+    (chain as unknown as { rpcEndpoint: string }).rpcEndpoint = 'http://rpc.test/';
+    const asked: Array<{ id?: unknown; method?: string; params?: unknown[] }> = [];
+    const fetchSpy = vi.fn(async (_url: unknown, init?: { body?: string }) => {
+      const req = JSON.parse(init?.body ?? '{}') as { id?: unknown; method?: string; params?: unknown[] };
+      asked.push(req);
+      const result = {
+        slot: 3,
+        blockTime: null,
+        version: 1,
+        transaction: ['', 'base64'],
+        meta: { err: { InstructionError: [1, { Custom: 6007 }] }, fee: 5000, logMessages: [`Program ${LAUNCH.toBase58()} failed: custom program error: 0x1777`] },
+      };
+      return new Response(JSON.stringify({ jsonrpc: '2.0', id: req.id, result }), { headers: { 'content-type': 'application/json' } });
+    });
+    vi.stubGlobal('fetch', fetchSpy);
+    try {
+      const o = await submitPrepared(W(chain), v1Wallet(), p, deps);
+      expect(o).toMatchObject({ status: 'reverted', program: 'launch', code: 6007, message: expect.stringMatching(/price moved past your limit/) });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    expect(asked).toHaveLength(1);
+    expect(asked[0]).toMatchObject({ method: 'getTransaction', params: [expect.any(String), expect.objectContaining({ maxSupportedTransactionVersion: 1 })] });
+  });
+
+  it('create: the wallet signs first, the mint key after, and every signature verifies', async () => {
+    const chain = FakeChain.healthy(globalValue());
+    chain.fund(ME, 10_000_000_000);
+    addPlantAccounts(chain, ME);
+    const gate = (await readWriteGate(chain, cfgLocal)) as OpenGate;
+    const mintKp = Keypair.generate();
+    const q = quoteOpeningBuy(gate.global, 10_000_000n);
+    if (!q.ok) throw new Error('quote');
+    const ata = associatedTokenAddress(mintKp.publicKey, ME);
+    chain.simulate = (_v, config) => ({
+      err: null,
+      unitsConsumed: 100_000,
+      loadedAccountsDataSize: 200_000,
+      ...(config?.accounts
+        ? {
+            accounts: chain.post(config.accounts.addresses, {
+              [ME.toBase58()]: { lamportsDelta: -30_000_000 },
+              [ata.toBase58()]: { tokenAmount: q.value.tokensOut, mint: mintKp.publicKey, owner: ME },
+              [associatedTokenAddress(mintKp.publicKey, VAULT).toBase58()]: {
+                tokenAmount: (gate.global.tokenTotalSupply * gate.global.platformReserveBps) / 10_000n,
+                mint: mintKp.publicKey,
+                owner: VAULT,
+              },
+              ...plantMoved(ME),
+            }),
+          }
+        : {}),
+    });
+    const r = await prepareCreateLaunch(W(chain), gate, {
+      creator: ME,
+      mint: mintKp,
+      metadata: { name: 'T', symbol: 'TT', uri: 'https://ipfs.io/ipfs/x' },
+      openingBuy: { lamportsIn: 10_000_000n },
+      txVersion: 1,
+    });
+    if (!r.ok) throw new Error(r.outcome.message);
+    if (r.prepared.wire.version !== 1) throw new Error('legacy');
+    let seen: Uint8Array | null = null;
+    chain.sendRawTransaction = async (raw: Uint8Array) => {
+      seen = raw;
+      return 'x';
+    };
+    const o = await submitPrepared(W(chain), v1Wallet(), r.prepared, deps);
+    expect(o.status).toBe('confirmed');
+    const tx = getTransactionDecoder().decode(seen as unknown as Uint8Array);
+    const signatures = Object.entries(tx.signatures);
+    expect(signatures.map(([who]) => who).sort()).toEqual([ME.toBase58(), mintKp.publicKey.toBase58()].sort());
+    for (const [who, sig] of signatures) {
+      expect(sig).not.toBeNull();
+      expect(ed25519.verify(sig as Uint8Array, new Uint8Array(tx.messageBytes), base58.decode(who))).toBe(true);
+    }
+  });
+});

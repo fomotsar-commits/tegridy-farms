@@ -340,6 +340,7 @@ describe('an amount typed for a coin is that coin’s, to the base unit', () => 
     });
     expect(prepareLpCreate).toHaveBeenCalledWith(conn.connection, expect.objectContaining({ kind: 'open' }), r, {
       owner: OWNER,
+      txVersion: 'legacy',
       tokenMint: MINT,
       quoteMint: new PublicKey(USDC),
       quote: 50_000_000n,
@@ -858,6 +859,7 @@ describe('the pool to add to first is the chosen coin’s (advice, never a block
     });
     expect(prepareLpCreate).toHaveBeenCalledWith(conn.connection, expect.objectContaining({ kind: 'open' }), r, {
       owner: OWNER,
+      txVersion: 'legacy',
       tokenMint: baylaKey,
       quoteMint: new PublicKey(USDC),
       quote: 50_000_000n,

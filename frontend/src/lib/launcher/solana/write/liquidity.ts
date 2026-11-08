@@ -68,7 +68,7 @@ import { MAX_OWN_PRIORITY_LAMPORTS } from './budget';
 import { metadataPda } from './metaplex';
 import { bodySteps, buildAndSimulate, notSent } from './prepare';
 import { slippageProblem } from './trade';
-import type { CurveWriteConfig, IntentStep, LpOpenGate, PoolPins, Prepared, PriceGap, TxSummary, WriteRpc } from './types';
+import type { CurveWriteConfig, IntentStep, LpOpenGate, PoolPins, Prepared, PriceGap, TxSummary, TxVersion, WriteRpc } from './types';
 import { closeWsolIxs, openWsolIx, opened, syncCredit, wrapIxs, wsolPlanFrom } from './wsol';
 
 // ── copy (spec 3.9) ──────────────────────────────────────────────────────────
@@ -579,6 +579,8 @@ export function accountCheck(read: RawAccount | null, want: AccountWant): { refu
 
 export interface LpDepositArgs {
   owner: PublicKey;
+  /** The format the connected wallet signs (txVersion.ts); legacy when unset. */
+  txVersion?: TxVersion;
   pool: PublicKey;
   tokenMint: PublicKey;
   /**
@@ -833,6 +835,7 @@ export async function prepareLpDeposit(rpc: WriteRpc, gate: LpOpenGate, reads: L
   // 15. Simulate twice and compare.
   return buildAndSimulate(rpc, {
     kind: 'lp-deposit',
+    version: a.txVersion,
     body,
     extraSigners: [],
     intent: { kind: 'lp-deposit', signer: a.owner, cfg, maxPriorityLamports: MAX_OWN_PRIORITY_LAMPORTS, pins },
@@ -917,6 +920,8 @@ export async function prepareLpDeposit(rpc: WriteRpc, gate: LpOpenGate, reads: L
 
 export interface LpWithdrawArgs {
   owner: PublicKey;
+  /** The format the connected wallet signs (txVersion.ts); legacy when unset. */
+  txVersion?: TxVersion;
   pool: PublicKey;
   tokenMint: PublicKey;
   /** The pool's pairing coin as the page read it (see `LpDepositArgs.quoteMint`). */
@@ -1105,6 +1110,7 @@ export async function prepareLpWithdraw(rpc: WriteRpc, gate: LpOpenGate, a: LpWi
   // after the balance read must not block it either.
   return buildAndSimulate(rpc, {
     kind: 'lp-withdraw',
+    version: a.txVersion,
     body,
     extraSigners: [],
     intent: { kind: 'lp-withdraw', signer: a.owner, cfg, maxPriorityLamports: MAX_OWN_PRIORITY_LAMPORTS, pins },

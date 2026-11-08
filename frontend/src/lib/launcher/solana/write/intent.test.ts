@@ -460,3 +460,29 @@ describe('fees and wallet guards', () => {
     expect(decodeIntent([buy(), guard], ctx, { allowWalletGuards: true }).ok).toBe(true);
   });
 });
+
+describe('version 1 config (SIMD-0385)', () => {
+  // In a version 1 message the budget is config, not instructions: the fee cap reads it.
+  const cfg = { computeUnitLimit: 70_000, loadedAccountsDataSizeLimit: 65_536, priorityFeeLamports: 1_000_000n };
+
+  it('the priority fee is held to the page cap, in lamports', () => {
+    expect(decodeIntent([buy()], ctx, { config: cfg }).ok).toBe(true);
+    expect(decodeIntent([buy()], ctx, { config: { ...cfg, priorityFeeLamports: 1_000_001n } })).toMatchObject({
+      ok: false,
+      reason: expect.stringMatching(/priority fee is above/),
+    });
+  });
+
+  it('a budget that loads no account data, or asks for no compute, is refused', () => {
+    expect(decodeIntent([buy()], ctx, { config: { ...cfg, loadedAccountsDataSizeLimit: 0 } })).toMatchObject({ ok: false, reason: expect.stringMatching(/account data/) });
+    expect(decodeIntent([buy()], ctx, { config: { ...cfg, computeUnitLimit: 0 } })).toMatchObject({ ok: false, reason: expect.stringMatching(/compute/) });
+    expect(decodeIntent([buy()], ctx, { config: { ...cfg, computeUnitLimit: 1_400_001 } })).toMatchObject({ ok: false, reason: expect.stringMatching(/compute/) });
+  });
+
+  it('a compute-budget instruction in a version 1 body is refused: the runtime ignores it', () => {
+    expect(decodeIntent([ComputeBudgetProgram.setComputeUnitLimit({ units: 1 }), buy()], ctx, { config: cfg })).toMatchObject({
+      ok: false,
+      reason: expect.stringMatching(/version 1/),
+    });
+  });
+});

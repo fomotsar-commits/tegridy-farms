@@ -216,6 +216,7 @@ describe('the panel', () => {
       r,
       {
         owner: OWNER,
+        txVersion: 'legacy',
         tokenMint: MINT,
         // The form types in SOL: the pairing coin it names is SOL's wrapped mint.
         quoteMint: new PublicKey(SOL_QUOTE.mint),

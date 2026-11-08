@@ -18,6 +18,7 @@ import { TxFlowView } from '../curve/TxFlowView';
 import { WalletNeeded } from '../curve/WalletNeeded';
 import { useReturnFocus, useTxFlow, type OnSettled } from '../curve/useTxFlow';
 import type { LpOpenGate, LpWriteApi, TierState, TierTerms } from '../curve/ports';
+import { txVersionOf } from '../../../lib/launcher/solana/write/txVersion';
 import { FundingNextStep } from './FundingNextStep';
 import { LpAmountPair, type LpSide } from './LpAmountPair';
 import { CoinRiskNotice, LpBeforeYouOpen, LpReviewDisclosure } from './LpDisclosures';
@@ -526,6 +527,7 @@ function CreateInner({
     const build = () =>
       api.prepareLpCreate(writes.rpc, gate, writes.readers, {
         owner: signer.publicKey,
+        txVersion: txVersionOf(signer),
         tokenMint: new PublicKey(mint),
         // The chosen coin, and its amount in that coin's own base units.
         quoteMint: new PublicKey(coin.mint),

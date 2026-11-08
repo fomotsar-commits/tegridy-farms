@@ -15,6 +15,46 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-11-07: web3.js 1.98 can neither make nor read a Solana version 1 transaction, and a version 1 message that sets no loaded-data limit cannot run
+
+**Wrong belief:** "version 1" is a wrapper: compile the legacy message, put it in a
+`VersionedTransaction`, ask `getTransaction` for `maxSupportedTransactionVersion: 1`, done. And
+a version 1 message that says nothing about loaded account data behaves like a legacy one.
+
+**Measured:** Phantom support (ticket #455104, 2026-11-05) read one of our liquidity transactions
+and said the builder "still produces legacy transactions"; wrapping a legacy message does not
+convert it. SIMD-0385 (read 2026-11-07): a version 1 message starts with the byte 129, signatures
+come LAST, and its budget is a config mask after the header: bits 0 and 1 together are the whole
+priority fee in lamports (both set or the transaction is invalid), bit 2 the compute-unit limit,
+bit 3 the loaded-accounts-data limit, which when unset means 0, so the transaction fails; a
+ComputeBudget instruction inside is a no-op that still costs units; no lookup tables; 4,096 bytes.
+`@solana/web3.js@1.98.4`, `lib/index.cjs.js` line 5596: `getTransaction` parses `version` as
+`union([literal(0), literal('legacy')])`, so a version 1 answer throws a StructError and the logs
+are lost; nothing in it builds the format. Its `simulateTransaction` (line 7996) reads only
+`serialize()` off anything with a `message` key and base64-encodes the bytes, and its result struct
+is superstruct `type()`, which keeps a field it does not name: in node,
+`create({ a: 1, loadedAccountsDataSize: 5 }, type({ a: number() }))` returned both. `@solana/kit@8.3.0`
+(probe, 2026-11-07): a message with config `{ 69,000 units; 131,072 B; 0 lamports }` and two
+transfers encodes to 254 bytes with mask 15, decodes back to the same config, and
+`getTransactionSizeLimit` says 4,096; `setTransactionMessageConfig` refuses a unit limit above
+1,400,000. Phantom's extension advertises `['legacy', 0, 1]` on `solana:signTransaction`,
+MetaMask's Solana side `['legacy', 0]` (read on memetics.finance, 2026-11-07).
+
+**Do instead:** build version 1 with kit from the same web3.js instructions (`write/v1.ts`), set
+all three config fields every time, the limits from a sizing simulation at the ceiling (the
+loaded-data limit from the simulation's `loadedAccountsDataSize` plus a quarter in 32 KiB pages,
+the legacy default of 64 MiB when the node does not report it, never 0), put the whole priority
+fee in lamports in the config and add no ComputeBudget instruction. Sign through the Wallet
+Standard feature as raw bytes, send the bytes with web3.js `sendRawTransaction`, simulate through
+web3.js with a `{ message, serialize }` shim, and read the transaction back with kit at
+`maxSupportedTransactionVersion: 1`. Keep refusing a changed blockhash although Phantom "may
+refresh the blockhash during signing": a new blockhash is a new last valid height, and the expiry
+proof in `submit.ts` would be wrong. Only a wallet whose feature lists 1 gets version 1; the rest
+keep legacy.
+
+---
+
+
 ## 2026-11-04: a pre-approved undo is one press from running, and a read-back only guards the page it is on
 
 **Wrong belief:** an upgrade's roll-back can sit approved beside the upgrade "just in case", as long as
